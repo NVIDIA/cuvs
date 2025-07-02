@@ -8,61 +8,13 @@ repos:
               - id: trailing-whitespace
               - id: end-of-file-fixer
               - id: check-symlinks
-      - repo: local
-        hooks:
-              - id: no-deprecationwarning
-                name: no-deprecationwarning
-                description: 'Enforce that DeprecationWarning is not introduced (use FutureWarning instead)'
-                entry: '(category=|\s)DeprecationWarning[,)]'
-                language: pygrep
-                types_or: [python, cython]
-              - id: cmake-format
-                name: cmake-format
-                entry: ./cpp/scripts/run-cmake-format.sh cmake-format
-                language: python
-                types: [cmake]
-                exclude: .*/thirdparty/.*|.*FindAVX.cmake.*
-                # Note that pre-commit autoupdate does not update the versions
-                # of dependencies, so we'll have to update this manually.
-                additional_dependencies:
-                  - cmakelang==0.6.13
-                verbose: true
-                require_serial: true
-              - id: cmake-lint
-                name: cmake-lint
-                entry: ./cpp/scripts/run-cmake-format.sh cmake-lint
-                language: python
-                types: [cmake]
-                # Note that pre-commit autoupdate does not update the versions
-                # of dependencies, so we'll have to update this manually.
-                additional_dependencies:
-                  - cmakelang==0.6.13
-                verbose: true
-                require_serial: true
-                exclude: .*/thirdparty/.*
-              - id: include-check
-                name: include-check
-                entry: python ./cpp/scripts/include_checker.py cpp/bench cpp/include cpp/tests
-                pass_filenames: false
-                language: python
-                additional_dependencies: [gitpython]
-      - repo: https://github.com/codespell-project/codespell
-        rev: v2.2.2
-        hooks:
-              - id: codespell
-                additional_dependencies: [tomli]
-                args: ["--toml", "pyproject.toml"]
-                exclude: |
-                  (?x)
-                    ^CHANGELOG[.]md$|
-                    ^cpp/cmake/patches/cutlass/build-export[.]patch$
       - repo: https://github.com/rapidsai/pre-commit-hooks
         rev: v0.6.0
         hooks:
           - id: verify-copyright
             files: |
               (?x)
-                  [.](cmake|cpp|cu|cuh|h|hpp|sh|pxd|py|pyx|rs)$|
+                  [.](cmake|cpp|cu|cuh|h|hpp|sh|pxd|py|pyx|rs|java)$|
                   CMakeLists[.]txt$|
                   CMakeLists_standalone[.]txt$|
                   meta[.]yaml$
@@ -72,7 +24,7 @@ repos:
                   cpp/cmake/modules/FindAVX\.cmake
           - id: verify-alpha-spec
           - id: verify-codeowners
-            args: [--fix, --project-prefix=cuvs]
+            args: [--fix, --project-prefix=lucene-cuvs]
       - repo: https://github.com/shellcheck-py/shellcheck-py
         rev: v0.10.0.1
         hooks:
