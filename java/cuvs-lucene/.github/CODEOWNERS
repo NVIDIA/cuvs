@@ -1,0 +1,34 @@
+#cpp code owners
+cpp/               @rapidsai/cuvs-cpp-codeowners
+examples/cpp/      @rapidsai/cuvs-cpp-codeowners
+examples/c/        @rapidsai/cuvs-cpp-codeowners
+
+#java code owners
+java/              @rapidsai/cuvs-java-codeowners
+examples/java/     @rapidsai/cuvs-java-codeowners
+
+#python code owners
+python/            @rapidsai/cuvs-python-codeowners
+
+#rust code owners
+rust/              @rapidsai/cuvs-rust-codeowners
+examples/rust/     @rapidsai/cuvs-rust-codeowners
+
+# docs code owners
+docs/              @rapidsai/cuvs-docs-codeowners
+README.md	   @rapidsai/cuvs-docs-codeowners
+CONTRIBUTING.md	   @rapidsai/cuvs-docs-codeowners
+LICENSE		   @rapidsai/cuvs-docs-codeowners
+
+#cmake code owners
+pom.xml                       @rapidsai/cuvs-build-codeowners
+
+#CI code owners
+/.github/                @rapidsai/ci-codeowners
+/ci/                     @rapidsai/ci-codeowners
+
+# packaging code owners
+/.pre-commit-config.yaml @rapidsai/packaging-codeowners
+
+
+# src/			 @rapidsai/cuvs-java-codeowners
