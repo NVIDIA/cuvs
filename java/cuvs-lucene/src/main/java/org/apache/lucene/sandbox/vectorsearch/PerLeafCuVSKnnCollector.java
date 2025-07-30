@@ -90,6 +90,6 @@ import org.apache.lucene.search.knn.KnnSearchStrategy;
 
   @Override
   public KnnSearchStrategy getSearchStrategy() {
-	return KnnSearchStrategy.Patience.DEFAULT;
+    return KnnSearchStrategy.Patience.DEFAULT;
   }
 }

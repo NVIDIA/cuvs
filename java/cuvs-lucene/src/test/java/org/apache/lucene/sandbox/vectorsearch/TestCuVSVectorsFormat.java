@@ -18,7 +18,6 @@ package org.apache.lucene.sandbox.vectorsearch;
 import static org.apache.lucene.index.VectorSimilarityFunction.EUCLIDEAN;
 
 import java.util.List;
-
 import org.apache.lucene.codecs.Codec;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
