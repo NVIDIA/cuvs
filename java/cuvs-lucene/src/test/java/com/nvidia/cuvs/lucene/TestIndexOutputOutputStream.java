@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.lucene.sandbox.vectorsearch;
+package com.nvidia.cuvs.lucene;
 
 import static org.apache.lucene.util.ArrayUtil.copyOfSubArray;
 

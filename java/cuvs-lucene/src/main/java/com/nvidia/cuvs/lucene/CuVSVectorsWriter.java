@@ -13,16 +13,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.lucene.sandbox.vectorsearch;
+package com.nvidia.cuvs.lucene;
 
+import static com.nvidia.cuvs.lucene.CuVSVectorsFormat.CUVS_INDEX_CODEC_NAME;
+import static com.nvidia.cuvs.lucene.CuVSVectorsFormat.CUVS_INDEX_EXT;
+import static com.nvidia.cuvs.lucene.CuVSVectorsFormat.CUVS_META_CODEC_EXT;
+import static com.nvidia.cuvs.lucene.CuVSVectorsFormat.CUVS_META_CODEC_NAME;
+import static com.nvidia.cuvs.lucene.CuVSVectorsFormat.VERSION_CURRENT;
+import static com.nvidia.cuvs.lucene.CuVSVectorsReader.handleThrowable;
 import static org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsReader.SIMILARITY_FUNCTIONS;
 import static org.apache.lucene.index.VectorEncoding.FLOAT32;
-import static org.apache.lucene.sandbox.vectorsearch.CuVSVectorsFormat.CUVS_INDEX_CODEC_NAME;
-import static org.apache.lucene.sandbox.vectorsearch.CuVSVectorsFormat.CUVS_INDEX_EXT;
-import static org.apache.lucene.sandbox.vectorsearch.CuVSVectorsFormat.CUVS_META_CODEC_EXT;
-import static org.apache.lucene.sandbox.vectorsearch.CuVSVectorsFormat.CUVS_META_CODEC_NAME;
-import static org.apache.lucene.sandbox.vectorsearch.CuVSVectorsFormat.VERSION_CURRENT;
-import static org.apache.lucene.sandbox.vectorsearch.CuVSVectorsReader.handleThrowable;
 import static org.apache.lucene.search.DocIdSetIterator.NO_MORE_DOCS;
 import static org.apache.lucene.util.RamUsageEstimator.shallowSizeOfInstance;
 

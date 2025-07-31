@@ -13,15 +13,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.lucene.sandbox.vectorsearch;
+package com.nvidia.cuvs.lucene;
 
 import com.nvidia.cuvs.LibraryException;
+import com.nvidia.cuvs.lucene.CuVSVectorsWriter.IndexType;
 import java.util.logging.Logger;
 import org.apache.lucene.codecs.Codec;
 import org.apache.lucene.codecs.FilterCodec;
 import org.apache.lucene.codecs.KnnVectorsFormat;
 import org.apache.lucene.codecs.lucene101.Lucene101Codec;
-import org.apache.lucene.sandbox.vectorsearch.CuVSVectorsWriter.IndexType;
 
 /** CuVS based codec for GPU based vector search */
 public class CuVSCodec extends FilterCodec {

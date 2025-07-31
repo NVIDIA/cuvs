@@ -13,10 +13,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.lucene.sandbox.vectorsearch;
+package com.nvidia.cuvs.lucene;
 
 import com.nvidia.cuvs.CuVSResources;
 import com.nvidia.cuvs.LibraryException;
+import com.nvidia.cuvs.lucene.CuVSVectorsWriter.IndexType;
 import java.io.IOException;
 import java.util.logging.Logger;
 import org.apache.lucene.codecs.KnnVectorsFormat;
@@ -25,7 +26,6 @@ import org.apache.lucene.codecs.hnsw.FlatVectorsFormat;
 import org.apache.lucene.codecs.lucene99.Lucene99FlatVectorsFormat;
 import org.apache.lucene.index.SegmentReadState;
 import org.apache.lucene.index.SegmentWriteState;
-import org.apache.lucene.sandbox.vectorsearch.CuVSVectorsWriter.IndexType;
 
 /** CuVS based KnnVectorsFormat for GPU acceleration */
 public class CuVSVectorsFormat extends KnnVectorsFormat {

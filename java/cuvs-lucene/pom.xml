@@ -2,10 +2,10 @@
   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
   xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
-  <groupId>com.searchscale.lucene.vectorsearch</groupId>
-  <artifactId>lucene-cuvs</artifactId>
+  <groupId>com.nvidia.cuvs.lucene</groupId>
+  <artifactId>cuvs-lucene</artifactId>
   <version>0.0.1-SNAPSHOT</version>
-  <name>lucene-cuvs</name>
+  <name>cuvs-lucene</name>
   <packaging>jar</packaging>
 
   <properties>

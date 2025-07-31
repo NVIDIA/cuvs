@@ -13,9 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.lucene.sandbox.vectorsearch;
+package com.nvidia.cuvs.lucene;
 
-import static org.apache.lucene.sandbox.vectorsearch.CuVSVectorsReader.handleThrowable;
+import static com.nvidia.cuvs.lucene.CuVSVectorsReader.handleThrowable;
 
 import com.nvidia.cuvs.BruteForceIndex;
 import com.nvidia.cuvs.CagraIndex;

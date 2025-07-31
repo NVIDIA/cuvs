@@ -15,4 +15,4 @@
  */
 
 /** CuVS based fast vector search */
-package org.apache.lucene.sandbox.vectorsearch;
+package com.nvidia.cuvs.lucene;
