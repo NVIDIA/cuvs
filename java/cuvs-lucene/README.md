@@ -18,8 +18,12 @@ The cuVS library is plugged in as a new `KnnVectorFormat` via a custom codec.
 ```sh
 mvn clean compile package
 ```
+The artifacts would be built and available in the target / folder.
 
-The artifacts would be built and available in the target/ folder.
+### Run Tests
+```sh
+export LD_LIBRARY_PATH={ PATH TO YOUR LOCAL libcuvs_c.so }:$LD_LIBRARY_PATH && mvn clean test
+```
 
 > [!NOTE]
 > The code style format is automatically enforced (including the missing license header, if any) using the [Spotless maven plugin](https://github.com/diffplug/spotless/tree/main/plugin-maven). This currently happens in the maven's `validate` stage.

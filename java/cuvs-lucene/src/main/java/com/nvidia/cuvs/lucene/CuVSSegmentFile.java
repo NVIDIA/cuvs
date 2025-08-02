@@ -39,11 +39,6 @@ import java.util.zip.ZipOutputStream;
   protected Logger log = Logger.getLogger(getClass().getName());
 
   public void addFile(String name, byte[] bytes) throws IOException {
-    /*log.info(
-    "Writing the file: "
-        + name
-        + ", size="
-        + bytes.length);*/
     ZipEntry indexFileZipEntry = new ZipEntry(name);
     zos.putNextEntry(indexFileZipEntry);
     zos.write(bytes, 0, bytes.length);

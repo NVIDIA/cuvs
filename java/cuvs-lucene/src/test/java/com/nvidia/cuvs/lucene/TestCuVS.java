@@ -128,7 +128,6 @@ public class TestCuVS extends LuceneTestCase {
     log.info("Query size: " + numQueries + "x" + queries[0].length);
     log.info("TopK: " + topK);
 
-    // Query query = new CuVSKnnFloatVectorQuery("vector", queries[0], topK, topK, 1);
     Query query = new KnnFloatVectorQuery("vector", queries[0], topK);
     int correct[] = new int[topK];
     for (int i = 0; i < topK; i++) correct[i] = expected.get(0).get(i);

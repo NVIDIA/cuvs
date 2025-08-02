@@ -17,10 +17,13 @@ package com.nvidia.cuvs.lucene;
 
 import com.nvidia.cuvs.BruteForceIndex;
 import com.nvidia.cuvs.CagraIndex;
+import com.nvidia.cuvs.CuVSMatrix;
+import com.nvidia.cuvs.CuVSMatrix.Builder;
+import com.nvidia.cuvs.CuVSMatrix.DataType;
 import com.nvidia.cuvs.CuVSResources;
-import com.nvidia.cuvs.Dataset;
 import com.nvidia.cuvs.HnswIndex;
 import com.nvidia.cuvs.spi.CuVSProvider;
+import java.lang.invoke.MethodHandle;
 import java.nio.file.Path;
 
 /*package-private*/ class FilterCuVSProvider implements CuVSProvider {
@@ -65,7 +68,33 @@ import java.nio.file.Path;
   }
 
   @Override
-  public Dataset newDataset(int arg0, int arg1) throws UnsupportedOperationException {
-    return delegate.newDataset(arg0, arg1);
+  public Builder newMatrixBuilder(int size, int dimensions, DataType dataType) {
+    return delegate.newMatrixBuilder(size, dimensions, dataType);
+  }
+
+  @Override
+  public MethodHandle newNativeMatrixBuilder() {
+    return delegate.newNativeMatrixBuilder();
+  }
+
+  @Override
+  public CuVSMatrix newMatrixFromArray(float[][] vectors) {
+    return delegate.newMatrixFromArray(vectors);
+  }
+
+  @Override
+  public CuVSMatrix newMatrixFromArray(int[][] vectors) {
+    return delegate.newMatrixFromArray(vectors);
+  }
+
+  @Override
+  public CuVSMatrix newMatrixFromArray(byte[][] vectors) {
+    return delegate.newMatrixFromArray(vectors);
+  }
+
+  @Override
+  public com.nvidia.cuvs.TieredIndex.Builder newTieredIndexBuilder(CuVSResources cuVSResources)
+      throws UnsupportedOperationException {
+    return delegate.newTieredIndexBuilder(cuVSResources);
   }
 }

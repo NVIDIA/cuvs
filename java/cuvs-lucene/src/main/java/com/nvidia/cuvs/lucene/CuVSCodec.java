@@ -34,6 +34,7 @@ public class CuVSCodec extends FilterCodec {
     super(name, delegate);
     KnnVectorsFormat format;
     try {
+      // TODO: Remove this hard coded values.
       format = new CuVSVectorsFormat(1, 128, 64, IndexType.CAGRA);
       setKnnFormat(format);
     } catch (LibraryException ex) {
