@@ -7,7 +7,6 @@ set -e -u -o pipefail
 ARGS="$*"
 NUMARGS=$#
 
-CURDIR=$(cd "$(dirname "$0")"; pwd)
 VERSION="25.10.0" # Note: The version is updated automatically when ci/release/update-version.sh is invoked
 GROUP_ID="com.nvidia.cuvs"
 
@@ -23,4 +22,3 @@ fi
 mvn verify "${MAVEN_VERIFY_ARGS[@]}" \
   && mvn install:install-file -Dfile=./target/cuvs-lucene-$VERSION.jar -DgroupId=$GROUP_ID -DartifactId=cuvs-lucene -Dversion=$VERSION -Dpackaging=jar \
   && cp pom.xml ./target/
--

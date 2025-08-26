@@ -20,8 +20,6 @@ files:
       - cuda_version
       - java
 channels:
-  - rapidsai
-  - rapidsai-nightly
   - conda-forge
 dependencies:
   checks:

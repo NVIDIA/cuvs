@@ -4,7 +4,8 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>com.nvidia.cuvs.lucene</groupId>
   <artifactId>cuvs-lucene</artifactId>
-  <version>0.0.1-SNAPSHOT</version>
+  <!-- NOTE: The version automatically gets updated when ci/release/update-version.sh is invoked. -->
+  <!--CUVS_LUCENE#VERSION_UPDATE_MARKER_START--><version>25.10.0</version><!--CUVS_LUCENE#VERSION_UPDATE_MARKER_END-->
   <name>cuvs-lucene</name>
   <packaging>jar</packaging>
 

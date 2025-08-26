@@ -1,34 +1,20 @@
-#cpp code owners
-cpp/               @rapidsai/cuvs-cpp-codeowners
-examples/cpp/      @rapidsai/cuvs-cpp-codeowners
-examples/c/        @rapidsai/cuvs-cpp-codeowners
+# default group
+# (will be overridden by more specific matches below)
+*                        @rapidsai/lucene-cuvs-write
 
-#java code owners
-java/              @rapidsai/cuvs-java-codeowners
-examples/java/     @rapidsai/cuvs-java-codeowners
-
-#python code owners
-python/            @rapidsai/cuvs-python-codeowners
-
-#rust code owners
-rust/              @rapidsai/cuvs-rust-codeowners
-examples/rust/     @rapidsai/cuvs-rust-codeowners
+# java code owners
+src/                     @rapidsai/cuvs-java-codeowners
 
 # docs code owners
-docs/              @rapidsai/cuvs-docs-codeowners
-README.md	   @rapidsai/cuvs-docs-codeowners
-CONTRIBUTING.md	   @rapidsai/cuvs-docs-codeowners
-LICENSE		   @rapidsai/cuvs-docs-codeowners
+LICENSE                  @rapidsai/cuvs-docs-codeowners
+/README.md               @rapidsai/cuvs-docs-codeowners
 
-#cmake code owners
-pom.xml                       @rapidsai/cuvs-build-codeowners
-
-#CI code owners
+# CI code owners
 /.github/                @rapidsai/ci-codeowners
 /ci/                     @rapidsai/ci-codeowners
 
 # packaging code owners
+build.sh                 @rapidsai/packaging-codeowners
+dependencies.yaml        @rapidsai/packaging-codeowners
+pom.xml                  @rapidsai/cuvs-build-codeowners
 /.pre-commit-config.yaml @rapidsai/packaging-codeowners
-
-
-# src/			 @rapidsai/cuvs-java-codeowners
