@@ -32,13 +32,6 @@ set -u
 
 rapids-print-env
 
-EXITCODE=0
-trap "EXITCODE=1" ERR
-set +e
-
 rapids-logger "Run Java build"
 
 bash ./build.sh "${EXTRA_BUILD_ARGS[@]}"
-
-rapids-logger "Build script exiting with value: $EXITCODE"
-exit ${EXITCODE}

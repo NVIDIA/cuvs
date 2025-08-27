@@ -19,10 +19,10 @@ repos:
                   CMakeLists_standalone[.]txt$|
                   meta[.]yaml$
       - repo: https://github.com/rapidsai/dependency-file-generator
-        rev: v1.19.2
+        rev: v1.20.0
         hooks:
             - id: rapids-dependency-file-generator
-              args: ["--clean"]
+              args: ["--clean", "--warn-all", "--strict"]
       - repo: https://github.com/shellcheck-py/shellcheck-py
         rev: v0.11.0.1
         hooks:
