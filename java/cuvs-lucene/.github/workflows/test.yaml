@@ -25,7 +25,13 @@ on:
 jobs:
   conda-java-tests:
     secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@branch-25.10
+    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@cuda13.0
+    strategy:
+      fail-fast: false
+      matrix:
+        cuda_version:
+          - '12.9.1'
+          - '13.0.0'
     with:
       build_type: ${{ inputs.build_type }}
       branch: ${{ inputs.branch }}
@@ -33,5 +39,5 @@ jobs:
       sha: ${{ inputs.sha }}
       node_type: "gpu-l4-latest-1"
       arch: "amd64"
-      container_image: "rapidsai/ci-conda:25.10-latest"
+      container_image: "rapidsai/ci-conda:25.10-cuda${{ matrix.cuda_version }}-ubuntu24.04-py3.13"
       script: "ci/test_java.sh"
