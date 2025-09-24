@@ -69,7 +69,7 @@
       <groupId>com.nvidia.cuvs</groupId>
       <artifactId>cuvs-java</artifactId>
       <!-- Note: This is temporary measure (artifact coming from https://maven.searchscale.com/snapshots, for now) and will get updated in subsequent PRs. -->
-      <version>25.8.0-4f53f-SNAPSHOT</version>
+      <version>25.10.0-2c0e1-SNAPSHOT</version>
     </dependency>
   </dependencies>
 

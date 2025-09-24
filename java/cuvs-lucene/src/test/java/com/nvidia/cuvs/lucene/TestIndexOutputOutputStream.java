@@ -21,7 +21,9 @@ import java.io.IOException;
 import java.util.Random;
 import org.apache.lucene.store.IOContext;
 import org.apache.lucene.tests.util.LuceneTestCase;
+import org.apache.lucene.tests.util.LuceneTestCase.SuppressSysoutChecks;
 
+@SuppressSysoutChecks(bugUrl = "")
 public class TestIndexOutputOutputStream extends LuceneTestCase {
 
   public void testBasic() throws IOException {
@@ -33,8 +35,8 @@ public class TestIndexOutputOutputStream extends LuceneTestCase {
         out.close();
       }
 
-      try (var indexIn = dir.openInput("test", IOContext.DEFAULT)) {
-        var in = new IndexInputInputStream(indexIn);
+      try (var indexIn = dir.openInput("test", IOContext.DEFAULT);
+          var in = new IndexInputInputStream(indexIn)) {
         byte[] ba = new byte[6];
         assertEquals(6, in.read(ba));
         assertArrayEquals(new byte[] {0x56, 0x10, 0x11, 0x12, 0x13, 0x14}, ba);
@@ -76,9 +78,8 @@ public class TestIndexOutputOutputStream extends LuceneTestCase {
         out.close();
       }
 
-      try (var indexIn = dir.openInput("test", IOContext.DEFAULT)) {
-        // TODO: close this stream properly in a subsequent PR.
-        var in = new IndexInputInputStream(indexIn);
+      try (var indexIn = dir.openInput("test", IOContext.DEFAULT);
+          var in = new IndexInputInputStream(indexIn); ) {
         int i = 0;
         while (i < data.length) {
           if (random.nextBoolean()) {

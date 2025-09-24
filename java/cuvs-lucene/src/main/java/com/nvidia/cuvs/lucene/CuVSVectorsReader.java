@@ -271,7 +271,7 @@ public class CuVSVectorsReader extends KnnVectorsReader {
         }
       }
     } catch (Throwable t) {
-      handleThrowable(t);
+      Utils.handleThrowable(t);
     }
     return new CuVSIndex(cagraIndex, bruteForceIndex, hnswIndex);
   }
@@ -367,7 +367,7 @@ public class CuVSVectorsReader extends KnnVectorsReader {
       try {
         searchResult = cagraIndex.search(query).getResults();
       } catch (Throwable t) {
-        handleThrowable(t);
+        Utils.handleThrowable(t);
       }
       // List expected to have only one entry because of single query "target".
       assert searchResult.size() == 1;
@@ -385,7 +385,7 @@ public class CuVSVectorsReader extends KnnVectorsReader {
       try {
         searchResult = bruteforceIndex.search(query).getResults();
       } catch (Throwable t) {
-        handleThrowable(t);
+        Utils.handleThrowable(t);
       }
       assert searchResult.size() == 1;
       result = searchResult.getFirst();
@@ -472,12 +472,15 @@ public class CuVSVectorsReader extends KnnVectorsReader {
     }
   }
 
-  static void handleThrowable(Throwable t) throws IOException {
-    switch (t) {
-      case IOException ioe -> throw ioe;
-      case Error error -> throw error;
-      case RuntimeException re -> throw re;
-      case null, default -> throw new RuntimeException("UNEXPECTED: exception type", t);
-    }
+  public FieldInfos getFieldInfos() {
+    return fieldInfos;
+  }
+
+  public IntObjectHashMap<CuVSIndex> getCuvsIndexes() {
+    return cuvsIndices;
+  }
+
+  public IntObjectHashMap<FieldEntry> getFieldEntries() {
+    return fields;
   }
 }

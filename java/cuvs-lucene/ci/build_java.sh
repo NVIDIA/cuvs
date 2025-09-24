@@ -32,6 +32,27 @@ set -u
 
 rapids-print-env
 
+# Locates the libcuvs.so file path and appends it to LD_LIBRARY_PATH
+rapids-logger "Find libcuvs so file and prepend paths to LD_LIBRARY_PATH"
+
+CONDA_PKG_CACHE_DIR="/opt/conda/pkgs" # comes from `conda info`. Dont know if this ever changes.
+if [ -d "$CONDA_PKG_CACHE_DIR" ]; then
+  echo "==> Directory '$CONDA_PKG_CACHE_DIR' exists."
+  LIBCUVS_SO_FILE="libcuvs.so"
+  LIBCUVS_PATH=$(find $CONDA_PKG_CACHE_DIR -name $LIBCUVS_SO_FILE)
+  if [ -z "$LIBCUVS_PATH" ]; then
+    echo "==> Could not find the so file. Not updating LD_LIBRARY_PATH"
+    exit 1
+  else
+    LIBCUVS_DIR=$(dirname "$LIBCUVS_PATH")
+    export LD_LIBRARY_PATH="$LIBCUVS_DIR:$LD_LIBRARY_PATH"
+    echo "LD_LIBRARY_PATH is: $LD_LIBRARY_PATH"
+  fi
+else
+  echo "==> Directory '$CONDA_PKG_CACHE_DIR' does not exist. Not updating LD_LIBRARY_PATH"
+  exit 1
+fi
+
 rapids-logger "Run Java build"
 
 bash ./build.sh "${EXTRA_BUILD_ARGS[@]}"

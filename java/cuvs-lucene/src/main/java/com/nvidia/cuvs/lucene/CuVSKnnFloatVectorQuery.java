@@ -19,6 +19,7 @@ import java.io.IOException;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.search.KnnFloatVectorQuery;
+import org.apache.lucene.search.Query;
 import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.search.knn.KnnCollectorManager;
 import org.apache.lucene.util.Bits;
@@ -29,8 +30,9 @@ public class CuVSKnnFloatVectorQuery extends KnnFloatVectorQuery {
   private final int iTopK;
   private final int searchWidth;
 
-  public CuVSKnnFloatVectorQuery(String field, float[] target, int k, int iTopK, int searchWidth) {
-    super(field, target, k);
+  public CuVSKnnFloatVectorQuery(
+      String field, float[] target, int k, Query filter, int iTopK, int searchWidth) {
+    super(field, target, k, filter);
     this.iTopK = iTopK;
     this.searchWidth = searchWidth;
   }
@@ -46,7 +48,7 @@ public class CuVSKnnFloatVectorQuery extends KnnFloatVectorQuery {
     PerLeafCuVSKnnCollector results = new PerLeafCuVSKnnCollector(k, iTopK, searchWidth);
 
     LeafReader reader = context.reader();
-    reader.searchNearestVectors(field, this.getTargetCopy(), results, null);
+    reader.searchNearestVectors(field, this.getTargetCopy(), results, acceptDocs);
     return results.topDocs();
   }
 }

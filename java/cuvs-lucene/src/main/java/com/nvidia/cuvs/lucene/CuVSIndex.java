@@ -15,8 +15,6 @@
  */
 package com.nvidia.cuvs.lucene;
 
-import static com.nvidia.cuvs.lucene.CuVSVectorsReader.handleThrowable;
-
 import com.nvidia.cuvs.BruteForceIndex;
 import com.nvidia.cuvs.CagraIndex;
 import com.nvidia.cuvs.HnswIndex;
@@ -103,16 +101,16 @@ public class CuVSIndex implements Closeable {
   private void destroyIndices() throws IOException {
     try {
       if (cagraIndex != null) {
-        cagraIndex.destroyIndex();
+        cagraIndex.close();
       }
       if (bruteforceIndex != null) {
-        bruteforceIndex.destroyIndex();
+        bruteforceIndex.close();
       }
       if (hnswIndex != null) {
-        hnswIndex.destroyIndex();
+        hnswIndex.close();
       }
     } catch (Throwable t) {
-      handleThrowable(t);
+      Utils.handleThrowable(t);
     }
   }
 }

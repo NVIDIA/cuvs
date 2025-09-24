@@ -15,6 +15,9 @@
  */
 package com.nvidia.cuvs.lucene;
 
+import static com.nvidia.cuvs.lucene.TestUtils.generateDataset;
+import static com.nvidia.cuvs.lucene.TestUtils.generateQueries;
+
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -29,11 +32,13 @@ import org.apache.lucene.document.Field;
 import org.apache.lucene.document.KnnFloatVectorField;
 import org.apache.lucene.document.StringField;
 import org.apache.lucene.index.IndexReader;
+import org.apache.lucene.index.Term;
 import org.apache.lucene.index.VectorSimilarityFunction;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.KnnFloatVectorQuery;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.ScoreDoc;
+import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.tests.analysis.MockAnalyzer;
 import org.apache.lucene.tests.analysis.MockTokenizer;
@@ -47,9 +52,9 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 @SuppressSysoutChecks(bugUrl = "prints info from within cuvs")
-public class TestCuVS extends LuceneTestCase {
+public class TestCuVSRandomizedVectorSearch extends LuceneTestCase {
 
-  protected static Logger log = Logger.getLogger(TestCuVS.class.getName());
+  protected static Logger log = Logger.getLogger(TestCuVSRandomizedVectorSearch.class.getName());
 
   static final Codec codec = TestUtil.alwaysKnnVectorsFormat(new CuVSVectorsFormat());
   static IndexSearcher searcher;
@@ -60,12 +65,11 @@ public class TestCuVS extends LuceneTestCase {
   static int DIMENSIONS_LIMIT = 2048;
   static int NUM_QUERIES_LIMIT = 10;
   static int TOP_K_LIMIT = 64; // TODO This fails beyond 64
-
-  public static float[][] dataset;
+  static float[][] dataset;
 
   @BeforeClass
   public static void beforeClass() throws Exception {
-    assumeTrue("cuvs not supported", CuVSVectorsFormat.supported());
+    assertTrue("cuvs not supported", CuVSVectorsFormat.supported());
     directory = newDirectory();
 
     RandomIndexWriter writer =
@@ -88,7 +92,8 @@ public class TestCuVS extends LuceneTestCase {
       doc.add(new StringField("id", String.valueOf(i), Field.Store.YES));
       doc.add(newTextField("field", English.intToEnglish(i), Field.Store.YES));
       boolean skipVector =
-          random.nextInt(10) < 0; // disable testing with holes for now, there's some bug.
+          random.nextInt(10)
+              < 4; // some documents won't have vectors to test deleted/missing vectors
       if (!skipVector
           || datasetSize < 100) { // about 10th of the documents shouldn't have a single vector
         doc.add(new KnnFloatVectorField("vector", dataset[i], VectorSimilarityFunction.EUCLIDEAN));
@@ -146,28 +151,6 @@ public class TestCuVS extends LuceneTestCase {
     }
   }
 
-  private static float[][] generateQueries(Random random, int dimensions, int numQueries) {
-    // Generate random query vectors
-    float[][] queries = new float[numQueries][dimensions];
-    for (int i = 0; i < numQueries; i++) {
-      for (int j = 0; j < dimensions; j++) {
-        queries[i][j] = random.nextFloat() * 100;
-      }
-    }
-    return queries;
-  }
-
-  private static float[][] generateDataset(Random random, int datasetSize, int dimensions) {
-    // Generate a random dataset
-    float[][] dataset = new float[datasetSize][dimensions];
-    for (int i = 0; i < datasetSize; i++) {
-      for (int j = 0; j < dimensions; j++) {
-        dataset[i][j] = random.nextFloat() * 100;
-      }
-    }
-    return dataset;
-  }
-
   private static List<List<Integer>> generateExpectedResults(
       int topK, float[][] dataset, float[][] queries) {
     List<List<Integer>> neighborsResult = new ArrayList<>();
@@ -192,15 +175,50 @@ public class TestCuVS extends LuceneTestCase {
               .sorted(Map.Entry.comparingByValue())
               .map(Map.Entry::getKey)
               .toList();
-      neighborsResult.add(
-          neighbors.subList(
-              0,
-              Math.min(
-                  topK * 3,
-                  dataset.length))); // generate double the topK results in the expected array
+      neighborsResult.add(neighbors.subList(0, Math.min(topK * 3, dataset.length)));
     }
 
     log.info("Expected results generated successfully.");
     return neighborsResult;
+  }
+
+  @Test
+  public void testVectorSearchWithFilter() throws IOException {
+    assertTrue("cuvs not supported", CuVSVectorsFormat.supported());
+
+    Random random = random();
+    int topK = Math.min(random.nextInt(TOP_K_LIMIT) + 1, dataset.length);
+
+    if (dataset.length < topK) topK = dataset.length;
+
+    // Find a document that has a vector by doing a search first
+    Query unfiltered = new KnnFloatVectorQuery("vector", dataset[0], 1);
+    ScoreDoc[] unfilteredHits = searcher.search(unfiltered, 1).scoreDocs;
+
+    // Skip test if no vectors found at all
+    assumeTrue(
+        "Need at least one document with vector for filtering test", unfilteredHits.length > 0);
+
+    String targetDocId = reader.storedFields().document(unfilteredHits[0].doc).get("id");
+    float[] queryVector = dataset[0];
+
+    // Create a filter that matches only the document we know has a vector
+    Query filter = new TermQuery(new Term("id", targetDocId));
+
+    // Test the new constructor with filter
+    Query filteredQuery = new CuVSKnnFloatVectorQuery("vector", queryVector, topK, filter, topK, 1);
+
+    ScoreDoc[] filteredHits = searcher.search(filteredQuery, topK).scoreDocs;
+
+    // Ensure we got some results
+    assertTrue("Should have at least one result", filteredHits.length > 0);
+
+    // Verify that all results match the filter
+    for (ScoreDoc hit : filteredHits) {
+      String docId = reader.storedFields().document(hit.doc).get("id");
+      assertEquals("All results should match the filter", targetDocId, docId);
+    }
+
+    log.info("Prefiltering test passed with " + filteredHits.length + " results");
   }
 }

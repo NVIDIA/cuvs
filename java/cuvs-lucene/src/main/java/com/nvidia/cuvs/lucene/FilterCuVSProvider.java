@@ -68,8 +68,25 @@ import java.nio.file.Path;
   }
 
   @Override
-  public Builder newMatrixBuilder(int size, int dimensions, DataType dataType) {
-    return delegate.newMatrixBuilder(size, dimensions, dataType);
+  public com.nvidia.cuvs.GPUInfoProvider gpuInfoProvider() {
+    return delegate.gpuInfoProvider();
+  }
+
+  @Override
+  public Builder newHostMatrixBuilder(long rows, long cols, DataType dataType) {
+    return delegate.newHostMatrixBuilder(rows, cols, dataType);
+  }
+
+  @Override
+  public Builder newDeviceMatrixBuilder(
+      CuVSResources resources, long rows, long cols, DataType dataType) {
+    return delegate.newDeviceMatrixBuilder(resources, rows, cols, dataType);
+  }
+
+  @Override
+  public Builder newDeviceMatrixBuilder(
+      CuVSResources resources, long rows, long cols, int maxRows, int maxCols, DataType dataType) {
+    return delegate.newDeviceMatrixBuilder(resources, rows, cols, maxRows, maxCols, dataType);
   }
 
   @Override

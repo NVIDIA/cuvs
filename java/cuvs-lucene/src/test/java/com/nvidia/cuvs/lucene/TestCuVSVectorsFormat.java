@@ -31,15 +31,17 @@ import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.VectorEncoding;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.tests.index.BaseKnnVectorsFormatTestCase;
+import org.apache.lucene.tests.util.LuceneTestCase.SuppressSysoutChecks;
 import org.apache.lucene.tests.util.TestUtil;
 import org.junit.BeforeClass;
 import org.junit.Ignore;
 
+@SuppressSysoutChecks(bugUrl = "")
 public class TestCuVSVectorsFormat extends BaseKnnVectorsFormatTestCase {
 
   @BeforeClass
   public static void beforeClass() {
-    assumeTrue("cuvs is not supported", CuVSVectorsFormat.supported());
+    assertTrue("cuvs is not supported", CuVSVectorsFormat.supported());
   }
 
   @Override

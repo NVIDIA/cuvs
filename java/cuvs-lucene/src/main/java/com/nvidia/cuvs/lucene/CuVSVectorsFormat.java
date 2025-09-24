@@ -87,6 +87,12 @@ public class CuVSVectorsFormat extends KnnVectorsFormat {
 
   private static CuVSResources cuVSResourcesOrNull() {
     try {
+      System.loadLibrary(
+          "cudart"); // nocommit: this is here so as to pass CI, should goto cuvs-java
+    } catch (UnsatisfiedLinkError e) {
+      LOG.warning("Could not load CUDA runtime library: " + e.getMessage());
+    }
+    try {
       resources = CuVSResources.create();
       return resources;
     } catch (UnsupportedOperationException uoe) {

@@ -21,6 +21,7 @@ files:
       - java
 channels:
   - conda-forge
+  - rapidsai-nightly
 dependencies:
   checks:
     common:
@@ -66,6 +67,7 @@ dependencies:
           - libcurand-dev
           - libcusolver-dev
           - libcusparse-dev
+          - libcuvs
   java:
     common:
       - output_types: conda
