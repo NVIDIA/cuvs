@@ -24,16 +24,16 @@ import org.apache.lucene.index.FieldInfo;
 import org.apache.lucene.util.RamUsageEstimator;
 
 /** CuVS based fields writer */
-/*package-private*/ class CuVSFieldWriter extends KnnFieldVectorsWriter<float[]> {
+/*package-private*/ class GPUFieldWriter extends KnnFieldVectorsWriter<float[]> {
 
   private static final long SHALLOW_SIZE =
-      RamUsageEstimator.shallowSizeOfInstance(CuVSFieldWriter.class);
+      RamUsageEstimator.shallowSizeOfInstance(GPUFieldWriter.class);
 
   private final FieldInfo fieldInfo;
   private final FlatFieldVectorsWriter<float[]> flatFieldVectorsWriter;
   private int lastDocID = -1;
 
-  public CuVSFieldWriter(
+  public GPUFieldWriter(
       FieldInfo fieldInfo, FlatFieldVectorsWriter<float[]> flatFieldVectorsWriter) {
     this.fieldInfo = fieldInfo;
     this.flatFieldVectorsWriter = flatFieldVectorsWriter;
@@ -74,6 +74,10 @@ import org.apache.lucene.util.RamUsageEstimator;
 
   @Override
   public String toString() {
-    return "CuVSFieldWriter[field name=" + fieldInfo.name + ", number=" + fieldInfo.number + "]";
+    StringBuilder sb = new StringBuilder(this.getClass().getSimpleName());
+    sb.append("(field name=").append(fieldInfo.name);
+    sb.append("number=").append(fieldInfo.number);
+    sb.append(")");
+    return sb.toString();
   }
 }

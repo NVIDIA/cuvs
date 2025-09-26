@@ -27,7 +27,7 @@ final class IndexOutputOutputStream extends OutputStream {
   final IndexOutput out;
   final int bufferSize;
   final byte[] buffer;
-  int idx;
+  int pos;
 
   IndexOutputOutputStream(IndexOutput out) {
     this(out, DEFAULT_BUFFER_SIZE);
@@ -41,16 +41,16 @@ final class IndexOutputOutputStream extends OutputStream {
 
   @Override
   public void write(int b) throws IOException {
-    buffer[idx] = (byte) b;
-    idx++;
-    if (idx == bufferSize) {
+    buffer[pos] = (byte) b;
+    pos++;
+    if (pos == bufferSize) {
       flush();
     }
   }
 
   @Override
   public void write(byte[] b, int offset, int length) throws IOException {
-    if (idx != 0) {
+    if (pos != 0) {
       flush();
     }
     out.writeBytes(b, offset, length);
@@ -58,8 +58,8 @@ final class IndexOutputOutputStream extends OutputStream {
 
   @Override
   public void flush() throws IOException {
-    out.writeBytes(buffer, 0, idx);
-    idx = 0;
+    out.writeBytes(buffer, 0, pos);
+    pos = 0;
   }
 
   @Override

@@ -15,12 +15,15 @@
  */
 package com.nvidia.cuvs.lucene;
 
+import static com.nvidia.cuvs.lucene.Utils.cuVSResourcesOrNull;
+
 import com.nvidia.cuvs.CuVSResources;
 import com.nvidia.cuvs.LibraryException;
-import com.nvidia.cuvs.lucene.CuVSVectorsWriter.IndexType;
+import com.nvidia.cuvs.lucene.CuVS2510GPUVectorsWriter.IndexType;
 import java.io.IOException;
 import java.util.logging.Logger;
 import org.apache.lucene.codecs.KnnVectorsFormat;
+import org.apache.lucene.codecs.KnnVectorsReader;
 import org.apache.lucene.codecs.hnsw.DefaultFlatVectorScorer;
 import org.apache.lucene.codecs.hnsw.FlatVectorsFormat;
 import org.apache.lucene.codecs.lucene99.Lucene99FlatVectorsFormat;
@@ -28,23 +31,24 @@ import org.apache.lucene.index.SegmentReadState;
 import org.apache.lucene.index.SegmentWriteState;
 
 /** CuVS based KnnVectorsFormat for GPU acceleration */
-public class CuVSVectorsFormat extends KnnVectorsFormat {
+public class CuVS2510GPUVectorsFormat extends KnnVectorsFormat {
 
-  private static final Logger LOG = Logger.getLogger(CuVSVectorsFormat.class.getName());
+  static final Logger log = Logger.getLogger(CuVS2510GPUVectorsFormat.class.getName());
 
   // TODO: fix Lucene version in name, to the final targeted release, if any
   static final String CUVS_META_CODEC_NAME = "Lucene102CuVSVectorsFormatMeta";
-  static final String CUVS_META_CODEC_EXT = "vemc"; // ""cagmf";
+  static final String CUVS_META_CODEC_EXT = "vemc";
   static final String CUVS_INDEX_CODEC_NAME = "Lucene102CuVSVectorsFormatIndex";
   static final String CUVS_INDEX_EXT = "vcag";
 
   static final int VERSION_START = 0;
   static final int VERSION_CURRENT = VERSION_START;
 
-  public static final int DEFAULT_WRITER_THREADS = 32;
-  public static final int DEFAULT_INTERMEDIATE_GRAPH_DEGREE = 128;
-  public static final int DEFAULT_GRAPH_DEGREE = 64;
-  public static final IndexType DEFAULT_INDEX_TYPE = IndexType.CAGRA;
+  static final int DEFAULT_WRITER_THREADS = 32;
+  static final int DEFAULT_INTERMEDIATE_GRAPH_DEGREE = 128;
+  static final int DEFAULT_GRAPH_DEGREE = 64;
+  static final IndexType DEFAULT_INDEX_TYPE = IndexType.CAGRA;
+  static final int HNSW_GRAPH_LAYERS = 1;
 
   static CuVSResources resources = cuVSResourcesOrNull();
 
@@ -56,80 +60,61 @@ public class CuVSVectorsFormat extends KnnVectorsFormat {
   final int cuvsWriterThreads;
   final int intGraphDegree;
   final int graphDegree;
-  final CuVSVectorsWriter.IndexType indexType; // the index type to build, when writing
+  final int hnswLayers; // Number of layers to create in CAGRA->HNSW conversion
+  final CuVS2510GPUVectorsWriter.IndexType indexType; // the index type to build, when writing
 
   /**
-   * Creates a CuVSVectorsFormat, with default values.
+   * Creates a CuVS2510GPUVectorsFormat, with default values.
    *
    * @throws LibraryException if the native library fails to load
    */
-  public CuVSVectorsFormat() {
+  public CuVS2510GPUVectorsFormat() {
     this(
         DEFAULT_WRITER_THREADS,
         DEFAULT_INTERMEDIATE_GRAPH_DEGREE,
         DEFAULT_GRAPH_DEGREE,
+        HNSW_GRAPH_LAYERS,
         DEFAULT_INDEX_TYPE);
   }
 
   /**
-   * Creates a CuVSVectorsFormat, with the given threads, graph degree, etc.
+   * Creates a CuVS2510GPUVectorsFormat, with the given threads, graph degree, etc.
    *
    * @throws LibraryException if the native library fails to load
    */
-  public CuVSVectorsFormat(
-      int cuvsWriterThreads, int intGraphDegree, int graphDegree, IndexType indexType) {
-    super("CuVSVectorsFormat");
+  public CuVS2510GPUVectorsFormat(
+      int cuvsWriterThreads,
+      int intGraphDegree,
+      int graphDegree,
+      int hnswLayers,
+      IndexType indexType) {
+    super("CuVS2510GPUVectorsFormat");
     this.cuvsWriterThreads = cuvsWriterThreads;
     this.intGraphDegree = intGraphDegree;
     this.graphDegree = graphDegree;
+    this.hnswLayers = hnswLayers;
     this.indexType = indexType;
   }
 
-  private static CuVSResources cuVSResourcesOrNull() {
-    try {
-      System.loadLibrary(
-          "cudart"); // nocommit: this is here so as to pass CI, should goto cuvs-java
-    } catch (UnsatisfiedLinkError e) {
-      LOG.warning("Could not load CUDA runtime library: " + e.getMessage());
-    }
-    try {
-      resources = CuVSResources.create();
-      return resources;
-    } catch (UnsupportedOperationException uoe) {
-      LOG.warning("cuvs is not supported on this platform or java version: " + uoe.getMessage());
-    } catch (Throwable t) {
-      if (t instanceof ExceptionInInitializerError ex) {
-        t = ex.getCause();
-      }
-      LOG.warning("Exception occurred during creation of cuvs resources. " + t);
-    }
-    return null;
-  }
-
-  /** Tells whether the platform supports cuvs. */
-  public static boolean supported() {
-    return resources != null;
-  }
-
-  private static void checkSupported() {
-    if (!supported()) {
-      throw new UnsupportedOperationException();
-    }
-  }
-
   @Override
-  public CuVSVectorsWriter fieldsWriter(SegmentWriteState state) throws IOException {
+  public CuVS2510GPUVectorsWriter fieldsWriter(SegmentWriteState state) throws IOException {
     checkSupported();
     var flatWriter = flatVectorsFormat.fieldsWriter(state);
-    return new CuVSVectorsWriter(
-        state, cuvsWriterThreads, intGraphDegree, graphDegree, indexType, resources, flatWriter);
+    return new CuVS2510GPUVectorsWriter(
+        state,
+        cuvsWriterThreads,
+        intGraphDegree,
+        graphDegree,
+        hnswLayers,
+        indexType,
+        resources,
+        flatWriter);
   }
 
   @Override
-  public CuVSVectorsReader fieldsReader(SegmentReadState state) throws IOException {
+  public KnnVectorsReader fieldsReader(SegmentReadState state) throws IOException {
     checkSupported();
-    var flatReader = flatVectorsFormat.fieldsReader(state);
-    return new CuVSVectorsReader(state, resources, flatReader);
+    return new CuVS2510GPUVectorsReader(state, resources, flatVectorsFormat.fieldsReader(state));
   }
 
   @Override
@@ -139,12 +124,24 @@ public class CuVSVectorsFormat extends KnnVectorsFormat {
 
   @Override
   public String toString() {
-    StringBuilder sb = new StringBuilder("CuVSVectorsFormat(");
-    sb.append("cuvsWriterThreads=").append(cuvsWriterThreads);
+    StringBuilder sb = new StringBuilder(this.getClass().getSimpleName());
+    sb.append("(cuvsWriterThreads=").append(cuvsWriterThreads);
     sb.append("intGraphDegree=").append(intGraphDegree);
     sb.append("graphDegree=").append(graphDegree);
+    sb.append("hnswLayers=").append(hnswLayers);
     sb.append("resources=").append(resources);
     sb.append(")");
     return sb.toString();
+  }
+
+  /** Tells whether the platform supports cuVS. */
+  public static boolean supported() {
+    return resources != null;
+  }
+
+  public static void checkSupported() {
+    if (!supported()) {
+      throw new UnsupportedOperationException();
+    }
   }
 }

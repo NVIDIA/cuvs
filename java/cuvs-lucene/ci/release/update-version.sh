@@ -36,3 +36,7 @@ sed_runner "s/VERSION=\".*\"/VERSION=\"${NEXT_FULL_JAVA_TAG}\"/g" build.sh
 sed_runner "/<!--CUVS_LUCENE#VERSION_UPDATE_MARKER_START-->.*<!--CUVS_LUCENE#VERSION_UPDATE_MARKER_END-->/s//<!--CUVS_LUCENE#VERSION_UPDATE_MARKER_START--><version>${NEXT_FULL_JAVA_TAG}<\/version><!--CUVS_LUCENE#VERSION_UPDATE_MARKER_END-->/g" pom.xml
 
 sed_runner "s| CuVS [[:digit:]]\{2\}\.[[:digit:]]\{2\} | CuVS ${NEXT_SHORT_TAG} |g" README.md
+
+for FILE in dependencies.yaml conda/environments/*.yaml; do
+    sed_runner "s/libcuvs==.*/libcuvs==${NEXT_SHORT_TAG}.*/g" "${FILE}"
+done

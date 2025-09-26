@@ -16,10 +16,15 @@
 package com.nvidia.cuvs.lucene;
 
 import com.nvidia.cuvs.CuVSMatrix;
+import com.nvidia.cuvs.CuVSResources;
 import java.io.IOException;
+import java.time.Duration;
 import java.util.List;
+import java.util.logging.Logger;
 
 public class Utils {
+
+  static final Logger log = Logger.getLogger(Utils.class.getName());
 
   static void handleThrowable(Throwable t) throws IOException {
     switch (t) {
@@ -44,5 +49,35 @@ public class Utils {
     // Convert List<float[]> to float[][] for the ofArray method
     float[][] vectors = data.toArray(new float[0][]);
     return CuVSMatrix.ofArray(vectors);
+  }
+
+  static long nanosToMillis(long nanos) {
+    return Duration.ofNanos(nanos).toMillis();
+  }
+
+  static CuVSResources cuVSResourcesOrNull() {
+    try {
+      System.loadLibrary("cudart");
+    } catch (UnsatisfiedLinkError e) {
+      log.warning("Could not load CUDA runtime library: " + e.getMessage());
+    }
+    try {
+      return CuVSResources.create();
+    } catch (UnsupportedOperationException uoe) {
+      log.warning("cuVS is not supported on this platform or java version: " + uoe.getMessage());
+    } catch (Throwable t) {
+      if (t instanceof ExceptionInInitializerError ex) {
+        t = ex.getCause();
+      }
+      log.warning("Exception occurred during creation of cuVS resources. " + t);
+    }
+    return null;
+  }
+
+  static void handleThrowableWithIgnore(Throwable t, String msg) throws IOException {
+    if (t.getMessage().contains(msg)) {
+      return;
+    }
+    handleThrowable(t);
   }
 }

@@ -67,7 +67,7 @@ dependencies:
           - libcurand-dev
           - libcusolver-dev
           - libcusparse-dev
-          - libcuvs
+          - libcuvs==25.10.*
   java:
     common:
       - output_types: conda

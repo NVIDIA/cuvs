@@ -48,12 +48,12 @@ import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-@SuppressSysoutChecks(bugUrl = "prints info from within cuvs")
+@SuppressSysoutChecks(bugUrl = "prints info from within cuVS")
 public class TestCuVSGaps extends LuceneTestCase {
 
   protected static Logger log = Logger.getLogger(TestCuVSGaps.class.getName());
 
-  static final Codec codec = TestUtil.alwaysKnnVectorsFormat(new CuVSVectorsFormat());
+  static final Codec codec = TestUtil.alwaysKnnVectorsFormat(new CuVS2510GPUVectorsFormat());
   static IndexSearcher searcher;
   static IndexReader reader;
   static Directory directory;
@@ -70,7 +70,7 @@ public class TestCuVSGaps extends LuceneTestCase {
 
   @BeforeClass
   public static void beforeClass() throws Exception {
-    assertTrue("cuvs not supported", CuVSVectorsFormat.supported());
+    assumeTrue("cuVS not supported", CuVS2510GPUVectorsFormat.supported());
     directory = newDirectory();
     random = random();
 
@@ -120,7 +120,7 @@ public class TestCuVSGaps extends LuceneTestCase {
 
   @Test
   public void testVectorSearchWithAlternatingDocuments() throws IOException {
-    assertTrue("cuvs not supported", CuVSVectorsFormat.supported());
+    assumeTrue("cuVS not supported", CuVS2510GPUVectorsFormat.supported());
 
     // Use the first vector (from document 0) as query
     float[] queryVector = dataset[0];
@@ -153,7 +153,7 @@ public class TestCuVSGaps extends LuceneTestCase {
 
   @Test
   public void testVectorSearchWithFilterAndAlternatingDocuments() throws IOException {
-    assumeTrue("cuvs not supported", CuVSVectorsFormat.supported());
+    assumeTrue("cuVS not supported", CuVS2510GPUVectorsFormat.supported());
 
     // Use the first vector (from document 0) as query
     float[] queryVector = dataset[0];
@@ -163,7 +163,7 @@ public class TestCuVSGaps extends LuceneTestCase {
     // This should further restrict our results to even numbers 0, 2, 4, 6, 8
     Query filter = new TermQuery(new Term("id", "8")); // Only match document 8
 
-    Query filteredQuery = new CuVSKnnFloatVectorQuery("vector", queryVector, topK, filter, topK, 1);
+    Query filteredQuery = new GPUKnnFloatVectorQuery("vector", queryVector, topK, filter, topK, 1);
     ScoreDoc[] filteredHits = searcher.search(filteredQuery, topK).scoreDocs;
 
     // Should only get document 8 (the only one that matches the filter and has a vector)

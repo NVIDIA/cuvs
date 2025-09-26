@@ -16,41 +16,57 @@
 package com.nvidia.cuvs.lucene;
 
 import com.nvidia.cuvs.LibraryException;
-import com.nvidia.cuvs.lucene.CuVSVectorsWriter.IndexType;
+import com.nvidia.cuvs.lucene.CuVS2510GPUVectorsWriter.IndexType;
 import java.util.logging.Logger;
 import org.apache.lucene.codecs.Codec;
 import org.apache.lucene.codecs.FilterCodec;
 import org.apache.lucene.codecs.KnnVectorsFormat;
 import org.apache.lucene.codecs.lucene101.Lucene101Codec;
 
-/** CuVS based codec for GPU based vector search */
-public class CuVSCodec extends FilterCodec {
+/** CuVS based codec for GPU based vector search
+ *
+ * @apiNote cuVS serialization formats are in experimental phase and hence backward compatibility cannot be guaranteed.
+ *
+ * */
+public class CuVS2510GPUSearchCodec extends FilterCodec {
 
-  public CuVSCodec() {
-    this("CuVSCodec", new Lucene101Codec());
+  private static final Logger log = Logger.getLogger(CuVS2510GPUSearchCodec.class.getName());
+  private static final String NAME = "CuVS2510GPUSearchCodec";
+
+  private static final int DEFAULT_CUVS_WRITER_THREADS = 1;
+  private static final int DEFAULT_INTERMEDIATE_GRAPH_DEGREE = 128;
+  private static final int DEFAULT_GRAPH_DEGREE = 64;
+  private static final int DEFAULT_HNSW_LAYERS = 1;
+  private static final IndexType DEFAULT_INDEX_TYPE = IndexType.CAGRA;
+
+  private KnnVectorsFormat format;
+
+  public CuVS2510GPUSearchCodec() {
+    this(NAME, new Lucene101Codec());
   }
 
-  public CuVSCodec(String name, Codec delegate) {
+  public CuVS2510GPUSearchCodec(String name, Codec delegate) {
     super(name, delegate);
-    KnnVectorsFormat format;
     try {
-      // TODO: Remove this hard coded values.
-      format = new CuVSVectorsFormat(1, 128, 64, IndexType.CAGRA);
+      format =
+          new CuVS2510GPUVectorsFormat(
+              DEFAULT_CUVS_WRITER_THREADS,
+              DEFAULT_INTERMEDIATE_GRAPH_DEGREE,
+              DEFAULT_GRAPH_DEGREE,
+              DEFAULT_HNSW_LAYERS,
+              DEFAULT_INDEX_TYPE);
       setKnnFormat(format);
     } catch (LibraryException ex) {
-      Logger log = Logger.getLogger(CuVSCodec.class.getName());
       log.severe("Couldn't load native library, possible classloader issue. " + ex.getMessage());
     }
   }
 
-  KnnVectorsFormat knnFormat = null;
-
   @Override
   public KnnVectorsFormat knnVectorsFormat() {
-    return knnFormat;
+    return format;
   }
 
   public void setKnnFormat(KnnVectorsFormat format) {
-    this.knnFormat = format;
+    this.format = format;
   }
 }

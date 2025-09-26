@@ -51,12 +51,12 @@ import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-@SuppressSysoutChecks(bugUrl = "prints info from within cuvs")
+@SuppressSysoutChecks(bugUrl = "prints info from within cuVS")
 public class TestCuVSRandomizedVectorSearch extends LuceneTestCase {
 
   protected static Logger log = Logger.getLogger(TestCuVSRandomizedVectorSearch.class.getName());
 
-  static final Codec codec = TestUtil.alwaysKnnVectorsFormat(new CuVSVectorsFormat());
+  static final Codec codec = TestUtil.alwaysKnnVectorsFormat(new CuVS2510GPUVectorsFormat());
   static IndexSearcher searcher;
   static IndexReader reader;
   static Directory directory;
@@ -69,7 +69,7 @@ public class TestCuVSRandomizedVectorSearch extends LuceneTestCase {
 
   @BeforeClass
   public static void beforeClass() throws Exception {
-    assertTrue("cuvs not supported", CuVSVectorsFormat.supported());
+    assumeTrue("cuVS not supported", CuVS2510GPUVectorsFormat.supported());
     directory = newDirectory();
 
     RandomIndexWriter writer =
@@ -184,7 +184,7 @@ public class TestCuVSRandomizedVectorSearch extends LuceneTestCase {
 
   @Test
   public void testVectorSearchWithFilter() throws IOException {
-    assertTrue("cuvs not supported", CuVSVectorsFormat.supported());
+    assumeTrue("cuVS not supported", CuVS2510GPUVectorsFormat.supported());
 
     Random random = random();
     int topK = Math.min(random.nextInt(TOP_K_LIMIT) + 1, dataset.length);
@@ -206,7 +206,7 @@ public class TestCuVSRandomizedVectorSearch extends LuceneTestCase {
     Query filter = new TermQuery(new Term("id", targetDocId));
 
     // Test the new constructor with filter
-    Query filteredQuery = new CuVSKnnFloatVectorQuery("vector", queryVector, topK, filter, topK, 1);
+    Query filteredQuery = new GPUKnnFloatVectorQuery("vector", queryVector, topK, filter, topK, 1);
 
     ScoreDoc[] filteredHits = searcher.search(filteredQuery, topK).scoreDocs;
 

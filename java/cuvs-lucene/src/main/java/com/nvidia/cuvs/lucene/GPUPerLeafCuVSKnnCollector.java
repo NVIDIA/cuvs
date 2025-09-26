@@ -24,7 +24,7 @@ import org.apache.lucene.search.TotalHits;
 import org.apache.lucene.search.knn.KnnSearchStrategy;
 
 /** KnnCollector for CuVS */
-/*package-private*/ class PerLeafCuVSKnnCollector implements KnnCollector {
+/*package-private*/ class GPUPerLeafCuVSKnnCollector implements KnnCollector {
 
   public List<ScoreDoc> scoreDocs;
   public int topK = 0;
@@ -32,7 +32,7 @@ import org.apache.lucene.search.knn.KnnSearchStrategy;
   public int searchWidth = 1; // TODO getter, no setter
   public int results = 0;
 
-  public PerLeafCuVSKnnCollector(int topK, int iTopK, int searchWidth) {
+  public GPUPerLeafCuVSKnnCollector(int topK, int iTopK, int searchWidth) {
     super();
     this.topK = topK;
     this.iTopK = iTopK;

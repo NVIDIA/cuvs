@@ -23,7 +23,7 @@ import java.io.IOException;
 import java.util.Objects;
 
 /** This class holds references to the actual CuVS Index (Cagra, Brute force, etc.) */
-public class CuVSIndex implements Closeable {
+public class GPUIndex implements Closeable {
   private final CagraIndex cagraIndex;
   private final BruteForceIndex bruteforceIndex;
   private final HnswIndex hnswIndex;
@@ -33,7 +33,7 @@ public class CuVSIndex implements Closeable {
   private String segmentName;
   private volatile boolean closed;
 
-  public CuVSIndex(
+  public GPUIndex(
       String segmentName,
       String fieldName,
       CagraIndex cagraIndex,
@@ -47,10 +47,10 @@ public class CuVSIndex implements Closeable {
       throw new IllegalArgumentException("negative maxDocs:" + maxDocs);
     }
     this.maxDocs = maxDocs;
-    this.hnswIndex = null; // TODO:
+    this.hnswIndex = null; // TODO: remove hnswlib logic in a subsequent PR
   }
 
-  public CuVSIndex(CagraIndex cagraIndex, BruteForceIndex bruteforceIndex, HnswIndex hnswIndex) {
+  public GPUIndex(CagraIndex cagraIndex, BruteForceIndex bruteforceIndex, HnswIndex hnswIndex) {
     this.cagraIndex = cagraIndex;
     this.bruteforceIndex = bruteforceIndex;
     this.hnswIndex = hnswIndex;

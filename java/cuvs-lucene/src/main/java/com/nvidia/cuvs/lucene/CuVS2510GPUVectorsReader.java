@@ -15,12 +15,12 @@
  */
 package com.nvidia.cuvs.lucene;
 
-import static com.nvidia.cuvs.lucene.CuVSVectorsFormat.CUVS_INDEX_CODEC_NAME;
-import static com.nvidia.cuvs.lucene.CuVSVectorsFormat.CUVS_INDEX_EXT;
-import static com.nvidia.cuvs.lucene.CuVSVectorsFormat.CUVS_META_CODEC_EXT;
-import static com.nvidia.cuvs.lucene.CuVSVectorsFormat.CUVS_META_CODEC_NAME;
-import static com.nvidia.cuvs.lucene.CuVSVectorsFormat.VERSION_CURRENT;
-import static com.nvidia.cuvs.lucene.CuVSVectorsFormat.VERSION_START;
+import static com.nvidia.cuvs.lucene.CuVS2510GPUVectorsFormat.CUVS_INDEX_CODEC_NAME;
+import static com.nvidia.cuvs.lucene.CuVS2510GPUVectorsFormat.CUVS_INDEX_EXT;
+import static com.nvidia.cuvs.lucene.CuVS2510GPUVectorsFormat.CUVS_META_CODEC_EXT;
+import static com.nvidia.cuvs.lucene.CuVS2510GPUVectorsFormat.CUVS_META_CODEC_NAME;
+import static com.nvidia.cuvs.lucene.CuVS2510GPUVectorsFormat.VERSION_CURRENT;
+import static com.nvidia.cuvs.lucene.CuVS2510GPUVectorsFormat.VERSION_START;
 
 import com.nvidia.cuvs.BruteForceIndex;
 import com.nvidia.cuvs.BruteForceQuery;
@@ -62,19 +62,19 @@ import org.apache.lucene.util.IOUtils;
 import org.apache.lucene.util.hnsw.IntToIntFunction;
 
 /** KnnVectorsReader instance associated with CuVS format */
-public class CuVSVectorsReader extends KnnVectorsReader {
+public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
 
   @SuppressWarnings("unused")
-  private static final Logger log = Logger.getLogger(CuVSVectorsReader.class.getName());
+  private static final Logger log = Logger.getLogger(CuVS2510GPUVectorsReader.class.getName());
 
   private final CuVSResources resources;
   private final FlatVectorsReader flatVectorsReader; // for reading the raw vectors
   private final FieldInfos fieldInfos;
   private final IntObjectHashMap<FieldEntry> fields;
-  private final IntObjectHashMap<CuVSIndex> cuvsIndices;
+  private final IntObjectHashMap<GPUIndex> cuvsIndices;
   private final IndexInput cuvsIndexInput;
 
-  public CuVSVectorsReader(
+  public CuVS2510GPUVectorsReader(
       SegmentReadState state, CuVSResources resources, FlatVectorsReader flatReader)
       throws IOException {
     this.resources = resources;
@@ -226,8 +226,8 @@ public class CuVSVectorsReader extends KnnVectorsReader {
     return fieldEntry;
   }
 
-  private IntObjectHashMap<CuVSIndex> loadCuVSIndices() throws IOException {
-    var indices = new IntObjectHashMap<CuVSIndex>();
+  private IntObjectHashMap<GPUIndex> loadCuVSIndices() throws IOException {
+    var indices = new IntObjectHashMap<GPUIndex>();
     for (var e : fields) {
       var fieldEntry = e.value;
       int fieldNumber = e.key;
@@ -237,7 +237,7 @@ public class CuVSVectorsReader extends KnnVectorsReader {
     return indices;
   }
 
-  private CuVSIndex loadCuVSIndex(FieldEntry fieldEntry) throws IOException {
+  private GPUIndex loadCuVSIndex(FieldEntry fieldEntry) throws IOException {
     CagraIndex cagraIndex = null;
     BruteForceIndex bruteForceIndex = null;
     HnswIndex hnswIndex = null;
@@ -273,7 +273,7 @@ public class CuVSVectorsReader extends KnnVectorsReader {
     } catch (Throwable t) {
       Utils.handleThrowable(t);
     }
-    return new CuVSIndex(cagraIndex, bruteForceIndex, hnswIndex);
+    return new GPUIndex(cagraIndex, bruteForceIndex, hnswIndex);
   }
 
   @Override
@@ -335,7 +335,7 @@ public class CuVSVectorsReader extends KnnVectorsReader {
 
     var fieldNumber = fieldInfos.fieldInfo(field).number;
 
-    CuVSIndex cuvsIndex = cuvsIndices.get(fieldNumber);
+    GPUIndex cuvsIndex = cuvsIndices.get(fieldNumber);
     if (cuvsIndex == null) {
       throw new IllegalStateException("not index found for field:" + field);
     }
@@ -476,7 +476,7 @@ public class CuVSVectorsReader extends KnnVectorsReader {
     return fieldInfos;
   }
 
-  public IntObjectHashMap<CuVSIndex> getCuvsIndexes() {
+  public IntObjectHashMap<GPUIndex> getCuvsIndexes() {
     return cuvsIndices;
   }
 

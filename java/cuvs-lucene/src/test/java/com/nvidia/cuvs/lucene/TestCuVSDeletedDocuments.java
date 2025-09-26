@@ -51,17 +51,17 @@ import org.apache.lucene.tests.util.TestUtil;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-@SuppressSysoutChecks(bugUrl = "prints info from within cuvs")
+@SuppressSysoutChecks(bugUrl = "prints info from within cuVS")
 public class TestCuVSDeletedDocuments extends LuceneTestCase {
 
   protected static Logger log = Logger.getLogger(TestCuVSDeletedDocuments.class.getName());
 
-  static final Codec codec = TestUtil.alwaysKnnVectorsFormat(new CuVSVectorsFormat());
+  static final Codec codec = TestUtil.alwaysKnnVectorsFormat(new CuVS2510GPUVectorsFormat());
   private static Random random;
 
   @BeforeClass
   public static void beforeClass() throws Exception {
-    assumeTrue("cuvs not supported", CuVSVectorsFormat.supported());
+    assumeTrue("cuVS not supported", Lucene99AcceleratedHNSWVectorsFormat.supported());
     random = random();
   }
 
@@ -194,7 +194,7 @@ public class TestCuVSDeletedDocuments extends LuceneTestCase {
         // Test filtered search with deletions
         Query filter = new TermQuery(new Term("category", "A"));
         Query filteredQuery =
-            new CuVSKnnFloatVectorQuery("vector", queryVector, topK, filter, topK, 1);
+            new GPUKnnFloatVectorQuery("vector", queryVector, topK, filter, topK, 1);
         ScoreDoc[] filteredHits = searcher.search(filteredQuery, topK).scoreDocs;
 
         for (ScoreDoc hit : filteredHits) {

@@ -18,19 +18,20 @@ package com.nvidia.cuvs.lucene;
 import java.io.IOException;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
+import org.apache.lucene.search.KnnCollector;
 import org.apache.lucene.search.KnnFloatVectorQuery;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.search.knn.KnnCollectorManager;
 import org.apache.lucene.util.Bits;
 
-/** Query for CuVS */
-public class CuVSKnnFloatVectorQuery extends KnnFloatVectorQuery {
+/** Query on GPU only */
+public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
 
   private final int iTopK;
   private final int searchWidth;
 
-  public CuVSKnnFloatVectorQuery(
+  public GPUKnnFloatVectorQuery(
       String field, float[] target, int k, Query filter, int iTopK, int searchWidth) {
     super(field, target, k, filter);
     this.iTopK = iTopK;
@@ -45,7 +46,7 @@ public class CuVSKnnFloatVectorQuery extends KnnFloatVectorQuery {
       KnnCollectorManager knnCollectorManager)
       throws IOException {
 
-    PerLeafCuVSKnnCollector results = new PerLeafCuVSKnnCollector(k, iTopK, searchWidth);
+    KnnCollector results = new GPUPerLeafCuVSKnnCollector(k, iTopK, searchWidth);
 
     LeafReader reader = context.reader();
     reader.searchNearestVectors(field, this.getTargetCopy(), results, acceptDocs);
