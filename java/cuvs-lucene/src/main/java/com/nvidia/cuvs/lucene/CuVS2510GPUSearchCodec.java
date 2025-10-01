@@ -36,7 +36,6 @@ public class CuVS2510GPUSearchCodec extends FilterCodec {
   private static final int DEFAULT_CUVS_WRITER_THREADS = 1;
   private static final int DEFAULT_INTERMEDIATE_GRAPH_DEGREE = 128;
   private static final int DEFAULT_GRAPH_DEGREE = 64;
-  private static final int DEFAULT_HNSW_LAYERS = 1;
   private static final IndexType DEFAULT_INDEX_TYPE = IndexType.CAGRA;
 
   private KnnVectorsFormat format;
@@ -53,7 +52,6 @@ public class CuVS2510GPUSearchCodec extends FilterCodec {
               DEFAULT_CUVS_WRITER_THREADS,
               DEFAULT_INTERMEDIATE_GRAPH_DEGREE,
               DEFAULT_GRAPH_DEGREE,
-              DEFAULT_HNSW_LAYERS,
               DEFAULT_INDEX_TYPE);
       setKnnFormat(format);
     } catch (LibraryException ex) {

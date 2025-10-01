@@ -28,8 +28,6 @@ import com.nvidia.cuvs.CagraIndex;
 import com.nvidia.cuvs.CagraQuery;
 import com.nvidia.cuvs.CagraSearchParams;
 import com.nvidia.cuvs.CuVSResources;
-import com.nvidia.cuvs.HnswIndex;
-import com.nvidia.cuvs.HnswIndexParams;
 import java.io.IOException;
 import java.util.Iterator;
 import java.util.List;
@@ -240,7 +238,6 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
   private GPUIndex loadCuVSIndex(FieldEntry fieldEntry) throws IOException {
     CagraIndex cagraIndex = null;
     BruteForceIndex bruteForceIndex = null;
-    HnswIndex hnswIndex = null;
 
     try {
       long len = fieldEntry.cagraIndexLength();
@@ -260,20 +257,10 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
           bruteForceIndex = BruteForceIndex.newBuilder(resources).from(in).build();
         }
       }
-
-      len = fieldEntry.hnswIndexLength();
-      if (len > 0) {
-        long off = fieldEntry.hnswIndexOffset();
-        try (var slice = cuvsIndexInput.slice("hnsw index", off, len);
-            var in = new IndexInputInputStream(slice)) {
-          var params = new HnswIndexParams.Builder().build();
-          hnswIndex = HnswIndex.newBuilder(resources).withIndexParams(params).from(in).build();
-        }
-      }
     } catch (Throwable t) {
       Utils.handleThrowable(t);
     }
-    return new GPUIndex(cagraIndex, bruteForceIndex, hnswIndex);
+    return new GPUIndex(cagraIndex, bruteForceIndex);
   }
 
   @Override
@@ -427,9 +414,7 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
       long cagraIndexOffset,
       long cagraIndexLength,
       long bruteForceIndexOffset,
-      long bruteForceIndexLength,
-      long hnswIndexOffset,
-      long hnswIndexLength) {
+      long bruteForceIndexLength) {
 
     static FieldEntry readEntry(
         IndexInput input,
@@ -442,8 +427,6 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
       var cagraIndexLength = input.readVLong();
       var bruteForceIndexOffset = input.readVLong();
       var bruteForceIndexLength = input.readVLong();
-      var hnswIndexOffset = input.readVLong();
-      var hnswIndexLength = input.readVLong();
       return new FieldEntry(
           vectorEncoding,
           similarityFunction,
@@ -452,9 +435,7 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
           cagraIndexOffset,
           cagraIndexLength,
           bruteForceIndexOffset,
-          bruteForceIndexLength,
-          hnswIndexOffset,
-          hnswIndexLength);
+          bruteForceIndexLength);
     }
   }
 

@@ -17,7 +17,6 @@ package com.nvidia.cuvs.lucene;
 
 import com.nvidia.cuvs.BruteForceIndex;
 import com.nvidia.cuvs.CagraIndex;
-import com.nvidia.cuvs.HnswIndex;
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.Objects;
@@ -26,7 +25,6 @@ import java.util.Objects;
 public class GPUIndex implements Closeable {
   private final CagraIndex cagraIndex;
   private final BruteForceIndex bruteforceIndex;
-  private final HnswIndex hnswIndex;
 
   private int maxDocs;
   private String fieldName;
@@ -47,13 +45,11 @@ public class GPUIndex implements Closeable {
       throw new IllegalArgumentException("negative maxDocs:" + maxDocs);
     }
     this.maxDocs = maxDocs;
-    this.hnswIndex = null; // TODO: remove hnswlib logic in a subsequent PR
   }
 
-  public GPUIndex(CagraIndex cagraIndex, BruteForceIndex bruteforceIndex, HnswIndex hnswIndex) {
+  public GPUIndex(CagraIndex cagraIndex, BruteForceIndex bruteforceIndex) {
     this.cagraIndex = cagraIndex;
     this.bruteforceIndex = bruteforceIndex;
-    this.hnswIndex = hnswIndex;
   }
 
   public CagraIndex getCagraIndex() {
@@ -64,11 +60,6 @@ public class GPUIndex implements Closeable {
   public BruteForceIndex getBruteforceIndex() {
     ensureOpen();
     return bruteforceIndex;
-  }
-
-  public HnswIndex getHNSWIndex() {
-    ensureOpen();
-    return hnswIndex;
   }
 
   public String getFieldName() {
@@ -105,9 +96,6 @@ public class GPUIndex implements Closeable {
       }
       if (bruteforceIndex != null) {
         bruteforceIndex.close();
-      }
-      if (hnswIndex != null) {
-        hnswIndex.close();
       }
     } catch (Throwable t) {
       Utils.handleThrowable(t);

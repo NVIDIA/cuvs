@@ -735,7 +735,6 @@ public class TestMerge extends LuceneTestCase {
             32, // writer threads
             128, // intermediate graph degree
             64, // graph degree
-            1,
             IndexType.BRUTE_FORCE); // Use brute force index
 
     IndexWriterConfig config =
@@ -887,7 +886,6 @@ public class TestMerge extends LuceneTestCase {
             32, // writer threads
             128, // intermediate graph degree
             64, // graph degree
-            1,
             IndexType.CAGRA_AND_BRUTE_FORCE); // Use combined CAGRA + brute force
 
     IndexWriterConfig config =

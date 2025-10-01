@@ -92,7 +92,6 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
   private final FlatVectorsWriter flatVectorsWriter; // for writing the raw vectors
   private final List<GPUFieldWriter> fields = new ArrayList<>();
   private IndexOutput meta = null, cuvsIndex = null;
-  private IndexOutput hnswMeta = null, hnswVectorIndex = null;
   private final InfoStream infoStream;
   private boolean finished;
 
@@ -100,22 +99,18 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
   public enum IndexType {
 
     /** Builds a Cagra index. */
-    CAGRA(true, false, false),
+    CAGRA(true, false),
 
     /** Builds a Brute Force index. */
-    BRUTE_FORCE(false, true, false),
-
-    /** Builds an HSNW index - suitable for searching on CPU. */
-    HNSW(false, false, true),
+    BRUTE_FORCE(false, true),
 
     /** Builds a Cagra and a Brute Force index. */
-    CAGRA_AND_BRUTE_FORCE(true, true, false);
-    private final boolean cagra, bruteForce, hnsw;
+    CAGRA_AND_BRUTE_FORCE(true, true);
+    private final boolean cagra, bruteForce;
 
-    IndexType(boolean cagra, boolean bruteForce, boolean hnsw) {
+    IndexType(boolean cagra, boolean bruteForce) {
       this.cagra = cagra;
       this.bruteForce = bruteForce;
-      this.hnsw = hnsw;
     }
 
     public boolean cagra() {
@@ -125,10 +120,6 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
     public boolean bruteForce() {
       return bruteForce;
     }
-
-    public boolean hnsw() {
-      return hnsw;
-    }
   }
 
   public CuVS2510GPUVectorsWriter(
@@ -136,7 +127,6 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
       int cuvsWriterThreads,
       int intGraphDegree,
       int graphDegree,
-      int hnswLayers,
       IndexType indexType,
       CuVSResources resources,
       FlatVectorsWriter flatVectorsWriter)
@@ -233,7 +223,6 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
     }
     long cagraIndexOffset, cagraIndexLength = 0L;
     long bruteForceIndexOffset, bruteForceIndexLength = 0L;
-    long hnswIndexOffset, hnswIndexLength = 0L;
 
     // workaround for the minimum number of vectors for Cagra
     IndexType indexType =
@@ -265,30 +254,13 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
         bruteForceIndexLength = cuvsIndex.getFilePointer() - bruteForceIndexOffset;
       }
 
-      hnswIndexOffset = cuvsIndex.getFilePointer();
-      if (indexType.hnsw()) {
-        var hnswIndexOutputStream = new IndexOutputOutputStream(cuvsIndex);
-        if (vectors.size() > MIN_CAGRA_INDEX_SIZE) {
-          try {
-            CuVSMatrix dataset = Utils.createFloatMatrix(vectors, fieldInfo.getVectorDimension());
-            writeHNSWIndex(hnswIndexOutputStream, dataset);
-          } catch (Throwable t) {
-            Utils.handleThrowableWithIgnore(t, CANNOT_GENERATE_CAGRA);
-          }
-        }
-        hnswIndexLength = cuvsIndex.getFilePointer() - hnswIndexOffset;
-      }
-
-      // Only write meta for non-HNSW_LUCENE modes
       writeMeta(
           fieldInfo,
           vectors.size(),
           cagraIndexOffset,
           cagraIndexLength,
           bruteForceIndexOffset,
-          bruteForceIndexLength,
-          hnswIndexOffset,
-          hnswIndexLength);
+          bruteForceIndexLength);
     } catch (Throwable t) {
       Utils.handleThrowable(t);
     }
@@ -320,21 +292,6 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
     long elapsedMillis = Utils.nanosToMillis(System.nanoTime() - startTime);
     info("bf index created in " + elapsedMillis + "ms, with " + dataset.size() + " vectors");
     index.serialize(os);
-    index.close();
-  }
-
-  private void writeHNSWIndex(OutputStream os, CuVSMatrix dataset) throws Throwable {
-    if (dataset.size() < 2) {
-      throw new IllegalArgumentException(dataset.size() + " vectors, less than min [2] required");
-    }
-    CagraIndexParams indexParams = cagraIndexParams((int) dataset.size());
-    long startTime = System.nanoTime();
-    CagraIndex index =
-        CagraIndex.newBuilder(resources).withDataset(dataset).withIndexParams(indexParams).build();
-    long elapsedMillis = Utils.nanosToMillis(System.nanoTime() - startTime);
-    info("HNSW index created in " + elapsedMillis + "ms, with " + dataset.size() + " vectors");
-    Path tmpFile = Files.createTempFile("tmpindex", "hnsw");
-    index.serializeToHNSW(os, tmpFile);
     index.close();
   }
 
@@ -370,7 +327,7 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
   }
 
   private void writeEmpty(FieldInfo fieldInfo) throws IOException {
-    writeMeta(fieldInfo, 0, 0L, 0L, 0L, 0L, 0L, 0L);
+    writeMeta(fieldInfo, 0, 0L, 0L, 0L, 0L);
   }
 
   private void writeMeta(
@@ -379,9 +336,7 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
       long cagraIndexOffset,
       long cagraIndexLength,
       long bruteForceIndexOffset,
-      long bruteForceIndexLength,
-      long hnswIndexOffset,
-      long hnswIndexLength)
+      long bruteForceIndexLength)
       throws IOException {
     meta.writeInt(field.number);
     meta.writeInt(field.getVectorEncoding().ordinal());
@@ -392,8 +347,6 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
     meta.writeVLong(cagraIndexLength);
     meta.writeVLong(bruteForceIndexOffset);
     meta.writeVLong(bruteForceIndexLength);
-    meta.writeVLong(hnswIndexOffset);
-    meta.writeVLong(hnswIndexLength);
   }
 
   static int distFuncToOrd(VectorSimilarityFunction func) {
@@ -524,7 +477,7 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
       mergedIndex.serialize(cagraIndexOutputStream, tmpFile);
       long cagraIndexLength = cuvsIndex.getFilePointer() - cagraIndexOffset;
 
-      writeMeta(fieldInfo, vectorCount, cagraIndexOffset, cagraIndexLength, 0L, 0L, 0L, 0L);
+      writeMeta(fieldInfo, vectorCount, cagraIndexOffset, cagraIndexLength, 0L, 0L);
 
       // Clean up the merged index
       mergedIndex.close();
@@ -579,22 +532,11 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
     if (cuvsIndex != null) {
       CodecUtil.writeFooter(cuvsIndex);
     }
-
-    {
-      if (hnswMeta != null) {
-        // write end of fields marker
-        hnswMeta.writeInt(-1);
-        CodecUtil.writeFooter(hnswMeta);
-      }
-      if (hnswVectorIndex != null) {
-        CodecUtil.writeFooter(hnswVectorIndex);
-      }
-    }
   }
 
   @Override
   public void close() throws IOException {
-    IOUtils.close(meta, cuvsIndex, hnswMeta, hnswVectorIndex, flatVectorsWriter);
+    IOUtils.close(meta, cuvsIndex, flatVectorsWriter);
   }
 
   @Override

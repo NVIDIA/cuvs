@@ -48,7 +48,6 @@ public class CuVS2510GPUVectorsFormat extends KnnVectorsFormat {
   static final int DEFAULT_INTERMEDIATE_GRAPH_DEGREE = 128;
   static final int DEFAULT_GRAPH_DEGREE = 64;
   static final IndexType DEFAULT_INDEX_TYPE = IndexType.CAGRA;
-  static final int HNSW_GRAPH_LAYERS = 1;
 
   static CuVSResources resources = cuVSResourcesOrNull();
 
@@ -60,7 +59,6 @@ public class CuVS2510GPUVectorsFormat extends KnnVectorsFormat {
   final int cuvsWriterThreads;
   final int intGraphDegree;
   final int graphDegree;
-  final int hnswLayers; // Number of layers to create in CAGRA->HNSW conversion
   final CuVS2510GPUVectorsWriter.IndexType indexType; // the index type to build, when writing
 
   /**
@@ -73,7 +71,6 @@ public class CuVS2510GPUVectorsFormat extends KnnVectorsFormat {
         DEFAULT_WRITER_THREADS,
         DEFAULT_INTERMEDIATE_GRAPH_DEGREE,
         DEFAULT_GRAPH_DEGREE,
-        HNSW_GRAPH_LAYERS,
         DEFAULT_INDEX_TYPE);
   }
 
@@ -83,16 +80,11 @@ public class CuVS2510GPUVectorsFormat extends KnnVectorsFormat {
    * @throws LibraryException if the native library fails to load
    */
   public CuVS2510GPUVectorsFormat(
-      int cuvsWriterThreads,
-      int intGraphDegree,
-      int graphDegree,
-      int hnswLayers,
-      IndexType indexType) {
+      int cuvsWriterThreads, int intGraphDegree, int graphDegree, IndexType indexType) {
     super("CuVS2510GPUVectorsFormat");
     this.cuvsWriterThreads = cuvsWriterThreads;
     this.intGraphDegree = intGraphDegree;
     this.graphDegree = graphDegree;
-    this.hnswLayers = hnswLayers;
     this.indexType = indexType;
   }
 
@@ -101,14 +93,7 @@ public class CuVS2510GPUVectorsFormat extends KnnVectorsFormat {
     checkSupported();
     var flatWriter = flatVectorsFormat.fieldsWriter(state);
     return new CuVS2510GPUVectorsWriter(
-        state,
-        cuvsWriterThreads,
-        intGraphDegree,
-        graphDegree,
-        hnswLayers,
-        indexType,
-        resources,
-        flatWriter);
+        state, cuvsWriterThreads, intGraphDegree, graphDegree, indexType, resources, flatWriter);
   }
 
   @Override
@@ -128,7 +113,6 @@ public class CuVS2510GPUVectorsFormat extends KnnVectorsFormat {
     sb.append("(cuvsWriterThreads=").append(cuvsWriterThreads);
     sb.append("intGraphDegree=").append(intGraphDegree);
     sb.append("graphDegree=").append(graphDegree);
-    sb.append("hnswLayers=").append(hnswLayers);
     sb.append("resources=").append(resources);
     sb.append(")");
     return sb.toString();
