@@ -9,6 +9,26 @@
   <name>cuvs-lucene</name>
   <packaging>jar</packaging>
 
+  <description>
+      This project provides pluggable codecs for Apache Lucene to enable GPU-based accelerated vector search.
+  </description>
+  <url>https://rapids.ai</url>
+
+  <licenses>
+      <license>
+          <name>Apache License, Version 2.0</name>
+          <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+          <distribution>repo</distribution>
+          <comments>A business-friendly OSS license</comments>
+      </license>
+  </licenses>
+  <scm>
+      <connection>scm:git:https://github.com/rapidsai/cuvs-lucene.git</connection>
+      <developerConnection>scm:git:git@github.com:rapidsai/cuvs-lucene.git</developerConnection>
+      <tag>HEAD</tag>
+      <url>https://github.com/rapidsai/cuvs-lucene</url>
+  </scm>
+
   <properties>
     <maven.compiler.target>21</maven.compiler.target>
     <maven.compiler.source>21</maven.compiler.source>
@@ -103,6 +123,18 @@
             </goals>
           </execution>
         </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>3.5.4</version>
+        <configuration>
+          <reportFormat>plain</reportFormat>
+          <trimStackTrace>false</trimStackTrace>
+          <redirectTestOutputToFile>false</redirectTestOutputToFile>
+          <useFile>false</useFile>
+          <rerunFailingTestsCount>0</rerunFailingTestsCount>
+        </configuration>
       </plugin>
     </plugins>
   </build>
