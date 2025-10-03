@@ -27,6 +27,7 @@ import com.nvidia.cuvs.BruteForceQuery;
 import com.nvidia.cuvs.CagraIndex;
 import com.nvidia.cuvs.CagraQuery;
 import com.nvidia.cuvs.CagraSearchParams;
+import com.nvidia.cuvs.CuVSMatrix;
 import com.nvidia.cuvs.CuVSResources;
 import java.io.IOException;
 import java.util.Iterator;
@@ -346,7 +347,7 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
           new CagraQuery.Builder(resources)
               .withTopK(topK)
               .withSearchParams(searchParams)
-              .withQueryVectors(new float[][] {target})
+              .withQueryVectors(CuVSMatrix.ofArray(new float[][] {target}))
               .build();
 
       CagraIndex cagraIndex = cuvsIndex.getCagraIndex();

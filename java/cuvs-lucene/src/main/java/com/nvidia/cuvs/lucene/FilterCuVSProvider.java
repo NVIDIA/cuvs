@@ -78,6 +78,12 @@ import java.nio.file.Path;
   }
 
   @Override
+  public Builder newHostMatrixBuilder(
+      long rows, long cols, int maxRows, int maxCols, DataType dataType) {
+    return delegate.newHostMatrixBuilder(rows, cols, maxRows, maxCols, dataType);
+  }
+
+  @Override
   public Builder newDeviceMatrixBuilder(
       CuVSResources resources, long rows, long cols, DataType dataType) {
     return delegate.newDeviceMatrixBuilder(resources, rows, cols, dataType);
@@ -92,6 +98,11 @@ import java.nio.file.Path;
   @Override
   public MethodHandle newNativeMatrixBuilder() {
     return delegate.newNativeMatrixBuilder();
+  }
+
+  @Override
+  public MethodHandle newNativeMatrixBuilderWithStrides() {
+    return delegate.newNativeMatrixBuilderWithStrides();
   }
 
   @Override

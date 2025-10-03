@@ -99,61 +99,57 @@ public class TestCagraToHnswSerializationAndSearch extends LuceneTestCase {
     }
 
     // Searching
-    try (Directory indexDirectory = FSDirectory.open(indexDirPath)) {
-      try (DirectoryReader reader = DirectoryReader.open(indexDirectory)) {
-        log.info("Successfully opened index");
+    try (Directory indexDirectory = FSDirectory.open(indexDirPath);
+        DirectoryReader reader = DirectoryReader.open(indexDirectory)) {
+      log.info("Successfully opened index");
 
-        int vectorCount = 0;
-        for (LeafReaderContext leafReaderContext : reader.leaves()) {
-          LeafReader leafReader = leafReaderContext.reader();
-          FloatVectorValues knnValues = leafReader.getFloatVectorValues(VECTOR_FIELD);
-          assertNotNull(knnValues);
-          log.info(
-              VECTOR_FIELD
-                  + " field: "
-                  + knnValues.size()
-                  + " vectors, "
-                  + knnValues.dimension()
-                  + " dimensions");
-          vectorCount += knnValues.size();
-          assertTrue("Vector dimension mismatch", knnValues.dimension() == dimension);
-        }
-        assertTrue("Dataset size mismatch", vectorCount == numDocs);
-
-        log.info("Testing vector search queries...");
-        IndexSearcher searcher = new IndexSearcher(reader);
-
-        float[] queryVector = generateDataset(random, 1, dimension)[0];
-        log.info("Query vector: " + Arrays.toString(queryVector));
-
-        KnnFloatVectorQuery query = new KnnFloatVectorQuery(VECTOR_FIELD, queryVector, topK);
-        TopDocs results = searcher.search(query, topK);
-
-        log.info("Search results (" + results.totalHits + " total hits):");
-        Integer[] expected = new Integer[] {1869, 1803, 1302, 59, 1497, 108, 1411, 351, 1982};
-        HashSet<Integer> expectedIds = new HashSet<Integer>(Arrays.asList(expected));
-
-        for (int i = 0; i < results.scoreDocs.length; i++) {
-          ScoreDoc scoreDoc = results.scoreDocs[i];
-          Document doc = searcher.storedFields().document(scoreDoc.doc);
-          String id = doc.get(ID_FIELD);
-          log.info(
-              "  Rank "
-                  + (i + 1)
-                  + ": doc "
-                  + scoreDoc.doc
-                  + " (id="
-                  + id
-                  + "), score="
-                  + scoreDoc.score);
-          assertTrue(
-              "Id: " + id + " expected but not found", expectedIds.contains(Integer.valueOf(id)));
-        }
-        assertTrue("TopK results not returned", results.scoreDocs.length == topK);
-
-      } catch (Exception e) {
-        e.printStackTrace();
+      int vectorCount = 0;
+      for (LeafReaderContext leafReaderContext : reader.leaves()) {
+        LeafReader leafReader = leafReaderContext.reader();
+        FloatVectorValues knnValues = leafReader.getFloatVectorValues(VECTOR_FIELD);
+        assertNotNull(knnValues);
+        log.info(
+            VECTOR_FIELD
+                + " field: "
+                + knnValues.size()
+                + " vectors, "
+                + knnValues.dimension()
+                + " dimensions");
+        vectorCount += knnValues.size();
+        assertTrue("Vector dimension mismatch", knnValues.dimension() == dimension);
       }
+      assertTrue("Dataset size mismatch", vectorCount == numDocs);
+
+      log.info("Testing vector search queries...");
+      IndexSearcher searcher = new IndexSearcher(reader);
+
+      float[] queryVector = generateDataset(random, 1, dimension)[0];
+      log.info("Query vector: " + Arrays.toString(queryVector));
+
+      KnnFloatVectorQuery query = new KnnFloatVectorQuery(VECTOR_FIELD, queryVector, topK);
+      TopDocs results = searcher.search(query, topK);
+
+      log.info("Search results (" + results.totalHits + " total hits):");
+      Integer[] expected = new Integer[] {1869, 1803, 1302, 59, 1497, 108, 1411, 351, 1982};
+      HashSet<Integer> expectedIds = new HashSet<Integer>(Arrays.asList(expected));
+
+      for (int i = 0; i < results.scoreDocs.length; i++) {
+        ScoreDoc scoreDoc = results.scoreDocs[i];
+        Document doc = searcher.storedFields().document(scoreDoc.doc);
+        String id = doc.get(ID_FIELD);
+        log.info(
+            "  Rank "
+                + (i + 1)
+                + ": doc "
+                + scoreDoc.doc
+                + " (id="
+                + id
+                + "), score="
+                + scoreDoc.score);
+        assertTrue(
+            "Id: " + id + " expected but not found", expectedIds.contains(Integer.valueOf(id)));
+      }
+      assertTrue("TopK results not returned", results.scoreDocs.length == topK);
     }
   }
 
