@@ -198,7 +198,8 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
     }
 
     try {
-      CuVSMatrix dataset = Utils.createFloatMatrix(vectors, fieldInfo.getVectorDimension());
+      CuVSMatrix dataset =
+          Utils.createFloatMatrix(vectors, fieldInfo.getVectorDimension(), resources);
 
       if (dataset.size() < 2) {
         throw new IllegalArgumentException(dataset.size() + " vectors, less than min [2] required");
