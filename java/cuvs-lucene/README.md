@@ -1,10 +1,10 @@
 # Lucene cuVS
 
-This is a codec for connecting [cuVS](https://github.com/rapidsai/cuvs), NVIDIA's GPU accelerated vector search library, into [Apache Lucene](https://github.com/apache/lucene).
+This is a project for using [cuVS](https://github.com/rapidsai/cuvs), NVIDIA's GPU accelerated vector search library, with [Apache Lucene](https://github.com/apache/lucene).
 
 ## Overview
 
-The cuVS library is plugged in as a new `KnnVectorFormat` via a custom codec.
+This library provides a new [KnnVectorFormat](https://lucene.apache.org/core/10_3_1/core/org/apache/lucene/codecs/KnnVectorsFormat.html) which can be plugged into a Lucene codec.
 
 > [!CAUTION]
 > This is not production ready yet.

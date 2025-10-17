@@ -153,6 +153,52 @@ public class TestCagraToHnswSerializationAndSearch extends LuceneTestCase {
     }
   }
 
+  @Test
+  public void testSingleVectorIndex() throws Exception {
+    // Test single vector index support with dummy HNSW graph
+    // TODO: This test can be removed once https://github.com/rapidsai/cuvs/pull/1256 is merged
+    // and CAGRA natively supports single vector indexes
+    Codec codec = new Lucene101AcceleratedHNSWCodec();
+
+    final String ID_FIELD = "id";
+    final String VECTOR_FIELD = "vector_field";
+
+    int dimension = 32;
+    float[] vector = generateDataset(random, 1, dimension)[0];
+
+    // Index a single document with a vector - this should now work with dummy HNSW graph
+    try (Directory indexDirectory = newDirectory()) {
+      IndexWriterConfig config = new IndexWriterConfig().setCodec(codec).setUseCompoundFile(false);
+      try (IndexWriter indexWriter = new IndexWriter(indexDirectory, config)) {
+        Document document = new Document();
+        document.add(new StringField(ID_FIELD, "0", Field.Store.YES));
+        document.add(new KnnFloatVectorField(VECTOR_FIELD, vector, EUCLIDEAN));
+        indexWriter.addDocument(document);
+
+        // This should now succeed by creating a dummy HNSW graph for the single vector
+        indexWriter.commit();
+      }
+
+      // Verify the index can be opened and searched
+      try (DirectoryReader reader = DirectoryReader.open(indexDirectory)) {
+        assertEquals(1, reader.numDocs());
+        LeafReader leafReader = getOnlyLeafReader(reader);
+        FloatVectorValues knnValues = leafReader.getFloatVectorValues(VECTOR_FIELD);
+        assertNotNull(knnValues);
+        assertEquals(1, knnValues.size());
+        assertEquals(dimension, knnValues.dimension());
+
+        // Test search functionality
+        IndexSearcher searcher = new IndexSearcher(reader);
+        KnnFloatVectorQuery query = new KnnFloatVectorQuery(VECTOR_FIELD, vector, 1);
+        TopDocs results = searcher.search(query, 1);
+        assertEquals(1, results.totalHits.value());
+        assertEquals(1, results.scoreDocs.length);
+        assertEquals(0, results.scoreDocs[0].doc);
+      }
+    }
+  }
+
   @AfterClass
   public static void afterClass() throws Exception {
     File indexDirPathFile = indexDirPath.toFile();

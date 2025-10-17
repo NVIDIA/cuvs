@@ -202,7 +202,10 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
           Utils.createFloatMatrix(vectors, fieldInfo.getVectorDimension(), resources);
 
       if (dataset.size() < 2) {
-        throw new IllegalArgumentException(dataset.size() + " vectors, less than min [2] required");
+        // Handle single vector case by creating a dummy HNSW graph
+        // TODO: Remove this workaround once https://github.com/rapidsai/cuvs/pull/1256 is merged
+        writeSingleVectorGraph(fieldInfo, vectors);
+        return;
       }
 
       long startTime = System.nanoTime();
@@ -512,6 +515,66 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
     }
 
     writeFieldInternal(fieldData.fieldInfo(), sortedVectors);
+  }
+
+  private void writeSingleVectorGraph(FieldInfo fieldInfo, List<float[]> vectors)
+      throws IOException {
+    // Workaround for CAGRA not supporting single vector indexes
+    // TODO: Remove this method once https://github.com/rapidsai/cuvs/pull/1256 is merged
+    try {
+      int size = 1;
+      int dimensions = fieldInfo.getVectorDimension();
+
+      // Create a dummy HNSW graph for a single vector
+      GPUBuiltHnswGraph hnswGraph = createSingleVectorHnswGraph(size, dimensions);
+
+      long vectorIndexOffset = hnswVectorIndex.getFilePointer();
+
+      // Write the graph to the vector index
+      int[][] graphLevelNodeOffsets = writeGraph(hnswGraph, hnswVectorIndex);
+
+      long vectorIndexLength = hnswVectorIndex.getFilePointer() - vectorIndexOffset;
+
+      // Write metadata
+      writeMeta(
+          hnswVectorIndex,
+          hnswMeta,
+          fieldInfo,
+          vectorIndexOffset,
+          vectorIndexLength,
+          size,
+          hnswGraph,
+          graphLevelNodeOffsets);
+
+      long elapsedMillis = Utils.nanosToMillis(System.nanoTime() - System.nanoTime());
+      info("Single vector HNSW graph created in " + elapsedMillis + "ms, with " + size + " vector");
+
+    } catch (Throwable t) {
+      Utils.handleThrowable(t);
+    }
+  }
+
+  /**
+   * Creates a dummy HNSW graph for a single vector.
+   * The graph will have 1 level with 1 node and no neighbors.
+   */
+  private GPUBuiltHnswGraph createSingleVectorHnswGraph(int size, int dimensions) throws Throwable {
+    // Create adjacency list for single node with no neighbors
+    int[][] singleNodeAdjacency = new int[][] {{-1}}; // -1 indicates no neighbors
+
+    // Create CuVSMatrix from the adjacency list
+    CuVSMatrix adjacencyMatrix = CuVSMatrix.ofArray(singleNodeAdjacency);
+
+    // Create layer data for single-level graph
+    List<int[]> layerNodes = new ArrayList<>();
+    List<CuVSMatrix> layerAdjacencies = new ArrayList<>();
+
+    // Layer 0: contains all nodes (just the single node)
+    layerNodes.add(null); // Layer 0 contains all nodes, so we don't need to store node list
+    layerAdjacencies.add(adjacencyMatrix);
+
+    // Create the single-layer graph
+    return new GPUBuiltHnswGraph(size, dimensions, layerNodes, layerAdjacencies);
   }
 
   private void writeEmpty(FieldInfo fieldInfo) throws IOException {
