@@ -30,6 +30,9 @@ function sed_runner() {
     sed -i.bak ''"$1"'' "$2" && rm -f "${2}".bak
 }
 
+# Centralized version file update
+echo "${NEXT_FULL_TAG}" > VERSION
+
 # Update Java version
 NEXT_FULL_JAVA_TAG="${NEXT_SHORT_TAG}.${PATCH_PEP440}"
 sed_runner "s/VERSION=\".*\"/VERSION=\"${NEXT_FULL_JAVA_TAG}\"/g" build.sh
@@ -39,4 +42,8 @@ sed_runner "s| CuVS [[:digit:]]\{2\}\.[[:digit:]]\{2\} | CuVS ${NEXT_SHORT_TAG} 
 
 for FILE in dependencies.yaml conda/environments/*.yaml; do
     sed_runner "s/libcuvs==.*/libcuvs==${NEXT_SHORT_TAG}.*/g" "${FILE}"
+done
+
+for FILE in .github/workflows/*.yaml; do
+  sed_runner "s/:[0-9]*\\.[0-9]*-/:${NEXT_SHORT_TAG}-/g" "${FILE}"
 done
