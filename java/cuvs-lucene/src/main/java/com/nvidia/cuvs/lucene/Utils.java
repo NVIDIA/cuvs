@@ -22,10 +22,21 @@ import java.time.Duration;
 import java.util.List;
 import java.util.logging.Logger;
 
+/**
+ * This class provides common static utility methods.
+ *
+ * @since 25.10
+ */
 public class Utils {
 
   static final Logger log = Logger.getLogger(Utils.class.getName());
 
+  /**
+   * A utility method that throws specific types of throwable objects based on types.
+   *
+   * @param t the throwable object
+   * @throws IOException
+   */
   static void handleThrowable(Throwable t) throws IOException {
     switch (t) {
       case IOException ioe -> throw ioe;
@@ -36,15 +47,15 @@ public class Utils {
   }
 
   /**
-   * A method to build a {@link CuVSMatrix} from a list of float vectors.
+   * A method to build a CuVSMatrix from a list of float vectors.
    *
-   * Uses {@link CuVSMatrix.Builder} to copy vectors directly to device memory
+   * Uses CuVSMatrix.Builder to copy vectors directly to device memory
    * without creating intermediate heap arrays.
    *
    * @param data The float vectors
    * @param dimensions The number float elements in each vector
    * @param resources The CuVS resources for device matrix creation
-   * @return an instance of {@link CuVSMatrix}
+   * @return an instance of CuVSMatrix
    */
   static CuVSMatrix createFloatMatrix(List<float[]> data, int dimensions, CuVSResources resources) {
     // Use Builder pattern to avoid intermediate float[][] allocation
@@ -64,10 +75,21 @@ public class Utils {
     return builder.build();
   }
 
+  /**
+   * A utility method to convert nanoseconds to milliseconds.
+   *
+   * @param nanos
+   * @return milliseconds
+   */
   static long nanosToMillis(long nanos) {
     return Duration.ofNanos(nanos).toMillis();
   }
 
+  /**
+   * Creates an instance of CuVSResources.
+   *
+   * @return an instance of CuVSResources
+   */
   static CuVSResources cuVSResourcesOrNull() {
     try {
       System.loadLibrary("cudart");
@@ -87,6 +109,13 @@ public class Utils {
     return null;
   }
 
+  /**
+   * A utility method that conditionally ignores certain throwable objects
+   *
+   * @param t the throwable object
+   * @param msg the message to check
+   * @throws IOException
+   */
   static void handleThrowableWithIgnore(Throwable t, String msg) throws IOException {
     if (t.getMessage().contains(msg)) {
       return;

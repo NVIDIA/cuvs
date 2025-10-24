@@ -25,7 +25,11 @@ import org.apache.lucene.codecs.FilterCodec;
 import org.apache.lucene.codecs.KnnVectorsFormat;
 import org.apache.lucene.codecs.lucene101.Lucene101Codec;
 
-/** CuVS based codec for GPU based vector search */
+/**
+ * CuVS based codec for GPU based vector search
+ *
+ * @since 25.10
+ */
 public class Lucene101AcceleratedHNSWCodec extends FilterCodec {
 
   private static final Logger log = Logger.getLogger(Lucene101AcceleratedHNSWCodec.class.getName());

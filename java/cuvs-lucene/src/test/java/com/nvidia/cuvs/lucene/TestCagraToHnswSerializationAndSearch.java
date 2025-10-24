@@ -47,8 +47,8 @@ import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.FSDirectory;
 import org.apache.lucene.tests.util.LuceneTestCase;
 import org.apache.lucene.tests.util.LuceneTestCase.SuppressSysoutChecks;
-import org.junit.AfterClass;
-import org.junit.BeforeClass;
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 
 @SuppressSysoutChecks(bugUrl = "")
@@ -59,8 +59,8 @@ public class TestCagraToHnswSerializationAndSearch extends LuceneTestCase {
   private static Random random;
   private static Path indexDirPath;
 
-  @BeforeClass
-  public static void beforeClass() throws Exception {
+  @Before
+  public void beforeTest() throws Exception {
     assumeTrue("cuVS not supported", Lucene99AcceleratedHNSWVectorsFormat.supported());
     // Fixed seed so that we can validate against the same result.
     random = new Random(222);
@@ -199,8 +199,8 @@ public class TestCagraToHnswSerializationAndSearch extends LuceneTestCase {
     }
   }
 
-  @AfterClass
-  public static void afterClass() throws Exception {
+  @After
+  public void afterTest() throws Exception {
     File indexDirPathFile = indexDirPath.toFile();
     if (indexDirPathFile.exists() && indexDirPathFile.isDirectory()) {
       FileUtils.deleteDirectory(indexDirPathFile);

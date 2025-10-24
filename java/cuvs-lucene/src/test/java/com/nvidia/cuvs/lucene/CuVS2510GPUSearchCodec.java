@@ -23,11 +23,12 @@ import org.apache.lucene.codecs.FilterCodec;
 import org.apache.lucene.codecs.KnnVectorsFormat;
 import org.apache.lucene.codecs.lucene101.Lucene101Codec;
 
-/** CuVS based codec for GPU based vector search
+/**
+ * cuVS based codec for GPU based vector search
+ * cuVS serialization formats are in experimental phase and hence backward compatibility cannot be guaranteed.
  *
- * @apiNote cuVS serialization formats are in experimental phase and hence backward compatibility cannot be guaranteed.
- *
- * */
+ * @since 25.10
+ */
 public class CuVS2510GPUSearchCodec extends FilterCodec {
 
   private static final Logger log = Logger.getLogger(CuVS2510GPUSearchCodec.class.getName());
@@ -40,10 +41,19 @@ public class CuVS2510GPUSearchCodec extends FilterCodec {
 
   private KnnVectorsFormat format;
 
+  /**
+   * Default constructor for {@link CuVS2510GPUSearchCodec}
+   */
   public CuVS2510GPUSearchCodec() {
     this(NAME, new Lucene101Codec());
   }
 
+  /**
+   * Constructor for the {@link CuVS2510GPUSearchCodec}
+   *
+   * @param name the name of the codec
+   * @param delegate the delegate codec
+   */
   public CuVS2510GPUSearchCodec(String name, Codec delegate) {
     super(name, delegate);
     try {
@@ -59,11 +69,21 @@ public class CuVS2510GPUSearchCodec extends FilterCodec {
     }
   }
 
+  /**
+   * Get the configured {@link KnnVectorsFormat}
+   *
+   * @return the instance of the {@link KnnVectorsFormat}
+   */
   @Override
   public KnnVectorsFormat knnVectorsFormat() {
     return format;
   }
 
+  /**
+   * Set the {@link KnnVectorsFormat}
+   *
+   * @param format the {@link KnnVectorsFormat} to set
+   */
   public void setKnnFormat(KnnVectorsFormat format) {
     this.format = format;
   }

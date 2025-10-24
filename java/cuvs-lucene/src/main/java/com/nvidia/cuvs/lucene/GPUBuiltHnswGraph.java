@@ -24,6 +24,11 @@ import java.util.List;
 import org.apache.lucene.util.hnsw.HnswGraph;
 import org.apache.lucene.util.hnsw.NeighborArray;
 
+/**
+ * This class holds the in-memory representation of the HNSW graph
+ *
+ * @since 25.10
+ */
 public class GPUBuiltHnswGraph extends HnswGraph {
 
   private final int size;
@@ -37,7 +42,14 @@ public class GPUBuiltHnswGraph extends HnswGraph {
   // Layer 0 is special - it contains all nodes
   private final NeighborArray[] layer0Neighbors;
 
-  // Multi-layer constructor that supports arbitrary number of layers
+  /**
+   * Multi-layer constructor that supports arbitrary number of layers.
+   *
+   * @param size the size of the dataset
+   * @param dimensions the vector dimension
+   * @param layerNodes the nodes on the layer
+   * @param layerAdjacencies adjacency list
+   */
   public GPUBuiltHnswGraph(
       int size, int dimensions, List<int[]> layerNodes, List<CuVSMatrix> layerAdjacencies) {
 
@@ -60,6 +72,13 @@ public class GPUBuiltHnswGraph extends HnswGraph {
     }
   }
 
+  /**
+   * Fills the neighbor array using the adjacency matrix.
+   *
+   * @param adjacency instance of adjacency CuVSMatrix
+   * @param size the number of nodes
+   * @return the NeighborArray
+   */
   private NeighborArray[] fillNeighborArray(CuVSMatrix adjacency, int size) {
     NeighborArray[] neighbors = new NeighborArray[size];
     for (int i = 0; i < size; i++) {
@@ -76,6 +95,9 @@ public class GPUBuiltHnswGraph extends HnswGraph {
     return neighbors;
   }
 
+  /**
+   * Get all nodes on a given level as node 0th ordinals.
+   */
   public NodesIterator getNodesOnLevel(int level) {
     if (level == 0) {
       return new Level0NodesIterator(size);
@@ -87,6 +109,13 @@ public class GPUBuiltHnswGraph extends HnswGraph {
     }
   }
 
+  /**
+   * Get the neighbors for the node and the level it resides.
+   *
+   * @param level the level
+   * @param node the node
+   * @return an instance of NeighborArray
+   */
   public NeighborArray getNeighbors(int level, int node) {
     if (level == 0 && node < size) {
       return layer0Neighbors[node];
@@ -109,6 +138,9 @@ public class GPUBuiltHnswGraph extends HnswGraph {
   private int currentLevel = -1;
   private int neighborIndex = -1;
 
+  /**
+   * Move the pointer to exactly the given level's target.
+   */
   @Override
   public void seek(int level, int target) {
     currentLevel = level;
@@ -116,6 +148,9 @@ public class GPUBuiltHnswGraph extends HnswGraph {
     neighborIndex = -1;
   }
 
+  /**
+   * Iterates over the neighbor list.
+   */
   @Override
   public int nextNeighbor() {
     if (currentLevel == 0
@@ -144,6 +179,9 @@ public class GPUBuiltHnswGraph extends HnswGraph {
     return NO_MORE_DOCS;
   }
 
+  /**
+   * Returns graph's entry point on the top level.
+   */
   @Override
   public int entryNode() {
     // Entry node should be from the highest layer
@@ -160,6 +198,9 @@ public class GPUBuiltHnswGraph extends HnswGraph {
     return 0; // Default to node 0 for single-layer graphs
   }
 
+  /**
+   * returns M, the maximum number of connections for a node.
+   */
   @Override
   public int maxConn() {
     // Return the maximum degree across all nodes in layer 0
@@ -172,6 +213,9 @@ public class GPUBuiltHnswGraph extends HnswGraph {
     return max;
   }
 
+  /**
+   * Returns the neighbor count.
+   */
   @Override
   public int neighborCount() {
     if (currentLevel == 0
@@ -244,14 +288,27 @@ public class GPUBuiltHnswGraph extends HnswGraph {
     }
   }
 
+  /**
+   * Returns the number of nodes in the graph.
+   */
   public int size() {
     return size;
   }
 
+  /**
+   * Returns the number of levels in the HNSW graph.
+   *
+   * @return the number of levels
+   */
   public int numLevels() {
     return numLevels;
   }
 
+  /**
+   * Gets the vector dimension.
+   *
+   * @return the vector dimension
+   */
   public int dimensions() {
     return dimensions;
   }

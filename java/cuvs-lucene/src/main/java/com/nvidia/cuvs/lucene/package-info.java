@@ -14,5 +14,9 @@
  * limitations under the License.
  */
 
-/** CuVS based fast vector search */
+/**
+ * GPU-based accelerated vector search pluggable library for Apache Lucene search platforms.
+ *
+ * @since 25.10
+ */
 package com.nvidia.cuvs.lucene;

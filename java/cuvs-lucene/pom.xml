@@ -129,6 +129,24 @@
           <rerunFailingTestsCount>0</rerunFailingTestsCount>
         </configuration>
       </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-javadoc-plugin</artifactId>
+        <version>3.12.0</version>
+        <executions>
+          <execution>
+            <id>attach-javadocs</id>
+            <goals>
+                <goal>jar</goal>
+            </goals>
+            <configuration>
+                <includePackageNames>com.nvidia.cuvs.lucene</includePackageNames>
+                <doclint>all</doclint>
+                <destDir>${project.build.directory}/javadocs</destDir>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
     </plugins>
   </build>
 </project>

@@ -23,7 +23,11 @@ import org.apache.lucene.index.DocsWithFieldSet;
 import org.apache.lucene.index.FieldInfo;
 import org.apache.lucene.util.RamUsageEstimator;
 
-/** CuVS based fields writer */
+/**
+ * cuVS based fields writer
+ *
+ * @since 25.10
+ */
 /*package-private*/ class GPUFieldWriter extends KnnFieldVectorsWriter<float[]> {
 
   private static final long SHALLOW_SIZE =
@@ -39,6 +43,9 @@ import org.apache.lucene.util.RamUsageEstimator;
     this.flatFieldVectorsWriter = flatFieldVectorsWriter;
   }
 
+  /**
+   * Add new docID with its vector value to the given field for indexing.
+   */
   @Override
   public void addValue(int docID, float[] vectorValue) throws IOException {
     if (docID == lastDocID) {
@@ -50,28 +57,52 @@ import org.apache.lucene.util.RamUsageEstimator;
     flatFieldVectorsWriter.addValue(docID, vectorValue);
   }
 
+  /**
+   * Gets the list of float vectors.
+   *
+   * @return a list of float vectors
+   */
   List<float[]> getVectors() {
     return flatFieldVectorsWriter.getVectors();
   }
 
+  /**
+   * Gets the field info that holds the description of the field.
+   *
+   * @return an instance of FieldInfo
+   */
   FieldInfo fieldInfo() {
     return fieldInfo;
   }
 
+  /**
+   * Gets the docsWithFieldSet for the field writer.
+   *
+   * @return an instance of DocsWithFieldSet
+   */
   DocsWithFieldSet getDocsWithFieldSet() {
     return flatFieldVectorsWriter.getDocsWithFieldSet();
   }
 
+  /**
+   * Used to copy values being indexed to internal storage.
+   */
   @Override
   public float[] copyValue(float[] vectorValue) {
     throw new UnsupportedOperationException();
   }
 
+  /**
+   * Returns the memory usage of this object in bytes.
+   */
   @Override
   public long ramBytesUsed() {
     return SHALLOW_SIZE + flatFieldVectorsWriter.ramBytesUsed();
   }
 
+  /**
+   * Returns a string containing the field name and number.
+   */
   @Override
   public String toString() {
     StringBuilder sb = new StringBuilder(this.getClass().getSimpleName());
