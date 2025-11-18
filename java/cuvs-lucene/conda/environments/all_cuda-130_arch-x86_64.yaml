@@ -12,7 +12,7 @@ dependencies:
 - libcurand-dev
 - libcusolver-dev
 - libcusparse-dev
-- libcuvs==25.10.*
+- libcuvs==25.12.*
 - maven
 - openjdk=22.*
 name: all_cuda-130_arch-x86_64

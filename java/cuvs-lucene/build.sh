@@ -8,7 +8,7 @@ set -e -u -o pipefail
 ARGS="$*"
 NUMARGS=$#
 
-VERSION="25.10.0" # Note: The version is updated automatically when ci/release/update-version.sh is invoked
+VERSION="25.12.0" # Note: The version is updated automatically when ci/release/update-version.sh is invoked
 GROUP_ID="com.nvidia.cuvs"
 
 function hasArg {
