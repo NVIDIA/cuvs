@@ -12,7 +12,7 @@
   <groupId>com.nvidia.cuvs.lucene</groupId>
   <artifactId>cuvs-lucene</artifactId>
   <!-- NOTE: The version automatically gets updated when ci/release/update-version.sh is invoked. -->
-  <!--CUVS_LUCENE#VERSION_UPDATE_MARKER_START--><version>25.10.0</version><!--CUVS_LUCENE#VERSION_UPDATE_MARKER_END-->
+  <!--CUVS_LUCENE#VERSION_UPDATE_MARKER_START--><version>26.02.0</version><!--CUVS_LUCENE#VERSION_UPDATE_MARKER_END-->
   <name>cuvs-lucene</name>
   <packaging>jar</packaging>
 
@@ -70,7 +70,7 @@
     <dependency>
       <groupId>com.nvidia.cuvs</groupId>
       <artifactId>cuvs-java</artifactId>
-      <!--CUVS_LUCENE#VERSION_UPDATE_MARKER_START--><version>25.10.0</version><!--CUVS_LUCENE#VERSION_UPDATE_MARKER_END-->
+      <!--CUVS_LUCENE#VERSION_UPDATE_MARKER_START--><version>26.02.0</version><!--CUVS_LUCENE#VERSION_UPDATE_MARKER_END-->
     </dependency>
   </dependencies>
 
