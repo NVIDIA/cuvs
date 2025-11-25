@@ -23,8 +23,8 @@ files:
       - cuda_version
       - java
 channels:
-  - conda-forge
   - rapidsai-nightly
+  - conda-forge
 dependencies:
   checks:
     common:

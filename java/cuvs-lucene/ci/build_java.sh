@@ -19,6 +19,9 @@ EXTRA_BUILD_ARGS+=("--build-cuvs-java")
 # shellcheck disable=SC1091
 . /opt/conda/etc/profile.d/conda.sh
 
+rapids-logger "Configuring conda strict channel priority"
+conda config --set channel_priority strict
+
 rapids-logger "Generate Java testing dependencies"
 
 ENV_YAML_DIR="$(mktemp -d)"
