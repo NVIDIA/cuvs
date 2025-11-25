@@ -4,5 +4,7 @@
 *.jar
 target
 **/.DS_Store
+bin
+.project
 cuvs-workdir
 bin

@@ -9,7 +9,6 @@ import static com.nvidia.cuvs.lucene.CuVS2510GPUVectorsFormat.CUVS_INDEX_EXT;
 import static com.nvidia.cuvs.lucene.CuVS2510GPUVectorsFormat.CUVS_META_CODEC_EXT;
 import static com.nvidia.cuvs.lucene.CuVS2510GPUVectorsFormat.CUVS_META_CODEC_NAME;
 import static com.nvidia.cuvs.lucene.CuVS2510GPUVectorsFormat.VERSION_CURRENT;
-import static org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsReader.SIMILARITY_FUNCTIONS;
 import static org.apache.lucene.index.VectorEncoding.FLOAT32;
 import static org.apache.lucene.search.DocIdSetIterator.NO_MORE_DOCS;
 import static org.apache.lucene.util.RamUsageEstimator.shallowSizeOfInstance;
@@ -68,6 +67,9 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
   /** The name of the CUVS component for the info-stream * */
   private static final String CUVS_COMPONENT = "CUVS";
 
+  private static final LuceneProvider LUCENE_PROVIDER;
+  private static final List<VectorSimilarityFunction> VECTOR_SIMILARITY_FUNCTIONS;
+
   // The minimum number of vectors in the dataset required before
   // we attempt to build a Cagra index
   static final int MIN_CAGRA_INDEX_SIZE = 2;
@@ -84,6 +86,15 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
   private IndexOutput meta = null, cuvsIndex = null;
   private final InfoStream infoStream;
   private boolean finished;
+
+  static {
+    try {
+      LUCENE_PROVIDER = LuceneProvider.getInstance("99");
+      VECTOR_SIMILARITY_FUNCTIONS = LUCENE_PROVIDER.getSimilarityFunctions();
+    } catch (Exception e) {
+      throw new ExceptionInInitializerError(e.getMessage());
+    }
+  }
 
   /**
    * The cuVS index Types.
@@ -442,8 +453,8 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
   }
 
   static int distFuncToOrd(VectorSimilarityFunction func) {
-    for (int i = 0; i < SIMILARITY_FUNCTIONS.size(); i++) {
-      if (SIMILARITY_FUNCTIONS.get(i).equals(func)) {
+    for (int i = 0; i < VECTOR_SIMILARITY_FUNCTIONS.size(); i++) {
+      if (VECTOR_SIMILARITY_FUNCTIONS.get(i).equals(func)) {
         return (byte) i;
       }
     }
