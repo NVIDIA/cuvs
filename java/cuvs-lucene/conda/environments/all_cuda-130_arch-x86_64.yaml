@@ -4,6 +4,7 @@ channels:
 - conda-forge
 - rapidsai-nightly
 dependencies:
+- cmake>=3.30.4
 - cuda-cudart-dev
 - cuda-nvtx-dev
 - cuda-profiler-api
@@ -14,5 +15,6 @@ dependencies:
 - libcusparse-dev
 - libcuvs==25.12.*
 - maven
+- ninja
 - openjdk=22.*
 name: all_cuda-130_arch-x86_64

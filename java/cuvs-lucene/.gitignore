@@ -4,3 +4,4 @@
 *.jar
 target
 **/.DS_Store
+cuvs-workdir

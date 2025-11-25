@@ -41,8 +41,6 @@
     <maven.compiler.source>21</maven.compiler.source>
   </properties>
 
-
-
   <dependencies>
     <dependency>
         <groupId>org.apache.lucene</groupId>
