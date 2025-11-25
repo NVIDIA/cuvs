@@ -6,11 +6,11 @@ package com.nvidia.cuvs.lucene;
 
 import com.nvidia.cuvs.LibraryException;
 import com.nvidia.cuvs.lucene.CuVS2510GPUVectorsWriter.IndexType;
+import java.lang.reflect.InvocationTargetException;
 import java.util.logging.Logger;
 import org.apache.lucene.codecs.Codec;
 import org.apache.lucene.codecs.FilterCodec;
 import org.apache.lucene.codecs.KnnVectorsFormat;
-import org.apache.lucene.codecs.lucene101.Lucene101Codec;
 
 /**
  * cuVS based codec for GPU based vector search
@@ -32,9 +32,23 @@ public class CuVS2510GPUSearchCodec extends FilterCodec {
 
   /**
    * Default constructor for {@link CuVS2510GPUSearchCodec}
+   * @throws InvocationTargetException
+   * @throws IllegalArgumentException
+   * @throws IllegalAccessException
+   * @throws InstantiationException
+   * @throws SecurityException
+   * @throws NoSuchMethodException
+   * @throws ClassNotFoundException
    */
-  public CuVS2510GPUSearchCodec() {
-    this(NAME, new Lucene101Codec());
+  public CuVS2510GPUSearchCodec()
+      throws ClassNotFoundException,
+          NoSuchMethodException,
+          SecurityException,
+          InstantiationException,
+          IllegalAccessException,
+          IllegalArgumentException,
+          InvocationTargetException {
+    this(NAME, LuceneProvider.getCodec("101"));
   }
 
   /**

@@ -15,7 +15,6 @@ import org.apache.lucene.codecs.KnnVectorsFormat;
 import org.apache.lucene.codecs.KnnVectorsReader;
 import org.apache.lucene.codecs.hnsw.DefaultFlatVectorScorer;
 import org.apache.lucene.codecs.hnsw.FlatVectorsFormat;
-import org.apache.lucene.codecs.lucene99.Lucene99FlatVectorsFormat;
 import org.apache.lucene.index.SegmentReadState;
 import org.apache.lucene.index.SegmentWriteState;
 
@@ -43,16 +42,24 @@ public class CuVS2510GPUVectorsFormat extends KnnVectorsFormat {
   static final IndexType DEFAULT_INDEX_TYPE = IndexType.CAGRA;
 
   static CuVSResources resources = cuVSResourcesOrNull();
-
-  /** The format for storing, reading, and merging raw vectors on disk. */
-  private static final FlatVectorsFormat flatVectorsFormat =
-      new Lucene99FlatVectorsFormat(DefaultFlatVectorScorer.INSTANCE);
+  static final LuceneProvider LUCENE_PROVIDER;
+  static final FlatVectorsFormat FLAT_VECTORS_FORMAT;
 
   final int maxDimensions = 4096;
   final int cuvsWriterThreads;
   final int intGraphDegree;
   final int graphDegree;
   final CuVS2510GPUVectorsWriter.IndexType indexType; // the index type to build, when writing
+
+  static {
+    try {
+      LUCENE_PROVIDER = LuceneProvider.getInstance("99");
+      FLAT_VECTORS_FORMAT =
+          LUCENE_PROVIDER.getLuceneFlatVectorsFormatInstance(DefaultFlatVectorScorer.INSTANCE);
+    } catch (Exception e) {
+      throw new ExceptionInInitializerError(e.getMessage());
+    }
+  }
 
   /**
    * Initializes the {@link CuVS2510GPUVectorsFormat} with default parameter values.
@@ -92,7 +99,7 @@ public class CuVS2510GPUVectorsFormat extends KnnVectorsFormat {
   @Override
   public CuVS2510GPUVectorsWriter fieldsWriter(SegmentWriteState state) throws IOException {
     checkSupported();
-    var flatWriter = flatVectorsFormat.fieldsWriter(state);
+    var flatWriter = FLAT_VECTORS_FORMAT.fieldsWriter(state);
     return new CuVS2510GPUVectorsWriter(
         state, cuvsWriterThreads, intGraphDegree, graphDegree, indexType, resources, flatWriter);
   }
@@ -103,7 +110,7 @@ public class CuVS2510GPUVectorsFormat extends KnnVectorsFormat {
   @Override
   public KnnVectorsReader fieldsReader(SegmentReadState state) throws IOException {
     checkSupported();
-    return new CuVS2510GPUVectorsReader(state, resources, flatVectorsFormat.fieldsReader(state));
+    return new CuVS2510GPUVectorsReader(state, resources, FLAT_VECTORS_FORMAT.fieldsReader(state));
   }
 
   /**

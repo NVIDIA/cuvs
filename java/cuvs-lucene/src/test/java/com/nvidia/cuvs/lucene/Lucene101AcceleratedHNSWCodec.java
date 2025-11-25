@@ -4,15 +4,12 @@
  */
 package com.nvidia.cuvs.lucene;
 
-import static org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsFormat.DEFAULT_BEAM_WIDTH;
-import static org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsFormat.DEFAULT_MAX_CONN;
-
 import com.nvidia.cuvs.LibraryException;
+import java.lang.reflect.InvocationTargetException;
 import java.util.logging.Logger;
 import org.apache.lucene.codecs.Codec;
 import org.apache.lucene.codecs.FilterCodec;
 import org.apache.lucene.codecs.KnnVectorsFormat;
-import org.apache.lucene.codecs.lucene101.Lucene101Codec;
 
 /**
  * CuVS based codec for GPU based vector search
@@ -28,11 +25,31 @@ public class Lucene101AcceleratedHNSWCodec extends FilterCodec {
   private static final int DEFAULT_GRAPH_DEGREE = 64;
   private static final int DEFAULT_HNSW_LAYERS = 1;
   private static final String NAME = "Lucene101AcceleratedHNSWCodec";
+  private static final LuceneProvider lucene99Provider;
+  private static final Integer maxConn;
+  private static final Integer beamWidth;
 
   private KnnVectorsFormat format;
 
-  public Lucene101AcceleratedHNSWCodec() {
-    this(NAME, new Lucene101Codec());
+  static {
+    try {
+      lucene99Provider = LuceneProvider.getInstance("99");
+      maxConn = lucene99Provider.getStaticIntParam("DEFAULT_MAX_CONN");
+      beamWidth = lucene99Provider.getStaticIntParam("DEFAULT_BEAM_WIDTH");
+    } catch (Exception e) {
+      throw new ExceptionInInitializerError(e.getMessage());
+    }
+  }
+
+  public Lucene101AcceleratedHNSWCodec()
+      throws ClassNotFoundException,
+          NoSuchMethodException,
+          SecurityException,
+          InstantiationException,
+          IllegalAccessException,
+          IllegalArgumentException,
+          InvocationTargetException {
+    this(NAME, LuceneProvider.getCodec("101"));
   }
 
   public Lucene101AcceleratedHNSWCodec(String name, Codec delegate) {
@@ -46,8 +63,15 @@ public class Lucene101AcceleratedHNSWCodec extends FilterCodec {
       int graphDegree,
       int hnswLayers,
       int maxConn,
-      int beamWidth) {
-    this(NAME, new Lucene101Codec());
+      int beamWidth)
+      throws ClassNotFoundException,
+          NoSuchMethodException,
+          SecurityException,
+          InstantiationException,
+          IllegalAccessException,
+          IllegalArgumentException,
+          InvocationTargetException {
+    this(NAME, LuceneProvider.getCodec("101"));
     initializeFormat(
         cuvsWriterThreads, intGraphDegree, graphDegree, hnswLayers, maxConn, beamWidth);
   }
@@ -58,8 +82,8 @@ public class Lucene101AcceleratedHNSWCodec extends FilterCodec {
         DEFAULT_INTERMEDIATE_GRAPH_DEGREE,
         DEFAULT_GRAPH_DEGREE,
         DEFAULT_HNSW_LAYERS,
-        DEFAULT_MAX_CONN,
-        DEFAULT_BEAM_WIDTH);
+        maxConn,
+        beamWidth);
   }
 
   private void initializeFormat(
