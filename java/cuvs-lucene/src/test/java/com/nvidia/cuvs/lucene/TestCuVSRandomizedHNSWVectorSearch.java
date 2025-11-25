@@ -41,11 +41,13 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 @SuppressSysoutChecks(bugUrl = "")
-public class TestCuVSRandomizedVectorSearch extends LuceneTestCase {
+public class TestCuVSRandomizedHNSWVectorSearch extends LuceneTestCase {
 
-  protected static Logger log = Logger.getLogger(TestCuVSRandomizedVectorSearch.class.getName());
+  protected static Logger log =
+      Logger.getLogger(TestCuVSRandomizedHNSWVectorSearch.class.getName());
 
-  static final Codec codec = TestUtil.alwaysKnnVectorsFormat(new CuVS2510GPUVectorsFormat());
+  static final Codec codec =
+      TestUtil.alwaysKnnVectorsFormat(new Lucene99AcceleratedHNSWVectorsFormat());
   static IndexSearcher searcher;
   static IndexReader reader;
   static Directory directory;
@@ -58,7 +60,7 @@ public class TestCuVSRandomizedVectorSearch extends LuceneTestCase {
 
   @BeforeClass
   public static void beforeClass() throws Exception {
-    assumeTrue("cuVS not supported", CuVS2510GPUVectorsFormat.supported());
+    assumeTrue("cuVS not supported", Lucene99AcceleratedHNSWVectorsFormat.supported());
     directory = newDirectory();
 
     RandomIndexWriter writer =
@@ -173,7 +175,7 @@ public class TestCuVSRandomizedVectorSearch extends LuceneTestCase {
 
   @Test
   public void testVectorSearchWithFilter() throws IOException {
-    assumeTrue("cuVS not supported", CuVS2510GPUVectorsFormat.supported());
+    assumeTrue("cuVS not supported", Lucene99AcceleratedHNSWVectorsFormat.supported());
 
     Random random = random();
     int topK = Math.min(random.nextInt(TOP_K_LIMIT) + 1, dataset.length);
@@ -195,7 +197,7 @@ public class TestCuVSRandomizedVectorSearch extends LuceneTestCase {
     Query filter = new TermQuery(new Term("id", targetDocId));
 
     // Test the new constructor with filter
-    Query filteredQuery = new GPUKnnFloatVectorQuery("vector", queryVector, topK, filter, topK, 1);
+    Query filteredQuery = new KnnFloatVectorQuery("vector", queryVector, topK, filter);
 
     ScoreDoc[] filteredHits = searcher.search(filteredQuery, topK).scoreDocs;
 
