@@ -8,7 +8,6 @@ import static com.nvidia.cuvs.lucene.Lucene99AcceleratedHNSWVectorsFormat.HNSW_I
 import static com.nvidia.cuvs.lucene.Lucene99AcceleratedHNSWVectorsFormat.HNSW_INDEX_EXT;
 import static com.nvidia.cuvs.lucene.Lucene99AcceleratedHNSWVectorsFormat.HNSW_META_CODEC_EXT;
 import static com.nvidia.cuvs.lucene.Lucene99AcceleratedHNSWVectorsFormat.HNSW_META_CODEC_NAME;
-import static org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsReader.SIMILARITY_FUNCTIONS;
 import static org.apache.lucene.index.VectorEncoding.FLOAT32;
 import static org.apache.lucene.search.DocIdSetIterator.NO_MORE_DOCS;
 import static org.apache.lucene.util.RamUsageEstimator.shallowSizeOfInstance;
@@ -37,7 +36,6 @@ import org.apache.lucene.codecs.KnnVectorsReader;
 import org.apache.lucene.codecs.KnnVectorsWriter;
 import org.apache.lucene.codecs.hnsw.FlatFieldVectorsWriter;
 import org.apache.lucene.codecs.hnsw.FlatVectorsWriter;
-import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsFormat;
 import org.apache.lucene.index.DocsWithFieldSet;
 import org.apache.lucene.index.FieldInfo;
 import org.apache.lucene.index.FieldInfos;
@@ -76,6 +74,10 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
   /** The name of the CUVS component for the info-stream * */
   private static final String CUVS_COMPONENT = "CUVS";
 
+  private static final LuceneProvider LUCENE_PROVIDER;
+  private static final Integer VERSION_CURRENT;
+  private static final List<VectorSimilarityFunction> VECTOR_SIMILARITY_FUNCTIONS;
+
   private final int cuvsWriterThreads;
   private final int intGraphDegree;
   private final int graphDegree;
@@ -89,6 +91,16 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
   private boolean finished;
   private String vemFileName;
   private String vexFileName;
+
+  static {
+    try {
+      LUCENE_PROVIDER = LuceneProvider.getInstance("99");
+      VERSION_CURRENT = LUCENE_PROVIDER.getStaticIntParam("VERSION_CURRENT");
+      VECTOR_SIMILARITY_FUNCTIONS = LUCENE_PROVIDER.getSimilarityFunctions();
+    } catch (Exception e) {
+      throw new ExceptionInInitializerError(e.getMessage());
+    }
+  }
 
   /**
    * Initializes {@link Lucene99AcceleratedHNSWVectorsWriter}
@@ -136,13 +148,13 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
       CodecUtil.writeIndexHeader(
           hnswMeta,
           HNSW_META_CODEC_NAME,
-          Lucene99HnswVectorsFormat.VERSION_CURRENT,
+          VERSION_CURRENT,
           state.segmentInfo.getId(),
           state.segmentSuffix);
       CodecUtil.writeIndexHeader(
           hnswVectorIndex,
           HNSW_INDEX_CODEC_NAME,
-          Lucene99HnswVectorsFormat.VERSION_CURRENT,
+          VERSION_CURRENT,
           state.segmentInfo.getId(),
           state.segmentSuffix);
 
@@ -662,8 +674,8 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
   }
 
   static int distFuncToOrd(VectorSimilarityFunction func) {
-    for (int i = 0; i < SIMILARITY_FUNCTIONS.size(); i++) {
-      if (SIMILARITY_FUNCTIONS.get(i).equals(func)) {
+    for (int i = 0; i < VECTOR_SIMILARITY_FUNCTIONS.size(); i++) {
+      if (VECTOR_SIMILARITY_FUNCTIONS.get(i).equals(func)) {
         return (byte) i;
       }
     }

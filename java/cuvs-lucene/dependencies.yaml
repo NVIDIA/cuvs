@@ -23,8 +23,8 @@ files:
       - cuda_version
       - java
 channels:
-  - conda-forge
   - rapidsai-nightly
+  - conda-forge
 dependencies:
   checks:
     common:
@@ -75,5 +75,7 @@ dependencies:
     common:
       - output_types: conda
         packages:
+          - cmake>=3.30.4
           - maven
+          - ninja
           - openjdk=22.*

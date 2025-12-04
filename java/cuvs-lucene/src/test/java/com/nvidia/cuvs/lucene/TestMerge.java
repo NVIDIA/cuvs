@@ -48,7 +48,7 @@ import org.junit.Test;
  * CAGRA, and combined index configurations to ensure proper vector handling
  * and search functionality after segment merging.
  */
-@SuppressSysoutChecks(bugUrl = "CuVS native library produces verbose logging output")
+@SuppressSysoutChecks(bugUrl = "")
 public class TestMerge extends LuceneTestCase {
 
   private static final Logger log = Logger.getLogger(TestMerge.class.getName());
