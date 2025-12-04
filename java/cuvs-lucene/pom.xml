@@ -39,6 +39,8 @@
   <properties>
     <maven.compiler.target>21</maven.compiler.target>
     <maven.compiler.source>21</maven.compiler.source>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
   </properties>
 
   <dependencies>
@@ -137,6 +139,9 @@
           <redirectTestOutputToFile>false</redirectTestOutputToFile>
           <useFile>false</useFile>
           <rerunFailingTestsCount>0</rerunFailingTestsCount>
+          <systemPropertyVariables>
+            <java.util.logging.config.file>${project.basedir}/src/main/resources/logging.properties</java.util.logging.config.file>
+          </systemPropertyVariables>
         </configuration>
       </plugin>
       <plugin>

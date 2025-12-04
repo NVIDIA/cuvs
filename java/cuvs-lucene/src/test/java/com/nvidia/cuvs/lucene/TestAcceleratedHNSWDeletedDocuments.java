@@ -13,6 +13,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Random;
 import java.util.Set;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.apache.lucene.codecs.Codec;
 import org.apache.lucene.document.Document;
@@ -106,7 +107,7 @@ public class TestAcceleratedHNSWDeletedDocuments extends LuceneTestCase {
           int id = Integer.parseInt(docId);
           assertFalse(
               "Deleted document " + id + " should not appear in results", deletedDocs.contains(id));
-          log.info("Found non-deleted document: " + id + ", Score: " + hit.score);
+          log.log(Level.FINE, "Found non-deleted document: " + id + ", Score: " + hit.score);
         }
 
         // Verify deleted documents are truly deleted
@@ -179,7 +180,7 @@ public class TestAcceleratedHNSWDeletedDocuments extends LuceneTestCase {
           int id = Integer.parseInt(docId);
           assertFalse("Deleted document should not appear", deletedDocs.contains(id));
           assertFalse("Document without vector should not appear", docsWithoutVectors.contains(id));
-          log.info("Found document with vector: " + id + ", Score: " + hit.score);
+          log.log(Level.FINE, "Found document with vector: " + id + ", Score: " + hit.score);
         }
 
         // Test filtered search with deletions
@@ -305,7 +306,8 @@ public class TestAcceleratedHNSWDeletedDocuments extends LuceneTestCase {
           assertTrue("Result should be from active documents", activeDocIds.contains(id));
         }
 
-        log.info(
+        log.log(
+            Level.FINE,
             "Search returned "
                 + hits.length
                 + " results from "
