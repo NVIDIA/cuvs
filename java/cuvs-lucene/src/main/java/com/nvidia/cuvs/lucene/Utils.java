@@ -9,6 +9,7 @@ import com.nvidia.cuvs.CuVSResources;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.List;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
@@ -83,17 +84,19 @@ public class Utils {
     try {
       System.loadLibrary("cudart");
     } catch (UnsatisfiedLinkError e) {
-      log.warning("Could not load CUDA runtime library: " + e.getMessage());
+      log.log(Level.WARNING, "Could not load CUDA runtime library: " + e.getMessage());
     }
     try {
       return CuVSResources.create();
     } catch (UnsupportedOperationException uoe) {
-      log.warning("cuVS is not supported on this platform or java version: " + uoe.getMessage());
+      log.log(
+          Level.WARNING,
+          "cuVS is not supported on this platform or java version: " + uoe.getMessage());
     } catch (Throwable t) {
       if (t instanceof ExceptionInInitializerError ex) {
         t = ex.getCause();
       }
-      log.warning("Exception occurred during creation of cuVS resources. " + t);
+      log.log(Level.WARNING, "Exception occurred during creation of cuVS resources. " + t);
     }
     return null;
   }

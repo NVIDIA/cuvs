@@ -6,6 +6,7 @@ package com.nvidia.cuvs.lucene;
 
 import com.nvidia.cuvs.LibraryException;
 import java.lang.reflect.InvocationTargetException;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.apache.lucene.codecs.Codec;
 import org.apache.lucene.codecs.FilterCodec;
@@ -99,7 +100,9 @@ public class Lucene101AcceleratedHNSWCodec extends FilterCodec {
               cuvsWriterThreads, intGraphDegree, graphDegree, hnswLayers, maxConn, beamWidth);
       setKnnFormat(format);
     } catch (LibraryException ex) {
-      log.severe("Couldn't load native library, possible classloader issue. " + ex.getMessage());
+      log.log(
+          Level.SEVERE,
+          "Couldn't load native library, possible classloader issue. " + ex.getMessage());
     }
   }
 

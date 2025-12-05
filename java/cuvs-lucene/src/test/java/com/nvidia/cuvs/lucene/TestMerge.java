@@ -11,6 +11,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
@@ -76,7 +77,7 @@ public class TestMerge extends LuceneTestCase {
     // Ensure dimension is multiple of 4 for better performance
     vectorDimension = (vectorDimension / 4) * 4;
 
-    log.info("Using randomized vector dimension: " + vectorDimension);
+    log.log(Level.FINE, "Using randomized vector dimension: " + vectorDimension);
   }
 
   @After
@@ -92,7 +93,7 @@ public class TestMerge extends LuceneTestCase {
    **/
   @Test
   public void testMergeManyDocumentsMultipleSegments() throws IOException {
-    log.info("Starting testMergeManyDocumentsMultipleSegments");
+    log.log(Level.FINE, "Starting testMergeManyDocumentsMultipleSegments");
 
     // Randomize configuration parameters
     int maxBufferedDocs = 5 + random().nextInt(16); // 5-20 docs per buffer
@@ -103,7 +104,8 @@ public class TestMerge extends LuceneTestCase {
     // Randomize vector presence probability (60-85%)
     double vectorProbability = 0.6 + (random().nextDouble() * 0.25);
 
-    log.info(
+    log.log(
+        Level.FINE,
         "Randomized parameters: maxBufferedDocs="
             + maxBufferedDocs
             + ", totalBatches="
@@ -149,13 +151,14 @@ public class TestMerge extends LuceneTestCase {
       }
 
       int documentsWithoutVectors = totalDocuments - documentsWithVectors;
-      log.info("Created " + totalDocuments + " documents in " + totalBatches + " segments");
-      log.info("Documents with vectors: " + documentsWithVectors);
-      log.info("Documents without vectors: " + documentsWithoutVectors);
+      log.log(
+          Level.FINE, "Created " + totalDocuments + " documents in " + totalBatches + " segments");
+      log.log(Level.FINE, "Documents with vectors: " + documentsWithVectors);
+      log.log(Level.FINE, "Documents without vectors: " + documentsWithoutVectors);
 
       // Force merge to trigger merge logic
       writer.forceMerge(1);
-      log.info("Forced merge to single segment completed");
+      log.log(Level.FINE, "Forced merge to single segment completed");
     }
 
     // Verify the merged index
@@ -182,7 +185,8 @@ public class TestMerge extends LuceneTestCase {
             "Should find reasonable number of results",
             results.scoreDocs.length <= documentsWithVectors);
 
-        log.info(
+        log.log(
+            Level.FINE,
             "Vector search returned "
                 + results.scoreDocs.length
                 + " results out of "
@@ -195,10 +199,10 @@ public class TestMerge extends LuceneTestCase {
           assertTrue("Document ID should be valid", docId >= 0 && docId < totalDocuments);
         }
       } else {
-        log.info("No documents with vectors - skipping vector search verification");
+        log.log(Level.FINE, "No documents with vectors - skipping vector search verification");
       }
 
-      log.info("Merge verification completed successfully");
+      log.log(Level.FINE, "Merge verification completed successfully");
     }
   }
 
@@ -207,7 +211,7 @@ public class TestMerge extends LuceneTestCase {
    **/
   @Test
   public void testMergeWithIndexSorting() throws IOException {
-    log.info("Starting testMergeWithIndexSorting with text-based sorting");
+    log.log(Level.FINE, "Starting testMergeWithIndexSorting with text-based sorting");
 
     // Randomize sort field type
     SortField.Type sortType = random().nextBoolean() ? SortField.Type.STRING : SortField.Type.LONG;
@@ -227,9 +231,11 @@ public class TestMerge extends LuceneTestCase {
     int segmentSize = 15 + random().nextInt(11); // 15-25 docs per segment
     double vectorProbability = 0.65 + (random().nextDouble() * 0.25); // 65-90% have vectors
 
-    log.info(
+    log.log(
+        Level.FINE,
         "Randomized sorting parameters: sortType=" + sortType + ", sortFieldName=" + sortFieldName);
-    log.info(
+    log.log(
+        Level.FINE,
         "Randomized config: maxBufferedDocs="
             + maxBufferedDocs
             + ", totalDocuments="
@@ -288,7 +294,8 @@ public class TestMerge extends LuceneTestCase {
         // Commit based on randomized segment size
         if ((i + 1) % segmentSize == 0) {
           writer.commit();
-          log.info(
+          log.log(
+              Level.FINE,
               "Committed segment "
                   + ((i + 1) / segmentSize)
                   + " with "
@@ -297,11 +304,11 @@ public class TestMerge extends LuceneTestCase {
         }
       }
 
-      log.info("Created " + totalDocuments + " documents with text-based index sorting");
+      log.log(Level.FINE, "Created " + totalDocuments + " documents with text-based index sorting");
 
       // Force merge with sorting - this will use the sorting merge policy
       writer.forceMerge(1);
-      log.info("Forced merge with text-based sorting completed");
+      log.log(Level.FINE, "Forced merge with text-based sorting completed");
     }
 
     // Verify the merged and sorted index
@@ -312,7 +319,8 @@ public class TestMerge extends LuceneTestCase {
       assertEquals("Total documents should match", totalDocuments, leafReader.maxDoc());
 
       // Verify documents are sorted correctly by the randomized sort field
-      log.info(
+      log.log(
+          Level.FINE,
           "Verifying document sorting order using sortType: "
               + sortType
               + ", field: "
@@ -344,7 +352,8 @@ public class TestMerge extends LuceneTestCase {
           if (docId < 10) {
             IndexSearcher searcher = new IndexSearcher(reader);
             String originalOrder = searcher.storedFields().document(docId).get("original_order");
-            log.info(
+            log.log(
+                Level.FINE,
                 "DocId: "
                     + docId
                     + ", OriginalOrder: "
@@ -379,7 +388,8 @@ public class TestMerge extends LuceneTestCase {
           if (docId < 10) {
             IndexSearcher searcher = new IndexSearcher(reader);
             String originalOrder = searcher.storedFields().document(docId).get("original_order");
-            log.info(
+            log.log(
+                Level.FINE,
                 "DocId: "
                     + docId
                     + ", OriginalOrder: "
@@ -394,7 +404,9 @@ public class TestMerge extends LuceneTestCase {
       var vectorValues = leafReader.getFloatVectorValues("vector");
       int documentsWithVectors = vectorValues != null ? vectorValues.size() : 0;
 
-      log.info("Found " + documentsWithVectors + " documents with vectors after sorted merge");
+      log.log(
+          Level.FINE,
+          "Found " + documentsWithVectors + " documents with vectors after sorted merge");
 
       // Test vector search on sorted index
       if (documentsWithVectors > 0) {
@@ -406,17 +418,20 @@ public class TestMerge extends LuceneTestCase {
         TopDocs results = searcher.search(query, 10);
 
         assertTrue("Should find results in sorted index", results.scoreDocs.length > 0);
-        log.info("Vector search on sorted index returned " + results.scoreDocs.length + " results");
+        log.log(
+            Level.FINE,
+            "Vector search on sorted index returned " + results.scoreDocs.length + " results");
 
         // Verify that returned documents maintain sort order if we check their sort keys
-        log.info("Verifying vector search results maintain sorting consistency...");
+        log.log(Level.FINE, "Verifying vector search results maintain sorting consistency...");
         for (int i = 0; i < Math.min(3, results.scoreDocs.length); i++) {
           ScoreDoc scoreDoc = results.scoreDocs[i];
           String originalOrder =
               searcher.storedFields().document(scoreDoc.doc).get("original_order");
           String sortKey =
               searcher.storedFields().document(scoreDoc.doc).get(sortFieldName + "_stored");
-          log.info(
+          log.log(
+              Level.FINE,
               "Result "
                   + i
                   + ": DocId="
@@ -430,7 +445,7 @@ public class TestMerge extends LuceneTestCase {
         }
       }
 
-      log.info("Text-based index sorting verification completed successfully");
+      log.log(Level.FINE, "Text-based index sorting verification completed successfully");
     }
   }
 
@@ -439,7 +454,7 @@ public class TestMerge extends LuceneTestCase {
    **/
   @Test
   public void testMergeWithMissingVectors() throws IOException {
-    log.info("Starting testMergeWithMissingVectors");
+    log.log(Level.FINE, "Starting testMergeWithMissingVectors");
 
     // Randomize configuration
     int maxBufferedDocs = 10 + random().nextInt(11); // 10-20 docs per buffer
@@ -451,7 +466,8 @@ public class TestMerge extends LuceneTestCase {
             .setMaxBufferedDocs(maxBufferedDocs)
             .setRAMBufferSizeMB(IndexWriterConfig.DISABLE_AUTO_FLUSH);
 
-    log.info(
+    log.log(
+        Level.FINE,
         "Randomized parameters: maxBufferedDocs="
             + maxBufferedDocs
             + ", numSegments="
@@ -490,7 +506,8 @@ public class TestMerge extends LuceneTestCase {
         totalDocuments += docsInSegment;
         totalExpectedVectors += segmentVectorCount;
 
-        log.info(
+        log.log(
+            Level.FINE,
             "Created segment "
                 + seg
                 + ": "
@@ -504,7 +521,7 @@ public class TestMerge extends LuceneTestCase {
 
       // Force merge all segments
       writer.forceMerge(1);
-      log.info("Forced merge of " + numSegments + " segments completed");
+      log.log(Level.FINE, "Forced merge of " + numSegments + " segments completed");
     }
 
     // Verify the merged index handles missing vectors correctly
@@ -518,7 +535,8 @@ public class TestMerge extends LuceneTestCase {
       var vectorValues = leafReader.getFloatVectorValues("vector");
       int actualVectorCount = vectorValues != null ? vectorValues.size() : 0;
 
-      log.info(
+      log.log(
+          Level.FINE,
           "Total documents: "
               + totalDocuments
               + ", Expected vectors: "
@@ -544,17 +562,18 @@ public class TestMerge extends LuceneTestCase {
             "Should not find more vectors than exist",
             vectorResults.scoreDocs.length <= actualVectorCount);
 
-        log.info(
+        log.log(
+            Level.FINE,
             "Found "
                 + vectorResults.scoreDocs.length
                 + " vector results out of "
                 + actualVectorCount
                 + " available");
       } else {
-        log.info("No vectors in merged index - skipping vector search");
+        log.log(Level.FINE, "No vectors in merged index - skipping vector search");
       }
 
-      log.info("Missing vectors test completed successfully");
+      log.log(Level.FINE, "Missing vectors test completed successfully");
     }
   }
 
@@ -563,7 +582,7 @@ public class TestMerge extends LuceneTestCase {
    **/
   @Test
   public void testMergeWithDeletions() throws IOException {
-    log.info("Starting testMergeWithDeletions");
+    log.log(Level.FINE, "Starting testMergeWithDeletions");
 
     // Randomize configuration parameters
     int maxBufferedDocs = 15 + random().nextInt(11); // 15-25 docs per buffer
@@ -572,7 +591,8 @@ public class TestMerge extends LuceneTestCase {
     double vectorProbability = 0.7 + (random().nextDouble() * 0.25); // 70-95% have vectors
     double deletionProbability = 0.2 + (random().nextDouble() * 0.3); // 20-50% deletion rate
 
-    log.info(
+    log.log(
+        Level.FINE,
         "Randomized parameters: maxBufferedDocs="
             + maxBufferedDocs
             + ", numSegments="
@@ -616,7 +636,8 @@ public class TestMerge extends LuceneTestCase {
         writer.commit();
       }
 
-      log.info(
+      log.log(
+          Level.FINE,
           "Created "
               + numSegments
               + " segments with "
@@ -637,7 +658,8 @@ public class TestMerge extends LuceneTestCase {
         }
       }
 
-      log.info(
+      log.log(
+          Level.FINE,
           "Deleted "
               + deletedCount
               + " documents ("
@@ -649,7 +671,7 @@ public class TestMerge extends LuceneTestCase {
 
       // Force merge to apply deletions
       writer.forceMerge(1);
-      log.info("Forced merge with deletions completed");
+      log.log(Level.FINE, "Forced merge with deletions completed");
     }
 
     // Verify the merged index correctly handles deletions
@@ -690,8 +712,10 @@ public class TestMerge extends LuceneTestCase {
       assertTrue(
           "Should find some vector results after deletions", vectorResults.scoreDocs.length > 0);
 
-      log.info("Found " + vectorResults.scoreDocs.length + " vector results after deletions");
-      log.info("Deletion merge verification completed successfully");
+      log.log(
+          Level.FINE,
+          "Found " + vectorResults.scoreDocs.length + " vector results after deletions");
+      log.log(Level.FINE, "Deletion merge verification completed successfully");
     }
   }
 
@@ -700,7 +724,7 @@ public class TestMerge extends LuceneTestCase {
    * */
   @Test
   public void testMergeBruteForceIndex() throws IOException {
-    log.info("Starting testMergeBruteForceIndex");
+    log.log(Level.FINE, "Starting testMergeBruteForceIndex");
 
     // Randomize configuration parameters
     int maxBufferedDocs = 8 + random().nextInt(8); // 8-15 docs per buffer
@@ -708,7 +732,8 @@ public class TestMerge extends LuceneTestCase {
     int docsPerSegment = 12 + random().nextInt(9); // 12-20 docs per segment
     double vectorProbability = 0.8 + (random().nextDouble() * 0.2); // 80-100% have vectors
 
-    log.info(
+    log.log(
+        Level.FINE,
         "Randomized parameters: maxBufferedDocs="
             + maxBufferedDocs
             + ", numSegments="
@@ -761,7 +786,8 @@ public class TestMerge extends LuceneTestCase {
         writer.commit();
         totalExpectedVectors += segmentVectorCount;
 
-        log.info(
+        log.log(
+            Level.FINE,
             "Created brute force segment "
                 + seg
                 + ": "
@@ -771,7 +797,8 @@ public class TestMerge extends LuceneTestCase {
                 + " with vectors");
       }
 
-      log.info(
+      log.log(
+          Level.FINE,
           "Created "
               + numSegments
               + " brute force segments with "
@@ -782,7 +809,7 @@ public class TestMerge extends LuceneTestCase {
 
       // Force merge all brute force segments
       writer.forceMerge(1);
-      log.info("Forced merge of brute force segments completed");
+      log.log(Level.FINE, "Forced merge of brute force segments completed");
     }
 
     // Verify the merged brute force index
@@ -796,7 +823,8 @@ public class TestMerge extends LuceneTestCase {
       var vectorValues = leafReader.getFloatVectorValues("vector");
       int actualVectorCount = vectorValues != null ? vectorValues.size() : 0;
 
-      log.info(
+      log.log(
+          Level.FINE,
           "Brute force merge results: Total documents: "
               + totalDocuments
               + ", Expected vectors: "
@@ -824,7 +852,8 @@ public class TestMerge extends LuceneTestCase {
             "Should not find more vectors than exist",
             vectorResults.scoreDocs.length <= actualVectorCount);
 
-        log.info(
+        log.log(
+            Level.FINE,
             "Brute force search found "
                 + vectorResults.scoreDocs.length
                 + " results out of "
@@ -838,10 +867,10 @@ public class TestMerge extends LuceneTestCase {
           assertTrue("Score should be positive", scoreDoc.score > 0);
         }
       } else {
-        log.info("No vectors in brute force merged index - skipping vector search");
+        log.log(Level.FINE, "No vectors in brute force merged index - skipping vector search");
       }
 
-      log.info("Brute force merge verification completed successfully");
+      log.log(Level.FINE, "Brute force merge verification completed successfully");
     }
   }
 
@@ -850,7 +879,7 @@ public class TestMerge extends LuceneTestCase {
    * */
   @Test
   public void testMergeCagraAndBruteForceIndex() throws IOException {
-    log.info("Starting testMergeCagraAndBruteForceIndex");
+    log.log(Level.FINE, "Starting testMergeCagraAndBruteForceIndex");
 
     // Use moderate dataset size
     int maxBufferedDocs = 15 + random().nextInt(10); // 15-24 docs per buffer
@@ -859,7 +888,8 @@ public class TestMerge extends LuceneTestCase {
     int docsPerSegment = 20 + random().nextInt(11); // 20-30 docs per segment
     double vectorProbability = 0.9 + (random().nextDouble() * 0.1); // 90-100% have vectors
 
-    log.info(
+    log.log(
+        Level.FINE,
         "Randomized parameters: maxBufferedDocs="
             + maxBufferedDocs
             + ", numSegments="
@@ -913,7 +943,8 @@ public class TestMerge extends LuceneTestCase {
         writer.commit();
         totalExpectedVectors += segmentVectorCount;
 
-        log.info(
+        log.log(
+            Level.FINE,
             "Created CAGRA+brute force segment "
                 + seg
                 + ": "
@@ -923,7 +954,8 @@ public class TestMerge extends LuceneTestCase {
                 + " with vectors");
       }
 
-      log.info(
+      log.log(
+          Level.FINE,
           "Created "
               + numSegments
               + " CAGRA+brute force segments with "
@@ -934,7 +966,7 @@ public class TestMerge extends LuceneTestCase {
 
       // Force merge all CAGRA+brute force segments
       writer.forceMerge(1);
-      log.info("Forced merge of CAGRA+brute force segments completed");
+      log.log(Level.FINE, "Forced merge of CAGRA+brute force segments completed");
     }
 
     // Verify the merged CAGRA+brute force index
@@ -948,7 +980,8 @@ public class TestMerge extends LuceneTestCase {
       var vectorValues = leafReader.getFloatVectorValues("vector");
       int actualVectorCount = vectorValues != null ? vectorValues.size() : 0;
 
-      log.info(
+      log.log(
+          Level.FINE,
           "CAGRA+brute force merge results: Total documents: "
               + totalDocuments
               + ", Expected vectors: "
@@ -976,7 +1009,8 @@ public class TestMerge extends LuceneTestCase {
             "Should not find more vectors than exist",
             vectorResults.scoreDocs.length <= actualVectorCount);
 
-        log.info(
+        log.log(
+            Level.FINE,
             "CAGRA+brute force index search found "
                 + vectorResults.scoreDocs.length
                 + " results out of "
@@ -1006,13 +1040,16 @@ public class TestMerge extends LuceneTestCase {
           TopDocs trialResults = searcher.search(trialQuery, Math.min(5, actualVectorCount));
 
           assertTrue("Trial " + trial + " should find results", trialResults.scoreDocs.length > 0);
-          log.info("Trial " + trial + " found " + trialResults.scoreDocs.length + " results");
+          log.log(
+              Level.FINE,
+              "Trial " + trial + " found " + trialResults.scoreDocs.length + " results");
         }
       } else {
-        log.info("No vectors in CAGRA+brute force merged index - skipping vector search");
+        log.log(
+            Level.FINE, "No vectors in CAGRA+brute force merged index - skipping vector search");
       }
 
-      log.info("CAGRA+brute force merge verification completed successfully");
+      log.log(Level.FINE, "CAGRA+brute force merge verification completed successfully");
     }
   }
 
@@ -1025,7 +1062,7 @@ public class TestMerge extends LuceneTestCase {
         "testLargeScaleMerge requires -DlargeScale=true",
         Boolean.parseBoolean(System.getProperty("largeScale", "false")));
 
-    log.info("Starting testLargeScaleMerge");
+    log.log(Level.FINE, "Starting testLargeScaleMerge");
 
     // Randomize large scale parameters
     int maxBufferedDocs = 40 + random().nextInt(21); // 40-60 docs per buffer
@@ -1033,7 +1070,8 @@ public class TestMerge extends LuceneTestCase {
     int docsPerSegment = 30 + random().nextInt(21); // 30-50 docs per segment
     int totalDocuments = segmentCount * docsPerSegment;
 
-    log.info(
+    log.log(
+        Level.FINE,
         "Randomized large scale parameters: maxBufferedDocs="
             + maxBufferedDocs
             + ", segmentCount="
@@ -1051,7 +1089,7 @@ public class TestMerge extends LuceneTestCase {
 
     try (IndexWriter writer = new IndexWriter(directory, config)) {
       for (int seg = 0; seg < segmentCount; seg++) {
-        log.info("Creating segment " + (seg + 1) + "/" + segmentCount);
+        log.log(Level.FINE, "Creating segment " + (seg + 1) + "/" + segmentCount);
 
         // Randomize vector probability per segment
         double vectorProbability =
@@ -1075,14 +1113,16 @@ public class TestMerge extends LuceneTestCase {
         writer.commit();
       }
 
-      log.info("Created " + segmentCount + " segments with " + totalDocuments + " total documents");
+      log.log(
+          Level.FINE,
+          "Created " + segmentCount + " segments with " + totalDocuments + " total documents");
 
       // Force merge all segments
       long startTime = System.currentTimeMillis();
       writer.forceMerge(1);
       long mergeTime = System.currentTimeMillis() - startTime;
 
-      log.info("Large scale merge completed in " + mergeTime + "ms");
+      log.log(Level.FINE, "Large scale merge completed in " + mergeTime + "ms");
     }
 
     // Verify the large merged index
@@ -1110,7 +1150,8 @@ public class TestMerge extends LuceneTestCase {
         long searchTime = System.currentTimeMillis() - searchStart;
 
         assertTrue("Should find vector results in large index", vectorResults.scoreDocs.length > 0);
-        log.info(
+        log.log(
+            Level.FINE,
             "Vector search in large index returned "
                 + vectorResults.scoreDocs.length
                 + " results out of "
@@ -1119,10 +1160,10 @@ public class TestMerge extends LuceneTestCase {
                 + searchTime
                 + "ms");
       } else {
-        log.info("No vectors in large merged index - skipping vector search");
+        log.log(Level.FINE, "No vectors in large merged index - skipping vector search");
       }
 
-      log.info("Large scale merge verification completed successfully");
+      log.log(Level.FINE, "Large scale merge verification completed successfully");
     }
   }
 

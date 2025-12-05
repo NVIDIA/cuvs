@@ -123,24 +123,36 @@ import java.util.logging.Level;
   @Override
   public CagraIndexParams cagraIndexParamsFromHnswParams(
       long arg0, long arg1, int arg2, int arg3, HnswHeuristicType arg4, CuvsDistanceType arg5) {
-    // TODO Auto-generated method stub
-    return null;
+    return delegate.cagraIndexParamsFromHnswParams(arg0, arg1, arg2, arg3, arg4, arg5);
   }
 
   @Override
   public Level getLogLevel() {
-    // TODO Auto-generated method stub
-    return null;
+    return delegate.getLogLevel();
   }
 
   @Override
   public void setLogLevel(Level arg0) {
-    // TODO Auto-generated method stub
+    delegate.setLogLevel(arg0);
   }
 
   @Override
   public HnswIndex hnswIndexFromCagra(HnswIndexParams arg0, CagraIndex arg1) throws Throwable {
-    // TODO Auto-generated method stub
-    return null;
+    return delegate.hnswIndexFromCagra(arg0, arg1);
+  }
+
+  @Override
+  public void enableRMMManagedPooledMemory(int arg0, int arg1) {
+    delegate.enableRMMManagedPooledMemory(arg0, arg1);
+  }
+
+  @Override
+  public void enableRMMPooledMemory(int arg0, int arg1) {
+    delegate.enableRMMManagedPooledMemory(arg0, arg1);
+  }
+
+  @Override
+  public void resetRMMPooledMemory() {
+    delegate.resetRMMPooledMemory();
   }
 }

@@ -7,6 +7,7 @@ package com.nvidia.cuvs.lucene;
 import com.nvidia.cuvs.LibraryException;
 import com.nvidia.cuvs.lucene.CuVS2510GPUVectorsWriter.IndexType;
 import java.lang.reflect.InvocationTargetException;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.apache.lucene.codecs.Codec;
 import org.apache.lucene.codecs.FilterCodec;
@@ -68,7 +69,9 @@ public class CuVS2510GPUSearchCodec extends FilterCodec {
               DEFAULT_INDEX_TYPE);
       setKnnFormat(format);
     } catch (LibraryException ex) {
-      log.severe("Couldn't load native library, possible classloader issue. " + ex.getMessage());
+      log.log(
+          Level.SEVERE,
+          "Couldn't load native library, possible classloader issue. " + ex.getMessage());
     }
   }
 

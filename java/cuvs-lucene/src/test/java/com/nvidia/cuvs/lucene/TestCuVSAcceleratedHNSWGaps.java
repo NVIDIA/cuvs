@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.TreeMap;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.apache.lucene.codecs.Codec;
 import org.apache.lucene.document.Document;
@@ -73,7 +74,7 @@ public class TestCuVSAcceleratedHNSWGaps extends LuceneTestCase {
                 .setCodec(codec)
                 .setMergePolicy(newTieredMergePolicy()));
 
-    log.info("Merge Policy: " + writer.w.getConfig().getMergePolicy());
+    log.log(Level.FINE, "Merge Policy: " + writer.w.getConfig().getMergePolicy());
 
     datasetSize = random.nextInt(100, DATASET_SIZE_LIMIT);
     dimension = random.nextInt(8, DIMENSIONS_LIMIT);
@@ -105,7 +106,7 @@ public class TestCuVSAcceleratedHNSWGaps extends LuceneTestCase {
     searcher = null;
     reader = null;
     directory = null;
-    log.info("Test finished");
+    log.log(Level.FINE, "Test finished");
   }
 
   @Test
@@ -127,7 +128,7 @@ public class TestCuVSAcceleratedHNSWGaps extends LuceneTestCase {
       String docId = reader.storedFields().document(hit.doc).get("id");
       int id = Integer.parseInt(docId);
       assertEquals("All results should be even-numbered (have vectors)", 0, id % 2);
-      log.info("Document ID: " + id + ", Score: " + hit.score);
+      log.log(Level.FINE, "Document ID: " + id + ", Score: " + hit.score);
     }
 
     // Verify the results match expected top-k based on Euclidean distance
@@ -138,7 +139,7 @@ public class TestCuVSAcceleratedHNSWGaps extends LuceneTestCase {
       assertTrue("Result " + id + " should be in expected top-k results", expectedIds.contains(id));
     }
 
-    log.info("Alternating document test passed with " + hits.length + " results");
+    log.log(Level.FINE, "Alternating document test passed with " + hits.length + " results");
   }
 
   @Test
@@ -162,7 +163,9 @@ public class TestCuVSAcceleratedHNSWGaps extends LuceneTestCase {
     String docId = reader.storedFields().document(filteredHits[0].doc).get("id");
     assertEquals("Should only return document 8", "8", docId);
 
-    log.info("Filtered alternating document test passed with " + filteredHits.length + " results");
+    log.log(
+        Level.FINE,
+        "Filtered alternating document test passed with " + filteredHits.length + " results");
   }
 
   public static List<Integer> calculateExpectedTopK(float[] query, int topK, float[][] dataset) {
