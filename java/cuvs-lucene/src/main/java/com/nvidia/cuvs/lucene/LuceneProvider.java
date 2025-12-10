@@ -9,6 +9,7 @@ import java.lang.invoke.VarHandle;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.util.List;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.apache.lucene.codecs.Codec;
 import org.apache.lucene.codecs.KnnVectorsReader;
@@ -107,7 +108,7 @@ public class LuceneProvider {
         return Class.forName(fallbackClassName);
       } catch (ClassNotFoundException e1) {
         // Should not reach here.
-        log.severe("Unable to load class: " + fallbackClassName);
+        log.log(Level.SEVERE, "Unable to load class: " + fallbackClassName);
         throw e1;
       }
     }
@@ -134,7 +135,7 @@ public class LuceneProvider {
           flatVectorsFormat.getConstructor(FlatVectorsScorer.class);
       return (FlatVectorsFormat) luceneFlatVectorsFormatConstructor.newInstance(scorer);
     } catch (Exception e) {
-      log.severe("Unable to initialize LuceneFlatVectorsFormat: " + e.getMessage());
+      log.log(Level.SEVERE, "Unable to initialize LuceneFlatVectorsFormat: " + e.getMessage());
       throw e;
     }
   }
@@ -146,7 +147,7 @@ public class LuceneProvider {
           hnswVectorsReader.getConstructor(SegmentReadState.class, FlatVectorsReader.class);
       return (KnnVectorsReader) luceneHnswVectorsReaderConstructor.newInstance(state, reader);
     } catch (Exception e) {
-      log.severe("Unable to initialize LuceneHnswVectorsReader: " + e.getMessage());
+      log.log(Level.SEVERE, "Unable to initialize LuceneHnswVectorsReader: " + e.getMessage());
       throw e;
     }
   }
@@ -172,7 +173,7 @@ public class LuceneProvider {
           luceneHnswVectorsWriterConstructor.newInstance(
               state, maxConn, beamWidth, writer, numMergeWorkers, executor);
     } catch (Exception e) {
-      log.severe("Unable to initialize LuceneHnswVectorsWriter: " + e.getMessage());
+      log.log(Level.SEVERE, "Unable to initialize LuceneHnswVectorsWriter: " + e.getMessage());
       throw e;
     }
   }
@@ -182,7 +183,7 @@ public class LuceneProvider {
       VarHandle varHandle = lookup.findStaticVarHandle(hnswVectorsFormat, param, Integer.TYPE);
       return (int) varHandle.get();
     } catch (NoSuchFieldException | IllegalAccessException e) {
-      log.severe("Unable to get " + param + ": " + e.getMessage());
+      log.log(Level.SEVERE, "Unable to get " + param + ": " + e.getMessage());
       throw e;
     }
   }
@@ -194,7 +195,7 @@ public class LuceneProvider {
           lookup.findStaticVarHandle(hnswVectorsReader, "SIMILARITY_FUNCTIONS", List.class);
       return (List<VectorSimilarityFunction>) varHandle.get();
     } catch (NoSuchFieldException | IllegalAccessException e) {
-      log.severe("Unable to get SIMILARITY_FUNCTIONS: " + e.getMessage());
+      log.log(Level.SEVERE, "Unable to get SIMILARITY_FUNCTIONS: " + e.getMessage());
       throw e;
     }
   }

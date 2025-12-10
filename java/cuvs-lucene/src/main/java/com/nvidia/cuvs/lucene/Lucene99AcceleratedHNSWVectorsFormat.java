@@ -9,6 +9,7 @@ import static com.nvidia.cuvs.lucene.Utils.cuVSResourcesOrNull;
 import com.nvidia.cuvs.CuVSResources;
 import com.nvidia.cuvs.LibraryException;
 import java.io.IOException;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.apache.lucene.codecs.KnnVectorsFormat;
 import org.apache.lucene.codecs.KnnVectorsReader;
@@ -115,11 +116,12 @@ public class Lucene99AcceleratedHNSWVectorsFormat extends KnnVectorsFormat {
   public KnnVectorsWriter fieldsWriter(SegmentWriteState state) throws IOException {
     var flatWriter = FLAT_VECTORS_FORMAT.fieldsWriter(state);
     if (supported()) {
-      log.info("cuVS is supported so using the Lucene99AcceleratedHNSWVectorsWriter");
+      log.log(Level.FINE, "cuVS is supported so using the Lucene99AcceleratedHNSWVectorsWriter");
       return new Lucene99AcceleratedHNSWVectorsWriter(
           state, cuvsWriterThreads, intGraphDegree, graphDegree, hnswLayers, resources, flatWriter);
     } else {
-      log.warning(
+      log.log(
+          Level.WARNING,
           "GPU based indexing not supported, falling back to using the Lucene99HnswVectorsWriter");
       // TODO: Make num merge workers configurable.
       try {

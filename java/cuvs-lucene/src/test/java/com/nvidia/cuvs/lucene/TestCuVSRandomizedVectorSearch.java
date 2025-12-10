@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.TreeMap;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.apache.lucene.codecs.Codec;
 import org.apache.lucene.document.Document;
@@ -70,7 +71,7 @@ public class TestCuVSRandomizedVectorSearch extends LuceneTestCase {
                 .setCodec(codec)
                 .setMergePolicy(newTieredMergePolicy()));
 
-    log.info("Merge Policy: " + writer.w.getConfig().getMergePolicy());
+    log.log(Level.FINE, "Merge Policy: " + writer.w.getConfig().getMergePolicy());
 
     Random random = random();
     int datasetSize = random.nextInt(DATASET_SIZE_LIMIT) + 1;
@@ -104,7 +105,7 @@ public class TestCuVSRandomizedVectorSearch extends LuceneTestCase {
     searcher = null;
     reader = null;
     directory = null;
-    log.info("Test finished");
+    log.log(Level.FINE, "Test finished");
   }
 
   @Test
@@ -118,20 +119,21 @@ public class TestCuVSRandomizedVectorSearch extends LuceneTestCase {
     float[][] queries = generateQueries(random, dataset[0].length, numQueries);
     List<List<Integer>> expected = generateExpectedResults(topK, dataset, queries);
 
-    log.info("Dataset size: " + dataset.length + "x" + dataset[0].length);
-    log.info("Query size: " + numQueries + "x" + queries[0].length);
-    log.info("TopK: " + topK);
+    log.log(Level.FINE, "Dataset size: " + dataset.length + "x" + dataset[0].length);
+    log.log(Level.FINE, "Query size: " + numQueries + "x" + queries[0].length);
+    log.log(Level.FINE, "TopK: " + topK);
 
     Query query = new KnnFloatVectorQuery("vector", queries[0], topK);
     int correct[] = new int[topK];
     for (int i = 0; i < topK; i++) correct[i] = expected.get(0).get(i);
 
     ScoreDoc[] hits = searcher.search(query, topK).scoreDocs;
-    log.info("RESULTS: " + Arrays.toString(hits));
-    log.info("EXPECTD: " + expected.get(0));
+    log.log(Level.FINE, "RESULTS: " + Arrays.toString(hits));
+    log.log(Level.FINE, "EXPECTD: " + expected.get(0));
 
     for (ScoreDoc hit : hits) {
-      log.info("\t" + reader.storedFields().document(hit.doc).get("id") + ": " + hit.score);
+      log.log(
+          Level.FINE, "\t" + reader.storedFields().document(hit.doc).get("id") + ": " + hit.score);
     }
 
     for (ScoreDoc hit : hits) {
@@ -156,7 +158,7 @@ public class TestCuVSRandomizedVectorSearch extends LuceneTestCase {
       }
 
       Map<Integer, Double> sorted = new TreeMap<Integer, Double>(distances);
-      log.info("EXPECTED: " + sorted);
+      log.log(Level.FINE, "EXPECTED: " + sorted);
 
       // Sort by distance and select the topK nearest neighbors
       List<Integer> neighbors =
@@ -167,7 +169,7 @@ public class TestCuVSRandomizedVectorSearch extends LuceneTestCase {
       neighborsResult.add(neighbors.subList(0, Math.min(topK * 3, dataset.length)));
     }
 
-    log.info("Expected results generated successfully.");
+    log.log(Level.FINE, "Expected results generated successfully.");
     return neighborsResult;
   }
 
@@ -208,6 +210,6 @@ public class TestCuVSRandomizedVectorSearch extends LuceneTestCase {
       assertEquals("All results should match the filter", targetDocId, docId);
     }
 
-    log.info("Prefiltering test passed with " + filteredHits.length + " results");
+    log.log(Level.FINE, "Prefiltering test passed with " + filteredHits.length + " results");
   }
 }
