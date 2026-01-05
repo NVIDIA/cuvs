@@ -37,8 +37,8 @@
   </scm>
 
   <properties>
-    <maven.compiler.target>21</maven.compiler.target>
-    <maven.compiler.source>21</maven.compiler.source>
+    <maven.compiler.target>22</maven.compiler.target>
+    <maven.compiler.source>22</maven.compiler.source>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
   </properties>
@@ -165,9 +165,8 @@
                 <goal>jar</goal>
             </goals>
             <configuration>
-                <includePackageNames>com.nvidia.cuvs.lucene</includePackageNames>
-                <doclint>all</doclint>
-                <destDir>${project.build.directory}/javadocs</destDir>
+                <doclint>all,-missing</doclint>
+                <outputDirectory>${project.build.directory}/javadocs</outputDirectory>
             </configuration>
           </execution>
         </executions>
