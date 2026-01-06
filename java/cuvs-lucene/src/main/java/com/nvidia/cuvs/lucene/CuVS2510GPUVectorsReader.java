@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs.lucene;
@@ -173,7 +173,7 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
   /**
    * Reads the fieldInfo for each index field and loads FieldEntry in a map.
    *
-   * @param meta intance of the ChecksumIndexInput
+   * @param meta instance of the ChecksumIndexInput
    * @throws IOException
    */
   private void readFields(ChecksumIndexInput meta) throws IOException {
@@ -428,11 +428,19 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
 
     Map<Integer, Float> result;
     if (knnCollector.k() <= 1024 && cuvsIndex.getCagraIndex() != null) {
-      CagraSearchParams searchParams =
-          new CagraSearchParams.Builder()
-              .withItopkSize(topK) // TODO: params
-              .withSearchWidth(1)
-              .build();
+
+      CagraSearchParams searchParams;
+      if (knnCollector instanceof GPUPerLeafCuVSKnnCollector) {
+        GPUPerLeafCuVSKnnCollector collector = (GPUPerLeafCuVSKnnCollector) knnCollector;
+        searchParams =
+            new CagraSearchParams.Builder()
+                .withItopkSize(Math.max(collector.getiTopK(), topK))
+                .withSearchWidth(collector.getSearchWidth())
+                .build();
+      } else {
+        // Setting itopK as topK because in any case iTopK should be ATLEAST equal to topK
+        searchParams = new CagraSearchParams.Builder().withItopkSize(topK).build();
+      }
 
       var query =
           new CagraQuery.Builder(resources)

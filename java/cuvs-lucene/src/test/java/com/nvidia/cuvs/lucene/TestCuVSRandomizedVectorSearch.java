@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs.lucene;
@@ -25,7 +25,6 @@ import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.index.VectorSimilarityFunction;
 import org.apache.lucene.search.IndexSearcher;
-import org.apache.lucene.search.KnnFloatVectorQuery;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.ScoreDoc;
 import org.apache.lucene.search.TermQuery;
@@ -123,7 +122,8 @@ public class TestCuVSRandomizedVectorSearch extends LuceneTestCase {
     log.log(Level.FINE, "Query size: " + numQueries + "x" + queries[0].length);
     log.log(Level.FINE, "TopK: " + topK);
 
-    Query query = new KnnFloatVectorQuery("vector", queries[0], topK);
+    GPUKnnFloatVectorQuery query =
+        new GPUKnnFloatVectorQuery("vector", queries[0], topK, null, topK, 1);
     int correct[] = new int[topK];
     for (int i = 0; i < topK; i++) correct[i] = expected.get(0).get(i);
 
@@ -183,7 +183,8 @@ public class TestCuVSRandomizedVectorSearch extends LuceneTestCase {
     if (dataset.length < topK) topK = dataset.length;
 
     // Find a document that has a vector by doing a search first
-    Query unfiltered = new KnnFloatVectorQuery("vector", dataset[0], 1);
+    GPUKnnFloatVectorQuery unfiltered =
+        new GPUKnnFloatVectorQuery("vector", dataset[0], 1, null, 1, 1);
     ScoreDoc[] unfilteredHits = searcher.search(unfiltered, 1).scoreDocs;
 
     // Skip test if no vectors found at all
@@ -197,7 +198,8 @@ public class TestCuVSRandomizedVectorSearch extends LuceneTestCase {
     Query filter = new TermQuery(new Term("id", targetDocId));
 
     // Test the new constructor with filter
-    Query filteredQuery = new GPUKnnFloatVectorQuery("vector", queryVector, topK, filter, topK, 1);
+    GPUKnnFloatVectorQuery filteredQuery =
+        new GPUKnnFloatVectorQuery("vector", queryVector, topK, filter, topK, 1);
 
     ScoreDoc[] filteredHits = searcher.search(filteredQuery, topK).scoreDocs;
 

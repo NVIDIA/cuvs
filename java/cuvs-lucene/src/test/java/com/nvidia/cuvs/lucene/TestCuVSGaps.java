@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs.lucene;
@@ -22,7 +22,6 @@ import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.index.VectorSimilarityFunction;
 import org.apache.lucene.search.IndexSearcher;
-import org.apache.lucene.search.KnnFloatVectorQuery;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.ScoreDoc;
 import org.apache.lucene.search.TermQuery;
@@ -116,7 +115,8 @@ public class TestCuVSGaps extends LuceneTestCase {
     float[] queryVector = dataset[0];
     int topK = random.nextInt(5, TOP_K_LIMIT);
 
-    Query query = new KnnFloatVectorQuery("vector", queryVector, topK);
+    GPUKnnFloatVectorQuery query =
+        new GPUKnnFloatVectorQuery("vector", queryVector, topK, null, topK, 1);
     ScoreDoc[] hits = searcher.search(query, topK).scoreDocs;
 
     // Verify we get exactly TOP_K results
@@ -153,7 +153,8 @@ public class TestCuVSGaps extends LuceneTestCase {
     // This should further restrict our results to even numbers 0, 2, 4, 6, 8
     Query filter = new TermQuery(new Term("id", "8")); // Only match document 8
 
-    Query filteredQuery = new GPUKnnFloatVectorQuery("vector", queryVector, topK, filter, topK, 1);
+    GPUKnnFloatVectorQuery filteredQuery =
+        new GPUKnnFloatVectorQuery("vector", queryVector, topK, filter, topK, 1);
     ScoreDoc[] filteredHits = searcher.search(filteredQuery, topK).scoreDocs;
 
     // Should only get document 8 (the only one that matches the filter and has a vector)

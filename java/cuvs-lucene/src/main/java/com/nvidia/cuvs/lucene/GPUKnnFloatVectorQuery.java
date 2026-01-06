@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs.lucene;
@@ -7,7 +7,6 @@ package com.nvidia.cuvs.lucene;
 import java.io.IOException;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
-import org.apache.lucene.search.KnnCollector;
 import org.apache.lucene.search.KnnFloatVectorQuery;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.TopDocs;
@@ -49,7 +48,8 @@ public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
       KnnCollectorManager knnCollectorManager)
       throws IOException {
 
-    KnnCollector results = new GPUPerLeafCuVSKnnCollector(k, iTopK, searchWidth);
+    GPUPerLeafCuVSKnnCollector results =
+        new GPUPerLeafCuVSKnnCollector(k, visitedLimit, iTopK, searchWidth);
 
     LeafReader reader = context.reader();
     reader.searchNearestVectors(field, this.getTargetCopy(), results, acceptDocs);
