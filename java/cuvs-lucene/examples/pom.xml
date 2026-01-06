@@ -80,9 +80,6 @@
                     <reflowLongStrings>true</reflowLongStrings>
                     <formatJavadoc>false</formatJavadoc>
                 </googleJavaFormat>
-                <licenseHeader>
-                    <file>../license-header.txt</file>
-                </licenseHeader>
             </java>
         </configuration>
       </plugin>
