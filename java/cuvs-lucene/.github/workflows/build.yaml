@@ -34,7 +34,7 @@ concurrency:
 jobs:
   java-build:
     secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@main
+    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@cuda-13.1.0
     # Artifacts are not published from these jobs, so it's safe to run for multiple CUDA versions.
     # If these jobs start producing artifacts, the names will have to differentiate between CUDA versions.
     strategy:
@@ -42,7 +42,7 @@ jobs:
       matrix:
         cuda_version:
           - '12.9.1'
-          - '13.0.2'
+          - '13.1.0'
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
       branch: ${{ inputs.branch }}

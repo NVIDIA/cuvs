@@ -16,7 +16,7 @@ cd ..
 
 Then do:
 ```sh
-docker run --rm --gpus all --pull=always --volume $PWD:$PWD --workdir $PWD -it rapidsai/ci-conda:26.02-cuda13.0.2-ubuntu24.04-py3.13
+docker run --rm --gpus all --pull=always --volume $PWD:$PWD --workdir $PWD -it rapidsai/ci-conda:26.02-cuda13.1.0-ubuntu24.04-py3.13
 ```
 
 Inside the docker container (and in the `cuvs-lucene's` root directory) do:
