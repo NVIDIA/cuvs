@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs.lucene;
@@ -737,7 +737,7 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
     KnnVectorValues.DocIndexIterator iter = mergedVectorValues.iterator();
     for (int docV = iter.nextDoc(); docV != NO_MORE_DOCS; docV = iter.nextDoc()) {
       float[] vector = mergedVectorValues.vectorValue(iter.index());
-      vectors.add(vector);
+      vectors.add(vector.clone());
     }
     return vectors;
   }
