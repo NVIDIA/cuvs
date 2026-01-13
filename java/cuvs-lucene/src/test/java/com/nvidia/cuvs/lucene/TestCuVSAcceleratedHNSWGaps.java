@@ -1,10 +1,11 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs.lucene;
 
 import static com.nvidia.cuvs.lucene.TestUtils.generateDataset;
+import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.isSupported;
 
 import java.io.IOException;
 import java.util.List;
@@ -61,7 +62,7 @@ public class TestCuVSAcceleratedHNSWGaps extends LuceneTestCase {
 
   @BeforeClass
   public static void beforeClass() throws Exception {
-    assumeTrue("cuVS not supported", Lucene99AcceleratedHNSWVectorsFormat.supported());
+    assumeTrue("cuVS not supported", isSupported());
     directory = newDirectory();
     random = random();
 
@@ -111,7 +112,7 @@ public class TestCuVSAcceleratedHNSWGaps extends LuceneTestCase {
 
   @Test
   public void testVectorSearchWithAlternatingDocuments() throws IOException {
-    assumeTrue("cuVS not supported", Lucene99AcceleratedHNSWVectorsFormat.supported());
+    assumeTrue("cuVS not supported", isSupported());
 
     // Use the first vector (from document 0) as query
     float[] queryVector = dataset[0];
@@ -144,7 +145,7 @@ public class TestCuVSAcceleratedHNSWGaps extends LuceneTestCase {
 
   @Test
   public void testVectorSearchWithFilterAndAlternatingDocuments() throws IOException {
-    assumeTrue("cuVS not supported", Lucene99AcceleratedHNSWVectorsFormat.supported());
+    assumeTrue("cuVS not supported", isSupported());
 
     // Use the first vector (from document 0) as query
     float[] queryVector = dataset[0];

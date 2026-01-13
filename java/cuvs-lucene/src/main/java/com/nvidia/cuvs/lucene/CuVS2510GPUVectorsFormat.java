@@ -1,12 +1,11 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs.lucene;
 
-import static com.nvidia.cuvs.lucene.Utils.cuVSResourcesOrNull;
+import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.assertIsSupported;
 
-import com.nvidia.cuvs.CuVSResources;
 import com.nvidia.cuvs.LibraryException;
 import com.nvidia.cuvs.lucene.CuVS2510GPUVectorsWriter.IndexType;
 import java.io.IOException;
@@ -41,7 +40,6 @@ public class CuVS2510GPUVectorsFormat extends KnnVectorsFormat {
   static final int DEFAULT_GRAPH_DEGREE = 64;
   static final IndexType DEFAULT_INDEX_TYPE = IndexType.CAGRA;
 
-  static CuVSResources resources = cuVSResourcesOrNull();
   static final LuceneProvider LUCENE_PROVIDER;
   static final FlatVectorsFormat FLAT_VECTORS_FORMAT;
 
@@ -98,10 +96,10 @@ public class CuVS2510GPUVectorsFormat extends KnnVectorsFormat {
    */
   @Override
   public CuVS2510GPUVectorsWriter fieldsWriter(SegmentWriteState state) throws IOException {
-    checkSupported();
+    assertIsSupported();
     var flatWriter = FLAT_VECTORS_FORMAT.fieldsWriter(state);
     return new CuVS2510GPUVectorsWriter(
-        state, cuvsWriterThreads, intGraphDegree, graphDegree, indexType, resources, flatWriter);
+        state, cuvsWriterThreads, intGraphDegree, graphDegree, indexType, flatWriter);
   }
 
   /**
@@ -109,8 +107,8 @@ public class CuVS2510GPUVectorsFormat extends KnnVectorsFormat {
    */
   @Override
   public KnnVectorsReader fieldsReader(SegmentReadState state) throws IOException {
-    checkSupported();
-    return new CuVS2510GPUVectorsReader(state, resources, FLAT_VECTORS_FORMAT.fieldsReader(state));
+    assertIsSupported();
+    return new CuVS2510GPUVectorsReader(state, FLAT_VECTORS_FORMAT.fieldsReader(state));
   }
 
   /**
@@ -130,26 +128,7 @@ public class CuVS2510GPUVectorsFormat extends KnnVectorsFormat {
     sb.append("(cuvsWriterThreads=").append(cuvsWriterThreads);
     sb.append("intGraphDegree=").append(intGraphDegree);
     sb.append("graphDegree=").append(graphDegree);
-    sb.append("resources=").append(resources);
     sb.append(")");
     return sb.toString();
-  }
-
-  /**
-   * Tells whether the platform supports cuVS.
-   *
-   * @return if cuVS is supported or not
-   */
-  public static boolean supported() {
-    return resources != null;
-  }
-
-  /**
-   * Checks if cuVS is supported and throws {@link UnsupportedOperationException} otherwise.
-   */
-  public static void checkSupported() {
-    if (!supported()) {
-      throw new UnsupportedOperationException();
-    }
   }
 }

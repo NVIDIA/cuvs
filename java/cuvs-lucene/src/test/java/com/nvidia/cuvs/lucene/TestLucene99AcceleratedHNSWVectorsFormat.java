@@ -1,9 +1,10 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs.lucene;
 
+import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.isSupported;
 import static org.apache.lucene.index.VectorSimilarityFunction.EUCLIDEAN;
 
 import java.util.List;
@@ -30,7 +31,7 @@ public class TestLucene99AcceleratedHNSWVectorsFormat extends BaseKnnVectorsForm
 
   @BeforeClass
   public static void beforeClass() {
-    assumeTrue("cuVS is not supported", Lucene99AcceleratedHNSWVectorsFormat.supported());
+    assumeTrue("cuVS is not supported", isSupported());
   }
 
   @Override

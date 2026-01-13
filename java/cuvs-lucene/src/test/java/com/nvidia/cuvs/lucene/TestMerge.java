@@ -1,9 +1,10 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs.lucene;
 
+import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.isSupported;
 import static org.apache.lucene.tests.util.TestUtil.alwaysKnnVectorsFormat;
 
 import com.nvidia.cuvs.lucene.CuVS2510GPUVectorsWriter.IndexType;
@@ -60,7 +61,7 @@ public class TestMerge extends LuceneTestCase {
 
   @BeforeClass
   public static void beforeClass() {
-    assumeTrue("cuVS is not supported", CuVS2510GPUVectorsFormat.supported());
+    assumeTrue("cuVS is not supported", isSupported());
   }
 
   private Directory directory;

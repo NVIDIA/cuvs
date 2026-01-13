@@ -159,4 +159,10 @@ class FilterCuVSProvider implements CuVSProvider {
   public void resetRMMPooledMemory() {
     delegate.resetRMMPooledMemory();
   }
+
+  @Override
+  public HnswIndex hnswIndexBuild(CuVSResources arg0, HnswIndexParams arg1, CuVSMatrix arg2)
+      throws Throwable {
+    return delegate.hnswIndexBuild(arg0, arg1, arg2);
+  }
 }

@@ -1,12 +1,11 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs.lucene;
 
-import static com.nvidia.cuvs.lucene.Utils.cuVSResourcesOrNull;
+import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.isSupported;
 
-import com.nvidia.cuvs.CuVSResources;
 import com.nvidia.cuvs.LibraryException;
 import java.io.IOException;
 import java.util.logging.Level;
@@ -39,8 +38,6 @@ public class Lucene99AcceleratedHNSWVectorsFormat extends KnnVectorsFormat {
   static final String HNSW_INDEX_CODEC_NAME = "Lucene99HnswVectorsFormatIndex";
   static final String HNSW_INDEX_EXT = "vex";
   static final LuceneProvider LUCENE_PROVIDER;
-
-  private static CuVSResources resources = cuVSResourcesOrNull();
 
   private static final FlatVectorsFormat FLAT_VECTORS_FORMAT;
   private static final Integer MAX_CONN;
@@ -115,10 +112,10 @@ public class Lucene99AcceleratedHNSWVectorsFormat extends KnnVectorsFormat {
   @Override
   public KnnVectorsWriter fieldsWriter(SegmentWriteState state) throws IOException {
     var flatWriter = FLAT_VECTORS_FORMAT.fieldsWriter(state);
-    if (supported()) {
+    if (isSupported()) {
       log.log(Level.FINE, "cuVS is supported so using the Lucene99AcceleratedHNSWVectorsWriter");
       return new Lucene99AcceleratedHNSWVectorsWriter(
-          state, cuvsWriterThreads, intGraphDegree, graphDegree, hnswLayers, resources, flatWriter);
+          state, cuvsWriterThreads, intGraphDegree, graphDegree, hnswLayers, flatWriter);
     } else {
       log.log(
           Level.WARNING,
@@ -166,44 +163,7 @@ public class Lucene99AcceleratedHNSWVectorsFormat extends KnnVectorsFormat {
     sb.append("intGraphDegree=").append(intGraphDegree);
     sb.append("graphDegree=").append(graphDegree);
     sb.append("hnswLayers=").append(hnswLayers);
-    sb.append("resources=").append(resources);
     sb.append(")");
     return sb.toString();
-  }
-
-  /**
-   * Gets the instance of CuVSResources
-   *
-   * @return the instance of CuVSResources
-   */
-  public static CuVSResources getResources() {
-    return resources;
-  }
-
-  /**
-   * Sets the instance of CuVSResources
-   *
-   * @param resources the instance of CuVSResources to set
-   */
-  public static void setResources(CuVSResources resources) {
-    Lucene99AcceleratedHNSWVectorsFormat.resources = resources;
-  }
-
-  /**
-   * Tells whether the platform supports cuVS.
-   *
-   * @return if cuVS supported or not
-   */
-  public static boolean supported() {
-    return resources != null;
-  }
-
-  /**
-   * Checks if cuVS supported and throws {@link UnsupportedOperationException} otherwise.
-   */
-  public static void checkSupported() {
-    if (!supported()) {
-      throw new UnsupportedOperationException();
-    }
   }
 }
