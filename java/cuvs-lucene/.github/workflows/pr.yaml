@@ -15,7 +15,7 @@ jobs:
       - conda-java-tests
       - telemetry-setup
     secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/pr-builder.yaml@cuda-13.1.0
+    uses: rapidsai/shared-workflows/.github/workflows/pr-builder.yaml@main
     if: always()
     with:
       needs: ${{ toJSON(needs) }}
@@ -42,7 +42,7 @@ jobs:
   changed-files:
     needs: telemetry-setup
     secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/changed-files.yaml@cuda-13.1.0
+    uses: rapidsai/shared-workflows/.github/workflows/changed-files.yaml@main
     with:
       files_yaml: |
         test_java:
@@ -52,14 +52,14 @@ jobs:
   checks:
     needs: telemetry-setup
     secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/checks.yaml@cuda-13.1.0
+    uses: rapidsai/shared-workflows/.github/workflows/checks.yaml@main
     with:
       enable_check_generated_files: false
       ignored_pr_jobs: "telemetry-summarize"
   conda-java-tests:
     needs: [changed-files, checks]
     secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@cuda-13.1.0
+    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@main
     if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_java
     # Artifacts are not published from these jobs, so it's safe to run for multiple CUDA versions.
     # If these jobs start producing artifacts, the names will have to differentiate between CUDA versions.
