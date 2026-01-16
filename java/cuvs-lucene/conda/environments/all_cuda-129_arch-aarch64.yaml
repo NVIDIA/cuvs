@@ -13,7 +13,7 @@ dependencies:
 - libcurand-dev
 - libcusolver-dev
 - libcusparse-dev
-- libcuvs==26.02.*
+- libcuvs==26.04.*
 - maven
 - ninja
 - openjdk=22.*

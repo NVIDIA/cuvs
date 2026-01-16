@@ -48,7 +48,7 @@ jobs:
       branch: ${{ inputs.branch }}
       arch: "amd64"
       date: ${{ inputs.date }}
-      container_image: "rapidsai/ci-conda:26.02-cuda${{ matrix.cuda_version }}-ubuntu24.04-py3.13"
+      container_image: "rapidsai/ci-conda:26.04-cuda${{ matrix.cuda_version }}-ubuntu24.04-py3.13"
       script: "ci/build_java.sh"
       file_to_upload: "target/"
       artifact-name: "cuvs-lucene-cuda${{ matrix.cuda_version }}"

@@ -11,7 +11,7 @@
 
   <groupId>com.nvidia.cuvs.lucene.examples</groupId>
   <artifactId>examples</artifactId>
-  <!--CUVS_LUCENE#VERSION_UPDATE_MARKER_START--><version>26.02.0</version><!--CUVS_LUCENE#VERSION_UPDATE_MARKER_END-->
+  <!--CUVS_LUCENE#VERSION_UPDATE_MARKER_START--><version>26.04.0</version><!--CUVS_LUCENE#VERSION_UPDATE_MARKER_END-->
   <name>examples</name>
 
   <properties>
@@ -51,7 +51,7 @@
     <dependency>
       <groupId>com.nvidia.cuvs.lucene</groupId>
       <artifactId>cuvs-lucene</artifactId>
-      <!--CUVS_LUCENE#VERSION_UPDATE_MARKER_START--><version>26.02.0</version><!--CUVS_LUCENE#VERSION_UPDATE_MARKER_END-->
+      <!--CUVS_LUCENE#VERSION_UPDATE_MARKER_START--><version>26.04.0</version><!--CUVS_LUCENE#VERSION_UPDATE_MARKER_END-->
     </dependency>
   </dependencies>
 
