@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs.lucene;
@@ -62,6 +62,60 @@ public class Utils {
       builder.addVector(vector);
     }
 
+    return builder.build();
+  }
+
+  /**
+   * A method to build a CuVSMatrix from a list of byte vectors (for binary quantized vectors).
+   *
+   * Uses CuVSMatrix.Builder to copy vectors directly to device memory
+   * without creating intermediate heap arrays.
+   *
+   * @param data The byte vectors (packed bits for binary quantization)
+   * @param bytesPerVector The number of bytes in each vector
+   * @param resources The CuVS resources for device matrix creation
+   * @return an instance of CuVSMatrix with BYTE data type
+   */
+  static CuVSMatrix createByteMatrix(
+      List<byte[]> data, int bytesPerVector, CuVSResources resources) {
+    // Use Builder pattern to avoid intermediate byte[][] allocation
+    // and copy directly from List to device memory
+    CuVSMatrix.Builder<?> builder =
+        CuVSMatrix.deviceBuilder(
+            resources,
+            data.size(), // rows (number of vectors)
+            bytesPerVector, // columns (bytes per vector)
+            CuVSMatrix.DataType.BYTE);
+
+    // Add vectors one by one - builder copies directly to device memory
+    for (byte[] vector : data) {
+      builder.addVector(vector);
+    }
+
+    return builder.build();
+  }
+
+  /**
+   * A method to build a CuVSMatrix from a 2D byte array (for binary quantized vectors).
+   *
+   * @param data The 2D byte array (packed bits for binary quantization)
+   * @param bytesPerVector The number of bytes in each vector
+   * @param resources The CuVS resources for device matrix creation
+   * @return an instance of CuVSMatrix with BYTE data type
+   */
+  static CuVSMatrix createByteMatrixFromArray(
+      byte[][] data, int bytesPerVector, CuVSResources resources) {
+    CuVSMatrix.Builder<?> builder =
+        CuVSMatrix.deviceBuilder(
+            resources,
+            data.length, // rows (number of vectors)
+            bytesPerVector, // columns (bytes per vector)
+            CuVSMatrix.DataType.BYTE);
+
+    // Add vectors one by one - builder copies directly to device memory
+    for (byte[] vector : data) {
+      builder.addVector(vector);
+    }
     return builder.build();
   }
 
