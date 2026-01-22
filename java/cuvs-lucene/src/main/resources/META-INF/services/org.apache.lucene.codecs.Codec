@@ -1,5 +1,7 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 
 com.nvidia.cuvs.lucene.Lucene101AcceleratedHNSWCodec
 com.nvidia.cuvs.lucene.CuVS2510GPUSearchCodec
+com.nvidia.cuvs.lucene.LuceneAcceleratedHNSWBinaryQuantizedCodec
+com.nvidia.cuvs.lucene.LuceneAcceleratedHNSWScalarQuantizedCodec

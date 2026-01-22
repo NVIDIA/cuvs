@@ -1,7 +1,9 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 
 org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsFormat
 org.apache.lucene.codecs.lucene99.Lucene99HnswScalarQuantizedVectorsFormat
 com.nvidia.cuvs.lucene.CuVS2510GPUVectorsFormat
 com.nvidia.cuvs.lucene.Lucene99AcceleratedHNSWVectorsFormat
+com.nvidia.cuvs.lucene.LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat
+com.nvidia.cuvs.lucene.LuceneAcceleratedHNSWScalarQuantizedVectorsFormat
