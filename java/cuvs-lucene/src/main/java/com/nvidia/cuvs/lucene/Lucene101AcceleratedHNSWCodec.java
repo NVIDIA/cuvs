@@ -1,11 +1,10 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs.lucene;
 
 import com.nvidia.cuvs.LibraryException;
-import java.lang.reflect.InvocationTargetException;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.apache.lucene.codecs.Codec;
@@ -42,14 +41,7 @@ public class Lucene101AcceleratedHNSWCodec extends FilterCodec {
     }
   }
 
-  public Lucene101AcceleratedHNSWCodec()
-      throws ClassNotFoundException,
-          NoSuchMethodException,
-          SecurityException,
-          InstantiationException,
-          IllegalAccessException,
-          IllegalArgumentException,
-          InvocationTargetException {
+  public Lucene101AcceleratedHNSWCodec() throws Exception {
     this(NAME, LuceneProvider.getCodec("101"));
   }
 
@@ -65,13 +57,7 @@ public class Lucene101AcceleratedHNSWCodec extends FilterCodec {
       int hnswLayers,
       int maxConn,
       int beamWidth)
-      throws ClassNotFoundException,
-          NoSuchMethodException,
-          SecurityException,
-          InstantiationException,
-          IllegalAccessException,
-          IllegalArgumentException,
-          InvocationTargetException {
+      throws Exception {
     this(NAME, LuceneProvider.getCodec("101"));
     initializeFormat(
         cuvsWriterThreads, intGraphDegree, graphDegree, hnswLayers, maxConn, beamWidth);
@@ -106,11 +92,21 @@ public class Lucene101AcceleratedHNSWCodec extends FilterCodec {
     }
   }
 
+  /**
+   * Get the configured {@link KnnVectorsFormat}
+   *
+   * @return the instance of the {@link KnnVectorsFormat}
+   */
   @Override
   public KnnVectorsFormat knnVectorsFormat() {
     return format;
   }
 
+  /**
+   * Set the {@link KnnVectorsFormat}
+   *
+   * @param format the {@link KnnVectorsFormat} to set
+   */
   public void setKnnFormat(KnnVectorsFormat format) {
     this.format = format;
   }

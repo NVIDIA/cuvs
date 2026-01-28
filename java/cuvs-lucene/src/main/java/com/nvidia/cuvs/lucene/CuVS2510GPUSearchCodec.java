@@ -1,12 +1,12 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs.lucene;
 
+import com.nvidia.cuvs.CagraIndexParams.CagraGraphBuildAlgo;
 import com.nvidia.cuvs.LibraryException;
 import com.nvidia.cuvs.lucene.CuVS2510GPUVectorsWriter.IndexType;
-import java.lang.reflect.InvocationTargetException;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.apache.lucene.codecs.Codec;
@@ -27,46 +27,74 @@ public class CuVS2510GPUSearchCodec extends FilterCodec {
   private static final int DEFAULT_CUVS_WRITER_THREADS = 1;
   private static final int DEFAULT_INTERMEDIATE_GRAPH_DEGREE = 128;
   private static final int DEFAULT_GRAPH_DEGREE = 64;
+  private static final CagraGraphBuildAlgo DEFAULT_CAGRA_GRAPH_BUILD_ALGO =
+      CagraGraphBuildAlgo.NN_DESCENT;
   private static final IndexType DEFAULT_INDEX_TYPE = IndexType.CAGRA;
 
   private KnnVectorsFormat format;
 
   /**
    * Default constructor for {@link CuVS2510GPUSearchCodec}
-   * @throws InvocationTargetException
-   * @throws IllegalArgumentException
-   * @throws IllegalAccessException
-   * @throws InstantiationException
-   * @throws SecurityException
-   * @throws NoSuchMethodException
-   * @throws ClassNotFoundException
+   *
+   * @throws Exception
    */
-  public CuVS2510GPUSearchCodec()
-      throws ClassNotFoundException,
-          NoSuchMethodException,
-          SecurityException,
-          InstantiationException,
-          IllegalAccessException,
-          IllegalArgumentException,
-          InvocationTargetException {
+  public CuVS2510GPUSearchCodec() throws Exception {
     this(NAME, LuceneProvider.getCodec("101"));
   }
 
   /**
-   * Constructor for the {@link CuVS2510GPUSearchCodec}
+   * Initialize {@link CuVS2510GPUSearchCodec} with default parameter values.
    *
    * @param name the name of the codec
    * @param delegate the delegate codec
    */
   public CuVS2510GPUSearchCodec(String name, Codec delegate) {
     super(name, delegate);
+    initializeFormat(
+        DEFAULT_INTERMEDIATE_GRAPH_DEGREE,
+        DEFAULT_GRAPH_DEGREE,
+        DEFAULT_CUVS_WRITER_THREADS,
+        DEFAULT_CAGRA_GRAPH_BUILD_ALGO,
+        DEFAULT_INDEX_TYPE);
+  }
+
+  /**
+   * Initialize the codec with custom parameter values.
+   *
+   * @param cuvsWriterThreads The number of cuVS writer threads to use while indexing.
+   * @param intermediateGraphDegree The intermediate graph degree to use while indexing.
+   * @param graphDegree The graph degree to use while indexing.
+   * @param cagraGraphBuildAlgo The CAGRA graph build algo to use.
+   * @param indexType Type of Index to build.
+   *
+   * @throws Exception Exception raised when initializing the codec.
+   */
+  public CuVS2510GPUSearchCodec(
+      int cuvsWriterThreads,
+      int intermediateGraphDegree,
+      int graphDegree,
+      CagraGraphBuildAlgo cagraGraphBuildAlgo,
+      IndexType indexType)
+      throws Exception {
+    this(NAME, LuceneProvider.getCodec("101"));
+    initializeFormat(
+        cuvsWriterThreads, intermediateGraphDegree, graphDegree, cagraGraphBuildAlgo, indexType);
+  }
+
+  private void initializeFormat(
+      int cuvsWriterThreads,
+      int intermediateGraphDegree,
+      int graphDegree,
+      CagraGraphBuildAlgo cagraGraphBuildAlgo,
+      IndexType indexType) {
     try {
       format =
           new CuVS2510GPUVectorsFormat(
-              DEFAULT_CUVS_WRITER_THREADS,
-              DEFAULT_INTERMEDIATE_GRAPH_DEGREE,
-              DEFAULT_GRAPH_DEGREE,
-              DEFAULT_INDEX_TYPE);
+              cuvsWriterThreads,
+              intermediateGraphDegree,
+              graphDegree,
+              cagraGraphBuildAlgo,
+              indexType);
       setKnnFormat(format);
     } catch (LibraryException ex) {
       log.log(
