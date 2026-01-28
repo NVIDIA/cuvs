@@ -6,6 +6,7 @@ package com.nvidia.cuvs.lucene;
 
 import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.isSupported;
 
+import com.nvidia.cuvs.CagraIndexParams.CagraGraphBuildAlgo;
 import com.nvidia.cuvs.LibraryException;
 import java.io.IOException;
 import java.util.logging.Level;
@@ -31,6 +32,7 @@ public class Lucene99AcceleratedHNSWVectorsFormat extends KnnVectorsFormat {
   static final int DEFAULT_WRITER_THREADS = 32;
   static final int DEFAULT_INTERMEDIATE_GRAPH_DEGREE = 128;
   static final int DEFAULT_GRAPH_DEGREE = 64;
+  static final CagraGraphBuildAlgo DEFAULT_CAGRA_GRAPH_BUILD_ALGO = CagraGraphBuildAlgo.NN_DESCENT;
   static final int DEFAULT_HNSW_GRAPH_LAYERS = 1;
 
   static final String HNSW_META_CODEC_NAME = "Lucene99HnswVectorsFormatMeta";
@@ -48,6 +50,8 @@ public class Lucene99AcceleratedHNSWVectorsFormat extends KnnVectorsFormat {
   private final int cuvsWriterThreads;
   private final int intGraphDegree;
   private final int graphDegree;
+  // This default setting will be removed once I figure out the root cause of a related bug.
+  private final CagraGraphBuildAlgo cagraGraphBuildAlgo = DEFAULT_CAGRA_GRAPH_BUILD_ALGO;
   private final int hnswLayers;
   private final int maxConn;
   private final int beamWidth;
@@ -115,7 +119,13 @@ public class Lucene99AcceleratedHNSWVectorsFormat extends KnnVectorsFormat {
     if (isSupported()) {
       log.log(Level.FINE, "cuVS is supported so using the Lucene99AcceleratedHNSWVectorsWriter");
       return new Lucene99AcceleratedHNSWVectorsWriter(
-          state, cuvsWriterThreads, intGraphDegree, graphDegree, hnswLayers, flatWriter);
+          state,
+          cuvsWriterThreads,
+          intGraphDegree,
+          graphDegree,
+          cagraGraphBuildAlgo,
+          hnswLayers,
+          flatWriter);
     } else {
       log.log(
           Level.WARNING,
@@ -162,6 +172,7 @@ public class Lucene99AcceleratedHNSWVectorsFormat extends KnnVectorsFormat {
     sb.append("(cuvsWriterThreads=").append(cuvsWriterThreads);
     sb.append("intGraphDegree=").append(intGraphDegree);
     sb.append("graphDegree=").append(graphDegree);
+    sb.append("cagraGraphBuildAlgo=").append(cagraGraphBuildAlgo);
     sb.append("hnswLayers=").append(hnswLayers);
     sb.append(")");
     return sb.toString();

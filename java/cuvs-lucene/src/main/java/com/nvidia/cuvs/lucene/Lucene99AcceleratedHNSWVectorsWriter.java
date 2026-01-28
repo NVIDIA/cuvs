@@ -82,6 +82,7 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
   private final int cuvsWriterThreads;
   private final int intGraphDegree;
   private final int graphDegree;
+  private final CagraGraphBuildAlgo cagraGraphBuildAlgo;
   private final int hnswLayers; // Number of layers to create in CAGRA->HNSW conversion
   private final FlatVectorsWriter flatVectorsWriter; // for writing the raw vectors
   private final List<GPUFieldWriter> fields = new ArrayList<>();
@@ -109,6 +110,7 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
    * @param cuvsWriterThreads number of cuVS threads to use while building the intermediate CAGRA index
    * @param intGraphDegree the intermediate graph degree to use while building the CAGRA index
    * @param graphDegree the graph degree to use while building the CAGRA index
+   * @param cagraGraphBuildAlgo the CAGRA graph build algorithm to use
    * @param hnswLayers the number of hnsw layers to construct while building the HNSW graph
    * @param flatVectorsWriter instance of the {@link org.apache.lucene.codecs.hnsw.FlatVectorsWriter}
    * @throws IOException IOException
@@ -118,6 +120,7 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
       int cuvsWriterThreads,
       int intGraphDegree,
       int graphDegree,
+      CagraGraphBuildAlgo cagraGraphBuildAlgo,
       int hnswLayers,
       FlatVectorsWriter flatVectorsWriter)
       throws IOException {
@@ -125,6 +128,7 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
     this.cuvsWriterThreads = cuvsWriterThreads;
     this.intGraphDegree = intGraphDegree;
     this.graphDegree = graphDegree;
+    this.cagraGraphBuildAlgo = cagraGraphBuildAlgo;
     this.hnswLayers = hnswLayers;
     this.flatVectorsWriter = flatVectorsWriter;
     this.infoStream = state.infoStream;
@@ -207,7 +211,7 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
         .withNumWriterThreads(cuvsWriterThreads)
         .withIntermediateGraphDegree(intGraphDegree)
         .withGraphDegree(graphDegree)
-        .withCagraGraphBuildAlgo(CagraGraphBuildAlgo.NN_DESCENT)
+        .withCagraGraphBuildAlgo(cagraGraphBuildAlgo)
         .build();
   }
 

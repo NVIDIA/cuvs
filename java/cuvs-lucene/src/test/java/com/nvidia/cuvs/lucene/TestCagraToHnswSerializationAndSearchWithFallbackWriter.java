@@ -11,8 +11,6 @@ import static com.nvidia.cuvs.lucene.Utils.cuVSResourcesOrNull;
 import static org.apache.lucene.index.VectorSimilarityFunction.EUCLIDEAN;
 
 import java.io.File;
-import java.io.IOException;
-import java.lang.reflect.InvocationTargetException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Arrays;
@@ -65,15 +63,7 @@ public class TestCagraToHnswSerializationAndSearchWithFallbackWriter extends Luc
   }
 
   @Test
-  public void testCagraToHnswSerializationAndSearchWithFallbackWriter()
-      throws IOException,
-          ClassNotFoundException,
-          NoSuchMethodException,
-          SecurityException,
-          InstantiationException,
-          IllegalAccessException,
-          IllegalArgumentException,
-          InvocationTargetException {
+  public void testCagraToHnswSerializationAndSearchWithFallbackWriter() throws Exception {
     Codec codec = new Lucene101AcceleratedHNSWCodec(32, 128, 64, 3, 16, 100);
     IndexWriterConfig config = new IndexWriterConfig().setCodec(codec).setUseCompoundFile(false);
 

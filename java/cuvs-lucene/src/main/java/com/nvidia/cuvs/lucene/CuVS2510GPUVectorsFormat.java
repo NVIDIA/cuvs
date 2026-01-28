@@ -6,6 +6,7 @@ package com.nvidia.cuvs.lucene;
 
 import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.assertIsSupported;
 
+import com.nvidia.cuvs.CagraIndexParams.CagraGraphBuildAlgo;
 import com.nvidia.cuvs.LibraryException;
 import com.nvidia.cuvs.lucene.CuVS2510GPUVectorsWriter.IndexType;
 import java.io.IOException;
@@ -38,6 +39,7 @@ public class CuVS2510GPUVectorsFormat extends KnnVectorsFormat {
   static final int DEFAULT_WRITER_THREADS = 32;
   static final int DEFAULT_INTERMEDIATE_GRAPH_DEGREE = 128;
   static final int DEFAULT_GRAPH_DEGREE = 64;
+  static final CagraGraphBuildAlgo DEFAULT_CAGRA_GRAPH_BUILD_ALGO = CagraGraphBuildAlgo.NN_DESCENT;
   static final IndexType DEFAULT_INDEX_TYPE = IndexType.CAGRA;
 
   static final LuceneProvider LUCENE_PROVIDER;
@@ -47,6 +49,7 @@ public class CuVS2510GPUVectorsFormat extends KnnVectorsFormat {
   final int cuvsWriterThreads;
   final int intGraphDegree;
   final int graphDegree;
+  final CagraGraphBuildAlgo cagraGraphBuildAlgo;
   final CuVS2510GPUVectorsWriter.IndexType indexType; // the index type to build, when writing
 
   static {
@@ -69,6 +72,7 @@ public class CuVS2510GPUVectorsFormat extends KnnVectorsFormat {
         DEFAULT_WRITER_THREADS,
         DEFAULT_INTERMEDIATE_GRAPH_DEGREE,
         DEFAULT_GRAPH_DEGREE,
+        DEFAULT_CAGRA_GRAPH_BUILD_ALGO,
         DEFAULT_INDEX_TYPE);
   }
 
@@ -78,16 +82,22 @@ public class CuVS2510GPUVectorsFormat extends KnnVectorsFormat {
    * @param cuvsWriterThreads the number of cuVS writer threads to use
    * @param intGraphDegree the intermediate graph degree for building the CAGRA index
    * @param graphDegree the graph degree for building the CAGRA index
+   * @param cagraGraphBuildAlgo the CAGRA graph build algorithm to use
    * @param indexType the {@link com.nvidia.cuvs.lucene.CuVS2510GPUVectorsWriter.IndexType}
    *
    * @throws LibraryException if the native library fails to load
    */
   public CuVS2510GPUVectorsFormat(
-      int cuvsWriterThreads, int intGraphDegree, int graphDegree, IndexType indexType) {
+      int cuvsWriterThreads,
+      int intGraphDegree,
+      int graphDegree,
+      CagraGraphBuildAlgo cagraGraphBuildAlgo,
+      IndexType indexType) {
     super("CuVS2510GPUVectorsFormat");
     this.cuvsWriterThreads = cuvsWriterThreads;
     this.intGraphDegree = intGraphDegree;
     this.graphDegree = graphDegree;
+    this.cagraGraphBuildAlgo = cagraGraphBuildAlgo;
     this.indexType = indexType;
   }
 
@@ -99,7 +109,13 @@ public class CuVS2510GPUVectorsFormat extends KnnVectorsFormat {
     assertIsSupported();
     var flatWriter = FLAT_VECTORS_FORMAT.fieldsWriter(state);
     return new CuVS2510GPUVectorsWriter(
-        state, cuvsWriterThreads, intGraphDegree, graphDegree, indexType, flatWriter);
+        state,
+        cuvsWriterThreads,
+        intGraphDegree,
+        graphDegree,
+        cagraGraphBuildAlgo,
+        indexType,
+        flatWriter);
   }
 
   /**
@@ -128,6 +144,7 @@ public class CuVS2510GPUVectorsFormat extends KnnVectorsFormat {
     sb.append("(cuvsWriterThreads=").append(cuvsWriterThreads);
     sb.append("intGraphDegree=").append(intGraphDegree);
     sb.append("graphDegree=").append(graphDegree);
+    sb.append("cagraGraphBuildAlgo=").append(cagraGraphBuildAlgo);
     sb.append(")");
     return sb.toString();
   }
