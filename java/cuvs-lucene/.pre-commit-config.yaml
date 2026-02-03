@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 
 repos:
@@ -10,7 +10,7 @@ repos:
               - id: end-of-file-fixer
               - id: check-symlinks
       - repo: https://github.com/rapidsai/pre-commit-hooks
-        rev: v1.2.1
+        rev: v1.4.2
         hooks:
           - id: verify-copyright
             name: verify-copyright
@@ -24,7 +24,7 @@ repos:
                   dependencies[.]yaml$|
                   ^[.]pre-commit-config[.]yaml$
       - repo: https://github.com/rapidsai/dependency-file-generator
-        rev: v1.20.0
+        rev: v1.20.2
         hooks:
             - id: rapids-dependency-file-generator
               args: ["--clean", "--warn-all", "--strict"]

@@ -68,7 +68,7 @@ jobs:
       matrix:
         cuda_version:
           - '12.9.1'
-          - '13.1.0'
+          - '13.1.1'
     with:
       build_type: pull-request
       node_type: "gpu-l4-latest-1"
