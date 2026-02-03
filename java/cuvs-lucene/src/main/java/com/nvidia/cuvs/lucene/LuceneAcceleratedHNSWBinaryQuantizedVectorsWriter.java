@@ -61,13 +61,10 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends KnnVector
       shallowSizeOfInstance(LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter.class);
   private static final String COMPONENT = "Lucene99AcceleratedHNSWBinaryQuantizedVectorsWriter";
 
-  private final int cuvsWriterThreads;
-  private final int intGraphDegree;
-  private final int graphDegree;
-  private final int hnswLayers;
   private final FlatVectorsWriter flatVectorsWriter;
   private final List<QuantizedFieldWriter> fields = new ArrayList<>();
   private final InfoStream infoStream;
+  private final AcceleratedHNSWParams acceleratedHNSWParams;
   private IndexOutput hnswMeta = null, hnswVectorIndex = null;
   private boolean finished;
   private String vemFileName;
@@ -77,26 +74,17 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends KnnVector
    * Initializes {@link LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter}
    *
    * @param state instance of the {@link org.apache.lucene.index.SegmentWriteState}
-   * @param cuvsWriterThreads number of cuVS threads to use while building the intermediate CAGRA index
-   * @param intGraphDegree the intermediate graph degree to use while building the CAGRA index
-   * @param graphDegree the graph degree to use while building the CAGRA index
-   * @param hnswLayers the number of hnsw layers to construct while building the HNSW graph
+   * @param acceleratedHNSWParams An instance of {@link AcceleratedHNSWParams}
    * @param flatVectorsWriter instance of the {@link org.apache.lucene.codecs.hnsw.FlatVectorsWriter}
    * @throws IOException IOException
    */
   public LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter(
       SegmentWriteState state,
-      int cuvsWriterThreads,
-      int intGraphDegree,
-      int graphDegree,
-      int hnswLayers,
+      AcceleratedHNSWParams acceleratedHNSWParams,
       FlatVectorsWriter flatVectorsWriter)
       throws IOException {
     super();
-    this.cuvsWriterThreads = cuvsWriterThreads;
-    this.intGraphDegree = intGraphDegree;
-    this.graphDegree = graphDegree;
-    this.hnswLayers = hnswLayers;
+    this.acceleratedHNSWParams = acceleratedHNSWParams;
     this.flatVectorsWriter = flatVectorsWriter;
     this.infoStream = state.infoStream;
 
@@ -151,23 +139,6 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends KnnVector
   }
 
   /**
-   * Utility method for building index metadata information string object.
-   *
-   * @param size index size
-   * @param args additional metadata information
-   * @return the string representation of the metadata information
-   */
-  static String indexMsg(int size, int... args) {
-    StringBuilder sb = new StringBuilder("cagra index params");
-    sb.append(": size=").append(size);
-    sb.append(", intGraphDegree=").append(args[0]);
-    sb.append(", actualIntGraphDegree=").append(args[1]);
-    sb.append(", graphDegree=").append(args[2]);
-    sb.append(", actualGraphDegree=").append(args[3]);
-    return sb.toString();
-  }
-
-  /**
    * Builds the intermediate CAGRA index and builds and writes the HNSW index for binary quantized vectors.
    * Binary quantized vectors are stored as packed bits (1 bit per dimension, 8 dimensions per byte).
    *
@@ -193,7 +164,11 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends KnnVector
         return;
       }
 
-      CagraIndexParams params = cagraIndexParams(cuvsWriterThreads, intGraphDegree, graphDegree);
+      CagraIndexParams params =
+          cagraIndexParams(
+              acceleratedHNSWParams.getWriterThreads(),
+              acceleratedHNSWParams.getIntermediateGraphDegree(),
+              acceleratedHNSWParams.getGraphdegree());
       CagraIndex cagraIndex =
           CagraIndex.newBuilder(getCuVSResourcesInstance())
               .withDataset(dataset)
@@ -211,8 +186,8 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends KnnVector
               dimensions,
               adjacencyListMatrix,
               vectors,
-              hnswLayers,
-              graphDegree,
+              acceleratedHNSWParams.getHnswLayers(),
+              acceleratedHNSWParams.getGraphdegree(),
               params,
               QuantizationType.BINARY);
 
@@ -231,7 +206,7 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends KnnVector
           size,
           hnswGraph,
           graphLevelNodeOffsets,
-          graphDegree);
+          acceleratedHNSWParams.getGraphdegree());
 
       cagraIndex.close();
 
@@ -322,7 +297,7 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends KnnVector
           size,
           hnswGraph,
           graphLevelNodeOffsets,
-          graphDegree);
+          acceleratedHNSWParams.getGraphdegree());
 
     } catch (Throwable t) {
       Utils.handleThrowable(t);

@@ -137,8 +137,10 @@ public class TestMerge extends LuceneTestCase {
             + ", vectorProbability="
             + vectorProbability);
 
-    CuVS2510GPUVectorsFormat format =
-        new CuVS2510GPUVectorsFormat(32, 128, 64, cagraGraphBuildAlgo, IndexType.CAGRA);
+    GPUSearchParams params =
+        new GPUSearchParams.Builder().withCagraGraphBuildAlgo(cagraGraphBuildAlgo).build();
+
+    CuVS2510GPUVectorsFormat format = new CuVS2510GPUVectorsFormat(params);
 
     IndexWriterConfig config =
         new IndexWriterConfig()
@@ -271,8 +273,10 @@ public class TestMerge extends LuceneTestCase {
             + ", vectorProbability="
             + vectorProbability);
 
-    CuVS2510GPUVectorsFormat format =
-        new CuVS2510GPUVectorsFormat(32, 128, 64, cagraGraphBuildAlgo, IndexType.CAGRA);
+    GPUSearchParams params =
+        new GPUSearchParams.Builder().withCagraGraphBuildAlgo(cagraGraphBuildAlgo).build();
+
+    CuVS2510GPUVectorsFormat format = new CuVS2510GPUVectorsFormat(params);
 
     IndexWriterConfig config =
         new IndexWriterConfig()
@@ -491,8 +495,10 @@ public class TestMerge extends LuceneTestCase {
     int maxBufferedDocs = 10 + random().nextInt(11); // 10-20 docs per buffer
     int numSegments = 3 + random().nextInt(3); // 3-5 segments
 
-    CuVS2510GPUVectorsFormat format =
-        new CuVS2510GPUVectorsFormat(32, 128, 64, cagraGraphBuildAlgo, IndexType.CAGRA);
+    GPUSearchParams params =
+        new GPUSearchParams.Builder().withCagraGraphBuildAlgo(cagraGraphBuildAlgo).build();
+
+    CuVS2510GPUVectorsFormat format = new CuVS2510GPUVectorsFormat(params);
 
     IndexWriterConfig config =
         new IndexWriterConfig()
@@ -640,8 +646,10 @@ public class TestMerge extends LuceneTestCase {
             + ", deletionProbability="
             + deletionProbability);
 
-    CuVS2510GPUVectorsFormat format =
-        new CuVS2510GPUVectorsFormat(32, 128, 64, cagraGraphBuildAlgo, IndexType.CAGRA);
+    GPUSearchParams params =
+        new GPUSearchParams.Builder().withCagraGraphBuildAlgo(cagraGraphBuildAlgo).build();
+
+    CuVS2510GPUVectorsFormat format = new CuVS2510GPUVectorsFormat(params);
 
     IndexWriterConfig config =
         new IndexWriterConfig()
@@ -784,10 +792,15 @@ public class TestMerge extends LuceneTestCase {
             + ", vectorProbability="
             + vectorProbability);
 
+    GPUSearchParams params =
+        new GPUSearchParams.Builder()
+            .withCagraGraphBuildAlgo(cagraGraphBuildAlgo)
+            .withIndexType(IndexType.BRUTE_FORCE)
+            .build();
+
     // Configure with brute force index type
     CuVS2510GPUVectorsFormat bruteForceFormat =
-        new CuVS2510GPUVectorsFormat(
-            32, 128, 64, cagraGraphBuildAlgo, IndexType.BRUTE_FORCE); // Use brute force index
+        new CuVS2510GPUVectorsFormat(params); // Use brute force index
 
     IndexWriterConfig config =
         new IndexWriterConfig()
@@ -941,13 +954,14 @@ public class TestMerge extends LuceneTestCase {
             + vectorProbability);
 
     // Configure with CAGRA + brute force combined index type
+    GPUSearchParams params =
+        new GPUSearchParams.Builder()
+            .withCagraGraphBuildAlgo(cagraGraphBuildAlgo)
+            .withIndexType(IndexType.CAGRA_AND_BRUTE_FORCE)
+            .build();
+
     CuVS2510GPUVectorsFormat combinedFormat =
-        new CuVS2510GPUVectorsFormat(
-            32,
-            128,
-            64,
-            cagraGraphBuildAlgo,
-            IndexType.CAGRA_AND_BRUTE_FORCE); // Use combined CAGRA + brute force
+        new CuVS2510GPUVectorsFormat(params); // Use combined CAGRA + brute force
 
     IndexWriterConfig config =
         new IndexWriterConfig()
@@ -1123,8 +1137,10 @@ public class TestMerge extends LuceneTestCase {
             + ", totalDocuments="
             + totalDocuments);
 
-    CuVS2510GPUVectorsFormat format =
-        new CuVS2510GPUVectorsFormat(32, 128, 64, cagraGraphBuildAlgo, IndexType.CAGRA);
+    GPUSearchParams params =
+        new GPUSearchParams.Builder().withCagraGraphBuildAlgo(cagraGraphBuildAlgo).build();
+
+    CuVS2510GPUVectorsFormat format = new CuVS2510GPUVectorsFormat(params);
 
     IndexWriterConfig config =
         new IndexWriterConfig()

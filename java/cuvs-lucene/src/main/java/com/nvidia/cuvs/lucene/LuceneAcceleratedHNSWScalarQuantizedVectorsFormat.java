@@ -27,27 +27,13 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsFormat extends KnnVector
       Logger.getLogger(LuceneAcceleratedHNSWScalarQuantizedVectorsFormat.class.getName());
   private static final LuceneProvider LUCENE_PROVIDER;
   private static final FlatVectorsFormat FLAT_VECTORS_FORMAT;
-  private static final Integer DEFAULT_MAX_CONN;
-  private static final Integer DEFAULT_BEAM_WIDTH;
+  private static final int MAX_DIMENSIONS = 4096;
 
-  public static final int DEFAULT_WRITER_THREADS = 32;
-  public static final int DEFAULT_INTERMEDIATE_GRAPH_DEGREE = 128;
-  public static final int DEFAULT_GRAPH_DEGREE = 64;
-  public static final int DEFAULT_HNSW_GRAPH_LAYERS = 2;
-
-  private final int maxDimensions = 4096;
-  private final int cuvsWriterThreads;
-  private final int intGraphDegree;
-  private final int graphDegree;
-  private final int hnswLayers;
-  private final int maxConn;
-  private final int beamWidth;
+  private final AcceleratedHNSWParams acceleratedHNSWParams;
 
   static {
     try {
       LUCENE_PROVIDER = LuceneProvider.getInstance("99");
-      DEFAULT_MAX_CONN = LUCENE_PROVIDER.getStaticIntParam("DEFAULT_MAX_CONN");
-      DEFAULT_BEAM_WIDTH = LUCENE_PROVIDER.getStaticIntParam("DEFAULT_BEAM_WIDTH");
       FLAT_VECTORS_FORMAT = LUCENE_PROVIDER.getLuceneScalarQuantizedVectorsFormatInstance();
     } catch (Exception e) {
       throw new ExceptionInInitializerError(e.getMessage());
@@ -60,49 +46,18 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsFormat extends KnnVector
    * @throws LibraryException if the native library fails to load
    */
   public LuceneAcceleratedHNSWScalarQuantizedVectorsFormat() {
-    this(
-        DEFAULT_WRITER_THREADS,
-        DEFAULT_INTERMEDIATE_GRAPH_DEGREE,
-        DEFAULT_GRAPH_DEGREE,
-        DEFAULT_HNSW_GRAPH_LAYERS,
-        DEFAULT_MAX_CONN,
-        DEFAULT_BEAM_WIDTH);
+    this(new AcceleratedHNSWParams.Builder().build());
   }
 
   /**
    * Initializes {@link LuceneAcceleratedHNSWScalarQuantizedVectorsFormat} with the given threads, graph degree, etc.
    *
-   * @param cuvsWriterThreads number of cuVS threads to use while building the CAGRA index
-   * @param intGraphDegree the intermediate graph degree while building the CAGRA index
-   * @param graphDegree the graph degree to use while building the CAGRA index
-   * @param hnswLayers the number of HNSW layers to construct in the HNSW graph
-   * @param maxConn the maximum connections for the HNSW graph
-   * @param beamWidth the beam width to use while building the HNSW graph
+   * @param acceleratedHNSWParams An instance of {@link AcceleratedHNSWParams}
    */
   public LuceneAcceleratedHNSWScalarQuantizedVectorsFormat(
-      int cuvsWriterThreads,
-      int intGraphDegree,
-      int graphDegree,
-      int hnswLayers,
-      int maxConn,
-      int beamWidth) {
+      AcceleratedHNSWParams acceleratedHNSWParams) {
     super("Lucene99AcceleratedHNSWScalarQuantizedVectorsFormat");
-
-    assert cuvsWriterThreads > 0
-        : "cuvsWriterThreads must be greater than zero, but is: " + cuvsWriterThreads;
-    assert intGraphDegree > 0
-        : "intGraphDegree must be greater than zero, but is: " + intGraphDegree;
-    assert graphDegree > 0 : "graphDegree must be greater than zero, but is: " + graphDegree;
-    assert hnswLayers > 0 : "hnswLayers must be greater than zero, but is: " + hnswLayers;
-    assert maxConn > 0 : "maxConn must be greater than zero, but is: " + maxConn;
-    assert beamWidth > 0 : "beamWidth must be greater than zero, but is: " + beamWidth;
-
-    this.cuvsWriterThreads = cuvsWriterThreads;
-    this.intGraphDegree = intGraphDegree;
-    this.graphDegree = graphDegree;
-    this.hnswLayers = hnswLayers;
-    this.maxConn = maxConn;
-    this.beamWidth = beamWidth;
+    this.acceleratedHNSWParams = acceleratedHNSWParams;
   }
 
   /**
@@ -114,7 +69,7 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsFormat extends KnnVector
     if (isSupported()) {
       log.info("cuVS is supported so using the Lucene99AcceleratedHNSWQuantizedVectorsWriter");
       return new LuceneAcceleratedHNSWScalarQuantizedVectorsWriter(
-          state, cuvsWriterThreads, intGraphDegree, graphDegree, hnswLayers, flatWriter);
+          state, acceleratedHNSWParams, flatWriter);
     } else {
       try {
         // Fallback to Lucene's Lucene99HnswScalarQuantizedVectorsFormat
@@ -122,7 +77,8 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsFormat extends KnnVector
             "GPU based indexing not supported, falling back to using the"
                 + " Lucene99HnswScalarQuantizedVectorsFormat");
         KnnVectorsFormat fallbackFormat =
-            LUCENE_PROVIDER.getLuceneHnswScalarQuantizedVectorsFormatInstance(beamWidth, maxConn);
+            LUCENE_PROVIDER.getLuceneHnswScalarQuantizedVectorsFormatInstance(
+                acceleratedHNSWParams.getBeamWidth(), acceleratedHNSWParams.getMaxConn());
         return fallbackFormat.fieldsWriter(state);
       } catch (Exception e) {
         throw new RuntimeException(e.getMessage());
@@ -148,20 +104,6 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsFormat extends KnnVector
    */
   @Override
   public int getMaxDimensions(String fieldName) {
-    return maxDimensions;
-  }
-
-  /**
-   * Returns a string containing the meta information like hnsw layers, graph degree etc.
-   */
-  @Override
-  public String toString() {
-    StringBuilder sb = new StringBuilder(this.getClass().getSimpleName());
-    sb.append("(cuvsWriterThreads=").append(cuvsWriterThreads);
-    sb.append("intGraphDegree=").append(intGraphDegree);
-    sb.append("graphDegree=").append(graphDegree);
-    sb.append("hnswLayers=").append(hnswLayers);
-    sb.append(")");
-    return sb.toString();
+    return MAX_DIMENSIONS;
   }
 }

@@ -19,27 +19,8 @@ import org.apache.lucene.codecs.KnnVectorsFormat;
 public class Lucene101AcceleratedHNSWCodec extends FilterCodec {
 
   private static final Logger log = Logger.getLogger(Lucene101AcceleratedHNSWCodec.class.getName());
-
-  private static final int DEFAULT_CUVS_WRITER_THREADS = 1;
-  private static final int DEFAULT_INTERMEDIATE_GRAPH_DEGREE = 128;
-  private static final int DEFAULT_GRAPH_DEGREE = 64;
-  private static final int DEFAULT_HNSW_LAYERS = 1;
   private static final String NAME = "Lucene101AcceleratedHNSWCodec";
-  private static final LuceneProvider lucene99Provider;
-  private static final Integer maxConn;
-  private static final Integer beamWidth;
-
   private KnnVectorsFormat format;
-
-  static {
-    try {
-      lucene99Provider = LuceneProvider.getInstance("99");
-      maxConn = lucene99Provider.getStaticIntParam("DEFAULT_MAX_CONN");
-      beamWidth = lucene99Provider.getStaticIntParam("DEFAULT_BEAM_WIDTH");
-    } catch (Exception e) {
-      throw new ExceptionInInitializerError(e.getMessage());
-    }
-  }
 
   public Lucene101AcceleratedHNSWCodec() throws Exception {
     this(NAME, LuceneProvider.getCodec("101"));
@@ -50,40 +31,19 @@ public class Lucene101AcceleratedHNSWCodec extends FilterCodec {
     initializeFormatDefaultValues();
   }
 
-  public Lucene101AcceleratedHNSWCodec(
-      int cuvsWriterThreads,
-      int intGraphDegree,
-      int graphDegree,
-      int hnswLayers,
-      int maxConn,
-      int beamWidth)
+  public Lucene101AcceleratedHNSWCodec(AcceleratedHNSWParams acceleratedHNSWParams)
       throws Exception {
     this(NAME, LuceneProvider.getCodec("101"));
-    initializeFormat(
-        cuvsWriterThreads, intGraphDegree, graphDegree, hnswLayers, maxConn, beamWidth);
+    initializeFormat(acceleratedHNSWParams);
   }
 
   private void initializeFormatDefaultValues() {
-    initializeFormat(
-        DEFAULT_CUVS_WRITER_THREADS,
-        DEFAULT_INTERMEDIATE_GRAPH_DEGREE,
-        DEFAULT_GRAPH_DEGREE,
-        DEFAULT_HNSW_LAYERS,
-        maxConn,
-        beamWidth);
+    initializeFormat(new AcceleratedHNSWParams.Builder().build());
   }
 
-  private void initializeFormat(
-      int cuvsWriterThreads,
-      int intGraphDegree,
-      int graphDegree,
-      int hnswLayers,
-      int maxConn,
-      int beamWidth) {
+  private void initializeFormat(AcceleratedHNSWParams acceleratedHNSWParams) {
     try {
-      format =
-          new Lucene99AcceleratedHNSWVectorsFormat(
-              cuvsWriterThreads, intGraphDegree, graphDegree, hnswLayers, maxConn, beamWidth);
+      format = new Lucene99AcceleratedHNSWVectorsFormat(acceleratedHNSWParams);
       setKnnFormat(format);
     } catch (LibraryException ex) {
       log.log(

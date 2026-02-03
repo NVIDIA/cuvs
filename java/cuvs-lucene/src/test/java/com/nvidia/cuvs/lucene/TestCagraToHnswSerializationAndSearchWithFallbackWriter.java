@@ -64,7 +64,14 @@ public class TestCagraToHnswSerializationAndSearchWithFallbackWriter extends Luc
 
   @Test
   public void testCagraToHnswSerializationAndSearchWithFallbackWriter() throws Exception {
-    Codec codec = new Lucene101AcceleratedHNSWCodec(32, 128, 64, 3, 16, 100);
+    AcceleratedHNSWParams params =
+        new AcceleratedHNSWParams.Builder()
+            .withHNSWLayer(3)
+            .withMaxConn(16)
+            .withBeamWidth(100)
+            .build();
+    Codec codec = new Lucene101AcceleratedHNSWCodec(params);
+
     IndexWriterConfig config = new IndexWriterConfig().setCodec(codec).setUseCompoundFile(false);
 
     final int COMMIT_FREQ = 2000;

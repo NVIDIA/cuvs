@@ -9,6 +9,7 @@ import static org.apache.lucene.index.VectorSimilarityFunction.EUCLIDEAN;
 
 import com.nvidia.cuvs.lucene.CuVS2510GPUSearchCodec;
 import com.nvidia.cuvs.lucene.GPUKnnFloatVectorQuery;
+import com.nvidia.cuvs.lucene.GPUSearchParams;
 import java.io.File;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -45,7 +46,8 @@ public class IndexAndSearchonGPUExample {
 
   public static void main(String[] args) throws Exception {
 
-    Codec codec = new CuVS2510GPUSearchCodec();
+    GPUSearchParams params = new GPUSearchParams.Builder().build();
+    Codec codec = new CuVS2510GPUSearchCodec(params);
     IndexWriterConfig config = new IndexWriterConfig().setCodec(codec).setUseCompoundFile(false);
 
     random = new Random(222);

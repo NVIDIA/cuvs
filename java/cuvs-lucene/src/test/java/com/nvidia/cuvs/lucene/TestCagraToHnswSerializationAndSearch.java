@@ -59,7 +59,8 @@ public class TestCagraToHnswSerializationAndSearch extends LuceneTestCase {
 
   @Test
   public void testCagraToHnswSerializationAndSearch() throws Exception {
-    Codec codec = new Lucene101AcceleratedHNSWCodec(1, 128, 64, 3, 16, 100);
+    AcceleratedHNSWParams params = new AcceleratedHNSWParams.Builder().build();
+    Codec codec = new Lucene101AcceleratedHNSWCodec(params);
     IndexWriterConfig config = new IndexWriterConfig().setCodec(codec).setUseCompoundFile(false);
 
     final int COMMIT_FREQ = 2000;

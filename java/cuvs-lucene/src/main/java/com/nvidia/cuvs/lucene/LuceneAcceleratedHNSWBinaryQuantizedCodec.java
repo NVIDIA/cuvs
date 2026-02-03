@@ -4,11 +4,6 @@
  */
 package com.nvidia.cuvs.lucene;
 
-import static com.nvidia.cuvs.lucene.LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat.DEFAULT_GRAPH_DEGREE;
-import static com.nvidia.cuvs.lucene.LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat.DEFAULT_HNSW_GRAPH_LAYERS;
-import static com.nvidia.cuvs.lucene.LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat.DEFAULT_INTERMEDIATE_GRAPH_DEGREE;
-import static com.nvidia.cuvs.lucene.LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat.DEFAULT_WRITER_THREADS;
-
 import com.nvidia.cuvs.LibraryException;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -26,21 +21,8 @@ public class LuceneAcceleratedHNSWBinaryQuantizedCodec extends FilterCodec {
   private static final Logger log =
       Logger.getLogger(LuceneAcceleratedHNSWBinaryQuantizedCodec.class.getName());
   private static final String NAME = "Lucene101AcceleratedHNSWBinaryQuantizedCodec";
-  private static final LuceneProvider LUCENE99_PROVIDER;
-  private static final Integer DEFAULT_MAX_CONN;
-  private static final Integer DEFAULT_BEAM_WIDTH;
 
   private KnnVectorsFormat format;
-
-  static {
-    try {
-      LUCENE99_PROVIDER = LuceneProvider.getInstance("99");
-      DEFAULT_MAX_CONN = LUCENE99_PROVIDER.getStaticIntParam("DEFAULT_MAX_CONN");
-      DEFAULT_BEAM_WIDTH = LUCENE99_PROVIDER.getStaticIntParam("DEFAULT_BEAM_WIDTH");
-    } catch (Exception e) {
-      throw new ExceptionInInitializerError(e.getMessage());
-    }
-  }
 
   public LuceneAcceleratedHNSWBinaryQuantizedCodec() throws Exception {
     this(NAME, LuceneProvider.getCodec("101"));
@@ -48,43 +30,18 @@ public class LuceneAcceleratedHNSWBinaryQuantizedCodec extends FilterCodec {
 
   public LuceneAcceleratedHNSWBinaryQuantizedCodec(String name, Codec delegate) {
     super(name, delegate);
-    initializeFormatDefaultValues();
+    initializeFormat(new AcceleratedHNSWParams.Builder().build());
   }
 
-  public LuceneAcceleratedHNSWBinaryQuantizedCodec(
-      int cuvsWriterThreads,
-      int intGraphDegree,
-      int graphDegree,
-      int hnswLayers,
-      int maxConn,
-      int beamWidth)
+  public LuceneAcceleratedHNSWBinaryQuantizedCodec(AcceleratedHNSWParams acceleratedHNSWParams)
       throws Exception {
     this(NAME, LuceneProvider.getCodec("101"));
-    initializeFormat(
-        cuvsWriterThreads, intGraphDegree, graphDegree, hnswLayers, maxConn, beamWidth);
+    initializeFormat(acceleratedHNSWParams);
   }
 
-  private void initializeFormatDefaultValues() {
-    initializeFormat(
-        DEFAULT_WRITER_THREADS,
-        DEFAULT_INTERMEDIATE_GRAPH_DEGREE,
-        DEFAULT_GRAPH_DEGREE,
-        DEFAULT_HNSW_GRAPH_LAYERS,
-        DEFAULT_MAX_CONN,
-        DEFAULT_BEAM_WIDTH);
-  }
-
-  private void initializeFormat(
-      int cuvsWriterThreads,
-      int intGraphDegree,
-      int graphDegree,
-      int hnswLayers,
-      int maxConn,
-      int beamWidth) {
+  private void initializeFormat(AcceleratedHNSWParams acceleratedHNSWParams) {
     try {
-      format =
-          new LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat(
-              cuvsWriterThreads, intGraphDegree, graphDegree, hnswLayers, maxConn, beamWidth);
+      format = new LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat(acceleratedHNSWParams);
       setKnnFormat(format);
     } catch (LibraryException ex) {
       log.log(

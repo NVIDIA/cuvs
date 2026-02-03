@@ -6,9 +6,7 @@ package com.nvidia.cuvs.lucene;
 
 import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.assertIsSupported;
 
-import com.nvidia.cuvs.CagraIndexParams.CagraGraphBuildAlgo;
 import com.nvidia.cuvs.LibraryException;
-import com.nvidia.cuvs.lucene.CuVS2510GPUVectorsWriter.IndexType;
 import java.io.IOException;
 import java.util.logging.Logger;
 import org.apache.lucene.codecs.KnnVectorsFormat;
@@ -26,31 +24,20 @@ import org.apache.lucene.index.SegmentWriteState;
  */
 public class CuVS2510GPUVectorsFormat extends KnnVectorsFormat {
 
-  static final Logger log = Logger.getLogger(CuVS2510GPUVectorsFormat.class.getName());
+  @SuppressWarnings("unused")
+  private static final Logger log = Logger.getLogger(CuVS2510GPUVectorsFormat.class.getName());
+
+  private static final int maxDimensions = 4096;
+  private static final LuceneProvider LUCENE_PROVIDER;
+  private static final FlatVectorsFormat FLAT_VECTORS_FORMAT;
+  private GPUSearchParams gpuSearchParams;
 
   static final String CUVS_META_CODEC_NAME = "Lucene102CuVSVectorsFormatMeta";
   static final String CUVS_META_CODEC_EXT = "vemc";
   static final String CUVS_INDEX_CODEC_NAME = "Lucene102CuVSVectorsFormatIndex";
   static final String CUVS_INDEX_EXT = "vcag";
-
   static final int VERSION_START = 0;
   static final int VERSION_CURRENT = VERSION_START;
-
-  static final int DEFAULT_WRITER_THREADS = 32;
-  static final int DEFAULT_INTERMEDIATE_GRAPH_DEGREE = 128;
-  static final int DEFAULT_GRAPH_DEGREE = 64;
-  static final CagraGraphBuildAlgo DEFAULT_CAGRA_GRAPH_BUILD_ALGO = CagraGraphBuildAlgo.NN_DESCENT;
-  static final IndexType DEFAULT_INDEX_TYPE = IndexType.CAGRA;
-
-  static final LuceneProvider LUCENE_PROVIDER;
-  static final FlatVectorsFormat FLAT_VECTORS_FORMAT;
-
-  final int maxDimensions = 4096;
-  final int cuvsWriterThreads;
-  final int intGraphDegree;
-  final int graphDegree;
-  final CagraGraphBuildAlgo cagraGraphBuildAlgo;
-  final CuVS2510GPUVectorsWriter.IndexType indexType; // the index type to build, when writing
 
   static {
     try {
@@ -68,37 +55,18 @@ public class CuVS2510GPUVectorsFormat extends KnnVectorsFormat {
    * @throws LibraryException if the native library fails to load
    */
   public CuVS2510GPUVectorsFormat() {
-    this(
-        DEFAULT_WRITER_THREADS,
-        DEFAULT_INTERMEDIATE_GRAPH_DEGREE,
-        DEFAULT_GRAPH_DEGREE,
-        DEFAULT_CAGRA_GRAPH_BUILD_ALGO,
-        DEFAULT_INDEX_TYPE);
+    this(new GPUSearchParams.Builder().build());
   }
 
   /**
    * Initializes the {@link CuVS2510GPUVectorsFormat} with the given threads, graph degree, etc.
    *
-   * @param cuvsWriterThreads the number of cuVS writer threads to use
-   * @param intGraphDegree the intermediate graph degree for building the CAGRA index
-   * @param graphDegree the graph degree for building the CAGRA index
-   * @param cagraGraphBuildAlgo the CAGRA graph build algorithm to use
-   * @param indexType the {@link com.nvidia.cuvs.lucene.CuVS2510GPUVectorsWriter.IndexType}
-   *
+   * @param gpuSearchParams An instance of {@link GPUSearchParams}
    * @throws LibraryException if the native library fails to load
    */
-  public CuVS2510GPUVectorsFormat(
-      int cuvsWriterThreads,
-      int intGraphDegree,
-      int graphDegree,
-      CagraGraphBuildAlgo cagraGraphBuildAlgo,
-      IndexType indexType) {
+  public CuVS2510GPUVectorsFormat(GPUSearchParams gpuSearchParams) {
     super("CuVS2510GPUVectorsFormat");
-    this.cuvsWriterThreads = cuvsWriterThreads;
-    this.intGraphDegree = intGraphDegree;
-    this.graphDegree = graphDegree;
-    this.cagraGraphBuildAlgo = cagraGraphBuildAlgo;
-    this.indexType = indexType;
+    this.gpuSearchParams = gpuSearchParams;
   }
 
   /**
@@ -108,14 +76,7 @@ public class CuVS2510GPUVectorsFormat extends KnnVectorsFormat {
   public CuVS2510GPUVectorsWriter fieldsWriter(SegmentWriteState state) throws IOException {
     assertIsSupported();
     var flatWriter = FLAT_VECTORS_FORMAT.fieldsWriter(state);
-    return new CuVS2510GPUVectorsWriter(
-        state,
-        cuvsWriterThreads,
-        intGraphDegree,
-        graphDegree,
-        cagraGraphBuildAlgo,
-        indexType,
-        flatWriter);
+    return new CuVS2510GPUVectorsWriter(state, gpuSearchParams, flatWriter);
   }
 
   /**
@@ -133,19 +94,5 @@ public class CuVS2510GPUVectorsFormat extends KnnVectorsFormat {
   @Override
   public int getMaxDimensions(String fieldName) {
     return maxDimensions;
-  }
-
-  /**
-   * Returns a string containing information like cuvsWriterThreads, intGraphDegree, etc.
-   */
-  @Override
-  public String toString() {
-    StringBuilder sb = new StringBuilder(this.getClass().getSimpleName());
-    sb.append("(cuvsWriterThreads=").append(cuvsWriterThreads);
-    sb.append("intGraphDegree=").append(intGraphDegree);
-    sb.append("graphDegree=").append(graphDegree);
-    sb.append("cagraGraphBuildAlgo=").append(cagraGraphBuildAlgo);
-    sb.append(")");
-    return sb.toString();
   }
 }

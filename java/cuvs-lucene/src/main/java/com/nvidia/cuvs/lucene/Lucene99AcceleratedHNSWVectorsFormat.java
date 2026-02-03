@@ -6,7 +6,6 @@ package com.nvidia.cuvs.lucene;
 
 import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.isSupported;
 
-import com.nvidia.cuvs.CagraIndexParams.CagraGraphBuildAlgo;
 import com.nvidia.cuvs.LibraryException;
 import java.io.IOException;
 import java.util.logging.Level;
@@ -28,12 +27,10 @@ public class Lucene99AcceleratedHNSWVectorsFormat extends KnnVectorsFormat {
 
   private static final Logger log =
       Logger.getLogger(Lucene99AcceleratedHNSWVectorsFormat.class.getName());
-
-  static final int DEFAULT_WRITER_THREADS = 32;
-  static final int DEFAULT_INTERMEDIATE_GRAPH_DEGREE = 128;
-  static final int DEFAULT_GRAPH_DEGREE = 64;
-  static final CagraGraphBuildAlgo DEFAULT_CAGRA_GRAPH_BUILD_ALGO = CagraGraphBuildAlgo.NN_DESCENT;
-  static final int DEFAULT_HNSW_GRAPH_LAYERS = 1;
+  private static final FlatVectorsFormat FLAT_VECTORS_FORMAT;
+  private static final Integer NUM_MERGE_WORKERS;
+  private static final int maxDimensions = 4096;
+  private AcceleratedHNSWParams acceleratedHNSWParams;
 
   static final String HNSW_META_CODEC_NAME = "Lucene99HnswVectorsFormatMeta";
   static final String HNSW_META_CODEC_EXT = "vem";
@@ -41,26 +38,9 @@ public class Lucene99AcceleratedHNSWVectorsFormat extends KnnVectorsFormat {
   static final String HNSW_INDEX_EXT = "vex";
   static final LuceneProvider LUCENE_PROVIDER;
 
-  private static final FlatVectorsFormat FLAT_VECTORS_FORMAT;
-  private static final Integer MAX_CONN;
-  private static final Integer BEAM_WIDTH;
-  private static final Integer NUM_MERGE_WORKERS;
-
-  private final int maxDimensions = 4096;
-  private final int cuvsWriterThreads;
-  private final int intGraphDegree;
-  private final int graphDegree;
-  // This default setting will be removed once I figure out the root cause of a related bug.
-  private final CagraGraphBuildAlgo cagraGraphBuildAlgo = DEFAULT_CAGRA_GRAPH_BUILD_ALGO;
-  private final int hnswLayers;
-  private final int maxConn;
-  private final int beamWidth;
-
   static {
     try {
       LUCENE_PROVIDER = LuceneProvider.getInstance("99");
-      MAX_CONN = LUCENE_PROVIDER.getStaticIntParam("DEFAULT_MAX_CONN");
-      BEAM_WIDTH = LUCENE_PROVIDER.getStaticIntParam("DEFAULT_BEAM_WIDTH");
       NUM_MERGE_WORKERS = LUCENE_PROVIDER.getStaticIntParam("DEFAULT_BEAM_WIDTH");
       FLAT_VECTORS_FORMAT =
           LUCENE_PROVIDER.getLuceneFlatVectorsFormatInstance(DefaultFlatVectorScorer.INSTANCE);
@@ -70,44 +50,22 @@ public class Lucene99AcceleratedHNSWVectorsFormat extends KnnVectorsFormat {
   }
 
   /**
-   * Initializes {@link Lucene99AcceleratedHNSWVectorsFormat} with default values.
+   * Initializes {@link Lucene99AcceleratedHNSWVectorsFormat} with default parameter values.
    *
    * @throws LibraryException if the native library fails to load
    */
   public Lucene99AcceleratedHNSWVectorsFormat() {
-    this(
-        DEFAULT_WRITER_THREADS,
-        DEFAULT_INTERMEDIATE_GRAPH_DEGREE,
-        DEFAULT_GRAPH_DEGREE,
-        DEFAULT_HNSW_GRAPH_LAYERS,
-        MAX_CONN,
-        BEAM_WIDTH);
+    this(new AcceleratedHNSWParams.Builder().build());
   }
 
   /**
    * Initializes {@link Lucene99AcceleratedHNSWVectorsFormat} with the given threads, graph degree, etc.
    *
-   * @param cuvsWriterThreads number of cuVS threads to use while building the CAGRA index
-   * @param intGraphDegree the intermediate graph degree while building the CAGRA index
-   * @param graphDegree the graph degree to use while building the CAGRA index
-   * @param hnswLayers the number of HNSW layers to construct in the HNSW graph
-   * @param maxConn the maximum connections for the HNSW graph
-   * @param beamWidth the beam width to use while building the HNSW graph
+   * @param acceleratedHNSWParams An instance of {@link AcceleratedHNSWParams}
    */
-  public Lucene99AcceleratedHNSWVectorsFormat(
-      int cuvsWriterThreads,
-      int intGraphDegree,
-      int graphDegree,
-      int hnswLayers,
-      int maxConn,
-      int beamWidth) {
+  public Lucene99AcceleratedHNSWVectorsFormat(AcceleratedHNSWParams acceleratedHNSWParams) {
     super("Lucene99AcceleratedHNSWVectorsFormat");
-    this.cuvsWriterThreads = cuvsWriterThreads;
-    this.intGraphDegree = intGraphDegree;
-    this.graphDegree = graphDegree;
-    this.hnswLayers = hnswLayers;
-    this.maxConn = maxConn;
-    this.beamWidth = beamWidth;
+    this.acceleratedHNSWParams = acceleratedHNSWParams;
   }
 
   /**
@@ -118,14 +76,7 @@ public class Lucene99AcceleratedHNSWVectorsFormat extends KnnVectorsFormat {
     var flatWriter = FLAT_VECTORS_FORMAT.fieldsWriter(state);
     if (isSupported()) {
       log.log(Level.FINE, "cuVS is supported so using the Lucene99AcceleratedHNSWVectorsWriter");
-      return new Lucene99AcceleratedHNSWVectorsWriter(
-          state,
-          cuvsWriterThreads,
-          intGraphDegree,
-          graphDegree,
-          cagraGraphBuildAlgo,
-          hnswLayers,
-          flatWriter);
+      return new Lucene99AcceleratedHNSWVectorsWriter(state, acceleratedHNSWParams, flatWriter);
     } else {
       log.log(
           Level.WARNING,
@@ -133,7 +84,12 @@ public class Lucene99AcceleratedHNSWVectorsFormat extends KnnVectorsFormat {
       // TODO: Make num merge workers configurable.
       try {
         return LUCENE_PROVIDER.getLuceneHnswVectorsWriterInstance(
-            state, maxConn, beamWidth, flatWriter, NUM_MERGE_WORKERS, null);
+            state,
+            acceleratedHNSWParams.getMaxConn(),
+            acceleratedHNSWParams.getBeamWidth(),
+            flatWriter,
+            NUM_MERGE_WORKERS,
+            null);
       } catch (Exception e) {
         // maybe there is a better suited option to throwing RuntimeException? Need to explore.
         throw new RuntimeException(e.getMessage());
@@ -161,20 +117,5 @@ public class Lucene99AcceleratedHNSWVectorsFormat extends KnnVectorsFormat {
   @Override
   public int getMaxDimensions(String fieldName) {
     return maxDimensions;
-  }
-
-  /**
-   * Returns a string containing the meta information like hnsw layers, graph degree etc.
-   */
-  @Override
-  public String toString() {
-    StringBuilder sb = new StringBuilder(this.getClass().getSimpleName());
-    sb.append("(cuvsWriterThreads=").append(cuvsWriterThreads);
-    sb.append("intGraphDegree=").append(intGraphDegree);
-    sb.append("graphDegree=").append(graphDegree);
-    sb.append("cagraGraphBuildAlgo=").append(cagraGraphBuildAlgo);
-    sb.append("hnswLayers=").append(hnswLayers);
-    sb.append(")");
-    return sb.toString();
   }
 }

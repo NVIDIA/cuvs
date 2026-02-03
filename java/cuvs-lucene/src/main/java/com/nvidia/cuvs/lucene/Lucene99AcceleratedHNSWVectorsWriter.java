@@ -72,18 +72,11 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
   private static final Logger log =
       Logger.getLogger(Lucene99AcceleratedHNSWVectorsWriter.class.getName());
 
-  /** The name of the CUVS component for the info-stream * */
   private static final String CUVS_COMPONENT = "CUVS";
-
   private static final LuceneProvider LUCENE_PROVIDER;
   private static final Integer VERSION_CURRENT;
   private static final List<VectorSimilarityFunction> VECTOR_SIMILARITY_FUNCTIONS;
 
-  private final int cuvsWriterThreads;
-  private final int intGraphDegree;
-  private final int graphDegree;
-  private final CagraGraphBuildAlgo cagraGraphBuildAlgo;
-  private final int hnswLayers; // Number of layers to create in CAGRA->HNSW conversion
   private final FlatVectorsWriter flatVectorsWriter; // for writing the raw vectors
   private final List<GPUFieldWriter> fields = new ArrayList<>();
   private final InfoStream infoStream;
@@ -92,6 +85,7 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
   private boolean finished;
   private String vemFileName;
   private String vexFileName;
+  private final AcceleratedHNSWParams acceleratedHNSWParams;
 
   static {
     try {
@@ -107,31 +101,19 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
    * Initializes {@link Lucene99AcceleratedHNSWVectorsWriter}
    *
    * @param state instance of the {@link org.apache.lucene.index.SegmentWriteState}
-   * @param cuvsWriterThreads number of cuVS threads to use while building the intermediate CAGRA index
-   * @param intGraphDegree the intermediate graph degree to use while building the CAGRA index
-   * @param graphDegree the graph degree to use while building the CAGRA index
-   * @param cagraGraphBuildAlgo the CAGRA graph build algorithm to use
-   * @param hnswLayers the number of hnsw layers to construct while building the HNSW graph
+   * @param acceleratedHNSWParams An instance of {@link AcceleratedHNSWParams}
    * @param flatVectorsWriter instance of the {@link org.apache.lucene.codecs.hnsw.FlatVectorsWriter}
    * @throws IOException IOException
    */
   public Lucene99AcceleratedHNSWVectorsWriter(
       SegmentWriteState state,
-      int cuvsWriterThreads,
-      int intGraphDegree,
-      int graphDegree,
-      CagraGraphBuildAlgo cagraGraphBuildAlgo,
-      int hnswLayers,
+      AcceleratedHNSWParams acceleratedHNSWParams,
       FlatVectorsWriter flatVectorsWriter)
       throws IOException {
     super();
-    this.cuvsWriterThreads = cuvsWriterThreads;
-    this.intGraphDegree = intGraphDegree;
-    this.graphDegree = graphDegree;
-    this.cagraGraphBuildAlgo = cagraGraphBuildAlgo;
-    this.hnswLayers = hnswLayers;
     this.flatVectorsWriter = flatVectorsWriter;
     this.infoStream = state.infoStream;
+    this.acceleratedHNSWParams = acceleratedHNSWParams;
 
     vemFileName =
         IndexFileNames.segmentFileName(
@@ -185,33 +167,17 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
   }
 
   /**
-   * Utility method for building index metadata information string object.
-   *
-   * @param size index size
-   * @param args additional metadata information
-   * @return the string representation of the metadata information
-   */
-  static String indexMsg(int size, int... args) {
-    StringBuilder sb = new StringBuilder("cagra index params");
-    sb.append(": size=").append(size);
-    sb.append(", intGraphDegree=").append(args[0]);
-    sb.append(", actualIntGraphDegree=").append(args[1]);
-    sb.append(", graphDegree=").append(args[2]);
-    sb.append(", actualGraphDegree=").append(args[3]);
-    return sb.toString();
-  }
-
-  /**
    * Builds an instance of CagraIndexParams.
    *
    * @return instance of CagraIndexParams
    */
   private CagraIndexParams cagraIndexParams() {
+    // TODO: Make build algorithm configurable after fixing the related issue.
     return new CagraIndexParams.Builder()
-        .withNumWriterThreads(cuvsWriterThreads)
-        .withIntermediateGraphDegree(intGraphDegree)
-        .withGraphDegree(graphDegree)
-        .withCagraGraphBuildAlgo(cagraGraphBuildAlgo)
+        .withNumWriterThreads(acceleratedHNSWParams.getWriterThreads())
+        .withIntermediateGraphDegree(acceleratedHNSWParams.getIntermediateGraphDegree())
+        .withGraphDegree(acceleratedHNSWParams.getGraphdegree())
+        .withCagraGraphBuildAlgo(CagraGraphBuildAlgo.NN_DESCENT)
         .build();
   }
 
@@ -269,7 +235,12 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
       // Create multi-layer HNSW graph from CAGRA
       GPUBuiltHnswGraph hnswGraph =
           createMultiLayerHnswGraph(
-              fieldInfo, size, dimensions, adjacencyListMatrix, vectors, hnswLayers);
+              fieldInfo,
+              size,
+              dimensions,
+              adjacencyListMatrix,
+              vectors,
+              acceleratedHNSWParams.getHnswLayers());
 
       long vectorIndexOffset = hnswVectorIndex.getFilePointer();
 
@@ -315,7 +286,7 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
       throws Throwable {
 
     // Calculate M as cagraGraphDegree/2
-    int M = graphDegree / 2;
+    int M = acceleratedHNSWParams.getGraphdegree() / 2;
 
     // Store all layers data
     List<int[]> layerNodes = new ArrayList<>();
@@ -450,7 +421,7 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
     meta.writeVLong(vectorIndexLength);
     meta.writeVInt(field.getVectorDimension());
     meta.writeInt(count);
-    meta.writeVInt(graphDegree / 2); // M = cagraGraphDegree/2
+    meta.writeVInt(acceleratedHNSWParams.getGraphdegree() / 2); // M = cagraGraphDegree/2
 
     // write graph nodes on each level
     if (graph == null) {
