@@ -54,6 +54,11 @@ struct index_params : cuvs::neighbors::index_params {
   /** the value of lambda for SOAR spilling **/
   float soar_lambda = 1;
 
+  /** the number of intermediate nodes in a two-level tree.
+   *  When == 0, only a single level tree with root + leaves if built.
+   **/
+  uint32_t n_coarse_clusters = 0;
+
   // Residual quanitzation params
   /** the dimension of pq subspaces (must divide dataset dimension)**/
   uint32_t pq_dim = 8;
@@ -135,6 +140,7 @@ struct index : cuvs::neighbors::index {
   index(raft::resources const& res,
         cuvs::distance::DistanceType metric,
         uint32_t n_leaves,
+        uint32_t n_coarse_clusters,
         uint32_t pq_bits,
         uint32_t pq_dim,
         IdxT n_rows,
@@ -150,6 +156,11 @@ struct index : cuvs::neighbors::index {
       centers_(raft::make_device_matrix<float, IdxT>(res, n_leaves, dim)),
       labels_(raft::make_device_vector<uint32_t, IdxT>(res, n_rows)),
       soar_labels_(raft::make_device_vector<uint32_t, IdxT>(res, n_rows)),
+      coarse_centers_(raft::make_device_matrix<float, IdxT>(res, n_coarse_clusters, dim)),
+      coarse_labels_(
+        raft::make_device_vector<uint32_t, IdxT>(res, n_coarse_clusters > 0 ? n_leaves : 0)),
+      coarse_soar_labels_(
+        raft::make_device_vector<uint32_t, IdxT>(res, n_coarse_clusters > 0 ? n_leaves : 0)),
       pq_codebook_(
         raft::make_device_matrix<float, uint32_t, raft::row_major>(res, pq_clusters, dim)),
       quantized_residuals_(
@@ -168,6 +179,7 @@ struct index : cuvs::neighbors::index {
     : index(res,
             params.metric,
             params.n_leaves,
+            params.n_coarse_clusters,
             params.pq_bits,
             params.pq_dim,
             n_rows,
@@ -202,6 +214,33 @@ struct index : cuvs::neighbors::index {
   raft::device_vector_view<const uint32_t, IdxT> soar_labels() const noexcept
   {
     return raft::make_const_mdspan(soar_labels_.view());
+  }
+
+  raft::device_matrix_view<float, IdxT> coarse_centers() noexcept { return coarse_centers_.view(); }
+
+  raft::device_matrix_view<const float, IdxT> coarse_centers() const noexcept
+  {
+    return raft::make_const_mdspan(coarse_centers_.view());
+  }
+
+  raft::device_vector_view<uint32_t, IdxT> coarse_labels() noexcept
+  {
+    return coarse_labels_.view();
+  }
+
+  raft::device_vector_view<const uint32_t, IdxT> coarse_labels() const noexcept
+  {
+    return raft::make_const_mdspan(coarse_labels_.view());
+  }
+
+  raft::device_vector_view<uint32_t, IdxT> coarse_soar_labels() noexcept
+  {
+    return coarse_soar_labels_.view();
+  }
+
+  raft::device_vector_view<const uint32_t, IdxT> coarse_soar_labels() const noexcept
+  {
+    return raft::make_const_mdspan(coarse_soar_labels_.view());
   }
 
   uint32_t n_rows() const noexcept { return n_rows_; }
@@ -262,6 +301,9 @@ struct index : cuvs::neighbors::index {
   raft::device_matrix<float, IdxT, raft::row_major> centers_;
   raft::device_vector<uint32_t, IdxT> labels_;
   raft::device_vector<uint32_t, IdxT> soar_labels_;
+  raft::device_matrix<float, IdxT, raft::row_major> coarse_centers_;
+  raft::device_vector<uint32_t, IdxT, raft::row_major> coarse_labels_;
+  raft::device_vector<uint32_t, IdxT, raft::row_major> coarse_soar_labels_;
   raft::device_matrix<float, uint32_t, raft::row_major> pq_codebook_;
   raft::host_matrix<uint8_t, IdxT, raft::row_major> quantized_residuals_;
   raft::host_matrix<uint8_t, IdxT, raft::row_major> quantized_soar_residuals_;
