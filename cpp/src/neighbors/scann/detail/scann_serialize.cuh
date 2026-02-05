@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -53,18 +53,36 @@ void serialize_matrix(
   mat_of.close();
 }
 
+// Helper for serializing device/host vector to a given file
+template <typename T,
+          typename IdxT,
+          typename Accessor =
+            raft::host_device_accessor<cuda::std::default_accessor<T>, raft::memory_type::host>>
+void serialize_vector(
+  raft::resources const& res,
+  std::filesystem::path file_path,
+  raft::mdspan<const T, raft::vector_extent<IdxT>, raft::row_major, Accessor> mat)
+{
+  auto mat_of = open_file(file_path);
+
+  raft::serialize_mdspan(res, mat_of, mat);
+
+  mat_of.close();
+}
+
 // ScaNN stores primary and soar cluster assignments interleaved in a single vector.
 // When the primary and soar assignment are equal, the soar assignment should be -1
 // This is a helper for combining the primary and soar assignments into this format
 // and serializing it
-template <typename T, typename IdxT>
+template <typename IdxT>
 void save_labels(raft::resources const& res,
                  std::filesystem::path labels_path,
-                 const index<T, IdxT>& index_)
+                 raft::device_vector_view<const uint32_t, IdxT> labels_view,
+                 raft::device_vector_view<const uint32_t, IdxT> soar_labels_view)
 {
-  auto combined_labels  = raft::make_device_vector<int, IdxT>(res, 2 * index_.labels().extent(0));
-  auto labels_view      = index_.labels();
-  auto soar_labels_view = index_.soar_labels();
+  auto combined_labels = raft::make_device_vector<int, IdxT>(res, 2 * labels_view.extent(0));
+  // auto labels_view      = index_.labels();
+  // auto soar_labels_view = index_.soar_labels();
 
   raft::linalg::map_offset(
     res, combined_labels.view(), [labels_view, soar_labels_view] __device__(size_t i) {
@@ -116,6 +134,8 @@ void serialize(raft::resources const& res,
   raft::serialize_scalar(res, metadata_of, kSerializationVersion);
   raft::serialize_scalar(res, metadata_of, index_.dim());
   raft::serialize_scalar(res, metadata_of, index_.pq_dim());
+  // Record number of tree levels
+  raft::serialize_scalar(res, metadata_of, index_.coarse_centers().extent(0) > 0 ? 2 : 1);
 
   metadata_of.close();
 
@@ -123,10 +143,16 @@ void serialize(raft::resources const& res,
   serialize_matrix(res, scann_path / "centers.npy", index_.centers());
 
   // cluster assignments
-  save_labels(res, scann_path / "datapoint_to_token.npy", index_);
+  save_labels(res, scann_path / "datapoint_to_token.npy", index_.labels(), index_.soar_labels());
 
+  // kmeans two-level centers
+  if (index_.coarse_centers().extent(0) > 0) {
+    serialize_matrix(res, scann_path / "coarse_centers.npy", index_.coarse_centers());
+
+    save_labels(
+      res, scann_path / "coarse_labels.npy", index_.coarse_labels(), index_.coarse_soar_labels());
+  }
   // codebook
-
   serialize_matrix(res, scann_path / "pq_codebook.npy", index_.pq_codebook());
 
   // quantized residuals
