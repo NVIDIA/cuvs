@@ -512,30 +512,52 @@ jobs:
       build_type: pull-request
       matrix_name: conda-cpp-build
   rocky8-clib-standalone-build:
-    needs: [build-details, rocky8-clib-standalone-build-matrix]
+    needs: rocky8-clib-standalone-build-matrix
+    runs-on: linux-${{ matrix.ARCH }}-cpu16
+    env:
+      RAPIDS_ARTIFACTS_DIR: ${{ github.workspace }}/artifacts
     permissions:
       actions: read
       contents: read
       id-token: write
       packages: read
       pull-requests: read
-    secrets: inherit # zizmor: ignore[secrets-inherit]
-    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@main
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.rocky8-clib-standalone-build-matrix.outputs.matrix) }}
-    with:
-      build_type: pull-request
-      build-datetime: ${{ needs.build-details.outputs.build-datetime }}
-      arch: "${{matrix.arch}}"
-      date: ${{ inputs.date }}_c
-      container_image: "rapidsai/ci-wheel:26.10-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
-      node_type: "cpu16"
-      requires_license_builder: true
-      script: "ci/build_standalone_c.sh --build-tests"
-      artifact-name: "libcuvs_c_${{ matrix.CUDA_VER }}_${{ matrix.ARCH }}.tar.gz"
-      file_to_upload: "libcuvs_c.tar.gz"
-      sha: ${{ inputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+          fetch-depth: 0
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-duration-seconds: 43200
+      - name: Setup sccache-dist
+        uses: rapidsai/shared-actions/setup-sccache-dist@main
+        with:
+          log-file: ${{ env.RAPIDS_ARTIFACTS_DIR }}/sccache.log
+          request-timeout: 7140
+      - name: Get RAPIDS License Builder
+        uses: actions/checkout@v4
+        with:
+          repository: rapidsai/spdx-license-builder
+          ref: refs/heads/main
+          path: ./tool/
+          fetch-depth: 0
+      - name: Build and run standalone C Docker image
+        env:
+          CUDA_VERSION: ${{ matrix.CUDA_VER }}
+          PYTHON_VERSION: ${{ matrix.PY_VER }}
+          RAPIDS_AUX_SECRET_1: ${{ secrets.GIST_REPO_READ_ORG_GITHUB_TOKEN }}
+        run: ci/run_standalone_c_docker.sh --build-tests
+      - name: Upload file to GitHub Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libcuvs_c_${{ matrix.CUDA_VER }}_${{ matrix.ARCH }}.tar.gz
+          path: libcuvs_c.tar.gz
   rocky8-clib-tests-matrix:
     needs: [rocky8-clib-standalone-build, changed-files]
     permissions:
