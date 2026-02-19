@@ -1,0 +1,56 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Environment and runner for standalone C build (see build_standalone_c.sh in this dir).
+# Build args: CUDA_VERSION (default 13.0), PYTHON_VERSION (default 3.11).
+#
+# End-user instructions: see ci/README-standalone-c.md
+# Quick run: docker run -v $(pwd):/workspace -v $(pwd)/build:/build <image> [--build-tests]
+
+ARG CUDA_VERSION=13.0
+ARG PYTHON_VERSION=3.11
+FROM rapidsai/ci-wheel:26.04-cuda${CUDA_VERSION}-rockylinux8-py${PYTHON_VERSION}
+
+ARG NINJA_VERSION=v1.13.1
+
+# System packages required by build_standalone_c.sh
+RUN dnf install -y \
+    patch \
+    tar \
+    unzip \
+    wget \
+    && dnf clean all
+
+# Install ninja (architecture-aware)
+RUN set -euo pipefail; \
+    if ! command -V ninja >/dev/null 2>&1; then \
+        case "$(uname -m)" in \
+            x86_64) \
+                wget --no-hsts -q -O /tmp/ninja-linux.zip "https://github.com/ninja-build/ninja/releases/download/${NINJA_VERSION}/ninja-linux.zip"; \
+                ;; \
+            aarch64) \
+                wget --no-hsts -q -O /tmp/ninja-linux.zip "https://github.com/ninja-build/ninja/releases/download/${NINJA_VERSION}/ninja-linux-aarch64.zip"; \
+                ;; \
+            *) \
+                echo "Unrecognized platform '$(uname -m)'" >&2; exit 1; \
+                ;; \
+        esac; \
+        unzip -d /usr/bin /tmp/ninja-linux.zip; \
+        chmod +x /usr/bin/ninja; \
+        rm /tmp/ninja-linux.zip; \
+    fi
+
+# CMake; sccache/date are configured at runtime by build_standalone_c.sh
+RUN rapids-pip-retry install cmake \
+    && pyenv rehash
+
+# Output directory for the standalone archive. Bind-mount a host folder here
+# (e.g. -v $(pwd)/build:/build) so libcuvs_c.tar.gz is written to the host.
+ENV BUILD_OUTPUT_DIR=/build
+
+# Run from repo root; the repo is expected to be bind-mounted at /workspace.
+WORKDIR /workspace
+
+# Run the build script, then copy the standalone tarball into the mounted output dir.
+# Example: docker run -v $(pwd):/workspace -v $(pwd)/build:/build <image> [--build-tests]
+ENTRYPOINT ["/bin/bash", "-c", "ci/standalone_c/build_standalone_c.sh \"$@\" && cp -v libcuvs_c.tar.gz \"$BUILD_OUTPUT_DIR/\"", "--"]
