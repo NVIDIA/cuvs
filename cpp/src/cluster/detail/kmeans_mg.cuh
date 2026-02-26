@@ -281,6 +281,7 @@ void initKMeansPlusPlus(const raft::resources& handle,
                   niter);
 
   // <<<< Step-3 >>> : for O( log(psi) ) times do
+  auto nvtx_range = nvtx3::start_range("step 3");
   for (int iter = 0; iter < niter; ++iter) {
     CUVS_LOG_KMEANS(handle,
                     "@Rank-%d:KMeans|| - Iteration %d: # potential centroids sampled - "
@@ -374,6 +375,7 @@ void initKMeansPlusPlus(const raft::resources& handle,
       raft::make_device_matrix_view<DataT, IndexT>(centroidsBuf.data(), tot_centroids, n_features);
     /// <<<< End of Step-5 >>>
   }  /// <<<< Step-6 >>>
+  nvtx3::end_range(nvtx_range);
 
   CUVS_LOG_KMEANS(handle,
                   "@Rank-%d:KMeans||: # potential centroids sampled - %d\n",
@@ -404,16 +406,17 @@ void initKMeansPlusPlus(const raft::resources& handle,
     // seed they should generate the same potentialCentroids
     auto const_centroids = raft::make_device_matrix_view<const DataT, IndexT>(
       potentialCentroids.data_handle(), potentialCentroids.extent(0), potentialCentroids.extent(1));
+    auto nvtx_range = nvtx3::start_range("init_plus_plus");
     cuvs::cluster::kmeans::init_plus_plus(
       handle, params, const_centroids, centroidsRawData, workspace);
 
+    nvtx3::end_range(nvtx_range);
     auto inertia = raft::make_host_scalar<DataT>(0);
     auto n_iter  = raft::make_host_scalar<IndexT>(0);
     auto weight_view =
       raft::make_device_vector_view<const DataT, IndexT>(weight.data_handle(), weight.extent(0));
     cuvs::cluster::kmeans::params params_copy = params;
     params_copy.rng_state                     = default_params.rng_state;
-
     cuvs::cluster::kmeans::fit_main<DataT, IndexT>(handle,
                                                    params_copy,
                                                    const_centroids,

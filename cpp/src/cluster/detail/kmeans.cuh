@@ -73,6 +73,16 @@ void initRandom(raft::resources const& handle,
     handle, X, centroids, n_clusters, params.rng_state.seed);
 }
 
+template <typename DataT>
+__global__ void dump_var(DataT* v, uint64_t len) {
+  printf("{");
+  for (int i = 0; i < 10; i++) {
+    if (i < len) printf("%f, ", double(v[i]));
+  }
+  printf("} \n");
+}
+
+
 /*
  * @brief Selects 'n_clusters' samples from the input X using kmeans++ algorithm.
 
@@ -144,6 +154,7 @@ void kmeansPlusPlus(raft::resources const& handle,
   }
 
   raft::random::RngState rng(params.rng_state.seed, params.rng_state.type);
+  //raft::random::RngState rng(params.rng_state.seed, raft::random::GeneratorType::GenPhilox);
   std::mt19937 gen(params.rng_state.seed);
   std::uniform_int_distribution<> dis(0, n_samples - 1);
 
@@ -181,10 +192,14 @@ void kmeansPlusPlus(raft::resources const& handle,
     // <<< Step-3 >>> : Sample x in X with probability p_x = d^2(x, C) / phi_X (C)
     // Choose 'n_trials' centroid candidates from X with probability proportional to the squared
     // distance to the nearest existing cluster
-
+    // printf("size of index = %lu, size of weights = %lu, sizeof types (%ld, %ld)\n",
+    //    uint64_t(indices_view.extent(0)), uint64_t(const_weights_view.extent(0)), sizeof(DataT), sizeof(IndexT));
     raft::random::discrete(handle, rng, indices_view, const_weights_view);
     raft::matrix::gather(handle, const_X_view, const_indices_view, candidates_view);
 
+    cudaDeviceSynchronize();
+    dump_var<<<1, 1>>>(indices.data_handle(), uint64_t(n_trials));
+    cudaDeviceSynchronize();
     // Calculate pairwise distance between X and the centroid candidates
     // Output - pwd [n_trials x n_samples]
     auto pwd = distBuffer.view();
