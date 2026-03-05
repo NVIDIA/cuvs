@@ -168,7 +168,9 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends KnnVector
           cagraIndexParams(
               acceleratedHNSWParams.getWriterThreads(),
               acceleratedHNSWParams.getIntermediateGraphDegree(),
-              acceleratedHNSWParams.getGraphdegree());
+              acceleratedHNSWParams.getGraphdegree(),
+              acceleratedHNSWParams.getCagraGraphBuildAlgo(),
+              acceleratedHNSWParams.getCuVSIvfPqParams());
       CagraIndex cagraIndex =
           CagraIndex.newBuilder(getCuVSResourcesInstance())
               .withDataset(dataset)

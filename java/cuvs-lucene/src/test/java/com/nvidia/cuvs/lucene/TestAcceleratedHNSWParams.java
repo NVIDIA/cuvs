@@ -5,6 +5,7 @@
 
 package com.nvidia.cuvs.lucene;
 
+import com.nvidia.cuvs.CagraIndexParams.CagraGraphBuildAlgo;
 import java.util.Random;
 import java.util.logging.Logger;
 import org.apache.lucene.tests.util.LuceneTestCase;
@@ -23,12 +24,14 @@ public class TestAcceleratedHNSWParams extends LuceneTestCase {
   @Test
   public void testAcceleratedHNSWParamsDefaultValues() {
     AcceleratedHNSWParams params = new AcceleratedHNSWParams.Builder().build();
-    assertEquals(16, params.getBeamWidth());
+    assertEquals(32, params.getBeamWidth());
     assertEquals(64, params.getGraphdegree());
-    assertEquals(2, params.getHnswLayers());
+    assertEquals(1, params.getHnswLayers());
     assertEquals(128, params.getIntermediateGraphDegree());
-    assertEquals(8, params.getMaxConn());
+    assertEquals(32, params.getMaxConn());
     assertEquals(1, params.getWriterThreads());
+    assertEquals(1, params.getNumMergeWorkers());
+    assertEquals(CagraGraphBuildAlgo.NN_DESCENT, params.getCagraGraphBuildAlgo());
   }
 
   @Test
@@ -89,6 +92,37 @@ public class TestAcceleratedHNSWParams extends LuceneTestCase {
           IllegalArgumentException.class,
           () -> new AcceleratedHNSWParams.Builder().withWriterThreads(v).build());
     }
+  }
+
+  @Test
+  public void testAcceleratedHNSWParamsInvalidNumMergeWorkers() {
+    for (int v :
+        new int[] {random.nextInt(Integer.MIN_VALUE, 1), random.nextInt(33, Integer.MAX_VALUE)}) {
+      assertThrows(
+          IllegalArgumentException.class,
+          () -> new AcceleratedHNSWParams.Builder().withNumMergeWorkers(v).build());
+    }
+  }
+
+  @Test
+  public void testAcceleratedHNSWParamsInvalidMergeExecutorService() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new AcceleratedHNSWParams.Builder().withMergeExecutorService(null).build());
+  }
+
+  @Test
+  public void testAcceleratedHNSWParamsInvalidCagraGraphBuildAlgo() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new AcceleratedHNSWParams.Builder().withCagraGraphBuildAlgo(null).build());
+  }
+
+  @Test
+  public void testAcceleratedHNSWParamsInvalidCuVSIvfPqParams() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new AcceleratedHNSWParams.Builder().withCuVSIvfPqParams(null).build());
   }
 
   @BeforeClass

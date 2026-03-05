@@ -4,6 +4,7 @@
  */
 package com.nvidia.cuvs.lucene;
 
+import static com.nvidia.cuvs.lucene.AcceleratedHNSWUtils.cagraIndexParams;
 import static com.nvidia.cuvs.lucene.Lucene99AcceleratedHNSWVectorsFormat.HNSW_INDEX_CODEC_NAME;
 import static com.nvidia.cuvs.lucene.Lucene99AcceleratedHNSWVectorsFormat.HNSW_INDEX_EXT;
 import static com.nvidia.cuvs.lucene.Lucene99AcceleratedHNSWVectorsFormat.HNSW_META_CODEC_EXT;
@@ -16,7 +17,6 @@ import static org.apache.lucene.util.RamUsageEstimator.shallowSizeOfInstance;
 
 import com.nvidia.cuvs.CagraIndex;
 import com.nvidia.cuvs.CagraIndexParams;
-import com.nvidia.cuvs.CagraIndexParams.CagraGraphBuildAlgo;
 import com.nvidia.cuvs.CuVSMatrix;
 import com.nvidia.cuvs.RowView;
 import java.io.IOException;
@@ -167,21 +167,6 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
   }
 
   /**
-   * Builds an instance of CagraIndexParams.
-   *
-   * @return instance of CagraIndexParams
-   */
-  private CagraIndexParams cagraIndexParams() {
-    // TODO: Make build algorithm configurable after fixing the related issue.
-    return new CagraIndexParams.Builder()
-        .withNumWriterThreads(acceleratedHNSWParams.getWriterThreads())
-        .withIntermediateGraphDegree(acceleratedHNSWParams.getIntermediateGraphDegree())
-        .withGraphDegree(acceleratedHNSWParams.getGraphdegree())
-        .withCagraGraphBuildAlgo(CagraGraphBuildAlgo.NN_DESCENT)
-        .build();
-  }
-
-  /**
    * A utility method to print info/debugging messages using InfoStream.
    *
    * @param msg the debugging message to print
@@ -219,7 +204,14 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
       }
 
       long startTime = System.nanoTime();
-      CagraIndexParams params = cagraIndexParams();
+
+      CagraIndexParams params =
+          cagraIndexParams(
+              acceleratedHNSWParams.getWriterThreads(),
+              acceleratedHNSWParams.getIntermediateGraphDegree(),
+              acceleratedHNSWParams.getGraphdegree(),
+              acceleratedHNSWParams.getCagraGraphBuildAlgo(),
+              acceleratedHNSWParams.getCuVSIvfPqParams());
       CagraIndex cagraIndex =
           CagraIndex.newBuilder(getCuVSResourcesInstance())
               .withDataset(dataset)
@@ -356,7 +348,14 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
     CuVSMatrix subsetDataset = CuVSMatrix.ofArray(vectors);
 
     // Build CAGRA index for the subset
-    CagraIndexParams params = cagraIndexParams();
+    CagraIndexParams params =
+        cagraIndexParams(
+            acceleratedHNSWParams.getWriterThreads(),
+            acceleratedHNSWParams.getIntermediateGraphDegree(),
+            acceleratedHNSWParams.getGraphdegree(),
+            acceleratedHNSWParams.getCagraGraphBuildAlgo(),
+            acceleratedHNSWParams.getCuVSIvfPqParams());
+
     CagraIndex subsetIndex =
         CagraIndex.newBuilder(getCuVSResourcesInstance())
             .withDataset(subsetDataset)
