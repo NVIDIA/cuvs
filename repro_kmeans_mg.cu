@@ -197,7 +197,7 @@ int main(int argc, char* argv[])
       const char* name;
     };
     RngConfig rng_configs[] = {
-      {raft::random::GeneratorType::GenPC,     "GenPC"},
+      //{raft::random::GeneratorType::GenPC,     "GenPC"},
       {raft::random::GeneratorType::GenPhilox, "GenPhilox"},
     };
 

@@ -52,6 +52,8 @@
 #include <optional>
 #include <random>
 
+#include "/home/vinayd/nwork/git-repos/snippets/ketu.cuh"
+
 namespace cuvs::cluster::kmeans::detail {
 
 static const std::string CUVS_NAME = "cuvs";
@@ -187,6 +189,7 @@ void kmeansPlusPlus(raft::resources const& handle,
 
   RAFT_LOG_DEBUG(" k-means++ - Sampled %d/%d centroids", n_clusters_picked, n_clusters);
 
+  static ketu::DataTracker<DataT, IndexT> weights_tracker("weight_tracker_phi");
   // <<<< Step-2 >>> : while |C| < k
   while (n_clusters_picked < n_clusters) {
     // <<< Step-3 >>> : Sample x in X with probability p_x = d^2(x, C) / phi_X (C)
@@ -198,7 +201,16 @@ void kmeansPlusPlus(raft::resources const& handle,
     raft::matrix::gather(handle, const_X_view, const_indices_view, candidates_view);
 
     cudaDeviceSynchronize();
-    dump_var<<<1, 1>>>(indices.data_handle(), uint64_t(n_trials));
+    //dump_var<<<1, 1>>>(indices.data_handle(), uint64_t(n_trials));
+    printf("n_samples = %lu\n", uint64_t(n_samples));
+    // Create a CPU vector and copy indices from GPU to CPU
+    std::vector<DataT> h_weights(n_samples);
+    raft::copy(h_weights.data(), minClusterDistance.data_handle(), n_samples, stream);
+    raft::resource::sync_stream(handle, stream);
+    if (weights_tracker.is_changed(h_weights.data(), n_samples)) {
+      weights_tracker.update(h_weights.data(), n_samples);
+      weights_tracker.dump_to_file();
+    }
     cudaDeviceSynchronize();
     // Calculate pairwise distance between X and the centroid candidates
     // Output - pwd [n_trials x n_samples]
