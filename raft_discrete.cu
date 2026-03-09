@@ -17,6 +17,7 @@
 #include <rmm/device_uvector.hpp>
 
 #include <chrono>
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <random>
@@ -31,19 +32,20 @@ int main()
 
   // Read weights from file (one weight per line)
   std::vector<float> h_weights;
-  {
-    std::ifstream weights_file("weight_tracker_phi_00001.txt");
-    if (!weights_file.is_open()) {
-      std::cerr << "Error: Could not open weights.txt" << std::endl;
-      return 1;
-    }
-    std::string line;
-    while (std::getline(weights_file, line)) {
-      if (!line.empty()) {
-        h_weights.push_back(std::stof(line));
-      }
+  const char* weights_filename_env = std::getenv("WEIGHTS_FILE");
+  std::string weights_filename = weights_filename_env ? weights_filename_env : "weight_tracker_phi_00001.txt";
+  std::ifstream weights_file(weights_filename);
+  if (!weights_file.is_open()) {
+    std::cerr << "Error: Could not open " << weights_filename << std::endl;
+    return 1;
+  }
+  std::string line;
+  while (std::getline(weights_file, line)) {
+    if (!line.empty()) {
+      h_weights.push_back(std::stof(line));
     }
   }
+
 
   // Number of categories (weights)
   const int n_categories = static_cast<int>(h_weights.size());
@@ -58,7 +60,9 @@ int main()
   // Create random number generator with a unique seed each run
   auto seed = static_cast<uint64_t>(std::chrono::high_resolution_clock::now().time_since_epoch().count()) ^
               static_cast<uint64_t>(std::random_device{}());
-  raft::random::RngState rng(seed, raft::random::GenPC);
+  const char* use_pc_env = std::getenv("USE_PC");
+  bool use_pc = use_pc_env && std::string(use_pc_env) == "1";
+  raft::random::RngState rng(seed, use_pc ? raft::random::GenPC : raft::random::GenPhilox);
 
   // Create mdspan views for the API
   auto indices_view = raft::make_device_vector_view<int, int>(d_indices.data(), n_samples);
@@ -67,37 +71,64 @@ int main()
 
   // Sample indices according to the weight distribution
   // Each index i will be sampled with probability weights[i] / sum(weights)
-  raft::random::discrete(handle, rng, indices_view, weights_view);
-
-  // Copy results back to host
-  std::vector<int> h_indices(n_samples);
-  raft::copy(h_indices.data(), d_indices.data(), n_samples, stream);
-  raft::resource::sync_stream(handle, stream);
-
-  // Print results
-  std::cout << "Weights: ";
-  for (int i = 0; i < n_categories && i < 10; ++i) {
-    std::cout << h_weights[i] << " ";
-  }
-  std::cout << std::endl;
-
-  std::cout << "Sampled indices: ";
-  for (int i = 0; i < n_samples; ++i) {
-    std::cout << h_indices[i] << " ";
-  }
-  std::cout << std::endl;
 
   // Count occurrences of each index
   std::vector<int> counts(n_categories, 0);
-  for (int i = 0; i < n_samples; ++i) {
-    counts[h_indices[i]]++;
+  std::vector<int> h_indices(n_samples);
+
+  // Number of iterations to run
+  const int n_iterations = 1000;
+
+  for (int iter = 0; iter < n_iterations; ++iter) {
+    raft::random::discrete(handle, rng, indices_view, weights_view);
+
+    // Copy results back to host
+    raft::copy(h_indices.data(), d_indices.data(), n_samples, stream);
+    raft::resource::sync_stream(handle, stream);
+
+    // Update counts
+    for (int i = 0; i < n_samples; ++i) {
+      counts[h_indices[i]]++;
+    }
   }
 
-  // std::cout << "Counts per category: ";
-  // for (int i = 0; i < n_categories; ++i) {
-  //   std::cout << counts[i] << " ";
+  // Print results
+  // std::cout << "Weights: ";
+  // for (int i = 0; i < n_categories && i < 10; ++i) {
+  //   std::cout << h_weights[i] << " ";
   // }
   // std::cout << std::endl;
+
+  //std::cout << "Total samples: " << n_iterations * n_samples << std::endl;
+
+  // Normalize counts array
+  double counts_sum = 0.0;
+  for (int i = 0; i < n_categories; ++i) {
+    counts_sum += counts[i];
+  }
+  std::vector<double> normalized_counts(n_categories);
+  for (int i = 0; i < n_categories; ++i) {
+    normalized_counts[i] = static_cast<double>(counts[i]) / counts_sum;
+  }
+
+  // Normalize weights array
+  double weights_sum = 0.0;
+  for (int i = 0; i < n_categories; ++i) {
+    weights_sum += h_weights[i];
+  }
+  std::vector<double> normalized_weights(n_categories);
+  for (int i = 0; i < n_categories; ++i) {
+    normalized_weights[i] = static_cast<double>(h_weights[i]) / weights_sum;
+  }
+
+  // Calculate sum of squared differences
+  double sum_sq_diff = 0.0;
+  for (int i = 0; i < n_categories; ++i) {
+    double diff = normalized_counts[i] - normalized_weights[i];
+    sum_sq_diff += diff * diff;
+  }
+
+  std::cout << weights_filename  << " " << "Sum of squared differences: " << sum_sq_diff << std::endl;
 
   return 0;
 }
