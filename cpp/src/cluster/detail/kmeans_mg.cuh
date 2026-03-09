@@ -37,8 +37,6 @@
 #include <numeric>
 #include <random>
 
-#include "/home/vinayd/nwork/git-repos/snippets/ketu.cuh"
-
 namespace cuvs::cluster::kmeans::mg::detail {
 
 #define CUVS_LOG_KMEANS(handle, fmt, ...)                    \
@@ -146,7 +144,6 @@ void initKMeansPlusPlus(const raft::resources& handle,
   auto n_clusters = params.n_clusters;
   auto metric     = params.metric;
 
-  raft::random::RngState rng(params.rng_state.seed, raft::random::GeneratorType::GenPhilox);
 
   // <<<< Step-1 >>> : C <- sample a point uniformly at random from X
   //    1.1 - Select a rank r' at random from the available n_rank ranks with a
@@ -184,7 +181,7 @@ void initKMeansPlusPlus(const raft::resources& handle,
   //    1.2 - Rank r' samples a point uniformly at random from the local dataset
   //          X which will be used as the initial centroid for kmeans++
   if (my_rank == rp) {
-    std::mt19937 gen(params.rng_state.seed);
+    std::mt19937 gen(params.rng_state.seed + 31415926);
     std::uniform_int_distribution<> dis(0, n_samples - 1);
 
     int cIdx           = dis(gen);
@@ -319,8 +316,9 @@ void initKMeansPlusPlus(const raft::resources& handle,
 
     // <<<< Step-4 >>> : Sample each point x in X independently and identify new
     // potentialCentroids
+    //raft::random::RngState rng(params.rng_state.seed, raft::random::GeneratorType::GenPhilox);
     raft::random::uniform(
-      handle, rng, uniformRands.data_handle(), uniformRands.extent(0), (DataT)0, (DataT)1);
+      handle, params.rng_state, uniformRands.data_handle(), uniformRands.extent(0), (DataT)0, (DataT)1);
     cuvs::cluster::kmeans::SamplingOp<DataT, IndexT> select_op(psi,
                                                                params.oversampling_factor,
                                                                n_clusters,

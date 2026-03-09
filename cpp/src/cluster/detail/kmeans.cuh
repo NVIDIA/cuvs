@@ -189,7 +189,7 @@ void kmeansPlusPlus(raft::resources const& handle,
 
   RAFT_LOG_DEBUG(" k-means++ - Sampled %d/%d centroids", n_clusters_picked, n_clusters);
 
-  static ketu::DataTracker<DataT, IndexT> weights_tracker("weight_tracker_phi");
+  //static ketu::DataTracker<DataT, IndexT> weights_tracker("weight_tracker_phi");
   // <<<< Step-2 >>> : while |C| < k
   while (n_clusters_picked < n_clusters) {
     // <<< Step-3 >>> : Sample x in X with probability p_x = d^2(x, C) / phi_X (C)
@@ -207,10 +207,10 @@ void kmeansPlusPlus(raft::resources const& handle,
     std::vector<DataT> h_weights(n_samples);
     raft::copy(h_weights.data(), minClusterDistance.data_handle(), n_samples, stream);
     raft::resource::sync_stream(handle, stream);
-    if (weights_tracker.is_changed(h_weights.data(), n_samples)) {
-      weights_tracker.update(h_weights.data(), n_samples);
-      weights_tracker.dump_to_file();
-    }
+    // if (weights_tracker.is_changed(h_weights.data(), n_samples)) {
+    //   weights_tracker.update(h_weights.data(), n_samples);
+    //   weights_tracker.dump_to_file();
+    // }
     cudaDeviceSynchronize();
     // Calculate pairwise distance between X and the centroid candidates
     // Output - pwd [n_trials x n_samples]
