@@ -50,8 +50,6 @@
 #include <random>
 #include <vector>
 
-#include "/home/vinayd/nwork/git-repos/snippets/ketu.cuh"
-
 namespace cuvs::cluster::kmeans::mg::detail {
 
 using cuvs::core::detail::mnmg_comms;
