@@ -201,6 +201,8 @@ int main(int argc, char* argv[])
       {raft::random::GeneratorType::GenPhilox, "GenPhilox"},
     };
 
+    std::mt19937_64 gen_64(std::chrono::high_resolution_clock::now().time_since_epoch().count());
+      uint64_t last_seed = gen_64();
     for (const auto& rng_cfg : rng_configs) {
       // Create NVTX range for this RNG configuration
       nvtx3::scoped_range range(rng_cfg.name);
@@ -219,7 +221,7 @@ int main(int argc, char* argv[])
         params.n_clusters          = static_cast<int>(N_CLUSTERS);
         params.max_iter            = 300;
         params.tol                 = 1e-4;
-        params.rng_state.seed      = 42;
+        params.rng_state.seed      = last_seed;
         params.rng_state.type      = rng_cfg.type;
         params.oversampling_factor = 2.0;
         params.n_init              = 1;
@@ -277,6 +279,7 @@ int main(int argc, char* argv[])
 
       if (rank == 0) {
         double avg_iters = static_cast<double>(total_kmeans_iters) / N_BENCHMARK_ITERS;
+        std::printf("Last seed used: %lu\n", last_seed);
         std::printf("Average KMeans iterations per run (%s): %.1f\n", rng_cfg.name, avg_iters);
       }
     }
