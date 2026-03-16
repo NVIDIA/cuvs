@@ -425,6 +425,7 @@ void initKMeansPlusPlus(const raft::resources& handle,
     //cuvs::cluster::kmeans::params params_copy = params;
     //params_copy.rng_state                     = default_params.rng_state;
     params_copy.rng_state.seed                     = gen_64();
+    std::printf("params_copy.rng_state.seed = %lu\n", static_cast<uint64_t>(params_copy.rng_state.seed));
     cuvs::cluster::kmeans::fit_main<DataT, IndexT>(handle,
                                                    params_copy,
                                                    const_centroids,
