@@ -155,14 +155,14 @@ void kmeansPlusPlus(raft::resources const& handle,
     raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(handle, X, L2NormX.view());
   }
 
-  raft::random::RngState rng(params.rng_state.seed, params.rng_state.type);
+  std::mt19937_64 gen_64(params.rng_state.seed);
   //raft::random::RngState rng(params.rng_state.seed, raft::random::GeneratorType::GenPhilox);
-  std::mt19937 gen(params.rng_state.seed);
+  //std::mt19937 gen(params.rng_state.seed);
   std::uniform_int_distribution<> dis(0, n_samples - 1);
 
   // <<< Step-1 >>>: C <-- sample a point uniformly at random from X
   auto initialCentroid = raft::make_device_matrix_view<const DataT, IndexT>(
-    X.data_handle() + dis(gen) * n_features, 1, n_features);
+    X.data_handle() + dis(gen_64) * n_features, 1, n_features);
   int n_clusters_picked = 1;
 
   // store the chosen centroid in the buffer
@@ -197,12 +197,14 @@ void kmeansPlusPlus(raft::resources const& handle,
     // distance to the nearest existing cluster
     // printf("size of index = %lu, size of weights = %lu, sizeof types (%ld, %ld)\n",
     //    uint64_t(indices_view.extent(0)), uint64_t(const_weights_view.extent(0)), sizeof(DataT), sizeof(IndexT));
+    uint64_t gpu_seed = gen_64();
+    raft::random::RngState rng(gpu_seed, params.rng_state.type);
     raft::random::discrete(handle, rng, indices_view, const_weights_view);
     raft::matrix::gather(handle, const_X_view, const_indices_view, candidates_view);
 
     cudaDeviceSynchronize();
     //dump_var<<<1, 1>>>(indices.data_handle(), uint64_t(n_trials));
-    printf("n_samples = %lu\n", uint64_t(n_samples));
+    //printf("n_samples = %lu\n", uint64_t(n_samples));
     // Create a CPU vector and copy indices from GPU to CPU
     std::vector<DataT> h_weights(n_samples);
     raft::copy(h_weights.data(), minClusterDistance.data_handle(), n_samples, stream);
