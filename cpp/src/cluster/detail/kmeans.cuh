@@ -52,7 +52,6 @@
 #include <optional>
 #include <random>
 
-#include "/home/vinayd/nwork/git-repos/snippets/ketu.cuh"
 
 namespace cuvs::cluster::kmeans::detail {
 
@@ -74,16 +73,6 @@ void initRandom(raft::resources const& handle,
   cuvs::cluster::kmeans::detail::shuffleAndGather<DataT, IndexT>(
     handle, X, centroids, n_clusters, params.rng_state.seed);
 }
-
-template <typename DataT>
-__global__ void dump_var(DataT* v, uint64_t len) {
-  printf("{");
-  for (int i = 0; i < 10; i++) {
-    if (i < len) printf("%f, ", double(v[i]));
-  }
-  printf("} \n");
-}
-
 
 /*
  * @brief Selects 'n_clusters' samples from the input X using kmeans++ algorithm.
@@ -202,18 +191,10 @@ void kmeansPlusPlus(raft::resources const& handle,
     raft::random::discrete(handle, rng, indices_view, const_weights_view);
     raft::matrix::gather(handle, const_X_view, const_indices_view, candidates_view);
 
-    cudaDeviceSynchronize();
-    //dump_var<<<1, 1>>>(indices.data_handle(), uint64_t(n_trials));
-    //printf("n_samples = %lu\n", uint64_t(n_samples));
     // Create a CPU vector and copy indices from GPU to CPU
     std::vector<DataT> h_weights(n_samples);
     raft::copy(h_weights.data(), minClusterDistance.data_handle(), n_samples, stream);
     raft::resource::sync_stream(handle, stream);
-    // if (weights_tracker.is_changed(h_weights.data(), n_samples)) {
-    //   weights_tracker.update(h_weights.data(), n_samples);
-    //   weights_tracker.dump_to_file();
-    // }
-    cudaDeviceSynchronize();
     // Calculate pairwise distance between X and the centroid candidates
     // Output - pwd [n_trials x n_samples]
     auto pwd = distBuffer.view();
