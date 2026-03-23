@@ -68,7 +68,7 @@ int main(int argc, char* argv[])
   // Parse command line arguments
   int64_t n_samples_total = 10000000;  // Default value
   int64_t n_features = 256;            // Default value
-  
+
   for (int i = 1; i < argc; i++) {
     std::string arg = argv[i];
     if (arg == "--samples" || arg == "-s") {
@@ -94,7 +94,7 @@ int main(int argc, char* argv[])
       return 0;
     }
   }
-  
+
   // Detect available GPUs
   int n_devices = 0;
   CUDACHECK(cudaGetDeviceCount(&n_devices));
@@ -206,7 +206,7 @@ int main(int argc, char* argv[])
     for (const auto& rng_cfg : rng_configs) {
       // Create NVTX range for this RNG configuration
       nvtx3::scoped_range range(rng_cfg.name);
-      
+
       if (rank == 0) {
         std::printf("\n=== RNG: %s ===\n", rng_cfg.name);
       }
@@ -236,7 +236,7 @@ int main(int argc, char* argv[])
           d_labels.data(), n_local);
 
         auto t0 = std::chrono::high_resolution_clock::now();
-        
+
         {
           nvtx3::scoped_range fit_range("kmeans_fit");
           cuvs::cluster::kmeans::fit(handle,
