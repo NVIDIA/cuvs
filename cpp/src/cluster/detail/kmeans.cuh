@@ -52,7 +52,6 @@
 #include <optional>
 #include <random>
 
-
 namespace cuvs::cluster::kmeans::detail {
 
 static const std::string CUVS_NAME = "cuvs";
@@ -145,8 +144,8 @@ void kmeansPlusPlus(raft::resources const& handle,
   }
 
   std::mt19937_64 gen_64(params.rng_state.seed);
-  //raft::random::RngState rng(params.rng_state.seed, raft::random::GeneratorType::GenPhilox);
-  //std::mt19937 gen(params.rng_state.seed);
+  uint64_t gpu_seed = gen_64();
+  raft::random::RngState rng(gpu_seed, params.rng_state.type);
   std::uniform_int_distribution<> dis(0, n_samples - 1);
 
   // <<< Step-1 >>>: C <-- sample a point uniformly at random from X
@@ -185,15 +184,9 @@ void kmeansPlusPlus(raft::resources const& handle,
     // distance to the nearest existing cluster
     // printf("size of index = %lu, size of weights = %lu, sizeof types (%ld, %ld)\n",
     //    uint64_t(indices_view.extent(0)), uint64_t(const_weights_view.extent(0)), sizeof(DataT), sizeof(IndexT));
-    uint64_t gpu_seed = gen_64();
-    raft::random::RngState rng(gpu_seed, params.rng_state.type);
     raft::random::discrete(handle, rng, indices_view, const_weights_view);
     raft::matrix::gather(handle, const_X_view, const_indices_view, candidates_view);
 
-    // Create a CPU vector and copy indices from GPU to CPU
-    std::vector<DataT> h_weights(n_samples);
-    raft::copy(h_weights.data(), minClusterDistance.data_handle(), n_samples, stream);
-    raft::resource::sync_stream(handle, stream);
     // Calculate pairwise distance between X and the centroid candidates
     // Output - pwd [n_trials x n_samples]
     auto pwd = distBuffer.view();
