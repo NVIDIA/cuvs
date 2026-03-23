@@ -159,7 +159,6 @@ void initKMeansPlusPlus(const raft::resources& handle,
   // Choose rp on rank 0 and broadcast to all ranks to guarantee agreement
   int rp = 0;
   if (my_rank == KMEANS_COMM_ROOT) {
-    //std::mt19937 gen(params.rng_state.seed);
     std::uniform_int_distribution<> dis(0, n_rank - 1);
     rp = dis(gen_64);
   }
@@ -184,7 +183,6 @@ void initKMeansPlusPlus(const raft::resources& handle,
   //    1.2 - Rank r' samples a point uniformly at random from the local dataset
   //          X which will be used as the initial centroid for kmeans++
   if (my_rank == rp) {
-    //std::mt19937 gen(params.rng_state.seed + 31415926);
     std::uniform_int_distribution<> dis(0, n_samples - 1);
 
     int cIdx           = dis(gen_64);
@@ -283,7 +281,6 @@ void initKMeansPlusPlus(const raft::resources& handle,
                   niter);
 
   // <<<< Step-3 >>> : for O( log(psi) ) times do
-  auto nvtx_range = nvtx3::start_range("step 3");
   for (int iter = 0; iter < niter; ++iter) {
     CUVS_LOG_KMEANS(handle,
                     "@Rank-%d:KMeans|| - Iteration %d: # potential centroids sampled - "
@@ -321,7 +318,7 @@ void initKMeansPlusPlus(const raft::resources& handle,
     // potentialCentroids
     uint64_t gpu_seed;
     gpu_seed = gen_64();
-    raft::random::RngState rng(gpu_seed, raft::random::GeneratorType::GenPhilox);
+    raft::random::RngState rng(gpu_seed, params.rng_state.rng_type);
     raft::random::uniform(
       handle, rng, uniformRands.data_handle(), uniformRands.extent(0), (DataT)0, (DataT)1);
     cuvs::cluster::kmeans::SamplingOp<DataT, IndexT> select_op(psi,
@@ -380,7 +377,6 @@ void initKMeansPlusPlus(const raft::resources& handle,
       raft::make_device_matrix_view<DataT, IndexT>(centroidsBuf.data(), tot_centroids, n_features);
     /// <<<< End of Step-5 >>>
   }  /// <<<< Step-6 >>>
-  nvtx3::end_range(nvtx_range);
 
   CUVS_LOG_KMEANS(handle,
                   "@Rank-%d:KMeans||: # potential centroids sampled - %d\n",
@@ -411,19 +407,15 @@ void initKMeansPlusPlus(const raft::resources& handle,
     // seed they should generate the same potentialCentroids
     auto const_centroids = raft::make_device_matrix_view<const DataT, IndexT>(
       potentialCentroids.data_handle(), potentialCentroids.extent(0), potentialCentroids.extent(1));
-    auto nvtx_range = nvtx3::start_range("init_plus_plus");
     auto params_copy = params;
     params_copy.rng_state.seed = gen_64();
     cuvs::cluster::kmeans::init_plus_plus(
       handle, params_copy, const_centroids, centroidsRawData, workspace);
 
-    nvtx3::end_range(nvtx_range);
     auto inertia = raft::make_host_scalar<DataT>(0);
     auto n_iter  = raft::make_host_scalar<IndexT>(0);
     auto weight_view =
       raft::make_device_vector_view<const DataT, IndexT>(weight.data_handle(), weight.extent(0));
-    //cuvs::cluster::kmeans::params params_copy = params;
-    //params_copy.rng_state                     = default_params.rng_state;
     // Update the seed one more time
     params_copy.rng_state.seed                     = gen_64();
     cuvs::cluster::kmeans::fit_main<DataT, IndexT>(handle,
@@ -448,7 +440,6 @@ void initKMeansPlusPlus(const raft::resources& handle,
 
     // generate `n_random_clusters` centroids
     cuvs::cluster::kmeans::params rand_params = params;
-    //rand_params.rng_state                     = default_params.rng_state;
     rand_params.rng_state.seed                     = gen_64();
     rand_params.init                          = cuvs::cluster::kmeans::params::InitMethod::Random;
     rand_params.n_clusters                    = n_random_clusters;
