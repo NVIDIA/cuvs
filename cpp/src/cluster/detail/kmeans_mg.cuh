@@ -318,7 +318,7 @@ void initKMeansPlusPlus(const raft::resources& handle,
     // potentialCentroids
     uint64_t gpu_seed;
     gpu_seed = gen_64();
-    raft::random::RngState rng(gpu_seed, params.rng_state.rng_type);
+    raft::random::RngState rng(gpu_seed, params.rng_state.type);
     raft::random::uniform(
       handle, rng, uniformRands.data_handle(), uniformRands.extent(0), (DataT)0, (DataT)1);
     cuvs::cluster::kmeans::SamplingOp<DataT, IndexT> select_op(psi,
