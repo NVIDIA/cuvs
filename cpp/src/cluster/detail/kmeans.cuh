@@ -182,8 +182,6 @@ void kmeansPlusPlus(raft::resources const& handle,
     // <<< Step-3 >>> : Sample x in X with probability p_x = d^2(x, C) / phi_X (C)
     // Choose 'n_trials' centroid candidates from X with probability proportional to the squared
     // distance to the nearest existing cluster
-    // printf("size of index = %lu, size of weights = %lu, sizeof types (%ld, %ld)\n",
-    //    uint64_t(indices_view.extent(0)), uint64_t(const_weights_view.extent(0)), sizeof(DataT), sizeof(IndexT));
     raft::random::discrete(handle, rng, indices_view, const_weights_view);
     raft::matrix::gather(handle, const_X_view, const_indices_view, candidates_view);
 
