@@ -178,7 +178,6 @@ void kmeansPlusPlus(raft::resources const& handle,
 
   RAFT_LOG_DEBUG(" k-means++ - Sampled %d/%d centroids", n_clusters_picked, n_clusters);
 
-  //static ketu::DataTracker<DataT, IndexT> weights_tracker("weight_tracker_phi");
   // <<<< Step-2 >>> : while |C| < k
   while (n_clusters_picked < n_clusters) {
     // <<< Step-3 >>> : Sample x in X with probability p_x = d^2(x, C) / phi_X (C)
