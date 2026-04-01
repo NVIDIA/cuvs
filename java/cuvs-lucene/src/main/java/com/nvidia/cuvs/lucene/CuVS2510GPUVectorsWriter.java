@@ -11,6 +11,7 @@ import static com.nvidia.cuvs.lucene.CuVS2510GPUVectorsFormat.CUVS_META_CODEC_NA
 import static com.nvidia.cuvs.lucene.CuVS2510GPUVectorsFormat.VERSION_CURRENT;
 import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.closeCuVSResourcesInstance;
 import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.getCuVSResourcesInstance;
+import static com.nvidia.cuvs.lucene.Utils.info;
 import static org.apache.lucene.index.VectorEncoding.FLOAT32;
 import static org.apache.lucene.search.DocIdSetIterator.NO_MORE_DOCS;
 import static org.apache.lucene.util.RamUsageEstimator.shallowSizeOfInstance;
@@ -27,8 +28,6 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.logging.Logger;
-import java.util.stream.IntStream;
 import org.apache.lucene.codecs.CodecUtil;
 import org.apache.lucene.codecs.KnnFieldVectorsWriter;
 import org.apache.lucene.codecs.KnnVectorsReader;
@@ -60,26 +59,16 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
 
   private static final long SHALLOW_RAM_BYTES_USED =
       shallowSizeOfInstance(CuVS2510GPUVectorsWriter.class);
-
-  @SuppressWarnings("unused")
-  private static final Logger log = Logger.getLogger(CuVS2510GPUVectorsWriter.class.getName());
-
-  /** The name of the CUVS component for the info-stream * */
-  private static final String CUVS_COMPONENT = "CUVS";
-
+  private static final String COMPONENT = "CuVS2510GPUVectorsWriter";
   private static final LuceneProvider LUCENE_PROVIDER;
   private static final List<VectorSimilarityFunction> VECTOR_SIMILARITY_FUNCTIONS;
-
-  // The minimum number of vectors in the dataset required before
-  // we attempt to build a Cagra index
-  static final int MIN_CAGRA_INDEX_SIZE = 2;
+  private static final int MIN_CAGRA_INDEX_SIZE = 2;
 
   private final GPUSearchParams gpuSearchParams;
-
   private final FlatVectorsWriter flatVectorsWriter;
   private final List<GPUFieldWriter> fields = new ArrayList<>();
-  private IndexOutput meta = null, cuvsIndex = null;
   private final InfoStream infoStream;
+  private IndexOutput meta = null, cuvsIndex = null;
   private boolean finished;
 
   static {
@@ -96,13 +85,13 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
    */
   public enum IndexType {
 
-    /** Builds a Cagra index. */
+    /** Builds a CAGRA index. */
     CAGRA(true, false),
 
     /** Builds a Brute Force index. */
     BRUTE_FORCE(false, true),
 
-    /** Builds a Cagra and a Brute Force index. */
+    /** Builds both - CAGRA and Brute Force indexes. */
     CAGRA_AND_BRUTE_FORCE(true, true);
     private final boolean cagra, bruteForce;
 
@@ -111,21 +100,11 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
       this.bruteForce = bruteForce;
     }
 
-    /**
-     * Check if cagra is set
-     *
-     * @return is cagra set
-     */
-    public boolean cagra() {
+    public boolean isCagra() {
       return cagra;
     }
 
-    /**
-     * Check if bruteforce is set
-     *
-     * @return is bruteforce set
-     */
-    public boolean bruteForce() {
+    public boolean isBruteForce() {
       return bruteForce;
     }
   }
@@ -146,16 +125,13 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
     this.gpuSearchParams = gpuSearchParams;
     this.flatVectorsWriter = flatVectorsWriter;
     this.infoStream = state.infoStream;
-
     String metaFileName =
         IndexFileNames.segmentFileName(
             state.segmentInfo.name, state.segmentSuffix, CUVS_META_CODEC_EXT);
     String cagraFileName =
         IndexFileNames.segmentFileName(state.segmentInfo.name, state.segmentSuffix, CUVS_INDEX_EXT);
-
     boolean success = false;
     try {
-
       meta = state.directory.createOutput(metaFileName, state.context);
       cuvsIndex = state.directory.createOutput(cagraFileName, state.context);
       CodecUtil.writeIndexHeader(
@@ -170,7 +146,6 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
           VERSION_CURRENT,
           state.segmentInfo.getId(),
           state.segmentSuffix);
-
       success = true;
     } finally {
       if (success == false) {
@@ -186,7 +161,7 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
   public KnnFieldVectorsWriter<?> addField(FieldInfo fieldInfo) throws IOException {
     var encoding = fieldInfo.getVectorEncoding();
     if (encoding != FLOAT32) {
-      throw new IllegalArgumentException("expected float32, got:" + encoding);
+      throw new IllegalArgumentException("Expected float32, got:" + encoding);
     }
     var writer = Objects.requireNonNull(flatVectorsWriter.addField(fieldInfo));
     @SuppressWarnings("unchecked")
@@ -197,102 +172,55 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
   }
 
   /**
-   * Returns a string containing meta information like graph degree etc.
-   *
-   * @param size index size
-   * @param args other parameters like graph degree, Intermediate graph degree, etc.
-   * @return the string containing the meta information
-   */
-  static String indexMsg(int size, int... args) {
-    StringBuilder sb = new StringBuilder("cagra index params");
-    sb.append(": size=").append(size);
-    sb.append(", intGraphDegree=").append(args[0]);
-    sb.append(", actualIntGraphDegree=").append(args[1]);
-    sb.append(", graphDegree=").append(args[2]);
-    sb.append(", actualGraphDegree=").append(args[3]);
-    return sb.toString();
-  }
-
-  /**
-   * Builds and returns an instance of CagraIndexParams.
-   *
-   * @param size the size of the index
-   * @return an instance of CagraIndexParams
-   */
-  private CagraIndexParams cagraIndexParams(int size) {
-    if (size < 2) {
-      // https://github.com/rapidsai/cuvs/issues/666
-      throw new IllegalArgumentException("cagra index must be greater than 2");
-    }
-
-    return new CagraIndexParams.Builder()
-        .withNumWriterThreads(gpuSearchParams.getWriterThreads())
-        .withIntermediateGraphDegree(gpuSearchParams.getIntermediateGraphDegree())
-        .withGraphDegree(gpuSearchParams.getGraphdegree())
-        .withCagraGraphBuildAlgo(gpuSearchParams.getCagraGraphBuildAlgo())
-        .build();
-  }
-
-  /**
-   * Utility to print info/debug messages via InfoStream.
-   *
-   * @param msg
-   */
-  private void info(String msg) {
-    if (infoStream.isEnabled(CUVS_COMPONENT)) {
-      infoStream.message(CUVS_COMPONENT, msg);
-    }
-  }
-
-  /**
-   * Creates CAGRA and/or Bruteforce indexes and writes them.
+   * Creates CAGRA and/or brute force indexes and writes them.
    *
    * @param fieldInfo Instance of the FieldInFo to use
    * @param vectors list of float vectors to index
    * @throws IOException
    */
   private void writeFieldInternal(FieldInfo fieldInfo, List<float[]> vectors) throws IOException {
-    if (vectors.size() == 0) {
+    if (vectors != null && vectors.size() == 0) {
       writeEmpty(fieldInfo);
       return;
     }
     long cagraIndexOffset, cagraIndexLength = 0L;
     long bruteForceIndexOffset, bruteForceIndexLength = 0L;
 
-    // workaround for the minimum number of vectors for Cagra
+    /*
+     * CAGRA has an issue when asked to build an index with just one vector.
+     * Hence, we currently fallback to brute force in such a case.
+     */
     IndexType indexType =
-        gpuSearchParams.getIndexType().cagra() && vectors.size() < MIN_CAGRA_INDEX_SIZE
+        gpuSearchParams.getIndexType().isCagra() && vectors.size() < MIN_CAGRA_INDEX_SIZE
             ? IndexType.BRUTE_FORCE
             : gpuSearchParams.getIndexType();
 
     try {
-
       cagraIndexOffset = cuvsIndex.getFilePointer();
-      if (indexType.cagra()) {
+      if (indexType.isCagra()) {
+        var cagraIndexOutputStream = new IndexOutputOutputStream(cuvsIndex);
         try {
-          var cagraIndexOutputStream = new IndexOutputOutputStream(cuvsIndex);
-          CuVSMatrix dataset =
+          CuVSMatrix cagraDataset =
               Utils.createFloatMatrix(
                   vectors, fieldInfo.getVectorDimension(), getCuVSResourcesInstance());
-          writeCagraIndex(cagraIndexOutputStream, dataset);
+          writeCagraIndex(cagraIndexOutputStream, cagraDataset);
         } catch (Throwable t) {
-          Utils.handleThrowableWithIgnore(t, CANNOT_GENERATE_CAGRA);
-          // workaround for cuVS issue
+          // Fallback to brute force in a few cases, for now.
+          Utils.handleThrowableWithIgnore(t, t.getMessage());
           indexType = IndexType.BRUTE_FORCE;
         }
         cagraIndexLength = cuvsIndex.getFilePointer() - cagraIndexOffset;
       }
-
       bruteForceIndexOffset = cuvsIndex.getFilePointer();
-      if (indexType.bruteForce()) {
+      if (indexType.isBruteForce()) {
         var bruteForceIndexOutputStream = new IndexOutputOutputStream(cuvsIndex);
-        CuVSMatrix dataset =
+        CuVSMatrix bruteforceDataset =
             Utils.createFloatMatrix(
                 vectors, fieldInfo.getVectorDimension(), getCuVSResourcesInstance());
-        writeBruteForceIndex(bruteForceIndexOutputStream, dataset);
+
+        writeBruteForceIndex(bruteForceIndexOutputStream, bruteforceDataset);
         bruteForceIndexLength = cuvsIndex.getFilePointer() - bruteForceIndexOffset;
       }
-
       writeMeta(
           fieldInfo,
           vectors.size(),
@@ -313,50 +241,46 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
    * @throws Throwable
    */
   private void writeCagraIndex(OutputStream os, CuVSMatrix dataset) throws Throwable {
-    if (dataset.size() < 2) {
-      throw new IllegalArgumentException(dataset.size() + " vectors, less than min [2] required");
-    }
-    CagraIndexParams params = cagraIndexParams((int) dataset.size());
-    long startTime = System.nanoTime();
+    CagraIndexParams params =
+        new CagraIndexParams.Builder()
+            .withNumWriterThreads(gpuSearchParams.getWriterThreads())
+            .withIntermediateGraphDegree(gpuSearchParams.getIntermediateGraphDegree())
+            .withGraphDegree(gpuSearchParams.getGraphdegree())
+            .withCagraGraphBuildAlgo(gpuSearchParams.getCagraGraphBuildAlgo())
+            .withCuVSIvfPqParams(gpuSearchParams.getCuVSIvfPqParams())
+            .build();
     CagraIndex index =
         CagraIndex.newBuilder(getCuVSResourcesInstance())
             .withDataset(dataset)
             .withIndexParams(params)
             .build();
-    long elapsedMillis = Utils.nanosToMillis(System.nanoTime() - startTime);
-    info("Cagra index created in " + elapsedMillis + "ms, with " + dataset.size() + " vectors");
-    Path tmpFile =
-        Files.createTempFile(getCuVSResourcesInstance().tempDirectory(), "tmpindex", "cag");
-    index.serialize(os, tmpFile);
-    index.close();
-  }
-
-  /**
-   * Builds and writes the Bruteforce index.
-   *
-   * @param os Instance of OutputStream to write the index to
-   * @param dataset Instance of CuVSMatrix that holds the dataset
-   * @throws Throwable
-   */
-  private void writeBruteForceIndex(OutputStream os, CuVSMatrix dataset) throws Throwable {
-    BruteForceIndexParams params =
-        new BruteForceIndexParams.Builder()
-            .withNumWriterThreads(32) // TODO: Make this configurable.
-            .build();
-    long startTime = System.nanoTime();
-    var index =
-        BruteForceIndex.newBuilder(getCuVSResourcesInstance())
-            .withIndexParams(params)
-            .withDataset(dataset)
-            .build();
-    long elapsedMillis = Utils.nanosToMillis(System.nanoTime() - startTime);
-    info("bf index created in " + elapsedMillis + "ms, with " + dataset.size() + " vectors");
     index.serialize(os);
     index.close();
   }
 
   /**
-   * Creates the CAGRA and/or Bruteforce indexes and writes them to the disk.
+   * Builds and writes the brute force index.
+   *
+   * @param os Instance of OutputStream to write the index bytes to
+   * @param dataset Instance of CuVSMatrix that holds the data set
+   * @throws Throwable
+   */
+  private void writeBruteForceIndex(OutputStream os, CuVSMatrix dataset) throws Throwable {
+    BruteForceIndexParams params =
+        new BruteForceIndexParams.Builder()
+            .withNumWriterThreads(gpuSearchParams.getWriterThreads())
+            .build();
+    var index =
+        BruteForceIndex.newBuilder(getCuVSResourcesInstance())
+            .withIndexParams(params)
+            .withDataset(dataset)
+            .build();
+    index.serialize(os);
+    index.close();
+  }
+
+  /**
+   * Creates the CAGRA and/or brute force indexes and writes them to the disk.
    */
   @Override
   public void flush(int maxDoc, DocMap sortMap) throws IOException {
@@ -389,16 +313,13 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
    */
   private void writeSortingField(GPUFieldWriter fieldData, Sorter.DocMap sortMap)
       throws IOException {
-
     DocsWithFieldSet oldDocsWithFieldSet = fieldData.getDocsWithFieldSet();
-    final int[] new2OldOrd = new int[oldDocsWithFieldSet.cardinality()]; // new ord to old ord
+    final int[] new2OldOrd = new int[oldDocsWithFieldSet.cardinality()];
     mapOldOrdToNewOrd(oldDocsWithFieldSet, sortMap, null, new2OldOrd, null);
-
     List<float[]> sortedVectors = new ArrayList<float[]>();
     for (int i = 0; i < fieldData.getVectors().size(); i++) {
       sortedVectors.add(fieldData.getVectors().get(new2OldOrd[i]));
     }
-
     writeFieldInternal(fieldData.fieldInfo(), sortedVectors);
   }
 
@@ -419,8 +340,8 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
    * @param count number of vectors
    * @param cagraIndexOffset CAGRA index offset
    * @param cagraIndexLength CAGRA index length
-   * @param bruteForceIndexOffset Bruteforce index offset
-   * @param bruteForceIndexLength Bruteforce index length
+   * @param bruteForceIndexOffset Brute force index offset
+   * @param bruteForceIndexLength Brute force index length
    * @throws IOException I/O Exceptions
    */
   private void writeMeta(
@@ -448,36 +369,27 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
         return (byte) i;
       }
     }
-    throw new IllegalArgumentException("invalid distance function: " + func);
+    throw new IllegalArgumentException("Invalid distance function: " + func);
   }
-
-  // We currently ignore this, until cuVS supports tiered indices
-  private static final String CANNOT_GENERATE_CAGRA =
-      """
-      Could not generate an intermediate CAGRA graph because the initial \
-      kNN graph contains too many invalid or duplicated neighbor nodes. \
-      This error can occur, for example, if too many overflows occur \
-      during the norm computation between the dataset vectors\
-      """;
 
   /**
    * Uses the cuVS API to merge CAGRA indexes.
+   *
+   * This is currently (and intentionally) marked as unused and will be plugged in later.
    *
    * @param fieldInfo instance of the FieldInfo
    * @param mergeState instance of the MergeState
    * @throws IOException I/O Exceptions
    */
+  @SuppressWarnings("unused")
   private void mergeCagraIndexes(FieldInfo fieldInfo, MergeState mergeState) throws IOException {
     try {
-
       List<CagraIndex> cagraIndexes = new ArrayList<>();
       // We need this count so that the merged segment's meta information has the vector count.
       int totalVectorCount = 0;
-
       for (int i = 0; i < mergeState.knnVectorsReaders.length; i++) {
         KnnVectorsReader knnReader = mergeState.knnVectorsReaders[i];
         // Access the CAGRA index for this field from the reader
-
         if (knnReader != null) {
           if (knnReader instanceof CuVS2510GPUVectorsReader cvr) {
             if (cvr != null) {
@@ -495,12 +407,56 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
         }
       }
       assert cagraIndexes.size() > 1;
-
       CagraIndex mergedIndex =
           CagraIndex.merge(cagraIndexes.toArray(new CagraIndex[cagraIndexes.size()]));
       writeMergedCagraIndex(fieldInfo, mergedIndex, totalVectorCount);
-      info("Successfully merged " + cagraIndexes.size() + " CAGRA indexes using native merge API");
+      info(
+          infoStream,
+          COMPONENT,
+          "Successfully merged " + cagraIndexes.size() + " CAGRA indexes using native merge API");
+    } catch (Throwable t) {
+      Utils.handleThrowable(t);
+    }
+  }
 
+  /**
+   * Extracts the CAGRA index for a specific field from a CuVSVectorsReader.
+   */
+  private CagraIndex getCagraIndexFromReader(CuVS2510GPUVectorsReader reader, String fieldName) {
+    try {
+      IntObjectHashMap<GPUIndex> cuvsIndices = reader.getCuvsIndexes();
+      FieldInfos fieldInfos = reader.getFieldInfos();
+      FieldInfo fieldInfo = fieldInfos.fieldInfo(fieldName);
+      if (fieldInfo != null) {
+        GPUIndex cuvsIndex = cuvsIndices.get(fieldInfo.number);
+        if (cuvsIndex != null) {
+          return cuvsIndex.getCagraIndex();
+        }
+      }
+    } catch (Exception e) {
+      info(
+          infoStream,
+          COMPONENT,
+          "Failed to extract CAGRA index for field " + fieldName + ": " + e.getMessage());
+      throw e;
+    }
+    return null;
+  }
+
+  /**
+   * Writes a pre-built merged CAGRA index to the output.
+   */
+  private void writeMergedCagraIndex(FieldInfo fieldInfo, CagraIndex mergedIndex, int vectorCount)
+      throws IOException {
+    try {
+      long cagraIndexOffset = cuvsIndex.getFilePointer();
+      var cagraIndexOutputStream = new IndexOutputOutputStream(cuvsIndex);
+      Path tmpFile =
+          Files.createTempFile(getCuVSResourcesInstance().tempDirectory(), "mergedindex", "cag");
+      mergedIndex.serialize(cagraIndexOutputStream, tmpFile);
+      long cagraIndexLength = cuvsIndex.getFilePointer() - cagraIndexOffset;
+      writeMeta(fieldInfo, vectorCount, cagraIndexOffset, cagraIndexLength, 0L, 0L);
+      mergedIndex.close();
     } catch (Throwable t) {
       Utils.handleThrowable(t);
     }
@@ -527,9 +483,6 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
    * when non-CAGRA index types are used (for e.g. Brute Force index).
    */
   private void vectorBasedMerge(FieldInfo fieldInfo, MergeState mergeState) throws IOException {
-    if (fieldInfo.getVectorEncoding() != FLOAT32) {
-      throw new AssertionError("Only Float32 supported");
-    }
     try {
       List<float[]> dataset =
           createListFromMergedVectors(
@@ -541,83 +494,24 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
   }
 
   /**
-   * Extracts the CAGRA index for a specific field from a CuVSVectorsReader.
-   */
-  private CagraIndex getCagraIndexFromReader(CuVS2510GPUVectorsReader reader, String fieldName) {
-    try {
-      IntObjectHashMap<GPUIndex> cuvsIndices = reader.getCuvsIndexes();
-      FieldInfos fieldInfos = reader.getFieldInfos();
-
-      FieldInfo fieldInfo = fieldInfos.fieldInfo(fieldName);
-
-      if (fieldInfo != null) {
-        GPUIndex cuvsIndex = cuvsIndices.get(fieldInfo.number);
-        if (cuvsIndex != null) {
-          return cuvsIndex.getCagraIndex();
-        }
-      }
-    } catch (Exception e) {
-      e.printStackTrace();
-      info("Failed to extract CAGRA index for field " + fieldName + ": " + e.getMessage());
-    }
-    return null;
-  }
-
-  /**
-   * Writes a pre-built merged CAGRA index to the output.
-   */
-  private void writeMergedCagraIndex(FieldInfo fieldInfo, CagraIndex mergedIndex, int vectorCount)
-      throws IOException {
-    try {
-      long cagraIndexOffset = cuvsIndex.getFilePointer();
-      var cagraIndexOutputStream = new IndexOutputOutputStream(cuvsIndex);
-
-      // Serialize the merged index
-      Path tmpFile =
-          Files.createTempFile(getCuVSResourcesInstance().tempDirectory(), "mergedindex", "cag");
-      mergedIndex.serialize(cagraIndexOutputStream, tmpFile);
-      long cagraIndexLength = cuvsIndex.getFilePointer() - cagraIndexOffset;
-
-      writeMeta(fieldInfo, vectorCount, cagraIndexOffset, cagraIndexLength, 0L, 0L);
-
-      // Clean up the merged index
-      mergedIndex.close();
-    } catch (Throwable t) {
-      Utils.handleThrowable(t);
-    }
-  }
-
-  /**
    * Write field for merging.
    */
   @Override
   public void mergeOneField(FieldInfo fieldInfo, MergeState mergeState) throws IOException {
     flatVectorsWriter.mergeOneField(fieldInfo, mergeState);
+    vectorBasedMerge(fieldInfo, mergeState);
+  }
 
-    if (gpuSearchParams.getIndexType().cagra() && !gpuSearchParams.getIndexType().bruteForce()) {
-      // Since CAGRA merge does not support merging of indexes with purging of deletes,
-      // we fallback to vector-based re-indexing. Issue:
-      // https://github.com/rapidsai/cuvs/issues/1253
-      boolean hasDeletions =
-          IntStream.range(0, mergeState.liveDocs.length)
-              .anyMatch(
-                  i ->
-                      mergeState.liveDocs[i] == null
-                          || IntStream.range(0, mergeState.maxDocs[i])
-                              .anyMatch(j -> !mergeState.liveDocs[i].get(j)));
-
-      if (mergeState.knnVectorsReaders.length > 1 && !hasDeletions) {
-        mergeCagraIndexes(fieldInfo, mergeState);
-      } else {
-        // CAGRA's merge API does not handle the trivial case of merging 1 index.
-        vectorBasedMerge(fieldInfo, mergeState);
-      }
-
-    } else {
-      // If there is a Brute Force index then re-index using the vectors even if there is a CAGRA
-      // index.
-      vectorBasedMerge(fieldInfo, mergeState);
+  /**
+   * Returns the memory usage of this object in bytes.
+   */
+  @Override
+  public long ramBytesUsed() {
+    long total = SHALLOW_RAM_BYTES_USED;
+    for (var field : fields) {
+      total += field.ramBytesUsed();
     }
+    return total;
   }
 
   /**
@@ -630,7 +524,6 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
     }
     finished = true;
     flatVectorsWriter.finish();
-
     if (meta != null) {
       // write end of fields marker
       meta.writeInt(-1);
@@ -648,17 +541,5 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
   public void close() throws IOException {
     IOUtils.close(meta, cuvsIndex, flatVectorsWriter);
     closeCuVSResourcesInstance();
-  }
-
-  /**
-   * Returns the memory usage of this object in bytes.
-   */
-  @Override
-  public long ramBytesUsed() {
-    long total = SHALLOW_RAM_BYTES_USED;
-    for (var field : fields) {
-      total += field.ramBytesUsed();
-    }
-    return total;
   }
 }

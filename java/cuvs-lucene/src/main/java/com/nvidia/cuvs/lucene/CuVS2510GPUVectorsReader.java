@@ -20,10 +20,11 @@ import com.nvidia.cuvs.CagraQuery;
 import com.nvidia.cuvs.CagraSearchParams;
 import com.nvidia.cuvs.CuVSMatrix;
 import java.io.IOException;
+import java.util.BitSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.logging.Logger;
+import java.util.Map.Entry;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 import org.apache.lucene.codecs.CodecUtil;
@@ -43,10 +44,10 @@ import org.apache.lucene.search.KnnCollector;
 import org.apache.lucene.store.ChecksumIndexInput;
 import org.apache.lucene.store.DataInput;
 import org.apache.lucene.store.IOContext;
+import org.apache.lucene.store.IOContext.Context;
 import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.store.ReadAdvice;
 import org.apache.lucene.util.Bits;
-import org.apache.lucene.util.FixedBitSet;
 import org.apache.lucene.util.IOUtils;
 import org.apache.lucene.util.hnsw.IntToIntFunction;
 
@@ -57,14 +58,23 @@ import org.apache.lucene.util.hnsw.IntToIntFunction;
  */
 public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
 
-  @SuppressWarnings("unused")
-  private static final Logger log = Logger.getLogger(CuVS2510GPUVectorsReader.class.getName());
+  private static final LuceneProvider LUCENE_PROVIDER;
+  private static final List<VectorSimilarityFunction> VECTOR_SIMILARITY_FUNCTIONS;
 
-  private final FlatVectorsReader flatVectorsReader; // for reading the raw vectors
+  private final FlatVectorsReader flatVectorsReader;
   private final FieldInfos fieldInfos;
   private final IntObjectHashMap<FieldEntry> fields;
   private final IntObjectHashMap<GPUIndex> cuvsIndices;
   private final IndexInput cuvsIndexInput;
+
+  static {
+    try {
+      LUCENE_PROVIDER = LuceneProvider.getInstance("99");
+      VECTOR_SIMILARITY_FUNCTIONS = LUCENE_PROVIDER.getSimilarityFunctions();
+    } catch (Exception e) {
+      throw new ExceptionInInitializerError(e.getMessage());
+    }
+  }
 
   /**
    * Initializes the {@link CuVS2510GPUVectorsReader}, checks and loads the index.
@@ -79,7 +89,6 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
     this.flatVectorsReader = flatReader;
     this.fieldInfos = state.fieldInfos;
     this.fields = new IntObjectHashMap<>();
-
     String metaFileName =
         IndexFileNames.segmentFileName(
             state.segmentInfo.name, state.segmentSuffix, CUVS_META_CODEC_EXT);
@@ -104,7 +113,16 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
       }
       var ioContext = state.context.withReadAdvice(ReadAdvice.SEQUENTIAL);
       cuvsIndexInput = openCuVSInput(state, versionMeta, ioContext);
-      cuvsIndices = loadCuVSIndices();
+      /*
+       * Only load indexes on the GPU when this reader is opening for searches.
+       * Do not load indexes on the GPU when this reader is opening during merge calls.
+       * With this approach we reduce device memory usage by approximately 50% during merges.
+       */
+      if (state.context.context().equals(Context.MERGE)) {
+        cuvsIndices = null;
+      } else {
+        cuvsIndices = loadCuVSIndices();
+      }
       success = true;
     } finally {
       if (success == false) {
@@ -185,17 +203,6 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
     }
   }
 
-  // List of vector similarity functions. This list is defined here, in order
-  // to avoid an undesirable dependency on the declaration and order of values
-  // in VectorSimilarityFunction. The list values and order must be identical
-  // to that of {@link o.a.l.c.l.Lucene94FieldInfosFormat#SIMILARITY_FUNCTIONS}.
-  static final List<VectorSimilarityFunction> SIMILARITY_FUNCTIONS =
-      List.of(
-          VectorSimilarityFunction.EUCLIDEAN,
-          VectorSimilarityFunction.DOT_PRODUCT,
-          VectorSimilarityFunction.COSINE,
-          VectorSimilarityFunction.MAXIMUM_INNER_PRODUCT);
-
   /**
    * Checks the distance function validity and returns it.
    *
@@ -205,14 +212,14 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
    */
   static VectorSimilarityFunction readSimilarityFunction(DataInput input) throws IOException {
     int i = input.readInt();
-    if (i < 0 || i >= SIMILARITY_FUNCTIONS.size()) {
+    if (i < 0 || i >= VECTOR_SIMILARITY_FUNCTIONS.size()) {
       throw new IllegalArgumentException("invalid distance function: " + i);
     }
-    return SIMILARITY_FUNCTIONS.get(i);
+    return VECTOR_SIMILARITY_FUNCTIONS.get(i);
   }
 
   /**
-   * Reads the vector encoding (The numeric datatype of the vector values) from the DataInput.
+   * Reads the vector encoding (The numeric data type of the vector values) from the DataInput.
    *
    * @param input instance of DataInput
    * @return the vector encoding
@@ -282,9 +289,9 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
    */
   private IntObjectHashMap<GPUIndex> loadCuVSIndices() throws IOException {
     var indices = new IntObjectHashMap<GPUIndex>();
-    for (var e : fields) {
-      var fieldEntry = e.value;
-      int fieldNumber = e.key;
+    for (var field : fields) {
+      var fieldEntry = field.value;
+      int fieldNumber = field.key;
       var cuvsIndex = loadCuVSIndex(fieldEntry);
       indices.put(fieldNumber, cuvsIndex);
     }
@@ -292,7 +299,7 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
   }
 
   /**
-   * Loads the CAGRA and bruteforce index (if exists) onto the GPU.
+   * Loads the CAGRA and brute force index (if exists) onto the GPU.
    *
    * @param fieldEntry instance of {@link FieldEntry}
    * @return return the instance of {@link GPUIndex}
@@ -301,7 +308,6 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
   private GPUIndex loadCuVSIndex(FieldEntry fieldEntry) throws IOException {
     CagraIndex cagraIndex = null;
     BruteForceIndex bruteForceIndex = null;
-
     try {
       long len = fieldEntry.cagraIndexLength();
       if (len > 0) {
@@ -311,7 +317,6 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
           cagraIndex = CagraIndex.newBuilder(getCuVSResourcesInstance()).from(in).build();
         }
       }
-
       len = fieldEntry.bruteForceIndexLength();
       if (len > 0) {
         long off = fieldEntry.bruteForceIndexOffset();
@@ -331,11 +336,12 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
    */
   @Override
   public void close() throws IOException {
-    var closeableStream =
-        Stream.concat(
-            Stream.of(flatVectorsReader, cuvsIndexInput),
-            stream(cuvsIndices.values().iterator()).map(cursor -> cursor.value));
+    var closeableStream = Stream.of(flatVectorsReader, cuvsIndexInput);
     IOUtils.close(closeableStream::iterator);
+    if (cuvsIndices != null) {
+      var indexClosableStream = stream(cuvsIndices.values().iterator()).map(cursor -> cursor.value);
+      IOUtils.close(indexClosableStream::iterator);
+    }
     closeCuVSResourcesInstance();
   }
 
@@ -348,7 +354,8 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
    */
   @Override
   public void checkIntegrity() throws IOException {
-    // TODO: Pending implementation
+    flatVectorsReader.checkIntegrity();
+    CodecUtil.checksumEntireFile(cuvsIndexInput);
   }
 
   /**
@@ -360,29 +367,18 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
   }
 
   /**
-   * Returns the FloatVectorValues for the given field.
+   * Returns the ByteVectorValues for the given field.
    *
    * This is not supported.
    */
   @Override
   public ByteVectorValues getByteVectorValues(String field) {
-    throw new UnsupportedOperationException("byte vectors not supported");
+    throw new UnsupportedOperationException("byte vectors are not currently supported");
   }
 
   /** Native float to float function */
-  public interface FloatToFloatFunction {
+  private interface FloatToFloatFunction {
     float apply(float v);
-  }
-
-  /**
-   * Returns a long array from bits.
-   */
-  static long[] bitsToLongArray(Bits bits) {
-    if (bits instanceof FixedBitSet fixedBitSet) {
-      return fixedBitSet.getBits();
-    } else {
-      return FixedBitSet.copyOf(bits).getBits();
-    }
   }
 
   /**
@@ -391,16 +387,13 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
    * @param sim instance of VectorSimilarityFunction
    * @return an instance of the FloatToFloatFunction
    */
-  static FloatToFloatFunction getScoreNormalizationFunc(VectorSimilarityFunction sim) {
+  private static FloatToFloatFunction getScoreNormalizationFunc(VectorSimilarityFunction sim) {
     // TODO: check for different similarities
     return score -> (1f / (1f + score));
   }
 
-  // This is a hack - https://github.com/rapidsai/cuvs/issues/696
-  static final int FILTER_OVER_SAMPLE = 10;
-
   /**
-   * Returns the k nearest neighbor documents using cuVS's CAGRA or Bruteforce algorithm for this field, to the given vector.
+   * Returns the k nearest neighbor documents using cuVS's CAGRA or brute force algorithm for this field, to the given vector.
    */
   @Override
   public void search(String field, float[] target, KnnCollector knnCollector, Bits acceptDocs)
@@ -411,90 +404,121 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
     }
 
     var fieldNumber = fieldInfos.fieldInfo(field).number;
-
-    GPUIndex cuvsIndex = cuvsIndices.get(fieldNumber);
+    GPUIndex cuvsIndex = cuvsIndices != null ? cuvsIndices.get(fieldNumber) : null;
     if (cuvsIndex == null) {
-      throw new IllegalStateException("not index found for field:" + field);
+      throw new IllegalStateException("Index not found for field:" + field);
     }
 
-    int collectorTopK = knnCollector.k();
+    final FloatVectorValues rawValues = flatVectorsReader.getFloatVectorValues(field);
+    final Bits acceptedOrds = rawValues.getAcceptOrds(acceptDocs);
+    BitSet[] mask = null;
+    int maskLength = 0;
+    int topK = knnCollector.k();
+
     if (acceptDocs != null) {
-      collectorTopK = knnCollector.k() * FILTER_OVER_SAMPLE;
+      mask = new BitSet[1]; // As there is only one query "target"
+      mask[0] = new BitSet(acceptedOrds.length());
+      /*
+       * Need to find if there is a better alternative for below loop
+       * in subsequent code improvement iterations. This is needed as
+       * there is a difference between Lucene's Bits "acceptDocs" and
+       * what our API accepts.
+       */
+      for (int i = 0; i < acceptedOrds.length(); i++) {
+        if (acceptedOrds.get(i)) {
+          mask[0].set(i);
+        }
+      }
+      topK = Math.min(knnCollector.k() + 10, mask[0].cardinality());
+      maskLength = mask[0].length();
     }
-    final int topK = Math.min(collectorTopK, fieldEntry.count());
-    assert topK > 0 : "Expected topK > 0, got:" + topK;
 
-    Map<Integer, Float> result;
-    if (knnCollector.k() <= 1024 && cuvsIndex.getCagraIndex() != null) {
-
-      CagraSearchParams searchParams;
-      if (knnCollector instanceof GPUPerLeafCuVSKnnCollector) {
-        GPUPerLeafCuVSKnnCollector collector = (GPUPerLeafCuVSKnnCollector) knnCollector;
-        searchParams =
-            new CagraSearchParams.Builder()
-                .withItopkSize(Math.max(collector.getiTopK(), topK))
-                .withSearchWidth(collector.getSearchWidth())
-                .build();
-      } else {
-        // Setting itopK as topK because in any case iTopK should be ATLEAST equal to topK
-        searchParams = new CagraSearchParams.Builder().withItopkSize(topK).build();
-      }
-
-      var query =
-          new CagraQuery.Builder(getCuVSResourcesInstance())
-              .withTopK(topK)
-              .withSearchParams(searchParams)
-              .withQueryVectors(CuVSMatrix.ofArray(new float[][] {target}))
-              .build();
-
-      CagraIndex cagraIndex = cuvsIndex.getCagraIndex();
+    try {
       List<Map<Integer, Float>> searchResult = null;
-      try {
+      if (knnCollector.k() <= 1024 && cuvsIndex.getCagraIndex() != null) {
+        CagraSearchParams searchParams;
+        if (knnCollector instanceof GPUPerLeafCuVSKnnCollector) {
+          GPUPerLeafCuVSKnnCollector collector = (GPUPerLeafCuVSKnnCollector) knnCollector;
+          searchParams =
+              new CagraSearchParams.Builder()
+                  .withItopkSize(Math.max(collector.getiTopK(), topK))
+                  .withSearchWidth(collector.getSearchWidth())
+                  .build();
+        } else {
+          // Setting itopK as topK because in any case iTopK should be ATLEAST equal to topK
+          searchParams = new CagraSearchParams.Builder().withItopkSize(topK).build();
+        }
+        CagraIndex cagraIndex = cuvsIndex.getCagraIndex();
+        assert cagraIndex != null;
+        CagraQuery query = null;
+
+        CuVSMatrix.Builder<?> builder =
+            CuVSMatrix.deviceBuilder(
+                getCuVSResourcesInstance(), 1, target.length, CuVSMatrix.DataType.FLOAT);
+        builder.addVector(target);
+        CuVSMatrix queryVector = builder.build();
+
+        if (acceptDocs != null) {
+          query =
+              new CagraQuery.Builder(getCuVSResourcesInstance())
+                  .withTopK(topK)
+                  .withSearchParams(searchParams)
+                  .withQueryVectors(queryVector)
+                  .withPrefilter(mask[0], maskLength)
+                  .build();
+        } else {
+          query =
+              new CagraQuery.Builder(getCuVSResourcesInstance())
+                  .withTopK(topK)
+                  .withSearchParams(searchParams)
+                  .withQueryVectors(queryVector)
+                  .build();
+        }
         searchResult = cagraIndex.search(query).getResults();
-      } catch (Throwable t) {
-        Utils.handleThrowable(t);
+      } else {
+        BruteForceIndex bruteforceIndex = cuvsIndex.getBruteforceIndex();
+        assert bruteforceIndex != null;
+        BruteForceQuery query = null;
+        float[][] queryVector = new float[][] {target};
+        if (acceptDocs != null) {
+          query =
+              new BruteForceQuery.Builder(getCuVSResourcesInstance())
+                  .withQueryVectors(queryVector)
+                  .withPrefilters(mask, maskLength)
+                  .withTopK(topK)
+                  .build();
+        } else {
+          query =
+              new BruteForceQuery.Builder(getCuVSResourcesInstance())
+                  .withQueryVectors(queryVector)
+                  .withTopK(topK)
+                  .build();
+        }
+        searchResult = bruteforceIndex.search(query).getResults();
       }
+
       // List expected to have only one entry because of single query "target".
       assert searchResult.size() == 1;
-      result = searchResult.getFirst();
-    } else {
-      BruteForceIndex bruteforceIndex = cuvsIndex.getBruteforceIndex();
-      assert bruteforceIndex != null;
-      var queryBuilder =
-          new BruteForceQuery.Builder(getCuVSResourcesInstance())
-              .withQueryVectors(new float[][] {target})
-              .withTopK(topK);
-      BruteForceQuery query = queryBuilder.build();
+      final IntToIntFunction ordToDocFunction = (IntToIntFunction) rawValues::ordToDoc;
+      final FloatToFloatFunction scoreCorrectionFunction =
+          getScoreNormalizationFunc(fieldEntry.similarityFunction);
 
-      List<Map<Integer, Float>> searchResult = null;
-      try {
-        searchResult = bruteforceIndex.search(query).getResults();
-      } catch (Throwable t) {
-        Utils.handleThrowable(t);
-      }
-      assert searchResult.size() == 1;
-      result = searchResult.getFirst();
-    }
-    assert result != null;
-
-    final var rawValues = flatVectorsReader.getFloatVectorValues(field);
-    final Bits acceptedOrds = rawValues.getAcceptOrds(acceptDocs);
-    final var ordToDocFunction = (IntToIntFunction) rawValues::ordToDoc;
-    final var scoreCorrectionFunction = getScoreNormalizationFunc(fieldEntry.similarityFunction);
-
-    for (var entry : result.entrySet()) {
-      int ord = entry.getKey();
-      float score = entry.getValue();
-      if (acceptedOrds == null || acceptedOrds.get(ord)) {
+      for (Entry<Integer, Float> entry : searchResult.getFirst().entrySet()) {
+        int ord = entry.getKey();
+        float score = entry.getValue();
         if (knnCollector.earlyTerminated()) {
           break;
         }
-        assert ord >= 0 : "unexpected ord: " + ord;
-        int doc = ordToDocFunction.apply(ord);
+        if (ord < 0) {
+          continue;
+        }
         float correctedScore = scoreCorrectionFunction.apply(score);
+        int doc = ordToDocFunction.apply(ord);
         knnCollector.incVisitedCount(1);
         knnCollector.collect(doc, correctedScore);
       }
+    } catch (Throwable t) {
+      Utils.handleThrowable(t);
     }
   }
 
@@ -506,7 +530,7 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
   @Override
   public void search(String field, byte[] target, KnnCollector knnCollector, Bits acceptDocs)
       throws IOException {
-    throw new UnsupportedOperationException("byte vectors not supported");
+    throw new UnsupportedOperationException("Byte vectors are not currently supported");
   }
 
   /**
@@ -526,7 +550,7 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
      * Returns an instance of FieldEntry.
      *
      * @param input instance of IndexInput
-     * @param vectorEncoding The numeric datatype of the vector values
+     * @param vectorEncoding The numeric data type of the vector values
      * @param similarityFunction Vector similarity function; used in search to return top K most similar vectors to a target vector
      * @return an instance of FieldEntry
      * @throws IOException I/O Exceptions
@@ -562,7 +586,7 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
    * @param in
    * @throws CorruptIndexException
    */
-  static void checkVersion(int versionMeta, int versionVectorData, IndexInput in)
+  private static void checkVersion(int versionMeta, int versionVectorData, IndexInput in)
       throws CorruptIndexException {
     if (versionMeta != versionVectorData) {
       throw new CorruptIndexException(
@@ -588,7 +612,7 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
   /**
    * Gets the map of {@link GPUIndex} objects.
    *
-   * @return the map of gpu index objects
+   * @return the map of GPU index objects
    */
   public IntObjectHashMap<GPUIndex> getCuvsIndexes() {
     return cuvsIndices;

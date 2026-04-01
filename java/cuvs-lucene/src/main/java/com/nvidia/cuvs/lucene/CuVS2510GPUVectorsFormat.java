@@ -8,9 +8,9 @@ import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.assertIsSu
 
 import com.nvidia.cuvs.LibraryException;
 import java.io.IOException;
-import java.util.logging.Logger;
 import org.apache.lucene.codecs.KnnVectorsFormat;
 import org.apache.lucene.codecs.KnnVectorsReader;
+import org.apache.lucene.codecs.KnnVectorsWriter;
 import org.apache.lucene.codecs.hnsw.DefaultFlatVectorScorer;
 import org.apache.lucene.codecs.hnsw.FlatVectorsFormat;
 import org.apache.lucene.index.SegmentReadState;
@@ -24,20 +24,18 @@ import org.apache.lucene.index.SegmentWriteState;
  */
 public class CuVS2510GPUVectorsFormat extends KnnVectorsFormat {
 
-  @SuppressWarnings("unused")
-  private static final Logger log = Logger.getLogger(CuVS2510GPUVectorsFormat.class.getName());
-
-  private static final int maxDimensions = 4096;
+  private static final int MAX_DIMENSIONS = 4096;
   private static final LuceneProvider LUCENE_PROVIDER;
   private static final FlatVectorsFormat FLAT_VECTORS_FORMAT;
-  private GPUSearchParams gpuSearchParams;
 
-  static final String CUVS_META_CODEC_NAME = "Lucene102CuVSVectorsFormatMeta";
-  static final String CUVS_META_CODEC_EXT = "vemc";
-  static final String CUVS_INDEX_CODEC_NAME = "Lucene102CuVSVectorsFormatIndex";
-  static final String CUVS_INDEX_EXT = "vcag";
-  static final int VERSION_START = 0;
-  static final int VERSION_CURRENT = VERSION_START;
+  public static final String CUVS_META_CODEC_NAME = "Lucene102CuVSVectorsFormatMeta";
+  public static final String CUVS_META_CODEC_EXT = "vemc";
+  public static final String CUVS_INDEX_CODEC_NAME = "Lucene102CuVSVectorsFormatIndex";
+  public static final String CUVS_INDEX_EXT = "vcag";
+  public static final int VERSION_START = 0;
+  public static final int VERSION_CURRENT = VERSION_START;
+
+  private GPUSearchParams gpuSearchParams;
 
   static {
     try {
@@ -59,7 +57,7 @@ public class CuVS2510GPUVectorsFormat extends KnnVectorsFormat {
   }
 
   /**
-   * Initializes the {@link CuVS2510GPUVectorsFormat} with the given threads, graph degree, etc.
+   * Initializes the {@link CuVS2510GPUVectorsFormat} with an instance of {@link GPUSearchParams}.
    *
    * @param gpuSearchParams An instance of {@link GPUSearchParams}
    * @throws LibraryException if the native library fails to load
@@ -70,17 +68,17 @@ public class CuVS2510GPUVectorsFormat extends KnnVectorsFormat {
   }
 
   /**
-   * Returns a {@link CuVS2510GPUVectorsWriter} to write the vectors to the index.
+   * Returns a KnnVectorsReader instance to write the vectors to the index.
    */
   @Override
-  public CuVS2510GPUVectorsWriter fieldsWriter(SegmentWriteState state) throws IOException {
+  public KnnVectorsWriter fieldsWriter(SegmentWriteState state) throws IOException {
     assertIsSupported();
     var flatWriter = FLAT_VECTORS_FORMAT.fieldsWriter(state);
     return new CuVS2510GPUVectorsWriter(state, gpuSearchParams, flatWriter);
   }
 
   /**
-   * Returns a KnnVectorsReader to read the vectors from the index.
+   * Returns a KnnVectorsReader instance to read the vectors from the index.
    */
   @Override
   public KnnVectorsReader fieldsReader(SegmentReadState state) throws IOException {
@@ -93,6 +91,6 @@ public class CuVS2510GPUVectorsFormat extends KnnVectorsFormat {
    */
   @Override
   public int getMaxDimensions(String fieldName) {
-    return maxDimensions;
+    return MAX_DIMENSIONS;
   }
 }

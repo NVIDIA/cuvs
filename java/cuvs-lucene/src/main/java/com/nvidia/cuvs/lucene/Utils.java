@@ -11,6 +11,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import org.apache.lucene.util.InfoStream;
 
 /**
  * This class provides common static utility methods.
@@ -167,5 +168,16 @@ public class Utils {
       return;
     }
     handleThrowable(t);
+  }
+
+  /**
+   * Utility to print info/debug messages via InfoStream.
+   *
+   * @param msg
+   */
+  static void info(InfoStream infoStream, String component, String msg) {
+    if (infoStream.isEnabled(component)) {
+      infoStream.message(component, msg);
+    }
   }
 }
