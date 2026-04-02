@@ -17,6 +17,7 @@ import org.apache.lucene.codecs.hnsw.DefaultFlatVectorScorer;
 import org.apache.lucene.codecs.hnsw.FlatVectorsFormat;
 import org.apache.lucene.index.SegmentReadState;
 import org.apache.lucene.index.SegmentWriteState;
+import org.apache.lucene.search.TaskExecutor;
 
 /**
  * cuVS based KnnVectorsFormat for indexing on GPU and searching on the CPU.
@@ -28,9 +29,8 @@ public class Lucene99AcceleratedHNSWVectorsFormat extends KnnVectorsFormat {
   private static final Logger log =
       Logger.getLogger(Lucene99AcceleratedHNSWVectorsFormat.class.getName());
   private static final FlatVectorsFormat FLAT_VECTORS_FORMAT;
-  private static final Integer NUM_MERGE_WORKERS;
-  private static final int maxDimensions = 4096;
-  private AcceleratedHNSWParams acceleratedHNSWParams;
+  private static final int MAX_DIMENSIONS = 4096;
+  private final AcceleratedHNSWParams acceleratedHNSWParams;
 
   static final String HNSW_META_CODEC_NAME = "Lucene99HnswVectorsFormatMeta";
   static final String HNSW_META_CODEC_EXT = "vem";
@@ -41,7 +41,6 @@ public class Lucene99AcceleratedHNSWVectorsFormat extends KnnVectorsFormat {
   static {
     try {
       LUCENE_PROVIDER = LuceneProvider.getInstance("99");
-      NUM_MERGE_WORKERS = LUCENE_PROVIDER.getStaticIntParam("DEFAULT_BEAM_WIDTH");
       FLAT_VECTORS_FORMAT =
           LUCENE_PROVIDER.getLuceneFlatVectorsFormatInstance(DefaultFlatVectorScorer.INSTANCE);
     } catch (Exception e) {
@@ -50,7 +49,8 @@ public class Lucene99AcceleratedHNSWVectorsFormat extends KnnVectorsFormat {
   }
 
   /**
-   * Initializes {@link Lucene99AcceleratedHNSWVectorsFormat} with default parameter values.
+   * Initializes {@link Lucene99AcceleratedHNSWVectorsFormat} with an instance
+   * of {@link AcceleratedHNSWParams} with default parameter values.
    *
    * @throws LibraryException if the native library fails to load
    */
@@ -59,7 +59,8 @@ public class Lucene99AcceleratedHNSWVectorsFormat extends KnnVectorsFormat {
   }
 
   /**
-   * Initializes {@link Lucene99AcceleratedHNSWVectorsFormat} with the given threads, graph degree, etc.
+   * Initializes {@link Lucene99AcceleratedHNSWVectorsFormat} with an instance
+   * of {@link AcceleratedHNSWParams}.
    *
    * @param acceleratedHNSWParams An instance of {@link AcceleratedHNSWParams}
    */
@@ -81,17 +82,15 @@ public class Lucene99AcceleratedHNSWVectorsFormat extends KnnVectorsFormat {
       log.log(
           Level.WARNING,
           "GPU based indexing not supported, falling back to using the Lucene99HnswVectorsWriter");
-      // TODO: Make num merge workers configurable.
       try {
         return LUCENE_PROVIDER.getLuceneHnswVectorsWriterInstance(
             state,
             acceleratedHNSWParams.getMaxConn(),
             acceleratedHNSWParams.getBeamWidth(),
             flatWriter,
-            NUM_MERGE_WORKERS,
-            null);
+            acceleratedHNSWParams.getNumMergeWorkers(),
+            new TaskExecutor(acceleratedHNSWParams.getMergeExec()));
       } catch (Exception e) {
-        // maybe there is a better suited option to throwing RuntimeException? Need to explore.
         throw new RuntimeException(e.getMessage());
       }
     }
@@ -106,7 +105,6 @@ public class Lucene99AcceleratedHNSWVectorsFormat extends KnnVectorsFormat {
       return LUCENE_PROVIDER.getLuceneHnswVectorsReaderInstance(
           state, FLAT_VECTORS_FORMAT.fieldsReader(state));
     } catch (Exception e) {
-      // maybe there is a better suited option to throwing RuntimeException? Need to explore.
       throw new RuntimeException(e.getMessage());
     }
   }
@@ -116,6 +114,6 @@ public class Lucene99AcceleratedHNSWVectorsFormat extends KnnVectorsFormat {
    */
   @Override
   public int getMaxDimensions(String fieldName) {
-    return maxDimensions;
+    return MAX_DIMENSIONS;
   }
 }

@@ -63,7 +63,7 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends KnnVector
   private static final Integer VERSION_CURRENT;
 
   private final FlatVectorsWriter flatVectorsWriter;
-  private final List<QuantizedFieldWriter> fields = new ArrayList<>();
+  private final List<FieldWriter> fields = new ArrayList<>();
   private final InfoStream infoStream;
   private final AcceleratedHNSWParams acceleratedHNSWParams;
   private IndexOutput hnswMeta = null, hnswVectorIndex = null;
@@ -142,7 +142,7 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends KnnVector
       throw new IllegalArgumentException("expected float32, got:" + encoding);
     }
     var writer = Objects.requireNonNull(flatVectorsWriter.addField(fieldInfo));
-    var cuvsFieldWriter = new QuantizedFieldWriter(QuantizationType.SCALAR, fieldInfo, writer);
+    var cuvsFieldWriter = new FieldWriter(QuantizationType.SCALAR, fieldInfo, writer);
     fields.add(cuvsFieldWriter);
     return writer;
   }
@@ -166,7 +166,7 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends KnnVector
    * @param vectors quantized vectors
    * @throws IOException
    */
-  private void writeFieldInternal(FieldInfo fieldInfo, List<byte[]> vectors) throws IOException {
+  private void writeFieldInternal(FieldInfo fieldInfo, List<?> vectors) throws IOException {
     if (vectors.size() == 0) {
       writeEmpty(fieldInfo, hnswMeta);
       return;
@@ -177,8 +177,8 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends KnnVector
 
       // Convert 7-bit signed bytes to 8-bit unsigned bytes for cuVS compatibility
       List<byte[]> unsignedVectors = new ArrayList<>(vectors.size());
-      for (byte[] signedVector : vectors) {
-        unsignedVectors.add(convertSignedToUnsigned(signedVector));
+      for (Object signedVector : vectors) {
+        unsignedVectors.add(convertSignedToUnsigned((byte[]) signedVector));
       }
 
       // Create CuVSMatrix with BYTE data type (unsigned bytes)
@@ -264,8 +264,8 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends KnnVector
    * @param fieldData
    * @throws IOException
    */
-  private void writeField(QuantizedFieldWriter fieldData) throws IOException {
-    writeFieldInternal(fieldData.fieldInfo(), fieldData.getVectors());
+  private void writeField(FieldWriter fieldData) throws IOException {
+    writeFieldInternal(fieldData.fieldInfo(), fieldData.getByteVectors());
   }
 
   /**
@@ -275,16 +275,16 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends KnnVector
    * @param sortMap instance of the DocMap
    * @throws IOException
    */
-  private void writeSortingField(QuantizedFieldWriter fieldData, Sorter.DocMap sortMap)
-      throws IOException {
+  private void writeSortingField(FieldWriter fieldData, Sorter.DocMap sortMap) throws IOException {
 
     DocsWithFieldSet oldDocsWithFieldSet = fieldData.getDocsWithFieldSet();
     final int[] new2OldOrd = new int[oldDocsWithFieldSet.cardinality()]; // new ord to old ord
     mapOldOrdToNewOrd(oldDocsWithFieldSet, sortMap, null, new2OldOrd, null);
 
     List<byte[]> sortedVectors = new ArrayList<byte[]>();
-    for (int i = 0; i < fieldData.getVectors().size(); i++) {
-      sortedVectors.add(fieldData.getVectors().get(new2OldOrd[i]));
+    List<byte[]> byteVectors = fieldData.getByteVectors();
+    for (int i = 0; i < byteVectors.size(); i++) {
+      sortedVectors.add(byteVectors.get(new2OldOrd[i]));
     }
 
     writeFieldInternal(fieldData.fieldInfo(), sortedVectors);

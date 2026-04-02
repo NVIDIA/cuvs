@@ -12,7 +12,7 @@ import org.apache.lucene.codecs.FilterCodec;
 import org.apache.lucene.codecs.KnnVectorsFormat;
 
 /**
- * cuVS based codec for GPU based vector search
+ * cuVS based codec for GPU based vector search that enables both - indexing and search on the GPU.
  * cuVS serialization formats are in experimental phase and hence backward compatibility cannot be guaranteed.
  *
  * @since 25.10
@@ -24,7 +24,7 @@ public class CuVS2510GPUSearchCodec extends FilterCodec {
   private KnnVectorsFormat format;
 
   /**
-   * Default constructor for {@link CuVS2510GPUSearchCodec}
+   * Default constructor for {@link CuVS2510GPUSearchCodec}.
    *
    * @throws Exception
    */
@@ -34,7 +34,8 @@ public class CuVS2510GPUSearchCodec extends FilterCodec {
   }
 
   /**
-   * Initialize {@link CuVS2510GPUSearchCodec} with default parameter values.
+   * Initialize {@link CuVS2510GPUSearchCodec} with an instance of {@link GPUSearchParams}
+   * having default parameter values.
    *
    * @param name the name of the codec
    * @param delegate the delegate codec
@@ -45,16 +46,22 @@ public class CuVS2510GPUSearchCodec extends FilterCodec {
   }
 
   /**
-   * Initialize the codec with custom parameter values.
+   * Initialize the codec with an instance of {@link GPUSearchParams} having either default
+   * or overridden parameter values.
    *
    * @param params An instance of {@link GPUSearchParams}
-   * @throws Exception Exception raised when initializing the codec.
+   * @throws Exception Exception raised when initializing the codec
    */
   public CuVS2510GPUSearchCodec(GPUSearchParams params) throws Exception {
     this(NAME, LuceneProvider.getCodec("101"));
     initializeFormat(params);
   }
 
+  /**
+   * Initialize the {@link CuVS2510GPUVectorsFormat} instance using {@link GPUSearchParams}.
+   *
+   * @param params an instance of {@link GPUSearchParams}
+   */
   private void initializeFormat(GPUSearchParams params) {
     try {
       format = new CuVS2510GPUVectorsFormat(params);
@@ -67,7 +74,7 @@ public class CuVS2510GPUSearchCodec extends FilterCodec {
   }
 
   /**
-   * Get the configured {@link KnnVectorsFormat}
+   * Get the configured {@link KnnVectorsFormat}.
    *
    * @return the instance of the {@link KnnVectorsFormat}
    */
@@ -77,7 +84,7 @@ public class CuVS2510GPUSearchCodec extends FilterCodec {
   }
 
   /**
-   * Set the {@link KnnVectorsFormat}
+   * Set the {@link KnnVectorsFormat}.
    *
    * @param format the {@link KnnVectorsFormat} to set
    */

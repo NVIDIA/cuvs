@@ -62,7 +62,7 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends KnnVector
   private static final String COMPONENT = "Lucene99AcceleratedHNSWBinaryQuantizedVectorsWriter";
 
   private final FlatVectorsWriter flatVectorsWriter;
-  private final List<QuantizedFieldWriter> fields = new ArrayList<>();
+  private final List<FieldWriter> fields = new ArrayList<>();
   private final InfoStream infoStream;
   private final AcceleratedHNSWParams acceleratedHNSWParams;
   private IndexOutput hnswMeta = null, hnswVectorIndex = null;
@@ -133,7 +133,7 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends KnnVector
       throw new IllegalArgumentException("expected float32, got:" + encoding);
     }
     var writer = Objects.requireNonNull(flatVectorsWriter.addField(fieldInfo));
-    var cuvsFieldWriter = new QuantizedFieldWriter(QuantizationType.BINARY, fieldInfo, writer);
+    var cuvsFieldWriter = new FieldWriter(QuantizationType.BINARY, fieldInfo, writer);
     fields.add(cuvsFieldWriter);
     return writer;
   }
@@ -238,8 +238,8 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends KnnVector
    * @param fieldData
    * @throws IOException
    */
-  private void writeField(QuantizedFieldWriter fieldData) throws IOException {
-    writeFieldInternal(fieldData.fieldInfo(), fieldData.getVectors());
+  private void writeField(FieldWriter fieldData) throws IOException {
+    writeFieldInternal(fieldData.fieldInfo(), fieldData.getByteVectors());
   }
 
   /**
@@ -249,15 +249,14 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends KnnVector
    * @param sortMap instance of the DocMap
    * @throws IOException
    */
-  private void writeSortingField(QuantizedFieldWriter fieldData, Sorter.DocMap sortMap)
-      throws IOException {
+  private void writeSortingField(FieldWriter fieldData, Sorter.DocMap sortMap) throws IOException {
 
     DocsWithFieldSet oldDocsWithFieldSet = fieldData.getDocsWithFieldSet();
     final int[] new2OldOrd = new int[oldDocsWithFieldSet.cardinality()]; // new ord to old ord
     mapOldOrdToNewOrd(oldDocsWithFieldSet, sortMap, null, new2OldOrd, null);
 
     List<byte[]> sortedVectors = new ArrayList<byte[]>();
-    List<byte[]> vectors = fieldData.getVectors();
+    List<byte[]> vectors = fieldData.getByteVectors();
     for (int i = 0; i < vectors.size(); i++) {
       sortedVectors.add(vectors.get(new2OldOrd[i]));
     }

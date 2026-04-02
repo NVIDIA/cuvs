@@ -6,8 +6,10 @@
 package com.nvidia.cuvs.lucene;
 
 import com.nvidia.cuvs.CagraIndexParams.CagraGraphBuildAlgo;
+import com.nvidia.cuvs.CuVSIvfPqParams;
 import com.nvidia.cuvs.lucene.CuVS2510GPUVectorsWriter.IndexType;
 import java.util.Objects;
+import java.util.function.Supplier;
 
 public class GPUSearchParams {
 
@@ -15,18 +17,31 @@ public class GPUSearchParams {
    * TODO: Update boundaries for all parameters when a consensus is reached.
    * Issue: https://github.com/rapidsai/cuvs-lucene/issues/99
    */
-  private static final int MIN_WRITER_THREADS = 1;
-  private static final int MAX_WRITER_THREADS = 32;
-  private static final int MIN_INT_GRAPH_DEG = 2;
-  private static final int MAX_INT_GRAPH_DEG = 128;
-  private static final int MIN_GRAPH_DEG = 1;
-  private static final int MAX_GRAPH_DEG = 64;
+  public static final int MIN_WRITER_THREADS = 1;
+  public static final int MAX_WRITER_THREADS = 512;
+  public static final int MIN_INT_GRAPH_DEG = 2;
+  public static final int MAX_INT_GRAPH_DEG = 512;
+  public static final int MIN_GRAPH_DEG = 1;
+  public static final int MAX_GRAPH_DEG = 512;
+
+  public static final int DEFAULT_INT_GRAPH_DEGREE = 128;
+  public static final int DEFAULT_GRAPH_DEGREE = 64;
+  public static final CagraGraphBuildAlgo DEFAULT_CAGRA_GRAPH_BUILD_ALGO =
+      CagraGraphBuildAlgo.NN_DESCENT;
+  public static final IndexType DEFAULT_INDEX_TYPE = IndexType.CAGRA;
+  public static final int DEFAULT_WRITER_THREADS = 1;
+
+  public static final Supplier<CuVSIvfPqParams> DEFAULT_IVF_PQ_PARAMS =
+      () -> {
+        return new CuVSIvfPqParams.Builder().build();
+      };
 
   private final int writerThreads;
   private final int intermediateGraphDegree;
   private final int graphdegree;
   private final CagraGraphBuildAlgo cagraGraphBuildAlgo;
   private final IndexType indexType;
+  private final CuVSIvfPqParams cuVSIvfPqParams;
 
   /**
    * Constructs an instance of {@link GPUSearchParams} with specific parameter values.
@@ -36,19 +51,22 @@ public class GPUSearchParams {
    * @param graphdegree The graph degree to use while building the CAGRA index.
    * @param cagraGraphBuildAlgo The CAGRA build algorithm to use.
    * @param indexType The type of index to build - CAGRA, BRUTEFORCE, or both.
+   * @param cuVSIvfPqParams An instance of CuVSIvfPqParams containing IVF_PQ specific parameters.
    */
   private GPUSearchParams(
       int writerThreads,
       int intermediateGraphDegree,
       int graphdegree,
       CagraGraphBuildAlgo cagraGraphBuildAlgo,
-      IndexType indexType) {
+      IndexType indexType,
+      CuVSIvfPqParams cuVSIvfPqParams) {
     super();
     this.writerThreads = writerThreads;
     this.intermediateGraphDegree = intermediateGraphDegree;
     this.graphdegree = graphdegree;
     this.cagraGraphBuildAlgo = cagraGraphBuildAlgo;
     this.indexType = indexType;
+    this.cuVSIvfPqParams = cuVSIvfPqParams;
   }
 
   /**
@@ -96,6 +114,15 @@ public class GPUSearchParams {
     return indexType;
   }
 
+  /**
+   * Get the instance of CuVSIvfPqParams
+   *
+   * @return an instance of CuVSIvfPqParams
+   */
+  public CuVSIvfPqParams getCuVSIvfPqParams() {
+    return cuVSIvfPqParams;
+  }
+
   @Override
   public String toString() {
     return "GPUSearchParams [writerThreads="
@@ -116,11 +143,12 @@ public class GPUSearchParams {
    */
   public static class Builder {
 
-    private int writerThreads = 1;
-    private int intermediateGraphDegree = 128;
-    private int graphdegree = 64;
-    private CagraGraphBuildAlgo cagraGraphBuildAlgo = CagraGraphBuildAlgo.NN_DESCENT;
-    private IndexType indexType = IndexType.CAGRA;
+    private int writerThreads = DEFAULT_WRITER_THREADS;
+    private int intermediateGraphDegree = DEFAULT_INT_GRAPH_DEGREE;
+    private int graphdegree = DEFAULT_GRAPH_DEGREE;
+    private CagraGraphBuildAlgo cagraGraphBuildAlgo = DEFAULT_CAGRA_GRAPH_BUILD_ALGO;
+    private IndexType indexType = DEFAULT_INDEX_TYPE;
+    private CuVSIvfPqParams cuVSIvfPqParams = null;
 
     /**
      * Set the number of cuVS writer threads while building the index
@@ -186,6 +214,17 @@ public class GPUSearchParams {
     }
 
     /**
+     * Set the instance of {@link CuVSIvfPqParams}
+     *
+     * @param cuVSIvfPqParams
+     * @return instance of {@link Builder}
+     */
+    public Builder withCuVSIvfPqParams(CuVSIvfPqParams cuVSIvfPqParams) {
+      this.cuVSIvfPqParams = cuVSIvfPqParams;
+      return this;
+    }
+
+    /**
      * Validates the input parameters.
      *
      * @throws IllegalArgumentException
@@ -230,9 +269,17 @@ public class GPUSearchParams {
      * @return instance of {@link GPUSearchParams}
      */
     public GPUSearchParams build() {
+      if (Objects.isNull(cuVSIvfPqParams)) {
+        cuVSIvfPqParams = DEFAULT_IVF_PQ_PARAMS.get();
+      }
       validate();
       return new GPUSearchParams(
-          writerThreads, intermediateGraphDegree, graphdegree, cagraGraphBuildAlgo, indexType);
+          writerThreads,
+          intermediateGraphDegree,
+          graphdegree,
+          cagraGraphBuildAlgo,
+          indexType,
+          cuVSIvfPqParams);
     }
   }
 }

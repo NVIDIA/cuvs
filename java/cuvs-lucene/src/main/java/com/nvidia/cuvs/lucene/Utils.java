@@ -4,13 +4,19 @@
  */
 package com.nvidia.cuvs.lucene;
 
+import static org.apache.lucene.search.DocIdSetIterator.NO_MORE_DOCS;
+
 import com.nvidia.cuvs.CuVSMatrix;
 import com.nvidia.cuvs.CuVSResources;
 import java.io.IOException;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import org.apache.lucene.index.FloatVectorValues;
+import org.apache.lucene.index.KnnVectorValues;
+import org.apache.lucene.util.InfoStream;
 
 /**
  * This class provides common static utility methods.
@@ -167,5 +173,36 @@ public class Utils {
       return;
     }
     handleThrowable(t);
+  }
+
+  /**
+   * Creates a list of float vectors from the input
+   *
+   * @param mergedVectorValues instance of {@link FloatVectorValues}
+   * @return a list of float arrays
+   * @throws IOException I/O Exception
+   */
+  static List<float[]> createListFromMergedVectors(FloatVectorValues mergedVectorValues)
+      throws IOException {
+    List<float[]> vectors = new ArrayList<float[]>();
+    KnnVectorValues.DocIndexIterator iter = mergedVectorValues.iterator();
+    for (int docV = iter.nextDoc(); docV != NO_MORE_DOCS; docV = iter.nextDoc()) {
+      float[] vector = mergedVectorValues.vectorValue(iter.index());
+      vectors.add(vector.clone());
+    }
+    return vectors;
+  }
+
+  /**
+   * Utility to print info/debug messages via InfoStream.
+   *
+   * @param infoStream the writer's infostream
+   * @param component the name of the index writer
+   * @param msg the log message to push via the InfoStream
+   */
+  static void info(InfoStream infoStream, String component, String msg) {
+    if (infoStream.isEnabled(component)) {
+      infoStream.message(component, msg);
+    }
   }
 }

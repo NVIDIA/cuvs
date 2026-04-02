@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs.lucene;
@@ -53,6 +53,20 @@ import org.apache.lucene.util.RamUsageEstimator;
    */
   List<float[]> getVectors() {
     return flatFieldVectorsWriter.getVectors();
+  }
+
+  /**
+   * Gets the vector dimension.
+   *
+   * @return the vector dimension
+   */
+  int getVectorDimension() {
+    List<float[]> vectors = flatFieldVectorsWriter.getVectors();
+    if (vectors != null && vectors.size() > 0) {
+      return vectors.get(0).length;
+    } else {
+      return -1;
+    }
   }
 
   /**

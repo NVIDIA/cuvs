@@ -17,10 +17,10 @@ import org.apache.lucene.index.DocsWithFieldSet;
 import org.apache.lucene.index.FieldInfo;
 import org.apache.lucene.util.RamUsageEstimator;
 
-public class QuantizedFieldWriter extends KnnFieldVectorsWriter<Object> {
+public class FieldWriter extends KnnFieldVectorsWriter<Object> {
 
   private static final long SHALLOW_SIZE =
-      RamUsageEstimator.shallowSizeOfInstance(QuantizedFieldWriter.class);
+      RamUsageEstimator.shallowSizeOfInstance(FieldWriter.class);
 
   private final FieldInfo fieldInfo;
   private final FlatFieldVectorsWriter<float[]> flatFieldVectorsWriter;
@@ -28,7 +28,7 @@ public class QuantizedFieldWriter extends KnnFieldVectorsWriter<Object> {
   private QuantizationType quantizationType;
 
   @SuppressWarnings("unchecked")
-  public QuantizedFieldWriter(
+  public FieldWriter(
       QuantizationType quantizationType,
       FieldInfo fieldInfo,
       FlatFieldVectorsWriter<?> flatFieldVectorsWriter) {
@@ -49,12 +49,18 @@ public class QuantizedFieldWriter extends KnnFieldVectorsWriter<Object> {
     flatFieldVectorsWriter.addValue(docID, (float[]) vectorValue);
   }
 
-  List<byte[]> getVectors() {
+  List<byte[]> getByteVectors() {
     if (quantizationType == QuantizationType.BINARY) {
       return quantizeFloatVectorsToBinary(flatFieldVectorsWriter.getVectors());
-    } else {
+    } else if (quantizationType == QuantizationType.SCALAR) {
       return quantizeFloatVectorsToScalar(flatFieldVectorsWriter.getVectors());
+    } else {
+      throw new UnsupportedOperationException("Not applicable for QuantizationType.NONE");
     }
+  }
+
+  List<float[]> getFloatVectors() {
+    return flatFieldVectorsWriter.getVectors();
   }
 
   FieldInfo fieldInfo() {

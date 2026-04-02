@@ -10,6 +10,7 @@ import com.nvidia.cuvs.CuVSIvfPqParams;
 import java.util.Objects;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.function.Supplier;
 
 public class AcceleratedHNSWParams {
 
@@ -17,33 +18,40 @@ public class AcceleratedHNSWParams {
    * TODO: Update boundaries for all parameters when a consensus is reached.
    * Issue: https://github.com/rapidsai/cuvs-lucene/issues/99
    */
-  private static final int MIN_WRITER_THREADS = 1;
-  private static final int MAX_WRITER_THREADS = 512;
-  private static final int MIN_INT_GRAPH_DEG = 2;
-  private static final int MAX_INT_GRAPH_DEG = 512;
-  private static final int MIN_GRAPH_DEG = 1;
-  private static final int MAX_GRAPH_DEG = 512;
-  private static final int MIN_HNSW_LAYERS = 1;
-  private static final int MAX_HNSW_LAYERS = 3;
-  private static final int MIN_MAX_CONN = 1;
-  private static final int MAX_MAX_CONN = 512;
-  private static final int MIN_BEAM_WIDTH = 1;
-  private static final int MAX_BEAM_WIDTH = 512;
-  private static final int MIN_NUM_MERGE_WORKERS = 1;
-  private static final int MAX_NUM_MERGE_WORKERS = 512;
+  public static final int MIN_WRITER_THREADS = 1;
+  public static final int MAX_WRITER_THREADS = 512;
+  public static final int MIN_INT_GRAPH_DEG = 2;
+  public static final int MAX_INT_GRAPH_DEG = 512;
+  public static final int MIN_GRAPH_DEG = 1;
+  public static final int MAX_GRAPH_DEG = 512;
+  public static final int MIN_HNSW_LAYERS = 1;
+  public static final int MAX_HNSW_LAYERS = 3;
+  public static final int MIN_MAX_CONN = 1;
+  public static final int MAX_MAX_CONN = 512;
+  public static final int MIN_BEAM_WIDTH = 1;
+  public static final int MAX_BEAM_WIDTH = 512;
+  public static final int MIN_NUM_MERGE_WORKERS = 1;
+  public static final int MAX_NUM_MERGE_WORKERS = 512;
 
-  private static final int DEFAULT_WRITER_THREADS = 1;
-  private static final int DEFAULT_INT_GRAPH_DEGREE = 128;
-  private static final int DEFAULT_GRAPH_DEGREE = 64;
-  private static final int DEFAULT_HNSW_LAYERS = 1;
-  private static final int DEFAULT_MAX_CONN = 32;
-  private static final int DEFAULT_BEAM_WIDTH = 32;
-  private static final CagraGraphBuildAlgo DEFAULT_CAGRA_GRAPH_BUILD_ALGO =
+  public static final int DEFAULT_WRITER_THREADS = 1;
+  public static final int DEFAULT_INT_GRAPH_DEGREE = 128;
+  public static final int DEFAULT_GRAPH_DEGREE = 64;
+  public static final int DEFAULT_HNSW_LAYERS = 1;
+  public static final int DEFAULT_MAX_CONN = 32;
+  public static final int DEFAULT_BEAM_WIDTH = 32;
+  public static final CagraGraphBuildAlgo DEFAULT_CAGRA_GRAPH_BUILD_ALGO =
       CagraGraphBuildAlgo.NN_DESCENT;
-  private static final CuVSIvfPqParams DEFAULT_IVF_PQ_PARAMS =
-      new CuVSIvfPqParams.Builder().build();
-  private static final int DEFAULT_NUM_MERGE_WORKERS = 1;
-  private static final ExecutorService DEFAULT_MERGE_EXE_SRVC = Executors.newFixedThreadPool(1);
+  public static final int DEFAULT_NUM_MERGE_WORKERS = 1;
+
+  public static final Supplier<CuVSIvfPqParams> DEFAULT_IVF_PQ_PARAMS =
+      () -> {
+        return new CuVSIvfPqParams.Builder().build();
+      };
+
+  public static final Supplier<ExecutorService> DEFAULT_MERGE_EXE_SRVC =
+      () -> {
+        return Executors.newFixedThreadPool(DEFAULT_NUM_MERGE_WORKERS);
+      };
 
   private final int writerThreads;
   private final int intermediateGraphDegree;
@@ -57,7 +65,7 @@ public class AcceleratedHNSWParams {
   private final ExecutorService mergeExec;
 
   /**
-   * Constructs an instance of {@link GPUSearchParams} with specific parameter values.
+   * Constructs an instance of {@link AcceleratedHNSWParams} with specific parameter values.
    *
    * @param writerThreads Number of cuVS writer threads to use.
    * @param intermediateGraphDegree The intermediate graph degree while building the CAGRA index.
@@ -67,7 +75,7 @@ public class AcceleratedHNSWParams {
    * @param maxConn The max connection parameter used when building HNSW index with the fallback mechanism.
    * @param beamWidth The beam width parameter used when building HNSW index with the fallback mechanism.
    * @param cagraGraphBuildAlgo The CAGRA graph build algorithm to use [NN_DESCENT, IVF_PQ].
-   * @param cagraGraphBuildAlgo An instance of CuVSIvfPqParams containing IVF_PQ specific parameters.
+   * @param cuVSIvfPqParams An instance of CuVSIvfPqParams containing IVF_PQ specific parameters.
    * @param numMergeWorkers The number of merge workers to use with the fallback mechanism.
    * @param mergeExec The instance of {@link ExecutorService} to use with the fallback mechanism.
    */
@@ -177,7 +185,7 @@ public class AcceleratedHNSWParams {
   }
 
   /**
-   * Get the instance of the {@link ExecutorService} to be used in the fallback mechanism   *
+   * Get the instance of the {@link ExecutorService} to be used in the fallback mechanism
    *
    * @return the instance of the {@link ExecutorService}
    */
@@ -220,14 +228,14 @@ public class AcceleratedHNSWParams {
     private int maxConn = DEFAULT_MAX_CONN;
     private int beamWidth = DEFAULT_BEAM_WIDTH;
     private CagraGraphBuildAlgo cagraGraphBuildAlgo = DEFAULT_CAGRA_GRAPH_BUILD_ALGO;
-    private CuVSIvfPqParams cuVSIvfPqParams = DEFAULT_IVF_PQ_PARAMS;
     private int numMergeWorkers = DEFAULT_NUM_MERGE_WORKERS;
-    private ExecutorService mergeExec = DEFAULT_MERGE_EXE_SRVC;
+    private CuVSIvfPqParams cuVSIvfPqParams = null;
+    private ExecutorService mergeExec = null;
 
     /**
      * Set the number of cuVS writer threads while building the index
      * Valid range - Minimum: {@value MIN_WRITER_THREADS}, Maximum: {@value MAX_WRITER_THREADS}
-     * Default value - 64
+     * Default value - {@value DEFAULT_WRITER_THREADS}
      *
      * @param writerThreads
      * @return instance of {@link Builder}
@@ -240,7 +248,7 @@ public class AcceleratedHNSWParams {
     /**
      * Set the intermediate graph degree to use while building CAGRA index
      * Valid range - Minimum: {@value MIN_INT_GRAPH_DEG}, Maximum: {@value MAX_INT_GRAPH_DEG}
-     * Default value - 128
+     * Default value - {@value DEFAULT_INT_GRAPH_DEGREE}
      *
      * @param intermediateGraphDegree
      * @return instance of {@link Builder}
@@ -253,7 +261,7 @@ public class AcceleratedHNSWParams {
     /**
      * Set the graph degree to use while building CAGRA index
      * Valid range - Minimum: {@value MIN_GRAPH_DEG}, Maximum: {@value MAX_GRAPH_DEG}
-     * Default value - 64
+     * Default value - {@value DEFAULT_GRAPH_DEGREE}
      *
      * @param graphDegree
      * @return instance of {@link Builder}
@@ -266,7 +274,7 @@ public class AcceleratedHNSWParams {
     /**
      * Set the number of HNSW layers to construct while building the HNSW index
      * Valid range - Minimum: {@value MIN_HNSW_LAYERS}, Maximum: {@value MAX_HNSW_LAYERS}
-     * Default value - 2
+     * Default value - {@value DEFAULT_HNSW_LAYERS}
      *
      * @param hnswLayers the number of HNSW layers
      * @return instance of {@link Builder}
@@ -279,7 +287,7 @@ public class AcceleratedHNSWParams {
     /**
      * Set the max connections parameter while building HNSW index with fallback mechanism
      * Valid range - Minimum: {@value MIN_MAX_CONN}, Maximum: {@value MAX_MAX_CONN}
-     * Default value - 8
+     * Default value - {@value DEFAULT_MAX_CONN}
      *
      * @param maxConn the max connections parameter
      * @return instance of {@link Builder}
@@ -292,7 +300,7 @@ public class AcceleratedHNSWParams {
     /**
      * Set the beam width parameter while building HNSW index with fallback mechanism
      * Valid range - Minimum: {@value MIN_BEAM_WIDTH}, Maximum: {@value MAX_BEAM_WIDTH}
-     * Default value - 16
+     * Default value - {@value DEFAULT_BEAM_WIDTH}
      *
      * @param beamWidth the beam width parameter
      * @return instance of {@link Builder}
@@ -304,7 +312,7 @@ public class AcceleratedHNSWParams {
 
     /**
      * Set the CAGRA graph build algorithm to use
-     * Default NN_DESCENT
+     * Default value - NN_DESCENT
      *
      * @param cagraGraphBuildAlgo
      * @return instance of {@link Builder}
@@ -327,7 +335,7 @@ public class AcceleratedHNSWParams {
 
     /**
      * Set the number of merge workers to be used with the fallback mechanism
-     * Default value - 1
+     * Default value - {@value DEFAULT_NUM_MERGE_WORKERS}
      *
      * @param numMergeWorkers number of merge workers to set
      * @return instance of {@link Builder}
@@ -407,9 +415,6 @@ public class AcceleratedHNSWParams {
       if (Objects.isNull(cagraGraphBuildAlgo)) {
         throw new IllegalArgumentException("cagraGraphBuildAlgo cannot be null.");
       }
-      if (Objects.isNull(cuVSIvfPqParams)) {
-        throw new IllegalArgumentException("cuVSIvfPqParams cannot be null.");
-      }
       if (numMergeWorkers < MIN_NUM_MERGE_WORKERS || numMergeWorkers > MAX_NUM_MERGE_WORKERS) {
         throw new IllegalArgumentException(
             "numMergeWorkers not in valid range. Valid range: ["
@@ -417,9 +422,6 @@ public class AcceleratedHNSWParams {
                 + ", "
                 + MAX_NUM_MERGE_WORKERS
                 + "]");
-      }
-      if (Objects.isNull(mergeExec)) {
-        throw new IllegalArgumentException("mergeExec cannot be null.");
       }
     }
 
@@ -429,6 +431,12 @@ public class AcceleratedHNSWParams {
      * @return instance of {@link AcceleratedHNSWParams}
      */
     public AcceleratedHNSWParams build() {
+      if (Objects.isNull(cuVSIvfPqParams)) {
+        cuVSIvfPqParams = DEFAULT_IVF_PQ_PARAMS.get();
+      }
+      if (Objects.isNull(mergeExec)) {
+        mergeExec = DEFAULT_MERGE_EXE_SRVC.get();
+      }
       validate();
       return new AcceleratedHNSWParams(
           writerThreads,
