@@ -518,7 +518,6 @@ void fit(const raft::resources& handle,
   const int n_ranks = comm.get_size();
 
   std::mt19937_64 gen_64(params.rng_state.seed + (uint64_t(my_rank) << 32));
-  printf("I am rank %d of %d total ranks\n", my_rank, n_ranks);
 
   auto weight = raft::make_device_vector<DataT, IndexT>(handle, n_samples);
   if (sample_weight) {
