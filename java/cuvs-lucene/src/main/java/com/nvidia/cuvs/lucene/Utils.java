@@ -54,20 +54,12 @@ public class Utils {
    * @return an instance of CuVSMatrix
    */
   static CuVSMatrix createFloatMatrix(List<float[]> data, int dimensions, CuVSResources resources) {
-    // Use Builder pattern to avoid intermediate float[][] allocation
-    // and copy directly from List to device memory
     CuVSMatrix.Builder<?> builder =
-        CuVSMatrix.deviceBuilder(
-            resources,
-            data.size(), // rows (number of vectors)
-            dimensions, // columns (vector dimension)
-            CuVSMatrix.DataType.FLOAT);
-
-    // Add vectors one by one - builder copies directly to device memory
+        CuVSMatrix.hostBuilder( // was: CuVSMatrix.deviceBuilder(resources, ...
+            data.size(), dimensions, CuVSMatrix.DataType.FLOAT);
     for (float[] vector : data) {
       builder.addVector(vector);
     }
-
     return builder.build();
   }
 
@@ -84,20 +76,12 @@ public class Utils {
    */
   static CuVSMatrix createByteMatrix(
       List<byte[]> data, int bytesPerVector, CuVSResources resources) {
-    // Use Builder pattern to avoid intermediate byte[][] allocation
-    // and copy directly from List to device memory
     CuVSMatrix.Builder<?> builder =
-        CuVSMatrix.deviceBuilder(
-            resources,
-            data.size(), // rows (number of vectors)
-            bytesPerVector, // columns (bytes per vector)
-            CuVSMatrix.DataType.BYTE);
-
-    // Add vectors one by one - builder copies directly to device memory
+        CuVSMatrix.hostBuilder( // was: CuVSMatrix.deviceBuilder(resources, ...
+            data.size(), bytesPerVector, CuVSMatrix.DataType.BYTE);
     for (byte[] vector : data) {
       builder.addVector(vector);
     }
-
     return builder.build();
   }
 
@@ -112,13 +96,8 @@ public class Utils {
   static CuVSMatrix createByteMatrixFromArray(
       byte[][] data, int bytesPerVector, CuVSResources resources) {
     CuVSMatrix.Builder<?> builder =
-        CuVSMatrix.deviceBuilder(
-            resources,
-            data.length, // rows (number of vectors)
-            bytesPerVector, // columns (bytes per vector)
-            CuVSMatrix.DataType.BYTE);
-
-    // Add vectors one by one - builder copies directly to device memory
+        CuVSMatrix.hostBuilder( // was: CuVSMatrix.deviceBuilder(resources, ...
+            data.length, bytesPerVector, CuVSMatrix.DataType.BYTE);
     for (byte[] vector : data) {
       builder.addVector(vector);
     }

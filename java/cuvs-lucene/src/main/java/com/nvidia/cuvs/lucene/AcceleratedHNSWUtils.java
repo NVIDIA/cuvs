@@ -77,7 +77,10 @@ public class AcceleratedHNSWUtils {
    * M = ceil(cagraGraphDegree / 2), where cagraGraphDegree is the CAGRA adjacency list's degree
    * (its column count). Ceil is used to accommodate odd graph degrees.
    * Each layer contains 1/M nodes from the previous layer
-   * Creates layers until the highest layer has ≤ M nodes
+   * Creates layers until the highest layer has <= M nodes
+   * <p>
+   * This overload takes a {@code List<?>} as the vector source and is used
+   * by the flush path where vectors are already materialised on the Java heap.
    */
   public static GPUBuiltHnswGraph createMultiLayerHnswGraph(
       FieldInfo fieldInfo,
@@ -166,6 +169,90 @@ public class AcceleratedHNSWUtils {
     }
 
     // Create the multi-layer graph with all layers
+    return new GPUBuiltHnswGraph(size, dimensions, layerNodes, layerAdjacencies);
+  }
+
+  /**
+   * Creates a multi-layer HNSW graph with dynamic number of layers.
+   * M = cagraGraphDegree/2
+   * Each layer contains 1/M nodes from the previous layer
+   * Creates layers until the highest layer has <= M nodes
+   * <p>
+   * This overload takes a {@code CuVSMatrix} as the vector source and is used
+   * by the merge path. Vectors for higher-layer subsets are read directly from
+   * the native host matrix via {@link CuVSMatrix#getRow(long)} and
+   * {@link RowView#toArray(float[])}, avoiding any additional heap allocation
+   * of the full dataset.
+   */
+  public static GPUBuiltHnswGraph createMultiLayerHnswGraph(
+      FieldInfo fieldInfo,
+      int size,
+      int dimensions,
+      CuVSMatrix adjacencyListMatrix,
+      CuVSMatrix vectorDataset,
+      int hnswLayers,
+      int graphDegree,
+      CagraIndexParams params,
+      QuantizationType quantization)
+      throws Throwable {
+
+    int M = graphDegree / 2;
+
+    List<int[]> layerNodes = new ArrayList<>();
+    List<CuVSMatrix> layerAdjacencies = new ArrayList<>();
+
+    // Layer 0: Use full CAGRA adjacency list
+    layerNodes.add(null);
+    layerAdjacencies.add(adjacencyListMatrix);
+
+    int currentLayerSize = size;
+    int layerIndex = 1;
+    Random random = new Random();
+
+    while (layerIndex < hnswLayers && currentLayerSize > 1) {
+      int nextLayerSize = Math.max(2, currentLayerSize / M);
+      SortedSet<Integer> selectedNodesSet = new TreeSet<>();
+
+      if (layerIndex == 1) {
+        while (selectedNodesSet.size() < nextLayerSize) {
+          selectedNodesSet.add(random.nextInt(size));
+        }
+      } else {
+        int[] prevLayerNodes = layerNodes.get(layerNodes.size() - 1);
+        while (selectedNodesSet.size() < nextLayerSize) {
+          selectedNodesSet.add(prevLayerNodes[random.nextInt(prevLayerNodes.length)]);
+        }
+      }
+
+      int[] selectedNodes =
+          selectedNodesSet.stream().mapToInt(Integer::intValue).sorted().toArray();
+      layerNodes.add(selectedNodes);
+
+      if (quantization == QuantizationType.NONE) {
+        // Read only the sampled rows from the native matrix — no full-dataset heap copy
+        float[][] selectedVectors = new float[nextLayerSize][dimensions];
+        for (int i = 0; i < nextLayerSize; i++) {
+          vectorDataset.getRow(selectedNodes[i]).toArray(selectedVectors[i]);
+        }
+        layerAdjacencies.add(
+            buildCagraGraphForSubset(
+                selectedVectors, selectedNodes, 0, params, dimensions, quantization));
+      } else {
+        int bytesPerVector = (dimensions + 7) / 8;
+        byte[][] selectedVectors = new byte[nextLayerSize][bytesPerVector];
+        for (int i = 0; i < nextLayerSize; i++) {
+          vectorDataset.getRow(selectedNodes[i]).toArray(selectedVectors[i]);
+        }
+        layerAdjacencies.add(
+            buildCagraGraphForSubset(
+                selectedVectors, selectedNodes, bytesPerVector, params, dimensions, quantization));
+      }
+
+      currentLayerSize = nextLayerSize;
+      layerIndex++;
+      random = new Random(new Random().nextLong());
+    }
+
     return new GPUBuiltHnswGraph(size, dimensions, layerNodes, layerAdjacencies);
   }
 
