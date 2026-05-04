@@ -4,7 +4,6 @@
  */
 package com.nvidia.cuvs.lucene;
 
-import static com.nvidia.cuvs.lucene.AcceleratedHNSWUtils.cagraIndexParams;
 import static com.nvidia.cuvs.lucene.AcceleratedHNSWUtils.createMultiLayerHnswGraph;
 import static com.nvidia.cuvs.lucene.AcceleratedHNSWUtils.createSingleVectorHnswGraph;
 import static com.nvidia.cuvs.lucene.AcceleratedHNSWUtils.printInfoStream;
@@ -159,13 +158,10 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
       CuVSMatrix dataset =
           Utils.createFloatMatrix(
               vectors, fieldInfo.getVectorDimension(), getCuVSResourcesInstance());
+
       CagraIndexParams params =
-          cagraIndexParams(
-              acceleratedHNSWParams.getWriterThreads(),
-              acceleratedHNSWParams.getIntermediateGraphDegree(),
-              acceleratedHNSWParams.getGraphdegree(),
-              acceleratedHNSWParams.getCagraGraphBuildAlgo(),
-              acceleratedHNSWParams.getCuVSIvfPqParams());
+          CagraIndexParamsFactory.create(acceleratedHNSWParams, dataset.size(), dataset.columns());
+
       CagraIndex cagraIndex =
           CagraIndex.newBuilder(getCuVSResourcesInstance())
               .withDataset(dataset)

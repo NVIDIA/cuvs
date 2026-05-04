@@ -10,8 +10,6 @@ import static com.nvidia.cuvs.lucene.Utils.createByteMatrixFromArray;
 
 import com.nvidia.cuvs.CagraIndex;
 import com.nvidia.cuvs.CagraIndexParams;
-import com.nvidia.cuvs.CagraIndexParams.CagraGraphBuildAlgo;
-import com.nvidia.cuvs.CuVSIvfPqParams;
 import com.nvidia.cuvs.CuVSMatrix;
 import com.nvidia.cuvs.RowView;
 import java.io.IOException;
@@ -397,26 +395,6 @@ public class AcceleratedHNSWUtils {
    */
   public static void writeEmpty(FieldInfo fieldInfo, IndexOutput op) throws IOException {
     writeMeta(null, op, fieldInfo, 0, 0, 0, null, null, 0);
-  }
-
-  /**
-   * Builds an instance of CagraIndexParams.
-   *
-   * @return instance of CagraIndexParams
-   */
-  public static CagraIndexParams cagraIndexParams(
-      int cuvsWriterThreads,
-      int intGraphDegree,
-      int graphDegree,
-      CagraGraphBuildAlgo cagraGraphBuildAlgo,
-      CuVSIvfPqParams cuVSIvfPqParams) {
-    return new CagraIndexParams.Builder()
-        .withNumWriterThreads(cuvsWriterThreads)
-        .withIntermediateGraphDegree(intGraphDegree)
-        .withGraphDegree(graphDegree)
-        .withCagraGraphBuildAlgo(cagraGraphBuildAlgo)
-        .withCuVSIvfPqParams(cuVSIvfPqParams)
-        .build();
   }
 
   /**

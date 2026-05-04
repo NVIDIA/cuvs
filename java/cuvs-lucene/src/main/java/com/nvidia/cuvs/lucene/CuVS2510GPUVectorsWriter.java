@@ -242,13 +242,7 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
    */
   private void writeCagraIndex(OutputStream os, CuVSMatrix dataset) throws Throwable {
     CagraIndexParams params =
-        new CagraIndexParams.Builder()
-            .withNumWriterThreads(gpuSearchParams.getWriterThreads())
-            .withIntermediateGraphDegree(gpuSearchParams.getIntermediateGraphDegree())
-            .withGraphDegree(gpuSearchParams.getGraphdegree())
-            .withCagraGraphBuildAlgo(gpuSearchParams.getCagraGraphBuildAlgo())
-            .withCuVSIvfPqParams(gpuSearchParams.getCuVSIvfPqParams())
-            .build();
+        CagraIndexParamsFactory.create(gpuSearchParams, dataset.size(), dataset.columns());
     CagraIndex index =
         CagraIndex.newBuilder(getCuVSResourcesInstance())
             .withDataset(dataset)
