@@ -10,9 +10,9 @@ dependencies:
 - cuda-nvcc
 - cuda-nvtx-dev
 - cuda-profiler-api
-- cuda-version=13.1
+- cuda-version=13.2
 - cxx-compiler
-- gcc_linux-aarch64=14.*
+- gcc_linux-64=14.*
 - libcublas-dev
 - libcurand-dev
 - libcusolver-dev
@@ -21,5 +21,5 @@ dependencies:
 - maven
 - ninja
 - openjdk=22.*
-- sysroot_linux-aarch64==2.28
-name: all_cuda-131_arch-aarch64
+- sysroot_linux-64==2.28
+name: all_cuda-132_arch-x86_64
