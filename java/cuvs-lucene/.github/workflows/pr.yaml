@@ -6,6 +6,7 @@ on:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+permissions: {}
 jobs:
   pr-builder:
     needs:
@@ -14,11 +15,17 @@ jobs:
       - checks
       - conda-java-tests
       - telemetry-setup
-    secrets: inherit
+    secrets: inherit # zizmor: ignore[secrets-inherit]
     uses: rapidsai/shared-workflows/.github/workflows/pr-builder.yaml@cuda-13.2.0
     if: always()
     with:
       needs: ${{ toJSON(needs) }}
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+      pull-requests: read
   telemetry-setup:
     continue-on-error: true
     runs-on: ubuntu-latest
@@ -38,7 +45,7 @@ jobs:
     steps:
       - name: Get PR Info
         id: get-pr-info
-        uses: nv-gha-runners/get-pr-info@main
+        uses: nv-gha-runners/get-pr-info@090577647b8ddc4e06e809e264f7881650ecdccf # main
       - name: Check if nightly CI is passing
         uses: rapidsai/shared-actions/check_nightly_success/dispatch@main
         with:
@@ -46,7 +53,7 @@ jobs:
           target-branch: ${{ fromJSON(steps.get-pr-info.outputs.pr-info).base.ref }}
   changed-files:
     needs: telemetry-setup
-    secrets: inherit
+    secrets: inherit # zizmor: ignore[secrets-inherit]
     uses: rapidsai/shared-workflows/.github/workflows/changed-files.yaml@cuda-13.2.0
     with:
       files_yaml: |
@@ -54,16 +61,28 @@ jobs:
           - '**'
           - '!.pre-commit-config.yaml'
           - '!README.md'
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+      pull-requests: read
   checks:
     needs: telemetry-setup
-    secrets: inherit
+    secrets: inherit # zizmor: ignore[secrets-inherit]
     uses: rapidsai/shared-workflows/.github/workflows/checks.yaml@cuda-13.2.0
     with:
       enable_check_generated_files: false
       ignored_pr_jobs: "telemetry-summarize"
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+      pull-requests: read
   conda-java-tests:
     needs: [changed-files, checks]
-    secrets: inherit
+    secrets: inherit # zizmor: ignore[secrets-inherit]
     uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@cuda-13.2.0
     if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_java
     # Artifacts are not published from these jobs, so it's safe to run for multiple CUDA versions.
@@ -82,6 +101,12 @@ jobs:
       script: "ci/test_java.sh"
       file_to_upload: "target/"
       artifact-name: "cuvs-lucene-cuda${{ matrix.cuda_version }}"
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+      pull-requests: read
   telemetry-summarize:
     # This job must use a self-hosted runner to record telemetry traces.
     runs-on: linux-amd64-cpu4
@@ -93,3 +118,5 @@ jobs:
         uses: rapidsai/shared-actions/telemetry-dispatch-summarize@main
     env:
       GH_TOKEN: ${{ github.token }}
+    permissions:
+      actions: write

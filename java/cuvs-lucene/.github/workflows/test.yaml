@@ -1,5 +1,4 @@
 name: test
-
 on:
   workflow_dispatch:
     inputs:
@@ -21,10 +20,10 @@ on:
         description: "build_type: one of [branch, nightly, pull-request]"
         type: string
         default: nightly
-
+permissions: {}
 jobs:
   conda-java-tests:
-    secrets: inherit
+    secrets: inherit # zizmor: ignore[secrets-inherit]
     uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@cuda-13.2.0
     strategy:
       fail-fast: false
@@ -41,3 +40,9 @@ jobs:
       arch: "amd64"
       container_image: "rapidsai/ci-conda:26.06-cuda${{ matrix.cuda_version }}-ubuntu24.04-py3.13"
       script: "ci/test_java.sh"
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+      pull-requests: read
