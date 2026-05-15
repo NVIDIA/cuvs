@@ -24,7 +24,7 @@ permissions: {}
 jobs:
   conda-java-tests:
     secrets: inherit # zizmor: ignore[secrets-inherit]
-    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@cuda-13.2.0
+    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@main
     strategy:
       fail-fast: false
       matrix:
@@ -38,7 +38,7 @@ jobs:
       sha: ${{ inputs.sha }}
       node_type: "gpu-l4-latest-1"
       arch: "amd64"
-      container_image: "rapidsai/ci-conda:26.06-cuda${{ matrix.cuda_version }}-ubuntu24.04-py3.13"
+      container_image: "rapidsai/ci-conda:26.08-cuda${{ matrix.cuda_version }}-ubuntu24.04-py3.13"
       script: "ci/test_java.sh"
     permissions:
       actions: read
