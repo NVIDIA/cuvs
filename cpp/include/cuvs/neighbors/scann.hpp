@@ -195,96 +195,127 @@ struct index : cuvs::neighbors::index {
                  "PQ subspace dimension (pq_dim) must divide the dataset dimension");
   }
 
+  /** The leaf node centers */
   raft::device_matrix_view<float, IdxT> centers() noexcept { return centers_.view(); }
 
+  /** The const leaf node centers */
   raft::device_matrix_view<const float, IdxT> centers() const noexcept
   {
     return raft::make_const_mdspan(centers_.view());
   }
 
+  /** The assignment of dataset vectors to the nearest leaf center */
   raft::device_vector_view<uint32_t, IdxT> labels() noexcept { return labels_.view(); }
 
+  /** the const assignment of dataset vectors to the nearest leaf center */
   raft::device_vector_view<const uint32_t, IdxT> labels() const noexcept
   {
     return raft::make_const_mdspan(labels_.view());
   }
 
+  /** Spilled assignment of dataset vectors to nearest leaf center by
+   * minimizing SOAR loss
+   */
   raft::device_vector_view<uint32_t, IdxT> soar_labels() noexcept { return soar_labels_.view(); }
 
+  /** const spilled assignment of dataset vectors to nearest leaf center by
+   * minimizing SOAR loss
+   * */
   raft::device_vector_view<const uint32_t, IdxT> soar_labels() const noexcept
   {
     return raft::make_const_mdspan(soar_labels_.view());
   }
 
+  /** coarse kmeans centers for two-level trees */
   raft::device_matrix_view<float, IdxT> coarse_centers() noexcept { return coarse_centers_.view(); }
 
+  /** const coarse kmeans centers for two-level trees */
   raft::device_matrix_view<const float, IdxT> coarse_centers() const noexcept
   {
     return raft::make_const_mdspan(coarse_centers_.view());
   }
 
+  /** assignment of leaf centers to coarse centers in two-level tree */
   raft::device_vector_view<uint32_t, IdxT> coarse_labels() noexcept
   {
     return coarse_labels_.view();
   }
 
+  /** const assignment of leaf centers to coarse centers in two-level tree */
   raft::device_vector_view<const uint32_t, IdxT> coarse_labels() const noexcept
   {
     return raft::make_const_mdspan(coarse_labels_.view());
   }
 
+  /** spilled assighment of leaf centers to coarse centers by minimizing
+   * SOAR loss in two-level tree
+   */
   raft::device_vector_view<uint32_t, IdxT> coarse_soar_labels() noexcept
   {
     return coarse_soar_labels_.view();
   }
 
+  /** cosnt spilled assighment of leaf centers to coarse centers by minimizing
+   * SOAR loss in two-level tree
+   */
   raft::device_vector_view<const uint32_t, IdxT> coarse_soar_labels() const noexcept
   {
     return raft::make_const_mdspan(coarse_soar_labels_.view());
   }
 
+  /** number of rows in dataset */
   uint32_t n_rows() const noexcept { return n_rows_; }
 
+  /** number of leaf nodes in kmeans tree */
   uint32_t n_leaves() const noexcept { return n_leaves_; }
 
+  /** dimension of pq subspaces */
   uint32_t pq_dim() const noexcept { return pq_dim_; }
 
+  /** const codebook for pq quanization */
   raft::device_matrix_view<const float, uint32_t, raft::row_major> pq_codebook() const noexcept
   {
     return raft::make_const_mdspan(pq_codebook_.view());
   }
 
+  /** codebook for pq quantization */
   raft::device_matrix_view<float, uint32_t, raft::row_major> pq_codebook() noexcept
   {
     return pq_codebook_.view();
   }
 
+  /** const pq quantized residuals of dataset vectors */
   raft::host_matrix_view<const uint8_t, IdxT, raft::row_major> quantized_residuals() const noexcept
   {
     return raft::make_const_mdspan(quantized_residuals_.view());
   }
 
+  /** pq quanntized residuals of dataset vectors */
   raft::host_matrix_view<uint8_t, IdxT, raft::row_major> quantized_residuals() noexcept
   {
     return quantized_residuals_.view();
   }
 
+  /** pq quantized residuals of dataset vectors using SOAR assignment */
   raft::host_matrix_view<const uint8_t, IdxT, raft::row_major> quantized_soar_residuals()
     const noexcept
   {
     return raft::make_const_mdspan(quantized_soar_residuals_.view());
   }
 
+  /** const pq quantized residuals of dataset vectors using SOAR assignment */
   raft::host_matrix_view<uint8_t, IdxT, raft::row_major> quantized_soar_residuals() noexcept
   {
     return quantized_soar_residuals_.view();
   }
 
+  /** bf16 quantized dataset */
   raft::host_matrix_view<int16_t, IdxT, raft::row_major> bf16_dataset() noexcept
   {
     return bf16_dataset_.view();
   }
 
+  /** const bg16 quantized dataset */
   raft::host_matrix_view<const int16_t, IdxT, raft::row_major> bf16_dataset() const noexcept
   {
     return raft::make_const_mdspan(bf16_dataset_.view());
