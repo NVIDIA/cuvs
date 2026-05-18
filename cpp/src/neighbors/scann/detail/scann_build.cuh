@@ -110,8 +110,6 @@ void train_kmeans(
                                centers,
                                raft::make_host_scalar_view<float>(&inertia),
                                raft::make_host_scalar_view<int64_t>(&n_iter));
-
-    raft::resource::sync_stream(res);
   }
   raft::resource::sync_stream(res);
 }

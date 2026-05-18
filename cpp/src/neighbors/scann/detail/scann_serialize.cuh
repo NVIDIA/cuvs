@@ -81,8 +81,6 @@ void save_labels(raft::resources const& res,
                  raft::device_vector_view<const uint32_t, IdxT> soar_labels_view)
 {
   auto combined_labels = raft::make_device_vector<int, IdxT>(res, 2 * labels_view.extent(0));
-  // auto labels_view      = index_.labels();
-  // auto soar_labels_view = index_.soar_labels();
 
   raft::linalg::map_offset(
     res, combined_labels.view(), [labels_view, soar_labels_view] __device__(size_t i) {
