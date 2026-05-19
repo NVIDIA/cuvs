@@ -193,6 +193,9 @@ struct index : cuvs::neighbors::index {
                  "PQ subspace dimension (pq_dim) should be smaller than the dataset dimension");
     RAFT_EXPECTS(dim % params.pq_dim == 0,
                  "PQ subspace dimension (pq_dim) must divide the dataset dimension");
+    RAFT_EXPECTS(
+      params.n_coarse_clusters < params.n_leaves,
+      "The number of coarse_clusters should be less then the number of leaves in a two level tree");
   }
 
   /** The leaf node centers */
@@ -247,7 +250,7 @@ struct index : cuvs::neighbors::index {
     return raft::make_const_mdspan(coarse_labels_.view());
   }
 
-  /** spilled assighment of leaf centers to coarse centers by minimizing
+  /** spilled assignment of leaf centers to coarse centers by minimizing
    * SOAR loss in two-level tree
    */
   raft::device_vector_view<uint32_t, IdxT> coarse_soar_labels() noexcept
@@ -255,7 +258,7 @@ struct index : cuvs::neighbors::index {
     return coarse_soar_labels_.view();
   }
 
-  /** cosnt spilled assighment of leaf centers to coarse centers by minimizing
+  /** const spilled assighment of leaf centers to coarse centers by minimizing
    * SOAR loss in two-level tree
    */
   raft::device_vector_view<const uint32_t, IdxT> coarse_soar_labels() const noexcept
@@ -315,7 +318,7 @@ struct index : cuvs::neighbors::index {
     return bf16_dataset_.view();
   }
 
-  /** const bg16 quantized dataset */
+  /** const bf16 quantized dataset */
   raft::host_matrix_view<const int16_t, IdxT, raft::row_major> bf16_dataset() const noexcept
   {
     return raft::make_const_mdspan(bf16_dataset_.view());
