@@ -520,6 +520,50 @@ class PrefilteredBruteForceOnBitmapTest
                                                     true));
   }
 
+  // Same as Run(), but passes the true sparsity as a filtering_rate hint to the
+  // params-taking search overload. Confirms results match auto-detection.
+  void RunWithFilteringRateHint()
+  {
+    auto dataset_raw = raft::make_device_matrix_view<const value_t, index_t, raft::row_major>(
+      (const value_t*)dataset_d.data(), params.n_dataset, params.dim);
+
+    auto queries = raft::make_device_matrix_view<const value_t, index_t, raft::row_major>(
+      (const value_t*)queries_d.data(), params.n_queries, params.dim);
+
+    auto dataset = brute_force::build(handle, dataset_raw, params.metric);
+
+    auto filter = cuvs::core::bitmap_view<bitmap_t, index_t>(
+      (bitmap_t*)filter_d.data(), params.n_queries, params.n_dataset);
+
+    auto out_val = raft::make_device_matrix_view<dist_t, index_t, raft::row_major>(
+      out_val_d.data(), params.n_queries, params.top_k);
+    auto out_idx = raft::make_device_matrix_view<index_t, index_t, raft::row_major>(
+      out_idx_d.data(), params.n_queries, params.top_k);
+
+    cuvs::neighbors::brute_force::search_params search_params;
+    search_params.filtering_rate = params.sparsity;
+
+    brute_force::search(handle,
+                        search_params,
+                        dataset,
+                        queries,
+                        out_idx,
+                        out_val,
+                        cuvs::neighbors::filtering::bitmap_filter(filter));
+
+    raft::resource::sync_stream(handle);
+
+    ASSERT_TRUE(cuvs::neighbors::devArrMatchKnnPair(out_idx_expected_d.data(),
+                                                    out_idx.data_handle(),
+                                                    out_val_expected_d.data(),
+                                                    out_val.data_handle(),
+                                                    params.n_queries,
+                                                    params.top_k,
+                                                    0.001f,
+                                                    stream,
+                                                    true));
+  }
+
  protected:
   raft::resources handle;
   cudaStream_t stream;
@@ -941,6 +985,50 @@ class PrefilteredBruteForceOnBitsetTest
                                                     true));
   }
 
+  // Same as Run(), but passes the true sparsity as a filtering_rate hint to the
+  // params-taking search overload. Confirms results match auto-detection.
+  void RunWithFilteringRateHint()
+  {
+    auto dataset_raw = raft::make_device_matrix_view<const value_t, index_t, raft::row_major>(
+      (const value_t*)dataset_d.data(), params.n_dataset, params.dim);
+
+    auto queries = raft::make_device_matrix_view<const value_t, index_t, raft::row_major>(
+      (const value_t*)queries_d.data(), params.n_queries, params.dim);
+
+    auto dataset = brute_force::build(handle, dataset_raw, params.metric);
+
+    auto filter =
+      cuvs::core::bitset_view<bitset_t, index_t>((bitset_t*)filter_d.data(), params.n_dataset);
+
+    auto out_val = raft::make_device_matrix_view<dist_t, index_t, raft::row_major>(
+      out_val_d.data(), params.n_queries, params.top_k);
+    auto out_idx = raft::make_device_matrix_view<index_t, index_t, raft::row_major>(
+      out_idx_d.data(), params.n_queries, params.top_k);
+
+    cuvs::neighbors::brute_force::search_params search_params;
+    search_params.filtering_rate = params.sparsity;
+
+    brute_force::search(handle,
+                        search_params,
+                        dataset,
+                        queries,
+                        out_idx,
+                        out_val,
+                        cuvs::neighbors::filtering::bitset_filter(filter));
+
+    raft::resource::sync_stream(handle);
+
+    ASSERT_TRUE(cuvs::neighbors::devArrMatchKnnPair(out_idx_expected_d.data(),
+                                                    out_idx.data_handle(),
+                                                    out_val_expected_d.data(),
+                                                    out_val.data_handle(),
+                                                    params.n_queries,
+                                                    params.top_k,
+                                                    0.001f,
+                                                    stream,
+                                                    true));
+  }
+
  protected:
   raft::resources handle;
   cudaStream_t stream;
@@ -963,18 +1051,34 @@ class PrefilteredBruteForceOnBitsetTest
 using PrefilteredBruteForceTestOnBitmap_float_int64 =
   PrefilteredBruteForceOnBitmapTest<float, float, int64_t>;
 TEST_P(PrefilteredBruteForceTestOnBitmap_float_int64, Result) { Run(); }
+TEST_P(PrefilteredBruteForceTestOnBitmap_float_int64, ResultWithFilteringRateHint)
+{
+  RunWithFilteringRateHint();
+}
 
 using PrefilteredBruteForceTestOnBitmap_half_int64 =
   PrefilteredBruteForceOnBitmapTest<half, float, int64_t>;
 TEST_P(PrefilteredBruteForceTestOnBitmap_half_int64, Result) { Run(); }
+TEST_P(PrefilteredBruteForceTestOnBitmap_half_int64, ResultWithFilteringRateHint)
+{
+  RunWithFilteringRateHint();
+}
 
 using PrefilteredBruteForceTestOnBitset_float_int64 =
   PrefilteredBruteForceOnBitsetTest<float, float, int64_t>;
 TEST_P(PrefilteredBruteForceTestOnBitset_float_int64, Result) { Run(); }
+TEST_P(PrefilteredBruteForceTestOnBitset_float_int64, ResultWithFilteringRateHint)
+{
+  RunWithFilteringRateHint();
+}
 
 using PrefilteredBruteForceTestOnBitset_half_int64 =
   PrefilteredBruteForceOnBitsetTest<half, float, int64_t>;
 TEST_P(PrefilteredBruteForceTestOnBitset_half_int64, Result) { Run(); }
+TEST_P(PrefilteredBruteForceTestOnBitset_half_int64, ResultWithFilteringRateHint)
+{
+  RunWithFilteringRateHint();
+}
 
 template <typename index_t>
 const std::vector<PrefilteredBruteForceInputs<index_t>> selectk_inputs = {

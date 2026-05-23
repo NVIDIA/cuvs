@@ -199,7 +199,7 @@ void index<T, DistT>::update_dataset(
               const cuvs::neighbors::filtering::base_filter& sample_filter)                     \
   {                                                                                             \
     detail::search<T, int64_t, DistT, raft::row_major>(                                         \
-      res, idx, queries, neighbors, distances, sample_filter);                                  \
+      res, params, idx, queries, neighbors, distances, sample_filter);                          \
   }                                                                                             \
   void search(raft::resources const& res,                                                       \
               const cuvs::neighbors::brute_force::index<T, DistT>& idx,                         \
@@ -209,7 +209,7 @@ void index<T, DistT>::update_dataset(
               const cuvs::neighbors::filtering::base_filter& sample_filter)                     \
   {                                                                                             \
     detail::search<T, int64_t, DistT, raft::row_major>(                                         \
-      res, idx, queries, neighbors, distances, sample_filter);                                  \
+      res, {}, idx, queries, neighbors, distances, sample_filter);                              \
   }                                                                                             \
   void search(raft::resources const& res,                                                       \
               const cuvs::neighbors::brute_force::search_params& params,                        \
@@ -220,7 +220,7 @@ void index<T, DistT>::update_dataset(
               const cuvs::neighbors::filtering::base_filter& sample_filter)                     \
   {                                                                                             \
     detail::search<T, int64_t, DistT, raft::col_major>(                                         \
-      res, idx, queries, neighbors, distances, sample_filter);                                  \
+      res, params, idx, queries, neighbors, distances, sample_filter);                          \
   }                                                                                             \
   void search(raft::resources const& res,                                                       \
               const cuvs::neighbors::brute_force::index<T, DistT>& idx,                         \
@@ -230,7 +230,7 @@ void index<T, DistT>::update_dataset(
               const cuvs::neighbors::filtering::base_filter& sample_filter)                     \
   {                                                                                             \
     detail::search<T, int64_t, DistT, raft::col_major>(                                         \
-      res, idx, queries, neighbors, distances, sample_filter);                                  \
+      res, {}, idx, queries, neighbors, distances, sample_filter);                              \
   }
 
 CUVS_INST_BFKNN(float, float);

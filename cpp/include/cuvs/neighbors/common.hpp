@@ -118,7 +118,23 @@ struct index_params {
   float metric_arg = 2.0f;
 };
 
-struct search_params {};
+struct search_params {
+  /**
+   * A hint indicating the rate at which the sample filter is expected to filter out items
+   * (i.e. `(n_dataset - n_set_bits) / n_dataset` for a `bitset_filter`).
+   *
+   * Algorithms that benefit from knowing the filter's selectivity may use this hint to tune
+   * internal parameters or skip a hidden popcount kernel + host sync that would otherwise be
+   * required to derive it from the filter on every search call.
+   *
+   * - Negative (default): the algorithm auto-detects the rate from the filter when needed.
+   *   This launches a GPU popcount reduction and synchronizes the stream per search call.
+   * - In `[0.0, 1.0)`: the algorithm trusts the supplied value and skips the auto-detection.
+   *
+   * Algorithms that do not use this hint (e.g. `ivf_flat`, `ivf_pq`) ignore it.
+   */
+  float filtering_rate = -1.0;
+};
 
 /**
  * @brief Strategy for merging indices.
