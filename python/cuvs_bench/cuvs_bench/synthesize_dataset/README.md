@@ -277,6 +277,55 @@ For a single overlaid plot, load the search CSVs directly — they live at `$RAP
 For your first comparison run, generate the synthetic dataset *at parity* — i.e. at the **same `total_rows` as the real dataset** (set `--total_rows` in Step 4 to the real row count, so SF=100 still holds for your fitting sample). At parity the only difference between the two benchmark runs is real-vs-synth data, not size-vs-size, so any gap between the Pareto curves is cleanly attributable to the fingerprint. If the curves don't match at parity, increasing `total_rows` won't fix it — go back to Step 1 and revisit the fingerprint knobs (`ncomp`, `n_clusters`, `sample_size`). Once they match at parity, scale `--total_rows` up freely.
 
 
+# Experiments
+
+We plan to ship pre-fit fingerprints for three commonly-benchmarked datasets — **Falcon** (960M x 1024d), **BigANN** (1B x 128d), and **Wiki** (88M x 768d). Each will be a single `.npz` you can pass straight to Step 4 (`--stats <name>.npz`) and skip Steps 1–3. The experiments below were produced with those fingerprints.
+
+In the plots below, **SS** = *sample size* (rows from the real dataset used to fit the fingerprint in Steps 1–3) and **TS** = *target size* (`--total_rows` passed to Step 4, i.e. the number of synthetic rows generated).
+
+
+### Falcon — DiskANN, synth vs real (960M, 1024d)
+
+![Falcon — DiskANN synth-vs-real Pareto](figures/diskann_falcon.png)
+
+*Setup:* synthetic dataset generated from `falcon` fingerprint using the command below, compared against the real Falcon 960M and subsets on the same DiskANN build/search sweep, k=10.
+
+```bash
+python -m cuvs_bench.synthesize_dataset generate \
+    --stats path/to/falcon_10M_nc100000_ncomp32_fingerprint.npz \
+    --total_rows 960000000 \
+    --gt_mode exact
+```
+
+
+### BigANN — synth vs real (1B, 128d)
+
+![Falcon — DiskANN synth-vs-real Pareto](figures/diskann_bigann.png)
+
+*Setup:* synthetic dataset generated from `bigann` fingerprint using the command below, compared against the real BigANN 1B and subsets on the same build/search sweep, k=10.
+
+```bash
+python -m cuvs_bench.synthesize_dataset generate \
+    --stats path/to/bigann_10M_nc100000_ncomp32_fingerprint.npz \
+    --total_rows 1000000000 \
+    --gt_mode exact
+```
+
+
+### Wiki — synth vs real (88M, 768d)
+
+![Falcon — DiskANN synth-vs-real Pareto](figures/diskann_wiki.png)
+
+*Setup:* synthetic dataset generated from `wiki` fingerprint using the command below, compared against the real Wiki 88M and subsets on the same build/search sweep, k=10.
+
+```bash
+python -m cuvs_bench.synthesize_dataset generate \
+    --stats path/to/wiki_880K_nc8800_ncomp32_fingerprint.npz \
+    --total_rows 88000000 \
+    --gt_mode exact
+```
+
+
 ## Caveats
 
 - The synthetic data is calibrated to reproduce **how a vector index behaves on your real data** (recall, throughput, build time), not the raw distance values themselves. Use it to compare *index configurations*, not as a substitute for distance-correctness tests.
