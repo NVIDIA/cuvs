@@ -28,9 +28,8 @@ import cupy as cp
 import numpy as np
 from tqdm import tqdm
 
+from .._bin_format import write_bin_header
 from ._config import ClusterConfig
-
-UINT32_MAX = (1 << 32) - 1
 
 ArrayLike = Union[np.ndarray, cp.ndarray]
 
@@ -221,17 +220,20 @@ def generate_synthetic_dataset_to_file(
     :func:`generate_synthetic_dataset` whenever the full target synthetic dataset
     wouldn't comfortably fit in host RAM.
 
-    The output file uses the canonical cuvs-bench fbin layout (uint32
-    ``n_rows``, uint32 ``n_dim`` header followed by row-major float32
-    data), readable by ``cuvs_bench.run`` and the rest of the toolchain.
+    The output file uses the canonical cuvs-bench fbin layout (``n_rows``,
+    ``n_dim`` header followed by row-major float32 data), readable by
+    ``cuvs_bench.run`` and the rest of the toolchain. The header is
+    auto-promoted from the legacy 8-byte uint32 layout to the 16-byte
+    uint64 layout when ``total_points`` or ``n_dim`` exceeds
+    ``UINT32_MAX`` (see :mod:`cuvs_bench._bin_format`).
 
     Parameters
     ----------
     config : ClusterConfig
         Fitted cluster fingerprint.
     total_points : int
-        Number of synthetic vectors to generate. Capped at ``UINT32_MAX``
-        because the cuvs-bench fbin reader uses a uint32 row-count header.
+        Number of synthetic vectors to generate. Values above
+        ``UINT32_MAX`` (~4.29B) trigger the extended uint64 header.
     output_path : str
         Destination ``.fbin`` path. Parent directories are created as needed.
     batch_size : int
@@ -244,13 +246,6 @@ def generate_synthetic_dataset_to_file(
         Number of rows written. Always equals ``total_points`` unless a
         cluster yielded zero points.
     """
-    if total_points > UINT32_MAX:
-        raise ValueError(
-            f"total_points={total_points:,} exceeds the cuvs-bench fbin "
-            f"uint32 row-count cap of {UINT32_MAX:,}. Generate multiple "
-            f"shards if you need more rows."
-        )
-
     out_dir = os.path.dirname(output_path)
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
@@ -292,8 +287,7 @@ def generate_synthetic_dataset_to_file(
     )
 
     with open(output_path, "wb") as f:
-        # Canonical cuvs-bench fbin header
-        np.asarray([total_points, ncols], dtype=np.uint32).tofile(f)
+        write_bin_header(f, total_points, ncols)
 
         for cluster_id in iterator:
             n_points = int(points_per_cluster[cluster_id])
