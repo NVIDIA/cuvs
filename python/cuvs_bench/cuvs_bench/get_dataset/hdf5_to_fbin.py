@@ -16,7 +16,7 @@ def normalize(x):
     return (x.T / norm).T
 
 
-def write_bin(fname, data):
+def write_bin(fname, data, *, force_uint64=False):
     with open(fname, "wb") as f:
         write_bin_header(f, data.shape[0], data.shape[1])
         data.tofile(f)
