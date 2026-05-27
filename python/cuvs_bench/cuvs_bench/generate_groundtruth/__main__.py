@@ -132,16 +132,16 @@ def choose_random_queries_with_jitter(dataset, n_queries, seed=12345):
 def create_bitset_filter(n_samples, filter_reject_rate):
     """
     Creates a packed uint32 bitset where bit i is set iff vector i passes the
-    filter.  Uses a modulo-1000 bucket scheme: vector i passes when
-    ``i % 1000 >= round(filter_reject_rate * 1000)``, giving a reject rate
-    within 0.1% of the requested value.
+    filter.  Each vector independently passes with probability
+    ``1.0 - filter_reject_rate`` (Bernoulli), matching the C++ benchmark's
+    ``generate_bernoulli`` helper in ``cpp/bench/ann/src/common/dataset.hpp``.
 
     Parameters
     ----------
     n_samples : int
         Number of vectors in the dataset.
     filter_reject_rate : float
-        Fraction of vectors to reject, in [0.0, 1.0).
+        Per-vector rejection probability, in [0.0, 1.0).
 
     Returns
     -------
@@ -150,10 +150,10 @@ def create_bitset_filter(n_samples, filter_reject_rate):
     """
     import numpy as np
 
-    fail_buckets = round(filter_reject_rate * 1000)
     n_padded = ((n_samples + 31) // 32) * 32
     bool_mask = np.zeros(n_padded, dtype=bool)
-    bool_mask[:n_samples] = (np.arange(n_samples) % 1000) >= fail_buckets
+    rng = np.random.default_rng()
+    bool_mask[:n_samples] = rng.random(n_samples) >= filter_reject_rate
     # Pack with little-endian bit order: bit j maps to bit (j%32) of uint32
     # word (j//32), LSB first — matching cuVS bitset layout.
     return np.packbits(bool_mask, bitorder="little").view(np.uint32)
@@ -350,9 +350,12 @@ def main():
     # Prefiltered ground truth using a saved bitset file
     python -m cuvs_bench.generate_groundtruth --dataset /dataset/base.\
 fbin --output=groundtruth_dir --queries=/dataset/query.fbin \
---bitset=/dataset/filter.npy
+--bitset=/dataset/groundtruth.filter.bin
 
-    # Prefiltered ground truth generated on-the-fly from a reject rate
+    # Generate a prefilter bitset on the fly from a reject rate, use it to
+    # compute the ground truth, and save the bitset to disk so the benchmark
+    # can later run searches against the exact same filter.  The bitset is
+    # written to <output>/groundtruth.filter.bin alongside the GT files.
     python -m cuvs_bench.generate_groundtruth --dataset /dataset/base.\
 fbin --output=groundtruth_dir --queries=/dataset/query.fbin \
 --filter_reject_rate=0.1
@@ -429,18 +432,19 @@ fbin --output=groundtruth_dir --queries=/dataset/query.fbin \
         "--bitset",
         type=str,
         default=None,
-        help="Path to a .npy file containing a packed uint32 prefilter "
-        "bitset of shape (ceil(n_samples / 32),). Bit i set means vector i "
+        help="Path to a cuVS .bin file containing a packed uint32 prefilter "
+        "bitset of shape (ceil(n_samples / 32), 1). Bit i set means vector i "
         "passes the filter. Mutually exclusive with --filter_reject_rate.",
     )
     filter_group.add_argument(
         "--filter_reject_rate",
         type=float,
         default=None,
-        help="Fraction of vectors to reject, in [0.0, 1.0). Generates a "
-        "bitset using a modulo-1000 bucket scheme (vector i passes when "
-        "i %% 1000 >= round(filter_reject_rate * 1000)). Mutually exclusive "
-        "with --bitset.",
+        help="Per-vector rejection probability, in [0.0, 1.0). Generates a "
+        "Bernoulli bitset where each vector independently passes with "
+        "probability (1 - filter_reject_rate). The generated bitset is "
+        "saved to <output>/groundtruth.filter.bin. Mutually exclusive with "
+        "--bitset.",
     )
 
     if len(sys.argv) == 1:
@@ -503,13 +507,15 @@ fbin --output=groundtruth_dir --queries=/dataset/query.fbin \
         import numpy as np
 
         print("Loading prefilter bitset from", args.bitset)
-        bitset = np.load(args.bitset)
+        bitset = np.asarray(memmap_bin_file(args.bitset, np.uint32)).ravel()
     elif args.filter_reject_rate is not None:
         print(
             f"Generating prefilter bitset for filter_reject_rate="
             f"{args.filter_reject_rate}"
         )
         bitset = create_bitset_filter(n_samples, args.filter_reject_rate)
+        bitset_filename = os.path.join(args.output, "groundtruth.filter.bin")
+        write_bin(bitset_filename, bitset.reshape(-1, 1))
 
     print("Calculating true nearest neighbors")
     distances, indices = calc_truth(
