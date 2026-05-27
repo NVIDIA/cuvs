@@ -41,7 +41,8 @@ struct ground_truth_map {
 
   explicit ground_truth_map(std::string file_name,
                             uint32_t n_queries,
-                            std::optional<blob<bitset_carrier_type>>& filter_bitset)
+                            std::optional<blob<bitset_carrier_type>>& filter_bitset,
+                            bool gt_is_prefiltered = false)
     : gt_maps_(n_queries)
   {
     // Eagerly iterate over and optionally filter the ground truth set to build gt_maps_ for up to
@@ -59,12 +60,19 @@ struct ground_truth_map {
     */
     auto ground_truth_set = blob<T>(file_name);
     max_k_                = ground_truth_set.n_cols();
-    auto filter           = [&](T i) -> bool {
+    // Counts ground-truth ids that the bitset rejects. When the GT was
+    // produced with a matching pre-filter (gt_is_prefiltered), every id
+    // is expected to pass, so any nonzero count signals a bitset/GT
+    // mismatch and is reported as a warning after the workers join.
+    std::atomic<size_t> filtered_out_count{0};
+    auto filter = [&](T i) -> bool {
       if (!filter_bitset.has_value()) { return true; }
       // bitset is `32 = bitset_carrier_type * 8` times more dense than the data
       // use bitwise arithmetic to get the `row_id` and correct bit pos in the `word`
-      auto word = filter_bitset->data(MemoryType::kHostMmap)[i >> 5];
-      return word & (1 << (i & 31));
+      auto word   = filter_bitset->data(MemoryType::kHostMmap)[i >> 5];
+      bool passes = word & (1 << (i & 31));
+      if (!passes) { filtered_out_count.fetch_add(1, std::memory_order_relaxed); }
+      return passes;
     };
     // Avoid CPU oversubscription when parallelizing recall calculation loop
     int num_map_building_worker_threads =
@@ -112,6 +120,18 @@ struct ground_truth_map {
     // join all worker threads
     for (auto& worker : gt_map_building_workers) {
       worker.join();
+    }
+    if (gt_is_prefiltered) {
+      auto drops = filtered_out_count.load(std::memory_order_relaxed);
+      if (drops > 0) {
+        log_warn(
+          "ground truth file '%s' was declared pre-filtered, but %zu of its "
+          "neighbor ids are rejected by the supplied filter bitset. This "
+          "indicates the bitset and ground truth files are mismatched; "
+          "recall numbers will be unreliable.",
+          file_name.c_str(),
+          drops);
+      }
     }
   }
 
@@ -179,13 +199,24 @@ struct dataset {
           std::string query_file,
           std::string distance,
           std::optional<std::string> groundtruth_neighbors_file,
-          std::optional<double> filtering_rate = std::nullopt)
+          std::optional<double> filtering_rate          = std::nullopt,
+          std::optional<std::string> filter_bitset_file = std::nullopt)
     : name_{std::move(name)},
       distance_{std::move(distance)},
       base_set_{base_file, subset_first_row, subset_size},
       query_set_{query_file}
   {
-    if (filtering_rate.has_value()) {
+    if (filtering_rate.has_value() && filter_bitset_file.has_value()) {
+      throw std::invalid_argument(
+        "dataset: at most one of 'filtering_rate' or 'filter_bitset_file' may be set");
+    }
+
+    if (filter_bitset_file.has_value()) {
+      // Load a pre-generated bitset from disk. The producer
+      // (cuvs_bench.generate_groundtruth) writes it in cuVS .bin format with
+      // shape (ceil(n_rows / 32), 1), matching the in-memory layout below.
+      filter_bitset_.emplace(blob<bitset_carrier_type>{filter_bitset_file.value()});
+    } else if (filtering_rate.has_value()) {
       // Generate a random bitset for filtering
       auto n_rows = static_cast<size_t>(subset_size) + static_cast<size_t>(subset_first_row);
       if (subset_size == 0) {
@@ -203,8 +234,11 @@ struct dataset {
     }
 
     if (groundtruth_neighbors_file.has_value()) {
-      ground_truth_map_.emplace(ground_truth_map<IdxT>{
-        groundtruth_neighbors_file.value(), query_set_.n_rows(), filter_bitset_});
+      ground_truth_map_.emplace(
+        ground_truth_map<IdxT>{groundtruth_neighbors_file.value(),
+                               query_set_.n_rows(),
+                               filter_bitset_,
+                               /*gt_is_prefiltered=*/filter_bitset_file.has_value()});
     }
   }
 

@@ -537,15 +537,16 @@ void dispatch_benchmark(std::string cmdline,
   auto base_file     = dataset_conf.base_file;
   auto query_file    = dataset_conf.query_file;
   auto gt_file       = dataset_conf.groundtruth_neighbors_file;
-  auto dataset =
-    std::make_shared<bench::dataset<T>>(dataset_conf.name,
-                                        base_file,
-                                        dataset_conf.subset_first_row,
-                                        dataset_conf.subset_size,
-                                        query_file,
-                                        dataset_conf.distance,
-                                        gt_file,
-                                        search_mode ? dataset_conf.filtering_rate : std::nullopt);
+  auto dataset       = std::make_shared<bench::dataset<T>>(
+    dataset_conf.name,
+    base_file,
+    dataset_conf.subset_first_row,
+    dataset_conf.subset_size,
+    query_file,
+    dataset_conf.distance,
+    gt_file,
+    search_mode ? dataset_conf.filtering_rate : std::nullopt,
+    search_mode ? dataset_conf.filter_bitset_file : std::nullopt);
   ::benchmark::AddCustomContext("dataset", dataset_conf.name);
   ::benchmark::AddCustomContext("distance", dataset_conf.distance);
   std::vector<configuration::index>& indices = conf.get_indices();
