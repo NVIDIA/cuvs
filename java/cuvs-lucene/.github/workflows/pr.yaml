@@ -61,6 +61,7 @@ jobs:
           - '**'
           - '!.pre-commit-config.yaml'
           - '!README.md'
+          - '!SECURITY.md'
     permissions:
       actions: read
       contents: read

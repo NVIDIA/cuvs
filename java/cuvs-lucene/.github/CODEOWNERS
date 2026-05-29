@@ -18,3 +18,6 @@ build.sh                 @rapidsai/packaging-codeowners
 dependencies.yaml        @rapidsai/packaging-codeowners
 pom.xml                  @rapidsai/cuvs-build-codeowners
 /.pre-commit-config.yaml @rapidsai/packaging-codeowners
+
+# Ops code owners
+/SECURITY.md             @rapidsai/ops-codeowners
