@@ -60,10 +60,9 @@ def _add_fit_parser(subparsers: argparse._SubParsersAction) -> None:
         help=(
             "Path to write the fingerprint NPZ. Defaults to "
             "'{dataset_stem}_nc{n_clusters}_ncomp{pca_components}"
-            "[_ss{sample_size}]_seed{seed}[_nonorm].npz' in the current "
+            "[_ss{sample_size}]_seed{seed}.npz' in the current "
             "working directory. '_ss{sample_size}' is included only when "
-            "--sample_size is passed, and '_nonorm' only when "
-            "--no-normalize-for-clustering is passed."
+            "--sample_size is passed."
         ),
     )
     p.add_argument(
@@ -101,22 +100,6 @@ def _add_fit_parser(subparsers: argparse._SubParsersAction) -> None:
         type=int,
         default=300,
         help="Maximum KMeans iterations (default: 300).",
-    )
-    p.add_argument(
-        "--no-normalize-for-clustering",
-        dest="no_normalize_for_clustering",
-        action="store_true",
-        help=(
-            "Skip the on-the-fly L2 normalization "
-            "before KMeans. Default behavior (recommended) auto-detects "
-            "whether the input is already unit-norm and normalizes it iff "
-            "not, so KMeans always clusters on normalized data. Pass this "
-            "only for an ablation where you specifically want KMeans to run "
-            "on the raw input. Centroids, per-dim variances, and PCA are "
-            "always computed in the original space and the "
-            "downstream `is_normalized_data` flag is unaffected, so the "
-            "benchmark still matches the real data's normalization."
-        ),
     )
 
 
@@ -225,19 +208,15 @@ def _cmd_fit(args: argparse.Namespace) -> int:
         pca_components=args.pca_components,
         seed=args.seed,
         max_iter=args.max_iter,
-        normalize_for_clustering=(
-            False if args.no_normalize_for_clustering else None
-        ),
     )
 
     output_path = args.output
     if output_path is None:
         stem = os.path.splitext(os.path.basename(args.dataset))[0]
         ss_tag = "" if args.sample_size is None else f"_ss{args.sample_size}"
-        nonorm_tag = "_nonorm" if args.no_normalize_for_clustering else ""
         output_path = (
             f"{stem}_nc{args.n_clusters}_ncomp{args.pca_components}"
-            f"{ss_tag}_seed{args.seed}{nonorm_tag}.npz"
+            f"{ss_tag}_seed{args.seed}.npz"
         )
     save_cluster_stats(output_path, stats)
     print(f"Saved cluster fingerprint to {output_path}")

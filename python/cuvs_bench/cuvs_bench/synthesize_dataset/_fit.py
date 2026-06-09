@@ -7,17 +7,10 @@
 Pipeline:
 1. Detect whether the input is L2-normalized. The result is stored in the
    fingerprint as ``is_normalized_data`` and is used at generate/verify time.
-2. Decide whether to L2-normalize the sample on-the-fly for KMeans (centroids,
-   variances, and PCA are always computed in the original space, regardless).
-   Governed by the ``normalize_for_clustering`` argument (CLI:
-   ``--no-normalize-for-clustering``): when left at its default ``None``, it
-   follows the step-1 detection (enable iff the input was not already
-   L2-normalized); pass ``True``/``False`` (or set the CLI flag to force
-   ``False``) to override.
-3. Run KMeans (``cuvs.cluster.kmeans``) to partition the sample.
-4. For each cluster, fit a rank-``ncomp`` PCA (``cuvs.preprocessing.pca``) on
+2. Run KMeans (``cuvs.cluster.kmeans``) on the sample.
+3. For each cluster, fit a rank-``ncomp`` PCA (``cuvs.preprocessing.pca``) on
    the cluster's residuals, capturing the dominant intra-cluster correlations.
-5. Estimate a residual noise variance per cluster (the variance not captured
+4. Estimate a residual noise variance per cluster (the variance not captured
    by the top-``ncomp`` components).
 
 The output dict can be saved with :func:`save_cluster_stats`.
@@ -35,33 +28,6 @@ from cuvs.preprocessing import pca as cuvs_pca
 from tqdm import tqdm
 
 from ._io import is_l2_normalized
-
-
-def _normalize_batched_gpu(
-    data: np.ndarray, batch_size: int = 1_000_000
-) -> np.ndarray:
-    """L2-normalize host data in batches via cupy."""
-    n_rows = len(data)
-    n_batches = (n_rows + batch_size - 1) // batch_size
-    out = np.empty_like(data)
-
-    print(
-        f"  Normalizing {n_rows:,} vectors on GPU "
-        f"({n_batches} batches of {batch_size:,})..."
-    )
-
-    for b in range(n_batches):
-        s = b * batch_size
-        e = min(s + batch_size, n_rows)
-        d_gpu = cp.asarray(data[s:e])
-        norms = cp.linalg.norm(d_gpu, axis=1, keepdims=True)
-        norms = cp.maximum(norms, 1e-12)
-        d_gpu /= norms
-        out[s:e] = cp.asnumpy(d_gpu)
-        del d_gpu, norms
-        cp.get_default_memory_pool().free_all_blocks()
-
-    return out
 
 
 def _run_kmeans(
@@ -119,7 +85,6 @@ def fit_cluster_stats(
     pca_components: int,
     seed: int = 42,
     max_iter: int = 300,
-    normalize_for_clustering: bool | None = None,
 ) -> Dict[str, Any]:
     """Fit a cluster fingerprint to a real dataset sample.
 
@@ -135,12 +100,6 @@ def fit_cluster_stats(
         Random seed for KMeans initialization.
     max_iter : int
         KMeans max iterations.
-    normalize_for_clustering : bool or None
-        Whether to L2-normalize the sample before KMeans (centroids, variances,
-        and PCA still computed in the original space). When ``None`` (default),
-        this is decided automatically: enabled iff the input is detected as
-        not-L2-normalized. Pass ``True``/``False`` to override. Exposed on the
-        CLI as ``--no-normalize-for-clustering`` (sets this to ``False``).
 
     Returns
     -------
@@ -169,43 +128,7 @@ def fit_cluster_stats(
         + ")."
     )
 
-    if normalize_for_clustering is None:
-        normalize_for_clustering = not is_normalized_data
-        print(
-            f"  normalize_for_clustering=auto -> "
-            f"{normalize_for_clustering} "
-            f"(skipped for already-normalized data, "
-            f"enabled otherwise)."
-        )
-
-    if normalize_for_clustering:
-        print(
-            "Normalizing sample for clustering (stats stay in original "
-            "space)..."
-        )
-        clustering_data = _normalize_batched_gpu(data_sample)
-    else:
-        clustering_data = data_sample
-
-    labels, centroids = _run_kmeans(
-        clustering_data, n_clusters, seed, max_iter
-    )
-
-    # If we clustered on normalized data, recompute centroids from the
-    # original-space points belonging to each cluster.
-    if normalize_for_clustering:
-        print("Recomputing centroids in original (unnormalized) space...")
-        centroids = np.zeros((n_clusters, n_dim), dtype=np.float32)
-        for i in tqdm(
-            range(n_clusters),
-            desc="Recomputing centroids",
-        ):
-            mask = labels == i
-            if mask.any():
-                cluster_gpu = cp.asarray(data_sample[mask])
-                centroids[i] = cp.asnumpy(cp.mean(cluster_gpu, axis=0))
-                del cluster_gpu
-        cp.get_default_memory_pool().free_all_blocks()
+    labels, centroids = _run_kmeans(data_sample, n_clusters, seed, max_iter)
 
     print(
         f"Fitting per-cluster PCA (ncomp={pca_components}) for "
