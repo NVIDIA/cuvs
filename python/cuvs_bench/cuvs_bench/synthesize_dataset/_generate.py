@@ -12,10 +12,6 @@ Each cluster ``c`` defines a Gaussian:
 
 After projection-plus-noise, we rescale per-dimension so the empirical
 variance of the generated batch matches the cluster's per-dimension target.
-
-Generation is deterministic in ``(cluster_id, config.seed)`` so the same call
-always produces the same points -- this is essential for the ``nprobe`` GT
-trick where the same cluster gets regenerated from scratch on each query.
 """
 
 from __future__ import annotations
@@ -29,7 +25,8 @@ import numpy as np
 from tqdm import tqdm
 
 from .._bin_format import write_bin_header
-from ._config import ClusterConfig
+from ..generate_groundtruth.utils import add_jitter
+from ._fingerprint import Fingerprint
 
 ArrayLike = Union[np.ndarray, cp.ndarray]
 
@@ -42,25 +39,14 @@ def get_cluster_seed(base_seed: int, cluster_id: int) -> int:
 def gen_cluster_gpu(
     cluster_id: int,
     n_points: int,
-    config: ClusterConfig,
+    config: Fingerprint,
     return_cupy: bool = True,
     normalize: bool = True,
 ) -> ArrayLike:
-    """Generate ``n_points`` points for one cluster on the GPU"""
+    """Generate ``n_points`` points for one cluster on the GPU."""
     center = cp.asarray(config.cluster_centers[cluster_id])
-
-    if n_points == 1:
-        points = center.reshape(1, -1)
-        if normalize:
-            norms = cp.linalg.norm(points, axis=1, keepdims=True)
-            points = points / cp.maximum(norms, 1e-8)
-        if return_cupy:
-            return points.astype(cp.float32)
-        return cp.asnumpy(points).astype(np.float32)
-
     seed = get_cluster_seed(config.seed, cluster_id)
     rng = cp.random.RandomState(seed)
-    n_random = n_points - 1
 
     components_host = config.pca_components_list[cluster_id]
     explained_var_host = config.pca_explained_var_list[cluster_id]
@@ -72,14 +58,14 @@ def gen_cluster_gpu(
         k = len(explained_var)
 
         z = rng.standard_normal(
-            size=(n_random, k), dtype=cp.float32
+            size=(n_points, k), dtype=cp.float32
         ) * cp.sqrt(cp.maximum(explained_var, 0.0))
         projected = z @ components
 
         noise_std = float(cp.sqrt(max(noise_var, 0.0)))
         noise = (
             rng.standard_normal(
-                size=(n_random, config.ncols), dtype=cp.float32
+                size=(n_points, config.ncols), dtype=cp.float32
             )
             * noise_std
         )
@@ -88,7 +74,7 @@ def gen_cluster_gpu(
 
         # Per-dimension scaling for variance matching, applied only when we
         # have enough points for a reliable empirical variance estimate.
-        if n_random >= 10:
+        if n_points >= 10:
             target_var = cp.asarray(config.cluster_variances[cluster_id])
             actual_var = cp.var(centered, axis=0)
             # Floor the actual variance at noise_var (the minimum expected
@@ -96,23 +82,17 @@ def gen_cluster_gpu(
             scale = cp.sqrt(target_var / cp.maximum(actual_var, noise_var))
             # Cap the scale at 5x to prevent blowup from noisy estimates.
             scale = cp.minimum(scale, 5.0)
-            centered = (
-                centered * scale
-            )  # broadcasts (n_random, ncols) * (ncols,)
+            centered = centered * scale
 
-        random_points = center + centered
+        points = (center + centered).astype(cp.float32)
     else:
         # Diagonal fallback (in-place for memory efficiency at scale).
         scale = cp.sqrt(cp.asarray(config.cluster_variances[cluster_id]))
-        random_points = rng.standard_normal(
-            size=(n_random, config.ncols), dtype=cp.float32
+        points = rng.standard_normal(
+            size=(n_points, config.ncols), dtype=cp.float32
         )
-        random_points *= scale
-        random_points += center
-
-    points = cp.vstack([center.reshape(1, -1), random_points]).astype(
-        cp.float32
-    )
+        points *= scale
+        points += center
 
     if normalize:
         norms = cp.linalg.norm(points, axis=1, keepdims=True)
@@ -125,7 +105,7 @@ def gen_cluster_gpu(
 
 def get_num_points_per_cluster(
     total_points: int,
-    config: ClusterConfig,
+    config: Fingerprint,
     min_points_per_cluster: int = 1,
 ) -> np.ndarray:
     """Allocate ``total_points`` across clusters proportional to densities.
@@ -160,7 +140,7 @@ def get_num_points_per_cluster(
 
 
 def generate_synthetic_dataset(
-    config: ClusterConfig,
+    config: Fingerprint,
     total_points: int,
 ) -> np.ndarray:
     """Materialize a full ``(total_points, ncols)`` synthetic dataset.
@@ -193,58 +173,29 @@ def generate_synthetic_dataset(
         result[write_idx : write_idx + n_points] = cluster_points
         write_idx += n_points
 
-        # Periodically free GPU pool to keep fragmentation bounded across
-        # the long-running per-cluster loop.
-        if cluster_id % 500 == 499:
-            cp.get_default_memory_pool().free_all_blocks()
-
     cp.get_default_memory_pool().free_all_blocks()
 
     return result
 
 
 def generate_synthetic_dataset_to_file(
-    config: ClusterConfig,
+    config: Fingerprint,
     total_points: int,
     output_path: str,
     batch_size: int = 1_000_000,
-) -> int:
+) -> None:
     """Stream a synthetic dataset directly to a fbin file.
-
-    Generates clusters one at a time on the GPU, accumulates their points
-    into a small CPU-side double-buffer, and flushes ``batch_size``-row
-    chunks to disk in a background thread so disk I/O overlaps with the
-    next cluster's generation. Peak host memory stays bounded by roughly
-    ``2 * (batch_size + max_cluster_points) * ncols * 4`` bytes regardless
-    of ``total_points`` -- prefer this over
-    :func:`generate_synthetic_dataset` whenever the full target synthetic dataset
-    wouldn't comfortably fit in host RAM.
-
-    The output file uses the canonical cuvs-bench fbin layout (``n_rows``,
-    ``n_dim`` header followed by row-major float32 data), readable by
-    ``cuvs_bench.run`` and the rest of the toolchain. The header is
-    auto-promoted from the legacy 8-byte uint32 layout to the 16-byte
-    uint64 layout when ``total_points`` or ``n_dim`` exceeds
-    ``UINT32_MAX`` (see :mod:`cuvs_bench._bin_format`).
 
     Parameters
     ----------
-    config : ClusterConfig
+    config : Fingerprint
         Fitted cluster fingerprint.
     total_points : int
-        Number of synthetic vectors to generate. Values above
-        ``UINT32_MAX`` (~4.29B) trigger the extended uint64 header.
+        Number of synthetic vectors to generate.
     output_path : str
         Destination ``.fbin`` path. Parent directories are created as needed.
     batch_size : int
-        Flush threshold in rows. Higher = better disk throughput but more
-        host RAM. Default 1M.
-
-    Returns
-    -------
-    int
-        Number of rows written. Always equals ``total_points`` unless a
-        cluster yielded zero points.
+        Number of rows for a flush threshold.
     """
     out_dir = os.path.dirname(output_path)
     if out_dir:
@@ -255,10 +206,8 @@ def generate_synthetic_dataset_to_file(
     ncols = int(config.cluster_centers.shape[1])
 
     # Buffer must be large enough to absorb the cluster that triggers a
-    # flush without overflowing -- size it for batch_size + the largest
-    # single cluster plus a small safety margin.
-    max_cluster_pts = int(points_per_cluster.max())
-    buf_capacity = max(int(batch_size * 1.1), batch_size + max_cluster_pts)
+    # flush without overflowing
+    buf_capacity = batch_size + int(points_per_cluster.max())
     bufs = [
         np.empty((buf_capacity, ncols), dtype=np.float32) for _ in range(2)
     ]
@@ -310,7 +259,7 @@ def generate_synthetic_dataset_to_file(
 
             if buf_offset >= batch_size:
                 # Wait for the previous write to complete before reusing
-                # *its* buffer (the one we're about to swap to).
+                # its buffer
                 _wait_for_write()
                 _flush_async(f, bufs[active_buf][:buf_offset])
                 rows_written += buf_offset
@@ -318,8 +267,7 @@ def generate_synthetic_dataset_to_file(
                 buf_offset = 0
                 cp.get_default_memory_pool().free_all_blocks()
 
-        # Drain: wait for any in-flight write, then synchronously flush
-        # whatever's left in the active buffer.
+        # wait for any in-flight write, then flush whatever's left in the active buffer.
         _wait_for_write()
         if buf_offset > 0:
             bufs[active_buf][:buf_offset].tofile(f)
@@ -333,4 +281,54 @@ def generate_synthetic_dataset_to_file(
             f"(some clusters yielded zero points)."
         )
 
-    return rows_written
+
+def generate_queries(
+    nqueries: int,
+    total_rows: int,
+    config: Fingerprint,
+    query_seed_offset: int = 999_999,
+) -> np.ndarray:
+    """Sample ``nqueries`` query points from the synthetic distribution.
+
+    For each query we pick a global index uniformly from ``range(total_rows)``,
+    determine which cluster it falls into, regenerate that cluster's points
+    deterministically, and grab the corresponding local index. Small Gaussian
+    noise is added at the end to avoid exact-match recall artefacts.
+    """
+    normalize = bool(config.is_normalized_data)
+    points_per_cluster = get_num_points_per_cluster(total_rows, config)
+    cumsum = np.cumsum(points_per_cluster)
+
+    rng = np.random.default_rng(config.seed + query_seed_offset)
+    global_indices = rng.choice(total_rows, size=nqueries, replace=False)
+
+    # ``searchsorted(side='right')`` maps a global index to the cluster_id of
+    # the cluster whose cumulative range contains it.
+    cluster_ids = np.searchsorted(cumsum, global_indices, side="right")
+
+    # Group queries by cluster so we generate each cluster only once.
+    cluster_to_queries: dict[int, list[tuple[int, int]]] = {}
+    for q_idx, (g_idx, c_id) in enumerate(zip(global_indices, cluster_ids)):
+        local_idx = g_idx if c_id == 0 else g_idx - cumsum[c_id - 1]
+        cluster_to_queries.setdefault(int(c_id), []).append(
+            (q_idx, int(local_idx))
+        )
+
+    queries = np.zeros((nqueries, config.ncols), dtype=np.float32)
+    for c_id, qlist in tqdm(
+        cluster_to_queries.items(),
+        total=len(cluster_to_queries),
+        desc="Generating query points",
+    ):
+        n_points = int(points_per_cluster[c_id])
+        cluster_points = gen_cluster_gpu(
+            c_id,
+            n_points,
+            config,
+            return_cupy=False,
+            normalize=normalize,
+        )
+        for q_idx, local_idx in qlist:
+            queries[q_idx] = cluster_points[local_idx]
+
+    return add_jitter(queries, rng, normalize)

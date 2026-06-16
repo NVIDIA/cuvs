@@ -3,10 +3,11 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-from ._config import ClusterConfig
+from ._fingerprint import Fingerprint
 from ._fit import fit_cluster_stats
 from ._generate import (
     gen_cluster_gpu,
+    generate_queries,
     generate_synthetic_dataset,
     generate_synthetic_dataset_to_file,
     get_cluster_seed,
@@ -15,18 +16,16 @@ from ._generate import (
 from ._ground_truth import (
     compute_groundtruth_exact,
     compute_groundtruth_nprobe,
-    generate_queries,
 )
-from ._stats_io import (
-    cluster_config_from_stats,
-    load_cluster_stats,
-    save_cluster_stats,
+from ._io import (
+    load_fingerprint,
+    save_fingerprint,
 )
 from ._verify import verify_groundtruth
 
 __all__ = [
-    "ClusterConfig",
-    "cluster_config_from_stats",
+    "Fingerprint",
+    "load_fingerprint",
     "compute_groundtruth_nprobe",
     "compute_groundtruth_exact",
     "fit_cluster_stats",
@@ -36,7 +35,6 @@ __all__ = [
     "generate_synthetic_dataset_to_file",
     "get_cluster_seed",
     "get_num_points_per_cluster",
-    "load_cluster_stats",
-    "save_cluster_stats",
+    "save_fingerprint",
     "verify_groundtruth",
 ]

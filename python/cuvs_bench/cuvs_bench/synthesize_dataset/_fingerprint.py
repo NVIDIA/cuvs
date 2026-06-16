@@ -2,14 +2,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 #
-"""ClusterConfig: in-memory representation of a fitted cluster fingerprint.
-
-This is the only configuration type the synthesize_dataset module exposes.
-It holds the pieces needed to deterministically generate per-cluster Gaussian
-samples: centroids, densities, per-dimension variances, and the per-cluster
-PCA components (``ncomp`` principal directions, ``ncomp`` explained variances,
-and a residual noise variance per cluster).
-"""
+"""Fingerprint: in-memory representation of a fitted cluster fingerprint."""
 
 from dataclasses import dataclass
 from typing import List, Optional
@@ -18,28 +11,26 @@ import numpy as np
 
 
 @dataclass
-class ClusterConfig:
-    """Configuration for cluster-based synthetic data generation.
+class Fingerprint:
+    """In-memory representation of a fitted cluster fingerprint.
 
-    Holds the fitted cluster fingerprint produced by ``cuvs_bench.synthesize_dataset.fit``.
+    Produced by ``cuvs_bench.synthesize_dataset.fit``.
 
     Parameters
     ----------
     nclusters : int
         Number of KMeans clusters fitted on the real-data sample.
     ncols : int
-        Dimensionality of the data (number of features).
+        Dimensionality of the data.
     seed : int
-        Random seed used for deterministic per-cluster generation. Combined
-        with ``cluster_id`` to produce a unique seed per cluster.
+        Random seed used for deterministic per-cluster generation.
     cluster_centers : np.ndarray, shape (nclusters, ncols)
-        Cluster centroids in the original (unnormalized) space.
+        Cluster centroids.
     cluster_variances : np.ndarray, shape (nclusters, ncols)
         Per-dimension variance per cluster, used for variance matching when
         rescaling generated points.
     cluster_densities : np.ndarray, shape (nclusters,)
-        Relative density per cluster (fraction of sample points per cluster).
-        Normalized to sum to 1 in ``__post_init__``.
+        Relative density per cluster. Normalized to sum to 1 in ``__post_init__``.
     pca_components_list : list[Optional[np.ndarray]]
         Per-cluster principal directions, each of shape ``(ncomp, ncols)``.
         Entries may be ``None`` for clusters that fell back to diagonal-only
@@ -48,14 +39,15 @@ class ClusterConfig:
         Per-cluster variance along each principal direction, each of shape
         ``(ncomp,)``. ``None`` for diagonal-fallback clusters.
     pca_noise_var : np.ndarray, shape (nclusters,)
-        Residual noise variance per cluster (the variance not captured by the
-        top-``ncomp`` PCA components). Used as the variance of an isotropic
+        Residual noise variance per cluster. Used as the variance of an isotropic
         Gaussian added to every generated point.
+    pca_n_components : int
+        The requested number of PCA components per cluster as specified at
+        fit time.
     is_normalized_data : bool
         Whether the fit-time real-data slice was detected as L2-unit-norm.
         ``generate``, ``verify``, and the streaming
-        GT routines read this directly to decide whether to re-normalize
-        the synthetic output.
+        GT routines use this to decide whether to re-normalize the synthetic output.
     """
 
     nclusters: int
@@ -68,6 +60,7 @@ class ClusterConfig:
     pca_components_list: List[Optional[np.ndarray]]
     pca_explained_var_list: List[Optional[np.ndarray]]
     pca_noise_var: np.ndarray
+    pca_n_components: int
 
     is_normalized_data: bool
 

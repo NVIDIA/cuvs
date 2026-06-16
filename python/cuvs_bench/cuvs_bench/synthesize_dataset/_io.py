@@ -2,20 +2,41 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 #
-"""Lightweight readers for the source datasets users want to fit against.
+"""Dataset loading and fingerprint NPZ I/O.
 
-Supported formats: ``.fbin`` (with an optional nrows cap), ``.npy``, and
-``.pkl``.
+Supported dataset formats for :func:`load_dataset`: ``.fbin``, ``.npy``,
+and ``.pkl``.
+
+Fingerprint NPZ file schema (written by :func:`save_fingerprint`, read by
+:func:`load_fingerprint`):
+
+- ``centroids``             : float32, shape (nclusters, ncols)
+- ``densities``             : float64, shape (nclusters,)
+- ``variances_per_dim``     : float32, shape (nclusters, ncols)
+- ``pca_components_arr``    : object array of length nclusters; entry i is
+                              either a (ncomp, ncols) float32 array or an empty
+                              float32 array if cluster i fell back to diagonal.
+- ``pca_explained_var_arr`` : object array of length nclusters, parallel to
+                              ``pca_components_arr``; each entry is a (ncomp,)
+                              float32 array.
+- ``pca_noise_var``         : float32, shape (nclusters,)
+- ``pca_n_components``      : int, scalar (the requested ncomp; actual ncomp per
+                              cluster may be smaller if it had too few points).
+- ``is_normalized_data``    : bool, scalar — whether the fit-time input was
+                              detected as L2-unit-norm. Drives the default
+                              ``normalize`` setting at generate/verify time.
 """
 
 from __future__ import annotations
 
 import os
 import pickle
+from typing import Any, Dict
 
 import numpy as np
 
 from ..generate_groundtruth.utils import memmap_bin_file
+from ._fingerprint import Fingerprint
 
 
 def load_dataset(
@@ -38,9 +59,7 @@ def load_dataset(
     sample_size : int or None
         If given and smaller than the on-disk row count, only the **first**
         ``sample_size`` rows are loaded (no shuffling). The caller is
-        responsible for ensuring the head-of-file slice is representative
-        (e.g. by pre-shuffling the dataset on disk if it has any structural
-        ordering).
+        responsible for ensuring the head-of-file slice is representative.
     dtype : numpy dtype
         Element dtype, used only for ``.fbin`` (the other formats carry their
         own dtype). Defaults to float32.
@@ -74,35 +93,78 @@ def load_dataset(
     return np.ascontiguousarray(mm)
 
 
-def is_l2_normalized(
-    data: np.ndarray,
-    sample_size: int = 10_000,
-    tol: float = 1e-2,
-    seed: int = 0,
-) -> bool:
-    """Cheaply check whether ``data`` rows are L2-unit-norm.
-
-    Samples up to ``sample_size`` rows uniformly at random and returns ``True``
-    iff every sampled row has ``|‖x‖ - 1| < tol``.
+def save_fingerprint(filepath: str, stats: Dict[str, Any]) -> None:
+    """Save a fitted cluster fingerprint to an NPZ file.
 
     Parameters
     ----------
-    data : np.ndarray, shape (n, d)
-        Real-data slice to inspect. Empty input returns ``False``.
-    sample_size : int
-        Number of random rows to sample (default: 10000). Capped at
-        ``len(data)``.
-    tol : float
-        Allowed deviation of each row's L2 norm from 1.0 (default: 1e-2).
-    seed : int
-        RNG seed for the row sample (default: 0). Fixed so the detection is
-        deterministic for a given input.
+    filepath : str
+        Output path. Parent directories are created as needed.
+    stats : dict
+        Dict with keys produced by :func:`fit_cluster_stats`.
     """
-    n = len(data)
-    if n == 0:
-        return False
-    rng = np.random.default_rng(seed)
-    take = min(sample_size, n)
-    idx = rng.choice(n, size=take, replace=False)
-    norms = np.linalg.norm(data[idx].astype(np.float32), axis=1)
-    return bool(np.all(np.abs(norms - 1.0) < tol))
+    out_dir = os.path.dirname(filepath)
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
+
+    n_clusters = len(stats["centroids"])
+
+    components_arr = np.empty(n_clusters, dtype=object)
+    explained_var_arr = np.empty(n_clusters, dtype=object)
+
+    for i in range(n_clusters):
+        comp = stats["pca_components_list"][i]
+        ev = stats["pca_explained_var_list"][i]
+        if comp is not None:
+            components_arr[i] = comp
+            explained_var_arr[i] = ev
+        else:
+            # Diagonal-fallback marker: empty array.
+            components_arr[i] = np.array([], dtype=np.float32)
+            explained_var_arr[i] = np.array([], dtype=np.float32)
+
+    np.savez(
+        filepath,
+        centroids=stats["centroids"],
+        densities=stats["densities"],
+        variances_per_dim=stats["variances_per_dim"],
+        pca_components_arr=components_arr,
+        pca_explained_var_arr=explained_var_arr,
+        pca_noise_var=stats["pca_noise_var"],
+        pca_n_components=np.array([stats["pca_n_components"]]),
+        is_normalized_data=np.array([bool(stats["is_normalized_data"])]),
+    )
+
+
+def load_fingerprint(filepath: str, seed: int) -> Fingerprint:
+    """Load a fitted cluster fingerprint from an NPZ file into a Fingerprint."""
+    data = np.load(filepath, allow_pickle=True)
+
+    n_clusters = len(data["centroids"])
+    components_arr = data["pca_components_arr"]
+    explained_var_arr = data["pca_explained_var_arr"]
+
+    pca_components_list = []
+    pca_explained_var_list = []
+    for i in range(n_clusters):
+        if len(components_arr[i]) > 0:
+            pca_components_list.append(components_arr[i])
+            pca_explained_var_list.append(explained_var_arr[i])
+        else:
+            pca_components_list.append(None)
+            pca_explained_var_list.append(None)
+
+    centroids = data["centroids"]
+    return Fingerprint(
+        nclusters=int(centroids.shape[0]),
+        ncols=int(centroids.shape[1]),
+        seed=seed,
+        cluster_centers=centroids,
+        cluster_variances=data["variances_per_dim"],
+        cluster_densities=data["densities"].astype(np.float64),
+        pca_components_list=pca_components_list,
+        pca_explained_var_list=pca_explained_var_list,
+        pca_noise_var=data["pca_noise_var"],
+        pca_n_components=int(data["pca_n_components"][0]),
+        is_normalized_data=bool(data["is_normalized_data"][0]),
+    )

@@ -4,15 +4,12 @@
 #
 """Command-line entry point for the synthesize_dataset module.
 
-Three subcommands:
-
 - ``fit``: extract a cluster fingerprint (.npz) from a real dataset.
-- ``generate``: turn a fingerprint into a benchmarkable
-  ``base.fbin`` / ``queries.fbin`` / ``groundtruth.{neighbors,distances}.{ibin,fbin}``
-  bundle.
+- ``generate``: turn a fingerprint into a ``base.fbin`` / ``queries.fbin`` /
+``groundtruth.{neighbors,distances}.{ibin,fbin}`` bundle.
 - ``verify``: validate the chosen ``nprobes``.
 
-Run ``python -m cuvs_bench.synthesize_dataset --help`` for the full surface.
+Run ``python -m cuvs_bench.synthesize_dataset --help`` for help.
 """
 
 from __future__ import annotations
@@ -25,17 +22,15 @@ import numpy as np
 
 from ..generate_groundtruth.utils import write_bin
 from ._fit import fit_cluster_stats
-from ._generate import generate_synthetic_dataset_to_file
+from ._generate import generate_queries, generate_synthetic_dataset_to_file
 from ._ground_truth import (
     compute_groundtruth_nprobe,
     compute_groundtruth_exact,
-    generate_queries,
 )
 from ._io import load_dataset
-from ._stats_io import (
-    cluster_config_from_stats,
-    load_cluster_stats,
-    save_cluster_stats,
+from ._io import (
+    load_fingerprint,
+    save_fingerprint,
 )
 from ._verify import verify_groundtruth
 
@@ -45,7 +40,7 @@ def _add_fit_parser(subparsers: argparse._SubParsersAction) -> None:
         "fit",
         help="Extract a dataset fingerprint from a real dataset.",
         description=(
-            "Run KMeans + per-cluster PCA on a sample of your real "
+            "Run KMeans + per-cluster PCA on a sample of the real "
             "dataset and save the resulting fingerprint as an NPZ file."
         ),
     )
@@ -72,7 +67,7 @@ def _add_fit_parser(subparsers: argparse._SubParsersAction) -> None:
         help=(
             "Use only the FIRST `sample_size` rows of the input "
             "(default: use entire input). No shuffling is performed, so "
-            "make sure your dataset's head-of-file slice is representative "
+            "make sure the dataset's head-of-file slice is representative "
             "(pre-shuffle the file beforehand if it has any structural "
             "ordering, e.g. by class or time)."
         ),
@@ -94,12 +89,6 @@ def _add_fit_parser(subparsers: argparse._SubParsersAction) -> None:
         type=int,
         default=42,
         help="RNG seed for KMeans init and PCA (default: 42).",
-    )
-    p.add_argument(
-        "--max_iter",
-        type=int,
-        default=300,
-        help="Maximum KMeans iterations (default: 300).",
     )
 
 
@@ -130,8 +119,13 @@ def _add_generate_parser(subparsers: argparse._SubParsersAction) -> None:
     p.add_argument(
         "--nprobes",
         type=int,
-        default=10,
-        help="Clusters probed per query for nprobe GT (default: 10).",
+        default=None,
+        help=(
+            "Clusters probed per query for nprobe GT. Must be smaller than "
+            "the number of clusters used to fit the fingerprint. "
+            "Defaults to 5%% of the fingerprint's cluster count unless specified when "
+            "--gt_mode=nprobe."
+        ),
     )
     p.add_argument(
         "--gt_mode",
@@ -159,7 +153,15 @@ def _add_generate_parser(subparsers: argparse._SubParsersAction) -> None:
 def _add_verify_parser(subparsers: argparse._SubParsersAction) -> None:
     p = subparsers.add_parser(
         "verify",
-        help="Validate that nprobe GT matches exact GT at small scale.",
+        help="Validate that nprobe GT matches exact GT.",
+        description=(
+            "Check whether the chosen nprobes (relative to the number of "
+            "clusters in the fingerprint) is sufficient to produce a "
+            "high-quality ground truth. Runs nprobe GT and exact GT on a "
+            "synthetic dataset and compares recall. Use a small --total_rows "
+            "for a quick sanity check before committing to "
+            "a full-scale generate run using ``generate''."
+        ),
     )
     p.add_argument("--stats", required=True, help="Path to fingerprint NPZ.")
     p.add_argument(
@@ -183,10 +185,11 @@ def _add_verify_parser(subparsers: argparse._SubParsersAction) -> None:
     p.add_argument(
         "--nprobes",
         type=int,
-        default=10,
+        default=None,
         help=(
-            "Clusters probed per query for the nprobe GT being verified "
-            "(default: 10)."
+            "Clusters probed per query for the nprobe GT being verified. "
+            "Must be smaller than the number of clusters in the fingerprint. "
+            "Defaults to 5%% of the fingerprint's cluster count."
         ),
     )
     p.add_argument(
@@ -207,7 +210,6 @@ def _cmd_fit(args: argparse.Namespace) -> int:
         n_clusters=args.n_clusters,
         pca_components=args.pca_components,
         seed=args.seed,
-        max_iter=args.max_iter,
     )
 
     output_path = args.output
@@ -218,34 +220,28 @@ def _cmd_fit(args: argparse.Namespace) -> int:
             f"{stem}_nc{args.n_clusters}_ncomp{args.pca_components}"
             f"{ss_tag}_seed{args.seed}.npz"
         )
-    save_cluster_stats(output_path, stats)
+    save_fingerprint(output_path, stats)
     print(f"Saved cluster fingerprint to {output_path}")
     return 0
 
 
 def _cmd_generate(args: argparse.Namespace) -> int:
     print(f"Loading fingerprint from {args.stats}...")
-    stats = load_cluster_stats(args.stats)
-    config = cluster_config_from_stats(stats, seed=args.seed)
+    config = load_fingerprint(args.stats, seed=args.seed)
     print(
         f"  {config.nclusters} clusters, {config.ncols} dims, "
-        f"ncomp={stats['pca_n_components']}, "
+        f"ncomp={config.pca_n_components}, "
         f"is_normalized_data={config.is_normalized_data} (from fit)"
     )
     os.makedirs(args.output_dir, exist_ok=True)
 
     base_path = os.path.join(args.output_dir, "base.fbin")
-    print(
-        f"Streaming {args.total_rows:,} synthetic vectors to {base_path} "
-        f"(host RAM stays bounded regardless of total_rows)..."
-    )
     generate_synthetic_dataset_to_file(
         config=config,
         total_points=args.total_rows,
         output_path=base_path,
     )
 
-    print(f"Sampling {args.n_queries} queries...")
     queries = generate_queries(
         nqueries=args.n_queries,
         total_rows=args.total_rows,
@@ -254,14 +250,20 @@ def _cmd_generate(args: argparse.Namespace) -> int:
     queries_path = os.path.join(args.output_dir, "queries.fbin")
     write_bin(queries_path, queries)
 
-    print(f"Computing ground truth in '{args.gt_mode}' mode...")
+    nprobes = args.nprobes
+    if args.gt_mode == "nprobe" and nprobes is None:
+        nprobes = max(1, round(config.nclusters * 0.05))
+        print(
+            f"  nprobes not set; using 5% of {config.nclusters} clusters = {nprobes}."
+        )
+
     if args.gt_mode == "nprobe":
         gt_idx, gt_dist, _ = compute_groundtruth_nprobe(
             queries=queries,
             total_rows=args.total_rows,
             config=config,
             k=args.k,
-            nprobes=args.nprobes,
+            nprobes=nprobes,
         )
     else:
         gt_idx, gt_dist, _ = compute_groundtruth_exact(
@@ -288,8 +290,13 @@ def _cmd_generate(args: argparse.Namespace) -> int:
 
 def _cmd_verify(args: argparse.Namespace) -> int:
     print(f"Loading fingerprint from {args.stats}...")
-    stats = load_cluster_stats(args.stats)
-    config = cluster_config_from_stats(stats, seed=args.seed)
+    config = load_fingerprint(args.stats, seed=args.seed)
+    nprobes = args.nprobes
+    if nprobes is None:
+        nprobes = max(1, round(config.nclusters * 0.05))
+        print(
+            f"  nprobes not set; using 5% of {config.nclusters} clusters = {nprobes}."
+        )
     print(
         f"  {config.nclusters} clusters, {config.ncols} dims, "
         f"is_normalized_data={config.is_normalized_data} (from fit)"
@@ -300,25 +307,20 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         total_rows=args.total_rows,
         nqueries=args.n_queries,
         k=args.k,
-        nprobes=args.nprobes,
+        nprobes=nprobes,
     )
 
     print("\n" + "=" * 60)
     print("Verification Result")
     print("=" * 60)
-    print(f"  Recall (with ties): {result['recall']:.4f}")
-    print(f"  Recall (naive):     {result['simple_recall']:.4f}")
-    print(
-        f"  Imperfect queries:  {len(result['mismatched_queries'])}"
-        f" / {result['nqueries']}"
-    )
+    print(f"  Recall: {result['recall']:.4f}")
     if result["recall"] >= 0.999:
         print(
-            f"\n  nprobes={args.nprobes} is safe at total_rows={args.total_rows:,}."
+            f"\n  nprobes={nprobes} is safe at total_rows={args.total_rows:,}."
         )
     else:
         print(
-            f"\n  nprobes={args.nprobes} drops accuracy below 0.999 -- "
+            f"\n  nprobes={nprobes} drops recall below 0.999 -- "
             f"consider increasing nprobes."
         )
     return 0

@@ -20,10 +20,6 @@ def is_l2_normalized(
 
     Samples up to ``sample_size`` rows uniformly at random and returns ``True``
     iff every sampled row has ``|‖x‖ - 1| < tol``.
-
-    Duplicated from ``cuvs_bench.synthesize_dataset._io.is_l2_normalized`` so
-    we don't trigger that package's heavy ``cuvs.preprocessing.pca`` import
-    at module load time.
     """
     n = len(data)
     if n == 0:
@@ -33,6 +29,22 @@ def is_l2_normalized(
     idx = rng.choice(n, size=take, replace=False)
     norms = np.linalg.norm(data[idx].astype(np.float32), axis=1)
     return bool(np.all(np.abs(norms - 1.0) < tol))
+
+
+def add_jitter(
+    queries: np.ndarray,
+    rng: np.random.Generator,
+    normalize: bool,
+) -> np.ndarray:
+    """Add Gaussian jitter to query vectors and optionally re-normalize."""
+    noise_scale = float(np.std(queries)) * 0.1
+    queries = queries + rng.normal(0, noise_scale, queries.shape).astype(
+        np.float32
+    )
+    if normalize:
+        norms = np.linalg.norm(queries, axis=1, keepdims=True)
+        queries = queries / np.maximum(norms, 1e-8)
+    return queries.astype(np.float32)
 
 
 def dtype_from_filename(filename):

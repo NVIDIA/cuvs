@@ -5,15 +5,13 @@
 """Fit a cluster fingerprint from a sample of real data.
 
 Pipeline:
-1. Detect whether the input is L2-normalized. The result is stored in the
-   fingerprint as ``is_normalized_data`` and is used at generate/verify time.
-2. Run KMeans (``cuvs.cluster.kmeans``) on the sample.
-3. For each cluster, fit a rank-``ncomp`` PCA (``cuvs.preprocessing.pca``) on
+1. Run KMeans (``cuvs.cluster.kmeans``) on the sample.
+2. For each cluster, fit a rank-``ncomp`` PCA (``cuvs.preprocessing.pca``) on
    the cluster's residuals, capturing the dominant intra-cluster correlations.
-4. Estimate a residual noise variance per cluster (the variance not captured
+3. Estimate a residual noise variance per cluster (the variance not captured
    by the top-``ncomp`` components).
 
-The output dict can be saved with :func:`save_cluster_stats`.
+The output dict can be saved with :func:`save_fingerprint`.
 """
 
 from __future__ import annotations
@@ -27,25 +25,23 @@ from cuvs.cluster import kmeans as cuvs_kmeans
 from cuvs.preprocessing import pca as cuvs_pca
 from tqdm import tqdm
 
-from ._io import is_l2_normalized
+from ..generate_groundtruth.utils import is_l2_normalized
 
 
 def _run_kmeans(
     data: np.ndarray,
     n_clusters: int,
     seed: int,
-    max_iter: int,
 ):
     """Run cuvs KMeans, returning ``(labels, centroids)`` as numpy arrays."""
     params = cuvs_kmeans.KMeansParams(
         n_clusters=n_clusters,
-        max_iter=max_iter,
         init_size=len(data),
     )
 
     print(
         f"  Running cuvs KMeans (n_clusters={n_clusters}, "
-        f"max_iter={max_iter}, init_size={len(data):,})..."
+        f"init_size={len(data):,})..."
     )
 
     t0 = time.perf_counter()
@@ -84,7 +80,6 @@ def fit_cluster_stats(
     n_clusters: int,
     pca_components: int,
     seed: int = 42,
-    max_iter: int = 300,
 ) -> Dict[str, Any]:
     """Fit a cluster fingerprint to a real dataset sample.
 
@@ -98,8 +93,6 @@ def fit_cluster_stats(
         Number of principal directions per cluster.
     seed : int
         Random seed for KMeans initialization.
-    max_iter : int
-        KMeans max iterations.
 
     Returns
     -------
@@ -128,7 +121,7 @@ def fit_cluster_stats(
         + ")."
     )
 
-    labels, centroids = _run_kmeans(data_sample, n_clusters, seed, max_iter)
+    labels, centroids = _run_kmeans(data_sample, n_clusters, seed)
 
     print(
         f"Fitting per-cluster PCA (ncomp={pca_components}) for "

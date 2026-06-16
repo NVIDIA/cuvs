@@ -130,19 +130,8 @@ def choose_random_queries_with_jitter(dataset, n_queries, seed=12345):
     sampled = dataset[query_idx, :].astype(_np.float32, copy=True)
 
     normalize = is_l2_normalized(sampled)
-    if normalize:
-        print(
-            "  Dataset appears L2-normalized; will re-normalize jittered queries"
-        )
 
-    noise_scale = float(_np.std(sampled)) * 0.1
-    sampled += rng.normal(0, noise_scale, sampled.shape).astype(_np.float32)
-
-    if normalize:
-        norms = _np.linalg.norm(sampled, axis=1, keepdims=True)
-        sampled = sampled / _np.maximum(norms, 1e-8)
-
-    return sampled
+    return add_jitter(sampled, rng, normalize)
 
 
 def cpu_search(dataset, queries, k, metric="squeclidean"):
