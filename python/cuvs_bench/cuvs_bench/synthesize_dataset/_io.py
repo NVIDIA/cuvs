@@ -12,10 +12,10 @@ from __future__ import annotations
 
 import os
 import pickle
-import struct
-from typing import Tuple
 
 import numpy as np
+
+from ..generate_groundtruth.utils import memmap_bin_file
 
 
 def load_dataset(
@@ -26,7 +26,8 @@ def load_dataset(
     """Load a real dataset for fitting.
 
     Supported formats:
-    - ``.fbin``: 8-byte uint32 header (``n_rows``, ``n_dim``) followed by raw data.
+    - ``.fbin``: cuvs-bench binary header (``n_rows``, ``n_dim``; legacy
+      uint32 or extended uint64, auto-detected) followed by raw data.
     - ``.npy``: standard numpy array file.
     - ``.pkl``: pickled numpy array (or anything ``np.array`` can convert).
 
@@ -66,32 +67,11 @@ def load_dataset(
         return np.ascontiguousarray(data.astype(np.float32))
 
     # Default: treat as fbin (covers ".fbin" and unknown extensions).
-    return _load_fbin(path, dtype=dtype, n_rows_cap=sample_size)
-
-
-def _load_fbin(
-    path: str, dtype: np.dtype = np.float32, n_rows_cap: int | None = None
-) -> np.ndarray:
-    """Load an fbin file with the cuvs-bench layout (uint32 header)."""
-    with open(path, "rb") as f:
-        header = f.read(8)
-    n_rows, n_dim = struct.unpack("<II", header)
-
-    if n_rows_cap is not None and n_rows_cap < n_rows:
-        n_rows = int(n_rows_cap)
-        count = n_rows * n_dim
-        data = np.fromfile(path, dtype=dtype, offset=8, count=count)
-    else:
-        data = np.fromfile(path, dtype=dtype, offset=8)
-    return data.reshape((n_rows, n_dim))
-
-
-def fbin_shape(path: str) -> Tuple[int, int]:
-    """Return ``(n_rows, n_dim)`` for an fbin file without loading it."""
-    with open(path, "rb") as f:
-        header = f.read(8)
-    n_rows, n_dim = struct.unpack("<II", header)
-    return int(n_rows), int(n_dim)
+    # memmap_bin_file auto-detects the legacy uint32 / extended uint64 header.
+    mm = memmap_bin_file(path, dtype, mode="r")
+    if sample_size is not None:
+        mm = mm[:sample_size]
+    return np.ascontiguousarray(mm)
 
 
 def is_l2_normalized(

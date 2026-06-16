@@ -35,7 +35,7 @@ ArrayLike = Union[np.ndarray, cp.ndarray]
 
 
 def get_cluster_seed(base_seed: int, cluster_id: int) -> int:
-    """Deterministic per-cluster seed. Multiply the base seed by 1000000 for different sequences for different base_seeds."""
+    """Map ``(base_seed, cluster_id)`` to a deterministic per-cluster seed."""
     return base_seed * 1_000_000 + int(cluster_id)
 
 
@@ -86,15 +86,15 @@ def gen_cluster_gpu(
 
         centered = projected + noise
 
-        # Per-dimension scaling for variance matching
-        # Only apply if we have enough points for reliable variance estimation
+        # Per-dimension scaling for variance matching, applied only when we
+        # have enough points for a reliable empirical variance estimate.
         if n_random >= 10:
             target_var = cp.asarray(config.cluster_variances[cluster_id])
             actual_var = cp.var(centered, axis=0)
+            # Floor the actual variance at noise_var (the minimum expected
+            # variance) so we never divide by an unreliably small estimate.
             scale = cp.sqrt(target_var / cp.maximum(actual_var, noise_var))
-            # Scale each dimension separately
-            # Use noise_var as floor since that's the minimum expected variance
-            # Cap scale_factors to 5x to prevent blowup from unreliable variance estimates
+            # Cap the scale at 5x to prevent blowup from noisy estimates.
             scale = cp.minimum(scale, 5.0)
             centered = (
                 centered * scale
