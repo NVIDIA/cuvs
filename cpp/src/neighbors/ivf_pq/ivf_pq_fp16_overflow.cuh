@@ -34,13 +34,14 @@ __global__ void kern_max_squared_norm(const DataT* __restrict__ data,
     const DataT* v = data + row * dim;
     float sq       = 0.0f;
     for (int64_t d = 0; d < dim; d++) {
-      //
+      // internally, IVF-PQ distance computations will map the input data type (e.g. FP16) to float before
+      // doing arithmetic, so we need to apply the same mapping here to get a correct estimate of the squared norms
+      // instead of using static_cast<float>(v[d])
       float e = cuvs::spatial::knn::detail::utils::mapping<float>{}(v[d]);
-      printf("raw float(v[d]): %f, mapped: %f\n", static_cast<float>(v[d]), e);
       sq += e * e;
     }
     // - There is no atomicMax for floats, so we embrace the bitwise representation monoticity
-    //   between float and int. This is valid when values are non-negative, which is the case
+    //   between float and int. This is valid when values are non-negative, which is the case 
     //   for squared norms.
     // - Choose global atomic instead of shared memory tree reduction for simplicity, assuming
     //   low contention.
@@ -70,10 +71,8 @@ float estimate_max_squared_norm(
   if (n_rows <= 1000) {
     n_sample = n_rows;  // for small datasets, just use them all and skip the sampling overhead
   } else if (n_rows > 100000) {
-    // cap the sample size to 100k for speed and keep memory use within the limited workspace
-    // resource
+    // cap the sample size to 100k for speed and keep memory use within the limited workspace resource
     n_sample = 100000;
-    //
   }
 
   // Sample from the dataset
