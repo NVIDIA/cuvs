@@ -76,13 +76,13 @@ def _add_fit_parser(subparsers: argparse._SubParsersAction) -> None:
         "--n_clusters",
         type=int,
         required=True,
-        help="Number of KMeans clusters (the `nc` parameter).",
+        help="Number of KMeans clusters.",
     )
     p.add_argument(
         "--pca_components",
         type=int,
         required=True,
-        help="Number of PCA components per cluster (the `ncomp` parameter).",
+        help="Number of PCA components per cluster.",
     )
     p.add_argument(
         "--seed",

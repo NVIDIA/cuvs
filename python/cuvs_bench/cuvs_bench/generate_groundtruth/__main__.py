@@ -115,10 +115,6 @@ def choose_random_queries_with_jitter(dataset, n_queries, seed=12345):
     """Pick ``n_queries`` random rows from ``dataset``, add Gaussian jitter at
     scale ``0.1 * std(sample)``, and re-normalize to unit norm iff the
     original dataset rows already are.
-
-    Mirrors the query-generation step of ``cuvs_bench.synthesize_dataset``
-    (see ``_ground_truth.generate_queries``), but operates on a real on-disk
-    dataset memmap instead of a fingerprint.
     """
     import numpy as _np
 

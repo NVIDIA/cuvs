@@ -2,11 +2,10 @@
 
 Generates a synthetic dataset of arbitrary size from a small sample of a real dataset, for benchmarking vector indexes at scales (100M, 1B, 10B+) where the real dataset isn't available at the target size. Purely random vectors aren't a substitute — the clustering structure, neighbor density, and intrinsic dimensionality of real embeddings are what dominate ANN index behavior, and random data has none of those.
 
-The synthetic dataset approximates the real dataset's behavior under ANN search rather than its raw vector content. When you build the same index on both and sweep the same search-effort knob (CAGRA's `itopk_size`, HNSW's `efSearch`, DiskANN's `L`, …), the recall–throughput Pareto curves track each other and relative algorithm rankings carry over. Distance values are not preserved; only the search trade-off is.
+The synthetic dataset approximates the real dataset's behavior under ANN search rather than its raw vector content. When you build the same index on both and sweep the same search-effort knob (CAGRA's `itopk_size`, HNSW's `efSearch`, DiskANN's `L`, …), the recall–throughput Pareto curves track each other and relative algorithm rankings carry over.
 
 Ground truth is generated alongside the data and can be computed at any target size without storing the full dataset on disk. See [How it works](#how-it-works) for the mechanism.
 
-The matching is index-agnostic. The approximated property is the data distribution itself, so the same fingerprint works whether you benchmark CAGRA, IVF-PQ, HNSW, DiskANN, or any other ANN index.
 
 # When to use this
 
@@ -31,8 +30,9 @@ The `fit` step learns the small fingerprint highlighted in blue above. The `gene
 The `fit` step produces a single NPZ file holding only per-cluster aggregate statistics:
 
 - `centroids` — means over each cluster's points.
-- `pca_components` — eigenvectors of the per-cluster residual covariance (linear functionals of the cluster, not raw rows).
-- `pca_explained_var`, `pca_noise_var` — eigenvalues and residual variance scalars.
+- `pca_components_arr` — eigenvectors of the per-cluster residual covariance (linear functionals of the cluster, not raw rows).
+- `pca_explained_var_arr`, `pca_noise_var` — eigenvalues and residual variance scalars.
+- `pca_n_components` — the requested number of PCA components.
 - `variances_per_dim` — per-dim variance per cluster.
 - `densities` — per-cluster point counts, normalized.
 - `is_normalized_data` — single bool: whether the fit-time input was L2-unit-norm. Drives whether the synthetic data is L2-normalized at `generate`/`verify` time so the output matches the real data's normalization.
@@ -104,9 +104,9 @@ Supported input formats: `.fbin` (cuvs-bench layout), `.npy`, `.pkl`.
 
 `nprobes` is how many nearest clusters each ground-truth query probes when computing GT. We don't search the whole synthetic dataset for each query — that would be O(`total_rows`) per query and takes long at multi-billion scale. Instead, for each query we re-generate only the `nprobes` clusters whose centroids are closest to the query and run brute-force k-NN against just those points.
 
-By construction `nprobes ≤ n_clusters` (probing more clusters than exist is meaningless). **Recommended starting point: `nprobes ≈ 5% of n_clusters`.** For the fit recipe in Step 1 (`n_clusters=10K` at 100M targets, `100K` at 1B), that lands at `nprobes=500` and `5000` respectively. Empirically this keeps Step 3's recall above 0.99, i.e. the cheap nprobe GT and the exact GT agree on more than 99% of true neighbors. Higher `nprobes` is more accurate but linearly more expensive at GT time, so this is the operating point where returns flatten.
+By construction `nprobes ≤ n_clusters` (probing more clusters than exist is meaningless). **Recommended starting point: `nprobes ≈ 5% of n_clusters`.** For the fit recipe in Step 1 (`n_clusters=10K` at 100M targets, `100K` at 1B), that lands at `nprobes=500` and `5000` respectively. Empirically this keeps Step 3's recall above 0.999, i.e. the cheap nprobe GT and the exact GT agree on more than 99.9% of true neighbors. Higher `nprobes` is more accurate but linearly more expensive at GT time.
 
-> **What "recall" means in this step.** The recall reported by `verify` is *internal to the GT pipeline* — it measures how well the cheap nprobe GT agrees with the exact streaming GT on a small dummy dataset built from the same fingerprint. It is **not** the recall of any ANN index you'll later benchmark on the synthetic data. That index recall is the thing Step 6 measures, and it's the actual quantity the whole synthetic pipeline is designed to preserve. Don't conflate the two.
+> **What "recall" means in this step.** The recall reported by `verify` is *internal to the GT pipeline* — it measures how well the cheap nprobe GT agrees with the exact streaming GT. It is **not** the recall of any ANN index you'll later benchmark on the synthetic data.
 
 **`nprobes` requirements *shrink* with `total_rows`, not grow.** A fingerprint has a fixed `n_clusters`, so at larger `total_rows` each cluster holds proportionally more points (same `densities`, just more samples each). For a fixed `k`, a query's top-`k` true neighbors then concentrate in *fewer* nearby clusters than they would at a smaller scale — both because each cluster contributes more candidates and because the k-th nearest distance shrinks as overall density grows. So an `nprobes` calibrated at a small `total_rows` is a **safe upper bound** for the same fingerprint at larger target sizes — it can only over-probe at the larger scale, never under-probe.
 
@@ -121,12 +121,12 @@ python -m cuvs_bench.synthesize_dataset verify \
     --nprobes 500            # ~5% of n_clusters=10K
 ```
 
-If GT-vs-GT recall ≥ 0.99, that `nprobes` is safe to reuse in Step 4 at any larger `total_rows` — Step 3 conservatively over-estimates what you actually need at scale, so the value carries over without re-tuning. If recall is lower, bump `nprobes` and re-run Step 3 (cheap). Do this once per fingerprint — it's much cheaper than re-running the expensive generation step with a wrong `nprobes`.
+If GT-vs-GT recall ≥ 0.999, that `nprobes` is safe to reuse in Step 4 at any larger `total_rows` — Step 3 conservatively over-estimates what you actually need at scale, so the value carries over without re-tuning. If recall is lower, bump `nprobes` and re-run Step 3 (cheap).
 
 ### Step 4 — Generate the synthetic dataset + queries + GT
 
 #### **Option 1 (Fast path): nprobe GT.**
-Uses the `nprobes` you settled on in Step 3 — only the `nprobes` clusters nearest each query are regenerated and brute-forced. As mentioned in the previous step, using about 5% of `n_clusters` is a safe heuristic to reach ≥ 0.999.
+Uses the `nprobes` you settled on in Step 3 — only the `nprobes` clusters nearest each query are regenerated and brute-forced. As mentioned in the previous step, using about 5% of `n_clusters` is a good heuristic to reach ≥ 0.999.
 
 ```bash
 python -m cuvs_bench.synthesize_dataset generate \
@@ -213,7 +213,7 @@ The run drops results under `$RAPIDS_DATASET_ROOT_DIR/<dataset_name>/result/{bui
 
 ### Step 7 — *(Optional validation)* Compare against the real dataset
 
-If you *also* have the real dataset at the same `total_rows`, you can validate that the synthetic-data benchmark numbers are a faithful stand-in for the real ones. The recall-vs-throughput Pareto curves are the right thing to compare — if the synthetic dataset is doing its job, both curves should overlap closely across the algorithms you ran. Repeat Steps 5–6 with the real dataset, then compare.
+If you *also* have the real dataset at the same `total_rows`, you can validate that the synthetic-data benchmark numbers are a faithful stand-in for the real ones. If the synthetic dataset is built with the right parameters, both curves should overlap closely across the algorithms you ran. Repeat Steps 5–6 with the real dataset, then compare.
 
 > **Use random-jitter queries on the real dataset too.** The synthetic dataset's queries are random-jitter by construction (sampled from the data and perturbed with a small Gaussian — see [Query generation](#query-generation-random-jitter)), so the synthetic benchmark already measures index behavior under a *data-query distribution* where queries sit on the data manifold. To make the real-vs-synth comparison apples-to-apples, the real dataset's queries should follow the same scheme — otherwise you'd be comparing two different query distributions on top of two different data distributions, and any gap in the curves could be either effect. Generate them with:
 >
@@ -229,48 +229,6 @@ If you *also* have the real dataset at the same `total_rows`, you can validate t
 > This writes `queries.fbin`, `groundtruth.neighbors.ibin`, and `groundtruth.distances.fbin` into the real dataset's directory; reference those as `query_file` / `groundtruth_*_file` in the YAML below.
 >
 > If the real dataset already ships with a fixed benchmark query set you specifically want to evaluate on, you can use that instead — but the comparison is then no longer a clean test of the data-distribution match alone, so you'll likely need to **re-tune the synthetic fingerprint** (loop back to Step 1). Do the tuning *at parity* — generate the synthetic dataset at the same `total_rows` as the real dataset, plot real-vs-synth, and adjust the knobs until the curves overlap before scaling `--total_rows` up. This is the same loop the [Sanity check before scaling up](#sanity-check-before-scaling-up) paragraph below describes.
-
-**1. Register the real dataset** alongside the synthetic one (same `my_datasets.yaml`, same `$RAPIDS_DATASET_ROOT_DIR/`):
-
-```text
-$RAPIDS_DATASET_ROOT_DIR/
-├── my_real_data/                       # ← your original real dataset
-│   ├── base.fbin
-│   ├── query.fbin
-│   └── groundtruth.neighbors.ibin
-└── my_real_data_synth_100M/
-    └── …
-```
-
-```yaml
-- name: my_real_data
-  dims: 768
-  distance: euclidean
-  base_file: my_real_data/base.fbin
-  query_file: my_real_data/query.fbin
-  groundtruth_neighbors_file: my_real_data/groundtruth.neighbors.ibin
-```
-
-**2. Run and plot the same algorithms on the real dataset:**
-
-```bash
-python -m cuvs_bench.run \
-    --dataset my_real_data \
-    --dataset-path $RAPIDS_DATASET_ROOT_DIR \
-    --dataset-configuration ./my_datasets.yaml \
-    --algorithms cuvs_cagra,cuvs_ivf_pq,hnswlib \
-    --build --search
-
-python -m cuvs_bench.plot \
-    --dataset my_real_data \
-    --dataset-path $RAPIDS_DATASET_ROOT_DIR \
-    --algorithms cuvs_cagra,cuvs_ivf_pq,hnswlib \
-    --output-filepath ./plots/
-```
-
-**3. Compare the two Pareto curves.** Place the two PNGs side-by-side and inspect: per-algorithm curves should be visually close, and *relative* algorithm rankings (which algorithm wins at which recall bucket) should be identical. That's the property the matching metric guarantees.
-
-For a single overlaid plot, load the search CSVs directly — they live at `$RAPIDS_DATASET_ROOT_DIR/<dataset_name>/result/search/<algo>.csv` and contain `recall`, `qps`, and per-config columns. Plot the real curve in solid and the synthetic in dashed on the same axes.
 
 #### Sanity check before scaling up
 
@@ -294,7 +252,8 @@ In the plots below, **SS** = *sample size* (rows from the real dataset used to f
 python -m cuvs_bench.synthesize_dataset generate \
     --stats path/to/falcon_10M_nc100000_ncomp32_fingerprint.npz \
     --total_rows 960000000 \
-    --gt_mode exact
+    --gt_mode exact \
+    --output_dir synthetic_falcon_960M/
 ```
 
 
@@ -308,7 +267,8 @@ python -m cuvs_bench.synthesize_dataset generate \
 python -m cuvs_bench.synthesize_dataset generate \
     --stats path/to/bigann_10M_nc100000_ncomp32_fingerprint.npz \
     --total_rows 1000000000 \
-    --gt_mode exact
+    --gt_mode exact \
+    --output_dir synthetic_bigann_1B/
 ```
 
 
@@ -322,7 +282,8 @@ python -m cuvs_bench.synthesize_dataset generate \
 python -m cuvs_bench.synthesize_dataset generate \
     --stats path/to/wiki_880K_nc8800_ncomp32_fingerprint.npz \
     --total_rows 88000000 \
-    --gt_mode exact
+    --gt_mode exact \
+    --output_dir synthetic_wiki_88M/
 ```
 
 
@@ -345,9 +306,15 @@ The CLI is a thin wrapper. For programmatic use:
 
 ```python
 from cuvs_bench.synthesize_dataset import (
-    fit_cluster_stats, save_cluster_stats, load_cluster_stats,
-    cluster_config_from_stats, generate_synthetic_dataset,
-    generate_queries, compute_groundtruth_nprobe, verify_groundtruth,
+    Fingerprint,
+    fit_cluster_stats,
+    save_fingerprint,
+    load_fingerprint,
+    generate_synthetic_dataset,
+    generate_queries,
+    compute_groundtruth_nprobe,
+    compute_groundtruth_exact,
+    verify_groundtruth,
 )
 ```
 
