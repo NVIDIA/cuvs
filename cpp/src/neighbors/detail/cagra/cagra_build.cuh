@@ -1637,22 +1637,7 @@ void build_knn_graph(
                  pq.build_params.metric == cuvs::distance::DistanceType::InnerProduct ||
                  pq.build_params.metric == cuvs::distance::DistanceType::CosineExpanded,
                "Currently only L2Expanded, InnerProduct and CosineExpanded metrics are supported");
-
-  // Guard against potential FP16 distance overflow for large-magnitude datasets -> back to FP32.
-  const bool using_fp16_distance = pq.search_params.internal_distance_dtype == CUDA_R_16F ||
-                                   pq.search_params.coarse_search_dtype == CUDA_R_16F;
-  if (using_fp16_distance &&
-      ivf_pq::helpers::estimate_fp16_overflow(res, dataset, pq.build_params.metric)) {
-    RAFT_LOG_WARN(
-      "IVF-PQ internal type of FP16 is likely insufficient for this dataset to avoid overflow in "
-      "distance computations -> "
-      "Switching 'internal_distance_dtype' and 'coarse_search_dtype' to FP32");
-    pq.search_params.internal_distance_dtype = CUDA_R_32F;
-    pq.search_params.coarse_search_dtype     = CUDA_R_32F;
-    // lut_dtype is left unchanged because its per-subspace terms are smaller by a factor of pq_dim
-    // and therefore, less likely to overflow.
-  }
-
+    
   uint32_t node_degree = knn_graph.extent(1);
   raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> fun_scope(
     "cagra::build_knn_graph<IVF-PQ>(%zu, %zu, %u)",
@@ -2231,6 +2216,20 @@ index<T, IdxT> build(
     } else {
       RAFT_LOG_DEBUG("Selecting IVF-PQ solver");
       knn_build_params = cagra::graph_build_params::ivf_pq_params(dataset.extents(), params.metric);
+       // Guard against potential FP16 distance overflow for large-magnitude datasets -> back to FP32.
+      const bool using_fp16_distance = pq.search_params.internal_distance_dtype == CUDA_R_16F ||
+                                      pq.search_params.coarse_search_dtype == CUDA_R_16F;
+      if (using_fp16_distance &&
+          ivf_pq::helpers::estimate_fp16_overflow(res, dataset, pq.build_params.metric)) {
+        RAFT_LOG_WARN(
+          "IVF-PQ internal type of FP16 is likely insufficient for this dataset to avoid overflow in "
+          "distance computations -> "
+          "Switching 'internal_distance_dtype' and 'coarse_search_dtype' to FP32");
+        pq.search_params.internal_distance_dtype = CUDA_R_32F;
+        pq.search_params.coarse_search_dtype     = CUDA_R_32F;
+        // lut_dtype is left unchanged because its per-subspace terms are smaller by a factor of pq_dim
+        // and therefore, less likely to overflow.
+      }
     }
   }
   RAFT_EXPECTS(
