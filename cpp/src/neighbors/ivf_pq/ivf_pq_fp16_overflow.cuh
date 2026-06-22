@@ -10,6 +10,7 @@
 #include <cuvs/distance/distance.hpp>
 
 #include <raft/core/device_mdarray.hpp>
+#include <raft/core/error.hpp>
 #include <raft/core/mdspan.hpp>
 #include <raft/core/operators.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
@@ -43,9 +44,13 @@ float estimate_max_squared_norm(
   // - n_sample increases fast for small n_rows and slow to saturation for large n_rows
   // Idea: we sample most of the dataset when it is small-sized, and only a small fraction
   // (up to a maximum/saturation number) when the dataset size grows large.
-  // kSaturation is selected as a compromise between runtime and recall.
+  // kSaturation and kDelay are selected as a compromise between runtime and outlier recall.
   constexpr int64_t kSaturation = 100000;
-  int64_t n_sample = (n_rows * kSaturation + (n_rows + kSaturation - 1)) / (n_rows + kSaturation);
+  constexpr int64_t kDelay      = kSaturation * 10;
+  RAFT_EXPECTS(kDelay >= kSaturation,
+               "kDelay must not be smaller than kSaturation so that n_sample is always less than "
+               "or equal to n_rows");
+  int64_t n_sample = (n_rows * kSaturation + (n_rows + kDelay - 1)) / (n_rows + kDelay);
 
   // Sample from the dataset
   auto mr = raft::resource::get_workspace_resource_ref(handle);
