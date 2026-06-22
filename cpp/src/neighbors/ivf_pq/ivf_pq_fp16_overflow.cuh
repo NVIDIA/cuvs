@@ -27,7 +27,12 @@
 namespace cuvs::neighbors::ivf_pq::detail {
 
 /**
- * Estimate max_i ||x_i||^2 over the dataset by sampling from its rows.
+ * Estimate max_i ||x_i||^2 over the dataset by uniformly sampling a fraction from it.
+ *
+ * Decision: Uniform sampling is selected as it is sufficient to detect FP16 overflow in
+ * the datasets, where overflow-causing large vectors are frequent (e.g. SIFT 1M). For 
+ * dataset with rare large outliers, we might preferably sample biasedly towards large vectors,
+ * e.g. via top-k selection over the vectors with largest L_inf norm.
  */
 template <typename DataT, typename Accessor>
 float estimate_max_squared_norm(
@@ -59,7 +64,7 @@ float estimate_max_squared_norm(
   raft::matrix::sample_rows<DataT, int64_t>(
     handle, raft::random::RngState{137}, dataset, sample.view());
 
-  // Compute mapped squared norm
+  // Compute float-mapped squared norm
   auto d_map_sq_norm = raft::make_device_vector<float, int64_t>(handle, n_sample);
   raft::linalg::reduce<raft::Apply::ALONG_ROWS>(
     handle,
