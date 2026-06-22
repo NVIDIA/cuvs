@@ -45,7 +45,7 @@ float estimate_max_squared_norm(
   // Idea: we sample most of the dataset when it is small-sized, and only a small fraction
   // (up to a maximum/saturation number) when the dataset size grows large.
   // kSaturation and kDelay are selected as a compromise between runtime and outlier recall.
-  constexpr int64_t kSaturation = 100000;
+  constexpr int64_t kSaturation = 20000;
   constexpr int64_t kDelay      = kSaturation * 10;
   RAFT_EXPECTS(kDelay >= kSaturation,
                "kDelay must not be smaller than kSaturation so that n_sample is always less than "
