@@ -59,21 +59,20 @@ __global__ void kern_max_squared_norm(const DataT* __restrict__ data,
 template <typename DataT, typename Accessor>
 float estimate_max_squared_norm(
   raft::resources const& res,
-  raft::mdspan<const DataT, raft::matrix_extent<int64_t>, raft::row_major, Accessor> dataset,
-  double sample_fraction)
+  raft::mdspan<const DataT, raft::matrix_extent<int64_t>, raft::row_major, Accessor> dataset)
 {
   auto stream          = raft::resource::get_cuda_stream(res);
   const int64_t n_rows = dataset.extent(0);
   const int64_t dim    = dataset.extent(1);
 
-  // Determine sample size based on fraction, with bounds
-  int64_t n_sample = static_cast<int64_t>(sample_fraction * static_cast<double>(n_rows));
-  if (n_rows <= 1000) {
-    n_sample = n_rows;  // for small datasets, just use them all and skip the sampling overhead
-  } else if (n_rows > 100000) {
-    // cap the sample size to 100k for speed and keep memory use within the limited workspace resource
-    n_sample = 100000;
-  }
+  // Determine sample size based on a smooth saturation equation. The equation satisfies:
+  // - n_sample is always less than or equal to n_rows
+  // - n_sample saturates to kSaturation when n_rows is inf
+  // - n_sample increases fast for small n_rows and slow to saturation for large n_rows
+  // Idea: we greedily sample most of the dataset when it is small-sized, and cap it to kSaturation
+  // when dataset size grows very large.
+  constexpr int64_t kSaturation = 100000;
+  int64_t n_sample = (n_rows * kSaturation + (n_rows + kSaturation - 1)) / (n_rows + kSaturation);
 
   // Sample from the dataset
   auto mr = raft::resource::get_workspace_resource_ref(res);
@@ -113,8 +112,7 @@ template <typename DataT, typename Accessor>
 bool estimate_fp16_overflow(
   raft::resources const& res,
   raft::mdspan<const DataT, raft::matrix_extent<int64_t>, raft::row_major, Accessor> dataset,
-  cuvs::distance::DistanceType metric,
-  double sample_fraction = 0.01)
+  cuvs::distance::DistanceType metric)
 {
   // Cosine similarity scores does normalization itself, so overflow won't happen
   if (metric == cuvs::distance::DistanceType::CosineExpanded) { return false; }
@@ -125,7 +123,7 @@ bool estimate_fp16_overflow(
   const float overflow_detect_threshold = kFp16DefensiveMargin * kFp16Max;
 
   const float max_vector_sq_norm =
-    cuvs::neighbors::ivf_pq::detail::estimate_max_squared_norm(res, dataset, sample_fraction);
+    cuvs::neighbors::ivf_pq::detail::estimate_max_squared_norm(res, dataset);
 
   const float max_distance_sq_norm = metric == cuvs::distance::DistanceType::L2Expanded
                                        ? 4.0f * max_vector_sq_norm
