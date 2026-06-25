@@ -62,6 +62,12 @@ def compute_groundtruth_exact(
     Each cluster is regenerated, brute-forced against the queries, and the
     running top-k is merged.
     """
+    if total_rows <= 0:
+        raise ValueError(f"total_rows must be > 0, got {total_rows}.")
+    if not 1 <= k <= total_rows:
+        raise ValueError(
+            f"k must be in [1, total_rows]; got k={k}, total_rows={total_rows}. "
+        )
     nqueries = len(queries)
     points_per_cluster = get_num_points_per_cluster(total_rows, config)
     cumsum = np.cumsum(points_per_cluster)
@@ -126,6 +132,17 @@ def compute_groundtruth_nprobe(
     """Cheap GT via cluster probing: only the ``nprobes`` nearest clusters
     per query are regenerated and searched.
     """
+    if total_rows <= 0:
+        raise ValueError(f"total_rows must be > 0, got {total_rows}.")
+    if not 1 <= k <= total_rows:
+        raise ValueError(
+            f"k must be in [1, total_rows]; got k={k}, total_rows={total_rows}. "
+        )
+    if not 1 <= nprobes <= config.nclusters:
+        raise ValueError(
+            f"nprobes must be in [1, nclusters]; got nprobes={nprobes}, "
+            f"nclusters={config.nclusters}."
+        )
     nqueries = len(queries)
     points_per_cluster = get_num_points_per_cluster(total_rows, config)
     cumsum = np.cumsum(points_per_cluster)

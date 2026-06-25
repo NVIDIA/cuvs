@@ -38,6 +38,20 @@ from ..generate_groundtruth.utils import memmap_bin_file
 from ._fingerprint import Fingerprint
 
 
+def _finalize_dataset(data: np.ndarray) -> np.ndarray:
+    """Validate a loaded dataset and return it as contiguous float32."""
+    if data.ndim != 2:
+        raise ValueError(
+            f"dataset must be 2D (n_rows, n_cols); got ndim={data.ndim}, "
+            f"shape={data.shape}."
+        )
+    if data.shape[1] == 0:
+        raise ValueError(
+            f"dataset must have n_cols > 0; got shape={data.shape}."
+        )
+    return np.ascontiguousarray(data.astype(np.float32))
+
+
 def load_dataset(
     path: str,
     sample_size: int | None = None,
@@ -67,13 +81,19 @@ def load_dataset(
     -------
     np.ndarray, shape (n, d)
     """
+
+    if sample_size is not None and sample_size <= 0:
+        raise ValueError(
+            f"sample_size must be > 0 when provided, got {sample_size}."
+        )
+
     ext = os.path.splitext(path)[1].lower()
 
     if ext == ".npy":
         data = np.load(path)
         if sample_size is not None and sample_size < len(data):
             data = data[:sample_size]
-        return np.ascontiguousarray(data.astype(np.float32))
+        return _finalize_dataset(data)
 
     if ext == ".pkl":
         with open(path, "rb") as f:
@@ -82,38 +102,38 @@ def load_dataset(
             data = np.array(data, dtype=np.float32)
         if sample_size is not None and sample_size < len(data):
             data = data[:sample_size]
-        return np.ascontiguousarray(data.astype(np.float32))
+        return _finalize_dataset(data)
 
     # Default: treat as fbin (covers ".fbin" and unknown extensions).
     # memmap_bin_file auto-detects the legacy uint32 / extended uint64 header.
     mm = memmap_bin_file(path, dtype, mode="r")
     if sample_size is not None:
         mm = mm[:sample_size]
-    return np.ascontiguousarray(mm)
+    return _finalize_dataset(mm)
 
 
-def save_fingerprint(filepath: str, stats: Dict[str, Any]) -> None:
+def save_fingerprint(filepath: str, fingerprint: Dict[str, Any]) -> None:
     """Save a fitted cluster fingerprint to an NPZ file.
 
     Parameters
     ----------
     filepath : str
         Output path. Parent directories are created as needed.
-    stats : dict
-        Dict with keys produced by :func:`fit_cluster_stats`.
+    fingerprint : dict
+        Dict with keys produced by :func:`fit_fingerprint`.
     """
     out_dir = os.path.dirname(filepath)
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
 
-    n_clusters = len(stats["centroids"])
+    n_clusters = len(fingerprint["centroids"])
 
     components_arr = np.empty(n_clusters, dtype=object)
     explained_var_arr = np.empty(n_clusters, dtype=object)
 
     for i in range(n_clusters):
-        comp = stats["pca_components_list"][i]
-        ev = stats["pca_explained_var_list"][i]
+        comp = fingerprint["pca_components_list"][i]
+        ev = fingerprint["pca_explained_var_list"][i]
         if comp is not None:
             components_arr[i] = comp
             explained_var_arr[i] = ev
@@ -123,19 +143,19 @@ def save_fingerprint(filepath: str, stats: Dict[str, Any]) -> None:
             explained_var_arr[i] = np.array([], dtype=np.float32)
 
     to_save = dict(
-        centroids=stats["centroids"],
-        densities=stats["densities"],
-        variances_per_dim=stats["variances_per_dim"],
+        centroids=fingerprint["centroids"],
+        densities=fingerprint["densities"],
+        variances_per_dim=fingerprint["variances_per_dim"],
         pca_components_arr=components_arr,
         pca_explained_var_arr=explained_var_arr,
-        pca_noise_var=stats["pca_noise_var"],
-        pca_n_components=np.array([stats["pca_n_components"]]),
-        norm_unit=np.array([bool(stats.get("norm_unit", False))]),
+        pca_noise_var=fingerprint["pca_noise_var"],
+        pca_n_components=np.array([fingerprint["pca_n_components"]]),
+        norm_unit=np.array([bool(fingerprint.get("norm_unit", False))]),
     )
     # Unit-norm fingerprints carry no quantile grids (generation L2-normalizes).
-    if stats.get("norm_quantiles") is not None:
+    if fingerprint.get("norm_quantiles") is not None:
         to_save["norm_quantiles"] = np.asarray(
-            stats["norm_quantiles"], dtype=np.float32
+            fingerprint["norm_quantiles"], dtype=np.float32
         )
     np.savez(filepath, **to_save)
 

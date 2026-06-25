@@ -35,7 +35,8 @@ The `fit` step produces a single NPZ file holding only per-cluster aggregate sta
 - `pca_n_components` — the requested number of PCA components.
 - `variances_per_dim` — per-dim variance per cluster.
 - `densities` — per-cluster point counts, normalized.
-- `is_normalized_data` — single bool: whether the fit-time input was L2-unit-norm. Drives whether the synthetic data is L2-normalized at `generate`/`verify` time so the output matches the real data's normalization.
+- `norm_unit` — single bool: whether the fit-time input was (≈) L2-unit-norm.
+- `norm_quantiles` — per-cluster norm inverse-CDF: a `(n_clusters, 256)` grid of the real vector-norm distribution within each cluster. At generate time each vector draws a target norm from its cluster's grid (inverse-CDF sampling), so the synthetic data reproduces each cluster's real *radial spread*.
 
 No individual row of the original data is stored anywhere in the fingerprint, and the synthetic data emitted at generate-time is `centroid + RNG`, never a copy of a real row.
 
@@ -93,10 +94,10 @@ python -m cuvs_bench.synthesize_dataset fit \
     --sample_size 1000000 \
     --n_clusters 10000 \
     --pca_components 32 \
-    --output stats.npz
+    --output fingerprint.npz
 ```
 
-The output `stats.npz` can be reused for any target size.
+The output `fingerprint.npz` can be reused for any target size.
 
 Supported input formats: `.fbin` (cuvs-bench layout), `.npy`, `.pkl`.
 
@@ -114,7 +115,7 @@ Before paying for the full-scale generation, run the cheap nprobe GT against the
 
 ```bash
 python -m cuvs_bench.synthesize_dataset verify \
-    --stats stats.npz \
+    --fingerprint fingerprint.npz \
     --total_rows 1000000 \
     --n_queries 1000 \
     --k 10 \
@@ -130,7 +131,7 @@ Uses the `nprobes` you settled on in Step 3 — only the `nprobes` clusters near
 
 ```bash
 python -m cuvs_bench.synthesize_dataset generate \
-    --stats stats.npz \
+    --fingerprint fingerprint.npz \
     --total_rows 1000000000 \
     --n_queries 10000 \
     --k 10 \
@@ -144,7 +145,7 @@ Set `--gt_mode exact` for exact GT — every cluster is regenerated on the GPU a
 
 ```bash
 python -m cuvs_bench.synthesize_dataset generate \
-    --stats stats.npz \
+    --fingerprint fingerprint.npz \
     --total_rows 1000000000 \
     --n_queries 10000 \
     --k 10 \
@@ -237,7 +238,7 @@ For your first comparison run, generate the synthetic dataset *at parity* — i.
 
 # Experiments
 
-We plan to ship pre-fit fingerprints for three commonly-benchmarked datasets — **Falcon** (960M x 1024d), **BigANN** (1B x 128d), and **Wiki** (88M x 768d). Each will be a single `.npz` you can pass straight to Step 4 (`--stats <name>.npz`) and skip Steps 1–3. The experiments below were produced with those fingerprints.
+We plan to ship pre-fit fingerprints for three commonly-benchmarked datasets — **Falcon** (960M x 1024d), **BigANN** (1B x 128d), and **Wiki** (88M x 768d). Each will be a single `.npz` you can pass straight to Step 4 (`--fingerprint <name>.npz`) and skip Steps 1–3. The experiments below were produced with those fingerprints.
 
 In the plots below, **SS** = *sample size* (rows from the real dataset used to fit the fingerprint in Steps 1–3) and **TS** = *target size* (`--total_rows` passed to Step 4, i.e. the number of synthetic rows generated).
 
@@ -250,7 +251,7 @@ In the plots below, **SS** = *sample size* (rows from the real dataset used to f
 
 ```bash
 python -m cuvs_bench.synthesize_dataset generate \
-    --stats path/to/falcon_10M_nc100000_ncomp32_fingerprint.npz \
+    --fingerprint path/to/falcon_10M_nc100000_ncomp32_fingerprint.npz \
     --total_rows 960000000 \
     --gt_mode exact \
     --output_dir synthetic_falcon_960M/
@@ -265,7 +266,7 @@ python -m cuvs_bench.synthesize_dataset generate \
 
 ```bash
 python -m cuvs_bench.synthesize_dataset generate \
-    --stats path/to/bigann_10M_nc100000_ncomp32_fingerprint.npz \
+    --fingerprint path/to/bigann_10M_nc100000_ncomp32_fingerprint.npz \
     --total_rows 1000000000 \
     --gt_mode exact \
     --output_dir synthetic_bigann_1B/
@@ -280,7 +281,7 @@ python -m cuvs_bench.synthesize_dataset generate \
 
 ```bash
 python -m cuvs_bench.synthesize_dataset generate \
-    --stats path/to/wiki_880K_nc8800_ncomp32_fingerprint.npz \
+    --fingerprint path/to/wiki_880K_nc8800_ncomp32_fingerprint.npz \
     --total_rows 88000000 \
     --gt_mode exact \
     --output_dir synthetic_wiki_88M/
@@ -307,7 +308,7 @@ The CLI is a thin wrapper. For programmatic use:
 ```python
 from cuvs_bench.synthesize_dataset import (
     Fingerprint,
-    fit_cluster_stats,
+    fit_fingerprint,
     save_fingerprint,
     load_fingerprint,
     generate_synthetic_dataset,

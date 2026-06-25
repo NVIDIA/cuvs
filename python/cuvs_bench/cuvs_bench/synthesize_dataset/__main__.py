@@ -21,7 +21,7 @@ import sys
 import numpy as np
 
 from ..generate_groundtruth.utils import write_bin
-from ._fit import fit_cluster_stats
+from ._fit import fit_fingerprint
 from ._generate import (
     generate_queries,
     generate_synthetic_dataset_to_file,
@@ -31,8 +31,8 @@ from ._ground_truth import (
     compute_groundtruth_nprobe,
     compute_groundtruth_exact,
 )
-from ._io import load_dataset
 from ._io import (
+    load_dataset,
     load_fingerprint,
     save_fingerprint,
 )
@@ -71,9 +71,7 @@ def _add_fit_parser(subparsers: argparse._SubParsersAction) -> None:
         help=(
             "Use only the FIRST `sample_size` rows of the input "
             "(default: use entire input). No shuffling is performed, so "
-            "make sure the dataset's head-of-file slice is representative "
-            "(pre-shuffle the file beforehand if it has any structural "
-            "ordering, e.g. by class or time)."
+            "make sure the dataset's head-of-file slice is representative."
         ),
     )
     p.add_argument(
@@ -101,7 +99,9 @@ def _add_generate_parser(subparsers: argparse._SubParsersAction) -> None:
         "generate",
         help="Materialize a synthetic dataset + queries + GT from a fingerprint.",
     )
-    p.add_argument("--stats", required=True, help="Path to fingerprint NPZ.")
+    p.add_argument(
+        "--fingerprint", required=True, help="Path to fingerprint NPZ."
+    )
     p.add_argument(
         "--total_rows",
         type=int,
@@ -167,7 +167,9 @@ def _add_verify_parser(subparsers: argparse._SubParsersAction) -> None:
             "a full-scale generate run using ``generate''."
         ),
     )
-    p.add_argument("--stats", required=True, help="Path to fingerprint NPZ.")
+    p.add_argument(
+        "--fingerprint", required=True, help="Path to fingerprint NPZ."
+    )
     p.add_argument(
         "--total_rows",
         type=int,
@@ -209,7 +211,7 @@ def _cmd_fit(args: argparse.Namespace) -> int:
     data = load_dataset(args.dataset, sample_size=args.sample_size)
     print(f"Loaded data shape: {data.shape}")
 
-    stats = fit_cluster_stats(
+    fingerprint = fit_fingerprint(
         data=data,
         n_clusters=args.n_clusters,
         pca_components=args.pca_components,
@@ -224,14 +226,19 @@ def _cmd_fit(args: argparse.Namespace) -> int:
             f"{stem}_nc{args.n_clusters}_ncomp{args.pca_components}"
             f"{ss_tag}_seed{args.seed}.npz"
         )
-    save_fingerprint(output_path, stats)
-    print(f"Saved cluster fingerprint to {output_path}")
+    save_fingerprint(output_path, fingerprint)
+    print(f"Saved fingerprint to {output_path}")
     return 0
 
 
 def _cmd_generate(args: argparse.Namespace) -> int:
-    print(f"Loading fingerprint from {args.stats}...")
-    config = load_fingerprint(args.stats, seed=args.seed)
+    print(f"Loading fingerprint from {args.fingerprint}...")
+    config = load_fingerprint(args.fingerprint, seed=args.seed)
+    if args.nprobes is not None and args.nprobes > config.nclusters:
+        sys.exit(
+            f"--nprobes ({args.nprobes}) must be <= the fingerprint's cluster "
+            f"count ({config.nclusters})."
+        )
     print(
         f"  {config.nclusters} clusters, {config.ncols} dims, "
         f"ncomp={config.pca_n_components}, "
@@ -293,8 +300,13 @@ def _cmd_generate(args: argparse.Namespace) -> int:
 
 
 def _cmd_verify(args: argparse.Namespace) -> int:
-    print(f"Loading fingerprint from {args.stats}...")
-    config = load_fingerprint(args.stats, seed=args.seed)
+    print(f"Loading fingerprint from {args.fingerprint}...")
+    config = load_fingerprint(args.fingerprint, seed=args.seed)
+    if args.nprobes is not None and args.nprobes > config.nclusters:
+        sys.exit(
+            f"--nprobes ({args.nprobes}) must be <= the fingerprint's cluster "
+            f"count ({config.nclusters})."
+        )
     nprobes = args.nprobes
     if nprobes is None:
         nprobes = max(1, round(config.nclusters * 0.05))
@@ -345,6 +357,34 @@ def main(argv: list[str] | None = None) -> int:
     _add_verify_parser(subparsers)
 
     args = parser.parse_args(argv)
+
+    if args.command == "fit":
+        if args.sample_size is not None and args.sample_size <= 0:
+            parser.error(
+                f"--sample_size must be > 0 when provided "
+                f"(got {args.sample_size})."
+            )
+        if args.n_clusters <= 0:
+            parser.error(f"--n_clusters must be > 0 (got {args.n_clusters}).")
+        if args.pca_components <= 0:
+            parser.error(
+                f"--pca_components must be > 0 (got {args.pca_components})."
+            )
+    elif args.command in ("generate", "verify"):
+        if args.total_rows <= 0:
+            parser.error(f"--total_rows must be > 0 (got {args.total_rows}).")
+        if args.n_queries <= 0:
+            parser.error(f"--n_queries must be > 0 (got {args.n_queries}).")
+        if args.n_queries > args.total_rows:
+            parser.error(
+                f"--n_queries ({args.n_queries}) must be <= --total_rows "
+                f"({args.total_rows}) for sampling without replacement."
+            )
+        if args.k <= 0:
+            parser.error(f"--k must be > 0 (got {args.k}).")
+        if args.nprobes is not None and args.nprobes <= 0:
+            parser.error(f"--nprobes must be > 0 (got {args.nprobes}).")
+
     if args.command == "fit":
         return _cmd_fit(args)
     if args.command == "generate":

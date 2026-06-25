@@ -73,6 +73,18 @@ class Fingerprint:
     norm_unit: bool = False
 
     def __post_init__(self):
+        if self.cluster_densities.shape != (self.nclusters,):
+            raise ValueError(
+                f"cluster_densities shape {self.cluster_densities.shape} does "
+                f"not match expected ({self.nclusters},)."
+            )
+        if not np.isfinite(self.cluster_densities).all():
+            raise ValueError(
+                "cluster_densities must contain only finite values "
+                "(no NaN/Inf)."
+            )
+        if (self.cluster_densities < 0).any():
+            raise ValueError("cluster_densities must be non-negative.")
         total = float(self.cluster_densities.sum())
         if total <= 0.0:
             raise ValueError("cluster_densities must sum to a positive value")

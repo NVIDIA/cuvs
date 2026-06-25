@@ -380,7 +380,7 @@ def main():
             )
 
         queries_filename = os.path.join(
-            args.output, "queries" + suffix_from_dtype(dtype)
+            args.output, "queries" + suffix_from_dtype(queries.dtype)
         )
         print("Writing queries file", queries_filename)
         write_bin(queries_filename, queries)

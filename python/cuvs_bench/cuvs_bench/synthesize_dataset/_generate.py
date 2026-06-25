@@ -37,14 +37,12 @@ def get_cluster_seed(base_seed: int, cluster_id: int) -> int:
 
 
 def resolve_norm_scheme(config: Fingerprint) -> str:
-    """Norm-rescaling scheme for generation, derived purely from the fingerprint.
+    """Norm-rescaling scheme for generation, derived from the fingerprint.
 
-    - ``"unit"``: fit flagged the data as unit-norm -> L2-normalize (fast path).
+    - ``"unit"``: fit flagged the data as unit-norm -> L2-normalize.
     - ``"percentile"``: fit stored a per-cluster norm-quantile grid -> each cluster
       reproduces its own real radial spread via inverse-CDF sampling.
     - ``"off"``: neither -> vectors keep their natural generated magnitude.
-
-    Not a user knob -- it follows the fit.
     """
     if getattr(config, "norm_unit", False):
         return "unit"
@@ -132,6 +130,7 @@ def gen_cluster_gpu(
         points *= scale
         points += center
 
+    # rescale norm to match radial distribution
     scheme = resolve_norm_scheme(config)
     points = _rescale_to_scheme(points, scheme, config, cluster_id, rng)
 
@@ -249,17 +248,29 @@ def generate_synthetic_dataset_to_file(
     buf_offset = 0
     rows_written = 0
     write_thread: threading.Thread | None = None
+    write_exception: Exception | None = None
 
     def _wait_for_write() -> None:
-        nonlocal write_thread
+        nonlocal write_thread, write_exception
         if write_thread is not None:
             write_thread.join()
             write_thread = None
+        if write_exception is not None:
+            exc = write_exception
+            write_exception = None
+            raise exc
+
+    def _write_buffer(f, buf_view: np.ndarray) -> None:
+        nonlocal write_exception
+        try:
+            buf_view.tofile(f)
+        except Exception as exc:
+            write_exception = exc
 
     def _flush_async(f, buf_view: np.ndarray) -> None:
         nonlocal write_thread
         write_thread = threading.Thread(
-            target=lambda: buf_view.tofile(f), daemon=True
+            target=lambda: _write_buffer(f, buf_view), daemon=True
         )
         write_thread.start()
 

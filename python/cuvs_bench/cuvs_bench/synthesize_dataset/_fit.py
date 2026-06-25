@@ -79,10 +79,12 @@ def _fit_cluster_pca(
     explained_var = cp.asnumpy(cp.asarray(out.explained_var)).astype(
         np.float32
     )
+
+    del residuals_gpu, out
     return components, explained_var
 
 
-def fit_cluster_stats(
+def fit_fingerprint(
     data: np.ndarray,
     n_clusters: int,
     pca_components: int,

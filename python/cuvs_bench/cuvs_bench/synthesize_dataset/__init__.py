@@ -4,7 +4,7 @@
 #
 
 from ._fingerprint import Fingerprint
-from ._fit import fit_cluster_stats
+from ._fit import fit_fingerprint
 from ._generate import (
     gen_cluster_gpu,
     generate_queries,
@@ -29,7 +29,7 @@ __all__ = [
     "load_fingerprint",
     "compute_groundtruth_nprobe",
     "compute_groundtruth_exact",
-    "fit_cluster_stats",
+    "fit_fingerprint",
     "gen_cluster_gpu",
     "generate_queries",
     "generate_synthetic_dataset",
