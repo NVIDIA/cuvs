@@ -22,9 +22,8 @@ Fingerprint NPZ file schema (written by :func:`save_fingerprint`, read by
 - ``pca_noise_var``         : float32, shape (nclusters,)
 - ``pca_n_components``      : int, scalar (the requested ncomp; actual ncomp per
                               cluster may be smaller if it had too few points).
-- ``is_normalized_data``    : bool, scalar — whether the fit-time input was
-                              detected as L2-unit-norm. Drives the default
-                              ``normalize`` setting at generate/verify time.
+- ``norm_quantiles``        : float32, shape (nclusters, 256) — per-cluster
+                              empirical inverse-CDF of the real vector norms.
 """
 
 from __future__ import annotations
@@ -123,8 +122,7 @@ def save_fingerprint(filepath: str, stats: Dict[str, Any]) -> None:
             components_arr[i] = np.array([], dtype=np.float32)
             explained_var_arr[i] = np.array([], dtype=np.float32)
 
-    np.savez(
-        filepath,
+    to_save = dict(
         centroids=stats["centroids"],
         densities=stats["densities"],
         variances_per_dim=stats["variances_per_dim"],
@@ -132,8 +130,14 @@ def save_fingerprint(filepath: str, stats: Dict[str, Any]) -> None:
         pca_explained_var_arr=explained_var_arr,
         pca_noise_var=stats["pca_noise_var"],
         pca_n_components=np.array([stats["pca_n_components"]]),
-        is_normalized_data=np.array([bool(stats["is_normalized_data"])]),
+        norm_unit=np.array([bool(stats.get("norm_unit", False))]),
     )
+    # Unit-norm fingerprints carry no quantile grids (generation L2-normalizes).
+    if stats.get("norm_quantiles") is not None:
+        to_save["norm_quantiles"] = np.asarray(
+            stats["norm_quantiles"], dtype=np.float32
+        )
+    np.savez(filepath, **to_save)
 
 
 def load_fingerprint(filepath: str, seed: int) -> Fingerprint:
@@ -155,6 +159,14 @@ def load_fingerprint(filepath: str, seed: int) -> Fingerprint:
             pca_explained_var_list.append(None)
 
     centroids = data["centroids"]
+    norm_quantiles = (
+        np.asarray(data["norm_quantiles"], dtype=np.float32)
+        if "norm_quantiles" in data.files
+        else None
+    )
+    norm_unit = (
+        bool(data["norm_unit"][0]) if "norm_unit" in data.files else False
+    )
     return Fingerprint(
         nclusters=int(centroids.shape[0]),
         ncols=int(centroids.shape[1]),
@@ -166,5 +178,6 @@ def load_fingerprint(filepath: str, seed: int) -> Fingerprint:
         pca_explained_var_list=pca_explained_var_list,
         pca_noise_var=data["pca_noise_var"],
         pca_n_components=int(data["pca_n_components"][0]),
-        is_normalized_data=bool(data["is_normalized_data"][0]),
+        norm_quantiles=norm_quantiles,
+        norm_unit=norm_unit,
     )

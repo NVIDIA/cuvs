@@ -10,6 +10,8 @@ Pipeline:
    the cluster's residuals, capturing the dominant intra-cluster correlations.
 3. Estimate a residual noise variance per cluster (the variance not captured
    by the top-``ncomp`` components).
+4. Compute a per-cluster norm inverse-CDF (quantile grid) if needed, which is stored as
+   ``norm_quantiles`` and used by the "percentile" norm scheme at generate time.
 
 The output dict can be saved with :func:`save_fingerprint`.
 """
@@ -25,7 +27,12 @@ from cuvs.cluster import kmeans as cuvs_kmeans
 from cuvs.preprocessing import pca as cuvs_pca
 from tqdm import tqdm
 
-from ..generate_groundtruth.utils import is_l2_normalized
+# Number of points in each per-cluster norm inverse-CDF quantile grid.
+_NORM_QUANTILE_COUNT = 256
+
+# Tolerance for checking if the real vectors are essentially unit-norm (mean ~1, tiny spread).
+_NORM_UNIT_MEAN_TOL = 0.02
+_NORM_UNIT_CV_TOL = 0.05
 
 
 def _run_kmeans(
@@ -104,22 +111,40 @@ def fit_cluster_stats(
         ``pca_explained_var_list``  : list of (ncomp,) float32 arrays or None
         ``pca_noise_var``           : (n_clusters,) float32
         ``pca_n_components``        : int (the requested ncomp)
-        ``is_normalized_data``     : bool — whether the fit input was
-                                      already L2-unit-norm. ``generate`` and
-                                      ``verify`` use this to default their
-                                      ``normalize`` setting.
+        ``norm_quantiles``         : (n_clusters, 256) float32 — per-cluster
+                                      empirical inverse-CDF of the real vector
+                                      norms.
     """
     n_dim = data.shape[1]
     data_sample = np.ascontiguousarray(data.astype(np.float32))
 
-    is_normalized_data = is_l2_normalized(data_sample)
-    print(
-        "Detected input as "
-        + ("L2-normalized" if is_normalized_data else "non-L2-normalized")
-        + " (sampled rows have norms "
-        + ("≈ 1.0" if is_normalized_data else "≠ 1.0")
-        + ")."
+    # Norm quantiles for the "percentile" norm scheme at generate time
+    quantile_levels = np.linspace(0.0, 1.0, _NORM_QUANTILE_COUNT)
+    norms_gpu = cp.linalg.norm(cp.asarray(data_sample), axis=1)
+    data_sample_norms = cp.asnumpy(norms_gpu).astype(np.float32)
+    norm_mean = float(norms_gpu.mean())
+    norm_cv = float(norms_gpu.std() / max(norm_mean, 1e-12))
+    global_norm_quantiles = cp.asnumpy(
+        cp.quantile(norms_gpu, cp.asarray(quantile_levels))
+    ).astype(np.float32)
+    del norms_gpu
+    cp.get_default_memory_pool().free_all_blocks()
+
+    norm_unit = (
+        abs(norm_mean - 1.0) <= _NORM_UNIT_MEAN_TOL
+        and norm_cv <= _NORM_UNIT_CV_TOL
     )
+    if norm_unit:
+        print(
+            f"  Real vector-norm distribution: mean={norm_mean:.4f}, "
+            f"CV={norm_cv:.4f} -> ~unit-norm; storing norm_unit flag "
+        )
+    else:
+        print(
+            f"  Real vector-norm distribution: mean={norm_mean:.4f}, "
+            f"CV={norm_cv:.4f} (stored as per-cluster "
+            f"{_NORM_QUANTILE_COUNT}-point quantile grids)."
+        )
 
     labels, centroids = _run_kmeans(data_sample, n_clusters, seed)
 
@@ -133,12 +158,25 @@ def fit_cluster_stats(
     pca_components_list: list = []
     pca_explained_var_list: list = []
     pca_noise_var = np.zeros(n_clusters, dtype=np.float32)
+    norm_quantiles = (
+        None
+        if norm_unit
+        else np.empty((n_clusters, _NORM_QUANTILE_COUNT), dtype=np.float32)
+    )
 
     for i in tqdm(range(n_clusters), desc="Per-cluster PCA"):
         mask = labels == i
         cluster_points = data_sample[mask]
         n_points = len(cluster_points)
         densities[i] = n_points / len(data_sample)
+
+        if not norm_unit:
+            if n_points >= 1:
+                norm_quantiles[i] = np.quantile(
+                    data_sample_norms[mask], quantile_levels
+                ).astype(np.float32)
+            else:
+                norm_quantiles[i] = global_norm_quantiles
 
         if n_points < pca_components + 1:
             # Diagonal fallback: too few points for a rank-ncomp PCA.
@@ -178,5 +216,6 @@ def fit_cluster_stats(
         "pca_explained_var_list": pca_explained_var_list,
         "pca_noise_var": pca_noise_var.astype(np.float32),
         "pca_n_components": int(pca_components),
-        "is_normalized_data": bool(is_normalized_data),
+        "norm_quantiles": norm_quantiles,
+        "norm_unit": norm_unit,
     }

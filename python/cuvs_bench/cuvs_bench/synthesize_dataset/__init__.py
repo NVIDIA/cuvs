@@ -12,6 +12,7 @@ from ._generate import (
     generate_synthetic_dataset_to_file,
     get_cluster_seed,
     get_num_points_per_cluster,
+    resolve_norm_scheme,
 )
 from ._ground_truth import (
     compute_groundtruth_exact,
@@ -35,6 +36,7 @@ __all__ = [
     "generate_synthetic_dataset_to_file",
     "get_cluster_seed",
     "get_num_points_per_cluster",
+    "resolve_norm_scheme",
     "save_fingerprint",
     "verify_groundtruth",
 ]

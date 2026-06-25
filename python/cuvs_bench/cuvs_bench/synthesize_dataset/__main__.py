@@ -22,7 +22,11 @@ import numpy as np
 
 from ..generate_groundtruth.utils import write_bin
 from ._fit import fit_cluster_stats
-from ._generate import generate_queries, generate_synthetic_dataset_to_file
+from ._generate import (
+    generate_queries,
+    generate_synthetic_dataset_to_file,
+    resolve_norm_scheme,
+)
 from ._ground_truth import (
     compute_groundtruth_nprobe,
     compute_groundtruth_exact,
@@ -231,7 +235,7 @@ def _cmd_generate(args: argparse.Namespace) -> int:
     print(
         f"  {config.nclusters} clusters, {config.ncols} dims, "
         f"ncomp={config.pca_n_components}, "
-        f"is_normalized_data={config.is_normalized_data} (from fit)"
+        f"norm_scheme={resolve_norm_scheme(config)} "
     )
     os.makedirs(args.output_dir, exist_ok=True)
 
@@ -299,7 +303,7 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         )
     print(
         f"  {config.nclusters} clusters, {config.ncols} dims, "
-        f"is_normalized_data={config.is_normalized_data} (from fit)"
+        f"norm_scheme={resolve_norm_scheme(config)}"
     )
 
     result = verify_groundtruth(

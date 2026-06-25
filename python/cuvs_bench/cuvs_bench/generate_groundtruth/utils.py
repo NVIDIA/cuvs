@@ -10,27 +10,6 @@ import numpy as np
 from cuvs_bench._bin_format import read_bin_header, write_bin_header
 
 
-def is_l2_normalized(
-    data,
-    sample_size: int = 10_000,
-    tol: float = 1e-2,
-    seed: int = 0,
-) -> bool:
-    """Cheaply check whether ``data`` rows are L2-unit-norm.
-
-    Samples up to ``sample_size`` rows uniformly at random and returns ``True``
-    iff every sampled row has ``|‖x‖ - 1| < tol``.
-    """
-    n = len(data)
-    if n == 0:
-        return False
-    rng = np.random.default_rng(seed)
-    take = min(sample_size, n)
-    idx = rng.choice(n, size=take, replace=False)
-    norms = np.linalg.norm(data[idx].astype(np.float32), axis=1)
-    return bool(np.all(np.abs(norms - 1.0) < tol))
-
-
 def add_jitter(
     queries: np.ndarray,
     rng: np.random.Generator,

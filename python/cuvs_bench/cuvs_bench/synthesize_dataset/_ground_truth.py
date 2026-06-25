@@ -62,7 +62,6 @@ def compute_groundtruth_exact(
     Each cluster is regenerated, brute-forced against the queries, and the
     running top-k is merged.
     """
-    normalize = bool(config.is_normalized_data)
     nqueries = len(queries)
     points_per_cluster = get_num_points_per_cluster(total_rows, config)
     cumsum = np.cumsum(points_per_cluster)
@@ -84,7 +83,7 @@ def compute_groundtruth_exact(
 
         t0 = time.perf_counter()
         cluster_gpu = gen_cluster_gpu(
-            cluster_id, n_points, config, return_cupy=True, normalize=normalize
+            cluster_id, n_points, config, return_cupy=True
         )
         total_gen_time += time.perf_counter() - t0
 
@@ -127,7 +126,6 @@ def compute_groundtruth_nprobe(
     """Cheap GT via cluster probing: only the ``nprobes`` nearest clusters
     per query are regenerated and searched.
     """
-    normalize = bool(config.is_normalized_data)
     nqueries = len(queries)
     points_per_cluster = get_num_points_per_cluster(total_rows, config)
     cumsum = np.cumsum(points_per_cluster)
@@ -166,7 +164,7 @@ def compute_groundtruth_nprobe(
 
         t0 = time.perf_counter()
         cluster_gpu = gen_cluster_gpu(
-            cluster_id, n_points, config, return_cupy=True, normalize=normalize
+            cluster_id, n_points, config, return_cupy=True
         )
         total_gen_time += time.perf_counter() - t0
 

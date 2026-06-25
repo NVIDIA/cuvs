@@ -36,12 +36,50 @@ def get_cluster_seed(base_seed: int, cluster_id: int) -> int:
     return base_seed * 1_000_000 + int(cluster_id)
 
 
+def resolve_norm_scheme(config: Fingerprint) -> str:
+    """Norm-rescaling scheme for generation, derived purely from the fingerprint.
+
+    - ``"unit"``: fit flagged the data as unit-norm -> L2-normalize (fast path).
+    - ``"percentile"``: fit stored a per-cluster norm-quantile grid -> each cluster
+      reproduces its own real radial spread via inverse-CDF sampling.
+    - ``"off"``: neither -> vectors keep their natural generated magnitude.
+
+    Not a user knob -- it follows the fit.
+    """
+    if getattr(config, "norm_unit", False):
+        return "unit"
+    has_quantiles = getattr(config, "norm_quantiles", None) is not None
+    return "percentile" if has_quantiles else "off"
+
+
+def _rescale_to_scheme(
+    points: cp.ndarray,
+    scheme: str,
+    config: Fingerprint,
+    cluster_id: int,
+    rng: cp.random.RandomState,
+) -> cp.ndarray:
+    if scheme == "off" or points.shape[0] == 0:
+        return points
+
+    cur = cp.maximum(cp.linalg.norm(points, axis=1, keepdims=True), 1e-8)
+    if scheme == "unit":
+        return points / cur
+
+    # "percentile": draw each vector's target norm from its cluster's inverse-CDF.
+    quantiles = cp.asarray(config.norm_quantiles[cluster_id], dtype=cp.float32)
+    u = rng.random_sample(size=points.shape[0], dtype=cp.float32)
+    grid = cp.linspace(0.0, 1.0, len(quantiles), dtype=cp.float32)
+    target = cp.interp(u, grid, quantiles).astype(cp.float32)[:, None]
+
+    return points * (target / cur)
+
+
 def gen_cluster_gpu(
     cluster_id: int,
     n_points: int,
     config: Fingerprint,
     return_cupy: bool = True,
-    normalize: bool = True,
 ) -> ArrayLike:
     """Generate ``n_points`` points for one cluster on the GPU."""
     center = cp.asarray(config.cluster_centers[cluster_id])
@@ -94,9 +132,8 @@ def gen_cluster_gpu(
         points *= scale
         points += center
 
-    if normalize:
-        norms = cp.linalg.norm(points, axis=1, keepdims=True)
-        points = points / cp.maximum(norms, 1e-8)
+    scheme = resolve_norm_scheme(config)
+    points = _rescale_to_scheme(points, scheme, config, cluster_id, rng)
 
     if return_cupy:
         return points
@@ -148,7 +185,6 @@ def generate_synthetic_dataset(
     For very large ``total_points``, prefer
     :func:`generate_synthetic_dataset_to_file` to keep host RAM bounded.
     """
-    normalize = bool(config.is_normalized_data)
     points_per_cluster = get_num_points_per_cluster(total_points, config)
 
     ncols = config.cluster_centers.shape[1]
@@ -168,7 +204,6 @@ def generate_synthetic_dataset(
             n_points,
             config,
             return_cupy=False,
-            normalize=normalize,
         )
         result[write_idx : write_idx + n_points] = cluster_points
         write_idx += n_points
@@ -201,7 +236,6 @@ def generate_synthetic_dataset_to_file(
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
 
-    normalize = bool(config.is_normalized_data)
     points_per_cluster = get_num_points_per_cluster(total_points, config)
     ncols = int(config.cluster_centers.shape[1])
 
@@ -248,7 +282,6 @@ def generate_synthetic_dataset_to_file(
                 n_points,
                 config,
                 return_cupy=False,
-                normalize=normalize,
             )
 
             bufs[active_buf][buf_offset : buf_offset + n_points] = (
@@ -295,7 +328,7 @@ def generate_queries(
     deterministically, and grab the corresponding local index. Small Gaussian
     noise is added at the end to avoid exact-match recall artefacts.
     """
-    normalize = bool(config.is_normalized_data)
+    scheme = resolve_norm_scheme(config)
     points_per_cluster = get_num_points_per_cluster(total_rows, config)
     cumsum = np.cumsum(points_per_cluster)
 
@@ -326,9 +359,8 @@ def generate_queries(
             n_points,
             config,
             return_cupy=False,
-            normalize=normalize,
         )
         for q_idx, local_idx in qlist:
             queries[q_idx] = cluster_points[local_idx]
 
-    return add_jitter(queries, rng, normalize)
+    return add_jitter(queries, rng, normalize=(scheme == "unit"))

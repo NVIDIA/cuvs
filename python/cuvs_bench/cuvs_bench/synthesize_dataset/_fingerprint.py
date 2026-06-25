@@ -44,10 +44,17 @@ class Fingerprint:
     pca_n_components : int
         The requested number of PCA components per cluster as specified at
         fit time.
-    is_normalized_data : bool
-        Whether the fit-time real-data slice was detected as L2-unit-norm.
-        ``generate``, ``verify``, and the streaming
-        GT routines use this to decide whether to re-normalize the synthetic output.
+    norm_quantiles : np.ndarray, optional
+        Per-cluster empirical inverse-CDF of the real vector norms, shape
+        ``(nclusters, 256)`` -- one 256-point quantile grid per cluster,
+        produced at fit time. Used by the ``"percentile"`` norm scheme to draw
+        a per-vector target norm via inverse-CDF sampling from that vector's
+        cluster grid, so each cluster reproduces its own real radial spread.
+        ``None`` for grid-less fingerprints (those fall back to ``"off"`` norm
+        rescaling at generate time.
+    norm_unit : bool
+        Set at fit time when the real vectors are essentially unit-norm. Generation
+        L2-normalizes instead of inverse-CDF sampling using norm_quantiles.
     """
 
     nclusters: int
@@ -62,7 +69,8 @@ class Fingerprint:
     pca_noise_var: np.ndarray
     pca_n_components: int
 
-    is_normalized_data: bool
+    norm_quantiles: Optional[np.ndarray] = None
+    norm_unit: bool = False
 
     def __post_init__(self):
         total = float(self.cluster_densities.sum())
