@@ -2219,8 +2219,8 @@ index<T, IdxT> build(
     }
   }
 
-  // Guard against potential FP16 distance overflow for large-magnitude datasets. Applies to any
-  // IVF-PQ graph build (auto-selected above or explicitly set in params) -> fall back to FP32.
+  // Predict potential FP16 distance overflow for large-magnitude (e.g. unnormalized) datasets 
+  // -> fall back to FP32.
   if (auto* pq = std::get_if<cagra::graph_build_params::ivf_pq_params>(&knn_build_params)) {
     const bool using_fp16_distance = pq->search_params.internal_distance_dtype == CUDA_R_16F ||
                                      pq->search_params.coarse_search_dtype == CUDA_R_16F;
