@@ -9,6 +9,7 @@ This library provides a new [KnnVectorFormat](https://lucene.apache.org/core/10_
 ## Building
 
 ### Prerequisites
+
 - [CUDA 12.0+](https://developer.nvidia.com/cuda-toolkit-archive),
 - [Maven 3.9.6+](https://maven.apache.org/download.cgi),
 - [JDK 22](https://jdk.java.net/archive/)
@@ -16,9 +17,11 @@ This library provides a new [KnnVectorFormat](https://lucene.apache.org/core/10_
 ```sh
 mvn clean compile package
 ```
+
 The artifacts would be built and available in the target / folder.
 
 ### Running Tests
+
 ```sh
 export LD_LIBRARY_PATH={ PATH TO YOUR LOCAL libcuvs_c.so }:$LD_LIBRARY_PATH && mvn clean test
 ```
