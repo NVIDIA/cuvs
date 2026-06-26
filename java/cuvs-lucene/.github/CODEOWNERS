@@ -1,23 +1,23 @@
 # default group
 # (will be overridden by more specific matches below)
-*                        @rapidsai/lucene-cuvs-write
+*                        @NVIDIA/cuvs-lucene-write
 
 # java code owners
-src/                     @rapidsai/cuvs-java-codeowners
+src/                     @NVIDIA/cuvs-java-codeowners
 
 # docs code owners
-LICENSE                  @rapidsai/cuvs-docs-codeowners
-/README.md               @rapidsai/cuvs-docs-codeowners
+LICENSE                  @NVIDIA/cuvs-docs-codeowners
+/README.md               @NVIDIA/cuvs-docs-codeowners
 
 # CI code owners
-/.github/                @rapidsai/ci-codeowners
-/ci/                     @rapidsai/ci-codeowners
+/.github/                @NVIDIA/adi-ci-codeowners
+/ci/                     @NVIDIA/adi-ci-codeowners
 
 # packaging code owners
-build.sh                 @rapidsai/packaging-codeowners
-dependencies.yaml        @rapidsai/packaging-codeowners
-pom.xml                  @rapidsai/cuvs-build-codeowners
-/.pre-commit-config.yaml @rapidsai/packaging-codeowners
+build.sh                 @NVIDIA/adi-packaging-codeowners
+dependencies.yaml        @NVIDIA/adi-packaging-codeowners
+pom.xml                  @NVIDIA/cuvs-build-codeowners
+/.pre-commit-config.yaml @NVIDIA/adi-packaging-codeowners
 
 # Ops code owners
-/SECURITY.md             @rapidsai/ops-codeowners
+/SECURITY.md             @NVIDIA/adi-ops-codeowners

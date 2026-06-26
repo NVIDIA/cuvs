@@ -24,6 +24,9 @@ repos:
                   meta[.]yaml$|
                   dependencies[.]yaml$|
                   ^[.]pre-commit-config[.]yaml$
+          # TODO: Re-enable once verify-codeowners supports --org parameter
+          # - id: verify-codeowners
+          #   args: [--fix, --org=NVIDIA, --project-prefix=cuvs-lucene]
       - repo: https://github.com/rapidsai/dependency-file-generator
         rev: v1.21.0
         hooks:
