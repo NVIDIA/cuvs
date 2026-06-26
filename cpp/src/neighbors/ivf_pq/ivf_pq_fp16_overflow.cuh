@@ -18,8 +18,7 @@
 #include <raft/core/resources.hpp>
 #include <raft/linalg/map_reduce.cuh>
 #include <raft/linalg/reduce.cuh>
-#include <raft/matrix/sample_rows.cuh>
-#include <raft/random/rng.cuh>
+#include <raft/util/cuda_dev_essentials.cuh>
 #include <raft/util/cudart_utils.hpp>
 
 #include <cstdint>
@@ -27,18 +26,14 @@
 namespace cuvs::neighbors::ivf_pq::detail {
 
 /**
- * Estimate max_i ||x_i||^2 over the dataset by uniformly sampling a fraction from it.
- *
- * Decision: Uniform sampling is selected as it is sufficient to detect FP16 overflow in
- * the datasets, where overflow-causing large vectors are frequent (e.g. SIFT 1M). For 
- * dataset with rare large outliers, we might preferably sample biasedly towards large vectors,
- * e.g. via top-k selection over the vectors with largest L_inf norm.
+ * Estimate max_i ||x_i||^2 over the dataset.
  */
 template <typename DataT, typename Accessor>
 float estimate_max_squared_norm(
   raft::resources const& handle,
   raft::mdspan<const DataT, raft::matrix_extent<int64_t>, raft::row_major, Accessor> dataset)
 {
+  common::nvtx::range<common::nvtx::domain::cuvs> r("estimate_max_squared_norm");
   auto stream          = raft::resource::get_cuda_stream(handle);
   const int64_t n_rows = dataset.extent(0);
   const int64_t dim    = dataset.extent(1);
@@ -47,7 +42,7 @@ float estimate_max_squared_norm(
   // - n_sample is always less than or equal to n_rows
   // - n_sample saturates to kSaturation when n_rows is inf
   // - n_sample increases fast for small n_rows and slow to saturation for large n_rows
-  // Idea: we sample most of the dataset when it is small-sized, and only a small fraction
+  // Idea: we examine most of the dataset when it is small-sized, and only a small fraction
   // (up to a maximum/saturation number) when the dataset size grows large.
   // kSaturation and kDelay are selected as a compromise between runtime and outlier recall.
   constexpr int64_t kSaturation = 20000;
@@ -55,14 +50,11 @@ float estimate_max_squared_norm(
   RAFT_EXPECTS(kDelay >= kSaturation,
                "kDelay must not be smaller than kSaturation so that n_sample is always less than "
                "or equal to n_rows");
-  int64_t n_sample = (n_rows * kSaturation + (n_rows + kDelay - 1)) / (n_rows + kDelay);
+  int64_t n_sample = raft::ceildiv(n_rows * kSaturation, n_rows + kDelay);
 
-  // Sample from the dataset
   auto mr = raft::resource::get_workspace_resource_ref(handle);
-  auto sample =
-    raft::make_device_mdarray<DataT>(handle, mr, raft::make_extents<int64_t>(n_sample, dim));
-  raft::matrix::sample_rows<DataT, int64_t>(
-    handle, raft::random::RngState{137}, dataset, sample.view());
+  auto sample = raft::make_device_mdarray<DataT>(handle, mr, raft::make_extents<int64_t>(n_sample, dim));
+  raft::copy(sample.data_handle(), dataset.data_handle(), n_sample * dim, raft::resource::get_cuda_stream(handle));
 
   // Compute float-mapped squared norm
   auto d_map_sq_norm = raft::make_device_vector<float, int64_t>(handle, n_sample);
@@ -103,7 +95,7 @@ namespace cuvs::neighbors::ivf_pq::helpers {
  * computations on this dataset (i.e. `internal_distance_dtype` and `coarse_search_dtype`).
  *
  * We bound the largest achievable score from the dataset's vector norms. With R = max_i ||x_i||
- * (estimated from a random sample of the dataset):
+ * (estimated from a fraction of the dataset):
  *   - L2Expanded:     ||x - y||^2 = ||x||^2 + ||y||^2 - 2<x,y> <= (||x|| + ||y||)^2 <= 4 * R^2
  *   - InnerProduct:   |<x, y>|    <= ||x|| * ||y||                                  <=     R^2
  *   - CosineExpanded: data is L2-normalized, so |score| <= 1 and overflow is impossible.
