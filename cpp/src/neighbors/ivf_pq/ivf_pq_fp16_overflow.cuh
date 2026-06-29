@@ -100,15 +100,19 @@ bool estimate_fp16_overflow(
 {
   if (dataset.extent(0) == 0) { return false; }
 
-  // Cosine similarity scores does normalization itself, so overflow won't happen
-  if (metric == cuvs::distance::DistanceType::CosineExpanded) { return false; }
+  float dist_factor = 1.0f;
+  switch (metric) {
+    case cuvs::distance::DistanceType::L2Expanded: dist_factor = 4.0f; break;
+    case cuvs::distance::DistanceType::CosineExpanded:
+      // Cosine similarity scores does normalization itself, so overflow won't happen
+      return false;
+    case cuvs::distance::DistanceType::InnerProduct: dist_factor = 1.0f; break;
+    default: RAFT_FAIL("Unsupported distance type for IVF-PQ search %d.", int(metric));
+  }
 
   const float max_vector_sq_norm =
     cuvs::neighbors::ivf_pq::detail::estimate_max_squared_norm(handle, dataset);
-
-  const float max_distance_sq_norm = metric == cuvs::distance::DistanceType::L2Expanded
-                                       ? 4.0f * max_vector_sq_norm
-                                       : max_vector_sq_norm;
+  const float max_distance_sq_norm = dist_factor * max_vector_sq_norm;
 
   constexpr float kFp16Max = 65504.0f;
   return max_distance_sq_norm > kFp16Max;
