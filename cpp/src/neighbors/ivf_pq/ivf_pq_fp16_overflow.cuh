@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -38,23 +38,15 @@ float estimate_max_squared_norm(
   const int64_t n_rows = dataset.extent(0);
   const int64_t dim    = dataset.extent(1);
 
-  // Determine sample size based on a smooth saturation equation. The equation satisfies:
-  // - n_sample is always less than or equal to n_rows
-  // - n_sample saturates to kSaturation when n_rows is inf
-  // - n_sample increases fast for small n_rows and slow to saturation for large n_rows
-  // Idea: we examine most of the dataset when it is small-sized, and only a small fraction
-  // (up to a maximum/saturation number) when the dataset size grows large.
-  // kSaturation and kDelay are selected as a compromise between runtime and outlier recall.
-  constexpr int64_t kSaturation = 20000;
-  constexpr int64_t kDelay      = kSaturation * 10;
-  RAFT_EXPECTS(kDelay >= kSaturation,
-               "kDelay must not be smaller than kSaturation so that n_sample is always less than "
-               "or equal to n_rows");
-  int64_t n_sample = raft::ceildiv(n_rows * kSaturation, n_rows + kDelay);
+  int64_t n_sample = std::min<int64_t>(n_rows, 20000);
 
   auto mr = raft::resource::get_workspace_resource_ref(handle);
-  auto sample = raft::make_device_mdarray<DataT>(handle, mr, raft::make_extents<int64_t>(n_sample, dim));
-  raft::copy(sample.data_handle(), dataset.data_handle(), n_sample * dim, raft::resource::get_cuda_stream(handle));
+  auto sample =
+    raft::make_device_mdarray<DataT>(handle, mr, raft::make_extents<int64_t>(n_sample, dim));
+  raft::copy(sample.data_handle(),
+             dataset.data_handle(),
+             n_sample * dim,
+             raft::resource::get_cuda_stream(handle));
 
   // Compute float-mapped squared norm
   auto d_map_sq_norm = raft::make_device_vector<float, int64_t>(handle, n_sample);
@@ -111,11 +103,6 @@ bool estimate_fp16_overflow(
   // Cosine similarity scores does normalization itself, so overflow won't happen
   if (metric == cuvs::distance::DistanceType::CosineExpanded) { return false; }
 
-  // FP16 largest finite value, with a defensive margin to also avoid precision loss near the limit.
-  constexpr float kFp16Max              = 65504.0f;
-  constexpr float kFp16DefensiveMargin  = 0.25f;
-  const float overflow_detect_threshold = kFp16DefensiveMargin * kFp16Max;
-
   const float max_vector_sq_norm =
     cuvs::neighbors::ivf_pq::detail::estimate_max_squared_norm(handle, dataset);
 
@@ -123,7 +110,8 @@ bool estimate_fp16_overflow(
                                        ? 4.0f * max_vector_sq_norm
                                        : max_vector_sq_norm;
 
-  return max_distance_sq_norm > overflow_detect_threshold;
+  constexpr float kFp16Max = 65504.0f;
+  return max_distance_sq_norm > kFp16Max;
 }
 
 }  // namespace cuvs::neighbors::ivf_pq::helpers
