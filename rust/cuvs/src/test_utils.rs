@@ -12,9 +12,13 @@
 use std::marker::PhantomData;
 
 use crate::dlpack::{AsDlTensor, AsDlTensorMut, DLPackError, DLTensorView, DLTensorViewMut, DType};
-use crate::error::{Result, check_cuvs};
+use crate::error::check_cuvs;
 use crate::ffi;
 use crate::resources::Resources;
+
+// Test helpers can fail with either a `LibraryError` or a `DLPackError`; a boxed
+// error keeps the (test-only) surface simple.
+type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 pub(crate) struct DeviceTensor<'res, T: DType> {
     data: *mut std::ffi::c_void,
@@ -29,7 +33,7 @@ impl<'res, T: DType> DeviceTensor<'res, T> {
         let capacity_bytes = shape.iter().product::<usize>() * std::mem::size_of::<T>();
         let mut data: *mut std::ffi::c_void = std::ptr::null_mut();
         unsafe {
-            check_cuvs(ffi::cuvsRMMAlloc(res.0, &mut data, capacity_bytes))?;
+            check_cuvs(ffi::cuvsRMMAlloc(res.handle(), &mut data, capacity_bytes))?;
         }
 
         Ok(Self {
@@ -66,7 +70,7 @@ impl<'res, T: DType> DeviceTensor<'res, T> {
         let device_view = device.as_dl_tensor_mut()?;
         unsafe {
             check_cuvs(ffi::cuvsMatrixCopy(
-                res.0,
+                res.handle(),
                 host.to_c().as_mut_ptr(),
                 device_view.to_c().as_mut_ptr(),
             ))?;
@@ -101,7 +105,7 @@ impl<'res, T: DType> DeviceTensor<'res, T> {
         let device = self.as_dl_tensor()?;
         unsafe {
             check_cuvs(ffi::cuvsMatrixCopy(
-                res.0,
+                res.handle(),
                 device.to_c().as_mut_ptr(),
                 host.to_c().as_mut_ptr(),
             ))?;
@@ -114,7 +118,9 @@ impl<'res, T: DType> DeviceTensor<'res, T> {
 impl<T: DType> Drop for DeviceTensor<'_, T> {
     fn drop(&mut self) {
         if !self.data.is_null() {
-            let _ = unsafe { ffi::cuvsRMMFree(self.resources.0, self.data, self.capacity_bytes) };
+            let _ = unsafe {
+                ffi::cuvsRMMFree(self.resources.handle(), self.data, self.capacity_bytes)
+            };
         }
     }
 }

@@ -3,64 +3,41 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-use std::fmt;
+//! Low-level error handling shared by every cuVS module.
+//!
+//! [`check_cuvs`] turns a raw `cuvsError_t` status into a [`LibraryError`], which
+//! each module's error type wraps via `#[from]`.
 
-#[derive(Debug, Clone)]
-pub struct CuvsError {
-    code: ffi::cuvsError_t,
-    text: String,
-}
+use std::borrow::Cow;
 
-#[derive(Debug, Clone)]
-pub enum Error {
-    CuvsError(CuvsError),
-    /// Tensor conversion into DLPack metadata failed.
-    DLPack(crate::dlpack::DLPackError),
-    /// The caller passed an argument that could not be forwarded to the C API
-    /// (e.g. a filename containing an interior NUL byte or invalid UTF-8).
-    InvalidArgument(String),
-}
+/// A failure reported by the cuVS C library.
+///
+/// Carries the message captured from `cuvsGetLastErrorText` at the point of
+/// failure. Every module's error type wraps this via `#[from]`.
+#[derive(Debug, Clone, thiserror::Error)]
+#[error("{0}")]
+pub struct LibraryError(Cow<'static, str>);
 
-impl std::error::Error for Error {}
-impl std::error::Error for CuvsError {}
-
-pub type Result<T> = std::result::Result<T, Error>;
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Error::CuvsError(cuvs_error) => write!(f, "cuvsError={:?}", cuvs_error),
-            Error::DLPack(err) => write!(f, "DLPack error: {}", err),
-            Error::InvalidArgument(msg) => write!(f, "invalid argument: {}", msg),
-        }
-    }
-}
-
-impl fmt::Display for CuvsError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}:{}", self.code, self.text)
-    }
-}
-
-/// Simple wrapper to convert a cuvsError_t into a Result
-pub fn check_cuvs(err: ffi::cuvsError_t) -> Result<()> {
-    match err {
+/// Converts a `cuvsError_t` status into a [`LibraryError`].
+///
+/// On failure the thread-local error text is captured immediately, before any
+/// subsequent FFI call can overwrite it.
+pub(crate) fn check_cuvs(status: ffi::cuvsError_t) -> Result<(), LibraryError> {
+    match status {
         ffi::cuvsError_t::CUVS_SUCCESS => Ok(()),
         _ => {
-            // get a description of the error from cuvs
-            let cstr = unsafe {
+            // SAFETY: `cuvsGetLastErrorText` returns either NULL or a pointer to
+            // thread-local storage valid until the next FFI call; copy it now.
+            let text: Cow<'static, str> = unsafe {
                 let text_ptr = ffi::cuvsGetLastErrorText();
-                std::ffi::CStr::from_ptr(text_ptr)
+                if text_ptr.is_null() {
+                    Cow::Borrowed("unknown cuVS error")
+                } else {
+                    let cstr = std::ffi::CStr::from_ptr(text_ptr);
+                    Cow::Owned(String::from_utf8_lossy(cstr.to_bytes()).into_owned())
+                }
             };
-            let text = std::string::String::from_utf8_lossy(cstr.to_bytes()).to_string();
-
-            Err(Error::CuvsError(CuvsError { code: err, text }))
+            Err(LibraryError(text))
         }
-    }
-}
-
-impl From<crate::dlpack::DLPackError> for Error {
-    fn from(err: crate::dlpack::DLPackError) -> Self {
-        Self::DLPack(err)
     }
 }

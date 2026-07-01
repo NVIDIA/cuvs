@@ -9,20 +9,15 @@
 //! approximate nearest neighbors search on the GPU.
 extern crate cuvs_sys as ffi;
 
-pub mod brute_force;
-pub mod cagra;
 pub mod cluster;
 pub mod distance;
-pub mod distance_type;
 pub mod dlpack;
 mod error;
-pub mod ivf_flat;
-pub mod ivf_pq;
+pub mod neighbors;
 mod resources;
 #[cfg(test)]
 pub(crate) mod test_utils;
-pub mod vamana;
 
 pub use dlpack::{AsDlTensor, AsDlTensorMut, DLPackError, DLTensorView, DLTensorViewMut, DType};
-pub use error::{Error, Result};
+pub use error::LibraryError;
 pub use resources::Resources;

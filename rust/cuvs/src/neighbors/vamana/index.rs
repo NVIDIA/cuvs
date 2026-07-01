@@ -6,39 +6,39 @@
 use std::ffi::CString;
 use std::io::{Write, stderr};
 
+use super::{IndexParams, VamanaError};
 use crate::dlpack::AsDlTensor;
-use crate::error::{Result, check_cuvs};
+use crate::error::check_cuvs;
 use crate::resources::Resources;
-use crate::vamana::IndexParams;
 
-/// Vamana ANN Index
+type Result<T> = std::result::Result<T, VamanaError>;
+
+/// Vamana ANN index.
 #[derive(Debug)]
 pub struct Index(ffi::cuvsVamanaIndex_t);
 
 impl Index {
-    /// Builds Vamana Index for efficient DiskANN search
+    /// Builds a Vamana index for efficient DiskANN search.
     ///
-    /// The build uses the Vamana insertion-based algorithm to create the graph. The algorithm
-    /// starts with an empty graph and iteratively inserts batches of nodes. Each batch involves
-    /// performing a greedy search for each vector to be inserted, and inserting it with edges to
-    /// all nodes traversed during the search. Reverse edges are also inserted and robustPrune is applied
-    /// to improve graph quality. The index_params struct controls the degree of the final graph.
+    /// The build uses the Vamana insertion-based algorithm: starting from an
+    /// empty graph it iteratively inserts batches of nodes, performing a greedy
+    /// search for each inserted vector and connecting it to all nodes traversed;
+    /// reverse edges are added and `robustPrune` is applied to improve quality.
+    /// [`IndexParams`] controls the degree of the final graph.
     ///
     /// `dataset` is a row-major matrix on the host or device implementing
-    /// [`AsDlTensor`]; it is copied into the index.
+    /// [`AsDlTensor`]; it is copied into the index, so `Index` carries no
+    /// lifetime.
     pub fn build<T>(res: &Resources, params: &IndexParams, dataset: &T) -> Result<Index>
     where
         T: AsDlTensor + ?Sized,
     {
         let dataset = dataset.as_dl_tensor()?;
         let index = Index::new()?;
-        // `cuvsVamanaBuild` copies the dataset into the index, so the index does not
-        // retain a view into `dataset`; the borrow only needs to be valid for the
-        // duration of this call. That is why `Index` carries no lifetime.
         unsafe {
             check_cuvs(ffi::cuvsVamanaBuild(
-                res.0,
-                params.0,
+                res.handle(),
+                params.handle(),
                 dataset.to_c().as_mut_ptr(),
                 index.0,
             ))?;
@@ -46,7 +46,7 @@ impl Index {
         Ok(index)
     }
 
-    /// Creates a new empty index
+    /// Creates a new empty index.
     pub fn new() -> Result<Index> {
         unsafe {
             let mut index = std::mem::MaybeUninit::<ffi::cuvsVamanaIndex_t>::uninit();
@@ -55,27 +55,19 @@ impl Index {
         }
     }
 
-    /// Save Vamana index to file
+    /// Saves the Vamana index to a file.
     ///
-    /// Matches the file format used by the DiskANN open-source repository, allowing cross-compatibility.
+    /// Matches the on-disk format used by the DiskANN open-source repository,
+    /// so the serialized index can be consumed there for graph search.
     ///
-    /// Serialized Index is to be used by the DiskANN open-source repository for graph search.
-    ///
-    /// # Arguments
-    ///
-    /// * `res` - Resources to use
-    /// * `filename` - The file prefix for where the index is sazved
-    /// * `include_dataset` - whether to include the dataset in the serialized index
+    /// `filename` is the file prefix under which the index is saved;
+    /// `include_dataset` controls whether the dataset is embedded.
     pub fn serialize(self, res: &Resources, filename: &str, include_dataset: bool) -> Result<()> {
-        let c_filename = CString::new(filename).unwrap();
-        unsafe {
-            check_cuvs(ffi::cuvsVamanaSerialize(
-                res.0,
-                c_filename.as_ptr(),
-                self.0,
-                include_dataset,
-            ))
-        }
+        let c_filename = CString::new(filename)?;
+        check_cuvs(unsafe {
+            ffi::cuvsVamanaSerialize(res.handle(), c_filename.as_ptr(), self.0, include_dataset)
+        })?;
+        Ok(())
     }
 }
 
@@ -97,11 +89,9 @@ mod tests {
 
     #[test]
     fn test_vamana() {
-        let build_params = IndexParams::new().unwrap();
-
+        let build_params = IndexParams::builder().build().unwrap();
         let res = Resources::new().unwrap();
 
-        // Create a new random dataset to index
         let n_datapoints = 1024;
         let n_features = 16;
         let dataset = ndarray::Array::<f32, _>::random(
@@ -111,7 +101,6 @@ mod tests {
 
         let dataset_device = DeviceTensor::from_host(&res, &dataset).unwrap();
 
-        // build the vamana index
         let _index = Index::build(&res, &build_params, &dataset_device)
             .expect("failed to create vamana index");
     }

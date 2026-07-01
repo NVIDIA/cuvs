@@ -8,10 +8,12 @@ use std::io::{Write, stderr};
 use std::marker::PhantomData;
 use std::path::Path;
 
-use crate::cagra::{IndexParams, SearchParams};
+use super::{CagraError, IndexParams, SearchParams};
 use crate::dlpack::{AsDlTensor, AsDlTensorMut};
-use crate::error::{Error, Result, check_cuvs};
+use crate::error::check_cuvs;
 use crate::resources::Resources;
+
+type Result<T> = std::result::Result<T, CagraError>;
 
 /// A CAGRA approximate nearest neighbor index.
 ///
@@ -27,14 +29,9 @@ pub struct Index<'d> {
 }
 
 /// Convert a filesystem path into a `CString` suitable for the cuVS C API,
-/// returning `Error::InvalidArgument` instead of panicking for paths that are
-/// not valid UTF-8 or that contain an interior NUL byte.
+/// returning [`CagraError::InvalidPath`] for a path with an interior NUL byte.
 fn path_to_cstring(path: &Path) -> Result<CString> {
-    let path_str = path
-        .to_str()
-        .ok_or_else(|| Error::InvalidArgument(format!("path is not valid UTF-8: {path:?}")))?;
-    CString::new(path_str)
-        .map_err(|e| Error::InvalidArgument(format!("path contains an interior NUL byte: {e}")))
+    Ok(CString::new(path.as_os_str().as_encoded_bytes())?)
 }
 
 impl<'d> Index<'d> {
@@ -52,8 +49,8 @@ impl<'d> Index<'d> {
         let index = Index::new()?;
         unsafe {
             check_cuvs(ffi::cuvsCagraBuild(
-                res.0,
-                params.0,
+                res.handle(),
+                params.handle(),
                 dataset.to_c().as_mut_ptr(),
                 index.handle,
             ))?;
@@ -93,19 +90,19 @@ impl<'d> Index<'d> {
         let queries = queries.as_dl_tensor()?;
         let neighbors = neighbors.as_dl_tensor_mut()?;
         let distances = distances.as_dl_tensor_mut()?;
-        unsafe {
-            let prefilter = ffi::cuvsFilter { addr: 0, type_: ffi::cuvsFilterType::NO_FILTER };
-
-            check_cuvs(ffi::cuvsCagraSearch(
-                res.0,
-                params.0,
+        let prefilter = ffi::cuvsFilter { addr: 0, type_: ffi::cuvsFilterType::NO_FILTER };
+        check_cuvs(unsafe {
+            ffi::cuvsCagraSearch(
+                res.handle(),
+                params.handle(),
                 self.handle,
                 queries.to_c().as_mut_ptr(),
                 neighbors.to_c().as_mut_ptr(),
                 distances.to_c().as_mut_ptr(),
                 prefilter,
-            ))
-        }
+            )
+        })?;
+        Ok(())
     }
 
     /// Perform a filtered Approximate Nearest Neighbors search on the Index
@@ -140,22 +137,22 @@ impl<'d> Index<'d> {
         // by the search call, so its `ManagedTensorRef` must outlive both.
         // Hence we keep it bound instead of chaining `to_c().as_mut_ptr()`.
         let mut bitset_c = bitset.to_c();
-        unsafe {
-            let prefilter = ffi::cuvsFilter {
-                addr: bitset_c.as_mut_ptr() as usize,
-                type_: ffi::cuvsFilterType::BITSET,
-            };
-
-            check_cuvs(ffi::cuvsCagraSearch(
-                res.0,
-                params.0,
+        let prefilter = ffi::cuvsFilter {
+            addr: bitset_c.as_mut_ptr() as usize,
+            type_: ffi::cuvsFilterType::BITSET,
+        };
+        check_cuvs(unsafe {
+            ffi::cuvsCagraSearch(
+                res.handle(),
+                params.handle(),
                 self.handle,
                 queries.to_c().as_mut_ptr(),
                 neighbors.to_c().as_mut_ptr(),
                 distances.to_c().as_mut_ptr(),
                 prefilter,
-            ))
-        }
+            )
+        })?;
+        Ok(())
     }
 
     /// Save the CAGRA index to file.
@@ -170,14 +167,14 @@ impl<'d> Index<'d> {
     ///
     /// # Example:
     /// ```no_run
-    /// use cuvs::cagra::{Index, IndexParams};
-    /// use cuvs::{Resources, Result};
+    /// use cuvs::Resources;
+    /// use cuvs::neighbors::cagra::{Index, IndexParams};
     ///
-    /// fn serialize_example() -> Result<()> {
+    /// fn serialize_example() -> Result<(), Box<dyn std::error::Error>> {
     ///     let res = Resources::new()?;
     ///
     ///     // Build an index (using some dataset)
-    ///     let build_params = IndexParams::new()?;
+    ///     let build_params = IndexParams::builder().build()?;
     ///     // let index = Index::build(&res, &build_params, &dataset)?;
     ///
     ///     // Save the index to disk (including the dataset)
@@ -197,14 +194,10 @@ impl<'d> Index<'d> {
         include_dataset: bool,
     ) -> Result<()> {
         let c_filename = path_to_cstring(filename.as_ref())?;
-        unsafe {
-            check_cuvs(ffi::cuvsCagraSerialize(
-                res.0,
-                c_filename.as_ptr(),
-                self.handle,
-                include_dataset,
-            ))
-        }
+        check_cuvs(unsafe {
+            ffi::cuvsCagraSerialize(res.handle(), c_filename.as_ptr(), self.handle, include_dataset)
+        })?;
+        Ok(())
     }
 
     /// Save the CAGRA index to file in hnswlib format.
@@ -220,9 +213,10 @@ impl<'d> Index<'d> {
     /// * `filename` - The file path for saving the index
     pub fn serialize_to_hnswlib<P: AsRef<Path>>(&self, res: &Resources, filename: P) -> Result<()> {
         let c_filename = path_to_cstring(filename.as_ref())?;
-        unsafe {
-            check_cuvs(ffi::cuvsCagraSerializeToHnswlib(res.0, c_filename.as_ptr(), self.handle))
-        }
+        check_cuvs(unsafe {
+            ffi::cuvsCagraSerializeToHnswlib(res.handle(), c_filename.as_ptr(), self.handle)
+        })?;
+        Ok(())
     }
 
     /// Load a CAGRA index from file.
@@ -237,7 +231,7 @@ impl<'d> Index<'d> {
         let c_filename = path_to_cstring(filename.as_ref())?;
         let index = Index::new()?;
         unsafe {
-            check_cuvs(ffi::cuvsCagraDeserialize(res.0, c_filename.as_ptr(), index.handle))?;
+            check_cuvs(ffi::cuvsCagraDeserialize(res.handle(), c_filename.as_ptr(), index.handle))?;
         }
         Ok(index)
     }
@@ -282,7 +276,7 @@ mod tests {
         let mut distances_host = ndarray::Array::<f32, _>::zeros((n_queries, k));
         let mut distances = DeviceTensor::<f32>::zeros(res, &[n_queries, k]).unwrap();
 
-        let search_params = SearchParams::new().unwrap();
+        let search_params = SearchParams::try_new().unwrap();
         index
             .search(res, &search_params, &queries, &mut neighbors, &mut distances)
             .expect("search failed");
@@ -312,15 +306,17 @@ mod tests {
 
     #[test]
     fn test_cagra_index() {
-        let build_params = IndexParams::new().unwrap();
+        let build_params = IndexParams::try_new().unwrap();
         test_cagra(build_params);
     }
 
     #[test]
     fn test_cagra_compression() {
-        use crate::cagra::CompressionParams;
-        let build_params =
-            IndexParams::new().unwrap().set_compression(CompressionParams::new().unwrap());
+        use crate::neighbors::cagra::CompressionParams;
+        let build_params = IndexParams::builder()
+            .compression(CompressionParams::builder().build().unwrap())
+            .build()
+            .unwrap();
         test_cagra(build_params);
     }
 
@@ -328,7 +324,7 @@ mod tests {
     #[test]
     fn test_cagra_search_with_filter() {
         let res = Resources::new().unwrap();
-        let build_params = IndexParams::new().unwrap();
+        let build_params = IndexParams::try_new().unwrap();
 
         let n_datapoints = 256;
         let n_features = 16;
@@ -341,7 +337,7 @@ mod tests {
             Index::build(&res, &build_params, &*dataset).expect("failed to create cagra index");
 
         // Build a bitset that includes only even-indexed rows
-        let n_words = (n_datapoints + 31) / 32;
+        let n_words = n_datapoints.div_ceil(32);
         let mut bitset_host = ndarray::Array::<u32, _>::zeros(ndarray::Ix1(n_words));
         for i in 0..n_datapoints {
             if i % 2 == 0 {
@@ -360,7 +356,7 @@ mod tests {
         let mut neighbors = DeviceTensor::<u32>::zeros(&res, &[n_queries, k]).unwrap();
         let mut distances = DeviceTensor::<f32>::zeros(&res, &[n_queries, k]).unwrap();
 
-        let search_params = SearchParams::new().unwrap();
+        let search_params = SearchParams::try_new().unwrap();
 
         index
             .search_with_filter(
@@ -396,7 +392,7 @@ mod tests {
     #[test]
     fn test_cagra_multiple_searches() {
         let res = Resources::new().unwrap();
-        let build_params = IndexParams::new().unwrap();
+        let build_params = IndexParams::try_new().unwrap();
         let dataset = ndarray::Array::<f32, _>::random(
             (N_DATAPOINTS, N_FEATURES),
             Uniform::new(0., 1.0).unwrap(),
@@ -412,7 +408,7 @@ mod tests {
     #[test]
     fn test_cagra_serialize_deserialize() {
         let res = Resources::new().unwrap();
-        let build_params = IndexParams::new().unwrap();
+        let build_params = IndexParams::try_new().unwrap();
         let dataset = ndarray::Array::<f32, _>::random(
             (N_DATAPOINTS, N_FEATURES),
             Uniform::new(0., 1.0).unwrap(),
@@ -442,7 +438,7 @@ mod tests {
     #[test]
     fn test_cagra_serialize_without_dataset() {
         let res = Resources::new().unwrap();
-        let build_params = IndexParams::new().unwrap();
+        let build_params = IndexParams::try_new().unwrap();
         let dataset = ndarray::Array::<f32, _>::random(
             (N_DATAPOINTS, N_FEATURES),
             Uniform::new(0., 1.0).unwrap(),
@@ -463,7 +459,7 @@ mod tests {
     #[test]
     fn test_cagra_serialize_to_hnswlib() {
         let res = Resources::new().unwrap();
-        let build_params = IndexParams::new().unwrap();
+        let build_params = IndexParams::try_new().unwrap();
         let dataset = ndarray::Array::<f32, _>::random(
             (N_DATAPOINTS, N_FEATURES),
             Uniform::new(0., 1.0).unwrap(),
@@ -486,11 +482,11 @@ mod tests {
     }
 
     /// Passing a filename containing an interior NUL byte must surface as an
-    /// `InvalidArgument` error rather than panicking inside the serializer.
+    /// `InvalidPath` error rather than panicking inside the serializer.
     #[test]
     fn test_cagra_serialize_rejects_interior_nul() {
         let res = Resources::new().unwrap();
-        let build_params = IndexParams::new().unwrap();
+        let build_params = IndexParams::try_new().unwrap();
         let dataset = ndarray::Array::<f32, _>::random(
             (N_DATAPOINTS, N_FEATURES),
             Uniform::new(0., 1.0).unwrap(),
@@ -504,6 +500,6 @@ mod tests {
         let err = index
             .serialize(&res, &bad_path, true)
             .expect_err("serialize should reject paths with interior NUL");
-        assert!(matches!(err, Error::InvalidArgument(_)), "expected InvalidArgument, got {err:?}");
+        assert!(matches!(err, CagraError::InvalidPath(_)), "expected InvalidPath, got {err:?}");
     }
 }

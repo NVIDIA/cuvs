@@ -6,20 +6,32 @@
 //!
 //! Build an [`Index`] over a dataset, then [`search`](Index::search) it with
 //! device-resident queries and output buffers. Tensors are borrowed through the
-//! [`AsDlTensor`] /
-//! [`AsDlTensorMut`] traits; see the
-//! [`dlpack`](crate::dlpack) module for the tensor model and `examples/cagra.rs`
-//! for the same build/search workflow.
+//! `AsDlTensor` / `AsDlTensorMut` traits; see the [`dlpack`](crate::dlpack)
+//! module for the tensor model and `examples/cagra.rs` for the same
+//! build/search workflow.
 
 use std::io::{Write, stderr};
 use std::marker::PhantomData;
 
-use crate::distance_type::DistanceType;
-use crate::dlpack::{AsDlTensor, AsDlTensorMut};
-use crate::error::{Result, check_cuvs};
+use crate::distance::DistanceType;
+use crate::dlpack::{AsDlTensor, AsDlTensorMut, DLPackError};
+use crate::error::{LibraryError, check_cuvs};
 use crate::resources::Resources;
 
-/// Brute Force KNN Index
+type Result<T> = std::result::Result<T, BruteForceError>;
+
+/// Error type for brute-force operations.
+#[derive(Debug, thiserror::Error)]
+pub enum BruteForceError {
+    /// The cuVS C library reported a failure.
+    #[error(transparent)]
+    Library(#[from] LibraryError),
+    /// Tensor conversion into DLPack metadata failed.
+    #[error(transparent)]
+    DLPack(#[from] DLPackError),
+}
+
+/// Brute-force KNN index.
 #[derive(Debug)]
 pub struct Index<'d> {
     inner: ffi::cuvsBruteForceIndex_t,
@@ -31,17 +43,12 @@ pub struct Index<'d> {
 impl<'d> Index<'d> {
     /// Builds a brute-force index over `dataset` for exact k-NN search.
     ///
-    /// `metric` selects the distance and `metric_arg` is the optional `p` for
-    /// Minkowski distances (defaults to 2). `dataset` is a row-major matrix on
-    /// the host or device implementing [`AsDlTensor`]; the
-    /// C++ index keeps a non-owning view of it, so the returned [`Index`] borrows
-    /// it for `'d` and cannot outlive it.
-    pub fn build<T>(
-        res: &Resources,
-        metric: DistanceType,
-        metric_arg: Option<f32>,
-        dataset: &'d T,
-    ) -> Result<Index<'d>>
+    /// `metric` selects the distance (use [`DistanceType::LpUnexpanded`] to set
+    /// the Minkowski exponent `p`). `dataset` is a row-major matrix on the host
+    /// or device implementing [`AsDlTensor`]; the C++ index keeps a non-owning
+    /// view of it, so the returned [`Index`] borrows it for `'d` and cannot
+    /// outlive it.
+    pub fn build<T>(res: &Resources, metric: DistanceType, dataset: &'d T) -> Result<Index<'d>>
     where
         T: AsDlTensor + ?Sized,
     {
@@ -49,17 +56,17 @@ impl<'d> Index<'d> {
         let index = Index::new()?;
         unsafe {
             check_cuvs(ffi::cuvsBruteForceBuild(
-                res.0,
+                res.handle(),
                 dataset.to_c().as_mut_ptr(),
-                metric,
-                metric_arg.unwrap_or(2.0),
+                metric.into(),
+                metric.metric_arg(),
                 index.inner,
             ))?;
         }
         Ok(index)
     }
 
-    /// Creates a new empty index
+    /// Creates a new empty index.
     pub fn new() -> Result<Index<'d>> {
         unsafe {
             let mut index = std::mem::MaybeUninit::<ffi::cuvsBruteForceIndex_t>::uninit();
@@ -71,8 +78,7 @@ impl<'d> Index<'d> {
     /// Searches the index for the `k` nearest neighbors of each query.
     ///
     /// `queries`, `neighbors`, and `distances` must reside in device memory and
-    /// implement [`AsDlTensor`] /
-    /// [`AsDlTensorMut`]. `neighbors` receives the
+    /// implement [`AsDlTensor`] / [`AsDlTensorMut`]. `neighbors` receives the
     /// neighbor indices and `distances` their distances; both are written in
     /// place.
     pub fn search<Q, N, D>(
@@ -90,18 +96,18 @@ impl<'d> Index<'d> {
         let queries = queries.as_dl_tensor()?;
         let neighbors = neighbors.as_dl_tensor_mut()?;
         let distances = distances.as_dl_tensor_mut()?;
-        unsafe {
-            let prefilter = ffi::cuvsFilter { addr: 0, type_: ffi::cuvsFilterType::NO_FILTER };
-
-            check_cuvs(ffi::cuvsBruteForceSearch(
-                res.0,
+        let prefilter = ffi::cuvsFilter { addr: 0, type_: ffi::cuvsFilterType::NO_FILTER };
+        check_cuvs(unsafe {
+            ffi::cuvsBruteForceSearch(
+                res.handle(),
                 self.inner,
                 queries.to_c().as_mut_ptr(),
                 neighbors.to_c().as_mut_ptr(),
                 distances.to_c().as_mut_ptr(),
                 prefilter,
-            ))
-        }
+            )
+        })?;
+        Ok(())
     }
 }
 
@@ -125,7 +131,7 @@ mod tests {
     fn test_bfknn(metric: DistanceType) {
         let res = Resources::new().unwrap();
 
-        // Create a new random dataset to index
+        // Create a new random dataset to index.
         let n_datapoints = 16;
         let n_features = 8;
         let dataset_host = ndarray::Array::<f32, _>::random(
@@ -135,22 +141,17 @@ mod tests {
 
         let dataset = DeviceTensor::from_host(&res, &dataset_host).unwrap();
 
-        println!("dataset {:#?}", dataset_host);
-
-        // build the brute force index
         let index =
-            Index::build(&res, metric, None, &dataset).expect("failed to create brute force index");
+            Index::build(&res, metric, &dataset).expect("failed to create brute force index");
 
         res.sync_stream().unwrap();
 
-        // use the first 4 points from the dataset as queries : will test that we get them back
-        // as their own nearest neighbor
+        // Use the first 4 points from the dataset as queries: each should get
+        // itself back as its own nearest neighbor.
         let n_queries = 4;
         let queries = dataset_host.slice(s![0..n_queries, ..]).to_owned();
-
         let k = 4;
 
-        println!("queries! {:#?}", queries);
         let queries = DeviceTensor::from_host(&res, &queries).unwrap();
         let mut neighbors_host = ndarray::Array::<i64, _>::zeros((n_queries, k));
         let mut neighbors = DeviceTensor::<i64>::zeros(&res, &[n_queries, k]).unwrap();
@@ -160,28 +161,15 @@ mod tests {
 
         index.search(&res, &queries, &mut neighbors, &mut distances).unwrap();
 
-        // Copy back to host memory
         distances.copy_to_host(&res, &mut distances_host).unwrap();
         neighbors.copy_to_host(&res, &mut neighbors_host).unwrap();
         res.sync_stream().unwrap();
 
-        println!("distances {:#?}", distances_host);
-        println!("neighbors {:#?}", neighbors_host);
-
-        // nearest neighbors should be themselves, since queries are from the
-        // dataset
         assert_eq!(neighbors_host[[0, 0]], 0);
         assert_eq!(neighbors_host[[1, 0]], 1);
         assert_eq!(neighbors_host[[2, 0]], 2);
         assert_eq!(neighbors_host[[3, 0]], 3);
     }
-
-    /*
-        #[test]
-        fn test_cosine() {
-            test_bfknn(DistanceType::CosineExpanded);
-        }
-    */
 
     #[test]
     fn test_l2() {
