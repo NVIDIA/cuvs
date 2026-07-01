@@ -1,6 +1,6 @@
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
+ * reserved. SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
 
@@ -1665,6 +1665,54 @@ void build_knn_graph(
   RAFT_LOG_DEBUG("# Building IVF-PQ index %s", model_name.c_str());
   auto index = cuvs::neighbors::ivf_pq::build(res, pq.build_params, dataset);
 
+  // Empirically detect FP16 distance overflow on the just-built index: run a small FP16 probe
+  // search and downgrade the internal/coarse dtypes to FP32 if any distance comes back non-finite.
+  // This observes the actual computation, so it is agnostic of the selected distance type.
+  if (pq.search_params.internal_distance_dtype == CUDA_R_16F ||
+      pq.search_params.coarse_search_dtype == CUDA_R_16F) {
+    // --- Benchmark fp16 overflow detection: probe search with 128 queries ---
+    {
+      raft::resource::sync_stream(res);
+      const auto t0  = std::chrono::steady_clock::now();
+      const bool fp16_overflow = cuvs::neighbors::ivf_pq::helpers::detect_fp16_overflow(
+        res, index, pq.search_params, dataset);
+      const double ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0)
+          .count();
+      RAFT_LOG_INFO("detect_fp16_overflow (IVF-PQ search) took %.3f ms (overflow=%d)", ms, int(fp16_overflow));
+    }
+    // --- Benchmark fp16 overflow detection: estimate max norm on the first 20k rows ---
+    {
+      raft::resource::sync_stream(res);
+      const auto t0 = std::chrono::steady_clock::now();
+      const bool fp16_overflow = cuvs::neighbors::ivf_pq::helpers::estimate_fp16_overflow(
+        res, dataset, pq.build_params.metric);
+      const double ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+      RAFT_LOG_INFO("estimate max norm on the first 20k rows took %.3f ms (overflow=%d)", ms, int(fp16_overflow));
+    }
+    // --- Benchmark fp16 overflow detection: estimate max norm on the IVF-PQ cluster centers ---
+    {
+      raft::resource::sync_stream(res);
+      const auto t0 = std::chrono::steady_clock::now();
+      const bool fp16_overflow = cuvs::neighbors::ivf_pq::helpers::estimate_fp16_overflow_centers(
+        res, index, pq.build_params.metric);
+      const double ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+      RAFT_LOG_INFO("estimate max norm on the IVF-PQ cluster centers took %.3f ms (overflow=%d)", ms, int(fp16_overflow));
+    }
+    // if (fp16_overflow) {
+    //   RAFT_LOG_WARN(
+    //     "IVF-PQ FP16 distance produced non-finite results on a probe search for this dataset -> "
+    //     "switching 'internal_distance_dtype' and 'coarse_search_dtype' to FP32");
+    //   pq.search_params.internal_distance_dtype = CUDA_R_32F;
+    //   pq.search_params.coarse_search_dtype     = CUDA_R_32F;
+    // }
+    // TODO delete this after benchmarking 3 approaches
+    //pq.search_params.internal_distance_dtype = CUDA_R_32F;
+    //pq.search_params.coarse_search_dtype     = CUDA_R_32F;
+  }
+
   //
   // search top (k + 1) neighbors
   //
@@ -2224,16 +2272,21 @@ index<T, IdxT> build(
   if (auto* pq = std::get_if<cagra::graph_build_params::ivf_pq_params>(&knn_build_params)) {
     const bool using_fp16_distance = pq->search_params.internal_distance_dtype == CUDA_R_16F ||
                                      pq->search_params.coarse_search_dtype == CUDA_R_16F;
+    raft::resource::sync_stream(res);
+    const auto detect_start  = std::chrono::steady_clock::now();
+    const bool first_20k_rows_check = ivf_pq::helpers::estimate_fp16_overflow(res, dataset, params.metric);
+    const double detect_ms =
+      std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - detect_start)
+        .count();
+    RAFT_LOG_INFO("1st attempt: estimate_fp16_overflow on first 20k rows took %.3f ms (overflow=%d)", detect_ms, int(first_20k_rows_check));
     if (using_fp16_distance &&
         ivf_pq::helpers::estimate_fp16_overflow(res, dataset, params.metric)) {
       RAFT_LOG_WARN(
-        "IVF-PQ internal type of FP16 is likely insufficient for this dataset to avoid overflow in "
+        "IVF-PQ internal type of FP16 is insufficient for this dataset to avoid overflow in "
         "distance computations -> "
         "Switching 'internal_distance_dtype' and 'coarse_search_dtype' to FP32");
-      pq->search_params.internal_distance_dtype = CUDA_R_32F;
-      pq->search_params.coarse_search_dtype     = CUDA_R_32F;
-      // lut_dtype is left unchanged because its per-subspace terms are smaller by a factor of
-      // pq_dim and therefore, less likely to overflow.
+      //pq->search_params.internal_distance_dtype = CUDA_R_32F;
+      //pq->search_params.coarse_search_dtype     = CUDA_R_32F;
     }
   }
   RAFT_EXPECTS(
