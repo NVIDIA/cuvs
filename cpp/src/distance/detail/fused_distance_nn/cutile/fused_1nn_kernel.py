@@ -9,9 +9,9 @@ import cuda.tile as ct
 ConstInt = ct.Constant[int]
 
 # Default tile geometry; overridden per export via make_kernel(..., tile_m, tile_n, tile_k).
-DEFAULT_TILE_M = 256
-DEFAULT_TILE_N = 64
-DEFAULT_TILE_K = 32
+DEFAULT_TILE_M = 128
+DEFAULT_TILE_N = 128
+DEFAULT_TILE_K = 64
 
 METRICS = ("inner_product", "l2_expanded", "cosine_expanded")
 INDEX_TYPES = ("int32", "int64")

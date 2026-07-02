@@ -11,6 +11,8 @@
 #include <cuvs/detail/jit_lto/fused_distance_nn/fused_1nn_fragments.hpp>
 #include <raft/util/cuda_utils.cuh>
 
+#include <type_traits>
+
 namespace cuvs {
 namespace distance {
 namespace detail {
@@ -43,20 +45,22 @@ bool launch_fused_1nn_tile(IdxT* nearest_idx,
 
   const bool apply_sqrt = fused_1nn_apply_sqrt_at_pack<Metric>(is_sqrt);
 
-  int64_t shape_x[2]  = {m, k};
-  int64_t stride_x[2] = {k, 1};
-  int64_t shape_y[2]  = {n, k};
-  int64_t stride_y[2] = {k, 1};
-  int64_t shape_xn    = m;
-  int64_t stride_xn   = 1;
-  int64_t shape_yn    = n;
-  int64_t stride_yn   = 1;
-  int64_t shape_idx   = m;
-  int64_t stride_idx  = 1;
-  int64_t shape_dist  = m;
-  int64_t stride_dist = 1;
+  IdxT shape_x[2]  = {m, k};
+  IdxT stride_x[2] = {k, IdxT{1}};
+  IdxT shape_y[2]  = {n, k};
+  IdxT stride_y[2] = {k, IdxT{1}};
+  IdxT shape_xn    = m;
+  IdxT stride_xn   = IdxT{1};
+  IdxT shape_yn    = n;
+  IdxT stride_yn   = IdxT{1};
+  IdxT shape_idx   = m;
+  IdxT stride_idx  = IdxT{1};
+  IdxT shape_dist  = m;
+  IdxT stride_dist = IdxT{1};
 
-  int64_t M = m, N = n, K = k;
+  IdxT M = m;
+  IdxT N = n;
+  IdxT K = k;
 
   void* x_ptr  = const_cast<DataT*>(x);
   void* y_ptr  = const_cast<DataT*>(y);
@@ -64,42 +68,42 @@ bool launch_fused_1nn_tile(IdxT* nearest_idx,
   void* yn_ptr = const_cast<DataT*>(yn);
   // OutIdx must be a valid device pointer for the launch ABI; when store_idx is 0 the kernel
   // does not write it (dist-only callers pass nearest_dist as a stand-in).
-  const int64_t store_idx = nearest_idx != nullptr ? 1 : 0;
+  const IdxT store_idx = nearest_idx != nullptr ? IdxT{1} : IdxT{0};
   void* idx_ptr =
     nearest_idx != nullptr ? static_cast<void*>(nearest_idx) : static_cast<void*>(nearest_dist);
   void* dist_ptr = nearest_dist;
 
-  const int64_t tile_m = tile_cfg.tile_m;
+  const int tile_m = tile_cfg.tile_m;
   dim3 grid((m + tile_m - 1) / tile_m, 1, 1);
   dim3 block(1, 1, 1);
 
   using fused_1nn_cutile_kernel_t = void(void*,
-                                         int64_t,
-                                         int64_t,
-                                         int64_t,
-                                         int64_t,
+                                         IdxT,
+                                         IdxT,
+                                         IdxT,
+                                         IdxT,
                                          void*,
-                                         int64_t,
-                                         int64_t,
-                                         int64_t,
-                                         int64_t,
+                                         IdxT,
+                                         IdxT,
+                                         IdxT,
+                                         IdxT,
                                          void*,
-                                         int64_t,
-                                         int64_t,
+                                         IdxT,
+                                         IdxT,
                                          void*,
-                                         int64_t,
-                                         int64_t,
+                                         IdxT,
+                                         IdxT,
                                          void*,
-                                         int64_t,
-                                         int64_t,
+                                         IdxT,
+                                         IdxT,
                                          void*,
-                                         int64_t,
-                                         int64_t,
-                                         int64_t,
-                                         int64_t,
-                                         int64_t,
-                                         int64_t,
-                                         int64_t);
+                                         IdxT,
+                                         IdxT,
+                                         IdxT,
+                                         IdxT,
+                                         IdxT,
+                                         IdxT,
+                                         IdxT);
   launcher->template dispatch<fused_1nn_cutile_kernel_t>(stream,
                                                          grid,
                                                          block,
@@ -129,7 +133,7 @@ bool launch_fused_1nn_tile(IdxT* nearest_idx,
                                                          M,
                                                          N,
                                                          K,
-                                                         static_cast<int64_t>(apply_sqrt),
+                                                         static_cast<IdxT>(apply_sqrt),
                                                          store_idx);
   RAFT_CUDA_TRY(cudaGetLastError());
   return true;

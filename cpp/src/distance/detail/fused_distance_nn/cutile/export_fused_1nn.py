@@ -22,6 +22,7 @@ from cuda.tile.compilation import (
 from fused_1nn_kernel import (
     INDEX_TYPES,
     METRICS,
+    _idx_dtype,
     index_abbrev,
     kernel_symbol,
     make_kernel,
@@ -52,7 +53,7 @@ def _elem_stride_divisible_for_tma(elem_dtype) -> tuple[int, int]:
     return (16 // bytes_per_elem, 1)
 
 
-def _cuvs_matrix_constraint(elem_dtype):
+def _cuvs_matrix_constraint(elem_dtype, *, index_dtype=ct.int32):
     """Row-major device matrices for cuVS KMeans benchmarks.
 
       Assumes raft/cupy-style contiguous layout: stride[-1]==1, stride[0]==D,
@@ -65,7 +66,7 @@ def _cuvs_matrix_constraint(elem_dtype):
     return ArrayConstraint(
         elem_dtype,
         ndim=2,
-        index_dtype=ct.int32,
+        index_dtype=index_dtype,
         stride_lower_bound_incl=(0, None),
         alias_groups=(),
         may_alias_internally=False,
@@ -76,12 +77,12 @@ def _cuvs_matrix_constraint(elem_dtype):
     )
 
 
-def _cuvs_vector_constraint(elem_dtype):
+def _cuvs_vector_constraint(elem_dtype, *, index_dtype=ct.int32):
     """1-D device vectors: contiguous, 16-byte base. Length need not be divisible by 16."""
     return ArrayConstraint(
         elem_dtype,
         ndim=1,
-        index_dtype=ct.int32,
+        index_dtype=index_dtype,
         stride_lower_bound_incl=(None,),
         alias_groups=(),
         may_alias_internally=False,
@@ -112,11 +113,11 @@ def _kernel_signature(
     tile_k: int,
 ) -> KernelSignature:
     elem = _dtype_for(data_type)
-    matrix = _cuvs_matrix_constraint(elem)
-    norm_array = _cuvs_vector_constraint(elem)
-    idx_elem = ct.int32 if index_type == "int32" else ct.int64
-    idx_array = _cuvs_vector_constraint(idx_elem)
-    dist_array = _cuvs_vector_constraint(elem)
+    idx_dtype = _idx_dtype(index_type)
+    matrix = _cuvs_matrix_constraint(elem, index_dtype=idx_dtype)
+    norm_array = _cuvs_vector_constraint(elem, index_dtype=idx_dtype)
+    idx_array = _cuvs_vector_constraint(idx_dtype, index_dtype=idx_dtype)
+    dist_array = _cuvs_vector_constraint(elem, index_dtype=idx_dtype)
 
     abbrev = _data_abbrev(data_type)
     symbol = kernel_symbol(
@@ -131,11 +132,11 @@ def _kernel_signature(
             norm_array,
             idx_array,
             dist_array,
-            ScalarConstraint(ct.int64),
-            ScalarConstraint(ct.int64),
-            ScalarConstraint(ct.int64),
-            ScalarConstraint(ct.int64),
-            ScalarConstraint(ct.int64),
+            ScalarConstraint(idx_dtype),
+            ScalarConstraint(idx_dtype),
+            ScalarConstraint(idx_dtype),
+            ScalarConstraint(idx_dtype),
+            ScalarConstraint(idx_dtype),
             ConstantConstraint(tile_m),
             ConstantConstraint(tile_n),
             ConstantConstraint(tile_k),

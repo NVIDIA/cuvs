@@ -12,6 +12,8 @@
 #   export MAX_ITER=5 TOL=1e-4 SEED=42
 #   export WARMUP_FIT=1 ITERS_FIT=3 WARMUP_PRED=1 ITERS_PRED=3
 #   export BENCH_PHASE=both          # fit | predict | both (default: both)
+#   export BENCH_GPU_NAME=rtx_pro_6000  # sweep log tag (e.g. h200 on Hopper)
+#   export BENCH_LOG=path/to.log        # optional sweep log override
 #   ./run_benchmark_kmeans.sh              # default sweep (M=1M, all D and K below)
 #   ./run_benchmark_kmeans.sh N D K          # single shape
 #   ./run_benchmark_kmeans.sh fit              # sweep, fit only
@@ -68,6 +70,11 @@ if [[ $# -ne 0 ]]; then
   echo "  [phase] N D K     — run one shape" >&2
   exit 2
 fi
+
+: "${BENCH_GPU_NAME:?set BENCH_GPU_NAME e.g. rtx_pro_6000}"
+BENCH_LOG="${BENCH_LOG:-${SCRIPT_DIR}/benchmark_kmeans_sweep_${BENCH_GPU_NAME}_$(date +%Y%m%d_%H%M%S).log}"
+echo "Logging to ${BENCH_LOG}"
+exec > >(tee "$BENCH_LOG") 2>&1
 
 M=1000000
 D_VALUES=(16 64 128 384 768 1024 1536)
