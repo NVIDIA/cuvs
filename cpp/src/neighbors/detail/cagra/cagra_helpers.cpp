@@ -101,45 +101,6 @@ std::tuple<size_t, size_t, size_t, size_t> optimize_workspace_size(size_t n_rows
   return std::make_tuple(total_host, total_dev, total_host_fixed, total_dev_fixed);
 }
 
-inline size_t ivf_pq_extend_mem_usage(raft::matrix_extent<int64_t> dataset,
-                                      cuvs::neighbors::graph_build_params::ivf_pq_params params,
-                                      size_t dtype_size)
-{
-  constexpr size_t kReasonableMaxBatchSize = 65536;
-  constexpr size_t kSpecAlignMax           = 1024;
-
-  size_t n_rows     = dataset.extent(0);
-  size_t dim        = dataset.extent(1);
-  size_t pq_dim     = params.build_params.pq_dim;
-  size_t pq_bits    = params.build_params.pq_bits;
-  size_t rot_dim    = raft::round_up_safe<size_t>(dim, pq_dim);
-  size_t n_clusters = params.build_params.n_lists;
-
-  RAFT_EXPECTS(pq_dim > 0, "pq_dim should not be 0");
-
-  size_t max_batch_size = std::min<size_t>(n_rows, kReasonableMaxBatchSize);
-  size_t workspace_size = max_batch_size * dim * dtype_size           // vec_batches
-                          + max_batch_size * rot_dim * sizeof(float)  // new_vectors_residual
-                          + max_batch_size * dim * sizeof(float);     // flat_compute_residuals_tmp
-
-  // each row contains pq codes and index
-  size_t code_bytes_per_vec = pq_dim * pq_bits / 8;
-  size_t bytes_per_row      = code_bytes_per_vec + sizeof(uint32_t);
-
-  // estimate the "worst-case" for the number of placeholder rows and resize rows
-  // The worst-case (i.e. max) happens for INTERLEAVED (as oppposed to FLAT) and when each row
-  // wastes n_cluster * alignment_size
-  size_t n_rows_placeholder  = n_rows + ivf_pq::kIndexGroupSize * n_clusters;
-  size_t placeholder_dev     = n_rows_placeholder * bytes_per_row;
-  size_t n_rows_resize_lists = n_rows + kSpecAlignMax * n_clusters;
-  size_t resize_lists_dev    = n_rows_resize_lists * bytes_per_row;
-
-  // Placeholder freed before resize_list
-  size_t device_size = std::max(placeholder_dev, resize_lists_dev);
-
-  return device_size + workspace_size;
-}
-
 // All sizes are in bytes
 inline std::pair<size_t, size_t> ivf_pq_build_mem_usage(
   raft::resources const& res,
@@ -190,15 +151,6 @@ inline std::pair<size_t, size_t> ivf_pq_build_mem_usage(
   size_t kmeans_pinned_host = 2 * pinned_rows * dim * dtype_size;  // two staging double-buffers
   size_t kmeans_host_mem    = kmeans_indices_host + kmeans_pinned_host;
 
-  // Extend phase
-  size_t extend_gpu_mem = params.build_params.add_data_on_build
-                            ? ivf_pq_extend_mem_usage(dataset, params, dtype_size)
-                            : 0;
-
-  // Add graph to index on GPU
-  size_t attach_graph_gpu_mem =
-    attach_dataset_on_build ? n_rows * graph_degree * sizeof(uint32_t) : 0;
-
   // Search phase (build_knn_graph):
   constexpr size_t kWorkspaceRatio = 5;
   size_t top_k                     = intermediate_graph_degree + 1;
@@ -217,8 +169,7 @@ inline std::pair<size_t, size_t> ivf_pq_build_mem_usage(
                                          + (sizeof(float) + sizeof(int64_t)) * top_k);  // refined_*
 
   // Phases run sequentially (train/extend -> search -> optimize)
-  size_t total_dev = std::max(
-    {kmeans_gpu_mem, extend_gpu_mem, attach_graph_gpu_mem, search_phase_dev, gpu_workspace_size});
+  size_t total_dev = std::max({kmeans_gpu_mem, search_phase_dev, gpu_workspace_size});
 
   // The graph (and its optimize workspace) stays resident across phases
   size_t total_host =
