@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -44,3 +44,5 @@
 #include <cuvs/preprocessing/quantize/binary.h>
 #include <cuvs/preprocessing/quantize/pq.h>
 #include <cuvs/preprocessing/quantize/scalar.h>
+
+#include <cuvs/selection/select_k.h>
