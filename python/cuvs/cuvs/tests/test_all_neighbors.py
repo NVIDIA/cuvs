@@ -250,3 +250,82 @@ def test_all_neighbors_host_build_quality(algo, cluster, snmg):
     recall = calc_recall(indices_host, bf_indices_host)
 
     assert recall > 0.85
+
+
+@pytest.mark.parametrize("algo", ["nn_descent", "brute_force"])
+@pytest.mark.parametrize("cluster", ["single_cluster", "multi_cluster"])
+@pytest.mark.parametrize("snmg", [False, True])
+def test_all_neighbors_host_output_quality(algo, cluster, snmg):
+    """Host dataset with host-resident (numpy) outputs: the full graph never
+    needs to fit on the GPU. Validates recall and that outputs come back on
+    host.
+    """
+    n_rows, n_cols, k = 7151, 64, 16
+
+    if cluster == "single_cluster":
+        n_clusters = 1
+        overlap_factor = 0
+    else:
+        n_clusters = 8
+        overlap_factor = 3
+
+    np.random.seed(42)
+
+    X_host, _ = make_blobs(
+        n_samples=n_rows,
+        n_features=n_cols,
+        centers=10,
+        cluster_std=1.0,
+        center_box=(-10.0, 10.0),
+        random_state=42,
+    )
+    X_host = X_host.astype(np.float32)
+    X_device = device_ndarray(X_host)
+
+    nn_descent_params = None
+    if algo == "nn_descent":
+        nn_descent_params = nn_descent.IndexParams(
+            metric="sqeuclidean",
+            graph_degree=k,
+            intermediate_graph_degree=k * 2,
+            max_iterations=100,
+            termination_threshold=0.001,
+        )
+
+    params = all_neighbors.AllNeighborsParams(
+        algo=algo,
+        overlap_factor=overlap_factor,
+        n_clusters=n_clusters,
+        metric="sqeuclidean",
+        nn_descent_params=nn_descent_params,
+    )
+
+    res = MultiGpuResources() if snmg else Resources()
+
+    # Host-resident output buffers -> host build, no device-side [n_rows x k].
+    indices = np.empty((n_rows, k), dtype=np.int64)
+    distances = np.empty((n_rows, k), dtype=np.float32)
+
+    indices, distances = all_neighbors.build(
+        X_host,
+        k,
+        params,
+        indices=indices,
+        distances=distances,
+        resources=res,
+    )
+
+    assert isinstance(indices, np.ndarray)
+    assert isinstance(distances, np.ndarray)
+    assert indices.shape == (n_rows, k)
+    assert indices.dtype == np.int64
+    assert distances.shape == (n_rows, k)
+    assert distances.dtype == np.float32
+
+    bf_index = brute_force.build(X_device, metric="sqeuclidean")
+    _, bf_indices = brute_force.search(bf_index, X_device, k=k)
+
+    recall = calc_recall(indices, cupy.asnumpy(bf_indices))
+    print(f"recall: {recall}")
+
+    assert recall > 0.85
