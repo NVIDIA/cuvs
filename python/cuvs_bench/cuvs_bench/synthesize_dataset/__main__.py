@@ -59,7 +59,7 @@ def _add_fit_parser(subparsers: argparse._SubParsersAction) -> None:
         help=(
             "Path to write the fingerprint NPZ. Defaults to "
             "'{dataset_stem}_nc{n_clusters}_ncomp{pca_components}"
-            "[_ss{sample_size}]_seed{seed}.npz' in the current "
+            "[_ss{sample_size}].npz' in the current "
             "working directory. '_ss{sample_size}' is included only when "
             "--sample_size is passed."
         ),
@@ -85,12 +85,6 @@ def _add_fit_parser(subparsers: argparse._SubParsersAction) -> None:
         type=int,
         required=True,
         help="Number of PCA components per cluster.",
-    )
-    p.add_argument(
-        "--seed",
-        type=int,
-        default=42,
-        help="RNG seed for KMeans init and PCA (default: 42).",
     )
 
 
@@ -215,7 +209,6 @@ def _cmd_fit(args: argparse.Namespace) -> int:
         data=data,
         n_clusters=args.n_clusters,
         pca_components=args.pca_components,
-        seed=args.seed,
     )
 
     output_path = args.output
@@ -224,7 +217,7 @@ def _cmd_fit(args: argparse.Namespace) -> int:
         ss_tag = "" if args.sample_size is None else f"_ss{args.sample_size}"
         output_path = (
             f"{stem}_nc{args.n_clusters}_ncomp{args.pca_components}"
-            f"{ss_tag}_seed{args.seed}.npz"
+            f"{ss_tag}.npz"
         )
     save_fingerprint(output_path, fingerprint)
     print(f"Saved fingerprint to {output_path}")

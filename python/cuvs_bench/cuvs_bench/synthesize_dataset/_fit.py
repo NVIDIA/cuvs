@@ -34,21 +34,26 @@ _NORM_QUANTILE_COUNT = 256
 _NORM_UNIT_MEAN_TOL = 0.02
 _NORM_UNIT_CV_TOL = 0.05
 
+# Rows streamed to the GPU per batch on the cuVS host (out-of-core) KMeans
+# fit/predict paths. Materializing the whole sample at once needs n*d*4 bytes on
+# the GPU (e.g. 10M x 1024 f32 = 38 GiB) and OOMs; stream it in batches instead.
+_KMEANS_STREAM_BATCH = 1_000_000
+
 
 def _run_kmeans(
     data: np.ndarray,
     n_clusters: int,
-    seed: int,
 ):
     """Run cuvs KMeans, returning ``(labels, centroids)`` as numpy arrays."""
     params = cuvs_kmeans.KMeansParams(
         n_clusters=n_clusters,
-        init_size=len(data),
+        max_iter=300,
+        streaming_batch_size=_KMEANS_STREAM_BATCH,
     )
 
     print(
         f"  Running cuvs KMeans (n_clusters={n_clusters}, "
-        f"init_size={len(data):,})..."
+        f"streaming_batch_size={_KMEANS_STREAM_BATCH:,})..."
     )
 
     t0 = time.perf_counter()
@@ -56,13 +61,23 @@ def _run_kmeans(
     print(f"  KMeans fit time: {time.perf_counter() - t0:.2f}s")
 
     centroids_gpu = cp.asarray(centroids_out)
-    data_gpu = cp.asarray(data, dtype=cp.float32)
-    labels_out, _ = cuvs_kmeans.predict(params, data_gpu, centroids_gpu)
-
     centroids = cp.asnumpy(centroids_gpu).astype(np.float32)
-    labels = cp.asnumpy(cp.asarray(labels_out)).astype(np.int64)
 
-    del data_gpu, centroids_gpu
+    # cuVS predict has no host/streaming path, so assign labels in batches to
+    # avoid uploading the full sample (n*d*4 bytes) to the GPU at once.
+    n = len(data)
+    labels = np.empty(n, dtype=np.int64)
+    for start in range(0, n, _KMEANS_STREAM_BATCH):
+        stop = min(start + _KMEANS_STREAM_BATCH, n)
+        chunk_gpu = cp.asarray(data[start:stop], dtype=cp.float32)
+        labels_out, _ = cuvs_kmeans.predict(params, chunk_gpu, centroids_gpu)
+        labels[start:stop] = cp.asnumpy(cp.asarray(labels_out)).astype(
+            np.int64
+        )
+        del chunk_gpu
+        cp.get_default_memory_pool().free_all_blocks()
+
+    del centroids_gpu
     cp.get_default_memory_pool().free_all_blocks()
 
     return labels, centroids
@@ -88,7 +103,6 @@ def fit_fingerprint(
     data: np.ndarray,
     n_clusters: int,
     pca_components: int,
-    seed: int = 42,
 ) -> Dict[str, Any]:
     """Fit a cluster fingerprint to a real dataset sample.
 
@@ -100,8 +114,6 @@ def fit_fingerprint(
         Number of KMeans clusters.
     pca_components : int
         Number of principal directions per cluster.
-    seed : int
-        Random seed for KMeans initialization.
 
     Returns
     -------
@@ -120,17 +132,24 @@ def fit_fingerprint(
     n_dim = data.shape[1]
     data_sample = np.ascontiguousarray(data.astype(np.float32))
 
-    # Norm quantiles for the "percentile" norm scheme at generate time
+    # Norm quantiles for the "percentile" norm scheme at generate time.
     quantile_levels = np.linspace(0.0, 1.0, _NORM_QUANTILE_COUNT)
-    norms_gpu = cp.linalg.norm(cp.asarray(data_sample), axis=1)
-    data_sample_norms = cp.asnumpy(norms_gpu).astype(np.float32)
-    norm_mean = float(norms_gpu.mean())
-    norm_cv = float(norms_gpu.std() / max(norm_mean, 1e-12))
-    global_norm_quantiles = cp.asnumpy(
-        cp.quantile(norms_gpu, cp.asarray(quantile_levels))
+    n = len(data_sample)
+    data_sample_norms = np.empty(n, dtype=np.float32)
+    for start in range(0, n, _KMEANS_STREAM_BATCH):
+        stop = min(start + _KMEANS_STREAM_BATCH, n)
+        chunk_gpu = cp.asarray(data_sample[start:stop], dtype=cp.float32)
+        data_sample_norms[start:stop] = cp.asnumpy(
+            cp.linalg.norm(chunk_gpu, axis=1)
+        )
+        del chunk_gpu
+
+    norms64 = data_sample_norms.astype(np.float64)
+    norm_mean = float(norms64.mean())
+    norm_cv = float(norms64.std() / max(norm_mean, 1e-12))
+    global_norm_quantiles = np.quantile(
+        data_sample_norms, quantile_levels
     ).astype(np.float32)
-    del norms_gpu
-    cp.get_default_memory_pool().free_all_blocks()
 
     norm_unit = (
         abs(norm_mean - 1.0) <= _NORM_UNIT_MEAN_TOL
@@ -148,7 +167,7 @@ def fit_fingerprint(
             f"{_NORM_QUANTILE_COUNT}-point quantile grids)."
         )
 
-    labels, centroids = _run_kmeans(data_sample, n_clusters, seed)
+    labels, centroids = _run_kmeans(data_sample, n_clusters)
 
     print(
         f"Fitting per-cluster PCA (ncomp={pca_components}) for "
