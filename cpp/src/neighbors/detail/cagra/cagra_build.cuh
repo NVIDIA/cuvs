@@ -18,6 +18,7 @@
 #include <raft/core/host_mdspan.hpp>
 #include <raft/core/logger.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
+#include <raft/util/cuda_rt_essentials.hpp>
 #include <raft/util/integer_utils.hpp>
 
 #include <cuvs/cluster/kmeans.hpp>
@@ -429,35 +430,84 @@ void ace_adjust_sub_graph_ids(
   }
 }
 
-// ACE: Adjust ids in sub search graph in place for disk version
-template <typename IdxT>
+// ACE: Adjust IDs into global reordered IDs on the device for the disk version.
+template <typename GraphIdxT, typename IdxT>
+__global__ void ace_adjust_sub_graph_ids_disk_kernel(const GraphIdxT* sub_search_graph,
+                                                     IdxT* adjusted_search_graph,
+                                                     size_t graph_edges,
+                                                     size_t core_sub_dataset_size,
+                                                     IdxT core_partition_offset,
+                                                     const IdxT* augmented_reordered_ids)
+{
+  const size_t edge_id = static_cast<size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  if (edge_id >= graph_edges) { return; }
+
+  const GraphIdxT neighbor = sub_search_graph[edge_id];
+  if (static_cast<size_t>(neighbor) < core_sub_dataset_size) {
+    adjusted_search_graph[edge_id] = static_cast<IdxT>(neighbor) + core_partition_offset;
+  } else {
+    adjusted_search_graph[edge_id] =
+      augmented_reordered_ids[static_cast<size_t>(neighbor) - core_sub_dataset_size];
+  }
+}
+
+template <typename IdxT, typename GraphIdxT>
 void ace_adjust_sub_graph_ids_disk(
+  raft::resources const& res,
   size_t core_sub_dataset_size,
   size_t augmented_sub_dataset_size,
   size_t graph_degree,
   size_t partition_id,
-  raft::host_matrix_view<IdxT, int64_t, raft::row_major> sub_search_graph,
+  raft::device_matrix_view<const GraphIdxT, int64_t, raft::row_major> sub_search_graph,
+  raft::device_matrix_view<IdxT, int64_t, raft::row_major> adjusted_search_graph,
   raft::host_vector_view<IdxT, int64_t, raft::row_major> core_partition_offsets,
   raft::host_vector_view<IdxT, int64_t, raft::row_major> augmented_partition_offsets,
   raft::host_vector_view<IdxT, int64_t, raft::row_major> augmented_backward_mapping,
   raft::host_vector_view<IdxT, int64_t, raft::row_major> core_forward_mapping)
 {
+  RAFT_EXPECTS(static_cast<size_t>(sub_search_graph.extent(0)) >= core_sub_dataset_size,
+               "ACE: source graph has fewer rows than the core partition");
+  RAFT_EXPECTS(static_cast<size_t>(sub_search_graph.extent(1)) == graph_degree,
+               "ACE: source graph degree does not match the requested graph degree");
+  RAFT_EXPECTS(static_cast<size_t>(adjusted_search_graph.extent(0)) == core_sub_dataset_size &&
+                 static_cast<size_t>(adjusted_search_graph.extent(1)) == graph_degree,
+               "ACE: adjusted graph shape does not match the core partition");
+
+  const size_t augmented_offset = augmented_partition_offsets(partition_id);
+  RAFT_EXPECTS(augmented_offset + augmented_sub_dataset_size <=
+                 static_cast<size_t>(augmented_backward_mapping.extent(0)),
+               "ACE: augmented partition exceeds the backward mapping");
+
+  // Resolve the global mapping once per augmented vector. This compact table is small enough to
+  // copy to the GPU even when the full dataset mappings are too large to fit in device memory.
+  auto augmented_reordered_ids = raft::make_host_vector<IdxT, int64_t>(augmented_sub_dataset_size);
 #pragma omp parallel for
-  for (size_t i = 0; i < core_sub_dataset_size; i++) {
-    for (size_t k = 0; k < graph_degree; k++) {
-      size_t j = sub_search_graph(i, k);
-      if (j < core_sub_dataset_size) {
-        // core partition neighbor: local → core reordered
-        sub_search_graph(i, k) = j + core_partition_offsets(partition_id);
-      } else {
-        // Augmented partition neighbor: local → augmented reordered→ original → core reordered
-        size_t j_augmented = j - core_sub_dataset_size;
-        size_t j_original =
-          augmented_backward_mapping(j_augmented + augmented_partition_offsets(partition_id));
-        sub_search_graph(i, k) = core_forward_mapping(j_original);
-      }
-    }
+  for (size_t i = 0; i < augmented_sub_dataset_size; i++) {
+    const size_t original_id   = augmented_backward_mapping(augmented_offset + i);
+    augmented_reordered_ids(i) = core_forward_mapping(original_id);
   }
+
+  auto augmented_reordered_ids_dev =
+    raft::make_device_vector<IdxT, int64_t>(res, augmented_sub_dataset_size);
+  raft::copy(res, augmented_reordered_ids_dev.view(), augmented_reordered_ids.view());
+
+  const size_t graph_edges = core_sub_dataset_size * graph_degree;
+  if (graph_edges == 0) { return; }
+
+  constexpr uint32_t block_size = 256;
+  const dim3 grid_size(raft::ceildiv(graph_edges, static_cast<size_t>(block_size)));
+  ace_adjust_sub_graph_ids_disk_kernel<<<grid_size,
+                                         block_size,
+                                         0,
+                                         raft::resource::get_cuda_stream(res)>>>(
+    sub_search_graph.data_handle(),
+    adjusted_search_graph.data_handle(),
+    graph_edges,
+    core_sub_dataset_size,
+    core_partition_offsets(partition_id),
+    augmented_reordered_ids_dev.data_handle());
+  RAFT_CUDA_TRY(cudaPeekAtLastError());
+  raft::resource::sync_stream(res);
 }
 
 // ACE: Reorder dataset based on partition assignments and store to disk
@@ -1440,28 +1490,44 @@ index<T, IdxT> build_ace(raft::resources const& res,
       auto optimize_elapsed =
         std::chrono::duration_cast<std::chrono::milliseconds>(optimize_end - read_end).count();
 
-      // Copy graph edges for core members of this partition
-      auto sub_search_graph =
-        raft::make_host_matrix<IdxT, int64_t>(core_sub_dataset_size, graph_degree);
-      cudaStream_t stream = raft::resource::get_cuda_stream(res);
-      raft::copy(
-        res,
-        raft::make_host_vector_view(sub_search_graph.data_handle(), sub_search_graph.size()),
-        raft::make_device_vector_view(sub_index.graph().data_handle(), sub_search_graph.size()));
-      raft::resource::sync_stream(res, stream);
-
+      auto adjust_end          = optimize_end;
+      auto write_elapsed       = 0L;
+      const size_t graph_bytes = core_sub_dataset_size * graph_degree * sizeof(IdxT);
       if (use_disk_mode) {
-        // Adjust IDs in sub_search_graph in place for disk storage
-        ace_adjust_sub_graph_ids_disk<IdxT>(core_sub_dataset_size,
+        // Keep the graph on the GPU, adjust IDs there, and write it directly through GDS.
+        auto adjusted_search_graph =
+          raft::make_device_matrix<IdxT, int64_t>(res, core_sub_dataset_size, graph_degree);
+        ace_adjust_sub_graph_ids_disk<IdxT>(res,
+                                            core_sub_dataset_size,
                                             augmented_sub_dataset_size,
                                             graph_degree,
                                             partition_id,
-                                            sub_search_graph.view(),
+                                            sub_index.graph(),
+                                            adjusted_search_graph.view(),
                                             core_partition_offsets.view(),
                                             augmented_partition_offsets.view(),
                                             augmented_backward_mapping.view(),
                                             core_forward_mapping.view());
+        adjust_end = std::chrono::high_resolution_clock::now();
+
+        const size_t graph_offset =
+          static_cast<size_t>(core_partition_offsets(partition_id)) * graph_degree * sizeof(IdxT) +
+          graph_header_size;
+        cuvs::util::write_large_file(
+          graph_fd, adjusted_search_graph.data_handle(), graph_bytes, graph_offset);
+        auto write_end = std::chrono::high_resolution_clock::now();
+        write_elapsed =
+          std::chrono::duration_cast<std::chrono::milliseconds>(write_end - adjust_end).count();
       } else {
+        // The in-memory result is host-resident, so copy the core graph back before remapping IDs.
+        auto sub_search_graph =
+          raft::make_host_matrix<IdxT, int64_t>(core_sub_dataset_size, graph_degree);
+        raft::copy(
+          res,
+          raft::make_host_vector_view(sub_search_graph.data_handle(), sub_search_graph.size()),
+          raft::make_device_vector_view(sub_index.graph().data_handle(), sub_search_graph.size()));
+        raft::resource::sync_stream(res);
+
         // Adjust IDs in sub_search_graph and save to search_graph
         ace_adjust_sub_graph_ids<IdxT>(core_sub_dataset_size,
                                        augmented_sub_dataset_size,
@@ -1473,33 +1539,20 @@ index<T, IdxT> build_ace(raft::resources const& res,
                                        augmented_partition_offsets.view(),
                                        core_backward_mapping.view(),
                                        augmented_backward_mapping.view());
+        adjust_end = std::chrono::high_resolution_clock::now();
       }
 
-      auto adjust_end = std::chrono::high_resolution_clock::now();
       auto adjust_elapsed =
         std::chrono::duration_cast<std::chrono::milliseconds>(adjust_end - optimize_end).count();
 
-      if (use_disk_mode) {
-        const size_t graph_offset =
-          static_cast<size_t>(core_partition_offsets(partition_id)) * graph_degree * sizeof(IdxT) +
-          graph_header_size;
-        const size_t graph_bytes = core_sub_dataset_size * graph_degree * sizeof(IdxT);
-        cuvs::util::write_large_file(
-          graph_fd, sub_search_graph.data_handle(), graph_bytes, graph_offset);
-      }
-
-      auto end = std::chrono::high_resolution_clock::now();
-      auto write_elapsed =
-        std::chrono::duration_cast<std::chrono::milliseconds>(end - adjust_end).count();
+      auto end        = std::chrono::high_resolution_clock::now();
       auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
       double read_throughput =
         read_elapsed > 0
           ? to_mib(sub_dataset_size * dataset_dim * sizeof(T)) / (read_elapsed / 1000.0)
           : 0.0;
       double write_throughput =
-        write_elapsed > 0
-          ? to_mib(core_sub_dataset_size * dataset_dim * sizeof(T)) / (write_elapsed / 1000.0)
-          : 0.0;
+        write_elapsed > 0 ? to_mib(graph_bytes) / (write_elapsed / 1000.0) : 0.0;
       RAFT_LOG_INFO(
         "ACE: Partition %4lu (%8lu + %8lu) completed in %6ld ms: read %6ld ms (%7.1f MiB/s), "
         "optimize %6ld ms, adjust %6ld ms, write %6ld ms (%7.1f MiB/s)",
