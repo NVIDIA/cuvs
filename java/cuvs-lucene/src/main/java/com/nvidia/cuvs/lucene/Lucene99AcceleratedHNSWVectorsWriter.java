@@ -142,8 +142,8 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
   }
 
   /**
-   * Builds the intermediate CAGRA index and builds and writes the HNSW index.
-   * Used by the flush path (operates on an in-memory List<float[]>).
+   * Flush/sorting path: builds a host matrix from the heap vectors, then delegates
+   * to {@link #writeFieldInternal(FieldInfo, CuVSMatrix)}.
    *
    * @param fieldInfo instance of FieldInfo that has the field description
    * @param vectors vectors to index
@@ -158,81 +158,35 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
       writeSingleVectorGraph(fieldInfo, vectors);
       return;
     }
-    try {
-      CuVSMatrix dataset =
-          Utils.createFloatMatrix(
-              vectors, fieldInfo.getVectorDimension(), getCuVSResourcesInstance());
-
-      CagraIndexParams params =
-          CagraIndexParamsFactory.create(acceleratedHNSWParams, dataset.size(), dataset.columns());
-
-      CagraIndex cagraIndex =
-          CagraIndex.newBuilder(getCuVSResourcesInstance())
-              .withDataset(dataset)
-              .withIndexParams(params)
-              .build();
-      CuVSMatrix adjacencyListMatrix = cagraIndex.getGraph();
-      int size = (int) dataset.size();
-      int dimensions = fieldInfo.getVectorDimension();
-      GPUBuiltHnswGraph hnswGraph =
-          createMultiLayerHnswGraph(
-              fieldInfo,
-              size,
-              dimensions,
-              adjacencyListMatrix,
-              vectors,
-              acceleratedHNSWParams.getHnswLayers(),
-              params,
-              QuantizationType.NONE);
-      long vectorIndexOffset = hnswVectorIndex.getFilePointer();
-      int[][] graphLevelNodeOffsets = writeGraph(hnswGraph, hnswVectorIndex);
-      long vectorIndexLength = hnswVectorIndex.getFilePointer() - vectorIndexOffset;
-      writeMeta(
-          hnswVectorIndex,
-          hnswMeta,
-          fieldInfo,
-          vectorIndexOffset,
-          vectorIndexLength,
-          size,
-          hnswGraph,
-          graphLevelNodeOffsets);
-      cagraIndex.close();
-    } catch (Throwable t) {
-      Utils.handleThrowable(t);
-    }
+    CuVSMatrix dataset = Utils.createFloatMatrix(vectors, fieldInfo.getVectorDimension());
+    writeFieldInternal(fieldInfo, dataset);
   }
 
   /**
    * Builds the intermediate CAGRA index and builds and writes the HNSW index.
-   * Used by the merge path (operates on a pre-built CuVSHostMatrix to avoid
-   * double-materializing the full dataset on heap and in native memory simultaneously).
+   * Single implementation used by both the flush and merge paths. The dataset is a
+   * {@link CuVSMatrix} (host-backed on the merge path) so the full set of vectors is
+   * never double-materialised on the Java heap.
    *
    * @param fieldInfo instance of FieldInfo that has the field description
-   * @param dataset   pre-built host-memory matrix of all merged vectors
-   * @param size      number of vectors in the dataset
+   * @param dataset   matrix of all vectors to index
    * @throws IOException
    */
-  private void writeFieldInternal(FieldInfo fieldInfo, CuVSHostMatrix dataset, int size)
-      throws IOException {
+  private void writeFieldInternal(FieldInfo fieldInfo, CuVSMatrix dataset) throws IOException {
+    int size = (int) dataset.size();
     if (size == 0) {
       writeEmpty(fieldInfo, hnswMeta);
       return;
     }
     if (size < 2) {
-      int dims = fieldInfo.getVectorDimension();
-      float[] buf = new float[dims];
+      float[] buf = new float[fieldInfo.getVectorDimension()];
       dataset.getRow(0).toArray(buf);
       writeSingleVectorGraph(fieldInfo, List.of(buf));
       return;
     }
     try {
       CagraIndexParams params =
-          cagraIndexParams(
-              acceleratedHNSWParams.getWriterThreads(),
-              acceleratedHNSWParams.getIntermediateGraphDegree(),
-              acceleratedHNSWParams.getGraphdegree(),
-              acceleratedHNSWParams.getCagraGraphBuildAlgo(),
-              acceleratedHNSWParams.getCuVSIvfPqParams());
+          CagraIndexParamsFactory.create(acceleratedHNSWParams, dataset.size(), dataset.columns());
       CagraIndex cagraIndex =
           CagraIndex.newBuilder(getCuVSResourcesInstance())
               .withDataset(dataset)
@@ -243,7 +197,6 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
       GPUBuiltHnswGraph hnswGraph =
           createMultiLayerHnswGraph(
               fieldInfo,
-              size,
               dimensions,
               adjacencyListMatrix,
               dataset,
@@ -363,7 +316,7 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
         builder.addVector(mergedVectors.vectorValue(it.index()));
       }
       CuVSHostMatrix dataset = builder.build();
-      writeFieldInternal(fieldInfo, dataset, size);
+      writeFieldInternal(fieldInfo, dataset);
     } catch (Throwable t) {
       Utils.handleThrowable(t);
     }

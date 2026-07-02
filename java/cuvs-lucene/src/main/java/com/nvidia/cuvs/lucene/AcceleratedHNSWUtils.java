@@ -79,114 +79,14 @@ public class AcceleratedHNSWUtils {
    * Each layer contains 1/M nodes from the previous layer
    * Creates layers until the highest layer has <= M nodes
    * <p>
-   * This overload takes a {@code List<?>} as the vector source and is used
-   * by the flush path where vectors are already materialised on the Java heap.
+   * Vectors for higher-layer subsets are read directly from the native matrix
+   * via {@link CuVSMatrix#getRow(long)} and {@link RowView#toArray(float[])},
+   * avoiding any additional heap allocation of the full dataset. Used by both
+   * the flush and merge paths; the caller provides the vectors as a
+   * {@link CuVSMatrix}.
    */
   public static GPUBuiltHnswGraph createMultiLayerHnswGraph(
       FieldInfo fieldInfo,
-      int size,
-      int dimensions,
-      CuVSMatrix adjacencyListMatrix,
-      List<?> vectors,
-      int hnswLayers,
-      CagraIndexParams params,
-      QuantizationType quantization)
-      throws Throwable {
-
-    int M = Math.ceilDiv((int) adjacencyListMatrix.columns(), 2);
-
-    // Store all layers data
-    List<int[]> layerNodes = new ArrayList<>();
-    List<CuVSMatrix> layerAdjacencies = new ArrayList<>();
-
-    // Layer 0: Use full CAGRA adjacency list
-    layerNodes.add(null); // Layer 0 contains all nodes, so we don't need to store node list
-    layerAdjacencies.add(adjacencyListMatrix);
-
-    int currentLayerSize = size;
-    int layerIndex = 1;
-    Random random = new Random();
-
-    while (layerIndex < hnswLayers && currentLayerSize > 1) {
-      // Calculate size for next layer (1/M of current layer)
-      int nextLayerSize = Math.max(2, currentLayerSize / M);
-      // Select nodes for this layer
-      SortedSet<Integer> selectedNodesSet = new TreeSet<>();
-
-      if (layerIndex == 1) {
-        // Select from all nodes (Layer 0)
-        while (selectedNodesSet.size() < nextLayerSize) {
-          selectedNodesSet.add(random.nextInt(size));
-        }
-      } else {
-        // Select from previous layer nodes
-        int[] prevLayerNodes = layerNodes.get(layerNodes.size() - 1);
-        while (selectedNodesSet.size() < nextLayerSize) {
-          int idx = random.nextInt(prevLayerNodes.length);
-          selectedNodesSet.add(prevLayerNodes[idx]);
-        }
-      }
-
-      // Convert to sorted array
-      int[] selectedNodes =
-          selectedNodesSet.stream().mapToInt(Integer::intValue).sorted().toArray();
-
-      layerNodes.add(selectedNodes);
-
-      if (quantization == QuantizationType.NONE) {
-        // Extract vectors for selected nodes
-        float[][] selectedVectors = new float[nextLayerSize][];
-        for (int i = 0; i < nextLayerSize; i++) {
-          selectedVectors[i] = (float[]) vectors.get(selectedNodes[i]);
-        }
-
-        // Build CAGRA graph for this layer
-        layerAdjacencies.add(
-            buildCagraGraphForSubset(
-                selectedVectors, selectedNodes, 0, params, dimensions, quantization));
-
-      } else {
-
-        // Extract vectors for selected nodes
-        int bytesPerVector = (dimensions + 7) / 8;
-        byte[][] selectedVectors = new byte[nextLayerSize][];
-        for (int i = 0; i < nextLayerSize; i++) {
-          selectedVectors[i] = (byte[]) vectors.get(selectedNodes[i]);
-        }
-
-        // Build CAGRA graph for this layer
-        layerAdjacencies.add(
-            buildCagraGraphForSubset(
-                selectedVectors, selectedNodes, bytesPerVector, params, dimensions, quantization));
-      }
-
-      // Update for next iteration
-      currentLayerSize = nextLayerSize;
-      layerIndex++;
-
-      // Use different seed for each layer
-      random = new Random(new Random().nextLong());
-    }
-
-    // Create the multi-layer graph with all layers
-    return new GPUBuiltHnswGraph(size, dimensions, layerNodes, layerAdjacencies);
-  }
-
-  /**
-   * Creates a multi-layer HNSW graph with dynamic number of layers.
-   * M = cagraGraphDegree/2
-   * Each layer contains 1/M nodes from the previous layer
-   * Creates layers until the highest layer has <= M nodes
-   * <p>
-   * This overload takes a {@code CuVSMatrix} as the vector source and is used
-   * by the merge path. Vectors for higher-layer subsets are read directly from
-   * the native host matrix via {@link CuVSMatrix#getRow(long)} and
-   * {@link RowView#toArray(float[])}, avoiding any additional heap allocation
-   * of the full dataset.
-   */
-  public static GPUBuiltHnswGraph createMultiLayerHnswGraph(
-      FieldInfo fieldInfo,
-      int size,
       int dimensions,
       CuVSMatrix adjacencyListMatrix,
       CuVSMatrix vectorDataset,
@@ -196,6 +96,7 @@ public class AcceleratedHNSWUtils {
       QuantizationType quantization)
       throws Throwable {
 
+    int size = (int) vectorDataset.size();
     int M = graphDegree / 2;
 
     List<int[]> layerNodes = new ArrayList<>();
@@ -238,7 +139,8 @@ public class AcceleratedHNSWUtils {
             buildCagraGraphForSubset(
                 selectedVectors, selectedNodes, 0, params, dimensions, quantization));
       } else {
-        int bytesPerVector = (dimensions + 7) / 8;
+        // Byte width comes from the matrix itself: binary packs 8 dims/byte, scalar is 1 byte/dim.
+        int bytesPerVector = (int) vectorDataset.columns();
         byte[][] selectedVectors = new byte[nextLayerSize][bytesPerVector];
         for (int i = 0; i < nextLayerSize; i++) {
           vectorDataset.getRow(selectedNodes[i]).toArray(selectedVectors[i]);
@@ -271,11 +173,9 @@ public class AcceleratedHNSWUtils {
     CuVSMatrix subsetDataset;
 
     if (quantization == QuantizationType.BINARY) {
-      subsetDataset =
-          createByteMatrixFromArray((byte[][]) vectors, bytesPerVector, getCuVSResourcesInstance());
+      subsetDataset = createByteMatrixFromArray((byte[][]) vectors, bytesPerVector);
     } else if (quantization == QuantizationType.SCALAR) {
-      subsetDataset =
-          createByteMatrixFromArray((byte[][]) vectors, dimensions, getCuVSResourcesInstance());
+      subsetDataset = createByteMatrixFromArray((byte[][]) vectors, dimensions);
     } else {
       subsetDataset = CuVSMatrix.ofArray((float[][]) vectors);
     }

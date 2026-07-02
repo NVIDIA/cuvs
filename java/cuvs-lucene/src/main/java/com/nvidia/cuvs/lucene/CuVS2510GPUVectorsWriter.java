@@ -201,8 +201,7 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
         var cagraIndexOutputStream = new IndexOutputOutputStream(cuvsIndex);
         try {
           CuVSMatrix cagraDataset =
-              Utils.createFloatMatrix(
-                  vectors, fieldInfo.getVectorDimension(), getCuVSResourcesInstance());
+              Utils.createFloatMatrix(vectors, fieldInfo.getVectorDimension());
           writeCagraIndex(cagraIndexOutputStream, cagraDataset);
         } catch (Throwable t) {
           // Fallback to brute force in a few cases, for now.
@@ -215,8 +214,7 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
       if (indexType.isBruteForce()) {
         var bruteForceIndexOutputStream = new IndexOutputOutputStream(cuvsIndex);
         CuVSMatrix bruteforceDataset =
-            Utils.createFloatMatrix(
-                vectors, fieldInfo.getVectorDimension(), getCuVSResourcesInstance());
+            Utils.createFloatMatrix(vectors, fieldInfo.getVectorDimension());
 
         writeBruteForceIndex(bruteForceIndexOutputStream, bruteforceDataset);
         bruteForceIndexLength = cuvsIndex.getFilePointer() - bruteForceIndexOffset;

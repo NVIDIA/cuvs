@@ -43,20 +43,18 @@ public class Utils {
   }
 
   /**
-   * A method to build a CuVSMatrix from a list of float vectors.
+   * Builds a host-memory CuVSMatrix from a list of float vectors.
    *
-   * Uses CuVSMatrix.Builder to copy vectors directly to device memory
-   * without creating intermediate heap arrays.
+   * <p>Copies vectors directly into a native host matrix via {@link CuVSMatrix#hostBuilder},
+   * without creating an intermediate {@code float[][]} on the heap.
    *
    * @param data The float vectors
-   * @param dimensions The number float elements in each vector
-   * @param resources The CuVS resources for device matrix creation
-   * @return an instance of CuVSMatrix
+   * @param dimensions The number of float elements in each vector
+   * @return a host-memory CuVSMatrix
    */
-  static CuVSMatrix createFloatMatrix(List<float[]> data, int dimensions, CuVSResources resources) {
+  static CuVSMatrix createFloatMatrix(List<float[]> data, int dimensions) {
     CuVSMatrix.Builder<?> builder =
-        CuVSMatrix.hostBuilder( // was: CuVSMatrix.deviceBuilder(resources, ...
-            data.size(), dimensions, CuVSMatrix.DataType.FLOAT);
+        CuVSMatrix.hostBuilder(data.size(), dimensions, CuVSMatrix.DataType.FLOAT);
     for (float[] vector : data) {
       builder.addVector(vector);
     }
@@ -64,21 +62,15 @@ public class Utils {
   }
 
   /**
-   * A method to build a CuVSMatrix from a list of byte vectors (for binary quantized vectors).
-   *
-   * Uses CuVSMatrix.Builder to copy vectors directly to device memory
-   * without creating intermediate heap arrays.
+   * Builds a host-memory CuVSMatrix from a list of byte vectors (e.g. quantized vectors).
    *
    * @param data The byte vectors (packed bits for binary quantization)
    * @param bytesPerVector The number of bytes in each vector
-   * @param resources The CuVS resources for device matrix creation
-   * @return an instance of CuVSMatrix with BYTE data type
+   * @return a host-memory CuVSMatrix with BYTE data type
    */
-  static CuVSMatrix createByteMatrix(
-      List<byte[]> data, int bytesPerVector, CuVSResources resources) {
+  static CuVSMatrix createByteMatrix(List<byte[]> data, int bytesPerVector) {
     CuVSMatrix.Builder<?> builder =
-        CuVSMatrix.hostBuilder( // was: CuVSMatrix.deviceBuilder(resources, ...
-            data.size(), bytesPerVector, CuVSMatrix.DataType.BYTE);
+        CuVSMatrix.hostBuilder(data.size(), bytesPerVector, CuVSMatrix.DataType.BYTE);
     for (byte[] vector : data) {
       builder.addVector(vector);
     }
@@ -86,18 +78,15 @@ public class Utils {
   }
 
   /**
-   * A method to build a CuVSMatrix from a 2D byte array (for binary quantized vectors).
+   * Builds a host-memory CuVSMatrix from a 2D byte array (e.g. quantized vectors).
    *
    * @param data The 2D byte array (packed bits for binary quantization)
    * @param bytesPerVector The number of bytes in each vector
-   * @param resources The CuVS resources for device matrix creation
-   * @return an instance of CuVSMatrix with BYTE data type
+   * @return a host-memory CuVSMatrix with BYTE data type
    */
-  static CuVSMatrix createByteMatrixFromArray(
-      byte[][] data, int bytesPerVector, CuVSResources resources) {
+  static CuVSMatrix createByteMatrixFromArray(byte[][] data, int bytesPerVector) {
     CuVSMatrix.Builder<?> builder =
-        CuVSMatrix.hostBuilder( // was: CuVSMatrix.deviceBuilder(resources, ...
-            data.length, bytesPerVector, CuVSMatrix.DataType.BYTE);
+        CuVSMatrix.hostBuilder(data.length, bytesPerVector, CuVSMatrix.DataType.BYTE);
     for (byte[] vector : data) {
       builder.addVector(vector);
     }
