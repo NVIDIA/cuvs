@@ -8,136 +8,57 @@ _Rust module: `cuvs::cluster::kmeans::params`_
 
 _Source: `rust/cuvs/src/cluster/kmeans/params.rs`_
 
+Builder-pattern parameter type for k-means.
+
+All setters are optional; unset values retain the library defaults from the
+underlying C `cuvsKMeansParamsCreate`.
+
 ## Params
 
 ```rust
-pub struct Params(pub ffi::cuvsKMeansParams_t); {
+pub struct Params {
     /* private fields */
 }
 ```
+
+Parameters for k-means fitting and prediction.
 
 **Methods**
 
 | Name | Source |
 | --- | --- |
-| `new` | `rust/cuvs/src/cluster/kmeans/params.rs:15` |
-| `set_metric` | `rust/cuvs/src/cluster/kmeans/params.rs:24` |
-| `set_n_clusters` | `rust/cuvs/src/cluster/kmeans/params.rs:32` |
-| `set_max_iter` | `rust/cuvs/src/cluster/kmeans/params.rs:40` |
-| `set_tol` | `rust/cuvs/src/cluster/kmeans/params.rs:48` |
-| `set_n_init` | `rust/cuvs/src/cluster/kmeans/params.rs:56` |
-| `set_oversampling_factor` | `rust/cuvs/src/cluster/kmeans/params.rs:64` |
-| `set_batch_samples` | `rust/cuvs/src/cluster/kmeans/params.rs:77` |
-| `set_batch_centroids` | `rust/cuvs/src/cluster/kmeans/params.rs:84` |
-| `set_hierarchical` | `rust/cuvs/src/cluster/kmeans/params.rs:92` |
-| `set_hierarchical_n_iters` | `rust/cuvs/src/cluster/kmeans/params.rs:100` |
+| `new` | `rust/cuvs/src/cluster/kmeans/params.rs:29` |
+| `try_new` | `rust/cuvs/src/cluster/kmeans/params.rs:80` |
 
 ### new
 
 ```rust
-pub fn new() -> Result<Params>
+#[builder]
+#[allow(clippy::too_many_arguments)]
+pub fn new(
+metric: Option<DistanceType>,
+n_clusters: Option<i32>,
+max_iter: Option<i32>,
+tol: Option<f64>,
+n_init: Option<i32>,
+oversampling_factor: Option<f64>,
+batch_samples: Option<i32>,
+batch_centroids: Option<i32>,
+hierarchical: Option<bool>,
+hierarchical_n_iters: Option<i32>,
+) -> Result<Self, KMeansError>
 ```
 
-Returns a new Params
+_Source: `rust/cuvs/src/cluster/kmeans/params.rs:29`_
 
-_Source: `rust/cuvs/src/cluster/kmeans/params.rs:15`_
-
-### set_metric
+### try_new
 
 ```rust
-pub fn set_metric(self, metric: DistanceType) -> Params
+pub fn try_new() -> Result<Self, KMeansError>
 ```
 
-DistanceType to use for fitting kmeans
+Allocate parameters populated with the library defaults.
 
-_Source: `rust/cuvs/src/cluster/kmeans/params.rs:24`_
+_Source: `rust/cuvs/src/cluster/kmeans/params.rs:80`_
 
-### set_n_clusters
-
-```rust
-pub fn set_n_clusters(self, n_clusters: i32) -> Params
-```
-
-The number of clusters to form as well as the number of centroids to generate (default:8).
-
-_Source: `rust/cuvs/src/cluster/kmeans/params.rs:32`_
-
-### set_max_iter
-
-```rust
-pub fn set_max_iter(self, max_iter: i32) -> Params
-```
-
-Maximum number of iterations of the k-means algorithm for a single run.
-
-_Source: `rust/cuvs/src/cluster/kmeans/params.rs:40`_
-
-### set_tol
-
-```rust
-pub fn set_tol(self, tol: f64) -> Params
-```
-
-Relative tolerance with regards to inertia to declare convergence.
-
-_Source: `rust/cuvs/src/cluster/kmeans/params.rs:48`_
-
-### set_n_init
-
-```rust
-pub fn set_n_init(self, n_init: i32) -> Params
-```
-
-Number of instance k-means algorithm will be run with different seeds.
-
-_Source: `rust/cuvs/src/cluster/kmeans/params.rs:56`_
-
-### set_oversampling_factor
-
-```rust
-pub fn set_oversampling_factor(self, oversampling_factor: f64) -> Params
-```
-
-Oversampling factor for use in the k-means\|\| algorithm
-
-_Source: `rust/cuvs/src/cluster/kmeans/params.rs:64`_
-
-### set_batch_samples
-
-```rust
-pub fn set_batch_samples(self, batch_samples: i32) -> Params
-```
-
-_Source: `rust/cuvs/src/cluster/kmeans/params.rs:77`_
-
-### set_batch_centroids
-
-```rust
-pub fn set_batch_centroids(self, batch_centroids: i32) -> Params
-```
-
-if 0 then batch_centroids = n_clusters
-
-_Source: `rust/cuvs/src/cluster/kmeans/params.rs:84`_
-
-### set_hierarchical
-
-```rust
-pub fn set_hierarchical(self, hierarchical: bool) -> Params
-```
-
-Whether to use hierarchical (balanced) kmeans or not
-
-_Source: `rust/cuvs/src/cluster/kmeans/params.rs:92`_
-
-### set_hierarchical_n_iters
-
-```rust
-pub fn set_hierarchical_n_iters(self, hierarchical_n_iters: i32) -> Params
-```
-
-For hierarchical k-means , defines the number of training iterations
-
-_Source: `rust/cuvs/src/cluster/kmeans/params.rs:100`_
-
-_Source: `rust/cuvs/src/cluster/kmeans/params.rs:11`_
+_Source: `rust/cuvs/src/cluster/kmeans/params.rs:21`_
