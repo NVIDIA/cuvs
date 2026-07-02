@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -156,7 +156,7 @@ struct all_neighbors_builder {
         batch_distances_h.value().data_handle(), num_data_in_cluster, k);
       raft::copy(res,
                  batch_distances_h_view,
-                 raft::make_device_matrix_view<const T>(
+                 raft::make_device_matrix_view<const T, IdxT>(
                    batch_distances_d.value().data_handle(), num_data_in_cluster, k));
       raft::resource::sync_stream(res);
 
