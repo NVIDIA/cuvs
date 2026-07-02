@@ -15,9 +15,7 @@ use bon::bon;
 use crate::distance::DistanceType;
 use crate::error::check_cuvs;
 
-use super::IvfPqError;
-
-pub use ffi::{cudaDataType_t, cuvsIvfPqCodebookGen, cuvsIvfPqListLayout};
+use super::{CodebookGen, InternalDistanceDType, IvfPqError, ListLayout, LutDType};
 
 /// Parameters for building an IVF-PQ index.
 pub struct IndexParams {
@@ -35,8 +33,8 @@ impl IndexParams {
         kmeans_trainset_fraction: Option<f64>,
         pq_bits: Option<u32>,
         pq_dim: Option<u32>,
-        codebook_kind: Option<cuvsIvfPqCodebookGen>,
-        codes_layout: Option<cuvsIvfPqListLayout>,
+        codebook_kind: Option<CodebookGen>,
+        codes_layout: Option<ListLayout>,
         force_random_rotation: Option<bool>,
         max_train_points_per_pq_code: Option<u32>,
         add_data_on_build: Option<bool>,
@@ -63,10 +61,10 @@ impl IndexParams {
                 (*params.handle).pq_dim = v;
             }
             if let Some(v) = codebook_kind {
-                (*params.handle).codebook_kind = v;
+                (*params.handle).codebook_kind = v.into();
             }
             if let Some(v) = codes_layout {
-                (*params.handle).codes_layout = v;
+                (*params.handle).codes_layout = v.into();
             }
             if let Some(v) = force_random_rotation {
                 (*params.handle).force_random_rotation = v;
@@ -117,8 +115,8 @@ impl SearchParams {
     #[builder]
     pub fn new(
         n_probes: Option<u32>,
-        lut_dtype: Option<cudaDataType_t>,
-        internal_distance_dtype: Option<cudaDataType_t>,
+        lut_dtype: Option<LutDType>,
+        internal_distance_dtype: Option<InternalDistanceDType>,
     ) -> Result<Self, IvfPqError> {
         let params = Self::try_new()?;
         unsafe {
@@ -126,10 +124,10 @@ impl SearchParams {
                 (*params.handle).n_probes = v;
             }
             if let Some(v) = lut_dtype {
-                (*params.handle).lut_dtype = v;
+                (*params.handle).lut_dtype = v.into();
             }
             if let Some(v) = internal_distance_dtype {
-                (*params.handle).internal_distance_dtype = v;
+                (*params.handle).internal_distance_dtype = v.into();
             }
         }
         Ok(params)

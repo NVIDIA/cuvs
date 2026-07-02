@@ -249,9 +249,9 @@ impl SearchParams {
     ) -> Result<Self, CagraError> {
         let params = Self::try_new()?;
 
-        let effective_algo = algo.unwrap_or(unsafe { (*params.handle).algo.into() });
+        let effective_algo = algo.unwrap_or_else(|| unsafe { (*params.handle).algo.into() });
         let effective_hashmap_mode =
-            hashmap_mode.unwrap_or(unsafe { (*params.handle).hashmap_mode.into() });
+            hashmap_mode.unwrap_or_else(|| unsafe { (*params.handle).hashmap_mode.into() });
 
         if let Some(n) = itopk_size
             && effective_algo == SearchAlgo::SingleCta

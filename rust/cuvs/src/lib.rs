@@ -21,3 +21,9 @@ pub(crate) mod test_utils;
 pub use dlpack::{AsDlTensor, AsDlTensorMut, DLPackError, DLTensorView, DLTensorViewMut, DType};
 pub use error::LibraryError;
 pub use resources::Resources;
+
+// Compile the Rust code blocks in the top-level README as doctests so the
+// documented examples can't drift from the API.
+#[cfg(doctest)]
+#[doc = include_str!("../../../README.md")]
+pub struct ReadmeDocTests;
