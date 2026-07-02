@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -31,6 +31,22 @@
 
 namespace cuvs::neighbors::cagra::detail {
 
+template <typename T, cuvs::neighbors::cagra_dataset_view DatasetViewT>
+auto make_merged_dense_device_dataset_view(
+  raft::device_matrix_view<const T, int64_t, raft::row_major> storage, uint32_t dim) -> DatasetViewT
+{
+  if constexpr (cuvs::neighbors::is_padded_dataset_view_v<DatasetViewT>) {
+    return cuvs::neighbors::device_padded_dataset_view<T, int64_t>(raft::make_const_mdspan(storage),
+                                                                   dim);
+  } else if constexpr (cuvs::neighbors::is_standard_dataset_view_v<DatasetViewT>) {
+    return cuvs::neighbors::device_standard_dataset_view<T, int64_t>(
+      raft::make_const_mdspan(storage), dim);
+  } else {
+    static_assert(sizeof(DatasetViewT) == 0,
+                  "cagra::merge supports dense padded or standard dataset views only");
+  }
+}
+
 template <class T, class IdxT, cuvs::neighbors::cagra_dataset_view DatasetViewT>
 merged_dataset compute_merged_dataset_layout(
   raft::resources const& handle,
@@ -50,7 +66,7 @@ merged_dataset compute_merged_dataset_layout(
     RAFT_EXPECTS(index != nullptr,
                  "Null pointer detected in 'indices'. Ensure all elements are valid before usage.");
     auto const& v = index->data();
-    if constexpr (cuvs::neighbors::is_padded_dataset_view_v<decltype(v)>) {
+    if constexpr (cuvs::neighbors::is_dense_row_major_dataset_view_v<std::decay_t<decltype(v)>>) {
       if (v.n_rows() == 0) {
         RAFT_FAIL(
           "cagra::merge only supports an index to which the dataset is attached. Please check if "
@@ -66,7 +82,7 @@ merged_dataset compute_merged_dataset_layout(
       }
       new_dataset_size += index->size();
     } else {
-      RAFT_FAIL("cagra::merge only supports an uncompressed padded dataset index");
+      RAFT_FAIL("cagra::merge only supports an uncompressed dense device dataset index");
     }
   }
 
@@ -141,7 +157,7 @@ cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> merge(
       const T* src_ptr   = nullptr;
       std::size_t n_rows = 0;
       auto const& v      = index->data();
-      if constexpr (cuvs::neighbors::is_padded_dataset_view_v<decltype(v)>) {
+      if constexpr (cuvs::neighbors::is_dense_row_major_dataset_view_v<std::decay_t<decltype(v)>>) {
         src_ptr = v.view().data_handle();
         n_rows  = static_cast<std::size_t>(v.n_rows());
       } else {
@@ -189,19 +205,19 @@ cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> merge(
     raft::matrix::copy_rows(
       handle, raft::make_const_mdspan(merged_storage), filtered_storage, indices_view);
 
-    cuvs::neighbors::device_padded_dataset_view<T, int64_t> dv(
+    auto dv = make_merged_dense_device_dataset_view<T, DatasetViewT>(
       raft::make_const_mdspan(filtered_storage), storage.layout.dim);
-    auto index =
-      ::cuvs::neighbors::cagra::detail::build_from_device_matrix<T, IdxT>(handle, params, dv);
+    auto index = ::cuvs::neighbors::cagra::detail::build_from_device_matrix<T, IdxT, DatasetViewT>(
+      handle, params, dv);
     index.update_dataset(handle, dv);
     RAFT_LOG_DEBUG("cagra merge: using device memory for merged dataset");
     return index;
   }
 
-  cuvs::neighbors::device_padded_dataset_view<T, int64_t> dv(
+  auto dv = make_merged_dense_device_dataset_view<T, DatasetViewT>(
     raft::make_const_mdspan(merged_storage), storage.layout.dim);
-  auto index =
-    ::cuvs::neighbors::cagra::detail::build_from_device_matrix<T, IdxT>(handle, params, dv);
+  auto index = ::cuvs::neighbors::cagra::detail::build_from_device_matrix<T, IdxT, DatasetViewT>(
+    handle, params, dv);
   index.update_dataset(handle, dv);
   RAFT_LOG_DEBUG("cagra merge: using device memory for merged dataset");
   return index;

@@ -1718,10 +1718,11 @@ void search(raft::resources const& res,
  * @{
  */
 
-// Serialize and deserialize are currently overloaded only for device_padded_index (the common
-// dense-dataset case).  To support a new dataset kind (e.g. vpq_f16_index) in the future, simply
-// add a matching pair of overloads here and a corresponding serialize_cagra_<kind>_dataset /
-// deserialize_<kind> implementation in detail/dataset_serialize.hpp.
+// Serialize and deserialize are overloaded for device_padded_index and device_standard_index.
+// Both use the same strided dataset wire format; deserialize selects the owning dataset type
+// from the index's DatasetViewT. To support a new dataset kind (e.g. vpq_f16_index), add a
+// matching pair of overloads here and a corresponding deserialize_<kind> in
+// detail/dataset_serialize.hpp (dense views use serialize_cagra_padded_dataset).
 
 /**
  * Save the index to file.
@@ -2183,6 +2184,94 @@ void deserialize(
   std::istream& is,
   cuvs::neighbors::cagra::device_padded_index<uint8_t>* index,
   std::unique_ptr<cuvs::neighbors::device_padded_dataset<uint8_t, int64_t>>* out_dataset = nullptr);
+
+void serialize(raft::resources const& handle,
+               const std::string& filename,
+               const cuvs::neighbors::cagra::device_standard_index<float>& index,
+               bool include_dataset = true);
+
+void deserialize(
+  raft::resources const& handle,
+  const std::string& filename,
+  cuvs::neighbors::cagra::device_standard_index<float>* index,
+  std::unique_ptr<cuvs::neighbors::device_standard_dataset<float, int64_t>>* out_dataset = nullptr);
+
+void serialize(raft::resources const& handle,
+               std::ostream& os,
+               const cuvs::neighbors::cagra::device_standard_index<float>& index,
+               bool include_dataset = true);
+
+void deserialize(
+  raft::resources const& handle,
+  std::istream& is,
+  cuvs::neighbors::cagra::device_standard_index<float>* index,
+  std::unique_ptr<cuvs::neighbors::device_standard_dataset<float, int64_t>>* out_dataset = nullptr);
+
+void serialize(raft::resources const& handle,
+               const std::string& filename,
+               const cuvs::neighbors::cagra::device_standard_index<half>& index,
+               bool include_dataset = true);
+
+void deserialize(
+  raft::resources const& handle,
+  const std::string& filename,
+  cuvs::neighbors::cagra::device_standard_index<half>* index,
+  std::unique_ptr<cuvs::neighbors::device_standard_dataset<half, int64_t>>* out_dataset = nullptr);
+
+void serialize(raft::resources const& handle,
+               std::ostream& os,
+               const cuvs::neighbors::cagra::device_standard_index<half>& index,
+               bool include_dataset = true);
+
+void deserialize(
+  raft::resources const& handle,
+  std::istream& is,
+  cuvs::neighbors::cagra::device_standard_index<half>* index,
+  std::unique_ptr<cuvs::neighbors::device_standard_dataset<half, int64_t>>* out_dataset = nullptr);
+
+void serialize(raft::resources const& handle,
+               const std::string& filename,
+               const cuvs::neighbors::cagra::device_standard_index<int8_t>& index,
+               bool include_dataset = true);
+
+void deserialize(raft::resources const& handle,
+                 const std::string& filename,
+                 cuvs::neighbors::cagra::device_standard_index<int8_t>* index,
+                 std::unique_ptr<cuvs::neighbors::device_standard_dataset<int8_t, int64_t>>*
+                   out_dataset = nullptr);
+
+void serialize(raft::resources const& handle,
+               std::ostream& os,
+               const cuvs::neighbors::cagra::device_standard_index<int8_t>& index,
+               bool include_dataset = true);
+
+void deserialize(raft::resources const& handle,
+                 std::istream& is,
+                 cuvs::neighbors::cagra::device_standard_index<int8_t>* index,
+                 std::unique_ptr<cuvs::neighbors::device_standard_dataset<int8_t, int64_t>>*
+                   out_dataset = nullptr);
+
+void serialize(raft::resources const& handle,
+               const std::string& filename,
+               const cuvs::neighbors::cagra::device_standard_index<uint8_t>& index,
+               bool include_dataset = true);
+
+void deserialize(raft::resources const& handle,
+                 const std::string& filename,
+                 cuvs::neighbors::cagra::device_standard_index<uint8_t>* index,
+                 std::unique_ptr<cuvs::neighbors::device_standard_dataset<uint8_t, int64_t>>*
+                   out_dataset = nullptr);
+
+void serialize(raft::resources const& handle,
+               std::ostream& os,
+               const cuvs::neighbors::cagra::device_standard_index<uint8_t>& index,
+               bool include_dataset = true);
+
+void deserialize(raft::resources const& handle,
+                 std::istream& is,
+                 cuvs::neighbors::cagra::device_standard_index<uint8_t>* index,
+                 std::unique_ptr<cuvs::neighbors::device_standard_dataset<uint8_t, int64_t>>*
+                   out_dataset = nullptr);
 
 /**
  * Write the CAGRA built index as a base layer HNSW index to an output stream
@@ -2654,7 +2743,7 @@ merged_dataset_storage<T, IdxT> make_merged_dataset(
 /** @brief Merge multiple CAGRA indices into a single index.
  *
  * @note This API only supports physical merge (`merge_strategy = MERGE_STRATEGY_PHYSICAL`).
- * All input indices must use the same `DatasetViewT` (padded dataset views today).
+ * All input indices must use the same `DatasetViewT` (dense padded or standard device views).
  */
 template <typename T, typename IdxT, cuvs::neighbors::cagra_dataset_view DatasetViewT>
 auto merge(raft::resources const& res,

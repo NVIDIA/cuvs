@@ -92,7 +92,8 @@ void serialize(raft::resources const& res,
   raft::serialize_scalar(res, os, content_map);
   if (include_dataset) {
     RAFT_LOG_DEBUG("Saving CAGRA index with dataset");
-    if constexpr (cuvs::neighbors::is_device_padded_dataset_view_v<DatasetViewT>) {
+    if constexpr (cuvs::neighbors::is_device_padded_dataset_view_v<DatasetViewT> ||
+                  cuvs::neighbors::is_device_standard_dataset_view_v<DatasetViewT>) {
       neighbors::detail::serialize_cagra_padded_dataset<T, int64_t>(res, os, index_.data());
     } else {
       // Future dataset types (e.g. VPQ) require a new branch here and a corresponding
@@ -348,6 +349,9 @@ void deserialize(
                  "deserialize: index contains a dataset; pass a non-null out_dataset to own it.");
     if constexpr (cuvs::neighbors::is_device_padded_dataset_view_v<DatasetViewT>) {
       *out_dataset = cuvs::neighbors::detail::deserialize_dataset<T, int64_t>(res, is);
+      index_->update_dataset(res, (*out_dataset)->as_dataset_view());
+    } else if constexpr (cuvs::neighbors::is_device_standard_dataset_view_v<DatasetViewT>) {
+      *out_dataset = cuvs::neighbors::detail::deserialize_standard_dataset<T, int64_t>(res, is);
       index_->update_dataset(res, (*out_dataset)->as_dataset_view());
     } else {
       static_assert(sizeof(DatasetViewT) == 0,
