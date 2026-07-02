@@ -5,6 +5,7 @@ title: "cuVS"
 instances:
   - url: "nvidia-cuvs.docs.buildwithfern.com/cuvs"
     custom-domain: docs.nvidia.com/cuvs
+    multi-source: true
 footer: "./theme/nvidia/components/CustomFooter.tsx"
 logo:
   light: "./theme/nvidia/assets/NVIDIA_light.svg"
@@ -67,7 +68,6 @@ css:
 experimental:
   mdx-components:
     - "./theme/nvidia/components"
-  basepath-aware: true
 navbar-links:
   - type: "secondary"
     text: "GitHub"
