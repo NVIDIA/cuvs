@@ -80,51 +80,39 @@ auto deserialize_empty(raft::resources const& res, std::istream& is)
   return std::make_unique<device_empty_dataset<IdxT>>(suggested_dim);
 }
 
+/** Read shared dense wire payload: `n_rows`, `dim`, `stride`, then tight `[n_rows x dim]` host
+ * matrix. */
 template <typename DataT, typename IdxT>
-auto deserialize_padded(raft::resources const& res, std::istream& is)
-  -> std::unique_ptr<device_padded_dataset<DataT, IdxT>>
+auto deserialize_dense_payload(raft::resources const& res, std::istream& is)
+  -> std::tuple<IdxT, uint32_t, uint32_t, raft::host_matrix<DataT, IdxT>>
 {
   auto n_rows = raft::deserialize_scalar<IdxT>(res, is);
   auto dim    = raft::deserialize_scalar<uint32_t>(res, is);
   auto stride = raft::deserialize_scalar<uint32_t>(res, is);
   RAFT_EXPECTS(dim <= stride,
-               "deserialize_padded: logical dim (%u) must not exceed row stride (%u).",
+               "deserialize_dense_payload: logical dim (%u) must not exceed row stride (%u).",
                static_cast<unsigned>(dim),
                static_cast<unsigned>(stride));
   auto host_array = raft::make_host_matrix<DataT, IdxT>(n_rows, dim);
   raft::deserialize_mdspan(res, is, host_array.view());
-  return cuvs::neighbors::make_device_padded_dataset(res, host_array.view());
+  return {n_rows, dim, stride, std::move(host_array)};
+}
+
+template <typename DataT, typename IdxT>
+auto deserialize_padded(raft::resources const& res, std::istream& is)
+  -> std::unique_ptr<device_padded_dataset<DataT, IdxT>>
+{
+  auto payload = deserialize_dense_payload<DataT, IdxT>(res, is);
+  return cuvs::neighbors::make_device_padded_dataset(res, std::get<3>(payload).view());
 }
 
 template <typename DataT, typename IdxT>
 auto deserialize_standard(raft::resources const& res, std::istream& is)
   -> std::unique_ptr<device_standard_dataset<DataT, IdxT>>
 {
-  auto n_rows = raft::deserialize_scalar<IdxT>(res, is);
-  auto dim    = raft::deserialize_scalar<uint32_t>(res, is);
-  auto stride = raft::deserialize_scalar<uint32_t>(res, is);
-  RAFT_EXPECTS(dim <= stride,
-               "deserialize_standard: logical dim (%u) must not exceed row stride (%u).",
-               static_cast<unsigned>(dim),
-               static_cast<unsigned>(stride));
-  auto host_array = raft::make_host_matrix<DataT, IdxT>(n_rows, dim);
-  raft::deserialize_mdspan(res, is, host_array.view());
-  auto device_array = raft::make_device_matrix<DataT, IdxT>(res, static_cast<IdxT>(n_rows), stride);
-  if (stride > dim) {
-    RAFT_CUDA_TRY(cudaMemsetAsync(device_array.data_handle(),
-                                  0,
-                                  device_array.size() * sizeof(DataT),
-                                  raft::resource::get_cuda_stream(res)));
-  }
-  raft::copy_matrix(device_array.data_handle(),
-                    stride,
-                    host_array.data_handle(),
-                    dim,
-                    dim,
-                    static_cast<IdxT>(n_rows),
-                    raft::resource::get_cuda_stream(res));
-  raft::resource::sync_stream(res);
-  return std::make_unique<device_standard_dataset<DataT, IdxT>>(std::move(device_array), dim);
+  auto payload = deserialize_dense_payload<DataT, IdxT>(res, is);
+  return cuvs::neighbors::make_device_standard_dataset(
+    res, std::get<3>(payload).view(), std::get<1>(payload), std::get<2>(payload));
 }
 
 template <typename DataT, typename IdxT>

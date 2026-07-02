@@ -881,6 +881,82 @@ template <typename ValueT, typename IndexT, typename ViewT, typename SrcT>
   return ViewT(v, logical_dim);
 }
 
+template <typename DatasetT, typename ValueT, typename IndexT, typename SrcT>
+auto make_device_dense_row_major_dataset_from_src(raft::resources const& res,
+                                                  SrcT const& src,
+                                                  uint32_t logical_dim,
+                                                  uint32_t target_stride,
+                                                  char const* view_factory_name)
+  -> std::unique_ptr<DatasetT>
+{
+  uint32_t const src_stride = mdspan_row_stride_elements(src);
+  RAFT_EXPECTS(logical_dim <= target_stride,
+               "logical dim (%u) must not exceed row stride (%u).",
+               static_cast<unsigned>(logical_dim),
+               static_cast<unsigned>(target_stride));
+  RAFT_EXPECTS(static_cast<uint32_t>(src.extent(1)) <= target_stride,
+               "Source row length must not exceed required stride.");
+  cudaPointerAttributes ptr_attrs;
+  RAFT_CUDA_TRY(cudaPointerGetAttributes(&ptr_attrs, src.data_handle()));
+  bool const device_src =
+    (ptr_attrs.type == cudaMemoryTypeDevice) || (ptr_attrs.type == cudaMemoryTypeManaged);
+  if (device_src && src_stride == target_stride) {
+    RAFT_EXPECTS(false,
+                 "source is device and stride is already correct. "
+                 "Use %s() to get a view instead.",
+                 view_factory_name);
+  }
+  auto out_array = raft::make_device_matrix<ValueT, IndexT>(res, src.extent(0), target_stride);
+  RAFT_CUDA_TRY(cudaMemsetAsync(out_array.data_handle(),
+                                0,
+                                out_array.size() * sizeof(ValueT),
+                                raft::resource::get_cuda_stream(res)));
+  raft::copy_matrix(out_array.data_handle(),
+                    target_stride,
+                    src.data_handle(),
+                    src_stride,
+                    logical_dim,
+                    src.extent(0),
+                    raft::resource::get_cuda_stream(res));
+  return std::make_unique<DatasetT>(std::move(out_array), logical_dim);
+}
+
+template <typename DatasetT, typename ValueT, typename IndexT, typename SrcT>
+auto make_host_dense_row_major_dataset_from_src(raft::resources const& res,
+                                                SrcT const& src,
+                                                uint32_t logical_dim,
+                                                uint32_t target_stride,
+                                                char const* device_factory_name,
+                                                char const* view_factory_name)
+  -> std::unique_ptr<DatasetT>
+{
+  uint32_t const src_stride = mdspan_row_stride_elements(src);
+  RAFT_EXPECTS(raft::get_device_for_address(src.data_handle()) == -1,
+               "source must be host-accessible. Use %s() for device sources.",
+               device_factory_name);
+  RAFT_EXPECTS(logical_dim <= target_stride,
+               "logical dim (%u) must not exceed row stride (%u).",
+               static_cast<unsigned>(logical_dim),
+               static_cast<unsigned>(target_stride));
+  if (src_stride == target_stride) {
+    RAFT_EXPECTS(false,
+                 "source stride is already correct. Use %s() to get a view instead.",
+                 view_factory_name);
+  }
+  RAFT_EXPECTS(static_cast<uint32_t>(src.extent(1)) <= target_stride,
+               "Source row length must not exceed required stride.");
+  auto out_array = raft::make_host_matrix<ValueT, IndexT>(src.extent(0), target_stride);
+  std::memset(out_array.data_handle(), 0, out_array.size() * sizeof(ValueT));
+  raft::copy_matrix(out_array.data_handle(),
+                    target_stride,
+                    src.data_handle(),
+                    src_stride,
+                    logical_dim,
+                    src.extent(0),
+                    raft::resource::get_cuda_stream(res));
+  return std::make_unique<DatasetT>(std::move(out_array), logical_dim);
+}
+
 }  // namespace detail
 
 template <typename SrcT>
@@ -909,37 +985,14 @@ auto make_device_padded_dataset(const raft::resources& res,
                                 uint32_t align_bytes = 16)
   -> std::unique_ptr<device_padded_dataset<typename SrcT::value_type, typename SrcT::index_type>>
 {
-  using value_type = typename SrcT::value_type;
-  using index_type = typename SrcT::index_type;
-  uint32_t required_stride =
-    cagra_required_row_width<value_type>(static_cast<uint32_t>(src.extent(1)), align_bytes);
-  uint32_t src_stride = detail::mdspan_row_stride_elements(src);
-  cudaPointerAttributes ptr_attrs;
-  RAFT_CUDA_TRY(cudaPointerGetAttributes(&ptr_attrs, src.data_handle()));
-  bool const device_src =
-    (ptr_attrs.type == cudaMemoryTypeDevice) || (ptr_attrs.type == cudaMemoryTypeManaged);
-  if (device_src && src_stride == required_stride) {
-    RAFT_EXPECTS(false,
-                 "make_device_padded_dataset: source is device and stride is already correct. "
-                 "Use make_device_padded_dataset_view() to get a view instead.");
-  }
-  RAFT_EXPECTS(src.extent(1) <= required_stride,
-               "Source row length must not exceed required stride.");
-  auto out_array =
-    raft::make_device_matrix<value_type, index_type>(res, src.extent(0), required_stride);
-  RAFT_CUDA_TRY(cudaMemsetAsync(out_array.data_handle(),
-                                0,
-                                out_array.size() * sizeof(value_type),
-                                raft::resource::get_cuda_stream(res)));
-  raft::copy_matrix(out_array.data_handle(),
-                    required_stride,
-                    src.data_handle(),
-                    src_stride,
-                    src.extent(1),
-                    src.extent(0),
-                    raft::resource::get_cuda_stream(res));
-  return std::make_unique<device_padded_dataset<value_type, index_type>>(
-    std::move(out_array), static_cast<uint32_t>(src.extent(1)));
+  using value_type               = typename SrcT::value_type;
+  using index_type               = typename SrcT::index_type;
+  uint32_t const logical_dim     = static_cast<uint32_t>(src.extent(1));
+  uint32_t const required_stride = cagra_required_row_width<value_type>(logical_dim, align_bytes);
+  return detail::make_device_dense_row_major_dataset_from_src<
+    device_padded_dataset<value_type, index_type>,
+    value_type,
+    index_type>(res, src, logical_dim, required_stride, "make_device_padded_dataset_view");
 }
 
 template <typename SrcT>
@@ -966,32 +1019,19 @@ auto make_host_padded_dataset(const raft::resources& res,
                               uint32_t align_bytes = 16)
   -> std::unique_ptr<host_padded_dataset<typename SrcT::value_type, typename SrcT::index_type>>
 {
-  using value_type = typename SrcT::value_type;
-  using index_type = typename SrcT::index_type;
-  uint32_t required_stride =
-    cagra_required_row_width<value_type>(static_cast<uint32_t>(src.extent(1)), align_bytes);
-  uint32_t src_stride = detail::mdspan_row_stride_elements(src);
-  RAFT_EXPECTS(raft::get_device_for_address(src.data_handle()) == -1,
-               "make_host_padded_dataset: source must be host-accessible. "
-               "Use make_device_padded_dataset() for device sources.");
-  if (src_stride == required_stride) {
-    RAFT_EXPECTS(false,
-                 "make_host_padded_dataset: source stride is already correct. "
-                 "Use make_host_padded_dataset_view() to get a view instead.");
-  }
-  RAFT_EXPECTS(src.extent(1) <= required_stride,
-               "Source row length must not exceed required stride.");
-  auto out_array = raft::make_host_matrix<value_type, index_type>(src.extent(0), required_stride);
-  std::memset(out_array.data_handle(), 0, out_array.size() * sizeof(value_type));
-  raft::copy_matrix(out_array.data_handle(),
-                    required_stride,
-                    src.data_handle(),
-                    src_stride,
-                    src.extent(1),
-                    src.extent(0),
-                    raft::resource::get_cuda_stream(res));
-  return std::make_unique<host_padded_dataset<value_type, index_type>>(
-    std::move(out_array), static_cast<uint32_t>(src.extent(1)));
+  using value_type               = typename SrcT::value_type;
+  using index_type               = typename SrcT::index_type;
+  uint32_t const logical_dim     = static_cast<uint32_t>(src.extent(1));
+  uint32_t const required_stride = cagra_required_row_width<value_type>(logical_dim, align_bytes);
+  return detail::make_host_dense_row_major_dataset_from_src<
+    host_padded_dataset<value_type, index_type>,
+    value_type,
+    index_type>(res,
+                src,
+                logical_dim,
+                required_stride,
+                "make_device_padded_dataset",
+                "make_host_padded_dataset_view");
 }
 
 template <typename SrcT>
@@ -1005,6 +1045,35 @@ auto make_device_standard_dataset_view(SrcT const& src)
     index_type,
     device_standard_dataset_view<value_type, index_type>>(src,
                                                           static_cast<uint32_t>(src.extent(1)));
+}
+
+/**
+ * @brief Create an owning device standard dataset with explicit row layout.
+ *
+ * Internal use only: the sole call site today is
+ * `cuvs::neighbors::detail::deserialize_standard()` in `dataset_serialize.hpp`, which must pass
+ * wire-format `(logical_dim, stride)` because the deserialized host buffer is tight `[n_rows x
+ * dim]` while the on-disk stride may be larger. Do not call from user code; prefer
+ * `make_device_standard_dataset_view()` when wrapping existing correctly-strided storage.
+ *
+ * Potential future call sites if an owning copy with explicit stride is needed:
+ * - C API dataset upload (mirroring `make_device_padded_dataset` in `c/src/neighbors/cagra.cpp`)
+ * - `tiered_index` / composite index paths that materialize standard-layout device storage
+ * - Multigpu (MG) index build or merge when rehydrating a strided dataset from host fragments
+ */
+template <typename SrcT>
+auto make_device_standard_dataset(const raft::resources& res,
+                                  SrcT const& src,
+                                  uint32_t logical_dim,
+                                  uint32_t target_stride)
+  -> std::unique_ptr<device_standard_dataset<typename SrcT::value_type, typename SrcT::index_type>>
+{
+  using value_type = typename SrcT::value_type;
+  using index_type = typename SrcT::index_type;
+  return detail::make_device_dense_row_major_dataset_from_src<
+    device_standard_dataset<value_type, index_type>,
+    value_type,
+    index_type>(res, src, logical_dim, target_stride, "make_device_standard_dataset_view");
 }
 
 template <typename SrcT>
