@@ -1,6 +1,6 @@
 # =============================================================================
 # cmake-format: off
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 # cmake-format: on
 # =============================================================================
@@ -86,9 +86,11 @@ add_library(
   cuvs_c SHARED
   src/core/c_api.cpp
   src/cluster/kmeans.cpp
+  $<$<BOOL:${BUILD_MG_ALGOS}>:src/cluster/mg_kmeans.cpp>
   src/neighbors/brute_force.cpp
   src/neighbors/ivf_flat.cpp
   src/neighbors/ivf_pq.cpp
+  src/neighbors/ivf_sq.cpp
   src/neighbors/cagra.cpp
   $<$<BOOL:${BUILD_CAGRA_HNSWLIB}>:src/neighbors/hnsw.cpp>
   $<$<BOOL:${BUILD_MG_ALGOS}>:src/neighbors/mg_ivf_pq.cpp>

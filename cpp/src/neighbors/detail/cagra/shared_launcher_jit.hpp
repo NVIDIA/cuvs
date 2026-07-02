@@ -8,8 +8,8 @@
 #include <cuvs/detail/jit_lto/cagra/cagra_fragments.hpp>
 #include <cuvs/detail/jit_lto/common_fragments.hpp>
 
-#include "../../sample_filter.cuh"           // For none_sample_filter, bitset_filter
-#include "jit_lto_kernels/cagra_bitset.cuh"  // is_bitset_filter, cagra_bitset, cagra_sample_filter, extract
+#include "../../sample_filter.cuh"   // For none_sample_filter, bitset_filter
+#include "cagra_filter_payload.hpp"  // sample-filter payload helpers
 
 #include <cstdint>
 #include <iostream>
@@ -100,19 +100,24 @@ struct sample_filter_jit_tag {
       using namespace cuvs::neighbors::filtering;
       if constexpr (std::is_same_v<U, none_sample_filter>) {
         return cuvs::neighbors::detail::tag_filter_none{};
+      } else if constexpr (is_udf_filter<U>::value) {
+        return cuvs::neighbors::detail::tag_filter_udf{};
       } else if constexpr (requires { std::declval<U>().filter; }) {
         using InnerFilter = decltype(std::declval<U>().filter);
-        if constexpr (is_bitset_filter<InnerFilter>::value ||
-                      std::is_same_v<InnerFilter, bitset_filter<uint32_t, int64_t>> ||
-                      std::is_same_v<InnerFilter, bitset_filter<uint32_t, uint32_t>>) {
+        if constexpr (is_bitset_filter<std::decay_t<InnerFilter>>::value ||
+                      std::is_same_v<std::decay_t<InnerFilter>, bitset_filter<uint32_t, int64_t>> ||
+                      std::is_same_v<std::decay_t<InnerFilter>,
+                                     bitset_filter<uint32_t, uint32_t>>) {
           return cuvs::neighbors::detail::tag_filter_bitset{};
+        } else if constexpr (is_udf_filter<std::decay_t<InnerFilter>>::value) {
+          return cuvs::neighbors::detail::tag_filter_udf{};
         } else {
           static_assert(
             cagra_jit_sample_filter_tag_type_always_false<U>,
             "CAGRA JIT: sample_filter_jit_tag does not know how to link this filter. "
-            "CagraSampleFilterWithQueryIdOffset<Inner> requires Inner of type "
-            "bitset_filter<bitset, "
-            "SourceIndexT> (see cagra_bitset.cuh is_bitset_filter and sample_filter_utils.cuh). "
+            "CagraSampleFilterWithQueryIdOffset<Inner> requires Inner to be a supported "
+            "built-in filter or udf_filter (see cagra_filter_payload.hpp and "
+            "sample_filter_utils.cuh). "
             "For a new filter kind, add a sample_filter_jit_tag branch. "
             "(SAMPLE_FILTER_T in error; check InnerFilter in compiler output.)");
         }
@@ -120,9 +125,9 @@ struct sample_filter_jit_tag {
         static_assert(
           cagra_jit_sample_filter_tag_type_always_false<U>,
           "CAGRA JIT: sample_filter_jit_tag: SAMPLE_FILTER_T must be cuvs::neighbors::filtering::"
-          "none_sample_filter, or "
-          "cuvs::neighbors::cagra::detail::CagraSampleFilterWithQueryIdOffset<"
-          "bitset_filter<bitset, SourceIndexT>>. Unknown wrapper type. "
+          "none_sample_filter, udf_filter, or "
+          "cuvs::neighbors::cagra::detail::CagraSampleFilterWithQueryIdOffset<supported filter>. "
+          "Unknown wrapper type. "
           "(SAMPLE_FILTER_T in error; add a branch in sample_filter_jit_tag.)");
       }
     }

@@ -98,6 +98,7 @@ jobs:
           - '!.pre-commit-config.yaml'
           - '!.shellcheckrc'
           - '!Dockerfile'
+          - '!SECURITY.md'
           - '!ci/build_wheel*.sh'
           - '!ci/check_style.sh'
           - '!ci/release/update-version.sh'
@@ -123,6 +124,7 @@ jobs:
           - '!.shellcheckrc'
           - '!Dockerfile'
           - '!README.md'
+          - '!SECURITY.md'
           - '!ci/build_docs.sh'
           - '!ci/build_python.sh'
           - '!ci/build_wheel*.sh'
@@ -134,6 +136,7 @@ jobs:
           - '!ci/test_wheel_cuvs.sh'
           - '!ci/validate_wheel.sh'
           - '!docs/**'
+          - '!fern/**'
           - '!go/**'
           - '!img/**'
           - '!java/**'
@@ -157,6 +160,10 @@ jobs:
           - '!.github/workflows/trigger-breaking-change-alert.yaml'
           - '!.pre-commit-config.yaml'
           - '!.shellcheckrc'
+          - '!CODEOWNERS'
+          - '!Dockerfile'
+          - '!README.md'
+          - '!SECURITY.md'
           - '!ci/build_docs.sh'
           - '!ci/build_go.sh'
           - '!ci/build_python.sh'
@@ -168,13 +175,19 @@ jobs:
           - '!ci/test_python.sh'
           - '!ci/test_wheel_cuvs.sh'
           - '!ci/validate_wheel.sh'
-          - '!Dockerfile'
+          - '!conda/environments/**'
+          - '!conda/recipes/cuvs/**'
+          - '!conda/recipes/cuvs-bench/**'
+          - '!conda/recipes/cuvs-bench-cpu/**'
           - '!docs/**'
+          - '!examples/**'
+          - '!fern/**'
+          - '!go/**'
           - '!img/**'
           - '!notebooks/**'
+          - '!pyproject.toml'
           - '!python/**'
           - '!rust/**'
-          - '!go/**'
           - '!thirdparty/LICENSES/**'
         test_python_conda:
           - '**'
@@ -188,8 +201,12 @@ jobs:
           - '!.github/labeler.yml'
           - '!.github/ops-bot.yaml'
           - '!.github/release.yml'
+          - '!.github/workflows/check-c-abi.yaml'
+          - '!.github/workflows/labeler.yml'
           - '!.github/workflows/publish-rust.yaml'
+          - '!.github/workflows/store-c-abi-baseline.yaml'
           - '!.github/workflows/trigger-breaking-change-alert.yaml'
+          - '!.github/workflows/update-c-abi-baseline.yaml'
           - '!.pre-commit-config.yaml'
           - '!.shellcheckrc'
           - '!ci/build_go.sh'
@@ -206,9 +223,12 @@ jobs:
           - '!cpp/.clang-format'
           - '!cpp/.clang-tidy'
           - '!cpp/doxygen/**'
+          - '!CODEOWNERS'
           - '!Dockerfile'
           - '!README.md'
+          - '!SECURITY.md'
           - '!docs/**'
+          - '!fern/**'
           - '!go/**'
           - '!img/**'
           - '!java/**'
@@ -246,13 +266,16 @@ jobs:
           - '!ci/test_python.sh'
           - '!ci/test_standalone_c.sh'
           - '!ci/validate_wheel.sh'
+          - '!CODEOWNERS'
           - '!Dockerfile'
           - '!README.md'
+          - '!SECURITY.md'
           - '!conda/**'
           - '!cpp/.clang-format'
           - '!cpp/.clang-tidy'
           - '!cpp/doxygen/**'
           - '!docs/**'
+          - '!fern/**'
           - '!java/**'
           - '!go/**'
           - '!img/**'
@@ -275,8 +298,10 @@ jobs:
           - '!.github/workflows/trigger-breaking-change-alert.yaml'
           - '!.pre-commit-config.yaml'
           - '!.shellcheckrc'
+          - '!CODEOWNERS'
           - '!Dockerfile'
           - '!README.md'
+          - '!SECURITY.md'
           - '!ci/build_docs.sh'
           - '!ci/build_go.sh'
           - '!ci/build_java.sh'
@@ -292,6 +317,7 @@ jobs:
           - '!ci/test_wheel_cuvs.sh'
           - '!ci/validate_wheel.sh'
           - '!docs/**'
+          - '!fern/**'
           - '!go/**'
           - '!img/**'
           - '!java/**'
@@ -314,8 +340,10 @@ jobs:
           - '!.github/workflows/trigger-breaking-change-alert.yaml'
           - '!.pre-commit-config.yaml'
           - '!.shellcheckrc'
+          - '!CODEOWNERS'
           - '!Dockerfile'
           - '!README.md'
+          - '!SECURITY.md'
           - '!ci/build_docs.sh'
           - '!ci/build_java.sh'
           - '!ci/build_python.sh'
@@ -332,6 +360,7 @@ jobs:
           - '!ci/test_wheel_cuvs.sh'
           - '!ci/validate_wheel.sh'
           - '!docs/**'
+          - '!fern/**'
           - '!img/**'
           - '!java/**'
           - '!notebooks/**'
@@ -394,6 +423,7 @@ jobs:
     with:
       build_type: pull-request
       symbol_exclusions: (void (thrust::|cub::))
+      package_name: libcuvs
   conda-python-build:
     needs: conda-cpp-build
     permissions:
@@ -422,6 +452,7 @@ jobs:
     if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_python_conda
     with:
       build_type: pull-request
+      run_codecov: false
       script: ci/test_python.sh
   rocky8-clib-standalone-build-matrix:
     needs: checks
@@ -581,7 +612,6 @@ jobs:
       container_image: "rapidsai/ci-conda:26.08-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
       script: "ci/build_go.sh"
   docs-build:
-    needs: conda-python-build
     permissions:
       actions: read
       contents: read
@@ -658,7 +688,7 @@ jobs:
     uses: rapidsai/shared-workflows/.github/workflows/build-in-devcontainer.yaml@main
     with:
       arch: '["amd64", "arm64"]'
-      cuda: '["13.2"]'
+      cuda: '["13.3"]'
       node_type: "cpu8"
       env: |
         SCCACHE_DIST_MAX_RETRIES=inf

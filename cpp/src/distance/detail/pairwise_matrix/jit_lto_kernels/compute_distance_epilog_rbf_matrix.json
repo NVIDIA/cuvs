@@ -1,0 +1,100 @@
+{
+  "_distance": [
+    {
+      "distance_name": "l2_unexpanded",
+      "distance_abbrev": "l2_unexpanded",
+      "op_type": "cuvs::distance::detail::ops::l2_unexp_distance_op",
+      "header_file": "distance/detail/distance_ops/l2_unexp.cuh"
+    }
+  ],
+  "_acc_out": [
+    {
+      "acc_type": "float",
+      "acc_abbrev": "f",
+      "out_type": "float",
+      "out_abbrev": "f",
+      "_data_input": [
+        {
+          "data_type": "float",
+          "data_abbrev": "f"
+        },
+        {
+          "data_type": "half",
+          "data_abbrev": "h"
+        }
+      ],
+      "_policy": [
+        {
+          "policy_type": "Policy",
+          "layout_abbrev": "row",
+          "veclen": "1"
+        },
+        {
+          "policy_type": "ColPolicy",
+          "layout_abbrev": "col",
+          "veclen": "1"
+        },
+        {
+          "policy_type": "Policy",
+          "layout_abbrev": "row",
+          "veclen": "2"
+        },
+        {
+          "policy_type": "ColPolicy",
+          "layout_abbrev": "col",
+          "veclen": "2"
+        },
+        {
+          "policy_type": "Policy",
+          "layout_abbrev": "row",
+          "veclen": "4"
+        },
+        {
+          "policy_type": "ColPolicy",
+          "layout_abbrev": "col",
+          "veclen": "4"
+        }
+      ]
+    },
+    {
+      "acc_type": "double",
+      "acc_abbrev": "d",
+      "out_type": "double",
+      "out_abbrev": "d",
+      "_data_input": [
+        {
+          "data_type": "double",
+          "data_abbrev": "d"
+        }
+      ],
+      "_policy": [
+        {
+          "policy_type": "Policy",
+          "layout_abbrev": "row",
+          "veclen": "1"
+        },
+        {
+          "policy_type": "ColPolicy",
+          "layout_abbrev": "col",
+          "veclen": "1"
+        },
+        {
+          "policy_type": "Policy",
+          "layout_abbrev": "row",
+          "veclen": "2"
+        },
+        {
+          "policy_type": "ColPolicy",
+          "layout_abbrev": "col",
+          "veclen": "2"
+        }
+      ]
+    }
+  ],
+  "_index": [
+    {
+      "index_type": "int64_t",
+      "index_abbrev": "i64"
+    }
+  ]
+}

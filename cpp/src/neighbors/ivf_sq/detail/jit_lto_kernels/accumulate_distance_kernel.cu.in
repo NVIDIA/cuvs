@@ -1,0 +1,24 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <neighbors/ivf_sq/detail/jit_lto_kernels/accumulate_distance_impl.cuh>
+#include <neighbors/ivf_sq/detail/jit_lto_kernels/device_functions.cuh>
+
+namespace {
+
+constexpr auto accumulate_distance_impl =
+  cuvs::neighbors::ivf_sq::detail::accumulate_distance_@metric_name@_impl;
+
+}  // namespace
+
+namespace cuvs::neighbors::ivf_sq::detail {
+
+__device__ void accumulate_distance(
+  float qt, float aux, float scale, uint8_t code, float& dist, float& v_norm_sq)
+{
+  accumulate_distance_impl(qt, aux, scale, code, dist, v_norm_sq);
+}
+
+}  // namespace cuvs::neighbors::ivf_sq::detail

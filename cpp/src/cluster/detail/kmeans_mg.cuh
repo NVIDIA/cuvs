@@ -463,35 +463,31 @@ void checkWeights(const raft::resources& handle,
                   raft::device_vector_view<DataT, IndexT> weight)
 {
   cudaStream_t stream = raft::resource::get_cuda_stream(handle);
-  rmm::device_scalar<DataT> wt_aggr(stream);
+  auto d_wt_sum       = raft::make_device_scalar<DataT>(handle, DataT{0});
 
   const auto& comm = raft::resource::get_comms(handle);
 
   auto n_samples = weight.extent(0);
   raft::linalg::mapThenSumReduce(
-    wt_aggr.data(), n_samples, raft::identity_op{}, stream, weight.data_handle());
+    d_wt_sum.data_handle(), n_samples, raft::identity_op{}, stream, weight.data_handle());
 
-  comm.allreduce<DataT>(wt_aggr.data(),  // sendbuff
-                        wt_aggr.data(),  // recvbuff
-                        1,               // count
+  comm.allreduce<DataT>(d_wt_sum.data_handle(),  // sendbuff
+                        d_wt_sum.data_handle(),  // recvbuff
+                        1,                       // count
                         raft::comms::op_t::SUM,
                         stream);
-  DataT wt_sum = wt_aggr.value(stream);
-  raft::resource::sync_stream(handle, stream);
-  RAFT_EXPECTS(wt_sum > DataT{0}, "invalid parameter (sum of sample weights must be positive)");
 
-  if (wt_sum != n_samples) {
-    CUVS_LOG_KMEANS(handle,
-                    "[Warning!] KMeans: normalizing the user provided sample weights to "
-                    "sum up to %d samples",
-                    n_samples);
-
-    raft::linalg::map(handle,
-                      weight,
-                      raft::compose_op(raft::mul_const_op<DataT>{static_cast<DataT>(n_samples)},
-                                       raft::div_const_op<DataT>{wt_sum}),
-                      raft::make_const_mdspan(weight));
-  }
+  // Normalize weights so they sum to n_samples (per rank). Reading the sum from
+  // a device pointer avoids a host copy / stream sync. When the sum already
+  // equals n_samples this is a numerical no-op (matches single-GPU behavior).
+  const DataT* d_wt_sum_ptr = d_wt_sum.data_handle();
+  raft::linalg::map(
+    handle,
+    weight,
+    [n_samples, d_wt_sum_ptr] __device__(DataT w) {
+      return w * static_cast<DataT>(n_samples) / *d_wt_sum_ptr;
+    },
+    raft::make_const_mdspan(weight));
 }
 
 template <typename DataT, typename IndexT>
@@ -750,6 +746,7 @@ void fit(const raft::resources& handle,
       break;
     }
   }
+  n_iter[0] = std::min(n_iter[0], static_cast<IndexT>(params.max_iter));
 }
 
 };  // namespace cuvs::cluster::kmeans::mg::detail

@@ -780,7 +780,13 @@ inline auto get_max_fine_batch_size(raft::resources const& res,
     return static_cast<uint64_t>(bs) *
            (other + (is_local_topk_feasible(k, n_probes, bs) ? buffers_fused : buffers_non_fused));
   };
-  auto max_ws_size = raft::resource::get_workspace_free_bytes(res);
+
+  // Use only 40% of the available workspace memory as the coarse batch allocations have not been
+  // allocated yet. Also limit the maximum to 1GB to avoid conflicts in case the workspace is shared
+  // with the large workspace.
+  const auto free_ws_size = raft::resource::get_workspace_free_bytes(res);
+  const auto max_ws_size =
+    std::min<size_t>((free_ws_size * size_t{40}) / size_t{100}, size_t{1} << 30);
   if (ws_size(max_batch_size) > max_ws_size) {
     uint32_t smaller_batch_size = raft::bound_by_power_of_two(max_batch_size);
     // gradually reduce the batch size until we fit into the max size limit.
@@ -837,11 +843,17 @@ inline auto get_max_coarse_batch_size(raft::resources const& res,
   // Transient allocations during coarse search (select_clusters): qc_distances + cluster_dists.
   auto transient_per_query = static_cast<size_t>(n_lists + n_probes) * qc_elem_size;
   auto total_per_query     = persistent_per_query + transient_per_query;
-  auto max_per_ws          = raft::resource::get_workspace_free_bytes(res) / total_per_query;
+
+  // Use only 40% of the available workspace memory as the fine batch allocations have not been
+  // allocated yet. Also limit the maximum to 1GB to avoid conflicts in case the workspace is shared
+  // with the large workspace.
+  const auto free_ws_size = raft::resource::get_workspace_free_bytes(res);
+  const auto available_ws_size =
+    std::min<size_t>((free_ws_size * size_t{40}) / size_t{100}, size_t{1} << 30);
+  auto max_per_ws = available_ws_size / total_per_query;
   return std::max<uint32_t>(
     1,
-    std::min<uint32_t>(max_per_ws / 2,
-                       std::min<uint32_t>(params.max_internal_batch_size, n_queries)));
+    std::min<uint32_t>(max_per_ws, std::min<uint32_t>(params.max_internal_batch_size, n_queries)));
 }
 
 template <typename T, typename IdxT>

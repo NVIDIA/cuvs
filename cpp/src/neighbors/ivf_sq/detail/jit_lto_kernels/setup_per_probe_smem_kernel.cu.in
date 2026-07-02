@@ -1,0 +1,27 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <neighbors/ivf_sq/detail/jit_lto_kernels/device_functions.cuh>
+#include <neighbors/ivf_sq/detail/jit_lto_kernels/setup_per_probe_smem_impl.cuh>
+
+namespace {
+
+constexpr auto setup_per_probe_smem_impl =
+  cuvs::neighbors::ivf_sq::detail::setup_per_probe_smem_@metric_name@_impl;
+
+}  // namespace
+
+namespace cuvs::neighbors::ivf_sq::detail {
+
+__device__ void setup_per_probe_smem(uint32_t dim,
+                                     const float* __restrict__ centroid,
+                                     const float* __restrict__ sq_vmin,
+                                     float* __restrict__ s_aux,
+                                     float* __restrict__ s_query_term)
+{
+  setup_per_probe_smem_impl(dim, centroid, sq_vmin, s_aux, s_query_term);
+}
+
+}  // namespace cuvs::neighbors::ivf_sq::detail

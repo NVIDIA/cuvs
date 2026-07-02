@@ -12,8 +12,8 @@
 #include <cuvs/neighbors/ivf_flat.hpp>
 
 #include <raft/core/copy.cuh>
-#include <raft/core/detail/mdspan_numpy_serializer.hpp>
 #include <raft/core/mdarray.hpp>
+#include <raft/core/numpy_serializer.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/serialize.hpp>
 #include <raft/util/pow2_utils.cuh>
@@ -45,7 +45,7 @@ void serialize(raft::resources const& handle, std::ostream& os, const index<T, I
   RAFT_LOG_DEBUG(
     "Saving IVF-Flat index, size %zu, dim %u", static_cast<size_t>(index_.size()), index_.dim());
 
-  std::string dtype_string = raft::detail::numpy_serializer::get_numpy_dtype<T>().to_string();
+  std::string dtype_string = raft::numpy_serializer::get_numpy_dtype<T>().to_string();
   dtype_string.resize(4);
   os << dtype_string;
 

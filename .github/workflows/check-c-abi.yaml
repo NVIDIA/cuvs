@@ -128,5 +128,5 @@ jobs:
                    - The changes are documented in the changelog
                    - Migration guide is provided for users
 
-                For more information, see the [C ABI documentation](../docs/source/c_developer_guide.md).`
+                For more information, see the [C API documentation](../fern/pages/c_api/index.md).`
             });

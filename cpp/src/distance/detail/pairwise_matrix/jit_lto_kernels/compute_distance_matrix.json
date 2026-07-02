@@ -1,0 +1,155 @@
+[
+  {
+    "_distance": [
+      {
+        "distance_name": "canberra",
+        "distance_abbrev": "canberra",
+        "op_type": "cuvs::distance::detail::ops::canberra_distance_op",
+        "header_file": "distance/detail/distance_ops/canberra.cuh"
+      },
+      {
+        "distance_name": "correlation",
+        "distance_abbrev": "correlation",
+        "op_type": "cuvs::distance::detail::ops::correlation_distance_op",
+        "header_file": "distance/detail/distance_ops/correlation.cuh"
+      },
+      {
+        "distance_name": "cosine",
+        "distance_abbrev": "cosine",
+        "op_type": "cuvs::distance::detail::ops::cosine_distance_op",
+        "header_file": "distance/detail/distance_ops/cosine.cuh"
+      },
+      {
+        "distance_name": "hamming_unexpanded",
+        "distance_abbrev": "hamming_unexpanded",
+        "op_type": "cuvs::distance::detail::ops::hamming_distance_op",
+        "header_file": "distance/detail/distance_ops/hamming.cuh"
+      },
+      {
+        "distance_name": "hellinger_expanded",
+        "distance_abbrev": "hellinger_expanded",
+        "op_type": "cuvs::distance::detail::ops::hellinger_distance_op",
+        "header_file": "distance/detail/distance_ops/hellinger.cuh"
+      },
+      {
+        "distance_name": "jensen_shannon",
+        "distance_abbrev": "jensen_shannon",
+        "op_type": "cuvs::distance::detail::ops::jensen_shannon_distance_op",
+        "header_file": "distance/detail/distance_ops/jensen_shannon.cuh"
+      },
+      {
+        "distance_name": "kl_divergence",
+        "distance_abbrev": "kl_divergence",
+        "op_type": "cuvs::distance::detail::ops::kl_divergence_op",
+        "header_file": "distance/detail/distance_ops/kl_divergence.cuh"
+      },
+      {
+        "distance_name": "l1",
+        "distance_abbrev": "l1",
+        "op_type": "cuvs::distance::detail::ops::l1_distance_op",
+        "header_file": "distance/detail/distance_ops/l1.cuh"
+      },
+      {
+        "distance_name": "l2_expanded",
+        "distance_abbrev": "l2_expanded",
+        "op_type": "cuvs::distance::detail::ops::l2_exp_distance_op",
+        "header_file": "distance/detail/distance_ops/l2_exp.cuh"
+      },
+      {
+        "distance_name": "l2_unexpanded",
+        "distance_abbrev": "l2_unexpanded",
+        "op_type": "cuvs::distance::detail::ops::l2_unexp_distance_op",
+        "header_file": "distance/detail/distance_ops/l2_unexp.cuh"
+      },
+      {
+        "distance_name": "l_inf",
+        "distance_abbrev": "l_inf",
+        "op_type": "cuvs::distance::detail::ops::l_inf_distance_op",
+        "header_file": "distance/detail/distance_ops/l_inf.cuh"
+      },
+      {
+        "distance_name": "lp_unexpanded",
+        "distance_abbrev": "lp_unexpanded",
+        "op_type": "cuvs::distance::detail::ops::lp_unexp_distance_op",
+        "header_file": "distance/detail/distance_ops/lp_unexp.cuh"
+      },
+      {
+        "distance_name": "russel_rao",
+        "distance_abbrev": "russel_rao",
+        "op_type": "cuvs::distance::detail::ops::russel_rao_distance_op",
+        "header_file": "distance/detail/distance_ops/russel_rao.cuh"
+      }
+    ],
+    "_data": [
+      {
+        "data_type": "float",
+        "data_abbrev": "f",
+        "type_abbrev": "f",
+        "acc_type": "float",
+        "acc_abbrev": "f",
+        "out_type": "float",
+        "out_abbrev": "f"
+      },
+      {
+        "data_type": "double",
+        "data_abbrev": "d",
+        "type_abbrev": "d",
+        "acc_type": "double",
+        "acc_abbrev": "d",
+        "out_type": "double",
+        "out_abbrev": "d"
+      },
+      {
+        "data_type": "half",
+        "data_abbrev": "h",
+        "type_abbrev": "h",
+        "acc_type": "float",
+        "acc_abbrev": "f",
+        "out_type": "float",
+        "out_abbrev": "f"
+      }
+    ],
+    "_index": [
+      {
+        "index_type": "int",
+        "index_abbrev": "i32"
+      }
+    ]
+  },
+  {
+    "_distance": [
+      {
+        "distance_name": "l2_expanded",
+        "distance_abbrev": "l2_expanded",
+        "op_type": "cuvs::distance::detail::ops::l2_exp_distance_op",
+        "header_file": "distance/detail/distance_ops/l2_exp.cuh"
+      }
+    ],
+    "_data": [
+      {
+        "data_type": "float",
+        "data_abbrev": "f",
+        "type_abbrev": "f",
+        "acc_type": "float",
+        "acc_abbrev": "f",
+        "out_type": "float",
+        "out_abbrev": "f"
+      },
+      {
+        "data_type": "double",
+        "data_abbrev": "d",
+        "type_abbrev": "d",
+        "acc_type": "double",
+        "acc_abbrev": "d",
+        "out_type": "double",
+        "out_abbrev": "d"
+      }
+    ],
+    "_index": [
+      {
+        "index_type": "int64_t",
+        "index_abbrev": "i64"
+      }
+    ]
+  }
+]

@@ -56,15 +56,16 @@ void select_and_run(const dataset_descriptor_host<DataT, IndexT, DistanceT>& dat
                     SampleFilterT sample_filter,
                     cudaStream_t stream)
 {
-  const auto bf                  = extract_cagra_sample_filter<SourceIndexT>(sample_filter);
-  const uint32_t query_id_offset = bf.query_id_offset;
+  const auto filter_payload      = extract_cagra_sample_filter<SourceIndexT>(sample_filter, stream);
+  const uint32_t query_id_offset = filter_payload.query_id_offset;
 
   std::shared_ptr<AlgorithmLauncher> launcher =
     make_cagra_multi_cta_jit_launcher<DataT,
                                       IndexT,
                                       DistanceT,
                                       SourceIndexT,
-                                      sample_filter_jit_tag_t<SampleFilterT>>(dataset_desc);
+                                      sample_filter_jit_tag_t<SampleFilterT>>(
+      dataset_desc, make_cagra_sample_filter_udf_fragment<SourceIndexT>(sample_filter));
 
   if (!launcher) { RAFT_FAIL("Failed to get JIT launcher"); }
 
@@ -142,7 +143,7 @@ void select_and_run(const dataset_descriptor_host<DataT, IndexT, DistanceT>& dat
       num_executed_iterations,
       static_cast<IndexT>(graph.extent(0)),
       query_id_offset,
-      bf.bitset);
+      filter_payload);
   };
   cuvs::neighbors::detail::safely_launch_kernel_with_smem_size<
     multi_cta_search::search_multi_cta_kernel_func_t<DataT, IndexT, DistanceT, SourceIndexT>>(

@@ -223,56 +223,64 @@ class BenchmarkOrchestrator:
         for config in benchmark_configs:
             # Create backend instance
             backend = self.backend_class(config.backend_config)
+            try:
+                backend.initialize()
 
-            if build:
-                # Pass ALL indexes at once - ONE C++ command builds all
-                build_result = backend.build(
-                    dataset=bench_dataset,
-                    indexes=config.indexes,
-                    force=force,
-                    dry_run=dry_run,
-                )
-                results.append(build_result)
-
-                if not build_result.success:
-                    print(
-                        f"Build failed for {config.index_name}: {build_result.error_message}"
+                if build:
+                    # Pass ALL indexes at once - ONE C++ command builds all
+                    build_result = backend.build(
+                        dataset=bench_dataset,
+                        indexes=config.indexes,
+                        force=force,
+                        dry_run=dry_run,
                     )
-                    continue
+                    results.append(build_result)
 
-            if search:
-                # Pass ALL indexes at once - ONE C++ command searches all
-                # Each index has its own search_params list
-                # Total benchmarks = sum(len(idx.search_params) for idx in indexes)
-                search_result = backend.search(
-                    dataset=bench_dataset,
-                    indexes=config.indexes,
-                    k=count,
-                    batch_size=batch_size,
-                    mode=search_mode,
-                    force=force,
-                    search_threads=search_threads,
-                    dry_run=dry_run,
-                )
-
-                # Compute recall for backends that return actual neighbors.
-                # The C++ backend computes recall in the subprocess and returns
-                # empty neighbors, so this is skipped for it.
-                # Note: The recall computation relies on empty neighbors to
-                # distinguish backends that already computed recall.
-                if search_result.success and search_result.neighbors.size > 0:
-                    gt = bench_dataset.groundtruth_neighbors
-                    if gt is not None:
-                        search_result.recall = compute_recall(
-                            search_result.neighbors, gt, count
+                    if not build_result.success:
+                        print(
+                            f"Build failed for {config.index_name}: {build_result.error_message}"
                         )
+                        continue
 
-                results.append(search_result)
-
-                if not search_result.success:
-                    print(
-                        f"Search failed for {config.index_name}: {search_result.error_message}"
+                if search:
+                    # Pass ALL indexes at once - ONE C++ command searches all
+                    # Each index has its own search_params list
+                    # Total benchmarks = sum(len(idx.search_params) for idx in indexes)
+                    search_result = backend.search(
+                        dataset=bench_dataset,
+                        indexes=config.indexes,
+                        k=count,
+                        batch_size=batch_size,
+                        mode=search_mode,
+                        force=force,
+                        search_threads=search_threads,
+                        dry_run=dry_run,
                     )
+
+                    # Compute recall for backends that return actual neighbors.
+                    # The C++ backend computes recall in the subprocess and returns
+                    # empty neighbors, so this is skipped for it.
+                    # Empty neighbors or nonzero recall indicate that the backend
+                    # already handled recall itself.
+                    if (
+                        search_result.success
+                        and search_result.neighbors.size > 0
+                        and search_result.recall == 0.0
+                    ):
+                        gt = bench_dataset.groundtruth_neighbors
+                        if gt is not None:
+                            search_result.recall = compute_recall(
+                                search_result.neighbors, gt, count
+                            )
+
+                    results.append(search_result)
+
+                    if not search_result.success:
+                        print(
+                            f"Search failed for {config.index_name}: {search_result.error_message}"
+                        )
+            finally:
+                backend.cleanup()
 
         return results
 
@@ -564,40 +572,50 @@ class BenchmarkOrchestrator:
             "append_results": append_results,
         }
         backend = self.backend_class(backend_config)
+        try:
+            backend.initialize()
 
-        result = None
+            result = None
 
-        if build:
-            result = backend.build(
-                dataset=bench_dataset,
-                indexes=config.indexes,
-                force=force,
-                dry_run=dry_run,
-            )
-            if not result.success:
-                return result
+            if build:
+                result = backend.build(
+                    dataset=bench_dataset,
+                    indexes=config.indexes,
+                    force=force,
+                    dry_run=dry_run,
+                )
+                if not result.success:
+                    return result
 
-        if search:
-            result = backend.search(
-                dataset=bench_dataset,
-                indexes=config.indexes,
-                k=count,
-                batch_size=batch_size,
-                mode=search_mode,
-                force=force,
-                search_threads=search_threads,
-                dry_run=dry_run,
-            )
+            if search:
+                result = backend.search(
+                    dataset=bench_dataset,
+                    indexes=config.indexes,
+                    k=count,
+                    batch_size=batch_size,
+                    mode=search_mode,
+                    force=force,
+                    search_threads=search_threads,
+                    dry_run=dry_run,
+                )
 
-            # Compute recall for backends that return actual neighbors.
-            # Note: The recall computation relies on empty neighbors to
-            # distinguish backends that already computed recall.
-            if result.success and result.neighbors.size > 0:
-                gt = bench_dataset.groundtruth_neighbors
-                if gt is not None:
-                    result.recall = compute_recall(result.neighbors, gt, count)
+                # Compute recall for backends that return actual neighbors.
+                # Empty neighbors or nonzero recall indicate that the backend
+                # already handled recall itself.
+                if (
+                    result.success
+                    and result.neighbors.size > 0
+                    and result.recall == 0.0
+                ):
+                    gt = bench_dataset.groundtruth_neighbors
+                    if gt is not None:
+                        result.recall = compute_recall(
+                            result.neighbors, gt, count
+                        )
 
-        return result
+            return result
+        finally:
+            backend.cleanup()
 
     def _create_dataset(self, dataset_config: DatasetConfig) -> Dataset:
         """

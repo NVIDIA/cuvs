@@ -8,7 +8,7 @@ faiss_gpu_ivf_pq:
   executable: FAISS_GPU_IVF_PQ_ANN_BENCH
   requires_gpu: true
 faiss_gpu_ivf_sq:
-  executable: FAISS_GPU_IVF_PQ_ANN_BENCH
+  executable: FAISS_GPU_IVF_SQ_ANN_BENCH
   requires_gpu: true
 faiss_gpu_cagra:
   executable: FAISS_GPU_CAGRA_ANN_BENCH
@@ -25,6 +25,12 @@ faiss_cpu_ivf_flat:
 faiss_cpu_ivf_pq:
   executable: FAISS_CPU_IVF_PQ_ANN_BENCH
   requires_gpu: false
+faiss_cpu_ivf_rabitq:
+  executable: FAISS_CPU_IVF_RABITQ_ANN_BENCH
+  requires_gpu: false
+faiss_cpu_ivf_sq:
+  executable: FAISS_CPU_IVF_SQ_ANN_BENCH
+  requires_gpu: false
 faiss_cpu_hnsw_flat:
   executable: FAISS_CPU_HNSW_FLAT_ANN_BENCH
   requires_gpu: false
@@ -33,6 +39,12 @@ cuvs_ivf_flat:
   requires_gpu: true
 cuvs_ivf_pq:
   executable: CUVS_IVF_PQ_ANN_BENCH
+  requires_gpu: true
+cuvs_ivf_rabitq:
+  executable: CUVS_IVF_RABITQ_ANN_BENCH
+  requires_gpu: true
+cuvs_ivf_sq:
+  executable: CUVS_IVF_SQ_ANN_BENCH
   requires_gpu: true
 cuvs_cagra:
   executable: CUVS_CAGRA_ANN_BENCH

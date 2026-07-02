@@ -13,7 +13,7 @@
 #include "jit_lto_kernels/kernel_def.hpp"
 #include "jit_lto_kernels/search_multi_kernel_planner.hpp"
 #include "search_plan.cuh"          // For search_params
-#include "shared_launcher_jit.hpp"  // cagra_bitset / cagra_sample_filter, sample_filter_jit_tag_t, tags
+#include "shared_launcher_jit.hpp"  // sample-filter payload helpers and JIT tags
 #include <cuvs/detail/jit_lto/AlgorithmLauncher.hpp>
 #include <cuvs/distance/distance.hpp>
 #include <raft/core/device_mdspan.hpp>
@@ -111,7 +111,7 @@ void compute_distance_to_child_nodes_jit(
   cudaStream_t cuda_stream,
   std::shared_ptr<AlgorithmLauncher> const& launcher)
 {
-  const auto bf = extract_cagra_sample_filter<SourceIndexT>(sample_filter);
+  const auto filter_payload = extract_cagra_sample_filter<SourceIndexT>(sample_filter, cuda_stream);
 
   const auto block_size      = 128;
   const auto teams_per_block = block_size / dataset_desc.team_size;
@@ -142,7 +142,7 @@ void compute_distance_to_child_nodes_jit(
     result_indices_ptr,
     result_distances_ptr,
     ldd,
-    bf.bitset);
+    filter_payload);
 
   RAFT_CUDA_TRY(cudaPeekAtLastError());
 }
@@ -160,9 +160,8 @@ void apply_filter_jit(const SourceIndexT* source_indices_ptr,
                       cudaStream_t cuda_stream,
                       std::shared_ptr<AlgorithmLauncher> const& launcher)
 {
-  // Note: query_id for the linked filter is the function's `query_id_offset` + query index, not
-  // the wrapper's offset; we only need bitset pointers (same as other JIT launchers).
-  const auto bf = extract_cagra_sample_filter<SourceIndexT>(sample_filter);
+  const auto filter_payload = extract_cagra_sample_filter<SourceIndexT>(sample_filter, cuda_stream);
+  const auto effective_query_id_offset = query_id_offset + filter_payload.query_id_offset;
 
   const std::uint32_t block_size = 256;
   const std::uint32_t grid_size  = raft::ceildiv(num_queries * result_buffer_size, block_size);
@@ -181,8 +180,8 @@ void apply_filter_jit(const SourceIndexT* source_indices_ptr,
                                                           lds,
                                                           result_buffer_size,
                                                           num_queries,
-                                                          query_id_offset,
-                                                          bf.bitset);
+                                                          effective_query_id_offset,
+                                                          filter_payload);
 
   RAFT_CUDA_TRY(cudaPeekAtLastError());
 }

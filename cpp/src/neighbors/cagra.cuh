@@ -26,6 +26,8 @@
 
 #include <rmm/cuda_stream_view.hpp>
 
+#include <algorithm>
+
 namespace cuvs::neighbors::cagra {
 
 // Member function implementations for cagra::index
@@ -376,6 +378,25 @@ void search(raft::resources const& res,
       const float max_filtering_rate = 0.999;
       params_copy.filtering_rate =
         std::min(std::max(filtering_rate, min_filtering_rate), max_filtering_rate);
+    }
+    auto sample_filter_copy = sample_filter;
+    return search_with_filtering<T, IdxT, decltype(sample_filter_copy), OutputIdxT>(
+      res, params_copy, idx, queries, neighbors, distances, sample_filter_copy);
+  } catch (const std::bad_cast&) {
+  }
+
+  try {
+    auto& sample_filter =
+      dynamic_cast<const cuvs::neighbors::filtering::udf_filter&>(sample_filter_ref);
+    search_params params_copy = params;
+    if (params.filtering_rate < 0.0) {
+      const float min_filtering_rate = 0.0f;
+      const float max_filtering_rate = 0.999f;
+      params_copy.filtering_rate =
+        sample_filter.filtering_rate < 0.0f
+          ? 0.0f
+          : std::min(std::max(sample_filter.filtering_rate, min_filtering_rate),
+                     max_filtering_rate);
     }
     auto sample_filter_copy = sample_filter;
     return search_with_filtering<T, IdxT, decltype(sample_filter_copy), OutputIdxT>(

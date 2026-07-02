@@ -20,8 +20,9 @@ void fit_main(raft::resources const& handle,
 {
   cuvs::cluster::kmeans::params p = params;
   p.init                          = kmeans::params::InitMethod::Array;
-  auto sw                         = std::make_optional(
-    raft::make_device_vector_view<const DataT, IndexT>(sample_weights.data_handle(), X.extent(0)));
+  RAFT_EXPECTS(sample_weights.extent(0) == X.extent(0),
+               "invalid parameter (sample_weight!=n_samples)");
+  auto sw = std::make_optional(sample_weights);
   cuvs::cluster::kmeans::detail::kmeans_fit(
     handle, p, X, sw, centroids, inertia, n_iter, std::ref(workspace));
 }

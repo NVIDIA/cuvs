@@ -9,7 +9,7 @@ Once the minimum requirements are satisfied, this example template application c
 You may follow these steps to quickly get set up:
 
 ```bash
-conda env create --name rust -f conda/environments/rust_cuda-132_arch-$(uname -m).yaml
+conda env create --name rust -f conda/environments/rust_cuda-133_arch-$(uname -m).yaml
 conda activate rust
 ```
 You may prefer to use `mamba`, as it provides significant speedup over `conda`.

@@ -519,7 +519,9 @@ struct search
                                            DISTANCE_T,
                                            SourceIndexT,
                                            sample_filter_jit_tag_t<SAMPLE_FILTER_T>>(
-        dataset_desc, "compute_distance_to_child_nodes");
+        dataset_desc,
+        "compute_distance_to_child_nodes",
+        make_cagra_sample_filter_udf_fragment<SourceIndexT>(sample_filter));
 
     unsigned iter = 0;
     while (1) {
@@ -615,7 +617,7 @@ struct search
                                              DISTANCE_T,
                                              SourceIndexT,
                                              sample_filter_jit_tag_t<SAMPLE_FILTER_T>>(
-          dataset_desc);
+          dataset_desc, make_cagra_sample_filter_udf_fragment<SourceIndexT>(sample_filter));
 
       apply_filter_jit<INDEX_T, DISTANCE_T, SourceIndexT, SAMPLE_FILTER_T>(
         source_indices_ptr,

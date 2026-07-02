@@ -7,6 +7,7 @@
 
 #include "../compute_distance.hpp"
 #include "../shared_launcher_jit.hpp"
+#include "sample_filter_udf.cuh"
 #include "search_multi_cta_planner.hpp"
 #include "search_multi_kernel_planner.hpp"
 #include "search_single_cta_planner.hpp"
@@ -37,7 +38,8 @@ std::shared_ptr<AlgorithmLauncher> build_single_cta_launcher(
   const dataset_descriptor_host<DataT, IndexT, DistanceT>& dataset_desc,
   bool topk_by_bitonic_sort,
   bool bitonic_sort_and_merge_multi_warps,
-  bool persistent)
+  bool persistent,
+  std::unique_ptr<UDFFatbinFragment> sample_filter_udf_fragment)
 {
   single_cta_search::CagraSingleCtaSearchPlanner<DataTag,
                                                  IndexTag,
@@ -69,7 +71,7 @@ std::shared_ptr<AlgorithmLauncher> build_single_cta_launcher(
   }
   planner.add_search_kernel_fragment(
     topk_by_bitonic_sort, bitonic_sort_and_merge_multi_warps, persistent);
-  planner.add_sample_filter_device_function();
+  planner.add_sample_filter_device_function(std::move(sample_filter_udf_fragment));
   return planner.get_launcher();
 }
 
@@ -85,7 +87,8 @@ template <typename DataTag,
           typename DistanceT,
           typename SourceIndexT>
 std::shared_ptr<AlgorithmLauncher> build_multi_cta_launcher(
-  const dataset_descriptor_host<DataT, IndexT, DistanceT>& dataset_desc)
+  const dataset_descriptor_host<DataT, IndexT, DistanceT>& dataset_desc,
+  std::unique_ptr<UDFFatbinFragment> sample_filter_udf_fragment)
 {
   multi_cta_search::CagraMultiCtaSearchPlanner<DataTag,
                                                IndexTag,
@@ -113,7 +116,7 @@ std::shared_ptr<AlgorithmLauncher> build_multi_cta_launcher(
       dataset_desc.metric, dataset_desc.team_size, dataset_desc.dataset_block_dim);
   }
   planner.add_search_multi_cta_kernel_fragment();
-  planner.add_sample_filter_device_function();
+  planner.add_sample_filter_device_function(std::move(sample_filter_udf_fragment));
   return planner.get_launcher();
 }
 
@@ -130,7 +133,8 @@ template <typename DataTag,
           typename SourceIndexT>
 std::shared_ptr<AlgorithmLauncher> build_multi_kernel_launcher(
   const dataset_descriptor_host<DataT, IndexT, DistanceT>& dataset_desc,
-  const char* linked_kernel_name)
+  const char* linked_kernel_name,
+  std::unique_ptr<UDFFatbinFragment> sample_filter_udf_fragment)
 {
   multi_kernel_search::CagraMultiKernelSearchPlanner<DataTag,
                                                      IndexTag,
@@ -157,7 +161,7 @@ std::shared_ptr<AlgorithmLauncher> build_multi_kernel_launcher(
     planner.add_compute_distance_device_function(
       dataset_desc.metric, dataset_desc.team_size, dataset_desc.dataset_block_dim);
   }
-  planner.add_sample_filter_device_function();
+  planner.add_sample_filter_device_function(std::move(sample_filter_udf_fragment));
   planner.add_linked_kernel(linked_kernel_name);
   return planner.get_launcher();
 }
@@ -175,7 +179,8 @@ template <typename DataTag,
           typename IndexT,
           typename DistanceT,
           typename SourceIndexT>
-std::shared_ptr<AlgorithmLauncher> build_apply_filter_only_launcher()
+std::shared_ptr<AlgorithmLauncher> build_apply_filter_only_launcher(
+  std::unique_ptr<UDFFatbinFragment> sample_filter_udf_fragment)
 {
   multi_kernel_search::CagraMultiKernelSearchPlanner<DataTag,
                                                      IndexTag,
@@ -185,7 +190,7 @@ std::shared_ptr<AlgorithmLauncher> build_apply_filter_only_launcher()
                                                      CodebookTag,
                                                      SampleFilterJitTag>
     planner("apply_filter_kernel");
-  planner.add_sample_filter_device_function();
+  planner.add_sample_filter_device_function(std::move(sample_filter_udf_fragment));
   planner.add_linked_kernel("apply_filter_kernel");
   return planner.get_launcher();
 }
@@ -204,7 +209,8 @@ std::shared_ptr<AlgorithmLauncher> make_cagra_single_cta_jit_launcher(
   const dataset_descriptor_host<DataT, IndexT, DistanceT>& dataset_desc,
   bool topk_by_bitonic_sort,
   bool bitonic_sort_and_merge_multi_warps,
-  bool persistent)
+  bool persistent,
+  std::unique_ptr<UDFFatbinFragment> sample_filter_udf_fragment = nullptr)
 {
   using DataTag   = decltype(get_data_type_tag<DataT>());
   using IndexTag  = decltype(get_index_type_tag<IndexT>());
@@ -225,7 +231,11 @@ std::shared_ptr<AlgorithmLauncher> make_cagra_single_cta_jit_launcher(
                                                                         IndexT,
                                                                         DistanceT,
                                                                         SourceIndexT>(
-      dataset_desc, topk_by_bitonic_sort, bitonic_sort_and_merge_multi_warps, persistent);
+      dataset_desc,
+      topk_by_bitonic_sort,
+      bitonic_sort_and_merge_multi_warps,
+      persistent,
+      std::move(sample_filter_udf_fragment));
   }
   using CodebookTag = codebook_tag_standard_t;
   if (dataset_desc.metric == cuvs::distance::DistanceType::BitwiseHamming) {
@@ -242,7 +252,11 @@ std::shared_ptr<AlgorithmLauncher> make_cagra_single_cta_jit_launcher(
                                                                         IndexT,
                                                                         DistanceT,
                                                                         SourceIndexT>(
-      dataset_desc, topk_by_bitonic_sort, bitonic_sort_and_merge_multi_warps, persistent);
+      dataset_desc,
+      topk_by_bitonic_sort,
+      bitonic_sort_and_merge_multi_warps,
+      persistent,
+      std::move(sample_filter_udf_fragment));
   }
   using QueryTag = query_type_tag_standard_t<DataTag, cuvs::distance::DistanceType::L2Expanded>;
   return cagra_jit_launcher_factory_detail::build_single_cta_launcher<DataTag,
@@ -256,7 +270,11 @@ std::shared_ptr<AlgorithmLauncher> make_cagra_single_cta_jit_launcher(
                                                                       IndexT,
                                                                       DistanceT,
                                                                       SourceIndexT>(
-    dataset_desc, topk_by_bitonic_sort, bitonic_sort_and_merge_multi_warps, persistent);
+    dataset_desc,
+    topk_by_bitonic_sort,
+    bitonic_sort_and_merge_multi_warps,
+    persistent,
+    std::move(sample_filter_udf_fragment));
 }
 
 /// Build a JIT AlgorithmLauncher for multi-CTA CAGRA search.
@@ -266,7 +284,8 @@ template <typename DataT,
           typename SourceIndexT,
           typename SampleFilterJitTag>
 std::shared_ptr<AlgorithmLauncher> make_cagra_multi_cta_jit_launcher(
-  const dataset_descriptor_host<DataT, IndexT, DistanceT>& dataset_desc)
+  const dataset_descriptor_host<DataT, IndexT, DistanceT>& dataset_desc,
+  std::unique_ptr<UDFFatbinFragment> sample_filter_udf_fragment = nullptr)
 {
   using DataTag   = decltype(get_data_type_tag<DataT>());
   using IndexTag  = decltype(get_index_type_tag<IndexT>());
@@ -286,7 +305,8 @@ std::shared_ptr<AlgorithmLauncher> make_cagra_multi_cta_jit_launcher(
                                                                        DataT,
                                                                        IndexT,
                                                                        DistanceT,
-                                                                       SourceIndexT>(dataset_desc);
+                                                                       SourceIndexT>(
+      dataset_desc, std::move(sample_filter_udf_fragment));
   }
   using CodebookTag = codebook_tag_standard_t;
   if (dataset_desc.metric == cuvs::distance::DistanceType::BitwiseHamming) {
@@ -302,7 +322,8 @@ std::shared_ptr<AlgorithmLauncher> make_cagra_multi_cta_jit_launcher(
                                                                        DataT,
                                                                        IndexT,
                                                                        DistanceT,
-                                                                       SourceIndexT>(dataset_desc);
+                                                                       SourceIndexT>(
+      dataset_desc, std::move(sample_filter_udf_fragment));
   }
   using QueryTag = query_type_tag_standard_t<DataTag, cuvs::distance::DistanceType::L2Expanded>;
   return cagra_jit_launcher_factory_detail::build_multi_cta_launcher<DataTag,
@@ -315,7 +336,8 @@ std::shared_ptr<AlgorithmLauncher> make_cagra_multi_cta_jit_launcher(
                                                                      DataT,
                                                                      IndexT,
                                                                      DistanceT,
-                                                                     SourceIndexT>(dataset_desc);
+                                                                     SourceIndexT>(
+    dataset_desc, std::move(sample_filter_udf_fragment));
 }
 
 /// Build a JIT AlgorithmLauncher for multi-kernel CAGRA helpers that need `setup_workspace` and
@@ -331,7 +353,8 @@ template <typename DataT,
           typename SampleFilterJitTag = tag_cagra_jit_sample_filter_link_absent>
 std::shared_ptr<AlgorithmLauncher> make_cagra_multi_kernel_jit_launcher(
   const dataset_descriptor_host<DataT, IndexT, DistanceT>& dataset_desc,
-  const char* linked_kernel_name)
+  const char* linked_kernel_name,
+  std::unique_ptr<UDFFatbinFragment> sample_filter_udf_fragment = nullptr)
 {
   using DataTag   = decltype(get_data_type_tag<DataT>());
   using IndexTag  = decltype(get_index_type_tag<IndexT>());
@@ -352,7 +375,7 @@ std::shared_ptr<AlgorithmLauncher> make_cagra_multi_kernel_jit_launcher(
                                                                           IndexT,
                                                                           DistanceT,
                                                                           SourceIndexT>(
-      dataset_desc, linked_kernel_name);
+      dataset_desc, linked_kernel_name, std::move(sample_filter_udf_fragment));
   }
   using CodebookTag = codebook_tag_standard_t;
   if (dataset_desc.metric == cuvs::distance::DistanceType::BitwiseHamming) {
@@ -369,7 +392,7 @@ std::shared_ptr<AlgorithmLauncher> make_cagra_multi_kernel_jit_launcher(
                                                                           IndexT,
                                                                           DistanceT,
                                                                           SourceIndexT>(
-      dataset_desc, linked_kernel_name);
+      dataset_desc, linked_kernel_name, std::move(sample_filter_udf_fragment));
   }
   using QueryTag = query_type_tag_standard_t<DataTag, cuvs::distance::DistanceType::L2Expanded>;
   return cagra_jit_launcher_factory_detail::build_multi_kernel_launcher<DataTag,
@@ -383,7 +406,7 @@ std::shared_ptr<AlgorithmLauncher> make_cagra_multi_kernel_jit_launcher(
                                                                         IndexT,
                                                                         DistanceT,
                                                                         SourceIndexT>(
-    dataset_desc, linked_kernel_name);
+    dataset_desc, linked_kernel_name, std::move(sample_filter_udf_fragment));
 }
 
 /// JIT launcher for the post-search `apply_filter_kernel` only (no workspace / distance fragments).
@@ -396,7 +419,8 @@ template <typename DataT,
           typename SourceIndexT,
           typename SampleFilterJitTag>
 std::shared_ptr<AlgorithmLauncher> make_cagra_apply_filter_jit_launcher(
-  const dataset_descriptor_host<DataT, IndexT, DistanceT>& dataset_desc)
+  const dataset_descriptor_host<DataT, IndexT, DistanceT>& dataset_desc,
+  std::unique_ptr<UDFFatbinFragment> sample_filter_udf_fragment = nullptr)
 {
   using DataTag   = decltype(get_data_type_tag<DataT>());
   using IndexTag  = decltype(get_index_type_tag<IndexT>());
@@ -416,7 +440,8 @@ std::shared_ptr<AlgorithmLauncher> make_cagra_apply_filter_jit_launcher(
                                                                                DataT,
                                                                                IndexT,
                                                                                DistanceT,
-                                                                               SourceIndexT>();
+                                                                               SourceIndexT>(
+      std::move(sample_filter_udf_fragment));
   }
   using CodebookTag = codebook_tag_standard_t;
   if (dataset_desc.metric == cuvs::distance::DistanceType::BitwiseHamming) {
@@ -432,7 +457,8 @@ std::shared_ptr<AlgorithmLauncher> make_cagra_apply_filter_jit_launcher(
                                                                                DataT,
                                                                                IndexT,
                                                                                DistanceT,
-                                                                               SourceIndexT>();
+                                                                               SourceIndexT>(
+      std::move(sample_filter_udf_fragment));
   }
   using QueryTag = query_type_tag_standard_t<DataTag, cuvs::distance::DistanceType::L2Expanded>;
   return cagra_jit_launcher_factory_detail::build_apply_filter_only_launcher<DataTag,
@@ -445,7 +471,8 @@ std::shared_ptr<AlgorithmLauncher> make_cagra_apply_filter_jit_launcher(
                                                                              DataT,
                                                                              IndexT,
                                                                              DistanceT,
-                                                                             SourceIndexT>();
+                                                                             SourceIndexT>(
+    std::move(sample_filter_udf_fragment));
 }
 
 }  // namespace cuvs::neighbors::cagra::detail

@@ -45,6 +45,7 @@
 #include <cuda/std/atomic>
 #include <cuda_runtime.h>
 #include <fstream>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <mutex>
@@ -56,6 +57,52 @@
 #include <vector>
 
 namespace cuvs::neighbors::cagra::detail::single_cta_search {
+
+inline std::uint64_t cagra_hash_combine(std::uint64_t seed, std::uint64_t value)
+{
+  return seed ^ (value + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2));
+}
+
+template <typename SampleFilterT>
+std::uint64_t cagra_udf_source_hash(const SampleFilterT& sample_filter)
+{
+  if (const auto* udf = get_cagra_udf_filter(sample_filter); udf != nullptr) {
+    std::uint64_t seed = 0;
+    seed               = cagra_hash_combine(seed, std::hash<std::string>{}(udf->source));
+    seed               = cagra_hash_combine(seed, std::hash<std::string>{}(udf->function_name));
+    return seed;
+  }
+  return 0;
+}
+
+template <typename SampleFilterT>
+std::uint64_t cagra_sample_filter_type_id(const SampleFilterT& sample_filter)
+{
+  using DecayedFilter = std::decay_t<SampleFilterT>;
+  if constexpr (is_udf_filter<DecayedFilter>::value) {
+    return 2;
+  } else if constexpr (is_bitset_filter<DecayedFilter>::value) {
+    return 1;
+  } else if constexpr (requires { sample_filter.filter; }) {
+    return cagra_sample_filter_type_id(sample_filter.filter);
+  } else {
+    return 0;
+  }
+}
+
+template <typename SourceIndexT, typename SampleFilterT>
+std::uint64_t cagra_sample_filter_hash(const SampleFilterT& sample_filter)
+{
+  std::uint64_t seed = cagra_sample_filter_type_id(sample_filter);
+  seed = cagra_hash_combine(seed, cagra_filter_payload_hash<SourceIndexT>(sample_filter));
+  seed = cagra_hash_combine(seed,
+                            static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(
+                              cagra_filter_data_ptr(sample_filter))));
+  seed = cagra_hash_combine(
+    seed, static_cast<std::uint64_t>(cagra_filter_query_id_offset(sample_filter)));
+  seed = cagra_hash_combine(seed, cagra_udf_source_hash(sample_filter));
+  return seed;
+}
 
 // Persistent queues / runner (host). worker_handle_t, job_desc_t, kCacheLineBytes, k* job limits:
 // `jit_lto_kernels/search_single_cta_device_helpers.cuh` via `kernel_def.hpp`.
@@ -453,7 +500,7 @@ struct alignas(kCacheLineBytes) persistent_runner_jit_t : public persistent_runn
   rmm::device_uvector<index_type> hashmap;
   std::atomic<std::chrono::time_point<std::chrono::system_clock>> last_touch;
   uint64_t param_hash;
-  cagra_bitset<SourceIndexT> bitset;
+  cagra_sample_filter<SourceIndexT> filter_payload;
 
   static inline auto calculate_parameter_hash(
     std::reference_wrapper<const dataset_descriptor_host<DataT, IndexT, DistanceT>> dataset_desc,
@@ -481,7 +528,7 @@ struct alignas(kCacheLineBytes) persistent_runner_jit_t : public persistent_runn
     bool bitonic_sort_and_merge_multi_warps) -> uint64_t
   {
     (void)small_hash_bitlen;
-    (void)sample_filter;
+    const uint64_t filter_key = cagra_sample_filter_hash<SourceIndexT>(sample_filter);
     const uint64_t bitonic_key =
       (topk_by_bitonic_sort ? 1ULL : 0ULL) ^ (bitonic_sort_and_merge_multi_warps ? 2ULL : 0ULL);
     return uint64_t(graph.data_handle()) ^ uint64_t(source_indices_ptr) ^
@@ -489,13 +536,14 @@ struct alignas(kCacheLineBytes) persistent_runner_jit_t : public persistent_runn
            hash_bitlen ^ small_hash_reset_interval ^ num_random_samplings ^ rand_xor_mask ^
            num_seeds ^ itopk_size ^ search_width ^ min_iterations ^ max_iterations ^
            uint64_t(persistent_lifetime * 1000) ^ uint64_t(persistent_device_usage * 1000) ^
-           bitonic_key;
+           bitonic_key ^ filter_key;
   }
 
   static auto make_persistent_launcher(
     const dataset_descriptor_host<DataT, IndexT, DistanceT>& dataset_desc,
     bool topk_by_bitonic_sort,
-    bool bitonic_sort_and_merge_multi_warps) -> std::shared_ptr<AlgorithmLauncher>
+    bool bitonic_sort_and_merge_multi_warps,
+    SampleFilterT sample_filter) -> std::shared_ptr<AlgorithmLauncher>
   {
     auto launcher = make_cagra_single_cta_jit_launcher<DataT,
                                                        IndexT,
@@ -505,7 +553,8 @@ struct alignas(kCacheLineBytes) persistent_runner_jit_t : public persistent_runn
       dataset_desc,
       topk_by_bitonic_sort,
       bitonic_sort_and_merge_multi_warps,
-      true /* persistent */);
+      true /* persistent */,
+      make_cagra_sample_filter_udf_fragment<SourceIndexT>(sample_filter));
     if (!launcher) { RAFT_FAIL("Failed to get JIT launcher for CAGRA persistent search kernel"); }
     return launcher;
   }
@@ -535,8 +584,10 @@ struct alignas(kCacheLineBytes) persistent_runner_jit_t : public persistent_runn
     bool topk_by_bitonic_sort,
     bool bitonic_sort_and_merge_multi_warps)
     : persistent_runner_base_t{persistent_lifetime},
-      launcher{make_persistent_launcher(
-        dataset_desc.get(), topk_by_bitonic_sort, bitonic_sort_and_merge_multi_warps)},
+      launcher{make_persistent_launcher(dataset_desc.get(),
+                                        topk_by_bitonic_sort,
+                                        bitonic_sort_and_merge_multi_warps,
+                                        sample_filter)},
       block_size{block_size},
       worker_handles(0, stream, worker_handles_mr),
       job_descriptors(kMaxJobsNum, stream, job_descriptor_mr),
@@ -567,9 +618,8 @@ struct alignas(kCacheLineBytes) persistent_runner_jit_t : public persistent_runn
                                           topk_by_bitonic_sort,
                                           bitonic_sort_and_merge_multi_warps))
   {
-    const auto bf                  = extract_cagra_sample_filter<SourceIndexT>(sample_filter);
-    this->bitset                   = bf.bitset;
-    const uint32_t query_id_offset = bf.query_id_offset;
+    this->filter_payload = extract_cagra_sample_filter<SourceIndexT>(sample_filter, stream);
+    const uint32_t query_id_offset = filter_payload.query_id_offset;
 
     // set kernel launch parameters
     dim3 gs = calc_coop_grid_size(block_size, smem_size, persistent_device_usage);
@@ -656,7 +706,7 @@ struct alignas(kCacheLineBytes) persistent_runner_jit_t : public persistent_runn
       small_hash_reset_interval_u32,  // Cast size_t to uint32_t
       query_id_offset,                // Offset to add to query_id when calling filter
       dev_desc,
-      bitset);
+      filter_payload);
 
     last_touch.store(std::chrono::system_clock::now(), std::memory_order_relaxed);
   }
@@ -757,9 +807,8 @@ void select_and_run(
   const SourceIndexT* source_indices_ptr =
     source_indices.has_value() ? source_indices->data_handle() : nullptr;
 
-  const auto bf = extract_cagra_sample_filter<SourceIndexT>(sample_filter);
-  const cagra_bitset<SourceIndexT> bitset = bf.bitset;
-  const uint32_t query_id_offset          = bf.query_id_offset;
+  const auto filter_payload      = extract_cagra_sample_filter<SourceIndexT>(sample_filter, stream);
+  const uint32_t query_id_offset = filter_payload.query_id_offset;
 
   // Use common logic to compute launch config
   auto config             = compute_launch_config(num_itopk_candidates, ps.itopk_size, block_size);
@@ -813,7 +862,8 @@ void select_and_run(
         dataset_desc,
         topk_by_bitonic_sort,
         bitonic_sort_and_merge_multi_warps,
-        false /* persistent */);
+        false /* persistent */,
+        make_cagra_sample_filter_udf_fragment<SourceIndexT>(sample_filter));
     if (!launcher) { RAFT_FAIL("Failed to get JIT launcher for CAGRA search kernel"); }
 
     // Get the device descriptor pointer - dev_ptr() initializes it if needed
@@ -871,7 +921,7 @@ void select_and_run(
         query_id_offset,                // Offset to add to query_id when calling filter
         dev_desc,
         static_cast<IndexT>(graph.extent(0)),
-        bitset);
+        filter_payload);
     };
 
     cuvs::neighbors::detail::safely_launch_kernel_with_smem_size<

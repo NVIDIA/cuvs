@@ -7,8 +7,6 @@
 
 #include "distance_ops/all_ops.cuh"
 #include "pairwise_matrix/dispatch.cuh"
-#include "pairwise_matrix/dispatch_sm60.cuh"
-#include "pairwise_matrix/dispatch_sm80.cuh"
 #include <cuvs/distance/distance.hpp>
 #include <raft/core/operators.hpp>
 #include <raft/core/resource/cuda_stream.hpp>

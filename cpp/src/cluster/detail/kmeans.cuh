@@ -969,7 +969,7 @@ void kmeans_fit(
 
     if (iter_inertia < inertia[0]) {
       inertia[0] = iter_inertia;
-      n_iter[0]  = n_current_iter;
+      n_iter[0]  = std::min(n_current_iter, static_cast<IndexT>(iter_params.max_iter));
       raft::copy(centroids.data_handle(), cur_centroids_ptr, centroid_buf_size, stream);
     }
     RAFT_LOG_DEBUG("KMeans.fit after iteration-%d/%d: inertia - %f, n_iter - %d",

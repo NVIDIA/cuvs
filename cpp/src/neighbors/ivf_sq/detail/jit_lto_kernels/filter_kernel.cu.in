@@ -1,0 +1,31 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <neighbors/detail/jit_lto_kernels/filter.cuh>
+#include <neighbors/ivf_sq/detail/jit_lto_kernels/device_functions.cuh>
+
+namespace {
+
+constexpr auto sample_filter_impl =
+  cuvs::neighbors::detail::sample_filter_@filter_name@<uint32_t, int64_t>;
+
+}  // namespace
+
+namespace cuvs::neighbors::ivf_sq::detail {
+
+template <>
+__device__ bool sample_filter<int64_t>(const int64_t* const* const inds_ptrs,
+                                       const uint32_t query_ix,
+                                       const uint32_t cluster_ix,
+                                       const uint32_t sample_ix,
+                                       uint32_t* bitset_ptr,
+                                       int64_t bitset_len,
+                                       int64_t original_nbits)
+{
+  return sample_filter_impl(
+    inds_ptrs, query_ix, cluster_ix, sample_ix, bitset_ptr, bitset_len, original_nbits);
+}
+
+}  // namespace cuvs::neighbors::ivf_sq::detail

@@ -8,7 +8,7 @@
 #include "../../neighbors_device_intrinsics.cuh"
 #include "../hashmap.hpp"
 #include "../utils.hpp"
-#include "cagra_bitset.cuh"
+#include "cagra_filter_payload.cuh"
 
 #include <cstdint>
 #include <cuda_fp16.h>
@@ -105,7 +105,7 @@ __device__ void compute_distance_to_child_nodes_kernel_jit(
   IndexT* const result_indices_ptr,       // [num_queries, ldd]
   DistanceT* const result_distances_ptr,  // [num_queries, ldd]
   const std::uint32_t ldd,                // (*) ldd >= search_width * graph_degree
-  cagra_bitset<SourceIndexT> bitset)
+  cagra_sample_filter<SourceIndexT> filter_payload)
 {
   using INDEX_T    = IndexT;
   using DISTANCE_T = DistanceT;
@@ -113,15 +113,16 @@ __device__ void compute_distance_to_child_nodes_kernel_jit(
   // Get team_size_bits directly from base descriptor
   uint32_t team_size_bits = dataset_desc->team_size_bitshift();
 
-  const auto team_size      = 1u << team_size_bits;
-  const uint32_t ldb        = hashmap::get_size(hash_bitlen);
-  const auto tid            = threadIdx.x + blockDim.x * blockIdx.x;
-  const auto global_team_id = tid >> team_size_bits;
-  const auto query_id       = blockIdx.y;
+  const auto team_size       = 1u << team_size_bits;
+  const uint32_t ldb         = hashmap::get_size(hash_bitlen);
+  const auto tid             = threadIdx.x + blockDim.x * blockIdx.x;
+  const auto global_team_id  = tid >> team_size_bits;
+  const auto local_query_id  = blockIdx.y;
+  const auto filter_query_id = filter_payload.query_id_offset + local_query_id;
 
   extern __shared__ uint8_t smem[];
   auto smem_desc =
-    setup_workspace<DataT, IndexT, DistanceT>(dataset_desc, smem, query_ptr, query_id);
+    setup_workspace<DataT, IndexT, DistanceT>(dataset_desc, smem, query_ptr, local_query_id);
 
   __syncthreads();
   if (global_team_id >= search_width * graph_degree) { return; }
@@ -132,10 +133,11 @@ __device__ void compute_distance_to_child_nodes_kernel_jit(
   if (parent_list_index == utils::get_max_value<INDEX_T>()) { return; }
 
   constexpr INDEX_T index_msb_1_mask = utils::gen_index_msb_1_mask<INDEX_T>::value;
-  const auto raw_parent_index        = parent_candidates_ptr[parent_list_index + (lds * query_id)];
+  const auto raw_parent_index = parent_candidates_ptr[parent_list_index + (lds * local_query_id)];
 
   if (raw_parent_index == utils::get_max_value<INDEX_T>()) {
-    result_distances_ptr[ldd * blockIdx.y + global_team_id] = utils::get_max_value<DISTANCE_T>();
+    result_distances_ptr[ldd * local_query_id + global_team_id] =
+      utils::get_max_value<DISTANCE_T>();
     return;
   }
   const auto parent_index = raw_parent_index & ~index_msb_1_mask;
@@ -153,24 +155,24 @@ __device__ void compute_distance_to_child_nodes_kernel_jit(
 
   if (compute_distance_flag) {
     if ((threadIdx.x & (team_size - 1)) == 0) {
-      result_indices_ptr[ldd * blockIdx.y + global_team_id]   = child_id;
-      result_distances_ptr[ldd * blockIdx.y + global_team_id] = norm2;
+      result_indices_ptr[ldd * local_query_id + global_team_id]   = child_id;
+      result_distances_ptr[ldd * local_query_id + global_team_id] = norm2;
     }
   } else {
     if ((threadIdx.x & (team_size - 1)) == 0) {
-      result_distances_ptr[ldd * blockIdx.y + global_team_id] = utils::get_max_value<DISTANCE_T>();
+      result_distances_ptr[ldd * local_query_id + global_team_id] =
+        utils::get_max_value<DISTANCE_T>();
     }
   }
 
-  if (bitset.bitset_ptr != nullptr) {
-    const SourceIndexT node_id = source_indices_ptr == nullptr
-                                   ? static_cast<SourceIndexT>(parent_index)
-                                   : static_cast<SourceIndexT>(source_indices_ptr[parent_index]);
-    if (!sample_filter<SourceIndexT>(query_id, node_id, &bitset)) {
-      parent_candidates_ptr[parent_list_index + (lds * query_id)] = utils::get_max_value<INDEX_T>();
-      parent_distance_ptr[parent_list_index + (lds * query_id)] =
-        utils::get_max_value<DISTANCE_T>();
-    }
+  const SourceIndexT node_id = source_indices_ptr == nullptr
+                                 ? static_cast<SourceIndexT>(parent_index)
+                                 : static_cast<SourceIndexT>(source_indices_ptr[parent_index]);
+  if (!sample_filter<SourceIndexT>(filter_query_id, node_id, filter_payload.sample_filter_data())) {
+    parent_candidates_ptr[parent_list_index + (lds * local_query_id)] =
+      utils::get_max_value<INDEX_T>();
+    parent_distance_ptr[parent_list_index + (lds * local_query_id)] =
+      utils::get_max_value<DISTANCE_T>();
   }
 }
 
@@ -185,7 +187,7 @@ __device__ void apply_filter_kernel_jit(
   const std::uint32_t result_buffer_size,
   const std::uint32_t num_queries,
   const std::uint32_t query_id_offset,
-  cagra_bitset<SourceIndexT> bitset)
+  cagra_sample_filter<SourceIndexT> filter_payload)
 {
   constexpr IndexT index_msb_1_mask = utils::gen_index_msb_1_mask<IndexT>::value;
   const auto tid                    = threadIdx.x + blockIdx.x * blockDim.x;
@@ -195,14 +197,14 @@ __device__ void apply_filter_kernel_jit(
   const auto index = i + j * lds;
 
   if (result_indices_ptr[index] != ~index_msb_1_mask) {
-    // Use extern sample_filter function with 3 params: query_id, node_id, filter_data
-    // Third argument is &bitset (layout matches bitset_filter_data_t) or nullptr for none_filter
+    // Use extern sample_filter function with 3 params: query_id, node_id, filter_data.
+    // The payload maps built-in bitset filters and UDF context pointers to the linked ABI.
     SourceIndexT node_id = source_indices_ptr == nullptr
                              ? static_cast<SourceIndexT>(result_indices_ptr[index])
                              : source_indices_ptr[result_indices_ptr[index]];
 
     if (!sample_filter<SourceIndexT>(
-          query_id_offset + j, node_id, bitset.bitset_ptr != nullptr ? &bitset : nullptr)) {
+          query_id_offset + j, node_id, filter_payload.sample_filter_data())) {
       result_indices_ptr[index]   = utils::get_max_value<IndexT>();
       result_distances_ptr[index] = utils::get_max_value<DistanceT>();
     }

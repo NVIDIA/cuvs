@@ -1,0 +1,39 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <cstdint>
+
+#include <cuda_fp16.h>
+
+#include <@header_file@>
+#include <distance/detail/pairwise_matrix/jit_lto_kernels/device_functions.cuh>
+#include <raft/linalg/contractions.cuh>
+
+namespace {
+
+using data_t         = @data_type@;
+using acc_t          = @acc_type@;
+using index_t        = @index_type@;
+using op_t           = @op_type@<data_t, acc_t, index_t>;
+constexpr int veclen = @veclen@;
+using policy_t       = typename raft::linalg::Policy4x4<data_t, veclen>::@policy_type@;
+
+}  // namespace
+
+namespace cuvs::distance::detail {
+
+template <>
+__device__ void compute_distance_epilog<policy_t, op_t, acc_t, index_t>(
+  op_t distance_op,
+  acc_t acc[policy_t::AccRowsPerTh][policy_t::AccColsPerTh],
+  acc_t* regxn,
+  acc_t* regyn,
+  index_t grid_stride_x,
+  index_t grid_stride_y)
+{
+  distance_op.template epilog<policy_t>(acc, regxn, regyn, grid_stride_x, grid_stride_y);
+}
+
+}  // namespace cuvs::distance::detail

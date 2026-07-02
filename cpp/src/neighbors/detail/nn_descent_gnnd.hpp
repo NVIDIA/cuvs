@@ -228,8 +228,18 @@ class CUVS_EXPORT GNND {
   size_t nrow_;
   size_t ndim_;
 
-  std::optional<raft::device_matrix<float, size_t, raft::row_major>> d_data_float_;
+  using input_t = std::remove_const_t<Data_t>;
+
+  // d_data_half_ is used for a special case when input data is fp32 on host and distances will be
+  // computed in fp16 (dist_comp_dtype == FP16, or AUTO with dim > 16): we store the dataset on
+  // device as fp16 (instead of fp32) to halve the device memory footprint and WMMA kernel read
+  // bandwidth.
   std::optional<raft::device_matrix<half, size_t, raft::row_major>> d_data_half_;
+  // d_data_direct_ is used when input data is on host, and we need to copy it to device
+  std::optional<raft::device_matrix<input_t, size_t, raft::row_major>> d_data_direct_;
+
+  // d_data_ptr_ is used to store the general pointer to the input data
+  const void* d_data_ptr_{nullptr};
   raft::device_vector<DistData_t, size_t> l2_norms_;
 
   raft::device_matrix<ID_t, size_t, raft::row_major> graph_buffer_;

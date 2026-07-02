@@ -12,7 +12,7 @@
 #include <cuvs/neighbors/common.hpp>
 
 #include "../compute_distance.hpp"  // dataset_descriptor_base_t
-#include "cagra_bitset.cuh"
+#include "cagra_filter_payload.cuh"
 #include "search_single_cta_device_helpers.cuh"
 
 namespace cuvs::neighbors::cagra::detail {
@@ -47,7 +47,7 @@ using search_single_cta_kernel_func_t =
        const std::uint32_t,
        const dataset_descriptor_base_t<DataT, IndexT, DistanceT>*,
        const IndexT,
-       cagra_bitset<SourceIndexT>);
+       cagra_sample_filter<SourceIndexT>);
 
 namespace single_cta_search {
 
@@ -76,7 +76,7 @@ using search_single_cta_p_kernel_func_t =
        const std::uint32_t,
        const std::uint32_t,
        const dataset_descriptor_base_t<DataT, IndexT, DistanceT>*,
-       cagra_bitset<SourceIndexT>);
+       cagra_sample_filter<SourceIndexT>);
 
 }  // namespace single_cta_search
 
@@ -105,7 +105,7 @@ using search_multi_cta_kernel_func_t =
        std::uint32_t* const,
        const IndexT,
        const std::uint32_t,
-       cagra_bitset<SourceIndexT>);
+       cagra_sample_filter<SourceIndexT>);
 
 }  // namespace multi_cta_search
 
@@ -143,7 +143,7 @@ using compute_distance_to_child_nodes_kernel_func_t =
        IndexT* const,
        DistanceT* const,
        const std::uint32_t,
-       cagra_bitset<SourceIndexT>);
+       cagra_sample_filter<SourceIndexT>);
 
 template <typename IndexT, typename DistanceT, typename SourceIndexT>
 using apply_filter_kernel_func_t = void(const SourceIndexT* const,
@@ -153,7 +153,7 @@ using apply_filter_kernel_func_t = void(const SourceIndexT* const,
                                         const std::uint32_t,
                                         const std::uint32_t,
                                         const std::uint32_t,
-                                        cagra_bitset<SourceIndexT>);
+                                        cagra_sample_filter<SourceIndexT>);
 
 }  // namespace multi_kernel_search
 

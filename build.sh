@@ -67,8 +67,7 @@ HELP="$0 [<target> ...] [<flag> ...] [--cmake-args=\"<args>\"] [--cache-tool=<to
  default action (no args) is to build libcuvs, tests and cuvs targets
 "
 LIBCUVS_BUILD_DIR=${LIBCUVS_BUILD_DIR:=${REPODIR}/cpp/build}
-SPHINX_BUILD_DIR=${REPODIR}/docs
-DOXYGEN_BUILD_DIR=${REPODIR}/cpp/doxygen
+FERN_DOCS_DIR=${REPODIR}/fern
 PYTHON_BUILD_DIR=${REPODIR}/python/cuvs/_skbuild
 RUST_BUILD_DIR=${REPODIR}/rust/target
 JAVA_BUILD_DIR=${REPODIR}/java/cuvs-java/target
@@ -99,7 +98,9 @@ EXTRA_CMAKE_ARGS=""
 
 # Set defaults for vars that may not have been defined externally
 INSTALL_PREFIX=${INSTALL_PREFIX:=${PREFIX:=${CONDA_PREFIX:=$LIBCUVS_BUILD_DIR/install}}}
-PARALLEL_LEVEL=${PARALLEL_LEVEL:=$(nproc)}
+if [[ -z "${PARALLEL_LEVEL:-}" ]]; then
+    PARALLEL_LEVEL=$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc)
+fi
 BUILD_ABI=${BUILD_ABI:=ON}
 
 # Default to Ninja if generator is not specified
@@ -371,7 +372,7 @@ fi
 
 ################################################################################
 # Configure for building all C++ targets
-if (( NUMARGS == 0 )) || hasArg libcuvs || hasArg docs || hasArg tests || hasArg bench-prims || hasArg bench-ann || hasArg examples; then
+if (( NUMARGS == 0 )) || hasArg libcuvs || hasArg tests || hasArg bench-prims || hasArg bench-ann || hasArg examples; then
     COMPILE_LIBRARY=ON
     if [[ "${BUILD_SHARED_LIBS}" != "OFF" ]]; then
         CMAKE_TARGET+=("cuvs")
@@ -535,13 +536,8 @@ export RAPIDS_VERSION_MAJOR_MINOR
 
 if hasArg docs; then
     set -x
-    cd "${DOXYGEN_BUILD_DIR}"
-    doxygen Doxyfile
-    cd "${SPHINX_BUILD_DIR}"
-    make html
-    cd "${REPODIR}"/rust
-    cargo doc -p cuvs --no-deps
-    rsync -av "${RUST_BUILD_DIR}"/doc/ "${SPHINX_BUILD_DIR}"/build/html/_static/rust
+    cd "${REPODIR}"
+    "${FERN_DOCS_DIR}/build_docs.sh" "${FERN_DOCS_MODE:-check}"
 fi
 
 ################################################################################

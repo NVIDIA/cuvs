@@ -126,6 +126,13 @@ ConfigureTest(
 )
 
 ConfigureTest(
+  NAME NEIGHBORS_ANN_IVF_FLAT_UDF_TEST
+  PATH neighbors/ann_ivf_flat/test_udf.cu
+  GPUS 1
+  PERCENT 100
+)
+
+ConfigureTest(
   NAME NEIGHBORS_ANN_IVF_FLAT_TEST
   PATH neighbors/ann_ivf_flat/test_float_int64_t.cu neighbors/ann_ivf_flat/test_half_int64_t.cu
        neighbors/ann_ivf_flat/test_int8_t_int64_t.cu neighbors/ann_ivf_flat/test_uint8_t_int64_t.cu
@@ -134,8 +141,8 @@ ConfigureTest(
 )
 
 ConfigureTest(
-  NAME NEIGHBORS_ANN_IVF_FLAT_UDF_TEST
-  PATH neighbors/ann_ivf_flat/test_udf.cu
+  NAME NEIGHBORS_ANN_IVF_SQ_TEST
+  PATH neighbors/ann_ivf_sq/test_float_int64_t.cu neighbors/ann_ivf_sq/test_half_int64_t.cu
   GPUS 1
   PERCENT 100
 )
@@ -144,6 +151,13 @@ ConfigureTest(
   NAME NEIGHBORS_ANN_IVF_PQ_TEST
   PATH neighbors/ann_ivf_pq/test_float_int64_t.cu neighbors/ann_ivf_pq/test_int8_t_int64_t.cu
        neighbors/ann_ivf_pq/test_uint8_t_int64_t.cu
+  GPUS 1
+  PERCENT 100
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_IVF_RABITQ_TEST
+  PATH neighbors/ann_ivf_rabitq/test_float_int64_t.cu
   GPUS 1
   PERCENT 100
 )
@@ -176,6 +190,13 @@ ConfigureTest(
 ConfigureTest(
   NAME NEIGHBORS_ANN_CAGRA_FLOAT_UINT32_TEST
   PATH neighbors/ann_cagra/test_float_uint32_t.cu
+  GPUS 1
+  PERCENT 100
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_CAGRA_FILTER_UDF_TEST
+  PATH neighbors/ann_cagra/test_filter_udf.cu
   GPUS 1
   PERCENT 100
 )
@@ -314,6 +335,14 @@ if(BUILD_MG_ALGOS)
   ConfigureTest(
     NAME NEIGHBORS_MG_TEST
     PATH neighbors/mg/test_float.cu
+    GPUS 1
+    PERCENT 100
+    ADDITIONAL_DEP NCCL::NCCL
+  )
+
+  ConfigureTest(
+    NAME CLUSTER_KMEANS_MG_BATCHED_TEST
+    PATH cluster/kmeans_mg_batched.cu
     GPUS 1
     PERCENT 100
     ADDITIONAL_DEP NCCL::NCCL

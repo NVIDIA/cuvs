@@ -27,6 +27,8 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 
+from cuvs_bench._bin_format import read_bin_header
+
 
 def dtype_from_filename(filename):
     """Map file extension to numpy dtype.
@@ -53,6 +55,8 @@ def dtype_from_filename(filename):
         return np.float16
     elif ext == ".ibin":
         return np.int32
+    elif ext == ".u64bin":
+        return np.uint64
     elif ext == ".u8bin":
         return np.ubyte
     elif ext == ".i8bin":
@@ -65,17 +69,18 @@ def load_vectors(path: str, subset_size: Optional[int] = None) -> np.ndarray:
     """
     Read a binary vector file into a numpy array.
 
-    Supports the standard big-ann-bench binary format used by cuvs-bench
-    datasets: a 4-byte uint32 ``n_rows``, a 4-byte uint32 ``n_cols``,
-    followed by ``n_rows * n_cols`` elements of the dtype inferred from
-    the file extension via ``dtype_from_filename``.
+    Supports the cuvs-bench binary format with either the legacy 8-byte
+    ``[uint32 n_rows, uint32 n_cols]`` header or the extended 16-byte
+    ``[uint64 n_rows, uint64 n_cols]`` header used for datasets with more
+    than ``UINT32_MAX`` rows or columns. The layout is auto-detected from
+    the file size by :func:`cuvs_bench._bin_format.read_bin_header`.
 
     Parameters
     ----------
     path : str
         Path to the binary file. The dtype is inferred from the extension:
         ``.fbin`` (float32), ``.f16bin`` (float16), ``.u8bin`` (uint8),
-        ``.i8bin`` (int8), ``.ibin`` (int32).
+        ``.i8bin`` (int8), ``.ibin`` (int32), ``.u64bin`` (uint64).
     subset_size : Optional[int]
         If provided, only the first ``subset_size`` rows are loaded.
 
@@ -93,27 +98,24 @@ def load_vectors(path: str, subset_size: Optional[int] = None) -> np.ndarray:
         or the file is truncated.
     """
     dtype = dtype_from_filename(path)
-    if subset_size is not None and subset_size < 1:
+    itemsize = np.dtype(dtype).itemsize
+    if subset_size is not None and (
+        isinstance(subset_size, float) or subset_size < 1
+    ):
         raise ValueError(
             f"subset_size must be a positive integer, got {subset_size}"
         )
+    n_rows, n_cols, header_bytes = read_bin_header(path, itemsize)
+    if subset_size is not None:
+        n_rows = min(n_rows, subset_size)
     with open(path, "rb") as f:
-        header = f.read(8)
-        if len(header) < 8:
-            raise ValueError(
-                f"File too small to contain a valid header (expected 8 bytes, "
-                f"got {len(header)}): {path}"
-            )
-        n_rows = int(np.frombuffer(header[:4], dtype=np.uint32)[0])
-        n_cols = int(np.frombuffer(header[4:], dtype=np.uint32)[0])
-        if subset_size is not None:
-            n_rows = min(n_rows, subset_size)
-        expected_bytes = n_rows * n_cols * np.dtype(dtype).itemsize
+        f.seek(header_bytes)
+        expected_bytes = n_rows * n_cols * itemsize
         raw = f.read(expected_bytes)
         if len(raw) < expected_bytes:
             raise ValueError(
                 f"File is truncated: expected {expected_bytes} bytes of data "
-                f"({n_rows} rows x {n_cols} cols x {np.dtype(dtype).itemsize} bytes), "
+                f"({n_rows} rows x {n_cols} cols x {itemsize} bytes), "
                 f"got {len(raw)}: {path}"
             )
         data = np.frombuffer(raw, dtype=dtype)

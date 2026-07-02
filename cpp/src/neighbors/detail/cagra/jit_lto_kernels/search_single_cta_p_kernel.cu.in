@@ -21,7 +21,7 @@ using dataset_desc_base =
   cuvs::neighbors::cagra::detail::dataset_descriptor_base_t<data_t, index_t, distance_t>;
 using job_descriptor_batch =
   scta_jit::job_desc_t<scta_jit::job_desc_traits<data_t, index_t, distance_t>>;
-using cagra_bitset_t = cuvs::neighbors::cagra::detail::cagra_bitset<source_index_t>;
+using cagra_sample_filter_t = cuvs::neighbors::cagra::detail::cagra_sample_filter<source_index_t>;
 
 }  // namespace
 
@@ -51,7 +51,7 @@ extern "C" __global__ __launch_bounds__(1024, 1) void search_single_cta_p(
   const std::uint32_t small_hash_reset_interval,
   const std::uint32_t query_id_offset,
   const dataset_desc_base* dataset_desc,
-  cagra_bitset_t bitset)
+  cagra_sample_filter_t filter_payload)
 {
   search_single_cta_p_impl<k_topk_by_bitonic_sort,
                            k_bitonic_sort_and_merge_multi_warps,
@@ -81,7 +81,7 @@ extern "C" __global__ __launch_bounds__(1024, 1) void search_single_cta_p(
                                            small_hash_reset_interval,
                                            query_id_offset,
                                            dataset_desc,
-                                           bitset);
+                                           filter_payload);
 }
 
 static_assert(

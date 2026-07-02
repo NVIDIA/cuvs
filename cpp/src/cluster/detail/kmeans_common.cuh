@@ -622,26 +622,26 @@ void compute_centroid_shift(raft::resources const& handle,
  * @brief Evaluate convergence criteria entirely on device.
  *
  * Checks the cost-ratio and centroid-shift stopping conditions and writes
- * a boolean result (0 or 1) into @p done_flag.  Also advances
- * @p prior_clustering_cost to the current cost for the next iteration.
+ * 0 or 1 into @p done_flag, and advances @p prior_clustering_cost.
+ * @p FlagT is deduced from @p done_flag (default `int`).
  */
-template <typename DataT>
+template <typename DataT, typename FlagT = int>
 __device__ void check_convergence(raft::device_scalar_view<const DataT> clustering_cost,
                                   raft::device_scalar_view<DataT> prior_clustering_cost,
                                   raft::device_scalar_view<const DataT> sqrd_norm_error,
                                   DataT tol,
                                   int n_iter,
-                                  raft::device_scalar_view<int> done_flag)
+                                  raft::device_scalar_view<FlagT> done_flag)
 {
   DataT cur_cost = *clustering_cost.data_handle();
   DataT norm_err = *sqrd_norm_error.data_handle();
-  int done       = 0;
+  FlagT done     = FlagT{0};
 
   if (cur_cost != DataT{0} && n_iter > 1) {
     DataT delta = cur_cost / *prior_clustering_cost.data_handle();
-    if (delta > DataT{1} - tol) done = 1;
+    if (delta > DataT{1} - tol) done = FlagT{1};
   }
-  if (norm_err < tol) done = 1;
+  if (norm_err < tol) done = FlagT{1};
 
   *prior_clustering_cost.data_handle() = cur_cost;
   *done_flag.data_handle()             = done;

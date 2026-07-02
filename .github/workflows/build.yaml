@@ -229,7 +229,6 @@ jobs:
     uses: ./.github/workflows/publish-rust.yaml
   docs-build:
     if: github.ref_type == 'branch'
-    needs: python-build
     permissions:
       actions: read
       contents: read
@@ -286,6 +285,7 @@ jobs:
       date: ${{ inputs.date }}
       package-name: libcuvs
       package-type: cpp
+      publish-wheel-search-key: cuvs_wheel_cpp_libcuvs
   wheel-build-cuvs:
     needs: wheel-build-libcuvs
     permissions:
@@ -326,7 +326,7 @@ jobs:
       date: ${{ inputs.date }}
       package-name: cuvs
       package-type: python
-      publish-wheel-search-key: cuvs_wheel_python_abi3
+      publish-wheel-search-key: cuvs_wheel_python_cuvs
   devcontainers:
     name: Build devcontainers
     secrets: inherit  # zizmor: ignore[secrets-inherit]
@@ -335,4 +335,4 @@ jobs:
       packages: write
     with:
       push: true
-      cuda: '["12.9", "13.2"]'
+      cuda: '["12.9", "13.3"]'

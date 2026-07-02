@@ -1,10 +1,11 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
 
+#include <raft/core/operators.hpp>            // raft::abs, raft::max
 #include <raft/util/cuda_dev_essentials.cuh>  // DI
 
 namespace cuvs::distance::detail::ops {

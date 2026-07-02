@@ -16,6 +16,7 @@
 #include <raft/core/host_mdspan.hpp>
 #include <raft/core/mdspan.hpp>
 #include <raft/core/mdspan_types.hpp>
+#include <raft/core/numpy_serializer.hpp>
 #include <raft/core/resource/stream_view.hpp>
 #include <raft/core/serialize.hpp>
 
@@ -346,7 +347,10 @@ struct search_params : cuvs::neighbors::search_params {
   /**
    * A parameter indicating the rate of nodes to be filtered-out, when filtering is used.
    * The value must be equal to or greater than 0.0 and less than 1.0. Default value is
-   * negative, in which case the filtering rate is automatically calculated.
+   * negative, in which case the filtering rate is automatically calculated when possible.
+   * For `filtering::udf_filter`, CAGRA uses `udf_filter::filtering_rate` when this value is
+   * negative. If both values are negative, CAGRA assumes 0.0 because a UDF's selectivity cannot be
+   * inferred from the source string.
    */
   float filtering_rate = -1.0;
 };
@@ -770,7 +774,7 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
     if (lseek(fd.get(), 0, SEEK_SET) == -1) {
       RAFT_FAIL("Failed to seek to beginning of dataset file");
     }
-    auto header = raft::detail::numpy_serializer::read_header(stream);
+    auto header = raft::numpy_serializer::read_header(stream);
     RAFT_EXPECTS(header.shape.size() == 2,
                  "Dataset file should be 2D, got %zu dimensions",
                  header.shape.size());
@@ -805,7 +809,7 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
     if (lseek(fd.get(), 0, SEEK_SET) == -1) {
       RAFT_FAIL("Failed to seek to beginning of graph file");
     }
-    auto header = raft::detail::numpy_serializer::read_header(stream);
+    auto header = raft::numpy_serializer::read_header(stream);
     RAFT_EXPECTS(
       header.shape.size() == 2, "Graph file should be 2D, got %zu dimensions", header.shape.size());
 
@@ -846,7 +850,7 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
     if (lseek(fd.get(), 0, SEEK_SET) == -1) {
       RAFT_FAIL("Failed to seek to beginning of mapping file");
     }
-    auto header = raft::detail::numpy_serializer::read_header(stream);
+    auto header = raft::numpy_serializer::read_header(stream);
     RAFT_EXPECTS(header.shape.size() == 1,
                  "Mapping file should be 1D, got %zu dimensions",
                  header.shape.size());
@@ -3241,6 +3245,38 @@ namespace CUVS_EXPORT cuvs {
 namespace neighbors {
 namespace cagra {
 namespace helpers {
+
+/** Calculates the workspace for graph optimization
+ *
+ * @param[in] n_rows number of rows in the dataset (or number of points in the graph)
+ * @param[in] graph_degree degree of the output graph
+ * @param[in] intermediate_graph_degree degree of the input graph for the optimization process
+ * @param[in] index_size
+ * @param[in] mst_optimize whether to use MST optimization
+ * @return tuple of [host_size, device_size, host_fixed_size, device_fixed_size] memory sizes in
+ * bytes
+ */
+std::tuple<size_t, size_t, size_t, size_t> optimize_workspace_size(size_t n_rows,
+                                                                   size_t graph_degree,
+                                                                   size_t intermediate_degree,
+                                                                   size_t index_size,
+                                                                   bool mst_optimize = false);
+
+/**
+ * Calculate memory usage of CAGRA build.
+ *
+ * @param[in] res raft resource
+ * @param[in] dataset shape of the dataset
+ * @param[in] dtype element type of the dataset
+ *            (e.g. `CUDA_R_32F`, `CUDA_R_16F`, `CUDA_R_8I`, `CUDA_R_8U`)
+ * @param[in] cparams CAGRA index building parameters
+ *
+ * @return pair of [host_size, device_size] memory sizes in bytes
+ */
+std::pair<size_t, size_t> cagra_build_mem_usage(raft::resources const& res,
+                                                raft::matrix_extent<int64_t> dataset,
+                                                cudaDataType_t dtype,
+                                                cuvs::neighbors::cagra::index_params cparams);
 
 /**
  * @brief Optimize a KNN graph into a CAGRA graph.

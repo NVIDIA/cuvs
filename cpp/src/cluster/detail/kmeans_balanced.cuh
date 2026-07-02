@@ -204,10 +204,17 @@ auto calc_minibatch_size(const raft::resources& handle,
   // If we need to convert to MathT, space required for the converted batch.
   if (!needs_conversion) { mem_per_row += sizeof(MathT) * dim; }
 
-  // Heuristic: calculate the minibatch size in order to use at most 1GB of memory.
-  IdxT minibatch_size = (1 << 30) / mem_per_row;
-  minibatch_size      = 64 * raft::div_rounding_up_safe(minibatch_size, IdxT{64});
-  minibatch_size      = std::min<IdxT>(minibatch_size, n_rows);
+  // Heuristic: calculate the minibatch size in order to use at most 80% or 512MB workspace memory.
+  // We go below 1GB here as the allocation is mostly done in a single chunk which
+  // is problematic if e.g. a pool allocator manages its own chunks <= 1GB.
+  const auto free_ws_size = raft::resource::get_workspace_free_bytes(handle);
+  const auto available_ws_size =
+    std::min<size_t>((free_ws_size * size_t{8}) / size_t{10}, size_t{1} << 29);
+
+  IdxT minibatch_size = std::max<IdxT>(IdxT{1}, static_cast<IdxT>(available_ws_size / mem_per_row));
+
+  minibatch_size = raft::round_down_safe<IdxT>(minibatch_size, IdxT{64});
+  minibatch_size = std::min<IdxT>(minibatch_size, n_rows);
   return std::make_tuple(minibatch_size, mem_per_row);
 }
 
@@ -736,7 +743,6 @@ void build_clusters(const raft::resources& handle,
                     const MathT* dataset_norm = nullptr)
 {
   auto stream = raft::resource::get_cuda_stream(handle);
-
   // "randomly" initialize labels
   auto labels_view = raft::make_device_vector_view<LabelT, IdxT>(cluster_labels, n_rows);
   raft::linalg::map_offset(
@@ -879,7 +885,10 @@ auto build_fine_clusters(const raft::resources& handle,
 {
   auto stream = raft::resource::get_cuda_stream(handle);
   rmm::device_uvector<IdxT> mc_trainset_ids_buf(mesocluster_size_max, stream, managed_memory);
-  rmm::device_uvector<MathT> mc_trainset_buf(mesocluster_size_max * dim, stream, device_memory);
+  // for small cluster counts the maximum mesocluster size is proportional to the number of rows, so
+  // we use large workspace
+  auto large_ws = raft::resource::get_large_workspace_resource_ref(handle);
+  rmm::device_uvector<MathT> mc_trainset_buf(mesocluster_size_max * dim, stream, large_ws);
   rmm::device_uvector<MathT> mc_trainset_norm_buf(mesocluster_size_max, stream, device_memory);
   auto mc_trainset_ids  = mc_trainset_ids_buf.data();
   auto mc_trainset      = mc_trainset_buf.data();

@@ -217,3 +217,4 @@ For the interested reader, many of the accelerated implementations in cuVS are a
 - [cuSLINK: Single-linkage Agglomerative Clustering on the GPU](https://arxiv.org/abs/2306.16354)
 - [GPU Semiring Primitives for Sparse Neighborhood Methods](https://arxiv.org/abs/2104.06357)
 - [VecFlow: A High-Performance Vector Data Management System for Filtered-Search on GPUs](https://arxiv.org/abs/2506.00812)
+- [GPU-Native Approximate Nearest Neighbor Search with IVF-RaBitQ: Fast Index Build and Search](https://arxiv.org/abs/2602.23999)

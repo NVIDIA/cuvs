@@ -24,6 +24,12 @@ extern template class cuvs::bench::cuvs_ivf_pq<float, int64_t>;
 extern template class cuvs::bench::cuvs_ivf_pq<uint8_t, int64_t>;
 extern template class cuvs::bench::cuvs_ivf_pq<int8_t, int64_t>;
 #endif
+#if defined(CUVS_ANN_BENCH_USE_CUVS_IVF_RABITQ)
+#include "cuvs_ivf_rabitq_wrapper.h"
+#endif
+#ifdef CUVS_ANN_BENCH_USE_CUVS_IVF_RABITQ
+extern template class cuvs::bench::cuvs_ivf_rabitq<float, int64_t>;
+#endif
 #if defined(CUVS_ANN_BENCH_USE_CUVS_CAGRA) || defined(CUVS_ANN_BENCH_USE_CUVS_CAGRA_HNSWLIB) || \
   defined(CUVS_ANN_BENCH_USE_CUVS_CAGRA_DISKANN)
 #include "cuvs_cagra_wrapper.h"
@@ -35,6 +41,11 @@ extern template class cuvs::bench::cuvs_cagra<uint8_t, uint32_t>;
 extern template class cuvs::bench::cuvs_cagra<int8_t, uint32_t>;
 #endif
 
+#ifdef CUVS_ANN_BENCH_USE_CUVS_IVF_SQ
+#include "cuvs_ivf_sq_wrapper.h"
+extern template class cuvs::bench::cuvs_ivf_sq<float>;
+extern template class cuvs::bench::cuvs_ivf_sq<half>;
+#endif
 #ifdef CUVS_ANN_BENCH_USE_CUVS_MG
 #include "cuvs_ivf_flat_wrapper.h"
 #include "cuvs_mg_ivf_flat_wrapper.h"
@@ -83,6 +94,30 @@ void parse_search_param(const nlohmann::json& conf,
                         typename cuvs::bench::cuvs_ivf_flat<T, IdxT>::search_param& param)
 {
   param.ivf_flat_params.n_probes = conf.at("nprobe");
+}
+#endif
+
+#ifdef CUVS_ANN_BENCH_USE_CUVS_IVF_SQ
+template <typename T>
+void parse_build_param(const nlohmann::json& conf,
+                       typename cuvs::bench::cuvs_ivf_sq<T>::build_param& param)
+{
+  param.n_lists = conf.at("nlist");
+  if (conf.contains("niter")) { param.kmeans_n_iters = conf.at("niter"); }
+  if (conf.contains("ratio")) {
+    throw std::runtime_error(
+      "cuvs_ivf_sq build parameter ratio was replaced by max_train_points_per_cluster");
+  }
+  if (conf.contains("max_train_points_per_cluster")) {
+    param.max_train_points_per_cluster = conf.at("max_train_points_per_cluster");
+  }
+}
+
+template <typename T>
+void parse_search_param(const nlohmann::json& conf,
+                        typename cuvs::bench::cuvs_ivf_sq<T>::search_param& param)
+{
+  param.ivf_sq_params.n_probes = conf.at("nprobe");
 }
 #endif
 
@@ -175,6 +210,47 @@ void parse_search_param(const nlohmann::json& conf,
 
   // enable dynamic batching
   parse_dynamic_batching_params(conf, param);
+}
+#endif
+
+#if defined(CUVS_ANN_BENCH_USE_CUVS_IVF_RABITQ)
+template <typename T, typename IdxT>
+void parse_build_param(const nlohmann::json& conf,
+                       typename cuvs::bench::cuvs_ivf_rabitq<T, IdxT>::build_param& param)
+{
+  if (conf.contains("nlist")) { param.n_lists = conf.at("nlist"); }
+  if (conf.contains("niter")) { param.kmeans_n_iters = conf.at("niter"); }
+  if (conf.contains("max_points_per_cluster")) {
+    param.max_train_points_per_cluster = conf.at("max_points_per_cluster");
+  }
+  if (conf.contains("bits_per_dim")) { param.bits_per_dim = conf.at("bits_per_dim"); }
+  if (conf.contains("fast_quantize_flag")) {
+    param.fast_quantize_flag = conf.at("fast_quantize_flag");
+  }
+  if (conf.contains("force_streaming")) { param.force_streaming = conf.at("force_streaming"); }
+}
+
+template <typename T, typename IdxT>
+void parse_search_param(const nlohmann::json& conf,
+                        typename cuvs::bench::cuvs_ivf_rabitq<T, IdxT>::search_param& param)
+{
+  if (conf.contains("nprobe")) { param.rabitq_param.n_probes = conf.at("nprobe"); }
+
+  if (conf.contains("mode")) {
+    std::string mode = conf.at("mode");
+    if (mode == "lut16") {
+      param.rabitq_param.mode = cuvs::neighbors::ivf_rabitq::search_mode::LUT16;
+    } else if (mode == "lut32") {
+      param.rabitq_param.mode = cuvs::neighbors::ivf_rabitq::search_mode::LUT32;
+    } else if (mode == "quant4") {
+      param.rabitq_param.mode = cuvs::neighbors::ivf_rabitq::search_mode::QUANT4;
+    } else if (mode == "quant8") {
+      param.rabitq_param.mode = cuvs::neighbors::ivf_rabitq::search_mode::QUANT8;
+    } else {
+      throw std::runtime_error("mode: '" + mode +
+                               "', should be either 'lut16', 'lut32', 'quant4' or 'quant8'");
+    }
+  }
 }
 #endif
 

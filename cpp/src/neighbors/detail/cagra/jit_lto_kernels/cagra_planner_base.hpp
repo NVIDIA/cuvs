@@ -9,9 +9,11 @@
 #include <cuvs/detail/jit_lto/cagra/cagra_fragments.hpp>
 #include <cuvs/detail/jit_lto/common_fragments.hpp>
 #include <cuvs/distance/distance.hpp>
+#include <raft/core/error.hpp>
 #include <raft/core/logger.hpp>
 
 #include <cstdint>
+#include <memory>
 #include <type_traits>
 #include <utility>
 
@@ -250,9 +252,16 @@ struct CagraPlannerBase : AlgorithmPlanner {
               static_cast<unsigned>(dataset_block_dim));
   }
 
-  void add_sample_filter_device_function()
+  void add_sample_filter_device_function(std::unique_ptr<UDFFatbinFragment> udf_fragment = nullptr)
   {
-    if constexpr (!std::is_same_v<SampleFilterJitTag_, tag_cagra_jit_sample_filter_link_absent>) {
+    if constexpr (std::is_same_v<SampleFilterJitTag_, tag_cagra_jit_sample_filter_link_absent>) {
+      RAFT_EXPECTS(udf_fragment == nullptr, "Unexpected CAGRA sample-filter UDF fragment");
+    } else if constexpr (std::is_same_v<SampleFilterJitTag_,
+                                        cuvs::neighbors::detail::tag_filter_udf>) {
+      RAFT_EXPECTS(udf_fragment != nullptr, "CAGRA UDF filter requires a JIT-LTO fragment");
+      this->add_fragment(std::move(udf_fragment));
+    } else {
+      RAFT_EXPECTS(udf_fragment == nullptr, "Built-in CAGRA sample filters use static fragments");
       this->add_static_fragment<fragment_tag_sample_filter<cuvs::neighbors::detail::tag_bitset_u32,
                                                            cuvs::neighbors::detail::tag_index_u32,
                                                            SampleFilterJitTag_>>();

@@ -139,14 +139,14 @@ if [[ "${RUN_CONTEXT}" == "main" ]]; then
   :
 elif [[ "${RUN_CONTEXT}" == "release" ]]; then
   # In release context, use release branch for documentation links (word boundaries to avoid partial matches)
-  sed_runner "/rapidsai\\/cuvs/ s|\\bmain\\b|release/${NEXT_SHORT_TAG}|g" docs/source/developer_guide.md
+  sed_runner "/rapidsai\\/cuvs/ s|\\bmain\\b|release/${NEXT_SHORT_TAG}|g" fern/pages/developer_guide.md
   sed_runner "s|\\bmain\\b|release/${NEXT_SHORT_TAG}|g" README.md
   # Only update the GitHub URL, not the main() function
   sed_runner "s|/cuvs/blob/\\bmain\\b/|/cuvs/blob/release/${NEXT_SHORT_TAG}/|g" python/cuvs_bench/cuvs_bench/plot/__main__.py
 fi
 
 # Update cuvs-bench Docker image references (version-only, not branch-related)
-sed_runner "s|rapidsai/cuvs-bench:[0-9][0-9].[0-9][0-9]|rapidsai/cuvs-bench:${NEXT_SHORT_TAG}|g" docs/source/cuvs_bench/index.rst
+sed_runner "s|rapidsai/cuvs-bench:[0-9][0-9].[0-9][0-9]|rapidsai/cuvs-bench:${NEXT_SHORT_TAG}|g" fern/pages/cuvs_bench/index.md
 
 # Version references (not branch-related)
 sed_runner "s|=[0-9][0-9].[0-9][0-9]|=${NEXT_SHORT_TAG}|g" README.md

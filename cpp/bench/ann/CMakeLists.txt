@@ -13,6 +13,7 @@ list(APPEND CMAKE_MODULE_PATH "${CUVS_SOURCE_DIR}")
 option(CUVS_ANN_BENCH_USE_FAISS_GPU_FLAT "Include faiss' brute-force knn algorithm in benchmark" ON)
 option(CUVS_ANN_BENCH_USE_FAISS_GPU_IVF_FLAT "Include faiss' ivf flat algorithm in benchmark" ON)
 option(CUVS_ANN_BENCH_USE_FAISS_GPU_IVF_PQ "Include faiss' ivf pq algorithm in benchmark" ON)
+option(CUVS_ANN_BENCH_USE_FAISS_GPU_IVF_SQ "Include faiss' ivf sq algorithm in benchmark" ON)
 option(CUVS_ANN_BENCH_USE_FAISS_GPU_CAGRA "Include faiss' cagra algorithm in benchmark" ON)
 option(CUVS_ANN_BENCH_USE_FAISS_GPU_CAGRA_HNSW
        "Include faiss' cagra algorithm for build and hnsw for search in benchmark" ON
@@ -22,8 +23,13 @@ option(CUVS_ANN_BENCH_USE_FAISS_CPU_IVF_FLAT "Include faiss' cpu ivf flat algori
        ON
 )
 option(CUVS_ANN_BENCH_USE_FAISS_CPU_IVF_PQ "Include faiss' cpu ivf pq algorithm in benchmark" ON)
+option(CUVS_ANN_BENCH_USE_FAISS_CPU_IVF_RABITQ
+       "Include faiss' cpu ivf rabitq algorithm in benchmark" ON
+)
+option(CUVS_ANN_BENCH_USE_FAISS_CPU_IVF_SQ "Include faiss' cpu ivf sq algorithm in benchmark" ON)
 option(CUVS_ANN_BENCH_USE_FAISS_CPU_HNSW_FLAT "Include faiss' hnsw algorithm in benchmark" ON)
 option(CUVS_ANN_BENCH_USE_CUVS_IVF_FLAT "Include cuVS ivf flat algorithm in benchmark" ON)
+option(CUVS_ANN_BENCH_USE_CUVS_IVF_SQ "Include cuVS ivf sq algorithm in benchmark" ON)
 option(CUVS_ANN_BENCH_USE_CUVS_IVF_PQ "Include cuVS ivf pq algorithm in benchmark" ON)
 option(CUVS_ANN_BENCH_USE_CUVS_CAGRA "Include cuVS CAGRA in benchmark" ON)
 option(CUVS_ANN_BENCH_USE_CUVS_BRUTE_FORCE "Include cuVS brute force knn in benchmark" ON)
@@ -45,6 +51,7 @@ option(CUVS_ANN_BENCH_SINGLE_EXE
        "Make a single executable with benchmark as shared library modules" OFF
 )
 option(CUVS_KNN_BENCH_USE_CUVS_BRUTE_FORCE "Include cuVS brute force knn in benchmark" ON)
+option(CUVS_ANN_BENCH_USE_CUVS_IVF_RABITQ "Include cuVS ivf RaBitQ algorithm in benchmark" ON)
 
 # ##################################################################################################
 # * Process options ----------------------------------------------------------
@@ -80,7 +87,9 @@ set(CUVS_USE_FAISS_STATIC ON)
 if(BUILD_CPU_ONLY)
   set(CUVS_FAISS_ENABLE_GPU OFF)
   set(CUVS_ANN_BENCH_USE_CUVS_IVF_FLAT OFF)
+  set(CUVS_ANN_BENCH_USE_CUVS_IVF_SQ OFF)
   set(CUVS_ANN_BENCH_USE_CUVS_IVF_PQ OFF)
+  set(CUVS_ANN_BENCH_USE_CUVS_IVF_RABITQ OFF)
   set(CUVS_ANN_BENCH_USE_CUVS_CAGRA OFF)
   set(CUVS_ANN_BENCH_USE_CUVS_BRUTE_FORCE OFF)
   set(CUVS_ANN_BENCH_USE_CUVS_CAGRA_HNSWLIB OFF)
@@ -97,6 +106,8 @@ set(CUVS_ANN_BENCH_USE_CUVS OFF)
 if(CUVS_ANN_BENCH_USE_CUVS_IVF_PQ
    OR CUVS_ANN_BENCH_USE_CUVS_BRUTE_FORCE
    OR CUVS_ANN_BENCH_USE_CUVS_IVF_FLAT
+   OR CUVS_ANN_BENCH_USE_CUVS_IVF_SQ
+   OR CUVS_ANN_BENCH_USE_CUVS_IVF_RABITQ
    OR CUVS_ANN_BENCH_USE_CUVS_CAGRA
    OR CUVS_ANN_BENCH_USE_CUVS_CAGRA_HNSWLIB
    OR CUVS_KNN_BENCH_USE_CUVS_BRUTE_FORCE
@@ -244,6 +255,18 @@ if(CUVS_ANN_BENCH_USE_CUVS_IVF_FLAT)
   )
 endif()
 
+if(CUVS_ANN_BENCH_USE_CUVS_IVF_RABITQ)
+  ConfigureAnnBench(
+    NAME CUVS_IVF_RABITQ PATH src/cuvs/cuvs_benchmark.cu src/cuvs/cuvs_ivf_rabitq.cu LINKS cuvs
+  )
+endif()
+
+if(CUVS_ANN_BENCH_USE_CUVS_IVF_SQ)
+  ConfigureAnnBench(
+    NAME CUVS_IVF_SQ PATH src/cuvs/cuvs_benchmark.cu src/cuvs/cuvs_ivf_sq.cu LINKS cuvs
+  )
+endif()
+
 if(CUVS_ANN_BENCH_USE_CUVS_BRUTE_FORCE)
   ConfigureAnnBench(NAME CUVS_BRUTE_FORCE PATH src/cuvs/cuvs_benchmark.cu LINKS cuvs)
 endif()
@@ -309,6 +332,18 @@ if(CUVS_ANN_BENCH_USE_FAISS_CPU_IVF_PQ)
   )
 endif()
 
+if(CUVS_ANN_BENCH_USE_FAISS_CPU_IVF_RABITQ)
+  ConfigureAnnBench(
+    NAME FAISS_CPU_IVF_RABITQ PATH src/faiss/faiss_cpu_benchmark.cpp LINKS ${CUVS_FAISS_TARGETS}
+  )
+endif()
+
+if(CUVS_ANN_BENCH_USE_FAISS_CPU_IVF_SQ)
+  ConfigureAnnBench(
+    NAME FAISS_CPU_IVF_SQ PATH src/faiss/faiss_cpu_benchmark.cpp LINKS ${CUVS_FAISS_TARGETS}
+  )
+endif()
+
 if(CUVS_ANN_BENCH_USE_FAISS_CPU_HNSW_FLAT)
   ConfigureAnnBench(
     NAME FAISS_CPU_HNSW_FLAT PATH src/faiss/faiss_cpu_benchmark.cpp LINKS ${CUVS_FAISS_TARGETS}
@@ -325,6 +360,13 @@ endif()
 if(CUVS_ANN_BENCH_USE_FAISS_GPU_IVF_PQ AND CUVS_FAISS_ENABLE_GPU)
   ConfigureAnnBench(
     NAME FAISS_GPU_IVF_PQ PATH src/faiss/faiss_gpu_benchmark.cu LINKS ${CUVS_FAISS_TARGETS}
+    raft::raft
+  )
+endif()
+
+if(CUVS_ANN_BENCH_USE_FAISS_GPU_IVF_SQ AND CUVS_FAISS_ENABLE_GPU)
+  ConfigureAnnBench(
+    NAME FAISS_GPU_IVF_SQ PATH src/faiss/faiss_gpu_benchmark.cu LINKS ${CUVS_FAISS_TARGETS}
     raft::raft
   )
 endif()

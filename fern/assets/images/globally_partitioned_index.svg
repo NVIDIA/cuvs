@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="300" viewBox="0 0 920 300" role="img" aria-labelledby="title desc">
+  <title id="title">Globally partitioned index architecture</title>
+  <desc id="desc">A query first uses a global routing index to select relevant partitions, searches only those partitions, and merges the partial top-k results.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#4d4d4d" />
+    </marker>
+    <style>
+      .box { fill: #ffffff; stroke: #666666; stroke-width: 1.6; }
+      .muted { fill: #f4f4f4; stroke: #bbbbbb; stroke-width: 1.4; }
+      .accent { fill: #f3fae8; stroke: #76b900; stroke-width: 2; }
+      .title { font: 700 18px Arial, sans-serif; fill: #111111; }
+      .text { font: 600 15px Arial, sans-serif; fill: #222222; }
+      .small { font: 13px Arial, sans-serif; fill: #444444; }
+      .mutedText { font: 13px Arial, sans-serif; fill: #777777; }
+      .line { stroke: #4d4d4d; stroke-width: 1.8; fill: none; marker-end: url(#arrow); }
+      .skip { stroke: #aaaaaa; stroke-width: 1.6; stroke-dasharray: 5 5; fill: none; marker-end: url(#arrow); }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="920" height="300" fill="#ffffff" />
+  <text class="title" x="28" y="34">Globally partitioned index</text>
+  <text class="small" x="28" y="58">A global routing layer chooses the most relevant partitions before search.</text>
+
+  <rect class="accent" x="36" y="118" width="120" height="58" rx="8" />
+  <text class="text" x="77" y="142">Query</text>
+  <text class="small" x="67" y="162">vector</text>
+
+  <rect class="accent" x="226" y="104" width="158" height="86" rx="8" />
+  <text class="text" x="260" y="132">Global</text>
+  <text class="text" x="260" y="152">routing</text>
+  <text class="small" x="251" y="173">centroids / IVF</text>
+
+  <rect class="box" x="510" y="62" width="170" height="54" rx="8" />
+  <text class="text" x="548" y="84">Partition 1</text>
+  <text class="small" x="541" y="104">searched ANN index</text>
+
+  <rect class="box" x="510" y="132" width="170" height="54" rx="8" />
+  <text class="text" x="548" y="154">Partition 2</text>
+  <text class="small" x="541" y="174">searched ANN index</text>
+
+  <rect class="muted" x="510" y="202" width="170" height="54" rx="8" />
+  <text class="text" x="548" y="224">Partition 3</text>
+  <text class="mutedText" x="558" y="244">usually skipped</text>
+
+  <rect class="accent" x="734" y="104" width="150" height="58" rx="8" />
+  <text class="text" x="769" y="128">Merge</text>
+  <text class="small" x="754" y="148">partial top-k</text>
+
+  <rect class="box" x="766" y="198" width="86" height="58" rx="8" />
+  <text class="text" x="786" y="222">Final</text>
+  <text class="small" x="784" y="242">results</text>
+
+  <path class="line" d="M156 147 L226 147" />
+  <path class="line" d="M384 147 C436 147, 448 89, 510 89" />
+  <path class="line" d="M384 147 C436 147, 448 159, 510 159" />
+  <path class="skip" d="M384 147 C436 147, 448 229, 510 229" />
+
+  <path class="line" d="M680 89 C704 89, 710 133, 734 133" />
+  <path class="line" d="M680 159 C704 159, 710 133, 734 133" />
+  <path class="line" d="M809 162 L809 198" />
+</svg>

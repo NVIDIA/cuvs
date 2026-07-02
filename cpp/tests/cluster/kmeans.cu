@@ -4,6 +4,7 @@
  */
 
 #include "../test_utils.cuh"
+#include "kmeans_test_blobs.cuh"
 
 #include <cuvs/cluster/kmeans.hpp>
 #include <raft/core/device_mdarray.hpp>
@@ -11,8 +12,6 @@
 #include <raft/core/operators.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resources.hpp>
-#include <raft/matrix/init.cuh>
-#include <raft/random/make_blobs.cuh>
 #include <raft/stats/adjusted_rand_index.cuh>
 #include <raft/util/cuda_utils.cuh>
 #include <raft/util/cudart_utils.hpp>
@@ -233,24 +232,9 @@ class KmeansTest : public ::testing::TestWithParam<KmeansInputs<T>> {
     params.rng_state.seed      = 1;
     params.oversampling_factor = 0;
 
-    auto X      = raft::make_device_matrix<T, int>(handle, n_samples, n_features);
-    auto labels = raft::make_device_vector<int, int>(handle, n_samples);
     auto stream = raft::resource::get_cuda_stream(handle);
-
-    raft::random::make_blobs<T, int>(X.data_handle(),
-                                     labels.data_handle(),
-                                     n_samples,
-                                     n_features,
-                                     params.n_clusters,
-                                     stream,
-                                     true,
-                                     nullptr,
-                                     nullptr,
-                                     T(1.0),
-                                     false,
-                                     (T)-10.0f,
-                                     (T)10.0f,
-                                     (uint64_t)1234);
+    auto bi     = make_kmeans_blob_inputs<T>(
+      handle, n_samples, n_features, params.n_clusters, /* with_host_mirror */ false);
 
     d_labels.resize(n_samples, stream);
     d_labels_ref.resize(n_samples, stream);
@@ -261,17 +245,17 @@ class KmeansTest : public ::testing::TestWithParam<KmeansInputs<T>> {
       raft::make_device_matrix_view<T, int>(d_centroids.data(), params.n_clusters, n_features);
     if (testparams.weighted) {
       d_sample_weight.resize(n_samples, stream);
+      auto d_sw_view = raft::make_device_vector_view<T, int>(d_sample_weight.data(), n_samples);
+      fill_kmeans_test_weights(handle, d_sw_view, kmeans_weight_mode::uniform);
       d_sw = std::make_optional(
         raft::make_device_vector_view<const T, int>(d_sample_weight.data(), n_samples));
-      raft::matrix::fill(
-        handle, raft::make_device_vector_view<T, int>(d_sample_weight.data(), n_samples), T(1));
     }
 
-    raft::copy(d_labels_ref.data(), labels.data_handle(), n_samples, stream);
+    raft::copy(d_labels_ref.data(), bi.d_labels_ref.data_handle(), n_samples, stream);
 
     T inertia   = 0;
     int n_iter  = 0;
-    auto X_view = raft::make_const_mdspan(X.view());
+    auto X_view = raft::make_const_mdspan(bi.d_X.view());
 
     cuvs::cluster::kmeans::fit_predict(
       handle,
@@ -369,37 +353,18 @@ class KmeansFitBatchedTest : public ::testing::TestWithParam<KmeansBatchedInputs
     int n_samples  = testparams.n_row;
     int n_features = testparams.n_col;
     int n_clusters = testparams.n_clusters;
-    auto stream    = raft::resource::get_cuda_stream(handle);
 
-    d_X.emplace(raft::make_device_matrix<T, int>(handle, n_samples, n_features));
-    d_labels_ref.emplace(raft::make_device_vector<int, int>(handle, n_samples));
-    raft::random::make_blobs<T, int>(d_X->data_handle(),
-                                     d_labels_ref->data_handle(),
-                                     n_samples,
-                                     n_features,
-                                     n_clusters,
-                                     stream,
-                                     true,
-                                     nullptr,
-                                     nullptr,
-                                     T(1.0),
-                                     false,
-                                     (T)-10.0f,
-                                     (T)10.0f,
-                                     (uint64_t)1234);
-
-    h_X.emplace(raft::make_host_matrix<T, int64_t>(n_samples, n_features));
-    raft::update_host(
-      h_X->data_handle(), d_X->data_handle(), static_cast<size_t>(n_samples) * n_features, stream);
+    auto bi = make_kmeans_blob_inputs<T>(handle, n_samples, n_features, n_clusters);
+    d_X.emplace(std::move(bi.d_X));
+    d_labels_ref.emplace(std::move(bi.d_labels_ref));
+    h_X = std::move(bi.h_X);
 
     if (testparams.weighted) {
       d_sample_weight.emplace(raft::make_device_vector<T, int>(handle, n_samples));
-      raft::matrix::fill(handle, d_sample_weight->view(), T(1));
+      fill_kmeans_test_weights(handle, d_sample_weight->view(), kmeans_weight_mode::uniform);
     } else {
       d_sample_weight.reset();
     }
-
-    raft::resource::sync_stream(handle, stream);
   }
 
   std::optional<raft::device_vector_view<const T, int>> d_sw_view() const

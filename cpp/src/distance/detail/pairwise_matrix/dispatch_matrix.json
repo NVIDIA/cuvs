@@ -30,67 +30,67 @@
       {
         "op_type": "cuvs::distance::detail::ops::canberra_distance_op",
         "op_abbrev": "canberra",
-        "arch_includes": "#include <distance/detail/pairwise_matrix/dispatch_sm60.cuh>"
+        "arch_includes": ""
       },
       {
         "op_type": "cuvs::distance::detail::ops::correlation_distance_op",
         "op_abbrev": "correlation",
-        "arch_includes": "#include <distance/detail/pairwise_matrix/dispatch_sm60.cuh>"
+        "arch_includes": ""
       },
       {
         "op_type": "cuvs::distance::detail::ops::cosine_distance_op",
         "op_abbrev": "cosine",
-        "arch_includes": "#include <distance/detail/pairwise_matrix/dispatch_sm60.cuh>\n#include <distance/detail/pairwise_matrix/dispatch_sm80.cuh>"
+        "arch_includes": "#include <distance/detail/pairwise_matrix/dispatch_sm80.cuh>"
       },
       {
         "op_type": "cuvs::distance::detail::ops::hamming_distance_op",
         "op_abbrev": "hamming_unexpanded",
-        "arch_includes": "#include <distance/detail/pairwise_matrix/dispatch_sm60.cuh>"
+        "arch_includes": ""
       },
       {
         "op_type": "cuvs::distance::detail::ops::hellinger_distance_op",
         "op_abbrev": "hellinger_expanded",
-        "arch_includes": "#include <distance/detail/pairwise_matrix/dispatch_sm60.cuh>"
+        "arch_includes": ""
       },
       {
         "op_type": "cuvs::distance::detail::ops::jensen_shannon_distance_op",
         "op_abbrev": "jensen_shannon",
-        "arch_includes": "#include <distance/detail/pairwise_matrix/dispatch_sm60.cuh>"
+        "arch_includes": ""
       },
       {
         "op_type": "cuvs::distance::detail::ops::kl_divergence_op",
         "op_abbrev": "kl_divergence",
-        "arch_includes": "#include <distance/detail/pairwise_matrix/dispatch_sm60.cuh>"
+        "arch_includes": ""
       },
       {
         "op_type": "cuvs::distance::detail::ops::l1_distance_op",
         "op_abbrev": "l1",
-        "arch_includes": "#include <distance/detail/pairwise_matrix/dispatch_sm60.cuh>"
+        "arch_includes": ""
       },
       {
         "op_type": "cuvs::distance::detail::ops::l2_exp_distance_op",
         "op_abbrev": "l2_expanded",
-        "arch_includes": "#include <distance/detail/pairwise_matrix/dispatch_sm60.cuh>\n#include <distance/detail/pairwise_matrix/dispatch_sm80.cuh>"
+        "arch_includes": "#include <distance/detail/pairwise_matrix/dispatch_sm80.cuh>"
       },
       {
         "op_type": "cuvs::distance::detail::ops::l2_unexp_distance_op",
         "op_abbrev": "l2_unexpanded",
-        "arch_includes": "#include <distance/detail/pairwise_matrix/dispatch_sm60.cuh>"
+        "arch_includes": ""
       },
       {
         "op_type": "cuvs::distance::detail::ops::l_inf_distance_op",
         "op_abbrev": "l_inf",
-        "arch_includes": "#include <distance/detail/pairwise_matrix/dispatch_sm60.cuh>"
+        "arch_includes": ""
       },
       {
         "op_type": "cuvs::distance::detail::ops::lp_unexp_distance_op",
         "op_abbrev": "lp_unexpanded",
-        "arch_includes": "#include <distance/detail/pairwise_matrix/dispatch_sm60.cuh>"
+        "arch_includes": ""
       },
       {
         "op_type": "cuvs::distance::detail::ops::russel_rao_distance_op",
         "op_abbrev": "russel_rao",
-        "arch_includes": "#include <distance/detail/pairwise_matrix/dispatch_sm60.cuh>"
+        "arch_includes": ""
       }
     ],
     "index_type": "int",
@@ -119,7 +119,7 @@
       {
         "op_type": "cuvs::distance::detail::ops::l2_exp_distance_op",
         "op_abbrev": "l2_expanded",
-        "arch_includes": "#include <distance/detail/pairwise_matrix/dispatch_sm60.cuh>\n#include <distance/detail/pairwise_matrix/dispatch_sm80.cuh>"
+        "arch_includes": "#include <distance/detail/pairwise_matrix/dispatch_sm80.cuh>"
       }
     ],
     "index_type": "int64_t",

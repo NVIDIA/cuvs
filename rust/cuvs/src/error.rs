@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -14,6 +14,8 @@ pub struct CuvsError {
 #[derive(Debug, Clone)]
 pub enum Error {
     CuvsError(CuvsError),
+    /// Tensor conversion into DLPack metadata failed.
+    DLPack(crate::dlpack::DLPackError),
     /// The caller passed an argument that could not be forwarded to the C API
     /// (e.g. a filename containing an interior NUL byte or invalid UTF-8).
     InvalidArgument(String),
@@ -28,6 +30,7 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Error::CuvsError(cuvs_error) => write!(f, "cuvsError={:?}", cuvs_error),
+            Error::DLPack(err) => write!(f, "DLPack error: {}", err),
             Error::InvalidArgument(msg) => write!(f, "invalid argument: {}", msg),
         }
     }
@@ -53,5 +56,11 @@ pub fn check_cuvs(err: ffi::cuvsError_t) -> Result<()> {
 
             Err(Error::CuvsError(CuvsError { code: err, text }))
         }
+    }
+}
+
+impl From<crate::dlpack::DLPackError> for Error {
+    fn from(err: crate::dlpack::DLPackError) -> Self {
+        Self::DLPack(err)
     }
 }

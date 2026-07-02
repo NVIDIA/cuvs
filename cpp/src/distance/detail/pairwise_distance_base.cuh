@@ -1,8 +1,11 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2023, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
+#ifdef CUVS_DISTANCE_PAIRWISE_USE_JIT
+#include "pairwise_matrix/jit_lto_kernels/device_functions.cuh"
+#endif
 #include <raft/linalg/contractions.cuh>       // raft::linalg::Contractions_NT
 #include <raft/util/cuda_dev_essentials.cuh>  // ceildiv
 #include <raft/util/cuda_rt_essentials.hpp>   // RAFT_CUDA_TRY
@@ -150,7 +153,12 @@ struct PairwiseDistances : public BaseClass {
           // Calculate distance_op epilog.
           // Use .template to disambiguate (See:
           // https://en.cppreference.com/w/cpp/language/dependent_name)
+#ifdef CUVS_DISTANCE_PAIRWISE_USE_JIT
+          compute_distance_epilog<Policy, OpT, AccT, IdxT>(
+            distance_op, acc, regxn, regyn, tile_idx_n, tile_idx_m);
+#else
           distance_op.template epilog<Policy>(acc, regxn, regyn, tile_idx_n, tile_idx_m);
+#endif
           // And any possible additional epilogs
           epilog_op(acc, regxn, regyn, tile_idx_n, tile_idx_m);
         } else {
@@ -159,7 +167,12 @@ struct PairwiseDistances : public BaseClass {
           // Calculate distance_op epilog.
           // Use .template to disambiguate (See:
           // https://en.cppreference.com/w/cpp/language/dependent_name)
+#ifdef CUVS_DISTANCE_PAIRWISE_USE_JIT
+          compute_distance_epilog<Policy, OpT, AccT, IdxT>(
+            distance_op, acc, nullptr, nullptr, tile_idx_n, tile_idx_m);
+#else
           distance_op.template epilog<Policy>(acc, nullptr, nullptr, tile_idx_n, tile_idx_m);
+#endif
           // And any possible additional epilogs
           epilog_op(acc, nullptr, nullptr, tile_idx_n, tile_idx_m);
         }
@@ -203,7 +216,12 @@ struct PairwiseDistances : public BaseClass {
       for (int i = 0; i < P::AccRowsPerTh; ++i) {
 #pragma unroll
         for (int j = 0; j < P::AccColsPerTh; ++j) {
+#ifdef CUVS_DISTANCE_PAIRWISE_USE_JIT
+          compute_distance<OpT, DataT, AccT, IdxT>(
+            distance_op, acc[i][j], reg_x[i][v], reg_y[j][v]);
+#else
           distance_op.core(acc[i][j], reg_x[i][v], reg_y[j][v]);
+#endif
         }
       }
     }

@@ -9,6 +9,7 @@
 #include "ip_distance.cuh"
 #include <cuvs/distance/distance.hpp>
 
+#include <raft/core/operators.hpp>  // raft::sqrt
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/linalg/map.cuh>
 #include <raft/sparse/csr.hpp>
