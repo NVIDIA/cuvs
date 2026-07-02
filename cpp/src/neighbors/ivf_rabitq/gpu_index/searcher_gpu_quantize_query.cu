@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -22,6 +22,8 @@
 #include <cub/block/block_reduce.cuh>
 
 #include <thrust/fill.h>
+#include <thrust/functional.h>
+#include <thrust/transform.h>
 
 #include <algorithm>
 #include <cstdint>
@@ -488,23 +490,29 @@ void SearcherGPU::SearchClusterQueryPairsQuantizeQuery(
     max(packed_query_size + candidate_storage + query_storage, (size_t)queue_buffer_smem_bytes);
 
   ComputeInnerProductsKernelParams kernelParams;
-  kernelParams.d_sorted_pairs          = d_sorted_pairs;
-  kernelParams.d_query                 = queries.data_handle();
-  kernelParams.d_short_data            = cur_ivf.get_short_data_device();
-  kernelParams.d_cluster_meta          = d_cluster_meta;
-  kernelParams.d_packed_queries        = d_packed_queries.data_handle();
-  kernelParams.d_widths                = d_widths.data_handle();
-  kernelParams.d_short_factors         = cur_ivf.get_short_factors_batch_device();
-  kernelParams.d_G_k1xSumq             = d_G_k1xSumq;
-  kernelParams.d_G_kbxSumq             = d_G_kbxSumq;
-  kernelParams.d_centroid_distances    = get_centroid_distances();
-  kernelParams.topk                    = topk;
-  kernelParams.num_queries             = num_queries;
-  kernelParams.nprobe                  = nprobe;
-  kernelParams.num_pairs               = num_pairs;
-  kernelParams.num_centroids           = cur_ivf.get_num_centroids();
-  kernelParams.D                       = D;
-  kernelParams.d_threshold             = d_topk_threshold_batch.data_handle();
+  kernelParams.d_sorted_pairs       = d_sorted_pairs;
+  kernelParams.d_query              = queries.data_handle();
+  kernelParams.d_short_data         = cur_ivf.get_short_data_device();
+  kernelParams.d_cluster_meta       = d_cluster_meta;
+  kernelParams.d_packed_queries     = d_packed_queries.data_handle();
+  kernelParams.d_widths             = d_widths.data_handle();
+  kernelParams.d_short_factors      = cur_ivf.get_short_factors_batch_device();
+  kernelParams.d_G_k1xSumq          = d_G_k1xSumq;
+  kernelParams.d_G_kbxSumq          = d_G_kbxSumq;
+  kernelParams.d_centroid_distances = get_centroid_distances();
+  // InnerProduct reconstructs ⟨q,x⟩ = (‖q‖² + ‖x‖² − ‖q−x‖²)/2 from the squared-L2 estimate; the
+  // kernels emit the negated inner product (a "pseudo-distance") so the existing min-selection is
+  // reused, and the result is negated after select_k below.
+  const bool is_inner_product  = cur_ivf.is_inner_product();
+  kernelParams.d_q_sqr_norms   = is_inner_product ? get_q_norms() : nullptr;
+  kernelParams.d_vec_sqr_norms = is_inner_product ? cur_ivf.get_vec_sqr_norms_device() : nullptr;
+  kernelParams.topk            = topk;
+  kernelParams.num_queries     = num_queries;
+  kernelParams.nprobe          = nprobe;
+  kernelParams.num_pairs       = num_pairs;
+  kernelParams.num_centroids   = cur_ivf.get_num_centroids();
+  kernelParams.D               = D;
+  kernelParams.d_threshold     = d_topk_threshold_batch.data_handle();
   kernelParams.max_candidates_per_pair = max_cluster_size;
   kernelParams.max_candidates_per_query =
     use_block_sort ? 0 /* unused */ : max_probed_vectors_count.value();
@@ -520,11 +528,12 @@ void SearcherGPU::SearchClusterQueryPairsQuantizeQuery(
 
   const int num_bits_for_dispatch = use_4bit ? 4 : 8;
   const bool with_ex              = (cur_ivf.get_ex_bits() != 0);
-  auto jit_launcher = use_block_sort ? make_compute_inner_products_with_bitwise_block_sort_launcher(
-                                         num_bits_for_dispatch, cur_ivf.get_ex_bits(), with_ex)
-                                     : make_compute_inner_products_with_bitwise_launcher(
-                                         cur_ivf.get_ex_bits(), with_ex);
-  auto const& kernel_launcher = [&]() -> void {
+  auto jit_launcher               = use_block_sort
+                                      ? make_compute_inner_products_with_bitwise_block_sort_launcher(
+                            num_bits_for_dispatch, cur_ivf.get_ex_bits(), with_ex, is_inner_product)
+                                      : make_compute_inner_products_with_bitwise_launcher(
+                            cur_ivf.get_ex_bits(), with_ex, is_inner_product);
+  auto const& kernel_launcher     = [&]() -> void {
     jit_launcher->dispatch<compute_inner_products_with_lut_func_t>(
       stream_, gridDim, blockDim, shared_mem_size, kernelParams);
   };
@@ -533,7 +542,8 @@ void SearcherGPU::SearchClusterQueryPairsQuantizeQuery(
     static_cast<std::uint32_t>(shared_mem_size), kernel_launcher, jit_launcher->get_kernel());
   RAFT_CUDA_TRY(cudaPeekAtLastError());
 
-  // Merge results
+  // Merge results. The emitted distances are squared-L2 estimates for L2, or negated inner
+  // products (pseudo-distances) for InnerProduct; both are minimized here.
   cuvs::selection::select_k(
     handle_,
     raft::make_device_matrix_view<const float, int64_t>(
@@ -544,6 +554,15 @@ void SearcherGPU::SearchClusterQueryPairsQuantizeQuery(
     d_final_pids,
     /*select_min=*/true,
     /*sorted=*/false);
+
+  // Convert the pseudo-distances (−⟨q,x⟩) back to true inner products for the user-visible output.
+  if (is_inner_product) {
+    thrust::transform(thrust::cuda::par.on(stream_),
+                      d_final_dists.data_handle(),
+                      d_final_dists.data_handle() + d_final_dists.size(),
+                      d_final_dists.data_handle(),
+                      thrust::negate<float>());
+  }
 }
 
 }  // namespace cuvs::neighbors::ivf_rabitq::detail

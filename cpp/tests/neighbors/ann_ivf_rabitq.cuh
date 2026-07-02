@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -18,6 +18,10 @@ struct ivf_rabitq_inputs {
   uint32_t dim                     = 64;
   uint32_t k                       = 10;
   std::optional<double> min_recall = std::nullopt;
+  // Generate signed, mean-zero data instead of the default positive-only data. Used by the
+  // InnerProduct cases to produce mixed-sign inner products (which exercise both branches of the
+  // sign-aware atomic threshold update). Only affects signed DataT (e.g. float).
+  bool signed_data = false;
 
   cuvs::neighbors::ivf_rabitq::index_params index_params;
   cuvs::neighbors::ivf_rabitq::search_params search_params;
@@ -58,6 +62,7 @@ inline auto operator<<(std::ostream& os, const ivf_rabitq_inputs& p) -> std::ost
   PRINT_DIFF(.dim);
   PRINT_DIFF(.k);
   PRINT_DIFF_V(.min_recall, p.min_recall.value_or(0));
+  PRINT_DIFF(.signed_data);
   PRINT_DIFF(.index_params.n_lists);
   PRINT_DIFF(.index_params.bits_per_dim);
   PRINT_DIFF(.index_params.kmeans_n_iters);
@@ -86,10 +91,13 @@ class ivf_rabitq_test : public ::testing::TestWithParam<ivf_rabitq_inputs> {
 
     raft::random::RngState r(1234ULL);
     if constexpr (std::is_same<DataT, float>{}) {
+      // Signed data (used only by InnerProduct cases) is mean-zero over [-2, 2]; the default is
+      // positive-only over [0.1, 2] to match the other ANN harnesses and keep existing recall
+      // thresholds valid.
+      const DataT lo = (ps.signed_data && std::is_signed_v<DataT>) ? DataT(-2.0) : DataT(0.1);
+      raft::random::uniform(handle_, r, database.data(), ps.num_db_vecs * ps.dim, lo, DataT(2.0));
       raft::random::uniform(
-        handle_, r, database.data(), ps.num_db_vecs * ps.dim, DataT(0.1), DataT(2.0));
-      raft::random::uniform(
-        handle_, r, search_queries.data(), ps.num_queries * ps.dim, DataT(0.1), DataT(2.0));
+        handle_, r, search_queries.data(), ps.num_queries * ps.dim, lo, DataT(2.0));
     } else {
       raft::random::uniformInt(
         handle_, r, database.data(), ps.num_db_vecs * ps.dim, DataT(1), DataT(20));
@@ -365,6 +373,31 @@ inline auto var_search_mode_1_bit() -> test_cases_t
     x.min_recall                = 0.3;
     return x;
   });
+}
+
+// InnerProduct metric. Only the bitwise (QUANT4/QUANT8) search paths implement it, so restrict to
+// those modes. Cover both the block-sort (k <= kMaxTopKBlockSort == 64) and non-block-sort (k >
+// 64) sub-paths, and both the no-ex (bits_per_dim == 1) and with-ex (bits_per_dim > 1) code paths.
+inline auto var_metric() -> test_cases_t
+{
+  test_cases_t xs;
+  for (auto mode : {ivf_rabitq::search_mode::QUANT4, ivf_rabitq::search_mode::QUANT8}) {
+    for (uint32_t k : {uint32_t{10}, uint32_t{128}}) {
+      for (uint32_t bits : {uint32_t{1}, uint32_t{4}}) {
+        ivf_rabitq_inputs x;
+        x.index_params.metric       = cuvs::distance::DistanceType::InnerProduct;
+        x.search_params.mode        = mode;
+        x.k                         = k;
+        x.index_params.bits_per_dim = bits;
+        // Mean-zero data so inner products take both signs.
+        x.signed_data = true;
+        // 1-bit quantization is coarse; relax the recall bound as the other 1-bit tests do.
+        if (bits == 1) { x.min_recall = 0.3; }
+        xs.push_back(x);
+      }
+    }
+  }
+  return xs;
 }
 
 /* Test instantiations */

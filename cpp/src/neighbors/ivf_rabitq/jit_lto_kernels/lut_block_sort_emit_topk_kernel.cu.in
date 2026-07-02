@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -178,14 +178,14 @@ __device__ void lut_block_sort_emit_topk(const ComputeInnerProductsKernelParams 
                   (uint32_t*)(params.d_topk_pids + output_offset));
 
       if (final_num_candidates >= params.topk) {
-        update_threshold_atomicmin(params.d_topk_dists,
-                                   params.d_threshold,
-                                   query_idx,
-                                   params.topk,
-                                   params.nprobe,
-                                   probe_slot,
-                                   threshold,
-                                   tid);
+        update_threshold_atomicmin<false>(params.d_topk_dists,
+                                          params.d_threshold,
+                                          query_idx,
+                                          params.topk,
+                                          params.nprobe,
+                                          probe_slot,
+                                          threshold,
+                                          tid);
       }
     }
   } else {
@@ -270,14 +270,14 @@ __device__ void lut_block_sort_emit_topk(const ComputeInnerProductsKernelParams 
       }
 
       if (num_candidates >= params.topk) {
-        update_threshold_atomicmin(params.d_topk_dists,
-                                   params.d_threshold,
-                                   query_idx,
-                                   params.topk,
-                                   params.nprobe,
-                                   probe_slot,
-                                   threshold,
-                                   tid);
+        update_threshold_atomicmin<false>(params.d_topk_dists,
+                                          params.d_threshold,
+                                          query_idx,
+                                          params.topk,
+                                          params.nprobe,
+                                          probe_slot,
+                                          threshold,
+                                          tid);
       }
     }
   }

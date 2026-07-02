@@ -1,1 +1,12 @@
-{}
+{
+  "_signed": [
+    {
+      "signed_descriptor": "signed",
+      "signed_value": "true"
+    },
+    {
+      "signed_descriptor": "unsigned",
+      "signed_value": "false"
+    }
+  ]
+}

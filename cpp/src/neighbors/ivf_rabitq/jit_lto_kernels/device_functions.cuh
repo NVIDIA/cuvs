@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -74,7 +74,25 @@ __inline__ __device__ float compute_bitwise_1bit_ip_for_vec(const uint32_t* d_sh
   return exact_ip;
 }
 
+// Atomic float minimum that is correct for both signs. The int-reinterpret atomicMin trick is
+// only monotone for non-negative floats; for negative values the ordering inverts, so we route
+// them through an unsigned atomicMax. Needed by the InnerProduct metric, whose pseudo-distances
+// (−⟨q,x⟩) are routinely negative.
+__inline__ __device__ void atomic_min_float(float* addr, float val)
+{
+  if (val >= 0.0f) {
+    atomicMin(reinterpret_cast<int*>(addr), __float_as_int(val));
+  } else {
+    atomicMax(reinterpret_cast<unsigned int*>(addr), __float_as_uint(val));
+  }
+}
+
 // Note: contains __syncthreads(); must be called by all threads of the block.
+// Signed selects the InnerProduct pseudo-distance behavior at compile time: the values stored in
+// d_topk_dists are −⟨q,x⟩ (can be negative), so the positivity guards and the int-atomicMin are
+// replaced by sentinel-only guards and a sign-aware atomic min. For Signed == false (L2) the body
+// is identical to the original squared-distance implementation.
+template <bool Signed>
 __inline__ __device__ void update_threshold_atomicmin(const float* d_topk_dists,
                                                       const float* d_threshold,
                                                       uint32_t query_idx,
@@ -90,13 +108,24 @@ __inline__ __device__ void update_threshold_atomicmin(const float* d_topk_dists,
     uint32_t output_offset = query_idx * (topk * nprobe) + probe_slot * topk;
     for (uint32_t i = 0; i < topk; i++) {
       float dist = d_topk_dists[output_offset + i];
-      if (dist > 0 && dist > max_topk_dist && dist < INFINITY) { max_topk_dist = dist; }
+      if constexpr (Signed) {
+        // Only the +INF fill sentinel (and unfilled slots) are invalid; negatives are real.
+        if (dist < INFINITY && dist > max_topk_dist) { max_topk_dist = dist; }
+      } else {
+        if (dist > 0 && dist > max_topk_dist && dist < INFINITY) { max_topk_dist = dist; }
+      }
     }
   }
   __syncthreads();
-  if (tid == 0 && max_topk_dist > 0 && max_topk_dist < threshold) {
-    int* threshold_ptr = (int*)(d_threshold + query_idx);
-    atomicMin(threshold_ptr, __float_as_int(max_topk_dist));
+  if constexpr (Signed) {
+    if (tid == 0 && max_topk_dist > -INFINITY && max_topk_dist < threshold) {
+      atomic_min_float(const_cast<float*>(d_threshold) + query_idx, max_topk_dist);
+    }
+  } else {
+    if (tid == 0 && max_topk_dist > 0 && max_topk_dist < threshold) {
+      int* threshold_ptr = (int*)(d_threshold + query_idx);
+      atomicMin(threshold_ptr, __float_as_int(max_topk_dist));
+    }
   }
 }
 

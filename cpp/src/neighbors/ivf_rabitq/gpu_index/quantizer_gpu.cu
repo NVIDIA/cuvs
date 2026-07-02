@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -20,6 +20,7 @@
 #include <raft/core/host_mdarray.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/linalg/map.cuh>
+#include <raft/linalg/norm.cuh>
 #include <raft/linalg/norm_types.hpp>
 #include <raft/linalg/normalize.cuh>
 #include <raft/random/rng.cuh>
@@ -618,7 +619,8 @@ void DataQuantizerGPU::quantize_batch_opt(const float* d_data,
                                           float* d_short_data_factors,
                                           uint8_t* d_long_code,
                                           float* d_ex_factor,
-                                          float* d_rotated_c)
+                                          float* d_rotated_c,
+                                          float* d_vec_sqr_norms)
 {
   // 1. Data Transformation:
   data_transformation_batch_opt(d_data,
@@ -634,6 +636,18 @@ void DataQuantizerGPU::quantize_batch_opt(const float* d_data,
                                 DIM,
                                 D,
                                 handle_);
+
+  // For the InnerProduct metric, capture the squared L2 norm ‖x‖² of each (padded, unrotated)
+  // input vector. gatherAndPadKernel just wrote the first num_points rows of d_X_and_C_pad with
+  // the padded data and the zero-padding does not affect the norm. raft's L2Norm returns the sum
+  // of squares (no sqrt) with the default finalizer, i.e. exactly ‖x‖².
+  if (d_vec_sqr_norms != nullptr) {
+    raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
+      handle_,
+      raft::make_device_matrix_view<const float, int64_t>(
+        d_X_and_C_pad.data_handle(), num_points, D),
+      raft::make_device_vector_view<float, int64_t>(d_vec_sqr_norms, num_points));
+  }
 
   rabitq_codes_and_factors_fused(d_rotated_c,
                                  d_bin_XP.data_handle(),
@@ -739,7 +753,8 @@ void DataQuantizerGPU::quantize_batch_opt_contiguous(const float* d_contiguous_d
                                                      float* d_short_data_factors,
                                                      uint8_t* d_long_code,
                                                      float* d_ex_factor,
-                                                     float* d_rotated_c)
+                                                     float* d_rotated_c,
+                                                     float* d_vec_sqr_norms)
 {
   // 1. Data Transformation:
   data_transformation_batch_opt_contiguous(d_contiguous_data,
@@ -754,6 +769,16 @@ void DataQuantizerGPU::quantize_batch_opt_contiguous(const float* d_contiguous_d
                                            DIM,
                                            D,
                                            handle_);
+
+  // See quantize_batch_opt: capture ‖x‖² for the InnerProduct metric before the residual
+  // transform. d_X_and_C_pad holds the padded, unrotated cluster data.
+  if (d_vec_sqr_norms != nullptr) {
+    raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
+      handle_,
+      raft::make_device_matrix_view<const float, int64_t>(
+        d_X_and_C_pad.data_handle(), num_points, D),
+      raft::make_device_vector_view<float, int64_t>(d_vec_sqr_norms, num_points));
+  }
 
   rabitq_codes_and_factors_fused(d_rotated_c,
                                  d_bin_XP.data_handle(),

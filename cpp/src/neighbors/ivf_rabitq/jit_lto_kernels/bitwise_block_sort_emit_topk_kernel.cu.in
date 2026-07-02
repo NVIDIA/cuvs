@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -12,7 +12,8 @@
 
 namespace {
 
-constexpr bool with_ex = @with_ex_value@;
+constexpr bool with_ex   = @with_ex_value@;
+constexpr bool is_signed = @signed_value@;
 
 }  // namespace
 
@@ -37,6 +38,9 @@ __device__ void bitwise_block_sort_emit_topk(const ComputeInnerProductsKernelPar
 {
   const int tid         = threadIdx.x;
   const int num_threads = blockDim.x;
+
+  // ‖q‖² for the InnerProduct pseudo-distance transform pd = (‖q−x‖² − ‖q‖² − ‖x‖²)/2 = −⟨q,x⟩.
+  float q_sqr_norm = is_signed ? params.d_q_sqr_norms[query_idx] : 0.0f;
 
   // Shared-memory layout matches the caller's setup
   extern __shared__ __align__(256) char shared_mem_raw_2[];
@@ -107,6 +111,9 @@ __device__ void bitwise_block_sort_emit_topk(const ComputeInnerProductsKernelPar
 
         ex_dist = f_ex_add + q_g_add +
                   f_ex_rescale * (static_cast<float>(1 << params.ex_bits) * ip + ip2 + q_kbxsumq);
+        if constexpr (is_signed) {
+          ex_dist = (ex_dist - q_sqr_norm - params.d_vec_sqr_norms[global_vec_idx]) * 0.5f;
+        }
         pid = (uint32_t)params.d_pids[global_vec_idx];
       } else {
         ex_dist = INFINITY;
@@ -152,7 +159,10 @@ __device__ void bitwise_block_sort_emit_topk(const ComputeInnerProductsKernelPar
                                                          short_code_length,
                                                          params.D);
         final_dist     = f_add + q_g_add + f_rescale * (exact_ip + q_k1xsumq);
-        final_pid      = (uint32_t)params.d_pids[global_vec_idx];
+        if constexpr (is_signed) {
+          final_dist = (final_dist - q_sqr_norm - params.d_vec_sqr_norms[global_vec_idx]) * 0.5f;
+        }
+        final_pid = (uint32_t)params.d_pids[global_vec_idx];
       } else {
         final_dist = INFINITY;
         final_pid  = 0;
@@ -171,14 +181,14 @@ __device__ void bitwise_block_sort_emit_topk(const ComputeInnerProductsKernelPar
   }
 
   if (num_candidates >= params.topk) {
-    update_threshold_atomicmin(params.d_topk_dists,
-                               params.d_threshold,
-                               query_idx,
-                               params.topk,
-                               params.nprobe,
-                               probe_slot,
-                               threshold,
-                               tid);
+    update_threshold_atomicmin<is_signed>(params.d_topk_dists,
+                                          params.d_threshold,
+                                          query_idx,
+                                          params.topk,
+                                          params.nprobe,
+                                          probe_slot,
+                                          threshold,
+                                          tid);
   }
 }
 

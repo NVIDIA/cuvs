@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -15,5 +15,11 @@ TEST_BUILD_FORCED_STREAMING(f32_f32_i64)
 INSTANTIATE(f32_f32_i64,
             defaults() + small_dims() + big_dims() + var_n_probes() + var_k() + var_bits_per_dim() +
               var_search_mode() + var_search_mode_1_bit());
+
+// InnerProduct cases in their own instantiation so they can be run in isolation via
+// --gtest_filter='IvfRabitqInnerProduct/*'.
+INSTANTIATE_TEST_SUITE_P(IvfRabitqInnerProduct,  // NOLINT
+                         f32_f32_i64,
+                         ::testing::ValuesIn(var_metric()));
 
 }  // namespace cuvs::neighbors::ivf_rabitq

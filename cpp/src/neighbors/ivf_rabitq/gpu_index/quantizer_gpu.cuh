@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -115,7 +115,8 @@ class DataQuantizerGPU {
                           float* short_data_factors,
                           uint8_t* d_long_code,
                           float* d_ex_factor,
-                          float* d_rotated_c);
+                          float* d_rotated_c,
+                          float* d_vec_sqr_norms = nullptr);
 
   /*!
    * @brief Quantize contiguous cluster data for batch layout (without PID gathering).
@@ -138,7 +139,8 @@ class DataQuantizerGPU {
                                      float* short_data_factors,
                                      uint8_t* d_long_code,
                                      float* d_ex_factor,
-                                     float* d_rotated_c);
+                                     float* d_rotated_c,
+                                     float* d_vec_sqr_norms = nullptr);
 
  private:
   // Dimension and quantization parameters

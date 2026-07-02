@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -214,14 +214,14 @@ __device__ void compute_inner_products_with_lut16_opt_block_sort_impl(
     }
 
     if (num_candidates >= params.topk) {
-      update_threshold_atomicmin(params.d_topk_dists,
-                                 params.d_threshold,
-                                 query_idx,
-                                 params.topk,
-                                 params.nprobe,
-                                 probe_slot,
-                                 threshold,
-                                 tid);
+      update_threshold_atomicmin<false>(params.d_topk_dists,
+                                        params.d_threshold,
+                                        query_idx,
+                                        params.topk,
+                                        params.nprobe,
+                                        probe_slot,
+                                        threshold,
+                                        tid);
     }
   }
 }

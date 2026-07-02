@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -41,14 +41,19 @@ struct ComputeInnerProductsKernelParams {
   const float* d_G_k1xSumq                     = nullptr;
   const float* d_G_kbxSumq                     = nullptr;
   const float* d_centroid_distances            = nullptr;
-  uint32_t topk                                = 0;
-  uint32_t num_queries                         = 0;
-  uint32_t nprobe                              = 0;
-  uint32_t num_pairs                           = 0;
-  uint32_t num_centroids                       = 0;
-  uint32_t D                                   = 0;
-  const float* d_threshold                     = nullptr;  // threshold for each query
-  uint32_t max_candidates_per_pair             = 0;        // max storage per pair, 1000 suggested
+  // Squared L2 norms for the InnerProduct metric: ‖q‖² per query and ‖x‖² per data vector.
+  // Used to convert the reconstructed squared-L2 estimate into an inner product via
+  // ⟨q,x⟩ = (‖q‖² + ‖x‖² − ‖q−x‖²)/2. Null for the L2 metric.
+  const float* d_q_sqr_norms       = nullptr;
+  const float* d_vec_sqr_norms     = nullptr;
+  uint32_t topk                    = 0;
+  uint32_t num_queries             = 0;
+  uint32_t nprobe                  = 0;
+  uint32_t num_pairs               = 0;
+  uint32_t num_centroids           = 0;
+  uint32_t D                       = 0;
+  const float* d_threshold         = nullptr;  // threshold for each query
+  uint32_t max_candidates_per_pair = 0;        // max storage per pair, 1000 suggested
   uint32_t max_candidates_per_query =
     0;  // max number of vectors in probed clusters for any particular query
   uint32_t ex_bits            = 0;        // bits per dimension in ex codes
