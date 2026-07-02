@@ -98,21 +98,18 @@ TEST(AnnCagraMultiPartition, MultiKernelRejected)
   cagra::search_params search_params;
   search_params.algo = search_algo::MULTI_KERNEL;
 
-  auto queries_view = raft::make_device_matrix_view<const float, int64_t>(queries.data(), n_queries, dim);
+  auto queries_view =
+    raft::make_device_matrix_view<const float, int64_t>(queries.data(), n_queries, dim);
   auto part_ids_view =
     raft::make_device_matrix_view<uint32_t, int64_t>(partition_ids.data(), n_queries, k);
   auto neighbors_view =
     raft::make_device_matrix_view<uint32_t, int64_t>(neighbors.data(), n_queries, k);
   auto dists_view = raft::make_device_matrix_view<float, int64_t>(distances.data(), n_queries, k);
 
-  EXPECT_THROW(cagra::search(handle,
-                             search_params,
-                             index_ptrs,
-                             queries_view,
-                             part_ids_view,
-                             neighbors_view,
-                             dists_view),
-               std::exception);
+  EXPECT_THROW(
+    cagra::search(
+      handle, search_params, index_ptrs, queries_view, part_ids_view, neighbors_view, dists_view),
+    std::exception);
 }
 
 }  // namespace cuvs::neighbors::cagra
