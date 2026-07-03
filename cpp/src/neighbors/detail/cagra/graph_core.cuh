@@ -524,7 +524,9 @@ __global__ void kern_merge_graph(
     if (num_protected_edges == output_graph_degree) { return; }
   }
 
-  auto kr = min(rev_graph_count(nid), output_graph_degree);
+  const auto my_in_degree = rev_graph_count(nid);
+  const auto ed0          = effective_degree;
+  auto kr                 = min(my_in_degree, output_graph_degree);
 
   while (kr) {
     kr -= 1;
@@ -532,7 +534,7 @@ __global__ void kern_merge_graph(
     if (rev_graph_value < graph_size) {
       if constexpr (VariableDegree) {
         const uint32_t in_degree = rev_graph_count(rev_graph_value);
-        if (in_degree < output_graph_degree) { continue; }
+        if (std::min(in_degree, my_in_degree) + ed0 < output_graph_degree) { continue; }
       }
       uint64_t pos =
         warp_pos_in_array<IdxT>(rev_graph_value, smem_sorted_output_graph, output_graph_degree);
