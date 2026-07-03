@@ -358,10 +358,11 @@ void write_large_file(const file_descriptor& fd,
 /**
  * @brief Sequential std::ostream backed by kvikio.
  *
- * A std::ostream whose bytes are staged into a large buffer and written to disk through kvikio,
+ * Ordinary stream output is staged into a large host buffer and written to disk through kvikio,
  * which bypasses the page cache via O_DIRECT when supported (and falls back to buffered POSIX
- * writes otherwise). Because it is a std::ostream it can be passed anywhere an ostream is expected
- * (e.g. the hnswlib serializer), routing that output through kvikio. Non-copyable, non-movable.
+ * writes otherwise). Device buffers passed to write_device() use GPUDirect Storage when available.
+ * Because this is a std::ostream it can be passed anywhere an ostream is expected (e.g. the
+ * hnswlib serializer), routing that output through kvikio. Non-copyable, non-movable.
  */
 class kvikio_ofstream : public std::ostream {
  public:
@@ -383,6 +384,19 @@ class kvikio_ofstream : public std::ostream {
 
   /** @brief Flush any remaining staged bytes and close the file. */
   void close();
+
+  /**
+   * @brief Write a device-memory region at the current stream position.
+   *
+   * Pending host output is flushed first, then @p data is written through a compatibility-off
+   * KvikIO handle so GPUDirect Storage is used when available. The operation is synchronous and
+   * advances the same logical position used by ordinary std::ostream writes.
+   *
+   * @param data Device pointer to the source data.
+   * @param size Number of bytes to write.
+   * @return This stream.
+   */
+  kvikio_ofstream& write_device(const void* data, size_t size);
 
   /** @brief Total number of logical bytes written so far. */
   [[nodiscard]] size_t bytes_written() const noexcept;

@@ -1,11 +1,12 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
 
 #include <cuvs/neighbors/cagra.hpp>
+#include <cuvs/util/file_io.hpp>
 #include <raft/core/copy.cuh>
 #include <raft/core/host_mdarray.hpp>
 #include <raft/core/logger.hpp>
@@ -17,18 +18,37 @@
 #include <raft/util/cudart_utils.hpp>
 
 #include "../../../core/nvtx.hpp"
+#include "../../../util/kvikio_serialize.hpp"
 #include "../../../util/serialize_validation.hpp"
 #include "../dataset_serialize.hpp"
 
+#include <algorithm>
+#include <array>
+#include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <fstream>
 #include <optional>
-#include <type_traits>
 
 namespace cuvs::neighbors::cagra::detail {
 
 constexpr int serialization_version = 5;
+
+template <typename MdspanT>
+void serialize_index_mdspan(raft::resources const& res, std::ostream& os, const MdspanT& mdspan)
+{
+  raft::serialize_mdspan(res, os, mdspan);
+}
+
+template <typename ElementType, typename Extents, typename LayoutPolicy, typename AccessorPolicy>
+void serialize_index_mdspan(
+  raft::resources const& res,
+  cuvs::util::kvikio_ofstream& os,
+  const raft::device_mdspan<ElementType, Extents, LayoutPolicy, AccessorPolicy>& mdspan)
+{
+  cuvs::util::detail::serialize_device_mdspan(res, os, mdspan);
+}
 
 /**
  * Save the index to file.
@@ -40,11 +60,11 @@ constexpr int serialization_version = 5;
  * @param[in] index_ CAGRA index
  *
  */
-template <typename T, typename IdxT>
-void serialize(raft::resources const& res,
-               std::ostream& os,
-               const index<T, IdxT>& index_,
-               bool include_dataset)
+template <typename OutputStream, typename T, typename IdxT>
+void serialize_impl(raft::resources const& res,
+                    OutputStream& os,
+                    const index<T, IdxT>& index_,
+                    bool include_dataset)
 {
   raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> fun_scope("cagra::serialize");
 
@@ -66,7 +86,7 @@ void serialize(raft::resources const& res,
   raft::serialize_scalar(res, os, index_.graph_degree());
   raft::serialize_scalar(res, os, index_.metric());
 
-  raft::serialize_mdspan(res, os, index_.graph());
+  serialize_index_mdspan(res, os, index_.graph());
 
   include_dataset &= (index_.data().n_rows() > 0);
   bool has_source_indices = index_.source_indices().has_value();
@@ -80,7 +100,16 @@ void serialize(raft::resources const& res,
     RAFT_LOG_DEBUG("Saving CAGRA index WITHOUT dataset");
   }
 
-  if (has_source_indices) { raft::serialize_mdspan(res, os, index_.source_indices().value()); }
+  if (has_source_indices) { serialize_index_mdspan(res, os, index_.source_indices().value()); }
+}
+
+template <typename T, typename IdxT>
+void serialize(raft::resources const& res,
+               std::ostream& os,
+               const index<T, IdxT>& index_,
+               bool include_dataset)
+{
+  serialize_impl(res, os, index_, include_dataset);
 }
 
 template <typename T, typename IdxT>
@@ -93,30 +122,20 @@ void serialize(raft::resources const& res,
                "Cannot serialize a disk-backed CAGRA index. Convert it with "
                "cuvs::neighbors::hnsw::from_cagra() and load it into memory via "
                "cuvs::neighbors::hnsw::deserialize() before serialization.");
-  std::ofstream of(filename, std::ios::out | std::ios::binary);
+  cuvs::util::kvikio_ofstream of(filename);
   if (!of) { RAFT_FAIL("Cannot open file %s", filename.c_str()); }
 
-  detail::serialize(res, of, index_, include_dataset);
+  serialize_impl(res, of, index_, include_dataset);
 
   of.close();
   if (!of) { RAFT_FAIL("Error writing output %s", filename.c_str()); }
 }
 
 template <typename T, typename IdxT>
-void serialize_to_hnswlib(
-  raft::resources const& res,
-  std::ostream& os,
-  const cuvs::neighbors::cagra::index<T, IdxT>& index_,
-  std::optional<raft::host_matrix_view<const T, int64_t, raft::row_major>> dataset)
+void write_hnswlib_header(std::ostream& os,
+                          const cuvs::neighbors::cagra::index<T, IdxT>& index_,
+                          int dim)
 {
-  // static_assert(std::is_same_v<IdxT, int> or std::is_same_v<IdxT, uint32_t>,
-  //               "An hnswlib index can only be trained with int32 or uint32 IdxT");
-  int dim = (dataset) ? dataset->extent(1) : index_.dim();
-  raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> fun_scope("cagra::serialize");
-  RAFT_LOG_DEBUG("Saving CAGRA index to hnswlib format, size %zu, dim %u",
-                 static_cast<size_t>(index_.size()),
-                 dim);
-
   // offset_level_0
   std::size_t offset_level_0 = 0;
   os.write(reinterpret_cast<char*>(&offset_level_0), sizeof(std::size_t));
@@ -159,84 +178,261 @@ void serialize_to_hnswlib(
   // efConstruction, can be anything
   std::size_t efConstruction = 500;
   os.write(reinterpret_cast<char*>(&efConstruction), sizeof(std::size_t));
+}
 
-  // Remove padding before saving the dataset
-  raft::host_matrix<T, int64_t> host_dataset = raft::make_host_matrix<T, int64_t>(0, 0);
-  raft::host_matrix_view<const T, int64_t> host_dataset_view;
+inline void log_hnswlib_progress(size_t completed_rows,
+                                 size_t total_rows,
+                                 size_t bytes_written,
+                                 const std::chrono::system_clock::time_point& start_clock,
+                                 size_t& next_report_offset)
+{
+  if (completed_rows < next_report_offset || completed_rows == 0) { return; }
+
+  const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
+                         std::chrono::system_clock::now() - start_clock)
+                         .count() *
+                       1e-6;
+  if (elapsed <= 0) { return; }
+
+  constexpr double gib         = double(size_t{1} << 30);
+  const double throughput      = bytes_written / gib / elapsed;
+  const double rows_throughput = completed_rows / elapsed;
+  const double eta             = (total_rows - completed_rows) / rows_throughput;
+  RAFT_LOG_DEBUG(
+    "# Writing rows %12zu / %12zu (%3.2f %%), %3.2f GiB/sec, ETA %d:%3.1f, written %3.2f GiB\r",
+    completed_rows,
+    total_rows,
+    completed_rows / static_cast<double>(total_rows) * 100,
+    throughput,
+    int(eta / 60),
+    std::fmod(eta, 60.0),
+    bytes_written / gib);
+
+  const size_t report_interval = std::max<size_t>(1, total_rows / 10);
+  next_report_offset += report_interval;
+}
+
+template <typename T, typename IdxT>
+void write_hnswlib_rows_host(
+  raft::resources const& res,
+  std::ostream& os,
+  const cuvs::neighbors::cagra::index<T, IdxT>& index_,
+  std::optional<raft::host_matrix_view<const T, int64_t, raft::row_major>> dataset)
+{
+  const size_t n_rows        = static_cast<size_t>(index_.size());
+  const int64_t dim          = dataset ? dataset->extent(1) : index_.dim();
+  const int64_t graph_degree = index_.graph_degree();
+  const size_t row_size =
+    sizeof(int) + graph_degree * sizeof(IdxT) + dim * sizeof(T) + sizeof(size_t);
+  if (n_rows == 0) { return; }
+
+  const size_t batch_rows = std::min<size_t>(
+    n_rows, std::max<size_t>(1, cuvs::util::detail::kDeviceSerializationBatchBytes / row_size));
+  auto graph_buffer =
+    raft::make_host_matrix<IdxT, int64_t, raft::row_major>(batch_rows, graph_degree);
+  auto dataset_buffer = raft::make_host_matrix<T, int64_t, raft::row_major>(batch_rows, dim);
+
+  const auto graph = index_.graph();
+  RAFT_EXPECTS(static_cast<size_t>(graph.extent(0)) == n_rows,
+               "CAGRA graph rows (%zu) do not match index size (%zu)",
+               static_cast<size_t>(graph.extent(0)),
+               n_rows);
+
+  const T* device_dataset = nullptr;
+  int64_t dataset_stride  = 0;
   if (dataset) {
-    host_dataset_view = *dataset;
+    RAFT_EXPECTS(static_cast<size_t>(dataset->extent(0)) == n_rows,
+                 "CAGRA dataset rows (%zu) do not match index size (%zu)",
+                 static_cast<size_t>(dataset->extent(0)),
+                 n_rows);
   } else {
-    auto dataset = index_.dataset();
-    RAFT_EXPECTS(dataset.size() > 0,
+    const auto dataset_view = index_.dataset();
+    RAFT_EXPECTS(dataset_view.size() > 0,
                  "Invalid CAGRA dataset of size 0 during serialization, shape %zux%zu",
-                 static_cast<size_t>(dataset.extent(0)),
-                 static_cast<size_t>(dataset.extent(1)));
-    host_dataset = raft::make_host_matrix<T, int64_t>(dataset.extent(0), dataset.extent(1));
-    raft::copy_matrix(host_dataset.data_handle(),
-                      host_dataset.extent(1),
-                      dataset.data_handle(),
-                      dataset.stride(0),
-                      host_dataset.extent(1),
-                      dataset.extent(0),
-                      raft::resource::get_cuda_stream(res));
-    raft::resource::sync_stream(res);
-    host_dataset_view = raft::make_const_mdspan(host_dataset.view());
+                 static_cast<size_t>(dataset_view.extent(0)),
+                 static_cast<size_t>(dataset_view.extent(1)));
+    RAFT_EXPECTS(static_cast<size_t>(dataset_view.extent(0)) == n_rows,
+                 "CAGRA dataset rows (%zu) do not match index size (%zu)",
+                 static_cast<size_t>(dataset_view.extent(0)),
+                 n_rows);
+    device_dataset = dataset_view.data_handle();
+    dataset_stride = dataset_view.stride(0);
   }
-  auto graph = index_.graph();
-  auto host_graph =
-    raft::make_host_matrix<IdxT, int64_t, raft::row_major>(graph.extent(0), graph.extent(1));
-  raft::copy(res, host_graph.view(), graph);
-  raft::resource::sync_stream(res);
 
-  size_t d_report_offset    = index_.size() / 10;  // Report progress in 10% steps.
-  size_t next_report_offset = d_report_offset;
-  const auto start_clock    = std::chrono::system_clock::now();
-  // Write one dataset and graph row at a time
-  RAFT_EXPECTS(host_graph.stride(1) == 1, "serialize_to_hnswlib expects row_major graph");
-  RAFT_EXPECTS(host_dataset_view.stride(1) == 1, "serialize_to_hnswlib expects row_major dataset");
+  const auto stream           = raft::resource::get_cuda_stream(res);
+  size_t bytes_written        = 0;
+  size_t next_report          = std::max<size_t>(1, n_rows / 10);
+  const auto start_clock      = std::chrono::system_clock::now();
+  const auto graph_degree_int = static_cast<int>(graph_degree);
 
-  size_t bytes_written = 0;
-  float GiB            = 1 << 30;
-  for (std::size_t i = 0; i < index_.size(); i++) {
-    auto graph_degree = static_cast<int>(index_.graph_degree());
-    os.write(reinterpret_cast<char*>(&graph_degree), sizeof(int));
-
-    IdxT* graph_row = &host_graph(i, 0);
-    os.write(reinterpret_cast<char*>(graph_row), sizeof(IdxT) * index_.graph_degree());
-
-    const T* data_row = &host_dataset_view(i, 0);
-    os.write(reinterpret_cast<const char*>(data_row), sizeof(T) * dim);
-    os.write(reinterpret_cast<char*>(&i), sizeof(std::size_t));
-
-    bytes_written +=
-      dim * sizeof(T) + index_.graph_degree() * sizeof(IdxT) + sizeof(int) + sizeof(size_t);
-    const auto end_clock = std::chrono::system_clock::now();
-    if (!os.good()) { RAFT_FAIL("Error writing HNSW file, row %zu", i); }
-    if (i > next_report_offset) {
-      next_report_offset += d_report_offset;
-      const auto time =
-        std::chrono::duration_cast<std::chrono::microseconds>(end_clock - start_clock).count() *
-        1e-6;
-      float throughput      = bytes_written / GiB / time;
-      float rows_throughput = i / time;
-      float ETA             = (index_.size() - i) / rows_throughput;
-      RAFT_LOG_DEBUG(
-        "# Writing rows %12lu / %12lu (%3.2f %%), %3.2f GiB/sec, ETA %d:%3.1f, written %3.2f GiB\r",
-        i,
-        index_.size(),
-        i / static_cast<double>(index_.size()) * 100,
-        throughput,
-        int(ETA / 60),
-        std::fmod(ETA, 60.0f),
-        bytes_written / GiB);
+  for (size_t first_row = 0; first_row < n_rows; first_row += batch_rows) {
+    const size_t rows = std::min(batch_rows, n_rows - first_row);
+    raft::copy_matrix(graph_buffer.data_handle(),
+                      graph_degree,
+                      graph.data_handle() + first_row * graph_degree,
+                      graph_degree,
+                      graph_degree,
+                      rows,
+                      stream);
+    if (!dataset) {
+      raft::copy_matrix(dataset_buffer.data_handle(),
+                        dim,
+                        device_dataset + first_row * dataset_stride,
+                        dataset_stride,
+                        dim,
+                        rows,
+                        stream);
     }
+    raft::resource::sync_stream(res);
+
+    for (size_t batch_row = 0; batch_row < rows; ++batch_row) {
+      const size_t row = first_row + batch_row;
+      os.write(reinterpret_cast<const char*>(&graph_degree_int), sizeof(int));
+      os.write(reinterpret_cast<const char*>(&graph_buffer(batch_row, 0)),
+               graph_degree * sizeof(IdxT));
+
+      const T* data_row =
+        dataset ? dataset->data_handle() + row * dataset->stride(0) : &dataset_buffer(batch_row, 0);
+      os.write(reinterpret_cast<const char*>(data_row), dim * sizeof(T));
+      os.write(reinterpret_cast<const char*>(&row), sizeof(size_t));
+    }
+
+    RAFT_EXPECTS(os.good(), "Error writing HNSW file at row %zu", first_row + rows - 1);
+    bytes_written += rows * row_size;
+    log_hnswlib_progress(first_row + rows, n_rows, bytes_written, start_clock, next_report);
+  }
+}
+
+template <typename ValueT>
+__device__ void write_unaligned_value(uint8_t* output, ValueT value)
+{
+  const auto* bytes = reinterpret_cast<const uint8_t*>(&value);
+#pragma unroll
+  for (size_t i = 0; i < sizeof(ValueT); ++i) {
+    output[i] = bytes[i];
+  }
+}
+
+template <typename T, typename IdxT>
+__global__ void pack_hnswlib_rows(uint8_t* output,
+                                  size_t row_size,
+                                  const uint32_t* graph,
+                                  const T* dataset,
+                                  size_t first_row,
+                                  size_t rows,
+                                  uint32_t graph_degree,
+                                  uint32_t dim,
+                                  int64_t dataset_stride)
+{
+  const size_t warps_per_block = blockDim.x / warpSize;
+  const size_t warp            = threadIdx.x / warpSize;
+  const size_t lane            = threadIdx.x % warpSize;
+  const size_t batch_row       = blockIdx.x * warps_per_block + warp;
+  if (batch_row >= rows) { return; }
+
+  const size_t row = first_row + batch_row;
+  auto* row_output = output + batch_row * row_size;
+  if (lane == 0) {
+    write_unaligned_value(row_output, static_cast<int>(graph_degree));
+    const size_t label_offset = sizeof(int) + graph_degree * sizeof(IdxT) + dim * sizeof(T);
+    write_unaligned_value(row_output + label_offset, row);
   }
 
-  for (std::size_t i = 0; i < index_.size(); i++) {
-    // zeroes
-    auto zero = 0;
-    os.write(reinterpret_cast<char*>(&zero), sizeof(int));
+  const size_t graph_offset = sizeof(int);
+  for (size_t col = lane; col < graph_degree; col += warpSize) {
+    write_unaligned_value(row_output + graph_offset + col * sizeof(IdxT),
+                          static_cast<IdxT>(graph[row * static_cast<size_t>(graph_degree) + col]));
   }
+
+  const size_t dataset_offset = graph_offset + graph_degree * sizeof(IdxT);
+  for (size_t col = lane; col < dim; col += warpSize) {
+    write_unaligned_value(row_output + dataset_offset + col * sizeof(T),
+                          dataset[row * static_cast<size_t>(dataset_stride) + col]);
+  }
+}
+
+template <typename T, typename IdxT>
+void write_hnswlib_rows_device(raft::resources const& res,
+                               cuvs::util::kvikio_ofstream& os,
+                               const cuvs::neighbors::cagra::index<T, IdxT>& index_)
+{
+  const size_t n_rows         = static_cast<size_t>(index_.size());
+  const uint32_t dim          = index_.dim();
+  const uint32_t graph_degree = index_.graph_degree();
+  const size_t row_size =
+    sizeof(int) + graph_degree * sizeof(IdxT) + dim * sizeof(T) + sizeof(size_t);
+  if (n_rows == 0) { return; }
+
+  const auto graph   = index_.graph();
+  const auto dataset = index_.dataset();
+  RAFT_EXPECTS(dataset.size() > 0,
+               "Invalid CAGRA dataset of size 0 during serialization, shape %zux%zu",
+               static_cast<size_t>(dataset.extent(0)),
+               static_cast<size_t>(dataset.extent(1)));
+  RAFT_EXPECTS(static_cast<size_t>(graph.extent(0)) == n_rows &&
+                 static_cast<size_t>(dataset.extent(0)) == n_rows,
+               "CAGRA graph and dataset rows must match index size");
+
+  const size_t batch_rows = std::min<size_t>(
+    n_rows, std::max<size_t>(1, cuvs::util::detail::kDeviceSerializationBatchBytes / row_size));
+  auto output       = raft::make_device_vector<uint8_t, int64_t>(res, batch_rows * row_size);
+  const auto stream = raft::resource::get_cuda_stream(res);
+
+  size_t bytes_written          = 0;
+  size_t next_report            = std::max<size_t>(1, n_rows / 10);
+  const auto start_clock        = std::chrono::system_clock::now();
+  constexpr int block_size      = 256;
+  constexpr int warps_per_block = block_size / 32;
+
+  for (size_t first_row = 0; first_row < n_rows; first_row += batch_rows) {
+    const size_t rows   = std::min(batch_rows, n_rows - first_row);
+    const size_t blocks = (rows + warps_per_block - 1) / warps_per_block;
+    pack_hnswlib_rows<T, IdxT>
+      <<<static_cast<unsigned int>(blocks), block_size, 0, stream>>>(output.data_handle(),
+                                                                     row_size,
+                                                                     graph.data_handle(),
+                                                                     dataset.data_handle(),
+                                                                     first_row,
+                                                                     rows,
+                                                                     graph_degree,
+                                                                     dim,
+                                                                     dataset.stride(0));
+    RAFT_CUDA_TRY(cudaPeekAtLastError());
+    raft::resource::sync_stream(res);
+
+    const size_t bytes = rows * row_size;
+    os.write_device(output.data_handle(), bytes);
+    bytes_written += bytes;
+    log_hnswlib_progress(first_row + rows, n_rows, bytes_written, start_clock, next_report);
+  }
+}
+
+inline void write_hnswlib_empty_levels(std::ostream& os, size_t n_rows)
+{
+  constexpr size_t chunk_size = 16 * 1024;
+  const std::array<int, chunk_size> zeros{};
+  for (size_t first_row = 0; first_row < n_rows; first_row += chunk_size) {
+    const size_t rows = std::min(chunk_size, n_rows - first_row);
+    os.write(reinterpret_cast<const char*>(zeros.data()), rows * sizeof(int));
+  }
+}
+
+template <typename T, typename IdxT>
+void serialize_to_hnswlib(
+  raft::resources const& res,
+  std::ostream& os,
+  const cuvs::neighbors::cagra::index<T, IdxT>& index_,
+  std::optional<raft::host_matrix_view<const T, int64_t, raft::row_major>> dataset)
+{
+  const int dim = dataset ? dataset->extent(1) : index_.dim();
+  raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> fun_scope("cagra::serialize");
+  RAFT_LOG_DEBUG("Saving CAGRA index to hnswlib format, size %zu, dim %d",
+                 static_cast<size_t>(index_.size()),
+                 dim);
+
+  write_hnswlib_header(os, index_, dim);
+  write_hnswlib_rows_host(res, os, index_, dataset);
+  write_hnswlib_empty_levels(os, static_cast<size_t>(index_.size()));
 }
 
 template <typename T, typename IdxT>
@@ -246,10 +442,22 @@ void serialize_to_hnswlib(
   const cuvs::neighbors::cagra::index<T, IdxT>& index_,
   std::optional<raft::host_matrix_view<const T, int64_t, raft::row_major>> dataset)
 {
-  std::ofstream of(filename, std::ios::out | std::ios::binary);
+  const int dim = dataset ? dataset->extent(1) : index_.dim();
+  raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> fun_scope("cagra::serialize");
+  RAFT_LOG_DEBUG("Saving CAGRA index to hnswlib format, size %zu, dim %d",
+                 static_cast<size_t>(index_.size()),
+                 dim);
+
+  cuvs::util::kvikio_ofstream of(filename);
   if (!of) { RAFT_FAIL("Cannot open file %s", filename.c_str()); }
 
-  detail::serialize_to_hnswlib<T, IdxT>(res, of, index_, dataset);
+  write_hnswlib_header(of, index_, dim);
+  if (dataset) {
+    write_hnswlib_rows_host(res, of, index_, dataset);
+  } else {
+    write_hnswlib_rows_device(res, of, index_);
+  }
+  write_hnswlib_empty_levels(of, static_cast<size_t>(index_.size()));
 
   of.close();
   if (!of) { RAFT_FAIL("Error writing output %s", filename.c_str()); }

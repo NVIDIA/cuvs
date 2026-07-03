@@ -3,6 +3,7 @@
 #
 
 import ctypes
+import importlib
 import os
 
 # Loading with RTLD_LOCAL adds the library itself to the loader's
@@ -32,24 +33,29 @@ def _load_wheel_installation(soname: str):
     return None
 
 
+def _load_dependency(module_name: str):
+    """Import ``module_name`` and call its ``load_library()``.
+
+    A missing module is ignored: these runtime dependencies might be
+    satisfied by conda packages (which do not have any Python modules)
+    instead of wheels. In that situation, assume that the libraries are in
+    a place where the loader can find them. Each dependency is loaded
+    independently so that a missing module does not prevent the others
+    from loading.
+    """
+    try:
+        module = importlib.import_module(module_name)
+    except ModuleNotFoundError:
+        return
+    module.load_library()
+
+
 def load_library():
     """Dynamically load libcuvs.so and its dependencies"""
-    try:
-        # These libraries  must be loaded before libcuvs because libcuvs
-        # references their symbols
-        import libkvikio
-        import libraft
-        import librmm
-
-        libkvikio.load_library()
-        librmm.load_library()
-        libraft.load_library()
-    except ModuleNotFoundError:
-        # These runtime dependencies might be satisfied by conda packages
-        # (which do not have any Python modules) instead of wheels. In that
-        # situation, assume that the libraries are in a place where the loader
-        # can find them.
-        pass
+    # These libraries must be loaded before libcuvs because libcuvs
+    # references their symbols.
+    for module_name in ("libkvikio", "librmm", "libraft"):
+        _load_dependency(module_name)
 
     prefer_system_installation = (
         os.getenv("RAPIDS_LIBCUVS_PREFER_SYSTEM_LIBRARY", "false").lower()

@@ -62,6 +62,21 @@ void validate_kvikio_handle_matches_fd(const file_descriptor& fd,
   }
 }
 
+void validate_kvikio_handles_match(const kvikio::FileHandle& expected,
+                                   const kvikio::FileHandle& actual,
+                                   const std::string& path)
+{
+  const auto expected_identity = get_file_identity(expected.fd(false), "stream");
+
+  const int buffered_fd = actual.fd(false);
+  expect_matching_file_identity(expected_identity, buffered_fd, "kvikio buffered", path);
+
+  const int direct_fd = actual.fd(true);
+  if (direct_fd >= 0 && direct_fd != buffered_fd) {
+    expect_matching_file_identity(expected_identity, direct_fd, "kvikio direct", path);
+  }
+}
+
 }  // namespace
 
 void read_large_file(const file_descriptor& fd,
@@ -116,7 +131,7 @@ void write_large_file(const file_descriptor& fd,
 class kvikio_ofstream::sbuf : public std::streambuf {
  public:
   sbuf(const std::string& path, size_t cap)
-    : handle_(path, "w"), buffer_(std::max<size_t>(cap, kNumpyDataAlignment))
+    : path_(path), handle_(path, "w"), buffer_(std::max<size_t>(cap, kNumpyDataAlignment))
   {
     RAFT_EXPECTS(buffer_.size() <= static_cast<size_t>(std::numeric_limits<int>::max()),
                  "kvikio_ofstream buffer size must fit in std::streambuf::pbump");
@@ -136,8 +151,29 @@ class kvikio_ofstream::sbuf : public std::streambuf {
   {
     if (closed_) { return; }
     flush_buffer();
+    if (device_handle_) { device_handle_->close(); }
     handle_.close();
     closed_ = true;
+  }
+
+  void write_device(const void* data, size_t n)
+  {
+    RAFT_EXPECTS(!closed_, "kvikio_ofstream: write attempted after close");
+    RAFT_EXPECTS(data != nullptr || n == 0, "kvikio_ofstream: device pointer must not be null");
+    if (n == 0) { return; }
+
+    flush_buffer();
+    if (!detail::is_kvikio_device_memory(data)) {
+      write_at_current_offset(handle_, data, n);
+      return;
+    }
+
+    if (!device_handle_) {
+      device_handle_ =
+        std::make_unique<kvikio::FileHandle>(detail::open_kvikio_file_for_device_io(path_, "r+"));
+      validate_kvikio_handles_match(handle_, *device_handle_, path_);
+    }
+    write_at_current_offset(*device_handle_, data, n);
   }
 
   // Total logical bytes accepted = already-written + currently-staged.
@@ -172,7 +208,7 @@ class kvikio_ofstream::sbuf : public std::streambuf {
       // chunk straight to kvikio. This avoids std::streambuf's byte-at-a-time fallback path.
       if (remaining >= buffer_.size()) {
         flush_buffer();
-        write_direct(current, remaining);
+        write_at_current_offset(handle_, current, remaining);
         return requested;
       }
 
@@ -216,20 +252,22 @@ class kvikio_ofstream::sbuf : public std::streambuf {
   {
     const size_t n = static_cast<size_t>(pptr() - pbase());
     if (n > 0) {
-      write_direct(pbase(), n);
+      write_at_current_offset(handle_, pbase(), n);
       setp(buffer_.data(), buffer_.data() + buffer_.size());
     }
   }
 
-  void write_direct(const char* data, size_t n)
+  void write_at_current_offset(kvikio::FileHandle& handle, const void* data, size_t n)
   {
     RAFT_EXPECTS(!closed_, "kvikio_ofstream: write attempted after close");
-    const size_t w = handle_.pwrite(data, n, offset_).get();
+    const size_t w = handle.pwrite(data, n, offset_).get();
     RAFT_EXPECTS(w == n, "kvikio_ofstream: short write (expected %zu, wrote %zu)", n, w);
     offset_ += n;
   }
 
+  std::string path_;
   kvikio::FileHandle handle_;
+  std::unique_ptr<kvikio::FileHandle> device_handle_;
   std::vector<char> buffer_;
   size_t offset_ = 0;
   bool closed_   = false;
@@ -253,6 +291,12 @@ kvikio_ofstream::~kvikio_ofstream()
 void kvikio_ofstream::close()
 {
   if (buf_) { buf_->close(); }
+}
+
+kvikio_ofstream& kvikio_ofstream::write_device(const void* data, size_t size)
+{
+  buf_->write_device(data, size);
+  return *this;
 }
 
 size_t kvikio_ofstream::bytes_written() const noexcept { return buf_ ? buf_->bytes_written() : 0; }

@@ -198,6 +198,40 @@ TEST(FileIO, KvikioOfstreamLargeSingleWrite)
   EXPECT_EQ(got, data);
 }
 
+// Host stream output and direct device output must share one ordered logical file position.
+TEST(FileIO, KvikioOfstreamMixedHostAndDeviceWrites)
+{
+  raft::resources res;
+  scratch_dir scratch;
+  const std::string path = scratch.file("stream_device.bin");
+  const std::vector<char> prefix{'h', 'e', 'a', 'd'};
+  const std::vector<char> payload = make_pattern((size_t{3} << 20) + 17, 19);
+  const std::vector<char> suffix{'t', 'a', 'i', 'l'};
+
+  auto device_payload = raft::make_device_vector<char, int64_t>(res, payload.size());
+  raft::copy(device_payload.data_handle(),
+             payload.data(),
+             payload.size(),
+             raft::resource::get_cuda_stream(res));
+  raft::resource::sync_stream(res);
+
+  {
+    kvikio_ofstream os(path, size_t{1} << 20);
+    os.write(prefix.data(), prefix.size());
+    os.write_device(device_payload.data_handle(), payload.size());
+    os.write(suffix.data(), suffix.size());
+    EXPECT_EQ(os.bytes_written(), prefix.size() + payload.size() + suffix.size());
+    os.close();
+  }
+
+  std::vector<char> expected;
+  expected.reserve(prefix.size() + payload.size() + suffix.size());
+  expected.insert(expected.end(), prefix.begin(), prefix.end());
+  expected.insert(expected.end(), payload.begin(), payload.end());
+  expected.insert(expected.end(), suffix.begin(), suffix.end());
+  EXPECT_EQ(read_whole_file(path), expected);
+}
+
 // Defensive checks on the bulk helpers.
 TEST(FileIO, InvalidArguments)
 {
