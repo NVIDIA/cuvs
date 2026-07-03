@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 #
 # cython: language_level=3
@@ -70,10 +70,14 @@ cdef class MultiGpuResources:
     >>> handle.sync()
     """
 
-    def __cinit__(self, stream=None, device_ids=None):
+    def __cinit__(self, stream=None, device_ids=None, handle=None):
         cdef DLManagedTensor* device_ids_dlpack = NULL
 
-        if device_ids is not None:
+        if handle is not None:
+            # Use existing handle (e.g., from pylibraft)
+            self.c_obj = <cuvsResources_t><size_t>handle
+            self._owns_resource = False
+        elif device_ids is not None:
             # Convert device_ids list to DLManagedTensor (keep on host/CPU)
             # NumPy arrays are naturally on the host, which is what we need
             device_ids_array = np.asarray(device_ids, dtype=np.int32)
@@ -81,8 +85,10 @@ cdef class MultiGpuResources:
             device_ids_dlpack = dlpack_c(ai)
             check_cuvs(cuvsMultiGpuResourcesCreateWithDeviceIds(
                 &self.c_obj, device_ids_dlpack))
+            self._owns_resource = True
         else:
             check_cuvs(cuvsMultiGpuResourcesCreate(&self.c_obj))
+            self._owns_resource = True
 
         if stream:
             check_cuvs(cuvsStreamSet(self.c_obj, <cudaStream_t>stream))
@@ -115,7 +121,8 @@ cdef class MultiGpuResources:
         return <size_t> self.c_obj
 
     def __dealloc__(self):
-        check_cuvs(cuvsMultiGpuResourcesDestroy(self.c_obj))
+        if self._owns_resource:
+            check_cuvs(cuvsMultiGpuResourcesDestroy(self.c_obj))
 
 
 _multi_gpu_resources_param_string = """
@@ -125,7 +132,8 @@ resources.
         allocated inside this function and synchronized before the
         function exits. If resources are supplied, you will need to
         explicitly synchronize yourself by calling `resources.sync()`
-        before accessing the output.
+        before accessing the output. Also accepts pylibraft
+        DeviceResourcesSNMG objects.
 """.strip()
 
 
@@ -137,6 +145,9 @@ def auto_sync_multi_gpu_resources(f):
     will automatically create a default multi-GPU resources for the function,
     and call sync on that resources when the function exits.
 
+    This also accepts pylibraft DeviceResourcesSNMG objects, which will
+    be wrapped to provide the cuVS MultiGpuResources interface.
+
     This will also insert the appropriate docstring for the resources
     parameter
     """
@@ -145,8 +156,18 @@ def auto_sync_multi_gpu_resources(f):
     @functools.wraps(f)
     def wrapper(*args, resources=None, **kwargs):
         sync_resources = resources is None
-        resources = (resources if resources is not None
-                     else MultiGpuResources())
+
+        if resources is None:
+            resources = MultiGpuResources()
+        elif not isinstance(resources, MultiGpuResources):
+            # Create a MultiGpuResources instance from pylibraft
+            # DeviceResourcesSNMG
+            if not hasattr(resources, 'getHandle'):
+                raise TypeError(
+                    "resources must be a cuVS MultiGpuResources or pylibraft "
+                    "DeviceResourcesSNMG object"
+                )
+            resources = MultiGpuResources(handle=resources.getHandle())
 
         ret_value = f(*args, resources=resources, **kwargs)
 
