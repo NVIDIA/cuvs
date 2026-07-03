@@ -17,6 +17,9 @@ struct alignas(16) multi_partition_desc_t {
   const IndexT* graph;
   uint32_t graph_degree;
   uint32_t _pad;
+  // Starting bit offset of this partition in the combined filter bitset (word-aligned prefix sum
+  // of per-partition sizes). Added to the partition-local source index when testing the bitset.
+  std::int64_t bit_offset;
 };
 
 }  // namespace cuvs::neighbors::cagra::detail::single_cta_search
@@ -29,6 +32,9 @@ struct alignas(16) multi_partition_desc_t {
   const IndexT* graph;
   uint32_t graph_degree;
   uint32_t _pad;
+  // Starting bit offset of this partition in the combined filter bitset (word-aligned prefix sum
+  // of per-partition sizes). Added to the partition-local source index when testing the bitset.
+  std::int64_t bit_offset;
 };
 
 }  // namespace cuvs::neighbors::cagra::detail::multi_cta_search

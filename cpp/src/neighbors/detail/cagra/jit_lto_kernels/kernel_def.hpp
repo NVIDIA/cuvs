@@ -75,7 +75,7 @@ using search_single_cta_mp_kernel_func_t =
        const std::uint32_t,
        const std::uint32_t,
        const std::uint32_t,
-       mp_cagra_bitset<SourceIndexT>);
+       cagra_bitset<SourceIndexT>);
 
 template <typename DataT, typename IndexT, typename DistanceT, typename SourceIndexT>
 using search_single_cta_p_kernel_func_t =
@@ -125,7 +125,7 @@ using search_multi_cta_mp_kernel_func_t =
        const std::uint32_t,
        const std::uint32_t,
        const std::uint32_t,
-       mp_cagra_bitset<SourceIndexT>);
+       cagra_bitset<SourceIndexT>);
 
 template <typename DataT, typename IndexT, typename DistanceT, typename SourceIndexT>
 using search_multi_cta_kernel_func_t =

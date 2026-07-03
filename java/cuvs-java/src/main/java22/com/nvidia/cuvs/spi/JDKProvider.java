@@ -247,9 +247,8 @@ final class JDKProvider implements CuVSProvider {
   }
 
   @Override
-  public FilterBitsetHandle newFilterBitsetHandle(
-      long[] combinedLongs, long[] partBitOffsets, long totalBits) {
-    return new FilterBitsetHandleImpl(combinedLongs, partBitOffsets, totalBits);
+  public FilterBitsetHandle newFilterBitsetHandle(long[] combinedLongs) {
+    return new FilterBitsetHandleImpl(combinedLongs);
   }
 
   @Override

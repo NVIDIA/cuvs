@@ -1,5 +1,5 @@
 {
-  "filter_name": ["none", "bitset", "mp_bitset"],
+  "filter_name": ["none", "bitset"],
   "_bitset": [
     {
       "bitset_type": "uint32_t",

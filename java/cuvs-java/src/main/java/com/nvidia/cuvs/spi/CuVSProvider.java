@@ -164,14 +164,12 @@ public interface CuVSProvider {
   }
 
   /**
-   * Creates a device-backed multi-partition filter handle from pre-packed host bitset arrays.
+   * Creates a device-backed multi-partition filter handle from the pre-packed combined bitset.
+   * Per-partition bit offsets are recomputed inside cuVS from the index sizes.
    *
-   * @param combinedLongs  packed bitset words for all partitions concatenated (64-bit aligned)
-   * @param partBitOffsets per-partition bit offsets into {@code combinedLongs}
-   * @param totalBits      total number of logical bits in {@code combinedLongs}
+   * @param combinedLongs packed bitset words for all partitions concatenated (64-bit aligned)
    */
-  FilterBitsetHandle newFilterBitsetHandle(
-      long[] combinedLongs, long[] partBitOffsets, long totalBits);
+  FilterBitsetHandle newFilterBitsetHandle(long[] combinedLongs);
 
   /**
    * Searches multiple CAGRA index partitions for the global top-k nearest neighbors per query.

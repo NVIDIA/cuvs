@@ -746,19 +746,20 @@ extern "C" cuvsError_t cuvsCagraSearchMultiPartition(cuvsResources_t res,
                                                      partition_ids_view,
                                                      neighbors_view,
                                                      distances_view);
-    } else if (filter.type == MULTI_PARTITION_BITSET) {
-      auto* f = reinterpret_cast<cuvsMultiPartitionBitsetFilter*>(filter.addr);
-      RAFT_EXPECTS(f != nullptr, "MULTI_PARTITION_BITSET filter addr must be non-null");
+    } else if (filter.type == BITSET) {
+      auto* bitset_tensor = reinterpret_cast<DLManagedTensor*>(filter.addr);
+      RAFT_EXPECTS(bitset_tensor != nullptr, "BITSET filter addr must be non-null");
 
-      using bitset_mdspan_t  = raft::device_vector_view<std::uint32_t, int64_t, raft::row_major>;
-      using offsets_mdspan_t = raft::device_vector_view<int64_t, int64_t, raft::row_major>;
-      auto bitset_mds  = cuvs::core::from_dlpack<bitset_mdspan_t>(f->combined_bitset);
-      auto offsets_mds = cuvs::core::from_dlpack<offsets_mdspan_t>(f->partition_offsets);
+      using bitset_mdspan_t = raft::device_vector_view<std::uint32_t, int64_t, raft::row_major>;
+      auto bitset_mds       = cuvs::core::from_dlpack<bitset_mdspan_t>(bitset_tensor);
 
+      // The bitset is the concatenation of the per-partition bitsets; use its full word capacity as
+      // the logical bit length. Per-partition bit offsets and the size-consistency check against the
+      // partition sizes are handled in search_multi_partition, which already loops the partitions.
       cuvs::core::bitset_view<std::uint32_t, int64_t> combined_bitset_view(
-        bitset_mds, f->total_bitset_bits);
-      cuvs::neighbors::filtering::multi_partition_bitset_filter<uint32_t, int64_t> mp_filter(
-        combined_bitset_view, offsets_mds.data_handle());
+        bitset_mds, static_cast<int64_t>(bitset_mds.size()) * 32);
+      cuvs::neighbors::filtering::bitset_filter<std::uint32_t, int64_t> bitset_filter_obj(
+        combined_bitset_view);
 
       cuvs::neighbors::cagra::search(*res_ptr,
                                                      search_params,
@@ -767,7 +768,7 @@ extern "C" cuvsError_t cuvsCagraSearchMultiPartition(cuvsResources_t res,
                                                      partition_ids_view,
                                                      neighbors_view,
                                                      distances_view,
-                                                     mp_filter);
+                                                     bitset_filter_obj);
     } else {
       RAFT_FAIL("Unsupported filter type for multi-partition search: %d", (int)filter.type);
     }

@@ -21,15 +21,4 @@ struct bitset_filter_data_t {
   SourceIndexT original_nbits{};
 };
 
-/// Multi-partition variant: a single combined bitset spanning all partitions, plus a device
-/// pointer to per-partition bit offsets. The mp sample_filter impl reads
-/// `partition_offsets[blockIdx.z]` and adds it to `node_id` before testing the bitset.
-template <typename SourceIndexT>
-struct mp_bitset_filter_data_t {
-  std::uint32_t* bitset_ptr{nullptr};
-  SourceIndexT bitset_len{};
-  SourceIndexT original_nbits{};
-  const std::int64_t* partition_offsets{nullptr};
-};
-
 }  // namespace cuvs::neighbors::detail

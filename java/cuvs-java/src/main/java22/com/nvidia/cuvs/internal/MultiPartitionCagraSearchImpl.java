@@ -14,7 +14,6 @@ import static com.nvidia.cuvs.internal.panama.headers_h.cuvsCagraSearchMultiPart
 import static com.nvidia.cuvs.internal.panama.headers_h.cuvsStreamSync;
 import static com.nvidia.cuvs.internal.panama.headers_h.kDLCUDA;
 import static com.nvidia.cuvs.internal.panama.headers_h.kDLFloat;
-import static com.nvidia.cuvs.internal.panama.headers_h.kDLInt;
 import static com.nvidia.cuvs.internal.panama.headers_h.kDLUInt;
 
 import com.nvidia.cuvs.CagraIndex;
@@ -112,12 +111,7 @@ public final class MultiPartitionCagraSearchImpl {
             FilterBitsetHandleImpl.DeviceData dev =
                 ((FilterBitsetHandleImpl) filter).getOrUpload(cuvsRes);
             buildCuvsFilterStruct(
-                arena,
-                filterSeg,
-                dev.combinedBitsetDP.handle(),
-                dev.partOffsetsDP.handle(),
-                dev.totalBits,
-                dev.numPartitions);
+                arena, filterSeg, dev.combinedBitsetDP.handle(), dev.combinedWords);
           } else {
             cuvsFilter.type(filterSeg, 0 /* NO_FILTER */);
             cuvsFilter.addr(filterSeg, 0L);
@@ -181,31 +175,21 @@ public final class MultiPartitionCagraSearchImpl {
   }
 
   /**
-   * Populates a {@code cuvsFilter} MemorySegment for a MULTI_PARTITION_BITSET filter using
-   * pre-uploaded device buffers.
+   * Populates a {@code cuvsFilter} MemorySegment for a multi-partition search. The combined bitset
+   * (concatenation of the per-partition bitsets) is passed as a plain {@code BITSET} filter whose
+   * address is the DLPack tensor; cuVS recomputes the per-partition bit offsets from the index
+   * sizes.
    */
   private static void buildCuvsFilterStruct(
       Arena arena,
       MemorySegment filterSeg,
       MemorySegment combinedBitsetHandle,
-      MemorySegment partOffsetsHandle,
-      long totalBits,
-      int numPartitions) {
-    long[] bitsetShape = {(totalBits + 31) / 32};
+      long combinedWords) {
+    long[] bitsetShape = {combinedWords};
     MemorySegment combinedBitsetTensor =
         prepareTensor(arena, combinedBitsetHandle, bitsetShape, kDLUInt(), 32, kDLCUDA());
-    long[] offsetsShape = {numPartitions};
-    MemorySegment partOffsetsTensor =
-        prepareTensor(arena, partOffsetsHandle, offsetsShape, kDLInt(), 64, kDLCUDA());
 
-    // cuvsMultiPartitionBitsetFilter:
-    //   {ptr combined_bitset, int64 total_bits, ptr partition_offsets}
-    MemorySegment mpbFilter = arena.allocate(24, 8);
-    mpbFilter.set(ValueLayout.JAVA_LONG, 0, combinedBitsetTensor.address());
-    mpbFilter.set(ValueLayout.JAVA_LONG, 8, totalBits);
-    mpbFilter.set(ValueLayout.JAVA_LONG, 16, partOffsetsTensor.address());
-
-    cuvsFilter.type(filterSeg, 3 /* MULTI_PARTITION_BITSET */);
-    cuvsFilter.addr(filterSeg, mpbFilter.address());
+    cuvsFilter.type(filterSeg, 1 /* BITSET */);
+    cuvsFilter.addr(filterSeg, combinedBitsetTensor.address());
   }
 }

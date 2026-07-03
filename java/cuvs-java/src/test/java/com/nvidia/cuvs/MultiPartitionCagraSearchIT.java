@@ -81,9 +81,9 @@ public class MultiPartitionCagraSearchIT extends CuVSTestCase {
 
   /**
    * Filtered multi-partition search via a pre-built {@link FilterBitsetHandle}. The combined bitset
-   * is addressed by (partitionOffset + ordinal); with one bit per row and partition offsets equal
-   * to the global row offsets, clearing the first {@code removeCount} bits removes those global
-   * rows. Verified against a brute-force search with the matching prefilter.
+   * is packed with 64-bit word-aligned per-partition slices (cuVS recomputes the per-partition bit
+   * offsets from the index sizes); clearing the first {@code removeCount} global rows removes them.
+   * Verified against a brute-force search with the matching prefilter.
    */
   @Test
   public void testMultiPartitionFilteredSearch() throws Throwable {
@@ -93,15 +93,14 @@ public class MultiPartitionCagraSearchIT extends CuVSTestCase {
     float[][] queries = generateData(random, NUM_QUERIES, DIM);
     int[] partStart = partitionStarts();
 
-    // Combined bitset: one bit per global row, set = keep. Clear the first removeCount rows.
-    long[] combinedLongs = new long[(N_ROWS + 63) / 64];
+    // Combined bitset with 64-bit word-aligned per-partition slices (cuVS recomputes the offsets
+    // from the index sizes). Within a partition, local row i maps to bit waOffset[p] + i; set =
+    // keep. Clearing the first removeCount global rows removes them.
+    final int waSlice = ((PART_ROWS + 63) / 64) * 64; // word-aligned bits per partition
+    long[] combinedLongs = new long[NUM_PARTITIONS * (waSlice / 64)];
     for (int r = removeCount; r < N_ROWS; r++) {
-      combinedLongs[r / 64] |= 1L << (r % 64);
-    }
-    // Per-partition bit offsets == global row offsets (1 bit per row).
-    long[] partBitOffsets = new long[NUM_PARTITIONS];
-    for (int p = 0; p < NUM_PARTITIONS; p++) {
-      partBitOffsets[p] = partStart[p];
+      long waBit = (long) (r / PART_ROWS) * waSlice + (r % PART_ROWS);
+      combinedLongs[(int) (waBit / 64)] |= 1L << (waBit % 64);
     }
 
     // Brute-force ground truth with the same kept set (prefilter bit set == keep).
@@ -115,8 +114,7 @@ public class MultiPartitionCagraSearchIT extends CuVSTestCase {
       // Device-resident query vectors here (the unfiltered test above covers host-resident).
       try (var hostQueries = CuVSMatrix.ofArray(queries);
           var queryVectors = hostQueries.toDevice(resources);
-          FilterBitsetHandle filter =
-              FilterBitsetHandle.create(combinedLongs, partBitOffsets, N_ROWS)) {
+          FilterBitsetHandle filter = FilterBitsetHandle.create(combinedLongs)) {
         CagraQuery query =
             new CagraQuery.Builder(resources)
                 .withTopK(TOP_K)

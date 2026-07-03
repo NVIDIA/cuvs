@@ -962,9 +962,13 @@ void select_and_run_multi_partition(
   SampleFilterT sample_filter,
   cudaStream_t stream)
 {
-  const auto bf = extract_cagra_mp_sample_filter<SourceIndexT>(sample_filter);
-  const mp_cagra_bitset<SourceIndexT> bitset = bf.bitset;
-  const uint32_t query_id_offset             = bf.query_id_offset;
+  // Extract the combined bitset as a plain payload; per-partition offsets are applied in the kernel
+  // from multi_partition_desc_t::bit_offset, not carried in the filter.
+  cagra_bitset<SourceIndexT> bitset{};
+  if constexpr (requires { sample_filter.filter; }) {
+    bitset = make_cagra_bitset_filter_storage<SourceIndexT>(sample_filter.filter);
+  }
+  const uint32_t query_id_offset = cagra_filter_query_id_offset(sample_filter);
 
   auto config             = compute_launch_config(num_itopk_candidates, ps.itopk_size, block_size);
   uint32_t max_candidates = config.max_candidates;

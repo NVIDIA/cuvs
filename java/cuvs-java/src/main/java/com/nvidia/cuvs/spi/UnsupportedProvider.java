@@ -32,8 +32,7 @@ final class UnsupportedProvider implements CuVSProvider {
   }
 
   @Override
-  public FilterBitsetHandle newFilterBitsetHandle(
-      long[] combinedLongs, long[] partBitOffsets, long totalBits) {
+  public FilterBitsetHandle newFilterBitsetHandle(long[] combinedLongs) {
     throw new UnsupportedOperationException(reasons);
   }
 

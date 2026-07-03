@@ -989,9 +989,13 @@ TEST(CagraC, BuildSearchMultiPartitionFiltered)
   distances_tensor.dl_tensor.shape              = out_shape;
   distances_tensor.dl_tensor.strides            = nullptr;
 
-  // Combined bitset over all 4 global rows (0b1001 keeps rows 0 and 3, removes 1 and 2).
-  rmm::device_uvector<uint32_t> combined_bitset_d(1, stream);
-  raft::copy(combined_bitset_d.data(), filter, 1, stream);
+  // Combined bitset packed with 64-bit-word-aligned per-partition slices, matching how cuVS
+  // recomputes per-partition bit offsets from the index sizes: partition 0 occupies bits [0, 64)
+  // and partition 1 bits [64, 128); within each slice local rows 0/1 map to bits 0/1. Keeping
+  // global rows 0 and 3 (removing 1 and 2) => partition 0 = 0b01, partition 1 = 0b10.
+  uint32_t combined_bits[4] = {0b01u, 0u, 0b10u, 0u};
+  rmm::device_uvector<uint32_t> combined_bitset_d(4, stream);
+  raft::copy(combined_bitset_d.data(), combined_bits, 4, stream);
   DLManagedTensor combined_bitset_tensor;
   combined_bitset_tensor.dl_tensor.data               = combined_bitset_d.data();
   combined_bitset_tensor.dl_tensor.device.device_type = kDLCUDA;
@@ -999,33 +1003,15 @@ TEST(CagraC, BuildSearchMultiPartitionFiltered)
   combined_bitset_tensor.dl_tensor.dtype.code         = kDLUInt;
   combined_bitset_tensor.dl_tensor.dtype.bits         = 32;
   combined_bitset_tensor.dl_tensor.dtype.lanes        = 1;
-  int64_t combined_bitset_shape[1]                    = {1};
+  int64_t combined_bitset_shape[1]                    = {4};
   combined_bitset_tensor.dl_tensor.shape              = combined_bitset_shape;
   combined_bitset_tensor.dl_tensor.strides            = nullptr;
 
-  // Per-partition bit offsets into the combined bitset (== global row offsets).
-  int64_t partition_offsets[num_partitions] = {0, part_rows};
-  rmm::device_uvector<int64_t> partition_offsets_d(num_partitions, stream);
-  raft::copy(partition_offsets_d.data(), partition_offsets, num_partitions, stream);
-  DLManagedTensor partition_offsets_tensor;
-  partition_offsets_tensor.dl_tensor.data               = partition_offsets_d.data();
-  partition_offsets_tensor.dl_tensor.device.device_type = kDLCUDA;
-  partition_offsets_tensor.dl_tensor.ndim               = 1;
-  partition_offsets_tensor.dl_tensor.dtype.code         = kDLInt;
-  partition_offsets_tensor.dl_tensor.dtype.bits         = 64;
-  partition_offsets_tensor.dl_tensor.dtype.lanes        = 1;
-  int64_t partition_offsets_shape[1]                    = {num_partitions};
-  partition_offsets_tensor.dl_tensor.shape              = partition_offsets_shape;
-  partition_offsets_tensor.dl_tensor.strides            = nullptr;
-
-  cuvsMultiPartitionBitsetFilter mp_filter;
-  mp_filter.combined_bitset   = &combined_bitset_tensor;
-  mp_filter.total_bitset_bits = num_partitions * part_rows;
-  mp_filter.partition_offsets = &partition_offsets_tensor;
-
+  // Per-partition bit offsets are recomputed inside cuVS from the index sizes, so the filter is a
+  // plain BITSET over the combined device bitset.
   cuvsFilter filter_obj;
-  filter_obj.type = MULTI_PARTITION_BITSET;
-  filter_obj.addr = (uintptr_t)&mp_filter;
+  filter_obj.type = BITSET;
+  filter_obj.addr = (uintptr_t)&combined_bitset_tensor;
 
   cuvsCagraSearchParams_t search_params;
   cuvsCagraSearchParamsCreate(&search_params);

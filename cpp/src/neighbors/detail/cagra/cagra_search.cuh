@@ -378,9 +378,33 @@ void search_multi_partition(
   lightweight_uvector<graph_idx_type> intermediate_neighbors(res);
   lightweight_uvector<DistanceT> intermediate_distances(res);
 
+  // Multi-partition search issues a single query batch, so wrap the filter with query id offset 0,
+  // mirroring the single-partition path (CagraSampleFilterT_Selector / set_offset).
+  using CagraSampleFilterT_s = typename CagraSampleFilterT_Selector<CagraSampleFilterT>::type;
+  auto wrapped_filter        = set_offset(sample_filter, 0u);
+
+  // Word-aligned (64-bit) prefix sum of per-partition sizes: the starting bit offset of partition i
+  // in the combined filter bitset. Recomputed here (rather than transported) and must match the
+  // host-side packing; consumed by both algo branches via multi_partition_desc_t::bit_offset.
+  std::vector<int64_t> partition_bit_offsets(num_partitions);
+  int64_t total_filter_bits = 0;
+  for (uint32_t i = 0; i < num_partitions; i++) {
+    partition_bit_offsets[i] = total_filter_bits;
+    total_filter_bits += ((indices[i]->data().n_rows() + 63) / 64) * 64;
+  }
+  // A bitset filter must be large enough to cover every partition's slice (catches a mismatch
+  // between the caller's packed bitset and the index sizes being searched).
+  if constexpr (requires { sample_filter.view(); }) {
+    RAFT_EXPECTS(
+      total_filter_bits <= static_cast<int64_t>(sample_filter.view().size()),
+      "Combined filter bitset (%ld bits) is too small for the partition sizes (%ld bits)",
+      static_cast<int64_t>(sample_filter.view().size()),
+      total_filter_bits);
+  }
+
   if (params.algo == search_algo::SINGLE_CTA) {
     single_cta_search::
-      search<T, graph_idx_type, DistanceT, CagraSampleFilterT, graph_idx_type, graph_idx_type>
+      search<T, graph_idx_type, DistanceT, CagraSampleFilterT_s, graph_idx_type, graph_idx_type>
         plan(res, params, plan_desc, dim, max_dataset_size, max_graph_degree, topk);
 
     RAFT_EXPECTS(topk <= plan.itopk_size,
@@ -420,6 +444,7 @@ void search_multi_partition(
       host_part_descs[i].dataset_desc = part_dataset_descs.back().dev_ptr(stream);
       host_part_descs[i].graph        = indices[i]->graph().data_handle();
       host_part_descs[i].graph_degree = static_cast<uint32_t>(indices[i]->graph().extent(1));
+      host_part_descs[i].bit_offset   = partition_bit_offsets[i];
     }
 
     lightweight_uvector<part_desc_t> dev_part_descs_buf(res);
@@ -438,10 +463,10 @@ void search_multi_partition(
                              intermediate_neighbors.data(),
                              intermediate_distances.data(),
                              per_partition_topk,
-                             sample_filter);
+                             wrapped_filter);
   } else /* MULTI_CTA */ {
     multi_cta_search::
-      search<T, graph_idx_type, DistanceT, CagraSampleFilterT, graph_idx_type, graph_idx_type>
+      search<T, graph_idx_type, DistanceT, CagraSampleFilterT_s, graph_idx_type, graph_idx_type>
         plan(res, params, plan_desc, dim, max_dataset_size, max_graph_degree, topk);
 
     // MULTI_CTA splits the global itopk pool across num_cta_per_query CTAs of 32 candidates
@@ -477,6 +502,7 @@ void search_multi_partition(
       host_part_descs[i].dataset_desc = part_dataset_descs.back().dev_ptr(stream);
       host_part_descs[i].graph        = indices[i]->graph().data_handle();
       host_part_descs[i].graph_degree = static_cast<uint32_t>(indices[i]->graph().extent(1));
+      host_part_descs[i].bit_offset   = partition_bit_offsets[i];
     }
 
     lightweight_uvector<part_desc_t> dev_part_descs_buf(res);
@@ -495,7 +521,7 @@ void search_multi_partition(
                              n_queries,
                              intermediate_neighbors.data(),
                              intermediate_distances.data(),
-                             sample_filter);
+                             wrapped_filter);
   }
 
   // Per-partition distance post-processing (scale + metric transform). Each partition's slice in

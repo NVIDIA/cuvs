@@ -81,10 +81,13 @@ RAFT_DEVICE_INLINE_FUNCTION void search_core(
   const std::uint32_t query_id_offset,  // Offset to add to query_id when calling filter
   const dataset_descriptor_base_t<DataT, IndexT, DistanceT>* dataset_desc,
   cagra_sample_filter<SourceIndexT> filter_payload,
-  const IndexT graph_size = 0)  // Original number of bits
+  const IndexT graph_size       = 0,  // Original number of bits
+  const SourceIndexT bit_offset = 0)  // Added to the source index (multi-partition filtering)
 {
   using LOAD_T = device::LOAD_128BIT_T;
 
+  // Maps a graph node id to its source index (for output and filtering). The multi-partition bit
+  // offset is NOT folded in here — it applies only to the bitset test below, not to output indices.
   auto to_source_index = [source_indices_ptr](IndexT x) {
     return source_indices_ptr == nullptr ? static_cast<SourceIndexT>(x) : source_indices_ptr[x];
   };
@@ -307,7 +310,7 @@ RAFT_DEVICE_INLINE_FUNCTION void search_core(
       if (parent_list_buffer[p] != invalid_index) {
         const auto parent_id = result_indices_buffer[parent_list_buffer[p]] & ~index_msb_1_mask;
         if (!sample_filter<SourceIndexT>(query_id + query_id_offset,
-                                         to_source_index(parent_id),
+                                         bit_offset + to_source_index(parent_id),
                                          filter_payload.sample_filter_data())) {
           result_distances_buffer[parent_list_buffer[p]] = utils::get_max_value<DistanceT>();
           result_indices_buffer[parent_list_buffer[p]]   = invalid_index;
@@ -328,7 +331,7 @@ RAFT_DEVICE_INLINE_FUNCTION void search_core(
     const auto node_id = result_indices_buffer[i] & ~index_msb_1_mask;
     if (node_id != (invalid_index & ~index_msb_1_mask) &&
         !sample_filter<SourceIndexT>(query_id + query_id_offset,
-                                     to_source_index(node_id),
+                                     bit_offset + to_source_index(node_id),
                                      filter_payload.sample_filter_data())) {
       result_distances_buffer[i] = utils::get_max_value<DistanceT>();
       result_indices_buffer[i]   = invalid_index;
@@ -675,14 +678,14 @@ __device__ void search_single_cta_mp_impl(
   const std::uint32_t small_hash_bitlen,
   const std::uint32_t small_hash_reset_interval,
   const std::uint32_t query_id_offset,
-  mp_cagra_bitset<SourceIndexT> bitset)
+  cagra_bitset<SourceIndexT> bitset)
 {
   const uint32_t query_id = blockIdx.y;
   const uint32_t part_id  = blockIdx.z;
   const auto& part        = partitions[part_id];
 
-  // Route the multi-partition bitset through the unified payload; the tag_filter_mp_bitset
-  // sample_filter fragment reads partition_offsets via blockIdx.z.
+  // The combined bitset is tested with the plain bitset sample_filter fragment; this partition's
+  // starting bit offset (part.bit_offset) is added to the source index inside search_core.
   cagra_sample_filter<SourceIndexT> filter_payload{};
   filter_payload.filter_data = (bitset.bitset_ptr != nullptr) ? &bitset : nullptr;
 
@@ -728,7 +731,9 @@ __device__ void search_single_cta_mp_impl(
                             query_id,
                             query_id_offset,
                             part.dataset_desc,
-                            filter_payload);
+                            filter_payload,
+                            /*graph_size=*/IndexT{0},
+                            static_cast<SourceIndexT>(part.bit_offset));
 }
 
 }  // namespace cuvs::neighbors::cagra::detail::single_cta_search

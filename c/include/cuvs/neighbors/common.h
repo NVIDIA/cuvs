@@ -29,27 +29,8 @@ enum cuvsFilterType {
   /* Filter an index with a bitset */
   BITSET = 1,
   /* Filter an index with a bitmap */
-  BITMAP = 2,
-  /* Filter multiple index partitions with a single concatenated bitset plus per-partition offsets */
-  MULTI_PARTITION_BITSET = 3
+  BITMAP = 2
 };
-
-/**
- * @brief Filter parameters for multi-partition search.
- *
- * Holds a single device bitset that is the concatenation of per-partition bitsets,
- * together with a device array of per-partition bit offsets.  Pass a pointer to
- * this struct (cast to uintptr_t) in cuvsFilter::addr with
- * cuvsFilter::type == MULTI_PARTITION_BITSET.
- */
-typedef struct {
-  /** Device tensor (uint32, flat) of packed bitset words for all partitions concatenated. */
-  DLManagedTensor* combined_bitset;
-  /** Total number of logical bits in combined_bitset. */
-  int64_t total_bitset_bits;
-  /** Device tensor (int64, [num_partitions]) of per-partition bit offsets into combined_bitset. */
-  DLManagedTensor* partition_offsets;
-} cuvsMultiPartitionBitsetFilter;
 
 /**
  * @brief Struct to hold address of cuvs::neighbors::prefilter and its type

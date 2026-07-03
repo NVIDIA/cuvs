@@ -2108,9 +2108,10 @@ class AnnCagraMultiPartitionTest : public ::testing::TestWithParam<AnnCagraMpInp
                                 ps.min_recall));
   }
 
-  // Filtered multi-partition search via multi_partition_bitset_filter. Because the combined
-  // bitset is addressed by partition_offset[part] + ordinal == global index, filtering the
-  // first `filter_offset` global rows mirrors the single-partition AnnCagraFilterTest.
+  // Filtered multi-partition search via a plain bitset_filter over the combined bitset. cuVS
+  // recomputes each partition's bit offset (word-aligned) from the index sizes, so the bitset is
+  // packed with word-aligned per-partition slices; clearing the bits for the first `filter_offset`
+  // global rows mirrors the single-partition AnnCagraFilterTest.
   void testFilteredSearch()
   {
     if (cosineUnsupported()) { GTEST_SKIP(); }
@@ -2131,21 +2132,31 @@ class AnnCagraMultiPartitionTest : public ::testing::TestWithParam<AnnCagraMpInp
       index_ptrs.push_back(&idx);
     }
 
-    // Combined bitset over all rows; clear the first `filter_offset` global positions (== rows
-    // removed). Unlisted bits stay set (kept), matching cuvs::core::bitset semantics.
+    // cuVS recomputes per-partition bit offsets from the index sizes as a 64-bit word-aligned
+    // prefix sum, so the combined bitset must be packed with word-aligned per-partition slices.
+    // Map each removed global row to its word-aligned position (wa_offset[part] + local) and clear
+    // those bits; unlisted bits stay set (kept), matching cuvs::core::bitset semantics.
+    std::vector<int64_t> wa_offsets(ps.num_partitions, 0);
+    int64_t wa_total = 0;
+    for (int p = 0; p < ps.num_partitions; p++) {
+      wa_offsets[p] = wa_total;
+      wa_total += ((sizes[p] + 63) / 64) * 64;
+    }
+    std::vector<int64_t> removed_host;
+    removed_host.reserve(filter_offset);
+    for (int64_t g = 0; g < filter_offset; g++) {
+      int p = 0;
+      while (p + 1 < ps.num_partitions && g >= offsets[p + 1]) {
+        p++;
+      }
+      removed_host.push_back(wa_offsets[p] + (g - offsets[p]));
+    }
     auto removed = raft::make_device_vector<int64_t, int64_t>(handle_, filter_offset);
-    thrust::sequence(raft::resource::get_thrust_policy(handle_),
-                     thrust::device_pointer_cast(removed.data_handle()),
-                     thrust::device_pointer_cast(removed.data_handle() + filter_offset));
+    raft::update_device(removed.data_handle(), removed_host.data(), filter_offset, stream_);
     raft::resource::sync_stream(handle_);
-    cuvs::core::bitset<uint32_t, int64_t> combined_bitset(handle_, removed.view(), ps.n_rows);
+    cuvs::core::bitset<uint32_t, int64_t> combined_bitset(handle_, removed.view(), wa_total);
 
-    // Per-partition bit offsets into the combined bitset (== global row offsets).
-    auto part_offsets_dev = raft::make_device_vector<int64_t, int64_t>(handle_, ps.num_partitions);
-    raft::update_device(part_offsets_dev.data_handle(), offsets.data(), ps.num_partitions, stream_);
-    raft::resource::sync_stream(handle_);
-    cuvs::neighbors::filtering::multi_partition_bitset_filter<uint32_t, int64_t> mp_filter(
-      combined_bitset.view(), part_offsets_dev.data_handle());
+    cuvs::neighbors::filtering::bitset_filter<uint32_t, int64_t> mp_filter(combined_bitset.view());
 
     const size_t out_size = static_cast<size_t>(ps.n_queries) * ps.k;
     rmm::device_uvector<uint32_t> partition_ids_dev(out_size, stream_);

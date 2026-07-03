@@ -43,7 +43,8 @@ using cuvs::neighbors::detail::sample_filter;
 //                          single-partition)
 //   - source_indices_ptr / seed_ptr / num_seeds / num_executed_iterations / graph_size:
 //                          single-partition passes real values; mp passes nullptr / 0
-//   - BitsetT:             cagra_bitset (single) or mp_cagra_bitset (multi)
+//   - the combined bitset is passed by value as cagra_bitset; the per-partition bit offset is
+//     applied via multi_partition_desc_t::bit_offset (see search_multi_cta_mp_jit)
 template <typename DataT,
           typename IndexT,
           typename DistanceT,
@@ -72,12 +73,15 @@ RAFT_DEVICE_INLINE_FUNCTION void search_core(
   uint32_t* const num_executed_iterations, /* stats */
   const IndexT graph_size,
   const uint32_t query_id_offset,  // Offset to add to query_id when calling filter
-  cagra_sample_filter<SourceIndexT> filter_payload)
+  cagra_sample_filter<SourceIndexT> filter_payload,
+  const SourceIndexT bit_offset = 0)  // Added to the source index (multi-partition filtering)
 {
   using DATA_T     = DataT;
   using INDEX_T    = IndexT;
   using DISTANCE_T = DistanceT;
 
+  // Maps a graph node id to its source index (for output and filtering). The multi-partition bit
+  // offset is NOT folded in here — it applies only to the bitset test below, not to output indices.
   auto to_source_index = [source_indices_ptr](INDEX_T x) {
     return source_indices_ptr == nullptr ? static_cast<SourceIndexT>(x) : source_indices_ptr[x];
   };
@@ -282,7 +286,7 @@ RAFT_DEVICE_INLINE_FUNCTION void search_core(
       if (parent_indices_buffer[p] != invalid_index) {
         const auto parent_id = result_indices_buffer[parent_indices_buffer[p]] & ~index_msb_1_mask;
         if (!sample_filter<SourceIndexT>(query_id + query_id_offset,
-                                         to_source_index(parent_id),
+                                         bit_offset + to_source_index(parent_id),
                                          filter_payload.sample_filter_data())) {
           // If the parent must not be in the resulting top-k list, remove from the parent list
           result_distances_buffer[parent_indices_buffer[p]] = utils::get_max_value<DISTANCE_T>();
@@ -301,7 +305,7 @@ RAFT_DEVICE_INLINE_FUNCTION void search_core(
     if (index == invalid_index) { continue; }
     index &= ~index_msb_1_mask;
     if (!sample_filter<SourceIndexT>(query_id + query_id_offset,
-                                     to_source_index(index),
+                                     bit_offset + to_source_index(index),
                                      filter_payload.sample_filter_data())) {
       result_indices_buffer[i]   = invalid_index;
       result_distances_buffer[i] = utils::get_max_value<DISTANCE_T>();
@@ -460,12 +464,12 @@ __device__ void search_multi_cta_mp_jit(
   const uint32_t min_iteration,
   const uint32_t max_iteration,
   const uint32_t query_id_offset,
-  mp_cagra_bitset<SourceIndexT> bitset)
+  cagra_bitset<SourceIndexT> bitset)
 {
   const auto& part = partition_descs[blockIdx.z];
 
-  // Route the multi-partition bitset through the unified payload; the tag_filter_mp_bitset
-  // sample_filter fragment reads partition_offsets via blockIdx.z.
+  // The combined bitset is tested with the plain bitset sample_filter fragment; this partition's
+  // starting bit offset (part.bit_offset) is added to the source index inside search_core.
   cagra_sample_filter<SourceIndexT> filter_payload{};
   filter_payload.filter_data = (bitset.bitset_ptr != nullptr) ? &bitset : nullptr;
 
@@ -491,7 +495,8 @@ __device__ void search_multi_cta_mp_jit(
                                                       /*num_executed_iterations=*/nullptr,
                                                       /*graph_size=*/0,
                                                       query_id_offset,
-                                                      filter_payload);
+                                                      filter_payload,
+                                                      static_cast<SourceIndexT>(part.bit_offset));
 }
 
 }  // namespace cuvs::neighbors::cagra::detail::multi_cta_search

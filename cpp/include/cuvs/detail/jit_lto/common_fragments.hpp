@@ -14,7 +14,6 @@ struct tag_i8 {};
 struct tag_u8 {};
 struct tag_filter_none {};
 struct tag_filter_bitset {};
-struct tag_filter_mp_bitset {};
 struct tag_filter_udf {};
 
 struct tag_bitset_u32 {};

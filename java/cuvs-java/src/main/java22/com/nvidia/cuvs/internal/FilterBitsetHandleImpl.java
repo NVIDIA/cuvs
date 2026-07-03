@@ -30,22 +30,14 @@ import java.lang.foreign.ValueLayout;
  */
 public final class FilterBitsetHandleImpl implements FilterBitsetHandle {
 
-  /** Device-side allocation pair, shared across all threads. */
+  /** Device-side allocation for the combined bitset, shared across all threads. */
   static final class DeviceData {
     final CloseableRMMAllocation combinedBitsetDP;
-    final CloseableRMMAllocation partOffsetsDP;
-    final long totalBits;
-    final int numPartitions;
+    final long combinedWords; // number of uint32 words in the combined bitset
 
-    DeviceData(
-        CloseableRMMAllocation combinedBitsetDP,
-        CloseableRMMAllocation partOffsetsDP,
-        long totalBits,
-        int numPartitions) {
+    DeviceData(CloseableRMMAllocation combinedBitsetDP, long combinedWords) {
       this.combinedBitsetDP = combinedBitsetDP;
-      this.partOffsetsDP = partOffsetsDP;
-      this.totalBits = totalBits;
-      this.numPartitions = numPartitions;
+      this.combinedWords = combinedWords;
     }
 
     void close() {
@@ -53,29 +45,19 @@ public final class FilterBitsetHandleImpl implements FilterBitsetHandle {
         combinedBitsetDP.close();
       } catch (Exception ignored) {
       }
-      try {
-        partOffsetsDP.close();
-      } catch (Exception ignored) {
-      }
     }
   }
 
   // Host-side immutable data.
   final long[] combinedLongs;
-  final long[] partBitOffsets;
-  final long totalBits;
-  final int numPartitions;
 
   // Shared device allocation — uploaded once, visible to all threads via volatile.
   private volatile DeviceData sharedDeviceData;
   private final Object uploadLock = new Object();
   private volatile boolean closed = false;
 
-  public FilterBitsetHandleImpl(long[] combinedLongs, long[] partBitOffsets, long totalBits) {
+  public FilterBitsetHandleImpl(long[] combinedLongs) {
     this.combinedLongs = combinedLongs;
-    this.partBitOffsets = partBitOffsets;
-    this.totalBits = totalBits;
-    this.numPartitions = partBitOffsets.length;
   }
 
   /**
@@ -99,13 +81,10 @@ public final class FilterBitsetHandleImpl implements FilterBitsetHandle {
 
   private DeviceData upload(long cuvsRes) {
     long combinedBitsetBytes = (long) combinedLongs.length * Long.BYTES;
-    long partOffsetsBytes = (long) partBitOffsets.length * Long.BYTES;
-
     CloseableRMMAllocation combinedBitsetDP = allocateRMMSegment(cuvsRes, combinedBitsetBytes);
-    CloseableRMMAllocation partOffsetsDP = allocateRMMSegment(cuvsRes, partOffsetsBytes);
 
     var stream = getStream(cuvsRes);
-    // Host arenas must outlive the stream sync that confirms the H2D copies.
+    // Host arena must outlive the stream sync that confirms the H2D copy.
     try (var arena = Arena.ofConfined()) {
       MemorySegment hostBitset = arena.allocate(combinedBitsetBytes, Long.BYTES);
       MemorySegment.copy(
@@ -113,16 +92,10 @@ public final class FilterBitsetHandleImpl implements FilterBitsetHandle {
       cudaMemcpyAsync(
           combinedBitsetDP.handle(), hostBitset, combinedBitsetBytes, HOST_TO_DEVICE, stream);
 
-      MemorySegment hostOffsets = arena.allocate(partOffsetsBytes, Long.BYTES);
-      MemorySegment.copy(
-          partBitOffsets, 0, hostOffsets, ValueLayout.JAVA_LONG, 0, partBitOffsets.length);
-      cudaMemcpyAsync(
-          partOffsetsDP.handle(), hostOffsets, partOffsetsBytes, HOST_TO_DEVICE, stream);
-
       checkCuVSError(cuvsStreamSync(cuvsRes), "cuvsStreamSync in FilterBitsetHandle.upload");
     }
-    // Stream sync has returned — device memory is fully populated.
-    return new DeviceData(combinedBitsetDP, partOffsetsDP, totalBits, numPartitions);
+    // Stream sync has returned — device memory is fully populated. uint32 words = long count * 2.
+    return new DeviceData(combinedBitsetDP, (long) combinedLongs.length * 2);
   }
 
   /** Marks this handle closed and releases the shared device allocation. */

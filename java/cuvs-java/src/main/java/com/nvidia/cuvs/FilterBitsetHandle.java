@@ -18,14 +18,14 @@ import com.nvidia.cuvs.spi.CuVSProvider;
 public interface FilterBitsetHandle extends AutoCloseable {
 
   /**
-   * Creates a handle from pre-packed host arrays.
+   * Creates a handle from the pre-packed combined bitset. Per-partition bit offsets are recomputed
+   * inside cuVS from the index sizes, so only the concatenated (64-bit word-aligned) bitset words
+   * are needed here.
    *
-   * @param combinedLongs  packed bitset words for all partitions concatenated (64-bit aligned)
-   * @param partBitOffsets per-partition bit offsets into {@code combinedLongs}
-   * @param totalBits      total number of logical bits in {@code combinedLongs}
+   * @param combinedLongs packed bitset words for all partitions concatenated (64-bit aligned)
    */
-  static FilterBitsetHandle create(long[] combinedLongs, long[] partBitOffsets, long totalBits) {
-    return CuVSProvider.provider().newFilterBitsetHandle(combinedLongs, partBitOffsets, totalBits);
+  static FilterBitsetHandle create(long[] combinedLongs) {
+    return CuVSProvider.provider().newFilterBitsetHandle(combinedLongs);
   }
 
   /** Releases the shared device allocation associated with this handle. */

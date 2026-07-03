@@ -463,10 +463,9 @@ void search(raft::resources const& res,
   }
 
   try {
-    using mp_filter_t =
-      cuvs::neighbors::filtering::multi_partition_bitset_filter<uint32_t, int64_t>;
-    auto& f = dynamic_cast<const mp_filter_t&>(sample_filter_ref);
-    return search<T, IdxT, OutputIdxT, mp_filter_t>(
+    using bitset_filter_t = cuvs::neighbors::filtering::bitset_filter<uint32_t, int64_t>;
+    auto& f               = dynamic_cast<const bitset_filter_t&>(sample_filter_ref);
+    return search<T, IdxT, OutputIdxT, bitset_filter_t>(
       res, params, indices, queries, partition_ids, neighbors, distances, f);
   } catch (const std::bad_cast&) {
     RAFT_FAIL("Unsupported sample filter type for multi-partition search");
