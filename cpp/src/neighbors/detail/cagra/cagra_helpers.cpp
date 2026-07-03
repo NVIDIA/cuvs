@@ -108,7 +108,8 @@ inline std::pair<size_t, size_t> ivf_pq_build_mem_usage(
   cudaDataType_t dtype,
   cuvs::neighbors::graph_build_params::ivf_pq_params params,
   size_t graph_degree,
-  size_t intermediate_graph_degree)
+  size_t intermediate_graph_degree,
+  bool guarantee_connectivity)
 {
   size_t dtype_size   = cuda_data_type_size(dtype);
   bool input_is_float = (dtype == CUDA_R_32F);
@@ -220,7 +221,8 @@ std::pair<size_t, size_t> cagra_build_mem_usage(raft::resources const& res,
                                                              dtype,
                                                              pq_params,
                                                              cparams.graph_degree,
-                                                             cparams.intermediate_graph_degree);
+                                                             cparams.intermediate_graph_degree,
+                                                             cparams.guarantee_connectivity);
   } else if (std::holds_alternative<graph_build_params::nn_descent_params>(
                cparams.graph_build_params)) {
     RAFT_LOG_INFO("Considering CAGRA in memory build with NN-descent");
