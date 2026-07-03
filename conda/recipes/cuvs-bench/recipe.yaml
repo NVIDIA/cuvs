@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 schema_version: 1
 
@@ -42,7 +42,7 @@ requirements:
   run:
     - ${{ pin_compatible("cuda-version", upper_bound="x", lower_bound="x") }}
     - click
-    - cupy >=13.6.0,!=14.0.0,!=14.1.0
+    - cupy >=14.0.1,!=14.1.0
     - cuvs =${{ version }}
     - h5py ${{ h5py_version }}
     - libcuvs-bench-ann =${{ version }}

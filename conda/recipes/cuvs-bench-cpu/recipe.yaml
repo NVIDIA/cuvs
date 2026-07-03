@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 schema_version: 1
 
@@ -93,7 +93,7 @@ requirements:
     - glog ${{ glog_version }}
     - h5py ${{ h5py_version }}
     - matplotlib-base>=3.9
-    - numpy >=1.23,<3.0
+    - numpy >=2.0,<3.0
     - opensearch-py>=2.4.0
     - pandas
     - pyyaml
