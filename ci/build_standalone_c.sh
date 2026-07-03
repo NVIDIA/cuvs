@@ -1,5 +1,5 @@
 #!/bin/bash
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 set -euo pipefail
@@ -85,6 +85,13 @@ sccache --stop-server >/dev/null 2>&1 || true
 
 rapids-logger "Begin c install"
 cmake --install c/build --prefix c/build/install
+
+# libcuvs_c contains libcuvs_static, whose ACE implementation uses the private KvikIO shared
+# library. Bundle that runtime library without adding KvikIO headers or CMake metadata to the
+# standalone C artifact.
+cmake --install cpp/build \
+      --prefix c/build/install \
+      --component cuvs_standalone_runtime
 
 # need to install the tests
 if [ "${BUILD_C_LIB_TESTS}" != "OFF" ]; then
