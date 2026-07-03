@@ -21,7 +21,6 @@
 
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/common.hpp>
-#include <cuvs/neighbors/dataset_view_concepts.hpp>
 #include <cuvs/neighbors/ivf_pq.hpp>
 #include <cuvs/neighbors/refine.hpp>
 

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -16,7 +16,6 @@
 #include "../common/ann_types.hpp"
 #include "../diskann/diskann_wrapper.h"
 #include "cuvs_ann_bench_utils.h"
-#include <cuvs/neighbors/dataset_view_concepts.hpp>
 #include <cuvs/neighbors/vamana.hpp>
 #include <utils.h>
 

@@ -23,8 +23,6 @@
 #include <cuvs/neighbors/cagra.hpp>
 
 #include <cuvs/neighbors/common.hpp>
-#include <cuvs/neighbors/dataset_view_concepts.hpp>
-
 #include <rmm/cuda_stream_view.hpp>
 
 #include <algorithm>

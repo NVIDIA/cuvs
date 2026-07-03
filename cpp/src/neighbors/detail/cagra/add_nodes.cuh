@@ -1,11 +1,10 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #include "../../../core/omp_wrapper.hpp"
 #include "../ann_utils.cuh"
 #include <cuvs/neighbors/cagra.hpp>
-#include <cuvs/neighbors/dataset_view_concepts.hpp>
 #include <raft/core/copy.cuh>
 #include <raft/core/device_resources.hpp>
 #include <raft/core/mdspan_types.hpp>

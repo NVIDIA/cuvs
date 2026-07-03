@@ -19,8 +19,6 @@
 #include <cuvs/distance/distance.hpp>
 
 #include <cuvs/neighbors/cagra.hpp>
-#include <cuvs/neighbors/dataset_view_concepts.hpp>
-
 // TODO: Fix these when ivf methods are moved over
 #include "../../ivf_common.cuh"
 #include "../../ivf_pq/ivf_pq_search.cuh"

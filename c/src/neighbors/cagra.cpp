@@ -24,8 +24,6 @@
 #include <cuvs/neighbors/cagra.h>
 #include <cuvs/neighbors/common.h>
 #include <cuvs/neighbors/cagra.hpp>
-#include <cuvs/neighbors/dataset_view_concepts.hpp>
-
 #include "../core/exceptions.hpp"
 #include "../core/interop.hpp"
 

@@ -5,8 +5,6 @@
 #pragma once
 
 #include <cuvs/neighbors/common.hpp>
-#include <cuvs/neighbors/dataset_view_concepts.hpp>
-
 #include <raft/core/host_mdarray.hpp>
 #include <raft/core/resources.hpp>
 #include <raft/core/serialize.hpp>
