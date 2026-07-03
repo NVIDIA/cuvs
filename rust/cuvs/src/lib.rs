@@ -18,6 +18,7 @@ pub mod dlpack;
 mod error;
 pub mod ivf_flat;
 pub mod ivf_pq;
+pub mod preprocessing;
 mod resources;
 #[cfg(test)]
 pub(crate) mod test_utils;
