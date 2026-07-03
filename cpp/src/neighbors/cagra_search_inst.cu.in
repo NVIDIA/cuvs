@@ -8,11 +8,12 @@
 
 namespace {
 
-using data_t                    = @data_type@;
-using inst_device_padded_view_t = cuvs::neighbors::device_padded_dataset_view<data_t, int64_t>;
-using inst_vpq_f16_view_t       = cuvs::neighbors::device_vpq_dataset_view<half, int64_t>;
-using inst_vpq_f32_view_t       = cuvs::neighbors::device_vpq_dataset_view<float, int64_t>;
-using inst_empty_view_t         = cuvs::neighbors::device_empty_dataset_view<int64_t>;
+using data_t                      = @data_type@;
+using inst_device_padded_view_t   = cuvs::neighbors::device_padded_dataset_view<data_t, int64_t>;
+using inst_device_standard_view_t = cuvs::neighbors::device_standard_dataset_view<data_t, int64_t>;
+using inst_vpq_f16_view_t         = cuvs::neighbors::device_vpq_dataset_view<half, int64_t>;
+using inst_vpq_f32_view_t         = cuvs::neighbors::device_vpq_dataset_view<float, int64_t>;
+using inst_empty_view_t           = cuvs::neighbors::device_empty_dataset_view<int64_t>;
 
 }  // namespace
 
@@ -47,15 +48,29 @@ CUVS_INST_CAGRA_SEARCH_ALL_VIEWS(data_t, int64_t);
   template auto index<T, IdxT, DatasetViewT>::dataset() const \
     -> raft::device_matrix_view<const T, int64_t, raft::layout_stride>
 
-#define CUVS_INST_CAGRA_DATASET_ALL_VIEWS(T)                       \
-  CUVS_INST_CAGRA_DATASET(T, uint32_t, inst_device_padded_view_t); \
-  CUVS_INST_CAGRA_DATASET(T, uint32_t, inst_vpq_f16_view_t);       \
-  CUVS_INST_CAGRA_DATASET(T, uint32_t, inst_vpq_f32_view_t);       \
+#define CUVS_INST_CAGRA_DATASET_ALL_VIEWS(T)                         \
+  CUVS_INST_CAGRA_DATASET(T, uint32_t, inst_device_padded_view_t);   \
+  CUVS_INST_CAGRA_DATASET(T, uint32_t, inst_device_standard_view_t); \
+  CUVS_INST_CAGRA_DATASET(T, uint32_t, inst_vpq_f16_view_t);         \
+  CUVS_INST_CAGRA_DATASET(T, uint32_t, inst_vpq_f32_view_t);         \
   CUVS_INST_CAGRA_DATASET(T, uint32_t, inst_empty_view_t)
 
 CUVS_INST_CAGRA_DATASET_ALL_VIEWS(data_t);
 
 #undef CUVS_INST_CAGRA_DATASET_ALL_VIEWS
 #undef CUVS_INST_CAGRA_DATASET
+
+template CUVS_EXPORT void
+index<data_t, uint32_t, inst_device_padded_view_t>::compute_dataset_norms_(
+  raft::resources const& res);
+template CUVS_EXPORT void
+index<data_t, uint32_t, inst_device_standard_view_t>::compute_dataset_norms_(
+  raft::resources const& res);
+template CUVS_EXPORT void index<data_t, uint32_t, inst_vpq_f16_view_t>::compute_dataset_norms_(
+  raft::resources const& res);
+template CUVS_EXPORT void index<data_t, uint32_t, inst_vpq_f32_view_t>::compute_dataset_norms_(
+  raft::resources const& res);
+template CUVS_EXPORT void index<data_t, uint32_t, inst_empty_view_t>::compute_dataset_norms_(
+  raft::resources const& res);
 
 }  // namespace cuvs::neighbors::cagra

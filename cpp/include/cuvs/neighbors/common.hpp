@@ -8,11 +8,15 @@
 #include <cstdint>
 #include <cuvs/cluster/kmeans.hpp>
 #include <cuvs/distance/distance.hpp>
+#include <raft/core/device_container_policy.hpp>
 #include <raft/core/device_csr_matrix.hpp>
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/device_resources.hpp>
+#include <raft/core/host_container_policy.hpp>
+#include <raft/core/host_device_accessor.hpp>
 #include <raft/core/host_mdarray.hpp>
 #include <raft/core/host_mdspan.hpp>
+#include <raft/core/mdarray.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resources.hpp>
 #include <raft/util/cudart_utils.hpp>   // get_device_for_address, copy_matrix
@@ -143,19 +147,65 @@ enum class MergeStrategy {
  * @brief Tags selecting dataset representation for `dataset` / `dataset_view`.
  *
  * Each container defines nested `owning_storage` then `view_storage` (aliases into `detail::*`
- * storage types shared by device/host). Empty owning and view share one storage type; padded,
- * standard, and VPQ differ between owning and view. Layout kinds appear in order empty, padded,
- * standard, VPQ; within each kind, device precedes host. `dataset` / `dataset_view` only express
- * ownership vs view.
+ * storage types shared by device/host). Accessibility (device vs host) is selected by the
+ * `Accessor` template parameter on `dataset` / `dataset_view`, not by duplicating containers.
+ * Layout kinds: empty, padded, standard, VPQ. `dataset` / `dataset_view` only express ownership
+ * vs view.
  */
 
-template <typename containertype, typename DataT, typename IdxT>
+template <typename containertype, typename DataT, typename IdxT, typename Accessor>
 struct dataset;
 
-template <typename containertype, typename DataT, typename IdxT>
+template <typename containertype, typename DataT, typename IdxT, typename Accessor>
 struct dataset_view;
 
 namespace detail {
+
+// Default owning/view accessors for public dataset aliases.
+template <typename T>
+using device_owning_accessor = raft::device_accessor<raft::device_container_policy<T>>;
+
+template <typename T>
+using host_owning_accessor = raft::host_accessor<raft::host_container_policy<T>>;
+
+template <typename T>
+using device_view_accessor = raft::device_accessor<cuda::std::default_accessor<const T>>;
+
+template <typename T>
+using host_view_accessor = raft::host_accessor<cuda::std::default_accessor<const T>>;
+
+/** View accessor paired with an owning dataset accessor (same residency). */
+template <typename DataT, typename Accessor>
+using dataset_view_accessor_for_owning = std::conditional_t<Accessor::is_device_accessible,
+                                                            device_view_accessor<DataT>,
+                                                            host_view_accessor<DataT>>;
+
+/** Owning accessor paired with a view accessor (same residency). */
+template <typename DataT, typename Accessor>
+using dataset_owning_accessor_for_view = std::conditional_t<Accessor::is_device_accessible,
+                                                            device_owning_accessor<DataT>,
+                                                            host_owning_accessor<DataT>>;
+
+template <typename DataT, typename IdxT, typename Accessor>
+using dense_owning_matrix = std::conditional_t<Accessor::is_device_accessible,
+                                               raft::device_matrix<DataT, IdxT, raft::row_major>,
+                                               raft::host_matrix<DataT, IdxT, raft::row_major>>;
+
+template <typename DataT, typename IdxT, typename Accessor>
+using dense_view_matrix =
+  std::conditional_t<Accessor::is_device_accessible,
+                     raft::device_matrix_view<const DataT, IdxT, raft::row_major>,
+                     raft::host_matrix_view<const DataT, IdxT, raft::row_major>>;
+
+template <typename MathT, typename IdxT, typename Accessor>
+using vpq_vq_book_matrix = std::conditional_t<Accessor::is_device_accessible,
+                                              raft::device_matrix<MathT, uint32_t, raft::row_major>,
+                                              raft::host_matrix<MathT, uint32_t, raft::row_major>>;
+
+template <typename IdxT, typename Accessor>
+using vpq_data_matrix = std::conditional_t<Accessor::is_device_accessible,
+                                           raft::device_matrix<uint8_t, IdxT, raft::row_major>,
+                                           raft::host_matrix<uint8_t, IdxT, raft::row_major>>;
 
 // -----------------------------------------------------------------------------
 // empty
@@ -312,9 +362,10 @@ struct vpq_dataset_owning_storage {
   }
 };
 
-template <typename Container, typename DataT, typename IdxT>
+template <typename containertype, typename DataT, typename IdxT, typename Accessor>
 struct vpq_dataset_view_storage {
-  using owning_dataset_type = dataset<Container, DataT, IdxT>;
+  using owning_dataset_type =
+    dataset<containertype, DataT, IdxT, dataset_owning_accessor_for_view<DataT, Accessor>>;
 
   owning_dataset_type const* dataset_{nullptr};
 
@@ -343,17 +394,10 @@ struct vpq_dataset_view_storage {
 // empty
 // -----------------------------------------------------------------------------
 
-struct device_empty_dataset_container {
-  template <typename IdxT>
+struct empty_dataset_container {
+  template <typename IdxT, typename Accessor>
   using owning_storage = detail::empty_dataset_owning_storage<IdxT>;
-  template <typename IdxT>
-  using view_storage = detail::empty_dataset_view_storage<IdxT>;
-};
-
-struct host_empty_dataset_container {
-  template <typename IdxT>
-  using owning_storage = detail::empty_dataset_owning_storage<IdxT>;
-  template <typename IdxT>
+  template <typename IdxT, typename Accessor>
   using view_storage = detail::empty_dataset_view_storage<IdxT>;
 };
 
@@ -361,101 +405,58 @@ struct host_empty_dataset_container {
 // padded (row-major with logical dim vs stride)
 // -----------------------------------------------------------------------------
 
-struct device_padded_dataset_container {
-  template <typename DataT, typename IdxT>
-  using owning_storage = detail::padded_dataset_owning_storage<
-    raft::device_matrix<DataT, IdxT, raft::row_major>,
-    raft::device_matrix_view<const DataT, IdxT, raft::row_major>,
-    DataT,
-    IdxT>;
-  template <typename DataT, typename IdxT>
-  using view_storage = detail::padded_dataset_view_storage<
-    raft::device_matrix_view<const DataT, IdxT, raft::row_major>,
-    DataT,
-    IdxT>;
-};
-
-struct host_padded_dataset_container {
-  template <typename DataT, typename IdxT>
-  using owning_storage = detail::padded_dataset_owning_storage<
-    raft::host_matrix<DataT, IdxT, raft::row_major>,
-    raft::host_matrix_view<const DataT, IdxT, raft::row_major>,
-    DataT,
-    IdxT>;
-  template <typename DataT, typename IdxT>
-  using view_storage =
-    detail::padded_dataset_view_storage<raft::host_matrix_view<const DataT, IdxT, raft::row_major>,
-                                        DataT,
-                                        IdxT>;
+struct padded_dataset_container {
+  template <typename DataT, typename IdxT, typename Accessor>
+  using owning_storage =
+    detail::padded_dataset_owning_storage<detail::dense_owning_matrix<DataT, IdxT, Accessor>,
+                                          detail::dense_view_matrix<DataT, IdxT, Accessor>,
+                                          DataT,
+                                          IdxT>;
+  template <typename DataT, typename IdxT, typename Accessor>
+  using view_storage = detail::
+    padded_dataset_view_storage<detail::dense_view_matrix<DataT, IdxT, Accessor>, DataT, IdxT>;
 };
 
 // -----------------------------------------------------------------------------
 // standard (row-major with arbitrary stride; no CAGRA alignment requirement)
 // -----------------------------------------------------------------------------
 
-struct device_standard_dataset_container {
-  template <typename DataT, typename IdxT>
-  using owning_storage = detail::standard_dataset_owning_storage<
-    raft::device_matrix<DataT, IdxT, raft::row_major>,
-    raft::device_matrix_view<const DataT, IdxT, raft::row_major>,
-    DataT,
-    IdxT>;
-  template <typename DataT, typename IdxT>
-  using view_storage = detail::standard_dataset_view_storage<
-    raft::device_matrix_view<const DataT, IdxT, raft::row_major>,
-    DataT,
-    IdxT>;
-};
-
-struct host_standard_dataset_container {
-  template <typename DataT, typename IdxT>
-  using owning_storage = detail::standard_dataset_owning_storage<
-    raft::host_matrix<DataT, IdxT, raft::row_major>,
-    raft::host_matrix_view<const DataT, IdxT, raft::row_major>,
-    DataT,
-    IdxT>;
-  template <typename DataT, typename IdxT>
-  using view_storage = detail::standard_dataset_view_storage<
-    raft::host_matrix_view<const DataT, IdxT, raft::row_major>,
-    DataT,
-    IdxT>;
+struct standard_dataset_container {
+  template <typename DataT, typename IdxT, typename Accessor>
+  using owning_storage =
+    detail::standard_dataset_owning_storage<detail::dense_owning_matrix<DataT, IdxT, Accessor>,
+                                            detail::dense_view_matrix<DataT, IdxT, Accessor>,
+                                            DataT,
+                                            IdxT>;
+  template <typename DataT, typename IdxT, typename Accessor>
+  using view_storage = detail::
+    standard_dataset_view_storage<detail::dense_view_matrix<DataT, IdxT, Accessor>, DataT, IdxT>;
 };
 
 // -----------------------------------------------------------------------------
 // VPQ compressed
 // -----------------------------------------------------------------------------
 
-struct device_vpq_dataset_container {
-  template <typename MathT, typename IdxT>
+struct vpq_dataset_container {
+  template <typename MathT, typename IdxT, typename Accessor>
   using owning_storage =
-    detail::vpq_dataset_owning_storage<raft::device_matrix<MathT, uint32_t, raft::row_major>,
-                                       raft::device_matrix<MathT, uint32_t, raft::row_major>,
-                                       raft::device_matrix<uint8_t, IdxT, raft::row_major>,
+    detail::vpq_dataset_owning_storage<detail::vpq_vq_book_matrix<MathT, IdxT, Accessor>,
+                                       detail::vpq_vq_book_matrix<MathT, IdxT, Accessor>,
+                                       detail::vpq_data_matrix<IdxT, Accessor>,
                                        MathT,
                                        IdxT>;
-  template <typename MathT, typename IdxT>
-  using view_storage = detail::vpq_dataset_view_storage<device_vpq_dataset_container, MathT, IdxT>;
+  template <typename MathT, typename IdxT, typename Accessor>
+  using view_storage =
+    detail::vpq_dataset_view_storage<vpq_dataset_container, MathT, IdxT, Accessor>;
 };
 
-struct host_vpq_dataset_container {
-  template <typename MathT, typename IdxT>
-  using owning_storage =
-    detail::vpq_dataset_owning_storage<raft::host_matrix<MathT, uint32_t, raft::row_major>,
-                                       raft::host_matrix<MathT, uint32_t, raft::row_major>,
-                                       raft::host_matrix<uint8_t, IdxT, raft::row_major>,
-                                       MathT,
-                                       IdxT>;
-  template <typename MathT, typename IdxT>
-  using view_storage = detail::vpq_dataset_view_storage<host_vpq_dataset_container, MathT, IdxT>;
-};
-
-template <typename containertype, typename DataT, typename IdxT>
+template <typename containertype, typename DataT, typename IdxT, typename Accessor>
 struct dataset {
   static_assert(!std::is_same_v<containertype, containertype>,
                 "dataset: unsupported containertype / type-parameter combination");
 };
 
-template <typename containertype, typename DataT, typename IdxT>
+template <typename containertype, typename DataT, typename IdxT, typename Accessor>
 struct dataset_view {
   static_assert(!std::is_same_v<containertype, containertype>,
                 "dataset_view: unsupported containertype / type-parameter combination");
@@ -465,143 +466,99 @@ struct dataset_view {
 // empty
 // -----------------------------------------------------------------------------
 
-template <typename IdxT>
-struct dataset<device_empty_dataset_container, void, IdxT>
-  : device_empty_dataset_container::owning_storage<IdxT> {
-  using container_type      = device_empty_dataset_container;
-  using owning_storage_type = typename container_type::template owning_storage<IdxT>;
+template <typename IdxT, typename Accessor>
+struct dataset<empty_dataset_container, void, IdxT, Accessor>
+  : empty_dataset_container::template owning_storage<IdxT, Accessor> {
+  using container_type      = empty_dataset_container;
+  using owning_storage_type = typename container_type::template owning_storage<IdxT, Accessor>;
   using owning_storage_type::owning_storage_type;
 
   [[nodiscard]] auto as_dataset_view() const noexcept
-    -> dataset_view<device_empty_dataset_container, void, IdxT>
+    -> dataset_view<empty_dataset_container,
+                    void,
+                    IdxT,
+                    detail::dataset_view_accessor_for_owning<char, Accessor>>
   {
-    return dataset_view<device_empty_dataset_container, void, IdxT>{this->dim()};
+    return dataset_view<empty_dataset_container,
+                        void,
+                        IdxT,
+                        detail::dataset_view_accessor_for_owning<char, Accessor>>{this->dim()};
   }
 };
 
-template <typename IdxT>
-struct dataset_view<device_empty_dataset_container, void, IdxT>
-  : device_empty_dataset_container::view_storage<IdxT> {
-  using container_type    = device_empty_dataset_container;
-  using view_storage_type = typename container_type::template view_storage<IdxT>;
-  using view_storage_type::view_storage_type;
-};
-
-template <typename IdxT>
-struct dataset<host_empty_dataset_container, void, IdxT>
-  : host_empty_dataset_container::owning_storage<IdxT> {
-  using container_type      = host_empty_dataset_container;
-  using owning_storage_type = typename container_type::template owning_storage<IdxT>;
-  using owning_storage_type::owning_storage_type;
-
-  [[nodiscard]] auto as_dataset_view() const noexcept
-    -> dataset_view<host_empty_dataset_container, void, IdxT>
-  {
-    return dataset_view<host_empty_dataset_container, void, IdxT>{this->dim()};
-  }
-};
-
-template <typename IdxT>
-struct dataset_view<host_empty_dataset_container, void, IdxT>
-  : host_empty_dataset_container::view_storage<IdxT> {
-  using container_type    = host_empty_dataset_container;
-  using view_storage_type = typename container_type::template view_storage<IdxT>;
+template <typename IdxT, typename Accessor>
+struct dataset_view<empty_dataset_container, void, IdxT, Accessor>
+  : empty_dataset_container::template view_storage<IdxT, Accessor> {
+  using container_type    = empty_dataset_container;
+  using view_storage_type = typename container_type::template view_storage<IdxT, Accessor>;
   using view_storage_type::view_storage_type;
 };
 
 // -----------------------------------------------------------------------------
-// standard (device / host row-major with arbitrary stride)
+// standard (row-major with arbitrary stride)
 // -----------------------------------------------------------------------------
 
-template <typename DataT, typename IdxT>
-struct dataset<device_standard_dataset_container, DataT, IdxT>
-  : device_standard_dataset_container::owning_storage<DataT, IdxT> {
-  using container_type      = device_standard_dataset_container;
-  using owning_storage_type = typename container_type::template owning_storage<DataT, IdxT>;
+template <typename DataT, typename IdxT, typename Accessor>
+struct dataset<standard_dataset_container, DataT, IdxT, Accessor>
+  : standard_dataset_container::template owning_storage<DataT, IdxT, Accessor> {
+  using container_type = standard_dataset_container;
+  using owning_storage_type =
+    typename container_type::template owning_storage<DataT, IdxT, Accessor>;
   using owning_storage_type::owning_storage_type;
 
   [[nodiscard]] auto as_dataset_view() const noexcept
-    -> dataset_view<device_standard_dataset_container, DataT, IdxT>
+    -> dataset_view<standard_dataset_container,
+                    DataT,
+                    IdxT,
+                    detail::dataset_view_accessor_for_owning<DataT, Accessor>>
   {
-    return dataset_view<device_standard_dataset_container, DataT, IdxT>(this->view(), this->dim());
+    return dataset_view<standard_dataset_container,
+                        DataT,
+                        IdxT,
+                        detail::dataset_view_accessor_for_owning<DataT, Accessor>>(this->view(),
+                                                                                   this->dim());
   }
 };
 
-template <typename DataT, typename IdxT>
-struct dataset_view<device_standard_dataset_container, DataT, IdxT>
-  : device_standard_dataset_container::view_storage<DataT, IdxT> {
-  using container_type    = device_standard_dataset_container;
-  using view_storage_type = typename container_type::template view_storage<DataT, IdxT>;
-  using view_storage_type::view_storage_type;
-};
-
-template <typename DataT, typename IdxT>
-struct dataset<host_standard_dataset_container, DataT, IdxT>
-  : host_standard_dataset_container::owning_storage<DataT, IdxT> {
-  using container_type      = host_standard_dataset_container;
-  using owning_storage_type = typename container_type::template owning_storage<DataT, IdxT>;
-  using owning_storage_type::owning_storage_type;
-
-  [[nodiscard]] auto as_dataset_view() const noexcept
-    -> dataset_view<host_standard_dataset_container, DataT, IdxT>
-  {
-    return dataset_view<host_standard_dataset_container, DataT, IdxT>(this->view(), this->dim());
-  }
-};
-
-template <typename DataT, typename IdxT>
-struct dataset_view<host_standard_dataset_container, DataT, IdxT>
-  : host_standard_dataset_container::view_storage<DataT, IdxT> {
-  using container_type    = host_standard_dataset_container;
-  using view_storage_type = typename container_type::template view_storage<DataT, IdxT>;
+template <typename DataT, typename IdxT, typename Accessor>
+struct dataset_view<standard_dataset_container, DataT, IdxT, Accessor>
+  : standard_dataset_container::template view_storage<DataT, IdxT, Accessor> {
+  using container_type    = standard_dataset_container;
+  using view_storage_type = typename container_type::template view_storage<DataT, IdxT, Accessor>;
   using view_storage_type::view_storage_type;
 };
 
 // -----------------------------------------------------------------------------
-// padded (device / host row-major with logical dim vs stride)
+// padded (row-major with logical dim vs stride)
 // -----------------------------------------------------------------------------
 
-template <typename DataT, typename IdxT>
-struct dataset<device_padded_dataset_container, DataT, IdxT>
-  : device_padded_dataset_container::owning_storage<DataT, IdxT> {
-  using container_type      = device_padded_dataset_container;
-  using owning_storage_type = typename container_type::template owning_storage<DataT, IdxT>;
+template <typename DataT, typename IdxT, typename Accessor>
+struct dataset<padded_dataset_container, DataT, IdxT, Accessor>
+  : padded_dataset_container::template owning_storage<DataT, IdxT, Accessor> {
+  using container_type = padded_dataset_container;
+  using owning_storage_type =
+    typename container_type::template owning_storage<DataT, IdxT, Accessor>;
   using owning_storage_type::owning_storage_type;
 
   [[nodiscard]] auto as_dataset_view() const noexcept
-    -> dataset_view<device_padded_dataset_container, DataT, IdxT>
+    -> dataset_view<padded_dataset_container,
+                    DataT,
+                    IdxT,
+                    detail::dataset_view_accessor_for_owning<DataT, Accessor>>
   {
-    return dataset_view<device_padded_dataset_container, DataT, IdxT>(this->view(), this->dim());
+    return dataset_view<padded_dataset_container,
+                        DataT,
+                        IdxT,
+                        detail::dataset_view_accessor_for_owning<DataT, Accessor>>(this->view(),
+                                                                                   this->dim());
   }
 };
 
-template <typename DataT, typename IdxT>
-struct dataset_view<device_padded_dataset_container, DataT, IdxT>
-  : device_padded_dataset_container::view_storage<DataT, IdxT> {
-  using container_type    = device_padded_dataset_container;
-  using view_storage_type = typename container_type::template view_storage<DataT, IdxT>;
-  using view_storage_type::view_storage_type;
-};
-
-template <typename DataT, typename IdxT>
-struct dataset<host_padded_dataset_container, DataT, IdxT>
-  : host_padded_dataset_container::owning_storage<DataT, IdxT> {
-  using container_type      = host_padded_dataset_container;
-  using owning_storage_type = typename container_type::template owning_storage<DataT, IdxT>;
-  using owning_storage_type::owning_storage_type;
-
-  [[nodiscard]] auto as_dataset_view() const noexcept
-    -> dataset_view<host_padded_dataset_container, DataT, IdxT>
-  {
-    return dataset_view<host_padded_dataset_container, DataT, IdxT>(this->view(), this->dim());
-  }
-};
-
-template <typename DataT, typename IdxT>
-struct dataset_view<host_padded_dataset_container, DataT, IdxT>
-  : host_padded_dataset_container::view_storage<DataT, IdxT> {
-  using container_type    = host_padded_dataset_container;
-  using view_storage_type = typename container_type::template view_storage<DataT, IdxT>;
+template <typename DataT, typename IdxT, typename Accessor>
+struct dataset_view<padded_dataset_container, DataT, IdxT, Accessor>
+  : padded_dataset_container::template view_storage<DataT, IdxT, Accessor> {
+  using container_type    = padded_dataset_container;
+  using view_storage_type = typename container_type::template view_storage<DataT, IdxT, Accessor>;
   using view_storage_type::view_storage_type;
 };
 
@@ -609,47 +566,32 @@ struct dataset_view<host_padded_dataset_container, DataT, IdxT>
 // VPQ compressed (view holds non-owning pointer to owning dataset)
 // -----------------------------------------------------------------------------
 
-template <typename DataT, typename IdxT>
-struct dataset<device_vpq_dataset_container, DataT, IdxT>
-  : device_vpq_dataset_container::owning_storage<DataT, IdxT> {
-  using container_type      = device_vpq_dataset_container;
-  using owning_storage_type = typename container_type::template owning_storage<DataT, IdxT>;
+template <typename DataT, typename IdxT, typename Accessor>
+struct dataset<vpq_dataset_container, DataT, IdxT, Accessor>
+  : vpq_dataset_container::template owning_storage<DataT, IdxT, Accessor> {
+  using container_type = vpq_dataset_container;
+  using owning_storage_type =
+    typename container_type::template owning_storage<DataT, IdxT, Accessor>;
   using owning_storage_type::owning_storage_type;
 
   [[nodiscard]] auto as_dataset_view() const
-    -> dataset_view<device_vpq_dataset_container, DataT, IdxT>
+    -> dataset_view<vpq_dataset_container,
+                    DataT,
+                    IdxT,
+                    detail::dataset_view_accessor_for_owning<DataT, Accessor>>
   {
-    return dataset_view<device_vpq_dataset_container, DataT, IdxT>{this};
+    return dataset_view<vpq_dataset_container,
+                        DataT,
+                        IdxT,
+                        detail::dataset_view_accessor_for_owning<DataT, Accessor>>{this};
   }
 };
 
-template <typename DataT, typename IdxT>
-struct dataset_view<device_vpq_dataset_container, DataT, IdxT>
-  : device_vpq_dataset_container::view_storage<DataT, IdxT> {
-  using container_type    = device_vpq_dataset_container;
-  using view_storage_type = typename container_type::template view_storage<DataT, IdxT>;
-  using view_storage_type::view_storage_type;
-};
-
-template <typename DataT, typename IdxT>
-struct dataset<host_vpq_dataset_container, DataT, IdxT>
-  : host_vpq_dataset_container::owning_storage<DataT, IdxT> {
-  using container_type      = host_vpq_dataset_container;
-  using owning_storage_type = typename container_type::template owning_storage<DataT, IdxT>;
-  using owning_storage_type::owning_storage_type;
-
-  [[nodiscard]] auto as_dataset_view() const
-    -> dataset_view<host_vpq_dataset_container, DataT, IdxT>
-  {
-    return dataset_view<host_vpq_dataset_container, DataT, IdxT>{this};
-  }
-};
-
-template <typename DataT, typename IdxT>
-struct dataset_view<host_vpq_dataset_container, DataT, IdxT>
-  : host_vpq_dataset_container::view_storage<DataT, IdxT> {
-  using container_type    = host_vpq_dataset_container;
-  using view_storage_type = typename container_type::template view_storage<DataT, IdxT>;
+template <typename DataT, typename IdxT, typename Accessor>
+struct dataset_view<vpq_dataset_container, DataT, IdxT, Accessor>
+  : vpq_dataset_container::template view_storage<DataT, IdxT, Accessor> {
+  using container_type    = vpq_dataset_container;
+  using view_storage_type = typename container_type::template view_storage<DataT, IdxT, Accessor>;
   using view_storage_type::view_storage_type;
 };
 
@@ -657,52 +599,68 @@ struct dataset_view<host_vpq_dataset_container, DataT, IdxT>
  * @brief Aliases for concrete `dataset` / `dataset_view` layouts.
  */
 template <typename IdxT>
-using device_empty_dataset = dataset<device_empty_dataset_container, void, IdxT>;
+using device_empty_dataset =
+  dataset<empty_dataset_container, void, IdxT, detail::device_owning_accessor<char>>;
 
 template <typename IdxT>
-using device_empty_dataset_view = dataset_view<device_empty_dataset_container, void, IdxT>;
+using device_empty_dataset_view =
+  dataset_view<empty_dataset_container, void, IdxT, detail::device_view_accessor<char>>;
 
 template <typename IdxT>
-using host_empty_dataset = dataset<host_empty_dataset_container, void, IdxT>;
+using host_empty_dataset =
+  dataset<empty_dataset_container, void, IdxT, detail::host_owning_accessor<char>>;
 
 template <typename IdxT>
-using host_empty_dataset_view = dataset_view<host_empty_dataset_container, void, IdxT>;
+using host_empty_dataset_view =
+  dataset_view<empty_dataset_container, void, IdxT, detail::host_view_accessor<char>>;
 
 template <typename DataT, typename IdxT>
-using device_padded_dataset = dataset<device_padded_dataset_container, DataT, IdxT>;
+using device_padded_dataset =
+  dataset<padded_dataset_container, DataT, IdxT, detail::device_owning_accessor<DataT>>;
 
 template <typename DataT, typename IdxT>
-using device_padded_dataset_view = dataset_view<device_padded_dataset_container, DataT, IdxT>;
+using device_padded_dataset_view =
+  dataset_view<padded_dataset_container, DataT, IdxT, detail::device_view_accessor<DataT>>;
 
 template <typename DataT, typename IdxT>
-using host_padded_dataset = dataset<host_padded_dataset_container, DataT, IdxT>;
+using host_padded_dataset =
+  dataset<padded_dataset_container, DataT, IdxT, detail::host_owning_accessor<DataT>>;
 
 template <typename DataT, typename IdxT>
-using host_padded_dataset_view = dataset_view<host_padded_dataset_container, DataT, IdxT>;
+using host_padded_dataset_view =
+  dataset_view<padded_dataset_container, DataT, IdxT, detail::host_view_accessor<DataT>>;
 
 template <typename DataT, typename IdxT>
-using device_standard_dataset = dataset<device_standard_dataset_container, DataT, IdxT>;
+using device_standard_dataset =
+  dataset<standard_dataset_container, DataT, IdxT, detail::device_owning_accessor<DataT>>;
 
 template <typename DataT, typename IdxT>
-using device_standard_dataset_view = dataset_view<device_standard_dataset_container, DataT, IdxT>;
+using device_standard_dataset_view =
+  dataset_view<standard_dataset_container, DataT, IdxT, detail::device_view_accessor<DataT>>;
 
 template <typename DataT, typename IdxT>
-using host_standard_dataset = dataset<host_standard_dataset_container, DataT, IdxT>;
+using host_standard_dataset =
+  dataset<standard_dataset_container, DataT, IdxT, detail::host_owning_accessor<DataT>>;
 
 template <typename DataT, typename IdxT>
-using host_standard_dataset_view = dataset_view<host_standard_dataset_container, DataT, IdxT>;
+using host_standard_dataset_view =
+  dataset_view<standard_dataset_container, DataT, IdxT, detail::host_view_accessor<DataT>>;
 
 template <typename DataT, typename IdxT>
-using device_vpq_dataset = dataset<device_vpq_dataset_container, DataT, IdxT>;
+using device_vpq_dataset =
+  dataset<vpq_dataset_container, DataT, IdxT, detail::device_owning_accessor<DataT>>;
 
 template <typename DataT, typename IdxT>
-using device_vpq_dataset_view = dataset_view<device_vpq_dataset_container, DataT, IdxT>;
+using device_vpq_dataset_view =
+  dataset_view<vpq_dataset_container, DataT, IdxT, detail::device_view_accessor<DataT>>;
 
 template <typename DataT, typename IdxT>
-using host_vpq_dataset = dataset<host_vpq_dataset_container, DataT, IdxT>;
+using host_vpq_dataset =
+  dataset<vpq_dataset_container, DataT, IdxT, detail::host_owning_accessor<DataT>>;
 
 template <typename DataT, typename IdxT>
-using host_vpq_dataset_view = dataset_view<host_vpq_dataset_container, DataT, IdxT>;
+using host_vpq_dataset_view =
+  dataset_view<vpq_dataset_container, DataT, IdxT, detail::host_view_accessor<DataT>>;
 
 // Maps a dataset view type to its owning (allocating) dataset counterpart.
 // Used by serialize/deserialize to type the out_dataset output parameter;
@@ -731,17 +689,13 @@ using owning_dataset_for_view_t = typename owning_dataset_for_view<DatasetViewT>
 template <typename DatasetT>
 struct is_padded_dataset : std::false_type {};
 
-template <typename DataT, typename IdxT>
-struct is_padded_dataset<device_padded_dataset<DataT, IdxT>> : std::true_type {};
+template <typename DataT, typename IdxT, typename Accessor>
+struct is_padded_dataset<dataset<padded_dataset_container, DataT, IdxT, Accessor>>
+  : std::true_type {};
 
-template <typename DataT, typename IdxT>
-struct is_padded_dataset<host_padded_dataset<DataT, IdxT>> : std::true_type {};
-
-template <typename DataT, typename IdxT>
-struct is_padded_dataset<device_padded_dataset_view<DataT, IdxT>> : std::true_type {};
-
-template <typename DataT, typename IdxT>
-struct is_padded_dataset<host_padded_dataset_view<DataT, IdxT>> : std::true_type {};
+template <typename DataT, typename IdxT, typename Accessor>
+struct is_padded_dataset<dataset_view<padded_dataset_container, DataT, IdxT, Accessor>>
+  : std::true_type {};
 
 template <typename DatasetT>
 inline constexpr bool is_padded_dataset_v = is_padded_dataset<DatasetT>::value;
@@ -749,17 +703,13 @@ inline constexpr bool is_padded_dataset_v = is_padded_dataset<DatasetT>::value;
 template <typename DatasetT>
 struct is_standard_dataset : std::false_type {};
 
-template <typename DataT, typename IdxT>
-struct is_standard_dataset<device_standard_dataset<DataT, IdxT>> : std::true_type {};
+template <typename DataT, typename IdxT, typename Accessor>
+struct is_standard_dataset<dataset<standard_dataset_container, DataT, IdxT, Accessor>>
+  : std::true_type {};
 
-template <typename DataT, typename IdxT>
-struct is_standard_dataset<host_standard_dataset<DataT, IdxT>> : std::true_type {};
-
-template <typename DataT, typename IdxT>
-struct is_standard_dataset<device_standard_dataset_view<DataT, IdxT>> : std::true_type {};
-
-template <typename DataT, typename IdxT>
-struct is_standard_dataset<host_standard_dataset_view<DataT, IdxT>> : std::true_type {};
+template <typename DataT, typename IdxT, typename Accessor>
+struct is_standard_dataset<dataset_view<standard_dataset_container, DataT, IdxT, Accessor>>
+  : std::true_type {};
 
 template <typename DatasetT>
 inline constexpr bool is_standard_dataset_v = is_standard_dataset<DatasetT>::value;
@@ -767,11 +717,8 @@ inline constexpr bool is_standard_dataset_v = is_standard_dataset<DatasetT>::val
 template <typename DatasetT>
 struct is_vpq_dataset : std::false_type {};
 
-template <typename DataT, typename IdxT>
-struct is_vpq_dataset<device_vpq_dataset<DataT, IdxT>> : std::true_type {};
-
-template <typename DataT, typename IdxT>
-struct is_vpq_dataset<host_vpq_dataset<DataT, IdxT>> : std::true_type {};
+template <typename DataT, typename IdxT, typename Accessor>
+struct is_vpq_dataset<dataset<vpq_dataset_container, DataT, IdxT, Accessor>> : std::true_type {};
 
 template <typename DatasetT>
 inline constexpr bool is_vpq_dataset_v = is_vpq_dataset<DatasetT>::value;

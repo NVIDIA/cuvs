@@ -25,6 +25,19 @@ using inst_vpq_f32_view_t         = cuvs::neighbors::device_vpq_dataset_view<flo
 
 namespace cuvs::neighbors::cagra {
 
+extern template void index<data_t, uint32_t, inst_device_padded_view_t>::compute_dataset_norms_(
+  raft::resources const&);
+extern template void index<data_t, uint32_t, inst_device_standard_view_t>::compute_dataset_norms_(
+  raft::resources const&);
+extern template void index<data_t, uint32_t, inst_host_padded_view_t>::compute_dataset_norms_(
+  raft::resources const&);
+extern template void index<data_t, uint32_t, inst_host_standard_view_t>::compute_dataset_norms_(
+  raft::resources const&);
+extern template void index<data_t, uint32_t, inst_vpq_f16_view_t>::compute_dataset_norms_(
+  raft::resources const&);
+extern template void index<data_t, uint32_t, inst_vpq_f32_view_t>::compute_dataset_norms_(
+  raft::resources const&);
+
 void build_knn_graph(raft::resources const& handle,
                      raft::host_matrix_view<const data_t, int64_t, raft::row_major> dataset,
                      raft::host_matrix_view<index_t, int64_t, raft::row_major> knn_graph,
