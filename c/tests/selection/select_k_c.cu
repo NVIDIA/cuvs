@@ -31,7 +31,7 @@ TEST(SelectKC, SelectKSmallest)
   // input values (device, [1, n], float32)
   rmm::device_uvector<float> in_d(n, stream);
   raft::copy(in_d.data(), in_val, n, stream);
-  DLManagedTensor in_tensor;
+  DLManagedTensor in_tensor{};
   in_tensor.dl_tensor.data               = in_d.data();
   in_tensor.dl_tensor.device.device_type = kDLCUDA;
   in_tensor.dl_tensor.ndim               = 2;
@@ -44,7 +44,7 @@ TEST(SelectKC, SelectKSmallest)
 
   // output values (device, [1, k], float32)
   rmm::device_uvector<float> out_val_d(k, stream);
-  DLManagedTensor out_val_tensor;
+  DLManagedTensor out_val_tensor{};
   out_val_tensor.dl_tensor.data               = out_val_d.data();
   out_val_tensor.dl_tensor.device.device_type = kDLCUDA;
   out_val_tensor.dl_tensor.ndim               = 2;
@@ -57,7 +57,7 @@ TEST(SelectKC, SelectKSmallest)
 
   // output indices (device, [1, k], int64)
   rmm::device_uvector<int64_t> out_idx_d(k, stream);
-  DLManagedTensor out_idx_tensor;
+  DLManagedTensor out_idx_tensor{};
   out_idx_tensor.dl_tensor.data               = out_idx_d.data();
   out_idx_tensor.dl_tensor.device.device_type = kDLCUDA;
   out_idx_tensor.dl_tensor.ndim               = 2;
