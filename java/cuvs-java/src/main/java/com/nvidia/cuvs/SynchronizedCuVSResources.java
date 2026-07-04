@@ -42,7 +42,12 @@ public class SynchronizedCuVSResources implements CuVSResources {
 
   @Override
   public void setWorkspacePool(long sizeBytes) {
-    inner.setWorkspacePool(sizeBytes);
+    lock.lock();
+    try {
+      inner.setWorkspacePool(sizeBytes);
+    } finally {
+      lock.unlock();
+    }
   }
 
   @Override

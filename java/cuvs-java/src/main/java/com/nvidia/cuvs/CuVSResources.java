@@ -70,8 +70,10 @@ public interface CuVSResources extends AutoCloseable {
    * so there is no cross-thread pool mutex contention. Call this once after creating the resources
    * object; calling it again replaces the pool.
    *
-   * @param initialSizeBytes initial pool reservation in bytes; size {@code initialSizeBytes} to
-   *                         cover the steady-state working set to avoid growth after warmup
+   * @param initialSizeBytes initial pool reservation in bytes; must be {@code > 0}. Size
+   *                         {@code initialSizeBytes} to cover the steady-state working set to avoid
+   *                         growth after warmup
+   * @throws IllegalArgumentException if {@code initialSizeBytes} is not greater than 0
    */
   void setWorkspacePool(long initialSizeBytes);
 
