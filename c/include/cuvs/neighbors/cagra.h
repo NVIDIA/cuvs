@@ -724,14 +724,16 @@ CUVS_EXPORT cuvsError_t cuvsCagraSearch(cuvsResources_t res,
  * All work is submitted to the CUDA stream associated with @p res; use @c cuvsStreamSync to
  * wait for completion.
  *
- * Only float32 datasets are currently supported.
+ * The index element type may be float32, float16, int8, or uint8. All partitions must share the
+ * same element type, and the queries must use that same type.
  *
  * @param[in]  res            cuvsResources_t opaque C handle
  * @param[in]  params         search parameters (shared across partitions)
  * @param[in]  num_partitions number of index partitions
- * @param[in]  indices        array of num_partitions cuvsCagraIndex_t pointers
- * @param[in]  queries        DLManagedTensor* (device, float32, [n_queries, dim]); the queries
- *                            matrix is searched against every partition
+ * @param[in]  indices        array of num_partitions cuvsCagraIndex_t pointers, all of the same
+ *                            element type
+ * @param[in]  queries        DLManagedTensor* (device, same dtype as the indices, [n_queries,
+ *                            dim]); the queries matrix is searched against every partition
  * @param[out] partition_ids  DLManagedTensor* (device, uint32, [n_queries, k]); which partition
  *                            each returned neighbor came from
  * @param[out] neighbors      DLManagedTensor* (device, uint32 or int64, [n_queries, k]); ordinal
