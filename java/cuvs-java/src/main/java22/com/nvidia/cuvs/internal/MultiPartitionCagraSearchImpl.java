@@ -160,7 +160,16 @@ public final class MultiPartitionCagraSearchImpl {
           int count = 0;
           for (int j = 0; j < total; j++) {
             int neighbor = hostNeighbors.getAtIndex(ValueLayout.JAVA_INT, j);
-            if (neighbor < 0) continue; // sentinel from unfilled top-k slots
+            if (neighbor < 0) {
+              // Top bit set: either the uint32 sentinel for an unfilled top-k slot, or a valid
+              // ordinal >= 2^31 that does not fit in a signed int.
+              if (neighbor == 0xFFFFFFFF) continue;
+              throw new ArithmeticException(
+                  "ordinal "
+                      + Integer.toUnsignedLong(neighbor)
+                      + " exceeds Integer.MAX_VALUE; partitions larger than 2^31 vectors are not"
+                      + " supported by this API");
+            }
             partitionIds[count] = hostPartitionIds.getAtIndex(ValueLayout.JAVA_INT, j);
             selectedNeighbors[count] = neighbor;
             selectedDistances[count] = hostDistances.getAtIndex(ValueLayout.JAVA_FLOAT, j);
