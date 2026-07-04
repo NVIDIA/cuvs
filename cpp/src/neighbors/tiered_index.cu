@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -222,7 +222,11 @@ int64_t index<UpstreamT>::dim() const noexcept
   return state->dim();
 }
 
-template struct index<cagra::device_padded_index<float, uint32_t>>;
+template CUVS_EXPORT int64_t
+index<cagra::device_padded_index<float, uint32_t>>::size() const noexcept;
+template CUVS_EXPORT int64_t
+index<cagra::device_padded_index<float, uint32_t>>::dim() const noexcept;
+
 template struct index<ivf_flat::index<float, int64_t>>;
 template struct index<ivf_pq::typed_index<float, int64_t>>;
 

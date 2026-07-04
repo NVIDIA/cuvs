@@ -44,8 +44,8 @@ CUVS_INST_CAGRA_SEARCH_ALL_VIEWS(data_t, int64_t);
 #undef CUVS_INST_CAGRA_SEARCH_ALL_VIEWS
 #undef CUVS_INST_CAGRA_SEARCH
 
-#define CUVS_INST_CAGRA_DATASET(T, IdxT, DatasetViewT)        \
-  template auto index<T, IdxT, DatasetViewT>::dataset() const \
+#define CUVS_INST_CAGRA_DATASET(T, IdxT, DatasetViewT)                    \
+  template CUVS_EXPORT auto index<T, IdxT, DatasetViewT>::dataset() const \
     -> raft::device_matrix_view<const T, int64_t, raft::layout_stride>
 
 #define CUVS_INST_CAGRA_DATASET_ALL_VIEWS(T)                         \
