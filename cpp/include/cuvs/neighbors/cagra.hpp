@@ -1748,6 +1748,10 @@ void search(raft::resources const& res,
  * has been submitted to the stream associated with @p res (not necessarily completed); call
  * @c raft::resource::sync_stream on @p res to wait for completion.
  *
+ * @note Calling this API with a single partition (@p indices of size 1) still exercises the
+ * multi-partition implementation rather than the single-index search overloads above, and the
+ * behaviors are not guaranteed to be equivalent.
+ *
  * @param[in]  res            raft resources
  * @param[in]  params         search parameters (shared across partitions)
  * @param[in]  indices        CAGRA index objects, one per partition
