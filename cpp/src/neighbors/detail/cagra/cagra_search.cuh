@@ -289,20 +289,10 @@ void search_multi_partition(
   static_assert(std::is_same_v<DistanceT, float>, "Only float distances are supported");
 
   const uint32_t num_partitions = static_cast<uint32_t>(indices.size());
-  RAFT_EXPECTS(num_partitions > 0, "At least one partition is required");
 
   const uint32_t n_queries = static_cast<uint32_t>(queries.extent(0));
   const int64_t dim        = queries.extent(1);
   const uint32_t topk      = static_cast<uint32_t>(neighbors.extent(1));
-
-  RAFT_EXPECTS(partition_ids.extent(0) == static_cast<int64_t>(n_queries) &&
-                 partition_ids.extent(1) == static_cast<int64_t>(topk),
-               "partition_ids shape must be [n_queries, k]");
-  RAFT_EXPECTS(neighbors.extent(0) == static_cast<int64_t>(n_queries),
-               "neighbors and queries must have the same number of rows");
-  RAFT_EXPECTS(distances.extent(0) == static_cast<int64_t>(n_queries) &&
-                 distances.extent(1) == static_cast<int64_t>(topk),
-               "distances shape must be [n_queries, k]");
 
   // Find the max graph_degree across all partitions (needed for the shared kernel plan).
   int64_t max_graph_degree = 0;

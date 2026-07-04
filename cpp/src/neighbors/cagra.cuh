@@ -440,6 +440,25 @@ void search(raft::resources const& res,
             raft::device_matrix_view<float, int64_t, raft::row_major> distances,
             CagraSampleFilterT sample_filter = CagraSampleFilterT{})
 {
+  RAFT_EXPECTS(!indices.empty(), "At least one index partition must be provided.");
+
+  RAFT_EXPECTS(queries.extent(0) == partition_ids.extent(0) &&
+                 queries.extent(0) == neighbors.extent(0) &&
+                 queries.extent(0) == distances.extent(0),
+               "Number of rows in output partition_ids, neighbors and distances matrices must "
+               "equal the number of queries.");
+
+  RAFT_EXPECTS(
+    neighbors.extent(1) == distances.extent(1) && neighbors.extent(1) == partition_ids.extent(1),
+    "Number of columns in output partition_ids, neighbors and distances matrices must "
+    "equal k");
+
+  for (const auto* idx : indices) {
+    RAFT_EXPECTS(idx != nullptr, "Index partitions must not be null.");
+    RAFT_EXPECTS(queries.extent(1) == idx->dim(),
+                 "Number of query dimensions should equal number of dimensions in the index.");
+  }
+
   cagra::detail::search_multi_partition<T, OutputIdxT, IdxT, float, CagraSampleFilterT>(
     res, params, indices, queries, partition_ids, neighbors, distances, sample_filter);
 }
