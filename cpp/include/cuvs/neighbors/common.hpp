@@ -740,16 +740,11 @@ enum class dataset_view_kind {
   // build(host_matrix_view) / build(device_matrix_view) shims does not cause a hard error when
   // the compiler evaluates is_host/device_dataset_view_v for a plain mdspan type.
   unknown,
-  device_empty,
-  host_empty,
-  device_padded,
-  host_padded,
-  device_standard,
-  host_standard,
-  device_vpq_f16,
-  host_vpq_f16,
-  device_vpq_f32,
-  host_vpq_f32,
+  empty,
+  padded,
+  standard,
+  vpq_f16,
+  vpq_f32,
 };
 
 /** Primary template returns `unknown` so traits safely return `false` for non-dataset-view types.
@@ -759,58 +754,43 @@ struct dataset_view_kind_of {
   static constexpr dataset_view_kind value = dataset_view_kind::unknown;
 };
 
-template <typename IdxT>
-struct dataset_view_kind_of<device_empty_dataset_view<IdxT>> {
-  static constexpr dataset_view_kind value = dataset_view_kind::device_empty;
+template <typename IdxT, typename Accessor>
+struct dataset_view_kind_of<dataset_view<empty_dataset_container, void, IdxT, Accessor>> {
+  static constexpr dataset_view_kind value = dataset_view_kind::empty;
 };
 
-template <typename IdxT>
-struct dataset_view_kind_of<host_empty_dataset_view<IdxT>> {
-  static constexpr dataset_view_kind value = dataset_view_kind::host_empty;
+template <typename DataT, typename IdxT, typename Accessor>
+struct dataset_view_kind_of<dataset_view<padded_dataset_container, DataT, IdxT, Accessor>> {
+  static constexpr dataset_view_kind value = dataset_view_kind::padded;
 };
 
-template <typename DataT, typename IdxT>
-struct dataset_view_kind_of<device_padded_dataset_view<DataT, IdxT>> {
-  static constexpr dataset_view_kind value = dataset_view_kind::device_padded;
+template <typename DataT, typename IdxT, typename Accessor>
+struct dataset_view_kind_of<dataset_view<standard_dataset_container, DataT, IdxT, Accessor>> {
+  static constexpr dataset_view_kind value = dataset_view_kind::standard;
 };
 
-template <typename DataT, typename IdxT>
-struct dataset_view_kind_of<host_padded_dataset_view<DataT, IdxT>> {
-  static constexpr dataset_view_kind value = dataset_view_kind::host_padded;
-};
-
-template <typename DataT, typename IdxT>
-struct dataset_view_kind_of<device_standard_dataset_view<DataT, IdxT>> {
-  static constexpr dataset_view_kind value = dataset_view_kind::device_standard;
-};
-
-template <typename DataT, typename IdxT>
-struct dataset_view_kind_of<host_standard_dataset_view<DataT, IdxT>> {
-  static constexpr dataset_view_kind value = dataset_view_kind::host_standard;
-};
-
-template <typename IdxT>
-struct dataset_view_kind_of<device_vpq_dataset_view<half, IdxT>> {
-  static constexpr dataset_view_kind value = dataset_view_kind::device_vpq_f16;
-};
-
-template <typename IdxT>
-struct dataset_view_kind_of<device_vpq_dataset_view<float, IdxT>> {
-  static constexpr dataset_view_kind value = dataset_view_kind::device_vpq_f32;
-};
-
-template <typename IdxT>
-struct dataset_view_kind_of<host_vpq_dataset_view<half, IdxT>> {
-  static constexpr dataset_view_kind value = dataset_view_kind::host_vpq_f16;
-};
-
-template <typename IdxT>
-struct dataset_view_kind_of<host_vpq_dataset_view<float, IdxT>> {
-  static constexpr dataset_view_kind value = dataset_view_kind::host_vpq_f32;
+template <typename MathT, typename IdxT, typename Accessor>
+struct dataset_view_kind_of<dataset_view<vpq_dataset_container, MathT, IdxT, Accessor>> {
+  static_assert(std::is_same_v<MathT, half> || std::is_same_v<MathT, float>,
+                "VPQ dataset_view_kind_of expects MathT to be half or float");
+  static constexpr dataset_view_kind value =
+    std::is_same_v<MathT, half> ? dataset_view_kind::vpq_f16 : dataset_view_kind::vpq_f32;
 };
 
 template <typename V>
 using dataset_view_type_t = std::remove_cvref_t<V>;
+
+/** True when the dataset view accessor is device-accessible. */
+template <typename V>
+struct dataset_view_is_device_accessible : std::false_type {};
+
+template <typename containertype, typename DataT, typename IdxT, typename Accessor>
+struct dataset_view_is_device_accessible<dataset_view<containertype, DataT, IdxT, Accessor>>
+  : std::bool_constant<Accessor::is_device_accessible> {};
+
+template <typename V>
+inline constexpr bool dataset_view_is_device_accessible_v =
+  dataset_view_is_device_accessible<dataset_view_type_t<V>>::value;
 
 template <typename V>
 inline constexpr dataset_view_kind dataset_view_kind_v =
@@ -818,11 +798,11 @@ inline constexpr dataset_view_kind dataset_view_kind_v =
 
 template <typename V>
 inline constexpr bool is_device_empty_dataset_view_v =
-  dataset_view_kind_v<V> == dataset_view_kind::device_empty;
+  dataset_view_kind_v<V> == dataset_view_kind::empty && dataset_view_is_device_accessible_v<V>;
 
 template <typename V>
 inline constexpr bool is_host_empty_dataset_view_v =
-  dataset_view_kind_v<V> == dataset_view_kind::host_empty;
+  dataset_view_kind_v<V> == dataset_view_kind::empty && !dataset_view_is_device_accessible_v<V>;
 
 /** True for any empty dataset view (device or host). */
 template <typename V>
@@ -831,11 +811,11 @@ inline constexpr bool is_empty_dataset_view_v =
 
 template <typename V>
 inline constexpr bool is_device_padded_dataset_view_v =
-  dataset_view_kind_v<V> == dataset_view_kind::device_padded;
+  dataset_view_kind_v<V> == dataset_view_kind::padded && dataset_view_is_device_accessible_v<V>;
 
 template <typename V>
 inline constexpr bool is_host_padded_dataset_view_v =
-  dataset_view_kind_v<V> == dataset_view_kind::host_padded;
+  dataset_view_kind_v<V> == dataset_view_kind::padded && !dataset_view_is_device_accessible_v<V>;
 
 /** True for either `device_padded_dataset_view` or `host_padded_dataset_view`. */
 template <typename V>
@@ -844,11 +824,11 @@ inline constexpr bool is_padded_dataset_view_v =
 
 template <typename V>
 inline constexpr bool is_device_standard_dataset_view_v =
-  dataset_view_kind_v<V> == dataset_view_kind::device_standard;
+  dataset_view_kind_v<V> == dataset_view_kind::standard && dataset_view_is_device_accessible_v<V>;
 
 template <typename V>
 inline constexpr bool is_host_standard_dataset_view_v =
-  dataset_view_kind_v<V> == dataset_view_kind::host_standard;
+  dataset_view_kind_v<V> == dataset_view_kind::standard && !dataset_view_is_device_accessible_v<V>;
 
 /** True for either `device_standard_dataset_view` or `host_standard_dataset_view`. */
 template <typename V>
@@ -857,11 +837,11 @@ inline constexpr bool is_standard_dataset_view_v =
 
 template <typename V>
 inline constexpr bool is_device_vpq_f16_dataset_view_v =
-  dataset_view_kind_v<V> == dataset_view_kind::device_vpq_f16;
+  dataset_view_kind_v<V> == dataset_view_kind::vpq_f16 && dataset_view_is_device_accessible_v<V>;
 
 template <typename V>
 inline constexpr bool is_host_vpq_f16_dataset_view_v =
-  dataset_view_kind_v<V> == dataset_view_kind::host_vpq_f16;
+  dataset_view_kind_v<V> == dataset_view_kind::vpq_f16 && !dataset_view_is_device_accessible_v<V>;
 
 template <typename V>
 inline constexpr bool is_vpq_f16_dataset_view_v =
@@ -869,11 +849,11 @@ inline constexpr bool is_vpq_f16_dataset_view_v =
 
 template <typename V>
 inline constexpr bool is_device_vpq_f32_dataset_view_v =
-  dataset_view_kind_v<V> == dataset_view_kind::device_vpq_f32;
+  dataset_view_kind_v<V> == dataset_view_kind::vpq_f32 && dataset_view_is_device_accessible_v<V>;
 
 template <typename V>
 inline constexpr bool is_host_vpq_f32_dataset_view_v =
-  dataset_view_kind_v<V> == dataset_view_kind::host_vpq_f32;
+  dataset_view_kind_v<V> == dataset_view_kind::vpq_f32 && !dataset_view_is_device_accessible_v<V>;
 
 template <typename V>
 inline constexpr bool is_vpq_f32_dataset_view_v =
@@ -894,14 +874,12 @@ inline constexpr bool is_vpq_dataset_view_v =
 /** True for any device-resident dataset view. */
 template <typename V>
 inline constexpr bool is_device_dataset_view_v =
-  is_device_empty_dataset_view_v<V> || is_device_padded_dataset_view_v<V> ||
-  is_device_standard_dataset_view_v<V> || is_device_vpq_dataset_view_v<V>;
+  dataset_view_kind_v<V> != dataset_view_kind::unknown && dataset_view_is_device_accessible_v<V>;
 
 /** True for any host-resident dataset view. */
 template <typename V>
 inline constexpr bool is_host_dataset_view_v =
-  is_host_empty_dataset_view_v<V> || is_host_padded_dataset_view_v<V> ||
-  is_host_standard_dataset_view_v<V> || is_host_vpq_dataset_view_v<V>;
+  dataset_view_kind_v<V> != dataset_view_kind::unknown && !dataset_view_is_device_accessible_v<V>;
 
 /**
  * True when a host view `H` and device view `D` represent the same storage kind and differ
@@ -909,34 +887,66 @@ inline constexpr bool is_host_dataset_view_v =
  */
 template <typename HostViewT, typename DeviceViewT>
 inline constexpr bool compatible_host_device_dataset_views_v =
-  (is_host_padded_dataset_view_v<HostViewT> && is_device_padded_dataset_view_v<DeviceViewT>) ||
-  (is_host_standard_dataset_view_v<HostViewT> && is_device_standard_dataset_view_v<DeviceViewT>) ||
-  (is_host_vpq_f16_dataset_view_v<HostViewT> && is_device_vpq_f16_dataset_view_v<DeviceViewT>) ||
-  (is_host_vpq_f32_dataset_view_v<HostViewT> && is_device_vpq_f32_dataset_view_v<DeviceViewT>) ||
-  (is_host_empty_dataset_view_v<HostViewT> && is_device_empty_dataset_view_v<DeviceViewT>);
+  is_host_dataset_view_v<HostViewT> && is_device_dataset_view_v<DeviceViewT> &&
+  (dataset_view_kind_v<HostViewT> == dataset_view_kind_v<DeviceViewT>);
+
+/**
+ * Generic accessor retargeting while preserving the dataset tag/layout and value/index types:
+ * `dataset<Tag, DataT, IdxT, OldAccessor>      -> dataset<Tag, DataT, IdxT, NewAccessor>`
+ * `dataset_view<Tag, DataT, IdxT, OldAccessor> -> dataset_view<Tag, DataT, IdxT, NewAccessor>`
+ */
+template <typename DatasetLikeT, typename NewAccessor>
+struct with_accessor;
+
+template <typename containertype,
+          typename DataT,
+          typename IdxT,
+          typename OldAccessor,
+          typename NewAccessor>
+struct with_accessor<dataset<containertype, DataT, IdxT, OldAccessor>, NewAccessor> {
+  using type = dataset<containertype, DataT, IdxT, NewAccessor>;
+};
+
+template <typename containertype,
+          typename DataT,
+          typename IdxT,
+          typename OldAccessor,
+          typename NewAccessor>
+struct with_accessor<dataset_view<containertype, DataT, IdxT, OldAccessor>, NewAccessor> {
+  using type = dataset_view<containertype, DataT, IdxT, NewAccessor>;
+};
+
+template <typename DatasetLikeT, typename NewAccessor>
+using with_accessor_t =
+  typename with_accessor<dataset_view_type_t<DatasetLikeT>, NewAccessor>::type;
+
+/** Map any host accessor to its device counterpart (same payload policy). */
+template <typename Accessor>
+struct to_device_accessor {
+  using type = Accessor;
+};
+
+template <typename T>
+struct to_device_accessor<detail::host_view_accessor<T>> {
+  using type = detail::device_view_accessor<T>;
+};
+
+template <typename T>
+struct to_device_accessor<detail::host_owning_accessor<T>> {
+  using type = detail::device_owning_accessor<T>;
+};
+
+template <typename Accessor>
+using to_device_accessor_t = typename to_device_accessor<Accessor>::type;
 
 /** Maps a host dataset view type to its device-resident counterpart. */
 template <typename HostViewT>
 struct device_counterpart;
 
-template <typename DataT, typename IdxT>
-struct device_counterpart<host_padded_dataset_view<DataT, IdxT>> {
-  using type = device_padded_dataset_view<DataT, IdxT>;
-};
-
-template <typename DataT, typename IdxT>
-struct device_counterpart<host_standard_dataset_view<DataT, IdxT>> {
-  using type = device_standard_dataset_view<DataT, IdxT>;
-};
-
-template <typename MathT, typename IdxT>
-struct device_counterpart<host_vpq_dataset_view<MathT, IdxT>> {
-  using type = device_vpq_dataset_view<MathT, IdxT>;
-};
-
-template <typename IdxT>
-struct device_counterpart<host_empty_dataset_view<IdxT>> {
-  using type = device_empty_dataset_view<IdxT>;
+template <typename containertype, typename DataT, typename IdxT, typename Accessor>
+struct device_counterpart<dataset_view<containertype, DataT, IdxT, Accessor>> {
+  using type = with_accessor_t<dataset_view<containertype, DataT, IdxT, Accessor>,
+                               to_device_accessor_t<Accessor>>;
 };
 
 template <typename HostViewT>
