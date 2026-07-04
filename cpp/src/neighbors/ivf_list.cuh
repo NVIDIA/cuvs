@@ -69,8 +69,9 @@ CUVS_EXPORT void resize_list(raft::resources const& res,
                              typename ListT::size_type old_logical_size,
                              typename ListT::size_type old_used_size)
 {
-  // old_logical_size is the value stored in list::size. old_used_size is the copy extent from
-  // the old allocation and may include padding slots for interleaved list layouts.
+  // old_logical_size is the previous visible size from this index's list_sizes().
+  // old_used_size is the old allocation copy extent and may include padded slots
+  // required by interleaved list layouts.
   bool skip_resize = false;
   if (orig_list) {
     if (new_used_size <= orig_list->indices.extent(0)) {
