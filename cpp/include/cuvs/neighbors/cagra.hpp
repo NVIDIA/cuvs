@@ -1751,8 +1751,9 @@ void search(raft::resources const& res,
  * multi-partition implementation rather than the single-index search overloads above, and the
  * behaviors are not guaranteed to be equivalent.
  *
- * @note All index partitions must use the same distance metric and graph degree, and be built on
- * in-memory strided (non-compressed) datasets. Partition sizes may differ.
+ * @note All index partitions must use the same distance metric and graph degree; partition sizes
+ * may differ. Compressed (VPQ) datasets are not currently supported in multi-partition search, so
+ * partitions must be built on in-memory strided datasets.
  *
  * @param[in]  res            raft resources
  * @param[in]  params         search parameters (shared across partitions)
@@ -1789,8 +1790,9 @@ void search(raft::resources const& res,
  * multi-partition implementation rather than the single-index search overloads above, and the
  * behaviors are not guaranteed to be equivalent.
  *
- * @note All index partitions must use the same distance metric and graph degree, and be built on
- * in-memory strided (non-compressed) datasets. Partition sizes may differ.
+ * @note All index partitions must use the same distance metric and graph degree; partition sizes
+ * may differ. Compressed (VPQ) datasets are not currently supported in multi-partition search, so
+ * partitions must be built on in-memory strided datasets.
  *
  * @param[in]  res            raft resources
  * @param[in]  params         search parameters (shared across partitions)
@@ -1827,8 +1829,9 @@ void search(raft::resources const& res,
  * multi-partition implementation rather than the single-index search overloads above, and the
  * behaviors are not guaranteed to be equivalent.
  *
- * @note All index partitions must use the same distance metric and graph degree, and be built on
- * in-memory strided (non-compressed) datasets. Partition sizes may differ.
+ * @note All index partitions must use the same distance metric and graph degree; partition sizes
+ * may differ. Compressed (VPQ) datasets are not currently supported in multi-partition search, so
+ * partitions must be built on in-memory strided datasets.
  *
  * @param[in]  res            raft resources
  * @param[in]  params         search parameters (shared across partitions)
@@ -1865,8 +1868,9 @@ void search(raft::resources const& res,
  * multi-partition implementation rather than the single-index search overloads above, and the
  * behaviors are not guaranteed to be equivalent.
  *
- * @note All index partitions must use the same distance metric and graph degree, and be built on
- * in-memory strided (non-compressed) datasets. Partition sizes may differ.
+ * @note All index partitions must use the same distance metric and graph degree; partition sizes
+ * may differ. Compressed (VPQ) datasets are not currently supported in multi-partition search, so
+ * partitions must be built on in-memory strided datasets.
  *
  * @param[in]  res            raft resources
  * @param[in]  params         search parameters (shared across partitions)
@@ -1903,8 +1907,9 @@ void search(raft::resources const& res,
  * multi-partition implementation rather than the single-index search overloads above, and the
  * behaviors are not guaranteed to be equivalent.
  *
- * @note All index partitions must use the same distance metric and graph degree, and be built on
- * in-memory strided (non-compressed) datasets. Partition sizes may differ.
+ * @note All index partitions must use the same distance metric and graph degree; partition sizes
+ * may differ. Compressed (VPQ) datasets are not currently supported in multi-partition search, so
+ * partitions must be built on in-memory strided datasets.
  *
  * @param[in]  res            raft resources
  * @param[in]  params         search parameters (shared across partitions)
@@ -1941,8 +1946,9 @@ void search(raft::resources const& res,
  * multi-partition implementation rather than the single-index search overloads above, and the
  * behaviors are not guaranteed to be equivalent.
  *
- * @note All index partitions must use the same distance metric and graph degree, and be built on
- * in-memory strided (non-compressed) datasets. Partition sizes may differ.
+ * @note All index partitions must use the same distance metric and graph degree; partition sizes
+ * may differ. Compressed (VPQ) datasets are not currently supported in multi-partition search, so
+ * partitions must be built on in-memory strided datasets.
  *
  * @param[in]  res            raft resources
  * @param[in]  params         search parameters (shared across partitions)
@@ -1979,8 +1985,9 @@ void search(raft::resources const& res,
  * multi-partition implementation rather than the single-index search overloads above, and the
  * behaviors are not guaranteed to be equivalent.
  *
- * @note All index partitions must use the same distance metric and graph degree, and be built on
- * in-memory strided (non-compressed) datasets. Partition sizes may differ.
+ * @note All index partitions must use the same distance metric and graph degree; partition sizes
+ * may differ. Compressed (VPQ) datasets are not currently supported in multi-partition search, so
+ * partitions must be built on in-memory strided datasets.
  *
  * @param[in]  res            raft resources
  * @param[in]  params         search parameters (shared across partitions)
@@ -2017,8 +2024,9 @@ void search(raft::resources const& res,
  * multi-partition implementation rather than the single-index search overloads above, and the
  * behaviors are not guaranteed to be equivalent.
  *
- * @note All index partitions must use the same distance metric and graph degree, and be built on
- * in-memory strided (non-compressed) datasets. Partition sizes may differ.
+ * @note All index partitions must use the same distance metric and graph degree; partition sizes
+ * may differ. Compressed (VPQ) datasets are not currently supported in multi-partition search, so
+ * partitions must be built on in-memory strided datasets.
  *
  * @param[in]  res            raft resources
  * @param[in]  params         search parameters (shared across partitions)
