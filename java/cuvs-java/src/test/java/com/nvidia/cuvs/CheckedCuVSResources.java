@@ -58,6 +58,7 @@ public class CheckedCuVSResources implements CuVSResources {
 
   @Override
   public void setWorkspacePool(long sizeBytes) {
+    checkNotDestroyed();
     inner.setWorkspacePool(sizeBytes);
   }
 
