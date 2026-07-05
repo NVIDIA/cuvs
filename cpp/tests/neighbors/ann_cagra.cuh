@@ -1901,6 +1901,9 @@ struct AnnCagraMpInputs {
   int itopk_size;
   cuvs::distance::DistanceType metric;
   double min_recall;
+  // 0 lets the search pick max_queries (min(n_queries, maxGridSize[1])). A smaller value forces
+  // the per-launch query chunk loop, exercising multi-chunk output slicing and the filter offset.
+  int max_queries = 0;
 };
 
 inline ::std::ostream& operator<<(::std::ostream& os, const AnnCagraMpInputs& p)
@@ -1921,7 +1924,7 @@ inline ::std::ostream& operator<<(::std::ostream& os, const AnnCagraMpInputs& p)
      << ", k=" << p.k << ", num_partitions=" << p.num_partitions
      << ", split=" << (p.split == partition_split::EVEN ? "even" : "skewed") << ", "
      << algo_name[p.algo] << ", itopk_size=" << p.itopk_size << ", metric=" << metric_str(p.metric)
-     << '}' << std::endl;
+     << ", max_queries=" << p.max_queries << '}' << std::endl;
   return os;
 }
 
@@ -2005,8 +2008,9 @@ class AnnCagraMultiPartitionTest : public ::testing::TestWithParam<AnnCagraMpInp
   cagra::search_params makeSearchParams()
   {
     cagra::search_params search_params;
-    search_params.algo       = ps.algo;
-    search_params.itopk_size = ps.itopk_size;
+    search_params.algo        = ps.algo;
+    search_params.itopk_size  = ps.itopk_size;
+    search_params.max_queries = ps.max_queries;
     return search_params;
   }
 
@@ -2335,6 +2339,25 @@ inline std::vector<AnnCagraMpInputs> generate_mp_inputs()
                                       /*itopk_size*/ 64,
                                       cuvs::distance::DistanceType::L2Expanded,
                                       /*min_recall*/ 0.985});
+  }
+
+  // Force the per-launch query chunk loop: max_queries < n_queries splits the query set across
+  // multiple launches, exercising per-chunk output slicing, the per-chunk filter offset, and the
+  // partial final chunk (n_queries=100, max_queries=32 -> chunks 32, 32, 32, 4). Covered for both
+  // algos, and (via the shared inputs) by testSearch and testFilteredSearch.
+  for (auto algo : {search_algo::SINGLE_CTA, search_algo::MULTI_CTA}) {
+    inputs.push_back(AnnCagraMpInputs{/*n_queries*/ 100,
+                                      /*n_rows*/ 10000,
+                                      /*dim*/ 64,
+                                      /*k*/ 10,
+                                      /*num_partitions*/ 4,
+                                      partition_split::EVEN,
+                                      graph_build_algo::NN_DESCENT,
+                                      algo,
+                                      /*itopk_size*/ 64,
+                                      cuvs::distance::DistanceType::L2Expanded,
+                                      /*min_recall*/ 0.97,
+                                      /*max_queries*/ 32});
   }
 
   return inputs;
