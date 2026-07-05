@@ -294,18 +294,26 @@ void search_multi_partition(
   const int64_t dim        = queries.extent(1);
   const uint32_t topk      = static_cast<uint32_t>(neighbors.extent(1));
 
-  // Find the max graph_degree across all partitions (needed for the shared kernel plan), and
-  // whether any partition uses CosineExpanded (the only metric that needs query norms).
-  int64_t max_graph_degree = 0;
+  // All partitions must share one metric and one graph degree. The shared plan descriptor (and its
+  // shared-memory / layout sizing) and the cross-partition select_k direction are all derived from
+  // indices[0], so a differing metric would be merged in the wrong order and a differing graph
+  // degree would be sized incorrectly. Dataset sizes may still differ (e.g. skewed splits).
+  const cuvs::distance::DistanceType metric = indices[0]->metric();
+  const int64_t graph_degree                = indices[0]->graph().extent(1);
+
   int64_t max_dataset_size = 0;
-  bool needs_query_norms   = false;
   for (uint32_t i = 0; i < num_partitions; i++) {
     RAFT_EXPECTS(!indices[i]->dataset_fd().has_value(),
                  "Disk-based datasets are not supported for multi-partition search");
-    max_graph_degree = std::max(max_graph_degree, indices[i]->graph().extent(1));
+    RAFT_EXPECTS(indices[i]->metric() == metric,
+                 "All partitions must use the same distance metric for multi-partition search");
+    RAFT_EXPECTS(indices[i]->graph().extent(1) == graph_degree,
+                 "All partitions must use the same graph degree for multi-partition search");
     max_dataset_size = std::max(max_dataset_size, indices[i]->data().n_rows());
-    needs_query_norms |= indices[i]->metric() == cuvs::distance::DistanceType::CosineExpanded;
   }
+
+  // Query norms are needed only for CosineExpanded (uniform across partitions, checked above).
+  const bool needs_query_norms = metric == cuvs::distance::DistanceType::CosineExpanded;
 
   if (params.max_queries == 0) {
     cudaDeviceProp deviceProp = raft::resource::get_device_properties(res);
@@ -339,23 +347,23 @@ void search_multi_partition(
     }
   }
 
-  // Build a single plan_desc sized for the maximum graph_degree across all partitions. The
-  // smem layout in the descriptor is type-dependent only, so any partition's descriptor (we
-  // pick indices[0]) is representative for the plan's smem/sizing calculations.
+  // Build a single plan_desc for the (uniform) graph_degree. The smem layout in the descriptor is
+  // type-dependent only, so any partition's descriptor (we pick indices[0]) is representative for
+  // the plan's smem/sizing calculations.
   using graph_idx_type = uint32_t;
   auto* strided_dset0  = dynamic_cast<const strided_dataset<T, int64_t>*>(&indices[0]->data());
   RAFT_EXPECTS(strided_dset0 != nullptr,
                "Multi-partition search only supports strided (non-compressed) datasets");
 
-  RAFT_EXPECTS(indices[0]->metric() != cuvs::distance::DistanceType::CosineExpanded ||
+  RAFT_EXPECTS(metric != cuvs::distance::DistanceType::CosineExpanded ||
                  indices[0]->dataset_norms().has_value(),
                "Dataset norms must be provided for CosineExpanded metric");
   const float* dataset_norms_ptr0 = nullptr;
-  if (indices[0]->metric() == cuvs::distance::DistanceType::CosineExpanded) {
+  if (metric == cuvs::distance::DistanceType::CosineExpanded) {
     dataset_norms_ptr0 = indices[0]->dataset_norms().value().data_handle();
   }
   auto plan_desc = dataset_descriptor_init_with_cache<T, graph_idx_type, DistanceT>(
-    res, params, *strided_dset0, indices[0]->metric(), dataset_norms_ptr0);
+    res, params, *strided_dset0, metric, dataset_norms_ptr0);
 
   cudaStream_t stream = raft::resource::get_cuda_stream(res);
 
@@ -489,7 +497,7 @@ void search_multi_partition(
 
     // Post-processing above restores each metric's natural ordering: distance metrics (L2, and the
     // Cosine transform applied here) are smaller-is-closer, while InnerProduct is larger-is-closer.
-    const bool select_min = cuvs::distance::is_min_close(indices[0]->metric());
+    const bool select_min = cuvs::distance::is_min_close(metric);
 
     raft::matrix::select_k<DistanceT, uint32_t>(
       res,
@@ -550,7 +558,7 @@ void search_multi_partition(
   if (params.algo == search_algo::SINGLE_CTA) {
     single_cta_search::
       search<T, graph_idx_type, DistanceT, CagraSampleFilterT_s, graph_idx_type, graph_idx_type>
-        plan(res, params, plan_desc, dim, max_dataset_size, max_graph_degree, topk);
+        plan(res, params, plan_desc, dim, max_dataset_size, graph_degree, topk);
 
     RAFT_EXPECTS(topk <= plan.itopk_size,
                  "topk = %u must be smaller than itopk_size = %lu",
@@ -619,7 +627,7 @@ void search_multi_partition(
   } else /* MULTI_CTA */ {
     multi_cta_search::
       search<T, graph_idx_type, DistanceT, CagraSampleFilterT_s, graph_idx_type, graph_idx_type>
-        plan(res, params, plan_desc, dim, max_dataset_size, max_graph_degree, topk);
+        plan(res, params, plan_desc, dim, max_dataset_size, graph_degree, topk);
 
     // MULTI_CTA splits the global itopk pool across num_cta_per_query CTAs of 32 candidates
     // each. The kernel emits all num_cta_per_query * itopk_size candidates per (query,
@@ -672,7 +680,7 @@ void search_multi_partition(
       plan.run_multi_partition(res,
                                dev_part_descs_buf.data(),
                                num_partitions,
-                               static_cast<uint32_t>(max_graph_degree),
+                               static_cast<uint32_t>(graph_degree),
                                queries.data_handle() + static_cast<size_t>(qid) * dim,
                                chunk_queries,
                                intermediate_neighbors.data(),

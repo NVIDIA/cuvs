@@ -1751,6 +1751,9 @@ void search(raft::resources const& res,
  * multi-partition implementation rather than the single-index search overloads above, and the
  * behaviors are not guaranteed to be equivalent.
  *
+ * @note All index partitions must use the same distance metric and graph degree, and be built on
+ * in-memory strided (non-compressed) datasets. Partition sizes may differ.
+ *
  * @param[in]  res            raft resources
  * @param[in]  params         search parameters (shared across partitions)
  * @param[in]  indices        CAGRA index objects, one per partition
@@ -1786,6 +1789,9 @@ void search(raft::resources const& res,
  * multi-partition implementation rather than the single-index search overloads above, and the
  * behaviors are not guaranteed to be equivalent.
  *
+ * @note All index partitions must use the same distance metric and graph degree, and be built on
+ * in-memory strided (non-compressed) datasets. Partition sizes may differ.
+ *
  * @param[in]  res            raft resources
  * @param[in]  params         search parameters (shared across partitions)
  * @param[in]  indices        CAGRA index objects, one per partition
@@ -1820,6 +1826,9 @@ void search(raft::resources const& res,
  * @note Calling this API with a single partition (@p indices of size 1) still exercises the
  * multi-partition implementation rather than the single-index search overloads above, and the
  * behaviors are not guaranteed to be equivalent.
+ *
+ * @note All index partitions must use the same distance metric and graph degree, and be built on
+ * in-memory strided (non-compressed) datasets. Partition sizes may differ.
  *
  * @param[in]  res            raft resources
  * @param[in]  params         search parameters (shared across partitions)
@@ -1856,6 +1865,9 @@ void search(raft::resources const& res,
  * multi-partition implementation rather than the single-index search overloads above, and the
  * behaviors are not guaranteed to be equivalent.
  *
+ * @note All index partitions must use the same distance metric and graph degree, and be built on
+ * in-memory strided (non-compressed) datasets. Partition sizes may differ.
+ *
  * @param[in]  res            raft resources
  * @param[in]  params         search parameters (shared across partitions)
  * @param[in]  indices        CAGRA index objects, one per partition
@@ -1890,6 +1902,9 @@ void search(raft::resources const& res,
  * @note Calling this API with a single partition (@p indices of size 1) still exercises the
  * multi-partition implementation rather than the single-index search overloads above, and the
  * behaviors are not guaranteed to be equivalent.
+ *
+ * @note All index partitions must use the same distance metric and graph degree, and be built on
+ * in-memory strided (non-compressed) datasets. Partition sizes may differ.
  *
  * @param[in]  res            raft resources
  * @param[in]  params         search parameters (shared across partitions)
@@ -1926,6 +1941,9 @@ void search(raft::resources const& res,
  * multi-partition implementation rather than the single-index search overloads above, and the
  * behaviors are not guaranteed to be equivalent.
  *
+ * @note All index partitions must use the same distance metric and graph degree, and be built on
+ * in-memory strided (non-compressed) datasets. Partition sizes may differ.
+ *
  * @param[in]  res            raft resources
  * @param[in]  params         search parameters (shared across partitions)
  * @param[in]  indices        CAGRA index objects, one per partition
@@ -1960,6 +1978,9 @@ void search(raft::resources const& res,
  * @note Calling this API with a single partition (@p indices of size 1) still exercises the
  * multi-partition implementation rather than the single-index search overloads above, and the
  * behaviors are not guaranteed to be equivalent.
+ *
+ * @note All index partitions must use the same distance metric and graph degree, and be built on
+ * in-memory strided (non-compressed) datasets. Partition sizes may differ.
  *
  * @param[in]  res            raft resources
  * @param[in]  params         search parameters (shared across partitions)
@@ -1995,6 +2016,9 @@ void search(raft::resources const& res,
  * @note Calling this API with a single partition (@p indices of size 1) still exercises the
  * multi-partition implementation rather than the single-index search overloads above, and the
  * behaviors are not guaranteed to be equivalent.
+ *
+ * @note All index partitions must use the same distance metric and graph degree, and be built on
+ * in-memory strided (non-compressed) datasets. Partition sizes may differ.
  *
  * @param[in]  res            raft resources
  * @param[in]  params         search parameters (shared across partitions)

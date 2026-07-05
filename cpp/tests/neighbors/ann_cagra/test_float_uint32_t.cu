@@ -7,6 +7,9 @@
 
 #include "../ann_cagra.cuh"
 
+#include <utility>
+#include <vector>
+
 namespace cuvs::neighbors::cagra {
 
 typedef AnnCagraTest<float, float, std::uint32_t> AnnCagraTestF_U32;
@@ -53,34 +56,38 @@ INSTANTIATE_TEST_CASE_P(AnnCagraMultiPartitionTest,
                         AnnCagraMultiPartitionTestF_U32,
                         ::testing::ValuesIn(inputs_mp));
 
-// MULTI_KERNEL is intentionally unsupported in the multi-partition path; the call must fail rather
-// than silently fall back. The rejection is invariant to dtype / metric / partition layout, so it
-// is checked once with a tiny index instead of being swept across the parameterized fixture.
-TEST(AnnCagraMultiPartition, MultiKernelRejected)
+// Builds one CAGRA index per {metric, graph_degree} spec over a shared random dataset, then asserts
+// a multi-partition search over them throws. Shared by the rejection tests below, which each
+// violate one "all partitions must be uniform / supported" precondition. The rejections are
+// invariant to dtype / layout, so they are checked once here instead of swept across the fixture.
+namespace {
+void expect_multi_partition_search_throws(
+  const std::vector<std::pair<cuvs::distance::DistanceType, int>>& partition_specs,
+  const cagra::search_params& search_params)
 {
   raft::resources handle;
   auto stream = raft::resource::get_cuda_stream(handle);
 
-  constexpr int n_rows = 256, dim = 8, n_queries = 10, k = 4, num_partitions = 2;
-  constexpr int part_size = n_rows / num_partitions;
-  const auto metric       = cuvs::distance::DistanceType::L2Expanded;
+  constexpr int n_rows = 256, dim = 8, n_queries = 10, k = 4;
+  const int num_partitions = static_cast<int>(partition_specs.size());
+  const int part_size      = n_rows / num_partitions;
 
   rmm::device_uvector<float> database(static_cast<size_t>(n_rows) * dim, stream);
   rmm::device_uvector<float> queries(static_cast<size_t>(n_queries) * dim, stream);
   raft::random::RngState r(1234ULL);
-  InitDataset(handle, database.data(), n_rows, dim, metric, r);
-  InitDataset(handle, queries.data(), n_queries, dim, metric, r);
+  InitDataset(handle, database.data(), n_rows, dim, cuvs::distance::DistanceType::L2Expanded, r);
+  InitDataset(handle, queries.data(), n_queries, dim, cuvs::distance::DistanceType::L2Expanded, r);
   raft::resource::sync_stream(handle);
-
-  cagra::index_params index_params;
-  index_params.metric                    = metric;
-  index_params.graph_degree              = 16;
-  index_params.intermediate_graph_degree = 32;
-  index_params.graph_build_params =
-    graph_build_params::nn_descent_params(index_params.intermediate_graph_degree, metric);
 
   std::vector<cagra::index<float, std::uint32_t>> part_indices;
   for (int i = 0; i < num_partitions; i++) {
+    const auto [metric, graph_degree] = partition_specs[i];
+    cagra::index_params index_params;
+    index_params.metric                    = metric;
+    index_params.graph_degree              = graph_degree;
+    index_params.intermediate_graph_degree = graph_degree * 2;
+    index_params.graph_build_params =
+      graph_build_params::nn_descent_params(index_params.intermediate_graph_degree, metric);
     auto view = raft::make_device_matrix_view<const float, int64_t>(
       database.data() + static_cast<size_t>(i) * part_size * dim, part_size, dim);
     part_indices.push_back(cagra::build(handle, index_params, view));
@@ -95,9 +102,6 @@ TEST(AnnCagraMultiPartition, MultiKernelRejected)
   rmm::device_uvector<uint32_t> neighbors(out_size, stream);
   rmm::device_uvector<float> distances(out_size, stream);
 
-  cagra::search_params search_params;
-  search_params.algo = search_algo::MULTI_KERNEL;
-
   auto queries_view =
     raft::make_device_matrix_view<const float, int64_t>(queries.data(), n_queries, dim);
   auto part_ids_view =
@@ -110,6 +114,36 @@ TEST(AnnCagraMultiPartition, MultiKernelRejected)
     cagra::search(
       handle, search_params, index_ptrs, queries_view, part_ids_view, neighbors_view, dists_view),
     std::exception);
+}
+}  // namespace
+
+// MULTI_KERNEL is intentionally unsupported in the multi-partition path; the call must fail rather
+// than silently fall back.
+TEST(AnnCagraMultiPartition, MultiKernelRejected)
+{
+  cagra::search_params search_params;
+  search_params.algo = search_algo::MULTI_KERNEL;
+  expect_multi_partition_search_throws({{cuvs::distance::DistanceType::L2Expanded, 16},
+                                        {cuvs::distance::DistanceType::L2Expanded, 16}},
+                                       search_params);
+}
+
+// The shared plan descriptor and the cross-partition select_k direction are derived from
+// indices[0], so all partitions must share one metric; a mismatch must be rejected.
+TEST(AnnCagraMultiPartition, MixedMetricRejected)
+{
+  expect_multi_partition_search_throws({{cuvs::distance::DistanceType::L2Expanded, 16},
+                                        {cuvs::distance::DistanceType::InnerProduct, 16}},
+                                       cagra::search_params{});
+}
+
+// The shared plan descriptor is sized from indices[0]'s graph degree, so all partitions must share
+// one graph degree; a mismatch must be rejected.
+TEST(AnnCagraMultiPartition, MixedGraphDegreeRejected)
+{
+  expect_multi_partition_search_throws({{cuvs::distance::DistanceType::L2Expanded, 16},
+                                        {cuvs::distance::DistanceType::L2Expanded, 32}},
+                                       cagra::search_params{});
 }
 
 }  // namespace cuvs::neighbors::cagra
