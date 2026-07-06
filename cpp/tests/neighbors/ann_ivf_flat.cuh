@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -329,11 +329,13 @@ class AnnIVFFlatTest : public ::testing::TestWithParam<AnnIvfFlatInputs<IdxT>> {
             [dim = idx.dim(),
              list_size,
              padded_list_size,
-             chunk_size = raft::util::FastIntDiv(idx.veclen())] __device__(auto i) {
+             chunk_size = raft::util::FastIntDiv<int32_t>(
+               static_cast<int32_t>(idx.veclen()))] __device__(auto i) {
               uint32_t max_group_offset = interleaved_group::roundDown(list_size);
               if (i < max_group_offset * dim) { return true; }
-              uint32_t surplus    = (i - max_group_offset * dim);
-              uint32_t ingroup_id = interleaved_group::mod(surplus / chunk_size);
+              uint32_t surplus = (i - max_group_offset * dim);
+              uint32_t ingroup_id =
+                interleaved_group::mod(static_cast<int32_t>(surplus) / chunk_size);
               return ingroup_id < (list_size - max_group_offset);
             });
 
