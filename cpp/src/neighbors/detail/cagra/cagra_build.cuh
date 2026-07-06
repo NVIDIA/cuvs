@@ -5,7 +5,6 @@
 #pragma once
 
 #include "../../../core/nvtx.hpp"
-#include "../../../preprocessing/quantize/vpq_build-ext.cuh"
 #include "../../ivf_pq/ivf_pq_fp16_overflow.cuh"
 #include "graph_core.cuh"
 #include <cuvs/preprocessing/quantize/pq.hpp>
