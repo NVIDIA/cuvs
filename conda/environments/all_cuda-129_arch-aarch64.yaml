@@ -30,7 +30,6 @@ dependencies:
 - libnvjitlink-dev
 - libopenblas<=0.3.30
 - librmm==26.8.*,>=0.0.0a0
-- libucxx=="0.51.*"
 - make
 - nccl>=2.19
 - ninja
@@ -46,4 +45,5 @@ dependencies:
 - scikit-build-core>=0.11.0
 - scikit-learn>=1.5
 - sysroot_linux-aarch64==2.28
+- ucxx==0.51.*,>=0.0.0a0
 name: all_cuda-129_arch-aarch64
