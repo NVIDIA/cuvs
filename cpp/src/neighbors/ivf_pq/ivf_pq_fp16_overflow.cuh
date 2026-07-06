@@ -7,6 +7,8 @@
 
 #include "../detail/ann_utils.cuh"  // cuvs::spatial::knn::detail::utils::mapping
 
+#include "../../core/nvtx.hpp"
+
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/ivf_pq.hpp>
 
@@ -41,8 +43,10 @@ bool detect_fp16_overflow(
   raft::resources const& handle,
   const cuvs::neighbors::ivf_pq::index<int64_t>& index,
   cuvs::neighbors::ivf_pq::search_params search_params,
-  raft::mdspan<const DataT, raft::matrix_extent<int64_t>, raft::row_major, Accessor> dataset)
+  raft::mdspan<const DataT, raft::matrix_extent<int64_t>, raft::row_major, Accessor> dataset,
+  uint32_t node_degree)
 {
+  raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> fun_scope("fp16_ovfl_detect");
   const int64_t n_rows = dataset.extent(0);
   if (n_rows == 0) { return false; }
 
@@ -50,9 +54,8 @@ bool detect_fp16_overflow(
   const int64_t dim = dataset.extent(1);
 
   constexpr int64_t kMaxSampleQueries = 128;
-  constexpr uint32_t kProbeTopK       = 32;
   const int64_t n_sample              = std::min<int64_t>(n_rows, kMaxSampleQueries);
-  const uint32_t top_k = std::min<uint32_t>(static_cast<uint32_t>(n_rows), kProbeTopK);
+  const uint32_t top_k = std::min<uint32_t>(static_cast<uint32_t>(n_rows), node_degree + 1);
 
   auto mr = raft::resource::get_workspace_resource_ref(handle);
   auto queries =

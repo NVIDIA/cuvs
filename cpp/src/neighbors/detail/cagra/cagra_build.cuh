@@ -1672,7 +1672,7 @@ void build_knn_graph(
       pq.search_params.coarse_search_dtype == CUDA_R_16F) {
     {
       const bool fp16_overflow = cuvs::neighbors::ivf_pq::helpers::detect_fp16_overflow(
-        res, index, pq.search_params, dataset);
+        res, index, pq.search_params, dataset, node_degree);
       if (fp16_overflow) {
         RAFT_LOG_WARN(
           "IVF-PQ FP16 distance produced non-finite results on a probe search for this dataset -> "
