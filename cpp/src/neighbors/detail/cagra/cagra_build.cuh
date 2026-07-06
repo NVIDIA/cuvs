@@ -5,6 +5,8 @@
 #pragma once
 
 #include "../../../core/nvtx.hpp"
+#include "../../../preprocessing/quantize/vpq_build-ext.cuh"
+#include "../../ivf_pq/ivf_pq_fp16_overflow.cuh"
 #include "graph_core.cuh"
 #include <cuvs/preprocessing/quantize/pq.hpp>
 
@@ -1661,6 +1663,24 @@ void build_knn_graph(
 
   RAFT_LOG_DEBUG("# Building IVF-PQ index %s", model_name.c_str());
   auto index = cuvs::neighbors::ivf_pq::build(res, pq.build_params, dataset);
+
+  // Empirically detect FP16 distance overflow on the just-built index: run a small FP16 probe
+  // search and downgrade the internal/coarse dtypes to FP32 if any distance comes back non-finite.
+  // This observes the actual computation, so it is agnostic of the selected distance type.
+  if (pq.search_params.internal_distance_dtype == CUDA_R_16F ||
+      pq.search_params.coarse_search_dtype == CUDA_R_16F) {
+    {
+      const bool fp16_overflow = cuvs::neighbors::ivf_pq::helpers::detect_fp16_overflow(
+        res, index, pq.search_params, dataset, node_degree + 1);
+      if (fp16_overflow) {
+        RAFT_LOG_WARN(
+          "IVF-PQ FP16 distance produced non-finite results on a probe search for this dataset -> "
+          "switching 'internal_distance_dtype' and 'coarse_search_dtype' to FP32");
+        pq.search_params.internal_distance_dtype = CUDA_R_32F;
+        pq.search_params.coarse_search_dtype     = CUDA_R_32F;
+      }
+    }
+  }
 
   //
   // search top (k + 1) neighbors
