@@ -195,6 +195,11 @@ void search_main(raft::resources const& res,
   using graph_idx_type = uint32_t;
 
   auto run_strided_like = [&](auto const& row_dataset) {
+    if (params.smem_dtype != cuvs::neighbors::cagra::internal_dtype::F16) {
+      RAFT_LOG_WARN("In this search mode, smem_dtype supports only F16. Set it to F16.");
+      params.smem_dtype = cuvs::neighbors::cagra::internal_dtype::F16;
+    }
+    // Search using a plain (strided) row-major dataset
     RAFT_EXPECTS(index.metric() != cuvs::distance::DistanceType::CosineExpanded ||
                    index.dataset_norms().has_value(),
                  "Dataset norms must be provided for CosineExpanded metric");
@@ -224,7 +229,13 @@ void search_main(raft::resources const& res,
     RAFT_FAIL("FP32 VPQ dataset support is coming soon");
   } else if constexpr (cuvs::neighbors::is_device_vpq_f16_dataset_view_v<DatasetViewT>) {
     auto const& vv = index.dataset();
-    auto desc      = dataset_descriptor_init_with_cache<T, graph_idx_type, DistanceT>(
+    if (params.smem_dtype == cuvs::neighbors::cagra::internal_dtype::E5M2 &&
+        raft::getComputeCapability().first < 9) {
+      RAFT_LOG_WARN(
+        "CAGRA VPQ E5M2 smem_dtype requires native FP8 support on SM90+. Falling back to F16.");
+      params.smem_dtype = cuvs::neighbors::cagra::internal_dtype::F16;
+    }
+    auto desc = dataset_descriptor_init_with_cache<T, graph_idx_type, DistanceT>(
       res, params, vv.dset(), index.metric(), nullptr);
     search_main_core<T, graph_idx_type, DistanceT, CagraSampleFilterT, IdxT, OutputIdxT>(
       res,
