@@ -18,9 +18,6 @@ using inst_device_padded_view_t   = cuvs::neighbors::device_padded_dataset_view<
 using inst_device_standard_view_t = cuvs::neighbors::device_standard_dataset_view<data_t, int64_t>;
 using inst_host_padded_view_t     = cuvs::neighbors::host_padded_dataset_view<data_t, int64_t>;
 using inst_host_standard_view_t   = cuvs::neighbors::host_standard_dataset_view<data_t, int64_t>;
-using inst_vpq_f16_view_t         = cuvs::neighbors::device_vpq_dataset_view<half, int64_t>;
-using inst_vpq_f32_view_t         = cuvs::neighbors::device_vpq_dataset_view<float, int64_t>;
-
 }  // namespace
 
 namespace cuvs::neighbors::cagra {
@@ -33,11 +30,6 @@ extern template void index<data_t, uint32_t, inst_host_padded_view_t>::compute_d
   raft::resources const&);
 extern template void index<data_t, uint32_t, inst_host_standard_view_t>::compute_dataset_norms_(
   raft::resources const&);
-extern template void index<data_t, uint32_t, inst_vpq_f16_view_t>::compute_dataset_norms_(
-  raft::resources const&);
-extern template void index<data_t, uint32_t, inst_vpq_f32_view_t>::compute_dataset_norms_(
-  raft::resources const&);
-
 void build_knn_graph(raft::resources const& handle,
                      raft::host_matrix_view<const data_t, int64_t, raft::row_major> dataset,
                      raft::host_matrix_view<index_t, int64_t, raft::row_major> knn_graph,
@@ -46,19 +38,23 @@ void build_knn_graph(raft::resources const& handle,
   cuvs::neighbors::cagra::build_knn_graph<data_t, index_t>(handle, dataset, knn_graph, params);
 }
 
-#define CUVS_INST_CAGRA_BUILD(DatasetViewT)                              \
-  template CUVS_EXPORT auto cuvs::neighbors::cagra::build<DatasetViewT>( \
-    raft::resources const& res,                                          \
-    const cuvs::neighbors::cagra::index_params& params,                  \
-    DatasetViewT const& dataset) -> cuvs::neighbors::cagra::cagra_index_t<DatasetViewT>
+#define CUVS_DEFINE_CAGRA_BUILD_OVERLOAD(DatasetViewT, ...)                   \
+  auto build(raft::resources const& res,                                      \
+             const cuvs::neighbors::cagra::index_params& params,              \
+             DatasetViewT const& dataset) -> __VA_ARGS__                      \
+  {                                                                           \
+    return cuvs::neighbors::cagra::build<DatasetViewT>(res, params, dataset); \
+  }
 
-CUVS_INST_CAGRA_BUILD(inst_device_padded_view_t);
-CUVS_INST_CAGRA_BUILD(inst_device_standard_view_t);
-CUVS_INST_CAGRA_BUILD(inst_host_padded_view_t);
-CUVS_INST_CAGRA_BUILD(inst_host_standard_view_t);
-CUVS_INST_CAGRA_BUILD(inst_vpq_f16_view_t);
-CUVS_INST_CAGRA_BUILD(inst_vpq_f32_view_t);
+CUVS_DEFINE_CAGRA_BUILD_OVERLOAD(inst_device_padded_view_t,
+                                 cuvs::neighbors::cagra::device_padded_index<data_t, uint32_t>);
+CUVS_DEFINE_CAGRA_BUILD_OVERLOAD(inst_device_standard_view_t,
+                                 cuvs::neighbors::cagra::device_standard_index<data_t, uint32_t>);
+CUVS_DEFINE_CAGRA_BUILD_OVERLOAD(inst_host_padded_view_t,
+                                 cuvs::neighbors::cagra::host_padded_index<data_t, uint32_t>);
+CUVS_DEFINE_CAGRA_BUILD_OVERLOAD(inst_host_standard_view_t,
+                                 cuvs::neighbors::cagra::host_standard_index<data_t, uint32_t>);
 
-#undef CUVS_INST_CAGRA_BUILD
+#undef CUVS_DEFINE_CAGRA_BUILD_OVERLOAD
 
 }  // namespace cuvs::neighbors::cagra

@@ -913,13 +913,87 @@ struct merged_dataset_storage {
  * Note: disk-based ACE builds (`ace_params::use_disk = true`) always set a file-descriptor
  * dataset internally (also host-typed); `attach_dataset_on_build` is ignored there too.
  */
-template <typename DatasetViewT>
-  requires(!cuvs::neighbors::is_empty_dataset_view_v<DatasetViewT> &&
-           (cuvs::neighbors::is_device_dataset_view_v<DatasetViewT> ||
-            cuvs::neighbors::is_host_dataset_view_v<DatasetViewT>))
+// Concrete non-template overloads for all supported build dataset view types.
+// This keeps the public header explicit and stable while implementation remains shared internally.
 auto build(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
-           DatasetViewT const& dataset) -> cuvs::neighbors::cagra::cagra_index_t<DatasetViewT>;
+           cuvs::neighbors::device_padded_dataset_view<float, int64_t> const& dataset)
+  -> cuvs::neighbors::cagra::device_padded_index<float, uint32_t>;
+
+auto build(raft::resources const& res,
+           const cuvs::neighbors::cagra::index_params& params,
+           cuvs::neighbors::device_standard_dataset_view<float, int64_t> const& dataset)
+  -> cuvs::neighbors::cagra::device_standard_index<float, uint32_t>;
+
+auto build(raft::resources const& res,
+           const cuvs::neighbors::cagra::index_params& params,
+           cuvs::neighbors::host_padded_dataset_view<float, int64_t> const& dataset)
+  -> cuvs::neighbors::cagra::host_padded_index<float, uint32_t>;
+
+auto build(raft::resources const& res,
+           const cuvs::neighbors::cagra::index_params& params,
+           cuvs::neighbors::host_standard_dataset_view<float, int64_t> const& dataset)
+  -> cuvs::neighbors::cagra::host_standard_index<float, uint32_t>;
+
+auto build(raft::resources const& res,
+           const cuvs::neighbors::cagra::index_params& params,
+           cuvs::neighbors::device_padded_dataset_view<half, int64_t> const& dataset)
+  -> cuvs::neighbors::cagra::device_padded_index<half, uint32_t>;
+
+auto build(raft::resources const& res,
+           const cuvs::neighbors::cagra::index_params& params,
+           cuvs::neighbors::device_standard_dataset_view<half, int64_t> const& dataset)
+  -> cuvs::neighbors::cagra::device_standard_index<half, uint32_t>;
+
+auto build(raft::resources const& res,
+           const cuvs::neighbors::cagra::index_params& params,
+           cuvs::neighbors::host_padded_dataset_view<half, int64_t> const& dataset)
+  -> cuvs::neighbors::cagra::host_padded_index<half, uint32_t>;
+
+auto build(raft::resources const& res,
+           const cuvs::neighbors::cagra::index_params& params,
+           cuvs::neighbors::host_standard_dataset_view<half, int64_t> const& dataset)
+  -> cuvs::neighbors::cagra::host_standard_index<half, uint32_t>;
+
+auto build(raft::resources const& res,
+           const cuvs::neighbors::cagra::index_params& params,
+           cuvs::neighbors::device_padded_dataset_view<int8_t, int64_t> const& dataset)
+  -> cuvs::neighbors::cagra::device_padded_index<int8_t, uint32_t>;
+
+auto build(raft::resources const& res,
+           const cuvs::neighbors::cagra::index_params& params,
+           cuvs::neighbors::device_standard_dataset_view<int8_t, int64_t> const& dataset)
+  -> cuvs::neighbors::cagra::device_standard_index<int8_t, uint32_t>;
+
+auto build(raft::resources const& res,
+           const cuvs::neighbors::cagra::index_params& params,
+           cuvs::neighbors::host_padded_dataset_view<int8_t, int64_t> const& dataset)
+  -> cuvs::neighbors::cagra::host_padded_index<int8_t, uint32_t>;
+
+auto build(raft::resources const& res,
+           const cuvs::neighbors::cagra::index_params& params,
+           cuvs::neighbors::host_standard_dataset_view<int8_t, int64_t> const& dataset)
+  -> cuvs::neighbors::cagra::host_standard_index<int8_t, uint32_t>;
+
+auto build(raft::resources const& res,
+           const cuvs::neighbors::cagra::index_params& params,
+           cuvs::neighbors::device_padded_dataset_view<uint8_t, int64_t> const& dataset)
+  -> cuvs::neighbors::cagra::device_padded_index<uint8_t, uint32_t>;
+
+auto build(raft::resources const& res,
+           const cuvs::neighbors::cagra::index_params& params,
+           cuvs::neighbors::device_standard_dataset_view<uint8_t, int64_t> const& dataset)
+  -> cuvs::neighbors::cagra::device_standard_index<uint8_t, uint32_t>;
+
+auto build(raft::resources const& res,
+           const cuvs::neighbors::cagra::index_params& params,
+           cuvs::neighbors::host_padded_dataset_view<uint8_t, int64_t> const& dataset)
+  -> cuvs::neighbors::cagra::host_padded_index<uint8_t, uint32_t>;
+
+auto build(raft::resources const& res,
+           const cuvs::neighbors::cagra::index_params& params,
+           cuvs::neighbors::host_standard_dataset_view<uint8_t, int64_t> const& dataset)
+  -> cuvs::neighbors::cagra::host_standard_index<uint8_t, uint32_t>;
 
 /**
  * @}
