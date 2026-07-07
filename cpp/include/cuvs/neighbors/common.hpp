@@ -227,13 +227,18 @@ template <typename IdxT>
 using empty_dataset_view_storage = empty_dataset_storage<IdxT>;
 
 // -----------------------------------------------------------------------------
-// padded (row-major with logical dim vs stride)
-// -----------------------------------------------------------------------------
-
-// -----------------------------------------------------------------------------
 // dense row-major (logical dim may differ from row pitch; shared by padded & standard)
 // -----------------------------------------------------------------------------
 
+/**
+ * Dense row-major owning storage shared by padded and standard dataset containers.
+ *
+ * Template parameters:
+ * - MatrixT: owning matrix type that stores the payload (host/device matrix).
+ * - ViewT: non-owning row-major view type returned by `view()`.
+ * - DataT: scalar element type of the dataset payload.
+ * - IdxT: index type used for row counts (`n_rows()` return type).
+ */
 template <typename MatrixT, typename ViewT, typename DataT, typename IdxT>
 struct dense_row_major_dataset_owning_storage {
   MatrixT data_;
@@ -304,6 +309,16 @@ using standard_dataset_view_storage = dense_row_major_dataset_view_storage<ViewT
 // VPQ compressed
 // -----------------------------------------------------------------------------
 
+/**
+ * Owning storage for VPQ-compressed datasets.
+ *
+ * Template parameters:
+ * - VqBookMatrixT: owning matrix type for the VQ codebook.
+ * - PqBookMatrixT: owning matrix type for the PQ codebook.
+ * - DataMatrixT: owning matrix type for encoded row data (uint8 codes).
+ * - MathT: floating-point type used by VQ/PQ codebooks.
+ * - IdxT: index type used for row counts (`n_rows()` return type).
+ */
 template <typename VqBookMatrixT,
           typename PqBookMatrixT,
           typename DataMatrixT,
@@ -365,10 +380,10 @@ struct vpq_dataset_owning_storage {
   }
 };
 
-template <typename containertype, typename DataT, typename IdxT, typename Accessor>
+template <typename ContainerType, typename DataT, typename IdxT, typename Accessor>
 struct vpq_dataset_view_storage {
   using owning_dataset_type =
-    dataset<containertype, DataT, IdxT, dataset_owning_accessor_for_view<DataT, Accessor>>;
+    dataset<ContainerType, DataT, IdxT, dataset_owning_accessor_for_view<DataT, Accessor>>;
 
   owning_dataset_type const* dataset_{nullptr};
 
@@ -453,16 +468,16 @@ struct vpq_dataset_container {
     detail::vpq_dataset_view_storage<vpq_dataset_container, MathT, IdxT, Accessor>;
 };
 
-template <typename containertype, typename DataT, typename IdxT, typename Accessor>
+template <typename ContainerType, typename DataT, typename IdxT, typename Accessor>
 struct dataset {
-  static_assert(!std::is_same_v<containertype, containertype>,
-                "dataset: unsupported containertype / type-parameter combination");
+  static_assert(!std::is_same_v<ContainerType, ContainerType>,
+                "dataset: unsupported ContainerType / type-parameter combination");
 };
 
-template <typename containertype, typename DataT, typename IdxT, typename Accessor>
+template <typename ContainerType, typename DataT, typename IdxT, typename Accessor>
 struct dataset_view {
-  static_assert(!std::is_same_v<containertype, containertype>,
-                "dataset_view: unsupported containertype / type-parameter combination");
+  static_assert(!std::is_same_v<ContainerType, ContainerType>,
+                "dataset_view: unsupported ContainerType / type-parameter combination");
 };
 
 // -----------------------------------------------------------------------------
@@ -787,8 +802,8 @@ using dataset_view_type_t = std::remove_cvref_t<V>;
 template <typename V>
 struct dataset_view_is_device_accessible : std::false_type {};
 
-template <typename containertype, typename DataT, typename IdxT, typename Accessor>
-struct dataset_view_is_device_accessible<dataset_view<containertype, DataT, IdxT, Accessor>>
+template <typename ContainerType, typename DataT, typename IdxT, typename Accessor>
+struct dataset_view_is_device_accessible<dataset_view<ContainerType, DataT, IdxT, Accessor>>
   : std::bool_constant<Accessor::is_device_accessible> {};
 
 template <typename V>
@@ -901,22 +916,22 @@ inline constexpr bool compatible_host_device_dataset_views_v =
 template <typename DatasetLikeT, typename NewAccessor>
 struct with_accessor;
 
-template <typename containertype,
+template <typename ContainerType,
           typename DataT,
           typename IdxT,
           typename OldAccessor,
           typename NewAccessor>
-struct with_accessor<dataset<containertype, DataT, IdxT, OldAccessor>, NewAccessor> {
-  using type = dataset<containertype, DataT, IdxT, NewAccessor>;
+struct with_accessor<dataset<ContainerType, DataT, IdxT, OldAccessor>, NewAccessor> {
+  using type = dataset<ContainerType, DataT, IdxT, NewAccessor>;
 };
 
-template <typename containertype,
+template <typename ContainerType,
           typename DataT,
           typename IdxT,
           typename OldAccessor,
           typename NewAccessor>
-struct with_accessor<dataset_view<containertype, DataT, IdxT, OldAccessor>, NewAccessor> {
-  using type = dataset_view<containertype, DataT, IdxT, NewAccessor>;
+struct with_accessor<dataset_view<ContainerType, DataT, IdxT, OldAccessor>, NewAccessor> {
+  using type = dataset_view<ContainerType, DataT, IdxT, NewAccessor>;
 };
 
 template <typename DatasetLikeT, typename NewAccessor>
@@ -946,9 +961,9 @@ using to_device_accessor_t = typename to_device_accessor<Accessor>::type;
 template <typename HostViewT>
 struct device_counterpart;
 
-template <typename containertype, typename DataT, typename IdxT, typename Accessor>
-struct device_counterpart<dataset_view<containertype, DataT, IdxT, Accessor>> {
-  using type = with_accessor_t<dataset_view<containertype, DataT, IdxT, Accessor>,
+template <typename ContainerType, typename DataT, typename IdxT, typename Accessor>
+struct device_counterpart<dataset_view<ContainerType, DataT, IdxT, Accessor>> {
+  using type = with_accessor_t<dataset_view<ContainerType, DataT, IdxT, Accessor>,
                                to_device_accessor_t<Accessor>>;
 };
 
