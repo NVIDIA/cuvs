@@ -20,7 +20,7 @@ authors = [
 license = "Apache-2.0"
 requires-python = ">=3.11"
 dependencies = [
-    "cuda-python>=13.0.1,<14.0",
+    "cuda-bindings>=13.0.1,<14.0",
     "libcuvs==26.8.*,>=0.0.0a0",
     "numpy>=2.0,<3.0",
     "pylibraft==26.8.*,>=0.0.0a0",
@@ -107,7 +107,7 @@ regex = "(?P<value>.*)"
 [tool.rapids-build-backend]
 requires = [
     "cmake>=4.0",
-    "cuda-python>=13.0.1,<14.0",
+    "cuda-bindings>=13.0.1,<14.0",
     "cython>=3.2.2",
     "libcuvs==26.8.*,>=0.0.0a0",
     "libraft==26.8.*,>=0.0.0a0",
