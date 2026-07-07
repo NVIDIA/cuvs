@@ -7,8 +7,11 @@
 
 #include "../ann_ivf_sq.cuh"
 
-#include <numeric>
-#include <vector>
+#include <raft/core/resource/cuda_stream.hpp>
+#include <raft/linalg/init.cuh>
+#include <raft/matrix/init.cuh>
+
+#include <optional>
 
 namespace cuvs::neighbors::ivf_sq {
 
@@ -27,15 +30,8 @@ TEST(AnnIVFSQTest, ExtendInPlaceUpdatesListSizeWithinCapacity)
   constexpr int64_t rows      = base_rows + grow_rows;
   constexpr int64_t dim       = 4;
 
-  std::vector<float> host_data(rows * dim);
-  for (int64_t row = 0; row < rows; row++) {
-    for (int64_t col = 0; col < dim; col++) {
-      host_data[row * dim + col] = static_cast<float>(row + col);
-    }
-  }
-
   auto data = raft::make_device_matrix<float, int64_t>(handle, rows, dim);
-  raft::copy(data.data_handle(), host_data.data(), host_data.size(), stream);
+  raft::matrix::fill(handle, data.view(), 0.0f);
 
   index_params params;
   params.n_lists                        = 1;
@@ -54,12 +50,11 @@ TEST(AnnIVFSQTest, ExtendInPlaceUpdatesListSizeWithinCapacity)
   raft::resource::sync_stream(handle);
 
   ASSERT_EQ(index.lists()[0]->get_size(), base_rows);
-  ASSERT_GE(index.lists()[0]->indices_capacity(), rows);
+  ASSERT_EQ(index.lists()[0]->indices_capacity(), raft::Pow2<kIndexGroupSize>::roundUp(rows));
+  auto* base_list = index.lists()[0].get();
 
-  std::vector<int64_t> host_indices(grow_rows);
-  std::iota(host_indices.begin(), host_indices.end(), base_rows);
   auto indices = raft::make_device_vector<int64_t, int64_t>(handle, grow_rows);
-  raft::copy(indices.data_handle(), host_indices.data(), host_indices.size(), stream);
+  raft::linalg::range(indices.data_handle(), base_rows, rows, stream);
 
   auto grow_data_view = raft::make_device_matrix_view<const float, int64_t>(
     data.data_handle() + base_rows * dim, grow_rows, dim);
@@ -71,6 +66,7 @@ TEST(AnnIVFSQTest, ExtendInPlaceUpdatesListSizeWithinCapacity)
          &index);
   raft::resource::sync_stream(handle);
 
+  EXPECT_EQ(index.lists()[0].get(), base_list);
   EXPECT_EQ(index.lists()[0]->get_size(), rows);
 }
 
