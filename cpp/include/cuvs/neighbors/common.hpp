@@ -156,7 +156,7 @@ enum class MergeStrategy {
 template <typename ContainerType, typename DataT, typename IdxT, typename Accessor>
 struct dataset;
 
-template <typename containertype, typename DataT, typename IdxT, typename Accessor>
+template <typename ContainerType, typename DataT, typename IdxT, typename Accessor>
 struct dataset_view;
 
 namespace detail {
