@@ -436,15 +436,6 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
     return dataset_fd_.has_value() ? graph_degree_ : graph_view_.extent(1);
   }
 
-  /**
-   * Legacy dense dataset mdspan for callers not yet on the dataset_view API.
-   *
-   * Prefer `data()` for new code. Downstream paths (HNSW export, serialize, extend) still use
-   * this strided view. TODO: migrate them to `data()` and deprecate this accessor.
-   */
-  [[nodiscard]] auto dataset() const
-    -> raft::device_matrix_view<const T, int64_t, raft::layout_stride>;
-
   /** Non-owning dataset binding stored by the index. */
   [[nodiscard]] inline auto data() const noexcept -> DatasetViewT const& { return dataset_; }
 

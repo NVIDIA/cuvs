@@ -32,34 +32,12 @@
 
 namespace cuvs::neighbors::cagra {
 
-// Legacy mdspan adapter: index stores DatasetViewT in dataset_; use data() for the native API.
-// Downstream code (HNSW bridge, serialize, extend/add_nodes, norm fallback) has not been migrated
-// yet and still expects layout_stride with logical dim (extent(1)) separate from row pitch
-// (stride(0)). TODO: migrate those call sites to index.data() / dataset_view and remove this.
-// Exposes logical dim vs row pitch via layout_stride; padded/standard storage is unchanged.
-template <typename T, typename IdxT, cuvs::neighbors::cagra_dataset_view DatasetViewT>
-auto index<T, IdxT, DatasetViewT>::dataset() const
-  -> raft::device_matrix_view<const T, int64_t, raft::layout_stride>
-{
-  namespace nb = cuvs::neighbors;
-  if constexpr (nb::is_padded_dataset_view_v<DatasetViewT> ||
-                nb::is_standard_dataset_view_v<DatasetViewT>) {
-    return raft::make_device_strided_matrix_view<const T, int64_t>(
-      dataset_.view().data_handle(), dataset_.n_rows(), dataset_.dim(), dataset_.stride());
-  } else {
-    // VPQ, empty, graph-only, and other non-dense views have no T matrix to expose.
-    auto d = dataset_.dim();
-    return raft::make_device_strided_matrix_view<const T, int64_t>(nullptr, 0, d, d);
-  }
-}
-
 template <typename T, typename IdxT, cuvs::neighbors::cagra_dataset_view DatasetViewT>
 void index<T, IdxT, DatasetViewT>::compute_dataset_norms_(raft::resources const& res)
 {
-  // raft::linalg::reduce wants row-major with leading dim = row pitch in elements. Prefer padded
-  // storage's native row-major view; for strided non-owning rows use the mdspan stride, not only
-  // index::dataset()'s synthetic mdspan when avoidable. Skip norm precomputation for VPQ
-  // (compressed codes); CosineExpanded with VPQ is handled (or rejected) on the search path.
+  // raft::linalg::reduce wants row-major with leading dim = row pitch in elements.
+  // Skip norm precomputation for VPQ/empty/non-dense views; CosineExpanded with VPQ is handled
+  // (or rejected) on the search path.
   namespace nb    = cuvs::neighbors;
   bool skip_norms = false;
   std::optional<raft::device_matrix_view<const T, int64_t, raft::row_major>> rm_dataset;
@@ -72,12 +50,7 @@ void index<T, IdxT, DatasetViewT>::compute_dataset_norms_(raft::resources const&
   }
 
   if (skip_norms) { return; }
-
-  if (!rm_dataset.has_value()) {
-    auto strided = this->dataset();
-    rm_dataset   = raft::make_device_matrix_view<const T, int64_t, raft::row_major>(
-      strided.data_handle(), strided.extent(0), strided.stride(0));
-  }
+  if (!rm_dataset.has_value()) { return; }
 
   // Allocate norms vector if not already allocated
   if (!dataset_norms_.has_value() || dataset_norms_->extent(0) != rm_dataset->extent(0)) {

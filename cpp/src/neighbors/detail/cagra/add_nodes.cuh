@@ -32,7 +32,7 @@ void add_node_core(
   using DistanceT                 = float;
   const std::size_t degree        = idx.graph_degree();
   const std::size_t dim           = idx.dim();
-  const std::size_t old_size      = idx.dataset().extent(0);
+  const std::size_t old_size      = idx.data().n_rows();
   const std::size_t num_add       = additional_dataset_view.extent(0);
   const std::size_t new_size      = old_size + num_add;
   const std::uint32_t base_degree = degree * 2;

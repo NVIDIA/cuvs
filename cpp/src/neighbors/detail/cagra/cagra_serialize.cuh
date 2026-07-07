@@ -193,19 +193,18 @@ void serialize_to_hnswlib(
   if (dataset) {
     host_dataset_view = *dataset;
   } else if constexpr (is_device_cagra_hnsw_serialize_index_v<T, IdxT, CagraIndexT>) {
-    auto device_dataset = index_.dataset();
-    RAFT_EXPECTS(device_dataset.size() > 0,
+    auto dataset_view = index_.data();
+    RAFT_EXPECTS(dataset_view.n_rows() > 0,
                  "Invalid CAGRA dataset of size 0 during serialization, shape %zux%zu",
-                 static_cast<size_t>(device_dataset.extent(0)),
-                 static_cast<size_t>(device_dataset.extent(1)));
-    host_dataset =
-      raft::make_host_matrix<T, int64_t>(device_dataset.extent(0), device_dataset.extent(1));
+                 static_cast<size_t>(dataset_view.n_rows()),
+                 static_cast<size_t>(dataset_view.dim()));
+    host_dataset = raft::make_host_matrix<T, int64_t>(dataset_view.n_rows(), dataset_view.dim());
     raft::copy_matrix(host_dataset.data_handle(),
                       host_dataset.extent(1),
-                      device_dataset.data_handle(),
-                      device_dataset.stride(0),
+                      dataset_view.view().data_handle(),
+                      dataset_view.stride(),
                       host_dataset.extent(1),
-                      device_dataset.extent(0),
+                      dataset_view.n_rows(),
                       raft::resource::get_cuda_stream(res));
     raft::resource::sync_stream(res);
     host_dataset_view = raft::make_const_mdspan(host_dataset.view());
