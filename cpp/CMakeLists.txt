@@ -1647,9 +1647,9 @@ target_compile_definitions(cuvs::cuvs INTERFACE $<$<BOOL:${CUVS_NVTX}>:NVTX_ENAB
   include(GNUInstallDirs)
   include(CPack)
 
-  # The standalone C artifact links libcuvs_static into libcuvs_c, so private shared dependencies
-  # of the static archive must be bundled explicitly. Keep this component out of normal cuVS
-  # installs, where package managers provide the KvikIO runtime dependency.
+  # The standalone C artifact links libcuvs_static into libcuvs_c, so private shared dependencies of
+  # the static archive must be bundled explicitly. Keep this component out of normal cuVS installs,
+  # where package managers provide the KvikIO runtime dependency.
   if(TARGET kvikio::kvikio)
     get_target_property(_cuvs_kvikio_aliased_target kvikio::kvikio ALIASED_TARGET)
     if(_cuvs_kvikio_aliased_target)
