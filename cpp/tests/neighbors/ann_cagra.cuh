@@ -328,13 +328,6 @@ inline ::std::ostream& operator<<(::std::ostream& os, const AnnCagraInputs& p)
     {search_algo::AUTO, "auto"}                   //
   };
   std::vector<std::string> build_algo = {"IVF_PQ", "NN_DESCENT", "ITERATIVE_CAGRA_SEARCH", "AUTO"};
-  const auto smem_dtype_str           = [](cuvs::neighbors::cagra::internal_dtype dtype) {
-    switch (dtype) {
-      case cuvs::neighbors::cagra::internal_dtype::F16: return "F16";
-      case cuvs::neighbors::cagra::internal_dtype::E5M2: return "E5M2";
-    }
-    return "Unknown";
-  };
   std::vector<std::string> merge_strategy = {"PHYSICAL", "LOGICAL"};
   os << "{n_queries=" << p.n_queries << ", dataset shape=" << p.n_rows << "x" << p.dim
      << ", k=" << p.k << ", " << algo_name[p.algo] << ", max_queries=" << p.max_queries
@@ -500,46 +493,6 @@ class AnnCagraTest : public ::testing::TestWithParam<AnnCagraInputs> {
         raft::resource::sync_stream(handle_);
 
         reference_recall = 1;
-        if (ps.compression.has_value()) {
-          auto decoded_dataset =
-            raft::make_device_matrix<DataT, int64_t>(handle_, ps.n_rows, ps.dim);
-
-          using VpqMathT = half;
-          cuvs::neighbors::decode_vpq_dataset<DataT, VpqMathT>(
-            decoded_dataset.view(),
-            dynamic_cast<const cuvs::neighbors::vpq_dataset<VpqMathT, int64_t>&>(index.data()),
-            raft::resource::get_cuda_stream(handle_));
-          auto indices_out_view = raft::make_device_matrix_view<SearchIdxT, int64_t>(
-            indices_dev.data(), ps.n_queries, ps.k);
-          auto dists_out_view = raft::make_device_matrix_view<DistanceT, int64_t>(
-            distances_dev.data(), ps.n_queries, ps.k);
-
-          cuvs::neighbors::naive_knn<DistanceT, DataT, SearchIdxT>(handle_,
-                                                                   dists_out_view.data_handle(),
-                                                                   indices_out_view.data_handle(),
-                                                                   search_queries.data(),
-                                                                   decoded_dataset.data_handle(),
-                                                                   ps.n_queries,
-                                                                   ps.n_rows,
-                                                                   ps.dim,
-                                                                   ps.k,
-                                                                   ps.metric);
-          std::vector<SearchIdxT> indices_vpq_dataset(queries_size);
-          std::vector<DistanceT> distances_vpq_dataset(queries_size);
-          raft::update_host(
-            distances_vpq_dataset.data(), dists_out_view.data_handle(), queries_size, stream_);
-          raft::update_host(
-            indices_vpq_dataset.data(), indices_out_view.data_handle(), queries_size, stream_);
-
-          reference_recall = std::get<1>(calc_recall(indices_naive,
-                                                     indices_vpq_dataset,
-                                                     distances_naive,
-                                                     distances_vpq_dataset,
-                                                     ps.n_queries,
-                                                     ps.k,
-                                                     0));
-          printf("reference_recall = %e\n", reference_recall);
-        }
       }
 
       // for (int i = 0; i < min(ps.n_queries, 10); i++) {
