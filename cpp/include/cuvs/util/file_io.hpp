@@ -361,8 +361,10 @@ void write_large_file(const file_descriptor& fd,
  * Ordinary stream output is staged into a large host buffer and written to disk through kvikio,
  * which bypasses the page cache via O_DIRECT when supported (and falls back to buffered POSIX
  * writes otherwise). Device buffers passed to write_device() use GPUDirect Storage when available.
- * Because this is a std::ostream it can be passed anywhere an ostream is expected (e.g. the
- * hnswlib serializer), routing that output through kvikio. Non-copyable, non-movable.
+ * This can be passed to APIs accepting a std::ostream& for sequential output (e.g. the hnswlib
+ * serializer). It supports querying the current output position, but not random-access seeking.
+ * std::fstream-specific APIs such as is_open() are not part of its interface. Non-copyable,
+ * non-movable.
  */
 class kvikio_ofstream : public std::ostream {
  public:

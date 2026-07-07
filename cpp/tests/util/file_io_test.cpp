@@ -18,6 +18,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <type_traits>
 #include <unistd.h>
 #include <vector>
 
@@ -176,6 +177,55 @@ TEST(FileIO, KvikioOfstreamRoundTrip)
   const std::vector<char> got = read_whole_file(path);
   ASSERT_EQ(got.size(), data.size());
   EXPECT_EQ(got, data);
+}
+
+// Verify the std::ostream substitution used by serializers, including formatted and unformatted
+// sequential output and current-position queries.
+TEST(FileIO, KvikioOfstreamSequentialOstreamInterface)
+{
+  static_assert(std::is_base_of_v<std::ostream, kvikio_ofstream>);
+  static_assert(std::is_convertible_v<kvikio_ofstream&, std::ostream&>);
+  static_assert(!std::is_constructible_v<kvikio_ofstream, std::ostream&>);
+
+  scratch_dir scratch;
+  const std::string path = scratch.file("stream_interface.bin");
+
+  {
+    kvikio_ofstream file(path, 4096);
+    std::ostream& os = file;
+    os << "value=" << 42 << '\n';
+    os.write("tail", 4);
+    os.seekp(0, std::ios_base::cur);
+    EXPECT_TRUE(os.good());
+    EXPECT_EQ(os.tellp(), std::streampos(13));
+    os.flush();
+    file.close();
+  }
+
+  const std::vector<char> expected{
+    'v', 'a', 'l', 'u', 'e', '=', '4', '2', '\n', 't', 'a', 'i', 'l'};
+  EXPECT_EQ(read_whole_file(path), expected);
+}
+
+TEST(FileIO, KvikioOfstreamRejectsRandomAccessSeeking)
+{
+  scratch_dir scratch;
+  const std::string path = scratch.file("stream_seek.bin");
+
+  {
+    kvikio_ofstream os(path, 4096);
+    os << "before";
+    os.seekp(0, std::ios_base::beg);
+    EXPECT_TRUE(os.fail());
+
+    os.clear();
+    EXPECT_EQ(os.tellp(), std::streampos(6));
+    os << "after";
+    os.close();
+  }
+
+  const std::vector<char> expected{'b', 'e', 'f', 'o', 'r', 'e', 'a', 'f', 't', 'e', 'r'};
+  EXPECT_EQ(read_whole_file(path), expected);
 }
 
 // A large single write must bypass the small staging buffer correctly and still round-trip.
