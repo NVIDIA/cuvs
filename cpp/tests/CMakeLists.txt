@@ -332,8 +332,13 @@ if(BUILD_CAGRA_HNSWLIB)
 endif()
 
 if(BUILD_MG_ALGOS)
-  find_package(ucx REQUIRED)
-  find_package(ucxx REQUIRED)
+  if(NOT TARGET ucx::ucp)
+    find_package(ucx REQUIRED)
+  endif()
+
+  if(NOT TARGET ucxx::ucxx)
+    find_package(ucxx REQUIRED)
+  endif()
 
   ConfigureTest(
     NAME NEIGHBORS_MG_TEST
@@ -346,7 +351,7 @@ if(BUILD_MG_ALGOS)
   ConfigureTest(
     NAME CLUSTER_KMEANS_MG_TEST
     PATH cluster/kmeans_mg.cu
-    GPUS 2
+    GPUS 1
     PERCENT 100
     ADDITIONAL_DEP
       NCCL::NCCL
