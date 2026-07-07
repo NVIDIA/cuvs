@@ -150,6 +150,9 @@ inline std::pair<size_t, size_t> ivf_pq_build_mem_usage(
   size_t kmeans_pinned_host = 2 * pinned_rows * dim * dtype_size;  // two staging double-buffers
   size_t kmeans_host_mem    = kmeans_indices_host + kmeans_pinned_host;
 
+  // Add graph to index on GPU
+  size_t create_index_gpu_mem = n_rows * graph_degree * sizeof(uint32_t);
+
   // Search phase (build_knn_graph):
   constexpr size_t kWorkspaceRatio = 5;
   size_t top_k                     = intermediate_graph_degree + 1;
@@ -168,7 +171,8 @@ inline std::pair<size_t, size_t> ivf_pq_build_mem_usage(
                                          + (sizeof(float) + sizeof(int64_t)) * top_k);  // refined_*
 
   // Phases run sequentially (train/extend -> search -> optimize)
-  size_t total_dev = std::max({kmeans_gpu_mem, search_phase_dev, gpu_workspace_size});
+  size_t total_dev =
+    std::max({kmeans_gpu_mem, search_phase_dev, gpu_workspace_size, create_index_gpu_mem});
 
   // The graph (and its optimize workspace) stays resident across phases
   size_t total_host =
