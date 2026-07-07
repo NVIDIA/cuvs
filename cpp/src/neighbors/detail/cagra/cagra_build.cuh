@@ -1396,12 +1396,16 @@ index<T, IdxT> build_ace(raft::resources const& res,
 
       // Index parameters depend only on partition sizes, not on where the dataset lives.
       cuvs::neighbors::cagra::index_params sub_index_params;
-      sub_index_params = cuvs::neighbors::cagra::index_params::from_hnsw_params(
+      const auto sub_hnsw_m = static_cast<int>((graph_degree + 1) / 2);
+      sub_index_params      = cuvs::neighbors::cagra::index_params::from_hnsw_params(
         raft::make_extents<int64_t>(sub_dataset_size, dataset_dim),
-        graph_degree / 2,
+        sub_hnsw_m,
         ef_construction,
         cuvs::neighbors::cagra::hnsw_heuristic_type::SAME_GRAPH_FOOTPRINT,
         params.metric);
+      // SAME_GRAPH_FOOTPRINT produces 2 * M edges. Preserve an odd graph degree after CAGRA's
+      // small-dataset validation reduces it (for example, 64 -> 3 for a four-row dataset).
+      sub_index_params.graph_degree            = graph_degree;
       sub_index_params.attach_dataset_on_build = false;
       sub_index_params.guarantee_connectivity  = params.guarantee_connectivity;
 
