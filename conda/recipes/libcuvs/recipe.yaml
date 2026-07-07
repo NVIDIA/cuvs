@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 schema_version: 1
 
@@ -76,6 +76,9 @@ cache:
       - librmm =${{ minor_version }}
       - libraft-headers =${{ minor_version }}
       - nccl ${{ nccl_version }}
+      # ucx/ucxx are required to build the multi-GPU (MG) tests
+      - libucxx ${{ ucxx_version }}
+      - ucx
       - cuda-version =${{ cuda_version }}
       - cuda-cudart-dev
       - cuda-nvrtc-dev
@@ -293,6 +296,9 @@ outputs:
         - librmm =${{ minor_version }}
         - libraft-headers =${{ minor_version }}
         - nccl ${{ nccl_version }}
+        # ucx/ucxx are linked by the multi-GPU (MG) tests
+        - libucxx ${{ ucxx_version }}
+        - ucx
         - ${{ pin_subpackage("libcuvs-headers", exact=True) }}
         - ${{ pin_subpackage("libcuvs", exact=True) }}
         - cuda-version =${{ cuda_version }}
@@ -309,6 +315,8 @@ outputs:
         - ${{ pin_compatible("cuda-version", upper_bound="x", lower_bound="x") }}
         - libraft-headers =${{ minor_version }}
         - nccl
+        - libucxx ${{ ucxx_version }}
+        - ucx
         - libcublas
         - libcurand
         - libcusolver
