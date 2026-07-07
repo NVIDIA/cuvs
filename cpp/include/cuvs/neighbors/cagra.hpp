@@ -915,81 +915,193 @@ struct merged_dataset_storage {
  */
 // Concrete non-template overloads for all supported build dataset view types.
 // This keeps the public header explicit and stable while implementation remains shared internally.
+/**
+ * @brief Build from a device padded dataset view (`float`).
+ * @param[in] res raft resources
+ * @param[in] params CAGRA index build parameters
+ * @param[in] dataset device padded dataset view [n_rows, dim]
+ * @return built `device_padded_index<float, uint32_t>`
+ */
 auto build(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
            cuvs::neighbors::device_padded_dataset_view<float, int64_t> const& dataset)
   -> cuvs::neighbors::cagra::device_padded_index<float, uint32_t>;
 
+/**
+ * @brief Build from a device standard dataset view (`float`).
+ * @param[in] res raft resources
+ * @param[in] params CAGRA index build parameters
+ * @param[in] dataset device standard dataset view [n_rows, dim]
+ * @return built `device_standard_index<float, uint32_t>`
+ */
 auto build(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
            cuvs::neighbors::device_standard_dataset_view<float, int64_t> const& dataset)
   -> cuvs::neighbors::cagra::device_standard_index<float, uint32_t>;
 
+/**
+ * @brief Build from a host padded dataset view (`float`).
+ * @param[in] res raft resources
+ * @param[in] params CAGRA index build parameters
+ * @param[in] dataset host padded dataset view [n_rows, dim]
+ * @return built `host_padded_index<float, uint32_t>`
+ */
 auto build(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
            cuvs::neighbors::host_padded_dataset_view<float, int64_t> const& dataset)
   -> cuvs::neighbors::cagra::host_padded_index<float, uint32_t>;
 
+/**
+ * @brief Build from a host standard dataset view (`float`).
+ * @param[in] res raft resources
+ * @param[in] params CAGRA index build parameters
+ * @param[in] dataset host standard dataset view [n_rows, dim]
+ * @return built `host_standard_index<float, uint32_t>`
+ */
 auto build(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
            cuvs::neighbors::host_standard_dataset_view<float, int64_t> const& dataset)
   -> cuvs::neighbors::cagra::host_standard_index<float, uint32_t>;
 
+/**
+ * @brief Build from a device padded dataset view (`half`).
+ * @param[in] res raft resources
+ * @param[in] params CAGRA index build parameters
+ * @param[in] dataset device padded dataset view [n_rows, dim]
+ * @return built `device_padded_index<half, uint32_t>`
+ */
 auto build(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
            cuvs::neighbors::device_padded_dataset_view<half, int64_t> const& dataset)
   -> cuvs::neighbors::cagra::device_padded_index<half, uint32_t>;
 
+/**
+ * @brief Build from a device standard dataset view (`half`).
+ * @param[in] res raft resources
+ * @param[in] params CAGRA index build parameters
+ * @param[in] dataset device standard dataset view [n_rows, dim]
+ * @return built `device_standard_index<half, uint32_t>`
+ */
 auto build(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
            cuvs::neighbors::device_standard_dataset_view<half, int64_t> const& dataset)
   -> cuvs::neighbors::cagra::device_standard_index<half, uint32_t>;
 
+/**
+ * @brief Build from a host padded dataset view (`half`).
+ * @param[in] res raft resources
+ * @param[in] params CAGRA index build parameters
+ * @param[in] dataset host padded dataset view [n_rows, dim]
+ * @return built `host_padded_index<half, uint32_t>`
+ */
 auto build(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
            cuvs::neighbors::host_padded_dataset_view<half, int64_t> const& dataset)
   -> cuvs::neighbors::cagra::host_padded_index<half, uint32_t>;
 
+/**
+ * @brief Build from a host standard dataset view (`half`).
+ * @param[in] res raft resources
+ * @param[in] params CAGRA index build parameters
+ * @param[in] dataset host standard dataset view [n_rows, dim]
+ * @return built `host_standard_index<half, uint32_t>`
+ */
 auto build(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
            cuvs::neighbors::host_standard_dataset_view<half, int64_t> const& dataset)
   -> cuvs::neighbors::cagra::host_standard_index<half, uint32_t>;
 
+/**
+ * @brief Build from a device padded dataset view (`int8_t`).
+ * @param[in] res raft resources
+ * @param[in] params CAGRA index build parameters
+ * @param[in] dataset device padded dataset view [n_rows, dim]
+ * @return built `device_padded_index<int8_t, uint32_t>`
+ */
 auto build(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
            cuvs::neighbors::device_padded_dataset_view<int8_t, int64_t> const& dataset)
   -> cuvs::neighbors::cagra::device_padded_index<int8_t, uint32_t>;
 
+/**
+ * @brief Build from a device standard dataset view (`int8_t`).
+ * @param[in] res raft resources
+ * @param[in] params CAGRA index build parameters
+ * @param[in] dataset device standard dataset view [n_rows, dim]
+ * @return built `device_standard_index<int8_t, uint32_t>`
+ */
 auto build(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
            cuvs::neighbors::device_standard_dataset_view<int8_t, int64_t> const& dataset)
   -> cuvs::neighbors::cagra::device_standard_index<int8_t, uint32_t>;
 
+/**
+ * @brief Build from a host padded dataset view (`int8_t`).
+ * @param[in] res raft resources
+ * @param[in] params CAGRA index build parameters
+ * @param[in] dataset host padded dataset view [n_rows, dim]
+ * @return built `host_padded_index<int8_t, uint32_t>`
+ */
 auto build(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
            cuvs::neighbors::host_padded_dataset_view<int8_t, int64_t> const& dataset)
   -> cuvs::neighbors::cagra::host_padded_index<int8_t, uint32_t>;
 
+/**
+ * @brief Build from a host standard dataset view (`int8_t`).
+ * @param[in] res raft resources
+ * @param[in] params CAGRA index build parameters
+ * @param[in] dataset host standard dataset view [n_rows, dim]
+ * @return built `host_standard_index<int8_t, uint32_t>`
+ */
 auto build(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
            cuvs::neighbors::host_standard_dataset_view<int8_t, int64_t> const& dataset)
   -> cuvs::neighbors::cagra::host_standard_index<int8_t, uint32_t>;
 
+/**
+ * @brief Build from a device padded dataset view (`uint8_t`).
+ * @param[in] res raft resources
+ * @param[in] params CAGRA index build parameters
+ * @param[in] dataset device padded dataset view [n_rows, dim]
+ * @return built `device_padded_index<uint8_t, uint32_t>`
+ */
 auto build(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
            cuvs::neighbors::device_padded_dataset_view<uint8_t, int64_t> const& dataset)
   -> cuvs::neighbors::cagra::device_padded_index<uint8_t, uint32_t>;
 
+/**
+ * @brief Build from a device standard dataset view (`uint8_t`).
+ * @param[in] res raft resources
+ * @param[in] params CAGRA index build parameters
+ * @param[in] dataset device standard dataset view [n_rows, dim]
+ * @return built `device_standard_index<uint8_t, uint32_t>`
+ */
 auto build(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
            cuvs::neighbors::device_standard_dataset_view<uint8_t, int64_t> const& dataset)
   -> cuvs::neighbors::cagra::device_standard_index<uint8_t, uint32_t>;
 
+/**
+ * @brief Build from a host padded dataset view (`uint8_t`).
+ * @param[in] res raft resources
+ * @param[in] params CAGRA index build parameters
+ * @param[in] dataset host padded dataset view [n_rows, dim]
+ * @return built `host_padded_index<uint8_t, uint32_t>`
+ */
 auto build(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
            cuvs::neighbors::host_padded_dataset_view<uint8_t, int64_t> const& dataset)
   -> cuvs::neighbors::cagra::host_padded_index<uint8_t, uint32_t>;
 
+/**
+ * @brief Build from a host standard dataset view (`uint8_t`).
+ * @param[in] res raft resources
+ * @param[in] params CAGRA index build parameters
+ * @param[in] dataset host standard dataset view [n_rows, dim]
+ * @return built `host_standard_index<uint8_t, uint32_t>`
+ */
 auto build(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
            cuvs::neighbors::host_standard_dataset_view<uint8_t, int64_t> const& dataset)
@@ -1011,17 +1123,34 @@ auto build(raft::resources const& res,
 // Index types for which extend is not meaningful (e.g. VPQ — read-only compressed codes)
 // are intentionally omitted.
 
-/** @brief Add new vectors to a CAGRA index.
+/** @brief Add new vectors to a CAGRA index
  *
- * Only `device_padded_index` supports extend (VPQ and other compressed index types are
- * read-only once built and have no extend overload).
+ * Usage example:
+ * @code{.cpp}
+ *   using namespace cuvs::neighbors;
+ *   auto additional_dataset = raft::make_device_matrix<float, int64_t>(handle,add_size,dim);
+ *   // set_additional_dataset(additional_dataset.view());
+ *
+ *   cagra::extend_params params;
+ *   cagra::extend(res, params, raft::make_const_mdspan(additional_dataset.view()), index);
+ * @endcode
  *
  * @param[in] handle raft resources
  * @param[in] params extend params
  * @param[in] additional_dataset additional dataset on device memory
  * @param[in,out] idx CAGRA index
- * @param[out] new_dataset_buffer_view optional caller-managed buffer for the extended dataset
- * @param[out] new_graph_buffer_view optional caller-managed buffer for the extended graph
+ * @param[out] new_dataset_buffer_view memory buffer view for the dataset including the additional
+ * part. The data will be copied from the current index in this function. The num rows must be the
+ * sum of the original and additional datasets, cols must be the dimension of the dataset, and the
+ * stride must be the same as the original index dataset. This view will be stored in the output
+ * index. It is the caller's responsibility to ensure that dataset stays alive as long as the index.
+ * This option is useful when users want to manage the memory space for the dataset themselves.
+ * @param[out] new_graph_buffer_view memory buffer view for the graph including the additional part.
+ * The data will be copied from the current index in this function. The num rows must be the sum of
+ * the original and additional datasets and cols must be the graph degree. This view will be stored
+ * in the output index. It is the caller's responsibility to ensure that dataset stays alive as long
+ * as the index. This option is useful when users want to manage the memory space for the graph
+ * themselves.
  */
 void extend(
   raft::resources const& handle,
@@ -1032,6 +1161,35 @@ void extend(
     new_dataset_buffer_view                                                        = std::nullopt,
   std::optional<raft::device_matrix_view<uint32_t, int64_t>> new_graph_buffer_view = std::nullopt);
 
+/** @brief Add new vectors to a CAGRA index
+ *
+ * Usage example:
+ * @code{.cpp}
+ *   using namespace cuvs::neighbors;
+ *   auto additional_dataset = raft::make_device_matrix<half, int64_t>(handle,add_size,dim);
+ *   // set_additional_dataset(additional_dataset.view());
+ *
+ *   cagra::extend_params params;
+ *   cagra::extend(res, params, raft::make_const_mdspan(additional_dataset.view()), index);
+ * @endcode
+ *
+ * @param[in] handle raft resources
+ * @param[in] params extend params
+ * @param[in] additional_dataset additional dataset on device memory
+ * @param[in,out] idx CAGRA index
+ * @param[out] new_dataset_buffer_view memory buffer view for the dataset including the additional
+ * part. The data will be copied from the current index in this function. The num rows must be the
+ * sum of the original and additional datasets, cols must be the dimension of the dataset, and the
+ * stride must be the same as the original index dataset. This view will be stored in the output
+ * index. It is the caller's responsibility to ensure that dataset stays alive as long as the index.
+ * This option is useful when users want to manage the memory space for the dataset themselves.
+ * @param[out] new_graph_buffer_view memory buffer view for the graph including the additional part.
+ * The data will be copied from the current index in this function. The num rows must be the sum of
+ * the original and additional datasets and cols must be the graph degree. This view will be stored
+ * in the output index. It is the caller's responsibility to ensure that dataset stays alive as long
+ * as the index. This option is useful when users want to manage the memory space for the graph
+ * themselves.
+ */
 void extend(
   raft::resources const& handle,
   const cagra::extend_params& params,
@@ -1041,6 +1199,35 @@ void extend(
     new_dataset_buffer_view                                                        = std::nullopt,
   std::optional<raft::device_matrix_view<uint32_t, int64_t>> new_graph_buffer_view = std::nullopt);
 
+/** @brief Add new vectors to a CAGRA index
+ *
+ * Usage example:
+ * @code{.cpp}
+ *   using namespace cuvs::neighbors;
+ *   auto additional_dataset = raft::make_device_matrix<int8_t, int64_t>(handle,add_size,dim);
+ *   // set_additional_dataset(additional_dataset.view());
+ *
+ *   cagra::extend_params params;
+ *   cagra::extend(res, params, raft::make_const_mdspan(additional_dataset.view()), index);
+ * @endcode
+ *
+ * @param[in] handle raft resources
+ * @param[in] params extend params
+ * @param[in] additional_dataset additional dataset on device memory
+ * @param[in,out] idx CAGRA index
+ * @param[out] new_dataset_buffer_view memory buffer view for the dataset including the additional
+ * part. The data will be copied from the current index in this function. The num rows must be the
+ * sum of the original and additional datasets, cols must be the dimension of the dataset, and the
+ * stride must be the same as the original index dataset. This view will be stored in the output
+ * index. It is the caller's responsibility to ensure that dataset stays alive as long as the index.
+ * This option is useful when users want to manage the memory space for the dataset themselves.
+ * @param[out] new_graph_buffer_view memory buffer view for the graph including the additional part.
+ * The data will be copied from the current index in this function. The num rows must be the sum of
+ * the original and additional datasets and cols must be the graph degree. This view will be stored
+ * in the output index. It is the caller's responsibility to ensure that dataset stays alive as long
+ * as the index. This option is useful when users want to manage the memory space for the graph
+ * themselves.
+ */
 void extend(
   raft::resources const& handle,
   const cagra::extend_params& params,
@@ -1050,6 +1237,35 @@ void extend(
     new_dataset_buffer_view                                                        = std::nullopt,
   std::optional<raft::device_matrix_view<uint32_t, int64_t>> new_graph_buffer_view = std::nullopt);
 
+/** @brief Add new vectors to a CAGRA index
+ *
+ * Usage example:
+ * @code{.cpp}
+ *   using namespace cuvs::neighbors;
+ *   auto additional_dataset = raft::make_device_matrix<uint8_t, int64_t>(handle,add_size,dim);
+ *   // set_additional_dataset(additional_dataset.view());
+ *
+ *   cagra::extend_params params;
+ *   cagra::extend(res, params, raft::make_const_mdspan(additional_dataset.view()), index);
+ * @endcode
+ *
+ * @param[in] handle raft resources
+ * @param[in] params extend params
+ * @param[in] additional_dataset additional dataset on device memory
+ * @param[in,out] idx CAGRA index
+ * @param[out] new_dataset_buffer_view memory buffer view for the dataset including the additional
+ * part. The data will be copied from the current index in this function. The num rows must be the
+ * sum of the original and additional datasets, cols must be the dimension of the dataset, and the
+ * stride must be the same as the original index dataset. This view will be stored in the output
+ * index. It is the caller's responsibility to ensure that dataset stays alive as long as the index.
+ * This option is useful when users want to manage the memory space for the dataset themselves.
+ * @param[out] new_graph_buffer_view memory buffer view for the graph including the additional part.
+ * The data will be copied from the current index in this function. The num rows must be the sum of
+ * the original and additional datasets and cols must be the graph degree. This view will be stored
+ * in the output index. It is the caller's responsibility to ensure that dataset stays alive as long
+ * as the index. This option is useful when users want to manage the memory space for the graph
+ * themselves.
+ */
 void extend(
   raft::resources const& handle,
   const cagra::extend_params& params,
@@ -1059,7 +1275,35 @@ void extend(
     new_dataset_buffer_view                                                        = std::nullopt,
   std::optional<raft::device_matrix_view<uint32_t, int64_t>> new_graph_buffer_view = std::nullopt);
 
-/** @brief Add new vectors to a CAGRA index (host additional dataset). */
+/** @brief Add new vectors to a CAGRA index
+ *
+ * Usage example:
+ * @code{.cpp}
+ *   using namespace cuvs::neighbors;
+ *   auto additional_dataset = raft::make_host_matrix<float, int64_t>(handle,add_size,dim);
+ *   // set_additional_dataset(additional_dataset.view());
+ *
+ *   cagra::extend_params params;
+ *   cagra::extend(res, params, raft::make_const_mdspan(additional_dataset.view()), index);
+ * @endcode
+ *
+ * @param[in] handle raft resources
+ * @param[in] params extend params
+ * @param[in] additional_dataset additional dataset on host memory
+ * @param[in,out] idx CAGRA index
+ * @param[out] new_dataset_buffer_view memory buffer view for the dataset including the additional
+ * part. The data will be copied from the current index in this function. The num rows must be the
+ * sum of the original and additional datasets, cols must be the dimension of the dataset, and the
+ * stride must be the same as the original index dataset. This view will be stored in the output
+ * index. It is the caller's responsibility to ensure that dataset stays alive as long as the index.
+ * This option is useful when users want to manage the memory space for the dataset themselves.
+ * @param[out] new_graph_buffer_view memory buffer view for the graph including the additional part.
+ * The data will be copied from the current index in this function. The num rows must be the sum of
+ * the original and additional datasets and cols must be the graph degree. This view will be stored
+ * in the output index. It is the caller's responsibility to ensure that dataset stays alive as long
+ * as the index. This option is useful when users want to manage the memory space for the graph
+ * themselves.
+ */
 void extend(
   raft::resources const& handle,
   const cagra::extend_params& params,
@@ -1069,6 +1313,35 @@ void extend(
     new_dataset_buffer_view                                                        = std::nullopt,
   std::optional<raft::device_matrix_view<uint32_t, int64_t>> new_graph_buffer_view = std::nullopt);
 
+/** @brief Add new vectors to a CAGRA index
+ *
+ * Usage example:
+ * @code{.cpp}
+ *   using namespace cuvs::neighbors;
+ *   auto additional_dataset = raft::make_host_matrix<half, int64_t>(handle,add_size,dim);
+ *   // set_additional_dataset(additional_dataset.view());
+ *
+ *   cagra::extend_params params;
+ *   cagra::extend(res, params, raft::make_const_mdspan(additional_dataset.view()), index);
+ * @endcode
+ *
+ * @param[in] handle raft resources
+ * @param[in] params extend params
+ * @param[in] additional_dataset additional dataset on host memory
+ * @param[in,out] idx CAGRA index
+ * @param[out] new_dataset_buffer_view memory buffer view for the dataset including the additional
+ * part. The data will be copied from the current index in this function. The num rows must be the
+ * sum of the original and additional datasets, cols must be the dimension of the dataset, and the
+ * stride must be the same as the original index dataset. This view will be stored in the output
+ * index. It is the caller's responsibility to ensure that dataset stays alive as long as the index.
+ * This option is useful when users want to manage the memory space for the dataset themselves.
+ * @param[out] new_graph_buffer_view memory buffer view for the graph including the additional part.
+ * The data will be copied from the current index in this function. The num rows must be the sum of
+ * the original and additional datasets and cols must be the graph degree. This view will be stored
+ * in the output index. It is the caller's responsibility to ensure that dataset stays alive as long
+ * as the index. This option is useful when users want to manage the memory space for the graph
+ * themselves.
+ */
 void extend(
   raft::resources const& handle,
   const cagra::extend_params& params,
@@ -1078,6 +1351,35 @@ void extend(
     new_dataset_buffer_view                                                        = std::nullopt,
   std::optional<raft::device_matrix_view<uint32_t, int64_t>> new_graph_buffer_view = std::nullopt);
 
+/** @brief Add new vectors to a CAGRA index
+ *
+ * Usage example:
+ * @code{.cpp}
+ *   using namespace cuvs::neighbors;
+ *   auto additional_dataset = raft::make_host_matrix<int8_t, int64_t>(handle,add_size,dim);
+ *   // set_additional_dataset(additional_dataset.view());
+ *
+ *   cagra::extend_params params;
+ *   cagra::extend(res, params, raft::make_const_mdspan(additional_dataset.view()), index);
+ * @endcode
+ *
+ * @param[in] handle raft resources
+ * @param[in] params extend params
+ * @param[in] additional_dataset additional dataset on host memory
+ * @param[in,out] idx CAGRA index
+ * @param[out] new_dataset_buffer_view memory buffer view for the dataset including the additional
+ * part. The data will be copied from the current index in this function. The num rows must be the
+ * sum of the original and additional datasets, cols must be the dimension of the dataset, and the
+ * stride must be the same as the original index dataset. This view will be stored in the output
+ * index. It is the caller's responsibility to ensure that dataset stays alive as long as the index.
+ * This option is useful when users want to manage the memory space for the dataset themselves.
+ * @param[out] new_graph_buffer_view memory buffer view for the graph including the additional part.
+ * The data will be copied from the current index in this function. The num rows must be the sum of
+ * the original and additional datasets and cols must be the graph degree. This view will be stored
+ * in the output index. It is the caller's responsibility to ensure that dataset stays alive as long
+ * as the index. This option is useful when users want to manage the memory space for the graph
+ * themselves.
+ */
 void extend(
   raft::resources const& handle,
   const cagra::extend_params& params,
@@ -1087,6 +1389,35 @@ void extend(
     new_dataset_buffer_view                                                        = std::nullopt,
   std::optional<raft::device_matrix_view<uint32_t, int64_t>> new_graph_buffer_view = std::nullopt);
 
+/** @brief Add new vectors to a CAGRA index
+ *
+ * Usage example:
+ * @code{.cpp}
+ *   using namespace cuvs::neighbors;
+ *   auto additional_dataset = raft::make_host_matrix<uint8_t, int64_t>(handle,add_size,dim);
+ *   // set_additional_dataset(additional_dataset.view());
+ *
+ *   cagra::extend_params params;
+ *   cagra::extend(res, params, raft::make_const_mdspan(additional_dataset.view()), index);
+ * @endcode
+ *
+ * @param[in] handle raft resources
+ * @param[in] params extend params
+ * @param[in] additional_dataset additional dataset on host memory
+ * @param[in,out] idx CAGRA index
+ * @param[out] new_dataset_buffer_view memory buffer view for the dataset including the additional
+ * part. The data will be copied from the current index in this function. The num rows must be the
+ * sum of the original and additional datasets, cols must be the dimension of the dataset, and the
+ * stride must be the same as the original index dataset. This view will be stored in the output
+ * index. It is the caller's responsibility to ensure that dataset stays alive as long as the index.
+ * This option is useful when users want to manage the memory space for the dataset themselves.
+ * @param[out] new_graph_buffer_view memory buffer view for the graph including the additional part.
+ * The data will be copied from the current index in this function. The num rows must be the sum of
+ * the original and additional datasets and cols must be the graph degree. This view will be stored
+ * in the output index. It is the caller's responsibility to ensure that dataset stays alive as long
+ * as the index. This option is useful when users want to manage the memory space for the graph
+ * themselves.
+ */
 void extend(
   raft::resources const& handle,
   const cagra::extend_params& params,
