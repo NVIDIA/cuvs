@@ -178,7 +178,7 @@ template <typename T,
           typename CagraSampleFilterT,
           typename IdxT      = uint32_t,
           typename DistanceT = float,
-          cuvs::neighbors::cagra_dataset_view DatasetViewT>
+          cuvs::neighbors::ann_dataset_view DatasetViewT>
 void search_main(raft::resources const& res,
                  search_params params,
                  const index<T, IdxT, DatasetViewT>& index,

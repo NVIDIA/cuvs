@@ -387,7 +387,7 @@ static_assert(std::is_aggregate_v<search_params>);
 
 template <typename T,
           typename IdxT,
-          cuvs::neighbors::cagra_dataset_view DatasetViewT =
+          cuvs::neighbors::ann_dataset_view DatasetViewT =
             cuvs::neighbors::device_padded_dataset_view<T, int64_t>>
 struct index;
 
@@ -407,7 +407,7 @@ struct index;
  * @tparam DatasetViewT concrete non-owning dataset view type stored by the index
  *
  */
-template <typename T, typename IdxT, cuvs::neighbors::cagra_dataset_view DatasetViewT>
+template <typename T, typename IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
 struct CUVS_EXPORT index : cuvs::neighbors::index {
   using index_params_type  = cagra::index_params;
   using search_params_type = cagra::search_params;
@@ -506,7 +506,7 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
   /** Construct a graph-only index with a zero-row dataset view placeholder. */
   index(raft::resources const& res,
         cuvs::distance::DistanceType metric = cuvs::distance::DistanceType::L2Expanded)
-    requires(cuvs::neighbors::cagra_dataset_view<DatasetViewT, int64_t>)
+    requires(cuvs::neighbors::ann_dataset_view<DatasetViewT, int64_t>)
     : cuvs::neighbors::index(),
       metric_(metric),
       graph_(raft::make_device_matrix<graph_index_type, int64_t>(res, 0, 0)),
@@ -3100,7 +3100,7 @@ void serialize_to_hnswlib(
  * `filtered_storage` with shape `[filtered_rows, stride_elements]`. Pass the result to `merge` with
  * the same `indices` and `row_filter`.
  */
-template <typename T, typename IdxT, cuvs::neighbors::cagra_dataset_view DatasetViewT>
+template <typename T, typename IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
 merged_dataset_storage<T, IdxT> make_merged_dataset(
   raft::resources const& res,
   std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*> const& indices,
@@ -3112,7 +3112,7 @@ merged_dataset_storage<T, IdxT> make_merged_dataset(
  * @note This API only supports physical merge (`merge_strategy = MERGE_STRATEGY_PHYSICAL`).
  * All input indices must use the same `DatasetViewT` (dense padded or standard device views).
  */
-template <typename T, typename IdxT, cuvs::neighbors::cagra_dataset_view DatasetViewT>
+template <typename T, typename IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
 auto merge(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
            std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*>& indices,
@@ -3887,8 +3887,8 @@ namespace detail {
 struct fd_transfer {
   template <typename T,
             typename IdxT,
-            cuvs::neighbors::cagra_dataset_view SrcDatasetViewT,
-            cuvs::neighbors::cagra_dataset_view DstDatasetViewT>
+            cuvs::neighbors::ann_dataset_view SrcDatasetViewT,
+            cuvs::neighbors::ann_dataset_view DstDatasetViewT>
   static inline void steal_disk_fds_to(raft::resources const& res,
                                        index<T, IdxT, SrcDatasetViewT>& src,
                                        index<T, IdxT, DstDatasetViewT>& dst)

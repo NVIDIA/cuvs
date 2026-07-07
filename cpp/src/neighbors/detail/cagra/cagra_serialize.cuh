@@ -57,7 +57,7 @@ constexpr int serialization_version = 5;
  * @param[in] index_ CAGRA index
  *
  */
-template <typename T, typename IdxT, cuvs::neighbors::cagra_dataset_view DatasetViewT>
+template <typename T, typename IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
 void serialize(raft::resources const& res,
                std::ostream& os,
                const cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>& index_,
@@ -109,7 +109,7 @@ void serialize(raft::resources const& res,
   if (has_source_indices) { raft::serialize_mdspan(res, os, index_.source_indices().value()); }
 }
 
-template <typename T, typename IdxT, cuvs::neighbors::cagra_dataset_view DatasetViewT>
+template <typename T, typename IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
 void serialize(raft::resources const& res,
                const std::string& filename,
                const cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>& index_,
@@ -296,7 +296,7 @@ void serialize_to_hnswlib(
  * @param[in] index_ CAGRA index
  *
  */
-template <typename T, typename IdxT, cuvs::neighbors::cagra_dataset_view DatasetViewT>
+template <typename T, typename IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
 void deserialize(
   raft::resources const& res,
   std::istream& is,
@@ -369,7 +369,7 @@ void deserialize(
   }
 }
 
-template <typename T, typename IdxT, cuvs::neighbors::cagra_dataset_view DatasetViewT>
+template <typename T, typename IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
 void deserialize(
   raft::resources const& res,
   const std::string& filename,

@@ -30,7 +30,7 @@
 
 namespace cuvs::neighbors::cagra::detail {
 
-template <typename T, cuvs::neighbors::cagra_dataset_view DatasetViewT>
+template <typename T, cuvs::neighbors::ann_dataset_view DatasetViewT>
 auto make_merged_dense_device_dataset_view(
   raft::device_matrix_view<const T, int64_t, raft::row_major> storage, uint32_t dim) -> DatasetViewT
 {
@@ -46,7 +46,7 @@ auto make_merged_dense_device_dataset_view(
   }
 }
 
-template <class T, class IdxT, cuvs::neighbors::cagra_dataset_view DatasetViewT>
+template <class T, class IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
 merged_dataset compute_merged_dataset_layout(
   raft::resources const& handle,
   std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*> const& indices,
@@ -101,7 +101,7 @@ merged_dataset compute_merged_dataset_layout(
   return layout;
 }
 
-template <class T, class IdxT, cuvs::neighbors::cagra_dataset_view DatasetViewT>
+template <class T, class IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
 cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> merge(
   raft::resources const& handle,
   const cagra::index_params& params,
@@ -226,7 +226,7 @@ cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> merge(
 
 namespace cuvs::neighbors::cagra {
 
-template <class T, class IdxT, cuvs::neighbors::cagra_dataset_view DatasetViewT>
+template <class T, class IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
 merged_dataset_storage<T, IdxT> make_merged_dataset(
   raft::resources const& res,
   std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*> const& indices,

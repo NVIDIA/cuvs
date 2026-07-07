@@ -20,7 +20,7 @@
 
 namespace cuvs::neighbors::cagra {
 
-template <class T, class IdxT, cuvs::neighbors::cagra_dataset_view DatasetViewT, class Accessor>
+template <class T, class IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT, class Accessor>
 void add_node_core(
   raft::resources const& handle,
   const cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>& idx,
@@ -276,7 +276,7 @@ void add_node_core(
   }
 }
 
-template <class T, class IdxT, cuvs::neighbors::cagra_dataset_view DatasetViewT>
+template <class T, class IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
 void add_graph_nodes(
   raft::resources const& handle,
   raft::device_matrix_view<const T, int64_t, raft::layout_stride> input_updated_dataset_view,
@@ -346,7 +346,7 @@ void add_graph_nodes(
   }
 }
 
-template <class T, class IdxT, cuvs::neighbors::cagra_dataset_view DatasetViewT, class Accessor>
+template <class T, class IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT, class Accessor>
 void extend_core(
   raft::resources const& handle,
   raft::mdspan<const T, raft::matrix_extent<int64_t>, raft::row_major, Accessor> additional_dataset,

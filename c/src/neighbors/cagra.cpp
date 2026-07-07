@@ -36,7 +36,7 @@ namespace {
  * Heap-allocated bundle for the C API: owns `cagra::index` and any co-owned device storage
  * when the index is not standalone. Lives behind `cuvsCagraIndex::addr` via `cagra_c_api_index_box`.
  */
-template <typename T, cuvs::neighbors::cagra_dataset_view DatasetViewT>
+template <typename T, cuvs::neighbors::ann_dataset_view DatasetViewT>
 struct cuvs_cagra_c_api_lifetime_holder {
   /** Owns padded device dataset bytes when `DatasetViewT` is padded and the index is non-owning. */
   std::unique_ptr<cuvs::neighbors::device_padded_dataset<T, int64_t>> padded_dataset_owner{
@@ -55,7 +55,7 @@ struct cagra_c_api_index_box {
   void* (*try_lifetime_holder_for_extend)(void* owner);
 };
 
-template <cuvs::neighbors::cagra_dataset_view DatasetViewT>
+template <cuvs::neighbors::ann_dataset_view DatasetViewT>
 constexpr auto cagra_index_layout_from_view()
 {
   if constexpr (cuvs::neighbors::is_device_standard_dataset_view_v<DatasetViewT>) {
@@ -65,13 +65,13 @@ constexpr auto cagra_index_layout_from_view()
   }
 }
 
-template <typename T, cuvs::neighbors::cagra_dataset_view DatasetViewT>
+template <typename T, cuvs::neighbors::ann_dataset_view DatasetViewT>
 static void destroy_standalone_cagra_index(void* owner)
 {
   delete reinterpret_cast<cuvs::neighbors::cagra::index<T, uint32_t, DatasetViewT>*>(owner);
 }
 
-template <typename T, cuvs::neighbors::cagra_dataset_view DatasetViewT>
+template <typename T, cuvs::neighbors::ann_dataset_view DatasetViewT>
 static void destroy_c_api_holder(void* owner)
 {
   delete reinterpret_cast<cuvs_cagra_c_api_lifetime_holder<T, DatasetViewT>*>(owner);
@@ -111,7 +111,7 @@ static void with_device_index_by_layout(cagra_c_api_index_box* box,
   }
 }
 
-template <typename T, cuvs::neighbors::cagra_dataset_view DatasetViewT>
+template <typename T, cuvs::neighbors::ann_dataset_view DatasetViewT>
 static void merge_indices_for_layout(
   raft::resources* res_ptr,
   cuvs::neighbors::cagra::index_params const& params_cpp,
@@ -149,7 +149,7 @@ static void merge_indices_for_layout(
   }
 }
 
-template <typename T, cuvs::neighbors::cagra_dataset_view DatasetViewT>
+template <typename T, cuvs::neighbors::ann_dataset_view DatasetViewT>
 static auto convert_opaque_indices_to_concrete_types(cuvsCagraIndex_t* indices, size_t num_indices)
   -> std::vector<cuvs::neighbors::cagra::index<T, uint32_t, DatasetViewT>*>
 {
@@ -164,7 +164,7 @@ static auto convert_opaque_indices_to_concrete_types(cuvsCagraIndex_t* indices, 
   return index_ptrs;
 }
 
-template <typename T, cuvs::neighbors::cagra_dataset_view DatasetViewT>
+template <typename T, cuvs::neighbors::ann_dataset_view DatasetViewT>
 static void compute_ivfpq_shape_from_indices(cuvsCagraIndex_t* indices,
                                              size_t num_indices,
                                              int64_t* total_size,
@@ -184,7 +184,7 @@ static void compute_ivfpq_shape_from_indices(cuvsCagraIndex_t* indices,
   }
 }
 
-template <typename T, cuvs::neighbors::cagra_dataset_view DatasetViewT>
+template <typename T, cuvs::neighbors::ann_dataset_view DatasetViewT>
 static void assign_standalone_index(cuvsCagraIndex_t out,
                                     DLDataType dtype,
                                     cuvs::neighbors::cagra::index<T, uint32_t, DatasetViewT>* raw)
@@ -198,7 +198,7 @@ static void assign_standalone_index(cuvsCagraIndex_t out,
   out->dtype  = dtype;
 }
 
-template <typename T, cuvs::neighbors::cagra_dataset_view DatasetViewT>
+template <typename T, cuvs::neighbors::ann_dataset_view DatasetViewT>
 static void assign_lifetime_holder(cuvsCagraIndex_t out,
                                    DLDataType dtype,
                                    cuvs_cagra_c_api_lifetime_holder<T, DatasetViewT>* holder)

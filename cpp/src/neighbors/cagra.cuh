@@ -32,7 +32,7 @@
 
 namespace cuvs::neighbors::cagra {
 
-template <typename T, typename IdxT, cuvs::neighbors::cagra_dataset_view DatasetViewT>
+template <typename T, typename IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
 void index<T, IdxT, DatasetViewT>::compute_dataset_norms_(raft::resources const& res)
 {
   // raft::linalg::reduce wants row-major with leading dim = row pitch in elements.
@@ -361,7 +361,7 @@ template <typename T,
           typename IdxT,
           typename CagraSampleFilterT,
           typename OutputIdxT,
-          cuvs::neighbors::cagra_dataset_view DatasetViewT>
+          cuvs::neighbors::ann_dataset_view DatasetViewT>
 void search_with_filtering(raft::resources const& res,
                            const search_params& params,
                            const index<T, IdxT, DatasetViewT>& idx,
@@ -385,7 +385,7 @@ void search_with_filtering(raft::resources const& res,
 
 template <typename T,
           typename IdxT,
-          cuvs::neighbors::cagra_dataset_view DatasetViewT,
+          cuvs::neighbors::ann_dataset_view DatasetViewT,
           typename OutputIdxT>
 void search(raft::resources const& res,
             const search_params& params,
@@ -446,7 +446,7 @@ void search(raft::resources const& res,
   }
 }
 
-template <class T, class IdxT, cuvs::neighbors::cagra_dataset_view DatasetViewT>
+template <class T, class IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
 void extend(raft::resources const& handle,
             const cagra::extend_params& params,
             raft::device_matrix_view<const T, int64_t, raft::row_major> additional_dataset,
@@ -457,7 +457,7 @@ void extend(raft::resources const& handle,
   extend_core<T, IdxT, DatasetViewT>(handle, additional_dataset, index, params, ndv, ngv);
 }
 
-template <class T, class IdxT, cuvs::neighbors::cagra_dataset_view DatasetViewT>
+template <class T, class IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
 void extend(raft::resources const& handle,
             const cagra::extend_params& params,
             raft::host_matrix_view<const T, int64_t, raft::row_major> additional_dataset,
@@ -468,7 +468,7 @@ void extend(raft::resources const& handle,
   extend_core<T, IdxT, DatasetViewT>(handle, additional_dataset, index, params, ndv, ngv);
 }
 
-template <class T, class IdxT, cuvs::neighbors::cagra_dataset_view DatasetViewT>
+template <class T, class IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
 cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> merge(
   raft::resources const& handle,
   const cagra::index_params& params,

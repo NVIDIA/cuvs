@@ -747,7 +747,7 @@ inline constexpr bool is_vpq_dataset_v = is_vpq_dataset<DatasetT>::value;
 
 /** Any non-owning dataset view exposing row count and logical dimension. */
 template <typename V, typename IdxT = int64_t>
-concept cagra_dataset_view = requires(V const& v) {
+concept ann_dataset_view = requires(V const& v) {
   { v.n_rows() } -> std::convertible_to<IdxT>;
   { v.dim() } -> std::convertible_to<uint32_t>;
 };
