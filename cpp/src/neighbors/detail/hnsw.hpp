@@ -279,7 +279,7 @@ from_cagra(raft::resources const& res,
     RAFT_FAIL("hnsw::from_cagra<CPU> requires dataset for host CAGRA index");
   } else {
     // move dataset to host, remove padding
-    auto dataset_view = cagra_index.data();
+    auto dataset_view = cagra_index.dataset();
     RAFT_EXPECTS(dataset_view.n_rows() > 0,
                  "Invalid CAGRA dataset of size 0, shape %zux%zu",
                  static_cast<size_t>(dataset_view.n_rows()),
@@ -912,7 +912,7 @@ void serialize_to_hnswlib_from_inmem(
     source_stride  = dim;
   } else if constexpr (is_host_cagra_hnsw_export_index_v<T, CagraIndexT>) {
     RAFT_FAIL("serialize_to_hnswlib_from_inmem requires dataset for host CAGRA index");
-  } else if (auto dataset_view = index_.data(); dataset_view.view().data_handle() != nullptr) {
+  } else if (auto dataset_view = index_.dataset(); dataset_view.view().data_handle() != nullptr) {
     n_rows         = dataset_view.n_rows();
     dim            = dataset_view.dim();
     device_dataset = true;
@@ -1037,7 +1037,8 @@ from_cagra(raft::resources const& res,
     source_stride  = dim;
   } else if constexpr (is_host_cagra_hnsw_export_index_v<T, CagraIndexT>) {
     RAFT_FAIL("hnsw::from_cagra<GPU> requires dataset for host CAGRA index");
-  } else if (auto dataset_view = cagra_index.data(); dataset_view.view().data_handle() != nullptr) {
+  } else if (auto dataset_view = cagra_index.dataset();
+             dataset_view.view().data_handle() != nullptr) {
     n_rows         = dataset_view.n_rows();
     dim            = dataset_view.dim();
     device_copy    = true;

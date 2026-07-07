@@ -413,7 +413,7 @@ void search(raft::resources const& res,
     search_params params_copy = params;
     if (params.filtering_rate < 0.0) {
       const auto num_set_bits = sample_filter.bitset_view_.count(res);
-      auto filtering_rate     = (float)(idx.data().n_rows() - num_set_bits) / idx.data().n_rows();
+      auto filtering_rate = (float)(idx.dataset().n_rows() - num_set_bits) / idx.dataset().n_rows();
       const float min_filtering_rate = 0.0;
       const float max_filtering_rate = 0.999;
       params_copy.filtering_rate =

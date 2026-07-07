@@ -64,7 +64,7 @@ merged_dataset compute_merged_dataset_layout(
   for (cagra_index_t* index : indices) {
     RAFT_EXPECTS(index != nullptr,
                  "Null pointer detected in 'indices'. Ensure all elements are valid before usage.");
-    auto const& v = index->data();
+    auto const& v = index->dataset();
     if constexpr (cuvs::neighbors::is_dense_row_major_dataset_view_v<std::decay_t<decltype(v)>>) {
       if (v.n_rows() == 0) {
         RAFT_FAIL(
@@ -155,7 +155,7 @@ cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> merge(
     for (cagra_index_t* index : indices) {
       const T* src_ptr   = nullptr;
       std::size_t n_rows = 0;
-      auto const& v      = index->data();
+      auto const& v      = index->dataset();
       if constexpr (cuvs::neighbors::is_dense_row_major_dataset_view_v<std::decay_t<decltype(v)>>) {
         src_ptr = v.view().data_handle();
         n_rows  = static_cast<std::size_t>(v.n_rows());
@@ -170,7 +170,7 @@ cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> merge(
                         n_rows,
                         raft::resource::get_cuda_stream(handle));
 
-      row_offset += IdxT(index->data().n_rows());
+      row_offset += IdxT(index->dataset().n_rows());
     }
   };
 

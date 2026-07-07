@@ -675,7 +675,7 @@ class AnnCagraAddNodesTest : public ::testing::TestWithParam<AnnCagraInputs> {
                    stream_);
 
         std::size_t row_stride = static_cast<std::size_t>(ps.dim);
-        auto const& data_view  = index.data();
+        auto const& data_view  = index.dataset();
         if constexpr (cuvs::neighbors::is_padded_dataset_view_v<decltype(data_view)>) {
           row_stride = static_cast<std::size_t>(data_view.stride());
         }

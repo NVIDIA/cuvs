@@ -223,7 +223,7 @@ void search_main(raft::resources const& res,
   } else if constexpr (cuvs::neighbors::is_device_vpq_f32_dataset_view_v<DatasetViewT>) {
     RAFT_FAIL("FP32 VPQ dataset support is coming soon");
   } else if constexpr (cuvs::neighbors::is_device_vpq_f16_dataset_view_v<DatasetViewT>) {
-    auto const& vv = index.data();
+    auto const& vv = index.dataset();
     auto desc      = dataset_descriptor_init_with_cache<T, graph_idx_type, DistanceT>(
       res, params, vv.dset(), index.metric(), nullptr);
     search_main_core<T, graph_idx_type, DistanceT, CagraSampleFilterT, IdxT, OutputIdxT>(
@@ -242,7 +242,7 @@ void search_main(raft::resources const& res,
       "call "
       "cagra::attach_padded_dataset_for_search(res, index, padded_view) before search.");
   } else if constexpr (cuvs::neighbors::is_device_padded_dataset_view_v<DatasetViewT>) {
-    run_strided_like(index.data());
+    run_strided_like(index.dataset());
   } else if constexpr (cuvs::neighbors::is_host_dataset_view_v<DatasetViewT>) {
     static_assert(sizeof(DatasetViewT) == 0,
                   "search requires a device-resident dataset. "

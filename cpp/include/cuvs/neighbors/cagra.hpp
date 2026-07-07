@@ -437,7 +437,7 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
   }
 
   /** Non-owning dataset binding stored by the index. */
-  [[nodiscard]] inline auto data() const noexcept -> DatasetViewT const& { return dataset_; }
+  [[nodiscard]] inline auto dataset() const noexcept -> DatasetViewT const& { return dataset_; }
 
   /** neighborhood graph [size, graph-degree] */
   [[nodiscard]] inline auto graph() const noexcept

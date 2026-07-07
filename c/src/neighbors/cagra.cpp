@@ -449,7 +449,7 @@ void _extend(cuvsResources_t res,
   auto extend_params           = cuvs::neighbors::cagra::extend_params();
   extend_params.max_chunk_size = params.max_chunk_size;
 
-  auto cur_ds = index_ptr->data().view();
+  auto cur_ds = index_ptr->dataset().view();
   const auto stride_elems =
     cur_ds.stride(0) > 0 ? static_cast<int64_t>(cur_ds.stride(0)) : static_cast<int64_t>(cur_ds.extent(1));
   const auto dim          = static_cast<int64_t>(index_ptr->dim());
@@ -530,8 +530,8 @@ void _search(cuvsResources_t res,
     using filter_mdspan_type    = raft::device_vector_view<std::uint32_t, int64_t, raft::row_major>;
     auto removed_indices_tensor = reinterpret_cast<DLManagedTensor*>(filter.addr);
     auto removed_indices = cuvs::core::from_dlpack<filter_mdspan_type>(removed_indices_tensor);
-    cuvs::core::bitset_view<std::uint32_t, int64_t> removed_indices_bitset(removed_indices,
-                                                                            index_ptr->data().n_rows());
+    cuvs::core::bitset_view<std::uint32_t, int64_t> removed_indices_bitset(
+      removed_indices, index_ptr->dataset().n_rows());
     auto bitset_filter_obj = cuvs::neighbors::filtering::bitset_filter(removed_indices_bitset);
     cuvs::neighbors::cagra::search(*res_ptr,
                                    search_params,
@@ -604,7 +604,7 @@ void _deserialize(cuvsResources_t res, const char* filename, cuvsCagraIndex_t ou
 
   // Deserialized strided layout often matches logical dim (tight rows). CAGRA search requires the
   // same row width as device builds (see `matrix_row_width_matches_cagra_required` / `update_dataset`).
-  auto ds = holder->idx.data().view();
+  auto ds = holder->idx.dataset().view();
   if (ds.extent(0) > 0 && !cuvs::neighbors::matrix_row_width_matches_cagra_required(ds)) {
     auto padded =
       cuvs::neighbors::make_device_padded_dataset(*res_ptr, ds);
@@ -680,7 +680,7 @@ void get_dataset_view(cuvsCagraIndex_t index, DLManagedTensor* dataset)
   auto* box = reinterpret_cast<cagra_c_api_index_box*>(index->addr);
   with_device_index_by_layout<T, IdxT>(
     box, "cuvsCagraIndexGetDataset: null index handle", [&](auto* index_ptr) {
-      cuvs::core::to_dlpack(index_ptr->data().view(), dataset);
+      cuvs::core::to_dlpack(index_ptr->dataset().view(), dataset);
     });
 }
 

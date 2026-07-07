@@ -32,7 +32,7 @@ void add_node_core(
   using DistanceT                 = float;
   const std::size_t degree        = idx.graph_degree();
   const std::size_t dim           = idx.dim();
-  const std::size_t old_size      = idx.data().n_rows();
+  const std::size_t old_size      = idx.dataset().n_rows();
   const std::size_t num_add       = additional_dataset_view.extent(0);
   const std::size_t new_size      = old_size + num_add;
   const std::uint32_t base_degree = degree * 2;
@@ -453,7 +453,7 @@ void extend_core(
     }
   };
 
-  auto const& leaf = index.data();
+  auto const& leaf = index.dataset();
   if constexpr (cuvs::neighbors::is_padded_dataset_view_v<std::decay_t<decltype(leaf)>>) {
     try_extend(leaf);
   } else if constexpr (cuvs::neighbors::is_empty_dataset_view_v<std::decay_t<decltype(leaf)>>) {

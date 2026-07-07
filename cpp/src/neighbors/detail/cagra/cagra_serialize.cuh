@@ -85,7 +85,7 @@ void serialize(raft::resources const& res,
 
   raft::serialize_mdspan(res, os, index_.graph());
 
-  include_dataset &= (index_.data().n_rows() > 0);
+  include_dataset &= (index_.dataset().n_rows() > 0);
   bool has_source_indices = index_.source_indices().has_value();
   uint32_t content_map    = 0x1u * include_dataset + 0x2u * has_source_indices;
 
@@ -94,7 +94,7 @@ void serialize(raft::resources const& res,
     RAFT_LOG_DEBUG("Saving CAGRA index with dataset");
     if constexpr (cuvs::neighbors::is_device_padded_dataset_view_v<DatasetViewT> ||
                   cuvs::neighbors::is_device_standard_dataset_view_v<DatasetViewT>) {
-      neighbors::detail::serialize_cagra_padded_dataset<T, int64_t>(res, os, index_.data());
+      neighbors::detail::serialize_cagra_padded_dataset<T, int64_t>(res, os, index_.dataset());
     } else {
       // Future dataset types (e.g. VPQ) require a new branch here and a corresponding
       // deserialize overload. Use static_assert to catch unsupported types at compile time.
@@ -193,7 +193,7 @@ void serialize_to_hnswlib(
   if (dataset) {
     host_dataset_view = *dataset;
   } else if constexpr (is_device_cagra_hnsw_serialize_index_v<T, IdxT, CagraIndexT>) {
-    auto dataset_view = index_.data();
+    auto dataset_view = index_.dataset();
     RAFT_EXPECTS(dataset_view.n_rows() > 0,
                  "Invalid CAGRA dataset of size 0 during serialization, shape %zux%zu",
                  static_cast<size_t>(dataset_view.n_rows()),
