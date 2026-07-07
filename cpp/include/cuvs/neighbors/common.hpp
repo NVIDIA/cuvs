@@ -214,6 +214,7 @@ using vpq_data_matrix = std::conditional_t<Accessor::is_device_accessible,
 template <typename IdxT>
 struct empty_dataset_storage {
   uint32_t suggested_dim{};
+  empty_dataset_storage() noexcept = default;
   explicit empty_dataset_storage(uint32_t dim) noexcept : suggested_dim(dim) {}
   [[nodiscard]] auto n_rows() const noexcept -> IdxT { return 0; }
   [[nodiscard]] auto dim() const noexcept -> uint32_t { return suggested_dim; }
@@ -258,6 +259,8 @@ template <typename ViewT, typename DataT, typename IdxT>
 struct dense_row_major_dataset_view_storage {
   ViewT data_;
   uint32_t logical_dim_;
+
+  dense_row_major_dataset_view_storage() noexcept = default;
 
   explicit dense_row_major_dataset_view_storage(ViewT v) noexcept
     : data_(v), logical_dim_(static_cast<uint32_t>(v.extent(1)))

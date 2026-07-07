@@ -504,31 +504,7 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
     : cuvs::neighbors::index(),
       metric_(metric),
       graph_(raft::make_device_matrix<graph_index_type, int64_t>(res, 0, 0)),
-      dataset_([] {
-        if constexpr (cuvs::neighbors::is_empty_dataset_view_v<DatasetViewT>) {
-          return DatasetViewT{0};
-        } else if constexpr (cuvs::neighbors::is_device_padded_dataset_view_v<DatasetViewT>) {
-          auto v = raft::make_device_matrix_view<const T, int64_t>(
-            static_cast<const T*>(nullptr), int64_t{0}, uint32_t{0});
-          return DatasetViewT(v, uint32_t{0});
-        } else if constexpr (cuvs::neighbors::is_device_standard_dataset_view_v<DatasetViewT>) {
-          auto v = raft::make_device_matrix_view<const T, int64_t>(
-            static_cast<const T*>(nullptr), int64_t{0}, uint32_t{0});
-          return DatasetViewT(v, uint32_t{0});
-        } else if constexpr (cuvs::neighbors::is_host_padded_dataset_view_v<DatasetViewT>) {
-          auto v = raft::make_host_matrix_view<const T, int64_t>(
-            static_cast<const T*>(nullptr), int64_t{0}, uint32_t{0});
-          return DatasetViewT(v, uint32_t{0});
-        } else if constexpr (cuvs::neighbors::is_host_standard_dataset_view_v<DatasetViewT>) {
-          auto v = raft::make_host_matrix_view<const T, int64_t>(
-            static_cast<const T*>(nullptr), int64_t{0}, uint32_t{0});
-          return DatasetViewT(v, uint32_t{0});
-        } else if constexpr (cuvs::neighbors::is_vpq_dataset_view_v<DatasetViewT>) {
-          return DatasetViewT{};
-        } else {
-          static_assert(sizeof(DatasetViewT) == 0, "index: unsupported dataset view type");
-        }
-      }()),
+      dataset_{},
       dataset_norms_(std::nullopt)
   {
   }
