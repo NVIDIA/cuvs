@@ -5,16 +5,17 @@
 #pragma once
 
 #include <cuvs/neighbors/common.hpp>
+#include <cuvs/preprocessing/quantize/vpq_dataset.hpp>
 #include <raft/core/resources.hpp>
 
 namespace cuvs::preprocessing::quantize::pq {
 
 #define CUVS_INST_VPQ_BUILD(T)                                                 \
-  cuvs::neighbors::vpq_dataset<half, int64_t> vpq_build(                       \
+  vpq_dataset<half, int64_t> vpq_build(                                        \
     const raft::resources& res,                                                \
     const cuvs::neighbors::vpq_params& params,                                 \
     const raft::host_matrix_view<const T, int64_t, raft::row_major>& dataset); \
-  cuvs::neighbors::vpq_dataset<half, int64_t> vpq_build(                       \
+  vpq_dataset<half, int64_t> vpq_build(                                        \
     const raft::resources& res,                                                \
     const cuvs::neighbors::vpq_params& params,                                 \
     const raft::device_matrix_view<const T, int64_t, raft::row_major>& dataset);

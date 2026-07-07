@@ -244,7 +244,7 @@ extern "C" cuvsError_t cuvsProductQuantizerGetPqCodebook(cuvsProductQuantizer_t 
       if (quantizer->dtype.code == kDLFloat && quantizer->dtype.bits == 32) {
         auto pq_mdspan =
           (reinterpret_cast<cuvs::preprocessing::quantize::pq::quantizer<float>*>(quant_addr))
-            ->vpq_codebooks.pq_code_book.view();
+            ->codebooks.pq_code_book();
         cuvs::core::to_dlpack(pq_mdspan, pq_codebook);
       } else {
         RAFT_FAIL("Unsupported quantizer dtype: %d and bits: %d",
@@ -264,10 +264,12 @@ extern "C" cuvsError_t cuvsProductQuantizerGetVqCodebook(cuvsProductQuantizer_t 
     if (quantizer != nullptr) {
       auto quant_addr = quantizer->addr;
       if (quantizer->dtype.code == kDLFloat && quantizer->dtype.bits == 32) {
-        auto pq_mdspan =
+        auto vq_opt =
           (reinterpret_cast<cuvs::preprocessing::quantize::pq::quantizer<float>*>(quant_addr))
-            ->vpq_codebooks.vq_code_book.view();
-        cuvs::core::to_dlpack(pq_mdspan, vq_codebook);
+            ->codebooks.vq_code_book();
+        RAFT_EXPECTS(vq_opt.has_value(),
+                     "quantizer has no VQ codebook (build with use_vq=true to enable)");
+        cuvs::core::to_dlpack(vq_opt.value(), vq_codebook);
       } else {
         RAFT_FAIL("Unsupported quantizer dtype: %d and bits: %d",
                   quantizer->dtype.code,

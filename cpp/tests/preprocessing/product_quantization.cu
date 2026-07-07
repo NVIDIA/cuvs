@@ -147,7 +147,10 @@ class ProductQuantizationTest : public ::testing::TestWithParam<ProductQuantizat
     auto orig_data = raft::make_device_matrix_view<T, int64_t>(dataset_.data_handle(), n_take, dim);
 
     std::optional<raft::device_vector_view<const uint32_t, int64_t>> vq_labels_view = std::nullopt;
-    if (vq_labels) { vq_labels_view = raft::make_const_mdspan(vq_labels.value()); }
+    if (vq_labels) {
+      vq_labels_view = raft::make_device_vector_view<const uint32_t, int64_t>(
+        vq_labels.value().data_handle(), static_cast<int64_t>(n_take));
+    }
     inverse_transform(handle,
                       quantizer,
                       raft::device_matrix_view<const uint8_t, int64_t>(
@@ -238,6 +241,71 @@ class ProductQuantizationTest : public ::testing::TestWithParam<ProductQuantizat
       static_cast<double>(pq.params_quantizer.pq_dim * pq.params_quantizer.pq_bits);
 
     check_reconstruction(pq, d_quantized_output.view(), d_vq_labels_view, compression_ratio, 500);
+  }
+
+  void testViewQuantizer()
+  {
+    params config;
+    config.pq_bits       = params_.pq_bits;
+    config.pq_dim        = params_.pq_dim;
+    config.use_subspaces = true;
+    config.use_vq        = false;
+
+    if ((n_samples_ < (1 << params_.pq_bits)) || (n_features_ % params_.pq_dim != 0) ||
+        (static_cast<uint32_t>(n_samples_) < params_.n_vq_centers)) {
+      EXPECT_THROW(build(handle, config, raft::make_const_mdspan(dataset_.view())),
+                   raft::logic_error);
+      return;
+    }
+    auto owning_quant = build(handle, config, raft::make_const_mdspan(dataset_.view()));
+
+    auto pq_centers_view = owning_quant.codebooks.pq_code_book();
+    auto vq_centers_view = owning_quant.codebooks.vq_code_book();
+
+    auto view_quant =
+      build(handle, owning_quant.params_quantizer, pq_centers_view, vq_centers_view);
+
+    auto n_encoded_cols = get_quantized_dim(owning_quant.params_quantizer);
+    auto codes_owning =
+      raft::make_device_matrix<uint8_t, int64_t>(handle, n_samples_, n_encoded_cols);
+    transform(handle,
+              owning_quant,
+              raft::make_const_mdspan(dataset_.view()),
+              codes_owning.view(),
+              std::nullopt);
+
+    auto codes_view =
+      raft::make_device_matrix<uint8_t, int64_t>(handle, n_samples_, n_encoded_cols);
+    transform(handle,
+              view_quant,
+              raft::make_const_mdspan(dataset_.view()),
+              codes_view.view(),
+              std::nullopt);
+
+    cuvs::devArrMatch(codes_owning.data_handle(),
+                      codes_view.data_handle(),
+                      n_samples_ * n_encoded_cols,
+                      cuvs::Compare<uint8_t>());
+
+    auto reconstructed_owning =
+      raft::make_device_matrix<float, int64_t>(handle, n_samples_, n_features_);
+    auto reconstructed_view =
+      raft::make_device_matrix<float, int64_t>(handle, n_samples_, n_features_);
+
+    inverse_transform(handle,
+                      owning_quant,
+                      raft::make_const_mdspan(codes_owning.view()),
+                      reconstructed_owning.view(),
+                      std::nullopt);
+    inverse_transform(handle,
+                      view_quant,
+                      raft::make_const_mdspan(codes_view.view()),
+                      reconstructed_view.view(),
+                      std::nullopt);
+    cuvs::devArrMatch(reconstructed_owning.data_handle(),
+                      reconstructed_view.data_handle(),
+                      n_samples_ * n_features_,
+                      cuvs::Compare<float>());
   }
 
  private:
@@ -428,7 +496,7 @@ const std::vector<ProductQuantizationInputs<T>> inputs = {
 
 typedef ProductQuantizationTest<float> ProductQuantizationTestF;
 TEST_P(ProductQuantizationTestF, Result) { this->testProductQuantizationFromDataset(); }
-
+TEST_P(ProductQuantizationTestF, ViewQuantizer) { this->testViewQuantizer(); }
 INSTANTIATE_TEST_CASE_P(ProductQuantizationTests,
                         ProductQuantizationTestF,
                         ::testing::ValuesIn(inputs<float>));

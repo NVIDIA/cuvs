@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -8,6 +8,7 @@
 #include "compute_distance.hpp"
 
 #include <cuvs/distance/distance.hpp>
+#include <cuvs/preprocessing/quantize/vpq_dataset.hpp>
 
 #include <type_traits>
 
@@ -31,14 +32,14 @@ struct vpq_descriptor_spec : public instance_spec<DataT, IndexT, DistanceT> {
 
   template <typename DatasetT>
   constexpr static inline auto accepts_dataset()
-    -> std::enable_if_t<is_vpq_dataset_v<DatasetT>, bool>
+    -> std::enable_if_t<cuvs::preprocessing::quantize::pq::is_vpq_dataset_v<DatasetT>, bool>
   {
     return std::is_same_v<typename DatasetT::math_type, CodebookT>;
   }
 
   template <typename DatasetT>
   constexpr static inline auto accepts_dataset()
-    -> std::enable_if_t<!is_vpq_dataset_v<DatasetT>, bool>
+    -> std::enable_if_t<!cuvs::preprocessing::quantize::pq::is_vpq_dataset_v<DatasetT>, bool>
   {
     return false;
   }
@@ -49,11 +50,12 @@ struct vpq_descriptor_spec : public instance_spec<DataT, IndexT, DistanceT> {
                    cuvs::distance::DistanceType metric,
                    const DistanceT* dataset_norms = nullptr) -> host_type
   {
+    auto vq_view = dataset.vq_code_book();
     return init_(params,
                  dataset.data.data_handle(),
                  dataset.encoded_row_length(),
-                 dataset.vq_code_book.data_handle(),
-                 dataset.pq_code_book.data_handle(),
+                 vq_view.has_value() ? vq_view->data_handle() : nullptr,
+                 dataset.pq_code_book().data_handle(),
                  IndexT(dataset.n_rows()),
                  dataset.dim());
   }

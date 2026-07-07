@@ -17,6 +17,8 @@
 #include <cuvs/neighbors/dynamic_batching.hpp>
 #include <cuvs/neighbors/ivf_pq.hpp>
 #include <cuvs/neighbors/nn_descent.hpp>
+#include <cuvs/preprocessing/quantize/pq.hpp>
+#include <cuvs/preprocessing/quantize/vpq_dataset.hpp>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/device_resources.hpp>
 #include <raft/core/logger.hpp>
@@ -386,8 +388,10 @@ void cuvs_cagra<T, IdxT>::set_search_dataset(const T* dataset, size_t nrow)
   } else {
     using ds_idx_type = decltype(index_->data().n_rows());
     bool is_vpq =
-      dynamic_cast<const cuvs::neighbors::vpq_dataset<half, ds_idx_type>*>(&index_->data()) ||
-      dynamic_cast<const cuvs::neighbors::vpq_dataset<float, ds_idx_type>*>(&index_->data());
+      dynamic_cast<const cuvs::preprocessing::quantize::pq::vpq_dataset<half, ds_idx_type>*>(
+        &index_->data()) ||
+      dynamic_cast<const cuvs::preprocessing::quantize::pq::vpq_dataset<float, ds_idx_type>*>(
+        &index_->data());
     // It can happen that we are re-using a previous algo object which already has
     // the dataset set. Check if we need update.
     if (static_cast<size_t>(input_dataset_v_->extent(0)) != nrow ||
@@ -414,8 +418,10 @@ void cuvs_cagra<T, IdxT>::save(const std::string& file) const
   } else {
     using ds_idx_type = decltype(index_->data().n_rows());
     bool is_vpq =
-      dynamic_cast<const cuvs::neighbors::vpq_dataset<half, ds_idx_type>*>(&index_->data()) ||
-      dynamic_cast<const cuvs::neighbors::vpq_dataset<float, ds_idx_type>*>(&index_->data());
+      dynamic_cast<const cuvs::preprocessing::quantize::pq::vpq_dataset<half, ds_idx_type>*>(
+        &index_->data()) ||
+      dynamic_cast<const cuvs::preprocessing::quantize::pq::vpq_dataset<float, ds_idx_type>*>(
+        &index_->data());
     cuvs::neighbors::cagra::serialize(handle_, file, *index_, is_vpq);
   }
 }

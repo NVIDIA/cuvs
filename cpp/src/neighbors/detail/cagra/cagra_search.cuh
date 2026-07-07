@@ -24,6 +24,7 @@
 #include "../../ivf_common.cuh"
 #include "../../ivf_pq/ivf_pq_search.cuh"
 #include <cuvs/neighbors/common.hpp>
+#include <cuvs/preprocessing/quantize/vpq_dataset.hpp>
 
 // TODO: This shouldn't be calling spatial/knn apis
 #include "../ann_utils.cuh"
@@ -174,11 +175,15 @@ void search_main(raft::resources const& res,
       neighbors,
       distances,
       sample_filter);
-  } else if (auto* vpq_dset = dynamic_cast<const vpq_dataset<float, ds_idx_type>*>(&index.data());
+  } else if (auto* vpq_dset = dynamic_cast<
+               const cuvs::preprocessing::quantize::pq::vpq_dataset<float, ds_idx_type>*>(
+               &index.data());
              vpq_dset != nullptr) {
     // Search using a compressed dataset
     RAFT_FAIL("FP32 VPQ dataset support is coming soon");
-  } else if (auto* vpq_dset = dynamic_cast<const vpq_dataset<half, ds_idx_type>*>(&index.data());
+  } else if (auto* vpq_dset = dynamic_cast<
+               const cuvs::preprocessing::quantize::pq::vpq_dataset<half, ds_idx_type>*>(
+               &index.data());
              vpq_dset != nullptr) {
     auto desc = dataset_descriptor_init_with_cache<T, graph_idx_type, DistanceT>(
       res, params, *vpq_dset, index.metric(), nullptr);
