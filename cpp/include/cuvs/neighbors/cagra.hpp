@@ -109,6 +109,9 @@ namespace neighbors {
 namespace cagra {
 // For re-exporting into cagra namespace
 namespace graph_build_params = cuvs::neighbors::graph_build_params;
+namespace detail {
+struct fd_transfer;
+}
 /**
  * @defgroup cagra_cpp_index_params CAGRA index build parameters
  * @{
@@ -463,19 +466,6 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
     return dataset_fd_;
   }
 
-  /**
-   * Move out the dataset file descriptor (for disk-backed index).
-   *
-   * Intended for host-to-device index conversion: steal the fd from a host_padded_index and
-   * then call `update_dataset(res, std::move(*stolen_fd))` on the target device index.
-   * Clears the stored fd (and leaves n_rows_/dim_ in place for the remaining graph).
-   */
-  [[nodiscard]] inline auto steal_dataset_fd() noexcept
-    -> std::optional<cuvs::util::file_descriptor>
-  {
-    return std::exchange(dataset_fd_, std::nullopt);
-  }
-
   /** Get the graph file descriptor (for disk-backed index) */
   [[nodiscard]] inline auto graph_fd() const noexcept
     -> const std::optional<cuvs::util::file_descriptor>&
@@ -483,30 +473,11 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
     return graph_fd_;
   }
 
-  /**
-   * Move the graph file descriptor out of this index (for transferring ownership to another
-   * index). Leaves graph_fd_ as nullopt; graph_degree_ remains intact for metadata.
-   */
-  [[nodiscard]] inline auto steal_graph_fd() noexcept -> std::optional<cuvs::util::file_descriptor>
-  {
-    return std::exchange(graph_fd_, std::nullopt);
-  }
-
   /** Get the mapping file descriptor (for disk-backed index) */
   [[nodiscard]] inline auto mapping_fd() const noexcept
     -> const std::optional<cuvs::util::file_descriptor>&
   {
     return mapping_fd_;
-  }
-
-  /**
-   * Move the mapping file descriptor out of this index (for transferring ownership to another
-   * index). Leaves mapping_fd_ as nullopt.
-   */
-  [[nodiscard]] inline auto steal_mapping_fd() noexcept
-    -> std::optional<cuvs::util::file_descriptor>
-  {
-    return std::exchange(mapping_fd_, std::nullopt);
   }
 
   /** Dataset norms for cosine distance [size] */
@@ -832,6 +803,25 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
   }
 
  private:
+  friend struct detail::fd_transfer;
+
+  [[nodiscard]] inline auto steal_dataset_fd_() noexcept
+    -> std::optional<cuvs::util::file_descriptor>
+  {
+    return std::exchange(dataset_fd_, std::nullopt);
+  }
+
+  [[nodiscard]] inline auto steal_graph_fd_() noexcept -> std::optional<cuvs::util::file_descriptor>
+  {
+    return std::exchange(graph_fd_, std::nullopt);
+  }
+
+  [[nodiscard]] inline auto steal_mapping_fd_() noexcept
+    -> std::optional<cuvs::util::file_descriptor>
+  {
+    return std::exchange(mapping_fd_, std::nullopt);
+  }
+
   cuvs::distance::DistanceType metric_;
   raft::device_matrix<graph_index_type, int64_t, raft::row_major> graph_;
   raft::device_matrix_view<const graph_index_type, int64_t, raft::row_major> graph_view_;
@@ -3501,6 +3491,30 @@ void build_knn_graph(raft::resources const& res,
                      cuvs::neighbors::cagra::graph_build_params::ivf_pq_params build_params);
 
 namespace detail {
+
+/**
+ * @brief Internal helper to transfer ACE disk FDs between CAGRA indexes.
+ *
+ * @internal
+ */
+struct fd_transfer {
+  template <typename T,
+            typename IdxT,
+            cuvs::neighbors::cagra_dataset_view SrcDatasetViewT,
+            cuvs::neighbors::cagra_dataset_view DstDatasetViewT>
+  static inline void steal_disk_fds_to(raft::resources const& res,
+                                       index<T, IdxT, SrcDatasetViewT>& src,
+                                       index<T, IdxT, DstDatasetViewT>& dst)
+  {
+    if (src.dataset_fd().has_value()) {
+      dst.update_dataset(res, std::move(*src.steal_dataset_fd_()));
+    }
+    if (src.graph_fd().has_value()) { dst.update_graph(res, std::move(*src.steal_graph_fd_())); }
+    if (src.mapping_fd().has_value()) {
+      dst.update_mapping(res, std::move(*src.steal_mapping_fd_()));
+    }
+  }
+};
 
 /**
  * @brief Copy a host-resident CAGRA index graph into a new device-resident index (graph only).

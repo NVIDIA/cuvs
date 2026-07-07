@@ -345,13 +345,7 @@ void _build(cuvsResources_t res,
       if (host_idx.dataset_fd().has_value()) {
         // Disk-mode ACE: transfer all file descriptors from host index to device index so that
         // hnsw::from_cagra can detect the disk-backed index and call serialize_to_hnswlib_from_disk.
-        device_idx.update_dataset(*res_ptr, std::move(*host_idx.steal_dataset_fd()));
-        if (host_idx.graph_fd().has_value()) {
-          device_idx.update_graph(*res_ptr, std::move(*host_idx.steal_graph_fd()));
-        }
-        if (host_idx.mapping_fd().has_value()) {
-          device_idx.update_mapping(*res_ptr, std::move(*host_idx.steal_mapping_fd()));
-        }
+        cuvs::neighbors::cagra::detail::fd_transfer::steal_disk_fds_to(*res_ptr, host_idx, device_idx);
       } else {
         // In-memory ACE: graph-only, attach device dataset.
         auto padded = cuvs::neighbors::make_device_padded_dataset(*res_ptr, mds);

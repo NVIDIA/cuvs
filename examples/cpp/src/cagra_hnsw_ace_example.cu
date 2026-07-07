@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -93,13 +93,7 @@ void cagra_build_search_ace(raft::device_resources const& dev_resources,
     // descriptors to a device index so from_cagra can serialize to hnsw_index.bin on disk.
     cagra::device_padded_index<float, uint32_t> device_index(dev_resources,
                                                              ace_host_index.metric());
-    device_index.update_dataset(dev_resources, std::move(*ace_host_index.steal_dataset_fd()));
-    if (ace_host_index.graph_fd().has_value()) {
-      device_index.update_graph(dev_resources, std::move(*ace_host_index.steal_graph_fd()));
-    }
-    if (ace_host_index.mapping_fd().has_value()) {
-      device_index.update_mapping(dev_resources, std::move(*ace_host_index.steal_mapping_fd()));
-    }
+    cagra::detail::fd_transfer::steal_disk_fds_to(dev_resources, ace_host_index, device_index);
     hnsw_index = hnsw::from_cagra(dev_resources, hnsw_params, device_index, std::nullopt);
   } else {
     // In-memory ACE path: graph is in host memory. Upload the original dataset to device and
