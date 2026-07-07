@@ -149,12 +149,12 @@ class cuvs_cagra : public algo<T>, public algo_gpu {
     return !search_params_.persistent;
   }
 
-  // to enable dataset access from GPU memory
   [[nodiscard]] auto get_preference() const -> algo_property override
   {
     algo_property property;
     property.dataset_memory_type = MemoryType::kHostMmap;
     property.query_memory_type   = MemoryType::kDevice;
+    property.filter_memory_type  = MemoryType::kDevice;
     return property;
   }
   void save(const std::string& file) const override;
@@ -313,20 +313,38 @@ void cuvs_cagra<T, IdxT>::set_search_param(const search_param_base& param,
   if (sp.dataset_mem != dataset_mem_ || need_dataset_update_) {
     dataset_mem_ = sp.dataset_mem;
 
-    // First free up existing memory
-    *dataset_ = raft::make_device_matrix<T, int64_t>(handle_, 0, 0);
-    index_->update_dataset(handle_, make_const_mdspan(dataset_->view()));
+    // When the benchmark framework provides the dataset on device (kDevice) and no padding is
+    // needed for alignment, skip the redundant copy_with_padding() allocation. For a 100M-scale
+    // dataset, copy_with_padding() would double the device memory requirement (e.g. 38.4 GB x2),
+    // causing OOM. Instead, use the existing device allocation directly.
+    size_t padded_dim   = raft::round_up_safe<size_t>(this->dim_ * sizeof(T), 16) / sizeof(T);
+    bool data_on_device = raft::get_device_for_address(input_dataset_v_->data_handle()) >= 0 &&
+                          sp.dataset_mem == AllocatorType::kDevice;
+    bool padding_needed = padded_dim != static_cast<size_t>(this->dim_);
 
-    // Allocate space using the correct memory resource.
-    RAFT_LOG_DEBUG("moving dataset to new memory space: %s",
-                   allocator_to_string(dataset_mem_).c_str());
+    if (data_on_device && !padding_needed) {
+      // Data is already in device memory and no padding is needed — update the index directly.
+      RAFT_LOG_DEBUG("dataset already on device, skipping copy_with_padding");
+      *dataset_         = raft::make_device_matrix<T, int64_t>(handle_, 0, 0);
+      auto dataset_view = raft::make_device_strided_matrix_view<const T, int64_t>(
+        input_dataset_v_->data_handle(), input_dataset_v_->extent(0), this->dim_, this->dim_);
+      index_->update_dataset(handle_, dataset_view);
+    } else {
+      // First free up existing memory
+      *dataset_ = raft::make_device_matrix<T, int64_t>(handle_, 0, 0);
+      index_->update_dataset(handle_, make_const_mdspan(dataset_->view()));
 
-    auto mr = get_mr(dataset_mem_);
-    cuvs::neighbors::cagra::detail::copy_with_padding(handle_, *dataset_, *input_dataset_v_, mr);
+      // Allocate space using the correct memory resource.
+      RAFT_LOG_DEBUG("moving dataset to new memory space: %s",
+                     allocator_to_string(dataset_mem_).c_str());
 
-    auto dataset_view = raft::make_device_strided_matrix_view<const T, int64_t>(
-      dataset_->data_handle(), dataset_->extent(0), this->dim_, dataset_->extent(1));
-    index_->update_dataset(handle_, dataset_view);
+      auto mr = get_mr(dataset_mem_);
+      cuvs::neighbors::cagra::detail::copy_with_padding(handle_, *dataset_, *input_dataset_v_, mr);
+
+      auto dataset_view = raft::make_device_strided_matrix_view<const T, int64_t>(
+        dataset_->data_handle(), dataset_->extent(0), this->dim_, dataset_->extent(1));
+      index_->update_dataset(handle_, dataset_view);
+    }
 
     need_dataset_update_         = false;
     needs_dynamic_batcher_update = true;
@@ -452,6 +470,13 @@ void cuvs_cagra<T, IdxT>::load(const std::string& file)
 template <typename T, typename IdxT>
 std::unique_ptr<algo<T>> cuvs_cagra<T, IdxT>::copy()
 {
+  // sub_indices_ can get corrupted when dataset_memory_type=kDevice triggers copy_with_padding
+  // during set_search_param. For single-index CAGRA, sub_indices_ is always logically empty,
+  // so we reset it via placement new before copying to avoid bad_array_new_length.
+  if (index_params_.num_dataset_splits <= 1) {
+    using SubVec = std::vector<std::shared_ptr<cuvs::neighbors::cagra::index<T, IdxT>>>;
+    new (&sub_indices_) SubVec{};
+  }
   return std::make_unique<cuvs_cagra<T, IdxT>>(std::cref(*this));  // use copy constructor
 }
 

@@ -179,7 +179,8 @@ struct dataset {
           std::string query_file,
           std::string distance,
           std::optional<std::string> groundtruth_neighbors_file,
-          std::optional<double> filtering_rate = std::nullopt)
+          std::optional<double> filtering_rate          = std::nullopt,
+          std::optional<std::string> filter_bitset_file = std::nullopt)
     : name_{std::move(name)},
       distance_{std::move(distance)},
       base_set_{base_file, subset_first_row, subset_size},
@@ -200,6 +201,8 @@ struct dataset {
                          bitset_size,
                          1.0 - filtering_rate.value());
       filter_bitset_.emplace(std::move(bitset_blob));
+    } else if (filter_bitset_file.has_value()) {
+      filter_bitset_.emplace(blob<bitset_carrier_type>{filter_bitset_file.value()});
     }
 
     if (groundtruth_neighbors_file.has_value()) {
