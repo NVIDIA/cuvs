@@ -153,9 +153,9 @@ class kvikio_file_reader::impl {
 
     const size_t bytes_read = handle_.pread(data, size, static_cast<size_t>(offset)).get();
     RAFT_EXPECTS(bytes_read == size,
-                 "kvikio_file_reader: short read (expected %zu, read %zu)",
-                 size,
-                 bytes_read);
+                 "kvikio_file_reader: short read (expected %llu, read %llu)",
+                 static_cast<unsigned long long>(size),
+                 static_cast<unsigned long long>(bytes_read));
 
     stream_.seekg(static_cast<std::streamoff>(size), std::ios_base::cur);
     RAFT_EXPECTS(stream_.good(), "kvikio_file_reader: failed to advance the file position");
