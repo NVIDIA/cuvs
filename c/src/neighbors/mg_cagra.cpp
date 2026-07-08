@@ -4,6 +4,7 @@
  */
 
 #include "cagra.hpp"
+#include "c_api_box.hpp"
 #include <cuvs/neighbors/cagra.h>
 #include <cuvs/neighbors/mg_cagra.h>
 #include <cuvs/neighbors/cagra.hpp>
@@ -17,6 +18,50 @@
 #include "../core/interop.hpp"
 
 #include <fstream>
+
+namespace {
+enum class mg_cagra_dataset_layout : uint8_t { device_padded, device_standard };
+
+struct mg_cagra_c_api_index_box {
+  void* index_ptr;
+  mg_cagra_dataset_layout layout;
+  cuvs::neighbors::c_api::detail::owner_record owner_rec;
+};
+
+template <typename T, typename AnnIndexT>
+using mg_cagra_index_t = cuvs::neighbors::mg_index<AnnIndexT, T, uint32_t>;
+
+template <typename T, typename AnnIndexT>
+static auto make_mg_cagra_box(mg_cagra_index_t<T, AnnIndexT>* ptr, mg_cagra_dataset_layout layout)
+  -> mg_cagra_c_api_index_box*
+{
+  return new mg_cagra_c_api_index_box{
+    ptr, layout, cuvs::neighbors::c_api::detail::make_owner_record(ptr)};
+}
+
+static auto require_mg_cagra_box(cuvsMultiGpuCagraIndex const& index, const char* null_handle_err)
+  -> mg_cagra_c_api_index_box*
+{
+  auto* box = reinterpret_cast<mg_cagra_c_api_index_box*>(index.addr);
+  if (box == nullptr) { RAFT_FAIL("%s", null_handle_err); }
+  return box;
+}
+
+template <typename T, typename Fn>
+static void with_mg_index_by_layout(mg_cagra_c_api_index_box* box,
+                                    const char* null_handle_err,
+                                    Fn&& fn)
+{
+  if (box == nullptr) { RAFT_FAIL("%s", null_handle_err); }
+  if (box->layout == mg_cagra_dataset_layout::device_padded) {
+    RAFT_FAIL("Multi-GPU C API padded-layout handles are not enabled yet");
+  } else {
+    auto* index_ptr = reinterpret_cast<
+      mg_cagra_index_t<T, cuvs::neighbors::cagra::device_standard_index<T, uint32_t>>*>(box->index_ptr);
+    fn(index_ptr);
+  }
+}
+}  // namespace
 
 extern "C" cuvsError_t cuvsMultiGpuCagraIndexParamsCreate(
   cuvsMultiGpuCagraIndexParams_t* index_params)
@@ -81,31 +126,10 @@ extern "C" cuvsError_t cuvsMultiGpuCagraIndexDestroy(cuvsMultiGpuCagraIndex_t in
 {
   return cuvs::core::translate_exceptions([=] {
     if (index) {
-      // Properly clean up the templated inner object based on dtype, like single GPU API
-      if (index->dtype.code == kDLFloat && index->dtype.bits == 32) {
-        auto mg_index_ptr =
-          reinterpret_cast<cuvs::neighbors::mg_index<cuvs::neighbors::cagra::device_standard_index<float, uint32_t>,
-                                                     float,
-                                                     uint32_t>*>(index->addr);
-        delete mg_index_ptr;
-      } else if (index->dtype.code == kDLFloat && index->dtype.bits == 16) {
-        auto mg_index_ptr =
-          reinterpret_cast<cuvs::neighbors::mg_index<cuvs::neighbors::cagra::device_standard_index<half, uint32_t>,
-                                                     half,
-                                                     uint32_t>*>(index->addr);
-        delete mg_index_ptr;
-      } else if (index->dtype.code == kDLInt && index->dtype.bits == 8) {
-        auto mg_index_ptr = reinterpret_cast<
-          cuvs::neighbors::
-            mg_index<cuvs::neighbors::cagra::device_standard_index<int8_t, uint32_t>, int8_t, uint32_t>*>(
-          index->addr);
-        delete mg_index_ptr;
-      } else if (index->dtype.code == kDLUInt && index->dtype.bits == 8) {
-        auto mg_index_ptr = reinterpret_cast<
-          cuvs::neighbors::
-            mg_index<cuvs::neighbors::cagra::device_standard_index<uint8_t, uint32_t>, uint8_t, uint32_t>*>(
-          index->addr);
-        delete mg_index_ptr;
+      auto* box = reinterpret_cast<mg_cagra_c_api_index_box*>(index->addr);
+      if (box != nullptr) {
+        cuvs::neighbors::c_api::detail::destroy_owner_record(box->owner_rec);
+        delete box;
       }
       delete index;
     }
@@ -142,7 +166,6 @@ void convert_c_mg_search_params(
 }  // namespace cuvs::neighbors::cagra
 
 namespace {
-
 template <typename T>
 void* _mg_build(cuvsResources_t res,
                 cuvsMultiGpuCagraIndexParams params,
@@ -158,11 +181,10 @@ void* _mg_build(cuvsResources_t res,
   using mdspan_type = raft::host_matrix_view<const T, int64_t, raft::row_major>;
   auto mds          = cuvs::core::from_dlpack<mdspan_type>(dataset_tensor);
 
-  auto mg_index =
-    new cuvs::neighbors::mg_index<cuvs::neighbors::cagra::device_standard_index<T, uint32_t>, T, uint32_t>(
-      cuvs::neighbors::cagra::build(*res_ptr, mg_params, mds));
-
-  return mg_index;
+  using standard_ann_t = cuvs::neighbors::cagra::device_standard_index<T, uint32_t>;
+  auto* mg_index       = new mg_cagra_index_t<T, standard_ann_t>(
+    cuvs::neighbors::cagra::build(*res_ptr, mg_params, mds));
+  return make_mg_cagra_box<T, standard_ann_t>(mg_index, mg_cagra_dataset_layout::device_standard);
 }
 
 template <typename T>
@@ -174,9 +196,7 @@ void _mg_search(cuvsResources_t res,
                 DLManagedTensor* distances_tensor)
 {
   auto res_ptr      = reinterpret_cast<raft::resources*>(res);
-  auto mg_index_ptr = reinterpret_cast<
-    cuvs::neighbors::mg_index<cuvs::neighbors::cagra::device_standard_index<T, uint32_t>, T, uint32_t>*>(
-    index.addr);
+  auto* box         = require_mg_cagra_box(index, "cuvsMultiGpuCagraSearch: null index handle");
 
   auto mg_search_params =
     cuvs::neighbors::mg_search_params<cuvs::neighbors::cagra::search_params>();
@@ -190,8 +210,10 @@ void _mg_search(cuvsResources_t res,
   auto neighbors_mds = cuvs::core::from_dlpack<neighbors_mdspan_type>(neighbors_tensor);
   auto distances_mds = cuvs::core::from_dlpack<distances_mdspan_type>(distances_tensor);
 
-  cuvs::neighbors::cagra::search(
-    *res_ptr, *mg_index_ptr, mg_search_params, queries_mds, neighbors_mds, distances_mds);
+  with_mg_index_by_layout<T>(box, "cuvsMultiGpuCagraSearch: null index handle", [&](auto* mg_index_ptr) {
+    cuvs::neighbors::cagra::search(
+      *res_ptr, *mg_index_ptr, mg_search_params, queries_mds, neighbors_mds, distances_mds);
+  });
 }
 
 template <typename T>
@@ -201,9 +223,7 @@ void _mg_extend(cuvsResources_t res,
                 DLManagedTensor* new_indices_tensor)
 {
   auto res_ptr      = reinterpret_cast<raft::resources*>(res);
-  auto mg_index_ptr = reinterpret_cast<
-    cuvs::neighbors::mg_index<cuvs::neighbors::cagra::device_standard_index<T, uint32_t>, T, uint32_t>*>(
-    index.addr);
+  auto* box         = require_mg_cagra_box(index, "cuvsMultiGpuCagraExtend: null index handle");
 
   using vectors_mdspan_type = raft::host_matrix_view<const T, int64_t, raft::row_major>;
   auto new_vectors_mds      = cuvs::core::from_dlpack<vectors_mdspan_type>(new_vectors_tensor);
@@ -214,40 +234,40 @@ void _mg_extend(cuvsResources_t res,
     new_indices_mds           = cuvs::core::from_dlpack<indices_mdspan_type>(new_indices_tensor);
   }
 
-  cuvs::neighbors::cagra::extend(*res_ptr, *mg_index_ptr, new_vectors_mds, new_indices_mds);
+  with_mg_index_by_layout<T>(box, "cuvsMultiGpuCagraExtend: null index handle", [&](auto* mg_index_ptr) {
+    cuvs::neighbors::cagra::extend(*res_ptr, *mg_index_ptr, new_vectors_mds, new_indices_mds);
+  });
 }
 
 template <typename T>
 void _mg_serialize(cuvsResources_t res, cuvsMultiGpuCagraIndex index, const char* filename)
 {
   auto res_ptr      = reinterpret_cast<raft::resources*>(res);
-  auto mg_index_ptr = reinterpret_cast<
-    cuvs::neighbors::mg_index<cuvs::neighbors::cagra::device_standard_index<T, uint32_t>, T, uint32_t>*>(
-    index.addr);
-
-  cuvs::neighbors::cagra::serialize(*res_ptr, *mg_index_ptr, std::string(filename));
+  auto* box         = require_mg_cagra_box(index, "cuvsMultiGpuCagraSerialize: null index handle");
+  with_mg_index_by_layout<T>(
+    box, "cuvsMultiGpuCagraSerialize: null index handle", [&](auto* mg_index_ptr) {
+      cuvs::neighbors::cagra::serialize(*res_ptr, *mg_index_ptr, std::string(filename));
+    });
 }
 
 template <typename T>
 void* _mg_deserialize(cuvsResources_t res, const char* filename)
 {
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
-  auto mg_index =
-    new cuvs::neighbors::mg_index<cuvs::neighbors::cagra::device_standard_index<T, uint32_t>, T, uint32_t>(
-      cuvs::neighbors::cagra::deserialize<T, uint32_t>(*res_ptr, std::string(filename)));
-
-  return mg_index;
+  using standard_ann_t = cuvs::neighbors::cagra::device_standard_index<T, uint32_t>;
+  auto* mg_index       = new mg_cagra_index_t<T, standard_ann_t>(
+    cuvs::neighbors::cagra::deserialize<T, uint32_t>(*res_ptr, std::string(filename)));
+  return make_mg_cagra_box<T, standard_ann_t>(mg_index, mg_cagra_dataset_layout::device_standard);
 }
 
 template <typename T>
 void* _mg_distribute(cuvsResources_t res, const char* filename)
 {
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
-  auto mg_index =
-    new cuvs::neighbors::mg_index<cuvs::neighbors::cagra::device_standard_index<T, uint32_t>, T, uint32_t>(
-      cuvs::neighbors::cagra::distribute<T, uint32_t>(*res_ptr, std::string(filename)));
-
-  return mg_index;
+  using standard_ann_t = cuvs::neighbors::cagra::device_standard_index<T, uint32_t>;
+  auto* mg_index       = new mg_cagra_index_t<T, standard_ann_t>(
+    cuvs::neighbors::cagra::distribute<T, uint32_t>(*res_ptr, std::string(filename)));
+  return make_mg_cagra_box<T, standard_ann_t>(mg_index, mg_cagra_dataset_layout::device_standard);
 }
 
 }  // anonymous namespace
