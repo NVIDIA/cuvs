@@ -91,9 +91,6 @@ cache:
           - libaio
           - libboost-devel =1.87
           - mkl-devel =2023
-      # ucx/ucxx are linked by the multi-GPU (MG) tests
-      - libucxx ${{ ucxx_version }}
-      - ucx
 
 outputs:
   - package:
@@ -147,10 +144,8 @@ outputs:
           - libcusolver
           - libcusparse
           - librmm
-          - libucxx
           - mkl
           - nccl
-          - ucx
     about:
       homepage: ${{ load_from_file("python/libcuvs/pyproject.toml").project.urls.Homepage }}
       license: ${{ load_from_file("python/libcuvs/pyproject.toml").project.license }}
@@ -212,10 +207,8 @@ outputs:
           - libcusolver
           - libcusparse
           - librmm
-          - libucxx
           - mkl
           - nccl
-          - ucx
     about:
       homepage: ${{ load_from_file("python/libcuvs/pyproject.toml").project.urls.Homepage }}
       license: ${{ load_from_file("python/libcuvs/pyproject.toml").project.license }}
@@ -275,10 +268,8 @@ outputs:
           - libcusolver
           - libcusparse
           - librmm
-          - libucxx
           - mkl
           - nccl
-          - ucx
     about:
       homepage: ${{ load_from_file("python/libcuvs/pyproject.toml").project.urls.Homepage }}
       license: ${{ load_from_file("python/libcuvs/pyproject.toml").project.license }}
@@ -302,9 +293,6 @@ outputs:
         - librmm =${{ minor_version }}
         - libraft-headers =${{ minor_version }}
         - nccl ${{ nccl_version }}
-        # ucx/ucxx are linked by the multi-GPU (MG) tests
-        - libucxx ${{ ucxx_version }}
-        - ucx
         - ${{ pin_subpackage("libcuvs-headers", exact=True) }}
         - ${{ pin_subpackage("libcuvs", exact=True) }}
         - cuda-version =${{ cuda_version }}
@@ -321,8 +309,6 @@ outputs:
         - ${{ pin_compatible("cuda-version", upper_bound="x", lower_bound="x") }}
         - libraft-headers =${{ minor_version }}
         - nccl
-        - libucxx ${{ ucxx_version }}
-        - ucx
         - libcublas
         - libcurand
         - libcusolver
@@ -339,10 +325,8 @@ outputs:
           - libcusolver
           - libcusparse
           - librmm
-          - libucxx
           - mkl
           - nccl
-          - ucx
     about:
       homepage: ${{ load_from_file("python/libcuvs/pyproject.toml").project.urls.Homepage }}
       license: ${{ load_from_file("python/libcuvs/pyproject.toml").project.license }}
@@ -444,10 +428,8 @@ outputs:
           - libcusolver
           - libcusparse
           - librmm
-          - libucxx
           - mkl
           - nccl
-          - ucx
     about:
       homepage: ${{ load_from_file("python/libcuvs/pyproject.toml").project.urls.Homepage }}
       license: ${{ load_from_file("python/libcuvs/pyproject.toml").project.license }}
@@ -517,9 +499,7 @@ outputs:
           - libcusolver
           - libcusparse
           - librmm
-          - libucxx
           - mkl
-          - ucx
     about:
       homepage: ${{ load_from_file("python/cuvs_bench/pyproject.toml").project.urls.Homepage }}
       license: ${{ load_from_file("python/cuvs_bench/pyproject.toml").project.license }}

@@ -21,6 +21,3 @@ h5py_version:
 
 nccl_version:
   - ">=2.19"
-
-ucxx_version:
-  - "0.51.*"
