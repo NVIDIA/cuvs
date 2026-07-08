@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2024, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -7,6 +7,7 @@ import pytest
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import normalize
 
+from cuvs.common.exceptions import CuvsException
 from cuvs.neighbors import cagra, hnsw
 from cuvs.tests.ann_utils import calc_recall, generate_data
 
@@ -89,6 +90,100 @@ def test_hnsw(dtype, k, ef, num_threads, metric, build_algo, hierarchy):
         search_params={"ef": ef, "num_threads": num_threads},
         expected_recall=expected_recall,
     )
+
+
+def test_hnsw_build_hnsw_first_api(tmp_path):
+    dataset = generate_data((2000, 16), np.float32)
+    additional_dataset = generate_data((200, 16), np.float32)
+    queries = generate_data((100, 16), np.float32)
+    k = 10
+
+    index_params = hnsw.IndexParams(
+        hierarchy="gpu",
+        M=16,
+        ef_construction=120,
+        metric="sqeuclidean",
+    )
+    hnsw_index = hnsw.build(index_params, dataset)
+
+    assert hnsw_index.trained
+
+    _out_dist, out_idx = hnsw.search(
+        hnsw.SearchParams(ef=120, num_threads=1), hnsw_index, queries, k
+    )
+
+    nn_skl = NearestNeighbors(
+        n_neighbors=k, algorithm="brute", metric="sqeuclidean"
+    )
+    nn_skl.fit(dataset)
+    skl_idx = nn_skl.kneighbors(queries, return_distance=False)
+
+    assert calc_recall(out_idx, skl_idx) >= 0.9
+
+    with pytest.raises(CuvsException, match="dimensions"):
+        hnsw.extend(
+            hnsw.ExtendParams(),
+            hnsw_index,
+            generate_data((1, dataset.shape[1] - 1), np.float32),
+        )
+
+    hnsw.extend(
+        hnsw.ExtendParams(num_threads=1), hnsw_index, additional_dataset
+    )
+
+    extended_dataset = np.vstack([dataset, additional_dataset])
+    nn_skl.fit(extended_dataset)
+    skl_idx = nn_skl.kneighbors(queries, return_distance=False)
+
+    _extended_dist, extended_idx = hnsw.search(
+        hnsw.SearchParams(ef=120, num_threads=1), hnsw_index, queries, k
+    )
+
+    assert calc_recall(extended_idx, skl_idx) >= 0.9
+
+    with pytest.raises(CuvsException, match="k must not exceed"):
+        hnsw.search(
+            hnsw.SearchParams(),
+            hnsw_index,
+            queries[:1],
+            extended_dataset.shape[0] + 1,
+        )
+
+    with pytest.raises(ValueError, match="ef must not be negative"):
+        hnsw.SearchParams(ef=-1)
+
+    # ef=0 keeps its historical meaning: the candidate list size defaults to k
+    _zero_ef_dist, zero_ef_idx = hnsw.search(
+        hnsw.SearchParams(ef=0, num_threads=1), hnsw_index, queries, k
+    )
+    assert zero_ef_idx.shape == (queries.shape[0], k)
+
+    index_path = tmp_path / "hnsw_build_api.index"
+    hnsw.save(str(index_path), hnsw_index)
+
+    # an explicitly passed metric remains accepted and takes precedence
+    explicit_metric_index = hnsw.load(
+        index_params,
+        str(index_path),
+        dataset.shape[1],
+        dataset.dtype,
+        metric="sqeuclidean",
+    )
+    assert explicit_metric_index.trained
+
+    # metric defaults to index_params.metric when not passed explicitly
+    loaded_index = hnsw.load(
+        index_params,
+        str(index_path),
+        dataset.shape[1],
+        dataset.dtype,
+    )
+
+    _loaded_dist, loaded_idx = hnsw.search(
+        hnsw.SearchParams(ef=120, num_threads=1), loaded_index, queries, k
+    )
+
+    assert calc_recall(loaded_idx, skl_idx) >= 0.9
 
 
 def run_hnsw_extend_test(

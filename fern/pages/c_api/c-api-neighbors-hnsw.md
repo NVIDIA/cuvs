@@ -13,10 +13,11 @@ _Source header: `cuvs/neighbors/hnsw.h`_
 
 Hierarchy for HNSW index when converting from CAGRA index
 
-NOTE: When the value is `NONE`, the HNSW index is built as a base-layer-only index.
+NOTE: When the value is `NONE`, the HNSW index is built as a base-layer-only index. Such an index is immutable (it cannot be extended) and can only be read by the hnswlib wrapper in cuVS, because its serialization format is not compatible with the original hnswlib. Indexes built with hierarchy `CPU` or `GPU` are mutable and compatible with the original hnswlib library.
 
 ```c
 enum cuvsHnswHierarchy {
+  NONE = 0,
   CPU = 1,
   GPU = 2
 };
@@ -26,6 +27,7 @@ enum cuvsHnswHierarchy {
 
 | Name | Value |
 | --- | --- |
+| `NONE` | `0` |
 | `CPU` | `1` |
 | `GPU` | `2` |
 
@@ -261,6 +263,7 @@ Convert a CAGRA Index to an HNSW index. NOTE: When hierarchy is:
 
 1. `NONE`: This method uses the filesystem to write the CAGRA index in `/tmp/&lt;random_number&gt;.bin` before reading it as an hnswlib index, then deleting the temporary file. The returned index is immutable and can only be searched by the hnswlib wrapper in cuVS, as the format is not compatible with the original hnswlib.
 2. `CPU`: The returned index is mutable and can be extended with additional vectors. The serialized index is also compatible with the original hnswlib library.
+3. `GPU`: The returned index is mutable, and its hierarchy is built on the GPU. The serialized index is also compatible with the original hnswlib library.
 
 ```c
 cuvsError_t cuvsHnswFromCagra(cuvsResources_t res,
@@ -282,12 +285,12 @@ cuvsHnswIndex_t hnsw_index);
 
 [`cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)
 
-## Build HNSW index using ACE algorithm
+## Build HNSW index on the GPU
 
 <a id="cuvshnswbuild"></a>
 ### cuvsHnswBuild
 
-Build an HNSW index using ACE (Augmented Core Extraction) algorithm.
+Build an HNSW index on the GPU and search it on the CPU.
 
 ```c
 cuvsError_t cuvsHnswBuild(cuvsResources_t res,
@@ -296,11 +299,7 @@ DLManagedTensor* dataset,
 cuvsHnswIndex_t index);
 ```
 
-ACE enables building HNSW indexes for datasets too large to fit in GPU memory by:
-
-1. Partitioning the dataset using balanced k-means into core and augmented partitions
-2. Building sub-indexes for each partition independently
-3. Concatenating sub-graphs into a final unified index
+cuVS accepts HNSW parameters (`M`, `ef_construction`, hierarchy, and metric), builds a compatible graph on the GPU, and returns an HNSW index for CPU search. Internally, cuVS may use CAGRA graph construction and convert the graph to HNSW format. Users can leave `params-&gt;ace_params` as nullptr for the default in-memory path, or set ACE parameters to request partitioned or disk-backed graph construction.
 
 NOTE: This function requires CUDA to be available at runtime.
 
@@ -309,7 +308,7 @@ NOTE: This function requires CUDA to be available at runtime.
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | [`cuvsResources_t`](/api-reference/c-api-core-c-api#cuvsresources-t) | cuvsResources_t opaque C handle |
-| `params` | in | `cuvsHnswIndexParams_t` | cuvsHnswIndexParams_t with ACE parameters configured |
+| `params` | in | `cuvsHnswIndexParams_t` | cuvsHnswIndexParams_t with HNSW build parameters |
 | `dataset` | in | `DLManagedTensor*` | DLManagedTensor* host dataset to build index from |
 | `index` | out | [`cuvsHnswIndex_t`](/api-reference/c-api-neighbors-hnsw#cuvshnswindex) | cuvsHnswIndex_t to return the built HNSW index |
 
@@ -322,7 +321,7 @@ NOTE: This function requires CUDA to be available at runtime.
 <a id="cuvshnswextend"></a>
 ### cuvsHnswExtend
 
-Add new vectors to an HNSW index NOTE: The HNSW index can only be extended when the hierarchy is `CPU` when converting from a CAGRA index.
+Add new vectors to an HNSW index NOTE: A base-layer-only index with hierarchy `NONE` cannot be extended. Indexes with hierarchy `CPU` or `GPU` can be extended.
 
 ```c
 cuvsError_t cuvsHnswExtend(cuvsResources_t res,
@@ -408,9 +407,9 @@ cuvsError_t cuvsHnswSearchParamsDestroy(cuvsHnswSearchParams_t params);
 <a id="cuvshnswsearch"></a>
 ### cuvsHnswSearch
 
-Search a HNSW index with a `DLManagedTensor` which has underlying `DLDeviceType` equal to `kDLCPU`, `kDLCUDAHost`, or `kDLCUDAManaged`. It is also important to note that the HNSW Index must have been built with the same type of `queries`, such that `index.dtype.code == queries.dl_tensor.dtype.code` Supported types for input are:
+Search a HNSW index with a `DLManagedTensor` which has underlying `DLDeviceType` equal to `kDLCPU`, `kDLCUDAHost`, or `kDLCUDAManaged`. It is also important to note that the HNSW Index must have been built with the same type of `queries`, such that `index.dtype.code == queries.dl_tensor.dtype.code` and `index.dtype.bits == queries.dl_tensor.dtype.bits` Supported types for input are:
 
-1. `queries`: a. `kDLDataType.code == kDLFloat` and `kDLDataType.bits = 32` b. `kDLDataType.code == kDLInt` and `kDLDataType.bits = 8` c. `kDLDataType.code == kDLUInt` and `kDLDataType.bits = 8`
+1. `queries`: a. `kDLDataType.code == kDLFloat` and `kDLDataType.bits = 32` b. `kDLDataType.code == kDLFloat` and `kDLDataType.bits = 16` c. `kDLDataType.code == kDLInt` and `kDLDataType.bits = 8` d. `kDLDataType.code == kDLUInt` and `kDLDataType.bits = 8`
 2. `neighbors`: `kDLDataType.code == kDLUInt` and `kDLDataType.bits = 64`
 3. `distances`: `kDLDataType.code == kDLFloat` and `kDLDataType.bits = 32` NOTE: When hierarchy is `NONE`, the HNSW index can only be searched by the hnswlib wrapper in cuVS, as the format is not compatible with the original hnswlib.
 
@@ -429,7 +428,7 @@ DLManagedTensor* distances);
 | --- | --- | --- | --- |
 | `res` | in | [`cuvsResources_t`](/api-reference/c-api-core-c-api#cuvsresources-t) | cuvsResources_t opaque C handle |
 | `params` | in | [`cuvsHnswSearchParams_t`](/api-reference/c-api-neighbors-hnsw#cuvshnswsearchparams) | cuvsHnswSearchParams_t used to search Hnsw index |
-| `index` | in | [`cuvsHnswIndex_t`](/api-reference/c-api-neighbors-hnsw#cuvshnswindex) | cuvsHnswIndex which has been returned by `cuvsHnswFromCagra` |
+| `index` | in | [`cuvsHnswIndex_t`](/api-reference/c-api-neighbors-hnsw#cuvshnswindex) | cuvsHnswIndex returned by `cuvsHnswBuild`, `cuvsHnswFromCagra`, or `cuvsHnswDeserialize` |
 | `queries` | in | `DLManagedTensor*` | DLManagedTensor* queries dataset to search |
 | `neighbors` | out | `DLManagedTensor*` | DLManagedTensor* output `k` neighbors for queries |
 | `distances` | out | `DLManagedTensor*` | DLManagedTensor* output `k` distances for queries |
@@ -443,7 +442,7 @@ DLManagedTensor* distances);
 <a id="cuvshnswserialize"></a>
 ### cuvsHnswSerialize
 
-Serialize a CAGRA index to a file as an hnswlib index NOTE: When hierarchy is `NONE`, the saved hnswlib index is immutable and can only be read by the hnswlib wrapper in cuVS, as the serialization format is not compatible with the original hnswlib. However, when hierarchy is `CPU`, the saved hnswlib index is compatible with the original hnswlib library.
+Serialize an HNSW index to a file. NOTE: When hierarchy is `NONE`, the saved hnswlib index is immutable and can only be read by the hnswlib wrapper in cuVS, as the serialization format is not compatible with the original hnswlib. However, when hierarchy is `CPU` or `GPU`, the saved hnswlib index is compatible with the original hnswlib library.
 
 ```c
 cuvsError_t cuvsHnswSerialize(cuvsResources_t res, const char* filename, cuvsHnswIndex_t index);
@@ -475,17 +474,17 @@ cuvsDistanceType metric,
 cuvsHnswIndex_t index);
 ```
 
-NOTE: When hierarchy is `NONE`, the loaded hnswlib index is immutable, and only be read by the hnswlib wrapper in cuVS, as the serialization format is not compatible with the original hnswlib. Experimental, both the API and the serialization format are subject to change.
+NOTE: When hierarchy is `NONE`, the loaded hnswlib index is immutable and can only be read by the hnswlib wrapper in cuVS, as the serialization format is not compatible with the original hnswlib. Indexes loaded with hierarchy `CPU` or `GPU` are mutable and compatible with the original hnswlib library. Experimental, both the API and the serialization format are subject to change. NOTE: `params-&gt;hierarchy` must match the hierarchy the index was serialized with. Loading a base-layer-only index saved with hierarchy `NONE` requires setting `params-&gt;hierarchy = NONE` (the default created by `cuvsHnswIndexParamsCreate` is `GPU`).
 
 **Parameters**
 
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | [`cuvsResources_t`](/api-reference/c-api-core-c-api#cuvsresources-t) | cuvsResources_t opaque C handle |
-| `params` | in | `cuvsHnswIndexParams_t` | cuvsHnswIndexParams_t used to load Hnsw index |
+| `params` | in | `cuvsHnswIndexParams_t` | cuvsHnswIndexParams_t used to load Hnsw index; `params-&gt;hierarchy` must match the hierarchy the index was serialized with |
 | `filename` | in | `const char*` | the name of the file that stores the index |
 | `dim` | in | `int` | the dimension of the vectors in the index |
-| `metric` | in | [`cuvsDistanceType`](/api-reference/c-api-distance-distance#cuvsdistancetype) | the distance metric used to build the index |
+| `metric` | in | [`cuvsDistanceType`](/api-reference/c-api-distance-distance#cuvsdistancetype) | the distance metric used to build the index; takes precedence over `params-&gt;metric` |
 | `index` | out | [`cuvsHnswIndex_t`](/api-reference/c-api-neighbors-hnsw#cuvshnswindex) | HNSW index loaded disk |
 
 **Returns**

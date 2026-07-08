@@ -101,22 +101,22 @@ _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndex.java:53`_
 static HnswIndex build(CuVSResources resources, HnswIndexParams hnswParams, CuVSMatrix dataset) throws Throwable
 ```
 
-Builds an HNSW index using the ACE (Augmented Core Extraction) algorithm.
+Builds an HNSW index on the GPU and returns it for CPU search.
 
-ACE enables building HNSW indexes for datasets too large to fit in GPU
-memory by partitioning the dataset and building sub-indexes for each
-partition independently.
+The build API accepts HNSW parameters and selects internal GPU graph
+construction settings automatically. ACE parameters are optional and are
+used only to configure partitioned or disk-backed graph construction.
 
-NOTE: This method requires `hnswParams.getAceParams()` to be set with
-an instance of HnswAceParams.
+NOTE: only float32 datasets are supported, as `HnswQuery` issues
+float32 queries.
 
 **Parameters**
 
 | Name | Description |
 | --- | --- |
 | `resources` | The CuVS resources |
-| `hnswParams` | Parameters for the HNSW index with ACE configuration |
-| `dataset` | The dataset to build the index from |
+| `hnswParams` | Parameters for the HNSW index |
+| `dataset` | The dataset to build the index from; must hold float32 data |
 
 **Returns**
 
@@ -149,7 +149,7 @@ needed.
 
 an instance of this Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndex.java:96`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndex.java:95`_
 
 ### withIndexParams
 
@@ -170,7 +170,7 @@ Builder.
 
 An instance of this Builder.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndex.java:105`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndex.java:104`_
 
 ### build
 
@@ -184,6 +184,6 @@ Builds and returns an instance of CagraIndex.
 
 an instance of CagraIndex
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndex.java:112`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndex.java:111`_
 
 _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndex.java:17`_

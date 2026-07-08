@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs;
@@ -120,6 +120,98 @@ public class HnswBuildAndSearchIT extends CuVSTestCase {
                 .build();
         indexAndQueryOnce(resources, hnswQuery, expectedResults);
       }
+    }
+  }
+
+  @Test
+  public void testBuildWithHnswParams() throws Throwable {
+    final List<Map<Integer, Float>> expectedResults =
+        Arrays.asList(
+            Map.of(3, 0.038782578f),
+            Map.of(0, 0.12472608f),
+            Map.of(3, 0.047766715f),
+            Map.of(1, 0.15224178f));
+
+    try (CuVSResources resources = CheckedCuVSResources.create();
+        var datasetMatrix = CuVSMatrix.ofArray(dataset)) {
+      HnswIndexParams hnswIndexParams =
+          new HnswIndexParams.Builder()
+              .withVectorDimension(2)
+              .withHierarchy(HnswHierarchy.GPU)
+              .withM(2)
+              .withEfConstruction(100)
+              .withMetric(HnswIndexParams.CuvsDistanceType.L2Expanded)
+              .build();
+
+      try (HnswIndex hnswIndex = HnswIndex.build(resources, hnswIndexParams, datasetMatrix)) {
+        HnswQuery hnswQuery =
+            new HnswQuery.Builder(resources)
+                .withMapping(SearchResults.IDENTITY_MAPPING)
+                .withQueryVectors(queries)
+                .withSearchParams(new HnswSearchParams.Builder().withEF(100).build())
+                .withTopK(1)
+                .build();
+
+        SearchResults results = hnswIndex.search(hnswQuery);
+        checkResults(expectedResults, results.getResults());
+      }
+    }
+  }
+
+  @Test
+  public void testDeserializePreservesMetric() throws Throwable {
+    final List<Map<Integer, Float>> expectedResults =
+        Arrays.asList(
+            Map.of(2, 0.5348064f),
+            Map.of(0, 0.02082576f),
+            Map.of(0, 0.3771412f),
+            Map.of(0, 0.42827073f));
+
+    Path hnswIndexPath = Files.createTempFile("hnsw-inner-product-", ".hnsw");
+    try (CuVSResources resources = CheckedCuVSResources.create()) {
+      CagraIndexParams cagraParams =
+          new CagraIndexParams.Builder()
+              .withCagraGraphBuildAlgo(CagraGraphBuildAlgo.NN_DESCENT)
+              .withGraphDegree(3)
+              .withIntermediateGraphDegree(3)
+              .withMetric(CuvsDistanceType.InnerProduct)
+              .build();
+
+      try (CagraIndex cagraIndex =
+          CagraIndex.newBuilder(resources)
+              .withDataset(dataset)
+              .withIndexParams(cagraParams)
+              .build()) {
+        try (var outputStream = Files.newOutputStream(hnswIndexPath)) {
+          cagraIndex.serializeToHNSW(outputStream);
+        }
+      }
+
+      HnswIndexParams hnswParams =
+          new HnswIndexParams.Builder()
+              .withVectorDimension(2)
+              .withHierarchy(HnswHierarchy.NONE)
+              .withMetric(HnswIndexParams.CuvsDistanceType.InnerProduct)
+              .build();
+
+      try (var inputStream = Files.newInputStream(hnswIndexPath);
+          HnswIndex hnswIndex =
+              HnswIndex.newBuilder(resources)
+                  .from(inputStream)
+                  .withIndexParams(hnswParams)
+                  .build()) {
+        HnswQuery hnswQuery =
+            new HnswQuery.Builder(resources)
+                .withMapping(SearchResults.IDENTITY_MAPPING)
+                .withQueryVectors(queries)
+                .withSearchParams(new HnswSearchParams.Builder().withEF(100).build())
+                .withTopK(1)
+                .build();
+
+        checkResults(expectedResults, hnswIndex.search(hnswQuery).getResults());
+      }
+    } finally {
+      Files.deleteIfExists(hnswIndexPath);
     }
   }
 

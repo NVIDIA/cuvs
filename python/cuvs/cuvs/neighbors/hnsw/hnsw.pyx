@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # cython: language_level=3
@@ -16,12 +16,11 @@ from cuvs.common cimport cydlpack
 
 import numpy as np
 
-from cuvs.distance import DISTANCE_TYPES
+from cuvs.distance import DISTANCE_NAMES, DISTANCE_TYPES
 
 from cuvs.neighbors.cagra cimport cagra
 
-import os
-import uuid
+import warnings
 
 from pylibraft.common import auto_convert_output
 from pylibraft.common.cai_wrapper import wrap_array
@@ -129,8 +128,7 @@ cdef class IndexParams:
         - "cpu": Hierarchy is built using CPU.
         - "gpu": Hierarchy is built using GPU.
     ef_construction : int, default = 200 (optional)
-        Maximum number of candidate list size used during construction
-        when hierarchy is `cpu`.
+        Maximum candidate list size used during index construction.
     num_threads : int, default = 0 (optional)
         Number of CPU threads used to increase construction parallelism
         when hierarchy is `cpu` or `gpu`. When the value is 0, the number of
@@ -141,13 +139,13 @@ cdef class IndexParams:
         work is parallelized with the help of CPU threads.
     M : int, default = 32 (optional)
         HNSW M parameter: number of bi-directional links per node
-        (used when building with ACE). graph_degree = m * 2,
-        intermediate_graph_degree = m * 3.
+        used to derive the internal GPU graph degree.
     metric : string, default = "sqeuclidean" (optional)
         Distance metric to use. Valid values: ["sqeuclidean", "inner_product"]
     ace_params : AceParams, default = None (optional)
-        ACE parameters for building HNSW index using ACE algorithm. If set,
-        enables the build() function to use ACE for index construction.
+        Optional ACE parameters for partitioned or disk-backed GPU graph
+        construction. If not set, build() uses HNSW parameters and selects
+        internal graph build settings automatically.
     """
 
     cdef cuvsHnswIndexParams* params
@@ -209,6 +207,10 @@ cdef class IndexParams:
     @property
     def m(self):
         return self.params.M
+
+    @property
+    def metric(self):
+        return DISTANCE_NAMES[self.params.metric]
 
     @property
     def ace_params(self):
@@ -273,13 +275,12 @@ cdef class ExtendParams:
 @auto_sync_resources
 def save(filename, Index index, resources=None):
     """
-    Saves the CAGRA index to a file as an hnswlib index.
+    Saves an HNSW index to a file.
     If the index was constructed with `hnsw.IndexParams(hierarchy="none")`,
     then the saved index is immutable and can only be searched by the hnswlib
     wrapper in cuVS, as the format is not compatible with the original hnswlib.
-    However, if the index was constructed with
-    `hnsw.IndexParams(hierarchy="cpu")`, then the saved index is mutable and
-    compatible with the original hnswlib.
+    However, if the index was constructed with hierarchy `"cpu"` or `"gpu"`,
+    then the saved index is mutable and compatible with the original hnswlib.
 
     Saving / loading the index is experimental. The serialization format is
     subject to change.
@@ -294,18 +295,18 @@ def save(filename, Index index, resources=None):
 
     Examples
     --------
-    >>> import cupy as cp
-    >>> from cuvs.neighbors import cagra
+    >>> import numpy as np
+    >>> from cuvs.neighbors import hnsw
     >>> n_samples = 50000
     >>> n_features = 50
-    >>> dataset = cp.random.random_sample((n_samples, n_features),
-    ...                                   dtype=cp.float32)
-    >>> # Build index
-    >>> cagra_index = cagra.build(cagra.IndexParams(), dataset)
-    >>> # Serialize and deserialize the cagra index built
-    >>> hnsw_index = hnsw.from_cagra(hnsw.IndexParams(), cagra_index)
+    >>> dataset = np.random.random_sample(
+    ...     (n_samples, n_features)).astype(np.float32)
+    >>> hnsw_index = hnsw.build(hnsw.IndexParams(), dataset)
     >>> hnsw.save("my_index.bin", hnsw_index)
     """
+    if not index.trained:
+        raise ValueError("Index needs to be built before calling save.")
+
     cdef string c_filename = filename.encode('utf-8')
     cdef cuvsResources_t res = <cuvsResources_t>resources.get_c_obj()
     check_cuvs(cuvsHnswSerialize(res,
@@ -314,16 +315,15 @@ def save(filename, Index index, resources=None):
 
 
 @auto_sync_resources
-def load(IndexParams index_params, filename, dim, dtype, metric="sqeuclidean",
+def load(IndexParams index_params, filename, dim, dtype, metric=None,
          resources=None):
     """
     Loads an HNSW index.
     If the index was constructed with `hnsw.IndexParams(hierarchy="none")`,
     then the loaded index is immutable and can only be searched by the hnswlib
     wrapper in cuVS, as the format is not compatible with the original hnswlib.
-    However, if the index was constructed with
-    `hnsw.IndexParams(hierarchy="cpu")`, then the loaded index is mutable and
-    compatible with the original hnswlib.
+    However, if the index was constructed with hierarchy `"cpu"` or `"gpu"`,
+    then the loaded index is mutable and compatible with the original hnswlib.
 
     Saving / loading the index is experimental. The serialization format is
     subject to change, therefore loading an index saved with a previous
@@ -332,14 +332,18 @@ def load(IndexParams index_params, filename, dim, dtype, metric="sqeuclidean",
     Parameters
     ----------
     index_params : IndexParams
-        Parameters that were used to convert CAGRA index to HNSW index.
+        Parameters that were used to build or convert the HNSW index.
+        `index_params.hierarchy` must match the hierarchy the index was
+        saved with (e.g. `"none"` for a base-layer-only index).
     filename : string
         Name of the file.
     dim : int
-        Dimensions of the training dataest
+        Dimensions of the training dataset
     dtype : np.dtype of the saved index
-        Valid values for dtype: [np.float32, np.byte, np.ubyte]
-    metric : string denoting the metric type, default="sqeuclidean"
+        Valid values for dtype: [np.float32, np.float16, np.byte, np.ubyte]
+    metric : string denoting the metric type, default=None
+        When None, the metric is taken from `index_params`. If provided, it
+        takes precedence over `index_params.metric`.
         Valid values for metric: ["sqeuclidean", "inner_product"], where
             - sqeuclidean is the euclidean distance without the square root
               operation, i.e.: distance(a,b) = \\sum_i (a_i - b_i)^2,
@@ -353,19 +357,17 @@ def load(IndexParams index_params, filename, dim, dtype, metric="sqeuclidean",
 
     Examples
     --------
-    >>> import cupy as cp
-    >>> from cuvs.neighbors import cagra
+    >>> import numpy as np
     >>> from cuvs.neighbors import hnsw
     >>> n_samples = 50000
     >>> n_features = 50
-    >>> dataset = cp.random.random_sample((n_samples, n_features),
-    ...                                   dtype=cp.float32)
-    >>> # Build index
-    >>> index = cagra.build(cagra.IndexParams(), dataset)
-    >>> # Serialize the CAGRA index to hnswlib base layer only index format
+    >>> dataset = np.random.random_sample(
+    ...     (n_samples, n_features)).astype(np.float32)
+    >>> index_params = hnsw.IndexParams(metric="sqeuclidean")
+    >>> index = hnsw.build(index_params, dataset)
     >>> hnsw.save("my_index.bin", index)
-    >>> index = hnsw.load("my_index.bin", n_features, np.float32,
-    ...                   "sqeuclidean")
+    >>> index = hnsw.load(index_params, "my_index.bin", n_features,
+    ...                   np.float32, "sqeuclidean")
     """
     cdef Index idx = Index()
     cdef cuvsResources_t res = <cuvsResources_t>resources.get_c_obj()
@@ -392,7 +394,13 @@ def load(IndexParams index_params, filename, dim, dtype, metric="sqeuclidean",
                          " for dtype")
 
     idx.index.dtype = dl_dtype
-    cdef cuvsDistanceType distance_type = DISTANCE_TYPES[metric]
+    cdef cuvsDistanceType distance_type
+    if metric is None:
+        distance_type = index_params.params.metric
+    else:
+        if metric not in DISTANCE_TYPES:
+            raise ValueError(f"unsupported metric: {metric}")
+        distance_type = DISTANCE_TYPES[metric]
 
     check_cuvs(cuvsHnswDeserialize(
         res,
@@ -422,6 +430,9 @@ def from_cagra(IndexParams index_params, cagra.Index cagra_index,
     2. `CPU`: The returned index is mutable and can be extended with additional
     vectors. The serialized index is also compatible with the original hnswlib
     library.
+    3. `GPU`: The returned index is mutable, and its hierarchy is built on the
+    GPU. The serialized index is also compatible with the original hnswlib
+    library.
 
     Saving / loading the index is experimental. The serialization format is
     subject to change.
@@ -434,8 +445,8 @@ def from_cagra(IndexParams index_params, cagra.Index cagra_index,
     cagra_index : cagra.Index
         Trained CAGRA index.
     temporary_index_path : string, default = None
-        Path to save the temporary index file. If None, the temporary file
-        will be saved in `/tmp/<random_number>.bin`.
+        Deprecated and ignored. The temporary file used when hierarchy is
+        `NONE` is always written to the system temporary directory.
     {resources_docstring}
 
     Examples
@@ -450,19 +461,28 @@ def from_cagra(IndexParams index_params, cagra.Index cagra_index,
     ...                                   dtype=cp.float32)
     >>> # Build index
     >>> index = cagra.build(cagra.IndexParams(), dataset)
-    >>> # Serialize the CAGRA index to hnswlib base layer only index format
+    >>> # Convert the CAGRA index to an HNSW index
     >>> hnsw_index = hnsw.from_cagra(hnsw.IndexParams(), index)
 
     """
 
+    if temporary_index_path is not None:
+        warnings.warn(
+            "temporary_index_path is deprecated and has no effect; the "
+            "temporary file is always written to the system temporary "
+            "directory.",
+            FutureWarning,
+        )
+
     cdef Index hnsw_index = Index()
     cdef cuvsResources_t res = <cuvsResources_t>resources.get_c_obj()
-    check_cuvs(cuvsHnswFromCagra(
-        res,
-        index_params.params,
-        cagra_index.index,
-        hnsw_index.index
-    ))
+    with cuda_interruptible():
+        check_cuvs(cuvsHnswFromCagra(
+            res,
+            index_params.params,
+            cagra_index.index,
+            hnsw_index.index
+        ))
 
     hnsw_index.trained = True
     return hnsw_index
@@ -471,20 +491,17 @@ def from_cagra(IndexParams index_params, cagra.Index cagra_index,
 @auto_sync_resources
 def build(IndexParams index_params, dataset, resources=None):
     """
-    Build an HNSW index using the ACE (Augmented Core Extraction) algorithm.
+    Build an HNSW index on the GPU and search it on the CPU.
 
-    ACE enables building HNSW indices for datasets too large to fit in GPU
-    memory by partitioning the dataset and building sub-indices for each
-    partition independently.
-
-    NOTE: This function requires `index_params.ace_params` to be set with
-    an instance of AceParams.
+    The build API accepts HNSW parameters (`M`, `ef_construction`,
+    `hierarchy`, and `metric`) and selects the internal GPU graph
+    construction settings automatically. Set `ace_params` only when
+    partitioned or disk-backed graph construction needs to be configured.
 
     Parameters
     ----------
     index_params : IndexParams
-        Parameters for the HNSW index with ACE configuration.
-        Must have `ace_params` set.
+        Parameters for the HNSW index.
     dataset : Host array interface compliant matrix shape (n_samples, dim)
         Supported dtype [float32, float16, int8, uint8]
     {resources_docstring}
@@ -501,20 +518,12 @@ def build(IndexParams index_params, dataset, resources=None):
     >>>
     >>> n_samples = 50000
     >>> n_features = 50
-    >>> dataset = np.random.random_sample((n_samples, n_features),
-    ...                                   dtype=np.float32)
+    >>> dataset = np.random.random_sample(
+    ...     (n_samples, n_features)).astype(np.float32)
     >>>
-    >>> # Create ACE parameters
-    >>> ace_params = hnsw.AceParams(
-    ...     npartitions=4,
-    ...     use_disk=True,
-    ...     build_dir="/tmp/hnsw_ace_build"
-    ... )
-    >>>
-    >>> # Create index parameters with ACE
+    >>> # Create HNSW index parameters
     >>> index_params = hnsw.IndexParams(
     ...     hierarchy="gpu",
-    ...     ace_params=ace_params,
     ...     ef_construction=120,
     ...     M=32,
     ...     metric="sqeuclidean"
@@ -524,7 +533,7 @@ def build(IndexParams index_params, dataset, resources=None):
     >>> index = hnsw.build(index_params, dataset)
     >>>
     >>> # Search the index
-    >>> queries = np.random.random_sample((10, n_features), dtype=np.float32)
+    >>> queries = np.random.random_sample((10, n_features)).astype(np.float32)
     >>> distances, neighbors = hnsw.search(
     ...     hnsw.SearchParams(ef=200),
     ...     index,
@@ -532,10 +541,6 @@ def build(IndexParams index_params, dataset, resources=None):
     ...     k=10
     ... )
     """
-    if index_params.ace_params is None:
-        raise ValueError("index_params.ace_params must be set for hnsw.build(). "
-                         "Use AceParams to configure ACE algorithm parameters.")
-
     dataset_ai = wrap_array(dataset)
     _check_input_array(dataset_ai, [np.dtype('float32'),
                                     np.dtype('float16'),
@@ -546,12 +551,13 @@ def build(IndexParams index_params, dataset, resources=None):
     cdef cuvsResources_t res = <cuvsResources_t>resources.get_c_obj()
 
     cdef Index hnsw_index = Index()
-    check_cuvs(cuvsHnswBuild(
-        res,
-        index_params.params,
-        dataset_dlpack,
-        hnsw_index.index
-    ))
+    with cuda_interruptible():
+        check_cuvs(cuvsHnswBuild(
+            res,
+            index_params.params,
+            dataset_dlpack,
+            hnsw_index.index
+        ))
 
     hnsw_index.trained = True
     return hnsw_index
@@ -561,6 +567,9 @@ def build(IndexParams index_params, dataset, resources=None):
 def extend(ExtendParams extend_params, Index index, data, resources=None):
     """
     Extends the HNSW index with new data.
+
+    Indexes with hierarchy `"cpu"` or `"gpu"` can be extended. A
+    base-layer-only index with hierarchy `"none"` cannot be extended.
 
     Parameters
     ----------
@@ -574,20 +583,20 @@ def extend(ExtendParams extend_params, Index index, data, resources=None):
     Examples
     --------
     >>> import numpy as np
-    >>> from cuvs.neighbors import hnsw, cagra
+    >>> from cuvs.neighbors import hnsw
     >>>
     >>> n_samples = 50000
     >>> n_features = 50
-    >>> dataset = np.random.random_sample((n_samples, n_features))
-    >>>
-    >>> # Build index
-    >>> index = cagra.build(hnsw.IndexParams(), dataset)
-    >>> # Load index
-    >>> hnsw_index = hnsw.from_cagra(hnsw.IndexParams(hierarchy="cpu"), index)
+    >>> dataset = np.random.random_sample(
+    ...     (n_samples, n_features)).astype(np.float32)
+    >>> hnsw_index = hnsw.build(hnsw.IndexParams(), dataset)
     >>> # Extend the index with new data
-    >>> new_data = np.random.random_sample((n_samples, n_features))
+    >>> new_data = np.random.random_sample(
+    ...     (n_samples, n_features)).astype(np.float32)
     >>> hnsw.extend(hnsw.ExtendParams(), hnsw_index, new_data)
     """
+    if not index.trained:
+        raise ValueError("Index needs to be built before calling extend.")
 
     data_ai = wrap_array(data)
     _check_input_array(data_ai, [np.dtype('float32'),
@@ -614,6 +623,8 @@ cdef class SearchParams:
     ----------
     ef: int, default = 200
         Maximum number of candidate list size used during search.
+        Must not be negative. When 0, the effective candidate list size
+        is k.
     num_threads: int, default = 0
         Number of CPU threads used to increase search parallelism.
         When set to 0, the number of threads is automatically determined
@@ -625,6 +636,10 @@ cdef class SearchParams:
     def __init__(self, *,
                  ef=200,
                  num_threads=0):
+        if ef < 0:
+            raise ValueError("ef must not be negative.")
+        if num_threads < 0:
+            raise ValueError("num_threads must not be negative.")
         self.params.ef = ef
         self.params.num_threads = num_threads
 
@@ -674,32 +689,22 @@ def search(SearchParams search_params,
 
     Examples
     --------
-    >>> import cupy as cp
-    >>> from cuvs.neighbors import cagra, hnsw
+    >>> import numpy as np
+    >>> from cuvs.neighbors import hnsw
     >>> n_samples = 50000
     >>> n_features = 50
     >>> n_queries = 1000
-    >>> dataset = cp.random.random_sample((n_samples, n_features),
-    ...                                   dtype=cp.float32)
-    >>> # Build index
-    >>> index = cagra.build(cagra.IndexParams(), dataset)
-    >>> # Search using the built index
-    >>> queries = cp.random.random_sample((n_queries, n_features),
-    ...                                   dtype=cp.float32)
+    >>> dataset = np.random.random_sample(
+    ...     (n_samples, n_features)).astype(np.float32)
+    >>> index = hnsw.build(hnsw.IndexParams(), dataset)
+    >>> queries = np.random.random_sample(
+    ...     (n_queries, n_features)).astype(np.float32)
     >>> k = 10
     >>> search_params = hnsw.SearchParams(
     ...     ef=200,
     ...     num_threads=0
     ... )
-    >>> # Convert CAGRA index to HNSW
-    >>> hnsw_index = hnsw.from_cagra(hnsw.IndexParams(), index)
-    >>> # Using a pooling allocator reduces overhead of temporary array
-    >>> # creation during search. This is useful if multiple searches
-    >>> # are performed with same query size.
-    >>> distances, neighbors = hnsw.search(search_params, index, queries,
-    ...                                     k)
-    >>> neighbors = cp.asarray(neighbors)
-    >>> distances = cp.asarray(distances)
+    >>> distances, neighbors = hnsw.search(search_params, index, queries, k)
     """
     if not index.trained:
         raise ValueError("Index needs to be built before calling search.")

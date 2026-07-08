@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs;
@@ -15,8 +15,10 @@ public class HnswIndexParams {
    * Distance metric types
    */
   public enum CuvsDistanceType {
-    L2Expanded(0),
-    InnerProduct(2);
+    // Native values are defined by the C cuvsDistanceType enum; derive them from
+    // CagraIndexParams.CuvsDistanceType so the mapping has a single source of truth.
+    L2Expanded(CagraIndexParams.CuvsDistanceType.L2Expanded.value),
+    InnerProduct(CagraIndexParams.CuvsDistanceType.InnerProduct.value);
 
     public final int value;
 
@@ -126,8 +128,7 @@ public class HnswIndexParams {
 
   /**
    * Gets the HNSW M parameter: number of bi-directional links per node
-   * (used when building with ACE). graph_degree = m * 2,
-   * intermediate_graph_degree = m * 3.
+   * used to derive the internal GPU graph degree.
    *
    * @return the M parameter
    */
@@ -145,7 +146,7 @@ public class HnswIndexParams {
   }
 
   /**
-   * Gets the ACE parameters for building HNSW index using ACE algorithm.
+   * Gets optional ACE parameters for partitioned or disk-backed GPU graph building.
    *
    * @return the ACE parameters, or null if not set
    */
@@ -206,11 +207,9 @@ public class HnswIndexParams {
     }
 
     /**
-     * Sets the size of the candidate list during hierarchy construction when
-     * hierarchy is `CPU`.
+     * Sets the size of the candidate list during index construction.
      *
-     * @param efConstruction the size of the candidate list during hierarchy
-     *                       construction when hierarchy is `CPU`
+     * @param efConstruction the size of the candidate list during index construction
      * @return an instance of Builder
      */
     public Builder withEfConstruction(int efConstruction) {
@@ -219,8 +218,9 @@ public class HnswIndexParams {
     }
 
     /**
-     * Sets the number of host threads to use to construct hierarchy when hierarchy
-     * is `CPU`.
+     * Sets the number of host threads used during construction when hierarchy is
+     * `CPU` or `GPU`. When the value is 0, the number of threads is automatically
+     * determined to the maximum number of threads available. The default is 2.
      *
      * @param numThreads the number of threads
      * @return an instance of Builder
@@ -243,8 +243,7 @@ public class HnswIndexParams {
 
     /**
      * Sets the HNSW M parameter: number of bi-directional links per node
-     * (used when building with ACE). graph_degree = m * 2,
-     * intermediate_graph_degree = m * 3.
+     * used to derive the internal GPU graph degree.
      *
      * @param m the M parameter
      * @return an instance of Builder
@@ -266,7 +265,7 @@ public class HnswIndexParams {
     }
 
     /**
-     * Sets the ACE parameters for building HNSW index using ACE algorithm.
+     * Sets optional ACE parameters for partitioned or disk-backed GPU graph building.
      *
      * @param aceParams the ACE parameters
      * @return an instance of Builder

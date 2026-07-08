@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -31,6 +31,9 @@ class cuvs_cagra_hnswlib : public algo<T>, public algo_gpu {
   cuvs_cagra_hnswlib(Metric metric, int dim, const build_param& param, int concurrent_searches = 1)
     : algo<T>(metric, dim), build_param_{param}
   {
+    // The benchmark metric must reach the HNSW build params, or the index is built with the
+    // default L2 metric while load() deserializes with the benchmark metric.
+    build_param_.hnsw_index_params.metric = parse_metric_type(metric);
   }
 
   void build(const T* dataset, size_t nrow) final;

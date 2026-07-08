@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs;
@@ -8,7 +8,8 @@ package com.nvidia.cuvs;
  * HnswSearchParams encapsulates the logic for configuring and holding search
  * parameters for HNSW index.
  *
- * @param ef the ef value
+ * @param ef the ef value, must not be negative; when 0, the effective candidate list size is
+ *           the search topK
  * @param numThreads the number of threads
  * @since 25.02
  */
@@ -16,10 +17,10 @@ public record HnswSearchParams(int ef, int numThreads) {
 
   public HnswSearchParams {
     if (ef < 0) {
-      throw new IllegalArgumentException();
+      throw new IllegalArgumentException("ef must not be negative");
     }
     if (numThreads < 0) {
-      throw new IllegalArgumentException();
+      throw new IllegalArgumentException("numThreads must not be negative");
     }
   }
 

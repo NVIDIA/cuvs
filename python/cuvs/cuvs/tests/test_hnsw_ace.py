@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -169,6 +169,7 @@ def test_hnsw_ace_disk_serialize_deserialize():
     metric = "sqeuclidean"
 
     dataset = generate_data((n_rows, n_cols), dtype)
+    additional_dataset = generate_data((100, n_cols), dtype)
     queries = generate_data((n_queries, n_cols), dtype)
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -192,6 +193,12 @@ def test_hnsw_ace_disk_serialize_deserialize():
         hnsw_index = hnsw.build(index_params, dataset)
         assert hnsw_index.trained
 
+        # Loading the disk-backed index for extension must make serialization
+        # save the live state instead of copying the original backing file.
+        hnsw.extend(
+            hnsw.ExtendParams(num_threads=1), hnsw_index, additional_dataset
+        )
+
         # Serialize to a specific file path
         hnsw_file = os.path.join(temp_dir, "test_hnsw_index.bin")
         hnsw.save(hnsw_file, hnsw_index)
@@ -212,11 +219,21 @@ def test_hnsw_ace_disk_serialize_deserialize():
             search_params, loaded_index, queries, k
         )
 
+        _, added_idx = hnsw.search(
+            search_params, loaded_index, additional_dataset[:20], 1
+        )
+        # The pre-fix bug (serialization copying the stale backing file)
+        # deterministically returns only original indices < n_rows, i.e. a
+        # hit rate of 0. Require most self-queries to land on the extended
+        # vectors without demanding exact self-recall from an approximate
+        # search.
+        assert (added_idx.ravel() >= n_rows).mean() >= 0.8
+
         # Verify results against sklearn
         nn_skl = NearestNeighbors(
             n_neighbors=k, algorithm="brute", metric="sqeuclidean"
         )
-        nn_skl.fit(dataset)
+        nn_skl.fit(np.vstack([dataset, additional_dataset]))
         skl_idx = nn_skl.kneighbors(queries, return_distance=False)
 
         recall = calc_recall(out_idx, skl_idx)

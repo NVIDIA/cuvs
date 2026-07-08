@@ -17,7 +17,7 @@ parameters for HNSW index.
 
 | Name | Description |
 | --- | --- |
-| `ef` | the ef value |
+| `ef` | the ef value, must not be negative; when 0, the effective candidate list size is the search topK |
 | `numThreads` | the number of threads |
 
 ## Public Members

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs;
@@ -58,18 +58,18 @@ public interface HnswIndex extends AutoCloseable {
   }
 
   /**
-   * Builds an HNSW index using the ACE (Augmented Core Extraction) algorithm.
+   * Builds an HNSW index on the GPU and returns it for CPU search.
    *
-   * ACE enables building HNSW indexes for datasets too large to fit in GPU
-   * memory by partitioning the dataset and building sub-indexes for each
-   * partition independently.
+   * The build API accepts HNSW parameters and selects internal GPU graph
+   * construction settings automatically. ACE parameters are optional and are
+   * used only to configure partitioned or disk-backed graph construction.
    *
-   * NOTE: This method requires `hnswParams.getAceParams()` to be set with
-   * an instance of HnswAceParams.
+   * NOTE: only float32 datasets are supported, as {@link HnswQuery} issues
+   * float32 queries.
    *
    * @param resources The CuVS resources
-   * @param hnswParams Parameters for the HNSW index with ACE configuration
-   * @param dataset The dataset to build the index from
+   * @param hnswParams Parameters for the HNSW index
+   * @param dataset The dataset to build the index from; must hold float32 data
    * @return A new HNSW index ready for search
    * @throws Throwable if an error occurs during building
    */
@@ -78,7 +78,6 @@ public interface HnswIndex extends AutoCloseable {
     Objects.requireNonNull(resources);
     Objects.requireNonNull(hnswParams);
     Objects.requireNonNull(dataset);
-    Objects.requireNonNull(hnswParams.getAceParams(), "ACE parameters must be set for build()");
     return CuVSProvider.provider().hnswIndexBuild(resources, hnswParams, dataset);
   }
 
@@ -98,7 +97,8 @@ public interface HnswIndex extends AutoCloseable {
 
     /**
      * Registers an instance of configured {@link HnswIndexParams} with this
-     * Builder.
+     * Builder. When deserializing, {@code vectorDimension} must be set to the
+     * dimension of the serialized index.
      *
      * @param hnswIndexParameters An instance of HnswIndexParams.
      * @return An instance of this Builder.

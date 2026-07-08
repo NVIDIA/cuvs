@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -49,7 +49,7 @@ enum class HnswHierarchy {
 struct index_params : cuvs::neighbors::index_params {
   /** Hierarchy build type for HNSW index when converting from CAGRA index */
   HnswHierarchy hierarchy = HnswHierarchy::GPU;
-  /** Size of the candidate list during hierarchy construction when hierarchy is `CPU`*/
+  /** Size of the candidate list during index construction. */
   int ef_construction = 200;
   /** Number of host threads to use to construct hierarchy when hierarchy is `CPU` or `GPU`.
       When the value is 0, the number of threads is automatically determined to the
@@ -60,7 +60,8 @@ struct index_params : cuvs::neighbors::index_params {
    */
   int num_threads = 0;
 
-  /** HNSW M parameter: number of bi-directional links per node (used when building with ACE).
+  /** HNSW M parameter: number of bi-directional links per node used to derive the internal GPU
+   * graph degree.
    */
   size_t M = 32;
 
@@ -208,15 +209,14 @@ struct extend_params {
  * built by the HNSW.
  *
  * The HNSW index construction parameters `M` and `ef_construction` are the main parameters to
- * control the graph degree and graph quality.  We have additional options that can be used to fine
- * tune graph building on the GPU (see `cuvs::neighbors::cagra::index_params`). In case the index
- * does not fit the host or GPU memory,  we would use disk as temporary storage. In such cases it is
- * important to set `ace_params.build_dir` to a fast disk with sufficient storage size.
+ * control the graph degree and graph quality. Additional GPU graph build settings are selected
+ * automatically. Set `params.graph_build_params` only when partitioned or disk-backed ACE
+ * construction needs explicit configuration.
  *
  * NOTE: This function requires CUDA headers to be available at compile time.
  *
  * @param[in] res raft resources
- * @param[in] params hnsw index parameters including ACE configuration
+ * @param[in] params hnsw index parameters with optional ACE configuration
  * @param[in] dataset a host matrix view to a row-major matrix [n_rows, dim]
  *
  * Usage example:
@@ -224,19 +224,12 @@ struct extend_params {
  *   using namespace cuvs::neighbors;
  *   raft::resources res;
  *
- *   // Create index parameters with ACE configuration
+ *   // Create HNSW index parameters
  *   hnsw::index_params params;
  *   params.metric = cuvs::distance::DistanceType::L2Expanded;
  *   params.hierarchy = hnsw::HnswHierarchy::GPU;
  *   params.M = 32;
  *   params.ef_construction = 120;
- *
- *   // Configure GPU graph building parameters
- *   auto ace_params = hnsw::graph_build_params::ace_params();
- *   ace_params.npartitions = 4;
- *   ace_params.use_disk = true;
- *   ace_params.build_dir = "/tmp/hnsw_ace_build";
- *   params.graph_build_params = ace_params;
  *
  *   // Build the index
  *   auto dataset = raft::make_host_matrix<float, int64_t>(res, N, D);
@@ -266,15 +259,14 @@ std::unique_ptr<index<float>> build(
  * built by the HNSW.
  *
  * The HNSW index construction parameters `M` and `ef_construction` are the main parameters to
- * control the graph degree and graph quality.  We have additional options that can be used to fine
- * tune graph building on the GPU (see `cuvs::neighbors::cagra::index_params`). In case the index
- * does not fit the host or GPU memory,  we would use disk as temporary storage. In such cases it is
- * important to set `ace_params.build_dir` to a fast disk with sufficient storage size.
+ * control the graph degree and graph quality. Additional GPU graph build settings are selected
+ * automatically. Set `params.graph_build_params` only when partitioned or disk-backed ACE
+ * construction needs explicit configuration.
  *
  * NOTE: This function requires CUDA headers to be available at compile time.
  *
  * @param[in] res raft resources
- * @param[in] params hnsw index parameters including ACE configuration
+ * @param[in] params hnsw index parameters with optional ACE configuration
  * @param[in] dataset a host matrix view to a row-major matrix [n_rows, dim]
  *
  * Usage example:
@@ -282,19 +274,12 @@ std::unique_ptr<index<float>> build(
  *   using namespace cuvs::neighbors;
  *   raft::resources res;
  *
- *   // Create index parameters with ACE configuration
+ *   // Create HNSW index parameters
  *   hnsw::index_params params;
  *   params.metric = cuvs::distance::DistanceType::L2Expanded;
  *   params.hierarchy = hnsw::HnswHierarchy::GPU;
  *   params.M = 32;
  *   params.ef_construction = 120;
- *
- *   // Configure GPU graph building parameters
- *   auto ace_params = hnsw::graph_build_params::ace_params();
- *   ace_params.npartitions = 4;
- *   ace_params.use_disk = true;
- *   ace_params.build_dir = "/tmp/hnsw_ace_build";
- *   params.graph_build_params = ace_params;
  *
  *   // Build the index
  *   auto dataset = raft::make_host_matrix<float, int64_t>(res, N, D);
@@ -324,15 +309,14 @@ std::unique_ptr<index<half>> build(
  * built by the HNSW.
  *
  * The HNSW index construction parameters `M` and `ef_construction` are the main parameters to
- * control the graph degree and graph quality.  We have additional options that can be used to fine
- * tune graph building on the GPU (see `cuvs::neighbors::cagra::index_params`). In case the index
- * does not fit the host or GPU memory,  we would use disk as temporary storage. In such cases it is
- * important to set `ace_params.build_dir` to a fast disk with sufficient storage size.
+ * control the graph degree and graph quality. Additional GPU graph build settings are selected
+ * automatically. Set `params.graph_build_params` only when partitioned or disk-backed ACE
+ * construction needs explicit configuration.
  *
  * NOTE: This function requires CUDA headers to be available at compile time.
  *
  * @param[in] res raft resources
- * @param[in] params hnsw index parameters including ACE configuration
+ * @param[in] params hnsw index parameters with optional ACE configuration
  * @param[in] dataset a host matrix view to a row-major matrix [n_rows, dim]
  *
  * Usage example:
@@ -340,19 +324,12 @@ std::unique_ptr<index<half>> build(
  *   using namespace cuvs::neighbors;
  *   raft::resources res;
  *
- *   // Create index parameters with ACE configuration
+ *   // Create HNSW index parameters
  *   hnsw::index_params params;
  *   params.metric = cuvs::distance::DistanceType::L2Expanded;
  *   params.hierarchy = hnsw::HnswHierarchy::GPU;
  *   params.M = 32;
  *   params.ef_construction = 120;
- *
- *   // Configure GPU graph building parameters
- *   auto ace_params = hnsw::graph_build_params::ace_params();
- *   ace_params.npartitions = 4;
- *   ace_params.use_disk = true;
- *   ace_params.build_dir = "/tmp/hnsw_ace_build";
- *   params.graph_build_params = ace_params;
  *
  *   // Build the index
  *   auto dataset = raft::make_host_matrix<float, int64_t>(res, N, D);
@@ -382,15 +359,14 @@ std::unique_ptr<index<uint8_t>> build(
  * built by the HNSW.
  *
  * The HNSW index construction parameters `M` and `ef_construction` are the main parameters to
- * control the graph degree and graph quality.  We have additional options that can be used to fine
- * tune graph building on the GPU (see `cuvs::neighbors::cagra::index_params`). In case the index
- * does not fit the host or GPU memory,  we would use disk as temporary storage. In such cases it is
- * important to set `ace_params.build_dir` to a fast disk with sufficient storage size.
+ * control the graph degree and graph quality. Additional GPU graph build settings are selected
+ * automatically. Set `params.graph_build_params` only when partitioned or disk-backed ACE
+ * construction needs explicit configuration.
  *
  * NOTE: This function requires CUDA headers to be available at compile time.
  *
  * @param[in] res raft resources
- * @param[in] params hnsw index parameters including ACE configuration
+ * @param[in] params hnsw index parameters with optional ACE configuration
  * @param[in] dataset a host matrix view to a row-major matrix [n_rows, dim]
  *
  * Usage example:
@@ -398,19 +374,12 @@ std::unique_ptr<index<uint8_t>> build(
  *   using namespace cuvs::neighbors;
  *   raft::resources res;
  *
- *   // Create index parameters with ACE configuration
+ *   // Create HNSW index parameters
  *   hnsw::index_params params;
  *   params.metric = cuvs::distance::DistanceType::L2Expanded;
  *   params.hierarchy = hnsw::HnswHierarchy::GPU;
  *   params.M = 32;
  *   params.ef_construction = 120;
- *
- *   // Configure GPU graph building parameters
- *   auto ace_params = hnsw::graph_build_params::ace_params();
- *   ace_params.npartitions = 4;
- *   ace_params.use_disk = true;
- *   ace_params.build_dir = "/tmp/hnsw_ace_build";
- *   params.graph_build_params = ace_params;
  *
  *   // Build the index
  *   auto dataset = raft::make_host_matrix<float, int64_t>(res, N, D);
@@ -449,13 +418,14 @@ std::unique_ptr<index<int8_t>> build(
  * `/tmp/<random_number>.bin` before reading it as an hnswlib index, then deleting the temporary
  * file. The returned index is immutable and can only be searched by the hnswlib wrapper in cuVS, as
  * the format is not compatible with the original hnswlib.
- *       2. `CPU`: The returned index is mutable and can be extended with additional vectors. The
- * serialized index is also compatible with the original hnswlib library.
+ *       2. `CPU` or `GPU`: The returned index is mutable and can be extended with additional
+ * vectors. The serialized index is also compatible with the original hnswlib library. With
+ * `GPU`, the hierarchy is built on the GPU.
  *
  * @param[in] res raft resources
  * @param[in] params hnsw index parameters
  * @param[in] cagra_index cagra index
- * @param[in] dataset optional dataset to avoid extra memory copy when hierarchy is `CPU`
+ * @param[in] dataset optional dataset to avoid extra memory copy when hierarchy is `CPU` or `GPU`
  *
  * Usage example:
  * @code{.cpp}
@@ -485,13 +455,14 @@ std::unique_ptr<index<float>> from_cagra(
  * `/tmp/<random_number>.bin` before reading it as an hnswlib index, then deleting the temporary
  * file. The returned index is immutable and can only be searched by the hnswlib wrapper in cuVS, as
  * the format is not compatible with the original hnswlib.
- *       2. `CPU`: The returned index is mutable and can be extended with additional vectors. The
- * serialized index is also compatible with the original hnswlib library.
+ *       2. `CPU` or `GPU`: The returned index is mutable and can be extended with additional
+ * vectors. The serialized index is also compatible with the original hnswlib library. With
+ * `GPU`, the hierarchy is built on the GPU.
  *
  * @param[in] res raft resources
  * @param[in] params hnsw index parameters
  * @param[in] cagra_index cagra index
- * @param[in] dataset optional dataset to avoid extra memory copy when hierarchy is `CPU`
+ * @param[in] dataset optional dataset to avoid extra memory copy when hierarchy is `CPU` or `GPU`
  *
  * Usage example:
  * @code{.cpp}
@@ -521,13 +492,14 @@ std::unique_ptr<index<half>> from_cagra(
  * `/tmp/<random_number>.bin` before reading it as an hnswlib index, then deleting the temporary
  * file. The returned index is immutable and can only be searched by the hnswlib wrapper in cuVS, as
  * the format is not compatible with the original hnswlib.
- *       2. `CPU`: The returned index is mutable and can be extended with additional vectors. The
- * serialized index is also compatible with the original hnswlib library.
+ *       2. `CPU` or `GPU`: The returned index is mutable and can be extended with additional
+ * vectors. The serialized index is also compatible with the original hnswlib library. With
+ * `GPU`, the hierarchy is built on the GPU.
  *
  * @param[in] res raft resources
  * @param[in] params hnsw index parameters
  * @param[in] cagra_index cagra index
- * @param[in] dataset optional dataset to avoid extra memory copy when hierarchy is `CPU`
+ * @param[in] dataset optional dataset to avoid extra memory copy when hierarchy is `CPU` or `GPU`
  *
  * Usage example:
  * @code{.cpp}
@@ -557,13 +529,14 @@ std::unique_ptr<index<uint8_t>> from_cagra(
  * `/tmp/<random_number>.bin` before reading it as an hnswlib index, then deleting the temporary
  * file. The returned index is immutable and can only be searched by the hnswlib wrapper in cuVS, as
  * the format is not compatible with the original hnswlib.
- *       2. `CPU`: The returned index is mutable and can be extended with additional vectors. The
- * serialized index is also compatible with the original hnswlib library.
+ *       2. `CPU` or `GPU`: The returned index is mutable and can be extended with additional
+ * vectors. The serialized index is also compatible with the original hnswlib library. With
+ * `GPU`, the hierarchy is built on the GPU.
  *
  * @param[in] res raft resources
  * @param[in] params hnsw index parameters
  * @param[in] cagra_index cagra index
- * @param[in] dataset optional dataset to avoid extra memory copy when hierarchy is `CPU`
+ * @param[in] dataset optional dataset to avoid extra memory copy when hierarchy is `CPU` or `GPU`
  *
  * Usage example:
  * @code{.cpp}
@@ -597,8 +570,8 @@ std::unique_ptr<index<int8_t>> from_cagra(
 
 /**
  * @brief Add new vectors to an HNSW index
- * NOTE: The HNSW index can only be extended when the `hnsw::index_params.hierarchy` is `CPU`
- *       when converting from a CAGRA index.
+ * NOTE: A base-layer-only index with hierarchy `NONE` cannot be extended. Indexes with hierarchy
+ * `CPU` or `GPU` can be extended.
  *
  * @param[in] res raft resources
  * @param[in] params configure the extend
@@ -631,8 +604,8 @@ void extend(raft::resources const& res,
 
 /**
  * @brief Add new vectors to an HNSW index
- * NOTE: The HNSW index can only be extended when the `hnsw::index_params.hierarchy` is `CPU`
- *       when converting from a CAGRA index.
+ * NOTE: A base-layer-only index with hierarchy `NONE` cannot be extended. Indexes with hierarchy
+ * `CPU` or `GPU` can be extended.
  *
  * @param[in] res raft resources
  * @param[in] params configure the extend
@@ -665,8 +638,8 @@ void extend(raft::resources const& res,
 
 /**
  * @brief Add new vectors to an HNSW index
- * NOTE: The HNSW index can only be extended when the `hnsw::index_params.hierarchy` is `CPU`
- *       when converting from a CAGRA index.
+ * NOTE: A base-layer-only index with hierarchy `NONE` cannot be extended. Indexes with hierarchy
+ * `CPU` or `GPU` can be extended.
  *
  * @param[in] res raft resources
  * @param[in] params configure the extend
@@ -699,8 +672,8 @@ void extend(raft::resources const& res,
 
 /**
  * @brief Add new vectors to an HNSW index
- * NOTE: The HNSW index can only be extended when the `hnsw::index_params.hierarchy` is `CPU`
- *       when converting from a CAGRA index.
+ * NOTE: A base-layer-only index with hierarchy `NONE` cannot be extended. Indexes with hierarchy
+ * `CPU` or `GPU` can be extended.
  *
  * @param[in] res raft resources
  * @param[in] params configure the extend
@@ -938,7 +911,7 @@ void search(raft::resources const& res,
  */
 
 /**
- * @defgroup hnsw_cpp_index_serialize Deserialize CAGRA index as hnswlib index
+ * @defgroup hnsw_cpp_index_serialize Serialize and deserialize HNSW indexes
  * @{
  */
 
@@ -946,12 +919,12 @@ void search(raft::resources const& res,
  * @brief Serialize the HNSW index to file
  * NOTE: When hierarchy is `NONE`, the saved hnswlib index is immutable and can only be read by the
  * hnswlib wrapper in cuVS, as the serialization format is not compatible with the original hnswlib.
- * However, when hierarchy is `CPU`, the saved hnswlib index is compatible with the original hnswlib
+ * However, with hierarchy `CPU` or `GPU`, the saved index is compatible with the original hnswlib
  * library.
  *
  * @param[in] res raft resources
- * @param[in] filename path to the file to save the serialized CAGRA index
- * @param[in] idx cagra index
+ * @param[in] filename path to the file to save the serialized HNSW index
+ * @param[in] idx HNSW index
  *
  * Usage example:
  * @code{.cpp}
@@ -975,12 +948,12 @@ void serialize(raft::resources const& res, const std::string& filename, const in
  * @brief Serialize the HNSW index to file
  * NOTE: When hierarchy is `NONE`, the saved hnswlib index is immutable and can only be read by the
  * hnswlib wrapper in cuVS, as the serialization format is not compatible with the original hnswlib.
- * However, when hierarchy is `CPU`, the saved hnswlib index is compatible with the original hnswlib
+ * However, with hierarchy `CPU` or `GPU`, the saved index is compatible with the original hnswlib
  * library.
  *
  * @param[in] res raft resources
- * @param[in] filename path to the file to save the serialized CAGRA index
- * @param[in] idx cagra index
+ * @param[in] filename path to the file to save the serialized HNSW index
+ * @param[in] idx HNSW index
  *
  * Usage example:
  * @code{.cpp}
@@ -1004,12 +977,12 @@ void serialize(raft::resources const& res, const std::string& filename, const in
  * @brief Serialize the HNSW index to file
  * NOTE: When hierarchy is `NONE`, the saved hnswlib index is immutable and can only be read by the
  * hnswlib wrapper in cuVS, as the serialization format is not compatible with the original hnswlib.
- * However, when hierarchy is `CPU`, the saved hnswlib index is compatible with the original hnswlib
+ * However, with hierarchy `CPU` or `GPU`, the saved index is compatible with the original hnswlib
  * library.
  *
  * @param[in] res raft resources
- * @param[in] filename path to the file to save the serialized CAGRA index
- * @param[in] idx cagra index
+ * @param[in] filename path to the file to save the serialized HNSW index
+ * @param[in] idx HNSW index
  *
  * Usage example:
  * @code{.cpp}
@@ -1033,12 +1006,12 @@ void serialize(raft::resources const& res, const std::string& filename, const in
  * @brief Serialize the HNSW index to file
  * NOTE: When hierarchy is `NONE`, the saved hnswlib index is immutable and can only be read by the
  * hnswlib wrapper in cuVS, as the serialization format is not compatible with the original hnswlib.
- * However, when hierarchy is `CPU`, the saved hnswlib index is compatible with the original hnswlib
+ * However, with hierarchy `CPU` or `GPU`, the saved index is compatible with the original hnswlib
  * library.
  *
  * @param[in] res raft resources
- * @param[in] filename path to the file to save the serialized CAGRA index
- * @param[in] idx cagra index
+ * @param[in] filename path to the file to save the serialized HNSW index
+ * @param[in] idx HNSW index
  *
  * Usage example:
  * @code{.cpp}
@@ -1059,17 +1032,19 @@ void serialize(raft::resources const& res, const std::string& filename, const in
 void serialize(raft::resources const& res, const std::string& filename, const index<int8_t>& idx);
 
 /**
- * @brief De-serialize a CAGRA index saved to a file as an hnswlib index
+ * @brief Deserialize an HNSW index from a file
  * NOTE: When hierarchy is `NONE`, the saved hnswlib index is immutable and can only be read by the
  * hnswlib wrapper in cuVS, as the serialization format is not compatible with the original hnswlib.
- * However, when hierarchy is `CPU`, the saved hnswlib index is compatible with the original hnswlib
+ * However, with hierarchy `CPU` or `GPU`, the saved index is compatible with the original hnswlib
  * library.
+ * NOTE: `params.hierarchy` must match the hierarchy the index was serialized with.
  *
  * @param[in] res raft resources
  * @param[in] params hnsw index parameters
- * @param[in] filename path to the file containing the serialized CAGRA index
+ * @param[in] filename path to the file containing the serialized HNSW index
  * @param[in] dim dimensions of the training dataset
- * @param[in] metric distance metric to search. Supported metrics ("L2Expanded", "InnerProduct")
+ * @param[in] metric distance metric to search. Supported metrics ("L2Expanded", "InnerProduct");
+ * takes precedence over `params.metric`
  * @param[out] index hnsw index
  *
  * Usage example:
@@ -1102,17 +1077,19 @@ void deserialize(raft::resources const& res,
                  index<float>** index);
 
 /**
- * @brief De-serialize a CAGRA index saved to a file as an hnswlib index
+ * @brief Deserialize an HNSW index from a file
  * NOTE: When hierarchy is `NONE`, the saved hnswlib index is immutable and can only be read by the
  * hnswlib wrapper in cuVS, as the serialization format is not compatible with the original hnswlib.
- * However, when hierarchy is `CPU`, the saved hnswlib index is compatible with the original hnswlib
+ * However, with hierarchy `CPU` or `GPU`, the saved index is compatible with the original hnswlib
  * library.
+ * NOTE: `params.hierarchy` must match the hierarchy the index was serialized with.
  *
  * @param[in] res raft resources
  * @param[in] params hnsw index parameters
- * @param[in] filename path to the file containing the serialized CAGRA index
+ * @param[in] filename path to the file containing the serialized HNSW index
  * @param[in] dim dimensions of the training dataset
- * @param[in] metric distance metric to search. Supported metrics ("L2Expanded", "InnerProduct")
+ * @param[in] metric distance metric to search. Supported metrics ("L2Expanded", "InnerProduct");
+ * takes precedence over `params.metric`
  * @param[out] index hnsw index
  *
  * Usage example:
@@ -1145,17 +1122,19 @@ void deserialize(raft::resources const& res,
                  index<half>** index);
 
 /**
- * @brief De-serialize a CAGRA index saved to a file as an hnswlib index
+ * @brief Deserialize an HNSW index from a file
  * NOTE: When hierarchy is `NONE`, the saved hnswlib index is immutable and can only be read by the
  * hnswlib wrapper in cuVS, as the serialization format is not compatible with the original hnswlib.
- * However, when hierarchy is `CPU`, the saved hnswlib index is compatible with the original hnswlib
+ * However, with hierarchy `CPU` or `GPU`, the saved index is compatible with the original hnswlib
  * library.
+ * NOTE: `params.hierarchy` must match the hierarchy the index was serialized with.
  *
  * @param[in] res raft resources
  * @param[in] params hnsw index parameters
- * @param[in] filename path to the file containing the serialized CAGRA index
+ * @param[in] filename path to the file containing the serialized HNSW index
  * @param[in] dim dimensions of the training dataset
- * @param[in] metric distance metric to search. Supported metrics ("L2Expanded", "InnerProduct")
+ * @param[in] metric distance metric to search. Supported metrics ("L2Expanded", "InnerProduct");
+ * takes precedence over `params.metric`
  * @param[out] index hnsw index
  *
  * Usage example:
@@ -1188,17 +1167,19 @@ void deserialize(raft::resources const& res,
                  index<uint8_t>** index);
 
 /**
- * @brief De-serialize a CAGRA index saved to a file as an hnswlib index
+ * @brief Deserialize an HNSW index from a file
  * NOTE: When hierarchy is `NONE`, the saved hnswlib index is immutable and can only be read by the
  * hnswlib wrapper in cuVS, as the serialization format is not compatible with the original hnswlib.
- * However, when hierarchy is `CPU`, the saved hnswlib index is compatible with the original hnswlib
+ * However, with hierarchy `CPU` or `GPU`, the saved index is compatible with the original hnswlib
  * library.
+ * NOTE: `params.hierarchy` must match the hierarchy the index was serialized with.
  *
  * @param[in] res raft resources
  * @param[in] params hnsw index parameters
- * @param[in] filename path to the file containing the serialized CAGRA index
+ * @param[in] filename path to the file containing the serialized HNSW index
  * @param[in] dim dimensions of the training dataset
- * @param[in] metric distance metric to search. Supported metrics ("L2Expanded", "InnerProduct")
+ * @param[in] metric distance metric to search. Supported metrics ("L2Expanded", "InnerProduct");
+ * takes precedence over `params.metric`
  * @param[out] index hnsw index
  *
  * Usage example:

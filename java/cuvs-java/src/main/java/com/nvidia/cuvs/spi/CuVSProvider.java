@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs.spi;
@@ -124,10 +124,10 @@ public interface CuVSProvider {
   HnswIndex hnswIndexFromCagra(HnswIndexParams hnswParams, CagraIndex cagraIndex) throws Throwable;
 
   /**
-   * Builds an HNSW index using the ACE (Augmented Core Extraction) algorithm.
+   * Builds an HNSW index on the GPU and returns it for CPU search.
    *
    * @param resources The CuVS resources
-   * @param hnswParams Parameters for the HNSW index with ACE configuration
+   * @param hnswParams Parameters for the HNSW index
    * @param dataset The dataset to build the index from
    * @return A new HNSW index ready for search
    * @throws Throwable if an error occurs during building
