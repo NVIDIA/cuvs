@@ -877,15 +877,20 @@ bool ace_check_use_disk_mode(raft::resources const& res,
   const auto host_memory = cuvs::util::get_host_memory_info();
   RAFT_EXPECTS(host_memory.available > 0,
                "ACE: No host memory is available within the current system or cgroup limit");
-  if (host_memory.cgroup_limit.has_value() && host_memory.cgroup_current.has_value()) {
-    const size_t cgroup_headroom = *host_memory.cgroup_current < *host_memory.cgroup_limit
-                                     ? *host_memory.cgroup_limit - *host_memory.cgroup_current
+  if (host_memory.cgroup_limit.has_value() && host_memory.cgroup_current.has_value() &&
+      host_memory.cgroup_reclaimable_file.has_value() &&
+      host_memory.cgroup_working_set.has_value()) {
+    const size_t cgroup_headroom = *host_memory.cgroup_working_set < *host_memory.cgroup_limit
+                                     ? *host_memory.cgroup_limit - *host_memory.cgroup_working_set
                                      : 0;
     RAFT_LOG_INFO(
-      "ACE: Cgroup host memory limit: %.2f GiB, current: %.2f GiB, headroom: %.2f GiB; "
-      "system available: %.2f GiB, effective available: %.2f GiB",
+      "ACE: Cgroup host memory limit: %.2f GiB, current: %.2f GiB, reclaimable file cache: %.2f "
+      "GiB, working set: %.2f GiB, headroom: %.2f GiB; system available: %.2f GiB, effective "
+      "available: %.2f GiB",
       to_gib(*host_memory.cgroup_limit),
       to_gib(*host_memory.cgroup_current),
+      to_gib(*host_memory.cgroup_reclaimable_file),
+      to_gib(*host_memory.cgroup_working_set),
       to_gib(cgroup_headroom),
       to_gib(host_memory.system_available),
       to_gib(host_memory.available));

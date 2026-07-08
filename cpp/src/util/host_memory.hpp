@@ -18,6 +18,8 @@ enum class cgroup_version { v1, v2 };
 struct cgroup_memory_info {
   size_t limit;
   size_t current;
+  size_t reclaimable_file;
+  size_t working_set;
   size_t available;
   cgroup_version version;
   std::string path;

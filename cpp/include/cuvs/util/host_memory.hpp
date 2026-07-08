@@ -24,13 +24,19 @@ struct host_memory_info {
   std::optional<size_t> cgroup_limit;
   /** Current usage charged to the most constrained cgroup ancestor. */
   std::optional<size_t> cgroup_current;
+  /** Clean file cache treated as reclaimable for capacity planning. */
+  std::optional<size_t> cgroup_reclaimable_file;
+  /** Current cgroup usage after excluding reclaimable file cache. */
+  std::optional<size_t> cgroup_working_set;
 };
 
 /**
  * @brief Get host memory available to the current process.
  *
- * Combines host-wide MemAvailable with cgroup v1 or v2 memory headroom. When a finite cgroup limit
- * is found, the effective value is `min(MemAvailable, limit - current_usage)`. Visible ancestor
+ * Combines host-wide MemAvailable with cgroup v1 or v2 memory headroom. For cgroup v2, clean file
+ * cache from memory.stat excludes shmem, dirty, writeback, and unevictable pages from the total
+ * file cache. Cgroup v1 uses hierarchical inactive file cache when available. When a finite cgroup
+ * limit is found, the effective value is `min(MemAvailable, limit - working_set)`. Visible ancestor
  * cgroups are considered because a parent can impose a tighter limit than the process's leaf
  * cgroup.
  */

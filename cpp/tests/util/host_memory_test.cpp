@@ -59,9 +59,13 @@ TEST(HostMemory, CgroupV2UsesTightestAncestorHeadroom)
     fixture.path("self.mountinfo"),
     "29 23 0:26 / " + mount.string() + " rw,nosuid,nodev,noexec,relatime - cgroup2 cgroup rw\n");
   fixture.write(leaf / "memory.max", "900\n");
-  fixture.write(leaf / "memory.current", "200\n");
+  fixture.write(leaf / "memory.current", "800\n");
+  fixture.write(leaf / "memory.stat", "file 700\ninactive_file 20\nactive_file 680\n");
   fixture.write(mount / "tenant/memory.max", "1000\n");
-  fixture.write(mount / "tenant/memory.current", "400\n");
+  fixture.write(mount / "tenant/memory.current", "900\n");
+  fixture.write(mount / "tenant/memory.stat",
+                "file 250\nshmem 20\nfile_dirty 10\nfile_writeback 5\nunevictable 15\n"
+                "inactive_file 50\nactive_file 200\n");
   fixture.write(mount / "memory.max", "max\n");
   fixture.write(mount / "memory.current", "500\n");
 
@@ -70,8 +74,10 @@ TEST(HostMemory, CgroupV2UsesTightestAncestorHeadroom)
   ASSERT_TRUE(result.has_value());
   EXPECT_EQ(result->version, cgroup_version::v2);
   EXPECT_EQ(result->limit, 1000);
-  EXPECT_EQ(result->current, 400);
-  EXPECT_EQ(result->available, 600);
+  EXPECT_EQ(result->current, 900);
+  EXPECT_EQ(result->reclaimable_file, 200);
+  EXPECT_EQ(result->working_set, 700);
+  EXPECT_EQ(result->available, 300);
   EXPECT_EQ(result->path, (mount / "tenant").string());
 }
 
@@ -92,11 +98,36 @@ TEST(HostMemory, CgroupV2ResolvesNamespacedRoot)
     get_cgroup_memory_info(fixture.path("self.cgroup"), fixture.path("self.mountinfo"));
   ASSERT_TRUE(result.has_value());
   EXPECT_EQ(result->version, cgroup_version::v2);
+  EXPECT_EQ(result->reclaimable_file, 0);
+  EXPECT_EQ(result->working_set, 512);
   EXPECT_EQ(result->available, 1536);
   EXPECT_EQ(result->path, leaf.string());
 }
 
-TEST(HostMemory, CgroupV1UsesMemoryControllerAndSaturatesHeadroom)
+TEST(HostMemory, CgroupV2ProtectedFileMemoryDoesNotUnderflow)
+{
+  cgroup_fixture fixture;
+  const auto mount = fixture.path("cgroup2");
+  const auto leaf  = mount / "job";
+
+  fixture.write(fixture.path("self.cgroup"), "0::/job\n");
+  fixture.write(
+    fixture.path("self.mountinfo"),
+    "29 23 0:26 / " + mount.string() + " rw,nosuid,nodev,noexec,relatime - cgroup2 cgroup rw\n");
+  fixture.write(leaf / "memory.max", "100\n");
+  fixture.write(leaf / "memory.current", "120\n");
+  fixture.write(leaf / "memory.stat",
+                "file 100\nshmem 80\nfile_dirty 30\nfile_writeback 10\nunevictable 5\n");
+
+  const auto result =
+    get_cgroup_memory_info(fixture.path("self.cgroup"), fixture.path("self.mountinfo"));
+  ASSERT_TRUE(result.has_value());
+  EXPECT_EQ(result->reclaimable_file, 0);
+  EXPECT_EQ(result->working_set, 120);
+  EXPECT_EQ(result->available, 0);
+}
+
+TEST(HostMemory, CgroupV1UsesHierarchicalInactiveFile)
 {
   cgroup_fixture fixture;
   const auto mount = fixture.path("memory");
@@ -109,6 +140,7 @@ TEST(HostMemory, CgroupV1UsesMemoryControllerAndSaturatesHeadroom)
                   " rw,nosuid,nodev,noexec,relatime - cgroup cgroup rw,memory\n");
   fixture.write(leaf / "memory.limit_in_bytes", "4096\n");
   fixture.write(leaf / "memory.usage_in_bytes", "8192\n");
+  fixture.write(leaf / "memory.stat", "inactive_file 128\ntotal_inactive_file 5000\n");
 
   const auto result =
     get_cgroup_memory_info(fixture.path("self.cgroup"), fixture.path("self.mountinfo"));
@@ -116,7 +148,9 @@ TEST(HostMemory, CgroupV1UsesMemoryControllerAndSaturatesHeadroom)
   EXPECT_EQ(result->version, cgroup_version::v1);
   EXPECT_EQ(result->limit, 4096);
   EXPECT_EQ(result->current, 8192);
-  EXPECT_EQ(result->available, 0);
+  EXPECT_EQ(result->reclaimable_file, 5000);
+  EXPECT_EQ(result->working_set, 3192);
+  EXPECT_EQ(result->available, 904);
 }
 
 TEST(HostMemory, UnlimitedAndMalformedLimitsAreIgnored)

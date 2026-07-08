@@ -184,6 +184,60 @@ bool is_v1_unlimited(size_t limit)
   return limit >= static_cast<size_t>(std::numeric_limits<int64_t>::max() / 2);
 }
 
+size_t subtract_saturating(size_t value, size_t amount)
+{
+  return amount < value ? value - amount : 0;
+}
+
+size_t get_reclaimable_file_memory(const std::filesystem::path& path,
+                                   detail::cgroup_version version)
+{
+  std::ifstream input(path / "memory.stat");
+  std::optional<size_t> file;
+  size_t shmem          = 0;
+  size_t file_dirty     = 0;
+  size_t file_writeback = 0;
+  size_t unevictable    = 0;
+  std::optional<size_t> inactive_file;
+  std::optional<size_t> total_inactive_file;
+  for (std::string key, value; input >> key >> value;) {
+    const auto parsed_value = parse_size(value);
+    if (!parsed_value.has_value()) { continue; }
+    if (key == "file") {
+      file = *parsed_value;
+    } else if (key == "shmem") {
+      shmem = *parsed_value;
+    } else if (key == "file_dirty") {
+      file_dirty = *parsed_value;
+    } else if (key == "file_writeback") {
+      file_writeback = *parsed_value;
+    } else if (key == "unevictable") {
+      unevictable = *parsed_value;
+    } else if (key == "inactive_file") {
+      inactive_file = *parsed_value;
+    } else if (key == "total_inactive_file") {
+      total_inactive_file = *parsed_value;
+    }
+  }
+
+  // v1's total_ counter includes descendants and therefore matches hierarchical usage accounting.
+  if (version == detail::cgroup_version::v1 && total_inactive_file.has_value()) {
+    return *total_inactive_file;
+  }
+
+  if (version == detail::cgroup_version::v2 && file.has_value()) {
+    size_t clean_file = *file;
+    clean_file        = subtract_saturating(clean_file, shmem);
+    clean_file        = subtract_saturating(clean_file, file_dirty);
+    clean_file        = subtract_saturating(clean_file, file_writeback);
+    clean_file        = subtract_saturating(clean_file, unevictable);
+    return clean_file;
+  }
+
+  // Older or restricted cgroup interfaces may not expose the full v2 breakdown.
+  return inactive_file.value_or(0);
+}
+
 std::optional<detail::cgroup_memory_info> inspect_cgroup_hierarchy(
   detail::cgroup_version version,
   std::filesystem::path current_path,
@@ -207,10 +261,18 @@ std::optional<detail::cgroup_memory_info> inspect_cgroup_hierarchy(
       const auto current = parse_size(*current_token);
       if (limit.has_value() && current.has_value() &&
           !(version == detail::cgroup_version::v1 && is_v1_unlimited(*limit))) {
-        const size_t available = *current < *limit ? *limit - *current : 0;
+        const size_t reclaimable_file =
+          std::min(*current, get_reclaimable_file_memory(current_path, version));
+        const size_t working_set = *current - reclaimable_file;
+        const size_t available   = working_set < *limit ? *limit - working_set : 0;
         if (!result.has_value() || available < result->available) {
-          result =
-            detail::cgroup_memory_info{*limit, *current, available, version, current_path.string()};
+          result = detail::cgroup_memory_info{*limit,
+                                              *current,
+                                              reclaimable_file,
+                                              working_set,
+                                              available,
+                                              version,
+                                              current_path.string()};
         }
       }
     }
@@ -272,11 +334,14 @@ std::optional<cgroup_memory_info> get_cgroup_memory_info(
 host_memory_info get_host_memory_info()
 {
   const size_t system_available = get_system_available_memory();
-  host_memory_info result{system_available, system_available, std::nullopt, std::nullopt};
+  host_memory_info result{
+    system_available, system_available, std::nullopt, std::nullopt, std::nullopt, std::nullopt};
   if (const auto cgroup = detail::get_cgroup_memory_info(); cgroup.has_value()) {
-    result.cgroup_limit   = cgroup->limit;
-    result.cgroup_current = cgroup->current;
-    result.available      = std::min(system_available, cgroup->available);
+    result.cgroup_limit            = cgroup->limit;
+    result.cgroup_current          = cgroup->current;
+    result.cgroup_reclaimable_file = cgroup->reclaimable_file;
+    result.cgroup_working_set      = cgroup->working_set;
+    result.available               = std::min(system_available, cgroup->available);
   }
   return result;
 }
