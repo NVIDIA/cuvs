@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# SPDX-FileCopyrightText: Copyright (c) 2020-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2020-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 # cuvs build scripts
@@ -365,7 +365,7 @@ if (( CLEAN == 1 )); then
     for bd in ${BUILD_DIRS}; do
       if [ -d "${bd}" ]; then
           find "${bd}" -mindepth 1 -delete
-          rmdir "${bd}" || true
+          rmdir "${bd}" || echo "WARNING: Can't remove '${bd}'"
       fi
     done
 fi
