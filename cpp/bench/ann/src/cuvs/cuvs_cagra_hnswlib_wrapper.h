@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -85,38 +85,9 @@ void cuvs_cagra_hnswlib<T, IdxT>::build(const T* dataset, size_t nrow)
   // when the data set is on host, we can pass it directly to HNSW
   bool dataset_is_on_host = raft::get_device_for_address(dataset) == -1;
 
-  // re-use the CAGRA wrapper to parse build params
-  auto bps = build_param_.cagra_build_params;
-  // Not very conveniently, the CAGRA wrapper resolves parameters after the dataset shape is known,
-  // so it takes a lambda to do it. Even though we know the shape, we want to use the wrapper as-is,
-  // so we just modify that lambda.
-  bps.cagra_params = [dataset_is_on_host, orig_cagra_params = bps.cagra_params](
-                       auto dataset_extents, auto metric) {
-    auto params                    = orig_cagra_params(dataset_extents, metric);
-    params.attach_dataset_on_build = !dataset_is_on_host;
-    return params;
-  };
-  cuvs_cagra<T, IdxT> cagra_wrapper{this->metric_, this->dim_, bps};
-
-  // build the CAGRA index
-  cagra_wrapper.build(dataset, nrow);
-  auto& cagra_index = *cagra_wrapper.get_index();
-
-  // pass the dataset directly to HNSW if it's on the host
-  std::optional<raft::host_matrix_view<const T, int64_t>> opt_dataset_view = std::nullopt;
-  if (dataset_is_on_host) {
-    opt_dataset_view.emplace(
-      raft::make_host_matrix_view<const T, int64_t>(dataset, nrow, this->dim_));
-  }
-
+  auto dataset_view = raft::make_host_matrix_view<const T, int64_t>(dataset, nrow, this->dim_);
   // convert the index to HNSW format
-  hnsw_index_ = cuvs::neighbors::hnsw::from_cagra(
-    handle_, build_param_.hnsw_index_params, cagra_index, opt_dataset_view);
-
-  // special treatment in save/serialize step
-  if (cagra_index.dataset_fd().has_value() && cagra_index.graph_fd().has_value()) {
-    cagra_ace_build_ = true;
-  }
+  hnsw_index_ = cuvs::neighbors::hnsw::build(handle_, build_param_.hnsw_index_params, dataset_view);
 }
 
 template <typename T, typename IdxT>

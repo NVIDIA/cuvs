@@ -30,6 +30,7 @@ These pages are generated from the documented public headers in the cuVS source 
 - [Index](/api-reference/cpp-api-neighbors-composite-index)
 - [IVF Flat](/api-reference/cpp-api-neighbors-ivf-flat)
 - [IVF PQ](/api-reference/cpp-api-neighbors-ivf-pq)
+- [IVF RaBitQ](/api-reference/cpp-api-neighbors-ivf-rabitq)
 - [IVF SQ](/api-reference/cpp-api-neighbors-ivf-sq)
 - [NN Descent](/api-reference/cpp-api-neighbors-nn-descent)
 - [Refine](/api-reference/cpp-api-neighbors-refine)

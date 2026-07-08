@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -14,13 +14,15 @@ pub mod cagra;
 pub mod cluster;
 pub mod distance;
 pub mod distance_type;
-mod dlpack;
+pub mod dlpack;
 mod error;
 pub mod ivf_flat;
 pub mod ivf_pq;
 mod resources;
+#[cfg(test)]
+pub(crate) mod test_utils;
 pub mod vamana;
 
-pub use dlpack::ManagedTensor;
+pub use dlpack::{AsDlTensor, AsDlTensorMut, DLPackError, DLTensorView, DLTensorViewMut, DType};
 pub use error::{Error, Result};
 pub use resources::Resources;

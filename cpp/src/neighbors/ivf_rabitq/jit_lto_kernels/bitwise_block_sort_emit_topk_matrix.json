@@ -1,0 +1,12 @@
+{
+  "_with_ex": [
+    {
+      "with_ex_descriptor": "with_ex",
+      "with_ex_value": "true"
+    },
+    {
+      "with_ex_descriptor": "no_ex",
+      "with_ex_value": "false"
+    }
+  ]
+}
