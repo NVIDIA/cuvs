@@ -1,10 +1,11 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
 
+#include "../../util/kvikio_serialize.hpp"
 #include "../../util/serialize_validation.hpp"
 #include "../ivf_common.cuh"
 #include "../ivf_list.cuh"
@@ -120,9 +121,11 @@ void serialize(raft::resources const& handle_,
  * @param[in] is input stream
  *
  */
-template <typename IdxT>
-auto deserialize(raft::resources const& handle_, std::istream& is) -> index<IdxT>
+template <typename IdxT, typename Input>
+auto deserialize_impl(raft::resources const& handle_, Input& input) -> index<IdxT>
 {
+  auto& is = cuvs::util::detail::input_stream(input);
+
   auto ver = raft::deserialize_scalar<int>(handle_, is);
   if (ver != kSerializationVersion) {
     RAFT_FAIL("serialization version mismatch %d vs. %d", ver, kSerializationVersion);
@@ -178,17 +181,17 @@ auto deserialize(raft::resources const& handle_, std::istream& is) -> index<IdxT
     handle_, metric, codebook_kind, n_lists, dim, pq_bits, pq_dim, cma, codes_layout);
 
   // Deserialize center/matrix data using mutable accessors
-  raft::deserialize_mdspan(handle_, is, impl->pq_centers());
-  raft::deserialize_mdspan(handle_, is, impl->centers());
-  raft::deserialize_mdspan(handle_, is, impl->centers_rot());
-  raft::deserialize_mdspan(handle_, is, impl->rotation_matrix());
-  raft::deserialize_mdspan(handle_, is, impl->list_sizes());
+  cuvs::util::detail::deserialize_mdspan(handle_, input, impl->pq_centers());
+  cuvs::util::detail::deserialize_mdspan(handle_, input, impl->centers());
+  cuvs::util::detail::deserialize_mdspan(handle_, input, impl->centers_rot());
+  cuvs::util::detail::deserialize_mdspan(handle_, input, impl->rotation_matrix());
+  cuvs::util::detail::deserialize_mdspan(handle_, input, impl->list_sizes());
   if (codes_layout == list_layout::FLAT) {
     auto list_device_spec = list_spec_flat<uint32_t, IdxT>{pq_bits, pq_dim, cma};
     auto list_store_spec  = list_spec_flat<uint32_t, IdxT>{pq_bits, pq_dim, true};
     for (auto& list_data_base_ptr : impl->lists()) {
       std::shared_ptr<list_data_flat<IdxT>> typed_list;
-      ivf::deserialize_list(handle_, is, typed_list, list_store_spec, list_device_spec);
+      ivf::deserialize_list(handle_, input, typed_list, list_store_spec, list_device_spec);
       list_data_base_ptr = typed_list;
     }
   } else {
@@ -196,7 +199,7 @@ auto deserialize(raft::resources const& handle_, std::istream& is) -> index<IdxT
     auto list_store_spec  = list_spec_interleaved<uint32_t, IdxT>{pq_bits, pq_dim, true};
     for (auto& list_data_base_ptr : impl->lists()) {
       std::shared_ptr<list_data_interleaved<IdxT>> typed_list;
-      ivf::deserialize_list(handle_, is, typed_list, list_store_spec, list_device_spec);
+      ivf::deserialize_list(handle_, input, typed_list, list_store_spec, list_device_spec);
       list_data_base_ptr = typed_list;
     }
   }
@@ -208,6 +211,12 @@ auto deserialize(raft::resources const& handle_, std::istream& is) -> index<IdxT
   ivf::detail::recompute_internal_state(handle_, idx);
 
   return idx;
+}
+
+template <typename IdxT>
+auto deserialize(raft::resources const& handle_, std::istream& is) -> index<IdxT>
+{
+  return deserialize_impl<IdxT>(handle_, is);
 }
 
 /**
@@ -222,15 +231,8 @@ auto deserialize(raft::resources const& handle_, std::istream& is) -> index<IdxT
 template <typename IdxT>
 auto deserialize(raft::resources const& handle_, const std::string& filename) -> index<IdxT>
 {
-  std::ifstream infile(filename, std::ios::in | std::ios::binary);
-
-  if (!infile) { RAFT_FAIL("Cannot open file %s", filename.c_str()); }
-
-  auto index = detail::deserialize<IdxT>(handle_, infile);
-
-  infile.close();
-
-  return index;
+  cuvs::util::kvikio_file_reader reader(filename);
+  return deserialize_impl<IdxT>(handle_, reader);
 }
 
 }  // namespace cuvs::neighbors::ivf_pq::detail

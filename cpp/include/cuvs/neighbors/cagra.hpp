@@ -698,6 +698,17 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
   }
 
   /**
+   * Replace the graph with a new graph and take ownership of its allocation.
+   *
+   * The passed device matrix is moved into the index, which will manage its lifetime.
+   */
+  void update_graph(raft::device_matrix<graph_index_type, int64_t, raft::row_major>&& knn_graph)
+  {
+    graph_      = std::move(knn_graph);
+    graph_view_ = graph_.view();
+  }
+
+  /**
    * Replace the graph with a new graph.
    *
    * We create a copy of the graph on the device. The index manages the lifetime of this copy.

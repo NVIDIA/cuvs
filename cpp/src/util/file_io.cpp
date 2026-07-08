@@ -126,6 +126,58 @@ void write_large_file(const file_descriptor& fd,
                bytes_written);
 }
 
+class kvikio_file_reader::impl {
+ public:
+  explicit impl(const std::string& path)
+    : fd_(path, O_RDONLY),
+      stream_(fd_.make_istream()),
+      handle_(detail::open_kvikio_file_for_device_io(path, "r"))
+  {
+    validate_kvikio_handle_matches_fd(fd_, handle_, path);
+  }
+
+  std::istream& stream() { return stream_; }
+
+  void read_device(void* data, size_t size)
+  {
+    RAFT_EXPECTS(data != nullptr || size == 0, "kvikio_file_reader: destination must not be null");
+    if (size == 0) { return; }
+    RAFT_EXPECTS(size <= static_cast<size_t>(std::numeric_limits<std::streamoff>::max()),
+                 "kvikio_file_reader: read size exceeds stream offset range");
+
+    const auto position = stream_.tellg();
+    RAFT_EXPECTS(position != std::istream::pos_type(-1),
+                 "kvikio_file_reader: failed to determine the current file position");
+    const auto offset = static_cast<std::streamoff>(position);
+    RAFT_EXPECTS(offset >= 0, "kvikio_file_reader: invalid negative file position");
+
+    const size_t bytes_read = handle_.pread(data, size, static_cast<size_t>(offset)).get();
+    RAFT_EXPECTS(bytes_read == size,
+                 "kvikio_file_reader: short read (expected %zu, read %zu)",
+                 size,
+                 bytes_read);
+
+    stream_.seekg(static_cast<std::streamoff>(size), std::ios_base::cur);
+    RAFT_EXPECTS(stream_.good(), "kvikio_file_reader: failed to advance the file position");
+  }
+
+ private:
+  file_descriptor fd_;
+  fd_istream stream_;
+  kvikio::FileHandle handle_;
+};
+
+kvikio_file_reader::kvikio_file_reader(const std::string& path)
+  : impl_(std::make_unique<impl>(path))
+{
+}
+
+kvikio_file_reader::~kvikio_file_reader() = default;
+
+std::istream& kvikio_file_reader::stream() { return impl_->stream(); }
+
+void kvikio_file_reader::read_device(void* data, size_t size) { impl_->read_device(data, size); }
+
 // std::streambuf that stages output into a large buffer and writes full buffers to disk through
 // kvikio at an increasing file offset. The trailing partial buffer is written on sync()/close().
 class kvikio_ofstream::sbuf : public std::streambuf {

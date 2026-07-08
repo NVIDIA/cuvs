@@ -68,6 +68,37 @@ class fd_streambuf : public std::streambuf {
     return traits_type::to_int_type(*gptr());
   }
 
+  pos_type seekoff(off_type off, std::ios_base::seekdir dir, std::ios_base::openmode which) override
+  {
+    if (fd_ == -1 || (which & std::ios_base::in) == 0) { return pos_type(off_type(-1)); }
+
+    int whence = SEEK_SET;
+    if (dir == std::ios_base::cur) {
+      whence = SEEK_CUR;
+      // read() advances the descriptor past the buffered bytes. Account for unread bytes so
+      // tellg()/seekg() operate on the stream's logical position.
+      off -= static_cast<off_type>(egptr() - gptr());
+    } else if (dir == std::ios_base::end) {
+      whence = SEEK_END;
+    } else if (dir != std::ios_base::beg) {
+      return pos_type(off_type(-1));
+    }
+
+    off_t position = 0;
+    do {
+      position = ::lseek(fd_, static_cast<off_t>(off), whence);
+    } while (position == static_cast<off_t>(-1) && errno == EINTR);
+    if (position == static_cast<off_t>(-1)) { return pos_type(off_type(-1)); }
+
+    setg(buffer_.get(), buffer_.get(), buffer_.get());
+    return pos_type(position);
+  }
+
+  pos_type seekpos(pos_type pos, std::ios_base::openmode which) override
+  {
+    return seekoff(static_cast<off_type>(pos), std::ios_base::beg, which);
+  }
+
  public:
   explicit fd_streambuf(int fd, size_t buffer_size = 8192)
     : fd_(fd), buffer_(new char[buffer_size]), buffer_size_(buffer_size)
@@ -218,6 +249,35 @@ class file_descriptor {
  private:
   int fd_;
   std::string path_;
+};
+
+/**
+ * @brief Sequential file reader supporting mixed stream and direct-to-device reads.
+ *
+ * Small metadata can be consumed through stream(), while read_device() transfers the next bytes
+ * through KvikIO into device memory. Both operations advance one logical file position. KvikIO
+ * uses GPUDirect Storage when available and falls back to its compatible I/O path otherwise.
+ * Non-copyable, non-movable.
+ */
+class kvikio_file_reader {
+ public:
+  explicit kvikio_file_reader(const std::string& path);
+  ~kvikio_file_reader();
+
+  kvikio_file_reader(const kvikio_file_reader&)            = delete;
+  kvikio_file_reader& operator=(const kvikio_file_reader&) = delete;
+  kvikio_file_reader(kvikio_file_reader&&)                 = delete;
+  kvikio_file_reader& operator=(kvikio_file_reader&&)      = delete;
+
+  /** @brief Stream used to consume metadata at the current logical file position. */
+  [[nodiscard]] std::istream& stream();
+
+  /** @brief Read the next @p size bytes directly into @p data and advance the file position. */
+  void read_device(void* data, size_t size);
+
+ private:
+  class impl;
+  std::unique_ptr<impl> impl_;
 };
 
 /**

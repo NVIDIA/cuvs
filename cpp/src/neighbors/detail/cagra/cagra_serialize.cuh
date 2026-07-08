@@ -473,9 +473,60 @@ void serialize_to_hnswlib(
  *
  */
 template <typename T, typename IdxT>
-void deserialize(raft::resources const& res, std::istream& is, index<T, IdxT>* index_)
+void deserialize_graph(raft::resources const& res,
+                       std::istream& is,
+                       IdxT n_rows,
+                       uint32_t graph_degree,
+                       index<T, IdxT>* index_)
+{
+  using graph_index_type = typename index<T, IdxT>::graph_index_type;
+  auto graph             = raft::make_host_matrix<graph_index_type, int64_t>(n_rows, graph_degree);
+  deserialize_mdspan(res, is, graph.view());
+  index_->update_graph(res, raft::make_const_mdspan(graph.view()));
+}
+
+template <typename T, typename IdxT>
+void deserialize_graph(raft::resources const& res,
+                       cuvs::util::kvikio_file_reader& reader,
+                       IdxT n_rows,
+                       uint32_t graph_degree,
+                       index<T, IdxT>* index_)
+{
+  using graph_index_type = typename index<T, IdxT>::graph_index_type;
+  auto graph = raft::make_device_matrix<graph_index_type, int64_t>(res, n_rows, graph_degree);
+  cuvs::util::detail::deserialize_device_mdspan(res, reader, graph.view());
+  index_->update_graph(std::move(graph));
+}
+
+template <typename T, typename IdxT>
+void deserialize_source_indices(raft::resources const& res,
+                                std::istream& is,
+                                IdxT n_rows,
+                                index<T, IdxT>* index_)
+{
+  auto source_indices = raft::make_host_vector<IdxT, int64_t>(n_rows);
+  deserialize_mdspan(res, is, source_indices.view());
+  index_->update_source_indices(res, raft::make_const_mdspan(source_indices.view()));
+  raft::resource::sync_stream(res);
+}
+
+template <typename T, typename IdxT>
+void deserialize_source_indices(raft::resources const& res,
+                                cuvs::util::kvikio_file_reader& reader,
+                                IdxT n_rows,
+                                index<T, IdxT>* index_)
+{
+  auto source_indices = raft::make_device_vector<IdxT, int64_t>(res, n_rows);
+  cuvs::util::detail::deserialize_device_mdspan(res, reader, source_indices.view());
+  index_->update_source_indices(std::move(source_indices));
+}
+
+template <typename T, typename IdxT, typename Input>
+void deserialize_impl(raft::resources const& res, Input& input, index<T, IdxT>* index_)
 {
   raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> fun_scope("cagra::deserialize");
+
+  auto& is = cuvs::util::detail::input_stream(input);
 
   char dtype_string[4];
   RAFT_EXPECTS(is.read(dtype_string, 4), "cagra::deserialize: failed to read dtype prefix");
@@ -498,46 +549,38 @@ void deserialize(raft::resources const& res, std::istream& is, index<T, IdxT>* i
                "cagra::deserialize: graph_degree=%u exceeds maximum %u",
                graph_degree,
                cuvs::util::kMaxGraphDegree);
-  RAFT_EXPECTS(
-    cuvs::util::is_mul_no_overflow(
-      static_cast<std::size_t>(n_rows), static_cast<std::size_t>(graph_degree), sizeof(IdxT)),
-    "cagra::deserialize: integer overflow in n_rows*graph_degree*sizeof(IdxT) "
-    "(n_rows=%lld, graph_degree=%u, sizeof(IdxT)=%zu)",
-    static_cast<long long>(n_rows),
-    graph_degree,
-    sizeof(IdxT));
-
-  auto graph = raft::make_host_matrix<IdxT, int64_t>(n_rows, graph_degree);
-  deserialize_mdspan(res, is, graph.view());
+  RAFT_EXPECTS(cuvs::util::is_mul_no_overflow(static_cast<std::size_t>(n_rows),
+                                              static_cast<std::size_t>(graph_degree),
+                                              sizeof(typename index<T, IdxT>::graph_index_type)),
+               "cagra::deserialize: integer overflow in graph allocation "
+               "(n_rows=%lld, graph_degree=%u, element_size=%zu)",
+               static_cast<long long>(n_rows),
+               graph_degree,
+               sizeof(typename index<T, IdxT>::graph_index_type));
 
   *index_ = index<T, IdxT>(res, metric);
-  index_->update_graph(res, raft::make_const_mdspan(graph.view()));
+  deserialize_graph(res, input, n_rows, graph_degree, index_);
 
   auto content_map = raft::deserialize_scalar<uint32_t>(res, is);
   bool has_dataset = content_map & 0x1u;
   if (has_dataset) {
-    index_->update_dataset(res, cuvs::neighbors::detail::deserialize_dataset<int64_t>(res, is));
+    index_->update_dataset(res, cuvs::neighbors::detail::deserialize_dataset<int64_t>(res, input));
   }
 
   bool has_source_indices = content_map & 0x2u;
-  if (has_source_indices) {
-    auto source_indices = raft::make_host_vector<IdxT, int64_t>(n_rows);
-    deserialize_mdspan(res, is, source_indices.view());
-    index_->update_source_indices(res, raft::make_const_mdspan(source_indices.view()));
-    raft::resource::sync_stream(
-      res);  // Don't let the vector out of the scope before the copy is finished
-  }
+  if (has_source_indices) { deserialize_source_indices(res, input, n_rows, index_); }
+}
+
+template <typename T, typename IdxT>
+void deserialize(raft::resources const& res, std::istream& is, index<T, IdxT>* index_)
+{
+  deserialize_impl(res, is, index_);
 }
 
 template <typename T, typename IdxT>
 void deserialize(raft::resources const& res, const std::string& filename, index<T, IdxT>* index_)
 {
-  std::ifstream is(filename, std::ios::in | std::ios::binary);
-
-  if (!is) { RAFT_FAIL("Cannot open file %s", filename.c_str()); }
-
-  detail::deserialize<T, IdxT>(res, is, index_);
-
-  is.close();
+  cuvs::util::kvikio_file_reader reader(filename);
+  deserialize_impl(res, reader, index_);
 }
 }  // namespace cuvs::neighbors::cagra::detail

@@ -282,6 +282,49 @@ TEST(FileIO, KvikioOfstreamMixedHostAndDeviceWrites)
   EXPECT_EQ(read_whole_file(path), expected);
 }
 
+// Buffered metadata reads and direct device reads must advance one shared logical position. The
+// short prefix deliberately leaves unread bytes in fd_streambuf's read-ahead buffer.
+TEST(FileIO, KvikioFileReaderMixedStreamAndDeviceReads)
+{
+  raft::resources res;
+  scratch_dir scratch;
+  const std::string path = scratch.file("reader_device.bin");
+  const std::vector<char> prefix{'m', 'e', 't', 'a', 'd', 'a', 't', 'a'};
+  const std::vector<char> payload = make_pattern((size_t{3} << 20) + 17, 31);
+  const std::vector<char> suffix{'t', 'r', 'a', 'i', 'l', 'e', 'r'};
+
+  {
+    std::ofstream os(path, std::ios::out | std::ios::binary);
+    ASSERT_TRUE(os.good());
+    os.write(prefix.data(), prefix.size());
+    os.write(payload.data(), payload.size());
+    os.write(suffix.data(), suffix.size());
+  }
+
+  auto device_payload = raft::make_device_vector<char, int64_t>(res, payload.size());
+  raft::resource::sync_stream(res);
+  kvikio_file_reader reader(path);
+
+  std::vector<char> prefix_read(prefix.size());
+  reader.stream().read(prefix_read.data(), prefix_read.size());
+  ASSERT_TRUE(reader.stream().good());
+  reader.read_device(device_payload.data_handle(), payload.size());
+  std::vector<char> suffix_read(suffix.size());
+  reader.stream().read(suffix_read.data(), suffix_read.size());
+  ASSERT_TRUE(reader.stream().good());
+
+  std::vector<char> payload_read(payload.size());
+  raft::copy(payload_read.data(),
+             device_payload.data_handle(),
+             payload_read.size(),
+             raft::resource::get_cuda_stream(res));
+  raft::resource::sync_stream(res);
+
+  EXPECT_EQ(prefix_read, prefix);
+  EXPECT_EQ(payload_read, payload);
+  EXPECT_EQ(suffix_read, suffix);
+}
+
 // Defensive checks on the bulk helpers.
 TEST(FileIO, InvalidArguments)
 {
