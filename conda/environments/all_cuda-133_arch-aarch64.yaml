@@ -30,7 +30,6 @@ dependencies:
 - libnvjitlink-dev
 - libopenblas<=0.3.30
 - librmm==26.8.*,>=0.0.0a0
-- libucxx==0.51.*,>=0.0.0a0
 - make
 - nccl>=2.19
 - ninja
