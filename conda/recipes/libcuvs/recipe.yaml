@@ -76,9 +76,6 @@ cache:
       - librmm =${{ minor_version }}
       - libraft-headers =${{ minor_version }}
       - nccl ${{ nccl_version }}
-      # ucx/ucxx are required to build the multi-GPU (MG) tests
-      - libucxx ${{ ucxx_version }}
-      - ucx
       - cuda-version =${{ cuda_version }}
       - cuda-cudart-dev
       - cuda-nvrtc-dev
@@ -333,8 +330,10 @@ outputs:
           - libcusolver
           - libcusparse
           - librmm
+          - libucxx
           - mkl
           - nccl
+          - ucx
     about:
       homepage: ${{ load_from_file("python/libcuvs/pyproject.toml").project.urls.Homepage }}
       license: ${{ load_from_file("python/libcuvs/pyproject.toml").project.license }}
