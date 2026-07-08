@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <cuco/bloom_filter.cuh>
+#include <cuvs/core/bloom_filter.hpp>
 #include <cuvs/neighbors/cagra.hpp>
 
 #include <raft/core/copy.cuh>
@@ -22,20 +22,13 @@
 
 namespace {
 
-constexpr int64_t n_rows    = 4096;
-constexpr int64_t n_dim     = 32;
-constexpr int64_t n_queries = 4;
-constexpr int64_t k         = 8;
-constexpr int sub_filters   = 256;
+constexpr int64_t n_rows          = 4096;
+constexpr int64_t n_dim           = 32;
+constexpr int64_t n_queries       = 4;
+constexpr int64_t k               = 8;
+constexpr std::size_t sub_filters = 256;
 
-using key_type    = std::uint32_t;
-using filter_type = cuco::bloom_filter<key_type>;
-using ref_type    = filter_type::ref_type<>;
-
-// Layout must match cuvs::neighbors::detail::bloom_filter_data_t<key_type> in the JIT fragment.
-struct bloom_payload {
-  ref_type filter;
-};
+using key_type = std::uint32_t;
 
 // Global index filter: even row ids are valid candidates (same rule for every query).
 bool is_valid_row(key_type source_id) { return (source_id % 2) == 0; }
@@ -92,19 +85,14 @@ int main()
   rmm::device_uvector<key_type> valid_ids_device(valid_ids_host.size(), stream);
   raft::copy(valid_ids_device.data(), valid_ids_host.data(), valid_ids_host.size(), stream);
 
-  filter_type allowed_rows{sub_filters};
-  allowed_rows.add_async(
-    valid_ids_device.data(), valid_ids_device.data() + valid_ids_device.size(), stream);
+  auto valid_ids_view = raft::make_device_vector_view<const key_type, int64_t>(
+    valid_ids_device.data(), static_cast<int64_t>(valid_ids_device.size()));
+  cuvs::core::bloom_filter allowed_rows(res, 1.0f, 0.01f, sub_filters);
+  allowed_rows.add_async(res, valid_ids_view);
   raft::resource::sync_stream(res);
 
   std::cout << "Inserted " << valid_ids_host.size()
             << " valid row ids into global bloom filter via bulk add_async" << std::endl;
-
-  // Copy the owning filter's device ref into a payload the JIT fragment can probe.
-  auto payload_device = raft::make_device_vector<bloom_payload, int64_t>(res, 1);
-  bloom_payload host_payload{allowed_rows.ref()};
-  raft::copy(payload_device.data_handle(), &host_payload, 1, stream);
-  raft::resource::sync_stream(res);
 
   auto neighbors = raft::make_device_matrix<key_type, int64_t>(res, n_queries, k);
   auto distances = raft::make_device_matrix<float, int64_t>(res, n_queries, k);
@@ -116,7 +104,7 @@ int main()
   search_params.thread_block_size = 256;
 
   // ~50% of rows are rejected by the global even-id predicate.
-  auto filter = cuvs::neighbors::filtering::bloom_filter(payload_device.data_handle(), 0.5f);
+  auto filter = cuvs::neighbors::filtering::bloom_filter(allowed_rows.filter_data(), 0.5f);
 
   cuvs::neighbors::cagra::search(res,
                                  search_params,
@@ -138,10 +126,11 @@ int main()
   rmm::device_uvector<key_type> neighbor_ids_device(host_neighbors.size(), stream);
   rmm::device_uvector<uint8_t> bloom_hits_device(host_neighbors.size(), stream);
   raft::copy(neighbor_ids_device.data(), host_neighbors.data(), host_neighbors.size(), stream);
-  allowed_rows.contains_async(neighbor_ids_device.data(),
-                              neighbor_ids_device.data() + neighbor_ids_device.size(),
-                              bloom_hits_device.data(),
-                              stream);
+  auto neighbor_ids_view = raft::make_device_vector_view<const key_type, int64_t>(
+    neighbor_ids_device.data(), static_cast<int64_t>(neighbor_ids_device.size()));
+  auto bloom_hits_view = raft::make_device_vector_view<uint8_t, int64_t>(
+    bloom_hits_device.data(), static_cast<int64_t>(bloom_hits_device.size()));
+  allowed_rows.contains_async(res, neighbor_ids_view, bloom_hits_view);
   raft::resource::sync_stream(res);
 
   std::vector<uint8_t> bloom_hits_host(bloom_hits_device.size());

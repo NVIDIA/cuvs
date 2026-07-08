@@ -1144,6 +1144,7 @@ if(NOT BUILD_CPU_ONLY)
     src/cluster/single_linkage_float.cu
     src/cluster/spectral.cu
     src/core/bitset.cu
+    src/core/bloom_filter.cu
     src/core/omp_wrapper.cpp
     src/util/file_io.cpp
     src/util/host_memory.cpp

@@ -618,12 +618,12 @@ struct bitset_filter : public base_filter {
 };
 
 /**
- * @brief Filter CAGRA candidates with a global @c cuco bloom filter over the index.
+ * @brief Filter CAGRA candidates with a global @c cuvs::core::bloom_filter over the index.
  *
  * Build the filter once on the host with bulk @c add() over the allowed dataset row ids, obtain a
- * @c ref() from the owning @c cuco::bloom_filter, copy that ref to device memory, and pass the
- * device pointer as @c filter_data. The linked JIT-LTO fragment probes the same filter for every
- * query and candidate, similar to @ref bitset_filter but with probabilistic membership tests.
+ * @c ref() from the owning @c cuvs::core::bloom_filter, copy that ref to device memory, and pass
+ * the device pointer as @c filter_data. The linked JIT-LTO fragment probes the same filter for
+ * every query and candidate, similar to @ref bitset_filter but with probabilistic membership tests.
  *
  * Bloom filters have no false negatives: if a row was inserted, @c contains returns @c true. False
  * positives are possible, so highly selective predicates may still need a bitset or UDF for exact
