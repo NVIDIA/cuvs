@@ -91,6 +91,9 @@ cache:
           - libaio
           - libboost-devel =1.87
           - mkl-devel =2023
+      # ucx/ucxx are linked by the multi-GPU (MG) tests
+      - libucxx ${{ ucxx_version }}
+      - ucx
 
 outputs:
   - package:
@@ -144,8 +147,10 @@ outputs:
           - libcusolver
           - libcusparse
           - librmm
+          - libucxx
           - mkl
           - nccl
+          - ucx
     about:
       homepage: ${{ load_from_file("python/libcuvs/pyproject.toml").project.urls.Homepage }}
       license: ${{ load_from_file("python/libcuvs/pyproject.toml").project.license }}
@@ -207,8 +212,10 @@ outputs:
           - libcusolver
           - libcusparse
           - librmm
+          - libucxx
           - mkl
           - nccl
+          - ucx
     about:
       homepage: ${{ load_from_file("python/libcuvs/pyproject.toml").project.urls.Homepage }}
       license: ${{ load_from_file("python/libcuvs/pyproject.toml").project.license }}
@@ -268,8 +275,10 @@ outputs:
           - libcusolver
           - libcusparse
           - librmm
+          - libucxx
           - mkl
           - nccl
+          - ucx
     about:
       homepage: ${{ load_from_file("python/libcuvs/pyproject.toml").project.urls.Homepage }}
       license: ${{ load_from_file("python/libcuvs/pyproject.toml").project.license }}
@@ -435,8 +444,10 @@ outputs:
           - libcusolver
           - libcusparse
           - librmm
+          - libucxx
           - mkl
           - nccl
+          - ucx
     about:
       homepage: ${{ load_from_file("python/libcuvs/pyproject.toml").project.urls.Homepage }}
       license: ${{ load_from_file("python/libcuvs/pyproject.toml").project.license }}
@@ -506,7 +517,9 @@ outputs:
           - libcusolver
           - libcusparse
           - librmm
+          - libucxx
           - mkl
+          - ucx
     about:
       homepage: ${{ load_from_file("python/cuvs_bench/pyproject.toml").project.urls.Homepage }}
       license: ${{ load_from_file("python/cuvs_bench/pyproject.toml").project.license }}
