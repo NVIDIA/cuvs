@@ -71,26 +71,8 @@ ForEachMacros:
   - foreach
   - Q_FOREACH
   - BOOST_FOREACH
-IncludeBlocks: Regroup
-IncludeCategories:
-  - Regex:           '^"' # quoted includes
-    Priority:        1
-  - Regex:           '^<(common|benchmarks|tests)/' # benchmark/test includes
-    Priority:        2
-  - Regex:           '^<raft/' # RAFT includes
-    Priority:        3
-  - Regex:           '^<(cudf|cuml|raft|kvikio)' # Other RAPIDS includes
-    Priority:        4
-  - Regex:           '^<rmm/' # RMM includes
-    Priority:        5
-  - Regex:           '^<(thrust|cub|cuda)/' # CCCL includes
-    Priority:        6
-  - Regex:           '^<(cooperative_groups|cuda|device_types|driver_types|math_constants|nvtx3)' # CUDA includes
-    Priority:        6
-  - Regex:           '^<.*\..*' # other system includes (e.g. with a '.')
-    Priority:        7
-  - Regex:           '^<[^.]+' # STL includes (no '.')
-    Priority:        8
+IncludeBlocks: Preserve
+IncludeIsMainRegex: '([-_](test|unittest))?$'
 IndentCaseLabels: true
 IndentPPDirectives: None
 IndentWidth:     2
@@ -164,7 +146,7 @@ SpacesInContainerLiterals: true
 SpacesInCStyleCastParentheses: false
 SpacesInParentheses: false
 SpacesInSquareBrackets: false
-Standard: c++17
+Standard: c++20
 StatementMacros:
   - Q_UNUSED
   - QT_REQUIRE_VERSION
