@@ -1091,7 +1091,7 @@ template <typename ValueT, typename SrcT>
   cudaPointerAttributes ptr_attrs;
   RAFT_CUDA_TRY(cudaPointerGetAttributes(&ptr_attrs, src.data_handle()));
   auto* device_ptr = reinterpret_cast<ValueT*>(ptr_attrs.devicePointer);
-  RAFT_EXPECTS(device_ptr != nullptr, error_msg);
+  RAFT_EXPECTS(device_ptr != nullptr, "%s", error_msg);
   return device_ptr;
 }
 
