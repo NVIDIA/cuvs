@@ -85,7 +85,6 @@ endif()
 add_library(
   cuvs_c SHARED
   src/core/c_api.cpp
-  src/cluster/gmm.cpp
   src/cluster/kmeans.cpp
   src/neighbors/brute_force.cpp
   src/neighbors/ivf_flat.cpp

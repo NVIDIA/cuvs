@@ -12,7 +12,6 @@
 #include <cuvs/core/export.h>
 #include <cuvs/core/c_api.h>
 
-#include <cuvs/cluster/gmm.h>
 #include <cuvs/cluster/kmeans.h>
 
 #include <cuvs/distance/distance.h>

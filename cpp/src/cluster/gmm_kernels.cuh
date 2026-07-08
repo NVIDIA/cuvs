@@ -237,8 +237,8 @@ __global__ void fused_center_proj_kernel(const T* __restrict__ prec_chol,
                                          int prec_pc,
                                          T* __restrict__ c)
 {
-  int idx = blockIdx.x * blockDim.x + threadIdx.x;
-  if (idx >= K * d) return;
+  size_t idx = (size_t)blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx >= (size_t)K * d) return;
   int k       = idx / d;
   int i       = idx % d;
   const T* M  = prec_chol + (size_t)(prec_pc ? k : 0) * d * d;
@@ -349,7 +349,7 @@ __global__ void m_step_finalize_means_kernel(const T* __restrict__ N_k,
   if (tid == 0) weights[k] = Nk / T(n);
 
   for (int i = tid; i < d; i += blockDim.x)
-    means[k * d + i] = num[k * d + i] * inv_Nk;
+    means[(size_t)k * d + i] = num[(size_t)k * d + i] * inv_Nk;
 }
 
 // sqrt(resp) * (X - means[k]) for one component k. Output feeds a GEMM forming
@@ -368,9 +368,9 @@ __global__ void weighted_center_kernel(const T* __restrict__ X,
   size_t total = (size_t)n * d;
   if (idx >= total) return;
 
-  int row = idx / d;
-  int col = idx - (size_t)row * d;
-  T r     = resp[row * K + k];
+  size_t row = idx / d;
+  int col    = idx - row * d;
+  T r        = resp[row * K + k];
   // means == nullptr -> sqrt(r)*x (uncentered moment); else sqrt(r)*(x - mu_k).
   T mu          = means ? means[(size_t)k * d + col] : T(0);
   centered[idx] = sqrt(r) * (X[idx] - mu);
@@ -387,14 +387,14 @@ __global__ void m_step_finalize_cov_full_kernel(
   int tid = threadIdx.x;
   if (k >= K) return;
 
-  T Nk      = N_k[k] + T(10) * eps;
-  T inv_Nk  = T(1) / Nk;
-  int total = d * d;
-  T* cov    = covariances + (size_t)k * d * d;
+  T Nk         = N_k[k] + T(10) * eps;
+  T inv_Nk     = T(1) / Nk;
+  size_t total = (size_t)d * d;
+  T* cov       = covariances + (size_t)k * d * d;
 
-  for (int idx = tid; idx < total; idx += blockDim.x) {
-    int i = idx / d;
-    int j = idx % d;
+  for (size_t idx = tid; idx < total; idx += blockDim.x) {
+    size_t i = idx / d;
+    size_t j = idx % d;
     if (i > j) continue;
 
     T v = cov[j * d + i] * inv_Nk;
@@ -486,11 +486,11 @@ __global__ void m_step_finalize_tied_kernel(const T* __restrict__ XtX,
                                             int d,
                                             T* __restrict__ covariance)
 {
-  int idx   = blockIdx.x * blockDim.x + threadIdx.x;
-  int total = d * d;
+  size_t idx   = (size_t)blockIdx.x * blockDim.x + threadIdx.x;
+  size_t total = (size_t)d * d;
   if (idx >= total) return;
-  int i = idx / d;
-  int j = idx % d;
+  size_t i = idx / d;
+  size_t j = idx % d;
   if (i > j) return;  // upper triangle drives a symmetric write
   T inv = T(1) / sum_Nk;
   T v   = (XtX[idx] - weighted_outer[idx]) * inv;
@@ -604,12 +604,12 @@ __global__ void log_det_spherical_kernel(const T* __restrict__ prec_chol,
 template <typename T>
 __global__ void set_identity_kernel(T* __restrict__ A, int d)
 {
-  int idx   = blockIdx.x * blockDim.x + threadIdx.x;
-  int total = d * d;
+  size_t idx   = (size_t)blockIdx.x * blockDim.x + threadIdx.x;
+  size_t total = (size_t)d * d;
   if (idx >= total) return;
-  int i  = idx / d;
-  int j  = idx % d;
-  A[idx] = (i == j) ? T(1) : T(0);
+  size_t i = idx / d;
+  size_t j = idx % d;
+  A[idx]   = (i == j) ? T(1) : T(0);
 }
 
 // Batched identity: K stacked d×d identity matrices, row-major (K, d, d).
@@ -706,6 +706,12 @@ __global__ void fused_const_kernel(const T* __restrict__ weights,
 }
 
 // Initialize the running (max, sum) accumulators for the cuBLAS fold path.
+// The max starts at a finite sentinel (like estep_tiled_kernel), not -inf: a
+// -inf first component (zero weight -> log(0)) would make the fold compute
+// exp(-inf - -inf) = NaN and poison the whole row. Trade-off (shared with the
+// tiled kernel's sentinel): a row whose log-probs are all finite but below
+// -1e30 (~1e15 sigma from every mean, density 0 in any float format) scores
+// -inf with label 0 instead of its true argmax.
 template <typename T>
 __global__ void fused_lse_init_kernel(T* __restrict__ rmax,
                                       T* __restrict__ rsum,
@@ -715,9 +721,9 @@ __global__ void fused_lse_init_kernel(T* __restrict__ rmax,
 {
   int i = blockIdx.x * blockDim.x + threadIdx.x;
   if (i >= n) return;
-  rmax[i] = -CUDART_INF_F;
+  rmax[i] = T(-1e30);
   rsum[i] = T(0);
-  if (best_lp) best_lp[i] = -CUDART_INF_F;
+  if (best_lp) best_lp[i] = T(-1e30);
   if (labels) labels[i] = 0;
 }
 

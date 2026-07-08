@@ -420,7 +420,7 @@ void e_step(raft::resources const& handle,
       T one = T(1), zero = T(0);
       int threads       = 256;
       int center_blocks = (int)(((size_t)n * d + threads - 1) / threads);
-      int row_blocks    = (n + threads - 1) / threads;
+      int row_blocks    = (n - 1) / threads + 1;  // (n + threads - 1) overflows int
       for (int k = 0; k < K; ++k) {
         detail::e_step_center_kernel<T>
           <<<center_blocks, threads, 0, stream>>>(X, means, n, d, k, centered.data());
@@ -451,7 +451,7 @@ void e_step(raft::resources const& handle,
       }
     } else if (d <= 64) {
       dim3 block(E_STEP_BLOCK);
-      dim3 grid((n + E_STEP_BLOCK - 1) / E_STEP_BLOCK, K);
+      dim3 grid((n - 1) / E_STEP_BLOCK + 1, K);
       if (d == 16) {
         launch_small_fixed<T, 16>(
           X, weights, means, prec_chol, log_det, n, K, prec_pc, log_prob, grid, block, stream);
@@ -477,7 +477,7 @@ void e_step(raft::resources const& handle,
       }
     } else {
       dim3 block(E_STEP_THREAD64_BLOCK);
-      dim3 grid((n + E_STEP_THREAD64_BLOCK - 1) / E_STEP_THREAD64_BLOCK, K);
+      dim3 grid((n - 1) / E_STEP_THREAD64_BLOCK + 1, K);
       size_t shmem =
         ((size_t)E_STEP_LARGE64_TILE + (size_t)E_STEP_LARGE64_TILE * E_STEP_LARGE64_TILE) *
         sizeof(T);
@@ -497,7 +497,7 @@ void e_step(raft::resources const& handle,
     constexpr int FEAT = 32;
     constexpr int CELL = (sizeof(T) == 4) ? 64 : 32;
     int tpb            = 256;
-    int gb             = (n + tpb - 1) / tpb;
+    int gb             = (n - 1) / tpb + 1;
     if (ct == covariance_type::DIAG)
       detail::estep_tiled_kernel<T, CELL, FEAT, /*DIAG*/ true, /*WRITE_FULL*/ true>
         <<<gb, tpb, 0, stream>>>(
@@ -542,7 +542,7 @@ void e_step(raft::resources const& handle,
     constexpr int FEAT = 32;
     constexpr int CELL = (sizeof(T) == 4) ? 64 : 32;
     int tpb            = 256;
-    int gb             = (n + tpb - 1) / tpb;
+    int gb             = (n - 1) / tpb + 1;
     detail::estep_tiled_kernel<T, CELL, FEAT, /*DIAG*/ false, /*WRITE_FULL*/ true>
       <<<gb, tpb, 0, stream>>>(
         xt.data(), mut.data(), ones_pc.data(), const_k.data(), n, d, K, nullptr, nullptr, log_prob);
@@ -740,7 +740,8 @@ void m_finalize(raft::resources const& handle,
     double sum_nk = 0.0;
     for (int k = 0; k < K; ++k)
       sum_nk += (double)h_Nk[k] + 10.0 * (double)eps;
-    int total = d * d, threads = 256, blocks = (total + threads - 1) / threads;
+    size_t total = (size_t)d * d;
+    int threads = 256, blocks = (int)((total + threads - 1) / threads);
     detail::m_step_finalize_tied_kernel<T><<<blocks, threads, 0, stream>>>(
       ws.XtX.data(), weighted_outer.data(), T(sum_nk), T(params.reg_covar), d, covariances);
     RAFT_CUDA_TRY(cudaPeekAtLastError());
@@ -846,7 +847,8 @@ void precision_cholesky_one(
   raft::resource::sync_stream(handle);
   if (info != 0) throw std::runtime_error(precision_error_message());
 
-  detail::set_identity_kernel<T><<<dim3((d * d + 255) / 256), dim3(256), 0, stream>>>(prec_chol, d);
+  detail::set_identity_kernel<T>
+    <<<dim3((int)(((size_t)d * d + 255) / 256)), dim3(256), 0, stream>>>(prec_chol, d);
   RAFT_CUDA_TRY(cudaPeekAtLastError());
   T one = T(1);
   cublas_check(cublas_trsm<T>(cublas,
@@ -1398,7 +1400,7 @@ void launch_estep_tiled(raft::resources const& handle,
   constexpr int FEAT  = 32;
   constexpr int CELL  = (sizeof(T) == 4) ? 64 : 32;
   constexpr int TPB   = 256;
-  int gb              = (n + TPB - 1) / TPB;
+  int gb              = (n - 1) / TPB + 1;
   detail::estep_tiled_kernel<T, CELL, FEAT, DIAG, WRITE_FULL><<<gb, TPB, 0, stream>>>(
     X, means, prec_chol, const_k, n, d, K, log_prob_norm, labels, log_prob);
   RAFT_CUDA_TRY(cudaPeekAtLastError());
@@ -1452,7 +1454,7 @@ void fused_score(raft::resources const& handle,
   RAFT_CUDA_TRY(cudaPeekAtLastError());
 
   int threads = 256;
-  int rb      = (n + threads - 1) / threads;
+  int rb      = (n - 1) / threads + 1;
 
   if (ct == covariance_type::SPHERICAL) {
     launch_estep_tiled<T, /* DIAG */ false>(
@@ -1527,8 +1529,9 @@ void fused_score(raft::resources const& handle,
     rmm::device_uvector<T> rsum(n, stream);
     rmm::device_uvector<T> best_lp(labels ? n : 0, stream);
     T one = T(1), zero = T(0);
-    detail::fused_center_proj_kernel<T><<<(K * d + threads - 1) / threads, threads, 0, stream>>>(
-      precisions_chol, means, d, K, prec_pc, c.data());
+    detail::fused_center_proj_kernel<T>
+      <<<(int)(((size_t)K * d + threads - 1) / threads), threads, 0, stream>>>(
+        precisions_chol, means, d, K, prec_pc, c.data());
     RAFT_CUDA_TRY(cudaPeekAtLastError());
     detail::fused_lse_init_kernel<T><<<rb, threads, 0, stream>>>(
       rmax.data(), rsum.data(), labels ? best_lp.data() : nullptr, labels, n);

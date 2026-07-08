@@ -76,7 +76,7 @@ struct params {
 
 | Name | Type | Description |
 | --- | --- | --- |
-| `n_components` | `int` | The number of mixture components. Default: 1. |
+| `n_components` | `int` | The number of mixture components (at most 65535). Default: 1. |
 | `cov_type` | [`covariance_type`](/api-reference/cpp-api-cluster-gmm#cluster-gmm-covariance-type) | Covariance parameterization of the mixture components. Default: FULL. |
 | `tol` | `double` | Convergence threshold on the change of the per-sample average log-likelihood (lower bound). Default: 1e-3. |
 | `reg_covar` | `double` | Non-negative regularization added to the diagonal of covariance.<br />Default: 1e-6. |

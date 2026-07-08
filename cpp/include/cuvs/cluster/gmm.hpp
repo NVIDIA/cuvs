@@ -28,7 +28,8 @@ enum class covariance_type { FULL = 0, TIED = 1, DIAG = 2, SPHERICAL = 3 };
 enum class init_method {
   /** Run k-means (itself seeded with k-means++) and use the hard labels. */
   KMeans = 0,
-  /** Use the k-means++ seeding labels directly. */
+  /** Use the k-means++ seeding labels directly: every sample is assigned to
+   *  its nearest seed. (scikit-learn instead one-hots only the seed rows.) */
   KMeansPlusPlus = 1,
   /** Random per-sample-normalized responsibilities. */
   Random = 2,
@@ -38,7 +39,7 @@ enum class init_method {
 
 /** Hyper-parameters for the Gaussian mixture EM solver. */
 struct params {
-  /** The number of mixture components. Default: 1. */
+  /** The number of mixture components (at most 65535). Default: 1. */
   int n_components = 1;
   /** Covariance parameterization of the mixture components. Default: FULL. */
   covariance_type cov_type = covariance_type::FULL;
@@ -117,11 +118,11 @@ struct params {
  *   int n_iter;
  *   bool converged;
  *
- *   gmm::fit(handle, params, X, weights.view(), means.view(), covs.view(),
- *            pchol.view(), precs.view(), labels.view(),
- *            raft::make_host_scalar_view(&lower_bound),
- *            raft::make_host_scalar_view(&n_iter),
- *            raft::make_host_scalar_view(&converged));
+ *   cuvs::cluster::gmm::fit(handle, params, X, weights.view(), means.view(),
+ *                           covs.view(), pchol.view(), precs.view(), labels.view(),
+ *                           raft::make_host_scalar_view(&lower_bound),
+ *                           raft::make_host_scalar_view(&n_iter),
+ *                           raft::make_host_scalar_view(&converged));
  * @endcode
  *
  * @param[in]    handle          The raft resources handle.

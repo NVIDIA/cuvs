@@ -265,8 +265,6 @@ navigation:
       - section: "C API Documentation"
         path: "./pages/c_api/index.md"
         contents:
-          - page: "Cluster Gmm"
-            path: "./pages/c_api/c-api-cluster-gmm.md"
           - page: "Cluster Kmeans"
             path: "./pages/c_api/c-api-cluster-kmeans.md"
           - page: "Core C API"
@@ -410,8 +408,6 @@ navigation:
       - section: "Python API Documentation"
         path: "./pages/python_api/index.md"
         contents:
-          - page: "Cluster Gmm"
-            path: "./pages/python_api/python-api-cluster-gmm.md"
           - page: "Cluster Kmeans"
             path: "./pages/python_api/python-api-cluster-kmeans.md"
           - page: "Common"

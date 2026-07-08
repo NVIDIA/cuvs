@@ -32,8 +32,11 @@ void check_common_args(const params& params,
   int64_t n64 = X.extent(0);
   int64_t d64 = X.extent(1);
   int64_t K64 = params.n_components;
+  RAFT_EXPECTS(static_cast<int>(params.cov_type) >= 0 && static_cast<int>(params.cov_type) <= 3,
+               "cov_type must be one of FULL, TIED, DIAG, SPHERICAL");
   RAFT_EXPECTS(n64 > 0 && d64 > 0, "X must be non-empty");
   RAFT_EXPECTS(K64 > 0, "n_components must be positive");
+  RAFT_EXPECTS(K64 <= 65535, "gmm currently supports up to 65535 components");
   RAFT_EXPECTS(n64 <= std::numeric_limits<int>::max() && d64 <= std::numeric_limits<int>::max(),
                "gmm currently supports up to 2^31-1 samples / features");
   RAFT_EXPECTS(weights.extent(0) == K64, "weights must have n_components elements");
@@ -82,8 +85,12 @@ void fit(raft::resources const& handle,
   RAFT_EXPECTS((size_t)precisions.extent(0) == expected,
                "precisions has the wrong number of elements for the covariance type");
   RAFT_EXPECTS(labels.extent(0) == X.extent(0), "labels must have n_samples elements");
+  RAFT_EXPECTS(static_cast<int>(params.init) >= 0 && static_cast<int>(params.init) <= 3,
+               "init must be one of KMeans, KMeansPlusPlus, Random, RandomFromData");
   RAFT_EXPECTS(params.n_init > 0, "n_init must be positive");
   RAFT_EXPECTS(params.max_iter >= 0, "max_iter must be non-negative");
+  RAFT_EXPECTS(params.tol >= 0.0, "tol must be non-negative");
+  RAFT_EXPECTS(params.reg_covar >= 0.0, "reg_covar must be non-negative");
   RAFT_EXPECTS(K <= n, "n_components must be <= n_samples");
 
   detail::fit_impl<T>(handle,

@@ -414,6 +414,190 @@ TEST(GMMExtra, NInitSelectsBest)
   ASSERT_GE((double)lb10, (double)lb1 - 1e-5);
 }
 
+// A zero-weight component is a valid sklearn parameterization (e.g. an
+// imported model with a pruned component). Its -inf log-prob must fold
+// cleanly into the online log-sum-exp: score_samples must return the same
+// values as the equivalent mixture without the dead component, not NaN.
+// Regression test for the fused-path running max initialized to -inf.
+TEST(GMMExtra, ZeroWeightComponentScoresFinite)
+{
+  raft::resources handle;
+  auto stream = raft::resource::get_cuda_stream(handle);
+  const int n = 64, d = 2;
+
+  // Two unit-covariance components at (-2, 0) and (2, 0), plus a dead one.
+  std::vector<float> h_X(n * d);
+  for (int i = 0; i < n; ++i) {
+    h_X[i * d + 0] = (i % 2 ? 2.0f : -2.0f) + 0.01f * i;
+    h_X[i * d + 1] = 0.1f * (i % 5);
+  }
+  auto X = raft::make_device_matrix<float, int64_t>(handle, n, d);
+  raft::update_device(X.data_handle(), h_X.data(), h_X.size(), stream);
+
+  auto upload = [&](std::vector<float> const& h) {
+    auto buf = raft::make_device_vector<float, int64_t>(handle, (int64_t)h.size());
+    raft::update_device(buf.data_handle(), h.data(), h.size(), stream);
+    return buf;
+  };
+
+  // Identity precision Cholesky per component (unit covariance).
+  std::vector<float> h_eye = {1, 0, 0, 1};
+  std::vector<float> h_w3 = {0.0f, 0.5f, 0.5f}, h_w2 = {0.5f, 0.5f};
+  std::vector<float> h_m3 = {9, 9, -2, 0, 2, 0}, h_m2 = {-2, 0, 2, 0};
+  std::vector<float> h_p3, h_p2;
+  for (int k = 0; k < 3; ++k)
+    h_p3.insert(h_p3.end(), h_eye.begin(), h_eye.end());
+  for (int k = 0; k < 2; ++k)
+    h_p2.insert(h_p2.end(), h_eye.begin(), h_eye.end());
+
+  auto w3 = upload(h_w3), w2 = upload(h_w2), p3 = upload(h_p3), p2 = upload(h_p2);
+  auto m3 = raft::make_device_matrix<float, int64_t>(handle, 3, d);
+  auto m2 = raft::make_device_matrix<float, int64_t>(handle, 2, d);
+  raft::update_device(m3.data_handle(), h_m3.data(), h_m3.size(), stream);
+  raft::update_device(m2.data_handle(), h_m2.data(), h_m2.size(), stream);
+
+  auto score = [&](int K, auto& w, auto& m, auto& p, std::vector<float>& out) {
+    params prm;
+    prm.n_components = K;
+    prm.cov_type     = covariance_type::FULL;
+    auto logp        = raft::make_device_vector<float, int64_t>(handle, n);
+    score_samples(handle,
+                  prm,
+                  raft::make_const_mdspan(X.view()),
+                  raft::make_const_mdspan(w.view()),
+                  raft::make_const_mdspan(m.view()),
+                  raft::make_const_mdspan(p.view()),
+                  logp.view());
+    out.resize(n);
+    raft::update_host(out.data(), logp.data_handle(), n, stream);
+    raft::resource::sync_stream(handle, stream);
+  };
+
+  std::vector<float> lp3, lp2;
+  score(3, w3, m3, p3, lp3);
+  score(2, w2, m2, p2, lp2);
+  for (int i = 0; i < n; ++i) {
+    ASSERT_TRUE(std::isfinite(lp3[i])) << "NaN/inf log-prob with zero-weight component, row " << i;
+    ASSERT_NEAR(lp3[i], lp2[i], 1e-5) << "row " << i;
+  }
+
+  // predict must ignore the dead component: labels shift by exactly one.
+  auto lab3 = raft::make_device_vector<int, int64_t>(handle, n);
+  auto lab2 = raft::make_device_vector<int, int64_t>(handle, n);
+  params prm3, prm2;
+  prm3.n_components = 3;
+  prm2.n_components = 2;
+  prm3.cov_type = prm2.cov_type = covariance_type::FULL;
+  predict(handle,
+          prm3,
+          raft::make_const_mdspan(X.view()),
+          raft::make_const_mdspan(w3.view()),
+          raft::make_const_mdspan(m3.view()),
+          raft::make_const_mdspan(p3.view()),
+          lab3.view());
+  predict(handle,
+          prm2,
+          raft::make_const_mdspan(X.view()),
+          raft::make_const_mdspan(w2.view()),
+          raft::make_const_mdspan(m2.view()),
+          raft::make_const_mdspan(p2.view()),
+          lab2.view());
+  std::vector<int> h_lab3(n), h_lab2(n);
+  raft::update_host(h_lab3.data(), lab3.data_handle(), n, stream);
+  raft::update_host(h_lab2.data(), lab2.data_handle(), n, stream);
+  raft::resource::sync_stream(handle, stream);
+  for (int i = 0; i < n; ++i)
+    ASSERT_EQ(h_lab3[i], h_lab2[i] + 1) << "row " << i;
+}
+
+// Invalid hyper-parameters and buffer shapes must be rejected with a clear
+// exception at the public API boundary instead of failing inside a kernel.
+TEST(GMMExtra, InvalidArgsThrow)
+{
+  raft::resources handle;
+  const int n = 32, d = 4, K = 2;
+  auto [X, yref] = make_gmm_blobs<float>(handle, n, d, K);
+
+  int64_t cn   = cov_len(covariance_type::SPHERICAL, d, K);
+  auto weights = raft::make_device_vector<float, int64_t>(handle, K);
+  auto means   = raft::make_device_matrix<float, int64_t>(handle, K, d);
+  auto covs    = raft::make_device_vector<float, int64_t>(handle, cn);
+  auto pchol   = raft::make_device_vector<float, int64_t>(handle, cn);
+  auto precs   = raft::make_device_vector<float, int64_t>(handle, cn);
+  auto labels  = raft::make_device_vector<int, int64_t>(handle, n);
+
+  params base;
+  base.n_components = K;
+  base.cov_type     = covariance_type::SPHERICAL;
+
+  float lb     = 0;
+  int it       = 0;
+  bool cv      = false;
+  auto try_fit = [&](params const& prm) {
+    fit(handle,
+        prm,
+        raft::make_const_mdspan(X.view()),
+        weights.view(),
+        means.view(),
+        covs.view(),
+        pchol.view(),
+        precs.view(),
+        labels.view(),
+        raft::make_host_scalar_view(&lb),
+        raft::make_host_scalar_view(&it),
+        raft::make_host_scalar_view(&cv));
+  };
+
+  {
+    params prm    = base;
+    prm.reg_covar = -1e-6;
+    EXPECT_THROW(try_fit(prm), raft::logic_error);
+  }
+  {
+    params prm = base;
+    prm.tol    = -1.0;
+    EXPECT_THROW(try_fit(prm), raft::logic_error);
+  }
+  {
+    params prm   = base;
+    prm.cov_type = static_cast<covariance_type>(42);
+    EXPECT_THROW(try_fit(prm), raft::logic_error);
+  }
+  {
+    params prm = base;
+    prm.init   = static_cast<init_method>(42);
+    EXPECT_THROW(try_fit(prm), raft::logic_error);
+  }
+  {  // n_components above the supported limit (checked before K <= n).
+    params prm       = base;
+    prm.n_components = 70000;
+    auto w_big       = raft::make_device_vector<float, int64_t>(handle, 70000);
+    auto m_big       = raft::make_device_matrix<float, int64_t>(handle, 70000, d);
+    auto p_big       = raft::make_device_vector<float, int64_t>(handle, 70000);
+    auto lab         = raft::make_device_vector<int, int64_t>(handle, n);
+    EXPECT_THROW(predict(handle,
+                         prm,
+                         raft::make_const_mdspan(X.view()),
+                         raft::make_const_mdspan(w_big.view()),
+                         raft::make_const_mdspan(m_big.view()),
+                         raft::make_const_mdspan(p_big.view()),
+                         lab.view()),
+                 raft::logic_error);
+  }
+  {  // weights buffer with the wrong number of elements.
+    auto w_bad = raft::make_device_vector<float, int64_t>(handle, K + 1);
+    auto lab   = raft::make_device_vector<int, int64_t>(handle, n);
+    EXPECT_THROW(predict(handle,
+                         base,
+                         raft::make_const_mdspan(X.view()),
+                         raft::make_const_mdspan(w_bad.view()),
+                         raft::make_const_mdspan(means.view()),
+                         raft::make_const_mdspan(pchol.view()),
+                         lab.view()),
+                 raft::logic_error);
+  }
+}
+
 // A degenerate component (more components than distinct points) yields an
 // ill-defined covariance and must surface as an exception rather than NaNs.
 TEST(GMMExtra, IllDefinedCovarianceThrows)

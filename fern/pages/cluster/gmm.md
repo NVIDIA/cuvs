@@ -6,47 +6,11 @@ Use a GMM when you want soft cluster assignments (a probability that each row be
 
 ## Example API Usage
 
-[C API](/api-reference/c-api-cluster-gmm) | [C++ API](/api-reference/cpp-api-cluster-gmm) | [Python API](/api-reference/python-api-cluster-gmm)
+[C++ API](/api-reference/cpp-api-cluster-gmm)
 
 ### Fitting a mixture
 
 Fitting learns the component weights, means, and covariances from a dataset on the device. The covariance-shaped outputs (`covariances`, `precisions_chol`, `precisions`) have a layout that depends on `covariance_type`; see the API reference for the exact shapes.
-
-<Tabs>
-<Tab title="C">
-
-```c
-#include <cuvs/cluster/gmm.h>
-#include <cuvs/core/c_api.h>
-
-cuvsResources_t res;
-cuvsGMMParams_t params;
-DLManagedTensor *dataset;
-DLManagedTensor *weights, *means, *covariances, *precisions_chol, *precisions, *labels;
-double lower_bound;
-int n_iter;
-bool converged;
-
-load_dataset(dataset);
-allocate_outputs(weights, means, covariances, precisions_chol, precisions, labels);
-
-cuvsResourcesCreate(&res);
-cuvsGMMParamsCreate(&params);
-
-params->n_components = 1024;
-params->covariance_type = FULL;
-params->max_iter = 100;
-params->tol = 1e-3;
-
-cuvsGMMFit(res, params, dataset, weights, means, covariances, precisions_chol,
-           precisions, labels, &lower_bound, &n_iter, &converged, false);
-
-cuvsGMMParamsDestroy(params);
-cuvsResourcesDestroy(res);
-```
-
-</Tab>
-<Tab title="C++">
 
 ```cpp
 #include <cuvs/cluster/gmm.hpp>
@@ -87,50 +51,28 @@ gmm::fit(res,
          raft::make_host_scalar_view(&converged));
 ```
 
-</Tab>
-<Tab title="Python">
-
-```python
-import cupy as cp
-
-from cuvs.cluster.gmm import GMMParams, fit
-
-dataset = cp.asarray(load_dataset(), dtype=cp.float32)
-params = GMMParams(n_components=1024, covariance_type="full", max_iter=100, tol=1e-3)
-
-out = fit(params, dataset)
-# out.weights, out.means, out.covariances, out.precisions_chol, out.labels, ...
-```
-
-</Tab>
-</Tabs>
-
 ### Assigning labels and scoring
 
 After fitting, reuse the learned `weights`, `means`, and `precisions_chol` to assign hard labels (`predict`), produce per-component responsibilities (`predict_proba`), or evaluate the per-row log-likelihood of new data (`score_samples`).
 
-<Tabs>
-<Tab title="Python">
+```cpp
+int64_t n_samples = dataset.extent(0);
 
-```python
-from cuvs.cluster.gmm import predict, predict_proba, score_samples
+// Hard label per row (argmax responsibility).
+auto labels = raft::make_device_vector<int, int64_t>(res, n_samples);
+gmm::predict(
+  res, params, dataset, weights.view(), means.view(), precisions_chol.view(), labels.view());
 
-out = fit(params, dataset)
+// (n_samples, n_components) responsibility matrix.
+auto resp = raft::make_device_matrix<float, int64_t>(res, n_samples, params.n_components);
+gmm::predict_proba(
+  res, params, dataset, weights.view(), means.view(), precisions_chol.view(), resp.view());
 
-# Hard label per row (argmax responsibility).
-labels = predict(params, dataset, out.weights, out.means, out.precisions_chol)
-
-# (n_samples, n_components) responsibility matrix.
-resp = predict_proba(params, dataset, out.weights, out.means, out.precisions_chol)
-
-# Per-row log-likelihood under the fitted mixture.
-log_prob = score_samples(params, dataset, out.weights, out.means, out.precisions_chol)
+// Per-row log-likelihood under the fitted mixture.
+auto log_prob = raft::make_device_vector<float, int64_t>(res, n_samples);
+gmm::score_samples(
+  res, params, dataset, weights.view(), means.view(), precisions_chol.view(), log_prob.view());
 ```
-
-</Tab>
-</Tabs>
-
-The same three calls are available in C (`cuvsGMMPredict`, `cuvsGMMPredictProba`, `cuvsGMMScoreSamples`) and C++ (`gmm::predict`, `gmm::predict_proba`, `gmm::score_samples`).
 
 ## How GMM works
 
@@ -160,13 +102,13 @@ Use a GMM when soft, probabilistic assignments matter, when components are ellip
 
 | Parameter | Default | Description |
 | --- | --- | --- |
-| `n_components` | `1` | Number of mixture components. Larger values fit finer structure but increase work and parameter memory. |
+| `n_components` | `1` | Number of mixture components (at most 65535). Larger values fit finer structure but increase work and parameter memory. |
 | `covariance_type` | `full` | Covariance parameterization (`full`, `tied`, `diag`, `spherical`). |
 | `tol` | `1e-3` | Convergence threshold on the change of the per-sample average log-likelihood. |
 | `reg_covar` | `1e-6` | Non-negative regularization added to the covariance diagonal for numerical stability. |
 | `max_iter` | `100` | Maximum number of EM iterations for one run. |
 | `n_init` | `1` | Number of independent runs with different seeds; the best result is kept. |
-| `init_method` | `kmeans` | Responsibility initialization: `kmeans`, `kmeans++`, `random`, or `random_from_data`. |
+| `init_method` | `kmeans` | Responsibility initialization: `kmeans`, `k-means++`, `random`, or `random_from_data`. Note: `k-means++` assigns every row to its nearest k-means++ seed, whereas scikit-learn one-hots only the seed rows themselves — the two libraries start EM from different responsibilities for this init. |
 | `seed` | `0` | Seed for the random number generator. |
 
 ## Tuning
