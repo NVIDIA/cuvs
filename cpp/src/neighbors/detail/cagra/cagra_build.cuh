@@ -874,13 +874,30 @@ bool ace_check_use_disk_mode(raft::resources const& res,
                              bool guarantee_connectivity,
                              ace_memory_requirements& mem)
 {
+  const auto host_memory = cuvs::util::get_host_memory_info();
+  RAFT_EXPECTS(host_memory.available > 0,
+               "ACE: No host memory is available within the current system or cgroup limit");
+  if (host_memory.cgroup_limit.has_value() && host_memory.cgroup_current.has_value()) {
+    const size_t cgroup_headroom = *host_memory.cgroup_current < *host_memory.cgroup_limit
+                                     ? *host_memory.cgroup_limit - *host_memory.cgroup_current
+                                     : 0;
+    RAFT_LOG_INFO(
+      "ACE: Cgroup host memory limit: %.2f GiB, current: %.2f GiB, headroom: %.2f GiB; "
+      "system available: %.2f GiB, effective available: %.2f GiB",
+      to_gib(*host_memory.cgroup_limit),
+      to_gib(*host_memory.cgroup_current),
+      to_gib(cgroup_headroom),
+      to_gib(host_memory.system_available),
+      to_gib(host_memory.available));
+  }
+
   // Use overridden memory limits if provided (> 0), otherwise query actual system memory
   if (max_host_memory_gb.has_value() && max_host_memory_gb.value() > 0) {
-    auto actual_available_host_memory = cuvs::util::get_free_host_memory();
+    auto actual_available_host_memory = host_memory.available;
     auto configured_host_memory = static_cast<size_t>(max_host_memory_gb.value() * (1ULL << 30));
     if (actual_available_host_memory < configured_host_memory) {
       RAFT_LOG_WARN(
-        "ACE: Actual host memory (%zu GiB) is less than configured limit (%zu GiB). "
+        "ACE: Actual host memory (%.2f GiB) is less than configured limit (%.2f GiB). "
         "Using actual host memory.",
         to_gib(actual_available_host_memory),
         to_gib(configured_host_memory));
@@ -891,7 +908,7 @@ bool ace_check_use_disk_mode(raft::resources const& res,
       mem.available_host_memory = configured_host_memory;
     }
   } else {
-    mem.available_host_memory = cuvs::util::get_free_host_memory();
+    mem.available_host_memory = host_memory.available;
   }
   size_t sub_partition_size =
     static_cast<size_t>(imbalance_factor * vector_expansion_factor *

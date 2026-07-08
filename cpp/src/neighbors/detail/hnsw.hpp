@@ -1240,8 +1240,19 @@ inline std::pair<size_t, size_t> get_available_memory(
 {
   size_t available_host_memory = cuvs::util::get_free_host_memory();
   if (max_host_memory_gb.has_value() && max_host_memory_gb.value() > 0) {
-    available_host_memory = static_cast<size_t>(max_host_memory_gb.value() * (1ULL << 30));
-    RAFT_LOG_INFO("ACE: Using overridden host memory limit: %.2f GiB", max_host_memory_gb.value());
+    const auto configured_host_memory =
+      static_cast<size_t>(max_host_memory_gb.value() * (1ULL << 30));
+    if (available_host_memory < configured_host_memory) {
+      RAFT_LOG_WARN(
+        "ACE: Actual host memory (%.2f GiB) is less than configured limit (%.2f GiB). Using "
+        "actual host memory.",
+        static_cast<double>(available_host_memory) / (1ULL << 30),
+        max_host_memory_gb.value());
+    } else {
+      available_host_memory = configured_host_memory;
+      RAFT_LOG_INFO("ACE: Using overridden host memory limit: %.2f GiB",
+                    max_host_memory_gb.value());
+    }
   }
   // Note: We use total device memory rather than free memory because RMM pools
   // and other allocators may report artificially low free memory. The assumption
