@@ -1,6 +1,6 @@
 # =============================================================================
 # cmake-format: off
-# SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2023-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 # cmake-format: on
 
@@ -60,8 +60,8 @@ endfunction()
 # To use a different RAFT locally, set the CMake variable
 # CPM_raft_SOURCE=/path/to/local/raft
 find_and_configure_raft(VERSION  ${RAFT_VERSION}.00
-        FORK                     aamijar
-        PINNED_TAG               pca-row-major
+        FORK                     ${RAFT_FORK}
+        PINNED_TAG               ${RAFT_PINNED_TAG}
         ENABLE_MNMG_DEPENDENCIES OFF
         ENABLE_NVTX              OFF
         BUILD_STATIC_DEPS ${CUVS_STATIC_RAPIDS_LIBRARIES}
