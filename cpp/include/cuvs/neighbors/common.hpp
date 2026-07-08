@@ -857,14 +857,6 @@ CUVS_EXPORT void resize_list(raft::resources const& res,
                              std::shared_ptr<ListT>& orig_list,  // NOLINT
                              const typename ListT::spec_type& spec,
                              typename ListT::size_type new_used_size,
-                             typename ListT::size_type old_logical_size,
-                             typename ListT::size_type old_used_size);
-
-template <typename ListT>
-CUVS_EXPORT void resize_list(raft::resources const& res,
-                             std::shared_ptr<ListT>& orig_list,  // NOLINT
-                             const typename ListT::spec_type& spec,
-                             typename ListT::size_type new_used_size,
                              typename ListT::size_type old_used_size);
 
 /**

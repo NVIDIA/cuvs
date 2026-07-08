@@ -66,17 +66,13 @@ CUVS_EXPORT void resize_list(raft::resources const& res,
                              std::shared_ptr<ListT>& orig_list,  // NOLINT
                              const typename ListT::spec_type& spec,
                              typename ListT::size_type new_used_size,
-                             typename ListT::size_type old_logical_size,
                              typename ListT::size_type old_used_size)
 {
-  // old_logical_size is the previous visible size from this index's list_sizes().
-  // old_used_size is the old allocation copy extent and may include padded slots
-  // required by interleaved list layouts.
   bool skip_resize = false;
   if (orig_list) {
     if (new_used_size <= orig_list->indices.extent(0)) {
-      auto shared_list_size = old_logical_size;
-      if (new_used_size <= old_logical_size ||
+      auto shared_list_size = old_used_size;
+      if (new_used_size <= old_used_size ||
           orig_list->size.compare_exchange_strong(shared_list_size, new_used_size)) {
         // We don't need to resize the list if:
         //  1. The list exists
@@ -106,16 +102,6 @@ CUVS_EXPORT void resize_list(raft::resources const& res,
   }
   // swap the shared pointer content with the new list
   new_list.swap(orig_list);
-}
-
-template <typename ListT>
-CUVS_EXPORT void resize_list(raft::resources const& res,
-                             std::shared_ptr<ListT>& orig_list,  // NOLINT
-                             const typename ListT::spec_type& spec,
-                             typename ListT::size_type new_used_size,
-                             typename ListT::size_type old_used_size)
-{
-  resize_list(res, orig_list, spec, new_used_size, old_used_size, old_used_size);
 }
 
 template <typename ListT>
