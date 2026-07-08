@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -114,36 +114,32 @@ struct index_state {
   using value_type = typename UpstreamT::value_type;
 
   /**
-   * When row pitch is not CAGRA-aligned, `cagra::build(res, params, device_matrix_view)` calls
-   * `make_device_padded_dataset_view` and throws. For `cagra::index<float,uint32_t>` we keep an
-   * owning padded copy in \p ann_build_pad and call `cagra::build` on `device_padded_dataset_view`.
+   * Build upstream ANN, preserving row stride for standard CAGRA when needed.
    */
   template <typename BuildFn, typename DatasetView>
   [[nodiscard]] static auto build_upstream_ann(
     raft::resources const& res,
     index_params<typename UpstreamT::index_params_type> const& tiered_params,
     BuildFn&& build_fn,
-    DatasetView dataset,
-    std::shared_ptr<cuvs::neighbors::device_padded_dataset<value_type, int64_t>>& ann_build_pad)
-    -> std::shared_ptr<UpstreamT>
+    DatasetView dataset) -> std::shared_ptr<UpstreamT>
   {
     if (!cuvs::neighbors::matrix_row_width_matches_cagra_required(dataset)) {
-      if constexpr (std::is_same_v<UpstreamT, cuvs::neighbors::cagra::device_padded_index<float>>) {
-        auto own = cuvs::neighbors::make_device_padded_dataset(res, dataset);
-        ann_build_pad =
-          std::shared_ptr<cuvs::neighbors::device_padded_dataset<value_type, int64_t>>(
-            std::move(own));
-        auto index =
-          cuvs::neighbors::cagra::build(res, tiered_params, ann_build_pad->as_dataset_view());
-        index.update_dataset(res, ann_build_pad->as_dataset_view());
+      if constexpr (std::is_same_v<UpstreamT,
+                                   cuvs::neighbors::cagra::device_standard_index<float>>) {
+        auto own =
+          cuvs::neighbors::make_device_standard_dataset(res,
+                                                        dataset,
+                                                        static_cast<uint32_t>(dataset.extent(1)),
+                                                        static_cast<uint32_t>(dataset.stride(0)));
+        auto index = cuvs::neighbors::cagra::build(res, tiered_params, own->as_dataset_view());
+        index.update_dataset(res, own->as_dataset_view());
         return std::make_shared<UpstreamT>(std::move(index));
       }
     }
 
-    ann_build_pad.reset();
     auto index = std::forward<BuildFn>(build_fn)(res, tiered_params, dataset);
-    if constexpr (std::is_same_v<UpstreamT, cuvs::neighbors::cagra::device_padded_index<float>>) {
-      index.update_dataset(res, cuvs::neighbors::make_device_padded_dataset_view(res, dataset));
+    if constexpr (std::is_same_v<UpstreamT, cuvs::neighbors::cagra::device_standard_index<float>>) {
+      index.update_dataset(res, cuvs::neighbors::make_device_standard_dataset_view(dataset));
     }
     return std::make_shared<UpstreamT>(std::move(index));
   }
@@ -151,7 +147,6 @@ struct index_state {
   index_state(const index_state<UpstreamT>& other)
     : storage(other.storage),
       ann_index(other.ann_index),
-      ann_build_pad_(other.ann_build_pad_),
       build_params(other.build_params),
       build_fn(other.build_fn)
   {
@@ -169,7 +164,7 @@ struct index_state {
 
     // Create an ANN index if we have sufficient rows in initial dataset
     if (dataset.extent(0) > index_params.min_ann_rows) {
-      ann_index = build_upstream_ann(res, index_params, build_fn, dataset, ann_build_pad_);
+      ann_index = build_upstream_ann(res, index_params, build_fn, dataset);
     }
 
     // allocate bfknn storage for growing the index incrementally
@@ -301,9 +296,6 @@ struct index_state {
   // ANN index data
   std::shared_ptr<UpstreamT> ann_index;
 
-  /** Owns a padded device copy of the ANN build matrix when row stride is not CAGRA-aligned. */
-  std::shared_ptr<cuvs::neighbors::device_padded_dataset<value_type, int64_t>> ann_build_pad_;
-
   // stores a copy of the build params - used during compact
   index_params<typename UpstreamT::index_params_type> build_params;
 
@@ -312,28 +304,14 @@ struct index_state {
 };
 
 /**
- * After BF storage grows, repoint CAGRA at the first \p ann_rows rows. Tight row-major storage
- * often fails CAGRA stride checks; when it does, refresh \p ann_build_pad and attach the padded
- * view (same contract as `build_upstream_ann`).
+ * After BF storage grows, repoint CAGRA at the first \p ann_rows rows.
  */
 inline void update_cagra_ann_dataset_for_stride(
   raft::resources const& res,
-  cuvs::neighbors::cagra::device_padded_index<float>& ann_index,
-  raft::device_matrix_view<const float, int64_t, raft::row_major> dataset,
-  std::shared_ptr<cuvs::neighbors::device_padded_dataset<float, int64_t>>& ann_build_pad)
+  cuvs::neighbors::cagra::device_standard_index<float>& ann_index,
+  raft::device_matrix_view<const float, int64_t, raft::row_major> dataset)
 {
-  if (!cuvs::neighbors::matrix_row_width_matches_cagra_required(dataset)) {
-    // Keep the new buffer alive locally, repoint the index first, then replace ann_build_pad.
-    // Otherwise assigning to ann_build_pad can destroy the dataset the index still views.
-    auto new_pad = cuvs::neighbors::make_device_padded_dataset(res, dataset);
-    ann_index.update_dataset(res, new_pad->as_dataset_view());
-    ann_build_pad =
-      std::shared_ptr<cuvs::neighbors::device_padded_dataset<float, int64_t>>(std::move(new_pad));
-  } else {
-    // Repoint to the strided view before dropping the padded owner the index may reference.
-    ann_index.update_dataset(res, cuvs::neighbors::make_device_padded_dataset_view(res, dataset));
-    ann_build_pad.reset();
-  }
+  ann_index.update_dataset(res, cuvs::neighbors::make_device_standard_dataset_view(dataset));
 }
 
 /**
@@ -504,7 +482,7 @@ auto compact(raft::resources const& res, const index_state<UpstreamT>& current)
     storage->dataset.data(), storage->num_rows_used, storage->dim);
 
   next_state->ann_index = index_state<UpstreamT>::build_upstream_ann(
-    res, next_state->build_params, next_state->build_fn, dataset, next_state->ann_build_pad_);
+    res, next_state->build_params, next_state->build_fn, dataset);
   return next_state;
 }
 }  // namespace cuvs::neighbors::tiered_index::detail

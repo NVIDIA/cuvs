@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -217,7 +217,7 @@ const std::vector<AnnTieredIndexInputs> inputs =
     {10},                                          // n_queries
     {TEST_EXTEND, TEST_MERGE}                      // test_strategy
   );
-typedef ANNTieredIndexTest<cagra::device_padded_index<float, uint32_t>> CAGRA_F;
+typedef ANNTieredIndexTest<cagra::device_standard_index<float, uint32_t>> CAGRA_F;
 TEST_P(CAGRA_F, AnnTieredIndex) { this->testTieredIndex(); }
 INSTANTIATE_TEST_CASE_P(ANNTieredIndexTest, CAGRA_F, ::testing::ValuesIn(inputs));
 

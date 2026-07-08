@@ -1731,16 +1731,22 @@ using namespace raft;
 
 template <typename AnnIndexType, typename T, typename IdxT>
 struct iface {
-  iface() : cagra_owned_dataset_(nullptr), mutex_(std::make_shared<std::mutex>()) {}
+  iface()
+    : cagra_owned_padded_dataset_(nullptr),
+      cagra_owned_standard_dataset_(nullptr),
+      mutex_(std::make_shared<std::mutex>())
+  {
+  }
 
   const IdxT size() const { return index_.value().size(); }
 
   std::optional<AnnIndexType> index_;
-  /** Used by CAGRA when built from host: holds device copy so index dataset view stays valid. */
-  std::optional<raft::device_matrix<T, int64_t, raft::row_major>> cagra_build_dataset_;
   /** Used by CAGRA when deserializing an index that contains a dataset; keeps it alive for the
    * view. */
-  std::unique_ptr<cuvs::neighbors::device_padded_dataset<T, int64_t>> cagra_owned_dataset_;
+  std::unique_ptr<cuvs::neighbors::device_padded_dataset<T, int64_t>> cagra_owned_padded_dataset_;
+  /** Used by CAGRA standard-layout paths to keep deserialized/attached dataset views alive. */
+  std::unique_ptr<cuvs::neighbors::device_standard_dataset<T, int64_t>>
+    cagra_owned_standard_dataset_;
   std::shared_ptr<std::mutex> mutex_;
 };
 

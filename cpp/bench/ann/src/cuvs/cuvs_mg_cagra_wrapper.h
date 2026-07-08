@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -78,7 +78,7 @@ class cuvs_mg_cagra : public algo<T>, public algo_gpu {
   build_param index_params_;
   cuvs::neighbors::mg_search_params<cagra::search_params> search_params_;
   std::shared_ptr<
-    cuvs::neighbors::mg_index<cuvs::neighbors::cagra::device_padded_index<T, IdxT>, T, IdxT>>
+    cuvs::neighbors::mg_index<cuvs::neighbors::cagra::device_standard_index<T, IdxT>, T, IdxT>>
     index_;
 };
 
@@ -95,7 +95,7 @@ void cuvs_mg_cagra<T, IdxT>::build(const T* dataset, size_t nrow)
     raft::make_host_matrix_view<const T, int64_t, raft::row_major>(dataset, nrow, dim_);
   auto idx = cuvs::neighbors::cagra::build(clique_, build_params, dataset_view);
   index_   = std::make_shared<
-      cuvs::neighbors::mg_index<cuvs::neighbors::cagra::device_padded_index<T, IdxT>, T, IdxT>>(
+      cuvs::neighbors::mg_index<cuvs::neighbors::cagra::device_standard_index<T, IdxT>, T, IdxT>>(
     std::move(idx));
 }
 
@@ -128,7 +128,7 @@ template <typename T, typename IdxT>
 void cuvs_mg_cagra<T, IdxT>::load(const std::string& file)
 {
   index_ = std::make_shared<
-    cuvs::neighbors::mg_index<cuvs::neighbors::cagra::device_padded_index<T, IdxT>, T, IdxT>>(
+    cuvs::neighbors::mg_index<cuvs::neighbors::cagra::device_standard_index<T, IdxT>, T, IdxT>>(
     std::move(cuvs::neighbors::cagra::deserialize<T, IdxT>(clique_, file)));
 }
 

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -71,7 +71,7 @@ void* _build(cuvsResources_t res, cuvsTieredIndexParams params, DLManagedTensor*
     case CUVS_TIERED_INDEX_ALGO_CAGRA: {
       auto build_params = tiered_index::index_params<cagra::index_params>();
       convert_c_index_params(params, dataset.shape[0], dataset.shape[1], &build_params);
-      return new tiered_index::index<cagra::device_padded_index<T, uint32_t>>(
+      return new tiered_index::index<cagra::device_standard_index<T, uint32_t>>(
         tiered_index::build(*res_ptr, build_params, mds));
     }
     case CUVS_TIERED_INDEX_ALGO_IVF_FLAT: {
@@ -219,7 +219,7 @@ extern "C" cuvsError_t cuvsTieredIndexDestroy(cuvsTieredIndex_t index_c_ptr)
       switch (index.algo) {
         case CUVS_TIERED_INDEX_ALGO_CAGRA: {
           auto index_ptr =
-            reinterpret_cast<tiered_index::index<cagra::device_padded_index<float, uint32_t>>*>(index.addr);
+            reinterpret_cast<tiered_index::index<cagra::device_standard_index<float, uint32_t>>*>(index.addr);
           delete index_ptr;
           break;
         }
@@ -292,7 +292,7 @@ extern "C" cuvsError_t cuvsTieredIndexSearch(cuvsResources_t res,
 
     switch (index.algo) {
       case CUVS_TIERED_INDEX_ALGO_CAGRA: {
-        _search<cagra::device_padded_index<float, uint32_t>>(
+        _search<cagra::device_standard_index<float, uint32_t>>(
           res, search_params, index, queries_tensor, neighbors_tensor, distances_tensor, filter);
         break;
       }
@@ -336,7 +336,7 @@ extern "C" cuvsError_t cuvsTieredIndexExtend(cuvsResources_t res,
     auto index = *index_c_ptr;
     switch (index.algo) {
       case CUVS_TIERED_INDEX_ALGO_CAGRA: {
-        _extend<cagra::device_padded_index<float, uint32_t>>(res, new_vectors, index);
+        _extend<cagra::device_standard_index<float, uint32_t>>(res, new_vectors, index);
         break;
       }
       case CUVS_TIERED_INDEX_ALGO_IVF_FLAT: {
@@ -363,7 +363,8 @@ extern "C" cuvsError_t cuvsTieredIndexMerge(cuvsResources_t res,
 
     switch (indices[0]->algo) {
       case CUVS_TIERED_INDEX_ALGO_CAGRA: {
-        _merge<cagra::device_padded_index<float, uint32_t>>(res, *params, indices, num_indices, output_index);
+        _merge<cagra::device_standard_index<float, uint32_t>>(
+          res, *params, indices, num_indices, output_index);
         break;
       }
       case CUVS_TIERED_INDEX_ALGO_IVF_FLAT: {

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -84,26 +84,26 @@ extern "C" cuvsError_t cuvsMultiGpuCagraIndexDestroy(cuvsMultiGpuCagraIndex_t in
       // Properly clean up the templated inner object based on dtype, like single GPU API
       if (index->dtype.code == kDLFloat && index->dtype.bits == 32) {
         auto mg_index_ptr =
-          reinterpret_cast<cuvs::neighbors::mg_index<cuvs::neighbors::cagra::device_padded_index<float, uint32_t>,
+          reinterpret_cast<cuvs::neighbors::mg_index<cuvs::neighbors::cagra::device_standard_index<float, uint32_t>,
                                                      float,
                                                      uint32_t>*>(index->addr);
         delete mg_index_ptr;
       } else if (index->dtype.code == kDLFloat && index->dtype.bits == 16) {
         auto mg_index_ptr =
-          reinterpret_cast<cuvs::neighbors::mg_index<cuvs::neighbors::cagra::device_padded_index<half, uint32_t>,
+          reinterpret_cast<cuvs::neighbors::mg_index<cuvs::neighbors::cagra::device_standard_index<half, uint32_t>,
                                                      half,
                                                      uint32_t>*>(index->addr);
         delete mg_index_ptr;
       } else if (index->dtype.code == kDLInt && index->dtype.bits == 8) {
         auto mg_index_ptr = reinterpret_cast<
           cuvs::neighbors::
-            mg_index<cuvs::neighbors::cagra::device_padded_index<int8_t, uint32_t>, int8_t, uint32_t>*>(
+            mg_index<cuvs::neighbors::cagra::device_standard_index<int8_t, uint32_t>, int8_t, uint32_t>*>(
           index->addr);
         delete mg_index_ptr;
       } else if (index->dtype.code == kDLUInt && index->dtype.bits == 8) {
         auto mg_index_ptr = reinterpret_cast<
           cuvs::neighbors::
-            mg_index<cuvs::neighbors::cagra::device_padded_index<uint8_t, uint32_t>, uint8_t, uint32_t>*>(
+            mg_index<cuvs::neighbors::cagra::device_standard_index<uint8_t, uint32_t>, uint8_t, uint32_t>*>(
           index->addr);
         delete mg_index_ptr;
       }
@@ -159,7 +159,7 @@ void* _mg_build(cuvsResources_t res,
   auto mds          = cuvs::core::from_dlpack<mdspan_type>(dataset_tensor);
 
   auto mg_index =
-    new cuvs::neighbors::mg_index<cuvs::neighbors::cagra::device_padded_index<T, uint32_t>, T, uint32_t>(
+    new cuvs::neighbors::mg_index<cuvs::neighbors::cagra::device_standard_index<T, uint32_t>, T, uint32_t>(
       cuvs::neighbors::cagra::build(*res_ptr, mg_params, mds));
 
   return mg_index;
@@ -175,7 +175,7 @@ void _mg_search(cuvsResources_t res,
 {
   auto res_ptr      = reinterpret_cast<raft::resources*>(res);
   auto mg_index_ptr = reinterpret_cast<
-    cuvs::neighbors::mg_index<cuvs::neighbors::cagra::device_padded_index<T, uint32_t>, T, uint32_t>*>(
+    cuvs::neighbors::mg_index<cuvs::neighbors::cagra::device_standard_index<T, uint32_t>, T, uint32_t>*>(
     index.addr);
 
   auto mg_search_params =
@@ -202,7 +202,7 @@ void _mg_extend(cuvsResources_t res,
 {
   auto res_ptr      = reinterpret_cast<raft::resources*>(res);
   auto mg_index_ptr = reinterpret_cast<
-    cuvs::neighbors::mg_index<cuvs::neighbors::cagra::device_padded_index<T, uint32_t>, T, uint32_t>*>(
+    cuvs::neighbors::mg_index<cuvs::neighbors::cagra::device_standard_index<T, uint32_t>, T, uint32_t>*>(
     index.addr);
 
   using vectors_mdspan_type = raft::host_matrix_view<const T, int64_t, raft::row_major>;
@@ -222,7 +222,7 @@ void _mg_serialize(cuvsResources_t res, cuvsMultiGpuCagraIndex index, const char
 {
   auto res_ptr      = reinterpret_cast<raft::resources*>(res);
   auto mg_index_ptr = reinterpret_cast<
-    cuvs::neighbors::mg_index<cuvs::neighbors::cagra::device_padded_index<T, uint32_t>, T, uint32_t>*>(
+    cuvs::neighbors::mg_index<cuvs::neighbors::cagra::device_standard_index<T, uint32_t>, T, uint32_t>*>(
     index.addr);
 
   cuvs::neighbors::cagra::serialize(*res_ptr, *mg_index_ptr, std::string(filename));
@@ -233,7 +233,7 @@ void* _mg_deserialize(cuvsResources_t res, const char* filename)
 {
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
   auto mg_index =
-    new cuvs::neighbors::mg_index<cuvs::neighbors::cagra::device_padded_index<T, uint32_t>, T, uint32_t>(
+    new cuvs::neighbors::mg_index<cuvs::neighbors::cagra::device_standard_index<T, uint32_t>, T, uint32_t>(
       cuvs::neighbors::cagra::deserialize<T, uint32_t>(*res_ptr, std::string(filename)));
 
   return mg_index;
@@ -244,7 +244,7 @@ void* _mg_distribute(cuvsResources_t res, const char* filename)
 {
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
   auto mg_index =
-    new cuvs::neighbors::mg_index<cuvs::neighbors::cagra::device_padded_index<T, uint32_t>, T, uint32_t>(
+    new cuvs::neighbors::mg_index<cuvs::neighbors::cagra::device_standard_index<T, uint32_t>, T, uint32_t>(
       cuvs::neighbors::cagra::distribute<T, uint32_t>(*res_ptr, std::string(filename)));
 
   return mg_index;

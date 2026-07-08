@@ -1640,6 +1640,74 @@ void search(raft::resources const& res,
             const cuvs::neighbors::filtering::base_filter& sample_filter =
               cuvs::neighbors::filtering::none_sample_filter{});
 
+// device_standard_index overloads (uint32_t neighbor indices)
+void search(raft::resources const& res,
+            cuvs::neighbors::cagra::search_params const& params,
+            const cuvs::neighbors::cagra::device_standard_index<float, uint32_t>& index,
+            raft::device_matrix_view<const float, int64_t, raft::row_major> queries,
+            raft::device_matrix_view<uint32_t, int64_t, raft::row_major> neighbors,
+            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
+            const cuvs::neighbors::filtering::base_filter& sample_filter =
+              cuvs::neighbors::filtering::none_sample_filter{});
+void search(raft::resources const& res,
+            cuvs::neighbors::cagra::search_params const& params,
+            const cuvs::neighbors::cagra::device_standard_index<half, uint32_t>& index,
+            raft::device_matrix_view<const half, int64_t, raft::row_major> queries,
+            raft::device_matrix_view<uint32_t, int64_t, raft::row_major> neighbors,
+            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
+            const cuvs::neighbors::filtering::base_filter& sample_filter =
+              cuvs::neighbors::filtering::none_sample_filter{});
+void search(raft::resources const& res,
+            cuvs::neighbors::cagra::search_params const& params,
+            const cuvs::neighbors::cagra::device_standard_index<int8_t, uint32_t>& index,
+            raft::device_matrix_view<const int8_t, int64_t, raft::row_major> queries,
+            raft::device_matrix_view<uint32_t, int64_t, raft::row_major> neighbors,
+            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
+            const cuvs::neighbors::filtering::base_filter& sample_filter =
+              cuvs::neighbors::filtering::none_sample_filter{});
+void search(raft::resources const& res,
+            cuvs::neighbors::cagra::search_params const& params,
+            const cuvs::neighbors::cagra::device_standard_index<uint8_t, uint32_t>& index,
+            raft::device_matrix_view<const uint8_t, int64_t, raft::row_major> queries,
+            raft::device_matrix_view<uint32_t, int64_t, raft::row_major> neighbors,
+            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
+            const cuvs::neighbors::filtering::base_filter& sample_filter =
+              cuvs::neighbors::filtering::none_sample_filter{});
+
+// device_standard_index overloads (int64_t neighbor indices)
+void search(raft::resources const& res,
+            cuvs::neighbors::cagra::search_params const& params,
+            const cuvs::neighbors::cagra::device_standard_index<float, uint32_t>& index,
+            raft::device_matrix_view<const float, int64_t, raft::row_major> queries,
+            raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
+            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
+            const cuvs::neighbors::filtering::base_filter& sample_filter =
+              cuvs::neighbors::filtering::none_sample_filter{});
+void search(raft::resources const& res,
+            cuvs::neighbors::cagra::search_params const& params,
+            const cuvs::neighbors::cagra::device_standard_index<half, uint32_t>& index,
+            raft::device_matrix_view<const half, int64_t, raft::row_major> queries,
+            raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
+            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
+            const cuvs::neighbors::filtering::base_filter& sample_filter =
+              cuvs::neighbors::filtering::none_sample_filter{});
+void search(raft::resources const& res,
+            cuvs::neighbors::cagra::search_params const& params,
+            const cuvs::neighbors::cagra::device_standard_index<int8_t, uint32_t>& index,
+            raft::device_matrix_view<const int8_t, int64_t, raft::row_major> queries,
+            raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
+            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
+            const cuvs::neighbors::filtering::base_filter& sample_filter =
+              cuvs::neighbors::filtering::none_sample_filter{});
+void search(raft::resources const& res,
+            cuvs::neighbors::cagra::search_params const& params,
+            const cuvs::neighbors::cagra::device_standard_index<uint8_t, uint32_t>& index,
+            raft::device_matrix_view<const uint8_t, int64_t, raft::row_major> queries,
+            raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
+            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
+            const cuvs::neighbors::filtering::base_filter& sample_filter =
+              cuvs::neighbors::filtering::none_sample_filter{});
+
 // vpq_f16_index overloads (uint32_t neighbor indices)
 /**
  * @brief Search ANN using the constructed index.
@@ -3147,7 +3215,7 @@ auto merge(raft::resources const& res,
 auto build(const raft::resources& clique,
            const cuvs::neighbors::mg_index_params<cagra::index_params>& index_params,
            raft::host_matrix_view<const float, int64_t, row_major> index_dataset)
-  -> cuvs::neighbors::mg_index<cagra::device_padded_index<float, uint32_t>, float, uint32_t>;
+  -> cuvs::neighbors::mg_index<cagra::device_standard_index<float, uint32_t>, float, uint32_t>;
 
 /// \ingroup mg_cpp_index_build
 /**
@@ -3169,7 +3237,7 @@ auto build(const raft::resources& clique,
 auto build(const raft::resources& clique,
            const cuvs::neighbors::mg_index_params<cagra::index_params>& index_params,
            raft::host_matrix_view<const half, int64_t, row_major> index_dataset)
-  -> cuvs::neighbors::mg_index<cagra::device_padded_index<half, uint32_t>, half, uint32_t>;
+  -> cuvs::neighbors::mg_index<cagra::device_standard_index<half, uint32_t>, half, uint32_t>;
 
 /// \ingroup mg_cpp_index_build
 /**
@@ -3191,7 +3259,7 @@ auto build(const raft::resources& clique,
 auto build(const raft::resources& clique,
            const cuvs::neighbors::mg_index_params<cagra::index_params>& index_params,
            raft::host_matrix_view<const int8_t, int64_t, row_major> index_dataset)
-  -> cuvs::neighbors::mg_index<cagra::device_padded_index<int8_t, uint32_t>, int8_t, uint32_t>;
+  -> cuvs::neighbors::mg_index<cagra::device_standard_index<int8_t, uint32_t>, int8_t, uint32_t>;
 
 /// \ingroup mg_cpp_index_build
 /**
@@ -3213,7 +3281,7 @@ auto build(const raft::resources& clique,
 auto build(const raft::resources& clique,
            const cuvs::neighbors::mg_index_params<cagra::index_params>& index_params,
            raft::host_matrix_view<const uint8_t, int64_t, row_major> index_dataset)
-  -> cuvs::neighbors::mg_index<cagra::device_padded_index<uint8_t, uint32_t>, uint8_t, uint32_t>;
+  -> cuvs::neighbors::mg_index<cagra::device_standard_index<uint8_t, uint32_t>, uint8_t, uint32_t>;
 
 /// \defgroup mg_cpp_index_extend ANN MG index extend
 
@@ -3238,7 +3306,7 @@ auto build(const raft::resources& clique,
  */
 void extend(
   const raft::resources& clique,
-  cuvs::neighbors::mg_index<cagra::device_padded_index<float, uint32_t>, float, uint32_t>& index,
+  cuvs::neighbors::mg_index<cagra::device_standard_index<float, uint32_t>, float, uint32_t>& index,
   raft::host_matrix_view<const float, int64_t, row_major> new_vectors,
   std::optional<raft::host_vector_view<const uint32_t, int64_t>> new_indices);
 
@@ -3263,7 +3331,7 @@ void extend(
  */
 void extend(
   const raft::resources& clique,
-  cuvs::neighbors::mg_index<cagra::device_padded_index<half, uint32_t>, half, uint32_t>& index,
+  cuvs::neighbors::mg_index<cagra::device_standard_index<half, uint32_t>, half, uint32_t>& index,
   raft::host_matrix_view<const half, int64_t, row_major> new_vectors,
   std::optional<raft::host_vector_view<const uint32_t, int64_t>> new_indices);
 
@@ -3288,7 +3356,8 @@ void extend(
  */
 void extend(
   const raft::resources& clique,
-  cuvs::neighbors::mg_index<cagra::device_padded_index<int8_t, uint32_t>, int8_t, uint32_t>& index,
+  cuvs::neighbors::mg_index<cagra::device_standard_index<int8_t, uint32_t>, int8_t, uint32_t>&
+    index,
   raft::host_matrix_view<const int8_t, int64_t, row_major> new_vectors,
   std::optional<raft::host_vector_view<const uint32_t, int64_t>> new_indices);
 
@@ -3313,7 +3382,7 @@ void extend(
  */
 void extend(
   const raft::resources& clique,
-  cuvs::neighbors::mg_index<cagra::device_padded_index<uint8_t, uint32_t>, uint8_t, uint32_t>&
+  cuvs::neighbors::mg_index<cagra::device_standard_index<uint8_t, uint32_t>, uint8_t, uint32_t>&
     index,
   raft::host_matrix_view<const uint8_t, int64_t, row_major> new_vectors,
   std::optional<raft::host_vector_view<const uint32_t, int64_t>> new_indices);
@@ -3344,7 +3413,7 @@ void extend(
  */
 void search(
   const raft::resources& clique,
-  const cuvs::neighbors::mg_index<cagra::device_padded_index<float, uint32_t>, float, uint32_t>&
+  const cuvs::neighbors::mg_index<cagra::device_standard_index<float, uint32_t>, float, uint32_t>&
     index,
   const cuvs::neighbors::mg_search_params<cagra::search_params>& search_params,
   raft::host_matrix_view<const float, int64_t, row_major> queries,
@@ -3375,7 +3444,7 @@ void search(
  */
 void search(
   const raft::resources& clique,
-  const cuvs::neighbors::mg_index<cagra::device_padded_index<half, uint32_t>, half, uint32_t>&
+  const cuvs::neighbors::mg_index<cagra::device_standard_index<half, uint32_t>, half, uint32_t>&
     index,
   const cuvs::neighbors::mg_search_params<cagra::search_params>& search_params,
   raft::host_matrix_view<const half, int64_t, row_major> queries,
@@ -3406,7 +3475,7 @@ void search(
  */
 void search(
   const raft::resources& clique,
-  const cuvs::neighbors::mg_index<cagra::device_padded_index<int8_t, uint32_t>, int8_t, uint32_t>&
+  const cuvs::neighbors::mg_index<cagra::device_standard_index<int8_t, uint32_t>, int8_t, uint32_t>&
     index,
   const cuvs::neighbors::mg_search_params<cagra::search_params>& search_params,
   raft::host_matrix_view<const int8_t, int64_t, row_major> queries,
@@ -3435,14 +3504,13 @@ void search(
  * @param[out] distances a row-major matrix on host [n_rows, n_neighbors]
  *
  */
-void search(
-  const raft::resources& clique,
-  const cuvs::neighbors::mg_index<cagra::device_padded_index<uint8_t, uint32_t>, uint8_t, uint32_t>&
-    index,
-  const cuvs::neighbors::mg_search_params<cagra::search_params>& search_params,
-  raft::host_matrix_view<const uint8_t, int64_t, row_major> queries,
-  raft::host_matrix_view<int64_t, int64_t, row_major> neighbors,
-  raft::host_matrix_view<float, int64_t, row_major> distances);
+void search(const raft::resources& clique,
+            const cuvs::neighbors::
+              mg_index<cagra::device_standard_index<uint8_t, uint32_t>, uint8_t, uint32_t>& index,
+            const cuvs::neighbors::mg_search_params<cagra::search_params>& search_params,
+            raft::host_matrix_view<const uint8_t, int64_t, row_major> queries,
+            raft::host_matrix_view<int64_t, int64_t, row_major> neighbors,
+            raft::host_matrix_view<float, int64_t, row_major> distances);
 
 /// \ingroup mg_cpp_index_search
 /**
@@ -3468,7 +3536,7 @@ void search(
  */
 void search(
   const raft::resources& clique,
-  const cuvs::neighbors::mg_index<cagra::device_padded_index<float, uint32_t>, float, uint32_t>&
+  const cuvs::neighbors::mg_index<cagra::device_standard_index<float, uint32_t>, float, uint32_t>&
     index,
   const cuvs::neighbors::mg_search_params<cagra::search_params>& search_params,
   raft::host_matrix_view<const float, int64_t, row_major> queries,
@@ -3499,7 +3567,7 @@ void search(
  */
 void search(
   const raft::resources& clique,
-  const cuvs::neighbors::mg_index<cagra::device_padded_index<half, uint32_t>, half, uint32_t>&
+  const cuvs::neighbors::mg_index<cagra::device_standard_index<half, uint32_t>, half, uint32_t>&
     index,
   const cuvs::neighbors::mg_search_params<cagra::search_params>& search_params,
   raft::host_matrix_view<const half, int64_t, row_major> queries,
@@ -3530,7 +3598,7 @@ void search(
  */
 void search(
   const raft::resources& clique,
-  const cuvs::neighbors::mg_index<cagra::device_padded_index<int8_t, uint32_t>, int8_t, uint32_t>&
+  const cuvs::neighbors::mg_index<cagra::device_standard_index<int8_t, uint32_t>, int8_t, uint32_t>&
     index,
   const cuvs::neighbors::mg_search_params<cagra::search_params>& search_params,
   raft::host_matrix_view<const int8_t, int64_t, row_major> queries,
@@ -3559,14 +3627,13 @@ void search(
  * @param[out] distances a row-major matrix on host [n_rows, n_neighbors]
  *
  */
-void search(
-  const raft::resources& clique,
-  const cuvs::neighbors::mg_index<cagra::device_padded_index<uint8_t, uint32_t>, uint8_t, uint32_t>&
-    index,
-  const cuvs::neighbors::mg_search_params<cagra::search_params>& search_params,
-  raft::host_matrix_view<const uint8_t, int64_t, row_major> queries,
-  raft::host_matrix_view<uint32_t, int64_t, row_major> neighbors,
-  raft::host_matrix_view<float, int64_t, row_major> distances);
+void search(const raft::resources& clique,
+            const cuvs::neighbors::
+              mg_index<cagra::device_standard_index<uint8_t, uint32_t>, uint8_t, uint32_t>& index,
+            const cuvs::neighbors::mg_search_params<cagra::search_params>& search_params,
+            raft::host_matrix_view<const uint8_t, int64_t, row_major> queries,
+            raft::host_matrix_view<uint32_t, int64_t, row_major> neighbors,
+            raft::host_matrix_view<float, int64_t, row_major> distances);
 
 /// \defgroup mg_cpp_serialize ANN MG index serialization
 
@@ -3590,7 +3657,7 @@ void search(
  */
 void serialize(
   const raft::resources& clique,
-  const cuvs::neighbors::mg_index<cagra::device_padded_index<float, uint32_t>, float, uint32_t>&
+  const cuvs::neighbors::mg_index<cagra::device_standard_index<float, uint32_t>, float, uint32_t>&
     index,
   const std::string& filename);
 
@@ -3614,7 +3681,7 @@ void serialize(
  */
 void serialize(
   const raft::resources& clique,
-  const cuvs::neighbors::mg_index<cagra::device_padded_index<half, uint32_t>, half, uint32_t>&
+  const cuvs::neighbors::mg_index<cagra::device_standard_index<half, uint32_t>, half, uint32_t>&
     index,
   const std::string& filename);
 
@@ -3638,7 +3705,7 @@ void serialize(
  */
 void serialize(
   const raft::resources& clique,
-  const cuvs::neighbors::mg_index<cagra::device_padded_index<int8_t, uint32_t>, int8_t, uint32_t>&
+  const cuvs::neighbors::mg_index<cagra::device_standard_index<int8_t, uint32_t>, int8_t, uint32_t>&
     index,
   const std::string& filename);
 
@@ -3660,11 +3727,11 @@ void serialize(
  * @param[in] filename path to the file to be serialized
  *
  */
-void serialize(
-  const raft::resources& clique,
-  const cuvs::neighbors::mg_index<cagra::device_padded_index<uint8_t, uint32_t>, uint8_t, uint32_t>&
-    index,
-  const std::string& filename);
+void serialize(const raft::resources& clique,
+               const cuvs::neighbors::mg_index<cagra::device_standard_index<uint8_t, uint32_t>,
+                                               uint8_t,
+                                               uint32_t>& index,
+               const std::string& filename);
 
 /// \defgroup mg_cpp_deserialize ANN MG index deserialization
 
@@ -3689,7 +3756,7 @@ void serialize(
  */
 template <typename T, typename IdxT>
 auto deserialize(const raft::resources& clique, const std::string& filename)
-  -> cuvs::neighbors::mg_index<cagra::device_padded_index<T, IdxT>, T, IdxT>;
+  -> cuvs::neighbors::mg_index<cagra::device_standard_index<T, IdxT>, T, IdxT>;
 
 /// \defgroup mg_cpp_distribute ANN MG local index distribution
 
@@ -3715,7 +3782,7 @@ auto deserialize(const raft::resources& clique, const std::string& filename)
  */
 template <typename T, typename IdxT>
 auto distribute(const raft::resources& clique, const std::string& filename)
-  -> cuvs::neighbors::mg_index<cagra::device_padded_index<T, IdxT>, T, IdxT>;
+  -> cuvs::neighbors::mg_index<cagra::device_standard_index<T, IdxT>, T, IdxT>;
 
 /**
  * @brief Build a kNN graph using IVF-PQ.

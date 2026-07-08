@@ -32,10 +32,11 @@ namespace cuvs::neighbors::cagra {
       handle, params, index, queries, neighbors, distances, sample_filter);             \
   }
 
-#define CUVS_INST_CAGRA_SEARCH_ALL_VIEWS(T, OutputIdxT)                       \
-  CUVS_INST_CAGRA_SEARCH(T, uint32_t, inst_device_padded_view_t, OutputIdxT); \
-  CUVS_INST_CAGRA_SEARCH(T, uint32_t, inst_vpq_f16_view_t, OutputIdxT);       \
-  CUVS_INST_CAGRA_SEARCH(T, uint32_t, inst_vpq_f32_view_t, OutputIdxT);       \
+#define CUVS_INST_CAGRA_SEARCH_ALL_VIEWS(T, OutputIdxT)                         \
+  CUVS_INST_CAGRA_SEARCH(T, uint32_t, inst_device_padded_view_t, OutputIdxT);   \
+  CUVS_INST_CAGRA_SEARCH(T, uint32_t, inst_device_standard_view_t, OutputIdxT); \
+  CUVS_INST_CAGRA_SEARCH(T, uint32_t, inst_vpq_f16_view_t, OutputIdxT);         \
+  CUVS_INST_CAGRA_SEARCH(T, uint32_t, inst_vpq_f32_view_t, OutputIdxT);         \
   CUVS_INST_CAGRA_SEARCH(T, uint32_t, inst_empty_view_t, OutputIdxT)
 
 CUVS_INST_CAGRA_SEARCH_ALL_VIEWS(data_t, uint32_t);
