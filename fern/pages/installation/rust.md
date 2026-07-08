@@ -10,7 +10,7 @@ Install the native libraries first:
 
 ```bash
 # CUDA 13
-conda install -c rapidsai -c conda-forge libcuvs cuda-version=13.2
+conda install -c rapidsai -c conda-forge libcuvs cuda-version=13.3
 
 # CUDA 12
 conda install -c rapidsai -c conda-forge libcuvs cuda-version=12.9

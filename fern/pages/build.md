@@ -35,7 +35,7 @@ The common source-build prerequisites are:
 The recommended way to construct an environment with the dependencies required to build NVIDIA cuVS is to use conda with the repository environment YAML file:
 
 ```bash
-conda env create --name cuvs -f conda/environments/all_cuda-132_arch-$(uname -m).yaml
+conda env create --name cuvs -f conda/environments/all_cuda-133_arch-$(uname -m).yaml
 conda activate cuvs
 ```
 

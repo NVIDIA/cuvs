@@ -8,6 +8,7 @@
 #include <raft/core/copy.cuh>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/host_mdspan.hpp>
+#include <raft/core/numpy_serializer.hpp>
 #include <raft/core/resource/multi_gpu.hpp>
 #include <raft/core/resource/nccl_comm.hpp>
 #include <raft/core/serialize.hpp>
@@ -738,7 +739,7 @@ void serialize(const raft::resources& clique,
   std::ofstream of(filename, std::ios::out | std::ios::binary);
   if (!of) { RAFT_FAIL("Cannot open file %s", filename.c_str()); }
 
-  std::string dtype_string = raft::detail::numpy_serializer::get_numpy_dtype<T>().to_string();
+  std::string dtype_string = raft::numpy_serializer::get_numpy_dtype<T>().to_string();
   dtype_string.resize(4);
   of << dtype_string;
 

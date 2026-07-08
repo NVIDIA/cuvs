@@ -12,22 +12,28 @@
 #include <cuvs/neighbors/cagra.hpp>
 #include <cuvs/neighbors/hnsw.hpp>
 #include <cuvs/util/file_io.hpp>
+#include <cuvs/util/host_memory.hpp>
 
 #include <raft/core/copy.cuh>
-#include <raft/core/detail/mdspan_numpy_serializer.hpp>
 #include <raft/core/host_mdspan.hpp>
 #include <raft/core/logger.hpp>
+#include <raft/core/numpy_serializer.hpp>
 #include <raft/core/pinned_mdarray.hpp>
 #include <raft/util/cudart_utils.hpp>
 
 #include <hnswlib/hnswalg.h>
 #include <hnswlib/hnswlib.h>
 
+#include <library_types.h>
+
+#include <cmath>
 #include <fcntl.h>
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <mutex>
 #include <new>
+#include <numeric>
 #include <random>
 #include <sys/mman.h>
 #include <thread>
@@ -64,6 +70,31 @@ template <>
 struct hnsw_dist_t<int8_t> {
   using type = int;
 };
+
+// Map the dataset element type to a cudaDataType_t. This is a host-only helper that
+// intentionally avoids pulling CUDA/device dependencies.
+template <typename T>
+cudaDataType_t to_cuda_data_type();
+template <>
+inline cudaDataType_t to_cuda_data_type<float>()
+{
+  return CUDA_R_32F;
+}
+template <>
+inline cudaDataType_t to_cuda_data_type<half>()
+{
+  return CUDA_R_16F;
+}
+template <>
+inline cudaDataType_t to_cuda_data_type<int8_t>()
+{
+  return CUDA_R_8I;
+}
+template <>
+inline cudaDataType_t to_cuda_data_type<uint8_t>()
+{
+  return CUDA_R_8U;
+}
 
 template <typename T>
 struct index_impl : index<T> {
@@ -341,11 +372,18 @@ void all_neighbors_graph(raft::resources const& res,
   }
 }
 
-template <typename T, typename IdxT>
-void serialize_to_hnswlib_from_disk(raft::resources const& res,
-                                    std::ostream& os_raw,
-                                    const cuvs::neighbors::hnsw::index_params& params,
-                                    const cuvs::neighbors::cagra::index<T, IdxT>& index_)
+// Source-agnostic core that streams a CAGRA index into hnswlib format on disk.
+// The disk-backed and in-memory variants differ only in the `read_batch` callable,
+// which fills the provided host buffers (graph, dataset, labels) for a given row range.
+template <typename T, typename IdxT, typename ReadBatchFn>
+void serialize_to_hnswlib_batched(raft::resources const& res,
+                                  std::ostream& os_raw,
+                                  const cuvs::neighbors::hnsw::index_params& params,
+                                  int64_t n_rows,
+                                  int64_t dim,
+                                  int graph_degree_int,
+                                  cuvs::distance::DistanceType metric,
+                                  ReadBatchFn read_batch)
 {
   raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> fun_scope("cagra::serialize");
 
@@ -353,124 +391,13 @@ void serialize_to_hnswlib_from_disk(raft::resources const& res,
 
   cuvs::util::buffered_ofstream os(&os_raw, 1 << 20 /*1MB*/);
 
-  RAFT_EXPECTS(index_.dataset_fd().has_value() && index_.graph_fd().has_value(),
-               "Function only implements serialization from disk.");
   RAFT_EXPECTS(params.hierarchy != HnswHierarchy::CPU,
-               "Disk2disk serialization not supported for CPU hierarchy.");
+               "Disk serialization not supported for CPU hierarchy.");
 
-  auto n_rows           = index_.size();
-  auto dim              = index_.dim();
-  auto graph_degree_int = static_cast<int>(index_.graph_degree());
   RAFT_LOG_INFO("Saving CAGRA index to hnswlib format, size %zu, dim %zu, graph_degree %zu",
                 static_cast<size_t>(n_rows),
                 static_cast<size_t>(dim),
                 static_cast<size_t>(graph_degree_int));
-
-  // Get file descriptors from index
-  const auto& graph_fd_opt   = index_.graph_fd();
-  const auto& dataset_fd_opt = index_.dataset_fd();
-  const auto& mapping_fd_opt = index_.mapping_fd();
-
-  RAFT_EXPECTS(graph_fd_opt.has_value() && graph_fd_opt->is_valid(),
-               "Graph file descriptor is not available");
-  RAFT_EXPECTS(dataset_fd_opt.has_value() && dataset_fd_opt->is_valid(),
-               "Dataset file descriptor is not available");
-  RAFT_EXPECTS(mapping_fd_opt.has_value() && mapping_fd_opt->is_valid(),
-               "Mapping file descriptor is not available");
-
-  // Get file paths from file descriptors
-  std::string graph_path   = graph_fd_opt->get_path();
-  std::string dataset_path = dataset_fd_opt->get_path();
-  std::string mapping_path = mapping_fd_opt->get_path();
-
-  RAFT_EXPECTS(!graph_path.empty(), "Unable to get path from graph file descriptor");
-  RAFT_EXPECTS(!dataset_path.empty(), "Unable to get path from dataset file descriptor");
-  RAFT_EXPECTS(!mapping_path.empty(), "Unable to get path from mapping file descriptor");
-
-  int graph_fd   = graph_fd_opt->get();
-  int dataset_fd = dataset_fd_opt->get();
-  int label_fd   = mapping_fd_opt->get();
-
-  // Read headers from files to get dimensions
-  size_t graph_header_size = 0;
-  size_t graph_n_rows      = 0;
-  size_t graph_n_cols      = 0;
-  {
-    std::ifstream graph_stream(graph_path, std::ios::binary);
-    RAFT_EXPECTS(graph_stream.good(), "Failed to open graph file: %s", graph_path.c_str());
-
-    auto header       = raft::detail::numpy_serializer::read_header(graph_stream);
-    graph_header_size = static_cast<size_t>(graph_stream.tellg());
-    RAFT_EXPECTS(
-      header.shape.size() == 2, "Graph file should be 2D, got %zu dimensions", header.shape.size());
-
-    graph_n_rows = header.shape[0];
-    graph_n_cols = header.shape[1];
-    RAFT_LOG_DEBUG("Graph file: %zu x %zu, header size: %zu bytes",
-                   graph_n_rows,
-                   graph_n_cols,
-                   graph_header_size);
-  }
-
-  size_t dataset_header_size = 0;
-  size_t dataset_n_rows      = 0;
-  size_t dataset_n_cols      = 0;
-  {
-    std::ifstream dataset_stream(dataset_path, std::ios::binary);
-    RAFT_EXPECTS(dataset_stream.good(), "Failed to open dataset file: %s", dataset_path.c_str());
-
-    auto header         = raft::detail::numpy_serializer::read_header(dataset_stream);
-    dataset_header_size = static_cast<size_t>(dataset_stream.tellg());
-    RAFT_EXPECTS(header.shape.size() == 2,
-                 "Dataset file should be 2D, got %zu dimensions",
-                 header.shape.size());
-
-    dataset_n_rows = header.shape[0];
-    dataset_n_cols = header.shape[1];
-    RAFT_LOG_DEBUG("Dataset file: %zu x %zu, header size: %zu bytes",
-                   dataset_n_rows,
-                   dataset_n_cols,
-                   dataset_header_size);
-  }
-
-  size_t label_header_size = 0;
-  size_t label_n_elements  = 0;
-  {
-    std::ifstream mapping_stream(mapping_path, std::ios::binary);
-    RAFT_EXPECTS(mapping_stream.good(), "Failed to open mapping file: %s", mapping_path.c_str());
-
-    auto header       = raft::detail::numpy_serializer::read_header(mapping_stream);
-    label_header_size = static_cast<size_t>(mapping_stream.tellg());
-    RAFT_EXPECTS(header.shape.size() == 1,
-                 "Mapping file should be 1D, got %zu dimensions",
-                 header.shape.size());
-
-    label_n_elements = header.shape[0];
-    RAFT_LOG_DEBUG(
-      "Mapping file: %zu elements, header size: %zu bytes", label_n_elements, label_header_size);
-  }
-
-  // Verify consistency
-  RAFT_EXPECTS(graph_n_rows == static_cast<size_t>(n_rows),
-               "Graph rows (%zu) != index size (%zu)",
-               graph_n_rows,
-               static_cast<size_t>(n_rows));
-  RAFT_EXPECTS(dataset_n_rows == static_cast<size_t>(n_rows),
-               "Dataset rows (%zu) != index size (%zu)",
-               dataset_n_rows,
-               static_cast<size_t>(n_rows));
-  RAFT_EXPECTS(label_n_elements == static_cast<size_t>(n_rows),
-               "Label elements (%zu) != index size (%zu)",
-               label_n_elements,
-               static_cast<size_t>(n_rows));
-  RAFT_EXPECTS(graph_n_cols == static_cast<size_t>(graph_degree_int),
-               "Graph cols (%zu) != graph degree (%d)",
-               graph_n_cols,
-               graph_degree_int);
-  RAFT_EXPECTS(dataset_n_cols == static_cast<size_t>(dim),
-               "Dataset cols (%zu) != dimensions (%zu)",
-               dataset_n_cols,
-               static_cast<size_t>(dim));
 
   const size_t row_size_bytes =
     graph_degree_int * sizeof(IdxT) + dim * sizeof(T) + sizeof(uint32_t);
@@ -494,7 +421,7 @@ void serialize_to_hnswlib_from_disk(raft::resources const& res,
                  label_buffer.extent(0));
 
   // initialize dummy HNSW index to retrieve constants
-  auto hnsw_index = std::make_unique<index_impl<T>>(dim, index_.metric(), params.hierarchy);
+  auto hnsw_index = std::make_unique<index_impl<T>>(dim, metric, params.hierarchy);
 
   int odd_graph_degree = graph_degree_int % 2;
   auto appr_algo       = std::make_unique<hnswlib::HierarchicalNSW<typename hnsw_dist_t<T>::type>>(
@@ -600,70 +527,6 @@ void serialize_to_hnswlib_from_disk(raft::resources const& res,
                  dim * sizeof(T) + appr_algo->maxM0_ * sizeof(IdxT) + sizeof(int) + sizeof(size_t),
                "Size data per element mismatch");
 
-  // Helper lambda for parallel reading of batches
-  auto read_batch = [&](int64_t start_row, int64_t rows_to_read) {
-    const size_t graph_bytes   = rows_to_read * graph_degree_int * sizeof(IdxT);
-    const size_t dataset_bytes = rows_to_read * dim * sizeof(T);
-    const size_t label_bytes   = rows_to_read * sizeof(uint32_t);
-
-    const off_t graph_offset   = graph_header_size + start_row * graph_degree_int * sizeof(IdxT);
-    const off_t dataset_offset = dataset_header_size + start_row * dim * sizeof(T);
-    const off_t label_offset   = label_header_size + start_row * sizeof(uint32_t);
-
-    RAFT_LOG_DEBUG("Reading batch: row=%ld, rows=%ld", start_row, rows_to_read);
-    RAFT_LOG_DEBUG(
-      "  graph: offset=%zu, bytes=%zu", static_cast<size_t>(graph_offset), graph_bytes);
-    RAFT_LOG_DEBUG(
-      "  dataset: offset=%zu, bytes=%zu", static_cast<size_t>(dataset_offset), dataset_bytes);
-    RAFT_LOG_DEBUG(
-      "  label: offset=%zu, bytes=%zu", static_cast<size_t>(label_offset), label_bytes);
-
-#pragma omp parallel sections num_threads(3)
-    {
-#pragma omp section
-      {
-        ssize_t bytes_read = pread(graph_fd, graph_buffer.data_handle(), graph_bytes, graph_offset);
-        RAFT_EXPECTS(bytes_read == static_cast<ssize_t>(graph_bytes),
-                     "Failed to read graph data: expected %zu, got %zd",
-                     graph_bytes,
-                     bytes_read);
-      }
-#pragma omp section
-      {
-        ssize_t bytes_read =
-          pread(dataset_fd, dataset_buffer.data_handle(), dataset_bytes, dataset_offset);
-        RAFT_EXPECTS(bytes_read == static_cast<ssize_t>(dataset_bytes),
-                     "Failed to read dataset data: expected %zu, got %zd",
-                     dataset_bytes,
-                     bytes_read);
-      }
-#pragma omp section
-      {
-        ssize_t bytes_read = pread(label_fd, label_buffer.data_handle(), label_bytes, label_offset);
-        RAFT_EXPECTS(bytes_read == static_cast<ssize_t>(label_bytes),
-                     "Failed to read label data: expected %zu, got %zd",
-                     label_bytes,
-                     bytes_read);
-      }
-    }
-
-    // Log first few values from first batch for debugging
-    if (start_row == 0 && rows_to_read > 0) {
-      RAFT_LOG_DEBUG("First graph row: [%u, %u, %u, ...]",
-                     static_cast<unsigned int>(graph_buffer(0, 0)),
-                     graph_degree_int > 1 ? static_cast<unsigned int>(graph_buffer(0, 1)) : 0,
-                     graph_degree_int > 2 ? static_cast<unsigned int>(graph_buffer(0, 2)) : 0);
-      RAFT_LOG_DEBUG("First dataset row: [%f, %f, %f, ...]",
-                     static_cast<float>(dataset_buffer(0, 0)),
-                     dim > 1 ? static_cast<float>(dataset_buffer(0, 1)) : 0.0f,
-                     dim > 2 ? static_cast<float>(dataset_buffer(0, 2)) : 0.0f);
-      RAFT_LOG_DEBUG("First labels: [%u, %u, %u, ...]",
-                     static_cast<unsigned int>(label_buffer(0)),
-                     rows_to_read > 1 ? static_cast<unsigned int>(label_buffer(1)) : 0,
-                     rows_to_read > 2 ? static_cast<unsigned int>(label_buffer(2)) : 0);
-    }
-  };
-
   for (int64_t batch_start = 0; batch_start < n_rows; batch_start += batch_size) {
     const int64_t current_batch_size = std::min<int64_t>(batch_size, n_rows - batch_start);
 
@@ -671,7 +534,11 @@ void serialize_to_hnswlib_from_disk(raft::resources const& res,
                    batch_start,
                    current_batch_size,
                    batch_size);
-    read_batch(batch_start, current_batch_size);
+    read_batch(batch_start,
+               current_batch_size,
+               graph_buffer.view(),
+               dataset_buffer.view(),
+               label_buffer.view());
 
     for (int64_t batch_idx = 0; batch_idx < current_batch_size; batch_idx++) {
       const int64_t i = batch_start + batch_idx;
@@ -745,8 +612,7 @@ void serialize_to_hnswlib_from_disk(raft::resources const& res,
         host_query_set.extent(0) - removed_rows,
         dim);
       auto neighbor_view = host_neighbors[pt_level - 1].view();
-      all_neighbors_graph(
-        res, raft::make_const_mdspan(sub_query_view), neighbor_view, index_.metric());
+      all_neighbors_graph(res, raft::make_const_mdspan(sub_query_view), neighbor_view, metric);
     }
   }
 
@@ -817,7 +683,288 @@ void serialize_to_hnswlib_from_disk(raft::resources const& res,
   auto end_time = std::chrono::system_clock::now();
   auto elapsed_time =
     std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
-  RAFT_LOG_INFO("HNSW serialization from disk complete in %ld ms", elapsed_time);
+  RAFT_LOG_INFO("HNSW serialization complete in %ld ms", elapsed_time);
+}
+
+// Serialize a disk-backed CAGRA index into hnswlib format by reading graph/dataset/label
+// rows directly from the backing files via pread.
+template <typename T, typename IdxT>
+void serialize_to_hnswlib_from_disk(raft::resources const& res,
+                                    std::ostream& os_raw,
+                                    const cuvs::neighbors::hnsw::index_params& params,
+                                    const cuvs::neighbors::cagra::index<T, IdxT>& index_)
+{
+  RAFT_EXPECTS(index_.dataset_fd().has_value() && index_.graph_fd().has_value(),
+               "Function only implements serialization from disk.");
+
+  auto n_rows           = static_cast<int64_t>(index_.size());
+  auto dim              = static_cast<int64_t>(index_.dim());
+  auto graph_degree_int = static_cast<int>(index_.graph_degree());
+
+  // Get file descriptors from index
+  const auto& graph_fd_opt   = index_.graph_fd();
+  const auto& dataset_fd_opt = index_.dataset_fd();
+  const auto& mapping_fd_opt = index_.mapping_fd();
+
+  RAFT_EXPECTS(graph_fd_opt.has_value() && graph_fd_opt->is_valid(),
+               "Graph file descriptor is not available");
+  RAFT_EXPECTS(dataset_fd_opt.has_value() && dataset_fd_opt->is_valid(),
+               "Dataset file descriptor is not available");
+  RAFT_EXPECTS(mapping_fd_opt.has_value() && mapping_fd_opt->is_valid(),
+               "Mapping file descriptor is not available");
+
+  // Get file paths from file descriptors
+  std::string graph_path   = graph_fd_opt->get_path();
+  std::string dataset_path = dataset_fd_opt->get_path();
+  std::string mapping_path = mapping_fd_opt->get_path();
+
+  RAFT_EXPECTS(!graph_path.empty(), "Unable to get path from graph file descriptor");
+  RAFT_EXPECTS(!dataset_path.empty(), "Unable to get path from dataset file descriptor");
+  RAFT_EXPECTS(!mapping_path.empty(), "Unable to get path from mapping file descriptor");
+
+  int graph_fd   = graph_fd_opt->get();
+  int dataset_fd = dataset_fd_opt->get();
+  int label_fd   = mapping_fd_opt->get();
+
+  // Read headers from files to get dimensions
+  size_t graph_header_size = 0;
+  size_t graph_n_rows      = 0;
+  size_t graph_n_cols      = 0;
+  {
+    std::ifstream graph_stream(graph_path, std::ios::binary);
+    RAFT_EXPECTS(graph_stream.good(), "Failed to open graph file: %s", graph_path.c_str());
+
+    auto header       = raft::numpy_serializer::read_header(graph_stream);
+    graph_header_size = static_cast<size_t>(graph_stream.tellg());
+    RAFT_EXPECTS(
+      header.shape.size() == 2, "Graph file should be 2D, got %zu dimensions", header.shape.size());
+
+    graph_n_rows = header.shape[0];
+    graph_n_cols = header.shape[1];
+    RAFT_LOG_DEBUG("Graph file: %zu x %zu, header size: %zu bytes",
+                   graph_n_rows,
+                   graph_n_cols,
+                   graph_header_size);
+  }
+
+  size_t dataset_header_size = 0;
+  size_t dataset_n_rows      = 0;
+  size_t dataset_n_cols      = 0;
+  {
+    std::ifstream dataset_stream(dataset_path, std::ios::binary);
+    RAFT_EXPECTS(dataset_stream.good(), "Failed to open dataset file: %s", dataset_path.c_str());
+
+    auto header         = raft::numpy_serializer::read_header(dataset_stream);
+    dataset_header_size = static_cast<size_t>(dataset_stream.tellg());
+    RAFT_EXPECTS(header.shape.size() == 2,
+                 "Dataset file should be 2D, got %zu dimensions",
+                 header.shape.size());
+
+    dataset_n_rows = header.shape[0];
+    dataset_n_cols = header.shape[1];
+    RAFT_LOG_DEBUG("Dataset file: %zu x %zu, header size: %zu bytes",
+                   dataset_n_rows,
+                   dataset_n_cols,
+                   dataset_header_size);
+  }
+
+  size_t label_header_size = 0;
+  size_t label_n_elements  = 0;
+  {
+    std::ifstream mapping_stream(mapping_path, std::ios::binary);
+    RAFT_EXPECTS(mapping_stream.good(), "Failed to open mapping file: %s", mapping_path.c_str());
+
+    auto header       = raft::numpy_serializer::read_header(mapping_stream);
+    label_header_size = static_cast<size_t>(mapping_stream.tellg());
+    RAFT_EXPECTS(header.shape.size() == 1,
+                 "Mapping file should be 1D, got %zu dimensions",
+                 header.shape.size());
+
+    label_n_elements = header.shape[0];
+    RAFT_LOG_DEBUG(
+      "Mapping file: %zu elements, header size: %zu bytes", label_n_elements, label_header_size);
+  }
+
+  // Verify consistency
+  RAFT_EXPECTS(graph_n_rows == static_cast<size_t>(n_rows),
+               "Graph rows (%zu) != index size (%zu)",
+               graph_n_rows,
+               static_cast<size_t>(n_rows));
+  RAFT_EXPECTS(dataset_n_rows == static_cast<size_t>(n_rows),
+               "Dataset rows (%zu) != index size (%zu)",
+               dataset_n_rows,
+               static_cast<size_t>(n_rows));
+  RAFT_EXPECTS(label_n_elements == static_cast<size_t>(n_rows),
+               "Label elements (%zu) != index size (%zu)",
+               label_n_elements,
+               static_cast<size_t>(n_rows));
+  RAFT_EXPECTS(graph_n_cols == static_cast<size_t>(graph_degree_int),
+               "Graph cols (%zu) != graph degree (%d)",
+               graph_n_cols,
+               graph_degree_int);
+  RAFT_EXPECTS(dataset_n_cols == static_cast<size_t>(dim),
+               "Dataset cols (%zu) != dimensions (%zu)",
+               dataset_n_cols,
+               static_cast<size_t>(dim));
+
+  // Disk-specific batch reader: pread graph/dataset/label rows into the host buffers.
+  auto read_batch = [&](int64_t start_row,
+                        int64_t rows_to_read,
+                        raft::host_matrix_view<IdxT, int64_t, raft::row_major> graph_buf,
+                        raft::host_matrix_view<T, int64_t, raft::row_major> dataset_buf,
+                        raft::host_vector_view<uint32_t, int64_t> label_buf) {
+    const size_t graph_bytes   = rows_to_read * graph_degree_int * sizeof(IdxT);
+    const size_t dataset_bytes = rows_to_read * dim * sizeof(T);
+    const size_t label_bytes   = rows_to_read * sizeof(uint32_t);
+
+    const off_t graph_offset   = graph_header_size + start_row * graph_degree_int * sizeof(IdxT);
+    const off_t dataset_offset = dataset_header_size + start_row * dim * sizeof(T);
+    const off_t label_offset   = label_header_size + start_row * sizeof(uint32_t);
+
+    RAFT_LOG_DEBUG("Reading batch: row=%ld, rows=%ld", start_row, rows_to_read);
+
+#pragma omp parallel sections num_threads(3)
+    {
+#pragma omp section
+      {
+        ssize_t bytes_read = pread(graph_fd, graph_buf.data_handle(), graph_bytes, graph_offset);
+        RAFT_EXPECTS(bytes_read == static_cast<ssize_t>(graph_bytes),
+                     "Failed to read graph data: expected %zu, got %zd",
+                     graph_bytes,
+                     bytes_read);
+      }
+#pragma omp section
+      {
+        ssize_t bytes_read =
+          pread(dataset_fd, dataset_buf.data_handle(), dataset_bytes, dataset_offset);
+        RAFT_EXPECTS(bytes_read == static_cast<ssize_t>(dataset_bytes),
+                     "Failed to read dataset data: expected %zu, got %zd",
+                     dataset_bytes,
+                     bytes_read);
+      }
+#pragma omp section
+      {
+        ssize_t bytes_read = pread(label_fd, label_buf.data_handle(), label_bytes, label_offset);
+        RAFT_EXPECTS(bytes_read == static_cast<ssize_t>(label_bytes),
+                     "Failed to read label data: expected %zu, got %zd",
+                     label_bytes,
+                     bytes_read);
+      }
+    }
+  };
+
+  serialize_to_hnswlib_batched<T, IdxT>(
+    res, os_raw, params, n_rows, dim, graph_degree_int, index_.metric(), read_batch);
+}
+
+// Serialize an in-memory CAGRA index into hnswlib format on disk, copying graph/dataset
+// rows from the in-memory (device or host) structures batch by batch. This avoids
+// materializing the full HNSW index in host memory.
+template <typename T, typename IdxT>
+void serialize_to_hnswlib_from_inmem(
+  raft::resources const& res,
+  std::ostream& os_raw,
+  const cuvs::neighbors::hnsw::index_params& params,
+  const cuvs::neighbors::cagra::index<T, IdxT>& index_,
+  std::optional<raft::host_matrix_view<const T, int64_t, raft::row_major>> dataset)
+{
+  auto stream = raft::resource::get_cuda_stream(res);
+  [[maybe_unused]] auto num_threads =
+    params.num_threads == 0 ? cuvs::core::omp::get_max_threads() : params.num_threads;
+
+  // Resolve dataset source (host view if provided, else the CAGRA device dataset).
+  const T* source_dataset = nullptr;
+  int64_t n_rows, dim, source_stride;
+  bool device_dataset;
+  if (dataset.has_value()) {
+    n_rows         = dataset->extent(0);
+    dim            = dataset->extent(1);
+    device_dataset = false;
+    source_dataset = dataset->data_handle();
+    source_stride  = dim;
+  } else if (auto cagra_dataset = index_.dataset(); cagra_dataset.data_handle() != nullptr) {
+    n_rows         = cagra_dataset.extent(0);
+    dim            = cagra_dataset.extent(1);
+    device_dataset = true;
+    source_dataset = cagra_dataset.data_handle();
+    source_stride  = cagra_dataset.stride(0);
+  } else {
+    RAFT_FAIL("serialize_to_hnswlib_from_inmem: No dataset provided");
+  }
+
+  // Resolve graph source and determine whether it is host-accessible.
+  auto graph_view            = index_.graph();
+  const int64_t degree       = graph_view.extent(1);
+  const int graph_degree_int = static_cast<int>(degree);
+  RAFT_EXPECTS(graph_view.extent(0) == n_rows,
+               "Graph rows (%zu) != dataset rows (%zu)",
+               static_cast<size_t>(graph_view.extent(0)),
+               static_cast<size_t>(n_rows));
+
+  const IdxT* graph_ptr = graph_view.data_handle();
+  cudaPointerAttributes attr;
+  RAFT_CUDA_TRY(cudaPointerGetAttributes(&attr, graph_ptr));
+  bool graph_host_accessible = false;
+  if (attr.type == cudaMemoryTypeUnregistered) {
+    graph_host_accessible = true;
+  } else if (attr.hostPointer != nullptr) {
+    graph_ptr             = static_cast<const IdxT*>(attr.hostPointer);
+    graph_host_accessible = true;
+  }
+
+  // In-memory batch reader: copy graph/dataset rows into the host buffers and assign
+  // identity labels (in-memory CAGRA uses a 1:1 labeling, there is no mapping file).
+  auto read_batch = [&](int64_t start_row,
+                        int64_t rows_to_read,
+                        raft::host_matrix_view<IdxT, int64_t, raft::row_major> graph_buf,
+                        raft::host_matrix_view<T, int64_t, raft::row_major> dataset_buf,
+                        raft::host_vector_view<uint32_t, int64_t> label_buf) {
+    // graph rows
+    if (graph_host_accessible) {
+#pragma omp parallel for num_threads(num_threads)
+      for (int64_t r = 0; r < rows_to_read; r++) {
+        std::copy(graph_ptr + (start_row + r) * degree,
+                  graph_ptr + (start_row + r + 1) * degree,
+                  &graph_buf(r, 0));
+      }
+    } else {
+      raft::copy_matrix(graph_buf.data_handle(),
+                        degree,
+                        graph_ptr + start_row * degree,
+                        degree,
+                        degree,
+                        rows_to_read,
+                        stream);
+      raft::resource::sync_stream(res);
+    }
+
+    // dataset rows (drop any device-side row padding via the source stride)
+    if (!device_dataset) {
+#pragma omp parallel for num_threads(num_threads)
+      for (int64_t r = 0; r < rows_to_read; r++) {
+        std::copy(source_dataset + (start_row + r) * source_stride,
+                  source_dataset + (start_row + r) * source_stride + dim,
+                  &dataset_buf(r, 0));
+      }
+    } else {
+      raft::copy_matrix(dataset_buf.data_handle(),
+                        dim,
+                        source_dataset + start_row * source_stride,
+                        source_stride,
+                        dim,
+                        rows_to_read,
+                        stream);
+      raft::resource::sync_stream(res);
+    }
+
+    // identity labels
+    std::iota(label_buf.data_handle(),
+              label_buf.data_handle() + rows_to_read,
+              static_cast<uint32_t>(start_row));
+  };
+
+  serialize_to_hnswlib_batched<T, IdxT>(
+    res, os_raw, params, n_rows, dim, graph_degree_int, index_.metric(), read_batch);
 }
 
 template <typename T, HnswHierarchy hierarchy>
@@ -1066,6 +1213,26 @@ std::enable_if_t<hierarchy == HnswHierarchy::GPU, std::unique_ptr<index<T>>> fro
   return hnsw_index;
 }
 
+inline std::pair<size_t, size_t> get_available_memory(
+  std::optional<double> max_host_memory_gb = std::nullopt,
+  std::optional<double> max_gpu_memory_gb  = std::nullopt)
+{
+  size_t available_host_memory = cuvs::util::get_free_host_memory();
+  if (max_host_memory_gb.has_value() && max_host_memory_gb.value() > 0) {
+    available_host_memory = static_cast<size_t>(max_host_memory_gb.value() * (1ULL << 30));
+    RAFT_LOG_INFO("ACE: Using overridden host memory limit: %.2f GiB", max_host_memory_gb.value());
+  }
+  // Note: We use total device memory rather than free memory because RMM pools
+  // and other allocators may report artificially low free memory. The assumption
+  // is that the full device memory will be available for the build operation.
+  size_t available_device_memory = rmm::available_device_memory().second;
+  if (max_gpu_memory_gb.has_value() && max_gpu_memory_gb.value() > 0) {
+    available_device_memory = static_cast<size_t>(max_gpu_memory_gb.value() * (1ULL << 30));
+    RAFT_LOG_INFO("ACE: Using overridden GPU memory limit: %.2f GiB", max_gpu_memory_gb.value());
+  }
+  return std::make_pair(available_host_memory, available_device_memory);
+}
+
 template <typename T>
 std::unique_ptr<index<T>> from_cagra(
   raft::resources const& res,
@@ -1110,6 +1277,104 @@ std::unique_ptr<index<T>> from_cagra(
     RAFT_LOG_INFO("HNSW index written to disk at: %s", index_filename.c_str());
 
     return hnsw_index;
+  }
+
+  // In-memory CAGRA index: the resulting HNSW index might still not fit in host memory.
+  // Estimate its host footprint and, if it does not fit, spill it to disk via
+  // serialize_to_hnswlib_from_inmem instead of constructing it in RAM (NONE/GPU only;
+  // the CPU hierarchy is not supported by the batched serializer).
+  if (params.hierarchy != HnswHierarchy::CPU) {
+    int64_t n_rows       = dataset.has_value() ? dataset->extent(0) : cagra_index.size();
+    int64_t dim          = dataset.has_value() ? dataset->extent(1) : cagra_index.dim();
+    int graph_degree_int = static_cast<int>(cagra_index.graph().extent(1));
+
+    // Instantiate a size-1 dummy to read the exact per-element host footprint.
+    auto dummy_index = std::make_unique<index_impl<T>>(dim, cagra_index.metric(), params.hierarchy);
+    auto dummy_algo  = std::make_unique<hnswlib::HierarchicalNSW<typename hnsw_dist_t<T>::type>>(
+      dummy_index->get_space(), 1, (graph_degree_int + 1) / 2, params.ef_construction);
+
+    // The contiguous level-0 array (size_data_per_element_ = level-0 links + vector + label)
+    // dominates, but hnswlib allocates several additional per-element structures that are NOT
+    // part of it. These fixed-size costs (locks, hash map) don't shrink with the vector, so a
+    // flat percentage under-counts for low-dim/8-bit/small-M and hierarchical indexes. Model
+    // them explicitly instead:
+    //   - linkLists_   : char* per element
+    //   - element_levels_ : int per element
+    //   - link_list_locks_ : std::mutex per element (kept for the index lifetime)
+    //   - label_lookup_ : unordered_map<labeltype,tableint> node + bucket slot (~56 B upper bound)
+    //   - upper-level link lists (hierarchy != NONE only): expected
+    //     size_links_per_element / ln(M) bytes per element
+    size_t per_element = dummy_algo->size_data_per_element_;
+    per_element += sizeof(void*) + sizeof(int) + sizeof(std::mutex);
+    per_element += 56;  // unordered_map node + bucket slot (upper bound)
+    if (params.hierarchy != HnswHierarchy::NONE) {
+      int m_used = std::max(2, (graph_degree_int + 1) / 2);
+      size_t size_links_per_element =
+        static_cast<size_t>(m_used) * sizeof(uint32_t) + sizeof(uint32_t);
+      per_element +=
+        static_cast<size_t>(size_links_per_element / std::log(static_cast<double>(m_used)));
+    }
+    size_t required_host = static_cast<size_t>(n_rows) * per_element;
+
+    // Honor an explicit host-memory limit from ACE params (if configured), mirroring
+    // hnsw::build. This also makes the spill branch deterministically testable.
+    std::optional<double> max_host_memory_gb = std::nullopt;
+    if (std::holds_alternative<graph_build_params::ace_params>(params.graph_build_params)) {
+      const auto& ace = std::get<graph_build_params::ace_params>(params.graph_build_params);
+      if (ace.max_host_memory_gb > 0) { max_host_memory_gb = ace.max_host_memory_gb; }
+    }
+    size_t available_host = get_available_memory(max_host_memory_gb).first;
+
+    RAFT_LOG_INFO(
+      "hnsw::from_cagra - in-memory HNSW requires ~%4.1f GB host mem, available %4.1f GB",
+      required_host / 1e9,
+      available_host / 1e9);
+
+    if (required_host >= available_host) {
+      RAFT_LOG_INFO("Not enough host memory for in-memory HNSW. Spilling HNSW index to disk.");
+
+      // Use the ACE build_dir if configured, otherwise fallback to system temp
+      std::string index_directory;
+      if (std::holds_alternative<graph_build_params::ace_params>(params.graph_build_params)) {
+        const auto& ace = std::get<graph_build_params::ace_params>(params.graph_build_params);
+        if (!ace.build_dir.empty()) { index_directory = ace.build_dir; }
+      }
+      if (index_directory.empty()) {
+        std::random_device rd;
+        std::mt19937_64 gen(rd());
+        std::filesystem::path candidate;
+        do {
+          candidate =
+            std::filesystem::temp_directory_path() / ("cuvs_hnsw_" + std::to_string(gen()));
+        } while (std::filesystem::exists(candidate));
+        index_directory = candidate.string();
+      }
+      std::filesystem::create_directories(index_directory);
+      RAFT_EXPECTS(
+        std::filesystem::exists(index_directory) && std::filesystem::is_directory(index_directory),
+        "Directory '%s' does not exist",
+        index_directory.c_str());
+
+      std::string index_filename =
+        (std::filesystem::path(index_directory) / "hnsw_index.bin").string();
+
+      std::ofstream of(index_filename, std::ios::out | std::ios::binary);
+      RAFT_EXPECTS(of, "Cannot open file %s", index_filename.c_str());
+
+      serialize_to_hnswlib_from_inmem(res, of, params, cagra_index, dataset);
+
+      of.close();
+      RAFT_EXPECTS(of, "Error writing output %s", index_filename.c_str());
+
+      // Create an empty HNSW index that holds the file descriptor
+      auto hnsw_index =
+        std::make_unique<index_impl<T>>(dim, cagra_index.metric(), params.hierarchy);
+      hnsw_index->set_file_descriptor(cuvs::util::file_descriptor(index_filename, O_RDONLY));
+
+      RAFT_LOG_INFO("HNSW index written to disk at: %s", index_filename.c_str());
+
+      return hnsw_index;
+    }
   }
 
   if (params.hierarchy == HnswHierarchy::NONE) {
@@ -1269,9 +1534,10 @@ void deserialize(raft::resources const& res,
  * @brief Build an HNSW index on the GPU using CAGRA graph building algorithm
  *
  * This function builds an HNSW index
- * 1. Converting HNSW parameters to CAGRA parameters (ACE configuration by default)
- * 2. Building a CAGRA index
- * 3. Converting the CAGRA index to HNSW format
+ * 1. Converting HNSW parameters to CAGRA parameters
+ * 2. Inspect memory requirements (fall back to ACE algorithm if memory constrained)
+ * 3. Building a CAGRA index with the chosen algorithm in (2)
+ * 4. Converting the CAGRA index to HNSW format (in-memory or disk-backed)
  */
 template <typename T>
 std::unique_ptr<index<T>> build(raft::resources const& res,
@@ -1280,34 +1546,55 @@ std::unique_ptr<index<T>> build(raft::resources const& res,
 {
   common::nvtx::range<common::nvtx::domain::cuvs> fun_scope("hnsw::build<ACE>");
 
-  // Use provided ACE parameters or default ones if not specified
-  auto ace_params =
-    std::holds_alternative<graph_build_params::ace_params>(params.graph_build_params)
-      ? std::get<graph_build_params::ace_params>(params.graph_build_params)
-      : graph_build_params::ace_params{};
+  cuvs::neighbors::cagra::index_params cagra_params =
+    cagra::index_params::from_hnsw_params(dataset.extents(),
+                                          params.M,
+                                          params.ef_construction,
+                                          cagra::hnsw_heuristic_type::SAME_GRAPH_FOOTPRINT,
+                                          params.metric);
+  cagra_params.metric = params.metric;
 
-  // Create CAGRA index parameters from HNSW parameters
-  cuvs::neighbors::cagra::index_params cagra_params;
-  cagra_params.metric                    = params.metric;
-  cagra_params.intermediate_graph_degree = params.M * 3;
-  cagra_params.graph_degree              = params.M * 2;
+  // If the user explicitly configured ACE, honor it. Otherwise (default params) apply a
+  // heuristic that falls back to ACE only when an in-memory CAGRA build would not fit in
+  // the available host/device memory.
+  bool use_ace = std::holds_alternative<graph_build_params::ace_params>(params.graph_build_params);
 
-  // Configure ACE parameters for CAGRA
-  cuvs::neighbors::cagra::graph_build_params::ace_params cagra_ace_params;
-  cagra_ace_params.npartitions        = ace_params.npartitions;
-  cagra_ace_params.ef_construction    = params.ef_construction;
-  cagra_ace_params.build_dir          = ace_params.build_dir;
-  cagra_ace_params.use_disk           = ace_params.use_disk;
-  cagra_ace_params.max_host_memory_gb = ace_params.max_host_memory_gb;
-  cagra_ace_params.max_gpu_memory_gb  = ace_params.max_gpu_memory_gb;
-  cagra_params.graph_build_params     = cagra_ace_params;
+  if (std::holds_alternative<std::monostate>(params.graph_build_params)) {
+    auto [required_host, required_dev] = cuvs::neighbors::cagra::helpers::cagra_build_mem_usage(
+      res, dataset.extents(), to_cuda_data_type<T>(), cagra_params);
+    auto [available_host, available_dev] = get_available_memory();
 
-  RAFT_LOG_INFO(
-    "hnsw::build - Building HNSW index using ACE with %zu partitions, ef_construction=%zu",
-    ace_params.npartitions,
-    ace_params.ef_construction);
+    RAFT_LOG_INFO("CAGRA in memory build, required host mem %4.1f GB, GPU mem %4.1f GB",
+                  required_host / 1e9,
+                  required_dev / 1e9);
+    RAFT_LOG_INFO("Available                       host mem %4.1f GB, GPU mem %4.1f GB",
+                  available_host / 1e9,
+                  available_dev / 1e9);
+    if (required_host < available_host && required_dev < available_dev) {
+      RAFT_LOG_INFO("We have sufficient memory to proceed with in memory build");
+    } else {
+      use_ace = true;
+      RAFT_LOG_INFO(
+        "Not enough host or device memory. Falling back to ACE build with optional disk spilling");
+    }
+  }
+  if (use_ace) {
+    auto ace_params =
+      std::holds_alternative<graph_build_params::ace_params>(params.graph_build_params)
+        ? std::get<graph_build_params::ace_params>(params.graph_build_params)
+        : graph_build_params::ace_params{};
 
-  // Build CAGRA index using ACE
+    // Configure ACE parameters for CAGRA
+    cuvs::neighbors::cagra::graph_build_params::ace_params cagra_ace_params;
+    cagra_ace_params.npartitions        = ace_params.npartitions;
+    cagra_ace_params.ef_construction    = params.ef_construction;
+    cagra_ace_params.build_dir          = ace_params.build_dir;
+    cagra_ace_params.use_disk           = ace_params.use_disk;
+    cagra_ace_params.max_host_memory_gb = ace_params.max_host_memory_gb;
+    cagra_ace_params.max_gpu_memory_gb  = ace_params.max_gpu_memory_gb;
+    cagra_params.graph_build_params     = cagra_ace_params;
+  }
+  // Build CAGRA index optionally using ACE
   auto cagra_index = cuvs::neighbors::cagra::build(res, cagra_params, dataset);
 
   RAFT_LOG_INFO("hnsw::build - Converting CAGRA index to HNSW format");

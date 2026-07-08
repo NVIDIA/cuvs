@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -11,6 +11,7 @@
 #include <faiss/IndexHNSW.h>
 #include <faiss/IndexIVFFlat.h>
 #include <faiss/IndexIVFPQ.h>
+#include <faiss/IndexIVFRaBitQ.h>
 #include <faiss/IndexRefine.h>
 #include <faiss/IndexScalarQuantizer.h>
 #include <faiss/index_io.h>
@@ -238,6 +239,31 @@ class faiss_cpu_ivfpq : public faiss_cpu<T> {
   std::unique_ptr<algo<T>> copy()
   {
     return std::make_unique<faiss_cpu_ivfpq<T>>(*this);  // use copy constructor
+  }
+};
+
+template <typename T>
+class faiss_cpu_ivfrabitq : public faiss_cpu<T> {
+ public:
+  struct build_param : public faiss_cpu<T>::build_param {};
+
+  faiss_cpu_ivfrabitq(Metric metric, int dim, const build_param& param)
+    : faiss_cpu<T>(metric, dim, param)
+  {
+    this->init_quantizer(dim);
+    this->index_ = std::make_shared<faiss::IndexIVFRaBitQ>(
+      this->quantizer_.get(), dim, param.nlist, this->metric_type_);
+  }
+
+  void save(const std::string& file) const override
+  {
+    this->template save_<faiss::IndexIVFRaBitQ>(file);
+  }
+  void load(const std::string& file) override { this->template load_<faiss::IndexIVFRaBitQ>(file); }
+
+  std::unique_ptr<algo<T>> copy()
+  {
+    return std::make_unique<faiss_cpu_ivfrabitq<T>>(*this);  // use copy constructor
   }
 };
 
