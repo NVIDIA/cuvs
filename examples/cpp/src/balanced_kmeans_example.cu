@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -345,12 +345,22 @@ void print_balance_improvement(partition_size_stats const& regular_stats,
             << ", standard deviation " << regular_stddev << " -> " << balanced_stddev << '\n';
 }
 
+void print_inertia_comparison(float regular_inertia, float balanced_inertia)
+{
+  std::cout << "Inertia: regular=" << regular_inertia << ", balanced=" << balanced_inertia;
+  if (regular_inertia != 0.0f) {
+    std::cout << ", balanced/regular=" << balanced_inertia / regular_inertia;
+  }
+  std::cout << '\n';
+}
+
 template <typename DataT>
 bool run_regular_kmeans(raft::device_resources const& resources,
                         raft::device_matrix_view<const DataT, int64_t> dataset,
                         int64_t n_partitions,
                         std::uint32_t n_iters,
-                        raft::device_vector_view<int64_t, int64_t> labels)
+                        raft::device_vector_view<int64_t, int64_t> labels,
+                        float* inertia_out)
 {
   if constexpr (std::is_same_v<DataT, float>) {
     cuvs::cluster::kmeans::params params;
@@ -379,6 +389,7 @@ bool run_regular_kmeans(raft::device_resources const& resources,
                                    false,
                                    raft::make_host_scalar_view(&inertia));
 
+    if (inertia_out != nullptr) { *inertia_out = inertia; }
     return true;
   } else {
     return false;
@@ -418,8 +429,9 @@ void partition_dataset(std::string const& dataset_path,
   auto regular_labels = raft::make_device_vector<int64_t, int64_t>(resources, n_samples);
   auto dataset_view   = raft::make_const_mdspan(dataset.view());
 
+  float regular_inertia        = 0.0f;
   auto const has_regular_stats = run_regular_kmeans<DataT>(
-    resources, dataset_view, n_partitions, n_iters, regular_labels.view());
+    resources, dataset_view, n_partitions, n_iters, regular_labels.view(), &regular_inertia);
   std::optional<partition_size_stats> regular_reference_stats;
   if (has_regular_stats) {
     regular_reference_stats =
@@ -429,6 +441,7 @@ void partition_dataset(std::string const& dataset_path,
                                    balance_lower_tolerances.front(),
                                    balance_upper_tolerances.front());
     print_partition_size_summary("Regular k-means", regular_reference_stats.value());
+    std::cout << "Regular k-means inertia: " << regular_inertia << '\n';
     print_partition_size_histogram(
       "Regular k-means",
       regular_reference_stats.value(),
@@ -450,7 +463,16 @@ void partition_dataset(std::string const& dataset_path,
       params.balance_upper_tolerance = balance_upper_tolerance;
       params.centroid_offset         = centroid_offset;
 
-      cuvs::cluster::kmeans::fit(resources, params, dataset_view, centroids.view());
+      float balanced_inertia = 0.0f;
+      if constexpr (std::is_same_v<DataT, float>) {
+        cuvs::cluster::kmeans::fit(resources,
+                                   params,
+                                   dataset_view,
+                                   centroids.view(),
+                                   raft::make_host_scalar_view(&balanced_inertia));
+      } else {
+        cuvs::cluster::kmeans::fit(resources, params, dataset_view, centroids.view());
+      }
       cuvs::cluster::kmeans::predict(
         resources, params, dataset_view, raft::make_const_mdspan(centroids.view()), labels.view());
 
@@ -470,6 +492,7 @@ void partition_dataset(std::string const& dataset_path,
         print_partition_size_histogram(
           "Balanced k-means", balanced_stats, histogram_min, histogram_upper);
         print_balance_improvement(regular_stats, balanced_stats);
+        print_inertia_comparison(regular_inertia, balanced_inertia);
       } else {
         print_partition_size_stats("Balanced k-means", balanced_stats);
         print_partition_size_histogram("Balanced k-means",
