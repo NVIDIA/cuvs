@@ -10,8 +10,6 @@
 #include <raft/core/device_resources.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/random/rng.cuh>
-#include <raft/util/cuda_utils.cuh>
-#include <raft/util/cudart_utils.hpp>
 
 #include <gtest/gtest.h>
 #include <test_utils.h>
@@ -55,11 +53,12 @@ void pca_roundtrip(raft::resources const& handle,
                    T* output,
                    int n_components,
                    int algo,
-                   cudaStream_t stream,
                    T* components_out    = nullptr,
                    T* explained_var_out = nullptr,
                    T* trans_out         = nullptr)
 {
+  auto stream = raft::resource::get_cuda_stream(handle);
+
   params prms;
   prms.n_components = n_components;
   if (algo == 0)
@@ -150,7 +149,6 @@ class PcaTest : public ::testing::TestWithParam<PcaInputs<T>> {
                     data_back.data(),
                     params_.n_col,
                     params_.algo,
-                    stream,
                     components.data(),
                     explained_vars.data(),
                     trans_data.data());
@@ -167,8 +165,7 @@ class PcaTest : public ::testing::TestWithParam<PcaInputs<T>> {
                     params_.n_col2,
                     data2_back.data(),
                     params_.n_col2,
-                    params_.algo,
-                    stream);
+                    params_.algo);
     }
 
     // --- dim reduction test: n_components < n_cols, random data ---
@@ -189,14 +186,13 @@ class PcaTest : public ::testing::TestWithParam<PcaInputs<T>> {
                     params_.n_col2,
                     recon.data(),
                     n_components,
-                    params_.algo,
-                    stream);
+                    params_.algo);
 
       std::vector<T> orig_h(len2);
       std::vector<T> recon_h(len2);
       raft::update_host(orig_h.data(), input_copy.data(), len2, stream);
       raft::update_host(recon_h.data(), recon.data(), len2, stream);
-      RAFT_CUDA_TRY(cudaStreamSynchronize(stream));
+      raft::resource::sync_stream(handle);
 
       max_recon_err = T(0);
       for (int i = 0; i < len2; ++i) {
@@ -285,7 +281,7 @@ class PcaRowMajorTest : public ::testing::TestWithParam<PcaInputs<T>> {
     std::vector<T> host_col(n_rows * n_cols);
     std::vector<T> host_row(n_rows * n_cols);
     raft::update_host(host_col.data(), col_major_src, n_rows * n_cols, stream);
-    RAFT_CUDA_TRY(cudaStreamSynchronize(stream));
+    raft::resource::sync_stream(handle);
     for (int i = 0; i < n_rows; ++i) {
       for (int j = 0; j < n_cols; ++j) {
         host_row[i * n_cols + j] = host_col[j * n_rows + i];
@@ -309,7 +305,7 @@ class PcaRowMajorTest : public ::testing::TestWithParam<PcaInputs<T>> {
     to_row_major(data_col.data(), data_row.data(), n_rows, n_cols);
 
     pca_roundtrip<T, raft::row_major>(
-      handle, data_row.data(), n_rows, n_cols, data_back_row.data(), n_cols, params_.algo, stream);
+      handle, data_row.data(), n_rows, n_cols, data_back_row.data(), n_cols, params_.algo);
 
     ASSERT_TRUE(devArrMatch(data_row.data(),
                             data_back_row.data(),
@@ -343,7 +339,6 @@ class PcaRowMajorTest : public ::testing::TestWithParam<PcaInputs<T>> {
                                       col_back.data(),
                                       n_cols,
                                       params_.algo,
-                                      stream,
                                       col_components.data(),
                                       col_ev.data(),
                                       col_trans.data());
@@ -360,7 +355,6 @@ class PcaRowMajorTest : public ::testing::TestWithParam<PcaInputs<T>> {
                                       row_back.data(),
                                       n_cols,
                                       params_.algo,
-                                      stream,
                                       row_components.data(),
                                       row_ev.data(),
                                       row_trans.data());
@@ -375,7 +369,7 @@ class PcaRowMajorTest : public ::testing::TestWithParam<PcaInputs<T>> {
     std::vector<T> row_back_h(len);
     raft::update_host(col_back_h.data(), col_back.data(), len, stream);
     raft::update_host(row_back_h.data(), row_back.data(), len, stream);
-    RAFT_CUDA_TRY(cudaStreamSynchronize(stream));
+    raft::resource::sync_stream(handle);
     for (int i = 0; i < n_rows; ++i) {
       for (int j = 0; j < n_cols; ++j) {
         T col_val = col_back_h[j * n_rows + i];
