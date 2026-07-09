@@ -510,11 +510,112 @@ raft::resource::set_large_workspace_resource(
 | --- | --- | --- |
 | `raft::device_resources` | Single-GPU C++ APIs | The usual C++ resources object for one GPU. |
 | `raft::resources` | Lower-level C++ RAFT and NVIDIA cuVS APIs | A resource container used by C++ algorithms and advanced applications. |
+| `raft::memory_tracking_resources` | C++ diagnostics | A `raft::resources` handle that wraps all reachable memory resources and logs allocation samples to a CSV file from a background thread. See [Memory tracking](#memory-tracking). |
+| `raft::memory_stats_resources` | C++ diagnostics | A `raft::resources` handle that wraps all reachable memory resources with statistics adaptors so peak/current byte usage and allocation counts can be queried in-process via `get_bytes_peak()`, `get_bytes_current()`, and related accessors. |
 | `raft::device_resources_snmg` | Single-node multi-GPU C++ APIs | A convenience layer for one process controlling multiple GPUs. See [Multi-GPU](/user-guide/api-guides/core-types/multi-gpu). |
 | `cuvsResources_t` | C API and language bindings | Opaque handle over RAFT resources for ABI-stable bindings. |
 | `Resources` | Python and Rust | Language wrapper around `cuvsResources_t`. |
 | `Resource` | Go | Go wrapper around `cuvsResources_t`. |
 | `CuVSResources` | Java | Java `AutoCloseable` wrapper around native NVIDIA cuVS resources. |
+
+
+### Memory tracking
+
+A resources handle whose memory allocations are tracked and written as CSV samples from a background thread can be created in any of the supported languages.
+The handle wraps all reachable memory resources (host, pinned, managed, device, workspace, large_workspace) with allocation-tracking adaptors and replaces the global host and device memory resources for the lifetime of the handle.
+It is otherwise indistinguishable from a regular resources handle and can be passed to every NVIDIA cuVS API that accepts one.
+The CSV reporter is stopped and the global memory resources are restored when the handle is destroyed.
+
+<Note>
+
+- The handle replaces the **global** host and device memory resources while it is alive.
+  Do not create multiple tracking handles concurrently and make sure the handle outlives every consumer (matrices, indexes, search results, ...) that allocates memory through NVIDIA cuVS.
+- The CSV file is flushed eagerly: the header is flushed on construction and every sample row is flushed as soon as it is written, so the file can be tailed while the handle is alive.
+  This helps during debugging, if the program has segfaulted.
+  Destroying the handle stops the background sampler and writes one final row.
+- The sample interval is a *minimum* time between samples.
+  The background thread blocks until an allocation/deallocation occurs, then sleeps for at least `sample_interval` before writing the next row; quiescent periods do not produce extra rows.
+
+</Note>
+
+<Tabs>
+<Tab title="C">
+
+```c
+#include <cuvs/core/c_api.h>
+
+#include <cuda_runtime.h>
+
+cuvsResources_t res;
+// 10 ms sampling matches the C++ default.
+cuvsResourcesCreateWithMemoryTracking(&res, "/tmp/allocations.csv", 10);
+
+// ... do some processing ...
+
+cuvsResourcesDestroy(res);
+```
+
+</Tab>
+<Tab title="C++">
+
+```cpp
+#include <raft/core/memory_tracking_resources.hpp>
+
+// Sample interval defaults to std::chrono::milliseconds{10}.
+raft::memory_tracking_resources res{"/tmp/allocations.csv"};
+
+// ... do some processing ...
+// `res` is implicitly convertible to raft::resources& and can be passed
+// to any cuVS / RAFT API that accepts a resources handle.
+```
+
+</Tab>
+<Tab title="Python">
+
+```python
+from cuvs.common import Resources
+
+res = Resources(
+    memory_tracking_csv_path="/tmp/allocations.csv",
+    memory_tracking_sample_interval_ms=10,
+)
+
+# ... do some processing ...
+
+del res  # flushes the CSV and restores the global memory resources
+```
+
+</Tab>
+<Tab title="Java">
+
+```java
+import com.nvidia.cuvs.CuVSResources;
+import com.nvidia.cuvs.spi.CuVSProvider;
+import java.nio.file.Path;
+import java.time.Duration;
+
+try (var res = CuVSResources.create(
+        CuVSProvider.tempDirectory(),
+        Path.of("/tmp/allocations.csv"),
+        Duration.ofMillis(10))) {
+    // ... do some processing ...
+}
+```
+
+</Tab>
+<Tab title="Rust">
+
+```rust
+use std::time::Duration;
+
+let res = cuvs::Resources::with_memory_tracking(
+    "/tmp/allocations.csv",
+    Some(Duration::from_millis(10)),
+)?;
+```
+
+</Tab>
+</Tabs>
 
 ## Practical Guidance
 
