@@ -979,9 +979,7 @@ class AnnCagraFilterTest : public ::testing::TestWithParam<AnnCagraInputs> {
           global_bloom_filter.add_async(handle_, valid_ids_view);
           raft::resource::sync_stream(handle_);
 
-          auto bloom_filter_obj = cuvs::neighbors::filtering::bloom_filter(
-            global_bloom_filter,
-            static_cast<float>(test_cagra_sample_filter::offset) / static_cast<float>(ps.n_rows));
+          auto bloom_filter_obj = cuvs::neighbors::filtering::bloom_filter(global_bloom_filter);
 
           cagra::search(handle_,
                         search_params,

@@ -10,6 +10,11 @@
 
 #include <raft/core/error.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
+#include <raft/core/resource/thrust_policy.hpp>
+
+#include <rmm/device_uvector.hpp>
+#include <thrust/count.h>
+#include <thrust/iterator/counting_iterator.h>
 
 #include <algorithm>
 #include <cmath>
@@ -152,6 +157,26 @@ void bloom_filter::contains_async(raft::resources const& res,
 }
 
 std::size_t bloom_filter::num_blocks() const noexcept { return impl_->filter.block_extent(); }
+
+float bloom_filter::estimate_filtering_rate(raft::resources const& res,
+                                            std::size_t dataset_rows) const
+{
+  if (dataset_rows == 0) { return 0.0f; }
+  auto stream = raft::resource::get_cuda_stream(res);
+  auto policy = raft::resource::get_thrust_policy(res);
+
+  rmm::device_uvector<std::uint8_t> hits(dataset_rows, stream);
+
+  auto first_id = thrust::counting_iterator<key_type>(0);
+  impl_->filter.contains_async(first_id, first_id + dataset_rows, hits.data(), stream);
+
+  auto positives = thrust::count_if(
+    policy, hits.begin(), hits.end(), [] __device__(std::uint8_t v) { return v != 0; });
+  raft::resource::sync_stream(res);
+  auto filtering_rate = static_cast<float>(dataset_rows - static_cast<std::size_t>(positives)) /
+                        static_cast<float>(dataset_rows);
+  return std::clamp(filtering_rate, 0.0f, 0.999f);
+}
 
 void bloom_filter::export_payload(void* payload_out, std::size_t payload_bytes) const
 {

@@ -634,18 +634,11 @@ struct bitset_filter : public base_filter {
  */
 struct bloom_filter : public base_filter {
   void* filter_data{nullptr};
-  const cuvs::core::bloom_filter* bloom_filter_ptr{nullptr};
-  float filtering_rate{-1.0f};
 
   bloom_filter() = default;
 
-  explicit bloom_filter(void* filter_data, float filtering_rate = -1.0f)
-    : filter_data(filter_data), filtering_rate(filtering_rate)
-  {
-  }
-
-  explicit bloom_filter(const cuvs::core::bloom_filter& bloom_filter, float filtering_rate = -1.0f)
-    : bloom_filter_ptr(&bloom_filter), filtering_rate(filtering_rate)
+  explicit bloom_filter(const cuvs::core::bloom_filter& bloom_filter)
+    : filter_data(const_cast<cuvs::core::bloom_filter*>(&bloom_filter))
   {
   }
 

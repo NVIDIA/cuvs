@@ -389,14 +389,17 @@ void search(raft::resources const& res,
     auto& sample_filter =
       dynamic_cast<const cuvs::neighbors::filtering::bloom_filter&>(sample_filter_ref);
     search_params params_copy = params;
-    if (params.filtering_rate < 0.0) {
+    if (params.filtering_rate <= 0.0f) {
       const float min_filtering_rate = 0.0f;
       const float max_filtering_rate = 0.999f;
+      auto const* bloom_filter_obj =
+        static_cast<const cuvs::core::bloom_filter*>(sample_filter.filter_data);
+      RAFT_EXPECTS(bloom_filter_obj != nullptr,
+                   "bloom_filter must carry a valid cuvs::core::bloom_filter handle.");
+      params_copy.filtering_rate = bloom_filter_obj->estimate_filtering_rate(
+        res, static_cast<std::size_t>(idx.data().n_rows()));
       params_copy.filtering_rate =
-        sample_filter.filtering_rate < 0.0f
-          ? 0.0f
-          : std::min(std::max(sample_filter.filtering_rate, min_filtering_rate),
-                     max_filtering_rate);
+        std::min(std::max(params_copy.filtering_rate, min_filtering_rate), max_filtering_rate);
     }
     auto sample_filter_copy = sample_filter;
     return search_with_filtering<T, IdxT, decltype(sample_filter_copy), OutputIdxT>(

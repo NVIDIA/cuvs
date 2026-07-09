@@ -75,6 +75,8 @@ class CUVS_EXPORT bloom_filter {
                       raft::device_vector_view<std::uint8_t, int64_t> output) const;
 
   [[nodiscard]] std::size_t num_blocks() const noexcept;
+  [[nodiscard]] float estimate_filtering_rate(raft::resources const& res,
+                                              std::size_t dataset_rows) const;
 
   /**
    * @brief Export host payload used by CAGRA JIT filter internals.
