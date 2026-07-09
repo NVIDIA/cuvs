@@ -104,7 +104,7 @@ int main()
   search_params.thread_block_size = 256;
 
   // ~50% of rows are rejected by the global even-id predicate.
-  auto filter = cuvs::neighbors::filtering::bloom_filter(allowed_rows.filter_data(), 0.5f);
+  auto filter = cuvs::neighbors::filtering::bloom_filter(allowed_rows, 0.5f);
 
   cuvs::neighbors::cagra::search(res,
                                  search_params,

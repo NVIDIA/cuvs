@@ -77,12 +77,12 @@ class CUVS_EXPORT bloom_filter {
   [[nodiscard]] std::size_t num_blocks() const noexcept;
 
   /**
-   * @brief Device pointer to the CAGRA JIT sample-filter payload.
+   * @brief Export host payload used by CAGRA JIT filter internals.
    *
-   * The pointed object is device memory owned by this wrapper and remains valid while this object
-   * is alive.
+   * This API is intended for cuVS internal use. The caller must provide storage matching the
+   * payload layout expected by CAGRA.
    */
-  [[nodiscard]] void* filter_data() const noexcept;
+  void export_payload(void* payload_out, std::size_t payload_bytes) const;
 
  private:
   struct impl;

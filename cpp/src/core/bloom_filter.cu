@@ -8,11 +8,8 @@
 
 #include <cuco/bloom_filter.cuh>
 
-#include <raft/core/copy.cuh>
 #include <raft/core/error.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
-
-#include <rmm/device_uvector.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -51,7 +48,6 @@ struct bloom_filter::impl {
   using sample_filter_payload = cuvs::neighbors::detail::bloom_filter_data_t<key_type>;
 
   cuco_filter_type filter;
-  rmm::device_uvector<sample_filter_payload> payload;
   std::optional<std::size_t> configured_dataset_rows;
   float filtering_rate;
   float target_false_positive_rate;
@@ -61,21 +57,14 @@ struct bloom_filter::impl {
        float filtering_rate_,
        float target_false_positive_rate_)
     : filter(num_blocks, {}, {}, {}, raft::resource::get_cuda_stream(res)),
-      payload(1, raft::resource::get_cuda_stream(res)),
       filtering_rate(filtering_rate_),
       target_false_positive_rate(target_false_positive_rate_)
   {
-    auto stream = raft::resource::get_cuda_stream(res);
-    sample_filter_payload host_payload{filter.ref()};
-    raft::copy(payload.data(), &host_payload, 1, stream);
-    raft::resource::sync_stream(res);
   }
 
   void rebuild_filter(std::size_t num_blocks, cudaStream_t stream)
   {
     filter = cuco_filter_type(num_blocks, {}, {}, {}, stream);
-    sample_filter_payload host_payload{filter.ref()};
-    raft::copy(payload.data(), &host_payload, 1, stream);
   }
 
   void configure_or_validate_dataset_rows(raft::device_vector_view<const key_type, int64_t> keys,
@@ -164,6 +153,15 @@ void bloom_filter::contains_async(raft::resources const& res,
 
 std::size_t bloom_filter::num_blocks() const noexcept { return impl_->filter.block_extent(); }
 
-void* bloom_filter::filter_data() const noexcept { return impl_->payload.data(); }
+void bloom_filter::export_payload(void* payload_out, std::size_t payload_bytes) const
+{
+  using sample_filter_payload = impl::sample_filter_payload;
+  RAFT_EXPECTS(payload_out != nullptr, "payload_out must not be null.");
+  RAFT_EXPECTS(payload_bytes == sizeof(sample_filter_payload),
+               "payload_bytes must match bloom filter payload size.");
+
+  auto* typed_payload = static_cast<sample_filter_payload*>(payload_out);
+  *typed_payload      = sample_filter_payload{impl_->filter.ref()};
+}
 
 }  // namespace cuvs::core
