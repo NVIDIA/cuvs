@@ -8,6 +8,7 @@ import com.nvidia.cuvs.*;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodType;
 import java.nio.file.Path;
+import java.time.Duration;
 
 /**
  * A provider of low-level cuvs resources and builders.
@@ -34,6 +35,31 @@ public interface CuVSProvider {
 
   /** Creates a new CuVSResources. */
   CuVSResources newCuVSResources(Path tempDirectory) throws Throwable;
+
+  /**
+   * Creates a new CuVSResources whose memory allocations are tracked and
+   * written as CSV samples from a background thread.
+   *
+   * <p>This method is declared as a {@code default} method so that adding it
+   * does not break binary compatibility with providers compiled against an
+   * earlier version of this interface; the default implementation throws
+   * {@link UnsupportedOperationException} and providers must override it to
+   * opt in.
+   *
+   * @param tempDirectory                the temporary directory to use for
+   *                                     intermediate operations
+   * @param memoryTrackingCsvPath        path to the output CSV file
+   *                                     (created/truncated)
+   * @param memoryTrackingSampleInterval minimum interval between successive
+   *                                     CSV samples
+   */
+  default CuVSResources newCuVSResources(
+      Path tempDirectory,
+      Path memoryTrackingCsvPath,
+      Duration memoryTrackingSampleInterval) throws Throwable {
+    throw new UnsupportedOperationException(
+        "Memory-tracking resources are not supported by this provider");
+  }
 
   /** Create a {@link CuVSMatrix.Builder} instance for a host memory matrix **/
   CuVSMatrix.Builder<CuVSHostMatrix> newHostMatrixBuilder(
