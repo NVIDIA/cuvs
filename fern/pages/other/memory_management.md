@@ -466,3 +466,9 @@ Use a pool for repeatable performance measurements. Allocator behavior can other
 Keep the memory resource alive for at least as long as the allocations that use it. In C++ this means the pool object must outlive arrays allocated from it. In C, Java, Rust, and Go this means resetting the NVIDIA cuVS memory resource after NVIDIA cuVS objects have been destroyed.
 
 Avoid changing memory resources in the middle of a workflow unless the application has a clear ownership boundary. The safest pattern is to configure once, allocate and run NVIDIA cuVS work, destroy NVIDIA cuVS objects, then reset.
+
+### Tracking memory usage
+
+To understand how much memory a workload allocates over time, create a resources handle that tracks its allocations and writes CSV samples from a background thread.
+This wraps all reachable memory resources with allocation-tracking adaptors and logs a timeline that can be tailed while the handle is alive.
+See [Memory tracking](/user-guide/api-guides/core-types/resources#memory-tracking) in the Resources guide for the per-language usage examples and caveats.
