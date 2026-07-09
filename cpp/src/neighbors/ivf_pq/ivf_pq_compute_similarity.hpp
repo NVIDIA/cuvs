@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -9,7 +9,7 @@
 
 #include <memory>
 
-#include <cuvs/detail/jit_lto/AlgorithmLauncher.hpp>
+#include <AlgorithmLauncher.hpp>
 
 namespace cuvs::neighbors::ivf_pq::detail {
 

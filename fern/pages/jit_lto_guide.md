@@ -523,8 +523,8 @@ The planner is responsible for:
 ```cpp
 #pragma once
 
-#include <cuvs/detail/jit_lto/AlgorithmPlanner.hpp>
-#include <cuvs/detail/jit_lto/FragmentEntry.hpp>
+#include <AlgorithmPlanner.hpp>
+#include <FragmentEntry.hpp>
 #include <cuvs/detail/jit_lto/MakeFragmentKey.hpp>
 #include <cuvs/detail/jit_lto/registration_tags.hpp>
 #include <memory>

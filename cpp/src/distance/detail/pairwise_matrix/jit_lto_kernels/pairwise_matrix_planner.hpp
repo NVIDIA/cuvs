@@ -1,11 +1,11 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
 
-#include <cuvs/detail/jit_lto/AlgorithmPlanner.hpp>
+#include <AlgorithmPlanner.hpp>
 #include <cuvs/detail/jit_lto/pairwise_matrix/pairwise_matrix_fragments.hpp>
 
 namespace cuvs::distance::detail {

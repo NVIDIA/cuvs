@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -27,7 +27,7 @@
 #include <rmm/mr/cuda_memory_resource.hpp>
 #include <rmm/mr/pinned_host_memory_resource.hpp>
 
-#include <cuvs/detail/jit_lto/AlgorithmLauncher.hpp>
+#include <AlgorithmLauncher.hpp>
 #include <cuvs/distance/distance.hpp>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/logger.hpp>
