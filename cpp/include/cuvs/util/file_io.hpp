@@ -5,6 +5,7 @@
 #pragma once
 
 #include <raft/core/error.hpp>
+#include <raft/core/numpy_serializer.hpp>
 #include <raft/core/serialize.hpp>
 
 #include <algorithm>
@@ -189,12 +190,12 @@ std::pair<file_descriptor, size_t> create_numpy_file(const std::string& path,
   file_descriptor fd(path, O_CREAT | O_RDWR | O_TRUNC, 0644);
 
   // Build header
-  const auto dtype         = raft::detail::numpy_serializer::get_numpy_dtype<T>();
-  const bool fortran_order = false;
-  const raft::detail::numpy_serializer::header_t header = {dtype, fortran_order, shape};
+  const auto dtype                              = raft::numpy_serializer::get_numpy_dtype<T>();
+  const bool fortran_order                      = false;
+  const raft::numpy_serializer::header_t header = {dtype, fortran_order, shape};
 
   std::stringstream ss;
-  raft::detail::numpy_serializer::write_header(ss, header);
+  raft::numpy_serializer::write_header(ss, header);
   std::string header_str = ss.str();
   size_t header_size     = header_str.size();
 

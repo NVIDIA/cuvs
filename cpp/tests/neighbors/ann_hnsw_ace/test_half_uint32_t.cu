@@ -12,4 +12,26 @@ TEST_P(AnnHnswAceTest_half, AnnHnswAceBuild) { this->testHnswAceBuild(); }
 
 INSTANTIATE_TEST_CASE_P(AnnHnswAceTest, AnnHnswAceTest_half, ::testing::ValuesIn(hnsw_ace_inputs));
 
+// Test for memory limit fallback to disk mode
+typedef AnnHnswAceTest<float, half, uint32_t> AnnHnswAceMemoryFallbackTest_half;
+TEST_P(AnnHnswAceMemoryFallbackTest_half, AnnHnswAceMemoryLimitFallback)
+{
+  this->testHnswAceMemoryLimitFallback();
+}
+
+INSTANTIATE_TEST_CASE_P(AnnHnswAceMemoryFallbackTest,
+                        AnnHnswAceMemoryFallbackTest_half,
+                        ::testing::ValuesIn(hnsw_ace_memory_fallback_inputs));
+
+// Test for in-memory CAGRA -> HNSW disk-spill conversion
+typedef AnnHnswAceTest<float, half, uint32_t> AnnHnswInmemSpillTest_half;
+TEST_P(AnnHnswInmemSpillTest_half, AnnHnswFromCagraInmemSpill)
+{
+  this->testHnswFromCagraInmemSpill();
+}
+
+INSTANTIATE_TEST_CASE_P(AnnHnswInmemSpillTest,
+                        AnnHnswInmemSpillTest_half,
+                        ::testing::ValuesIn(hnsw_inmem_spill_inputs));
+
 }  // namespace cuvs::neighbors::hnsw

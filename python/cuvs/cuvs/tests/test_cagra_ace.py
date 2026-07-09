@@ -201,7 +201,7 @@ def test_cagra_ace_tiny_memory_limit_triggers_disk_mode():
 
     # Create a temporary directory for ACE build
     with tempfile.TemporaryDirectory() as temp_dir:
-        # Set ACE parameters with tiny memory limits (0.001 GiB = ~1 MB)
+        # Set ACE parameters with memory limits slightly above the minimum required
         # This should force disk mode even though we didn't explicitly set use_disk=True
         ace_params = cagra.AceParams(
             npartitions=2,
@@ -209,7 +209,7 @@ def test_cagra_ace_tiny_memory_limit_triggers_disk_mode():
             build_dir=temp_dir,
             use_disk=False,  # Not explicitly requesting disk mode
             max_host_memory_gb=0.001,  # Tiny limit to force disk mode
-            max_gpu_memory_gb=0.001,  # Tiny limit to force disk mode
+            max_gpu_memory_gb=0.0,  # No GPU memory limit
         )
 
         # Build parameters

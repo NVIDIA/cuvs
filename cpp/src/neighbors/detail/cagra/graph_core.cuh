@@ -4,6 +4,7 @@
  */
 #pragma once
 
+#include "cagra_helpers.hpp"
 #include "utils.hpp"
 
 #include <raft/core/copy.cuh>
@@ -19,6 +20,8 @@
 #include "../../../core/nvtx.hpp"
 #include "../../../core/omp_wrapper.hpp"
 #include "../ann_utils.cuh"
+
+#include <cuvs/neighbors/cagra.hpp>
 
 #include <raft/util/bitonic_sort.cuh>
 #include <raft/util/cuda_rt_essentials.hpp>
@@ -842,12 +845,9 @@ void merge_graph_gpu(
 
   auto d_check_num_protected_edges = raft::make_device_scalar<uint32_t>(res, 1u);
 
-  // The batchsize is statically set to 256 * 1024 which corresponds to 256MB for a graph
-  // degree of 128 and 16byte index type. This is a trade-off between memory usage and performance.
-  // When choosing dynamically based on available memory, we would also need to modify the static
-  // size assumption in the cagra_build.cuh::optimize_workspace_size function.
-  uint32_t batch_size      = static_cast<uint32_t>(std::min<uint64_t>(graph_size, 256 * 1024));
-  const uint32_t num_batch = (graph_size + batch_size - 1) / batch_size;
+  uint32_t batch_size =
+    static_cast<uint32_t>(std::min<uint64_t>(graph_size, helpers::kOptimizeBatchSize));
+  const uint32_t num_batch = raft::div_rounding_up_safe<uint64_t>(graph_size, batch_size);
 
   namespace bli                       = cuvs::spatial::knn::detail::utils;
   auto [copy_stream, enable_prefetch] = bli::get_prefetch_stream(res);
@@ -1606,12 +1606,9 @@ void prune_graph_gpu(
   raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> block_scope(
     "cagra::graph::optimize/prune");
 
-  // The batchsize is statically set to 256 * 1024 which corresponds to 256MB for a graph
-  // degree of 128 and 16byte index type. This is a trade-off between memory usage and performance.
-  // When choosing dynamically based on available memory, we would also need to modify the static
-  // size assumption in the cagra_build.cuh::optimize_workspace_size function.
-  uint32_t batch_size      = static_cast<uint32_t>(std::min<uint64_t>(graph_size, 256 * 1024));
-  const uint32_t num_batch = (graph_size + batch_size - 1) / batch_size;
+  uint32_t batch_size =
+    static_cast<uint32_t>(std::min<uint64_t>(graph_size, helpers::kOptimizeBatchSize));
+  const uint32_t num_batch = raft::div_rounding_up_safe<uint64_t>(graph_size, batch_size);
 
   RAFT_LOG_DEBUG("# Pruning kNN Graph on GPUs\r");
 
