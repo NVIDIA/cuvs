@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -58,7 +58,7 @@ struct params {
  */
 
 /**
- * @brief Perform PCA fit operation.
+ * @brief Perform PCA fit operation (col-major input).
  *
  * Computes the principal components, explained variances, singular values, and column means
  * from the input data.
@@ -111,7 +111,36 @@ void fit(raft::resources const& handle,
          bool flip_signs_based_on_U = false);
 
 /**
- * @brief Perform PCA fit and transform operations.
+ * @brief Perform PCA fit operation (row-major input).
+ *
+ * Same as the col-major overload, but operates natively on row-major (C-contiguous) data
+ * with no internal copy/transpose of the input. The output `components` matrix is also
+ * row-major.
+ *
+ * @param[in] handle raft resource handle
+ * @param[in] config PCA parameters
+ * @param[inout] input input data [n_rows x n_cols] (row-major). Modified temporarily.
+ * @param[out] components principal components [n_components x n_cols] (row-major)
+ * @param[out] explained_var explained variances [n_components]
+ * @param[out] explained_var_ratio explained variance ratios [n_components]
+ * @param[out] singular_vals singular values [n_components]
+ * @param[out] mu column means [n_cols]
+ * @param[out] noise_vars noise variance (scalar)
+ * @param[in] flip_signs_based_on_U whether to determine signs by U (true) or V.T (false)
+ */
+void fit(raft::resources const& handle,
+         const params& config,
+         raft::device_matrix_view<float, int64_t, raft::row_major> input,
+         raft::device_matrix_view<float, int64_t, raft::row_major> components,
+         raft::device_vector_view<float, int64_t> explained_var,
+         raft::device_vector_view<float, int64_t> explained_var_ratio,
+         raft::device_vector_view<float, int64_t> singular_vals,
+         raft::device_vector_view<float, int64_t> mu,
+         raft::device_scalar_view<float, int64_t> noise_vars,
+         bool flip_signs_based_on_U = false);
+
+/**
+ * @brief Perform PCA fit and transform operations (col-major).
  *
  * Computes the principal components and transforms the input data into the eigenspace
  * in a single operation.
@@ -141,7 +170,36 @@ void fit_transform(raft::resources const& handle,
                    bool flip_signs_based_on_U = false);
 
 /**
- * @brief Perform PCA transform operation.
+ * @brief Perform PCA fit and transform operations (row-major).
+ *
+ * Same as the col-major overload but operates natively on row-major data.
+ *
+ * @param[in] handle raft resource handle
+ * @param[in] config PCA parameters
+ * @param[inout] input input data [n_rows x n_cols] (row-major). Modified temporarily.
+ * @param[out] trans_input transformed data [n_rows x n_components] (row-major)
+ * @param[out] components principal components [n_components x n_cols] (row-major)
+ * @param[out] explained_var explained variances [n_components]
+ * @param[out] explained_var_ratio explained variance ratios [n_components]
+ * @param[out] singular_vals singular values [n_components]
+ * @param[out] mu column means [n_cols]
+ * @param[out] noise_vars noise variance (scalar)
+ * @param[in] flip_signs_based_on_U whether to determine signs by U (true) or V.T (false)
+ */
+void fit_transform(raft::resources const& handle,
+                   const params& config,
+                   raft::device_matrix_view<float, int64_t, raft::row_major> input,
+                   raft::device_matrix_view<float, int64_t, raft::row_major> trans_input,
+                   raft::device_matrix_view<float, int64_t, raft::row_major> components,
+                   raft::device_vector_view<float, int64_t> explained_var,
+                   raft::device_vector_view<float, int64_t> explained_var_ratio,
+                   raft::device_vector_view<float, int64_t> singular_vals,
+                   raft::device_vector_view<float, int64_t> mu,
+                   raft::device_scalar_view<float, int64_t> noise_vars,
+                   bool flip_signs_based_on_U = false);
+
+/**
+ * @brief Perform PCA transform operation (col-major).
  *
  * Transforms the input data into the eigenspace using previously computed principal components.
  *
@@ -163,7 +221,27 @@ void transform(raft::resources const& handle,
                raft::device_matrix_view<float, int64_t, raft::col_major> trans_input);
 
 /**
- * @brief Perform PCA inverse transform operation.
+ * @brief Perform PCA transform operation (row-major).
+ *
+ * @param[in] handle raft resource handle
+ * @param[in] config PCA parameters
+ * @param[inout] input data to transform [n_rows x n_cols] (row-major). Modified temporarily
+ * (mean-centered then restored).
+ * @param[in] components principal components [n_components x n_cols] (row-major)
+ * @param[in] singular_vals singular values [n_components]
+ * @param[in] mu column means [n_cols]
+ * @param[out] trans_input transformed data [n_rows x n_components] (row-major)
+ */
+void transform(raft::resources const& handle,
+               const params& config,
+               raft::device_matrix_view<float, int64_t, raft::row_major> input,
+               raft::device_matrix_view<float, int64_t, raft::row_major> components,
+               raft::device_vector_view<float, int64_t> singular_vals,
+               raft::device_vector_view<float, int64_t> mu,
+               raft::device_matrix_view<float, int64_t, raft::row_major> trans_input);
+
+/**
+ * @brief Perform PCA inverse transform operation (col-major).
  *
  * Transforms data from the eigenspace back to the original space.
  *
@@ -182,6 +260,25 @@ void inverse_transform(raft::resources const& handle,
                        raft::device_vector_view<float, int64_t> singular_vals,
                        raft::device_vector_view<float, int64_t> mu,
                        raft::device_matrix_view<float, int64_t, raft::col_major> output);
+
+/**
+ * @brief Perform PCA inverse transform operation (row-major).
+ *
+ * @param[in] handle raft resource handle
+ * @param[in] config PCA parameters
+ * @param[in] trans_input transformed data [n_rows x n_components] (row-major)
+ * @param[in] components principal components [n_components x n_cols] (row-major)
+ * @param[in] singular_vals singular values [n_components]
+ * @param[in] mu column means [n_cols]
+ * @param[out] output reconstructed data [n_rows x n_cols] (row-major)
+ */
+void inverse_transform(raft::resources const& handle,
+                       const params& config,
+                       raft::device_matrix_view<float, int64_t, raft::row_major> trans_input,
+                       raft::device_matrix_view<float, int64_t, raft::row_major> components,
+                       raft::device_vector_view<float, int64_t> singular_vals,
+                       raft::device_vector_view<float, int64_t> mu,
+                       raft::device_matrix_view<float, int64_t, raft::row_major> output);
 
 /** @} */  // end group pca
 
