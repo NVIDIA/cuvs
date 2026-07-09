@@ -34,11 +34,11 @@ class CUVS_EXPORT bloom_filter {
    * may grow above that floor to satisfy the requested false-positive rate.
    *
    * The primary tuning knobs are:
-   * - @p expected_valid_rate: expected fraction of dataset rows that will be inserted as valid ids.
+   * - @p filtering_rate: expected fraction of dataset rows that will be inserted as valid ids.
    * - @p target_false_positive_rate: desired Bloom filter false-positive probability.
    *
    * Sizing math used internally:
-   * - `expected_insertions = ceil(dataset_rows * expected_valid_rate)`
+   * - `expected_insertions = ceil(dataset_rows * filtering_rate)`
    * - `required_bits = -expected_insertions * ln(target_false_positive_rate) / (ln(2)^2)`
    * - `required_blocks = ceil(required_bits / 256)` (default cuco policy uses 256-bit blocks)
    * - `final_blocks = max(num_blocks, required_blocks)`
@@ -46,11 +46,11 @@ class CUVS_EXPORT bloom_filter {
    * Practical knob behavior:
    * - Lower @p target_false_positive_rate -> larger filter, fewer false positives, typically higher
    *   filtered-search recall.
-   * - Higher @p expected_valid_rate -> larger filter for the same target false-positive rate.
+   * - Higher @p filtering_rate -> larger filter for the same target false-positive rate.
    * - @p num_blocks is an expert floor; keep default unless you need a hard minimum memory budget.
    */
   bloom_filter(raft::resources const& res,
-               float expected_valid_rate        = 1.0f,
+               float filtering_rate             = 1.0f,
                float target_false_positive_rate = 0.01f,
                std::size_t num_blocks           = 256);
   ~bloom_filter();

@@ -22,13 +22,13 @@
 namespace cuvs::core {
 
 std::size_t compute_num_blocks_from_rates(std::size_t dataset_rows,
-                                          float expected_valid_rate,
+                                          float filtering_rate,
                                           float target_false_positive_rate)
 {
   RAFT_EXPECTS(dataset_rows > 0,
                "dataset_rows must be greater than zero when deriving bloom size.");
-  RAFT_EXPECTS(expected_valid_rate > 0.0f && expected_valid_rate <= 1.0f,
-               "expected_valid_rate must be in (0, 1].");
+  RAFT_EXPECTS(filtering_rate > 0.0f && filtering_rate <= 1.0f,
+               "filtering_rate must be in (0, 1].");
   RAFT_EXPECTS(target_false_positive_rate > 0.0f && target_false_positive_rate < 1.0f,
                "target_false_positive_rate must be in (0, 1).");
 
@@ -38,8 +38,7 @@ std::size_t compute_num_blocks_from_rates(std::size_t dataset_rows,
   constexpr double kLn2Sq        = kLn2 * kLn2;
 
   auto expected_insertions = std::max<std::size_t>(
-    1,
-    static_cast<std::size_t>(std::ceil(static_cast<double>(dataset_rows) * expected_valid_rate)));
+    1, static_cast<std::size_t>(std::ceil(static_cast<double>(dataset_rows) * filtering_rate)));
   auto required_bits = -static_cast<double>(expected_insertions) *
                        std::log(static_cast<double>(target_false_positive_rate)) / kLn2Sq;
   return std::max<std::size_t>(1,
@@ -54,16 +53,16 @@ struct bloom_filter::impl {
   cuco_filter_type filter;
   rmm::device_uvector<sample_filter_payload> payload;
   std::optional<std::size_t> configured_dataset_rows;
-  float expected_valid_rate;
+  float filtering_rate;
   float target_false_positive_rate;
 
   impl(raft::resources const& res,
        std::size_t num_blocks,
-       float expected_valid_rate_,
+       float filtering_rate_,
        float target_false_positive_rate_)
     : filter(num_blocks, {}, {}, {}, raft::resource::get_cuda_stream(res)),
       payload(1, raft::resource::get_cuda_stream(res)),
-      expected_valid_rate(expected_valid_rate_),
+      filtering_rate(filtering_rate_),
       target_false_positive_rate(target_false_positive_rate_)
   {
     auto stream = raft::resource::get_cuda_stream(res);
@@ -88,7 +87,7 @@ struct bloom_filter::impl {
     if (!configured_dataset_rows.has_value()) {
       configured_dataset_rows  = inferred_dataset_rows;
       auto required_num_blocks = compute_num_blocks_from_rates(
-        inferred_dataset_rows, expected_valid_rate, target_false_positive_rate);
+        inferred_dataset_rows, filtering_rate, target_false_positive_rate);
       auto target_num_blocks = std::max<std::size_t>(filter.block_extent(), required_num_blocks);
       if (target_num_blocks != filter.block_extent()) { rebuild_filter(target_num_blocks, stream); }
       return;
@@ -101,14 +100,14 @@ struct bloom_filter::impl {
 };
 
 bloom_filter::bloom_filter(raft::resources const& res,
-                           float expected_valid_rate,
+                           float filtering_rate,
                            float target_false_positive_rate,
                            std::size_t num_blocks)
   : impl_(std::make_unique<impl>(
-      res, std::max<std::size_t>(1, num_blocks), expected_valid_rate, target_false_positive_rate))
+      res, std::max<std::size_t>(1, num_blocks), filtering_rate, target_false_positive_rate))
 {
-  RAFT_EXPECTS(expected_valid_rate > 0.0f && expected_valid_rate <= 1.0f,
-               "expected_valid_rate must be in (0, 1].");
+  RAFT_EXPECTS(filtering_rate > 0.0f && filtering_rate <= 1.0f,
+               "filtering_rate must be in (0, 1].");
   RAFT_EXPECTS(target_false_positive_rate > 0.0f && target_false_positive_rate < 1.0f,
                "target_false_positive_rate must be in (0, 1).");
 }
