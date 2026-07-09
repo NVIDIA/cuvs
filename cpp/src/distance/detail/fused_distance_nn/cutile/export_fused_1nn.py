@@ -114,10 +114,13 @@ def _kernel_signature(
 ) -> KernelSignature:
     elem = _dtype_for(data_type)
     idx_dtype = _idx_dtype(index_type)
+    vector_index_dtype = ct.int64
     matrix = _cuvs_matrix_constraint(elem, index_dtype=idx_dtype)
-    norm_array = _cuvs_vector_constraint(elem, index_dtype=idx_dtype)
-    idx_array = _cuvs_vector_constraint(idx_dtype, index_dtype=idx_dtype)
-    dist_array = _cuvs_vector_constraint(elem, index_dtype=idx_dtype)
+    norm_array = _cuvs_vector_constraint(elem, index_dtype=vector_index_dtype)
+    idx_array = _cuvs_vector_constraint(
+        idx_dtype, index_dtype=vector_index_dtype
+    )
+    dist_array = _cuvs_vector_constraint(elem, index_dtype=vector_index_dtype)
 
     abbrev = _data_abbrev(data_type)
     symbol = kernel_symbol(
