@@ -1,14 +1,15 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2024, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 #
 # cython: language_level=3
 
 import functools
 
-from cuda.bindings.cyruntime cimport cudaStream_t
+from libc.stdint cimport uintptr_t
 
 from cuvs.common.c_api cimport (
+    cudaStream_t,
     cuvsResources_t,
     cuvsResourcesCreate,
     cuvsResourcesDestroy,
@@ -54,8 +55,8 @@ cdef class Resources:
 
     def __cinit__(self, stream=None):
         check_cuvs(cuvsResourcesCreate(&self.c_obj))
-        if stream:
-            check_cuvs(cuvsStreamSet(self.c_obj, <cudaStream_t>stream))
+        if stream is not None:
+            check_cuvs(cuvsStreamSet(self.c_obj, <cudaStream_t><uintptr_t>stream))
 
     def sync(self):
         check_cuvs(cuvsStreamSync(self.c_obj))
