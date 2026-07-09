@@ -3319,7 +3319,7 @@ auto build(const raft::resources& clique,
  *
  * @param[in] clique a `raft::resources` object specifying the NCCL clique configuration
  * @param[in] index the pre-built index
- * @param[in] new_vectors a row-major matrix on host [n_rows, dim]
+ * @param[in] new_vectors host dataset view [n_rows, dim]
  * @param[in] new_indices optional vector on host [n_rows],
  * `std::nullopt` means default continuous range `[0...n_rows)`
  *
@@ -3327,7 +3327,7 @@ auto build(const raft::resources& clique,
 void extend(
   const raft::resources& clique,
   cuvs::neighbors::mg_index<cagra::device_padded_index<float, uint32_t>, float, uint32_t>& index,
-  raft::host_matrix_view<const float, int64_t, row_major> new_vectors,
+  cuvs::neighbors::host_padded_dataset_view<float, int64_t> new_vectors,
   std::optional<raft::host_vector_view<const uint32_t, int64_t>> new_indices);
 
 /// \ingroup mg_cpp_index_extend
@@ -3344,7 +3344,7 @@ void extend(
  *
  * @param[in] clique a `raft::resources` object specifying the NCCL clique configuration
  * @param[in] index the pre-built index
- * @param[in] new_vectors a row-major matrix on host [n_rows, dim]
+ * @param[in] new_vectors host dataset view [n_rows, dim]
  * @param[in] new_indices optional vector on host [n_rows],
  * `std::nullopt` means default continuous range `[0...n_rows)`
  *
@@ -3352,7 +3352,7 @@ void extend(
 void extend(
   const raft::resources& clique,
   cuvs::neighbors::mg_index<cagra::device_standard_index<float, uint32_t>, float, uint32_t>& index,
-  raft::host_matrix_view<const float, int64_t, row_major> new_vectors,
+  cuvs::neighbors::host_standard_dataset_view<float, int64_t> new_vectors,
   std::optional<raft::host_vector_view<const uint32_t, int64_t>> new_indices);
 
 /// \ingroup mg_cpp_index_extend
@@ -3369,7 +3369,7 @@ void extend(
  *
  * @param[in] clique a `raft::resources` object specifying the NCCL clique configuration
  * @param[in] index the pre-built index
- * @param[in] new_vectors a row-major matrix on host [n_rows, dim]
+ * @param[in] new_vectors host dataset view [n_rows, dim]
  * @param[in] new_indices optional vector on host [n_rows],
  * `std::nullopt` means default continuous range `[0...n_rows)`
  *
@@ -3377,14 +3377,14 @@ void extend(
 void extend(
   const raft::resources& clique,
   cuvs::neighbors::mg_index<cagra::device_padded_index<half, uint32_t>, half, uint32_t>& index,
-  raft::host_matrix_view<const half, int64_t, row_major> new_vectors,
+  cuvs::neighbors::host_padded_dataset_view<half, int64_t> new_vectors,
   std::optional<raft::host_vector_view<const uint32_t, int64_t>> new_indices);
 
 /** @copydoc extend */
 void extend(
   const raft::resources& clique,
   cuvs::neighbors::mg_index<cagra::device_standard_index<half, uint32_t>, half, uint32_t>& index,
-  raft::host_matrix_view<const half, int64_t, row_major> new_vectors,
+  cuvs::neighbors::host_standard_dataset_view<half, int64_t> new_vectors,
   std::optional<raft::host_vector_view<const uint32_t, int64_t>> new_indices);
 
 /// \ingroup mg_cpp_index_extend
@@ -3401,7 +3401,7 @@ void extend(
  *
  * @param[in] clique a `raft::resources` object specifying the NCCL clique configuration
  * @param[in] index the pre-built index
- * @param[in] new_vectors a row-major matrix on host [n_rows, dim]
+ * @param[in] new_vectors host dataset view [n_rows, dim]
  * @param[in] new_indices optional vector on host [n_rows],
  * `std::nullopt` means default continuous range `[0...n_rows)`
  *
@@ -3409,7 +3409,7 @@ void extend(
 void extend(
   const raft::resources& clique,
   cuvs::neighbors::mg_index<cagra::device_padded_index<int8_t, uint32_t>, int8_t, uint32_t>& index,
-  raft::host_matrix_view<const int8_t, int64_t, row_major> new_vectors,
+  cuvs::neighbors::host_padded_dataset_view<int8_t, int64_t> new_vectors,
   std::optional<raft::host_vector_view<const uint32_t, int64_t>> new_indices);
 
 /** @copydoc extend */
@@ -3417,7 +3417,7 @@ void extend(
   const raft::resources& clique,
   cuvs::neighbors::mg_index<cagra::device_standard_index<int8_t, uint32_t>, int8_t, uint32_t>&
     index,
-  raft::host_matrix_view<const int8_t, int64_t, row_major> new_vectors,
+  cuvs::neighbors::host_standard_dataset_view<int8_t, int64_t> new_vectors,
   std::optional<raft::host_vector_view<const uint32_t, int64_t>> new_indices);
 
 /// \ingroup mg_cpp_index_extend
@@ -3434,7 +3434,7 @@ void extend(
  *
  * @param[in] clique a `raft::resources` object specifying the NCCL clique configuration
  * @param[in] index the pre-built index
- * @param[in] new_vectors a row-major matrix on host [n_rows, dim]
+ * @param[in] new_vectors host dataset view [n_rows, dim]
  * @param[in] new_indices optional vector on host [n_rows],
  * `std::nullopt` means default continuous range `[0...n_rows)`
  *
@@ -3443,7 +3443,7 @@ void extend(
   const raft::resources& clique,
   cuvs::neighbors::mg_index<cagra::device_padded_index<uint8_t, uint32_t>, uint8_t, uint32_t>&
     index,
-  raft::host_matrix_view<const uint8_t, int64_t, row_major> new_vectors,
+  cuvs::neighbors::host_padded_dataset_view<uint8_t, int64_t> new_vectors,
   std::optional<raft::host_vector_view<const uint32_t, int64_t>> new_indices);
 
 /** @copydoc extend */
@@ -3451,7 +3451,7 @@ void extend(
   const raft::resources& clique,
   cuvs::neighbors::mg_index<cagra::device_standard_index<uint8_t, uint32_t>, uint8_t, uint32_t>&
     index,
-  raft::host_matrix_view<const uint8_t, int64_t, row_major> new_vectors,
+  cuvs::neighbors::host_standard_dataset_view<uint8_t, int64_t> new_vectors,
   std::optional<raft::host_vector_view<const uint32_t, int64_t>> new_indices);
 
 /// \defgroup mg_cpp_index_search ANN MG index search

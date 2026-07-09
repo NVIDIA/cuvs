@@ -249,9 +249,19 @@ void _mg_extend(cuvsResources_t res,
     new_indices_mds           = cuvs::core::from_dlpack<indices_mdspan_type>(new_indices_tensor);
   }
 
-  with_mg_index_by_layout<T>(box, "cuvsMultiGpuCagraExtend: null index handle", [&](auto* mg_index_ptr) {
-    cuvs::neighbors::cagra::extend(*res_ptr, *mg_index_ptr, new_vectors_mds, new_indices_mds);
-  });
+  if (box->layout == mg_cagra_dataset_layout::device_padded) {
+    using padded_ann_t = cuvs::neighbors::cagra::device_padded_index<T, uint32_t>;
+    auto* mg_index_ptr =
+      reinterpret_cast<mg_cagra_index_t<T, padded_ann_t>*>(box->index_ptr);
+    auto new_vectors = cuvs::neighbors::make_host_padded_dataset_view(new_vectors_mds);
+    cuvs::neighbors::cagra::extend(*res_ptr, *mg_index_ptr, new_vectors, new_indices_mds);
+  } else {
+    using standard_ann_t = cuvs::neighbors::cagra::device_standard_index<T, uint32_t>;
+    auto* mg_index_ptr =
+      reinterpret_cast<mg_cagra_index_t<T, standard_ann_t>*>(box->index_ptr);
+    auto new_vectors = cuvs::neighbors::make_host_standard_dataset_view(new_vectors_mds);
+    cuvs::neighbors::cagra::extend(*res_ptr, *mg_index_ptr, new_vectors, new_indices_mds);
+  }
 }
 
 template <typename T>

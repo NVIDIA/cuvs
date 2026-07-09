@@ -40,18 +40,18 @@
                                                                                                   \
   void extend(const raft::resources& res,                                                         \
               cuvs::neighbors::mg_index<cagra::device_padded_index<T, IdxT>, T, IdxT>& index,     \
-              raft::host_matrix_view<const T, int64_t, row_major> new_vectors,                    \
+              cuvs::neighbors::host_padded_dataset_view<T, int64_t> new_vectors,                  \
               std::optional<raft::host_vector_view<const IdxT, int64_t>> new_indices)             \
   {                                                                                               \
-    cuvs::neighbors::snmg::detail::extend(res, index, new_vectors, new_indices);                  \
+    cuvs::neighbors::snmg::detail::extend(res, index, new_vectors.view(), new_indices);           \
   }                                                                                               \
                                                                                                   \
   void extend(const raft::resources& res,                                                         \
               cuvs::neighbors::mg_index<cagra::device_standard_index<T, IdxT>, T, IdxT>& index,   \
-              raft::host_matrix_view<const T, int64_t, row_major> new_vectors,                    \
+              cuvs::neighbors::host_standard_dataset_view<T, int64_t> new_vectors,                \
               std::optional<raft::host_vector_view<const IdxT, int64_t>> new_indices)             \
   {                                                                                               \
-    cuvs::neighbors::snmg::detail::extend(res, index, new_vectors, new_indices);                  \
+    cuvs::neighbors::snmg::detail::extend(res, index, new_vectors.view(), new_indices);           \
   }                                                                                               \
                                                                                                   \
   void search(                                                                                    \
