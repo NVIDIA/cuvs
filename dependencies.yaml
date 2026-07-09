@@ -17,6 +17,7 @@ files:
       - depends_on_cuda_python
       - depends_on_cupy
       - depends_on_librmm
+      - depends_on_libucxx
       - depends_on_pylibraft
       - depends_on_nccl
       - docs
