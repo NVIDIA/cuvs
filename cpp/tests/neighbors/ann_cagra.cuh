@@ -998,7 +998,7 @@ class AnnCagraFilterTest : public ::testing::TestWithParam<AnnCagraInputs> {
             bloom_distances_host.data(), distances_dev.data(), queries_size, stream_);
           raft::resource::sync_stream(handle_);
 
-          auto [bloom_recall, bloom_match_count, bloom_total_count] =
+          auto [bloom_recall, bloom_index_recall, bloom_match_count, bloom_total_count] =
             calc_recall(indices_naive,
                         bloom_indices_host,
                         distances_naive,
@@ -1011,6 +1011,7 @@ class AnnCagraFilterTest : public ::testing::TestWithParam<AnnCagraInputs> {
                         bloom_match_count,
                         bloom_total_count,
                         target_false_positive_rate);
+          RAFT_LOG_INFO("Bloom filter index recall = %f", bloom_index_recall);
           bloom_recalls.push_back(bloom_recall);
         }
         if (bloom_recalls.size() > 1) {
