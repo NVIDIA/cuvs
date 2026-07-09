@@ -14,7 +14,7 @@ rapids_test_init()
 
 function(ConfigureTest)
 
-  set(options NOCUDA FETCH_CODEBOOKS)
+  set(options NOCUDA FETCH_CODEBOOKS RUN_SERIAL)
   set(oneValueArgs NAME GPUS PERCENT)
   set(multiValueArgs PATH ADDITIONAL_DEP)
 
@@ -96,6 +96,10 @@ function(ConfigureTest)
     PERCENT ${_CUVS_TEST_PERCENT}
     INSTALL_COMPONENT_SET testing
   )
+
+  if(_CUVS_TEST_RUN_SERIAL)
+    set_tests_properties(${TEST_NAME} PROPERTIES RUN_SERIAL ON)
+  endif()
 endfunction()
 
 # ##################################################################################################
@@ -332,20 +336,12 @@ if(BUILD_CAGRA_HNSWLIB)
 endif()
 
 if(BUILD_MG_ALGOS)
-  find_package(Python COMPONENTS Interpreter)
-  if(Python_FOUND)
-    include(${rapids-cmake-dir}/cython-core/find_prefix_paths.cmake)
-    rapids_cython_find_prefix_paths("${Python_EXECUTABLE}" _cuvs_wheel_prefix_paths)
-    set_property(GLOBAL PROPERTY FIND_LIBRARY_USE_LIB64_PATHS TRUE)
-    list(APPEND CMAKE_PREFIX_PATH ${_cuvs_wheel_prefix_paths})
-  endif()
-
   ConfigureTest(
     NAME NEIGHBORS_MG_TEST
     PATH neighbors/mg/test_float.cu
     GPUS 1
     PERCENT 100
-    ADDITIONAL_DEP NCCL::NCCL
+    ADDITIONAL_DEP NCCL::NCCL RUN_SERIAL
   )
 
   ConfigureTest(
@@ -353,11 +349,10 @@ if(BUILD_MG_ALGOS)
     PATH cluster/kmeans_mg.cu
     GPUS 1
     PERCENT 100
-    ADDITIONAL_DEP NCCL::NCCL
+    ADDITIONAL_DEP NCCL::NCCL RUN_SERIAL
   )
 
-  # The MNMG (multi-node multi-GPU) kmeans test depends on the distributed (UCXX) dependencies. It
-  # lives in its own translation unit so that it is only compiled when BUILD_MNMG_TESTS is enabled.
+  # The MNMG (multi-node multi-GPU) kmeans test depends on the distributed (UCXX) dependencies.
   if(BUILD_MNMG_TESTS)
     if(NOT TARGET ucx::ucp)
       find_package(ucx REQUIRED)
@@ -377,6 +372,7 @@ if(BUILD_MG_ALGOS)
         ucx::ucp
         ucx::ucs
         ucxx::ucxx
+        RUN_SERIAL
     )
   endif()
 endif()
