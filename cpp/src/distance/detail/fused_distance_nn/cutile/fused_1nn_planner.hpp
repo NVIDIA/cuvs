@@ -74,22 +74,22 @@ struct Fused1nnTilePlanner : TileAlgorithmPlanner {
     this->add_static_fragment<fragment_tag_fused_1nn_cubin<DataTag,
                                                            MetricTag,
                                                            IndexTag,
-                                                           fused_1nn_matrix_tile,
+                                                           fused_1nn_matrix_tile_cutile_arch_8_0,
                                                            cutile_arch_8_0>>();
     this->add_static_fragment<fragment_tag_fused_1nn_cubin<DataTag,
                                                            MetricTag,
                                                            IndexTag,
-                                                           fused_1nn_matrix_tile,
+                                                           fused_1nn_matrix_tile_cutile_arch_8_6,
                                                            cutile_arch_8_6>>();
     this->add_static_fragment<fragment_tag_fused_1nn_cubin<DataTag,
                                                            MetricTag,
                                                            IndexTag,
-                                                           fused_1nn_matrix_tile,
+                                                           fused_1nn_matrix_tile_cutile_arch_9_0,
                                                            cutile_arch_9_0>>();
     this->add_static_fragment<fragment_tag_fused_1nn_cubin<DataTag,
                                                            MetricTag,
                                                            IndexTag,
-                                                           fused_1nn_matrix_tile,
+                                                           fused_1nn_matrix_tile_cutile_arch_12_0,
                                                            cutile_arch_12_0>>();
   }
 

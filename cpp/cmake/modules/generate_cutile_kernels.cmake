@@ -98,6 +98,32 @@ function(_cutile_generate_matrix_tiles_header header_path matrix_json_file)
   string(JSON _tile_m GET "${_tile0}" "tile_m")
   string(JSON _tile_n GET "${_tile0}" "tile_n")
   string(JSON _tile_k GET "${_tile0}" "tile_k")
+  set(_arch_tile_aliases "")
+  string(JSON _entry_len LENGTH "${_matrix_json}")
+  set(_entry_idx 0)
+  while(_entry_idx LESS _entry_len)
+    string(JSON _entry GET "${_matrix_json}" "${_entry_idx}")
+    string(JSON _entry_tile GET "${_entry}" "_tile" 0)
+    string(JSON _entry_tile_m GET "${_entry_tile}" "tile_m")
+    string(JSON _entry_tile_n GET "${_entry_tile}" "tile_n")
+    string(JSON _entry_tile_k GET "${_entry_tile}" "tile_k")
+    string(JSON _export_len LENGTH "${_entry}" "_export")
+    set(_export_idx 0)
+    while(_export_idx LESS _export_len)
+      string(JSON _export_entry GET "${_entry}" "_export" "${_export_idx}")
+      string(JSON _register GET "${_export_entry}" "register")
+      if(_register STREQUAL "cubin")
+        string(JSON _arch_tag GET "${_export_entry}" "arch_tag")
+        string(
+          APPEND
+          _arch_tile_aliases
+          "using fused_1nn_matrix_tile_${_arch_tag} = cutile_tile_config<${_entry_tile_m}, ${_entry_tile_n}, ${_entry_tile_k}>;\n"
+        )
+      endif()
+      math(EXPR _export_idx "${_export_idx} + 1")
+    endwhile()
+    math(EXPR _entry_idx "${_entry_idx} + 1")
+  endwhile()
   file(
     WRITE "${header_path}"
     "/*
@@ -110,6 +136,7 @@ function(_cutile_generate_matrix_tiles_header header_path matrix_json_file)
 namespace cuvs::distance::detail {
 
 using fused_1nn_matrix_tile = cutile_tile_config<${_tile_m}, ${_tile_n}, ${_tile_k}>;
+${_arch_tile_aliases}
 
 }  // namespace cuvs::distance::detail
 "

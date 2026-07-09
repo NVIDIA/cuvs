@@ -45,18 +45,18 @@ bool launch_fused_1nn_tile(IdxT* nearest_idx,
 
   const bool apply_sqrt = fused_1nn_apply_sqrt_at_pack<Metric>(is_sqrt);
 
-  IdxT shape_x[2]     = {m, k};
-  IdxT stride_x[2]    = {k, IdxT{1}};
-  IdxT shape_y[2]     = {n, k};
-  IdxT stride_y[2]    = {k, IdxT{1}};
-  int64_t shape_xn    = m;
-  int64_t stride_xn   = 1;
-  int64_t shape_yn    = n;
-  int64_t stride_yn   = 1;
-  int64_t shape_idx   = m;
-  int64_t stride_idx  = 1;
-  int64_t shape_dist  = m;
-  int64_t stride_dist = 1;
+  IdxT shape_x[2]  = {m, k};
+  IdxT stride_x[2] = {k, IdxT{1}};
+  IdxT shape_y[2]  = {n, k};
+  IdxT stride_y[2] = {k, IdxT{1}};
+  IdxT shape_xn    = m;
+  IdxT stride_xn   = IdxT{1};
+  IdxT shape_yn    = n;
+  IdxT stride_yn   = IdxT{1};
+  IdxT shape_idx   = m;
+  IdxT stride_idx  = IdxT{1};
+  IdxT shape_dist  = m;
+  IdxT stride_dist = IdxT{1};
 
   IdxT M = m;
   IdxT N = n;
@@ -88,17 +88,17 @@ bool launch_fused_1nn_tile(IdxT* nearest_idx,
                                          IdxT,
                                          IdxT,
                                          void*,
-                                         int64_t,
-                                         int64_t,
+                                         IdxT,
+                                         IdxT,
                                          void*,
-                                         int64_t,
-                                         int64_t,
+                                         IdxT,
+                                         IdxT,
                                          void*,
-                                         int64_t,
-                                         int64_t,
+                                         IdxT,
+                                         IdxT,
                                          void*,
-                                         int64_t,
-                                         int64_t,
+                                         IdxT,
+                                         IdxT,
                                          IdxT,
                                          IdxT,
                                          IdxT,
