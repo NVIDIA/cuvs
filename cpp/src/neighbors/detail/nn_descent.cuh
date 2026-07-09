@@ -307,6 +307,39 @@ RAFT_KERNEL compute_l2_norms_kernel(const Data_t* data, int dim, DistData_t* l2_
   if (lane_id == 0) { l2_norms[list_id] = l2_norm; }
 }
 
+template <typename Data_t>
+size_t compute_l2_norms_smem_size(size_t dim)
+{
+  return sizeof(Data_t) * raft::ceildiv(dim, static_cast<size_t>(raft::warp_size())) *
+         static_cast<size_t>(raft::warp_size());
+}
+
+template <typename Data_t>
+size_t configure_compute_l2_norms_kernel_smem(size_t dim)
+{
+  size_t smem = compute_l2_norms_smem_size<Data_t>(dim);
+
+  int device_id = 0;
+  RAFT_CUDA_TRY(cudaGetDevice(&device_id));
+
+  int max_smem = 0;
+  RAFT_CUDA_TRY(
+    cudaDeviceGetAttribute(&max_smem, cudaDevAttrMaxSharedMemoryPerBlockOptin, device_id));
+  RAFT_EXPECTS(smem <= static_cast<size_t>(max_smem),
+               "NN_DESCENT L2 norm kernel requires %zu bytes of dynamic shared memory "
+               "(dim=%zu, sizeof(Data_t)=%zu), but the device supports at most %d bytes "
+               "per block via opt-in.",
+               smem,
+               dim,
+               sizeof(Data_t),
+               max_smem);
+
+  auto kernel = compute_l2_norms_kernel<Data_t>;
+  RAFT_CUDA_TRY(cudaFuncSetAttribute(
+    kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, static_cast<int>(smem)));
+  return smem;
+}
+
 template <typename Src_t, typename Dst_t>
 RAFT_KERNEL convert_copy_kernel(const Src_t* src, Dst_t* dst, size_t n)
 {
@@ -1547,19 +1580,16 @@ void GNND<Data_t, Index_t>::build(Data_t* data,
       batch_size,
       stream);
     constexpr int TPB = 256;
+    size_t l2_norms_smem =
+      needs_l2_norms ? configure_compute_l2_norms_kernel_smem<float>(build_config_.dataset_dim)
+                     : 0;
     for (auto const& batch : vec_batches) {
       size_t n_elems    = batch.size() * build_config_.dataset_dim;
       int num_blocks    = raft::ceildiv(n_elems, static_cast<size_t>(TPB));
       size_t dst_offset = batch.offset() * build_config_.dataset_dim;
       if (needs_l2_norms) {
         // Compute l2 norms on the fp32 batches before they're downcast to fp16.
-        compute_l2_norms_kernel<<<batch.size(),
-                                  raft::warp_size(),
-                                  sizeof(float) *
-                                    raft::ceildiv(build_config_.dataset_dim,
-                                                  static_cast<size_t>(raft::warp_size())) *
-                                    raft::warp_size(),
-                                  stream>>>(
+        compute_l2_norms_kernel<<<batch.size(), raft::warp_size(), l2_norms_smem, stream>>>(
           batch.data(), build_config_.dataset_dim, l2_norms_.data_handle() + batch.offset());
         RAFT_CUDA_TRY(cudaPeekAtLastError());
       }
@@ -1583,13 +1613,8 @@ void GNND<Data_t, Index_t>::build(Data_t* data,
   }
 
   if (needs_l2_norms && !downcast_host_data) {
-    compute_l2_norms_kernel<<<nrow_,
-                              raft::warp_size(),
-                              sizeof(input_t) *
-                                raft::ceildiv(build_config_.dataset_dim,
-                                              static_cast<size_t>(raft::warp_size())) *
-                                raft::warp_size(),
-                              stream>>>(
+    auto smem = configure_compute_l2_norms_kernel_smem<input_t>(build_config_.dataset_dim);
+    compute_l2_norms_kernel<<<nrow_, raft::warp_size(), smem, stream>>>(
       static_cast<const input_t*>(d_data_ptr_), build_config_.dataset_dim, l2_norms_.data_handle());
     RAFT_CUDA_TRY(cudaPeekAtLastError());
     raft::resource::sync_stream(res);
