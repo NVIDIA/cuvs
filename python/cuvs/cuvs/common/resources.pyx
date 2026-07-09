@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2024, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # cython: language_level=3
@@ -7,10 +7,12 @@
 import functools
 
 from cuda.bindings.cyruntime cimport cudaStream_t
+from libc.stdint cimport int64_t
 
 from cuvs.common.c_api cimport (
     cuvsResources_t,
     cuvsResourcesCreate,
+    cuvsResourcesCreateWithMemoryTracking,
     cuvsResourcesDestroy,
     cuvsStreamSet,
     cuvsStreamSync,
@@ -29,6 +31,18 @@ cdef class Resources:
     Parameters
     ----------
     stream : Optional stream to use for ordering CUDA instructions
+    memory_tracking_csv_path : Optional path-like
+        If provided, the handle wraps all reachable memory resources
+        (host, pinned, managed, device, workspace, large_workspace)
+        with allocation-tracking adaptors and logs CSV samples to the
+        given file from a background thread. The CSV file is created
+        or truncated. The global host and device memory resources are
+        replaced for the lifetime of the handle and restored when the
+        handle is destroyed.
+    memory_tracking_sample_interval_ms : int, default ``10``
+        Minimum interval between successive CSV samples, in
+        milliseconds. Ignored when ``memory_tracking_csv_path`` is
+        ``None``.
 
     Examples
     --------
@@ -50,10 +64,25 @@ cdef class Resources:
     >>>
     >>> cupy_stream = cupy.cuda.Stream()
     >>> handle = Resources(stream=cupy_stream.ptr)
+
+    Tracking memory allocations to a CSV file:
+
+    >>> from cuvs.common import Resources
+    >>> handle = Resources(memory_tracking_csv_path="/tmp/allocations.csv",
+    ...                    memory_tracking_sample_interval_ms=10)  # doctest: +SKIP
     """
 
-    def __cinit__(self, stream=None):
-        check_cuvs(cuvsResourcesCreate(&self.c_obj))
+    def __cinit__(self, stream=None, memory_tracking_csv_path=None,
+                  memory_tracking_sample_interval_ms=10):
+        cdef bytes csv_bytes
+        if memory_tracking_csv_path:
+            csv_bytes = str(memory_tracking_csv_path).encode("utf-8")
+            check_cuvs(cuvsResourcesCreateWithMemoryTracking(
+                &self.c_obj,
+                csv_bytes,
+                <int64_t>memory_tracking_sample_interval_ms))
+        else:
+            check_cuvs(cuvsResourcesCreate(&self.c_obj))
         if stream:
             check_cuvs(cuvsStreamSet(self.c_obj, <cudaStream_t>stream))
 
