@@ -355,8 +355,9 @@ void extend_core(
   std::optional<raft::device_matrix_view<T, int64_t, raft::layout_stride>> new_dataset_buffer_view,
   std::optional<raft::device_matrix_view<IdxT, int64_t>> new_graph_buffer_view)
 {
-  static_assert(cuvs::neighbors::is_padded_dataset_view_v<DatasetViewT>,
-                "cagra::extend requires a padded dataset view index type");
+  static_assert(cuvs::neighbors::is_padded_dataset_view_v<DatasetViewT> ||
+                  cuvs::neighbors::is_standard_dataset_view_v<DatasetViewT>,
+                "cagra::extend requires a padded or standard dataset view index type");
   RAFT_EXPECTS(!index.dataset_fd().has_value(),
                "Cannot extend a disk-backed CAGRA index. Convert it with "
                "cuvs::neighbors::hnsw::from_cagra() and load it into memory via "
@@ -433,12 +434,17 @@ void extend_core(
       handle, raft::make_const_mdspan(updated_dataset_view), index, updated_graph.view(), params);
 
     // Attach view over caller's buffer; index does not take ownership
-    cuvs::neighbors::device_padded_dataset_view<T, int64_t> dv(
-      raft::make_device_matrix_view(updated_dataset_view.data_handle(),
-                                    updated_dataset_view.extent(0),
-                                    updated_dataset_view.stride(0)),
-      dim);
-    index.update_dataset(handle, dv);
+    if constexpr (cuvs::neighbors::is_padded_dataset_view_v<DatasetViewT>) {
+      cuvs::neighbors::device_padded_dataset_view<T, int64_t> dv(
+        raft::make_device_matrix_view(updated_dataset_view.data_handle(),
+                                      updated_dataset_view.extent(0),
+                                      updated_dataset_view.stride(0)),
+        dim);
+      index.update_dataset(handle, dv);
+    } else {
+      auto dv = cuvs::neighbors::make_device_standard_dataset_view(updated_dataset_view);
+      index.update_dataset(handle, dv);
+    }
 
     // Update index graph
     if (new_graph_buffer_view.has_value()) {
@@ -454,7 +460,8 @@ void extend_core(
   };
 
   auto const& leaf = index.dataset();
-  if constexpr (cuvs::neighbors::is_padded_dataset_view_v<std::decay_t<decltype(leaf)>>) {
+  if constexpr (cuvs::neighbors::is_padded_dataset_view_v<std::decay_t<decltype(leaf)>> ||
+                cuvs::neighbors::is_standard_dataset_view_v<std::decay_t<decltype(leaf)>>) {
     try_extend(leaf);
   } else if constexpr (cuvs::neighbors::is_empty_dataset_view_v<std::decay_t<decltype(leaf)>>) {
     RAFT_FAIL(

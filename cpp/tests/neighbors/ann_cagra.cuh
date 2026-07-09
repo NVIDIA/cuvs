@@ -697,12 +697,24 @@ class AnnCagraAddNodesTest : public ::testing::TestWithParam<AnnCagraInputs> {
           new_graph_buffer.view();
 
         cagra::extend_params extend_params;
-        cagra::extend(handle_,
-                      extend_params,
-                      raft::make_const_mdspan(additional_dataset.view()),
-                      index,
-                      new_dataset_buffer_view,
-                      new_graph_buffer_view);
+        if constexpr (cuvs::neighbors::is_padded_dataset_view_v<decltype(index.dataset())>) {
+          auto add_view = cuvs::neighbors::make_host_padded_dataset_view(additional_dataset.view());
+          cagra::extend(handle_,
+                        extend_params,
+                        add_view,
+                        index,
+                        new_dataset_buffer_view,
+                        new_graph_buffer_view);
+        } else {
+          auto add_view =
+            cuvs::neighbors::make_host_standard_dataset_view(additional_dataset.view());
+          cagra::extend(handle_,
+                        extend_params,
+                        add_view,
+                        index,
+                        new_dataset_buffer_view,
+                        new_graph_buffer_view);
+        }
 
         auto search_queries_view = raft::make_device_matrix_view<const DataT, int64_t>(
           search_queries.data(), ps.n_queries, ps.dim);

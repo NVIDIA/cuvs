@@ -449,23 +449,45 @@ void search(raft::resources const& res,
 template <class T, class IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
 void extend(raft::resources const& handle,
             const cagra::extend_params& params,
-            raft::device_matrix_view<const T, int64_t, raft::row_major> additional_dataset,
+            cuvs::neighbors::device_padded_dataset_view<T, int64_t> additional_dataset,
             cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>& index,
             std::optional<raft::device_matrix_view<T, int64_t, raft::layout_stride>> ndv,
             std::optional<raft::device_matrix_view<IdxT, int64_t>> ngv)
 {
-  extend_core<T, IdxT, DatasetViewT>(handle, additional_dataset, index, params, ndv, ngv);
+  extend_core<T, IdxT, DatasetViewT>(handle, additional_dataset.view(), index, params, ndv, ngv);
 }
 
 template <class T, class IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
 void extend(raft::resources const& handle,
             const cagra::extend_params& params,
-            raft::host_matrix_view<const T, int64_t, raft::row_major> additional_dataset,
+            cuvs::neighbors::host_padded_dataset_view<T, int64_t> additional_dataset,
             cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>& index,
             std::optional<raft::device_matrix_view<T, int64_t, raft::layout_stride>> ndv,
             std::optional<raft::device_matrix_view<IdxT, int64_t>> ngv)
 {
-  extend_core<T, IdxT, DatasetViewT>(handle, additional_dataset, index, params, ndv, ngv);
+  extend_core<T, IdxT, DatasetViewT>(handle, additional_dataset.view(), index, params, ndv, ngv);
+}
+
+template <class T, class IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
+void extend(raft::resources const& handle,
+            const cagra::extend_params& params,
+            cuvs::neighbors::device_standard_dataset_view<T, int64_t> additional_dataset,
+            cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>& index,
+            std::optional<raft::device_matrix_view<T, int64_t, raft::layout_stride>> ndv,
+            std::optional<raft::device_matrix_view<IdxT, int64_t>> ngv)
+{
+  extend_core<T, IdxT, DatasetViewT>(handle, additional_dataset.view(), index, params, ndv, ngv);
+}
+
+template <class T, class IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
+void extend(raft::resources const& handle,
+            const cagra::extend_params& params,
+            cuvs::neighbors::host_standard_dataset_view<T, int64_t> additional_dataset,
+            cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>& index,
+            std::optional<raft::device_matrix_view<T, int64_t, raft::layout_stride>> ndv,
+            std::optional<raft::device_matrix_view<IdxT, int64_t>> ngv)
+{
+  extend_core<T, IdxT, DatasetViewT>(handle, additional_dataset.view(), index, params, ndv, ngv);
 }
 
 template <class T, class IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
