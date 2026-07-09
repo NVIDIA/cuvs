@@ -340,14 +340,6 @@ if(BUILD_MG_ALGOS)
     list(APPEND CMAKE_PREFIX_PATH ${_cuvs_wheel_prefix_paths})
   endif()
 
-  if(NOT TARGET ucx::ucp)
-    find_package(ucx REQUIRED)
-  endif()
-
-  if(NOT TARGET ucxx::ucxx)
-    find_package(ucxx REQUIRED)
-  endif()
-
   ConfigureTest(
     NAME NEIGHBORS_MG_TEST
     PATH neighbors/mg/test_float.cu
@@ -361,12 +353,32 @@ if(BUILD_MG_ALGOS)
     PATH cluster/kmeans_mg.cu
     GPUS 1
     PERCENT 100
-    ADDITIONAL_DEP
-      NCCL::NCCL
-      ucx::ucp
-      ucx::ucs
-      ucxx::ucxx
+    ADDITIONAL_DEP NCCL::NCCL
   )
+
+  # The MNMG (multi-node multi-GPU) kmeans test depends on the distributed (UCXX) dependencies. It
+  # lives in its own translation unit so that it is only compiled when BUILD_MNMG_TESTS is enabled.
+  if(BUILD_MNMG_TESTS)
+    if(NOT TARGET ucx::ucp)
+      find_package(ucx REQUIRED)
+    endif()
+
+    if(NOT TARGET ucxx::ucxx)
+      find_package(ucxx REQUIRED)
+    endif()
+
+    ConfigureTest(
+      NAME CLUSTER_KMEANS_MNMG_TEST
+      PATH cluster/kmeans_mnmg.cu
+      GPUS 1
+      PERCENT 100
+      ADDITIONAL_DEP
+        NCCL::NCCL
+        ucx::ucp
+        ucx::ucs
+        ucxx::ucxx
+    )
+  endif()
 endif()
 
 ConfigureTest(

@@ -53,6 +53,14 @@ option(BUILD_C_LIBRARY "Build cuVS C API library" ON)
 option(BUILD_CUVS_BENCH "Build cuVS ann benchmarks" OFF)
 option(BUILD_CAGRA_HNSWLIB "Build CAGRA+hnswlib interface" ON)
 option(BUILD_MG_ALGOS "Build with multi-GPU support" ON)
+option(BUILD_MNMG_TESTS
+       "Build multi-node multi-GPU (MNMG) tests that require distributed (UCXX) dependencies" OFF
+)
+# The MNMG tests are only meaningful when tests are being built. Force the flag OFF otherwise so the
+# distributed components are not pulled in unnecessarily.
+if(NOT BUILD_TESTS AND BUILD_MNMG_TESTS)
+  set(BUILD_MNMG_TESTS OFF)
+endif()
 option(CUDA_ENABLE_KERNELINFO "Enable kernel resource usage info" OFF)
 option(CUDA_ENABLE_LINEINFO
        "Enable the -lineinfo option for nvcc (useful for cuda-memcheck / profiler)" OFF

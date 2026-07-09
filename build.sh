@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# SPDX-FileCopyrightText: Copyright (c) 2020-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2020-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 # cuvs build scripts
@@ -19,7 +19,7 @@ ARGS=$*
 # scripts, and that this script resides in the repo dir!
 REPODIR=$(cd "$(dirname "$0")"; pwd)
 
-VALIDARGS="clean libcuvs python rust go java docs tests bench-ann examples --uninstall  -v -g -n --allgpuarch --no-mg --no-cpu --cpu-only --no-shared-libs --no-nvtx --show_depr_warn --incl-cache-stats --time -h --run-java-tests"
+VALIDARGS="clean libcuvs python rust go java docs tests bench-ann examples --uninstall  -v -g -n --allgpuarch --no-mg --mnmg-tests --no-cpu --cpu-only --no-shared-libs --no-nvtx --show_depr_warn --incl-cache-stats --time -h --run-java-tests"
 HELP="$0 [<target> ...] [<flag> ...] [--cmake-args=\"<args>\"] [--cache-tool=<tool>] [--limit-tests=<targets>] [--limit-bench-ann=<targets>] [--build-metrics=<filename>]
  where <target> is:
    clean            - remove all existing build artifacts and configuration (start over)
@@ -51,6 +51,7 @@ HELP="$0 [<target> ...] [<flag> ...] [--cmake-args=\"<args>\"] [--cache-tool=<to
                                 whereas \"80-real\" will generate SASS.
                                 If you are unsure which to do, use -real suffix --gpu-arch=\"80-real;90-real\"
    --no-mg                     - disable multi-GPU support
+   --mnmg-tests                - build multi-node multi-GPU (MNMG) tests that require distributed (UCXX) dependencies
    --no-nvtx                   - disable nvtx (profiling markers), but allow enabling it in downstream projects
    --no-shared-libs            - build without shared libraries
    --show_depr_warn            - show cmake deprecation warnings
@@ -78,6 +79,7 @@ CMAKE_LOG_LEVEL=""
 VERBOSE_FLAG=""
 BUILD_TESTS=ON
 BUILD_MG_ALGOS=ON
+BUILD_MNMG_TESTS=OFF
 BUILD_TYPE=Release
 COMPILE_LIBRARY=OFF
 INSTALL_TARGET=install
@@ -312,6 +314,10 @@ if hasArg --no-mg; then
     BUILD_MG_ALGOS=OFF
 fi
 
+if hasArg --mnmg-tests; then
+    BUILD_MNMG_TESTS=ON
+fi
+
 if hasArg tests || (( NUMARGS == 0 )); then
     BUILD_TESTS=ON
     CMAKE_TARGET+=("${TEST_TARGETS}")
@@ -413,6 +419,7 @@ if (( NUMARGS == 0 )) || hasArg libcuvs || hasArg tests || hasArg bench-prims ||
           -DBUILD_CUVS_BENCH="${BUILD_CUVS_BENCH}" \
           -DBUILD_CPU_ONLY="${BUILD_CPU_ONLY}" \
           -DBUILD_MG_ALGOS=${BUILD_MG_ALGOS} \
+          -DBUILD_MNMG_TESTS=${BUILD_MNMG_TESTS} \
           -DCMAKE_MESSAGE_LOG_LEVEL=${CMAKE_LOG_LEVEL} \
           -DBUILD_SHARED_LIBS=${BUILD_SHARED_LIBS} \
           "${CACHE_ARGS[@]}" \
