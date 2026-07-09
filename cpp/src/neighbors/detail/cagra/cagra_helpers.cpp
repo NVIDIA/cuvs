@@ -153,6 +153,8 @@ inline std::pair<size_t, size_t> ivf_pq_build_mem_usage(
   // Add graph to index on GPU
   size_t create_index_gpu_mem = n_rows * graph_degree * sizeof(uint32_t);
 
+  // Note: We omit attached dataset size since we have a fallback path when its allocation fails
+
   // Search phase (build_knn_graph):
   constexpr size_t kWorkspaceRatio = 5;
   size_t top_k                     = intermediate_graph_degree + 1;
