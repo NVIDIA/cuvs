@@ -33,6 +33,7 @@ def make_kernel(
     tile_k: int = DEFAULT_TILE_K,
     *,
     index_type: str = "int32",
+    gpu_code: str = "sm_80",
 ):
     """Build a cuTile kernel with metric, index width, and tile sizes baked in at compile time."""
     if data_type not in ("half", "float"):
@@ -48,6 +49,22 @@ def make_kernel(
     is_ip = metric == "inner_product"
     is_l2 = metric == "l2_expanded"
     is_cos = metric == "cosine_expanded"
+
+    if gpu_code == "sm_100":
+        # Blackwell tcgen05 maps one logical row of the output tile to the reduction owner.
+        core_shape = (tile_m, tile_n)
+        best_shape = (tile_m, 1)
+        inner_reduction_axes = (1,)
+        outer_reduction_axes = (1,)
+    else:
+        # SM80/86/90/110/120 distribute eight consecutive N values across four threads,
+        # two per thread.
+        # Reducing in this physical layout keeps the score/index pair reduction local and avoids
+        # the slower generic argmin/argmax lowering over the full N dimension.
+        core_shape = (tile_m, tile_n // 8, 4, 2)
+        best_shape = (tile_m, 1, 4, 1)
+        inner_reduction_axes = (1, 3)
+        outer_reduction_axes = (2,)
 
     @ct.kernel
     def fused_1nn_kernel(
@@ -69,14 +86,47 @@ def make_kernel(
         bidm = ct.bid(0)
 
         if is_ip:
-            best_dist = ct.full((tm,), -3.4e38, acc_dtype)
+            best_dist = ct.full(best_shape, -3.4e38, acc_dtype)
+            neutral_dist = -3.4e38
         else:
-            best_dist = ct.full((tm,), 3.4e38, acc_dtype)
-        best_idx = ct.zeros((tm,), idx_dtype)
+            best_dist = ct.full(best_shape, 3.4e38, acc_dtype)
+            neutral_dist = 3.4e38
+        best_idx = ct.zeros(best_shape, idx_dtype)
 
         num_tiles_k = ct.num_tiles(A, axis=1, shape=(tm, tk))
         num_tiles_n = ct.num_tiles(B, axis=0, shape=(tn, tk))
         zero_pad = ct.PaddingMode.ZERO
+
+        def reduce_scores(best, best_idx, axes):
+            def red_op(a_score, a_idx, b_score, b_idx):
+                if is_ip:
+                    cond = a_score > b_score
+                else:
+                    cond = a_score < b_score
+
+                return (
+                    ct.where(cond, a_score, b_score),
+                    ct.where(cond, a_idx, b_idx),
+                )
+
+            if len(axes) >= 1:
+                best, best_idx = ct.reduce(
+                    (best, best_idx),
+                    axes[0],
+                    red_op,
+                    (neutral_dist, -1),
+                    keepdims=True,
+                )
+            if len(axes) >= 2:
+                best, best_idx = ct.reduce(
+                    (best, best_idx),
+                    axes[1],
+                    red_op,
+                    (neutral_dist, -1),
+                    keepdims=True,
+                )
+
+            return best, best_idx
 
         for n in range(num_tiles_n):
             accumulator = ct.full((tm, tn), 0, dtype=acc_dtype)
@@ -123,13 +173,21 @@ def make_kernel(
                     score = ct.where(valid[None, :], score, 3.4e38)
 
             if is_ip:
-                curr_best = ct.max(score, axis=1)
-                curr_idx = ct.argmax(score, axis=1)
+                curr_idx = ct.arange(tn, dtype=idx_dtype).reshape(
+                    core_shape[1:]
+                )[None, ...]
+                curr_best, curr_idx = reduce_scores(
+                    score.reshape(core_shape), curr_idx, inner_reduction_axes
+                )
                 update = curr_best > best_dist
                 best_dist = ct.where(update, curr_best, best_dist)
             else:
-                curr_best = ct.min(score, axis=1)
-                curr_idx = ct.argmin(score, axis=1)
+                curr_idx = ct.arange(tn, dtype=idx_dtype).reshape(
+                    core_shape[1:]
+                )[None, ...]
+                curr_best, curr_idx = reduce_scores(
+                    score.reshape(core_shape), curr_idx, inner_reduction_axes
+                )
                 update = curr_best < best_dist
                 best_dist = ct.where(update, curr_best, best_dist)
 
@@ -137,12 +195,20 @@ def make_kernel(
                 update, (n * tn + curr_idx).astype(idx_dtype), best_idx
             )
 
+        best_dist, best_idx = reduce_scores(
+            best_dist, best_idx, outer_reduction_axes
+        )
+
         out_dist = best_dist
         if is_l2:
             out_dist = ct.where(apply_sqrt != 0, ct.sqrt(best_dist), best_dist)
         if store_idx != 0:
-            ct.store(OutIdx, index=(bidm,), tile=best_idx)
-        ct.store(OutDist, index=(bidm,), tile=out_dist.astype(out_dist_dtype))
+            ct.store(OutIdx, index=(bidm,), tile=best_idx.reshape((tm,)))
+        ct.store(
+            OutDist,
+            index=(bidm,),
+            tile=out_dist.reshape((tm,)).astype(out_dist_dtype),
+        )
 
     return fused_1nn_kernel
 

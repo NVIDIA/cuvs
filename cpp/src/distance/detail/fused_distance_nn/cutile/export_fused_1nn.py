@@ -159,7 +159,13 @@ def export_binary(
     bytecode_version: str | None = None,
 ) -> str:
     kernel = make_kernel(
-        data_type, metric, tile_m, tile_n, tile_k, index_type=index_type
+        data_type,
+        metric,
+        tile_m,
+        tile_n,
+        tile_k,
+        index_type=index_type,
+        gpu_code=gpu_code,
     )
     signature = _kernel_signature(
         data_type, metric, index_type, tile_m, tile_n, tile_k
