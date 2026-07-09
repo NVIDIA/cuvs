@@ -8,11 +8,10 @@
 #define CUVS_INST_MG_CAGRA(T, IdxT)                                                               \
   namespace cuvs::neighbors::cagra {                                                              \
   using namespace cuvs::neighbors;                                                                \
-                                                                                                  \
   cuvs::neighbors::mg_index<cagra::device_standard_index<T, IdxT>, T, IdxT> build(                \
     const raft::resources& res,                                                                   \
     const mg_index_params<cagra::index_params>& index_params,                                     \
-    raft::host_matrix_view<const T, int64_t, row_major> index_dataset)                            \
+    cuvs::neighbors::host_standard_dataset_view<T, int64_t> const& index_dataset)                 \
   {                                                                                               \
     cuvs::neighbors::mg_index<cagra::device_standard_index<T, IdxT>, T, IdxT> index(              \
       res, index_params.mode);                                                                    \
@@ -20,8 +19,31 @@
       res,                                                                                        \
       index,                                                                                      \
       static_cast<const cuvs::neighbors::index_params*>(&index_params),                           \
-      index_dataset);                                                                             \
+      index_dataset.view());                                                                      \
     return index;                                                                                 \
+  }                                                                                               \
+                                                                                                  \
+  cuvs::neighbors::mg_index<cagra::device_padded_index<T, IdxT>, T, IdxT> build(                  \
+    const raft::resources& res,                                                                   \
+    const mg_index_params<cagra::index_params>& index_params,                                     \
+    cuvs::neighbors::host_padded_dataset_view<T, int64_t> const& index_dataset)                   \
+  {                                                                                               \
+    cuvs::neighbors::mg_index<cagra::device_padded_index<T, IdxT>, T, IdxT> index(                \
+      res, index_params.mode);                                                                    \
+    cuvs::neighbors::snmg::detail::build(                                                         \
+      res,                                                                                        \
+      index,                                                                                      \
+      static_cast<const cuvs::neighbors::index_params*>(&index_params),                           \
+      index_dataset.view());                                                                      \
+    return index;                                                                                 \
+  }                                                                                               \
+                                                                                                  \
+  void extend(const raft::resources& res,                                                         \
+              cuvs::neighbors::mg_index<cagra::device_padded_index<T, IdxT>, T, IdxT>& index,     \
+              raft::host_matrix_view<const T, int64_t, row_major> new_vectors,                    \
+              std::optional<raft::host_vector_view<const IdxT, int64_t>> new_indices)             \
+  {                                                                                               \
+    cuvs::neighbors::snmg::detail::extend(res, index, new_vectors, new_indices);                  \
   }                                                                                               \
                                                                                                   \
   void extend(const raft::resources& res,                                                         \
@@ -34,10 +56,44 @@
                                                                                                   \
   void search(                                                                                    \
     const raft::resources& res,                                                                   \
+    const cuvs::neighbors::mg_index<cagra::device_padded_index<T, IdxT>, T, IdxT>& index,         \
+    const mg_search_params<cagra::search_params>& search_params,                                  \
+    raft::host_matrix_view<const T, int64_t, row_major> queries,                                  \
+    raft::host_matrix_view<int64_t, int64_t, row_major> neighbors,                                \
+    raft::host_matrix_view<float, int64_t, row_major> distances)                                  \
+  {                                                                                               \
+    cuvs::neighbors::snmg::detail::search(                                                        \
+      res,                                                                                        \
+      index,                                                                                      \
+      static_cast<const cuvs::neighbors::search_params*>(&search_params),                         \
+      queries,                                                                                    \
+      neighbors,                                                                                  \
+      distances);                                                                                 \
+  }                                                                                               \
+                                                                                                  \
+  void search(                                                                                    \
+    const raft::resources& res,                                                                   \
     const cuvs::neighbors::mg_index<cagra::device_standard_index<T, IdxT>, T, IdxT>& index,       \
     const mg_search_params<cagra::search_params>& search_params,                                  \
     raft::host_matrix_view<const T, int64_t, row_major> queries,                                  \
     raft::host_matrix_view<int64_t, int64_t, row_major> neighbors,                                \
+    raft::host_matrix_view<float, int64_t, row_major> distances)                                  \
+  {                                                                                               \
+    cuvs::neighbors::snmg::detail::search(                                                        \
+      res,                                                                                        \
+      index,                                                                                      \
+      static_cast<const cuvs::neighbors::search_params*>(&search_params),                         \
+      queries,                                                                                    \
+      neighbors,                                                                                  \
+      distances);                                                                                 \
+  }                                                                                               \
+                                                                                                  \
+  void search(                                                                                    \
+    const raft::resources& res,                                                                   \
+    const cuvs::neighbors::mg_index<cagra::device_padded_index<T, IdxT>, T, IdxT>& index,         \
+    const mg_search_params<cagra::search_params>& search_params,                                  \
+    raft::host_matrix_view<const T, int64_t, row_major> queries,                                  \
+    raft::host_matrix_view<uint32_t, int64_t, row_major> neighbors,                               \
     raft::host_matrix_view<float, int64_t, row_major> distances)                                  \
   {                                                                                               \
     cuvs::neighbors::snmg::detail::search(                                                        \
@@ -68,6 +124,14 @@
                                                                                                   \
   void serialize(                                                                                 \
     const raft::resources& res,                                                                   \
+    const cuvs::neighbors::mg_index<cagra::device_padded_index<T, IdxT>, T, IdxT>& index,         \
+    const std::string& filename)                                                                  \
+  {                                                                                               \
+    cuvs::neighbors::snmg::detail::serialize(res, index, filename);                               \
+  }                                                                                               \
+                                                                                                  \
+  void serialize(                                                                                 \
+    const raft::resources& res,                                                                   \
     const cuvs::neighbors::mg_index<cagra::device_standard_index<T, IdxT>, T, IdxT>& index,       \
     const std::string& filename)                                                                  \
   {                                                                                               \
@@ -75,24 +139,67 @@
   }                                                                                               \
                                                                                                   \
   template <>                                                                                     \
-  CUVS_EXPORT cuvs::neighbors::mg_index<cagra::device_standard_index<T, IdxT>, T, IdxT>           \
-  deserialize<T, IdxT>(const raft::resources& res, const std::string& filename)                   \
+  CUVS_EXPORT void deserialize<T, IdxT>(                                                          \
+    const raft::resources& res,                                                                   \
+    const std::string& filename,                                                                  \
+    cuvs::neighbors::mg_index<cagra::device_padded_index<T, IdxT>, T, IdxT>* index)               \
   {                                                                                               \
-    auto idx =                                                                                    \
-      cuvs::neighbors::mg_index<cagra::device_standard_index<T, IdxT>, T, IdxT>(res, filename);   \
-    return idx;                                                                                   \
+    *index =                                                                                      \
+      cuvs::neighbors::mg_index<cagra::device_padded_index<T, IdxT>, T, IdxT>(res, filename);     \
   }                                                                                               \
                                                                                                   \
   template <>                                                                                     \
-  CUVS_EXPORT cuvs::neighbors::mg_index<cagra::device_standard_index<T, IdxT>, T, IdxT>           \
-  distribute<T, IdxT>(const raft::resources& res, const std::string& filename)                    \
+  CUVS_EXPORT void deserialize<T, IdxT>(                                                          \
+    const raft::resources& res,                                                                   \
+    const std::string& filename,                                                                  \
+    cuvs::neighbors::mg_index<cagra::device_standard_index<T, IdxT>, T, IdxT>* index)             \
+  {                                                                                               \
+    *index =                                                                                      \
+      cuvs::neighbors::mg_index<cagra::device_standard_index<T, IdxT>, T, IdxT>(res, filename);   \
+  }                                                                                               \
+                                                                                                  \
+  template <>                                                                                     \
+  CUVS_EXPORT void distribute<T, IdxT>(                                                           \
+    const raft::resources& res,                                                                   \
+    const std::string& filename,                                                                  \
+    cuvs::neighbors::mg_index<cagra::device_standard_index<T, IdxT>, T, IdxT>* index)             \
   {                                                                                               \
     auto idx =                                                                                    \
       cuvs::neighbors::mg_index<cagra::device_standard_index<T, IdxT>, T, IdxT>(res, REPLICATED); \
     cuvs::neighbors::snmg::detail::deserialize_and_distribute(res, idx, filename);                \
-    return idx;                                                                                   \
+    *index = std::move(idx);                                                                      \
   }                                                                                               \
-  }  // namespace cuvs::neighbors::cagra
+                                                                                                  \
+  template <>                                                                                     \
+  CUVS_EXPORT void distribute<T, IdxT>(                                                           \
+    const raft::resources& res,                                                                   \
+    const std::string& filename,                                                                  \
+    cuvs::neighbors::mg_index<cagra::device_padded_index<T, IdxT>, T, IdxT>* index)               \
+  {                                                                                               \
+    auto idx =                                                                                    \
+      cuvs::neighbors::mg_index<cagra::device_padded_index<T, IdxT>, T, IdxT>(res, REPLICATED);   \
+    cuvs::neighbors::snmg::detail::deserialize_and_distribute(res, idx, filename);                \
+    *index = std::move(idx);                                                                      \
+  }                                                                                               \
+  }                                                                                               \
+  template CUVS_EXPORT cuvs::neighbors::                                                          \
+    mg_index<cuvs::neighbors::cagra::device_standard_index<T, IdxT>, T, IdxT>::mg_index(          \
+      const raft::resources&);                                                                    \
+  template CUVS_EXPORT cuvs::neighbors::                                                          \
+    mg_index<cuvs::neighbors::cagra::device_standard_index<T, IdxT>, T, IdxT>::mg_index(          \
+      const raft::resources&, cuvs::neighbors::distribution_mode);                                \
+  template CUVS_EXPORT cuvs::neighbors::                                                          \
+    mg_index<cuvs::neighbors::cagra::device_standard_index<T, IdxT>, T, IdxT>::mg_index(          \
+      const raft::resources&, const std::string&);                                                \
+  template CUVS_EXPORT cuvs::neighbors::                                                          \
+    mg_index<cuvs::neighbors::cagra::device_padded_index<T, IdxT>, T, IdxT>::mg_index(            \
+      const raft::resources&);                                                                    \
+  template CUVS_EXPORT cuvs::neighbors::                                                          \
+    mg_index<cuvs::neighbors::cagra::device_padded_index<T, IdxT>, T, IdxT>::mg_index(            \
+      const raft::resources&, cuvs::neighbors::distribution_mode);                                \
+  template CUVS_EXPORT cuvs::neighbors::                                                          \
+    mg_index<cuvs::neighbors::cagra::device_padded_index<T, IdxT>, T, IdxT>::mg_index(            \
+      const raft::resources&, const std::string&);
 CUVS_INST_MG_CAGRA(@data_type@, uint32_t);
 
 #undef CUVS_INST_MG_CAGRA

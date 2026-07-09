@@ -89,6 +89,11 @@ auto build(raft::resources const& res,
            raft::device_matrix_view<const float, int64_t, raft::row_major> dataset)
   -> tiered_index::index<cagra::device_standard_index<float, uint32_t>>;
 
+auto build(raft::resources const& res,
+           const index_params<cagra::index_params>& index_params,
+           cuvs::neighbors::device_padded_dataset_view<float, int64_t> dataset)
+  -> tiered_index::index<cagra::device_padded_index<float, uint32_t>>;
+
 /** @copydoc build */
 auto build(raft::resources const& res,
            const index_params<ivf_flat::index_params>& index_params,
@@ -121,6 +126,11 @@ auto build(raft::resources const& res,
  */
 void extend(raft::resources const& res,
             raft::device_matrix_view<const float, int64_t, raft::row_major> new_vectors,
+            tiered_index::index<cagra::device_padded_index<float, uint32_t>>* idx);
+
+/** @copydoc extend */
+void extend(raft::resources const& res,
+            raft::device_matrix_view<const float, int64_t, raft::row_major> new_vectors,
             tiered_index::index<cagra::device_standard_index<float, uint32_t>>* idx);
 
 /** @copydoc extend */
@@ -141,6 +151,10 @@ void extend(raft::resources const& res,
  * @param[in] res
  * @param[inout] idx
  */
+void compact(raft::resources const& res,
+             tiered_index::index<cagra::device_padded_index<float, uint32_t>>* idx);
+
+/** @copydoc compact */
 void compact(raft::resources const& res,
              tiered_index::index<cagra::device_standard_index<float, uint32_t>>* idx);
 
@@ -165,6 +179,16 @@ void compact(raft::resources const& res,
  * @param[in] sample_filter an optional device filter function object that greenlights samples
  * for a given query. (none_sample_filter for no filtering)
  */
+void search(raft::resources const& res,
+            const cagra::search_params& search_params,
+            const tiered_index::index<cagra::device_padded_index<float, uint32_t>>& index,
+            raft::device_matrix_view<const float, int64_t, raft::row_major> queries,
+            raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
+            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
+            const cuvs::neighbors::filtering::base_filter& sample_filter =
+              cuvs::neighbors::filtering::none_sample_filter{});
+
+/** @copydoc search */
 void search(raft::resources const& res,
             const cagra::search_params& search_params,
             const tiered_index::index<cagra::device_standard_index<float, uint32_t>>& index,
@@ -206,6 +230,13 @@ void search(raft::resources const& res,
  *
  * @return A new tiered index containing the merged indices
  */
+auto merge(
+  raft::resources const& res,
+  const index_params<cagra::index_params>& index_params,
+  const std::vector<tiered_index::index<cagra::device_padded_index<float, uint32_t>>*>& indices)
+  -> tiered_index::index<cagra::device_padded_index<float, uint32_t>>;
+
+/** @copydoc merge */
 auto merge(
   raft::resources const& res,
   const index_params<cagra::index_params>& index_params,

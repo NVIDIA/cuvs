@@ -1851,6 +1851,7 @@ struct mg_search_params : public Upstream {
 
 template <typename AnnIndexType, typename T, typename IdxT>
 struct mg_index {
+  mg_index(const raft::resources& clique);
   mg_index(const raft::resources& clique, distribution_mode mode);
   mg_index(const raft::resources& clique, const std::string& filename);
 

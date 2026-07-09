@@ -767,6 +767,12 @@ using namespace cuvs::neighbors;
 using namespace raft;
 
 template <typename AnnIndexType, typename T, typename IdxT>
+mg_index<AnnIndexType, T, IdxT>::mg_index(const raft::resources& clique)
+  : mg_index(clique, cuvs::neighbors::REPLICATED)
+{
+}
+
+template <typename AnnIndexType, typename T, typename IdxT>
 mg_index<AnnIndexType, T, IdxT>::mg_index(const raft::resources& clique, distribution_mode mode)
   : mode_(mode), round_robin_counter_(std::make_shared<std::atomic<int64_t>>(0))
 {

@@ -47,6 +47,14 @@ static auto require_mg_cagra_box(cuvsMultiGpuCagraIndex const& index, const char
   return box;
 }
 
+static void destroy_mg_cagra_c_api_box(uintptr_t addr)
+{
+  if (addr == 0) { return; }
+  auto* box = reinterpret_cast<mg_cagra_c_api_index_box*>(addr);
+  cuvs::neighbors::c_api::detail::destroy_owner_record(box->owner_rec);
+  delete box;
+}
+
 template <typename T, typename Fn>
 static void with_mg_index_by_layout(mg_cagra_c_api_index_box* box,
                                     const char* null_handle_err,
@@ -54,7 +62,9 @@ static void with_mg_index_by_layout(mg_cagra_c_api_index_box* box,
 {
   if (box == nullptr) { RAFT_FAIL("%s", null_handle_err); }
   if (box->layout == mg_cagra_dataset_layout::device_padded) {
-    RAFT_FAIL("Multi-GPU C API padded-layout handles are not enabled yet");
+    auto* index_ptr = reinterpret_cast<
+      mg_cagra_index_t<T, cuvs::neighbors::cagra::device_padded_index<T, uint32_t>>*>(box->index_ptr);
+    fn(index_ptr);
   } else {
     auto* index_ptr = reinterpret_cast<
       mg_cagra_index_t<T, cuvs::neighbors::cagra::device_standard_index<T, uint32_t>>*>(box->index_ptr);
@@ -126,11 +136,7 @@ extern "C" cuvsError_t cuvsMultiGpuCagraIndexDestroy(cuvsMultiGpuCagraIndex_t in
 {
   return cuvs::core::translate_exceptions([=] {
     if (index) {
-      auto* box = reinterpret_cast<mg_cagra_c_api_index_box*>(index->addr);
-      if (box != nullptr) {
-        cuvs::neighbors::c_api::detail::destroy_owner_record(box->owner_rec);
-        delete box;
-      }
+      destroy_mg_cagra_c_api_box(index->addr);
       delete index;
     }
   });
@@ -169,7 +175,8 @@ namespace {
 template <typename T>
 void* _mg_build(cuvsResources_t res,
                 cuvsMultiGpuCagraIndexParams params,
-                DLManagedTensor* dataset_tensor)
+                DLManagedTensor* dataset_tensor,
+                mg_cagra_dataset_layout layout)
 {
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
   auto dataset = dataset_tensor->dl_tensor;
@@ -181,9 +188,17 @@ void* _mg_build(cuvsResources_t res,
   using mdspan_type = raft::host_matrix_view<const T, int64_t, raft::row_major>;
   auto mds          = cuvs::core::from_dlpack<mdspan_type>(dataset_tensor);
 
+  if (layout == mg_cagra_dataset_layout::device_padded) {
+    using padded_ann_t = cuvs::neighbors::cagra::device_padded_index<T, uint32_t>;
+    auto padded_mds    = cuvs::neighbors::make_host_padded_dataset_view(mds);
+    auto* mg_index     = new mg_cagra_index_t<T, padded_ann_t>(
+      cuvs::neighbors::cagra::build(*res_ptr, mg_params, padded_mds));
+    return make_mg_cagra_box<T, padded_ann_t>(mg_index, mg_cagra_dataset_layout::device_padded);
+  }
   using standard_ann_t = cuvs::neighbors::cagra::device_standard_index<T, uint32_t>;
+  auto standard_mds    = cuvs::neighbors::make_host_standard_dataset_view(mds);
   auto* mg_index       = new mg_cagra_index_t<T, standard_ann_t>(
-    cuvs::neighbors::cagra::build(*res_ptr, mg_params, mds));
+    cuvs::neighbors::cagra::build(*res_ptr, mg_params, standard_mds));
   return make_mg_cagra_box<T, standard_ann_t>(mg_index, mg_cagra_dataset_layout::device_standard);
 }
 
@@ -251,22 +266,34 @@ void _mg_serialize(cuvsResources_t res, cuvsMultiGpuCagraIndex index, const char
 }
 
 template <typename T>
-void* _mg_deserialize(cuvsResources_t res, const char* filename)
+void* _mg_deserialize(cuvsResources_t res, const char* filename, mg_cagra_dataset_layout layout)
 {
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
+  if (layout == mg_cagra_dataset_layout::device_padded) {
+    using padded_ann_t = cuvs::neighbors::cagra::device_padded_index<T, uint32_t>;
+    auto* mg_index = new mg_cagra_index_t<T, padded_ann_t>(*res_ptr, cuvs::neighbors::REPLICATED);
+    cuvs::neighbors::cagra::deserialize<T, uint32_t>(*res_ptr, std::string(filename), mg_index);
+    return make_mg_cagra_box<T, padded_ann_t>(mg_index, mg_cagra_dataset_layout::device_padded);
+  }
   using standard_ann_t = cuvs::neighbors::cagra::device_standard_index<T, uint32_t>;
-  auto* mg_index       = new mg_cagra_index_t<T, standard_ann_t>(
-    cuvs::neighbors::cagra::deserialize<T, uint32_t>(*res_ptr, std::string(filename)));
+  auto* mg_index       = new mg_cagra_index_t<T, standard_ann_t>(*res_ptr, cuvs::neighbors::REPLICATED);
+  cuvs::neighbors::cagra::deserialize<T, uint32_t>(*res_ptr, std::string(filename), mg_index);
   return make_mg_cagra_box<T, standard_ann_t>(mg_index, mg_cagra_dataset_layout::device_standard);
 }
 
 template <typename T>
-void* _mg_distribute(cuvsResources_t res, const char* filename)
+void* _mg_distribute(cuvsResources_t res, const char* filename, mg_cagra_dataset_layout layout)
 {
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
+  if (layout == mg_cagra_dataset_layout::device_padded) {
+    using padded_ann_t = cuvs::neighbors::cagra::device_padded_index<T, uint32_t>;
+    auto* mg_index = new mg_cagra_index_t<T, padded_ann_t>(*res_ptr, cuvs::neighbors::REPLICATED);
+    cuvs::neighbors::cagra::distribute<T, uint32_t>(*res_ptr, std::string(filename), mg_index);
+    return make_mg_cagra_box<T, padded_ann_t>(mg_index, mg_cagra_dataset_layout::device_padded);
+  }
   using standard_ann_t = cuvs::neighbors::cagra::device_standard_index<T, uint32_t>;
-  auto* mg_index       = new mg_cagra_index_t<T, standard_ann_t>(
-    cuvs::neighbors::cagra::distribute<T, uint32_t>(*res_ptr, std::string(filename)));
+  auto* mg_index       = new mg_cagra_index_t<T, standard_ann_t>(*res_ptr, cuvs::neighbors::REPLICATED);
+  cuvs::neighbors::cagra::distribute<T, uint32_t>(*res_ptr, std::string(filename), mg_index);
   return make_mg_cagra_box<T, standard_ann_t>(mg_index, mg_cagra_dataset_layout::device_standard);
 }
 
@@ -284,17 +311,39 @@ extern "C" cuvsError_t cuvsMultiGpuCagraBuild(cuvsResources_t res,
     RAFT_EXPECTS(cuvs::core::is_dlpack_host_compatible(dataset),
                  "Multi-GPU CAGRA build requires dataset to have host compatible memory");
 
+    destroy_mg_cagra_c_api_box(index->addr);
+    index->addr = 0;
     index->dtype.code = dataset.dtype.code;
     index->dtype.bits = dataset.dtype.bits;
 
     if (dataset.dtype.code == kDLFloat && dataset.dtype.bits == 32) {
-      index->addr = reinterpret_cast<uintptr_t>(_mg_build<float>(res, *params, dataset_tensor));
+      auto mds = cuvs::core::from_dlpack<raft::host_matrix_view<const float, int64_t, raft::row_major>>(
+        dataset_tensor);
+      auto layout = cuvs::neighbors::matrix_row_width_matches_cagra_required(mds)
+                      ? mg_cagra_dataset_layout::device_padded
+                      : mg_cagra_dataset_layout::device_standard;
+      index->addr = reinterpret_cast<uintptr_t>(_mg_build<float>(res, *params, dataset_tensor, layout));
     } else if (dataset.dtype.code == kDLFloat && dataset.dtype.bits == 16) {
-      index->addr = reinterpret_cast<uintptr_t>(_mg_build<half>(res, *params, dataset_tensor));
+      auto mds = cuvs::core::from_dlpack<raft::host_matrix_view<const half, int64_t, raft::row_major>>(
+        dataset_tensor);
+      auto layout = cuvs::neighbors::matrix_row_width_matches_cagra_required(mds)
+                      ? mg_cagra_dataset_layout::device_padded
+                      : mg_cagra_dataset_layout::device_standard;
+      index->addr = reinterpret_cast<uintptr_t>(_mg_build<half>(res, *params, dataset_tensor, layout));
     } else if (dataset.dtype.code == kDLInt && dataset.dtype.bits == 8) {
-      index->addr = reinterpret_cast<uintptr_t>(_mg_build<int8_t>(res, *params, dataset_tensor));
+      auto mds = cuvs::core::from_dlpack<raft::host_matrix_view<const int8_t, int64_t, raft::row_major>>(
+        dataset_tensor);
+      auto layout = cuvs::neighbors::matrix_row_width_matches_cagra_required(mds)
+                      ? mg_cagra_dataset_layout::device_padded
+                      : mg_cagra_dataset_layout::device_standard;
+      index->addr = reinterpret_cast<uintptr_t>(_mg_build<int8_t>(res, *params, dataset_tensor, layout));
     } else if (dataset.dtype.code == kDLUInt && dataset.dtype.bits == 8) {
-      index->addr = reinterpret_cast<uintptr_t>(_mg_build<uint8_t>(res, *params, dataset_tensor));
+      auto mds = cuvs::core::from_dlpack<raft::host_matrix_view<const uint8_t, int64_t, raft::row_major>>(
+        dataset_tensor);
+      auto layout = cuvs::neighbors::matrix_row_width_matches_cagra_required(mds)
+                      ? mg_cagra_dataset_layout::device_padded
+                      : mg_cagra_dataset_layout::device_standard;
+      index->addr = reinterpret_cast<uintptr_t>(_mg_build<uint8_t>(res, *params, dataset_tensor, layout));
     } else {
       RAFT_FAIL("Unsupported dataset DLtensor dtype: %d and bits: %d",
                 dataset.dtype.code,
@@ -428,19 +477,31 @@ extern "C" cuvsError_t cuvsMultiGpuCagraDeserialize(cuvsResources_t res,
       raft::numpy_serializer::parse_descr(std::string(dtype_string, sizeof(dtype_string)));
     is.close();
 
+    destroy_mg_cagra_c_api_box(index->addr);
+    index->addr = 0;
     index->dtype.bits = dtype.itemsize * 8;
+    auto try_layout_deser = [&](auto tag) {
+      using data_t = decltype(tag);
+      try {
+        return reinterpret_cast<uintptr_t>(
+          _mg_deserialize<data_t>(res, filename, mg_cagra_dataset_layout::device_padded));
+      } catch (...) {
+        return reinterpret_cast<uintptr_t>(
+          _mg_deserialize<data_t>(res, filename, mg_cagra_dataset_layout::device_standard));
+      }
+    };
     if (dtype.kind == 'f' && dtype.itemsize == 4) {
       index->dtype.code = kDLFloat;
-      index->addr       = reinterpret_cast<uintptr_t>(_mg_deserialize<float>(res, filename));
+      index->addr       = try_layout_deser(float{});
     } else if (dtype.kind == 'e' && dtype.itemsize == 2) {
       index->dtype.code = kDLFloat;
-      index->addr       = reinterpret_cast<uintptr_t>(_mg_deserialize<half>(res, filename));
+      index->addr       = try_layout_deser(half{});
     } else if (dtype.kind == 'i' && dtype.itemsize == 1) {
       index->dtype.code = kDLInt;
-      index->addr       = reinterpret_cast<uintptr_t>(_mg_deserialize<int8_t>(res, filename));
+      index->addr       = try_layout_deser(int8_t{});
     } else if (dtype.kind == 'u' && dtype.itemsize == 1) {
       index->dtype.code = kDLUInt;
-      index->addr       = reinterpret_cast<uintptr_t>(_mg_deserialize<uint8_t>(res, filename));
+      index->addr       = try_layout_deser(uint8_t{});
     } else {
       RAFT_FAIL("Unsupported index dtype");
     }
@@ -462,19 +523,31 @@ extern "C" cuvsError_t cuvsMultiGpuCagraDistribute(cuvsResources_t res,
       raft::numpy_serializer::parse_descr(std::string(dtype_string, sizeof(dtype_string)));
     is.close();
 
+    destroy_mg_cagra_c_api_box(index->addr);
+    index->addr = 0;
     index->dtype.bits = dtype.itemsize * 8;
+    auto try_layout_distribute = [&](auto tag) {
+      using data_t = decltype(tag);
+      try {
+        return reinterpret_cast<uintptr_t>(
+          _mg_distribute<data_t>(res, filename, mg_cagra_dataset_layout::device_padded));
+      } catch (...) {
+        return reinterpret_cast<uintptr_t>(
+          _mg_distribute<data_t>(res, filename, mg_cagra_dataset_layout::device_standard));
+      }
+    };
     if (dtype.kind == 'f' && dtype.itemsize == 4) {
       index->dtype.code = kDLFloat;
-      index->addr       = reinterpret_cast<uintptr_t>(_mg_distribute<float>(res, filename));
+      index->addr       = try_layout_distribute(float{});
     } else if (dtype.kind == 'e' && dtype.itemsize == 2) {
       index->dtype.code = kDLFloat;
-      index->addr       = reinterpret_cast<uintptr_t>(_mg_distribute<half>(res, filename));
+      index->addr       = try_layout_distribute(half{});
     } else if (dtype.kind == 'i' && dtype.itemsize == 1) {
       index->dtype.code = kDLInt;
-      index->addr       = reinterpret_cast<uintptr_t>(_mg_distribute<int8_t>(res, filename));
+      index->addr       = try_layout_distribute(int8_t{});
     } else if (dtype.kind == 'u' && dtype.itemsize == 1) {
       index->dtype.code = kDLUInt;
-      index->addr       = reinterpret_cast<uintptr_t>(_mg_distribute<uint8_t>(res, filename));
+      index->addr       = try_layout_distribute(uint8_t{});
     } else {
       RAFT_FAIL("Unsupported index dtype");
     }
