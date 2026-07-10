@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -10,7 +10,6 @@
 #include "initializer_gpu.cuh"
 
 #include <raft/core/error.hpp>
-#include <raft/core/host_mdarray.hpp>
 
 namespace cuvs::neighbors::ivf_rabitq::detail {
 
@@ -31,35 +30,17 @@ void FlatInitializerGPU::AddVectors(const float* cent)
   raft::copy(centroids_.data_handle(), cent, data_elements(), stream_);
 }
 
-// Loads the centroids from a file.
-// The centroids are read into a temporary host buffer and then copied to the
-// device memory.
-void FlatInitializerGPU::LoadCentroids(std::ifstream& input, const char* filename)
+void FlatInitializerGPU::LoadCentroids(cuvs::util::kvikio_file_reader& input, const char*)
 {
-  // Allocate temporary host buffer for centroids.
-  auto host_buf = raft::make_host_vector<float, int64_t>(K * D);
-  // Read the raw data from the file.
-  input.read(reinterpret_cast<char*>(host_buf.data_handle()), data_bytes());
-  RAFT_EXPECTS(input && input.gcount() == static_cast<std::streamsize>(data_bytes()),
-               "Failed to read centroids from file: %s",
-               filename);
-  // Copy the data from host to device.
-  raft::copy(centroids_.data_handle(), host_buf.data_handle(), data_elements(), stream_);
   raft::resource::sync_stream(handle_);
+  input.read_device(centroids_.data_handle(), data_bytes());
 }
 
-// Saves the centroids to a file.
-// The centroids are first copied from device memory to a temporary host buffer,
-// and then the entire block of data is written to the output stream.
-void FlatInitializerGPU::SaveCentroids(std::ofstream& output, const char* filename) const
+void FlatInitializerGPU::SaveCentroids(cuvs::util::kvikio_ofstream& output,
+                                       const char* filename) const
 {
-  // Allocate temporary host buffer for centroids.
-  auto host_buf = raft::make_host_vector<float, int64_t>(K * D);
-  // Copy centroids from device to host.
-  raft::copy(host_buf.data_handle(), centroids_.data_handle(), data_elements(), stream_);
   raft::resource::sync_stream(handle_);
-  // Write the raw data to the file.
-  output.write(reinterpret_cast<char*>(host_buf.data_handle()), data_bytes());
+  output.write_device(centroids_.data_handle(), data_bytes());
   RAFT_EXPECTS(static_cast<bool>(output), "Failed to write centroids to file: %s", filename);
 }
 

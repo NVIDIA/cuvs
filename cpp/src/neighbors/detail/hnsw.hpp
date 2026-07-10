@@ -1393,7 +1393,7 @@ std::unique_ptr<index<T>> from_cagra(
       std::string index_filename =
         (std::filesystem::path(index_directory) / "hnsw_index.bin").string();
 
-      std::ofstream of(index_filename, std::ios::out | std::ios::binary);
+      cuvs::util::kvikio_ofstream of(index_filename);
       RAFT_EXPECTS(of, "Cannot open file %s", index_filename.c_str());
 
       serialize_to_hnswlib_from_inmem(res, of, params, cagra_index, dataset);

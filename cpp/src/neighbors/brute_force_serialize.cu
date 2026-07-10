@@ -19,9 +19,9 @@ namespace cuvs::neighbors::brute_force {
 
 int constexpr serialization_version = 0;
 
-template <typename T, typename DistT>
+template <typename T, typename DistT, typename Output>
 void serialize(raft::resources const& handle,
-               std::ostream& os,
+               Output& os,
                const index<T, DistT>& index,
                bool include_dataset = true)
 {
@@ -38,10 +38,10 @@ void serialize(raft::resources const& handle,
   raft::serialize_scalar(handle, os, index.metric());
   raft::serialize_scalar(handle, os, index.metric_arg());
   raft::serialize_scalar(handle, os, include_dataset);
-  if (include_dataset) { raft::serialize_mdspan(handle, os, index.dataset()); }
+  if (include_dataset) { cuvs::util::detail::serialize_mdspan(handle, os, index.dataset()); }
   auto has_norms = index.has_norms();
   raft::serialize_scalar(handle, os, has_norms);
-  if (has_norms) { raft::serialize_mdspan(handle, os, index.norms()); }
+  if (has_norms) { cuvs::util::detail::serialize_mdspan(handle, os, index.norms()); }
   raft::resource::sync_stream(handle);
 }
 
@@ -50,9 +50,11 @@ void serialize(raft::resources const& handle,
                const index<half, float>& index,
                bool include_dataset)
 {
-  auto os = std::ofstream{filename, std::ios::out | std::ios::binary};
+  cuvs::util::kvikio_ofstream os(filename);
   RAFT_EXPECTS(os, "Cannot open file %s", filename.c_str());
   serialize<half, float>(handle, os, index, include_dataset);
+  os.close();
+  RAFT_EXPECTS(os, "Error writing output %s", filename.c_str());
 }
 
 void serialize(raft::resources const& handle,
@@ -60,9 +62,11 @@ void serialize(raft::resources const& handle,
                const index<float, float>& index,
                bool include_dataset)
 {
-  auto os = std::ofstream{filename, std::ios::out | std::ios::binary};
+  cuvs::util::kvikio_ofstream os(filename);
   RAFT_EXPECTS(os, "Cannot open file %s", filename.c_str());
   serialize<float, float>(handle, os, index, include_dataset);
+  os.close();
+  RAFT_EXPECTS(os, "Error writing output %s", filename.c_str());
 }
 
 void serialize(raft::resources const& handle,

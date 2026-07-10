@@ -40,8 +40,8 @@ constexpr int serialization_version = 4;
  * @param[in] index_ IVF-Flat index
  *
  */
-template <typename T, typename IdxT>
-void serialize(raft::resources const& handle, std::ostream& os, const index<T, IdxT>& index_)
+template <typename T, typename IdxT, typename Output>
+void serialize(raft::resources const& handle, Output& os, const index<T, IdxT>& index_)
 {
   RAFT_LOG_DEBUG(
     "Saving IVF-Flat index, size %zu, dim %u", static_cast<size_t>(index_.size()), index_.dim());
@@ -57,11 +57,11 @@ void serialize(raft::resources const& handle, std::ostream& os, const index<T, I
   serialize_scalar(handle, os, index_.metric());
   serialize_scalar(handle, os, index_.adaptive_centers());
   serialize_scalar(handle, os, index_.conservative_memory_allocation());
-  serialize_mdspan(handle, os, index_.centers());
+  cuvs::util::detail::serialize_mdspan(handle, os, index_.centers());
   if (index_.center_norms()) {
     bool has_norms = true;
     serialize_scalar(handle, os, has_norms);
-    serialize_mdspan(handle, os, *index_.center_norms());
+    cuvs::util::detail::serialize_mdspan(handle, os, *index_.center_norms());
   } else {
     bool has_norms = false;
     serialize_scalar(handle, os, has_norms);
@@ -69,7 +69,7 @@ void serialize(raft::resources const& handle, std::ostream& os, const index<T, I
   auto sizes_host = raft::make_host_vector<uint32_t, uint32_t>(index_.list_sizes().extent(0));
   raft::copy(handle, sizes_host.view(), index_.list_sizes());
   raft::resource::sync_stream(handle);
-  serialize_mdspan(handle, os, sizes_host.view());
+  cuvs::util::detail::serialize_mdspan(handle, os, sizes_host.view());
 
   list_spec<uint32_t, T, IdxT> list_store_spec{index_.dim(), true};
   for (uint32_t label = 0; label < index_.n_lists(); label++) {
@@ -87,7 +87,7 @@ void serialize(raft::resources const& handle,
                const std::string& filename,
                const index<T, IdxT>& index_)
 {
-  std::ofstream of(filename, std::ios::out | std::ios::binary);
+  cuvs::util::kvikio_ofstream of(filename);
   if (!of) { RAFT_FAIL("Cannot open file %s", filename.c_str()); }
 
   detail::serialize(handle, of, index_);

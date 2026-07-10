@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -22,6 +22,7 @@
 #include <cuvs/neighbors/ivf_flat.hpp>
 #include <cuvs/neighbors/ivf_pq.hpp>
 #include <cuvs/neighbors/knn_merge_parts.hpp>
+#include <cuvs/util/file_io.hpp>
 
 #include <fstream>
 
@@ -736,7 +737,7 @@ void serialize(const raft::resources& clique,
                const mg_index<AnnIndexType, T, IdxT>& index,
                const std::string& filename)
 {
-  std::ofstream of(filename, std::ios::out | std::ios::binary);
+  cuvs::util::kvikio_ofstream of(filename);
   if (!of) { RAFT_FAIL("Cannot open file %s", filename.c_str()); }
 
   std::string dtype_string = raft::numpy_serializer::get_numpy_dtype<T>().to_string();

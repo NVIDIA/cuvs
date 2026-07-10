@@ -38,8 +38,8 @@ constexpr int kSerializationVersion = 4;
  * @param[in] index IVF-PQ index
  *
  */
-template <typename IdxT>
-void serialize(raft::resources const& handle_, std::ostream& os, const index<IdxT>& index)
+template <typename IdxT, typename Output>
+void serialize(raft::resources const& handle_, Output& os, const index<IdxT>& index)
 {
   RAFT_LOG_DEBUG("Size %zu, dim %d, pq_dim %d, pq_bits %d",
                  static_cast<size_t>(index.size()),
@@ -59,16 +59,16 @@ void serialize(raft::resources const& handle_, std::ostream& os, const index<Idx
   raft::serialize_scalar(handle_, os, index.codes_layout());
   raft::serialize_scalar(handle_, os, index.n_lists());
 
-  raft::serialize_mdspan(handle_, os, index.pq_centers());
-  raft::serialize_mdspan(handle_, os, index.centers());
-  raft::serialize_mdspan(handle_, os, index.centers_rot());
-  raft::serialize_mdspan(handle_, os, index.rotation_matrix());
+  cuvs::util::detail::serialize_mdspan(handle_, os, index.pq_centers());
+  cuvs::util::detail::serialize_mdspan(handle_, os, index.centers());
+  cuvs::util::detail::serialize_mdspan(handle_, os, index.centers_rot());
+  cuvs::util::detail::serialize_mdspan(handle_, os, index.rotation_matrix());
 
   auto sizes_host =
     raft::make_host_mdarray<uint32_t, uint32_t, raft::row_major>(index.list_sizes().extents());
   raft::copy(handle_, sizes_host.view(), index.list_sizes());
   raft::resource::sync_stream(handle_);
-  raft::serialize_mdspan(handle_, os, sizes_host.view());
+  cuvs::util::detail::serialize_mdspan(handle_, os, sizes_host.view());
   // NOTE: We use static_cast here because serialize_list requires the concrete list type
   // to access the spec_type for determining the serialized data layout.
   if (index.codes_layout() == list_layout::FLAT) {
@@ -102,7 +102,7 @@ void serialize(raft::resources const& handle_,
                const std::string& filename,
                const index<IdxT>& index)
 {
-  std::ofstream of(filename, std::ios::out | std::ios::binary);
+  cuvs::util::kvikio_ofstream of(filename);
   if (!of) { RAFT_FAIL("Cannot open file %s", filename.c_str()); }
 
   detail::serialize(handle_, of, index);

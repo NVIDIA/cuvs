@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -14,27 +14,16 @@
 #include <raft/core/serialize.hpp>
 #include <raft/linalg/map.cuh>
 
+#include "../../../util/kvikio_serialize.hpp"
+
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
-#include <fstream>
 #include <type_traits>
 
 namespace cuvs::neighbors::experimental::scann::detail {
 
 constexpr int kSerializationVersion = 1;
-
-namespace {
-// Helper for opening an ofstream
-std::ofstream open_file(std::string file_name)
-{
-  std::ofstream file_of(file_name, std::ios::out | std::ios::binary);
-
-  if (!file_of) { RAFT_FAIL("Cannot open file %s", file_name.c_str()); }
-
-  return file_of;
-}
-}  // namespace
 
 // Helper for serializing device/host matrix to a given file
 template <typename T,
@@ -46,11 +35,13 @@ void serialize_matrix(
   std::filesystem::path file_path,
   raft::mdspan<const T, raft::matrix_extent<IdxT>, raft::row_major, Accessor> mat)
 {
-  auto mat_of = open_file(file_path);
+  cuvs::util::kvikio_ofstream mat_of(file_path.string());
+  RAFT_EXPECTS(mat_of, "Cannot open file %s", file_path.string().c_str());
 
-  raft::serialize_mdspan(res, mat_of, mat);
+  cuvs::util::detail::serialize_mdspan(res, mat_of, mat);
 
   mat_of.close();
+  RAFT_EXPECTS(mat_of, "Error writing output %s", file_path.string().c_str());
 }
 
 // ScaNN stores primary and soar cluster assignments interleaved in a single vector.
@@ -81,11 +72,13 @@ void save_labels(raft::resources const& res,
       return soar_label;
     });
 
-  auto labels_of = open_file(labels_path);
+  cuvs::util::kvikio_ofstream labels_of(labels_path.string());
+  RAFT_EXPECTS(labels_of, "Cannot open file %s", labels_path.string().c_str());
 
-  raft::serialize_mdspan(res, labels_of, combined_labels.view());
+  cuvs::util::detail::serialize_device_mdspan(res, labels_of, combined_labels.view());
 
   labels_of.close();
+  RAFT_EXPECTS(labels_of, "Error writing output %s", labels_path.string().c_str());
 }
 
 /**
@@ -111,13 +104,16 @@ void serialize(raft::resources const& res,
   // Metadata
   std::filesystem::path scann_path(scann_assets_dir);
 
-  auto metadata_of = open_file(scann_path / "cuvs_metadata.bin");
+  const auto metadata_path = scann_path / "cuvs_metadata.bin";
+  cuvs::util::kvikio_ofstream metadata_of(metadata_path.string());
+  RAFT_EXPECTS(metadata_of, "Cannot open file %s", metadata_path.string().c_str());
 
   raft::serialize_scalar(res, metadata_of, kSerializationVersion);
   raft::serialize_scalar(res, metadata_of, index_.dim());
   raft::serialize_scalar(res, metadata_of, index_.pq_dim());
 
   metadata_of.close();
+  RAFT_EXPECTS(metadata_of, "Error writing output %s", metadata_path.string().c_str());
 
   // kmeans cluster centers
   serialize_matrix(res, scann_path / "centers.npy", index_.centers());

@@ -38,7 +38,7 @@ constexpr int serialization_version = 5;
 template <typename MdspanT>
 void serialize_index_mdspan(raft::resources const& res, std::ostream& os, const MdspanT& mdspan)
 {
-  raft::serialize_mdspan(res, os, mdspan);
+  cuvs::util::detail::serialize_mdspan(res, os, mdspan);
 }
 
 template <typename ElementType, typename Extents, typename LayoutPolicy, typename AccessorPolicy>

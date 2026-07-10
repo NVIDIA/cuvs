@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -16,8 +16,9 @@
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resources.hpp>
 
+#include <cuvs/util/file_io.hpp>
+
 #include <cstdint>
-#include <fstream>
 #include <string>
 #include <vector>
 
@@ -60,20 +61,20 @@ class InitializerGPU {
   virtual void AddVectors(const float* cent) = 0;
 
   /**
-   * @brief LoadCentroids centroids' information from files.
+   * @brief Load centroids directly from a path-backed KvikIO reader.
    *
    * @param input
    * @param filename
    */
-  virtual void LoadCentroids(std::ifstream& input, const char* filename) = 0;
+  virtual void LoadCentroids(cuvs::util::kvikio_file_reader& input, const char* filename) = 0;
 
   /**
-   * @brief SaveCentroids centroids' information from files.
+   * @brief Save centroids directly through a KvikIO output stream.
    *
    * @param save
    * @param filename
    */
-  virtual void SaveCentroids(std::ofstream& output, const char* filename) const = 0;
+  virtual void SaveCentroids(cuvs::util::kvikio_ofstream& output, const char* filename) const = 0;
 
  protected:
   size_t D;                        // Dimension
@@ -91,9 +92,9 @@ class FlatInitializerGPU : public InitializerGPU {
 
   void AddVectors(const float* cent) override;
 
-  void LoadCentroids(std::ifstream& input, const char* filename) override;
+  void LoadCentroids(cuvs::util::kvikio_file_reader& input, const char* filename) override;
 
-  void SaveCentroids(std::ofstream& output, const char* filename) const override;
+  void SaveCentroids(cuvs::util::kvikio_ofstream& output, const char* filename) const override;
 
  private:
   // D, K are inherited from parent

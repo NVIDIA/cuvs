@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -15,10 +15,11 @@
 #include <raft/core/mdspan_types.hpp>
 #include <raft/core/resources.hpp>
 
+#include <cuvs/util/file_io.hpp>
+
 #include <rmm/cuda_stream_view.hpp>
 
 #include <cstdint>
-#include <fstream>
 
 namespace cuvs::neighbors::ivf_rabitq::detail {
 
@@ -44,22 +45,20 @@ class RotatorGPU {
 
   /**
    * @brief Load the rotation matrix from a file.
-   * @param input Input stream (the file stores the matrix in row-major order).
+   * @param input KvikIO reader positioned at the row-major matrix.
    *
-   * The function reads the D×D matrix from the file, transposes it into column-major order,
-   * and copies it into device memory.
+   * The function reads the D×D matrix directly into device memory.
    */
-  void load(raft::resources const& handle, std::ifstream& input);
+  void load(raft::resources const& handle, cuvs::util::kvikio_file_reader& input);
 
   /**
    * @brief Save the rotation matrix to a file.
    * @param handle Resource handle
-   * @param output Output stream.
+   * @param output KvikIO output stream.
    *
-   * The function copies the rotation matrix from device memory, transposes it from column-major to
-   * row-major, and writes it to the file.
+   * The function writes the row-major rotation matrix directly from device memory.
    */
-  void save(raft::resources const& handle, std::ofstream& output) const;
+  void save(raft::resources const& handle, cuvs::util::kvikio_ofstream& output) const;
 
   // Rotate matrix A and store the result in RAND_A.
   // A and RAND_A are device pointers representing matrices of size N x D.

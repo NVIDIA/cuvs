@@ -80,6 +80,26 @@ void serialize_device_mdspan(
   RAFT_EXPECTS(os.good(), "Error writing content of device mdspan");
 }
 
+template <typename MdspanT>
+void serialize_mdspan(const raft::resources& res, std::ostream& os, const MdspanT& obj)
+{
+  if constexpr (raft::is_device_mdspan_v<MdspanT>) {
+    if (auto* kvikio_stream = dynamic_cast<kvikio_ofstream*>(&os); kvikio_stream != nullptr) {
+      return serialize_device_mdspan(res, *kvikio_stream, obj);
+    }
+  }
+  raft::serialize_mdspan(res, os, obj);
+}
+
+template <typename ElementType, typename Extents, typename LayoutPolicy, typename AccessorPolicy>
+void serialize_mdspan(
+  const raft::resources& res,
+  kvikio_ofstream& os,
+  const raft::device_mdspan<ElementType, Extents, LayoutPolicy, AccessorPolicy>& obj)
+{
+  serialize_device_mdspan(res, os, obj);
+}
+
 template <typename ElementType, typename Extents, typename LayoutPolicy, typename AccessorPolicy>
 void deserialize_device_mdspan(
   const raft::resources& res,

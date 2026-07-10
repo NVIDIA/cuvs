@@ -39,34 +39,9 @@ void serialize(const raft::resources& res, std::ostream& os, const empty_dataset
 }
 
 template <typename DataT, typename IdxT>
-void serialize(const raft::resources& res,
-               std::ostream& os,
-               const strided_dataset<DataT, IdxT>& dataset)
-{
-  auto n_rows = dataset.n_rows();
-  auto dim    = dataset.dim();
-  auto stride = dataset.stride();
-  raft::serialize_scalar(res, os, n_rows);
-  raft::serialize_scalar(res, os, dim);
-  raft::serialize_scalar(res, os, stride);
-  // Remove padding before saving the dataset
-  auto src = dataset.view();
-  auto dst = raft::make_host_matrix<DataT, IdxT>(n_rows, dim);
-  raft::copy_matrix(dst.data_handle(),
-                    dim,
-                    src.data_handle(),
-                    stride,
-                    dim,
-                    n_rows,
-                    raft::resource::get_cuda_stream(res));
-  raft::resource::sync_stream(res);
-  raft::serialize_mdspan(res, os, dst.view());
-}
-
-template <typename DataT, typename IdxT>
-void serialize(const raft::resources& res,
-               cuvs::util::kvikio_ofstream& os,
-               const strided_dataset<DataT, IdxT>& dataset)
+void serialize_strided_kvikio(const raft::resources& res,
+                              cuvs::util::kvikio_ofstream& os,
+                              const strided_dataset<DataT, IdxT>& dataset)
 {
   const auto n_rows = dataset.n_rows();
   const auto dim    = dataset.dim();
@@ -92,7 +67,6 @@ void serialize(const raft::resources& res,
     std::max<size_t>(1, cuvs::util::detail::kDeviceSerializationBatchBytes / row_len)));
   auto packed           = raft::make_device_matrix<DataT, IdxT>(res, batch_rows, dim);
   const auto stream     = raft::resource::get_cuda_stream(res);
-
   for (IdxT first_row = 0; first_row < n_rows; first_row += batch_rows) {
     const auto rows = std::min<IdxT>(batch_rows, n_rows - first_row);
     raft::copy_matrix(
@@ -100,6 +74,44 @@ void serialize(const raft::resources& res,
     raft::resource::sync_stream(res);
     os.write_device(packed.data_handle(), static_cast<size_t>(rows) * row_len);
   }
+}
+
+template <typename DataT, typename IdxT>
+void serialize(const raft::resources& res,
+               std::ostream& os,
+               const strided_dataset<DataT, IdxT>& dataset)
+{
+  if (auto* kvikio_stream = dynamic_cast<cuvs::util::kvikio_ofstream*>(&os);
+      kvikio_stream != nullptr) {
+    return serialize_strided_kvikio(res, *kvikio_stream, dataset);
+  }
+
+  auto n_rows = dataset.n_rows();
+  auto dim    = dataset.dim();
+  auto stride = dataset.stride();
+  raft::serialize_scalar(res, os, n_rows);
+  raft::serialize_scalar(res, os, dim);
+  raft::serialize_scalar(res, os, stride);
+  // Remove padding before saving the dataset
+  auto src = dataset.view();
+  auto dst = raft::make_host_matrix<DataT, IdxT>(n_rows, dim);
+  raft::copy_matrix(dst.data_handle(),
+                    dim,
+                    src.data_handle(),
+                    stride,
+                    dim,
+                    n_rows,
+                    raft::resource::get_cuda_stream(res));
+  raft::resource::sync_stream(res);
+  raft::serialize_mdspan(res, os, dst.view());
+}
+
+template <typename DataT, typename IdxT>
+void serialize(const raft::resources& res,
+               cuvs::util::kvikio_ofstream& os,
+               const strided_dataset<DataT, IdxT>& dataset)
+{
+  serialize_strided_kvikio(res, os, dataset);
 }
 
 template <typename MathT, typename IdxT>
@@ -113,9 +125,9 @@ void serialize(const raft::resources& res,
   raft::serialize_scalar(res, os, dataset.pq_n_centers());
   raft::serialize_scalar(res, os, dataset.pq_len());
   raft::serialize_scalar(res, os, dataset.encoded_row_length());
-  raft::serialize_mdspan(res, os, make_const_mdspan(dataset.vq_code_book.view()));
-  raft::serialize_mdspan(res, os, make_const_mdspan(dataset.pq_code_book.view()));
-  raft::serialize_mdspan(res, os, make_const_mdspan(dataset.data.view()));
+  cuvs::util::detail::serialize_mdspan(res, os, make_const_mdspan(dataset.vq_code_book.view()));
+  cuvs::util::detail::serialize_mdspan(res, os, make_const_mdspan(dataset.pq_code_book.view()));
+  cuvs::util::detail::serialize_mdspan(res, os, make_const_mdspan(dataset.data.view()));
 }
 
 template <typename MathT, typename IdxT>

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -11,7 +11,6 @@
 
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/error.hpp>
-#include <raft/core/host_mdarray.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/linalg/detail/qr.cuh>
 #include <raft/linalg/gemm.cuh>
@@ -33,25 +32,16 @@ RotatorGPU::RotatorGPU(raft::resources const& handle, uint32_t dim)
 
 size_t RotatorGPU::size() const { return D; }
 
-void RotatorGPU::load(raft::resources const& handle, std::ifstream& input)
+void RotatorGPU::load(raft::resources const& handle, cuvs::util::kvikio_file_reader& input)
 {
-  auto stream            = raft::resource::get_cuda_stream(handle);
-  auto host_buf          = raft::make_host_vector<float, int64_t>(D * D);
-  const auto matrix_size = static_cast<std::streamsize>(sizeof(float) * D * D);
-  input.read(reinterpret_cast<char*>(host_buf.data_handle()), matrix_size);
-  RAFT_EXPECTS(input.gcount() == matrix_size, "unexpected EOF reading rotator matrix");
-  raft::copy(rotation_matrix_.data_handle(), host_buf.data_handle(), D * D, stream);
   raft::resource::sync_stream(handle);
+  input.read_device(rotation_matrix_.data_handle(), sizeof(float) * D * D);
 }
 
-void RotatorGPU::save(raft::resources const& handle, std::ofstream& output) const
+void RotatorGPU::save(raft::resources const& handle, cuvs::util::kvikio_ofstream& output) const
 {
-  auto stream   = raft::resource::get_cuda_stream(handle);
-  auto host_buf = raft::make_host_vector<float, int64_t>(D * D);
-  raft::copy(host_buf.data_handle(), rotation_matrix_.data_handle(), D * D, stream);
   raft::resource::sync_stream(handle);
-  output.write(reinterpret_cast<char*>(host_buf.data_handle()),
-               static_cast<std::streamsize>(sizeof(float) * D * D));
+  output.write_device(rotation_matrix_.data_handle(), sizeof(float) * D * D);
   RAFT_EXPECTS(static_cast<bool>(output), "failed to write rotator matrix");
 }
 

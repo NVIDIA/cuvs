@@ -5,7 +5,10 @@
 
 #include <cuvs/util/file_io.hpp>
 
+#include "../../src/util/kvikio_serialize.hpp"
+
 #include <raft/core/device_mdarray.hpp>
+#include <raft/core/host_mdarray.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resources.hpp>
 #include <raft/core/serialize.hpp>
@@ -205,6 +208,35 @@ TEST(FileIO, KvikioOfstreamSequentialOstreamInterface)
   const std::vector<char> expected{
     'v', 'a', 'l', 'u', 'e', '=', '4', '2', '\n', 't', 'a', 'i', 'l'};
   EXPECT_EQ(read_whole_file(path), expected);
+}
+
+TEST(FileIO, KvikioDeviceMdspanSerializationThroughOstream)
+{
+  raft::resources res;
+  scratch_dir scratch;
+  const std::string path = scratch.file("device_mdspan.npy");
+  const int64_t size     = 4096;
+
+  auto source_host = raft::make_host_vector<uint32_t, int64_t>(size);
+  for (int64_t i = 0; i < size; ++i) {
+    source_host(i) = static_cast<uint32_t>(i * 17 + 3);
+  }
+  auto source_device = raft::make_device_vector<uint32_t, int64_t>(res, size);
+  raft::copy(res, source_device.view(), source_host.view());
+
+  {
+    kvikio_ofstream file(path);
+    std::ostream& os = file;
+    detail::serialize_mdspan(res, os, source_device.view());
+    file.close();
+  }
+
+  auto result = raft::make_host_vector<uint32_t, int64_t>(size);
+  std::ifstream input(path, std::ios::in | std::ios::binary);
+  raft::deserialize_mdspan(res, input, result.view());
+  EXPECT_TRUE(std::equal(source_host.data_handle(),
+                         source_host.data_handle() + source_host.size(),
+                         result.data_handle()));
 }
 
 TEST(FileIO, KvikioOfstreamRejectsRandomAccessSeeking)
