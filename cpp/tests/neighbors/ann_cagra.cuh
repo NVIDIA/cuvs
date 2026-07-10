@@ -680,40 +680,16 @@ class AnnCagraAddNodesTest : public ::testing::TestWithParam<AnnCagraInputs> {
                    additional_dataset.size(),
                    stream_);
 
-        std::size_t row_stride = static_cast<std::size_t>(ps.dim);
-        auto const& data_view  = index.dataset();
-        if constexpr (cuvs::neighbors::is_padded_dataset_view_v<decltype(data_view)>) {
-          row_stride = static_cast<std::size_t>(data_view.stride());
-        }
-
-        auto new_dataset_buffer =
-          raft::make_device_matrix<DataT, int64_t>(handle_, ps.n_rows, row_stride);
-        auto new_graph_buffer =
-          raft::make_device_matrix<IdxT, int64_t>(handle_, ps.n_rows, index.graph_degree());
-        std::optional<raft::device_matrix_view<DataT, int64_t, raft::layout_stride>>
-          new_dataset_buffer_view = raft::make_device_strided_matrix_view<DataT, int64_t>(
-            new_dataset_buffer.data_handle(), ps.n_rows, ps.dim, row_stride);
-        std::optional<raft::device_matrix_view<IdxT, int64_t>> new_graph_buffer_view =
-          new_graph_buffer.view();
-
         cagra::extend_params extend_params;
         if constexpr (cuvs::neighbors::is_padded_dataset_view_v<decltype(index.dataset())>) {
           auto add_view = cuvs::neighbors::make_host_padded_dataset_view(additional_dataset.view());
-          cagra::extend(handle_,
-                        extend_params,
-                        add_view,
-                        index,
-                        new_dataset_buffer_view,
-                        new_graph_buffer_view);
+          auto storage  = cagra::make_extended_dataset(handle_, add_view, index);
+          cagra::extend(handle_, extend_params, add_view, index, storage);
         } else {
           auto add_view =
             cuvs::neighbors::make_host_standard_dataset_view(additional_dataset.view());
-          cagra::extend(handle_,
-                        extend_params,
-                        add_view,
-                        index,
-                        new_dataset_buffer_view,
-                        new_graph_buffer_view);
+          auto storage = cagra::make_extended_dataset(handle_, add_view, index);
+          cagra::extend(handle_, extend_params, add_view, index, storage);
         }
 
         auto search_queries_view = raft::make_device_matrix_view<const DataT, int64_t>(
