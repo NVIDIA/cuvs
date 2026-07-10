@@ -61,7 +61,7 @@ target_link_libraries(
 target_link_libraries(
   CAGRA_BLOOM_FILTER_EXAMPLE PRIVATE cuvs::cuvs cuco::cuco $<TARGET_NAME_IF_EXISTS:conda_env>
 )
-target_include_directories(
+target_link_libraries(
   CAGRA_HNSW_ACE_BUILD_EXAMPLE PRIVATE cuvs::cuvs $<TARGET_NAME_IF_EXISTS:conda_env>
 )
 target_link_libraries(CAGRA_HNSW_ACE_EXAMPLE PRIVATE cuvs::cuvs $<TARGET_NAME_IF_EXISTS:conda_env>)
