@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -299,7 +299,7 @@ void remap_and_merge_subgraphs(raft::resources const& res,
 
 /**
  * Host-side counterpart of merge_subgraphs_kernel + the remap, used when the output lives in host
- * memory so the global [num_rows x k] graph never needs to be GPU-resident.
+ * memory.
  *
  * Arguments:
  * - [in] inverted_indices: host [num_data_in_cluster] mapping a cluster-local row to its global
@@ -307,9 +307,8 @@ void remap_and_merge_subgraphs(raft::resources const& res,
  * - [in] indices_for_remap_h: host [num_data_in_cluster x k] cluster-local neighbor ids.
  * - [in] batch_distances_h: host [num_data_in_cluster x k] cluster distances.
  * - [inout] global_distances / global_neighbors: host [num_rows x k] global knn graph.
- * - [in] select_min: whether a smaller distance is closer (sort ascending) or not (descending).
  * - [in] row_locks / num_row_locks: optional striped locks. When several GPUs merge into the same
- *   shared host global graph concurrently (multi-GPU), each row's read-modify-write is guarded by
+ *   shared host global graph concurrently, each row's read-modify-write is guarded by
  *   row_locks[global_row % num_row_locks] so overlapping rows serialize while distinct rows proceed
  *   in parallel. nullptr for single-GPU (no contention).
  */

@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -256,10 +256,7 @@ def test_all_neighbors_host_build_quality(algo, cluster, snmg):
 @pytest.mark.parametrize("cluster", ["single_cluster", "multi_cluster"])
 @pytest.mark.parametrize("snmg", [False, True])
 def test_all_neighbors_host_output_quality(algo, cluster, snmg):
-    """Host dataset with host-resident (numpy) outputs: the full graph never
-    needs to fit on the GPU. Validates recall and that outputs come back on
-    host.
-    """
+    """Host dataset with host-resident (numpy) outputs"""
     n_rows, n_cols, k = 7151, 64, 16
 
     if cluster == "single_cluster":
