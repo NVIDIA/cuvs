@@ -80,6 +80,7 @@ cache:
       - cuda-cudart-dev
       - cuda-nvrtc-dev
       - cuda-profiler-api
+      - cutile-python
       - libcublas-dev
       - libcurand-dev
       - libcusolver-dev
@@ -117,6 +118,7 @@ outputs:
         - cuda-cudart-dev
         - cuda-nvrtc-dev
         - cuda-profiler-api
+        - cutile-python
         - libcublas-dev
         - libcurand-dev
         - libcusolver-dev
@@ -179,6 +181,7 @@ outputs:
         - cuda-cudart-dev
         - cuda-nvrtc-dev
         - cuda-profiler-api
+        - cutile-python
         - libcublas-dev
         - libcurand-dev
         - libcusolver-dev
@@ -240,6 +243,7 @@ outputs:
         - cuda-cudart-dev
         - cuda-nvrtc-dev
         - cuda-profiler-api
+        - cutile-python
         - libcublas-dev
         - libcurand-dev
         - libcusolver-dev
@@ -299,6 +303,7 @@ outputs:
         - openblas  # required by some CPU algos in benchmarks
         - cuda-cudart-dev
         - cuda-profiler-api
+        - cutile-python
         - libcublas-dev
         - libcurand-dev
         - libcusolver-dev

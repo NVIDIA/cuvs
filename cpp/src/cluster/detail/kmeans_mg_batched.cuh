@@ -157,9 +157,9 @@ void mnmg_fit(const raft::resources& handle,
   auto sqrd_norm_error_dev   = raft::make_device_scalar<DataT>(dev_res, DataT{0});
   IndexT alloc_batch_size    = has_data ? streaming_batch_size : IndexT{1};
   auto batch_weights         = raft::make_device_vector<DataT, IndexT>(dev_res, alloc_batch_size);
-  auto minClusterAndDistance =
-    raft::make_device_vector<raft::KeyValuePair<IndexT, DataT>, IndexT>(dev_res, alloc_batch_size);
-  auto L2NormBatch = raft::make_device_vector<DataT, IndexT>(dev_res, alloc_batch_size);
+  auto nearest_idx           = raft::make_device_vector<IndexT, IndexT>(dev_res, alloc_batch_size);
+  auto nearest_dist          = raft::make_device_vector<DataT, IndexT>(dev_res, alloc_batch_size);
+  auto L2NormBatch           = raft::make_device_vector<DataT, IndexT>(dev_res, alloc_batch_size);
   rmm::device_uvector<DataT> L2NormBuf_OR_DistBuf(0, stream);
   rmm::device_uvector<char> workspace(0, stream);
   rmm::device_uvector<char> batch_workspace(0, stream);
@@ -353,9 +353,10 @@ void mnmg_fit(const raft::resources& handle,
 
           auto L2NormBatch_const = raft::make_const_mdspan(L2NormBatch_view);
 
-          auto minClusterAndDistance_view =
-            raft::make_device_vector_view<raft::KeyValuePair<IndexT, DataT>, IndexT>(
-              minClusterAndDistance.data_handle(), current_batch_size);
+          auto nearest_idx_view = raft::make_device_vector_view<IndexT, IndexT>(
+            nearest_idx.data_handle(), current_batch_size);
+          auto nearest_dist_view = raft::make_device_vector_view<DataT, IndexT>(
+            nearest_dist.data_handle(), current_batch_size);
 
           cuvs::cluster::kmeans::detail::process_batch<DataT, IndexT>(
             dev_res,
@@ -365,7 +366,8 @@ void mnmg_fit(const raft::resources& handle,
             metric,
             params.batch_samples,
             params.batch_centroids,
-            minClusterAndDistance_view,
+            nearest_idx_view,
+            nearest_dist_view,
             L2NormBatch_const,
             L2NormBuf_OR_DistBuf,
             workspace,

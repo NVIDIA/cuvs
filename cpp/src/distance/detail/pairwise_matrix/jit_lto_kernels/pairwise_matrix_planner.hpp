@@ -20,7 +20,7 @@ template <typename DistanceTag_,
           typename FinOpTag_,
           typename LayoutTag_,
           int Veclen_>
-struct PairwiseMatrixPlanner : AlgorithmPlanner {
+struct PairwiseMatrixPlanner : LTOAlgorithmPlanner {
   using DistanceTag = DistanceTag_;
   using DataTag     = DataTag_;
   using AccTag      = AccTag_;
@@ -33,7 +33,7 @@ struct PairwiseMatrixPlanner : AlgorithmPlanner {
 
   inline static LauncherJitCache launcher_jit_cache{};
 
-  PairwiseMatrixPlanner() : AlgorithmPlanner(kPairwiseMatrixJitEntrypoint, launcher_jit_cache) {}
+  PairwiseMatrixPlanner() : LTOAlgorithmPlanner(kPairwiseMatrixJitEntrypoint, launcher_jit_cache) {}
 
   void add_entrypoint()
   {

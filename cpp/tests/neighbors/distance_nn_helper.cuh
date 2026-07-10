@@ -67,27 +67,62 @@ __device__ AccT cosine_distance(const DataT* v1, const DataT* v2, IdxT K)
 
 // This is a naive implementation of 1-NN computation
 template <typename DataT, typename AccT, typename OutT, typename IdxT>
+__device__ AccT inner_product_score(const DataT* v1, const DataT* v2, IdxT K)
+{
+  AccT score = AccT(0.0);
+  for (IdxT i = 0; i < K; i++) {
+    score += AccT(v1[i]) * AccT(v2[i]);
+  }
+  return score;
+}
+
+template <typename DataT, typename AccT, typename OutT, typename IdxT>
 RAFT_KERNEL ref_nn_kernel(
   OutT* out, const DataT* A, const DataT* B, IdxT M, IdxT N, IdxT K, bool sqrt, DistanceType metric)
 {
   IdxT tid = threadIdx.x + blockIdx.x * IdxT(blockDim.x);
 
   for (IdxT m = tid; m < M; m += (blockDim.x * gridDim.x)) {
-    IdxT min_index = N + 1;
-    AccT min_dist  = max_val<AccT>();
+    IdxT best_index = N + 1;
+    AccT best_score = min_val<AccT>();
+    AccT best_dist  = max_val<AccT>();
 
     for (IdxT n = 0; n < N; n++) {
+      if (metric == DistanceType::InnerProduct) {
+        AccT score = inner_product_score<DataT, AccT, OutT, IdxT>(&A[m * K], &B[n * K], K);
+        if (score > best_score) {
+          best_score = score;
+          best_index = n;
+        }
+        continue;
+      }
+
       AccT dist;
       if (metric == DistanceType::L2SqrtExpanded || metric == DistanceType::L2Expanded) {
         dist = l2_distance<DataT, AccT, OutT, IdxT>(&A[m * K], &B[n * K], K);
       } else if (metric == DistanceType::CosineExpanded) {
         dist = cosine_distance<DataT, AccT, OutT, IdxT>(&A[m * K], &B[n * K], K);
+      } else {
+        continue;
       }
-      if (dist < min_dist) {
-        min_dist  = dist;
-        min_index = n;
+      if (dist < best_dist) {
+        best_dist  = dist;
+        best_index = n;
       }
     }
+
+    if (metric == DistanceType::InnerProduct) {
+      if constexpr (std::is_fundamental<OutT>::value) {
+        out[m] = AccT(best_score);
+      } else {
+        out[m].key   = IdxT(best_index);
+        out[m].value = AccT(best_score);
+      }
+      continue;
+    }
+
+    IdxT min_index = best_index;
+    AccT min_dist  = best_dist;
 
     if constexpr (std::is_fundamental<OutT>::value) {
       static_assert(std::is_same<OutT, AccT>::value, "OutT and AccT are not same type");
@@ -173,6 +208,34 @@ class ComparisonSummary {
     return os;
   }
 };
+
+template <typename AccT, typename IdxT>
+void vector_compare_soa(raft::resources const& handle,
+                        const raft::KeyValuePair<IdxT, AccT>* ref,
+                        const IdxT* out_idx,
+                        const AccT* out_dist,
+                        IdxT n,
+                        ComparisonSummary& summary)
+{
+  auto ref_h  = raft::make_host_vector<raft::KeyValuePair<IdxT, AccT>, IdxT>(n);
+  auto idx_h  = raft::make_host_vector<IdxT, IdxT>(n);
+  auto dist_h = raft::make_host_vector<AccT, IdxT>(n);
+
+  raft::copy(ref_h.data_handle(), ref, n, raft::resource::get_cuda_stream(handle));
+  raft::copy(idx_h.data_handle(), out_idx, n, raft::resource::get_cuda_stream(handle));
+  raft::copy(dist_h.data_handle(), out_dist, n, raft::resource::get_cuda_stream(handle));
+  raft::resource::sync_stream(handle, raft::resource::get_cuda_stream(handle));
+
+  summary.init();
+
+  for (IdxT i = 0; i < n; i++) {
+    const double a_val = double(dist_h(i));
+    const double b_val = double(ref_h(i).value);
+    const bool missed  = idx_h(i) != ref_h(i).key;
+    const double diff  = std::abs(a_val - b_val);
+    summary.update(diff, i, a_val, b_val, missed);
+  }
+}
 
 template <typename OutT, typename IdxT>
 void vector_compare(

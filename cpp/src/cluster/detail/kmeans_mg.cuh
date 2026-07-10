@@ -539,11 +539,8 @@ void fit(const raft::resources& handle,
     THROW("unknown initialization method to select initial centers");
   }
 
-  // stores (key, value) pair corresponding to each sample where
-  //   - key is the index of nearest cluster
-  //   - value is the distance to the nearest cluster
-  auto minClusterAndDistance =
-    raft::make_device_vector<raft::KeyValuePair<IndexT, DataT>, IndexT>(handle, n_samples);
+  auto nearest_idx  = raft::make_device_vector<IndexT, IndexT>(handle, n_samples);
+  auto nearest_dist = raft::make_device_vector<DataT, IndexT>(handle, n_samples);
 
   // temporary buffer to store L2 norm of centroids or distance matrix,
   // destructor releases the resource
@@ -577,15 +574,11 @@ void fit(const raft::resources& handle,
 
     auto const_centroids = raft::make_device_matrix_view<const DataT, IndexT>(
       centroids.data_handle(), centroids.extent(0), centroids.extent(1));
-    // computes minClusterAndDistance[0:n_samples) where
-    // minClusterAndDistance[i] is a <key, value> pair where
-    //   'key' is index to an sample in 'centroids' (index of the nearest
-    //   centroid) and 'value' is the distance between the sample 'X[i]' and the
-    //   'centroid[key]'
     cuvs::cluster::kmeans::min_cluster_and_distance(handle,
                                                     X,
                                                     const_centroids,
-                                                    minClusterAndDistance.view(),
+                                                    nearest_idx.view(),
+                                                    nearest_dist.view(),
                                                     L2NormX.view(),
                                                     L2NormBuf_OR_DistBuf,
                                                     params.metric,
@@ -595,9 +588,7 @@ void fit(const raft::resources& handle,
 
     workspace.resize(n_samples, stream);
 
-    cuda::transform_iterator keys_itr(
-      minClusterAndDistance.data_handle(),
-      cuvs::cluster::kmeans::detail::KeyValueIndexOp<IndexT, DataT>{});
+    const IndexT* keys_itr = nearest_idx.data_handle();
     raft::linalg::reduce_rows_by_key((DataT*)X.data_handle(),
                                      X.extent(1),
                                      keys_itr,
@@ -696,35 +687,24 @@ void fit(const raft::resources& handle,
                raft::make_device_vector_view(centroids.data_handle(), newCentroids.size()),
                raft::make_device_vector_view(newCentroids.data_handle(), newCentroids.size()));
 
-    bool done = false;
-    rmm::device_scalar<raft::KeyValuePair<IndexT, DataT>> clusterCostD(stream);
+    bool done         = false;
+    auto clusterCostD = raft::make_device_scalar<DataT>(handle, DataT{0});
 
     // calculate cluster cost phi_x(C)
     cuvs::cluster::kmeans::cluster_cost(
       handle,
-      minClusterAndDistance.view(),
+      nearest_dist.view(),
       workspace,
-      raft::make_device_scalar_view(clusterCostD.data()),
-      cuda::proclaim_return_type<raft::KeyValuePair<IndexT, DataT>>(
-        [] __device__(const raft::KeyValuePair<IndexT, DataT>& a,
-                      const raft::KeyValuePair<IndexT, DataT>& b) {
-          raft::KeyValuePair<IndexT, DataT> res;
-          res.key   = 0;
-          res.value = a.value + b.value;
-          return res;
-        }));
+      clusterCostD.view(),
+      cuda::proclaim_return_type<DataT>(
+        [] __device__(const DataT& a, const DataT& b) { return a + b; }));
 
     // Cluster cost phi_x(C) from all ranks
-    comm.allreduce(&(clusterCostD.data()->value),
-                   &(clusterCostD.data()->value),
-                   1,
-                   raft::comms::op_t::SUM,
-                   stream);
+    comm.allreduce(
+      clusterCostD.data_handle(), clusterCostD.data_handle(), 1, raft::comms::op_t::SUM, stream);
 
     DataT curClusteringCost = 0;
-    raft::copy(handle,
-               raft::make_host_scalar_view(&curClusteringCost),
-               raft::make_device_scalar_view(&(clusterCostD.data()->value)));
+    raft::copy(handle, raft::make_host_scalar_view(&curClusteringCost), clusterCostD.view());
 
     ASSERT(comm.sync_stream(stream) == raft::comms::status_t::SUCCESS,
            "An error occurred in the distributed operation. This can result "

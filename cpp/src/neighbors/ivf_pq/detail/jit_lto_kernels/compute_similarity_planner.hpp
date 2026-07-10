@@ -12,10 +12,10 @@
 
 namespace cuvs::neighbors::ivf_pq::detail {
 
-struct ComputeSimilarityPlanner : AlgorithmPlanner {
+struct ComputeSimilarityPlanner : LTOAlgorithmPlanner {
   inline static LauncherJitCache launcher_jit_cache{};
 
-  ComputeSimilarityPlanner() : AlgorithmPlanner("compute_similarity", launcher_jit_cache) {}
+  ComputeSimilarityPlanner() : LTOAlgorithmPlanner("compute_similarity", launcher_jit_cache) {}
 
   template <typename OutTag, typename LutTag>
   void add_entrypoint()

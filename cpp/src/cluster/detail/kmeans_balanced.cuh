@@ -98,55 +98,118 @@ inline std::enable_if_t<std::is_floating_point_v<MathT>> predict_core(
         raft::make_device_matrix_view<const MathT, IdxT>(centers, n_clusters, dim);
       auto X_norm_view = raft::make_device_vector_view<const MathT, IdxT>(dataset_norm, n_rows);
 
-      auto minClusterAndDistance = raft::make_device_mdarray<raft::KeyValuePair<IdxT, MathT>, IdxT>(
-        handle, mr, raft::make_extents<IdxT>(n_rows));
+      auto nearest_dist =
+        raft::make_device_mdarray<MathT, IdxT>(handle, mr, raft::make_extents<IdxT>(n_rows));
 
-      cuvs::cluster::kmeans::detail::minClusterAndDistanceCompute<MathT, IdxT>(
-        handle,
-        X_view,
-        centroids_view,
-        minClusterAndDistance.view(),
-        X_norm_view,
-        L2NormBuf_OR_DistBuf,
-        params.metric,
-        0,  // batch_samples (unused for fused reduction)
-        0,  // batch_centroids (unused for fused reduction)
-        workspace);
-
-      // Copy keys to output labels
-      raft::linalg::map(handle,
-                        raft::make_const_mdspan(minClusterAndDistance.view()),
-                        raft::make_device_vector_view<LabelT, IdxT>(labels, n_rows),
-                        raft::compose_op<raft::cast_op<LabelT>, raft::key_op>());
+      if constexpr (std::is_same_v<LabelT, IdxT>) {
+        auto labels_view = raft::make_device_vector_view<IdxT, IdxT>(labels, n_rows);
+        cuvs::cluster::kmeans::detail::minClusterAndDistanceCompute<MathT, IdxT>(
+          handle,
+          X_view,
+          centroids_view,
+          labels_view,
+          nearest_dist.view(),
+          X_norm_view,
+          L2NormBuf_OR_DistBuf,
+          params.metric,
+          0,  // batch_samples (unused for fused reduction)
+          0,  // batch_centroids (unused for fused reduction)
+          workspace);
+      } else {
+        auto nearest_idx =
+          raft::make_device_mdarray<IdxT, IdxT>(handle, mr, raft::make_extents<IdxT>(n_rows));
+        cuvs::cluster::kmeans::detail::minClusterAndDistanceCompute<MathT, IdxT>(
+          handle,
+          X_view,
+          centroids_view,
+          nearest_idx.view(),
+          nearest_dist.view(),
+          X_norm_view,
+          L2NormBuf_OR_DistBuf,
+          params.metric,
+          0,
+          0,
+          workspace);
+        raft::copy(
+          handle, raft::make_device_vector_view<LabelT, IdxT>(labels, n_rows), nearest_idx.view());
+      }
       break;
     }
     case cuvs::distance::DistanceType::InnerProduct: {
-      // TODO: pass buffer
-      rmm::device_uvector<MathT> distances(n_rows * n_clusters, stream, mr);
+      if (uses_fused_distance_nn(
+            use_fused<MathT, IdxT, IdxT>(handle, n_rows, n_clusters, dim, params.metric))) {
+        rmm::device_uvector<MathT> L2NormBuf_OR_DistBuf(0, stream, mr);
+        rmm::device_uvector<char> workspace(0, stream, mr);
 
-      MathT alpha = -1.0;
-      MathT beta  = 0.0;
+        auto X_view = raft::make_device_matrix_view<const MathT, IdxT>(dataset, n_rows, dim);
+        auto centroids_view =
+          raft::make_device_matrix_view<const MathT, IdxT>(centers, n_clusters, dim);
+        auto X_norm_view = raft::make_device_vector_view<const MathT, IdxT>(dataset_norm, n_rows);
 
-      raft::linalg::gemm(handle,
-                         true,
-                         false,
-                         n_clusters,
-                         n_rows,
-                         dim,
-                         &alpha,
-                         centers,
-                         dim,
-                         dataset,
-                         dim,
-                         &beta,
-                         distances.data(),
-                         n_clusters,
-                         stream);
+        auto nearest_dist =
+          raft::make_device_mdarray<MathT, IdxT>(handle, mr, raft::make_extents<IdxT>(n_rows));
 
-      auto distances_const_view = raft::make_device_matrix_view<const MathT, IdxT, raft::row_major>(
-        distances.data(), n_rows, n_clusters);
-      auto labels_view = raft::make_device_vector_view<LabelT, IdxT>(labels, n_rows);
-      raft::matrix::argmin(handle, distances_const_view, labels_view);
+        if constexpr (std::is_same_v<LabelT, IdxT>) {
+          auto labels_view = raft::make_device_vector_view<IdxT, IdxT>(labels, n_rows);
+          cuvs::cluster::kmeans::detail::minClusterAndDistanceCompute<MathT, IdxT>(
+            handle,
+            X_view,
+            centroids_view,
+            labels_view,
+            nearest_dist.view(),
+            X_norm_view,
+            L2NormBuf_OR_DistBuf,
+            params.metric,
+            0,
+            0,
+            workspace);
+        } else {
+          auto nearest_idx =
+            raft::make_device_mdarray<IdxT, IdxT>(handle, mr, raft::make_extents<IdxT>(n_rows));
+          cuvs::cluster::kmeans::detail::minClusterAndDistanceCompute<MathT, IdxT>(
+            handle,
+            X_view,
+            centroids_view,
+            nearest_idx.view(),
+            nearest_dist.view(),
+            X_norm_view,
+            L2NormBuf_OR_DistBuf,
+            params.metric,
+            0,
+            0,
+            workspace);
+          raft::copy(handle,
+                     raft::make_device_vector_view<LabelT, IdxT>(labels, n_rows),
+                     nearest_idx.view());
+        }
+      } else {
+        rmm::device_uvector<MathT> distances(n_rows * n_clusters, stream, mr);
+
+        MathT alpha = -1.0;
+        MathT beta  = 0.0;
+
+        raft::linalg::gemm(handle,
+                           true,
+                           false,
+                           n_clusters,
+                           n_rows,
+                           dim,
+                           &alpha,
+                           centers,
+                           dim,
+                           dataset,
+                           dim,
+                           &beta,
+                           distances.data(),
+                           n_clusters,
+                           stream);
+
+        auto distances_const_view =
+          raft::make_device_matrix_view<const MathT, IdxT, raft::row_major>(
+            distances.data(), n_rows, n_clusters);
+        auto labels_view = raft::make_device_vector_view<LabelT, IdxT>(labels, n_rows);
+        raft::matrix::argmin(handle, distances_const_view, labels_view);
+      }
       break;
     }
     default: {
@@ -185,14 +248,19 @@ auto calc_minibatch_size(const raft::resources& handle,
   size_t mem_per_row = 0;
   switch (metric) {
     case distance::DistanceType::L2Expanded:
-    case distance::DistanceType::L2SqrtExpanded: {
-      if (use_fused<MathT, IdxT, IdxT>(handle, n_rows, n_clusters, dim)) {
-        // fusedL2NN needs a mutex and a key-value pair for each row.
-        mem_per_row += sizeof(int);
-        mem_per_row += sizeof(raft::KeyValuePair<IdxT, MathT>);
-      } else {
-        // unfused path needs a full GEMM output (distance matrix row).
-        mem_per_row += sizeof(MathT) * n_clusters;
+    case distance::DistanceType::L2SqrtExpanded:
+    case distance::DistanceType::InnerProduct: {
+      switch (use_fused<MathT, IdxT, IdxT>(handle, n_rows, n_clusters, dim, metric)) {
+        case FusedDistancePath::FusedCutile: break;
+        case FusedDistancePath::FusedCutlass:
+          // fusedDistanceNNMinReduce CUTLASS fallback: mutex workspace + scratch KVP per row.
+          mem_per_row += sizeof(int);
+          mem_per_row += sizeof(raft::KeyValuePair<IdxT, MathT>);
+          break;
+        case FusedDistancePath::Unfused:
+          // unfused / GEMM+argmin path needs a full distance matrix row.
+          mem_per_row += sizeof(MathT) * n_clusters;
+          break;
       }
     } break;
     // Other metrics require storing a distance matrix.

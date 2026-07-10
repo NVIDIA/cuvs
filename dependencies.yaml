@@ -395,6 +395,7 @@ dependencies:
           - cuda-nvrtc-dev
           - cuda-nvtx-dev
           - cuda-profiler-api
+          - cutile-python
           - libcublas-dev
           - libcurand-dev
           - libcusolver-dev
@@ -430,12 +431,14 @@ dependencies:
             packages:
               - &ctk_cu13 cuda-toolkit[cublas,curand,cusolver,cusparse,nvrtc]==13.*
               - &nvjitlink_cu13 nvidia-nvjitlink>=13.0,<14
+              - &cutile_cu13 cuda-tile[tileiras]
           # if no matching matrix selectors passed, list the CUDA 13 requirement
           # (just as a source of documentation, as this populates pyproject.toml in source control)
           - matrix:
             packages:
               - *ctk_cu13
               - *nvjitlink_cu13
+              - *cutile_cu13
   depends_on_cudart:
     common:
       - output_types: conda

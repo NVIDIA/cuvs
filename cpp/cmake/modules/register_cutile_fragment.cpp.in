@@ -1,0 +1,31 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include "@embedded_header_file@"
+#include <cuvs/detail/jit_lto/FragmentEntry.hpp>
+
+@fragment_tag_header_files@
+
+  namespace
+{
+  using fragment_tag   = @fragment_tag@;
+  using fragment_entry = @fragment_entry_type@;
+
+}  // namespace
+
+template <>
+const uint8_t* const fragment_entry::data = @bin2c_symbol@;
+
+template <>
+const size_t fragment_entry::length = sizeof(@bin2c_symbol@);
+
+template <>
+const int fragment_entry::tile_m = @tile_m@;
+
+template <>
+const int fragment_entry::tile_n = @tile_n@;
+
+template <>
+const int fragment_entry::tile_k = @tile_k@;

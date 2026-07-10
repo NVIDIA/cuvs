@@ -19,6 +19,7 @@ authors = [
 license = "Apache-2.0"
 requires-python = ">=3.11"
 dependencies = [
+    "cuda-tile[tileiras]",
     "cuda-toolkit[cublas,curand,cusolver,cusparse,nvrtc]==13.*",
     "libraft==26.8.*,>=0.0.0a0",
     "librmm==26.8.*,>=0.0.0a0",

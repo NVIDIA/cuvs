@@ -13,10 +13,10 @@
 
 namespace cuvs::neighbors::ivf_sq::detail {
 
-struct IvfSqScanPlanner : AlgorithmPlanner {
+struct IvfSqScanPlanner : LTOAlgorithmPlanner {
   inline static LauncherJitCache launcher_jit_cache{};
 
-  IvfSqScanPlanner() : AlgorithmPlanner("ivf_sq_scan", launcher_jit_cache) {}
+  IvfSqScanPlanner() : LTOAlgorithmPlanner("ivf_sq_scan", launcher_jit_cache) {}
 
   template <int Capacity>
   void add_entrypoint()

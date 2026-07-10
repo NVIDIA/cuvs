@@ -437,10 +437,8 @@ class PredicatedTileIteratorReducedVec {
       __syncthreads();
 
       if (row < total_rows) {
-        volatile Element* gmem_ptr = reinterpret_cast<volatile Element*>(first_tile_byte_pointer_);
-
         if ((block_start_row_first_tile_ + row) < extent_row_) {
-          user_params.red_op_(block_start_row_first_tile_ + row, (gmem_ptr + row), row_local_min);
+          user_params.red_op_.merge(block_start_row_first_tile_ + row, row_local_min);
         }
       }
 

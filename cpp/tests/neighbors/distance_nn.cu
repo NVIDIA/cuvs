@@ -42,7 +42,7 @@ __global__ void fill_int8(int8_t* buff, int len, int seed_offset)
 template <typename DataT, typename AccT, typename IdxT, ImplType impl>
 class NNTest : public ::testing::TestWithParam<NNInputs<IdxT>> {
  public:
-  using OutT = raft::KeyValuePair<IdxT, AccT>;
+  using RefOutT = raft::KeyValuePair<IdxT, AccT>;
   NNTest()
     : params_{::testing::TestWithParam<NNInputs<IdxT>>::GetParam()},
       m{params_.m},
@@ -55,8 +55,10 @@ class NNTest : public ::testing::TestWithParam<NNInputs<IdxT>> {
       y{raft::make_device_matrix<DataT, IdxT>(handle, n, k)},
       x_norm{raft::make_device_vector<AccT, IdxT>(handle, m)},
       y_norm{raft::make_device_vector<AccT, IdxT>(handle, n)},
-      out{raft::make_device_vector<OutT, IdxT>(handle, m)},
-      ref_out{raft::make_device_vector<OutT, IdxT>(handle, m)}
+      out_idx{raft::make_device_vector<IdxT, IdxT>(handle, m)},
+      out_dist{raft::make_device_vector<AccT, IdxT>(handle, m)},
+      out_kvp{raft::make_device_vector<RefOutT, IdxT>(handle, m)},
+      ref_out{raft::make_device_vector<RefOutT, IdxT>(handle, m)}
   {
   }
 
@@ -92,15 +94,11 @@ class NNTest : public ::testing::TestWithParam<NNInputs<IdxT>> {
       workspace_size = m * n * sizeof(AccT);
     }
 
-    // Reset buffer
-    if constexpr (std::is_same_v<OutT, raft::KeyValuePair<IdxT, AccT>>) {
-      // OutT is a RAFT KeyValuePair
-      raft::matrix::fill(
-        handle, raft::make_device_matrix_view(out.data_handle(), m, 1), OutT{0, 0});
-    } else {
-      // OutT is a scalar type
-      raft::matrix::fill(handle, raft::make_device_matrix_view(out.data_handle(), m, 1), OutT{0});
-    }
+    raft::matrix::fill(handle, raft::make_device_matrix_view(out_idx.data_handle(), m, 1), IdxT{0});
+    raft::matrix::fill(
+      handle, raft::make_device_matrix_view(out_dist.data_handle(), m, 1), AccT{0});
+    raft::matrix::fill(
+      handle, raft::make_device_matrix_view(ref_out.data_handle(), m, 1), RefOutT{0, 0});
     raft::resource::sync_stream(handle, stream);
   }
 
@@ -109,34 +107,36 @@ class NNTest : public ::testing::TestWithParam<NNInputs<IdxT>> {
     raft::device_vector<char, IdxT> workspace =
       raft::make_device_vector<char, IdxT>(handle, workspace_size);
 
-    ref_nn<DataT, AccT, OutT, IdxT>(
+    ref_nn<DataT, AccT, RefOutT, IdxT>(
       ref_out.data_handle(), x.data_handle(), y.data_handle(), m, n, k, sqrt, metric, stream);
 
     if constexpr (impl == ImplType::fused) {
       if constexpr (std::is_same_v<DataT, float>) {
-        cuvs::distance::fusedDistanceNNMinReduce<DataT, OutT, IdxT>(out.data_handle(),
-                                                                    x.data_handle(),
-                                                                    y.data_handle(),
-                                                                    x_norm.data_handle(),
-                                                                    y_norm.data_handle(),
-                                                                    m,
-                                                                    n,
-                                                                    k,
-                                                                    (void*)workspace.data_handle(),
-                                                                    sqrt,
-                                                                    true,
-                                                                    true,
-                                                                    metric,
-                                                                    0.0,
-                                                                    stream);
+        cuvs::distance::fusedDistanceNNMinReduce<DataT, IdxT>(out_idx.data_handle(),
+                                                              out_dist.data_handle(),
+                                                              x.data_handle(),
+                                                              y.data_handle(),
+                                                              x_norm.data_handle(),
+                                                              y_norm.data_handle(),
+                                                              m,
+                                                              n,
+                                                              k,
+                                                              (void*)workspace.data_handle(),
+                                                              sqrt,
+                                                              true,
+                                                              true,
+                                                              metric,
+                                                              0.0,
+                                                              out_kvp.data_handle(),
+                                                              stream);
       } else {
         static_assert(sizeof(DataT) == 0,
                       "fusedDistanceNNMinReduce is not implemented for datatype other than float");
       }
     } else if constexpr (impl == ImplType::unfused) {
-      cuvs::distance::unfusedDistanceNNMinReduce<DataT, AccT, OutT, IdxT>(
+      cuvs::distance::unfusedDistanceNNMinReduce<DataT, AccT, RefOutT, IdxT>(
         handle,
-        out.data_handle(),
+        out_kvp.data_handle(),
         x.data_handle(),
         y.data_handle(),
         x_norm.data_handle(),
@@ -156,7 +156,12 @@ class NNTest : public ::testing::TestWithParam<NNInputs<IdxT>> {
 
   void compare()
   {
-    vector_compare(handle, ref_out.data_handle(), out.data_handle(), m, summary);
+    if constexpr (impl == ImplType::fused) {
+      vector_compare_soa(
+        handle, ref_out.data_handle(), out_idx.data_handle(), out_dist.data_handle(), m, summary);
+    } else {
+      vector_compare(handle, ref_out.data_handle(), out_kvp.data_handle(), m, summary);
+    }
     ASSERT_TRUE(summary.max_diff < params_.tol) << summary;
   }
 
@@ -174,8 +179,10 @@ class NNTest : public ::testing::TestWithParam<NNInputs<IdxT>> {
   raft::device_matrix<DataT, IdxT> y;
   raft::device_vector<AccT, IdxT> x_norm;
   raft::device_vector<AccT, IdxT> y_norm;
-  raft::device_vector<OutT, IdxT> out;
-  raft::device_vector<OutT, IdxT> ref_out;
+  raft::device_vector<IdxT, IdxT> out_idx;
+  raft::device_vector<AccT, IdxT> out_dist;
+  raft::device_vector<RefOutT, IdxT> out_kvp;
+  raft::device_vector<RefOutT, IdxT> ref_out;
   size_t workspace_size;
 };
 
@@ -187,6 +194,7 @@ const std::vector<NNInputs<IdxT>> input_fp32 = {
   {4096, 16384, 128, DistanceType::L2Expanded, true, uint64_t(31415926), 0.1},
   {4096, 4096, 64, DistanceType::L2SqrtExpanded, false, uint64_t(31415926), 0.1},
   {4096, 16384, 128, DistanceType::L2SqrtExpanded, false, uint64_t(31415926), 0.1},
+  {512, 1024, 64, DistanceType::InnerProduct, false, uint64_t(31415926), 0.1},
   {4096, 4096, 64, DistanceType::CosineExpanded, false, uint64_t(31415926), 0.1},
   {8192, 4096, 64, DistanceType::CosineExpanded, false, uint64_t(31415926), 0.1},
   // Fused implementation for cosine distance ignores the sqrt parameter, therefore

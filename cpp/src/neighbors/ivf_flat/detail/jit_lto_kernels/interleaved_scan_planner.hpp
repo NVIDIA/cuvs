@@ -14,10 +14,10 @@
 
 namespace cuvs::neighbors::ivf_flat::detail {
 
-struct InterleavedScanPlanner : AlgorithmPlanner {
+struct InterleavedScanPlanner : LTOAlgorithmPlanner {
   inline static LauncherJitCache launcher_jit_cache{};
 
-  InterleavedScanPlanner() : AlgorithmPlanner("interleaved_scan", launcher_jit_cache) {}
+  InterleavedScanPlanner() : LTOAlgorithmPlanner("interleaved_scan", launcher_jit_cache) {}
 
   template <typename DataTag, typename AccTag, typename IdxTag, int Capacity, bool Ascending>
   void add_entrypoint()

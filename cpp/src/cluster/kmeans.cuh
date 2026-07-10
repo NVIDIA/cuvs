@@ -486,22 +486,23 @@ void cluster_cost(
  *
  */
 template <typename DataT, typename IndexT>
-void min_cluster_and_distance(
-  raft::resources const& handle,
-  raft::device_matrix_view<const DataT, IndexT> X,
-  raft::device_matrix_view<const DataT, IndexT> centroids,
-  raft::device_vector_view<raft::KeyValuePair<IndexT, DataT>, IndexT> minClusterAndDistance,
-  raft::device_vector_view<DataT, IndexT> L2NormX,
-  rmm::device_uvector<DataT>& L2NormBuf_OR_DistBuf,
-  cuvs::distance::DistanceType metric,
-  int batch_samples,
-  int batch_centroids,
-  rmm::device_uvector<char>& workspace)
+void min_cluster_and_distance(raft::resources const& handle,
+                              raft::device_matrix_view<const DataT, IndexT> X,
+                              raft::device_matrix_view<const DataT, IndexT> centroids,
+                              raft::device_vector_view<IndexT, IndexT> nearest_idx,
+                              raft::device_vector_view<DataT, IndexT> nearest_dist,
+                              raft::device_vector_view<DataT, IndexT> L2NormX,
+                              rmm::device_uvector<DataT>& L2NormBuf_OR_DistBuf,
+                              cuvs::distance::DistanceType metric,
+                              int batch_samples,
+                              int batch_centroids,
+                              rmm::device_uvector<char>& workspace)
 {
   cuvs::cluster::kmeans::detail::minClusterAndDistanceCompute<DataT, IndexT>(handle,
                                                                              X,
                                                                              centroids,
-                                                                             minClusterAndDistance,
+                                                                             nearest_idx,
+                                                                             nearest_dist,
                                                                              L2NormX,
                                                                              L2NormBuf_OR_DistBuf,
                                                                              metric,
