@@ -20,6 +20,7 @@ tinyvec = { version = "1", features = ["alloc"] }
 [dev-dependencies]
 ndarray = "0.17"
 ndarray-rand = "0.16"
+tempfile = "3"
 
 [package.metadata.docs.rs]
 features = ["doc-only"]
