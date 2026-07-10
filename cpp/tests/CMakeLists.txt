@@ -42,6 +42,7 @@ function(ConfigureTest)
     PRIVATE cuvs
             cuvs::cuvs
             raft::raft
+            rtcx::rtcx
             GTest::gtest
             GTest::gtest_main
             Threads::Threads

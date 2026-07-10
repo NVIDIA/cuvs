@@ -18,7 +18,7 @@ function(find_and_configure_rtcx VERSION)
     GLOBAL_TARGETS rtcx::rtcx
     CPM_ARGS
     GIT_REPOSITORY https://github.com/arhag23/librtcx.git
-    GIT_TAG dc819febd2539c086e144b2632c3f5857c5d74b8
+    GIT_TAG 75f90a8503766ce37d62f4418449315874bf2d87
     GIT_SHALLOW FALSE
     EXCLUDE_FROM_ALL TRUE
   )
