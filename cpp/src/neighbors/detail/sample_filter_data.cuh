@@ -10,6 +10,10 @@
 #include <cstddef>
 #include <cstdint>
 
+namespace cuvs::core {
+class bloom_filter;
+}
+
 namespace cuvs::neighbors::detail {
 
 /// Bitset (and length metadata) for linked @c sample_filter in JIT LTO; passed by value to
@@ -31,6 +35,10 @@ struct bloom_filter_data_t {
   explicit bloom_filter_data_t(ref_type filter) : filter(filter) {}
 
   ref_type filter;
+};
+
+struct bloom_filter_factory {
+  static bloom_filter_data_t<std::uint32_t> make(cuvs::core::bloom_filter const& filter);
 };
 
 }  // namespace cuvs::neighbors::detail

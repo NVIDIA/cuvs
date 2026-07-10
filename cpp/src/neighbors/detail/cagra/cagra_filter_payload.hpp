@@ -18,7 +18,6 @@
 #include <cstring>
 #include <list>
 #include <mutex>
-#include <new>
 #include <type_traits>
 #include <unordered_map>
 
@@ -168,16 +167,10 @@ template <typename FilterT>
 ::cuvs::neighbors::detail::bloom_filter_data_t<std::uint32_t> make_cagra_bloom_filter_storage(
   const FilterT& filter)
 {
-  using payload_t = ::cuvs::neighbors::detail::bloom_filter_data_t<std::uint32_t>;
   RAFT_EXPECTS(filter.filter_data != nullptr,
                "bloom_filter requires a cuvs::core::bloom_filter object.");
   auto const* bloom_filter_obj = static_cast<const ::cuvs::core::bloom_filter*>(filter.filter_data);
-  std::aligned_storage_t<sizeof(payload_t), alignof(payload_t)> storage;
-  bloom_filter_obj->export_payload(&storage, sizeof(payload_t));
-  auto* payload_ptr = std::launder(reinterpret_cast<payload_t*>(&storage));
-  payload_t payload = *payload_ptr;
-  payload_ptr->~payload_t();
-  return payload;
+  return ::cuvs::neighbors::detail::bloom_filter_factory::make(*bloom_filter_obj);
 }
 
 template <typename PayloadT>

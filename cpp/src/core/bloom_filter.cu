@@ -18,7 +18,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <new>
 #include <optional>
 #include <utility>
 
@@ -159,6 +158,8 @@ void bloom_filter::contains_async(raft::resources const& res,
 
 std::size_t bloom_filter::num_blocks() const noexcept { return impl_->filter.block_extent(); }
 
+auto bloom_filter::get_impl() const noexcept -> impl const& { return *impl_; }
+
 float bloom_filter::estimate_filtering_rate(raft::resources const& res,
                                             std::size_t dataset_rows) const
 {
@@ -179,14 +180,14 @@ float bloom_filter::estimate_filtering_rate(raft::resources const& res,
   return std::clamp(filtering_rate, 0.0f, 0.999f);
 }
 
-void bloom_filter::export_payload(void* payload_out, std::size_t payload_bytes) const
-{
-  using sample_filter_payload = impl::sample_filter_payload;
-  RAFT_EXPECTS(payload_out != nullptr, "payload_out must not be null.");
-  RAFT_EXPECTS(payload_bytes == sizeof(sample_filter_payload),
-               "payload_bytes must match bloom filter payload size.");
+}  // namespace cuvs::core
 
-  ::new (payload_out) sample_filter_payload{impl_->filter.ref()};
+namespace cuvs::neighbors::detail {
+
+bloom_filter_data_t<std::uint32_t> bloom_filter_factory::make(
+  cuvs::core::bloom_filter const& filter)
+{
+  return bloom_filter_data_t<std::uint32_t>{filter.get_impl().filter.ref()};
 }
 
-}  // namespace cuvs::core
+}  // namespace cuvs::neighbors::detail

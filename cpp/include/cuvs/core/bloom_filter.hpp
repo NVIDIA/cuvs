@@ -23,6 +23,9 @@ namespace core {
  * The wrapper supports the expected bulk host APIs used by ANN workflows.
  */
 class CUVS_EXPORT bloom_filter {
+ private:
+  struct impl;
+
  public:
   using key_type = std::uint32_t;
 
@@ -77,17 +80,9 @@ class CUVS_EXPORT bloom_filter {
   [[nodiscard]] std::size_t num_blocks() const noexcept;
   [[nodiscard]] float estimate_filtering_rate(raft::resources const& res,
                                               std::size_t dataset_rows) const;
-
-  /**
-   * @brief Export host payload used by CAGRA JIT filter internals.
-   *
-   * This API is intended for cuVS internal use. The caller must provide storage matching the
-   * payload layout expected by CAGRA.
-   */
-  void export_payload(void* payload_out, std::size_t payload_bytes) const;
+  [[nodiscard]] impl const& get_impl() const noexcept;
 
  private:
-  struct impl;
   std::unique_ptr<impl> impl_;
 };
 
