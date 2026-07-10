@@ -152,7 +152,7 @@ void fit_snmg(cuvsResources_t res,
   T inertia_temp     = T{0};
   IdxT n_iter_temp   = IdxT{0};
   auto kmeans_params = convert_params(params);
-  cuvs::cluster::kmeans::fit(*res_ptr,
+  cuvs::cluster::kmeans::mg::fit(*res_ptr,
                              kmeans_params,
                              X_view,
                              sample_weight,
