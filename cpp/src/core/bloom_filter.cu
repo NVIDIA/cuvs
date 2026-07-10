@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <new>
 #include <optional>
 #include <utility>
 
@@ -185,8 +186,7 @@ void bloom_filter::export_payload(void* payload_out, std::size_t payload_bytes) 
   RAFT_EXPECTS(payload_bytes == sizeof(sample_filter_payload),
                "payload_bytes must match bloom filter payload size.");
 
-  auto* typed_payload = static_cast<sample_filter_payload*>(payload_out);
-  *typed_payload      = sample_filter_payload{impl_->filter.ref()};
+  ::new (payload_out) sample_filter_payload{impl_->filter.ref()};
 }
 
 }  // namespace cuvs::core

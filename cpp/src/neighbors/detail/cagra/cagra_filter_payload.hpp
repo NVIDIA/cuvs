@@ -18,6 +18,7 @@
 #include <cstring>
 #include <list>
 #include <mutex>
+#include <new>
 #include <type_traits>
 #include <unordered_map>
 
@@ -41,7 +42,7 @@ std::uint64_t cagra_payload_hash(PayloadT const& payload)
 template <typename PayloadT>
 struct cagra_device_payload_owner {
   struct state {
-    PayloadT host_payload{};
+    PayloadT host_payload;
     PayloadT* device_payload{nullptr};
     cudaStream_t stream{};
     cudaEvent_t ready_event{};
@@ -168,11 +169,14 @@ template <typename FilterT>
   const FilterT& filter)
 {
   using payload_t = ::cuvs::neighbors::detail::bloom_filter_data_t<std::uint32_t>;
-  payload_t payload{};
   RAFT_EXPECTS(filter.filter_data != nullptr,
                "bloom_filter requires a cuvs::core::bloom_filter object.");
   auto const* bloom_filter_obj = static_cast<const ::cuvs::core::bloom_filter*>(filter.filter_data);
-  bloom_filter_obj->export_payload(&payload, sizeof(payload));
+  std::aligned_storage_t<sizeof(payload_t), alignof(payload_t)> storage;
+  bloom_filter_obj->export_payload(&storage, sizeof(payload_t));
+  auto* payload_ptr = std::launder(reinterpret_cast<payload_t*>(&storage));
+  payload_t payload = *payload_ptr;
+  payload_ptr->~payload_t();
   return payload;
 }
 

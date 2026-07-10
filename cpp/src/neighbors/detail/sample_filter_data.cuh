@@ -28,7 +28,9 @@ template <typename Key = std::uint32_t>
 struct bloom_filter_data_t {
   using ref_type = typename cuco::bloom_filter<Key>::ref_type<>;
 
-  ref_type filter{};
+  explicit bloom_filter_data_t(ref_type filter) : filter(filter) {}
+
+  ref_type filter;
 };
 
 }  // namespace cuvs::neighbors::detail
