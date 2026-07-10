@@ -133,8 +133,11 @@ rmm::device_uvector<value_t> get_pairwise_distance(raft::resources const& handle
 {
   rmm::device_uvector<value_t> distances(n_left_rows * n_right_rows, stream);
 
+  raft::resources stream_handle(handle);
+  raft::resource::set_cuda_stream(stream_handle, stream);
+
   cuvs::distance::pairwise_distance(
-    handle,
+    stream_handle,
     raft::make_device_matrix_view<const value_t, int64_t>(left_begin, n_left_rows, n_cols),
     raft::make_device_matrix_view<const value_t, int64_t>(right_begin, n_right_rows, n_cols),
     raft::make_device_matrix_view<value_t, int64_t>(distances.data(), n_left_rows, n_right_rows),
