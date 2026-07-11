@@ -116,8 +116,12 @@ void build(const raft::resources& handle,
       } else {
         auto host_standard = cuvs::neighbors::make_host_standard_dataset_view(host_view);
         auto host_idx      = cuvs::neighbors::cagra::build(handle, cagra_params, host_standard);
-        auto standard_r    = cuvs::neighbors::make_device_standard_dataset(handle, index_dataset);
-        auto device_idx    = cuvs::neighbors::cagra::attach_device_dataset_on_host_index(
+        auto standard_r    = cuvs::neighbors::make_device_standard_dataset(
+          handle,
+          index_dataset,
+          static_cast<uint32_t>(index_dataset.extent(1)),
+          static_cast<uint32_t>(index_dataset.stride(0)));
+        auto device_idx = cuvs::neighbors::cagra::attach_device_dataset_on_host_index(
           handle, host_idx, standard_r->as_dataset_view());
         interface.cagra_owned_standard_dataset_ = std::move(standard_r);
         interface.cagra_owned_padded_dataset_.reset();
