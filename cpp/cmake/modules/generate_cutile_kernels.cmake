@@ -114,11 +114,21 @@ function(_cutile_generate_matrix_tiles_header header_path matrix_json_file)
       string(JSON _register GET "${_export_entry}" "register")
       if(_register STREQUAL "cubin")
         string(JSON _arch_tag GET "${_export_entry}" "arch_tag")
-        string(
-          APPEND
-          _arch_tile_aliases
-          "using fused_1nn_matrix_tile_${_arch_tag} = cutile_tile_config<${_entry_tile_m}, ${_entry_tile_n}, ${_entry_tile_k}>;\n"
-        )
+        set(_arch_tile_value "${_entry_tile_m},${_entry_tile_n},${_entry_tile_k}")
+        if(DEFINED _arch_tile_alias_value_${_arch_tag})
+          if(NOT "${_arch_tile_alias_value_${_arch_tag}}" STREQUAL "${_arch_tile_value}")
+            message(FATAL_ERROR "Conflicting cuTile tile geometry for ${_arch_tag}: "
+                                "${_arch_tile_alias_value_${_arch_tag}} vs ${_arch_tile_value}"
+            )
+          endif()
+        else()
+          set(_arch_tile_alias_value_${_arch_tag} "${_arch_tile_value}")
+          string(
+            APPEND
+            _arch_tile_aliases
+            "using fused_1nn_matrix_tile_${_arch_tag} = cutile_tile_config<${_entry_tile_m}, ${_entry_tile_n}, ${_entry_tile_k}>;\n"
+          )
+        endif()
       endif()
       math(EXPR _export_idx "${_export_idx} + 1")
     endwhile()
@@ -198,16 +208,30 @@ function(process_cutile_matrix_entry source_list_var)
     list(APPEND _python_args --bytecode-version "${bytecode_version}")
   endif()
 
-  add_custom_command(
-    OUTPUT "${_artifact_file}"
-    COMMAND "${Python3_EXECUTABLE}" "${_CUTILE_KERNEL_DIR}/${_CUTILE_EXPORT_SCRIPT}"
-            "${_artifact_file}" ${_python_args}
-    WORKING_DIRECTORY "${_CUTILE_KERNEL_DIR}"
-    DEPENDS "${_CUTILE_KERNEL_DIR}/${_CUTILE_EXPORT_SCRIPT}"
-            "${_CUTILE_KERNEL_DIR}/${_CUTILE_KERNEL_PYTHON}"
-    COMMENT "Exporting cuTile ${_CUTILE_KERNEL_BASENAME} ${output_format} ${data_type}"
-    VERBATIM
-  )
+  if(DEFINED prebuilt_artifact AND NOT "${prebuilt_artifact}" STREQUAL "")
+    string(CONFIGURE "${prebuilt_artifact}" _prebuilt_artifact @ONLY)
+    if(NOT IS_ABSOLUTE "${_prebuilt_artifact}")
+      set(_prebuilt_artifact "${_CUTILE_KERNEL_DIR}/${_prebuilt_artifact}")
+    endif()
+    add_custom_command(
+      OUTPUT "${_artifact_file}"
+      COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${_prebuilt_artifact}" "${_artifact_file}"
+      DEPENDS "${_prebuilt_artifact}"
+      COMMENT "Copying prebuilt cuTile ${_CUTILE_KERNEL_BASENAME} ${output_format} ${data_type}"
+      VERBATIM
+    )
+  else()
+    add_custom_command(
+      OUTPUT "${_artifact_file}"
+      COMMAND "${Python3_EXECUTABLE}" "${_CUTILE_KERNEL_DIR}/${_CUTILE_EXPORT_SCRIPT}"
+              "${_artifact_file}" ${_python_args}
+      WORKING_DIRECTORY "${_CUTILE_KERNEL_DIR}"
+      DEPENDS "${_CUTILE_KERNEL_DIR}/${_CUTILE_EXPORT_SCRIPT}"
+              "${_CUTILE_KERNEL_DIR}/${_CUTILE_KERNEL_PYTHON}"
+      COMMENT "Exporting cuTile ${_CUTILE_KERNEL_BASENAME} ${output_format} ${data_type}"
+      VERBATIM
+    )
+  endif()
 
   add_custom_command(
     OUTPUT "${_embedded_header}"

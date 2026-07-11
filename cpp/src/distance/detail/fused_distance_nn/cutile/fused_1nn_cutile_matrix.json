@@ -63,16 +63,6 @@
         "arch_tag": "cutile_arch_8_6"
       },
       {
-        "output_format": "cubin",
-        "artifact_ext": "cubin",
-        "artifact_basename": "@data_type@_@metric_abbrev@_@index_abbrev@_@gpu_code@",
-        "register": "cubin",
-        "gpu_code": "sm_120",
-        "cc_major": 12,
-        "cc_minor": 0,
-        "arch_tag": "cutile_arch_12_0"
-      },
-      {
         "output_format": "tileir_bytecode",
         "artifact_ext": "tilebc",
         "artifact_basename": "@data_type@_@metric_abbrev@_@index_abbrev@",
@@ -87,10 +77,6 @@
       {
         "data_type": "half",
         "data_abbrev": "h"
-      },
-      {
-        "data_type": "float",
-        "data_abbrev": "f"
       }
     ],
     "_metric": [
@@ -119,7 +105,7 @@
     ],
     "_tile": [
       {
-        "tile_m": 64,
+        "tile_m": 128,
         "tile_n": 128,
         "tile_k": 32
       }
@@ -134,6 +120,173 @@
         "cc_major": 9,
         "cc_minor": 0,
         "arch_tag": "cutile_arch_9_0"
+      },
+      {
+        "output_format": "cubin",
+        "artifact_ext": "cubin",
+        "artifact_basename": "@data_type@_@metric_abbrev@_@index_abbrev@_@gpu_code@",
+        "register": "cubin",
+        "gpu_code": "sm_120",
+        "cc_major": 12,
+        "cc_minor": 0,
+        "arch_tag": "cutile_arch_12_0"
+      }
+    ]
+  },
+  {
+    "_data": [
+      {
+        "data_type": "float",
+        "data_abbrev": "f"
+      }
+    ],
+    "_metric": [
+      {
+        "metric": "inner_product",
+        "metric_abbrev": "ip"
+      },
+      {
+        "metric": "cosine_expanded",
+        "metric_abbrev": "cos"
+      }
+    ],
+    "_index": [
+      {
+        "index_type": "int32",
+        "index_abbrev": "i32"
+      },
+      {
+        "index_type": "int64",
+        "index_abbrev": "i64"
+      }
+    ],
+    "_tile": [
+      {
+        "tile_m": 128,
+        "tile_n": 128,
+        "tile_k": 32
+      }
+    ],
+    "_export": [
+      {
+        "output_format": "cubin",
+        "artifact_ext": "cubin",
+        "artifact_basename": "@data_type@_@metric_abbrev@_@index_abbrev@_@gpu_code@",
+        "register": "cubin",
+        "gpu_code": "sm_90",
+        "cc_major": 9,
+        "cc_minor": 0,
+        "arch_tag": "cutile_arch_9_0"
+      },
+      {
+        "output_format": "cubin",
+        "artifact_ext": "cubin",
+        "artifact_basename": "@data_type@_@metric_abbrev@_@index_abbrev@_@gpu_code@",
+        "register": "cubin",
+        "gpu_code": "sm_120",
+        "cc_major": 12,
+        "cc_minor": 0,
+        "arch_tag": "cutile_arch_12_0"
+      }
+    ]
+  },
+  {
+    "_data": [
+      {
+        "data_type": "float",
+        "data_abbrev": "f"
+      }
+    ],
+    "_metric": [
+      {
+        "metric": "l2_expanded",
+        "metric_abbrev": "l2"
+      }
+    ],
+    "_index": [
+      {
+        "index_type": "int64",
+        "index_abbrev": "i64"
+      }
+    ],
+    "_tile": [
+      {
+        "tile_m": 128,
+        "tile_n": 128,
+        "tile_k": 32
+      }
+    ],
+    "_export": [
+      {
+        "output_format": "cubin",
+        "artifact_ext": "cubin",
+        "artifact_basename": "@data_type@_@metric_abbrev@_@index_abbrev@_@gpu_code@",
+        "register": "cubin",
+        "gpu_code": "sm_90",
+        "cc_major": 9,
+        "cc_minor": 0,
+        "arch_tag": "cutile_arch_9_0"
+      },
+      {
+        "output_format": "cubin",
+        "artifact_ext": "cubin",
+        "artifact_basename": "@data_type@_@metric_abbrev@_@index_abbrev@_@gpu_code@",
+        "register": "cubin",
+        "gpu_code": "sm_120",
+        "cc_major": 12,
+        "cc_minor": 0,
+        "arch_tag": "cutile_arch_12_0"
+      }
+    ]
+  },
+  {
+    "_data": [
+      {
+        "data_type": "float",
+        "data_abbrev": "f"
+      }
+    ],
+    "_metric": [
+      {
+        "metric": "l2_expanded",
+        "metric_abbrev": "l2"
+      }
+    ],
+    "_index": [
+      {
+        "index_type": "int32",
+        "index_abbrev": "i32"
+      }
+    ],
+    "_tile": [
+      {
+        "tile_m": 128,
+        "tile_n": 128,
+        "tile_k": 32
+      }
+    ],
+    "_export": [
+      {
+        "output_format": "cubin",
+        "artifact_ext": "cubin",
+        "artifact_basename": "@data_type@_@metric_abbrev@_@index_abbrev@_@gpu_code@",
+        "register": "cubin",
+        "gpu_code": "sm_90",
+        "cc_major": 9,
+        "cc_minor": 0,
+        "arch_tag": "cutile_arch_9_0",
+        "prebuilt_artifact": "../../../../../../tileir13.4_cubin/export_cubins/fused_1nn_float_l2_i32_sm_90_128x128x32.cubin"
+      },
+      {
+        "output_format": "cubin",
+        "artifact_ext": "cubin",
+        "artifact_basename": "@data_type@_@metric_abbrev@_@index_abbrev@_@gpu_code@",
+        "register": "cubin",
+        "gpu_code": "sm_120",
+        "cc_major": 12,
+        "cc_minor": 0,
+        "arch_tag": "cutile_arch_12_0",
+        "prebuilt_artifact": "../../../../../../tileir13.4_cubin/export_cubins/fused_1nn_float_l2_i32_sm_120_128x128x32.cubin"
       }
     ]
   }
