@@ -64,7 +64,6 @@ struct sg_cagra_c_api_index_box {
   void* index_ptr;
   enum class dataset_layout : uint8_t { device_padded, device_standard } layout;
   cuvs::neighbors::c_api::detail::owner_record owner_rec;
-  void* (*try_lifetime_holder_for_extend)(void* owner);
 };
 
 template <cuvs::neighbors::ann_dataset_view DatasetViewT>
@@ -75,31 +74,6 @@ constexpr auto sg_cagra_index_layout_from_view()
   } else {
     return sg_cagra_c_api_index_box::dataset_layout::device_padded;
   }
-}
-
-static void* extend_holder_none(void*) { return nullptr; }
-
-static void* extend_holder_self(void* owner) { return owner; }
-
-template <typename T, cuvs::neighbors::ann_dataset_view DatasetViewT>
-static auto ensure_lifetime_holder_for_extend(sg_cagra_c_api_index_box* box)
-  -> cuvs_cagra_c_api_lifetime_holder<T, DatasetViewT>*
-{
-  if (box->try_lifetime_holder_for_extend == &extend_holder_self) {
-    return reinterpret_cast<cuvs_cagra_c_api_lifetime_holder<T, DatasetViewT>*>(box->owner_rec.owner);
-  }
-
-  auto* raw_index = reinterpret_cast<cuvs::neighbors::cagra::index<T, uint32_t, DatasetViewT>*>(
-    box->index_ptr);
-  auto* holder = new cuvs_cagra_c_api_lifetime_holder<T, DatasetViewT>{
-    nullptr, nullptr, std::move(*raw_index)};
-  auto old_owner_rec = box->owner_rec;
-
-  box->index_ptr                    = &holder->idx;
-  box->owner_rec                    = cuvs::neighbors::c_api::detail::make_owner_record(holder);
-  box->try_lifetime_holder_for_extend = &extend_holder_self;
-  cuvs::neighbors::c_api::detail::destroy_owner_record(old_owner_rec);
-  return holder;
 }
 
 template <typename T>
@@ -146,7 +120,7 @@ static void merge_indices_for_layout(
     auto* holder =
       new cuvs_cagra_c_api_lifetime_holder<T, DatasetViewT>{nullptr, nullptr, std::move(merged_idx)};
     holder->merge_storage = std::move(merge_storage);
-    assign_lifetime_holder<T, DatasetViewT>(output_index, output_index->dtype, holder);
+    bind_lifetime_holder_to_C_index<T, DatasetViewT>(output_index, output_index->dtype, holder);
   } else if (filter.type == BITSET) {
     int64_t merged_row_count = 0;
     for (auto* idx_ptr : index_ptrs) {
@@ -166,7 +140,7 @@ static void merge_indices_for_layout(
     auto* holder =
       new cuvs_cagra_c_api_lifetime_holder<T, DatasetViewT>{nullptr, nullptr, std::move(merged_idx)};
     holder->merge_storage = std::move(merge_storage);
-    assign_lifetime_holder<T, DatasetViewT>(output_index, output_index->dtype, holder);
+    bind_lifetime_holder_to_C_index<T, DatasetViewT>(output_index, output_index->dtype, holder);
   } else {
     RAFT_FAIL("Unsupported filter type: BITMAP");
   }
@@ -208,29 +182,27 @@ static void compute_ivfpq_shape_from_indices(cuvsCagraIndex_t* indices,
 }
 
 template <typename T, cuvs::neighbors::ann_dataset_view DatasetViewT>
-static void assign_standalone_index(cuvsCagraIndex_t out,
-                                    DLDataType dtype,
-                                    cuvs::neighbors::cagra::index<T, uint32_t, DatasetViewT>* raw)
-{
-  auto* box = new sg_cagra_c_api_index_box{raw,
-                                         sg_cagra_index_layout_from_view<DatasetViewT>(),
-                                         cuvs::neighbors::c_api::detail::make_owner_record(raw),
-                                         &extend_holder_none};
-  out->addr = reinterpret_cast<uintptr_t>(box);
-  out->dtype  = dtype;
-}
-
-template <typename T, cuvs::neighbors::ann_dataset_view DatasetViewT>
-static void assign_lifetime_holder(cuvsCagraIndex_t out,
+static void bind_lifetime_holder_to_C_index(cuvsCagraIndex_t out,
                                    DLDataType dtype,
                                    cuvs_cagra_c_api_lifetime_holder<T, DatasetViewT>* holder)
 {
   auto* box = new sg_cagra_c_api_index_box{&holder->idx,
                                          sg_cagra_index_layout_from_view<DatasetViewT>(),
-                                         cuvs::neighbors::c_api::detail::make_owner_record(holder),
-                                         &extend_holder_self};
+                                         cuvs::neighbors::c_api::detail::make_owner_record(holder)};
   out->addr = reinterpret_cast<uintptr_t>(box);
   out->dtype  = dtype;
+}
+
+template <typename T, cuvs::neighbors::ann_dataset_view DatasetViewT>
+static void wrap_CPP_index_in_lifetime_holder_and_bind_to_C_index(
+  cuvsCagraIndex_t out,
+  DLDataType dtype,
+  cuvs::neighbors::cagra::index<T, uint32_t, DatasetViewT>* raw)
+{
+  auto* holder = new cuvs_cagra_c_api_lifetime_holder<T, DatasetViewT>{
+    nullptr, nullptr, std::move(*raw)};
+  delete raw;
+  bind_lifetime_holder_to_C_index<T, DatasetViewT>(out, dtype, holder);
 }
 
 static void destroy_sg_cagra_c_api_box(uintptr_t addr)
@@ -306,7 +278,7 @@ static void attach_padded_dataset_for_search(raft::resources* res_ptr,
 
   destroy_sg_cagra_c_api_box(index->addr);
   index->addr = 0;
-  assign_lifetime_holder<T, cuvs::neighbors::device_padded_dataset_view<T, int64_t>>(
+  bind_lifetime_holder_to_C_index<T, cuvs::neighbors::device_padded_dataset_view<T, int64_t>>(
     index, index->dtype, holder);
 
   delete padded_holder;
@@ -410,13 +382,17 @@ void _build(cuvsResources_t res,
       auto view  = cuvs::neighbors::make_device_padded_dataset_view(*res_ptr, mds);
       auto index = cuvs::neighbors::cagra::build(*res_ptr, index_params, view);
       auto* raw  = new cuvs::neighbors::cagra::device_padded_index<T, uint32_t>(std::move(index));
-      assign_standalone_index<T, cuvs::neighbors::device_padded_dataset_view<T, int64_t>>(
+      wrap_CPP_index_in_lifetime_holder_and_bind_to_C_index<
+        T,
+        cuvs::neighbors::device_padded_dataset_view<T, int64_t>>(
         output_index, output_index->dtype, raw);
     } else {
       auto view  = cuvs::neighbors::make_device_standard_dataset_view(mds);
       auto index = cuvs::neighbors::cagra::build(*res_ptr, index_params, view);
       auto* raw  = new cuvs::neighbors::cagra::device_standard_index<T, uint32_t>(std::move(index));
-      assign_standalone_index<T, cuvs::neighbors::device_standard_dataset_view<T, int64_t>>(
+      wrap_CPP_index_in_lifetime_holder_and_bind_to_C_index<
+        T,
+        cuvs::neighbors::device_standard_dataset_view<T, int64_t>>(
         output_index, output_index->dtype, raw);
     }
   } else if (cuvs::core::is_dlpack_host_compatible(dataset)) {
@@ -447,7 +423,7 @@ void _build(cuvsResources_t res,
       }
       auto* holder = new cuvs_cagra_c_api_lifetime_holder<T, cuvs::neighbors::device_padded_dataset_view<T, int64_t>>{
         std::move(padded_owner), nullptr, std::move(device_idx)};
-      assign_lifetime_holder<T, cuvs::neighbors::device_padded_dataset_view<T, int64_t>>(output_index, output_index->dtype, holder);
+      bind_lifetime_holder_to_C_index<T, cuvs::neighbors::device_padded_dataset_view<T, int64_t>>(output_index, output_index->dtype, holder);
     } else {
       auto padded = cuvs::neighbors::make_device_padded_dataset(*res_ptr, mds);
       auto view   = padded->as_dataset_view();
@@ -455,7 +431,7 @@ void _build(cuvsResources_t res,
       index.update_dataset(*res_ptr, view);
       auto* holder = new cuvs_cagra_c_api_lifetime_holder<T, cuvs::neighbors::device_padded_dataset_view<T, int64_t>>{
         std::move(padded), nullptr, std::move(index)};
-      assign_lifetime_holder<T, cuvs::neighbors::device_padded_dataset_view<T, int64_t>>(output_index, output_index->dtype, holder);
+      bind_lifetime_holder_to_C_index<T, cuvs::neighbors::device_padded_dataset_view<T, int64_t>>(output_index, output_index->dtype, holder);
     }
   }
 }
@@ -491,7 +467,9 @@ void _from_args(cuvsResources_t res,
         *res_ptr, metric);
       raw->update_dataset(*res_ptr, dataset_view);
       update_graph_from_dlpack(raw);
-      assign_standalone_index<T, cuvs::neighbors::device_padded_dataset_view<T, int64_t>>(
+      wrap_CPP_index_in_lifetime_holder_and_bind_to_C_index<
+        T,
+        cuvs::neighbors::device_padded_dataset_view<T, int64_t>>(
         output_index, output_index->dtype, raw);
     } else {
       auto dataset_view = cuvs::neighbors::make_device_standard_dataset_view(mds);
@@ -499,7 +477,9 @@ void _from_args(cuvsResources_t res,
         *res_ptr, metric);
       raw->update_dataset(*res_ptr, dataset_view);
       update_graph_from_dlpack(raw);
-      assign_standalone_index<T, cuvs::neighbors::device_standard_dataset_view<T, int64_t>>(
+      wrap_CPP_index_in_lifetime_holder_and_bind_to_C_index<
+        T,
+        cuvs::neighbors::device_standard_dataset_view<T, int64_t>>(
         output_index, output_index->dtype, raw);
     }
   } else if (cuvs::core::is_dlpack_host_compatible(dataset)) {
@@ -514,7 +494,7 @@ void _from_args(cuvsResources_t res,
     auto* holder = new cuvs_cagra_c_api_lifetime_holder<T, cuvs::neighbors::device_padded_dataset_view<T, int64_t>>{
       std::move(padded), nullptr, std::move(*idx)};
     delete idx;
-    assign_lifetime_holder<T, cuvs::neighbors::device_padded_dataset_view<T, int64_t>>(output_index, output_index->dtype, holder);
+    bind_lifetime_holder_to_C_index<T, cuvs::neighbors::device_padded_dataset_view<T, int64_t>>(output_index, output_index->dtype, holder);
   }
 }
 
@@ -534,7 +514,10 @@ void _extend(cuvsResources_t res,
   extend_params.max_chunk_size = params.max_chunk_size;
 
   if (box->layout == sg_cagra_c_api_index_box::dataset_layout::device_padded) {
-    auto* holder = ensure_lifetime_holder_for_extend<T, cuvs::neighbors::device_padded_dataset_view<T, int64_t>>(box);
+    auto* holder = reinterpret_cast<
+      cuvs_cagra_c_api_lifetime_holder<T, cuvs::neighbors::device_padded_dataset_view<T, int64_t>>*>(
+      box->owner_rec.owner);
+    RAFT_EXPECTS(holder != nullptr, "cuvsCagraExtend: null index owner");
     auto* index_ptr = &holder->idx;
     if (cuvs::core::is_dlpack_device_compatible(dataset)) {
       using mdspan_type = raft::device_matrix_view<T const, int64_t, raft::row_major>;
@@ -552,7 +535,10 @@ void _extend(cuvsResources_t res,
       holder->extend_storage = std::move(storage);
     }
   } else {
-    auto* holder = ensure_lifetime_holder_for_extend<T, cuvs::neighbors::device_standard_dataset_view<T, int64_t>>(box);
+    auto* holder = reinterpret_cast<cuvs_cagra_c_api_lifetime_holder<
+      T,
+      cuvs::neighbors::device_standard_dataset_view<T, int64_t>>*>(box->owner_rec.owner);
+    RAFT_EXPECTS(holder != nullptr, "cuvsCagraExtend: null index owner");
     auto* index_ptr = &holder->idx;
     if (cuvs::core::is_dlpack_device_compatible(dataset)) {
       using mdspan_type = raft::device_matrix_view<T const, int64_t, raft::row_major>;
@@ -687,7 +673,7 @@ void _deserialize(cuvsResources_t res, const char* filename, cuvsCagraIndex_t ou
     holder->padded_dataset_owner = std::move(padded);
   }
 
-  assign_lifetime_holder<T, cuvs::neighbors::device_padded_dataset_view<T, int64_t>>(output_index, output_index->dtype, holder);
+  bind_lifetime_holder_to_C_index<T, cuvs::neighbors::device_padded_dataset_view<T, int64_t>>(output_index, output_index->dtype, holder);
 }
 
 template <typename T>
