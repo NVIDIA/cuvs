@@ -33,7 +33,7 @@
 namespace cuvs::neighbors::cagra {
 
 template <typename T, typename IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
-void index<T, IdxT, DatasetViewT>::compute_dataset_norms_(raft::resources const& res)
+CUVS_EXPORT void index<T, IdxT, DatasetViewT>::compute_dataset_norms_(raft::resources const& res)
 {
   // raft::linalg::reduce wants row-major with leading dim = row pitch in elements.
   // Skip norm precomputation for VPQ/empty/non-dense views; CosineExpanded with VPQ is handled

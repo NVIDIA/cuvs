@@ -817,7 +817,7 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
   std::optional<cuvs::util::file_descriptor> graph_fd_;
   std::optional<cuvs::util::file_descriptor> mapping_fd_;
 
-  void compute_dataset_norms_(raft::resources const& res);
+  CUVS_EXPORT void compute_dataset_norms_(raft::resources const& res);
   size_t n_rows_       = 0;
   size_t dim_          = 0;
   size_t graph_degree_ = 0;

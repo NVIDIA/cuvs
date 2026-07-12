@@ -474,6 +474,20 @@ typedef struct {
 typedef cuvsCagraIndex* cuvsCagraIndex_t;
 
 /**
+ * @brief Opaque handle for an owning padded dataset used to prepare standard indices for search.
+ *
+ * The handle owns device-padded dataset storage created by \ref cuvsCagraMakePaddedDataset.
+ * After successful \ref cuvsCagraAttachPaddedDatasetForSearch, ownership is transferred to the
+ * target index and this handle becomes invalid.
+ */
+typedef struct {
+  uintptr_t addr;
+  DLDataType dtype;
+} cuvsCagraPaddedDataset;
+
+typedef cuvsCagraPaddedDataset* cuvsCagraPaddedDataset_t;
+
+/**
  * @brief Allocate CAGRA index
  *
  * @param[in] index cuvsCagraIndex_t to allocate
@@ -556,6 +570,47 @@ CUVS_EXPORT cuvsError_t cuvsCagraIndexGetDataset(cuvsCagraIndex_t index, DLManag
  * @return cuvsError_t
  */
 CUVS_EXPORT cuvsError_t cuvsCagraIndexGetGraph(cuvsCagraIndex_t index, DLManagedTensor* graph);
+
+/**
+ * @brief Create an owning device-padded dataset from an input dataset tensor.
+ *
+ * Accepts host- or device-compatible 2D row-major tensors with dtypes supported by CAGRA.
+ * The returned handle owns the padded dataset memory and must be destroyed with
+ * \ref cuvsCagraPaddedDatasetDestroy unless transferred via
+ * \ref cuvsCagraAttachPaddedDatasetForSearch.
+ *
+ * @param[in]  res              cuvsResources_t opaque C handle
+ * @param[in]  dataset          input dataset tensor (host or device compatible)
+ * @param[out] padded_dataset   newly allocated padded dataset handle
+ * @return cuvsError_t
+ */
+CUVS_EXPORT cuvsError_t cuvsCagraMakePaddedDataset(cuvsResources_t res,
+                                                   DLManagedTensor* dataset,
+                                                   cuvsCagraPaddedDataset_t* padded_dataset);
+
+/**
+ * @brief Destroy a padded dataset handle previously created by \ref cuvsCagraMakePaddedDataset.
+ *
+ * @param[in] padded_dataset padded dataset handle
+ * @return cuvsError_t
+ */
+CUVS_EXPORT cuvsError_t cuvsCagraPaddedDatasetDestroy(cuvsCagraPaddedDataset_t padded_dataset);
+
+/**
+ * @brief Attach a padded dataset to a standard CAGRA index to make it searchable.
+ *
+ * The function converts the index to the padded-search-ready form using C++ API
+ * `attach_padded_dataset_for_search`. On success, ownership of \p padded_dataset is transferred
+ * to \p index and \p padded_dataset becomes invalid.
+ *
+ * @param[in] res             cuvsResources_t opaque C handle
+ * @param[in] padded_dataset  padded dataset handle created by \ref cuvsCagraMakePaddedDataset
+ * @param[inout] index        CAGRA index handle
+ * @return cuvsError_t
+ */
+CUVS_EXPORT cuvsError_t cuvsCagraAttachPaddedDatasetForSearch(cuvsResources_t res,
+                                                              cuvsCagraPaddedDataset_t padded_dataset,
+                                                              cuvsCagraIndex_t index);
 
 /**
  * @}

@@ -21,6 +21,8 @@ namespace cuvs::neighbors::cagra {
 
 extern template void index<data_t, index_t, inst_device_padded_view_t>::compute_dataset_norms_(
   raft::resources const&);
+extern template void index<data_t, index_t, inst_device_standard_view_t>::compute_dataset_norms_(
+  raft::resources const&);
 
 #define CUVS_INST_CAGRA_EXTEND(T, IdxT, DatasetViewT, AdditionalDatasetT)         \
   void extend(raft::resources const& handle,                                      \

@@ -523,6 +523,28 @@ TEST(CagraC, BuildMergeSearch)
   cuvsCagraIndex_t index_array[2] = {index_main, index_add};
   ASSERT_EQ(cuvsCagraMerge(res, build_params, index_array, 2, filter, index_merged), CUVS_SUCCESS);
 
+  // Merge of standard-layout device inputs yields a standard index. Under the explicit C API
+  // contract, attach a padded dataset before calling search.
+  rmm::device_uvector<float> merged_d(14, stream);
+  raft::copy(merged_d.data(), main_d.data(), main_d.size(), stream);
+  raft::copy(merged_d.data() + main_d.size(), additional_d.data(), additional_d.size(), stream);
+
+  DLManagedTensor merged_dataset_tensor;
+  int64_t merged_shape[2]                            = {7, 2};
+  merged_dataset_tensor.dl_tensor.data               = merged_d.data();
+  merged_dataset_tensor.dl_tensor.device.device_type = kDLCUDA;
+  merged_dataset_tensor.dl_tensor.device.device_id   = 0;
+  merged_dataset_tensor.dl_tensor.ndim               = 2;
+  merged_dataset_tensor.dl_tensor.dtype.code         = kDLFloat;
+  merged_dataset_tensor.dl_tensor.dtype.bits         = 32;
+  merged_dataset_tensor.dl_tensor.dtype.lanes        = 1;
+  merged_dataset_tensor.dl_tensor.shape              = merged_shape;
+  merged_dataset_tensor.dl_tensor.strides            = nullptr;
+
+  cuvsCagraPaddedDataset_t padded_dataset = nullptr;
+  ASSERT_EQ(cuvsCagraMakePaddedDataset(res, &merged_dataset_tensor, &padded_dataset), CUVS_SUCCESS);
+  ASSERT_EQ(cuvsCagraAttachPaddedDatasetForSearch(res, padded_dataset, index_merged), CUVS_SUCCESS);
+
   int64_t merged_dim = -1;
   ASSERT_EQ(cuvsCagraIndexGetDims(index_merged, &merged_dim), CUVS_SUCCESS);
   EXPECT_EQ(merged_dim, 2);

@@ -54,6 +54,11 @@ struct cuvs_cagra_c_api_lifetime_holder {
   std::optional<cuvs::neighbors::cagra::extended_dataset_storage<T, uint32_t>> extend_storage{};
 };
 
+template <typename T>
+struct cagra_c_api_padded_dataset_holder {
+  std::unique_ptr<cuvs::neighbors::device_padded_dataset<T, int64_t>> dataset_owner{nullptr};
+};
+
 /** Owns how to delete co-located index storage; `cuvsCagraIndex::addr` points here. */
 struct sg_cagra_c_api_index_box {
   void* index_ptr;
@@ -75,6 +80,27 @@ constexpr auto sg_cagra_index_layout_from_view()
 static void* extend_holder_none(void*) { return nullptr; }
 
 static void* extend_holder_self(void* owner) { return owner; }
+
+template <typename T, cuvs::neighbors::ann_dataset_view DatasetViewT>
+static auto ensure_lifetime_holder_for_extend(sg_cagra_c_api_index_box* box)
+  -> cuvs_cagra_c_api_lifetime_holder<T, DatasetViewT>*
+{
+  if (box->try_lifetime_holder_for_extend == &extend_holder_self) {
+    return reinterpret_cast<cuvs_cagra_c_api_lifetime_holder<T, DatasetViewT>*>(box->owner_rec.owner);
+  }
+
+  auto* raw_index = reinterpret_cast<cuvs::neighbors::cagra::index<T, uint32_t, DatasetViewT>*>(
+    box->index_ptr);
+  auto* holder = new cuvs_cagra_c_api_lifetime_holder<T, DatasetViewT>{
+    nullptr, nullptr, std::move(*raw_index)};
+  auto old_owner_rec = box->owner_rec;
+
+  box->index_ptr                    = &holder->idx;
+  box->owner_rec                    = cuvs::neighbors::c_api::detail::make_owner_record(holder);
+  box->try_lifetime_holder_for_extend = &extend_holder_self;
+  cuvs::neighbors::c_api::detail::destroy_owner_record(old_owner_rec);
+  return holder;
+}
 
 template <typename T>
 static auto require_padded_index(sg_cagra_c_api_index_box* box,
@@ -213,6 +239,78 @@ static void destroy_sg_cagra_c_api_box(uintptr_t addr)
   auto* box = reinterpret_cast<sg_cagra_c_api_index_box*>(addr);
   cuvs::neighbors::c_api::detail::destroy_owner_record(box->owner_rec);
   delete box;
+}
+
+template <typename T>
+static void destroy_padded_dataset_typed(uintptr_t addr)
+{
+  delete reinterpret_cast<cagra_c_api_padded_dataset_holder<T>*>(addr);
+}
+
+template <typename T>
+static void make_padded_dataset(raft::resources* res_ptr,
+                                DLManagedTensor* dataset_tensor,
+                                cuvsCagraPaddedDataset_t* output_padded_dataset)
+{
+  auto dataset = dataset_tensor->dl_tensor;
+  auto* out    = new cuvsCagraPaddedDataset{0, dataset.dtype};
+
+  if (cuvs::core::is_dlpack_device_compatible(dataset)) {
+    using mdspan_type = raft::device_matrix_view<T const, int64_t, raft::row_major>;
+    auto mds          = cuvs::core::from_dlpack<mdspan_type>(dataset_tensor);
+    auto owner        = cuvs::neighbors::make_device_padded_dataset(*res_ptr, mds);
+    auto* holder      = new cagra_c_api_padded_dataset_holder<T>{std::move(owner)};
+    out->addr         = reinterpret_cast<uintptr_t>(holder);
+  } else if (cuvs::core::is_dlpack_host_compatible(dataset)) {
+    using mdspan_type = raft::host_matrix_view<T const, int64_t, raft::row_major>;
+    auto mds          = cuvs::core::from_dlpack<mdspan_type>(dataset_tensor);
+    auto owner        = cuvs::neighbors::make_device_padded_dataset(*res_ptr, mds);
+    auto* holder      = new cagra_c_api_padded_dataset_holder<T>{std::move(owner)};
+    out->addr         = reinterpret_cast<uintptr_t>(holder);
+  } else {
+    delete out;
+    RAFT_FAIL("cuvsCagraMakePaddedDataset: dataset must have host- or device-compatible memory");
+  }
+
+  *output_padded_dataset = out;
+}
+
+template <typename T>
+static void attach_padded_dataset_for_search(raft::resources* res_ptr,
+                                             cuvsCagraPaddedDataset_t padded_dataset,
+                                             cuvsCagraIndex_t index)
+{
+  RAFT_EXPECTS(padded_dataset != nullptr, "cuvsCagraAttachPaddedDatasetForSearch: null padded dataset");
+  RAFT_EXPECTS(index != nullptr, "cuvsCagraAttachPaddedDatasetForSearch: null index handle");
+  RAFT_EXPECTS(index->addr != 0, "cuvsCagraAttachPaddedDatasetForSearch: null index storage");
+
+  auto* box = reinterpret_cast<sg_cagra_c_api_index_box*>(index->addr);
+  RAFT_EXPECTS(box->layout == sg_cagra_c_api_index_box::dataset_layout::device_standard,
+               "cuvsCagraAttachPaddedDatasetForSearch: index must be standard layout");
+
+  auto* padded_holder =
+    reinterpret_cast<cagra_c_api_padded_dataset_holder<T>*>(padded_dataset->addr);
+  RAFT_EXPECTS(padded_holder != nullptr && padded_holder->dataset_owner != nullptr,
+               "cuvsCagraAttachPaddedDatasetForSearch: padded dataset handle is uninitialized");
+
+  auto* standard_idx =
+    reinterpret_cast<cuvs::neighbors::cagra::device_standard_index<T, uint32_t>*>(box->index_ptr);
+
+  auto padded_idx = cuvs::neighbors::cagra::attach_padded_dataset_for_search(
+    *res_ptr, *standard_idx, padded_holder->dataset_owner->as_dataset_view());
+
+  auto* holder =
+    new cuvs_cagra_c_api_lifetime_holder<T, cuvs::neighbors::device_padded_dataset_view<T, int64_t>>{
+      nullptr, nullptr, std::move(padded_idx)};
+  holder->padded_dataset_owner = std::move(padded_holder->dataset_owner);
+
+  destroy_sg_cagra_c_api_box(index->addr);
+  index->addr = 0;
+  assign_lifetime_holder<T, cuvs::neighbors::device_padded_dataset_view<T, int64_t>>(
+    index, index->dtype, holder);
+
+  delete padded_holder;
+  delete padded_dataset;
 }
 
 static void _set_graph_build_params(
@@ -429,78 +527,49 @@ void _extend(cuvsResources_t res,
   auto dataset   = additional_dataset_tensor->dl_tensor;
   auto* box      = reinterpret_cast<sg_cagra_c_api_index_box*>(index.addr);
   auto res_ptr   = reinterpret_cast<raft::resources*>(res);
+  RAFT_EXPECTS(box != nullptr, "cuvsCagraExtend: null index handle");
 
   // TODO: use C struct here (see issue #487)
   auto extend_params           = cuvs::neighbors::cagra::extend_params();
   extend_params.max_chunk_size = params.max_chunk_size;
 
-  with_device_index_by_layout<T>(
-    box, "cuvsCagraExtend: null index handle", [&](auto* index_ptr) {
-      if constexpr (std::is_same_v<std::decay_t<decltype(*index_ptr)>,
-                                   cuvs::neighbors::cagra::device_padded_index<T, uint32_t>>) {
-        if (cuvs::core::is_dlpack_device_compatible(dataset)) {
-          using mdspan_type = raft::device_matrix_view<T const, int64_t, raft::row_major>;
-          auto mds          = cuvs::core::from_dlpack<mdspan_type>(additional_dataset_tensor);
-          auto ds_view      = cuvs::neighbors::make_device_padded_dataset_view(*res_ptr, mds);
-          auto storage      = cuvs::neighbors::cagra::make_extended_dataset(*res_ptr, ds_view, *index_ptr);
-          cuvs::neighbors::cagra::extend(*res_ptr, extend_params, ds_view, *index_ptr, storage);
-          void* holder_void = box->try_lifetime_holder_for_extend(box->owner_rec.owner);
-          RAFT_EXPECTS(holder_void != nullptr,
-                       "cuvsCagraExtend: extended dataset storage must be kept alive via the "
-                       "lifetime-holder build path (e.g. host dataset or device dataset copied to a "
-                       "padded buffer).");
-          auto* holder = reinterpret_cast<cuvs_cagra_c_api_lifetime_holder<
-            T,
-            cuvs::neighbors::device_padded_dataset_view<T, int64_t>>*>(holder_void);
-          holder->extend_storage = std::move(storage);
-        } else {
-          using mdspan_type = raft::host_matrix_view<T const, int64_t, raft::row_major>;
-          auto mds          = cuvs::core::from_dlpack<mdspan_type>(additional_dataset_tensor);
-          auto ds_view      = cuvs::neighbors::make_host_padded_dataset_view(mds);
-          auto storage      = cuvs::neighbors::cagra::make_extended_dataset(*res_ptr, ds_view, *index_ptr);
-          cuvs::neighbors::cagra::extend(*res_ptr, extend_params, ds_view, *index_ptr, storage);
-          void* holder_void = box->try_lifetime_holder_for_extend(box->owner_rec.owner);
-          RAFT_EXPECTS(holder_void != nullptr,
-                       "cuvsCagraExtend: extended dataset storage must be kept alive via the "
-                       "lifetime-holder build path (e.g. host dataset or device dataset copied to a "
-                       "padded buffer).");
-          auto* holder = reinterpret_cast<cuvs_cagra_c_api_lifetime_holder<
-            T,
-            cuvs::neighbors::device_padded_dataset_view<T, int64_t>>*>(holder_void);
-          holder->extend_storage = std::move(storage);
-        }
-      } else {
-        if (cuvs::core::is_dlpack_device_compatible(dataset)) {
-          using mdspan_type = raft::device_matrix_view<T const, int64_t, raft::row_major>;
-          auto mds          = cuvs::core::from_dlpack<mdspan_type>(additional_dataset_tensor);
-          auto ds_view      = cuvs::neighbors::make_device_standard_dataset_view(mds);
-          auto storage      = cuvs::neighbors::cagra::make_extended_dataset(*res_ptr, ds_view, *index_ptr);
-          cuvs::neighbors::cagra::extend(*res_ptr, extend_params, ds_view, *index_ptr, storage);
-          void* holder_void = box->try_lifetime_holder_for_extend(box->owner_rec.owner);
-          RAFT_EXPECTS(holder_void != nullptr,
-                       "cuvsCagraExtend: extended dataset storage must be kept alive via the "
-                       "lifetime-holder build path.");
-          auto* holder = reinterpret_cast<cuvs_cagra_c_api_lifetime_holder<
-            T,
-            cuvs::neighbors::device_standard_dataset_view<T, int64_t>>*>(holder_void);
-          holder->extend_storage = std::move(storage);
-        } else {
-          using mdspan_type = raft::host_matrix_view<T const, int64_t, raft::row_major>;
-          auto mds          = cuvs::core::from_dlpack<mdspan_type>(additional_dataset_tensor);
-          auto ds_view      = cuvs::neighbors::make_host_standard_dataset_view(mds);
-          auto storage      = cuvs::neighbors::cagra::make_extended_dataset(*res_ptr, ds_view, *index_ptr);
-          cuvs::neighbors::cagra::extend(*res_ptr, extend_params, ds_view, *index_ptr, storage);
-          void* holder_void = box->try_lifetime_holder_for_extend(box->owner_rec.owner);
-          RAFT_EXPECTS(holder_void != nullptr,
-                       "cuvsCagraExtend: extended dataset storage must be kept alive via the "
-                       "lifetime-holder build path.");
-          auto* holder = reinterpret_cast<cuvs_cagra_c_api_lifetime_holder<
-            T,
-            cuvs::neighbors::device_standard_dataset_view<T, int64_t>>*>(holder_void);
-          holder->extend_storage = std::move(storage);
-        }
-      }
-    });
+  if (box->layout == sg_cagra_c_api_index_box::dataset_layout::device_padded) {
+    auto* holder = ensure_lifetime_holder_for_extend<T, cuvs::neighbors::device_padded_dataset_view<T, int64_t>>(box);
+    auto* index_ptr = &holder->idx;
+    if (cuvs::core::is_dlpack_device_compatible(dataset)) {
+      using mdspan_type = raft::device_matrix_view<T const, int64_t, raft::row_major>;
+      auto mds          = cuvs::core::from_dlpack<mdspan_type>(additional_dataset_tensor);
+      auto ds_view      = cuvs::neighbors::make_device_padded_dataset_view(*res_ptr, mds);
+      auto storage      = cuvs::neighbors::cagra::make_extended_dataset(*res_ptr, ds_view, *index_ptr);
+      cuvs::neighbors::cagra::extend(*res_ptr, extend_params, ds_view, *index_ptr, storage);
+      holder->extend_storage = std::move(storage);
+    } else {
+      using mdspan_type = raft::host_matrix_view<T const, int64_t, raft::row_major>;
+      auto mds          = cuvs::core::from_dlpack<mdspan_type>(additional_dataset_tensor);
+      auto ds_view      = cuvs::neighbors::make_host_padded_dataset_view(mds);
+      auto storage      = cuvs::neighbors::cagra::make_extended_dataset(*res_ptr, ds_view, *index_ptr);
+      cuvs::neighbors::cagra::extend(*res_ptr, extend_params, ds_view, *index_ptr, storage);
+      holder->extend_storage = std::move(storage);
+    }
+  } else {
+    auto* holder = ensure_lifetime_holder_for_extend<T, cuvs::neighbors::device_standard_dataset_view<T, int64_t>>(box);
+    auto* index_ptr = &holder->idx;
+    if (cuvs::core::is_dlpack_device_compatible(dataset)) {
+      using mdspan_type = raft::device_matrix_view<T const, int64_t, raft::row_major>;
+      auto mds          = cuvs::core::from_dlpack<mdspan_type>(additional_dataset_tensor);
+      auto ds_view      = cuvs::neighbors::make_device_standard_dataset_view(mds);
+      auto storage      = cuvs::neighbors::cagra::make_extended_dataset(*res_ptr, ds_view, *index_ptr);
+      cuvs::neighbors::cagra::extend(*res_ptr, extend_params, ds_view, *index_ptr, storage);
+      holder->extend_storage = std::move(storage);
+    } else {
+      using mdspan_type = raft::host_matrix_view<T const, int64_t, raft::row_major>;
+      auto mds          = cuvs::core::from_dlpack<mdspan_type>(additional_dataset_tensor);
+      auto ds_view      = cuvs::neighbors::make_host_standard_dataset_view(mds);
+      auto storage      = cuvs::neighbors::cagra::make_extended_dataset(*res_ptr, ds_view, *index_ptr);
+      cuvs::neighbors::cagra::extend(*res_ptr, extend_params, ds_view, *index_ptr, storage);
+      holder->extend_storage = std::move(storage);
+    }
+  }
 }
 
 template <typename T, typename IdxT>
@@ -517,8 +586,8 @@ void _search(cuvsResources_t res,
   auto* index_ptr = require_padded_index<T>(
     box,
     "cuvsCagraSearch: null index handle",
-    "cuvsCagraSearch: standard-dataset indices are not searchable via this C API path; "
-    "use a padded dataset index for search.");
+    "cuvsCagraSearch: standard-dataset indices are not searchable; call "
+    "cuvsCagraMakePaddedDataset + cuvsCagraAttachPaddedDatasetForSearch before search.");
 
   auto search_params = cuvs::neighbors::cagra::search_params();
   convert_c_search_params(params, &search_params);
@@ -810,6 +879,7 @@ void* cagra_c_api_index_ptr(cuvsCagraIndex const* idx)
   return *reinterpret_cast<void**>(idx->addr);
 }
 }  // namespace cuvs::neighbors::cagra
+
 extern "C" cuvsError_t cuvsCagraIndexCreate(cuvsCagraIndex_t* index)
 {
   return cuvs::core::translate_exceptions([=] {
@@ -881,6 +951,78 @@ extern "C" cuvsError_t cuvsCagraIndexGetGraph(cuvsCagraIndex_t index, DLManagedT
       get_graph_view<int8_t, uint32_t>(index, graph);
     } else if (index->dtype.code == kDLUInt && index->dtype.bits == 8) {
       get_graph_view<uint8_t, uint32_t>(index, graph);
+    } else {
+      RAFT_FAIL("Unsupported index dtype: %d and bits: %d", index->dtype.code, index->dtype.bits);
+    }
+  });
+}
+
+extern "C" cuvsError_t cuvsCagraMakePaddedDataset(cuvsResources_t res,
+                                                  DLManagedTensor* dataset_tensor,
+                                                  cuvsCagraPaddedDataset_t* padded_dataset)
+{
+  return cuvs::core::translate_exceptions([=] {
+    auto dataset = dataset_tensor->dl_tensor;
+    auto* res_ptr = reinterpret_cast<raft::resources*>(res);
+    if (dataset.dtype.code == kDLFloat && dataset.dtype.bits == 32) {
+      make_padded_dataset<float>(res_ptr, dataset_tensor, padded_dataset);
+    } else if (dataset.dtype.code == kDLFloat && dataset.dtype.bits == 16) {
+      make_padded_dataset<half>(res_ptr, dataset_tensor, padded_dataset);
+    } else if (dataset.dtype.code == kDLInt && dataset.dtype.bits == 8) {
+      make_padded_dataset<int8_t>(res_ptr, dataset_tensor, padded_dataset);
+    } else if (dataset.dtype.code == kDLUInt && dataset.dtype.bits == 8) {
+      make_padded_dataset<uint8_t>(res_ptr, dataset_tensor, padded_dataset);
+    } else {
+      RAFT_FAIL("Unsupported dataset DLtensor dtype: %d and bits: %d",
+                dataset.dtype.code,
+                dataset.dtype.bits);
+    }
+  });
+}
+
+extern "C" cuvsError_t cuvsCagraPaddedDatasetDestroy(cuvsCagraPaddedDataset_t padded_dataset)
+{
+  return cuvs::core::translate_exceptions([=] {
+    if (padded_dataset == nullptr) { return; }
+    if (padded_dataset->addr != 0) {
+      if (padded_dataset->dtype.code == kDLFloat && padded_dataset->dtype.bits == 32) {
+        destroy_padded_dataset_typed<float>(padded_dataset->addr);
+      } else if (padded_dataset->dtype.code == kDLFloat && padded_dataset->dtype.bits == 16) {
+        destroy_padded_dataset_typed<half>(padded_dataset->addr);
+      } else if (padded_dataset->dtype.code == kDLInt && padded_dataset->dtype.bits == 8) {
+        destroy_padded_dataset_typed<int8_t>(padded_dataset->addr);
+      } else if (padded_dataset->dtype.code == kDLUInt && padded_dataset->dtype.bits == 8) {
+        destroy_padded_dataset_typed<uint8_t>(padded_dataset->addr);
+      } else {
+        RAFT_FAIL("Unsupported padded dataset dtype: %d and bits: %d",
+                  padded_dataset->dtype.code,
+                  padded_dataset->dtype.bits);
+      }
+    }
+    delete padded_dataset;
+  });
+}
+
+extern "C" cuvsError_t cuvsCagraAttachPaddedDatasetForSearch(cuvsResources_t res,
+                                                              cuvsCagraPaddedDataset_t padded_dataset,
+                                                              cuvsCagraIndex_t index)
+{
+  return cuvs::core::translate_exceptions([=] {
+    auto* res_ptr = reinterpret_cast<raft::resources*>(res);
+    RAFT_EXPECTS(padded_dataset != nullptr,
+                 "cuvsCagraAttachPaddedDatasetForSearch: null padded dataset");
+    RAFT_EXPECTS(index != nullptr, "cuvsCagraAttachPaddedDatasetForSearch: null index handle");
+    RAFT_EXPECTS(index->dtype.code == padded_dataset->dtype.code &&
+                   index->dtype.bits == padded_dataset->dtype.bits,
+                 "cuvsCagraAttachPaddedDatasetForSearch: dtype mismatch between index and padded dataset");
+    if (index->dtype.code == kDLFloat && index->dtype.bits == 32) {
+      attach_padded_dataset_for_search<float>(res_ptr, padded_dataset, index);
+    } else if (index->dtype.code == kDLFloat && index->dtype.bits == 16) {
+      attach_padded_dataset_for_search<half>(res_ptr, padded_dataset, index);
+    } else if (index->dtype.code == kDLInt && index->dtype.bits == 8) {
+      attach_padded_dataset_for_search<int8_t>(res_ptr, padded_dataset, index);
+    } else if (index->dtype.code == kDLUInt && index->dtype.bits == 8) {
+      attach_padded_dataset_for_search<uint8_t>(res_ptr, padded_dataset, index);
     } else {
       RAFT_FAIL("Unsupported index dtype: %d and bits: %d", index->dtype.code, index->dtype.bits);
     }

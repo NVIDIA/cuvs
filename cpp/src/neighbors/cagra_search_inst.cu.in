@@ -45,17 +45,17 @@ CUVS_INST_CAGRA_SEARCH_ALL_VIEWS(data_t, int64_t);
 #undef CUVS_INST_CAGRA_SEARCH_ALL_VIEWS
 #undef CUVS_INST_CAGRA_SEARCH
 
-template CUVS_EXPORT void
+template CUVS_EXPORT __attribute__((externally_visible)) void
 index<data_t, uint32_t, inst_device_padded_view_t>::compute_dataset_norms_(
   raft::resources const& res);
-template CUVS_EXPORT void
+template CUVS_EXPORT __attribute__((externally_visible)) void
 index<data_t, uint32_t, inst_device_standard_view_t>::compute_dataset_norms_(
   raft::resources const& res);
-template CUVS_EXPORT void index<data_t, uint32_t, inst_vpq_f16_view_t>::compute_dataset_norms_(
-  raft::resources const& res);
-template CUVS_EXPORT void index<data_t, uint32_t, inst_vpq_f32_view_t>::compute_dataset_norms_(
-  raft::resources const& res);
-template CUVS_EXPORT void index<data_t, uint32_t, inst_empty_view_t>::compute_dataset_norms_(
-  raft::resources const& res);
+template CUVS_EXPORT __attribute__((externally_visible)) void
+index<data_t, uint32_t, inst_vpq_f16_view_t>::compute_dataset_norms_(raft::resources const& res);
+template CUVS_EXPORT __attribute__((externally_visible)) void
+index<data_t, uint32_t, inst_vpq_f32_view_t>::compute_dataset_norms_(raft::resources const& res);
+template CUVS_EXPORT __attribute__((externally_visible)) void
+index<data_t, uint32_t, inst_empty_view_t>::compute_dataset_norms_(raft::resources const& res);
 
 }  // namespace cuvs::neighbors::cagra
