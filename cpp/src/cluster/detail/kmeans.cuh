@@ -143,13 +143,14 @@ void kmeansPlusPlus(raft::resources const& handle,
     raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(handle, X, L2NormX.view());
   }
 
-  raft::random::RngState rng(params.rng_state.seed, params.rng_state.type);
-  std::mt19937 gen(params.rng_state.seed);
+  std::mt19937_64 gen_64(params.rng_state.seed);
+  uint64_t gpu_seed = gen_64();
+  raft::random::RngState rng(gpu_seed, params.rng_state.type);
   std::uniform_int_distribution<> dis(0, n_samples - 1);
 
   // <<< Step-1 >>>: C <-- sample a point uniformly at random from X
   auto initialCentroid = raft::make_device_matrix_view<const DataT, IndexT>(
-    X.data_handle() + dis(gen) * n_features, 1, n_features);
+    X.data_handle() + dis(gen_64) * n_features, 1, n_features);
   int n_clusters_picked = 1;
 
   // store the chosen centroid in the buffer
