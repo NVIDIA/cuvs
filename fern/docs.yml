@@ -1,7 +1,7 @@
 # yaml-language-server: $schema=https://schema.buildwithfern.dev/docs-yml.json
 
 global-theme: nvidia
-title: "cuVS"
+title: "NVIDIA cuVS"
 instances:
   - url: "nvidia-cuvs.docs.buildwithfern.com/cuvs"
     custom-domain: docs.nvidia.com/cuvs
@@ -12,7 +12,7 @@ logo:
   dark: "./theme/nvidia/assets/NVIDIA_dark.svg"
   height: 20
   href: "https://developer.nvidia.com/cuvs"
-  right-text: "cuVS"
+  right-text: "NVIDIA cuVS"
 favicon: "./theme/nvidia/assets/NVIDIA_symbol.svg"
 colors:
   accentPrimary:
