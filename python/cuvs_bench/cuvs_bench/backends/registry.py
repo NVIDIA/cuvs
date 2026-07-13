@@ -437,7 +437,6 @@ def _try_load_plugin(name: str) -> None:
                 if rewritten is not None:
                     raise rewritten from e
                 raise
-            return  # Plugin loaded successfully
 
 
 def get_backend_class(name: str) -> Type[BenchmarkBackend]:

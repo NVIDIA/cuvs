@@ -255,6 +255,92 @@ class TestPluginLoaderMocked:
         get_registry().unregister(self._MOCK_PLUGIN_NAME)
         unregister_config_loader(self._MOCK_PLUGIN_NAME)
 
+    def test_config_loader_prefers_loader_entry_point_group(self):
+        """Config loader lookup handles plugins split across entry-point groups."""
+
+        class StubSplitBackend(BenchmarkBackend):
+            @property
+            def algo(self):
+                return "stub_split"
+
+            def build(self, dataset, indexes, force=False, dry_run=False):
+                return BuildResult(
+                    index_path="",
+                    build_time_seconds=0,
+                    index_size_bytes=0,
+                    algorithm=self.algo,
+                    build_params={},
+                    success=True,
+                )
+
+            def search(
+                self,
+                dataset,
+                indexes,
+                k,
+                batch_size=10000,
+                mode="latency",
+                force=False,
+                search_threads=None,
+                dry_run=False,
+            ):
+                return SearchResult(
+                    neighbors=np.empty((0, k)),
+                    distances=np.empty((0, k)),
+                    search_time_ms=0,
+                    queries_per_second=0,
+                    recall=0,
+                    algorithm=self.algo,
+                    search_params=[],
+                    success=True,
+                )
+
+        class StubSplitLoader(ConfigLoader):
+            @property
+            def backend_type(self):
+                return TestPluginLoaderMocked._MOCK_PLUGIN_NAME
+
+            def load(self, **kwargs):
+                raise NotImplementedError("Stub split loader")
+
+        def register_backend_only():
+            register_backend(
+                TestPluginLoaderMocked._MOCK_PLUGIN_NAME,
+                StubSplitBackend,
+            )
+
+        def register_loader_only():
+            register_config_loader(
+                TestPluginLoaderMocked._MOCK_PLUGIN_NAME,
+                StubSplitLoader,
+            )
+
+        mock_backend_ep = MagicMock()
+        mock_backend_ep.name = self._MOCK_PLUGIN_NAME
+        mock_backend_ep.load.return_value = register_backend_only
+
+        mock_loader_ep = MagicMock()
+        mock_loader_ep.name = self._MOCK_PLUGIN_NAME
+        mock_loader_ep.load.return_value = register_loader_only
+
+        def mock_entry_points(*args, **kwargs):
+            group = kwargs.get("group")
+            if group == "cuvs_bench.backends":
+                return [mock_backend_ep]
+            if group == "cuvs_bench.config_loaders":
+                return [mock_loader_ep]
+            return []
+
+        with patch(
+            "cuvs_bench.backends.registry.importlib.metadata.entry_points",
+            side_effect=mock_entry_points,
+        ):
+            loader_cls = get_config_loader(self._MOCK_PLUGIN_NAME)
+            assert loader_cls is StubSplitLoader
+
+        get_registry().unregister(self._MOCK_PLUGIN_NAME)
+        unregister_config_loader(self._MOCK_PLUGIN_NAME)
+
     def test_import_error_with_elasticsearch_message_raises_helpful_error(
         self,
     ):
