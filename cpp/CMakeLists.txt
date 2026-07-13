@@ -118,16 +118,6 @@ message(VERBOSE "cuVS: Enable nvtx markers: ${CUVS_NVTX}")
 message(VERBOSE "cuVS: Statically link the CUDA math libraries: ${CUDA_STATIC_MATH_LIBRARIES}")
 message(VERBOSE "cuVS: Build and statically link RAPIDS libraries: ${CUVS_STATIC_RAPIDS_LIBRARIES}")
 
-# Set RMM logging level
-set(RMM_LOGGING_LEVEL
-    "INFO"
-    CACHE STRING "Choose the logging level."
-)
-set_property(
-  CACHE RMM_LOGGING_LEVEL PROPERTY STRINGS "TRACE" "DEBUG" "INFO" "WARN" "ERROR" "CRITICAL" "OFF"
-)
-message(VERBOSE "cuVS: RMM_LOGGING_LEVEL = '${RMM_LOGGING_LEVEL}'.")
-
 # ##################################################################################################
 # * Conda environment detection ----------------------------------------------
 
