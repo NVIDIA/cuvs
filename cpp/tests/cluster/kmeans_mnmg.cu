@@ -175,16 +175,16 @@ int run_mg_fit_omp(const std::vector<int>& device_ids,
           }
         }
 
-        cuvs::cluster::kmeans::mg::fit(rank_res,
-                                       kp,
-                                       X_parts,
-                                       sw_parts,
-                                       d_rank_centroids_view,
-                                       raft::make_host_scalar_view(&local_inertia),
-                                       raft::make_host_scalar_view(&local_n_iter));
+        cuvs::cluster::kmeans::fit(rank_res,
+                                   kp,
+                                   X_parts,
+                                   sw_parts,
+                                   d_rank_centroids_view,
+                                   raft::make_host_scalar_view(&local_inertia),
+                                   raft::make_host_scalar_view(&local_n_iter));
       } else {
         // Host-partition path: each partition is a std::vector<T> on host, views
-        // are host_*_view, and `mg::fit` streams batches to device internally.
+        // are host_*_view, and `fit` streams batches to device internally.
         std::vector<std::vector<T>> h_X_parts_buf;
         h_X_parts_buf.reserve(static_cast<size_t>(partitions_per_rank));
         std::optional<std::vector<std::vector<T>>> h_w_parts_buf;
@@ -226,13 +226,13 @@ int run_mg_fit_omp(const std::vector<int>& device_ids,
           }
         }
 
-        cuvs::cluster::kmeans::mg::fit(rank_res,
-                                       kp,
-                                       X_parts,
-                                       sw_parts,
-                                       d_rank_centroids_view,
-                                       raft::make_host_scalar_view(&local_inertia),
-                                       raft::make_host_scalar_view(&local_n_iter));
+        cuvs::cluster::kmeans::fit(rank_res,
+                                   kp,
+                                   X_parts,
+                                   sw_parts,
+                                   d_rank_centroids_view,
+                                   raft::make_host_scalar_view(&local_inertia),
+                                   raft::make_host_scalar_view(&local_n_iter));
       }
 
       // Ensure all ranks have completed the fit before writing outputs.
@@ -283,7 +283,7 @@ struct KmeansMGNcclInputs {
   int partitions_per_rank;
   cuvs::cluster::kmeans::params::InitMethod init = cuvs::cluster::kmeans::params::Array;
   int max_iter                                   = 20;
-  // When true, partitions are allocated on the host and the host vector-of-mdspan `mg::fit`
+  // When true, partitions are allocated on the host and the host vector-of-mdspan `fit`
   // overload is invoked from inside the OMP region.
   bool host_data = false;
 };

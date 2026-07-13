@@ -5,21 +5,28 @@
 
 #include "kmeans.cuh"
 #include "kmeans_impl.cuh"
-#include <raft/core/logger.hpp>
+
+#ifdef CUVS_BUILD_MG_ALGOS
+#include "./detail/kmeans_mg.cuh"
+#endif
+
 #include <raft/core/resource/comms.hpp>
 #include <raft/core/resource/multi_gpu.hpp>
 #include <raft/core/resources.hpp>
+
+#include <optional>
+#include <vector>
 
 namespace cuvs::cluster::kmeans {
 
 #define INSTANTIATE_FIT(DataT, IndexT)                                          \
   template void fit<DataT, IndexT>(                                             \
-    raft::resources const& handle,                                              \
-    const kmeans::params& params,                                               \
-    raft::device_matrix_view<const DataT, IndexT> X,                            \
+    raft::resources const& handle,                                             \
+    const kmeans::params& params,                                              \
+    raft::device_matrix_view<const DataT, IndexT> X,                           \
     std::optional<raft::device_vector_view<const DataT, IndexT>> sample_weight, \
-    raft::device_matrix_view<DataT, IndexT> centroids,                          \
-    raft::host_scalar_view<DataT> inertia,                                      \
+    raft::device_matrix_view<DataT, IndexT> centroids,                         \
+    raft::host_scalar_view<DataT> inertia,                                     \
     raft::host_scalar_view<IndexT> n_iter);
 
 INSTANTIATE_FIT(double, int)
@@ -35,6 +42,18 @@ void fit(raft::resources const& handle,
          raft::host_scalar_view<double> inertia,
          raft::host_scalar_view<int> n_iter)
 {
+#ifdef CUVS_BUILD_MG_ALGOS
+  if (raft::resource::is_multi_gpu(handle) || raft::resource::comms_initialized(handle)) {
+    std::vector<raft::device_matrix_view<const double, int>> X_parts{X};
+    std::optional<std::vector<raft::device_vector_view<const double, int>>> sw_parts;
+    if (sample_weight.has_value()) {
+      sw_parts = std::vector<raft::device_vector_view<const double, int>>{*sample_weight};
+    }
+    cuvs::cluster::kmeans::mg::detail::mnmg_fit<double, int>(
+      handle, params, X_parts, sw_parts, centroids, inertia, n_iter);
+    return;
+  }
+#endif
   cuvs::cluster::kmeans::fit<double, int>(
     handle, params, X, sample_weight, centroids, inertia, n_iter);
 }
@@ -47,6 +66,18 @@ void fit(raft::resources const& handle,
          raft::host_scalar_view<double> inertia,
          raft::host_scalar_view<int64_t> n_iter)
 {
+#ifdef CUVS_BUILD_MG_ALGOS
+  if (raft::resource::is_multi_gpu(handle) || raft::resource::comms_initialized(handle)) {
+    std::vector<raft::device_matrix_view<const double, int64_t>> X_parts{X};
+    std::optional<std::vector<raft::device_vector_view<const double, int64_t>>> sw_parts;
+    if (sample_weight.has_value()) {
+      sw_parts = std::vector<raft::device_vector_view<const double, int64_t>>{*sample_weight};
+    }
+    cuvs::cluster::kmeans::mg::detail::mnmg_fit<double, int64_t>(
+      handle, params, X_parts, sw_parts, centroids, inertia, n_iter);
+    return;
+  }
+#endif
   cuvs::cluster::kmeans::fit<double, int64_t>(
     handle, params, X, sample_weight, centroids, inertia, n_iter);
 }
@@ -59,11 +90,23 @@ void fit(raft::resources const& handle,
          raft::host_scalar_view<double> inertia,
          raft::host_scalar_view<int64_t> n_iter)
 {
-  if (raft::resource::is_multi_gpu(handle) || raft::resource::comms_initialized(handle)) {
-    RAFT_LOG_WARN(
-      "Multi-GPU handle detected on single-GPU kmeans::fit() entry; "
-      "falling back to single-GPU. Use cuvs::cluster::kmeans::mg::fit(...) for multi-GPU.");
+#ifdef CUVS_BUILD_MG_ALGOS
+  if (raft::resource::is_multi_gpu(handle)) {
+    cuvs::cluster::kmeans::mg::detail::batched_fit_omp<double, int64_t>(
+      handle, params, X, sample_weight, centroids, inertia, n_iter);
+    return;
   }
+  if (raft::resource::comms_initialized(handle)) {
+    std::vector<raft::host_matrix_view<const double, int64_t>> X_parts{X};
+    std::optional<std::vector<raft::host_vector_view<const double, int64_t>>> sw_parts;
+    if (sample_weight.has_value()) {
+      sw_parts = std::vector<raft::host_vector_view<const double, int64_t>>{*sample_weight};
+    }
+    cuvs::cluster::kmeans::mg::detail::mnmg_fit<double, int64_t>(
+      handle, params, X_parts, sw_parts, centroids, inertia, n_iter);
+    return;
+  }
+#endif
   cuvs::cluster::kmeans::detail::fit<double, int64_t>(
     handle, params, X, sample_weight, centroids, inertia, n_iter);
 }

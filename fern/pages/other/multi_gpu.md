@@ -142,13 +142,13 @@ int main(int argc, char** argv)
   float inertia;
   int n_iter;
 
-  kmeans::mg::fit(handle,
-                  params,
-                  local_dataset.view(),
-                  std::nullopt,
-                  centroids.view(),
-                  raft::make_host_scalar_view(&inertia),
-                  raft::make_host_scalar_view(&n_iter));
+  kmeans::fit(handle,
+              params,
+              local_dataset.view(),
+              std::nullopt,
+              centroids.view(),
+              raft::make_host_scalar_view(&inertia),
+              raft::make_host_scalar_view(&n_iter));
 
   handle.sync_stream();
 

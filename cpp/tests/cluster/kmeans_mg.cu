@@ -116,13 +116,13 @@ class KmeansSNMGTest : public ::testing::TestWithParam<KmeansSNMGInputs<T>> {
     T snmg_inertia      = T{0};
     int64_t snmg_n_iter = 0;
 
-    cuvs::cluster::kmeans::mg::fit(clique_,
-                                   snmg_params,
-                                   h_X_view,
-                                   h_sw,
-                                   d_centroids_snmg.view(),
-                                   raft::make_host_scalar_view(&snmg_inertia),
-                                   raft::make_host_scalar_view(&snmg_n_iter));
+    cuvs::cluster::kmeans::fit(clique_,
+                               snmg_params,
+                               h_X_view,
+                               h_sw,
+                               d_centroids_snmg.view(),
+                               raft::make_host_scalar_view(&snmg_inertia),
+                               raft::make_host_scalar_view(&snmg_n_iter));
 
     raft::resources sg_handle;
     auto sg_stream = raft::resource::get_cuda_stream(sg_handle);

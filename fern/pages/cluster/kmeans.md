@@ -120,7 +120,7 @@ fn fit_kmeans(dataset: &ndarray::Array2<f32>, n_clusters: usize) -> Result<()> {
 
 ### Fitting clusters on multiple GPUs
 
-Multi-GPU K-Means is exposed through the C++ API in the `cuvs::cluster::kmeans::mg` namespace. Configure a RAFT handle with NCCL communications (or an SNMG clique), pass each rank's local dataset shard to `mg::fit()`, and NVIDIA cuVS coordinates centroid updates across the participating GPUs.
+Multi-GPU K-Means uses the same `cuvs::cluster::kmeans::fit()` entry point as the single-GPU path -- there is no separate namespace. Configure a RAFT handle with NCCL communications (or an SNMG clique), pass each rank's local dataset shard to `fit()`, and NVIDIA cuVS detects the multi-GPU resources on the handle and coordinates centroid updates across the participating GPUs.
 
 <Tabs>
 <Tab title="C++">
@@ -160,13 +160,13 @@ void fit_kmeans_multi_gpu(ncclComm_t nccl_comm, int rank, int world_size)
   float inertia;
   int n_iter;
 
-  kmeans::mg::fit(handle,
-                  params,
-                  local_dataset,
-                  std::nullopt,
-                  centroids.view(),
-                  raft::make_host_scalar_view(&inertia),
-                  raft::make_host_scalar_view(&n_iter));
+  kmeans::fit(handle,
+              params,
+              local_dataset,
+              std::nullopt,
+              centroids.view(),
+              raft::make_host_scalar_view(&inertia),
+              raft::make_host_scalar_view(&n_iter));
 
   kmeans::predict(handle,
                   params,
