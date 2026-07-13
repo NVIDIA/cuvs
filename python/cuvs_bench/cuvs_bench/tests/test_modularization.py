@@ -882,6 +882,9 @@ class TestElasticWithExtraInstalled:
 
         assert result.success
         assert result.neighbors.shape == (1, 1)
+        assert result.recall == 0.0
+        assert "recall_is_authoritative" not in result.metadata
+        assert "recall" not in result.metadata["per_search_param_results"][0]
 
     def test_elastic_algo_from_config(self):
         """ElasticBackend.algo derives from config type (elastic_hnsw, elastic_int8_hnsw)."""

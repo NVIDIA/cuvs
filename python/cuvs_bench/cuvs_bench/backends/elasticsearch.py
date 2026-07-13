@@ -390,7 +390,7 @@ class ElasticBackend(BenchmarkBackend):
         search_threads: Optional[int] = None,
         dry_run: bool = False,
     ) -> SearchResult:
-        """Run kNN search over all search-param combinations and compute recall."""
+        """Run kNN search over all search-param combinations."""
         if dry_run:
             return SearchResult(
                 neighbors=np.empty((0, k), dtype=np.int64),
@@ -450,8 +450,6 @@ class ElasticBackend(BenchmarkBackend):
         try:
             n_queries = len(query_vectors)
 
-            groundtruth = dataset.groundtruth_neighbors
-
             index_name = self.config.get("index_name", "cuvs_bench_vectors")
             index_cfg = indexes[0]
             search_params_list = index_cfg.search_params or [{}]
@@ -495,26 +493,11 @@ class ElasticBackend(BenchmarkBackend):
                     n_queries / (elapsed_ms / 1000) if elapsed_ms > 0 else 0.0
                 )
 
-                recall = 0.0
-                if groundtruth is not None:
-                    gt_k = min(k, groundtruth.shape[1])
-                    n_correct = sum(
-                        len(
-                            set(neighbors[i, :k].tolist())
-                            & set(groundtruth[i, :gt_k].tolist())
-                        )
-                        for i in range(n_queries)
-                    )
-                    recall = (
-                        n_correct / (n_queries * gt_k) if gt_k > 0 else 0.0
-                    )
-
                 per_param_results.append(
                     {
                         "search_params": sp,
                         "search_time_ms": elapsed_ms,
                         "queries_per_second": qps,
-                        "recall": recall,
                         "p50_ms": float(np.percentile(latencies, 50)),
                         "p95_ms": float(np.percentile(latencies, 95)),
                         "p99_ms": float(np.percentile(latencies, 99)),
@@ -523,9 +506,6 @@ class ElasticBackend(BenchmarkBackend):
                 last_neighbors = neighbors
                 last_distances = distances
 
-            avg_recall = float(
-                np.mean([r["recall"] for r in per_param_results])
-            )
             avg_qps = float(
                 np.mean([r["queries_per_second"] for r in per_param_results])
             )
@@ -538,7 +518,7 @@ class ElasticBackend(BenchmarkBackend):
                 distances=last_distances,
                 search_time_ms=total_ms,
                 queries_per_second=avg_qps,
-                recall=avg_recall,
+                recall=0.0,
                 algorithm=self.algo,
                 search_params=search_params_list,
                 latency_percentiles={
@@ -548,7 +528,6 @@ class ElasticBackend(BenchmarkBackend):
                 },
                 metadata={
                     "per_search_param_results": per_param_results,
-                    "recall_is_authoritative": True,
                 },
                 success=True,
             )
