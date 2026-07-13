@@ -210,9 +210,6 @@ class ElasticBackend(BenchmarkBackend):
         index_name = self.config.get("index_name", "cuvs_bench_vectors")
         idx = indexes[0] if indexes else None
         build_params = dict(idx.build_param or {}) if idx else {}
-        for k, v in self.config.items():
-            if k not in build_params and k in _BUILD_PARAM_KEYS:
-                build_params[k] = v
 
         try:
             client = self._get_client()
