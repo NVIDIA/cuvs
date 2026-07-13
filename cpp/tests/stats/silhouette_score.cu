@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #include "../test_utils.cuh"
@@ -7,14 +7,18 @@
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/stats/silhouette_score.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
+#include <raft/core/resource/cuda_stream_pool.hpp>
 #include <raft/util/cudart_utils.hpp>
 
+#include <rmm/cuda_stream_pool.hpp>
 #include <rmm/device_uvector.hpp>
 
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cmath>
 #include <iostream>
+#include <memory>
 #include <random>
 
 namespace cuvs {
@@ -219,6 +223,43 @@ TEST_P(silhouetteScoreTestClass, Result)
   ASSERT_NEAR(batchedSilhouetteScore, truthSilhouetteScore, params.tolerance);
 }
 INSTANTIATE_TEST_CASE_P(silhouetteScore, silhouetteScoreTestClass, ::testing::ValuesIn(inputs));
+
+TEST(silhouetteScore, BatchedStreamPoolOrdering)
+{
+  constexpr int64_t n_rows = 4096;
+  constexpr int64_t n_cols = 2;
+  constexpr int n_labels   = 2;
+
+  std::vector<float> X(n_rows * n_cols);
+  std::vector<int> labels(n_rows);
+  for (int64_t i = 0; i < n_rows; ++i) {
+    X[2 * i]     = std::sin(0.01f * i);
+    X[2 * i + 1] = std::cos(0.013f * i);
+    labels[i]    = i % n_labels;
+  }
+
+  raft::resources handle;
+  raft::resource::set_cuda_stream_pool(handle, std::make_shared<rmm::cuda_stream_pool>(4));
+  auto stream = raft::resource::get_cuda_stream(handle);
+
+  rmm::device_uvector<float> d_X(X.size(), stream);
+  rmm::device_uvector<int> d_labels(labels.size(), stream);
+  raft::update_device(d_X.data(), X.data(), X.size(), stream);
+  raft::update_device(d_labels.data(), labels.data(), labels.size(), stream);
+
+  auto X_view = raft::make_device_matrix_view<const float, int64_t>(d_X.data(), n_rows, n_cols);
+  auto labels_view = raft::make_device_vector_view<const int, int64_t>(d_labels.data(), n_rows);
+  constexpr auto metric = cuvs::distance::DistanceType::L2SqrtUnexpanded;
+
+  auto expected =
+    cuvs::stats::silhouette_score(handle, X_view, labels_view, std::nullopt, n_labels, metric);
+
+  for (int repeat = 0; repeat < 8; ++repeat) {
+    auto actual = cuvs::stats::silhouette_score_batched(
+      handle, X_view, labels_view, std::nullopt, n_labels, n_rows, metric);
+    ASSERT_NEAR(actual, expected, 1e-4f);
+  }
+}
 
 }  // end namespace stats
 }  // end namespace cuvs

@@ -1,6 +1,6 @@
 
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -10,6 +10,7 @@
 
 #include <raft/core/error.hpp>
 #include <raft/core/mdspan_types.hpp>
+#include <raft/core/numpy_serializer.hpp>
 #include <raft/core/resources.hpp>
 #include <raft/core/serialize.hpp>
 
@@ -238,9 +239,13 @@ extern "C" cuvsError_t cuvsBruteForceDeserialize(cuvsResources_t res,
     // read the numpy dtype from the beginning of the file
     std::ifstream is(filename, std::ios::in | std::ios::binary);
     if (!is) { RAFT_FAIL("Cannot open file %s", filename); }
-    char dtype_string[4];
-    is.read(dtype_string, 4);
-    auto dtype = raft::detail::numpy_serializer::parse_descr(std::string(dtype_string, 4));
+    char dtype_string[4]{};
+    if (!is.read(dtype_string, sizeof(dtype_string))) {
+      RAFT_FAIL("Invalid or truncated index header in file %s", filename);
+    }
+    auto dtype =
+      raft::numpy_serializer::parse_descr(std::string(dtype_string, sizeof(dtype_string)));
+    is.close();
 
     index->dtype.bits = dtype.itemsize * 8;
     if (dtype.kind == 'f' && dtype.itemsize == 4) {

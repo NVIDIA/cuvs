@@ -1,0 +1,58 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <neighbors/ivf_rabitq/gpu_index/searcher_gpu_common.cuh>
+#include <neighbors/ivf_rabitq/jit_lto_kernels/device_functions.cuh>
+
+#include <cuda_fp16.h>
+
+#include <type_traits>
+
+namespace {
+
+using lut_t = @lut_dtype@;
+
+}  // namespace
+
+namespace cuvs::neighbors::ivf_rabitq::detail {
+
+// Primary template definition. The fragment is built once per @lut_dtype@
+// value declared in compute_lut_ip_for_vec_matrix.json; the explicit
+// instantiation at the bottom emits one specialization (via the lut_t alias)
+// per build, and nvJitLink resolves consumer calls to the matching
+// specialization.
+template <typename LutT>
+__device__ float compute_lut_ip_for_vec(const uint32_t* d_short_data,
+                                        const LutT* shared_lut,
+                                        size_t cluster_start_index,
+                                        size_t num_vectors_in_cluster,
+                                        size_t vec_idx,
+                                        size_t short_code_length)
+{
+  constexpr int chunks_per_uint32 = 32 / BITS_PER_CHUNK;
+  float ip                        = 0.0f;
+  for (size_t uint32_idx = 0; uint32_idx < short_code_length; uint32_idx++) {
+    size_t short_code_offset =
+      cluster_start_index * short_code_length + uint32_idx * num_vectors_in_cluster + vec_idx;
+    uint32_t short_code_chunk = d_short_data[short_code_offset];
+    for (int chunk_in_uint32 = 0; chunk_in_uint32 < chunks_per_uint32; chunk_in_uint32++) {
+      int shift            = 28 - (chunk_in_uint32 * BITS_PER_CHUNK);
+      int pattern          = (short_code_chunk >> shift) & 0xF;
+      size_t lut_chunk_idx = uint32_idx * chunks_per_uint32 + chunk_in_uint32;
+      size_t lut_offset    = lut_chunk_idx * LUT_SIZE + pattern;
+      if constexpr (std::is_same_v<LutT, __half>) {
+        ip += __half2float(shared_lut[lut_offset]);
+      } else {
+        ip += shared_lut[lut_offset];
+      }
+    }
+  }
+  return ip;
+}
+
+template __device__ float compute_lut_ip_for_vec<lut_t>(
+  const uint32_t*, const lut_t*, size_t, size_t, size_t, size_t);
+
+}  // namespace cuvs::neighbors::ivf_rabitq::detail

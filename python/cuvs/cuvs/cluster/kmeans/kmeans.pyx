@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # cython: language_level=3
@@ -99,8 +99,6 @@ cdef class KMeansParams:
     hierarchical_n_iters : int
         For hierarchical k-means , defines the number of training iterations
     """
-
-    cdef cuvsKMeansParams* params
 
     def __cinit__(self):
         cuvsKMeansParamsCreate(&self.params)

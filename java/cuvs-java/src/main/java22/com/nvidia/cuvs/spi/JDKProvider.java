@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs.spi;
@@ -26,6 +26,7 @@ import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.jar.JarFile;
@@ -234,6 +235,24 @@ final class JDKProvider implements CuVSProvider {
   }
 
   @Override
+  public CuVSResources newCuVSResources(
+      Path tempDirectory,
+      Path memoryTrackingCsvPath,
+      Duration memoryTrackingSampleInterval) {
+    Objects.requireNonNull(tempDirectory);
+    Objects.requireNonNull(memoryTrackingCsvPath);
+    Objects.requireNonNull(memoryTrackingSampleInterval);
+    if (Files.notExists(tempDirectory)) {
+      throw new IllegalArgumentException("does not exist:" + tempDirectory);
+    }
+    if (!Files.isDirectory(tempDirectory)) {
+      throw new IllegalArgumentException("not a directory:" + tempDirectory);
+    }
+    return new CuVSResourcesImpl(
+        tempDirectory, memoryTrackingCsvPath, memoryTrackingSampleInterval);
+  }
+
+  @Override
   public BruteForceIndex.Builder newBruteForceIndexBuilder(CuVSResources cuVSResources) {
     return BruteForceIndexImpl.newBuilder(Objects.requireNonNull(cuVSResources));
   }
@@ -255,8 +274,8 @@ final class JDKProvider implements CuVSProvider {
   }
 
   @Override
-  public HnswIndex hnswIndexBuild(CuVSResources resources, HnswIndexParams hnswParams, CuVSMatrix dataset)
-      throws Throwable {
+  public HnswIndex hnswIndexBuild(
+      CuVSResources resources, HnswIndexParams hnswParams, CuVSMatrix dataset) throws Throwable {
     return HnswIndexImpl.build(resources, hnswParams, dataset);
   }
 
