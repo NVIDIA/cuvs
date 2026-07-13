@@ -190,6 +190,7 @@ if(NOT BUILD_CPU_ONLY)
   include(cmake/thirdparty/get_cutlass.cmake)
   include(${rapids-cmake-dir}/cpm/cuco.cmake)
   rapids_cpm_cuco()
+  include(cmake/thirdparty/get_rtcx.cmake)
 endif()
 
 if(BUILD_TESTS OR BUILD_C_TESTS)
@@ -353,7 +354,6 @@ if(NOT BUILD_CPU_ONLY)
 
   # Generate interleaved scan kernel files at build time add_subdirectory(../../librtcx
   # src/detail/librtcx)
-  include(cmake/thirdparty/get_rtcx.cmake)
 
   add_library(jit_lto_kernel_usage_requirements INTERFACE)
   target_include_directories(

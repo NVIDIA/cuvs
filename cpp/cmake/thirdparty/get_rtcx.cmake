@@ -16,9 +16,11 @@ function(find_and_configure_rtcx VERSION)
   rapids_cpm_find(
     rtcx ${VERSION}
     GLOBAL_TARGETS rtcx::rtcx
+    BUILD_EXPORT_SET    cuvs-exports
+    INSTALL_EXPORT_SET  cuvs-exports
     CPM_ARGS
     GIT_REPOSITORY https://github.com/arhag23/librtcx.git
-    GIT_TAG 75f90a8503766ce37d62f4418449315874bf2d87
+    GIT_TAG a5a394e8aefa20039f0ef08208bcd18367563a2f
     GIT_SHALLOW FALSE
     EXCLUDE_FROM_ALL TRUE
   )
