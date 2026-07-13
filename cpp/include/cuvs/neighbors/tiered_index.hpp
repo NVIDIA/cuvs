@@ -89,6 +89,18 @@ auto build(raft::resources const& res,
            raft::device_matrix_view<const float, int64_t, raft::row_major> dataset)
   -> tiered_index::index<cagra::device_standard_index<float, uint32_t>>;
 
+/**
+ * @brief Attach caller-managed padded dataset for searching a standard CAGRA tiered index.
+ *
+ * This is an explicit contract step: callers create/manage padded storage and attach it
+ * before calling `search` on the returned padded tiered index.
+ */
+auto attach_padded_dataset_for_search(
+  raft::resources const& res,
+  const index<cagra::device_standard_index<float, uint32_t>>& idx,
+  cuvs::neighbors::device_padded_dataset_view<float, int64_t> padded_dataset)
+  -> index<cagra::device_padded_index<float, uint32_t>>;
+
 auto build(raft::resources const& res,
            const index_params<cagra::index_params>& index_params,
            cuvs::neighbors::device_padded_dataset_view<float, int64_t> dataset)

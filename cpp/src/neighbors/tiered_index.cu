@@ -32,7 +32,7 @@ namespace {
 // Wrapper with the exact signature expected by upstream_build_function_type<device_standard_index>.
 // cagra::build is now a template (no concrete device_matrix_view overload), so it cannot be
 // passed as a plain function pointer; this wrapper bridges the gap.
-cuvs::neighbors::cagra::device_standard_index<float, uint32_t> cagra_build_for_tiered(
+cuvs::neighbors::cagra::device_standard_index<float, uint32_t> cagra_build_for_tiered_standard(
   raft::resources const& res,
   cuvs::neighbors::cagra::index_params const& params,
   raft::device_matrix_view<const float, int64_t, raft::row_major> dataset)
@@ -69,8 +69,44 @@ auto build(raft::resources const& res,
   -> tiered_index::index<cagra::device_standard_index<float, uint32_t>>
 {
   auto state = detail::build<cagra::device_standard_index<float, uint32_t>>(
-    res, params, cagra_build_for_tiered, dataset);
+    res, params, cagra_build_for_tiered_standard, dataset);
   return cuvs::neighbors::tiered_index::index<cagra::device_standard_index<float, uint32_t>>(state);
+}
+
+auto attach_padded_dataset_for_search(
+  raft::resources const& res,
+  const tiered_index::index<cagra::device_standard_index<float, uint32_t>>& idx,
+  cuvs::neighbors::device_padded_dataset_view<float, int64_t> padded_dataset)
+  -> tiered_index::index<cagra::device_padded_index<float, uint32_t>>
+{
+  RAFT_EXPECTS(padded_dataset.n_rows() == idx.size(),
+               "padded_dataset row count must match tiered index size");
+  RAFT_EXPECTS(padded_dataset.dim() == idx.dim(),
+               "padded_dataset dimension must match tiered index dimension");
+
+  auto next_state =
+    std::make_shared<detail::index_state<cagra::device_padded_index<float, uint32_t>>>();
+  next_state->storage      = idx.state->storage;
+  next_state->build_params = idx.state->build_params;
+  next_state->build_fn     = cagra_build_for_tiered_padded;
+  next_state->ann_index.reset();
+
+  if (idx.state->ann_index) {
+    auto padded_mds = padded_dataset.view();
+    auto ann_rows   = static_cast<int64_t>(idx.state->ann_rows());
+    auto ann_mds    = raft::make_device_matrix_view<const float, int64_t>(
+      padded_mds.data_handle(), ann_rows, static_cast<int64_t>(padded_mds.extent(1)));
+    auto ann_padded_view =
+      cuvs::neighbors::device_padded_dataset_view<float, int64_t>(ann_mds, padded_dataset.dim());
+    auto ann_padded_idx = cuvs::neighbors::cagra::attach_padded_dataset_for_search(
+      res, *idx.state->ann_index, ann_padded_view);
+    next_state->ann_index =
+      std::make_shared<cuvs::neighbors::cagra::device_padded_index<float, uint32_t>>(
+        std::move(ann_padded_idx));
+  }
+
+  return cuvs::neighbors::tiered_index::index<cagra::device_padded_index<float, uint32_t>>(
+    next_state);
 }
 
 auto build(raft::resources const& res,
@@ -199,11 +235,10 @@ void search(raft::resources const& res,
             raft::device_matrix_view<float, int64_t, raft::row_major> distances,
             const cuvs::neighbors::filtering::base_filter& sample_filter)
 {
-  // use a read-write lock to handle calls to update_dataset for cagra
-  // This allows multiple readers concurrently, but only one writer
-  std::shared_lock<std::shared_mutex> lock(index.ann_mutex);
-  index.state->search(
-    res, search_params, cagra::search, queries, neighbors, distances, sample_filter);
+  RAFT_FAIL(
+    "tiered_index::search(standard CAGRA) requires explicit attach first. "
+    "Call tiered_index::attach_padded_dataset_for_search(...) and then search the returned padded "
+    "tiered index.");
 }
 
 void search(raft::resources const& res,

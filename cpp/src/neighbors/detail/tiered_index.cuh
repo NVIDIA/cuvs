@@ -112,6 +112,7 @@ using upstream_search_function_type =
 template <typename UpstreamT>
 struct index_state {
   using value_type = typename UpstreamT::value_type;
+  index_state()    = default;
 
   /**
    * Build upstream ANN, preserving row stride for standard CAGRA when needed.
@@ -123,20 +124,6 @@ struct index_state {
     BuildFn&& build_fn,
     DatasetView dataset) -> std::shared_ptr<UpstreamT>
   {
-    if (!cuvs::neighbors::matrix_row_width_matches_cagra_required(dataset)) {
-      if constexpr (std::is_same_v<UpstreamT,
-                                   cuvs::neighbors::cagra::device_standard_index<float>>) {
-        auto own =
-          cuvs::neighbors::make_device_standard_dataset(res,
-                                                        dataset,
-                                                        static_cast<uint32_t>(dataset.extent(1)),
-                                                        static_cast<uint32_t>(dataset.stride(0)));
-        auto index = cuvs::neighbors::cagra::build(res, tiered_params, own->as_dataset_view());
-        index.update_dataset(res, own->as_dataset_view());
-        return std::make_shared<UpstreamT>(std::move(index));
-      }
-    }
-
     auto index = std::forward<BuildFn>(build_fn)(res, tiered_params, dataset);
     if constexpr (std::is_same_v<UpstreamT, cuvs::neighbors::cagra::device_standard_index<float>>) {
       index.update_dataset(res, cuvs::neighbors::make_device_standard_dataset_view(dataset));
