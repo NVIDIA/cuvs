@@ -598,17 +598,6 @@ class ElasticConfigLoader(ConfigLoader):
     def backend_type(self) -> str:
         return "elastic"
 
-    def load(
-        self,
-        dataset: str = "",
-        dataset_path: str = "",
-        **kwargs,
-    ) -> Tuple[DatasetConfig, List[BenchmarkConfig]]:
-        """Load Elasticsearch benchmark configuration via shared ConfigLoader flow."""
-        return super().load(
-            dataset=dataset, dataset_path=dataset_path, **kwargs
-        )
-
     def _discover_algo_groups(
         self,
         dataset_conf,
