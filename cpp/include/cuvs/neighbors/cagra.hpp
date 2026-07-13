@@ -3374,6 +3374,40 @@ auto build(const raft::resources& clique,
            cuvs::neighbors::host_padded_dataset_view<uint8_t, int64_t> const& index_dataset)
   -> cuvs::neighbors::mg_index<cagra::device_padded_index<uint8_t, uint32_t>, uint8_t, uint32_t>;
 
+/**
+ * @brief Convert a standard MG CAGRA index into a padded MG CAGRA index for search.
+ *
+ * This API enforces the explicit contract: users build/deserialize/distribute a standard index,
+ * then attach a padded dataset before calling `search`.
+ */
+auto attach_padded_dataset_for_search(
+  const raft::resources& clique,
+  const cuvs::neighbors::mg_index<cagra::device_standard_index<float, uint32_t>, float, uint32_t>&
+    idx,
+  cuvs::neighbors::device_padded_dataset_view<float, int64_t> const& padded_dataset)
+  -> cuvs::neighbors::mg_index<cagra::device_padded_index<float, uint32_t>, float, uint32_t>;
+
+auto attach_padded_dataset_for_search(
+  const raft::resources& clique,
+  const cuvs::neighbors::mg_index<cagra::device_standard_index<half, uint32_t>, half, uint32_t>&
+    idx,
+  cuvs::neighbors::device_padded_dataset_view<half, int64_t> const& padded_dataset)
+  -> cuvs::neighbors::mg_index<cagra::device_padded_index<half, uint32_t>, half, uint32_t>;
+
+auto attach_padded_dataset_for_search(
+  const raft::resources& clique,
+  const cuvs::neighbors::mg_index<cagra::device_standard_index<int8_t, uint32_t>, int8_t, uint32_t>&
+    idx,
+  cuvs::neighbors::device_padded_dataset_view<int8_t, int64_t> const& padded_dataset)
+  -> cuvs::neighbors::mg_index<cagra::device_padded_index<int8_t, uint32_t>, int8_t, uint32_t>;
+
+auto attach_padded_dataset_for_search(
+  const raft::resources& clique,
+  const cuvs::neighbors::
+    mg_index<cagra::device_standard_index<uint8_t, uint32_t>, uint8_t, uint32_t>& idx,
+  cuvs::neighbors::device_padded_dataset_view<uint8_t, int64_t> const& padded_dataset)
+  -> cuvs::neighbors::mg_index<cagra::device_padded_index<uint8_t, uint32_t>, uint8_t, uint32_t>;
+
 /// \defgroup mg_cpp_index_extend ANN MG index extend
 
 /// \ingroup mg_cpp_index_extend

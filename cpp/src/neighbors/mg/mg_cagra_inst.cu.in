@@ -38,6 +38,53 @@
     return index;                                                                                 \
   }                                                                                               \
                                                                                                   \
+  auto attach_padded_dataset_for_search(                                                          \
+    const raft::resources& res,                                                                   \
+    const cuvs::neighbors::mg_index<cagra::device_standard_index<T, IdxT>, T, IdxT>& idx,         \
+    cuvs::neighbors::device_padded_dataset_view<T, int64_t> const& padded_dataset)                \
+    -> cuvs::neighbors::mg_index<cagra::device_padded_index<T, IdxT>, T, IdxT>                    \
+  {                                                                                               \
+    cuvs::neighbors::mg_index<cagra::device_padded_index<T, IdxT>, T, IdxT> out(res, idx.mode_);  \
+    out.ann_interfaces_.resize(idx.num_ranks_);                                                   \
+    auto padded_mds                 = padded_dataset.view();                                      \
+    auto stride                     = padded_mds.extent(1);                                       \
+    const raft::resources& root_res = raft::resource::set_current_device_to_root_rank(res);       \
+    auto padded_host =                                                                            \
+      raft::make_host_matrix<T, int64_t, row_major>(padded_mds.extent(0), padded_mds.extent(1));  \
+    raft::copy(padded_host.data_handle(),                                                         \
+               padded_mds.data_handle(),                                                          \
+               padded_mds.size(),                                                                 \
+               raft::resource::get_cuda_stream(root_res));                                        \
+    raft::resource::sync_stream(root_res);                                                        \
+    int64_t offset = 0;                                                                           \
+    for (int rank = 0; rank < idx.num_ranks_; rank++) {                                           \
+      const raft::resources& dev_res = raft::resource::set_current_device_to_rank(res, rank);     \
+      const auto& in_if              = idx.ann_interfaces_[rank];                                 \
+      auto& out_if                   = out.ann_interfaces_[rank];                                 \
+      RAFT_EXPECTS(in_if.index_.has_value(),                                                      \
+                   "attach_padded_dataset_for_search: missing rank index");                       \
+      auto const& standard_idx = in_if.index_.value();                                            \
+      int64_t rank_rows        = static_cast<int64_t>(standard_idx.size());                       \
+      int64_t rank_offset      = (idx.mode_ == SHARDED) ? offset : 0;                             \
+      const T* rank_ptr        = padded_host.data_handle() + rank_offset * stride;                \
+      auto rank_host_mds =                                                                        \
+        raft::make_host_matrix_view<const T, int64_t, row_major>(rank_ptr, rank_rows, stride);    \
+      auto rank_device_matrix =                                                                   \
+        raft::make_device_matrix<T, int64_t, row_major>(dev_res, rank_rows, stride);              \
+      raft::copy(dev_res, rank_device_matrix.view(), rank_host_mds);                              \
+      auto rank_device_padded =                                                                   \
+        std::make_unique<cuvs::neighbors::device_padded_dataset<T, int64_t>>(                     \
+          std::move(rank_device_matrix), padded_dataset.dim());                                   \
+      auto padded_idx = cuvs::neighbors::cagra::attach_padded_dataset_for_search(                 \
+        dev_res, standard_idx, rank_device_padded->as_dataset_view());                            \
+      out_if.cagra_owned_padded_dataset_ = std::move(rank_device_padded);                         \
+      out_if.cagra_owned_standard_dataset_.reset();                                               \
+      out_if.index_.emplace(std::move(padded_idx));                                               \
+      if (idx.mode_ == SHARDED) { offset += rank_rows; }                                          \
+    }                                                                                             \
+    return out;                                                                                   \
+  }                                                                                               \
+                                                                                                  \
   void extend(const raft::resources& res,                                                         \
               cuvs::neighbors::mg_index<cagra::device_padded_index<T, IdxT>, T, IdxT>& index,     \
               cuvs::neighbors::host_padded_dataset_view<T, int64_t> new_vectors,                  \

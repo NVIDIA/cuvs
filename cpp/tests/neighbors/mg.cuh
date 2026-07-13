@@ -246,6 +246,12 @@ class AnnMGTest : public ::testing::TestWithParam<AnnMGInputs> {
                                   uint32_t>(clique_);
       cuvs::neighbors::cagra::deserialize<DataT, uint32_t>(
         clique_, index_file.filename, &new_index);
+      auto index_dataset_device = raft::make_device_matrix_view<const DataT, int64_t>(
+        d_index_dataset.data(), ps.num_db_vecs, ps.dim);
+      auto padded_index_dataset =
+        cuvs::neighbors::make_device_padded_dataset(clique_, index_dataset_device);
+      auto search_index = cuvs::neighbors::cagra::attach_padded_dataset_for_search(
+        clique_, new_index, padded_index_dataset->as_dataset_view());
 
       if (ps.m_mode == m_mode_t::MERGE_ON_ROOT_RANK)
         search_params.merge_mode = MERGE_ON_ROOT_RANK;
@@ -254,7 +260,7 @@ class AnnMGTest : public ::testing::TestWithParam<AnnMGInputs> {
 
       search_params.n_rows_per_batch = n_rows_per_search_batch;
       cuvs::neighbors::cagra::search(
-        clique_, new_index, search_params, queries, neighbors, distances);
+        clique_, search_index, search_params, queries, neighbors, distances);
       resource::sync_stream(clique_);
 
       double min_recall = static_cast<double>(ps.nprobe) / static_cast<double>(ps.nlist);
@@ -382,9 +388,8 @@ class AnnMGTest : public ::testing::TestWithParam<AnnMGInputs> {
       {
         auto index_dataset = raft::make_device_matrix_view<const DataT, int64_t>(
           d_index_dataset.data(), ps.num_db_vecs, ps.dim);
-        cuvs::neighbors::test::padded_device_matrix_for_cagra<DataT> padded(clique_, index_dataset);
-        auto index = cuvs::neighbors::cagra::build(clique_, index_params, padded.view);
-        index.update_dataset(clique_, padded.view);
+        auto standard_view = cuvs::neighbors::make_device_standard_dataset_view(index_dataset);
+        auto index         = cuvs::neighbors::cagra::build(clique_, index_params, standard_view);
         cuvs::neighbors::cagra::serialize(clique_, index_file.filename, index);
       }
 
@@ -401,12 +406,18 @@ class AnnMGTest : public ::testing::TestWithParam<AnnMGInputs> {
                                   uint32_t>(clique_);
       cuvs::neighbors::cagra::distribute<DataT, uint32_t>(
         clique_, index_file.filename, &distributed_index);
+      auto index_dataset_device = raft::make_device_matrix_view<const DataT, int64_t>(
+        d_index_dataset.data(), ps.num_db_vecs, ps.dim);
+      auto padded_index_dataset =
+        cuvs::neighbors::make_device_padded_dataset(clique_, index_dataset_device);
+      auto search_index = cuvs::neighbors::cagra::attach_padded_dataset_for_search(
+        clique_, distributed_index, padded_index_dataset->as_dataset_view());
 
       search_params.merge_mode = TREE_MERGE;
 
       search_params.n_rows_per_batch = n_rows_per_search_batch;
       cuvs::neighbors::cagra::search(
-        clique_, distributed_index, search_params, queries, neighbors, distances);
+        clique_, search_index, search_params, queries, neighbors, distances);
 
       resource::sync_stream(clique_);
 
@@ -580,6 +591,12 @@ class AnnMGTest : public ::testing::TestWithParam<AnnMGInputs> {
         h_queries.data(), ps.num_queries, ps.dim);
 
       auto index = cuvs::neighbors::cagra::build(clique_, index_params, index_dataset_view);
+      auto index_dataset_device = raft::make_device_matrix_view<const DataT, int64_t>(
+        d_index_dataset.data(), ps.num_db_vecs, ps.dim);
+      auto padded_index_dataset =
+        cuvs::neighbors::make_device_padded_dataset(clique_, index_dataset_device);
+      auto search_index = cuvs::neighbors::cagra::attach_padded_dataset_for_search(
+        clique_, index, padded_index_dataset->as_dataset_view());
 
       int n_parallel_searches = 16;
       std::vector<char> searches_correctness(n_parallel_searches);
@@ -600,7 +617,7 @@ class AnnMGTest : public ::testing::TestWithParam<AnnMGInputs> {
 
         search_params.n_rows_per_batch = n_rows_per_search_batch;
         cuvs::neighbors::cagra::search(clique_,
-                                       index,
+                                       search_index,
                                        search_params,
                                        small_batch_query,
                                        small_batch_neighbors,
