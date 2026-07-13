@@ -7,6 +7,7 @@
 
 #include "../../src/util/kvikio_serialize.hpp"
 
+#include <raft/core/copy.hpp>
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/host_mdarray.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
