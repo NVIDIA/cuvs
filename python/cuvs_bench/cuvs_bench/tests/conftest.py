@@ -18,6 +18,7 @@ def pytest_configure(config):
 
     try:
         from cuvs_bench_elastic import register
-        register()
     except ImportError:
-        pass
+        from cuvs_bench.backends.elasticsearch import register
+
+    register()
