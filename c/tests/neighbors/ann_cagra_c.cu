@@ -229,7 +229,11 @@ TEST(CagraC, BuildExtendSearch)
   // extend index
   cuvsCagraExtendParams_t extend_params;
   cuvsCagraExtendParamsCreate(&extend_params);
-  cuvsCagraExtend(res, extend_params, &additional_dataset_tensor, index);
+  cuvsCagraExtendedDataset_t extended_dataset = nullptr;
+  ASSERT_EQ(cuvsCagraMakeExtendedDataset(res, &additional_dataset_tensor, index, &extended_dataset),
+            CUVS_SUCCESS);
+  ASSERT_EQ(cuvsCagraExtend(res, extend_params, &additional_dataset_tensor, extended_dataset, index),
+            CUVS_SUCCESS);
 
   // create queries DLTensor
   rmm::device_uvector<float> queries_d(num_queries * dimensions, stream);
@@ -342,6 +346,7 @@ TEST(CagraC, BuildExtendSearch)
   // de-allocate index and res
   cuvsCagraSearchParamsDestroy(search_params);
   cuvsCagraExtendParamsDestroy(extend_params);
+  cuvsCagraExtendedDatasetDestroy(extended_dataset);
   cuvsCagraIndexParamsDestroy(build_params);
   cuvsCagraIndexDestroy(index);
   cuvsResourcesDestroy(res);
@@ -521,7 +526,10 @@ TEST(CagraC, BuildMergeSearch)
   filter.addr = 0;
 
   cuvsCagraIndex_t index_array[2] = {index_main, index_add};
-  ASSERT_EQ(cuvsCagraMerge(res, build_params, index_array, 2, filter, index_merged), CUVS_SUCCESS);
+  cuvsCagraMergedDataset_t merged_dataset = nullptr;
+  ASSERT_EQ(cuvsCagraMakeMergedDataset(res, index_array, 2, filter, &merged_dataset), CUVS_SUCCESS);
+  ASSERT_EQ(cuvsCagraMerge(res, build_params, index_array, 2, filter, merged_dataset, index_merged),
+            CUVS_SUCCESS);
 
   // Merge of standard-layout device inputs yields a standard index. Under the explicit C API
   // contract, attach a padded dataset before calling search.
@@ -594,6 +602,7 @@ TEST(CagraC, BuildMergeSearch)
   EXPECT_NEAR(distance_host, 0.0f, 1e-6);
 
   cuvsCagraSearchParamsDestroy(search_params);
+  cuvsCagraMergedDatasetDestroy(merged_dataset);
   cuvsCagraIndexParamsDestroy(build_params);
   cuvsCagraIndexDestroy(index_merged);
   cuvsCagraIndexDestroy(index_add);
