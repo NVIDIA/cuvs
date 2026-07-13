@@ -420,6 +420,7 @@ def _try_load_plugin(name: str) -> None:
     Raises ImportError with install instructions if the plugin requires
     an optional dependency that is not installed.
     """
+    registry = get_registry()
     for group in (_BACKENDS_GROUP, _CONFIG_LOADERS_GROUP):
         try:
             eps = importlib.metadata.entry_points(group=group)
@@ -430,6 +431,13 @@ def _try_load_plugin(name: str) -> None:
         else:
             eps = [e for e in eps if e.name == name]
         for ep in eps:
+            if group == _BACKENDS_GROUP and name in registry._backends:
+                break
+            if (
+                group == _CONFIG_LOADERS_GROUP
+                and name in _CONFIG_LOADER_REGISTRY
+            ):
+                break
             try:
                 ep.load()()
             except ImportError as e:
@@ -437,6 +445,11 @@ def _try_load_plugin(name: str) -> None:
                 if rewritten is not None:
                     raise rewritten from e
                 raise
+            if (
+                name in registry._backends
+                and name in _CONFIG_LOADER_REGISTRY
+            ):
+                return
 
 
 def get_backend_class(name: str) -> Type[BenchmarkBackend]:

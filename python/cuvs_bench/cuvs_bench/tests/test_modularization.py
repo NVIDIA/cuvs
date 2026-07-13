@@ -542,7 +542,7 @@ class TestElasticWithExtraInstalled:
         """Config loader raises ValueError for unknown dataset."""
         loader_cls = get_config_loader("elastic")
         loader = loader_cls()
-        with pytest.raises(ValueError, match="not found"):
+        with pytest.raises(ValueError, match="Could not find"):
             loader.load(dataset="nonexistent_dataset_xyz", dataset_path="")
 
     def test_elastic_config_loader_group_not_found_raises(self):

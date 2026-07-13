@@ -92,6 +92,12 @@ def _elastic_config_name_for_algorithm(algo_name: str) -> str:
     return "elastic_hnsw"
 
 
+def _elastic_index_type_for_algorithm(algo_name: str) -> str:
+    """Map a supported elastic algorithm name to an ES index_options type."""
+    _validate_elastic_algorithm(algo_name)
+    return algo_name.replace("elastic_", "", 1)
+
+
 # Defaults for index creation when not specified in config
 _DEFAULT_INDEX_TYPE = "hnsw"
 _DEFAULT_M = 16
@@ -201,6 +207,44 @@ class ElasticBackend(BenchmarkBackend):
                 success=True,
             )
 
+        index_name = self.config.get("index_name", "cuvs_bench_vectors")
+        idx = indexes[0] if indexes else None
+        build_params = dict(idx.build_param or {}) if idx else {}
+
+        vectors = dataset.training_vectors
+        if vectors.size == 0:
+            return BuildResult(
+                index_path="",
+                build_time_seconds=0.0,
+                index_size_bytes=0,
+                algorithm=self.algo,
+                build_params={},
+                success=False,
+                error_message=(
+                    "training_vectors are required for Elasticsearch backend "
+                    "(directly or via dataset.base_file)"
+                ),
+            )
+
+        similarity = build_params.get("similarity") or _distance_to_similarity(
+            getattr(dataset, "distance_metric", None) or "euclidean"
+        )
+
+        index_type = build_params.get("type", _DEFAULT_INDEX_TYPE)
+        try:
+            _validate_elastic_index_type(index_type)
+            _validate_elastic_similarity(similarity)
+        except ValueError as e:
+            return BuildResult(
+                index_path="",
+                build_time_seconds=0.0,
+                index_size_bytes=0,
+                algorithm=self.algo,
+                build_params=build_params,
+                success=False,
+                error_message=str(e),
+            )
+
         skip_reason = self._pre_flight_check()
         if skip_reason:
             return BuildResult(
@@ -212,10 +256,6 @@ class ElasticBackend(BenchmarkBackend):
                 success=False,
                 error_message=f"pre-flight check failed: {skip_reason}",
             )
-
-        index_name = self.config.get("index_name", "cuvs_bench_vectors")
-        idx = indexes[0] if indexes else None
-        build_params = dict(idx.build_param or {}) if idx else {}
 
         try:
             client = self._get_client()
@@ -241,41 +281,6 @@ class ElasticBackend(BenchmarkBackend):
                 index_size_bytes=0,
                 algorithm=self.algo,
                 build_params={},
-                success=False,
-                error_message=str(e),
-            )
-
-        vectors = dataset.training_vectors
-        if vectors.size == 0:
-            return BuildResult(
-                index_path="",
-                build_time_seconds=0.0,
-                index_size_bytes=0,
-                algorithm=self.algo,
-                build_params={},
-                success=False,
-                error_message=(
-                    "training_vectors are required for Elasticsearch backend "
-                    "(directly or via dataset.base_file)"
-                ),
-            )
-
-        # similarity: from config, or derive from dataset distance
-        similarity = build_params.get("similarity") or _distance_to_similarity(
-            getattr(dataset, "distance_metric", None) or "euclidean"
-        )
-
-        index_type = build_params.get("type", _DEFAULT_INDEX_TYPE)
-        try:
-            _validate_elastic_index_type(index_type)
-            _validate_elastic_similarity(similarity)
-        except ValueError as e:
-            return BuildResult(
-                index_path="",
-                build_time_seconds=0.0,
-                index_size_bytes=0,
-                algorithm=self.algo,
-                build_params=build_params,
                 success=False,
                 error_message=str(e),
             )
@@ -742,10 +747,13 @@ class ElasticConfigLoader(ConfigLoader):
 
             for build_param in actual_build:
                 build_param = dict(build_param)
-                if "type" not in build_param and algo_name.startswith(
-                    "elastic_"
-                ):
-                    build_param["type"] = algo_name.replace("elastic_", "", 1)
+                config_algo_name = _elastic_config_name_for_algorithm(
+                    algo_name
+                )
+                if "type" not in build_param or algo_name != config_algo_name:
+                    build_param["type"] = _elastic_index_type_for_algorithm(
+                        algo_name
+                    )
                 _validate_elastic_index_type(build_param["type"])
                 if "similarity" in build_param:
                     _validate_elastic_similarity(build_param["similarity"])
