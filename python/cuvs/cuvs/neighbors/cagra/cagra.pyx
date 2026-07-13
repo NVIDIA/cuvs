@@ -865,7 +865,7 @@ def save(filename, Index index, bool include_dataset=True, resources=None):
 
 
 @auto_sync_resources
-def load(filename, resources=None):
+def load(filename, layout="padded", resources=None):
     """
     Loads index from file.
 
@@ -877,6 +877,8 @@ def load(filename, resources=None):
     ----------
     filename : string
         Name of the file.
+    layout : {"padded", "standard"}, default = "padded"
+        Target index layout for deserialization.
     {resources_docstring}
 
     Returns
@@ -887,10 +889,19 @@ def load(filename, resources=None):
     cdef Index idx = Index()
     cdef cuvsResources_t res = <cuvsResources_t>resources.get_c_obj()
     cdef string c_filename = filename.encode('utf-8')
+    cdef cuvsCagraDeserializeIndexLayout c_layout
+
+    if layout == "padded":
+        c_layout = CUVS_CAGRA_DESERIALIZE_INDEX_LAYOUT_PADDED
+    elif layout == "standard":
+        c_layout = CUVS_CAGRA_DESERIALIZE_INDEX_LAYOUT_STANDARD
+    else:
+        raise ValueError("layout must be either 'padded' or 'standard'")
 
     check_cuvs(cuvsCagraDeserialize(
         res,
         c_filename.c_str(),
+        c_layout,
         idx.index
     ))
     idx.trained = True
@@ -1001,13 +1012,26 @@ def extend(ExtendParams params, Index index, additional_dataset,
         cydlpack.dlpack_c(dataset_ai)
 
     cdef cuvsResources_t res = <cuvsResources_t>resources.get_c_obj()
+    cdef cuvsCagraExtendedDataset_t extended_dataset = NULL
 
-    with cuda_interruptible():
-        check_cuvs(cuvsCagraExtend(
-            res,
-            params.params,
-            dataset_dlpack,
-            index.index
-        ))
+    check_cuvs(cuvsCagraMakeExtendedDataset(
+        res,
+        dataset_dlpack,
+        index.index,
+        &extended_dataset
+    ))
+
+    try:
+        with cuda_interruptible():
+            check_cuvs(cuvsCagraExtend(
+                res,
+                params.params,
+                dataset_dlpack,
+                extended_dataset,
+                index.index
+            ))
+    finally:
+        if extended_dataset != NULL:
+            check_cuvs(cuvsCagraExtendedDatasetDestroy(extended_dataset))
 
     return index

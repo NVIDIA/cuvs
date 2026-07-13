@@ -104,6 +104,16 @@ cdef extern from "cuvs/neighbors/cagra.h" nogil:
 
     ctypedef cuvsCagraIndex* cuvsCagraIndex_t
 
+    ctypedef enum cuvsCagraDeserializeIndexLayout:
+        CUVS_CAGRA_DESERIALIZE_INDEX_LAYOUT_PADDED
+        CUVS_CAGRA_DESERIALIZE_INDEX_LAYOUT_STANDARD
+
+    ctypedef struct cuvsCagraExtendedDataset:
+        uintptr_t addr
+        DLDataType dtype
+
+    ctypedef cuvsCagraExtendedDataset* cuvsCagraExtendedDataset_t
+
     cuvsError_t cuvsAceParamsCreate(cuvsAceParams_t* params)
 
     cuvsError_t cuvsAceParamsDestroy(cuvsAceParams_t params)
@@ -153,6 +163,7 @@ cdef extern from "cuvs/neighbors/cagra.h" nogil:
 
     cuvsError_t cuvsCagraDeserialize(cuvsResources_t res,
                                      const char * filename,
+                                     cuvsCagraDeserializeIndexLayout layout,
                                      cuvsCagraIndex_t index)
 
     cuvsError_t cuvsCagraIndexFromArgs(cuvsResources_t res,
@@ -168,9 +179,15 @@ cdef extern from "cuvs/neighbors/cagra.h" nogil:
 
     cuvsError_t cuvsCagraExtendParamsCreate(cuvsCagraExtendParams_t* params)
     cuvsError_t cuvsCagraExtendParamsDestroy(cuvsCagraExtendParams_t params)
+    cuvsError_t cuvsCagraMakeExtendedDataset(cuvsResources_t res,
+                                             DLManagedTensor* additional_dataset,
+                                             cuvsCagraIndex_t index,
+                                             cuvsCagraExtendedDataset_t* extended_dataset)
+    cuvsError_t cuvsCagraExtendedDatasetDestroy(cuvsCagraExtendedDataset_t extended_dataset)
     cuvsError_t cuvsCagraExtend(cuvsResources_t res,
                                 cuvsCagraExtendParams_t params,
                                 DLManagedTensor* additional_dataset,
+                                cuvsCagraExtendedDataset_t extended_dataset,
                                 cuvsCagraIndex_t index)
 
 
