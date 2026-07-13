@@ -46,8 +46,7 @@ inline ::std::ostream& operator<<(::std::ostream& os, const TieredIndexTestStrat
 inline ::std::ostream& operator<<(::std::ostream& os, const AnnTieredIndexInputs& p)
 {
   os << "dataset shape=" << p.n_rows << "x" << p.dim << ", metric=" << print_metric{p.metric}
-     << ", k=" << p.k << ", n_queries=" << p.n_queries << ", test_strategy=" << p.test_strategy
-     << std::endl;
+     << ", k=" << p.k << ", n_queries=" << p.n_queries << ", test_strategy=" << p.test_strategy;
   return os;
 }
 
