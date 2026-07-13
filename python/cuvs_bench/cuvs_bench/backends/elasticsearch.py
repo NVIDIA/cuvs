@@ -24,7 +24,6 @@ import numpy as np
 
 from .base import BenchmarkBackend, BuildResult, Dataset, SearchResult
 from .registry import register_backend, register_config_loader
-from ._utils import load_vectors
 from ..orchestrator.config_loaders import (
     BenchmarkConfig,
     ConfigLoader,
@@ -34,16 +33,6 @@ from ..orchestrator.config_loaders import (
 
 if TYPE_CHECKING:
     from elasticsearch import Elasticsearch
-
-
-def _load_fbin(path: Path) -> np.ndarray:
-    """Load big-ann-bench fbin format via shared vector loader."""
-    return load_vectors(os.fspath(path))
-
-
-def _load_ibin(path: Path) -> np.ndarray:
-    """Load big-ann-bench ibin format via shared vector loader."""
-    return load_vectors(os.fspath(path))
 
 
 def _distance_to_similarity(distance: str) -> str:
