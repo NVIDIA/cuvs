@@ -828,7 +828,7 @@ class TestElasticWithExtraInstalled:
                 backend, "_get_client", return_value=mock_client
             ):
                 with patch(
-                    "cuvs_bench.backends.elasticsearch.load_vectors",
+                    "cuvs_bench.backends._utils.load_vectors",
                     return_value=np.random.rand(100, 32).astype(np.float32),
                 ):
                     result = backend.build(
@@ -873,7 +873,7 @@ class TestElasticWithExtraInstalled:
                 backend, "_get_client", return_value=mock_client
             ):
                 with patch(
-                    "cuvs_bench.backends.elasticsearch.load_vectors",
+                    "cuvs_bench.backends._utils.load_vectors",
                     return_value=np.random.rand(1, 32).astype(np.float32),
                 ):
                     result = backend.search(
@@ -1068,41 +1068,3 @@ class TestElasticHelpers:
             _validate_elastic_similarity("dot_product")
 
         assert "max_inner_product" in str(exc_info.value)
-
-    def test_load_fbin(self):
-        """_load_fbin loads big-ann-bench fbin format."""
-        import tempfile
-        from pathlib import Path
-
-        from cuvs_bench.backends.elasticsearch import _load_fbin
-
-        data = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)
-        with tempfile.NamedTemporaryFile(suffix=".fbin", delete=False) as f:
-            path = Path(f.name)
-        try:
-            with open(path, "wb") as f:
-                np.array([2, 2], dtype=np.uint32).tofile(f)
-                data.tofile(f)
-            loaded = _load_fbin(path)
-            np.testing.assert_array_equal(loaded, data)
-        finally:
-            path.unlink(missing_ok=True)
-
-    def test_load_ibin(self):
-        """_load_ibin loads big-ann-bench ibin format."""
-        import tempfile
-        from pathlib import Path
-
-        from cuvs_bench.backends.elasticsearch import _load_ibin
-
-        data = np.array([[1, 2], [3, 4]], dtype=np.int32)
-        with tempfile.NamedTemporaryFile(suffix=".ibin", delete=False) as f:
-            path = Path(f.name)
-        try:
-            with open(path, "wb") as f:
-                np.array([2, 2], dtype=np.uint32).tofile(f)
-                data.tofile(f)
-            loaded = _load_ibin(path)
-            np.testing.assert_array_equal(loaded, data)
-        finally:
-            path.unlink(missing_ok=True)
