@@ -471,6 +471,23 @@ class TestElasticWithExtraInstalled:
                 groups="nonexistent_group_xyz",
             )
 
+    def test_elastic_config_loader_normalizes_variant_algorithms(self):
+        """Variant elastic_* names resolve through the shared elastic config."""
+        loader_cls = get_config_loader("elastic")
+        loader = loader_cls()
+        _, benchmark_configs = loader.load(
+            dataset="glove-50-angular",
+            dataset_path="",
+            algorithms="elastic_int8_hnsw",
+            groups="test",
+        )
+
+        assert len(benchmark_configs) == 1
+        config = benchmark_configs[0]
+        assert config.indexes[0].algo == "elastic_int8_hnsw"
+        assert config.indexes[0].build_param["type"] == "int8_hnsw"
+        assert config.backend_config["type"] == "int8_hnsw"
+
     def test_elastic_dry_run_build(self):
         """ElasticBackend.build(dry_run=True) returns synthetic result without ES."""
         cls = get_backend_class("elastic")

@@ -86,6 +86,12 @@ def _validate_elastic_algorithm(algo_name: str) -> str:
     return algo_name
 
 
+def _elastic_config_name_for_algorithm(algo_name: str) -> str:
+    """Map a supported elastic algorithm name to its shared config name."""
+    _validate_elastic_algorithm(algo_name)
+    return "elastic_hnsw"
+
+
 # Defaults for index creation when not specified in config
 _DEFAULT_INDEX_TYPE = "hnsw"
 _DEFAULT_M = 16
@@ -668,10 +674,21 @@ class ElasticConfigLoader(ConfigLoader):
         if allowed_groups is None and not algo_group_map:
             allowed_groups = ["base"]
 
+        algo_confs_by_name = {
+            algo_conf["name"]: algo_conf for algo_conf in elastic_algos
+        }
+
+        requested_algos = (
+            allowed_algos
+            if allowed_algos is not None
+            else list(algo_group_map) or list(algo_confs_by_name)
+        )
+
         result = []
-        for algo_conf in elastic_algos:
-            algo_name = algo_conf["name"]
-            if allowed_algos and algo_name not in allowed_algos:
+        for algo_name in requested_algos:
+            config_algo_name = _elastic_config_name_for_algorithm(algo_name)
+            algo_conf = algo_confs_by_name.get(config_algo_name)
+            if algo_conf is None:
                 continue
 
             groups = dict(algo_conf.get("groups", {}))
