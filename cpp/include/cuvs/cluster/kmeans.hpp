@@ -151,8 +151,7 @@ struct params : base_params {
    *
    * In multi-GPU mode this is a per-rank batch size: each rank processes up
    * to this many local samples per batch, clamped to that rank's local sample
-   * count. When MG is invoked with device partitions, the runtime ignores
-   * `streaming_batch_size` and processes each partition in full.
+   * count. This is is ignored by device-data overloads.
    * Default: 0 (process all data at once).
    */
   int64_t streaming_batch_size = 0;
@@ -209,6 +208,11 @@ enum class kmeans_type { KMeans = 0, KMeansBalanced = 1 };
  *     this worker's partition, and RAFT communicators are used for collectives.
  *   - Otherwise: single-GPU batched k-means.
  *
+ * With `params.init == InitMethod::KMeansPlusPlus` in multi-GPU mode, the
+ * effective initialization sample must fit in GPU memory on every rank because
+ * it is materialized on every device. Rank 0 must also have enough GPU memory
+ * for the seeding workspace before centroids are broadcast.
+ *
  * @code{.cpp}
  *   #include <raft/core/resources.hpp>
  *   #include <cuvs/cluster/kmeans.hpp>
@@ -238,7 +242,8 @@ enum class kmeans_type { KMeans = 0, KMeansBalanced = 1 };
  *               raft::make_host_scalar_view(&n_iter));
  * @endcode
  *
- * @param[in]     handle        The raft handle.
+ * @param[in]     handle        The raft handle. When a multi-GPU resource is
+ *                              attached, multi-GPU dispatch is used automatically.
  * @param[in]     params        Parameters for KMeans model. Batch size is read from
  *                              params.streaming_batch_size.
  * @param[in]     X             Training instances on HOST memory. The data must
@@ -1642,10 +1647,9 @@ void cluster_cost(
  *        partitions per rank.
  *
  * Each rank supplies its local training data as a vector of partitions. For
- * host-resident partitions the implementation streams each partition through
- * Lloyd iterations using `params.streaming_batch_size` (per rank). For
- * device-resident partitions `streaming_batch_size` is ignored and each local
- * partition is processed in full.
+ * host-resident partitions the implementation streams each partition using
+ * `params.streaming_batch_size` (per rank). For device-resident partitions
+ * `streaming_batch_size` is ignored and each local partition is processed in full.
  *
  * The active backend is selected by the resources attached to
  * `handle`:
