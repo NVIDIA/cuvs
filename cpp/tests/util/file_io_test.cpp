@@ -228,7 +228,7 @@ TEST(FileIO, KvikioDeviceMdspanSerializationThroughOstream)
   {
     kvikio_ofstream file(path);
     std::ostream& os = file;
-    detail::serialize_mdspan(res, os, source_device.view());
+    detail::serialize_mdspan(res, os, raft::make_const_mdspan(source_device.view()));
     file.close();
   }
 

@@ -30,7 +30,7 @@ template <typename T>
 raft::numpy_serializer::header_t get_numpy_header(const std::vector<size_t>& shape,
                                                   bool fortran_order = false)
 {
-  const auto dtype = raft::numpy_serializer::get_numpy_dtype<T>();
+  const auto dtype = raft::numpy_serializer::get_numpy_dtype<std::remove_cv_t<T>>();
   return raft::numpy_serializer::header_t{dtype, fortran_order, shape};
 }
 

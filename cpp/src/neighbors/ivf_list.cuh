@@ -121,7 +121,7 @@ enable_if_valid_list_t<ListT> serialize_list(const raft::resources& handle,
 
     const auto data_extents = store_spec.make_list_extents(size);
     const auto data_view =
-      raft::make_mdspan<typename ListT::value_type, size_type, raft::row_major, false, true>(
+      raft::make_mdspan<const typename ListT::value_type, size_type, raft::row_major, false, true>(
         ld.data.data_handle(), data_extents);
     const auto indices_view = raft::make_device_vector_view(ld.indices.data_handle(), size);
     cuvs::util::detail::serialize_device_mdspan(handle, *kvikio_stream, data_view);
