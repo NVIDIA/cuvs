@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# SPDX-FileCopyrightText: Copyright (c) 2020-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2020-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 # cuvs build scripts
@@ -62,6 +62,8 @@ HELP="$0 [<target> ...] [<flag> ...] [--cmake-args=\"<args>\"] [--cache-tool=<to
                                  to speedup the build process.
    --time                      - Enable nvcc compilation time logging into cpp/build/nvcc_compile_log.csv.
                                  Results can be interpreted with cpp/scripts/analyze_nvcc_log.py
+   --logging-level=<level>     - overwrite the macro \"RAFT_LOG_ACTIVE_LEVEL\" to RAPIDS_LOGGER_LOG_LEVEL_{given_value}.
+                                 Valid values are (TRACE, DEBUG, INFO, WARN, ERROR, CRITICAL, OFF)
    -h                          - print this text
 
  default action (no args) is to build libcuvs, tests and cuvs targets
@@ -95,6 +97,7 @@ CLEAN=0
 DISABLE_DEPRECATION_WARNINGS=ON
 CMAKE_TARGET=()
 EXTRA_CMAKE_ARGS=""
+LIBRAFT_LOGGING_LEVEL=INFO
 
 # Set defaults for vars that may not have been defined externally
 INSTALL_PREFIX=${INSTALL_PREFIX:=${PREFIX:=${CONDA_PREFIX:=$LIBCUVS_BUILD_DIR/install}}}
@@ -236,6 +239,20 @@ function gpuArch {
     fi
 }
 
+function loggingLevel {
+    if [[ -n $(echo "$ARGS" | { grep -E "\-\-logging\-level" || true; } ) ]]; then
+        LIBRAFT_LOGGING_LEVEL=$(echo "$ARGS" | sed -e 's/.*--logging-level[= ]//' -e 's/ .*//')
+        if [[ -n ${LIBRAFT_LOGGING_LEVEL} ]]; then
+            ARGS="${ARGS//--logging-level[= ]${LIBRAFT_LOGGING_LEVEL}/}"
+            VALID_LEVELS="TRACE DEBUG INFO WARN ERROR CRITICAL OFF"
+            if [[ ! " ${VALID_LEVELS} " == *" ${LIBRAFT_LOGGING_LEVEL} "* ]]; then
+                echo "Invalid --logging-level value: '${LIBRAFT_LOGGING_LEVEL}'. Valid values are: ${VALID_LEVELS}"
+                exit 1
+            fi
+        fi
+    fi
+}
+
 if hasArg -h || hasArg --help; then
     echo "${HELP}"
     exit 0
@@ -249,6 +266,7 @@ if (( NUMARGS != 0 )); then
     limitAnnBench
     buildMetrics
     gpuArch
+    loggingLevel
     for a in ${ARGS}; do
         if ! (echo " ${VALIDARGS} " | grep -q " ${a} "); then
             echo "Invalid option: ${a}"
@@ -415,6 +433,7 @@ if (( NUMARGS == 0 )) || hasArg libcuvs || hasArg tests || hasArg bench-prims ||
           -DBUILD_MG_ALGOS=${BUILD_MG_ALGOS} \
           -DCMAKE_MESSAGE_LOG_LEVEL=${CMAKE_LOG_LEVEL} \
           -DBUILD_SHARED_LIBS=${BUILD_SHARED_LIBS} \
+          -DLIBRAFT_LOGGING_LEVEL="${LIBRAFT_LOGGING_LEVEL}" \
           "${CACHE_ARGS[@]}" \
           "${EXTRA_CMAKE_ARGS[@]}"
 
