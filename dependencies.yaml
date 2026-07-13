@@ -632,7 +632,7 @@ dependencies:
     common:
       - output_types: [conda, pyproject, requirements]
         packages:
-          - cuvs-bench-elastic>=26.4.0
+          - elasticsearch>=8.0
   bench_python_opensearch:
     common:
       - output_types: [conda, pyproject]
