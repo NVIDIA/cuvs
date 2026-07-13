@@ -4,6 +4,8 @@
 #
 # cython: language_level=3
 
+import warnings
+
 import numpy as np
 
 cimport cuvs.common.cydlpack
@@ -200,7 +202,8 @@ def build(dataset, k, params, *,
           distances=None,
           core_distances=None,
           alpha=1.0,
-          resources=None):
+          resources=None,
+          return_on_host=False):
     """
     All-neighbors allows building an approximate all-neighbors knn graph.
     Given a full dataset, it finds nearest neighbors for all the training
@@ -219,14 +222,18 @@ def build(dataset, k, params, *,
         Parameters object containing all build settings including algorithm
         choice and algorithm-specific parameters.
     indices : array_like, optional
-        Optional output buffer for indices [num_rows x k] on device
-        (int64). If not provided, will be allocated automatically.
+        Optional output buffer for indices [num_rows x k] (int64).
+        Accepts a numpy array (host) or a device array (CUDA array
+        interface). If not provided, allocated according to return_on_host.
     distances : array_like, optional
-        Optional output buffer for distances [num_rows x k] on device
-        (float32)
+        Optional output buffer for distances [num_rows x k] (float32).
+        Accepts a numpy array (host) or a device array (CUDA array
+        interface). Has to be the same memory location as indices.
     core_distances : array_like, optional
-        Optional output buffer for core distances [num_rows] on device
-        (float32). Requires distances parameter to be provided.
+        Optional output buffer for core distances [num_rows] (float32).
+        Accepts a numpy array (host) or a device array (CUDA array
+        interface). Has to be the same memory location as indices.
+        Requires distances parameter to be provided.
     alpha : float, default=1.0
         Mutual-reachability scaling; used only when core_distances is
         provided
@@ -234,15 +241,20 @@ def build(dataset, k, params, *,
         CUDA resources to use for the operation. If not provided, a default
         Resources object will be created. Use MultiGpuResources to enable
         multi-GPU execution across multiple devices.
+    return_on_host : bool, default=False
+        Controls whether auto-allocated output arrays live on host (numpy)
+        or device (CUDA) memory. Ignored when indices or distances buffers
+        are provided, since host/device placement is inferred from those.
 
     Returns
     -------
     indices : array_like
-        k-NN indices for each point [num_rows x k], always on device.
+        k-NN indices for each point [num_rows x k].
         If indices buffer was provided, returns the same array filled
         with results.
     distances : array_like or None
-        k-NN distances if distances buffer was provided, None otherwise
+        k-NN distances if distances buffer was provided, None otherwise.
+        Returns the same array if provided (same memory location as input).
     core_distances : array_like or None
         Core distances if core_distances buffer was provided, None otherwise
     """
@@ -273,29 +285,70 @@ def build(dataset, k, params, *,
             "distances must be provided when core_distances is provided"
         )
 
-    # Validate user-provided outputs (must be device arrays if provided)
-    if indices is not None and not hasattr(
-        indices, "__cuda_array_interface__"
-    ):
-        raise ValueError(
-            "indices must be a device array (CUDA array interface)"
-        )
-    if distances is not None and not hasattr(
-        distances, "__cuda_array_interface__"
-    ):
-        raise ValueError(
-            "distances must be a device array (CUDA array interface)"
-        )
-    if core_distances is not None and not hasattr(
-        core_distances, "__cuda_array_interface__"
-    ):
-        raise ValueError(
-            "core_distances must be a device array (CUDA array interface)"
-        )
+    # Validate user-provided outputs are either numpy (host) or device arrays
+    if indices is not None:
+        is_numpy = isinstance(indices, np.ndarray)
+        is_device = hasattr(indices, "__cuda_array_interface__")
+        if not (is_numpy or is_device):
+            raise ValueError(
+                "indices must be either a numpy array (host) or a device array "
+                "(CUDA array interface)"
+            )
+    if distances is not None:
+        is_numpy = isinstance(distances, np.ndarray)
+        is_device = hasattr(distances, "__cuda_array_interface__")
+        if not (is_numpy or is_device):
+            raise ValueError(
+                "distances must be either a numpy array (host) or a device array "
+                "(CUDA array interface)"
+            )
+    if indices is not None and distances is not None:
+        # checking if indices and distances are on the same memory location
+        indices_on_host = isinstance(indices, np.ndarray)
+        distances_on_host = isinstance(distances, np.ndarray)
+        if indices_on_host != distances_on_host:
+            raise ValueError(
+                "indices and distances must both be on host (numpy) or "
+                "both on device (CUDA array interface)"
+            )
+    if core_distances is not None:
+        cd_is_numpy = isinstance(core_distances, np.ndarray)
+        cd_is_device = hasattr(core_distances, "__cuda_array_interface__")
+        if not (cd_is_numpy or cd_is_device):
+            raise ValueError(
+                "core_distances must be either a numpy array (host) or a "
+                "device array (CUDA array interface)"
+            )
+        if indices is not None:
+            idx_on_host = isinstance(indices, np.ndarray)
+            cd_on_host = cd_is_numpy
+            if idx_on_host != cd_on_host:
+                raise ValueError(
+                    "core_distances must be on the same memory location "
+                    "as indices and distances (both host or both device)"
+                )
 
-    # Handle indices array (create if not provided)
+    # Infer host vs device from user-provided output arrays; fall back to
+    # return_on_host only when neither indices nor distances is given.
+    if return_on_host and (indices is not None or distances is not None):
+        warnings.warn(
+            "return_on_host is ignored when indices or distances buffers "
+            "are provided. Output placement is inferred from the provided "
+            "arrays instead.",
+        )
+    if indices is not None:
+        on_host_output = isinstance(indices, np.ndarray)
+    elif distances is not None:
+        on_host_output = isinstance(distances, np.ndarray)
+    else:
+        # if nothing is provided, default to return_on_host
+        on_host_output = return_on_host
+
     if indices is None:
-        indices = device_ndarray.empty((n_rows, k), dtype="int64")
+        if on_host_output:
+            indices = np.empty((n_rows, k), dtype="int64")
+        else:
+            indices = device_ndarray.empty((n_rows, k), dtype="int64")
 
     indices_out = wrap_array(indices)
     _check_input_array(

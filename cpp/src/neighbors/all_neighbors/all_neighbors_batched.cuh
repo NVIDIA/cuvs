@@ -466,15 +466,18 @@ struct BatchBuildAux {
   }
 };
 
-template <typename T, typename IdxT, typename DistEpilogueT = raft::identity_op>
-void batch_build(
-  const raft::resources& handle,
-  const all_neighbors_params& params,
-  raft::host_matrix_view<const T, IdxT, row_major> dataset,
-  raft::device_matrix_view<IdxT, IdxT, row_major> indices,
-  std::optional<raft::device_matrix_view<T, IdxT, row_major>> distances = std::nullopt,
-  BatchBuildAux<IdxT>* aux_vectors                                      = nullptr,
-  DistEpilogueT dist_epilogue                                           = DistEpilogueT{})
+template <typename T,
+          typename IdxT,
+          typename IndicesMdspan,
+          typename DistancesMdspan = raft::device_matrix_view<T, IdxT, row_major>,
+          typename DistEpilogueT   = raft::identity_op>
+void batch_build(const raft::resources& handle,
+                 const all_neighbors_params& params,
+                 raft::host_matrix_view<const T, IdxT, row_major> dataset,
+                 IndicesMdspan indices,
+                 std::optional<DistancesMdspan> distances = std::nullopt,
+                 BatchBuildAux<IdxT>* aux_vectors         = nullptr,
+                 DistEpilogueT dist_epilogue              = DistEpilogueT{})
 {
   if (raft::resource::is_multi_gpu(handle)) {
     // For efficient CPU-computation of omp parallel for regions per GPU
@@ -606,15 +609,15 @@ void batch_build(
                            inverted_indices_view);
   }
 
-  raft::copy(
-    handle,
-    raft::make_device_vector_view(indices.data_handle(), num_rows * k),
-    raft::make_device_vector_view<const IdxT>(global_neighbors.data_handle(), num_rows * k));
+  raft::copy(indices.data_handle(),
+             global_neighbors.data_handle(),
+             num_rows * k,
+             raft::resource::get_cuda_stream(handle));
   if (distances.has_value()) {
-    raft::copy(
-      handle,
-      raft::make_device_vector_view(distances.value().data_handle(), num_rows * k),
-      raft::make_device_vector_view<const T>(global_distances.data_handle(), num_rows * k));
+    raft::copy(distances.value().data_handle(),
+               global_distances.data_handle(),
+               num_rows * k,
+               raft::resource::get_cuda_stream(handle));
   }
 }
 

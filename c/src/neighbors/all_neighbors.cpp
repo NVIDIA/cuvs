@@ -80,33 +80,36 @@ static cuvs::neighbors::all_neighbors::all_neighbors_params convert_params(
   return out;
 }
 
-static void ensure_indices_dtype_and_device_compatibility(DLManagedTensor* indices)
+static void ensure_indices_dtype_compatibility(DLManagedTensor* indices)
 {
   auto dtype = indices->dl_tensor.dtype;
   RAFT_EXPECTS(dtype.code == kDLInt && dtype.bits == 64, "indices must be int64 output tensor");
-  RAFT_EXPECTS(cuvs::core::is_dlpack_device_compatible(indices->dl_tensor),
-               "indices tensor must be device-compatible");
+  RAFT_EXPECTS(cuvs::core::is_dlpack_device_compatible(indices->dl_tensor) ||
+               cuvs::core::is_dlpack_host_compatible(indices->dl_tensor),
+               "indices tensor must be either device-compatible or host-compatible");
 }
 
-static void ensure_optional_distance_dtype_and_device_compatibility(DLManagedTensor* distances)
+static void ensure_optional_distance_dtype_compatibility(DLManagedTensor* distances)
 {
   if (distances == nullptr) { return; }
   auto dtype = distances->dl_tensor.dtype;
   RAFT_EXPECTS(dtype.code == kDLFloat && dtype.bits == 32,
                "distances must be float32 output tensor");
-  RAFT_EXPECTS(cuvs::core::is_dlpack_device_compatible(distances->dl_tensor),
-               "distances tensor must be device-compatible");
+  RAFT_EXPECTS(cuvs::core::is_dlpack_device_compatible(distances->dl_tensor) ||
+               cuvs::core::is_dlpack_host_compatible(distances->dl_tensor),
+               "distances tensor must be either device-compatible or host-compatible");
 }
 
-static void ensure_optional_core_distance_dtype_and_device_compatibility(
-  DLManagedTensor* core_distances)
+static void ensure_optional_core_distance_dtype_compatibility(DLManagedTensor* core_distances)
 {
   if (core_distances == nullptr) { return; }
   auto dtype = core_distances->dl_tensor.dtype;
   RAFT_EXPECTS(dtype.code == kDLFloat && dtype.bits == 32,
                "core_distances must be float32 output tensor");
-  RAFT_EXPECTS(cuvs::core::is_dlpack_device_compatible(core_distances->dl_tensor),
-               "core_distances tensor must be device-compatible");
+  RAFT_EXPECTS(
+    cuvs::core::is_dlpack_device_compatible(core_distances->dl_tensor) ||
+      cuvs::core::is_dlpack_host_compatible(core_distances->dl_tensor),
+    "core_distances tensor must be either device-compatible or host-compatible");
 }
 
 template <typename T>
@@ -124,9 +127,9 @@ void _build_host(cuvsResources_t res,
   RAFT_EXPECTS(cuvs::core::is_dlpack_host_compatible(dlt),
                "Host build expects host-compatible dataset tensor");
 
-  ensure_indices_dtype_and_device_compatibility(indices_tensor);
-  ensure_optional_distance_dtype_and_device_compatibility(distances_tensor);
-  ensure_optional_core_distance_dtype_and_device_compatibility(core_distances_tensor);
+  ensure_indices_dtype_compatibility(indices_tensor);
+  ensure_optional_distance_dtype_compatibility(distances_tensor);
+  ensure_optional_core_distance_dtype_compatibility(core_distances_tensor);
 
   // Check dependencies between parameters
   if (core_distances_tensor != nullptr && distances_tensor == nullptr) {
@@ -138,26 +141,63 @@ void _build_host(cuvsResources_t res,
 
   auto cpp_params = convert_params(params, n_rows, n_cols);
 
-  using dataset_mdspan_t   = raft::host_matrix_view<const T, int64_t, raft::row_major>;
-  using indices_mdspan_t   = raft::device_matrix_view<int64_t, int64_t, raft::row_major>;
-  using distances_mdspan_t = raft::device_matrix_view<float, int64_t, raft::row_major>;
-  using core_mdspan_t      = raft::device_vector_view<float, int64_t>;
+  using dataset_mdspan_t = raft::host_matrix_view<const T, int64_t, raft::row_major>;
+
+  bool indices_is_host   = cuvs::core::is_dlpack_host_compatible(indices_tensor->dl_tensor);
+  bool distances_is_host = distances_tensor ? cuvs::core::is_dlpack_host_compatible(distances_tensor->dl_tensor) : indices_is_host;
+
+  if (distances_tensor && distances_is_host != indices_is_host) {
+    RAFT_FAIL("distances and indices must be on the same memory location (both host or both device)");
+  }
+
+  if (core_distances_tensor) {
+    bool core_distances_is_host =
+      cuvs::core::is_dlpack_host_compatible(core_distances_tensor->dl_tensor);
+    RAFT_EXPECTS(core_distances_is_host == indices_is_host,
+                 "core_distances must be on the same memory location as indices and distances");
+  }
 
   auto dataset = cuvs::core::from_dlpack<dataset_mdspan_t>(dataset_tensor);
-  auto indices = cuvs::core::from_dlpack<indices_mdspan_t>(indices_tensor);
 
-  std::optional<distances_mdspan_t> distances = std::nullopt;
-  if (distances_tensor) {
-    distances = cuvs::core::from_dlpack<distances_mdspan_t>(distances_tensor);
+  if (indices_is_host) {
+    using indices_mdspan_t   = raft::host_matrix_view<int64_t, int64_t, raft::row_major>;
+    using distances_mdspan_t = raft::host_matrix_view<float, int64_t, raft::row_major>;
+    using core_mdspan_t      = raft::host_vector_view<float, int64_t>;
+
+    auto indices = cuvs::core::from_dlpack<indices_mdspan_t>(indices_tensor);
+
+    std::optional<distances_mdspan_t> distances = std::nullopt;
+    if (distances_tensor) {
+      distances = cuvs::core::from_dlpack<distances_mdspan_t>(distances_tensor);
+    }
+
+    std::optional<core_mdspan_t> core_distances = std::nullopt;
+    if (core_distances_tensor) {
+      core_distances = cuvs::core::from_dlpack<core_mdspan_t>(core_distances_tensor);
+    }
+
+    cuvs::neighbors::all_neighbors::build(
+      cpp_res, cpp_params, dataset, indices, distances, core_distances, alpha);
+  } else {
+    using indices_mdspan_t   = raft::device_matrix_view<int64_t, int64_t, raft::row_major>;
+    using distances_mdspan_t = raft::device_matrix_view<float, int64_t, raft::row_major>;
+    using core_mdspan_t      = raft::device_vector_view<float, int64_t>;
+
+    auto indices = cuvs::core::from_dlpack<indices_mdspan_t>(indices_tensor);
+
+    std::optional<distances_mdspan_t> distances = std::nullopt;
+    if (distances_tensor) {
+      distances = cuvs::core::from_dlpack<distances_mdspan_t>(distances_tensor);
+    }
+
+    std::optional<core_mdspan_t> core_distances = std::nullopt;
+    if (core_distances_tensor) {
+      core_distances = cuvs::core::from_dlpack<core_mdspan_t>(core_distances_tensor);
+    }
+
+    cuvs::neighbors::all_neighbors::build(
+      cpp_res, cpp_params, dataset, indices, distances, core_distances, alpha);
   }
-
-  std::optional<core_mdspan_t> core_distances = std::nullopt;
-  if (core_distances_tensor) {
-    core_distances = cuvs::core::from_dlpack<core_mdspan_t>(core_distances_tensor);
-  }
-
-  cuvs::neighbors::all_neighbors::build(
-    cpp_res, cpp_params, dataset, indices, distances, core_distances, alpha);
 }
 
 template <typename T>
@@ -175,9 +215,9 @@ void _build_device(cuvsResources_t device_res,
   RAFT_EXPECTS(cuvs::core::is_dlpack_device_compatible(dlt),
                "Device build expects device-compatible dataset tensor");
 
-  ensure_indices_dtype_and_device_compatibility(indices_tensor);
-  ensure_optional_distance_dtype_and_device_compatibility(distances_tensor);
-  ensure_optional_core_distance_dtype_and_device_compatibility(core_distances_tensor);
+  ensure_indices_dtype_compatibility(indices_tensor);
+  ensure_optional_distance_dtype_compatibility(distances_tensor);
+  ensure_optional_core_distance_dtype_compatibility(core_distances_tensor);
 
   // Check dependencies between parameters
   if (core_distances_tensor != nullptr && distances_tensor == nullptr) {
@@ -189,26 +229,62 @@ void _build_device(cuvsResources_t device_res,
 
   auto cpp_params = convert_params(params, n_rows, n_cols);
 
-  using dataset_mdspan_t   = raft::device_matrix_view<const T, int64_t, raft::row_major>;
-  using indices_mdspan_t   = raft::device_matrix_view<int64_t, int64_t, raft::row_major>;
-  using distances_mdspan_t = raft::device_matrix_view<float, int64_t, raft::row_major>;
-  using core_mdspan_t      = raft::device_vector_view<float, int64_t>;
+  using dataset_mdspan_t = raft::device_matrix_view<const T, int64_t, raft::row_major>;
+  auto dataset           = cuvs::core::from_dlpack<dataset_mdspan_t>(dataset_tensor);
 
-  auto dataset = cuvs::core::from_dlpack<dataset_mdspan_t>(dataset_tensor);
-  auto indices = cuvs::core::from_dlpack<indices_mdspan_t>(indices_tensor);
+  bool indices_is_host   = cuvs::core::is_dlpack_host_compatible(indices_tensor->dl_tensor);
+  bool distances_is_host = distances_tensor ? cuvs::core::is_dlpack_host_compatible(distances_tensor->dl_tensor) : indices_is_host;
 
-  std::optional<distances_mdspan_t> distances = std::nullopt;
-  if (distances_tensor) {
-    distances = cuvs::core::from_dlpack<distances_mdspan_t>(distances_tensor);
+  if (distances_tensor && distances_is_host != indices_is_host) {
+    RAFT_FAIL("distances and indices must be on the same memory location (both host or both device)");
   }
 
-  std::optional<core_mdspan_t> core_distances = std::nullopt;
   if (core_distances_tensor) {
-    core_distances = cuvs::core::from_dlpack<core_mdspan_t>(core_distances_tensor);
+    bool core_distances_is_host =
+      cuvs::core::is_dlpack_host_compatible(core_distances_tensor->dl_tensor);
+    RAFT_EXPECTS(core_distances_is_host == indices_is_host,
+                 "core_distances must be on the same memory location as indices and distances");
   }
 
-  cuvs::neighbors::all_neighbors::build(
-    cpp_res, cpp_params, dataset, indices, distances, core_distances, alpha);
+  if (indices_is_host) {
+    using indices_mdspan_t   = raft::host_matrix_view<int64_t, int64_t, raft::row_major>;
+    using distances_mdspan_t = raft::host_matrix_view<float, int64_t, raft::row_major>;
+    using core_mdspan_t      = raft::host_vector_view<float, int64_t>;
+
+    auto indices = cuvs::core::from_dlpack<indices_mdspan_t>(indices_tensor);
+
+    std::optional<distances_mdspan_t> distances = std::nullopt;
+    if (distances_tensor) {
+      distances = cuvs::core::from_dlpack<distances_mdspan_t>(distances_tensor);
+    }
+
+    std::optional<core_mdspan_t> core_distances = std::nullopt;
+    if (core_distances_tensor) {
+      core_distances = cuvs::core::from_dlpack<core_mdspan_t>(core_distances_tensor);
+    }
+
+    cuvs::neighbors::all_neighbors::build(
+      cpp_res, cpp_params, dataset, indices, distances, core_distances, alpha);
+  } else {
+    using indices_mdspan_t   = raft::device_matrix_view<int64_t, int64_t, raft::row_major>;
+    using distances_mdspan_t = raft::device_matrix_view<float, int64_t, raft::row_major>;
+    using core_mdspan_t      = raft::device_vector_view<float, int64_t>;
+
+    auto indices = cuvs::core::from_dlpack<indices_mdspan_t>(indices_tensor);
+
+    std::optional<distances_mdspan_t> distances = std::nullopt;
+    if (distances_tensor) {
+      distances = cuvs::core::from_dlpack<distances_mdspan_t>(distances_tensor);
+    }
+
+    std::optional<core_mdspan_t> core_distances = std::nullopt;
+    if (core_distances_tensor) {
+      core_distances = cuvs::core::from_dlpack<core_mdspan_t>(core_distances_tensor);
+    }
+
+    cuvs::neighbors::all_neighbors::build(
+      cpp_res, cpp_params, dataset, indices, distances, core_distances, alpha);
+  }
 }
 
 }  // namespace

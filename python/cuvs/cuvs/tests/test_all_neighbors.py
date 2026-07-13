@@ -51,9 +51,19 @@ def make_cosine(
         "jensenshannon",
     ],
 )
-def test_all_neighbors_device_build_quality(algo, cluster, metric):
+@pytest.mark.parametrize(
+    "output_location",
+    ["host_arrays", "device_arrays", "return_on_host", "return_on_device"],
+)
+def test_all_neighbors_device_build_quality(
+    algo, cluster, metric, output_location
+):
     """Test device build with quality validation against brute force ground
-    truth.
+    truth. Exercises all output placement paths:
+      - host_arrays: pre-allocated numpy indices + distances
+      - device_arrays: pre-allocated cupy indices + distances
+      - return_on_host: auto-allocated via return_on_host=True
+      - return_on_device: auto-allocated via return_on_host=False
     """
     n_rows, n_cols, k = 7151, 64, 16
 
@@ -142,24 +152,71 @@ def test_all_neighbors_device_build_quality(algo, cluster, metric):
             )
         return
 
-    indices, distances = all_neighbors.build(
-        X_device,
-        k,
-        params,
-        distances=cupy.empty((n_rows, k), dtype=cupy.float32),
-        resources=res,
-    )
+    distances_result = None
+    if output_location == "host_arrays":
+        indices_arg = np.empty((n_rows, k), dtype="int64")
+        distances_arg = np.empty((n_rows, k), dtype="float32")
+        indices_result, distances_result = all_neighbors.build(
+            X_device,
+            k,
+            params,
+            indices=indices_arg,
+            distances=distances_arg,
+            resources=res,
+        )
+        assert isinstance(indices_result, np.ndarray)
+        assert isinstance(distances_result, np.ndarray)
+    elif output_location == "device_arrays":
+        indices_arg = cupy.empty((n_rows, k), dtype=cupy.int64)
+        distances_arg = cupy.empty((n_rows, k), dtype=cupy.float32)
+        indices_result, distances_result = all_neighbors.build(
+            X_device,
+            k,
+            params,
+            indices=indices_arg,
+            distances=distances_arg,
+            resources=res,
+        )
+        assert hasattr(indices_result, "__cuda_array_interface__")
+        assert hasattr(distances_result, "__cuda_array_interface__")
+    elif output_location == "return_on_host":
+        indices_result = all_neighbors.build(
+            X_device,
+            k,
+            params,
+            return_on_host=True,
+            resources=res,
+        )
+        assert isinstance(indices_result, np.ndarray)
+    elif output_location == "return_on_device":
+        indices_result = all_neighbors.build(
+            X_device,
+            k,
+            params,
+            return_on_host=False,
+            resources=res,
+        )
+        assert hasattr(indices_result, "__cuda_array_interface__")
 
     bf_index = brute_force.build(X_device, metric=metric)
     bf_distances, bf_indices = brute_force.search(bf_index, X_device, k=k)
-
-    indices_host = cupy.asnumpy(indices)
     bf_indices_host = cupy.asnumpy(bf_indices)
 
-    assert indices.shape == (n_rows, k)
-    assert indices.dtype == cupy.int64
-    assert distances.shape == (n_rows, k)
-    assert distances.dtype == cupy.float32
+    if isinstance(indices_result, np.ndarray):
+        indices_host = indices_result
+    else:
+        indices_host = cupy.asnumpy(indices_result)
+
+    assert indices_host.shape == (n_rows, k)
+    assert indices_host.dtype == np.int64
+
+    if distances_result is not None:
+        if isinstance(distances_result, np.ndarray):
+            distances_host = distances_result
+        else:
+            distances_host = cupy.asnumpy(distances_result)
+        assert distances_host.shape == (n_rows, k)
+        assert distances_host.dtype == np.float32
 
     recall = calc_recall(indices_host, bf_indices_host)
     assert recall > 0.85
@@ -168,9 +225,19 @@ def test_all_neighbors_device_build_quality(algo, cluster, metric):
 @pytest.mark.parametrize("algo", ["nn_descent", "brute_force", "ivf_pq"])
 @pytest.mark.parametrize("cluster", ["single_cluster", "multi_cluster"])
 @pytest.mark.parametrize("snmg", [False, True])
-def test_all_neighbors_host_build_quality(algo, cluster, snmg):
+@pytest.mark.parametrize(
+    "output_location",
+    ["host_arrays", "device_arrays", "return_on_host", "return_on_device"],
+)
+def test_all_neighbors_host_build_quality(
+    algo, cluster, snmg, output_location
+):
     """Test host build with quality validation against brute force ground
-    truth.
+    truth. Exercises all output placement paths:
+      - host_arrays: pre-allocated numpy indices + distances
+      - device_arrays: pre-allocated cupy indices + distances
+      - return_on_host: auto-allocated via return_on_host=True
+      - return_on_device: auto-allocated via return_on_host=False
     """
     n_rows, n_cols, k = 7151, 64, 16
 
@@ -228,25 +295,71 @@ def test_all_neighbors_host_build_quality(algo, cluster, snmg):
     else:
         res = Resources()
 
-    indices, distances = all_neighbors.build(
-        X_host,
-        k,
-        params,
-        distances=cupy.empty((n_rows, k), dtype=cupy.float32),
-        resources=res,
-    )
+    distances_result = None
+    if output_location == "host_arrays":
+        indices_arg = np.empty((n_rows, k), dtype="int64")
+        distances_arg = np.empty((n_rows, k), dtype="float32")
+        indices_result, distances_result = all_neighbors.build(
+            X_host,
+            k,
+            params,
+            indices=indices_arg,
+            distances=distances_arg,
+            resources=res,
+        )
+        assert isinstance(indices_result, np.ndarray)
+        assert isinstance(distances_result, np.ndarray)
+    elif output_location == "device_arrays":
+        indices_arg = cupy.empty((n_rows, k), dtype=cupy.int64)
+        distances_arg = cupy.empty((n_rows, k), dtype=cupy.float32)
+        indices_result, distances_result = all_neighbors.build(
+            X_host,
+            k,
+            params,
+            indices=indices_arg,
+            distances=distances_arg,
+            resources=res,
+        )
+        assert hasattr(indices_result, "__cuda_array_interface__")
+        assert hasattr(distances_result, "__cuda_array_interface__")
+    elif output_location == "return_on_host":
+        indices_result = all_neighbors.build(
+            X_host,
+            k,
+            params,
+            return_on_host=True,
+            resources=res,
+        )
+        assert isinstance(indices_result, np.ndarray)
+    elif output_location == "return_on_device":
+        indices_result = all_neighbors.build(
+            X_host,
+            k,
+            params,
+            return_on_host=False,
+            resources=res,
+        )
+        assert hasattr(indices_result, "__cuda_array_interface__")
 
     bf_index = brute_force.build(X_device, metric="sqeuclidean")
     bf_distances, bf_indices = brute_force.search(bf_index, X_device, k=k)
-
-    indices_host = cupy.asnumpy(indices)
     bf_indices_host = cupy.asnumpy(bf_indices)
 
-    assert indices.shape == (n_rows, k)
-    assert indices.dtype == cupy.int64
-    assert distances.shape == (n_rows, k)
-    assert distances.dtype == cupy.float32
+    if isinstance(indices_result, np.ndarray):
+        indices_host = indices_result
+    else:
+        indices_host = cupy.asnumpy(indices_result)
+
+    assert indices_host.shape == (n_rows, k)
+    assert indices_host.dtype == np.int64
+
+    if distances_result is not None:
+        if isinstance(distances_result, np.ndarray):
+            distances_host = distances_result
+        else:
+            distances_host = cupy.asnumpy(distances_result)
+        assert distances_host.shape == (n_rows, k)
+        assert distances_host.dtype == np.float32
 
     recall = calc_recall(indices_host, bf_indices_host)
-
     assert recall > 0.85

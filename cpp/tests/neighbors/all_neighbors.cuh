@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -10,6 +10,7 @@
 #include "ann_utils.cuh"
 #include "naive_knn.cuh"
 #include <cstddef>
+#include <cstring>
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/all_neighbors.hpp>
 #include <cuvs/neighbors/brute_force.hpp>
@@ -44,6 +45,7 @@ struct AllNeighborsInputs {
   int k;
   bool data_on_host;
   bool mutual_reach;
+  bool output_on_host;
 };
 
 inline ::std::ostream& operator<<(::std::ostream& os, const AllNeighborsInputs& p)
@@ -51,7 +53,8 @@ inline ::std::ostream& operator<<(::std::ostream& os, const AllNeighborsInputs& 
   os << "dataset shape=" << p.n_rows << "x" << p.dim << ", k=" << p.k
      << ", metric=" << static_cast<int>(std::get<1>(p.build_algo_metric_recall))
      << ", clusters=" << std::get<0>(p.cluster_nearestcluster)
-     << ", overlap_factor=" << std::get<1>(p.cluster_nearestcluster) << std::endl;
+     << ", overlap_factor=" << std::get<1>(p.cluster_nearestcluster)
+     << ", output_on_host=" << p.output_on_host << std::endl;
   return os;
 }
 
@@ -150,38 +153,71 @@ void get_graphs(raft::resources& handle,
   }
 
   {
-    rmm::device_uvector<DistanceT> distances_allNN_dev(queries_size, cuda_stream);
-    rmm::device_uvector<IdxT> indices_allNN_dev(queries_size, cuda_stream);
+    if (ps.output_on_host) {
+      auto indices_allNN_h   = raft::make_host_matrix<IdxT, IdxT>(ps.n_rows, ps.k);
+      auto distances_allNN_h = raft::make_host_matrix<DistanceT, IdxT>(ps.n_rows, ps.k);
 
-    if (ps.data_on_host) {
-      auto database_h = raft::make_host_matrix<DataT, IdxT>(ps.n_rows, ps.dim);
-      raft::copy(database_h.data_handle(), database.data(), ps.n_rows * ps.dim, cuda_stream);
+      if (ps.data_on_host) {
+        auto database_h = raft::make_host_matrix<DataT, IdxT>(ps.n_rows, ps.dim);
+        raft::copy(database_h.data_handle(), database.data(), ps.n_rows * ps.dim, cuda_stream);
 
-      all_neighbors::build(
-        handle,
-        params,
-        raft::make_const_mdspan(database_h.view()),
-        raft::make_device_matrix_view<IdxT>(indices_allNN_dev.data(), ps.n_rows, ps.k),
-        raft::make_device_matrix_view<DistanceT>(distances_allNN_dev.data(), ps.n_rows, ps.k),
-        ps.mutual_reach
-          ? std::make_optional(raft::make_device_vector<DistanceT>(handle, ps.n_rows).view())
-          : std::nullopt);
+        all_neighbors::build(
+          handle,
+          params,
+          raft::make_const_mdspan(database_h.view()),
+          indices_allNN_h.view(),
+          std::make_optional(distances_allNN_h.view()),
+          ps.mutual_reach
+            ? std::make_optional(raft::make_host_vector<DistanceT, IdxT>(ps.n_rows).view())
+            : std::nullopt);
+      } else {
+        all_neighbors::build(
+          handle,
+          params,
+          raft::make_device_matrix_view<const DataT, IdxT>(database.data(), ps.n_rows, ps.dim),
+          indices_allNN_h.view(),
+          std::make_optional(distances_allNN_h.view()),
+          ps.mutual_reach
+            ? std::make_optional(raft::make_host_vector<DistanceT, IdxT>(ps.n_rows).view())
+            : std::nullopt);
+      }
 
+      memcpy(indices_allNN.data(), indices_allNN_h.data_handle(), queries_size * sizeof(IdxT));
+      memcpy(
+        distances_allNN.data(), distances_allNN_h.data_handle(), queries_size * sizeof(DistanceT));
     } else {
-      all_neighbors::build(
-        handle,
-        params,
-        raft::make_device_matrix_view<const DataT, IdxT>(database.data(), ps.n_rows, ps.dim),
-        raft::make_device_matrix_view<IdxT>(indices_allNN_dev.data(), ps.n_rows, ps.k),
-        raft::make_device_matrix_view<DistanceT>(distances_allNN_dev.data(), ps.n_rows, ps.k),
-        ps.mutual_reach
-          ? std::make_optional(raft::make_device_vector<DistanceT>(handle, ps.n_rows).view())
-          : std::nullopt);
-    }
+      rmm::device_uvector<DistanceT> distances_allNN_dev(queries_size, cuda_stream);
+      rmm::device_uvector<IdxT> indices_allNN_dev(queries_size, cuda_stream);
 
-    raft::copy(indices_allNN.data(), indices_allNN_dev.data(), queries_size, cuda_stream);
-    raft::copy(distances_allNN.data(), distances_allNN_dev.data(), queries_size, cuda_stream);
-    raft::resource::sync_stream(handle);
+      if (ps.data_on_host) {
+        auto database_h = raft::make_host_matrix<DataT, IdxT>(ps.n_rows, ps.dim);
+        raft::copy(database_h.data_handle(), database.data(), ps.n_rows * ps.dim, cuda_stream);
+
+        all_neighbors::build(
+          handle,
+          params,
+          raft::make_const_mdspan(database_h.view()),
+          raft::make_device_matrix_view<IdxT>(indices_allNN_dev.data(), ps.n_rows, ps.k),
+          raft::make_device_matrix_view<DistanceT>(distances_allNN_dev.data(), ps.n_rows, ps.k),
+          ps.mutual_reach
+            ? std::make_optional(raft::make_device_vector<DistanceT>(handle, ps.n_rows).view())
+            : std::nullopt);
+      } else {
+        all_neighbors::build(
+          handle,
+          params,
+          raft::make_device_matrix_view<const DataT, IdxT>(database.data(), ps.n_rows, ps.dim),
+          raft::make_device_matrix_view<IdxT>(indices_allNN_dev.data(), ps.n_rows, ps.k),
+          raft::make_device_matrix_view<DistanceT>(distances_allNN_dev.data(), ps.n_rows, ps.k),
+          ps.mutual_reach
+            ? std::make_optional(raft::make_device_vector<DistanceT>(handle, ps.n_rows).view())
+            : std::nullopt);
+      }
+
+      raft::copy(indices_allNN.data(), indices_allNN_dev.data(), queries_size, cuda_stream);
+      raft::copy(distances_allNN.data(), distances_allNN_dev.data(), queries_size, cuda_stream);
+      raft::resource::sync_stream(handle);
+    }
   }
 }
 
@@ -258,7 +294,8 @@ const std::vector<AllNeighborsInputs> inputsSingle =
     {64, 137},                    // dim
     {16, 23},                     // graph_degree
     {false, true},                // data on host
-    {false}                       // mutual_reach
+    {false},                      // mutual_reach
+    {false, true}                 // output on host
   );
 
 const std::vector<AllNeighborsInputs> inputsBatch =
@@ -281,7 +318,8 @@ const std::vector<AllNeighborsInputs> inputsBatch =
     {64, 137},     // dim
     {16, 23},      // graph_degree
     {true},        // data on host
-    {false}        // mutual_reach
+    {false},       // mutual_reach
+    {false, true}  // output on host
   );
 
 const std::vector<AllNeighborsInputs> mutualReachSingle =
@@ -297,7 +335,8 @@ const std::vector<AllNeighborsInputs> mutualReachSingle =
     {64, 137},                    // dim
     {16, 23},                     // graph_degree
     {false, true},                // data on host
-    {true}                        // mutual_reach
+    {true},                       // mutual_reach
+    {false, true}                 // output on host
   );
 
 const std::vector<AllNeighborsInputs> mutualReachBatch =
@@ -317,7 +356,8 @@ const std::vector<AllNeighborsInputs> mutualReachBatch =
     {64, 137},     // dim
     {16, 23},      // graph_degree
     {true},        // data on host
-    {true}         // mutual_reach
+    {true},        // mutual_reach
+    {false, true}  // output on host
   );
 
 }  // namespace cuvs::neighbors::all_neighbors
