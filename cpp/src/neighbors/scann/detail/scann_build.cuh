@@ -207,8 +207,6 @@ index<T, IdxT> build(
                random_state,
                cuvs::cluster::kmeans::kmeans_type::KMeansBalanced);
 
-  size_t second_level_batch_size =
-    std::min<size_t>(centers_view.extent(0), kReasonableMaxBatchSize);
   predict_kmeans(res,
                  dataset,
                  raft::make_const_mdspan(centers_view),
@@ -238,11 +236,13 @@ index<T, IdxT> build(
                  random_state,
                  cuvs::cluster::kmeans::kmeans_type::KMeans);
 
+    size_t top_level_batch_size = std::min<size_t>(centers_view.extent(0), kReasonableMaxBatchSize);
+
     predict_kmeans(res,
                    raft::make_const_mdspan(centers_view),
                    raft::make_const_mdspan(coarse_centers),
                    coarse_labels,
-                   max_batch_size,
+                   top_level_batch_size,
                    enable_prefetch,
                    copy_stream);
 
