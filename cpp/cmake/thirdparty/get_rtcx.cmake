@@ -20,7 +20,7 @@ function(find_and_configure_rtcx VERSION)
     INSTALL_EXPORT_SET  cuvs-exports
     CPM_ARGS
     GIT_REPOSITORY https://github.com/arhag23/librtcx.git
-    GIT_TAG a5a394e8aefa20039f0ef08208bcd18367563a2f
+    GIT_TAG 9100b080dd3182614c1f85590b7c637bfdaa6483
     GIT_SHALLOW FALSE
     EXCLUDE_FROM_ALL TRUE
   )
