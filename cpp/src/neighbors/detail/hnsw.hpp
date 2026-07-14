@@ -1220,7 +1220,7 @@ std::enable_if_t<hierarchy == HnswHierarchy::GPU, std::unique_ptr<index<T>>> fro
       int64_t actual_count = 0;
       for (int64_t j = 0; j < degree; j++) {
         auto neighbor_id = graph_ptr[i * degree + j];
-        if (neighbor_id == static_cast<uint32_t>(-1)) { break; }
+        if (neighbor_id == cuvs::neighbors::cagra::kInvalidNeighbor<uint32_t>) { break; }
         data[actual_count] = neighbor_id;
         actual_count++;
       }
@@ -1243,7 +1243,7 @@ std::enable_if_t<hierarchy == HnswHierarchy::GPU, std::unique_ptr<index<T>>> fro
       auto* data           = (uint32_t*)(ll_i + 1);
       int64_t actual_count = degree;
       for (int64_t j = 0; j < degree; j++) {
-        if (data[j] == static_cast<uint32_t>(-1)) {
+        if (data[j] == cuvs::neighbors::cagra::kInvalidNeighbor<uint32_t>) {
           actual_count = j;
           break;
         }
