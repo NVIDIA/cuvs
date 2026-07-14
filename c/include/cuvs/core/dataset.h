@@ -74,16 +74,16 @@ CUVS_EXPORT cuvsError_t cuvsDatasetMakePadded(cuvsResources_t res,
 
 CUVS_EXPORT cuvsError_t cuvsDatasetPaddedDestroy(cuvsDatasetPadded_t padded_dataset);
 
-CUVS_EXPORT cuvsError_t cuvsDatasetMakeExtended(cuvsResources_t res,
+CUVS_EXPORT cuvsError_t cuvsMakeExtendedStorage(cuvsResources_t res,
                                                 DLManagedTensor* additional_dataset,
                                                 cuvsCagraIndex_t index,
-                                                cuvsDatasetStorage_t* extended_dataset);
+                                                cuvsDatasetStorage_t* extended_storage);
 
-CUVS_EXPORT cuvsError_t cuvsDatasetMakeMerged(cuvsResources_t res,
+CUVS_EXPORT cuvsError_t cuvsMakeMergedStorage(cuvsResources_t res,
                                               cuvsCagraIndex_t* indices,
                                               size_t num_indices,
                                               cuvsFilter filter,
-                                              cuvsDatasetStorage_t* merged_dataset);
+                                              cuvsDatasetStorage_t* merged_storage);
 
 CUVS_EXPORT cuvsError_t cuvsDatasetStorageDestroy(cuvsDatasetStorage_t dataset_storage);
 

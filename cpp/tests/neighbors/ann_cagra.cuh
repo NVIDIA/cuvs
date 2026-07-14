@@ -688,19 +688,19 @@ class AnnCagraAddNodesTest : public ::testing::TestWithParam<AnnCagraInputs> {
           if (cuvs::neighbors::matrix_row_width_matches_cagra_required(additional_dataset.view())) {
             auto add_view =
               cuvs::neighbors::make_host_padded_dataset_view(additional_dataset.view());
-            extend_storage.emplace(cagra::make_extended_dataset(handle_, add_view, index));
+            extend_storage.emplace(cagra::make_extended_storage(handle_, add_view, index));
             cagra::extend(handle_, extend_params, add_view, index, *extend_storage);
           } else {
             add_padded_owner =
               cuvs::neighbors::make_host_padded_dataset(handle_, additional_dataset.view());
             auto add_view = add_padded_owner->as_dataset_view();
-            extend_storage.emplace(cagra::make_extended_dataset(handle_, add_view, index));
+            extend_storage.emplace(cagra::make_extended_storage(handle_, add_view, index));
             cagra::extend(handle_, extend_params, add_view, index, *extend_storage);
           }
         } else {
           auto add_view =
             cuvs::neighbors::make_host_standard_dataset_view(additional_dataset.view());
-          extend_storage.emplace(cagra::make_extended_dataset(handle_, add_view, index));
+          extend_storage.emplace(cagra::make_extended_storage(handle_, add_view, index));
           cagra::extend(handle_, extend_params, add_view, index, *extend_storage);
         }
 
@@ -1154,7 +1154,7 @@ class AnnCagraIndexFilteredMergeTest : public ::testing::TestWithParam<AnnCagraI
         indices.push_back(&index1);
 
         auto merge_storage =
-          cuvs::neighbors::cagra::make_merged_dataset(handle_, indices, bitset_filter_obj);
+          cuvs::neighbors::cagra::make_merged_storage(handle_, indices, bitset_filter_obj);
         auto merge_idx = cuvs::neighbors::cagra::merge(
           handle_, index_params, indices, merge_storage, bitset_filter_obj);
 
@@ -1380,7 +1380,7 @@ class AnnCagraIndexMergeTest : public ::testing::TestWithParam<AnnCagraInputs> {
 
         if (ps.merge_strategy == cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_PHYSICAL) {
           auto merge_storage =
-            cuvs::neighbors::cagra::make_merged_dataset(handle_, indices_to_merge);
+            cuvs::neighbors::cagra::make_merged_storage(handle_, indices_to_merge);
           auto merged_idx = cagra::merge(handle_, index_params, indices_to_merge, merge_storage);
           cagra::search(handle_,
                         search_params,

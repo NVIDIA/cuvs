@@ -120,7 +120,7 @@ cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> merge(
                  expected.bitset_filtered == storage.layout.bitset_filtered,
                "merged_dataset_storage.layout does not match indices and row_filter (use the same "
                "arguments as "
-               "make_merged_dataset).");
+               "make_merged_storage).");
 
   auto merged_storage = storage.merged_storage.view();
   RAFT_EXPECTS(merged_storage.extent(0) == storage.layout.merged_rows,
@@ -227,7 +227,7 @@ cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> merge(
 namespace cuvs::neighbors::cagra {
 
 template <class T, class IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
-merged_dataset_storage<T, IdxT> make_merged_dataset(
+merged_dataset_storage<T, IdxT> make_merged_storage(
   raft::resources const& res,
   std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*> const& indices,
   cuvs::neighbors::filtering::base_filter const& row_filter)

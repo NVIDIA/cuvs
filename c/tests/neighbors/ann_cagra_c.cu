@@ -230,7 +230,7 @@ TEST(CagraC, BuildExtendSearch)
   cuvsCagraExtendParams_t extend_params;
   cuvsCagraExtendParamsCreate(&extend_params);
   cuvsDatasetStorage_t extended_dataset = nullptr;
-  ASSERT_EQ(cuvsDatasetMakeExtended(res, &additional_dataset_tensor, index, &extended_dataset),
+  ASSERT_EQ(cuvsMakeExtendedStorage(res, &additional_dataset_tensor, index, &extended_dataset),
             CUVS_SUCCESS);
   ASSERT_EQ(cuvsCagraExtend(res, extend_params, &additional_dataset_tensor, extended_dataset, index),
             CUVS_SUCCESS);
@@ -527,7 +527,7 @@ TEST(CagraC, BuildMergeSearch)
 
   cuvsCagraIndex_t index_array[2] = {index_main, index_add};
   cuvsDatasetStorage_t merged_dataset = nullptr;
-  ASSERT_EQ(cuvsDatasetMakeMerged(res, index_array, 2, filter, &merged_dataset), CUVS_SUCCESS);
+  ASSERT_EQ(cuvsMakeMergedStorage(res, index_array, 2, filter, &merged_dataset), CUVS_SUCCESS);
   ASSERT_EQ(cuvsCagraMerge(res, build_params, index_array, 2, filter, merged_dataset, index_merged),
             CUVS_SUCCESS);
 

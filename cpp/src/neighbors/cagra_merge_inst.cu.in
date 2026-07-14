@@ -33,8 +33,8 @@ CUVS_INST_CAGRA_MERGE(data_t, index_t, inst_device_standard_view_t);
 template <typename AnchorT = data_t>
 CUVS_EXPORT void merge_instantiation_keepalive()
 {
-  (void)&cuvs::neighbors::cagra::make_merged_dataset<data_t, index_t, inst_device_padded_view_t>;
-  (void)&cuvs::neighbors::cagra::make_merged_dataset<data_t, index_t, inst_device_standard_view_t>;
+  (void)&cuvs::neighbors::cagra::make_merged_storage<data_t, index_t, inst_device_padded_view_t>;
+  (void)&cuvs::neighbors::cagra::make_merged_storage<data_t, index_t, inst_device_standard_view_t>;
   (void)&cuvs::neighbors::cagra::merge<data_t, index_t, inst_device_padded_view_t>;
   (void)&cuvs::neighbors::cagra::merge<data_t, index_t, inst_device_standard_view_t>;
 }

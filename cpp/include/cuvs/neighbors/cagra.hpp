@@ -862,7 +862,7 @@ using cagra_index_t = index<cuvs::neighbors::cagra_view_element_type_t<DatasetVi
  * @brief Row counts and strides for a CAGRA merge (metadata only; no GPU storage).
  *
  * A populated instance is carried inside `merged_dataset_storage` together with the owning
- * device matrices allocated by `make_merged_dataset`.
+ * device matrices allocated by `make_merged_storage`.
  */
 struct merged_dataset {
   int64_t merged_rows{};      ///< Full concatenation row count (staging for merge + filter).
@@ -874,7 +874,7 @@ struct merged_dataset {
 };
 
 /**
- * @brief Device storage for a physical CAGRA merge, allocated by `make_merged_dataset`.
+ * @brief Device storage for a physical CAGRA merge, allocated by `make_merged_storage`.
  *
  * Owns the full-merge staging matrix (`merged_storage`) and, when `layout.bitset_filtered` is
  * true, the filtered output matrix (`filtered_storage`). `merge` writes into these buffers and
@@ -1119,7 +1119,7 @@ auto build(raft::resources const& res,
 /**
  * @brief Device buffers used by `cagra::extend`.
  *
- * Allocate with `make_extended_dataset`, then pass to `extend`. Keep this storage alive for as long
+ * Allocate with `make_extended_storage`, then pass to `extend`. Keep this storage alive for as long
  * as the returned index views are needed.
  */
 template <typename T, typename IdxT>
@@ -1138,7 +1138,7 @@ template <typename T,
           typename IdxT,
           cuvs::neighbors::ann_dataset_view DatasetViewT,
           cuvs::neighbors::ann_dataset_view AdditionalDatasetViewT>
-extended_dataset_storage<T, IdxT> make_extended_dataset(
+extended_dataset_storage<T, IdxT> make_extended_storage(
   raft::resources const& handle,
   AdditionalDatasetViewT additional_dataset,
   cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> const& idx)
@@ -3240,7 +3240,7 @@ void serialize_to_hnswlib(
  * the same `indices` and `row_filter`.
  */
 template <typename T, typename IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
-merged_dataset_storage<T, IdxT> make_merged_dataset(
+merged_dataset_storage<T, IdxT> make_merged_storage(
   raft::resources const& res,
   std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*> const& indices,
   const cuvs::neighbors::filtering::base_filter& row_filter =

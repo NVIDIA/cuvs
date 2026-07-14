@@ -1014,7 +1014,7 @@ def extend(ExtendParams params, Index index, additional_dataset,
     cdef cuvsResources_t res = <cuvsResources_t>resources.get_c_obj()
     cdef cuvsDatasetStorage_t extended_dataset = NULL
 
-    check_cuvs(cuvsDatasetMakeExtended(
+    check_cuvs(cuvsMakeExtendedStorage(
         res,
         dataset_dlpack,
         index.index,

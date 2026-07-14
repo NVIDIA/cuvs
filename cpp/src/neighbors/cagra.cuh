@@ -539,7 +539,7 @@ cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> merge(
 
 #define CUVS_INST_CAGRA_MERGE(T, IdxT, DatasetViewT)                                   \
   template CUVS_EXPORT cuvs::neighbors::cagra::merged_dataset_storage<T, IdxT>         \
-  cuvs::neighbors::cagra::make_merged_dataset<T, IdxT, DatasetViewT>(                  \
+  cuvs::neighbors::cagra::make_merged_storage<T, IdxT, DatasetViewT>(                  \
     raft::resources const& handle,                                                     \
     std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*> const& indices, \
     cuvs::neighbors::filtering::base_filter const& row_filter);                        \
