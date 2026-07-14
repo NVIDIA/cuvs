@@ -1067,8 +1067,7 @@ void make_reverse_graph_gpu(
     }
   } else {
     // Host variant: the output graph is host-only, so we extract one column at a time into a
-    // device vector and hand that to the kernel. The natural-degree mask is applied inside the
-    // kernel using the real column index `k` (the kernel indexes the 1D `d_dest_nodes` by row).
+    // device vector and hand that to the kernel.
     auto d_dest_nodes = raft::make_device_vector<IdxT, int64_t>(res, graph_size);
     auto dest_nodes   = raft::make_host_vector<IdxT, int64_t>(res, graph_size);
 
@@ -1081,7 +1080,7 @@ void make_reverse_graph_gpu(
 
       dim3 threads(256, 1, 1);
       dim3 blocks(1024, 1, 1);
-      kern_make_rev_graph_k<IdxT><<<blocks, threads, 0, raft::resource::get_cuda_stream(res)>>>(
+      kern_make_rev_graph_k<<<blocks, threads, 0, raft::resource::get_cuda_stream(res)>>>(
         d_dest_nodes.view(), d_rev_graph, d_rev_graph_count, k);
       raft::resource::sync_stream(res);
       RAFT_LOG_DEBUG("# Making reverse graph on GPUs: %lu / %u    \r", k, output_graph_degree);
@@ -1929,8 +1928,7 @@ void optimize(
 
   const double time_make_start = cur_time();
 
-  make_reverse_graph_gpu<IdxT, AccessorOutputGraph>(
-    res, new_graph, d_rev_graph.view(), d_rev_graph_count.view());
+  make_reverse_graph_gpu<IdxT>(res, new_graph, d_rev_graph.view(), d_rev_graph_count.view());
 
   raft::resource::sync_stream(res);
 
