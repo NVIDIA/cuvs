@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -75,17 +75,7 @@ void train_kmeans(
     throw;
   }
 
-  RAFT_LOG_DEBUG("Sampling rows.\n");
-  if (n_rows_train == dataset.extent(0)) {
-    raft::copy(trainset.data_handle(),
-               dataset.data_handle(),
-               dataset.size(),
-               raft::resource::get_cuda_stream(res));
-  } else {
-    raft::matrix::sample_rows(res, random_state, dataset, trainset.view());
-  }
-
-  raft::resource::sync_stream(res);
+  raft::matrix::sample_rows(res, random_state, dataset, trainset.view());
 
   if (type == cuvs::cluster::kmeans::kmeans_type::KMeansBalanced) {
     cuvs::cluster::kmeans::balanced_params kmeans_params;
@@ -217,6 +207,8 @@ index<T, IdxT> build(
                random_state,
                cuvs::cluster::kmeans::kmeans_type::KMeansBalanced);
 
+  size_t second_level_batch_size =
+    std::min<size_t>(centers_view.extent(0), kReasonableMaxBatchSize);
   predict_kmeans(res,
                  dataset,
                  raft::make_const_mdspan(centers_view),
@@ -274,7 +266,6 @@ index<T, IdxT> build(
                                      coarse_labels,
                                      idx.coarse_soar_labels(),
                                      params.soar_lambda);
-    raft::resource::sync_stream(res);
   }
 
   raft::device_vector_view<uint32_t, int64_t> soar_labels_view = idx.soar_labels();

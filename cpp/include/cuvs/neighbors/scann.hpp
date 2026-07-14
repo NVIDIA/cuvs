@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -56,6 +56,8 @@ struct index_params : cuvs::neighbors::index_params {
 
   /** the number of intermediate nodes in a two-level tree.
    *  When == 0, only a single level tree with root + leaves if built.
+   *
+   *  Recommend sqrt(n_leaves), for a reasonable trade-off between latency/recall
    **/
   uint32_t n_coarse_clusters = 0;
 
