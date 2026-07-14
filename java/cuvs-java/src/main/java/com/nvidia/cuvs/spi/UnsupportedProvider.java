@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs.spi;
@@ -7,6 +7,7 @@ package com.nvidia.cuvs.spi;
 import com.nvidia.cuvs.*;
 import java.lang.invoke.MethodHandle;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.logging.Level;
 
 /**
@@ -22,6 +23,14 @@ final class UnsupportedProvider implements CuVSProvider {
 
   @Override
   public CuVSResources newCuVSResources(Path tempDirectory) {
+    throw new UnsupportedOperationException(reasons);
+  }
+
+  @Override
+  public CuVSResources newCuVSResources(
+      Path tempDirectory,
+      Path memoryTrackingCsvPath,
+      Duration memoryTrackingSampleInterval) {
     throw new UnsupportedOperationException(reasons);
   }
 
@@ -47,8 +56,8 @@ final class UnsupportedProvider implements CuVSProvider {
   }
 
   @Override
-  public HnswIndex hnswIndexBuild(CuVSResources resources, HnswIndexParams hnswParams, CuVSMatrix dataset)
-      throws Throwable {
+  public HnswIndex hnswIndexBuild(
+      CuVSResources resources, HnswIndexParams hnswParams, CuVSMatrix dataset) throws Throwable {
     throw new UnsupportedOperationException(reasons);
   }
 

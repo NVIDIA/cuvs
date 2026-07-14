@@ -1,12 +1,12 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 use std::ffi::CString;
 use std::io::{Write, stderr};
 
-use crate::dlpack::ManagedTensor;
+use crate::dlpack::AsDlTensor;
 use crate::error::{Result, check_cuvs};
 use crate::resources::Resources;
 use crate::vamana::IndexParams;
@@ -24,21 +24,24 @@ impl Index {
     /// all nodes traversed during the search. Reverse edges are also inserted and robustPrune is applied
     /// to improve graph quality. The index_params struct controls the degree of the final graph.
     ///
-    ///
-    /// # Arguments
-    ///
-    /// * `res` - Resources to use
-    /// * `params` - Parameters for building the index
-    /// * `dataset` - A row-major matrix on either the host or device to index
-    pub fn build<T: Into<ManagedTensor>>(
-        res: &Resources,
-        params: &IndexParams,
-        dataset: T,
-    ) -> Result<Index> {
-        let dataset: ManagedTensor = dataset.into();
+    /// `dataset` is a row-major matrix on the host or device implementing
+    /// [`AsDlTensor`]; it is copied into the index.
+    pub fn build<T>(res: &Resources, params: &IndexParams, dataset: &T) -> Result<Index>
+    where
+        T: AsDlTensor + ?Sized,
+    {
+        let dataset = dataset.as_dl_tensor()?;
         let index = Index::new()?;
+        // `cuvsVamanaBuild` copies the dataset into the index, so the index does not
+        // retain a view into `dataset`; the borrow only needs to be valid for the
+        // duration of this call. That is why `Index` carries no lifetime.
         unsafe {
-            check_cuvs(ffi::cuvsVamanaBuild(res.0, params.0, dataset.as_ptr(), index.0))?;
+            check_cuvs(ffi::cuvsVamanaBuild(
+                res.0,
+                params.0,
+                dataset.to_c().as_mut_ptr(),
+                index.0,
+            ))?;
         }
         Ok(index)
     }
@@ -88,7 +91,7 @@ impl Drop for Index {
 #[cfg(test)]
 mod tests {
     use super::*;
-
+    use crate::test_utils::DeviceTensor;
     use ndarray_rand::RandomExt;
     use ndarray_rand::rand_distr::Uniform;
 
@@ -101,13 +104,15 @@ mod tests {
         // Create a new random dataset to index
         let n_datapoints = 1024;
         let n_features = 16;
-        let dataset =
-            ndarray::Array::<f32, _>::random((n_datapoints, n_features), Uniform::new(0., 1.0));
+        let dataset = ndarray::Array::<f32, _>::random(
+            (n_datapoints, n_features),
+            Uniform::new(0., 1.0).unwrap(),
+        );
 
-        let dataset_device = ManagedTensor::from(&dataset).to_device(&res).unwrap();
+        let dataset_device = DeviceTensor::from_host(&res, &dataset).unwrap();
 
         // build the vamana index
-        let _index = Index::build(&res, &build_params, dataset_device)
+        let _index = Index::build(&res, &build_params, &dataset_device)
             .expect("failed to create vamana index");
     }
 }

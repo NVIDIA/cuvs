@@ -1,17 +1,18 @@
 # yaml-language-server: $schema=https://schema.buildwithfern.dev/docs-yml.json
 
 global-theme: nvidia
-title: "cuVS"
+title: "NVIDIA cuVS"
 instances:
   - url: "nvidia-cuvs.docs.buildwithfern.com/cuvs"
     custom-domain: docs.nvidia.com/cuvs
+    multi-source: true
 footer: "./theme/nvidia/components/CustomFooter.tsx"
 logo:
   light: "./theme/nvidia/assets/NVIDIA_light.svg"
   dark: "./theme/nvidia/assets/NVIDIA_dark.svg"
   height: 20
   href: "https://developer.nvidia.com/cuvs"
-  right-text: "cuVS"
+  right-text: "NVIDIA cuVS"
 favicon: "./theme/nvidia/assets/NVIDIA_symbol.svg"
 colors:
   accentPrimary:
@@ -67,7 +68,6 @@ css:
 experimental:
   mdx-components:
     - "./theme/nvidia/components"
-  basepath-aware: true
 navbar-links:
   - type: "secondary"
     text: "GitHub"
@@ -267,6 +267,8 @@ navigation:
         contents:
           - page: "Cluster Kmeans"
             path: "./pages/c_api/c-api-cluster-kmeans.md"
+          - page: "Cluster Multi GPU Kmeans"
+            path: "./pages/c_api/c-api-cluster-mg-kmeans.md"
           - page: "Core C API"
             path: "./pages/c_api/c-api-core-c-api.md"
           - page: "Distance Distance"
@@ -410,6 +412,8 @@ navigation:
         contents:
           - page: "Cluster Kmeans"
             path: "./pages/python_api/python-api-cluster-kmeans.md"
+          - page: "Cluster Multi GPU Kmeans"
+            path: "./pages/python_api/python-api-cluster-mg-kmeans.md"
           - page: "Common"
             path: "./pages/python_api/python-api-common.md"
           - page: "Distance"
