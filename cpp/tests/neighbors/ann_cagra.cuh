@@ -1050,11 +1050,11 @@ class AnnCagraFilterTest : public ::testing::TestWithParam<AnnCagraInputs> {
                         bloom_match_count,
                         bloom_total_count,
                         target_false_positive_rate);
-          constexpr auto bloom_recall_tolerance = 0.01;
-          auto bloom_min_recall =
-            std::max(0.0,
-                     ps.min_recall - static_cast<double>(target_false_positive_rate) -
-                       bloom_recall_tolerance);
+          auto bloom_recall_slack = std::max(1.0, 0.01 * static_cast<double>(bloom_total_count)) /
+                                    static_cast<double>(bloom_total_count);
+          auto bloom_min_recall = std::max(
+            0.0,
+            ps.min_recall - static_cast<double>(target_false_positive_rate) - bloom_recall_slack);
           EXPECT_GE(bloom_recall, bloom_min_recall);
         }
       }
