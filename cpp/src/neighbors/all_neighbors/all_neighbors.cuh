@@ -58,6 +58,8 @@ GRAPH_BUILD_ALGO check_params_validity(const all_neighbors_params& params,
   if (core_distances.has_value()) {
     RAFT_EXPECTS(distances.has_value(),
                  "distances matrix should be allocated to get mutual reachability distance.");
+    RAFT_EXPECTS(core_distances.value().size() == static_cast<size_t>(dataset.extent(0)),
+                 "core_distances size must equal the number of rows in dataset.");
   }
 
   // 3. Check metric / algorithm validity
