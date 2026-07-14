@@ -18,6 +18,7 @@
 #include <raft/core/resources.hpp>
 #include <raft/linalg/reduce.cuh>
 #include <raft/matrix/init.cuh>
+#include <raft/stats/mean.cuh>
 
 // TODO: This shouldn't be invoking anything from spatial/knn
 #include "../../../core/nvtx.hpp"
@@ -1959,28 +1960,21 @@ void optimize(
     }
   }
 
-  auto d_avg_natural = raft::make_device_scalar<double>(res, 0);
-  double avg_natural = 0;
-  if (variable_graph_degree) {
-    // main_op: cast each degree to double (innermost op, which also drops the reduction-index
-    // argument), then divide by graph_size, so the reduction accumulates the mean directly.
-    auto normalize_mean = raft::compose_op{
-      raft::div_const_op<double>{static_cast<double>(graph_size)}, raft::cast_op<double>{}};
-    raft::linalg::reduce<raft::Apply::ALONG_ROWS>(
-      res,
-      raft::make_device_matrix_view<const uint32_t, int64_t, raft::row_major>(
-        d_natural_degree.data_handle(), int64_t{1}, static_cast<int64_t>(graph_size)),
-      raft::make_device_vector_view<double, int64_t>(d_avg_natural.data_handle(), int64_t{1}),
-      0.0,
-      false,
-      normalize_mean);
-    raft::copy(res, raft::make_host_scalar_view(&avg_natural), d_avg_natural.view());
-  }
-
   raft::resource::sync_stream(res);
 
-  if (variable_graph_degree) {
-    RAFT_LOG_INFO(
+  // Debug: compute and log average graph degree if relevant
+  if (raft::default_logger().should_log(rapids_logger::level_enum::debug) &&
+      variable_graph_degree) {
+    auto d_avg_natural = raft::make_device_scalar<double>(res, 0);
+    double avg_natural = 0;
+    raft::stats::mean(
+      res,
+      raft::make_device_matrix_view<const uint32_t, int64_t, raft::row_major>(
+        d_natural_degree.data_handle(), static_cast<int64_t>(graph_size), int64_t{1}),
+      raft::make_device_vector_view<double, int64_t>(d_avg_natural.data_handle(), int64_t{1}));
+    raft::copy(res, raft::make_host_scalar_view(&avg_natural), d_avg_natural.view());
+    raft::resource::sync_stream(res);
+    RAFT_LOG_DEBUG(
       "# Variable graph degree: avg natural degree = %.2f / %lu", avg_natural, output_graph_degree);
   }
 
