@@ -98,6 +98,18 @@ struct vpq_params {
    * The max number of data points to use per VQ cluster during training.
    */
   uint32_t max_train_points_per_vq_cluster = 1024;
+
+  friend bool operator==(const vpq_params& a, const vpq_params& b)
+  {
+    return a.pq_bits == b.pq_bits && a.pq_dim == b.pq_dim && a.vq_n_centers == b.vq_n_centers &&
+           a.kmeans_n_iters == b.kmeans_n_iters &&
+           a.vq_kmeans_trainset_fraction == b.vq_kmeans_trainset_fraction &&
+           a.pq_kmeans_trainset_fraction == b.pq_kmeans_trainset_fraction &&
+           a.pq_kmeans_type == b.pq_kmeans_type &&
+           a.max_train_points_per_pq_code == b.max_train_points_per_pq_code &&
+           a.max_train_points_per_vq_cluster == b.max_train_points_per_vq_cluster;
+  }
+  friend bool operator!=(const vpq_params& a, const vpq_params& b) { return !(a == b); }
 };
 
 /** @} */  // end group cagra_cpp_index_params

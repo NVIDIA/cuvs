@@ -229,6 +229,8 @@ struct dataset_descriptor_host {
     ~state() noexcept
     {
       if (std::holds_alternative<ready_t>(value)) {
+        // RAFT_LOG_INFO("trying to free descriptor state %p",
+        // reinterpret_cast<std::uintptr_t>(this));
         auto& [ptr, stream] = std::get<ready_t>(value);
         RAFT_CUDA_TRY_NO_THROW(cudaFreeAsync(ptr, stream));
       }

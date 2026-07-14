@@ -34,8 +34,170 @@
 
 namespace CUVS_EXPORT cuvs {
 namespace neighbors {
+namespace cagra {
+
+/**
+ * @defgroup cagra_cpp_search_params CAGRA index search parameters
+ * @{
+ */
+
+enum class search_algo {
+  /** For large batch sizes. */
+  SINGLE_CTA = 0,
+  /** For small batch sizes. */
+  MULTI_CTA    = 1,
+  MULTI_KERNEL = 2,
+  AUTO         = 100
+};
+
+enum class hash_mode { HASH = 0, SMALL = 1, AUTO = 100 };
+
+enum class internal_dtype { F16 = 0, E5M2 = 1 };
+
+struct search_params : cuvs::neighbors::search_params {
+  /** Maximum number of queries to search at the same time (batch size). Auto select when 0.*/
+  size_t max_queries = 0;
+
+  /** Number of intermediate search results retained during the search.
+   *
+   *  This is the main knob to adjust trade off between accuracy and search speed.
+   *  Higher values improve the search accuracy.
+   */
+  size_t itopk_size = 64;
+
+  /** Upper limit of search iterations. Auto select when 0.*/
+  size_t max_iterations = 0;
+
+  // In the following we list additional search parameters for fine tuning.
+  // Reasonable default values are automatically chosen.
+
+  /** Which search implementation to use. */
+  search_algo algo = search_algo::AUTO;
+
+  /** Number of threads used to calculate a single distance. 4, 8, 16, or 32. */
+  size_t team_size = 0;
+
+  /** Number of graph nodes to select as the starting point for the search in each iteration. aka
+   * search width?*/
+  size_t search_width = 1;
+  /** Lower limit of search iterations. */
+  size_t min_iterations = 0;
+
+  /** Thread block size. 0, 64, 128, 256, 512, 1024. Auto selection when 0. */
+  size_t thread_block_size = 0;
+  /** Hashmap type. Auto selection when AUTO. */
+  hash_mode hashmap_mode = hash_mode::AUTO;
+  /** Lower limit of hashmap bit length. More than 8. */
+  size_t hashmap_min_bitlen = 0;
+  /** Upper limit of hashmap fill rate. More than 0.1, less than 0.9.*/
+  float hashmap_max_fill_rate = 0.5;
+
+  /** Number of iterations of initial random seed node selection. 1 or more. */
+  uint32_t num_random_samplings = 1;
+  /** Bit mask used for initial random seed node selection. */
+  uint64_t rand_xor_mask = 0x128394;
+
+  /** Whether to use the persistent version of the kernel (only SINGLE_CTA is supported a.t.m.) */
+  bool persistent = false;
+  /** Persistent kernel: time in seconds before the kernel stops if no requests received. */
+  float persistent_lifetime = 2;
+  /**
+   * Set the fraction of maximum grid size used by persistent kernel.
+   * Value 1.0 means the kernel grid size is maximum possible for the selected device.
+   * The value must be greater than 0.0 and not greater than 1.0.
+   *
+   * One may need to run other kernels alongside this persistent kernel. This parameter can
+   * be used to reduce the grid size of the persistent kernel to leave a few SMs idle.
+   * Note: running any other work on GPU alongside with the persistent kernel makes the setup
+   * fragile.
+   *   - Running another kernel in another thread usually works, but no progress guaranteed
+   *   - Any CUDA allocations block the context (this issue may be obscured by using pools)
+   *   - Memory copies to not-pinned host memory may block the context
+   *
+   * Even when we know there are no other kernels working at the same time, setting
+   * kDeviceUsage to 1.0 surprisingly sometimes hurts performance. Proceed with care.
+   * If you suspect this is an issue, you can reduce this number to ~0.9 without a significant
+   * impact on the throughput.
+   */
+  float persistent_device_usage = 1.0;
+
+  /**
+   * A parameter indicating the rate of nodes to be filtered-out, when filtering is used.
+   * The value must be equal to or greater than 0.0 and less than 1.0. Default value is
+   * negative, in which case the filtering rate is automatically calculated when possible.
+   * For `filtering::udf_filter`, CAGRA uses `udf_filter::filtering_rate` when this value is
+   * negative. If both values are negative, CAGRA assumes 0.0 because a UDF's selectivity cannot be
+   * inferred from the source string.
+   */
+  float filtering_rate = -1.0;
+
+  /** Data type of the query vector and codebook table on shared memory. Currently, only VPQ
+   * supports FP8. **/
+  internal_dtype smem_dtype = internal_dtype::F16;
+};
+
+/**
+ * @}
+ */
+
+}  // namespace cagra
+}  // namespace neighbors
+}  // namespace CUVS_EXPORT cuvs
+
+namespace CUVS_EXPORT cuvs {
+namespace neighbors {
 namespace graph_build_params {
-using iterative_search_params = cuvs::neighbors::search_params;
+/**
+ * Parameters for the iterative CAGRA graph build algorithm.
+ *
+ * Inherits from cagra::search_params so that all search tuning knobs
+ * (search_width, max_iterations, itopk_size, etc.) are available for
+ * controlling the search-and-optimize loop during graph construction.
+ * The defaults are tuned for the build loop (e.g. search_width=1,
+ * max_iterations=8) and may differ from the regular search defaults.
+ *
+ * `build_compression` controls the VPQ parameters applied to the dataset
+ * *while building the graph*.  This is independent of `index_params::compression`,
+ * which controls the compression of the dataset stored in the final index.
+ */
+struct iterative_search_params : cuvs::neighbors::cagra::search_params {
+  /**
+   * Optional VPQ compression parameters used during iterative graph construction.
+   *
+   * When set, the dataset is compressed with these parameters for the
+   * search-and-optimize loop.  When std::nullopt (default), the builder
+   * falls back to `index_params::compression` (original behaviour).
+   */
+  std::optional<cuvs::neighbors::vpq_params> build_compression = std::nullopt;
+
+  /**
+   * Whether to shuffle the dataset before building the graph.
+   *
+   * When enabled, the compressed dataset is randomly permuted before graph
+   * construction begins. This can improve graph quality by breaking any
+   * spatial locality in the original dataset ordering that might cause
+   * the iterative builder to get stuck in local optima during early
+   * iterations.
+   *
+   * After graph construction, the node indices in the graph are remapped
+   * back to the original dataset ordering.
+   *
+   * Only applies when compression is enabled (build_compression or
+   * index_params::compression is set).
+   */
+  bool shuffle_dataset = true;
+
+  iterative_search_params()
+  {
+    this->search_width   = 1;
+    this->max_iterations = 8;
+    // itopk_size controls the search during the *growing* iterations of the build loop.
+    // 0 (default) means auto-select per iteration (max(graph_degree + 32, 128)); a nonzero
+    // value overrides it for the growing iterations. The final iteration always uses a fixed
+    // itopk tied to the output topk, regardless of this value.
+    this->itopk_size = 0;
+  }
+};
 
 /** Specialized parameters for ACE (Augmented Core Extraction) graph build */
 struct ace_params {
@@ -193,6 +355,14 @@ struct index_params : cuvs::neighbors::index_params {
   bool guarantee_connectivity = false;
 
   /**
+   * Whether to skip graph optimization (pruning, reverse edges, MST) during non-final iterations
+   * of iterative graph building. When true, search results are copied directly into the device
+   * graph without host round-trips. Only applies to iterative_search_params graph builds; the
+   * final iteration always runs full optimization.
+   */
+  bool skip_graph_optimization = false;
+
+  /**
    * Whether to add the dataset content to the index, i.e.:
    *
    *  - `true` means the index is filled with the dataset vectors and ready to search after calling
@@ -255,110 +425,6 @@ struct index_params : cuvs::neighbors::index_params {
     int ef_construction,
     hnsw_heuristic_type heuristic       = hnsw_heuristic_type::SIMILAR_SEARCH_PERFORMANCE,
     cuvs::distance::DistanceType metric = cuvs::distance::DistanceType::L2Expanded);
-};
-
-/**
- * @}
- */
-
-/**
- * @defgroup cagra_cpp_search_params CAGRA index search parameters
- * @{
- */
-
-enum class search_algo {
-  /** For large batch sizes. */
-  SINGLE_CTA = 0,
-  /** For small batch sizes. */
-  MULTI_CTA    = 1,
-  MULTI_KERNEL = 2,
-  AUTO         = 100
-};
-
-enum class hash_mode { HASH = 0, SMALL = 1, AUTO = 100 };
-
-enum class internal_dtype { F16 = 0, E5M2 = 1 };
-
-struct search_params : cuvs::neighbors::search_params {
-  /** Maximum number of queries to search at the same time (batch size). Auto select when 0.*/
-  size_t max_queries = 0;
-
-  /** Number of intermediate search results retained during the search.
-   *
-   *  This is the main knob to adjust trade off between accuracy and search speed.
-   *  Higher values improve the search accuracy.
-   */
-  size_t itopk_size = 64;
-
-  /** Upper limit of search iterations. Auto select when 0.*/
-  size_t max_iterations = 0;
-
-  // In the following we list additional search parameters for fine tuning.
-  // Reasonable default values are automatically chosen.
-
-  /** Which search implementation to use. */
-  search_algo algo = search_algo::AUTO;
-
-  /** Number of threads used to calculate a single distance. 4, 8, 16, or 32. */
-  size_t team_size = 0;
-
-  /** Number of graph nodes to select as the starting point for the search in each iteration. aka
-   * search width?*/
-  size_t search_width = 1;
-  /** Lower limit of search iterations. */
-  size_t min_iterations = 0;
-
-  /** Thread block size. 0, 64, 128, 256, 512, 1024. Auto selection when 0. */
-  size_t thread_block_size = 0;
-  /** Hashmap type. Auto selection when AUTO. */
-  hash_mode hashmap_mode = hash_mode::AUTO;
-  /** Lower limit of hashmap bit length. More than 8. */
-  size_t hashmap_min_bitlen = 0;
-  /** Upper limit of hashmap fill rate. More than 0.1, less than 0.9.*/
-  float hashmap_max_fill_rate = 0.5;
-
-  /** Number of iterations of initial random seed node selection. 1 or more. */
-  uint32_t num_random_samplings = 1;
-  /** Bit mask used for initial random seed node selection. */
-  uint64_t rand_xor_mask = 0x128394;
-
-  /** Whether to use the persistent version of the kernel (only SINGLE_CTA is supported a.t.m.) */
-  bool persistent = false;
-  /** Persistent kernel: time in seconds before the kernel stops if no requests received. */
-  float persistent_lifetime = 2;
-  /**
-   * Set the fraction of maximum grid size used by persistent kernel.
-   * Value 1.0 means the kernel grid size is maximum possible for the selected device.
-   * The value must be greater than 0.0 and not greater than 1.0.
-   *
-   * One may need to run other kernels alongside this persistent kernel. This parameter can
-   * be used to reduce the grid size of the persistent kernel to leave a few SMs idle.
-   * Note: running any other work on GPU alongside with the persistent kernel makes the setup
-   * fragile.
-   *   - Running another kernel in another thread usually works, but no progress guaranteed
-   *   - Any CUDA allocations block the context (this issue may be obscured by using pools)
-   *   - Memory copies to not-pinned host memory may block the context
-   *
-   * Even when we know there are no other kernels working at the same time, setting
-   * kDeviceUsage to 1.0 surprisingly sometimes hurts performance. Proceed with care.
-   * If you suspect this is an issue, you can reduce this number to ~0.9 without a significant
-   * impact on the throughput.
-   */
-  float persistent_device_usage = 1.0;
-
-  /**
-   * A parameter indicating the rate of nodes to be filtered-out, when filtering is used.
-   * The value must be equal to or greater than 0.0 and less than 1.0. Default value is
-   * negative, in which case the filtering rate is automatically calculated when possible.
-   * For `filtering::udf_filter`, CAGRA uses `udf_filter::filtering_rate` when this value is
-   * negative. If both values are negative, CAGRA assumes 0.0 because a UDF's selectivity cannot be
-   * inferred from the source string.
-   */
-  float filtering_rate = -1.0;
-
-  /** Data type of the query vector and codebook table on shared memory. Currently, only VPQ
-   * supports FP8. **/
-  internal_dtype smem_dtype = internal_dtype::F16;
 };
 
 /**
