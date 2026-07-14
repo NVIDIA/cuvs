@@ -564,6 +564,41 @@ class PrefilteredBruteForceOnBitmapTest
                                                     true));
   }
 
+  // A filtering_rate that is neither the negative auto-detect sentinel nor in [0.0, 1.0) is
+  // out of contract and must be rejected rather than silently steering path selection.
+  void RunWithInvalidFilteringRate()
+  {
+    auto dataset_raw = raft::make_device_matrix_view<const value_t, index_t, raft::row_major>(
+      (const value_t*)dataset_d.data(), params.n_dataset, params.dim);
+
+    auto queries = raft::make_device_matrix_view<const value_t, index_t, raft::row_major>(
+      (const value_t*)queries_d.data(), params.n_queries, params.dim);
+
+    auto dataset = brute_force::build(handle, dataset_raw, params.metric);
+
+    auto filter = cuvs::core::bitmap_view<bitmap_t, index_t>(
+      (bitmap_t*)filter_d.data(), params.n_queries, params.n_dataset);
+
+    auto out_val = raft::make_device_matrix_view<dist_t, index_t, raft::row_major>(
+      out_val_d.data(), params.n_queries, params.top_k);
+    auto out_idx = raft::make_device_matrix_view<index_t, index_t, raft::row_major>(
+      out_idx_d.data(), params.n_queries, params.top_k);
+
+    for (float invalid_rate : {1.0f, 1.5f, 50.0f}) {
+      cuvs::neighbors::brute_force::search_params search_params;
+      search_params.filtering_rate = invalid_rate;
+
+      EXPECT_THROW(brute_force::search(handle,
+                                       search_params,
+                                       dataset,
+                                       queries,
+                                       out_idx,
+                                       out_val,
+                                       cuvs::neighbors::filtering::bitmap_filter(filter)),
+                   raft::logic_error);
+    }
+  }
+
  protected:
   raft::resources handle;
   cudaStream_t stream;
@@ -1054,6 +1089,10 @@ TEST_P(PrefilteredBruteForceTestOnBitmap_float_int64, Result) { Run(); }
 TEST_P(PrefilteredBruteForceTestOnBitmap_float_int64, ResultWithFilteringRateHint)
 {
   RunWithFilteringRateHint();
+}
+TEST_P(PrefilteredBruteForceTestOnBitmap_float_int64, InvalidFilteringRateThrows)
+{
+  RunWithInvalidFilteringRate();
 }
 
 using PrefilteredBruteForceTestOnBitmap_half_int64 =

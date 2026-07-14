@@ -608,6 +608,15 @@ void brute_force_search_filtered(
                                     metric == cuvs::distance::DistanceType::CosineExpanded),
                "Index must has norms when using Euclidean, IP, and Cosine!");
 
+  // Negative means "auto-detect from the filter"; [0.0, 1.0) is trusted as-is. Anything else
+  // (including NaN, which compares false against both bounds) is out of contract.
+  const bool auto_filtering_rate = params.filtering_rate < 0.0f;
+  const bool use_hint            = params.filtering_rate >= 0.0f && params.filtering_rate < 1.0f;
+  RAFT_EXPECTS(auto_filtering_rate || use_hint,
+               "search_params::filtering_rate must be negative (auto-detect) or in [0.0, 1.0), "
+               "got %f",
+               params.filtering_rate);
+
   IdxT n_queries                                     = queries.extent(0);
   IdxT n_dataset                                     = idx.dataset().extent(0);
   IdxT dim                                           = idx.dataset().extent(1);
@@ -620,10 +629,9 @@ void brute_force_search_filtered(
                              const cuvs::core::bitset_view<BitsT, IdxT>>>
     filter_view;
 
-  IdxT nnz_h          = 0;
-  float sparsity      = 0.0f;
-  bool nnz_h_is_set   = false;
-  const bool use_hint = params.filtering_rate >= 0.0f;
+  IdxT nnz_h        = 0;
+  float sparsity    = 0.0f;
+  bool nnz_h_is_set = false;
 
   const BitsT* filter_data = nullptr;
 
