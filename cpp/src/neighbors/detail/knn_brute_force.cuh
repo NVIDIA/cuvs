@@ -604,14 +604,16 @@ enum class filtered_search_path { sddmm, gather, dense };
  *
  * The thresholds are empirical.
  *
- * @param[in] n_dataset       rows in the dataset
- * @param[in] dim             columns in the dataset
- * @param[in] n_pass          rows passing the filter (for a bitmap, averaged over queries)
- * @param[in] k               neighbors requested
- * @param[in] gather_possible whether the gather path applies (bitset filters only)
+ * @param[in] n_dataset   rows in the dataset
+ * @param[in] dim         columns in the dataset
+ * @param[in] selectivity fraction of (query, row) pairs the filter passes
+ * @param[in] k           neighbors requested
+ * @param[in] passing     rows passing the filter, if the filter passes the same rows for
+ *                        every query. A bitmap passes a different set per query, so it has
+ *                        no such count, and cannot use the gather path.
  */
 inline filtered_search_path select_filtered_search_path(
-  int64_t n_dataset, int64_t dim, int64_t n_pass, int64_t k, bool gather_possible)
+  int64_t n_dataset, int64_t dim, double selectivity, int64_t k, std::optional<int64_t> passing)
 {
   // SDDMM competes against a fixed setup cost, so it stops paying off at an absolute row
   // count rather than at a fraction of the dataset.
@@ -624,14 +626,14 @@ inline filtered_search_path select_filtered_search_path(
   // Below this, the gather setup costs more than the entire dense search.
   constexpr double kGatherMinDataset = 200000.0;
 
-  const auto n_dataset_d   = static_cast<double>(n_dataset);
-  const double selectivity = static_cast<double>(n_pass) / n_dataset_d;
+  const auto n_dataset_d = static_cast<double>(n_dataset);
 
   // SDDMM has to beat whichever of the other two is available.
   const bool sddmm_beats_dense = selectivity < kSddmmMaxSelectivity;
-  if (!gather_possible) {
+  if (!passing) {
     return sddmm_beats_dense ? filtered_search_path::sddmm : filtered_search_path::dense;
   }
+  const int64_t n_pass = *passing;
   if (n_pass < kSddmmMaxPassingRows && sddmm_beats_dense) { return filtered_search_path::sddmm; }
 
   // Fraction of the dense search left over after paying the gather setup.
@@ -769,9 +771,9 @@ void brute_force_search_filtered(
     filter_view;
 
   IdxT nnz_h = 0;
-  // Rows passing the filter; for a bitmap, the per-query average.
-  IdxT n_pass          = 0;
-  bool gather_possible = false;
+  // A bitset passes the same rows for every query, so it has a row count; a bitmap passes a
+  // different set per query and has none.
+  std::optional<IdxT> n_pass;
 
   const BitsT* filter_data = nullptr;
 
@@ -779,27 +781,27 @@ void brute_force_search_filtered(
     auto actual_filter =
       dynamic_cast<const cuvs::neighbors::filtering::bitmap_filter<BitsT, int64_t>*>(filter);
     filter_view.emplace(actual_filter->view());
-    nnz_h  = actual_filter->view().count(res);
-    n_pass = nnz_h / n_queries;
+    nnz_h = actual_filter->view().count(res);
   } else if (filter_type == cuvs::neighbors::filtering::FilterType::Bitset) {
     auto actual_filter =
       dynamic_cast<const cuvs::neighbors::filtering::bitset_filter<BitsT, int64_t>*>(filter);
     filter_view.emplace(actual_filter->view());
-    n_pass          = actual_filter->view().count(res);
-    nnz_h           = n_queries * n_pass;
-    gather_possible = true;
+    n_pass = actual_filter->view().count(res);
+    nnz_h  = n_queries * (*n_pass);
   } else {
     RAFT_FAIL("Unsupported sample filter type");
   }
 
   std::visit([&](const auto& actual_view) { filter_data = actual_view.data(); }, *filter_view);
 
-  const auto path = select_filtered_search_path(n_dataset, dim, n_pass, k, gather_possible);
+  const double selectivity =
+    static_cast<double>(nnz_h) / (static_cast<double>(n_queries) * static_cast<double>(n_dataset));
+  const auto path = select_filtered_search_path(n_dataset, dim, selectivity, k, n_pass);
 
   if (path == filtered_search_path::gather) {
     auto bitset_view = std::get<const cuvs::core::bitset_view<BitsT, IdxT>>(*filter_view);
     brute_force_search_gathered<T, IdxT, BitsT, DistanceT>(
-      res, idx, queries, bitset_view, n_pass, neighbors, distances, query_norms);
+      res, idx, queries, bitset_view, *n_pass, neighbors, distances, query_norms);
   } else if (path == filtered_search_path::dense) {
     raft::resources stream_pool_handle(res);
     raft::resource::set_cuda_stream(stream_pool_handle, stream);
