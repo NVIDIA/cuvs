@@ -380,6 +380,15 @@ __global__ void kern_fused_prune(KnnGraphView knn_graph,        // [graph_chunk_
   }
 }
 
+// Cheap stateless integer hash (PCG-style mixing) used for deterministic, warp-uniform thinning of
+// reverse-graph edges during the merge step.
+__device__ __forceinline__ uint32_t mix_hash(uint32_t x)
+{
+  x             = x * 747796405u + 2891336453u;
+  uint32_t word = ((x >> ((x >> 28u) + 4u)) ^ x) * 277803737u;
+  return (word >> 22u) ^ word;
+}
+
 // Helper functions for merging the graph
 template <typename T>
 __device__ unsigned int warp_pos_in_array(T val, const T* array, uint64_t num)
@@ -534,7 +543,15 @@ __global__ void kern_merge_graph(
     if (rev_graph_value < graph_size) {
       if constexpr (VariableDegree) {
         const uint32_t in_degree = rev_graph_count(rev_graph_value);
-        if (std::min(in_degree, my_in_degree) + ed0 < output_graph_degree) { continue; }
+        if (my_in_degree < output_graph_degree * 3 || in_degree < output_graph_degree * 1) {
+          // Don't prune highways (edges between high in-degree nodes)
+          // P(skipping the edge) = a / b
+          const uint32_t a = output_graph_degree + ed0;
+          const uint32_t b = output_graph_degree * 2;
+          const uint32_t r = mix_hash(static_cast<uint32_t>(nid) * 0x9e3779b9u ^
+                                      static_cast<uint32_t>(rev_graph_value));
+          if ((r % b) < a) { continue; }
+        }
       }
       uint64_t pos =
         warp_pos_in_array<IdxT>(rev_graph_value, smem_sorted_output_graph, output_graph_degree);
