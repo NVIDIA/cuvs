@@ -1395,14 +1395,32 @@ index<T, IdxT> build_ace(raft::resources const& res,
 
       // Create index for this partition
       cuvs::neighbors::cagra::index_params sub_index_params;
+      /* TODO(achirkin): split out the core of the heuristics from HNSW params
+
+         The parameter selection below has two problems:
+           1. General:
+               HNSW-specific heuristics depend on parameters that are not native for CAGRA,
+               which makes the code confusing; they are also subject to changes and
+               they are design to fit better the Recall-QPS of HNSW not the generally
+               best parameters.
+           2. Specific:
+               from_hnsw_params assigns params.graph_degree = M * 2 = (graph_degree / 2) * 2,
+               so it rounds down the degree, which is a bug.
+               The default variable degree fraction only makes sense for HNSW, not for CAGRA.
+
+          What we need here instead is just a function that produces optimal graph build
+          parameters and selects the build method based on the dataset size.
+       */
       sub_index_params = cuvs::neighbors::cagra::index_params::from_hnsw_params(
         raft::make_extents<int64_t>(sub_dataset_size, dataset_dim),
         graph_degree / 2,
         ef_construction,
         cuvs::neighbors::cagra::hnsw_heuristic_type::SAME_GRAPH_FOOTPRINT,
         params.metric);
-      sub_index_params.attach_dataset_on_build = false;
-      sub_index_params.guarantee_connectivity  = params.guarantee_connectivity;
+      sub_index_params.graph_degree                   = graph_degree;
+      sub_index_params.variable_graph_degree_fraction = 1.0;
+      sub_index_params.attach_dataset_on_build        = false;
+      sub_index_params.guarantee_connectivity         = params.guarantee_connectivity;
 
       auto sub_index = cuvs::neighbors::cagra::build(
         res, sub_index_params, raft::make_const_mdspan(sub_dataset.view()));
