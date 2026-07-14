@@ -326,7 +326,7 @@ inline ::std::ostream& operator<<(::std::ostream& os, const AnnCagraInputs& p)
     os << ", pq_bits=" << vpq.pq_bits << ", pq_dim=" << vpq.pq_dim
        << ", vq_n_centers=" << vpq.vq_n_centers << ", smem_dtype=" << smem_dtype_str(p.smem_dtype);
   }
-  os << '}' << std::endl;
+  os << '}';
   return os;
 }
 
