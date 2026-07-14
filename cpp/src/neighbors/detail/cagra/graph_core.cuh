@@ -181,16 +181,12 @@ __global__ void kern_sort(const DATA_T* const dataset,  // [dataset_chunk_size, 
 // or a single pre-extracted column passed as a 1D vector ([graph_size], indexed by row only). The
 // rank is inspected at compile time; `k` is always the logical column index and is used for the
 // natural-degree mask regardless of the view rank.
-//
-// When VariableDegree is true, edges past natural_degree(src_id) are masked out (do not contribute
-// to the reverse graph). natural_degree is otherwise unused and may be a default-constructed view.
-template <typename IdxT, bool VariableDegree, typename OutputView>
+template <typename IdxT, typename OutputView>
 __global__ void kern_make_rev_graph_k(
   OutputView output_graph,                            // [graph_size, degree] or [graph_size]
   raft::device_matrix_view<IdxT, int64_t> rev_graph,  // [graph_size, degree]
   raft::device_vector_view<uint32_t, int64_t> rev_graph_count,  // [graph_size]
-  uint64_t k,
-  raft::device_vector_view<const uint32_t, int64_t> natural_degree)
+  uint64_t k)
 {
   const uint64_t tid  = threadIdx.x + (blockDim.x * blockIdx.x);
   const uint64_t tnum = blockDim.x * gridDim.x;
@@ -543,7 +539,7 @@ __global__ void kern_merge_graph(
     if (rev_graph_value < graph_size) {
       if constexpr (VariableDegree) {
         const uint32_t in_degree = rev_graph_count(rev_graph_value);
-        if (my_in_degree < output_graph_degree * 3 || in_degree < output_graph_degree * 1) {
+        if (my_in_degree < output_graph_degree * 2 || in_degree < output_graph_degree * 2) {
           // Don't prune highways (edges between high in-degree nodes)
           // P(skipping the edge) = a / b
           const uint32_t a = output_graph_degree + ed0;
@@ -1041,17 +1037,13 @@ void merge_graph_gpu(
                  (merge_graph_end - merge_graph_start) * 1000.0);
 }
 
-// When VariableDegree is true, `d_natural_degree` (size graph_size) gates which slots of the
-// output graph contribute to the reverse graph: only positions [0, natural_degree(i)) of node i
-// are considered, the rest are skipped.
-template <typename IdxT, typename AccessorOutputGraph, bool VariableDegree>
+template <typename IdxT, typename AccessorOutputGraph>
 void make_reverse_graph_gpu(
   raft::resources const& res,
   raft::mdspan<IdxT, raft::matrix_extent<int64_t>, raft::row_major, AccessorOutputGraph>
     output_graph,
   raft::device_matrix_view<IdxT, int64_t> d_rev_graph,
-  raft::device_vector_view<uint32_t, int64_t> d_rev_graph_count,
-  raft::device_vector_view<uint32_t, int64_t> d_natural_degree)
+  raft::device_vector_view<uint32_t, int64_t> d_rev_graph_count)
 {
   const uint64_t graph_size          = output_graph.extent(0);
   const uint64_t output_graph_degree = output_graph.extent(1);
@@ -1070,13 +1062,8 @@ void make_reverse_graph_gpu(
     dim3 threads(256, 1, 1);
     dim3 blocks(1024, 1, 1);
     for (uint64_t k = 0; k < output_graph_degree; k++) {
-      kern_make_rev_graph_k<IdxT, VariableDegree>
-        <<<blocks, threads, 0, raft::resource::get_cuda_stream(res)>>>(
-          output_graph,
-          d_rev_graph,
-          d_rev_graph_count,
-          k,
-          raft::make_const_mdspan(d_natural_degree));
+      kern_make_rev_graph_k<IdxT><<<blocks, threads, 0, raft::resource::get_cuda_stream(res)>>>(
+        output_graph, d_rev_graph, d_rev_graph_count, k);
     }
   } else {
     // Host variant: the output graph is host-only, so we extract one column at a time into a
@@ -1094,13 +1081,8 @@ void make_reverse_graph_gpu(
 
       dim3 threads(256, 1, 1);
       dim3 blocks(1024, 1, 1);
-      kern_make_rev_graph_k<IdxT, VariableDegree>
-        <<<blocks, threads, 0, raft::resource::get_cuda_stream(res)>>>(
-          d_dest_nodes.view(),
-          d_rev_graph,
-          d_rev_graph_count,
-          k,
-          raft::make_const_mdspan(d_natural_degree));
+      kern_make_rev_graph_k<IdxT><<<blocks, threads, 0, raft::resource::get_cuda_stream(res)>>>(
+        d_dest_nodes.view(), d_rev_graph, d_rev_graph_count, k);
       raft::resource::sync_stream(res);
       RAFT_LOG_DEBUG("# Making reverse graph on GPUs: %lu / %u    \r", k, output_graph_degree);
     }
@@ -1947,13 +1929,8 @@ void optimize(
 
   const double time_make_start = cur_time();
 
-  if (variable_graph_degree) {
-    make_reverse_graph_gpu<IdxT, AccessorOutputGraph, true>(
-      res, new_graph, d_rev_graph.view(), d_rev_graph_count.view(), d_natural_degree.view());
-  } else {
-    make_reverse_graph_gpu<IdxT, AccessorOutputGraph, false>(
-      res, new_graph, d_rev_graph.view(), d_rev_graph_count.view(), d_natural_degree.view());
-  }
+  make_reverse_graph_gpu<IdxT, AccessorOutputGraph>(
+    res, new_graph, d_rev_graph.view(), d_rev_graph_count.view());
 
   raft::resource::sync_stream(res);
 
