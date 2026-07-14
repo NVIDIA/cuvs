@@ -5,6 +5,7 @@
 
 import json
 import os
+import warnings
 from pathlib import Path
 from typing import Optional
 
@@ -257,6 +258,13 @@ def main(
         and any backend-specific connection parameters (host, port, etc.).
 
     """
+    warnings.warn(
+        "The 'cuvs_bench.run' CLI is deprecated and will be removed in a future release. "
+        "Use BenchmarkOrchestrator from cuvs_bench.orchestrator instead.",
+        FutureWarning,
+        stacklevel=2,
+    )
+
     if not data_export:
         # Determine backend type and extra kwargs from --backend-config
         backend_type = "cpp_gbench"
