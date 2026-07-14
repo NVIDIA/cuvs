@@ -19,8 +19,14 @@ import java.util.List;
 import java.util.Random;
 import java.util.SortedSet;
 import java.util.TreeSet;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import org.apache.lucene.index.FieldInfo;
 import org.apache.lucene.index.VectorSimilarityFunction;
+import org.apache.lucene.store.ByteBuffersDataOutput;
+import org.apache.lucene.store.DataOutput;
 import org.apache.lucene.store.IndexOutput;
 import org.apache.lucene.util.InfoStream;
 import org.apache.lucene.util.hnsw.HnswGraph;
@@ -222,56 +228,144 @@ public class AcceleratedHNSWUtils {
    * @return a 2D array of offsets
    * @throws IOException I/O Exceptions
    */
-  public static int[][] writeGraph(GPUBuiltHnswGraph graph, IndexOutput vectorIndex)
-      throws IOException {
-    // write vectors' neighbors on each level into the vectorIndex file
+  public static int[][] writeGraph(
+      GPUBuiltHnswGraph graph, IndexOutput vectorIndex, int numThreads) throws IOException {
     int countOnLevel0 = graph.size();
-    int[][] offsets = new int[graph.numLevels()][];
-    int[] scratch = new int[graph.maxConn() * 2];
-    for (int level = 0; level < graph.numLevels(); level++) {
+    int numLevels = graph.numLevels();
+    int[][] offsets = new int[numLevels][];
+
+    // Level 0 holds all nodes and dominates serialization cost. Each node's delta/VInt block is
+    // independent, so encode level 0 in parallel and concatenate the per-thread buffers serially in
+    // node order, in memory-bounded waves. Higher levels are tiny and stay serial. The on-disk bytes
+    // are identical to the fully-serial path (blocks in node order, offsets = per-node byte lengths).
+    int[] level0Nodes = NodesIterator.getSortedNodes(graph.getNodesOnLevel(0));
+    offsets[0] = new int[level0Nodes.length];
+    if (numThreads > 1 && level0Nodes.length >= PARALLEL_MIN_NODES) {
+      writeLevel0Parallel(graph, vectorIndex, level0Nodes, offsets[0], countOnLevel0, numThreads);
+    } else {
+      writeLevelSerial(graph, vectorIndex, 0, level0Nodes, offsets[0], countOnLevel0);
+    }
+
+    for (int level = 1; level < numLevels; level++) {
       int[] sortedNodes = NodesIterator.getSortedNodes(graph.getNodesOnLevel(level));
       offsets[level] = new int[sortedNodes.length];
-      int nodeOffsetId = 0;
+      writeLevelSerial(graph, vectorIndex, level, sortedNodes, offsets[level], countOnLevel0);
+    }
+    return offsets;
+  }
 
-      for (int node : sortedNodes) {
-        // Get node neighbors
-        NeighborArray neighbors = graph.getNeighbors(level, node);
-        // Get the size of the neighbor array
-        int size = neighbors.size();
-        // Write size in VInt as the neighbors list is typically small
-        long offsetStart = vectorIndex.getFilePointer();
-        // Get neighbors
-        int[] nnodes = neighbors.nodes();
-        // Sort them
-        Arrays.sort(nnodes, 0, size);
-        // Now that we have sorted, do delta encoding to minimize the required bits to store the
-        // information
-        int actualSize = 0;
-        if (size > 0) {
-          scratch[0] = nnodes[0];
-          actualSize = 1;
-        }
-        // De-duplication
-        for (int i = 1; i < size; i++) {
-          assert nnodes[i] < countOnLevel0 : "node too large: " + nnodes[i] + ">=" + countOnLevel0;
-          // Sorting step helps here
-          if (nnodes[i - 1] == nnodes[i]) {
+  /** Node count below which parallel level-0 serialization is not worth the overhead. */
+  private static final int PARALLEL_MIN_NODES = 1 << 16;
+
+  /** Nodes per wave — bounds the transient encode buffer regardless of dataset size. */
+  private static final int WAVE_NODES = 1 << 20;
+
+  /** Serially encodes a level's nodes into {@code out}, recording per-node byte lengths. */
+  private static void writeLevelSerial(
+      GPUBuiltHnswGraph graph,
+      IndexOutput out,
+      int level,
+      int[] sortedNodes,
+      int[] offsets,
+      int countOnLevel0)
+      throws IOException {
+    int[] scratch = new int[graph.maxConn() * 2];
+    int idx = 0;
+    for (int node : sortedNodes) {
+      long start = out.getFilePointer();
+      encodeNode(graph.getNeighbors(level, node), scratch, out, countOnLevel0);
+      offsets[idx++] = Math.toIntExact(out.getFilePointer() - start);
+    }
+  }
+
+  /**
+   * Encodes level 0 in parallel: within memory-bounded waves, threads encode contiguous node
+   * sub-ranges into per-thread buffers, which are then concatenated to {@code out} in node order
+   * (identical layout to the serial path).
+   */
+  private static void writeLevel0Parallel(
+      GPUBuiltHnswGraph graph,
+      IndexOutput out,
+      int[] nodes,
+      int[] offsets,
+      int countOnLevel0,
+      int numThreads)
+      throws IOException {
+    ExecutorService pool = Executors.newFixedThreadPool(numThreads);
+    try {
+      int n = nodes.length;
+      for (int waveStart = 0; waveStart < n; waveStart += WAVE_NODES) {
+        int waveEnd = Math.min(waveStart + WAVE_NODES, n);
+        int perThread = (waveEnd - waveStart + numThreads - 1) / numThreads;
+
+        ByteBuffersDataOutput[] buffers = new ByteBuffersDataOutput[numThreads];
+        List<Future<?>> futures = new ArrayList<>(numThreads);
+        for (int t = 0; t < numThreads; t++) {
+          final int subStart = waveStart + t * perThread;
+          final int subEnd = Math.min(subStart + perThread, waveEnd);
+          final int slot = t;
+          if (subStart >= subEnd) {
             continue;
           }
-          scratch[actualSize++] = nnodes[i] - nnodes[i - 1];
+          futures.add(
+              pool.submit(
+                  () -> {
+                    ByteBuffersDataOutput buffer = new ByteBuffersDataOutput();
+                    int[] scratch = new int[graph.maxConn() * 2];
+                    for (int i = subStart; i < subEnd; i++) {
+                      long before = buffer.size();
+                      encodeNode(graph.getNeighbors(0, nodes[i]), scratch, buffer, countOnLevel0);
+                      offsets[i] = Math.toIntExact(buffer.size() - before);
+                    }
+                    buffers[slot] = buffer;
+                    return null;
+                  }));
         }
-        // Write the size after duplicates are removed
-        vectorIndex.writeVInt(actualSize);
-        // Write de-duplicated neighbors
-        for (int i = 0; i < actualSize; i++) {
-          vectorIndex.writeVInt(scratch[i]);
+        for (Future<?> f : futures) {
+          f.get();
         }
-        offsets[level][nodeOffsetId++] =
-            Math.toIntExact(vectorIndex.getFilePointer() - offsetStart);
+        // Concatenate in thread order (== node order), preserving the serial byte layout.
+        for (ByteBuffersDataOutput buffer : buffers) {
+          if (buffer != null) {
+            buffer.copyTo(out);
+          }
+        }
+      }
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new IOException("Interrupted during parallel writeGraph", e);
+    } catch (ExecutionException e) {
+      throw new IOException("Parallel writeGraph failed", e.getCause());
+    } finally {
+      pool.shutdown();
+    }
+  }
+
+  /**
+   * Sorts, delta-encodes and de-duplicates a node's neighbors and writes the block (VInt size + VInt
+   * deltas) to {@code out}. Shared by the serial and parallel paths so encoding is identical.
+   */
+  private static void encodeNode(
+      NeighborArray neighbors, int[] scratch, DataOutput out, int countOnLevel0) throws IOException {
+    int size = neighbors == null ? 0 : neighbors.size();
+    int actualSize = 0;
+    if (size > 0) {
+      int[] nnodes = neighbors.nodes();
+      Arrays.sort(nnodes, 0, size);
+      scratch[0] = nnodes[0];
+      actualSize = 1;
+      for (int i = 1; i < size; i++) {
+        assert nnodes[i] < countOnLevel0 : "node too large: " + nnodes[i] + ">=" + countOnLevel0;
+        if (nnodes[i - 1] == nnodes[i]) {
+          continue;
+        }
+        scratch[actualSize++] = nnodes[i] - nnodes[i - 1];
       }
     }
-    // Return offsets (information written while writing the meta info)
-    return offsets;
+    out.writeVInt(actualSize);
+    for (int i = 0; i < actualSize; i++) {
+      out.writeVInt(scratch[i]);
+    }
   }
 
   /**
