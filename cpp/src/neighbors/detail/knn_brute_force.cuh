@@ -28,6 +28,7 @@
 #include <raft/linalg/map.cuh>
 #include <raft/linalg/norm.cuh>
 #include <raft/linalg/transpose.cuh>
+#include <raft/matrix/gather.cuh>
 #include <raft/matrix/init.cuh>
 #include <raft/sparse/convert/coo.cuh>
 #include <raft/sparse/convert/csr.cuh>
@@ -41,8 +42,13 @@
 #include <cuda_fp16.h>
 #include <rmm/cuda_device.hpp>
 #include <rmm/device_uvector.hpp>
+#include <thrust/copy.h>
 #include <thrust/for_each.h>
+#include <thrust/gather.h>
+#include <thrust/iterator/counting_iterator.h>
 
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <iostream>
 #include <optional>
@@ -581,6 +587,196 @@ void brute_force_search(
     query_norms ? query_norms->data_handle() : nullptr);
 }
 
+/**
+ * @brief The three strategies available for a filtered brute-force search.
+ *
+ * They differ in what work they do per row that passes the filter:
+ *
+ *  - `sddmm`:  build a CSR of the passing (query, row) pairs and evaluate only those
+ *              distances via a masked matmul. Cost grows with the number of passing
+ *              pairs, so it is the cheapest option only while very few rows pass.
+ *  - `gather`: compact the passing rows into a dense [n_pass x dim] matrix and run an
+ *              ordinary unfiltered search over it. Cost grows with n_pass, on top of a
+ *              fixed setup cost (enumerating the rows, allocating, launching).
+ *  - `dense`:  GEMM against the whole dataset and mask the filtered rows afterwards.
+ *              Cost is independent of how many rows pass.
+ */
+enum class filtered_search_path { sddmm, gather, dense };
+
+/**
+ * @brief Pick the cheapest search path for a filtered brute-force query.
+ *
+ * The thresholds below are empirical. They were measured on an RTX 5090 (sm_120) with
+ * fp16 data, k=64 and 100 queries, sweeping selectivity over 0.1-60% for n_dataset in
+ * [2e5, 1e7] and dim in [128, 1024]. Both the shapes of the fits and the constants come
+ * from that sweep; see cpp/bench/prims/core/results/bf_sweep/README.md.
+ *
+ * Two facts drive the choice:
+ *
+ * 1. SDDMM stops paying off at an *absolute* number of passing rows, not at a fraction
+ *    of the dataset. Its cost is proportional to the passing pairs it evaluates, while
+ *    the gather path pays a fixed setup cost before doing any work; SDDMM wins exactly
+ *    while its work still fits under that fixed cost. The crossover is therefore roughly
+ *    constant in n_dataset, and falls off as dim^-0.4 because wider rows make each
+ *    passing pair more expensive.
+ *
+ * 2. The gather path reads n_pass rows scattered across memory (traffic proportional to
+ *    dim) to avoid a GEMM proportional to n_dataset. So its crossover with the dense
+ *    path falls off as dim^-0.6, and rises with n_dataset as the fixed setup cost is
+ *    amortized over more saved work. Below roughly `kGatherSetupEquivRows` rows the
+ *    setup alone costs more than the entire dense search, and gathering never wins.
+ *
+ * @param[in] n_dataset       rows in the dataset
+ * @param[in] dim             columns in the dataset
+ * @param[in] n_pass          rows passing the filter (for a bitmap, averaged over queries)
+ * @param[in] k               neighbors requested
+ * @param[in] gather_possible whether the gather path is applicable at all (see below)
+ */
+inline filtered_search_path select_filtered_search_path(
+  int64_t n_dataset, int64_t dim, int64_t n_pass, int64_t k, bool gather_possible)
+{
+  // SDDMM vs gather: an absolute passing-row count, ~constant in n_dataset (fact 1).
+  constexpr double kSddmmRowsAtDim128 = 11000.0;
+  constexpr double kSddmmDimExponent  = 0.4;
+  // Gather vs dense: a selectivity, falling with dim and rising with n_dataset (fact 2).
+  constexpr double kGatherSelNumerator   = 9.3;
+  constexpr double kGatherDimExponent    = 0.6;
+  constexpr double kGatherSetupEquivRows = 212500.0;
+  // The fit above was calibrated over dim in [128, 1024]. Extrapolated below that range it
+  // exceeds 1, i.e. it would claim gathering wins at every selectivity -- which cannot be
+  // true, since gathering every row and then running the same GEMM over it is strictly more
+  // work than the dense path. Cap at the widest crossover actually observed.
+  constexpr double kGatherMaxSelectivity = 0.60;
+  // SDDMM vs dense, used when the gather path is unavailable. Both costs scale with
+  // n_dataset, so unlike the above this crossover is a selectivity rather than a count.
+  constexpr double kSddmmDenseSelNumerator = 0.115;
+  constexpr double kSddmmDenseDimExponent  = 0.22;
+
+  const auto n_pass_d      = static_cast<double>(n_pass);
+  const auto n_dataset_d   = static_cast<double>(n_dataset);
+  const double selectivity = n_pass_d / n_dataset_d;
+
+  // Evaluate the fits only over the range they were calibrated on. Outside it the power
+  // laws are unconstrained, so hold them at the nearest measured boundary rather than
+  // extrapolating -- brute force is routinely run at dim well below 128.
+  const double dim_d = std::clamp(static_cast<double>(dim), 128.0, 1024.0);
+
+  const double sddmm_vs_dense_sel =
+    kSddmmDenseSelNumerator / std::pow(dim_d, kSddmmDenseDimExponent);
+
+  if (!gather_possible) {
+    return selectivity < sddmm_vs_dense_sel ? filtered_search_path::sddmm
+                                            : filtered_search_path::dense;
+  }
+
+  // SDDMM has to beat both of the others to be worth running.
+  const double sddmm_max_rows = kSddmmRowsAtDim128 * std::pow(128.0 / dim_d, kSddmmDimExponent);
+  if (n_pass_d < sddmm_max_rows && selectivity < sddmm_vs_dense_sel) {
+    return filtered_search_path::sddmm;
+  }
+
+  // The fraction of the dense search that survives paying the gather setup cost. At
+  // small n_dataset this goes to zero (or negative) and gathering can never win.
+  const double amortized = 1.0 - kGatherSetupEquivRows / n_dataset_d;
+  const double gather_vs_dense_sel =
+    amortized *
+    std::min(kGatherSelNumerator / std::pow(dim_d, kGatherDimExponent), kGatherMaxSelectivity);
+
+  // n_pass > k keeps the compacted dataset big enough to actually contain k neighbors.
+  if (amortized > 0.0 && selectivity < gather_vs_dense_sel && n_pass > k) {
+    return filtered_search_path::gather;
+  }
+  return filtered_search_path::dense;
+}
+
+/**
+ * @brief Filtered search over the rows a bitset selects, by compacting them first.
+ *
+ * Enumerates the passing rows, gathers them (and their precomputed norms) into a dense
+ * matrix, runs an ordinary unfiltered brute-force search over that matrix, and maps the
+ * resulting indices back into the original dataset's numbering.
+ *
+ * Only meaningful for a bitset filter, which selects the same rows for every query. A
+ * bitmap filter selects different rows per query, so there is no single set of rows to
+ * compact.
+ */
+template <typename T, typename IdxT, typename BitsT, typename DistanceT = float>
+void brute_force_search_gathered(
+  raft::resources const& res,
+  const cuvs::neighbors::brute_force::index<T, DistanceT>& idx,
+  raft::device_matrix_view<const T, IdxT, raft::row_major> queries,
+  const cuvs::core::bitset_view<BitsT, IdxT>& filter_view,
+  IdxT n_pass,
+  raft::device_matrix_view<IdxT, IdxT, raft::row_major> neighbors,
+  raft::device_matrix_view<DistanceT, IdxT, raft::row_major> distances,
+  std::optional<raft::device_vector_view<const DistanceT, IdxT>> query_norms = std::nullopt)
+{
+  auto stream    = raft::resource::get_cuda_stream(res);
+  auto policy    = raft::resource::get_thrust_policy(res);
+  IdxT n_queries = queries.extent(0);
+  IdxT n_dataset = idx.dataset().extent(0);
+  IdxT dim       = idx.dataset().extent(1);
+  IdxT k         = neighbors.extent(1);
+
+  // 1. enumerate the rows the filter keeps
+  rmm::device_uvector<IdxT> passing(n_pass, stream);
+  thrust::copy_if(policy,
+                  thrust::make_counting_iterator<IdxT>(0),
+                  thrust::make_counting_iterator<IdxT>(n_dataset),
+                  passing.data(),
+                  [filter_view] __device__(IdxT i) { return filter_view.test(i); });
+
+  // 2. compact those rows, and their norms, into a dense dataset
+  rmm::device_uvector<T> gathered(static_cast<size_t>(n_pass) * dim, stream);
+  raft::matrix::gather(
+    res,
+    raft::make_device_matrix_view<const T, IdxT, raft::row_major>(
+      idx.dataset().data_handle(), n_dataset, dim),
+    raft::make_device_vector_view<const IdxT, IdxT>(passing.data(), n_pass),
+    raft::make_device_matrix_view<T, IdxT, raft::row_major>(gathered.data(), n_pass, dim));
+
+  rmm::device_uvector<DistanceT> gathered_norms(idx.has_norms() ? n_pass : 0, stream);
+  if (idx.has_norms()) {
+    thrust::gather(policy,
+                   passing.data(),
+                   passing.data() + n_pass,
+                   idx.norms().data_handle(),
+                   gathered_norms.data());
+  }
+
+  // 3. ordinary unfiltered search over the compacted dataset
+  rmm::device_uvector<IdxT> compact_neighbors(static_cast<size_t>(n_queries) * k, stream);
+  std::vector<T*> dataset    = {gathered.data()};
+  std::vector<int64_t> sizes = {static_cast<int64_t>(n_pass)};
+  std::vector<DistanceT*> norms;
+  if (idx.has_norms()) { norms.push_back(gathered_norms.data()); }
+
+  brute_force_knn_impl<int64_t, IdxT, T, DistanceT>(
+    res,
+    dataset,
+    sizes,
+    dim,
+    const_cast<T*>(queries.data_handle()),
+    n_queries,
+    compact_neighbors.data(),
+    distances.data_handle(),
+    k,
+    true,
+    true,
+    nullptr,
+    idx.metric(),
+    idx.metric_arg(),
+    norms.size() ? &norms : nullptr,
+    query_norms ? query_norms->data_handle() : nullptr);
+
+  // 4. translate compacted row numbers back into the original dataset's numbering
+  thrust::gather(policy,
+                 compact_neighbors.data(),
+                 compact_neighbors.data() + static_cast<size_t>(n_queries) * k,
+                 passing.data(),
+                 neighbors.data_handle());
+}
+
 template <typename T, typename IdxT, typename BitsT, typename DistanceT = float>
 void brute_force_search_filtered(
   raft::resources const& res,
@@ -619,8 +815,12 @@ void brute_force_search_filtered(
                              const cuvs::core::bitset_view<BitsT, IdxT>>>
     filter_view;
 
-  IdxT nnz_h     = 0;
-  float sparsity = 0.0f;
+  IdxT nnz_h = 0;
+  // Rows passing the filter. A bitset selects the same rows for every query; a bitmap
+  // selects different rows per query, so there this is the per-query average.
+  IdxT n_pass = 0;
+  // A bitmap's rows differ per query, so there is no single set of rows to compact.
+  bool gather_possible = false;
 
   const BitsT* filter_data = nullptr;
 
@@ -628,21 +828,28 @@ void brute_force_search_filtered(
     auto actual_filter =
       dynamic_cast<const cuvs::neighbors::filtering::bitmap_filter<BitsT, int64_t>*>(filter);
     filter_view.emplace(actual_filter->view());
-    nnz_h    = actual_filter->view().count(res);
-    sparsity = 1.0 - nnz_h / (1.0 * n_queries * n_dataset);
+    nnz_h  = actual_filter->view().count(res);
+    n_pass = nnz_h / n_queries;
   } else if (filter_type == cuvs::neighbors::filtering::FilterType::Bitset) {
     auto actual_filter =
       dynamic_cast<const cuvs::neighbors::filtering::bitset_filter<BitsT, int64_t>*>(filter);
     filter_view.emplace(actual_filter->view());
-    nnz_h    = n_queries * actual_filter->view().count(res);
-    sparsity = 1.0 - nnz_h / (1.0 * n_queries * n_dataset);
+    n_pass          = actual_filter->view().count(res);
+    nnz_h           = n_queries * n_pass;
+    gather_possible = true;
   } else {
     RAFT_FAIL("Unsupported sample filter type");
   }
 
   std::visit([&](const auto& actual_view) { filter_data = actual_view.data(); }, *filter_view);
 
-  if (sparsity < 0.9f) {
+  const auto path = select_filtered_search_path(n_dataset, dim, n_pass, k, gather_possible);
+
+  if (path == filtered_search_path::gather) {
+    auto bitset_view = std::get<const cuvs::core::bitset_view<BitsT, IdxT>>(*filter_view);
+    brute_force_search_gathered<T, IdxT, BitsT, DistanceT>(
+      res, idx, queries, bitset_view, n_pass, neighbors, distances, query_norms);
+  } else if (path == filtered_search_path::dense) {
     raft::resources stream_pool_handle(res);
     raft::resource::set_cuda_stream(stream_pool_handle, stream);
     auto idx_norm = idx.has_norms() ? const_cast<DistanceT*>(idx.norms().data_handle()) : nullptr;

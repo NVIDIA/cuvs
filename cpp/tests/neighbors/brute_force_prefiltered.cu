@@ -978,6 +978,16 @@ TEST_P(PrefilteredBruteForceTestOnBitset_half_int64, Result) { Run(); }
 
 template <typename index_t>
 const std::vector<PrefilteredBruteForceInputs<index_t>> selectk_inputs = {
+  // Large enough (n_dataset, dim) to reach each of the three dispatch paths in
+  // select_filtered_search_path. With a bitset filter these land on, respectively:
+  // sddmm (300 rows pass), gather (24000 pass), and dense (90000 pass).
+  {4, 300000, 128, 16, 0.001, cuvs::distance::DistanceType::L2Expanded},
+  {4, 300000, 128, 16, 0.08, cuvs::distance::DistanceType::L2Expanded},
+  {4, 300000, 128, 16, 0.08, cuvs::distance::DistanceType::InnerProduct},
+  {4, 300000, 128, 16, 0.08, cuvs::distance::DistanceType::L2SqrtExpanded},
+  {4, 300000, 128, 16, 0.08, cuvs::distance::DistanceType::CosineExpanded},
+  {4, 300000, 128, 16, 0.30, cuvs::distance::DistanceType::L2Expanded},
+
   {8, 131072, 255, 255, 0.01, cuvs::distance::DistanceType::L2Expanded},
   {8, 131072, 255, 255, 0.01, cuvs::distance::DistanceType::InnerProduct},
   {8, 131072, 255, 255, 0.01, cuvs::distance::DistanceType::L2SqrtExpanded},
