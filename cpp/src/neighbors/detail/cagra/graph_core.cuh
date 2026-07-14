@@ -1062,7 +1062,7 @@ void make_reverse_graph_gpu(
     dim3 threads(256, 1, 1);
     dim3 blocks(1024, 1, 1);
     for (uint64_t k = 0; k < output_graph_degree; k++) {
-      kern_make_rev_graph_k<IdxT><<<blocks, threads, 0, raft::resource::get_cuda_stream(res)>>>(
+      kern_make_rev_graph_k<<<blocks, threads, 0, raft::resource::get_cuda_stream(res)>>>(
         output_graph, d_rev_graph, d_rev_graph_count, k);
     }
   } else {
