@@ -31,7 +31,8 @@ extern "C" {
  * - A host-resident dataset accepts either host- or device-resident outputs (indices, distances,
  *   core_distances); a device-resident dataset requires device-resident outputs. All provided
  *   outputs must share the same memory space.
- * - Host-resident outputs never materialize the full [num_rows x k] graph on the GPU.
+ * - With batched builds (`n_clusters > 1`), host-resident outputs avoid materializing the full
+ *   [num_rows x k] graph on the GPU at once.
  * - For batching, `overlap_factor < n_clusters` must hold.
  * - When `core_distances` is provided, mutual-reachability distances are produced (see alpha).
  */
