@@ -104,15 +104,20 @@ cdef extern from "cuvs/neighbors/cagra.h" nogil:
 
     ctypedef cuvsCagraIndex* cuvsCagraIndex_t
 
-    ctypedef enum cuvsCagraDeserializeIndexLayout:
-        CUVS_CAGRA_DESERIALIZE_INDEX_LAYOUT_PADDED
-        CUVS_CAGRA_DESERIALIZE_INDEX_LAYOUT_STANDARD
+    ctypedef enum cuvsDatasetLayout_t:
+        CUVS_DATASET_LAYOUT_STANDARD
+        CUVS_DATASET_LAYOUT_PADDED
 
-    ctypedef struct cuvsCagraExtendedDataset:
+    ctypedef enum cuvsDatasetStorageKind_t:
+        CUVS_DATASET_STORAGE_KIND_EXTENDED
+        CUVS_DATASET_STORAGE_KIND_MERGED
+
+    ctypedef struct cuvsDatasetStorage:
         uintptr_t addr
         DLDataType dtype
+        cuvsDatasetStorageKind_t kind
 
-    ctypedef cuvsCagraExtendedDataset* cuvsCagraExtendedDataset_t
+    ctypedef cuvsDatasetStorage* cuvsDatasetStorage_t
 
     cuvsError_t cuvsAceParamsCreate(cuvsAceParams_t* params)
 
@@ -163,7 +168,7 @@ cdef extern from "cuvs/neighbors/cagra.h" nogil:
 
     cuvsError_t cuvsCagraDeserialize(cuvsResources_t res,
                                      const char * filename,
-                                     cuvsCagraDeserializeIndexLayout layout,
+                                     cuvsDatasetLayout_t deserialize_layout,
                                      cuvsCagraIndex_t index)
 
     cuvsError_t cuvsCagraIndexFromArgs(cuvsResources_t res,
@@ -182,12 +187,12 @@ cdef extern from "cuvs/neighbors/cagra.h" nogil:
     cuvsError_t cuvsCagraMakeExtendedDataset(cuvsResources_t res,
                                              DLManagedTensor* additional_dataset,
                                              cuvsCagraIndex_t index,
-                                             cuvsCagraExtendedDataset_t* extended_dataset)
-    cuvsError_t cuvsCagraExtendedDatasetDestroy(cuvsCagraExtendedDataset_t extended_dataset)
+                                             cuvsDatasetStorage_t* extended_dataset)
+    cuvsError_t cuvsCagraExtendedDatasetDestroy(cuvsDatasetStorage_t extended_dataset)
     cuvsError_t cuvsCagraExtend(cuvsResources_t res,
                                 cuvsCagraExtendParams_t params,
                                 DLManagedTensor* additional_dataset,
-                                cuvsCagraExtendedDataset_t extended_dataset,
+                                cuvsDatasetStorage_t extended_dataset,
                                 cuvsCagraIndex_t index)
 
 

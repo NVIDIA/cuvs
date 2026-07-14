@@ -6,6 +6,7 @@
 #pragma once
 
 #include <cuvs/core/c_api.h>
+#include <cuvs/core/dataset.h>
 #include <cuvs/distance/distance.h>
 #include <cuvs/neighbors/common.h>
 #include <cuvs/neighbors/ivf_pq.h>
@@ -474,48 +475,6 @@ typedef struct {
 typedef cuvsCagraIndex* cuvsCagraIndex_t;
 
 /**
- * @brief Target index layout for CAGRA deserialize.
- */
-enum cuvsCagraDeserializeIndexLayout {
-  CUVS_CAGRA_DESERIALIZE_INDEX_LAYOUT_PADDED = 0,
-  CUVS_CAGRA_DESERIALIZE_INDEX_LAYOUT_STANDARD = 1
-};
-typedef enum cuvsCagraDeserializeIndexLayout cuvsCagraDeserializeIndexLayout_t;
-
-/**
- * @brief Opaque handle for an owning padded dataset used to prepare standard indices for search.
- *
- * The handle owns device-padded dataset storage created by \ref cuvsCagraMakePaddedDataset.
- * Ownership is never transferred to the index handle.
- */
-typedef struct {
-  uintptr_t addr;
-  DLDataType dtype;
-} cuvsCagraPaddedDataset;
-
-typedef cuvsCagraPaddedDataset* cuvsCagraPaddedDataset_t;
-
-/**
- * @brief Opaque handle for extend output storage allocated by \ref cuvsCagraMakeExtendedDataset.
- */
-typedef struct {
-  uintptr_t addr;
-  DLDataType dtype;
-} cuvsCagraExtendedDataset;
-
-typedef cuvsCagraExtendedDataset* cuvsCagraExtendedDataset_t;
-
-/**
- * @brief Opaque handle for merge output storage allocated by \ref cuvsCagraMakeMergedDataset.
- */
-typedef struct {
-  uintptr_t addr;
-  DLDataType dtype;
-} cuvsCagraMergedDataset;
-
-typedef cuvsCagraMergedDataset* cuvsCagraMergedDataset_t;
-
-/**
  * @brief Allocate CAGRA index
  *
  * @param[in] index cuvsCagraIndex_t to allocate
@@ -613,7 +572,7 @@ CUVS_EXPORT cuvsError_t cuvsCagraIndexGetGraph(cuvsCagraIndex_t index, DLManaged
  */
 CUVS_EXPORT cuvsError_t cuvsCagraMakePaddedDataset(cuvsResources_t res,
                                                    DLManagedTensor* dataset,
-                                                   cuvsCagraPaddedDataset_t* padded_dataset);
+                                                   cuvsDatasetPadded_t* padded_dataset);
 
 /**
  * @brief Destroy a padded dataset handle previously created by \ref cuvsCagraMakePaddedDataset.
@@ -621,7 +580,7 @@ CUVS_EXPORT cuvsError_t cuvsCagraMakePaddedDataset(cuvsResources_t res,
  * @param[in] padded_dataset padded dataset handle
  * @return cuvsError_t
  */
-CUVS_EXPORT cuvsError_t cuvsCagraPaddedDatasetDestroy(cuvsCagraPaddedDataset_t padded_dataset);
+CUVS_EXPORT cuvsError_t cuvsCagraPaddedDatasetDestroy(cuvsDatasetPadded_t padded_dataset);
 
 /**
  * @brief Attach a padded dataset to a standard CAGRA index to make it searchable.
@@ -636,7 +595,7 @@ CUVS_EXPORT cuvsError_t cuvsCagraPaddedDatasetDestroy(cuvsCagraPaddedDataset_t p
  * @return cuvsError_t
  */
 CUVS_EXPORT cuvsError_t cuvsCagraAttachPaddedDatasetForSearch(cuvsResources_t res,
-                                                              cuvsCagraPaddedDataset_t padded_dataset,
+                                                              cuvsDatasetPadded_t padded_dataset,
                                                               cuvsCagraIndex_t index);
 
 /**
@@ -668,12 +627,12 @@ CUVS_EXPORT cuvsError_t cuvsCagraAttachDeviceDatasetOnHostIndex(cuvsResources_t 
 CUVS_EXPORT cuvsError_t cuvsCagraMakeExtendedDataset(cuvsResources_t res,
                                                       DLManagedTensor* additional_dataset,
                                                       cuvsCagraIndex_t index,
-                                                      cuvsCagraExtendedDataset_t* extended_dataset);
+                                                      cuvsDatasetStorage_t* extended_dataset);
 
 /**
  * @brief Destroy an extend storage handle created by \ref cuvsCagraMakeExtendedDataset.
  */
-CUVS_EXPORT cuvsError_t cuvsCagraExtendedDatasetDestroy(cuvsCagraExtendedDataset_t extended_dataset);
+CUVS_EXPORT cuvsError_t cuvsCagraExtendedDatasetDestroy(cuvsDatasetStorage_t extended_dataset);
 
 /**
  * @brief Create merge output storage for a specific set of indices and filter.
@@ -691,12 +650,12 @@ CUVS_EXPORT cuvsError_t cuvsCagraMakeMergedDataset(cuvsResources_t res,
                                                     cuvsCagraIndex_t* indices,
                                                     size_t num_indices,
                                                     cuvsFilter filter,
-                                                    cuvsCagraMergedDataset_t* merged_dataset);
+                                                    cuvsDatasetStorage_t* merged_dataset);
 
 /**
  * @brief Destroy a merge storage handle created by \ref cuvsCagraMakeMergedDataset.
  */
-CUVS_EXPORT cuvsError_t cuvsCagraMergedDatasetDestroy(cuvsCagraMergedDataset_t merged_dataset);
+CUVS_EXPORT cuvsError_t cuvsCagraMergedDatasetDestroy(cuvsDatasetStorage_t merged_dataset);
 
 /**
  * @}
@@ -783,7 +742,7 @@ CUVS_EXPORT cuvsError_t cuvsCagraBuild(cuvsResources_t res,
 CUVS_EXPORT cuvsError_t cuvsCagraExtend(cuvsResources_t res,
                             cuvsCagraExtendParams_t params,
                             DLManagedTensor* additional_dataset,
-                            cuvsCagraExtendedDataset_t extended_dataset,
+                            cuvsDatasetStorage_t extended_dataset,
                             cuvsCagraIndex_t index);
 
 /**
@@ -922,13 +881,13 @@ CUVS_EXPORT cuvsError_t cuvsCagraSerializeToHnswlib(cuvsResources_t res,
  *
  * @param[in] res cuvsResources_t opaque C handle
  * @param[in] filename the name of the file that stores the index
- * @param[in] layout target index layout to deserialize into (padded or standard)
+ * @param[in] deserialize_layout target index layout to deserialize into (padded or standard)
  * @param[inout] index cuvsCagraIndex_t CAGRA index loaded from disk. This index needs to be already
  *                                      created with cuvsCagraIndexCreate.
  */
 CUVS_EXPORT cuvsError_t cuvsCagraDeserialize(cuvsResources_t res,
                                              const char* filename,
-                                             cuvsCagraDeserializeIndexLayout_t layout,
+                                             cuvsDatasetLayout_t deserialize_layout,
                                              cuvsCagraIndex_t index);
 
 /**
@@ -1037,7 +996,7 @@ CUVS_EXPORT cuvsError_t cuvsCagraMerge(cuvsResources_t res,
                            cuvsCagraIndex_t* indices,
                            size_t num_indices,
                            cuvsFilter filter,
-                           cuvsCagraMergedDataset_t merged_dataset,
+                           cuvsDatasetStorage_t merged_dataset,
                            cuvsCagraIndex_t output_index);
 
 /**

@@ -303,10 +303,10 @@ static void destroy_merged_dataset_typed(uintptr_t addr)
 template <typename T>
 static void make_padded_dataset(raft::resources* res_ptr,
                                 DLManagedTensor* dataset_tensor,
-                                cuvsCagraPaddedDataset_t* output_padded_dataset)
+                                cuvsDatasetPadded_t* output_padded_dataset)
 {
   auto dataset = dataset_tensor->dl_tensor;
-  auto* out    = new cuvsCagraPaddedDataset{0, dataset.dtype};
+  auto* out    = new cuvsDatasetPadded{0, dataset.dtype, CUVS_DATASET_LAYOUT_PADDED};
 
   if (cuvs::core::is_dlpack_device_compatible(dataset)) {
     using mdspan_type = raft::device_matrix_view<T const, int64_t, raft::row_major>;
@@ -330,7 +330,7 @@ static void make_padded_dataset(raft::resources* res_ptr,
 
 template <typename T>
 static void attach_padded_dataset_for_search(raft::resources* res_ptr,
-                                             cuvsCagraPaddedDataset_t padded_dataset,
+                                             cuvsDatasetPadded_t padded_dataset,
                                              cuvsCagraIndex_t index)
 {
   RAFT_EXPECTS(padded_dataset != nullptr, "cuvsCagraAttachPaddedDatasetForSearch: null padded dataset");
@@ -413,9 +413,10 @@ template <typename T>
 static void make_extended_dataset(raft::resources* res_ptr,
                                   DLManagedTensor* additional_dataset_tensor,
                                   cuvsCagraIndex_t index,
-                                  cuvsCagraExtendedDataset_t* output_extended_dataset)
+                                  cuvsDatasetStorage_t* output_extended_dataset)
 {
-  auto* out    = new cuvsCagraExtendedDataset{0, index->dtype};
+  auto* out    = new cuvsDatasetStorage{
+    0, index->dtype, CUVS_DATASET_STORAGE_KIND_EXTENDED};
   auto* box    = reinterpret_cast<sg_cagra_c_api_index_box*>(index->addr);
   RAFT_EXPECTS(box != nullptr, "cuvsCagraMakeExtendedDataset: null index handle");
   RAFT_EXPECTS(box->layout == sg_cagra_c_api_index_box::dataset_layout::device_padded ||
@@ -650,12 +651,14 @@ void _extend(cuvsResources_t res,
              cuvsCagraExtendParams params,
              cuvsCagraIndex index,
              DLManagedTensor* additional_dataset_tensor,
-             cuvsCagraExtendedDataset_t extended_dataset)
+             cuvsDatasetStorage_t extended_dataset)
 {
   auto* box      = reinterpret_cast<sg_cagra_c_api_index_box*>(index.addr);
   auto res_ptr   = reinterpret_cast<raft::resources*>(res);
   RAFT_EXPECTS(box != nullptr, "cuvsCagraExtend: null index handle");
   RAFT_EXPECTS(extended_dataset != nullptr, "cuvsCagraExtend: null extended dataset handle");
+  RAFT_EXPECTS(extended_dataset->kind == CUVS_DATASET_STORAGE_KIND_EXTENDED,
+               "cuvsCagraExtend: storage handle kind must be EXTENDED");
   auto* storage_holder =
     reinterpret_cast<cagra_c_api_extended_dataset_holder<T>*>(extended_dataset->addr);
   RAFT_EXPECTS(storage_holder != nullptr, "cuvsCagraExtend: null extended dataset storage");
@@ -799,11 +802,11 @@ void _serialize_to_hnswlib(cuvsResources_t res, const char* filename, cuvsCagraI
 template <typename T>
 void _deserialize(cuvsResources_t res,
                   const char* filename,
-                  cuvsCagraDeserializeIndexLayout layout,
+                  cuvsDatasetLayout_t deserialize_layout,
                   cuvsCagraIndex_t output_index)
 {
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
-  if (layout == CUVS_CAGRA_DESERIALIZE_INDEX_LAYOUT_PADDED) {
+  if (deserialize_layout == CUVS_DATASET_LAYOUT_PADDED) {
     auto holder = std::make_unique<
       cuvs_cagra_c_api_index_lifetime_holder<T, cuvs::neighbors::device_padded_dataset_view<T, int64_t>>>(
       cuvs::neighbors::cagra::device_padded_index<T, uint32_t>(*res_ptr));
@@ -812,7 +815,7 @@ void _deserialize(cuvsResources_t res,
       T, cuvs::neighbors::device_padded_dataset_view<T, int64_t>>(
       output_index, output_index->dtype, holder.release());
     return;
-  } else if (layout == CUVS_CAGRA_DESERIALIZE_INDEX_LAYOUT_STANDARD) {
+  } else if (deserialize_layout == CUVS_DATASET_LAYOUT_STANDARD) {
     auto holder = std::make_unique<
       cuvs_cagra_c_api_index_lifetime_holder<T, cuvs::neighbors::device_standard_dataset_view<T, int64_t>>>(
       cuvs::neighbors::cagra::device_standard_index<T, uint32_t>(*res_ptr));
@@ -831,7 +834,7 @@ void _merge(cuvsResources_t res,
             cuvsCagraIndex_t* indices,
             size_t num_indices,
             cuvsFilter filter,
-            cuvsCagraMergedDataset_t merged_dataset,
+            cuvsDatasetStorage_t merged_dataset,
             cuvsCagraIndex_t output_index)
 {
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
@@ -875,6 +878,8 @@ void _merge(cuvsResources_t res,
                           dim);
   auto* merge_holder =
     reinterpret_cast<cagra_c_api_merged_dataset_holder<T>*>(merged_dataset->addr);
+  RAFT_EXPECTS(merged_dataset->kind == CUVS_DATASET_STORAGE_KIND_MERGED,
+               "cuvsCagraMerge: storage handle kind must be MERGED");
   RAFT_EXPECTS(merge_holder != nullptr, "cuvsCagraMerge: null merged dataset storage");
 
   if (layout == sg_cagra_c_api_index_box::dataset_layout::device_padded) {
@@ -897,7 +902,7 @@ void _make_merged_dataset(cuvsResources_t res,
                           cuvsCagraIndex_t* indices,
                           size_t num_indices,
                           cuvsFilter filter,
-                          cuvsCagraMergedDataset_t* output_merged_dataset)
+                          cuvsDatasetStorage_t* output_merged_dataset)
 {
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
   auto* first_box = reinterpret_cast<sg_cagra_c_api_index_box*>(indices[0]->addr);
@@ -915,7 +920,8 @@ void _make_merged_dataset(cuvsResources_t res,
                  "layout");
   }
 
-  auto* out = new cuvsCagraMergedDataset{0, indices[0]->dtype};
+  auto* out = new cuvsDatasetStorage{
+    0, indices[0]->dtype, CUVS_DATASET_STORAGE_KIND_MERGED};
   cuvs::neighbors::cagra::merged_dataset_storage<T, uint32_t> storage =
     [&]() -> cuvs::neighbors::cagra::merged_dataset_storage<T, uint32_t> {
     if (layout == sg_cagra_c_api_index_box::dataset_layout::device_padded) {
@@ -1187,7 +1193,7 @@ extern "C" cuvsError_t cuvsCagraIndexGetGraph(cuvsCagraIndex_t index, DLManagedT
 
 extern "C" cuvsError_t cuvsCagraMakePaddedDataset(cuvsResources_t res,
                                                   DLManagedTensor* dataset_tensor,
-                                                  cuvsCagraPaddedDataset_t* padded_dataset)
+                                                  cuvsDatasetPadded_t* padded_dataset)
 {
   return cuvs::core::translate_exceptions([=] {
     auto dataset = dataset_tensor->dl_tensor;
@@ -1208,10 +1214,12 @@ extern "C" cuvsError_t cuvsCagraMakePaddedDataset(cuvsResources_t res,
   });
 }
 
-extern "C" cuvsError_t cuvsCagraPaddedDatasetDestroy(cuvsCagraPaddedDataset_t padded_dataset)
+extern "C" cuvsError_t cuvsCagraPaddedDatasetDestroy(cuvsDatasetPadded_t padded_dataset)
 {
   return cuvs::core::translate_exceptions([=] {
     if (padded_dataset == nullptr) { return; }
+    RAFT_EXPECTS(padded_dataset->layout == CUVS_DATASET_LAYOUT_PADDED,
+                 "cuvsCagraPaddedDatasetDestroy: dataset handle layout must be PADDED");
     if (padded_dataset->addr != 0) {
       if (padded_dataset->dtype.code == kDLFloat && padded_dataset->dtype.bits == 32) {
         destroy_padded_dataset_typed<float>(padded_dataset->addr);
@@ -1232,7 +1240,7 @@ extern "C" cuvsError_t cuvsCagraPaddedDatasetDestroy(cuvsCagraPaddedDataset_t pa
 }
 
 extern "C" cuvsError_t cuvsCagraAttachPaddedDatasetForSearch(cuvsResources_t res,
-                                                              cuvsCagraPaddedDataset_t padded_dataset,
+                                                              cuvsDatasetPadded_t padded_dataset,
                                                               cuvsCagraIndex_t index)
 {
   return cuvs::core::translate_exceptions([=] {
@@ -1240,6 +1248,8 @@ extern "C" cuvsError_t cuvsCagraAttachPaddedDatasetForSearch(cuvsResources_t res
     RAFT_EXPECTS(padded_dataset != nullptr,
                  "cuvsCagraAttachPaddedDatasetForSearch: null padded dataset");
     RAFT_EXPECTS(index != nullptr, "cuvsCagraAttachPaddedDatasetForSearch: null index handle");
+  RAFT_EXPECTS(padded_dataset->layout == CUVS_DATASET_LAYOUT_PADDED,
+               "cuvsCagraAttachPaddedDatasetForSearch: dataset handle layout must be PADDED");
     RAFT_EXPECTS(index->dtype.code == padded_dataset->dtype.code &&
                    index->dtype.bits == padded_dataset->dtype.bits,
                  "cuvsCagraAttachPaddedDatasetForSearch: dtype mismatch between index and padded dataset");
@@ -1283,7 +1293,7 @@ extern "C" cuvsError_t cuvsCagraAttachDeviceDatasetOnHostIndex(cuvsResources_t r
 extern "C" cuvsError_t cuvsCagraMakeExtendedDataset(cuvsResources_t res,
                                                      DLManagedTensor* additional_dataset_tensor,
                                                      cuvsCagraIndex_t index,
-                                                     cuvsCagraExtendedDataset_t* extended_dataset)
+                                                     cuvsDatasetStorage_t* extended_dataset)
 {
   return cuvs::core::translate_exceptions([=] {
     RAFT_EXPECTS(additional_dataset_tensor != nullptr,
@@ -1315,10 +1325,12 @@ extern "C" cuvsError_t cuvsCagraMakeExtendedDataset(cuvsResources_t res,
   });
 }
 
-extern "C" cuvsError_t cuvsCagraExtendedDatasetDestroy(cuvsCagraExtendedDataset_t extended_dataset)
+extern "C" cuvsError_t cuvsCagraExtendedDatasetDestroy(cuvsDatasetStorage_t extended_dataset)
 {
   return cuvs::core::translate_exceptions([=] {
     if (extended_dataset == nullptr) { return; }
+    RAFT_EXPECTS(extended_dataset->kind == CUVS_DATASET_STORAGE_KIND_EXTENDED,
+                 "cuvsCagraExtendedDatasetDestroy: storage handle kind must be EXTENDED");
     if (extended_dataset->addr != 0) {
       if (extended_dataset->dtype.code == kDLFloat && extended_dataset->dtype.bits == 32) {
         destroy_extended_dataset_typed<float>(extended_dataset->addr);
@@ -1342,7 +1354,7 @@ extern "C" cuvsError_t cuvsCagraMakeMergedDataset(cuvsResources_t res,
                                                    cuvsCagraIndex_t* indices,
                                                    size_t num_indices,
                                                    cuvsFilter filter,
-                                                   cuvsCagraMergedDataset_t* merged_dataset)
+                                                   cuvsDatasetStorage_t* merged_dataset)
 {
   return cuvs::core::translate_exceptions([=] {
     RAFT_EXPECTS(indices != nullptr && num_indices > 0,
@@ -1366,10 +1378,12 @@ extern "C" cuvsError_t cuvsCagraMakeMergedDataset(cuvsResources_t res,
   });
 }
 
-extern "C" cuvsError_t cuvsCagraMergedDatasetDestroy(cuvsCagraMergedDataset_t merged_dataset)
+extern "C" cuvsError_t cuvsCagraMergedDatasetDestroy(cuvsDatasetStorage_t merged_dataset)
 {
   return cuvs::core::translate_exceptions([=] {
     if (merged_dataset == nullptr) { return; }
+    RAFT_EXPECTS(merged_dataset->kind == CUVS_DATASET_STORAGE_KIND_MERGED,
+                 "cuvsCagraMergedDatasetDestroy: storage handle kind must be MERGED");
     if (merged_dataset->addr != 0) {
       if (merged_dataset->dtype.code == kDLFloat && merged_dataset->dtype.bits == 32) {
         destroy_merged_dataset_typed<float>(merged_dataset->addr);
@@ -1445,7 +1459,7 @@ extern "C" cuvsError_t cuvsCagraIndexFromArgs(cuvsResources_t res,
 extern "C" cuvsError_t cuvsCagraExtend(cuvsResources_t res,
                                        cuvsCagraExtendParams_t params,
                                        DLManagedTensor* additional_dataset_tensor,
-                                       cuvsCagraExtendedDataset_t extended_dataset,
+                                       cuvsDatasetStorage_t extended_dataset,
                                        cuvsCagraIndex_t index_c_ptr)
 {
   return cuvs::core::translate_exceptions([=] {
@@ -1524,7 +1538,7 @@ extern "C" cuvsError_t cuvsCagraMerge(cuvsResources_t res,
                                       cuvsCagraIndex_t* indices,
                                       size_t num_indices,
                                       cuvsFilter filter,
-                                      cuvsCagraMergedDataset_t merged_dataset,
+                                      cuvsDatasetStorage_t merged_dataset,
                                       cuvsCagraIndex_t output_index)
 {
   return cuvs::core::translate_exceptions([=] {
@@ -1699,7 +1713,7 @@ extern "C" cuvsError_t cuvsCagraSearchParamsDestroy(cuvsCagraSearchParams_t para
 
 extern "C" cuvsError_t cuvsCagraDeserialize(cuvsResources_t res,
                                             const char* filename,
-                                            cuvsCagraDeserializeIndexLayout layout,
+                                            cuvsDatasetLayout_t deserialize_layout,
                                             cuvsCagraIndex_t index)
 {
   return cuvs::core::translate_exceptions([=] {
@@ -1719,16 +1733,16 @@ extern "C" cuvsError_t cuvsCagraDeserialize(cuvsResources_t res,
 
     index->dtype.bits = dtype.itemsize * 8;
     if (dtype.kind == 'f' && dtype.itemsize == 4) {
-      _deserialize<float>(res, filename, layout, index);
+      _deserialize<float>(res, filename, deserialize_layout, index);
       index->dtype.code = kDLFloat;
     } else if (dtype.kind == 'e' && dtype.itemsize == 2) {
-      _deserialize<half>(res, filename, layout, index);
+      _deserialize<half>(res, filename, deserialize_layout, index);
       index->dtype.code = kDLFloat;
     } else if (dtype.kind == 'i' && dtype.itemsize == 1) {
-      _deserialize<int8_t>(res, filename, layout, index);
+      _deserialize<int8_t>(res, filename, deserialize_layout, index);
       index->dtype.code = kDLInt;
     } else if (dtype.kind == 'u' && dtype.itemsize == 1) {
-      _deserialize<uint8_t>(res, filename, layout, index);
+      _deserialize<uint8_t>(res, filename, deserialize_layout, index);
       index->dtype.code = kDLUInt;
     } else {
       RAFT_FAIL("Unsupported dtype in file %s", filename);

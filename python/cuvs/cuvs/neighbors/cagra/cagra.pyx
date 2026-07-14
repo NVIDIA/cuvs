@@ -889,19 +889,19 @@ def load(filename, layout="padded", resources=None):
     cdef Index idx = Index()
     cdef cuvsResources_t res = <cuvsResources_t>resources.get_c_obj()
     cdef string c_filename = filename.encode('utf-8')
-    cdef cuvsCagraDeserializeIndexLayout c_layout
+    cdef cuvsDatasetLayout_t deserialize_layout
 
     if layout == "padded":
-        c_layout = CUVS_CAGRA_DESERIALIZE_INDEX_LAYOUT_PADDED
+        deserialize_layout = CUVS_DATASET_LAYOUT_PADDED
     elif layout == "standard":
-        c_layout = CUVS_CAGRA_DESERIALIZE_INDEX_LAYOUT_STANDARD
+        deserialize_layout = CUVS_DATASET_LAYOUT_STANDARD
     else:
         raise ValueError("layout must be either 'padded' or 'standard'")
 
     check_cuvs(cuvsCagraDeserialize(
         res,
         c_filename.c_str(),
-        c_layout,
+        deserialize_layout,
         idx.index
     ))
     idx.trained = True
@@ -1012,7 +1012,7 @@ def extend(ExtendParams params, Index index, additional_dataset,
         cydlpack.dlpack_c(dataset_ai)
 
     cdef cuvsResources_t res = <cuvsResources_t>resources.get_c_obj()
-    cdef cuvsCagraExtendedDataset_t extended_dataset = NULL
+    cdef cuvsDatasetStorage_t extended_dataset = NULL
 
     check_cuvs(cuvsCagraMakeExtendedDataset(
         res,

@@ -229,7 +229,7 @@ TEST(CagraC, BuildExtendSearch)
   // extend index
   cuvsCagraExtendParams_t extend_params;
   cuvsCagraExtendParamsCreate(&extend_params);
-  cuvsCagraExtendedDataset_t extended_dataset = nullptr;
+  cuvsDatasetStorage_t extended_dataset = nullptr;
   ASSERT_EQ(cuvsCagraMakeExtendedDataset(res, &additional_dataset_tensor, index, &extended_dataset),
             CUVS_SUCCESS);
   ASSERT_EQ(cuvsCagraExtend(res, extend_params, &additional_dataset_tensor, extended_dataset, index),
@@ -526,7 +526,7 @@ TEST(CagraC, BuildMergeSearch)
   filter.addr = 0;
 
   cuvsCagraIndex_t index_array[2] = {index_main, index_add};
-  cuvsCagraMergedDataset_t merged_dataset = nullptr;
+  cuvsDatasetStorage_t merged_dataset = nullptr;
   ASSERT_EQ(cuvsCagraMakeMergedDataset(res, index_array, 2, filter, &merged_dataset), CUVS_SUCCESS);
   ASSERT_EQ(cuvsCagraMerge(res, build_params, index_array, 2, filter, merged_dataset, index_merged),
             CUVS_SUCCESS);
@@ -549,7 +549,7 @@ TEST(CagraC, BuildMergeSearch)
   merged_dataset_tensor.dl_tensor.shape              = merged_shape;
   merged_dataset_tensor.dl_tensor.strides            = nullptr;
 
-  cuvsCagraPaddedDataset_t padded_dataset = nullptr;
+  cuvsDatasetPadded_t padded_dataset = nullptr;
   ASSERT_EQ(cuvsCagraMakePaddedDataset(res, &merged_dataset_tensor, &padded_dataset), CUVS_SUCCESS);
   ASSERT_EQ(cuvsCagraAttachPaddedDatasetForSearch(res, padded_dataset, index_merged), CUVS_SUCCESS);
 
