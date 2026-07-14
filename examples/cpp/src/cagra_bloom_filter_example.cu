@@ -22,11 +22,10 @@
 
 namespace {
 
-constexpr int64_t n_rows          = 4096;
-constexpr int64_t n_dim           = 32;
-constexpr int64_t n_queries       = 4;
-constexpr int64_t k               = 8;
-constexpr std::size_t sub_filters = 256;
+constexpr int64_t n_rows    = 4096;
+constexpr int64_t n_dim     = 32;
+constexpr int64_t n_queries = 4;
+constexpr int64_t k         = 8;
 
 using key_type = std::uint32_t;
 
@@ -87,7 +86,7 @@ int main()
 
   auto valid_ids_view = raft::make_device_vector_view<const key_type, int64_t>(
     valid_ids_device.data(), static_cast<int64_t>(valid_ids_device.size()));
-  cuvs::core::bloom_filter allowed_rows(res, 1.0f, 0.01f, sub_filters);
+  cuvs::core::bloom_filter allowed_rows(res, n_rows, 0.5f, 0.01f);
   allowed_rows.add_async(res, valid_ids_view);
   raft::resource::sync_stream(res);
 
@@ -122,7 +121,7 @@ int main()
   }
   std::cout << std::endl;
 
-  // Validate with cuco's bulk contains API over the returned neighbors.
+  // Validate with the Bloom filter's bulk contains API over the returned neighbors.
   rmm::device_uvector<key_type> neighbor_ids_device(host_neighbors.size(), stream);
   rmm::device_uvector<uint8_t> bloom_hits_device(host_neighbors.size(), stream);
   raft::copy(neighbor_ids_device.data(), host_neighbors.data(), host_neighbors.size(), stream);
@@ -148,13 +147,8 @@ int main()
                 << " but global bloom filter bulk contains says absent" << std::endl;
       return 1;
     }
-    if (!is_valid_row(source_id)) {
-      std::cerr << "bloom_filter allowed invalid source_id=" << source_id
-                << " (unexpected bloom false positive)" << std::endl;
-      return 1;
-    }
   }
 
-  std::cout << "CAGRA bloom filter example produced valid filtered neighbors." << std::endl;
+  std::cout << "CAGRA bloom filter example produced bloom-accepted neighbors." << std::endl;
   return 0;
 }

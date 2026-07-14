@@ -32,9 +32,9 @@ class CUVS_EXPORT bloom_filter {
   /**
    * @brief Construct a Bloom filter with user-facing quality knobs.
    *
-   * The first add/add_async call sets `dataset_rows` from `keys.size()` and then computes a target
-   * filter size from the first two parameters. The filter keeps at least `num_blocks` blocks, and
-   * may grow above that floor to satisfy the requested false-positive rate.
+   * @p dataset_rows is the number of rows in the indexed dataset. The filter uses it with
+   * @p filtering_rate to estimate the number of inserted valid ids and compute a target filter
+   * size that satisfies the requested false-positive rate.
    *
    * The primary tuning knobs are:
    * - @p filtering_rate: expected fraction of dataset rows that will be inserted as valid ids.
@@ -44,18 +44,16 @@ class CUVS_EXPORT bloom_filter {
    * - `expected_insertions = ceil(dataset_rows * filtering_rate)`
    * - `required_bits = -expected_insertions * ln(target_false_positive_rate) / (ln(2)^2)`
    * - `required_blocks = ceil(required_bits / 256)` (default cuco policy uses 256-bit blocks)
-   * - `final_blocks = max(num_blocks, required_blocks)`
    *
    * Practical knob behavior:
    * - Lower @p target_false_positive_rate -> larger filter, fewer false positives, typically higher
    *   filtered-search recall.
    * - Higher @p filtering_rate -> larger filter for the same target false-positive rate.
-   * - @p num_blocks is an expert floor; keep default unless you need a hard minimum memory budget.
    */
   bloom_filter(raft::resources const& res,
+               std::size_t dataset_rows,
                float filtering_rate             = 1.0f,
-               float target_false_positive_rate = 0.01f,
-               std::size_t num_blocks           = 256);
+               float target_false_positive_rate = 0.01f);
   ~bloom_filter();
 
   bloom_filter(bloom_filter const&)            = delete;
@@ -80,9 +78,10 @@ class CUVS_EXPORT bloom_filter {
   [[nodiscard]] std::size_t num_blocks() const noexcept;
   [[nodiscard]] float estimate_filtering_rate(raft::resources const& res,
                                               std::size_t dataset_rows) const;
-  [[nodiscard]] impl const& get_impl() const noexcept;
 
  private:
+  friend impl const& get_bloom_filter_impl(bloom_filter const& filter) noexcept;
+
   std::unique_ptr<impl> impl_;
 };
 

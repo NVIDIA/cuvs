@@ -389,7 +389,7 @@ void search(raft::resources const& res,
     auto& sample_filter =
       dynamic_cast<const cuvs::neighbors::filtering::bloom_filter&>(sample_filter_ref);
     search_params params_copy = params;
-    if (params.filtering_rate <= 0.0f) {
+    if (params.filtering_rate < 0.0f) {
       const float min_filtering_rate = 0.0f;
       const float max_filtering_rate = 0.999f;
       auto const* bloom_filter_obj =

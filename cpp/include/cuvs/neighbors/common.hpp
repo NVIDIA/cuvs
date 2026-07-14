@@ -500,7 +500,7 @@ namespace filtering {
  * @{
  */
 
-enum class FilterType { None, Bitmap, Bitset, Bloom, UDF };
+enum class FilterType : int { None = 0, Bitmap = 1, Bitset = 2, Bloom = 3, UDF = 100 };
 
 struct base_filter {
   ~base_filter()                             = default;
@@ -631,6 +631,9 @@ struct bitset_filter : public base_filter {
  * Bloom filters have no false negatives: if a row was inserted, @c contains returns @c true. False
  * positives are possible, so highly selective predicates may still need a bitset or UDF for exact
  * filtering.
+ *
+ * This adapter is non-owning. The referenced @c cuvs::core::bloom_filter must outlive the adapter
+ * and any searches that use it, and must not be moved or mutated concurrently with a search.
  */
 struct bloom_filter : public base_filter {
   void* filter_data{nullptr};

@@ -38,9 +38,11 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <iostream>
 #include <optional>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 namespace cuvs::neighbors::cagra {
@@ -960,8 +962,7 @@ class AnnCagraFilterTest : public ::testing::TestWithParam<AnnCagraInputs> {
         rmm::device_uvector<std::uint32_t> valid_ids_device(valid_ids_host.size(), stream_);
         raft::copy(valid_ids_device.data(), valid_ids_host.data(), valid_ids_host.size(), stream_);
 
-        auto bloom_num_blocks = std::max<std::size_t>(4096, static_cast<std::size_t>(ps.n_rows));
-        auto valid_ids_view   = raft::make_device_vector_view<const std::uint32_t, int64_t>(
+        auto valid_ids_view = raft::make_device_vector_view<const std::uint32_t, int64_t>(
           valid_ids_device.data(), static_cast<int64_t>(valid_ids_device.size()));
         auto candidate_fprs = std::vector<float>{0.01f};
         if (ps.n_rows == 1000 && ps.dim == 8 && ps.k == 16 &&
@@ -971,11 +972,13 @@ class AnnCagraFilterTest : public ::testing::TestWithParam<AnnCagraInputs> {
           candidate_fprs = {0.25f, 0.05f, 0.01f};
         }
 
-        std::vector<double> bloom_recalls;
-        bloom_recalls.reserve(candidate_fprs.size());
+        auto bloom_valid_fraction =
+          static_cast<float>(valid_ids_host.size()) / static_cast<float>(ps.n_rows);
         for (auto target_false_positive_rate : candidate_fprs) {
-          cuvs::core::bloom_filter global_bloom_filter(
-            handle_, 1.0f, target_false_positive_rate, bloom_num_blocks);
+          cuvs::core::bloom_filter global_bloom_filter(handle_,
+                                                       static_cast<std::size_t>(ps.n_rows),
+                                                       bloom_valid_fraction,
+                                                       target_false_positive_rate);
           global_bloom_filter.add_async(handle_, valid_ids_view);
           raft::resource::sync_stream(handle_);
 
@@ -996,28 +999,60 @@ class AnnCagraFilterTest : public ::testing::TestWithParam<AnnCagraInputs> {
             bloom_distances_host.data(), distances_dev.data(), queries_size, stream_);
           raft::resource::sync_stream(handle_);
 
-          auto [bloom_recall, bloom_index_recall, bloom_match_count, bloom_total_count] =
-            calc_recall(indices_naive,
-                        bloom_indices_host,
-                        distances_naive,
-                        bloom_distances_host,
-                        ps.n_queries,
-                        ps.k,
-                        0.003);
+          std::vector<std::uint32_t> bloom_indices_as_keys_host(queries_size);
+          bool bloom_out_of_domain = false;
+          for (size_t i = 0; i < queries_size; ++i) {
+            const auto id    = bloom_indices_host[i];
+            bool negative_id = false;
+            if constexpr (std::is_signed_v<IdxT>) { negative_id = id < IdxT{0}; }
+            if (negative_id ||
+                static_cast<std::uint64_t>(id) >= static_cast<std::uint64_t>(ps.n_rows)) {
+              bloom_out_of_domain           = true;
+              bloom_indices_as_keys_host[i] = 0;
+            } else {
+              bloom_indices_as_keys_host[i] = static_cast<std::uint32_t>(id);
+            }
+          }
+          EXPECT_FALSE(bloom_out_of_domain);
+
+          rmm::device_uvector<std::uint32_t> bloom_indices_as_keys_device(queries_size, stream_);
+          rmm::device_uvector<std::uint8_t> bloom_accepts_device(queries_size, stream_);
+          std::vector<std::uint8_t> bloom_accepts_host(queries_size);
+          raft::copy(bloom_indices_as_keys_device.data(),
+                     bloom_indices_as_keys_host.data(),
+                     queries_size,
+                     stream_);
+          auto bloom_indices_as_keys_view =
+            raft::make_device_vector_view<const std::uint32_t, int64_t>(
+              bloom_indices_as_keys_device.data(), static_cast<int64_t>(queries_size));
+          auto bloom_accepts_view = raft::make_device_vector_view<std::uint8_t, int64_t>(
+            bloom_accepts_device.data(), static_cast<int64_t>(queries_size));
+          global_bloom_filter.contains(handle_, bloom_indices_as_keys_view, bloom_accepts_view);
+          raft::update_host(
+            bloom_accepts_host.data(), bloom_accepts_device.data(), queries_size, stream_);
+          raft::resource::sync_stream(handle_);
+          EXPECT_TRUE(std::all_of(bloom_accepts_host.begin(),
+                                  bloom_accepts_host.end(),
+                                  [](std::uint8_t accepted) { return accepted != 0; }));
+
+          auto bloom_recall_result = calc_recall(indices_naive,
+                                                 bloom_indices_host,
+                                                 distances_naive,
+                                                 bloom_distances_host,
+                                                 ps.n_queries,
+                                                 ps.k,
+                                                 0.003);
+          auto bloom_recall        = std::get<0>(bloom_recall_result);
+          auto bloom_match_count   = std::get<2>(bloom_recall_result);
+          auto bloom_total_count   = std::get<3>(bloom_recall_result);
           RAFT_LOG_INFO("Bloom filter recall = %f (%zu/%zu), target_false_positive_rate = %f",
                         bloom_recall,
                         bloom_match_count,
                         bloom_total_count,
                         target_false_positive_rate);
-          RAFT_LOG_INFO("Bloom filter index recall = %f", bloom_index_recall);
-          bloom_recalls.push_back(bloom_recall);
-        }
-        if (bloom_recalls.size() > 1) {
-          // As target_false_positive_rate decreases, recall should not regress in a meaningful way.
-          for (size_t i = 1; i < bloom_recalls.size(); ++i) {
-            EXPECT_GE(bloom_recalls[i] + 0.02, bloom_recalls[i - 1]);
-          }
-          EXPECT_GE(bloom_recalls.back() + 1e-3, bloom_recalls.front());
+          auto bloom_min_recall =
+            std::max(0.0, ps.min_recall - static_cast<double>(target_false_positive_rate));
+          EXPECT_GE(bloom_recall, bloom_min_recall);
         }
       }
 
