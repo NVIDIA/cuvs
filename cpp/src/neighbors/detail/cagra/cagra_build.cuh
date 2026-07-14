@@ -2252,8 +2252,7 @@ auto iterative_build_graph(
   // ~graph_degree/2 and thus request topk ~= graph_degree/2 + 1; the search planner requires
   // topk <= itopk_size. (The full-size iterations override itopk internally, so they are not
   // constrained by this value.)
-  RAFT_EXPECTS(iter_params.itopk_size == 0 ||
-                 iter_params.itopk_size >= graph_degree / 2 + 1,
+  RAFT_EXPECTS(iter_params.itopk_size == 0 || iter_params.itopk_size >= graph_degree / 2 + 1,
                "iterative build search itopk_size (%zu) must be 0 (auto) or >= "
                "graph_degree / 2 + 1 (%zu)",
                (size_t)iter_params.itopk_size,
@@ -2334,18 +2333,13 @@ auto iterative_build_graph(
                                                        true,
                                                        stream);
 
-      // Apply permutation to VPQ data: shuffled_data[i] = original_data[perm[i]].
-      // NOTE: use an out-of-place device gather into a temporary buffer rather than the
-      // in-place gather overload. The in-place overload uses a host-orchestrated,
-      // double-buffered, multi-stream path that races here and triggers an asynchronous
-      // illegal memory access (the crash disappears under CUDA_LAUNCH_BLOCKING=1).
-      auto shuffled_data = raft::make_device_matrix<uint8_t, int64_t>(
-        res, vpq_dset.data.extent(0), vpq_dset.data.extent(1));
-      raft::matrix::gather(res,
-                           raft::make_const_mdspan(vpq_dset.data.view()),
-                           raft::make_const_mdspan(dev_perm_i64.view()),
-                           shuffled_data.view());
-      vpq_dset.data = std::move(shuffled_data);
+      // Apply permutation to VPQ data in place: data[i] = original_data[perm[i]].
+      // Previously this used an out-of-place gather into a temporary buffer to work around
+      // an illegal memory access in the in-place gather overload when n_rows * row_len
+      // exceeded 2^31 (32-bit index overflow). That bug is fixed upstream in raft
+      // (rapidsai/raft#3059, issue #3055), which cuvs now pins, so the in-place gather is
+      // safe again and avoids the extra full-size temporary allocation and copy.
+      raft::matrix::gather(res, vpq_dset.data.view(), raft::make_const_mdspan(dev_perm_i64.view()));
 
       // Store perm as IdxT for graph unshuffling later
       // perm[shuffled_idx] = original_idx
@@ -2400,10 +2394,9 @@ auto iterative_build_graph(
     // full size the search builds a graph_degree-degree graph (topk = graph_degree + 1); that
     // iteration needs a larger itopk, so it overrides the configured value with the auto formula.
     // The final iteration (flag_last) uses a fixed itopk tied to the output topk.
-    auto curr_itopk_size =
-      (iter_params.itopk_size > 0 && next_graph_degree == small_graph_degree)
-        ? (uint64_t)iter_params.itopk_size
-        : std::max(next_graph_degree + 32, (uint64_t)128);
+    auto curr_itopk_size = (iter_params.itopk_size > 0 && next_graph_degree == small_graph_degree)
+                             ? (uint64_t)iter_params.itopk_size
+                             : std::max(next_graph_degree + 32, (uint64_t)128);
     if (flag_last) {
       curr_topk       = topk;
       curr_itopk_size = curr_topk + 32;
