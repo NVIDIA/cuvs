@@ -602,11 +602,7 @@ enum class filtered_search_path { sddmm, gather, dense };
 /**
  * @brief Pick the cheapest search path for a filtered brute-force query.
  *
- * The constants are empirical (fp16, RTX 5090; see
- * cpp/bench/prims/core/results/bf_sweep/README.md) and are deliberately round: over the
- * measured sweep, perturbing any of them by 2x -- roughly the spread expected across
- * GPUs -- leaves the mean penalty against a perfect oracle at 1.01-1.05x, versus 1.65x
- * mean and 12.6x worst case for the old `sparsity < 0.9` rule.
+ * The thresholds are empirical.
  *
  * @param[in] n_dataset       rows in the dataset
  * @param[in] dim             columns in the dataset
