@@ -184,11 +184,11 @@ cdef extern from "cuvs/neighbors/cagra.h" nogil:
 
     cuvsError_t cuvsCagraExtendParamsCreate(cuvsCagraExtendParams_t* params)
     cuvsError_t cuvsCagraExtendParamsDestroy(cuvsCagraExtendParams_t params)
-    cuvsError_t cuvsCagraMakeExtendedDataset(cuvsResources_t res,
-                                             DLManagedTensor* additional_dataset,
-                                             cuvsCagraIndex_t index,
-                                             cuvsDatasetStorage_t* extended_dataset)
-    cuvsError_t cuvsCagraExtendedDatasetDestroy(cuvsDatasetStorage_t extended_dataset)
+    cuvsError_t cuvsDatasetMakeExtended(cuvsResources_t res,
+                                        DLManagedTensor* additional_dataset,
+                                        cuvsCagraIndex_t index,
+                                        cuvsDatasetStorage_t* extended_dataset)
+    cuvsError_t cuvsDatasetStorageDestroy(cuvsDatasetStorage_t dataset_storage)
     cuvsError_t cuvsCagraExtend(cuvsResources_t res,
                                 cuvsCagraExtendParams_t params,
                                 DLManagedTensor* additional_dataset,

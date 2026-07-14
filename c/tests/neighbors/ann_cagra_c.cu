@@ -230,7 +230,7 @@ TEST(CagraC, BuildExtendSearch)
   cuvsCagraExtendParams_t extend_params;
   cuvsCagraExtendParamsCreate(&extend_params);
   cuvsDatasetStorage_t extended_dataset = nullptr;
-  ASSERT_EQ(cuvsCagraMakeExtendedDataset(res, &additional_dataset_tensor, index, &extended_dataset),
+  ASSERT_EQ(cuvsDatasetMakeExtended(res, &additional_dataset_tensor, index, &extended_dataset),
             CUVS_SUCCESS);
   ASSERT_EQ(cuvsCagraExtend(res, extend_params, &additional_dataset_tensor, extended_dataset, index),
             CUVS_SUCCESS);
@@ -346,7 +346,7 @@ TEST(CagraC, BuildExtendSearch)
   // de-allocate index and res
   cuvsCagraSearchParamsDestroy(search_params);
   cuvsCagraExtendParamsDestroy(extend_params);
-  cuvsCagraExtendedDatasetDestroy(extended_dataset);
+  cuvsDatasetStorageDestroy(extended_dataset);
   cuvsCagraIndexParamsDestroy(build_params);
   cuvsCagraIndexDestroy(index);
   cuvsResourcesDestroy(res);
@@ -527,7 +527,7 @@ TEST(CagraC, BuildMergeSearch)
 
   cuvsCagraIndex_t index_array[2] = {index_main, index_add};
   cuvsDatasetStorage_t merged_dataset = nullptr;
-  ASSERT_EQ(cuvsCagraMakeMergedDataset(res, index_array, 2, filter, &merged_dataset), CUVS_SUCCESS);
+  ASSERT_EQ(cuvsDatasetMakeMerged(res, index_array, 2, filter, &merged_dataset), CUVS_SUCCESS);
   ASSERT_EQ(cuvsCagraMerge(res, build_params, index_array, 2, filter, merged_dataset, index_merged),
             CUVS_SUCCESS);
 
@@ -550,7 +550,7 @@ TEST(CagraC, BuildMergeSearch)
   merged_dataset_tensor.dl_tensor.strides            = nullptr;
 
   cuvsDatasetPadded_t padded_dataset = nullptr;
-  ASSERT_EQ(cuvsCagraMakePaddedDataset(res, &merged_dataset_tensor, &padded_dataset), CUVS_SUCCESS);
+  ASSERT_EQ(cuvsDatasetMakePadded(res, &merged_dataset_tensor, &padded_dataset), CUVS_SUCCESS);
   ASSERT_EQ(cuvsCagraAttachPaddedDatasetForSearch(res, padded_dataset, index_merged), CUVS_SUCCESS);
 
   int64_t merged_dim = -1;
@@ -602,7 +602,7 @@ TEST(CagraC, BuildMergeSearch)
   EXPECT_NEAR(distance_host, 0.0f, 1e-6);
 
   cuvsCagraSearchParamsDestroy(search_params);
-  cuvsCagraMergedDatasetDestroy(merged_dataset);
+  cuvsDatasetStorageDestroy(merged_dataset);
   cuvsCagraIndexParamsDestroy(build_params);
   cuvsCagraIndexDestroy(index_merged);
   cuvsCagraIndexDestroy(index_add);

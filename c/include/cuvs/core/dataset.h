@@ -5,6 +5,9 @@
 
 #pragma once
 
+#include <cuvs/core/c_api.h>
+#include <cuvs/neighbors/common.h>
+
 #include <dlpack/dlpack.h>
 #include <stdint.h>
 
@@ -62,6 +65,27 @@ typedef struct {
   cuvsDatasetStorageKind_t kind;
 } cuvsDatasetStorage;
 typedef cuvsDatasetStorage* cuvsDatasetStorage_t;
+
+typedef struct cuvsCagraIndex* cuvsCagraIndex_t;
+
+CUVS_EXPORT cuvsError_t cuvsDatasetMakePadded(cuvsResources_t res,
+                                              DLManagedTensor* dataset,
+                                              cuvsDatasetPadded_t* padded_dataset);
+
+CUVS_EXPORT cuvsError_t cuvsDatasetPaddedDestroy(cuvsDatasetPadded_t padded_dataset);
+
+CUVS_EXPORT cuvsError_t cuvsDatasetMakeExtended(cuvsResources_t res,
+                                                DLManagedTensor* additional_dataset,
+                                                cuvsCagraIndex_t index,
+                                                cuvsDatasetStorage_t* extended_dataset);
+
+CUVS_EXPORT cuvsError_t cuvsDatasetMakeMerged(cuvsResources_t res,
+                                              cuvsCagraIndex_t* indices,
+                                              size_t num_indices,
+                                              cuvsFilter filter,
+                                              cuvsDatasetStorage_t* merged_dataset);
+
+CUVS_EXPORT cuvsError_t cuvsDatasetStorageDestroy(cuvsDatasetStorage_t dataset_storage);
 
 #ifdef __cplusplus
 }

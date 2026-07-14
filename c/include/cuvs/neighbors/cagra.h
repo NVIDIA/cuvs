@@ -467,7 +467,7 @@ CUVS_EXPORT cuvsError_t cuvsCagraSearchParamsDestroy(cuvsCagraSearchParams_t par
  * storage (not always a bare `cagra::index*`); free only via \ref cuvsCagraIndexDestroy. \p dtype
  * describes index vector elements for queries and template dispatch.
  */
-typedef struct {
+typedef struct cuvsCagraIndex {
   uintptr_t addr;
   DLDataType dtype;
 } cuvsCagraIndex;
@@ -559,30 +559,6 @@ CUVS_EXPORT cuvsError_t cuvsCagraIndexGetDataset(cuvsCagraIndex_t index, DLManag
 CUVS_EXPORT cuvsError_t cuvsCagraIndexGetGraph(cuvsCagraIndex_t index, DLManagedTensor* graph);
 
 /**
- * @brief Create an owning device-padded dataset from an input dataset tensor.
- *
- * Accepts host- or device-compatible 2D row-major tensors with dtypes supported by CAGRA.
- * The returned handle owns the padded dataset memory and must be destroyed with
- * \ref cuvsCagraPaddedDatasetDestroy.
- *
- * @param[in]  res              cuvsResources_t opaque C handle
- * @param[in]  dataset          input dataset tensor (host or device compatible)
- * @param[out] padded_dataset   newly allocated padded dataset handle
- * @return cuvsError_t
- */
-CUVS_EXPORT cuvsError_t cuvsCagraMakePaddedDataset(cuvsResources_t res,
-                                                   DLManagedTensor* dataset,
-                                                   cuvsDatasetPadded_t* padded_dataset);
-
-/**
- * @brief Destroy a padded dataset handle previously created by \ref cuvsCagraMakePaddedDataset.
- *
- * @param[in] padded_dataset padded dataset handle
- * @return cuvsError_t
- */
-CUVS_EXPORT cuvsError_t cuvsCagraPaddedDatasetDestroy(cuvsDatasetPadded_t padded_dataset);
-
-/**
  * @brief Attach a padded dataset to a standard CAGRA index to make it searchable.
  *
  * The function converts the index to the padded-search-ready form using C++ API
@@ -590,7 +566,7 @@ CUVS_EXPORT cuvsError_t cuvsCagraPaddedDatasetDestroy(cuvsDatasetPadded_t padded
  * Caller retains ownership of \p padded_dataset and must keep it alive while \p index uses it.
  *
  * @param[in] res             cuvsResources_t opaque C handle
- * @param[in] padded_dataset  padded dataset handle created by \ref cuvsCagraMakePaddedDataset
+ * @param[in] padded_dataset  padded dataset handle created by \ref cuvsDatasetMakePadded
  * @param[inout] index        CAGRA index handle
  * @return cuvsError_t
  */
@@ -612,50 +588,6 @@ CUVS_EXPORT cuvsError_t cuvsCagraAttachPaddedDatasetForSearch(cuvsResources_t re
 CUVS_EXPORT cuvsError_t cuvsCagraAttachDeviceDatasetOnHostIndex(cuvsResources_t res,
                                                                  DLManagedTensor* device_dataset,
                                                                  cuvsCagraIndex_t index);
-
-/**
- * @brief Create extend output storage for a specific index and additional dataset.
- *
- * C equivalent of C++ `make_extended_dataset`.
- *
- * @param[in]  res                 cuvsResources_t opaque C handle
- * @param[in]  additional_dataset  additional dataset tensor
- * @param[in]  index               index to be extended
- * @param[out] extended_dataset    allocated extend storage handle
- * @return cuvsError_t
- */
-CUVS_EXPORT cuvsError_t cuvsCagraMakeExtendedDataset(cuvsResources_t res,
-                                                      DLManagedTensor* additional_dataset,
-                                                      cuvsCagraIndex_t index,
-                                                      cuvsDatasetStorage_t* extended_dataset);
-
-/**
- * @brief Destroy an extend storage handle created by \ref cuvsCagraMakeExtendedDataset.
- */
-CUVS_EXPORT cuvsError_t cuvsCagraExtendedDatasetDestroy(cuvsDatasetStorage_t extended_dataset);
-
-/**
- * @brief Create merge output storage for a specific set of indices and filter.
- *
- * C equivalent of C++ `make_merged_dataset`.
- *
- * @param[in]  res             cuvsResources_t opaque C handle
- * @param[in]  indices         indices to merge
- * @param[in]  num_indices     number of indices
- * @param[in]  filter          row filter used for merge
- * @param[out] merged_dataset  allocated merge storage handle
- * @return cuvsError_t
- */
-CUVS_EXPORT cuvsError_t cuvsCagraMakeMergedDataset(cuvsResources_t res,
-                                                    cuvsCagraIndex_t* indices,
-                                                    size_t num_indices,
-                                                    cuvsFilter filter,
-                                                    cuvsDatasetStorage_t* merged_dataset);
-
-/**
- * @brief Destroy a merge storage handle created by \ref cuvsCagraMakeMergedDataset.
- */
-CUVS_EXPORT cuvsError_t cuvsCagraMergedDatasetDestroy(cuvsDatasetStorage_t merged_dataset);
 
 /**
  * @}
