@@ -32,3 +32,14 @@ To run the Index and Search on GPU example do:
 ```sh
 mvn clean install && java -Djava.util.logging.config.file=src/main/resources/logging.properties -cp target/examples-26.10.0-jar-with-merged-services.jar com.nvidia.cuvs.lucene.examples.IndexAndSearchonGPUExample
 ```
+
+To run the chunked `.fbin` ingestion example (reference pattern for streaming a large vector file
+into an accelerated HNSW index without per-vector file reopening or holding the whole file in
+memory) do:
+
+```sh
+mvn clean install && java -Djava.util.logging.config.file=src/main/resources/logging.properties -cp target/examples-26.08.0-jar-with-merged-services.jar com.nvidia.cuvs.lucene.examples.ChunkedFbinIngestExample
+```
+
+With no arguments it generates and indexes a small demo `.fbin`; pass a real file and chunk size as
+`... ChunkedFbinIngestExample <path-to.fbin> <chunkSizeMB>`.
