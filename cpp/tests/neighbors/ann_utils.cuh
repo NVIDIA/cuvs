@@ -127,10 +127,10 @@ struct idx_dist_pair {
 /** Calculate recall value using only neighbor indices
  */
 template <typename T>
-auto calc_recall(const std::vector<T>& expected_idx,
-                 const std::vector<T>& actual_idx,
-                 size_t rows,
-                 size_t cols)
+std::tuple<double, size_t, size_t> calc_recall(const std::vector<T>& expected_idx,
+                                               const std::vector<T>& actual_idx,
+                                               size_t rows,
+                                               size_t cols)
 {
   size_t match_count = 0;
   size_t total_count = static_cast<size_t>(rows) * static_cast<size_t>(cols);
@@ -219,13 +219,13 @@ auto eval_recall(const std::vector<T>& expected_idx,
 /** Overload of calc_recall to account for distances
  */
 template <typename T, typename DistT>
-auto calc_recall(const std::vector<T>& expected_idx,
-                 const std::vector<T>& actual_idx,
-                 const std::vector<DistT>& expected_dist,
-                 const std::vector<DistT>& actual_dist,
-                 size_t rows,
-                 size_t cols,
-                 double eps)
+std::tuple<double, double, size_t, size_t> calc_recall(const std::vector<T>& expected_idx,
+                                                       const std::vector<T>& actual_idx,
+                                                       const std::vector<DistT>& expected_dist,
+                                                       const std::vector<DistT>& actual_dist,
+                                                       size_t rows,
+                                                       size_t cols,
+                                                       double eps)
 {
   size_t match_count       = 0;
   size_t index_match_count = 0;
