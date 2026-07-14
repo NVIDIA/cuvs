@@ -590,100 +590,62 @@ void brute_force_search(
 /**
  * @brief The three strategies available for a filtered brute-force search.
  *
- * They differ in what work they do per row that passes the filter:
- *
- *  - `sddmm`:  build a CSR of the passing (query, row) pairs and evaluate only those
- *              distances via a masked matmul. Cost grows with the number of passing
- *              pairs, so it is the cheapest option only while very few rows pass.
- *  - `gather`: compact the passing rows into a dense [n_pass x dim] matrix and run an
- *              ordinary unfiltered search over it. Cost grows with n_pass, on top of a
- *              fixed setup cost (enumerating the rows, allocating, launching).
- *  - `dense`:  GEMM against the whole dataset and mask the filtered rows afterwards.
- *              Cost is independent of how many rows pass.
+ *  - `sddmm`:  evaluate only the passing (query, row) pairs via a masked matmul. Cost
+ *              grows with the number of passing rows.
+ *  - `gather`: compact the passing rows into a dense [n_pass x dim] matrix and search
+ *              that. Cost grows with the passing fraction, over a fixed setup cost.
+ *  - `dense`:  GEMM against the whole dataset, then mask. Cost is independent of the
+ *              filter.
  */
 enum class filtered_search_path { sddmm, gather, dense };
 
 /**
  * @brief Pick the cheapest search path for a filtered brute-force query.
  *
- * The thresholds below are empirical. They were measured on an RTX 5090 (sm_120) with
- * fp16 data, k=64 and 100 queries, sweeping selectivity over 0.1-60% for n_dataset in
- * [2e5, 1e7] and dim in [128, 1024]. Both the shapes of the fits and the constants come
- * from that sweep; see cpp/bench/prims/core/results/bf_sweep/README.md.
- *
- * Two facts drive the choice:
- *
- * 1. SDDMM stops paying off at an *absolute* number of passing rows, not at a fraction
- *    of the dataset. Its cost is proportional to the passing pairs it evaluates, while
- *    the gather path pays a fixed setup cost before doing any work; SDDMM wins exactly
- *    while its work still fits under that fixed cost. The crossover is therefore roughly
- *    constant in n_dataset, and falls off as dim^-0.4 because wider rows make each
- *    passing pair more expensive.
- *
- * 2. The gather path reads n_pass rows scattered across memory (traffic proportional to
- *    dim) to avoid a GEMM proportional to n_dataset. So its crossover with the dense
- *    path falls off as dim^-0.6, and rises with n_dataset as the fixed setup cost is
- *    amortized over more saved work. Below roughly `kGatherSetupEquivRows` rows the
- *    setup alone costs more than the entire dense search, and gathering never wins.
+ * The constants are empirical (fp16, RTX 5090; see
+ * cpp/bench/prims/core/results/bf_sweep/README.md) and are deliberately round: over the
+ * measured sweep, perturbing any of them by 2x -- roughly the spread expected across
+ * GPUs -- leaves the mean penalty against a perfect oracle at 1.01-1.05x, versus 1.65x
+ * mean and 12.6x worst case for the old `sparsity < 0.9` rule.
  *
  * @param[in] n_dataset       rows in the dataset
  * @param[in] dim             columns in the dataset
  * @param[in] n_pass          rows passing the filter (for a bitmap, averaged over queries)
  * @param[in] k               neighbors requested
- * @param[in] gather_possible whether the gather path is applicable at all (see below)
+ * @param[in] gather_possible whether the gather path applies (bitset filters only)
  */
 inline filtered_search_path select_filtered_search_path(
   int64_t n_dataset, int64_t dim, int64_t n_pass, int64_t k, bool gather_possible)
 {
-  // SDDMM vs gather: an absolute passing-row count, ~constant in n_dataset (fact 1).
-  constexpr double kSddmmRowsAtDim128 = 11000.0;
-  constexpr double kSddmmDimExponent  = 0.4;
-  // Gather vs dense: a selectivity, falling with dim and rising with n_dataset (fact 2).
-  constexpr double kGatherSelNumerator   = 9.3;
-  constexpr double kGatherDimExponent    = 0.6;
-  constexpr double kGatherSetupEquivRows = 212500.0;
-  // The fit above was calibrated over dim in [128, 1024]. Extrapolated below that range it
-  // exceeds 1, i.e. it would claim gathering wins at every selectivity -- which cannot be
-  // true, since gathering every row and then running the same GEMM over it is strictly more
-  // work than the dense path. Cap at the widest crossover actually observed.
-  constexpr double kGatherMaxSelectivity = 0.60;
-  // SDDMM vs dense, used when the gather path is unavailable. Both costs scale with
-  // n_dataset, so unlike the above this crossover is a selectivity rather than a count.
-  constexpr double kSddmmDenseSelNumerator = 0.115;
-  constexpr double kSddmmDenseDimExponent  = 0.22;
+  // SDDMM competes against a fixed setup cost, so it stops paying off at an absolute row
+  // count rather than at a fraction of the dataset.
+  constexpr int64_t kSddmmMaxPassingRows = 10000;
+  constexpr double kSddmmMaxSelectivity  = 0.03;
+  // Gathering trades memory traffic (proportional to dim) against a GEMM (proportional to
+  // n_dataset), and cannot beat simply GEMMing everything once most rows pass.
+  constexpr double kGatherSelectivityScale = 5.5;
+  constexpr double kGatherMaxSelectivity   = 0.5;
+  // Below this, the gather setup costs more than the entire dense search.
+  constexpr double kGatherMinDataset = 200000.0;
 
-  const auto n_pass_d      = static_cast<double>(n_pass);
   const auto n_dataset_d   = static_cast<double>(n_dataset);
-  const double selectivity = n_pass_d / n_dataset_d;
+  const double selectivity = static_cast<double>(n_pass) / n_dataset_d;
 
-  // Evaluate the fits only over the range they were calibrated on. Outside it the power
-  // laws are unconstrained, so hold them at the nearest measured boundary rather than
-  // extrapolating -- brute force is routinely run at dim well below 128.
-  const double dim_d = std::clamp(static_cast<double>(dim), 128.0, 1024.0);
-
-  const double sddmm_vs_dense_sel =
-    kSddmmDenseSelNumerator / std::pow(dim_d, kSddmmDenseDimExponent);
-
+  // SDDMM has to beat whichever of the other two is available.
+  const bool sddmm_beats_dense = selectivity < kSddmmMaxSelectivity;
   if (!gather_possible) {
-    return selectivity < sddmm_vs_dense_sel ? filtered_search_path::sddmm
-                                            : filtered_search_path::dense;
+    return sddmm_beats_dense ? filtered_search_path::sddmm : filtered_search_path::dense;
   }
+  if (n_pass < kSddmmMaxPassingRows && sddmm_beats_dense) { return filtered_search_path::sddmm; }
 
-  // SDDMM has to beat both of the others to be worth running.
-  const double sddmm_max_rows = kSddmmRowsAtDim128 * std::pow(128.0 / dim_d, kSddmmDimExponent);
-  if (n_pass_d < sddmm_max_rows && selectivity < sddmm_vs_dense_sel) {
-    return filtered_search_path::sddmm;
-  }
-
-  // The fraction of the dense search that survives paying the gather setup cost. At
-  // small n_dataset this goes to zero (or negative) and gathering can never win.
-  const double amortized = 1.0 - kGatherSetupEquivRows / n_dataset_d;
-  const double gather_vs_dense_sel =
+  // Fraction of the dense search left over after paying the gather setup.
+  const double amortized = 1.0 - kGatherMinDataset / n_dataset_d;
+  const double gather_max_selectivity =
     amortized *
-    std::min(kGatherSelNumerator / std::pow(dim_d, kGatherDimExponent), kGatherMaxSelectivity);
+    std::min(kGatherSelectivityScale / std::sqrt(static_cast<double>(dim)), kGatherMaxSelectivity);
 
-  // n_pass > k keeps the compacted dataset big enough to actually contain k neighbors.
-  if (amortized > 0.0 && selectivity < gather_vs_dense_sel && n_pass > k) {
+  // n_pass > k keeps the compacted dataset big enough to hold k neighbors.
+  if (amortized > 0.0 && selectivity < gather_max_selectivity && n_pass > k) {
     return filtered_search_path::gather;
   }
   return filtered_search_path::dense;
@@ -692,13 +654,8 @@ inline filtered_search_path select_filtered_search_path(
 /**
  * @brief Filtered search over the rows a bitset selects, by compacting them first.
  *
- * Enumerates the passing rows, gathers them (and their precomputed norms) into a dense
- * matrix, runs an ordinary unfiltered brute-force search over that matrix, and maps the
- * resulting indices back into the original dataset's numbering.
- *
- * Only meaningful for a bitset filter, which selects the same rows for every query. A
- * bitmap filter selects different rows per query, so there is no single set of rows to
- * compact.
+ * Bitset only: a bitmap selects different rows per query, so there is no single set of
+ * rows to compact.
  */
 template <typename T, typename IdxT, typename BitsT, typename DistanceT = float>
 void brute_force_search_gathered(
@@ -816,10 +773,8 @@ void brute_force_search_filtered(
     filter_view;
 
   IdxT nnz_h = 0;
-  // Rows passing the filter. A bitset selects the same rows for every query; a bitmap
-  // selects different rows per query, so there this is the per-query average.
-  IdxT n_pass = 0;
-  // A bitmap's rows differ per query, so there is no single set of rows to compact.
+  // Rows passing the filter; for a bitmap, the per-query average.
+  IdxT n_pass          = 0;
   bool gather_possible = false;
 
   const BitsT* filter_data = nullptr;
