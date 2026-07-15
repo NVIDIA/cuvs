@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -599,7 +599,9 @@ void kmeans_fit(
     sample_weight.has_value() ? sample_weight.value().data_handle() : nullptr;
 
   auto d_wt_sum = raft::make_device_scalar<DataT>(handle, static_cast<DataT>(n_samples));
-  if (sample_weight.has_value()) { weightSum(handle, sample_weight.value(), d_wt_sum.view()); }
+  if (sample_weight.has_value()) {
+    weightSum(handle, sample_weight.value(), d_wt_sum.view(), true);
+  }
 
   rmm::device_uvector<char> local_workspace(0, stream);
   rmm::device_uvector<char>& ws = workspace.has_value() ? workspace->get() : local_workspace;
@@ -1060,7 +1062,7 @@ void kmeans_predict(raft::resources const& handle,
 
   if (normalize_weight && sample_weight.has_value()) {
     auto d_wt_sum = raft::make_device_scalar<DataT>(handle, DataT{0});
-    weightSum(handle, raft::make_const_mdspan(weight.view()), d_wt_sum.view());
+    weightSum(handle, raft::make_const_mdspan(weight.view()), d_wt_sum.view(), true);
     const DataT* d_wt_sum_ptr = d_wt_sum.data_handle();
     raft::linalg::map(
       handle,
