@@ -208,6 +208,11 @@ function(process_cutile_matrix_entry source_list_var)
     list(APPEND _python_args --bytecode-version "${bytecode_version}")
   endif()
 
+  set(_export_python_executable "${Python3_EXECUTABLE}")
+  if(DEFINED python_executable AND NOT "${python_executable}" STREQUAL "")
+    string(CONFIGURE "${python_executable}" _export_python_executable @ONLY)
+  endif()
+
   if(DEFINED prebuilt_artifact AND NOT "${prebuilt_artifact}" STREQUAL "")
     string(CONFIGURE "${prebuilt_artifact}" _prebuilt_artifact @ONLY)
     if(NOT IS_ABSOLUTE "${_prebuilt_artifact}")
@@ -223,7 +228,7 @@ function(process_cutile_matrix_entry source_list_var)
   else()
     add_custom_command(
       OUTPUT "${_artifact_file}"
-      COMMAND "${Python3_EXECUTABLE}" "${_CUTILE_KERNEL_DIR}/${_CUTILE_EXPORT_SCRIPT}"
+      COMMAND "${_export_python_executable}" "${_CUTILE_KERNEL_DIR}/${_CUTILE_EXPORT_SCRIPT}"
               "${_artifact_file}" ${_python_args}
       WORKING_DIRECTORY "${_CUTILE_KERNEL_DIR}"
       DEPENDS "${_CUTILE_KERNEL_DIR}/${_CUTILE_EXPORT_SCRIPT}"
