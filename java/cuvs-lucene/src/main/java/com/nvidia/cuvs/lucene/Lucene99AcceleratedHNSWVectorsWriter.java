@@ -64,6 +64,18 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
   private final FlatVectorsWriter flatVectorsWriter;
   private final List<FieldWriter> fields = new ArrayList<>();
   private final InfoStream infoStream;
+
+  /**
+   * Hint-path state. When {@code numInputVectors > 0}, vectors are streamed into a native host
+   * matrix (see {@link FieldWriter}) rather than a heap {@code List<float[]>}, and the flat
+   * {@code .vec}/{@code .vemf} files are written by {@link #nativeFlat} instead of by
+   * {@link #flatVectorsWriter} (which is {@code null} in this mode). Supports only the unsorted
+   * single-segment flush path; merges and index-sorted flushes are rejected.
+   */
+  private final int numInputVectors;
+
+  private final boolean nativeMode;
+  private final NativeFlatVectorsWriter nativeFlat;
   private IndexOutput hnswMeta = null;
   private IndexOutput hnswVectorIndex = null;
   private String vemFileName;
@@ -96,6 +108,8 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
     this.flatVectorsWriter = flatVectorsWriter;
     this.infoStream = state.infoStream;
     this.acceleratedHNSWParams = acceleratedHNSWParams;
+    this.numInputVectors = acceleratedHNSWParams.getNumInputVectors();
+    this.nativeMode = numInputVectors > 0;
     vemFileName =
         IndexFileNames.segmentFileName(
             state.segmentInfo.name, state.segmentSuffix, HNSW_META_CODEC_EXT);
@@ -117,6 +131,9 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
           VERSION_CURRENT,
           state.segmentInfo.getId(),
           state.segmentSuffix);
+      // In hint mode we own the flat files; the Lucene flat writer must be absent to avoid opening
+      // the same .vec/.vemf outputs.
+      nativeFlat = nativeMode ? new NativeFlatVectorsWriter(state) : null;
       success = true;
       printInfoStream(infoStream, COMPONENT, "Lucene99AcceleratedHNSWVectorsWriter is initialized");
     } finally {
@@ -134,6 +151,14 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
     var encoding = fieldInfo.getVectorEncoding();
     if (encoding != FLOAT32) {
       throw new IllegalArgumentException("Expected float32, got:" + encoding);
+    }
+    if (nativeMode) {
+      // Buffer directly into a native host matrix; return the FieldWriter itself so Lucene routes
+      // addValue() here rather than to a (nonexistent) Lucene flat field writer.
+      var cuvsFieldWriter =
+          new FieldWriter(QuantizationType.NONE, fieldInfo, null, numInputVectors);
+      fields.add(cuvsFieldWriter);
+      return cuvsFieldWriter;
     }
     var writer = Objects.requireNonNull(flatVectorsWriter.addField(fieldInfo));
     var cuvsFieldWriter = new FieldWriter(QuantizationType.NONE, fieldInfo, writer);
@@ -228,6 +253,17 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
    */
   @Override
   public void flush(int maxDoc, DocMap sortMap) throws IOException {
+    if (nativeMode) {
+      if (sortMap != null) {
+        throw new UnsupportedOperationException(
+            "AcceleratedHNSWParams.numInputVectors (native flat buffering) does not support"
+                + " index-sorted segments; unset it (0) to enable the sorted flush path");
+      }
+      for (var field : fields) {
+        writeFieldNative(field, maxDoc);
+      }
+      return;
+    }
     flatVectorsWriter.flush(maxDoc, sortMap);
     for (var field : fields) {
       if (sortMap == null) {
@@ -235,6 +271,36 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
       } else {
         writeSortingField(field, sortMap);
       }
+    }
+  }
+
+  /**
+   * Hint-path flush for a single field: writes the flat {@code .vec}/{@code .vemf} from the native
+   * host matrix, builds the CAGRA/HNSW graph from the same matrix, then releases the matrix. Both
+   * consumers read the matrix before it is closed.
+   */
+  private void writeFieldNative(FieldWriter fieldData, int maxDoc) throws IOException {
+    int count = fieldData.getNativeVectorCount();
+    if (count != numInputVectors) {
+      throw new IllegalStateException(
+          "numInputVectors ("
+              + numInputVectors
+              + ") must equal the number of vectors added ("
+              + count
+              + ") for field \""
+              + fieldData.fieldInfo().name
+              + "\"; the native host matrix is sized for the hint exactly");
+    }
+    FieldInfo fieldInfo = fieldData.fieldInfo();
+    try {
+      CuVSHostMatrix dataset = fieldData.getHostMatrix();
+      long ts = StageTimers.start();
+      nativeFlat.writeField(fieldInfo, dataset, maxDoc, fieldData.getDocsWithFieldSet());
+      StageTimers.stop(
+          "flat-write [DISK]", ts, (long) count * fieldInfo.getVectorDimension() * Float.BYTES);
+      writeFieldInternal(fieldInfo, dataset);
+    } finally {
+      fieldData.releaseNativeBuffer();
     }
   }
 
@@ -327,6 +393,11 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
    */
   @Override
   public void mergeOneField(FieldInfo fieldInfo, MergeState mergeState) throws IOException {
+    if (nativeMode) {
+      throw new UnsupportedOperationException(
+          "AcceleratedHNSWParams.numInputVectors (native flat buffering) supports only the"
+              + " unsorted single-segment flush path; unset it (0) to enable merges");
+    }
     flatVectorsWriter.mergeOneField(fieldInfo, mergeState);
     vectorBasedMerge(fieldInfo, mergeState);
   }
@@ -340,7 +411,11 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
       throw new IllegalStateException("already finished");
     }
     finished = true;
-    flatVectorsWriter.finish();
+    if (nativeMode) {
+      nativeFlat.finish();
+    } else {
+      flatVectorsWriter.finish();
+    }
     if (hnswMeta != null) {
       // write end of fields marker
       hnswMeta.writeInt(-1);
@@ -357,7 +432,7 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
   @Override
   public void close() throws IOException {
     printInfoStream(infoStream, COMPONENT, "Closing resources");
-    IOUtils.close(hnswMeta, hnswVectorIndex, flatVectorsWriter);
+    IOUtils.close(hnswMeta, hnswVectorIndex, flatVectorsWriter, nativeFlat);
     closeCuVSResourcesInstance();
   }
 

@@ -66,6 +66,7 @@ public class AcceleratedHNSWParams {
   public static final int DEFAULT_NN_DESCENT_NUM_ITERATIONS = 20;
   public static final HnswHeuristicType DEFAULT_HNSW_HEURISTIC_TYPE =
       HnswHeuristicType.SAME_GRAPH_FOOTPRINT;
+  public static final int DEFAULT_NUM_INPUT_VECTORS = 0;
 
   public static final Supplier<CuVSIvfPqParams> DEFAULT_IVF_PQ_PARAMS =
       () -> {
@@ -91,6 +92,7 @@ public class AcceleratedHNSWParams {
   private final CuvsDistanceType cuvsDistanceType;
   private final int nnDescentNumIterations;
   private final HnswHeuristicType hnswHeuristicType;
+  private final int numInputVectors;
 
   /**
    * Constructs an instance of {@link AcceleratedHNSWParams} with specific parameter values.
@@ -109,6 +111,7 @@ public class AcceleratedHNSWParams {
    * @param cuvsDistanceType the cuvsDistanceType. The default option is L2Expanded.
    * @param nnDescentNumIterations the number of Iterations to run if building with NN_DESCENT.
    * @param hnswHeuristicType the heuristic cuVS applies when deriving the CAGRA build parameters from maxConn and beamWidth under the HEURISTIC strategy.
+   * @param numInputVectors exact number of vectors to be indexed, used to pre-size the native flat buffer (0 = disabled).
    */
   private AcceleratedHNSWParams(
       int writerThreads,
@@ -124,7 +127,8 @@ public class AcceleratedHNSWParams {
       Strategy strategy,
       CuvsDistanceType cuvsDistanceType,
       int nnDescentNumIterations,
-      HnswHeuristicType hnswHeuristicType) {
+      HnswHeuristicType hnswHeuristicType,
+      int numInputVectors) {
     super();
     this.writerThreads = writerThreads;
     this.intermediateGraphDegree = intermediateGraphDegree;
@@ -140,6 +144,7 @@ public class AcceleratedHNSWParams {
     this.cuvsDistanceType = cuvsDistanceType;
     this.nnDescentNumIterations = nnDescentNumIterations;
     this.hnswHeuristicType = hnswHeuristicType;
+    this.numInputVectors = numInputVectors;
   }
 
   /**
@@ -272,6 +277,17 @@ public class AcceleratedHNSWParams {
     return hnswHeuristicType;
   }
 
+  /**
+   * Get the number of input vectors used to pre-size the native flat buffer. A value of
+   * {@value DEFAULT_NUM_INPUT_VECTORS} means unset (the writer uses the default heap-buffered
+   * flat path).
+   *
+   * @return the number of vectors to be indexed, or 0 if unset
+   */
+  public int getNumInputVectors() {
+    return numInputVectors;
+  }
+
   @Override
   public String toString() {
     return "AcceleratedHNSWParams [writerThreads="
@@ -302,6 +318,8 @@ public class AcceleratedHNSWParams {
         + nnDescentNumIterations
         + ", hnswHeuristicType="
         + hnswHeuristicType
+        + ", numInputVectors="
+        + numInputVectors
         + "]";
   }
 
@@ -324,6 +342,7 @@ public class AcceleratedHNSWParams {
     private CuvsDistanceType cuvsDistanceType = DEFAULT_CUVS_DISTANCE_TYPE;
     private int nnDescentNumIterations = DEFAULT_NN_DESCENT_NUM_ITERATIONS;
     private HnswHeuristicType hnswHeuristicType = DEFAULT_HNSW_HEURISTIC_TYPE;
+    private int numInputVectors = DEFAULT_NUM_INPUT_VECTORS;
 
     /**
      * Set the number of cuVS writer threads while building the index
@@ -508,6 +527,23 @@ public class AcceleratedHNSWParams {
     }
 
     /**
+     * Set the exact number of vectors to be indexed, used to pre-allocate a single contiguous
+     * native flat buffer (avoiding the on-heap {@code List<float[]>} and the extra host-matrix
+     * copy). The native buffer is sized for exactly this many rows, so the value MUST equal the
+     * number of vectors actually added; the writer fails fast otherwise. Only supported for the
+     * unsorted single-segment CAGRA_HNSW build (no merges). A value of
+     * {@value DEFAULT_NUM_INPUT_VECTORS} (the default) disables it and uses the default
+     * heap-buffered flat path.
+     *
+     * @param numInputVectors the exact number of vectors to be indexed, or 0 to disable
+     * @return instance of {@link Builder}
+     */
+    public Builder withNumInputVectors(int numInputVectors) {
+      this.numInputVectors = numInputVectors;
+      return this;
+    }
+
+    /**
      * Validates the input parameters.
      *
      * @throws IllegalArgumentException
@@ -591,6 +627,9 @@ public class AcceleratedHNSWParams {
                 + MAX_NN_DESCENT_NUM_ITERATIONS
                 + "]");
       }
+      if (numInputVectors < 0) {
+        throw new IllegalArgumentException("numInputVectors cannot be negative.");
+      }
     }
 
     /**
@@ -620,7 +659,8 @@ public class AcceleratedHNSWParams {
           strategy,
           cuvsDistanceType,
           nnDescentNumIterations,
-          hnswHeuristicType);
+          hnswHeuristicType,
+          numInputVectors);
     }
   }
 }
