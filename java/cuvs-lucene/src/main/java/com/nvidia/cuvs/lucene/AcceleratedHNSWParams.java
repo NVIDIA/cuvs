@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -42,7 +42,7 @@ public class AcceleratedHNSWParams {
   public static final int MIN_GRAPH_DEG = 1;
   public static final int MAX_GRAPH_DEG = 512;
   public static final int MIN_HNSW_LAYERS = 1;
-  public static final int MAX_HNSW_LAYERS = 3;
+  public static final int MAX_HNSW_LAYERS = 99;
   public static final int MIN_MAX_CONN = 1;
   public static final int MAX_MAX_CONN = 512;
   public static final int MIN_BEAM_WIDTH = 1;
