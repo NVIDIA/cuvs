@@ -32,6 +32,10 @@ __inline__ __device__ T blockReduceSum(T val)
   int wid  = threadIdx.x >> 5;
 
   val = warpReduceSum(val);
+  // Wait until every warp has finished reading shared[] in the previous call
+  // before this call overwrites it. Doing this after the warp-local reduction
+  // overlaps the extra synchronization with useful work.
+  __syncthreads();
   if (lane == 0) shared[wid] = val;
   __syncthreads();
 
