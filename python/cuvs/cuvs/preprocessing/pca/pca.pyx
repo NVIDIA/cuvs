@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # cython: language_level=3
@@ -18,7 +18,6 @@ from pylibraft.common.cai_wrapper import wrap_array
 
 from cuvs.common.exceptions import check_cuvs
 from cuvs.common.resources import auto_sync_resources
-from cuvs.neighbors.common import _check_input_array
 
 SOLVER_TYPES = {
     "cov_eig_dq": cuvsPcaSolver.CUVS_PCA_COV_EIG_DQ,
@@ -116,11 +115,30 @@ FitTransformOutput = namedtuple(
 )
 
 
-def _to_f_order(ary):
-    """Ensure a device array is Fortran-contiguous (col-major)."""
+def _ensure_device_contiguous(ary, dtype=np.dtype("float32")):
+    """Ensure a device array is contiguous in either C- or F-order.
+
+    Returns a tuple (arr, order) where ``order`` is ``"C"`` or ``"F"``.
+    No copy is performed if the input is already contiguous in some order.
+    """
     if hasattr(ary, "__cuda_array_interface__"):
-        return cp.asfortranarray(cp.asarray(ary))
-    return np.asfortranarray(np.asarray(ary))
+        ary = cp.asarray(ary, dtype=dtype)
+    else:
+        ary = cp.asarray(np.asarray(ary, dtype=dtype))
+
+    if ary.flags.c_contiguous:
+        return ary, "C"
+    if ary.flags.f_contiguous:
+        return ary, "F"
+    return cp.ascontiguousarray(ary), "C"
+
+
+def _validate_pca_input(x_ai, expected_dtypes):
+    """Verify ``x_ai`` has a supported dtype and is contiguous (C or F)."""
+    if x_ai.dtype not in expected_dtypes:
+        raise TypeError("dtype %s not supported" % x_ai.dtype)
+    if not (x_ai.c_contiguous or x_ai.f_contiguous):
+        raise ValueError("Input must be contiguous in C- or F-order")
 
 
 @auto_sync_resources
@@ -131,13 +149,17 @@ def fit(Params params, X, resources=None):
     Computes the principal components, explained variances, singular
     values, and column means from the input data.
 
+    The input layout (C-contiguous / row-major or F-contiguous / col-major)
+    is preserved natively; no internal copy/transpose is performed. Output
+    arrays use the same layout as the input.
+
     Parameters
     ----------
     params : Params
         PCA parameters. ``params.copy`` should be True if you intend
         to reuse *X* after this call.
     X : device array-like, shape (n_samples, n_features), float32
-        Input data (will be converted to col-major device memory).
+        Input data. Must be contiguous in either C- or F-order.
     {resources_docstring}
 
     Returns
@@ -145,7 +167,7 @@ def fit(Params params, X, resources=None):
     FitOutput
         Named tuple with fields: ``components``, ``explained_var``,
         ``explained_var_ratio``, ``singular_vals``, ``mu``,
-        ``noise_vars``.
+        ``noise_vars``. ``components`` matches the layout of *X*.
 
     Examples
     --------
@@ -159,12 +181,12 @@ def fit(Params params, X, resources=None):
     """
     n_components = params.n_components
 
-    X_f = _to_f_order(X)
-    x_ai = wrap_array(X_f)
-    _check_input_array(x_ai, [np.dtype("float32")], exp_row_major=False)
+    X_arr, order = _ensure_device_contiguous(X)
+    x_ai = wrap_array(X_arr)
+    _validate_pca_input(x_ai, [np.dtype("float32")])
     n_rows, n_cols = x_ai.shape
 
-    components = cp.empty((n_components, n_cols), dtype="float32", order="F")
+    components = cp.empty((n_components, n_cols), dtype="float32", order=order)
     explained_var = cp.empty((n_components,), dtype="float32")
     explained_var_ratio = cp.empty((n_components,), dtype="float32")
     singular_vals = cp.empty((n_components,), dtype="float32")
@@ -201,12 +223,15 @@ def fit_transform(Params params, X, resources=None):
     """
     Compute PCA and transform the input data in a single operation.
 
+    The input layout (C- or F-contiguous) is preserved natively; output
+    arrays use the same layout.
+
     Parameters
     ----------
     params : Params
         PCA parameters.
     X : device array-like, shape (n_samples, n_features), float32
-        Input data (will be converted to col-major device memory).
+        Input data. Must be contiguous in either C- or F-order.
     {resources_docstring}
 
     Returns
@@ -214,7 +239,8 @@ def fit_transform(Params params, X, resources=None):
     FitTransformOutput
         Named tuple with fields: ``trans_input``, ``components``,
         ``explained_var``, ``explained_var_ratio``, ``singular_vals``,
-        ``mu``, ``noise_vars``.
+        ``mu``, ``noise_vars``. ``trans_input`` and ``components`` match
+        the layout of *X*.
 
     Examples
     --------
@@ -228,13 +254,14 @@ def fit_transform(Params params, X, resources=None):
     """
     n_components = params.n_components
 
-    X_f = _to_f_order(X)
-    x_ai = wrap_array(X_f)
-    _check_input_array(x_ai, [np.dtype("float32")], exp_row_major=False)
+    X_arr, order = _ensure_device_contiguous(X)
+    x_ai = wrap_array(X_arr)
+    _validate_pca_input(x_ai, [np.dtype("float32")])
     n_rows, n_cols = x_ai.shape
 
-    trans_input = cp.empty((n_rows, n_components), dtype="float32", order="F")
-    components = cp.empty((n_components, n_cols), dtype="float32", order="F")
+    trans_input = cp.empty((n_rows, n_components),
+                           dtype="float32", order=order)
+    components = cp.empty((n_components, n_cols), dtype="float32", order=order)
     explained_var = cp.empty((n_components,), dtype="float32")
     explained_var_ratio = cp.empty((n_components,), dtype="float32")
     singular_vals = cp.empty((n_components,), dtype="float32")
@@ -270,6 +297,18 @@ def fit_transform(Params params, X, resources=None):
                               noise_vars)
 
 
+def _match_layout(arr, order):
+    """Return ``arr`` in the requested layout (``"C"`` or ``"F"``).
+
+    Avoids a copy when the array is already in the target layout."""
+    arr = cp.asarray(arr)
+    if order == "C" and arr.flags.c_contiguous:
+        return arr
+    if order == "F" and arr.flags.f_contiguous:
+        return arr
+    return cp.asarray(arr, order=order)
+
+
 @auto_sync_resources
 @auto_convert_output
 def transform(Params params, X, components, singular_vals, mu,
@@ -278,7 +317,9 @@ def transform(Params params, X, components, singular_vals, mu,
     Transform data into the PCA eigenspace.
 
     Uses previously computed principal components from :func:`fit` or
-    :func:`fit_transform`.
+    :func:`fit_transform`. The input layout (C- or F-contiguous) of *X*
+    determines the layout used internally; ``components`` and
+    ``trans_input`` are aligned to that layout.
 
     Parameters
     ----------
@@ -293,7 +334,7 @@ def transform(Params params, X, components, singular_vals, mu,
     mu : device array-like, shape (n_features,)
         Column means from a prior fit.
     trans_input : optional device array, shape (n_samples, n_components)
-        Pre-allocated output buffer (col-major, float32).
+        Pre-allocated output buffer (float32). Layout is matched to *X*.
     {resources_docstring}
 
     Returns
@@ -312,26 +353,26 @@ def transform(Params params, X, components, singular_vals, mu,
     """
     n_components = params.n_components
 
-    X_f = _to_f_order(X)
-    x_ai = wrap_array(X_f)
-    _check_input_array(x_ai, [np.dtype("float32")], exp_row_major=False)
+    X_arr, order = _ensure_device_contiguous(X)
+    x_ai = wrap_array(X_arr)
+    _validate_pca_input(x_ai, [np.dtype("float32")])
     n_rows = x_ai.shape[0]
 
-    components_f = _to_f_order(components)
+    components_arr = _match_layout(components, order)
     singular_vals_arr = cp.asarray(singular_vals)
     mu_arr = cp.asarray(mu)
 
     if trans_input is None:
         trans_input = cp.empty(
-            (n_rows, n_components), dtype="float32", order="F"
+            (n_rows, n_components), dtype="float32", order=order
         )
     else:
-        trans_input = _to_f_order(trans_input)
+        trans_input = _match_layout(trans_input, order)
 
     cdef cydlpack.DLManagedTensor* x_dlpack = \
         cydlpack.dlpack_c(x_ai)
     cdef cydlpack.DLManagedTensor* comp_dlpack = \
-        cydlpack.dlpack_c(wrap_array(components_f))
+        cydlpack.dlpack_c(wrap_array(components_arr))
     cdef cydlpack.DLManagedTensor* sv_dlpack = \
         cydlpack.dlpack_c(wrap_array(singular_vals_arr))
     cdef cydlpack.DLManagedTensor* mu_dlpack = \
@@ -355,6 +396,9 @@ def inverse_transform(Params params, trans_input, components,
     """
     Transform data from the PCA eigenspace back to the original space.
 
+    The layout (C- or F-contiguous) of ``trans_input`` is preserved;
+    ``components`` and ``output`` are aligned to that layout.
+
     Parameters
     ----------
     params : Params
@@ -368,7 +412,8 @@ def inverse_transform(Params params, trans_input, components,
     mu : device array-like, shape (n_features,)
         Column means from a prior fit.
     output : optional device array, shape (n_samples, n_features)
-        Pre-allocated output buffer (col-major, float32).
+        Pre-allocated output buffer (float32). Layout is matched to
+        ``trans_input``.
     {resources_docstring}
 
     Returns
@@ -387,22 +432,22 @@ def inverse_transform(Params params, trans_input, components,
     ...     params, result.trans_input, result.components,
     ...     result.singular_vals, result.mu)
     """
-    trans_f = _to_f_order(trans_input)
-    trans_ai = wrap_array(trans_f)
-    _check_input_array(trans_ai, [np.dtype("float32")], exp_row_major=False)
+    trans_arr, order = _ensure_device_contiguous(trans_input)
+    trans_ai = wrap_array(trans_arr)
+    _validate_pca_input(trans_ai, [np.dtype("float32")])
     n_rows = trans_ai.shape[0]
 
-    components_f = _to_f_order(components)
-    comp_ai = wrap_array(components_f)
+    components_arr = _match_layout(components, order)
+    comp_ai = wrap_array(components_arr)
     n_cols = comp_ai.shape[1]
 
     singular_vals_arr = cp.asarray(singular_vals)
     mu_arr = cp.asarray(mu)
 
     if output is None:
-        output = cp.empty((n_rows, n_cols), dtype="float32", order="F")
+        output = cp.empty((n_rows, n_cols), dtype="float32", order=order)
     else:
-        output = _to_f_order(output)
+        output = _match_layout(output, order)
 
     cdef cydlpack.DLManagedTensor* trans_dlpack = \
         cydlpack.dlpack_c(trans_ai)
