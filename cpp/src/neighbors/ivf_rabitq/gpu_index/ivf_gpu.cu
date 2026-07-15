@@ -177,6 +177,9 @@ void IVFGPU::load_transposed(const char* filename)
                    "short-code vector size must be a multiple of uint32_t");
       const size_t uint32s_per_vector = bytes_per_vector / sizeof(uint32_t);
       max_cluster_size = *std::max_element(cluster_sizes.begin(), cluster_sizes.end());
+      RAFT_EXPECTS(max_cluster_size <= static_cast<size_t>(std::numeric_limits<int>::max()) &&
+                     uint32s_per_vector <= static_cast<size_t>(std::numeric_limits<int>::max()),
+                   "short-code matrix dimensions exceed the transpose API limit");
       auto sequential =
         raft::make_device_vector<uint32_t, int64_t>(handle_, max_cluster_size * uint32s_per_vector);
       raft::resource::sync_stream(handle_);
@@ -190,11 +193,12 @@ void IVFGPU::load_transposed(const char* filename)
         const size_t cluster_bytes = cluster_size * bytes_per_vector;
         reader.read_device(sequential.data_handle(), cluster_bytes);
 
-        auto src = raft::make_device_matrix_view<const uint32_t, int64_t>(
-          sequential.data_handle(), cluster_size, uint32s_per_vector);
-        auto dst = raft::make_device_matrix_view<uint32_t, int64_t>(
-          static_cast<uint32_t*>(d_ptr) + dst_offset, uint32s_per_vector, cluster_size);
-        raft::linalg::transpose(handle_, src, dst);
+        raft::linalg::transpose(handle_,
+                                sequential.data_handle(),
+                                static_cast<uint32_t*>(d_ptr) + dst_offset,
+                                static_cast<int>(cluster_size),
+                                static_cast<int>(uint32s_per_vector),
+                                stream_);
         raft::resource::sync_stream(handle_);
 
         dst_offset += cluster_bytes / sizeof(uint32_t);
@@ -364,6 +368,9 @@ void IVFGPU::save(const char* filename) const
     const size_t uint32s_per_vector = bytes_per_vector / sizeof(uint32_t);
     const size_t max_cluster_size =
       cluster_sizes.empty() ? 0 : *std::max_element(cluster_sizes.begin(), cluster_sizes.end());
+    RAFT_EXPECTS(max_cluster_size <= static_cast<size_t>(std::numeric_limits<int>::max()) &&
+                   uint32s_per_vector <= static_cast<size_t>(std::numeric_limits<int>::max()),
+                 "short-code matrix dimensions exceed the transpose API limit");
     auto sequential =
       raft::make_device_vector<uint32_t, int64_t>(handle_, max_cluster_size * uint32s_per_vector);
     raft::resource::sync_stream(handle_);
@@ -375,11 +382,12 @@ void IVFGPU::save(const char* filename) const
       if (cluster_size == 0) continue;
 
       const size_t cluster_bytes = cluster_size * bytes_per_vector;
-      auto src                   = raft::make_device_matrix_view<const uint32_t, int64_t>(
-        short_data_.data_handle() + src_offset, uint32s_per_vector, cluster_size);
-      auto dst = raft::make_device_matrix_view<uint32_t, int64_t>(
-        sequential.data_handle(), cluster_size, uint32s_per_vector);
-      raft::linalg::transpose(handle_, src, dst);
+      raft::linalg::transpose(handle_,
+                              const_cast<uint32_t*>(short_data_.data_handle()) + src_offset,
+                              sequential.data_handle(),
+                              static_cast<int>(uint32s_per_vector),
+                              static_cast<int>(cluster_size),
+                              stream_);
       raft::resource::sync_stream(handle_);
 
       output.write_device(sequential.data_handle(), cluster_bytes);
