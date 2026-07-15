@@ -1,0 +1,64 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <neighbors/detail/cagra/jit_lto_kernels/compute_distance_impl.cuh>
+
+namespace {
+
+constexpr uint32_t k_team_size         = @team_size@u;
+constexpr uint32_t k_dataset_block_dim = @dataset_block_dim@u;
+constexpr uint32_t k_pq_bits           = @pq_bits@u;
+constexpr uint32_t k_pq_len            = @pq_len@u;
+constexpr auto k_smem_dtype            = @smem_dtype@;
+
+using data_t     = @data_type@;
+using index_t    = @index_type@;
+using distance_t = @distance_type@;
+using query_t    = @query_type@;
+using codebook_t = @codebook_type@;
+
+}  // namespace
+
+namespace cuvs::neighbors::cagra::detail {
+
+using args_t = typename dataset_descriptor_base_t<data_t, index_t, distance_t>::args_t;
+
+template <>
+__device__ distance_t compute_distance<data_t, index_t, distance_t>(const args_t args,
+                                                                    index_t dataset_index,
+                                                                    bool valid,
+                                                                    uint32_t team_size_bits)
+{
+  auto per_thread = valid ? compute_distance_impl<k_team_size,
+                                                  k_dataset_block_dim,
+                                                  k_pq_bits,
+                                                  k_pq_len,
+                                                  codebook_t,
+                                                  data_t,
+                                                  index_t,
+                                                  distance_t,
+                                                  query_t,
+                                                  k_smem_dtype>(args, dataset_index)
+                          : distance_t{};
+  return device::team_sum(per_thread, team_size_bits);
+}
+
+template <>
+__device__ distance_t
+compute_distance_per_thread<data_t, index_t, distance_t>(const args_t args, index_t dataset_index)
+{
+  return compute_distance_impl<k_team_size,
+                               k_dataset_block_dim,
+                               k_pq_bits,
+                               k_pq_len,
+                               codebook_t,
+                               data_t,
+                               index_t,
+                               distance_t,
+                               query_t,
+                               k_smem_dtype>(args, dataset_index);
+}
+
+}  // namespace cuvs::neighbors::cagra::detail

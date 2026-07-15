@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2024, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 #
 # cython: language_level=3
@@ -14,10 +14,8 @@ class CuvsException(Exception):
 def get_last_error_text():
     """ returns the last error description from the cuvs c-api """
     cdef const char* c_err = cuvsGetLastErrorText()
-    if c_err is NULL:
-        return
-    cdef bytes err = c_err
-    return err.decode("utf8", "ignore")
+    if c_err is not NULL:
+        return c_err.decode("utf8", "ignore")
 
 
 def check_cuvs(status: cuvsError_t):

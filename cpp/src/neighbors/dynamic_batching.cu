@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -21,7 +21,7 @@ namespace cuvs::neighbors::dynamic_batching {
 #define CUVS_INST_DYNAMIC_BATCHING_INDEX(T, IdxT, Namespace, ...)                         \
   template <>                                                                             \
   template <>                                                                             \
-  index<T, IdxT>::index<Namespace ::__VA_ARGS__>(                                         \
+  CUVS_EXPORT index<T, IdxT>::index<Namespace ::__VA_ARGS__>(                             \
     const raft::resources& res,                                                           \
     const cuvs::neighbors::dynamic_batching::index_params& params,                        \
     const Namespace ::__VA_ARGS__& upstream_index,                                        \

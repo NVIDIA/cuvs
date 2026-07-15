@@ -20,6 +20,7 @@ from ..backends.registry import (
     get_config_loader,
     list_backends,
 )
+from ..backends._utils import compute_recall
 from .config_loaders import DatasetConfig
 
 
@@ -222,43 +223,64 @@ class BenchmarkOrchestrator:
         for config in benchmark_configs:
             # Create backend instance
             backend = self.backend_class(config.backend_config)
+            try:
+                backend.initialize()
 
-            if build:
-                # Pass ALL indexes at once - ONE C++ command builds all
-                build_result = backend.build(
-                    dataset=bench_dataset,
-                    indexes=config.indexes,
-                    force=force,
-                    dry_run=dry_run,
-                )
-                results.append(build_result)
-
-                if not build_result.success:
-                    print(
-                        f"Build failed for {config.index_name}: {build_result.error_message}"
+                if build:
+                    # Pass ALL indexes at once - ONE C++ command builds all
+                    build_result = backend.build(
+                        dataset=bench_dataset,
+                        indexes=config.indexes,
+                        force=force,
+                        dry_run=dry_run,
                     )
-                    continue
+                    results.append(build_result)
 
-            if search:
-                # Pass ALL indexes at once - ONE C++ command searches all
-                # Each index has its own search_params list
-                # Total benchmarks = sum(len(idx.search_params) for idx in indexes)
-                search_result = backend.search(
-                    dataset=bench_dataset,
-                    indexes=config.indexes,
-                    k=count,
-                    batch_size=batch_size,
-                    mode=search_mode,
-                    force=force,
-                    search_threads=search_threads,
-                    dry_run=dry_run,
-                )
-                results.append(search_result)
+                    if not build_result.success:
+                        print(
+                            f"Build failed for {config.index_name}: {build_result.error_message}"
+                        )
+                        continue
 
-                if not search_result.success:
-                    print(
-                        f"Search failed for {config.index_name}: {search_result.error_message}"
+                if search:
+                    # Pass ALL indexes at once - ONE C++ command searches all
+                    # Each index has its own search_params list
+                    # Total benchmarks = sum(len(idx.search_params) for idx in indexes)
+                    search_result = backend.search(
+                        dataset=bench_dataset,
+                        indexes=config.indexes,
+                        k=count,
+                        batch_size=batch_size,
+                        mode=search_mode,
+                        force=force,
+                        search_threads=search_threads,
+                        dry_run=dry_run,
                     )
+
+                    # Compute recall for backends that return actual neighbors.
+                    # The C++ backend computes recall in the subprocess and returns
+                    # empty neighbors, so this is skipped for it.
+                    # Empty neighbors or nonzero recall indicate that the backend
+                    # already handled recall itself.
+                    if (
+                        search_result.success
+                        and search_result.neighbors.size > 0
+                        and search_result.recall == 0.0
+                    ):
+                        gt = bench_dataset.groundtruth_neighbors
+                        if gt is not None:
+                            search_result.recall = compute_recall(
+                                search_result.neighbors, gt, count
+                            )
+
+                    results.append(search_result)
+
+                    if not search_result.success:
+                        print(
+                            f"Search failed for {config.index_name}: {search_result.error_message}"
+                        )
+            finally:
+                backend.cleanup()
 
         return results
 
@@ -550,32 +572,50 @@ class BenchmarkOrchestrator:
             "append_results": append_results,
         }
         backend = self.backend_class(backend_config)
+        try:
+            backend.initialize()
 
-        result = None
+            result = None
 
-        if build:
-            result = backend.build(
-                dataset=bench_dataset,
-                indexes=config.indexes,
-                force=force,
-                dry_run=dry_run,
-            )
-            if not result.success:
-                return result
+            if build:
+                result = backend.build(
+                    dataset=bench_dataset,
+                    indexes=config.indexes,
+                    force=force,
+                    dry_run=dry_run,
+                )
+                if not result.success:
+                    return result
 
-        if search:
-            result = backend.search(
-                dataset=bench_dataset,
-                indexes=config.indexes,
-                k=count,
-                batch_size=batch_size,
-                mode=search_mode,
-                force=force,
-                search_threads=search_threads,
-                dry_run=dry_run,
-            )
+            if search:
+                result = backend.search(
+                    dataset=bench_dataset,
+                    indexes=config.indexes,
+                    k=count,
+                    batch_size=batch_size,
+                    mode=search_mode,
+                    force=force,
+                    search_threads=search_threads,
+                    dry_run=dry_run,
+                )
 
-        return result
+                # Compute recall for backends that return actual neighbors.
+                # Empty neighbors or nonzero recall indicate that the backend
+                # already handled recall itself.
+                if (
+                    result.success
+                    and result.neighbors.size > 0
+                    and result.recall == 0.0
+                ):
+                    gt = bench_dataset.groundtruth_neighbors
+                    if gt is not None:
+                        result.recall = compute_recall(
+                            result.neighbors, gt, count
+                        )
+
+            return result
+        finally:
+            backend.cleanup()
 
     def _create_dataset(self, dataset_config: DatasetConfig) -> Dataset:
         """
@@ -594,7 +634,7 @@ class BenchmarkOrchestrator:
         return Dataset(
             name=dataset_config.name,
             # C++ backend loads vectors from files; other backends may need actual arrays
-            base_vectors=np.empty((0, 0)),
+            training_vectors=np.empty((0, 0)),
             query_vectors=np.empty((0, 0)),
             # Ground truth arrays - used by Python-native backends for recall calculation
             groundtruth_neighbors=None,
@@ -603,6 +643,7 @@ class BenchmarkOrchestrator:
             base_file=dataset_config.base_file,
             query_file=dataset_config.query_file,
             groundtruth_neighbors_file=dataset_config.groundtruth_neighbors_file,
+            groundtruth_distances_file=dataset_config.groundtruth_distances_file,
             distance_metric=dataset_config.distance,
             metadata={"subset_size": dataset_config.subset_size},
         )
@@ -618,98 +659,3 @@ class BenchmarkOrchestrator:
             List of registered backend names
         """
         return list(list_backends().keys())
-
-
-# ============================================================================
-# Standalone function for backward compatibility
-# ============================================================================
-
-
-def run_benchmark(
-    subset_size: int = None,
-    count: int = 10,
-    batch_size: int = 10000,
-    dataset_configuration: Optional[str] = None,
-    configuration: Optional[str] = None,
-    dataset: str = None,
-    dataset_path: str = None,
-    build: Optional[bool] = None,
-    search: Optional[bool] = None,
-    algorithms: Optional[str] = None,
-    groups: Optional[str] = None,
-    algo_groups: Optional[str] = None,
-    force: bool = False,
-    search_mode: str = "latency",
-    search_threads: Optional[int] = None,
-    dry_run: bool = False,
-    data_export: bool = False,
-    backend_type: str = "cpp_gbench",
-) -> List[Union[BuildResult, SearchResult]]:
-    """
-    Standalone function for backward compatibility with run.py interface.
-
-    Parameters
-    ----------
-    subset_size : int
-        The subset size of the dataset.
-    count : int
-        The number of nearest neighbors to search for.
-    batch_size : int
-        The size of each batch for processing.
-    dataset_configuration : Optional[str]
-        Path to the dataset configuration file.
-    configuration : Optional[str]
-        Path to the algorithm configuration directory or file.
-    dataset : str
-        The name of the dataset to use.
-    dataset_path : str
-        The path to the dataset directory.
-    build : Optional[bool]
-        Whether to build the indices.
-    search : Optional[bool]
-        Whether to perform the search.
-    algorithms : Optional[str]
-        Comma-separated list of algorithm names to use.
-    groups : str
-        Comma-separated list of groups to consider.
-    algo_groups : Optional[str]
-        Comma-separated list of algorithm groups to consider.
-    force : bool
-        Whether to force the execution regardless of warnings.
-    search_mode : str
-        The mode of search to perform.
-    search_threads : int
-        The number of threads to use for searching.
-    dry_run : bool
-        Whether to perform a dry run without actual execution.
-    data_export : bool
-        Whether to export data (unused, kept for compatibility).
-    backend_type : str
-        Type of backend to use (default: 'cpp_gbench')
-
-    Returns
-    -------
-    List[Union[BuildResult, SearchResult]]
-        List of all build and search results.
-    """
-    orchestrator = BenchmarkOrchestrator(backend_type=backend_type)
-
-    return orchestrator.run_benchmark(
-        build=build if build is not None else True,
-        search=search if search is not None else True,
-        force=force,
-        dry_run=dry_run,
-        count=count,
-        batch_size=batch_size,
-        search_mode=search_mode,
-        search_threads=search_threads,
-        # ConfigLoader-specific kwargs (for cpp_gbench)
-        dataset=dataset,
-        dataset_path=dataset_path,
-        dataset_configuration=dataset_configuration,
-        configuration=configuration,
-        algorithms=algorithms,
-        groups=groups,
-        algo_groups=algo_groups,
-        subset_size=subset_size,
-    )

@@ -1,0 +1,24 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <neighbors/ivf_pq/detail/jit_lto_kernels/device_functions.cuh>
+#include <neighbors/ivf_pq/detail/jit_lto_kernels/get_early_stop_limit_impl.cuh>
+
+namespace {
+
+using out_t      = @out_type@;
+using metric_tag = cuvs::neighbors::ivf_pq::detail::tag_metric_@metric@;
+
+}  // namespace
+
+namespace cuvs::neighbors::ivf_pq::detail {
+
+template <>
+__device__ out_t get_early_stop_limit<out_t>(out_t query_kth)
+{
+  return get_early_stop_limit_impl<out_t, metric_tag>(query_kth);
+}
+
+}  // namespace cuvs::neighbors::ivf_pq::detail

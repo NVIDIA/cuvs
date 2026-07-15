@@ -1,0 +1,34 @@
+{
+  "_metric": [
+    {
+      "metric_tag": "l2",
+      "jit_metric_tag": "tag_metric_l2",
+      "query_type": "float",
+      "query_abbrev": "f"
+    },
+    {
+      "metric_tag": "inner_product",
+      "jit_metric_tag": "tag_metric_inner_product",
+      "query_type": "float",
+      "query_abbrev": "f"
+    },
+    {
+      "metric_tag": "hamming",
+      "jit_metric_tag": "tag_metric_hamming",
+      "query_type": "uint8_t",
+      "query_abbrev": "u8"
+    },
+    {
+      "metric_tag": "l1",
+      "jit_metric_tag": "tag_metric_l1",
+      "query_type": "float",
+      "query_abbrev": "f"
+    }
+  ],
+  "_distance": [
+    {
+      "distance_type": "float",
+      "distance_abbrev": "f"
+    }
+  ]
+}

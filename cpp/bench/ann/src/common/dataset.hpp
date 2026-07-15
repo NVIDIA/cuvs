@@ -92,6 +92,13 @@ struct ground_truth_map {
         }
       }
     };
+    // Prewarm any lazily-initialized state on the main thread (e.g. memory-mapped
+    // buffers inside `blob<T>::data()`) before dispatching worker threads, so the
+    // workers only ever read already-initialized state through `data()`. This
+    // protects this parallel section against any future lazy paths added inside
+    // blob.hpp that may not be internally synchronized.
+    (void)ground_truth_set.data();
+    if (filter_bitset.has_value()) { (void)filter_bitset->data(MemoryType::kHostMmap); }
     // launch worker threads
     int start = 0;
     for (int tid = 0; tid < num_map_building_worker_threads; tid++) {

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -11,7 +11,6 @@
 #include <raft/random/make_blobs.cuh>
 
 #include <iostream>
-#include <rmm/mr/device_memory_resource.hpp>
 
 void load_dataset(const raft::device_resources& res, float* data_ptr, int n_vectors, int dim)
 {

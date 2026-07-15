@@ -6,12 +6,17 @@
 #pragma once
 
 #include "../ivf_common.cuh"
-#include "jit_lto_kernels/interleaved_scan_planner.hpp"
-#include "jit_lto_kernels/kernel_def.hpp"
+#include "detail/jit_lto_kernels/interleaved_scan_planner.hpp"
+#include "detail/jit_lto_kernels/kernel_def.hpp"
 #include <cstdint>
-#include <cuvs/detail/jit_lto/ivf_flat/interleaved_scan_tags.hpp>
+#include <cuvs/detail/jit_lto/NVRTCLTOFragmentCompiler.hpp>
+#include <cuvs/detail/jit_lto/common_fragments.hpp>
+#include <cuvs/detail/jit_lto/ivf_flat/interleaved_scan_fragments.hpp>
 #include <cuvs/neighbors/common.hpp>
 #include <cuvs/neighbors/ivf_flat.hpp>
+#include <optional>
+#include <string>
+#include <type_traits>
 
 #include "../detail/ann_utils.cuh"
 #include <cuvs/distance/distance.hpp>
@@ -23,7 +28,6 @@
 #include <rmm/cuda_stream_view.hpp>
 
 namespace cuvs::neighbors::ivf_flat::detail {
-
 static constexpr int kThreadsPerBlock = 128;
 
 using namespace cuvs::spatial::knn::detail;  // NOLINT
@@ -32,10 +36,10 @@ using namespace cuvs::spatial::knn::detail;  // NOLINT
 template <typename T>
 constexpr auto get_data_type_tag()
 {
-  if constexpr (std::is_same_v<T, float>) { return tag_f{}; }
-  if constexpr (std::is_same_v<T, __half>) { return tag_h{}; }
-  if constexpr (std::is_same_v<T, int8_t>) { return tag_sc{}; }
-  if constexpr (std::is_same_v<T, uint8_t>) { return tag_uc{}; }
+  if constexpr (std::is_same_v<T, float>) { return cuvs::neighbors::detail::tag_f{}; }
+  if constexpr (std::is_same_v<T, __half>) { return cuvs::neighbors::detail::tag_h{}; }
+  if constexpr (std::is_same_v<T, int8_t>) { return cuvs::neighbors::detail::tag_i8{}; }
+  if constexpr (std::is_same_v<T, uint8_t>) { return cuvs::neighbors::detail::tag_u8{}; }
 }
 
 template <typename AccT>
@@ -43,14 +47,47 @@ constexpr auto get_acc_type_tag()
 {
   if constexpr (std::is_same_v<AccT, float>) { return tag_acc_f{}; }
   if constexpr (std::is_same_v<AccT, __half>) { return tag_acc_h{}; }
-  if constexpr (std::is_same_v<AccT, int32_t>) { return tag_acc_i{}; }
-  if constexpr (std::is_same_v<AccT, uint32_t>) { return tag_acc_ui{}; }
+  if constexpr (std::is_same_v<AccT, int32_t>) { return tag_acc_i32{}; }
+  if constexpr (std::is_same_v<AccT, uint32_t>) { return tag_acc_u32{}; }
 }
 
 template <typename IdxT>
 constexpr auto get_idx_type_tag()
 {
-  if constexpr (std::is_same_v<IdxT, int64_t>) { return tag_idx_l{}; }
+  if constexpr (std::is_same_v<IdxT, int64_t>) { return cuvs::neighbors::detail::tag_index_i64{}; }
+}
+
+// Convert type to string for JIT code generation (strip cv/ref so const/volatile T still matches).
+template <typename>
+inline constexpr bool type_name_always_false_v = false;
+
+template <typename T>
+constexpr const char* type_name()
+{
+  using U = std::remove_cv_t<std::remove_reference_t<T>>;
+
+  if constexpr (std::is_same_v<U, float>) {
+    return "float";
+  } else if constexpr (std::is_same_v<U, __half>) {
+    return "__half";
+  } else if constexpr (std::is_same_v<U, half>) {
+    return "__half";
+  } else if constexpr (std::is_same_v<U, int8_t> || std::is_same_v<U, signed char>) {
+    return "int8_t";
+  } else if constexpr (std::is_same_v<U, uint8_t> || std::is_same_v<U, unsigned char>) {
+    return "uint8_t";
+  } else if constexpr (std::is_same_v<U, int32_t> ||
+                       (std::is_same_v<U, long> && sizeof(long) == sizeof(int32_t))) {
+    return "int32_t";
+  } else if constexpr (std::is_same_v<U, uint32_t> || std::is_same_v<U, unsigned int> ||
+                       (std::is_same_v<U, unsigned long> && sizeof(unsigned long) == 4)) {
+    return "uint32_t";
+  } else if constexpr (std::is_same_v<U, int64_t>) {
+    return "int64_t";
+  } else {
+    static_assert(type_name_always_false_v<U>, "Unsupported type to create UDF");
+    return "";
+  }
 }
 
 template <typename FilterT>
@@ -60,10 +97,10 @@ constexpr auto get_filter_type_tag()
 
   // Determine the filter implementation tag
   if constexpr (std::is_same_v<FilterT, none_sample_filter>) {
-    return tag_filter<tag_idx_l, tag_filter_none_impl>{};
+    return cuvs::neighbors::detail::tag_filter_none{};
   }
   if constexpr (std::is_same_v<FilterT, bitset_filter<uint32_t, int64_t>>) {
-    return tag_filter<tag_idx_l, tag_filter_bitset_impl>{};
+    return cuvs::neighbors::detail::tag_filter_bitset{};
   }
 }
 
@@ -114,7 +151,8 @@ void launch_kernel(const index<T, IdxT>& index,
                    uint32_t* neighbors,
                    float* distances,
                    uint32_t& grid_dim_x,
-                   rmm::cuda_stream_view stream)
+                   rmm::cuda_stream_view stream,
+                   const std::optional<std::string>& metric_udf)
 {
   RAFT_EXPECTS(Veclen == index.veclen(),
                "Configured Veclen does not match the index interleaving pattern.");
@@ -123,12 +161,22 @@ void launch_kernel(const index<T, IdxT>& index,
   using AccTag  = decltype(get_acc_type_tag<AccT>());
   using IdxTag  = decltype(get_idx_type_tag<IdxT>());
 
-  // Use tag types for the planner to avoid template bloat
   InterleavedScanPlanner kernel_planner;
-  kernel_planner
-    .add_entrypoint<DataTag, AccTag, IdxTag, Capacity, Veclen, Ascending, ComputeNorm>();
-  kernel_planner.add_metric_device_function<Veclen, DataTag, AccTag, MetricTag>();
-  kernel_planner.add_filter_device_function<IvfSampleFilterTag>();
+  kernel_planner.add_entrypoint<DataTag, AccTag, IdxTag, Capacity, Ascending>();
+
+  if constexpr (std::is_same_v<MetricTag, tag_metric_custom_udf>) {
+    RAFT_EXPECTS(metric_udf.has_value(), "CustomUDF search requires metric_udf");
+    std::string metric_udf_code = metric_udf.value();
+    metric_udf_code +=
+      experimental::udf::instantiate_udf(type_name<T>(), type_name<AccT>(), Veclen);
+    auto udf_fragment = nvrtc_compiler().compile(metric_udf_code, metric_udf_code);
+    kernel_planner.add_metric_udf_fragment(std::move(udf_fragment));
+  } else {
+    kernel_planner.add_metric_device_function<DataTag, AccTag, MetricTag, Veclen>();
+  }
+
+  kernel_planner.add_load_and_compute_dist_function<DataTag, AccTag, ComputeNorm, Veclen>();
+  kernel_planner.add_filter_device_function<IdxTag, IvfSampleFilterTag>();
   kernel_planner.add_post_lambda_device_function<PostLambdaTag>();
   auto kernel_launcher = kernel_planner.get_launcher();
 
@@ -153,6 +201,9 @@ void launch_kernel(const index<T, IdxT>& index,
       std::min(kMaxGridY, num_queries), n_probes, smem_size, kernel_launcher->get_kernel());
     return;
   }
+
+  // Pass individual filter parameters like CAGRA does
+  // The kernel will construct filter_data struct internally when needed
 
   for (uint32_t query_offset = 0; query_offset < num_queries; query_offset += kMaxGridY) {
     uint32_t grid_dim_y = std::min<uint32_t>(kMaxGridY, num_queries - query_offset);
@@ -224,7 +275,7 @@ void launch_with_fixed_consts(cuvs::distance::DistanceType metric, Args&&... arg
                            IdxT,
                            IvfSampleFilterTag,
                            tag_metric_euclidean,
-                           tag_post_identity>(std::forward<Args>(args)...);
+                           tag_post_process_identity>(std::forward<Args>(args)...);
     case cuvs::distance::DistanceType::L2SqrtExpanded:
     case cuvs::distance::DistanceType::L2SqrtUnexpanded:
       return launch_kernel<Capacity,
@@ -236,7 +287,7 @@ void launch_with_fixed_consts(cuvs::distance::DistanceType metric, Args&&... arg
                            IdxT,
                            IvfSampleFilterTag,
                            tag_metric_euclidean,
-                           tag_post_sqrt>(std::forward<Args>(args)...);
+                           tag_post_process_sqrt>(std::forward<Args>(args)...);
     case cuvs::distance::DistanceType::InnerProduct:
       return launch_kernel<Capacity,
                            Veclen,
@@ -247,7 +298,7 @@ void launch_with_fixed_consts(cuvs::distance::DistanceType metric, Args&&... arg
                            IdxT,
                            IvfSampleFilterTag,
                            tag_metric_inner_product,
-                           tag_post_identity>(std::forward<Args>(args)...);
+                           tag_post_process_identity>(std::forward<Args>(args)...);
     case cuvs::distance::DistanceType::CosineExpanded:
       // NB: "Ascending" is reversed because the post-processing step is done after that sort
       return launch_kernel<Capacity,
@@ -259,9 +310,20 @@ void launch_with_fixed_consts(cuvs::distance::DistanceType metric, Args&&... arg
                            IdxT,
                            IvfSampleFilterTag,
                            tag_metric_inner_product,
-                           tag_post_compose>(
+                           tag_post_process_compose>(
         std::forward<Args>(args)...);  // NB: update the description of `knn::ivf_flat::build` when
                                        // adding here a new metric.
+    case cuvs::distance::DistanceType::CustomUDF:
+      return launch_kernel<Capacity,
+                           Veclen,
+                           Ascending,
+                           false,
+                           T,
+                           AccT,
+                           IdxT,
+                           IvfSampleFilterTag,
+                           tag_metric_custom_udf,
+                           tag_post_process_identity>(std::forward<Args>(args)...);
     default: RAFT_FAIL("The chosen distance metric is not supported (%d)", int(metric));
   }
 }
@@ -344,12 +406,8 @@ struct select_interleaved_scan_kernel {
  * @param[in] queries_offset
  *   An offset of the current query batch. It is used for feeding sample_filter with the
  *   correct query index.
- * @param metric type of the measured distance
- * @param n_probes number of nearest clusters to query
  * @param k number of nearest neighbors.
  *            NB: the maximum value of `k` is limited statically by `kMaxCapacity`.
- * @param select_min whether to select nearest (true) or furthest (false) points w.r.t. the given
- * metric.
  * @param[out] neighbors device pointer to the result indices for each query and cluster
  * [batch_size, grid_dim_x, k]
  * @param[out] distances device pointer to the result distances for each query and cluster
@@ -367,19 +425,21 @@ void ivfflat_interleaved_scan(const index<T, IdxT>& index,
                               const uint32_t* coarse_query_results,
                               const uint32_t n_queries,
                               const uint32_t queries_offset,
-                              const cuvs::distance::DistanceType metric,
+                              cuvs::distance::DistanceType metric,
                               const uint32_t n_probes,
                               const uint32_t k,
                               const uint32_t max_samples,
                               const uint32_t* chunk_indices,
-                              const bool select_min,
+                              bool select_min,
                               IvfSampleFilterT sample_filter,
                               uint32_t* neighbors,
                               float* distances,
                               uint32_t& grid_dim_x,
-                              rmm::cuda_stream_view stream)
+                              rmm::cuda_stream_view stream,
+                              const std::optional<std::string>& metric_udf)
 {
-  const int capacity = raft::bound_by_power_of_two(k);
+  const uint32_t n_probes_clamped = std::min(n_probes, index.n_lists());
+  const int capacity              = raft::bound_by_power_of_two(k);
 
   cuda::std::optional<uint32_t*> bitset_ptr;
   cuda::std::optional<IdxT> bitset_len;
@@ -401,7 +461,7 @@ void ivfflat_interleaved_scan(const index<T, IdxT>& index,
         coarse_query_results,
         n_queries,
         queries_offset,
-        n_probes,
+        n_probes_clamped,
         k,
         max_samples,
         chunk_indices,
@@ -412,7 +472,8 @@ void ivfflat_interleaved_scan(const index<T, IdxT>& index,
         neighbors,
         distances,
         grid_dim_x,
-        stream);
+        stream,
+        metric_udf);
 }
 
 }  // namespace cuvs::neighbors::ivf_flat::detail

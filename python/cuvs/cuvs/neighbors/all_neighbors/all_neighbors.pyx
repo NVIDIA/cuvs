@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 #
 # cython: language_level=3
@@ -111,11 +111,12 @@ cdef class AllNeighborsParams:
                 )
 
             # Check metric consistency
-            ivf_pq_metric = ivf_pq_params.metric
-            if ivf_pq_metric != metric:
+            metric_type = DISTANCE_TYPES[metric]
+            ivf_pq_metric_type = DISTANCE_TYPES[ivf_pq_params.metric]
+            if ivf_pq_metric_type != metric_type:
                 raise ValueError(
                     f"Metric conflict: AllNeighborsParams metric '{metric}' "
-                    f"does not match IVF-PQ metric '{ivf_pq_metric}'. Please "
+                    f"does not match IVF-PQ metric '{ivf_pq_params.metric}'. Please "
                     f"ensure both use the same metric."
                 )
 
@@ -127,11 +128,12 @@ cdef class AllNeighborsParams:
                 )
 
             # Check metric consistency
-            nn_descent_metric = nn_descent_params.metric
-            if nn_descent_metric != metric:
+            metric_type = DISTANCE_TYPES[metric]
+            nn_descent_metric_type = DISTANCE_TYPES[nn_descent_params.metric]
+            if nn_descent_metric_type != metric_type:
                 raise ValueError(
                     f"Metric conflict: AllNeighborsParams metric '{metric}' "
-                    f"does not match NN-Descent metric '{nn_descent_metric}'. "
+                    f"does not match NN-Descent metric '{nn_descent_params.metric}'. "
                     f"Please ensure both use the same metric."
                 )
 

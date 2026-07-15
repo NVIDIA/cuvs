@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -14,8 +14,6 @@
 #include <raft/core/resources.hpp>
 #include <raft/random/make_blobs.cuh>
 #include <rmm/cuda_stream_pool.hpp>
-#include <rmm/mr/device_memory_resource.hpp>
-#include <rmm/mr/pool_memory_resource.hpp>
 
 #include <array>
 #include <chrono>

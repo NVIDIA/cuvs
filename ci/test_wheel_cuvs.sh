@@ -9,9 +9,8 @@ source rapids-init-pip
 # Delete system libnccl.so to ensure the wheel is used
 rm -rf /usr/lib64/libnccl*
 
-RAPIDS_PY_CUDA_SUFFIX="$(rapids-wheel-ctk-name-gen "${RAPIDS_CUDA_VERSION}")"
-LIBCUVS_WHEELHOUSE=$(RAPIDS_PY_WHEEL_NAME="libcuvs_${RAPIDS_PY_CUDA_SUFFIX}" rapids-download-wheels-from-github cpp)
-CUVS_WHEELHOUSE=$(rapids-download-from-github "$(rapids-package-name "wheel_python" cuvs --stable --cuda "$RAPIDS_CUDA_VERSION")")
+LIBCUVS_WHEELHOUSE=$(rapids-download-from-github "$(rapids-artifact-name wheel_cpp libcuvs cuvs --cuda "$RAPIDS_CUDA_VERSION")")
+CUVS_WHEELHOUSE=$(rapids-download-from-github "$(rapids-artifact-name wheel_python cuvs cuvs --stable --cuda "$RAPIDS_CUDA_VERSION")")
 
 # generate constraints (possibly pinning to oldest support versions of dependencies)
 rapids-generate-pip-constraints test_python "${PIP_CONSTRAINT}"

@@ -12,7 +12,7 @@ include(${CMAKE_CURRENT_LIST_DIR}/compute_matrix_product.cmake)
 function(add_jit_lto_kernel kernel_target)
   set(options)
   set(one_value KERNEL_FILE FATBIN_HEADER_FILE)
-  set(multi_value LINK_LIBRARIES)
+  set(multi_value LINK_LIBRARIES EXTRA_COMPILE_OPTIONS)
 
   cmake_parse_arguments(_JIT_LTO "${options}" "${one_value}" "${multi_value}" ${ARGN})
 
@@ -22,6 +22,9 @@ function(add_jit_lto_kernel kernel_target)
   # through the LINK_LIBRARIES argument.
   target_link_libraries(${kernel_target} PRIVATE ${_JIT_LTO_LINK_LIBRARIES})
   target_compile_options(${kernel_target} PRIVATE -Xfatbin=--compress-all --compress-mode=size)
+  if(_JIT_LTO_EXTRA_COMPILE_OPTIONS)
+    target_compile_options(${kernel_target} PRIVATE ${_JIT_LTO_EXTRA_COMPILE_OPTIONS})
+  endif()
   set_target_properties(
     ${kernel_target}
     PROPERTIES CUDA_SEPARABLE_COMPILATION ON
@@ -34,7 +37,7 @@ function(add_jit_lto_kernel kernel_target)
     OUTPUT "${_JIT_LTO_FATBIN_HEADER_FILE}"
     COMMAND "${bin_to_c}" --const --name embedded_fatbin --static $<TARGET_OBJECTS:${kernel_target}>
             > "${_JIT_LTO_FATBIN_HEADER_FILE}"
-    DEPENDS $<TARGET_OBJECTS:${kernel_target}>
+    DEPENDS $<TARGET_OBJECTS:${kernel_target}> ${kernel_target}
   )
 endfunction()
 
@@ -43,7 +46,7 @@ function(process_jit_lto_matrix_entry source_list_var)
   set(one_value NAME_FORMAT KERNEL_INPUT_FILE OUTPUT_DIRECTORY FRAGMENT_TAG_FORMAT
                 MATRIX_JSON_ENTRY
   )
-  set(multi_value KERNEL_LINK_LIBRARIES FRAGMENT_TAG_HEADER_FILES)
+  set(multi_value KERNEL_LINK_LIBRARIES FRAGMENT_TAG_HEADER_FILES KERNEL_EXTRA_COMPILE_OPTIONS)
 
   cmake_parse_arguments(_JIT_LTO "${options}" "${one_value}" "${multi_value}" ${ARGN})
 
@@ -71,6 +74,7 @@ function(process_jit_lto_matrix_entry source_list_var)
     KERNEL_FILE "${kernel_file}"
     FATBIN_HEADER_FILE "${fatbin_header_file}"
     LINK_LIBRARIES ${_JIT_LTO_KERNEL_LINK_LIBRARIES}
+    EXTRA_COMPILE_OPTIONS ${_JIT_LTO_KERNEL_EXTRA_COMPILE_OPTIONS}
   )
   list(APPEND ${source_list_var} "${fatbin_header_file}" "${fatbin_file}")
   set(${source_list_var}
@@ -84,7 +88,7 @@ function(generate_jit_lto_kernels source_list_var)
   set(one_value NAME_FORMAT MATRIX_JSON_FILE MATRIX_JSON_STRING KERNEL_INPUT_FILE
                 FRAGMENT_TAG_FORMAT OUTPUT_DIRECTORY
   )
-  set(multi_value KERNEL_LINK_LIBRARIES FRAGMENT_TAG_HEADER_FILES)
+  set(multi_value KERNEL_LINK_LIBRARIES FRAGMENT_TAG_HEADER_FILES KERNEL_EXTRA_COMPILE_OPTIONS)
 
   cmake_parse_arguments(_JIT_LTO "${options}" "${one_value}" "${multi_value}" ${ARGN})
 
@@ -121,6 +125,7 @@ function(generate_jit_lto_kernels source_list_var)
       OUTPUT_DIRECTORY "${_JIT_LTO_OUTPUT_DIRECTORY}"
       MATRIX_JSON_ENTRY "${matrix_json_entry}"
       KERNEL_LINK_LIBRARIES ${_JIT_LTO_KERNEL_LINK_LIBRARIES}
+      KERNEL_EXTRA_COMPILE_OPTIONS ${_JIT_LTO_KERNEL_EXTRA_COMPILE_OPTIONS}
     )
   endforeach()
 

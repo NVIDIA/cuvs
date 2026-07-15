@@ -59,7 +59,7 @@ void compute_cluster_offsets(raft::resources const& dev_resources,
 {
   cudaStream_t stream = raft::resource::get_cuda_stream(dev_resources);
   rmm::device_async_resource_ref device_memory =
-    raft::resource::get_workspace_resource(dev_resources);
+    raft::resource::get_workspace_resource_ref(dev_resources);
 
   // Histrogram to compute cluster sizes
   int num_levels  = cluster_sizes.extent(0) + 1;
@@ -138,7 +138,7 @@ void sum_reduce_vector(raft::resources const& dev_resources,
 {
   cudaStream_t stream = raft::resource::get_cuda_stream(dev_resources);
   rmm::device_async_resource_ref device_memory =
-    raft::resource::get_workspace_resource(dev_resources);
+    raft::resource::get_workspace_resource_ref(dev_resources);
 
   size_t temp_storage_bytes = 0;
 
@@ -166,7 +166,7 @@ void cholesky_solver(raft::resources const& dev_resources,
   cudaStream_t stream          = raft::resource::get_cuda_stream(dev_resources);
   cusolverDnHandle_t cusolverH = raft::resource::get_cusolver_dn_handle(dev_resources);
   rmm::device_async_resource_ref device_memory =
-    raft::resource::get_workspace_resource(dev_resources);
+    raft::resource::get_workspace_resource_ref(dev_resources);
 
   // RAFT_CUSOLVER_TRY(cusolverDnSetStream(cusolverH, stream));
 

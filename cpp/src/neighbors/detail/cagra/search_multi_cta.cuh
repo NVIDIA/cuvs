@@ -4,8 +4,9 @@
  */
 #pragma once
 
+#include "../neighbors_device_intrinsics.cuh"
 #include "bitonic.hpp"
-#include "device_common.hpp"
+#include "device_memory_ops.hpp"
 #include "hashmap.hpp"
 #include "search_multi_cta_kernel.cuh"
 #include "search_plan.cuh"
@@ -29,6 +30,8 @@
 
 #include <raft/util/cuda_rt_essentials.hpp>
 #include <raft/util/cudart_utils.hpp>  // RAFT_CUDA_TRY_NOT_THROW is used TODO(tfeher): consider moving this to cuda_rt_essentials.hpp
+
+#include <rmm/device_uvector.hpp>
 
 #include <algorithm>
 #include <cassert>
@@ -91,10 +94,10 @@ struct search
   constexpr static bool kNeedIndexCopy = sizeof(INDEX_T) != sizeof(OutputIndexT);
 
   uint32_t num_cta_per_query;
-  lightweight_uvector<INDEX_T> intermediate_indices;
-  lightweight_uvector<float> intermediate_distances;
+  rmm::device_uvector<INDEX_T> intermediate_indices;
+  rmm::device_uvector<float> intermediate_distances;
   size_t topk_workspace_size;
-  lightweight_uvector<uint32_t> topk_workspace;
+  rmm::device_uvector<uint32_t> topk_workspace;
 
   search(raft::resources const& res,
          search_params params,
@@ -104,9 +107,9 @@ struct search
          int64_t graph_degree,
          uint32_t topk)
     : base_type(res, params, dataset_desc, dim, dataset_size, graph_degree, topk),
-      intermediate_indices(res),
-      intermediate_distances(res),
-      topk_workspace(res)
+      intermediate_indices(0, raft::resource::get_cuda_stream(res)),
+      intermediate_distances(0, raft::resource::get_cuda_stream(res)),
+      topk_workspace(0, raft::resource::get_cuda_stream(res))
   {
     set_params(res, params);
   }

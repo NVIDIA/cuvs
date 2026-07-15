@@ -24,7 +24,6 @@ AlgorithmLauncher::AlgorithmLauncher(AlgorithmLauncher&& other) noexcept
 AlgorithmLauncher& AlgorithmLauncher::operator=(AlgorithmLauncher&& other) noexcept
 {
   if (this != &other) {
-    // Unload current library if it exists
     if (library != nullptr) { cudaLibraryUnload(library); }
     kernel        = other.kernel;
     library       = other.library;
@@ -48,8 +47,20 @@ void AlgorithmLauncher::call(
   RAFT_CUDA_TRY(cudaLaunchKernelExC(&config, kernel, kernel_args));
 }
 
-std::unordered_map<std::string, std::shared_ptr<AlgorithmLauncher>>& get_cached_launchers()
+void AlgorithmLauncher::call_cooperative(
+  cudaStream_t stream, dim3 grid, dim3 block, std::size_t shared_mem, void** kernel_args)
 {
-  static std::unordered_map<std::string, std::shared_ptr<AlgorithmLauncher>> launchers;
-  return launchers;
+  cudaLaunchAttribute attribute[1];
+  attribute[0].id              = cudaLaunchAttributeCooperative;
+  attribute[0].val.cooperative = 1;
+
+  cudaLaunchConfig_t config{};
+  config.gridDim          = grid;
+  config.blockDim         = block;
+  config.stream           = stream;
+  config.dynamicSmemBytes = shared_mem;
+  config.numAttrs         = 1;
+  config.attrs            = attribute;
+
+  RAFT_CUDA_TRY(cudaLaunchKernelExC(&config, kernel, kernel_args));
 }

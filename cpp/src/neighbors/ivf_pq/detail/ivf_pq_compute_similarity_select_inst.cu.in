@@ -1,0 +1,35 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <cuvs/detail/jit_lto/ivf_pq/compute_similarity_fragments.hpp>
+#include <neighbors/ivf_pq/ivf_pq_compute_similarity_impl.cuh>
+#include <neighbors/ivf_pq/ivf_pq_fp_8bit.cuh>
+#include <neighbors/sample_filter.cuh>
+
+namespace {
+
+using out_t                    = @out_type@;
+using lut_t                    = @lut_type@;
+using filter_t                 = @filter_type@;
+using metric_tag               = cuvs::neighbors::ivf_pq::detail::tag_metric_@metric@;
+constexpr bool increment_score = @increment_score@;
+
+}  // namespace
+
+namespace cuvs::neighbors::ivf_pq::detail {
+
+template auto compute_similarity_select<out_t, lut_t, filter_t, metric_tag, increment_score>(
+  const cudaDeviceProp& dev_props,
+  bool manage_local_topk,
+  int locality_hint,
+  double preferred_shmem_carveout,
+  uint32_t pq_bits,
+  uint32_t pq_dim,
+  uint32_t precomp_data_count,
+  uint32_t n_queries,
+  uint32_t n_probes,
+  uint32_t topk) -> selected<out_t, lut_t>;
+
+}  // namespace cuvs::neighbors::ivf_pq::detail

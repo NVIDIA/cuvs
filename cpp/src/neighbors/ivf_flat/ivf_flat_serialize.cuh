@@ -5,14 +5,15 @@
 
 #pragma once
 
+#include "../../util/serialize_validation.hpp"
 #include "../ivf_common.cuh"
 #include "../ivf_list.cuh"
 #include <cuvs/neighbors/common.hpp>
 #include <cuvs/neighbors/ivf_flat.hpp>
 
 #include <raft/core/copy.cuh>
-#include <raft/core/detail/mdspan_numpy_serializer.hpp>
 #include <raft/core/mdarray.hpp>
+#include <raft/core/numpy_serializer.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/serialize.hpp>
 #include <raft/util/pow2_utils.cuh>
@@ -44,7 +45,7 @@ void serialize(raft::resources const& handle, std::ostream& os, const index<T, I
   RAFT_LOG_DEBUG(
     "Saving IVF-Flat index, size %zu, dim %u", static_cast<size_t>(index_.size()), index_.dim());
 
-  std::string dtype_string = raft::detail::numpy_serializer::get_numpy_dtype<T>().to_string();
+  std::string dtype_string = raft::numpy_serializer::get_numpy_dtype<T>().to_string();
   dtype_string.resize(4);
   os << dtype_string;
 
@@ -107,7 +108,9 @@ template <typename T, typename IdxT>
 auto deserialize(raft::resources const& handle, std::istream& is) -> index<T, IdxT>
 {
   char dtype_string[4];
-  is.read(dtype_string, 4);
+  RAFT_EXPECTS(is.read(dtype_string, 4), "ivf_flat::deserialize: failed to read dtype prefix");
+  RAFT_EXPECTS(cuvs::util::validate_serialized_dtype<T>(dtype_string, sizeof(dtype_string)),
+               "ivf_flat::deserialize: serialized dtype prefix does not match requested type");
 
   auto ver = raft::deserialize_scalar<int>(handle, is);
   if (ver != serialization_version) {
@@ -119,6 +122,20 @@ auto deserialize(raft::resources const& handle, std::istream& is) -> index<T, Id
   auto metric           = raft::deserialize_scalar<cuvs::distance::DistanceType>(handle, is);
   bool adaptive_centers = raft::deserialize_scalar<bool>(handle, is);
   bool cma              = raft::deserialize_scalar<bool>(handle, is);
+
+  RAFT_EXPECTS(cuvs::util::is_valid_distance_type(metric),
+               "ivf_flat::deserialize: invalid metric value %d",
+               static_cast<int>(metric));
+  RAFT_EXPECTS(n_lists <= cuvs::util::kMaxIvfNLists,
+               "ivf_flat::deserialize: n_lists=%u exceeds maximum %u",
+               n_lists,
+               cuvs::util::kMaxIvfNLists);
+  RAFT_EXPECTS(cuvs::util::is_mul_no_overflow(
+                 static_cast<std::size_t>(n_lists), static_cast<std::size_t>(dim), sizeof(T)),
+               "ivf_flat::deserialize: integer overflow in n_lists*dim*sizeof(T) "
+               "(n_lists=%u, dim=%u)",
+               n_lists,
+               dim);
 
   index<T, IdxT> index_ = index<T, IdxT>(handle, metric, n_lists, adaptive_centers, cma, dim);
 

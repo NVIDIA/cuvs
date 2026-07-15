@@ -1,0 +1,45 @@
+{
+  "_distance": [
+    {
+      "distance_name": "l2_unexpanded",
+      "distance_abbrev": "l2_unexpanded",
+      "op_type": "cuvs::distance::detail::ops::l2_unexp_distance_op",
+      "header_file": "distance/detail/distance_ops/l2_unexp.cuh"
+    }
+  ],
+  "_data": [
+    {
+      "data_type": "float",
+      "data_abbrev": "f",
+      "type_abbrev": "f",
+      "acc_type": "float",
+      "acc_abbrev": "f",
+      "out_type": "float",
+      "out_abbrev": "f"
+    },
+    {
+      "data_type": "double",
+      "data_abbrev": "d",
+      "type_abbrev": "d",
+      "acc_type": "double",
+      "acc_abbrev": "d",
+      "out_type": "double",
+      "out_abbrev": "d"
+    },
+    {
+      "data_type": "half",
+      "data_abbrev": "h",
+      "type_abbrev": "h",
+      "acc_type": "float",
+      "acc_abbrev": "f",
+      "out_type": "float",
+      "out_abbrev": "f"
+    }
+  ],
+  "_index": [
+    {
+      "index_type": "int64_t",
+      "index_abbrev": "i64"
+    }
+  ]
+}

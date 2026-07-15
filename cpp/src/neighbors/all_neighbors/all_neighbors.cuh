@@ -9,6 +9,7 @@
 #include <cuvs/neighbors/all_neighbors.hpp>
 #include <raft/matrix/shift.cuh>
 #include <raft/util/cudart_utils.hpp>
+#include <unordered_set>
 
 namespace cuvs::neighbors::all_neighbors::detail {
 using namespace cuvs::neighbors;
@@ -16,45 +17,52 @@ using namespace cuvs::neighbors;
 GRAPH_BUILD_ALGO check_params_validity(const all_neighbors_params& params,
                                        bool do_mutual_reachability_dist)
 {
+  using DT = cuvs::distance::DistanceType;
+
+  // InnerProduct is not supported for mutual reachability distance, because mutual reachability
+  // distance takes "max" of core distances and pairwise distance.
+  static const std::unordered_set<DT> mrd_allowed_metrics = {
+    DT::L2Expanded, DT::L2SqrtExpanded, DT::CosineExpanded};
+
+  static const std::unordered_set<DT> bf_allowed_metrics = {DT::L2Expanded,
+                                                            DT::L2SqrtExpanded,
+                                                            DT::CosineExpanded,
+                                                            DT::L1,
+                                                            DT::L2Unexpanded,
+                                                            DT::L2SqrtUnexpanded,
+                                                            DT::InnerProduct,
+                                                            DT::Linf,
+                                                            DT::Canberra,
+                                                            DT::LpUnexpanded,
+                                                            DT::CorrelationExpanded,
+                                                            DT::JensenShannon};
+
+  static const std::unordered_set<DT> nnd_allowed_metrics = {
+    DT::L2Expanded, DT::L2SqrtExpanded, DT::CosineExpanded, DT::InnerProduct};
+
   if (std::holds_alternative<graph_build_params::brute_force_params>(params.graph_build_params)) {
     if (do_mutual_reachability_dist) {
-      // InnerProduct is not supported for mutual reachability distance, because mutual reachability
-      // distance takes "max" of core distances and pairwise distance.
-      auto allowed_metrics = params.metric == cuvs::distance::DistanceType::L2Expanded ||
-                             params.metric == cuvs::distance::DistanceType::L2SqrtExpanded ||
-                             params.metric == cuvs::distance::DistanceType::CosineExpanded;
       RAFT_EXPECTS(
-        allowed_metrics,
+        mrd_allowed_metrics.count(params.metric),
         "Distance metric for all-neighbors build with brute force for computing mutual "
         "reachability distance should be L2Expanded, L2SqrtExpanded, or CosineExpanded.");
     } else {
-      auto allowed_metrics = params.metric == cuvs::distance::DistanceType::L2Expanded ||
-                             params.metric == cuvs::distance::DistanceType::L2SqrtExpanded ||
-                             params.metric == cuvs::distance::DistanceType::CosineExpanded ||
-                             params.metric == cuvs::distance::DistanceType::InnerProduct;
-      RAFT_EXPECTS(allowed_metrics,
-                   "Distance metric for all-neighbors build with brute force should be L2Expanded, "
-                   "L2SqrtExpanded, CosineExpanded, or InnerProduct.");
+      RAFT_EXPECTS(
+        bf_allowed_metrics.count(params.metric),
+        "Distance metric for all-neighbors build with brute force should be L2Expanded, "
+        "L2SqrtExpanded, CosineExpanded, L1, L2Unexpanded, L2SqrtUnexpanded, InnerProduct, Linf, "
+        "Canberra, LpUnexpanded, CorrelationExpanded, or JensenShannon.");
     }
     return GRAPH_BUILD_ALGO::BRUTE_FORCE;
   } else if (std::holds_alternative<graph_build_params::nn_descent_params>(
                params.graph_build_params)) {
     if (do_mutual_reachability_dist) {
-      // InnerProduct is not supported for mutual reachability distance, because mutual reachability
-      // distance takes "max" of core distances and pairwise distance.
-      auto allowed_metrics = params.metric == cuvs::distance::DistanceType::L2Expanded ||
-                             params.metric == cuvs::distance::DistanceType::L2SqrtExpanded ||
-                             params.metric == cuvs::distance::DistanceType::CosineExpanded;
       RAFT_EXPECTS(
-        allowed_metrics,
+        mrd_allowed_metrics.count(params.metric),
         "Distance metric for all-neighbors build with NN Descent for computing mutual reachability "
         "distance should be L2Expanded, L2SqrtExpanded, or CosineExpanded.");
     } else {
-      auto allowed_metrics = params.metric == cuvs::distance::DistanceType::L2Expanded ||
-                             params.metric == cuvs::distance::DistanceType::L2SqrtExpanded ||
-                             params.metric == cuvs::distance::DistanceType::CosineExpanded ||
-                             params.metric == cuvs::distance::DistanceType::InnerProduct;
-      RAFT_EXPECTS(allowed_metrics,
+      RAFT_EXPECTS(nnd_allowed_metrics.count(params.metric),
                    "Distance metric for all-neighbors build with NN Descent should be L2Expanded, "
                    "L2SqrtExpanded, CosineExpanded, or InnerProduct.");
     }

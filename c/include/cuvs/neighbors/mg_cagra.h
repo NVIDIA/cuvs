@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -10,6 +10,8 @@
 #include <cuvs/neighbors/mg_common.h>
 #include <dlpack/dlpack.h>
 #include <stdint.h>
+
+#include <cuvs/core/export.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -40,7 +42,7 @@ typedef struct cuvsMultiGpuCagraIndexParams* cuvsMultiGpuCagraIndexParams_t;
  * @param[in] index_params cuvsMultiGpuCagraIndexParams_t to allocate
  * @return cuvsError_t
  */
-cuvsError_t cuvsMultiGpuCagraIndexParamsCreate(cuvsMultiGpuCagraIndexParams_t* index_params);
+CUVS_EXPORT cuvsError_t cuvsMultiGpuCagraIndexParamsCreate(cuvsMultiGpuCagraIndexParams_t* index_params);
 
 /**
  * @brief De-allocate Multi-GPU CAGRA Index params
@@ -48,7 +50,7 @@ cuvsError_t cuvsMultiGpuCagraIndexParamsCreate(cuvsMultiGpuCagraIndexParams_t* i
  * @param[in] index_params
  * @return cuvsError_t
  */
-cuvsError_t cuvsMultiGpuCagraIndexParamsDestroy(cuvsMultiGpuCagraIndexParams_t index_params);
+CUVS_EXPORT cuvsError_t cuvsMultiGpuCagraIndexParamsDestroy(cuvsMultiGpuCagraIndexParams_t index_params);
 
 /**
  * @}
@@ -83,7 +85,7 @@ typedef struct cuvsMultiGpuCagraSearchParams* cuvsMultiGpuCagraSearchParams_t;
  * @param[in] params cuvsMultiGpuCagraSearchParams_t to allocate
  * @return cuvsError_t
  */
-cuvsError_t cuvsMultiGpuCagraSearchParamsCreate(cuvsMultiGpuCagraSearchParams_t* params);
+CUVS_EXPORT cuvsError_t cuvsMultiGpuCagraSearchParamsCreate(cuvsMultiGpuCagraSearchParams_t* params);
 
 /**
  * @brief De-allocate Multi-GPU CAGRA search params
@@ -91,7 +93,7 @@ cuvsError_t cuvsMultiGpuCagraSearchParamsCreate(cuvsMultiGpuCagraSearchParams_t*
  * @param[in] params
  * @return cuvsError_t
  */
-cuvsError_t cuvsMultiGpuCagraSearchParamsDestroy(cuvsMultiGpuCagraSearchParams_t params);
+CUVS_EXPORT cuvsError_t cuvsMultiGpuCagraSearchParamsDestroy(cuvsMultiGpuCagraSearchParams_t params);
 
 /**
  * @}
@@ -119,7 +121,7 @@ typedef cuvsMultiGpuCagraIndex* cuvsMultiGpuCagraIndex_t;
  * @param[in] index cuvsMultiGpuCagraIndex_t to allocate
  * @return cuvsError_t
  */
-cuvsError_t cuvsMultiGpuCagraIndexCreate(cuvsMultiGpuCagraIndex_t* index);
+CUVS_EXPORT cuvsError_t cuvsMultiGpuCagraIndexCreate(cuvsMultiGpuCagraIndex_t* index);
 
 /**
  * @brief De-allocate Multi-GPU CAGRA index
@@ -127,7 +129,7 @@ cuvsError_t cuvsMultiGpuCagraIndexCreate(cuvsMultiGpuCagraIndex_t* index);
  * @param[in] index cuvsMultiGpuCagraIndex_t to de-allocate
  * @return cuvsError_t
  */
-cuvsError_t cuvsMultiGpuCagraIndexDestroy(cuvsMultiGpuCagraIndex_t index);
+CUVS_EXPORT cuvsError_t cuvsMultiGpuCagraIndexDestroy(cuvsMultiGpuCagraIndex_t index);
 
 /**
  * @}
@@ -147,7 +149,7 @@ cuvsError_t cuvsMultiGpuCagraIndexDestroy(cuvsMultiGpuCagraIndex_t index);
  * @param[out] index Multi-GPU CAGRA index
  * @return cuvsError_t
  */
-cuvsError_t cuvsMultiGpuCagraBuild(cuvsResources_t res,
+CUVS_EXPORT cuvsError_t cuvsMultiGpuCagraBuild(cuvsResources_t res,
                                    cuvsMultiGpuCagraIndexParams_t params,
                                    DLManagedTensor* dataset_tensor,
                                    cuvsMultiGpuCagraIndex_t index);
@@ -172,7 +174,7 @@ cuvsError_t cuvsMultiGpuCagraBuild(cuvsResources_t res,
  * @param[out] distances_tensor DLManagedTensor* output distances
  * @return cuvsError_t
  */
-cuvsError_t cuvsMultiGpuCagraSearch(cuvsResources_t res,
+CUVS_EXPORT cuvsError_t cuvsMultiGpuCagraSearch(cuvsResources_t res,
                                     cuvsMultiGpuCagraSearchParams_t params,
                                     cuvsMultiGpuCagraIndex_t index,
                                     DLManagedTensor* queries_tensor,
@@ -197,7 +199,7 @@ cuvsError_t cuvsMultiGpuCagraSearch(cuvsResources_t res,
  * @param[in] new_indices_tensor DLManagedTensor* new indices (optional, can be NULL)
  * @return cuvsError_t
  */
-cuvsError_t cuvsMultiGpuCagraExtend(cuvsResources_t res,
+CUVS_EXPORT cuvsError_t cuvsMultiGpuCagraExtend(cuvsResources_t res,
                                     cuvsMultiGpuCagraIndex_t index,
                                     DLManagedTensor* new_vectors_tensor,
                                     DLManagedTensor* new_indices_tensor);
@@ -219,7 +221,7 @@ cuvsError_t cuvsMultiGpuCagraExtend(cuvsResources_t res,
  * @param[in] filename Path to the output file
  * @return cuvsError_t
  */
-cuvsError_t cuvsMultiGpuCagraSerialize(cuvsResources_t res,
+CUVS_EXPORT cuvsError_t cuvsMultiGpuCagraSerialize(cuvsResources_t res,
                                        cuvsMultiGpuCagraIndex_t index,
                                        const char* filename);
 
@@ -240,7 +242,7 @@ cuvsError_t cuvsMultiGpuCagraSerialize(cuvsResources_t res,
  * @param[out] index Multi-GPU CAGRA index
  * @return cuvsError_t
  */
-cuvsError_t cuvsMultiGpuCagraDeserialize(cuvsResources_t res,
+CUVS_EXPORT cuvsError_t cuvsMultiGpuCagraDeserialize(cuvsResources_t res,
                                          const char* filename,
                                          cuvsMultiGpuCagraIndex_t index);
 
@@ -261,7 +263,7 @@ cuvsError_t cuvsMultiGpuCagraDeserialize(cuvsResources_t res,
  * @param[out] index Multi-GPU CAGRA index
  * @return cuvsError_t
  */
-cuvsError_t cuvsMultiGpuCagraDistribute(cuvsResources_t res,
+CUVS_EXPORT cuvsError_t cuvsMultiGpuCagraDistribute(cuvsResources_t res,
                                         const char* filename,
                                         cuvsMultiGpuCagraIndex_t index);
 

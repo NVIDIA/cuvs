@@ -1,5 +1,5 @@
 #!/bin/bash
-# SPDX-FileCopyrightText: Copyright (c) 2020-2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2020-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 ########################
 # CUVS Version Updater #
@@ -139,14 +139,14 @@ if [[ "${RUN_CONTEXT}" == "main" ]]; then
   :
 elif [[ "${RUN_CONTEXT}" == "release" ]]; then
   # In release context, use release branch for documentation links (word boundaries to avoid partial matches)
-  sed_runner "/rapidsai\\/cuvs/ s|\\bmain\\b|release/${NEXT_SHORT_TAG}|g" docs/source/developer_guide.md
+  sed_runner "/rapidsai\\/cuvs/ s|\\bmain\\b|release/${NEXT_SHORT_TAG}|g" fern/pages/developer_guide.md
   sed_runner "s|\\bmain\\b|release/${NEXT_SHORT_TAG}|g" README.md
   # Only update the GitHub URL, not the main() function
   sed_runner "s|/cuvs/blob/\\bmain\\b/|/cuvs/blob/release/${NEXT_SHORT_TAG}/|g" python/cuvs_bench/cuvs_bench/plot/__main__.py
 fi
 
 # Update cuvs-bench Docker image references (version-only, not branch-related)
-sed_runner "s|rapidsai/cuvs-bench:[0-9][0-9].[0-9][0-9]|rapidsai/cuvs-bench:${NEXT_SHORT_TAG}|g" docs/source/cuvs_bench/index.rst
+sed_runner "s|rapidsai/cuvs-bench:[0-9][0-9].[0-9][0-9]|rapidsai/cuvs-bench:${NEXT_SHORT_TAG}|g" fern/pages/cuvs_bench/index.md
 
 # Version references (not branch-related)
 sed_runner "s|=[0-9][0-9].[0-9][0-9]|=${NEXT_SHORT_TAG}|g" README.md
@@ -155,7 +155,6 @@ sed_runner "s|@v[0-9][0-9].[0-9][0-9].[0-9][0-9]|@v${NEXT_FULL_TAG}|g" examples/
 # rust can't handle leading 0's in the major/minor/patch version - remove
 NEXT_FULL_RUST_TAG=$(printf "%d.%d.%d" $((10#$NEXT_MAJOR)) $((10#$NEXT_MINOR)) $((10#$NEXT_PATCH)))
 sed_runner "s/version = \".*\"/version = \"${NEXT_FULL_RUST_TAG}\"/g" rust/Cargo.toml
-sed_runner "s/version = \".*\"/version = \"${NEXT_FULL_RUST_TAG}\"/g" rust/cuvs/Cargo.toml
 
 # .devcontainer files
 find .devcontainer/ -type f -name devcontainer.json -print0 | while IFS= read -r -d '' filename; do

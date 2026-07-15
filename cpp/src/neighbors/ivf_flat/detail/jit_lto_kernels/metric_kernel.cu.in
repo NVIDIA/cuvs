@@ -1,0 +1,28 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <neighbors/ivf_flat/detail/jit_lto_kernels/device_functions.cuh>
+#include <neighbors/ivf_flat/detail/jit_lto_kernels/metric_impl.cuh>
+
+namespace {
+
+using data_t         = @data_type@;
+using acc_t          = @acc_type@;
+constexpr int veclen = @veclen@;
+constexpr auto compute_dist_impl =
+  cuvs::neighbors::ivf_flat::detail::compute_dist_@metric_name@_impl<data_t, acc_t, veclen>;
+
+}  // namespace
+
+namespace cuvs::neighbors::ivf_flat::detail {
+
+// Instantiate the device function template
+template <>
+__device__ void compute_dist<acc_t>(acc_t& acc, acc_t x, acc_t y)
+{
+  compute_dist_impl(acc, x, y);
+}
+
+}  // namespace cuvs::neighbors::ivf_flat::detail

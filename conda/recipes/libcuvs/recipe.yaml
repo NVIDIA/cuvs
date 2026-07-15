@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 schema_version: 1
 
@@ -30,7 +30,7 @@ cache:
         export CXXFLAGS=$(echo $CXXFLAGS | sed -E 's@\-fdebug\-prefix\-map[^ ]*@@g')
         set +x
 
-        ./build.sh libcuvs bench-ann tests --allgpuarch --build-metrics=compile_lib --incl-cache-stats --no-nvtx -n
+        ./build.sh libcuvs bench-ann tests --allgpuarch --mnmg-tests --build-metrics=compile_lib --incl-cache-stats --no-nvtx -n
 
       secrets:
         - AWS_ACCESS_KEY_ID
@@ -78,6 +78,7 @@ cache:
       - nccl ${{ nccl_version }}
       - cuda-version =${{ cuda_version }}
       - cuda-cudart-dev
+      - cuda-nvrtc-dev
       - cuda-profiler-api
       - libcublas-dev
       - libcurand-dev
@@ -114,6 +115,7 @@ outputs:
         - nccl ${{ nccl_version }}
         - cuda-version =${{ cuda_version }}
         - cuda-cudart-dev
+        - cuda-nvrtc-dev
         - cuda-profiler-api
         - libcublas-dev
         - libcurand-dev
@@ -124,6 +126,7 @@ outputs:
         - ${{ pin_compatible("cuda-version", upper_bound="x", lower_bound="x") }}
         - libraft-headers =${{ minor_version }}
         - librmm =${{ minor_version }}
+        - cuda-nvrtc
         - nccl
         - libcublas
         - libcurand
@@ -132,6 +135,7 @@ outputs:
       ignore_run_exports:
         by_name:
           - cuda-cudart
+          - cuda-nvrtc
           - cuda-version
           - libaio
           - libboost
@@ -173,6 +177,7 @@ outputs:
         - nccl ${{ nccl_version }}
         - cuda-version =${{ cuda_version }}
         - cuda-cudart-dev
+        - cuda-nvrtc-dev
         - cuda-profiler-api
         - libcublas-dev
         - libcurand-dev
@@ -184,6 +189,7 @@ outputs:
         - ${{ pin_subpackage("libcuvs-headers", exact=True) }}
         - libraft-headers =${{ minor_version }}
         - librmm =${{ minor_version }}
+        - cuda-nvrtc
         - nccl
         - libcublas
         - libcurand
@@ -192,6 +198,7 @@ outputs:
       ignore_run_exports:
         by_name:
           - cuda-cudart
+          - cuda-nvrtc
           - cuda-version
           - libaio
           - libboost
@@ -231,6 +238,7 @@ outputs:
         - nccl ${{ nccl_version }}
         - cuda-version =${{ cuda_version }}
         - cuda-cudart-dev
+        - cuda-nvrtc-dev
         - cuda-profiler-api
         - libcublas-dev
         - libcurand-dev
@@ -242,6 +250,7 @@ outputs:
         - ${{ pin_subpackage("libcuvs-headers", exact=True) }}
         - libraft-headers =${{ minor_version }}
         - librmm =${{ minor_version }}
+        - cuda-nvrtc
         - nccl
         - libcublas
         - libcurand
@@ -250,6 +259,7 @@ outputs:
       ignore_run_exports:
         by_name:
           - cuda-cudart
+          - cuda-nvrtc
           - cuda-version
           - libaio
           - libboost
@@ -306,6 +316,7 @@ outputs:
       ignore_run_exports:
         by_name:
           - cuda-cudart
+          - cuda-nvrtc
           - cuda-version
           - libaio
           - libboost
@@ -388,6 +399,7 @@ outputs:
         - librmm =${{ minor_version }}
         - nccl ${{ nccl_version }}
         - cuda-cudart-dev
+        - cuda-nvrtc-dev
         - cuda-profiler-api
         - libcublas-dev
         - libcurand-dev
@@ -398,6 +410,7 @@ outputs:
         - ${{ pin_subpackage("libcuvs-headers", exact=True) }}
         - ${{ pin_subpackage("libcuvs", exact=True) }}
         - ${{ pin_compatible("cuda-version", upper_bound="x", lower_bound="x") }}
+        - cuda-nvrtc
         - nccl
         - libcublas
         - libcurand
@@ -406,6 +419,7 @@ outputs:
       ignore_run_exports:
         by_name:
           - cuda-cudart
+          - cuda-nvrtc
           - cuda-version
           - libaio
           - libboost
@@ -478,6 +492,7 @@ outputs:
       ignore_run_exports:
         by_name:
           - cuda-cudart
+          - cuda-nvrtc
           - cuda-version
           - libcublas
           - libcurand
@@ -485,7 +500,6 @@ outputs:
           - libcusparse
           - librmm
           - mkl
-          - nccl
     about:
       homepage: ${{ load_from_file("python/cuvs_bench/pyproject.toml").project.urls.Homepage }}
       license: ${{ load_from_file("python/cuvs_bench/pyproject.toml").project.license }}

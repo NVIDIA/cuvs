@@ -27,6 +27,7 @@
 #include <rmm/device_uvector.hpp>
 #include <rmm/resource_ref.hpp>
 
+#include <atomic>
 #include <cassert>
 #include <fstream>
 #include <iostream>
@@ -35,10 +36,36 @@
 #include <raft/util/integer_utils.hpp>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <type_traits>
 #include <vector>
 
 namespace cuvs::bench {
+
+namespace detail {
+
+/** If persistent CAGRA search uses few benchmark threads, log a throughput hint once per process.
+ */
+inline void maybe_log_cagra_persistent_concurrency_hint(bool persistent_search)
+{
+  if (!persistent_search) { return; }
+
+  const unsigned hc = std::max(1u, static_cast<unsigned>(std::thread::hardware_concurrency()));
+  const unsigned bn = static_cast<unsigned>(std::max(0, benchmark_n_threads));
+  if (bn >= 2u * hc) { return; }
+
+  static std::atomic<bool> logged{false};
+  bool expected = false;
+  if (!logged.compare_exchange_strong(expected, true)) { return; }
+
+  const unsigned threads_rec = 16u * hc;
+  RAFT_LOG_INFO(
+    "CAGRA persistent search benefits from high client concurrency (try `--mode=throughput "
+    "--threads=1:%u`).",
+    threads_rec);
+}
+
+}  // namespace detail
 
 enum class AllocatorType { kHostPinned, kHostHugePage, kDevice };
 enum class CagraBuildAlgo { kAuto, kIvfPq, kNnDescent };
@@ -166,9 +193,9 @@ class cuvs_cagra : public algo<T>, public algo_gpu {
   inline rmm::device_async_resource_ref get_mr(AllocatorType mem_type)
   {
     switch (mem_type) {
-      case (AllocatorType::kHostPinned): return &mr_pinned_;
-      case (AllocatorType::kHostHugePage): return &mr_huge_page_;
-      default: return rmm::mr::get_current_device_resource();
+      case (AllocatorType::kHostPinned): return mr_pinned_;
+      case (AllocatorType::kHostHugePage): return mr_huge_page_;
+      default: return rmm::mr::get_current_device_resource_ref();
     }
   }
 };
@@ -325,6 +352,8 @@ void cuvs_cagra<T, IdxT>::set_search_param(const search_param_base& param,
   } else {
     if (dynamic_batcher_) { dynamic_batcher_.reset(); }
   }
+
+  detail::maybe_log_cagra_persistent_concurrency_hint(search_params_.persistent);
 }
 
 template <typename T, typename IdxT>

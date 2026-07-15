@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <cuvs/core/cuda_fp16.hpp>
+
 #include <neighbors/cagra_serialize.cuh>
 
 namespace {

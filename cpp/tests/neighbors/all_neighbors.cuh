@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -51,7 +51,7 @@ inline ::std::ostream& operator<<(::std::ostream& os, const AllNeighborsInputs& 
   os << "dataset shape=" << p.n_rows << "x" << p.dim << ", k=" << p.k
      << ", metric=" << static_cast<int>(std::get<1>(p.build_algo_metric_recall))
      << ", clusters=" << std::get<0>(p.cluster_nearestcluster)
-     << ", overlap_factor=" << std::get<1>(p.cluster_nearestcluster) << std::endl;
+     << ", overlap_factor=" << std::get<1>(p.cluster_nearestcluster);
   return os;
 }
 

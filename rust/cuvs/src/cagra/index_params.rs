@@ -1,11 +1,11 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
-use crate::error::{check_cuvs, Result};
+use crate::error::{Result, check_cuvs};
 use std::fmt;
-use std::io::{stderr, Write};
+use std::io::{Write, stderr};
 
 pub type BuildAlgo = ffi::cuvsCagraGraphBuildAlgo;
 
@@ -154,12 +154,8 @@ impl fmt::Debug for CompressionParams {
 impl Drop for IndexParams {
     fn drop(&mut self) {
         if let Err(e) = check_cuvs(unsafe { ffi::cuvsCagraIndexParamsDestroy(self.0) }) {
-            write!(
-                stderr(),
-                "failed to call cuvsCagraIndexParamsDestroy {:?}",
-                e
-            )
-            .expect("failed to write to stderr");
+            write!(stderr(), "failed to call cuvsCagraIndexParamsDestroy {:?}", e)
+                .expect("failed to write to stderr");
         }
     }
 }
@@ -167,12 +163,8 @@ impl Drop for IndexParams {
 impl Drop for CompressionParams {
     fn drop(&mut self) {
         if let Err(e) = check_cuvs(unsafe { ffi::cuvsCagraCompressionParamsDestroy(self.0) }) {
-            write!(
-                stderr(),
-                "failed to call cuvsCagraCompressionParamsDestroy {:?}",
-                e
-            )
-            .expect("failed to write to stderr");
+            write!(stderr(), "failed to call cuvsCagraCompressionParamsDestroy {:?}", e)
+                .expect("failed to write to stderr");
         }
     }
 }
@@ -189,12 +181,7 @@ mod tests {
             .set_graph_degree(16)
             .set_build_algo(BuildAlgo::NN_DESCENT)
             .set_nn_descent_niter(10)
-            .set_compression(
-                CompressionParams::new()
-                    .unwrap()
-                    .set_pq_bits(4)
-                    .set_pq_dim(8),
-            );
+            .set_compression(CompressionParams::new().unwrap().set_pq_bits(4).set_pq_dim(8));
 
         // make sure the setters actually updated internal representation on the c-struct
         unsafe {

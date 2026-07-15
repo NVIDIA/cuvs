@@ -8,6 +8,8 @@
 #include <cuvs/core/c_api.h>
 #include <cuvs/distance/distance.h>
 
+#include <cuvs/core/export.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -45,7 +47,7 @@ extern "C" {
  * @param[in] metric distance to evaluate
  * @param[in] metric_arg metric argument (used for Minkowski distance)
  */
-cuvsError_t cuvsPairwiseDistance(cuvsResources_t res,
+CUVS_EXPORT cuvsError_t cuvsPairwiseDistance(cuvsResources_t res,
                                  DLManagedTensor* x,
                                  DLManagedTensor* y,
                                  DLManagedTensor* dist,

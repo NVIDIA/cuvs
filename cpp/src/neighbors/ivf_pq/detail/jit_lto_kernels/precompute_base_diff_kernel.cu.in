@@ -1,0 +1,27 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <neighbors/ivf_pq/detail/jit_lto_kernels/device_functions.cuh>
+#include <neighbors/ivf_pq/detail/jit_lto_kernels/precompute_base_diff_impl.cuh>
+#include <neighbors/ivf_pq/ivf_pq_fp_8bit.cuh>
+
+namespace {
+
+constexpr auto precompute_base_diff_impl =
+  cuvs::neighbors::ivf_pq::detail::precompute_base_diff_@metric@_impl;
+
+}
+
+namespace cuvs::neighbors::ivf_pq::detail {
+
+__device__ void precompute_base_diff(uint32_t dim,
+                                     uint8_t* lut_end,
+                                     const float* query,
+                                     const float* cluster_center)
+{
+  precompute_base_diff_impl(dim, lut_end, query, cluster_center);
+}
+
+}  // namespace cuvs::neighbors::ivf_pq::detail

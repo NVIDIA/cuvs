@@ -11,9 +11,13 @@
 #include <raft/core/host_mdarray.hpp>
 #include <raft/core/host_mdspan.hpp>
 
-#include <cuda_fp16.h>
+#include <cuvs/core/cuda_fp16.hpp>
+#include <cuvs/core/export.hpp>
 
-namespace cuvs::preprocessing::quantize::scalar {
+namespace CUVS_EXPORT cuvs {
+namespace preprocessing {
+namespace quantize {
+namespace scalar {
 
 /**
  * @defgroup scalar Scalar quantizer utilities
@@ -471,4 +475,7 @@ void inverse_transform(raft::resources const& res,
 
 /** @} */  // end of group scalar
 
-}  // namespace cuvs::preprocessing::quantize::scalar
+}  // namespace scalar
+}  // namespace quantize
+}  // namespace preprocessing
+}  // namespace CUVS_EXPORT cuvs

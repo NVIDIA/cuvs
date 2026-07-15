@@ -19,17 +19,21 @@
 
 #include <cuvs/core/bitmap.hpp>
 #include <cuvs/core/bitset.hpp>
+#include <cuvs/core/export.hpp>
 #include <raft/core/detail/macros.hpp>
 
 #include <memory>
 #include <numeric>
+#include <string>
 #include <type_traits>
+#include <utility>
 
 #ifdef __cpp_lib_bitops
 #include <bit>
 #endif
 
-namespace cuvs::neighbors {
+namespace CUVS_EXPORT cuvs {
+namespace neighbors {
 /**
  * @addtogroup cagra_cpp_index_params
  * @{
@@ -493,7 +497,7 @@ namespace filtering {
  * @{
  */
 
-enum class FilterType { None, Bitmap, Bitset };
+enum class FilterType { None, Bitmap, Bitset, UDF };
 
 struct base_filter {
   ~base_filter()                             = default;
@@ -611,6 +615,46 @@ struct bitset_filter : public base_filter {
 
   template <typename csr_matrix_t>
   void to_csr(raft::resources const& handle, csr_matrix_t& csr);
+};
+
+/**
+ * @brief JIT-LTO user-defined filter predicate.
+ *
+ * The source must define a device function named by @c function_name with signature:
+ *
+ * @code{.cpp}
+ * __device__ bool cuvs_filter_udf(uint32_t query_id, source_index_t source_id, void* filter_data);
+ * @endcode
+ *
+ * Return @c true to allow a source vector to appear in the results and @c false to reject it.
+ * @c filter_data is passed through unchanged and must point to device-accessible memory when the
+ * UDF dereferences it. CAGRA currently provides @c source_index_t as @c uint32_t in the generated
+ * JIT fragment.
+ */
+struct udf_filter : public base_filter {
+  /** CUDA C++ source containing the device predicate. */
+  std::string source;
+  /** Opaque device-accessible pointer passed to the predicate. */
+  void* filter_data = nullptr;
+  /** Estimated fraction of rows rejected by the predicate, or negative if unknown. */
+  float filtering_rate = -1.0f;
+  /** Device function name to call from the generated CAGRA sample filter. */
+  std::string function_name = "cuvs_filter_udf";
+
+  udf_filter() = default;
+
+  explicit udf_filter(std::string source,
+                      void* filter_data         = nullptr,
+                      float filtering_rate      = -1.0f,
+                      std::string function_name = "cuvs_filter_udf")
+    : source(std::move(source)),
+      filter_data(filter_data),
+      filtering_rate(filtering_rate),
+      function_name(std::move(function_name))
+  {
+  }
+
+  FilterType get_filter_type() const override { return FilterType::UDF; }
 };
 
 /** @} */  // end group neighbors_filtering
@@ -809,11 +853,11 @@ using enable_if_valid_list_t = typename enable_if_valid_list<ListT, T>::type;
  *       `cuvs::neighbors::ivf_pq::helpers::resize_list` which handle type casting internally.
  */
 template <typename ListT>
-void resize_list(raft::resources const& res,
-                 std::shared_ptr<ListT>& orig_list,  // NOLINT
-                 const typename ListT::spec_type& spec,
-                 typename ListT::size_type new_used_size,
-                 typename ListT::size_type old_used_size);
+CUVS_EXPORT void resize_list(raft::resources const& res,
+                             std::shared_ptr<ListT>& orig_list,  // NOLINT
+                             const typename ListT::spec_type& spec,
+                             typename ListT::size_type new_used_size,
+                             typename ListT::size_type old_used_size);
 
 /**
  * Serialize a list to an output stream.
@@ -977,4 +1021,5 @@ struct mg_index {
   std::shared_ptr<std::atomic<int64_t>> round_robin_counter_;
 };
 
-}  // namespace cuvs::neighbors
+}  // namespace neighbors
+}  // namespace CUVS_EXPORT cuvs

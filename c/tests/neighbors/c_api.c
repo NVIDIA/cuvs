@@ -1,11 +1,12 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #include <cuvs/core/c_api.h>
 #include <cuvs/neighbors/all_neighbors.h>
 #include <cuvs/neighbors/cagra.h>
+#include <cuvs/neighbors/ivf_sq.h>
 #include <cuvs/neighbors/tiered_index.h>
 
 #include <dlpack/dlpack.h>
@@ -47,6 +48,15 @@ void test_compile_tiered_index()
   cuvsTieredIndexExtend(resources, &dataset, tiered_index);
 }
 
+void test_compile_ivf_sq()
+{
+  assert(!"test_compile_ivf_sq is not meant to be run");
+
+  cuvsIvfSqIndex_t index;
+  cuvsIvfSqIndexCreate(&index);
+  cuvsIvfSqIndexDestroy(index);
+}
+
 void test_compile_all_neighbors()
 {
   // Smoke test to ensure that the all_neighbors.h API compiles correctly
@@ -66,6 +76,7 @@ int main()
   // These are smoke tests that check that the C-APIs compile with a C compiler.
   // These are not meant to be run.
   test_compile_cagra();
+  test_compile_ivf_sq();
   test_compile_tiered_index();
   test_compile_all_neighbors();
 

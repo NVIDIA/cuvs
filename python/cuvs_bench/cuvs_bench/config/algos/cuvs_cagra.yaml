@@ -19,3 +19,15 @@ groups:
     search:
       itopk: [32]
       search_width: [1, 2]
+  persistent:
+    build:
+      graph_degree: [32, 64, 96]
+      intermediate_graph_degree: [128]
+      graph_build_algo: ["IVF_PQ"]
+    search:
+      persistent: [true]
+      persistent_device_usage: [0.95]
+      algo: ["single_cta"]
+      itopk: [32, 64, 128, 256, 512]
+      max_iterations: [0, 16]
+      search_width: [1, 2, 4, 8]

@@ -18,18 +18,28 @@ if TYPE_CHECKING:
     from ..orchestrator.config_loaders import IndexConfig
 
 
-@dataclass
 class Dataset:
     """
     Dataset representation for benchmarking.
 
-    Attributes
+    Supports two usage patterns:
+
+    1. File-path based (C++ backend): The orchestrator passes file paths
+       and the backend reads them directly via ``base_file``, ``query_file``,
+       etc. Vectors are never loaded into Python.
+
+    2. Array based (Python-native backends like OpenSearch, Elasticsearch):
+       Backends access ``training_vectors``, ``query_vectors``, etc. If vectors
+       were not provided directly but a file path exists, they are loaded
+       lazily on first access. This keeps file I/O invisible to backends.
+
+    Parameters
     ----------
     name : str
         Dataset name (e.g., "glove-100-inner")
-    base_vectors : np.ndarray
-        Base vectors for index building, shape (n_vectors, dims)
-    query_vectors : np.ndarray
+    training_vectors : Optional[np.ndarray]
+        Training vectors for index building, shape (n_vectors, dims)
+    query_vectors : Optional[np.ndarray]
         Query vectors for search, shape (n_queries, dims)
     groundtruth_neighbors : Optional[np.ndarray]
         Ground truth neighbor IDs, shape (n_queries, k_gt)
@@ -38,37 +48,151 @@ class Dataset:
     distance_metric : str
         Distance metric ("euclidean", "inner_product", "cosine")
     base_file : Optional[str]
-        Path to base vectors file (for C++ backend compatibility)
+        Path to base vectors file
     query_file : Optional[str]
-        Path to query vectors file (for C++ backend compatibility)
+        Path to query vectors file
     groundtruth_neighbors_file : Optional[str]
-        Path to ground truth neighbors file (for C++ backend compatibility)
-    metadata : Dict[str, Any]
-        Additional dataset metadata like {"source": "ann-benchmarks"}
+        Path to ground truth neighbors file
+    groundtruth_distances_file : Optional[str]
+        Path to ground truth distances file
+    metadata : Optional[Dict[str, Any]]
+        Additional dataset metadata like {"subset_size": 10000}
     """
 
-    name: str
-    base_vectors: np.ndarray
-    query_vectors: np.ndarray
-    groundtruth_neighbors: Optional[np.ndarray] = None
-    groundtruth_distances: Optional[np.ndarray] = None
-    distance_metric: str = "euclidean"
-    base_file: Optional[str] = None
-    query_file: Optional[str] = None
-    groundtruth_neighbors_file: Optional[str] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    def __init__(
+        self,
+        name: str,
+        training_vectors: Optional[np.ndarray] = None,
+        query_vectors: Optional[np.ndarray] = None,
+        groundtruth_neighbors: Optional[np.ndarray] = None,
+        groundtruth_distances: Optional[np.ndarray] = None,
+        distance_metric: str = "euclidean",
+        base_file: Optional[str] = None,
+        query_file: Optional[str] = None,
+        groundtruth_neighbors_file: Optional[str] = None,
+        groundtruth_distances_file: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ):
+        self.name = name
+        # Vectors are stored privately to support lazy loading.
+        # If the caller provides vectors directly, they are used as-is.
+        # If empty and a file path is provided, the corresponding property
+        # loads vectors from the file on first access. This keeps the
+        # loading logic invisible to backends: they just access
+        # dataset.training_vectors and get a numpy array regardless of
+        # whether it was passed in or loaded from disk.
+        self._training_vectors = (
+            training_vectors
+            if training_vectors is not None
+            else np.empty((0, 0))
+        )
+        self._query_vectors = (
+            query_vectors if query_vectors is not None else np.empty((0, 0))
+        )
+        self._groundtruth_neighbors = groundtruth_neighbors
+        self._groundtruth_distances = groundtruth_distances
+        self.distance_metric = distance_metric
+        self.base_file = base_file
+        self.query_file = query_file
+        self.groundtruth_neighbors_file = groundtruth_neighbors_file
+        self.groundtruth_distances_file = groundtruth_distances_file
+        self.metadata = metadata or {}
+
+    @property
+    def training_vectors(self) -> np.ndarray:
+        """Training vectors for index building.
+
+        Loaded from base_file on first access if not provided directly.
+        """
+        if self._training_vectors.size == 0 and self.base_file:
+            from ._utils import load_vectors
+
+            self._training_vectors = load_vectors(
+                self.base_file, self.metadata.get("subset_size")
+            )
+        return self._training_vectors
+
+    @training_vectors.setter
+    def training_vectors(self, value: Optional[np.ndarray]) -> None:
+        """Set training vectors directly."""
+        self._training_vectors = (
+            value if value is not None else np.empty((0, 0))
+        )
+
+    @property
+    def query_vectors(self) -> np.ndarray:
+        """Query vectors for search.
+
+        Loaded from query_file on first access if not provided directly.
+        """
+        if self._query_vectors.size == 0 and self.query_file:
+            from ._utils import load_vectors
+
+            self._query_vectors = load_vectors(self.query_file)
+        return self._query_vectors
+
+    @query_vectors.setter
+    def query_vectors(self, value: Optional[np.ndarray]) -> None:
+        """Set query vectors directly."""
+        self._query_vectors = value if value is not None else np.empty((0, 0))
+
+    @property
+    def groundtruth_neighbors(self) -> Optional[np.ndarray]:
+        """Ground truth neighbor IDs.
+
+        Loaded from groundtruth_neighbors_file on first access if not
+        provided directly.
+        """
+        if (
+            self._groundtruth_neighbors is None
+            and self.groundtruth_neighbors_file
+        ):
+            from ._utils import load_vectors
+
+            self._groundtruth_neighbors = load_vectors(
+                self.groundtruth_neighbors_file
+            )
+        return self._groundtruth_neighbors
+
+    @groundtruth_neighbors.setter
+    def groundtruth_neighbors(self, value: Optional[np.ndarray]) -> None:
+        """Set ground truth neighbors directly."""
+        self._groundtruth_neighbors = value
+
+    @property
+    def groundtruth_distances(self) -> Optional[np.ndarray]:
+        """Ground truth distances.
+
+        Loaded from groundtruth_distances_file on first access if not
+        provided directly.
+        """
+        if (
+            self._groundtruth_distances is None
+            and self.groundtruth_distances_file
+        ):
+            from ._utils import load_vectors
+
+            self._groundtruth_distances = load_vectors(
+                self.groundtruth_distances_file
+            )
+        return self._groundtruth_distances
+
+    @groundtruth_distances.setter
+    def groundtruth_distances(self, value: Optional[np.ndarray]) -> None:
+        """Set ground truth distances directly."""
+        self._groundtruth_distances = value
 
     @property
     def dims(self) -> int:
         """Vector dimensionality."""
-        if self.base_vectors.size == 0:
+        if self.training_vectors.size == 0:
             return 0
-        return self.base_vectors.shape[1]
+        return self.training_vectors.shape[1]
 
     @property
     def n_base(self) -> int:
         """Number of base vectors."""
-        return self.base_vectors.shape[0]
+        return self.training_vectors.shape[0]
 
     @property
     def n_queries(self) -> int:

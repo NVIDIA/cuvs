@@ -1,8 +1,9 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <cuvs/core/export.hpp>
 #include <cuvs/neighbors/ivf_flat.hpp>
 
 namespace cuvs::neighbors::ivf_flat {
@@ -215,10 +216,10 @@ void index<T, IdxT>::check_consistency()
     "inconsistent number of lists (clusters)");
 }
 
-template struct index<float, uint32_t>;  // Used for refine function
-template struct index<float, int64_t>;
-template struct index<half, int64_t>;
-template struct index<int8_t, int64_t>;
-template struct index<uint8_t, int64_t>;
+template struct CUVS_EXPORT index<float, uint32_t>;  // Used for refine function
+template struct CUVS_EXPORT index<float, int64_t>;
+template struct CUVS_EXPORT index<half, int64_t>;
+template struct CUVS_EXPORT index<int8_t, int64_t>;
+template struct CUVS_EXPORT index<uint8_t, int64_t>;
 
 }  // namespace cuvs::neighbors::ivf_flat

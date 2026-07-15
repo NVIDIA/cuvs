@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <cuvs/core/export.hpp>
 #include <cuvs/distance/kde.hpp>
 
 #include <raft/core/error.hpp>
@@ -657,7 +658,7 @@ void kde(raft::resources const& handle,
 }
 
 // Explicit instantiations
-template void kde<float>(
+template CUVS_EXPORT void kde<float>(
   raft::resources const&,
   raft::device_matrix_view<const float, std::int64_t, raft::layout_c_contiguous>,
   raft::device_matrix_view<const float, std::int64_t, raft::layout_c_contiguous>,
@@ -669,7 +670,7 @@ template void kde<float>(
   cuvs::distance::DistanceType,
   float);
 
-template void kde<double>(
+template CUVS_EXPORT void kde<double>(
   raft::resources const&,
   raft::device_matrix_view<const double, std::int64_t, raft::layout_c_contiguous>,
   raft::device_matrix_view<const double, std::int64_t, raft::layout_c_contiguous>,

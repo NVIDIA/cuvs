@@ -1,0 +1,42 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <neighbors/detail/cagra/jit_lto_kernels/apply_normalization_standard_impl.cuh>
+
+namespace {
+
+constexpr uint32_t k_team_size         = @team_size@u;
+constexpr uint32_t k_dataset_block_dim = @dataset_block_dim@u;
+
+using data_t     = @data_type@;
+using index_t    = @index_type@;
+using distance_t = @distance_type@;
+using query_t    = @query_type@;
+
+}  // namespace
+
+namespace cuvs::neighbors::cagra::detail {
+
+using args_t = typename dataset_descriptor_base_t<data_t, index_t, distance_t>::args_t;
+
+template <>
+__device__ distance_t apply_normalization_standard<k_team_size,
+                                                   k_dataset_block_dim,
+                                                   data_t,
+                                                   index_t,
+                                                   distance_t,
+                                                   query_t>(distance_t distance,
+                                                            const args_t args,
+                                                            index_t dataset_index)
+{
+  return apply_normalization_standard_@norm_kind@_impl<k_team_size,
+                                                   k_dataset_block_dim,
+                                                   data_t,
+                                                   index_t,
+                                                   distance_t,
+                                                   query_t>(distance, args, dataset_index);
+}
+
+}  // namespace cuvs::neighbors::cagra::detail

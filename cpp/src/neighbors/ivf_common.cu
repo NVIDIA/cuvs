@@ -79,7 +79,7 @@ void sort_cluster_sizes_descending(uint32_t* input,
                                    uint32_t* output,
                                    uint32_t n_lists,
                                    rmm::cuda_stream_view stream,
-                                   rmm::mr::device_memory_resource* tmp_res)
+                                   rmm::device_async_resource_ref tmp_res)
 {
   int begin_bit             = 0;
   int end_bit               = sizeof(uint32_t) * 8;

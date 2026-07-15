@@ -8,7 +8,6 @@ Unit tests for the backend registry system.
 
 import pytest
 import numpy as np
-from pathlib import Path
 
 from cuvs_bench.backends import (
     Dataset,
@@ -27,31 +26,38 @@ class DummyBackend(BenchmarkBackend):
 
     @property
     def algo(self) -> str:
-        """Return dummy algorithm name."""
         return "dummy_algo"
 
-    def build(self, dataset, build_params, index_path, force=False):
+    def build(self, dataset, indexes, force=False, dry_run=False):
+        if not indexes:
+            raise ValueError("indexes must not be empty")
+        first = indexes[0]
         return BuildResult(
-            index_path=str(index_path),
+            index_path=first.file,
             build_time_seconds=1.0,
             index_size_bytes=1000,
-            algorithm=self.name,
-            build_params=build_params,
+            algorithm=self.algo,
+            build_params=first.build_param,
             success=True,
         )
 
     def search(
         self,
         dataset,
-        search_params,
-        index_path,
+        indexes,
         k,
         batch_size=10000,
-        mode="throughput",
+        mode="latency",
+        force=False,
+        search_threads=None,
+        dry_run=False,
     ):
+        if not indexes:
+            raise ValueError("indexes must not be empty")
         n_queries = dataset.n_queries
         neighbors = np.random.randint(0, dataset.n_base, size=(n_queries, k))
         distances = np.random.rand(n_queries, k)
+        first = indexes[0]
 
         return SearchResult(
             neighbors=neighbors,
@@ -59,41 +65,49 @@ class DummyBackend(BenchmarkBackend):
             search_time_ms=0.1,
             queries_per_second=n_queries / 0.1,
             recall=0.95,
-            algorithm=self.name,
-            search_params=search_params,
+            algorithm=self.algo,
+            search_params=first.search_params,
             success=True,
         )
-
-    @property
-    def name(self) -> str:
-        return "dummy"
 
 
 class AnotherDummyBackend(BenchmarkBackend):
     """Another dummy backend for testing."""
 
-    def build(self, dataset, build_params, index_path, force=False):
+    @property
+    def algo(self) -> str:
+        return "another_dummy_algo"
+
+    def build(self, dataset, indexes, force=False, dry_run=False):
+        if not indexes:
+            raise ValueError("indexes must not be empty")
+        first = indexes[0]
         return BuildResult(
-            index_path=str(index_path),
+            index_path=first.file,
             build_time_seconds=2.0,
             index_size_bytes=2000,
-            algorithm=self.name,
-            build_params=build_params,
+            algorithm=self.algo,
+            build_params=first.build_param,
             success=True,
         )
 
     def search(
         self,
         dataset,
-        search_params,
-        index_path,
+        indexes,
         k,
         batch_size=10000,
-        mode="throughput",
+        mode="latency",
+        force=False,
+        search_threads=None,
+        dry_run=False,
     ):
+        if not indexes:
+            raise ValueError("indexes must not be empty")
         n_queries = dataset.n_queries
         neighbors = np.random.randint(0, dataset.n_base, size=(n_queries, k))
         distances = np.random.rand(n_queries, k)
+        first = indexes[0]
 
         return SearchResult(
             neighbors=neighbors,
@@ -101,14 +115,10 @@ class AnotherDummyBackend(BenchmarkBackend):
             search_time_ms=0.2,
             queries_per_second=n_queries / 0.2,
             recall=0.90,
-            algorithm=self.name,
-            search_params=search_params,
+            algorithm=self.algo,
+            search_params=first.search_params if first else [],
             success=True,
         )
-
-    @property
-    def name(self) -> str:
-        return "another_dummy"
 
 
 class TestDataset:
@@ -122,7 +132,7 @@ class TestDataset:
 
         dataset = Dataset(
             name="test_dataset",
-            base_vectors=base,
+            training_vectors=base,
             query_vectors=queries,
             groundtruth_neighbors=gt_neighbors,
             distance_metric="euclidean",
@@ -140,7 +150,9 @@ class TestDataset:
         queries = np.random.rand(50, 64).astype(np.float32)
 
         dataset = Dataset(
-            name="test_dataset_no_gt", base_vectors=base, query_vectors=queries
+            name="test_dataset_no_gt",
+            training_vectors=base,
+            query_vectors=queries,
         )
 
         assert dataset.groundtruth_neighbors is None
@@ -294,7 +306,7 @@ class TestBackendRegistry:
         registry = BackendRegistry()
         registry.register("dummy", DummyBackend)
 
-        backend = registry.get_backend("dummy", config={})
+        backend = registry.get_backend("dummy", config={"name": "dummy"})
 
         assert isinstance(backend, DummyBackend)
         assert backend.name == "dummy"
@@ -324,42 +336,57 @@ class TestBackendRegistry:
 class TestBackendIntegration:
     """Integration tests for backends."""
 
-    def test_dummy_backend_build(self):
+    def test_dummy_backend_build(self, tmp_path):
         """Test dummy backend build."""
-        backend = DummyBackend(config={})
+        from cuvs_bench.orchestrator.config_loaders import IndexConfig
+
+        backend = DummyBackend(config={"name": "dummy"})
 
         base = np.random.rand(1000, 128).astype(np.float32)
         queries = np.random.rand(100, 128).astype(np.float32)
         dataset = Dataset(
-            name="test", base_vectors=base, query_vectors=queries
+            name="test", training_vectors=base, query_vectors=queries
         )
 
-        result = backend.build(
-            dataset=dataset,
-            build_params={"nlist": 1024},
-            index_path=Path("/tmp/test_index"),
-        )
+        indexes = [
+            IndexConfig(
+                name="test_index",
+                algo="dummy_algo",
+                build_param={"nlist": 1024},
+                search_params=[{"nprobe": 10}],
+                file=str(tmp_path / "test_index"),
+            )
+        ]
+
+        result = backend.build(dataset=dataset, indexes=indexes)
 
         assert result.success
-        assert result.algorithm == "dummy"
+        assert result.algorithm == "dummy_algo"
         assert result.build_params["nlist"] == 1024
 
-    def test_dummy_backend_search(self):
+    def test_dummy_backend_search(self, tmp_path):
         """Test dummy backend search."""
-        backend = DummyBackend(config={})
+        from cuvs_bench.orchestrator.config_loaders import IndexConfig
+
+        backend = DummyBackend(config={"name": "dummy"})
 
         base = np.random.rand(1000, 128).astype(np.float32)
         queries = np.random.rand(100, 128).astype(np.float32)
         dataset = Dataset(
-            name="test", base_vectors=base, query_vectors=queries
+            name="test", training_vectors=base, query_vectors=queries
         )
 
-        result = backend.search(
-            dataset=dataset,
-            search_params=[{"nprobe": 10}],
-            index_path=Path("/tmp/test_index"),
-            k=10,
-        )
+        indexes = [
+            IndexConfig(
+                name="test_index",
+                algo="dummy_algo",
+                build_param={"nlist": 1024},
+                search_params=[{"nprobe": 10}],
+                file=str(tmp_path / "test_index"),
+            )
+        ]
+
+        result = backend.search(dataset=dataset, indexes=indexes, k=10)
 
         assert result.success
         assert result.recall == 0.95
@@ -389,7 +416,7 @@ class TestGlobalRegistry:
         """Test getting backend via global function."""
         register_backend("dummy_global2", DummyBackend)
 
-        backend = get_backend("dummy_global2", config={})
+        backend = get_backend("dummy_global2", config={"name": "dummy"})
 
         assert isinstance(backend, DummyBackend)
         assert backend.name == "dummy"

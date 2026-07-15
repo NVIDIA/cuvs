@@ -1,7 +1,9 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
+
+#include <cuvs/core/cuda_fp16.hpp>
 
 #include "./detail/knn_brute_force.cuh"
 
@@ -9,7 +11,9 @@
 
 #include <raft/core/copy.hpp>
 
-namespace cuvs::neighbors::brute_force {
+namespace CUVS_EXPORT cuvs {
+namespace neighbors {
+namespace brute_force {
 
 template <typename T, typename DistT>
 index<T, DistT>::index(raft::resources const& res)
@@ -227,13 +231,16 @@ void index<T, DistT>::update_dataset(
   {                                                                                             \
     detail::search<T, int64_t, DistT, raft::col_major>(                                         \
       res, idx, queries, neighbors, distances, sample_filter);                                  \
-  }                                                                                             \
-                                                                                                \
-  template struct cuvs::neighbors::brute_force::index<T, DistT>;
+  }
 
 CUVS_INST_BFKNN(float, float);
 CUVS_INST_BFKNN(half, float);
 
+template class cuvs::neighbors::brute_force::index<float, float>;
+template class cuvs::neighbors::brute_force::index<half, float>;
+
 #undef CUVS_INST_BFKNN
 
-}  // namespace cuvs::neighbors::brute_force
+}  // namespace brute_force
+}  // namespace neighbors
+}  // namespace CUVS_EXPORT cuvs

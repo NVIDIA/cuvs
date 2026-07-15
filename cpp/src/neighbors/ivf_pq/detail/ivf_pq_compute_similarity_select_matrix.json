@@ -1,0 +1,70 @@
+{
+  "_out_lut": [
+    {
+      "_out": [
+        {
+          "out_type": "float",
+          "out_abbrev": "f"
+        },
+        {
+          "out_type": "half",
+          "out_abbrev": "h"
+        }
+      ],
+      "_lut": [
+        {
+          "lut_type": "half",
+          "lut_abbrev": "h"
+        },
+        {
+          "lut_type": "cuvs::neighbors::ivf_pq::detail::fp_8bit<5u, false>",
+          "lut_abbrev": "fp8_unsigned"
+        },
+        {
+          "lut_type": "cuvs::neighbors::ivf_pq::detail::fp_8bit<5u, true>",
+          "lut_abbrev": "fp8_signed"
+        }
+      ]
+    },
+    {
+      "out_type": "float",
+      "out_abbrev": "f",
+      "lut_type": "float",
+      "lut_abbrev": "f"
+    }
+  ],
+  "_filter": [
+    {
+      "filter_name": "none",
+      "filter_type": "cuvs::neighbors::filtering::none_sample_filter"
+    },
+    {
+      "filter_name": "bitset",
+      "filter_type": "cuvs::neighbors::filtering::bitset_filter<uint32_t, int64_t>"
+    }
+  ],
+  "_metric": [
+    {
+      "metric": "euclidean",
+      "_increment_score": [
+        {
+          "increment_score": "false",
+          "increment_score_str": "no_increment_score"
+        }
+      ]
+    },
+    {
+      "metric": "inner_product",
+      "_increment_score": [
+        {
+          "increment_score": "true",
+          "increment_score_str": "increment_score"
+        },
+        {
+          "increment_score": "false",
+          "increment_score_str": "no_increment_score"
+        }
+      ]
+    }
+  ]
+}

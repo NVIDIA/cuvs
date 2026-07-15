@@ -11,6 +11,8 @@ namespace {
 using data_t          = @data_type@;
 using bitset_filter_t = cuvs::neighbors::cagra::detail::CagraSampleFilterWithQueryIdOffset<
   cuvs::neighbors::filtering::bitset_filter<uint32_t, int64_t>>;
+using udf_filter_t = cuvs::neighbors::cagra::detail::CagraSampleFilterWithQueryIdOffset<
+  cuvs::neighbors::filtering::udf_filter>;
 
 }  // namespace
 
@@ -20,5 +22,6 @@ instantiate_kernel_selection(data_t,
                              float,
                              cuvs::neighbors::filtering::none_sample_filter);
 instantiate_kernel_selection(data_t, uint32_t, float, bitset_filter_t);
+instantiate_kernel_selection(data_t, uint32_t, float, udf_filter_t);
 
 }  // namespace cuvs::neighbors::cagra::detail::multi_cta_search

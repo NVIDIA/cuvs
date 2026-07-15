@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs.internal.common;
@@ -39,6 +39,7 @@ public class Util {
 
   static final SymbolLookup SYMBOL_LOOKUP =
       SymbolLookup.libraryLookup(System.mapLibraryName("cuvs_c"), Arena.ofAuto())
+          .or(SymbolLookup.libraryLookup(System.mapLibraryName("cudart"), Arena.ofAuto()))
           .or(SymbolLookup.loaderLookup())
           .or(Linker.nativeLinker().defaultLookup());
 

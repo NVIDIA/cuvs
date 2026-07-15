@@ -1,11 +1,11 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
-use crate::error::{check_cuvs, Result};
+use crate::error::{Result, check_cuvs};
 use std::fmt;
-use std::io::{stderr, Write};
+use std::io::{Write, stderr};
 
 /// Supplemental parameters to search IvfFlat index
 pub struct SearchParams(pub ffi::cuvsIvfFlatSearchParams_t);
@@ -40,12 +40,8 @@ impl fmt::Debug for SearchParams {
 impl Drop for SearchParams {
     fn drop(&mut self) {
         if let Err(e) = check_cuvs(unsafe { ffi::cuvsIvfFlatSearchParamsDestroy(self.0) }) {
-            write!(
-                stderr(),
-                "failed to call cuvsIvfFlatSearchParamsDestroy {:?}",
-                e
-            )
-            .expect("failed to write to stderr");
+            write!(stderr(), "failed to call cuvsIvfFlatSearchParamsDestroy {:?}", e)
+                .expect("failed to write to stderr");
         }
     }
 }

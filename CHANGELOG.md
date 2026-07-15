@@ -1,3 +1,105 @@
+# cuvs 26.06.00 (3 Jun 2026)
+
+### 🚨 Breaking Changes
+* Default to static linking of libcudart by @bdice in https://github.com/rapidsai/cuvs/pull/1627
+* Remove JIT+LTO fragment database by @KyleFromNVIDIA in https://github.com/rapidsai/cuvs/pull/1927
+* Use static cudart by @KyleFromNVIDIA in https://github.com/rapidsai/cuvs/pull/1931
+* Always build with JIT+LTO by @KyleFromNVIDIA in https://github.com/rapidsai/cuvs/pull/1923
+* Migrate RMM usage to CCCL MR design by @bdice in https://github.com/rapidsai/cuvs/pull/1990
+* Exposition of KMeans param object for PQ in C++ by @lowener in https://github.com/rapidsai/cuvs/pull/2005
+* [Cleanup] Combine Batched and Regular KMeans Impl by @tarang-jain in https://github.com/rapidsai/cuvs/pull/2015
+* Preserve input memory location for NN Descent by @jinsolp in https://github.com/rapidsai/cuvs/pull/1928
+### 🐛 Bug Fixes
+* Fix CCCL compilation error by @viclafargue in https://github.com/rapidsai/cuvs/pull/1963
+* Forward-merge release/26.04 into main by @KyleFromNVIDIA in https://github.com/rapidsai/cuvs/pull/1971
+* Forward-merge release/26.04 into main by @KyleFromNVIDIA in https://github.com/rapidsai/cuvs/pull/1980
+* Remove dangling pointers in JIT Fragments by @divyegala in https://github.com/rapidsai/cuvs/pull/1988
+* Add `head_rev` to cuvs recipe by @KyleFromNVIDIA in https://github.com/rapidsai/cuvs/pull/1993
+* Fix potential OOB access in CAGRA search when graph size < dataset size by @irina-resh-nvda in https://github.com/rapidsai/cuvs/pull/1780
+* Fix MG kmeans intertia_check n_iters by @aamijar in https://github.com/rapidsai/cuvs/pull/2020
+* Fix cuvs_bench pytest pareto assert by @aamijar in https://github.com/rapidsai/cuvs/pull/2027
+* Fix nightly build matrix by @KyleFromNVIDIA in https://github.com/rapidsai/cuvs/pull/2054
+* Fix vulnerable index deserialization by @lowener in https://github.com/rapidsai/cuvs/pull/2068
+* Fix symbol export kmeans by @aamijar in https://github.com/rapidsai/cuvs/pull/2070
+* Fix argmin/argmax based on the distance type by @achirkin in https://github.com/rapidsai/cuvs/pull/2016
+* Remove unneeded request for CUDA device link phase by @robertmaynard in https://github.com/rapidsai/cuvs/pull/2077
+* Update Faiss and DiskANN Patch to Use C++20 by @tarang-jain in https://github.com/rapidsai/cuvs/pull/1796
+* Fix brute force Rust index dataset lifetime by @yan-zaretskiy in https://github.com/rapidsai/cuvs/pull/2083
+* Fix segfault cuvs bench by @aamijar in https://github.com/rapidsai/cuvs/pull/2088
+* Fix cagra::optimize modifying the state of raft::resources by @achirkin in https://github.com/rapidsai/cuvs/pull/2103
+* Add direct target dependency when embedding fatbins by @KyleFromNVIDIA in https://github.com/rapidsai/cuvs/pull/2106
+* Fix check for PQ vectorized load by @lowener in https://github.com/rapidsai/cuvs/pull/2107
+* Fix workspace usage by @mfoerste4 in https://github.com/rapidsai/cuvs/pull/2135
+* Add missing visibility controls in IVF SQ by @divyegala in https://github.com/rapidsai/cuvs/pull/2141
+### 📖 Documentation
+* Elaborate on fragment architecture in JIT+LTO documentation by @KyleFromNVIDIA in https://github.com/rapidsai/cuvs/pull/1991
+* Add Cluster and Distance sections to C documentation by @lowener in https://github.com/rapidsai/cuvs/pull/1955
+* Adding CAGRA merge to the documentation by @viclafargue in https://github.com/rapidsai/cuvs/pull/1942
+* [Doc Update] CAGRA Memory Footprint by @singhmanas1 in https://github.com/rapidsai/cuvs/pull/1300
+* Align docs with pluggable benchmark API by @jnke2016 in https://github.com/rapidsai/cuvs/pull/1891
+* Add docs for cagra mem usage with NN Descent build algo by @jinsolp in https://github.com/rapidsai/cuvs/pull/2000
+* Fix minor typos in ``cuvs-bench`` source build docs by @jrbourbeau in https://github.com/rapidsai/cuvs/pull/2006
+* Fix `cuvs-bench` docker images in docs by @jrbourbeau in https://github.com/rapidsai/cuvs/pull/2003
+* Update JIT+LTO guide to reflect new automatic embedding system by @KyleFromNVIDIA in https://github.com/rapidsai/cuvs/pull/2045
+* [Docs] Convert Sphinx docs to Fern by @cjnolet in https://github.com/rapidsai/cuvs/pull/2067
+* Add UDF Usage and Developer docs by @divyegala in https://github.com/rapidsai/cuvs/pull/2030
+* [DOC] Adding API guides for core cuVS types by @cjnolet in https://github.com/rapidsai/cuvs/pull/2117
+### 🚀 New Features
+* [REVIEW] Add L1 support to NN-Descent by @yan-zaretskiy in https://github.com/rapidsai/cuvs/pull/1898
+* PCA C and Python API by @aamijar in https://github.com/rapidsai/cuvs/pull/1987
+* Introduce UDF Architecture by @divyegala in https://github.com/rapidsai/cuvs/pull/1804
+* JIT LTO Cagra Search by @divyegala in https://github.com/rapidsai/cuvs/pull/1807
+* Expose supported brute force metrics in `all_neighbors` by @jinsolp in https://github.com/rapidsai/cuvs/pull/1827
+* [REVIEW] Generalize and improve cagra::optimize by @mfoerste4 in https://github.com/rapidsai/cuvs/pull/1830
+* IVF-SQ C++ API by @viclafargue in https://github.com/rapidsai/cuvs/pull/1865
+### 🛠️ Improvements
+* Use PQ API in CAGRA-Q + SCANN by @lowener in https://github.com/rapidsai/cuvs/pull/1746
+* Speed up recall calculation in cuVS Bench for large top-K by @jamxia155 in https://github.com/rapidsai/cuvs/pull/1816
+* Update codespell Version in pre-commit-config by @tarang-jain in https://github.com/rapidsai/cuvs/pull/1920
+* Forward-merge release/26.04 into main by @gforsyth in https://github.com/rapidsai/cuvs/pull/1936
+* Refactor `StaticFatbinFragmentEntry` to use tags by @KyleFromNVIDIA in https://github.com/rapidsai/cuvs/pull/1970
+* Replace cudaMemcpy2DAsync Calls with raft::copy_matrix by @tarang-jain in https://github.com/rapidsai/cuvs/pull/1976
+* update pip devcontainers' base image tags by @trxcllnt in https://github.com/rapidsai/cuvs/pull/1985
+* Refactor instantiation matrices to generate at build time by @KyleFromNVIDIA in https://github.com/rapidsai/cuvs/pull/1984
+* Add option to enable "sve" optimization level on armv9 by @LizYou in https://github.com/rapidsai/cuvs/pull/1121
+* Improve cuvs-bench doc and add executable dir option by @tfeher in https://github.com/rapidsai/cuvs/pull/681
+* Enforce type safety in JIT+LTO launcher by @KyleFromNVIDIA in https://github.com/rapidsai/cuvs/pull/1997
+* Add KDE kernel by @Intron7 in https://github.com/rapidsai/cuvs/pull/1915
+* Coderabbit integration by @benfred in https://github.com/rapidsai/cuvs/pull/1908
+* Refactor fatbin registration to use common input file by @KyleFromNVIDIA in https://github.com/rapidsai/cuvs/pull/2008
+* Update to clang 20.1.8 by @bdice in https://github.com/rapidsai/cuvs/pull/2009
+* JIT+LTO IVF-PQ compute similarity by @KyleFromNVIDIA in https://github.com/rapidsai/cuvs/pull/1957
+* Refactor JIT+LTO kernels by @KyleFromNVIDIA in https://github.com/rapidsai/cuvs/pull/2021
+* feat(rust): add serialize/deserialize support for CAGRA index by @zbennett10 in https://github.com/rapidsai/cuvs/pull/1840
+* Use new compute-matrix workflow by @KyleFromNVIDIA in https://github.com/rapidsai/cuvs/pull/2034
+* Reuse minClusterAndDistance Helper for Balanced KMeans by @tarang-jain in https://github.com/rapidsai/cuvs/pull/2001
+* feat(rust): add search_with_filter to CAGRA Index by @jamie8johnson in https://github.com/rapidsai/cuvs/pull/2019
+* [REVIEW] Drop extra copy in `get_last_error_text` by @jakirkham in https://github.com/rapidsai/cuvs/pull/2044
+* FIX: disable warpspeed scan by @mfoerste4 in https://github.com/rapidsai/cuvs/pull/2062
+* Use `token.rapids.nvidia.com` when issuing S3 bucket creds in devcontainers by @trxcllnt in https://github.com/rapidsai/cuvs/pull/2047
+* Remove `NO_CUDART_DEP` property by @KyleFromNVIDIA in https://github.com/rapidsai/cuvs/pull/2065
+* Switch the remaining C++17 components to C++20 by @achirkin in https://github.com/rapidsai/cuvs/pull/2063
+* fix(ci): resolve all zizmor findings and add zizmor pre-commit checks by @gforsyth in https://github.com/rapidsai/cuvs/pull/2053
+* fix(ci): declare explicit secrets in `publish-rust.yaml` by @gforsyth in https://github.com/rapidsai/cuvs/pull/2069
+* [REVIEW] Rewrite cuvs-sys build to discover pre-installed cuVS via cmake-package by @yan-zaretskiy in https://github.com/rapidsai/cuvs/pull/2022
+* Fix symbol export by @vyasr in https://github.com/rapidsai/cuvs/pull/2052
+* fix(ci): add explicit `actions: write` permission for `telemetry-summarize`
+ by @gforsyth in https://github.com/rapidsai/cuvs/pull/2075
+* [REVIEW] Improve 1-NN performance with split GEMM/reduction kernels on Blackwell by @vinaydes in https://github.com/rapidsai/cuvs/pull/1768
+* Build and test with CUDA 13.2.0 by @bdice in https://github.com/rapidsai/cuvs/pull/2072
+* Centralize shared utilities across benchmark backends by @jnke2016 in https://github.com/rapidsai/cuvs/pull/2040
+* Persistent CAGRA: benchmark group and bad config warnings by @achirkin in https://github.com/rapidsai/cuvs/pull/2091
+* Multi-GPU Batched KMeans by @viclafargue in https://github.com/rapidsai/cuvs/pull/2017
+* IVF-SQ C API by @viclafargue in https://github.com/rapidsai/cuvs/pull/1910
+* skip CuPy 14.1.0 by @jameslamb in https://github.com/rapidsai/cuvs/pull/2142
+
+## New Contributors
+* @singhmanas1 made their first contribution in https://github.com/rapidsai/cuvs/pull/1300
+* @LizYou made their first contribution in https://github.com/rapidsai/cuvs/pull/1121
+* @jamie8johnson made their first contribution in https://github.com/rapidsai/cuvs/pull/2019
+
+**Full Changelog**: https://github.com/rapidsai/cuvs/compare/v26.06.00a...release/26.06
+
 # cuvs 26.04.00 (8 Apr 2026)
 
 ### 🚨 Breaking Changes

@@ -12,6 +12,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include <cuvs/core/export.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -66,7 +68,7 @@ typedef struct cuvsVamanaIndexParams* cuvsVamanaIndexParams_t;
  * @param[in] params cuvsVamanaIndexParams_t to allocate
  * @return cuvsError_t
  */
-cuvsError_t cuvsVamanaIndexParamsCreate(cuvsVamanaIndexParams_t* params);
+CUVS_EXPORT cuvsError_t cuvsVamanaIndexParamsCreate(cuvsVamanaIndexParams_t* params);
 
 /**
  * @brief De-allocate Vamana Index params
@@ -74,7 +76,7 @@ cuvsError_t cuvsVamanaIndexParamsCreate(cuvsVamanaIndexParams_t* params);
  * @param[in] params cuvsVamanaIndexParams_t to de-allocate
  * @return cuvsError_t
  */
-cuvsError_t cuvsVamanaIndexParamsDestroy(cuvsVamanaIndexParams_t params);
+CUVS_EXPORT cuvsError_t cuvsVamanaIndexParamsDestroy(cuvsVamanaIndexParams_t params);
 
 /**
  * @}
@@ -103,7 +105,7 @@ typedef cuvsVamanaIndex* cuvsVamanaIndex_t;
  * @param[in] index cuvsVamanaIndex_t to allocate
  * @return cuvsError_t
  */
-cuvsError_t cuvsVamanaIndexCreate(cuvsVamanaIndex_t* index);
+CUVS_EXPORT cuvsError_t cuvsVamanaIndexCreate(cuvsVamanaIndex_t* index);
 
 /**
  * @brief De-allocate Vamana index
@@ -111,7 +113,7 @@ cuvsError_t cuvsVamanaIndexCreate(cuvsVamanaIndex_t* index);
  * @param[in] index cuvsVamanaIndex_t to de-allocate
  * @return cuvsError_t
  */
-cuvsError_t cuvsVamanaIndexDestroy(cuvsVamanaIndex_t index);
+CUVS_EXPORT cuvsError_t cuvsVamanaIndexDestroy(cuvsVamanaIndex_t index);
 
 /**
  * @brief Get the dimension of the index
@@ -120,7 +122,7 @@ cuvsError_t cuvsVamanaIndexDestroy(cuvsVamanaIndex_t index);
  * @param[out] dim pointer to dimension to set
  * @return cuvsError_t
  */
-cuvsError_t cuvsVamanaIndexGetDims(cuvsVamanaIndex_t index, int* dim);
+CUVS_EXPORT cuvsError_t cuvsVamanaIndexGetDims(cuvsVamanaIndex_t index, int* dim);
 
 /**
  * @}
@@ -166,7 +168,7 @@ cuvsError_t cuvsVamanaIndexGetDims(cuvsVamanaIndex_t index, int* dim);
  * @param[out] index cuvsVamanaIndex_t Vamana index
  * @return cuvsError_t
  */
-cuvsError_t cuvsVamanaBuild(cuvsResources_t res,
+CUVS_EXPORT cuvsError_t cuvsVamanaBuild(cuvsResources_t res,
                             cuvsVamanaIndexParams_t params,
                             DLManagedTensor* dataset,
                             cuvsVamanaIndex_t index);
@@ -202,7 +204,7 @@ cuvsError_t cuvsVamanaBuild(cuvsResources_t res,
  * @param[in] include_dataset whether to include the dataset in the serialized index
  * @return cuvsError_t
  */
-cuvsError_t cuvsVamanaSerialize(cuvsResources_t res,
+CUVS_EXPORT cuvsError_t cuvsVamanaSerialize(cuvsResources_t res,
                                 const char* filename,
                                 cuvsVamanaIndex_t index,
                                 bool include_dataset);

@@ -1,0 +1,15 @@
+{
+  "filter_name": ["none", "bitset"],
+  "_bitset": [
+    {
+      "bitset_type": "uint32_t",
+      "bitset_abbrev": "u32"
+    }
+  ],
+  "_index": [
+    {
+      "index_type": "int64_t",
+      "index_abbrev": "i64"
+    }
+  ]
+}

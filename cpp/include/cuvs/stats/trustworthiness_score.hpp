@@ -1,14 +1,15 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
+#include <cuvs/core/export.hpp>
 #include <cuvs/distance/distance.hpp>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/resources.hpp>
 
-namespace cuvs {
+namespace CUVS_EXPORT cuvs {
 namespace stats {
 /**
  * @defgroup stats_trustworthiness Trustworthiness
@@ -37,4 +38,4 @@ double trustworthiness_score(
 
 /** @} */  // end group stats_trustworthiness
 }  // namespace stats
-}  // namespace cuvs
+}  // namespace CUVS_EXPORT cuvs

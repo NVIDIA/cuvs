@@ -1,0 +1,18 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <neighbors/ivf_flat/detail/jit_lto_kernels/device_functions.cuh>
+#include <neighbors/ivf_flat/detail/jit_lto_kernels/post_process_impl.cuh>
+
+namespace cuvs::neighbors::ivf_flat::detail {
+
+// Instantiate the device function template
+template <>
+__device__ float post_process<float>(float val)
+{
+  return post_process_@post_process_name@_impl<float>(val);
+}
+
+}  // namespace cuvs::neighbors::ivf_flat::detail

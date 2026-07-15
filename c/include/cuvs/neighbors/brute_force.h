@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -10,6 +10,8 @@
 #include <cuvs/neighbors/common.h>
 #include <dlpack/dlpack.h>
 #include <stdint.h>
+
+#include <cuvs/core/export.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -36,14 +38,14 @@ typedef cuvsBruteForceIndex* cuvsBruteForceIndex_t;
  * @param[in] index cuvsBruteForceIndex_t to allocate
  * @return cuvsError_t
  */
-cuvsError_t cuvsBruteForceIndexCreate(cuvsBruteForceIndex_t* index);
+CUVS_EXPORT cuvsError_t cuvsBruteForceIndexCreate(cuvsBruteForceIndex_t* index);
 
 /**
  * @brief De-allocate BRUTEFORCE index
  *
  * @param[in] index cuvsBruteForceIndex_t to de-allocate
  */
-cuvsError_t cuvsBruteForceIndexDestroy(cuvsBruteForceIndex_t index);
+CUVS_EXPORT cuvsError_t cuvsBruteForceIndexDestroy(cuvsBruteForceIndex_t index);
 /**
  * @}
  */
@@ -89,7 +91,7 @@ cuvsError_t cuvsBruteForceIndexDestroy(cuvsBruteForceIndex_t index);
  * @param[out] index cuvsBruteForceIndex_t Newly built BRUTEFORCE index
  * @return cuvsError_t
  */
-cuvsError_t cuvsBruteForceBuild(cuvsResources_t res,
+CUVS_EXPORT cuvsError_t cuvsBruteForceBuild(cuvsResources_t res,
                                 DLManagedTensor* dataset,
                                 cuvsDistanceType metric,
                                 float metric_arg,
@@ -145,7 +147,7 @@ cuvsError_t cuvsBruteForceBuild(cuvsResources_t res,
  * @param[in] prefilter cuvsFilter input prefilter that can be used
               to filter queries and neighbors based on the given bitmap.
  */
-cuvsError_t cuvsBruteForceSearch(cuvsResources_t res,
+CUVS_EXPORT cuvsError_t cuvsBruteForceSearch(cuvsResources_t res,
                                  cuvsBruteForceIndex_t index,
                                  DLManagedTensor* queries,
                                  DLManagedTensor* neighbors,
@@ -181,7 +183,7 @@ cuvsError_t cuvsBruteForceSearch(cuvsResources_t res,
  * @param[in] index BRUTEFORCE index
  *
  */
-cuvsError_t cuvsBruteForceSerialize(cuvsResources_t res,
+CUVS_EXPORT cuvsError_t cuvsBruteForceSerialize(cuvsResources_t res,
                                     const char* filename,
                                     cuvsBruteForceIndex_t index);
 
@@ -208,7 +210,7 @@ cuvsError_t cuvsBruteForceSerialize(cuvsResources_t res,
  * @param[in] filename the name of the file that stores the index
  * @param[out] index BRUTEFORCE index loaded disk
  */
-cuvsError_t cuvsBruteForceDeserialize(cuvsResources_t res,
+CUVS_EXPORT cuvsError_t cuvsBruteForceDeserialize(cuvsResources_t res,
                                       const char* filename,
                                       cuvsBruteForceIndex_t index);
 

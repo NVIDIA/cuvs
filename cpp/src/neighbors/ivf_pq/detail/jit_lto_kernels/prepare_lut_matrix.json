@@ -1,0 +1,31 @@
+{
+  "_lut": [
+    {
+      "lut_type": "float",
+      "lut_abbrev": "f"
+    },
+    {
+      "lut_type": "half",
+      "lut_abbrev": "h"
+    },
+    {
+      "lut_type": "cuvs::neighbors::ivf_pq::detail::fp_8bit<5u, false>",
+      "lut_abbrev": "fp8_unsigned"
+    },
+    {
+      "lut_type": "cuvs::neighbors::ivf_pq::detail::fp_8bit<5u, true>",
+      "lut_abbrev": "fp8_signed"
+    }
+  ],
+  "pq_bits": ["4", "5", "6", "7", "8"],
+  "_enable_smem_lut": [
+    {
+      "enable_smem_lut": "true",
+      "enable_smem_lut_str": "enable_smem_lut"
+    },
+    {
+      "enable_smem_lut": "false",
+      "enable_smem_lut_str": "disable_smem_lut"
+    }
+  ]
+}

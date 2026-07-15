@@ -9,9 +9,12 @@
 #include <cuvs/neighbors/ivf_pq.hpp>
 #include <cuvs/neighbors/nn_descent.hpp>
 
+#include <cuvs/core/export.hpp>
 #include <variant>
 
-namespace cuvs::neighbors::all_neighbors {
+namespace CUVS_EXPORT cuvs {
+namespace neighbors {
+namespace all_neighbors {
 // For re-exporting into all_neighbors namespace
 namespace graph_build_params = cuvs::neighbors::graph_build_params;
 /**
@@ -169,4 +172,6 @@ void build(
   float alpha                                                                       = 1.0);
 
 /** @} */
-}  // namespace cuvs::neighbors::all_neighbors
+}  // namespace all_neighbors
+}  // namespace neighbors
+}  // namespace CUVS_EXPORT cuvs

@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -36,15 +36,32 @@ def make_cosine(
 
 @pytest.mark.parametrize("algo", ["nn_descent", "brute_force", "ivf_pq"])
 @pytest.mark.parametrize("cluster", ["single_cluster", "multi_cluster"])
-@pytest.mark.parametrize("metric", ["sqeuclidean", "cosine"])
+@pytest.mark.parametrize(
+    "metric",
+    [
+        "sqeuclidean",
+        "l2",
+        "cosine",
+        "l1",
+        "inner_product",
+        "chebyshev",
+        "canberra",
+        "minkowski",
+        "correlation",
+        "jensenshannon",
+    ],
+)
 def test_all_neighbors_device_build_quality(algo, cluster, metric):
     """Test device build with quality validation against brute force ground
     truth.
     """
     n_rows, n_cols, k = 7151, 64, 16
 
-    if algo == "ivf_pq" and metric == "cosine":
-        pytest.skip("Skipping IVF-PQ with cosine distance")
+    ivf_pq_valid_metrics = {"sqeuclidean"}
+    nnd_valid_metrics = {"sqeuclidean", "l2", "cosine", "inner_product"}
+    is_invalid = (algo == "ivf_pq" and metric not in ivf_pq_valid_metrics) or (
+        algo == "nn_descent" and metric not in nnd_valid_metrics
+    )
 
     if cluster == "single_cluster":
         overlap_factor = 0
@@ -57,6 +74,21 @@ def test_all_neighbors_device_build_quality(algo, cluster, metric):
         X, _ = make_cosine(
             n_samples=n_rows, n_features=n_cols, random_state=42
         )
+    elif metric == "jensenshannon":
+        # Jensen-Shannon requires non-negative values representing probability distributions
+        X, _ = make_blobs(
+            n_samples=n_rows,
+            n_features=n_cols,
+            centers=10,
+            cluster_std=1.0,
+            center_box=(0.0, 10.0),  # Non-negative values only
+            random_state=42,
+        )
+        # Normalize each row to sum to 1 (probability distribution)
+        X = np.abs(X)  # Ensure non-negative
+        row_sums = X.sum(axis=1, keepdims=True)
+        row_sums[row_sums == 0] = 1  # Avoid division by zero
+        X = X / row_sums
     else:
         X, _ = make_blobs(
             n_samples=n_rows,
@@ -98,6 +130,18 @@ def test_all_neighbors_device_build_quality(algo, cluster, metric):
     )
 
     res = Resources()
+
+    if is_invalid:
+        with pytest.raises(Exception, match="Distance metric"):
+            all_neighbors.build(
+                X_device,
+                k,
+                params,
+                distances=cupy.empty((n_rows, k), dtype=cupy.float32),
+                resources=res,
+            )
+        return
+
     indices, distances = all_neighbors.build(
         X_device,
         k,

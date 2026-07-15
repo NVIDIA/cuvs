@@ -20,10 +20,14 @@
 #include <rmm/cuda_stream_view.hpp>
 
 #include <cmath>
+#include <cuvs/core/export.hpp>
 #include <optional>
 #include <variant>
 
-namespace cuvs::neighbors::experimental::scann {
+namespace CUVS_EXPORT cuvs {
+namespace neighbors {
+namespace experimental {
+namespace scann {
 /**
  * @defgroup scann_cpp_index_params ScaNN index build parameters
  * @{
@@ -321,4 +325,7 @@ void serialize(raft::resources const& handle,
  * @}
  */
 
-}  // namespace cuvs::neighbors::experimental::scann
+}  // namespace scann
+}  // namespace experimental
+}  // namespace neighbors
+}  // namespace CUVS_EXPORT cuvs

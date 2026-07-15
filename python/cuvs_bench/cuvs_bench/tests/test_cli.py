@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -439,7 +439,25 @@ def test_run_command_creates_results(temp_datasets_dir: Path):
         assert actual_header == expectations["header"], (
             f"Wrong header produced in file f{rel_path}"
         )
-        assert actual_rows == expectations["rows"]
+        is_frontier = rel_path.endswith(("latency.csv", "throughput.csv"))
+        if is_frontier:
+            # Frontier files may have fewer rows than the raw results
+            # because the Pareto frontier drops dominated points.
+            assert 1 <= actual_rows <= expectations["rows"], (
+                f"Frontier file {rel_path} has {actual_rows} row(s), "
+                f"expected between 1 and {expectations['rows']}"
+            )
+            if actual_rows < expectations["rows"]:
+                print(
+                    f"Note: {rel_path} has {actual_rows} row(s), "
+                    f"expected {expectations['rows']} "
+                    f"(Pareto frontier dropped dominated points)"
+                )
+        else:
+            assert actual_rows == expectations["rows"], (
+                f"Expected {expectations['rows']} rows in {rel_path}, "
+                f"got {actual_rows}"
+            )
 
 
 def test_plot_command_creates_png_files(temp_datasets_dir: Path):
@@ -499,3 +517,169 @@ def test_plot_command_creates_png_files(temp_datasets_dir: Path):
         assert file_path.stat().st_size > 0, (
             f"Expected file {filename} is empty."
         )
+
+
+# FIXME: Tests below use --dry-run to verify CLI flag parsing and orchestrator
+# routing without requiring actual benchmark execution. Tune mode (--mode tune)
+# requires Optuna and actual search results, so only flag acceptance is tested
+# here. End-to-end tests for tune mode and non-C++ backends should be added
+# when those features are exercised in integration testing.
+
+
+def test_run_with_mode_sweep(temp_datasets_dir):
+    """Verify --mode sweep is accepted (default behavior)."""
+    from cuvs_bench.run.__main__ import main as run_main
+
+    runner = CliRunner()
+    result = runner.invoke(
+        run_main,
+        [
+            "--dataset",
+            "test-data",
+            "--dataset-path",
+            str(temp_datasets_dir),
+            "--algorithms",
+            "cuvs_cagra",
+            "--batch-size",
+            "10",
+            "-k",
+            "10",
+            "--groups",
+            "test",
+            "-m",
+            "latency",
+            "--mode",
+            "sweep",
+            "--dry-run",
+        ],
+    )
+    assert result.exit_code == 0, (
+        f"--mode sweep failed with output:\n{result.output}"
+    )
+
+
+def test_run_with_backend_config(temp_datasets_dir, tmp_path):
+    """Verify --backend-config YAML is parsed correctly."""
+    from cuvs_bench.run.__main__ import main as run_main
+
+    config_file = tmp_path / "backend.yaml"
+    config_file.write_text("backend: cpp_gbench\n")
+    runner = CliRunner()
+    result = runner.invoke(
+        run_main,
+        [
+            "--dataset",
+            "test-data",
+            "--dataset-path",
+            str(temp_datasets_dir),
+            "--algorithms",
+            "cuvs_cagra",
+            "--batch-size",
+            "10",
+            "-k",
+            "10",
+            "--groups",
+            "test",
+            "-m",
+            "latency",
+            "--backend-config",
+            str(config_file),
+            "--dry-run",
+        ],
+    )
+    assert result.exit_code == 0, (
+        f"--backend-config failed with output:\n{result.output}"
+    )
+
+
+def test_run_with_invalid_backend_config(tmp_path):
+    """Verify missing backend config file raises error."""
+    from cuvs_bench.run.__main__ import main as run_main
+
+    runner = CliRunner()
+    result = runner.invoke(
+        run_main,
+        [
+            "--dataset",
+            "test-data",
+            "--dataset-path",
+            str(tmp_path),
+            "--algorithms",
+            "cuvs_cagra",
+            "--batch-size",
+            "10",
+            "-k",
+            "10",
+            "--groups",
+            "test",
+            "-m",
+            "latency",
+            "--backend-config",
+            "/nonexistent/config.yaml",
+        ],
+    )
+    assert result.exit_code != 0
+
+
+def test_run_with_n_trials_flag(temp_datasets_dir):
+    """Verify --n-trials flag is accepted by the CLI parser."""
+    from cuvs_bench.run.__main__ import main as run_main
+
+    runner = CliRunner()
+    result = runner.invoke(
+        run_main,
+        [
+            "--dataset",
+            "test-data",
+            "--dataset-path",
+            str(temp_datasets_dir),
+            "--algorithms",
+            "cuvs_cagra",
+            "--batch-size",
+            "10",
+            "-k",
+            "10",
+            "--groups",
+            "test",
+            "-m",
+            "latency",
+            "--n-trials",
+            "50",
+            "--dry-run",
+        ],
+    )
+    assert result.exit_code == 0, (
+        f"--n-trials failed with output:\n{result.output}"
+    )
+
+
+def test_run_with_constraints_flag(temp_datasets_dir):
+    """Verify --constraints flag accepts valid JSON."""
+    from cuvs_bench.run.__main__ import main as run_main
+
+    runner = CliRunner()
+    result = runner.invoke(
+        run_main,
+        [
+            "--dataset",
+            "test-data",
+            "--dataset-path",
+            str(temp_datasets_dir),
+            "--algorithms",
+            "cuvs_cagra",
+            "--batch-size",
+            "10",
+            "-k",
+            "10",
+            "--groups",
+            "test",
+            "-m",
+            "latency",
+            "--constraints",
+            '{"recall": "maximize", "latency": {"max": 10}}',
+            "--dry-run",
+        ],
+    )
+    assert result.exit_code == 0, (
+        f"--constraints failed with output:\n{result.output}"
+    )

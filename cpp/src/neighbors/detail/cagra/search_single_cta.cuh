@@ -4,8 +4,9 @@
  */
 #pragma once
 
+#include "../neighbors_device_intrinsics.cuh"
 #include "bitonic.hpp"
-#include "device_common.hpp"
+#include "device_memory_ops.hpp"
 #include "hashmap.hpp"
 #include "search_plan.cuh"
 #include "search_single_cta_kernel.cuh"
@@ -34,6 +35,7 @@
 #include <numeric>
 #include <vector>
 
+// All includes are done before opening namespace to avoid nested namespace issues
 namespace cuvs::neighbors::cagra::detail {
 namespace single_cta_search {
 

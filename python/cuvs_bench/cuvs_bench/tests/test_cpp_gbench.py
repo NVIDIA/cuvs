@@ -201,7 +201,7 @@ class TestCppBackendBuildSearch:
             # Create dataset with file paths (C++ backend reads from files)
             dataset = Dataset(
                 name="test",
-                base_vectors=np.empty((0, 0)),
+                training_vectors=np.empty((0, 0)),
                 query_vectors=np.empty((0, 0)),
                 base_file="/path/to/base.fbin",
                 query_file="/path/to/query.fbin",
@@ -234,7 +234,7 @@ class TestCppBackendBuildSearch:
 
             dataset = Dataset(
                 name="test",
-                base_vectors=np.empty((0, 0)),
+                training_vectors=np.empty((0, 0)),
                 query_vectors=np.empty((0, 0)),
                 base_file="/path/to/base.fbin",
                 query_file="/path/to/query.fbin",
@@ -277,7 +277,7 @@ class TestCppBackendBuildSearch:
 
             dataset = Dataset(
                 name="sift-128-euclidean",
-                base_vectors=np.empty((0, 0)),
+                training_vectors=np.empty((0, 0)),
                 query_vectors=np.empty((0, 0)),
                 base_file="sift-128-euclidean/base.fbin",
                 query_file="sift-128-euclidean/query.fbin",
@@ -328,7 +328,7 @@ class TestCppBackendBuildSearch:
 
             dataset = Dataset(
                 name="sift-128-euclidean",
-                base_vectors=np.empty((0, 0)),
+                training_vectors=np.empty((0, 0)),
                 query_vectors=np.empty((0, 0)),
                 base_file="sift-128-euclidean/base.fbin",
                 query_file="sift-128-euclidean/query.fbin",
@@ -383,7 +383,7 @@ class TestDatasetValidation:
             # Dataset without base_file
             dataset = Dataset(
                 name="test",
-                base_vectors=np.empty((0, 0)),
+                training_vectors=np.empty((0, 0)),
                 query_vectors=np.empty((0, 0)),
                 query_file="/path/to/query.fbin",
                 # base_file is None
@@ -420,7 +420,7 @@ class TestDatasetValidation:
             # Dataset without query_file
             dataset = Dataset(
                 name="test",
-                base_vectors=np.empty((0, 0)),
+                training_vectors=np.empty((0, 0)),
                 query_vectors=np.empty((0, 0)),
                 base_file="/path/to/base.fbin",
                 # query_file is None

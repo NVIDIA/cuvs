@@ -8,6 +8,7 @@
 #include <memory>
 #include <mutex>
 #include <new>
+#include <shared_mutex>
 #include <string>
 #include <vector>
 
@@ -29,24 +30,34 @@ std::string AlgorithmPlanner::get_fragments_key() const
   return key;
 }
 
+std::shared_ptr<AlgorithmLauncher> AlgorithmPlanner::read_cache(std::string const& launch_key) const
+{
+  auto& launchers = jit_cache_.launchers;
+  std::shared_lock<std::shared_mutex> read_lock(jit_cache_.mutex);
+  if (auto it = launchers.find(launch_key); it != launchers.end()) { return it->second; }
+  return nullptr;
+}
+
 std::shared_ptr<AlgorithmLauncher> AlgorithmPlanner::get_launcher()
 {
-  auto& launchers = get_cached_launchers();
+  auto& launchers = jit_cache_.launchers;
   auto launch_key = this->get_fragments_key();
 
-  static std::mutex cache_mutex;
-  std::lock_guard<std::mutex> lock(cache_mutex);
-  if (launchers.count(launch_key) == 0) {
-    std::string log_message =
-      "JIT compiling launcher for kernel: " + this->entrypoint + " and device functions: ";
-    for (const auto& fragment : this->fragments) {
-      log_message += std::string{fragment->get_key()} + ",";
-    }
-    log_message.pop_back();
-    RAFT_LOG_INFO("%s", log_message.c_str());
-    launchers[launch_key] = this->build();
+  if (auto hit = read_cache(launch_key)) { return hit; }
+
+  std::unique_lock<std::shared_mutex> write_lock(jit_cache_.mutex);
+  if (auto it = launchers.find(launch_key); it != launchers.end()) { return it->second; }
+
+  std::string log_message =
+    "JIT compiling launcher for kernel: " + this->entrypoint + " and device functions: ";
+  for (const auto& fragment : this->fragments) {
+    log_message += std::string{fragment->get_key()} + ",";
   }
-  return launchers[launch_key];
+  log_message.pop_back();
+  RAFT_LOG_DEBUG("%s", log_message.c_str());
+  auto launcher         = this->build();
+  launchers[launch_key] = launcher;
+  return launcher;
 }
 
 std::shared_ptr<AlgorithmLauncher> AlgorithmPlanner::build()
@@ -62,8 +73,14 @@ std::shared_ptr<AlgorithmLauncher> AlgorithmPlanner::build()
 
   // Load the generated LTO IR and link them together
   nvJitLinkHandle handle;
-  const char* lopts[] = {"-lto", archs.c_str()};
-  auto result         = nvJitLinkCreate(&handle, 2, lopts);
+  std::vector<const char*> lopts;
+  lopts.reserve(2 + linktime_extra_options.size());
+  lopts.push_back("-lto");
+  lopts.push_back(archs.c_str());
+  for (auto const& opt : linktime_extra_options) {
+    lopts.push_back(opt.c_str());
+  }
+  auto result = nvJitLinkCreate(&handle, static_cast<unsigned int>(lopts.size()), lopts.data());
   check_nvjitlink_result(handle, result);
 
   for (const auto& frag : this->fragments) {

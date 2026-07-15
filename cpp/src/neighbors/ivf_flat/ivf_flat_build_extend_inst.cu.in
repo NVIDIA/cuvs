@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <cuvs/core/cuda_fp16.hpp>
+
 #include <cuvs/neighbors/ivf_flat.hpp>
 
 #include <neighbors/ivf_flat/ivf_flat_build.cuh>
@@ -84,3 +86,14 @@ void extend(raft::resources const& handle,
 }
 
 }  // namespace cuvs::neighbors::ivf_flat
+
+namespace cuvs::neighbors::ivf {
+
+template void resize_list<list<cuvs::neighbors::ivf_flat::list_spec, uint32_t, data_t, index_t>>(
+  raft::resources const&,
+  std::shared_ptr<list<cuvs::neighbors::ivf_flat::list_spec, uint32_t, data_t, index_t>>&,
+  const list<cuvs::neighbors::ivf_flat::list_spec, uint32_t, data_t, index_t>::spec_type&,
+  list<cuvs::neighbors::ivf_flat::list_spec, uint32_t, data_t, index_t>::size_type,
+  list<cuvs::neighbors::ivf_flat::list_spec, uint32_t, data_t, index_t>::size_type);
+
+}  // namespace cuvs::neighbors::ivf

@@ -1,0 +1,43 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <neighbors/ivf_rabitq/jit_lto_kernels/device_functions.cuh>
+
+namespace {
+
+constexpr int ex_bits = @ex_bits@;
+
+}  // namespace
+
+namespace cuvs::neighbors::ivf_rabitq::detail {
+
+// Non-inline __device__ definition. ex_bits is captured from the matrix.json
+// axis into a constexpr so the compiler can constant-fold the bit-extraction
+// arithmetic, eliminate the spanning-byte branch when impossible (ex_bits in
+// {1, 2, 4, 8}), and collapse the function to a single byte load for
+// ex_bits=8. Each matrix.json value produces a separate fragment with the
+// same mangled C++ symbol; the planner adds exactly one via
+// add_extract_code_device_function<ex_bits>(), so nvJitLink resolves consumer
+// calls to the matching specialization with no runtime dispatch.
+__device__ uint32_t extract_code(const uint8_t* codes, size_t d)
+{
+  if constexpr (ex_bits == 8) {
+    return codes[d];
+  } else if constexpr (ex_bits == 4) {
+    return (codes[d >> 1] >> (4 * (1 - (d & 1)))) & 0xF;
+  } else {
+    size_t bitPos    = d * ex_bits;
+    size_t byteIdx   = bitPos >> 3;
+    size_t bitOffset = bitPos & 7;
+    uint32_t v       = codes[byteIdx] << 8;
+    if constexpr (ex_bits != 1 && ex_bits != 2) {
+      if (bitOffset + ex_bits > 8) { v |= codes[byteIdx + 1]; }
+    }
+    int shift = 16 - (bitOffset + ex_bits);
+    return (v >> shift) & ((1u << ex_bits) - 1);
+  }
+}
+
+}  // namespace cuvs::neighbors::ivf_rabitq::detail

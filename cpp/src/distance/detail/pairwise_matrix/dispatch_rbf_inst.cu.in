@@ -14,7 +14,7 @@
   using data_t   = @data_type@;
   using acc_t    = @acc_type@;
   using out_t    = @out_type@;
-  using fin_op_t = cuvs::distance::kernels::rbf_fin_op<data_t>;
+  using fin_op_t = cuvs::distance::kernels::rbf_fin_op<out_t>;
   using index_t  = @index_type@;
   using op_t     = @op_type@<data_t, acc_t, index_t>;
 }

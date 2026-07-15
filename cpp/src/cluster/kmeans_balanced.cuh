@@ -154,7 +154,7 @@ void predict(const raft::resources& handle,
                                          X.extent(0),
                                          labels.data_handle(),
                                          mapping_op,
-                                         raft::resource::get_workspace_resource(handle));
+                                         raft::resource::get_workspace_resource_ref(handle));
 }
 
 namespace helpers {
@@ -305,7 +305,7 @@ void calc_centers_and_sizes(const raft::resources& handle,
     labels.data_handle(),
     reset_counters,
     mapping_op,
-    raft::resource::get_workspace_resource(handle));
+    raft::resource::get_workspace_resource_ref(handle));
 }
 
 }  // namespace helpers

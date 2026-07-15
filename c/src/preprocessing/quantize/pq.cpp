@@ -62,18 +62,10 @@ void* _build(cuvsResources_t res,
   auto dataset = dataset_tensor->dl_tensor;
 
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
-
-  auto quantizer_params = cuvs::preprocessing::quantize::pq::params{
-    .pq_bits = params->pq_bits,
-    .pq_dim = params->pq_dim,
-    .use_subspaces = params->use_subspaces,
-    .use_vq = params->use_vq,
-    .vq_n_centers = params->vq_n_centers,
-    .kmeans_n_iters = params->kmeans_n_iters,
-    .pq_kmeans_type = static_cast<cuvs::cluster::kmeans::kmeans_type>(params->pq_kmeans_type),
-    .max_train_points_per_pq_code = params->max_train_points_per_pq_code,
-    .max_train_points_per_vq_cluster = params->max_train_points_per_vq_cluster
-  };
+  cuvs::preprocessing::quantize::pq::params quantizer_params(
+    params->pq_bits, params->pq_dim, params->use_subspaces, params->use_vq, params->vq_n_centers,
+    params->kmeans_n_iters,  static_cast<cuvs::cluster::kmeans::kmeans_type>(params->pq_kmeans_type), params->max_train_points_per_pq_code,
+     params->max_train_points_per_vq_cluster);
   cuvs::preprocessing::quantize::pq::quantizer<T>* ret = nullptr;
 
   if (cuvs::core::is_dlpack_device_compatible(dataset)) {

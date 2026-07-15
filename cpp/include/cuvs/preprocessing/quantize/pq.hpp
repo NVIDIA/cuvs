@@ -5,22 +5,82 @@
 
 #pragma once
 
+#include <cuvs/cluster/kmeans.hpp>
 #include <cuvs/neighbors/common.hpp>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/handle.hpp>
 #include <raft/core/host_mdspan.hpp>
 
-namespace cuvs::preprocessing::quantize::pq {
+#include <cuvs/core/export.hpp>
+#include <variant>
+
+namespace CUVS_EXPORT cuvs {
+namespace preprocessing {
+namespace quantize {
+namespace pq {
 
 /**
  * @defgroup pq Product Quantizer utilities
  * @{
  */
 
+/** Alias for the variant holding either balanced or regular k-means parameters. */
+using kmeans_params_variant =
+  std::variant<cuvs::cluster::kmeans::balanced_params, cuvs::cluster::kmeans::params>;
+
 /**
  * @brief Product Quantizer parameters.
  */
 struct params {
+  /**
+   * Simplified constructor that will build an appropriate kmeans params object.
+   */
+  params(uint32_t pq_bits,
+         uint32_t pq_dim,
+         bool use_subspaces,
+         bool use_vq,
+         uint32_t vq_n_centers,
+         uint32_t kmeans_n_iters,
+         cuvs::cluster::kmeans::kmeans_type pq_kmeans_type =
+           cuvs::cluster::kmeans::kmeans_type::KMeansBalanced,
+         uint32_t max_train_points_per_pq_code    = 256,
+         uint32_t max_train_points_per_vq_cluster = 1024)
+    : pq_bits(pq_bits),
+      pq_dim(pq_dim),
+      use_subspaces(use_subspaces),
+      use_vq(use_vq),
+      vq_n_centers(vq_n_centers),
+      kmeans_params(
+        pq_kmeans_type == cuvs::cluster::kmeans::kmeans_type::KMeansBalanced
+          ? kmeans_params_variant{cuvs::cluster::kmeans::balanced_params{.n_iters = kmeans_n_iters}}
+          : kmeans_params_variant{cuvs::cluster::kmeans::params{
+              .n_clusters = 1 << pq_bits, .max_iter = static_cast<int>(kmeans_n_iters)}}),
+      max_train_points_per_pq_code(max_train_points_per_pq_code),
+      max_train_points_per_vq_cluster(max_train_points_per_vq_cluster)
+  {
+  }
+
+  params(uint32_t pq_bits,
+         uint32_t pq_dim,
+         bool use_subspaces,
+         bool use_vq,
+         uint32_t vq_n_centers,
+         kmeans_params_variant kmeans_params,
+         uint32_t max_train_points_per_pq_code    = 256,
+         uint32_t max_train_points_per_vq_cluster = 1024)
+    : pq_bits(pq_bits),
+      pq_dim(pq_dim),
+      use_subspaces(use_subspaces),
+      use_vq(use_vq),
+      vq_n_centers(vq_n_centers),
+      kmeans_params(kmeans_params),
+      max_train_points_per_pq_code(max_train_points_per_pq_code),
+      max_train_points_per_vq_cluster(max_train_points_per_vq_cluster)
+  {
+  }
+
+  params() = default;
+
   /**
    * The bit length of the vector element after compression by PQ.
    *
@@ -32,7 +92,7 @@ struct params {
   uint32_t pq_bits = 8;
   /**
    * The dimensionality of the vector after compression by PQ.
-   * When zero, an optimal value is selected using a heuristic.
+   * When zero, dim / 4 is used as default.
    *
    * TODO: at the moment `dim` must be a multiple `pq_dim`.
    */
@@ -50,19 +110,19 @@ struct params {
   bool use_vq = false;
   /**
    * Vector Quantization (VQ) codebook size - number of "coarse cluster centers".
-   * When zero, an optimal value is selected using a heuristic.
+   * When zero, an optimal value is selected using a heuristic. (sqrt(n_rows))
    */
   uint32_t vq_n_centers = 0;
-  /** The number of iterations searching for kmeans centers (both VQ & PQ phases). */
-  uint32_t kmeans_n_iters = 25;
   /**
-   * Type of k-means algorithm for PQ training.
-   * Balanced k-means tends to be faster than regular k-means for PQ training, for
-   * problem sets where the number of points per cluster are approximately equal.
-   * Regular k-means may be better for skewed cluster distributions.
+   * K-means parameters for PQ codebook training.
+   *
+   * Set to cuvs::cluster::kmeans::balanced_params for balanced k-means (default),
+   * or cuvs::cluster::kmeans::params for regular k-means.
+   * The active variant type selects the algorithm; balanced k-means tends to be faster
+   * for PQ training where cluster sizes are approximately equal.
+   * Only L2Expanded metric is supported. The number of clusters is always set to 1 << pq_bits.
    */
-  cuvs::cluster::kmeans::kmeans_type pq_kmeans_type =
-    cuvs::cluster::kmeans::kmeans_type::KMeansBalanced;
+  kmeans_params_variant kmeans_params = cuvs::cluster::kmeans::balanced_params{};
   /**
    * The max number of data points to use per PQ code during PQ codebook training. Using more data
    * points per PQ code may increase the quality of PQ codebook but may also increase the build
@@ -185,4 +245,7 @@ void inverse_transform(
 
 /** @} */  // end of group product
 
-}  // namespace cuvs::preprocessing::quantize::pq
+}  // namespace pq
+}  // namespace quantize
+}  // namespace preprocessing
+}  // namespace CUVS_EXPORT cuvs

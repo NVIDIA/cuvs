@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -7,6 +7,7 @@
 
 #include <cuvs/neighbors/common.hpp>
 
+#include <cuvs/core/export.hpp>
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/error.hpp>
 #include <raft/core/host_mdarray.hpp>
@@ -14,7 +15,8 @@
 #include <raft/core/resources.hpp>
 #include <raft/util/integer_utils.hpp>
 
-namespace cuvs::neighbors {
+namespace CUVS_EXPORT cuvs {
+namespace neighbors {
 /**
  * @defgroup ann_refine Approximate Nearest Neighbors Refinement
  * @{
@@ -470,4 +472,5 @@ void refine(raft::resources const& handle,
             raft::host_matrix_view<float, int64_t, raft::row_major> distances,
             cuvs::distance::DistanceType metric = cuvs::distance::DistanceType::L2Unexpanded);
 
-}  // namespace cuvs::neighbors
+}  // namespace neighbors
+}  // namespace CUVS_EXPORT cuvs

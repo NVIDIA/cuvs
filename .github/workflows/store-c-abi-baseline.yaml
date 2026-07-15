@@ -13,9 +13,14 @@ on:
 jobs:
   archive-baseline:
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
 
       - name: Download main baseline artifact
         uses: dawidd6/action-download-artifact@8a338493df3d275e4a7a63bcff3b8fe97e51a927 # v19
@@ -26,7 +31,7 @@ jobs:
           path: baseline/
 
       - name: Archive baseline with release version
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: c-abi-baseline-${{ github.event.release.tag_name || inputs.version }}
           path: baseline/c_abi.json.gz
@@ -45,6 +50,9 @@ jobs:
           mkdir -p c-abi-baselines
           cp baseline/c_abi.json.gz c-abi-baselines/c_abi_$RELEASE_TAG_NAME.json.gz
 
+          # Authenticate for push (persist-credentials is disabled on checkout)
+          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
           # Commit and push
           git add c-abi-baselines/
           git commit -m "Archive C ABI baseline for $RELEASE_TAG_NAME"
@@ -55,7 +63,7 @@ jobs:
 
       - name: Create release comment
         if: github.event_name == 'release'
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           script: |
             const tagName = context.payload.release.tag_name;

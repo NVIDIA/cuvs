@@ -1,12 +1,12 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 use crate::distance_type::DistanceType;
-use crate::error::{check_cuvs, Result};
+use crate::error::{Result, check_cuvs};
 use std::fmt;
-use std::io::{stderr, Write};
+use std::io::{Write, stderr};
 
 pub struct Params(pub ffi::cuvsKMeansParams_t);
 
@@ -128,10 +128,7 @@ mod tests {
 
     #[test]
     fn test_params() {
-        let params = Params::new()
-            .unwrap()
-            .set_n_clusters(128)
-            .set_hierarchical(true);
+        let params = Params::new().unwrap().set_n_clusters(128).set_hierarchical(true);
 
         unsafe {
             assert_eq!((*params.0).n_clusters, 128);

@@ -1,0 +1,30 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+// Explicit specialization for the unified 3-arg sample_filter used by CAGRA JIT
+// (extern in extern_device_functions.cuh). Implementations in sample_filter_impl.cuh,
+// aligned with filtering::{none_sample_filter, bitset_filter} in neighbors/sample_filter.cuh.
+
+#include <cstdint>
+
+#include <neighbors/detail/cagra/jit_lto_kernels/sample_filter_impl.cuh>
+
+namespace {
+
+using source_index_t = @source_index_type@;
+
+}  // namespace
+
+namespace cuvs::neighbors::detail {
+
+template <>
+__device__ bool sample_filter<source_index_t>(uint32_t query_id,
+                                              source_index_t node_id,
+                                              void* filter_data)
+{
+  return sample_filter_@filter_name@_impl<source_index_t>(query_id, node_id, filter_data);
+}
+
+}  // namespace cuvs::neighbors::detail

@@ -17,7 +17,7 @@ using index_t = uint32_t;
 
 namespace cuvs::neighbors::nn_descent {
 
-template class detail::GNND<const data_t, int>;
+template class CUVS_EXPORT detail::GNND<const data_t, int>;
 
 template void detail::GNND<const data_t, int>::build<
   cuvs::neighbors::detail::reachability::ReachabilityPostProcess<int, data_t>>(

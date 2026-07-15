@@ -27,7 +27,8 @@
         "kwargs": {
           "KERNEL_FILE": 1,
           "FATBIN_HEADER_FILE": 1,
-          "LINK_LIBRARIES": "*"
+          "LINK_LIBRARIES": "*",
+          "EXTRA_COMPILE_OPTIONS": "*"
         }
       },
       "process_jit_lto_matrix_entry": {
@@ -41,7 +42,8 @@
           "FRAGMENT_TAG_HEADER_FILES": "*",
           "OUTPUT_DIRECTORY": 1,
           "MATRIX_JSON_ENTRY": 1,
-          "KERNEL_LINK_LIBRARIES": "*"
+          "KERNEL_LINK_LIBRARIES": "*",
+          "KERNEL_EXTRA_COMPILE_OPTIONS": "*"
         }
       },
       "generate_jit_lto_kernels": {
@@ -56,7 +58,8 @@
           "FRAGMENT_TAG_FORMAT": 1,
           "FRAGMENT_TAG_HEADER_FILES": "*",
           "OUTPUT_DIRECTORY": 1,
-          "KERNEL_LINK_LIBRARIES": "*"
+          "KERNEL_LINK_LIBRARIES": "*",
+          "KERNEL_EXTRA_COMPILE_OPTIONS": "*"
         }
       },
       "generate_inst_matrix": {

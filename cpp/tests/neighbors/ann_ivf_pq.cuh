@@ -103,7 +103,7 @@ void compare_vectors_l2(
   auto dim    = a.extent(1);
   rmm::mr::managed_memory_resource managed_memory;
   auto dist =
-    raft::make_device_mdarray<double>(res, &managed_memory, raft::make_extents<uint32_t>(n_rows));
+    raft::make_device_mdarray<double>(res, managed_memory, raft::make_extents<uint32_t>(n_rows));
   raft::linalg::map_offset(res, dist.view(), [a, b, dim] __device__(uint32_t i) {
     cuvs::spatial::knn::detail::utils::mapping<float> f{};
     double d = 0.0f;

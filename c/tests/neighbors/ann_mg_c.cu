@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -313,18 +313,15 @@ TEST_P(MgCTest, MgCagraTest)
 }
 
 // Test parameters that mirror the C++ test cases
-const std::vector<mg_test_params> test_inputs = {
+INSTANTIATE_TEST_SUITE_P(MgCTests, MgCTest, ::testing::Values(
   // IVF-Flat tests
-  {1000, 5000, 8, 16, MG_MODE_REPLICATED, MG_ALGO_IVF_FLAT, 40, 256, L2Expanded},
-  {1000, 5000, 8, 16, MG_MODE_SHARDED, MG_ALGO_IVF_FLAT, 40, 256, L2Expanded},
+  mg_test_params{1000, 5000, 8, 16, MG_MODE_REPLICATED, MG_ALGO_IVF_FLAT, 40, 256, L2Expanded},
+  mg_test_params{1000, 5000, 8, 16, MG_MODE_SHARDED, MG_ALGO_IVF_FLAT, 40, 256, L2Expanded},
 
   // IVF-PQ tests
-  {1000, 5000, 8, 16, MG_MODE_REPLICATED, MG_ALGO_IVF_PQ, 40, 256, L2Expanded},
-  {1000, 5000, 8, 16, MG_MODE_SHARDED, MG_ALGO_IVF_PQ, 40, 256, L2Expanded},
+  mg_test_params{1000, 5000, 8, 16, MG_MODE_REPLICATED, MG_ALGO_IVF_PQ, 40, 256, L2Expanded},
+  mg_test_params{1000, 5000, 8, 16, MG_MODE_SHARDED, MG_ALGO_IVF_PQ, 40, 256, L2Expanded},
 
   // CAGRA tests
-  {1000, 5000, 8, 16, MG_MODE_REPLICATED, MG_ALGO_CAGRA, 40, 256, L2Expanded},
-  {1000, 5000, 8, 16, MG_MODE_SHARDED, MG_ALGO_CAGRA, 40, 256, L2Expanded},
-};
-
-INSTANTIATE_TEST_SUITE_P(MgCTests, MgCTest, ::testing::ValuesIn(test_inputs));
+  mg_test_params{1000, 5000, 8, 16, MG_MODE_REPLICATED, MG_ALGO_CAGRA, 40, 256, L2Expanded},
+  mg_test_params{1000, 5000, 8, 16, MG_MODE_SHARDED, MG_ALGO_CAGRA, 40, 256, L2Expanded}));

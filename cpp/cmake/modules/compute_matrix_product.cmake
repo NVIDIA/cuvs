@@ -39,6 +39,9 @@ endfunction()
 
 function(populate_matrix_variables matrix_json_entry)
   string(JSON len LENGTH "${matrix_json_entry}")
+  if(len EQUAL 0)
+    return()
+  endif()
   math(EXPR last "${len} - 1")
 
   # cmake-lint: disable=C0103,E1120

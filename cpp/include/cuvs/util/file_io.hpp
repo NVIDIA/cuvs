@@ -5,6 +5,7 @@
 #pragma once
 
 #include <raft/core/error.hpp>
+#include <raft/core/numpy_serializer.hpp>
 #include <raft/core/serialize.hpp>
 
 #include <algorithm>
@@ -19,11 +20,13 @@
 #include <utility>
 #include <vector>
 
+#include <cuvs/core/export.hpp>
 #include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
 
-namespace cuvs::util {
+namespace CUVS_EXPORT cuvs {
+namespace util {
 /**
  * @brief Streambuf that reads from a POSIX file descriptor
  */
@@ -187,12 +190,12 @@ std::pair<file_descriptor, size_t> create_numpy_file(const std::string& path,
   file_descriptor fd(path, O_CREAT | O_RDWR | O_TRUNC, 0644);
 
   // Build header
-  const auto dtype         = raft::detail::numpy_serializer::get_numpy_dtype<T>();
-  const bool fortran_order = false;
-  const raft::detail::numpy_serializer::header_t header = {dtype, fortran_order, shape};
+  const auto dtype                              = raft::numpy_serializer::get_numpy_dtype<T>();
+  const bool fortran_order                      = false;
+  const raft::numpy_serializer::header_t header = {dtype, fortran_order, shape};
 
   std::stringstream ss;
-  raft::detail::numpy_serializer::write_header(ss, header);
+  raft::numpy_serializer::write_header(ss, header);
   std::string header_str = ss.str();
   size_t header_size     = header_str.size();
 
@@ -283,9 +286,16 @@ class buffered_ofstream {
 
   void write(const char* input, size_t size)
   {
-    if (pos_ + size > buffer_.size()) { flush(); }
-    std::copy(input, input + size, &buffer_[pos_]);
-    pos_ += size;
+    if (size >= buffer_.size()) {
+      flush();
+      os_->write(input, static_cast<std::streamsize>(size));
+      if (!os_->good()) { RAFT_FAIL("Error writing HNSW file!"); }
+      return;
+    } else {
+      if (size > buffer_.size() - pos_) { flush(); }
+      std::memcpy(buffer_.data() + pos_, input, size);
+      pos_ += size;
+    }
   }
 
  private:
@@ -294,4 +304,5 @@ class buffered_ofstream {
   size_t pos_;
 };
 
-}  // namespace cuvs::util
+}  // namespace util
+}  // namespace CUVS_EXPORT cuvs

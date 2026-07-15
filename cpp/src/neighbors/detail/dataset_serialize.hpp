@@ -162,25 +162,35 @@ template <typename IdxT>
 auto deserialize_dataset(raft::resources const& res, std::istream& is)
   -> std::unique_ptr<dataset<IdxT>>
 {
-  switch (raft::deserialize_scalar<dataset_instance_tag>(res, is)) {
+  const auto tag = raft::deserialize_scalar<dataset_instance_tag>(res, is);
+  switch (tag) {
     case kSerializeEmptyDataset: return deserialize_empty<IdxT>(res, is);
-    case kSerializeStridedDataset:
-      switch (raft::deserialize_scalar<cudaDataType_t>(res, is)) {
+    case kSerializeStridedDataset: {
+      const auto dtype = raft::deserialize_scalar<cudaDataType_t>(res, is);
+      switch (dtype) {
         case CUDA_R_32F: return deserialize_strided<float, IdxT>(res, is);
         case CUDA_R_16F: return deserialize_strided<half, IdxT>(res, is);
         case CUDA_R_8I: return deserialize_strided<int8_t, IdxT>(res, is);
         case CUDA_R_8U: return deserialize_strided<uint8_t, IdxT>(res, is);
-        default: break;
+        default:
+          RAFT_FAIL("Failed to deserialize dataset: unsupported strided dataset element type %d.",
+                    static_cast<int>(dtype));
       }
-    case kSerializeVPQDataset:
-      switch (raft::deserialize_scalar<cudaDataType_t>(res, is)) {
+    }
+    case kSerializeVPQDataset: {
+      const auto dtype = raft::deserialize_scalar<cudaDataType_t>(res, is);
+      switch (dtype) {
         case CUDA_R_32F: return deserialize_vpq<float, IdxT>(res, is);
         case CUDA_R_16F: return deserialize_vpq<half, IdxT>(res, is);
-        default: break;
+        default:
+          RAFT_FAIL("Failed to deserialize dataset: unsupported VPQ dtype %d.",
+                    static_cast<int>(dtype));
       }
-    default: break;
+    }
+    default:
+      RAFT_FAIL("Failed to deserialize dataset: unknown instance tag %u.",
+                static_cast<unsigned>(tag));
   }
-  RAFT_FAIL("Failed to deserialize dataset: unsupported combination of instance tags.");
 }
 
 }  // namespace cuvs::neighbors::detail

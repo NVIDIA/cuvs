@@ -16,7 +16,9 @@
 
 namespace {
 
-cuvs::cluster::kmeans::params convert_params(const cuvsKMeansParams& params)
+// The conversions are templated on the C struct type and reused by both API surfaces.
+template <typename ParamsT>
+cuvs::cluster::kmeans::params convert_params(const ParamsT& params)
 {
   auto kmeans_params                = cuvs::cluster::kmeans::params();
   kmeans_params.metric              = static_cast<cuvs::distance::DistanceType>(params.metric);
@@ -28,12 +30,13 @@ cuvs::cluster::kmeans::params convert_params(const cuvsKMeansParams& params)
   kmeans_params.oversampling_factor = params.oversampling_factor;
   kmeans_params.batch_samples       = params.batch_samples;
   kmeans_params.batch_centroids     = params.batch_centroids;
-  kmeans_params.inertia_check       = params.inertia_check;
+  kmeans_params.init_size             = params.init_size;
   kmeans_params.streaming_batch_size  = params.streaming_batch_size;
   return kmeans_params;
 }
 
-cuvs::cluster::kmeans::balanced_params convert_balanced_params(const cuvsKMeansParams& params)
+template <typename ParamsT>
+cuvs::cluster::kmeans::balanced_params convert_balanced_params(const ParamsT& params)
 {
   auto kmeans_params    = cuvs::cluster::kmeans::balanced_params();
   kmeans_params.metric  = static_cast<cuvs::distance::DistanceType>(params.metric);
@@ -41,9 +44,9 @@ cuvs::cluster::kmeans::balanced_params convert_balanced_params(const cuvsKMeansP
   return kmeans_params;
 }
 
-template <typename T, typename IdxT = int64_t>
+template <typename T, typename ParamsT, typename IdxT = int64_t>
 void _fit(cuvsResources_t res,
-          const cuvsKMeansParams& params,
+          const ParamsT& params,
           DLManagedTensor* X_tensor,
           DLManagedTensor* sample_weight_tensor,
           DLManagedTensor* centroids_tensor,
@@ -140,9 +143,9 @@ void _fit(cuvsResources_t res,
   }
 }
 
-template <typename T, typename IdxT = int32_t, typename LabelsT = int32_t>
+template <typename T, typename ParamsT, typename IdxT = int32_t, typename LabelsT = int32_t>
 void _predict(cuvsResources_t res,
-              const cuvsKMeansParams& params,
+              const ParamsT& params,
               DLManagedTensor* X_tensor,
               DLManagedTensor* sample_weight_tensor,
               DLManagedTensor* centroids_tensor,
@@ -237,10 +240,11 @@ extern "C" cuvsError_t cuvsKMeansParamsCreate(cuvsKMeansParams_t* params)
       .oversampling_factor  = cpp_params.oversampling_factor,
       .batch_samples        = cpp_params.batch_samples,
       .batch_centroids      = cpp_params.batch_centroids,
-      .inertia_check        = cpp_params.inertia_check,
+      .inertia_check        = false,
       .hierarchical         = false,
       .hierarchical_n_iters = static_cast<int>(cpp_balanced_params.n_iters),
-      .streaming_batch_size           = cpp_params.streaming_batch_size};
+      .streaming_batch_size = cpp_params.streaming_batch_size,
+      .init_size            = cpp_params.init_size};
   });
 }
 
@@ -286,6 +290,79 @@ extern "C" cuvsError_t cuvsKMeansPredict(cuvsResources_t res,
         _predict<float>(res, *params, X, sample_weight, centroids, labels, normalize_weight, inertia);
     } else if (dataset.dtype.code == kDLFloat && dataset.dtype.bits == 64) {
         _predict<double>(res, *params, X, sample_weight, centroids, labels, normalize_weight, inertia);
+    } else {
+      RAFT_FAIL("Unsupported dataset DLtensor dtype: %d and bits: %d",
+                dataset.dtype.code,
+                dataset.dtype.bits);
+    }
+  });
+}
+
+extern "C" cuvsError_t cuvsKMeansParamsCreate_v2(cuvsKMeansParams_v2_t* params)
+{
+  return cuvs::core::translate_exceptions([=] {
+    cuvs::cluster::kmeans::params cpp_params;
+    cuvs::cluster::kmeans::balanced_params cpp_balanced_params;
+    *params = new cuvsKMeansParams_v2{
+      .metric               = static_cast<cuvsDistanceType>(cpp_params.metric),
+      .n_clusters           = cpp_params.n_clusters,
+      .init                 = static_cast<cuvsKMeansInitMethod>(cpp_params.init),
+      .max_iter             = cpp_params.max_iter,
+      .tol                  = cpp_params.tol,
+      .n_init               = cpp_params.n_init,
+      .oversampling_factor  = cpp_params.oversampling_factor,
+      .batch_samples        = cpp_params.batch_samples,
+      .batch_centroids      = cpp_params.batch_centroids,
+      .hierarchical         = false,
+      .hierarchical_n_iters = static_cast<int>(cpp_balanced_params.n_iters),
+      .streaming_batch_size = cpp_params.streaming_batch_size,
+      .init_size            = cpp_params.init_size};
+  });
+}
+
+extern "C" cuvsError_t cuvsKMeansParamsDestroy_v2(cuvsKMeansParams_v2_t params)
+{
+  return cuvs::core::translate_exceptions([=] { delete params; });
+}
+
+extern "C" cuvsError_t cuvsKMeansFit_v2(cuvsResources_t res,
+                                        cuvsKMeansParams_v2_t params,
+                                        DLManagedTensor* X,
+                                        DLManagedTensor* sample_weight,
+                                        DLManagedTensor* centroids,
+                                        double* inertia,
+                                        int* n_iter)
+{
+  return cuvs::core::translate_exceptions([=] {
+    auto dataset = X->dl_tensor;
+    if (dataset.dtype.code == kDLFloat && dataset.dtype.bits == 32) {
+      _fit<float>(res, *params, X, sample_weight, centroids, inertia, n_iter);
+    } else if (dataset.dtype.code == kDLFloat && dataset.dtype.bits == 64) {
+      _fit<double>(res, *params, X, sample_weight, centroids, inertia, n_iter);
+    } else {
+      RAFT_FAIL("Unsupported dataset DLtensor dtype: %d and bits: %d",
+                dataset.dtype.code,
+                dataset.dtype.bits);
+    }
+  });
+}
+
+extern "C" cuvsError_t cuvsKMeansPredict_v2(cuvsResources_t res,
+                                            cuvsKMeansParams_v2_t params,
+                                            DLManagedTensor* X,
+                                            DLManagedTensor* sample_weight,
+                                            DLManagedTensor* centroids,
+                                            DLManagedTensor* labels,
+                                            bool normalize_weight,
+                                            double* inertia)
+{
+  return cuvs::core::translate_exceptions([=] {
+    auto dataset = X->dl_tensor;
+    if (dataset.dtype.code == kDLFloat && dataset.dtype.bits == 32) {
+      _predict<float>(res, *params, X, sample_weight, centroids, labels, normalize_weight, inertia);
+    } else if (dataset.dtype.code == kDLFloat && dataset.dtype.bits == 64) {
+      _predict<double>(
+        res, *params, X, sample_weight, centroids, labels, normalize_weight, inertia);
     } else {
       RAFT_FAIL("Unsupported dataset DLtensor dtype: %d and bits: %d",
                 dataset.dtype.code,

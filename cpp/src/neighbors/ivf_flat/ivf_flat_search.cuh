@@ -26,6 +26,8 @@
 
 #include <rmm/resource_ref.hpp>
 
+#include <type_traits>
+
 namespace cuvs::neighbors::ivf_flat::detail {
 
 using namespace cuvs::spatial::knn::detail;  // NOLINT
@@ -38,6 +40,8 @@ auto RAFT_WEAK_FUNCTION is_local_topk_feasible(uint32_t k) -> bool
 template <typename T, typename AccT, typename IdxT, typename IvfSampleFilterT>
 void search_impl(raft::resources const& handle,
                  const cuvs::neighbors::ivf_flat::index<T, IdxT>& index,
+                 cuvs::distance::DistanceType effective_metric,
+                 const search_params& params,
                  const T* queries,
                  uint32_t n_queries,
                  uint32_t queries_offset,
@@ -102,7 +106,7 @@ void search_impl(raft::resources const& handle,
   float beta  = 0.0f;
 
   // todo(lsugy): raft distance? (if performance is similar/better than gemm)
-  switch (index.metric()) {
+  switch (effective_metric) {
     case cuvs::distance::DistanceType::L2Expanded:
     case cuvs::distance::DistanceType::L2SqrtExpanded: {
       alpha = -2.0f;
@@ -157,7 +161,7 @@ void search_impl(raft::resources const& handle,
                      index.n_lists(),
                      stream);
 
-  if (index.metric() == cuvs::distance::DistanceType::CosineExpanded) {
+  if (effective_metric == cuvs::distance::DistanceType::CosineExpanded) {
     auto n_lists                      = index.n_lists();
     const auto* q_norm_ptr            = query_norm_dev.data();
     const auto* index_center_norm_ptr = index.center_norms()->data_handle();
@@ -194,7 +198,7 @@ void search_impl(raft::resources const& handle,
       nullptr,
       n_queries,
       queries_offset,
-      index.metric(),
+      effective_metric,
       n_probes,
       k,
       0,
@@ -204,7 +208,8 @@ void search_impl(raft::resources const& handle,
       nullptr,
       nullptr,
       grid_dim_x,
-      stream);
+      stream,
+      params.metric_udf);
   } else {
     grid_dim_x = 1;
   }
@@ -249,7 +254,7 @@ void search_impl(raft::resources const& handle,
     coarse_indices_dev.data(),
     n_queries,
     queries_offset,
-    index.metric(),
+    effective_metric,
     n_probes,
     k,
     max_samples,
@@ -259,7 +264,8 @@ void search_impl(raft::resources const& handle,
     indices_dev_ptr,
     distances_dev_ptr,
     grid_dim_x,
-    stream);
+    stream,
+    params.metric_udf);
 
   RAFT_LOG_TRACE_VEC(distances_dev_ptr, 2 * k);
   if (indices_dev_ptr != nullptr) { RAFT_LOG_TRACE_VEC(indices_dev_ptr, 2 * k); }
@@ -289,7 +295,7 @@ void search_impl(raft::resources const& handle,
   if (!manage_local_topk) {
     // post process distances && neighbor IDs
     ivf::detail::postprocess_distances(
-      handle, distances, distances, index.metric(), n_queries, k, 1.0, false);
+      handle, distances, distances, effective_metric, n_queries, k, 1.0, false);
   }
   ivf::detail::postprocess_neighbors(neighbors,
                                      neighbors_uint32,
@@ -309,6 +315,7 @@ template <typename T,
 inline void search_with_filtering(raft::resources const& handle,
                                   const search_params& params,
                                   const index<T, IdxT>& index,
+                                  cuvs::distance::DistanceType effective_metric,
                                   const T* queries,
                                   uint32_t n_queries,
                                   uint32_t k,
@@ -348,19 +355,22 @@ inline void search_with_filtering(raft::resources const& handle,
   for (uint32_t offset_q = 0; offset_q < n_queries; offset_q += max_queries) {
     uint32_t queries_batch = raft::min(max_queries, n_queries - offset_q);
 
-    search_impl<T, float, IdxT, IvfSampleFilterT>(handle,
-                                                  index,
-                                                  queries + offset_q * index.dim(),
-                                                  queries_batch,
-                                                  offset_q,
-                                                  k,
-                                                  n_probes,
-                                                  max_samples,
-                                                  cuvs::distance::is_min_close(index.metric()),
-                                                  neighbors + offset_q * k,
-                                                  distances + offset_q * k,
-                                                  raft::resource::get_workspace_resource(handle),
-                                                  sample_filter);
+    search_impl<T, float, IdxT, IvfSampleFilterT>(
+      handle,
+      index,
+      effective_metric,
+      params,
+      queries + offset_q * index.dim(),
+      queries_batch,
+      offset_q,
+      k,
+      n_probes,
+      max_samples,
+      cuvs::distance::is_min_close(effective_metric),
+      neighbors + offset_q * k,
+      distances + offset_q * k,
+      raft::resource::get_workspace_resource_ref(handle),
+      sample_filter);
   }
 }
 
@@ -383,9 +393,13 @@ void search_with_filtering(raft::resources const& handle,
   RAFT_EXPECTS(queries.extent(1) == index.dim(),
                "Number of query dimensions should equal number of dimensions in the index.");
 
+  auto effective_metric =
+    params.metric_udf.has_value() ? cuvs::distance::DistanceType::CustomUDF : index.metric();
+
   search_with_filtering(handle,
                         params,
                         index,
+                        effective_metric,
                         queries.data_handle(),
                         static_cast<std::uint32_t>(queries.extent(0)),
                         static_cast<std::uint32_t>(neighbors.extent(1)),

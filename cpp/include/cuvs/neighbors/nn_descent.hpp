@@ -16,9 +16,14 @@
 
 #include <cuvs/distance/distance.hpp>
 
-#include <cuda_fp16.h>
+#include <cuvs/core/cuda_fp16.hpp>
+#include <cuvs/core/export.hpp>
 
-namespace cuvs::neighbors::nn_descent {
+#include <utility>
+
+namespace CUVS_EXPORT cuvs {
+namespace neighbors {
+namespace nn_descent {
 /**
  * @defgroup nn_descent_cpp_index_params The nn-descent algorithm parameters.
  * @{
@@ -532,8 +537,31 @@ bool has_enough_device_memory(raft::resources const& res,
                               raft::matrix_extent<int64_t> dataset,
                               size_t idx_size = 4);
 
-}  // namespace cuvs::neighbors::nn_descent
+/**
+ * @brief Estimate the host and device memory (in bytes) required to build an
+ * all-neighbors kNN graph with NN-descent for a dataset of the given shape.
+ *
+ * The estimate mirrors the persistent allocations performed by the GNND solver.
+ * It does not include the input dataset nor the output graph.
+ *
+ * @param res
+ * @param dataset shape of the dataset
+ * @param graph_degree the degree of the all-neighbors graph
+ * @param idx_size the size of the graph index type in bytes
+ * @return std::pair<host_bytes, device_bytes>
+ */
+std::pair<size_t, size_t> build_mem_usage(raft::resources const& res,
+                                          raft::matrix_extent<int64_t> dataset,
+                                          size_t graph_degree,
+                                          size_t idx_size = 4);
 
-namespace cuvs::neighbors::graph_build_params {
+}  // namespace nn_descent
+}  // namespace neighbors
+}  // namespace CUVS_EXPORT cuvs
+namespace CUVS_EXPORT cuvs {
+namespace neighbors {
+namespace graph_build_params {
 using nn_descent_params = cuvs::neighbors::nn_descent::index_params;
 }
+}  // namespace neighbors
+}  // namespace CUVS_EXPORT cuvs

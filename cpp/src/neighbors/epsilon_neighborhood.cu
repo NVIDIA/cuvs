@@ -1,9 +1,10 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #include "detail/epsilon_neighborhood.cuh"
+#include <cuvs/core/export.hpp>
 #include <cuvs/neighbors/epsilon_neighborhood.hpp>
 #include <raft/util/cudart_utils.hpp>
 
@@ -49,7 +50,7 @@ void compute(raft::resources const& handle,
 }
 
 // Explicit template instantiations
-template void compute<float, int64_t, int64_t>(
+template CUVS_EXPORT void compute<float, int64_t, int64_t>(
   raft::resources const& handle,
   raft::device_matrix_view<const float, int64_t, raft::row_major> x,
   raft::device_matrix_view<const float, int64_t, raft::row_major> y,
@@ -58,7 +59,7 @@ template void compute<float, int64_t, int64_t>(
   float eps,
   cuvs::distance::DistanceType metric);
 
-template void compute<float, int, int64_t>(
+template CUVS_EXPORT void compute<float, int, int64_t>(
   raft::resources const& handle,
   raft::device_matrix_view<const float, int64_t, raft::row_major> x,
   raft::device_matrix_view<const float, int64_t, raft::row_major> y,
@@ -67,7 +68,7 @@ template void compute<float, int, int64_t>(
   float eps,
   cuvs::distance::DistanceType metric);
 
-template void compute<double, int, int64_t>(
+template CUVS_EXPORT void compute<double, int, int64_t>(
   raft::resources const& handle,
   raft::device_matrix_view<const double, int64_t, raft::row_major> x,
   raft::device_matrix_view<const double, int64_t, raft::row_major> y,
@@ -76,7 +77,7 @@ template void compute<double, int, int64_t>(
   double eps,
   cuvs::distance::DistanceType metric);
 
-template void compute<double, int64_t, int64_t>(
+template CUVS_EXPORT void compute<double, int64_t, int64_t>(
   raft::resources const& handle,
   raft::device_matrix_view<const double, int64_t, raft::row_major> x,
   raft::device_matrix_view<const double, int64_t, raft::row_major> y,

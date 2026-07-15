@@ -11,7 +11,6 @@
 #include <raft/linalg/map.cuh>
 #include <raft/util/cudart_utils.hpp>
 
-#include <rmm/mr/device_memory_resource.hpp>
 #include <rmm/mr/pool_memory_resource.hpp>
 
 #include <cstdint>
@@ -113,9 +112,9 @@ int main()
   raft::device_resources dev_resources;
 
   // Set pool memory resource with 1 GiB initial pool size. All allocations use the same pool.
-  rmm::mr::pool_memory_resource<rmm::mr::device_memory_resource> pool_mr(
-    rmm::mr::get_current_device_resource(), 1024 * 1024 * 1024ull);
-  rmm::mr::set_current_device_resource(&pool_mr);
+  rmm::mr::pool_memory_resource pool_mr(rmm::mr::get_current_device_resource_ref(),
+                                        1024 * 1024 * 1024ull);
+  rmm::mr::set_current_device_resource(pool_mr);
 
   // Create input arrays.
   int64_t n_samples = 10000;

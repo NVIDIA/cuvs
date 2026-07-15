@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2024, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -39,7 +39,7 @@ inline ::std::ostream& operator<<(::std::ostream& os, const AnnHNSWInputs& p)
   os << "dataset shape=" << p.n_rows << "x" << p.dim << ", graph_degree=" << p.graph_degree
      << ", metric="
      << cuvs::neighbors::print_metric{static_cast<cuvs::distance::DistanceType>((int)p.metric)}
-     << ", ef=" << (p.ef) << std::endl;
+     << ", ef=" << (p.ef);
   return os;
 }
 

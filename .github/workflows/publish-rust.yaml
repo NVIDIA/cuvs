@@ -2,6 +2,9 @@ name: publish
 
 on:
   workflow_call:
+    secrets:
+      GPUTESTER_CRATES_TOKEN:
+        required: false
 
 defaults:
   run:
@@ -14,11 +17,13 @@ jobs:
       fail-fast: false
       matrix:
         cuda_version:
-          - '12.9.1'
+          - '13.3.0'
     container:
-      image: "rapidsai/ci-conda:26.06-cuda${{ matrix.cuda_version }}-ubuntu24.04-py3.13"
+      image: "rapidsai/ci-conda:26.08-cuda${{ matrix.cuda_version }}-ubuntu24.04-py3.13"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
       - name: Check if release build
         id: check_release
         run: |
@@ -29,7 +34,7 @@ jobs:
           fi
       - name: Setup and publish crates
         if: steps.check_release.outputs.is_release == 'true'
-        run: |
+        run: | # zizmor: ignore[use-trusted-publishing]
           . /opt/conda/etc/profile.d/conda.sh
 
           rapids-dependency-file-generator \
@@ -43,10 +48,6 @@ jobs:
           set +eu
           conda activate rust
           set -eu
-
-          LIBCLANG_PATH=$(dirname "$(find "$CONDA_PREFIX" -name libclang.so | head -n 1)")
-          export LIBCLANG_PATH
-          echo "LIBCLANG_PATH=$LIBCLANG_PATH"
 
           # Publish sys crate first
           pushd ./rust/cuvs-sys

@@ -1,13 +1,16 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
 
+#include <cuvs/core/export.hpp>
 #include <cuvs/neighbors/common.hpp>
 
-namespace cuvs::neighbors::dynamic_batching {
+namespace CUVS_EXPORT cuvs {
+namespace neighbors {
+namespace dynamic_batching {
 
 namespace detail {
 template <typename T, typename IdxT>
@@ -276,4 +279,6 @@ void search(raft::resources const& res,
 
 /** @} */
 
-}  // namespace cuvs::neighbors::dynamic_batching
+}  // namespace dynamic_batching
+}  // namespace neighbors
+}  // namespace CUVS_EXPORT cuvs

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -68,7 +68,7 @@ void build_clusters(const raft::resources& handle,
     labels.data_handle(),
     cluster_sizes.data_handle(),
     mapping_op,
-    raft::resource::get_workspace_resource(handle),
+    raft::resource::get_workspace_resource_ref(handle),
     X_norm.has_value() ? X_norm.value().data_handle() : nullptr);
 }
 

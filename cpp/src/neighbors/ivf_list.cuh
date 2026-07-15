@@ -62,11 +62,11 @@ list<SpecT, SizeT, SpecExtraArgs...>::list(raft::resources const& res,
 }
 
 template <typename ListT>
-void resize_list(raft::resources const& res,
-                 std::shared_ptr<ListT>& orig_list,  // NOLINT
-                 const typename ListT::spec_type& spec,
-                 typename ListT::size_type new_used_size,
-                 typename ListT::size_type old_used_size)
+CUVS_EXPORT void resize_list(raft::resources const& res,
+                             std::shared_ptr<ListT>& orig_list,  // NOLINT
+                             const typename ListT::spec_type& spec,
+                             typename ListT::size_type new_used_size,
+                             typename ListT::size_type old_used_size)
 {
   bool skip_resize = false;
   if (orig_list) {

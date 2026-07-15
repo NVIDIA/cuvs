@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <cuvs/core/cuda_fp16.hpp>
+
 #include <cuvs/neighbors/cagra.hpp>
 #include <neighbors/cagra.cuh>
 
@@ -38,5 +40,7 @@ auto build(raft::resources const& handle,
 {
   return cuvs::neighbors::cagra::build<data_t, index_t>(handle, params, dataset);
 }
+
+template struct index<data_t, index_t>;
 
 }  // namespace cuvs::neighbors::cagra

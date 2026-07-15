@@ -1,0 +1,250 @@
+[
+  {
+    "_data": [
+      {
+        "data_type": "float",
+        "data_abbrev": "f",
+        "_query": [
+          {
+            "query_type": "float",
+            "query_abbrev": "f"
+          }
+        ]
+      },
+      {
+        "data_type": "__half",
+        "data_abbrev": "h",
+        "_query": [
+          {
+            "query_type": "float",
+            "query_abbrev": "f"
+          }
+        ]
+      },
+      {
+        "data_type": "uint8_t",
+        "data_abbrev": "u8",
+        "_query": [
+          {
+            "query_type": "float",
+            "query_abbrev": "f"
+          },
+          {
+            "query_type": "uint8_t",
+            "query_abbrev": "u8"
+          }
+        ]
+      },
+      {
+        "data_type": "int8_t",
+        "data_abbrev": "i8",
+        "_query": [
+          {
+            "query_type": "float",
+            "query_abbrev": "f"
+          }
+        ]
+      }
+    ],
+    "_index": [
+      {
+        "index_type": "uint32_t",
+        "index_abbrev": "u32"
+      }
+    ],
+    "_distance": [
+      {
+        "distance_type": "float",
+        "distance_abbrev": "f"
+      }
+    ],
+    "team_size": [
+      "8",
+      "16",
+      "32"
+    ],
+    "dataset_block_dim": [
+      "128",
+      "256",
+      "512"
+    ],
+    "_pq": [
+      {
+        "pq_len": "0",
+        "pq_bits": "0",
+        "pq_prefix": "_standard",
+        "pq_suffix": ""
+      }
+    ],
+    "_codebook": [
+      {
+        "codebook_type": "void",
+        "codebook_abbrev": "none"
+      }
+    ],
+    "_smem": [
+      {
+        "smem_dtype": "cuvs::neighbors::cagra::internal_dtype::F16",
+        "smem_abbrev": "f16"
+      }
+    ]
+  },
+  {
+    "_data": [
+      {
+        "data_type": "float",
+        "data_abbrev": "f"
+      },
+      {
+        "data_type": "__half",
+        "data_abbrev": "h"
+      },
+      {
+        "data_type": "uint8_t",
+        "data_abbrev": "u8"
+      },
+      {
+        "data_type": "int8_t",
+        "data_abbrev": "i8"
+      }
+    ],
+    "_query": [
+      {
+        "query_type": "half",
+        "query_abbrev": "h"
+      }
+    ],
+    "_index": [
+      {
+        "index_type": "uint32_t",
+        "index_abbrev": "u32"
+      }
+    ],
+    "_distance": [
+      {
+        "distance_type": "float",
+        "distance_abbrev": "f"
+      }
+    ],
+    "team_size": [
+      "8",
+      "16",
+      "32"
+    ],
+    "dataset_block_dim": [
+      "128",
+      "256",
+      "512"
+    ],
+    "_pq": [
+      {
+        "pq_len": "2",
+        "pq_bits": "8",
+        "pq_prefix": "_vpq",
+        "pq_suffix": "_8pq_2subd"
+      },
+      {
+        "pq_len": "4",
+        "pq_bits": "8",
+        "pq_prefix": "_vpq",
+        "pq_suffix": "_8pq_4subd"
+      }
+    ],
+    "_codebook": [
+      {
+        "codebook_type": "half",
+        "codebook_abbrev": "half"
+      }
+    ],
+    "_smem": [
+      {
+        "smem_dtype": "cuvs::neighbors::cagra::internal_dtype::F16",
+        "smem_abbrev": "f16"
+      },
+      {
+        "smem_dtype": "cuvs::neighbors::cagra::internal_dtype::E5M2",
+        "smem_abbrev": "e5m2"
+      }
+    ]
+  },
+  {
+    "_data": [
+      {
+        "data_type": "float",
+        "data_abbrev": "f"
+      },
+      {
+        "data_type": "__half",
+        "data_abbrev": "h"
+      },
+      {
+        "data_type": "uint8_t",
+        "data_abbrev": "u8"
+      },
+      {
+        "data_type": "int8_t",
+        "data_abbrev": "i8"
+      }
+    ],
+    "_query": [
+      {
+        "query_type": "half",
+        "query_abbrev": "h"
+      }
+    ],
+    "_index": [
+      {
+        "index_type": "uint32_t",
+        "index_abbrev": "u32"
+      }
+    ],
+    "_distance": [
+      {
+        "distance_type": "float",
+        "distance_abbrev": "f"
+      }
+    ],
+    "_pq": [
+      {
+        "pq_len": "8",
+        "pq_bits": "8",
+        "pq_prefix": "_vpq",
+        "pq_suffix": "_8pq_8subd"
+      }
+    ],
+    "_codebook": [
+      {
+        "codebook_type": "half",
+        "codebook_abbrev": "half"
+      }
+    ],
+    "_mxdim_team": [
+      {
+        "dataset_block_dim": "128",
+        "team_size": "4"
+      },
+      {
+        "dataset_block_dim": "256",
+        "team_size": "8"
+      },
+      {
+        "dataset_block_dim": "512",
+        "team_size": "16"
+      },
+      {
+        "dataset_block_dim": "1024",
+        "team_size": "32"
+      }
+    ],
+    "_smem": [
+      {
+        "smem_dtype": "cuvs::neighbors::cagra::internal_dtype::F16",
+        "smem_abbrev": "f16"
+      },
+      {
+        "smem_dtype": "cuvs::neighbors::cagra::internal_dtype::E5M2",
+        "smem_abbrev": "e5m2"
+      }
+    ]
+  }
+]

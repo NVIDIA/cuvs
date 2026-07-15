@@ -1,14 +1,15 @@
-# SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 repos:
       - repo: https://github.com/pre-commit/pre-commit-hooks
-        rev: v5.0.0
+        rev: v6.0.0
         hooks:
               - id: check-json
               - id: trailing-whitespace
               - id: end-of-file-fixer
               - id: check-symlinks
+              - id: check-xml
       - repo: https://github.com/PyCQA/isort
         rev: 5.12.0
         hooks:
@@ -113,9 +114,10 @@ repos:
                 exclude: |
                   (?x)
                     ^CHANGELOG[.]md$|
-                    ^cpp/cmake/patches/cutlass/build-export[.]patch$
+                    ^cpp/cmake/patches/cutlass/build-export[.]patch$|
+                    ^rust/cuvs-sys/src/bindings[.]rs$
       - repo: https://github.com/rapidsai/pre-commit-hooks
-        rev: v1.3.3
+        rev: v1.6.0
         hooks:
           - id: verify-copyright
             name: verify-copyright-cuvs
@@ -147,7 +149,8 @@ repos:
                 cpp/src/distance/detail/fused_distance_nn/persistent_gemm[.]h$|
                 cpp/src/distance/detail/fused_distance_nn/epilogue_elementwise[.]cuh$|
                 cpp/src/distance/detail/fused_distance_nn/predicated_tile_iterator_reduced_vec[.]h$|
-                cpp/src/distance/detail/fused_distance_nn/custom_epilogue_with_broadcast[.]h$
+                cpp/src/distance/detail/fused_distance_nn/custom_epilogue_with_broadcast[.]h$|
+                rust/cuvs-sys/src/bindings[.]rs$
               )
           - id: verify-copyright
             name: verify-copyright-scikit-learn
@@ -178,7 +181,7 @@ repos:
               )
           - id: verify-alpha-spec
           - id: verify-codeowners
-            args: [--fix, --project-prefix=cuvs]
+            args: [--fix, --org=NVIDIA, --project-prefix=cuvs]
           - id: verify-pyproject-license
             # ignore the top-level pyproject.toml, which doesn't
             # have or need a [project] table
@@ -194,6 +197,10 @@ repos:
         rev: v0.10.0.1
         hooks:
           - id: shellcheck
+      - repo: https://github.com/zizmorcore/zizmor-pre-commit
+        rev: v1.24.1
+        hooks:
+          - id: zizmor
 
 default_language_version:
       python: python3

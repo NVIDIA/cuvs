@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -39,9 +39,11 @@ def load_library():
         # references their symbols
         import libraft
         import librmm
+        from cuda.pathfinder import load_nvidia_dynamic_lib
 
         librmm.load_library()
         libraft.load_library()
+        load_nvidia_dynamic_lib("nvrtc")
     except ModuleNotFoundError:
         # These runtime dependencies might be satisfied by conda packages
         # (which do not have any Python modules) instead of wheels. In that

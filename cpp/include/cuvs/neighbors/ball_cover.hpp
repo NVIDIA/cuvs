@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -15,8 +15,11 @@
 #include <rmm/device_uvector.hpp>
 
 #include <cstdint>
+#include <cuvs/core/export.hpp>
 
-namespace cuvs::neighbors::ball_cover {
+namespace CUVS_EXPORT cuvs {
+namespace neighbors {
+namespace ball_cover {
 
 /**
  * @ingroup random_ball_cover
@@ -338,4 +341,6 @@ void knn_query(raft::resources const& handle,
 
 /** @} */
 
-}  // namespace cuvs::neighbors::ball_cover
+}  // namespace ball_cover
+}  // namespace neighbors
+}  // namespace CUVS_EXPORT cuvs
