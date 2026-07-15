@@ -75,7 +75,7 @@ public class AcceleratedHNSWUtils {
     layerAdjacencies.add(adjacencyMatrix);
 
     // Create the single-layer graph
-    return new GPUBuiltHnswGraph(size, dimensions, layerNodes, layerAdjacencies);
+    return new GPUBuiltHnswGraph(size, dimensions, layerNodes, layerAdjacencies, 1);
   }
 
   /**
@@ -99,7 +99,8 @@ public class AcceleratedHNSWUtils {
       int hnswLayers,
       int graphDegree,
       CagraIndexParams params,
-      QuantizationType quantization)
+      QuantizationType quantization,
+      int numThreads)
       throws Throwable {
 
     int size = (int) vectorDataset.size();
@@ -161,7 +162,7 @@ public class AcceleratedHNSWUtils {
       random = new Random(new Random().nextLong());
     }
 
-    return new GPUBuiltHnswGraph(size, dimensions, layerNodes, layerAdjacencies);
+    return new GPUBuiltHnswGraph(size, dimensions, layerNodes, layerAdjacencies, numThreads);
   }
 
   /**
