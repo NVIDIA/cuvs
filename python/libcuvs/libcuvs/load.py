@@ -3,6 +3,7 @@
 #
 
 import ctypes
+import importlib
 import os
 
 # Loading with RTLD_LOCAL adds the library itself to the loader's
@@ -32,26 +33,35 @@ def _load_wheel_installation(soname: str):
     return None
 
 
+def _load_dependency(module_name: str):
+    """Load an optional wheel-provided native dependency."""
+    try:
+        module = importlib.import_module(module_name)
+    except ModuleNotFoundError:
+        # Conda packages provide the native libraries without Python loader
+        # modules, in which case the system loader is expected to find them.
+        return
+    module.load_library()
+
+
+def _load_nvrtc():
+    """Load NVRTC from a CUDA wheel when cuda-pathfinder is available."""
+    try:
+        from cuda.pathfinder import load_nvidia_dynamic_lib
+    except ModuleNotFoundError:
+        return
+    load_nvidia_dynamic_lib("nvrtc")
+
+
 def load_library():
     """Dynamically load libcuvs.so and its dependencies"""
-    try:
-        # These libraries must be loaded before libcuvs because libcuvs
-        # references their symbols.
-        import libkvikio
-        import libraft
-        import librmm
-        from cuda.pathfinder import load_nvidia_dynamic_lib
-
-        libkvikio.load_library()
-        librmm.load_library()
-        libraft.load_library()
-        load_nvidia_dynamic_lib("nvrtc")
-    except ModuleNotFoundError:
-        # These runtime dependencies might be satisfied by conda packages
-        # (which do not have any Python modules) instead of wheels. In that
-        # situation, assume that the libraries are in a place where the loader
-        # can find them.
-        pass
+    # These libraries must be loaded before libcuvs because libcuvs
+    # references their symbols. Load them independently so a dependency
+    # supplied by conda does not prevent wheel-provided dependencies from
+    # being preloaded.
+    for module_name in ("libkvikio", "librmm", "libraft"):
+        _load_dependency(module_name)
+    _load_nvrtc()
 
     prefer_system_installation = (
         os.getenv("RAPIDS_LIBCUVS_PREFER_SYSTEM_LIBRARY", "false").lower()

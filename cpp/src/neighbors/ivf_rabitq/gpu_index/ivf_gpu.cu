@@ -16,12 +16,12 @@
 #include <raft/util/integer_utils.hpp>
 
 #include <cuvs/selection/select_k.hpp>
+#include <raft/core/copy.cuh>
 #include <raft/core/cublas_macros.hpp>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/resources.hpp>
 #include <raft/linalg/detail/cublaslt_wrappers.hpp>
 #include <raft/linalg/norm.cuh>
-#include <raft/linalg/transpose.cuh>
 
 #include <rmm/device_buffer.hpp>
 #include <rmm/device_uvector.hpp>
@@ -32,7 +32,6 @@
 #include <cuda_runtime.h>
 
 #include <algorithm>
-#include <limits>
 #include <numeric>
 #include <omp.h>
 #include <vector>
@@ -177,9 +176,6 @@ void IVFGPU::load_transposed(const char* filename)
                    "short-code vector size must be a multiple of uint32_t");
       const size_t uint32s_per_vector = bytes_per_vector / sizeof(uint32_t);
       max_cluster_size = *std::max_element(cluster_sizes.begin(), cluster_sizes.end());
-      RAFT_EXPECTS(max_cluster_size <= static_cast<size_t>(std::numeric_limits<int>::max()) &&
-                     uint32s_per_vector <= static_cast<size_t>(std::numeric_limits<int>::max()),
-                   "short-code matrix dimensions exceed the transpose API limit");
       auto sequential =
         raft::make_device_vector<uint32_t, int64_t>(handle_, max_cluster_size * uint32s_per_vector);
       raft::resource::sync_stream(handle_);
@@ -193,12 +189,11 @@ void IVFGPU::load_transposed(const char* filename)
         const size_t cluster_bytes = cluster_size * bytes_per_vector;
         reader.read_device(sequential.data_handle(), cluster_bytes);
 
-        raft::linalg::transpose(handle_,
-                                sequential.data_handle(),
-                                static_cast<uint32_t*>(d_ptr) + dst_offset,
-                                static_cast<int>(cluster_size),
-                                static_cast<int>(uint32s_per_vector),
-                                stream_);
+        auto src = raft::make_device_matrix_view<const uint32_t, int64_t, raft::row_major>(
+          sequential.data_handle(), cluster_size, uint32s_per_vector);
+        auto dst = raft::make_device_matrix_view<uint32_t, int64_t, raft::col_major>(
+          static_cast<uint32_t*>(d_ptr) + dst_offset, cluster_size, uint32s_per_vector);
+        raft::copy(handle_, dst, src);
         raft::resource::sync_stream(handle_);
 
         dst_offset += cluster_bytes / sizeof(uint32_t);
@@ -368,9 +363,6 @@ void IVFGPU::save(const char* filename) const
     const size_t uint32s_per_vector = bytes_per_vector / sizeof(uint32_t);
     const size_t max_cluster_size =
       cluster_sizes.empty() ? 0 : *std::max_element(cluster_sizes.begin(), cluster_sizes.end());
-    RAFT_EXPECTS(max_cluster_size <= static_cast<size_t>(std::numeric_limits<int>::max()) &&
-                   uint32s_per_vector <= static_cast<size_t>(std::numeric_limits<int>::max()),
-                 "short-code matrix dimensions exceed the transpose API limit");
     auto sequential =
       raft::make_device_vector<uint32_t, int64_t>(handle_, max_cluster_size * uint32s_per_vector);
     raft::resource::sync_stream(handle_);
@@ -382,12 +374,11 @@ void IVFGPU::save(const char* filename) const
       if (cluster_size == 0) continue;
 
       const size_t cluster_bytes = cluster_size * bytes_per_vector;
-      raft::linalg::transpose(handle_,
-                              const_cast<uint32_t*>(short_data_.data_handle()) + src_offset,
-                              sequential.data_handle(),
-                              static_cast<int>(uint32s_per_vector),
-                              static_cast<int>(cluster_size),
-                              stream_);
+      auto src = raft::make_device_matrix_view<const uint32_t, int64_t, raft::col_major>(
+        short_data_.data_handle() + src_offset, cluster_size, uint32s_per_vector);
+      auto dst = raft::make_device_matrix_view<uint32_t, int64_t, raft::row_major>(
+        sequential.data_handle(), cluster_size, uint32s_per_vector);
+      raft::copy(handle_, dst, src);
       raft::resource::sync_stream(handle_);
 
       output.write_device(sequential.data_handle(), cluster_bytes);
