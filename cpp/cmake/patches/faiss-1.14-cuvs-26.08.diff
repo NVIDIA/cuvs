@@ -104,7 +104,7 @@ diff --git a/faiss/gpu/impl/BinaryCuvsCagra.cuh b/faiss/gpu/impl/BinaryCuvsCagra
 index a14480b..7cbfe39 100644
 --- a/faiss/gpu/impl/BinaryCuvsCagra.cuh
 +++ b/faiss/gpu/impl/BinaryCuvsCagra.cuh
-@@ -28,11 +28,13 @@
+@@ -28,12 +28,14 @@
  #include <cstddef>
  #include <faiss/gpu/impl/CuvsCagra.cuh>
  #include <faiss/gpu/utils/Tensor.cuh>
@@ -112,6 +112,7 @@ index a14480b..7cbfe39 100644
  #include <optional>
 
  #include <faiss/MetricType.h>
+ #include <faiss/impl/IDSelector.h>
 
  #include <cuvs/neighbors/cagra.hpp>
 +#include <raft/core/device_mdarray.hpp>
@@ -234,7 +235,7 @@ diff --git a/faiss/gpu/impl/CuvsCagra.cuh b/faiss/gpu/impl/CuvsCagra.cuh
 index a10e9fb..b5c2bcd 100644
 --- a/faiss/gpu/impl/CuvsCagra.cuh
 +++ b/faiss/gpu/impl/CuvsCagra.cuh
-@@ -27,12 +27,14 @@
+@@ -27,13 +27,15 @@
  #include <faiss/gpu/GpuResources.h>
  #include <cstddef>
  #include <faiss/gpu/utils/Tensor.cuh>
@@ -242,6 +243,7 @@ index a10e9fb..b5c2bcd 100644
  #include <optional>
 
  #include <faiss/MetricType.h>
+ #include <faiss/impl/IDSelector.h>
 
  #include <cuvs/neighbors/cagra.hpp>
  #include <cuvs/neighbors/ivf_pq.hpp>
