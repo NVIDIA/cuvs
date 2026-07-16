@@ -25,6 +25,7 @@ import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -234,6 +235,24 @@ final class JDKProvider implements CuVSProvider {
       throw new IllegalArgumentException("not a directory:" + tempDirectory);
     }
     return new CuVSResourcesImpl(tempDirectory);
+  }
+
+  @Override
+  public CuVSResources newCuVSResources(
+      Path tempDirectory,
+      Path memoryTrackingCsvPath,
+      Duration memoryTrackingSampleInterval) {
+    Objects.requireNonNull(tempDirectory);
+    Objects.requireNonNull(memoryTrackingCsvPath);
+    Objects.requireNonNull(memoryTrackingSampleInterval);
+    if (Files.notExists(tempDirectory)) {
+      throw new IllegalArgumentException("does not exist:" + tempDirectory);
+    }
+    if (!Files.isDirectory(tempDirectory)) {
+      throw new IllegalArgumentException("not a directory:" + tempDirectory);
+    }
+    return new CuVSResourcesImpl(
+        tempDirectory, memoryTrackingCsvPath, memoryTrackingSampleInterval);
   }
 
   @Override

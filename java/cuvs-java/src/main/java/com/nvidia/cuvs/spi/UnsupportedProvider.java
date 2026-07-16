@@ -7,6 +7,7 @@ package com.nvidia.cuvs.spi;
 import com.nvidia.cuvs.*;
 import java.lang.invoke.MethodHandle;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 import java.util.logging.Level;
 
@@ -23,6 +24,14 @@ final class UnsupportedProvider implements CuVSProvider {
 
   @Override
   public CuVSResources newCuVSResources(Path tempDirectory) {
+    throw new UnsupportedOperationException(reasons);
+  }
+
+  @Override
+  public CuVSResources newCuVSResources(
+      Path tempDirectory,
+      Path memoryTrackingCsvPath,
+      Duration memoryTrackingSampleInterval) {
     throw new UnsupportedOperationException(reasons);
   }
 

@@ -7,6 +7,7 @@
 #include <cuvs/version_config.h>
 
 #include <raft/core/device_resources_snmg.hpp>
+#include <raft/core/memory_tracking_resources.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resource/device_id.hpp>
 #include <raft/core/resource/device_memory_resource.hpp>
@@ -25,8 +26,11 @@
 
 #include "../core/exceptions.hpp"
 
+#include <chrono>
 #include <cstdint>
 #include <memory>
+#include <stdexcept>
+#include <string>
 #include <thread>
 
 extern "C" cuvsError_t cuvsResourcesCreate(cuvsResources_t* res)
@@ -47,6 +51,23 @@ extern "C" cuvsError_t cuvsResourcesSetWorkspacePool(cuvsResources_t res, size_t
       *res_ptr,
       rmm::mr::pool_memory_resource{rmm::mr::get_current_device_resource_ref(),
                                     initial_size_bytes});
+  });
+}
+
+extern "C" cuvsError_t cuvsResourcesCreateWithMemoryTracking(cuvsResources_t* res,
+                                                             const char* csv_path,
+                                                             int64_t sample_interval_ms)
+{
+  return cuvs::core::translate_exceptions([=] {
+    if (csv_path == nullptr || csv_path[0] == '\0') {
+      throw std::invalid_argument("csv_path must be a non-empty string");
+    }
+    if (sample_interval_ms < 0) {
+      throw std::invalid_argument("sample_interval_ms must be >= 0");
+    }
+    auto res_ptr = new raft::memory_tracking_resources{
+      std::string{csv_path}, std::chrono::milliseconds{sample_interval_ms}};
+    *res = reinterpret_cast<uintptr_t>(res_ptr);
   });
 }
 

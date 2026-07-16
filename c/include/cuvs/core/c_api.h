@@ -88,6 +88,33 @@ typedef uintptr_t cuvsResources_t;
 CUVS_EXPORT cuvsError_t cuvsResourcesCreate(cuvsResources_t* res);
 
 /**
+ * @brief Create an opaque C handle for C++ type `raft::resources` whose memory
+ *        allocations are tracked and written as CSV samples from a background
+ *        thread.
+ *
+ * The returned handle wraps all reachable memory resources (host, pinned,
+ * managed, device, workspace, large_workspace) with allocation-tracking
+ * adaptors and replaces the global host and device memory resources for the
+ * lifetime of the handle. It is otherwise indistinguishable from a handle
+ * created by ::cuvsResourcesCreate and can be used wherever a
+ * ::cuvsResources_t is accepted. The CSV reporter is stopped and the global
+ * memory resources are restored when the handle is destroyed via
+ * ::cuvsResourcesDestroy.
+ *
+ * @param[out] res                 cuvsResources_t opaque C handle
+ * @param[in]  csv_path            Path to the output CSV file
+ *                                 (created/truncated). Must be a non-empty,
+ *                                 null-terminated UTF-8 string.
+ * @param[in]  sample_interval_ms  Minimum time in milliseconds between
+ *                                 successive CSV samples. Pass 10 to match the
+ *                                 C++ default.
+ * @return cuvsError_t
+ */
+CUVS_EXPORT cuvsError_t cuvsResourcesCreateWithMemoryTracking(cuvsResources_t* res,
+                                                              const char* csv_path,
+                                                              int64_t sample_interval_ms);
+
+/**
  * @brief Destroy and de-allocate opaque C handle for C++ type `raft::resources`
  *
  * @param[in] res cuvsResources_t opaque C handle
