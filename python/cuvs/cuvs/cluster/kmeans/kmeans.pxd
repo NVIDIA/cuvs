@@ -53,7 +53,6 @@ cdef extern from "cuvs/cluster/kmeans.h" nogil:
         int64_t init_size
 
     ctypedef cuvsKMeansParams* cuvsKMeansParams_t
-    ctypedef cuvsKMeansParams_v2* cuvsKMeansParams_v2_t
 
     cuvsError_t cuvsKMeansParamsCreate(cuvsKMeansParams_t* index)
 

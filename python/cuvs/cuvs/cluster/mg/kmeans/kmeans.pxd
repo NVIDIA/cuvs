@@ -4,14 +4,14 @@
 #
 # cython: language_level=3
 
-from cuvs.cluster.kmeans.kmeans cimport cuvsKMeansParams_v2_t
+from cuvs.cluster.kmeans.kmeans cimport cuvsKMeansParams
 from cuvs.common.c_api cimport cuvsError_t, cuvsResources_t
 from cuvs.common.cydlpack cimport DLManagedTensor
 
 
 cdef extern from "cuvs/cluster/mg_kmeans.h" nogil:
     cuvsError_t cuvsMultiGpuKMeansFit(cuvsResources_t res,
-                                      cuvsKMeansParams_v2_t params,
+                                      cuvsKMeansParams_t params,
                                       DLManagedTensor* X,
                                       DLManagedTensor* sample_weight,
                                       DLManagedTensor* centroids,
