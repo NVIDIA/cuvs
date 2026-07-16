@@ -86,7 +86,7 @@ endfunction()
 find_and_configure_raft(VERSION  ${RAFT_VERSION}.00
         FORK                     ${RAFT_FORK}
         PINNED_TAG               ${RAFT_PINNED_TAG}
-        ENABLE_MNMG_DEPENDENCIES OFF
+        ENABLE_MNMG_DEPENDENCIES ${BUILD_MNMG_TESTS}
         ENABLE_NVTX              OFF
         BUILD_STATIC_DEPS ${CUVS_STATIC_RAPIDS_LIBRARIES}
         # When PINNED_TAG above doesn't match the default rapids branch,
