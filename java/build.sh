@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 set -e -u -o pipefail
@@ -8,7 +8,7 @@ set -e -u -o pipefail
 ARGS="$*"
 NUMARGS=$#
 
-VERSION="26.08.0" # Note: The version is updated automatically when ci/release/update-version.sh is invoked
+VERSION="26.10.0" # Note: The version is updated automatically when ci/release/update-version.sh is invoked
 GROUP_ID="com.nvidia.cuvs"
 
 # Identify CUDA major version.
