@@ -19,7 +19,7 @@ cd ..
 Then do:
 
 ```sh
-docker run --rm --gpus all --pull=always --volume $PWD:$PWD --workdir $PWD -it rapidsai/ci-conda:26.08-cuda13.3.0-ubuntu24.04-py3.13
+docker run --rm --gpus all --pull=always --volume $PWD:$PWD --workdir $PWD -it rapidsai/ci-conda:26.10-cuda13.3.0-ubuntu24.04-py3.13
 ```
 
 Inside the docker container (and in the `cuvs-lucene's` root directory) do:
@@ -31,11 +31,11 @@ Inside the docker container (and in the `cuvs-lucene's` root directory) do:
 To run Accelerated HNSW example do:
 
 ```sh
-mvn clean install && java -Djava.util.logging.config.file=src/main/resources/logging.properties -cp target/examples-26.08.0-jar-with-merged-services.jar com.nvidia.cuvs.lucene.examples.AcceleratedHnswExample
+mvn clean install && java -Djava.util.logging.config.file=src/main/resources/logging.properties -cp target/examples-26.10.0-jar-with-merged-services.jar com.nvidia.cuvs.lucene.examples.AcceleratedHnswExample
 ```
 
 To run the Index and Search on GPU example do:
 
 ```sh
-mvn clean install && java -Djava.util.logging.config.file=src/main/resources/logging.properties -cp target/examples-26.08.0-jar-with-merged-services.jar com.nvidia.cuvs.lucene.examples.IndexAndSearchonGPUExample
+mvn clean install && java -Djava.util.logging.config.file=src/main/resources/logging.properties -cp target/examples-26.10.0-jar-with-merged-services.jar com.nvidia.cuvs.lucene.examples.IndexAndSearchonGPUExample
 ```

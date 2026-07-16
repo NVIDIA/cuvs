@@ -11,7 +11,7 @@
 
     <groupId>com.nvidia.cuvs.lucene.benchmarks</groupId>
     <artifactId>cuvs-lucene-benchmarks</artifactId>
-    <!--CUVS_LUCENE#VERSION_UPDATE_MARKER_START--><version>26.08.0</version><!--CUVS_LUCENE#VERSION_UPDATE_MARKER_END-->
+    <!--CUVS_LUCENE#VERSION_UPDATE_MARKER_START--><version>26.10.0</version><!--CUVS_LUCENE#VERSION_UPDATE_MARKER_END-->
     <packaging>jar</packaging>
 
     <name>cuvs-lucene-benchmarks</name>
@@ -85,7 +85,7 @@
         <dependency>
             <groupId>com.nvidia.cuvs.lucene</groupId>
             <artifactId>cuvs-lucene</artifactId>
-            <!--CUVS_LUCENE#VERSION_UPDATE_MARKER_START--><version>26.08.0</version><!--CUVS_LUCENE#VERSION_UPDATE_MARKER_END-->
+            <!--CUVS_LUCENE#VERSION_UPDATE_MARKER_START--><version>26.10.0</version><!--CUVS_LUCENE#VERSION_UPDATE_MARKER_END-->
         </dependency>
 	    <dependency>
 	        <groupId>commons-io</groupId>
