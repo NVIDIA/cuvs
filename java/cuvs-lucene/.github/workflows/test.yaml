@@ -24,7 +24,7 @@ permissions: {}
 jobs:
   conda-java-tests:
     secrets: inherit # zizmor: ignore[secrets-inherit]
-    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@main
+    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@release/26.08
     strategy:
       fail-fast: false
       matrix:
