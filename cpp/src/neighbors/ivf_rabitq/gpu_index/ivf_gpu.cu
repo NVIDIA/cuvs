@@ -16,7 +16,6 @@
 #include <raft/util/integer_utils.hpp>
 
 #include <cuvs/selection/select_k.hpp>
-#include <raft/core/copy.cuh>
 #include <raft/core/cublas_macros.hpp>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/resources.hpp>
@@ -31,7 +30,7 @@
 
 #include <cuda_runtime.h>
 
-#include <algorithm>
+#include <limits>
 #include <numeric>
 #include <omp.h>
 #include <vector>
@@ -97,8 +96,8 @@ void IVFGPU::AllocateHostMemory()
 // load transposed data for short codes
 void IVFGPU::load_transposed(const char* filename)
 {
-  cuvs::util::kvikio_file_reader reader(filename);
-  auto& input = reader.stream();
+  std::ifstream input(filename, std::ios::binary);
+  RAFT_EXPECTS(input.is_open(), "failed to open file: %s", filename);
 
   auto read_exact = [&](void* ptr, size_t n_bytes) {
     input.read(reinterpret_cast<char*>(ptr), n_bytes);
@@ -152,60 +151,97 @@ void IVFGPU::load_transposed(const char* filename)
     filename);
 
   // Load rotator from file.
-  this->rotator().load(handle_, reader);
+  this->rotator().load(handle_, input);
   // Allocate device memory based on the cluster sizes.
   AllocateDeviceMemory();
   // Load initializer data (e.g., centroids) from file.
-  this->initializer->LoadCentroids(reader, filename);
+  this->initializer->LoadCentroids(input, filename);
   compute_centroid_norms();
   // Read raw arrays from file into device memory.
-  auto read_into_device = [&](void* d_ptr, size_t n_bytes) { reader.read_device(d_ptr, n_bytes); };
+  auto read_into_device = [&](void* d_ptr, size_t n_bytes) {
+    std::vector<std::uint8_t> h_buf(n_bytes);  // host staging buffer
+    input.read(reinterpret_cast<char*>(h_buf.data()), n_bytes);
+    if (input.gcount() != static_cast<std::streamsize>(n_bytes))
+      throw std::runtime_error("unexpected EOF");
+
+    raft::copy(static_cast<uint8_t*>(d_ptr), h_buf.data(), n_bytes, stream_);
+    raft::resource::sync_stream(handle_);
+  };
 
   auto read_into_device_host = [&](void* d_ptr, void* h_ptr, size_t n_bytes) {
-    reader.read_device(d_ptr, n_bytes);
-    raft::copy(static_cast<uint8_t*>(h_ptr), static_cast<uint8_t*>(d_ptr), n_bytes, stream_);
+    std::vector<std::uint8_t> h_buf(n_bytes);  // host staging buffer
+    auto before = input.tellg();
+    input.read(reinterpret_cast<char*>(h_buf.data()), n_bytes);
+    auto got = static_cast<size_t>(input.gcount());
+    RAFT_EXPECTS(got == n_bytes,
+                 "unexpected EOF: wanted %zu bytes at offset %ld, got %zu%s%s",
+                 n_bytes,
+                 static_cast<long>(before),
+                 got,
+                 input.eof() ? " (hit EOF)" : "",
+                 input.bad() ? " (I/O error)" : "");
+
+    raft::copy(static_cast<uint8_t*>(d_ptr), h_buf.data(), n_bytes, stream_);
     raft::resource::sync_stream(handle_);
+    memcpy(h_ptr, h_buf.data(), n_bytes);
   };
 
   auto read_into_device_host_transposed_short =
     [&](void* d_ptr, void* h_ptr, size_t n_bytes, size_t& max_cluster_size) {
-      RAFT_EXPECTS(n_bytes % sizeof(uint32_t) == 0,
-                   "short-code data size must be a multiple of uint32_t");
-      const size_t bytes_per_vector = DQ->block_bytes();
-      RAFT_EXPECTS(bytes_per_vector % sizeof(uint32_t) == 0,
-                   "short-code vector size must be a multiple of uint32_t");
-      const size_t uint32s_per_vector = bytes_per_vector / sizeof(uint32_t);
-      max_cluster_size = *std::max_element(cluster_sizes.begin(), cluster_sizes.end());
-      auto sequential =
-        raft::make_device_vector<uint32_t, int64_t>(handle_, max_cluster_size * uint32s_per_vector);
-      raft::resource::sync_stream(handle_);
+      // Read all clusters' data into staging buffer (still in sequential format)
+      std::vector<std::uint8_t> h_buf(n_bytes);
+      input.read(reinterpret_cast<char*>(h_buf.data()), n_bytes);
+      if (input.gcount() != static_cast<std::streamsize>(n_bytes))
+        throw std::runtime_error("unexpected EOF");
 
-      size_t dst_offset = 0;
-      size_t bytes_read = 0;
+      // Create transposed buffer
+      std::vector<std::uint8_t> h_transposed(n_bytes);
+
+      // Process each cluster and transpose its vectors
+      size_t src_offset = 0;  // offset in original sequential buffer
+      size_t dst_offset = 0;  // offset in transposed buffer
+
+      // Also evaluate maximum cluster size during this loop
+      max_cluster_size = 0;
       for (size_t cluster_id = 0; cluster_id < num_centroids; cluster_id++) {
-        const size_t cluster_size = cluster_sizes[cluster_id];
+        size_t cluster_size = cluster_sizes[cluster_id];
+        max_cluster_size    = max(max_cluster_size, cluster_size);
         if (cluster_size == 0) continue;
 
-        const size_t cluster_bytes = cluster_size * bytes_per_vector;
-        reader.read_device(sequential.data_handle(), cluster_bytes);
+        // Calculate dimensions per vector
+        size_t bytes_per_vector   = DQ->block_bytes();
+        size_t uint32s_per_vector = bytes_per_vector / sizeof(uint32_t);
 
-        auto src = raft::make_device_matrix_view<const uint32_t, int64_t, raft::row_major>(
-          sequential.data_handle(), cluster_size, uint32s_per_vector);
-        auto dst = raft::make_device_matrix_view<uint32_t, int64_t, raft::col_major>(
-          static_cast<uint32_t*>(d_ptr) + dst_offset, cluster_size, uint32s_per_vector);
-        raft::copy(handle_, dst, src);
-        raft::resource::sync_stream(handle_);
+        // Get pointers to source (sequential) and destination (transposed) data
+        uint32_t* src_cluster = reinterpret_cast<uint32_t*>(h_buf.data() + src_offset);
+        uint32_t* dst_cluster = reinterpret_cast<uint32_t*>(h_transposed.data() + dst_offset);
 
-        dst_offset += cluster_bytes / sizeof(uint32_t);
-        bytes_read += cluster_bytes;
+        // Transpose the cluster:
+        // From: vec1[all_dims], vec2[all_dims], ..., vecn[all_dims]
+        // To: vec1[dim0-31], vec2[dim0-31], ..., vecn[dim0-31],
+        //     vec1[dim32-63], vec2[dim32-63], ..., vecn[dim32-63], ...
+
+        for (size_t dim_chunk = 0; dim_chunk < uint32s_per_vector; dim_chunk++) {
+          for (size_t vec_id = 0; vec_id < cluster_size; vec_id++) {
+            // Source: vector vec_id, dimension chunk dim_chunk
+            size_t src_idx = vec_id * uint32s_per_vector + dim_chunk;
+            // Destination: dimension chunk dim_chunk, vector vec_id
+            size_t dst_idx = dim_chunk * cluster_size + vec_id;
+
+            dst_cluster[dst_idx] = src_cluster[src_idx];
+          }
+        }
+
+        // Update offsets for next cluster
+        size_t cluster_bytes = cluster_size * bytes_per_vector;
+        src_offset += cluster_bytes;
+        dst_offset += cluster_bytes;
       }
-      RAFT_EXPECTS(bytes_read == n_bytes,
-                   "short-code payload size mismatch: expected %zu bytes, consumed %zu",
-                   n_bytes,
-                   bytes_read);
 
-      raft::copy(static_cast<uint8_t*>(h_ptr), static_cast<uint8_t*>(d_ptr), n_bytes, stream_);
+      // Copy transposed data to device and host
+      raft::copy(static_cast<uint8_t*>(d_ptr), h_transposed.data(), n_bytes, stream_);
       raft::resource::sync_stream(handle_);
+      memcpy(h_ptr, h_transposed.data(), n_bytes);
     };
 
   // New change: host copy of ivf.
@@ -224,6 +260,8 @@ void IVFGPU::load_transposed(const char* filename)
 
   // Initialize cluster metadata (host side) based on the loaded cluster sizes.
   init_clusters(cluster_sizes);
+
+  input.close();
 }
 
 void IVFGPU::compute_centroid_norms()
@@ -351,53 +389,14 @@ void IVFGPU::save(const char* filename) const
 
   raft::resource::sync_stream(handle_);
 
-  // short_data_ is held in memory as per-cluster SoA (uint32s_per_vector x cluster_size), which is
-  // the layout the search kernels consume. On disk we use the per-vector-contiguous (AoS) layout
-  // that load_transposed() expects, so transpose each cluster back to AoS before writing. This is
-  // the exact inverse of read_into_device_host_transposed_short() and avoids a double-transpose on
-  // the save->load round-trip.
-  {
-    const size_t bytes_per_vector = DQ->block_bytes();
-    RAFT_EXPECTS(bytes_per_vector % sizeof(uint32_t) == 0,
-                 "short-code vector size must be a multiple of uint32_t");
-    const size_t uint32s_per_vector = bytes_per_vector / sizeof(uint32_t);
-    const size_t max_cluster_size =
-      cluster_sizes.empty() ? 0 : *std::max_element(cluster_sizes.begin(), cluster_sizes.end());
-    auto sequential =
-      raft::make_device_vector<uint32_t, int64_t>(handle_, max_cluster_size * uint32s_per_vector);
-    raft::resource::sync_stream(handle_);
-
-    size_t src_offset    = 0;
-    size_t bytes_written = 0;
-    for (size_t cluster_id = 0; cluster_id < num_centroids; cluster_id++) {
-      const size_t cluster_size = cluster_sizes[cluster_id];
-      if (cluster_size == 0) continue;
-
-      const size_t cluster_bytes = cluster_size * bytes_per_vector;
-      auto src = raft::make_device_matrix_view<const uint32_t, int64_t, raft::col_major>(
-        short_data_.data_handle() + src_offset, cluster_size, uint32s_per_vector);
-      auto dst = raft::make_device_matrix_view<uint32_t, int64_t, raft::row_major>(
-        sequential.data_handle(), cluster_size, uint32s_per_vector);
-      raft::copy(handle_, dst, src);
-      raft::resource::sync_stream(handle_);
-
-      output.write_device(sequential.data_handle(), cluster_bytes);
-
-      src_offset += cluster_bytes / sizeof(uint32_t);
-      bytes_written += cluster_bytes;
-    }
-    RAFT_EXPECTS(bytes_written == short_data_size,
-                 "short-code payload size mismatch on save: expected %zu bytes, wrote %zu",
-                 short_data_size,
-                 bytes_written);
-  }
+  // Write raw arrays to file.
+  output.write_device(short_data_.data_handle(), short_data_size);
   output.write_device(short_factors_batch_.data_handle(), short_factors_size);
   output.write_device(long_code_.data_handle(), long_code_size);
   output.write_device(ex_factor_.data_handle(), ex_factor_size);
   output.write_device(ids_.data_handle(), ids_size);
 
   output.close();
-  RAFT_EXPECTS(output, "write failed to: %s", filename);
 }
 
 /**

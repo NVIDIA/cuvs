@@ -11,14 +11,15 @@
 
 #include "../defines.hpp"
 
+#include <cuvs/util/file_io.hpp>
+
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/error.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resources.hpp>
 
-#include <cuvs/util/file_io.hpp>
-
 #include <cstdint>
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -61,15 +62,15 @@ class InitializerGPU {
   virtual void AddVectors(const float* cent) = 0;
 
   /**
-   * @brief Load centroids directly from a path-backed KvikIO reader.
+   * @brief LoadCentroids centroids' information from files.
    *
    * @param input
    * @param filename
    */
-  virtual void LoadCentroids(cuvs::util::kvikio_file_reader& input, const char* filename) = 0;
+  virtual void LoadCentroids(std::ifstream& input, const char* filename) = 0;
 
   /**
-   * @brief Save centroids directly through a KvikIO output stream.
+   * @brief SaveCentroids centroids' information from files.
    *
    * @param save
    * @param filename
@@ -92,7 +93,7 @@ class FlatInitializerGPU : public InitializerGPU {
 
   void AddVectors(const float* cent) override;
 
-  void LoadCentroids(cuvs::util::kvikio_file_reader& input, const char* filename) override;
+  void LoadCentroids(std::ifstream& input, const char* filename) override;
 
   void SaveCentroids(cuvs::util::kvikio_ofstream& output, const char* filename) const override;
 

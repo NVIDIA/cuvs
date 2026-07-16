@@ -11,15 +11,16 @@
 
 #include "../defines.hpp"
 
+#include <cuvs/util/file_io.hpp>
+
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/mdspan_types.hpp>
 #include <raft/core/resources.hpp>
 
-#include <cuvs/util/file_io.hpp>
-
 #include <rmm/cuda_stream_view.hpp>
 
 #include <cstdint>
+#include <fstream>
 
 namespace cuvs::neighbors::ivf_rabitq::detail {
 
@@ -45,18 +46,20 @@ class RotatorGPU {
 
   /**
    * @brief Load the rotation matrix from a file.
-   * @param input KvikIO reader positioned at the row-major matrix.
+   * @param input Input stream (the file stores the matrix in row-major order).
    *
-   * The function reads the D×D matrix directly into device memory.
+   * The function reads the D×D matrix from the file, transposes it into column-major order,
+   * and copies it into device memory.
    */
-  void load(raft::resources const& handle, cuvs::util::kvikio_file_reader& input);
+  void load(raft::resources const& handle, std::ifstream& input);
 
   /**
    * @brief Save the rotation matrix to a file.
    * @param handle Resource handle
-   * @param output KvikIO output stream.
+   * @param output Output stream.
    *
-   * The function writes the row-major rotation matrix directly from device memory.
+   * The function copies the rotation matrix from device memory, transposes it from column-major to
+   * row-major, and writes it to the file.
    */
   void save(raft::resources const& handle, cuvs::util::kvikio_ofstream& output) const;
 
