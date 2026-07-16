@@ -4,7 +4,7 @@
 #
 # cython: language_level=3
 
-from cuvs.cluster.kmeans.kmeans cimport cuvsKMeansParams
+from cuvs.cluster.kmeans.kmeans cimport cuvsKMeansParams_t
 from cuvs.common.c_api cimport cuvsError_t, cuvsResources_t
 from cuvs.common.cydlpack cimport DLManagedTensor
 
