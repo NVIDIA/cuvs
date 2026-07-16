@@ -1,95 +1,111 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
-//! Brute Force KNN
+//! Brute-force (exact) k-NN.
+//!
+//! Build an [`Index`] over a dataset, then [`search`](Index::search) it with
+//! device-resident queries and output buffers. Tensors are borrowed through the
+//! [`AsDlTensor`] /
+//! [`AsDlTensorMut`] traits; see the
+//! [`dlpack`](crate::dlpack) module for the tensor model and `examples/cagra.rs`
+//! for the same build/search workflow.
 
 use std::io::{Write, stderr};
+use std::marker::PhantomData;
 
 use crate::distance_type::DistanceType;
-use crate::dlpack::ManagedTensor;
+use crate::dlpack::{AsDlTensor, AsDlTensorMut};
 use crate::error::{Result, check_cuvs};
 use crate::resources::Resources;
 
 /// Brute Force KNN Index
 #[derive(Debug)]
-pub struct Index {
+pub struct Index<'d> {
     inner: ffi::cuvsBruteForceIndex_t,
     // cuVS brute_force::index stores a non-owning view into the dataset.
-    // Keep the Rust tensor alive for as long as the C++ index may read it.
-    _dataset: Option<ManagedTensor>,
+    // Keep the Rust borrow alive for as long as the C++ index may read it.
+    _dataset: PhantomData<&'d ()>,
 }
 
-impl Index {
-    /// Builds a new Brute Force KNN Index from the dataset for efficient search.
+impl<'d> Index<'d> {
+    /// Builds a brute-force index over `dataset` for exact k-NN search.
     ///
-    /// # Arguments
-    ///
-    /// * `res` - Resources to use
-    /// * `metric` - DistanceType to use for building the index
-    /// * `metric_arg` - Optional value of `p` for Minkowski distances
-    /// * `dataset` - A row-major matrix on either the host or device to index
-    pub fn build<T: Into<ManagedTensor>>(
+    /// `metric` selects the distance and `metric_arg` is the optional `p` for
+    /// Minkowski distances (defaults to 2). `dataset` is a row-major matrix on
+    /// the host or device implementing [`AsDlTensor`]; the
+    /// C++ index keeps a non-owning view of it, so the returned [`Index`] borrows
+    /// it for `'d` and cannot outlive it.
+    pub fn build<T>(
         res: &Resources,
         metric: DistanceType,
         metric_arg: Option<f32>,
-        dataset: T,
-    ) -> Result<Index> {
-        let dataset: ManagedTensor = dataset.into();
-        let mut index = Index::new()?;
+        dataset: &'d T,
+    ) -> Result<Index<'d>>
+    where
+        T: AsDlTensor + ?Sized,
+    {
+        let dataset = dataset.as_dl_tensor()?;
+        let index = Index::new()?;
         unsafe {
             check_cuvs(ffi::cuvsBruteForceBuild(
                 res.0,
-                dataset.as_ptr(),
+                dataset.to_c().as_mut_ptr(),
                 metric,
                 metric_arg.unwrap_or(2.0),
                 index.inner,
             ))?;
         }
-        index._dataset = Some(dataset);
         Ok(index)
     }
 
     /// Creates a new empty index
-    pub fn new() -> Result<Index> {
+    pub fn new() -> Result<Index<'d>> {
         unsafe {
             let mut index = std::mem::MaybeUninit::<ffi::cuvsBruteForceIndex_t>::uninit();
             check_cuvs(ffi::cuvsBruteForceIndexCreate(index.as_mut_ptr()))?;
-            Ok(Index { inner: index.assume_init(), _dataset: None })
+            Ok(Index { inner: index.assume_init(), _dataset: PhantomData })
         }
     }
 
-    /// Perform a Nearest Neighbors search on the Index
+    /// Searches the index for the `k` nearest neighbors of each query.
     ///
-    /// # Arguments
-    ///
-    /// * `res` - Resources to use
-    /// * `queries` - A matrix in device memory to query for
-    /// * `neighbors` - Matrix in device memory that receives the indices of the nearest neighbors
-    /// * `distances` - Matrix in device memory that receives the distances of the nearest neighbors
-    pub fn search(
+    /// `queries`, `neighbors`, and `distances` must reside in device memory and
+    /// implement [`AsDlTensor`] /
+    /// [`AsDlTensorMut`]. `neighbors` receives the
+    /// neighbor indices and `distances` their distances; both are written in
+    /// place.
+    pub fn search<Q, N, D>(
         &self,
         res: &Resources,
-        queries: &ManagedTensor,
-        neighbors: &ManagedTensor,
-        distances: &ManagedTensor,
-    ) -> Result<()> {
+        queries: &Q,
+        neighbors: &mut N,
+        distances: &mut D,
+    ) -> Result<()>
+    where
+        Q: AsDlTensor + ?Sized,
+        N: AsDlTensorMut + ?Sized,
+        D: AsDlTensorMut + ?Sized,
+    {
+        let queries = queries.as_dl_tensor()?;
+        let neighbors = neighbors.as_dl_tensor_mut()?;
+        let distances = distances.as_dl_tensor_mut()?;
         unsafe {
             let prefilter = ffi::cuvsFilter { addr: 0, type_: ffi::cuvsFilterType::NO_FILTER };
 
             check_cuvs(ffi::cuvsBruteForceSearch(
                 res.0,
                 self.inner,
-                queries.as_ptr(),
-                neighbors.as_ptr(),
-                distances.as_ptr(),
+                queries.to_c().as_mut_ptr(),
+                neighbors.to_c().as_mut_ptr(),
+                distances.to_c().as_mut_ptr(),
                 prefilter,
             ))
         }
     }
 }
 
-impl Drop for Index {
+impl Drop for Index<'_> {
     fn drop(&mut self) {
         if let Err(e) = check_cuvs(unsafe { ffi::cuvsBruteForceIndexDestroy(self.inner) }) {
             write!(stderr(), "failed to call bruteForceIndexDestroy {:?}", e)
@@ -101,6 +117,7 @@ impl Drop for Index {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::DeviceTensor;
     use ndarray::s;
     use ndarray_rand::RandomExt;
     use ndarray_rand::rand_distr::Uniform;
@@ -111,39 +128,41 @@ mod tests {
         // Create a new random dataset to index
         let n_datapoints = 16;
         let n_features = 8;
-        let dataset_host =
-            ndarray::Array::<f32, _>::random((n_datapoints, n_features), Uniform::new(0., 1.0));
+        let dataset_host = ndarray::Array::<f32, _>::random(
+            (n_datapoints, n_features),
+            Uniform::new(0., 1.0).unwrap(),
+        );
 
-        let dataset = ManagedTensor::from(&dataset_host).to_device(&res).unwrap();
+        let dataset = DeviceTensor::from_host(&res, &dataset_host).unwrap();
 
         println!("dataset {:#?}", dataset_host);
 
         // build the brute force index
         let index =
-            Index::build(&res, metric, None, dataset).expect("failed to create brute force index");
+            Index::build(&res, metric, None, &dataset).expect("failed to create brute force index");
 
         res.sync_stream().unwrap();
 
         // use the first 4 points from the dataset as queries : will test that we get them back
         // as their own nearest neighbor
         let n_queries = 4;
-        let queries = dataset_host.slice(s![0..n_queries, ..]);
+        let queries = dataset_host.slice(s![0..n_queries, ..]).to_owned();
 
         let k = 4;
 
         println!("queries! {:#?}", queries);
-        let queries = ManagedTensor::from(&queries).to_device(&res).unwrap();
+        let queries = DeviceTensor::from_host(&res, &queries).unwrap();
         let mut neighbors_host = ndarray::Array::<i64, _>::zeros((n_queries, k));
-        let neighbors = ManagedTensor::from(&neighbors_host).to_device(&res).unwrap();
+        let mut neighbors = DeviceTensor::<i64>::zeros(&res, &[n_queries, k]).unwrap();
 
         let mut distances_host = ndarray::Array::<f32, _>::zeros((n_queries, k));
-        let distances = ManagedTensor::from(&distances_host).to_device(&res).unwrap();
+        let mut distances = DeviceTensor::<f32>::zeros(&res, &[n_queries, k]).unwrap();
 
-        index.search(&res, &queries, &neighbors, &distances).unwrap();
+        index.search(&res, &queries, &mut neighbors, &mut distances).unwrap();
 
         // Copy back to host memory
-        distances.to_host(&res, &mut distances_host).unwrap();
-        neighbors.to_host(&res, &mut neighbors_host).unwrap();
+        distances.copy_to_host(&res, &mut distances_host).unwrap();
+        neighbors.copy_to_host(&res, &mut neighbors_host).unwrap();
         res.sync_stream().unwrap();
 
         println!("distances {:#?}", distances_host);

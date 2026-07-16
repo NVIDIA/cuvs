@@ -96,8 +96,6 @@ cdef class KMeansParams:
         For hierarchical k-means , defines the number of training iterations
     """
 
-    cdef cuvsKMeansParams* params
-
     def __cinit__(self):
         cuvsKMeansParamsCreate(&self.params)
 

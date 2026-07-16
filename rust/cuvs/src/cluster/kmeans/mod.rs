@@ -1,79 +1,60 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
-//! Kmeans clustering API's
+//! K-means clustering.
 //!
-//! Example:
-//! ```
-//!
-//! use cuvs::cluster::kmeans;
-//! use cuvs::{ManagedTensor, Resources, Result};
-//!
-//! use ndarray_rand::rand_distr::Uniform;
-//! use ndarray_rand::RandomExt;
-//!
-//! fn kmeans_example() -> Result<()> {
-//!     let res = Resources::new()?;
-//!
-//!     // Create a new random dataset to index
-//!     let n_datapoints = 65536;
-//!     let n_features = 512;
-//!     let n_clusters = 8;
-//!     let dataset =
-//!         ndarray::Array::<f32, _>::random((n_datapoints, n_features), Uniform::new(0., 1.0));
-//!     let dataset = ManagedTensor::from(&dataset).to_device(&res)?;
-//!
-//!     let centroids_host = ndarray::Array::<f32, _>::zeros((n_clusters, n_features));
-//!     let mut centroids = ManagedTensor::from(&centroids_host).to_device(&res)?;
-//!
-//!     // find the centroids with the kmeans index
-//!     let kmeans_params = kmeans::Params::new()?.set_n_clusters(n_clusters as i32);
-//!     let (inertia, n_iter) = kmeans::fit(&res, &kmeans_params, &dataset, &None, &mut centroids)?;
-//!     Ok(())
-//! }
-//! ```
+//! [`fit`] computes cluster centroids for a dataset, [`predict`] assigns points
+//! to clusters, and [`cluster_cost`] reports the inertia. All inputs and outputs
+//! reside in device memory and are borrowed through the
+//! [`AsDlTensor`] /
+//! [`AsDlTensorMut`] traits; see the
+//! [`dlpack`](crate::dlpack) module for the tensor model.
 
 mod params;
 
 pub use params::Params;
 
-use crate::dlpack::ManagedTensor;
+use crate::dlpack::{AsDlTensor, AsDlTensorMut};
 use crate::error::{Result, check_cuvs};
 use crate::resources::Resources;
 
-/// Find clusters with the k-means algorithm
+/// Fits k-means centroids to `x`, returning `(inertia, n_iterations)`.
 ///
-/// # Arguments
-///
-/// * `res` - Resources to use
-/// * `params` - Parameters to use to fit KMeans model
-/// * `x` - A matrix in device memory - shape (m, k)
-/// * `sample_weight` - Optional device matrix shape (n_clusters, 1)
-/// * `centroids` - Output device matrix, that has the centroids for each cluster
-///   shape (n_clusters, k)
-pub fn fit(
+/// `x` (shape `m × k`) is the input matrix and `centroids` (shape
+/// `n_clusters × k`) receives the fitted centroids; `sample_weight` is an
+/// optional per-sample weight. All reside in device memory and implement
+/// [`AsDlTensor`] /
+/// [`AsDlTensorMut`].
+pub fn fit<X, W, C>(
     res: &Resources,
     params: &Params,
-    x: &ManagedTensor,
-    sample_weight: &Option<ManagedTensor>,
-    centroids: &mut ManagedTensor,
-) -> Result<(f64, i32)> {
+    x: &X,
+    sample_weight: Option<&W>,
+    centroids: &mut C,
+) -> Result<(f64, i32)>
+where
+    X: AsDlTensor + ?Sized,
+    W: AsDlTensor + ?Sized,
+    C: AsDlTensorMut + ?Sized,
+{
+    let x = x.as_dl_tensor()?;
+    let sample_weight = sample_weight.map(|w| w.as_dl_tensor()).transpose()?;
+    let centroids = centroids.as_dl_tensor_mut()?;
     let mut inertia: f64 = 0.0;
     let mut niter: i32 = 0;
+    let mut sample_weight_c = sample_weight.as_ref().map(|w| w.to_c());
+    let sample_weight_ptr =
+        sample_weight_c.as_mut().map(|w| w.as_mut_ptr()).unwrap_or(std::ptr::null_mut());
 
     unsafe {
-        let sample_weight_dlpack = match sample_weight {
-            Some(tensor) => tensor.as_ptr(),
-            None => std::ptr::null_mut(),
-        };
         check_cuvs(ffi::cuvsKMeansFit(
             res.0,
             params.0,
-            x.as_ptr(),
-            sample_weight_dlpack,
-            centroids.as_ptr(),
+            x.to_c().as_mut_ptr(),
+            sample_weight_ptr,
+            centroids.to_c().as_mut_ptr(),
             &mut inertia as *mut f64,
             &mut niter as *mut i32,
         ))?;
@@ -81,40 +62,46 @@ pub fn fit(
     Ok((inertia, niter))
 }
 
-/// Predict clusters with the k-means algorithm
+/// Assigns each row of `x` to its nearest centroid, writing cluster labels into
+/// `labels` and returning the inertia.
 ///
-/// # Arguments
-///
-/// * `res` - Resources to use
-/// * `params` - Parameters to use to fit KMeans model
-/// * `x` - Input matrix in device memory - shape (m, k)
-/// * `sample_weight` - Optional device matrix shape (n_clusters, 1)
-/// * `centroids` - Centroids calculated by fit in device memory, shape (n_clusters, k)
-/// * `labels` - preallocated CUDA array interface matrix shape (m, 1) to hold the output labels
-/// * `normalize_weight` - whether or not to normalize the weights
-pub fn predict(
+/// `x` (shape `m × k`), `centroids` (shape `n_clusters × k`), the optional
+/// `sample_weight`, and `labels` (shape `m × 1`) reside in device memory and
+/// implement [`AsDlTensor`] /
+/// [`AsDlTensorMut`]. `normalize_weight` selects
+/// whether the sample weights are normalized.
+pub fn predict<X, W, C, L>(
     res: &Resources,
     params: &Params,
-    x: &ManagedTensor,
-    sample_weight: &Option<ManagedTensor>,
-    centroids: &ManagedTensor,
-    labels: &mut ManagedTensor,
+    x: &X,
+    sample_weight: Option<&W>,
+    centroids: &C,
+    labels: &mut L,
     normalize_weight: bool,
-) -> Result<f64> {
+) -> Result<f64>
+where
+    X: AsDlTensor + ?Sized,
+    W: AsDlTensor + ?Sized,
+    C: AsDlTensor + ?Sized,
+    L: AsDlTensorMut + ?Sized,
+{
+    let x = x.as_dl_tensor()?;
+    let sample_weight = sample_weight.map(|w| w.as_dl_tensor()).transpose()?;
+    let centroids = centroids.as_dl_tensor()?;
+    let labels = labels.as_dl_tensor_mut()?;
     let mut inertia: f64 = 0.0;
+    let mut sample_weight_c = sample_weight.as_ref().map(|w| w.to_c());
+    let sample_weight_ptr =
+        sample_weight_c.as_mut().map(|w| w.as_mut_ptr()).unwrap_or(std::ptr::null_mut());
 
     unsafe {
-        let sample_weight_dlpack = match sample_weight {
-            Some(tensor) => tensor.as_ptr(),
-            None => std::ptr::null_mut(),
-        };
         check_cuvs(ffi::cuvsKMeansPredict(
             res.0,
             params.0,
-            x.as_ptr(),
-            sample_weight_dlpack,
-            centroids.as_ptr(),
-            labels.as_ptr(),
+            x.to_c().as_mut_ptr(),
+            sample_weight_ptr,
+            centroids.to_c().as_mut_ptr(),
+            labels.to_c().as_mut_ptr(),
             normalize_weight,
             &mut inertia as *mut f64,
         ))?;
@@ -122,20 +109,24 @@ pub fn predict(
     Ok(inertia)
 }
 
-/// Compute cluster cost given an input matrix and existing centroids
-/// # Arguments
+/// Computes the k-means cost (inertia) of `x` against existing `centroids`.
 ///
-/// * `res` - Resources to use
-/// * `x` - Input matrix in device memory - shape (m, k)
-/// * `centroids` - Centroids calculated by fit in device memory, shape (n_clusters, k)
-pub fn cluster_cost(res: &Resources, x: &ManagedTensor, centroids: &ManagedTensor) -> Result<f64> {
+/// `x` (shape `m × k`) and `centroids` (shape `n_clusters × k`) reside in device
+/// memory and implement [`AsDlTensor`].
+pub fn cluster_cost<X, C>(res: &Resources, x: &X, centroids: &C) -> Result<f64>
+where
+    X: AsDlTensor + ?Sized,
+    C: AsDlTensor + ?Sized,
+{
+    let x = x.as_dl_tensor()?;
+    let centroids = centroids.as_dl_tensor()?;
     let mut inertia: f64 = 0.0;
 
     unsafe {
         check_cuvs(ffi::cuvsKMeansClusterCost(
             res.0,
-            x.as_ptr(),
-            centroids.as_ptr(),
+            x.to_c().as_mut_ptr(),
+            centroids.to_c().as_mut_ptr(),
             &mut inertia as *mut f64,
         ))?;
     }
@@ -145,6 +136,7 @@ pub fn cluster_cost(res: &Resources, x: &ManagedTensor, centroids: &ManagedTenso
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::DeviceTensor;
     use ndarray_rand::RandomExt;
     use ndarray_rand::rand_distr::Uniform;
 
@@ -157,12 +149,14 @@ mod tests {
         // Create a new random dataset to index
         let n_datapoints = 256;
         let n_features = 16;
-        let dataset =
-            ndarray::Array::<f32, _>::random((n_datapoints, n_features), Uniform::new(0., 1.0));
-        let dataset = ManagedTensor::from(&dataset).to_device(&res).unwrap();
+        let dataset_host = ndarray::Array::<f32, _>::random(
+            (n_datapoints, n_features),
+            Uniform::new(0., 1.0).unwrap(),
+        );
+        let dataset = DeviceTensor::from_host(&res, &dataset_host).unwrap();
 
         let centroids_host = ndarray::Array::<f32, _>::zeros((n_clusters, n_features));
-        let mut centroids = ManagedTensor::from(&centroids_host).to_device(&res).unwrap();
+        let mut centroids = DeviceTensor::from_host(&res, &centroids_host).unwrap();
 
         let params = Params::new().unwrap().set_n_clusters(n_clusters as i32);
 
@@ -170,18 +164,28 @@ mod tests {
         let original_inertia = cluster_cost(&res, &dataset, &centroids).unwrap();
 
         // fit the centroids, make sure that inertia has gone down
-        let (inertia, n_iter) = fit(&res, &params, &dataset, &None, &mut centroids).unwrap();
+        let (inertia, n_iter) =
+            fit(&res, &params, &dataset, None::<&DeviceTensor<'_, f32>>, &mut centroids).unwrap();
 
         assert!(inertia < original_inertia);
         assert!(n_iter >= 1);
 
         let mut labels_host = ndarray::Array::<i32, _>::zeros((n_clusters,));
-        let mut labels = ManagedTensor::from(&labels_host).to_device(&res).unwrap();
+        let mut labels = DeviceTensor::<i32>::zeros(&res, &[n_clusters]).unwrap();
 
         // make sure the prediction for each centroid is the centroid itself
-        predict(&res, &params, &centroids, &None, &centroids, &mut labels, false).unwrap();
+        predict(
+            &res,
+            &params,
+            &centroids,
+            None::<&DeviceTensor<'_, f32>>,
+            &centroids,
+            &mut labels,
+            false,
+        )
+        .unwrap();
 
-        labels.to_host(&res, &mut labels_host).unwrap();
+        labels.copy_to_host(&res, &mut labels_host).unwrap();
         assert_eq!(labels_host[[0,]], 0);
         assert_eq!(labels_host[[1,]], 1);
         assert_eq!(labels_host[[2,]], 2);

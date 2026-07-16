@@ -1,0 +1,6 @@
+{
+  "_lut_dtype": [
+    {"lut_dtype": "float", "lut_dtype_descriptor": "f32"},
+    {"lut_dtype": "__half", "lut_dtype_descriptor": "f16"}
+  ]
+}

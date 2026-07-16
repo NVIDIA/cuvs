@@ -188,6 +188,15 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
+    #[doc = " @brief Create an opaque C handle for C++ type `raft::resources` whose memory\n        allocations are tracked and written as CSV samples from a background\n        thread.\n\n The returned handle wraps all reachable memory resources (host, pinned,\n managed, device, workspace, large_workspace) with allocation-tracking\n adaptors and replaces the global host and device memory resources for the\n lifetime of the handle. It is otherwise indistinguishable from a handle\n created by ::cuvsResourcesCreate and can be used wherever a\n ::cuvsResources_t is accepted. The CSV reporter is stopped and the global\n memory resources are restored when the handle is destroyed via\n ::cuvsResourcesDestroy.\n\n @param[out] res                 cuvsResources_t opaque C handle\n @param[in]  csv_path            Path to the output CSV file\n                                 (created/truncated). Must be a non-empty,\n                                 null-terminated UTF-8 string.\n @param[in]  sample_interval_ms  Minimum time in milliseconds between\n                                 successive CSV samples. Pass 10 to match the\n                                 C++ default.\n @return cuvsError_t"]
+    pub fn cuvsResourcesCreateWithMemoryTracking(
+        res: *mut cuvsResources_t,
+        csv_path: *const ::std::os::raw::c_char,
+        sample_interval_ms: i64,
+    ) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
     #[doc = " @brief Destroy and de-allocate opaque C handle for C++ type `raft::resources`\n\n @param[in] res cuvsResources_t opaque C handle\n @return cuvsError_t"]
     pub fn cuvsResourcesDestroy(res: cuvsResources_t) -> cuvsError_t;
 }

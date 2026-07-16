@@ -12,6 +12,7 @@
 #include <raft/linalg/map.cuh>
 #include <raft/linalg/reduce.cuh>
 
+#include <raft/util/cuda_dev_essentials.cuh>
 #include <raft/util/cudart_utils.hpp>
 
 namespace cuvs::neighbors::ivf_pq {
@@ -816,6 +817,34 @@ raft::device_matrix_view<const half, uint32_t, raft::row_major> index<IdxT>::cen
 {
   return impl_->centers_half(res);
 }
+
+namespace helpers {
+size_t compressed_dataset_size(raft::resources const& res,
+                               raft::matrix_extent<int64_t> dataset,
+                               cuvs::neighbors::ivf_pq::index_params params)
+{
+  auto idx = cuvs::neighbors::ivf_pq::index<int64_t>(res, params, (uint32_t)dataset.extent(1));
+  size_t pq_book_size                         = 1 << params.pq_bits;
+  constexpr static uint32_t kIndexGroupSize   = 32;
+  constexpr static uint32_t kIndexGroupVecLen = 16;
+
+  size_t pq_chunk = (kIndexGroupVecLen * 8) / params.pq_bits;
+  size_t pq_centers =
+    (params.codebook_kind == codebook_gen::PER_SUBSPACE ? params.pq_dim : params.n_lists) *
+    idx.pq_len() * pq_book_size * sizeof(float);
+  size_t pq_dataset = raft::ceildiv<size_t>(dataset.extent(0), kIndexGroupSize) * kIndexGroupSize *
+                      raft::ceildiv<size_t>(params.pq_dim, pq_chunk) * kIndexGroupVecLen;
+  size_t indices         = dataset.extent(0) * sizeof(int64_t);
+  size_t rotation_matrix = idx.rot_dim() * idx.dim() * sizeof(float);
+  size_t list_offsets    = (params.n_lists + 1) * sizeof(int64_t);
+  size_t list_sizes      = params.n_lists * sizeof(int64_t);
+  size_t centers         = params.n_lists * idx.dim_ext() * sizeof(float);
+  size_t centers_rot     = params.n_lists * idx.rot_dim() * sizeof(float);
+
+  return pq_centers + pq_dataset + indices + rotation_matrix + list_offsets + list_sizes + centers +
+         centers_rot;
+}
+}  // namespace helpers
 
 template class view_impl<int64_t>;
 template class owning_impl<int64_t>;

@@ -35,7 +35,7 @@ jobs:
       - wheel-tests-cuvs
       - devcontainer
       - telemetry-setup
-    uses: rapidsai/shared-workflows/.github/workflows/pr-builder.yaml@cuda-13.3.0
+    uses: rapidsai/shared-workflows/.github/workflows/pr-builder.yaml@main
     permissions:
       contents: read
     if: always()
@@ -78,7 +78,7 @@ jobs:
       contents: read
       packages: read
       pull-requests: read
-    uses: rapidsai/shared-workflows/.github/workflows/changed-files.yaml@cuda-13.3.0
+    uses: rapidsai/shared-workflows/.github/workflows/changed-files.yaml@main
     with:
       files_yaml: |
         build_docs:
@@ -160,6 +160,10 @@ jobs:
           - '!.github/workflows/trigger-breaking-change-alert.yaml'
           - '!.pre-commit-config.yaml'
           - '!.shellcheckrc'
+          - '!CODEOWNERS'
+          - '!Dockerfile'
+          - '!README.md'
+          - '!SECURITY.md'
           - '!ci/build_docs.sh'
           - '!ci/build_go.sh'
           - '!ci/build_python.sh'
@@ -171,14 +175,19 @@ jobs:
           - '!ci/test_python.sh'
           - '!ci/test_wheel_cuvs.sh'
           - '!ci/validate_wheel.sh'
-          - '!Dockerfile'
+          - '!conda/environments/**'
+          - '!conda/recipes/cuvs/**'
+          - '!conda/recipes/cuvs-bench/**'
+          - '!conda/recipes/cuvs-bench-cpu/**'
           - '!docs/**'
+          - '!examples/**'
           - '!fern/**'
+          - '!go/**'
           - '!img/**'
           - '!notebooks/**'
+          - '!pyproject.toml'
           - '!python/**'
           - '!rust/**'
-          - '!go/**'
           - '!thirdparty/LICENSES/**'
         test_python_conda:
           - '**'
@@ -192,8 +201,12 @@ jobs:
           - '!.github/labeler.yml'
           - '!.github/ops-bot.yaml'
           - '!.github/release.yml'
+          - '!.github/workflows/check-c-abi.yaml'
+          - '!.github/workflows/labeler.yml'
           - '!.github/workflows/publish-rust.yaml'
+          - '!.github/workflows/store-c-abi-baseline.yaml'
           - '!.github/workflows/trigger-breaking-change-alert.yaml'
+          - '!.github/workflows/update-c-abi-baseline.yaml'
           - '!.pre-commit-config.yaml'
           - '!.shellcheckrc'
           - '!ci/build_go.sh'
@@ -210,6 +223,7 @@ jobs:
           - '!cpp/.clang-format'
           - '!cpp/.clang-tidy'
           - '!cpp/doxygen/**'
+          - '!CODEOWNERS'
           - '!Dockerfile'
           - '!README.md'
           - '!SECURITY.md'
@@ -252,6 +266,7 @@ jobs:
           - '!ci/test_python.sh'
           - '!ci/test_standalone_c.sh'
           - '!ci/validate_wheel.sh'
+          - '!CODEOWNERS'
           - '!Dockerfile'
           - '!README.md'
           - '!SECURITY.md'
@@ -283,6 +298,7 @@ jobs:
           - '!.github/workflows/trigger-breaking-change-alert.yaml'
           - '!.pre-commit-config.yaml'
           - '!.shellcheckrc'
+          - '!CODEOWNERS'
           - '!Dockerfile'
           - '!README.md'
           - '!SECURITY.md'
@@ -324,6 +340,7 @@ jobs:
           - '!.github/workflows/trigger-breaking-change-alert.yaml'
           - '!.pre-commit-config.yaml'
           - '!.shellcheckrc'
+          - '!CODEOWNERS'
           - '!Dockerfile'
           - '!README.md'
           - '!SECURITY.md'
@@ -352,7 +369,7 @@ jobs:
           - '!thirdparty/LICENSES/**'
   checks:
     needs: telemetry-setup
-    uses: rapidsai/shared-workflows/.github/workflows/checks.yaml@cuda-13.3.0
+    uses: rapidsai/shared-workflows/.github/workflows/checks.yaml@main
     permissions:
       contents: read
     with:
@@ -375,7 +392,7 @@ jobs:
       packages: read
       pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
-    uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-build.yaml@cuda-13.3.0
+    uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-build.yaml@main
     with:
       build_type: pull-request
       node_type: cpu16
@@ -389,7 +406,7 @@ jobs:
       packages: read
       pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
-    uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-tests.yaml@cuda-13.3.0
+    uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-tests.yaml@main
     if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_cpp
     with:
       build_type: pull-request
@@ -402,7 +419,7 @@ jobs:
       id-token: write
       packages: read
       pull-requests: read
-    uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-post-build-checks.yaml@cuda-13.3.0
+    uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-post-build-checks.yaml@main
     with:
       build_type: pull-request
       symbol_exclusions: (void (thrust::|cub::))
@@ -416,7 +433,7 @@ jobs:
       packages: read
       pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
-    uses: rapidsai/shared-workflows/.github/workflows/conda-python-build.yaml@cuda-13.3.0
+    uses: rapidsai/shared-workflows/.github/workflows/conda-python-build.yaml@main
     with:
       build_type: pull-request
       script: ci/build_python.sh
@@ -431,7 +448,7 @@ jobs:
       packages: read
       pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
-    uses: rapidsai/shared-workflows/.github/workflows/conda-python-tests.yaml@cuda-13.3.0
+    uses: rapidsai/shared-workflows/.github/workflows/conda-python-tests.yaml@main
     if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_python_conda
     with:
       build_type: pull-request
@@ -440,7 +457,7 @@ jobs:
     needs: checks
     permissions:
       contents: read
-    uses: rapidsai/shared-workflows/.github/workflows/compute-matrix.yaml@cuda-13.3.0
+    uses: rapidsai/shared-workflows/.github/workflows/compute-matrix.yaml@main
     with:
       build_type: pull-request
       matrix_name: conda-cpp-build
@@ -453,7 +470,7 @@ jobs:
       packages: read
       pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
-    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@cuda-13.3.0
+    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@main
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.rocky8-clib-standalone-build-matrix.outputs.matrix) }}
@@ -472,7 +489,7 @@ jobs:
     needs: [rocky8-clib-standalone-build, changed-files]
     permissions:
       contents: read
-    uses: rapidsai/shared-workflows/.github/workflows/compute-matrix.yaml@cuda-13.3.0
+    uses: rapidsai/shared-workflows/.github/workflows/compute-matrix.yaml@main
     if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_cpp
     with:
       build_type: pull-request
@@ -486,7 +503,7 @@ jobs:
       packages: read
       pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
-    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@cuda-13.3.0
+    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@main
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.rocky8-clib-tests-matrix.outputs.matrix) }}
@@ -502,7 +519,7 @@ jobs:
     needs: [conda-cpp-build, changed-files]
     permissions:
       contents: read
-    uses: rapidsai/shared-workflows/.github/workflows/compute-matrix.yaml@cuda-13.3.0
+    uses: rapidsai/shared-workflows/.github/workflows/compute-matrix.yaml@main
     if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_java || fromJSON(needs.changed-files.outputs.changed_file_groups).test_cpp
     with:
       build_type: pull-request
@@ -517,7 +534,7 @@ jobs:
       packages: read
       pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
-    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@cuda-13.3.0
+    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@main
     # Artifacts are not published from these jobs, so it's safe to run for multiple CUDA versions.
     # If these jobs start producing artifacts, the names will have to differentiate between CUDA versions.
     strategy:
@@ -535,7 +552,7 @@ jobs:
     needs: [conda-cpp-build, changed-files]
     permissions:
       contents: read
-    uses: rapidsai/shared-workflows/.github/workflows/compute-matrix.yaml@cuda-13.3.0
+    uses: rapidsai/shared-workflows/.github/workflows/compute-matrix.yaml@main
     if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_rust || fromJSON(needs.changed-files.outputs.changed_file_groups).test_cpp
     with:
       build_type: pull-request
@@ -550,7 +567,7 @@ jobs:
       packages: read
       pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
-    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@cuda-13.3.0
+    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@main
     # Artifacts are not published from these jobs, so it's safe to run for multiple CUDA versions.
     # If these jobs start producing artifacts, the names will have to differentiate between CUDA versions.
     strategy:
@@ -566,7 +583,7 @@ jobs:
     needs: [conda-cpp-build, changed-files]
     permissions:
       contents: read
-    uses: rapidsai/shared-workflows/.github/workflows/compute-matrix.yaml@cuda-13.3.0
+    uses: rapidsai/shared-workflows/.github/workflows/compute-matrix.yaml@main
     if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_go || fromJSON(needs.changed-files.outputs.changed_file_groups).test_cpp
     with:
       build_type: pull-request
@@ -581,7 +598,7 @@ jobs:
       packages: read
       pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
-    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@cuda-13.3.0
+    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@main
     # Artifacts are not published from these jobs, so it's safe to run for multiple CUDA versions.
     # If these jobs start producing artifacts, the names will have to differentiate between CUDA versions.
     strategy:
@@ -601,7 +618,7 @@ jobs:
       packages: read
       pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
-    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@cuda-13.3.0
+    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@main
     with:
       build_type: pull-request
       node_type: "gpu-l4-latest-1"
@@ -617,7 +634,7 @@ jobs:
       packages: read
       pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
-    uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@cuda-13.3.0
+    uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@main
     with:
       build_type: pull-request
       node_type: cpu16
@@ -635,7 +652,7 @@ jobs:
       packages: read
       pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
-    uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@cuda-13.3.0
+    uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@main
     with:
       build_type: pull-request
       node_type: cpu8
@@ -653,7 +670,7 @@ jobs:
       packages: read
       pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
-    uses: rapidsai/shared-workflows/.github/workflows/wheels-test.yaml@cuda-13.3.0
+    uses: rapidsai/shared-workflows/.github/workflows/wheels-test.yaml@main
     if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_python_wheels
     with:
       build_type: pull-request
@@ -667,7 +684,7 @@ jobs:
       pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
     needs: telemetry-setup
-    uses: rapidsai/shared-workflows/.github/workflows/build-in-devcontainer.yaml@cuda-13.3.0
+    uses: rapidsai/shared-workflows/.github/workflows/build-in-devcontainer.yaml@main
     with:
       arch: '["amd64", "arm64"]'
       cuda: '["13.3"]'
