@@ -14,7 +14,7 @@ from cuvs.common.exceptions import check_cuvs
 from cuvs.common.mg_resources import auto_sync_multi_gpu_resources
 from cuvs.neighbors.common import _check_input_array
 
-from cuvs.cluster.kmeans.kmeans cimport KMeansParams
+from cuvs.cluster.kmeans.kmeans cimport KMeansParams, cuvsKMeansParams
 from cuvs.common cimport cydlpack
 from cuvs.common.c_api cimport cuvsResources_t
 
