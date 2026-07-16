@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -37,6 +37,7 @@
 
 #include <climits>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <random>
 
@@ -172,6 +173,24 @@ __global__ void kern_sort(const DATA_T* const dataset,  // [dataset_chunk_size, 
       knn_graph[k + (static_cast<uint64_t>(graph_degree) * srcNode)] = my_vals[i];
     }
   }
+}
+
+template <typename DataT, typename IdxT>
+using sort_kernel_type =
+  void (*)(DataT const*, IdxT, uint32_t, IdxT*, uint32_t, uint32_t, cuvs::distance::DistanceType);
+
+template <typename DataT, typename IdxT>
+auto select_sort_kernel(uint64_t degree) -> sort_kernel_type<DataT, IdxT>
+{
+  if (degree <= 32) { return kern_sort<DataT, IdxT, 1>; }
+  if (degree <= 64) { return kern_sort<DataT, IdxT, 2>; }
+  if (degree <= 128) { return kern_sort<DataT, IdxT, 4>; }
+  if (degree <= 256) { return kern_sort<DataT, IdxT, 8>; }
+  if (degree <= 512) { return kern_sort<DataT, IdxT, 16>; }
+  if (degree <= 1024) { return kern_sort<DataT, IdxT, 32>; }
+  RAFT_FAIL(
+    "The degree of input knn graph is too large (%lu). It must be equal to or smaller than 1024.",
+    degree);
 }
 
 template <typename IdxT, typename OutputMatrixView>
@@ -971,6 +990,51 @@ void make_reverse_graph_gpu(
   }
 }
 
+/** Sort a device-resident graph in place without staging the dataset or graph. */
+template <typename DataT, typename IdxT = uint32_t>
+void sort_knn_graph_device_inplace(
+  raft::resources const& res,
+  cuvs::distance::DistanceType metric,
+  raft::device_matrix_view<const DataT, int64_t, raft::row_major> dataset,
+  raft::device_matrix_view<IdxT, int64_t, raft::row_major> knn_graph)
+{
+  RAFT_EXPECTS(dataset.extent(0) == knn_graph.extent(0),
+               "dataset size is expected to have the same number of graph index size");
+  RAFT_EXPECTS(
+    metric == cuvs::distance::DistanceType::InnerProduct ||
+      metric == cuvs::distance::DistanceType::CosineExpanded ||
+      metric == cuvs::distance::DistanceType::L2Expanded ||
+      metric == cuvs::distance::DistanceType::BitwiseHamming ||
+      metric == cuvs::distance::DistanceType::L1,
+    "Unsupported metric. Only InnerProduct, CosineExpanded, L2Expanded, BitwiseHamming and L1 are "
+    "supported");
+
+  auto const rows   = static_cast<uint64_t>(dataset.extent(0));
+  auto const dim    = static_cast<uint64_t>(dataset.extent(1));
+  auto const degree = static_cast<uint64_t>(knn_graph.extent(1));
+  RAFT_EXPECTS(rows <= static_cast<uint64_t>(std::numeric_limits<IdxT>::max()),
+               "Dataset size must fit in the graph index type");
+  RAFT_EXPECTS(rows <= static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()) &&
+                 dim <= static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()),
+               "Dataset extents must fit in uint32_t");
+  RAFT_EXPECTS(degree > 0 && degree <= 1024, "Graph degree must be in [1, 1024]");
+
+  auto kernel = select_sort_kernel<DataT, IdxT>(degree);
+
+  constexpr uint32_t block_size = 256;
+  auto const warps              = block_size / raft::WarpSize;
+  auto const blocks             = static_cast<uint32_t>((rows + warps - 1) / warps);
+  kernel<<<blocks, block_size, 0, raft::resource::get_cuda_stream(res)>>>(
+    dataset.data_handle(),
+    static_cast<IdxT>(rows),
+    static_cast<uint32_t>(dim),
+    knn_graph.data_handle(),
+    static_cast<uint32_t>(rows),
+    static_cast<uint32_t>(degree),
+    metric);
+  RAFT_CUDA_TRY(cudaGetLastError());
+}
+
 template <typename DataT,
           typename IdxT       = uint32_t,
           typename d_accessor = raft::host_device_accessor<cuda::std::default_accessor<DataT>,
@@ -985,21 +1049,11 @@ void sort_knn_graph(
 {
   RAFT_EXPECTS(dataset.extent(0) == knn_graph.extent(0),
                "dataset size is expected to have the same number of graph index size");
-  RAFT_EXPECTS(
-    metric == cuvs::distance::DistanceType::InnerProduct ||
-      metric == cuvs::distance::DistanceType::CosineExpanded ||
-      metric == cuvs::distance::DistanceType::L2Expanded ||
-      metric == cuvs::distance::DistanceType::BitwiseHamming ||
-      metric == cuvs::distance::DistanceType::L1,
-    "Unsupported metric. Only InnerProduct, CosineExpanded, L2Expanded, BitwiseHamming and L1 are "
-    "supported");
   const uint64_t dataset_size = dataset.extent(0);
   const uint64_t dataset_dim  = dataset.extent(1);
-  const DataT* dataset_ptr    = dataset.data_handle();
 
   const IdxT graph_size             = dataset_size;
   const uint64_t input_graph_degree = knn_graph.extent(1);
-  IdxT* const input_graph_ptr       = knn_graph.data_handle();
 
   auto large_tmp_mr = raft::resource::get_large_workspace_resource_ref(res);
 
@@ -1018,51 +1072,9 @@ void sort_knn_graph(
 
   raft::copy(res, d_input_graph.view(), knn_graph);
 
-  void (*kernel_sort)(const DataT* const,
-                      const IdxT,
-                      const uint32_t,
-                      IdxT* const,
-                      const uint32_t,
-                      const uint32_t,
-                      const cuvs::distance::DistanceType);
-  if (input_graph_degree <= 32) {
-    constexpr int numElementsPerThread = 1;
-    kernel_sort                        = kern_sort<DataT, IdxT, numElementsPerThread>;
-  } else if (input_graph_degree <= 64) {
-    constexpr int numElementsPerThread = 2;
-    kernel_sort                        = kern_sort<DataT, IdxT, numElementsPerThread>;
-  } else if (input_graph_degree <= 128) {
-    constexpr int numElementsPerThread = 4;
-    kernel_sort                        = kern_sort<DataT, IdxT, numElementsPerThread>;
-  } else if (input_graph_degree <= 256) {
-    constexpr int numElementsPerThread = 8;
-    kernel_sort                        = kern_sort<DataT, IdxT, numElementsPerThread>;
-  } else if (input_graph_degree <= 512) {
-    constexpr int numElementsPerThread = 16;
-    kernel_sort                        = kern_sort<DataT, IdxT, numElementsPerThread>;
-  } else if (input_graph_degree <= 1024) {
-    constexpr int numElementsPerThread = 32;
-    kernel_sort                        = kern_sort<DataT, IdxT, numElementsPerThread>;
-  } else {
-    RAFT_FAIL(
-      "The degree of input knn graph is too large (%lu). "
-      "It must be equal to or smaller than %d.",
-      input_graph_degree,
-      1024);
-  }
-  const auto block_size          = 256;
-  const auto num_warps_per_block = block_size / raft::WarpSize;
-  const auto grid_size           = (graph_size + num_warps_per_block - 1) / num_warps_per_block;
-
   RAFT_LOG_DEBUG(".");
-  kernel_sort<<<grid_size, block_size, 0, raft::resource::get_cuda_stream(res)>>>(
-    d_dataset.data_handle(),
-    dataset_size,
-    dataset_dim,
-    d_input_graph.data_handle(),
-    graph_size,
-    input_graph_degree,
-    metric);
+  sort_knn_graph_device_inplace<DataT, IdxT>(
+    res, metric, raft::make_const_mdspan(d_dataset.view()), d_input_graph.view());
   raft::resource::sync_stream(res);
   RAFT_LOG_DEBUG(".");
   raft::copy(res, knn_graph, raft::make_const_mdspan(d_input_graph.view()));
