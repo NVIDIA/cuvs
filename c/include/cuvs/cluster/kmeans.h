@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -199,6 +199,12 @@ struct cuvsKMeansParams {
    * or n_samples for device data.
    */
   int64_t init_size;
+
+  /**
+   * Whether host-resident multi-GPU KMeans should prefetch the next streaming
+   * batch using a second device buffer. Ignored by other KMeans paths.
+   */
+  bool streaming_batch_prefetch;
 };
 
 typedef struct cuvsKMeansParams* cuvsKMeansParams_t;

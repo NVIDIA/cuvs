@@ -42,6 +42,7 @@ struct KmeansSNMGInputs {
   int n_init;
   cuvs::cluster::kmeans::params::InitMethod init = cuvs::cluster::kmeans::params::Array;
   int max_iter                                   = 20;
+  bool streaming_batch_prefetch                  = false;
 };
 
 template <typename T>
@@ -105,13 +106,14 @@ class KmeansSNMGTest : public ::testing::TestWithParam<KmeansSNMGInputs<T>> {
     }
 
     cuvs::cluster::kmeans::params snmg_params;
-    snmg_params.n_clusters           = n_clusters;
-    snmg_params.tol                  = testparams_.tol;
-    snmg_params.max_iter             = testparams_.max_iter;
-    snmg_params.n_init               = testparams_.n_init;
-    snmg_params.rng_state.seed       = 42;
-    snmg_params.init                 = testparams_.init;
-    snmg_params.streaming_batch_size = testparams_.streaming_batch_size;
+    snmg_params.n_clusters               = n_clusters;
+    snmg_params.tol                      = testparams_.tol;
+    snmg_params.max_iter                 = testparams_.max_iter;
+    snmg_params.n_init                   = testparams_.n_init;
+    snmg_params.rng_state.seed           = 42;
+    snmg_params.init                     = testparams_.init;
+    snmg_params.streaming_batch_size     = testparams_.streaming_batch_size;
+    snmg_params.streaming_batch_prefetch = testparams_.streaming_batch_prefetch;
 
     T snmg_inertia      = T{0};
     int64_t snmg_n_iter = 0;
@@ -281,6 +283,16 @@ const std::vector<KmeansSNMGInputs<float>> snmg_inputsf = {
   {1000, 32, 5, 0.0001f, kmeans_weight_mode::none, 1000, 1},
   {1000, 32, 5, 0.0001f, kmeans_weight_mode::uniform, 1000, 1},
   {1000, 32, 5, 0.0001f, kmeans_weight_mode::none, 128, 1},
+  {1000,
+   32,
+   5,
+   0.0001f,
+   kmeans_weight_mode::none,
+   128,
+   1,
+   cuvs::cluster::kmeans::params::Array,
+   20,
+   true},
   {10000, 16, 10, 0.0001f, kmeans_weight_mode::none, 2000, 1},
   {10000, 16, 10, 0.0001f, kmeans_weight_mode::uniform, 2000, 1},
   {10000, 16, 10, 0.0001f, kmeans_weight_mode::none, 500, 1},

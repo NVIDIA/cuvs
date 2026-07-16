@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -316,7 +316,8 @@ extern "C" cuvsError_t cuvsKMeansParamsCreate_v2(cuvsKMeansParams_v2_t* params)
       .hierarchical         = false,
       .hierarchical_n_iters = static_cast<int>(cpp_balanced_params.n_iters),
       .streaming_batch_size = cpp_params.streaming_batch_size,
-      .init_size            = cpp_params.init_size};
+      .init_size            = cpp_params.init_size,
+      .streaming_batch_prefetch = cpp_params.streaming_batch_prefetch};
   });
 }
 

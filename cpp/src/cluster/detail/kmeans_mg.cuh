@@ -37,6 +37,7 @@
 #include <raft/random/rng.cuh>
 #include <raft/util/cudart_utils.hpp>
 
+#include <rmm/cuda_stream.hpp>
 #include <rmm/device_scalar.hpp>
 #include <rmm/device_uvector.hpp>
 
@@ -44,6 +45,7 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <numeric>
 #include <optional>
 #include <random>
@@ -140,7 +142,18 @@ void mnmg_fit(
     use_nccl ? raft::resource::set_current_device_to_rank(handle, rank) : handle;
   mnmg_comms comms{dev_res, use_nccl, nccl_comm};
 
-  auto stream     = comms.stream();
+  auto stream = comms.stream();
+  std::unique_ptr<rmm::cuda_stream> data_copy_stream_owner;
+  rmm::cuda_stream_view data_copy_stream{stream};
+  bool enable_data_prefetch = false;
+  if constexpr (!data_on_device) {
+    if (params.streaming_batch_prefetch) {
+      data_copy_stream_owner =
+        std::make_unique<rmm::cuda_stream>(rmm::cuda_stream::flags::non_blocking);
+      data_copy_stream     = data_copy_stream_owner->view();
+      enable_data_prefetch = true;
+    }
+  }
   auto n_features = centroids.extent(1);
   auto n_clusters = static_cast<IndexT>(params.n_clusters);
   auto metric     = params.metric;
@@ -405,11 +418,15 @@ void mnmg_fit(
         data_batch_iterator_t data_batches(dev_res,
                                            X_part,
                                            static_cast<size_t>(streaming_batch_size),
-                                           stream,
+                                           data_copy_stream,
                                            rmm::mr::get_current_device_resource_ref(),
-                                           true);
+                                           enable_data_prefetch);
+        auto data_it  = data_batches.begin();
+        auto data_end = data_batches.end();
+        data_batches.prefetch_next_batch();
 
-        for (auto const& data_batch : data_batches) {
+        for (; data_it != data_end; ++data_it) {
+          auto const& data_batch    = *data_it;
           IndexT current_batch_size = static_cast<IndexT>(data_batch.size());
           auto batch_offset         = static_cast<IndexT>(data_batch.offset());
 
@@ -468,7 +485,9 @@ void mnmg_fit(
             weight_per_cluster.view(),
             raft::make_device_scalar_view(clustering_cost.data_handle()),
             batch_workspace);
+          data_batches.prefetch_next_batch();
         }
+        if (enable_data_prefetch) { raft::resource::sync_stream(dev_res); }
       }
       norms_cached = true;
 
@@ -533,11 +552,15 @@ void mnmg_fit(
       data_batch_iterator_t data_batches(dev_res,
                                          X_part,
                                          static_cast<size_t>(streaming_batch_size),
-                                         stream,
+                                         data_copy_stream,
                                          rmm::mr::get_current_device_resource_ref(),
-                                         true);
+                                         enable_data_prefetch);
+      auto data_it  = data_batches.begin();
+      auto data_end = data_batches.end();
+      data_batches.prefetch_next_batch();
 
-      for (auto const& data_batch : data_batches) {
+      for (; data_it != data_end; ++data_it) {
+        auto const& data_batch    = *data_it;
         IndexT current_batch_size = static_cast<IndexT>(data_batch.size());
         auto batch_offset         = static_cast<IndexT>(data_batch.offset());
 
@@ -561,7 +584,9 @@ void mnmg_fit(
                           raft::make_const_mdspan(clustering_cost.view()),
                           raft::make_const_mdspan(batch_clustering_cost.view()),
                           clustering_cost.view());
+        data_batches.prefetch_next_batch();
       }
+      if (enable_data_prefetch) { raft::resource::sync_stream(dev_res); }
     }
     comms.allreduce(clustering_cost.data_handle(), clustering_cost.data_handle(), 1);
     raft::copy(&local_inertia, clustering_cost.data_handle(), 1, stream);

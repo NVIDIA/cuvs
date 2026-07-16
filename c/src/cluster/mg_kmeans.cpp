@@ -38,6 +38,7 @@ cuvs::cluster::kmeans::params convert_params(const ParamsT& params)
   kmeans_params.batch_centroids      = params.batch_centroids;
   kmeans_params.init_size            = params.init_size;
   kmeans_params.streaming_batch_size = params.streaming_batch_size;
+  kmeans_params.streaming_batch_prefetch = params.streaming_batch_prefetch;
   return kmeans_params;
 }
 

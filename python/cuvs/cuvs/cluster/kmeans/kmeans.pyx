@@ -94,6 +94,13 @@ cdef class KMeansParams:
         increases.
 
         Default: 0 (process all data at once).
+    streaming_batch_prefetch : bool
+        Whether host-resident multi-GPU KMeans should use a second device
+        buffer to prefetch the next streaming batch and overlap H2D transfer
+        with computation. This can improve throughput at the cost of one
+        additional device batch buffer per GPU. Ignored by other KMeans paths.
+
+        Default: False.
     hierarchical : bool
         Whether to use hierarchical (balanced) kmeans or not
     hierarchical_n_iters : int
@@ -101,6 +108,7 @@ cdef class KMeansParams:
     """
 
     def __cinit__(self):
+        self._streaming_batch_prefetch = False
         cuvsKMeansParamsCreate(&self.params)
 
     def __dealloc__(self):
@@ -119,6 +127,7 @@ cdef class KMeansParams:
                  inertia_check=None,
                  init_size=None,
                  streaming_batch_size=None,
+                 streaming_batch_prefetch=None,
                  hierarchical=None,
                  hierarchical_n_iters=None):
         if metric is not None:
@@ -150,6 +159,8 @@ cdef class KMeansParams:
             self.params.init_size = init_size
         if streaming_batch_size is not None:
             self.params.streaming_batch_size = streaming_batch_size
+        if streaming_batch_prefetch is not None:
+            self._streaming_batch_prefetch = streaming_batch_prefetch
         if hierarchical is not None:
             self.params.hierarchical = hierarchical
         if hierarchical_n_iters is not None:
@@ -201,6 +212,10 @@ cdef class KMeansParams:
     @property
     def streaming_batch_size(self):
         return self.params.streaming_batch_size
+
+    @property
+    def streaming_batch_prefetch(self):
+        return self._streaming_batch_prefetch
 
     @property
     def hierarchical(self):
