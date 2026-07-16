@@ -37,21 +37,6 @@ cdef extern from "cuvs/cluster/kmeans.h" nogil:
         int64_t streaming_batch_size,
         int64_t init_size
 
-    ctypedef struct cuvsKMeansParams_v2:
-        cuvsDistanceType metric,
-        int n_clusters,
-        cuvsKMeansInitMethod init,
-        int max_iter,
-        double tol,
-        int n_init,
-        double oversampling_factor,
-        int batch_samples,
-        int batch_centroids,
-        bool hierarchical,
-        int hierarchical_n_iters,
-        int64_t streaming_batch_size,
-        int64_t init_size
-
     ctypedef cuvsKMeansParams* cuvsKMeansParams_t
 
     cuvsError_t cuvsKMeansParamsCreate(cuvsKMeansParams_t* index)
