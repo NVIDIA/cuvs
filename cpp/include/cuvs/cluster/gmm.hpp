@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -22,7 +22,16 @@ namespace gmm {
  */
 
 /** Covariance parameterization of the mixture components. */
-enum class covariance_type { FULL = 0, TIED = 1, DIAG = 2, SPHERICAL = 3 };
+enum class covariance_type {
+  /** Each component has its own general covariance matrix; shape (K, d, d). */
+  FULL = 0,
+  /** All components share one general covariance matrix; shape (d, d). */
+  TIED = 1,
+  /** Each component has its own diagonal covariance matrix; shape (K, d). */
+  DIAG = 2,
+  /** Each component has its own single variance (isotropic); shape (K,). */
+  SPHERICAL = 3,
+};
 
 /** Strategy used to initialize the responsibilities before EM. */
 enum class init_method {
@@ -37,7 +46,11 @@ enum class init_method {
   RandomFromData = 3,
 };
 
-/** Hyper-parameters for the Gaussian mixture EM solver. */
+/** Hyper-parameters for the Gaussian mixture EM solver.
+ *
+ *  All defaults match scikit-learn's ``GaussianMixture`` so that results are
+ *  directly comparable out of the box.
+ */
 struct params {
   /** The number of mixture components (at most 65535). Default: 1. */
   int n_components = 1;

@@ -10,7 +10,7 @@ Use a GMM when you want soft cluster assignments (a probability that each row be
 
 ### Fitting a mixture
 
-Fitting learns the component weights, means, and covariances from a dataset on the device. The covariance-shaped outputs (`covariances`, `precisions_chol`, `precisions`) have a layout that depends on `covariance_type`; see the API reference for the exact shapes.
+Fitting learns the component weights, means, and covariances from a dataset on the device. The covariance-shaped outputs (`covariances`, `precisions_chol`, `precisions`) have a layout that depends on `covariance_type`; see the Covariance types section below for the exact shapes.
 
 ```cpp
 #include <cuvs/cluster/gmm.hpp>
@@ -85,14 +85,16 @@ The algorithm repeats until it reaches `max_iter` or the per-sample average log-
 
 ## Covariance types
 
-`covariance_type` controls how much shape each component can express, trading flexibility for parameters and cost:
+`covariance_type` controls how much shape each component can express, trading flexibility for parameters and cost. The covariance-shaped buffers (`covariances`, `precisions_chol`, `precisions`) are passed as flat device vectors because their logical shape depends on the covariance type. With `K = n_components` and `d = n_features` the expected lengths are (row-major):
 
-| Type | Description |
-| --- | --- |
-| `full` | Each component has its own full covariance matrix. Most flexible, most expensive. |
-| `tied` | All components share a single full covariance matrix. |
-| `diag` | Each component has its own diagonal covariance (axis-aligned ellipsoids). |
-| `spherical` | Each component has a single variance (isotropic). Fewest parameters, fastest. |
+| Type | Description | Buffer length | Logical shape |
+| --- | --- | --- | --- |
+| `full` | Each component has its own full covariance matrix. Most flexible, most expensive. | `K * d * d` | `(K, d, d)` |
+| `tied` | All components share a single full covariance matrix. | `d * d` | `(d, d)` |
+| `diag` | Each component has its own diagonal covariance (axis-aligned ellipsoids). | `K * d` | `(K, d)` |
+| `spherical` | Each component has a single variance (isotropic). Fewest parameters, fastest. | `K` | `(K,)` |
+
+For `full`/`tied`, `precisions_chol` holds the upper-triangular factor `U` of each precision matrix (precision `= U @ Uᵀ`); for `diag`/`spherical` it holds reciprocal standard deviations. These conventions match scikit-learn's `GaussianMixture`.
 
 ## When to use
 
