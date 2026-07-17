@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -92,6 +92,18 @@ class mnmg_comms {
   }
 
   template <typename T>
+  void bcast(const T* sendbuf, T* recvbuf, std::size_t count, int root) const
+  {
+    if (use_nccl_) {
+      RAFT_NCCL_TRY(
+        ncclBroadcast(sendbuf, recvbuf, count, nccl_dtype<T>(), root, nccl_comm_, stream_));
+    } else {
+      const auto& comm = raft::resource::get_comms(dev_res_);
+      comm.bcast(sendbuf, recvbuf, count, root, stream_);
+    }
+  }
+
+  template <typename T>
   void allgather(T* sendbuf, T* recvbuf, std::size_t count) const
   {
     if (use_nccl_) {
@@ -99,6 +111,61 @@ class mnmg_comms {
     } else {
       const auto& comm = raft::resource::get_comms(dev_res_);
       comm.allgather(sendbuf, recvbuf, count, stream_);
+    }
+  }
+
+  template <typename T>
+  void allgatherv(const T* sendbuf,
+                  T* recvbuf,
+                  const std::size_t* recvcounts,
+                  const std::size_t* displs,
+                  std::size_t my_count) const
+  {
+    if (use_nccl_) {
+      int my_rank   = 0;
+      int num_ranks = 0;
+      RAFT_NCCL_TRY(ncclCommUserRank(nccl_comm_, &my_rank));
+      RAFT_NCCL_TRY(ncclCommCount(nccl_comm_, &num_ranks));
+
+      RAFT_NCCL_TRY(ncclGroupStart());
+      for (int r = 0; r < num_ranks; ++r) {
+        if (r == my_rank) { continue; }
+        if (my_count > 0) {
+          RAFT_NCCL_TRY(ncclSend(sendbuf, my_count, nccl_dtype<T>(), r, nccl_comm_, stream_));
+        }
+        if (recvcounts[r] > 0) {
+          RAFT_NCCL_TRY(
+            ncclRecv(recvbuf + displs[r], recvcounts[r], nccl_dtype<T>(), r, nccl_comm_, stream_));
+        }
+      }
+      RAFT_NCCL_TRY(ncclGroupEnd());
+
+      if (my_count > 0 && sendbuf != recvbuf + displs[my_rank]) {
+        RAFT_CUDA_TRY(cudaMemcpyAsync(recvbuf + displs[my_rank],
+                                      sendbuf,
+                                      my_count * sizeof(T),
+                                      cudaMemcpyDeviceToDevice,
+                                      stream_));
+      }
+    } else {
+      const auto& comm = raft::resource::get_comms(dev_res_);
+      comm.allgatherv(sendbuf, recvbuf, recvcounts, displs, stream_);
+    }
+  }
+
+  template <typename T>
+  void reduce(T* sendbuf,
+              T* recvbuf,
+              std::size_t count,
+              int root,
+              raft::comms::op_t op = raft::comms::op_t::SUM) const
+  {
+    if (use_nccl_) {
+      RAFT_NCCL_TRY(ncclReduce(
+        sendbuf, recvbuf, count, nccl_dtype<T>(), nccl_op(op), root, nccl_comm_, stream_));
+    } else {
+      const auto& comm = raft::resource::get_comms(dev_res_);
+      comm.reduce(sendbuf, recvbuf, count, op, root, stream_);
     }
   }
 
