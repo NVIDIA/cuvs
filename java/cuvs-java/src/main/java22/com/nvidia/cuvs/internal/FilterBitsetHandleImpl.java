@@ -16,6 +16,8 @@ import com.nvidia.cuvs.internal.common.CloseableRMMAllocation;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Device-backed implementation of {@link FilterBitsetHandle}.
@@ -54,10 +56,37 @@ public final class FilterBitsetHandleImpl implements FilterBitsetHandle {
   // Shared device allocation — uploaded once, visible to all threads via volatile.
   private volatile DeviceData sharedDeviceData;
   private final Object uploadLock = new Object();
-  private volatile boolean closed = false;
+
+  // Reference count. Starts at 1 for the initial reference held by the owner and released by
+  // close(); every concurrent user holds an additional reference via tryIncRef()/decRef(). The
+  // device allocation is freed when the count reaches 0, so a close() concurrent with an in-flight
+  // search only decrements and cannot free memory still in use.
+  private final AtomicInteger refCount = new AtomicInteger(1);
+  // Guards close() so the initial reference is released at most once (AutoCloseable is idempotent).
+  private final AtomicBoolean closed = new AtomicBoolean(false);
 
   public FilterBitsetHandleImpl(long[] combinedLongs) {
     this.combinedLongs = combinedLongs;
+  }
+
+  @Override
+  public boolean tryIncRef() {
+    int count;
+    do {
+      count = refCount.get();
+      if (count == 0) return false; // already fully released; must not be resurrected
+    } while (!refCount.compareAndSet(count, count + 1));
+    return true;
+  }
+
+  @Override
+  public void decRef() {
+    int count = refCount.decrementAndGet();
+    if (count == 0) {
+      releaseDeviceData();
+    } else if (count < 0) {
+      throw new IllegalStateException("FilterBitsetHandle decRef() called without a matching ref");
+    }
   }
 
   /**
@@ -67,7 +96,12 @@ public final class FilterBitsetHandleImpl implements FilterBitsetHandle {
    * @param cuvsRes the native cuvsResources handle for the calling thread
    */
   DeviceData getOrUpload(long cuvsRes) {
-    if (closed) throw new IllegalStateException("FilterBitsetHandle has been closed");
+    // Callers must hold a reference (tryIncRef) across this call and the subsequent device use, so
+    // the allocation cannot be released underneath them; a zero count here means that contract was
+    // violated.
+    if (refCount.get() <= 0) {
+      throw new IllegalStateException("FilterBitsetHandle has been released");
+    }
     DeviceData data = sharedDeviceData;
     if (data != null) return data;
     synchronized (uploadLock) {
@@ -98,10 +132,16 @@ public final class FilterBitsetHandleImpl implements FilterBitsetHandle {
     return new DeviceData(combinedBitsetDP, (long) combinedLongs.length * 2);
   }
 
-  /** Marks this handle closed and releases the shared device allocation. */
+  /** Releases the initial reference held since construction. Idempotent. */
   @Override
   public void close() {
-    closed = true;
+    if (closed.compareAndSet(false, true)) {
+      decRef();
+    }
+  }
+
+  /** Frees the shared device allocation. Called once, when the last reference is dropped. */
+  private void releaseDeviceData() {
     DeviceData data;
     synchronized (uploadLock) {
       data = sharedDeviceData;

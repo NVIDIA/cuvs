@@ -45,6 +45,21 @@ public final class MultiPartitionCagraSearchImpl {
 
   private MultiPartitionCagraSearchImpl() {}
 
+  /**
+   * Acquires a reference to {@code filter} for the duration of a search; the returned resource
+   * releases it on {@code close()}. Returns a no-op resource when there is no filter.
+   *
+   * @throws IllegalStateException if the handle has already been fully released
+   */
+  private static AutoCloseable acquireFilterRef(FilterBitsetHandle filter) {
+    if (filter == null) return () -> {};
+    if (!filter.tryIncRef()) {
+      throw new IllegalStateException(
+          "FilterBitsetHandle has already been released and cannot be used for search");
+    }
+    return filter::decRef;
+  }
+
   public static MultiPartitionSearchResults search(
       CuVSResources resources,
       List<CagraIndex> indices,
@@ -76,7 +91,11 @@ public final class MultiPartitionCagraSearchImpl {
 
     CagraSearchParams searchParameters = query.getCagraSearchParameters();
 
-    try (var resourcesAccessor = resources.access()) {
+    // Hold a reference to the filter for the whole device operation so a concurrent close() (e.g.
+    // eviction from a host-level cache) cannot free its device allocation while it is still in use.
+    // Released after the resources block, once the search and its stream sync have completed.
+    try (var filterRef = acquireFilterRef(filter);
+        var resourcesAccessor = resources.access()) {
       long cuvsRes = resourcesAccessor.handle();
       var cuvsStream = getStream(cuvsRes);
 
