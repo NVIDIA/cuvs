@@ -84,8 +84,8 @@ def fit(
     Memory pools are not enabled automatically because they replace the
     process-wide RMM resource on each managed device.
 
-    Set ``params.streaming_batch_prefetch=True`` to overlap H2D transfer with
-    computation. This allocates a second device batch buffer on every rank;
+    Set ``params.device_buffer_prefetch=True`` to overlap transfers from host
+    to device with computation. This allocates a second device batch buffer on every rank;
     the default single-buffered path minimizes device-memory usage.
     """
 
@@ -162,9 +162,9 @@ def fit(
     params_v2.batch_centroids = params.params.batch_centroids
     params_v2.hierarchical = params.params.hierarchical
     params_v2.hierarchical_n_iters = params.params.hierarchical_n_iters
-    params_v2.streaming_batch_size = params.params.streaming_batch_size
+    params_v2.device_buffer_batch_size = params.params.streaming_batch_size
     params_v2.init_size = params.params.init_size
-    params_v2.streaming_batch_prefetch = params._streaming_batch_prefetch
+    params_v2.device_buffer_prefetch = params._device_buffer_prefetch
 
     with cuda_interruptible():
         check_cuvs(cuvsMultiGpuKMeansFit(

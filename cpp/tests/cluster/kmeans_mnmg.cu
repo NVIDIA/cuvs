@@ -278,7 +278,7 @@ struct KmeansMGNcclInputs {
   int n_clusters;
   T tol;
   kmeans_weight_mode weight_mode;
-  int64_t streaming_batch_size;
+  int64_t device_buffer_batch_size;
   int n_init;
   int partitions_per_rank;
   cuvs::cluster::kmeans::params::InitMethod init = cuvs::cluster::kmeans::params::Array;
@@ -359,13 +359,13 @@ class KmeansMGNcclTest : public ::testing::TestWithParam<KmeansMGNcclInputs<T>> 
     }
 
     cuvs::cluster::kmeans::params kp;
-    kp.n_clusters           = n_clusters;
-    kp.tol                  = testparams_.tol;
-    kp.max_iter             = testparams_.max_iter;
-    kp.n_init               = testparams_.n_init;
-    kp.rng_state.seed       = 42;
-    kp.init                 = testparams_.init;
-    kp.streaming_batch_size = testparams_.streaming_batch_size;
+    kp.n_clusters               = n_clusters;
+    kp.tol                      = testparams_.tol;
+    kp.max_iter                 = testparams_.max_iter;
+    kp.n_init                   = testparams_.n_init;
+    kp.rng_state.seed           = 42;
+    kp.init                     = testparams_.init;
+    kp.device_buffer_batch_size = testparams_.device_buffer_batch_size;
 
     std::vector<T> h_mg_centroids;
     T mg_inertia      = T{0};
@@ -414,13 +414,13 @@ class KmeansMGNcclTest : public ::testing::TestWithParam<KmeansMGNcclInputs<T>> 
     }
 
     cuvs::cluster::kmeans::params skp;
-    skp.n_clusters           = n_clusters;
-    skp.tol                  = testparams_.tol;
-    skp.max_iter             = testparams_.max_iter;
-    skp.n_init               = testparams_.n_init;
-    skp.rng_state.seed       = 42;
-    skp.init                 = testparams_.init;
-    skp.streaming_batch_size = testparams_.streaming_batch_size;
+    skp.n_clusters               = n_clusters;
+    skp.tol                      = testparams_.tol;
+    skp.max_iter                 = testparams_.max_iter;
+    skp.n_init                   = testparams_.n_init;
+    skp.rng_state.seed           = 42;
+    skp.init                     = testparams_.init;
+    skp.device_buffer_batch_size = testparams_.device_buffer_batch_size;
 
     T sg_inertia  = T{0};
     int sg_n_iter = 0;
@@ -521,7 +521,7 @@ class KmeansMGNcclTest : public ::testing::TestWithParam<KmeansMGNcclInputs<T>> 
 // NCCL float test inputs
 // ============================================================================
 const std::vector<KmeansMGNcclInputs<float>> mg_nccl_inputsf = {
-  // n_row, n_col, n_clusters, tol, weight_mode, streaming_batch_size, n_init,
+  // n_row, n_col, n_clusters, tol, weight_mode, device_buffer_batch_size, n_init,
   // partitions_per_rank[, init[, max_iter]]
   {1000, 32, 5, 0.0001f, kmeans_weight_mode::none, 1000, 1, 1},
   {1000, 32, 5, 0.0001f, kmeans_weight_mode::none, 1000, 1, 2},
@@ -706,14 +706,14 @@ class KmeansMGOversamplingTest : public ::testing::Test {
                double oversampling_factor = 1.0)
   {
     cuvs::cluster::kmeans::params kp;
-    kp.n_clusters           = n_clusters;
-    kp.tol                  = T(1e-4);
-    kp.max_iter             = 30;
-    kp.n_init               = 1;
-    kp.rng_state.seed       = 42;
-    kp.init                 = cuvs::cluster::kmeans::params::KMeansPlusPlus;
-    kp.streaming_batch_size = n_samples;
-    kp.oversampling_factor  = oversampling_factor;
+    kp.n_clusters               = n_clusters;
+    kp.tol                      = T(1e-4);
+    kp.max_iter                 = 30;
+    kp.n_init                   = 1;
+    kp.rng_state.seed           = 42;
+    kp.init                     = cuvs::cluster::kmeans::params::KMeansPlusPlus;
+    kp.device_buffer_batch_size = n_samples;
+    kp.oversampling_factor      = oversampling_factor;
 
     std::vector<T> h_centroids;
     const int actual_threads = run_mg_fit_omp<T>(device_ids_,

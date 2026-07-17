@@ -188,10 +188,10 @@ struct cuvsKMeansParams {
   int hierarchical_n_iters;
 
   /**
-   * Number of samples to process per GPU batch for the batched (host-data) API.
-   * When set to 0, defaults to n_samples (process all at once).
+   * Number of host-resident samples to stage in a device buffer. When set to 0,
+   * defaults to n_samples (process all at once).
    */
-  int64_t streaming_batch_size;
+  int64_t device_buffer_batch_size;
 
   /**
    * Number of samples to draw for KMeansPlusPlus initialization.
@@ -201,10 +201,12 @@ struct cuvsKMeansParams {
   int64_t init_size;
 
   /**
-   * Whether host-resident multi-GPU KMeans should prefetch the next streaming
-   * batch using a second device buffer. Ignored by other KMeans paths.
+   * Prefetches the next device buffer asynchronously while the current buffer
+   * is processed, hiding data-transfer latency for host-resident, multi-GPU
+   * KMeans. This overlaps transfers from host to device with computation using a
+   * second device batch buffer on each rank. Ignored by other KMeans paths.
    */
-  bool streaming_batch_prefetch;
+  bool device_buffer_prefetch;
 };
 
 typedef struct cuvsKMeansParams* cuvsKMeansParams_t;
