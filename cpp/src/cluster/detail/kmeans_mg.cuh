@@ -367,7 +367,25 @@ void mnmg_fit(
   };
   auto rank_centroids_const = raft::make_const_mdspan(rank_centroids);
 
+  // Persist one-partition input across Lloyd iterations and inertia. Multi-partition inputs keep
+  // the bounded-memory transient path.
+  const bool persist_data_batches = X_parts.size() == 1 && X_parts.front().extent(0) > 0;
+  std::optional<data_batch_iterator_t> persistent_data_batches;
+  auto make_data_batches = [&](const data_part_view_t& X_part) -> data_batch_iterator_t {
+    return persistent_data_batches
+             ? *persistent_data_batches
+             : data_batch_iterator_t(dev_res,
+                                     X_part,
+                                     static_cast<size_t>(streaming_batch_size),
+                                     data_copy_stream,
+                                     rmm::mr::get_current_device_resource_ref(),
+                                     enable_data_prefetch);
+  };
+
   for (int seed_iter = 0; seed_iter < n_init; ++seed_iter) {
+    // Free the persistent batch during initialization, then retain it for Lloyd and inertia.
+    persistent_data_batches.reset();
+
     cuvs::cluster::kmeans::params iter_params = params;
     iter_params.rng_state.seed                = gen();
 
@@ -386,6 +404,15 @@ void mnmg_fit(
                                                            global_n,
                                                            rank,
                                                            comms);
+
+    if (persist_data_batches) {
+      persistent_data_batches.emplace(dev_res,
+                                      X_parts.front(),
+                                      static_cast<size_t>(streaming_batch_size),
+                                      data_copy_stream,
+                                      rmm::mr::get_current_device_resource_ref(),
+                                      enable_data_prefetch);
+    }
 
     if (!sample_weights) { raft::matrix::fill(dev_res, batch_weights.view(), DataT{1}); }
 
@@ -415,14 +442,9 @@ void mnmg_fit(
         auto part_rows     = static_cast<IndexT>(X_part.extent(0));
         if (part_rows == 0) { continue; }
 
-        data_batch_iterator_t data_batches(dev_res,
-                                           X_part,
-                                           static_cast<size_t>(streaming_batch_size),
-                                           data_copy_stream,
-                                           rmm::mr::get_current_device_resource_ref(),
-                                           enable_data_prefetch);
-        auto data_it  = data_batches.begin();
-        auto data_end = data_batches.end();
+        auto data_batches = make_data_batches(X_part);
+        auto data_it      = data_batches.begin();
+        auto data_end     = data_batches.end();
         data_batches.prefetch_next_batch();
 
         for (; data_it != data_end; ++data_it) {
@@ -549,14 +571,9 @@ void mnmg_fit(
       auto part_rows     = static_cast<IndexT>(X_part.extent(0));
       if (part_rows == 0) { continue; }
 
-      data_batch_iterator_t data_batches(dev_res,
-                                         X_part,
-                                         static_cast<size_t>(streaming_batch_size),
-                                         data_copy_stream,
-                                         rmm::mr::get_current_device_resource_ref(),
-                                         enable_data_prefetch);
-      auto data_it  = data_batches.begin();
-      auto data_end = data_batches.end();
+      auto data_batches = make_data_batches(X_part);
+      auto data_it      = data_batches.begin();
+      auto data_end     = data_batches.end();
       data_batches.prefetch_next_batch();
 
       for (; data_it != data_end; ++data_it) {
