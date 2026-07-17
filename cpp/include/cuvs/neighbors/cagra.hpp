@@ -696,10 +696,18 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
       auto v = raft::make_device_matrix_view<const T, int64_t>(
         static_cast<const T*>(nullptr), int64_t{0}, dim_);
       dataset_ = DatasetViewT(v, dim_);
+    } else if constexpr (cuvs::neighbors::is_device_standard_dataset_view_v<DatasetViewT>) {
+      auto v = raft::make_device_matrix_view<const T, int64_t>(
+        static_cast<const T*>(nullptr), int64_t{0}, dim_);
+      dataset_ = DatasetViewT(v);
     } else if constexpr (cuvs::neighbors::is_host_padded_dataset_view_v<DatasetViewT>) {
       auto v = raft::make_host_matrix_view<const T, int64_t>(
         static_cast<const T*>(nullptr), int64_t{0}, dim_);
       dataset_ = DatasetViewT(v, dim_);
+    } else if constexpr (cuvs::neighbors::is_host_standard_dataset_view_v<DatasetViewT>) {
+      auto v = raft::make_host_matrix_view<const T, int64_t>(
+        static_cast<const T*>(nullptr), int64_t{0}, dim_);
+      dataset_ = DatasetViewT(v);
     } else if constexpr (cuvs::neighbors::is_empty_dataset_view_v<DatasetViewT>) {
       dataset_ = DatasetViewT{dim_};
     } else {

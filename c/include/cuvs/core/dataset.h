@@ -109,6 +109,18 @@ CUVS_EXPORT cuvsError_t cuvsDatasetMakeDevicePaddedView(cuvsResources_t res,
                                                         DLManagedTensor* dataset,
                                                         cuvsDatasetPaddedView_t* padded_dataset);
 
+/**
+ * @brief Create a non-owning device padded view handle from an owning device padded dataset.
+ *
+ * This is useful when APIs require a padded view handle (e.g. attach-for-search), while callers
+ * keep ownership in a padded dataset handle created by `cuvsDatasetMakeDevicePadded`.
+ *
+ * @param[in] padded_dataset owning device padded dataset handle
+ * @param[out] padded_view output padded view handle
+ */
+CUVS_EXPORT cuvsError_t cuvsDatasetMakeViewFromOwningPadded(
+  cuvsDatasetPadded_t padded_dataset, cuvsDatasetPaddedView_t* padded_view);
+
 CUVS_EXPORT cuvsError_t cuvsDatasetMakeHostPaddedView(cuvsResources_t res,
                                                       DLManagedTensor* dataset,
                                                       cuvsDatasetPaddedView_t* padded_dataset);

@@ -360,6 +360,28 @@ static void make_device_padded_dataset_view(raft::resources* res_ptr,
 }
 
 template <typename T>
+static void make_view_from_owning_padded(cuvsDatasetPadded_t padded_dataset,
+                                         cuvsDatasetPaddedView_t* output_padded_view)
+{
+  RAFT_EXPECTS(padded_dataset != nullptr,
+               "cuvsDatasetMakeViewFromOwningPadded: null padded dataset");
+  RAFT_EXPECTS(padded_dataset->addr != 0,
+               "cuvsDatasetMakeViewFromOwningPadded: null padded dataset storage");
+
+  auto* owner =
+    reinterpret_cast<cuvs::neighbors::device_padded_dataset<T, int64_t>*>(padded_dataset->addr);
+  auto ds_view = owner->as_dataset_view();
+
+  auto* ds_view_holder = new decltype(ds_view){ds_view};
+  auto* out            = new cuvsDatasetPaddedView{reinterpret_cast<uintptr_t>(ds_view_holder),
+                                         &destroy_typed_addr<decltype(ds_view)>,
+                                         CUVS_DATASET_VIEW_KIND_DEVICE_PADDED,
+                                         padded_dataset->dtype,
+                                         CUVS_DATASET_LAYOUT_PADDED};
+  *output_padded_view = out;
+}
+
+template <typename T>
 static void make_host_padded_dataset_view(raft::resources*,
                                           DLManagedTensor* dataset_tensor,
                                           cuvsDatasetPaddedView_t* output_padded_dataset)
@@ -1382,6 +1404,31 @@ extern "C" cuvsError_t cuvsDatasetMakeHostPaddedView(cuvsResources_t res,
       RAFT_FAIL("Unsupported dataset DLtensor dtype: %d and bits: %d",
                 dataset.dtype.code,
                 dataset.dtype.bits);
+    }
+  });
+}
+
+extern "C" cuvsError_t cuvsDatasetMakeViewFromOwningPadded(
+  cuvsDatasetPadded_t padded_dataset, cuvsDatasetPaddedView_t* padded_view)
+{
+  return cuvs::core::translate_exceptions([=] {
+    RAFT_EXPECTS(padded_dataset != nullptr,
+                 "cuvsDatasetMakeViewFromOwningPadded: null padded dataset");
+    RAFT_EXPECTS(padded_view != nullptr,
+                 "cuvsDatasetMakeViewFromOwningPadded: null output padded view");
+    RAFT_EXPECTS(padded_dataset->layout == CUVS_DATASET_LAYOUT_PADDED,
+                 "cuvsDatasetMakeViewFromOwningPadded: input dataset must be padded");
+    auto dtype = padded_dataset->dtype;
+    if (dtype.code == kDLFloat && dtype.bits == 32) {
+      make_view_from_owning_padded<float>(padded_dataset, padded_view);
+    } else if (dtype.code == kDLFloat && dtype.bits == 16) {
+      make_view_from_owning_padded<half>(padded_dataset, padded_view);
+    } else if (dtype.code == kDLInt && dtype.bits == 8) {
+      make_view_from_owning_padded<int8_t>(padded_dataset, padded_view);
+    } else if (dtype.code == kDLUInt && dtype.bits == 8) {
+      make_view_from_owning_padded<uint8_t>(padded_dataset, padded_view);
+    } else {
+      RAFT_FAIL("Unsupported dataset dtype: code=%d, bits=%d", dtype.code, dtype.bits);
     }
   });
 }

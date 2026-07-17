@@ -280,6 +280,14 @@ pub enum cuvsDatasetLayout_t {
     CUVS_DATASET_LAYOUT_STANDARD = 0,
     CUVS_DATASET_LAYOUT_PADDED = 1,
 }
+#[repr(u32)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub enum cuvsDatasetViewKind_t {
+    CUVS_DATASET_VIEW_KIND_DEVICE_PADDED = 0,
+    CUVS_DATASET_VIEW_KIND_HOST_PADDED = 1,
+    CUVS_DATASET_VIEW_KIND_DEVICE_STANDARD = 2,
+    CUVS_DATASET_VIEW_KIND_HOST_STANDARD = 3,
+}
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsDatasetPadded {
@@ -303,14 +311,6 @@ const _: () = {
         [::std::mem::offset_of!(cuvsDatasetPadded, layout) - 20usize];
 };
 pub type cuvsDatasetPadded_t = *mut cuvsDatasetPadded;
-#[repr(u32)]
-#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
-pub enum cuvsDatasetViewKind_t {
-    CUVS_DATASET_VIEW_KIND_DEVICE_PADDED = 0,
-    CUVS_DATASET_VIEW_KIND_HOST_PADDED = 1,
-    CUVS_DATASET_VIEW_KIND_DEVICE_STANDARD = 2,
-    CUVS_DATASET_VIEW_KIND_HOST_STANDARD = 3,
-}
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsDatasetPaddedView {
@@ -521,7 +521,6 @@ pub struct cuvsKMeansParams {
     pub oversampling_factor: f64,
     pub batch_samples: ::std::os::raw::c_int,
     pub batch_centroids: ::std::os::raw::c_int,
-    pub inertia_check: bool,
     pub hierarchical: bool,
     pub hierarchical_n_iters: ::std::os::raw::c_int,
     pub streaming_batch_size: i64,
