@@ -566,12 +566,12 @@ CUVS_EXPORT cuvsError_t cuvsCagraIndexGetGraph(cuvsCagraIndex_t index, DLManaged
  * Caller retains ownership of \p padded_dataset and must keep it alive while \p index uses it.
  *
  * @param[in] res             cuvsResources_t opaque C handle
- * @param[in] padded_dataset  padded dataset handle created by \ref cuvsDatasetMakePadded
+ * @param[in] padded_dataset  padded dataset view handle created by \ref cuvsDatasetMakePaddedView
  * @param[inout] index        CAGRA index handle
  * @return cuvsError_t
  */
 CUVS_EXPORT cuvsError_t cuvsCagraAttachPaddedDatasetForSearch(cuvsResources_t res,
-                                                              cuvsDatasetPadded_t padded_dataset,
+                                                              cuvsDatasetPaddedView_t padded_dataset,
                                                               cuvsCagraIndex_t index);
 
 /**

@@ -549,8 +549,9 @@ TEST(CagraC, BuildMergeSearch)
   merged_dataset_tensor.dl_tensor.shape              = merged_shape;
   merged_dataset_tensor.dl_tensor.strides            = nullptr;
 
-  cuvsDatasetPadded_t padded_dataset = nullptr;
-  ASSERT_EQ(cuvsDatasetMakePadded(res, &merged_dataset_tensor, &padded_dataset), CUVS_SUCCESS);
+  cuvsDatasetPaddedView_t padded_dataset = nullptr;
+  ASSERT_EQ(cuvsDatasetMakeDevicePaddedView(res, &merged_dataset_tensor, &padded_dataset),
+            CUVS_SUCCESS);
   ASSERT_EQ(cuvsCagraAttachPaddedDatasetForSearch(res, padded_dataset, index_merged), CUVS_SUCCESS);
 
   int64_t merged_dim = -1;
