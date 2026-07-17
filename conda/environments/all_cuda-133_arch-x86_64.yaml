@@ -27,9 +27,9 @@ dependencies:
 - libcurand-dev
 - libcusolver-dev
 - libcusparse-dev
-- libkvikio==26.8.*,>=0.0.0a0
+- libkvikio==26.10.*,>=0.0.0a0
 - libnvjitlink-dev
-- librmm==26.8.*,>=0.0.0a0
+- librmm==26.10.*,>=0.0.0a0
 - make
 - nccl>=2.19
 - ninja
@@ -37,7 +37,7 @@ dependencies:
 - numpy>=2.0,<3.0
 - openblas
 - pre-commit
-- pylibraft==26.8.*,>=0.0.0a0
+- pylibraft==26.10.*,>=0.0.0a0
 - pytest
 - pytest-cov
 - rapids-build-backend>=0.4.0,<0.5.0
