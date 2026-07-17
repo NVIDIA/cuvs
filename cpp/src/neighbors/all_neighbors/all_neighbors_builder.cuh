@@ -685,10 +685,13 @@ struct all_neighbors_builder_brute_force : public all_neighbors_builder<T, IdxT>
         cuvs::distance::is_min_close(bf_params.build_params.metric));
     } else {  // full build: write directly to the device output in the sink
       const auto& direct = std::get<typename global_graph_view<T, IdxT>::direct_t>(global.dest);
-      auto distances_view =
+      auto tmp_distances =
         direct.second.has_value()
-          ? direct.second.value()
-          : raft::make_device_matrix<T, IdxT>(this->res, dataset.extent(0), this->k).view();
+          ? std::optional<raft::device_matrix<T, IdxT>>{std::nullopt}
+          : std::optional<raft::device_matrix<T, IdxT>>{
+              raft::make_device_matrix<T, IdxT>(this->res, dataset.extent(0), this->k)};
+      auto distances_view =
+        direct.second.has_value() ? direct.second.value() : tmp_distances.value().view();
       if constexpr (std::is_same_v<DistEpilogueT, raft::identity_op>) {
         auto idx = cuvs::neighbors::brute_force::build(this->res, bf_params.build_params, dataset);
 
