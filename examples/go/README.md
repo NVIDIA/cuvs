@@ -24,7 +24,7 @@ export CC=clang
 
 2. Install the Go module:
 ```bash
-go get github.com/rapidsai/cuvs/go@v26.08.00 # 25.02.00 being your desired version, selected from https://github.com/rapidsai/cuvs/tags
+go get github.com/rapidsai/cuvs/go@v26.10.00 # 25.02.00 being your desired version, selected from https://github.com/rapidsai/cuvs/tags
 ```
 Then you can build your project with the usual `go build`.
 
