@@ -80,8 +80,8 @@ RAFT_KERNEL merge_subgraphs_kernel(IdxT* cluster_data_indices,
           threadKeyValuePair[i].key   = std::numeric_limits<float>::max();
           threadKeyValuePair[i].value = std::numeric_limits<IdxT>::max();
         } else {
-          threadKeyValuePair[i].key   = std::numeric_limits<float>::min();
-          threadKeyValuePair[i].value = std::numeric_limits<IdxT>::min();
+          threadKeyValuePair[i].key   = std::numeric_limits<float>::lowest();
+          threadKeyValuePair[i].value = std::numeric_limits<IdxT>::lowest();
         }
       }
     }

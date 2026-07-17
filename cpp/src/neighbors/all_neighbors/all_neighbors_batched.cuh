@@ -44,9 +44,9 @@ void reset_global_matrices(raft::resources const& res,
 
   bool select_min = cuvs::distance::is_min_close(metric);
   IdxT global_neighbors_fill_value =
-    select_min ? std::numeric_limits<IdxT>::max() : std::numeric_limits<IdxT>::min();
+    select_min ? std::numeric_limits<IdxT>::max() : std::numeric_limits<IdxT>::lowest();
   T global_distances_fill_value =
-    select_min ? std::numeric_limits<T>::max() : std::numeric_limits<T>::min();
+    select_min ? std::numeric_limits<T>::max() : std::numeric_limits<T>::lowest();
 
   if constexpr (std::is_same_v<NbrView, raft::host_matrix_view<IdxT, IdxT, row_major>>) {
     std::fill(global_neighbors.data_handle(),
