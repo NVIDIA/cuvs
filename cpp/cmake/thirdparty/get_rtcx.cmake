@@ -13,6 +13,9 @@ function(find_and_configure_rtcx VERSION)
   # install(EXPORT) validation. In static builds consumers need to link librtcx.a directly.
   set(RTCX_INSTALL ON)
 
+  include("${rapids-cmake-dir}/cmake/default_install_component.cmake")
+  rapids_cmake_default_install_component(DEFAULT_USE_PROJECT_NAME)
+
   rapids_cpm_find(
     rtcx ${VERSION}
     GLOBAL_TARGETS rtcx::rtcx
@@ -20,9 +23,8 @@ function(find_and_configure_rtcx VERSION)
     INSTALL_EXPORT_SET  cuvs-exports
     CPM_ARGS
     GIT_REPOSITORY https://github.com/arhag23/librtcx.git
-    GIT_TAG 9100b080dd3182614c1f85590b7c637bfdaa6483
+    GIT_TAG edba294a388b69cb0f6006669fb7449d84116ac5
     GIT_SHALLOW FALSE
-    EXCLUDE_FROM_ALL TRUE
   )
 
   # When CPM fetches from source (add_subdirectory), embed.cmake is not auto-included. Include it
