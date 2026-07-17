@@ -139,25 +139,25 @@ def fit(
 
     cdef double inertia = 0
     cdef int n_iter = 0
-    cdef cuvsKMeansParams params
-    params.metric = params.params.metric
-    params.n_clusters = params.params.n_clusters
-    params.init = params.params.init
-    params.max_iter = params.params.max_iter
-    params.tol = params.params.tol
-    params.n_init = params.params.n_init
-    params.oversampling_factor = params.params.oversampling_factor
-    params.batch_samples = params.params.batch_samples
-    params.batch_centroids = params.params.batch_centroids
-    params.hierarchical = params.params.hierarchical
-    params.hierarchical_n_iters = params.params.hierarchical_n_iters
-    params.streaming_batch_size = params.params.streaming_batch_size
-    params.init_size = params.params.init_size
+    cdef cuvsKMeansParams params_c
+    params_c.metric = params.params.metric
+    params_c.n_clusters = params.params.n_clusters
+    params_c.init = params.params.init
+    params_c.max_iter = params.params.max_iter
+    params_c.tol = params.params.tol
+    params_c.n_init = params.params.n_init
+    params_c.oversampling_factor = params.params.oversampling_factor
+    params_c.batch_samples = params.params.batch_samples
+    params_c.batch_centroids = params.params.batch_centroids
+    params_c.hierarchical = params.params.hierarchical
+    params_c.hierarchical_n_iters = params.params.hierarchical_n_iters
+    params_c.streaming_batch_size = params.params.streaming_batch_size
+    params_c.init_size = params.params.init_size
 
     with cuda_interruptible():
         check_cuvs(cuvsMultiGpuKMeansFit(
             res,
-            &params,
+            &params_c,
             x_dlpack,
             sample_weight_dlpack,
             centroids_dlpack,
