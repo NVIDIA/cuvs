@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -54,7 +54,10 @@ TEST(CagraHnswC, BuildSearch)
   // build index
   cuvsCagraIndexParams_t build_params;
   cuvsCagraIndexParamsCreate(&build_params);
-  cuvsCagraBuild(res, build_params, &dataset_tensor, index);
+  cuvsDatasetStandardView_t dataset_view;
+  cuvsDatasetMakeHostStandardView(res, &dataset_tensor, &dataset_view);
+  cuvsCagraBuildHostStandard(res, build_params, dataset_view, index);
+  cuvsDatasetStandardViewDestroy(dataset_view);
   cuvsCagraSerializeToHnswlib(res, "/tmp/cagra_hnswlib.index", index);
 
   DLManagedTensor queries_tensor;

@@ -490,18 +490,34 @@ def build(IndexParams index_params, dataset, resources=None):
     cdef cydlpack.DLManagedTensor* dataset_dlpack = \
         cydlpack.dlpack_c(dataset_ai)
     cdef cuvsCagraIndexParams* params = index_params.params
+    cdef cuvsDatasetPaddedView_t padded_view = NULL
+    cdef cuvsDatasetStandardView_t standard_view = NULL
+    cdef cuvsDatasetViewKind_t view_kind
 
     cdef cuvsResources_t res = <cuvsResources_t>resources.get_c_obj()
 
     with cuda_interruptible():
-        check_cuvs(cuvsCagraBuild(
-            res,
-            params,
-            dataset_dlpack,
-            idx.index
-        ))
-        idx.trained = True
-        idx.active_index_type = dataset_ai.dtype.name
+        try:
+            check_cuvs(cuvsCagraGetDatasetViewKind(dataset_dlpack, &view_kind))
+            if view_kind == CUVS_DATASET_VIEW_KIND_DEVICE_PADDED:
+                check_cuvs(cuvsDatasetMakeDevicePaddedView(res, dataset_dlpack, &padded_view))
+                check_cuvs(cuvsCagraBuildDevicePadded(res, params, padded_view, idx.index))
+            elif view_kind == CUVS_DATASET_VIEW_KIND_DEVICE_STANDARD:
+                check_cuvs(cuvsDatasetMakeDeviceStandardView(res, dataset_dlpack, &standard_view))
+                check_cuvs(cuvsCagraBuildDeviceStandard(res, params, standard_view, idx.index))
+            elif view_kind == CUVS_DATASET_VIEW_KIND_HOST_PADDED:
+                check_cuvs(cuvsDatasetMakeHostPaddedView(res, dataset_dlpack, &padded_view))
+                check_cuvs(cuvsCagraBuildHostPadded(res, params, padded_view, idx.index))
+            else:
+                check_cuvs(cuvsDatasetMakeHostStandardView(res, dataset_dlpack, &standard_view))
+                check_cuvs(cuvsCagraBuildHostStandard(res, params, standard_view, idx.index))
+            idx.trained = True
+            idx.active_index_type = dataset_ai.dtype.name
+        finally:
+            if padded_view != NULL:
+                cuvsDatasetPaddedViewDestroy(padded_view)
+            if standard_view != NULL:
+                cuvsDatasetStandardViewDestroy(standard_view)
 
     return idx
 

@@ -417,6 +417,13 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
+    pub fn cuvsDatasetMakeViewFromOwningPadded(
+        padded_dataset: cuvsDatasetPadded_t,
+        padded_view: *mut cuvsDatasetPaddedView_t,
+    ) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
     pub fn cuvsDatasetMakeHostPaddedView(
         res: cuvsResources_t,
         dataset: *mut DLManagedTensor,
@@ -557,56 +564,7 @@ const _: () = {
     ["Offset of field: cuvsKMeansParams::init_size"]
         [::std::mem::offset_of!(cuvsKMeansParams, init_size) - 64usize];
 };
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct cuvsKMeansParams_v2 {
-    pub metric: cuvsDistanceType,
-    pub n_clusters: ::std::os::raw::c_int,
-    pub init: cuvsKMeansInitMethod,
-    pub max_iter: ::std::os::raw::c_int,
-    pub tol: f64,
-    pub n_init: ::std::os::raw::c_int,
-    pub oversampling_factor: f64,
-    pub batch_samples: ::std::os::raw::c_int,
-    pub batch_centroids: ::std::os::raw::c_int,
-    pub hierarchical: bool,
-    pub hierarchical_n_iters: ::std::os::raw::c_int,
-    pub streaming_batch_size: i64,
-    pub init_size: i64,
-}
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    ["Size of cuvsKMeansParams_v2"][::std::mem::size_of::<cuvsKMeansParams_v2>() - 72usize];
-    ["Alignment of cuvsKMeansParams_v2"][::std::mem::align_of::<cuvsKMeansParams_v2>() - 8usize];
-    ["Offset of field: cuvsKMeansParams_v2::metric"]
-        [::std::mem::offset_of!(cuvsKMeansParams_v2, metric) - 0usize];
-    ["Offset of field: cuvsKMeansParams_v2::n_clusters"]
-        [::std::mem::offset_of!(cuvsKMeansParams_v2, n_clusters) - 4usize];
-    ["Offset of field: cuvsKMeansParams_v2::init"]
-        [::std::mem::offset_of!(cuvsKMeansParams_v2, init) - 8usize];
-    ["Offset of field: cuvsKMeansParams_v2::max_iter"]
-        [::std::mem::offset_of!(cuvsKMeansParams_v2, max_iter) - 12usize];
-    ["Offset of field: cuvsKMeansParams_v2::tol"]
-        [::std::mem::offset_of!(cuvsKMeansParams_v2, tol) - 16usize];
-    ["Offset of field: cuvsKMeansParams_v2::n_init"]
-        [::std::mem::offset_of!(cuvsKMeansParams_v2, n_init) - 24usize];
-    ["Offset of field: cuvsKMeansParams_v2::oversampling_factor"]
-        [::std::mem::offset_of!(cuvsKMeansParams_v2, oversampling_factor) - 32usize];
-    ["Offset of field: cuvsKMeansParams_v2::batch_samples"]
-        [::std::mem::offset_of!(cuvsKMeansParams_v2, batch_samples) - 40usize];
-    ["Offset of field: cuvsKMeansParams_v2::batch_centroids"]
-        [::std::mem::offset_of!(cuvsKMeansParams_v2, batch_centroids) - 44usize];
-    ["Offset of field: cuvsKMeansParams_v2::hierarchical"]
-        [::std::mem::offset_of!(cuvsKMeansParams_v2, hierarchical) - 48usize];
-    ["Offset of field: cuvsKMeansParams_v2::hierarchical_n_iters"]
-        [::std::mem::offset_of!(cuvsKMeansParams_v2, hierarchical_n_iters) - 52usize];
-    ["Offset of field: cuvsKMeansParams_v2::streaming_batch_size"]
-        [::std::mem::offset_of!(cuvsKMeansParams_v2, streaming_batch_size) - 56usize];
-    ["Offset of field: cuvsKMeansParams_v2::init_size"]
-        [::std::mem::offset_of!(cuvsKMeansParams_v2, init_size) - 64usize];
-};
 pub type cuvsKMeansParams_t = *mut cuvsKMeansParams;
-pub type cuvsKMeansParams_v2_t = *mut cuvsKMeansParams_v2;
 unsafe extern "C" {
     #[must_use]
     pub fn cuvsKMeansParamsCreate(params: *mut cuvsKMeansParams_t) -> cuvsError_t;
@@ -614,14 +572,6 @@ unsafe extern "C" {
 unsafe extern "C" {
     #[must_use]
     pub fn cuvsKMeansParamsDestroy(params: cuvsKMeansParams_t) -> cuvsError_t;
-}
-unsafe extern "C" {
-    #[must_use]
-    pub fn cuvsKMeansParamsCreate_v2(params: *mut cuvsKMeansParams_v2_t) -> cuvsError_t;
-}
-unsafe extern "C" {
-    #[must_use]
-    pub fn cuvsKMeansParamsDestroy_v2(params: cuvsKMeansParams_v2_t) -> cuvsError_t;
 }
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
@@ -643,34 +593,9 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    pub fn cuvsKMeansFit_v2(
-        res: cuvsResources_t,
-        params: cuvsKMeansParams_v2_t,
-        X: *mut DLManagedTensor,
-        sample_weight: *mut DLManagedTensor,
-        centroids: *mut DLManagedTensor,
-        inertia: *mut f64,
-        n_iter: *mut ::std::os::raw::c_int,
-    ) -> cuvsError_t;
-}
-unsafe extern "C" {
-    #[must_use]
     pub fn cuvsKMeansPredict(
         res: cuvsResources_t,
         params: cuvsKMeansParams_t,
-        X: *mut DLManagedTensor,
-        sample_weight: *mut DLManagedTensor,
-        centroids: *mut DLManagedTensor,
-        labels: *mut DLManagedTensor,
-        normalize_weight: bool,
-        inertia: *mut f64,
-    ) -> cuvsError_t;
-}
-unsafe extern "C" {
-    #[must_use]
-    pub fn cuvsKMeansPredict_v2(
-        res: cuvsResources_t,
-        params: cuvsKMeansParams_v2_t,
         X: *mut DLManagedTensor,
         sample_weight: *mut DLManagedTensor,
         centroids: *mut DLManagedTensor,
@@ -1538,10 +1463,44 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    pub fn cuvsCagraBuild(
+    pub fn cuvsCagraGetDatasetViewKind(
+        dataset: *mut DLManagedTensor,
+        kind: *mut cuvsDatasetViewKind_t,
+    ) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    pub fn cuvsCagraBuildDevicePadded(
         res: cuvsResources_t,
         params: cuvsCagraIndexParams_t,
-        dataset: *mut DLManagedTensor,
+        dataset_view: cuvsDatasetPaddedView_t,
+        index: cuvsCagraIndex_t,
+    ) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    pub fn cuvsCagraBuildDeviceStandard(
+        res: cuvsResources_t,
+        params: cuvsCagraIndexParams_t,
+        dataset_view: cuvsDatasetStandardView_t,
+        index: cuvsCagraIndex_t,
+    ) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    pub fn cuvsCagraBuildHostPadded(
+        res: cuvsResources_t,
+        params: cuvsCagraIndexParams_t,
+        dataset_view: cuvsDatasetPaddedView_t,
+        index: cuvsCagraIndex_t,
+    ) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    pub fn cuvsCagraBuildHostStandard(
+        res: cuvsResources_t,
+        params: cuvsCagraIndexParams_t,
+        dataset_view: cuvsDatasetStandardView_t,
         index: cuvsCagraIndex_t,
     ) -> cuvsError_t;
 }
@@ -2351,7 +2310,7 @@ unsafe extern "C" {
     #[must_use]
     pub fn cuvsMultiGpuKMeansFit(
         res: cuvsResources_t,
-        params: cuvsKMeansParams_v2_t,
+        params: cuvsKMeansParams_t,
         X: *mut DLManagedTensor,
         sample_weight: *mut DLManagedTensor,
         centroids: *mut DLManagedTensor,
