@@ -190,6 +190,50 @@ public class FilterBitsetHandleIT extends CuVSTestCase {
     }
   }
 
+  /**
+   * With fewer than {@code TOP_K} survivors, the multi-partition search cannot fill top-k, so the
+   * unfilled slots (marked with the FLT_MAX sentinel distance) must be dropped rather than leaked as
+   * their sentinel ordinals. Guards the distance-sentinel decode in {@code
+   * MultiPartitionCagraSearchImpl}: a leaked unfilled slot would decode to a sentinel ordinal
+   * (0x7FFFFFFF / 0xFFFFFFFF) and yield an out-of-range global id.
+   */
+  @Test
+  public void testHighSelectivityDropsUnfilledSlots() throws Throwable {
+    final int keepFrom = N_ROWS - 5; // keep only the last 5 rows -> fewer than TOP_K survivors
+
+    float[][] dataset = generateData(random, N_ROWS, DIM);
+    float[][] queries = generateData(random, NUM_QUERIES, DIM);
+    int[] partStart = partitionStarts();
+    long[] combinedLongs = keepAfterPrefix(keepFrom);
+
+    try (CuVSResources resources = CheckedCuVSResources.create()) {
+      List<CagraIndex> indices = buildPartitions(dataset, partStart, resources);
+      try (FilterBitsetHandle filter = FilterBitsetHandle.create(combinedLongs)) {
+        MultiPartitionSearchResults results =
+            searchOnce(resources, indices, queries, partStart, filter);
+
+        // Every result must be a real surviving row in [keepFrom, N_ROWS); an out-of-range global
+        // would mean a sentinel (unfilled) slot leaked instead of being dropped.
+        for (int i = 0; i < results.count(); i++) {
+          int global = partStart[results.getPartitionIndex(i)] + results.getOrdinal(i);
+          assertTrue(
+              "result " + global + " is not a surviving row in [" + keepFrom + ", " + N_ROWS + ")",
+              global >= keepFrom && global < N_ROWS);
+        }
+        // Fewer than TOP_K survivors -> top-k cannot be filled, so dropping the unfilled slots
+        // leaves strictly fewer than NUM_QUERIES * TOP_K results (they would total exactly that if
+        // sentinels leaked)...
+        assertTrue(
+            "expected unfilled slots to be dropped, but got " + results.count() + " results",
+            results.count() < NUM_QUERIES * TOP_K);
+        // ...while still finding at least one of the survivors.
+        assertTrue("expected at least one surviving row to be found", results.count() > 0);
+      } finally {
+        closeAll(indices);
+      }
+    }
+  }
+
   // --- helpers ---
 
   private List<Throwable> runConcurrentSearches(

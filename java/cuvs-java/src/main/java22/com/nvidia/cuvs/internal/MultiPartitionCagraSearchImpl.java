@@ -178,11 +178,16 @@ public final class MultiPartitionCagraSearchImpl {
           float[] selectedDistances = new float[total];
           int count = 0;
           for (int j = 0; j < total; j++) {
+            float distance = hostDistances.getAtIndex(ValueLayout.JAVA_FLOAT, j);
+            // Unfilled top-k slots (fewer than k candidates passed the filter) carry a sentinel
+            // distance of FLT_MAX. The sentinel neighbor index is not uniform across CAGRA search
+            // algorithms (single-CTA clears the top bit and emits 0x7FFFFFFF, multi-CTA emits
+            // 0xFFFFFFFF), so the distance is the reliable, algorithm-independent signal.
+            if (distance == Float.MAX_VALUE) continue;
+
             int neighbor = hostNeighbors.getAtIndex(ValueLayout.JAVA_INT, j);
             if (neighbor < 0) {
-              // Top bit set: either the uint32 sentinel for an unfilled top-k slot, or a valid
-              // ordinal >= 2^31 that does not fit in a signed int.
-              if (neighbor == 0xFFFFFFFF) continue;
+              // A valid ordinal >= 2^31 does not fit in a signed int.
               throw new ArithmeticException(
                   "ordinal "
                       + Integer.toUnsignedLong(neighbor)
@@ -191,7 +196,7 @@ public final class MultiPartitionCagraSearchImpl {
             }
             partitionIds[count] = hostPartitionIds.getAtIndex(ValueLayout.JAVA_INT, j);
             selectedNeighbors[count] = neighbor;
-            selectedDistances[count] = hostDistances.getAtIndex(ValueLayout.JAVA_FLOAT, j);
+            selectedDistances[count] = distance;
             count++;
           }
 
