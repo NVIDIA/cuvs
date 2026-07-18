@@ -11,6 +11,7 @@ import static com.nvidia.cuvs.internal.common.Util.cudaMemcpyAsync;
 import static com.nvidia.cuvs.internal.common.Util.getStream;
 import static com.nvidia.cuvs.internal.panama.headers_h.cuvsStreamSync;
 
+import com.nvidia.cuvs.CuVSResources;
 import com.nvidia.cuvs.FilterBitsetHandle;
 import com.nvidia.cuvs.internal.common.CloseableRMMAllocation;
 import java.lang.foreign.Arena;
@@ -48,6 +49,38 @@ public final class FilterBitsetHandleImpl implements FilterBitsetHandle {
       } catch (Exception ignored) {
       }
     }
+  }
+
+  // A process-lifetime resources that owns every filter bitset's device allocation.
+  //
+  // cuvsRMMAlloc/cuvsRMMFree route through the resources' per-resources workspace memory resource
+  // (raft::resource::get_workspace_resource_ref) and its CUDA stream. RMM requires deallocate() to
+  // run on the *same* memory resource that allocated the pointer, so the free must use the same
+  // resources that uploaded -- we cannot simply free against whatever resources happens to be valid
+  // (and callers configure per-resources workspace pools, so the workspace MRs are genuinely
+  // distinct). Binding the allocation to the short-lived per-query resources passed to search
+  // crashes: that resources can be torn down (e.g. on segment reader close) while a handle is still
+  // cached in the shared FilterBitsetCache, leaving the free with a dangling resources. A dedicated,
+  // never-closed resources keeps alloc and free on one always-valid workspace MR.
+  private static final Object FILTER_RESOURCES_LOCK = new Object();
+  private static volatile CuVSResources filterResources;
+
+  private static CuVSResources filterResources() {
+    CuVSResources r = filterResources;
+    if (r == null) {
+      synchronized (FILTER_RESOURCES_LOCK) {
+        r = filterResources;
+        if (r == null) {
+          try {
+            r = CuVSResources.create();
+          } catch (Throwable t) {
+            throw new RuntimeException("Failed to create resources for filter bitset device memory", t);
+          }
+          filterResources = r;
+        }
+      }
+    }
+    return r;
   }
 
   // Host-side immutable data.
@@ -91,11 +124,10 @@ public final class FilterBitsetHandleImpl implements FilterBitsetHandle {
 
   /**
    * Returns the shared device allocation for this filter, uploading on first call (lazy,
-   * thread-safe via double-checked locking).
-   *
-   * @param cuvsRes the native cuvsResources handle for the calling thread
+   * thread-safe via double-checked locking). The allocation is owned by {@link #filterResources()},
+   * not the caller's resources.
    */
-  DeviceData getOrUpload(long cuvsRes) {
+  DeviceData getOrUpload() {
     // Callers must hold a reference (tryIncRef) across this call and the subsequent device use, so
     // the allocation cannot be released underneath them; a zero count here means that contract was
     // violated.
@@ -107,29 +139,37 @@ public final class FilterBitsetHandleImpl implements FilterBitsetHandle {
     synchronized (uploadLock) {
       data = sharedDeviceData;
       if (data != null) return data;
-      data = upload(cuvsRes);
+      data = upload();
       sharedDeviceData = data; // volatile write: happens-before all subsequent reads
     }
     return data;
   }
 
-  private DeviceData upload(long cuvsRes) {
+  private DeviceData upload() {
     long combinedBitsetBytes = (long) combinedLongs.length * Long.BYTES;
-    CloseableRMMAllocation combinedBitsetDP = allocateRMMSegment(cuvsRes, combinedBitsetBytes);
+    // Serialize uploads: they share one resources (single stream/host-buffer) and are rare (once per
+    // distinct filter, on cache miss). The free path uses the captured resources handle directly and
+    // is RMM-thread-safe, so it needs no lock.
+    synchronized (FILTER_RESOURCES_LOCK) {
+      try (var access = filterResources().access()) {
+        long cuvsRes = access.handle();
+        CloseableRMMAllocation combinedBitsetDP = allocateRMMSegment(cuvsRes, combinedBitsetBytes);
 
-    var stream = getStream(cuvsRes);
-    // Host arena must outlive the stream sync that confirms the H2D copy.
-    try (var arena = Arena.ofConfined()) {
-      MemorySegment hostBitset = arena.allocate(combinedBitsetBytes, Long.BYTES);
-      MemorySegment.copy(
-          combinedLongs, 0, hostBitset, ValueLayout.JAVA_LONG, 0, combinedLongs.length);
-      cudaMemcpyAsync(
-          combinedBitsetDP.handle(), hostBitset, combinedBitsetBytes, HOST_TO_DEVICE, stream);
+        var stream = getStream(cuvsRes);
+        // Host arena must outlive the stream sync that confirms the H2D copy.
+        try (var arena = Arena.ofConfined()) {
+          MemorySegment hostBitset = arena.allocate(combinedBitsetBytes, Long.BYTES);
+          MemorySegment.copy(
+              combinedLongs, 0, hostBitset, ValueLayout.JAVA_LONG, 0, combinedLongs.length);
+          cudaMemcpyAsync(
+              combinedBitsetDP.handle(), hostBitset, combinedBitsetBytes, HOST_TO_DEVICE, stream);
 
-      checkCuVSError(cuvsStreamSync(cuvsRes), "cuvsStreamSync in FilterBitsetHandle.upload");
+          checkCuVSError(cuvsStreamSync(cuvsRes), "cuvsStreamSync in FilterBitsetHandle.upload");
+        }
+        // Stream sync has returned — device memory is fully populated. uint32 words = long count * 2.
+        return new DeviceData(combinedBitsetDP, (long) combinedLongs.length * 2);
+      }
     }
-    // Stream sync has returned — device memory is fully populated. uint32 words = long count * 2.
-    return new DeviceData(combinedBitsetDP, (long) combinedLongs.length * 2);
   }
 
   /** Releases the initial reference held since construction. Idempotent. */

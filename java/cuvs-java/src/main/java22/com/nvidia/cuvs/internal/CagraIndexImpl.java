@@ -408,6 +408,17 @@ public class CagraIndexImpl implements CagraIndex {
     }
   }
 
+  @Override
+  public long getGraphDegree() {
+    try (var localArena = Arena.ofConfined()) {
+      MemorySegment graphDegree = localArena.allocate(int64_t);
+      checkCuVSError(
+          cuvsCagraIndexGetGraphDegree(cagraIndexReference.getMemorySegment(), graphDegree),
+          "cuvsCagraIndexGetGraphDegree");
+      return graphDegree.get(int64_t, 0);
+    }
+  }
+
   private IndexReference fromGraph(
       CagraIndexParams.CuvsDistanceType metric,
       CuVSMatrixInternal graph,
