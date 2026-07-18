@@ -1,6 +1,18 @@
 [
   {
     "python_executable": "../../../../../../tileiras13.4/.venv/bin/python",
+    "_abi": [
+      {
+        "matrix_layout": "strict",
+        "abi_abbrev": "strict",
+        "abi_tag": "cutile_abi_strict"
+      },
+      {
+        "matrix_layout": "relaxed",
+        "abi_abbrev": "relaxed",
+        "abi_tag": "cutile_abi_relaxed"
+      }
+    ],
     "_data": [
       {
         "data_type": "half",
@@ -46,7 +58,17 @@
       {
         "output_format": "cubin",
         "artifact_ext": "cubin",
-        "artifact_basename": "@data_type@_@metric_abbrev@_@index_abbrev@_@gpu_code@",
+        "artifact_basename": "@data_type@_@metric_abbrev@_@index_abbrev@_@abi_abbrev@_@gpu_code@",
+        "register": "cubin",
+        "gpu_code": "sm_100",
+        "cc_major": 10,
+        "cc_minor": 0,
+        "arch_tag": "cutile_arch_10_0"
+      },
+      {
+        "output_format": "cubin",
+        "artifact_ext": "cubin",
+        "artifact_basename": "@data_type@_@metric_abbrev@_@index_abbrev@_@abi_abbrev@_@gpu_code@",
         "register": "cubin",
         "gpu_code": "sm_80",
         "cc_major": 8,
@@ -56,7 +78,7 @@
       {
         "output_format": "cubin",
         "artifact_ext": "cubin",
-        "artifact_basename": "@data_type@_@metric_abbrev@_@index_abbrev@_@gpu_code@",
+        "artifact_basename": "@data_type@_@metric_abbrev@_@index_abbrev@_@abi_abbrev@_@gpu_code@",
         "register": "cubin",
         "gpu_code": "sm_86",
         "cc_major": 8,
@@ -66,7 +88,7 @@
       {
         "output_format": "cubin",
         "artifact_ext": "cubin",
-        "artifact_basename": "@data_type@_@metric_abbrev@_@index_abbrev@_@gpu_code@",
+        "artifact_basename": "@data_type@_@metric_abbrev@_@index_abbrev@_@abi_abbrev@_@gpu_code@",
         "register": "cubin",
         "gpu_code": "sm_90",
         "cc_major": 9,
@@ -76,7 +98,7 @@
       {
         "output_format": "tileir_bytecode",
         "artifact_ext": "tilebc",
-        "artifact_basename": "@data_type@_@metric_abbrev@_@index_abbrev@",
+        "artifact_basename": "@data_type@_@metric_abbrev@_@index_abbrev@_@abi_abbrev@",
         "register": "tileir",
         "gpu_code": "sm_80",
         "bytecode_version": "13.1"
@@ -85,6 +107,18 @@
   },
   {
     "python_executable": "../../../../../../tileiras13.4/.venv/bin/python",
+    "_abi": [
+      {
+        "matrix_layout": "strict",
+        "abi_abbrev": "strict",
+        "abi_tag": "cutile_abi_strict"
+      },
+      {
+        "matrix_layout": "relaxed",
+        "abi_abbrev": "relaxed",
+        "abi_tag": "cutile_abi_relaxed"
+      }
+    ],
     "_data": [
       {
         "data_type": "half",
@@ -130,7 +164,7 @@
       {
         "output_format": "cubin",
         "artifact_ext": "cubin",
-        "artifact_basename": "@data_type@_@metric_abbrev@_@index_abbrev@_@gpu_code@",
+        "artifact_basename": "@data_type@_@metric_abbrev@_@index_abbrev@_@abi_abbrev@_@gpu_code@",
         "register": "cubin",
         "gpu_code": "sm_120",
         "cc_major": 12,

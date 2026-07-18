@@ -19,7 +19,7 @@ namespace detail {
 
 namespace {
 
-template <cuvs::distance::DistanceType Metric, typename DataT, typename IdxT>
+template <cuvs::distance::DistanceType Metric, typename DataT, typename IdxT, typename AbiTag>
 bool launch_fused_1nn_tile(IdxT* nearest_idx,
                            DataT* nearest_dist,
                            const DataT* x,
@@ -36,7 +36,7 @@ bool launch_fused_1nn_tile(IdxT* nearest_idx,
 
   if (nearest_dist == nullptr) { return false; }
 
-  Fused1nnTilePlanner<DataT, Metric, IdxT> planner;
+  Fused1nnTilePlanner<DataT, Metric, IdxT, AbiTag> planner;
   planner.add_entrypoint();
   planner.add_tileir_fallback();
   const CutileTileConfig tile_cfg = planner.tile_config();
@@ -139,7 +139,7 @@ bool launch_fused_1nn_tile(IdxT* nearest_idx,
   return true;
 }
 
-template <typename DataT, typename IdxT>
+template <typename AbiTag, typename DataT, typename IdxT>
 bool try_fused_1nn_tile_dispatch(IdxT* nearest_idx,
                                  DataT* nearest_dist,
                                  const DataT* x,
@@ -155,16 +155,22 @@ bool try_fused_1nn_tile_dispatch(IdxT* nearest_idx,
 {
   switch (metric) {
     case cuvs::distance::DistanceType::InnerProduct:
-      return launch_fused_1nn_tile<cuvs::distance::DistanceType::InnerProduct, DataT, IdxT>(
+      return launch_fused_1nn_tile<cuvs::distance::DistanceType::InnerProduct, DataT, IdxT, AbiTag>(
         nearest_idx, nearest_dist, x, y, xn, yn, m, n, k, is_sqrt, stream);
     case cuvs::distance::DistanceType::L2Expanded:
-      return launch_fused_1nn_tile<cuvs::distance::DistanceType::L2Expanded, DataT, IdxT>(
+      return launch_fused_1nn_tile<cuvs::distance::DistanceType::L2Expanded, DataT, IdxT, AbiTag>(
         nearest_idx, nearest_dist, x, y, xn, yn, m, n, k, is_sqrt, stream);
     case cuvs::distance::DistanceType::L2SqrtExpanded:
-      return launch_fused_1nn_tile<cuvs::distance::DistanceType::L2SqrtExpanded, DataT, IdxT>(
+      return launch_fused_1nn_tile<cuvs::distance::DistanceType::L2SqrtExpanded,
+                                   DataT,
+                                   IdxT,
+                                   AbiTag>(
         nearest_idx, nearest_dist, x, y, xn, yn, m, n, k, is_sqrt, stream);
     case cuvs::distance::DistanceType::CosineExpanded:
-      return launch_fused_1nn_tile<cuvs::distance::DistanceType::CosineExpanded, DataT, IdxT>(
+      return launch_fused_1nn_tile<cuvs::distance::DistanceType::CosineExpanded,
+                                   DataT,
+                                   IdxT,
+                                   AbiTag>(
         nearest_idx, nearest_dist, x, y, xn, yn, m, n, k, is_sqrt, stream);
     default: return false;
   }
@@ -188,7 +194,12 @@ bool try_fused_1nn_tile(IdxT* nearest_idx,
                         cudaStream_t stream)
 {
   if (!cuvs::detail::jit_lto::cutile_launch_available_on_current_device()) { return false; }
-  return try_fused_1nn_tile_dispatch<DataT, IdxT>(
+  constexpr IdxT tma_pitch_elements = IdxT{16 / sizeof(DataT)};
+  if (k % tma_pitch_elements == 0) {
+    return try_fused_1nn_tile_dispatch<cutile_abi_strict, DataT, IdxT>(
+      nearest_idx, nearest_dist, x, y, xn, yn, m, n, k, metric, is_sqrt, stream);
+  }
+  return try_fused_1nn_tile_dispatch<cutile_abi_relaxed, DataT, IdxT>(
     nearest_idx, nearest_dist, x, y, xn, yn, m, n, k, metric, is_sqrt, stream);
 }
 

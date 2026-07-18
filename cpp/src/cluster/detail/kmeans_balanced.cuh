@@ -279,6 +279,10 @@ auto calc_minibatch_size(const raft::resources& handle,
   const auto available_ws_size =
     std::min<size_t>((free_ws_size * size_t{8}) / size_t{10}, size_t{1} << 29);
 
+  // A fused implementation may require no per-row temporary workspace. In that case,
+  // process the complete input rather than dividing the available workspace by zero.
+  if (mem_per_row == 0) { return std::make_tuple(n_rows, mem_per_row); }
+
   IdxT minibatch_size = std::max<IdxT>(IdxT{1}, static_cast<IdxT>(available_ws_size / mem_per_row));
 
   minibatch_size = raft::round_down_safe<IdxT>(minibatch_size, IdxT{64});

@@ -980,9 +980,9 @@ if(NOT BUILD_CPU_ONLY)
     MATRIX_JSON_FILE
     "${fused_1nn_cutile_dir}/fused_1nn_cutile_matrix.json"
     FRAGMENT_TAG_FORMAT_CUBIN
-    "cuvs::distance::detail::fragment_tag_fused_1nn_cubin<cuvs::neighbors::detail::tag_@data_abbrev@, cuvs::distance::detail::metric_tag_@metric_abbrev@, cuvs::neighbors::detail::tag_index_@index_abbrev@, cuvs::distance::detail::cutile_tile_config<@tile_m@, @tile_n@, @tile_k@>, cuvs::detail::jit_lto::@arch_tag@>"
+    "cuvs::distance::detail::fragment_tag_fused_1nn_cubin<cuvs::neighbors::detail::tag_@data_abbrev@, cuvs::distance::detail::metric_tag_@metric_abbrev@, cuvs::neighbors::detail::tag_index_@index_abbrev@, cuvs::distance::detail::cutile_tile_config<@tile_m@, @tile_n@, @tile_k@>, cuvs::distance::detail::@abi_tag@, cuvs::detail::jit_lto::@arch_tag@>"
     FRAGMENT_TAG_FORMAT_TILEIR
-    "cuvs::distance::detail::fragment_tag_fused_1nn_tileir<cuvs::neighbors::detail::tag_@data_abbrev@, cuvs::distance::detail::metric_tag_@metric_abbrev@, cuvs::neighbors::detail::tag_index_@index_abbrev@, cuvs::distance::detail::cutile_tile_config<@tile_m@, @tile_n@, @tile_k@>>"
+    "cuvs::distance::detail::fragment_tag_fused_1nn_tileir<cuvs::neighbors::detail::tag_@data_abbrev@, cuvs::distance::detail::metric_tag_@metric_abbrev@, cuvs::neighbors::detail::tag_index_@index_abbrev@, cuvs::distance::detail::cutile_tile_config<@tile_m@, @tile_n@, @tile_k@>, cuvs::distance::detail::@abi_tag@>"
     FRAGMENT_TAG_HEADER_FILES
     "<cuvs/detail/jit_lto/fused_distance_nn/fused_1nn_fragments.hpp>"
     "<cuvs/detail/jit_lto/cutile_arch_tags.hpp>"

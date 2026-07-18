@@ -53,7 +53,12 @@ def _elem_stride_divisible_for_tma(elem_dtype) -> tuple[int, int]:
     return (16 // bytes_per_elem, 1)
 
 
-def _cuvs_matrix_constraint(elem_dtype, *, index_dtype=ct.int32):
+def _cuvs_matrix_constraint(
+    elem_dtype,
+    *,
+    index_dtype=ct.int32,
+    require_tma_friendly_pitch: bool = True,
+):
     """Row-major device matrices for cuVS KMeans benchmarks.
 
       Assumes raft/cupy-style contiguous layout: stride[-1]==1, stride[0]==D,
@@ -71,7 +76,11 @@ def _cuvs_matrix_constraint(elem_dtype, *, index_dtype=ct.int32):
         alias_groups=(),
         may_alias_internally=False,
         stride_constant=(None, 1),
-        stride_divisible_by=_elem_stride_divisible_for_tma(elem_dtype),
+        stride_divisible_by=(
+            _elem_stride_divisible_for_tma(elem_dtype)
+            if require_tma_friendly_pitch
+            else (1, 1)
+        ),
         shape_divisible_by=(1, 1),
         base_addr_divisible_by=16,
     )
@@ -94,8 +103,10 @@ def _cuvs_vector_constraint(elem_dtype, *, index_dtype=ct.int32):
 
 
 def _relaxed_matrix_constraint(elem_dtype):
-    """Deprecated alias; use _cuvs_matrix_constraint."""
-    return _cuvs_matrix_constraint(elem_dtype)
+    """Deprecated alias for the arbitrary-row-pitch matrix constraint."""
+    return _cuvs_matrix_constraint(
+        elem_dtype, require_tma_friendly_pitch=False
+    )
 
 
 def _relaxed_vector_constraint(elem_dtype, *, tma_friendly: bool = False):
@@ -111,17 +122,25 @@ def _kernel_signature(
     tile_m: int,
     tile_n: int,
     tile_k: int,
+    matrix_layout: str,
 ) -> KernelSignature:
     elem = _dtype_for(data_type)
     idx_dtype = _idx_dtype(index_type)
-    matrix = _cuvs_matrix_constraint(elem, index_dtype=idx_dtype)
+    matrix = _cuvs_matrix_constraint(
+        elem,
+        index_dtype=idx_dtype,
+        require_tma_friendly_pitch=matrix_layout == "strict",
+    )
     norm_array = _cuvs_vector_constraint(elem, index_dtype=idx_dtype)
     idx_array = _cuvs_vector_constraint(idx_dtype, index_dtype=idx_dtype)
     dist_array = _cuvs_vector_constraint(elem, index_dtype=idx_dtype)
 
     abbrev = _data_abbrev(data_type)
     symbol = kernel_symbol(
-        abbrev, metric_abbrev(metric), index_abbrev(index_type)
+        abbrev,
+        metric_abbrev(metric),
+        index_abbrev(index_type),
+        matrix_layout,
     )
 
     return KernelSignature(
@@ -156,6 +175,7 @@ def export_binary(
     tile_n: int,
     tile_k: int,
     gpu_code: str,
+    matrix_layout: str = "strict",
     bytecode_version: str | None = None,
 ) -> str:
     kernel = make_kernel(
@@ -168,7 +188,13 @@ def export_binary(
         gpu_code=gpu_code,
     )
     signature = _kernel_signature(
-        data_type, metric, index_type, tile_m, tile_n, tile_k
+        data_type,
+        metric,
+        index_type,
+        tile_m,
+        tile_n,
+        tile_k,
+        matrix_layout,
     )
 
     export_kwargs = {
@@ -208,6 +234,11 @@ def main() -> int:
         help="Target SM for cubin export, or compile hint for TileIR bytecode export",
     )
     parser.add_argument(
+        "--matrix-layout",
+        choices=("strict", "relaxed"),
+        default="strict",
+    )
+    parser.add_argument(
         "--bytecode-version", default=DEFAULT_TILEIR_BYTECODE_VERSION
     )
     args = parser.parse_args()
@@ -223,6 +254,7 @@ def main() -> int:
             tile_n=args.tile_n,
             tile_k=args.tile_k,
             gpu_code=args.gpu_code,
+            matrix_layout=args.matrix_layout,
             bytecode_version=args.bytecode_version,
         )
     )

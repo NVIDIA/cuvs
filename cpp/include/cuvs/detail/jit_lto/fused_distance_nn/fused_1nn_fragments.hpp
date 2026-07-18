@@ -15,6 +15,8 @@ namespace cuvs::distance::detail {
 struct metric_tag_ip {};
 struct metric_tag_l2 {};
 struct metric_tag_cos {};
+struct cutile_abi_strict {};
+struct cutile_abi_relaxed {};
 
 template <int TileM, int TileN, int TileK>
 struct cutile_tile_config {
@@ -97,13 +99,18 @@ template <typename DataTag,
           typename MetricTag,
           typename IndexTag,
           typename TileTag,
+          typename AbiTag,
           typename ArchTag>
 struct fragment_tag_fused_1nn_cubin {
   static constexpr int cc_major = ArchTag::cc_major;
   static constexpr int cc_minor = ArchTag::cc_minor;
 };
 
-template <typename DataTag, typename MetricTag, typename IndexTag, typename TileTag>
+template <typename DataTag,
+          typename MetricTag,
+          typename IndexTag,
+          typename TileTag,
+          typename AbiTag>
 struct fragment_tag_fused_1nn_tileir {};
 
 }  // namespace cuvs::distance::detail
