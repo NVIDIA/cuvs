@@ -36,12 +36,16 @@ public final class CuVSParamsHelper {
     cuvsCagraSearchParams.max_queries(seg, params.getMaxQueries());
     cuvsCagraSearchParams.itopk_size(seg, params.getITopKSize());
     cuvsCagraSearchParams.max_iterations(seg, params.getMaxIterations());
-    cuvsCagraSearchParams.algo(seg, params.getCagraSearchAlgo().value);
+    CagraSearchParams.SearchAlgo searchAlgo = params.getCagraSearchAlgo();
+    cuvsCagraSearchParams.algo(
+        seg, (searchAlgo != null ? searchAlgo : CagraSearchParams.SearchAlgo.AUTO).value);
     cuvsCagraSearchParams.team_size(seg, params.getTeamSize());
     cuvsCagraSearchParams.search_width(seg, params.getSearchWidth());
     cuvsCagraSearchParams.min_iterations(seg, params.getMinIterations());
     cuvsCagraSearchParams.thread_block_size(seg, params.getThreadBlockSize());
-    cuvsCagraSearchParams.hashmap_mode(seg, params.getHashMapMode().value);
+    CagraSearchParams.HashMapMode hashMapMode = params.getHashMapMode();
+    cuvsCagraSearchParams.hashmap_mode(
+        seg, (hashMapMode != null ? hashMapMode : CagraSearchParams.HashMapMode.AUTO_HASH).value);
     cuvsCagraSearchParams.hashmap_max_fill_rate(seg, params.getHashMapMaxFillRate());
     cuvsCagraSearchParams.num_random_samplings(seg, params.getNumRandomSamplings());
     cuvsCagraSearchParams.rand_xor_mask(seg, params.getRandXORMask());

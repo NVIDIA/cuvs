@@ -154,20 +154,29 @@ public final class FilterBitsetHandleImpl implements FilterBitsetHandle {
       try (var access = filterResources().access()) {
         long cuvsRes = access.handle();
         CloseableRMMAllocation combinedBitsetDP = allocateRMMSegment(cuvsRes, combinedBitsetBytes);
+        // DeviceData takes ownership on success; close the allocation if anything below throws.
+        try {
+          var stream = getStream(cuvsRes);
+          // Host arena must outlive the stream sync that confirms the H2D copy.
+          try (var arena = Arena.ofConfined()) {
+            MemorySegment hostBitset = arena.allocate(combinedBitsetBytes, Long.BYTES);
+            MemorySegment.copy(
+                combinedLongs, 0, hostBitset, ValueLayout.JAVA_LONG, 0, combinedLongs.length);
+            cudaMemcpyAsync(
+                combinedBitsetDP.handle(), hostBitset, combinedBitsetBytes, HOST_TO_DEVICE, stream);
 
-        var stream = getStream(cuvsRes);
-        // Host arena must outlive the stream sync that confirms the H2D copy.
-        try (var arena = Arena.ofConfined()) {
-          MemorySegment hostBitset = arena.allocate(combinedBitsetBytes, Long.BYTES);
-          MemorySegment.copy(
-              combinedLongs, 0, hostBitset, ValueLayout.JAVA_LONG, 0, combinedLongs.length);
-          cudaMemcpyAsync(
-              combinedBitsetDP.handle(), hostBitset, combinedBitsetBytes, HOST_TO_DEVICE, stream);
-
-          checkCuVSError(cuvsStreamSync(cuvsRes), "cuvsStreamSync in FilterBitsetHandle.upload");
+            checkCuVSError(cuvsStreamSync(cuvsRes), "cuvsStreamSync in FilterBitsetHandle.upload");
+          }
+          // Stream sync has returned — device memory is fully populated. uint32 words = long count * 2.
+          return new DeviceData(combinedBitsetDP, (long) combinedLongs.length * 2);
+        } catch (Throwable t) {
+          try {
+            combinedBitsetDP.close();
+          } catch (Exception closeError) {
+            t.addSuppressed(closeError);
+          }
+          throw t;
         }
-        // Stream sync has returned — device memory is fully populated. uint32 words = long count * 2.
-        return new DeviceData(combinedBitsetDP, (long) combinedLongs.length * 2);
       }
     }
   }

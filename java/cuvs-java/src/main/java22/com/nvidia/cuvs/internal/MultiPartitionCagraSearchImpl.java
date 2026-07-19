@@ -127,8 +127,13 @@ public final class MultiPartitionCagraSearchImpl {
 
           MemorySegment filterSeg = cuvsFilter.allocate(arena);
           if (filter != null) {
-            FilterBitsetHandleImpl.DeviceData dev =
-                ((FilterBitsetHandleImpl) filter).getOrUpload();
+            if (!(filter instanceof FilterBitsetHandleImpl impl)) {
+              throw new IllegalArgumentException(
+                  "filter must be a FilterBitsetHandle created via FilterBitsetHandle.create(...);"
+                      + " got "
+                      + filter.getClass().getName());
+            }
+            FilterBitsetHandleImpl.DeviceData dev = impl.getOrUpload();
             buildCuvsFilterStruct(
                 arena, filterSeg, dev.combinedBitsetDP.handle(), dev.combinedWords);
           } else {

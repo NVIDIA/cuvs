@@ -44,7 +44,9 @@ public class MultiPartitionCagraSearch {
    * @param query     a single {@link CagraQuery} whose query matrix is searched against every
    *                  partition
    * @param k         number of global nearest neighbors to return per query
-   * @param filter    pre-built combined bitset handle, or {@code null} for unfiltered search
+   * @param filter    pre-built combined bitset handle obtained from
+   *                  {@link FilterBitsetHandle#create(long[])}, or {@code null} for unfiltered
+   *                  search. Handles from other sources are not supported.
    */
   public static MultiPartitionSearchResults search(
       CuVSResources resources,
