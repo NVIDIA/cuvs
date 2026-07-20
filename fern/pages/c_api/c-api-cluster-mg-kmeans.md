@@ -15,7 +15,7 @@ Find clusters with single-node multi-GPU k-means using host data.
 
 ```c
 CUVS_EXPORT cuvsError_t cuvsMultiGpuKMeansFit(cuvsResources_t res,
-cuvsKMeansParams_v2_t params,
+cuvsKMeansParams_t params,
 DLManagedTensor* X,
 DLManagedTensor* sample_weight,
 DLManagedTensor* centroids,
@@ -30,7 +30,7 @@ X, sample_weight, and centroids must be host-accessible, row-major, C-contiguous
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | [`cuvsResources_t`](/api-reference/c-api-core-c-api#cuvsresources-t) | cuvsMultiGpuResources_t opaque C handle created by cuvsMultiGpuResourcesCreate or cuvsMultiGpuResourcesCreateWithDeviceIds. |
-| `params` | in | [`cuvsKMeansParams_v2_t`](/api-reference/c-api-cluster-kmeans#cuvskmeansparams-v2) | Parameters for KMeans model. |
+| `params` | in | [`cuvsKMeansParams_t`](/api-reference/c-api-cluster-kmeans#cuvskmeansparams) | Parameters for KMeans model. |
 | `X` | in | `DLManagedTensor*` | Host training instances to cluster. [dim = n_samples x n_features] |
 | `sample_weight` | in | `DLManagedTensor*` | Optional host weights for each observation in X. [len = n_samples] |
 | `centroids` | inout | `DLManagedTensor*` | Host centroids. When init is Array, used as the initial cluster centers. The final generated centroids are copied back to this tensor. [dim = n_clusters x n_features] |
