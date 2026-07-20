@@ -113,7 +113,7 @@ struct params : base_params {
    * Default tile is [batch_samples x n_clusters] i.e. when batch_centroids is 0
    * then don't tile the centroids
    *
-   * NB: These parameters are unrelated to streaming_batch_size, which controls how many
+   * NB: These parameters are unrelated to device_buffer_samples, which controls how many
    * samples to transfer from host to device per batch when processing out-of-core
    * data.
    */
@@ -154,7 +154,7 @@ struct params : base_params {
    * count. This is is ignored by device-data overloads.
    * Default: 0 (process all data at once).
    */
-  int64_t streaming_batch_size = 0;
+  int64_t device_buffer_samples = 0;
 };
 
 /**
@@ -199,7 +199,7 @@ enum class kmeans_type { KMeans = 0, KMeansBalanced = 1 };
  *
  * This overload supports out-of-core computation where the dataset resides
  * on the host. Data is processed in batches, streaming from host to
- * device. The batch size is controlled by `params.streaming_batch_size`.
+ * device. The batch size is controlled by `params.device_buffer_samples`.
  *
  * Multi-GPU dispatch is selected automatically based on the handle state:
  *   - If `raft::resource::is_multi_gpu(handle)` (cuVS SNMG): the full dataset X
@@ -221,7 +221,7 @@ enum class kmeans_type { KMeans = 0, KMeansBalanced = 1 };
  *   raft::resources handle;
  *   cuvs::cluster::kmeans::params params;
  *   params.n_clusters = 100;
- *   params.streaming_batch_size = 100000;
+ *   params.device_buffer_samples = 100000;
  *   float inertia;
  *   int64_t n_iter;
  *
@@ -245,7 +245,7 @@ enum class kmeans_type { KMeans = 0, KMeansBalanced = 1 };
  * @param[in]     handle        The raft handle. When a multi-GPU resource is
  *                              attached, multi-GPU dispatch is used automatically.
  * @param[in]     params        Parameters for KMeans model. Batch size is read from
- *                              params.streaming_batch_size.
+ *                              params.device_buffer_samples.
  * @param[in]     X             Training instances on HOST memory. The data must
  *                              be in row-major format.
  *                              [dim = n_samples x n_features]
@@ -1648,8 +1648,8 @@ void cluster_cost(
  *
  * Each rank supplies its local training data as a vector of partitions. For
  * host-resident partitions the implementation streams each partition using
- * `params.streaming_batch_size` (per rank). For device-resident partitions
- * `streaming_batch_size` is ignored and each local partition is processed in full.
+ * `params.device_buffer_samples` (per rank). For device-resident partitions
+ * `device_buffer_samples` is ignored and each local partition is processed in full.
  *
  * The active backend is selected by the resources attached to
  * `handle`:
@@ -1665,7 +1665,7 @@ void cluster_cost(
  * @param[in]     params              K-means parameters. For host-resident
  *                                    partitions the per-rank streaming batch
  *                                    size is read from
- *                                    `params.streaming_batch_size`; it is
+ *                                    `params.device_buffer_samples`; it is
  *                                    ignored for device-resident partitions.
  * @param[in]     X_parts             Per-partition local data on this rank.
  *                                    Each entry is [n_rows_i x n_features].

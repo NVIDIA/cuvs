@@ -404,7 +404,7 @@ pub struct cuvsKMeansParams {
     #[doc = " For hierarchical k-means , defines the number of training iterations"]
     pub hierarchical_n_iters: ::std::os::raw::c_int,
     #[doc = " Number of samples to process per GPU batch for the batched (host-data) API.\n When set to 0, defaults to n_samples (process all at once)."]
-    pub streaming_batch_size: i64,
+    pub device_buffer_samples: i64,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
@@ -434,8 +434,8 @@ const _: () = {
         [::std::mem::offset_of!(cuvsKMeansParams, hierarchical) - 49usize];
     ["Offset of field: cuvsKMeansParams::hierarchical_n_iters"]
         [::std::mem::offset_of!(cuvsKMeansParams, hierarchical_n_iters) - 52usize];
-    ["Offset of field: cuvsKMeansParams::streaming_batch_size"]
-        [::std::mem::offset_of!(cuvsKMeansParams, streaming_batch_size) - 56usize];
+    ["Offset of field: cuvsKMeansParams::device_buffer_samples"]
+        [::std::mem::offset_of!(cuvsKMeansParams, device_buffer_samples) - 56usize];
 };
 pub type cuvsKMeansParams_t = *mut cuvsKMeansParams;
 unsafe extern "C" {
@@ -457,7 +457,7 @@ pub enum cuvsKMeansType {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Find clusters with k-means algorithm.\n\n   Initial centroids are chosen with k-means++ algorithm. Empty\n   clusters are reinitialized by choosing new centroids with\n   k-means++ algorithm.\n\n   X may reside on either host (CPU) or device (GPU) memory.\n   When X is on the host the data is streamed to the GPU in\n   batches controlled by params->streaming_batch_size.\n\n @param[in]     res           opaque C handle\n @param[in]     params        Parameters for KMeans model.\n @param[in]     X             Training instances to cluster. The data must\n                              be in row-major format. May be on host or\n                              device memory.\n                              [dim = n_samples x n_features]\n @param[in]     sample_weight Optional weights for each observation in X.\n                              Must be on the same memory space as X.\n                              [len = n_samples]\n @param[inout]  centroids     [in] When init is InitMethod::Array, use\n                              centroids as the initial cluster centers.\n                              [out] The generated centroids from the\n                              kmeans algorithm are stored at the address\n                              pointed by 'centroids'. Must be on device.\n                              [dim = n_clusters x n_features]\n @param[out]    inertia       Sum of squared distances of samples to their\n                              closest cluster center.\n @param[out]    n_iter        Number of iterations run."]
+    #[doc = " @brief Find clusters with k-means algorithm.\n\n   Initial centroids are chosen with k-means++ algorithm. Empty\n   clusters are reinitialized by choosing new centroids with\n   k-means++ algorithm.\n\n   X may reside on either host (CPU) or device (GPU) memory.\n   When X is on the host the data is streamed to the GPU in\n   batches controlled by params->device_buffer_samples.\n\n @param[in]     res           opaque C handle\n @param[in]     params        Parameters for KMeans model.\n @param[in]     X             Training instances to cluster. The data must\n                              be in row-major format. May be on host or\n                              device memory.\n                              [dim = n_samples x n_features]\n @param[in]     sample_weight Optional weights for each observation in X.\n                              Must be on the same memory space as X.\n                              [len = n_samples]\n @param[inout]  centroids     [in] When init is InitMethod::Array, use\n                              centroids as the initial cluster centers.\n                              [out] The generated centroids from the\n                              kmeans algorithm are stored at the address\n                              pointed by 'centroids'. Must be on device.\n                              [dim = n_clusters x n_features]\n @param[out]    inertia       Sum of squared distances of samples to their\n                              closest cluster center.\n @param[out]    n_iter        Number of iterations run."]
     pub fn cuvsKMeansFit(
         res: cuvsResources_t,
         params: cuvsKMeansParams_t,

@@ -110,7 +110,7 @@ def test_mg_kmeans_fit_options(dtype, init_method, weighted):
         tol=1e-10,
         n_init=3 if init_method == "Random" else 1,
         init_size=X.shape[0],
-        streaming_batch_size=37,
+        device_buffer_samples=37,
     )
     centroids = initial_centroids.copy() if init_method == "Array" else None
 
