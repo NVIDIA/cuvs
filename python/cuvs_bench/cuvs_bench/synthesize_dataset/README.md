@@ -46,15 +46,15 @@ Queries are sampled from the dataset itself and perturbed with a small Gaussian,
 
 If you also have the real dataset and want matching queries on it (e.g. for the synth-vs-real comparison in Step 7), run `cuvs_bench.generate_groundtruth --queries random-jitter` on it.
 
-# Requirements
+# Installation
 
-- A GPU. CPU-only operation isn't supported.
-
-Install `cuvs_bench` with the `synthesize_dataset` extra to pull in all dependencies:
+Install `cuvs_bench` following the [cuvs-bench installation guide](https://docs.nvidia.com/cuvs/user-guide/benchmarking-guide/cu-vs-bench-tool/installation#conda), then add the `synthesize_dataset` extra to pull in the additional dependencies:
 
 ```bash
 pip install cuvs_bench[synthesize_dataset]
 ```
+
+A GPU is required. CPU-only operation isn't supported.
 
 # Step-by-step
 
