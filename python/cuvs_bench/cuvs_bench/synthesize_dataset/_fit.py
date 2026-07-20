@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 """Fit a cluster fingerprint from a sample of real data.
@@ -77,7 +77,7 @@ def _run_kmeans(
         del chunk_gpu
         cp.get_default_memory_pool().free_all_blocks()
 
-    del centroids_gpu
+    del centroids_gpu, centroids_out
     cp.get_default_memory_pool().free_all_blocks()
 
     return labels, centroids
