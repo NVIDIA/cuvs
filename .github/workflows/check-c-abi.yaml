@@ -62,10 +62,10 @@ jobs:
         run: |
           echo "⚠️ No baseline artifacts found, extracting from release/26.08 branch..."
           echo "This is slower but ensures we always have a baseline for comparison."
-          git worktree add ../cuvs-main origin/release/26.08
+          git worktree add ../cuvs-release-26.08 origin/release/26.08
           mkdir -p baseline
           check-c-abi extract \
-            --header-path ../cuvs-main/c/include \
+            --header-path ../cuvs-release-26.08/c/include \
             --include-file cuvs/core/all.h \
             --output-file baseline/c_abi.json.gz \
             --dlpack-include-path dlpack/include
