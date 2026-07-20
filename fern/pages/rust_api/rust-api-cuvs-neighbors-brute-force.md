@@ -28,6 +28,7 @@ _Source: `rust/cuvs/src/neighbors/brute_force.rs:19`_
 
 ```rust
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum BruteForceError {
     /* variants omitted */
 }
@@ -35,7 +36,7 @@ pub enum BruteForceError {
 
 Error type for brute-force operations.
 
-_Source: `rust/cuvs/src/neighbors/brute_force.rs:27`_
+_Source: `rust/cuvs/src/neighbors/brute_force.rs:28`_
 
 ## Index
 
@@ -52,9 +53,9 @@ Brute-force KNN index.
 
 | Name | Source |
 | --- | --- |
-| `build` | `rust/cuvs/src/neighbors/brute_force.rs:53` |
-| `search` | `rust/cuvs/src/neighbors/brute_force.rs:85` |
-| `search_filtered` | `rust/cuvs/src/neighbors/brute_force.rs:104` |
+| `build` | `rust/cuvs/src/neighbors/brute_force.rs:54` |
+| `search` | `rust/cuvs/src/neighbors/brute_force.rs:86` |
+| `search_filtered` | `rust/cuvs/src/neighbors/brute_force.rs:105` |
 
 ### build
 
@@ -72,7 +73,7 @@ or device implementing [`AsDlTensor`]; the C++ index keeps a non-owning
 view of it, so the returned [`Index`] borrows it for `'d` and cannot
 outlive it.
 
-_Source: `rust/cuvs/src/neighbors/brute_force.rs:53`_
+_Source: `rust/cuvs/src/neighbors/brute_force.rs:54`_
 
 ### search
 
@@ -97,7 +98,7 @@ implement [`AsDlTensor`] / [`AsDlTensorMut`]. `neighbors` receives the
 neighbor indices and `distances` their distances; both are written in
 place.
 
-_Source: `rust/cuvs/src/neighbors/brute_force.rs:85`_
+_Source: `rust/cuvs/src/neighbors/brute_force.rs:86`_
 
 ### search_filtered
 
@@ -118,6 +119,6 @@ D: AsDlTensorMut + ?Sized,
 
 Searches the index using a row bitset or per-query bitmap filter.
 
-_Source: `rust/cuvs/src/neighbors/brute_force.rs:104`_
+_Source: `rust/cuvs/src/neighbors/brute_force.rs:105`_
 
-_Source: `rust/cuvs/src/neighbors/brute_force.rs:38`_
+_Source: `rust/cuvs/src/neighbors/brute_force.rs:39`_

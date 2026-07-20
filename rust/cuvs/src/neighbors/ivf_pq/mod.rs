@@ -121,6 +121,7 @@ impl From<InternalDistanceDType> for ffi::cudaDataType_t {
 
 /// Error type for IVF-PQ operations.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum IvfPqError {
     /// The cuVS C library reported a failure.
     #[error(transparent)]

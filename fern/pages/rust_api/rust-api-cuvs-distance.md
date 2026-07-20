@@ -33,6 +33,7 @@ _Source: `rust/cuvs/src/distance/mod.rs:22`_
 
 ```rust
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum DistanceError {
     /* variants omitted */
 }
@@ -40,7 +41,7 @@ pub enum DistanceError {
 
 Error type for pairwise distance operations.
 
-_Source: `rust/cuvs/src/distance/mod.rs:142`_
+_Source: `rust/cuvs/src/distance/mod.rs:143`_
 
 ## pairwise_distance
 
@@ -66,4 +67,4 @@ Computes all pairwise distances between the rows of `x` (shape `m × k`) and
 [`DistanceType::LpUnexpanded`] to supply the Minkowski exponent `p` (all
 other metrics use the C API default).
 
-_Source: `rust/cuvs/src/distance/mod.rs:158`_
+_Source: `rust/cuvs/src/distance/mod.rs:159`_

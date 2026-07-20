@@ -137,6 +137,7 @@ impl From<ffi::cuvsCagraHashMode> for HashMode {
 
 /// Error type for CAGRA operations.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum CagraError {
     /// The cuVS C library reported a failure.
     #[error(transparent)]

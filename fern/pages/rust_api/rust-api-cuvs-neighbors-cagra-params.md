@@ -88,8 +88,8 @@ let params = IndexParams::builder()
 
 | Name | Source |
 | --- | --- |
-| `new` | `rust/cuvs/src/neighbors/cagra/params.rs:139` |
-| `try_new` | `rust/cuvs/src/neighbors/cagra/params.rs:245` |
+| `new` | `rust/cuvs/src/neighbors/cagra/params.rs:141` |
+| `try_new` | `rust/cuvs/src/neighbors/cagra/params.rs:247` |
 
 ### new
 
@@ -106,7 +106,7 @@ RequestedGraphBuild,
 ) -> Result<Self, CagraError>
 ```
 
-_Source: `rust/cuvs/src/neighbors/cagra/params.rs:139`_
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:141`_
 
 ### try_new
 
@@ -116,7 +116,7 @@ pub fn try_new() -> Result<Self, CagraError>
 
 Allocate parameters populated with the library defaults.
 
-_Source: `rust/cuvs/src/neighbors/cagra/params.rs:245`_
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:247`_
 
 _Source: `rust/cuvs/src/neighbors/cagra/params.rs:130`_
 
@@ -140,8 +140,8 @@ let params = SearchParams::builder().itopk_size(128).build()?;
 
 | Name | Source |
 | --- | --- |
-| `new` | `rust/cuvs/src/neighbors/cagra/params.rs:327` |
-| `try_new` | `rust/cuvs/src/neighbors/cagra/params.rs:439` |
+| `new` | `rust/cuvs/src/neighbors/cagra/params.rs:329` |
+| `try_new` | `rust/cuvs/src/neighbors/cagra/params.rs:441` |
 
 ### new
 
@@ -164,7 +164,7 @@ rand_xor_mask: Option<u64>,
 ) -> Result<Self, CagraError>
 ```
 
-_Source: `rust/cuvs/src/neighbors/cagra/params.rs:327`_
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:329`_
 
 ### try_new
 
@@ -174,9 +174,9 @@ pub fn try_new() -> Result<Self, CagraError>
 
 Allocate parameters populated with the library defaults.
 
-_Source: `rust/cuvs/src/neighbors/cagra/params.rs:439`_
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:441`_
 
-_Source: `rust/cuvs/src/neighbors/cagra/params.rs:319`_
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:321`_
 
 ## impl IndexParamsBuilder
 
@@ -188,12 +188,12 @@ impl IndexParamsBuilder
 
 | Name | Source |
 | --- | --- |
-| `auto` | `rust/cuvs/src/neighbors/cagra/params.rs:200` |
-| `nn_descent` | `rust/cuvs/src/neighbors/cagra/params.rs:207` |
-| `nn_descent_with` | `rust/cuvs/src/neighbors/cagra/params.rs:214` |
-| `iterative_cagra_search` | `rust/cuvs/src/neighbors/cagra/params.rs:221` |
-| `ace` | `rust/cuvs/src/neighbors/cagra/params.rs:228` |
-| `ivf_pq` | `rust/cuvs/src/neighbors/cagra/params.rs:235` |
+| `auto` | `rust/cuvs/src/neighbors/cagra/params.rs:202` |
+| `nn_descent` | `rust/cuvs/src/neighbors/cagra/params.rs:209` |
+| `nn_descent_with` | `rust/cuvs/src/neighbors/cagra/params.rs:216` |
+| `iterative_cagra_search` | `rust/cuvs/src/neighbors/cagra/params.rs:223` |
+| `ace` | `rust/cuvs/src/neighbors/cagra/params.rs:230` |
+| `ivf_pq` | `rust/cuvs/src/neighbors/cagra/params.rs:237` |
 
 ### auto
 
@@ -203,7 +203,7 @@ where
 S::GraphBuild: IsUnset,
 ```
 
-_Source: `rust/cuvs/src/neighbors/cagra/params.rs:200`_
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:202`_
 
 ### nn_descent
 
@@ -213,7 +213,7 @@ where
 S::GraphBuild: IsUnset,
 ```
 
-_Source: `rust/cuvs/src/neighbors/cagra/params.rs:207`_
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:209`_
 
 ### nn_descent_with
 
@@ -223,7 +223,7 @@ where
 S::GraphBuild: IsUnset,
 ```
 
-_Source: `rust/cuvs/src/neighbors/cagra/params.rs:214`_
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:216`_
 
 ### iterative_cagra_search
 
@@ -233,7 +233,7 @@ where
 S::GraphBuild: IsUnset,
 ```
 
-_Source: `rust/cuvs/src/neighbors/cagra/params.rs:221`_
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:223`_
 
 ### ace
 
@@ -243,7 +243,7 @@ where
 S::GraphBuild: IsUnset,
 ```
 
-_Source: `rust/cuvs/src/neighbors/cagra/params.rs:228`_
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:230`_
 
 ### ivf_pq
 
@@ -253,6 +253,6 @@ where
 S::GraphBuild: IsUnset,
 ```
 
-_Source: `rust/cuvs/src/neighbors/cagra/params.rs:235`_
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:237`_
 
-_Source: `rust/cuvs/src/neighbors/cagra/params.rs:199`_
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:201`_

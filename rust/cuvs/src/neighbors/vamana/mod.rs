@@ -19,6 +19,7 @@ use crate::error::LibraryError;
 
 /// Error type for Vamana operations.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum VamanaError {
     /// The cuVS C library reported a failure.
     #[error(transparent)]

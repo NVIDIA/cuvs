@@ -24,6 +24,7 @@ type Result<T> = std::result::Result<T, BruteForceError>;
 
 /// Error type for brute-force operations.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum BruteForceError {
     /// The cuVS C library reported a failure.
     #[error(transparent)]

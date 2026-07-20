@@ -92,6 +92,7 @@ _Source: `rust/cuvs/src/neighbors/cagra/mod.rs:109`_
 
 ```rust
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum CagraError {
     /* variants omitted */
 }
@@ -99,4 +100,4 @@ pub enum CagraError {
 
 Error type for CAGRA operations.
 
-_Source: `rust/cuvs/src/neighbors/cagra/mod.rs:140`_
+_Source: `rust/cuvs/src/neighbors/cagra/mod.rs:141`_

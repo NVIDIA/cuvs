@@ -23,6 +23,7 @@ type Result<T> = std::result::Result<T, KMeansError>;
 
 /// Error type for k-means operations.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum KMeansError {
     /// The cuVS C library reported a failure.
     #[error(transparent)]

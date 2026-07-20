@@ -95,6 +95,7 @@ _Source: `rust/cuvs/src/neighbors/ivf_pq/mod.rs:106`_
 
 ```rust
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum IvfPqError {
     /* variants omitted */
 }
@@ -102,4 +103,4 @@ pub enum IvfPqError {
 
 Error type for IVF-PQ operations.
 
-_Source: `rust/cuvs/src/neighbors/ivf_pq/mod.rs:124`_
+_Source: `rust/cuvs/src/neighbors/ivf_pq/mod.rs:125`_

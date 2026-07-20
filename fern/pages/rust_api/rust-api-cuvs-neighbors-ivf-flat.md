@@ -46,6 +46,7 @@ _Source: `rust/cuvs/src/neighbors/ivf_flat/mod.rs:21`_
 
 ```rust
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum IvfFlatError {
     /* variants omitted */
 }
@@ -53,4 +54,4 @@ pub enum IvfFlatError {
 
 Error type for IVF-Flat operations.
 
-_Source: `rust/cuvs/src/neighbors/ivf_flat/mod.rs:28`_
+_Source: `rust/cuvs/src/neighbors/ivf_flat/mod.rs:29`_

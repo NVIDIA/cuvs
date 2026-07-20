@@ -15,6 +15,7 @@ type Result<T> = std::result::Result<T, ResourcesError>;
 
 /// Error type for resource operations.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum ResourcesError {
     /// The cuVS C library reported a failure.
     #[error(transparent)]

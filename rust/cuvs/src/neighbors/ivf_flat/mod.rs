@@ -25,6 +25,7 @@ use crate::error::LibraryError;
 
 /// Error type for IVF-Flat operations.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum IvfFlatError {
     /// The cuVS C library reported a failure.
     #[error(transparent)]

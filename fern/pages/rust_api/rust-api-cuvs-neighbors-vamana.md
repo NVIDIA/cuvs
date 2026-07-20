@@ -34,6 +34,7 @@ _Source: `rust/cuvs/src/neighbors/vamana/mod.rs:15`_
 
 ```rust
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum VamanaError {
     /* variants omitted */
 }
@@ -41,4 +42,4 @@ pub enum VamanaError {
 
 Error type for Vamana operations.
 
-_Source: `rust/cuvs/src/neighbors/vamana/mod.rs:22`_
+_Source: `rust/cuvs/src/neighbors/vamana/mod.rs:23`_

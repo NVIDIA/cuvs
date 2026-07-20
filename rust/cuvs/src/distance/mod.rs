@@ -139,6 +139,7 @@ impl From<ffi::cuvsDistanceType> for DistanceType {
 
 /// Error type for pairwise distance operations.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum DistanceError {
     /// The cuVS C library reported a failure.
     #[error(transparent)]
