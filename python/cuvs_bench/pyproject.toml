@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 [build-system]
@@ -20,7 +20,7 @@ license = "Apache-2.0"
 requires-python = ">=3.11"
 dependencies = [
     "click",
-    "cuvs==26.8.*,>=0.0.0a0",
+    "cuvs==26.10.*,>=0.0.0a0",
     "matplotlib>=3.9",
     "pandas",
     "pyyaml",
