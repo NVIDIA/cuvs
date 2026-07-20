@@ -44,7 +44,7 @@ No individual row of the original data is stored anywhere in the fingerprint, an
 
 Queries are sampled from the dataset itself and perturbed with a small Gaussian, so they sit on the data manifold without being exact-match copies of database rows. The `generate` step produces them automatically alongside `base.fbin` and GT.
 
-If you also have the real dataset and want matching queries on it (e.g. for the synth-vs-real comparison in Step 7), run `cuvs_bench.generate_groundtruth --queries random-jitter` on it.
+If you also have the real dataset and want matching queries on it (e.g. for the synth-vs-real comparison in Step 6), run `cuvs_bench.generate_groundtruth --queries random-jitter` on it.
 
 # Installation
 
@@ -163,52 +163,24 @@ Outputs (cuvs-bench-compatible):
 - `synthetic_100M/queries.fbin`
 - `synthetic_100M/groundtruth.neighbors.ibin`
 - `synthetic_100M/groundtruth.distances.fbin`
+- `synthetic_100M/dataset.yaml` — dataset registry entry, ready to pass to `--dataset-configuration`
 
 > **Disk-size note.** `base.fbin` is materialized to disk at full `total_rows × ncols × 4` bytes. Make sure `--output_dir` lives on a volume with enough free space before kicking off a large run. Generation streams cluster-by-cluster directly to disk, so host RAM stays bounded (~a few GB) regardless of `total_rows` — only the disk volume matters.
 
-### Step 5 — Register the synthetic dataset for `cuvs_bench.run`
+### Step 5 — Benchmark and plot
 
-`cuvs_bench.run` resolves datasets by **name** from a YAML registry and expects a directory layout where each dataset lives in its own subdirectory under a common `--dataset-path`. Drop the `synthetic_100M/` directory you just produced under whatever you use as your dataset root, and add a YAML entry that points at it.
-
-**1. Lay out the files** so `--dataset-path` is the parent:
-
-```text
-$RAPIDS_DATASET_ROOT_DIR/
-└── my_real_data_synth_100M/            # ← synthetic, produced in Step 4
-    ├── base.fbin
-    ├── queries.fbin
-    ├── groundtruth.neighbors.ibin
-    └── groundtruth.distances.fbin
-```
-
-**2. Register the dataset** in a YAML file (`my_datasets.yaml`):
-
-```yaml
-- name: my_real_data_synth_100M
-  dims: 768
-  distance: euclidean
-  base_file: my_real_data_synth_100M/base.fbin
-  query_file: my_real_data_synth_100M/queries.fbin
-  groundtruth_neighbors_file: my_real_data_synth_100M/groundtruth.neighbors.ibin
-  groundtruth_distances_file: my_real_data_synth_100M/groundtruth.distances.fbin
-```
-
-The `distance` value must match what your real dataset uses (`euclidean` or `inner_product`). Use the same `dims` you fitted with.
-
-### Step 6 — Benchmark and plot
-
-Run the algorithms you care about and produce a recall-vs-throughput (or recall-vs-latency) Pareto plot:
+Move `synthetic_100M/` under your dataset root so `--dataset-path` is its parent, then run the algorithms to produce a recall-vs-throughput (or recall-vs-latency) Pareto plot:
 
 ```bash
 python -m cuvs_bench.run \
-    --dataset my_real_data_synth_100M \
+    --dataset synthetic_100M \
     --dataset-path $RAPIDS_DATASET_ROOT_DIR \
-    --dataset-configuration ./my_datasets.yaml \
+    --dataset-configuration $RAPIDS_DATASET_ROOT_DIR/synthetic_100M/dataset.yaml \
     --algorithms cuvs_cagra,cuvs_ivf_pq,hnswlib \
     --build --search
 
 python -m cuvs_bench.plot \
-    --dataset my_real_data_synth_100M \
+    --dataset synthetic_100M \
     --dataset-path $RAPIDS_DATASET_ROOT_DIR \
     --algorithms cuvs_cagra,cuvs_ivf_pq,hnswlib \
     --output-filepath ./plots/
@@ -216,9 +188,9 @@ python -m cuvs_bench.plot \
 
 The run drops results under `$RAPIDS_DATASET_ROOT_DIR/<dataset_name>/result/{build,search}/...` as JSON + auto-exported CSV. The plot is one PNG per dataset.
 
-### Step 7 — *(Optional validation)* Compare against the real dataset
+### Step 6 — *(Optional validation)* Compare against the real dataset
 
-If you *also* have the real dataset at the same `total_rows`, you can validate that the synthetic-data benchmark numbers are a faithful stand-in for the real ones. If the synthetic dataset is built with the right parameters, both curves should overlap closely across the algorithms you ran. Repeat Steps 5–6 with the real dataset, then compare.
+If you *also* have the real dataset at the same `total_rows`, you can validate that the synthetic-data benchmark numbers are a faithful stand-in for the real ones. If the synthetic dataset is built with the right parameters, both curves should overlap closely across the algorithms you ran. Repeat Step 5 with the real dataset, then compare.
 
 > **Use random-jitter queries on the real dataset too.** The synthetic dataset's queries are random-jitter by construction (sampled from the data and perturbed with a small Gaussian — see [Query generation](#query-generation-random-jitter)), so the synthetic benchmark already measures index behavior under a *data-query distribution* where queries sit on the data manifold. To make the real-vs-synth comparison apples-to-apples, the real dataset's queries should follow the same scheme — otherwise you'd be comparing two different query distributions on top of two different data distributions, and any gap in the curves could be either effect. Generate them with:
 >

@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 """Command-line entry point for the synthesize_dataset module.
@@ -17,6 +17,8 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+
+import yaml
 
 import numpy as np
 
@@ -282,12 +284,29 @@ def _cmd_generate(args: argparse.Namespace) -> int:
     write_bin(gt_idx_path, gt_idx.astype(np.uint32))
     write_bin(gt_dist_path, gt_dist.astype(np.float32))
 
+    dataset_name = os.path.basename(os.path.abspath(args.output_dir))
+    yaml_entry = [
+        {
+            "name": dataset_name,
+            "dims": config.ncols,
+            "distance": "euclidean",
+            "base_file": f"{dataset_name}/base.fbin",
+            "query_file": f"{dataset_name}/queries.fbin",
+            "groundtruth_neighbors_file": f"{dataset_name}/groundtruth.neighbors.ibin",
+            "groundtruth_distances_file": f"{dataset_name}/groundtruth.distances.fbin",
+        }
+    ]
+    yaml_path = os.path.join(args.output_dir, "dataset.yaml")
+    with open(yaml_path, "w") as f:
+        yaml.dump(yaml_entry, f, default_flow_style=False, sort_keys=False)
+
     print(
         f"\nWrote synthetic dataset bundle to {args.output_dir}:\n"
-        f"  base.fbin                 ({args.total_rows:,} x {config.ncols})\n"
-        f"  queries.fbin              ({args.n_queries} x {config.ncols})\n"
+        f"  base.fbin                  ({args.total_rows:,} x {config.ncols})\n"
+        f"  queries.fbin               ({args.n_queries} x {config.ncols})\n"
         f"  groundtruth.neighbors.ibin ({args.n_queries} x {args.k})\n"
-        f"  groundtruth.distances.fbin ({args.n_queries} x {args.k})"
+        f"  groundtruth.distances.fbin ({args.n_queries} x {args.k})\n"
+        f"  dataset.yaml               (pass to --dataset-configuration)"
     )
     return 0
 
