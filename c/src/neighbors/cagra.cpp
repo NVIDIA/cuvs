@@ -74,19 +74,6 @@ constexpr auto sg_cagra_index_layout_from_view()
   }
 }
 
-template <typename T>
-static auto require_padded_index(sg_cagra_c_api_index_box* box,
-                                 const char* null_handle_err,
-                                 const char* unsupported_layout_err)
-  -> cuvs::neighbors::cagra::device_padded_index<T, uint32_t>*
-{
-  if (box == nullptr) { RAFT_FAIL("%s", null_handle_err); }
-  if (box->layout != sg_cagra_c_api_index_box::dataset_layout::device_padded) {
-    RAFT_FAIL("%s", unsupported_layout_err);
-  }
-  return reinterpret_cast<cuvs::neighbors::cagra::device_padded_index<T, uint32_t>*>(box->index_ptr);
-}
-
 template <typename T, typename IdxT = uint32_t, bool AllowHost = false, typename Fn>
 static void with_index_by_layout(sg_cagra_c_api_index_box* box,
                                  const char* null_handle_err,
