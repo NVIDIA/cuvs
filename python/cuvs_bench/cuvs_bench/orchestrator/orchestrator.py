@@ -26,11 +26,7 @@ from .config_loaders import DatasetConfig
 
 def _should_compute_recall(result: SearchResult) -> bool:
     """Return True when orchestrator should derive recall from neighbors."""
-    return (
-        result.success
-        and result.neighbors.size > 0
-        and not result.metadata.get("recall_is_authoritative", False)
-    )
+    return result.success and result.neighbors.size > 0
 
 
 class BenchmarkOrchestrator:

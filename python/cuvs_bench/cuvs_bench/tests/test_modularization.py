@@ -146,25 +146,6 @@ class TestModularizationSmoke:
         assert orch.backend_class is not None
         assert orch.config_loader is not None
 
-    def test_orchestrator_respects_authoritative_backend_recall(self):
-        """Backends can mark their own recall as authoritative."""
-        from cuvs_bench.orchestrator.orchestrator import _should_compute_recall
-
-        result = SearchResult(
-            neighbors=np.array([[1, 2, 3]], dtype=np.int64),
-            distances=np.array([[0.1, 0.2, 0.3]], dtype=np.float32),
-            search_time_ms=1.0,
-            queries_per_second=1.0,
-            recall=0.5,
-            algorithm="elastic_hnsw",
-            search_params=[{"num_candidates": 100}],
-            metadata={"recall_is_authoritative": True},
-            success=True,
-        )
-
-        assert not _should_compute_recall(result)
-
-
 class TestPluginLoaderMocked:
     """
     Tests using mocked entry points (NAT-style).
@@ -883,7 +864,6 @@ class TestElasticWithExtraInstalled:
         assert result.success
         assert result.neighbors.shape == (1, 1)
         assert result.recall == 0.0
-        assert "recall_is_authoritative" not in result.metadata
         assert "recall" not in result.metadata["per_search_param_results"][0]
 
     def test_elastic_algo_from_config(self):

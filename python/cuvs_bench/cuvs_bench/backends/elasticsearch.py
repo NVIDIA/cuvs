@@ -114,17 +114,6 @@ _SUPPORTED_ALGOS = tuple(
     f"elastic_{index_type}" for index_type in _SUPPORTED_INDEX_TYPES
 )
 
-_BUILD_PARAM_KEYS = (
-    "type",
-    "m",
-    "ef_construction",
-    "similarity",
-    "number_of_shards",
-    "number_of_replicas",
-    "vector_field",
-)
-_SEARCH_PARAM_KEYS = ("num_candidates", "vector_field")
-
 
 class ElasticBackend(BenchmarkBackend):
     """Elasticsearch GPU backend for vector benchmarking."""
@@ -568,11 +557,6 @@ def _get_cuvs_bench_config_path() -> str:
         "Cannot determine cuvs_bench config path. "
         "Ensure cuvs_bench is properly installed or on PYTHONPATH."
     )
-
-
-def _get_elastic_config_path() -> str:
-    """Get the config directory for elastic.yaml."""
-    return os.path.join(os.path.dirname(__file__), "../config")
 
 
 class ElasticConfigLoader(ConfigLoader):
