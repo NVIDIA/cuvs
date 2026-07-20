@@ -9,8 +9,9 @@ use std::marker::PhantomData;
 use std::path::Path;
 
 use super::{CagraError, IndexParams, SearchParams};
-use crate::dlpack::{AsDlTensor, AsDlTensorMut};
+use crate::dlpack::{AsDlTensor, AsDlTensorMut, DLTensorView, DLTensorViewMut};
 use crate::error::check_cuvs;
+use crate::neighbors::filters::{SearchFilter, with_filter};
 use crate::resources::Resources;
 
 type Result<T> = std::result::Result<T, CagraError>;
@@ -46,7 +47,7 @@ impl<'d> Index<'d> {
         T: AsDlTensor + ?Sized,
     {
         let dataset = dataset.as_dl_tensor()?;
-        let index = Index::new()?;
+        let index = Index::create_handle()?;
         unsafe {
             check_cuvs(ffi::cuvsCagraBuild(
                 res.handle(),
@@ -58,8 +59,7 @@ impl<'d> Index<'d> {
         Ok(index)
     }
 
-    /// Creates a new empty index
-    pub fn new() -> Result<Index<'d>> {
+    fn create_handle() -> Result<Index<'d>> {
         unsafe {
             let mut index = std::mem::MaybeUninit::<ffi::cuvsCagraIndex_t>::uninit();
             check_cuvs(ffi::cuvsCagraIndexCreate(index.as_mut_ptr()))?;
@@ -90,69 +90,58 @@ impl<'d> Index<'d> {
         let queries = queries.as_dl_tensor()?;
         let neighbors = neighbors.as_dl_tensor_mut()?;
         let distances = distances.as_dl_tensor_mut()?;
-        let prefilter = ffi::cuvsFilter { addr: 0, type_: ffi::cuvsFilterType::NO_FILTER };
-        check_cuvs(unsafe {
-            ffi::cuvsCagraSearch(
-                res.handle(),
-                params.handle(),
-                self.handle,
-                queries.to_c().as_mut_ptr(),
-                neighbors.to_c().as_mut_ptr(),
-                distances.to_c().as_mut_ptr(),
-                prefilter,
-            )
-        })?;
-        Ok(())
+        self.search_impl(res, params, &queries, &neighbors, &distances, None)
     }
 
-    /// Perform a filtered Approximate Nearest Neighbors search on the Index
-    ///
-    /// Like [`search`](Self::search), but applies a bitset filter to exclude
-    /// vectors during graph traversal. Filtered vectors are never visited, which
-    /// gives better recall than post-filtering.
-    ///
-    /// `queries`, `neighbors`, and `distances` are as in [`search`](Self::search).
-    /// `bitset` is a 1-D `uint32` device tensor of `ceil(n_rows / 32)` elements,
-    /// where each bit maps to a dataset row (1 = include, 0 = exclude).
-    pub fn search_with_filter<Q, N, D, B>(
+    /// Searches the index with a row-level bitset filter.
+    pub fn search_filtered<Q, N, D>(
         &self,
         res: &Resources,
         params: &SearchParams,
         queries: &Q,
         neighbors: &mut N,
         distances: &mut D,
-        bitset: &B,
+        filter: &SearchFilter<'_>,
     ) -> Result<()>
     where
         Q: AsDlTensor + ?Sized,
         N: AsDlTensorMut + ?Sized,
         D: AsDlTensorMut + ?Sized,
-        B: AsDlTensor + ?Sized,
     {
         let queries = queries.as_dl_tensor()?;
         let neighbors = neighbors.as_dl_tensor_mut()?;
         let distances = distances.as_dl_tensor_mut()?;
-        let bitset = bitset.as_dl_tensor()?;
-        // The bitset pointer is cast to `usize` and stored in `prefilter`, then read
-        // by the search call, so its `ManagedTensorRef` must outlive both.
-        // Hence we keep it bound instead of chaining `to_c().as_mut_ptr()`.
-        let mut bitset_c = bitset.to_c();
-        let prefilter = ffi::cuvsFilter {
-            addr: bitset_c.as_mut_ptr() as usize,
-            type_: ffi::cuvsFilterType::BITSET,
-        };
-        check_cuvs(unsafe {
-            ffi::cuvsCagraSearch(
-                res.handle(),
-                params.handle(),
-                self.handle,
-                queries.to_c().as_mut_ptr(),
-                neighbors.to_c().as_mut_ptr(),
-                distances.to_c().as_mut_ptr(),
-                prefilter,
-            )
-        })?;
-        Ok(())
+        if filter.uses_bitmap() {
+            return Err(CagraError::Validation(
+                "bitmap filters are not supported for CAGRA".into(),
+            ));
+        }
+        self.search_impl(res, params, &queries, &neighbors, &distances, Some(filter))
+    }
+
+    fn search_impl(
+        &self,
+        res: &Resources,
+        params: &SearchParams,
+        queries: &DLTensorView<'_>,
+        neighbors: &DLTensorViewMut<'_>,
+        distances: &DLTensorViewMut<'_>,
+        filter: Option<&SearchFilter<'_>>,
+    ) -> Result<()> {
+        with_filter(filter, |prefilter| {
+            check_cuvs(unsafe {
+                ffi::cuvsCagraSearch(
+                    res.handle(),
+                    params.handle(),
+                    self.handle,
+                    queries.to_c().as_mut_ptr(),
+                    neighbors.to_c().as_mut_ptr(),
+                    distances.to_c().as_mut_ptr(),
+                    prefilter,
+                )
+            })?;
+            Ok(())
+        })
     }
 
     /// Save the CAGRA index to file.
@@ -229,7 +218,7 @@ impl<'d> Index<'d> {
     /// * `filename` - The path of the file that stores the index
     pub fn deserialize<P: AsRef<Path>>(res: &Resources, filename: P) -> Result<Index<'static>> {
         let c_filename = path_to_cstring(filename.as_ref())?;
-        let index = Index::new()?;
+        let index = Index::create_handle()?;
         unsafe {
             check_cuvs(ffi::cuvsCagraDeserialize(res.handle(), c_filename.as_ptr(), index.handle))?;
         }
@@ -249,6 +238,7 @@ impl Drop for Index<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::neighbors::filters::{Bitset, Filter, SearchFilter};
     use crate::test_utils::DeviceTensor;
     use ndarray::s;
     use ndarray_rand::RandomExt;
@@ -322,7 +312,7 @@ mod tests {
 
     /// Test bitset-filtered search: exclude odd-indexed rows, verify they don't appear.
     #[test]
-    fn test_cagra_search_with_filter() {
+    fn test_cagra_search_filtered() {
         let res = Resources::new().unwrap();
         let build_params = IndexParams::try_new().unwrap();
 
@@ -357,15 +347,16 @@ mod tests {
         let mut distances = DeviceTensor::<f32>::zeros(&res, &[n_queries, k]).unwrap();
 
         let search_params = SearchParams::try_new().unwrap();
+        let filter = SearchFilter::Bitset(Filter::<Bitset>::new(&bitset).unwrap());
 
         index
-            .search_with_filter(
+            .search_filtered(
                 &res,
                 &search_params,
                 &queries,
                 &mut neighbors,
                 &mut distances,
-                &bitset,
+                &filter,
             )
             .unwrap();
 

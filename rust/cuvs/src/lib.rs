@@ -12,9 +12,9 @@ extern crate cuvs_sys as ffi;
 pub mod cluster;
 pub mod distance;
 pub mod dlpack;
-mod error;
+pub mod error;
 pub mod neighbors;
-mod resources;
+pub mod resources;
 #[cfg(test)]
 pub(crate) mod test_utils;
 

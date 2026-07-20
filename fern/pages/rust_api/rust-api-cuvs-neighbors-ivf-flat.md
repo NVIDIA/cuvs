@@ -18,13 +18,21 @@ device-resident queries and output buffers. Tensors are borrowed through the
 module for the tensor model and `examples/cagra.rs` for the same build/search
 workflow.
 
+## crate::neighbors::filters::SearchFilter
+
+```rust
+pub use crate::neighbors::filters::SearchFilter;
+```
+
+_Source: `rust/cuvs/src/neighbors/ivf_flat/mod.rs:19`_
+
 ## index::Index
 
 ```rust
 pub use index::Index;
 ```
 
-_Source: `rust/cuvs/src/neighbors/ivf_flat/mod.rs:19`_
+_Source: `rust/cuvs/src/neighbors/ivf_flat/mod.rs:20`_
 
 ## params::\{IndexParams, SearchParams\}
 
@@ -32,7 +40,7 @@ _Source: `rust/cuvs/src/neighbors/ivf_flat/mod.rs:19`_
 pub use params::{IndexParams, SearchParams};
 ```
 
-_Source: `rust/cuvs/src/neighbors/ivf_flat/mod.rs:20`_
+_Source: `rust/cuvs/src/neighbors/ivf_flat/mod.rs:21`_
 
 ## IvfFlatError
 
@@ -45,4 +53,4 @@ pub enum IvfFlatError {
 
 Error type for IVF-Flat operations.
 
-_Source: `rust/cuvs/src/neighbors/ivf_flat/mod.rs:27`_
+_Source: `rust/cuvs/src/neighbors/ivf_flat/mod.rs:28`_

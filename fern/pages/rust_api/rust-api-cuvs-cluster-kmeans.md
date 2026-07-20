@@ -60,7 +60,7 @@ Fits k-means centroids to `x`, returning `(inertia, n_iterations)`.
 optional per-sample weight. All reside in device memory and implement
 [`AsDlTensor`] / [`AsDlTensorMut`].
 
-_Source: `rust/cuvs/src/cluster/kmeans/mod.rs:41`_
+_Source: `rust/cuvs/src/cluster/kmeans/mod.rs:44`_
 
 ## predict
 
@@ -89,7 +89,7 @@ Assigns each row of `x` to its nearest centroid, writing cluster labels into
 implement [`AsDlTensor`] / [`AsDlTensorMut`]. `normalize_weight` selects
 whether the sample weights are normalized.
 
-_Source: `rust/cuvs/src/cluster/kmeans/mod.rs:83`_
+_Source: `rust/cuvs/src/cluster/kmeans/mod.rs:86`_
 
 ## cluster_cost
 
@@ -105,4 +105,4 @@ Computes the k-means cost (inertia) of `x` against existing `centroids`.
 `x` (shape `m × k`) and `centroids` (shape `n_clusters × k`) reside in device
 memory and implement [`AsDlTensor`].
 
-_Source: `rust/cuvs/src/cluster/kmeans/mod.rs:126`_
+_Source: `rust/cuvs/src/cluster/kmeans/mod.rs:129`_

@@ -28,7 +28,7 @@ Parameters for building an IVF-Flat index.
 | Name | Source |
 | --- | --- |
 | `new` | `rust/cuvs/src/neighbors/ivf_flat/params.rs:28` |
-| `try_new` | `rust/cuvs/src/neighbors/ivf_flat/params.rs:60` |
+| `try_new` | `rust/cuvs/src/neighbors/ivf_flat/params.rs:71` |
 
 ### new
 
@@ -53,7 +53,7 @@ pub fn try_new() -> Result<Self, IvfFlatError>
 
 Allocate parameters populated with the library defaults.
 
-_Source: `rust/cuvs/src/neighbors/ivf_flat/params.rs:60`_
+_Source: `rust/cuvs/src/neighbors/ivf_flat/params.rs:71`_
 
 _Source: `rust/cuvs/src/neighbors/ivf_flat/params.rs:21`_
 
@@ -71,8 +71,8 @@ Parameters for searching an IVF-Flat index.
 
 | Name | Source |
 | --- | --- |
-| `new` | `rust/cuvs/src/neighbors/ivf_flat/params.rs:91` |
-| `try_new` | `rust/cuvs/src/neighbors/ivf_flat/params.rs:104` |
+| `new` | `rust/cuvs/src/neighbors/ivf_flat/params.rs:102` |
+| `try_new` | `rust/cuvs/src/neighbors/ivf_flat/params.rs:119` |
 
 ### new
 
@@ -81,7 +81,7 @@ Parameters for searching an IVF-Flat index.
 pub fn new(n_probes: Option<u32>) -> Result<Self, IvfFlatError>
 ```
 
-_Source: `rust/cuvs/src/neighbors/ivf_flat/params.rs:91`_
+_Source: `rust/cuvs/src/neighbors/ivf_flat/params.rs:102`_
 
 ### try_new
 
@@ -91,6 +91,6 @@ pub fn try_new() -> Result<Self, IvfFlatError>
 
 Allocate parameters populated with the library defaults.
 
-_Source: `rust/cuvs/src/neighbors/ivf_flat/params.rs:104`_
+_Source: `rust/cuvs/src/neighbors/ivf_flat/params.rs:119`_
 
-_Source: `rust/cuvs/src/neighbors/ivf_flat/params.rs:84`_
+_Source: `rust/cuvs/src/neighbors/ivf_flat/params.rs:95`_

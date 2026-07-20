@@ -27,15 +27,69 @@ pub use index::Index;
 
 _Source: `rust/cuvs/src/neighbors/ivf_pq/mod.rs:19`_
 
-## params::\{ IndexParams, SearchParams, cudaDataType_t, cuvsIvfPqCodebookGen, cuvsIvfPqListLayout, \}
+## params::\{IndexParams, SearchParams\}
 
 ```rust
-pub use params::{
-IndexParams, SearchParams, cudaDataType_t, cuvsIvfPqCodebookGen, cuvsIvfPqListLayout,
-};
+pub use params::{IndexParams, SearchParams};
 ```
 
 _Source: `rust/cuvs/src/neighbors/ivf_pq/mod.rs:20`_
+
+## CodebookGen
+
+```rust
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum CodebookGen {
+    /* variants omitted */
+}
+```
+
+Strategy for creating PQ codebooks.
+
+_Source: `rust/cuvs/src/neighbors/ivf_pq/mod.rs:28`_
+
+## ListLayout
+
+```rust
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ListLayout {
+    /* variants omitted */
+}
+```
+
+Memory layout of the IVF-PQ list data.
+
+_Source: `rust/cuvs/src/neighbors/ivf_pq/mod.rs:56`_
+
+## LutDType
+
+```rust
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum LutDType {
+    /* variants omitted */
+}
+```
+
+Lookup-table dtype used during IVF-PQ search.
+
+_Source: `rust/cuvs/src/neighbors/ivf_pq/mod.rs:84`_
+
+## InternalDistanceDType
+
+```rust
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum InternalDistanceDType {
+    /* variants omitted */
+}
+```
+
+Accumulator dtype used for internal IVF-PQ distance computation.
+
+_Source: `rust/cuvs/src/neighbors/ivf_pq/mod.rs:106`_
 
 ## IvfPqError
 
@@ -48,4 +102,4 @@ pub enum IvfPqError {
 
 Error type for IVF-PQ operations.
 
-_Source: `rust/cuvs/src/neighbors/ivf_pq/mod.rs:29`_
+_Source: `rust/cuvs/src/neighbors/ivf_pq/mod.rs:124`_

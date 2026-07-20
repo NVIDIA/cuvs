@@ -17,6 +17,8 @@ use crate::error::check_cuvs;
 
 use super::VamanaError;
 
+const SUPPORTED_GRAPH_DEGREES: [u32; 4] = [32, 64, 128, 256];
+
 /// Parameters for building a Vamana index.
 pub struct IndexParams {
     handle: ffi::cuvsVamanaIndexParams_t,
@@ -38,6 +40,36 @@ impl IndexParams {
         reverse_batchsize: Option<u32>,
     ) -> Result<Self, VamanaError> {
         let params = Self::try_new()?;
+        let effective_metric = metric.unwrap_or_else(|| unsafe { (*params.handle).metric.into() });
+        let effective_graph_degree =
+            graph_degree.unwrap_or_else(|| unsafe { (*params.handle).graph_degree });
+        let effective_visited_size =
+            visited_size.unwrap_or_else(|| unsafe { (*params.handle).visited_size });
+        let effective_vamana_iters =
+            vamana_iters.unwrap_or_else(|| unsafe { (*params.handle).vamana_iters });
+
+        if effective_metric != DistanceType::L2Expanded {
+            return Err(VamanaError::Validation(
+                "Vamana currently only supports L2Expanded metric".into(),
+            ));
+        }
+        if !SUPPORTED_GRAPH_DEGREES.contains(&effective_graph_degree) {
+            return Err(VamanaError::Validation(format!(
+                "graph_degree must be one of {:?}, got {effective_graph_degree}",
+                SUPPORTED_GRAPH_DEGREES
+            )));
+        }
+        if effective_visited_size <= effective_graph_degree {
+            return Err(VamanaError::Validation(format!(
+                "visited_size must be > graph_degree ({effective_graph_degree}), got {effective_visited_size}"
+            )));
+        }
+        if !effective_vamana_iters.is_finite() || effective_vamana_iters < 1.0 {
+            return Err(VamanaError::Validation(format!(
+                "vamana_iters must be finite and >= 1.0, got {effective_vamana_iters}"
+            )));
+        }
+
         unsafe {
             if let Some(v) = metric {
                 (*params.handle).metric = v.into();
@@ -107,5 +139,25 @@ mod tests {
             assert_eq!((*params.handle).alpha, 1.0);
             assert_eq!((*params.handle).visited_size, 128);
         }
+    }
+
+    #[test]
+    fn rejects_invalid_values() {
+        assert!(matches!(
+            IndexParams::builder().metric(DistanceType::InnerProduct).build(),
+            Err(VamanaError::Validation(_))
+        ));
+        assert!(matches!(
+            IndexParams::builder().graph_degree(31).build(),
+            Err(VamanaError::Validation(_))
+        ));
+        assert!(matches!(
+            IndexParams::builder().graph_degree(64).visited_size(64).build(),
+            Err(VamanaError::Validation(_))
+        ));
+        assert!(matches!(
+            IndexParams::builder().vamana_iters(0.5).build(),
+            Err(VamanaError::Validation(_))
+        ));
     }
 }

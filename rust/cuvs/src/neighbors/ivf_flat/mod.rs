@@ -16,6 +16,7 @@
 mod index;
 mod params;
 
+pub use crate::neighbors::filters::SearchFilter;
 pub use index::Index;
 pub use params::{IndexParams, SearchParams};
 
@@ -31,4 +32,7 @@ pub enum IvfFlatError {
     /// Tensor conversion into DLPack metadata failed.
     #[error(transparent)]
     DLPack(#[from] DLPackError),
+    /// A parameter value failed validation.
+    #[error("invalid parameter: {0}")]
+    Validation(String),
 }

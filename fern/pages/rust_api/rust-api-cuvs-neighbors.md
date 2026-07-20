@@ -31,13 +31,21 @@ pub mod cagra;
 
 _Source: `rust/cuvs/src/neighbors/mod.rs:14`_
 
+## filters
+
+```rust
+pub mod filters;
+```
+
+_Source: `rust/cuvs/src/neighbors/mod.rs:15`_
+
 ## ivf_flat
 
 ```rust
 pub mod ivf_flat;
 ```
 
-_Source: `rust/cuvs/src/neighbors/mod.rs:15`_
+_Source: `rust/cuvs/src/neighbors/mod.rs:16`_
 
 ## ivf_pq
 
@@ -45,7 +53,7 @@ _Source: `rust/cuvs/src/neighbors/mod.rs:15`_
 pub mod ivf_pq;
 ```
 
-_Source: `rust/cuvs/src/neighbors/mod.rs:16`_
+_Source: `rust/cuvs/src/neighbors/mod.rs:17`_
 
 ## vamana
 
@@ -53,4 +61,4 @@ _Source: `rust/cuvs/src/neighbors/mod.rs:16`_
 pub mod vamana;
 ```
 
-_Source: `rust/cuvs/src/neighbors/mod.rs:17`_
+_Source: `rust/cuvs/src/neighbors/mod.rs:18`_

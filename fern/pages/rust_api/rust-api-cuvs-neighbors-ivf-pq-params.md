@@ -13,14 +13,6 @@ Builder-pattern parameter types for IVF-PQ build and search.
 All setters are optional; unset values retain the library defaults from the
 underlying C `*ParamsCreate` functions.
 
-## ffi::\{cudaDataType_t, cuvsIvfPqCodebookGen, cuvsIvfPqListLayout\}
-
-```rust
-pub use ffi::{cudaDataType_t, cuvsIvfPqCodebookGen, cuvsIvfPqListLayout};
-```
-
-_Source: `rust/cuvs/src/neighbors/ivf_pq/params.rs:20`_
-
 ## IndexParams
 
 ```rust
@@ -35,8 +27,8 @@ Parameters for building an IVF-PQ index.
 
 | Name | Source |
 | --- | --- |
-| `new` | `rust/cuvs/src/neighbors/ivf_pq/params.rs:31` |
-| `try_new` | `rust/cuvs/src/neighbors/ivf_pq/params.rs:87` |
+| `new` | `rust/cuvs/src/neighbors/ivf_pq/params.rs:29` |
+| `try_new` | `rust/cuvs/src/neighbors/ivf_pq/params.rs:112` |
 
 ### new
 
@@ -50,15 +42,15 @@ kmeans_n_iters: Option<u32>,
 kmeans_trainset_fraction: Option<f64>,
 pq_bits: Option<u32>,
 pq_dim: Option<u32>,
-codebook_kind: Option<cuvsIvfPqCodebookGen>,
-codes_layout: Option<cuvsIvfPqListLayout>,
+codebook_kind: Option<CodebookGen>,
+codes_layout: Option<ListLayout>,
 force_random_rotation: Option<bool>,
 max_train_points_per_pq_code: Option<u32>,
 add_data_on_build: Option<bool>,
 ) -> Result<Self, IvfPqError>
 ```
 
-_Source: `rust/cuvs/src/neighbors/ivf_pq/params.rs:31`_
+_Source: `rust/cuvs/src/neighbors/ivf_pq/params.rs:29`_
 
 ### try_new
 
@@ -68,9 +60,9 @@ pub fn try_new() -> Result<Self, IvfPqError>
 
 Allocate parameters populated with the library defaults.
 
-_Source: `rust/cuvs/src/neighbors/ivf_pq/params.rs:87`_
+_Source: `rust/cuvs/src/neighbors/ivf_pq/params.rs:112`_
 
-_Source: `rust/cuvs/src/neighbors/ivf_pq/params.rs:23`_
+_Source: `rust/cuvs/src/neighbors/ivf_pq/params.rs:21`_
 
 ## SearchParams
 
@@ -86,8 +78,8 @@ Parameters for searching an IVF-PQ index.
 
 | Name | Source |
 | --- | --- |
-| `new` | `rust/cuvs/src/neighbors/ivf_pq/params.rs:118` |
-| `try_new` | `rust/cuvs/src/neighbors/ivf_pq/params.rs:141` |
+| `new` | `rust/cuvs/src/neighbors/ivf_pq/params.rs:143` |
+| `try_new` | `rust/cuvs/src/neighbors/ivf_pq/params.rs:178` |
 
 ### new
 
@@ -95,12 +87,12 @@ Parameters for searching an IVF-PQ index.
 #[builder]
 pub fn new(
 n_probes: Option<u32>,
-lut_dtype: Option<cudaDataType_t>,
-internal_distance_dtype: Option<cudaDataType_t>,
+lut_dtype: Option<LutDType>,
+internal_distance_dtype: Option<InternalDistanceDType>,
 ) -> Result<Self, IvfPqError>
 ```
 
-_Source: `rust/cuvs/src/neighbors/ivf_pq/params.rs:118`_
+_Source: `rust/cuvs/src/neighbors/ivf_pq/params.rs:143`_
 
 ### try_new
 
@@ -110,6 +102,6 @@ pub fn try_new() -> Result<Self, IvfPqError>
 
 Allocate parameters populated with the library defaults.
 
-_Source: `rust/cuvs/src/neighbors/ivf_pq/params.rs:141`_
+_Source: `rust/cuvs/src/neighbors/ivf_pq/params.rs:178`_
 
-_Source: `rust/cuvs/src/neighbors/ivf_pq/params.rs:111`_
+_Source: `rust/cuvs/src/neighbors/ivf_pq/params.rs:136`_

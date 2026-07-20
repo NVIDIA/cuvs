@@ -30,6 +30,9 @@ pub enum KMeansError {
     /// Tensor conversion into DLPack metadata failed.
     #[error(transparent)]
     DLPack(#[from] DLPackError),
+    /// A parameter value failed validation.
+    #[error("invalid parameter: {0}")]
+    Validation(String),
 }
 
 /// Fits k-means centroids to `x`, returning `(inertia, n_iterations)`.

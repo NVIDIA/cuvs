@@ -29,13 +29,12 @@ self-contained and its lifetime is `'static`.
 
 | Name | Source |
 | --- | --- |
-| `build` | `rust/cuvs/src/neighbors/cagra/index.rs:44` |
-| `new` | `rust/cuvs/src/neighbors/cagra/index.rs:62` |
+| `build` | `rust/cuvs/src/neighbors/cagra/index.rs:45` |
 | `search` | `rust/cuvs/src/neighbors/cagra/index.rs:77` |
-| `search_with_filter` | `rust/cuvs/src/neighbors/cagra/index.rs:117` |
-| `serialize` | `rust/cuvs/src/neighbors/cagra/index.rs:190` |
-| `serialize_to_hnswlib` | `rust/cuvs/src/neighbors/cagra/index.rs:214` |
-| `deserialize` | `rust/cuvs/src/neighbors/cagra/index.rs:230` |
+| `search_filtered` | `rust/cuvs/src/neighbors/cagra/index.rs:97` |
+| `serialize` | `rust/cuvs/src/neighbors/cagra/index.rs:179` |
+| `serialize_to_hnswlib` | `rust/cuvs/src/neighbors/cagra/index.rs:203` |
+| `deserialize` | `rust/cuvs/src/neighbors/cagra/index.rs:219` |
 
 ### build
 
@@ -52,17 +51,7 @@ Builds a CAGRA index over `dataset` for efficient search.
 view of it, so the returned [`Index`] borrows `dataset` for `'d` and
 cannot outlive it.
 
-_Source: `rust/cuvs/src/neighbors/cagra/index.rs:44`_
-
-### new
-
-```rust
-pub fn new() -> Result<Index<'d>>
-```
-
-Creates a new empty index
-
-_Source: `rust/cuvs/src/neighbors/cagra/index.rs:62`_
+_Source: `rust/cuvs/src/neighbors/cagra/index.rs:45`_
 
 ### search
 
@@ -91,36 +80,27 @@ distances; both are written in place.
 
 _Source: `rust/cuvs/src/neighbors/cagra/index.rs:77`_
 
-### search_with_filter
+### search_filtered
 
 ```rust
-pub fn search_with_filter<Q, N, D, B>(
+pub fn search_filtered<Q, N, D>(
 &self,
 res: &Resources,
 params: &SearchParams,
 queries: &Q,
 neighbors: &mut N,
 distances: &mut D,
-bitset: &B,
+filter: &SearchFilter<'_>,
 ) -> Result<()>
 where
 Q: AsDlTensor + ?Sized,
 N: AsDlTensorMut + ?Sized,
 D: AsDlTensorMut + ?Sized,
-B: AsDlTensor + ?Sized,
 ```
 
-Perform a filtered Approximate Nearest Neighbors search on the Index
+Searches the index with a row-level bitset filter.
 
-Like [`search`](Self::search), but applies a bitset filter to exclude
-vectors during graph traversal. Filtered vectors are never visited, which
-gives better recall than post-filtering.
-
-`queries`, `neighbors`, and `distances` are as in [`search`](Self::search).
-`bitset` is a 1-D `uint32` device tensor of `ceil(n_rows / 32)` elements,
-where each bit maps to a dataset row (1 = include, 0 = exclude).
-
-_Source: `rust/cuvs/src/neighbors/cagra/index.rs:117`_
+_Source: `rust/cuvs/src/neighbors/cagra/index.rs:97`_
 
 ### serialize
 
@@ -166,7 +146,7 @@ Ok(())
 }
 ```
 
-_Source: `rust/cuvs/src/neighbors/cagra/index.rs:190`_
+_Source: `rust/cuvs/src/neighbors/cagra/index.rs:179`_
 
 ### serialize_to_hnswlib
 
@@ -186,7 +166,7 @@ Experimental, both the API and the serialization format are subject to change.
 * `res` - Resources to use
 * `filename` - The file path for saving the index
 
-_Source: `rust/cuvs/src/neighbors/cagra/index.rs:214`_
+_Source: `rust/cuvs/src/neighbors/cagra/index.rs:203`_
 
 ### deserialize
 
@@ -203,6 +183,6 @@ Experimental, both the API and the serialization format are subject to change.
 * `res` - Resources to use
 * `filename` - The path of the file that stores the index
 
-_Source: `rust/cuvs/src/neighbors/cagra/index.rs:230`_
+_Source: `rust/cuvs/src/neighbors/cagra/index.rs:219`_
 
-_Source: `rust/cuvs/src/neighbors/cagra/index.rs:26`_
+_Source: `rust/cuvs/src/neighbors/cagra/index.rs:27`_

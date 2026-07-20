@@ -6,8 +6,9 @@
 use std::io::{Write, stderr};
 
 use super::{IndexParams, IvfFlatError, SearchParams};
-use crate::dlpack::{AsDlTensor, AsDlTensorMut};
+use crate::dlpack::{AsDlTensor, AsDlTensorMut, DLTensorView, DLTensorViewMut};
 use crate::error::check_cuvs;
+use crate::neighbors::filters::{SearchFilter, with_filter};
 use crate::resources::Resources;
 
 type Result<T> = std::result::Result<T, IvfFlatError>;
@@ -30,7 +31,7 @@ impl Index {
         T: AsDlTensor + ?Sized,
     {
         let dataset = dataset.as_dl_tensor()?;
-        let index = Index::new()?;
+        let index = Index::create_handle()?;
         unsafe {
             check_cuvs(ffi::cuvsIvfFlatBuild(
                 res.handle(),
@@ -42,8 +43,7 @@ impl Index {
         Ok(index)
     }
 
-    /// Creates a new empty index.
-    pub fn new() -> Result<Index> {
+    fn create_handle() -> Result<Index> {
         unsafe {
             let mut index = std::mem::MaybeUninit::<ffi::cuvsIvfFlatIndex_t>::uninit();
             check_cuvs(ffi::cuvsIvfFlatIndexCreate(index.as_mut_ptr()))?;
@@ -73,19 +73,58 @@ impl Index {
         let queries = queries.as_dl_tensor()?;
         let neighbors = neighbors.as_dl_tensor_mut()?;
         let distances = distances.as_dl_tensor_mut()?;
-        let prefilter = ffi::cuvsFilter { addr: 0, type_: ffi::cuvsFilterType::NO_FILTER };
-        check_cuvs(unsafe {
-            ffi::cuvsIvfFlatSearch(
-                res.handle(),
-                params.handle(),
-                self.0,
-                queries.to_c().as_mut_ptr(),
-                neighbors.to_c().as_mut_ptr(),
-                distances.to_c().as_mut_ptr(),
-                prefilter,
-            )
-        })?;
-        Ok(())
+        self.search_impl(res, params, &queries, &neighbors, &distances, None)
+    }
+
+    /// Searches the index with a row-level bitset filter.
+    pub fn search_filtered<Q, N, D>(
+        &self,
+        res: &Resources,
+        params: &SearchParams,
+        queries: &Q,
+        neighbors: &mut N,
+        distances: &mut D,
+        filter: &SearchFilter<'_>,
+    ) -> Result<()>
+    where
+        Q: AsDlTensor + ?Sized,
+        N: AsDlTensorMut + ?Sized,
+        D: AsDlTensorMut + ?Sized,
+    {
+        if filter.uses_bitmap() {
+            return Err(IvfFlatError::Validation(
+                "bitmap filters are not supported for IVF-Flat".into(),
+            ));
+        }
+        let queries = queries.as_dl_tensor()?;
+        let neighbors = neighbors.as_dl_tensor_mut()?;
+        let distances = distances.as_dl_tensor_mut()?;
+        self.search_impl(res, params, &queries, &neighbors, &distances, Some(filter))
+    }
+
+    fn search_impl(
+        &self,
+        res: &Resources,
+        params: &SearchParams,
+        queries: &DLTensorView<'_>,
+        neighbors: &DLTensorViewMut<'_>,
+        distances: &DLTensorViewMut<'_>,
+        filter: Option<&SearchFilter<'_>>,
+    ) -> Result<()> {
+        with_filter(filter, |prefilter| {
+            check_cuvs(unsafe {
+                ffi::cuvsIvfFlatSearch(
+                    res.handle(),
+                    params.handle(),
+                    self.0,
+                    queries.to_c().as_mut_ptr(),
+                    neighbors.to_c().as_mut_ptr(),
+                    distances.to_c().as_mut_ptr(),
+                    prefilter,
+                )
+            })?;
+            Ok(())
+        })
     }
 }
 

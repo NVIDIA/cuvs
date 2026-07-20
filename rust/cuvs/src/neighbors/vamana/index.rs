@@ -5,6 +5,7 @@
 
 use std::ffi::CString;
 use std::io::{Write, stderr};
+use std::path::Path;
 
 use super::{IndexParams, VamanaError};
 use crate::dlpack::AsDlTensor;
@@ -34,7 +35,7 @@ impl Index {
         T: AsDlTensor + ?Sized,
     {
         let dataset = dataset.as_dl_tensor()?;
-        let index = Index::new()?;
+        let index = Index::create_handle()?;
         unsafe {
             check_cuvs(ffi::cuvsVamanaBuild(
                 res.handle(),
@@ -46,8 +47,7 @@ impl Index {
         Ok(index)
     }
 
-    /// Creates a new empty index.
-    pub fn new() -> Result<Index> {
+    fn create_handle() -> Result<Index> {
         unsafe {
             let mut index = std::mem::MaybeUninit::<ffi::cuvsVamanaIndex_t>::uninit();
             check_cuvs(ffi::cuvsVamanaIndexCreate(index.as_mut_ptr()))?;
@@ -62,8 +62,13 @@ impl Index {
     ///
     /// `filename` is the file prefix under which the index is saved;
     /// `include_dataset` controls whether the dataset is embedded.
-    pub fn serialize(self, res: &Resources, filename: &str, include_dataset: bool) -> Result<()> {
-        let c_filename = CString::new(filename)?;
+    pub fn serialize(
+        &self,
+        res: &Resources,
+        filename: impl AsRef<Path>,
+        include_dataset: bool,
+    ) -> Result<()> {
+        let c_filename = CString::new(filename.as_ref().as_os_str().as_encoded_bytes())?;
         check_cuvs(unsafe {
             ffi::cuvsVamanaSerialize(res.handle(), c_filename.as_ptr(), self.0, include_dataset)
         })?;

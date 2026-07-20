@@ -12,6 +12,7 @@
 //! `*ParamsCreate` functions. Out-of-range values are rejected by `build()` with
 //! [`CagraError::Validation`].
 
+use std::ffi::c_void;
 use std::{fmt, ptr};
 
 use bon::bon;
@@ -102,6 +103,15 @@ impl Drop for CompressionParams {
     }
 }
 
+#[derive(Debug)]
+enum RequestedGraphBuild {
+    Auto,
+    NnDescent { iterations: Option<usize> },
+    IterativeCagraSearch,
+    Ace,
+    IvfPq,
+}
+
 // ---------------------------------------------------------------------------
 // IndexParams
 // ---------------------------------------------------------------------------
@@ -119,9 +129,10 @@ impl Drop for CompressionParams {
 /// ```
 pub struct IndexParams {
     handle: ffi::cuvsCagraIndexParams_t,
-    // Keep the compression params alive for as long as the index params
-    // reference them through `(*handle).compression`.
-    _compression: Option<CompressionParams>,
+    // Saved so Drop can restore the C-owned default IVF-PQ params before the C
+    // destructor runs; other graph strategies temporarily replace it with null.
+    default_graph_build_params: *mut c_void,
+    compression: Option<CompressionParams>,
 }
 
 #[bon]
@@ -131,9 +142,10 @@ impl IndexParams {
         metric: Option<DistanceType>,
         intermediate_graph_degree: Option<usize>,
         graph_degree: Option<usize>,
-        build_algo: Option<GraphBuildAlgo>,
-        nn_descent_niter: Option<usize>,
         compression: Option<CompressionParams>,
+        #[builder(setters(vis = "", some_fn = graph_build_internal))] graph_build: Option<
+            RequestedGraphBuild,
+        >,
     ) -> Result<Self, CagraError> {
         if let Some(d) = graph_degree
             && d == 0
@@ -149,7 +161,7 @@ impl IndexParams {
             )));
         }
 
-        if let Some(0) = nn_descent_niter {
+        if let Some(RequestedGraphBuild::NnDescent { iterations: Some(0) }) = &graph_build {
             return Err(CagraError::Validation("nn_descent_niter must be > 0".into()));
         }
 
@@ -172,20 +184,61 @@ impl IndexParams {
             if let Some(v) = graph_degree {
                 (*params.handle).graph_degree = v;
             }
-            if let Some(v) = build_algo {
-                (*params.handle).build_algo = v.into();
-            }
-            if let Some(v) = nn_descent_niter {
-                (*params.handle).nn_descent_niter = v;
-            }
         }
 
         if let Some(compression) = compression {
             unsafe { (*params.handle).compression = compression.handle() };
-            params._compression = Some(compression);
+            params.compression = Some(compression);
         }
 
+        params.apply_graph_build(graph_build)?;
         Ok(params)
+    }
+}
+
+use index_params_builder::{IsUnset, SetGraphBuild, State};
+
+impl<S: State> IndexParamsBuilder<S> {
+    pub fn auto(self) -> IndexParamsBuilder<SetGraphBuild<S>>
+    where
+        S::GraphBuild: IsUnset,
+    {
+        self.graph_build_internal(RequestedGraphBuild::Auto)
+    }
+
+    pub fn nn_descent(self) -> IndexParamsBuilder<SetGraphBuild<S>>
+    where
+        S::GraphBuild: IsUnset,
+    {
+        self.graph_build_internal(RequestedGraphBuild::NnDescent { iterations: None })
+    }
+
+    pub fn nn_descent_with(self, iterations: usize) -> IndexParamsBuilder<SetGraphBuild<S>>
+    where
+        S::GraphBuild: IsUnset,
+    {
+        self.graph_build_internal(RequestedGraphBuild::NnDescent { iterations: Some(iterations) })
+    }
+
+    pub fn iterative_cagra_search(self) -> IndexParamsBuilder<SetGraphBuild<S>>
+    where
+        S::GraphBuild: IsUnset,
+    {
+        self.graph_build_internal(RequestedGraphBuild::IterativeCagraSearch)
+    }
+
+    pub fn ace(self) -> IndexParamsBuilder<SetGraphBuild<S>>
+    where
+        S::GraphBuild: IsUnset,
+    {
+        self.graph_build_internal(RequestedGraphBuild::Ace)
+    }
+
+    pub fn ivf_pq(self) -> IndexParamsBuilder<SetGraphBuild<S>>
+    where
+        S::GraphBuild: IsUnset,
+    {
+        self.graph_build_internal(RequestedGraphBuild::IvfPq)
     }
 }
 
@@ -194,11 +247,47 @@ impl IndexParams {
     pub fn try_new() -> Result<Self, CagraError> {
         let mut handle = ptr::null_mut();
         check_cuvs(unsafe { ffi::cuvsCagraIndexParamsCreate(&mut handle) })?;
-        Ok(Self { handle, _compression: None })
+        let default_graph_build_params = unsafe { (*handle).graph_build_params };
+        Ok(Self { handle, default_graph_build_params, compression: None })
     }
 
     pub(super) fn handle(&self) -> ffi::cuvsCagraIndexParams_t {
         self.handle
+    }
+
+    fn apply_graph_build(
+        &mut self,
+        graph_build: Option<RequestedGraphBuild>,
+    ) -> Result<(), CagraError> {
+        let Some(graph_build) = graph_build else {
+            return Ok(());
+        };
+        match graph_build {
+            RequestedGraphBuild::Auto => unsafe {
+                (*self.handle).build_algo = GraphBuildAlgo::Auto.into();
+                (*self.handle).graph_build_params = ptr::null_mut();
+            },
+            RequestedGraphBuild::NnDescent { iterations } => unsafe {
+                (*self.handle).build_algo = GraphBuildAlgo::NnDescent.into();
+                (*self.handle).graph_build_params = ptr::null_mut();
+                if let Some(value) = iterations {
+                    (*self.handle).nn_descent_niter = value;
+                }
+            },
+            RequestedGraphBuild::IterativeCagraSearch => unsafe {
+                (*self.handle).build_algo = GraphBuildAlgo::IterativeCagraSearch.into();
+                (*self.handle).graph_build_params = ptr::null_mut();
+            },
+            RequestedGraphBuild::Ace => unsafe {
+                (*self.handle).build_algo = GraphBuildAlgo::Ace.into();
+                (*self.handle).graph_build_params = ptr::null_mut();
+            },
+            RequestedGraphBuild::IvfPq => unsafe {
+                (*self.handle).build_algo = GraphBuildAlgo::IvfPq.into();
+                (*self.handle).graph_build_params = self.default_graph_build_params;
+            },
+        }
+        Ok(())
     }
 }
 
@@ -210,7 +299,11 @@ impl fmt::Debug for IndexParams {
 
 impl Drop for IndexParams {
     fn drop(&mut self) {
-        let _ = unsafe { ffi::cuvsCagraIndexParamsDestroy(self.handle) };
+        unsafe {
+            (*self.handle).graph_build_params = self.default_graph_build_params;
+            (*self.handle).build_algo = ffi::cuvsCagraGraphBuildAlgo::IVF_PQ;
+            let _ = ffi::cuvsCagraIndexParamsDestroy(self.handle);
+        }
     }
 }
 
@@ -391,8 +484,7 @@ mod tests {
             .metric(DistanceType::InnerProduct)
             .graph_degree(64)
             .intermediate_graph_degree(128)
-            .build_algo(GraphBuildAlgo::NnDescent)
-            .nn_descent_niter(10)
+            .nn_descent_with(10)
             .build()
             .unwrap();
 
@@ -425,7 +517,7 @@ mod tests {
 
     #[test]
     fn index_params_rejects_zero_niter() {
-        let err = IndexParams::builder().nn_descent_niter(0).build().unwrap_err();
+        let err = IndexParams::builder().nn_descent_with(0).build().unwrap_err();
         assert!(err.to_string().contains("nn_descent_niter must be > 0"));
     }
 
@@ -451,6 +543,21 @@ mod tests {
             assert!(!c.is_null());
             assert_eq!((*c).pq_bits, 4);
             assert_eq!((*c).pq_dim, 8);
+        }
+    }
+
+    #[test]
+    fn index_params_selects_default_graph_build_strategies() {
+        let ace_params = IndexParams::builder().ace().build().unwrap();
+        unsafe {
+            assert_eq!((*ace_params.handle).build_algo, ffi::cuvsCagraGraphBuildAlgo::ACE);
+            assert!((*ace_params.handle).graph_build_params.is_null());
+        }
+
+        let ivf_pq_params = IndexParams::builder().ivf_pq().build().unwrap();
+        unsafe {
+            assert_eq!((*ivf_pq_params.handle).build_algo, ffi::cuvsCagraGraphBuildAlgo::IVF_PQ);
+            assert!(!(*ivf_pq_params.handle).graph_build_params.is_null());
         }
     }
 

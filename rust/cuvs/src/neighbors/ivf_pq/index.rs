@@ -27,7 +27,7 @@ impl Index {
         T: AsDlTensor + ?Sized,
     {
         let dataset = dataset.as_dl_tensor()?;
-        let index = Index::new()?;
+        let index = Index::create_handle()?;
         unsafe {
             check_cuvs(ffi::cuvsIvfPqBuild(
                 res.handle(),
@@ -39,8 +39,7 @@ impl Index {
         Ok(index)
     }
 
-    /// Creates a new empty index.
-    pub fn new() -> Result<Index> {
+    fn create_handle() -> Result<Index> {
         unsafe {
             let mut index = std::mem::MaybeUninit::<ffi::cuvsIvfPqIndex_t>::uninit();
             check_cuvs(ffi::cuvsIvfPqIndexCreate(index.as_mut_ptr()))?;

@@ -16,6 +16,14 @@ device-resident queries and output buffers. Tensors are borrowed through the
 module for the tensor model and `examples/cagra.rs` for the same
 build/search workflow.
 
+## crate::neighbors::filters::SearchFilter
+
+```rust
+pub use crate::neighbors::filters::SearchFilter;
+```
+
+_Source: `rust/cuvs/src/neighbors/brute_force.rs:19`_
+
 ## BruteForceError
 
 ```rust
@@ -27,7 +35,7 @@ pub enum BruteForceError {
 
 Error type for brute-force operations.
 
-_Source: `rust/cuvs/src/neighbors/brute_force.rs:25`_
+_Source: `rust/cuvs/src/neighbors/brute_force.rs:27`_
 
 ## Index
 
@@ -44,9 +52,9 @@ Brute-force KNN index.
 
 | Name | Source |
 | --- | --- |
-| `build` | `rust/cuvs/src/neighbors/brute_force.rs:51` |
-| `new` | `rust/cuvs/src/neighbors/brute_force.rs:70` |
-| `search` | `rust/cuvs/src/neighbors/brute_force.rs:84` |
+| `build` | `rust/cuvs/src/neighbors/brute_force.rs:53` |
+| `search` | `rust/cuvs/src/neighbors/brute_force.rs:85` |
+| `search_filtered` | `rust/cuvs/src/neighbors/brute_force.rs:104` |
 
 ### build
 
@@ -64,17 +72,7 @@ or device implementing [`AsDlTensor`]; the C++ index keeps a non-owning
 view of it, so the returned [`Index`] borrows it for `'d` and cannot
 outlive it.
 
-_Source: `rust/cuvs/src/neighbors/brute_force.rs:51`_
-
-### new
-
-```rust
-pub fn new() -> Result<Index<'d>>
-```
-
-Creates a new empty index.
-
-_Source: `rust/cuvs/src/neighbors/brute_force.rs:70`_
+_Source: `rust/cuvs/src/neighbors/brute_force.rs:53`_
 
 ### search
 
@@ -99,6 +97,27 @@ implement [`AsDlTensor`] / [`AsDlTensorMut`]. `neighbors` receives the
 neighbor indices and `distances` their distances; both are written in
 place.
 
-_Source: `rust/cuvs/src/neighbors/brute_force.rs:84`_
+_Source: `rust/cuvs/src/neighbors/brute_force.rs:85`_
 
-_Source: `rust/cuvs/src/neighbors/brute_force.rs:36`_
+### search_filtered
+
+```rust
+pub fn search_filtered<Q, N, D>(
+&self,
+res: &Resources,
+queries: &Q,
+neighbors: &mut N,
+distances: &mut D,
+filter: &SearchFilter<'_>,
+) -> Result<()>
+where
+Q: AsDlTensor + ?Sized,
+N: AsDlTensorMut + ?Sized,
+D: AsDlTensorMut + ?Sized,
+```
+
+Searches the index using a row bitset or per-query bitmap filter.
+
+_Source: `rust/cuvs/src/neighbors/brute_force.rs:104`_
+
+_Source: `rust/cuvs/src/neighbors/brute_force.rs:38`_

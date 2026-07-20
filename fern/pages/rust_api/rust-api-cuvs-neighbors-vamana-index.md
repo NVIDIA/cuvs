@@ -23,8 +23,7 @@ Vamana ANN index.
 
 | Name | Source |
 | --- | --- |
-| `build` | `rust/cuvs/src/neighbors/vamana/index.rs:32` |
-| `new` | `rust/cuvs/src/neighbors/vamana/index.rs:50` |
+| `build` | `rust/cuvs/src/neighbors/vamana/index.rs:33` |
 | `serialize` | `rust/cuvs/src/neighbors/vamana/index.rs:65` |
 
 ### build
@@ -47,22 +46,17 @@ reverse edges are added and `robustPrune` is applied to improve quality.
 [`AsDlTensor`]; it is copied into the index, so `Index` carries no
 lifetime.
 
-_Source: `rust/cuvs/src/neighbors/vamana/index.rs:32`_
-
-### new
-
-```rust
-pub fn new() -> Result<Index>
-```
-
-Creates a new empty index.
-
-_Source: `rust/cuvs/src/neighbors/vamana/index.rs:50`_
+_Source: `rust/cuvs/src/neighbors/vamana/index.rs:33`_
 
 ### serialize
 
 ```rust
-pub fn serialize(self, res: &Resources, filename: &str, include_dataset: bool) -> Result<()>
+pub fn serialize(
+&self,
+res: &Resources,
+filename: impl AsRef<Path>,
+include_dataset: bool,
+) -> Result<()>
 ```
 
 Saves the Vamana index to a file.
@@ -75,4 +69,4 @@ so the serialized index can be consumed there for graph search.
 
 _Source: `rust/cuvs/src/neighbors/vamana/index.rs:65`_
 
-_Source: `rust/cuvs/src/neighbors/vamana/index.rs:18`_
+_Source: `rust/cuvs/src/neighbors/vamana/index.rs:19`_

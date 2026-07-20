@@ -39,6 +39,33 @@ impl IndexParams {
         max_train_points_per_pq_code: Option<u32>,
         add_data_on_build: Option<bool>,
     ) -> Result<Self, IvfPqError> {
+        if let Some(0) = n_lists {
+            return Err(IvfPqError::Validation("n_lists must be > 0".into()));
+        }
+        if let Some(frac) = kmeans_trainset_fraction
+            && (!(0.0 < frac && frac <= 1.0))
+        {
+            return Err(IvfPqError::Validation(format!(
+                "kmeans_trainset_fraction must be in (0, 1], got {frac}"
+            )));
+        }
+        if let Some(bits) = pq_bits
+            && !(4..=8).contains(&bits)
+        {
+            return Err(IvfPqError::Validation(format!(
+                "pq_bits must be within [4, 8], got {bits}"
+            )));
+        }
+        let effective_pq_bits = pq_bits.unwrap_or(8);
+        if let Some(dim) = pq_dim
+            && dim != 0
+            && (u64::from(dim) * u64::from(effective_pq_bits)) % 8 != 0
+        {
+            return Err(IvfPqError::Validation(format!(
+                "pq_dim * pq_bits must be a multiple of 8, got pq_dim={dim}, pq_bits={effective_pq_bits}"
+            )));
+        }
+
         let params = Self::try_new()?;
         unsafe {
             if let Some(v) = n_lists {
@@ -118,6 +145,18 @@ impl SearchParams {
         lut_dtype: Option<LutDType>,
         internal_distance_dtype: Option<InternalDistanceDType>,
     ) -> Result<Self, IvfPqError> {
+        if let Some(0) = n_probes {
+            return Err(IvfPqError::Validation("n_probes must be > 0".into()));
+        }
+        if matches!(
+            (lut_dtype, internal_distance_dtype),
+            (Some(LutDType::F32), Some(InternalDistanceDType::F16))
+        ) {
+            return Err(IvfPqError::Validation(
+                "internal_distance_dtype must be at least as wide as lut_dtype".into(),
+            ));
+        }
+
         let params = Self::try_new()?;
         unsafe {
             if let Some(v) = n_probes {
@@ -178,5 +217,32 @@ mod tests {
         unsafe {
             assert_eq!((*params.handle).n_probes, 128);
         }
+    }
+
+    #[test]
+    fn rejects_invalid_values() {
+        assert!(matches!(
+            IndexParams::builder().n_lists(0).build(),
+            Err(IvfPqError::Validation(_))
+        ));
+        assert!(matches!(
+            IndexParams::builder().pq_bits(3).build(),
+            Err(IvfPqError::Validation(_))
+        ));
+        assert!(matches!(
+            IndexParams::builder().pq_bits(5).pq_dim(3).build(),
+            Err(IvfPqError::Validation(_))
+        ));
+        assert!(matches!(
+            SearchParams::builder().n_probes(0).build(),
+            Err(IvfPqError::Validation(_))
+        ));
+        assert!(matches!(
+            SearchParams::builder()
+                .lut_dtype(LutDType::F32)
+                .internal_distance_dtype(InternalDistanceDType::F16)
+                .build(),
+            Err(IvfPqError::Validation(_))
+        ));
     }
 }

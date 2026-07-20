@@ -542,6 +542,8 @@ navigation:
             path: "./pages/rust_api/rust-api-cuvs-error.md"
           - page: "cuVS Neighbors"
             path: "./pages/rust_api/rust-api-cuvs-neighbors.md"
+          - page: "cuVS Neighbors Filters"
+            path: "./pages/rust_api/rust-api-cuvs-neighbors-filters.md"
           - page: "cuVS Resources"
             path: "./pages/rust_api/rust-api-cuvs-resources.md"
           - page: "cuVS Distance"

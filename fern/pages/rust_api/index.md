@@ -14,6 +14,7 @@ These pages are generated from the Rust crate sources under `rust/cuvs/src`.
 - [`cuvs::dlpack`](/api-reference/rust-api-cuvs-dlpack)
 - [`cuvs::error`](/api-reference/rust-api-cuvs-error)
 - [`cuvs::neighbors`](/api-reference/rust-api-cuvs-neighbors)
+- [`cuvs::neighbors::filters`](/api-reference/rust-api-cuvs-neighbors-filters)
 - [`cuvs::resources`](/api-reference/rust-api-cuvs-resources)
 
 ## Distance

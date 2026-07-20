@@ -32,6 +32,17 @@ impl IndexParams {
         kmeans_trainset_fraction: Option<f64>,
         add_data_on_build: Option<bool>,
     ) -> Result<Self, IvfFlatError> {
+        if let Some(0) = n_lists {
+            return Err(IvfFlatError::Validation("n_lists must be > 0".into()));
+        }
+        if let Some(frac) = kmeans_trainset_fraction
+            && (!(0.0 < frac && frac <= 1.0))
+        {
+            return Err(IvfFlatError::Validation(format!(
+                "kmeans_trainset_fraction must be in (0, 1], got {frac}"
+            )));
+        }
+
         let params = Self::try_new()?;
         unsafe {
             if let Some(v) = n_lists {
@@ -89,6 +100,10 @@ pub struct SearchParams {
 impl SearchParams {
     #[builder]
     pub fn new(n_probes: Option<u32>) -> Result<Self, IvfFlatError> {
+        if let Some(0) = n_probes {
+            return Err(IvfFlatError::Validation("n_probes must be > 0".into()));
+        }
+
         let params = Self::try_new()?;
         unsafe {
             if let Some(v) = n_probes {
@@ -143,5 +158,21 @@ mod tests {
         unsafe {
             assert_eq!((*params.handle).n_probes, 128);
         }
+    }
+
+    #[test]
+    fn rejects_invalid_values() {
+        assert!(matches!(
+            IndexParams::builder().n_lists(0).build(),
+            Err(IvfFlatError::Validation(_))
+        ));
+        assert!(matches!(
+            IndexParams::builder().kmeans_trainset_fraction(0.0).build(),
+            Err(IvfFlatError::Validation(_))
+        ));
+        assert!(matches!(
+            SearchParams::builder().n_probes(0).build(),
+            Err(IvfFlatError::Validation(_))
+        ));
     }
 }

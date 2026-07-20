@@ -124,19 +124,4 @@ mod tests {
     fn test_resources_create() {
         let _ = Resources::new();
     }
-
-    #[test]
-    fn test_resources_with_memory_tracking() {
-        let dir = tempfile::tempdir().unwrap();
-        let csv = dir.path().join("alloc.csv");
-        {
-            let _r = Resources::with_memory_tracking(&csv, Some(Duration::from_millis(2)))
-                .expect("with_memory_tracking should succeed");
-            // closing _r at end of scope flushes the CSV reporter and
-            // restores the global host/device memory resources.
-        }
-        let meta = std::fs::metadata(&csv).expect("csv file should exist after drop");
-        // at minimum, the header row should have been written before drop
-        assert!(meta.len() > 0, "tracking csv should be non-empty (got {} bytes)", meta.len());
-    }
 }

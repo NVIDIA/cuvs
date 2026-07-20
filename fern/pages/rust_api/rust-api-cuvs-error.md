@@ -10,7 +10,7 @@ _Source: `rust/cuvs/src/error.rs`_
 
 Low-level error handling shared by every cuVS module.
 
-[`check_cuvs`] turns a raw `cuvsError_t` status into a [`LibraryError`], which
+`check_cuvs` turns a raw `cuvsError_t` status into a [`LibraryError`], which
 each module's error type wraps via `#[from]`.
 
 ## LibraryError

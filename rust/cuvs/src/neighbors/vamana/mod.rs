@@ -29,4 +29,7 @@ pub enum VamanaError {
     /// A file path contained an interior NUL byte.
     #[error("path contains an interior NUL byte")]
     InvalidPath(#[from] std::ffi::NulError),
+    /// A parameter value failed validation.
+    #[error("invalid parameter: {0}")]
+    Validation(String),
 }

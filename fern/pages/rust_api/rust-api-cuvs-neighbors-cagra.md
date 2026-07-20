@@ -22,13 +22,21 @@ builder pattern: every setter is optional and unset values keep the cuVS C
 library defaults. Values are validated when the builder's `build()` runs,
 returning [`CagraError::Validation`] for out-of-range inputs.
 
+## crate::neighbors::filters::SearchFilter
+
+```rust
+pub use crate::neighbors::filters::SearchFilter;
+```
+
+_Source: `rust/cuvs/src/neighbors/cagra/mod.rs:23`_
+
 ## index::Index
 
 ```rust
 pub use index::Index;
 ```
 
-_Source: `rust/cuvs/src/neighbors/cagra/mod.rs:23`_
+_Source: `rust/cuvs/src/neighbors/cagra/mod.rs:24`_
 
 ## params::\{CompressionParams, IndexParams, SearchParams\}
 
@@ -36,7 +44,7 @@ _Source: `rust/cuvs/src/neighbors/cagra/mod.rs:23`_
 pub use params::{CompressionParams, IndexParams, SearchParams};
 ```
 
-_Source: `rust/cuvs/src/neighbors/cagra/mod.rs:24`_
+_Source: `rust/cuvs/src/neighbors/cagra/mod.rs:25`_
 
 ## GraphBuildAlgo
 
@@ -50,7 +58,7 @@ pub enum GraphBuildAlgo {
 
 Algorithm for building the internal k-NN graph.
 
-_Source: `rust/cuvs/src/neighbors/cagra/mod.rs:32`_
+_Source: `rust/cuvs/src/neighbors/cagra/mod.rs:33`_
 
 ## SearchAlgo
 
@@ -64,7 +72,7 @@ pub enum SearchAlgo {
 
 Search kernel implementation.
 
-_Source: `rust/cuvs/src/neighbors/cagra/mod.rs:72`_
+_Source: `rust/cuvs/src/neighbors/cagra/mod.rs:73`_
 
 ## HashMode
 
@@ -78,7 +86,7 @@ pub enum HashMode {
 
 Hash-table mode used during search.
 
-_Source: `rust/cuvs/src/neighbors/cagra/mod.rs:108`_
+_Source: `rust/cuvs/src/neighbors/cagra/mod.rs:109`_
 
 ## CagraError
 
@@ -91,4 +99,4 @@ pub enum CagraError {
 
 Error type for CAGRA operations.
 
-_Source: `rust/cuvs/src/neighbors/cagra/mod.rs:139`_
+_Source: `rust/cuvs/src/neighbors/cagra/mod.rs:140`_

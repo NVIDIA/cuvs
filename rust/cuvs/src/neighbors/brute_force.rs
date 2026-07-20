@@ -14,8 +14,10 @@ use std::io::{Write, stderr};
 use std::marker::PhantomData;
 
 use crate::distance::DistanceType;
-use crate::dlpack::{AsDlTensor, AsDlTensorMut, DLPackError};
+use crate::dlpack::{AsDlTensor, AsDlTensorMut, DLPackError, DLTensorView, DLTensorViewMut};
 use crate::error::{LibraryError, check_cuvs};
+pub use crate::neighbors::filters::SearchFilter;
+use crate::neighbors::filters::with_filter;
 use crate::resources::Resources;
 
 type Result<T> = std::result::Result<T, BruteForceError>;
@@ -53,7 +55,7 @@ impl<'d> Index<'d> {
         T: AsDlTensor + ?Sized,
     {
         let dataset = dataset.as_dl_tensor()?;
-        let index = Index::new()?;
+        let index = Index::create_handle()?;
         unsafe {
             check_cuvs(ffi::cuvsBruteForceBuild(
                 res.handle(),
@@ -66,8 +68,7 @@ impl<'d> Index<'d> {
         Ok(index)
     }
 
-    /// Creates a new empty index.
-    pub fn new() -> Result<Index<'d>> {
+    fn create_handle() -> Result<Index<'d>> {
         unsafe {
             let mut index = std::mem::MaybeUninit::<ffi::cuvsBruteForceIndex_t>::uninit();
             check_cuvs(ffi::cuvsBruteForceIndexCreate(index.as_mut_ptr()))?;
@@ -96,18 +97,50 @@ impl<'d> Index<'d> {
         let queries = queries.as_dl_tensor()?;
         let neighbors = neighbors.as_dl_tensor_mut()?;
         let distances = distances.as_dl_tensor_mut()?;
-        let prefilter = ffi::cuvsFilter { addr: 0, type_: ffi::cuvsFilterType::NO_FILTER };
-        check_cuvs(unsafe {
-            ffi::cuvsBruteForceSearch(
-                res.handle(),
-                self.inner,
-                queries.to_c().as_mut_ptr(),
-                neighbors.to_c().as_mut_ptr(),
-                distances.to_c().as_mut_ptr(),
-                prefilter,
-            )
-        })?;
-        Ok(())
+        self.search_impl(res, &queries, &neighbors, &distances, None)
+    }
+
+    /// Searches the index using a row bitset or per-query bitmap filter.
+    pub fn search_filtered<Q, N, D>(
+        &self,
+        res: &Resources,
+        queries: &Q,
+        neighbors: &mut N,
+        distances: &mut D,
+        filter: &SearchFilter<'_>,
+    ) -> Result<()>
+    where
+        Q: AsDlTensor + ?Sized,
+        N: AsDlTensorMut + ?Sized,
+        D: AsDlTensorMut + ?Sized,
+    {
+        let queries = queries.as_dl_tensor()?;
+        let neighbors = neighbors.as_dl_tensor_mut()?;
+        let distances = distances.as_dl_tensor_mut()?;
+        self.search_impl(res, &queries, &neighbors, &distances, Some(filter))
+    }
+
+    fn search_impl(
+        &self,
+        res: &Resources,
+        queries: &DLTensorView<'_>,
+        neighbors: &DLTensorViewMut<'_>,
+        distances: &DLTensorViewMut<'_>,
+        filter: Option<&SearchFilter<'_>>,
+    ) -> Result<()> {
+        with_filter(filter, |prefilter| {
+            check_cuvs(unsafe {
+                ffi::cuvsBruteForceSearch(
+                    res.handle(),
+                    self.inner,
+                    queries.to_c().as_mut_ptr(),
+                    neighbors.to_c().as_mut_ptr(),
+                    distances.to_c().as_mut_ptr(),
+                    prefilter,
+                )
+            })?;
+            Ok(())
+        })
     }
 }
 

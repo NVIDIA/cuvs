@@ -24,8 +24,7 @@ IVF-PQ ANN index.
 | Name | Source |
 | --- | --- |
 | `build` | `rust/cuvs/src/neighbors/ivf_pq/index.rs:25` |
-| `new` | `rust/cuvs/src/neighbors/ivf_pq/index.rs:43` |
-| `search` | `rust/cuvs/src/neighbors/ivf_pq/index.rs:57` |
+| `search` | `rust/cuvs/src/neighbors/ivf_pq/index.rs:56` |
 
 ### build
 
@@ -42,16 +41,6 @@ Builds an IVF-PQ index over `dataset` for compressed, efficient search.
 once this call returns (hence `Index` carries no lifetime).
 
 _Source: `rust/cuvs/src/neighbors/ivf_pq/index.rs:25`_
-
-### new
-
-```rust
-pub fn new() -> Result<Index>
-```
-
-Creates a new empty index.
-
-_Source: `rust/cuvs/src/neighbors/ivf_pq/index.rs:43`_
 
 ### search
 
@@ -77,6 +66,6 @@ implement [`AsDlTensor`] / [`AsDlTensorMut`]. `neighbors` receives the
 neighbor indices and `distances` their distances; both are written in
 place.
 
-_Source: `rust/cuvs/src/neighbors/ivf_pq/index.rs:57`_
+_Source: `rust/cuvs/src/neighbors/ivf_pq/index.rs:56`_
 
 _Source: `rust/cuvs/src/neighbors/ivf_pq/index.rs:17`_

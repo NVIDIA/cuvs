@@ -23,9 +23,9 @@ IVF-Flat ANN index.
 
 | Name | Source |
 | --- | --- |
-| `build` | `rust/cuvs/src/neighbors/ivf_flat/index.rs:28` |
-| `new` | `rust/cuvs/src/neighbors/ivf_flat/index.rs:46` |
+| `build` | `rust/cuvs/src/neighbors/ivf_flat/index.rs:29` |
 | `search` | `rust/cuvs/src/neighbors/ivf_flat/index.rs:60` |
+| `search_filtered` | `rust/cuvs/src/neighbors/ivf_flat/index.rs:80` |
 
 ### build
 
@@ -44,17 +44,7 @@ once this call returns (hence `Index` carries no lifetime).
 Supported dataset/query dtypes in the current C-backed implementation are
 `f32`, `f16`, `i8`, and `u8`.
 
-_Source: `rust/cuvs/src/neighbors/ivf_flat/index.rs:28`_
-
-### new
-
-```rust
-pub fn new() -> Result<Index>
-```
-
-Creates a new empty index.
-
-_Source: `rust/cuvs/src/neighbors/ivf_flat/index.rs:46`_
+_Source: `rust/cuvs/src/neighbors/ivf_flat/index.rs:29`_
 
 ### search
 
@@ -82,4 +72,26 @@ place.
 
 _Source: `rust/cuvs/src/neighbors/ivf_flat/index.rs:60`_
 
-_Source: `rust/cuvs/src/neighbors/ivf_flat/index.rs:17`_
+### search_filtered
+
+```rust
+pub fn search_filtered<Q, N, D>(
+&self,
+res: &Resources,
+params: &SearchParams,
+queries: &Q,
+neighbors: &mut N,
+distances: &mut D,
+filter: &SearchFilter<'_>,
+) -> Result<()>
+where
+Q: AsDlTensor + ?Sized,
+N: AsDlTensorMut + ?Sized,
+D: AsDlTensorMut + ?Sized,
+```
+
+Searches the index with a row-level bitset filter.
+
+_Source: `rust/cuvs/src/neighbors/ivf_flat/index.rs:80`_
+
+_Source: `rust/cuvs/src/neighbors/ivf_flat/index.rs:18`_

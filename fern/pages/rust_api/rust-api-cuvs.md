@@ -37,6 +37,14 @@ pub mod dlpack;
 
 _Source: `rust/cuvs/src/lib.rs:14`_
 
+## error
+
+```rust
+pub mod error;
+```
+
+_Source: `rust/cuvs/src/lib.rs:15`_
+
 ## neighbors
 
 ```rust
@@ -44,6 +52,14 @@ pub mod neighbors;
 ```
 
 _Source: `rust/cuvs/src/lib.rs:16`_
+
+## resources
+
+```rust
+pub mod resources;
+```
+
+_Source: `rust/cuvs/src/lib.rs:17`_
 
 ## dlpack::\{AsDlTensor, AsDlTensorMut, DLPackError, DLTensorView, DLTensorViewMut, DType\}
 
@@ -68,3 +84,15 @@ pub use resources::Resources;
 ```
 
 _Source: `rust/cuvs/src/lib.rs:23`_
+
+## ReadmeDocTests
+
+```rust
+#[cfg(doctest)]
+#[doc = include_str!("../../../README.md")]
+pub struct ReadmeDocTests; {
+    /* private fields */
+}
+```
+
+_Source: `rust/cuvs/src/lib.rs:29`_

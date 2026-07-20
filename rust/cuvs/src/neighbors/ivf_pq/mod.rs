@@ -128,4 +128,7 @@ pub enum IvfPqError {
     /// Tensor conversion into DLPack metadata failed.
     #[error(transparent)]
     DLPack(#[from] DLPackError),
+    /// A parameter value failed validation.
+    #[error("invalid parameter: {0}")]
+    Validation(String),
 }

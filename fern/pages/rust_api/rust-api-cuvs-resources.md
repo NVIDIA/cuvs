@@ -21,7 +21,7 @@ pub enum ResourcesError {
 
 Error type for resource operations.
 
-_Source: `rust/cuvs/src/resources.rs:15`_
+_Source: `rust/cuvs/src/resources.rs:18`_
 
 ## Resources
 
@@ -40,10 +40,11 @@ resources that are expensive to create.
 
 | Name | Source |
 | --- | --- |
-| `new` | `rust/cuvs/src/resources.rs:31` |
-| `with_stream` | `rust/cuvs/src/resources.rs:46` |
-| `stream` | `rust/cuvs/src/resources.rs:55` |
-| `sync_stream` | `rust/cuvs/src/resources.rs:64` |
+| `new` | `rust/cuvs/src/resources.rs:37` |
+| `with_memory_tracking` | `rust/cuvs/src/resources.rs:54` |
+| `with_stream` | `rust/cuvs/src/resources.rs:81` |
+| `stream` | `rust/cuvs/src/resources.rs:90` |
+| `sync_stream` | `rust/cuvs/src/resources.rs:99` |
 
 ### new
 
@@ -53,7 +54,30 @@ pub fn new() -> Result<Resources>
 
 Creates a new resources handle bound to the current CUDA device.
 
-_Source: `rust/cuvs/src/resources.rs:31`_
+_Source: `rust/cuvs/src/resources.rs:37`_
+
+### with_memory_tracking
+
+```rust
+pub fn with_memory_tracking(
+csv_path: impl AsRef<Path>,
+sample_interval: Option<Duration>,
+) -> Result<Resources>
+```
+
+Returns a new `Resources` object whose memory allocations are tracked
+and written as CSV samples to `csv_path` from a background thread.
+
+The handle wraps all reachable memory resources (host, pinned, managed,
+device, workspace, large_workspace) with allocation-tracking adaptors
+and replaces the global host and device memory resources for the
+lifetime of the handle. The CSV reporter is stopped and the global
+memory resources are restored when the handle is dropped.
+
+`sample_interval` controls the minimum time between successive CSV
+samples; when `None`, the C++ default of 10 ms is used.
+
+_Source: `rust/cuvs/src/resources.rs:54`_
 
 ### with_stream
 
@@ -71,7 +95,7 @@ The stream is bound once, at construction.
 `stream` must be a valid CUDA stream for the current device and must
 remain valid for as long as this handle uses it.
 
-_Source: `rust/cuvs/src/resources.rs:46`_
+_Source: `rust/cuvs/src/resources.rs:81`_
 
 ### stream
 
@@ -81,7 +105,7 @@ pub fn stream(&self) -> Result<ffi::cudaStream_t>
 
 Returns the current CUDA stream associated with this handle.
 
-_Source: `rust/cuvs/src/resources.rs:55`_
+_Source: `rust/cuvs/src/resources.rs:90`_
 
 ### sync_stream
 
@@ -91,6 +115,6 @@ pub fn sync_stream(&self) -> Result<()>
 
 Blocks until all operations on the current CUDA stream have completed.
 
-_Source: `rust/cuvs/src/resources.rs:64`_
+_Source: `rust/cuvs/src/resources.rs:99`_
 
-_Source: `rust/cuvs/src/resources.rs:25`_
+_Source: `rust/cuvs/src/resources.rs:31`_

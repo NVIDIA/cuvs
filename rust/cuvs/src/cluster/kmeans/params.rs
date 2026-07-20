@@ -38,6 +38,27 @@ impl Params {
         hierarchical: Option<bool>,
         hierarchical_n_iters: Option<i32>,
     ) -> Result<Self, KMeansError> {
+        if let Some(n) = n_clusters
+            && n <= 0
+        {
+            return Err(KMeansError::Validation("n_clusters must be > 0".into()));
+        }
+        if let Some(n) = max_iter
+            && n < 0
+        {
+            return Err(KMeansError::Validation("max_iter must be >= 0".into()));
+        }
+        if let Some(n) = n_init
+            && n <= 0
+        {
+            return Err(KMeansError::Validation("n_init must be > 0".into()));
+        }
+        if let Some(n) = hierarchical_n_iters
+            && n < 0
+        {
+            return Err(KMeansError::Validation("hierarchical_n_iters must be >= 0".into()));
+        }
+
         let params = Self::try_new()?;
         unsafe {
             if let Some(v) = metric {
@@ -111,5 +132,16 @@ mod tests {
             assert_eq!((*params.handle).n_clusters, 128);
             assert!((*params.handle).hierarchical);
         }
+    }
+
+    #[test]
+    fn rejects_invalid_values() {
+        assert!(matches!(Params::builder().n_clusters(0).build(), Err(KMeansError::Validation(_))));
+        assert!(matches!(Params::builder().max_iter(-1).build(), Err(KMeansError::Validation(_))));
+        assert!(matches!(Params::builder().n_init(0).build(), Err(KMeansError::Validation(_))));
+        assert!(matches!(
+            Params::builder().hierarchical_n_iters(-1).build(),
+            Err(KMeansError::Validation(_))
+        ));
     }
 }
