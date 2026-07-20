@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -13,7 +13,10 @@ from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import normalize
 
 from cuvs.neighbors import cagra, hnsw
-from cuvs.tests.ann_utils import calc_recall, generate_data
+from cuvs.tests.ann_utils import (
+    calc_recall,
+    generate_data,
+)
 
 
 def run_cagra_ace_build_search_test(
@@ -74,6 +77,24 @@ def run_cagra_ace_build_search_test(
 
             # Transfer queries to device for search
             queries_device = device_ndarray(queries)
+            dataset_kind = cagra.get_dataset_view_kind(dataset)
+            dataset_device = device_ndarray(dataset)
+            cagra.attach_device_dataset_on_host_index(index, dataset_device)
+            if dataset_kind == "host_standard":
+                padded_dataset = cagra.make_device_padded_dataset(
+                    dataset_device
+                )
+                padded_view = cagra.make_view_from_owning_padded(
+                    padded_dataset
+                )
+                cagra.attach_padded_dataset_for_search(index, padded_view)
+                index._cagra_keepalive = [
+                    dataset_device,
+                    padded_dataset,
+                    padded_view,
+                ]
+            else:
+                index._cagra_keepalive = [dataset_device]
 
             out_dist, out_idx = cagra.search(
                 search_params, index, queries_device, k

@@ -407,6 +407,24 @@ cdef class Index:
         return "Index(type=CAGRA, metric=L2" + (", ".join(attr_str)) + ")"
 
 
+cdef class PaddedDataset:
+    def __cinit__(self):
+        self.dataset = NULL
+
+    def __dealloc__(self):
+        if self.dataset != NULL:
+            check_cuvs(cuvsDatasetPaddedDestroy(self.dataset))
+
+
+cdef class PaddedDatasetView:
+    def __cinit__(self):
+        self.view = NULL
+
+    def __dealloc__(self):
+        if self.view != NULL:
+            check_cuvs(cuvsDatasetPaddedViewDestroy(self.view))
+
+
 @auto_sync_resources
 def build(IndexParams index_params, dataset, resources=None):
     """
@@ -520,6 +538,121 @@ def build(IndexParams index_params, dataset, resources=None):
                 cuvsDatasetStandardViewDestroy(standard_view)
 
     return idx
+
+
+def get_dataset_view_kind(dataset):
+    """
+    Return dataset view kind as one of:
+    "device_padded", "device_standard", "host_padded", "host_standard".
+    """
+    dataset_ai = wrap_array(dataset)
+    _check_input_array(dataset_ai, [np.dtype('float32'),
+                                    np.dtype('float16'),
+                                    np.dtype('byte'),
+                                    np.dtype('ubyte')])
+    cdef cydlpack.DLManagedTensor* dataset_dlpack = \
+        cydlpack.dlpack_c(dataset_ai)
+    cdef cuvsDatasetViewKind_t view_kind
+    with cuda_interruptible():
+        check_cuvs(cuvsCagraGetDatasetViewKind(dataset_dlpack, &view_kind))
+
+    if view_kind == CUVS_DATASET_VIEW_KIND_DEVICE_PADDED:
+        return "device_padded"
+    elif view_kind == CUVS_DATASET_VIEW_KIND_DEVICE_STANDARD:
+        return "device_standard"
+    elif view_kind == CUVS_DATASET_VIEW_KIND_HOST_PADDED:
+        return "host_padded"
+    elif view_kind == CUVS_DATASET_VIEW_KIND_HOST_STANDARD:
+        return "host_standard"
+    raise RuntimeError("unexpected dataset view kind")
+
+
+@auto_sync_resources
+def make_device_padded_dataset(dataset, resources=None):
+    """
+    Create an owning device padded dataset handle via explicit C API factory.
+    """
+    dataset_ai = wrap_array(dataset)
+    _check_input_array(dataset_ai, [np.dtype('float32'),
+                                    np.dtype('float16'),
+                                    np.dtype('byte'),
+                                    np.dtype('ubyte')])
+    if not hasattr(dataset, '__cuda_array_interface__'):
+        raise ValueError("dataset must be in device memory")
+
+    cdef cydlpack.DLManagedTensor* dataset_dlpack = \
+        cydlpack.dlpack_c(dataset_ai)
+    cdef cuvsResources_t res = <cuvsResources_t>resources.get_c_obj()
+    cdef PaddedDataset padded = PaddedDataset()
+    with cuda_interruptible():
+        check_cuvs(cuvsDatasetMakeDevicePadded(
+            res,
+            dataset_dlpack,
+            &padded.dataset
+        ))
+    return padded
+
+
+def make_view_from_owning_padded(PaddedDataset padded_dataset):
+    """
+    Create a padded dataset view handle from an owning padded dataset handle.
+    """
+    if padded_dataset is None or padded_dataset.dataset == NULL:
+        raise ValueError("padded_dataset is uninitialized")
+    cdef PaddedDatasetView padded_view = PaddedDatasetView()
+    check_cuvs(cuvsDatasetMakeViewFromOwningPadded(
+        padded_dataset.dataset,
+        &padded_view.view
+    ))
+    return padded_view
+
+
+@auto_sync_resources
+def attach_device_dataset_on_host_index(Index index, device_dataset, resources=None):
+    """
+    Convert a host-built CAGRA index to device index by attaching a device dataset.
+    """
+    if not index.trained:
+        raise ValueError("Index needs to be built before attaching device dataset.")
+    if not hasattr(device_dataset, '__cuda_array_interface__'):
+        raise ValueError("device_dataset must be in device memory")
+
+    dataset_ai = wrap_array(device_dataset)
+    _check_input_array(dataset_ai, [np.dtype('float32'),
+                                    np.dtype('float16'),
+                                    np.dtype('byte'),
+                                    np.dtype('ubyte')])
+    cdef cydlpack.DLManagedTensor* dataset_dlpack = \
+        cydlpack.dlpack_c(dataset_ai)
+    cdef cuvsResources_t res = <cuvsResources_t>resources.get_c_obj()
+    with cuda_interruptible():
+        check_cuvs(cuvsCagraAttachDeviceDatasetOnHostIndex(
+            res,
+            dataset_dlpack,
+            index.index
+        ))
+    return index
+
+
+@auto_sync_resources
+def attach_padded_dataset_for_search(Index index,
+                                     PaddedDatasetView padded_dataset_view,
+                                     resources=None):
+    """
+    Attach a padded dataset view to a standard CAGRA index before search.
+    """
+    if not index.trained:
+        raise ValueError("Index needs to be built before attaching padded dataset.")
+    if padded_dataset_view is None or padded_dataset_view.view == NULL:
+        raise ValueError("padded_dataset_view is uninitialized")
+    cdef cuvsResources_t res = <cuvsResources_t>resources.get_c_obj()
+    with cuda_interruptible():
+        check_cuvs(cuvsCagraAttachPaddedDatasetForSearch(
+            res,
+            padded_dataset_view.view,
+            index.index
+        ))
+    return index
 
 
 def build_index(IndexParams index_params, dataset, resources=None):
@@ -893,7 +1026,7 @@ def load(filename, layout="padded", resources=None):
     ----------
     filename : string
         Name of the file.
-    layout : {"padded", "standard"}, default = "padded"
+    layout : "padded" or "standard", default = "padded"
         Target index layout for deserialization.
     {resources_docstring}
 

@@ -74,6 +74,28 @@ def run_cagra_build_search_test(
             temp_filename = f.name
         cagra.save(temp_filename, index)
         index = cagra.load(temp_filename)
+    else:
+        view_kind = cagra.get_dataset_view_kind(
+            dataset_device if array_type == "device" else dataset
+        )
+        if view_kind == "device_standard":
+            padded_dataset = cagra.make_device_padded_dataset(dataset_device)
+            padded_view = cagra.make_view_from_owning_padded(padded_dataset)
+            cagra.attach_padded_dataset_for_search(index, padded_view)
+            index._cagra_keepalive = [padded_dataset, padded_view]
+        elif view_kind == "host_padded":
+            cagra.attach_device_dataset_on_host_index(index, dataset_device)
+            index._cagra_keepalive = [dataset_device]
+        elif view_kind == "host_standard":
+            cagra.attach_device_dataset_on_host_index(index, dataset_device)
+            padded_dataset = cagra.make_device_padded_dataset(dataset_device)
+            padded_view = cagra.make_view_from_owning_padded(padded_dataset)
+            cagra.attach_padded_dataset_for_search(index, padded_view)
+            index._cagra_keepalive = [
+                dataset_device,
+                padded_dataset,
+                padded_view,
+            ]
 
     queries = generate_data((n_queries, n_cols), dtype)
     out_idx = np.zeros((n_queries, k), dtype=np.uint32)
@@ -141,6 +163,32 @@ def run_cagra_build_search_test(
     reloaded_index = cagra.from_graph(
         graph, dataset_from_index_host, metric=metric
     )
+    reloaded_kind = cagra.get_dataset_view_kind(dataset_from_index_host)
+    if reloaded_kind == "host_padded":
+        reloaded_dataset_device = device_ndarray(dataset_from_index_host)
+        cagra.attach_device_dataset_on_host_index(
+            reloaded_index, reloaded_dataset_device
+        )
+        reloaded_index._cagra_keepalive = [reloaded_dataset_device]
+    elif reloaded_kind == "host_standard":
+        reloaded_dataset_device = device_ndarray(dataset_from_index_host)
+        cagra.attach_device_dataset_on_host_index(
+            reloaded_index, reloaded_dataset_device
+        )
+        reloaded_padded_dataset = cagra.make_device_padded_dataset(
+            reloaded_dataset_device
+        )
+        reloaded_padded_view = cagra.make_view_from_owning_padded(
+            reloaded_padded_dataset
+        )
+        cagra.attach_padded_dataset_for_search(
+            reloaded_index, reloaded_padded_view
+        )
+        reloaded_index._cagra_keepalive = [
+            reloaded_dataset_device,
+            reloaded_padded_dataset,
+            reloaded_padded_view,
+        ]
 
     dist_device, idx_device = cagra.search(
         search_params, reloaded_index, queries_device, k
@@ -275,6 +323,11 @@ def test_cagra_ivf_pq(
     )
     assert np.isclose(build_params.refinement_rate, 1.2)
     index = cagra.build(build_params, dataset_device)
+    if cagra.get_dataset_view_kind(dataset_device) == "device_standard":
+        padded_dataset = cagra.make_device_padded_dataset(dataset_device)
+        padded_view = cagra.make_view_from_owning_padded(padded_dataset)
+        cagra.attach_padded_dataset_for_search(index, padded_view)
+        index._cagra_keepalive = [padded_dataset, padded_view]
 
     queries = generate_data((n_queries, n_cols), dtype)
     queries_device = device_ndarray(queries)

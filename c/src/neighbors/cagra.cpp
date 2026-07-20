@@ -41,6 +41,7 @@ namespace {
 template <typename T, cuvs::neighbors::ann_dataset_view DatasetViewT>
 struct cuvs_cagra_c_api_index_lifetime_holder {
   cuvs::neighbors::cagra::index<T, uint32_t, DatasetViewT> idx;
+  std::shared_ptr<void> dataset_owner{};
 };
 
 template <typename T>
@@ -863,22 +864,32 @@ void _deserialize(cuvsResources_t res,
 {
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
   if (deserialize_layout == CUVS_DATASET_LAYOUT_PADDED) {
+    using view_t          = cuvs::neighbors::device_padded_dataset_view<T, int64_t>;
+    using owner_dataset_t = cuvs::neighbors::owning_dataset_for_view_t<view_t>;
     auto holder = std::make_unique<
-      cuvs_cagra_c_api_index_lifetime_holder<T, cuvs::neighbors::device_padded_dataset_view<T, int64_t>>>(
+      cuvs_cagra_c_api_index_lifetime_holder<T, view_t>>(
       cuvs::neighbors::cagra::device_padded_index<T, uint32_t>(*res_ptr));
-    cuvs::neighbors::cagra::deserialize(*res_ptr, std::string(filename), &holder->idx, nullptr);
-    bind_index_lifetime_holder_to_C_index<
-      T, cuvs::neighbors::device_padded_dataset_view<T, int64_t>>(
-      output_index, output_index->dtype, holder.release());
+    std::unique_ptr<owner_dataset_t> out_dataset{};
+    cuvs::neighbors::cagra::deserialize(*res_ptr, std::string(filename), &holder->idx, &out_dataset);
+    if (out_dataset != nullptr) {
+      holder->dataset_owner = std::shared_ptr<void>(
+        out_dataset.release(), [](void* p) { delete reinterpret_cast<owner_dataset_t*>(p); });
+    }
+    bind_index_lifetime_holder_to_C_index<T, view_t>(output_index, output_index->dtype, holder.release());
     return;
   } else if (deserialize_layout == CUVS_DATASET_LAYOUT_STANDARD) {
+    using view_t          = cuvs::neighbors::device_standard_dataset_view<T, int64_t>;
+    using owner_dataset_t = cuvs::neighbors::owning_dataset_for_view_t<view_t>;
     auto holder = std::make_unique<
-      cuvs_cagra_c_api_index_lifetime_holder<T, cuvs::neighbors::device_standard_dataset_view<T, int64_t>>>(
+      cuvs_cagra_c_api_index_lifetime_holder<T, view_t>>(
       cuvs::neighbors::cagra::device_standard_index<T, uint32_t>(*res_ptr));
-    cuvs::neighbors::cagra::deserialize(*res_ptr, std::string(filename), &holder->idx, nullptr);
-    bind_index_lifetime_holder_to_C_index<
-      T, cuvs::neighbors::device_standard_dataset_view<T, int64_t>>(
-      output_index, output_index->dtype, holder.release());
+    std::unique_ptr<owner_dataset_t> out_dataset{};
+    cuvs::neighbors::cagra::deserialize(*res_ptr, std::string(filename), &holder->idx, &out_dataset);
+    if (out_dataset != nullptr) {
+      holder->dataset_owner = std::shared_ptr<void>(
+        out_dataset.release(), [](void* p) { delete reinterpret_cast<owner_dataset_t*>(p); });
+    }
+    bind_index_lifetime_holder_to_C_index<T, view_t>(output_index, output_index->dtype, holder.release());
     return;
   }
   RAFT_FAIL("cuvsCagraDeserialize: unsupported target layout");

@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -7,7 +7,10 @@ import pytest
 from pylibraft.common import device_ndarray
 
 from cuvs.neighbors import brute_force, cagra, ivf_flat, ivf_pq
-from cuvs.tests.ann_utils import calc_recall, generate_data
+from cuvs.tests.ann_utils import (
+    calc_recall,
+    generate_data,
+)
 
 
 @pytest.mark.parametrize("dtype", [np.float32, np.int8, np.ubyte])
@@ -41,6 +44,19 @@ def run_save_load(ann_module, dtype):
     else:
         build_params = ann_module.IndexParams()
         index = ann_module.build(build_params, dataset_device)
+        if ann_module == cagra:
+            if (
+                ann_module.get_dataset_view_kind(dataset_device)
+                == "device_standard"
+            ):
+                padded_dataset = ann_module.make_device_padded_dataset(
+                    dataset_device
+                )
+                padded_view = ann_module.make_view_from_owning_padded(
+                    padded_dataset
+                )
+                ann_module.attach_padded_dataset_for_search(index, padded_view)
+                index._cagra_keepalive = [padded_dataset, padded_view]
 
     assert index.trained
     filename = "my_index.bin"

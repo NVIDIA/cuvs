@@ -154,9 +154,21 @@ cdef extern from "cuvs/neighbors/cagra.h" nogil:
         pass
     ctypedef cuvsDatasetPaddedView* cuvsDatasetPaddedView_t
 
+    ctypedef struct cuvsDatasetPadded:
+        pass
+    ctypedef cuvsDatasetPadded* cuvsDatasetPadded_t
+
     ctypedef struct cuvsDatasetStandardView:
         pass
     ctypedef cuvsDatasetStandardView* cuvsDatasetStandardView_t
+
+    cuvsError_t cuvsDatasetMakeDevicePadded(cuvsResources_t res,
+                                            DLManagedTensor* dataset,
+                                            cuvsDatasetPadded_t* padded_dataset)
+    cuvsError_t cuvsDatasetPaddedDestroy(cuvsDatasetPadded_t padded_dataset)
+    cuvsError_t cuvsDatasetMakeViewFromOwningPadded(
+        cuvsDatasetPadded_t padded_dataset,
+        cuvsDatasetPaddedView_t* padded_view)
 
     cuvsError_t cuvsDatasetMakeDevicePaddedView(cuvsResources_t res,
                                                 DLManagedTensor* dataset,
@@ -200,6 +212,14 @@ cdef extern from "cuvs/neighbors/cagra.h" nogil:
                                 DLManagedTensor* neighbors,
                                 DLManagedTensor* distances,
                                 cuvsFilter filter)
+    cuvsError_t cuvsCagraAttachPaddedDatasetForSearch(
+        cuvsResources_t res,
+        cuvsDatasetPaddedView_t padded_dataset,
+        cuvsCagraIndex_t index)
+    cuvsError_t cuvsCagraAttachDeviceDatasetOnHostIndex(
+        cuvsResources_t res,
+        DLManagedTensor* device_dataset,
+        cuvsCagraIndex_t index)
 
     cuvsError_t cuvsCagraSerialize(cuvsResources_t res,
                                    const char * filename,
@@ -249,6 +269,14 @@ cdef class Index:
     cdef cuvsCagraIndex_t index
     cdef bool trained
     cdef str active_index_type
+
+
+cdef class PaddedDataset:
+    cdef cuvsDatasetPadded_t dataset
+
+
+cdef class PaddedDatasetView:
+    cdef cuvsDatasetPaddedView_t view
 
 
 cdef class IndexParams:
