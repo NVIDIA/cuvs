@@ -48,9 +48,13 @@ If you also have the real dataset and want matching queries on it (e.g. for the 
 
 # Requirements
 
-- `cuvs` (already a dependency of cuvs-bench) — provides KMeans, PCA, and brute-force k-NN.
-- `cupy`, `numpy`, `tqdm`.
 - A GPU. CPU-only operation isn't supported.
+
+Install `cuvs_bench` with the `synthesize_dataset` extra to pull in all dependencies:
+
+```bash
+pip install cuvs_bench[synthesize_dataset]
+```
 
 # Step-by-step
 

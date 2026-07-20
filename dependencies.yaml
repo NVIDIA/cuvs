@@ -222,6 +222,14 @@ files:
       key: opensearch
     includes:
       - bench_python_opensearch
+  py_synthesize_dataset_cuvs_bench:
+    output: pyproject
+    pyproject_dir: python/cuvs_bench
+    extras:
+      table: project.optional-dependencies
+      key: synthesize_dataset
+    includes:
+      - bench_python_synthesize_dataset
 channels:
   - rapidsai-nightly
   - rapidsai
@@ -625,6 +633,11 @@ dependencies:
       - output_types: [conda, pyproject]
         packages:
           - opensearch-py>=2.4.0
+  bench_python_synthesize_dataset:
+    common:
+      - output_types: [conda, pyproject]
+        packages:
+          - tqdm
   depends_on_cuda_python:
     specific:
       - output_types: [conda, requirements, pyproject]
