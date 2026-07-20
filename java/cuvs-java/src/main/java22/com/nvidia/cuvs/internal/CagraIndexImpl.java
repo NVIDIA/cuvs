@@ -177,8 +177,68 @@ public class CagraIndexImpl implements CagraIndex {
         var returnValue = cuvsStreamSync(cuvsRes);
         checkCuVSError(returnValue, "cuvsStreamSync");
 
-        returnValue = cuvsCagraBuild(cuvsRes, indexParamsMemorySegment, datasetTensor, index);
-        checkCuVSError(returnValue, "cuvsCagraBuild");
+        var viewKindSeg = localArena.allocate(C_INT);
+        returnValue = cuvsCagraGetDatasetViewKind(datasetTensor, viewKindSeg);
+        checkCuVSError(returnValue, "cuvsCagraGetDatasetViewKind");
+        int viewKind = viewKindSeg.get(C_INT, 0);
+
+        MemorySegment paddedView = MemorySegment.NULL;
+        MemorySegment standardView = MemorySegment.NULL;
+        try {
+          switch (viewKind) {
+            case 0 -> { // CUVS_DATASET_VIEW_KIND_DEVICE_PADDED
+              MemorySegment paddedViewPtr = localArena.allocate(cuvsDatasetPaddedView_t);
+              returnValue = cuvsDatasetMakeDevicePaddedView(cuvsRes, datasetTensor, paddedViewPtr);
+              checkCuVSError(returnValue, "cuvsDatasetMakeDevicePaddedView");
+              paddedView = paddedViewPtr.get(cuvsDatasetPaddedView_t, 0);
+              returnValue =
+                  cuvsCagraBuildDevicePadded(cuvsRes, indexParamsMemorySegment, paddedView, index);
+              checkCuVSError(returnValue, "cuvsCagraBuildDevicePadded");
+            }
+            case 1 -> { // CUVS_DATASET_VIEW_KIND_HOST_PADDED
+              MemorySegment paddedViewPtr = localArena.allocate(cuvsDatasetPaddedView_t);
+              returnValue = cuvsDatasetMakeHostPaddedView(cuvsRes, datasetTensor, paddedViewPtr);
+              checkCuVSError(returnValue, "cuvsDatasetMakeHostPaddedView");
+              paddedView = paddedViewPtr.get(cuvsDatasetPaddedView_t, 0);
+              returnValue =
+                  cuvsCagraBuildHostPadded(cuvsRes, indexParamsMemorySegment, paddedView, index);
+              checkCuVSError(returnValue, "cuvsCagraBuildHostPadded");
+            }
+            case 2 -> { // CUVS_DATASET_VIEW_KIND_DEVICE_STANDARD
+              MemorySegment standardViewPtr = localArena.allocate(cuvsDatasetStandardView_t);
+              returnValue =
+                  cuvsDatasetMakeDeviceStandardView(cuvsRes, datasetTensor, standardViewPtr);
+              checkCuVSError(returnValue, "cuvsDatasetMakeDeviceStandardView");
+              standardView = standardViewPtr.get(cuvsDatasetStandardView_t, 0);
+              returnValue =
+                  cuvsCagraBuildDeviceStandard(
+                      cuvsRes, indexParamsMemorySegment, standardView, index);
+              checkCuVSError(returnValue, "cuvsCagraBuildDeviceStandard");
+            }
+            case 3 -> { // CUVS_DATASET_VIEW_KIND_HOST_STANDARD
+              MemorySegment standardViewPtr = localArena.allocate(cuvsDatasetStandardView_t);
+              returnValue =
+                  cuvsDatasetMakeHostStandardView(cuvsRes, datasetTensor, standardViewPtr);
+              checkCuVSError(returnValue, "cuvsDatasetMakeHostStandardView");
+              standardView = standardViewPtr.get(cuvsDatasetStandardView_t, 0);
+              returnValue =
+                  cuvsCagraBuildHostStandard(
+                      cuvsRes, indexParamsMemorySegment, standardView, index);
+              checkCuVSError(returnValue, "cuvsCagraBuildHostStandard");
+            }
+            default ->
+                throw new IllegalStateException("Unsupported CAGRA dataset view kind: " + viewKind);
+          }
+        } finally {
+          if (paddedView.address() != 0) {
+            checkCuVSError(
+                cuvsDatasetPaddedViewDestroy(paddedView), "cuvsDatasetPaddedViewDestroy");
+          }
+          if (standardView.address() != 0) {
+            checkCuVSError(
+                cuvsDatasetStandardViewDestroy(standardView), "cuvsDatasetStandardViewDestroy");
+          }
+        }
 
         returnValue = cuvsStreamSync(cuvsRes);
         checkCuVSError(returnValue, "cuvsStreamSync");
@@ -486,7 +546,11 @@ public class CagraIndexImpl implements CagraIndex {
       try (var resourcesAccessor = resources.access()) {
         var cuvsRes = resourcesAccessor.handle();
         var returnValue =
-            cuvsCagraDeserialize(cuvsRes, arena.allocateFrom(tmpIndexFile.toString()), index);
+            cuvsCagraDeserialize(
+                cuvsRes,
+                arena.allocateFrom(tmpIndexFile.toString()),
+                0, // CUVS_DATASET_LAYOUT_STANDARD
+                index);
         checkCuVSError(returnValue, "cuvsCagraDeserialize");
       }
     } finally {
@@ -610,8 +674,10 @@ public class CagraIndexImpl implements CagraIndex {
       cuvsAceParams.npartitions(cuvsAceParamsMemorySegment, cuVSAceParams.getNpartitions());
       cuvsAceParams.ef_construction(cuvsAceParamsMemorySegment, cuVSAceParams.getEfConstruction());
       cuvsAceParams.use_disk(cuvsAceParamsMemorySegment, cuVSAceParams.isUseDisk());
-      cuvsAceParams.max_host_memory_gb(cuvsAceParamsMemorySegment, cuVSAceParams.getMaxHostMemoryGb());
-      cuvsAceParams.max_gpu_memory_gb(cuvsAceParamsMemorySegment, cuVSAceParams.getMaxGpuMemoryGb());
+      cuvsAceParams.max_host_memory_gb(
+          cuvsAceParamsMemorySegment, cuVSAceParams.getMaxHostMemoryGb());
+      cuvsAceParams.max_gpu_memory_gb(
+          cuvsAceParamsMemorySegment, cuVSAceParams.getMaxGpuMemoryGb());
 
       String buildDir = cuVSAceParams.getBuildDir();
       if (buildDir != null && !buildDir.isEmpty()) {
@@ -690,15 +756,30 @@ public class CagraIndexImpl implements CagraIndex {
         cuvsFilter.type(mergeFilter, 0); // NO_FILTER
         cuvsFilter.addr(mergeFilter, 0);
 
-        checkCuVSError(
-            cuvsCagraMerge(
-                cuvsRes,
-                nativeMergeParams.handle(),
-                indexesSegment,
-                indexes.length,
-                mergeFilter,
-                mergedIndex),
-            "cuvsCagraMerge");
+        MemorySegment mergedStorage = MemorySegment.NULL;
+        try {
+          MemorySegment mergedStoragePtr = localArena.allocate(cuvsDatasetStorage_t);
+          checkCuVSError(
+              cuvsMakeMergedStorage(
+                  cuvsRes, indexesSegment, indexes.length, mergeFilter, mergedStoragePtr),
+              "cuvsMakeMergedStorage");
+          mergedStorage = mergedStoragePtr.get(cuvsDatasetStorage_t, 0);
+
+          checkCuVSError(
+              cuvsCagraMerge(
+                  cuvsRes,
+                  nativeMergeParams.handle(),
+                  indexesSegment,
+                  indexes.length,
+                  mergeFilter,
+                  mergedStorage,
+                  mergedIndex),
+              "cuvsCagraMerge");
+        } finally {
+          if (mergedStorage.address() != 0) {
+            checkCuVSError(cuvsDatasetStorageDestroy(mergedStorage), "cuvsDatasetStorageDestroy");
+          }
+        }
       }
     }
 
