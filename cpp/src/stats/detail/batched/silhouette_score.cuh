@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -128,9 +128,9 @@ rmm::device_uvector<value_t> get_pairwise_distance(raft::resources const& handle
                                                    value_idx& n_left_rows,
                                                    value_idx& n_right_rows,
                                                    value_idx& n_cols,
-                                                   cuvs::distance::DistanceType metric,
-                                                   cudaStream_t stream)
+                                                   cuvs::distance::DistanceType metric)
 {
+  auto stream = raft::resource::get_cuda_stream(handle);
   rmm::device_uvector<value_t> distances(n_left_rows * n_right_rows, stream);
 
   cuvs::distance::pairwise_distance(
@@ -218,6 +218,8 @@ value_t silhouette_score(
       ++n_iters;
 
       auto chunk_stream = raft::resource::get_next_usable_stream(handle, i + chunk * j);
+      raft::resources chunk_handle(handle);
+      raft::resource::set_cuda_stream(chunk_handle, chunk_stream);
 
       const auto* left_begin  = X + (i * n_cols);
       const auto* right_begin = X + (j * n_cols);
@@ -226,7 +228,7 @@ value_t silhouette_score(
       auto n_right_rows = (j + chunk) < n_rows ? chunk : (n_rows - j);
 
       rmm::device_uvector<value_t> distances = get_pairwise_distance(
-        handle, left_begin, right_begin, n_left_rows, n_right_rows, n_cols, metric, chunk_stream);
+        chunk_handle, left_begin, right_begin, n_left_rows, n_right_rows, n_cols, metric);
 
       compute_chunked_a_b(handle,
                           a_ptr,
