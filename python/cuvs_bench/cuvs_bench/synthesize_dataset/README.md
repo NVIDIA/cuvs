@@ -260,7 +260,7 @@ python -m cuvs_bench.synthesize_dataset generate \
 
 ### BigANN — synth vs real (1B, 128d)
 
-![Falcon — DiskANN synth-vs-real Pareto](figures/diskann_bigann.png)
+![BigANN — DiskANN synth-vs-real Pareto](figures/diskann_bigann.png)
 
 *Setup:* synthetic dataset generated from `bigann` fingerprint using the command below, compared against the real BigANN 1B and subsets on the same build/search sweep, k=10.
 
@@ -275,7 +275,7 @@ python -m cuvs_bench.synthesize_dataset generate \
 
 ### Wiki — synth vs real (88M, 768d)
 
-![Falcon — DiskANN synth-vs-real Pareto](figures/diskann_wiki.png)
+![Wiki — DiskANN synth-vs-real Pareto](figures/diskann_wiki.png)
 
 *Setup:* synthetic dataset generated from `wiki` fingerprint using the command below, compared against the real Wiki 88M and subsets on the same build/search sweep, k=10.
 
