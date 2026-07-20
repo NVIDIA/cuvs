@@ -169,20 +169,20 @@ Outputs (cuvs-bench-compatible):
 
 ### Step 5 — Benchmark and plot
 
-Move `synthetic_100M/` under your dataset root so `--dataset-path` is its parent, then run the algorithms to produce a recall-vs-throughput (or recall-vs-latency) Pareto plot:
+Move `synthetic_100M/` under your dataset root so `--dataset-path` is its parent, then run the cuvs bench algorithms to produce a recall-vs-throughput (or recall-vs-latency) Pareto plot. Any algorithm supported by cuvs_bench works here — see the [full list of supported algorithms](https://github.com/NVIDIA/cuvs/blob/main/python/cuvs_bench/cuvs_bench/config/algorithms.yaml).
 
 ```bash
 python -m cuvs_bench.run \
     --dataset synthetic_100M \
     --dataset-path $RAPIDS_DATASET_ROOT_DIR \
     --dataset-configuration $RAPIDS_DATASET_ROOT_DIR/synthetic_100M/dataset.yaml \
-    --algorithms cuvs_cagra,cuvs_ivf_pq,hnswlib \
+    --algorithms cuvs_cagra,cuvs_ivf_pq,hnswlib,diskann_memory \
     --build --search
 
 python -m cuvs_bench.plot \
     --dataset synthetic_100M \
     --dataset-path $RAPIDS_DATASET_ROOT_DIR \
-    --algorithms cuvs_cagra,cuvs_ivf_pq,hnswlib \
+    --algorithms cuvs_cagra,cuvs_ivf_pq,hnswlib,diskann_memory \
     --output-filepath ./plots/
 ```
 
