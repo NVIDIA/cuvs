@@ -27,7 +27,6 @@ Hyper-parameters for the kmeans algorithm
 | `oversampling_factor` | `double` | Oversampling factor for use in the k-means\|\| algorithm |
 | `batch_samples` | `int` | Number of samples to process in each batch for tiled 1NN computation. Useful to optimize/control memory footprint. Default tile is [batch_samples x n_clusters]. |
 | `batch_centroids` | `int` | Number of centroids to process in each batch. If 0, uses n_clusters. |
-| `inertia_check` | `bool` | Deprecated and ignored. Will be removed in a future release. Inertia-based convergence checking always runs. |
 | `init_size` | `int` | Number of samples to draw for KMeansPlusPlus initialization with host (out-of-core) data. When set to 0, uses the heuristic min(3 * n_clusters, n_samples). Default: 0. |
 | `streaming_batch_size` | `int` | Number of samples to process per GPU batch when fitting with host (numpy) data. When set to 0, defaults to n_samples (process all at once). Only used by the batched (host-data) code path. Reducing streaming_batch_size can help reduce GPU memory pressure but increases overhead as the number of times centroid adjustments are computed increases.<br /><br />Default: 0 (process all data at once). |
 | `hierarchical` | `bool` | Whether to use hierarchical (balanced) kmeans or not |
@@ -36,7 +35,7 @@ Hyper-parameters for the kmeans algorithm
 **Constructor**
 
 ```python
-def __init__(self, *, metric=None, n_clusters=None, init_method=None, max_iter=None, tol=None, n_init=None, oversampling_factor=None, batch_samples=None, batch_centroids=None, inertia_check=None, init_size=None, streaming_batch_size=None, hierarchical=None, hierarchical_n_iters=None)
+def __init__(self, *, metric=None, n_clusters=None, init_method=None, max_iter=None, tol=None, n_init=None, oversampling_factor=None, batch_samples=None, batch_centroids=None, init_size=None, streaming_batch_size=None, hierarchical=None, hierarchical_n_iters=None)
 ```
 
 **Members**

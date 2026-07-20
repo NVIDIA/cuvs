@@ -45,7 +45,7 @@ extern "C" {
  * @param[out]    n_iter        Number of iterations run.
  */
 CUVS_EXPORT cuvsError_t cuvsMultiGpuKMeansFit(cuvsResources_t res,
-                                              cuvsKMeansParams_v2_t params,
+                                              cuvsKMeansParams_t params,
                                               DLManagedTensor* X,
                                               DLManagedTensor* sample_weight,
                                               DLManagedTensor* centroids,
