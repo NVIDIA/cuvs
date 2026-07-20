@@ -49,7 +49,7 @@ template <typename IdxT>
      << p.nprobe << ", " << p.nlist << ", "
      << cuvs::neighbors::print_metric{static_cast<cuvs::distance::DistanceType>((int)p.metric)}
      << ", " << p.adaptive_centers << "," << p.host_dataset << "," << p.kernel_copy_overlapping
-     << '}' << std::endl;
+     << '}';
   return os;
 }
 
