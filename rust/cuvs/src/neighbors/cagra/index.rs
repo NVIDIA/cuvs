@@ -11,7 +11,7 @@ use std::path::Path;
 use super::{CagraError, IndexParams, SearchParams};
 use crate::dlpack::{AsDlTensor, AsDlTensorMut, DLTensorView, DLTensorViewMut};
 use crate::error::check_cuvs;
-use crate::neighbors::filters::{SearchFilter, with_filter};
+use crate::neighbors::filters::{Bitset, Filter, with_bitset_filter};
 use crate::resources::Resources;
 
 type Result<T> = std::result::Result<T, CagraError>;
@@ -88,9 +88,9 @@ impl<'d> Index<'d> {
         D: AsDlTensorMut + ?Sized,
     {
         let queries = queries.as_dl_tensor()?;
-        let neighbors = neighbors.as_dl_tensor_mut()?;
-        let distances = distances.as_dl_tensor_mut()?;
-        self.search_impl(res, params, &queries, &neighbors, &distances, None)
+        let mut neighbors = neighbors.as_dl_tensor_mut()?;
+        let mut distances = distances.as_dl_tensor_mut()?;
+        self.search_impl(res, params, &queries, &mut neighbors, &mut distances, None)
     }
 
     /// Searches the index with a row-level bitset filter.
@@ -101,7 +101,7 @@ impl<'d> Index<'d> {
         queries: &Q,
         neighbors: &mut N,
         distances: &mut D,
-        filter: &SearchFilter<'_>,
+        filter: &Filter<'_, Bitset>,
     ) -> Result<()>
     where
         Q: AsDlTensor + ?Sized,
@@ -109,14 +109,9 @@ impl<'d> Index<'d> {
         D: AsDlTensorMut + ?Sized,
     {
         let queries = queries.as_dl_tensor()?;
-        let neighbors = neighbors.as_dl_tensor_mut()?;
-        let distances = distances.as_dl_tensor_mut()?;
-        if filter.uses_bitmap() {
-            return Err(CagraError::Validation(
-                "bitmap filters are not supported for CAGRA".into(),
-            ));
-        }
-        self.search_impl(res, params, &queries, &neighbors, &distances, Some(filter))
+        let mut neighbors = neighbors.as_dl_tensor_mut()?;
+        let mut distances = distances.as_dl_tensor_mut()?;
+        self.search_impl(res, params, &queries, &mut neighbors, &mut distances, Some(filter))
     }
 
     fn search_impl(
@@ -124,11 +119,11 @@ impl<'d> Index<'d> {
         res: &Resources,
         params: &SearchParams,
         queries: &DLTensorView<'_>,
-        neighbors: &DLTensorViewMut<'_>,
-        distances: &DLTensorViewMut<'_>,
-        filter: Option<&SearchFilter<'_>>,
+        neighbors: &mut DLTensorViewMut<'_>,
+        distances: &mut DLTensorViewMut<'_>,
+        filter: Option<&Filter<'_, Bitset>>,
     ) -> Result<()> {
-        with_filter(filter, |prefilter| {
+        with_bitset_filter(filter, |prefilter| {
             check_cuvs(unsafe {
                 ffi::cuvsCagraSearch(
                     res.handle(),
@@ -238,7 +233,7 @@ impl Drop for Index<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::neighbors::filters::{Bitset, Filter, SearchFilter};
+    use crate::neighbors::filters::{Bitset, Filter};
     use crate::test_utils::DeviceTensor;
     use ndarray::s;
     use ndarray_rand::RandomExt;
@@ -266,7 +261,7 @@ mod tests {
         let mut distances_host = ndarray::Array::<f32, _>::zeros((n_queries, k));
         let mut distances = DeviceTensor::<f32>::zeros(res, &[n_queries, k]).unwrap();
 
-        let search_params = SearchParams::try_new().unwrap();
+        let search_params = SearchParams::builder().build().unwrap();
         index
             .search(res, &search_params, &queries, &mut neighbors, &mut distances)
             .expect("search failed");
@@ -296,7 +291,7 @@ mod tests {
 
     #[test]
     fn test_cagra_index() {
-        let build_params = IndexParams::try_new().unwrap();
+        let build_params = IndexParams::builder().build().unwrap();
         test_cagra(build_params);
     }
 
@@ -314,7 +309,7 @@ mod tests {
     #[test]
     fn test_cagra_search_filtered() {
         let res = Resources::new().unwrap();
-        let build_params = IndexParams::try_new().unwrap();
+        let build_params = IndexParams::builder().build().unwrap();
 
         let n_datapoints = 256;
         let n_features = 16;
@@ -346,8 +341,8 @@ mod tests {
         let mut neighbors = DeviceTensor::<u32>::zeros(&res, &[n_queries, k]).unwrap();
         let mut distances = DeviceTensor::<f32>::zeros(&res, &[n_queries, k]).unwrap();
 
-        let search_params = SearchParams::try_new().unwrap();
-        let filter = SearchFilter::Bitset(Filter::<Bitset>::new(&bitset).unwrap());
+        let search_params = SearchParams::builder().build().unwrap();
+        let filter = Filter::<Bitset>::new(&bitset).unwrap();
 
         index
             .search_filtered(
@@ -383,7 +378,7 @@ mod tests {
     #[test]
     fn test_cagra_multiple_searches() {
         let res = Resources::new().unwrap();
-        let build_params = IndexParams::try_new().unwrap();
+        let build_params = IndexParams::builder().build().unwrap();
         let dataset = ndarray::Array::<f32, _>::random(
             (N_DATAPOINTS, N_FEATURES),
             Uniform::new(0., 1.0).unwrap(),
@@ -399,7 +394,7 @@ mod tests {
     #[test]
     fn test_cagra_serialize_deserialize() {
         let res = Resources::new().unwrap();
-        let build_params = IndexParams::try_new().unwrap();
+        let build_params = IndexParams::builder().build().unwrap();
         let dataset = ndarray::Array::<f32, _>::random(
             (N_DATAPOINTS, N_FEATURES),
             Uniform::new(0., 1.0).unwrap(),
@@ -429,7 +424,7 @@ mod tests {
     #[test]
     fn test_cagra_serialize_without_dataset() {
         let res = Resources::new().unwrap();
-        let build_params = IndexParams::try_new().unwrap();
+        let build_params = IndexParams::builder().build().unwrap();
         let dataset = ndarray::Array::<f32, _>::random(
             (N_DATAPOINTS, N_FEATURES),
             Uniform::new(0., 1.0).unwrap(),
@@ -450,7 +445,7 @@ mod tests {
     #[test]
     fn test_cagra_serialize_to_hnswlib() {
         let res = Resources::new().unwrap();
-        let build_params = IndexParams::try_new().unwrap();
+        let build_params = IndexParams::builder().build().unwrap();
         let dataset = ndarray::Array::<f32, _>::random(
             (N_DATAPOINTS, N_FEATURES),
             Uniform::new(0., 1.0).unwrap(),
@@ -477,7 +472,7 @@ mod tests {
     #[test]
     fn test_cagra_serialize_rejects_interior_nul() {
         let res = Resources::new().unwrap();
-        let build_params = IndexParams::try_new().unwrap();
+        let build_params = IndexParams::builder().build().unwrap();
         let dataset = ndarray::Array::<f32, _>::random(
             (N_DATAPOINTS, N_FEATURES),
             Uniform::new(0., 1.0).unwrap(),

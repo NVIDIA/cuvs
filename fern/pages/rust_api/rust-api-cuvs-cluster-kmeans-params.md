@@ -28,7 +28,6 @@ Parameters for k-means fitting and prediction.
 | Name | Source |
 | --- | --- |
 | `new` | `rust/cuvs/src/cluster/kmeans/params.rs:29` |
-| `try_new` | `rust/cuvs/src/cluster/kmeans/params.rs:101` |
 
 ### new
 
@@ -50,15 +49,5 @@ hierarchical_n_iters: Option<i32>,
 ```
 
 _Source: `rust/cuvs/src/cluster/kmeans/params.rs:29`_
-
-### try_new
-
-```rust
-pub fn try_new() -> Result<Self, KMeansError>
-```
-
-Allocate parameters populated with the library defaults.
-
-_Source: `rust/cuvs/src/cluster/kmeans/params.rs:101`_
 
 _Source: `rust/cuvs/src/cluster/kmeans/params.rs:21`_

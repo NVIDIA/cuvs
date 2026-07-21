@@ -37,6 +37,7 @@ pub enum Bitset {}
 pub enum Bitmap {}
 
 /// Shared filter options for nearest-neighbor search.
+#[non_exhaustive]
 pub enum SearchFilter<'a> {
     /// Reuse one row-level bitset for every query.
     Bitset(Filter<'a, Bitset>),
@@ -70,6 +71,36 @@ impl<'a> Filter<'a, Bitmap> {
     }
 }
 
+impl<'a> SearchFilter<'a> {
+    /// Creates a row-level bitset filter borrowing `filter_words`.
+    pub fn bitset<T>(filter_words: &'a T) -> Result<Self, FilterError>
+    where
+        T: AsDlTensor + ?Sized,
+    {
+        Filter::<Bitset>::new(filter_words).map(Self::Bitset)
+    }
+
+    /// Creates a per-query bitmap filter borrowing `filter_words`.
+    pub fn bitmap<T>(filter_words: &'a T) -> Result<Self, FilterError>
+    where
+        T: AsDlTensor + ?Sized,
+    {
+        Filter::<Bitmap>::new(filter_words).map(Self::Bitmap)
+    }
+}
+
+impl<'a> From<Filter<'a, Bitset>> for SearchFilter<'a> {
+    fn from(filter: Filter<'a, Bitset>) -> Self {
+        Self::Bitset(filter)
+    }
+}
+
+impl<'a> From<Filter<'a, Bitmap>> for SearchFilter<'a> {
+    fn from(filter: Filter<'a, Bitmap>) -> Self {
+        Self::Bitmap(filter)
+    }
+}
+
 fn new_filter<'a, T, K>(filter_words: &'a T) -> Result<Filter<'a, K>, FilterError>
 where
     T: AsDlTensor + ?Sized,
@@ -86,7 +117,7 @@ where
     ) {
         return Err(FilterError::InvalidDevice);
     }
-    if tensor.strides().is_some() {
+    if !is_contiguous_1d(tensor.strides()) {
         return Err(FilterError::NonContiguous);
     }
 
@@ -96,6 +127,10 @@ where
     }
 
     Ok(Filter { tensor, _kind: PhantomData })
+}
+
+fn is_contiguous_1d(strides: Option<&[i64]>) -> bool {
+    matches!(strides, None | Some([1]))
 }
 
 impl SearchFilter<'_> {
@@ -112,13 +147,9 @@ impl SearchFilter<'_> {
             Self::Bitmap(_) => ffi::cuvsFilterType::BITMAP,
         }
     }
-
-    pub(crate) fn uses_bitmap(&self) -> bool {
-        matches!(self, Self::Bitmap(_))
-    }
 }
 
-pub(crate) fn with_filter<R>(
+pub(crate) fn with_search_filter<R>(
     filter: Option<&SearchFilter<'_>>,
     call: impl FnOnce(ffi::cuvsFilter) -> R,
 ) -> R {
@@ -128,6 +159,22 @@ pub(crate) fn with_filter<R>(
             call(ffi::cuvsFilter {
                 addr: managed.as_mut_ptr() as usize,
                 type_: filter.filter_type(),
+            })
+        }
+        None => call(ffi::cuvsFilter { addr: 0, type_: ffi::cuvsFilterType::NO_FILTER }),
+    }
+}
+
+pub(crate) fn with_bitset_filter<R>(
+    filter: Option<&Filter<'_, Bitset>>,
+    call: impl FnOnce(ffi::cuvsFilter) -> R,
+) -> R {
+    match filter {
+        Some(filter) => {
+            let mut managed = filter.tensor.to_c();
+            call(ffi::cuvsFilter {
+                addr: managed.as_mut_ptr() as usize,
+                type_: ffi::cuvsFilterType::BITSET,
             })
         }
         None => call(ffi::cuvsFilter { addr: 0, type_: ffi::cuvsFilterType::NO_FILTER }),
@@ -166,8 +213,15 @@ mod tests {
     }
 
     #[test]
+    fn explicit_unit_stride_is_contiguous() {
+        assert!(is_contiguous_1d(None));
+        assert!(is_contiguous_1d(Some(&[1])));
+        assert!(!is_contiguous_1d(Some(&[2])));
+    }
+
+    #[test]
     fn no_filter_uses_the_c_api_sentinel() {
-        with_filter(None, |filter| {
+        with_search_filter(None, |filter| {
             assert_eq!(filter.addr, 0);
             assert_eq!(filter.type_, ffi::cuvsFilterType::NO_FILTER);
         });

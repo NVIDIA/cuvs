@@ -28,7 +28,6 @@ Parameters for building a Vamana index.
 | Name | Source |
 | --- | --- |
 | `new` | `rust/cuvs/src/neighbors/vamana/params.rs:31` |
-| `try_new` | `rust/cuvs/src/neighbors/vamana/params.rs:108` |
 
 ### new
 
@@ -49,15 +48,5 @@ reverse_batchsize: Option<u32>,
 ```
 
 _Source: `rust/cuvs/src/neighbors/vamana/params.rs:31`_
-
-### try_new
-
-```rust
-pub fn try_new() -> Result<Self, VamanaError>
-```
-
-Allocate parameters populated with the library defaults.
-
-_Source: `rust/cuvs/src/neighbors/vamana/params.rs:108`_
 
 _Source: `rust/cuvs/src/neighbors/vamana/params.rs:23`_

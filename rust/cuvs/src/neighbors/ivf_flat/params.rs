@@ -43,7 +43,7 @@ impl IndexParams {
             )));
         }
 
-        let params = Self::try_new()?;
+        let params = Self::create_handle()?;
         unsafe {
             if let Some(v) = n_lists {
                 (*params.handle).n_lists = v;
@@ -68,7 +68,7 @@ impl IndexParams {
 
 impl IndexParams {
     /// Allocate parameters populated with the library defaults.
-    pub fn try_new() -> Result<Self, IvfFlatError> {
+    fn create_handle() -> Result<Self, IvfFlatError> {
         let mut handle = ptr::null_mut();
         check_cuvs(unsafe { ffi::cuvsIvfFlatIndexParamsCreate(&mut handle) })?;
         Ok(Self { handle })
@@ -104,7 +104,7 @@ impl SearchParams {
             return Err(IvfFlatError::Validation("n_probes must be > 0".into()));
         }
 
-        let params = Self::try_new()?;
+        let params = Self::create_handle()?;
         unsafe {
             if let Some(v) = n_probes {
                 (*params.handle).n_probes = v;
@@ -116,7 +116,7 @@ impl SearchParams {
 
 impl SearchParams {
     /// Allocate parameters populated with the library defaults.
-    pub fn try_new() -> Result<Self, IvfFlatError> {
+    fn create_handle() -> Result<Self, IvfFlatError> {
         let mut handle = ptr::null_mut();
         check_cuvs(unsafe { ffi::cuvsIvfFlatSearchParamsCreate(&mut handle) })?;
         Ok(Self { handle })

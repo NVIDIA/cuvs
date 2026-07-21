@@ -39,7 +39,7 @@ impl IndexParams {
         queue_size: Option<u32>,
         reverse_batchsize: Option<u32>,
     ) -> Result<Self, VamanaError> {
-        let params = Self::try_new()?;
+        let params = Self::create_handle()?;
         let effective_metric = metric.unwrap_or_else(|| unsafe { (*params.handle).metric.into() });
         let effective_graph_degree =
             graph_degree.unwrap_or_else(|| unsafe { (*params.handle).graph_degree });
@@ -105,7 +105,7 @@ impl IndexParams {
 
 impl IndexParams {
     /// Allocate parameters populated with the library defaults.
-    pub fn try_new() -> Result<Self, VamanaError> {
+    fn create_handle() -> Result<Self, VamanaError> {
         let mut handle = ptr::null_mut();
         check_cuvs(unsafe { ffi::cuvsVamanaIndexParamsCreate(&mut handle) })?;
         Ok(Self { handle })

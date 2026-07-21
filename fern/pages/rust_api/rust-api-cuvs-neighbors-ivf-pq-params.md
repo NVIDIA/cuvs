@@ -28,7 +28,6 @@ Parameters for building an IVF-PQ index.
 | Name | Source |
 | --- | --- |
 | `new` | `rust/cuvs/src/neighbors/ivf_pq/params.rs:29` |
-| `try_new` | `rust/cuvs/src/neighbors/ivf_pq/params.rs:112` |
 
 ### new
 
@@ -52,16 +51,6 @@ add_data_on_build: Option<bool>,
 
 _Source: `rust/cuvs/src/neighbors/ivf_pq/params.rs:29`_
 
-### try_new
-
-```rust
-pub fn try_new() -> Result<Self, IvfPqError>
-```
-
-Allocate parameters populated with the library defaults.
-
-_Source: `rust/cuvs/src/neighbors/ivf_pq/params.rs:112`_
-
 _Source: `rust/cuvs/src/neighbors/ivf_pq/params.rs:21`_
 
 ## SearchParams
@@ -79,7 +68,6 @@ Parameters for searching an IVF-PQ index.
 | Name | Source |
 | --- | --- |
 | `new` | `rust/cuvs/src/neighbors/ivf_pq/params.rs:143` |
-| `try_new` | `rust/cuvs/src/neighbors/ivf_pq/params.rs:178` |
 
 ### new
 
@@ -93,15 +81,5 @@ internal_distance_dtype: Option<InternalDistanceDType>,
 ```
 
 _Source: `rust/cuvs/src/neighbors/ivf_pq/params.rs:143`_
-
-### try_new
-
-```rust
-pub fn try_new() -> Result<Self, IvfPqError>
-```
-
-Allocate parameters populated with the library defaults.
-
-_Source: `rust/cuvs/src/neighbors/ivf_pq/params.rs:178`_
 
 _Source: `rust/cuvs/src/neighbors/ivf_pq/params.rs:136`_

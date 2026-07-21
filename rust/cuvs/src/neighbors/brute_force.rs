@@ -17,7 +17,7 @@ use crate::distance::DistanceType;
 use crate::dlpack::{AsDlTensor, AsDlTensorMut, DLPackError, DLTensorView, DLTensorViewMut};
 use crate::error::{LibraryError, check_cuvs};
 pub use crate::neighbors::filters::SearchFilter;
-use crate::neighbors::filters::with_filter;
+use crate::neighbors::filters::with_search_filter;
 use crate::resources::Resources;
 
 type Result<T> = std::result::Result<T, BruteForceError>;
@@ -96,9 +96,9 @@ impl<'d> Index<'d> {
         D: AsDlTensorMut + ?Sized,
     {
         let queries = queries.as_dl_tensor()?;
-        let neighbors = neighbors.as_dl_tensor_mut()?;
-        let distances = distances.as_dl_tensor_mut()?;
-        self.search_impl(res, &queries, &neighbors, &distances, None)
+        let mut neighbors = neighbors.as_dl_tensor_mut()?;
+        let mut distances = distances.as_dl_tensor_mut()?;
+        self.search_impl(res, &queries, &mut neighbors, &mut distances, None)
     }
 
     /// Searches the index using a row bitset or per-query bitmap filter.
@@ -116,20 +116,20 @@ impl<'d> Index<'d> {
         D: AsDlTensorMut + ?Sized,
     {
         let queries = queries.as_dl_tensor()?;
-        let neighbors = neighbors.as_dl_tensor_mut()?;
-        let distances = distances.as_dl_tensor_mut()?;
-        self.search_impl(res, &queries, &neighbors, &distances, Some(filter))
+        let mut neighbors = neighbors.as_dl_tensor_mut()?;
+        let mut distances = distances.as_dl_tensor_mut()?;
+        self.search_impl(res, &queries, &mut neighbors, &mut distances, Some(filter))
     }
 
     fn search_impl(
         &self,
         res: &Resources,
         queries: &DLTensorView<'_>,
-        neighbors: &DLTensorViewMut<'_>,
-        distances: &DLTensorViewMut<'_>,
+        neighbors: &mut DLTensorViewMut<'_>,
+        distances: &mut DLTensorViewMut<'_>,
         filter: Option<&SearchFilter<'_>>,
     ) -> Result<()> {
-        with_filter(filter, |prefilter| {
+        with_search_filter(filter, |prefilter| {
             check_cuvs(unsafe {
                 ffi::cuvsBruteForceSearch(
                     res.handle(),

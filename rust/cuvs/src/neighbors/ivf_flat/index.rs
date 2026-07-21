@@ -8,7 +8,7 @@ use std::io::{Write, stderr};
 use super::{IndexParams, IvfFlatError, SearchParams};
 use crate::dlpack::{AsDlTensor, AsDlTensorMut, DLTensorView, DLTensorViewMut};
 use crate::error::check_cuvs;
-use crate::neighbors::filters::{SearchFilter, with_filter};
+use crate::neighbors::filters::{Bitset, Filter, with_bitset_filter};
 use crate::resources::Resources;
 
 type Result<T> = std::result::Result<T, IvfFlatError>;
@@ -71,9 +71,9 @@ impl Index {
         D: AsDlTensorMut + ?Sized,
     {
         let queries = queries.as_dl_tensor()?;
-        let neighbors = neighbors.as_dl_tensor_mut()?;
-        let distances = distances.as_dl_tensor_mut()?;
-        self.search_impl(res, params, &queries, &neighbors, &distances, None)
+        let mut neighbors = neighbors.as_dl_tensor_mut()?;
+        let mut distances = distances.as_dl_tensor_mut()?;
+        self.search_impl(res, params, &queries, &mut neighbors, &mut distances, None)
     }
 
     /// Searches the index with a row-level bitset filter.
@@ -84,22 +84,17 @@ impl Index {
         queries: &Q,
         neighbors: &mut N,
         distances: &mut D,
-        filter: &SearchFilter<'_>,
+        filter: &Filter<'_, Bitset>,
     ) -> Result<()>
     where
         Q: AsDlTensor + ?Sized,
         N: AsDlTensorMut + ?Sized,
         D: AsDlTensorMut + ?Sized,
     {
-        if filter.uses_bitmap() {
-            return Err(IvfFlatError::Validation(
-                "bitmap filters are not supported for IVF-Flat".into(),
-            ));
-        }
         let queries = queries.as_dl_tensor()?;
-        let neighbors = neighbors.as_dl_tensor_mut()?;
-        let distances = distances.as_dl_tensor_mut()?;
-        self.search_impl(res, params, &queries, &neighbors, &distances, Some(filter))
+        let mut neighbors = neighbors.as_dl_tensor_mut()?;
+        let mut distances = distances.as_dl_tensor_mut()?;
+        self.search_impl(res, params, &queries, &mut neighbors, &mut distances, Some(filter))
     }
 
     fn search_impl(
@@ -107,11 +102,11 @@ impl Index {
         res: &Resources,
         params: &SearchParams,
         queries: &DLTensorView<'_>,
-        neighbors: &DLTensorViewMut<'_>,
-        distances: &DLTensorViewMut<'_>,
-        filter: Option<&SearchFilter<'_>>,
+        neighbors: &mut DLTensorViewMut<'_>,
+        distances: &mut DLTensorViewMut<'_>,
+        filter: Option<&Filter<'_, Bitset>>,
     ) -> Result<()> {
-        with_filter(filter, |prefilter| {
+        with_bitset_filter(filter, |prefilter| {
             check_cuvs(unsafe {
                 ffi::cuvsIvfFlatSearch(
                     res.handle(),

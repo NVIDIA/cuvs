@@ -22,10 +22,10 @@ builder pattern: every setter is optional and unset values keep the cuVS C
 library defaults. Values are validated when the builder's `build()` runs,
 returning [`CagraError::Validation`] for out-of-range inputs.
 
-## crate::neighbors::filters::SearchFilter
+## crate::neighbors::filters::\{Bitset, Filter\}
 
 ```rust
-pub use crate::neighbors::filters::SearchFilter;
+pub use crate::neighbors::filters::{Bitset, Filter};
 ```
 
 _Source: `rust/cuvs/src/neighbors/cagra/mod.rs:23`_

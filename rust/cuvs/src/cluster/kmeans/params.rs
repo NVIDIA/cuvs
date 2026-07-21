@@ -59,7 +59,7 @@ impl Params {
             return Err(KMeansError::Validation("hierarchical_n_iters must be >= 0".into()));
         }
 
-        let params = Self::try_new()?;
+        let params = Self::create_handle()?;
         unsafe {
             if let Some(v) = metric {
                 (*params.handle).metric = v.into();
@@ -98,7 +98,7 @@ impl Params {
 
 impl Params {
     /// Allocate parameters populated with the library defaults.
-    pub fn try_new() -> Result<Self, KMeansError> {
+    fn create_handle() -> Result<Self, KMeansError> {
         let mut handle = ptr::null_mut();
         check_cuvs(unsafe { ffi::cuvsKMeansParamsCreate(&mut handle) })?;
         Ok(Self { handle })

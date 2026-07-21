@@ -82,7 +82,7 @@ params: &SearchParams,
 queries: &Q,
 neighbors: &mut N,
 distances: &mut D,
-filter: &SearchFilter<'_>,
+filter: &Filter<'_, Bitset>,
 ) -> Result<()>
 where
 Q: AsDlTensor + ?Sized,

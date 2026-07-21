@@ -18,10 +18,10 @@ device-resident queries and output buffers. Tensors are borrowed through the
 module for the tensor model and `examples/cagra.rs` for the same build/search
 workflow.
 
-## crate::neighbors::filters::SearchFilter
+## crate::neighbors::filters::\{Bitset, Filter\}
 
 ```rust
-pub use crate::neighbors::filters::SearchFilter;
+pub use crate::neighbors::filters::{Bitset, Filter};
 ```
 
 _Source: `rust/cuvs/src/neighbors/ivf_flat/mod.rs:19`_

@@ -51,6 +51,7 @@ _Source: `rust/cuvs/src/neighbors/filters.rs:37`_
 ## SearchFilter
 
 ```rust
+#[non_exhaustive]
 pub enum SearchFilter<'a> {
     /* variants omitted */
 }
@@ -58,7 +59,38 @@ pub enum SearchFilter<'a> {
 
 Shared filter options for nearest-neighbor search.
 
-_Source: `rust/cuvs/src/neighbors/filters.rs:40`_
+**Methods**
+
+| Name | Source |
+| --- | --- |
+| `bitset` | `rust/cuvs/src/neighbors/filters.rs:76` |
+| `bitmap` | `rust/cuvs/src/neighbors/filters.rs:84` |
+
+### bitset
+
+```rust
+pub fn bitset<T>(filter_words: &'a T) -> Result<Self, FilterError>
+where
+T: AsDlTensor + ?Sized,
+```
+
+Creates a row-level bitset filter borrowing `filter_words`.
+
+_Source: `rust/cuvs/src/neighbors/filters.rs:76`_
+
+### bitmap
+
+```rust
+pub fn bitmap<T>(filter_words: &'a T) -> Result<Self, FilterError>
+where
+T: AsDlTensor + ?Sized,
+```
+
+Creates a per-query bitmap filter borrowing `filter_words`.
+
+_Source: `rust/cuvs/src/neighbors/filters.rs:84`_
+
+_Source: `rust/cuvs/src/neighbors/filters.rs:41`_
 
 ## Filter
 
@@ -74,8 +106,8 @@ Packed filter words used to include or exclude rows during search.
 
 | Name | Source |
 | --- | --- |
-| `new` | `rust/cuvs/src/neighbors/filters.rs:55` |
-| `new` | `rust/cuvs/src/neighbors/filters.rs:65` |
+| `new` | `rust/cuvs/src/neighbors/filters.rs:56` |
+| `new` | `rust/cuvs/src/neighbors/filters.rs:66` |
 
 ### new
 
@@ -87,7 +119,7 @@ T: AsDlTensor + ?Sized,
 
 Creates a row-level bitset borrowing `filter_words`.
 
-_Source: `rust/cuvs/src/neighbors/filters.rs:55`_
+_Source: `rust/cuvs/src/neighbors/filters.rs:56`_
 
 ### new
 
@@ -99,6 +131,6 @@ T: AsDlTensor + ?Sized,
 
 Creates a per-query bitmap borrowing `filter_words`.
 
-_Source: `rust/cuvs/src/neighbors/filters.rs:65`_
+_Source: `rust/cuvs/src/neighbors/filters.rs:66`_
 
-_Source: `rust/cuvs/src/neighbors/filters.rs:48`_
+_Source: `rust/cuvs/src/neighbors/filters.rs:49`_

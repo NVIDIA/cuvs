@@ -32,9 +32,9 @@ self-contained and its lifetime is `'static`.
 | `build` | `rust/cuvs/src/neighbors/cagra/index.rs:45` |
 | `search` | `rust/cuvs/src/neighbors/cagra/index.rs:77` |
 | `search_filtered` | `rust/cuvs/src/neighbors/cagra/index.rs:97` |
-| `serialize` | `rust/cuvs/src/neighbors/cagra/index.rs:179` |
-| `serialize_to_hnswlib` | `rust/cuvs/src/neighbors/cagra/index.rs:203` |
-| `deserialize` | `rust/cuvs/src/neighbors/cagra/index.rs:219` |
+| `serialize` | `rust/cuvs/src/neighbors/cagra/index.rs:174` |
+| `serialize_to_hnswlib` | `rust/cuvs/src/neighbors/cagra/index.rs:198` |
+| `deserialize` | `rust/cuvs/src/neighbors/cagra/index.rs:214` |
 
 ### build
 
@@ -90,7 +90,7 @@ params: &SearchParams,
 queries: &Q,
 neighbors: &mut N,
 distances: &mut D,
-filter: &SearchFilter<'_>,
+filter: &Filter<'_, Bitset>,
 ) -> Result<()>
 where
 Q: AsDlTensor + ?Sized,
@@ -146,7 +146,7 @@ Ok(())
 }
 ```
 
-_Source: `rust/cuvs/src/neighbors/cagra/index.rs:179`_
+_Source: `rust/cuvs/src/neighbors/cagra/index.rs:174`_
 
 ### serialize_to_hnswlib
 
@@ -166,7 +166,7 @@ Experimental, both the API and the serialization format are subject to change.
 * `res` - Resources to use
 * `filename` - The file path for saving the index
 
-_Source: `rust/cuvs/src/neighbors/cagra/index.rs:203`_
+_Source: `rust/cuvs/src/neighbors/cagra/index.rs:198`_
 
 ### deserialize
 
@@ -183,6 +183,6 @@ Experimental, both the API and the serialization format are subject to change.
 * `res` - Resources to use
 * `filename` - The path of the file that stores the index
 
-_Source: `rust/cuvs/src/neighbors/cagra/index.rs:219`_
+_Source: `rust/cuvs/src/neighbors/cagra/index.rs:214`_
 
 _Source: `rust/cuvs/src/neighbors/cagra/index.rs:27`_

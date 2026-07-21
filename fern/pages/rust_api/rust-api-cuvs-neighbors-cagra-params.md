@@ -34,7 +34,6 @@ Attach to [`IndexParams`] to enable compressed dataset storage.
 | Name | Source |
 | --- | --- |
 | `new` | `rust/cuvs/src/neighbors/cagra/params.rs:39` |
-| `try_new` | `rust/cuvs/src/neighbors/cagra/params.rs:83` |
 
 ### new
 
@@ -51,16 +50,6 @@ pq_kmeans_trainset_fraction: Option<f64>,
 ```
 
 _Source: `rust/cuvs/src/neighbors/cagra/params.rs:39`_
-
-### try_new
-
-```rust
-pub fn try_new() -> Result<Self, CagraError>
-```
-
-Allocate parameters populated with the library defaults.
-
-_Source: `rust/cuvs/src/neighbors/cagra/params.rs:83`_
 
 _Source: `rust/cuvs/src/neighbors/cagra/params.rs:32`_
 
@@ -88,8 +77,7 @@ let params = IndexParams::builder()
 
 | Name | Source |
 | --- | --- |
-| `new` | `rust/cuvs/src/neighbors/cagra/params.rs:141` |
-| `try_new` | `rust/cuvs/src/neighbors/cagra/params.rs:247` |
+| `new` | `rust/cuvs/src/neighbors/cagra/params.rs:153` |
 
 ### new
 
@@ -106,19 +94,9 @@ RequestedGraphBuild,
 ) -> Result<Self, CagraError>
 ```
 
-_Source: `rust/cuvs/src/neighbors/cagra/params.rs:141`_
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:153`_
 
-### try_new
-
-```rust
-pub fn try_new() -> Result<Self, CagraError>
-```
-
-Allocate parameters populated with the library defaults.
-
-_Source: `rust/cuvs/src/neighbors/cagra/params.rs:247`_
-
-_Source: `rust/cuvs/src/neighbors/cagra/params.rs:130`_
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:142`_
 
 ## SearchParams
 
@@ -140,8 +118,7 @@ let params = SearchParams::builder().itopk_size(128).build()?;
 
 | Name | Source |
 | --- | --- |
-| `new` | `rust/cuvs/src/neighbors/cagra/params.rs:329` |
-| `try_new` | `rust/cuvs/src/neighbors/cagra/params.rs:441` |
+| `new` | `rust/cuvs/src/neighbors/cagra/params.rs:340` |
 
 ### new
 
@@ -164,19 +141,9 @@ rand_xor_mask: Option<u64>,
 ) -> Result<Self, CagraError>
 ```
 
-_Source: `rust/cuvs/src/neighbors/cagra/params.rs:329`_
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:340`_
 
-### try_new
-
-```rust
-pub fn try_new() -> Result<Self, CagraError>
-```
-
-Allocate parameters populated with the library defaults.
-
-_Source: `rust/cuvs/src/neighbors/cagra/params.rs:441`_
-
-_Source: `rust/cuvs/src/neighbors/cagra/params.rs:321`_
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:332`_
 
 ## impl IndexParamsBuilder
 
@@ -188,12 +155,12 @@ impl IndexParamsBuilder
 
 | Name | Source |
 | --- | --- |
-| `auto` | `rust/cuvs/src/neighbors/cagra/params.rs:202` |
-| `nn_descent` | `rust/cuvs/src/neighbors/cagra/params.rs:209` |
-| `nn_descent_with` | `rust/cuvs/src/neighbors/cagra/params.rs:216` |
-| `iterative_cagra_search` | `rust/cuvs/src/neighbors/cagra/params.rs:223` |
-| `ace` | `rust/cuvs/src/neighbors/cagra/params.rs:230` |
-| `ivf_pq` | `rust/cuvs/src/neighbors/cagra/params.rs:237` |
+| `auto` | `rust/cuvs/src/neighbors/cagra/params.rs:214` |
+| `nn_descent` | `rust/cuvs/src/neighbors/cagra/params.rs:221` |
+| `nn_descent_with_iterations` | `rust/cuvs/src/neighbors/cagra/params.rs:228` |
+| `iterative_cagra_search` | `rust/cuvs/src/neighbors/cagra/params.rs:238` |
+| `ace` | `rust/cuvs/src/neighbors/cagra/params.rs:245` |
+| `ivf_pq` | `rust/cuvs/src/neighbors/cagra/params.rs:252` |
 
 ### auto
 
@@ -203,7 +170,7 @@ where
 S::GraphBuild: IsUnset,
 ```
 
-_Source: `rust/cuvs/src/neighbors/cagra/params.rs:202`_
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:214`_
 
 ### nn_descent
 
@@ -213,17 +180,20 @@ where
 S::GraphBuild: IsUnset,
 ```
 
-_Source: `rust/cuvs/src/neighbors/cagra/params.rs:209`_
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:221`_
 
-### nn_descent_with
+### nn_descent_with_iterations
 
 ```rust
-pub fn nn_descent_with(self, iterations: usize) -> IndexParamsBuilder<SetGraphBuild<S>>
+pub fn nn_descent_with_iterations(
+self,
+iterations: usize,
+) -> IndexParamsBuilder<SetGraphBuild<S>>
 where
 S::GraphBuild: IsUnset,
 ```
 
-_Source: `rust/cuvs/src/neighbors/cagra/params.rs:216`_
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:228`_
 
 ### iterative_cagra_search
 
@@ -233,7 +203,7 @@ where
 S::GraphBuild: IsUnset,
 ```
 
-_Source: `rust/cuvs/src/neighbors/cagra/params.rs:223`_
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:238`_
 
 ### ace
 
@@ -243,7 +213,7 @@ where
 S::GraphBuild: IsUnset,
 ```
 
-_Source: `rust/cuvs/src/neighbors/cagra/params.rs:230`_
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:245`_
 
 ### ivf_pq
 
@@ -253,6 +223,6 @@ where
 S::GraphBuild: IsUnset,
 ```
 
-_Source: `rust/cuvs/src/neighbors/cagra/params.rs:237`_
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:252`_
 
-_Source: `rust/cuvs/src/neighbors/cagra/params.rs:201`_
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:213`_

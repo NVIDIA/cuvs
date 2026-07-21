@@ -51,8 +51,20 @@ impl CompressionParams {
                 "pq_bits must be within [4, 16], got {bits}"
             )));
         }
+        for (name, fraction) in [
+            ("vq_kmeans_trainset_fraction", vq_kmeans_trainset_fraction),
+            ("pq_kmeans_trainset_fraction", pq_kmeans_trainset_fraction),
+        ] {
+            if let Some(value) = fraction
+                && !(0.0..=1.0).contains(&value)
+            {
+                return Err(CagraError::Validation(format!(
+                    "{name} must be in [0, 1], got {value}"
+                )));
+            }
+        }
 
-        let params = Self::try_new()?;
+        let params = Self::create_handle()?;
         unsafe {
             if let Some(v) = pq_bits {
                 (*params.handle).pq_bits = v;
@@ -80,7 +92,7 @@ impl CompressionParams {
 
 impl CompressionParams {
     /// Allocate parameters populated with the library defaults.
-    pub fn try_new() -> Result<Self, CagraError> {
+    fn create_handle() -> Result<Self, CagraError> {
         let mut handle = ptr::null_mut();
         check_cuvs(unsafe { ffi::cuvsCagraCompressionParamsCreate(&mut handle) })?;
         Ok(Self { handle })
@@ -147,17 +159,20 @@ impl IndexParams {
             RequestedGraphBuild,
         >,
     ) -> Result<Self, CagraError> {
-        if let Some(d) = graph_degree
-            && d == 0
-        {
+        let mut params = Self::create_handle()?;
+        let effective_metric = metric.unwrap_or_else(|| unsafe { (*params.handle).metric.into() });
+        let effective_intermediate_degree = intermediate_graph_degree
+            .unwrap_or_else(|| unsafe { (*params.handle).intermediate_graph_degree });
+        let effective_graph_degree =
+            graph_degree.unwrap_or_else(|| unsafe { (*params.handle).graph_degree });
+
+        if effective_graph_degree == 0 {
             return Err(CagraError::Validation("graph_degree must be > 0".into()));
         }
 
-        if let (Some(inter), Some(graph)) = (intermediate_graph_degree, graph_degree)
-            && inter < graph
-        {
+        if effective_intermediate_degree < effective_graph_degree {
             return Err(CagraError::Validation(format!(
-                "intermediate_graph_degree ({inter}) must be >= graph_degree ({graph})"
+                "intermediate_graph_degree ({effective_intermediate_degree}) must be >= graph_degree ({effective_graph_degree})"
             )));
         }
 
@@ -165,14 +180,11 @@ impl IndexParams {
             return Err(CagraError::Validation("nn_descent_niter must be > 0".into()));
         }
 
-        let metric_supports_compression = metric.is_none_or(|v| v == DistanceType::L2Expanded);
-        if compression.is_some() && !metric_supports_compression {
+        if compression.is_some() && effective_metric != DistanceType::L2Expanded {
             return Err(CagraError::Validation(
                 "VPQ compression is only supported with L2Expanded distance metric".into(),
             ));
         }
-
-        let mut params = Self::try_new()?;
 
         unsafe {
             if let Some(v) = metric {
@@ -191,7 +203,7 @@ impl IndexParams {
             params.compression = Some(compression);
         }
 
-        params.apply_graph_build(graph_build)?;
+        params.apply_graph_build(graph_build);
         Ok(params)
     }
 }
@@ -213,7 +225,10 @@ impl<S: State> IndexParamsBuilder<S> {
         self.graph_build_internal(RequestedGraphBuild::NnDescent { iterations: None })
     }
 
-    pub fn nn_descent_with(self, iterations: usize) -> IndexParamsBuilder<SetGraphBuild<S>>
+    pub fn nn_descent_with_iterations(
+        self,
+        iterations: usize,
+    ) -> IndexParamsBuilder<SetGraphBuild<S>>
     where
         S::GraphBuild: IsUnset,
     {
@@ -244,7 +259,7 @@ impl<S: State> IndexParamsBuilder<S> {
 
 impl IndexParams {
     /// Allocate parameters populated with the library defaults.
-    pub fn try_new() -> Result<Self, CagraError> {
+    fn create_handle() -> Result<Self, CagraError> {
         let mut handle = ptr::null_mut();
         check_cuvs(unsafe { ffi::cuvsCagraIndexParamsCreate(&mut handle) })?;
         let default_graph_build_params = unsafe { (*handle).graph_build_params };
@@ -255,12 +270,9 @@ impl IndexParams {
         self.handle
     }
 
-    fn apply_graph_build(
-        &mut self,
-        graph_build: Option<RequestedGraphBuild>,
-    ) -> Result<(), CagraError> {
+    fn apply_graph_build(&mut self, graph_build: Option<RequestedGraphBuild>) {
         let Some(graph_build) = graph_build else {
-            return Ok(());
+            return;
         };
         match graph_build {
             RequestedGraphBuild::Auto => unsafe {
@@ -287,7 +299,6 @@ impl IndexParams {
                 (*self.handle).graph_build_params = self.default_graph_build_params;
             },
         }
-        Ok(())
     }
 }
 
@@ -340,7 +351,7 @@ impl SearchParams {
         num_random_samplings: Option<u32>,
         rand_xor_mask: Option<u64>,
     ) -> Result<Self, CagraError> {
-        let params = Self::try_new()?;
+        let params = Self::create_handle()?;
 
         let effective_algo = algo.unwrap_or_else(|| unsafe { (*params.handle).algo.into() });
         let effective_hashmap_mode =
@@ -438,7 +449,7 @@ impl SearchParams {
 
 impl SearchParams {
     /// Allocate parameters populated with the library defaults.
-    pub fn try_new() -> Result<Self, CagraError> {
+    fn create_handle() -> Result<Self, CagraError> {
         let mut handle = ptr::null_mut();
         check_cuvs(unsafe { ffi::cuvsCagraSearchParamsCreate(&mut handle) })?;
         Ok(Self { handle })
@@ -471,7 +482,7 @@ mod tests {
 
     #[test]
     fn index_params_all_defaults() {
-        let params = IndexParams::try_new().unwrap();
+        let params = IndexParams::builder().build().unwrap();
         unsafe {
             assert_eq!((*params.handle).metric, ffi::cuvsDistanceType::L2Expanded);
             assert_eq!((*params.handle).graph_degree, 64);
@@ -484,7 +495,7 @@ mod tests {
             .metric(DistanceType::InnerProduct)
             .graph_degree(64)
             .intermediate_graph_degree(128)
-            .nn_descent_with(10)
+            .nn_descent_with_iterations(10)
             .build()
             .unwrap();
 
@@ -516,8 +527,22 @@ mod tests {
     }
 
     #[test]
+    fn index_params_validates_degrees_against_library_defaults() {
+        let err = IndexParams::builder().intermediate_graph_degree(32).build().unwrap_err();
+        assert!(
+            err.to_string().contains("intermediate_graph_degree (32) must be >= graph_degree (64)")
+        );
+
+        let err = IndexParams::builder().graph_degree(256).build().unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("intermediate_graph_degree (128) must be >= graph_degree (256)")
+        );
+    }
+
+    #[test]
     fn index_params_rejects_zero_niter() {
-        let err = IndexParams::builder().nn_descent_with(0).build().unwrap_err();
+        let err = IndexParams::builder().nn_descent_with_iterations(0).build().unwrap_err();
         assert!(err.to_string().contains("nn_descent_niter must be > 0"));
     }
 
@@ -568,8 +593,26 @@ mod tests {
     }
 
     #[test]
+    fn compression_params_validate_training_fractions() {
+        CompressionParams::builder()
+            .vq_kmeans_trainset_fraction(0.0)
+            .pq_kmeans_trainset_fraction(1.0)
+            .build()
+            .unwrap();
+
+        assert!(matches!(
+            CompressionParams::builder().vq_kmeans_trainset_fraction(-0.1).build(),
+            Err(CagraError::Validation(_))
+        ));
+        assert!(matches!(
+            CompressionParams::builder().pq_kmeans_trainset_fraction(1.1).build(),
+            Err(CagraError::Validation(_))
+        ));
+    }
+
+    #[test]
     fn search_params_all_defaults() {
-        let params = SearchParams::try_new().unwrap();
+        let params = SearchParams::builder().build().unwrap();
         unsafe {
             assert_eq!((*params.handle).itopk_size, 64);
             assert_eq!((*params.handle).algo, ffi::cuvsCagraSearchAlgo::SINGLE_CTA);

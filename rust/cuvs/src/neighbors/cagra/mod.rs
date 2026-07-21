@@ -20,7 +20,7 @@
 mod index;
 mod params;
 
-pub use crate::neighbors::filters::SearchFilter;
+pub use crate::neighbors::filters::{Bitset, Filter};
 pub use index::Index;
 pub use params::{CompressionParams, IndexParams, SearchParams};
 
