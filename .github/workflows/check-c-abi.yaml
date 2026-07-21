@@ -31,8 +31,8 @@ jobs:
       - name: Find merge base commit
         id: merge-base
         run: |
-          git fetch origin main
-          MERGE_BASE=$(git merge-base HEAD origin/main)
+          git fetch origin release/26.08
+          MERGE_BASE=$(git merge-base HEAD origin/release/26.08)
           echo "merge_base_sha=${MERGE_BASE}" >> $GITHUB_OUTPUT
           echo "Merge base commit: ${MERGE_BASE}"
 
@@ -46,40 +46,40 @@ jobs:
           commit: ${{ steps.merge-base.outputs.merge_base_sha }}
           path: baseline/
 
-      - name: Try to download latest main baseline (fallback 1)
+      - name: Try to download latest release/26.08 baseline (fallback 1)
         id: download-main
         if: steps.download-merge-base.outcome == 'failure'
         continue-on-error: true
         uses: dawidd6/action-download-artifact@8a338493df3d275e4a7a63bcff3b8fe97e51a927 # v19
         with:
-          name: c-abi-baseline-main
+          name: c-abi-baseline-release/26.08
           workflow: check-c-abi.yaml
-          branch: main
+          branch: release/26.08
           path: baseline/
 
-      - name: Extract baseline ABI from main branch (fallback 2)
+      - name: Extract baseline ABI from release/26.08 branch (fallback 2)
         if: steps.download-merge-base.outcome == 'failure' && steps.download-main.outcome == 'failure'
         run: |
-          echo "⚠️ No baseline artifacts found, extracting from main branch..."
+          echo "⚠️ No baseline artifacts found, extracting from release/26.08 branch..."
           echo "This is slower but ensures we always have a baseline for comparison."
-          git worktree add ../cuvs-main main
+          git worktree add ../cuvs-release-26.08 origin/release/26.08
           mkdir -p baseline
           check-c-abi extract \
-            --header-path ../cuvs-main/c/include \
+            --header-path ../cuvs-release-26.08/c/include \
             --include-file cuvs/core/all.h \
             --output-file baseline/c_abi.json.gz \
             --dlpack-include-path dlpack/include
 
-          echo "✓ Baseline ABI extracted from main branch"
+          echo "✓ Baseline ABI extracted from release/26.08 branch"
 
       - name: Report baseline source
         run: |
           if [ "$DOWNLOAD_MERGE_BASE_OUTCOME" == "success" ]; then
             echo "✓ Using baseline from merge-base commit: $MERGE_BASE_SHA"
           elif [ "$DOWNLOAD_MAIN_OUTCOME" == "success" ]; then
-            echo "✓ Using latest main baseline (merge-base baseline not yet available)"
+            echo "✓ Using latest release/26.08 baseline (merge-base baseline not yet available)"
           else
-            echo "✓ Using freshly extracted baseline from main branch"
+            echo "✓ Using freshly extracted baseline from release/26.08 branch"
           fi
         env:
           DOWNLOAD_MERGE_BASE_OUTCOME: ${{ steps.download-merge-base.outcome }}
