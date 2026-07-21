@@ -491,7 +491,7 @@ unsafe extern "C" {
     #[must_use]
     pub fn cuvsMakeExtendedStorage(
         res: cuvsResources_t,
-        additional_dataset: *mut DLManagedTensor,
+        additional_dataset: cuvsDatasetPaddedView_t,
         index: cuvsCagraIndex_t,
         extended_storage: *mut cuvsDatasetStorage_t,
     ) -> cuvsError_t;
@@ -1541,7 +1541,7 @@ unsafe extern "C" {
     pub fn cuvsCagraExtend(
         res: cuvsResources_t,
         params: cuvsCagraExtendParams_t,
-        additional_dataset: *mut DLManagedTensor,
+        additional_dataset: cuvsDatasetPaddedView_t,
         extended_dataset: cuvsDatasetStorage_t,
         index: cuvsCagraIndex_t,
     ) -> cuvsError_t;

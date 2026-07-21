@@ -1172,6 +1172,10 @@ extended_dataset_storage<T, IdxT> make_extended_storage(
 
 /** @brief Add new vectors to a CAGRA index
  *
+ * Note: `extend` is allocation-free with respect to dataset repacking. Callers must provide a
+ * padded index and a padded additional dataset view. No implicit standard-to-padded conversion is
+ * performed inside `extend`.
+ *
  * Usage example:
  * @code{.cpp}
  *   using namespace cuvs::neighbors;

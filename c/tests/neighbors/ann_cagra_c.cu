@@ -255,10 +255,19 @@ TEST(CagraC, BuildExtendSearch)
   // extend index
   cuvsCagraExtendParams_t extend_params;
   cuvsCagraExtendParamsCreate(&extend_params);
-  cuvsDatasetStorage_t extended_dataset = nullptr;
-  ASSERT_EQ(cuvsMakeExtendedStorage(res, &additional_dataset_tensor, index, &extended_dataset),
+  cuvsDatasetPadded_t additional_padded_dataset_owner = nullptr;
+  cuvsDatasetPaddedView_t additional_padded_dataset_view = nullptr;
+  ASSERT_EQ(cuvsDatasetMakeDevicePadded(
+              res, &additional_dataset_tensor, &additional_padded_dataset_owner),
             CUVS_SUCCESS);
-  ASSERT_EQ(cuvsCagraExtend(res, extend_params, &additional_dataset_tensor, extended_dataset, index),
+  ASSERT_EQ(cuvsDatasetMakeViewFromOwningPadded(
+              additional_padded_dataset_owner, &additional_padded_dataset_view),
+            CUVS_SUCCESS);
+  cuvsDatasetStorage_t extended_dataset = nullptr;
+  ASSERT_EQ(cuvsMakeExtendedStorage(res, additional_padded_dataset_view, index, &extended_dataset),
+            CUVS_SUCCESS);
+  ASSERT_EQ(cuvsCagraExtend(
+              res, extend_params, additional_padded_dataset_view, extended_dataset, index),
             CUVS_SUCCESS);
 
   // create queries DLTensor
@@ -373,6 +382,8 @@ TEST(CagraC, BuildExtendSearch)
   // de-allocate index and res
   cuvsCagraSearchParamsDestroy(search_params);
   cuvsDatasetPaddedViewDestroy(dataset_view);
+  cuvsDatasetPaddedViewDestroy(additional_padded_dataset_view);
+  cuvsDatasetPaddedDestroy(additional_padded_dataset_owner);
   cuvsCagraExtendParamsDestroy(extend_params);
   cuvsDatasetStorageDestroy(extended_dataset);
   cuvsCagraIndexParamsDestroy(build_params);

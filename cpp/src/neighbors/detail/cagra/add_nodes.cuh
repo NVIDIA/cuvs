@@ -322,6 +322,8 @@ void add_graph_nodes(
     auto graph_view = raft::make_host_matrix_view<const IdxT, std::int64_t>(
       updated_graph_view.data_handle(), initial_dataset_size + additional_dataset_offset, degree);
 
+    // add_node_core() uses CAGRA search internally, which requires a padded device dataset.
+    // Keep this path allocation-free by requiring pre-padded chunk views.
     auto pdv = cuvs::neighbors::make_device_padded_dataset_view(handle, dataset_view);
     internal_index.update_dataset(handle, pdv);
 

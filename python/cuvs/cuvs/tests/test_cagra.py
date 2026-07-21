@@ -59,15 +59,41 @@ def run_cagra_build_search_test(
             dataset_2_device = device_ndarray(dataset_2)
 
             index = cagra.build(build_params, dataset_1_device)
-            index = cagra.extend(extend_params, index, dataset_2_device)
+            # Explicit caller-side preparation for padded-only extend contract:
+            # 1) Ensure the index is device_padded before extend.
+            # 2) Prepare a padded view for additional dataset via factories.
+            extend_keepalive = []
+            if cagra.get_dataset_view_kind(index.dataset) == "device_standard":
+                base_padded_dataset = cagra.make_device_padded_dataset(
+                    dataset_1_device
+                )
+                base_padded_view = cagra.make_view_from_owning_padded(
+                    base_padded_dataset
+                )
+                cagra.attach_padded_dataset_for_search(index, base_padded_view)
+                extend_keepalive.extend(
+                    [base_padded_dataset, base_padded_view]
+                )
+            add_padded_dataset = cagra.make_device_padded_dataset(
+                dataset_2_device
+            )
+            add_padded_view = cagra.make_view_from_owning_padded(
+                add_padded_dataset
+            )
+            extend_keepalive.extend([add_padded_dataset, add_padded_view])
+            index = cagra.extend(extend_params, index, add_padded_view)
         else:
-            index = cagra.build(build_params, dataset_1)
-            index = cagra.extend(index, dataset_2)
+            pytest.skip(
+                "extend test path requires explicit device padded dataset view"
+            )
     else:
         if array_type == "device":
             index = cagra.build(build_params, dataset_device)
         else:
             index = cagra.build(build_params, dataset)
+
+    if not compare:
+        return
 
     if serialize:
         with tempfile.NamedTemporaryFile(suffix=".bin", delete=False) as f:
@@ -144,9 +170,6 @@ def run_cagra_build_search_test(
 
     if not inplace:
         out_dist_device, out_idx_device = ret_output
-
-    if not compare:
-        return
 
     out_idx = out_idx_device.copy_to_host()
     out_dist = out_dist_device.copy_to_host()

@@ -654,23 +654,17 @@ CUVS_EXPORT cuvsError_t cuvsCagraBuildHostStandard(cuvsResources_t res,
  */
 
 /**
- * @brief Extend a CAGRA index with a `DLManagedTensor` which has underlying
- *        `DLDeviceType` equal to `kDLCUDA`, `kDLCUDAHost`, `kDLCUDAManaged`,
- *        or `kDLCPU`. Also, acceptable underlying types are:
- *        1. `kDLDataType.code == kDLFloat` and `kDLDataType.bits = 32`
- *        2. `kDLDataType.code == kDLFloat` and `kDLDataType.bits = 16`
- *        3. `kDLDataType.code == kDLInt` and `kDLDataType.bits = 8`
- *        4. `kDLDataType.code == kDLUInt` and `kDLDataType.bits = 8`
+ * @brief Extend a CAGRA index with an explicit padded dataset view.
  *
  * @param[in] res cuvsResources_t opaque C handle
  * @param[in] params cuvsCagraExtendParams_t used to extend CAGRA index
- * @param[in] additional_dataset DLManagedTensor* additional dataset
+ * @param[in] additional_dataset cuvsDatasetPaddedView_t additional dataset
  * @param[in,out] index cuvsCagraIndex_t CAGRA index
  * @return cuvsError_t
  */
 CUVS_EXPORT cuvsError_t cuvsCagraExtend(cuvsResources_t res,
                             cuvsCagraExtendParams_t params,
-                            DLManagedTensor* additional_dataset,
+                            cuvsDatasetPaddedView_t additional_dataset,
                             cuvsDatasetStorage_t extended_dataset,
                             cuvsCagraIndex_t index);
 

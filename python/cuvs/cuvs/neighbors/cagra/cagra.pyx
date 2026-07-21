@@ -1167,26 +1167,27 @@ def extend(ExtendParams params, Index index, additional_dataset,
     params : ExtendParams object
     index: Index
        Existing cagra index to extend
-    additional_dataset : CUDA array interface compliant matrix shape
-        Supported dtype [float, half, int8, uint8]
+    additional_dataset : PaddedDatasetView
+        Explicit padded dataset view for vectors to append.
     {resources_docstring}
 
     """
-    dataset_ai = wrap_array(additional_dataset)
-    _check_input_array(dataset_ai, [np.dtype("float32"),
-                                    np.dtype("float16"),
-                                    np.dtype("byte"),
-                                    np.dtype("ubyte")])
-
-    cdef cydlpack.DLManagedTensor* dataset_dlpack = \
-        cydlpack.dlpack_c(dataset_ai)
+    if not isinstance(additional_dataset, PaddedDatasetView):
+        raise TypeError(
+            "additional_dataset must be a PaddedDatasetView. "
+            "Create it explicitly via make_device_padded_dataset() + "
+            "make_view_from_owning_padded()."
+        )
+    cdef cuvsDatasetPaddedView_t padded_view = (<PaddedDatasetView>additional_dataset).view
+    if padded_view == NULL:
+        raise ValueError("additional_dataset padded view is uninitialized")
 
     cdef cuvsResources_t res = <cuvsResources_t>resources.get_c_obj()
     cdef cuvsDatasetStorage_t extended_dataset = NULL
 
     check_cuvs(cuvsMakeExtendedStorage(
         res,
-        dataset_dlpack,
+        padded_view,
         index.index,
         &extended_dataset
     ))
@@ -1196,7 +1197,7 @@ def extend(ExtendParams params, Index index, additional_dataset,
             check_cuvs(cuvsCagraExtend(
                 res,
                 params.params,
-                dataset_dlpack,
+                padded_view,
                 extended_dataset,
                 index.index
             ))
