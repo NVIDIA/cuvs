@@ -528,6 +528,9 @@ pub struct cuvsKMeansParams {
     pub oversampling_factor: f64,
     pub batch_samples: ::std::os::raw::c_int,
     pub batch_centroids: ::std::os::raw::c_int,
+    #[doc = " Check inertia during iterations for early convergence."]
+    pub inertia_check: bool,
+    #[doc = " Whether to use hierarchical (balanced) kmeans or not"]
     pub hierarchical: bool,
     pub hierarchical_n_iters: ::std::os::raw::c_int,
     pub streaming_batch_size: i64,
@@ -555,8 +558,10 @@ const _: () = {
         [::std::mem::offset_of!(cuvsKMeansParams, batch_samples) - 40usize];
     ["Offset of field: cuvsKMeansParams::batch_centroids"]
         [::std::mem::offset_of!(cuvsKMeansParams, batch_centroids) - 44usize];
+    ["Offset of field: cuvsKMeansParams::inertia_check"]
+        [::std::mem::offset_of!(cuvsKMeansParams, inertia_check) - 48usize];
     ["Offset of field: cuvsKMeansParams::hierarchical"]
-        [::std::mem::offset_of!(cuvsKMeansParams, hierarchical) - 48usize];
+        [::std::mem::offset_of!(cuvsKMeansParams, hierarchical) - 49usize];
     ["Offset of field: cuvsKMeansParams::hierarchical_n_iters"]
         [::std::mem::offset_of!(cuvsKMeansParams, hierarchical_n_iters) - 52usize];
     ["Offset of field: cuvsKMeansParams::streaming_batch_size"]
