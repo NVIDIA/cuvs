@@ -814,10 +814,25 @@ CUVS_EXPORT cuvsError_t cuvsCagraSerializeToHnswlib(cuvsResources_t res,
  * @param[inout] index cuvsCagraIndex_t CAGRA index loaded from disk. This index needs to be already
  *                                      created with cuvsCagraIndexCreate.
  */
-CUVS_EXPORT cuvsError_t cuvsCagraDeserialize(cuvsResources_t res,
-                                             const char* filename,
-                                             cuvsDatasetLayout_t deserialize_layout,
-                                             cuvsCagraIndex_t index);
+CUVS_EXPORT cuvsError_t cuvsCagraDeserializePadded(cuvsResources_t res,
+                                                    const char* filename,
+                                                    cuvsCagraIndex_t index,
+                                                    cuvsDatasetPadded_t* out_padded_dataset);
+
+/**
+ * Load standard-layout index from file.
+ *
+ * Experimental, both the API and the serialization format are subject to change.
+ *
+ * @param[in] res cuvsResources_t opaque C handle
+ * @param[in] filename the name of the file that stores the index
+ * @param[inout] index cuvsCagraIndex_t CAGRA index loaded from disk. This index needs to be already
+ *                                      created with cuvsCagraIndexCreate.
+ */
+CUVS_EXPORT cuvsError_t cuvsCagraDeserializeStandard(cuvsResources_t res,
+                                                     const char* filename,
+                                                     cuvsCagraIndex_t index,
+                                                     cuvsDatasetStandard_t* out_standard_dataset);
 
 /**
  * Load index from a dataset and graph

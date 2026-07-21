@@ -416,6 +416,15 @@ cdef class PaddedDataset:
             check_cuvs(cuvsDatasetPaddedDestroy(self.dataset))
 
 
+cdef class StandardDataset:
+    def __cinit__(self):
+        self.dataset = NULL
+
+    def __dealloc__(self):
+        if self.dataset != NULL:
+            check_cuvs(cuvsDatasetStandardDestroy(self.dataset))
+
+
 cdef class PaddedDatasetView:
     def __cinit__(self):
         self.view = NULL
@@ -1003,7 +1012,9 @@ def save(filename, Index index, bool include_dataset=True, resources=None):
     >>> index = cagra.build(cagra.IndexParams(), dataset)
     >>> # Serialize and deserialize the cagra index built
     >>> cagra.save("my_index.bin", index)
-    >>> index_loaded = cagra.load("my_index.bin")
+    >>> index_loaded = cagra.Index()
+    >>> out_dataset = cagra.PaddedDataset()
+    >>> cagra.load(index_loaded, "my_index.bin", out_dataset=out_dataset)
     """
     cdef string c_filename = filename.encode('utf-8')
     cdef cuvsResources_t res = <cuvsResources_t>resources.get_c_obj()
@@ -1014,9 +1025,9 @@ def save(filename, Index index, bool include_dataset=True, resources=None):
 
 
 @auto_sync_resources
-def load(filename, layout="padded", resources=None):
+def load(index, filename, out_dataset=None, resources=None):
     """
-    Loads index from file.
+    Deserialize CAGRA index into an existing index handle.
 
     Saving / loading the index is experimental. The serialization format is
     subject to change, therefore loading an index saved with a previous
@@ -1024,37 +1035,47 @@ def load(filename, layout="padded", resources=None):
 
     Parameters
     ----------
+    index : Index
+        Pre-created index object to populate.
     filename : string
         Name of the file.
-    layout : "padded" or "standard", default = "padded"
-        Target index layout for deserialization.
+    out_dataset : PaddedDataset or StandardDataset, optional
+        Optional pre-created owning dataset output handle. The concrete type
+        dispatches to the corresponding deserialize entrypoint.
     {resources_docstring}
-
-    Returns
-    -------
-    index : Index
-
     """
-    cdef Index idx = Index()
+    cdef Index idx = index
     cdef cuvsResources_t res = <cuvsResources_t>resources.get_c_obj()
     cdef string c_filename = filename.encode('utf-8')
-    cdef cuvsDatasetLayout_t deserialize_layout
+    cdef cuvsDatasetPadded_t out_padded_dataset = NULL
+    cdef cuvsDatasetStandard_t out_standard_dataset = NULL
+    cdef cuvsDatasetPadded_t* out_padded_ptr
+    cdef cuvsDatasetStandard_t* out_standard_ptr
 
-    if layout == "padded":
-        deserialize_layout = CUVS_DATASET_LAYOUT_PADDED
-    elif layout == "standard":
-        deserialize_layout = CUVS_DATASET_LAYOUT_STANDARD
+    if isinstance(out_dataset, PaddedDataset):
+        out_padded_ptr = &out_padded_dataset
+        check_cuvs(cuvsCagraDeserializePadded(
+            res,
+            c_filename.c_str(),
+            idx.index,
+            out_padded_ptr
+        ))
+        (<PaddedDataset>out_dataset).dataset = out_padded_dataset
+    elif isinstance(out_dataset, StandardDataset):
+        out_standard_ptr = &out_standard_dataset
+        check_cuvs(cuvsCagraDeserializeStandard(
+            res,
+            c_filename.c_str(),
+            idx.index,
+            out_standard_ptr
+        ))
+        (<StandardDataset>out_dataset).dataset = out_standard_dataset
     else:
-        raise ValueError("layout must be either 'padded' or 'standard'")
-
-    check_cuvs(cuvsCagraDeserialize(
-        res,
-        c_filename.c_str(),
-        deserialize_layout,
-        idx.index
-    ))
+        raise TypeError(
+            "out_dataset must be a PaddedDataset or StandardDataset "
+            "to choose deserialize target layout"
+        )
     idx.trained = True
-    return idx
 
 
 @auto_sync_resources

@@ -41,7 +41,6 @@ namespace {
 template <typename T, cuvs::neighbors::ann_dataset_view DatasetViewT>
 struct cuvs_cagra_c_api_index_lifetime_holder {
   cuvs::neighbors::cagra::index<T, uint32_t, DatasetViewT> idx;
-  std::shared_ptr<void> dataset_owner{};
 };
 
 template <typename T>
@@ -857,42 +856,59 @@ void _serialize_to_hnswlib(cuvsResources_t res, const char* filename, cuvsCagraI
 }
 
 template <typename T>
-void _deserialize(cuvsResources_t res,
-                  const char* filename,
-                  cuvsDatasetLayout_t deserialize_layout,
-                  cuvsCagraIndex_t output_index)
+void _deserialize_padded(cuvsResources_t res,
+                         const char* filename,
+                         cuvsCagraIndex_t output_index,
+                         cuvsDatasetPadded_t* out_padded_dataset)
 {
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
-  if (deserialize_layout == CUVS_DATASET_LAYOUT_PADDED) {
-    using view_t          = cuvs::neighbors::device_padded_dataset_view<T, int64_t>;
-    using owner_dataset_t = cuvs::neighbors::owning_dataset_for_view_t<view_t>;
-    auto holder = std::make_unique<
-      cuvs_cagra_c_api_index_lifetime_holder<T, view_t>>(
-      cuvs::neighbors::cagra::device_padded_index<T, uint32_t>(*res_ptr));
-    std::unique_ptr<owner_dataset_t> out_dataset{};
-    cuvs::neighbors::cagra::deserialize(*res_ptr, std::string(filename), &holder->idx, &out_dataset);
-    if (out_dataset != nullptr) {
-      holder->dataset_owner = std::shared_ptr<void>(
-        out_dataset.release(), [](void* p) { delete reinterpret_cast<owner_dataset_t*>(p); });
-    }
-    bind_index_lifetime_holder_to_C_index<T, view_t>(output_index, output_index->dtype, holder.release());
-    return;
-  } else if (deserialize_layout == CUVS_DATASET_LAYOUT_STANDARD) {
-    using view_t          = cuvs::neighbors::device_standard_dataset_view<T, int64_t>;
-    using owner_dataset_t = cuvs::neighbors::owning_dataset_for_view_t<view_t>;
-    auto holder = std::make_unique<
-      cuvs_cagra_c_api_index_lifetime_holder<T, view_t>>(
-      cuvs::neighbors::cagra::device_standard_index<T, uint32_t>(*res_ptr));
-    std::unique_ptr<owner_dataset_t> out_dataset{};
-    cuvs::neighbors::cagra::deserialize(*res_ptr, std::string(filename), &holder->idx, &out_dataset);
-    if (out_dataset != nullptr) {
-      holder->dataset_owner = std::shared_ptr<void>(
-        out_dataset.release(), [](void* p) { delete reinterpret_cast<owner_dataset_t*>(p); });
-    }
-    bind_index_lifetime_holder_to_C_index<T, view_t>(output_index, output_index->dtype, holder.release());
-    return;
+  using view_t          = cuvs::neighbors::device_padded_dataset_view<T, int64_t>;
+  using owner_dataset_t = cuvs::neighbors::owning_dataset_for_view_t<view_t>;
+  auto holder = std::make_unique<
+    cuvs_cagra_c_api_index_lifetime_holder<T, view_t>>(
+    cuvs::neighbors::cagra::device_padded_index<T, uint32_t>(*res_ptr));
+  std::unique_ptr<owner_dataset_t> out_dataset{};
+  cuvs::neighbors::cagra::deserialize(*res_ptr, std::string(filename), &holder->idx, &out_dataset);
+  if (out_dataset != nullptr) {
+    RAFT_EXPECTS(out_padded_dataset != nullptr,
+                 "cuvsCagraDeserializePadded: out_padded_dataset must be non-null when "
+                 "deserializing a padded dataset payload");
+    auto* out      = new cuvsDatasetPadded{};
+    out->addr      = reinterpret_cast<uintptr_t>(out_dataset.release());
+    out->destroy_addr = &destroy_typed_addr<owner_dataset_t>;
+    out->dtype     = output_index->dtype;
+    out->layout    = CUVS_DATASET_LAYOUT_PADDED;
+    *out_padded_dataset = out;
   }
-  RAFT_FAIL("cuvsCagraDeserialize: unsupported target layout");
+  bind_index_lifetime_holder_to_C_index<T, view_t>(output_index, output_index->dtype, holder.release());
+}
+
+template <typename T>
+void _deserialize_standard(cuvsResources_t res,
+                           const char* filename,
+                           cuvsCagraIndex_t output_index,
+                           cuvsDatasetStandard_t* out_standard_dataset)
+{
+  auto res_ptr = reinterpret_cast<raft::resources*>(res);
+  using view_t          = cuvs::neighbors::device_standard_dataset_view<T, int64_t>;
+  using owner_dataset_t = cuvs::neighbors::owning_dataset_for_view_t<view_t>;
+  auto holder = std::make_unique<
+    cuvs_cagra_c_api_index_lifetime_holder<T, view_t>>(
+    cuvs::neighbors::cagra::device_standard_index<T, uint32_t>(*res_ptr));
+  std::unique_ptr<owner_dataset_t> out_dataset{};
+  cuvs::neighbors::cagra::deserialize(*res_ptr, std::string(filename), &holder->idx, &out_dataset);
+  if (out_dataset != nullptr) {
+    RAFT_EXPECTS(out_standard_dataset != nullptr,
+                 "cuvsCagraDeserializeStandard: out_standard_dataset must be non-null when "
+                 "deserializing a standard dataset payload");
+    auto* out      = new cuvsDatasetStandard{};
+    out->addr      = reinterpret_cast<uintptr_t>(out_dataset.release());
+    out->destroy_addr = &destroy_typed_addr<owner_dataset_t>;
+    out->dtype     = output_index->dtype;
+    out->layout    = CUVS_DATASET_LAYOUT_STANDARD;
+    *out_standard_dataset = out;
+  }
+  bind_index_lifetime_holder_to_C_index<T, view_t>(output_index, output_index->dtype, holder.release());
 }
 
 template <typename T>
@@ -1385,6 +1401,19 @@ extern "C" cuvsError_t cuvsDatasetPaddedDestroy(cuvsDatasetPadded_t padded_datas
       padded_dataset->destroy_addr(reinterpret_cast<void*>(padded_dataset->addr));
     }
     delete padded_dataset;
+  });
+}
+
+extern "C" cuvsError_t cuvsDatasetStandardDestroy(cuvsDatasetStandard_t standard_dataset)
+{
+  return cuvs::core::translate_exceptions([=] {
+    if (standard_dataset == nullptr) { return; }
+    RAFT_EXPECTS(standard_dataset->layout == CUVS_DATASET_LAYOUT_STANDARD,
+                 "cuvsDatasetStandardDestroy: dataset handle layout must be STANDARD");
+    if (standard_dataset->destroy_addr != nullptr && standard_dataset->addr != 0) {
+      standard_dataset->destroy_addr(reinterpret_cast<void*>(standard_dataset->addr));
+    }
+    delete standard_dataset;
   });
 }
 
@@ -2128,12 +2157,13 @@ extern "C" cuvsError_t cuvsCagraSearchParamsDestroy(cuvsCagraSearchParams_t para
   return cuvs::core::translate_exceptions([=] { delete params; });
 }
 
-extern "C" cuvsError_t cuvsCagraDeserialize(cuvsResources_t res,
-                                            const char* filename,
-                                            cuvsDatasetLayout_t deserialize_layout,
-                                            cuvsCagraIndex_t index)
+extern "C" cuvsError_t cuvsCagraDeserializePadded(cuvsResources_t res,
+                                                  const char* filename,
+                                                  cuvsCagraIndex_t index,
+                                                  cuvsDatasetPadded_t* out_padded_dataset)
 {
   return cuvs::core::translate_exceptions([=] {
+    if (out_padded_dataset != nullptr) { *out_padded_dataset = nullptr; }
     destroy_sg_cagra_c_api_box(index->addr);
     index->addr = 0;
 
@@ -2150,16 +2180,55 @@ extern "C" cuvsError_t cuvsCagraDeserialize(cuvsResources_t res,
 
     index->dtype.bits = dtype.itemsize * 8;
     if (dtype.kind == 'f' && dtype.itemsize == 4) {
-      _deserialize<float>(res, filename, deserialize_layout, index);
+      _deserialize_padded<float>(res, filename, index, out_padded_dataset);
       index->dtype.code = kDLFloat;
     } else if (dtype.kind == 'e' && dtype.itemsize == 2) {
-      _deserialize<half>(res, filename, deserialize_layout, index);
+      _deserialize_padded<half>(res, filename, index, out_padded_dataset);
       index->dtype.code = kDLFloat;
     } else if (dtype.kind == 'i' && dtype.itemsize == 1) {
-      _deserialize<int8_t>(res, filename, deserialize_layout, index);
+      _deserialize_padded<int8_t>(res, filename, index, out_padded_dataset);
       index->dtype.code = kDLInt;
     } else if (dtype.kind == 'u' && dtype.itemsize == 1) {
-      _deserialize<uint8_t>(res, filename, deserialize_layout, index);
+      _deserialize_padded<uint8_t>(res, filename, index, out_padded_dataset);
+      index->dtype.code = kDLUInt;
+    } else {
+      RAFT_FAIL("Unsupported dtype in file %s", filename);
+    }
+  });
+}
+
+extern "C" cuvsError_t cuvsCagraDeserializeStandard(cuvsResources_t res,
+                                                    const char* filename,
+                                                    cuvsCagraIndex_t index,
+                                                    cuvsDatasetStandard_t* out_standard_dataset)
+{
+  return cuvs::core::translate_exceptions([=] {
+    if (out_standard_dataset != nullptr) { *out_standard_dataset = nullptr; }
+    destroy_sg_cagra_c_api_box(index->addr);
+    index->addr = 0;
+
+    std::ifstream is(filename, std::ios::in | std::ios::binary);
+    if (!is) { RAFT_FAIL("Cannot open file %s", filename); }
+    char dtype_string[4]{};
+    if (!is.read(dtype_string, sizeof(dtype_string))) {
+      RAFT_FAIL("Invalid or truncated index header in file %s", filename);
+    }
+    auto dtype =
+      raft::numpy_serializer::parse_descr(std::string(dtype_string, sizeof(dtype_string)));
+    is.close();
+
+    index->dtype.bits = dtype.itemsize * 8;
+    if (dtype.kind == 'f' && dtype.itemsize == 4) {
+      _deserialize_standard<float>(res, filename, index, out_standard_dataset);
+      index->dtype.code = kDLFloat;
+    } else if (dtype.kind == 'e' && dtype.itemsize == 2) {
+      _deserialize_standard<half>(res, filename, index, out_standard_dataset);
+      index->dtype.code = kDLFloat;
+    } else if (dtype.kind == 'i' && dtype.itemsize == 1) {
+      _deserialize_standard<int8_t>(res, filename, index, out_standard_dataset);
+      index->dtype.code = kDLInt;
+    } else if (dtype.kind == 'u' && dtype.itemsize == 1) {
+      _deserialize_standard<uint8_t>(res, filename, index, out_standard_dataset);
       index->dtype.code = kDLUInt;
     } else {
       RAFT_FAIL("Unsupported dtype in file %s", filename);

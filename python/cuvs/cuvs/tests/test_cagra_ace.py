@@ -80,6 +80,7 @@ def run_cagra_ace_build_search_test(
             dataset_kind = cagra.get_dataset_view_kind(dataset)
             dataset_device = device_ndarray(dataset)
             cagra.attach_device_dataset_on_host_index(index, dataset_device)
+            keepalive = [dataset_device]
             if dataset_kind == "host_standard":
                 padded_dataset = cagra.make_device_padded_dataset(
                     dataset_device
@@ -88,14 +89,13 @@ def run_cagra_ace_build_search_test(
                     padded_dataset
                 )
                 cagra.attach_padded_dataset_for_search(index, padded_view)
-                index._cagra_keepalive = [
+                keepalive = [
                     dataset_device,
                     padded_dataset,
                     padded_view,
                 ]
-            else:
-                index._cagra_keepalive = [dataset_device]
 
+            assert keepalive is not None
             out_dist, out_idx = cagra.search(
                 search_params, index, queries_device, k
             )

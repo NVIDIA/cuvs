@@ -171,7 +171,7 @@ auto deserialize_dense_dataset(raft::resources const& res, std::istream& is)
 // deserialize_dataset here rather than extending this one — overload dispatch replaces the old
 // type-erased variant routing.
 template <typename DataT, typename IdxT>
-auto deserialize_dataset(raft::resources const& res, std::istream& is)
+auto deserialize_padded_dataset(raft::resources const& res, std::istream& is)
   -> std::unique_ptr<device_padded_dataset<DataT, IdxT>>
 {
   return deserialize_dense_dataset<DataT, IdxT, device_padded_dataset<DataT, IdxT>>(res, is);

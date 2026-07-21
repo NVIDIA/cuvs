@@ -85,6 +85,7 @@ def run_filtered_search_test(
         search_params = search_module.SearchParams()
 
     index = search_module.build(build_params, dataset_device)
+    keepalive = []
     if is_cagra:
         view_kind = search_module.get_dataset_view_kind(dataset_device)
         if view_kind == "device_standard":
@@ -95,7 +96,8 @@ def run_filtered_search_test(
                 padded_dataset
             )
             search_module.attach_padded_dataset_for_search(index, padded_view)
-            index._cagra_keepalive = [padded_dataset, padded_view]
+            keepalive = [padded_dataset, padded_view]
+    assert keepalive is not None
     filter_ = filters.from_bitset(bitset_device)
     ret_distances, ret_indices = search_module.search(
         search_params,

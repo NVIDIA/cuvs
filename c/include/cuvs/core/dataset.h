@@ -47,6 +47,19 @@ typedef struct {
 typedef cuvsDatasetPadded* cuvsDatasetPadded_t;
 
 /**
+ * @brief Owning standard dataset handle.
+ *
+ * `addr` points to C++ owning dataset storage managed by the C API.
+ */
+typedef struct {
+  uintptr_t addr;
+  void (*destroy_addr)(void*);
+  DLDataType dtype;
+  cuvsDatasetLayout_t layout;
+} cuvsDatasetStandard;
+typedef cuvsDatasetStandard* cuvsDatasetStandard_t;
+
+/**
  * @brief Non-owning padded dataset view handle.
  *
  * `addr` points to C API-owned metadata that references caller-provided tensor memory.
@@ -126,6 +139,7 @@ CUVS_EXPORT cuvsError_t cuvsDatasetMakeHostPaddedView(cuvsResources_t res,
                                                       cuvsDatasetPaddedView_t* padded_dataset);
 
 CUVS_EXPORT cuvsError_t cuvsDatasetPaddedDestroy(cuvsDatasetPadded_t padded_dataset);
+CUVS_EXPORT cuvsError_t cuvsDatasetStandardDestroy(cuvsDatasetStandard_t standard_dataset);
 CUVS_EXPORT cuvsError_t cuvsDatasetPaddedViewDestroy(cuvsDatasetPaddedView_t padded_dataset);
 
 CUVS_EXPORT cuvsError_t cuvsDatasetMakeDeviceStandardView(cuvsResources_t res,

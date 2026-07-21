@@ -17,6 +17,9 @@ mod index;
 mod index_params;
 mod search_params;
 
-pub use index::{DeserializeLayout, Index, PaddedDataset, PaddedDatasetView, StandardDatasetView};
+pub use index::{
+    DeserializeOutput, Index, PaddedDataset, PaddedDatasetView, StandardDataset,
+    StandardDatasetView,
+};
 pub use index_params::{BuildAlgo, IndexParams};
 pub use search_params::{HashMode, SearchAlgo, SearchParams};

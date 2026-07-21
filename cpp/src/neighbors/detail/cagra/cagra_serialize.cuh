@@ -347,7 +347,7 @@ void deserialize(
     RAFT_EXPECTS(out_dataset != nullptr,
                  "deserialize: index contains a dataset; pass a non-null out_dataset to own it.");
     if constexpr (cuvs::neighbors::is_device_padded_dataset_view_v<DatasetViewT>) {
-      *out_dataset = cuvs::neighbors::detail::deserialize_dataset<T, int64_t>(res, is);
+      *out_dataset = cuvs::neighbors::detail::deserialize_padded_dataset<T, int64_t>(res, is);
       index_->update_dataset(res, (*out_dataset)->as_dataset_view());
     } else if constexpr (cuvs::neighbors::is_device_standard_dataset_view_v<DatasetViewT>) {
       *out_dataset = cuvs::neighbors::detail::deserialize_standard_dataset<T, int64_t>(res, is);

@@ -26,22 +26,6 @@ pub struct Index<'d> {
     _dataset: PhantomData<&'d ()>,
 }
 
-/// Target index layout for CAGRA deserialization.
-#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
-pub enum DeserializeLayout {
-    Standard,
-    Padded,
-}
-
-impl DeserializeLayout {
-    fn to_c(self) -> ffi::cuvsDatasetLayout_t {
-        match self {
-            Self::Standard => ffi::cuvsDatasetLayout_t::CUVS_DATASET_LAYOUT_STANDARD,
-            Self::Padded => ffi::cuvsDatasetLayout_t::CUVS_DATASET_LAYOUT_PADDED,
-        }
-    }
-}
-
 fn is_device_compatible(device_type: ffi::DLDeviceType) -> bool {
     matches!(device_type, ffi::DLDeviceType::kDLCUDA | ffi::DLDeviceType::kDLCUDAManaged)
 }
@@ -57,6 +41,12 @@ fn is_host_compatible(device_type: ffi::DLDeviceType) -> bool {
 #[derive(Debug)]
 pub struct PaddedDataset {
     handle: ffi::cuvsDatasetPadded_t,
+}
+
+/// User-owned standard dataset handle returned by CAGRA deserialization.
+#[derive(Debug)]
+pub struct StandardDataset {
+    handle: ffi::cuvsDatasetStandard_t,
 }
 
 /// Non-owning padded dataset view handle.
@@ -135,6 +125,13 @@ impl PaddedDatasetView {
 #[derive(Debug)]
 pub struct StandardDatasetView {
     handle: ffi::cuvsDatasetStandardView_t,
+}
+
+/// Typed output selector for CAGRA deserialization.
+#[derive(Debug)]
+pub enum DeserializeOutput<'a> {
+    Padded(&'a mut Option<PaddedDataset>),
+    Standard(&'a mut Option<StandardDataset>),
 }
 
 impl StandardDatasetView {
@@ -389,7 +386,7 @@ impl<'d> Index<'d> {
     ///
     /// # Example:
     /// ```no_run
-    /// use cuvs::cagra::{DeserializeLayout, Index, IndexParams};
+    /// use cuvs::cagra::{DeserializeOutput, Index, IndexParams, StandardDataset};
     /// use cuvs::{Resources, Result};
     ///
     /// fn serialize_example() -> Result<()> {
@@ -403,8 +400,14 @@ impl<'d> Index<'d> {
     ///     // index.serialize(&res, "/path/to/index.bin", true)?;
     ///
     ///     // Later, load the index from disk
-    ///     let loaded_index =
-    ///         Index::deserialize(&res, "/path/to/index.bin", DeserializeLayout::Standard)?;
+    ///     let mut loaded_index = Index::new()?;
+    ///     let mut out_dataset = None;
+    ///     Index::deserialize(
+    ///         &res,
+    ///         "/path/to/index.bin",
+    ///         &mut loaded_index,
+    ///         DeserializeOutput::Standard(&mut out_dataset),
+    ///     )?;
     ///
     ///     // The loaded index can be used for search just like the original
     ///     Ok(())
@@ -453,23 +456,58 @@ impl<'d> Index<'d> {
     ///
     /// * `res` - Resources to use
     /// * `filename` - The path of the file that stores the index
-    /// * `layout` - Target index layout to deserialize into
     pub fn deserialize<P: AsRef<Path>>(
         res: &Resources,
         filename: P,
-        layout: DeserializeLayout,
-    ) -> Result<Index<'static>> {
+        index: &mut Index<'static>,
+        out_dataset: DeserializeOutput<'_>,
+    ) -> Result<()> {
+        match out_dataset {
+            DeserializeOutput::Padded(out) => Self::deserialize_padded(res, filename, index, out),
+            DeserializeOutput::Standard(out) => {
+                Self::deserialize_standard(res, filename, index, out)
+            }
+        }
+    }
+
+    fn deserialize_padded<P: AsRef<Path>>(
+        res: &Resources,
+        filename: P,
+        index: &mut Index<'static>,
+        out_dataset: &mut Option<PaddedDataset>,
+    ) -> Result<()> {
         let c_filename = path_to_cstring(filename.as_ref())?;
-        let index = Index::new()?;
+        let mut out: ffi::cuvsDatasetPadded_t = std::ptr::null_mut();
         unsafe {
-            check_cuvs(ffi::cuvsCagraDeserialize(
+            check_cuvs(ffi::cuvsCagraDeserializePadded(
                 res.0,
                 c_filename.as_ptr(),
-                layout.to_c(),
                 index.handle,
+                &mut out,
             ))?;
         }
-        Ok(index)
+        *out_dataset = if out.is_null() { None } else { Some(PaddedDataset { handle: out }) };
+        Ok(())
+    }
+
+    fn deserialize_standard<P: AsRef<Path>>(
+        res: &Resources,
+        filename: P,
+        index: &mut Index<'static>,
+        out_dataset: &mut Option<StandardDataset>,
+    ) -> Result<()> {
+        let c_filename = path_to_cstring(filename.as_ref())?;
+        let mut out: ffi::cuvsDatasetStandard_t = std::ptr::null_mut();
+        unsafe {
+            check_cuvs(ffi::cuvsCagraDeserializeStandard(
+                res.0,
+                c_filename.as_ptr(),
+                index.handle,
+                &mut out,
+            ))?;
+        }
+        *out_dataset = if out.is_null() { None } else { Some(StandardDataset { handle: out }) };
+        Ok(())
     }
 }
 
@@ -495,6 +533,15 @@ impl Drop for PaddedDatasetView {
     fn drop(&mut self) {
         if let Err(e) = check_cuvs(unsafe { ffi::cuvsDatasetPaddedViewDestroy(self.handle) }) {
             write!(stderr(), "failed to call cuvsDatasetPaddedViewDestroy {:?}", e)
+                .expect("failed to write to stderr");
+        }
+    }
+}
+
+impl Drop for StandardDataset {
+    fn drop(&mut self) {
+        if let Err(e) = check_cuvs(unsafe { ffi::cuvsDatasetStandardDestroy(self.handle) }) {
+            write!(stderr(), "failed to call cuvsDatasetStandardDestroy {:?}", e)
                 .expect("failed to write to stderr");
         }
     }
@@ -682,8 +729,15 @@ mod tests {
             "serialized index file should not be empty"
         );
 
-        let _loaded_index = Index::deserialize(&res, &filepath, DeserializeLayout::Standard)
-            .expect("failed to deserialize cagra index");
+        let mut loaded_index = Index::new().expect("failed to create index");
+        let mut out_dataset: Option<StandardDataset> = None;
+        Index::deserialize(
+            &res,
+            &filepath,
+            &mut loaded_index,
+            DeserializeOutput::Standard(&mut out_dataset),
+        )
+        .expect("failed to deserialize cagra index");
 
         let _ = std::fs::remove_file(&filepath);
     }

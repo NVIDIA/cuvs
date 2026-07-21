@@ -135,6 +135,11 @@ public class CagraIndexImpl implements CagraIndex {
       if (cagraIndexReference.dataset != null) {
         cagraIndexReference.dataset.close();
       }
+      if (cagraIndexReference.deserializeStandardOwner != null
+          && cagraIndexReference.deserializeStandardOwner.address() != 0) {
+        returnValue = cuvsDatasetStandardDestroy(cagraIndexReference.deserializeStandardOwner);
+        checkCuVSError(returnValue, "cuvsDatasetStandardDestroy");
+      }
     } finally {
       destroyed = true;
     }
@@ -545,18 +550,20 @@ public class CagraIndexImpl implements CagraIndex {
 
       try (var resourcesAccessor = resources.access()) {
         var cuvsRes = resourcesAccessor.handle();
+        MemorySegment standardOwnerPtr = arena.allocate(cuvsDatasetStandard_t);
+        // TODO(cagra-java): this path currently always deserializes as STANDARD.
+        // Once Java API exposes deserialize layout as an input parameter (padded/standard),
+        // dispatch to cuvsCagraDeserializePadded or cuvsCagraDeserializeStandard accordingly.
         var returnValue =
-            cuvsCagraDeserialize(
-                cuvsRes,
-                arena.allocateFrom(tmpIndexFile.toString()),
-                0, // CUVS_DATASET_LAYOUT_STANDARD
-                index);
-        checkCuVSError(returnValue, "cuvsCagraDeserialize");
+            cuvsCagraDeserializeStandard(
+                cuvsRes, arena.allocateFrom(tmpIndexFile.toString()), index, standardOwnerPtr);
+        checkCuVSError(returnValue, "cuvsCagraDeserializeStandard");
+        MemorySegment standardOwner = standardOwnerPtr.get(cuvsDatasetStandard_t, 0);
+        return new IndexReference(index, null, standardOwner);
       }
     } finally {
       Files.deleteIfExists(tmpIndexFile);
     }
-    return new IndexReference(index, null);
   }
 
   /**
@@ -858,6 +865,7 @@ public class CagraIndexImpl implements CagraIndex {
 
     private final MemorySegment memorySegment;
     private final CuVSMatrix dataset;
+    private final MemorySegment deserializeStandardOwner;
 
     /**
      * Constructs CagraIndexReference with an instance of MemorySegment passed as a
@@ -871,8 +879,16 @@ public class CagraIndexImpl implements CagraIndex {
      *                           Can be null (e.g. from deserialization or merging)
      */
     private IndexReference(MemorySegment indexMemorySegment, CuVSMatrix dataset) {
+      this(indexMemorySegment, dataset, null);
+    }
+
+    private IndexReference(
+        MemorySegment indexMemorySegment,
+        CuVSMatrix dataset,
+        MemorySegment deserializeStandardOwner) {
       this.memorySegment = indexMemorySegment;
       this.dataset = dataset;
+      this.deserializeStandardOwner = deserializeStandardOwner;
     }
 
     /**

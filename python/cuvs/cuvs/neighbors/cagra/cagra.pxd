@@ -158,6 +158,10 @@ cdef extern from "cuvs/neighbors/cagra.h" nogil:
         pass
     ctypedef cuvsDatasetPadded* cuvsDatasetPadded_t
 
+    ctypedef struct cuvsDatasetStandard:
+        pass
+    ctypedef cuvsDatasetStandard* cuvsDatasetStandard_t
+
     ctypedef struct cuvsDatasetStandardView:
         pass
     ctypedef cuvsDatasetStandardView* cuvsDatasetStandardView_t
@@ -166,6 +170,7 @@ cdef extern from "cuvs/neighbors/cagra.h" nogil:
                                             DLManagedTensor* dataset,
                                             cuvsDatasetPadded_t* padded_dataset)
     cuvsError_t cuvsDatasetPaddedDestroy(cuvsDatasetPadded_t padded_dataset)
+    cuvsError_t cuvsDatasetStandardDestroy(cuvsDatasetStandard_t standard_dataset)
     cuvsError_t cuvsDatasetMakeViewFromOwningPadded(
         cuvsDatasetPadded_t padded_dataset,
         cuvsDatasetPaddedView_t* padded_view)
@@ -230,10 +235,14 @@ cdef extern from "cuvs/neighbors/cagra.h" nogil:
                                             const char * filename,
                                             cuvsCagraIndex_t index)
 
-    cuvsError_t cuvsCagraDeserialize(cuvsResources_t res,
-                                     const char * filename,
-                                     cuvsDatasetLayout_t deserialize_layout,
-                                     cuvsCagraIndex_t index)
+    cuvsError_t cuvsCagraDeserializePadded(cuvsResources_t res,
+                                           const char * filename,
+                                           cuvsCagraIndex_t index,
+                                           cuvsDatasetPadded_t* out_padded_dataset)
+    cuvsError_t cuvsCagraDeserializeStandard(cuvsResources_t res,
+                                             const char * filename,
+                                             cuvsCagraIndex_t index,
+                                             cuvsDatasetStandard_t* out_standard_dataset)
 
     cuvsError_t cuvsCagraIndexFromArgs(cuvsResources_t res,
                                        cuvsDistanceType metric,
@@ -273,6 +282,10 @@ cdef class Index:
 
 cdef class PaddedDataset:
     cdef cuvsDatasetPadded_t dataset
+
+
+cdef class StandardDataset:
+    cdef cuvsDatasetStandard_t dataset
 
 
 cdef class PaddedDatasetView:

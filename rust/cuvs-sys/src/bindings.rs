@@ -313,6 +313,29 @@ const _: () = {
 pub type cuvsDatasetPadded_t = *mut cuvsDatasetPadded;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
+pub struct cuvsDatasetStandard {
+    pub addr: usize,
+    pub destroy_addr:
+        ::std::option::Option<unsafe extern "C" fn(arg1: *mut ::std::os::raw::c_void)>,
+    pub dtype: DLDataType,
+    pub layout: cuvsDatasetLayout_t,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of cuvsDatasetStandard"][::std::mem::size_of::<cuvsDatasetStandard>() - 24usize];
+    ["Alignment of cuvsDatasetStandard"][::std::mem::align_of::<cuvsDatasetStandard>() - 8usize];
+    ["Offset of field: cuvsDatasetStandard::addr"]
+        [::std::mem::offset_of!(cuvsDatasetStandard, addr) - 0usize];
+    ["Offset of field: cuvsDatasetStandard::destroy_addr"]
+        [::std::mem::offset_of!(cuvsDatasetStandard, destroy_addr) - 8usize];
+    ["Offset of field: cuvsDatasetStandard::dtype"]
+        [::std::mem::offset_of!(cuvsDatasetStandard, dtype) - 16usize];
+    ["Offset of field: cuvsDatasetStandard::layout"]
+        [::std::mem::offset_of!(cuvsDatasetStandard, layout) - 20usize];
+};
+pub type cuvsDatasetStandard_t = *mut cuvsDatasetStandard;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
 pub struct cuvsDatasetPaddedView {
     pub addr: usize,
     pub destroy_addr:
@@ -433,6 +456,10 @@ unsafe extern "C" {
 unsafe extern "C" {
     #[must_use]
     pub fn cuvsDatasetPaddedDestroy(padded_dataset: cuvsDatasetPadded_t) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    pub fn cuvsDatasetStandardDestroy(standard_dataset: cuvsDatasetStandard_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
@@ -1550,11 +1577,20 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    pub fn cuvsCagraDeserialize(
+    pub fn cuvsCagraDeserializePadded(
         res: cuvsResources_t,
         filename: *const ::std::os::raw::c_char,
-        deserialize_layout: cuvsDatasetLayout_t,
         index: cuvsCagraIndex_t,
+        out_padded_dataset: *mut cuvsDatasetPadded_t,
+    ) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    pub fn cuvsCagraDeserializeStandard(
+        res: cuvsResources_t,
+        filename: *const ::std::os::raw::c_char,
+        index: cuvsCagraIndex_t,
+        out_standard_dataset: *mut cuvsDatasetStandard_t,
     ) -> cuvsError_t;
 }
 unsafe extern "C" {
