@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -180,14 +180,17 @@ class file_descriptor {
  * @tparam T Data type for the numpy array
  * @param path File path to create
  * @param shape Shape of the numpy array (e.g., {rows, cols} for 2D)
+ * @param exclusive Fail when the file already exists instead of truncating it
  * @return Pair of (file_descriptor, header_size)
  */
 template <typename T>
 std::pair<file_descriptor, size_t> create_numpy_file(const std::string& path,
-                                                     const std::vector<size_t>& shape)
+                                                     const std::vector<size_t>& shape,
+                                                     bool exclusive = false)
 {
   // Open file
-  file_descriptor fd(path, O_CREAT | O_RDWR | O_TRUNC, 0644);
+  const int flags = O_CREAT | O_RDWR | (exclusive ? O_EXCL : O_TRUNC);
+  file_descriptor fd(path, flags, 0644);
 
   // Build header
   const auto dtype                              = raft::numpy_serializer::get_numpy_dtype<T>();

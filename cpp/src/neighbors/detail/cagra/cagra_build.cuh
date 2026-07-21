@@ -35,8 +35,11 @@
 
 #include <rmm/resource_ref.hpp>
 
+#include <array>
+#include <cerrno>
 #include <chrono>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <omp.h>
 #include <type_traits>
@@ -52,6 +55,94 @@ namespace cuvs::neighbors::cagra::detail {
 // Helpers to convert bytes to MiB and GiB
 constexpr double to_mib(size_t bytes) { return static_cast<double>(bytes) / (1 << 20); }
 constexpr double to_gib(size_t bytes) { return static_cast<double>(bytes) / (1 << 30); }
+
+class ace_disk_workspace {
+ public:
+  enum class artifact : size_t {
+    reordered_dataset,
+    augmented_dataset,
+    dataset_mapping,
+    cagra_graph,
+  };
+
+  explicit ace_disk_workspace(std::string build_dir)
+    : build_dir_(std::move(build_dir)),
+      artifacts_{build_dir_ / "reordered_dataset.npy",
+                 build_dir_ / "augmented_dataset.npy",
+                 build_dir_ / "dataset_mapping.npy",
+                 build_dir_ / "cagra_graph.npy"}
+  {
+  }
+
+  void initialize()
+  {
+    if (mkdir(build_dir_.c_str(), 0755) == 0) {
+      directory_created_by_this_build_ = true;
+      return;
+    }
+
+    if (errno != EEXIST) {
+      RAFT_FAIL("Failed to create ACE build directory: %s (errno: %d, %s)",
+                build_dir_.c_str(),
+                errno,
+                strerror(errno));
+    }
+
+    std::error_code error;
+    const bool is_directory = std::filesystem::is_directory(build_dir_, error);
+    RAFT_EXPECTS(!error,
+                 "Failed to inspect ACE build directory: %s (%s)",
+                 build_dir_.c_str(),
+                 error.message().c_str());
+    RAFT_EXPECTS(is_directory, "ACE build path is not a directory: %s", build_dir_.c_str());
+  }
+
+  [[nodiscard]] std::string artifact_path(artifact which) const
+  {
+    return artifacts_[static_cast<size_t>(which)].string();
+  }
+
+  void mark_artifact_created(artifact which) noexcept
+  {
+    artifacts_created_[static_cast<size_t>(which)] = true;
+  }
+
+  void commit() noexcept { committed_ = true; }
+
+  void cleanup() noexcept
+  {
+    if (committed_) { return; }
+
+    for (size_t i = artifacts_.size(); i > 0; --i) {
+      if (!artifacts_created_[i - 1]) { continue; }
+
+      std::error_code error;
+      std::filesystem::remove(artifacts_[i - 1], error);
+      if (error) {
+        RAFT_LOG_WARN("ACE: Failed to remove build artifact %s: %s",
+                      artifacts_[i - 1].c_str(),
+                      error.message().c_str());
+      }
+    }
+
+    if (directory_created_by_this_build_) {
+      std::error_code error;
+      std::filesystem::remove(build_dir_, error);
+      if (error) {
+        RAFT_LOG_WARN("ACE: Failed to remove empty build directory %s: %s",
+                      build_dir_.c_str(),
+                      error.message().c_str());
+      }
+    }
+  }
+
+ private:
+  std::filesystem::path build_dir_;
+  std::array<std::filesystem::path, 4> artifacts_;
+  std::array<bool, 4> artifacts_created_{};
+  bool directory_created_by_this_build_ = false;
+  bool committed_                       = false;
+};
 
 template <typename T, typename IdxT>
 void check_graph_degree(size_t& intermediate_degree, size_t& graph_degree, size_t dataset_size)
@@ -824,7 +915,7 @@ constexpr double vector_expansion_factor = 2.0;
 template <typename T, typename IdxT>
 bool ace_check_use_disk_mode(raft::resources const& res,
                              bool use_disk,
-                             std::string& build_dir,
+                             const std::string& build_dir,
                              size_t dataset_size,
                              size_t dataset_dim,
                              size_t n_partitions,
@@ -922,19 +1013,7 @@ bool ace_check_use_disk_mode(raft::resources const& res,
                 to_gib(mem.available_gpu_memory));
 
   bool use_disk_mode = use_disk || host_memory_limited || gpu_memory_limited;
-  if (use_disk_mode) {
-    bool valid_build_dir = !build_dir.empty();
-    valid_build_dir &= build_dir.length() <= 255;
-    valid_build_dir &= build_dir.find('\0') == std::string::npos;
-    valid_build_dir &= build_dir.find("//") == std::string::npos;
-    if (!valid_build_dir) {
-      RAFT_LOG_WARN("ACE: Invalid build_dir path, resetting to default: /tmp/ace_build");
-      build_dir = "/tmp/ace_build";
-    }
-    if (mkdir(build_dir.c_str(), 0755) != 0 && errno != EEXIST) {
-      RAFT_EXPECTS(false, "Failed to create ACE build directory: %s", build_dir.c_str());
-    }
-  }
+  if (use_disk_mode) { RAFT_EXPECTS(!build_dir.empty(), "ACE build directory must not be empty"); }
 
   if (host_memory_limited && gpu_memory_limited) {
     RAFT_LOG_INFO(
@@ -1181,8 +1260,7 @@ index<T, IdxT> build_ace(raft::resources const& res,
   size_t intermediate_degree = params.intermediate_graph_degree;
   size_t graph_degree        = params.graph_degree;
 
-  // Track whether to clean up build directory on failure
-  bool cleanup_on_failure = false;
+  ace_disk_workspace workspace(build_dir);
 
   try {
     check_graph_degree<T, IdxT>(intermediate_degree, graph_degree, dataset_size);
@@ -1225,24 +1303,32 @@ index<T, IdxT> build_ace(raft::resources const& res,
     size_t graph_header_size     = 0;
 
     if (use_disk_mode) {
-      if (mkdir(build_dir.c_str(), 0755) != 0 && errno != EEXIST) {
-        RAFT_EXPECTS(false, "Failed to create ACE build directory: %s", build_dir.c_str());
-      }
-      // Mark for cleanup if we fail after creating the directory
-      cleanup_on_failure = true;
+      workspace.initialize();
 
       // Create numpy files with pre-allocated space
       std::tie(reordered_fd, reordered_header_size) = cuvs::util::create_numpy_file<T>(
-        build_dir + "/reordered_dataset.npy", {dataset_size, dataset_dim});
+        workspace.artifact_path(ace_disk_workspace::artifact::reordered_dataset),
+        {dataset_size, dataset_dim},
+        true);
+      workspace.mark_artifact_created(ace_disk_workspace::artifact::reordered_dataset);
 
       std::tie(augmented_fd, augmented_header_size) = cuvs::util::create_numpy_file<T>(
-        build_dir + "/augmented_dataset.npy", {dataset_size, dataset_dim});
+        workspace.artifact_path(ace_disk_workspace::artifact::augmented_dataset),
+        {dataset_size, dataset_dim},
+        true);
+      workspace.mark_artifact_created(ace_disk_workspace::artifact::augmented_dataset);
 
-      std::tie(mapping_fd, mapping_header_size) =
-        cuvs::util::create_numpy_file<IdxT>(build_dir + "/dataset_mapping.npy", {dataset_size});
+      std::tie(mapping_fd, mapping_header_size) = cuvs::util::create_numpy_file<IdxT>(
+        workspace.artifact_path(ace_disk_workspace::artifact::dataset_mapping),
+        {dataset_size},
+        true);
+      workspace.mark_artifact_created(ace_disk_workspace::artifact::dataset_mapping);
 
       std::tie(graph_fd, graph_header_size) = cuvs::util::create_numpy_file<IdxT>(
-        build_dir + "/cagra_graph.npy", {dataset_size, graph_degree});
+        workspace.artifact_path(ace_disk_workspace::artifact::cagra_graph),
+        {dataset_size, graph_degree},
+        true);
+      workspace.mark_artifact_created(ace_disk_workspace::artifact::cagra_graph);
 
       RAFT_LOG_DEBUG(
         "ACE: Wrote numpy headers (reordered: %zu, augmented: %zu, mapping: %zu, graph: %zu bytes)",
@@ -1538,20 +1624,14 @@ index<T, IdxT> build_ace(raft::resources const& res,
       std::chrono::duration_cast<std::chrono::milliseconds>(total_end - total_start).count();
     RAFT_LOG_INFO("ACE: Partitioned CAGRA build completed in %ld ms total", total_elapsed);
 
+    workspace.commit();
     return idx;
   } catch (const std::exception& e) {
-    // Clean up build directory on failure if we created it
     RAFT_LOG_ERROR("ACE: Build failed with exception: %s", e.what());
-    if (cleanup_on_failure && !build_dir.empty()) {
-      RAFT_LOG_INFO("ACE: Cleaning up build directory: %s", build_dir.c_str());
-      try {
-        std::filesystem::remove_all(build_dir);
-        RAFT_LOG_INFO("ACE: Successfully removed build directory");
-      } catch (const std::exception& cleanup_error) {
-        RAFT_LOG_WARN("ACE: Failed to clean up build directory: %s", cleanup_error.what());
-      }
-    }
-    // Re-throw the original exception
+    workspace.cleanup();
+    throw;
+  } catch (...) {
+    workspace.cleanup();
     throw;
   }
 }

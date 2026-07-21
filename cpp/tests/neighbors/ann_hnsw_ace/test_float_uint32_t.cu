@@ -1,11 +1,21 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #include "../ann_hnsw_ace.cuh"
 
 namespace cuvs::neighbors::hnsw {
+
+TEST(CagraAceWorkspace, FailurePreservesCallerDirectory)
+{
+  test_ace_workspace_failure_preserves_caller_directory<float>();
+}
+
+TEST(CagraAceWorkspace, FailureDoesNotTruncateExistingArtifact)
+{
+  test_ace_workspace_failure_does_not_truncate_existing_artifact<float>();
+}
 
 typedef AnnHnswAceTest<float, float, uint32_t> AnnHnswAceTest_float;
 TEST_P(AnnHnswAceTest_float, AnnHnswAceBuild) { this->testHnswAceBuild(); }
