@@ -58,18 +58,13 @@ public interface HnswIndex extends AutoCloseable {
   }
 
   /**
-   * Builds an HNSW index on the GPU and returns it for CPU search.
-   *
-   * The build API accepts HNSW parameters and selects internal GPU graph
-   * construction settings automatically. ACE parameters are optional and are
-   * used only to configure partitioned or disk-backed graph construction.
-   *
-   * NOTE: only float32 datasets are supported, as {@link HnswQuery} issues
-   * float32 queries.
+   * Builds an HNSW index from HNSW parameters. The graph is built on the GPU and converted to an
+   * HNSW index that can be searched on the CPU. The graph build algorithm is selected automatically
+   * unless explicit ACE parameters are provided.
    *
    * @param resources The CuVS resources
    * @param hnswParams Parameters for the HNSW index
-   * @param dataset The dataset to build the index from; must hold float32 data
+   * @param dataset The dataset to build the index from
    * @return A new HNSW index ready for search
    * @throws Throwable if an error occurs during building
    */
@@ -97,8 +92,7 @@ public interface HnswIndex extends AutoCloseable {
 
     /**
      * Registers an instance of configured {@link HnswIndexParams} with this
-     * Builder. When deserializing, {@code vectorDimension} must be set to the
-     * dimension of the serialized index.
+     * Builder.
      *
      * @param hnswIndexParameters An instance of HnswIndexParams.
      * @return An instance of this Builder.

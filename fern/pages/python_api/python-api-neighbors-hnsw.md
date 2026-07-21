@@ -89,9 +89,9 @@ Parameters to build index for HNSW nearest neighbor search
 | `hierarchy` | `string, default = "gpu" (optional)` | The hierarchy of the HNSW index.<br />Valid values are ["none", "cpu", "gpu"].<br />- "none": No hierarchy is built.<br />- "cpu": Hierarchy is built using CPU.<br />- "gpu": Hierarchy is built using GPU. |
 | `ef_construction` | `int, default = 200 (optional)` | Maximum candidate list size used during index construction. |
 | `num_threads` | `int, default = 0 (optional)` | Number of CPU threads used to increase construction parallelism when hierarchy is `cpu` or `gpu`. When the value is 0, the number of threads is automatically determined to the maximum number of threads available.<br />NOTE: When hierarchy is `gpu`, while the majority of the work is done on the GPU, initialization of the HNSW index itself and some other work is parallelized with the help of CPU threads. |
-| `M` | `int, default = 32 (optional)` | HNSW M parameter: number of bi-directional links per node used to derive the internal GPU graph degree. |
+| `M` | `int, default = 32 (optional)` | HNSW M parameter: number of bi-directional links per node. When the graph is built on the GPU, this parameter is used to derive the internal CAGRA graph build parameters. |
 | `metric` | `string, default = "sqeuclidean" (optional)` | Distance metric to use.<br />Valid values: ["sqeuclidean", "inner_product"] |
-| `ace_params` | `AceParams, default = None (optional)` | Optional ACE parameters for partitioned or disk-backed GPU graph construction. If not set, build() uses HNSW parameters and selects internal graph build settings automatically. |
+| `ace_params` | `AceParams, default = None (optional)` | Explicit ACE parameters for out-of-core graph construction. When not set, the graph build algorithm is selected automatically. |
 
 **Constructor**
 
@@ -107,7 +107,6 @@ def __init__(self, *, hierarchy="gpu", ef_construction=200, num_threads=0, M=32,
 | `ef_construction` | property |
 | `num_threads` | property |
 | `m` | property |
-| `metric` | property |
 | `ace_params` | property |
 
 ### hierarchy
@@ -132,12 +131,6 @@ def num_threads(self)
 
 ```python
 def m(self)
-```
-
-### metric
-
-```python
-def metric(self)
 ```
 
 ### ace_params
@@ -207,12 +200,11 @@ def num_threads(self)
 def build(IndexParams index_params, dataset, resources=None)
 ```
 
-Build an HNSW index on the GPU and search it on the CPU.
+Build an HNSW index from HNSW parameters.
 
-The build API accepts HNSW parameters (`M`, `ef_construction`,
-`hierarchy`, and `metric`) and selects the internal GPU graph
-construction settings automatically. Set `ace_params` only when
-partitioned or disk-backed graph construction needs to be configured.
+The graph is built on the GPU and converted to an HNSW index that can be
+searched on the CPU. The graph build algorithm is selected automatically
+unless explicit ACE parameters are provided.
 
 **Parameters**
 
@@ -236,8 +228,8 @@ partitioned or disk-backed graph construction needs to be configured.
 >>>
 >>> n_samples = 50000
 >>> n_features = 50
->>> dataset = np.random.random_sample(
-...     (n_samples, n_features)).astype(np.float32)
+>>> dataset = np.random.random_sample((n_samples, n_features),
+...                                   dtype=np.float32)
 >>>
 >>> # Create HNSW index parameters
 >>> index_params = hnsw.IndexParams(
@@ -251,7 +243,7 @@ partitioned or disk-backed graph construction needs to be configured.
 >>> index = hnsw.build(index_params, dataset)
 >>>
 >>> # Search the index
->>> queries = np.random.random_sample((10, n_features)).astype(np.float32)
+>>> queries = np.random.random_sample((10, n_features), dtype=np.float32)
 >>> distances, neighbors = hnsw.search(
 ...     hnsw.SearchParams(ef=200),
 ...     index,
@@ -270,9 +262,6 @@ def extend(ExtendParams extend_params, Index index, data, resources=None)
 
 Extends the HNSW index with new data.
 
-Indexes with hierarchy `"cpu"` or `"gpu"` can be extended. A
-base-layer-only index with hierarchy `"none"` cannot be extended.
-
 **Parameters**
 
 | Name | Type | Description |
@@ -286,16 +275,18 @@ base-layer-only index with hierarchy `"none"` cannot be extended.
 
 ```python
 >>> import numpy as np
->>> from cuvs.neighbors import hnsw
+>>> from cuvs.neighbors import hnsw, cagra
 >>>
 >>> n_samples = 50000
 >>> n_features = 50
->>> dataset = np.random.random_sample(
-...     (n_samples, n_features)).astype(np.float32)
->>> hnsw_index = hnsw.build(hnsw.IndexParams(), dataset)
+>>> dataset = np.random.random_sample((n_samples, n_features))
+>>>
+>>> # Build index
+>>> index = cagra.build(hnsw.IndexParams(), dataset)
+>>> # Load index
+>>> hnsw_index = hnsw.from_cagra(hnsw.IndexParams(hierarchy="cpu"), index)
 >>> # Extend the index with new data
->>> new_data = np.random.random_sample(
-...     (n_samples, n_features)).astype(np.float32)
+>>> new_data = np.random.random_sample((n_samples, n_features))
 >>> hnsw.extend(hnsw.ExtendParams(), hnsw_index, new_data)
 ```
 
@@ -311,7 +302,7 @@ HNSW search parameters
 
 | Name | Type | Description |
 | --- | --- | --- |
-| `ef` | `int, default = 200` | Maximum number of candidate list size used during search. Must not be negative. When 0, the effective candidate list size is k. |
+| `ef` | `int, default = 200` | Maximum number of candidate list size used during search. |
 | `num_threads` | `int, default = 0` | Number of CPU threads used to increase search parallelism. When set to 0, the number of threads is automatically determined using OpenMP's `omp_get_max_threads()`. |
 
 **Constructor**
@@ -344,15 +335,16 @@ def num_threads(self)
 `@auto_sync_resources`
 
 ```python
-def load(IndexParams index_params, filename, dim, dtype, metric=None, resources=None)
+def load(IndexParams index_params, filename, dim, dtype, metric="sqeuclidean", resources=None)
 ```
 
 Loads an HNSW index.
 If the index was constructed with `hnsw.IndexParams(hierarchy="none")`,
 then the loaded index is immutable and can only be searched by the hnswlib
 wrapper in cuVS, as the format is not compatible with the original hnswlib.
-However, if the index was constructed with hierarchy `"cpu"` or `"gpu"`,
-then the loaded index is mutable and compatible with the original hnswlib.
+However, if the index was constructed with
+`hnsw.IndexParams(hierarchy="cpu")`, then the loaded index is mutable and
+compatible with the original hnswlib.
 
 Saving / loading the index is experimental. The serialization format is
 subject to change, therefore loading an index saved with a previous
@@ -362,11 +354,11 @@ version of cuVS is not guaranteed to work.
 
 | Name | Type | Description |
 | --- | --- | --- |
-| `index_params` | `IndexParams` | Parameters that were used to build or convert the HNSW index. `index_params.hierarchy` must match the hierarchy the index was saved with (e.g. `"none"` for a base-layer-only index). |
+| `index_params` | `IndexParams` | Parameters that were used to convert CAGRA index to HNSW index. |
 | `filename` | `string` | Name of the file. |
-| `dim` | `int` | Dimensions of the training dataset |
-| `dtype` | `np.dtype of the saved index` | Valid values for dtype: [np.float32, np.float16, np.byte, np.ubyte] |
-| `metric` | `string denoting the metric type, default=None` | When None, the metric is taken from `index_params`. If provided, it takes precedence over `index_params.metric`.<br />Valid values for metric: ["sqeuclidean", "inner_product"], where<br />- sqeuclidean is the euclidean distance without the square root operation, i.e.: distance(a,b) = \\sum_i (a_i - b_i)^2,<br />- inner_product distance is defined as distance(a, b) = \\sum_i a_i * b_i. |
+| `dim` | `int` | Dimensions of the training dataest |
+| `dtype` | `np.dtype of the saved index` | Valid values for dtype: [np.float32, np.byte, np.ubyte] |
+| `metric` | `string denoting the metric type, default="sqeuclidean"` | Valid values for metric: ["sqeuclidean", "inner_product"], where<br />- sqeuclidean is the euclidean distance without the square root operation, i.e.: distance(a,b) = \\sum_i (a_i - b_i)^2,<br />- inner_product distance is defined as distance(a, b) = \\sum_i a_i * b_i. |
 | `resources` | `cuvs.common.Resources, optional` |  |
 
 **Returns**
@@ -378,17 +370,19 @@ version of cuVS is not guaranteed to work.
 **Examples**
 
 ```python
->>> import numpy as np
+>>> import cupy as cp
+>>> from cuvs.neighbors import cagra
 >>> from cuvs.neighbors import hnsw
 >>> n_samples = 50000
 >>> n_features = 50
->>> dataset = np.random.random_sample(
-...     (n_samples, n_features)).astype(np.float32)
->>> index_params = hnsw.IndexParams(metric="sqeuclidean")
->>> index = hnsw.build(index_params, dataset)
+>>> dataset = cp.random.random_sample((n_samples, n_features),
+...                                   dtype=cp.float32)
+>>> # Build index
+>>> index = cagra.build(cagra.IndexParams(), dataset)
+>>> # Serialize the CAGRA index to hnswlib base layer only index format
 >>> hnsw.save("my_index.bin", index)
->>> index = hnsw.load(index_params, "my_index.bin", n_features,
-...                   np.float32, "sqeuclidean")
+>>> index = hnsw.load("my_index.bin", n_features, np.float32,
+...                   "sqeuclidean")
 ```
 
 ## save
@@ -399,12 +393,13 @@ version of cuVS is not guaranteed to work.
 def save(filename, Index index, resources=None)
 ```
 
-Saves an HNSW index to a file.
+Saves the CAGRA index to a file as an hnswlib index.
 If the index was constructed with `hnsw.IndexParams(hierarchy="none")`,
 then the saved index is immutable and can only be searched by the hnswlib
 wrapper in cuVS, as the format is not compatible with the original hnswlib.
-However, if the index was constructed with hierarchy `"cpu"` or `"gpu"`,
-then the saved index is mutable and compatible with the original hnswlib.
+However, if the index was constructed with
+`hnsw.IndexParams(hierarchy="cpu")`, then the saved index is mutable and
+compatible with the original hnswlib.
 
 Saving / loading the index is experimental. The serialization format is
 subject to change.
@@ -420,13 +415,16 @@ subject to change.
 **Examples**
 
 ```python
->>> import numpy as np
->>> from cuvs.neighbors import hnsw
+>>> import cupy as cp
+>>> from cuvs.neighbors import cagra
 >>> n_samples = 50000
 >>> n_features = 50
->>> dataset = np.random.random_sample(
-...     (n_samples, n_features)).astype(np.float32)
->>> hnsw_index = hnsw.build(hnsw.IndexParams(), dataset)
+>>> dataset = cp.random.random_sample((n_samples, n_features),
+...                                   dtype=cp.float32)
+>>> # Build index
+>>> cagra_index = cagra.build(cagra.IndexParams(), dataset)
+>>> # Serialize and deserialize the cagra index built
+>>> hnsw_index = hnsw.from_cagra(hnsw.IndexParams(), cagra_index)
 >>> hnsw.save("my_index.bin", hnsw_index)
 ```
 
@@ -456,22 +454,32 @@ Find the k nearest neighbors for each query.
 **Examples**
 
 ```python
->>> import numpy as np
->>> from cuvs.neighbors import hnsw
+>>> import cupy as cp
+>>> from cuvs.neighbors import cagra, hnsw
 >>> n_samples = 50000
 >>> n_features = 50
 >>> n_queries = 1000
->>> dataset = np.random.random_sample(
-...     (n_samples, n_features)).astype(np.float32)
->>> index = hnsw.build(hnsw.IndexParams(), dataset)
->>> queries = np.random.random_sample(
-...     (n_queries, n_features)).astype(np.float32)
+>>> dataset = cp.random.random_sample((n_samples, n_features),
+...                                   dtype=cp.float32)
+>>> # Build index
+>>> index = cagra.build(cagra.IndexParams(), dataset)
+>>> # Search using the built index
+>>> queries = cp.random.random_sample((n_queries, n_features),
+...                                   dtype=cp.float32)
 >>> k = 10
 >>> search_params = hnsw.SearchParams(
 ...     ef=200,
 ...     num_threads=0
 ... )
->>> distances, neighbors = hnsw.search(search_params, index, queries, k)
+>>> # Convert CAGRA index to HNSW
+>>> hnsw_index = hnsw.from_cagra(hnsw.IndexParams(), index)
+>>> # Using a pooling allocator reduces overhead of temporary array
+>>> # creation during search. This is useful if multiple searches
+>>> # are performed with same query size.
+>>> distances, neighbors = hnsw.search(search_params, index, queries,
+...                                     k)
+>>> neighbors = cp.asarray(neighbors)
+>>> distances = cp.asarray(distances)
 ```
 
 ## from_cagra
@@ -494,9 +502,6 @@ compatible with the original hnswlib.
 2. `CPU`: The returned index is mutable and can be extended with additional
 vectors. The serialized index is also compatible with the original hnswlib
 library.
-3. `GPU`: The returned index is mutable, and its hierarchy is built on the
-GPU. The serialized index is also compatible with the original hnswlib
-library.
 
 Saving / loading the index is experimental. The serialization format is
 subject to change.
@@ -507,7 +512,7 @@ subject to change.
 | --- | --- | --- |
 | `index_params` | `IndexParams` | Parameters to convert the CAGRA index to HNSW index. |
 | `cagra_index` | `cagra.Index` | Trained CAGRA index. |
-| `temporary_index_path` | `string, default = None` | Deprecated and ignored. The temporary file used when hierarchy is `NONE` is always written to the system temporary directory. |
+| `temporary_index_path` | `string, default = None` | Path to save the temporary index file. If None, the temporary file will be saved in `/tmp/&lt;random_number&gt;.bin`. |
 | `resources` | `cuvs.common.Resources, optional` |  |
 
 **Examples**
@@ -522,6 +527,6 @@ subject to change.
 ...                                   dtype=cp.float32)
 >>> # Build index
 >>> index = cagra.build(cagra.IndexParams(), dataset)
->>> # Convert the CAGRA index to an HNSW index
+>>> # Serialize the CAGRA index to hnswlib base layer only index format
 >>> hnsw_index = hnsw.from_cagra(hnsw.IndexParams(), index)
 ```

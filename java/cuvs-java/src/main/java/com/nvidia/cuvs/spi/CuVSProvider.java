@@ -150,7 +150,7 @@ public interface CuVSProvider {
   HnswIndex hnswIndexFromCagra(HnswIndexParams hnswParams, CagraIndex cagraIndex) throws Throwable;
 
   /**
-   * Builds an HNSW index on the GPU and returns it for CPU search.
+   * Builds an HNSW index from HNSW parameters using GPU graph construction.
    *
    * @param resources The CuVS resources
    * @param hnswParams Parameters for the HNSW index

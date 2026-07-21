@@ -229,7 +229,7 @@ _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:123
 HnswIndex hnswIndexBuild(CuVSResources resources, HnswIndexParams hnswParams, CuVSMatrix dataset) throws Throwable
 ```
 
-Builds an HNSW index on the GPU and returns it for CPU search.
+Builds an HNSW index from HNSW parameters using GPU graph construction.
 
 **Parameters**
 

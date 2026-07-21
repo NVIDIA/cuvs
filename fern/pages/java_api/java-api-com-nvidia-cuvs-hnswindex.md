@@ -101,14 +101,9 @@ _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndex.java:53`_
 static HnswIndex build(CuVSResources resources, HnswIndexParams hnswParams, CuVSMatrix dataset) throws Throwable
 ```
 
-Builds an HNSW index on the GPU and returns it for CPU search.
-
-The build API accepts HNSW parameters and selects internal GPU graph
-construction settings automatically. ACE parameters are optional and are
-used only to configure partitioned or disk-backed graph construction.
-
-NOTE: only float32 datasets are supported, as `HnswQuery` issues
-float32 queries.
+Builds an HNSW index from HNSW parameters. The graph is built on the GPU and converted to an
+HNSW index that can be searched on the CPU. The graph build algorithm is selected automatically
+unless explicit ACE parameters are provided.
 
 **Parameters**
 
@@ -116,7 +111,7 @@ float32 queries.
 | --- | --- |
 | `resources` | The CuVS resources |
 | `hnswParams` | Parameters for the HNSW index |
-| `dataset` | The dataset to build the index from; must hold float32 data |
+| `dataset` | The dataset to build the index from |
 
 **Returns**
 
@@ -149,7 +144,7 @@ needed.
 
 an instance of this Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndex.java:95`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndex.java:96`_
 
 ### withIndexParams
 
@@ -170,7 +165,7 @@ Builder.
 
 An instance of this Builder.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndex.java:104`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndex.java:105`_
 
 ### build
 
@@ -184,6 +179,6 @@ Builds and returns an instance of CagraIndex.
 
 an instance of CagraIndex
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndex.java:111`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndex.java:112`_
 
 _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndex.java:17`_

@@ -15,10 +15,8 @@ public class HnswIndexParams {
    * Distance metric types
    */
   public enum CuvsDistanceType {
-    // Native values are defined by the C cuvsDistanceType enum; derive them from
-    // CagraIndexParams.CuvsDistanceType so the mapping has a single source of truth.
-    L2Expanded(CagraIndexParams.CuvsDistanceType.L2Expanded.value),
-    InnerProduct(CagraIndexParams.CuvsDistanceType.InnerProduct.value);
+    L2Expanded(0),
+    InnerProduct(2);
 
     public final int value;
 
@@ -128,7 +126,7 @@ public class HnswIndexParams {
 
   /**
    * Gets the HNSW M parameter: number of bi-directional links per node
-   * used to derive the internal GPU graph degree.
+   * used to derive the internal graph build parameters for GPU construction.
    *
    * @return the M parameter
    */
@@ -146,7 +144,8 @@ public class HnswIndexParams {
   }
 
   /**
-   * Gets optional ACE parameters for partitioned or disk-backed GPU graph building.
+   * Gets the optional ACE parameters for explicit out-of-core graph construction. When not set, the
+   * graph build algorithm is selected automatically.
    *
    * @return the ACE parameters, or null if not set
    */
@@ -207,9 +206,9 @@ public class HnswIndexParams {
     }
 
     /**
-     * Sets the size of the candidate list during index construction.
+     * Sets the maximum candidate list size used during index construction.
      *
-     * @param efConstruction the size of the candidate list during index construction
+     * @param efConstruction the maximum candidate list size used during construction
      * @return an instance of Builder
      */
     public Builder withEfConstruction(int efConstruction) {
@@ -218,9 +217,8 @@ public class HnswIndexParams {
     }
 
     /**
-     * Sets the number of host threads used during construction when hierarchy is
-     * `CPU` or `GPU`. When the value is 0, the number of threads is automatically
-     * determined to the maximum number of threads available. The default is 2.
+     * Sets the number of host threads to use to construct hierarchy when hierarchy
+     * is `CPU`.
      *
      * @param numThreads the number of threads
      * @return an instance of Builder
@@ -242,8 +240,8 @@ public class HnswIndexParams {
     }
 
     /**
-     * Sets the HNSW M parameter: number of bi-directional links per node
-     * used to derive the internal GPU graph degree.
+     * Sets the HNSW M parameter: number of bi-directional links per node used to derive the internal
+     * graph build parameters for GPU construction.
      *
      * @param m the M parameter
      * @return an instance of Builder
@@ -265,7 +263,8 @@ public class HnswIndexParams {
     }
 
     /**
-     * Sets optional ACE parameters for partitioned or disk-backed GPU graph building.
+     * Sets optional ACE parameters for explicit out-of-core graph construction. When not set, the
+     * graph build algorithm is selected automatically.
      *
      * @param aceParams the ACE parameters
      * @return an instance of Builder

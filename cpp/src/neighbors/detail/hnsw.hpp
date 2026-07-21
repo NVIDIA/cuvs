@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -30,7 +30,6 @@
 #include <fcntl.h>
 #include <filesystem>
 #include <fstream>
-#include <limits>
 #include <memory>
 #include <mutex>
 #include <new>
@@ -177,16 +176,6 @@ struct index_impl : index<T> {
   }
 
   /**
-  @brief Mark the in-memory index as diverged from its disk-backed file
-   */
-  void mark_modified() { modified_ = true; }
-
-  /**
-  @brief Whether the in-memory index has diverged from its disk-backed file
-   */
-  bool modified() const { return modified_; }
-
-  /**
   @brief Ensure the index is loaded into memory.
          If the index is disk-backed and not yet loaded, this will load it from the file.
    */
@@ -224,7 +213,6 @@ struct index_impl : index<T> {
   mutable std::unique_ptr<hnswlib::HierarchicalNSW<typename hnsw_dist_t<T>::type>> appr_alg_;
   std::unique_ptr<hnswlib::SpaceInterface<typename hnsw_dist_t<T>::type>> space_;
   std::optional<cuvs::util::file_descriptor> hnsw_fd_;
-  bool modified_ = false;
 };
 
 template <typename T, HnswHierarchy hierarchy>
@@ -1245,12 +1233,6 @@ inline std::pair<size_t, size_t> get_available_memory(
   return std::make_pair(available_host_memory, available_device_memory);
 }
 
-inline void validate_index_params(const index_params& params)
-{
-  RAFT_EXPECTS(params.ef_construction > 0, "ef_construction must be greater than zero.");
-  RAFT_EXPECTS(params.num_threads >= 0, "num_threads must not be negative.");
-}
-
 template <typename T>
 std::unique_ptr<index<T>> from_cagra(
   raft::resources const& res,
@@ -1258,13 +1240,6 @@ std::unique_ptr<index<T>> from_cagra(
   const cuvs::neighbors::cagra::index<T, uint32_t>& cagra_index,
   std::optional<raft::host_matrix_view<const T, int64_t, raft::row_major>> dataset)
 {
-  // hnswlib clamps ef_construction to at least M during construction and hierarchy NONE does
-  // not consume it at all, so conversions keep accepting the zero values older callers may
-  // pass. hnsw::build consumes ef_construction directly and validates it via
-  // validate_index_params.
-  RAFT_EXPECTS(params.ef_construction >= 0, "ef_construction must not be negative.");
-  RAFT_EXPECTS(params.num_threads >= 0, "num_threads must not be negative.");
-
   // special treatment for index on disk
   if (cagra_index.dataset_fd().has_value() && cagra_index.graph_fd().has_value()) {
     // Get directory from graph file descriptor
@@ -1419,18 +1394,9 @@ void extend(raft::resources const& res,
             raft::host_matrix_view<const T, int64_t, raft::row_major> additional_dataset,
             index<T>& idx)
 {
-  RAFT_EXPECTS(params.num_threads >= 0, "num_threads must not be negative.");
-  RAFT_EXPECTS(idx.hierarchy() != HnswHierarchy::NONE,
-               "A base-layer-only HNSW index cannot be extended.");
-  RAFT_EXPECTS(additional_dataset.extent(1) == idx.dim(),
-               "Number of additional dataset dimensions must equal the index dimensions.");
-
   // If the index is disk-backed, load it into memory first
   auto* idx_impl = dynamic_cast<index_impl<T>*>(&idx);
-  if (idx_impl) {
-    idx_impl->ensure_loaded();
-    idx_impl->mark_modified();
-  }
+  if (idx_impl) { idx_impl->ensure_loaded(); }
 
   auto* hnswlib_index = reinterpret_cast<hnswlib::HierarchicalNSW<typename hnsw_dist_t<T>::type>*>(
     const_cast<void*>(idx.get_index()));
@@ -1473,11 +1439,6 @@ void search(raft::resources const& res,
             raft::host_matrix_view<uint64_t, int64_t, raft::row_major> neighbors,
             raft::host_matrix_view<float, int64_t, raft::row_major> distances)
 {
-  // hnswlib searches with a candidate list of max(ef, k), so ef == 0 keeps its historical
-  // meaning of "derive the candidate list size from k".
-  RAFT_EXPECTS(params.ef >= 0, "ef must not be negative.");
-  RAFT_EXPECTS(params.num_threads >= 0, "num_threads must not be negative.");
-
   // If the index is disk-backed, load it into memory first
   auto* idx_impl = dynamic_cast<const index_impl<T>*>(&idx);
   if (idx_impl) { idx_impl->ensure_loaded(); }
@@ -1495,8 +1456,6 @@ void search(raft::resources const& res,
   auto const* hnswlib_index =
     reinterpret_cast<hnswlib::HierarchicalNSW<typename hnsw_dist_t<T>::type> const*>(
       idx.get_index());
-  RAFT_EXPECTS(neighbors.extent(1) <= static_cast<int64_t>(hnswlib_index->cur_element_count),
-               "k must not exceed the number of vectors in the index.");
 
   // when num_threads == 0, automatically maximize parallelism
   if (params.num_threads) {
@@ -1525,10 +1484,9 @@ void serialize(raft::resources const& res, const std::string& filename, const in
 {
   auto* idx_impl = dynamic_cast<const index_impl<T>*>(&idx);
 
-  // A disk-backed index whose in-memory state matches the backing file (never loaded, or loaded
-  // for read-only operations such as search) can be serialized by copying that file. Once the
-  // index has been mutated via extend, save the live state so extensions are not lost.
-  if (idx_impl && idx_impl->file_descriptor().has_value() && !idx_impl->modified()) {
+  // Check if this is a disk-based index (created from disk-backed CAGRA)
+  if (idx_impl && idx_impl->file_descriptor().has_value()) {
+    // For disk-based indexes, copy the existing file to the new location
     std::string source_path = idx_impl->file_path();
     RAFT_EXPECTS(!source_path.empty(), "Disk-based index has invalid file path");
     RAFT_EXPECTS(std::filesystem::exists(source_path),
@@ -1560,28 +1518,7 @@ void deserialize(raft::resources const& res,
     auto hnsw_index = std::make_unique<index_impl<T>>(dim, metric, params.hierarchy);
     auto appr_algo  = std::make_unique<hnswlib::HierarchicalNSW<typename hnsw_dist_t<T>::type>>(
       hnsw_index->get_space(), filename);
-    // The file records only the per-element layout (label_offset_ == offsetData_ + data size),
-    // not dim or the element type, so a wrong dim/dtype would silently compute distances over
-    // garbage. Validate the layout against the requested space instead.
-    RAFT_EXPECTS(appr_algo->offsetData_ + appr_algo->data_size_ == appr_algo->label_offset_,
-                 "'%s' does not store vectors of dim=%d with the requested element type; pass the "
-                 "dim and dtype the index was serialized with.",
-                 filename.c_str(),
-                 dim);
-    if (params.hierarchy == HnswHierarchy::NONE) {
-      appr_algo->base_layer_only = true;
-    } else if (appr_algo->cur_element_count > 0 && appr_algo->maxlevel_ > 0) {
-      // The enterpoint comes straight from the file; validate it before using it to index
-      // linkLists_ so a corrupt file fails cleanly instead of reading out of bounds.
-      RAFT_EXPECTS(static_cast<size_t>(appr_algo->enterpoint_node_) < appr_algo->max_elements_,
-                   "'%s' is not a valid HNSW index file: the enterpoint node is out of range.",
-                   filename.c_str());
-      // Base-layer-only files store no upper-layer links, so traversing them as a hierarchical
-      // index dereferences null link lists. Detect the format here instead of crashing in search.
-      RAFT_EXPECTS(appr_algo->linkLists_[appr_algo->enterpoint_node_] != nullptr,
-                   "'%s' holds a base-layer-only HNSW index; deserialize it with hierarchy NONE.",
-                   filename.c_str());
-    }
+    if (params.hierarchy == HnswHierarchy::NONE) { appr_algo->base_layer_only = true; }
     hnsw_index->set_index(std::move(appr_algo));
     *idx = hnsw_index.release();
   } catch (const std::bad_alloc& e) {
@@ -1607,11 +1544,7 @@ std::unique_ptr<index<T>> build(raft::resources const& res,
                                 const index_params& params,
                                 raft::host_matrix_view<const T, int64_t, raft::row_major> dataset)
 {
-  common::nvtx::range<common::nvtx::domain::cuvs> fun_scope("hnsw::build");
-
-  constexpr auto max_m = static_cast<size_t>(std::numeric_limits<int>::max() / 3);
-  RAFT_EXPECTS(params.M > 0 && params.M <= max_m, "M must be between 1 and %zu.", max_m);
-  validate_index_params(params);
+  common::nvtx::range<common::nvtx::domain::cuvs> fun_scope("hnsw::build<ACE>");
 
   cuvs::neighbors::cagra::index_params cagra_params =
     cagra::index_params::from_hnsw_params(dataset.extents(),
@@ -1620,9 +1553,6 @@ std::unique_ptr<index<T>> build(raft::resources const& res,
                                           cagra::hnsw_heuristic_type::SAME_GRAPH_FOOTPRINT,
                                           params.metric);
   cagra_params.metric = params.metric;
-  // The host dataset is handed to from_cagra explicitly below, so the CAGRA index does not
-  // need to hold a device copy of it alive through the CPU-side conversion.
-  cagra_params.attach_dataset_on_build = false;
 
   // If the user explicitly configured ACE, honor it. Otherwise (default params) apply a
   // heuristic that falls back to ACE only when an in-memory CAGRA build would not fit in
