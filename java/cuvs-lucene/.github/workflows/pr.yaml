@@ -92,7 +92,7 @@ jobs:
       fail-fast: false
       matrix:
         cuda_version:
-          - '12.9.1'
+          - '12.9.2'
           - '13.3.0'
     with:
       build_type: pull-request
