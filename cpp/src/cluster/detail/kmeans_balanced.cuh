@@ -460,6 +460,61 @@ template <uint32_t BlockDimY,
           typename MathT,
           typename IdxT,
           typename LabelT,
+          typename CounterT,
+          typename MappingOpT>
+__launch_bounds__((raft::WarpSize * BlockDimY)) RAFT_KERNEL
+  adjust_centers_random_donor_kernel(MathT* centers,  // [n_clusters, dim]
+                                     IdxT n_clusters,
+                                     IdxT dim,
+                                     const T* dataset,  // [n_rows, dim]
+                                     IdxT n_rows,
+                                     const LabelT* labels,           // [n_rows]
+                                     const CounterT* cluster_sizes,  // [n_clusters]
+                                     MathT lower_threshold,
+                                     IdxT average,
+                                     MathT centroid_offset,
+                                     IdxT seed,
+                                     IdxT* search_count,
+                                     IdxT* update_count,
+                                     MappingOpT mapping_op)
+{
+  IdxT receiver_cluster = threadIdx.y + BlockDimY * static_cast<IdxT>(blockIdx.x);
+  if (receiver_cluster >= n_clusters) return;
+  auto receiver_size = static_cast<IdxT>(cluster_sizes[receiver_cluster]);
+  if (static_cast<MathT>(receiver_size) >= lower_threshold) return;
+
+  IdxT i = n_rows;
+  IdxT j = raft::laneId();
+  if (j == 0) {
+    IdxT attempt = 0;
+    do {
+      auto old = atomicAdd(search_count, IdxT{1});
+      auto candidate =
+        static_cast<IdxT>((static_cast<int64_t>(seed) * static_cast<int64_t>(old + 1)) %
+                          static_cast<int64_t>(n_rows));
+      if (static_cast<IdxT>(cluster_sizes[labels[candidate]]) >= average) { i = candidate; }
+      ++attempt;
+    } while (i >= n_rows && attempt < n_rows);
+  }
+  i = raft::shfl(i, 0);
+  if (i >= n_rows) return;
+
+  auto donor_cluster = static_cast<IdxT>(labels[i]);
+  if (j == 0) { atomicAdd(update_count, IdxT{1}); }
+
+  for (; j < dim; j += raft::WarpSize) {
+    auto donor_center = centers[j + dim * donor_cluster];
+    auto donor_point  = mapping_op(dataset[j + dim * i]);
+    auto val          = donor_center + centroid_offset * (donor_point - donor_center);
+    centers[j + dim * receiver_cluster] = val;
+  }
+}
+
+template <uint32_t BlockDimY,
+          typename T,
+          typename MathT,
+          typename IdxT,
+          typename LabelT,
           typename MappingOpT>
 __launch_bounds__((raft::WarpSize * BlockDimY)) RAFT_KERNEL
   adjust_centers_kernel(MathT* centers,  // [n_clusters, dim]
@@ -511,9 +566,15 @@ __launch_bounds__((raft::WarpSize * BlockDimY)) RAFT_KERNEL
 /**
  * @brief Adjust centers for clusters that have small number of entries.
  *
- * Cluster sizes are sorted, then the smallest clusters are paired with the largest clusters. For
- * each pair where the small cluster is underfull or the large cluster is overfull, the small
- * cluster center is moved towards a data point from the large cluster.
+ * With SizeSorted donor selection, cluster sizes are sorted, then the smallest clusters are paired
+ * with the largest clusters. For each pair where the small cluster is underfull or the large
+ * cluster is overfull, the small cluster center is moved towards a data point from the large
+ * cluster.
+ *
+ * With Random donor selection, underfull clusters are reinitialized from random data points whose
+ * current cluster size is at least the average cluster size. This matches the historical
+ * rebalancing behavior used by IVF-PQ, but the upper balance threshold does not control donor
+ * selection in this mode.
  *
  * NB: if this function returns `true`, you should update the labels.
  *
@@ -563,6 +624,7 @@ auto adjust_centers(const raft::resources& handle,
                     MathT balance_lower_tolerance,
                     MathT balance_upper_tolerance,
                     MathT centroid_offset,
+                    cuvs::cluster::kmeans::balanced_donor_selection donor_selection,
                     MappingOpT mapping_op,
                     rmm::device_async_resource_ref device_memory) -> bool
 {
@@ -617,13 +679,34 @@ auto adjust_centers(const raft::resources& handle,
 
   rmm::device_uvector<IdxT> receiver_clusters(n_pairs, stream, device_memory);
   rmm::device_uvector<IdxT> donor_clusters(n_pairs, stream, device_memory);
-  raft::update_device(receiver_clusters.data(), host_receiver_clusters.data(), n_pairs, stream);
-  raft::update_device(donor_clusters.data(), host_donor_clusters.data(), n_pairs, stream);
-
   constexpr uint32_t kBlockDimY = 4;
   const dim3 block_dim(raft::WarpSize, kBlockDimY, 1);
-  const dim3 grid_dim(raft::ceildiv(n_pairs, static_cast<IdxT>(kBlockDimY)), 1, 1);
   rmm::device_scalar<IdxT> update_count(0, stream, device_memory);
+
+  if (donor_selection == cuvs::cluster::kmeans::balanced_donor_selection::Random) {
+    rmm::device_scalar<IdxT> search_count(0, stream, device_memory);
+    const dim3 grid_dim(raft::ceildiv(n_clusters, static_cast<IdxT>(kBlockDimY)), 1, 1);
+    adjust_centers_random_donor_kernel<kBlockDimY>
+      <<<grid_dim, block_dim, 0, stream>>>(centers,
+                                           n_clusters,
+                                           dim,
+                                           dataset,
+                                           n_rows,
+                                           labels,
+                                           cluster_sizes,
+                                           lower_threshold,
+                                           static_cast<IdxT>(n_rows / n_clusters),
+                                           centroid_offset,
+                                           ofst,
+                                           search_count.data(),
+                                           update_count.data(),
+                                           mapping_op);
+    return update_count.value(stream) > 0;  // NB: rmm scalar performs the sync
+  }
+
+  raft::update_device(receiver_clusters.data(), host_receiver_clusters.data(), n_pairs, stream);
+  raft::update_device(donor_clusters.data(), host_donor_clusters.data(), n_pairs, stream);
+  const dim3 grid_dim(raft::ceildiv(n_pairs, static_cast<IdxT>(kBlockDimY)), 1, 1);
   adjust_centers_kernel<kBlockDimY><<<grid_dim, block_dim, 0, stream>>>(centers,
                                                                         n_pairs,
                                                                         dim,
@@ -726,6 +809,7 @@ void balancing_em_iters(const raft::resources& handle,
                                    balance_lower_tolerance,
                                    balance_upper_tolerance,
                                    static_cast<MathT>(params.centroid_offset),
+                                   params.donor_selection,
                                    mapping_op,
                                    device_memory)) {
       if (balancing_counter++ >= balancing_pullback) {
@@ -1171,9 +1255,17 @@ void build_hierarchical(const raft::resources& handle,
   // possibility that the clusters could be unbalanced here, in which case the actual number of
   // iterations would be increased.
   //
+  uint32_t n_iters            = std::max<uint32_t>(params.n_iters / 10, 2);
+  const float relaxing_factor = 1.0f;
+  MathT balance_lower_tolerance =
+    static_cast<MathT>(params.balance_lower_tolerance * relaxing_factor);
+  MathT balance_upper_tolerance =
+    static_cast<MathT>(params.balance_upper_tolerance / relaxing_factor);
+  RAFT_LOG_DEBUG(
+    "n_iters: %u, tolerance: %f, %f\n", n_iters, balance_lower_tolerance, balance_upper_tolerance);
   balancing_em_iters(handle,
                      params,
-                     std::max<uint32_t>(params.n_iters / 10, 2),
+                     n_iters,
                      dim,
                      dataset,
                      dataset_norm,
@@ -1183,8 +1275,8 @@ void build_hierarchical(const raft::resources& handle,
                      labels.data(),
                      cluster_sizes.data(),
                      5,
-                     static_cast<MathT>(params.balance_lower_tolerance),
-                     static_cast<MathT>(params.balance_upper_tolerance),
+                     balance_lower_tolerance,
+                     balance_upper_tolerance,
                      mapping_op,
                      device_memory);
 

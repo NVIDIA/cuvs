@@ -166,6 +166,11 @@ struct params : base_params {
  *  - L2Expanded
  *  - L2SqrtExpanded
  */
+/**
+ * Donor selection strategy used by balanced k-means rebalancing.
+ */
+enum class balanced_donor_selection { SizeSorted = 0, Random = 1 };
+
 struct balanced_params : base_params {
   /**
    * Number of training iterations
@@ -198,6 +203,14 @@ struct balanced_params : base_params {
    * Valid range: (0, 1].
    */
   float centroid_offset = 0.01f;
+
+  /**
+   * Donor cluster selection strategy used when reinitializing underfull clusters. `SizeSorted`
+   * pairs the smallest clusters with the largest clusters and uses `balance_upper_tolerance` to
+   * identify overfull donors. `Random` selects donor points from clusters at least as large as the
+   * average cluster size; in that mode, `balance_upper_tolerance` does not control donor selection.
+   */
+  balanced_donor_selection donor_selection = balanced_donor_selection::SizeSorted;
 };
 
 /**
