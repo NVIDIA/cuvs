@@ -1401,6 +1401,8 @@ auto build_ace(raft::resources const& res,
         ef_construction,
         cuvs::neighbors::cagra::hnsw_heuristic_type::SAME_GRAPH_FOOTPRINT,
         params.metric);
+      // avoid rounding down graph_degree via heuristics doing `(graph_degree / 2) * 2`
+      sub_index_params.graph_degree           = graph_degree;
       sub_index_params.guarantee_connectivity = params.guarantee_connectivity;
 
       // Copy host partition to device with padding; build_from_device_matrix accepts
