@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2022-2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -213,3 +213,44 @@ def test_prefiltered_brute_force_knn(
         np.testing.assert_allclose(
             cpu_ordered[:k], gpu_dists, atol=1e-3, rtol=1e-3
         )
+
+
+@pytest.mark.parametrize("metric", ["sqeuclidean", "euclidean"])
+def test_brute_force_knn_two_pass(metric):
+    n_index_rows = 100
+    n_query_rows = 10
+    n_cols = 10
+    k = 5
+    dtype = np.float32
+
+    index = np.random.random_sample((n_index_rows, n_cols)).astype(dtype)
+    queries = np.random.random_sample((n_query_rows, n_cols)).astype(dtype)
+
+    index_device = device_ndarray(index)
+    queries_device = device_ndarray(queries)
+
+    brute_force_index = brute_force.build(index_device, metric)
+
+    # Search with two_pass_precision=True
+    distances_device, indices_device = brute_force.search(
+        brute_force_index,
+        queries_device,
+        k,
+        two_pass_precision=True,
+    )
+
+    actual_distances = distances_device.copy_to_host()
+    actual_indices = indices_device.copy_to_host()
+
+    # Manual verification
+    for i in range(n_query_rows):
+        for j in range(k):
+            idx = actual_indices[i, j]
+            diff = queries[i] - index[idx]
+            expected_dist = np.sum(diff * diff)
+            if metric == "euclidean":
+                expected_dist = np.sqrt(expected_dist)
+
+            np.testing.assert_allclose(
+                actual_distances[i, j], expected_dist, atol=1e-5
+            )

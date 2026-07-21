@@ -1,9 +1,10 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 #
 # cython: language_level=3
 
+import cupy as cp
 import numpy as np
 
 cimport cuvs.common.cydlpack
@@ -39,6 +40,9 @@ cdef class Index:
 
     cdef cuvsBruteForceIndex_t index
     cdef bool trained
+    cdef object dataset
+    cdef object metric
+    cdef float metric_arg
 
     def __cinit__(self):
         self.trained = False
@@ -111,8 +115,58 @@ def build(dataset, metric="sqeuclidean", metric_arg=2.0, resources=None):
             idx.index
         ))
         idx.trained = True
+        idx.dataset = dataset
+        idx.metric = metric
+        idx.metric_arg = metric_arg
 
     return idx
+
+
+def _maybe_apply_two_pass_precision(queries, distances, neighbors,
+                                    dataset, metric, metric_arg):
+    if not (
+        metric == "euclidean" or
+        metric == "sqeuclidean" or
+        metric == "l2" or
+        (metric == "minkowski" and metric_arg == 2.0) or
+        (metric == "lp" and metric_arg == 2.0)
+    ):
+        return distances, neighbors
+
+    # Wrap arrays in cupy
+    queries_cp = cp.asarray(queries)
+    neighbors_indices_cp = cp.asarray(neighbors)
+    dataset_cp = cp.asarray(dataset)
+
+    # Get the neighbor vectors
+    # neighbors_indices_cp has shape (n_queries, k)
+    # dataset_cp has shape (n_samples, dim)
+    # neighbor_vectors will have shape (n_queries, k, dim)
+    neighbor_vectors = dataset_cp[neighbors_indices_cp]
+
+    # Calculate exact L2 distances
+    # queries_cp[:, cp.newaxis, :] has shape (n_queries, 1, dim)
+    diff = neighbor_vectors - queries_cp[:, cp.newaxis, :]
+    new_distances_cp = cp.sum(diff * diff, axis=2)
+
+    if metric == "euclidean" or metric == "l2":
+        new_distances_cp = cp.sqrt(new_distances_cp)
+
+    # Re-sort
+    sort_indices = cp.argsort(new_distances_cp, axis=1)
+    new_distances_cp = cp.take_along_axis(new_distances_cp, sort_indices, axis=1)
+    neighbors_indices_cp = cp.take_along_axis(neighbors_indices_cp,
+                                              sort_indices, axis=1)
+
+    # Update in-place
+    # Since these are device_ndarray (CAI), we can use cupy to copy data back
+    distances_out = cp.asarray(distances)
+    neighbors_out = cp.asarray(neighbors)
+
+    distances_out[:] = new_distances_cp
+    neighbors_out[:] = neighbors_indices_cp
+
+    return distances, neighbors
 
 
 @auto_sync_resources
@@ -123,7 +177,8 @@ def search(Index index,
            neighbors=None,
            distances=None,
            resources=None,
-           prefilter=None):
+           prefilter=None,
+           two_pass_precision=False):
     """
     Find the k nearest neighbors for each query.
 
@@ -151,6 +206,10 @@ def search(Index index,
                 Each bit in `n_samples` determines whether `queries[i]`
                 should be considered for distance computation with the index.
                 (default None)
+    two_pass_precision : bool, optional (default = False)
+                When set to True, a slow second pass will be used to improve
+                the precision of results returned for searches using
+                L2-derived metrics.
     {resources_docstring}
 
     Examples
@@ -258,6 +317,17 @@ def search(Index index,
             distances_dlpack,
             prefilter.prefilter
         ))
+
+    if two_pass_precision:
+        if index.dataset is None:
+            raise ValueError("two_pass_precision requires the dataset to be "
+                             "available in the Index object. This is "
+                             "currently only supported if the index was "
+                             "built in this session.")
+        distances, neighbors = _maybe_apply_two_pass_precision(
+            queries, distances, neighbors,
+            index.dataset, index.metric, index.metric_arg
+        )
 
     return (distances, neighbors)
 
