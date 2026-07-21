@@ -29,14 +29,17 @@
 #   AWS_DEFAULT_REGION      AWS region for the S3 bucket (default: us-west-2)
 #   REMOTE_INDEX_BUILD      Override GPU/CPU mode detection (true/false); normally auto-detected
 #   REMOTE_BUILD_SIZE_MIN   Optional minimum segment size override for remote builds
+#   APPROXIMATE_THRESHOLD   Minimum vectors before approximate indexing (default: 10000)
 #   REMOTE_BUILD_TIMEOUT    Remote build wait timeout in seconds (default: 1800)
 #   REMOTE_VECTOR_REPOSITORY Optional snapshot repository name (default: vector-repo)
 #   S3_PREFIX               Optional S3 prefix for staged vectors/indexes (default: knn-indexes)
-#   DATASET                 Dataset name (default: sift-128-euclidean)
+#   DATASET                 Dataset name (default: sift-128-euclidean); MIRACL uses custom S3
 #   BENCH_GROUPS            Parameter sweep group: test | base (default: test)
 #   K                       Number of neighbors to search for (default: 10)
 #   BATCH_SIZE              Optional cuvs-bench query batch size override
 #   BUILD_BATCH_SIZE        Optional OpenSearch bulk ingest batch size override
+#   CUVS_REPOSITORY         Repository cloned into the benchmark image
+#   CUVS_BRANCH             Repository branch cloned into the benchmark image
 #
 # Usage:
 #   CPU:  docker compose up --build
@@ -108,6 +111,9 @@ services:
   bench:
     build:
       context: ./bench
+      args:
+        CUVS_REPOSITORY: ${CUVS_REPOSITORY:-https://github.com/jrbourbeau/cuvs.git}
+        CUVS_BRANCH: ${CUVS_BRANCH:-deploy-opensearch-tmp}
     depends_on:
       opensearch:
         condition: service_healthy
@@ -119,6 +125,7 @@ services:
       BUILDER_URL: http://remote-index-builder:1025
       REMOTE_INDEX_BUILD: ${REMOTE_INDEX_BUILD:-}
       REMOTE_BUILD_SIZE_MIN: ${REMOTE_BUILD_SIZE_MIN:-}
+      APPROXIMATE_THRESHOLD: ${APPROXIMATE_THRESHOLD:-10000}
       REMOTE_BUILD_TIMEOUT: ${REMOTE_BUILD_TIMEOUT:-1800}
       REMOTE_VECTOR_REPOSITORY: ${REMOTE_VECTOR_REPOSITORY:-vector-repo}
       S3_BUCKET: ${S3_BUCKET:-}

@@ -72,6 +72,7 @@ export BENCH_GROUPS=test                   # test | base (default: test)
 export K=10                                # number of neighbors (default: 10)
 export BATCH_SIZE=                         # optional query batch size override
 export BUILD_BATCH_SIZE=                   # optional bulk ingest batch size override
+export APPROXIMATE_THRESHOLD=10000         # AWS-recommended GPU indexing starting value
 export REMOTE_BUILD_TIMEOUT=1800           # seconds to wait for remote builds (default: 1800)
 ```
 
@@ -87,6 +88,27 @@ docker compose --profile gpu up --build
 
 The `bench` container logs its progress through each phase. When complete you'll see a results table followed by the paths to the generated plot PNGs under `$DATASET_PATH`.
 
+### MIRACL 5M custom dataset
+
+Set `DATASET=miracl-en-5m-1024d-fp32` to use the custom dataset from
+`s3://opensearch-cuvs-bench/miracl-en-5m-1024d-fp32/miracl-en-5m-1024d-fp32/`
+instead of a built-in cuvs-bench dataset:
+
+```bash
+export DATASET=miracl-en-5m-1024d-fp32
+export AWS_DEFAULT_REGION=us-west-2
+docker compose up --build                 # CPU build
+# or: docker compose --profile gpu up --build
+```
+
+The bench container downloads the dataset's `config.yaml` and every file it
+references—including `base.fbin`, `query.fbin`, and
+`groundtruth.neighbors.ibin`—into `$DATASET_PATH`, skipping files that are
+already present. AWS credentials are optional when the container can use an
+AWS default credential provider such as an EC2 instance role; otherwise set
+the AWS credential variables shown above. The uploaded ground-truth neighbors
+are used for the benchmark's recall calculation.
+
 To tear everything down:
 
 ```bash
@@ -99,7 +121,7 @@ docker compose down -v
 2. **GPU mode only**: Registers the S3 bucket as an OpenSearch snapshot repository
 3. **GPU mode only**: Applies cluster settings to enable remote index build and point OpenSearch at the builder service
 4. Runs `cuvs-bench` build phase (handled entirely by the OpenSearch backend):
-   - Creates the kNN index and bulk-ingests dataset vectors
+   - Creates the kNN index with `index.knn.advanced.approximate_threshold=10000` and bulk-ingests dataset vectors
    - **GPU mode**: Flushes segments, waits for all submitted remote GPU builds to complete, and polls the kNN stats API every 5 s until the build is confirmed complete
    - **CPU mode**: Flushes and refreshes the local OpenSearch index
    - Uses the backend's automatic OpenSearch bulk-ingest batch sizing by default; set `BUILD_BATCH_SIZE` to override it
@@ -124,7 +146,7 @@ Supported extensions: `.fbin` (float32), `.f16bin` (float16), `.u8bin` (uint8), 
 
 ```
 $DATASET_PATH/
-  sift-128-euclidean/
+  miracl-en-5m-1024d-fp32/
     base.fbin
     query.fbin
     groundtruth.neighbors.ibin
@@ -143,6 +165,16 @@ $DATASET_PATH/
   }
 }
 ```
+
+For GPU runs, `bench/run.py` passes `APPROXIMATE_THRESHOLD` to the OpenSearch
+backend, which sets `index.knn.advanced.approximate_threshold` in the index
+creation request. The default is `10000`, the starting value recommended by
+AWS to avoid smaller segment index builds.
+
+The benchmark image clones `CUVS_BRANCH=deploy-opensearch-tmp` from
+`CUVS_REPOSITORY=https://github.com/jrbourbeau/cuvs.git` so it includes the
+matching OpenSearch backend. Both values are Docker build arguments and can be
+overridden with environment variables before running Docker Compose.
 
 **Parameter groups** (`BENCH_GROUPS`):
 

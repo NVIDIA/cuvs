@@ -30,6 +30,7 @@ BUILDER_URL     = os.environ.get("BUILDER_URL",     "http://remote-index-builder
 REMOTE_INDEX_BUILD = os.environ.get("REMOTE_INDEX_BUILD", "false").lower() == "true"
 REMOTE_BUILD_SIZE_MIN = os.environ.get("REMOTE_BUILD_SIZE_MIN", "").strip()
 REMOTE_BUILD_TIMEOUT = int(os.environ.get("REMOTE_BUILD_TIMEOUT", "1800"))
+APPROXIMATE_THRESHOLD = int(os.environ.get("APPROXIMATE_THRESHOLD", "10000"))
 
 S3_BUCKET  = os.environ.get("S3_BUCKET", "").strip()
 S3_PREFIX  = os.environ.get("S3_PREFIX", "knn-indexes").strip() or "knn-indexes"
@@ -37,6 +38,7 @@ S3_REGION  = os.environ.get("AWS_DEFAULT_REGION", "us-west-2")
 
 DATASET      = os.environ.get("DATASET",       "sift-128-euclidean")
 DATASET_PATH = os.environ.get("DATASET_PATH",  "/data/datasets")
+DATASET_CONFIGURATION = os.environ.get("DATASET_CONFIGURATION", "").strip()
 BENCH_GROUPS = os.environ.get("BENCH_GROUPS",  "test")
 K            = int(os.environ.get("K", "10"))
 BATCH_SIZE = os.environ.get("BATCH_SIZE", "").strip()
@@ -274,6 +276,7 @@ def main() -> None:
         print(f"  S3 bucket          : s3://{S3_BUCKET}/{S3_PREFIX}/  (region: {S3_REGION})")
         print(f"  Repository         : {REPO_NAME}")
         print(f"  Build size minimum : {REMOTE_BUILD_SIZE_MIN or 'OpenSearch default'}")
+        print(f"  Approx. threshold  : {APPROXIMATE_THRESHOLD}")
         print(f"  Build timeout      : {REMOTE_BUILD_TIMEOUT}s")
     print(f"  Dataset            : {DATASET}  (path: {DATASET_PATH})")
     print(f"  Algorithm          : {ALGORITHM}")
@@ -304,6 +307,8 @@ def main() -> None:
         use_ssl=False,
         verify_certs=False,
     )
+    if DATASET_CONFIGURATION:
+        common_kwargs["dataset_configuration"] = DATASET_CONFIGURATION
 
     build_kwargs = dict(
         common_kwargs,
@@ -313,6 +318,7 @@ def main() -> None:
         build_kwargs["build_batch_size"] = BUILD_BATCH_SIZE
     if REMOTE_INDEX_BUILD:
         build_kwargs["remote_build_timeout"] = REMOTE_BUILD_TIMEOUT
+        build_kwargs["approximate_threshold"] = APPROXIMATE_THRESHOLD
         if REMOTE_BUILD_SIZE_MIN:
             build_kwargs["remote_build_size_min"] = REMOTE_BUILD_SIZE_MIN
 

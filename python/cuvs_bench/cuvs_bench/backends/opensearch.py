@@ -134,6 +134,7 @@ class OpenSearchConfigLoader(ConfigLoader):
             # Remote Index Build (OpenSearch 3.0+, faiss engine only)
             "remote_index_build",
             "remote_build_size_min",
+            "approximate_threshold",
             "remote_build_timeout",
         )
         conn_kwargs = {k: kwargs[k] for k in _conn_keys if k in kwargs}
@@ -282,6 +283,8 @@ class OpenSearchBackend(BenchmarkBackend):
           on the index at creation time, opting it into the GPU build path (default: ``False``).
         - ``remote_build_size_min`` – minimum segment size to trigger GPU build, e.g. ``"1kb"``
           (default: OpenSearch's default)
+        - ``approximate_threshold`` – minimum number of vectors in a segment before
+          building an approximate index (default: OpenSearch's default)
         - ``remote_build_timeout`` – seconds to wait for GPU build (default: ``1800``)
 
     """
@@ -348,6 +351,7 @@ class OpenSearchBackend(BenchmarkBackend):
         build_param: Dict[str, Any],
         remote_index_build: bool = False,
         remote_build_size_min: Optional[str] = None,
+        approximate_threshold: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         Construct the OpenSearch index mapping dict for k-NN.
@@ -359,8 +363,9 @@ class OpenSearchBackend(BenchmarkBackend):
         is set to ``true`` in the index settings, opting qualifying segments into
         the GPU build path. If ``remote_build_size_min`` is provided it overrides
         ``index.knn.remote_index_build.size.min``; otherwise OpenSearch's default
-        applies. The cluster-level infrastructure is assumed to be pre-configured
-        externally.
+        applies. If ``approximate_threshold`` is provided, it sets
+        ``index.knn.advanced.approximate_threshold`` when the index is created.
+        The cluster-level infrastructure is assumed to be pre-configured externally.
         """
         m = build_param.get("m", 16)
         ef_construction = build_param.get("ef_construction", 100)
@@ -397,6 +402,10 @@ class OpenSearchBackend(BenchmarkBackend):
             "number_of_shards": build_param.get("number_of_shards", 1),
             "number_of_replicas": build_param.get("number_of_replicas", 0),
         }
+        if approximate_threshold is not None:
+            index_settings["knn.advanced.approximate_threshold"] = (
+                approximate_threshold
+            )
         if remote_index_build:
             if engine != "faiss":
                 raise ValueError(
@@ -702,6 +711,7 @@ class OpenSearchBackend(BenchmarkBackend):
         build_batch_size = self.config.get("build_batch_size")
         remote_index_build = bool(self.config.get("remote_index_build", False))
         remote_build_size_min = self.config.get("remote_build_size_min")
+        approximate_threshold = self.config.get("approximate_threshold")
 
         if dry_run:
             print(
@@ -753,6 +763,7 @@ class OpenSearchBackend(BenchmarkBackend):
             build_param,
             remote_index_build,
             remote_build_size_min,
+            approximate_threshold,
         )
         self._client.indices.create(index=index_name, body=mapping)
 

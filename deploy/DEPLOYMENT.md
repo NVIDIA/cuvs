@@ -121,6 +121,7 @@ curl -X PUT http://localhost:9200/my-vectors \
   -d '{
     "settings": {
       "index.knn": true,
+      "index.knn.advanced.approximate_threshold": 10000,
       "index.knn.remote_index_build.enabled": true,
       "index.knn.remote_index_build.size.min": "1kb",
       "number_of_shards": 1,
@@ -161,6 +162,7 @@ docker compose run --rm \
   -e S3_BUCKET=${S3_BUCKET} \
   -e AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-west-2} \
   -e REMOTE_BUILD_SIZE_MIN=${REMOTE_BUILD_SIZE_MIN:-} \
+  -e APPROXIMATE_THRESHOLD=${APPROXIMATE_THRESHOLD:-10000} \
   -e REMOTE_BUILD_TIMEOUT=${REMOTE_BUILD_TIMEOUT:-1800} \
   -v $(pwd)/remote-index-build:/app/remote-index-build \
   --no-deps bench \

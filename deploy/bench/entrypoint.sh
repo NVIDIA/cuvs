@@ -2,9 +2,17 @@
 set -e
 
 DATASET="${DATASET:-sift-128-euclidean}"
+CUSTOM_DATASET="miracl-en-5m-1024d-fp32"
 BENCH_GROUPS="${BENCH_GROUPS:-test}"
 K="${K:-10}"
 ALGORITHM="opensearch_faiss_hnsw"
+
+export DATASET
+if [ "$DATASET" = "$CUSTOM_DATASET" ]; then
+    export DATASET_CONFIGURATION="/data/datasets/${DATASET}/config.yaml"
+else
+    unset DATASET_CONFIGURATION
+fi
 
 wait_for_builder() {
     builder_url="${BUILDER_URL:-http://remote-index-builder:1025}"
@@ -44,10 +52,14 @@ else
     fi
 fi
 
-# Step 1: Download dataset (skipped automatically if already present)
-python -m cuvs_bench.get_dataset \
-    --dataset "$DATASET" \
-    --dataset-path /data/datasets
+# Step 1: Prepare the selected dataset (skipped when files already exist).
+if [ "$DATASET" = "$CUSTOM_DATASET" ]; then
+    python -u prepare_custom_dataset.py
+else
+    python -m cuvs_bench.get_dataset \
+        --dataset "$DATASET" \
+        --dataset-path /data/datasets
+fi
 
 # Step 2: Run benchmark (build + search + writes result JSON files)
 python -u run.py

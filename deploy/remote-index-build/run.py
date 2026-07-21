@@ -36,6 +36,7 @@ NUM_DOCS   = 200_000
 REPO_NAME  = "vector-repo"
 REMOTE_BUILD_SIZE_MIN = os.environ.get("REMOTE_BUILD_SIZE_MIN", "").strip()
 REMOTE_BUILD_TIMEOUT = int(os.environ.get("REMOTE_BUILD_TIMEOUT", "1800"))
+APPROXIMATE_THRESHOLD = int(os.environ.get("APPROXIMATE_THRESHOLD", "10000"))
 
 session = requests.Session()
 session.headers.update({"Content-Type": "application/json"})
@@ -93,6 +94,7 @@ def create_index() -> None:
 
     index_settings = {
         "index.knn": True,
+        "index.knn.advanced.approximate_threshold": APPROXIMATE_THRESHOLD,
         "index.knn.remote_index_build.enabled": True,
         "number_of_shards": 1,
         "number_of_replicas": 0,
@@ -311,6 +313,7 @@ def main() -> None:
         "engine=faiss  method=hnsw  space=l2"
     )
     print(f"  Build size minimum: {REMOTE_BUILD_SIZE_MIN or 'OpenSearch default'}")
+    print(f"  Approx. threshold : {APPROXIMATE_THRESHOLD}")
     print(f"  Build timeout: {REMOTE_BUILD_TIMEOUT}s")
 
     register_repository()

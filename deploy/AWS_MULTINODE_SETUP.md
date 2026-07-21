@@ -330,7 +330,7 @@ Still on the client node:
 ```bash
 export REMOTE_INDEX_BUILD=true
 export DATASET_PATH="$(pwd)/opensearch-cuvs-datasets"
-export DATASET=sift-128-euclidean
+export DATASET=miracl-en-5m-1024d-fp32
 export BENCH_GROUPS=test
 export K=10
 export BATCH_SIZE=

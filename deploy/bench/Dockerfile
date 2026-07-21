@@ -1,6 +1,9 @@
 FROM python:3.11-slim
 WORKDIR /app
 
+ARG CUVS_REPOSITORY=https://github.com/jrbourbeau/cuvs.git
+ARG CUVS_BRANCH=deploy-opensearch-tmp
+
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git \
     && rm -rf /var/lib/apt/lists/*
@@ -10,7 +13,8 @@ RUN apt-get update \
 # nvcc, and cuvs_bench declares a hard dep on the `cuvs` CUDA package).
 # The opensearch backend is pure Python and needs neither, so we add the
 # package directly to PYTHONPATH and install only the actual runtime deps.
-RUN git clone --depth=1 --filter=blob:none --sparse https://github.com/rapidsai/cuvs.git /opt/cuvs \
+RUN git clone --depth=1 --filter=blob:none --sparse \
+      --branch "${CUVS_BRANCH}" "${CUVS_REPOSITORY}" /opt/cuvs \
     && cd /opt/cuvs \
     && git sparse-checkout set python/cuvs_bench
 
@@ -33,5 +37,5 @@ RUN pip install --no-cache-dir \
     scikit-learn \
     scipy
 
-COPY --chmod=755 run.py entrypoint.sh .
+COPY --chmod=755 run.py entrypoint.sh prepare_custom_dataset.py .
 CMD ["/app/entrypoint.sh"]
