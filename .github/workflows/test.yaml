@@ -95,6 +95,9 @@ jobs:
       matrix: ${{ fromJSON(needs.conda-java-build-and-tests-matrix.outputs.matrix) }}
     with:
       build_type: ${{ inputs.build_type }}
+      branch: ${{ inputs.branch }}
+      date: ${{ inputs.date }}
+      sha: ${{ inputs.sha }}
       node_type: "gpu-l4-latest-1"
       arch: "amd64"
       container_image: "rapidsai/ci-conda:26.10-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
