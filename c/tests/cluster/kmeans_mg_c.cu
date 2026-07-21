@@ -41,9 +41,9 @@ float kExpectedCentroids[kNClusters * kNFeatures] = {1.5f, 1.5f, 10.5f, 10.5f};
 constexpr double kExpectedInertia = 4.0;
 
 struct kmeans_mg_api {
-  using params_t = cuvsKMeansParams_t;
-  static cuvsError_t params_create(params_t* p) { return cuvsKMeansParamsCreate(p); }
-  static cuvsError_t params_destroy(params_t p) { return cuvsKMeansParamsDestroy(p); }
+  using params_t = cuvsKMeansParams_v2_t;
+  static cuvsError_t params_create(params_t* p) { return cuvsKMeansParamsCreate_v2(p); }
+  static cuvsError_t params_destroy(params_t p) { return cuvsKMeansParamsDestroy_v2(p); }
   static cuvsError_t fit(cuvsResources_t res,
                          params_t params,
                          DLManagedTensor* dataset,
