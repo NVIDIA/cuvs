@@ -740,11 +740,12 @@ CUVS_EXPORT cuvsError_t cuvsCagraSearch(cuvsResources_t res,
  *                            in the corresponding partition's dataset
  * @param[out] distances      DLManagedTensor* (device, float32, [n_queries, k]); post-processed
  *                            distance for each (query, neighbor)
- * @param[in]  filter         filter to apply during search; use {.type=NO_FILTER, .addr=0} for
- *                            unfiltered search, or {.type=BITSET, .addr=ptr} where ptr is a
- *                            uintptr_t-cast DLManagedTensor* holding the concatenation of the
- *                            per-partition bitsets (each word-aligned). Per-partition bit offsets
- *                            are recomputed internally from the index sizes.
+ * @param[in]  filters        array of `num_partitions` filters, one per partition (or NULL for a
+ *                            fully unfiltered search). `filters[i]` applies to partition `i`: use
+ *                            {.type=NO_FILTER, .addr=0} for no filter on that partition, or
+ *                            {.type=BITSET, .addr=ptr} where ptr is a uintptr_t-cast
+ *                            DLManagedTensor* holding that partition's own bitset (one bit per
+ *                            vector in that partition; standard 32-bit packing).
  */
 CUVS_EXPORT cuvsError_t cuvsCagraSearchMultiPartition(cuvsResources_t res,
                                                       cuvsCagraSearchParams_t params,
@@ -754,7 +755,7 @@ CUVS_EXPORT cuvsError_t cuvsCagraSearchMultiPartition(cuvsResources_t res,
                                                       DLManagedTensor* partition_ids,
                                                       DLManagedTensor* neighbors,
                                                       DLManagedTensor* distances,
-                                                      cuvsFilter filter);
+                                                      cuvsFilter* filters);
 
 /**
  * @}

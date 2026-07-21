@@ -18,6 +18,7 @@
 #include <raft/core/resources.hpp>
 #include <raft/util/cudart_utils.hpp>
 
+#include <cuvs/core/bitset.hpp>
 #include <cuvs/distance/distance.hpp>
 
 #include <cuvs/neighbors/cagra.hpp>
@@ -293,6 +294,7 @@ void search_multi_partition(
   raft::device_matrix_view<uint32_t, int64_t, raft::row_major> partition_ids,
   raft::device_matrix_view<OutputIdxT, int64_t, raft::row_major> neighbors,
   raft::device_matrix_view<DistanceT, int64_t, raft::row_major> distances,
+  const std::vector<cuvs::core::bitset_view<std::uint32_t, int64_t>>& partition_bitsets,
   CagraSampleFilterT sample_filter = CagraSampleFilterT{})
 {
   static_assert(std::is_same_v<IdxT, uint32_t>, "Only uint32_t graph index type is supported");
@@ -384,24 +386,10 @@ void search_multi_partition(
 
   using CagraSampleFilterT_s = typename CagraSampleFilterT_Selector<CagraSampleFilterT>::type;
 
-  // Word-aligned (64-bit) prefix sum of per-partition sizes: the starting bit offset of partition i
-  // in the combined filter bitset. Recomputed here (rather than transported) and must match the
-  // host-side packing; consumed by both algo branches via multi_partition_desc_t::bit_offset.
-  std::vector<int64_t> partition_bit_offsets(num_partitions);
-  int64_t total_filter_bits = 0;
-  for (uint32_t i = 0; i < num_partitions; i++) {
-    partition_bit_offsets[i] = total_filter_bits;
-    total_filter_bits += ((indices[i]->data().n_rows() + 63) / 64) * 64;
-  }
-  // A bitset filter must be large enough to cover every partition's slice (catches a mismatch
-  // between the caller's packed bitset and the index sizes being searched).
-  if constexpr (requires { sample_filter.view(); }) {
-    RAFT_EXPECTS(
-      total_filter_bits <= static_cast<int64_t>(sample_filter.view().size()),
-      "Combined filter bitset (%ld bits) is too small for the partition sizes (%ld bits)",
-      static_cast<int64_t>(sample_filter.view().size()),
-      total_filter_bits);
-  }
+  // Each partition supplies its own filter bitset via partition_bitsets[i] (an empty view means no
+  // filter for that partition); the descriptor fill below points each partition at its own buffer.
+  RAFT_EXPECTS(partition_bitsets.empty() || partition_bitsets.size() == num_partitions,
+               "partition_bitsets must be empty (unfiltered) or have one entry per partition");
 
   constexpr float kScale = cuvs::spatial::knn::detail::utils::config<T>::kDivisor /
                            cuvs::spatial::knn::detail::utils::config<DistanceT>::kDivisor;
@@ -610,7 +598,26 @@ void search_multi_partition(
       host_part_descs[i].dataset_desc = part_dataset_descs.back().dev_ptr(stream);
       host_part_descs[i].graph        = indices[i]->graph().data_handle();
       host_part_descs[i].graph_degree = static_cast<uint32_t>(indices[i]->graph().extent(1));
-      host_part_descs[i].bit_offset   = partition_bit_offsets[i];
+      // This partition's own filter bitset (its own device buffer); an empty view = no filter here.
+      const int64_t part_n_rows = indices[i]->data().n_rows();
+      if (i < partition_bitsets.size() && partition_bitsets[i].data() != nullptr &&
+          partition_bitsets[i].size() > 0) {
+        RAFT_EXPECTS(static_cast<int64_t>(partition_bitsets[i].size()) >= part_n_rows,
+                     "Partition %u filter bitset (%ld bits) is too small for its %ld rows",
+                     i,
+                     static_cast<int64_t>(partition_bitsets[i].size()),
+                     part_n_rows);
+        RAFT_EXPECTS(partition_bitsets[i].get_original_nbits() == 0 ||
+                       partition_bitsets[i].get_original_nbits() == 32,
+                     "Multi-partition bitset filter must use standard 32-bit packing");
+        host_part_descs[i].bitset_ptr     = const_cast<std::uint32_t*>(partition_bitsets[i].data());
+        host_part_descs[i].bitset_len     = part_n_rows;
+        host_part_descs[i].original_nbits = 0;
+      } else {
+        host_part_descs[i].bitset_ptr     = nullptr;
+        host_part_descs[i].bitset_len     = 0;
+        host_part_descs[i].original_nbits = 0;
+      }
     }
 
     lightweight_uvector<part_desc_t> dev_part_descs_buf(res);
@@ -674,7 +681,26 @@ void search_multi_partition(
       host_part_descs[i].dataset_desc = part_dataset_descs.back().dev_ptr(stream);
       host_part_descs[i].graph        = indices[i]->graph().data_handle();
       host_part_descs[i].graph_degree = static_cast<uint32_t>(indices[i]->graph().extent(1));
-      host_part_descs[i].bit_offset   = partition_bit_offsets[i];
+      // This partition's own filter bitset (its own device buffer); an empty view = no filter here.
+      const int64_t part_n_rows = indices[i]->data().n_rows();
+      if (i < partition_bitsets.size() && partition_bitsets[i].data() != nullptr &&
+          partition_bitsets[i].size() > 0) {
+        RAFT_EXPECTS(static_cast<int64_t>(partition_bitsets[i].size()) >= part_n_rows,
+                     "Partition %u filter bitset (%ld bits) is too small for its %ld rows",
+                     i,
+                     static_cast<int64_t>(partition_bitsets[i].size()),
+                     part_n_rows);
+        RAFT_EXPECTS(partition_bitsets[i].get_original_nbits() == 0 ||
+                       partition_bitsets[i].get_original_nbits() == 32,
+                     "Multi-partition bitset filter must use standard 32-bit packing");
+        host_part_descs[i].bitset_ptr     = const_cast<std::uint32_t*>(partition_bitsets[i].data());
+        host_part_descs[i].bitset_len     = part_n_rows;
+        host_part_descs[i].original_nbits = 0;
+      } else {
+        host_part_descs[i].bitset_ptr     = nullptr;
+        host_part_descs[i].bitset_len     = 0;
+        host_part_descs[i].original_nbits = 0;
+      }
     }
 
     lightweight_uvector<part_desc_t> dev_part_descs_buf(res);

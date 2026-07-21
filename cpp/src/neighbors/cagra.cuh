@@ -19,6 +19,7 @@
 #include <raft/linalg/norm.cuh>
 #include <raft/linalg/reduce.cuh>
 
+#include <cuvs/core/bitset.hpp>
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/cagra.hpp>
 
@@ -427,18 +428,16 @@ index<T, IdxT> merge(raft::resources const& handle,
   return cagra::detail::merge<T, IdxT>(handle, params, indices, row_filter);
 }
 
-template <typename T,
-          typename IdxT               = uint32_t,
-          typename OutputIdxT         = uint32_t,
-          typename CagraSampleFilterT = cuvs::neighbors::filtering::none_sample_filter>
-void search(raft::resources const& res,
-            search_params const& params,
-            const std::vector<const index<T, IdxT>*>& indices,
-            raft::device_matrix_view<const T, int64_t, raft::row_major> queries,
-            raft::device_matrix_view<uint32_t, int64_t, raft::row_major> partition_ids,
-            raft::device_matrix_view<OutputIdxT, int64_t, raft::row_major> neighbors,
-            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
-            CagraSampleFilterT sample_filter = CagraSampleFilterT{})
+template <typename T, typename IdxT = uint32_t, typename OutputIdxT = uint32_t>
+void search(
+  raft::resources const& res,
+  search_params const& params,
+  const std::vector<const index<T, IdxT>*>& indices,
+  raft::device_matrix_view<const T, int64_t, raft::row_major> queries,
+  raft::device_matrix_view<uint32_t, int64_t, raft::row_major> partition_ids,
+  raft::device_matrix_view<OutputIdxT, int64_t, raft::row_major> neighbors,
+  raft::device_matrix_view<float, int64_t, raft::row_major> distances,
+  const std::vector<cuvs::core::bitset_view<std::uint32_t, int64_t>>& partition_bitsets = {})
 {
   RAFT_EXPECTS(!indices.empty(), "At least one index partition must be provided.");
 
@@ -459,35 +458,37 @@ void search(raft::resources const& res,
                  "Number of query dimensions should equal number of dimensions in the index.");
   }
 
-  cagra::detail::search_multi_partition<T, OutputIdxT, IdxT, float, CagraSampleFilterT>(
-    res, params, indices, queries, partition_ids, neighbors, distances, sample_filter);
-}
-
-template <typename T, typename IdxT = uint32_t, typename OutputIdxT = uint32_t>
-void search(raft::resources const& res,
-            search_params const& params,
-            const std::vector<const index<T, IdxT>*>& indices,
-            raft::device_matrix_view<const T, int64_t, raft::row_major> queries,
-            raft::device_matrix_view<uint32_t, int64_t, raft::row_major> partition_ids,
-            raft::device_matrix_view<OutputIdxT, int64_t, raft::row_major> neighbors,
-            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
-            const cuvs::neighbors::filtering::base_filter& sample_filter_ref)
-{
-  try {
-    using none_filter_t = cuvs::neighbors::filtering::none_sample_filter;
-    auto& f             = dynamic_cast<const none_filter_t&>(sample_filter_ref);
-    return search<T, IdxT, OutputIdxT, none_filter_t>(
-      res, params, indices, queries, partition_ids, neighbors, distances, f);
-  } catch (const std::bad_cast&) {
+  // Select the kernel by filter type: with no per-partition bitset use the (faster) none path;
+  // otherwise use the bitset path (a partition with no filter has an empty view = accept-all). The
+  // representative filter only selects the kernel — the per-partition bitset data is carried in the
+  // partition descriptors, not in this filter.
+  const cuvs::core::bitset_view<std::uint32_t, int64_t>* rep = nullptr;
+  for (const auto& v : partition_bitsets) {
+    if (v.data() != nullptr && v.size() > 0) {
+      rep = &v;
+      break;
+    }
   }
 
-  try {
-    using bitset_filter_t = cuvs::neighbors::filtering::bitset_filter<uint32_t, int64_t>;
-    auto& f               = dynamic_cast<const bitset_filter_t&>(sample_filter_ref);
-    return search<T, IdxT, OutputIdxT, bitset_filter_t>(
-      res, params, indices, queries, partition_ids, neighbors, distances, f);
-  } catch (const std::bad_cast&) {
-    RAFT_FAIL("Unsupported sample filter type for multi-partition search");
+  if (rep == nullptr) {
+    cagra::detail::search_multi_partition<T,
+                                          OutputIdxT,
+                                          IdxT,
+                                          float,
+                                          cuvs::neighbors::filtering::none_sample_filter>(
+      res, params, indices, queries, partition_ids, neighbors, distances, partition_bitsets);
+  } else {
+    using bitset_filter_t = cuvs::neighbors::filtering::bitset_filter<std::uint32_t, int64_t>;
+    cagra::detail::search_multi_partition<T, OutputIdxT, IdxT, float, bitset_filter_t>(
+      res,
+      params,
+      indices,
+      queries,
+      partition_ids,
+      neighbors,
+      distances,
+      partition_bitsets,
+      bitset_filter_t{*rep});
   }
 }
 

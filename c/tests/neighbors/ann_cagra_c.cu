@@ -874,10 +874,6 @@ TEST(CagraC, BuildSearchMultiPartition)
   distances_tensor.dl_tensor.shape              = out_shape;
   distances_tensor.dl_tensor.strides            = nullptr;
 
-  cuvsFilter filter;
-  filter.type = NO_FILTER;
-  filter.addr = (uintptr_t)NULL;
-
   cuvsCagraSearchParams_t search_params;
   cuvsCagraSearchParamsCreate(&search_params);
   ASSERT_EQ(cuvsCagraSearchMultiPartition(res,
@@ -888,7 +884,7 @@ TEST(CagraC, BuildSearchMultiPartition)
                                           &partition_ids_tensor,
                                           &neighbors_tensor,
                                           &distances_tensor,
-                                          filter),
+                                          /* filters = */ nullptr),
             CUVS_SUCCESS);
 
   uint32_t partition_ids_exp[4] = {1, 0, 1, 0};
@@ -992,10 +988,6 @@ TEST(CagraC, BuildSearchMultiPartitionInt64Neighbors)
   distances_tensor.dl_tensor.shape              = out_shape;
   distances_tensor.dl_tensor.strides            = nullptr;
 
-  cuvsFilter filter;
-  filter.type = NO_FILTER;
-  filter.addr = (uintptr_t)NULL;
-
   cuvsCagraSearchParams_t search_params;
   cuvsCagraSearchParamsCreate(&search_params);
   ASSERT_EQ(cuvsCagraSearchMultiPartition(res,
@@ -1006,7 +998,7 @@ TEST(CagraC, BuildSearchMultiPartitionInt64Neighbors)
                                           &partition_ids_tensor,
                                           &neighbors_tensor,
                                           &distances_tensor,
-                                          filter),
+                                          /* filters = */ nullptr),
             CUVS_SUCCESS);
 
   uint32_t partition_ids_exp[4] = {1, 0, 1, 0};
@@ -1107,29 +1099,35 @@ TEST(CagraC, BuildSearchMultiPartitionFiltered)
   distances_tensor.dl_tensor.shape              = out_shape;
   distances_tensor.dl_tensor.strides            = nullptr;
 
-  // Combined bitset packed with 64-bit-word-aligned per-partition slices, matching how cuVS
-  // recomputes per-partition bit offsets from the index sizes: partition 0 occupies bits [0, 64)
-  // and partition 1 bits [64, 128); within each slice local rows 0/1 map to bits 0/1. Keeping
-  // global rows 0 and 3 (removing 1 and 2) => partition 0 = 0b01, partition 1 = 0b10.
-  uint32_t combined_bits[4] = {0b01u, 0u, 0b10u, 0u};
-  rmm::device_uvector<uint32_t> combined_bitset_d(4, stream);
-  raft::copy(combined_bitset_d.data(), combined_bits, 4, stream);
-  DLManagedTensor combined_bitset_tensor;
-  combined_bitset_tensor.dl_tensor.data               = combined_bitset_d.data();
-  combined_bitset_tensor.dl_tensor.device.device_type = kDLCUDA;
-  combined_bitset_tensor.dl_tensor.ndim               = 1;
-  combined_bitset_tensor.dl_tensor.dtype.code         = kDLUInt;
-  combined_bitset_tensor.dl_tensor.dtype.bits         = 32;
-  combined_bitset_tensor.dl_tensor.dtype.lanes        = 1;
-  int64_t combined_bitset_shape[1]                    = {4};
-  combined_bitset_tensor.dl_tensor.shape              = combined_bitset_shape;
-  combined_bitset_tensor.dl_tensor.strides            = nullptr;
+  // Each partition supplies its OWN bitset (one bit per row in that partition). Keeping global rows
+  // 0 and 3 (removing 1 and 2) => partition 0 keeps local row 0 (0b01), partition 1 keeps local
+  // row 1 (0b10).
+  uint32_t part0_bits[1] = {0b01u};
+  uint32_t part1_bits[1] = {0b10u};
+  rmm::device_uvector<uint32_t> part0_bitset_d(1, stream);
+  rmm::device_uvector<uint32_t> part1_bitset_d(1, stream);
+  raft::copy(part0_bitset_d.data(), part0_bits, 1, stream);
+  raft::copy(part1_bitset_d.data(), part1_bits, 1, stream);
 
-  // Per-partition bit offsets are recomputed inside cuVS from the index sizes, so the filter is a
-  // plain BITSET over the combined device bitset.
-  cuvsFilter filter_obj;
-  filter_obj.type = BITSET;
-  filter_obj.addr = (uintptr_t)&combined_bitset_tensor;
+  int64_t part_bitset_shape[1] = {1};
+  DLManagedTensor part0_bitset_tensor;
+  part0_bitset_tensor.dl_tensor.data               = part0_bitset_d.data();
+  part0_bitset_tensor.dl_tensor.device.device_type = kDLCUDA;
+  part0_bitset_tensor.dl_tensor.ndim               = 1;
+  part0_bitset_tensor.dl_tensor.dtype.code         = kDLUInt;
+  part0_bitset_tensor.dl_tensor.dtype.bits         = 32;
+  part0_bitset_tensor.dl_tensor.dtype.lanes        = 1;
+  part0_bitset_tensor.dl_tensor.shape              = part_bitset_shape;
+  part0_bitset_tensor.dl_tensor.strides            = nullptr;
+  DLManagedTensor part1_bitset_tensor              = part0_bitset_tensor;
+  part1_bitset_tensor.dl_tensor.data               = part1_bitset_d.data();
+
+  // One filter per partition, each over that partition's own bitset.
+  cuvsFilter filters[num_partitions];
+  filters[0].type = BITSET;
+  filters[0].addr = (uintptr_t)&part0_bitset_tensor;
+  filters[1].type = BITSET;
+  filters[1].addr = (uintptr_t)&part1_bitset_tensor;
 
   cuvsCagraSearchParams_t search_params;
   cuvsCagraSearchParamsCreate(&search_params);
@@ -1141,7 +1139,7 @@ TEST(CagraC, BuildSearchMultiPartitionFiltered)
                                           &partition_ids_tensor,
                                           &neighbors_tensor,
                                           &distances_tensor,
-                                          filter_obj),
+                                          filters),
             CUVS_SUCCESS);
 
   uint32_t partition_ids_exp[4] = {1, 0, 1, 0};
@@ -1241,10 +1239,6 @@ TEST(CagraC, SearchMultiPartitionMultiKernelRejected)
   distances_tensor.dl_tensor.shape              = out_shape;
   distances_tensor.dl_tensor.strides            = nullptr;
 
-  cuvsFilter filter;
-  filter.type = NO_FILTER;
-  filter.addr = (uintptr_t)NULL;
-
   cuvsCagraSearchParams_t search_params;
   cuvsCagraSearchParamsCreate(&search_params);
   search_params->algo = MULTI_KERNEL;
@@ -1257,7 +1251,7 @@ TEST(CagraC, SearchMultiPartitionMultiKernelRejected)
                                           &partition_ids_tensor,
                                           &neighbors_tensor,
                                           &distances_tensor,
-                                          filter),
+                                          nullptr),
             CUVS_ERROR);
 
   cuvsCagraSearchParamsDestroy(search_params);

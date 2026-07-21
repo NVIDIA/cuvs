@@ -14,7 +14,6 @@ using distance_t     = @distance_type@;
 using source_index_t = @source_index_type@;
 using mp_desc_t      = cuvs::neighbors::cagra::detail::multi_cta_search::
   multi_partition_desc_t<data_t, index_t, distance_t>;
-using cagra_bitset_t = cuvs::neighbors::cagra::detail::cagra_bitset<source_index_t>;
 
 }  // namespace
 
@@ -35,8 +34,7 @@ extern "C" __global__ __launch_bounds__(1024, 1) void search_multi_cta_mp(
   const std::uint32_t itopk_size,
   const std::uint32_t min_iteration,
   const std::uint32_t max_iteration,
-  const std::uint32_t query_id_offset,
-  cagra_bitset_t bitset)
+  const std::uint32_t query_id_offset)
 {
   search_multi_cta_mp_jit<data_t, index_t, distance_t, source_index_t>(partition_descs,
                                                                        result_indices_ptr,
@@ -52,8 +50,7 @@ extern "C" __global__ __launch_bounds__(1024, 1) void search_multi_cta_mp(
                                                                        itopk_size,
                                                                        min_iteration,
                                                                        max_iteration,
-                                                                       query_id_offset,
-                                                                       bitset);
+                                                                       query_id_offset);
 }
 
 static_assert(

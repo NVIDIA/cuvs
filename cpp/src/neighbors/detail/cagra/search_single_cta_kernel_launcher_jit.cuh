@@ -962,12 +962,7 @@ void select_and_run_multi_partition(
   SampleFilterT sample_filter,
   cudaStream_t stream)
 {
-  // Extract the combined bitset as a plain payload; per-partition offsets are applied in the kernel
-  // from multi_partition_desc_t::bit_offset, not carried in the filter.
-  cagra_bitset<SourceIndexT> bitset{};
-  if constexpr (requires { sample_filter.filter; }) {
-    bitset = make_cagra_bitset_filter_storage<SourceIndexT>(sample_filter.filter);
-  }
+  // The per-partition bitset views live in the partition descriptors (filled in cagra_search.cuh).
   const uint32_t query_id_offset = cagra_filter_query_id_offset(sample_filter);
 
   auto config             = compute_launch_config(num_itopk_candidates, ps.itopk_size, block_size);
@@ -1028,8 +1023,7 @@ void select_and_run_multi_partition(
       hash_bitlen_u32,
       small_hash_bitlen_u32,
       small_hash_reset_interval_u32,
-      query_id_offset,
-      bitset);
+      query_id_offset);
   };
 
   cuvs::neighbors::detail::safely_launch_kernel_with_smem_size<

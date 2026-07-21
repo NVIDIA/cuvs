@@ -2193,31 +2193,31 @@ class AnnCagraMultiPartitionTest : public ::testing::TestWithParam<AnnCagraMpInp
       index_ptrs.push_back(&idx);
     }
 
-    // cuVS recomputes per-partition bit offsets from the index sizes as a 64-bit word-aligned
-    // prefix sum, so the combined bitset must be packed with word-aligned per-partition slices.
-    // Map each removed global row to its word-aligned position (wa_offset[part] + local) and clear
-    // those bits; unlisted bits stay set (kept), matching cuvs::core::bitset semantics.
-    std::vector<int64_t> wa_offsets(ps.num_partitions, 0);
-    int64_t wa_total = 0;
+    // Each partition supplies its OWN bitset over its own rows (one bit per row). Clear the local
+    // rows that map to removed global rows [0, filter_offset); unlisted bits stay set (kept). The
+    // bitset objects are kept alive in part_bitsets; partition_bitsets holds views into them.
+    std::vector<cuvs::core::bitset<uint32_t, int64_t>> part_bitsets;
+    part_bitsets.reserve(ps.num_partitions);
+    std::vector<cuvs::core::bitset_view<uint32_t, int64_t>> partition_bitsets;
+    partition_bitsets.reserve(ps.num_partitions);
     for (int p = 0; p < ps.num_partitions; p++) {
-      wa_offsets[p] = wa_total;
-      wa_total += ((sizes[p] + 63) / 64) * 64;
-    }
-    std::vector<int64_t> removed_host;
-    removed_host.reserve(filter_offset);
-    for (int64_t g = 0; g < filter_offset; g++) {
-      int p = 0;
-      while (p + 1 < ps.num_partitions && g >= offsets[p + 1]) {
-        p++;
+      std::vector<int64_t> removed_local;
+      for (int64_t g = offsets[p]; g < offsets[p] + sizes[p] && g < filter_offset; g++) {
+        removed_local.push_back(g - offsets[p]);
       }
-      removed_host.push_back(wa_offsets[p] + (g - offsets[p]));
+      if (removed_local.empty()) {
+        // No rows removed in this partition: pass an empty view (no filter, accept all).
+        partition_bitsets.emplace_back(static_cast<uint32_t*>(nullptr), static_cast<int64_t>(0));
+        continue;
+      }
+      auto removed_p = raft::make_device_vector<int64_t, int64_t>(
+        handle_, static_cast<int64_t>(removed_local.size()));
+      raft::update_device(
+        removed_p.data_handle(), removed_local.data(), removed_local.size(), stream_);
+      raft::resource::sync_stream(handle_);
+      part_bitsets.emplace_back(handle_, removed_p.view(), sizes[p]);
+      partition_bitsets.push_back(part_bitsets.back().view());
     }
-    auto removed = raft::make_device_vector<int64_t, int64_t>(handle_, filter_offset);
-    raft::update_device(removed.data_handle(), removed_host.data(), filter_offset, stream_);
-    raft::resource::sync_stream(handle_);
-    cuvs::core::bitset<uint32_t, int64_t> combined_bitset(handle_, removed.view(), wa_total);
-
-    cuvs::neighbors::filtering::bitset_filter<uint32_t, int64_t> mp_filter(combined_bitset.view());
 
     const size_t out_size = static_cast<size_t>(ps.n_queries) * ps.k;
     rmm::device_uvector<uint32_t> partition_ids_dev(out_size, stream_);
@@ -2241,7 +2241,7 @@ class AnnCagraMultiPartitionTest : public ::testing::TestWithParam<AnnCagraMpInp
                   part_ids_view,
                   neighbors_view,
                   dists_view,
-                  mp_filter);
+                  partition_bitsets);
 
     std::vector<uint32_t> partition_ids(out_size);
     std::vector<IdxT> neighbors(out_size);

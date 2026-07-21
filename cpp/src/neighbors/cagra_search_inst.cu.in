@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <cuvs/core/bitset.hpp>
 #include <cuvs/neighbors/cagra.hpp>
 #include <neighbors/cagra.cuh>
 
@@ -32,18 +33,19 @@ CUVS_INST_CAGRA_SEARCH(data_t, uint32_t, int64_t);
 
 #undef CUVS_INST_CAGRA_SEARCH
 
-#define CUVS_INST_CAGRA_SEARCH_MULTI_PARTITION(T, IdxT, OutputIdxT)                          \
-  void search(raft::resources const& handle,                                                 \
-              cuvs::neighbors::cagra::search_params const& params,                           \
-              const std::vector<const cuvs::neighbors::cagra::index<T, IdxT>*>& indices,     \
-              raft::device_matrix_view<const T, int64_t, raft::row_major> queries,           \
-              raft::device_matrix_view<uint32_t, int64_t, raft::row_major> partition_ids,    \
-              raft::device_matrix_view<OutputIdxT, int64_t, raft::row_major> neighbors,      \
-              raft::device_matrix_view<float, int64_t, raft::row_major> distances,           \
-              const cuvs::neighbors::filtering::base_filter& sample_filter)                  \
-  {                                                                                          \
-    cuvs::neighbors::cagra::search<T, IdxT, OutputIdxT>(                                     \
-      handle, params, indices, queries, partition_ids, neighbors, distances, sample_filter); \
+#define CUVS_INST_CAGRA_SEARCH_MULTI_PARTITION(T, IdxT, OutputIdxT)                              \
+  void search(                                                                                   \
+    raft::resources const& handle,                                                               \
+    cuvs::neighbors::cagra::search_params const& params,                                         \
+    const std::vector<const cuvs::neighbors::cagra::index<T, IdxT>*>& indices,                   \
+    raft::device_matrix_view<const T, int64_t, raft::row_major> queries,                         \
+    raft::device_matrix_view<uint32_t, int64_t, raft::row_major> partition_ids,                  \
+    raft::device_matrix_view<OutputIdxT, int64_t, raft::row_major> neighbors,                    \
+    raft::device_matrix_view<float, int64_t, raft::row_major> distances,                         \
+    const std::vector<cuvs::core::bitset_view<std::uint32_t, int64_t>>& partition_bitsets)       \
+  {                                                                                              \
+    cuvs::neighbors::cagra::search<T, IdxT, OutputIdxT>(                                         \
+      handle, params, indices, queries, partition_ids, neighbors, distances, partition_bitsets); \
   }
 
 CUVS_INST_CAGRA_SEARCH_MULTI_PARTITION(data_t, uint32_t, uint32_t);

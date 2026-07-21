@@ -6,6 +6,7 @@
 #pragma once
 
 #include "common.hpp"
+#include <cuvs/core/bitset.hpp>
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/common.hpp>
 #include <cuvs/neighbors/ivf_pq.hpp>
@@ -1772,15 +1773,15 @@ void search(raft::resources const& res,
  * @param[out] distances      post-processed distance for each (query, neighbor), shape
  *                            [n_queries, k]
  */
-void search(raft::resources const& res,
-            cuvs::neighbors::cagra::search_params const& params,
-            const std::vector<const cuvs::neighbors::cagra::index<float, uint32_t>*>& indices,
-            raft::device_matrix_view<const float, int64_t, raft::row_major> queries,
-            raft::device_matrix_view<uint32_t, int64_t, raft::row_major> partition_ids,
-            raft::device_matrix_view<uint32_t, int64_t, raft::row_major> neighbors,
-            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
-            const cuvs::neighbors::filtering::base_filter& sample_filter =
-              cuvs::neighbors::filtering::none_sample_filter{});
+void search(
+  raft::resources const& res,
+  cuvs::neighbors::cagra::search_params const& params,
+  const std::vector<const cuvs::neighbors::cagra::index<float, uint32_t>*>& indices,
+  raft::device_matrix_view<const float, int64_t, raft::row_major> queries,
+  raft::device_matrix_view<uint32_t, int64_t, raft::row_major> partition_ids,
+  raft::device_matrix_view<uint32_t, int64_t, raft::row_major> neighbors,
+  raft::device_matrix_view<float, int64_t, raft::row_major> distances,
+  const std::vector<cuvs::core::bitset_view<std::uint32_t, int64_t>>& partition_bitsets = {});
 
 /**
  * @brief Search multiple CAGRA index partitions concurrently and return the global top-k per
@@ -1811,15 +1812,15 @@ void search(raft::resources const& res,
  * @param[out] distances      post-processed distance for each (query, neighbor), shape
  *                            [n_queries, k]
  */
-void search(raft::resources const& res,
-            cuvs::neighbors::cagra::search_params const& params,
-            const std::vector<const cuvs::neighbors::cagra::index<float, uint32_t>*>& indices,
-            raft::device_matrix_view<const float, int64_t, raft::row_major> queries,
-            raft::device_matrix_view<uint32_t, int64_t, raft::row_major> partition_ids,
-            raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
-            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
-            const cuvs::neighbors::filtering::base_filter& sample_filter =
-              cuvs::neighbors::filtering::none_sample_filter{});
+void search(
+  raft::resources const& res,
+  cuvs::neighbors::cagra::search_params const& params,
+  const std::vector<const cuvs::neighbors::cagra::index<float, uint32_t>*>& indices,
+  raft::device_matrix_view<const float, int64_t, raft::row_major> queries,
+  raft::device_matrix_view<uint32_t, int64_t, raft::row_major> partition_ids,
+  raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
+  raft::device_matrix_view<float, int64_t, raft::row_major> distances,
+  const std::vector<cuvs::core::bitset_view<std::uint32_t, int64_t>>& partition_bitsets = {});
 
 /**
  * @brief Search multiple CAGRA index partitions concurrently and return the global top-k per
@@ -1850,15 +1851,15 @@ void search(raft::resources const& res,
  * @param[out] distances      post-processed distance for each (query, neighbor), shape
  *                            [n_queries, k]
  */
-void search(raft::resources const& res,
-            cuvs::neighbors::cagra::search_params const& params,
-            const std::vector<const cuvs::neighbors::cagra::index<half, uint32_t>*>& indices,
-            raft::device_matrix_view<const half, int64_t, raft::row_major> queries,
-            raft::device_matrix_view<uint32_t, int64_t, raft::row_major> partition_ids,
-            raft::device_matrix_view<uint32_t, int64_t, raft::row_major> neighbors,
-            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
-            const cuvs::neighbors::filtering::base_filter& sample_filter =
-              cuvs::neighbors::filtering::none_sample_filter{});
+void search(
+  raft::resources const& res,
+  cuvs::neighbors::cagra::search_params const& params,
+  const std::vector<const cuvs::neighbors::cagra::index<half, uint32_t>*>& indices,
+  raft::device_matrix_view<const half, int64_t, raft::row_major> queries,
+  raft::device_matrix_view<uint32_t, int64_t, raft::row_major> partition_ids,
+  raft::device_matrix_view<uint32_t, int64_t, raft::row_major> neighbors,
+  raft::device_matrix_view<float, int64_t, raft::row_major> distances,
+  const std::vector<cuvs::core::bitset_view<std::uint32_t, int64_t>>& partition_bitsets = {});
 
 /**
  * @brief Search multiple CAGRA index partitions concurrently and return the global top-k per
@@ -1889,15 +1890,15 @@ void search(raft::resources const& res,
  * @param[out] distances      post-processed distance for each (query, neighbor), shape
  *                            [n_queries, k]
  */
-void search(raft::resources const& res,
-            cuvs::neighbors::cagra::search_params const& params,
-            const std::vector<const cuvs::neighbors::cagra::index<half, uint32_t>*>& indices,
-            raft::device_matrix_view<const half, int64_t, raft::row_major> queries,
-            raft::device_matrix_view<uint32_t, int64_t, raft::row_major> partition_ids,
-            raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
-            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
-            const cuvs::neighbors::filtering::base_filter& sample_filter =
-              cuvs::neighbors::filtering::none_sample_filter{});
+void search(
+  raft::resources const& res,
+  cuvs::neighbors::cagra::search_params const& params,
+  const std::vector<const cuvs::neighbors::cagra::index<half, uint32_t>*>& indices,
+  raft::device_matrix_view<const half, int64_t, raft::row_major> queries,
+  raft::device_matrix_view<uint32_t, int64_t, raft::row_major> partition_ids,
+  raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
+  raft::device_matrix_view<float, int64_t, raft::row_major> distances,
+  const std::vector<cuvs::core::bitset_view<std::uint32_t, int64_t>>& partition_bitsets = {});
 
 /**
  * @brief Search multiple CAGRA index partitions concurrently and return the global top-k per
@@ -1928,15 +1929,15 @@ void search(raft::resources const& res,
  * @param[out] distances      post-processed distance for each (query, neighbor), shape
  *                            [n_queries, k]
  */
-void search(raft::resources const& res,
-            cuvs::neighbors::cagra::search_params const& params,
-            const std::vector<const cuvs::neighbors::cagra::index<int8_t, uint32_t>*>& indices,
-            raft::device_matrix_view<const int8_t, int64_t, raft::row_major> queries,
-            raft::device_matrix_view<uint32_t, int64_t, raft::row_major> partition_ids,
-            raft::device_matrix_view<uint32_t, int64_t, raft::row_major> neighbors,
-            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
-            const cuvs::neighbors::filtering::base_filter& sample_filter =
-              cuvs::neighbors::filtering::none_sample_filter{});
+void search(
+  raft::resources const& res,
+  cuvs::neighbors::cagra::search_params const& params,
+  const std::vector<const cuvs::neighbors::cagra::index<int8_t, uint32_t>*>& indices,
+  raft::device_matrix_view<const int8_t, int64_t, raft::row_major> queries,
+  raft::device_matrix_view<uint32_t, int64_t, raft::row_major> partition_ids,
+  raft::device_matrix_view<uint32_t, int64_t, raft::row_major> neighbors,
+  raft::device_matrix_view<float, int64_t, raft::row_major> distances,
+  const std::vector<cuvs::core::bitset_view<std::uint32_t, int64_t>>& partition_bitsets = {});
 
 /**
  * @brief Search multiple CAGRA index partitions concurrently and return the global top-k per
@@ -1967,15 +1968,15 @@ void search(raft::resources const& res,
  * @param[out] distances      post-processed distance for each (query, neighbor), shape
  *                            [n_queries, k]
  */
-void search(raft::resources const& res,
-            cuvs::neighbors::cagra::search_params const& params,
-            const std::vector<const cuvs::neighbors::cagra::index<int8_t, uint32_t>*>& indices,
-            raft::device_matrix_view<const int8_t, int64_t, raft::row_major> queries,
-            raft::device_matrix_view<uint32_t, int64_t, raft::row_major> partition_ids,
-            raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
-            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
-            const cuvs::neighbors::filtering::base_filter& sample_filter =
-              cuvs::neighbors::filtering::none_sample_filter{});
+void search(
+  raft::resources const& res,
+  cuvs::neighbors::cagra::search_params const& params,
+  const std::vector<const cuvs::neighbors::cagra::index<int8_t, uint32_t>*>& indices,
+  raft::device_matrix_view<const int8_t, int64_t, raft::row_major> queries,
+  raft::device_matrix_view<uint32_t, int64_t, raft::row_major> partition_ids,
+  raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
+  raft::device_matrix_view<float, int64_t, raft::row_major> distances,
+  const std::vector<cuvs::core::bitset_view<std::uint32_t, int64_t>>& partition_bitsets = {});
 
 /**
  * @brief Search multiple CAGRA index partitions concurrently and return the global top-k per
@@ -2006,15 +2007,15 @@ void search(raft::resources const& res,
  * @param[out] distances      post-processed distance for each (query, neighbor), shape
  *                            [n_queries, k]
  */
-void search(raft::resources const& res,
-            cuvs::neighbors::cagra::search_params const& params,
-            const std::vector<const cuvs::neighbors::cagra::index<uint8_t, uint32_t>*>& indices,
-            raft::device_matrix_view<const uint8_t, int64_t, raft::row_major> queries,
-            raft::device_matrix_view<uint32_t, int64_t, raft::row_major> partition_ids,
-            raft::device_matrix_view<uint32_t, int64_t, raft::row_major> neighbors,
-            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
-            const cuvs::neighbors::filtering::base_filter& sample_filter =
-              cuvs::neighbors::filtering::none_sample_filter{});
+void search(
+  raft::resources const& res,
+  cuvs::neighbors::cagra::search_params const& params,
+  const std::vector<const cuvs::neighbors::cagra::index<uint8_t, uint32_t>*>& indices,
+  raft::device_matrix_view<const uint8_t, int64_t, raft::row_major> queries,
+  raft::device_matrix_view<uint32_t, int64_t, raft::row_major> partition_ids,
+  raft::device_matrix_view<uint32_t, int64_t, raft::row_major> neighbors,
+  raft::device_matrix_view<float, int64_t, raft::row_major> distances,
+  const std::vector<cuvs::core::bitset_view<std::uint32_t, int64_t>>& partition_bitsets = {});
 
 /**
  * @brief Search multiple CAGRA index partitions concurrently and return the global top-k per
@@ -2045,15 +2046,15 @@ void search(raft::resources const& res,
  * @param[out] distances      post-processed distance for each (query, neighbor), shape
  *                            [n_queries, k]
  */
-void search(raft::resources const& res,
-            cuvs::neighbors::cagra::search_params const& params,
-            const std::vector<const cuvs::neighbors::cagra::index<uint8_t, uint32_t>*>& indices,
-            raft::device_matrix_view<const uint8_t, int64_t, raft::row_major> queries,
-            raft::device_matrix_view<uint32_t, int64_t, raft::row_major> partition_ids,
-            raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
-            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
-            const cuvs::neighbors::filtering::base_filter& sample_filter =
-              cuvs::neighbors::filtering::none_sample_filter{});
+void search(
+  raft::resources const& res,
+  cuvs::neighbors::cagra::search_params const& params,
+  const std::vector<const cuvs::neighbors::cagra::index<uint8_t, uint32_t>*>& indices,
+  raft::device_matrix_view<const uint8_t, int64_t, raft::row_major> queries,
+  raft::device_matrix_view<uint32_t, int64_t, raft::row_major> partition_ids,
+  raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
+  raft::device_matrix_view<float, int64_t, raft::row_major> distances,
+  const std::vector<cuvs::core::bitset_view<std::uint32_t, int64_t>>& partition_bitsets = {});
 
 /**
  * @}
