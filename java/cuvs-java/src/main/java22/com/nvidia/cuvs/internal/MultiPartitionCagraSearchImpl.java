@@ -26,6 +26,7 @@ import com.nvidia.cuvs.internal.panama.cuvsFilter;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -46,18 +47,31 @@ public final class MultiPartitionCagraSearchImpl {
   private MultiPartitionCagraSearchImpl() {}
 
   /**
-   * Acquires a reference to {@code filter} for the duration of a search; the returned resource
-   * releases it on {@code close()}. Returns a no-op resource when there is no filter.
+   * Acquires a reference to every non-null handle in {@code filters} for the duration of a search;
+   * the returned resource releases them all on {@code close()}. Returns a no-op resource when there
+   * are no filters. Rolls back already-acquired references if any handle has already been released.
    *
-   * @throws IllegalStateException if the handle has already been fully released
+   * @throws IllegalStateException if a handle has already been fully released
    */
-  private static AutoCloseable acquireFilterRef(FilterBitsetHandle filter) {
-    if (filter == null) return () -> {};
-    if (!filter.tryIncRef()) {
-      throw new IllegalStateException(
-          "FilterBitsetHandle has already been released and cannot be used for search");
+  private static AutoCloseable acquireFilterRefs(List<FilterBitsetHandle> filters) {
+    if (filters == null) return () -> {};
+    List<FilterBitsetHandle> acquired = new ArrayList<>(filters.size());
+    try {
+      for (FilterBitsetHandle f : filters) {
+        if (f == null) continue;
+        if (!f.tryIncRef()) {
+          throw new IllegalStateException(
+              "FilterBitsetHandle has already been released and cannot be used for search");
+        }
+        acquired.add(f);
+      }
+    } catch (RuntimeException e) {
+      for (FilterBitsetHandle f : acquired) f.decRef();
+      throw e;
     }
-    return filter::decRef;
+    return () -> {
+      for (FilterBitsetHandle f : acquired) f.decRef();
+    };
   }
 
   public static MultiPartitionSearchResults search(
@@ -65,7 +79,7 @@ public final class MultiPartitionCagraSearchImpl {
       List<CagraIndex> indices,
       CagraQuery query,
       int k,
-      FilterBitsetHandle filter)
+      List<FilterBitsetHandle> filters)
       throws Throwable {
     int numPartitions = indices.size();
     if (numPartitions == 0) {
@@ -82,6 +96,29 @@ public final class MultiPartitionCagraSearchImpl {
       buffered[i] = (CagraIndexImpl) idx;
     }
 
+    // null/empty filters == fully unfiltered; otherwise one entry per partition (a null entry means
+    // no filter for that partition). Validate the size and handle types up front.
+    boolean hasFilters = filters != null && !filters.isEmpty();
+    if (hasFilters && filters.size() != numPartitions) {
+      throw new IllegalArgumentException(
+          "filters must be null/empty (unfiltered) or have one entry per partition ("
+              + numPartitions
+              + "); got "
+              + filters.size());
+    }
+    if (hasFilters) {
+      for (int i = 0; i < numPartitions; i++) {
+        FilterBitsetHandle f = filters.get(i);
+        if (f != null && !(f instanceof FilterBitsetHandleImpl)) {
+          throw new IllegalArgumentException(
+              "filter for partition "
+                  + i
+                  + " must be a FilterBitsetHandle created via FilterBitsetHandle.create(...); got "
+                  + f.getClass().getName());
+        }
+      }
+    }
+
     var queryVectors = (CuVSMatrixInternal) query.getQueryVectors();
     int nQueries = (int) queryVectors.size();
 
@@ -94,7 +131,7 @@ public final class MultiPartitionCagraSearchImpl {
     // Hold a reference to the filter for the whole device operation so a concurrent close() (e.g.
     // eviction from a host-level cache) cannot free its device allocation while it is still in use.
     // Released after the resources block, once the search and its stream sync have completed.
-    try (var filterRef = acquireFilterRef(filter);
+    try (var filterRefs = acquireFilterRefs(filters);
         var resourcesAccessor = resources.access()) {
       long cuvsRes = resourcesAccessor.handle();
       var cuvsStream = getStream(cuvsRes);
@@ -125,20 +162,22 @@ public final class MultiPartitionCagraSearchImpl {
           MemorySegment distancesTensor =
               prepareTensor(arena, distancesDP.handle(), outShape, kDLFloat(), 32, kDLCUDA());
 
-          MemorySegment filterSeg = cuvsFilter.allocate(arena);
-          if (filter != null) {
-            if (!(filter instanceof FilterBitsetHandleImpl impl)) {
-              throw new IllegalArgumentException(
-                  "filter must be a FilterBitsetHandle created via FilterBitsetHandle.create(...);"
-                      + " got "
-                      + filter.getClass().getName());
+          // Per-partition filters: NULL when unfiltered, else an array of one cuvsFilter per
+          // partition (NO_FILTER for a null entry, BITSET pointing at that partition's own bitset).
+          MemorySegment filtersArg = MemorySegment.NULL;
+          if (hasFilters) {
+            filtersArg = cuvsFilter.allocateArray(numPartitions, arena);
+            for (int i = 0; i < numPartitions; i++) {
+              MemorySegment filterSeg = cuvsFilter.asSlice(filtersArg, i);
+              FilterBitsetHandle f = filters.get(i);
+              if (f != null) {
+                FilterBitsetHandleImpl.DeviceData dev = ((FilterBitsetHandleImpl) f).getOrUpload();
+                buildCuvsFilterStruct(arena, filterSeg, dev.combinedBitsetDP.handle(), dev.combinedWords);
+              } else {
+                cuvsFilter.type(filterSeg, 0 /* NO_FILTER */);
+                cuvsFilter.addr(filterSeg, 0L);
+              }
             }
-            FilterBitsetHandleImpl.DeviceData dev = impl.getOrUpload();
-            buildCuvsFilterStruct(
-                arena, filterSeg, dev.combinedBitsetDP.handle(), dev.combinedWords);
-          } else {
-            cuvsFilter.type(filterSeg, 0 /* NO_FILTER */);
-            cuvsFilter.addr(filterSeg, 0L);
           }
 
           checkCuVSError(
@@ -151,7 +190,7 @@ public final class MultiPartitionCagraSearchImpl {
                   partitionIdsTensor,
                   neighborsTensor,
                   distancesTensor,
-                  filterSeg),
+                  filtersArg),
               "cuvsCagraSearchMultiPartition");
         }
 
@@ -213,21 +252,16 @@ public final class MultiPartitionCagraSearchImpl {
   }
 
   /**
-   * Populates a {@code cuvsFilter} MemorySegment for a multi-partition search. The combined bitset
-   * (concatenation of the per-partition bitsets) is passed as a plain {@code BITSET} filter whose
-   * address is the DLPack tensor; cuVS recomputes the per-partition bit offsets from the index
-   * sizes.
+   * Populates one {@code cuvsFilter} struct for a single partition: a plain {@code BITSET} filter
+   * whose address is a DLPack tensor over that partition's own device bitset.
    */
   private static void buildCuvsFilterStruct(
-      Arena arena,
-      MemorySegment filterSeg,
-      MemorySegment combinedBitsetHandle,
-      long combinedWords) {
-    long[] bitsetShape = {combinedWords};
-    MemorySegment combinedBitsetTensor =
-        prepareTensor(arena, combinedBitsetHandle, bitsetShape, kDLUInt(), 32, kDLCUDA());
+      Arena arena, MemorySegment filterSeg, MemorySegment bitsetHandle, long words) {
+    long[] bitsetShape = {words};
+    MemorySegment bitsetTensor =
+        prepareTensor(arena, bitsetHandle, bitsetShape, kDLUInt(), 32, kDLCUDA());
 
     cuvsFilter.type(filterSeg, 1 /* BITSET */);
-    cuvsFilter.addr(filterSeg, combinedBitsetTensor.address());
+    cuvsFilter.addr(filterSeg, bitsetTensor.address());
   }
 }

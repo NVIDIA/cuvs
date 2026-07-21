@@ -60,19 +60,21 @@ public class FilterBitsetHandleIT extends CuVSTestCase {
     float[][] dataset = generateData(random, N_ROWS, DIM);
     float[][] queries = generateData(random, NUM_QUERIES, DIM);
     int[] partStart = partitionStarts();
-    long[] combinedLongs = keepAfterPrefix(REMOVE_COUNT);
 
     try (CuVSResources resources = CheckedCuVSResources.create()) {
       List<CagraIndex> indices = buildPartitions(dataset, partStart, resources);
-      try (FilterBitsetHandle filter = FilterBitsetHandle.create(combinedLongs)) {
+      List<FilterBitsetHandle> filters = keepAfterPrefixFilters(REMOVE_COUNT);
+      try {
         // Warm up the device upload on the long-lived `resources` so the shared allocation is bound
         // to it. Per-thread resources are closed when each search thread finishes; binding the
         // allocation to one of those would free it against destroyed resources at handle close.
-        assertNoFilteredRows(searchOnce(resources, indices, queries, partStart, filter), partStart);
+        assertNoFilteredRows(searchOnce(resources, indices, queries, partStart, filters), partStart);
         List<Throwable> errors =
-            runConcurrentSearches(indices, queries, partStart, filter, numThreads, searchesPerThread);
+            runConcurrentSearches(
+                indices, queries, partStart, filters, numThreads, searchesPerThread);
         assertNoErrors(errors);
       } finally {
+        closeFilters(filters);
         closeAll(indices);
       }
     }
@@ -84,18 +86,16 @@ public class FilterBitsetHandleIT extends CuVSTestCase {
     float[][] dataset = generateData(random, N_ROWS, DIM);
     float[][] queries = generateData(random, NUM_QUERIES, DIM);
     int[] partStart = partitionStarts();
-    long[] combinedLongs = keepAfterPrefix(REMOVE_COUNT);
-
     try (CuVSResources resources = CheckedCuVSResources.create()) {
       List<CagraIndex> indices = buildPartitions(dataset, partStart, resources);
       try {
-        FilterBitsetHandle filter = FilterBitsetHandle.create(combinedLongs);
-        // One search first, so the device upload has happened before the handle is released.
-        searchOnce(resources, indices, queries, partStart, filter);
-        filter.close();
+        List<FilterBitsetHandle> filters = keepAfterPrefixFilters(REMOVE_COUNT);
+        // One search first, so the device upload has happened before the handles are released.
+        searchOnce(resources, indices, queries, partStart, filters);
+        closeFilters(filters);
 
         try {
-          searchOnce(resources, indices, queries, partStart, filter);
+          searchOnce(resources, indices, queries, partStart, filters);
           fail("search after close() should have thrown");
         } catch (IllegalStateException expected) {
           assertTrue(
@@ -122,13 +122,11 @@ public class FilterBitsetHandleIT extends CuVSTestCase {
     float[][] dataset = generateData(random, N_ROWS, DIM);
     float[][] queries = generateData(random, NUM_QUERIES, DIM);
     int[] partStart = partitionStarts();
-    long[] combinedLongs = keepAfterPrefix(REMOVE_COUNT);
-
     try (CuVSResources resources = CheckedCuVSResources.create()) {
       List<CagraIndex> indices = buildPartitions(dataset, partStart, resources);
-      FilterBitsetHandle filter = FilterBitsetHandle.create(combinedLongs);
-      // Bind the shared allocation to the long-lived `resources` (see the stable-handle test).
-      searchOnce(resources, indices, queries, partStart, filter);
+      List<FilterBitsetHandle> filters = keepAfterPrefixFilters(REMOVE_COUNT);
+      // Bind the shared allocations to the long-lived `resources` (see the stable-handle test).
+      searchOnce(resources, indices, queries, partStart, filters);
 
       List<Throwable> unexpected = new CopyOnWriteArrayList<>();
       ExecutorService pool = Executors.newFixedThreadPool(numThreads + 1);
@@ -146,7 +144,7 @@ public class FilterBitsetHandleIT extends CuVSTestCase {
                       for (int i = 0; i < searchesPerThread; i++) {
                         try {
                           MultiPartitionSearchResults results =
-                              searchOnce(threadResources, indices, queries, partStart, filter);
+                              searchOnce(threadResources, indices, queries, partStart, filters);
                           assertNoFilteredRows(results, partStart);
                         } catch (IllegalStateException released) {
                           // Clean failure after the handle was fully released — allowed.
@@ -167,7 +165,7 @@ public class FilterBitsetHandleIT extends CuVSTestCase {
                   ready.await();
                   go.await();
                   Thread.sleep(5);
-                  filter.close();
+                  closeFilters(filters);
                   return null;
                 }));
 
@@ -183,7 +181,7 @@ public class FilterBitsetHandleIT extends CuVSTestCase {
       } finally {
         pool.shutdownNow();
         pool.awaitTermination(10, TimeUnit.SECONDS);
-        filter.close(); // idempotent; ensures the allocation is released if no thread did
+        closeFilters(filters); // idempotent; ensures the allocations are released if no thread did
         closeAll(indices);
       }
       assertNoErrors(unexpected);
@@ -204,13 +202,12 @@ public class FilterBitsetHandleIT extends CuVSTestCase {
     float[][] dataset = generateData(random, N_ROWS, DIM);
     float[][] queries = generateData(random, NUM_QUERIES, DIM);
     int[] partStart = partitionStarts();
-    long[] combinedLongs = keepAfterPrefix(keepFrom);
-
     try (CuVSResources resources = CheckedCuVSResources.create()) {
       List<CagraIndex> indices = buildPartitions(dataset, partStart, resources);
-      try (FilterBitsetHandle filter = FilterBitsetHandle.create(combinedLongs)) {
+      List<FilterBitsetHandle> filters = keepAfterPrefixFilters(keepFrom);
+      try {
         MultiPartitionSearchResults results =
-            searchOnce(resources, indices, queries, partStart, filter);
+            searchOnce(resources, indices, queries, partStart, filters);
 
         // Every result must be a real surviving row in [keepFrom, N_ROWS); an out-of-range global
         // would mean a sentinel (unfilled) slot leaked instead of being dropped.
@@ -229,6 +226,7 @@ public class FilterBitsetHandleIT extends CuVSTestCase {
         // ...while still finding at least one of the survivors.
         assertTrue("expected at least one surviving row to be found", results.count() > 0);
       } finally {
+        closeFilters(filters);
         closeAll(indices);
       }
     }
@@ -240,7 +238,7 @@ public class FilterBitsetHandleIT extends CuVSTestCase {
       List<CagraIndex> indices,
       float[][] queries,
       int[] partStart,
-      FilterBitsetHandle filter,
+      List<FilterBitsetHandle> filters,
       int numThreads,
       int searchesPerThread)
       throws Exception {
@@ -257,7 +255,7 @@ public class FilterBitsetHandleIT extends CuVSTestCase {
                     go.await();
                     for (int i = 0; i < searchesPerThread; i++) {
                       MultiPartitionSearchResults results =
-                          searchOnce(threadResources, indices, queries, partStart, filter);
+                          searchOnce(threadResources, indices, queries, partStart, filters);
                       assertNoFilteredRows(results, partStart);
                     }
                   } catch (Throwable t2) {
@@ -282,7 +280,7 @@ public class FilterBitsetHandleIT extends CuVSTestCase {
       List<CagraIndex> indices,
       float[][] queries,
       int[] partStart,
-      FilterBitsetHandle filter)
+      List<FilterBitsetHandle> filters)
       throws Throwable {
     try (var queryVectors = CuVSMatrix.ofArray(queries)) {
       CagraQuery query =
@@ -291,7 +289,7 @@ public class FilterBitsetHandleIT extends CuVSTestCase {
               .withSearchParams(new CagraSearchParams.Builder().build())
               .withQueryVectors(queryVectors)
               .build();
-      return MultiPartitionCagraSearch.search(resources, indices, query, TOP_K, filter);
+      return MultiPartitionCagraSearch.search(resources, indices, query, TOP_K, filters);
     }
   }
 
@@ -311,15 +309,26 @@ public class FilterBitsetHandleIT extends CuVSTestCase {
     }
   }
 
-  /** Combined bitset keeping global rows [prefix, N_ROWS), 64-bit word-aligned per partition. */
-  private static long[] keepAfterPrefix(int prefix) {
-    final int waSlice = ((PART_ROWS + 63) / 64) * 64;
-    long[] combinedLongs = new long[NUM_PARTITIONS * (waSlice / 64)];
-    for (int r = prefix; r < N_ROWS; r++) {
-      long waBit = (long) (r / PART_ROWS) * waSlice + (r % PART_ROWS);
-      combinedLongs[(int) (waBit / 64)] |= 1L << (waBit % 64);
+  /** Per-partition bitsets keeping global rows [prefix, N_ROWS) (one handle per partition). */
+  private static List<FilterBitsetHandle> keepAfterPrefixFilters(int prefix) {
+    final int longsPerPart = (PART_ROWS + 63) / 64;
+    List<FilterBitsetHandle> filters = new ArrayList<>(NUM_PARTITIONS);
+    for (int p = 0; p < NUM_PARTITIONS; p++) {
+      long[] partLongs = new long[longsPerPart];
+      for (int i = 0; i < PART_ROWS; i++) {
+        if (p * PART_ROWS + i >= prefix) { // keep this row
+          partLongs[i / 64] |= 1L << (i % 64);
+        }
+      }
+      filters.add(FilterBitsetHandle.create(partLongs));
     }
-    return combinedLongs;
+    return filters;
+  }
+
+  private static void closeFilters(List<FilterBitsetHandle> filters) {
+    for (FilterBitsetHandle f : filters) {
+      f.close();
+    }
   }
 
   private static int[] partitionStarts() {

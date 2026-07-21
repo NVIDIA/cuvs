@@ -33,28 +33,31 @@ public class MultiPartitionCagraSearch {
    */
   public static MultiPartitionSearchResults search(
       CuVSResources resources, List<CagraIndex> indices, CagraQuery query, int k) throws Throwable {
-    return search(resources, indices, query, k, /* filter= */ null);
+    return search(resources, indices, query, k, /* filters= */ null);
   }
 
   /**
-   * Searches multiple CAGRA index partitions with an optional pre-cached device-side filter.
+   * Searches multiple CAGRA index partitions with optional per-partition device-side filters.
    *
    * @param resources shared {@link CuVSResources} handle
    * @param indices   one {@link CagraIndex} per partition, in partition order
    * @param query     a single {@link CagraQuery} whose query matrix is searched against every
    *                  partition
    * @param k         number of global nearest neighbors to return per query
-   * @param filter    pre-built combined bitset handle obtained from
-   *                  {@link FilterBitsetHandle#create(long[])}, or {@code null} for unfiltered
-   *                  search. Handles from other sources are not supported.
+   * @param filters   one filter per partition, in the same order as {@code indices}, or
+   *                  {@code null}/empty for a fully unfiltered search. When non-null, its size must
+   *                  equal {@code indices.size()}; a {@code null} entry means no filter for that
+   *                  partition. Each handle must be obtained from
+   *                  {@link FilterBitsetHandle#create(long[])} for that partition's packed bitset;
+   *                  handles from other sources are not supported.
    */
   public static MultiPartitionSearchResults search(
       CuVSResources resources,
       List<CagraIndex> indices,
       CagraQuery query,
       int k,
-      FilterBitsetHandle filter)
+      List<FilterBitsetHandle> filters)
       throws Throwable {
-    return CuVSProvider.provider().searchCagraMultiPartition(resources, indices, query, k, filter);
+    return CuVSProvider.provider().searchCagraMultiPartition(resources, indices, query, k, filters);
   }
 }

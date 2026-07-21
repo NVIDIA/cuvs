@@ -193,7 +193,7 @@ public interface CuVSProvider {
    * Creates a device-backed multi-partition filter handle from the pre-packed combined bitset.
    * Per-partition bit offsets are recomputed inside cuVS from the index sizes.
    *
-   * @param combinedLongs packed bitset words for all partitions concatenated (64-bit aligned)
+   * @param combinedLongs packed bitset words for a single partition
    */
   FilterBitsetHandle newFilterBitsetHandle(long[] combinedLongs);
 
@@ -204,7 +204,8 @@ public interface CuVSProvider {
    * @param indices   one CAGRA index per partition, in partition order
    * @param query     query whose vectors are searched against every partition
    * @param k         number of global nearest neighbors to return per query
-   * @param filter    pre-built combined bitset handle, or {@code null} for unfiltered search
+   * @param filters   one filter per partition (same order as {@code indices}), or {@code null}/empty
+   *                  for unfiltered search; a {@code null} entry means no filter for that partition
    * @throws Throwable if an error occurs during the search
    */
   MultiPartitionSearchResults searchCagraMultiPartition(
@@ -212,7 +213,7 @@ public interface CuVSProvider {
       List<CagraIndex> indices,
       CagraQuery query,
       int k,
-      FilterBitsetHandle filter)
+      List<FilterBitsetHandle> filters)
       throws Throwable;
 
   /** Returns a {@link GPUInfoProvider} to query the system for GPU related information */

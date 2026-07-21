@@ -80,9 +80,8 @@ public class MultiPartitionCagraSearchIT extends CuVSTestCase {
   }
 
   /**
-   * Filtered multi-partition search via a pre-built {@link FilterBitsetHandle}. The combined bitset
-   * is packed with 64-bit word-aligned per-partition slices (cuVS recomputes the per-partition bit
-   * offsets from the index sizes); clearing the first {@code removeCount} global rows removes them.
+   * Filtered multi-partition search via per-partition {@link FilterBitsetHandle}s (one bitset per
+   * partition over its own rows); clearing the first {@code removeCount} global rows removes them.
    * Verified against a brute-force search with the matching prefilter.
    */
   @Test
@@ -93,16 +92,6 @@ public class MultiPartitionCagraSearchIT extends CuVSTestCase {
     float[][] queries = generateData(random, NUM_QUERIES, DIM);
     int[] partStart = partitionStarts();
 
-    // Combined bitset with 64-bit word-aligned per-partition slices (cuVS recomputes the offsets
-    // from the index sizes). Within a partition, local row i maps to bit waOffset[p] + i; set =
-    // keep. Clearing the first removeCount global rows removes them.
-    final int waSlice = ((PART_ROWS + 63) / 64) * 64; // word-aligned bits per partition
-    long[] combinedLongs = new long[NUM_PARTITIONS * (waSlice / 64)];
-    for (int r = removeCount; r < N_ROWS; r++) {
-      long waBit = (long) (r / PART_ROWS) * waSlice + (r % PART_ROWS);
-      combinedLongs[(int) (waBit / 64)] |= 1L << (waBit % 64);
-    }
-
     // Brute-force ground truth with the same kept set (prefilter bit set == keep).
     BitSet keep = new BitSet(N_ROWS);
     keep.set(removeCount, N_ROWS);
@@ -111,10 +100,22 @@ public class MultiPartitionCagraSearchIT extends CuVSTestCase {
 
     try (CuVSResources resources = CheckedCuVSResources.create()) {
       List<CagraIndex> indices = buildPartitions(dataset, partStart, resources);
+      // One bitset per partition (one bit per local row; set == keep). Clearing the first
+      // removeCount global rows removes them from their partition.
+      final int longsPerPart = (PART_ROWS + 63) / 64;
+      List<FilterBitsetHandle> filters = new ArrayList<>(NUM_PARTITIONS);
+      for (int p = 0; p < NUM_PARTITIONS; p++) {
+        long[] partLongs = new long[longsPerPart];
+        for (int i = 0; i < PART_ROWS; i++) {
+          if (p * PART_ROWS + i >= removeCount) { // keep this row
+            partLongs[i / 64] |= 1L << (i % 64);
+          }
+        }
+        filters.add(FilterBitsetHandle.create(partLongs));
+      }
       // Device-resident query vectors here (the unfiltered test above covers host-resident).
       try (var hostQueries = CuVSMatrix.ofArray(queries);
-          var queryVectors = hostQueries.toDevice(resources);
-          FilterBitsetHandle filter = FilterBitsetHandle.create(combinedLongs)) {
+          var queryVectors = hostQueries.toDevice(resources)) {
         CagraQuery query =
             new CagraQuery.Builder(resources)
                 .withTopK(TOP_K)
@@ -123,7 +124,7 @@ public class MultiPartitionCagraSearchIT extends CuVSTestCase {
                 .build();
 
         MultiPartitionSearchResults results =
-            MultiPartitionCagraSearch.search(resources, indices, query, TOP_K, filter);
+            MultiPartitionCagraSearch.search(resources, indices, query, TOP_K, filters);
 
         assertEquals(NUM_QUERIES * TOP_K, results.count());
 
@@ -138,6 +139,9 @@ public class MultiPartitionCagraSearchIT extends CuVSTestCase {
             generateExpectedResults(TOP_K, dataset, queries, prefilters, log);
         assertTopResultsInExpected(actual, expected);
       } finally {
+        for (FilterBitsetHandle f : filters) {
+          f.close();
+        }
         closeAll(indices);
       }
     }

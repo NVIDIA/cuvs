@@ -51,7 +51,7 @@ final class UnsupportedProvider implements CuVSProvider {
       List<CagraIndex> indices,
       CagraQuery query,
       int k,
-      FilterBitsetHandle filter) {
+      List<FilterBitsetHandle> filters) {
     throw new UnsupportedOperationException(reasons);
   }
 

@@ -276,9 +276,9 @@ final class JDKProvider implements CuVSProvider {
       List<CagraIndex> indices,
       CagraQuery query,
       int k,
-      FilterBitsetHandle filter)
+      List<FilterBitsetHandle> filters)
       throws Throwable {
-    return MultiPartitionCagraSearchImpl.search(resources, indices, query, k, filter);
+    return MultiPartitionCagraSearchImpl.search(resources, indices, query, k, filters);
   }
 
   @Override

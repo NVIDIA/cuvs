@@ -44,11 +44,10 @@ public interface FilterBitsetHandle extends AutoCloseable {
   void decRef();
 
   /**
-   * Creates a handle from the pre-packed combined bitset. Per-partition bit offsets are recomputed
-   * inside cuVS from the index sizes, so only the concatenated (64-bit word-aligned) bitset words
-   * are needed here.
+   * Creates a handle from one partition's pre-packed bitset (one bit per vector in that partition).
+   * In a multi-partition search each partition supplies its own handle.
    *
-   * @param combinedLongs packed bitset words for all partitions concatenated (64-bit aligned)
+   * @param combinedLongs packed bitset words for a single partition
    */
   static FilterBitsetHandle create(long[] combinedLongs) {
     return CuVSProvider.provider().newFilterBitsetHandle(combinedLongs);
