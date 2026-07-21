@@ -16,13 +16,13 @@ device-resident queries and output buffers. Tensors are borrowed through the
 module for the tensor model and `examples/cagra.rs` for the same
 build/search workflow.
 
-## crate::neighbors::filters::SearchFilter
+## crate::neighbors::filters::\{Bitmap, Bitset, Filter, FilterKind\}
 
 ```rust
-pub use crate::neighbors::filters::SearchFilter;
+pub use crate::neighbors::filters::{Bitmap, Bitset, Filter, FilterKind};
 ```
 
-_Source: `rust/cuvs/src/neighbors/brute_force.rs:19`_
+_Source: `rust/cuvs/src/neighbors/brute_force.rs:20`_
 
 ## BruteForceError
 
@@ -103,18 +103,19 @@ _Source: `rust/cuvs/src/neighbors/brute_force.rs:86`_
 ### search_filtered
 
 ```rust
-pub fn search_filtered<Q, N, D>(
+pub fn search_filtered<Q, N, D, K>(
 &self,
 res: &Resources,
 queries: &Q,
 neighbors: &mut N,
 distances: &mut D,
-filter: &SearchFilter<'_>,
+filter: &Filter<'_, K>,
 ) -> Result<()>
 where
 Q: AsDlTensor + ?Sized,
 N: AsDlTensorMut + ?Sized,
 D: AsDlTensorMut + ?Sized,
+K: FilterKind,
 ```
 
 Searches the index using a row bitset or per-query bitmap filter.

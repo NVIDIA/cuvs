@@ -36,146 +36,80 @@ pub enum Bitset {}
 /// Marker for a per-query bitmap filter.
 pub enum Bitmap {}
 
-/// Shared filter options for nearest-neighbor search.
-#[non_exhaustive]
-pub enum SearchFilter<'a> {
-    /// Reuse one row-level bitset for every query.
-    Bitset(Filter<'a, Bitset>),
-    /// Use a per-query bitmap of allowed `(query, row)` pairs.
-    Bitmap(Filter<'a, Bitmap>),
+mod sealed {
+    pub trait Sealed {}
+}
+
+/// Kind of packed filter payload.
+///
+/// This trait is sealed; only [`Bitset`] and [`Bitmap`] implement it.
+pub trait FilterKind: sealed::Sealed {
+    #[doc(hidden)]
+    const FILTER_TYPE: ffi::cuvsFilterType;
+}
+
+impl sealed::Sealed for Bitset {}
+
+impl FilterKind for Bitset {
+    const FILTER_TYPE: ffi::cuvsFilterType = ffi::cuvsFilterType::BITSET;
+}
+
+impl sealed::Sealed for Bitmap {}
+
+impl FilterKind for Bitmap {
+    const FILTER_TYPE: ffi::cuvsFilterType = ffi::cuvsFilterType::BITMAP;
 }
 
 /// Packed filter words used to include or exclude rows during search.
-pub struct Filter<'a, K> {
+pub struct Filter<'a, K: FilterKind> {
     tensor: DLTensorView<'a>,
     _kind: PhantomData<K>,
 }
 
-impl<'a> Filter<'a, Bitset> {
-    /// Creates a row-level bitset borrowing `filter_words`.
+impl<'a, K: FilterKind> Filter<'a, K> {
+    /// Creates a packed filter borrowing `filter_words`.
     pub fn new<T>(filter_words: &'a T) -> Result<Self, FilterError>
     where
         T: AsDlTensor + ?Sized,
     {
-        new_filter(filter_words)
-    }
-}
+        let tensor = filter_words.as_dl_tensor()?;
+        if tensor.ndim() != 1 {
+            return Err(FilterError::InvalidRank);
+        }
+        if !matches!(
+            tensor.device().device_type,
+            ffi::DLDeviceType::kDLCUDA
+                | ffi::DLDeviceType::kDLCUDAHost
+                | ffi::DLDeviceType::kDLCUDAManaged
+        ) {
+            return Err(FilterError::InvalidDevice);
+        }
+        if !is_contiguous_1d(tensor.strides()) {
+            return Err(FilterError::NonContiguous);
+        }
 
-impl<'a> Filter<'a, Bitmap> {
-    /// Creates a per-query bitmap borrowing `filter_words`.
-    pub fn new<T>(filter_words: &'a T) -> Result<Self, FilterError>
-    where
-        T: AsDlTensor + ?Sized,
-    {
-        new_filter(filter_words)
-    }
-}
+        let dtype = tensor.dtype();
+        if dtype.code != ffi::DLDataTypeCode::kDLUInt as u8 || dtype.bits != 32 || dtype.lanes != 1
+        {
+            return Err(FilterError::InvalidDType);
+        }
 
-impl<'a> SearchFilter<'a> {
-    /// Creates a row-level bitset filter borrowing `filter_words`.
-    pub fn bitset<T>(filter_words: &'a T) -> Result<Self, FilterError>
-    where
-        T: AsDlTensor + ?Sized,
-    {
-        Filter::<Bitset>::new(filter_words).map(Self::Bitset)
+        Ok(Self { tensor, _kind: PhantomData })
     }
-
-    /// Creates a per-query bitmap filter borrowing `filter_words`.
-    pub fn bitmap<T>(filter_words: &'a T) -> Result<Self, FilterError>
-    where
-        T: AsDlTensor + ?Sized,
-    {
-        Filter::<Bitmap>::new(filter_words).map(Self::Bitmap)
-    }
-}
-
-impl<'a> From<Filter<'a, Bitset>> for SearchFilter<'a> {
-    fn from(filter: Filter<'a, Bitset>) -> Self {
-        Self::Bitset(filter)
-    }
-}
-
-impl<'a> From<Filter<'a, Bitmap>> for SearchFilter<'a> {
-    fn from(filter: Filter<'a, Bitmap>) -> Self {
-        Self::Bitmap(filter)
-    }
-}
-
-fn new_filter<'a, T, K>(filter_words: &'a T) -> Result<Filter<'a, K>, FilterError>
-where
-    T: AsDlTensor + ?Sized,
-{
-    let tensor = filter_words.as_dl_tensor()?;
-    if tensor.ndim() != 1 {
-        return Err(FilterError::InvalidRank);
-    }
-    if !matches!(
-        tensor.device().device_type,
-        ffi::DLDeviceType::kDLCUDA
-            | ffi::DLDeviceType::kDLCUDAHost
-            | ffi::DLDeviceType::kDLCUDAManaged
-    ) {
-        return Err(FilterError::InvalidDevice);
-    }
-    if !is_contiguous_1d(tensor.strides()) {
-        return Err(FilterError::NonContiguous);
-    }
-
-    let dtype = tensor.dtype();
-    if dtype.code != ffi::DLDataTypeCode::kDLUInt as u8 || dtype.bits != 32 || dtype.lanes != 1 {
-        return Err(FilterError::InvalidDType);
-    }
-
-    Ok(Filter { tensor, _kind: PhantomData })
 }
 
 fn is_contiguous_1d(strides: Option<&[i64]>) -> bool {
     matches!(strides, None | Some([1]))
 }
 
-impl SearchFilter<'_> {
-    pub(crate) fn to_c(&self) -> crate::dlpack::ManagedTensorRef<'_> {
-        match self {
-            Self::Bitset(filter) => filter.tensor.to_c(),
-            Self::Bitmap(filter) => filter.tensor.to_c(),
-        }
-    }
-
-    pub(crate) fn filter_type(&self) -> ffi::cuvsFilterType {
-        match self {
-            Self::Bitset(_) => ffi::cuvsFilterType::BITSET,
-            Self::Bitmap(_) => ffi::cuvsFilterType::BITMAP,
-        }
-    }
-}
-
-pub(crate) fn with_search_filter<R>(
-    filter: Option<&SearchFilter<'_>>,
-    call: impl FnOnce(ffi::cuvsFilter) -> R,
-) -> R {
-    match filter {
-        Some(filter) => {
-            let mut managed = filter.to_c();
-            call(ffi::cuvsFilter {
-                addr: managed.as_mut_ptr() as usize,
-                type_: filter.filter_type(),
-            })
-        }
-        None => call(ffi::cuvsFilter { addr: 0, type_: ffi::cuvsFilterType::NO_FILTER }),
-    }
-}
-
-pub(crate) fn with_bitset_filter<R>(
-    filter: Option<&Filter<'_, Bitset>>,
+pub(crate) fn with_filter<K: FilterKind, R>(
+    filter: Option<&Filter<'_, K>>,
     call: impl FnOnce(ffi::cuvsFilter) -> R,
 ) -> R {
     match filter {
         Some(filter) => {
             let mut managed = filter.tensor.to_c();
-            call(ffi::cuvsFilter {
-                addr: managed.as_mut_ptr() as usize,
-                type_: ffi::cuvsFilterType::BITSET,
-            })
+            call(ffi::cuvsFilter { addr: managed.as_mut_ptr() as usize, type_: K::FILTER_TYPE })
         }
         None => call(ffi::cuvsFilter { addr: 0, type_: ffi::cuvsFilterType::NO_FILTER }),
     }
@@ -221,7 +155,7 @@ mod tests {
 
     #[test]
     fn no_filter_uses_the_c_api_sentinel() {
-        with_search_filter(None, |filter| {
+        with_filter::<Bitset, _>(None, |filter| {
             assert_eq!(filter.addr, 0);
             assert_eq!(filter.type_, ffi::cuvsFilterType::NO_FILTER);
         });

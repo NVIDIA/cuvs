@@ -11,7 +11,7 @@ use std::path::Path;
 use super::{CagraError, IndexParams, SearchParams};
 use crate::dlpack::{AsDlTensor, AsDlTensorMut, DLTensorView, DLTensorViewMut};
 use crate::error::check_cuvs;
-use crate::neighbors::filters::{Bitset, Filter, with_bitset_filter};
+use crate::neighbors::filters::{Bitset, Filter, with_filter};
 use crate::resources::Resources;
 
 type Result<T> = std::result::Result<T, CagraError>;
@@ -123,7 +123,7 @@ impl<'d> Index<'d> {
         distances: &mut DLTensorViewMut<'_>,
         filter: Option<&Filter<'_, Bitset>>,
     ) -> Result<()> {
-        with_bitset_filter(filter, |prefilter| {
+        with_filter(filter, |prefilter| {
             check_cuvs(unsafe {
                 ffi::cuvsCagraSearch(
                     res.handle(),

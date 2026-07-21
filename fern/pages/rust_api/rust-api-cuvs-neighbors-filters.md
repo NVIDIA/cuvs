@@ -48,54 +48,34 @@ Marker for a per-query bitmap filter.
 
 _Source: `rust/cuvs/src/neighbors/filters.rs:37`_
 
-## SearchFilter
+## Sealed
 
 ```rust
-#[non_exhaustive]
-pub enum SearchFilter<'a> {
-    /* variants omitted */
+pub trait Sealed {
+    /* required methods omitted */
 }
 ```
 
-Shared filter options for nearest-neighbor search.
+_Source: `rust/cuvs/src/neighbors/filters.rs:40`_
 
-**Methods**
-
-| Name | Source |
-| --- | --- |
-| `bitset` | `rust/cuvs/src/neighbors/filters.rs:76` |
-| `bitmap` | `rust/cuvs/src/neighbors/filters.rs:84` |
-
-### bitset
+## FilterKind
 
 ```rust
-pub fn bitset<T>(filter_words: &'a T) -> Result<Self, FilterError>
-where
-T: AsDlTensor + ?Sized,
+pub trait FilterKind: sealed::Sealed {
+    /* required methods omitted */
+}
 ```
 
-Creates a row-level bitset filter borrowing `filter_words`.
+Kind of packed filter payload.
 
-_Source: `rust/cuvs/src/neighbors/filters.rs:76`_
+This trait is sealed; only [`Bitset`] and [`Bitmap`] implement it.
 
-### bitmap
-
-```rust
-pub fn bitmap<T>(filter_words: &'a T) -> Result<Self, FilterError>
-where
-T: AsDlTensor + ?Sized,
-```
-
-Creates a per-query bitmap filter borrowing `filter_words`.
-
-_Source: `rust/cuvs/src/neighbors/filters.rs:84`_
-
-_Source: `rust/cuvs/src/neighbors/filters.rs:41`_
+_Source: `rust/cuvs/src/neighbors/filters.rs:46`_
 
 ## Filter
 
 ```rust
-pub struct Filter<'a, K> {
+pub struct Filter<'a, K: FilterKind> {
     /* private fields */
 }
 ```
@@ -106,8 +86,7 @@ Packed filter words used to include or exclude rows during search.
 
 | Name | Source |
 | --- | --- |
-| `new` | `rust/cuvs/src/neighbors/filters.rs:56` |
-| `new` | `rust/cuvs/src/neighbors/filters.rs:66` |
+| `new` | `rust/cuvs/src/neighbors/filters.rs:71` |
 
 ### new
 
@@ -117,20 +96,8 @@ where
 T: AsDlTensor + ?Sized,
 ```
 
-Creates a row-level bitset borrowing `filter_words`.
+Creates a packed filter borrowing `filter_words`.
 
-_Source: `rust/cuvs/src/neighbors/filters.rs:56`_
+_Source: `rust/cuvs/src/neighbors/filters.rs:71`_
 
-### new
-
-```rust
-pub fn new<T>(filter_words: &'a T) -> Result<Self, FilterError>
-where
-T: AsDlTensor + ?Sized,
-```
-
-Creates a per-query bitmap borrowing `filter_words`.
-
-_Source: `rust/cuvs/src/neighbors/filters.rs:66`_
-
-_Source: `rust/cuvs/src/neighbors/filters.rs:49`_
+_Source: `rust/cuvs/src/neighbors/filters.rs:64`_

@@ -16,8 +16,8 @@ use std::marker::PhantomData;
 use crate::distance::DistanceType;
 use crate::dlpack::{AsDlTensor, AsDlTensorMut, DLPackError, DLTensorView, DLTensorViewMut};
 use crate::error::{LibraryError, check_cuvs};
-pub use crate::neighbors::filters::SearchFilter;
-use crate::neighbors::filters::with_search_filter;
+use crate::neighbors::filters::with_filter;
+pub use crate::neighbors::filters::{Bitmap, Bitset, Filter, FilterKind};
 use crate::resources::Resources;
 
 type Result<T> = std::result::Result<T, BruteForceError>;
@@ -98,22 +98,23 @@ impl<'d> Index<'d> {
         let queries = queries.as_dl_tensor()?;
         let mut neighbors = neighbors.as_dl_tensor_mut()?;
         let mut distances = distances.as_dl_tensor_mut()?;
-        self.search_impl(res, &queries, &mut neighbors, &mut distances, None)
+        self.search_impl::<Bitset>(res, &queries, &mut neighbors, &mut distances, None)
     }
 
     /// Searches the index using a row bitset or per-query bitmap filter.
-    pub fn search_filtered<Q, N, D>(
+    pub fn search_filtered<Q, N, D, K>(
         &self,
         res: &Resources,
         queries: &Q,
         neighbors: &mut N,
         distances: &mut D,
-        filter: &SearchFilter<'_>,
+        filter: &Filter<'_, K>,
     ) -> Result<()>
     where
         Q: AsDlTensor + ?Sized,
         N: AsDlTensorMut + ?Sized,
         D: AsDlTensorMut + ?Sized,
+        K: FilterKind,
     {
         let queries = queries.as_dl_tensor()?;
         let mut neighbors = neighbors.as_dl_tensor_mut()?;
@@ -121,15 +122,15 @@ impl<'d> Index<'d> {
         self.search_impl(res, &queries, &mut neighbors, &mut distances, Some(filter))
     }
 
-    fn search_impl(
+    fn search_impl<K: FilterKind>(
         &self,
         res: &Resources,
         queries: &DLTensorView<'_>,
         neighbors: &mut DLTensorViewMut<'_>,
         distances: &mut DLTensorViewMut<'_>,
-        filter: Option<&SearchFilter<'_>>,
+        filter: Option<&Filter<'_, K>>,
     ) -> Result<()> {
-        with_search_filter(filter, |prefilter| {
+        with_filter(filter, |prefilter| {
             check_cuvs(unsafe {
                 ffi::cuvsBruteForceSearch(
                     res.handle(),

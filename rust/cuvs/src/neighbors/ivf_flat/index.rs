@@ -8,7 +8,7 @@ use std::io::{Write, stderr};
 use super::{IndexParams, IvfFlatError, SearchParams};
 use crate::dlpack::{AsDlTensor, AsDlTensorMut, DLTensorView, DLTensorViewMut};
 use crate::error::check_cuvs;
-use crate::neighbors::filters::{Bitset, Filter, with_bitset_filter};
+use crate::neighbors::filters::{Bitset, Filter, with_filter};
 use crate::resources::Resources;
 
 type Result<T> = std::result::Result<T, IvfFlatError>;
@@ -106,7 +106,7 @@ impl Index {
         distances: &mut DLTensorViewMut<'_>,
         filter: Option<&Filter<'_, Bitset>>,
     ) -> Result<()> {
-        with_bitset_filter(filter, |prefilter| {
+        with_filter(filter, |prefilter| {
             check_cuvs(unsafe {
                 ffi::cuvsIvfFlatSearch(
                     res.handle(),
