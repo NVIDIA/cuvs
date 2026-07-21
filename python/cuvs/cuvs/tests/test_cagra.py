@@ -177,31 +177,24 @@ def run_cagra_build_search_test(
 
     # make sure we can get the dataset from the cagra index
     dataset_from_index = index.dataset
-
+    logical_dim = dataset.shape[1]
     dataset_from_index_host = dataset_from_index.copy_to_host()
-    assert np.allclose(dataset, dataset_from_index_host)
+    # CAGRA may store padded rows internally; compare only logical columns.
+    dataset_from_index_host_logical = dataset_from_index_host[:, :logical_dim]
+    assert np.allclose(dataset, dataset_from_index_host_logical)
 
     # make sure we can reconstruct the index from the graph
     # Note that we can't actually use the dataset from the index itself
     # - since that is a strided matrix (and we expect non-strided inputs
     # in the C++ cagra::build api), so we are using the host version
     # which will have been copied into a non-strided layout
+    reloaded_dataset_device = device_ndarray(dataset_from_index_host_logical)
     reloaded_index = cagra.from_graph(
-        graph, dataset_from_index_host, metric=metric
+        graph, reloaded_dataset_device, metric=metric
     )
-    reloaded_keepalive = []
-    reloaded_kind = cagra.get_dataset_view_kind(dataset_from_index_host)
-    if reloaded_kind == "host_padded":
-        reloaded_dataset_device = device_ndarray(dataset_from_index_host)
-        cagra.attach_device_dataset_on_host_index(
-            reloaded_index, reloaded_dataset_device
-        )
-        reloaded_keepalive = [reloaded_dataset_device]
-    elif reloaded_kind == "host_standard":
-        reloaded_dataset_device = device_ndarray(dataset_from_index_host)
-        cagra.attach_device_dataset_on_host_index(
-            reloaded_index, reloaded_dataset_device
-        )
+    reloaded_keepalive = [reloaded_dataset_device]
+    reloaded_kind = cagra.get_dataset_view_kind(reloaded_dataset_device)
+    if reloaded_kind == "device_standard":
         reloaded_padded_dataset = cagra.make_device_padded_dataset(
             reloaded_dataset_device
         )
