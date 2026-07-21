@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs.examples;
@@ -63,7 +63,9 @@ public class CagraExample {
       // Loading a CAGRA index from disk.
       File indexFile = new File(indexFileName);
       InputStream inputStream = new FileInputStream(indexFile);
-      CagraIndex loadedIndex = CagraIndex.newBuilder(resources).from(inputStream).build();
+      CagraIndex loadedIndex = CagraIndex.newBuilder(resources).build();
+      CagraIndex.StandardDataset outDatasetOwner = new CagraIndex.StandardDataset();
+      loadedIndex.deserialize(inputStream, outDatasetOwner);
 
       // Configure search parameters
       CagraSearchParams searchParams = new CagraSearchParams.Builder(resources).build();
