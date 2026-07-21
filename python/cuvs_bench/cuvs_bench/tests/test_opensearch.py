@@ -155,7 +155,6 @@ class TestOpenSearchConfigLoader:
             dataset_path="/data",
             remote_index_build=True,
             remote_build_size_min="2kb",
-            approximate_threshold=10_000,
             remote_build_timeout=123,
             remote_build_s3_endpoint="http://s3:9000",
         )
@@ -163,7 +162,6 @@ class TestOpenSearchConfigLoader:
         bc = configs[0].backend_config
         assert bc["remote_index_build"] is True
         assert bc["remote_build_size_min"] == "2kb"
-        assert bc["approximate_threshold"] == 10_000
         assert bc["remote_build_timeout"] == 123
         assert "remote_build_s3_endpoint" not in bc
 
@@ -222,32 +220,6 @@ class TestOpenSearchBackend:
 
         settings = mapping["settings"]["index"]
         assert settings["knn.remote_index_build.size.min"] == "2kb"
-
-    def test_approximate_threshold_is_set_when_specified(self):
-        backend = _make_backend()
-        mapping = backend._build_index_mapping(
-            dims=4,
-            engine="faiss",
-            space_type="l2",
-            build_param={},
-            remote_index_build=True,
-            approximate_threshold=10_000,
-        )
-
-        settings = mapping["settings"]["index"]
-        assert settings["knn.advanced.approximate_threshold"] == 10_000
-
-    def test_approximate_threshold_uses_opensearch_default_when_unspecified(self):
-        backend = _make_backend()
-        mapping = backend._build_index_mapping(
-            dims=4,
-            engine="faiss",
-            space_type="l2",
-            build_param={},
-        )
-
-        settings = mapping["settings"]["index"]
-        assert "knn.advanced.approximate_threshold" not in settings
 
     def test_wait_for_remote_build_raises_on_failure_count(self):
         backend = _make_backend()

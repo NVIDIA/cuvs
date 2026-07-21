@@ -72,7 +72,6 @@ export BENCH_GROUPS=test                   # test | base (default: test)
 export K=10                                # number of neighbors (default: 10)
 export BATCH_SIZE=                         # optional query batch size override
 export BUILD_BATCH_SIZE=                   # optional bulk ingest batch size override
-export APPROXIMATE_THRESHOLD=10000         # AWS-recommended GPU indexing starting value
 export REMOTE_BUILD_TIMEOUT=1800           # seconds to wait for remote builds (default: 1800)
 ```
 
@@ -121,7 +120,7 @@ docker compose down -v
 2. **GPU mode only**: Registers the S3 bucket as an OpenSearch snapshot repository
 3. **GPU mode only**: Applies cluster settings to enable remote index build and point OpenSearch at the builder service
 4. Runs `cuvs-bench` build phase (handled entirely by the OpenSearch backend):
-   - Creates the kNN index with `index.knn.advanced.approximate_threshold=10000` and bulk-ingests dataset vectors
+   - Creates the kNN index and bulk-ingests dataset vectors
    - **GPU mode**: Flushes segments, waits for all submitted remote GPU builds to complete, and polls the kNN stats API every 5 s until the build is confirmed complete
    - **CPU mode**: Flushes and refreshes the local OpenSearch index
    - Uses the backend's automatic OpenSearch bulk-ingest batch sizing by default; set `BUILD_BATCH_SIZE` to override it
@@ -165,11 +164,6 @@ $DATASET_PATH/
   }
 }
 ```
-
-For GPU runs, `bench/run.py` passes `APPROXIMATE_THRESHOLD` to the OpenSearch
-backend, which sets `index.knn.advanced.approximate_threshold` in the index
-creation request. The default is `10000`, the starting value recommended by
-AWS to avoid smaller segment index builds.
 
 The benchmark image clones `CUVS_BRANCH=deploy-opensearch-tmp` from
 `CUVS_REPOSITORY=https://github.com/jrbourbeau/cuvs.git` so it includes the
