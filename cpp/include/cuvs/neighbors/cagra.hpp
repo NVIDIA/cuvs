@@ -3102,11 +3102,16 @@ auto distribute(const raft::resources& clique, const std::string& filename)
  * @code{.cpp}
  *   using namespace cuvs::neighbors;
  *   // raft::host_matrix_view<const float, int64_t, raft::row_major> dataset;
- *   auto build_params = cagra::graph_build_params::ivf_pq_params(
- *     dataset.extents(), cuvs::distance::DistanceType::L2Expanded);
+ *   auto metric       = cuvs::distance::DistanceType::L2Expanded;
+ *   auto build_params = cagra::graph_build_params::ivf_pq_params(dataset.extents(), metric);
  *   auto knn_graph = raft::make_host_matrix<uint32_t, int64_t>(dataset.extent(0), 128);
  *   // create knn graph
  *   cagra::build_knn_graph(res, dataset, knn_graph.view(), build_params);
+ *   auto optimized_graph = raft::make_host_matrix<uint32_t, int64_t>(dataset.extent(0), 64);
+ *   cagra::helpers::optimize(res, knn_graph.view(), optimized_graph.view());
+ *   // Construct an index from dataset and optimized knn_graph
+ *   auto index = cagra::index<float, uint32_t>(
+ *     res, metric, dataset, raft::make_const_mdspan(optimized_graph.view()));
  * @endcode
  *
  * @param[in] res raft resources
@@ -3137,11 +3142,16 @@ void build_knn_graph(raft::resources const& res,
  * @code{.cpp}
  *   using namespace cuvs::neighbors;
  *   // raft::host_matrix_view<const half, int64_t, raft::row_major> dataset;
- *   auto build_params = cagra::graph_build_params::ivf_pq_params(
- *     dataset.extents(), cuvs::distance::DistanceType::L2Expanded);
+ *   auto metric       = cuvs::distance::DistanceType::L2Expanded;
+ *   auto build_params = cagra::graph_build_params::ivf_pq_params(dataset.extents(), metric);
  *   auto knn_graph = raft::make_host_matrix<uint32_t, int64_t>(dataset.extent(0), 128);
  *   // create knn graph
  *   cagra::build_knn_graph(res, dataset, knn_graph.view(), build_params);
+ *   auto optimized_graph = raft::make_host_matrix<uint32_t, int64_t>(dataset.extent(0), 64);
+ *   cagra::helpers::optimize(res, knn_graph.view(), optimized_graph.view());
+ *   // Construct an index from dataset and optimized knn_graph
+ *   auto index = cagra::index<half, uint32_t>(
+ *     res, metric, dataset, raft::make_const_mdspan(optimized_graph.view()));
  * @endcode
  *
  * @param[in] res raft resources
@@ -3172,11 +3182,16 @@ void build_knn_graph(raft::resources const& res,
  * @code{.cpp}
  *   using namespace cuvs::neighbors;
  *   // raft::host_matrix_view<const int8_t, int64_t, raft::row_major> dataset;
- *   auto build_params = cagra::graph_build_params::ivf_pq_params(
- *     dataset.extents(), cuvs::distance::DistanceType::L2Expanded);
+ *   auto metric       = cuvs::distance::DistanceType::L2Expanded;
+ *   auto build_params = cagra::graph_build_params::ivf_pq_params(dataset.extents(), metric);
  *   auto knn_graph = raft::make_host_matrix<uint32_t, int64_t>(dataset.extent(0), 128);
  *   // create knn graph
  *   cagra::build_knn_graph(res, dataset, knn_graph.view(), build_params);
+ *   auto optimized_graph = raft::make_host_matrix<uint32_t, int64_t>(dataset.extent(0), 64);
+ *   cagra::helpers::optimize(res, knn_graph.view(), optimized_graph.view());
+ *   // Construct an index from dataset and optimized knn_graph
+ *   auto index = cagra::index<int8_t, uint32_t>(
+ *     res, metric, dataset, raft::make_const_mdspan(optimized_graph.view()));
  * @endcode
  *
  * @param[in] res raft resources
@@ -3207,11 +3222,16 @@ void build_knn_graph(raft::resources const& res,
  * @code{.cpp}
  *   using namespace cuvs::neighbors;
  *   // raft::host_matrix_view<const uint8_t, int64_t, raft::row_major> dataset;
- *   auto build_params = cagra::graph_build_params::ivf_pq_params(
- *     dataset.extents(), cuvs::distance::DistanceType::L2Expanded);
+ *   auto metric       = cuvs::distance::DistanceType::L2Expanded;
+ *   auto build_params = cagra::graph_build_params::ivf_pq_params(dataset.extents(), metric);
  *   auto knn_graph = raft::make_host_matrix<uint32_t, int64_t>(dataset.extent(0), 128);
  *   // create knn graph
  *   cagra::build_knn_graph(res, dataset, knn_graph.view(), build_params);
+ *   auto optimized_graph = raft::make_host_matrix<uint32_t, int64_t>(dataset.extent(0), 64);
+ *   cagra::helpers::optimize(res, knn_graph.view(), optimized_graph.view());
+ *   // Construct an index from dataset and optimized knn_graph
+ *   auto index = cagra::index<uint8_t, uint32_t>(
+ *     res, metric, dataset, raft::make_const_mdspan(optimized_graph.view()));
  * @endcode
  *
  * @param[in] res raft resources
