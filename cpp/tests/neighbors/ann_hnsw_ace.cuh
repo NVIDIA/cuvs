@@ -19,6 +19,8 @@
 #include <fstream>
 #include <string>
 
+#include <unistd.h>
+
 namespace cuvs::neighbors::hnsw {
 
 struct AnnHnswAceInputs {
@@ -59,7 +61,8 @@ class ace_workspace_directory {
  public:
   ace_workspace_directory()
     : path_{std::filesystem::temp_directory_path() /
-            ("cuvs_ace_workspace_" + std::to_string(std::time(nullptr)) + "_" +
+            ("cuvs_ace_workspace_" + std::to_string(getpid()) + "_" +
+             std::to_string(std::time(nullptr)) + "_" +
              std::to_string(reinterpret_cast<std::uintptr_t>(this)) + "_" +
              std::to_string(counter_++))}
   {
