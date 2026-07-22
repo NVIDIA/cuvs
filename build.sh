@@ -19,7 +19,7 @@ ARGS=$*
 # scripts, and that this script resides in the repo dir!
 REPODIR=$(cd "$(dirname "$0")"; pwd)
 
-VALIDARGS="clean libcuvs python rust go java docs tests bench-ann examples --uninstall  -v -g -n --allgpuarch --no-mg --mnmg-tests --no-cpu --cpu-only --no-shared-libs --no-nvtx --show_depr_warn --incl-cache-stats --time -h --run-java-tests"
+VALIDARGS="clean libcuvs python rust go java lucene docs tests bench-ann examples --uninstall  -v -g -n --allgpuarch --no-mg --mnmg-tests --no-cpu --cpu-only --no-shared-libs --no-nvtx --show_depr_warn --incl-cache-stats --time -h --run-java-tests"
 HELP="$0 [<target> ...] [<flag> ...] [--cmake-args=\"<args>\"] [--cache-tool=<tool>] [--limit-tests=<targets>] [--limit-bench-ann=<targets>] [--build-metrics=<filename>]
  where <target> is:
    clean            - remove all existing build artifacts and configuration (start over)
@@ -29,6 +29,7 @@ HELP="$0 [<target> ...] [<flag> ...] [--cmake-args=\"<args>\"] [--cache-tool=<to
    rust             - build the cuvs Rust bindings
    go               - build the cuvs Go bindings
    java             - build the cuvs Java bindings
+   lucene           - build the cuVS Lucene library
    docs             - build the documentation
    tests            - build the tests
    bench-ann        - build end-to-end ann benchmarks
@@ -74,7 +75,8 @@ FERN_DOCS_DIR=${REPODIR}/fern
 PYTHON_BUILD_DIR=${REPODIR}/python/cuvs/_skbuild
 RUST_BUILD_DIR=${REPODIR}/rust/target
 JAVA_BUILD_DIR=${REPODIR}/java/cuvs-java/target
-BUILD_DIRS="${LIBCUVS_BUILD_DIR} ${PYTHON_BUILD_DIR} ${RUST_BUILD_DIR} ${JAVA_BUILD_DIR}"
+LUCENE_BUILD_DIR=${REPODIR}/java/cuvs-lucene/target
+BUILD_DIRS="${LIBCUVS_BUILD_DIR} ${PYTHON_BUILD_DIR} ${RUST_BUILD_DIR} ${JAVA_BUILD_DIR} ${LUCENE_BUILD_DIR}"
 
 # Set defaults for vars modified by flags to this script
 CMAKE_LOG_LEVEL=""
@@ -548,6 +550,19 @@ if (( NUMARGS == 0 )) || hasArg java; then
         echo "Please add 'libcuvs' to this script's arguments (ex. './build.sh libcuvs java') if libcuvs libraries are not already built"
     fi
     cd "${REPODIR}"/java
+    if hasArg --run-java-tests; then
+        ./build.sh --run-java-tests
+    else
+        ./build.sh
+    fi
+fi
+
+# Build the cuVS Lucene library
+if (( NUMARGS == 0 )) || hasArg lucene; then
+    if ! hasArg java; then
+        echo "Note: 'lucene' builds against the already-installed cuvs-java artifact. Add 'java' (ex. './build.sh java lucene') if cuvs-java has changed and needs rebuilding."
+    fi
+    cd "${REPODIR}"/java/cuvs-lucene
     if hasArg --run-java-tests; then
         ./build.sh --run-java-tests
     else
