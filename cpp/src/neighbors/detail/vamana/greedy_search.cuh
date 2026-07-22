@@ -84,12 +84,22 @@ __global__ void SortPairsKernel(void* query_list_ptr, int num_queries, int topk)
   Output - the id and dist lists in query_list_ptr will be updated with the nodes visited
            during the GreedySearch.
 **********************************************************************************************/
+// GreedySearchKernel launches 128 threads/block and requests a minimum blocks-per-SM
+// hint for occupancy. On SM 7.2 (Xavier) and SM 7.5 (Turing) the hardware caps at
+// 1024 threads/SM, so 12 * 128 = 1536 exceeds the limit and ptxas emits
+// ".minnctapersm out of range ... will be ignored". Use 8 (8 * 128 = 1024) on those
+// architectures and keep the tuned value of 12 elsewhere (>=1536 threads/SM).
+#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ == 720 || __CUDA_ARCH__ == 750)
+#define VAMANA_GREEDY_MIN_BLOCKS_PER_SM 8
+#else
+#define VAMANA_GREEDY_MIN_BLOCKS_PER_SM 12
+#endif
 template <typename T,
           typename accT,
           typename IdxT = uint32_t,
           typename Accessor =
             raft::host_device_accessor<cuda::std::default_accessor<T>, raft::memory_type::host>>
-__global__ __launch_bounds__(128, 12) void GreedySearchKernel(
+__global__ __launch_bounds__(128, VAMANA_GREEDY_MIN_BLOCKS_PER_SM) void GreedySearchKernel(
   raft::device_matrix_view<IdxT, int64_t> graph,
   raft::mdspan<const T, raft::matrix_extent<int64_t>, raft::row_major, Accessor> dataset,
   void* query_list_ptr,
