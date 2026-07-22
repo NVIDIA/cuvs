@@ -1,124 +1,123 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
-use crate::distance_type::DistanceType;
-use crate::error::{Result, check_cuvs};
-use std::fmt;
-use std::io::{Write, stderr};
+//! Builder-pattern parameter type for k-means.
+//!
+//! All setters are optional; unset values retain the library defaults from the
+//! underlying C `cuvsKMeansParamsCreate`.
 
-pub struct Params(pub ffi::cuvsKMeansParams_t);
+use std::{fmt, ptr};
+
+use bon::bon;
+
+use crate::distance::DistanceType;
+use crate::error::check_cuvs;
+
+use super::KMeansError;
+
+/// Parameters for k-means fitting and prediction.
+pub struct Params {
+    handle: ffi::cuvsKMeansParams_t,
+}
+
+#[bon]
+impl Params {
+    #[builder]
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        metric: Option<DistanceType>,
+        n_clusters: Option<i32>,
+        max_iter: Option<i32>,
+        tol: Option<f64>,
+        n_init: Option<i32>,
+        oversampling_factor: Option<f64>,
+        batch_samples: Option<i32>,
+        batch_centroids: Option<i32>,
+        hierarchical: Option<bool>,
+        hierarchical_n_iters: Option<i32>,
+    ) -> Result<Self, KMeansError> {
+        if let Some(n) = n_clusters
+            && n <= 0
+        {
+            return Err(KMeansError::Validation("n_clusters must be > 0".into()));
+        }
+        if let Some(n) = max_iter
+            && n < 0
+        {
+            return Err(KMeansError::Validation("max_iter must be >= 0".into()));
+        }
+        if let Some(n) = n_init
+            && n <= 0
+        {
+            return Err(KMeansError::Validation("n_init must be > 0".into()));
+        }
+        if let Some(n) = hierarchical_n_iters
+            && n < 0
+        {
+            return Err(KMeansError::Validation("hierarchical_n_iters must be >= 0".into()));
+        }
+
+        let params = Self::create_handle()?;
+        unsafe {
+            if let Some(v) = metric {
+                (*params.handle).metric = v.into();
+            }
+            if let Some(v) = n_clusters {
+                (*params.handle).n_clusters = v;
+            }
+            if let Some(v) = max_iter {
+                (*params.handle).max_iter = v;
+            }
+            if let Some(v) = tol {
+                (*params.handle).tol = v;
+            }
+            if let Some(v) = n_init {
+                (*params.handle).n_init = v;
+            }
+            if let Some(v) = oversampling_factor {
+                (*params.handle).oversampling_factor = v;
+            }
+            if let Some(v) = batch_samples {
+                (*params.handle).batch_samples = v;
+            }
+            if let Some(v) = batch_centroids {
+                (*params.handle).batch_centroids = v;
+            }
+            if let Some(v) = hierarchical {
+                (*params.handle).hierarchical = v;
+            }
+            if let Some(v) = hierarchical_n_iters {
+                (*params.handle).hierarchical_n_iters = v;
+            }
+        }
+        Ok(params)
+    }
+}
 
 impl Params {
-    /// Returns a new Params
-    pub fn new() -> Result<Params> {
-        unsafe {
-            let mut params = std::mem::MaybeUninit::<ffi::cuvsKMeansParams_t>::uninit();
-            check_cuvs(ffi::cuvsKMeansParamsCreate(params.as_mut_ptr()))?;
-            Ok(Params(params.assume_init()))
-        }
+    /// Allocate parameters populated with the library defaults.
+    fn create_handle() -> Result<Self, KMeansError> {
+        let mut handle = ptr::null_mut();
+        check_cuvs(unsafe { ffi::cuvsKMeansParamsCreate(&mut handle) })?;
+        Ok(Self { handle })
     }
 
-    /// DistanceType to use for fitting kmeans
-    pub fn set_metric(self, metric: DistanceType) -> Params {
-        unsafe {
-            (*self.0).metric = metric;
-        }
-        self
-    }
-
-    /// The number of clusters to form as well as the number of centroids to generate (default:8).
-    pub fn set_n_clusters(self, n_clusters: i32) -> Params {
-        unsafe {
-            (*self.0).n_clusters = n_clusters;
-        }
-        self
-    }
-
-    /// Maximum number of iterations of the k-means algorithm for a single run.
-    pub fn set_max_iter(self, max_iter: i32) -> Params {
-        unsafe {
-            (*self.0).max_iter = max_iter;
-        }
-        self
-    }
-
-    /// Relative tolerance with regards to inertia to declare convergence.
-    pub fn set_tol(self, tol: f64) -> Params {
-        unsafe {
-            (*self.0).tol = tol;
-        }
-        self
-    }
-
-    /// Number of instance k-means algorithm will be run with different seeds.
-    pub fn set_n_init(self, n_init: i32) -> Params {
-        unsafe {
-            (*self.0).n_init = n_init;
-        }
-        self
-    }
-
-    /// Oversampling factor for use in the k-means|| algorithm
-    pub fn set_oversampling_factor(self, oversampling_factor: f64) -> Params {
-        unsafe {
-            (*self.0).oversampling_factor = oversampling_factor;
-        }
-        self
-    }
-
-    /**
-     * batch_samples and batch_centroids are used to tile 1NN computation which is
-     * useful to optimize/control the memory footprint
-     * Default tile is [batch_samples x n_clusters] i.e. when batch_centroids is 0
-     * then don't tile the centroids.
-     */
-    pub fn set_batch_samples(self, batch_samples: i32) -> Params {
-        unsafe {
-            (*self.0).batch_samples = batch_samples;
-        }
-        self
-    }
-    /// if 0 then batch_centroids = n_clusters
-    pub fn set_batch_centroids(self, batch_centroids: i32) -> Params {
-        unsafe {
-            (*self.0).batch_centroids = batch_centroids;
-        }
-        self
-    }
-
-    /// Whether to use hierarchical (balanced) kmeans or not
-    pub fn set_hierarchical(self, hierarchical: bool) -> Params {
-        unsafe {
-            (*self.0).hierarchical = hierarchical;
-        }
-        self
-    }
-
-    /// For hierarchical k-means , defines the number of training iterations
-    pub fn set_hierarchical_n_iters(self, hierarchical_n_iters: i32) -> Params {
-        unsafe {
-            (*self.0).hierarchical_n_iters = hierarchical_n_iters;
-        }
-        self
+    pub(super) fn handle(&self) -> ffi::cuvsKMeansParams_t {
+        self.handle
     }
 }
 
 impl fmt::Debug for Params {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        // custom debug trait here, default value will show the pointer address
-        // for the inner params object which isn't that useful.
-        write!(f, "Params({:?})", unsafe { *self.0 })
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("Params").field(unsafe { &*self.handle }).finish()
     }
 }
 
 impl Drop for Params {
     fn drop(&mut self) {
-        if let Err(e) = check_cuvs(unsafe { ffi::cuvsKMeansParamsDestroy(self.0) }) {
-            write!(stderr(), "failed to call cuvsKMeansParamsDestroy {:?}", e)
-                .expect("failed to write to stderr");
-        }
+        let _ = unsafe { ffi::cuvsKMeansParamsDestroy(self.handle) };
     }
 }
 
@@ -127,12 +126,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_params() {
-        let params = Params::new().unwrap().set_n_clusters(128).set_hierarchical(true);
-
+    fn params_with_values() {
+        let params = Params::builder().n_clusters(128).hierarchical(true).build().unwrap();
         unsafe {
-            assert_eq!((*params.0).n_clusters, 128);
-            assert_eq!((*params.0).hierarchical, true);
+            assert_eq!((*params.handle).n_clusters, 128);
+            assert!((*params.handle).hierarchical);
         }
+    }
+
+    #[test]
+    fn rejects_invalid_values() {
+        assert!(matches!(Params::builder().n_clusters(0).build(), Err(KMeansError::Validation(_))));
+        assert!(matches!(Params::builder().max_iter(-1).build(), Err(KMeansError::Validation(_))));
+        assert!(matches!(Params::builder().n_init(0).build(), Err(KMeansError::Validation(_))));
+        assert!(matches!(
+            Params::builder().hierarchical_n_iters(-1).build(),
+            Err(KMeansError::Validation(_))
+        ));
     }
 }
