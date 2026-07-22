@@ -698,6 +698,16 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
   }
 
   /**
+   * Replace the graph by taking ownership of an existing device matrix.
+   */
+  void update_graph(raft::resources const&,
+                    raft::device_matrix<graph_index_type, int64_t, raft::row_major>&& knn_graph)
+  {
+    graph_      = std::move(knn_graph);
+    graph_view_ = graph_.view();
+  }
+
+  /**
    * Replace the graph with a new graph.
    *
    * We create a copy of the graph on the device. The index manages the lifetime of this copy.
@@ -2447,42 +2457,62 @@ void serialize_to_hnswlib(
  * @{
  */
 
-/** @brief Merge multiple CAGRA indices into a single index.
+enum class merge_algo {
+  /** Select Fastener when its complete preflight succeeds, otherwise preserve rebuild behavior. */
+  AUTO,
+  /** Require Fastener and reject unsupported configurations. */
+  FASTENER,
+  /** Concatenate datasets and rebuild the graph. */
+  REBUILD,
+};
+
+/** C++ controls for physical CAGRA index merge. */
+struct merge_params {
+  merge_algo algo        = merge_algo::AUTO;
+  uint32_t levels        = 2;
+  uint32_t root_fanout   = 2;
+  uint32_t lower_fanout  = 3;
+  double leader_fraction = 0.02;
+  uint32_t max_leaders   = 1000;
+  uint32_t leaf_size     = 256;
+  uint32_t leaf_degree   = 4;
+};
+
+/** @brief Merge multiple physical CAGRA indices into one.
  *
- * This function merges multiple CAGRA indices into one, combining both the datasets and graph
- * structures.
+ * The overload without `merge_params` uses `merge_algo::AUTO`. AUTO runs Fastener only after a
+ * non-mutating preflight validates every input and option; otherwise it calls the existing rebuild
+ * implementation. REBUILD always preserves every input dataset.
  *
- * @note: When device memory is sufficient, the dataset attached to the returned index is allocated
- * in device memory by default; otherwise, host memory is used automatically.
+ * Fastener supports unfiltered, uncompressed `float`, `half`, `int8_t`, and `uint8_t`
+ * indices using L2Expanded and `uint32_t` graph IDs. Fastener uses `root_fanout` at the first
+ * split and `lower_fanout` at every later split. Fanouts from 1 through 32, leader fractions in
+ * (0, 1], leader caps through 8192, leaf sizes from 1 through 256, and leaf degrees from 1
+ * through 8 are supported. The configured spill width times `leaf_degree` must not exceed 255.
+ * `index_params::graph_degree` is the final output degree.
  *
- * @note: This API only supports physical merge (`merge_strategy = MERGE_STRATEGY_PHYSICAL`), and
- * attempting a logical merge here will throw an error.
+ * Fastener copies the input datasets into one contiguous device allocation and never mutates the
+ * input indices. When `attach_dataset_on_build` is true, the result owns that consolidated copy.
  *
- * Usage example:
- * @code{.cpp}
- *   using namespace cuvs::neighbors;
- *   auto dataset0 = raft::make_host_matrix<float, int64_t>(handle, size0, dim);
- *   auto dataset1 = raft::make_host_matrix<float, int64_t>(handle, size1, dim);
- *
- *   auto index0 = cagra::build(res, index_params, dataset0);
- *   auto index1 = cagra::build(res, index_params, dataset1);
- *
- *   std::vector<cagra::index<float, uint32_t>*> indices{&index0, &index1};
- *
- *   auto merged_index = cagra::merge(res, index_params, indices);
- * @endcode
- *
- * @param[in] res RAFT resources used for the merge operation.
- * @param[in] params Parameters that control the merging process.
- * @param[in] indices A vector of pointers to the CAGRA indices to merge. All indices must:
- *                    - Have attached datasets with the same dimension.
- * @param[in] row_filter an optional device filter function object that greenlights rows
- *    to include in the merged index  (none_sample_filter for no filtering)
- * @return A new CAGRA index containing the merged indices, graph, and dataset.
+ * @param[in] res RAFT resources used for the merge.
+ * @param[in] params Parameters for the returned CAGRA index.
+ * @param[in] indices CAGRA indices to merge.
+ * @param[in] row_filter Optional row filter. Any filter selects rebuild in AUTO and is rejected by
+ * explicit FASTENER.
+ * @return The merged physical CAGRA index.
  */
 auto merge(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
            std::vector<cuvs::neighbors::cagra::index<float, uint32_t>*>& indices,
+           const cuvs::neighbors::filtering::base_filter& row_filter =
+             cuvs::neighbors::filtering::none_sample_filter{})
+  -> cuvs::neighbors::cagra::index<float, uint32_t>;
+
+/** @brief Merge with explicit C++ algorithm and Fastener controls. */
+auto merge(raft::resources const& res,
+           const cuvs::neighbors::cagra::index_params& params,
+           std::vector<cuvs::neighbors::cagra::index<float, uint32_t>*>& indices,
+           const cuvs::neighbors::cagra::merge_params& merge_params,
            const cuvs::neighbors::filtering::base_filter& row_filter =
              cuvs::neighbors::filtering::none_sample_filter{})
   -> cuvs::neighbors::cagra::index<float, uint32_t>;
@@ -2498,6 +2528,15 @@ auto merge(raft::resources const& res,
 /** @copydoc merge */
 auto merge(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
+           std::vector<cuvs::neighbors::cagra::index<half, uint32_t>*>& indices,
+           const cuvs::neighbors::cagra::merge_params& merge_params,
+           const cuvs::neighbors::filtering::base_filter& row_filter =
+             cuvs::neighbors::filtering::none_sample_filter{})
+  -> cuvs::neighbors::cagra::index<half, uint32_t>;
+
+/** @copydoc merge */
+auto merge(raft::resources const& res,
+           const cuvs::neighbors::cagra::index_params& params,
            std::vector<cuvs::neighbors::cagra::index<int8_t, uint32_t>*>& indices,
            const cuvs::neighbors::filtering::base_filter& row_filter =
              cuvs::neighbors::filtering::none_sample_filter{})
@@ -2506,7 +2545,25 @@ auto merge(raft::resources const& res,
 /** @copydoc merge */
 auto merge(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
+           std::vector<cuvs::neighbors::cagra::index<int8_t, uint32_t>*>& indices,
+           const cuvs::neighbors::cagra::merge_params& merge_params,
+           const cuvs::neighbors::filtering::base_filter& row_filter =
+             cuvs::neighbors::filtering::none_sample_filter{})
+  -> cuvs::neighbors::cagra::index<int8_t, uint32_t>;
+
+/** @copydoc merge */
+auto merge(raft::resources const& res,
+           const cuvs::neighbors::cagra::index_params& params,
            std::vector<cuvs::neighbors::cagra::index<uint8_t, uint32_t>*>& indices,
+           const cuvs::neighbors::filtering::base_filter& row_filter =
+             cuvs::neighbors::filtering::none_sample_filter{})
+  -> cuvs::neighbors::cagra::index<uint8_t, uint32_t>;
+
+/** @copydoc merge */
+auto merge(raft::resources const& res,
+           const cuvs::neighbors::cagra::index_params& params,
+           std::vector<cuvs::neighbors::cagra::index<uint8_t, uint32_t>*>& indices,
+           const cuvs::neighbors::cagra::merge_params& merge_params,
            const cuvs::neighbors::filtering::base_filter& row_filter =
              cuvs::neighbors::filtering::none_sample_filter{})
   -> cuvs::neighbors::cagra::index<uint8_t, uint32_t>;

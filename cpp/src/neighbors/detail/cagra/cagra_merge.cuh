@@ -1,8 +1,12 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
+
+#include "../../../core/nvtx.hpp"
+#include "cagra_merge_scaffold.cuh"
+#include "graph_core.cuh"
 
 #include <cuvs/neighbors/cagra.hpp>
 
@@ -21,19 +25,44 @@
 #include <cuvs/neighbors/ivf_pq.hpp>
 #include <cuvs/neighbors/refine.hpp>
 
-#include <rmm/resource_ref.hpp>
-
-#include <chrono>
-#include <cstdio>
+#include <limits>
+#include <memory>
+#include <string>
+#include <type_traits>
 #include <vector>
 
 namespace cuvs::neighbors::cagra::detail {
 
+/** Copy every attached input dataset into its row range in one contiguous device matrix. */
+template <typename T, typename IdxT>
+void copy_input_datasets(raft::resources const& handle,
+                         std::vector<cuvs::neighbors::cagra::index<T, IdxT>*> const& indices,
+                         std::vector<int64_t> const& offsets,
+                         int64_t dim,
+                         T* destination)
+{
+  using cagra_index_t = cuvs::neighbors::cagra::index<T, IdxT>;
+  using ds_idx_type   = typename cagra_index_t::dataset_index_type;
+
+  for (std::size_t i = 0; i < indices.size(); ++i) {
+    auto const* source_dataset =
+      dynamic_cast<const strided_dataset<T, ds_idx_type>*>(&indices[i]->data());
+    auto source = source_dataset->view();
+    raft::copy_matrix(destination + offsets[i] * dim,
+                      static_cast<std::size_t>(dim),
+                      source.data_handle(),
+                      static_cast<std::size_t>(source_dataset->stride()),
+                      static_cast<std::size_t>(dim),
+                      static_cast<std::size_t>(source.extent(0)),
+                      raft::resource::get_cuda_stream(handle));
+  }
+}
+
 template <class T, class IdxT>
-index<T, IdxT> merge(raft::resources const& handle,
-                     const cagra::index_params& params,
-                     std::vector<cuvs::neighbors::cagra::index<T, IdxT>*>& indices,
-                     const cuvs::neighbors::filtering::base_filter& row_filter)
+index<T, IdxT> merge_rebuild(raft::resources const& handle,
+                             const cagra::index_params& params,
+                             std::vector<cuvs::neighbors::cagra::index<T, IdxT>*>& indices,
+                             const cuvs::neighbors::filtering::base_filter& row_filter)
 {
   using cagra_index_t = cuvs::neighbors::cagra::index<T, IdxT>;
   using ds_idx_type   = typename cagra_index_t::dataset_index_type;
@@ -173,6 +202,245 @@ index<T, IdxT> merge(raft::resources const& handle,
     }
     return merged_index;
   }
+}
+
+struct fastener_preflight_result {
+  bool eligible = false;
+  int64_t rows  = 0;
+  int64_t dim   = 0;
+  std::vector<int64_t> offsets;
+  std::string reason;
+};
+
+template <typename T, typename IdxT>
+auto preflight_fastener(cagra::index_params const& params,
+                        cagra::merge_params const& merge_params,
+                        std::vector<cuvs::neighbors::cagra::index<T, IdxT>*> const& indices,
+                        cuvs::neighbors::filtering::base_filter const& row_filter)
+  -> fastener_preflight_result
+{
+  fastener_preflight_result result;
+  auto reject = [&](char const* reason) {
+    result.reason = reason;
+    return result;
+  };
+
+  if constexpr (!(std::is_same_v<T, float> || std::is_same_v<T, half> ||
+                  std::is_same_v<T, int8_t> || std::is_same_v<T, uint8_t>) ||
+                !std::is_same_v<IdxT, uint32_t>) {
+    return reject("the scalar or graph index type is unsupported");
+  }
+  if (indices.size() < 2) { return reject("at least two input indices are required"); }
+  if (row_filter.get_filter_type() != cuvs::neighbors::filtering::FilterType::None) {
+    return reject("row filters are not supported");
+  }
+  if (params.compression.has_value()) { return reject("compressed output is not supported"); }
+  if (params.metric != cuvs::distance::DistanceType::L2Expanded) {
+    return reject("only L2Expanded is supported");
+  }
+  if (merge_params.levels == 0) { return reject("levels must be positive"); }
+  if (merge_params.root_fanout < 1 || merge_params.root_fanout > 32 ||
+      merge_params.lower_fanout < 1 || merge_params.lower_fanout > 32) {
+    return reject("root_fanout and lower_fanout must be between 1 and 32");
+  }
+  if (!(merge_params.leader_fraction > 0.0 && merge_params.leader_fraction <= 1.0)) {
+    return reject("leader_fraction must be in (0, 1]");
+  }
+  if (merge_params.max_leaders == 0 || merge_params.max_leaders > 8192) {
+    return reject("max_leaders must be between 1 and 8192");
+  }
+  if (merge_params.max_leaders < std::max(merge_params.root_fanout, merge_params.lower_fanout)) {
+    return reject("max_leaders must cover both configured fanouts");
+  }
+  if (merge_params.leaf_size == 0 || merge_params.leaf_size > merge_scaffold::MAX_LEAF_SIZE) {
+    return reject("leaf_size must be between 1 and 256");
+  }
+  if (merge_params.leaf_degree == 0 ||
+      merge_params.leaf_degree > static_cast<uint32_t>(merge_scaffold::MAX_LEAF_DEGREE)) {
+    return reject("leaf_degree must be between 1 and 8");
+  }
+
+  uint64_t const max_spill = std::numeric_limits<uint8_t>::max() / merge_params.leaf_degree;
+  uint64_t spill           = merge_params.root_fanout;
+  if (spill > max_spill) {
+    return reject("root_fanout * lower_fanout^(levels - 1) * leaf_degree must not exceed 255");
+  }
+  if (merge_params.lower_fanout > 1) {
+    for (uint32_t level = 1; level < merge_params.levels; ++level) {
+      if (spill > max_spill / merge_params.lower_fanout) {
+        return reject("root_fanout * lower_fanout^(levels - 1) * leaf_degree must not exceed 255");
+      }
+      spill *= merge_params.lower_fanout;
+    }
+  }
+  uint64_t const scaffold_degree = spill * merge_params.leaf_degree;
+
+  using index_type          = cuvs::neighbors::cagra::index<T, IdxT>;
+  using ds_idx_type         = typename index_type::dataset_index_type;
+  uint64_t rows             = 0;
+  uint64_t max_input_degree = 0;
+  result.offsets.reserve(indices.size() + 1);
+  result.offsets.push_back(0);
+
+  for (auto const* index : indices) {
+    if (index == nullptr) { return reject("all input index pointers must be non-null"); }
+    auto const* dataset =
+      dynamic_cast<cuvs::neighbors::strided_dataset<T, ds_idx_type> const*>(&index->data());
+    if (dataset == nullptr || dataset->n_rows() != static_cast<ds_idx_type>(index->size())) {
+      return reject("every input must have an attached, uncompressed dataset");
+    }
+    if (index->metric() != params.metric) {
+      return reject("every input metric must match index_params.metric");
+    }
+    if (result.offsets.size() == 1) {
+      result.dim = static_cast<int64_t>(index->dim());
+    } else if (result.dim != static_cast<int64_t>(index->dim())) {
+      return reject("all input dimensions must match");
+    }
+    auto graph = index->graph();
+    if (graph.extent(0) <= 0 || graph.extent(1) <= 0 ||
+        graph.extent(0) != static_cast<int64_t>(index->size())) {
+      return reject("every input must have a nonempty device graph");
+    }
+
+    auto const input_rows = static_cast<uint64_t>(index->size());
+    if (rows > std::numeric_limits<uint32_t>::max() - input_rows) {
+      return reject("the combined row count must fit in uint32_t");
+    }
+    rows += input_rows;
+    max_input_degree = std::max<uint64_t>(max_input_degree, static_cast<uint64_t>(graph.extent(1)));
+    result.offsets.push_back(static_cast<int64_t>(rows));
+  }
+
+  if (result.dim <= 0 || result.dim > std::numeric_limits<int>::max()) {
+    return reject("dataset dimension must be positive and fit cuBLAS int dimensions");
+  }
+  if (!merge_scaffold::leaf_gemm_supported<T>(result.dim, merge_params.leaf_size)) {
+    if constexpr (std::is_integral_v<T>) {
+      return reject("integer dataset dimension exceeds the INT32 leaf GEMM limit");
+    } else {
+      return reject("dataset dimension exceeds the leaf GEMM workspace limit");
+    }
+  }
+  if (rows > std::numeric_limits<uint32_t>::max() / spill) {
+    return reject("combined rows times the configured spill width must fit in uint32_t");
+  }
+  if (params.graph_degree == 0 || static_cast<uint64_t>(params.graph_degree) >= rows) {
+    return reject("graph_degree must be positive and smaller than the combined row count");
+  }
+  if (static_cast<uint64_t>(params.graph_degree) > max_input_degree + scaffold_degree) {
+    return reject("graph_degree exceeds the input graph plus scaffold capacity");
+  }
+
+  result.rows     = static_cast<int64_t>(rows);
+  result.eligible = true;
+  return result;
+}
+
+template <typename T, typename IdxT>
+auto merge_fastener(raft::resources const& handle,
+                    cagra::index_params const& params,
+                    cagra::merge_params const& merge_params,
+                    std::vector<cuvs::neighbors::cagra::index<T, IdxT>*>& indices,
+                    fastener_preflight_result const& preflight) -> index<T, IdxT>
+{
+  auto dataset = [&] {
+    raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> scope("cagra::merge/consolidate");
+    auto combined = raft::make_device_matrix<T, int64_t>(handle, preflight.rows, preflight.dim);
+    copy_input_datasets(handle, indices, preflight.offsets, preflight.dim, combined.data_handle());
+    return combined;
+  }();
+
+  merge_scaffold::build_params scaffold_params;
+  scaffold_params.levels          = merge_params.levels;
+  scaffold_params.root_fanout     = merge_params.root_fanout;
+  scaffold_params.lower_fanout    = merge_params.lower_fanout;
+  scaffold_params.leader_fraction = merge_params.leader_fraction;
+  scaffold_params.max_leaders     = merge_params.max_leaders;
+  scaffold_params.leaf_size       = merge_params.leaf_size;
+  scaffold_params.leaf_degree     = merge_params.leaf_degree;
+
+  // Graph combination: append shifted input graphs to the cross-input scaffold.
+  auto merged_graph = [&] {
+    raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> scope("cagra::merge/scaffold");
+    auto scaffold = merge_scaffold::build<T>(
+      handle, raft::make_const_mdspan(dataset.view()), preflight.offsets, scaffold_params);
+    return merge_scaffold::append_to_input_graphs<T, IdxT>(
+      handle, indices, preflight.offsets, raft::make_const_mdspan(scaffold.view()));
+  }();
+
+  {
+    raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> scope("cagra::merge/append/sort");
+    cagra::detail::graph::sort_knn_graph_device_inplace(
+      handle, params.metric, raft::make_const_mdspan(dataset.view()), merged_graph.view());
+    merged_graph = merge_scaffold::cap_sorted_graph(
+      handle, raft::make_const_mdspan(merged_graph.view()), params.graph_degree);
+  }
+
+  // Optimization: reduce the sorted candidate prefix to the requested final CAGRA graph.
+  auto optimized_graph =
+    raft::make_device_matrix<uint32_t, int64_t>(handle, preflight.rows, params.graph_degree);
+  {
+    raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> scope("cagra::merge/optimize");
+    cagra::detail::graph::optimize(
+      handle, merged_graph.view(), optimized_graph.view(), params.guarantee_connectivity);
+  }
+
+  index<T, IdxT> merged_index(handle, params.metric);
+  merged_index.update_graph(handle, std::move(optimized_graph));
+  if (params.attach_dataset_on_build) {
+    using matrix_t           = decltype(dataset);
+    using layout_t           = typename matrix_t::layout_type;
+    using container_policy_t = typename matrix_t::container_policy_type;
+    using owning_t           = owning_dataset<T, int64_t, layout_t, container_policy_t>;
+    auto out_layout          = raft::make_strided_layout(dataset.view().extents(),
+                                                cuda::std::array<int64_t, 2>{preflight.dim, 1});
+    merged_index.update_dataset(handle, owning_t{std::move(dataset), out_layout});
+  } else {
+    using ds_idx_type = typename index<T, IdxT>::dataset_index_type;
+    merged_index.update_dataset(
+      handle, std::make_unique<cuvs::neighbors::empty_dataset<ds_idx_type>>(preflight.dim));
+  }
+
+  return merged_index;
+}
+
+template <class T, class IdxT>
+index<T, IdxT> merge(raft::resources const& handle,
+                     cagra::index_params const& params,
+                     cagra::merge_params const& merge_params,
+                     std::vector<cuvs::neighbors::cagra::index<T, IdxT>*>& indices,
+                     cuvs::neighbors::filtering::base_filter const& row_filter)
+{
+  raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> merge_scope(
+    "cagra::merge(algo=%d,parts=%zu)", static_cast<int>(merge_params.algo), indices.size());
+
+  RAFT_EXPECTS(merge_params.algo == cagra::merge_algo::AUTO ||
+                 merge_params.algo == cagra::merge_algo::FASTENER ||
+                 merge_params.algo == cagra::merge_algo::REBUILD,
+               "Unknown cagra::merge algorithm");
+  if (merge_params.algo == cagra::merge_algo::REBUILD) {
+    return merge_rebuild(handle, params, indices, row_filter);
+  }
+
+  auto preflight = preflight_fastener<T, IdxT>(params, merge_params, indices, row_filter);
+  if (!preflight.eligible) {
+    if (merge_params.algo == cagra::merge_algo::AUTO) {
+      return merge_rebuild(handle, params, indices, row_filter);
+    }
+    RAFT_FAIL("FASTENER cagra::merge is unsupported: %s", preflight.reason.c_str());
+  }
+
+  return merge_fastener(handle, params, merge_params, indices, preflight);
+}
+
+template <class T, class IdxT>
+index<T, IdxT> merge(raft::resources const& handle,
+                     cagra::index_params const& params,
+                     std::vector<cuvs::neighbors::cagra::index<T, IdxT>*>& indices,
+                     cuvs::neighbors::filtering::base_filter const& row_filter)
+{
+  return merge(handle, params, cagra::merge_params{}, indices, row_filter);
 }
 
 }  // namespace cuvs::neighbors::cagra::detail

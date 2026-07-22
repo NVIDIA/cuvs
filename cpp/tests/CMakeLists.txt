@@ -213,6 +213,13 @@ ConfigureTest(
 )
 
 ConfigureTest(
+  NAME NEIGHBORS_ANN_CAGRA_MERGE_TEST
+  PATH neighbors/ann_cagra/test_merge_fastener.cu
+  GPUS 1
+  PERCENT 100
+)
+
+ConfigureTest(
   NAME NEIGHBORS_ANN_CAGRA_HALF_UINT32_TEST
   PATH neighbors/ann_cagra/test_half_uint32_t.cu
   GPUS 1
