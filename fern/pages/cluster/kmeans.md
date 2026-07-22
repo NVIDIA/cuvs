@@ -369,6 +369,9 @@ Balanced K-Means encourages more even cluster sizes. It is useful when clusters 
 | `streaming_batch_size` | `0` | Number of host rows streamed to the GPU per batch. `0` processes all host rows at once. |
 | `hierarchical` | `false` | Enables hierarchical, balanced K-Means in C and Python. |
 | `hierarchical_n_iters` | implementation default | Number of training iterations for hierarchical K-Means. |
+| `balance_lower_tolerance` | `0.333` | C++ balanced K-Means lower tolerance for rebalancing clusters during hierarchical training and final global fine-tuning iterations. Small clusters are adjusted when their size is smaller than `average_cluster_size * balance_lower_tolerance`. The default targets clusters smaller than roughly one third of the average size. |
+| `balance_upper_tolerance` | `3.0` | C++ balanced K-Means upper tolerance for selecting overfull donor clusters during hierarchical training and final global fine-tuning iterations. Donor clusters are selected when their size is larger than `average_cluster_size * balance_upper_tolerance`. The default targets clusters larger than roughly three times the average size. Very strict upper tolerance values around `1.4` or lower can be difficult for this heuristic rebalancing method to satisfy. |
+| `centroid_offset` | `0.01` | C++ balanced K-Means offset used when reinitializing a small cluster near a large cluster. The new center is placed at `donor_center + centroid_offset * (donor_point - donor_center)`. |
 
 ## Tuning
 
