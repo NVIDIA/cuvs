@@ -175,3 +175,11 @@ done
 sed_runner "s| CuVS [[:digit:]]\{2\}\.[[:digit:]]\{2\} | CuVS ${NEXT_SHORT_TAG} |g" java/README.md
 sed_runner "s|-[[:digit:]]\{2\}\.[[:digit:]]\{2\}\.[[:digit:]]\{1,2\}\.jar|-${NEXT_FULL_JAVA_TAG}\.jar|g" java/examples/README.md
 sed_runner "s|/[[:digit:]]\{2\}\.[[:digit:]]\{2\}\.[[:digit:]]\{1,2\}/|/${NEXT_FULL_JAVA_TAG}/|g" java/examples/README.md
+
+# Update cuvs-lucene (integrated Java subproject; uses its own CUVS_LUCENE# markers)
+sed_runner "s/VERSION=\".*\"/VERSION=\"${NEXT_FULL_JAVA_TAG}\"/g" java/cuvs-lucene/build.sh
+for FILE in java/cuvs-lucene/pom.xml java/cuvs-lucene/examples/pom.xml java/cuvs-lucene/bench/pom.xml; do
+  sed_runner "/<!--CUVS_LUCENE#VERSION_UPDATE_MARKER_START-->.*<!--CUVS_LUCENE#VERSION_UPDATE_MARKER_END-->/s//<!--CUVS_LUCENE#VERSION_UPDATE_MARKER_START--><version>${NEXT_FULL_JAVA_TAG}<\/version><!--CUVS_LUCENE#VERSION_UPDATE_MARKER_END-->/g" "${FILE}"
+done
+sed_runner "s|rapidsai/ci-conda:[\.0-9]*-cuda|rapidsai/ci-conda:${NEXT_SHORT_TAG}-cuda|g" java/cuvs-lucene/examples/README.md
+sed_runner "s|target/examples-[\.0-9]*-jar|target/examples-${NEXT_FULL_JAVA_TAG}-jar|g" java/cuvs-lucene/examples/README.md
