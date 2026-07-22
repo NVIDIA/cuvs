@@ -33,6 +33,14 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public final class FilterBitsetHandleImpl implements FilterBitsetHandle {
 
+  /**
+   * Size in bytes of a pre-warmed RMM pool to back filter bitset device allocations. When set, the
+   * shared filter resources' workspace memory resource becomes a growable pool so repeated
+   * cache-eviction/rebuild uploads reuse slabs instead of hitting cudaMalloc/cudaFree each time.
+   * Distinct from {@code com.nvidia.cuvs.workspacePoolSize}, which sizes the per-query search pool.
+   */
+  static final String FILTER_POOL_SIZE_PROPERTY = "com.nvidia.cuvs.filterBitsetPoolSize";
+
   /** Device-side allocation for the combined bitset, shared across all threads. */
   static final class DeviceData {
     final CloseableRMMAllocation combinedBitsetDP;
@@ -73,6 +81,12 @@ public final class FilterBitsetHandleImpl implements FilterBitsetHandle {
         if (r == null) {
           try {
             r = CuVSResources.create();
+            // Back filter uploads with a pre-warmed, growable workspace pool when sized. cuvs-lucene
+            // defaults this to its filter cache byte budget; an operator can override the property.
+            long poolBytes = Long.getLong(FILTER_POOL_SIZE_PROPERTY, 0L);
+            if (poolBytes > 0) {
+              r.setWorkspacePool(poolBytes);
+            }
           } catch (Throwable t) {
             throw new RuntimeException("Failed to create resources for filter bitset device memory", t);
           }
