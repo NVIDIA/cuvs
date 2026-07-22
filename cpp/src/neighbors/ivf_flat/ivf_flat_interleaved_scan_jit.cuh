@@ -9,12 +9,14 @@
 #include "detail/jit_lto_kernels/interleaved_scan_planner.hpp"
 #include "detail/jit_lto_kernels/kernel_def.hpp"
 #include <cstdint>
+#include <cuvs/core/device_udf.hpp>
 #include <cuvs/detail/jit_lto/NVRTCLTOFragmentCompiler.hpp>
 #include <cuvs/detail/jit_lto/common_fragments.hpp>
 #include <cuvs/detail/jit_lto/ivf_flat/interleaved_scan_fragments.hpp>
 #include <cuvs/neighbors/common.hpp>
 #include <cuvs/neighbors/ivf_flat.hpp>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <type_traits>
 
@@ -60,6 +62,56 @@ constexpr auto get_idx_type_tag()
 // Convert type to string for JIT code generation (strip cv/ref so const/volatile T still matches).
 template <typename>
 inline constexpr bool type_name_always_false_v = false;
+
+inline const char* capture_pointer_type(std::string const& dtype)
+{
+  if (dtype == "float32") { return "const float*"; }
+  if (dtype == "int32") { return "const int*"; }
+  if (dtype == "int64") { return "const long long*"; }
+  RAFT_FAIL("Unsupported IVF Flat metric UDF capture dtype: %s", dtype.c_str());
+  return "";
+}
+
+inline std::string instantiate_ltoir_udf_wrapper(cuvs::jit::ltoir_udf const& udf,
+                                                 char const* acc_type)
+{
+  RAFT_EXPECTS(udf.captures.size() <= 1,
+               "IVF Flat metric LTO-IR UDF currently supports at most one capture");
+
+  auto const symbol_name = udf.symbol_name.c_str();
+  std::ostringstream oss;
+  if (udf.captures.empty()) {
+    oss << "\nextern \"C\" __device__ " << acc_type << " " << symbol_name << "(" << acc_type
+        << " x, " << acc_type << " y, " << acc_type << " acc);\n";
+  } else {
+    auto const* capture_type = capture_pointer_type(udf.captures[0].dtype);
+    oss << "\nextern \"C\" __device__ " << acc_type << " " << symbol_name << "(" << acc_type
+        << " x, " << acc_type << " y, " << acc_type << " acc, " << capture_type
+        << " capture_0, long long dim);\n";
+  }
+
+  oss << "namespace cuvs::neighbors::ivf_flat::detail {\n"
+      << "template <typename AccT>\n"
+      << "__device__ void compute_dist(AccT& acc, AccT x, AccT y, unsigned int dim, const void* capture_0) {\n";
+  if (udf.captures.empty()) {
+    oss << "  acc = " << symbol_name << "(x, y, acc);\n";
+  } else {
+    auto const* capture_type = capture_pointer_type(udf.captures[0].dtype);
+    oss << "  acc = " << symbol_name << "(x, y, acc, static_cast<" << capture_type
+        << ">(capture_0), static_cast<long long>(dim));\n";
+  }
+  oss << "}\n"
+      << "template <typename AccT>\n"
+      << "__device__ void compute_dist(AccT& acc, AccT x, AccT y) {\n"
+      << "  compute_dist(acc, x, y, 0u, nullptr);\n"
+      << "}\n"
+      << "template __device__ void compute_dist<" << acc_type << ">(" << acc_type << "&, "
+      << acc_type << ", " << acc_type << ");\n"
+      << "template __device__ void compute_dist<" << acc_type << ">(" << acc_type << "&, "
+      << acc_type << ", " << acc_type << ", unsigned int, const void*);\n"
+      << "}\n";
+  return oss.str();
+}
 
 template <typename T>
 constexpr const char* type_name()
@@ -152,7 +204,8 @@ void launch_kernel(const index<T, IdxT>& index,
                    float* distances,
                    uint32_t& grid_dim_x,
                    rmm::cuda_stream_view stream,
-                   const std::optional<std::string>& metric_udf)
+                   const std::optional<std::string>& metric_udf,
+                   const std::optional<cuvs::jit::ltoir_udf>& metric_ltoir_udf)
 {
   RAFT_EXPECTS(Veclen == index.veclen(),
                "Configured Veclen does not match the index interleaving pattern.");
@@ -164,13 +217,43 @@ void launch_kernel(const index<T, IdxT>& index,
   InterleavedScanPlanner kernel_planner;
   kernel_planner.add_entrypoint<DataTag, AccTag, IdxTag, Capacity, Ascending>();
 
+  const void* metric_capture_0 = nullptr;
+
   if constexpr (std::is_same_v<MetricTag, tag_metric_custom_udf>) {
-    RAFT_EXPECTS(metric_udf.has_value(), "CustomUDF search requires metric_udf");
-    std::string metric_udf_code = metric_udf.value();
-    metric_udf_code +=
-      experimental::udf::instantiate_udf(type_name<T>(), type_name<AccT>(), Veclen);
-    auto udf_fragment = nvrtc_compiler().compile(metric_udf_code, metric_udf_code);
-    kernel_planner.add_metric_udf_fragment(std::move(udf_fragment));
+    RAFT_EXPECTS(metric_udf.has_value() != metric_ltoir_udf.has_value(),
+                 "CustomUDF search requires exactly one of metric_udf or metric_ltoir_udf");
+    if (metric_ltoir_udf.has_value()) {
+      auto const& udf = metric_ltoir_udf.value();
+      RAFT_EXPECTS(udf.abi == "rapids.cuvs.ivf_flat.metric.v1",
+                   "Unsupported IVF Flat metric LTO-IR UDF ABI: %s",
+                   udf.abi.c_str());
+      RAFT_EXPECTS(udf.payload_kind == cuvs::jit::device_udf_payload_kind::ltoir,
+                   "IVF Flat metric_ltoir_udf requires an LTO-IR payload");
+      RAFT_EXPECTS(!udf.payload.empty(), "metric_ltoir_udf payload must not be empty");
+      RAFT_EXPECTS(!udf.symbol_name.empty(), "metric_ltoir_udf symbol_name must not be empty");
+      RAFT_EXPECTS(!udf.cache_key.empty(), "metric_ltoir_udf cache_key must not be empty");
+      RAFT_EXPECTS(udf.captures.size() <= 1,
+                   "metric_ltoir_udf currently supports at most one capture");
+      if (!udf.captures.empty()) {
+        RAFT_EXPECTS(udf.captures[0].pointer != 0,
+                     "metric_ltoir_udf capture pointer must not be zero");
+        metric_capture_0 = reinterpret_cast<const void*>(udf.captures[0].pointer);
+      }
+
+      auto payload_fragment = std::make_unique<UDFFatbinFragment>(udf.cache_key, udf.payload);
+      kernel_planner.add_metric_udf_fragment(std::move(payload_fragment));
+
+      auto wrapper_code = instantiate_ltoir_udf_wrapper(udf, type_name<AccT>());
+      auto wrapper_key  = udf.cache_key + ":ivf_flat_metric_wrapper:" + std::to_string(Veclen);
+      auto wrapper_fragment = nvrtc_compiler().compile(wrapper_key, wrapper_code);
+      kernel_planner.add_metric_udf_fragment(std::move(wrapper_fragment));
+    } else {
+      std::string metric_udf_code = metric_udf.value();
+      metric_udf_code +=
+        experimental::udf::instantiate_udf(type_name<T>(), type_name<AccT>(), Veclen);
+      auto udf_fragment = nvrtc_compiler().compile(metric_udf_code, metric_udf_code);
+      kernel_planner.add_metric_udf_fragment(std::move(udf_fragment));
+    }
   } else {
     kernel_planner.add_metric_device_function<DataTag, AccTag, MetricTag, Veclen>();
   }
@@ -233,6 +316,7 @@ void launch_kernel(const index<T, IdxT>& index,
       max_samples,
       chunk_indices,
       index.dim(),
+      metric_capture_0,
       // sample_filter,
       inds_ptrs,
       bitset_ptr.value_or(nullptr),
@@ -436,7 +520,8 @@ void ivfflat_interleaved_scan(const index<T, IdxT>& index,
                               float* distances,
                               uint32_t& grid_dim_x,
                               rmm::cuda_stream_view stream,
-                              const std::optional<std::string>& metric_udf)
+                              const std::optional<std::string>& metric_udf,
+                              const std::optional<cuvs::jit::ltoir_udf>& metric_ltoir_udf)
 {
   const uint32_t n_probes_clamped = std::min(n_probes, index.n_lists());
   const int capacity              = raft::bound_by_power_of_two(k);
@@ -473,7 +558,8 @@ void ivfflat_interleaved_scan(const index<T, IdxT>& index,
         distances,
         grid_dim_x,
         stream,
-        metric_udf);
+        metric_udf,
+        metric_ltoir_udf);
 }
 
 }  // namespace cuvs::neighbors::ivf_flat::detail

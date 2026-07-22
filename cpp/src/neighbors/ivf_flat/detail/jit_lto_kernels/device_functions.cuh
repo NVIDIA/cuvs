@@ -18,10 +18,14 @@ __device__ float load_and_compute_dist(AccT& dist,
                                        const T* query,
                                        T* query_shared,
                                        const uint32_t dim,
-                                       const uint32_t query_smem_elems);
+                                       const uint32_t query_smem_elems,
+                                       const void* metric_capture_0);
 
 template <typename AccT>
 __device__ void compute_dist(AccT& acc, AccT x, AccT y);
+
+template <typename AccT>
+__device__ void compute_dist(AccT& acc, AccT x, AccT y, uint32_t dim, const void* metric_capture_0);
 
 template <typename T>
 __device__ T post_process(T val);

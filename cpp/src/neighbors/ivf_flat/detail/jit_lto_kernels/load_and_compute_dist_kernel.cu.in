@@ -26,7 +26,8 @@ __device__ float load_and_compute_dist<data_t, acc_t>(acc_t& dist,
                                                       const data_t* query,
                                                       data_t* query_shared,
                                                       const uint32_t dim,
-                                                      const uint32_t query_smem_elems)
+                                                      const uint32_t query_smem_elems,
+                                                      const void* metric_capture_0)
 {
   return load_and_compute_dist_impl<data_t, acc_t, compute_norm, veclen>(dist,
                                                                          norm_query,
@@ -36,7 +37,8 @@ __device__ float load_and_compute_dist<data_t, acc_t>(acc_t& dist,
                                                                          query,
                                                                          query_shared,
                                                                          dim,
-                                                                         query_smem_elems);
+                                                                         query_smem_elems,
+                                                                         metric_capture_0);
 }
 
 }  // namespace cuvs::neighbors::ivf_flat::detail

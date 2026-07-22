@@ -46,15 +46,17 @@ struct StaticFatbinFragmentEntry final : FatbinFragmentEntry {
   static const size_t length;
 };
 
-struct UDFFatbinFragment final : FatbinFragmentEntry {
+struct UDFFatbinFragment final : FragmentEntry {
   UDFFatbinFragment(std::string key, std::vector<uint8_t> bytes)
     : key_(std::move(key)), bytes_(std::move(bytes))
   {
   }
 
-  const uint8_t* get_data() const override { return bytes_.data(); }
+  const uint8_t* get_data() const { return bytes_.data(); }
 
-  size_t get_length() const override { return bytes_.size(); }
+  size_t get_length() const { return bytes_.size(); }
+
+  bool add_to(nvJitLinkHandle& handle) const override;
 
   const char* get_key() const override { return key_.c_str(); }
 

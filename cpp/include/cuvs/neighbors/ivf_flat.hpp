@@ -7,10 +7,12 @@
 
 #include "common.hpp"
 #include <cstdint>
+#include <cuvs/core/device_udf.hpp>
 #include <cuvs/core/export.hpp>
 #include <cuvs/neighbors/common.hpp>
 #include <raft/core/host_mdarray.hpp>
 #include <raft/core/host_mdspan.hpp>
+#include <optional>
 #include <sstream>
 #include <string>
 
@@ -76,8 +78,10 @@ struct index_params : cuvs::neighbors::index_params {
 struct search_params : cuvs::neighbors::search_params {
   /** The number of clusters to search. */
   uint32_t n_probes = 20;
-  /** Custom metric UDF code. */
+  /** Custom metric UDF CUDA/C++ source code. */
   std::optional<std::string> metric_udf = std::nullopt;
+  /** Custom metric UDF LTO-IR artifact. */
+  std::optional<cuvs::jit::ltoir_udf> metric_ltoir_udf = std::nullopt;
 };
 
 static_assert(std::is_aggregate_v<index_params>);
@@ -3481,8 +3485,15 @@ inline std::string instantiate_udf(char const* data_type, char const* acc_type, 
       << "  compute_dist_udf_impl<" << data_type << ", " << acc_type << ", " << veclen
       << ">(acc, x, y);\n"
       << "}\n"
+      << "template <typename AccT>\n"
+      << "__device__ void compute_dist(AccT& acc, AccT x, AccT y, unsigned int, const void*) {\n"
+      << "  compute_dist_udf_impl<" << data_type << ", " << acc_type << ", " << veclen
+      << ">(acc, x, y);\n"
+      << "}\n"
       << "template __device__ void compute_dist<" << acc_type << ">(" << acc_type << "&, "
       << acc_type << ", " << acc_type << ");\n"
+      << "template __device__ void compute_dist<" << acc_type << ">(" << acc_type << "&, "
+      << acc_type << ", " << acc_type << ", unsigned int, const void*);\n"
       << "}\n";
   return oss.str();
 }

@@ -119,6 +119,7 @@ void refine_device(
     distances.data_handle(),
     grid_dim_x,
     raft::resource::get_cuda_stream(handle),
+    std::nullopt,
     std::nullopt);
 
   // postprocessing -- neighbors from position to actual id

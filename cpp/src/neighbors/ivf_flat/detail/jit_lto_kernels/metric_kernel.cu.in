@@ -25,4 +25,14 @@ __device__ void compute_dist<acc_t>(acc_t& acc, acc_t x, acc_t y)
   compute_dist_impl(acc, x, y);
 }
 
+template <>
+__device__ void compute_dist<acc_t>(acc_t& acc,
+                                    acc_t x,
+                                    acc_t y,
+                                    uint32_t,
+                                    const void*)
+{
+  compute_dist_impl(acc, x, y);
+}
+
 }  // namespace cuvs::neighbors::ivf_flat::detail

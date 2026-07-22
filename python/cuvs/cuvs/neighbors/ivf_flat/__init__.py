@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 
+from ._udf import cuda_source_metric, metric
 from .ivf_flat import (
     Index,
     IndexParams,
@@ -18,8 +19,10 @@ __all__ = [
     "IndexParams",
     "SearchParams",
     "build",
+    "cuda_source_metric",
     "extend",
     "load",
+    "metric",
     "save",
     "search",
 ]

@@ -8,6 +8,7 @@
 #include "../detail/ann_utils.cuh"
 #include "ivf_flat_interleaved_scan_jit.cuh"
 #include <cstdint>
+#include <cuvs/core/device_udf.hpp>
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/common.hpp>
 #include <cuvs/neighbors/ivf_flat.hpp>
@@ -37,6 +38,8 @@
                                           float* distances,                                \
                                           uint32_t& grid_dim_x,                            \
                                           rmm::cuda_stream_view stream,                    \
-                                          const std::optional<std::string>& metric_udf);
+                                          const std::optional<std::string>& metric_udf,     \
+                                          const std::optional<cuvs::jit::ltoir_udf>&        \
+                                            metric_ltoir_udf);
 
 #define COMMA ,

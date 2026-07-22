@@ -6,10 +6,12 @@
 #pragma once
 
 #include <cuvs/core/c_api.h>
+#include <cuvs/core/device_udf.h>
 #include <cuvs/distance/distance.h>
 #include <cuvs/neighbors/common.h>
 #include <dlpack/dlpack.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #include <cuvs/core/export.h>
@@ -103,6 +105,8 @@ CUVS_EXPORT cuvsError_t cuvsIvfFlatIndexParamsDestroy(cuvsIvfFlatIndexParams_t i
 struct cuvsIvfFlatSearchParams {
   /** The number of clusters to search. */
   uint32_t n_probes;
+  /** Optional borrowed device UDF descriptor for a custom metric. */
+  cuvsDeviceUDF_t metric_udf;
 };
 
 typedef struct cuvsIvfFlatSearchParams* cuvsIvfFlatSearchParams_t;
@@ -201,6 +205,7 @@ CUVS_EXPORT cuvsError_t cuvsIvfFlatIndexGetCenters(cuvsIvfFlatIndex_t index, DLM
  *
  * @code {.c}
  * #include <cuvs/core/c_api.h>
+ * #include <cuvs/core/device_udf.h>
  * #include <cuvs/neighbors/ivf_flat.h>
  *
  * // Create cuvsResources_t
@@ -257,6 +262,7 @@ CUVS_EXPORT cuvsError_t cuvsIvfFlatBuild(cuvsResources_t res,
  *
  * @code {.c}
  * #include <cuvs/core/c_api.h>
+ * #include <cuvs/core/device_udf.h>
  * #include <cuvs/neighbors/ivf_flat.h>
  *
  * // Create cuvsResources_t

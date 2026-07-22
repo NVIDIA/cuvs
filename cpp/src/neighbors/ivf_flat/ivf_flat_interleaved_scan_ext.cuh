@@ -6,6 +6,7 @@
 #pragma once
 
 #include <cstdint>
+#include <cuvs/core/device_udf.hpp>
 #include <cuda_fp16.h>
 #include <optional>
 #include <string>
@@ -36,7 +37,9 @@ void ivfflat_interleaved_scan(const index<T, IdxT>& index,
                               float* distances,
                               uint32_t& grid_dim_x,
                               rmm::cuda_stream_view stream,
-                              const std::optional<std::string>& metric_udf) RAFT_EXPLICIT;
+                              const std::optional<std::string>& metric_udf,
+                              const std::optional<cuvs::jit::ltoir_udf>& metric_ltoir_udf)
+  RAFT_EXPLICIT;
 
 #define CUVS_INST_IVF_FLAT_INTERLEAVED_SCAN(T, IdxT, SampleFilterT)                        \
   extern template void                                                                     \
@@ -59,7 +62,9 @@ void ivfflat_interleaved_scan(const index<T, IdxT>& index,
                                           float* distances,                                \
                                           uint32_t& grid_dim_x,                            \
                                           rmm::cuda_stream_view stream,                    \
-                                          const std::optional<std::string>& metric_udf);
+                                          const std::optional<std::string>& metric_udf,     \
+                                          const std::optional<cuvs::jit::ltoir_udf>&        \
+                                            metric_ltoir_udf);
 
 CUVS_INST_IVF_FLAT_INTERLEAVED_SCAN(float, int64_t, cuvs::neighbors::filtering::none_sample_filter);
 

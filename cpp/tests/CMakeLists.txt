@@ -150,6 +150,7 @@ ConfigureTest(
   GPUS 1
   PERCENT 100
 )
+target_link_libraries(NEIGHBORS_ANN_IVF_FLAT_UDF_TEST PRIVATE CUDA::nvrtc)
 
 ConfigureTest(
   NAME NEIGHBORS_ANN_IVF_PQ_TEST

@@ -5,6 +5,8 @@
  */
 
 #include <cstdint>
+#include <utility>
+
 #include <dlpack/dlpack.h>
 
 #include <raft/core/error.hpp>
@@ -22,6 +24,7 @@
 #include "../core/interop.hpp"
 
 #include <fstream>
+#include <string>
 
 namespace cuvs::neighbors::ivf_flat {
 void convert_c_index_params(cuvsIvfFlatIndexParams params,
@@ -40,6 +43,28 @@ void convert_c_search_params(cuvsIvfFlatSearchParams params,
                              cuvs::neighbors::ivf_flat::search_params* out)
 {
   out->n_probes = params.n_probes;
+
+  if (params.metric_udf == nullptr) { return; }
+
+  auto metric_udf = cuvs::jit::make_device_udf(*params.metric_udf);
+  RAFT_EXPECTS(metric_udf.abi == "rapids.cuvs.ivf_flat.metric.v1",
+               "Unsupported IVF Flat metric UDF ABI: %s",
+               metric_udf.abi.c_str());
+
+  if (metric_udf.payload_kind == cuvs::jit::device_udf_payload_kind::cuda_source) {
+    RAFT_EXPECTS(metric_udf.captures.empty(),
+                 "IVF Flat CUDA source metric UDF currently does not support captures");
+    out->metric_udf = std::string{reinterpret_cast<char const*>(metric_udf.payload.data()),
+                                  metric_udf.payload.size()};
+    return;
+  }
+
+  RAFT_EXPECTS(metric_udf.payload_kind == cuvs::jit::device_udf_payload_kind::ltoir,
+               "IVF Flat metric UDF currently requires an LTO-IR or CUDA source payload");
+  RAFT_EXPECTS(metric_udf.captures.size() <= 1,
+               "IVF Flat metric UDF currently supports at most one capture");
+
+  out->metric_ltoir_udf = std::move(metric_udf);
 }
 }  // namespace cuvs::neighbors::ivf_flat
 
@@ -283,8 +308,9 @@ extern "C" cuvsError_t cuvsIvfFlatIndexParamsDestroy(cuvsIvfFlatIndexParams_t pa
 
 extern "C" cuvsError_t cuvsIvfFlatSearchParamsCreate(cuvsIvfFlatSearchParams_t* params)
 {
-  return cuvs::core::translate_exceptions(
-    [=] { *params = new cuvsIvfFlatSearchParams{.n_probes = 20}; });
+  return cuvs::core::translate_exceptions([=] {
+    *params = new cuvsIvfFlatSearchParams{.n_probes = 20, .metric_udf = nullptr};
+  });
 }
 
 extern "C" cuvsError_t cuvsIvfFlatSearchParamsDestroy(cuvsIvfFlatSearchParams_t params)

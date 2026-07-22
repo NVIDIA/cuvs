@@ -18,6 +18,7 @@ from cuvs.tests.ann_utils import (
 )
 
 
+
 def run_ivf_flat_build_search_test(
     n_rows=10000,
     n_cols=10,
@@ -142,3 +143,203 @@ def test_extend(dtype, serialize):
 @pytest.mark.parametrize("sparsity", [0.5, 0.7, 1.0])
 def test_filtered_ivf_flat(sparsity):
     run_filtered_search_test(ivf_flat, sparsity)
+
+
+def test_ivf_flat_numba_cuda_mlir_ltoir_udf_matches_builtin_l2():
+    cp = pytest.importorskip("cupy")
+    pytest.importorskip("numba_cuda_mlir")
+    from numba_cuda_mlir import cuda
+
+    if not cuda.is_available():
+        pytest.skip("CUDA is not available to numba_cuda_mlir")
+
+    with cp.cuda.Device(0):
+
+        @ivf_flat.metric(
+            order="min",
+            initial=0.0,
+            coarse_metric="sqeuclidean",
+            symbol_name="cuvs_py_ivf_flat_l2_update_f32_test",
+        )
+        def l2_update(x, y, acc, ctx):
+            d = x - y
+            return acc + d * d
+
+        dataset = cp.asarray(
+            [
+                [0.0, 0.0, 0.0],
+                [1.0, 0.5, -0.5],
+                [2.0, -1.0, 0.25],
+                [-1.5, 2.0, 1.0],
+                [3.0, 1.5, -2.0],
+                [-2.0, -1.0, 2.5],
+            ],
+            dtype=cp.float32,
+        )
+        queries = cp.asarray(
+            [[0.2, 0.1, -0.1], [2.1, -0.7, 0.4]],
+            dtype=cp.float32,
+        )
+
+        index = ivf_flat.build(
+            ivf_flat.IndexParams(n_lists=1, metric="sqeuclidean"),
+            dataset,
+        )
+        builtin_distances, builtin_neighbors = ivf_flat.search(
+            ivf_flat.SearchParams(n_probes=1),
+            index,
+            queries,
+            3,
+        )
+        udf_distances, udf_neighbors = ivf_flat.search(
+            ivf_flat.SearchParams(n_probes=1, metric=l2_update),
+            index,
+            queries,
+            3,
+        )
+
+    cp.testing.assert_allclose(
+        cp.asarray(udf_distances),
+        cp.asarray(builtin_distances),
+        rtol=1e-5,
+        atol=1e-5,
+    )
+    cp.testing.assert_array_equal(
+        cp.asarray(udf_neighbors), cp.asarray(builtin_neighbors)
+    )
+
+
+def test_ivf_flat_cuda_source_metric_matches_builtin_l2():
+    cp = pytest.importorskip("cupy")
+
+    with cp.cuda.Device(0):
+        source = r"""
+namespace cuvs::neighbors::ivf_flat::detail {
+template <typename T, typename AccT, int Veclen>
+__device__ __forceinline__ void compute_dist_udf_impl(
+    AccT& acc, AccT x, AccT y)
+{
+  auto d = x - y;
+  acc += d * d;
+}
+}
+"""
+        source_metric = ivf_flat.cuda_source_metric(
+            source,
+            symbol_name="cuvs_py_ivf_flat_cuda_source_l2_test",
+        )
+
+        dataset = cp.asarray(
+            [
+                [0.0, 0.0, 0.0],
+                [1.0, 0.5, -0.5],
+                [2.0, -1.0, 0.25],
+                [-1.5, 2.0, 1.0],
+                [3.0, 1.5, -2.0],
+                [-2.0, -1.0, 2.5],
+            ],
+            dtype=cp.float32,
+        )
+        queries = cp.asarray(
+            [[0.2, 0.1, -0.1], [2.1, -0.7, 0.4]],
+            dtype=cp.float32,
+        )
+
+        index = ivf_flat.build(
+            ivf_flat.IndexParams(n_lists=1, metric="sqeuclidean"),
+            dataset,
+        )
+        builtin_distances, builtin_neighbors = ivf_flat.search(
+            ivf_flat.SearchParams(n_probes=1),
+            index,
+            queries,
+            3,
+        )
+        source_distances, source_neighbors = ivf_flat.search(
+            ivf_flat.SearchParams(n_probes=1, metric=source_metric),
+            index,
+            queries,
+            3,
+        )
+
+    cp.testing.assert_allclose(
+        cp.asarray(source_distances),
+        cp.asarray(builtin_distances),
+        rtol=1e-5,
+        atol=1e-5,
+    )
+    cp.testing.assert_array_equal(
+        cp.asarray(source_neighbors), cp.asarray(builtin_neighbors)
+    )
+
+
+def test_ivf_flat_ltoir_weighted_l2_capture_matches_reference():
+    cp = pytest.importorskip("cupy")
+    pytest.importorskip("numba_cuda_mlir")
+    from numba_cuda_mlir import cuda
+
+    if not cuda.is_available():
+        pytest.skip("CUDA is not available to numba_cuda_mlir")
+
+    with cp.cuda.Device(0):
+        weights = cp.asarray([0.25, 1.5, 3.0, 0.75], dtype=cp.float32)
+
+        @ivf_flat.metric(
+            order="min",
+            initial=0.0,
+            coarse_metric="sqeuclidean",
+            captures={"weights": weights},
+            symbol_name="cuvs_py_ivf_flat_weighted_l2_update_f32_test",
+        )
+        def weighted_l2_update(x, y, acc, ctx):
+            d = x - y
+            return acc + ctx.weights[ctx.dim] * d * d
+
+        dataset = cp.asarray(
+            [
+                [0.0, 0.0, 0.0, 0.0],
+                [1.0, 0.5, -0.5, 2.0],
+                [2.0, -1.0, 0.25, -0.5],
+                [-1.5, 2.0, 1.0, 0.75],
+                [3.0, 1.5, -2.0, -1.0],
+                [-2.0, -1.0, 2.5, 1.25],
+            ],
+            dtype=cp.float32,
+        )
+        queries = cp.asarray(
+            [[0.2, 0.1, -0.1, 0.5], [2.1, -0.7, 0.4, -0.25]],
+            dtype=cp.float32,
+        )
+
+        index = ivf_flat.build(
+            ivf_flat.IndexParams(n_lists=1, metric="sqeuclidean"),
+            dataset,
+        )
+        udf_distances, udf_neighbors = ivf_flat.search(
+            ivf_flat.SearchParams(n_probes=1, metric=weighted_l2_update),
+            index,
+            queries,
+            3,
+        )
+
+        diff = queries[:, None, :] - dataset[None, :, :]
+        reference_distances = cp.sum(
+            weights[None, None, :] * diff * diff, axis=2
+        )
+        reference_neighbors = cp.argsort(
+            reference_distances, axis=1
+        )[:, :3].astype(cp.int64)
+        reference_top_distances = cp.take_along_axis(
+            reference_distances, reference_neighbors, axis=1
+        )
+
+    cp.testing.assert_allclose(
+        cp.asarray(udf_distances),
+        reference_top_distances,
+        rtol=1e-5,
+        atol=1e-5,
+    )
+    cp.testing.assert_array_equal(
+        cp.asarray(udf_neighbors), reference_neighbors
+    )
+

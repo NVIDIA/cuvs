@@ -30,9 +30,11 @@ struct loadAndComputeDist {
   AccT& dist;
   AccT& norm_query;
   AccT& norm_data;
+  const void* metric_capture_0;
 
-  __device__ __forceinline__ loadAndComputeDist(AccT& dist, AccT& norm_query, AccT& norm_data)
-    : dist(dist), norm_query(norm_query), norm_data(norm_data)
+  __device__ __forceinline__ loadAndComputeDist(
+    AccT& dist, AccT& norm_query, AccT& norm_data, const void* metric_capture_0 = nullptr)
+    : dist(dist), norm_query(norm_query), norm_data(norm_data), metric_capture_0(metric_capture_0)
   {
   }
 
@@ -55,7 +57,7 @@ struct loadAndComputeDist {
       raft::lds(queryRegs, &query_shared[shmemIndex + j * Veclen]);
 #pragma unroll
       for (int k = 0; k < Veclen; ++k) {
-        compute_dist<AccT>(dist, queryRegs[k], encV[k]);
+        compute_dist<AccT>(dist, queryRegs[k], encV[k], shmemIndex + j * Veclen + k, metric_capture_0);
         if constexpr (ComputeNorm) {
           norm_query += queryRegs[k] * queryRegs[k];
           norm_data += encV[k] * encV[k];
@@ -90,7 +92,7 @@ struct loadAndComputeDist {
 #pragma unroll
         for (int k = 0; k < Veclen; ++k) {
           T q = raft::shfl(queryReg, d + k, raft::WarpSize);
-          compute_dist<AccT>(dist, q, encV[k]);
+          compute_dist<AccT>(dist, q, encV[k], baseLoadIndex + d + k, metric_capture_0);
           if constexpr (ComputeNorm) {
             norm_query += q * q;
             norm_data += encV[k] * encV[k];
@@ -116,7 +118,7 @@ struct loadAndComputeDist {
 #pragma unroll
       for (int k = 0; k < Veclen; k++) {
         T q = raft::shfl(queryReg, d + k, raft::WarpSize);
-        compute_dist<AccT>(dist, q, enc[k]);
+        compute_dist<AccT>(dist, q, enc[k], dimBlocks + d + k, metric_capture_0);
         if constexpr (ComputeNorm) {
           norm_query += q * q;
           norm_data += enc[k] * enc[k];
@@ -135,7 +137,8 @@ struct loadAndComputeDist<kUnroll, uint8_veclen, uint8_t, uint32_t, ComputeNorm>
 
   __device__ __forceinline__ loadAndComputeDist(uint32_t& dist,
                                                 uint32_t& norm_query,
-                                                uint32_t& norm_data)
+                                                uint32_t& norm_data,
+                                                const void* = nullptr)
     : dist(dist), norm_query(norm_query), norm_data(norm_data)
   {
   }
@@ -234,7 +237,8 @@ struct loadAndComputeDist<kUnroll, 4, uint8_t, uint32_t, ComputeNorm> {
 
   __device__ __forceinline__ loadAndComputeDist(uint32_t& dist,
                                                 uint32_t& norm_query,
-                                                uint32_t& norm_data)
+                                                uint32_t& norm_data,
+                                                const void* = nullptr)
     : dist(dist), norm_query(norm_query), norm_data(norm_data)
   {
   }
@@ -309,7 +313,8 @@ struct loadAndComputeDist<kUnroll, 2, uint8_t, uint32_t, ComputeNorm> {
 
   __device__ __forceinline__ loadAndComputeDist(uint32_t& dist,
                                                 uint32_t& norm_query,
-                                                uint32_t& norm_data)
+                                                uint32_t& norm_data,
+                                                const void* = nullptr)
     : dist(dist), norm_query(norm_query), norm_data(norm_data)
   {
   }
@@ -385,7 +390,8 @@ struct loadAndComputeDist<kUnroll, 1, uint8_t, uint32_t, ComputeNorm> {
 
   __device__ __forceinline__ loadAndComputeDist(uint32_t& dist,
                                                 uint32_t& norm_query,
-                                                uint32_t& norm_data)
+                                                uint32_t& norm_data,
+                                                const void* = nullptr)
     : dist(dist), norm_query(norm_query), norm_data(norm_data)
   {
   }
@@ -461,7 +467,8 @@ struct loadAndComputeDist<kUnroll, int8_veclen, int8_t, int32_t, ComputeNorm> {
 
   __device__ __forceinline__ loadAndComputeDist(int32_t& dist,
                                                 int32_t& norm_query,
-                                                int32_t& norm_data)
+                                                int32_t& norm_data,
+                                                const void* = nullptr)
     : dist(dist), norm_query(norm_query), norm_data(norm_data)
   {
   }
@@ -555,7 +562,8 @@ struct loadAndComputeDist<kUnroll, 2, int8_t, int32_t, ComputeNorm> {
   int32_t& norm_data;
   __device__ __forceinline__ loadAndComputeDist(int32_t& dist,
                                                 int32_t& norm_query,
-                                                int32_t& norm_data)
+                                                int32_t& norm_data,
+                                                const void* = nullptr)
     : dist(dist), norm_query(norm_query), norm_data(norm_data)
   {
   }
@@ -626,7 +634,8 @@ struct loadAndComputeDist<kUnroll, 1, int8_t, int32_t, ComputeNorm> {
   int32_t& norm_data;
   __device__ __forceinline__ loadAndComputeDist(int32_t& dist,
                                                 int32_t& norm_query,
-                                                int32_t& norm_data)
+                                                int32_t& norm_data,
+                                                const void* = nullptr)
     : dist(dist), norm_query(norm_query), norm_data(norm_data)
   {
   }
@@ -696,7 +705,8 @@ __device__ float load_and_compute_dist_impl(AccT& dist,
                                             const T* query,
                                             T* query_shared,
                                             const uint32_t dim,
-                                            const uint32_t query_smem_elems)
+                                            const uint32_t query_smem_elems,
+                                            const void* metric_capture_0)
 {
   using align_warp      = raft::Pow2<raft::WarpSize>;
   constexpr int kUnroll = raft::WarpSize / Veclen;
@@ -707,7 +717,7 @@ __device__ float load_and_compute_dist_impl(AccT& dist,
   const uint32_t full_warps_along_dim = align_warp::roundDown(dim);
 
   // Process first shm_assisted_dim dimensions (always using shared memory)
-  loadAndComputeDist<kUnroll, Veclen, T, AccT, ComputeNorm> lc(dist, norm_query, norm_dataset);
+  loadAndComputeDist<kUnroll, Veclen, T, AccT, ComputeNorm> lc(dist, norm_query, norm_dataset, metric_capture_0);
   for (int pos = 0; pos < shm_assisted_dim;
        pos += raft::WarpSize, data += kIndexGroupSize * raft::WarpSize) {
     lc.runLoadShmemCompute(data, query_shared, lane_id, pos);
@@ -715,14 +725,14 @@ __device__ float load_and_compute_dist_impl(AccT& dist,
 
   if (dim > query_smem_elems) {
     // The default path - using shfl ops - for dimensions beyond query_smem_elems
-    loadAndComputeDist<kUnroll, Veclen, T, AccT, ComputeNorm> lc(dist, norm_query, norm_dataset);
+    loadAndComputeDist<kUnroll, Veclen, T, AccT, ComputeNorm> lc(dist, norm_query, norm_dataset, metric_capture_0);
     for (int pos = shm_assisted_dim; pos < full_warps_along_dim; pos += raft::WarpSize) {
       lc.runLoadShflAndCompute(data, query, pos, lane_id);
     }
     lc.runLoadShflAndComputeRemainder(data, query, lane_id, dim, full_warps_along_dim);
   } else {
     // when  shm_assisted_dim == full_warps_along_dim < dim
-    loadAndComputeDist<1, Veclen, T, AccT, ComputeNorm> lc(dist, norm_query, norm_dataset);
+    loadAndComputeDist<1, Veclen, T, AccT, ComputeNorm> lc(dist, norm_query, norm_dataset, metric_capture_0);
     for (int pos = full_warps_along_dim; pos < dim;
          pos += Veclen, data += kIndexGroupSize * Veclen) {
       lc.runLoadShmemCompute(data, query_shared, lane_id, pos);

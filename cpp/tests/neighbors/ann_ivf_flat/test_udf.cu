@@ -5,7 +5,9 @@
 
 #include <gtest/gtest.h>
 
+#include <cuvs/core/device_udf.hpp>
 #include <cuvs/neighbors/ivf_flat.hpp>
+#include <nvrtc.h>
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/error.hpp>
 #include <raft/core/host_mdarray.hpp>
@@ -18,6 +20,8 @@
 #include <array>
 #include <chrono>
 #include <concepts>
+#include <memory>
+#include <string>
 #include <vector>
 
 namespace cuvs::neighbors::ivf_flat {
@@ -35,6 +39,65 @@ CUVS_METRIC(chebyshev_linf, {
   auto d = abs_diff(x, y);
   acc    = (d > acc) ? d : acc;
 })
+
+namespace {
+
+void check_nvrtc(nvrtcResult result)
+{
+  RAFT_EXPECTS(result == NVRTC_SUCCESS, "nvrtc error: %s", nvrtcGetErrorString(result));
+}
+
+std::vector<uint8_t> compile_ltoir_with_nvrtc(std::string const& source)
+{
+  int device = 0;
+  int major  = 0;
+  int minor  = 0;
+  RAFT_CUDA_TRY(cudaGetDevice(&device));
+  RAFT_CUDA_TRY(cudaDeviceGetAttribute(&major, cudaDevAttrComputeCapabilityMajor, device));
+  RAFT_CUDA_TRY(cudaDeviceGetAttribute(&minor, cudaDevAttrComputeCapabilityMinor, device));
+  auto arch = std::string{"-arch=sm_"} + std::to_string(major * 10 + minor);
+
+  nvrtcProgram prog;
+  check_nvrtc(nvrtcCreateProgram(&prog, source.c_str(), "ltoir_metric_udf_test.cu", 0, nullptr, nullptr));
+
+  std::array<const char*, 5> opts{arch.c_str(), "-dlto", "-rdc=true", "--std=c++20", "-default-device"};
+  auto compile_result = nvrtcCompileProgram(prog, static_cast<int>(opts.size()), opts.data());
+  if (compile_result != NVRTC_SUCCESS) {
+    size_t log_size = 0;
+    check_nvrtc(nvrtcGetProgramLogSize(prog, &log_size));
+    std::string log(log_size, '\0');
+    check_nvrtc(nvrtcGetProgramLog(prog, log.data()));
+    nvrtcDestroyProgram(&prog);
+    RAFT_FAIL("nvrtc compile error log:\n%s", log.c_str());
+  }
+
+  size_t ltoir_size = 0;
+  check_nvrtc(nvrtcGetLTOIRSize(prog, &ltoir_size));
+  std::vector<uint8_t> ltoir(ltoir_size);
+  check_nvrtc(nvrtcGetLTOIR(prog, reinterpret_cast<char*>(ltoir.data())));
+  check_nvrtc(nvrtcDestroyProgram(&prog));
+  return ltoir;
+}
+
+cuvs::jit::ltoir_udf make_ltoir_l2_metric_udf()
+{
+  auto constexpr symbol_name = "cuvs_test_ltoir_l2_update_f32";
+  std::string source         = R"(
+extern "C" __device__ float cuvs_test_ltoir_l2_update_f32(float x, float y, float acc)
+{
+  float d = x - y;
+  return acc + d * d;
+}
+)";
+
+  auto key = std::string{"ivf_flat_ltoir_metric_udf_test:"} + symbol_name;
+  return cuvs::jit::ltoir_udf{.abi         = "rapids.cuvs.ivf_flat.metric.v1",
+                              .payload     = compile_ltoir_with_nvrtc(source),
+                              .symbol_name = symbol_name,
+                              .cache_key   = key};
+}
+
+}  // namespace
 
 // ============================================================================
 // Test data traits for different types
@@ -388,6 +451,96 @@ TYPED_TEST(IvfFlatUdfTest, CustomL2MatchesBuiltIn)
                               1.0));
 }
 
+
+TEST(IvfFlatLtoirUdf, L2ArtifactMatchesBuiltIn)
+{
+  using T      = float;
+  using Traits = TestDataTraits<T>;
+
+  raft::resources handle;
+  auto stream = raft::resource::get_cuda_stream(handle);
+
+  auto database = Traits::database();
+  auto queries  = Traits::queries();
+  int64_t const num_db_vecs = Traits::num_db_vecs;
+  int64_t const num_queries = 2;
+  int64_t const dim         = Traits::dim;
+  int64_t const k           = 4;
+  uint32_t const n_lists    = 2;
+  uint32_t const n_probes   = 2;
+
+  rmm::device_uvector<T> d_database(num_db_vecs * dim, stream);
+  rmm::device_uvector<T> d_queries(num_queries * dim, stream);
+  raft::copy(d_database.data(), database.data(), database.size(), stream);
+  raft::copy(d_queries.data(), queries.data(), queries.size(), stream);
+
+  auto database_view = raft::make_device_matrix_view<const T, int64_t>(d_database.data(),
+                                                                       num_db_vecs,
+                                                                       dim);
+  auto queries_view = raft::make_device_matrix_view<const T, int64_t>(d_queries.data(),
+                                                                      num_queries,
+                                                                      dim);
+
+  ivf_flat::index_params index_params;
+  index_params.n_lists = n_lists;
+  index_params.metric  = cuvs::distance::DistanceType::L2Expanded;
+  auto idx             = ivf_flat::build(handle, index_params, database_view);
+
+  rmm::device_uvector<int64_t> d_indices_builtin(num_queries * k, stream);
+  rmm::device_uvector<float> d_distances_builtin(num_queries * k, stream);
+  rmm::device_uvector<int64_t> d_indices_ltoir(num_queries * k, stream);
+  rmm::device_uvector<float> d_distances_ltoir(num_queries * k, stream);
+
+  auto indices_builtin_view =
+    raft::make_device_matrix_view<int64_t, int64_t>(d_indices_builtin.data(), num_queries, k);
+  auto distances_builtin_view =
+    raft::make_device_matrix_view<float, int64_t>(d_distances_builtin.data(), num_queries, k);
+  auto indices_ltoir_view =
+    raft::make_device_matrix_view<int64_t, int64_t>(d_indices_ltoir.data(), num_queries, k);
+  auto distances_ltoir_view =
+    raft::make_device_matrix_view<float, int64_t>(d_distances_ltoir.data(), num_queries, k);
+
+  ivf_flat::search_params builtin_params;
+  builtin_params.n_probes = n_probes;
+  ivf_flat::search(handle,
+                   builtin_params,
+                   idx,
+                   queries_view,
+                   indices_builtin_view,
+                   distances_builtin_view);
+
+  ivf_flat::search_params ltoir_params;
+  ltoir_params.n_probes          = n_probes;
+  ltoir_params.metric_ltoir_udf  = make_ltoir_l2_metric_udf();
+  ivf_flat::search(handle,
+                   ltoir_params,
+                   idx,
+                   queries_view,
+                   indices_ltoir_view,
+                   distances_ltoir_view);
+
+  std::vector<int64_t> h_indices_builtin(num_queries * k);
+  std::vector<float> h_distances_builtin(num_queries * k);
+  std::vector<int64_t> h_indices_ltoir(num_queries * k);
+  std::vector<float> h_distances_ltoir(num_queries * k);
+
+  raft::copy(h_indices_builtin.data(), d_indices_builtin.data(), h_indices_builtin.size(), stream);
+  raft::copy(
+    h_distances_builtin.data(), d_distances_builtin.data(), h_distances_builtin.size(), stream);
+  raft::copy(h_indices_ltoir.data(), d_indices_ltoir.data(), h_indices_ltoir.size(), stream);
+  raft::copy(h_distances_ltoir.data(), d_distances_ltoir.data(), h_distances_ltoir.size(), stream);
+  raft::resource::sync_stream(handle);
+
+  ASSERT_TRUE(eval_neighbours(h_indices_builtin,
+                              h_indices_ltoir,
+                              h_distances_builtin,
+                              h_distances_ltoir,
+                              static_cast<size_t>(num_queries),
+                              static_cast<size_t>(k),
+                              1e-5,
+                              1.0));
+}
+
 /**
  * Build the index with native L2, search with a different metric (Chebyshev UDF), and compare to
  * exhaustive top-k from naive_knn (DistanceType::Linf). With n_probes == n_lists every cluster is
@@ -466,6 +619,160 @@ TEST(IvfFlatUdfChebyshev, ChebyshevMatchesNaiveKnnWhenProbingAllLists)
                               static_cast<size_t>(k),
                               eps,
                               min_recall));
+}
+
+
+TEST(DeviceUDFDescriptor, CopiesValidDescriptorMetadata)
+{
+  std::array<uint8_t, 4> payload{1, 2, 3, 4};
+  std::array<int64_t, 1> shape{8};
+  std::array<int64_t, 1> strides{4};
+  auto capture = cuvsUDFCapture{.name      = "weights",
+                                .dtype     = "float32",
+                                .shape     = shape.data(),
+                                .strides   = strides.data(),
+                                .ndim      = 1,
+                                .device_id = 0,
+                                .pointer   = 0x1234,
+                                .flags     = CUVS_UDF_CAPTURE_READONLY};
+  auto desc    = cuvsDeviceUDF{.abi          = "rapids.cuvs.ivf_flat.metric.v1",
+                               .payload_kind = CUVS_DEVICE_UDF_PAYLOAD_LTOIR,
+                               .payload      = payload.data(),
+                               .payload_size = payload.size(),
+                               .symbol_name  = "cuvs_test_symbol",
+                               .captures     = &capture,
+                               .n_captures   = 1,
+                               .cache_key    = "descriptor-test-key",
+                               .flags        = 0};
+
+  auto udf = cuvs::jit::make_device_udf(desc);
+
+  EXPECT_EQ(udf.abi, desc.abi);
+  EXPECT_EQ(udf.payload_kind, cuvs::jit::device_udf_payload_kind::ltoir);
+  EXPECT_EQ(udf.payload, std::vector<uint8_t>(payload.begin(), payload.end()));
+  ASSERT_EQ(udf.captures.size(), 1);
+  EXPECT_EQ(udf.captures[0].name, "weights");
+  EXPECT_EQ(udf.captures[0].dtype, "float32");
+  EXPECT_EQ(udf.captures[0].shape, std::vector<int64_t>({8}));
+  EXPECT_EQ(udf.captures[0].strides, std::vector<int64_t>({4}));
+  EXPECT_EQ(udf.captures[0].pointer, 0x1234);
+  EXPECT_TRUE(udf.captures[0].readonly);
+}
+
+TEST(DeviceUDFDescriptor, RejectsMissingRequiredFields)
+{
+  std::array<uint8_t, 4> payload{1, 2, 3, 4};
+  auto desc = cuvsDeviceUDF{.abi          = "rapids.cuvs.ivf_flat.metric.v1",
+                            .payload_kind = CUVS_DEVICE_UDF_PAYLOAD_LTOIR,
+                            .payload      = payload.data(),
+                            .payload_size = payload.size(),
+                            .symbol_name  = "cuvs_test_symbol",
+                            .captures     = nullptr,
+                            .n_captures   = 0,
+                            .cache_key    = "descriptor-test-key",
+                            .flags        = 0};
+
+  auto invalid = desc;
+  invalid.abi  = nullptr;
+  EXPECT_THROW(cuvs::jit::make_device_udf(invalid), raft::logic_error);
+
+  invalid         = desc;
+  invalid.payload = nullptr;
+  EXPECT_THROW(cuvs::jit::make_device_udf(invalid), raft::logic_error);
+
+  invalid              = desc;
+  invalid.payload_size = 0;
+  EXPECT_THROW(cuvs::jit::make_device_udf(invalid), raft::logic_error);
+
+  invalid             = desc;
+  invalid.symbol_name = nullptr;
+  EXPECT_THROW(cuvs::jit::make_device_udf(invalid), raft::logic_error);
+
+  invalid           = desc;
+  invalid.cache_key = nullptr;
+  EXPECT_THROW(cuvs::jit::make_device_udf(invalid), raft::logic_error);
+
+  invalid       = desc;
+  invalid.flags = 1;
+  EXPECT_THROW(cuvs::jit::make_device_udf(invalid), raft::logic_error);
+}
+
+TEST(DeviceUDFDescriptor, RejectsMalformedCaptures)
+{
+  std::array<uint8_t, 4> payload{1, 2, 3, 4};
+  std::array<int64_t, 1> shape{8};
+  auto capture = cuvsUDFCapture{.name      = "weights",
+                                .dtype     = "float32",
+                                .shape     = shape.data(),
+                                .strides   = nullptr,
+                                .ndim      = 1,
+                                .device_id = 0,
+                                .pointer   = 0x1234,
+                                .flags     = CUVS_UDF_CAPTURE_READONLY};
+  auto desc    = cuvsDeviceUDF{.abi          = "rapids.cuvs.ivf_flat.metric.v1",
+                               .payload_kind = CUVS_DEVICE_UDF_PAYLOAD_LTOIR,
+                               .payload      = payload.data(),
+                               .payload_size = payload.size(),
+                               .symbol_name  = "cuvs_test_symbol",
+                               .captures     = &capture,
+                               .n_captures   = 1,
+                               .cache_key    = "descriptor-test-key",
+                               .flags        = 0};
+
+  auto invalid      = desc;
+  invalid.captures  = nullptr;
+  invalid.n_captures = 1;
+  EXPECT_THROW(cuvs::jit::make_device_udf(invalid), raft::logic_error);
+
+  auto invalid_capture = capture;
+  invalid_capture.name = nullptr;
+  invalid              = desc;
+  invalid.captures     = &invalid_capture;
+  EXPECT_THROW(cuvs::jit::make_device_udf(invalid), raft::logic_error);
+
+  invalid_capture       = capture;
+  invalid_capture.dtype = nullptr;
+  invalid               = desc;
+  invalid.captures      = &invalid_capture;
+  EXPECT_THROW(cuvs::jit::make_device_udf(invalid), raft::logic_error);
+
+  invalid_capture         = capture;
+  invalid_capture.pointer = 0;
+  invalid                 = desc;
+  invalid.captures        = &invalid_capture;
+  EXPECT_THROW(cuvs::jit::make_device_udf(invalid), raft::logic_error);
+
+  invalid_capture       = capture;
+  invalid_capture.shape = nullptr;
+  invalid               = desc;
+  invalid.captures      = &invalid_capture;
+  EXPECT_THROW(cuvs::jit::make_device_udf(invalid), raft::logic_error);
+
+  invalid_capture       = capture;
+  invalid_capture.flags = 2;
+  invalid               = desc;
+  invalid.captures      = &invalid_capture;
+  EXPECT_THROW(cuvs::jit::make_device_udf(invalid), raft::logic_error);
+}
+
+TEST(DeviceUDFDescriptor, CopiesCudaSourcePayloadKind)
+{
+  std::string source = "extern \"C\" __device__ float f(float x, float y, float acc);";
+  auto desc          = cuvsDeviceUDF{.abi          = "rapids.cuvs.ivf_flat.metric.v1",
+                                     .payload_kind = CUVS_DEVICE_UDF_PAYLOAD_CUDA_SOURCE,
+                                     .payload      = source.data(),
+                                     .payload_size = source.size(),
+                                     .symbol_name  = "f",
+                                     .captures     = nullptr,
+                                     .n_captures   = 0,
+                                     .cache_key    = "descriptor-test-key",
+                                     .flags        = 0};
+
+  auto udf = cuvs::jit::make_device_udf(desc);
+
+  EXPECT_EQ(udf.payload_kind, cuvs::jit::device_udf_payload_kind::cuda_source);
+  EXPECT_EQ(std::string(reinterpret_cast<char const*>(udf.payload.data()), udf.payload.size()),
+            source);
 }
 
 /**

@@ -79,6 +79,7 @@ __device__ __forceinline__ void interleaved_scan_impl(const uint32_t query_smem_
                                                       const uint32_t max_samples,
                                                       const uint32_t* chunk_indices,
                                                       const uint32_t dim,
+                                                      const void* metric_capture_0,
                                                       IdxT* const* const inds_ptrs,
                                                       uint32_t* bitset_ptr,
                                                       IdxT bitset_len,
@@ -175,7 +176,8 @@ __device__ __forceinline__ void interleaved_scan_impl(const uint32_t query_smem_
                                                query,
                                                query_shared,
                                                dim,
-                                               query_smem_elems);
+                                               query_smem_elems,
+                                               metric_capture_0);
         }
 
         if constexpr (kManageLocalTopK) {

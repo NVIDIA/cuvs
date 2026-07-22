@@ -28,6 +28,7 @@ from cuvs.neighbors.filters import no_filter
 
 from libc.stdint cimport (
     int8_t,
+    int32_t,
     int64_t,
     uint8_t,
     uint32_t,
@@ -36,6 +37,7 @@ from libc.stdint cimport (
 )
 
 from cuvs.common.exceptions import check_cuvs
+from cuvs._lib.device_udf import UDFArtifact
 
 
 cdef class IndexParams:
@@ -270,17 +272,128 @@ cdef class SearchParams:
     ----------
     n_probes: int
         The number of clusters to search.
+    metric: cuvs._lib.device_udf.UDFArtifact, optional
+        LTO-IR or CUDA source custom metric artifact for IVF-Flat.
     """
 
     def __cinit__(self):
         cuvsIvfFlatSearchParamsCreate(&self.params)
+        self._metric = None
+        self._metric_payload = b""
+        self._metric_abi = b""
+        self._metric_symbol_name = b""
+        self._metric_cache_key = b""
+        self._metric_capture_0_name = b""
+        self._metric_capture_0_dtype = b""
 
     def __dealloc__(self):
         if self.params != NULL:
             check_cuvs(cuvsIvfFlatSearchParamsDestroy(self.params))
 
-    def __init__(self, *, n_probes=20):
+    def __init__(self, *, n_probes=20, metric=None):
         self.params.n_probes = n_probes
+        self._clear_metric()
+        if metric is not None:
+            self._set_metric(metric)
+
+    def _clear_metric(self):
+        self._metric = None
+        self._metric_payload = b""
+        self._metric_abi = b""
+        self._metric_symbol_name = b""
+        self._metric_cache_key = b""
+        self._metric_capture_0_name = b""
+        self._metric_capture_0_dtype = b""
+        self.params.metric_udf = NULL
+        self._metric_udf_desc.abi = NULL
+        self._metric_udf_desc.payload_kind = CUVS_DEVICE_UDF_PAYLOAD_LTOIR
+        self._metric_udf_desc.payload = NULL
+        self._metric_udf_desc.payload_size = 0
+        self._metric_udf_desc.symbol_name = NULL
+        self._metric_udf_desc.captures = NULL
+        self._metric_udf_desc.n_captures = 0
+        self._metric_udf_desc.cache_key = NULL
+        self._metric_udf_desc.flags = 0
+
+    def _set_metric(self, metric):
+        cdef Py_ssize_t i
+        cdef Py_ssize_t ndim
+        cdef const int64_t* strides_ptr
+
+        if not isinstance(metric, UDFArtifact):
+            raise TypeError("metric must be a cuvs._lib.device_udf.UDFArtifact")
+        if metric.payload_kind not in ("ltoir", "cuda_source"):
+            raise TypeError(
+                "ivf_flat.SearchParams metric requires an LTO-IR or CUDA source UDF artifact"
+            )
+        if metric.abi != "rapids.cuvs.ivf_flat.metric.v1":
+            raise ValueError("ivf_flat.SearchParams metric artifact has an incompatible ABI")
+        if metric.payload_kind == "cuda_source" and len(metric.captures) > 0:
+            raise NotImplementedError(
+                "ivf_flat.SearchParams CUDA source metric artifacts do not support captures"
+            )
+        if len(metric.captures) > 1:
+            raise NotImplementedError(
+                "ivf_flat.SearchParams metric artifacts currently support at most one capture"
+            )
+
+        self._metric_payload = metric.payload_bytes()
+        self._metric_abi = metric.abi.encode("utf-8")
+        self._metric_symbol_name = metric.symbol_name.encode("utf-8")
+        self._metric_cache_key = metric.cache_key.encode("utf-8")
+        if not self._metric_payload:
+            raise ValueError("metric artifact payload must not be empty")
+        if not self._metric_symbol_name:
+            raise ValueError("metric artifact symbol_name must not be empty")
+        if not self._metric_cache_key:
+            raise ValueError("metric artifact cache_key must not be empty")
+
+        self._metric = metric
+        self._metric_udf_desc.abi = <const char*>self._metric_abi
+        if metric.payload_kind == "cuda_source":
+            self._metric_udf_desc.payload_kind = CUVS_DEVICE_UDF_PAYLOAD_CUDA_SOURCE
+        else:
+            self._metric_udf_desc.payload_kind = CUVS_DEVICE_UDF_PAYLOAD_LTOIR
+        self._metric_udf_desc.payload = <const void*><const char*>self._metric_payload
+        self._metric_udf_desc.payload_size = len(self._metric_payload)
+        self._metric_udf_desc.symbol_name = <const char*>self._metric_symbol_name
+        self._metric_udf_desc.captures = NULL
+        self._metric_udf_desc.n_captures = 0
+        self._metric_udf_desc.cache_key = <const char*>self._metric_cache_key
+        self._metric_udf_desc.flags = 0
+
+        if metric.captures:
+            capture = metric.captures[0]
+            ndim = len(capture.shape)
+            if ndim > 8:
+                raise NotImplementedError(
+                    "ivf_flat.SearchParams metric captures currently support at most 8 dimensions"
+                )
+            self._metric_capture_0_name = capture.name.encode("utf-8")
+            self._metric_capture_0_dtype = capture.dtype.encode("utf-8")
+            for i in range(ndim):
+                self._metric_capture_0_shape[i] = capture.shape[i]
+
+            strides_ptr = NULL
+            if capture.strides is not None:
+                for i in range(ndim):
+                    self._metric_capture_0_strides[i] = capture.strides[i]
+                strides_ptr = &self._metric_capture_0_strides[0]
+
+            self._metric_captures[0].name = <const char*>self._metric_capture_0_name
+            self._metric_captures[0].dtype = <const char*>self._metric_capture_0_dtype
+            self._metric_captures[0].shape = &self._metric_capture_0_shape[0]
+            self._metric_captures[0].strides = strides_ptr
+            self._metric_captures[0].ndim = <int32_t>ndim
+            self._metric_captures[0].device_id = <int32_t>capture.device_id
+            self._metric_captures[0].pointer = <uintptr_t>capture.pointer
+            self._metric_captures[0].flags = 0
+            if capture.readonly:
+                self._metric_captures[0].flags = CUVS_UDF_CAPTURE_READONLY
+            self._metric_udf_desc.captures = <const cuvsUDFCapture*>&self._metric_captures[0]
+            self._metric_udf_desc.n_captures = 1
+
+        self.params.metric_udf = <const cuvsDeviceUDF*>&self._metric_udf_desc
 
     def get_handle(self):
         return <size_t> self.params
@@ -288,6 +401,10 @@ cdef class SearchParams:
     @property
     def n_probes(self):
         return self.params.n_probes
+
+    @property
+    def metric(self):
+        return self._metric
 
 
 @auto_sync_resources

@@ -209,7 +209,8 @@ void search_impl(raft::resources const& handle,
       nullptr,
       grid_dim_x,
       stream,
-      params.metric_udf);
+      params.metric_udf,
+      params.metric_ltoir_udf);
   } else {
     grid_dim_x = 1;
   }
@@ -265,7 +266,8 @@ void search_impl(raft::resources const& handle,
     distances_dev_ptr,
     grid_dim_x,
     stream,
-    params.metric_udf);
+    params.metric_udf,
+    params.metric_ltoir_udf);
 
   RAFT_LOG_TRACE_VEC(distances_dev_ptr, 2 * k);
   if (indices_dev_ptr != nullptr) { RAFT_LOG_TRACE_VEC(indices_dev_ptr, 2 * k); }
@@ -393,8 +395,13 @@ void search_with_filtering(raft::resources const& handle,
   RAFT_EXPECTS(queries.extent(1) == index.dim(),
                "Number of query dimensions should equal number of dimensions in the index.");
 
+  RAFT_EXPECTS(!(params.metric_udf.has_value() && params.metric_ltoir_udf.has_value()),
+               "Only one of search_params.metric_udf and search_params.metric_ltoir_udf may be set");
+
   auto effective_metric =
-    params.metric_udf.has_value() ? cuvs::distance::DistanceType::CustomUDF : index.metric();
+    (params.metric_udf.has_value() || params.metric_ltoir_udf.has_value())
+      ? cuvs::distance::DistanceType::CustomUDF
+      : index.metric();
 
   search_with_filtering(handle,
                         params,
