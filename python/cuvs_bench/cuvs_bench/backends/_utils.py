@@ -29,8 +29,6 @@ import numpy as np
 
 from cuvs_bench._bin_format import read_bin_header
 
-from cuvs_bench._bin_format import read_bin_header
-
 
 def dtype_from_filename(filename):
     """Map file extension to numpy dtype.

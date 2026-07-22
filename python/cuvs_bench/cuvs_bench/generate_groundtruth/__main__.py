@@ -10,6 +10,7 @@ import sys
 import warnings
 
 from .utils import (
+    add_jitter,
     groundtruth_neighbors_filename,
     memmap_bin_file,
     offset_neighbor_indices,
