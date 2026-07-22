@@ -171,6 +171,21 @@ struct balanced_params : base_params {
    * Number of training iterations
    */
   uint32_t n_iters = 20;
+
+  /**
+   * Use approximate nearest neighbor (CAGRA) for cluster assignment during k-means fit (E-step).
+   * When true and n_clusters is large, assignment uses a CAGRA index over centroids to speed
+   * up the E-step. The index is rebuilt every `ann_rebuild_interval` iterations to limit
+   * rebuild cost (batched centroid updates).
+   */
+  bool use_ann_for_build_fit = false;
+
+  /**
+   * Rebuild the ANN index used for fit assignment every this many iterations (when
+   * use_ann_for_build_fit is true). Larger values reduce index build cost but use staler
+   * centroids for assignment in between rebuilds.
+   */
+  uint32_t ann_rebuild_interval = 3;
 };
 
 /**

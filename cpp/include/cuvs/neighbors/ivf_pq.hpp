@@ -132,6 +132,40 @@ struct index_params : cuvs::neighbors::index_params {
   uint32_t max_train_points_per_pq_code = 256;
 
   /**
+   * Use CAGRA vs brute force for cluster assignment during extend() (and add_data_on_build).
+   * - std::nullopt (default): brute-force assignment.
+   * - true: use CAGRA for assignment.
+   * - false: brute-force assignment (explicit).
+   */
+  std::optional<bool> use_ann_for_extend;
+
+  /**
+   * Use CAGRA vs brute force for nearest-centroid lookup during `build()` k-means fit (E-step;
+   * centroids move each EM iter). This is the main ANN-accelerated step in build.
+   * - std::nullopt (default): brute-force assignment during fit.
+   * - true: ANN-based assignment during fit (CAGRA with periodic index rebuilds).
+   * - false: brute-force assignment during fit (explicit).
+   */
+  std::optional<bool> use_ann_for_build_fit;
+
+  /**
+   * Rebuild interval for the CAGRA index during k-means fit E-step (when
+   * `use_ann_for_build_fit` is true). std::nullopt uses the balanced k-means default (3).
+   * R=1 rebuilds the index every EM iteration; larger R reuses the index for R-1 iterations
+   * before rebuilding.
+   */
+  std::optional<uint32_t> ann_rebuild_interval;
+
+  /**
+   * Use CAGRA vs brute force for nearest-centroid lookup during `build()` post-fit predict
+   * (assign train subsample labels for PQ codebook training; centroids are fixed).
+   * - std::nullopt (default): brute-force assignment.
+   * - true: ANN-based assignment for the post-fit labeling step.
+   * - false: brute-force assignment (explicit).
+   */
+  std::optional<bool> use_ann_for_build_postfit;
+
+  /**
    * Creates index_params based on shape of the input dataset.
    * Usage example:
    * @code{.cpp}
@@ -421,6 +455,10 @@ class index_iface {
     const raft::resources& res) const = 0;
   virtual raft::device_matrix_view<const half, uint32_t, raft::row_major> centers_half(
     const raft::resources& res) const = 0;
+
+  /** Stored IVF-PQ build param: CAGRA vs brute for extend/add_data cluster assignment (nullopt =>
+   * brute). */
+  virtual std::optional<bool> use_ann_for_extend() const = 0;
 };
 
 /**
@@ -655,6 +693,8 @@ class index : public index_iface<IdxT>, cuvs::neighbors::index {
    * @param[in] label list ID
    */
   uint32_t get_list_size_in_bytes(uint32_t label) const override;
+
+  std::optional<bool> use_ann_for_extend() const noexcept override;
 
   /**
    * @brief Construct index from implementation pointer.

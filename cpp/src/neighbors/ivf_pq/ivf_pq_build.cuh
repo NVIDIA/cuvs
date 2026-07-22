@@ -954,7 +954,8 @@ auto clone(const raft::resources& res, const index<IdxT>& source) -> index<IdxT>
                                                   source.pq_bits(),
                                                   source.pq_dim(),
                                                   source.conservative_memory_allocation(),
-                                                  source.codes_layout());
+                                                  source.codes_layout(),
+                                                  source.use_ann_for_extend());
 
   // Copy the independent parts using mutable accessors
   raft::copy(res, impl->list_sizes(), source.list_sizes());
@@ -1112,21 +1113,65 @@ void extend(raft::resources const& handle,
                       n_clusters,
                       stream);
     vec_batches.prefetch_next_batch();
-    for (const auto& batch : vec_batches) {
-      auto batch_data_view = raft::make_device_matrix_view<const T, internal_extents_t>(
-        batch.data(), batch.size(), index->dim());
-      auto batch_labels_view = raft::make_device_vector_view<uint32_t, internal_extents_t>(
-        new_data_labels.data() + batch.offset(), batch.size());
-      auto centers_view = raft::make_device_matrix_view<const float, internal_extents_t>(
-        cluster_centers.data(), n_clusters, index->dim());
-      cuvs::cluster::kmeans::balanced_params kmeans_params;
-      kmeans_params.metric = coarse_clustering_metric(index->metric());
-      cuvs::cluster::kmeans::predict(
-        handle, kmeans_params, batch_data_view, centers_view, batch_labels_view);
-      vec_batches.prefetch_next_batch();
-      // User needs to make sure kernel finishes its work before we overwrite batch in the next
-      // iteration if different streams are used for kernel and copy.
-      raft::resource::sync_stream(handle);
+    cuvs::cluster::kmeans::balanced_params kmeans_params;
+    kmeans_params.metric = coarse_clustering_metric(index->metric());
+
+    // Default: brute-force assignment; set use_ann_for_extend to opt in to CAGRA.
+    // extend(): fixed-centroid CAGRA nearest-centroid assignment — build index once, assign per
+    // batch.
+    const bool use_cagra_for_cluster_assignment = index->use_ann_for_extend().value_or(false);
+    if (use_cagra_for_cluster_assignment) {
+      raft::device_matrix_view<const float, int64_t, raft::row_major> centers_view(
+        cluster_centers.data(),
+        static_cast<int64_t>(n_clusters),
+        static_cast<int64_t>(index->dim()));
+      const auto cagra_index = cuvs::cluster::kmeans::detail::build_cagra_index_for_centroids(
+        handle, kmeans_params, centers_view);
+      const auto cagra_search_params =
+        cuvs::cluster::kmeans::detail::default_cagra_centroid_search_params();
+
+      for (const auto& batch : vec_batches) {
+        auto batch_size = batch.size();
+        rmm::device_uvector<float> queries_float(
+          static_cast<size_t>(batch_size) * static_cast<size_t>(index->dim()),
+          stream,
+          device_memory);
+        auto batch_view = raft::make_device_matrix_view<const T, internal_extents_t>(
+          batch.data(), batch_size, index->dim());
+        raft::linalg::map(handle,
+                          raft::make_const_mdspan(batch_view),
+                          raft::make_device_matrix_view<float, int64_t>(
+                            queries_float.data(), batch_size, index->dim()),
+                          utils::mapping<float>{});
+        raft::device_matrix_view<const float, int64_t, raft::row_major> queries_view(
+          queries_float.data(),
+          static_cast<int64_t>(batch_size),
+          static_cast<int64_t>(index->dim()));
+        cuvs::cluster::kmeans::detail::assign_nearest_centroid_cagra(
+          handle,
+          cagra_search_params,
+          cagra_index,
+          queries_view,
+          new_data_labels.data() + batch.offset(),
+          static_cast<int64_t>(batch_size));
+        vec_batches.prefetch_next_batch();
+        raft::resource::sync_stream(handle);
+      }
+    } else {
+      for (const auto& batch : vec_batches) {
+        auto batch_data_view = raft::make_device_matrix_view<const T, internal_extents_t>(
+          batch.data(), batch.size(), index->dim());
+        auto batch_labels_view = raft::make_device_vector_view<uint32_t, internal_extents_t>(
+          new_data_labels.data() + batch.offset(), batch.size());
+        auto centers_view = raft::make_device_matrix_view<const float, internal_extents_t>(
+          cluster_centers.data(), n_clusters, index->dim());
+        cuvs::cluster::kmeans::predict(
+          handle, kmeans_params, batch_data_view, centers_view, batch_labels_view);
+        vec_batches.prefetch_next_batch();
+        // User needs to make sure kernel finishes its work before we overwrite batch in the next
+        // iteration if different streams are used for kernel and copy.
+        raft::resource::sync_stream(handle);
+      }
     }
   }
 
@@ -1253,7 +1298,8 @@ auto build(raft::resources const& handle,
     params.pq_bits,
     params.pq_dim == 0 ? index<IdxT>::calculate_pq_dim(dim) : params.pq_dim,
     params.conservative_memory_allocation,
-    params.codes_layout);
+    params.codes_layout,
+    params.use_ann_for_extend);
 
   auto stream = raft::resource::get_cuda_stream(handle);
   utils::memzero(
@@ -1332,6 +1378,14 @@ auto build(raft::resources const& handle,
     cuvs::cluster::kmeans::balanced_params kmeans_params;
     kmeans_params.n_iters = params.kmeans_n_iters;
     kmeans_params.metric  = coarse_clustering_metric(impl->metric());
+    // Propagate use_ann_for_build_fit into k-means; CAGRA runs inside fit's E-step
+    // (balancing_em_iters → assign_nearest_centroid_cagra_with_index_reuse), not here.
+    if (params.use_ann_for_build_fit.value_or(false)) {
+      kmeans_params.use_ann_for_build_fit = true;
+      if (params.ann_rebuild_interval.has_value()) {
+        kmeans_params.ann_rebuild_interval = params.ann_rebuild_interval.value();
+      }
+    }
 
     if (impl->metric() == distance::DistanceType::CosineExpanded) {
       raft::linalg::row_normalize<raft::linalg::L2Norm>(
@@ -1348,8 +1402,29 @@ auto build(raft::resources const& handle,
     }
     auto labels_view =
       raft::make_device_vector_view<uint32_t, internal_extents_t>(labels.data(), n_rows_train);
-    cuvs::cluster::kmeans::predict(
-      handle, kmeans_params, trainset_const_view, centers_const_view, labels_view);
+    // build post-fit: fixed-centroid CAGRA nearest-centroid assignment (use_ann_for_build_postfit).
+    const bool use_cagra_for_cluster_assignment =
+      params.use_ann_for_build_postfit.value_or(false) &&
+      impl->n_lists() >= cuvs::cluster::kmeans::detail::kMinClustersForAnnFit;
+    if (use_cagra_for_cluster_assignment) {
+      raft::device_matrix_view<const float, int64_t, raft::row_major> centers_view(
+        cluster_centers, static_cast<int64_t>(impl->n_lists()), static_cast<int64_t>(impl->dim()));
+      raft::device_matrix_view<const float, int64_t, raft::row_major> queries_view(
+        trainset.data_handle(),
+        static_cast<int64_t>(n_rows_train),
+        static_cast<int64_t>(impl->dim()));
+      cuvs::cluster::kmeans::detail::assign_nearest_centroid_cagra(
+        handle,
+        cuvs::cluster::kmeans::detail::default_cagra_centroid_search_params(),
+        cuvs::cluster::kmeans::detail::build_cagra_index_for_centroids(
+          handle, kmeans_params, centers_view),
+        queries_view,
+        labels.data(),
+        static_cast<int64_t>(n_rows_train));
+    } else {
+      cuvs::cluster::kmeans::predict(
+        handle, kmeans_params, trainset_const_view, centers_const_view, labels_view);
+    }
 
     // Make rotation matrix
     helpers::make_rotation_matrix(handle, impl->rotation_matrix(), params.force_random_rotation);
@@ -1562,7 +1637,8 @@ auto build(
                                                   index_params.pq_bits,
                                                   pq_dim,
                                                   index_params.conservative_memory_allocation,
-                                                  index_params.codes_layout);
+                                                  index_params.codes_layout,
+                                                  index_params.use_ann_for_extend);
 
   utils::memzero(
     impl->accum_sorted_sizes().data_handle(), impl->accum_sorted_sizes().size(), stream);

@@ -20,7 +20,8 @@ class index_impl : public index_iface<IdxT> {
              uint32_t pq_bits,
              uint32_t pq_dim,
              bool conservative_memory_allocation,
-             list_layout codes_layout = list_layout::INTERLEAVED);
+             list_layout codes_layout = list_layout::INTERLEAVED,
+             std::optional<bool> use_ann_for_extend = std::nullopt);
 
   ~index_impl()                            = default;
   index_impl(index_impl&&)                 = default;
@@ -71,9 +72,11 @@ class index_impl : public index_iface<IdxT> {
     const raft::resources& res) const override;
 
   uint32_t get_list_size_in_bytes(uint32_t label) const override;
+  std::optional<bool> use_ann_for_extend() const noexcept override;
 
  protected:
   cuvs::distance::DistanceType metric_;
+  std::optional<bool> use_ann_for_extend_;
   codebook_gen codebook_kind_;
   list_layout codes_layout_;
   uint32_t dim_;
@@ -113,7 +116,8 @@ class owning_impl : public index_impl<IdxT> {
               uint32_t pq_bits,
               uint32_t pq_dim,
               bool conservative_memory_allocation,
-              list_layout codes_layout = list_layout::INTERLEAVED);
+              list_layout codes_layout = list_layout::INTERLEAVED,
+              std::optional<bool> use_ann_for_extend = std::nullopt);
 
   ~owning_impl()                             = default;
   owning_impl(owning_impl&&)                 = default;
@@ -159,7 +163,8 @@ class view_impl : public index_impl<IdxT> {
             raft::device_matrix_view<const float, uint32_t, raft::row_major> centers_view,
             raft::device_matrix_view<const float, uint32_t, raft::row_major> centers_rot_view,
             raft::device_matrix_view<const float, uint32_t, raft::row_major> rotation_matrix_view,
-            list_layout codes_layout = list_layout::INTERLEAVED);
+            list_layout codes_layout = list_layout::INTERLEAVED,
+            std::optional<bool> use_ann_for_extend = std::nullopt);
 
   ~view_impl()                           = default;
   view_impl(view_impl&&)                 = default;
