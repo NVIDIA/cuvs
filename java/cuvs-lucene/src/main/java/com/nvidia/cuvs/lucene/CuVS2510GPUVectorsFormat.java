@@ -1,0 +1,96 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+package com.nvidia.cuvs.lucene;
+
+import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.assertIsSupported;
+
+import com.nvidia.cuvs.LibraryException;
+import java.io.IOException;
+import org.apache.lucene.codecs.KnnVectorsFormat;
+import org.apache.lucene.codecs.KnnVectorsReader;
+import org.apache.lucene.codecs.KnnVectorsWriter;
+import org.apache.lucene.codecs.hnsw.DefaultFlatVectorScorer;
+import org.apache.lucene.codecs.hnsw.FlatVectorsFormat;
+import org.apache.lucene.index.SegmentReadState;
+import org.apache.lucene.index.SegmentWriteState;
+
+/**
+ * Extends upon the KnnVectorsFormat - Encodes/decodes per-document vector and any associated indexing structures required to support
+ * GPU-based accelerated nearest-neighbor search.
+ *
+ * @since 25.10
+ */
+public class CuVS2510GPUVectorsFormat extends KnnVectorsFormat {
+
+  private static final int MAX_DIMENSIONS = 4096;
+  private static final LuceneProvider LUCENE_PROVIDER;
+  private static final FlatVectorsFormat FLAT_VECTORS_FORMAT;
+
+  public static final String CUVS_META_CODEC_NAME = "Lucene102CuVSVectorsFormatMeta";
+  public static final String CUVS_META_CODEC_EXT = "vemc";
+  public static final String CUVS_INDEX_CODEC_NAME = "Lucene102CuVSVectorsFormatIndex";
+  public static final String CUVS_INDEX_EXT = "vcag";
+  public static final int VERSION_START = 0;
+  public static final int VERSION_CURRENT = VERSION_START;
+
+  private GPUSearchParams gpuSearchParams;
+
+  static {
+    try {
+      LUCENE_PROVIDER = LuceneProvider.getInstance("99");
+      FLAT_VECTORS_FORMAT =
+          LUCENE_PROVIDER.getLuceneFlatVectorsFormatInstance(DefaultFlatVectorScorer.INSTANCE);
+    } catch (Exception e) {
+      throw new ExceptionInInitializerError(e.getMessage());
+    }
+  }
+
+  /**
+   * Initializes the {@link CuVS2510GPUVectorsFormat} with default parameter values.
+   *
+   * @throws LibraryException if the native library fails to load
+   */
+  public CuVS2510GPUVectorsFormat() {
+    this(new GPUSearchParams.Builder().build());
+  }
+
+  /**
+   * Initializes the {@link CuVS2510GPUVectorsFormat} with an instance of {@link GPUSearchParams}.
+   *
+   * @param gpuSearchParams An instance of {@link GPUSearchParams}
+   * @throws LibraryException if the native library fails to load
+   */
+  public CuVS2510GPUVectorsFormat(GPUSearchParams gpuSearchParams) {
+    super("CuVS2510GPUVectorsFormat");
+    this.gpuSearchParams = gpuSearchParams;
+  }
+
+  /**
+   * Returns a KnnVectorsReader instance to write the vectors to the index.
+   */
+  @Override
+  public KnnVectorsWriter fieldsWriter(SegmentWriteState state) throws IOException {
+    assertIsSupported();
+    var flatWriter = FLAT_VECTORS_FORMAT.fieldsWriter(state);
+    return new CuVS2510GPUVectorsWriter(state, gpuSearchParams, flatWriter);
+  }
+
+  /**
+   * Returns a KnnVectorsReader instance to read the vectors from the index.
+   */
+  @Override
+  public KnnVectorsReader fieldsReader(SegmentReadState state) throws IOException {
+    assertIsSupported();
+    return new CuVS2510GPUVectorsReader(state, FLAT_VECTORS_FORMAT.fieldsReader(state));
+  }
+
+  /**
+   * Returns the maximum number of vector dimensions supported by this codec for the given field name.
+   */
+  @Override
+  public int getMaxDimensions(String fieldName) {
+    return MAX_DIMENSIONS;
+  }
+}

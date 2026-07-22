@@ -1,0 +1,23 @@
+# default group
+# (will be overridden by more specific matches below)
+*                        @NVIDIA/cuvs-lucene-write
+
+# java code owners
+src/                     @NVIDIA/cuvs-java-codeowners
+
+# docs code owners
+LICENSE                  @NVIDIA/cuvs-docs-codeowners
+/README.md               @NVIDIA/cuvs-docs-codeowners
+
+# CI code owners
+/.github/                @NVIDIA/adi-ci-codeowners
+/ci/                     @NVIDIA/adi-ci-codeowners
+
+# packaging code owners
+build.sh                 @NVIDIA/adi-packaging-codeowners
+dependencies.yaml        @NVIDIA/adi-packaging-codeowners
+pom.xml                  @NVIDIA/cuvs-build-codeowners
+/.pre-commit-config.yaml @NVIDIA/adi-packaging-codeowners
+
+# Ops code owners
+/SECURITY.md             @NVIDIA/adi-ops-codeowners

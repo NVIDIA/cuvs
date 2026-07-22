@@ -1,0 +1,109 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Dependency list for https://github.com/rapidsai/dependency-file-generator
+files:
+  all:
+    output: conda
+    matrix:
+      cuda: ["12.9", "13.3"]
+      arch: [x86_64, aarch64]
+    includes:
+      - cuda
+      - cuda_version
+      - java
+  checks:
+    output: none
+    includes:
+      - checks
+  java:
+    output: none
+    includes:
+      - cuda
+      - cuda_version
+      - java
+channels:
+  - rapidsai-nightly
+  - conda-forge
+dependencies:
+  checks:
+    common:
+      - output_types: [conda, requirements]
+        packages:
+          - pre-commit
+  cuda_version:
+    specific:
+      - output_types: conda
+        matrices:
+          - matrix:
+              cuda: "12.0"
+            packages:
+              - cuda-version=12.0
+          - matrix:
+              cuda: "12.2"
+            packages:
+              - cuda-version=12.2
+          - matrix:
+              cuda: "12.5"
+            packages:
+              - cuda-version=12.5
+          - matrix:
+              cuda: "12.8"
+            packages:
+              - cuda-version=12.8
+          - matrix:
+              cuda: "12.9"
+            packages:
+              - cuda-version=12.9
+          - matrix:
+              cuda: "13.0"
+            packages:
+              - cuda-version=13.0
+          - matrix:
+              cuda: "13.1"
+            packages:
+              - cuda-version=13.1
+          - matrix:
+              cuda: "13.2"
+            packages:
+              - cuda-version=13.2
+          - matrix:
+              cuda: "13.3"
+            packages:
+              - cuda-version=13.3
+  cuda:
+    common:
+      - output_types: [conda]
+        packages:
+          - cuda-nvtx-dev
+          - cuda-cudart-dev
+          - cuda-profiler-api
+          - libcublas-dev
+          - libcurand-dev
+          - libcusolver-dev
+          - libcusparse-dev
+          - libcuvs==26.10.*
+  java:
+    common:
+      - output_types: conda
+        packages:
+          - c-compiler
+          - cmake>=3.30.4
+          - cuda-nvcc
+          - maven
+          - ninja
+          - openjdk=22.*
+          - cxx-compiler
+    specific:
+      - output_types: conda
+        matrices:
+          - matrix:
+              arch: x86_64
+            packages:
+              - gcc_linux-64=14.*
+              - sysroot_linux-64==2.28
+          - matrix:
+              arch: aarch64
+            packages:
+              - gcc_linux-aarch64=14.*
+              - sysroot_linux-aarch64==2.28
