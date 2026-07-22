@@ -166,11 +166,51 @@ struct params : base_params {
  *  - L2Expanded
  *  - L2SqrtExpanded
  */
+/**
+ * Donor selection strategy used by balanced k-means rebalancing.
+ */
+enum class balanced_donor_selection { SizeSorted = 0, Random = 1 };
+
 struct balanced_params : base_params {
   /**
    * Number of training iterations
    */
   uint32_t n_iters = 20;
+
+  /**
+   * Lower balance tolerance used during hierarchical training. Clusters smaller than
+   * `average_cluster_size * balance_lower_tolerance` are underfull. The default value of `0.333`
+   * targets clusters smaller than roughly one third of the average size.
+   *
+   * Valid range: (0, 1).
+   */
+  float balance_lower_tolerance = 0.333f;
+
+  /**
+   * Upper balance tolerance used during hierarchical training. Clusters larger than
+   * `average_cluster_size * balance_upper_tolerance` are overfull donors. The default value of
+   * `3.0` targets clusters larger than roughly three times the average size. Very strict upper
+   * values around `1.4` or lower can be difficult for this heuristic rebalancing method to satisfy.
+   *
+   * Valid range: (1, infinity).
+   */
+  float balance_upper_tolerance = 3.0f;
+
+  /**
+   * Offset used when reinitializing an underfull cluster near an overfull cluster. The new center
+   * is placed at `donor_center + centroid_offset * (donor_point - donor_center)`.
+   *
+   * Valid range: (0, 1].
+   */
+  float centroid_offset = 0.01f;
+
+  /**
+   * Donor cluster selection strategy used when reinitializing underfull clusters. `SizeSorted`
+   * pairs the smallest clusters with the largest clusters and uses `balance_upper_tolerance` to
+   * identify overfull donors. `Random` selects donor points from clusters at least as large as the
+   * average cluster size; in that mode, `balance_upper_tolerance` does not control donor selection.
+   */
+  balanced_donor_selection donor_selection = balanced_donor_selection::SizeSorted;
 };
 
 /**
