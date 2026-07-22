@@ -15,6 +15,7 @@
 #include <raft/core/resource/cublas_handle.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resources.hpp>
+#include <raft/util/cuda_rt_essentials.hpp>
 #include <raft/util/cudart_utils.hpp>
 
 #include <rmm/device_uvector.hpp>
@@ -48,7 +49,8 @@ inline constexpr int MAX_LEAF_DEGREE         = 8;
 inline constexpr int ASSIGNMENT_TILE_ROWS    = 2048;
 inline constexpr uint64_t DETERMINISTIC_SEED = 0x4c616e6472756d;
 inline constexpr size_t GEMM_WORKSPACE_BYTES = size_t{2} * 1024 * 1024 * 1024;
-inline constexpr int WARP_SIZE               = 32;
+inline constexpr int THREADS_PER_BLOCK       = 256;
+inline constexpr int MAX_STRIDED_GRID_BLOCKS = 1 << 20;
 /** Warps per block in the one-row-per-warp kernels; their launch geometry derives from this. */
 inline constexpr int ROW_WARPS_PER_BLOCK = 4;
 // Centered INT8 dot products accumulate into INT32. Overflow requires more than 131,071
@@ -56,11 +58,12 @@ inline constexpr int ROW_WARPS_PER_BLOCK = 4;
 inline constexpr int64_t MAX_INTEGER_LEAF_DIMENSION =
   std::numeric_limits<int32_t>::max() / (128 * 128);
 
-/** Grid size for the grid-stride kernels: blocks of 256 threads covering `items`, capped so
+/** Grid size for the grid-stride kernels: blocks of THREADS_PER_BLOCK covering `items`, capped so
  * oversized workloads loop within resident threads instead. */
 inline auto strided_grid_size(int64_t items) -> int
 {
-  return static_cast<int>(std::min<int64_t>((items + 255) / 256, 1048576));
+  return static_cast<int>(std::min<int64_t>((items + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK,
+                                            MAX_STRIDED_GRID_BLOCKS));
 }
 
 // ----------------------------------------------------------------------------
@@ -74,7 +77,7 @@ struct build_params {
   uint32_t lower_fanout  = 3;
   double leader_fraction = 0.02;
   uint32_t max_leaders   = 1000;
-  uint32_t leaf_size     = 256;
+  uint32_t leaf_size     = MAX_LEAF_SIZE;
   uint32_t leaf_degree   = 4;
 };
 
@@ -83,7 +86,7 @@ struct split_params {
   uint32_t fanout            = 1;
   double leader_fraction     = 0.02;
   uint32_t max_leaders       = 1000;
-  uint32_t leaf_size         = 256;
+  uint32_t leaf_size         = MAX_LEAF_SIZE;
   uint32_t level             = 0;
   uint32_t occurrence_stride = 1;
 };
@@ -337,8 +340,9 @@ inline auto make_root_partition(raft::resources const& res, int64_t rows) -> par
   auto stream = raft::resource::get_cuda_stream(res);
   partition_set root{rmm::device_uvector<partition_membership>(static_cast<size_t>(rows), stream),
                      {{uint32_t{0}, int64_t{0}, rows}}};
-  int blocks = static_cast<int>((rows + 255) / 256);
-  initialize_root_memberships_kernel<<<blocks, 256, 0, stream>>>(root.memberships.data(), rows);
+  int blocks = static_cast<int>((rows + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
+  initialize_root_memberships_kernel<<<blocks, THREADS_PER_BLOCK, 0, stream>>>(
+    root.memberships.data(), rows);
   RAFT_CUDA_TRY(cudaGetLastError());
   return root;
 }
@@ -430,8 +434,8 @@ static __global__ void manyway_select_tiles_kernel(float const* dots,
                                                    uint32_t* output_keys,
                                                    partition_membership* output_memberships)
 {
-  int lane           = threadIdx.x % WARP_SIZE;
-  int warp           = threadIdx.x / WARP_SIZE;
+  int lane           = threadIdx.x % raft::WarpSize;
+  int warp           = threadIdx.x / raft::WarpSize;
   int64_t linear_row = static_cast<int64_t>(blockIdx.x) * ROW_WARPS_PER_BLOCK + warp;
   int64_t total_rows = static_cast<int64_t>(batch_size) * tile_rows;
   if (linear_row >= total_rows) { return; }
@@ -444,7 +448,7 @@ static __global__ void manyway_select_tiles_kernel(float const* dots,
   auto membership     = input_memberships[input_index];
   leader_candidate local_best[MAX_FANOUT];
 
-  for (int leader = lane; leader < tile.leader_count; leader += WARP_SIZE) {
+  for (int leader = lane; leader < tile.leader_count; leader += raft::WarpSize) {
     uint32_t leader_id = leader_ids[static_cast<int64_t>(batch) * padded_leaders + leader];
     float dot = dots[(static_cast<int64_t>(batch) * tile_rows + row) * padded_leaders + leader];
     float distance = fmaxf(0.0f, norms[membership.id] + norms[leader_id] - 2.0f * dot);
@@ -454,7 +458,7 @@ static __global__ void manyway_select_tiles_kernel(float const* dots,
 
   extern __shared__ unsigned char shared_bytes[];
   auto* shared_candidates = reinterpret_cast<leader_candidate*>(shared_bytes);
-  int shared_base         = (warp * WARP_SIZE + lane) * fanout;
+  int shared_base         = (warp * raft::WarpSize + lane) * fanout;
   for (int j = 0; j < fanout; ++j) {
     shared_candidates[shared_base + j] = local_best[j];
   }
@@ -462,8 +466,8 @@ static __global__ void manyway_select_tiles_kernel(float const* dots,
 
   if (lane == 0) {
     leader_candidate selected[MAX_FANOUT];
-    int warp_base = warp * WARP_SIZE * fanout;
-    for (int candidate = 0; candidate < WARP_SIZE * fanout; ++candidate) {
+    int warp_base = warp * raft::WarpSize * fanout;
+    for (int candidate = 0; candidate < raft::WarpSize * fanout; ++candidate) {
       if (shared_candidates[warp_base + candidate].valid()) {
         manyway_insert_local(shared_candidates[warp_base + candidate], fanout, selected);
       }
@@ -539,7 +543,10 @@ inline void carry_parents(raft::resources const& res,
   auto stream = raft::resource::get_cuda_stream(res);
   rmm::device_uvector<carry_span> device_carries(carries.size(), stream);
   raft::copy(device_carries.data(), carries.data(), carries.size(), stream);
-  carry_completed_parents_kernel<<<static_cast<int>(carries.size()), 256, 0, stream>>>(
+  carry_completed_parents_kernel<<<static_cast<int>(carries.size()),
+                                   THREADS_PER_BLOCK,
+                                   0,
+                                   stream>>>(
     parents.memberships.data(), device_carries.data(), memberships.data(), keys.data());
   RAFT_CUDA_TRY(cudaGetLastError());
 }
@@ -654,7 +661,7 @@ void assign_bucket(raft::resources const& res,
   auto leader_stride = static_cast<int64_t>(leader_elements);
   auto dot_stride    = static_cast<int64_t>(dot_elements);
   size_t selection_shared =
-    ROW_WARPS_PER_BLOCK * WARP_SIZE * params.fanout * sizeof(leader_candidate);
+    ROW_WARPS_PER_BLOCK * raft::WarpSize * params.fanout * sizeof(leader_candidate);
 
   for (size_t tile_offset = 0; tile_offset < tiles.size(); tile_offset += batch_capacity) {
     size_t batch_size = std::min(batch_capacity, tiles.size() - tile_offset);
@@ -662,7 +669,7 @@ void assign_bucket(raft::resources const& res,
 
     // Gather the batch's tile rows and leader vectors
     int point_blocks = strided_grid_size(static_cast<int64_t>(batch_size * point_elements));
-    manyway_gather_tile_points_kernel<<<point_blocks, 256, 0, stream>>>(
+    manyway_gather_tile_points_kernel<<<point_blocks, THREADS_PER_BLOCK, 0, stream>>>(
       dataset.data_handle(),
       dim,
       parents.memberships.data(),
@@ -673,7 +680,7 @@ void assign_bucket(raft::resources const& res,
     RAFT_CUDA_TRY(cudaGetLastError());
 
     int leader_blocks = strided_grid_size(static_cast<int64_t>(batch_size * leader_elements));
-    manyway_gather_tile_leaders_kernel<<<leader_blocks, 256, 0, stream>>>(
+    manyway_gather_tile_leaders_kernel<<<leader_blocks, THREADS_PER_BLOCK, 0, stream>>>(
       dataset.data_handle(),
       dim,
       parents.memberships.data(),
@@ -702,7 +709,7 @@ void assign_bucket(raft::resources const& res,
       static_cast<int>((static_cast<int64_t>(batch_size) * tile_rows + ROW_WARPS_PER_BLOCK - 1) /
                        ROW_WARPS_PER_BLOCK);
     manyway_select_tiles_kernel<<<selection_blocks,
-                                  ROW_WARPS_PER_BLOCK * WARP_SIZE,
+                                  ROW_WARPS_PER_BLOCK * raft::WarpSize,
                                   selection_shared,
                                   stream>>>(tile_dots.data(),
                                             static_cast<int>(batch_size),
@@ -991,7 +998,7 @@ auto build_leaf_neighbors(raft::resources const& res,
   // Prefill every slot with its own row id, leaf KNN overwrites the slots it fills
   auto graph          = raft::make_device_matrix<uint32_t, int64_t>(res, rows, union_degree);
   int scaffold_blocks = strided_grid_size(rows * union_degree);
-  initialize_self_scaffold_kernel<<<scaffold_blocks, 256, 0, stream>>>(
+  initialize_self_scaffold_kernel<<<scaffold_blocks, THREADS_PER_BLOCK, 0, stream>>>(
     graph.data_handle(), rows, union_degree);
   RAFT_CUDA_TRY(cudaGetLastError());
 
@@ -1016,7 +1023,7 @@ auto build_leaf_neighbors(raft::resources const& res,
       int gather_blocks =
         strided_grid_size(static_cast<int64_t>(batch_size * vector_elements_per_leaf));
       // Gather this batch's leaves into the dense vector buffer.
-      manyway_gather_leaf_vectors_kernel<<<gather_blocks, 256, 0, stream>>>(
+      manyway_gather_leaf_vectors_kernel<<<gather_blocks, THREADS_PER_BLOCK, 0, stream>>>(
         dataset.data_handle(),
         input_dimension,
         input_dimension,
@@ -1076,7 +1083,7 @@ auto build_leaf_neighbors(raft::resources const& res,
       size_t batch_size = std::min(batch_capacity, leaves.starts_host.size() - leaf_offset);
       int gather_blocks =
         strided_grid_size(static_cast<int64_t>(batch_size * vector_elements_per_leaf));
-      manyway_gather_leaf_vectors_kernel<<<gather_blocks, 256, 0, stream>>>(
+      manyway_gather_leaf_vectors_kernel<<<gather_blocks, THREADS_PER_BLOCK, 0, stream>>>(
         dataset.data_handle(),
         input_dimension,
         padded_dimension,
@@ -1141,20 +1148,20 @@ static __global__ void initialize_origins_kernel(uint32_t* origins,
 template <typename T>
 __global__ void manyway_l2_norms_kernel(T const* dataset, int64_t rows, int64_t dim, float* norms)
 {
-  int lane    = threadIdx.x % WARP_SIZE;
-  int warp    = threadIdx.x / WARP_SIZE;
+  int lane    = threadIdx.x % raft::WarpSize;
+  int warp    = threadIdx.x / raft::WarpSize;
   int64_t row = static_cast<int64_t>(blockIdx.x) * ROW_WARPS_PER_BLOCK + warp;
   if (row >= rows) { return; }
 
   // Each lane accumulates a strided slice of the row's squared values.
   float sum      = 0.0f;
   T const* point = dataset + row * dim;
-  for (int64_t d = lane; d < dim; d += WARP_SIZE) {
+  for (int64_t d = lane; d < dim; d += raft::WarpSize) {
     float value = static_cast<float>(point[d]);
     sum         = fmaf(value, value, sum);
   }
   // Shuffle-reduce the partial sums; lane 0 holds the total.
-  for (int offset = WARP_SIZE / 2; offset > 0; offset /= 2) {
+  for (int offset = raft::WarpSize / 2; offset > 0; offset /= 2) {
     sum += __shfl_down_sync(0xffffffffu, sum, offset);
   }
   if (lane == 0) { norms[row] = sum; }
@@ -1201,7 +1208,8 @@ auto build(raft::resources const& res,
   }
   // this is because the degree of the candidate list is stored in uint8_t
   RAFT_EXPECTS(spill * params.leaf_degree <= std::numeric_limits<uint8_t>::max(),
-               "Fastener candidate width must not exceed 255");
+               "Fastener candidate width must not exceed %u",
+               static_cast<unsigned>(std::numeric_limits<uint8_t>::max()));
   RAFT_EXPECTS(static_cast<uint64_t>(rows) <= std::numeric_limits<uint32_t>::max() / spill,
                "Fastener total partition memberships (rows=%ld * spill=%lu) must fit in uint32_t",
                static_cast<long>(rows),
@@ -1213,15 +1221,15 @@ auto build(raft::resources const& res,
 
   for (size_t part = 0; part + 1 < offsets.size(); ++part) {
     int64_t part_rows = offsets[part + 1] - offsets[part];
-    int blocks        = static_cast<int>((part_rows + 255) / 256);
-    initialize_origins_kernel<<<blocks, 256, 0, stream>>>(
+    int blocks        = static_cast<int>((part_rows + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
+    initialize_origins_kernel<<<blocks, THREADS_PER_BLOCK, 0, stream>>>(
       origins.data(), offsets[part], part_rows, static_cast<uint32_t>(part));
     RAFT_CUDA_TRY(cudaGetLastError());
   }
 
   split_context context(stream, rows);
   int norm_blocks = static_cast<int>((rows + ROW_WARPS_PER_BLOCK - 1) / ROW_WARPS_PER_BLOCK);
-  manyway_l2_norms_kernel<<<norm_blocks, ROW_WARPS_PER_BLOCK * WARP_SIZE, 0, stream>>>(
+  manyway_l2_norms_kernel<<<norm_blocks, ROW_WARPS_PER_BLOCK * raft::WarpSize, 0, stream>>>(
     dataset.data_handle(), rows, dataset.extent(1), context.norms.data());
   RAFT_CUDA_TRY(cudaGetLastError());
 
@@ -1310,8 +1318,8 @@ auto append_to_input_graphs(
   for (size_t part = 0; part < indices.size(); ++part) {
     auto source = indices[part]->graph();
     RAFT_EXPECTS(source.extent(1) > 0, "Input CAGRA graphs must have nonzero degree");
-    int blocks = static_cast<int>((source.extent(0) + 255) / 256);
-    copy_partition_with_scaffold_kernel<<<blocks, 256, 0, stream>>>(
+    int blocks = static_cast<int>((source.extent(0) + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
+    copy_partition_with_scaffold_kernel<<<blocks, THREADS_PER_BLOCK, 0, stream>>>(
       source.data_handle(),
       scaffold.data_handle(),
       source.extent(0),
@@ -1339,16 +1347,16 @@ static __global__ void deduplicate_graph_prefix_kernel(uint32_t const* input,
                                                        uint32_t* output,
                                                        int64_t output_degree)
 {
-  constexpr int WARPS_PER_BLOCK = 256 / WARP_SIZE;
-  int lane                      = threadIdx.x % WARP_SIZE;
-  int warp                      = threadIdx.x / WARP_SIZE;
+  constexpr int WARPS_PER_BLOCK = THREADS_PER_BLOCK / raft::WarpSize;
+  int lane                      = threadIdx.x % raft::WarpSize;
+  int warp                      = threadIdx.x / raft::WarpSize;
   int64_t row                   = static_cast<int64_t>(blockIdx.x) * WARPS_PER_BLOCK + warp;
   if (row >= rows) { return; }
 
   int64_t input_base  = row * input_degree;
   int64_t output_base = row * output_degree;
   int selected        = 0;
-  for (int64_t tile = 0; tile < input_degree && selected < output_degree; tile += WARP_SIZE) {
+  for (int64_t tile = 0; tile < input_degree && selected < output_degree; tile += raft::WarpSize) {
     int64_t column     = tile + lane;
     bool first         = column < input_degree;
     uint32_t candidate = first ? input[input_base + column] : uint32_t{0};
@@ -1358,7 +1366,7 @@ static __global__ void deduplicate_graph_prefix_kernel(uint32_t const* input,
     }
 
     unsigned first_mask = __ballot_sync(0xffffffffu, first);
-    unsigned lower_mask = lane == 0 ? 0u : (0xffffffffu >> (WARP_SIZE - lane));
+    unsigned lower_mask = lane == 0 ? 0u : (0xffffffffu >> (raft::WarpSize - lane));
     int output_column   = selected + __popc(first_mask & lower_mask);
     if (first && output_column < output_degree) { output[output_base + output_column] = candidate; }
     selected += __popc(first_mask);
@@ -1369,7 +1377,7 @@ static __global__ void deduplicate_graph_prefix_kernel(uint32_t const* input,
     selected = 1;
   }
   if (selected > output_degree) { selected = static_cast<int>(output_degree); }
-  for (int64_t column = selected + lane; column < output_degree; column += WARP_SIZE) {
+  for (int64_t column = selected + lane; column < output_degree; column += raft::WarpSize) {
     output[output_base + column] = output[output_base + (column % selected)];
   }
 }
@@ -1383,8 +1391,7 @@ inline auto cap_sorted_graph(
   RAFT_EXPECTS(output_degree > 0 && output_degree <= graph.extent(1),
                "Pre-optimize graph degree cap must be within the sorted graph degree");
   auto output = raft::make_device_matrix<uint32_t, int64_t>(res, graph.extent(0), output_degree);
-  constexpr int THREADS_PER_BLOCK = 256;
-  constexpr int WARPS_PER_BLOCK   = THREADS_PER_BLOCK / WARP_SIZE;
+  constexpr int WARPS_PER_BLOCK = THREADS_PER_BLOCK / raft::WarpSize;
   int blocks = static_cast<int>((graph.extent(0) + WARPS_PER_BLOCK - 1) / WARPS_PER_BLOCK);
   deduplicate_graph_prefix_kernel<<<blocks,
                                     THREADS_PER_BLOCK,

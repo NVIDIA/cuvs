@@ -175,6 +175,11 @@ __global__ void kern_sort(const DATA_T* const dataset,  // [dataset_chunk_size, 
   }
 }
 
+// kern_sort capacity is WarpSize * numElementsPerThread; largest specialization uses 32.
+constexpr int kMaxSortElementsPerThread = 32;
+constexpr uint64_t kMaxSortDegree =
+  static_cast<uint64_t>(raft::WarpSize) * kMaxSortElementsPerThread;
+
 template <typename DataT, typename IdxT>
 using sort_kernel_type =
   void (*)(DataT const*, IdxT, uint32_t, IdxT*, uint32_t, uint32_t, cuvs::distance::DistanceType);
@@ -182,15 +187,16 @@ using sort_kernel_type =
 template <typename DataT, typename IdxT>
 auto select_sort_kernel(uint64_t degree) -> sort_kernel_type<DataT, IdxT>
 {
-  if (degree <= 32) { return kern_sort<DataT, IdxT, 1>; }
-  if (degree <= 64) { return kern_sort<DataT, IdxT, 2>; }
-  if (degree <= 128) { return kern_sort<DataT, IdxT, 4>; }
-  if (degree <= 256) { return kern_sort<DataT, IdxT, 8>; }
-  if (degree <= 512) { return kern_sort<DataT, IdxT, 16>; }
-  if (degree <= 1024) { return kern_sort<DataT, IdxT, 32>; }
+  if (degree <= raft::WarpSize * 1) { return kern_sort<DataT, IdxT, 1>; }
+  if (degree <= raft::WarpSize * 2) { return kern_sort<DataT, IdxT, 2>; }
+  if (degree <= raft::WarpSize * 4) { return kern_sort<DataT, IdxT, 4>; }
+  if (degree <= raft::WarpSize * 8) { return kern_sort<DataT, IdxT, 8>; }
+  if (degree <= raft::WarpSize * 16) { return kern_sort<DataT, IdxT, 16>; }
+  if (degree <= kMaxSortDegree) { return kern_sort<DataT, IdxT, kMaxSortElementsPerThread>; }
   RAFT_FAIL(
-    "The degree of input knn graph is too large (%lu). It must be equal to or smaller than 1024.",
-    degree);
+    "The degree of input knn graph is too large (%lu). It must be equal to or smaller than %lu.",
+    degree,
+    kMaxSortDegree);
 }
 
 template <typename IdxT, typename OutputMatrixView>
@@ -1017,7 +1023,8 @@ void sort_knn_graph_device_inplace(
   RAFT_EXPECTS(rows <= static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()) &&
                  dim <= static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()),
                "Dataset extents must fit in uint32_t");
-  RAFT_EXPECTS(degree > 0 && degree <= 1024, "Graph degree must be in [1, 1024]");
+  RAFT_EXPECTS(
+    degree > 0 && degree <= kMaxSortDegree, "Graph degree must be in [1, %lu]", kMaxSortDegree);
 
   auto kernel = select_sort_kernel<DataT, IdxT>(degree);
 

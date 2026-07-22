@@ -266,14 +266,13 @@ auto preflight_fastener(cagra::index_params const& params,
 
   uint64_t const max_spill = std::numeric_limits<uint8_t>::max() / merge_params.leaf_degree;
   uint64_t spill           = merge_params.root_fanout;
-  if (spill > max_spill) {
-    return reject("root_fanout * lower_fanout^(levels - 1) * leaf_degree must not exceed 255");
-  }
+  auto const candidate_width_limit =
+    "root_fanout * lower_fanout^(levels - 1) * leaf_degree must not exceed " +
+    std::to_string(std::numeric_limits<uint8_t>::max());
+  if (spill > max_spill) { return reject(candidate_width_limit); }
   if (merge_params.lower_fanout > 1) {
     for (uint32_t level = 1; level < merge_params.levels; ++level) {
-      if (spill > max_spill / merge_params.lower_fanout) {
-        return reject("root_fanout * lower_fanout^(levels - 1) * leaf_degree must not exceed 255");
-      }
+      if (spill > max_spill / merge_params.lower_fanout) { return reject(candidate_width_limit); }
       spill *= merge_params.lower_fanout;
     }
   }
