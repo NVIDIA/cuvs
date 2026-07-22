@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -54,6 +54,10 @@ struct kmeans_api_v1 {
   using params_t = cuvsKMeansParams_t;
   static cuvsError_t params_create(params_t* p) { return cuvsKMeansParamsCreate(p); }
   static cuvsError_t params_destroy(params_t p) { return cuvsKMeansParamsDestroy(p); }
+  static void set_device_buffer_batch_size(params_t params, int64_t batch_size)
+  {
+    params->streaming_batch_size = batch_size;
+  }
   static cuvsError_t fit(cuvsResources_t res,
                          params_t params,
                          DLManagedTensor* dataset,
@@ -79,6 +83,10 @@ struct kmeans_api_v2 {
   using params_t = cuvsKMeansParams_v2_t;
   static cuvsError_t params_create(params_t* p) { return cuvsKMeansParamsCreate_v2(p); }
   static cuvsError_t params_destroy(params_t p) { return cuvsKMeansParamsDestroy_v2(p); }
+  static void set_device_buffer_batch_size(params_t params, int64_t batch_size)
+  {
+    params->device_buffer_batch_size = batch_size;
+  }
   static cuvsError_t fit(cuvsResources_t res,
                          params_t params,
                          DLManagedTensor* dataset,
@@ -128,7 +136,7 @@ void test_fit_predict()
   params->max_iter             = 100;
   params->tol                  = 1e-6;
   params->init                 = Array;
-  params->streaming_batch_size = 0;
+  Api::set_device_buffer_batch_size(params, 0);
 
   DLManagedTensor dataset_t{};
   cuvs::core::to_dlpack(
@@ -195,7 +203,7 @@ void test_fit_host()
   params->max_iter             = 100;
   params->tol                  = 1e-6;
   params->init                 = Array;
-  params->streaming_batch_size = 4;  // force at least 2 streamed batches
+  Api::set_device_buffer_batch_size(params, 4);  // force at least two device buffers
 
   DLManagedTensor dataset_t{};
   cuvs::core::to_dlpack(

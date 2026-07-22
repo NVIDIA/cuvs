@@ -155,6 +155,16 @@ struct params : base_params {
    * Default: 0 (process all data at once).
    */
   int64_t streaming_batch_size = 0;
+
+  /**
+   * Whether host-resident multi-GPU KMeans should prefetch the next streaming
+   * batch on a separate CUDA stream. Enabling this overlaps H2D transfer with
+   * computation by allocating a second device batch buffer on each rank.
+   *
+   * This option is ignored by single-GPU and device-resident fits.
+   * Default: false.
+   */
+  bool streaming_batch_prefetch = false;
 };
 
 /**

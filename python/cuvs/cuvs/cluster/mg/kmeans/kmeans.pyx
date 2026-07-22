@@ -76,6 +76,17 @@ def fit(
         ``centroids`` is a host NumPy array containing the computed centroids,
         ``inertia`` is the final objective value, and ``n_iter`` is the number
         of iterations run.
+
+    Notes
+    -----
+    For small streaming batches, call ``resources.set_memory_pool(...)``
+    before ``fit`` to reduce allocator contention between GPU worker threads.
+    Memory pools are not enabled automatically because they replace the
+    process-wide RMM resource on each managed device.
+
+    Set ``params.streaming_batch_prefetch=True`` to overlap H2D transfer with
+    computation. This allocates a second device batch buffer on every rank;
+    the default single-buffered path minimizes device-memory usage.
     """
 
     if params.hierarchical:
@@ -153,6 +164,7 @@ def fit(
     params_v2.hierarchical_n_iters = params.params.hierarchical_n_iters
     params_v2.streaming_batch_size = params.params.streaming_batch_size
     params_v2.init_size = params.params.init_size
+    params_v2.streaming_batch_prefetch = params._streaming_batch_prefetch
 
     with cuda_interruptible():
         check_cuvs(cuvsMultiGpuKMeansFit(

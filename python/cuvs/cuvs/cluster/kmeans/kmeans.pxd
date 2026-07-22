@@ -56,7 +56,8 @@ cdef extern from "cuvs/cluster/kmeans.h" nogil:
         bool hierarchical,
         int hierarchical_n_iters,
         int64_t streaming_batch_size,
-        int64_t init_size
+        int64_t init_size,
+        bool streaming_batch_prefetch
 
     ctypedef cuvsKMeansParams* cuvsKMeansParams_t
     ctypedef cuvsKMeansParams_v2* cuvsKMeansParams_v2_t
@@ -90,3 +91,4 @@ cdef extern from "cuvs/cluster/kmeans.h" nogil:
 
 cdef class KMeansParams:
     cdef cuvsKMeansParams* params
+    cdef bool _streaming_batch_prefetch

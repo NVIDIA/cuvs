@@ -37,6 +37,7 @@
 #include <raft/random/rng.cuh>
 #include <raft/util/cudart_utils.hpp>
 
+#include <rmm/cuda_stream.hpp>
 #include <rmm/device_scalar.hpp>
 #include <rmm/device_uvector.hpp>
 
@@ -44,6 +45,7 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <numeric>
 #include <optional>
 #include <random>
@@ -140,7 +142,18 @@ void mnmg_fit(
     use_nccl ? raft::resource::set_current_device_to_rank(handle, rank) : handle;
   mnmg_comms comms{dev_res, use_nccl, nccl_comm};
 
-  auto stream     = comms.stream();
+  auto stream = comms.stream();
+  std::unique_ptr<rmm::cuda_stream> data_copy_stream_owner;
+  rmm::cuda_stream_view data_copy_stream{stream};
+  bool enable_data_prefetch = false;
+  if constexpr (!data_on_device) {
+    if (params.streaming_batch_prefetch) {
+      data_copy_stream_owner =
+        std::make_unique<rmm::cuda_stream>(rmm::cuda_stream::flags::non_blocking);
+      data_copy_stream     = data_copy_stream_owner->view();
+      enable_data_prefetch = true;
+    }
+  }
   auto n_features = centroids.extent(1);
   auto n_clusters = static_cast<IndexT>(params.n_clusters);
   auto metric     = params.metric;
@@ -354,7 +367,25 @@ void mnmg_fit(
   };
   auto rank_centroids_const = raft::make_const_mdspan(rank_centroids);
 
+  // Persist one-partition input across Lloyd iterations and inertia. Multi-partition inputs keep
+  // the bounded-memory transient path.
+  const bool persist_data_batches = X_parts.size() == 1 && X_parts.front().extent(0) > 0;
+  std::optional<data_batch_iterator_t> persistent_data_batches;
+  auto make_data_batches = [&](const data_part_view_t& X_part) -> data_batch_iterator_t {
+    return persistent_data_batches
+             ? *persistent_data_batches
+             : data_batch_iterator_t(dev_res,
+                                     X_part,
+                                     static_cast<size_t>(streaming_batch_size),
+                                     data_copy_stream,
+                                     rmm::mr::get_current_device_resource_ref(),
+                                     enable_data_prefetch);
+  };
+
   for (int seed_iter = 0; seed_iter < n_init; ++seed_iter) {
+    // Free the persistent batch during initialization, then retain it for Lloyd and inertia.
+    persistent_data_batches.reset();
+
     cuvs::cluster::kmeans::params iter_params = params;
     iter_params.rng_state.seed                = gen();
 
@@ -373,6 +404,15 @@ void mnmg_fit(
                                                            global_n,
                                                            rank,
                                                            comms);
+
+    if (persist_data_batches) {
+      persistent_data_batches.emplace(dev_res,
+                                      X_parts.front(),
+                                      static_cast<size_t>(streaming_batch_size),
+                                      data_copy_stream,
+                                      rmm::mr::get_current_device_resource_ref(),
+                                      enable_data_prefetch);
+    }
 
     if (!sample_weights) { raft::matrix::fill(dev_res, batch_weights.view(), DataT{1}); }
 
@@ -402,14 +442,13 @@ void mnmg_fit(
         auto part_rows     = static_cast<IndexT>(X_part.extent(0));
         if (part_rows == 0) { continue; }
 
-        data_batch_iterator_t data_batches(dev_res,
-                                           X_part,
-                                           static_cast<size_t>(streaming_batch_size),
-                                           stream,
-                                           rmm::mr::get_current_device_resource_ref(),
-                                           true);
+        auto data_batches = make_data_batches(X_part);
+        auto data_it      = data_batches.begin();
+        auto data_end     = data_batches.end();
+        data_batches.prefetch_next_batch();
 
-        for (auto const& data_batch : data_batches) {
+        for (; data_it != data_end; ++data_it) {
+          auto const& data_batch    = *data_it;
           IndexT current_batch_size = static_cast<IndexT>(data_batch.size());
           auto batch_offset         = static_cast<IndexT>(data_batch.offset());
 
@@ -468,7 +507,9 @@ void mnmg_fit(
             weight_per_cluster.view(),
             raft::make_device_scalar_view(clustering_cost.data_handle()),
             batch_workspace);
+          data_batches.prefetch_next_batch();
         }
+        if (enable_data_prefetch) { raft::resource::sync_stream(dev_res); }
       }
       norms_cached = true;
 
@@ -530,14 +571,13 @@ void mnmg_fit(
       auto part_rows     = static_cast<IndexT>(X_part.extent(0));
       if (part_rows == 0) { continue; }
 
-      data_batch_iterator_t data_batches(dev_res,
-                                         X_part,
-                                         static_cast<size_t>(streaming_batch_size),
-                                         stream,
-                                         rmm::mr::get_current_device_resource_ref(),
-                                         true);
+      auto data_batches = make_data_batches(X_part);
+      auto data_it      = data_batches.begin();
+      auto data_end     = data_batches.end();
+      data_batches.prefetch_next_batch();
 
-      for (auto const& data_batch : data_batches) {
+      for (; data_it != data_end; ++data_it) {
+        auto const& data_batch    = *data_it;
         IndexT current_batch_size = static_cast<IndexT>(data_batch.size());
         auto batch_offset         = static_cast<IndexT>(data_batch.offset());
 
@@ -561,7 +601,9 @@ void mnmg_fit(
                           raft::make_const_mdspan(clustering_cost.view()),
                           raft::make_const_mdspan(batch_clustering_cost.view()),
                           clustering_cost.view());
+        data_batches.prefetch_next_batch();
       }
+      if (enable_data_prefetch) { raft::resource::sync_stream(dev_res); }
     }
     comms.allreduce(clustering_cost.data_handle(), clustering_cost.data_handle(), 1);
     raft::copy(&local_inertia, clustering_cost.data_handle(), 1, stream);
