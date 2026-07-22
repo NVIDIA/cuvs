@@ -113,7 +113,7 @@ struct params : base_params {
    * Default tile is [batch_samples x n_clusters] i.e. when batch_centroids is 0
    * then don't tile the centroids
    *
-   * NB: These parameters are unrelated to device_buffer_batch_size, which controls how many
+   * NB: These parameters are unrelated to streaming_batch_size, which controls how many
    * samples to transfer from host to device per batch when processing out-of-core
    * data.
    */
@@ -144,28 +144,27 @@ struct params : base_params {
   int64_t init_size = 0;
 
   /**
-   * Number of host-resident samples staged in each device buffer.
+   * Number of samples to process per GPU batch when fitting with host data.
    * When set to 0, defaults to n_samples (process all at once).
    * Only used by the batched (host-data) code path and ignored by
    * device-data overloads.
    *
-   * In multi-GPU mode this is a per-rank buffer size: each rank processes up
-   * to this many local samples at once, clamped to that rank's local sample
+   * In multi-GPU mode this is a per-rank batch size: each rank processes up
+   * to this many local samples per batch, clamped to that rank's local sample
    * count. This is is ignored by device-data overloads.
    * Default: 0 (process all data at once).
    */
-  int64_t device_buffer_batch_size = 0;
+  int64_t streaming_batch_size = 0;
 
   /**
-   * Prefetches the next device buffer asynchronously on a separate CUDA stream
-   * while the current buffer is processed, hiding data-transfer latency for
-   * host-resident, multi-GPU KMeans. This overlaps transfers from host to device
-   * with computation using a second device buffer on each rank.
+   * Whether host-resident multi-GPU KMeans should prefetch the next streaming
+   * batch on a separate CUDA stream. Enabling this overlaps H2D transfer with
+   * computation by allocating a second device batch buffer on each rank.
    *
    * This option is ignored by single-GPU and device-resident fits.
    * Default: false.
    */
-  bool device_buffer_prefetch = false;
+  bool streaming_batch_prefetch = false;
 };
 
 /**
@@ -210,7 +209,7 @@ enum class kmeans_type { KMeans = 0, KMeansBalanced = 1 };
  *
  * This overload supports out-of-core computation where the dataset resides
  * on the host. Data is processed in batches, streaming from host to
- * device. The batch size is controlled by `params.device_buffer_batch_size`.
+ * device. The batch size is controlled by `params.streaming_batch_size`.
  *
  * Multi-GPU dispatch is selected automatically based on the handle state:
  *   - If `raft::resource::is_multi_gpu(handle)` (cuVS SNMG): the full dataset X
@@ -232,7 +231,7 @@ enum class kmeans_type { KMeans = 0, KMeansBalanced = 1 };
  *   raft::resources handle;
  *   cuvs::cluster::kmeans::params params;
  *   params.n_clusters = 100;
- *   params.device_buffer_batch_size = 100000;
+ *   params.streaming_batch_size = 100000;
  *   float inertia;
  *   int64_t n_iter;
  *
@@ -256,7 +255,7 @@ enum class kmeans_type { KMeans = 0, KMeansBalanced = 1 };
  * @param[in]     handle        The raft handle. When a multi-GPU resource is
  *                              attached, multi-GPU dispatch is used automatically.
  * @param[in]     params        Parameters for KMeans model. Batch size is read from
- *                              params.device_buffer_batch_size.
+ *                              params.streaming_batch_size.
  * @param[in]     X             Training instances on HOST memory. The data must
  *                              be in row-major format.
  *                              [dim = n_samples x n_features]
@@ -1659,8 +1658,8 @@ void cluster_cost(
  *
  * Each rank supplies its local training data as a vector of partitions. For
  * host-resident partitions the implementation streams each partition using
- * `params.device_buffer_batch_size` (per rank). For device-resident partitions
- * `device_buffer_batch_size` is ignored and each local partition is processed in full.
+ * `params.streaming_batch_size` (per rank). For device-resident partitions
+ * `streaming_batch_size` is ignored and each local partition is processed in full.
  *
  * The active backend is selected by the resources attached to
  * `handle`:
@@ -1674,9 +1673,9 @@ void cluster_cost(
  * @param[in]     handle              The raft handle. Must have NCCL comms or
  *                                    a SNMG clique initialized.
  * @param[in]     params              K-means parameters. For host-resident
- *                                    partitions the per-rank device-buffer
+ *                                    partitions the per-rank streaming batch
  *                                    size is read from
- *                                    `params.device_buffer_batch_size`; it is
+ *                                    `params.streaming_batch_size`; it is
  *                                    ignored for device-resident partitions.
  * @param[in]     X_parts             Per-partition local data on this rank.
  *                                    Each entry is [n_rows_i x n_features].

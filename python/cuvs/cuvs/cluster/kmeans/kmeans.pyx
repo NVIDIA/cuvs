@@ -85,20 +85,20 @@ cdef class KMeansParams:
         Number of samples to draw for KMeansPlusPlus initialization with
         host (out-of-core) data. When set to 0, uses the heuristic
         min(3 * n_clusters, n_samples). Default: 0.
-    device_buffer_batch_size : int
-        Number of host-resident samples staged in each GPU batch. When set
-        to 0, defaults to n_samples (process all at once). Only used by the
-        host-data code path. Reducing
-        device_buffer_batch_size can help reduce GPU memory pressure but increases
+    streaming_batch_size : int
+        Number of samples to process per GPU batch when fitting with host
+        (numpy) data. When set to 0, defaults to n_samples (process all
+        at once). Only used by the batched (host-data) code path. Reducing
+        streaming_batch_size can help reduce GPU memory pressure but increases
         overhead as the number of times centroid adjustments are computed
         increases.
 
         Default: 0 (process all data at once).
-    device_buffer_prefetch : bool
-        Prefetch the next device buffer asynchronously while the current buffer
-        is processed. This overlaps transfers from host to device with
-        computation using a second device buffer per rank. Ignored by other
-        KMeans paths.
+    streaming_batch_prefetch : bool
+        Whether host-resident multi-GPU KMeans should use a second device
+        buffer to prefetch the next streaming batch and overlap H2D transfer
+        with computation. This can improve throughput at the cost of one
+        additional device batch buffer per GPU. Ignored by other KMeans paths.
 
         Default: False.
     hierarchical : bool
@@ -108,7 +108,7 @@ cdef class KMeansParams:
     """
 
     def __cinit__(self):
-        self._device_buffer_prefetch = False
+        self._streaming_batch_prefetch = False
         cuvsKMeansParamsCreate(&self.params)
 
     def __dealloc__(self):
@@ -126,8 +126,8 @@ cdef class KMeansParams:
                  batch_centroids=None,
                  inertia_check=None,
                  init_size=None,
-                 device_buffer_batch_size=None,
-                 device_buffer_prefetch=None,
+                 streaming_batch_size=None,
+                 streaming_batch_prefetch=None,
                  hierarchical=None,
                  hierarchical_n_iters=None):
         if metric is not None:
@@ -157,10 +157,10 @@ cdef class KMeansParams:
             )
         if init_size is not None:
             self.params.init_size = init_size
-        if device_buffer_batch_size is not None:
-            self.params.streaming_batch_size = device_buffer_batch_size
-        if device_buffer_prefetch is not None:
-            self._device_buffer_prefetch = device_buffer_prefetch
+        if streaming_batch_size is not None:
+            self.params.streaming_batch_size = streaming_batch_size
+        if streaming_batch_prefetch is not None:
+            self._streaming_batch_prefetch = streaming_batch_prefetch
         if hierarchical is not None:
             self.params.hierarchical = hierarchical
         if hierarchical_n_iters is not None:
@@ -210,12 +210,12 @@ cdef class KMeansParams:
         return self.params.init_size
 
     @property
-    def device_buffer_batch_size(self):
+    def streaming_batch_size(self):
         return self.params.streaming_batch_size
 
     @property
-    def device_buffer_prefetch(self):
-        return self._device_buffer_prefetch
+    def streaming_batch_prefetch(self):
+        return self._streaming_batch_prefetch
 
     @property
     def hierarchical(self):
@@ -240,16 +240,16 @@ def fit(
     When X is a device array (CUDA array interface), standard on-device
     k-means is used.  When X is a host array (numpy ndarray or
     ``__array_interface__``), data is streamed to the GPU in batches
-    controlled by ``params.device_buffer_batch_size``. For large host datasets, consider
-    reducing ``device_buffer_batch_size`` to reduce GPU memory usage.
+    controlled by ``params.streaming_batch_size``. For large host datasets, consider
+    reducing ``streaming_batch_size`` to reduce GPU memory usage.
 
     Parameters
     ----------
 
     params : KMeansParams
         Parameters to use to fit KMeans model.  For host data,
-        ``params.device_buffer_batch_size`` controls how many samples are staged
-        on the GPU at once.
+        ``params.streaming_batch_size`` controls how many samples are sent to the
+        GPU per batch.
     X : array-like
         Training instances, shape (m, k).  Accepts both device arrays
         (cupy / CUDA array interface) and host arrays (numpy).
@@ -290,7 +290,7 @@ def fit(
 
     >>> import numpy as np
     >>> X_host = np.random.random((10_000_000, 128)).astype(np.float32)
-    >>> params = KMeansParams(n_clusters=1000, device_buffer_batch_size=1_000_000)
+    >>> params = KMeansParams(n_clusters=1000, streaming_batch_size=1_000_000)
     >>> centroids, inertia, n_iter = fit(params, X_host)
     """
 

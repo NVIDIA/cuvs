@@ -16,8 +16,9 @@
 
 namespace {
 
-// The legacy C struct keeps its original field names for ABI compatibility.
-cuvs::cluster::kmeans::params convert_params(const cuvsKMeansParams& params)
+// The conversions are templated on the C struct type and reused by both API surfaces.
+template <typename ParamsT>
+cuvs::cluster::kmeans::params convert_params(const ParamsT& params)
 {
   auto kmeans_params                = cuvs::cluster::kmeans::params();
   kmeans_params.metric              = static_cast<cuvs::distance::DistanceType>(params.metric);
@@ -30,24 +31,7 @@ cuvs::cluster::kmeans::params convert_params(const cuvsKMeansParams& params)
   kmeans_params.batch_samples       = params.batch_samples;
   kmeans_params.batch_centroids     = params.batch_centroids;
   kmeans_params.init_size             = params.init_size;
-  kmeans_params.device_buffer_batch_size = params.streaming_batch_size;
-  return kmeans_params;
-}
-
-cuvs::cluster::kmeans::params convert_params(const cuvsKMeansParams_v2& params)
-{
-  auto kmeans_params                = cuvs::cluster::kmeans::params();
-  kmeans_params.metric              = static_cast<cuvs::distance::DistanceType>(params.metric);
-  kmeans_params.init = static_cast<cuvs::cluster::kmeans::params::InitMethod>(params.init);
-  kmeans_params.n_clusters          = params.n_clusters;
-  kmeans_params.max_iter            = params.max_iter;
-  kmeans_params.tol                 = params.tol;
-  kmeans_params.n_init              = params.n_init;
-  kmeans_params.oversampling_factor = params.oversampling_factor;
-  kmeans_params.batch_samples       = params.batch_samples;
-  kmeans_params.batch_centroids     = params.batch_centroids;
-  kmeans_params.init_size             = params.init_size;
-  kmeans_params.device_buffer_batch_size = params.device_buffer_batch_size;
+  kmeans_params.streaming_batch_size  = params.streaming_batch_size;
   return kmeans_params;
 }
 
@@ -259,7 +243,7 @@ extern "C" cuvsError_t cuvsKMeansParamsCreate(cuvsKMeansParams_t* params)
       .inertia_check        = false,
       .hierarchical         = false,
       .hierarchical_n_iters = static_cast<int>(cpp_balanced_params.n_iters),
-      .streaming_batch_size = cpp_params.device_buffer_batch_size,
+      .streaming_batch_size = cpp_params.streaming_batch_size,
       .init_size            = cpp_params.init_size};
   });
 }
@@ -331,9 +315,9 @@ extern "C" cuvsError_t cuvsKMeansParamsCreate_v2(cuvsKMeansParams_v2_t* params)
       .batch_centroids      = cpp_params.batch_centroids,
       .hierarchical         = false,
       .hierarchical_n_iters = static_cast<int>(cpp_balanced_params.n_iters),
-      .device_buffer_batch_size = cpp_params.device_buffer_batch_size,
+      .streaming_batch_size = cpp_params.streaming_batch_size,
       .init_size            = cpp_params.init_size,
-      .device_buffer_prefetch = cpp_params.device_buffer_prefetch};
+      .streaming_batch_prefetch = cpp_params.streaming_batch_prefetch};
   });
 }
 

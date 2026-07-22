@@ -93,9 +93,9 @@ def assert_inertia_matches_centroids(out, X, sample_weights):
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 @pytest.mark.parametrize("init_method", ["Array", "KMeansPlusPlus", "Random"])
 @pytest.mark.parametrize("weighted", [False, True])
-@pytest.mark.parametrize("device_buffer_prefetch", [False, True])
+@pytest.mark.parametrize("streaming_batch_prefetch", [False, True])
 def test_mg_kmeans_fit_options(
-    dtype, init_method, weighted, device_buffer_prefetch
+    dtype, init_method, weighted, streaming_batch_prefetch
 ):
     n_clusters = 4
     X, initial_centroids = make_inputs(dtype, n_clusters=n_clusters)
@@ -113,10 +113,10 @@ def test_mg_kmeans_fit_options(
         tol=1e-10,
         n_init=3 if init_method == "Random" else 1,
         init_size=X.shape[0],
-        device_buffer_batch_size=37,
-        device_buffer_prefetch=device_buffer_prefetch,
+        streaming_batch_size=37,
+        streaming_batch_prefetch=streaming_batch_prefetch,
     )
-    assert params.device_buffer_prefetch == device_buffer_prefetch
+    assert params.streaming_batch_prefetch == streaming_batch_prefetch
     centroids = initial_centroids.copy() if init_method == "Array" else None
 
     mg_out = mg_kmeans.fit(

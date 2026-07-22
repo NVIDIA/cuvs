@@ -38,11 +38,11 @@ struct KmeansSNMGInputs {
   int n_clusters;
   T tol;
   kmeans_weight_mode weight_mode;
-  int device_buffer_batch_size;
+  int streaming_batch_size;
   int n_init;
   cuvs::cluster::kmeans::params::InitMethod init = cuvs::cluster::kmeans::params::Array;
   int max_iter                                   = 20;
-  bool device_buffer_prefetch                    = false;
+  bool streaming_batch_prefetch                  = false;
 };
 
 template <typename T>
@@ -112,8 +112,8 @@ class KmeansSNMGTest : public ::testing::TestWithParam<KmeansSNMGInputs<T>> {
     snmg_params.n_init                   = testparams_.n_init;
     snmg_params.rng_state.seed           = 42;
     snmg_params.init                     = testparams_.init;
-    snmg_params.device_buffer_batch_size = testparams_.device_buffer_batch_size;
-    snmg_params.device_buffer_prefetch   = testparams_.device_buffer_prefetch;
+    snmg_params.streaming_batch_size     = testparams_.streaming_batch_size;
+    snmg_params.streaming_batch_prefetch = testparams_.streaming_batch_prefetch;
 
     T snmg_inertia      = T{0};
     int64_t snmg_n_iter = 0;
@@ -279,7 +279,7 @@ class KmeansSNMGTest : public ::testing::TestWithParam<KmeansSNMGInputs<T>> {
 // SNMG float test inputs
 // ============================================================================
 const std::vector<KmeansSNMGInputs<float>> snmg_inputsf = {
-  // n_row, n_col, n_clusters, tol, weight_mode, device_buffer_batch_size, n_init[, init]
+  // n_row, n_col, n_clusters, tol, weight_mode, streaming_batch_size, n_init[, init]
   {1000, 32, 5, 0.0001f, kmeans_weight_mode::none, 1000, 1},
   {1000, 32, 5, 0.0001f, kmeans_weight_mode::uniform, 1000, 1},
   {1000, 32, 5, 0.0001f, kmeans_weight_mode::none, 128, 1},

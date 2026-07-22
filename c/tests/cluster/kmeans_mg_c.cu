@@ -73,13 +73,13 @@ void test_mg_fit_host()
 
   typename Api::params_t params;
   ASSERT_EQ(Api::params_create(&params), CUVS_SUCCESS);
-  EXPECT_FALSE(params->device_buffer_prefetch);
+  EXPECT_FALSE(params->streaming_batch_prefetch);
   params->n_clusters           = kNClusters;
   params->max_iter             = 100;
   params->tol                  = 1e-6;
   params->init                 = Array;
-  params->device_buffer_batch_size = 4;  // force at least two device buffers
-  params->device_buffer_prefetch = true;
+  params->streaming_batch_size = 4;  // force at least 2 streamed batches
+  params->streaming_batch_prefetch = true;
 
   DLManagedTensor dataset_t{};
   cuvs::core::to_dlpack(raft::make_host_matrix_view<float, int64_t>(
