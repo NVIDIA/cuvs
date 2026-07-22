@@ -1774,6 +1774,182 @@ unsafe extern "C" {
         index: cuvsIvfFlatIndex_t,
     ) -> cuvsError_t;
 }
+#[doc = " @defgroup ivf_sq_c_index_params IVF-SQ index build parameters\n @{\n/\n/**\n @brief Supplemental parameters to build IVF-SQ Index\n"]
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct cuvsIvfSqIndexParams {
+    #[doc = " Distance type."]
+    pub metric: cuvsDistanceType,
+    #[doc = " The argument used by some distance metrics."]
+    pub metric_arg: f32,
+    #[doc = " Whether to add the dataset content to the index, i.e.:\n\n  - `true` means the index is filled with the dataset vectors and ready to search after calling\n `build`.\n  - `false` means `build` only trains the underlying model (e.g. quantizer or clustering), but\n the index is left empty; you'd need to call `extend` on the index afterwards to populate it."]
+    pub add_data_on_build: bool,
+    #[doc = " The number of inverted lists (clusters)"]
+    pub n_lists: u32,
+    #[doc = " The number of iterations searching for kmeans centers (index building)."]
+    pub kmeans_n_iters: u32,
+    #[doc = " The number of data vectors per cluster to use during iterative kmeans building.\n The index uses at most `n_lists * max_train_points_per_cluster` rows for training."]
+    pub max_train_points_per_cluster: u32,
+    #[doc = " By default, the algorithm allocates more space than necessary for individual clusters\n (`list_data`). This allows to amortize the cost of memory allocation and reduce the number of\n data copies during repeated calls to `extend` (extending the database).\n\n The alternative is the conservative allocation behavior; when enabled, the algorithm always\n allocates the minimum amount of memory required to store the given number of records. Set this\n flag to `true` if you prefer to use as little GPU memory for the database as possible."]
+    pub conservative_memory_allocation: bool,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of cuvsIvfSqIndexParams"][::std::mem::size_of::<cuvsIvfSqIndexParams>() - 28usize];
+    ["Alignment of cuvsIvfSqIndexParams"][::std::mem::align_of::<cuvsIvfSqIndexParams>() - 4usize];
+    ["Offset of field: cuvsIvfSqIndexParams::metric"]
+        [::std::mem::offset_of!(cuvsIvfSqIndexParams, metric) - 0usize];
+    ["Offset of field: cuvsIvfSqIndexParams::metric_arg"]
+        [::std::mem::offset_of!(cuvsIvfSqIndexParams, metric_arg) - 4usize];
+    ["Offset of field: cuvsIvfSqIndexParams::add_data_on_build"]
+        [::std::mem::offset_of!(cuvsIvfSqIndexParams, add_data_on_build) - 8usize];
+    ["Offset of field: cuvsIvfSqIndexParams::n_lists"]
+        [::std::mem::offset_of!(cuvsIvfSqIndexParams, n_lists) - 12usize];
+    ["Offset of field: cuvsIvfSqIndexParams::kmeans_n_iters"]
+        [::std::mem::offset_of!(cuvsIvfSqIndexParams, kmeans_n_iters) - 16usize];
+    ["Offset of field: cuvsIvfSqIndexParams::max_train_points_per_cluster"]
+        [::std::mem::offset_of!(cuvsIvfSqIndexParams, max_train_points_per_cluster) - 20usize];
+    ["Offset of field: cuvsIvfSqIndexParams::conservative_memory_allocation"]
+        [::std::mem::offset_of!(cuvsIvfSqIndexParams, conservative_memory_allocation) - 24usize];
+};
+pub type cuvsIvfSqIndexParams_t = *mut cuvsIvfSqIndexParams;
+unsafe extern "C" {
+    #[must_use]
+    #[doc = " @brief Allocate IVF-SQ Index params, and populate with default values\n\n @param[in] index_params cuvsIvfSqIndexParams_t to allocate\n @return cuvsError_t"]
+    pub fn cuvsIvfSqIndexParamsCreate(index_params: *mut cuvsIvfSqIndexParams_t) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    #[doc = " @brief De-allocate IVF-SQ Index params\n\n @param[in] index_params\n @return cuvsError_t"]
+    pub fn cuvsIvfSqIndexParamsDestroy(index_params: cuvsIvfSqIndexParams_t) -> cuvsError_t;
+}
+#[doc = " @defgroup ivf_sq_c_search_params IVF-SQ index search parameters\n @{\n/\n/**\n @brief Supplemental parameters to search IVF-SQ index\n"]
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct cuvsIvfSqSearchParams {
+    #[doc = " The number of clusters to search."]
+    pub n_probes: u32,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of cuvsIvfSqSearchParams"][::std::mem::size_of::<cuvsIvfSqSearchParams>() - 4usize];
+    ["Alignment of cuvsIvfSqSearchParams"]
+        [::std::mem::align_of::<cuvsIvfSqSearchParams>() - 4usize];
+    ["Offset of field: cuvsIvfSqSearchParams::n_probes"]
+        [::std::mem::offset_of!(cuvsIvfSqSearchParams, n_probes) - 0usize];
+};
+pub type cuvsIvfSqSearchParams_t = *mut cuvsIvfSqSearchParams;
+unsafe extern "C" {
+    #[must_use]
+    #[doc = " @brief Allocate IVF-SQ search params, and populate with default values\n\n @param[in] params cuvsIvfSqSearchParams_t to allocate\n @return cuvsError_t"]
+    pub fn cuvsIvfSqSearchParamsCreate(params: *mut cuvsIvfSqSearchParams_t) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    #[doc = " @brief De-allocate IVF-SQ search params\n\n @param[in] params\n @return cuvsError_t"]
+    pub fn cuvsIvfSqSearchParamsDestroy(params: cuvsIvfSqSearchParams_t) -> cuvsError_t;
+}
+#[doc = " @defgroup ivf_sq_c_index IVF-SQ index\n @{\n/\n/**\n @brief Struct to hold address of cuvs::neighbors::ivf_sq::index and its active trained dtype\n"]
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct cuvsIvfSqIndex {
+    pub addr: usize,
+    pub dtype: DLDataType,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of cuvsIvfSqIndex"][::std::mem::size_of::<cuvsIvfSqIndex>() - 16usize];
+    ["Alignment of cuvsIvfSqIndex"][::std::mem::align_of::<cuvsIvfSqIndex>() - 8usize];
+    ["Offset of field: cuvsIvfSqIndex::addr"]
+        [::std::mem::offset_of!(cuvsIvfSqIndex, addr) - 0usize];
+    ["Offset of field: cuvsIvfSqIndex::dtype"]
+        [::std::mem::offset_of!(cuvsIvfSqIndex, dtype) - 8usize];
+};
+pub type cuvsIvfSqIndex_t = *mut cuvsIvfSqIndex;
+unsafe extern "C" {
+    #[must_use]
+    #[doc = " @brief Allocate IVF-SQ index\n\n @param[in] index cuvsIvfSqIndex_t to allocate\n @return cuvsError_t"]
+    pub fn cuvsIvfSqIndexCreate(index: *mut cuvsIvfSqIndex_t) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    #[doc = " @brief De-allocate IVF-SQ index\n\n @param[in] index cuvsIvfSqIndex_t to de-allocate"]
+    pub fn cuvsIvfSqIndexDestroy(index: cuvsIvfSqIndex_t) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    #[doc = " Get the number of clusters/inverted lists"]
+    pub fn cuvsIvfSqIndexGetNLists(index: cuvsIvfSqIndex_t, n_lists: *mut i64) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    #[doc = " Get the dimensionality of the data"]
+    pub fn cuvsIvfSqIndexGetDim(index: cuvsIvfSqIndex_t, dim: *mut i64) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    #[doc = " Get the size of the index"]
+    pub fn cuvsIvfSqIndexGetSize(index: cuvsIvfSqIndex_t, size: *mut i64) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    #[doc = " @brief Get the cluster centers corresponding to the lists [n_lists, dim]\n\n @param[in] index cuvsIvfSqIndex_t Built Ivf-SQ Index\n @param[out] centers Preallocated array on host or device memory to store output, [n_lists, dim]\n @return cuvsError_t"]
+    pub fn cuvsIvfSqIndexGetCenters(
+        index: cuvsIvfSqIndex_t,
+        centers: *mut DLManagedTensor,
+    ) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    #[doc = " @defgroup ivf_sq_c_index_build IVF-SQ index build\n @{\n/\n/**\n @brief Build an IVF-SQ index with a `DLManagedTensor` which has underlying\n        `DLDeviceType` equal to `kDLCUDA`, `kDLCUDAHost`, `kDLCUDAManaged`,\n        or `kDLCPU`. Also, acceptable underlying types are:\n        1. `kDLDataType.code == kDLFloat` and `kDLDataType.bits = 32`\n        2. `kDLDataType.code == kDLFloat` and `kDLDataType.bits = 16`\n\n @code {.c}\n #include <cuvs/core/c_api.h>\n #include <cuvs/neighbors/ivf_sq.h>\n\n // Create cuvsResources_t\n cuvsResources_t res;\n cuvsError_t res_create_status = cuvsResourcesCreate(&res);\n\n // Assume a populated `DLManagedTensor` type here\n DLManagedTensor dataset;\n\n // Create default index params\n cuvsIvfSqIndexParams_t index_params;\n cuvsError_t params_create_status = cuvsIvfSqIndexParamsCreate(&index_params);\n\n // Create IVF-SQ index\n cuvsIvfSqIndex_t index;\n cuvsError_t index_create_status = cuvsIvfSqIndexCreate(&index);\n\n // Build the IVF-SQ Index\n cuvsError_t build_status = cuvsIvfSqBuild(res, index_params, &dataset, index);\n\n // de-allocate `index_params`, `index` and `res`\n cuvsError_t params_destroy_status = cuvsIvfSqIndexParamsDestroy(index_params);\n cuvsError_t index_destroy_status = cuvsIvfSqIndexDestroy(index);\n cuvsError_t res_destroy_status = cuvsResourcesDestroy(res);\n @endcode\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] index_params cuvsIvfSqIndexParams_t used to build IVF-SQ index\n @param[in] dataset DLManagedTensor* training dataset\n @param[out] index cuvsIvfSqIndex_t Newly built IVF-SQ index\n @return cuvsError_t"]
+    pub fn cuvsIvfSqBuild(
+        res: cuvsResources_t,
+        index_params: cuvsIvfSqIndexParams_t,
+        dataset: *mut DLManagedTensor,
+        index: cuvsIvfSqIndex_t,
+    ) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    #[doc = " @defgroup ivf_sq_c_index_search IVF-SQ index search\n @{\n/\n/**\n @brief Search an IVF-SQ index with a `DLManagedTensor` which has underlying\n        `DLDeviceType` equal to `kDLCUDA`, `kDLCUDAHost`, `kDLCUDAManaged`.\n        Types for input are:\n        1. `queries`: `kDLDataType.code == kDLFloat` and `kDLDataType.bits = 32` or 16\n        2. `neighbors`: `kDLDataType.code == kDLInt` and `kDLDataType.bits = 64`\n        3. `distances`: `kDLDataType.code == kDLFloat` and `kDLDataType.bits = 32`\n\n @code {.c}\n #include <cuvs/core/c_api.h>\n #include <cuvs/neighbors/ivf_sq.h>\n\n // Create cuvsResources_t\n cuvsResources_t res;\n cuvsError_t res_create_status = cuvsResourcesCreate(&res);\n\n // Assume a populated `DLManagedTensor` type here\n DLManagedTensor queries;\n DLManagedTensor neighbors;\n DLManagedTensor distances;\n\n // Create default search params\n cuvsIvfSqSearchParams_t search_params;\n cuvsError_t params_create_status = cuvsIvfSqSearchParamsCreate(&search_params);\n\n // Search the `index` built using `cuvsIvfSqBuild`\n cuvsError_t search_status = cuvsIvfSqSearch(\n   res, search_params, index, &queries, &neighbors, &distances, (cuvsFilter){});\n\n // de-allocate `search_params` and `res`\n cuvsError_t params_destroy_status = cuvsIvfSqSearchParamsDestroy(search_params);\n cuvsError_t res_destroy_status = cuvsResourcesDestroy(res);\n @endcode\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] search_params cuvsIvfSqSearchParams_t used to search IVF-SQ index\n @param[in] index ivfSqIndex which has been returned by `cuvsIvfSqBuild`\n @param[in] queries DLManagedTensor* queries dataset to search\n @param[out] neighbors DLManagedTensor* output `k` neighbors for queries\n @param[out] distances DLManagedTensor* output `k` distances for queries\n @param[in] filter cuvsFilter input filter that can be used\n            to filter queries and neighbors based on the given bitset."]
+    pub fn cuvsIvfSqSearch(
+        res: cuvsResources_t,
+        search_params: cuvsIvfSqSearchParams_t,
+        index: cuvsIvfSqIndex_t,
+        queries: *mut DLManagedTensor,
+        neighbors: *mut DLManagedTensor,
+        distances: *mut DLManagedTensor,
+        filter: cuvsFilter,
+    ) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    #[doc = " @defgroup ivf_sq_c_index_serialize IVF-SQ C-API serialize functions\n @{\n/\n/**\n Save the index to file.\n\n Experimental, both the API and the serialization format are subject to change.\n\n @code{.c}\n #include <cuvs/neighbors/ivf_sq.h>\n\n // Create cuvsResources_t\n cuvsResources_t res;\n cuvsError_t res_create_status = cuvsResourcesCreate(&res);\n\n // create an index with `cuvsIvfSqBuild`\n cuvsIvfSqSerialize(res, \"/path/to/index\", index);\n @endcode\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] filename the file name for saving the index\n @param[in] index IVF-SQ index"]
+    pub fn cuvsIvfSqSerialize(
+        res: cuvsResources_t,
+        filename: *const ::std::os::raw::c_char,
+        index: cuvsIvfSqIndex_t,
+    ) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    #[doc = " Load index from file.\n\n Experimental, both the API and the serialization format are subject to change.\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] filename the name of the file that stores the index\n @param[out] index IVF-SQ index loaded from disk"]
+    pub fn cuvsIvfSqDeserialize(
+        res: cuvsResources_t,
+        filename: *const ::std::os::raw::c_char,
+        index: cuvsIvfSqIndex_t,
+    ) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    #[doc = " @defgroup ivf_sq_c_index_extend IVF-SQ index extend\n @{\n/\n/**\n @brief Extend the index with the new data.\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] new_vectors DLManagedTensor* the new vectors to add to the index\n @param[in] new_indices DLManagedTensor* vector of new indices for the new vectors. If the index\n            is empty, this can be NULL to imply a continuous range `[0...n_rows)`.\n @param[inout] index IVF-SQ index to be extended\n @return cuvsError_t"]
+    pub fn cuvsIvfSqExtend(
+        res: cuvsResources_t,
+        new_vectors: *mut DLManagedTensor,
+        new_indices: *mut DLManagedTensor,
+        index: cuvsIvfSqIndex_t,
+    ) -> cuvsError_t;
+}
 unsafe extern "C" {
     #[must_use]
     #[doc = " @defgroup ann_refine_c Approximate Nearest Neighbors Refinement C-API\n @{\n/\n/**\n @brief Refine nearest neighbor search.\n\n Refinement is an operation that follows an approximate NN search. The approximate search has\n already selected n_candidates neighbor candidates for each query. We narrow it down to k\n neighbors. For each query, we calculate the exact distance between the query and its\n n_candidates neighbor candidate, and select the k nearest ones.\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] dataset device matrix that stores the dataset [n_rows, dims]\n @param[in] queries device matrix of the queries [n_queris, dims]\n @param[in] candidates indices of candidate vectors [n_queries, n_candidates], where\n   n_candidates >= k\n @param[in] metric distance metric to use. Euclidean (L2) is used by default\n @param[out] indices device matrix that stores the refined indices [n_queries, k]\n @param[out] distances device matrix that stores the refined distances [n_queries, k]"]
