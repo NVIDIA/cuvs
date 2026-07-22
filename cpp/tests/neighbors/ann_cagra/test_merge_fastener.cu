@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -60,8 +60,8 @@ auto concat_host_datasets(raft::resources const& res,
                           raft::host_matrix_view<const T, int64_t> second)
 {
   EXPECT_EQ(first.extent(1), second.extent(1));
-  auto out = raft::make_host_matrix<T, int64_t>(
-    res, first.extent(0) + second.extent(0), first.extent(1));
+  auto out =
+    raft::make_host_matrix<T, int64_t>(res, first.extent(0) + second.extent(0), first.extent(1));
   std::copy_n(first.data_handle(), first.size(), out.data_handle());
   std::copy_n(second.data_handle(), second.size(), out.data_handle() + first.size());
   return out;
@@ -114,8 +114,7 @@ void expect_dataset_order(raft::resources const& res,
   raft::resource::sync_stream(res);
   for (int64_t row = 0; row < expected.extent(0); ++row) {
     for (int64_t column = 0; column < expected.extent(1); ++column) {
-      EXPECT_EQ(static_cast<float>(host(row, column)),
-                static_cast<float>(expected(row, column)));
+      EXPECT_EQ(static_cast<float>(host(row, column)), static_cast<float>(expected(row, column)));
     }
   }
 }
@@ -129,7 +128,7 @@ void run_explicit_fastener(cuvs::distance::DistanceType metric)
   constexpr int64_t degree = 4;
   auto dataset0            = make_dataset<T>(res, rows, dim, 1234ULL, metric);
   auto dataset1            = make_dataset<T>(res, rows, dim, 5678ULL, metric);
-  auto expected = concat_host_datasets<T>(
+  auto expected            = concat_host_datasets<T>(
     res, raft::make_const_mdspan(dataset0.view()), raft::make_const_mdspan(dataset1.view()));
   auto graph0 = make_ring_graph(res, rows, degree);
   auto graph1 = make_ring_graph(res, rows, degree);
@@ -453,9 +452,9 @@ TEST(CagraMergeFastener, MixedDatasetOwnershipPreservesInputs)
   constexpr int64_t degree = 4;
   auto dataset0            = make_dataset<float>(res, rows, dim, 1234ULL);
   auto dataset1            = make_dataset<float>(res, rows, dim, 5678ULL);
-  auto expected = concat_host_datasets<float>(
+  auto expected            = concat_host_datasets<float>(
     res, raft::make_const_mdspan(dataset0.view()), raft::make_const_mdspan(dataset1.view()));
-  auto device_dataset1     = raft::make_device_matrix<float, int64_t>(res, rows, dim);
+  auto device_dataset1 = raft::make_device_matrix<float, int64_t>(res, rows, dim);
   raft::copy(device_dataset1.data_handle(),
              dataset1.data_handle(),
              dataset1.size(),

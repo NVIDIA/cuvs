@@ -2508,9 +2508,9 @@ auto merge(raft::resources const& res,
              cuvs::neighbors::filtering::none_sample_filter{})
   -> cuvs::neighbors::cagra::index<float, uint32_t>;
 
-/** @copydoc merge 
-* @param[in] merge_params Parameters for the merge.
-*/
+/** @copydoc merge
+ * @param[in] merge_params Parameters for the merge.
+ */
 auto merge(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
            std::vector<cuvs::neighbors::cagra::index<float, uint32_t>*>& indices,
