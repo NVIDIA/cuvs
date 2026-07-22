@@ -8,7 +8,7 @@ Vamana works well when you want to build large DiskANN-compatible graph indexes 
 
 ## Example API Usage
 
-[C API](/api-reference/c-api-neighbors-vamana) | [C++ API](/api-reference/cpp-api-neighbors-vamana) | [Python API](/api-reference/python-api-neighbors-vamana) | [Rust API](/api-reference/rust-api-cuvs-vamana)
+[C API](/api-reference/c-api-neighbors-vamana) | [C++ API](/api-reference/cpp-api-neighbors-vamana) | [Python API](/api-reference/python-api-neighbors-vamana) | [Rust API](/api-reference/rust-api-cuvs-neighbors-vamana)
 
 Vamana currently supports build and serialize operations in NVIDIA cuVS. Search is performed by loading the serialized index with DiskANN. Java and Go do not currently expose standalone Vamana bindings.
 
