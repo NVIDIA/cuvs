@@ -105,7 +105,10 @@ FusedDistancePath use_fused(
 
   if constexpr (is_cutile_fused_data_type_v<MathT>) {
     if constexpr (cuvs::detail::jit_lto::library_built_with_cutile()) {
-      if (cuvs::detail::jit_lto::cutile_launch_available_on_current_device()) {
+      const bool dimensions_fit_i32 = n <= static_cast<IdxT>(std::numeric_limits<int>::max()) &&
+                                      k <= static_cast<IdxT>(std::numeric_limits<int>::max());
+      if (dimensions_fit_i32 &&
+          cuvs::detail::jit_lto::cutile_launch_available_on_current_device()) {
         return FusedDistancePath::FusedCutile;
       }
     }

@@ -47,10 +47,6 @@
       {
         "index_type": "int32",
         "index_abbrev": "i32"
-      },
-      {
-        "index_type": "int64",
-        "index_abbrev": "i64"
       }
     ],
     "_tile": [
@@ -153,10 +149,6 @@
       {
         "index_type": "int32",
         "index_abbrev": "i32"
-      },
-      {
-        "index_type": "int64",
-        "index_abbrev": "i64"
       }
     ],
     "_export": [

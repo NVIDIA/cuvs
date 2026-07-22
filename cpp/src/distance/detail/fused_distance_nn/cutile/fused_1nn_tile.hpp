@@ -38,6 +38,7 @@ bool try_fused_1nn_tile(IdxT* nearest_idx,
                         IdxT k,
                         cuvs::distance::DistanceType metric,
                         bool is_sqrt,
+                        void* index_workspace,
                         cudaStream_t stream);
 #else
 template <typename DataT, typename IdxT>
@@ -52,6 +53,7 @@ bool try_fused_1nn_tile(IdxT*,
                         IdxT,
                         cuvs::distance::DistanceType,
                         bool,
+                        void*,
                         cudaStream_t)
 {
   return false;

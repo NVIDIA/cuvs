@@ -9,8 +9,13 @@
 
 #include <cuvs/core/export.hpp>
 #include <cuvs/detail/jit_lto/fused_distance_nn/fused_1nn_fragments.hpp>
+#include <raft/core/operators.hpp>
+#include <raft/linalg/unary_op.cuh>
 #include <raft/util/cuda_utils.cuh>
 
+#include <algorithm>
+#include <cstdint>
+#include <limits>
 #include <type_traits>
 
 namespace cuvs {
@@ -74,7 +79,7 @@ bool launch_fused_1nn_tile(IdxT* nearest_idx,
   void* dist_ptr = nearest_dist;
 
   const int tile_m = tile_cfg.tile_m;
-  dim3 grid((m + tile_m - 1) / tile_m, 1, 1);
+  dim3 grid((static_cast<uint64_t>(m) + tile_m - 1) / tile_m, 1, 1);
   dim3 block(1, 1, 1);
 
   using fused_1nn_cutile_kernel_t = void(void*,
@@ -191,16 +196,68 @@ bool try_fused_1nn_tile(IdxT* nearest_idx,
                         IdxT k,
                         cuvs::distance::DistanceType metric,
                         bool is_sqrt,
+                        void* index_workspace,
                         cudaStream_t stream)
 {
   if (!cuvs::detail::jit_lto::cutile_launch_available_on_current_device()) { return false; }
-  constexpr IdxT tma_pitch_elements = IdxT{16 / sizeof(DataT)};
-  if (k % tma_pitch_elements == 0) {
-    return try_fused_1nn_tile_dispatch<cutile_abi_strict, DataT, IdxT>(
+  static_assert(std::is_same_v<IdxT, int> || std::is_same_v<IdxT, int64_t>);
+
+  if constexpr (std::is_same_v<IdxT, int>) {
+    constexpr int tma_pitch_elements = 16 / sizeof(DataT);
+    if (k % tma_pitch_elements == 0) {
+      return try_fused_1nn_tile_dispatch<cutile_abi_strict, DataT, int>(
+        nearest_idx, nearest_dist, x, y, xn, yn, m, n, k, metric, is_sqrt, stream);
+    }
+    return try_fused_1nn_tile_dispatch<cutile_abi_relaxed, DataT, int>(
       nearest_idx, nearest_dist, x, y, xn, yn, m, n, k, metric, is_sqrt, stream);
+  } else {
+    constexpr int64_t max_i32 = std::numeric_limits<int>::max();
+    if (n > max_i32 || k > max_i32) { return false; }
+    if (nearest_idx != nullptr && index_workspace == nullptr) { return false; }
+
+    auto* tmp_idx = static_cast<int*>(index_workspace);
+    for (int64_t offset = 0; offset < m; offset += max_i32) {
+      const int batch_m    = static_cast<int>(std::min<int64_t>(max_i32, m - offset));
+      const auto* batch_x  = x + static_cast<size_t>(offset) * static_cast<size_t>(k);
+      const auto* batch_xn = xn == nullptr ? nullptr : xn + offset;
+      auto* batch_dist     = nearest_dist == nullptr ? nullptr : nearest_dist + offset;
+
+      constexpr int tma_pitch_elements = 16 / sizeof(DataT);
+      const bool launched =
+        k % tma_pitch_elements == 0
+          ? try_fused_1nn_tile_dispatch<cutile_abi_strict, DataT, int>(tmp_idx,
+                                                                       batch_dist,
+                                                                       batch_x,
+                                                                       y,
+                                                                       batch_xn,
+                                                                       yn,
+                                                                       batch_m,
+                                                                       static_cast<int>(n),
+                                                                       static_cast<int>(k),
+                                                                       metric,
+                                                                       is_sqrt,
+                                                                       stream)
+          : try_fused_1nn_tile_dispatch<cutile_abi_relaxed, DataT, int>(tmp_idx,
+                                                                        batch_dist,
+                                                                        batch_x,
+                                                                        y,
+                                                                        batch_xn,
+                                                                        yn,
+                                                                        batch_m,
+                                                                        static_cast<int>(n),
+                                                                        static_cast<int>(k),
+                                                                        metric,
+                                                                        is_sqrt,
+                                                                        stream);
+      if (!launched) { return false; }
+
+      if (nearest_idx != nullptr) {
+        raft::linalg::unaryOp(
+          nearest_idx + offset, tmp_idx, batch_m, raft::cast_op<int64_t>{}, stream);
+      }
+    }
+    return true;
   }
-  return try_fused_1nn_tile_dispatch<cutile_abi_relaxed, DataT, IdxT>(
-    nearest_idx, nearest_dist, x, y, xn, yn, m, n, k, metric, is_sqrt, stream);
 }
 
 #define CUVS_INST_TRY_FUSED_1NN_TILE(DataT, IdxT)                                         \
@@ -215,6 +272,7 @@ bool try_fused_1nn_tile(IdxT* nearest_idx,
                                                             IdxT,                         \
                                                             cuvs::distance::DistanceType, \
                                                             bool,                         \
+                                                            void*,                        \
                                                             cudaStream_t)
 
 CUVS_INST_TRY_FUSED_1NN_TILE(float, int);

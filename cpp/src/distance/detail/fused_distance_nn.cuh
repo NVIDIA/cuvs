@@ -57,7 +57,7 @@ void fusedDistanceNNImpl(IdxT* nearest_idx,
   if constexpr (is_fused_1nn_cutile_data_v<DataT>) {
     if constexpr (cuvs::detail::jit_lto::library_built_with_cutile()) {
       if (try_fused_1nn_tile<DataT, IdxT>(
-            nearest_idx, nearest_dist, x, y, xn, yn, m, n, k, metric, sqrt, stream)) {
+            nearest_idx, nearest_dist, x, y, xn, yn, m, n, k, metric, sqrt, workspace, stream)) {
         return;
       }
     }

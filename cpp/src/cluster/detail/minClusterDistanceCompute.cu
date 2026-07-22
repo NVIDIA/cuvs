@@ -89,6 +89,9 @@ void minClusterAndDistanceCompute(raft::resources const& handle,
       temp_kvp.resize(n_samples, stream);
       cutlass_kvp_scratch = temp_kvp.data();
       workspace.resize(sizeof(int) * n_samples, stream);
+    } else if constexpr (std::is_same_v<IndexT, int64_t>) {
+      // The cuTile kernel uses i32 internally and widens labels after the launch.
+      workspace.resize(sizeof(int) * static_cast<size_t>(n_samples), stream);
     }
 
     cuvs::distance::fusedDistanceNNMinReduce<DataT, IndexT>(
@@ -101,7 +104,9 @@ void minClusterAndDistanceCompute(raft::resources const& handle,
       n_samples,
       n_clusters,
       n_features,
-      needs_fused_mutex_workspace(fused_path) ? (void*)workspace.data() : nullptr,
+      needs_fused_mutex_workspace(fused_path) || std::is_same_v<IndexT, int64_t>
+        ? (void*)workspace.data()
+        : nullptr,
       metric != cuvs::distance::DistanceType::L2Expanded,
       true,
       true,

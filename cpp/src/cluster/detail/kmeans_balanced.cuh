@@ -251,7 +251,12 @@ auto calc_minibatch_size(const raft::resources& handle,
     case distance::DistanceType::L2SqrtExpanded:
     case distance::DistanceType::InnerProduct: {
       switch (use_fused<MathT, IdxT, IdxT>(handle, n_rows, n_clusters, dim, metric)) {
-        case FusedDistancePath::FusedCutile: break;
+        case FusedDistancePath::FusedCutile:
+          if constexpr (std::is_same_v<IdxT, int64_t>) {
+            // cuTile computes labels with i32 and widens them after each launch.
+            mem_per_row += sizeof(int);
+          }
+          break;
         case FusedDistancePath::FusedCutlass:
           // fusedDistanceNNMinReduce CUTLASS fallback: mutex workspace + scratch KVP per row.
           mem_per_row += sizeof(int);
