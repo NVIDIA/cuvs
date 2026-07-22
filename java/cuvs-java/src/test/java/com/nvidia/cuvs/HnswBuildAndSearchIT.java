@@ -137,7 +137,7 @@ public class HnswBuildAndSearchIT extends CuVSTestCase {
             .withHierarchy(HnswHierarchy.GPU)
             .withM(2)
             .withEfConstruction(100)
-            .withMetric(CuvsDistanceType.L2Expanded)
+            .withMetric(HnswIndexParams.CuvsDistanceType.L2Expanded)
             .withVectorDimension(2)
             .build();
 
