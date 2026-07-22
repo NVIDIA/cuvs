@@ -135,7 +135,7 @@ void test_ace_workspace_failure_preserves_caller_directory()
   EXPECT_TRUE(std::filesystem::is_directory(existing_artifact));
   std::ifstream sentinel_file(sentinel);
   std::string sentinel_contents;
-  sentinel_file >> sentinel_contents;
+  std::getline(sentinel_file, sentinel_contents);
   EXPECT_EQ(sentinel_contents, "keep me");
 }
 
