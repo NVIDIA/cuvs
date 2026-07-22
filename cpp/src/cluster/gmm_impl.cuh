@@ -16,6 +16,8 @@
 #include <raft/core/resources.hpp>
 #include <raft/linalg/detail/cublas_wrappers.hpp>
 #include <raft/linalg/detail/cusolver_wrappers.hpp>
+#include <raft/linalg/gemm.cuh>
+#include <raft/linalg/gemv.cuh>
 #include <raft/random/rng.cuh>
 #include <raft/random/rng_state.hpp>
 #include <raft/random/sample_without_replacement.cuh>
@@ -56,9 +58,10 @@ inline const char* precision_error_message()
 }
 
 // ----- batched cuSOLVER potrf / cuBLAS trsm wrappers -----
-// RAFT's central cuBLAS/cuSOLVER wrappers (raft/linalg/detail/*_wrappers.hpp) cover
-// every non-batched call used here; they have no potrfBatched / trsmBatched
-// equivalents, so those two are wrapped locally in the same style.
+// GEMM/GEMV go through the public raft::linalg API. The non-batched potrf /
+// trsm calls go through RAFT's central wrappers (raft/linalg/detail/*_wrappers.hpp),
+// which have no public equivalents yet. RAFT has no potrfBatched / trsmBatched
+// wrappers at all, so those two are wrapped locally in the same style.
 template <typename T>
 cusolverStatus_t potrf_batched(cusolverDnHandle_t h,
                                cublasFillMode_t uplo,
@@ -217,7 +220,6 @@ void e_step(raft::resources const& handle,
     // forms (X - means_k) @ prec_chol_k with a GEMM per component.
     bool use_cublas = (sizeof(T) == 4) ? (d >= 257) : (d > 64);
     if (use_cublas) {
-      cublasHandle_t cublas = raft::resource::get_cublas_handle(handle);
       rmm::device_uvector<T> centered((size_t)n * d, stream);
       rmm::device_uvector<T> y((size_t)n * d, stream);
       T one = T(1), zero = T(0);
@@ -233,21 +235,21 @@ void e_step(raft::resources const& handle,
         // (n, d) centered buffer is a column-major (d, n) matrix, so this GEMM
         // computes the column-major (d, n) result prec_chol_kᵀ_cm @ centered_cm,
         // which read back row-major is exactly the (n, d) matrix y[row, j].
-        RAFT_CUBLAS_TRY(raft::linalg::detail::cublasgemm(cublas,
-                                                         CUBLAS_OP_N,
-                                                         CUBLAS_OP_N,
-                                                         d,
-                                                         n,
-                                                         d,
-                                                         &one,
-                                                         pc_k,
-                                                         d,
-                                                         centered.data(),
-                                                         d,
-                                                         &zero,
-                                                         y.data(),
-                                                         d,
-                                                         stream));
+        raft::linalg::gemm(handle,
+                           false,
+                           false,
+                           d,
+                           n,
+                           d,
+                           &one,
+                           pc_k,
+                           d,
+                           centered.data(),
+                           d,
+                           &zero,
+                           y.data(),
+                           d,
+                           stream);
         detail::e_step_log_prob_from_y_kernel<T>
           <<<row_blocks, threads, 0, stream>>>(y.data(), weights, log_det, n, d, K, k, log_prob);
         RAFT_CUDA_TRY(cudaPeekAtLastError());
@@ -312,43 +314,16 @@ void e_step(raft::resources const& handle,
     RAFT_CUDA_TRY(cudaPeekAtLastError());
   } else {  // TIED, d <= 128: shared Cholesky U -> transform X̃ = X·U, μ̃ = means·U,
             // then ‖Uᵀ(x-μ_k)‖² is Euclidean ‖x̃-μ̃_k‖² -> same register-tiled kernel.
-    cublasHandle_t cublas = raft::resource::get_cublas_handle(handle);
     rmm::device_uvector<T> xt((size_t)n * d, stream);
     rmm::device_uvector<T> mut((size_t)K * d, stream);
     rmm::device_uvector<T> ones_pc(K, stream);
     rmm::device_uvector<T> const_k(K, stream);
     thrust::fill(thrust::cuda::par.on(stream), ones_pc.data(), ones_pc.data() + K, T(1));
     T one = T(1), zero = T(0);
-    RAFT_CUBLAS_TRY(raft::linalg::detail::cublasgemm(cublas,
-                                                     CUBLAS_OP_N,
-                                                     CUBLAS_OP_N,
-                                                     d,
-                                                     n,
-                                                     d,
-                                                     &one,
-                                                     prec_chol,
-                                                     d,
-                                                     X,
-                                                     d,
-                                                     &zero,
-                                                     xt.data(),
-                                                     d,
-                                                     stream));
-    RAFT_CUBLAS_TRY(raft::linalg::detail::cublasgemm(cublas,
-                                                     CUBLAS_OP_N,
-                                                     CUBLAS_OP_N,
-                                                     d,
-                                                     K,
-                                                     d,
-                                                     &one,
-                                                     prec_chol,
-                                                     d,
-                                                     means,
-                                                     d,
-                                                     &zero,
-                                                     mut.data(),
-                                                     d,
-                                                     stream));
+    raft::linalg::gemm(
+      handle, false, false, d, n, d, &one, prec_chol, d, X, d, &zero, xt.data(), d, stream);
+    raft::linalg::gemm(
+      handle, false, false, d, K, d, &one, prec_chol, d, means, d, &zero, mut.data(), d, stream);
     detail::fused_const_kernel<T>
       <<<dim3((K + 255) / 256), dim3(256), 0, stream>>>(weights, log_det, d, K, const_k.data());
     RAFT_CUDA_TRY(cudaPeekAtLastError());
@@ -457,68 +432,41 @@ void m_accumulate(raft::resources const& handle,
                   MStepWorkspace<T>& ws,
                   T beta)
 {
-  cudaStream_t stream   = raft::resource::get_cuda_stream(handle);
-  cublasHandle_t cublas = raft::resource::get_cublas_handle(handle);
-  covariance_type ct    = params.cov_type;
-  T one                 = T(1);
+  cudaStream_t stream = raft::resource::get_cuda_stream(handle);
+  covariance_type ct  = params.cov_type;
+  T one               = T(1);
 
-  RAFT_CUBLAS_TRY(raft::linalg::detail::cublasgemv(
-    cublas, CUBLAS_OP_N, K, n, &one, resp, K, ws.ones.data(), 1, &beta, ws.N_k.data(), 1, stream));
-  RAFT_CUBLAS_TRY(raft::linalg::detail::cublasgemm(cublas,
-                                                   CUBLAS_OP_N,
-                                                   CUBLAS_OP_T,
-                                                   d,
-                                                   K,
-                                                   n,
-                                                   &one,
-                                                   X,
-                                                   d,
-                                                   resp,
-                                                   K,
-                                                   &beta,
-                                                   ws.num.data(),
-                                                   d,
-                                                   stream));
+  raft::linalg::gemv(
+    handle, false, K, n, &one, resp, K, ws.ones.data(), 1, &beta, ws.N_k.data(), 1, stream);
+  raft::linalg::gemm(
+    handle, false, true, d, K, n, &one, X, d, resp, K, &beta, ws.num.data(), d, stream);
 
   // FULL accumulates its centered covariance in a separate pass (needs means);
   // here only N_k / num are gathered for it.
   if (ct == covariance_type::TIED) {
-    RAFT_CUBLAS_TRY(raft::linalg::detail::cublasgemm(cublas,
-                                                     CUBLAS_OP_N,
-                                                     CUBLAS_OP_T,
-                                                     d,
-                                                     d,
-                                                     n,
-                                                     &one,
-                                                     X,
-                                                     d,
-                                                     X,
-                                                     d,
-                                                     &beta,
-                                                     ws.XtX.data(),
-                                                     d,
-                                                     stream));
+    raft::linalg::gemm(
+      handle, false, true, d, d, n, &one, X, d, X, d, &beta, ws.XtX.data(), d, stream);
   } else if (ct == covariance_type::DIAG || ct == covariance_type::SPHERICAL) {
     int threads = 256;
     int blocks  = (int)(((size_t)n * d + threads - 1) / threads);
     detail::elementwise_square_kernel<T>
       <<<blocks, threads, 0, stream>>>(X, (size_t)n * d, ws.Xsq.data());
     RAFT_CUDA_TRY(cudaPeekAtLastError());
-    RAFT_CUBLAS_TRY(raft::linalg::detail::cublasgemm(cublas,
-                                                     CUBLAS_OP_N,
-                                                     CUBLAS_OP_T,
-                                                     d,
-                                                     K,
-                                                     n,
-                                                     &one,
-                                                     ws.Xsq.data(),
-                                                     d,
-                                                     resp,
-                                                     K,
-                                                     &beta,
-                                                     ws.num2.data(),
-                                                     d,
-                                                     stream));
+    raft::linalg::gemm(handle,
+                       false,
+                       true,
+                       d,
+                       K,
+                       n,
+                       &one,
+                       ws.Xsq.data(),
+                       d,
+                       resp,
+                       K,
+                       &beta,
+                       ws.num2.data(),
+                       d,
+                       stream);
   }
 }
 
@@ -534,9 +482,8 @@ void m_finalize(raft::resources const& handle,
                 T* means,
                 T* covariances)
 {
-  cudaStream_t stream   = raft::resource::get_cuda_stream(handle);
-  cublasHandle_t cublas = raft::resource::get_cublas_handle(handle);
-  covariance_type ct    = params.cov_type;
+  cudaStream_t stream = raft::resource::get_cuda_stream(handle);
+  covariance_type ct  = params.cov_type;
   T one = T(1), zero = T(0);
   T eps = std::numeric_limits<T>::epsilon();
 
@@ -550,21 +497,21 @@ void m_finalize(raft::resources const& handle,
     detail::scale_rows_by_kernel<T>
       <<<dim3(K), dim3(256), 0, stream>>>(means, ws.N_k.data(), eps, d, K, ws.scaled_means.data());
     RAFT_CUDA_TRY(cudaPeekAtLastError());
-    RAFT_CUBLAS_TRY(raft::linalg::detail::cublasgemm(cublas,
-                                                     CUBLAS_OP_N,
-                                                     CUBLAS_OP_T,
-                                                     d,
-                                                     d,
-                                                     K,
-                                                     &one,
-                                                     ws.scaled_means.data(),
-                                                     d,
-                                                     means,
-                                                     d,
-                                                     &zero,
-                                                     weighted_outer.data(),
-                                                     d,
-                                                     stream));
+    raft::linalg::gemm(handle,
+                       false,
+                       true,
+                       d,
+                       d,
+                       K,
+                       &one,
+                       ws.scaled_means.data(),
+                       d,
+                       means,
+                       d,
+                       &zero,
+                       weighted_outer.data(),
+                       d,
+                       stream);
     std::vector<T> h_Nk(K);
     raft::copy(h_Nk.data(), ws.N_k.data(), K, stream);
     raft::resource::sync_stream(handle);
@@ -607,30 +554,29 @@ void m_cov_full_pass(raft::resources const& handle,
                      MStepWorkspace<T>& ws,
                      T beta)
 {
-  cudaStream_t stream   = raft::resource::get_cuda_stream(handle);
-  cublasHandle_t cublas = raft::resource::get_cublas_handle(handle);
-  T one                 = T(1);
-  int threads           = 256;
-  int blocks            = (int)(((size_t)n * d + threads - 1) / threads);
+  cudaStream_t stream = raft::resource::get_cuda_stream(handle);
+  T one               = T(1);
+  int threads         = 256;
+  int blocks          = (int)(((size_t)n * d + threads - 1) / threads);
   for (int k = 0; k < K; ++k) {
     detail::weighted_center_kernel<T>
       <<<blocks, threads, 0, stream>>>(X, resp, means, n, d, K, k, ws.centered.data());
     RAFT_CUDA_TRY(cudaPeekAtLastError());
-    RAFT_CUBLAS_TRY(raft::linalg::detail::cublasgemm(cublas,
-                                                     CUBLAS_OP_N,
-                                                     CUBLAS_OP_T,
-                                                     d,
-                                                     d,
-                                                     n,
-                                                     &one,
-                                                     ws.centered.data(),
-                                                     d,
-                                                     ws.centered.data(),
-                                                     d,
-                                                     &beta,
-                                                     covariances + (size_t)k * d * d,
-                                                     d,
-                                                     stream));
+    raft::linalg::gemm(handle,
+                       false,
+                       true,
+                       d,
+                       d,
+                       n,
+                       &one,
+                       ws.centered.data(),
+                       d,
+                       ws.centered.data(),
+                       d,
+                       &beta,
+                       covariances + (size_t)k * d * d,
+                       d,
+                       stream);
   }
 }
 
@@ -803,35 +749,20 @@ void compute_precisions(raft::resources const& handle,
                         int K,
                         T* precisions)
 {
-  cudaStream_t stream   = raft::resource::get_cuda_stream(handle);
-  cublasHandle_t cublas = raft::resource::get_cublas_handle(handle);
-  covariance_type ct    = params.cov_type;
+  cudaStream_t stream = raft::resource::get_cuda_stream(handle);
+  covariance_type ct  = params.cov_type;
   T one = T(1), zero = T(0);
   if (ct == covariance_type::FULL) {
     for (int k = 0; k < K; ++k) {
       const T* U = prec_chol + (size_t)k * d * d;  // row-major upper U
       T* P       = precisions + (size_t)k * d * d;
       // P = U @ Uᵀ (row-major). In column-major: U_cm = Uᵀ (upper->lower). Use
-      // gemm(OP_T, OP_N, d, d, d, U, U) which yields U_cmᵀ @ U_cm = U @ Uᵀ.
-      RAFT_CUBLAS_TRY(raft::linalg::detail::cublasgemm(
-        cublas, CUBLAS_OP_T, CUBLAS_OP_N, d, d, d, &one, U, d, U, d, &zero, P, d, stream));
+      // gemm(trans_a, d, d, d, U, U) which yields U_cmᵀ @ U_cm = U @ Uᵀ.
+      raft::linalg::gemm(handle, true, false, d, d, d, &one, U, d, U, d, &zero, P, d, stream);
     }
   } else if (ct == covariance_type::TIED) {
-    RAFT_CUBLAS_TRY(raft::linalg::detail::cublasgemm(cublas,
-                                                     CUBLAS_OP_T,
-                                                     CUBLAS_OP_N,
-                                                     d,
-                                                     d,
-                                                     d,
-                                                     &one,
-                                                     prec_chol,
-                                                     d,
-                                                     prec_chol,
-                                                     d,
-                                                     &zero,
-                                                     precisions,
-                                                     d,
-                                                     stream));
+    raft::linalg::gemm(
+      handle, true, false, d, d, d, &one, prec_chol, d, prec_chol, d, &zero, precisions, d, stream);
   } else {
     size_t total = cov_elems(ct, d, K);
     detail::elementwise_square_kernel<T>
@@ -1289,43 +1220,29 @@ void fused_score(raft::resources const& handle,
     // Shared precision Cholesky U: transform X̃ = X·U and μ̃ = means·U once,
     // then the Mahalanobis distance ‖Uᵀ(x-μ_k)‖² becomes the Euclidean
     // ‖x̃ - μ̃_k‖² -> reuse the fast register-tiled kernel (prec = 1).
-    cublasHandle_t cublas = raft::resource::get_cublas_handle(handle);
     rmm::device_uvector<T> xt((size_t)n * d, stream);
     rmm::device_uvector<T> mut((size_t)K * d, stream);
     rmm::device_uvector<T> ones_pc(K, stream);
     thrust::fill(thrust::cuda::par.on(stream), ones_pc.data(), ones_pc.data() + K, T(1));
     T one = T(1), zero = T(0);
     // X̃ = X @ U  and  μ̃ = means @ U  (same GEMM convention as the E-step).
-    RAFT_CUBLAS_TRY(raft::linalg::detail::cublasgemm(cublas,
-                                                     CUBLAS_OP_N,
-                                                     CUBLAS_OP_N,
-                                                     d,
-                                                     n,
-                                                     d,
-                                                     &one,
-                                                     precisions_chol,
-                                                     d,
-                                                     X,
-                                                     d,
-                                                     &zero,
-                                                     xt.data(),
-                                                     d,
-                                                     stream));
-    RAFT_CUBLAS_TRY(raft::linalg::detail::cublasgemm(cublas,
-                                                     CUBLAS_OP_N,
-                                                     CUBLAS_OP_N,
-                                                     d,
-                                                     K,
-                                                     d,
-                                                     &one,
-                                                     precisions_chol,
-                                                     d,
-                                                     means,
-                                                     d,
-                                                     &zero,
-                                                     mut.data(),
-                                                     d,
-                                                     stream));
+    raft::linalg::gemm(
+      handle, false, false, d, n, d, &one, precisions_chol, d, X, d, &zero, xt.data(), d, stream);
+    raft::linalg::gemm(handle,
+                       false,
+                       false,
+                       d,
+                       K,
+                       d,
+                       &one,
+                       precisions_chol,
+                       d,
+                       means,
+                       d,
+                       &zero,
+                       mut.data(),
+                       d,
+                       stream);
     launch_estep_tiled<T, /* DIAG */ false>(handle,
                                             xt.data(),
                                             mut.data(),
@@ -1342,8 +1259,7 @@ void fused_score(raft::resources const& handle,
     // projected center c_k = M_k @ mu_k. On this GDDR7 card the path is
     // memory-bound; dropping the explicit centering (a full N×d write + read
     // per component) cuts the dominant HBM traffic ~1.67x.
-    int prec_pc           = (ct == covariance_type::FULL) ? 1 : 0;
-    cublasHandle_t cublas = raft::resource::get_cublas_handle(handle);
+    int prec_pc = (ct == covariance_type::FULL) ? 1 : 0;
     rmm::device_uvector<T> y((size_t)n * d, stream);
     rmm::device_uvector<T> c((size_t)K * d, stream);
     rmm::device_uvector<T> rmax(n, stream);
@@ -1359,21 +1275,8 @@ void fused_score(raft::resources const& handle,
     RAFT_CUDA_TRY(cudaPeekAtLastError());
     for (int k = 0; k < K; ++k) {
       const T* pc_k = precisions_chol + (size_t)(prec_pc ? k : 0) * d * d;
-      RAFT_CUBLAS_TRY(raft::linalg::detail::cublasgemm(cublas,
-                                                       CUBLAS_OP_N,
-                                                       CUBLAS_OP_N,
-                                                       d,
-                                                       n,
-                                                       d,
-                                                       &one,
-                                                       pc_k,
-                                                       d,
-                                                       X,
-                                                       d,
-                                                       &zero,
-                                                       y.data(),
-                                                       d,
-                                                       stream));
+      raft::linalg::gemm(
+        handle, false, false, d, n, d, &one, pc_k, d, X, d, &zero, y.data(), d, stream);
       detail::fused_fold_from_y_kernel<T>
         <<<rb, threads, 0, stream>>>(y.data(),
                                      const_k.data(),
