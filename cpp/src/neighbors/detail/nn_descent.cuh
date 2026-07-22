@@ -1236,13 +1236,14 @@ void GnndGraph<Index_t>::init_random_graph()
       }
 
       for (uint32_t j = 0; j < actual_segment_size; j++) {
-        while (id >= nrow || id == i) {
+        for (uint32_t steps = 0; (id >= nrow || id == i) && steps < extended_nrows; steps++) {
           id = (id + stride * num_segments) % extended_nrows;
         }
 
-        const auto store_index              = i * node_degree + seg_id * segment_size + j;
-        h_graph[store_index].id_with_flag() = id;
-        h_dists.data_handle()[store_index]  = std::numeric_limits<DistData_t>::max();
+        const auto store_index = i * node_degree + seg_id * segment_size + j;
+        h_graph[store_index].id_with_flag() =
+          (id >= nrow || id == i) ? std::numeric_limits<Index_t>::max() : id;
+        h_dists.data_handle()[store_index] = std::numeric_limits<DistData_t>::max();
 
         id = (id + num_segments * stride) % nrow;
       }
@@ -1754,8 +1755,8 @@ void GNND<Data_t, Index_t>::build(Data_t* data,
     for (size_t j = out_j; j < build_config_.node_degree; j++) {
       uint64_t rnd = static_cast<uint64_t>(i * build_config_.node_degree + j + 1);
       uint64_t idx;
-      bool dup = false;
-      do {
+      bool dup = true;
+      for (size_t attempts = 0; dup && attempts < build_config_.node_degree; attempts++) {
         rnd = cuvs::neighbors::detail::device::xorshift64(rnd);
         idx = rnd % nrow_;
         dup = false;
@@ -1765,7 +1766,7 @@ void GNND<Data_t, Index_t>::build(Data_t* data,
             break;
           }
         }
-      } while (dup);
+      }
       output_neighbor_list_ptr[j] = static_cast<int>(idx);
     }
   }
