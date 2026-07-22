@@ -83,11 +83,19 @@ def run_cagra_build_search_test(
             extended_dataset_owner = cagra.make_device_padded_dataset(
                 device_ndarray(np.concatenate((dataset_1, dataset_2), axis=0))
             )
+            extended_dataset_view = cagra.make_view_from_owning_padded(
+                extended_dataset_owner
+            )
             extend_keepalive.extend(
-                [add_padded_dataset, add_padded_view, extended_dataset_owner]
+                [
+                    add_padded_dataset,
+                    add_padded_view,
+                    extended_dataset_owner,
+                    extended_dataset_view,
+                ]
             )
             index = cagra.extend(
-                extend_params, index, add_padded_view, extended_dataset_owner
+                extend_params, index, add_padded_view, extended_dataset_view
             )
         else:
             pytest.skip(

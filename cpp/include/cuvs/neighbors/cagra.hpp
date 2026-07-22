@@ -1168,7 +1168,7 @@ void extend(raft::resources const& handle,
             const cagra::extend_params& params,
             cuvs::neighbors::device_padded_dataset_view<float, int64_t> additional_dataset,
             cuvs::neighbors::cagra::device_padded_index<float, uint32_t>& idx,
-            cuvs::neighbors::device_padded_dataset<float, int64_t>& extended_dataset);
+            cuvs::neighbors::device_padded_dataset_view<float, int64_t> extended_dataset);
 
 /** @brief Add new vectors to a CAGRA index
  *
@@ -1203,7 +1203,7 @@ void extend(raft::resources const& handle,
             const cagra::extend_params& params,
             cuvs::neighbors::device_padded_dataset_view<half, int64_t> additional_dataset,
             cuvs::neighbors::cagra::device_padded_index<half, uint32_t>& idx,
-            cuvs::neighbors::device_padded_dataset<half, int64_t>& extended_dataset);
+            cuvs::neighbors::device_padded_dataset_view<half, int64_t> extended_dataset);
 
 /** @brief Add new vectors to a CAGRA index
  *
@@ -1238,7 +1238,7 @@ void extend(raft::resources const& handle,
             const cagra::extend_params& params,
             cuvs::neighbors::device_padded_dataset_view<int8_t, int64_t> additional_dataset,
             cuvs::neighbors::cagra::device_padded_index<int8_t, uint32_t>& idx,
-            cuvs::neighbors::device_padded_dataset<int8_t, int64_t>& extended_dataset);
+            cuvs::neighbors::device_padded_dataset_view<int8_t, int64_t> extended_dataset);
 
 /** @brief Add new vectors to a CAGRA index
  *
@@ -1273,7 +1273,7 @@ void extend(raft::resources const& handle,
             const cagra::extend_params& params,
             cuvs::neighbors::device_padded_dataset_view<uint8_t, int64_t> additional_dataset,
             cuvs::neighbors::cagra::device_padded_index<uint8_t, uint32_t>& idx,
-            cuvs::neighbors::device_padded_dataset<uint8_t, int64_t>& extended_dataset);
+            cuvs::neighbors::device_padded_dataset_view<uint8_t, int64_t> extended_dataset);
 
 /** @brief Add new vectors to a CAGRA index
  *
@@ -1308,7 +1308,7 @@ void extend(raft::resources const& handle,
             const cagra::extend_params& params,
             cuvs::neighbors::host_padded_dataset_view<float, int64_t> additional_dataset,
             cuvs::neighbors::cagra::device_padded_index<float, uint32_t>& idx,
-            cuvs::neighbors::device_padded_dataset<float, int64_t>& extended_dataset);
+            cuvs::neighbors::device_padded_dataset_view<float, int64_t> extended_dataset);
 
 /** @brief Add new vectors to a CAGRA index
  *
@@ -1343,7 +1343,7 @@ void extend(raft::resources const& handle,
             const cagra::extend_params& params,
             cuvs::neighbors::host_padded_dataset_view<half, int64_t> additional_dataset,
             cuvs::neighbors::cagra::device_padded_index<half, uint32_t>& idx,
-            cuvs::neighbors::device_padded_dataset<half, int64_t>& extended_dataset);
+            cuvs::neighbors::device_padded_dataset_view<half, int64_t> extended_dataset);
 
 /** @brief Add new vectors to a CAGRA index
  *
@@ -1378,7 +1378,7 @@ void extend(raft::resources const& handle,
             const cagra::extend_params& params,
             cuvs::neighbors::host_padded_dataset_view<int8_t, int64_t> additional_dataset,
             cuvs::neighbors::cagra::device_padded_index<int8_t, uint32_t>& idx,
-            cuvs::neighbors::device_padded_dataset<int8_t, int64_t>& extended_dataset);
+            cuvs::neighbors::device_padded_dataset_view<int8_t, int64_t> extended_dataset);
 
 /** @brief Add new vectors to a CAGRA index
  *
@@ -1413,7 +1413,7 @@ void extend(raft::resources const& handle,
             const cagra::extend_params& params,
             cuvs::neighbors::host_padded_dataset_view<uint8_t, int64_t> additional_dataset,
             cuvs::neighbors::cagra::device_padded_index<uint8_t, uint32_t>& idx,
-            cuvs::neighbors::device_padded_dataset<uint8_t, int64_t>& extended_dataset);
+            cuvs::neighbors::device_padded_dataset_view<uint8_t, int64_t> extended_dataset);
 
 /**
  * @}

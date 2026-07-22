@@ -451,7 +451,7 @@ void extend(raft::resources const& handle,
             const cagra::extend_params& params,
             cuvs::neighbors::device_padded_dataset_view<T, int64_t> additional_dataset,
             cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>& index,
-            cuvs::neighbors::device_padded_dataset<T, int64_t>& extended_dataset)
+            cuvs::neighbors::device_padded_dataset_view<T, int64_t> extended_dataset)
 {
   static_assert(cuvs::neighbors::is_padded_dataset_view_v<DatasetViewT>,
                 "cagra::extend requires a padded index dataset type");
@@ -471,7 +471,7 @@ void extend(raft::resources const& handle,
             const cagra::extend_params& params,
             cuvs::neighbors::host_padded_dataset_view<T, int64_t> additional_dataset,
             cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>& index,
-            cuvs::neighbors::device_padded_dataset<T, int64_t>& extended_dataset)
+            cuvs::neighbors::device_padded_dataset_view<T, int64_t> extended_dataset)
 {
   static_assert(cuvs::neighbors::is_padded_dataset_view_v<DatasetViewT>,
                 "cagra::extend requires a padded index dataset type");
@@ -491,7 +491,7 @@ void extend(raft::resources const& handle,
             const cagra::extend_params& params,
             cuvs::neighbors::device_standard_dataset_view<T, int64_t> additional_dataset,
             cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>& index,
-            cuvs::neighbors::device_padded_dataset<T, int64_t>& extended_dataset)
+            cuvs::neighbors::device_padded_dataset_view<T, int64_t> extended_dataset)
 {
   RAFT_FAIL(
     "cagra::extend requires a padded additional dataset view. "
@@ -503,7 +503,7 @@ void extend(raft::resources const& handle,
             const cagra::extend_params& params,
             cuvs::neighbors::host_standard_dataset_view<T, int64_t> additional_dataset,
             cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>& index,
-            cuvs::neighbors::device_padded_dataset<T, int64_t>& extended_dataset)
+            cuvs::neighbors::device_padded_dataset_view<T, int64_t> extended_dataset)
 {
   RAFT_FAIL(
     "cagra::extend requires a padded additional dataset view. "

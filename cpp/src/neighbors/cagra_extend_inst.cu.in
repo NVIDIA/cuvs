@@ -24,15 +24,15 @@ extern template void index<data_t, index_t, inst_device_padded_view_t>::compute_
 extern template void index<data_t, index_t, inst_device_standard_view_t>::compute_dataset_norms_(
   raft::resources const&);
 
-#define CUVS_INST_CAGRA_EXTEND(T, IdxT, DatasetViewT, AdditionalDatasetT)           \
-  void extend(raft::resources const& handle,                                        \
-              const cuvs::neighbors::cagra::extend_params& params,                  \
-              AdditionalDatasetT additional_dataset,                                \
-              cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>& index,          \
-              cuvs::neighbors::device_padded_dataset<T, int64_t>& extended_dataset) \
-  {                                                                                 \
-    cuvs::neighbors::cagra::extend<T, IdxT, DatasetViewT>(                          \
-      handle, params, additional_dataset, index, extended_dataset);                 \
+#define CUVS_INST_CAGRA_EXTEND(T, IdxT, DatasetViewT, AdditionalDatasetT)               \
+  void extend(raft::resources const& handle,                                            \
+              const cuvs::neighbors::cagra::extend_params& params,                      \
+              AdditionalDatasetT additional_dataset,                                    \
+              cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>& index,              \
+              cuvs::neighbors::device_padded_dataset_view<T, int64_t> extended_dataset) \
+  {                                                                                     \
+    cuvs::neighbors::cagra::extend<T, IdxT, DatasetViewT>(                              \
+      handle, params, additional_dataset, index, extended_dataset);                     \
   }
 
 CUVS_INST_CAGRA_EXTEND(data_t, index_t, inst_device_padded_view_t, inst_device_padded_view_t);

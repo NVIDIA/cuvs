@@ -705,14 +705,15 @@ class AnnCagraAddNodesTest : public ::testing::TestWithParam<AnnCagraInputs> {
           static_cast<const DataT*>(database.data()), ps.n_rows, ps.dim);
         auto extended_padded_owner =
           cuvs::neighbors::make_device_padded_dataset(handle_, all_database_host_view);
+        auto extended_padded_view = extended_padded_owner->as_dataset_view();
         if (cuvs::neighbors::matrix_row_width_matches_cagra_required(additional_dataset.view())) {
           auto add_view = cuvs::neighbors::make_host_padded_dataset_view(additional_dataset.view());
-          cagra::extend(handle_, extend_params, add_view, index, *extended_padded_owner);
+          cagra::extend(handle_, extend_params, add_view, index, extended_padded_view);
         } else {
           add_padded_owner =
             cuvs::neighbors::make_host_padded_dataset(handle_, additional_dataset.view());
           auto add_view = add_padded_owner->as_dataset_view();
-          cagra::extend(handle_, extend_params, add_view, index, *extended_padded_owner);
+          cagra::extend(handle_, extend_params, add_view, index, extended_padded_view);
         }
 
         auto search_queries_view = raft::make_device_matrix_view<const DataT, int64_t>(

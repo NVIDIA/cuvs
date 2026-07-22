@@ -1169,8 +1169,9 @@ def extend(ExtendParams params, Index index, additional_dataset, extended_datase
        Existing cagra index to extend
     additional_dataset : PaddedDatasetView
         Explicit padded dataset view for vectors to append.
-    extended_dataset : PaddedDataset
-        Caller-owned output padded dataset that receives the extended dataset.
+    extended_dataset : PaddedDatasetView
+        Caller-owned writable device padded dataset view that receives the
+        extended dataset.
     {resources_docstring}
 
     """
@@ -1183,14 +1184,13 @@ def extend(ExtendParams params, Index index, additional_dataset, extended_datase
     cdef cuvsDatasetPaddedView_t padded_view = (<PaddedDatasetView>additional_dataset).view
     if padded_view == NULL:
         raise ValueError("additional_dataset padded view is uninitialized")
-    if not isinstance(extended_dataset, PaddedDataset):
+    if not isinstance(extended_dataset, PaddedDatasetView):
         raise TypeError(
-            "extended_dataset must be a PaddedDataset created by "
-            "make_device_padded_dataset()."
+            "extended_dataset must be a device PaddedDatasetView."
         )
-    cdef cuvsDatasetPadded_t out_extended_dataset = (<PaddedDataset>extended_dataset).dataset
+    cdef cuvsDatasetPaddedView_t out_extended_dataset = (<PaddedDatasetView>extended_dataset).view
     if out_extended_dataset == NULL:
-        raise ValueError("extended_dataset padded dataset owner is uninitialized")
+        raise ValueError("extended_dataset padded view is uninitialized")
 
     cdef cuvsResources_t res = <cuvsResources_t>resources.get_c_obj()
 

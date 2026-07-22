@@ -645,7 +645,7 @@ void _extend(cuvsResources_t res,
              cuvsCagraExtendParams params,
              cuvsCagraIndex index,
              cuvsDatasetPaddedView_t additional_dataset,
-             cuvsDatasetPadded_t extended_dataset)
+             cuvsDatasetPaddedView_t extended_dataset)
 {
   auto* box      = reinterpret_cast<sg_cagra_c_api_index_box*>(index.addr);
   auto res_ptr   = reinterpret_cast<raft::resources*>(res);
@@ -661,11 +661,11 @@ void _extend(cuvsResources_t res,
                  additional_dataset->kind == CUVS_DATASET_VIEW_KIND_HOST_PADDED,
                "cuvsCagraExtend: additional dataset must be a padded dataset view");
   RAFT_EXPECTS(extended_dataset != nullptr, "cuvsCagraExtend: null extended dataset handle");
-  RAFT_EXPECTS(extended_dataset->layout == CUVS_DATASET_LAYOUT_PADDED,
-               "cuvsCagraExtend: extended dataset must be padded layout");
+  RAFT_EXPECTS(extended_dataset->kind == CUVS_DATASET_VIEW_KIND_DEVICE_PADDED,
+               "cuvsCagraExtend: extended dataset must be a device-padded dataset view");
   RAFT_EXPECTS(extended_dataset->addr != 0,
                "cuvsCagraExtend: null extended dataset storage");
-  auto* out_dataset = reinterpret_cast<cuvs::neighbors::device_padded_dataset<T, int64_t>*>(
+  auto* out_dataset = reinterpret_cast<cuvs::neighbors::device_padded_dataset_view<T, int64_t>*>(
     extended_dataset->addr);
 
   // TODO: use C struct here (see issue #487)
@@ -1793,7 +1793,7 @@ extern "C" cuvsError_t cuvsCagraIndexFromArgs(cuvsResources_t res,
 extern "C" cuvsError_t cuvsCagraExtend(cuvsResources_t res,
                                        cuvsCagraExtendParams_t params,
                                        cuvsDatasetPaddedView_t additional_dataset,
-                                       cuvsDatasetPadded_t extended_dataset,
+                                       cuvsDatasetPaddedView_t extended_dataset,
                                        cuvsCagraIndex_t index_c_ptr)
 {
   return cuvs::core::translate_exceptions([=] {

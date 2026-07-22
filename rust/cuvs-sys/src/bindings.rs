@@ -1534,7 +1534,7 @@ unsafe extern "C" {
         res: cuvsResources_t,
         params: cuvsCagraExtendParams_t,
         additional_dataset: cuvsDatasetPaddedView_t,
-        extended_dataset: cuvsDatasetPadded_t,
+        extended_dataset: cuvsDatasetPaddedView_t,
         index: cuvsCagraIndex_t,
     ) -> cuvsError_t;
 }

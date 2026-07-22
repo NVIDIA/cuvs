@@ -255,13 +255,9 @@ TEST(CagraC, BuildExtendSearch)
   // extend index
   cuvsCagraExtendParams_t extend_params;
   cuvsCagraExtendParamsCreate(&extend_params);
-  cuvsDatasetPadded_t additional_padded_dataset_owner = nullptr;
   cuvsDatasetPaddedView_t additional_padded_dataset_view = nullptr;
-  ASSERT_EQ(cuvsDatasetMakeDevicePadded(
-              res, &additional_dataset_tensor, &additional_padded_dataset_owner),
-            CUVS_SUCCESS);
-  ASSERT_EQ(cuvsDatasetMakeViewFromOwningPadded(
-              additional_padded_dataset_owner, &additional_padded_dataset_view),
+  ASSERT_EQ(cuvsDatasetMakeDevicePaddedView(
+              res, &additional_dataset_tensor, &additional_padded_dataset_view),
             CUVS_SUCCESS);
   rmm::device_uvector<float> extended_d((main_data_size + additional_data_size) * dimensions, stream);
   DLManagedTensor extended_dataset_tensor;
@@ -275,12 +271,11 @@ TEST(CagraC, BuildExtendSearch)
                                                            dimensions};
   extended_dataset_tensor.dl_tensor.shape              = extended_dataset_shape;
   extended_dataset_tensor.dl_tensor.strides            = nullptr;
-  cuvsDatasetPadded_t extended_dataset_owner           = nullptr;
-  ASSERT_EQ(
-    cuvsDatasetMakeDevicePadded(res, &extended_dataset_tensor, &extended_dataset_owner),
-    CUVS_SUCCESS);
+  cuvsDatasetPaddedView_t extended_dataset_view        = nullptr;
+  ASSERT_EQ(cuvsDatasetMakeDevicePaddedView(res, &extended_dataset_tensor, &extended_dataset_view),
+            CUVS_SUCCESS);
   ASSERT_EQ(cuvsCagraExtend(
-              res, extend_params, additional_padded_dataset_view, extended_dataset_owner, index),
+              res, extend_params, additional_padded_dataset_view, extended_dataset_view, index),
             CUVS_SUCCESS);
 
   // create queries DLTensor
@@ -396,8 +391,7 @@ TEST(CagraC, BuildExtendSearch)
   cuvsCagraSearchParamsDestroy(search_params);
   cuvsDatasetPaddedViewDestroy(dataset_view);
   cuvsDatasetPaddedViewDestroy(additional_padded_dataset_view);
-  cuvsDatasetPaddedDestroy(additional_padded_dataset_owner);
-  cuvsDatasetPaddedDestroy(extended_dataset_owner);
+  cuvsDatasetPaddedViewDestroy(extended_dataset_view);
   cuvsCagraExtendParamsDestroy(extend_params);
   cuvsCagraIndexParamsDestroy(build_params);
   cuvsCagraIndexDestroy(index);

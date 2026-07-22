@@ -260,7 +260,7 @@ cdef extern from "cuvs/neighbors/cagra.h" nogil:
     cuvsError_t cuvsCagraExtend(cuvsResources_t res,
                                 cuvsCagraExtendParams_t params,
                                 cuvsDatasetPaddedView_t additional_dataset,
-                                cuvsDatasetPadded_t extended_dataset,
+                                cuvsDatasetPaddedView_t extended_dataset,
                                 cuvsCagraIndex_t index)
 
 
