@@ -241,27 +241,27 @@ auto preflight_fastener(cagra::index_params const& params,
   if (merge_params.levels == 0) { return reject("levels must be positive"); }
   if (merge_params.root_fanout < 1 || merge_params.root_fanout > merge_scaffold::MAX_FANOUT ||
       merge_params.lower_fanout < 1 || merge_params.lower_fanout > merge_scaffold::MAX_FANOUT) {
-    return reject(&"root_fanout and lower_fanout must be between 1 and " [
-                  std::to_string(merge_scaffold::MAX_FANOUT)]);
+    return reject("root_fanout and lower_fanout must be between 1 and " +
+                  std::to_string(merge_scaffold::MAX_FANOUT));
   }
   if (!(merge_params.leader_fraction > 0.0 && merge_params.leader_fraction <= 1.0)) {
     return reject("leader_fraction must be in (0, 1]");
   }
   if (merge_params.max_leaders == 0 || merge_params.max_leaders > merge_scaffold::MAX_LEADERS) {
-    return reject(&"max_leaders must be between 1 and " [
-                  std::to_string(merge_scaffold::MAX_LEADERS)]);
+    return reject("max_leaders must be between 1 and " +
+                  std::to_string(merge_scaffold::MAX_LEADERS));
   }
   if (merge_params.max_leaders < std::max(merge_params.root_fanout, merge_params.lower_fanout)) {
     return reject("max_leaders must cover both configured fanouts");
   }
   if (merge_params.leaf_size == 0 || merge_params.leaf_size > merge_scaffold::MAX_LEAF_SIZE) {
-    return reject(&"leaf_size must be between 1 and " [
-                  std::to_string(merge_scaffold::MAX_LEAF_SIZE)]);
+    return reject("leaf_size must be between 1 and " +
+                  std::to_string(merge_scaffold::MAX_LEAF_SIZE));
   }
   if (merge_params.leaf_degree == 0 ||
       merge_params.leaf_degree > static_cast<uint32_t>(merge_scaffold::MAX_LEAF_DEGREE)) {
-    return reject(&"leaf_degree must be between 1 and " [
-                  std::to_string(merge_scaffold::MAX_LEAF_DEGREE)]);
+    return reject("leaf_degree must be between 1 and " +
+                  std::to_string(merge_scaffold::MAX_LEAF_DEGREE));
   }
 
   uint64_t const max_spill = std::numeric_limits<uint8_t>::max() / merge_params.leaf_degree;
@@ -410,8 +410,8 @@ auto merge_fastener(raft::resources const& handle,
 template <class T, class IdxT>
 index<T, IdxT> merge(raft::resources const& handle,
                      cagra::index_params const& params,
-                     cagra::merge_params const& merge_params,
                      std::vector<cuvs::neighbors::cagra::index<T, IdxT>*>& indices,
+                     cagra::merge_params const& merge_params,
                      cuvs::neighbors::filtering::base_filter const& row_filter)
 {
   raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> merge_scope(
@@ -442,7 +442,7 @@ index<T, IdxT> merge(raft::resources const& handle,
                      std::vector<cuvs::neighbors::cagra::index<T, IdxT>*>& indices,
                      cuvs::neighbors::filtering::base_filter const& row_filter)
 {
-  return merge(handle, params, cagra::merge_params{}, indices, row_filter);
+  return merge(handle, params, indices, cagra::merge_params{}, row_filter);
 }
 
 }  // namespace cuvs::neighbors::cagra::detail

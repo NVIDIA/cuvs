@@ -434,7 +434,7 @@ index<T, IdxT> merge(raft::resources const& handle,
                      const cagra::merge_params& merge_params,
                      const cuvs::neighbors::filtering::base_filter& row_filter)
 {
-  return cagra::detail::merge<T, IdxT>(handle, params, merge_params, indices, row_filter);
+  return cagra::detail::merge<T, IdxT>(handle, params, indices, merge_params, row_filter);
 }
 
 /** @} */  // end group cagra
