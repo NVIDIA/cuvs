@@ -113,9 +113,8 @@ struct params : base_params {
    * Default tile is [batch_samples x n_clusters] i.e. when batch_centroids is 0
    * then don't tile the centroids
    *
-   * NB: These parameters are unrelated to device_buffer_samples, which controls how many
-   * samples to transfer from host to device per batch when processing out-of-core
-   * data.
+   * NB: These parameters are unrelated to device_buffer_samples, which specifies the number of
+   * training vectors that get buffered on device when the training vectors are passed in on host.
    */
   int batch_samples = 1 << 15;
 
