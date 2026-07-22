@@ -1,6 +1,6 @@
 <!--
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 -->
@@ -30,10 +30,10 @@
       </license>
   </licenses>
   <scm>
-      <connection>scm:git:https://github.com/rapidsai/cuvs-lucene.git</connection>
-      <developerConnection>scm:git:git@github.com:rapidsai/cuvs-lucene.git</developerConnection>
+      <connection>scm:git:https://github.com/rapidsai/cuvs.git</connection>
+      <developerConnection>scm:git:git@github.com:rapidsai/cuvs.git</developerConnection>
       <tag>HEAD</tag>
-      <url>https://github.com/rapidsai/cuvs-lucene</url>
+      <url>https://github.com/rapidsai/cuvs</url>
   </scm>
 
   <properties>
