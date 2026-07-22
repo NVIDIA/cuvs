@@ -506,7 +506,8 @@ std::vector<AnnCagraInputs> generate_fastener_merge_recall_inputs()
     {100},
     {1000},
     {16},
-    {16},
+    {16},  // k
+    {32},  // graph_degree
     {graph_build_algo::IVF_PQ, graph_build_algo::NN_DESCENT},
     {search_algo::AUTO},
     {10},
