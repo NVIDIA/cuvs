@@ -278,7 +278,7 @@ dependencies:
     common:
       - output_types: [conda]
         packages:
-          - dlpack>=0.8,<1.0
+          - dlpack>=1.0,<1.1
   checks:
     common:
       - output_types: [conda, requirements]
@@ -504,7 +504,7 @@ dependencies:
         packages:
           - go
           - _go_select *=cgo
-          - dlpack>=0.8,<1.0
+          - dlpack>=1.0,<1.1
   build_wheels:
     common:
       - output_types: [requirements, pyproject]

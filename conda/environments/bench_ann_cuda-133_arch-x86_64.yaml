@@ -20,7 +20,7 @@ dependencies:
 - cuvs==26.8.*,>=0.0.0a0
 - cxx-compiler
 - cython>=3.2.2
-- dlpack>=0.8,<1.0
+- dlpack>=1.0,<1.1
 - gcc_linux-64=14.*
 - glog>=0.6.0
 - h5py>=3.8.0
