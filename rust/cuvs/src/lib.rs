@@ -21,6 +21,7 @@ pub mod ivf_pq;
 mod resources;
 #[cfg(test)]
 pub(crate) mod test_utils;
+pub mod tiered_index;
 pub mod vamana;
 
 pub use dlpack::{AsDlTensor, AsDlTensorMut, DLPackError, DLTensorView, DLTensorViewMut, DType};
