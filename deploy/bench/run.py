@@ -44,6 +44,9 @@ BATCH_SIZE = os.environ.get("BATCH_SIZE", "").strip()
 BATCH_SIZE = int(BATCH_SIZE) if BATCH_SIZE else None
 BUILD_BATCH_SIZE = os.environ.get("BUILD_BATCH_SIZE", "").strip()
 BUILD_BATCH_SIZE = int(BUILD_BATCH_SIZE) if BUILD_BATCH_SIZE else None
+NUMBER_OF_SHARDS = int(os.environ.get("NUMBER_OF_SHARDS", "1"))
+if NUMBER_OF_SHARDS < 1:
+    raise ValueError("NUMBER_OF_SHARDS must be at least 1")
 
 ALGORITHM = "opensearch_faiss_hnsw"
 REPO_NAME = os.environ.get("REMOTE_VECTOR_REPOSITORY", "vector-repo").strip()
@@ -287,6 +290,7 @@ def main() -> None:
         "  Build batch size   : "
         f"{BUILD_BATCH_SIZE if BUILD_BATCH_SIZE is not None else 'backend auto'}"
     )
+    print(f"  Index shards       : {NUMBER_OF_SHARDS}")
 
     if REMOTE_INDEX_BUILD:
         register_repository()
@@ -302,6 +306,7 @@ def main() -> None:
         groups=BENCH_GROUPS,
         host=OPENSEARCH_HOST,
         port=OPENSEARCH_PORT,
+        number_of_shards=NUMBER_OF_SHARDS,
         use_ssl=False,
         verify_certs=False,
     )

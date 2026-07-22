@@ -36,6 +36,9 @@ NUM_DOCS   = 200_000
 REPO_NAME  = "vector-repo"
 REMOTE_BUILD_SIZE_MIN = os.environ.get("REMOTE_BUILD_SIZE_MIN", "").strip()
 REMOTE_BUILD_TIMEOUT = int(os.environ.get("REMOTE_BUILD_TIMEOUT", "1800"))
+NUMBER_OF_SHARDS = int(os.environ.get("NUMBER_OF_SHARDS", "1"))
+if NUMBER_OF_SHARDS < 1:
+    raise ValueError("NUMBER_OF_SHARDS must be at least 1")
 
 session = requests.Session()
 session.headers.update({"Content-Type": "application/json"})
@@ -94,7 +97,7 @@ def create_index() -> None:
     index_settings = {
         "index.knn": True,
         "index.knn.remote_index_build.enabled": True,
-        "number_of_shards": 1,
+        "number_of_shards": NUMBER_OF_SHARDS,
         "number_of_replicas": 0,
     }
     if REMOTE_BUILD_SIZE_MIN:

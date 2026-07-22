@@ -37,6 +37,7 @@
 #   K                       Number of neighbors to search for (default: 10)
 #   BATCH_SIZE              Optional cuvs-bench query batch size override
 #   BUILD_BATCH_SIZE        Optional OpenSearch bulk ingest batch size override
+#   NUMBER_OF_SHARDS        Number of primary index shards (default: 1)
 #   CUVS_REPOSITORY         Repository cloned into the benchmark image
 #   CUVS_BRANCH             Repository branch cloned into the benchmark image
 #
@@ -134,6 +135,7 @@ services:
       K: ${K:-10}
       BATCH_SIZE: ${BATCH_SIZE:-}
       BUILD_BATCH_SIZE: ${BUILD_BATCH_SIZE:-}
+      NUMBER_OF_SHARDS: ${NUMBER_OF_SHARDS:-1}
     volumes:
       - ${DATASET_PATH:-/tmp/datasets}:/data/datasets
     restart: "no"

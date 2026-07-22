@@ -72,6 +72,7 @@ export BENCH_GROUPS=test                   # test | base (default: test)
 export K=10                                # number of neighbors (default: 10)
 export BATCH_SIZE=                         # optional query batch size override
 export BUILD_BATCH_SIZE=                   # optional bulk ingest batch size override
+export NUMBER_OF_SHARDS=1                  # number of primary index shards (default: 1)
 export REMOTE_BUILD_TIMEOUT=1800           # seconds to wait for remote builds (default: 1800)
 ```
 

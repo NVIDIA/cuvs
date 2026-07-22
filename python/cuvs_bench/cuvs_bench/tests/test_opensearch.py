@@ -165,6 +165,33 @@ class TestOpenSearchConfigLoader:
         assert bc["remote_build_timeout"] == 123
         assert "remote_build_s3_endpoint" not in bc
 
+    def test_load_overrides_number_of_shards(self, config_dir):
+        loader = OpenSearchConfigLoader(config_path=config_dir)
+        _, configs = loader.load(
+            dataset="test-ds",
+            dataset_path="/data",
+            groups="test",
+            number_of_shards=4,
+        )
+
+        assert all(
+            config.indexes[0].build_param["number_of_shards"] == 4
+            for config in configs
+        )
+        assert all(
+            "number_of_shards4" in config.indexes[0].name
+            for config in configs
+        )
+
+    def test_load_rejects_invalid_number_of_shards(self, config_dir):
+        loader = OpenSearchConfigLoader(config_path=config_dir)
+        with pytest.raises(ValueError, match="number_of_shards must be at least 1"):
+            loader.load(
+                dataset="test-ds",
+                dataset_path="/data",
+                number_of_shards=0,
+            )
+
 
 class TestOpenSearchBackend:
     def test_build_dry_run(self):

@@ -141,6 +141,11 @@ class OpenSearchConfigLoader(ConfigLoader):
         tune_mode = kwargs.get("_tune_mode", False)
         tune_build_params = kwargs.get("_tune_build_params")
         tune_search_params = kwargs.get("_tune_search_params")
+        number_of_shards = kwargs.get("number_of_shards")
+        if number_of_shards is not None:
+            number_of_shards = int(number_of_shards)
+            if number_of_shards < 1:
+                raise ValueError("number_of_shards must be at least 1")
 
         benchmark_configs: List[BenchmarkConfig] = []
 
@@ -161,7 +166,10 @@ class OpenSearchConfigLoader(ConfigLoader):
                 actual_build = build_combos
                 actual_search = search_combos
 
-            for build_param in actual_build:
+            for raw_build_param in actual_build:
+                build_param = raw_build_param.copy()
+                if number_of_shards is not None:
+                    build_param["number_of_shards"] = number_of_shards
                 prefix = (
                     algo_name
                     if group_name == "base"

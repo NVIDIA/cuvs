@@ -325,6 +325,7 @@ export BENCH_GROUPS=test
 export K=10
 export BATCH_SIZE=
 export BUILD_BATCH_SIZE=
+export NUMBER_OF_SHARDS=1
 
 mkdir -p "${DATASET_PATH}"
 
