@@ -65,7 +65,6 @@ impl IndexParams {
         >,
     ) -> Result<Self, CagraError> {
         let mut params = Self::create_handle()?;
-        let effective_metric = metric.unwrap_or_else(|| unsafe { (*params.handle).metric.into() });
         let effective_intermediate_degree = intermediate_graph_degree
             .unwrap_or_else(|| unsafe { (*params.handle).intermediate_graph_degree });
         let effective_graph_degree =

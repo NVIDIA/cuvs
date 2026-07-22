@@ -71,18 +71,18 @@ impl PaddedDataset {
             let mut padded = std::mem::MaybeUninit::<ffi::cuvsDatasetPadded_t>::uninit();
             if is_device_compatible(device_type) {
                 check_cuvs(ffi::cuvsDatasetMakeDevicePadded(
-                    res.0,
+                    res.handle(),
                     dataset_c.as_mut_ptr(),
                     padded.as_mut_ptr(),
                 ))?;
             } else if is_host_compatible(device_type) {
                 check_cuvs(ffi::cuvsDatasetMakeHostPadded(
-                    res.0,
+                    res.handle(),
                     dataset_c.as_mut_ptr(),
                     padded.as_mut_ptr(),
                 ))?;
             } else {
-                return Err(Error::InvalidArgument(format!(
+                return Err(CagraError::Validation(format!(
                     "unsupported dataset device type for padded dataset: {device_type:?}"
                 )));
             }
@@ -104,18 +104,18 @@ impl PaddedDatasetView {
             let mut padded = std::mem::MaybeUninit::<ffi::cuvsDatasetPaddedView_t>::uninit();
             if is_device_compatible(device_type) {
                 check_cuvs(ffi::cuvsDatasetMakeDevicePaddedView(
-                    res.0,
+                    res.handle(),
                     dataset_c.as_mut_ptr(),
                     padded.as_mut_ptr(),
                 ))?;
             } else if is_host_compatible(device_type) {
                 check_cuvs(ffi::cuvsDatasetMakeHostPaddedView(
-                    res.0,
+                    res.handle(),
                     dataset_c.as_mut_ptr(),
                     padded.as_mut_ptr(),
                 ))?;
             } else {
-                return Err(Error::InvalidArgument(format!(
+                return Err(CagraError::Validation(format!(
                     "unsupported dataset device type for padded dataset view: {device_type:?}"
                 )));
             }
@@ -150,18 +150,18 @@ impl StandardDatasetView {
             let mut standard = std::mem::MaybeUninit::<ffi::cuvsDatasetStandardView_t>::uninit();
             if is_device_compatible(device_type) {
                 check_cuvs(ffi::cuvsDatasetMakeDeviceStandardView(
-                    res.0,
+                    res.handle(),
                     dataset_c.as_mut_ptr(),
                     standard.as_mut_ptr(),
                 ))?;
             } else if is_host_compatible(device_type) {
                 check_cuvs(ffi::cuvsDatasetMakeHostStandardView(
-                    res.0,
+                    res.handle(),
                     dataset_c.as_mut_ptr(),
                     standard.as_mut_ptr(),
                 ))?;
             } else {
-                return Err(Error::InvalidArgument(format!(
+                return Err(CagraError::Validation(format!(
                     "unsupported dataset device type for standard dataset view: {device_type:?}"
                 )));
             }
@@ -201,8 +201,8 @@ impl<'d> Index<'d> {
                 ffi::cuvsDatasetViewKind_t::CUVS_DATASET_VIEW_KIND_DEVICE_PADDED => {
                     let dataset_view = PaddedDatasetView::new(res, &dataset)?;
                     check_cuvs(ffi::cuvsCagraBuildDevicePadded(
-                        res.0,
-                        params.0,
+                        res.handle(),
+                        params.handle(),
                         dataset_view.handle,
                         index.handle,
                     ))?;
@@ -210,8 +210,8 @@ impl<'d> Index<'d> {
                 ffi::cuvsDatasetViewKind_t::CUVS_DATASET_VIEW_KIND_DEVICE_STANDARD => {
                     let dataset_view = StandardDatasetView::new(res, &dataset)?;
                     check_cuvs(ffi::cuvsCagraBuildDeviceStandard(
-                        res.0,
-                        params.0,
+                        res.handle(),
+                        params.handle(),
                         dataset_view.handle,
                         index.handle,
                     ))?;
@@ -219,8 +219,8 @@ impl<'d> Index<'d> {
                 ffi::cuvsDatasetViewKind_t::CUVS_DATASET_VIEW_KIND_HOST_PADDED => {
                     let dataset_view = PaddedDatasetView::new(res, &dataset)?;
                     check_cuvs(ffi::cuvsCagraBuildHostPadded(
-                        res.0,
-                        params.0,
+                        res.handle(),
+                        params.handle(),
                         dataset_view.handle,
                         index.handle,
                     ))?;
@@ -228,8 +228,8 @@ impl<'d> Index<'d> {
                 ffi::cuvsDatasetViewKind_t::CUVS_DATASET_VIEW_KIND_HOST_STANDARD => {
                     let dataset_view = StandardDatasetView::new(res, &dataset)?;
                     check_cuvs(ffi::cuvsCagraBuildHostStandard(
-                        res.0,
-                        params.0,
+                        res.handle(),
+                        params.handle(),
                         dataset_view.handle,
                         index.handle,
                     ))?;
@@ -255,7 +255,7 @@ impl<'d> Index<'d> {
     ) -> Result<()> {
         unsafe {
             check_cuvs(ffi::cuvsCagraAttachPaddedDatasetForSearch(
-                res.0,
+                res.handle(),
                 padded_dataset.handle,
                 self.handle,
             ))?;
@@ -275,7 +275,7 @@ impl<'d> Index<'d> {
         let device_dataset = device_dataset.as_dl_tensor()?;
         unsafe {
             check_cuvs(ffi::cuvsCagraAttachDeviceDatasetOnHostIndex(
-                res.0,
+                res.handle(),
                 device_dataset.to_c().as_mut_ptr(),
                 self.handle,
             ))?;
@@ -366,9 +366,9 @@ impl<'d> Index<'d> {
     /// * `include_dataset` - Whether to write out the dataset to the file
     ///
     /// # Example:
-    /// ```no_run
+    /// ```ignore
     /// use cuvs::Resources;
-    /// use cuvs::neighbors::cagra::{Index, IndexParams};
+    /// use cuvs::neighbors::cagra::{DeserializeOutput, Index, IndexParams};
     ///
     /// fn serialize_example() -> Result<(), Box<dyn std::error::Error>> {
     ///     let res = Resources::new()?;
@@ -458,7 +458,7 @@ impl<'d> Index<'d> {
         let mut out: ffi::cuvsDatasetPadded_t = std::ptr::null_mut();
         unsafe {
             check_cuvs(ffi::cuvsCagraDeserializePadded(
-                res.0,
+                res.handle(),
                 c_filename.as_ptr(),
                 index.handle,
                 &mut out,
@@ -478,7 +478,7 @@ impl<'d> Index<'d> {
         let mut out: ffi::cuvsDatasetStandard_t = std::ptr::null_mut();
         unsafe {
             check_cuvs(ffi::cuvsCagraDeserializeStandard(
-                res.0,
+                res.handle(),
                 c_filename.as_ptr(),
                 index.handle,
                 &mut out,
@@ -709,7 +709,7 @@ mod tests {
             "serialized index file should not be empty"
         );
 
-        let mut loaded_index = Index::new().expect("failed to create index");
+        let mut loaded_index = Index::create_handle().expect("failed to create index");
         let mut out_dataset: Option<StandardDataset> = None;
         Index::deserialize(
             &res,
