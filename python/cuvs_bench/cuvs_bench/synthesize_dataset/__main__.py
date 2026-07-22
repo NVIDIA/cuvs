@@ -22,7 +22,11 @@ import yaml
 
 import numpy as np
 
-from ..generate_groundtruth.utils import write_bin
+from ..generate_groundtruth.utils import (
+    groundtruth_neighbors_filename,
+    write_bin,
+    write_groundtruth_neighbors,
+)
 from ._fit import fit_fingerprint
 from ._generate import (
     generate_queries,
@@ -279,9 +283,10 @@ def _cmd_generate(args: argparse.Namespace) -> int:
             k=args.k,
         )
 
-    gt_idx_path = os.path.join(args.output_dir, "groundtruth.neighbors.ibin")
+    gt_neighbors_fname = groundtruth_neighbors_filename(args.total_rows)
+    gt_idx_path = os.path.join(args.output_dir, gt_neighbors_fname)
     gt_dist_path = os.path.join(args.output_dir, "groundtruth.distances.fbin")
-    write_bin(gt_idx_path, gt_idx.astype(np.uint32))
+    write_groundtruth_neighbors(gt_idx_path, gt_idx, args.total_rows)
     write_bin(gt_dist_path, gt_dist.astype(np.float32))
 
     dataset_name = os.path.basename(os.path.abspath(args.output_dir))
@@ -292,7 +297,7 @@ def _cmd_generate(args: argparse.Namespace) -> int:
             "distance": "euclidean",
             "base_file": f"{dataset_name}/base.fbin",
             "query_file": f"{dataset_name}/queries.fbin",
-            "groundtruth_neighbors_file": f"{dataset_name}/groundtruth.neighbors.ibin",
+            "groundtruth_neighbors_file": f"{dataset_name}/{gt_neighbors_fname}",
             "groundtruth_distances_file": f"{dataset_name}/groundtruth.distances.fbin",
         }
     ]
@@ -304,7 +309,7 @@ def _cmd_generate(args: argparse.Namespace) -> int:
         f"\nWrote synthetic dataset bundle to {args.output_dir}:\n"
         f"  base.fbin                  ({args.total_rows:,} x {config.ncols})\n"
         f"  queries.fbin               ({args.n_queries} x {config.ncols})\n"
-        f"  groundtruth.neighbors.ibin ({args.n_queries} x {args.k})\n"
+        f"  {gt_neighbors_fname} ({args.n_queries} x {args.k})\n"
         f"  groundtruth.distances.fbin ({args.n_queries} x {args.k})\n"
         f"  dataset.yaml               (pass to --dataset-configuration)"
     )
