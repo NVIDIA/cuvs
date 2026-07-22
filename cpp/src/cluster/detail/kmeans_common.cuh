@@ -62,7 +62,7 @@ namespace cuvs::cluster::kmeans::detail {
  *
  * On Ampere (SM <= 8.x) always use fused.
  * On Hopper (SM 9.x) use fused when m or n >= 4096.
- * On Blackwell (SM >= 10.x) use unfused.
+ * On Blackwell (SM >= 10.x) use fused.
  */
 template <typename MathT, typename IdxT, typename LabelT>
 bool use_fused(const raft::resources& handle, IdxT m, IdxT n, IdxT k)
@@ -76,8 +76,8 @@ bool use_fused(const raft::resources& handle, IdxT m, IdxT n, IdxT k)
     // On Hopper if m, n are bigger than 4096, use fused
     return true;
   } else if (prop.major >= 10) {
-    // On Blackwell onwards, use unfused
-    return false;
+    // On Blackwell onwards, use fused
+    return true;
   }
   return false;
 }

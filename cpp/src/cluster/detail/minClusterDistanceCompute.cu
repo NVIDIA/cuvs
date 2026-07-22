@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -27,15 +27,15 @@ void minClusterAndDistanceCompute(
   int batch_centroids,
   rmm::device_uvector<char>& workspace)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle);
-  auto n_samples      = X.extent(0);
-  auto n_features     = X.extent(1);
-  auto n_clusters     = centroids.extent(0);
-  bool is_fused       = metric == cuvs::distance::DistanceType::L2Expanded ||
-                  metric == cuvs::distance::DistanceType::L2SqrtExpanded ||
-                  metric == cuvs::distance::DistanceType::CosineExpanded;
+  cudaStream_t stream           = raft::resource::get_cuda_stream(handle);
+  auto n_samples                = X.extent(0);
+  auto n_features               = X.extent(1);
+  auto n_clusters               = centroids.extent(0);
+  const bool can_use_fused_path = metric == cuvs::distance::DistanceType::L2Expanded ||
+                                  metric == cuvs::distance::DistanceType::L2SqrtExpanded ||
+                                  metric == cuvs::distance::DistanceType::CosineExpanded;
 
-  if (is_fused) {
+  if (can_use_fused_path) {
     L2NormBuf_OR_DistBuf.resize(n_clusters, stream);
     auto centroidsNorm =
       raft::make_device_vector_view<DataT, IndexT>(L2NormBuf_OR_DistBuf.data(), n_clusters);
@@ -51,10 +51,10 @@ void minClusterAndDistanceCompute(
     raft::KeyValuePair<IndexT, DataT> initial_value(0, std::numeric_limits<DataT>::max());
     raft::matrix::fill(handle, minClusterAndDistance, initial_value);
 
-    bool should_use_fused =
+    const bool use_fused_path =
       use_fused<DataT, IndexT, IndexT>(handle, n_samples, n_clusters, n_features);
 
-    if (should_use_fused) {
+    if (use_fused_path) {
       workspace.resize((sizeof(int)) * n_samples, stream);
 
       cuvs::distance::fusedDistanceNNMinReduce<DataT, raft::KeyValuePair<IndexT, DataT>, IndexT>(
