@@ -143,66 +143,49 @@ For more code examples of the C APIs, including drop-in Cmake project templates,
 
 ### Rust API
 
-```rust
-use cuvs::cagra::{Index, IndexParams, SearchParams};
-use cuvs::{ManagedTensor, Resources, Result};
+```rust,no_run
+use cuvs::distance::DistanceType;
+use cuvs::neighbors::cagra::{Index, IndexParams, SearchParams};
+use cuvs::{AsDlTensor, AsDlTensorMut, DLPackError, DLTensorView, DLTensorViewMut, Resources};
 
-use ndarray::s;
-use ndarray_rand::rand_distr::Uniform;
-use ndarray_rand::RandomExt;
+// cuVS is agnostic about where your vectors live: `build` and `search` accept
+// any type implementing `AsDlTensor` (inputs) / `AsDlTensorMut` (outputs). Wrap
+// your own GPU buffer by implementing these traits. See `rust/cuvs/examples`
+// for a complete, runnable CUDA-backed implementation.
+struct GpuTensor;
+impl AsDlTensor for GpuTensor {
+    fn as_dl_tensor(&self) -> Result<DLTensorView<'_>, DLPackError> {
+        unimplemented!("wrap your device buffer; see rust/cuvs/examples")
+    }
+}
+impl AsDlTensorMut for GpuTensor {
+    fn as_dl_tensor_mut(&mut self) -> Result<DLTensorViewMut<'_>, DLPackError> {
+        unimplemented!("wrap your device buffer; see rust/cuvs/examples")
+    }
+}
 
-/// Example showing how to index and search data with CAGRA
-fn cagra_example() -> Result<()> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let res = Resources::new()?;
 
-    // Create a new random dataset to index
-    let n_datapoints = 65536;
-    let n_features = 512;
-    let dataset =
-        ndarray::Array::<f32, _>::random((n_datapoints, n_features), Uniform::new(0., 1.0));
+    // Build a CAGRA index over your dataset.
+    let dataset = GpuTensor;
+    let index_params = IndexParams::builder()
+        .metric(DistanceType::L2Expanded)
+        .graph_degree(64)
+        .build()?;
+    let index = Index::build(&res, &index_params, &dataset)?;
 
-    // build the cagra index
-    let build_params = IndexParams::new()?;
-    let index = Index::build(&res, &build_params, &dataset)?;
-    println!(
-        "Indexed {}x{} datapoints into cagra index",
-        n_datapoints, n_features
-    );
+    // Search for the k nearest neighbors of each query, writing the results into
+    // the neighbor and distance device buffers.
+    let queries = GpuTensor;
+    let (mut neighbors, mut distances) = (GpuTensor, GpuTensor);
+    let search_params = SearchParams::builder().itopk_size(64).build()?;
+    index.search(&res, &search_params, &queries, &mut neighbors, &mut distances)?;
 
-    // use the first 4 points from the dataset as queries : will test that we get them back
-    // as their own nearest neighbor
-    let n_queries = 4;
-    let queries = dataset.slice(s![0..n_queries, ..]);
-
-    let k = 10;
-
-    // CAGRA search API requires queries and outputs to be on device memory
-    // copy query data over, and allocate new device memory for the distances/ neighbors
-    // outputs
-    let queries = ManagedTensor::from(&queries).to_device(&res)?;
-    let mut neighbors_host = ndarray::Array::<u32, _>::zeros((n_queries, k));
-    let neighbors = ManagedTensor::from(&neighbors_host).to_device(&res)?;
-
-    let mut distances_host = ndarray::Array::<f32, _>::zeros((n_queries, k));
-    let distances = ManagedTensor::from(&distances_host).to_device(&res)?;
-
-    let search_params = SearchParams::new()?;
-
-    index.search(&res, &search_params, &queries, &neighbors, &distances)?;
-
-    // Copy back to host memory
-    distances.to_host(&res, &mut distances_host)?;
-    neighbors.to_host(&res, &mut neighbors_host)?;
-
-    // nearest neighbors should be themselves, since queries are from the
-    // dataset
-    println!("Neighbors {:?}", neighbors_host);
-    println!("Distances {:?}", distances_host);
     Ok(())
 }
 ```
 
-For more code examples of the Rust APIs, including a drop-in project templates, please refer to the [Rust examples](https://github.com/rapidsai/cuvs/tree/main/examples/rust).
 
 ## Contributing
 

@@ -7,26 +7,41 @@
 //!
 //! [`fit`] computes cluster centroids for a dataset, [`predict`] assigns points
 //! to clusters, and [`cluster_cost`] reports the inertia. All inputs and outputs
-//! reside in device memory and are borrowed through the
-//! [`AsDlTensor`] /
-//! [`AsDlTensorMut`] traits; see the
-//! [`dlpack`](crate::dlpack) module for the tensor model.
+//! reside in device memory and are borrowed through the `AsDlTensor` /
+//! `AsDlTensorMut` traits; see the [`dlpack`](crate::dlpack) module for the
+//! tensor model.
 
 mod params;
 
 pub use params::Params;
 
-use crate::dlpack::{AsDlTensor, AsDlTensorMut};
-use crate::error::{Result, check_cuvs};
+use crate::dlpack::{AsDlTensor, AsDlTensorMut, DLPackError};
+use crate::error::{LibraryError, check_cuvs};
 use crate::resources::Resources;
+
+type Result<T> = std::result::Result<T, KMeansError>;
+
+/// Error type for k-means operations.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum KMeansError {
+    /// The cuVS C library reported a failure.
+    #[error(transparent)]
+    Library(#[from] LibraryError),
+    /// Tensor conversion into DLPack metadata failed.
+    #[error(transparent)]
+    DLPack(#[from] DLPackError),
+    /// A parameter value failed validation.
+    #[error("invalid parameter: {0}")]
+    Validation(String),
+}
 
 /// Fits k-means centroids to `x`, returning `(inertia, n_iterations)`.
 ///
 /// `x` (shape `m × k`) is the input matrix and `centroids` (shape
 /// `n_clusters × k`) receives the fitted centroids; `sample_weight` is an
 /// optional per-sample weight. All reside in device memory and implement
-/// [`AsDlTensor`] /
-/// [`AsDlTensorMut`].
+/// [`AsDlTensor`] / [`AsDlTensorMut`].
 pub fn fit<X, W, C>(
     res: &Resources,
     params: &Params,
@@ -50,8 +65,8 @@ where
 
     unsafe {
         check_cuvs(ffi::cuvsKMeansFit(
-            res.0,
-            params.0,
+            res.handle(),
+            params.handle(),
             x.to_c().as_mut_ptr(),
             sample_weight_ptr,
             centroids.to_c().as_mut_ptr(),
@@ -67,8 +82,7 @@ where
 ///
 /// `x` (shape `m × k`), `centroids` (shape `n_clusters × k`), the optional
 /// `sample_weight`, and `labels` (shape `m × 1`) reside in device memory and
-/// implement [`AsDlTensor`] /
-/// [`AsDlTensorMut`]. `normalize_weight` selects
+/// implement [`AsDlTensor`] / [`AsDlTensorMut`]. `normalize_weight` selects
 /// whether the sample weights are normalized.
 pub fn predict<X, W, C, L>(
     res: &Resources,
@@ -96,8 +110,8 @@ where
 
     unsafe {
         check_cuvs(ffi::cuvsKMeansPredict(
-            res.0,
-            params.0,
+            res.handle(),
+            params.handle(),
             x.to_c().as_mut_ptr(),
             sample_weight_ptr,
             centroids.to_c().as_mut_ptr(),
@@ -124,7 +138,7 @@ where
 
     unsafe {
         check_cuvs(ffi::cuvsKMeansClusterCost(
-            res.0,
+            res.handle(),
             x.to_c().as_mut_ptr(),
             centroids.to_c().as_mut_ptr(),
             &mut inertia as *mut f64,
@@ -146,7 +160,6 @@ mod tests {
 
         let n_clusters = 4;
 
-        // Create a new random dataset to index
         let n_datapoints = 256;
         let n_features = 16;
         let dataset_host = ndarray::Array::<f32, _>::random(
@@ -158,12 +171,10 @@ mod tests {
         let centroids_host = ndarray::Array::<f32, _>::zeros((n_clusters, n_features));
         let mut centroids = DeviceTensor::from_host(&res, &centroids_host).unwrap();
 
-        let params = Params::new().unwrap().set_n_clusters(n_clusters as i32);
+        let params = Params::builder().n_clusters(n_clusters as i32).build().unwrap();
 
-        // compute the inertia, before fitting centroids
         let original_inertia = cluster_cost(&res, &dataset, &centroids).unwrap();
 
-        // fit the centroids, make sure that inertia has gone down
         let (inertia, n_iter) =
             fit(&res, &params, &dataset, None::<&DeviceTensor<'_, f32>>, &mut centroids).unwrap();
 
@@ -173,7 +184,6 @@ mod tests {
         let mut labels_host = ndarray::Array::<i32, _>::zeros((n_clusters,));
         let mut labels = DeviceTensor::<i32>::zeros(&res, &[n_clusters]).unwrap();
 
-        // make sure the prediction for each centroid is the centroid itself
         predict(
             &res,
             &params,

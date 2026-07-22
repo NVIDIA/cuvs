@@ -552,6 +552,7 @@ pub struct cuvsKMeansParams {
     pub hierarchical: bool,
     pub hierarchical_n_iters: ::std::os::raw::c_int,
     pub streaming_batch_size: i64,
+    #[doc = " Number of samples to draw for KMeansPlusPlus initialization.\n When set to 0, uses heuristic min(3 * n_clusters, n_samples) for host data,\n or n_samples for device data."]
     pub init_size: i64,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
