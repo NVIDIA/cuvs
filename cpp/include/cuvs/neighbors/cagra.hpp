@@ -233,9 +233,12 @@ struct index_params : cuvs::neighbors::index_params {
    * responsible for setting `graph_degree` / `intermediate_graph_degree`.
    *
    * @param dataset The shape of the input dataset
-   * @param intermediate_graph_degree The intermediate (kNN) graph degree the build should target
+   * @param intermediate_graph_degree The intermediate (kNN) graph degree the build should target.
+   *  Note: the intermediate graph degree must be not smaller than the output graph degree; a good
+   *        practice is to have it 1.5x to 2x of the desired graph_degree and a multiple of 32.
    * @param metric The distance metric to search
    * @param build_quality Higher values increase the build quality (and cost) up to a point.
+   *        Any value is valid, but values below 20 are the most practical (default = 7).
    */
   static graph_build_params_t graph_build_heuristic(
     raft::matrix_extent<int64_t> dataset,
@@ -253,6 +256,7 @@ struct index_params : cuvs::neighbors::index_params {
    * @param graph_degree Degree of the output graph.
    * @param metric The distance metric to search
    * @param build_quality Higher values increase the build quality (and cost) up to a point.
+   *        Any value is valid, but values below 20 are the most practical (default = 7).
    *
    * Usage example:
    * @code{.cpp}
