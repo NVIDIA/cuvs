@@ -187,7 +187,6 @@ ConfigureTest(
        neighbors/ann_cagra/bug_graph_smaller_than_dataset.cu
        neighbors/ann_cagra/bug_iterative_cagra_build.cu
        neighbors/ann_cagra/bug_issue_93_reproducer.cu
-       neighbors/ann_cagra/bug_graph_smaller_than_dataset.cu
   GPUS 1
   PERCENT 100
 )
