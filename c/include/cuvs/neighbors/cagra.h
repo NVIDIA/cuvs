@@ -659,13 +659,14 @@ CUVS_EXPORT cuvsError_t cuvsCagraBuildHostStandard(cuvsResources_t res,
  * @param[in] res cuvsResources_t opaque C handle
  * @param[in] params cuvsCagraExtendParams_t used to extend CAGRA index
  * @param[in] additional_dataset cuvsDatasetPaddedView_t additional dataset
+ * @param[in,out] extended_dataset caller-owned padded dataset receiving the extended rows
  * @param[in,out] index cuvsCagraIndex_t CAGRA index
  * @return cuvsError_t
  */
 CUVS_EXPORT cuvsError_t cuvsCagraExtend(cuvsResources_t res,
                             cuvsCagraExtendParams_t params,
                             cuvsDatasetPaddedView_t additional_dataset,
-                            cuvsDatasetStorage_t extended_dataset,
+                            cuvsDatasetPadded_t extended_dataset,
                             cuvsCagraIndex_t index);
 
 /**

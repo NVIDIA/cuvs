@@ -152,11 +152,6 @@ CUVS_EXPORT cuvsError_t cuvsDatasetMakeHostStandardView(cuvsResources_t res,
 
 CUVS_EXPORT cuvsError_t cuvsDatasetStandardViewDestroy(cuvsDatasetStandardView_t standard_dataset);
 
-CUVS_EXPORT cuvsError_t cuvsMakeExtendedStorage(cuvsResources_t res,
-                                                cuvsDatasetPaddedView_t additional_dataset,
-                                                cuvsCagraIndex_t index,
-                                                cuvsDatasetStorage_t* extended_storage);
-
 CUVS_EXPORT cuvsError_t cuvsMakeMergedStorage(cuvsResources_t res,
                                               cuvsCagraIndex_t* indices,
                                               size_t num_indices,

@@ -354,8 +354,7 @@ void extend_core(
   raft::mdspan<const T, raft::matrix_extent<int64_t>, raft::row_major, Accessor> additional_dataset,
   cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>& index,
   const cagra::extend_params& params,
-  std::optional<raft::device_matrix_view<T, int64_t, raft::layout_stride>> new_dataset_buffer_view,
-  std::optional<raft::device_matrix_view<IdxT, int64_t>> new_graph_buffer_view)
+  raft::device_matrix_view<T, int64_t, raft::layout_stride> new_dataset_buffer_view)
 {
   static_assert(cuvs::neighbors::is_padded_dataset_view_v<DatasetViewT> ||
                   cuvs::neighbors::is_standard_dataset_view_v<DatasetViewT>,
@@ -365,33 +364,18 @@ void extend_core(
                "cuvs::neighbors::hnsw::from_cagra() and load it into memory via "
                "cuvs::neighbors::hnsw::deserialize() before calling extend().");
 
-  RAFT_EXPECTS(new_dataset_buffer_view.has_value(),
-               "cagra::extend requires new_dataset_buffer_view. "
-               "Provide a buffer view for the extended dataset (initial + additional vectors).");
   const std::size_t num_new_nodes        = additional_dataset.extent(0);
   const std::size_t initial_dataset_size = index.size();
   const std::size_t new_dataset_size     = initial_dataset_size + num_new_nodes;
   const std::size_t degree               = index.graph_degree();
   const std::size_t dim                  = index.dim();
 
-  if (new_dataset_buffer_view.has_value() &&
-      static_cast<std::size_t>(new_dataset_buffer_view.value().extent(0)) != new_dataset_size) {
+  if (static_cast<std::size_t>(new_dataset_buffer_view.extent(0)) != new_dataset_size) {
     RAFT_LOG_ERROR(
       "The extended dataset size (%lu) must be the initial dataset size (%lu) + additional dataset "
       "size (%lu). "
       "Please fix the memory buffer size for the extended dataset.",
-      new_dataset_buffer_view.value().extent(0),
-      initial_dataset_size,
-      num_new_nodes);
-  }
-
-  if (new_graph_buffer_view.has_value() &&
-      static_cast<std::size_t>(new_graph_buffer_view.value().extent(0)) != new_dataset_size) {
-    RAFT_LOG_ERROR(
-      "The extended graph size (%lu) must be the initial dataset size (%lu) + additional dataset "
-      "size (%lu). "
-      "Please fix the memory buffer size for the extended graph.",
-      new_graph_buffer_view.value().extent(0),
+      new_dataset_buffer_view.extent(0),
       initial_dataset_size,
       num_new_nodes);
   }
@@ -402,7 +386,7 @@ void extend_core(
 
     const std::size_t stride  = static_cast<std::size_t>(leaf.stride());
     const T* src_rows         = leaf.view().data_handle();
-    auto updated_dataset_view = new_dataset_buffer_view.value();
+    auto updated_dataset_view = new_dataset_buffer_view;
 
     // Update dataset on host, then copy to device buffer provided by caller
     auto host_updated_dataset = raft::make_host_matrix<T, std::int64_t>(new_dataset_size, stride);
@@ -448,17 +432,8 @@ void extend_core(
       index.update_dataset(handle, dv);
     }
 
-    // Update index graph
-    if (new_graph_buffer_view.has_value()) {
-      auto device_graph_view = new_graph_buffer_view.value();
-      raft::copy(
-        handle,
-        raft::make_device_vector_view(device_graph_view.data_handle(), updated_graph.size()),
-        raft::make_host_vector_view(updated_graph.data_handle(), updated_graph.size()));
-      index.update_graph(handle, raft::make_const_mdspan(device_graph_view));
-    } else {
-      index.update_graph(handle, raft::make_const_mdspan(updated_graph.view()));
-    }
+    // Graph is index-owned in extend; update from host graph result.
+    index.update_graph(handle, raft::make_const_mdspan(updated_graph.view()));
   };
 
   auto const& leaf = index.dataset();

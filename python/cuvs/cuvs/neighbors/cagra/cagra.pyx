@@ -1157,7 +1157,7 @@ cdef class ExtendParams:
 
 
 @auto_sync_resources
-def extend(ExtendParams params, Index index, additional_dataset,
+def extend(ExtendParams params, Index index, additional_dataset, extended_dataset,
            resources=None):
     """
     Extend a CAGRA index with additional vectors
@@ -1169,6 +1169,8 @@ def extend(ExtendParams params, Index index, additional_dataset,
        Existing cagra index to extend
     additional_dataset : PaddedDatasetView
         Explicit padded dataset view for vectors to append.
+    extended_dataset : PaddedDataset
+        Caller-owned output padded dataset that receives the extended dataset.
     {resources_docstring}
 
     """
@@ -1181,28 +1183,24 @@ def extend(ExtendParams params, Index index, additional_dataset,
     cdef cuvsDatasetPaddedView_t padded_view = (<PaddedDatasetView>additional_dataset).view
     if padded_view == NULL:
         raise ValueError("additional_dataset padded view is uninitialized")
+    if not isinstance(extended_dataset, PaddedDataset):
+        raise TypeError(
+            "extended_dataset must be a PaddedDataset created by "
+            "make_device_padded_dataset()."
+        )
+    cdef cuvsDatasetPadded_t out_extended_dataset = (<PaddedDataset>extended_dataset).dataset
+    if out_extended_dataset == NULL:
+        raise ValueError("extended_dataset padded dataset owner is uninitialized")
 
     cdef cuvsResources_t res = <cuvsResources_t>resources.get_c_obj()
-    cdef cuvsDatasetStorage_t extended_dataset = NULL
 
-    check_cuvs(cuvsMakeExtendedStorage(
-        res,
-        padded_view,
-        index.index,
-        &extended_dataset
-    ))
-
-    try:
-        with cuda_interruptible():
-            check_cuvs(cuvsCagraExtend(
-                res,
-                params.params,
-                padded_view,
-                extended_dataset,
-                index.index
-            ))
-    finally:
-        if extended_dataset != NULL:
-            check_cuvs(cuvsDatasetStorageDestroy(extended_dataset))
+    with cuda_interruptible():
+        check_cuvs(cuvsCagraExtend(
+            res,
+            params.params,
+            padded_view,
+            out_extended_dataset,
+            index.index
+        ))
 
     return index

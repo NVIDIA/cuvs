@@ -1124,45 +1124,6 @@ auto build(raft::resources const& res,
  * @{
  */
 
-/**
- * @brief Device buffers used by `cagra::extend`.
- *
- * Allocate with `make_extended_storage`, then pass to `extend`. Keep this storage alive for as long
- * as the returned index views are needed.
- */
-template <typename T, typename IdxT>
-struct extended_dataset_storage {
-  raft::device_matrix<T, int64_t, raft::row_major> dataset_storage;
-  raft::device_matrix<IdxT, int64_t, raft::row_major> graph_storage;
-};
-
-/**
- * @brief Allocate output buffers for extend.
- *
- * Computes the target extended row count from `idx.size() + additional_dataset.n_rows()`, preserves
- * the index dataset row stride, and allocates both dataset and graph output buffers.
- */
-template <typename T,
-          typename IdxT,
-          cuvs::neighbors::ann_dataset_view DatasetViewT,
-          cuvs::neighbors::ann_dataset_view AdditionalDatasetViewT>
-extended_dataset_storage<T, IdxT> make_extended_storage(
-  raft::resources const& handle,
-  AdditionalDatasetViewT additional_dataset,
-  cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> const& idx)
-{
-  auto cur_ds             = idx.dataset().view();
-  const auto stride_elems = cur_ds.stride(0) > 0 ? static_cast<int64_t>(cur_ds.stride(0))
-                                                 : static_cast<int64_t>(cur_ds.extent(1));
-  const auto new_rows =
-    static_cast<int64_t>(idx.size()) + static_cast<int64_t>(additional_dataset.n_rows());
-  auto dataset_storage =
-    raft::make_device_matrix<T, int64_t, raft::row_major>(handle, new_rows, stride_elems);
-  auto graph_storage = raft::make_device_matrix<IdxT, int64_t, raft::row_major>(
-    handle, new_rows, static_cast<int64_t>(idx.graph_degree()));
-  return extended_dataset_storage<T, IdxT>{std::move(dataset_storage), std::move(graph_storage)};
-}
-
 // Concrete non-template overloads for all supported index types.
 // Previously a single template <T, IdxT, DatasetViewT> covered all index types; it has been
 // replaced with explicit overloads to maintain a stable non-template ABI. When a new index
@@ -1207,7 +1168,7 @@ void extend(raft::resources const& handle,
             const cagra::extend_params& params,
             cuvs::neighbors::device_padded_dataset_view<float, int64_t> additional_dataset,
             cuvs::neighbors::cagra::device_padded_index<float, uint32_t>& idx,
-            cuvs::neighbors::cagra::extended_dataset_storage<float, uint32_t>& storage);
+            cuvs::neighbors::device_padded_dataset<float, int64_t>& extended_dataset);
 
 /** @brief Add new vectors to a CAGRA index
  *
@@ -1242,7 +1203,7 @@ void extend(raft::resources const& handle,
             const cagra::extend_params& params,
             cuvs::neighbors::device_padded_dataset_view<half, int64_t> additional_dataset,
             cuvs::neighbors::cagra::device_padded_index<half, uint32_t>& idx,
-            cuvs::neighbors::cagra::extended_dataset_storage<half, uint32_t>& storage);
+            cuvs::neighbors::device_padded_dataset<half, int64_t>& extended_dataset);
 
 /** @brief Add new vectors to a CAGRA index
  *
@@ -1277,7 +1238,7 @@ void extend(raft::resources const& handle,
             const cagra::extend_params& params,
             cuvs::neighbors::device_padded_dataset_view<int8_t, int64_t> additional_dataset,
             cuvs::neighbors::cagra::device_padded_index<int8_t, uint32_t>& idx,
-            cuvs::neighbors::cagra::extended_dataset_storage<int8_t, uint32_t>& storage);
+            cuvs::neighbors::device_padded_dataset<int8_t, int64_t>& extended_dataset);
 
 /** @brief Add new vectors to a CAGRA index
  *
@@ -1312,7 +1273,7 @@ void extend(raft::resources const& handle,
             const cagra::extend_params& params,
             cuvs::neighbors::device_padded_dataset_view<uint8_t, int64_t> additional_dataset,
             cuvs::neighbors::cagra::device_padded_index<uint8_t, uint32_t>& idx,
-            cuvs::neighbors::cagra::extended_dataset_storage<uint8_t, uint32_t>& storage);
+            cuvs::neighbors::device_padded_dataset<uint8_t, int64_t>& extended_dataset);
 
 /** @brief Add new vectors to a CAGRA index
  *
@@ -1347,7 +1308,7 @@ void extend(raft::resources const& handle,
             const cagra::extend_params& params,
             cuvs::neighbors::host_padded_dataset_view<float, int64_t> additional_dataset,
             cuvs::neighbors::cagra::device_padded_index<float, uint32_t>& idx,
-            cuvs::neighbors::cagra::extended_dataset_storage<float, uint32_t>& storage);
+            cuvs::neighbors::device_padded_dataset<float, int64_t>& extended_dataset);
 
 /** @brief Add new vectors to a CAGRA index
  *
@@ -1382,7 +1343,7 @@ void extend(raft::resources const& handle,
             const cagra::extend_params& params,
             cuvs::neighbors::host_padded_dataset_view<half, int64_t> additional_dataset,
             cuvs::neighbors::cagra::device_padded_index<half, uint32_t>& idx,
-            cuvs::neighbors::cagra::extended_dataset_storage<half, uint32_t>& storage);
+            cuvs::neighbors::device_padded_dataset<half, int64_t>& extended_dataset);
 
 /** @brief Add new vectors to a CAGRA index
  *
@@ -1417,7 +1378,7 @@ void extend(raft::resources const& handle,
             const cagra::extend_params& params,
             cuvs::neighbors::host_padded_dataset_view<int8_t, int64_t> additional_dataset,
             cuvs::neighbors::cagra::device_padded_index<int8_t, uint32_t>& idx,
-            cuvs::neighbors::cagra::extended_dataset_storage<int8_t, uint32_t>& storage);
+            cuvs::neighbors::device_padded_dataset<int8_t, int64_t>& extended_dataset);
 
 /** @brief Add new vectors to a CAGRA index
  *
@@ -1452,63 +1413,7 @@ void extend(raft::resources const& handle,
             const cagra::extend_params& params,
             cuvs::neighbors::host_padded_dataset_view<uint8_t, int64_t> additional_dataset,
             cuvs::neighbors::cagra::device_padded_index<uint8_t, uint32_t>& idx,
-            cuvs::neighbors::cagra::extended_dataset_storage<uint8_t, uint32_t>& storage);
-
-/** @copydoc extend */
-void extend(raft::resources const& handle,
-            const cagra::extend_params& params,
-            cuvs::neighbors::device_standard_dataset_view<float, int64_t> additional_dataset,
-            cuvs::neighbors::cagra::device_standard_index<float, uint32_t>& idx,
-            cuvs::neighbors::cagra::extended_dataset_storage<float, uint32_t>& storage);
-
-/** @copydoc extend */
-void extend(raft::resources const& handle,
-            const cagra::extend_params& params,
-            cuvs::neighbors::device_standard_dataset_view<half, int64_t> additional_dataset,
-            cuvs::neighbors::cagra::device_standard_index<half, uint32_t>& idx,
-            cuvs::neighbors::cagra::extended_dataset_storage<half, uint32_t>& storage);
-
-/** @copydoc extend */
-void extend(raft::resources const& handle,
-            const cagra::extend_params& params,
-            cuvs::neighbors::device_standard_dataset_view<int8_t, int64_t> additional_dataset,
-            cuvs::neighbors::cagra::device_standard_index<int8_t, uint32_t>& idx,
-            cuvs::neighbors::cagra::extended_dataset_storage<int8_t, uint32_t>& storage);
-
-/** @copydoc extend */
-void extend(raft::resources const& handle,
-            const cagra::extend_params& params,
-            cuvs::neighbors::device_standard_dataset_view<uint8_t, int64_t> additional_dataset,
-            cuvs::neighbors::cagra::device_standard_index<uint8_t, uint32_t>& idx,
-            cuvs::neighbors::cagra::extended_dataset_storage<uint8_t, uint32_t>& storage);
-
-/** @copydoc extend */
-void extend(raft::resources const& handle,
-            const cagra::extend_params& params,
-            cuvs::neighbors::host_standard_dataset_view<float, int64_t> additional_dataset,
-            cuvs::neighbors::cagra::device_standard_index<float, uint32_t>& idx,
-            cuvs::neighbors::cagra::extended_dataset_storage<float, uint32_t>& storage);
-
-/** @copydoc extend */
-void extend(raft::resources const& handle,
-            const cagra::extend_params& params,
-            cuvs::neighbors::host_standard_dataset_view<half, int64_t> additional_dataset,
-            cuvs::neighbors::cagra::device_standard_index<half, uint32_t>& idx,
-            cuvs::neighbors::cagra::extended_dataset_storage<half, uint32_t>& storage);
-
-/** @copydoc extend */
-void extend(raft::resources const& handle,
-            const cagra::extend_params& params,
-            cuvs::neighbors::host_standard_dataset_view<int8_t, int64_t> additional_dataset,
-            cuvs::neighbors::cagra::device_standard_index<int8_t, uint32_t>& idx,
-            cuvs::neighbors::cagra::extended_dataset_storage<int8_t, uint32_t>& storage);
-
-/** @copydoc extend */
-void extend(raft::resources const& handle,
-            const cagra::extend_params& params,
-            cuvs::neighbors::host_standard_dataset_view<uint8_t, int64_t> additional_dataset,
-            cuvs::neighbors::cagra::device_standard_index<uint8_t, uint32_t>& idx,
-            cuvs::neighbors::cagra::extended_dataset_storage<uint8_t, uint32_t>& storage);
+            cuvs::neighbors::device_padded_dataset<uint8_t, int64_t>& extended_dataset);
 
 /**
  * @}

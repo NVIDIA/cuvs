@@ -489,15 +489,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    pub fn cuvsMakeExtendedStorage(
-        res: cuvsResources_t,
-        additional_dataset: cuvsDatasetPaddedView_t,
-        index: cuvsCagraIndex_t,
-        extended_storage: *mut cuvsDatasetStorage_t,
-    ) -> cuvsError_t;
-}
-unsafe extern "C" {
-    #[must_use]
     pub fn cuvsMakeMergedStorage(
         res: cuvsResources_t,
         indices: *mut cuvsCagraIndex_t,
@@ -1542,7 +1533,7 @@ unsafe extern "C" {
         res: cuvsResources_t,
         params: cuvsCagraExtendParams_t,
         additional_dataset: cuvsDatasetPaddedView_t,
-        extended_dataset: cuvsDatasetStorage_t,
+        extended_dataset: cuvsDatasetPadded_t,
         index: cuvsCagraIndex_t,
     ) -> cuvsError_t;
 }

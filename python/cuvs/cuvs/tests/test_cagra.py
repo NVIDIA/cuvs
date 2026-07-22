@@ -80,8 +80,15 @@ def run_cagra_build_search_test(
             add_padded_view = cagra.make_view_from_owning_padded(
                 add_padded_dataset
             )
-            extend_keepalive.extend([add_padded_dataset, add_padded_view])
-            index = cagra.extend(extend_params, index, add_padded_view)
+            extended_dataset_owner = cagra.make_device_padded_dataset(
+                device_ndarray(np.concatenate((dataset_1, dataset_2), axis=0))
+            )
+            extend_keepalive.extend(
+                [add_padded_dataset, add_padded_view, extended_dataset_owner]
+            )
+            index = cagra.extend(
+                extend_params, index, add_padded_view, extended_dataset_owner
+            )
         else:
             pytest.skip(
                 "extend test path requires explicit device padded dataset view"

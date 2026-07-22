@@ -44,11 +44,6 @@ struct cuvs_cagra_c_api_index_lifetime_holder {
 };
 
 template <typename T>
-struct cagra_c_api_extended_dataset_holder {
-  cuvs::neighbors::cagra::extended_dataset_storage<T, uint32_t> storage;
-};
-
-template <typename T>
 struct cagra_c_api_merged_dataset_holder {
   cuvs::neighbors::cagra::merged_dataset_storage<T, uint32_t> storage;
 };
@@ -269,12 +264,6 @@ template <typename T>
 static void destroy_typed_addr(void* ptr)
 {
   delete reinterpret_cast<T*>(ptr);
-}
-
-template <typename T>
-static void destroy_extended_dataset_typed(uintptr_t addr)
-{
-  delete reinterpret_cast<cagra_c_api_extended_dataset_holder<T>*>(addr);
 }
 
 template <typename T>
@@ -521,59 +510,6 @@ static void attach_device_dataset_on_host_index(raft::resources* res_ptr,
   }
 }
 
-template <typename T>
-static void make_extended_storage(raft::resources* res_ptr,
-                                  cuvsDatasetPaddedView_t additional_dataset,
-                                  cuvsCagraIndex_t index,
-                                  cuvsDatasetStorage_t* output_extended_storage)
-{
-  auto* out    = new cuvsDatasetStorage{
-    0, index->dtype, CUVS_DATASET_STORAGE_KIND_EXTENDED};
-  auto* box    = reinterpret_cast<sg_cagra_c_api_index_box*>(index->addr);
-  RAFT_EXPECTS(box != nullptr, "cuvsMakeExtendedStorage: null index handle");
-  RAFT_EXPECTS(
-    box->layout == sg_cagra_c_api_index_box::dataset_layout::device_padded,
-    "cuvsMakeExtendedStorage: only device_padded indices are extendable. "
-    "For standard indices, explicitly create/attach a padded dataset first.");
-  RAFT_EXPECTS(additional_dataset != nullptr, "cuvsMakeExtendedStorage: null additional dataset view");
-  RAFT_EXPECTS(additional_dataset->addr != 0,
-               "cuvsMakeExtendedStorage: null additional dataset view storage");
-  RAFT_EXPECTS(additional_dataset->kind == CUVS_DATASET_VIEW_KIND_DEVICE_PADDED ||
-                 additional_dataset->kind == CUVS_DATASET_VIEW_KIND_HOST_PADDED,
-               "cuvsMakeExtendedStorage: additional dataset must be a padded dataset view");
-  with_index_by_layout<T, uint32_t, false>(
-    box,
-    "cuvsMakeExtendedStorage: null index handle",
-    "cuvsMakeExtendedStorage: host indices are unsupported; attach device dataset to host "
-    "index first",
-    [&](auto& idx) {
-      using index_t = std::decay_t<decltype(idx)>;
-      constexpr bool idx_is_padded =
-        std::is_same_v<index_t, cuvs::neighbors::cagra::device_padded_index<T, uint32_t>>;
-      if constexpr (!idx_is_padded) {
-        RAFT_FAIL("cuvsMakeExtendedStorage: only device_padded indices are extendable");
-      } else {
-        if (additional_dataset->kind == CUVS_DATASET_VIEW_KIND_DEVICE_PADDED) {
-          auto* ds_view =
-            reinterpret_cast<cuvs::neighbors::device_padded_dataset_view<T, int64_t>*>(
-              additional_dataset->addr);
-          auto storage      = cuvs::neighbors::cagra::make_extended_storage(*res_ptr, *ds_view, idx);
-          auto* storage_holder = new cagra_c_api_extended_dataset_holder<T>{std::move(storage)};
-          out->addr         = reinterpret_cast<uintptr_t>(storage_holder);
-        } else {
-          auto* ds_view =
-            reinterpret_cast<cuvs::neighbors::host_padded_dataset_view<T, int64_t>*>(
-              additional_dataset->addr);
-          auto storage      = cuvs::neighbors::cagra::make_extended_storage(*res_ptr, *ds_view, idx);
-          auto* storage_holder = new cagra_c_api_extended_dataset_holder<T>{std::move(storage)};
-          out->addr         = reinterpret_cast<uintptr_t>(storage_holder);
-        }
-      }
-    });
-
-  *output_extended_storage = out;
-}
-
 static void _set_graph_build_params(
   std::variant<std::monostate,
                cuvs::neighbors::cagra::graph_build_params::ivf_pq_params,
@@ -709,7 +645,7 @@ void _extend(cuvsResources_t res,
              cuvsCagraExtendParams params,
              cuvsCagraIndex index,
              cuvsDatasetPaddedView_t additional_dataset,
-             cuvsDatasetStorage_t extended_dataset)
+             cuvsDatasetPadded_t extended_dataset)
 {
   auto* box      = reinterpret_cast<sg_cagra_c_api_index_box*>(index.addr);
   auto res_ptr   = reinterpret_cast<raft::resources*>(res);
@@ -725,11 +661,12 @@ void _extend(cuvsResources_t res,
                  additional_dataset->kind == CUVS_DATASET_VIEW_KIND_HOST_PADDED,
                "cuvsCagraExtend: additional dataset must be a padded dataset view");
   RAFT_EXPECTS(extended_dataset != nullptr, "cuvsCagraExtend: null extended dataset handle");
-  RAFT_EXPECTS(extended_dataset->kind == CUVS_DATASET_STORAGE_KIND_EXTENDED,
-               "cuvsCagraExtend: storage handle kind must be EXTENDED");
-  auto* storage_holder =
-    reinterpret_cast<cagra_c_api_extended_dataset_holder<T>*>(extended_dataset->addr);
-  RAFT_EXPECTS(storage_holder != nullptr, "cuvsCagraExtend: null extended dataset storage");
+  RAFT_EXPECTS(extended_dataset->layout == CUVS_DATASET_LAYOUT_PADDED,
+               "cuvsCagraExtend: extended dataset must be padded layout");
+  RAFT_EXPECTS(extended_dataset->addr != 0,
+               "cuvsCagraExtend: null extended dataset storage");
+  auto* out_dataset = reinterpret_cast<cuvs::neighbors::device_padded_dataset<T, int64_t>*>(
+    extended_dataset->addr);
 
   // TODO: use C struct here (see issue #487)
   auto extend_params           = cuvs::neighbors::cagra::extend_params();
@@ -751,13 +688,13 @@ void _extend(cuvsResources_t res,
             reinterpret_cast<cuvs::neighbors::device_padded_dataset_view<T, int64_t>*>(
               additional_dataset->addr);
           cuvs::neighbors::cagra::extend(
-            *res_ptr, extend_params, *ds_view, idx, storage_holder->storage);
+            *res_ptr, extend_params, *ds_view, idx, *out_dataset);
         } else {
           auto* ds_view =
             reinterpret_cast<cuvs::neighbors::host_padded_dataset_view<T, int64_t>*>(
               additional_dataset->addr);
           cuvs::neighbors::cagra::extend(
-            *res_ptr, extend_params, *ds_view, idx, storage_holder->storage);
+            *res_ptr, extend_params, *ds_view, idx, *out_dataset);
         }
       }
     });
@@ -1548,77 +1485,21 @@ extern "C" cuvsError_t cuvsCagraAttachDeviceDatasetOnHostIndex(cuvsResources_t r
   });
 }
 
-extern "C" cuvsError_t cuvsMakeExtendedStorage(cuvsResources_t res,
-                                               cuvsDatasetPaddedView_t additional_dataset,
-                                               cuvsCagraIndex_t index,
-                                               cuvsDatasetStorage_t* extended_storage)
-{
-  return cuvs::core::translate_exceptions([=] {
-    RAFT_EXPECTS(additional_dataset != nullptr,
-                 "cuvsMakeExtendedStorage: null additional dataset view");
-    RAFT_EXPECTS(index != nullptr, "cuvsMakeExtendedStorage: null index handle");
-    RAFT_EXPECTS(additional_dataset->dtype.code == index->dtype.code &&
-                   additional_dataset->dtype.bits == index->dtype.bits,
-                 "cuvsMakeExtendedStorage: dtype mismatch between index and additional dataset "
-                 "view");
-    if (index->dtype.code == kDLFloat && index->dtype.bits == 32) {
-      make_extended_storage<float>(reinterpret_cast<raft::resources*>(res),
-                                   additional_dataset,
-                                   index,
-                                   extended_storage);
-    } else if (index->dtype.code == kDLFloat && index->dtype.bits == 16) {
-      make_extended_storage<half>(reinterpret_cast<raft::resources*>(res),
-                                  additional_dataset,
-                                  index,
-                                  extended_storage);
-    } else if (index->dtype.code == kDLInt && index->dtype.bits == 8) {
-      make_extended_storage<int8_t>(reinterpret_cast<raft::resources*>(res),
-                                    additional_dataset,
-                                    index,
-                                    extended_storage);
-    } else if (index->dtype.code == kDLUInt && index->dtype.bits == 8) {
-      make_extended_storage<uint8_t>(reinterpret_cast<raft::resources*>(res),
-                                     additional_dataset,
-                                     index,
-                                     extended_storage);
-    } else {
-      RAFT_FAIL("Unsupported index dtype: %d and bits: %d", index->dtype.code, index->dtype.bits);
-    }
-  });
-}
-
 extern "C" cuvsError_t cuvsDatasetStorageDestroy(cuvsDatasetStorage_t dataset_storage)
 {
   return cuvs::core::translate_exceptions([=] {
     if (dataset_storage == nullptr) { return; }
-    RAFT_EXPECTS(dataset_storage->kind == CUVS_DATASET_STORAGE_KIND_EXTENDED ||
-                   dataset_storage->kind == CUVS_DATASET_STORAGE_KIND_MERGED,
+    RAFT_EXPECTS(dataset_storage->kind == CUVS_DATASET_STORAGE_KIND_MERGED,
                  "cuvsDatasetStorageDestroy: unsupported storage handle kind");
     if (dataset_storage->addr != 0) {
       if (dataset_storage->dtype.code == kDLFloat && dataset_storage->dtype.bits == 32) {
-        if (dataset_storage->kind == CUVS_DATASET_STORAGE_KIND_EXTENDED) {
-          destroy_extended_dataset_typed<float>(dataset_storage->addr);
-        } else {
-          destroy_merged_dataset_typed<float>(dataset_storage->addr);
-        }
+        destroy_merged_dataset_typed<float>(dataset_storage->addr);
       } else if (dataset_storage->dtype.code == kDLFloat && dataset_storage->dtype.bits == 16) {
-        if (dataset_storage->kind == CUVS_DATASET_STORAGE_KIND_EXTENDED) {
-          destroy_extended_dataset_typed<half>(dataset_storage->addr);
-        } else {
-          destroy_merged_dataset_typed<half>(dataset_storage->addr);
-        }
+        destroy_merged_dataset_typed<half>(dataset_storage->addr);
       } else if (dataset_storage->dtype.code == kDLInt && dataset_storage->dtype.bits == 8) {
-        if (dataset_storage->kind == CUVS_DATASET_STORAGE_KIND_EXTENDED) {
-          destroy_extended_dataset_typed<int8_t>(dataset_storage->addr);
-        } else {
-          destroy_merged_dataset_typed<int8_t>(dataset_storage->addr);
-        }
+        destroy_merged_dataset_typed<int8_t>(dataset_storage->addr);
       } else if (dataset_storage->dtype.code == kDLUInt && dataset_storage->dtype.bits == 8) {
-        if (dataset_storage->kind == CUVS_DATASET_STORAGE_KIND_EXTENDED) {
-          destroy_extended_dataset_typed<uint8_t>(dataset_storage->addr);
-        } else {
-          destroy_merged_dataset_typed<uint8_t>(dataset_storage->addr);
-        }
+        destroy_merged_dataset_typed<uint8_t>(dataset_storage->addr);
       } else {
         RAFT_FAIL("Unsupported dataset storage dtype: %d and bits: %d",
                   dataset_storage->dtype.code,
@@ -1912,7 +1793,7 @@ extern "C" cuvsError_t cuvsCagraIndexFromArgs(cuvsResources_t res,
 extern "C" cuvsError_t cuvsCagraExtend(cuvsResources_t res,
                                        cuvsCagraExtendParams_t params,
                                        cuvsDatasetPaddedView_t additional_dataset,
-                                       cuvsDatasetStorage_t extended_dataset,
+                                       cuvsDatasetPadded_t extended_dataset,
                                        cuvsCagraIndex_t index_c_ptr)
 {
   return cuvs::core::translate_exceptions([=] {
