@@ -1,11 +1,10 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 #
 
 import json
 import os
-import warnings
 from pathlib import Path
 from typing import Optional
 
@@ -258,12 +257,6 @@ def main(
         and any backend-specific connection parameters (host, port, etc.).
 
     """
-    warnings.warn(
-        "The 'cuvs_bench.run' CLI is deprecated and will be removed in a future release. "
-        "Use BenchmarkOrchestrator from cuvs_bench.orchestrator instead.",
-        FutureWarning,
-        stacklevel=2,
-    )
 
     if not data_export:
         # Determine backend type and extra kwargs from --backend-config
