@@ -5,12 +5,18 @@
       {
         "matrix_layout": "strict",
         "abi_abbrev": "strict",
-        "abi_tag": "cutile_abi_strict"
+        "abi_tag": "cutile_abi_strict",
+        "tile_m": 128,
+        "tile_n": 64,
+        "tile_k": 64
       },
       {
         "matrix_layout": "relaxed",
         "abi_abbrev": "relaxed",
-        "abi_tag": "cutile_abi_relaxed"
+        "abi_tag": "cutile_abi_relaxed",
+        "tile_m": 128,
+        "tile_n": 128,
+        "tile_k": 32
       }
     ],
     "_data": [
@@ -151,13 +157,6 @@
       {
         "index_type": "int64",
         "index_abbrev": "i64"
-      }
-    ],
-    "_tile": [
-      {
-        "tile_m": 128,
-        "tile_n": 128,
-        "tile_k": 32
       }
     ],
     "_export": [
