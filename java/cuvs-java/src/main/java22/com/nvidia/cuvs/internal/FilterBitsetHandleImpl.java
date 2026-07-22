@@ -33,6 +33,8 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public final class FilterBitsetHandleImpl implements FilterBitsetHandle {
 
+  private static final System.Logger LOG = System.getLogger(FilterBitsetHandleImpl.class.getName());
+
   /**
    * Size in bytes of a pre-warmed RMM pool to back filter bitset device allocations. When set, the
    * shared filter resources' workspace memory resource becomes a growable pool so repeated
@@ -81,20 +83,38 @@ public final class FilterBitsetHandleImpl implements FilterBitsetHandle {
         if (r == null) {
           try {
             r = CuVSResources.create();
-            // Back filter uploads with a pre-warmed, growable workspace pool when sized. cuvs-lucene
-            // defaults this to its filter cache byte budget; an operator can override the property.
-            long poolBytes = Long.getLong(FILTER_POOL_SIZE_PROPERTY, 0L);
-            if (poolBytes > 0) {
-              r.setWorkspacePool(poolBytes);
-            }
           } catch (Throwable t) {
             throw new RuntimeException("Failed to create resources for filter bitset device memory", t);
           }
+          maybeSetFilterPool(r);
           filterResources = r;
         }
       }
     }
     return r;
+  }
+
+  /**
+   * Backs filter uploads with a pre-warmed, growable workspace pool when {@link
+   * #FILTER_POOL_SIZE_PROPERTY} is sized (cuvs-lucene defaults it to its filter cache byte budget; an
+   * operator can override it). RMM requires the initial pool size to be a multiple of 256 bytes, so
+   * the requested size is rounded up. The pool is only a reuse optimization, so a sizing failure
+   * falls back to the default workspace resource rather than breaking filter creation.
+   */
+  private static void maybeSetFilterPool(CuVSResources r) {
+    long poolBytes = Long.getLong(FILTER_POOL_SIZE_PROPERTY, 0L);
+    if (poolBytes <= 0) return;
+    poolBytes = (poolBytes + 255L) & ~255L; // round up to a 256-byte multiple for RMM
+    try {
+      r.setWorkspacePool(poolBytes);
+    } catch (Throwable poolError) {
+      LOG.log(
+          System.Logger.Level.WARNING,
+          "Failed to set the filter bitset device pool of "
+              + poolBytes
+              + " bytes; falling back to the default workspace resource",
+          poolError);
+    }
   }
 
   // Host-side immutable data.
