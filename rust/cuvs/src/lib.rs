@@ -26,3 +26,18 @@ pub mod vamana;
 pub use dlpack::{AsDlTensor, AsDlTensorMut, DLPackError, DLTensorView, DLTensorViewMut, DType};
 pub use error::{Error, Result};
 pub use resources::Resources;
+
+/// Returns the version of this `cuvs` crate.
+pub fn version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_version() {
+        assert_eq!(version(), env!("CARGO_PKG_VERSION"));
+    }
+}
