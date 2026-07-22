@@ -48,6 +48,59 @@ int32_t kExpectedLabels[kNSamples]                = {0, 0, 0, 0, 1, 1, 1, 1};
 // 8 points, each at squared distance 0.5 from its cluster mean -> 4.0.
 constexpr double kExpectedInertia = 4.0;
 
+// Type-erased dispatcher to exercise both the v1 and v2 entry points with
+// shared test bodies.
+struct kmeans_api_v1 {
+  using params_t = cuvsKMeansParams_t;
+  static cuvsError_t params_create(params_t* p) { return cuvsKMeansParamsCreate(p); }
+  static cuvsError_t params_destroy(params_t p) { return cuvsKMeansParamsDestroy(p); }
+  static cuvsError_t fit(cuvsResources_t res,
+                         params_t params,
+                         DLManagedTensor* dataset,
+                         DLManagedTensor* centroids,
+                         double* inertia,
+                         int* n_iter)
+  {
+    return cuvsKMeansFit(res, params, dataset, NULL, centroids, inertia, n_iter);
+  }
+  static cuvsError_t predict(cuvsResources_t res,
+                             params_t params,
+                             DLManagedTensor* dataset,
+                             DLManagedTensor* centroids,
+                             DLManagedTensor* labels,
+                             double* inertia)
+  {
+    return cuvsKMeansPredict(
+      res, params, dataset, NULL, centroids, labels, false, inertia);
+  }
+};
+
+struct kmeans_api_v2 {
+  using params_t = cuvsKMeansParams_v2_t;
+  static cuvsError_t params_create(params_t* p) { return cuvsKMeansParamsCreate_v2(p); }
+  static cuvsError_t params_destroy(params_t p) { return cuvsKMeansParamsDestroy_v2(p); }
+  static cuvsError_t fit(cuvsResources_t res,
+                         params_t params,
+                         DLManagedTensor* dataset,
+                         DLManagedTensor* centroids,
+                         double* inertia,
+                         int* n_iter)
+  {
+    return cuvsKMeansFit_v2(res, params, dataset, NULL, centroids, inertia, n_iter);
+  }
+  static cuvsError_t predict(cuvsResources_t res,
+                             params_t params,
+                             DLManagedTensor* dataset,
+                             DLManagedTensor* centroids,
+                             DLManagedTensor* labels,
+                             double* inertia)
+  {
+    return cuvsKMeansPredict_v2(
+      res, params, dataset, NULL, centroids, labels, false, inertia);
+  }
+};
+
+template <typename Api>
 void test_fit_predict()
 {
   raft::handle_t handle;
@@ -69,8 +122,8 @@ void test_fit_predict()
   cuvsResources_t res;
   ASSERT_EQ(cuvsResourcesCreate(&res), CUVS_SUCCESS);
 
-  cuvsKMeansParams_t params;
-  ASSERT_EQ(cuvsKMeansParamsCreate(&params), CUVS_SUCCESS);
+  typename Api::params_t params;
+  ASSERT_EQ(Api::params_create(&params), CUVS_SUCCESS);
   params->n_clusters           = kNClusters;
   params->max_iter             = 100;
   params->tol                  = 1e-6;
@@ -96,10 +149,8 @@ void test_fit_predict()
   double predict_inertia = -1.0;
   double cluster_cost    = -1.0;
 
-  ASSERT_EQ(cuvsKMeansFit(res, params, &dataset_t, NULL, &centroids_t, &inertia, &n_iter),
-            CUVS_SUCCESS);
-  ASSERT_EQ(cuvsKMeansPredict(
-              res, params, &dataset_t, NULL, &centroids_t, &labels_t, false, &predict_inertia),
+  ASSERT_EQ(Api::fit(res, params, &dataset_t, &centroids_t, &inertia, &n_iter), CUVS_SUCCESS);
+  ASSERT_EQ(Api::predict(res, params, &dataset_t, &centroids_t, &labels_t, &predict_inertia),
             CUVS_SUCCESS);
   ASSERT_EQ(cuvsKMeansClusterCost(res, &dataset_t, &centroids_t, &cluster_cost), CUVS_SUCCESS);
 
@@ -119,10 +170,11 @@ void test_fit_predict()
   centroids_t.deleter(&centroids_t);
   dataset_t.deleter(&dataset_t);
 
-  ASSERT_EQ(cuvsKMeansParamsDestroy(params), CUVS_SUCCESS);
+  ASSERT_EQ(Api::params_destroy(params), CUVS_SUCCESS);
   ASSERT_EQ(cuvsResourcesDestroy(res), CUVS_SUCCESS);
 }
 
+template <typename Api>
 void test_fit_host()
 {
   raft::handle_t handle;
@@ -137,8 +189,8 @@ void test_fit_host()
   cuvsResources_t res;
   ASSERT_EQ(cuvsResourcesCreate(&res), CUVS_SUCCESS);
 
-  cuvsKMeansParams_t params;
-  ASSERT_EQ(cuvsKMeansParamsCreate(&params), CUVS_SUCCESS);
+  typename Api::params_t params;
+  ASSERT_EQ(Api::params_create(&params), CUVS_SUCCESS);
   params->n_clusters           = kNClusters;
   params->max_iter             = 100;
   params->tol                  = 1e-6;
@@ -159,8 +211,7 @@ void test_fit_host()
   double inertia = -1.0;
   int n_iter     = -1;
 
-  ASSERT_EQ(cuvsKMeansFit(res, params, &dataset_t, NULL, &centroids_t, &inertia, &n_iter),
-            CUVS_SUCCESS);
+  ASSERT_EQ(Api::fit(res, params, &dataset_t, &centroids_t, &inertia, &n_iter), CUVS_SUCCESS);
 
   ASSERT_TRUE(cuvs::devArrMatchHost(kExpectedCentroids,
                                     centroids_d.data(),
@@ -173,15 +224,21 @@ void test_fit_host()
   centroids_t.deleter(&centroids_t);
   dataset_t.deleter(&dataset_t);
 
-  ASSERT_EQ(cuvsKMeansParamsDestroy(params), CUVS_SUCCESS);
+  ASSERT_EQ(Api::params_destroy(params), CUVS_SUCCESS);
   ASSERT_EQ(cuvsResourcesDestroy(res), CUVS_SUCCESS);
 }
 
 }  // namespace
 
-TEST(KMeansC, FitPredict) { test_fit_predict(); }
+TEST(KMeansC, FitPredict) { test_fit_predict<kmeans_api_v1>(); }
+// TODO(cuVS 26.08): remove FitPredictV2 once `_v2` is promoted to the
+// unsuffixed ABI -- it will be redundant with FitPredict at that point.
+TEST(KMeansC, FitPredictV2) { test_fit_predict<kmeans_api_v2>(); }
 
-TEST(KMeansC, FitHost) { test_fit_host(); }
+TEST(KMeansC, FitHost) { test_fit_host<kmeans_api_v1>(); }
+// TODO(cuVS 26.08): remove FitHostV2 once `_v2` is promoted to the
+// unsuffixed ABI.
+TEST(KMeansC, FitHostV2) { test_fit_host<kmeans_api_v2>(); }
 
 TEST(KMeansC, ParamsCreateDestroy)
 {
@@ -191,4 +248,17 @@ TEST(KMeansC, ParamsCreateDestroy)
   EXPECT_GT(params->n_clusters, 0);
   EXPECT_GT(params->max_iter, 0);
   ASSERT_EQ(cuvsKMeansParamsDestroy(params), CUVS_SUCCESS);
+}
+
+// TODO(cuVS 26.08): remove ParamsCreateDestroyV2 once cuvsKMeansParamsCreate_v2
+// / cuvsKMeansParamsDestroy_v2 are promoted to the unsuffixed entry points and
+// the `_v2` symbols are deleted from the public header.
+TEST(KMeansC, ParamsCreateDestroyV2)
+{
+  cuvsKMeansParams_v2_t params = nullptr;
+  ASSERT_EQ(cuvsKMeansParamsCreate_v2(&params), CUVS_SUCCESS);
+  ASSERT_NE(params, nullptr);
+  EXPECT_GT(params->n_clusters, 0);
+  EXPECT_GT(params->max_iter, 0);
+  ASSERT_EQ(cuvsKMeansParamsDestroy_v2(params), CUVS_SUCCESS);
 }
