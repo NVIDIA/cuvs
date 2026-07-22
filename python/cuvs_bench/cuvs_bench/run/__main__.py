@@ -257,7 +257,6 @@ def main(
         and any backend-specific connection parameters (host, port, etc.).
 
     """
-
     if not data_export:
         # Determine backend type and extra kwargs from --backend-config
         backend_type = "cpp_gbench"
