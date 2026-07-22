@@ -11,7 +11,7 @@ from botocore.exceptions import ClientError
 
 DATASET_NAME = "miracl-en-5m-1024d-fp32"
 S3_BUCKET = "opensearch-cuvs-bench"
-S3_PREFIX = "miracl-en-5m-1024d-fp32/miracl-en-5m-1024d-fp32"
+S3_PREFIX = "miracl-en-5m-1024d-fp32"
 
 
 def download_if_needed(s3, bucket: str, key: str, destination: Path) -> None:

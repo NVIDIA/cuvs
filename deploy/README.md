@@ -90,7 +90,7 @@ The `bench` container logs its progress through each phase. When complete you'll
 ### MIRACL 5M custom dataset
 
 Set `DATASET=miracl-en-5m-1024d-fp32` to use the custom dataset from
-`s3://opensearch-cuvs-bench/miracl-en-5m-1024d-fp32/miracl-en-5m-1024d-fp32/`
+`s3://opensearch-cuvs-bench/miracl-en-5m-1024d-fp32/`
 instead of a built-in cuvs-bench dataset:
 
 ```bash
