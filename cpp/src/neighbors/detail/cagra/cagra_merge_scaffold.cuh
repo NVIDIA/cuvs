@@ -1175,12 +1175,14 @@ auto build(raft::resources const& res,
   RAFT_EXPECTS(params.levels > 0, "Fastener levels must be positive");
   RAFT_EXPECTS(params.root_fanout >= 1 && params.root_fanout <= MAX_FANOUT &&
                  params.lower_fanout >= 1 && params.lower_fanout <= MAX_FANOUT,
-               "Fastener fanouts must be between 1 and 32");
+               "Fastener fanouts must be between 1 and %u",
+               MAX_FANOUT);
   RAFT_EXPECTS(params.leader_fraction > 0.0 && params.leader_fraction <= 1.0,
                "Fastener leader fraction must be in (0, 1]");
   RAFT_EXPECTS(params.max_leaders >= std::max(params.root_fanout, params.lower_fanout) &&
                  params.max_leaders <= MAX_LEADERS,
-               "Fastener leader cap must cover both fanouts and not exceed 8192");
+               "Fastener leader cap must cover both fanouts and not exceed %u",
+               MAX_LEADERS);
   RAFT_EXPECTS(params.leaf_size >= 1 && params.leaf_size <= MAX_LEAF_SIZE,
                "Fastener leaf size must be between 1 and %d",
                MAX_LEAF_SIZE);

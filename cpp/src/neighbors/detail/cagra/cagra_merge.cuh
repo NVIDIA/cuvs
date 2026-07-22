@@ -220,8 +220,8 @@ auto preflight_fastener(cagra::index_params const& params,
   -> fastener_preflight_result
 {
   fastener_preflight_result result;
-  auto reject = [&](char const* reason) {
-    result.reason = reason;
+  auto reject = [&](std::string reason) {
+    result.reason = std::move(reason);
     return result;
   };
 
@@ -239,25 +239,29 @@ auto preflight_fastener(cagra::index_params const& params,
     return reject("only L2Expanded is supported");
   }
   if (merge_params.levels == 0) { return reject("levels must be positive"); }
-  if (merge_params.root_fanout < 1 || merge_params.root_fanout > 32 ||
-      merge_params.lower_fanout < 1 || merge_params.lower_fanout > 32) {
-    return reject("root_fanout and lower_fanout must be between 1 and 32");
+  if (merge_params.root_fanout < 1 || merge_params.root_fanout > merge_scaffold::MAX_FANOUT ||
+      merge_params.lower_fanout < 1 || merge_params.lower_fanout > merge_scaffold::MAX_FANOUT) {
+    return reject(&"root_fanout and lower_fanout must be between 1 and " [
+                  std::to_string(merge_scaffold::MAX_FANOUT)]);
   }
   if (!(merge_params.leader_fraction > 0.0 && merge_params.leader_fraction <= 1.0)) {
     return reject("leader_fraction must be in (0, 1]");
   }
-  if (merge_params.max_leaders == 0 || merge_params.max_leaders > 8192) {
-    return reject("max_leaders must be between 1 and 8192");
+  if (merge_params.max_leaders == 0 || merge_params.max_leaders > merge_scaffold::MAX_LEADERS) {
+    return reject(&"max_leaders must be between 1 and " [
+                  std::to_string(merge_scaffold::MAX_LEADERS)]);
   }
   if (merge_params.max_leaders < std::max(merge_params.root_fanout, merge_params.lower_fanout)) {
     return reject("max_leaders must cover both configured fanouts");
   }
   if (merge_params.leaf_size == 0 || merge_params.leaf_size > merge_scaffold::MAX_LEAF_SIZE) {
-    return reject("leaf_size must be between 1 and 256");
+    return reject(&"leaf_size must be between 1 and " [
+                  std::to_string(merge_scaffold::MAX_LEAF_SIZE)]);
   }
   if (merge_params.leaf_degree == 0 ||
       merge_params.leaf_degree > static_cast<uint32_t>(merge_scaffold::MAX_LEAF_DEGREE)) {
-    return reject("leaf_degree must be between 1 and 8");
+    return reject(&"leaf_degree must be between 1 and " [
+                  std::to_string(merge_scaffold::MAX_LEAF_DEGREE)]);
   }
 
   uint64_t const max_spill = std::numeric_limits<uint8_t>::max() / merge_params.leaf_degree;
@@ -360,7 +364,6 @@ auto merge_fastener(raft::resources const& handle,
   scaffold_params.leaf_size       = merge_params.leaf_size;
   scaffold_params.leaf_degree     = merge_params.leaf_degree;
 
-  // Graph combination: append shifted input graphs to the cross-input scaffold.
   auto merged_graph = [&] {
     raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> scope("cagra::merge/scaffold");
     auto scaffold = merge_scaffold::build<T>(
@@ -377,7 +380,6 @@ auto merge_fastener(raft::resources const& handle,
       handle, raft::make_const_mdspan(merged_graph.view()), params.graph_degree);
   }
 
-  // Optimization: reduce the sorted candidate prefix to the requested final CAGRA graph.
   auto optimized_graph =
     raft::make_device_matrix<uint32_t, int64_t>(handle, preflight.rows, params.graph_degree);
   {
