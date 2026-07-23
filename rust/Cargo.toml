@@ -9,7 +9,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "26.10.0"
+version = "26.8.0"
 edition = "2024"
 repository = "https://github.com/rapidsai/cuvs"
 homepage = "https://github.com/rapidsai/cuvs"
@@ -18,4 +18,4 @@ authors = ["NVIDIA Corporation"]
 license = "Apache-2.0"
 
 [workspace.dependencies]
-cuvs-sys = { path = "cuvs-sys", version = "26.10.0" }
+cuvs-sys = { path = "cuvs-sys", version = "26.8.0" }

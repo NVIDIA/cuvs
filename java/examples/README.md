@@ -14,7 +14,7 @@ This maven project contains examples for CAGRA, HNSW, and Bruteforce algorithms.
 In the current directory do:
 
 ```
-mvn package && java --enable-native-access=ALL-UNNAMED -cp target/cuvs-java-examples-26.10.0.jar:$HOME/.m2/repository/com/nvidia/cuvs/cuvs-java/26.10.0/cuvs-java-26.10.0.jar com.nvidia.cuvs.examples.CagraExample
+mvn package && java --enable-native-access=ALL-UNNAMED -cp target/cuvs-java-examples-26.08.0.jar:$HOME/.m2/repository/com/nvidia/cuvs/cuvs-java/26.08.0/cuvs-java-26.08.0.jar com.nvidia.cuvs.examples.CagraExample
 ```
 
 ### HNSW Example
@@ -22,7 +22,7 @@ mvn package && java --enable-native-access=ALL-UNNAMED -cp target/cuvs-java-exam
 In the current directory do:
 
 ```
-mvn package && java --enable-native-access=ALL-UNNAMED -cp target/cuvs-java-examples-26.10.0.jar:$HOME/.m2/repository/com/nvidia/cuvs/cuvs-java/26.10.0/cuvs-java-26.10.0.jar com.nvidia.cuvs.examples.HnswExample
+mvn package && java --enable-native-access=ALL-UNNAMED -cp target/cuvs-java-examples-26.08.0.jar:$HOME/.m2/repository/com/nvidia/cuvs/cuvs-java/26.08.0/cuvs-java-26.08.0.jar com.nvidia.cuvs.examples.HnswExample
 ```
 
 ### Bruteforce Example
@@ -30,5 +30,5 @@ mvn package && java --enable-native-access=ALL-UNNAMED -cp target/cuvs-java-exam
 In the current directory do:
 
 ```
-mvn package && java --enable-native-access=ALL-UNNAMED -cp target/cuvs-java-examples-26.10.0.jar:$HOME/.m2/repository/com/nvidia/cuvs/cuvs-java/26.10.0/cuvs-java-26.10.0.jar com.nvidia.cuvs.examples.BruteForceExample
+mvn package && java --enable-native-access=ALL-UNNAMED -cp target/cuvs-java-examples-26.08.0.jar:$HOME/.m2/repository/com/nvidia/cuvs/cuvs-java/26.08.0/cuvs-java-26.08.0.jar com.nvidia.cuvs.examples.BruteForceExample
 ```

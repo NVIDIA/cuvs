@@ -609,7 +609,7 @@ dependencies:
       - output_types: [conda, pyproject, requirements]
         packages:
           - click
-          - cuvs==26.10.*,>=0.0.0a0
+          - cuvs==26.8.*,>=0.0.0a0
           - pandas
           - pyyaml
           - requests
@@ -641,17 +641,17 @@ dependencies:
     common:
       - output_types: conda
         packages:
-          - cuvs==26.10.*,>=0.0.0a0
+          - cuvs==26.8.*,>=0.0.0a0
   depends_on_cuvs_bench:
     common:
       - output_types: conda
         packages:
-          - cuvs-bench==26.10.*,>=0.0.0a0
+          - cuvs-bench==26.8.*,>=0.0.0a0
   depends_on_libcuvs:
     common:
       - output_types: conda
         packages:
-          - &libcuvs_unsuffixed libcuvs==26.10.*,>=0.0.0a0
+          - &libcuvs_unsuffixed libcuvs==26.8.*,>=0.0.0a0
       - output_types: requirements
         packages:
           # pip recognizes the index as a global option for the requirements.txt file
@@ -663,23 +663,23 @@ dependencies:
               cuda: "12.*"
               cuda_suffixed: "true"
             packages:
-              - libcuvs-cu12==26.10.*,>=0.0.0a0
+              - libcuvs-cu12==26.8.*,>=0.0.0a0
           - matrix:
               cuda: "13.*"
               cuda_suffixed: "true"
             packages:
-              - libcuvs-cu13==26.10.*,>=0.0.0a0
+              - libcuvs-cu13==26.8.*,>=0.0.0a0
           - {matrix: null, packages: [*libcuvs_unsuffixed]}
   depends_on_libcuvs_tests:
     common:
       - output_types: conda
         packages:
-          - libcuvs-tests==26.10.*,>=0.0.0a0
+          - libcuvs-tests==26.8.*,>=0.0.0a0
   depends_on_libraft:
     common:
       - output_types: conda
         packages:
-          - &libraft_unsuffixed libraft==26.10.*,>=0.0.0a0
+          - &libraft_unsuffixed libraft==26.8.*,>=0.0.0a0
       - output_types: requirements
         packages:
           # pip recognizes the index as a global option for the requirements.txt file
@@ -691,18 +691,18 @@ dependencies:
               cuda: "12.*"
               cuda_suffixed: "true"
             packages:
-              - libraft-cu12==26.10.*,>=0.0.0a0
+              - libraft-cu12==26.8.*,>=0.0.0a0
           - matrix:
               cuda: "13.*"
               cuda_suffixed: "true"
             packages:
-              - libraft-cu13==26.10.*,>=0.0.0a0
+              - libraft-cu13==26.8.*,>=0.0.0a0
           - {matrix: null, packages: [*libraft_unsuffixed]}
   depends_on_librmm:
     common:
       - output_types: conda
         packages:
-          - &librmm_unsuffixed librmm==26.10.*,>=0.0.0a0
+          - &librmm_unsuffixed librmm==26.8.*,>=0.0.0a0
       - output_types: requirements
         packages:
           # pip recognizes the index as a global option for the requirements.txt file
@@ -714,18 +714,18 @@ dependencies:
               cuda: "12.*"
               cuda_suffixed: "true"
             packages:
-              - librmm-cu12==26.10.*,>=0.0.0a0
+              - librmm-cu12==26.8.*,>=0.0.0a0
           - matrix:
               cuda: "13.*"
               cuda_suffixed: "true"
             packages:
-              - librmm-cu13==26.10.*,>=0.0.0a0
+              - librmm-cu13==26.8.*,>=0.0.0a0
           - {matrix: null, packages: [*librmm_unsuffixed]}
   depends_on_pylibraft:
     common:
       - output_types: conda
         packages:
-          - &pylibraft_unsuffixed pylibraft==26.10.*,>=0.0.0a0
+          - &pylibraft_unsuffixed pylibraft==26.8.*,>=0.0.0a0
       - output_types: requirements
         packages:
           # pip recognizes the index as a global option for the requirements.txt file
@@ -737,12 +737,12 @@ dependencies:
               cuda: "12.*"
               cuda_suffixed: "true"
             packages:
-              - pylibraft-cu12==26.10.*,>=0.0.0a0
+              - pylibraft-cu12==26.8.*,>=0.0.0a0
           - matrix:
               cuda: "13.*"
               cuda_suffixed: "true"
             packages:
-              - pylibraft-cu13==26.10.*,>=0.0.0a0
+              - pylibraft-cu13==26.8.*,>=0.0.0a0
           - {matrix: null, packages: [*pylibraft_unsuffixed]}
   depends_on_nccl:
     common:
