@@ -180,6 +180,7 @@ function(ConfigureAnnBench)
             nlohmann_json::nlohmann_json
             sqlite3
             Threads::Threads
+            ${CMAKE_DL_LIBS}
             $<$<BOOL:${GPU_BUILD}>:CUDA::cudart_static>
             $<TARGET_NAME_IF_EXISTS:OpenMP::OpenMP_CXX>
             $<TARGET_NAME_IF_EXISTS:conda_env>
