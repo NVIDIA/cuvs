@@ -152,6 +152,8 @@ navigation:
             contents:
               - page: "K-Means"
                 path: "./pages/cluster/kmeans.md"
+              - page: "Gaussian Mixture Model"
+                path: "./pages/cluster/gmm.md"
               - page: "Single-linkage"
                 path: "./pages/cluster/single_linkage.md"
               - page: "Spectral Clustering"
@@ -318,6 +320,8 @@ navigation:
         contents:
           - page: "Cluster Agglomerative"
             path: "./pages/cpp_api/cpp-api-cluster-agglomerative.md"
+          - page: "Cluster Gmm"
+            path: "./pages/cpp_api/cpp-api-cluster-gmm.md"
           - page: "Cluster Kmeans"
             path: "./pages/cpp_api/cpp-api-cluster-kmeans.md"
           - page: "Cluster Spectral"
