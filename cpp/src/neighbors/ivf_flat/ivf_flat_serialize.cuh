@@ -17,7 +17,6 @@
 #include <raft/core/numpy_serializer.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/serialize.hpp>
-#include <raft/util/pow2_utils.cuh>
 
 #include <fstream>
 
@@ -28,7 +27,7 @@ namespace cuvs::neighbors::ivf_flat::detail {
 // backward compatibility.
 // TODO(hcho3) Implement next-gen serializer for IVF that allows for expansion in a backward
 //             compatible fashion.
-constexpr int serialization_version = 4;
+constexpr int serialization_version = 5;
 
 /**
  * Save the index to file.
@@ -73,11 +72,7 @@ void serialize(raft::resources const& handle, Output& os, const index<T, IdxT>& 
 
   list_spec<uint32_t, T, IdxT> list_store_spec{index_.dim(), true};
   for (uint32_t label = 0; label < index_.n_lists(); label++) {
-    ivf::serialize_list(handle,
-                        os,
-                        index_.lists()[label],
-                        list_store_spec,
-                        raft::Pow2<kIndexGroupSize>::roundUp(sizes_host(label)));
+    ivf::serialize_list(handle, os, index_.lists()[label], list_store_spec, sizes_host(label));
   }
   raft::resource::sync_stream(handle);
 }

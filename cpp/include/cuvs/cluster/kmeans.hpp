@@ -113,9 +113,8 @@ struct params : base_params {
    * Default tile is [batch_samples x n_clusters] i.e. when batch_centroids is 0
    * then don't tile the centroids
    *
-   * NB: These parameters are unrelated to streaming_batch_size, which controls how many
-   * samples to transfer from host to device per batch when processing out-of-core
-   * data.
+   * NB: These parameters are unrelated to device_buffer_samples, which specifies the number of
+   * training vectors that get buffered on device when the training vectors are passed in on host.
    */
   int batch_samples = 1 << 15;
 
@@ -154,7 +153,7 @@ struct params : base_params {
    * count. This is is ignored by device-data overloads.
    * Default: 0 (process all data at once).
    */
-  int64_t streaming_batch_size = 0;
+  int64_t device_buffer_samples = 0;
 };
 
 /**
@@ -166,11 +165,51 @@ struct params : base_params {
  *  - L2Expanded
  *  - L2SqrtExpanded
  */
+/**
+ * Donor selection strategy used by balanced k-means rebalancing.
+ */
+enum class balanced_donor_selection { SizeSorted = 0, Random = 1 };
+
 struct balanced_params : base_params {
   /**
    * Number of training iterations
    */
   uint32_t n_iters = 20;
+
+  /**
+   * Lower balance tolerance used during hierarchical training. Clusters smaller than
+   * `average_cluster_size * balance_lower_tolerance` are underfull. The default value of `0.333`
+   * targets clusters smaller than roughly one third of the average size.
+   *
+   * Valid range: (0, 1).
+   */
+  float balance_lower_tolerance = 0.333f;
+
+  /**
+   * Upper balance tolerance used during hierarchical training. Clusters larger than
+   * `average_cluster_size * balance_upper_tolerance` are overfull donors. The default value of
+   * `3.0` targets clusters larger than roughly three times the average size. Very strict upper
+   * values around `1.4` or lower can be difficult for this heuristic rebalancing method to satisfy.
+   *
+   * Valid range: (1, infinity).
+   */
+  float balance_upper_tolerance = 3.0f;
+
+  /**
+   * Offset used when reinitializing an underfull cluster near an overfull cluster. The new center
+   * is placed at `donor_center + centroid_offset * (donor_point - donor_center)`.
+   *
+   * Valid range: (0, 1].
+   */
+  float centroid_offset = 0.01f;
+
+  /**
+   * Donor cluster selection strategy used when reinitializing underfull clusters. `SizeSorted`
+   * pairs the smallest clusters with the largest clusters and uses `balance_upper_tolerance` to
+   * identify overfull donors. `Random` selects donor points from clusters at least as large as the
+   * average cluster size; in that mode, `balance_upper_tolerance` does not control donor selection.
+   */
+  balanced_donor_selection donor_selection = balanced_donor_selection::SizeSorted;
 };
 
 /**
@@ -199,7 +238,7 @@ enum class kmeans_type { KMeans = 0, KMeansBalanced = 1 };
  *
  * This overload supports out-of-core computation where the dataset resides
  * on the host. Data is processed in batches, streaming from host to
- * device. The batch size is controlled by `params.streaming_batch_size`.
+ * device. The batch size is controlled by `params.device_buffer_samples`.
  *
  * Multi-GPU dispatch is selected automatically based on the handle state:
  *   - If `raft::resource::is_multi_gpu(handle)` (cuVS SNMG): the full dataset X
@@ -221,7 +260,7 @@ enum class kmeans_type { KMeans = 0, KMeansBalanced = 1 };
  *   raft::resources handle;
  *   cuvs::cluster::kmeans::params params;
  *   params.n_clusters = 100;
- *   params.streaming_batch_size = 100000;
+ *   params.device_buffer_samples = 100000;
  *   float inertia;
  *   int64_t n_iter;
  *
@@ -245,7 +284,7 @@ enum class kmeans_type { KMeans = 0, KMeansBalanced = 1 };
  * @param[in]     handle        The raft handle. When a multi-GPU resource is
  *                              attached, multi-GPU dispatch is used automatically.
  * @param[in]     params        Parameters for KMeans model. Batch size is read from
- *                              params.streaming_batch_size.
+ *                              params.device_buffer_samples.
  * @param[in]     X             Training instances on HOST memory. The data must
  *                              be in row-major format.
  *                              [dim = n_samples x n_features]
@@ -1648,8 +1687,8 @@ void cluster_cost(
  *
  * Each rank supplies its local training data as a vector of partitions. For
  * host-resident partitions the implementation streams each partition using
- * `params.streaming_batch_size` (per rank). For device-resident partitions
- * `streaming_batch_size` is ignored and each local partition is processed in full.
+ * `params.device_buffer_samples` (per rank). For device-resident partitions
+ * `device_buffer_samples` is ignored and each local partition is processed in full.
  *
  * The active backend is selected by the resources attached to
  * `handle`:
@@ -1665,7 +1704,7 @@ void cluster_cost(
  * @param[in]     params              K-means parameters. For host-resident
  *                                    partitions the per-rank streaming batch
  *                                    size is read from
- *                                    `params.streaming_batch_size`; it is
+ *                                    `params.device_buffer_samples`; it is
  *                                    ignored for device-resident partitions.
  * @param[in]     X_parts             Per-partition local data on this rank.
  *                                    Each entry is [n_rows_i x n_features].

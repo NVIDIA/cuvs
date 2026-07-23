@@ -9,8 +9,8 @@
 //! implementing the public [`AsDlTensor`]/[`AsDlTensorMut`] traits. The
 //! [`CudaTensor`] type manages device memory directly through the CUDA runtime
 //! (`cudaMalloc`/`cudaFree`) and copies to/from host arrays with `cudaMemcpyAsync`
-//! on the cuVS stream, reusing the resources handle's `get_cuda_stream`/
-//! `sync_stream` for stream access and synchronization.
+//! on the cuVS stream, reusing the resources handle's `stream`/`sync_stream`
+//! for stream access and synchronization.
 //!
 //! A real application would likely rely on a helper crate such as `cudarc`
 //! and its `CudaSlice`.
@@ -20,11 +20,11 @@ use std::marker::PhantomData;
 use std::os::raw::c_int;
 
 use cuvs::Resources;
-use cuvs::cagra::{Index, IndexParams, SearchParams};
 use cuvs::dlpack::{
     AsDlTensor, AsDlTensorMut, DLDevice, DLDeviceType, DLPackError, DLTensorView, DLTensorViewMut,
     DType,
 };
+use cuvs::neighbors::cagra::{Index, IndexParams, SearchParams};
 
 use ndarray::s;
 use ndarray_rand::RandomExt;
@@ -98,7 +98,7 @@ impl<T: DType> CudaTensor<T> {
         }
         let tensor = Self::alloc(host.shape())?;
 
-        let stream = res.get_cuda_stream()?;
+        let stream = res.stream()?;
         check_cuda(unsafe {
             cudaMemcpyAsync(
                 tensor.data,
@@ -122,7 +122,7 @@ impl<T: DType> CudaTensor<T> {
             return Err("host array must be contiguous (row-major)".into());
         }
 
-        let stream = res.get_cuda_stream()?;
+        let stream = res.stream()?;
         check_cuda(unsafe {
             cudaMemcpyAsync(
                 host.as_mut_ptr() as *mut c_void,
@@ -188,7 +188,7 @@ fn cagra_example() -> ExampleResult<()> {
     let dataset = CudaTensor::from_host(&res, &dataset_host)?;
 
     // Build the CAGRA index.
-    let build_params = IndexParams::new()?;
+    let build_params = IndexParams::builder().build()?;
     let index = Index::build(&res, &build_params, &dataset)?;
     println!("Indexed {n_datapoints}x{n_features} datapoints into cagra index");
 
@@ -201,7 +201,7 @@ fn cagra_example() -> ExampleResult<()> {
     let mut neighbors = CudaTensor::<u32>::alloc(&[n_queries, k])?;
     let mut distances = CudaTensor::<f32>::alloc(&[n_queries, k])?;
 
-    let search_params = SearchParams::new()?;
+    let search_params = SearchParams::builder().build()?;
     index.search(&res, &search_params, &queries, &mut neighbors, &mut distances)?;
 
     // Copy the results back to the host.

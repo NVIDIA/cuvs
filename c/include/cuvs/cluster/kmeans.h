@@ -112,7 +112,7 @@ struct cuvsKMeansParams {
    * Number of samples to process per GPU batch for the batched (host-data) API.
    * When set to 0, defaults to n_samples (process all at once).
    */
-  int64_t streaming_batch_size;
+  int64_t device_buffer_samples;
 
   /**
    * Number of samples to draw for KMeansPlusPlus initialization.
@@ -191,7 +191,7 @@ struct cuvsKMeansParams {
    * Number of samples to process per GPU batch for the batched (host-data) API.
    * When set to 0, defaults to n_samples (process all at once).
    */
-  int64_t streaming_batch_size;
+  int64_t device_buffer_samples;
 
   /**
    * Number of samples to draw for KMeansPlusPlus initialization.
@@ -267,8 +267,8 @@ typedef enum { CUVS_KMEANS_TYPE_KMEANS = 0, CUVS_KMEANS_TYPE_KMEANS_BALANCED = 1
  *   k-means++ algorithm.
  *
  *   X may reside on either host (CPU) or device (GPU) memory.
- *   When X is on the host the data is streamed to the GPU in
- *   batches controlled by params->streaming_batch_size.
+ *   When X is on the host the data is buffered to the GPU in
+ *   batches controlled by params->device_buffer_samples.
  *
  * @note In cuVS 26.08 (next ABI major version) this signature will be
  * replaced by cuvsKMeansFit_v2.
