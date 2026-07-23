@@ -101,7 +101,7 @@ outputs:
       dynamic_linking:
         overlinking_behavior: "error"
       prefix_detection:
-        ignore_binary_files: True
+        ignore_binary_files: true
       script:
         content: |
           cmake --install cpp/build --component cuvs_cpp_headers
@@ -159,7 +159,7 @@ outputs:
       dynamic_linking:
         overlinking_behavior: "error"
       prefix_detection:
-        ignore_binary_files: True
+        ignore_binary_files: true
       script:
         content: |
           cmake --install cpp/build --component cuvs
@@ -222,7 +222,7 @@ outputs:
       dynamic_linking:
         overlinking_behavior: "error"
       prefix_detection:
-        ignore_binary_files: True
+        ignore_binary_files: true
       script:
         content: |
           cmake --install cpp/build --component cuvs_static
@@ -284,7 +284,7 @@ outputs:
       dynamic_linking:
         overlinking_behavior: "error"
       prefix_detection:
-        ignore_binary_files: True
+        ignore_binary_files: true
     requirements:
       build:
         - cmake ${{ cmake_version }}
@@ -340,7 +340,7 @@ outputs:
       dynamic_linking:
         overlinking_behavior: "error"
       prefix_detection:
-        ignore_binary_files: True
+        ignore_binary_files: true
       script:
         content: |
           # Remove `-fdebug-prefix-map` line from CFLAGS and CXXFLAGS so the
@@ -452,7 +452,7 @@ outputs:
       dynamic_linking:
         overlinking_behavior: "error"
       prefix_detection:
-        ignore_binary_files: True
+        ignore_binary_files: true
     requirements:
       build:
         - cmake ${{ cmake_version }}
