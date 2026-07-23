@@ -229,14 +229,14 @@ _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:123
 HnswIndex hnswIndexBuild(CuVSResources resources, HnswIndexParams hnswParams, CuVSMatrix dataset) throws Throwable
 ```
 
-Builds an HNSW index using the ACE (Augmented Core Extraction) algorithm.
+Builds an HNSW index from HNSW parameters using GPU graph construction.
 
 **Parameters**
 
 | Name | Description |
 | --- | --- |
 | `resources` | The CuVS resources |
-| `hnswParams` | Parameters for the HNSW index with ACE configuration |
+| `hnswParams` | Parameters for the HNSW index |
 | `dataset` | The dataset to build the index from |
 
 **Returns**

@@ -83,8 +83,7 @@ public long getM()
 ```
 
 Gets the HNSW M parameter: number of bi-directional links per node
-(used when building with ACE). graph_degree = m * 2,
-intermediate_graph_degree = m * 3.
+used to derive the internal graph build parameters for GPU construction.
 
 **Returns**
 
@@ -112,7 +111,8 @@ _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndexParams.java:142`
 public HnswAceParams getAceParams()
 ```
 
-Gets the ACE parameters for building HNSW index using ACE algorithm.
+Gets the optional ACE parameters for explicit out-of-core graph construction. When not set, the
+graph build algorithm is selected automatically.
 
 **Returns**
 
@@ -159,14 +159,13 @@ _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndexParams.java:202`
 public Builder withEfConstruction(int efConstruction)
 ```
 
-Sets the size of the candidate list during hierarchy construction when
-hierarchy is `CPU`.
+Sets the maximum candidate list size used during index construction.
 
 **Parameters**
 
 | Name | Description |
 | --- | --- |
-| `efConstruction` | the size of the candidate list during hierarchy construction when hierarchy is `CPU` |
+| `efConstruction` | the maximum candidate list size used during construction |
 
 **Returns**
 
@@ -222,8 +221,7 @@ public Builder withM(long m)
 ```
 
 Sets the HNSW M parameter: number of bi-directional links per node
-(used when building with ACE). graph_degree = m * 2,
-intermediate_graph_degree = m * 3.
+used to derive the internal graph build parameters for GPU construction.
 
 **Parameters**
 
@@ -263,7 +261,8 @@ _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndexParams.java:262`
 public Builder withAceParams(HnswAceParams aceParams)
 ```
 
-Sets the ACE parameters for building HNSW index using ACE algorithm.
+Sets optional ACE parameters for explicit out-of-core graph construction. When not set, the graph
+build algorithm is selected automatically.
 
 **Parameters**
 

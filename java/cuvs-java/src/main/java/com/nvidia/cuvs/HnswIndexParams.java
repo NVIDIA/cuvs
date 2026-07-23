@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs;
@@ -126,8 +126,7 @@ public class HnswIndexParams {
 
   /**
    * Gets the HNSW M parameter: number of bi-directional links per node
-   * (used when building with ACE). graph_degree = m * 2,
-   * intermediate_graph_degree = m * 3.
+   * used to derive the internal graph build parameters for GPU construction.
    *
    * @return the M parameter
    */
@@ -145,7 +144,8 @@ public class HnswIndexParams {
   }
 
   /**
-   * Gets the ACE parameters for building HNSW index using ACE algorithm.
+   * Gets the optional ACE parameters for explicit out-of-core graph construction. When not set, the
+   * graph build algorithm is selected automatically.
    *
    * @return the ACE parameters, or null if not set
    */
@@ -206,11 +206,9 @@ public class HnswIndexParams {
     }
 
     /**
-     * Sets the size of the candidate list during hierarchy construction when
-     * hierarchy is `CPU`.
+     * Sets the maximum candidate list size used during index construction.
      *
-     * @param efConstruction the size of the candidate list during hierarchy
-     *                       construction when hierarchy is `CPU`
+     * @param efConstruction the maximum candidate list size used during construction
      * @return an instance of Builder
      */
     public Builder withEfConstruction(int efConstruction) {
@@ -242,9 +240,8 @@ public class HnswIndexParams {
     }
 
     /**
-     * Sets the HNSW M parameter: number of bi-directional links per node
-     * (used when building with ACE). graph_degree = m * 2,
-     * intermediate_graph_degree = m * 3.
+     * Sets the HNSW M parameter: number of bi-directional links per node used to derive the internal
+     * graph build parameters for GPU construction.
      *
      * @param m the M parameter
      * @return an instance of Builder
@@ -266,7 +263,8 @@ public class HnswIndexParams {
     }
 
     /**
-     * Sets the ACE parameters for building HNSW index using ACE algorithm.
+     * Sets optional ACE parameters for explicit out-of-core graph construction. When not set, the
+     * graph build algorithm is selected automatically.
      *
      * @param aceParams the ACE parameters
      * @return an instance of Builder

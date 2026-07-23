@@ -282,12 +282,12 @@ cuvsHnswIndex_t hnsw_index);
 
 [`cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)
 
-## Build HNSW index using ACE algorithm
+## Build an HNSW index
 
 <a id="cuvshnswbuild"></a>
 ### cuvsHnswBuild
 
-Build an HNSW index using ACE (Augmented Core Extraction) algorithm.
+Build an HNSW index from HNSW parameters.
 
 ```c
 cuvsError_t cuvsHnswBuild(cuvsResources_t res,
@@ -296,11 +296,8 @@ DLManagedTensor* dataset,
 cuvsHnswIndex_t index);
 ```
 
-ACE enables building HNSW indexes for datasets too large to fit in GPU memory by:
-
-1. Partitioning the dataset using balanced k-means into core and augmented partitions
-2. Building sub-indexes for each partition independently
-3. Concatenating sub-graphs into a final unified index
+The graph is built on the GPU and converted to an HNSW index that can be searched on the CPU.
+The graph build algorithm is selected automatically unless explicit ACE parameters are provided.
 
 NOTE: This function requires CUDA to be available at runtime.
 
@@ -309,7 +306,7 @@ NOTE: This function requires CUDA to be available at runtime.
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | [`cuvsResources_t`](/api-reference/c-api-core-c-api#cuvsresources-t) | cuvsResources_t opaque C handle |
-| `params` | in | `cuvsHnswIndexParams_t` | cuvsHnswIndexParams_t with ACE parameters configured |
+| `params` | in | `cuvsHnswIndexParams_t` | cuvsHnswIndexParams_t with HNSW build parameters |
 | `dataset` | in | `DLManagedTensor*` | DLManagedTensor* host dataset to build index from |
 | `index` | out | [`cuvsHnswIndex_t`](/api-reference/c-api-neighbors-hnsw#cuvshnswindex) | cuvsHnswIndex_t to return the built HNSW index |
 

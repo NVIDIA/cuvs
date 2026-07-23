@@ -1,6 +1,6 @@
 
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -37,15 +37,17 @@ void _build(cuvsResources_t res,
   cpp_params.M               = params->M;
   cpp_params.metric          = static_cast<cuvs::distance::DistanceType>(params->metric);
 
-  // Configure ACE parameters
-  RAFT_EXPECTS(params->ace_params != nullptr, "ACE parameters must be set for hnsw::build");
-  auto ace_params                 = cuvs::neighbors::hnsw::graph_build_params::ace_params();
-  ace_params.npartitions          = params->ace_params->npartitions;
-  ace_params.build_dir            = params->ace_params->build_dir ? params->ace_params->build_dir : "/tmp/hnsw_ace_build";
-  ace_params.use_disk             = params->ace_params->use_disk;
-  ace_params.max_host_memory_gb   = params->ace_params->max_host_memory_gb;
-  ace_params.max_gpu_memory_gb    = params->ace_params->max_gpu_memory_gb;
-  cpp_params.graph_build_params   = ace_params;
+  if (params->ace_params != nullptr) {
+    auto ace_params               = cuvs::neighbors::hnsw::graph_build_params::ace_params();
+    ace_params.npartitions        = params->ace_params->npartitions;
+    ace_params.build_dir          = params->ace_params->build_dir
+                                      ? params->ace_params->build_dir
+                                      : "/tmp/hnsw_ace_build";
+    ace_params.use_disk           = params->ace_params->use_disk;
+    ace_params.max_host_memory_gb = params->ace_params->max_host_memory_gb;
+    ace_params.max_gpu_memory_gb  = params->ace_params->max_gpu_memory_gb;
+    cpp_params.graph_build_params = ace_params;
+  }
 
   using dataset_mdspan_type = raft::host_matrix_view<T const, int64_t, raft::row_major>;
   auto dataset_mds          = cuvs::core::from_dlpack<dataset_mdspan_type>(dataset_tensor);

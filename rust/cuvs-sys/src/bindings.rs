@@ -2088,15 +2088,15 @@ unsafe extern "C" {
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsHnswIndexParams {
     pub hierarchy: cuvsHnswHierarchy,
-    #[doc = " Size of the candidate list during hierarchy construction when hierarchy is `CPU`"]
+    #[doc = " Maximum candidate list size used during index construction."]
     pub ef_construction: ::std::os::raw::c_int,
     #[doc = " Number of host threads to use to construct hierarchy when hierarchy is `CPU` or `GPU`.\nWhen the value is 0, the number of threads is automatically determined to the\nmaximum number of threads available.\nNOTE: When hierarchy is `GPU`, while the majority of the work is done on the GPU,\ninitialization of the HNSW index itself and some other work\nis parallelized with the help of CPU threads."]
     pub num_threads: ::std::os::raw::c_int,
-    #[doc = " HNSW M parameter: number of bi-directional links per node (used when building with ACE).\n  graph_degree = m * 2, intermediate_graph_degree = m * 3."]
+    #[doc = " HNSW M parameter: number of bi-directional links per node. When the graph is built on the GPU,\n  this parameter is used to derive the internal CAGRA graph build parameters."]
     pub M: usize,
     #[doc = " Distance type for the index."]
     pub metric: cuvsDistanceType,
-    #[doc = " Optional: specify ACE parameters for building HNSW index using ACE algorithm.\n Set to nullptr for default behavior (from_cagra conversion)."]
+    #[doc = " Optional ACE parameters for out-of-core graph construction.\n Set to nullptr to select the graph build algorithm automatically."]
     pub ace_params: cuvsHnswAceParams_t,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -2200,7 +2200,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Build an HNSW index using ACE (Augmented Core Extraction) algorithm.\n\n ACE enables building HNSW indexes for datasets too large to fit in GPU memory by:\n 1. Partitioning the dataset using balanced k-means into core and augmented partitions\n 2. Building sub-indexes for each partition independently\n 3. Concatenating sub-graphs into a final unified index\n\n NOTE: This function requires CUDA to be available at runtime.\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] params cuvsHnswIndexParams_t with ACE parameters configured\n @param[in] dataset DLManagedTensor* host dataset to build index from\n @param[out] index cuvsHnswIndex_t to return the built HNSW index\n\n @return cuvsError_t\n\n @code{.c}\n #include <cuvs/core/c_api.h>\n #include <cuvs/neighbors/hnsw.h>\n\n // Create cuvsResources_t\n cuvsResources_t res;\n cuvsResourcesCreate(&res);\n\n // Create ACE parameters\n cuvsHnswAceParams_t ace_params;\n cuvsHnswAceParamsCreate(&ace_params);\n ace_params->npartitions = 4;\n ace_params->use_disk = true;\n ace_params->build_dir = \"/tmp/hnsw_ace_build\";\n\n // Create index parameters\n cuvsHnswIndexParams_t params;\n cuvsHnswIndexParamsCreate(&params);\n params->hierarchy = GPU;\n params->ace_params = ace_params;\n params->M = 32;\n params->ef_construction = 120;\n\n // Create HNSW index\n cuvsHnswIndex_t hnsw_index;\n cuvsHnswIndexCreate(&hnsw_index);\n\n // Assume dataset is a populated DLManagedTensor with host data\n DLManagedTensor dataset;\n\n // Build the index\n cuvsHnswBuild(res, params, &dataset, hnsw_index);\n\n // Clean up\n cuvsHnswAceParamsDestroy(ace_params);\n cuvsHnswIndexParamsDestroy(params);\n cuvsHnswIndexDestroy(hnsw_index);\n cuvsResourcesDestroy(res);\n @endcode"]
+    #[doc = " @brief Build an HNSW index from HNSW parameters.\n\n The graph is built on the GPU and converted to an HNSW index that can be searched on the CPU.\n The graph build algorithm is selected automatically unless explicit ACE parameters are provided.\n\n NOTE: This function requires CUDA to be available at runtime.\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] params cuvsHnswIndexParams_t with HNSW build parameters\n @param[in] dataset DLManagedTensor* host dataset to build index from\n @param[out] index cuvsHnswIndex_t to return the built HNSW index\n\n @return cuvsError_t\n\n @code{.c}\n #include <cuvs/core/c_api.h>\n #include <cuvs/neighbors/hnsw.h>\n\n // Create cuvsResources_t\n cuvsResources_t res;\n cuvsResourcesCreate(&res);\n\n // Create index parameters\n cuvsHnswIndexParams_t params;\n cuvsHnswIndexParamsCreate(&params);\n params->hierarchy = GPU;\n params->M = 32;\n params->ef_construction = 120;\n\n // Create HNSW index\n cuvsHnswIndex_t hnsw_index;\n cuvsHnswIndexCreate(&hnsw_index);\n\n // Assume dataset is a populated DLManagedTensor with host data\n DLManagedTensor dataset;\n\n // Build the index\n cuvsHnswBuild(res, params, &dataset, hnsw_index);\n\n // Clean up\n cuvsHnswIndexParamsDestroy(params);\n cuvsHnswIndexDestroy(hnsw_index);\n cuvsResourcesDestroy(res);\n @endcode"]
     pub fn cuvsHnswBuild(
         res: cuvsResources_t,
         params: cuvsHnswIndexParams_t,

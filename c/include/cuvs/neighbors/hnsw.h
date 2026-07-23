@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -109,7 +109,7 @@ CUVS_EXPORT cuvsError_t cuvsHnswAceParamsDestroy(cuvsHnswAceParams_t params);
 struct cuvsHnswIndexParams {
   /* hierarchy of the hnsw index */
   enum cuvsHnswHierarchy hierarchy;
-  /** Size of the candidate list during hierarchy construction when hierarchy is `CPU`*/
+  /** Maximum candidate list size used during index construction. */
   int ef_construction;
   /** Number of host threads to use to construct hierarchy when hierarchy is `CPU` or `GPU`.
       When the value is 0, the number of threads is automatically determined to the
@@ -119,15 +119,15 @@ struct cuvsHnswIndexParams {
       is parallelized with the help of CPU threads.
   */
   int num_threads;
-  /** HNSW M parameter: number of bi-directional links per node (used when building with ACE).
-   *  graph_degree = m * 2, intermediate_graph_degree = m * 3.
+  /** HNSW M parameter: number of bi-directional links per node. When the graph is built on the GPU,
+   *  this parameter is used to derive the internal CAGRA graph build parameters.
    */
   size_t M;
   /** Distance type for the index. */
   cuvsDistanceType metric;
   /**
-   * Optional: specify ACE parameters for building HNSW index using ACE algorithm.
-   * Set to nullptr for default behavior (from_cagra conversion).
+   * Optional ACE parameters for out-of-core graph construction.
+   * Set to nullptr to select the graph build algorithm automatically.
    */
   cuvsHnswAceParams_t ace_params;
 };
@@ -285,22 +285,20 @@ CUVS_EXPORT cuvsError_t cuvsHnswFromCagraWithDataset(cuvsResources_t res,
  */
 
 /**
- * @defgroup hnsw_c_index_build Build HNSW index using ACE algorithm
+ * @defgroup hnsw_c_index_build Build an HNSW index
  * @{
  */
 
 /**
- * @brief Build an HNSW index using ACE (Augmented Core Extraction) algorithm.
+ * @brief Build an HNSW index from HNSW parameters.
  *
- * ACE enables building HNSW indexes for datasets too large to fit in GPU memory by:
- * 1. Partitioning the dataset using balanced k-means into core and augmented partitions
- * 2. Building sub-indexes for each partition independently
- * 3. Concatenating sub-graphs into a final unified index
+ * The graph is built on the GPU and converted to an HNSW index that can be searched on the CPU.
+ * The graph build algorithm is selected automatically unless explicit ACE parameters are provided.
  *
  * NOTE: This function requires CUDA to be available at runtime.
  *
  * @param[in] res cuvsResources_t opaque C handle
- * @param[in] params cuvsHnswIndexParams_t with ACE parameters configured
+ * @param[in] params cuvsHnswIndexParams_t with HNSW build parameters
  * @param[in] dataset DLManagedTensor* host dataset to build index from
  * @param[out] index cuvsHnswIndex_t to return the built HNSW index
  *
@@ -314,18 +312,10 @@ CUVS_EXPORT cuvsError_t cuvsHnswFromCagraWithDataset(cuvsResources_t res,
  * cuvsResources_t res;
  * cuvsResourcesCreate(&res);
  *
- * // Create ACE parameters
- * cuvsHnswAceParams_t ace_params;
- * cuvsHnswAceParamsCreate(&ace_params);
- * ace_params->npartitions = 4;
- * ace_params->use_disk = true;
- * ace_params->build_dir = "/tmp/hnsw_ace_build";
- *
  * // Create index parameters
  * cuvsHnswIndexParams_t params;
  * cuvsHnswIndexParamsCreate(&params);
  * params->hierarchy = GPU;
- * params->ace_params = ace_params;
  * params->M = 32;
  * params->ef_construction = 120;
  *
@@ -340,7 +330,6 @@ CUVS_EXPORT cuvsError_t cuvsHnswFromCagraWithDataset(cuvsResources_t res,
  * cuvsHnswBuild(res, params, &dataset, hnsw_index);
  *
  * // Clean up
- * cuvsHnswAceParamsDestroy(ace_params);
  * cuvsHnswIndexParamsDestroy(params);
  * cuvsHnswIndexDestroy(hnsw_index);
  * cuvsResourcesDestroy(res);

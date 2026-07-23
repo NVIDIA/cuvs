@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs.internal;
@@ -243,10 +243,10 @@ public class HnswIndexImpl implements HnswIndex {
   }
 
   /**
-   * Builds an HNSW index using the ACE algorithm.
+   * Builds an HNSW index from HNSW parameters using GPU graph construction.
    *
    * @param resources The CuVS resources
-   * @param hnswParams Parameters for the HNSW index with ACE configuration
+   * @param hnswParams Parameters for the HNSW index
    * @param dataset The dataset to build the index from
    * @return A new HNSW index ready for search
    * @throws Throwable if an error occurs during building
@@ -256,7 +256,6 @@ public class HnswIndexImpl implements HnswIndex {
     Objects.requireNonNull(resources);
     Objects.requireNonNull(hnswParams);
     Objects.requireNonNull(dataset);
-    Objects.requireNonNull(hnswParams.getAceParams(), "ACE parameters must be set for build()");
 
     // Create HNSW index
     MemorySegment hnswIndex = createHnswIndexHandle();
@@ -268,7 +267,7 @@ public class HnswIndexImpl implements HnswIndex {
 
       MemorySegment hnswParamsMemorySegment = hnswParamsHandle.handle();
 
-      // Link ACE params to HNSW index params
+      // Link optional ACE params to HNSW index params
       cuvsHnswIndexParams.ace_params(hnswParamsMemorySegment, aceParamsHandle.handle());
 
       // Prepare dataset tensor
@@ -302,6 +301,10 @@ public class HnswIndexImpl implements HnswIndex {
   }
 
   private static CloseableHandle createHnswAceParams(Arena arena, HnswAceParams aceParams) {
+    if (aceParams == null) {
+      return CloseableHandle.NULL;
+    }
+
     var params = createHnswAceParamsNative();
     MemorySegment seg = params.handle();
 

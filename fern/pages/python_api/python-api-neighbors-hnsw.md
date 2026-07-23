@@ -87,11 +87,11 @@ Parameters to build index for HNSW nearest neighbor search
 | Name | Type | Description |
 | --- | --- | --- |
 | `hierarchy` | `string, default = "gpu" (optional)` | The hierarchy of the HNSW index.<br />Valid values are ["none", "cpu", "gpu"].<br />- "none": No hierarchy is built.<br />- "cpu": Hierarchy is built using CPU.<br />- "gpu": Hierarchy is built using GPU. |
-| `ef_construction` | `int, default = 200 (optional)` | Maximum number of candidate list size used during construction when hierarchy is `cpu`. |
+| `ef_construction` | `int, default = 200 (optional)` | Maximum candidate list size used during index construction. |
 | `num_threads` | `int, default = 0 (optional)` | Number of CPU threads used to increase construction parallelism when hierarchy is `cpu` or `gpu`. When the value is 0, the number of threads is automatically determined to the maximum number of threads available.<br />NOTE: When hierarchy is `gpu`, while the majority of the work is done on the GPU, initialization of the HNSW index itself and some other work is parallelized with the help of CPU threads. |
-| `M` | `int, default = 32 (optional)` | HNSW M parameter: number of bi-directional links per node (used when building with ACE). graph_degree = m * 2, intermediate_graph_degree = m * 3. |
+| `M` | `int, default = 32 (optional)` | HNSW M parameter: number of bi-directional links per node. When the graph is built on the GPU, this parameter is used to derive the internal CAGRA graph build parameters. |
 | `metric` | `string, default = "sqeuclidean" (optional)` | Distance metric to use.<br />Valid values: ["sqeuclidean", "inner_product"] |
-| `ace_params` | `AceParams, default = None (optional)` | ACE parameters for building HNSW index using ACE algorithm. If set, enables the build() function to use ACE for index construction. |
+| `ace_params` | `AceParams, default = None (optional)` | Explicit ACE parameters for out-of-core graph construction. When not set, the graph build algorithm is selected automatically. |
 
 **Constructor**
 
@@ -200,20 +200,17 @@ def num_threads(self)
 def build(IndexParams index_params, dataset, resources=None)
 ```
 
-Build an HNSW index using the ACE (Augmented Core Extraction) algorithm.
+Build an HNSW index from HNSW parameters.
 
-ACE enables building HNSW indices for datasets too large to fit in GPU
-memory by partitioning the dataset and building sub-indices for each
-partition independently.
-
-NOTE: This function requires `index_params.ace_params` to be set with
-an instance of AceParams.
+The graph is built on the GPU and converted to an HNSW index that can be
+searched on the CPU. The graph build algorithm is selected automatically
+unless explicit ACE parameters are provided.
 
 **Parameters**
 
 | Name | Type | Description |
 | --- | --- | --- |
-| `index_params` | `IndexParams` | Parameters for the HNSW index with ACE configuration. Must have `ace_params` set. |
+| `index_params` | `IndexParams` | Parameters for the HNSW index. |
 | `dataset` | `Host array interface compliant matrix shape (n_samples, dim)` | Supported dtype [float32, float16, int8, uint8] |
 | `resources` | `cuvs.common.Resources, optional` |  |
 
@@ -234,17 +231,9 @@ an instance of AceParams.
 >>> dataset = np.random.random_sample((n_samples, n_features),
 ...                                   dtype=np.float32)
 >>>
->>> # Create ACE parameters
->>> ace_params = hnsw.AceParams(
-...     npartitions=4,
-...     use_disk=True,
-...     build_dir="/tmp/hnsw_ace_build"
-... )
->>>
->>> # Create index parameters with ACE
+>>> # Create HNSW index parameters
 >>> index_params = hnsw.IndexParams(
 ...     hierarchy="gpu",
-...     ace_params=ace_params,
 ...     ef_construction=120,
 ...     M=32,
 ...     metric="sqeuclidean"

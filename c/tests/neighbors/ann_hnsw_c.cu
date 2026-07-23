@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -119,6 +119,37 @@ TEST(CagraHnswC, BuildSearch)
   cuvsCagraIndexParamsDestroy(build_params);
   cuvsCagraIndexDestroy(index);
   cuvsHnswSearchParamsDestroy(search_params);
+  cuvsHnswIndexDestroy(hnsw_index);
+  cuvsResourcesDestroy(res);
+}
+
+TEST(HnswC, BuildWithoutAce)
+{
+  cuvsResources_t res;
+  cuvsResourcesCreate(&res);
+
+  DLManagedTensor dataset_tensor;
+  dataset_tensor.dl_tensor.data               = dataset;
+  dataset_tensor.dl_tensor.device.device_type = kDLCPU;
+  dataset_tensor.dl_tensor.ndim               = 2;
+  dataset_tensor.dl_tensor.dtype.code         = kDLFloat;
+  dataset_tensor.dl_tensor.dtype.bits         = 32;
+  dataset_tensor.dl_tensor.dtype.lanes        = 1;
+  int64_t dataset_shape[2]                    = {4, 2};
+  dataset_tensor.dl_tensor.shape              = dataset_shape;
+  dataset_tensor.dl_tensor.strides            = nullptr;
+
+  cuvsHnswIndexParams_t hnsw_params;
+  cuvsHnswIndexParamsCreate(&hnsw_params);
+  hnsw_params->M               = 2;
+  hnsw_params->ef_construction = 100;
+
+  cuvsHnswIndex_t hnsw_index;
+  cuvsHnswIndexCreate(&hnsw_index);
+
+  ASSERT_EQ(cuvsHnswBuild(res, hnsw_params, &dataset_tensor, hnsw_index), CUVS_SUCCESS);
+
+  cuvsHnswIndexParamsDestroy(hnsw_params);
   cuvsHnswIndexDestroy(hnsw_index);
   cuvsResourcesDestroy(res);
 }
