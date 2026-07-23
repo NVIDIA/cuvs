@@ -346,6 +346,40 @@ final class JDKProvider implements CuVSProvider {
   }
 
   @Override
+  public CagraIndexParams cagraIndexParamsFromDataset(
+      long rows,
+      long dim,
+      long graphDegree,
+      CagraIndexParams.CuvsDistanceType metric,
+      long buildQuality) {
+    try (var nativeCagraIndexParams = createCagraIndexParams();
+        var ivfPqIndexParams = createIvfPqIndexParams();
+        var ivfPqSearchParams = createIvfPqSearchParams()) {
+
+      // This is already allocated by cuvsCagraIndexParamsCreate,
+      // we just need to populate it.
+      MemorySegment cuvsIvfPqParamsMemorySegment =
+          cuvsCagraIndexParams.graph_build_params(nativeCagraIndexParams.handle());
+      cuvsIvfPqParams.ivf_pq_build_params(cuvsIvfPqParamsMemorySegment, ivfPqIndexParams.handle());
+      cuvsIvfPqParams.ivf_pq_search_params(
+          cuvsIvfPqParamsMemorySegment, ivfPqSearchParams.handle());
+
+      cuvsCagraIndexParams.graph_build_params(
+          nativeCagraIndexParams.handle(), cuvsIvfPqParamsMemorySegment);
+      checkCuVSError(
+          cuvsCagraIndexParamsFromDataset(
+              nativeCagraIndexParams.handle(), rows, dim, graphDegree, metric.value, buildQuality),
+          "cuvsCagraIndexParamsFromDataset");
+
+      return populateCagraIndexParamsFromNative(
+          nativeCagraIndexParams,
+          ivfPqIndexParams,
+          ivfPqSearchParams,
+          cuvsIvfPqParamsMemorySegment);
+    }
+  }
+
+  @Override
   public void setLogLevel(Level level) {
     if (level.equals(Level.ALL) || level.equals(Level.FINEST)) {
       cuvsSetLogLevel(CUVS_LOG_LEVEL_TRACE());

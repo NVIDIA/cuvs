@@ -246,4 +246,21 @@ public interface CuVSProvider {
       int efConstruction,
       CagraIndexParams.HnswHeuristicType heuristic,
       CagraIndexParams.CuvsDistanceType metric);
+
+  /**
+   * Create CAGRA index parameters heuristically tuned for a dataset.
+   *
+   * @param rows The number of rows in the input dataset
+   * @param dim The number of dimensions in the input dataset
+   * @param graphDegree Degree of the output graph
+   * @param metric The distance metric to search
+   * @param buildQuality Higher values increase build quality (and cost) up to a point
+   * @return A new CAGRA index parameters object
+   */
+  CagraIndexParams cagraIndexParamsFromDataset(
+      long rows,
+      long dim,
+      long graphDegree,
+      CagraIndexParams.CuvsDistanceType metric,
+      long buildQuality);
 }
