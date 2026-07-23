@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -40,8 +40,38 @@ auto parse_build_param(const nlohmann::json& conf) ->
 
   // Reuse the CAGRA wrapper params parser
   ::parse_build_param<T, IdxT>(conf, cagra_params);
-
-  if (conf.contains("M")) { hnsw_params.M = conf.at("M"); }
+  // If the users provides parameter M, we can use the CAGRA-HNSW heuristics to find optimal
+  // parameters for the dataset and HNSW reference.
+  if (conf.contains("M")) {
+    // Postpone the parsing of the CAGRA build params until the dataset extents are known.
+    // We the default parameters depend on the dataset extents; and we still would like to be able
+    // to override them.
+    cagra_params.cagra_params = [conf, hnsw_params](raft::matrix_extent<int64_t> extents,
+                                                    cuvs::distance::DistanceType dist_type) {
+      auto ps = cuvs::neighbors::cagra::index_params::from_hnsw_params(
+        extents,
+        conf.at("M"),
+        hnsw_params.ef_construction,
+        cuvs::neighbors::cagra::hnsw_heuristic_type::SAME_GRAPH_FOOTPRINT,
+        dist_type);
+      ps.metric = dist_type;
+      // Parse ACE parameters if provided
+      if (conf.contains("npartitions") || conf.contains("build_dir") ||
+          conf.contains("ef_construction") || conf.contains("use_disk")) {
+        auto ace_params = cuvs::neighbors::cagra::graph_build_params::ace_params();
+        if (conf.contains("npartitions")) { ace_params.npartitions = conf.at("npartitions"); }
+        if (conf.contains("build_dir")) { ace_params.build_dir = conf.at("build_dir"); }
+        if (conf.contains("ef_construction")) {
+          ace_params.ef_construction = conf.at("ef_construction");
+        }
+        if (conf.contains("use_disk")) { ace_params.use_disk = conf.at("use_disk"); }
+        ps.graph_build_params = ace_params;
+      }
+      // NB: above, we only provide the defaults. Below we parse the explicit parameters as usual.
+      ::parse_build_param<T, uint32_t>(conf, ps);
+      return ps;
+    };
+  }
   return param;
 }
 
