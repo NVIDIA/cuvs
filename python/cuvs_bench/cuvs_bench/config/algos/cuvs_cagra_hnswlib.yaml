@@ -20,4 +20,4 @@ groups:
       hierarchy: ["none", "cpu"]
       ef_construction: [64]
     search:
-      ef: [10,20]
+      ef: [10, 20]
