@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -308,6 +308,8 @@ void eps_nn(raft::resources const& handle,
  *                     that it is not guarantueed to return the nearest neighbors.
  *                     Upon return max_k is overwritten with the actual max_k found during
  *                     computation.
+ * @param[out] dists   An optional vector (with same length as adj_ja). If provided, will be
+ *                     used to store the corresponding distances for the computed neighbors.
  */
 template <typename idx_t, typename value_t>
 void eps_nn(raft::resources const& handle,
@@ -317,7 +319,8 @@ void eps_nn(raft::resources const& handle,
             raft::device_vector_view<idx_t, int64_t> vd,
             raft::device_matrix_view<const value_t, int64_t, raft::row_major> query,
             value_t eps,
-            std::optional<raft::host_scalar_view<int64_t, int64_t>> max_k = std::nullopt)
+            std::optional<raft::host_scalar_view<int64_t, int64_t>> max_k   = std::nullopt,
+            std::optional<raft::device_vector_view<value_t, int64_t>> dists = std::nullopt)
 {
   ASSERT(index.n == query.extent(1), "vector dimension needs to be the same for index and queries");
   ASSERT(index.metric == cuvs::distance::DistanceType::L2SqrtExpanded ||
@@ -327,6 +330,9 @@ void eps_nn(raft::resources const& handle,
 
   int64_t* max_k_ptr = nullptr;
   if (max_k.has_value()) { max_k_ptr = max_k.value().data_handle(); }
+
+  value_t* dists_ptr = nullptr;
+  if (dists.has_value()) { dists_ptr = dists.value().data_handle(); }
 
   // run query
   cuvs::neighbors::ball_cover::detail::rbc_eps_nn_query(
@@ -339,6 +345,7 @@ void eps_nn(raft::resources const& handle,
     adj_ia.data_handle(),
     adj_ja.data_handle(),
     vd.data_handle(),
+    dists_ptr,
     cuvs::neighbors::ball_cover::detail::EuclideanSqFunc<value_t, int64_t>());
 }
 
