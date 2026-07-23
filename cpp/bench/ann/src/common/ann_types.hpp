@@ -9,6 +9,7 @@
 
 #include <memory>
 #include <nlohmann/json.hpp>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -78,6 +79,8 @@ struct algo_property {
   MemoryType dataset_memory_type;
   // neighbors/distances should have same memory type as queries
   MemoryType query_memory_type;
+  // filter bitset memory type; defaults to dataset_memory_type if not explicitly set
+  std::optional<MemoryType> filter_memory_type{std::nullopt};
 };
 
 class algo_base {
