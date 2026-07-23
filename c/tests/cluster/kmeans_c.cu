@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -128,7 +128,7 @@ void test_fit_predict()
   params->max_iter             = 100;
   params->tol                  = 1e-6;
   params->init                 = Array;
-  params->streaming_batch_size = 0;
+  params->device_buffer_samples = 0;
 
   DLManagedTensor dataset_t{};
   cuvs::core::to_dlpack(
@@ -195,7 +195,7 @@ void test_fit_host()
   params->max_iter             = 100;
   params->tol                  = 1e-6;
   params->init                 = Array;
-  params->streaming_batch_size = 4;  // force at least 2 streamed batches
+  params->device_buffer_samples = 4;  // force at least 2 streamed batches
 
   DLManagedTensor dataset_t{};
   cuvs::core::to_dlpack(
