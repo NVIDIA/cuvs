@@ -16,7 +16,6 @@ python/            @NVIDIA/cuvs-python-codeowners
 
 #rust code owners
 rust/              @NVIDIA/cuvs-rust-codeowners
-examples/rust/     @NVIDIA/cuvs-rust-codeowners
 
 #docs code owners
 docs/              @NVIDIA/cuvs-docs-codeowners
