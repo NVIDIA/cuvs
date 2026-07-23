@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -706,6 +706,7 @@ struct alignas(kCacheLineBytes) persistent_runner_jit_t : public persistent_runn
       small_hash_reset_interval_u32,  // Cast size_t to uint32_t
       query_id_offset,                // Offset to add to query_id when calling filter
       dev_desc,
+      static_cast<IndexT>(graph.extent(0)),
       filter_payload);
 
     last_touch.store(std::chrono::system_clock::now(), std::memory_order_relaxed);
