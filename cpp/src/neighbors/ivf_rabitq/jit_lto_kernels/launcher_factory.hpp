@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -12,7 +12,7 @@
 #include "compute_inner_products_with_lut_block_sort_planner.hpp"
 #include "compute_inner_products_with_lut_planner.hpp"
 
-#include <cuvs/detail/jit_lto/AlgorithmLauncher.hpp>
+#include <AlgorithmLauncher.hpp>
 
 #include <cassert>
 #include <memory>
