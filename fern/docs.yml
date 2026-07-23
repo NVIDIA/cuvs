@@ -215,6 +215,8 @@ navigation:
                 path: "./pages/cuvs_bench/running.md"
               - page: "Datasets"
                 path: "./pages/cuvs_bench/datasets.md"
+              - page: "Synthetic Dataset Generation"
+                path: "./pages/cuvs_bench/synthesize_dataset.md"
               - page: "Backends"
                 path: "./pages/cuvs_bench/pluggable_backend.md"
               - page: "cuVS Bench Parameter Tuning Guide"
