@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -35,6 +35,27 @@ namespace cuvs::neighbors::cagra::detail::single_cta_search {
     size_t small_hash_reset_interval,                                              \
     uint32_t num_seeds,                                                            \
     SampleFilterT sample_filter,                                                   \
+    cudaStream_t stream);
+
+#define instantiate_kernel_selection_mp(DataT, IndexT, DistanceT, SampleFilterT)                 \
+  template void select_and_run_multi_partition<DataT, IndexT, DistanceT, IndexT, SampleFilterT>( \
+    const dataset_descriptor_host<DataT, IndexT, DistanceT>& ref_dataset_desc,                   \
+    const multi_partition_desc_t<DataT, IndexT, DistanceT>* partition_descs,                     \
+    uint32_t num_partitions,                                                                     \
+    const DataT* queries_ptr,                                                                    \
+    uint32_t num_queries,                                                                        \
+    IndexT* intermediate_neighbors_ptr,                                                          \
+    DistanceT* intermediate_distances_ptr,                                                       \
+    const search_params& ps,                                                                     \
+    uint32_t topk,                                                                               \
+    uint32_t num_itopk_candidates,                                                               \
+    uint32_t block_size,                                                                         \
+    uint32_t smem_size,                                                                          \
+    int64_t hash_bitlen,                                                                         \
+    IndexT* hashmap_ptr,                                                                         \
+    size_t small_hash_bitlen,                                                                    \
+    size_t small_hash_reset_interval,                                                            \
+    SampleFilterT sample_filter,                                                                 \
     cudaStream_t stream);
 
 }  // namespace cuvs::neighbors::cagra::detail::single_cta_search

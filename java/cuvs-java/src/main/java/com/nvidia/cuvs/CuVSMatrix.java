@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs;
@@ -18,6 +18,7 @@ public interface CuVSMatrix extends AutoCloseable {
 
   enum DataType {
     FLOAT(4),
+    HALF(2),
     INT(4),
     UINT(4),
     BYTE(1);
@@ -93,6 +94,13 @@ public interface CuVSMatrix extends AutoCloseable {
      * @param vector An int array of as many elements as the dimensions
      */
     void addVector(int[] vector);
+
+    /**
+     * Adds a single vector to the matrix. Each element is a raw float16 bit pattern stored in a short.
+     *
+     * @param vector A short array of as many elements as the dimensions
+     */
+    void addVector(short[] vector);
 
     T build();
   }

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -280,6 +280,58 @@ struct search
         raft::make_device_matrix_view<const IndexT, int64_t>(
           output_indices_ptr, num_queries, topk));
     }
+  }
+
+  /**
+   * Multi-partition search. Drives `search_kernel_mp` across all partitions in one fused
+   * launch. Each partition's data (dataset_desc, graph, graph_degree) is read by the kernel
+   * from partition_descs[blockIdx.z]; smem and the result buffer are sized for the max
+   * graph_degree across partitions.
+   *
+   * No per-partition top-k merge is performed here — the kernel emits
+   * num_cta_per_query * itopk_size candidates per (query, partition) into the caller's
+   * intermediate buffer (laid out [num_partitions, num_queries, num_cta_per_query * itopk_size]
+   * partition-major). The cross-partition select_k in cagra::detail::search_multi_partition
+   * consolidates everything into the final global top-k in one shot.
+   */
+  template <typename SampleFilterT_>
+  void run_multi_partition(
+    raft::resources const& res,
+    const multi_partition_desc_t<DATA_T, INDEX_T, DISTANCE_T>* partition_descs,
+    uint32_t num_partitions,
+    uint32_t max_graph_degree,
+    const DATA_T* queries_ptr,
+    uint32_t num_queries,
+    INDEX_T*
+      intermediate_indices_ptr,  // [num_partitions, num_queries, num_cta_per_query * itopk_size]
+    DISTANCE_T* intermediate_distances_ptr,
+    SampleFilterT_ sample_filter)
+  {
+    cudaStream_t stream = raft::resource::get_cuda_stream(res);
+
+    // Scale the cross-CTA traversed hashmap to (num_queries * num_partitions) rows.
+    const size_t traversed_hash_size = hashmap::get_size(hash_bitlen);
+    hashmap.resize(traversed_hash_size * static_cast<size_t>(num_queries) * num_partitions, stream);
+
+    select_and_run_mp<DATA_T, INDEX_T, DISTANCE_T, INDEX_T, SampleFilterT_>(
+      dataset_desc,
+      partition_descs,
+      num_partitions,
+      max_graph_degree,
+      intermediate_indices_ptr,
+      intermediate_distances_ptr,
+      queries_ptr,
+      num_queries,
+      /* search_params */ *this,
+      thread_block_size,
+      result_buffer_size,
+      smem_size,
+      small_hash_bitlen,
+      hash_bitlen,
+      hashmap.data(),
+      num_cta_per_query,
+      sample_filter,
+      stream);
   }
 };
 

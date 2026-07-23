@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -14,6 +14,7 @@
 #include "hashmap.hpp"
 #include "jit_lto_kernels/cagra_jit_launcher_factory.hpp"
 #include "jit_lto_kernels/kernel_def.hpp"
+#include "multi_partition_desc.hpp"
 #include "sample_filter_utils.cuh"  // For CagraSampleFilterWithQueryIdOffset
 #include "search_plan.cuh"          // For search_params
 #include "search_single_cta_kernel_launcher_common.cuh"
@@ -930,6 +931,106 @@ void select_and_run(
 
     RAFT_CUDA_TRY(cudaPeekAtLastError());
   }
+}
+
+// Multi-partition launcher. Drives `search_single_cta_mp` with a 3D grid
+// (1, num_queries, num_partitions). `ref_dataset_desc` is used only for JIT tag dispatch and
+// must be representative of every partition's descriptor. Per-partition device descriptors and
+// graphs are read from `partition_descs` by the kernel itself.
+template <typename DataT,
+          typename IndexT,
+          typename DistanceT,
+          typename SourceIndexT,
+          typename SampleFilterT>
+void select_and_run_multi_partition(
+  const dataset_descriptor_host<DataT, IndexT, DistanceT>& ref_dataset_desc,
+  const multi_partition_desc_t<DataT, IndexT, DistanceT>* partition_descs,
+  uint32_t num_partitions,
+  const DataT* queries_ptr,
+  uint32_t num_queries,
+  IndexT* intermediate_neighbors_ptr,
+  DistanceT* intermediate_distances_ptr,
+  const search_params& ps,
+  uint32_t topk,
+  uint32_t num_itopk_candidates,
+  uint32_t block_size,
+  uint32_t smem_size,
+  int64_t hash_bitlen,
+  IndexT* hashmap_ptr,
+  size_t small_hash_bitlen,
+  size_t small_hash_reset_interval,
+  SampleFilterT sample_filter,
+  cudaStream_t stream)
+{
+  // The per-partition bitset views live in the partition descriptors (filled in cagra_search.cuh).
+  const uint32_t query_id_offset = cagra_filter_query_id_offset(sample_filter);
+
+  auto config             = compute_launch_config(num_itopk_candidates, ps.itopk_size, block_size);
+  uint32_t max_candidates = config.max_candidates;
+  uint32_t max_itopk      = config.max_itopk;
+  bool topk_by_bitonic_sort               = config.topk_by_bitonic_sort;
+  bool bitonic_sort_and_merge_multi_warps = config.bitonic_sort_and_merge_multi_warps;
+
+  std::shared_ptr<AlgorithmLauncher> launcher =
+    make_cagra_single_cta_mp_jit_launcher<DataT,
+                                          IndexT,
+                                          DistanceT,
+                                          SourceIndexT,
+                                          sample_filter_jit_tag_t<SampleFilterT>>(
+      ref_dataset_desc, topk_by_bitonic_sort, bitonic_sort_and_merge_multi_warps);
+  if (!launcher) { RAFT_FAIL("Failed to get JIT launcher for CAGRA mp search kernel"); }
+
+  const uint32_t hash_bitlen_u32               = static_cast<uint32_t>(hash_bitlen);
+  const uint32_t small_hash_bitlen_u32         = static_cast<uint32_t>(small_hash_bitlen);
+  const uint32_t small_hash_reset_interval_u32 = static_cast<uint32_t>(small_hash_reset_interval);
+  const uint32_t itopk_size_u32                = static_cast<uint32_t>(ps.itopk_size);
+  const uint32_t search_width_u32              = static_cast<uint32_t>(ps.search_width);
+  const uint32_t min_iterations_u32            = static_cast<uint32_t>(ps.min_iterations);
+  const uint32_t max_iterations_u32            = static_cast<uint32_t>(ps.max_iterations);
+  const unsigned num_random_samplings_u        = static_cast<unsigned>(ps.num_random_samplings);
+
+  dim3 grid(1, num_queries, num_partitions);
+  dim3 block(block_size, 1, 1);
+
+  RAFT_LOG_DEBUG("Launching mp JIT kernel: %u threads, %u queries, %u partitions, %u smem",
+                 block_size,
+                 num_queries,
+                 num_partitions,
+                 smem_size);
+
+  auto kernel_launcher = [&]() -> void {
+    launcher->dispatch<search_single_cta_mp_kernel_func_t<DataT, IndexT, DistanceT, SourceIndexT>>(
+      stream,
+      grid,
+      block,
+      static_cast<std::size_t>(smem_size),
+      partition_descs,
+      queries_ptr,
+      intermediate_neighbors_ptr,
+      intermediate_distances_ptr,
+      topk,
+      num_random_samplings_u,
+      ps.rand_xor_mask,
+      0u,  // num_seeds
+      hashmap_ptr,
+      max_candidates,
+      max_itopk,
+      itopk_size_u32,
+      search_width_u32,
+      min_iterations_u32,
+      max_iterations_u32,
+      static_cast<std::uint32_t*>(nullptr),  // num_executed_iterations
+      hash_bitlen_u32,
+      small_hash_bitlen_u32,
+      small_hash_reset_interval_u32,
+      query_id_offset);
+  };
+
+  cuvs::neighbors::detail::safely_launch_kernel_with_smem_size<
+    search_single_cta_mp_kernel_func_t<DataT, IndexT, DistanceT, SourceIndexT>>(
+    smem_size, kernel_launcher, launcher->get_kernel());
+
+  RAFT_CUDA_TRY(cudaPeekAtLastError());
 }
 
 // get_runner for JIT persistent runners (similar to non-JIT version)

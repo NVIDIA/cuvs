@@ -139,6 +139,106 @@ template <typename DataTag,
           typename IndexT,
           typename DistanceT,
           typename SourceIndexT>
+std::shared_ptr<AlgorithmLauncher> build_single_cta_mp_launcher(
+  const dataset_descriptor_host<DataT, IndexT, DistanceT>& dataset_desc,
+  bool topk_by_bitonic_sort,
+  bool bitonic_sort_and_merge_multi_warps)
+{
+  single_cta_search::CagraSingleCtaMpSearchPlanner<DataTag,
+                                                   IndexTag,
+                                                   DistTag,
+                                                   SourceTag,
+                                                   QueryTag,
+                                                   CodebookTag,
+                                                   SampleFilterJitTag>
+    planner(dataset_desc.metric,
+            topk_by_bitonic_sort,
+            bitonic_sort_and_merge_multi_warps,
+            dataset_desc.team_size,
+            dataset_desc.dataset_block_dim,
+            dataset_desc.is_vpq,
+            dataset_desc.pq_bits,
+            dataset_desc.pq_len);
+
+  if constexpr (std::is_same_v<CodebookTag, tag_codebook_half>) {
+    planner.add_setup_workspace_device_function(dataset_desc.team_size,
+                                                dataset_desc.dataset_block_dim,
+                                                dataset_desc.pq_len,
+                                                dataset_desc.smem_dtype);
+    planner.add_compute_distance_device_function(dataset_desc.team_size,
+                                                 dataset_desc.dataset_block_dim,
+                                                 dataset_desc.pq_len,
+                                                 dataset_desc.smem_dtype);
+  } else {
+    planner.add_setup_workspace_device_function(dataset_desc.team_size,
+                                                dataset_desc.dataset_block_dim);
+    planner.add_compute_distance_device_function(
+      dataset_desc.metric, dataset_desc.team_size, dataset_desc.dataset_block_dim);
+  }
+  planner.add_search_kernel_fragment(topk_by_bitonic_sort, bitonic_sort_and_merge_multi_warps);
+  planner.add_sample_filter_device_function();
+  return planner.get_launcher();
+}
+
+template <typename DataTag,
+          typename IndexTag,
+          typename DistTag,
+          typename SourceTag,
+          typename QueryTag,
+          typename CodebookTag,
+          typename SampleFilterJitTag,
+          typename DataT,
+          typename IndexT,
+          typename DistanceT,
+          typename SourceIndexT>
+std::shared_ptr<AlgorithmLauncher> build_multi_cta_mp_launcher(
+  const dataset_descriptor_host<DataT, IndexT, DistanceT>& dataset_desc)
+{
+  multi_cta_search::CagraMultiCtaMpSearchPlanner<DataTag,
+                                                 IndexTag,
+                                                 DistTag,
+                                                 SourceTag,
+                                                 QueryTag,
+                                                 CodebookTag,
+                                                 SampleFilterJitTag>
+    planner(dataset_desc.metric,
+            dataset_desc.team_size,
+            dataset_desc.dataset_block_dim,
+            dataset_desc.is_vpq,
+            dataset_desc.pq_bits,
+            dataset_desc.pq_len);
+
+  if constexpr (std::is_same_v<CodebookTag, tag_codebook_half>) {
+    planner.add_setup_workspace_device_function(dataset_desc.team_size,
+                                                dataset_desc.dataset_block_dim,
+                                                dataset_desc.pq_len,
+                                                dataset_desc.smem_dtype);
+    planner.add_compute_distance_device_function(dataset_desc.team_size,
+                                                 dataset_desc.dataset_block_dim,
+                                                 dataset_desc.pq_len,
+                                                 dataset_desc.smem_dtype);
+  } else {
+    planner.add_setup_workspace_device_function(dataset_desc.team_size,
+                                                dataset_desc.dataset_block_dim);
+    planner.add_compute_distance_device_function(
+      dataset_desc.metric, dataset_desc.team_size, dataset_desc.dataset_block_dim);
+  }
+  planner.add_search_multi_cta_kernel_fragment();
+  planner.add_sample_filter_device_function();
+  return planner.get_launcher();
+}
+
+template <typename DataTag,
+          typename IndexTag,
+          typename DistTag,
+          typename SourceTag,
+          typename QueryTag,
+          typename CodebookTag,
+          typename SampleFilterJitTag,
+          typename DataT,
+          typename IndexT,
+          typename DistanceT,
+          typename SourceIndexT>
 std::shared_ptr<AlgorithmLauncher> build_multi_kernel_launcher(
   const dataset_descriptor_host<DataT, IndexT, DistanceT>& dataset_desc,
   const char* linked_kernel_name,
@@ -350,6 +450,131 @@ std::shared_ptr<AlgorithmLauncher> make_cagra_multi_cta_jit_launcher(
                                                                      DistanceT,
                                                                      SourceIndexT>(
     dataset_desc, std::move(sample_filter_udf_fragment));
+}
+
+/// Build a JIT AlgorithmLauncher for the multi-partition single-CTA CAGRA search.
+template <typename DataT,
+          typename IndexT,
+          typename DistanceT,
+          typename SourceIndexT,
+          typename SampleFilterJitTag>
+std::shared_ptr<AlgorithmLauncher> make_cagra_single_cta_mp_jit_launcher(
+  const dataset_descriptor_host<DataT, IndexT, DistanceT>& dataset_desc,
+  bool topk_by_bitonic_sort,
+  bool bitonic_sort_and_merge_multi_warps)
+{
+  using DataTag   = decltype(get_data_type_tag<DataT>());
+  using IndexTag  = decltype(get_index_type_tag<IndexT>());
+  using DistTag   = decltype(get_distance_type_tag<DistanceT>());
+  using SourceTag = decltype(get_source_index_type_tag<SourceIndexT>());
+
+  if (dataset_desc.is_vpq) {
+    using QueryTag    = query_type_tag_vpq_t<DataTag>;
+    using CodebookTag = codebook_tag_vpq_t;
+    return cagra_jit_launcher_factory_detail::build_single_cta_mp_launcher<DataTag,
+                                                                           IndexTag,
+                                                                           DistTag,
+                                                                           SourceTag,
+                                                                           QueryTag,
+                                                                           CodebookTag,
+                                                                           SampleFilterJitTag,
+                                                                           DataT,
+                                                                           IndexT,
+                                                                           DistanceT,
+                                                                           SourceIndexT>(
+      dataset_desc, topk_by_bitonic_sort, bitonic_sort_and_merge_multi_warps);
+  }
+  using CodebookTag = codebook_tag_standard_t;
+  if (dataset_desc.metric == cuvs::distance::DistanceType::BitwiseHamming) {
+    using QueryTag =
+      query_type_tag_standard_t<DataTag, cuvs::distance::DistanceType::BitwiseHamming>;
+    return cagra_jit_launcher_factory_detail::build_single_cta_mp_launcher<DataTag,
+                                                                           IndexTag,
+                                                                           DistTag,
+                                                                           SourceTag,
+                                                                           QueryTag,
+                                                                           CodebookTag,
+                                                                           SampleFilterJitTag,
+                                                                           DataT,
+                                                                           IndexT,
+                                                                           DistanceT,
+                                                                           SourceIndexT>(
+      dataset_desc, topk_by_bitonic_sort, bitonic_sort_and_merge_multi_warps);
+  }
+  using QueryTag = query_type_tag_standard_t<DataTag, cuvs::distance::DistanceType::L2Expanded>;
+  return cagra_jit_launcher_factory_detail::build_single_cta_mp_launcher<DataTag,
+                                                                         IndexTag,
+                                                                         DistTag,
+                                                                         SourceTag,
+                                                                         QueryTag,
+                                                                         CodebookTag,
+                                                                         SampleFilterJitTag,
+                                                                         DataT,
+                                                                         IndexT,
+                                                                         DistanceT,
+                                                                         SourceIndexT>(
+    dataset_desc, topk_by_bitonic_sort, bitonic_sort_and_merge_multi_warps);
+}
+
+/// Build a JIT AlgorithmLauncher for the multi-partition multi-CTA CAGRA search.
+template <typename DataT,
+          typename IndexT,
+          typename DistanceT,
+          typename SourceIndexT,
+          typename SampleFilterJitTag>
+std::shared_ptr<AlgorithmLauncher> make_cagra_multi_cta_mp_jit_launcher(
+  const dataset_descriptor_host<DataT, IndexT, DistanceT>& dataset_desc)
+{
+  using DataTag   = decltype(get_data_type_tag<DataT>());
+  using IndexTag  = decltype(get_index_type_tag<IndexT>());
+  using DistTag   = decltype(get_distance_type_tag<DistanceT>());
+  using SourceTag = decltype(get_source_index_type_tag<SourceIndexT>());
+
+  if (dataset_desc.is_vpq) {
+    using QueryTag    = query_type_tag_vpq_t<DataTag>;
+    using CodebookTag = codebook_tag_vpq_t;
+    return cagra_jit_launcher_factory_detail::build_multi_cta_mp_launcher<DataTag,
+                                                                          IndexTag,
+                                                                          DistTag,
+                                                                          SourceTag,
+                                                                          QueryTag,
+                                                                          CodebookTag,
+                                                                          SampleFilterJitTag,
+                                                                          DataT,
+                                                                          IndexT,
+                                                                          DistanceT,
+                                                                          SourceIndexT>(
+      dataset_desc);
+  }
+  using CodebookTag = codebook_tag_standard_t;
+  if (dataset_desc.metric == cuvs::distance::DistanceType::BitwiseHamming) {
+    using QueryTag =
+      query_type_tag_standard_t<DataTag, cuvs::distance::DistanceType::BitwiseHamming>;
+    return cagra_jit_launcher_factory_detail::build_multi_cta_mp_launcher<DataTag,
+                                                                          IndexTag,
+                                                                          DistTag,
+                                                                          SourceTag,
+                                                                          QueryTag,
+                                                                          CodebookTag,
+                                                                          SampleFilterJitTag,
+                                                                          DataT,
+                                                                          IndexT,
+                                                                          DistanceT,
+                                                                          SourceIndexT>(
+      dataset_desc);
+  }
+  using QueryTag = query_type_tag_standard_t<DataTag, cuvs::distance::DistanceType::L2Expanded>;
+  return cagra_jit_launcher_factory_detail::build_multi_cta_mp_launcher<DataTag,
+                                                                        IndexTag,
+                                                                        DistTag,
+                                                                        SourceTag,
+                                                                        QueryTag,
+                                                                        CodebookTag,
+                                                                        SampleFilterJitTag,
+                                                                        DataT,
+                                                                        IndexT,
+                                                                        DistanceT,
+                                                                        SourceIndexT>(dataset_desc);
 }
 
 /// Build a JIT AlgorithmLauncher for multi-kernel CAGRA helpers that need `setup_workspace` and

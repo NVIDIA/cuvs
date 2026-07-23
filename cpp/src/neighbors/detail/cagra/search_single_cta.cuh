@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -88,6 +88,13 @@ struct search
   using base_type::num_seeds;
 
   uint32_t num_itopk_candidates;
+
+  /** Number of elements in a hashmap covering @p n_queries queries across @p n_segments segments.
+   */
+  static size_t hashmap_element_count(size_t n_segments, size_t n_queries, size_t h_bitlen)
+  {
+    return n_segments * n_queries * hashmap::get_size(h_bitlen);
+  }
 
   search(raft::resources const& res,
          search_params params,
@@ -199,10 +206,74 @@ struct search
     RAFT_LOG_DEBUG("# smem_size: %u", smem_size);
     hashmap_size = 0;
     if (small_hash_bitlen == 0 && !this->persistent) {
-      hashmap_size = max_queries * hashmap::get_size(hash_bitlen);
+      hashmap_size = hashmap_element_count(1, max_queries, hash_bitlen);
       hashmap.resize(hashmap_size, raft::resource::get_cuda_stream(res));
     }
     RAFT_LOG_DEBUG("# hashmap_size: %lu", hashmap_size);
+  }
+
+  /**
+   * @brief Search all partitions concurrently in a single kernel launch.
+   *
+   * Queries and intermediate result buffers are shared across partitions. The intermediate
+   * buffers must be laid out as [num_partitions][num_queries][topk]; the caller is responsible
+   * for the post-merge reduction into the user-facing top-k.
+   *
+   * @param res                     RAFT resources (stream is extracted from here)
+   * @param partition_descs         device pointer to [num_partitions] descriptors
+   * @param num_partitions          number of partitions (gridDim.z)
+   * @param queries_ptr             device pointer to [num_queries, dim] queries
+   * @param num_queries             queries per partition (gridDim.y)
+   * @param intermediate_neighbors  device buffer [num_partitions, num_queries, topk]
+   * @param intermediate_distances  device buffer [num_partitions, num_queries, topk]
+   * @param topk                    neighbors to return per (query, partition)
+   */
+  template <typename SampleFilterT>
+  void run_multi_partition(
+    raft::resources const& res,
+    const multi_partition_desc_t<DATA_T, INDEX_T, DISTANCE_T>* partition_descs,
+    uint32_t num_partitions,
+    const DATA_T* queries_ptr,
+    uint32_t num_queries,
+    INDEX_T* intermediate_neighbors,
+    DISTANCE_T* intermediate_distances,
+    uint32_t topk,
+    SampleFilterT sample_filter)
+  {
+    cudaStream_t stream = raft::resource::get_cuda_stream(res);
+
+    // Allocate global hashmap when small-hash is disabled via the workspace pool
+    // (no cudaMallocAsync/cudaFreeAsync after pool warmup).
+    // Layout: [num_partitions][num_queries][hash_size].
+    lightweight_uvector<INDEX_T> mp_hashmap_buf(res);
+    INDEX_T* mp_hashmap_ptr = nullptr;
+    if (small_hash_bitlen == 0) {
+      const size_t mp_hashmap_elems =
+        hashmap_element_count(num_partitions, num_queries, hash_bitlen);
+      mp_hashmap_buf.resize(mp_hashmap_elems, stream);
+      mp_hashmap_ptr = mp_hashmap_buf.data();
+    }
+
+    select_and_run_multi_partition<DATA_T, INDEX_T, DISTANCE_T, INDEX_T, SampleFilterT>(
+      dataset_desc,
+      partition_descs,
+      num_partitions,
+      queries_ptr,
+      num_queries,
+      intermediate_neighbors,
+      intermediate_distances,
+      *this,
+      topk,
+      num_itopk_candidates,
+      static_cast<uint32_t>(thread_block_size),
+      smem_size,
+      hash_bitlen,
+      mp_hashmap_ptr,
+      small_hash_bitlen,
+      small_hash_reset_interval,
+      sample_filter,
+      stream);
+    // mp_hashmap_buf destructor returns memory to workspace pool (stream-ordered).
   }
 
   void operator()(

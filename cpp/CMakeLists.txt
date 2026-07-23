@@ -977,6 +977,35 @@ if(NOT BUILD_CPU_ONLY)
   )
   generate_jit_lto_kernels(
     jit_lto_files
+    NAME_FORMAT
+      "cagra_search_single_cta_mp_@topk_by_bitonic_sort_str@_@bitonic_sort_and_merge_multi_warps_str@_data_@data_abbrev@"
+    MATRIX_JSON_FILE
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/detail/cagra/jit_lto_kernels/search_single_cta_mp_matrix.json"
+    KERNEL_INPUT_FILE
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/detail/cagra/jit_lto_kernels/search_single_cta_mp_kernel.cu.in"
+    FRAGMENT_TAG_FORMAT
+      "${cagra_ns}::fragment_tag_search_single_cta_mp<${neighbors_ns}::tag_@data_abbrev@, ${neighbors_ns}::tag_index_@source_index_abbrev@, ${neighbors_ns}::tag_index_@index_abbrev@, ${cagra_ns}::tag_dist_@distance_abbrev@, @topk_by_bitonic_sort@, @bitonic_sort_and_merge_multi_warps@>"
+    FRAGMENT_TAG_HEADER_FILES "<cuvs/detail/jit_lto/cagra/cagra_fragments.hpp>"
+                              "<cuvs/detail/jit_lto/common_fragments.hpp>"
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated_kernels/cagra/search_single_cta_mp"
+    KERNEL_LINK_LIBRARIES jit_lto_kernel_usage_requirements
+  )
+  generate_jit_lto_kernels(
+    jit_lto_files
+    NAME_FORMAT "cagra_search_multi_cta_mp_data_@data_abbrev@"
+    MATRIX_JSON_FILE
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/detail/cagra/jit_lto_kernels/search_multi_cta_mp_matrix.json"
+    KERNEL_INPUT_FILE
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/detail/cagra/jit_lto_kernels/search_multi_cta_mp_kernel.cu.in"
+    FRAGMENT_TAG_FORMAT
+      "${cagra_ns}::fragment_tag_search_multi_cta_mp<${neighbors_ns}::tag_@data_abbrev@, ${neighbors_ns}::tag_index_@source_index_abbrev@, ${neighbors_ns}::tag_index_@index_abbrev@, ${cagra_ns}::tag_dist_@distance_abbrev@>"
+    FRAGMENT_TAG_HEADER_FILES "<cuvs/detail/jit_lto/cagra/cagra_fragments.hpp>"
+                              "<cuvs/detail/jit_lto/common_fragments.hpp>"
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated_kernels/cagra/search_multi_cta_mp"
+    KERNEL_LINK_LIBRARIES jit_lto_kernel_usage_requirements
+  )
+  generate_jit_lto_kernels(
+    jit_lto_files
     NAME_FORMAT "cagra_random_pickup_data_@data_abbrev@"
     MATRIX_JSON_FILE
       "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/detail/cagra/jit_lto_kernels/random_pickup_matrix.json"

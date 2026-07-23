@@ -79,6 +79,7 @@ ConfigureTest(
   NAME DISTANCE_C_TEST PATH distance/run_pairwise_distance_c.c distance/pairwise_distance_c.cu
 )
 ConfigureTest(NAME KMEANS_C_TEST PATH cluster/kmeans_c.cu)
+ConfigureTest(NAME SELECT_K_C_TEST PATH selection/select_k_c.cu)
 if(BUILD_MG_ALGOS)
   ConfigureTest(NAME KMEANS_MG_C_TEST PATH cluster/kmeans_mg_c.cu)
 endif()

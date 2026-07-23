@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs.internal;
@@ -47,7 +47,11 @@ class CagraSearchResults {
     for (long i = 0; i < topK * numberOfQueries; i++) {
       long id = (long) neighboursVarHandle.get(neighboursMemorySegment, 0, i);
       float dst = (float) distancesVarHandle.get(distancesMemorySegment, 0L, i);
-      if (id != Integer.MAX_VALUE) {
+      // Empty top-k slots (fewer than k passing candidates) carry a sentinel distance of FLT_MAX.
+      // Prefer this over the neighbor-index sentinel: the index sentinel is not uniform across
+      // CAGRA search algorithms (single-CTA emits 0x7FFFFFFF, multi-CTA 0xFFFFFFFF), so the
+      // distance is the reliable, algorithm-independent signal for an empty slot.
+      if (dst != Float.MAX_VALUE) {
         intermediateResultMap.put(mapping.applyAsInt(id), dst);
       }
       count += 1;

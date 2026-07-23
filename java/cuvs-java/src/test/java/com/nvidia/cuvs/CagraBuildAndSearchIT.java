@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs;
@@ -557,7 +557,9 @@ public class CagraBuildAndSearchIT extends CuVSTestCase {
                 .build()) {
 
       // No prefilter (all points allowed)
-      CagraSearchParams searchParams = new CagraSearchParams.Builder().build();
+      // Pin SINGLE_CTA; AUTO may pick MULTI_CTA, which drops neighbors on this tiny dataset.
+      CagraSearchParams searchParams =
+          new CagraSearchParams.Builder().withAlgo(CagraSearchParams.SearchAlgo.SINGLE_CTA).build();
 
       // No prefilter (all points allowed)
       try (var queryVectors = CuVSMatrix.ofArray(queries)) {
@@ -637,8 +639,10 @@ public class CagraBuildAndSearchIT extends CuVSTestCase {
       List<Map<Integer, Float>> expectedResults,
       CuVSResources resources)
       throws Throwable {
-    // Configure search parameters
-    CagraSearchParams searchParams = new CagraSearchParams.Builder().build();
+    // Configure search parameters.
+    // Pin SINGLE_CTA; AUTO may pick MULTI_CTA, which drops neighbors on this tiny dataset.
+    CagraSearchParams searchParams =
+        new CagraSearchParams.Builder().withAlgo(CagraSearchParams.SearchAlgo.SINGLE_CTA).build();
 
     // Create a query object with the query vectors
     try (var queryVectors = CuVSMatrix.ofArray(queries)) {
@@ -793,7 +797,9 @@ public class CagraBuildAndSearchIT extends CuVSTestCase {
       CagraIndex mergedIndex = CagraIndex.merge(new CagraIndex[] {index1, index2});
       log.trace("Merge completed successfully");
 
-      CagraSearchParams searchParams = new CagraSearchParams.Builder().build();
+      // Pin SINGLE_CTA; AUTO may pick MULTI_CTA, which drops neighbors on this tiny dataset.
+      CagraSearchParams searchParams =
+          new CagraSearchParams.Builder().withAlgo(CagraSearchParams.SearchAlgo.SINGLE_CTA).build();
 
       try (var queryVectors = CuVSMatrix.ofArray(queries)) {
         CagraQuery query =
@@ -897,7 +903,11 @@ public class CagraBuildAndSearchIT extends CuVSTestCase {
           CagraIndex.merge(new CagraIndex[] {index1, index2}, outputIndexParams)) {
         log.trace("Physical merge completed successfully");
 
-        CagraSearchParams searchParams = new CagraSearchParams.Builder().build();
+        // Pin SINGLE_CTA; AUTO may pick MULTI_CTA, which drops neighbors on this tiny dataset.
+        CagraSearchParams searchParams =
+            new CagraSearchParams.Builder()
+                .withAlgo(CagraSearchParams.SearchAlgo.SINGLE_CTA)
+                .build();
 
         try (var queryVectors = CuVSMatrix.ofArray(queries)) {
           CagraQuery query =

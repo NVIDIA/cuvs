@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #
-# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 import argparse
@@ -83,6 +83,7 @@ if rmm is not None:
         from rmm.allocators.cupy import rmm_cupy_allocator
 
         from cuvs.common import Resources
+        from cuvs.neighbors import filters
         from cuvs.neighbors.brute_force import build, search
     except ImportError:
         # RMM is available, cupy is available, but cuVS is not
@@ -111,7 +112,37 @@ def choose_random_queries(dataset, n_queries):
     return dataset[query_idx, :]
 
 
-def cpu_search(dataset, queries, k, metric="squeclidean"):
+def create_bitset_filter(n_samples, filter_reject_rate):
+    """
+    Creates a packed uint32 bitset where bit i is set iff vector i passes the
+    filter.  Uses a modulo-1000 bucket scheme: vector i passes when
+    ``i % 1000 >= round(filter_reject_rate * 1000)``, giving a reject rate
+    within 0.1% of the requested value.
+
+    Parameters
+    ----------
+    n_samples : int
+        Number of vectors in the dataset.
+    filter_reject_rate : float
+        Fraction of vectors to reject, in [0.0, 1.0).
+
+    Returns
+    -------
+    numpy.ndarray
+        Packed uint32 array of shape ``(ceil(n_samples / 32),)``.
+    """
+    import numpy as np
+
+    fail_buckets = round(filter_reject_rate * 1000)
+    n_padded = ((n_samples + 31) // 32) * 32
+    bool_mask = np.zeros(n_padded, dtype=bool)
+    bool_mask[:n_samples] = (np.arange(n_samples) % 1000) >= fail_buckets
+    # Pack with little-endian bit order: bit j maps to bit (j%32) of uint32
+    # word (j//32), LSB first — matching cuVS bitset layout.
+    return np.packbits(bool_mask, bitorder="little").view(np.uint32)
+
+
+def cpu_search(dataset, queries, k, metric="squeclidean", accept_mask=None):
     """
     Find the k nearest neighbors for each query point in the dataset using the
     specified metric.
@@ -128,6 +159,9 @@ def cpu_search(dataset, queries, k, metric="squeclidean"):
     metric : str, optional
         The distance metric to use. Can be 'squeclidean' or 'inner_product'.
         Default is 'squeclidean'.
+    accept_mask : numpy.ndarray, optional
+        Boolean array of shape (n_samples,). Where False, the corresponding
+        dataset vector is excluded from results.
 
     Returns
     -------
@@ -144,6 +178,9 @@ def cpu_search(dataset, queries, k, metric="squeclidean"):
         diff = queries[:, xp.newaxis, :] - dataset[xp.newaxis, :, :]
         dist_sq = xp.sum(diff**2, axis=2)  # Shape: (n_queries, n_samples)
 
+        if accept_mask is not None:
+            dist_sq[:, ~accept_mask] = xp.inf
+
         indices = xp.argpartition(dist_sq, kth=k - 1, axis=1)[:, :k]
         distances = xp.take_along_axis(dist_sq, indices, axis=1)
 
@@ -155,6 +192,9 @@ def cpu_search(dataset, queries, k, metric="squeclidean"):
         similarities = xp.dot(
             queries, dataset.T
         )  # Shape: (n_queries, n_samples)
+
+        if accept_mask is not None:
+            similarities[:, ~accept_mask] = -xp.inf
 
         neg_similarities = -similarities
         indices = xp.argpartition(neg_similarities, kth=k - 1, axis=1)[:, :k]
@@ -175,7 +215,27 @@ def cpu_search(dataset, queries, k, metric="squeclidean"):
     return distances, indices
 
 
-def calc_truth(dataset, queries, k, metric="sqeuclidean"):
+def calc_truth(dataset, queries, k, metric="sqeuclidean", bitset=None):
+    """
+    Calculate exact nearest neighbors, optionally with a prefilter.
+
+    Parameters
+    ----------
+    dataset : array-like
+        Dataset of shape (n_samples, n_features).
+    queries : array-like
+        Queries of shape (n_queries, n_features).
+    k : int
+        Number of neighbors.
+    metric : str
+        Distance metric.
+    bitset : numpy.ndarray, optional
+        Packed uint32 array of shape (ceil(n_samples / 32),) as returned by
+        :func:`create_bitset_filter`.  Bit i set means vector i passes the
+        filter.  When None, all vectors are considered.
+    """
+    import numpy as np
+
     n_samples = dataset.shape[0]
     n = 500000  # batch size for processing neighbors
     i = 0
@@ -194,10 +254,28 @@ def calc_truth(dataset, queries, k, metric="sqeuclidean"):
 
         if gpu_system:
             index = build(X, metric=metric, resources=resources)
-            D, Ind = search(index, queries, k, resources=resources)
+            prefilter = None
+            if bitset is not None:
+                word_start = i // 32
+                word_end = (i + n_batch + 31) // 32
+                batch_words = xp.asarray(bitset[word_start:word_end])
+                prefilter = filters.from_bitset(batch_words)
+            D, Ind = search(
+                index, queries, k, resources=resources, prefilter=prefilter
+            )
             resources.sync()
         else:
-            D, Ind = cpu_search(X, queries, k, metric=metric)
+            accept_mask = None
+            if bitset is not None:
+                word_start = i // 32
+                word_end = (i + n_batch + 31) // 32
+                batch_bytes = bitset[word_start:word_end].view(np.uint8)
+                accept_mask = np.unpackbits(batch_bytes, bitorder="little")[
+                    :n_batch
+                ].astype(bool)
+            D, Ind = cpu_search(
+                X, queries, k, metric=metric, accept_mask=accept_mask
+            )
 
         D, Ind = xp.asarray(D), xp.asarray(Ind)
         Ind = offset_neighbor_indices(Ind, i, n_samples)
@@ -247,6 +325,16 @@ fbin --output=groundtruth_dir --queries=random --n_queries=10000
     python -m cuvs_bench.generate_groundtruth --dataset /dataset/base.\
 fbin --nrows=2000000 --cols=128 --output=groundtruth_dir \
 --queries=random-choice --n_queries=10000
+
+    # Prefiltered ground truth using a saved bitset file
+    python -m cuvs_bench.generate_groundtruth --dataset /dataset/base.\
+fbin --output=groundtruth_dir --queries=/dataset/query.fbin \
+--bitset=/dataset/filter.npy
+
+    # Prefiltered ground truth generated on-the-fly from a reject rate
+    python -m cuvs_bench.generate_groundtruth --dataset /dataset/base.\
+fbin --output=groundtruth_dir --queries=/dataset/query.fbin \
+--filter_reject_rate=0.1
     """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -313,6 +401,25 @@ fbin --nrows=2000000 --cols=128 --output=groundtruth_dir \
         " commonly used with cuVS are 'sqeuclidean' and 'inner_product'",
     )
 
+    filter_group = parser.add_mutually_exclusive_group()
+    filter_group.add_argument(
+        "--bitset",
+        type=str,
+        default=None,
+        help="Path to a .npy file containing a packed uint32 prefilter "
+        "bitset of shape (ceil(n_samples / 32),). Bit i set means vector i "
+        "passes the filter. Mutually exclusive with --filter_reject_rate.",
+    )
+    filter_group.add_argument(
+        "--filter_reject_rate",
+        type=float,
+        default=None,
+        help="Fraction of vectors to reject, in [0.0, 1.0). Generates a "
+        "bitset using a modulo-1000 bucket scheme (vector i passes when "
+        "i %% 1000 >= round(filter_reject_rate * 1000)). Mutually exclusive "
+        "with --bitset.",
+    )
+
     if len(sys.argv) == 1:
         parser.print_help()
         sys.exit(1)
@@ -328,6 +435,7 @@ fbin --nrows=2000000 --cols=128 --output=groundtruth_dir \
         args.dataset, args.dtype, shape=(args.rows, args.cols)
     )
     n_features = dataset.shape[1]
+    n_samples = dataset.shape[0]
     dtype = dataset.dtype
 
     print(
@@ -362,8 +470,24 @@ fbin --nrows=2000000 --cols=128 --output=groundtruth_dir \
         print("Reading queries from file", args.queries)
         queries = memmap_bin_file(args.queries, dtype)
 
+    # Resolve prefilter bitset.
+    bitset = None
+    if args.bitset is not None:
+        import numpy as np
+
+        print("Loading prefilter bitset from", args.bitset)
+        bitset = np.load(args.bitset)
+    elif args.filter_reject_rate is not None:
+        print(
+            f"Generating prefilter bitset for filter_reject_rate="
+            f"{args.filter_reject_rate}"
+        )
+        bitset = create_bitset_filter(n_samples, args.filter_reject_rate)
+
     print("Calculating true nearest neighbors")
-    distances, indices = calc_truth(dataset, queries, args.k, args.metric)
+    distances, indices = calc_truth(
+        dataset, queries, args.k, args.metric, bitset=bitset
+    )
 
     n_base = dataset.shape[0]
     write_groundtruth_neighbors(

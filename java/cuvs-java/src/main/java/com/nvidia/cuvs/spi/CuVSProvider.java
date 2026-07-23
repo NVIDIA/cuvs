@@ -9,6 +9,7 @@ import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodType;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.List;
 
 /**
  * A provider of low-level cuvs resources and builders.
@@ -188,6 +189,33 @@ public interface CuVSProvider {
     return mergeCagraIndexes(indexes);
   }
 
+  /**
+   * Creates a device-backed multi-partition filter handle from the pre-packed combined bitset.
+   * Per-partition bit offsets are recomputed inside cuVS from the index sizes.
+   *
+   * @param combinedLongs packed bitset words for a single partition
+   */
+  FilterBitsetHandle newFilterBitsetHandle(long[] combinedLongs);
+
+  /**
+   * Searches multiple CAGRA index partitions for the global top-k nearest neighbors per query.
+   *
+   * @param resources shared resources handle
+   * @param indices   one CAGRA index per partition, in partition order
+   * @param query     query whose vectors are searched against every partition
+   * @param k         number of global nearest neighbors to return per query
+   * @param filters   one filter per partition (same order as {@code indices}), or {@code null}/empty
+   *                  for unfiltered search; a {@code null} entry means no filter for that partition
+   * @throws Throwable if an error occurs during the search
+   */
+  MultiPartitionSearchResults searchCagraMultiPartition(
+      CuVSResources resources,
+      List<CagraIndex> indices,
+      CagraQuery query,
+      int k,
+      List<FilterBitsetHandle> filters)
+      throws Throwable;
+
   /** Returns a {@link GPUInfoProvider} to query the system for GPU related information */
   GPUInfoProvider gpuInfoProvider();
 
@@ -214,6 +242,16 @@ public interface CuVSProvider {
    * @param maxPoolSizePercent The maximum pool size, in percentage of the total GPU memory
    */
   void enableRMMManagedPooledMemory(int initialPoolSizePercent, int maxPoolSizePercent);
+
+  /**
+   * Switch RMM allocations to use stream-ordered asynchronous allocation
+   * ({@code cudaMallocAsync} / {@code cudaFreeAsync}). Unlike the pool resource, this resource
+   * returns memory to the stream without blocking the CPU, eliminating device-wide synchronization
+   * on deallocation. This is especially beneficial when multiple CAGRA searches run concurrently
+   * on separate CUDA streams, because internal workspace allocations no longer serialize kernel
+   * launches. This operation has a global effect and will affect all resources on the current device.
+   */
+  void enableRMMAsyncMemory();
 
   /** Disables pooled memory on the current device, reverting back to the default setting.  */
   void resetRMMPooledMemory();

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -8,8 +8,9 @@
 #include <cuvs/detail/jit_lto/cagra/cagra_fragments.hpp>
 #include <cuvs/detail/jit_lto/common_fragments.hpp>
 
-#include "../../sample_filter.cuh"   // For none_sample_filter, bitset_filter
-#include "cagra_filter_payload.hpp"  // sample-filter payload helpers
+#include "../../sample_filter.cuh"           // For none_sample_filter, bitset_filter
+#include "cagra_filter_payload.hpp"          // sample-filter payload helpers
+#include "jit_lto_kernels/cagra_bitset.cuh"  // cagra_bitset alias
 
 #include <cstdint>
 #include <iostream>

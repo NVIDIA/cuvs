@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -258,6 +258,96 @@ void _search(cuvsResources_t res,
              neighbors_tensor->dl_tensor.dtype.bits == 64) {
     _search<T, int64_t>(
       res, params, index, queries_tensor, neighbors_tensor, distances_tensor, filter);
+  } else {
+    RAFT_FAIL("neighbors should be of type uint32_t or int64_t");
+  }
+}
+
+template <typename T, typename OutIdxT>
+void _search_multi_partition(cuvsResources_t res,
+                             cuvsCagraSearchParams params,
+                             uint32_t num_partitions,
+                             cuvsCagraIndex_t* indices,
+                             DLManagedTensor* queries,
+                             DLManagedTensor* partition_ids,
+                             DLManagedTensor* neighbors,
+                             DLManagedTensor* distances,
+                             cuvsFilter* filters)
+{
+  using IdxT      = uint32_t;
+  using DistanceT = float;
+  using IndexT    = cuvs::neighbors::cagra::index<T, IdxT>;
+
+  auto res_ptr       = reinterpret_cast<raft::resources*>(res);
+  auto search_params = cuvs::neighbors::cagra::search_params();
+  convert_c_search_params(params, &search_params);
+
+  std::vector<const IndexT*> idx_vec(num_partitions);
+  for (uint32_t i = 0; i < num_partitions; i++) {
+    idx_vec[i] = reinterpret_cast<const IndexT*>(indices[i]->addr);
+  }
+
+  using queries_view_t = raft::device_matrix_view<const T, int64_t, raft::row_major>;
+  using pid_view_t     = raft::device_matrix_view<uint32_t, int64_t, raft::row_major>;
+  using nbrs_view_t    = raft::device_matrix_view<OutIdxT, int64_t, raft::row_major>;
+  using dist_view_t    = raft::device_matrix_view<DistanceT, int64_t, raft::row_major>;
+
+  auto queries_view       = cuvs::core::from_dlpack<queries_view_t>(queries);
+  auto partition_ids_view = cuvs::core::from_dlpack<pid_view_t>(partition_ids);
+  auto neighbors_view     = cuvs::core::from_dlpack<nbrs_view_t>(neighbors);
+  auto distances_view     = cuvs::core::from_dlpack<dist_view_t>(distances);
+
+  // One bitset view per partition; an empty view (null ptr) means "no filter for that partition".
+  using bitset_view_t   = cuvs::core::bitset_view<std::uint32_t, int64_t>;
+  using bitset_mdspan_t = raft::device_vector_view<std::uint32_t, int64_t, raft::row_major>;
+  std::vector<bitset_view_t> partition_bitsets(
+    num_partitions, bitset_view_t(static_cast<std::uint32_t*>(nullptr), static_cast<int64_t>(0)));
+  if (filters != nullptr) {
+    for (uint32_t i = 0; i < num_partitions; i++) {
+      if (filters[i].type == NO_FILTER) {
+        continue;  // leave the empty (accept-all) view for this partition
+      } else if (filters[i].type == BITSET) {
+        auto* bitset_tensor = reinterpret_cast<DLManagedTensor*>(filters[i].addr);
+        RAFT_EXPECTS(
+          bitset_tensor != nullptr, "BITSET filter addr must be non-null (partition %u)", i);
+        auto bitset_mds = cuvs::core::from_dlpack<bitset_mdspan_t>(bitset_tensor);
+        partition_bitsets[i] =
+          bitset_view_t(bitset_mds, static_cast<int64_t>(bitset_mds.size()) * 32);
+      } else {
+        RAFT_FAIL("Unsupported filter type for multi-partition search (partition %u): %d",
+                  i,
+                  (int)filters[i].type);
+      }
+    }
+  }
+
+  cuvs::neighbors::cagra::search(*res_ptr,
+                                 search_params,
+                                 idx_vec,
+                                 queries_view,
+                                 partition_ids_view,
+                                 neighbors_view,
+                                 distances_view,
+                                 partition_bitsets);
+}
+
+template <typename T>
+void _search_multi_partition(cuvsResources_t res,
+                             cuvsCagraSearchParams params,
+                             uint32_t num_partitions,
+                             cuvsCagraIndex_t* indices,
+                             DLManagedTensor* queries,
+                             DLManagedTensor* partition_ids,
+                             DLManagedTensor* neighbors,
+                             DLManagedTensor* distances,
+                             cuvsFilter* filters)
+{
+  if (neighbors->dl_tensor.dtype.code == kDLUInt && neighbors->dl_tensor.dtype.bits == 32) {
+    _search_multi_partition<T, uint32_t>(
+      res, params, num_partitions, indices, queries, partition_ids, neighbors, distances, filters);
+  } else if (neighbors->dl_tensor.dtype.code == kDLInt && neighbors->dl_tensor.dtype.bits == 64) {
+    _search_multi_partition<T, int64_t>(
+      res, params, num_partitions, indices, queries, partition_ids, neighbors, distances, filters);
   } else {
     RAFT_FAIL("neighbors should be of type uint32_t or int64_t");
   }
@@ -686,6 +776,54 @@ extern "C" cuvsError_t cuvsCagraSearch(cuvsResources_t res,
       RAFT_FAIL("Unsupported queries DLtensor dtype: %d and bits: %d",
                 queries.dtype.code,
                 queries.dtype.bits);
+    }
+  });
+}
+
+extern "C" cuvsError_t cuvsCagraSearchMultiPartition(cuvsResources_t res,
+                                                     cuvsCagraSearchParams_t params,
+                                                     uint32_t num_partitions,
+                                                     cuvsCagraIndex_t* indices,
+                                                     DLManagedTensor* queries,
+                                                     DLManagedTensor* partition_ids,
+                                                     DLManagedTensor* neighbors,
+                                                     DLManagedTensor* distances,
+                                                     cuvsFilter* filters)
+{
+  return cuvs::core::translate_exceptions([=] {
+    RAFT_EXPECTS(num_partitions > 0, "num_partitions must be > 0");
+    RAFT_EXPECTS(indices != nullptr && queries != nullptr && partition_ids != nullptr &&
+                   neighbors != nullptr && distances != nullptr,
+                 "All pointer arguments must be non-null");
+
+    // Every partition index must be present, built, and share one dtype; the search dispatches on
+    // that common dtype. The queries dtype is validated against T inside from_dlpack.
+    RAFT_EXPECTS(indices[0] != nullptr, "Index at position 0 is null");
+    auto index_dtype = indices[0]->dtype;
+    for (uint32_t i = 0; i < num_partitions; i++) {
+      RAFT_EXPECTS(indices[i] != nullptr && indices[i]->addr != 0,
+                   "Index at position %u is null or not built", i);
+      RAFT_EXPECTS(
+        indices[i]->dtype.code == index_dtype.code && indices[i]->dtype.bits == index_dtype.bits,
+        "All partition indices must share the same dtype; position %u differs from position 0", i);
+    }
+
+    if (index_dtype.code == kDLFloat && index_dtype.bits == 32) {
+      _search_multi_partition<float>(
+        res, *params, num_partitions, indices, queries, partition_ids, neighbors, distances, filters);
+    } else if (index_dtype.code == kDLFloat && index_dtype.bits == 16) {
+      _search_multi_partition<half>(
+        res, *params, num_partitions, indices, queries, partition_ids, neighbors, distances, filters);
+    } else if (index_dtype.code == kDLInt && index_dtype.bits == 8) {
+      _search_multi_partition<int8_t>(
+        res, *params, num_partitions, indices, queries, partition_ids, neighbors, distances, filters);
+    } else if (index_dtype.code == kDLUInt && index_dtype.bits == 8) {
+      _search_multi_partition<uint8_t>(
+        res, *params, num_partitions, indices, queries, partition_ids, neighbors, distances, filters);
+    } else {
+      RAFT_FAIL("Unsupported multi-partition index DLtensor dtype: %d and bits: %d",
+                index_dtype.code,
+                index_dtype.bits);
     }
   });
 }

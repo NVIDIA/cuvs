@@ -6,6 +6,7 @@
 #pragma once
 
 #include "common.hpp"
+#include <cuvs/core/bitset.hpp>
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/common.hpp>
 #include <cuvs/neighbors/ivf_pq.hpp>
@@ -31,6 +32,7 @@
 #include <optional>
 #include <string>
 #include <variant>
+#include <vector>
 
 namespace CUVS_EXPORT cuvs {
 namespace neighbors {
@@ -1739,6 +1741,320 @@ void search(raft::resources const& res,
             raft::device_matrix_view<float, int64_t, raft::row_major> distances,
             const cuvs::neighbors::filtering::base_filter& sample_filter =
               cuvs::neighbors::filtering::none_sample_filter{});
+
+// TODO: Create an abstraction for multi-partition indices.
+// Reference issue: https://github.com/NVIDIA/cuvs/issues/2281
+/**
+ * @brief Search multiple CAGRA index partitions concurrently and return the global top-k per
+ * query.
+ *
+ * For each query row in @p queries, the kernel searches all partitions in parallel into an
+ * internal intermediate buffer, applies per-partition distance post-processing, runs a batched
+ * top-k merge across partitions, and writes the final outputs. The call returns when all work
+ * has been submitted to the stream associated with @p res (not necessarily completed); call
+ * @c raft::resource::sync_stream on @p res to wait for completion.
+ *
+ * @note Calling this API with a single partition (@p indices of size 1) still exercises the
+ * multi-partition implementation rather than the single-index search overloads above, and the
+ * behaviors are not guaranteed to be equivalent.
+ *
+ * @note All index partitions must use the same distance metric and graph degree; partition sizes
+ * may differ. Compressed (VPQ) datasets are not currently supported in multi-partition search, so
+ * partitions must be built on in-memory strided datasets.
+ *
+ * @param[in]  res            raft resources
+ * @param[in]  params         search parameters (shared across partitions)
+ * @param[in]  indices        CAGRA index objects, one per partition
+ * @param[in]  queries        queries matrix, shape [n_queries, dim]; searched against every
+ *                            partition
+ * @param[out] partition_ids  which partition each neighbor came from, shape [n_queries, k]
+ * @param[out] neighbors      ordinal in the corresponding partition's dataset, shape
+ *                            [n_queries, k]
+ * @param[out] distances      post-processed distance for each (query, neighbor), shape
+ *                            [n_queries, k]
+ */
+void search(
+  raft::resources const& res,
+  cuvs::neighbors::cagra::search_params const& params,
+  const std::vector<const cuvs::neighbors::cagra::index<float, uint32_t>*>& indices,
+  raft::device_matrix_view<const float, int64_t, raft::row_major> queries,
+  raft::device_matrix_view<uint32_t, int64_t, raft::row_major> partition_ids,
+  raft::device_matrix_view<uint32_t, int64_t, raft::row_major> neighbors,
+  raft::device_matrix_view<float, int64_t, raft::row_major> distances,
+  const std::vector<cuvs::core::bitset_view<std::uint32_t, int64_t>>& partition_bitsets = {});
+
+/**
+ * @brief Search multiple CAGRA index partitions concurrently and return the global top-k per
+ * query.
+ *
+ * For each query row in @p queries, the kernel searches all partitions in parallel into an
+ * internal intermediate buffer, applies per-partition distance post-processing, runs a batched
+ * top-k merge across partitions, and writes the final outputs. The call returns when all work
+ * has been submitted to the stream associated with @p res (not necessarily completed); call
+ * @c raft::resource::sync_stream on @p res to wait for completion.
+ *
+ * @note Calling this API with a single partition (@p indices of size 1) still exercises the
+ * multi-partition implementation rather than the single-index search overloads above, and the
+ * behaviors are not guaranteed to be equivalent.
+ *
+ * @note All index partitions must use the same distance metric and graph degree; partition sizes
+ * may differ. Compressed (VPQ) datasets are not currently supported in multi-partition search, so
+ * partitions must be built on in-memory strided datasets.
+ *
+ * @param[in]  res            raft resources
+ * @param[in]  params         search parameters (shared across partitions)
+ * @param[in]  indices        CAGRA index objects, one per partition
+ * @param[in]  queries        queries matrix, shape [n_queries, dim]; searched against every
+ *                            partition
+ * @param[out] partition_ids  which partition each neighbor came from, shape [n_queries, k]
+ * @param[out] neighbors      ordinal in the corresponding partition's dataset, shape
+ *                            [n_queries, k]
+ * @param[out] distances      post-processed distance for each (query, neighbor), shape
+ *                            [n_queries, k]
+ */
+void search(
+  raft::resources const& res,
+  cuvs::neighbors::cagra::search_params const& params,
+  const std::vector<const cuvs::neighbors::cagra::index<float, uint32_t>*>& indices,
+  raft::device_matrix_view<const float, int64_t, raft::row_major> queries,
+  raft::device_matrix_view<uint32_t, int64_t, raft::row_major> partition_ids,
+  raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
+  raft::device_matrix_view<float, int64_t, raft::row_major> distances,
+  const std::vector<cuvs::core::bitset_view<std::uint32_t, int64_t>>& partition_bitsets = {});
+
+/**
+ * @brief Search multiple CAGRA index partitions concurrently and return the global top-k per
+ * query.
+ *
+ * For each query row in @p queries, the kernel searches all partitions in parallel into an
+ * internal intermediate buffer, applies per-partition distance post-processing, runs a batched
+ * top-k merge across partitions, and writes the final outputs. The call returns when all work
+ * has been submitted to the stream associated with @p res (not necessarily completed); call
+ * @c raft::resource::sync_stream on @p res to wait for completion.
+ *
+ * @note Calling this API with a single partition (@p indices of size 1) still exercises the
+ * multi-partition implementation rather than the single-index search overloads above, and the
+ * behaviors are not guaranteed to be equivalent.
+ *
+ * @note All index partitions must use the same distance metric and graph degree; partition sizes
+ * may differ. Compressed (VPQ) datasets are not currently supported in multi-partition search, so
+ * partitions must be built on in-memory strided datasets.
+ *
+ * @param[in]  res            raft resources
+ * @param[in]  params         search parameters (shared across partitions)
+ * @param[in]  indices        CAGRA index objects, one per partition
+ * @param[in]  queries        queries matrix, shape [n_queries, dim]; searched against every
+ *                            partition
+ * @param[out] partition_ids  which partition each neighbor came from, shape [n_queries, k]
+ * @param[out] neighbors      ordinal in the corresponding partition's dataset, shape
+ *                            [n_queries, k]
+ * @param[out] distances      post-processed distance for each (query, neighbor), shape
+ *                            [n_queries, k]
+ */
+void search(
+  raft::resources const& res,
+  cuvs::neighbors::cagra::search_params const& params,
+  const std::vector<const cuvs::neighbors::cagra::index<half, uint32_t>*>& indices,
+  raft::device_matrix_view<const half, int64_t, raft::row_major> queries,
+  raft::device_matrix_view<uint32_t, int64_t, raft::row_major> partition_ids,
+  raft::device_matrix_view<uint32_t, int64_t, raft::row_major> neighbors,
+  raft::device_matrix_view<float, int64_t, raft::row_major> distances,
+  const std::vector<cuvs::core::bitset_view<std::uint32_t, int64_t>>& partition_bitsets = {});
+
+/**
+ * @brief Search multiple CAGRA index partitions concurrently and return the global top-k per
+ * query.
+ *
+ * For each query row in @p queries, the kernel searches all partitions in parallel into an
+ * internal intermediate buffer, applies per-partition distance post-processing, runs a batched
+ * top-k merge across partitions, and writes the final outputs. The call returns when all work
+ * has been submitted to the stream associated with @p res (not necessarily completed); call
+ * @c raft::resource::sync_stream on @p res to wait for completion.
+ *
+ * @note Calling this API with a single partition (@p indices of size 1) still exercises the
+ * multi-partition implementation rather than the single-index search overloads above, and the
+ * behaviors are not guaranteed to be equivalent.
+ *
+ * @note All index partitions must use the same distance metric and graph degree; partition sizes
+ * may differ. Compressed (VPQ) datasets are not currently supported in multi-partition search, so
+ * partitions must be built on in-memory strided datasets.
+ *
+ * @param[in]  res            raft resources
+ * @param[in]  params         search parameters (shared across partitions)
+ * @param[in]  indices        CAGRA index objects, one per partition
+ * @param[in]  queries        queries matrix, shape [n_queries, dim]; searched against every
+ *                            partition
+ * @param[out] partition_ids  which partition each neighbor came from, shape [n_queries, k]
+ * @param[out] neighbors      ordinal in the corresponding partition's dataset, shape
+ *                            [n_queries, k]
+ * @param[out] distances      post-processed distance for each (query, neighbor), shape
+ *                            [n_queries, k]
+ */
+void search(
+  raft::resources const& res,
+  cuvs::neighbors::cagra::search_params const& params,
+  const std::vector<const cuvs::neighbors::cagra::index<half, uint32_t>*>& indices,
+  raft::device_matrix_view<const half, int64_t, raft::row_major> queries,
+  raft::device_matrix_view<uint32_t, int64_t, raft::row_major> partition_ids,
+  raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
+  raft::device_matrix_view<float, int64_t, raft::row_major> distances,
+  const std::vector<cuvs::core::bitset_view<std::uint32_t, int64_t>>& partition_bitsets = {});
+
+/**
+ * @brief Search multiple CAGRA index partitions concurrently and return the global top-k per
+ * query.
+ *
+ * For each query row in @p queries, the kernel searches all partitions in parallel into an
+ * internal intermediate buffer, applies per-partition distance post-processing, runs a batched
+ * top-k merge across partitions, and writes the final outputs. The call returns when all work
+ * has been submitted to the stream associated with @p res (not necessarily completed); call
+ * @c raft::resource::sync_stream on @p res to wait for completion.
+ *
+ * @note Calling this API with a single partition (@p indices of size 1) still exercises the
+ * multi-partition implementation rather than the single-index search overloads above, and the
+ * behaviors are not guaranteed to be equivalent.
+ *
+ * @note All index partitions must use the same distance metric and graph degree; partition sizes
+ * may differ. Compressed (VPQ) datasets are not currently supported in multi-partition search, so
+ * partitions must be built on in-memory strided datasets.
+ *
+ * @param[in]  res            raft resources
+ * @param[in]  params         search parameters (shared across partitions)
+ * @param[in]  indices        CAGRA index objects, one per partition
+ * @param[in]  queries        queries matrix, shape [n_queries, dim]; searched against every
+ *                            partition
+ * @param[out] partition_ids  which partition each neighbor came from, shape [n_queries, k]
+ * @param[out] neighbors      ordinal in the corresponding partition's dataset, shape
+ *                            [n_queries, k]
+ * @param[out] distances      post-processed distance for each (query, neighbor), shape
+ *                            [n_queries, k]
+ */
+void search(
+  raft::resources const& res,
+  cuvs::neighbors::cagra::search_params const& params,
+  const std::vector<const cuvs::neighbors::cagra::index<int8_t, uint32_t>*>& indices,
+  raft::device_matrix_view<const int8_t, int64_t, raft::row_major> queries,
+  raft::device_matrix_view<uint32_t, int64_t, raft::row_major> partition_ids,
+  raft::device_matrix_view<uint32_t, int64_t, raft::row_major> neighbors,
+  raft::device_matrix_view<float, int64_t, raft::row_major> distances,
+  const std::vector<cuvs::core::bitset_view<std::uint32_t, int64_t>>& partition_bitsets = {});
+
+/**
+ * @brief Search multiple CAGRA index partitions concurrently and return the global top-k per
+ * query.
+ *
+ * For each query row in @p queries, the kernel searches all partitions in parallel into an
+ * internal intermediate buffer, applies per-partition distance post-processing, runs a batched
+ * top-k merge across partitions, and writes the final outputs. The call returns when all work
+ * has been submitted to the stream associated with @p res (not necessarily completed); call
+ * @c raft::resource::sync_stream on @p res to wait for completion.
+ *
+ * @note Calling this API with a single partition (@p indices of size 1) still exercises the
+ * multi-partition implementation rather than the single-index search overloads above, and the
+ * behaviors are not guaranteed to be equivalent.
+ *
+ * @note All index partitions must use the same distance metric and graph degree; partition sizes
+ * may differ. Compressed (VPQ) datasets are not currently supported in multi-partition search, so
+ * partitions must be built on in-memory strided datasets.
+ *
+ * @param[in]  res            raft resources
+ * @param[in]  params         search parameters (shared across partitions)
+ * @param[in]  indices        CAGRA index objects, one per partition
+ * @param[in]  queries        queries matrix, shape [n_queries, dim]; searched against every
+ *                            partition
+ * @param[out] partition_ids  which partition each neighbor came from, shape [n_queries, k]
+ * @param[out] neighbors      ordinal in the corresponding partition's dataset, shape
+ *                            [n_queries, k]
+ * @param[out] distances      post-processed distance for each (query, neighbor), shape
+ *                            [n_queries, k]
+ */
+void search(
+  raft::resources const& res,
+  cuvs::neighbors::cagra::search_params const& params,
+  const std::vector<const cuvs::neighbors::cagra::index<int8_t, uint32_t>*>& indices,
+  raft::device_matrix_view<const int8_t, int64_t, raft::row_major> queries,
+  raft::device_matrix_view<uint32_t, int64_t, raft::row_major> partition_ids,
+  raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
+  raft::device_matrix_view<float, int64_t, raft::row_major> distances,
+  const std::vector<cuvs::core::bitset_view<std::uint32_t, int64_t>>& partition_bitsets = {});
+
+/**
+ * @brief Search multiple CAGRA index partitions concurrently and return the global top-k per
+ * query.
+ *
+ * For each query row in @p queries, the kernel searches all partitions in parallel into an
+ * internal intermediate buffer, applies per-partition distance post-processing, runs a batched
+ * top-k merge across partitions, and writes the final outputs. The call returns when all work
+ * has been submitted to the stream associated with @p res (not necessarily completed); call
+ * @c raft::resource::sync_stream on @p res to wait for completion.
+ *
+ * @note Calling this API with a single partition (@p indices of size 1) still exercises the
+ * multi-partition implementation rather than the single-index search overloads above, and the
+ * behaviors are not guaranteed to be equivalent.
+ *
+ * @note All index partitions must use the same distance metric and graph degree; partition sizes
+ * may differ. Compressed (VPQ) datasets are not currently supported in multi-partition search, so
+ * partitions must be built on in-memory strided datasets.
+ *
+ * @param[in]  res            raft resources
+ * @param[in]  params         search parameters (shared across partitions)
+ * @param[in]  indices        CAGRA index objects, one per partition
+ * @param[in]  queries        queries matrix, shape [n_queries, dim]; searched against every
+ *                            partition
+ * @param[out] partition_ids  which partition each neighbor came from, shape [n_queries, k]
+ * @param[out] neighbors      ordinal in the corresponding partition's dataset, shape
+ *                            [n_queries, k]
+ * @param[out] distances      post-processed distance for each (query, neighbor), shape
+ *                            [n_queries, k]
+ */
+void search(
+  raft::resources const& res,
+  cuvs::neighbors::cagra::search_params const& params,
+  const std::vector<const cuvs::neighbors::cagra::index<uint8_t, uint32_t>*>& indices,
+  raft::device_matrix_view<const uint8_t, int64_t, raft::row_major> queries,
+  raft::device_matrix_view<uint32_t, int64_t, raft::row_major> partition_ids,
+  raft::device_matrix_view<uint32_t, int64_t, raft::row_major> neighbors,
+  raft::device_matrix_view<float, int64_t, raft::row_major> distances,
+  const std::vector<cuvs::core::bitset_view<std::uint32_t, int64_t>>& partition_bitsets = {});
+
+/**
+ * @brief Search multiple CAGRA index partitions concurrently and return the global top-k per
+ * query.
+ *
+ * For each query row in @p queries, the kernel searches all partitions in parallel into an
+ * internal intermediate buffer, applies per-partition distance post-processing, runs a batched
+ * top-k merge across partitions, and writes the final outputs. The call returns when all work
+ * has been submitted to the stream associated with @p res (not necessarily completed); call
+ * @c raft::resource::sync_stream on @p res to wait for completion.
+ *
+ * @note Calling this API with a single partition (@p indices of size 1) still exercises the
+ * multi-partition implementation rather than the single-index search overloads above, and the
+ * behaviors are not guaranteed to be equivalent.
+ *
+ * @note All index partitions must use the same distance metric and graph degree; partition sizes
+ * may differ. Compressed (VPQ) datasets are not currently supported in multi-partition search, so
+ * partitions must be built on in-memory strided datasets.
+ *
+ * @param[in]  res            raft resources
+ * @param[in]  params         search parameters (shared across partitions)
+ * @param[in]  indices        CAGRA index objects, one per partition
+ * @param[in]  queries        queries matrix, shape [n_queries, dim]; searched against every
+ *                            partition
+ * @param[out] partition_ids  which partition each neighbor came from, shape [n_queries, k]
+ * @param[out] neighbors      ordinal in the corresponding partition's dataset, shape
+ *                            [n_queries, k]
+ * @param[out] distances      post-processed distance for each (query, neighbor), shape
+ *                            [n_queries, k]
+ */
+void search(
+  raft::resources const& res,
+  cuvs::neighbors::cagra::search_params const& params,
+  const std::vector<const cuvs::neighbors::cagra::index<uint8_t, uint32_t>*>& indices,
+  raft::device_matrix_view<const uint8_t, int64_t, raft::row_major> queries,
+  raft::device_matrix_view<uint32_t, int64_t, raft::row_major> partition_ids,
+  raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
+  raft::device_matrix_view<float, int64_t, raft::row_major> distances,
+  const std::vector<cuvs::core::bitset_view<std::uint32_t, int64_t>>& partition_bitsets = {});
 
 /**
  * @}

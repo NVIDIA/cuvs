@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs;
@@ -301,8 +301,8 @@ public class CagraSearchParams {
     private int numRandomSamplings = 1;
     private float hashMapMaxFillRate = 0.5f;
     private long randXORMask = 0x128394;
-    private SearchAlgo searchAlgo;
-    private HashMapMode hashMapMode;
+    private SearchAlgo searchAlgo = SearchAlgo.AUTO;
+    private HashMapMode hashMapMode = HashMapMode.AUTO_HASH;
 
     /**
      * Default constructor.

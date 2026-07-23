@@ -37,6 +37,7 @@
 
 #include <cstddef>
 #include <iostream>
+#include <numeric>
 #include <optional>
 #include <string>
 #include <vector>
@@ -1994,5 +1995,496 @@ inline std::vector<AnnCagraInputs> generate_filtering_inputs()
 const std::vector<AnnCagraInputs> inputs           = generate_inputs();
 const std::vector<AnnCagraInputs> inputs_addnode   = generate_addnode_inputs();
 const std::vector<AnnCagraInputs> inputs_filtering = generate_filtering_inputs();
+
+// ===================================================================================
+// Multi-partition CAGRA search (cagra::search over a std::vector<const index*>).
+// Kept as a separate test class + input type (mirroring how extend/filter/merge are
+// modeled), since the multi-partition path has its own axes (partition count, how rows
+// are distributed across partitions) and does not exercise serialization / extend /
+// merge / compression knobs.
+// ===================================================================================
+
+enum class partition_split {
+  // Rows distributed as evenly as possible across partitions.
+  EVEN,
+  // Partition 0 gets ~half the rows; the remainder is split evenly among the rest.
+  SKEWED
+};
+
+struct AnnCagraMpInputs {
+  int n_queries;
+  int n_rows;
+  int dim;
+  int k;
+  int num_partitions;
+  partition_split split;
+  graph_build_algo build_algo;
+  search_algo algo;
+  int itopk_size;
+  cuvs::distance::DistanceType metric;
+  double min_recall;
+  // 0 lets the search pick max_queries (min(n_queries, maxGridSize[1])). A smaller value forces
+  // the per-launch query chunk loop, exercising multi-chunk output slicing and the filter offset.
+  int max_queries = 0;
+};
+
+inline ::std::ostream& operator<<(::std::ostream& os, const AnnCagraMpInputs& p)
+{
+  const auto metric_str = [](const cuvs::distance::DistanceType dist) -> std::string {
+    switch (dist) {
+      case cuvs::distance::DistanceType::InnerProduct: return "InnerProduct";
+      case cuvs::distance::DistanceType::L2Expanded: return "L2";
+      case cuvs::distance::DistanceType::CosineExpanded: return "Cosine";
+      default: return "Unknown";
+    }
+  };
+  std::map<search_algo, std::string> algo_name = {{search_algo::SINGLE_CTA, "single-cta"},
+                                                  {search_algo::MULTI_CTA, "multi_cta"},
+                                                  {search_algo::MULTI_KERNEL, "multi_kernel"},
+                                                  {search_algo::AUTO, "auto"}};
+  os << "{n_queries=" << p.n_queries << ", dataset shape=" << p.n_rows << "x" << p.dim
+     << ", k=" << p.k << ", num_partitions=" << p.num_partitions
+     << ", split=" << (p.split == partition_split::EVEN ? "even" : "skewed") << ", "
+     << algo_name[p.algo] << ", itopk_size=" << p.itopk_size << ", metric=" << metric_str(p.metric)
+     << ", max_queries=" << p.max_queries << '}' << std::endl;
+  return os;
+}
+
+// Split n_rows into num_partitions contiguous slices. Because the slices are contiguous and
+// in order, the global (concatenated) row index of local ordinal `o` in partition `i` is
+// simply partition_offset[i] + o. The tests rely on this to map per-partition results back to
+// a single ground-truth space.
+inline std::vector<int64_t> make_partition_sizes(int64_t n_rows,
+                                                 int num_partitions,
+                                                 partition_split split)
+{
+  std::vector<int64_t> sizes(num_partitions, 0);
+  if (split == partition_split::SKEWED && num_partitions >= 2) {
+    const int64_t big = n_rows / 2;
+    sizes[0]          = big;
+    const int64_t rem = n_rows - big;
+    const int others  = num_partitions - 1;
+    for (int i = 1; i < num_partitions; i++) {
+      sizes[i] = rem / others + ((i - 1) < (rem % others) ? 1 : 0);
+    }
+  } else {
+    const int64_t base = n_rows / num_partitions;
+    const int64_t rem  = n_rows % num_partitions;
+    for (int i = 0; i < num_partitions; i++) {
+      sizes[i] = base + (i < rem ? 1 : 0);
+    }
+  }
+  return sizes;
+}
+
+template <typename DistanceT, typename DataT, typename IdxT>
+class AnnCagraMultiPartitionTest : public ::testing::TestWithParam<AnnCagraMpInputs> {
+ public:
+  AnnCagraMultiPartitionTest()
+    : stream_(raft::resource::get_cuda_stream(handle_)),
+      ps(::testing::TestWithParam<AnnCagraMpInputs>::GetParam()),
+      database(0, stream_),
+      search_queries(0, stream_)
+  {
+  }
+
+ protected:
+  // Build one CAGRA index per contiguous slice of `database`. Skips (returns false) when a
+  // partition would be too small to build a graph of the requested degree.
+  bool buildPartitions(cagra::index_params const& index_params,
+                       std::vector<int64_t> const& sizes,
+                       std::vector<int64_t> const& offsets,
+                       std::vector<cagra::index<DataT, IdxT>>& out)
+  {
+    for (int i = 0; i < ps.num_partitions; i++) {
+      if (sizes[i] <= static_cast<int64_t>(index_params.graph_degree)) { return false; }
+      auto slice_view = raft::make_device_matrix_view<const DataT, int64_t>(
+        database.data() + offsets[i] * ps.dim, sizes[i], ps.dim);
+      out.push_back(cagra::build(handle_, index_params, slice_view));
+    }
+    return true;
+  }
+
+  cagra::index_params makeIndexParams()
+  {
+    cagra::index_params index_params;
+    index_params.metric = ps.metric;
+    // Use the same graph degrees as the existing single-index CAGRA tests so recall is comparable
+    // and the pass thresholds can follow the established convention.
+    index_params.graph_degree              = 64;
+    index_params.intermediate_graph_degree = 128;
+    switch (ps.build_algo) {
+      case graph_build_algo::NN_DESCENT:
+        index_params.graph_build_params = graph_build_params::nn_descent_params(
+          index_params.intermediate_graph_degree, index_params.metric);
+        break;
+      case graph_build_algo::IVF_PQ:
+      case graph_build_algo::ITERATIVE_CAGRA_SEARCH:
+      case graph_build_algo::AUTO:
+        // leave defaults (AUTO) for the build path
+        break;
+    }
+    return index_params;
+  }
+
+  cagra::search_params makeSearchParams()
+  {
+    cagra::search_params search_params;
+    search_params.algo        = ps.algo;
+    search_params.itopk_size  = ps.itopk_size;
+    search_params.max_queries = ps.max_queries;
+    return search_params;
+  }
+
+  // Combinations CAGRA does not support for CosineExpanded (mirrors AnnCagraTest's skips). Guard
+  // defensively so the sweep can later gain build algos / dims without generating invalid cases.
+  // (Compression is intentionally absent here: multi-partition search only accepts strided,
+  // non-compressed datasets.)
+  bool cosineUnsupported() const
+  {
+    return ps.metric == cuvs::distance::DistanceType::CosineExpanded &&
+           (ps.dim == 1 || ps.build_algo == graph_build_algo::ITERATIVE_CAGRA_SEARCH);
+  }
+
+  // Core correctness: searching N partitions must match a brute-force search over the union of
+  // all partition rows, once per-partition (partition_id, ordinal) results are decoded back to
+  // global indices. This simultaneously validates the cross-partition merge AND the
+  // partition_id/ordinal decoding.
+  void testSearch()
+  {
+    if (cosineUnsupported()) { GTEST_SKIP(); }
+    if (ps.algo == search_algo::SINGLE_CTA && ps.k > ps.itopk_size) { GTEST_SKIP(); }
+
+    const auto sizes = make_partition_sizes(ps.n_rows, ps.num_partitions, ps.split);
+    std::vector<int64_t> offsets(ps.num_partitions, 0);
+    std::exclusive_scan(sizes.begin(), sizes.end(), offsets.begin(), int64_t{0});
+
+    auto index_params = makeIndexParams();
+    std::vector<cagra::index<DataT, IdxT>> part_indices;
+    part_indices.reserve(ps.num_partitions);
+    if (!buildPartitions(index_params, sizes, offsets, part_indices)) { GTEST_SKIP(); }
+
+    std::vector<const cagra::index<DataT, IdxT>*> index_ptrs;
+    for (auto& idx : part_indices) {
+      index_ptrs.push_back(&idx);
+    }
+
+    const size_t out_size = static_cast<size_t>(ps.n_queries) * ps.k;
+    rmm::device_uvector<uint32_t> partition_ids_dev(out_size, stream_);
+    rmm::device_uvector<IdxT> neighbors_dev(out_size, stream_);
+    rmm::device_uvector<DistanceT> distances_dev(out_size, stream_);
+
+    auto search_params = makeSearchParams();
+    auto queries_view  = raft::make_device_matrix_view<const DataT, int64_t>(
+      search_queries.data(), ps.n_queries, ps.dim);
+    auto part_ids_view = raft::make_device_matrix_view<uint32_t, int64_t>(
+      partition_ids_dev.data(), ps.n_queries, ps.k);
+    auto neighbors_view =
+      raft::make_device_matrix_view<IdxT, int64_t>(neighbors_dev.data(), ps.n_queries, ps.k);
+    auto dists_view =
+      raft::make_device_matrix_view<DistanceT, int64_t>(distances_dev.data(), ps.n_queries, ps.k);
+
+    cagra::search(
+      handle_, search_params, index_ptrs, queries_view, part_ids_view, neighbors_view, dists_view);
+
+    std::vector<uint32_t> partition_ids(out_size);
+    std::vector<IdxT> neighbors(out_size);
+    std::vector<DistanceT> distances_mp(out_size);
+    raft::update_host(partition_ids.data(), partition_ids_dev.data(), out_size, stream_);
+    raft::update_host(neighbors.data(), neighbors_dev.data(), out_size, stream_);
+    raft::update_host(distances_mp.data(), distances_dev.data(), out_size, stream_);
+    raft::resource::sync_stream(handle_);
+
+    // Decode (partition_id, ordinal) -> global index in the concatenated database.
+    std::vector<IdxT> indices_mp(out_size);
+    for (size_t i = 0; i < out_size; i++) {
+      ASSERT_LT(partition_ids[i], static_cast<uint32_t>(ps.num_partitions));
+      ASSERT_LT(static_cast<int64_t>(neighbors[i]), sizes[partition_ids[i]]);
+      indices_mp[i] = static_cast<IdxT>(offsets[partition_ids[i]]) + neighbors[i];
+    }
+
+    // Brute-force ground truth over the full (concatenated) database.
+    std::vector<IdxT> indices_naive(out_size);
+    std::vector<DistanceT> distances_naive(out_size);
+    {
+      rmm::device_uvector<DistanceT> distances_naive_dev(out_size, stream_);
+      rmm::device_uvector<IdxT> indices_naive_dev(out_size, stream_);
+      cuvs::neighbors::naive_knn<DistanceT, DataT, IdxT>(handle_,
+                                                         distances_naive_dev.data(),
+                                                         indices_naive_dev.data(),
+                                                         search_queries.data(),
+                                                         database.data(),
+                                                         ps.n_queries,
+                                                         ps.n_rows,
+                                                         ps.dim,
+                                                         ps.k,
+                                                         ps.metric);
+      raft::update_host(distances_naive.data(), distances_naive_dev.data(), out_size, stream_);
+      raft::update_host(indices_naive.data(), indices_naive_dev.data(), out_size, stream_);
+      raft::resource::sync_stream(handle_);
+    }
+
+    EXPECT_TRUE(eval_neighbours(indices_naive,
+                                indices_mp,
+                                distances_naive,
+                                distances_mp,
+                                ps.n_queries,
+                                ps.k,
+                                0.003,
+                                ps.min_recall));
+  }
+
+  // Filtered multi-partition search via a plain bitset_filter over the combined bitset. cuVS
+  // recomputes each partition's bit offset (word-aligned) from the index sizes, so the bitset is
+  // packed with word-aligned per-partition slices; clearing the bits for the first `filter_offset`
+  // global rows mirrors the single-partition AnnCagraFilterTest.
+  void testFilteredSearch()
+  {
+    if (cosineUnsupported()) { GTEST_SKIP(); }
+    if (ps.algo == search_algo::SINGLE_CTA && ps.k > ps.itopk_size) { GTEST_SKIP(); }
+    const int64_t filter_offset = ps.n_rows / 4;
+    if (filter_offset <= 0 || ps.n_rows - filter_offset <= ps.k) { GTEST_SKIP(); }
+
+    const auto sizes = make_partition_sizes(ps.n_rows, ps.num_partitions, ps.split);
+    std::vector<int64_t> offsets(ps.num_partitions, 0);
+    std::exclusive_scan(sizes.begin(), sizes.end(), offsets.begin(), int64_t{0});
+
+    auto index_params = makeIndexParams();
+    std::vector<cagra::index<DataT, IdxT>> part_indices;
+    part_indices.reserve(ps.num_partitions);
+    if (!buildPartitions(index_params, sizes, offsets, part_indices)) { GTEST_SKIP(); }
+    std::vector<const cagra::index<DataT, IdxT>*> index_ptrs;
+    for (auto& idx : part_indices) {
+      index_ptrs.push_back(&idx);
+    }
+
+    // Each partition supplies its OWN bitset over its own rows (one bit per row). Clear the local
+    // rows that map to removed global rows [0, filter_offset); unlisted bits stay set (kept). The
+    // bitset objects are kept alive in part_bitsets; partition_bitsets holds views into them.
+    std::vector<cuvs::core::bitset<uint32_t, int64_t>> part_bitsets;
+    part_bitsets.reserve(ps.num_partitions);
+    std::vector<cuvs::core::bitset_view<uint32_t, int64_t>> partition_bitsets;
+    partition_bitsets.reserve(ps.num_partitions);
+    for (int p = 0; p < ps.num_partitions; p++) {
+      std::vector<int64_t> removed_local;
+      for (int64_t g = offsets[p]; g < offsets[p] + sizes[p] && g < filter_offset; g++) {
+        removed_local.push_back(g - offsets[p]);
+      }
+      if (removed_local.empty()) {
+        // No rows removed in this partition: pass an empty view (no filter, accept all).
+        partition_bitsets.emplace_back(static_cast<uint32_t*>(nullptr), static_cast<int64_t>(0));
+        continue;
+      }
+      auto removed_p = raft::make_device_vector<int64_t, int64_t>(
+        handle_, static_cast<int64_t>(removed_local.size()));
+      raft::update_device(
+        removed_p.data_handle(), removed_local.data(), removed_local.size(), stream_);
+      raft::resource::sync_stream(handle_);
+      part_bitsets.emplace_back(handle_, removed_p.view(), sizes[p]);
+      partition_bitsets.push_back(part_bitsets.back().view());
+    }
+
+    const size_t out_size = static_cast<size_t>(ps.n_queries) * ps.k;
+    rmm::device_uvector<uint32_t> partition_ids_dev(out_size, stream_);
+    rmm::device_uvector<IdxT> neighbors_dev(out_size, stream_);
+    rmm::device_uvector<DistanceT> distances_dev(out_size, stream_);
+
+    auto search_params = makeSearchParams();
+    auto queries_view  = raft::make_device_matrix_view<const DataT, int64_t>(
+      search_queries.data(), ps.n_queries, ps.dim);
+    auto part_ids_view = raft::make_device_matrix_view<uint32_t, int64_t>(
+      partition_ids_dev.data(), ps.n_queries, ps.k);
+    auto neighbors_view =
+      raft::make_device_matrix_view<IdxT, int64_t>(neighbors_dev.data(), ps.n_queries, ps.k);
+    auto dists_view =
+      raft::make_device_matrix_view<DistanceT, int64_t>(distances_dev.data(), ps.n_queries, ps.k);
+
+    cagra::search(handle_,
+                  search_params,
+                  index_ptrs,
+                  queries_view,
+                  part_ids_view,
+                  neighbors_view,
+                  dists_view,
+                  partition_bitsets);
+
+    std::vector<uint32_t> partition_ids(out_size);
+    std::vector<IdxT> neighbors(out_size);
+    std::vector<DistanceT> distances_mp(out_size);
+    raft::update_host(partition_ids.data(), partition_ids_dev.data(), out_size, stream_);
+    raft::update_host(neighbors.data(), neighbors_dev.data(), out_size, stream_);
+    raft::update_host(distances_mp.data(), distances_dev.data(), out_size, stream_);
+    raft::resource::sync_stream(handle_);
+
+    std::vector<IdxT> indices_mp(out_size);
+    bool any_filtered = false;
+    for (size_t i = 0; i < out_size; i++) {
+      const IdxT global = static_cast<IdxT>(offsets[partition_ids[i]]) + neighbors[i];
+      indices_mp[i]     = global;
+      // No filtered-out (global < filter_offset) row may appear in the results.
+      any_filtered = any_filtered || (static_cast<int64_t>(global) < filter_offset);
+    }
+    EXPECT_FALSE(any_filtered);
+
+    // Ground truth: brute force over the surviving rows [filter_offset, n_rows), then shift the
+    // naive indices back into the global space.
+    std::vector<IdxT> indices_naive(out_size);
+    std::vector<DistanceT> distances_naive(out_size);
+    {
+      rmm::device_uvector<DistanceT> distances_naive_dev(out_size, stream_);
+      rmm::device_uvector<IdxT> indices_naive_dev(out_size, stream_);
+      cuvs::neighbors::naive_knn<DistanceT, DataT, IdxT>(handle_,
+                                                         distances_naive_dev.data(),
+                                                         indices_naive_dev.data(),
+                                                         search_queries.data(),
+                                                         database.data() + filter_offset * ps.dim,
+                                                         ps.n_queries,
+                                                         ps.n_rows - filter_offset,
+                                                         ps.dim,
+                                                         ps.k,
+                                                         ps.metric);
+      raft::linalg::addScalar(indices_naive_dev.data(),
+                              indices_naive_dev.data(),
+                              static_cast<IdxT>(filter_offset),
+                              out_size,
+                              stream_);
+      raft::update_host(distances_naive.data(), distances_naive_dev.data(), out_size, stream_);
+      raft::update_host(indices_naive.data(), indices_naive_dev.data(), out_size, stream_);
+      raft::resource::sync_stream(handle_);
+    }
+
+    EXPECT_TRUE(eval_neighbours(indices_naive,
+                                indices_mp,
+                                distances_naive,
+                                distances_mp,
+                                ps.n_queries,
+                                ps.k,
+                                0.003,
+                                ps.min_recall,
+                                false));
+  }
+
+  void SetUp() override
+  {
+    database.resize(static_cast<size_t>(ps.n_rows) * ps.dim, stream_);
+    search_queries.resize(static_cast<size_t>(ps.n_queries) * ps.dim, stream_);
+    raft::random::RngState r(1234ULL);
+    InitDataset(handle_, database.data(), ps.n_rows, ps.dim, ps.metric, r);
+    InitDataset(handle_, search_queries.data(), ps.n_queries, ps.dim, ps.metric, r);
+    raft::resource::sync_stream(handle_);
+  }
+
+  void TearDown() override
+  {
+    raft::resource::sync_stream(handle_);
+    database.resize(0, stream_);
+    search_queries.resize(0, stream_);
+  }
+
+ private:
+  raft::resources handle_;
+  rmm::cuda_stream_view stream_;
+  AnnCagraMpInputs ps;
+  rmm::device_uvector<DataT> database;
+  rmm::device_uvector<DataT> search_queries;
+};
+
+inline std::vector<AnnCagraMpInputs> generate_mp_inputs()
+{
+  std::vector<AnnCagraMpInputs> inputs;
+
+  // Core sweep: partition count x split x algo x metric, on a mid-size dataset.
+  // SINGLE_CTA covers topk <= 512; MULTI_CTA covers topk > 512. AUTO only routes to one of those
+  // two, so it is not swept here; the k-spanning block exercises AUTO->MULTI_CTA and the
+  // dimensionality block exercises AUTO->SINGLE_CTA.
+  // Only the endpoints of the partition-count range are swept here: 1 (degenerate, no
+  // cross-partition merge) and 8 (max merge stress). The intermediate 2/4 are omitted to cut
+  // runtime; 4 is still exercised by the k-spanning and dimensionality blocks below, so the
+  // suite covers {1, 4, 8}.
+  for (int num_partitions : {1, 8}) {
+    for (auto split : {partition_split::EVEN, partition_split::SKEWED}) {
+      if (num_partitions == 1 && split == partition_split::SKEWED) { continue; }
+      for (auto algo : {search_algo::SINGLE_CTA, search_algo::MULTI_CTA}) {
+        for (auto metric : {cuvs::distance::DistanceType::L2Expanded,
+                            cuvs::distance::DistanceType::InnerProduct,
+                            cuvs::distance::DistanceType::CosineExpanded}) {
+          inputs.push_back(
+            AnnCagraMpInputs{/*n_queries*/ 100,
+                             /*n_rows*/ 10000,
+                             /*dim*/ 64,
+                             /*k*/ 10,
+                             num_partitions,
+                             split,
+                             graph_build_algo::NN_DESCENT,
+                             algo,
+                             /*itopk_size*/ 64,
+                             metric,
+                             // Lower than the single-index 0.985 convention. These
+                             // low-redundancy single-partition / skewed configs dip
+                             // further under filtering, where removing rows thins the
+                             // survivors' graph connectivity; observed recall floors
+                             // around 0.974, so 0.97 leaves headroom for run-to-run
+                             // jitter while still catching real regressions.
+                             /*min_recall*/ 0.97});
+        }
+      }
+    }
+  }
+
+  // k spanning partitions: k larger than the per-partition itopk capacity forces results to be
+  // drawn across partitions (and exercises MULTI_CTA's topk > 512 path).
+  for (auto algo : {search_algo::MULTI_CTA, search_algo::AUTO}) {
+    inputs.push_back(AnnCagraMpInputs{/*n_queries*/ 100,
+                                      /*n_rows*/ 10000,
+                                      /*dim*/ 128,
+                                      /*k*/ 1000,
+                                      /*num_partitions*/ 4,
+                                      partition_split::EVEN,
+                                      graph_build_algo::NN_DESCENT,
+                                      algo,
+                                      /*itopk_size*/ 1024,
+                                      cuvs::distance::DistanceType::L2Expanded,
+                                      /*min_recall*/ 0.985});
+  }
+
+  // Dimensionality sweep on a 4-partition layout. Range endpoints only (8 and 1024); the
+  // intermediate 17/256 are omitted to cut runtime.
+  for (int dim : {8, 1024}) {
+    inputs.push_back(AnnCagraMpInputs{/*n_queries*/ 100,
+                                      /*n_rows*/ 8000,
+                                      dim,
+                                      /*k*/ 10,
+                                      /*num_partitions*/ 4,
+                                      partition_split::EVEN,
+                                      graph_build_algo::NN_DESCENT,
+                                      search_algo::AUTO,
+                                      /*itopk_size*/ 64,
+                                      cuvs::distance::DistanceType::L2Expanded,
+                                      /*min_recall*/ 0.985});
+  }
+
+  // Force the per-launch query chunk loop: max_queries < n_queries splits the query set across
+  // multiple launches, exercising per-chunk output slicing, the per-chunk filter offset, and the
+  // partial final chunk (n_queries=100, max_queries=32 -> chunks 32, 32, 32, 4). Covered for both
+  // algos, and (via the shared inputs) by testSearch and testFilteredSearch.
+  for (auto algo : {search_algo::SINGLE_CTA, search_algo::MULTI_CTA}) {
+    inputs.push_back(AnnCagraMpInputs{/*n_queries*/ 100,
+                                      /*n_rows*/ 10000,
+                                      /*dim*/ 64,
+                                      /*k*/ 10,
+                                      /*num_partitions*/ 4,
+                                      partition_split::EVEN,
+                                      graph_build_algo::NN_DESCENT,
+                                      algo,
+                                      /*itopk_size*/ 64,
+                                      cuvs::distance::DistanceType::L2Expanded,
+                                      /*min_recall*/ 0.97,
+                                      /*max_queries*/ 32});
+  }
+
+  return inputs;
+}
+
+const std::vector<AnnCagraMpInputs> inputs_mp = generate_mp_inputs();
 
 }  // namespace cuvs::neighbors::cagra

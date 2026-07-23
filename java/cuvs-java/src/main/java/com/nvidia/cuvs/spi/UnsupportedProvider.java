@@ -8,6 +8,7 @@ import com.nvidia.cuvs.*;
 import java.lang.invoke.MethodHandle;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.List;
 import java.util.logging.Level;
 
 /**
@@ -36,6 +37,21 @@ final class UnsupportedProvider implements CuVSProvider {
 
   @Override
   public BruteForceIndex.Builder newBruteForceIndexBuilder(CuVSResources cuVSResources) {
+    throw new UnsupportedOperationException(reasons);
+  }
+
+  @Override
+  public FilterBitsetHandle newFilterBitsetHandle(long[] combinedLongs) {
+    throw new UnsupportedOperationException(reasons);
+  }
+
+  @Override
+  public MultiPartitionSearchResults searchCagraMultiPartition(
+      CuVSResources resources,
+      List<CagraIndex> indices,
+      CagraQuery query,
+      int k,
+      List<FilterBitsetHandle> filters) {
     throw new UnsupportedOperationException(reasons);
   }
 
@@ -112,6 +128,11 @@ final class UnsupportedProvider implements CuVSProvider {
 
   @Override
   public Level getLogLevel() {
+    throw new UnsupportedOperationException(reasons);
+  }
+
+  @Override
+  public void enableRMMAsyncMemory() {
     throw new UnsupportedOperationException(reasons);
   }
 

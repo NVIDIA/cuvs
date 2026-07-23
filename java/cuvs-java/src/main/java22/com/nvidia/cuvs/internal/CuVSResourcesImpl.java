@@ -113,6 +113,16 @@ public class CuVSResourcesImpl implements CuVSResources {
   }
 
   @Override
+  public void setWorkspacePool(long sizeBytes) {
+    if (sizeBytes <= 0) {
+      throw new IllegalArgumentException(
+          "workspace pool size must be greater than 0, but was " + sizeBytes);
+    }
+    checkCuVSError(
+        cuvsResourcesSetWorkspacePool(resourceHandle, sizeBytes), "cuvsResourcesSetWorkspacePool");
+  }
+
+  @Override
   public Path tempDirectory() {
     return tempDirectory;
   }

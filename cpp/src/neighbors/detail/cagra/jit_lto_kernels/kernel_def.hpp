@@ -12,7 +12,9 @@
 #include <cuvs/neighbors/common.hpp>
 
 #include "../compute_distance.hpp"  // dataset_descriptor_base_t
-#include "cagra_filter_payload.cuh"
+#include "../multi_partition_desc.hpp"
+#include "cagra_bitset.cuh"          // multi-partition payload helpers
+#include "cagra_filter_payload.cuh"  // single-partition / UDF payload
 #include "search_single_cta_device_helpers.cuh"
 
 namespace cuvs::neighbors::cagra::detail {
@@ -52,6 +54,29 @@ using search_single_cta_kernel_func_t =
 namespace single_cta_search {
 
 template <typename DataT, typename IndexT, typename DistanceT, typename SourceIndexT>
+using search_single_cta_mp_kernel_func_t =
+  void(const multi_partition_desc_t<DataT, IndexT, DistanceT>*,
+       const DataT* const,
+       IndexT* const,
+       DistanceT* const,
+       const std::uint32_t,
+       const unsigned,
+       const uint64_t,
+       const std::uint32_t,
+       IndexT* const,
+       const std::uint32_t,
+       const std::uint32_t,
+       const std::uint32_t,
+       const std::uint32_t,
+       const std::uint32_t,
+       const std::uint32_t,
+       std::uint32_t* const,
+       const std::uint32_t,
+       const std::uint32_t,
+       const std::uint32_t,
+       const std::uint32_t);
+
+template <typename DataT, typename IndexT, typename DistanceT, typename SourceIndexT>
 using search_single_cta_p_kernel_func_t =
   void(worker_handle_t*,
        job_desc_t<job_desc_traits<DataT, IndexT, DistanceT>>*,
@@ -81,6 +106,24 @@ using search_single_cta_p_kernel_func_t =
 }  // namespace single_cta_search
 
 namespace multi_cta_search {
+
+template <typename DataT, typename IndexT, typename DistanceT, typename SourceIndexT>
+using search_multi_cta_mp_kernel_func_t =
+  void(const multi_partition_desc_t<DataT, IndexT, DistanceT>*,
+       IndexT* const,
+       DistanceT* const,
+       const DataT* const,
+       const std::uint32_t,
+       const std::uint32_t,
+       const unsigned,
+       const uint64_t,
+       const std::uint32_t,
+       IndexT* const,
+       const std::uint32_t,
+       const std::uint32_t,
+       const std::uint32_t,
+       const std::uint32_t,
+       const std::uint32_t);
 
 template <typename DataT, typename IndexT, typename DistanceT, typename SourceIndexT>
 using search_multi_cta_kernel_func_t =
