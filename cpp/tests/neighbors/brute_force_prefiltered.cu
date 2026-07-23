@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -522,6 +522,7 @@ class PrefilteredBruteForceOnBitmapTest
 
   // Same as Run(), but passes the true sparsity as a filtering_rate hint to the
   // params-taking search overload. Confirms results match auto-detection.
+  // `params.sparsity` is the density of kept entries, so the hint is its complement.
   void RunWithFilteringRateHint()
   {
     auto dataset_raw = raft::make_device_matrix_view<const value_t, index_t, raft::row_major>(
@@ -541,7 +542,7 @@ class PrefilteredBruteForceOnBitmapTest
       out_idx_d.data(), params.n_queries, params.top_k);
 
     cuvs::neighbors::brute_force::search_params search_params;
-    search_params.filtering_rate = params.sparsity;
+    search_params.filtering_rate = 1.0f - params.sparsity;
 
     brute_force::search(handle,
                         search_params,
@@ -1022,6 +1023,7 @@ class PrefilteredBruteForceOnBitsetTest
 
   // Same as Run(), but passes the true sparsity as a filtering_rate hint to the
   // params-taking search overload. Confirms results match auto-detection.
+  // `params.sparsity` is the density of kept entries, so the hint is its complement.
   void RunWithFilteringRateHint()
   {
     auto dataset_raw = raft::make_device_matrix_view<const value_t, index_t, raft::row_major>(
@@ -1041,7 +1043,7 @@ class PrefilteredBruteForceOnBitsetTest
       out_idx_d.data(), params.n_queries, params.top_k);
 
     cuvs::neighbors::brute_force::search_params search_params;
-    search_params.filtering_rate = params.sparsity;
+    search_params.filtering_rate = 1.0f - params.sparsity;
 
     brute_force::search(handle,
                         search_params,
