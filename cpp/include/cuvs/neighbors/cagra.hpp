@@ -69,7 +69,10 @@ struct ace_params {
    *
    * Used when `use_disk` is true or when the graph does not fit in host and GPU
    * memory. This should be the fastest disk in the system and hold enough space
-   * for twice the dataset, final graph, and label mapping.
+   * for twice the dataset, final graph, and label mapping. The directory may
+   * already exist, but ACE's named artifacts must not already exist. Simultaneous
+   * builds must use different directories. On failure, ACE removes only artifacts
+   * it created and never deletes unrelated directory contents.
    */
   std::string build_dir = "/tmp/ace_build";
   /**

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -10,8 +10,16 @@
 
 #include <rmm/mr/managed_memory_resource.hpp>
 
+#include <algorithm>
+#include <atomic>
+#include <cstdint>
 #include <cstdio>
+#include <ctime>
 #include <filesystem>
+#include <fstream>
+#include <string>
+
+#include <unistd.h>
 
 namespace cuvs::neighbors::hnsw {
 
@@ -45,6 +53,118 @@ inline ::std::ostream& operator<<(::std::ostream& os, const AnnHnswAceInputs& p)
   if (p.max_gpu_memory_gb > 0) { os << ", max_gpu_memory_gb=" << p.max_gpu_memory_gb; }
   os << "}";
   return os;
+}
+
+namespace test_detail {
+
+class ace_workspace_directory {
+ public:
+  ace_workspace_directory()
+    : path_{std::filesystem::temp_directory_path() /
+            ("cuvs_ace_workspace_" + std::to_string(getpid()) + "_" +
+             std::to_string(std::time(nullptr)) + "_" +
+             std::to_string(reinterpret_cast<std::uintptr_t>(this)) + "_" +
+             std::to_string(counter_++))}
+  {
+    std::filesystem::create_directories(path_);
+  }
+
+  ~ace_workspace_directory()
+  {
+    std::error_code error;
+    std::filesystem::remove_all(path_, error);
+  }
+
+  [[nodiscard]] const std::filesystem::path& path() const { return path_; }
+
+ private:
+  std::filesystem::path path_;
+  static inline std::atomic<uint64_t> counter_{0};
+};
+
+template <typename DataT>
+void build_ace_with_workspace(raft::resources const& resources,
+                              raft::host_matrix_view<const DataT, int64_t, raft::row_major> dataset,
+                              const std::filesystem::path& workspace)
+{
+  cagra::index_params params;
+  params.intermediate_graph_degree = 32;
+  params.graph_degree              = 16;
+
+  auto ace_params            = cagra::graph_build_params::ace_params();
+  ace_params.npartitions     = 2;
+  ace_params.ef_construction = 50;
+  ace_params.build_dir       = workspace.string();
+  ace_params.use_disk        = true;
+  params.graph_build_params  = ace_params;
+
+  [[maybe_unused]] auto index = cagra::build(resources, params, dataset);
+}
+
+template <typename DataT>
+raft::host_matrix<DataT, int64_t> make_workspace_test_dataset()
+{
+  auto dataset = raft::make_host_matrix<DataT, int64_t>(1000, 8);
+  std::fill_n(dataset.data_handle(), dataset.size(), DataT{});
+  return dataset;
+}
+
+}  // namespace test_detail
+
+template <typename DataT>
+void test_ace_workspace_failure_preserves_caller_directory()
+{
+  raft::resources resources;
+  auto dataset = test_detail::make_workspace_test_dataset<DataT>();
+  test_detail::ace_workspace_directory workspace;
+  const auto sentinel          = workspace.path() / "sentinel.txt";
+  const auto existing_artifact = workspace.path() / "reordered_dataset.npy";
+
+  {
+    std::ofstream sentinel_file(sentinel);
+    ASSERT_TRUE(sentinel_file.is_open());
+    sentinel_file << "keep me";
+  }
+  ASSERT_TRUE(std::filesystem::create_directory(existing_artifact));
+
+  EXPECT_THROW(test_detail::build_ace_with_workspace(
+                 resources, raft::make_const_mdspan(dataset.view()), workspace.path()),
+               raft::logic_error);
+
+  EXPECT_TRUE(std::filesystem::is_directory(workspace.path()));
+  EXPECT_TRUE(std::filesystem::is_directory(existing_artifact));
+  std::ifstream sentinel_file(sentinel);
+  std::string sentinel_contents;
+  std::getline(sentinel_file, sentinel_contents);
+  EXPECT_EQ(sentinel_contents, "keep me");
+}
+
+template <typename DataT>
+void test_ace_workspace_failure_does_not_truncate_existing_artifact()
+{
+  raft::resources resources;
+  auto dataset = test_detail::make_workspace_test_dataset<DataT>();
+  test_detail::ace_workspace_directory workspace;
+  const auto existing_graph               = workspace.path() / "cagra_graph.npy";
+  constexpr const char* expected_contents = "preexisting-graph-contents";
+
+  {
+    std::ofstream graph_file(existing_graph, std::ios::binary);
+    ASSERT_TRUE(graph_file.is_open());
+    graph_file << expected_contents;
+  }
+
+  EXPECT_THROW(test_detail::build_ace_with_workspace(
+                 resources, raft::make_const_mdspan(dataset.view()), workspace.path()),
+               raft::logic_error);
+
+  std::ifstream graph_file(existing_graph, std::ios::binary);
+  std::string graph_contents;
+  graph_file >> graph_contents;
+  EXPECT_EQ(graph_contents, expected_contents);
+  EXPECT_FALSE(std::filesystem::exists(workspace.path() / "reordered_dataset.npy"));
+  EXPECT_FALSE(std::filesystem::exists(workspace.path() / "augmented_dataset.npy"));
+  EXPECT_FALSE(std::filesystem::exists(workspace.path() / "dataset_mapping.npy"));
 }
 
 template <typename DistanceT, typename DataT, typename IdxT>
