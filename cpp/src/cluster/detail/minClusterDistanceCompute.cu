@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -27,15 +27,15 @@ void minClusterAndDistanceCompute(
   int batch_centroids,
   rmm::device_uvector<char>& workspace)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle);
-  auto n_samples      = X.extent(0);
-  auto n_features     = X.extent(1);
-  auto n_clusters     = centroids.extent(0);
-  bool is_fused       = metric == cuvs::distance::DistanceType::L2Expanded ||
-                  metric == cuvs::distance::DistanceType::L2SqrtExpanded ||
-                  metric == cuvs::distance::DistanceType::CosineExpanded;
+  cudaStream_t stream           = raft::resource::get_cuda_stream(handle);
+  auto n_samples                = X.extent(0);
+  auto n_features               = X.extent(1);
+  auto n_clusters               = centroids.extent(0);
+  const bool can_use_fused_path = metric == cuvs::distance::DistanceType::L2Expanded ||
+                                  metric == cuvs::distance::DistanceType::L2SqrtExpanded ||
+                                  metric == cuvs::distance::DistanceType::CosineExpanded;
 
-  if (is_fused) {
+  if (can_use_fused_path) {
     L2NormBuf_OR_DistBuf.resize(n_clusters, stream);
     auto centroidsNorm =
       raft::make_device_vector_view<DataT, IndexT>(L2NormBuf_OR_DistBuf.data(), n_clusters);
@@ -51,10 +51,10 @@ void minClusterAndDistanceCompute(
     raft::KeyValuePair<IndexT, DataT> initial_value(0, std::numeric_limits<DataT>::max());
     raft::matrix::fill(handle, minClusterAndDistance, initial_value);
 
-    bool should_use_fused =
+    const bool use_fused_path =
       use_fused<DataT, IndexT, IndexT>(handle, n_samples, n_clusters, n_features);
 
-    if (should_use_fused) {
+    if (use_fused_path) {
       workspace.resize((sizeof(int)) * n_samples, stream);
 
       cuvs::distance::fusedDistanceNNMinReduce<DataT, raft::KeyValuePair<IndexT, DataT>, IndexT>(
@@ -74,26 +74,66 @@ void minClusterAndDistanceCompute(
         0.0f,
         stream);
     } else {
-      workspace.resize(sizeof(DataT) * n_samples * n_clusters, stream);
+      auto dataBatchSize      = getDataBatchSize(batch_samples, n_samples);
+      auto centroidsBatchSize = getCentroidsBatchSize(batch_centroids, n_clusters);
 
-      cuvs::distance::
-        unfusedDistanceNNMinReduce<DataT, DataT, raft::KeyValuePair<IndexT, DataT>, IndexT>(
-          handle,
-          minClusterAndDistance.data_handle(),
-          X.data_handle(),
-          centroids.data_handle(),
-          L2NormX.data_handle(),
-          centroidsNorm.data_handle(),
-          n_samples,
-          n_clusters,
-          n_features,
-          (void*)workspace.data(),
-          metric != cuvs::distance::DistanceType::L2Expanded,
-          false,
-          true,
-          metric,
-          0.0f,
-          stream);
+      // The unfused reduction indexes its distance matrix with IndexT.
+      dataBatchSize =
+        std::min(dataBatchSize, std::numeric_limits<IndexT>::max() / centroidsBatchSize);
+
+      workspace.resize(sizeof(DataT) * dataBatchSize * centroidsBatchSize, stream);
+
+      using KeyValueT          = raft::KeyValuePair<IndexT, DataT>;
+      const bool tileCentroids = centroidsBatchSize < n_clusters;
+      rmm::device_uvector<KeyValueT> batchMinClusterAndDistance(tileCentroids ? dataBatchSize : 0,
+                                                                stream);
+
+      for (IndexT dIdx = 0; dIdx < n_samples;) {
+        auto ns                        = std::min(dataBatchSize, n_samples - dIdx);
+        auto minClusterAndDistanceView = raft::make_device_vector_view<KeyValueT, IndexT>(
+          minClusterAndDistance.data_handle() + dIdx, ns);
+
+        for (IndexT cIdx = 0; cIdx < n_clusters;) {
+          auto nc       = std::min(centroidsBatchSize, n_clusters - cIdx);
+          auto batchMin = tileCentroids ? batchMinClusterAndDistance.data()
+                                        : minClusterAndDistanceView.data_handle();
+
+          cuvs::distance::unfusedDistanceNNMinReduce<DataT, DataT, KeyValueT, IndexT>(
+            handle,
+            batchMin,
+            X.data_handle() + dIdx * n_features,
+            centroids.data_handle() + cIdx * n_features,
+            L2NormX.data_handle() + dIdx,
+            centroidsNorm.data_handle() + cIdx,
+            ns,
+            nc,
+            n_features,
+            (void*)workspace.data(),
+            metric != cuvs::distance::DistanceType::L2Expanded,
+            tileCentroids,
+            true,
+            metric,
+            0.0f,
+            stream);
+
+          if (tileCentroids) {
+            // Convert tile-local centroid indices and merge the tile minima.
+            auto batchMinView =
+              raft::make_device_vector_view<const KeyValueT, IndexT>(batchMin, ns);
+            raft::linalg::map(
+              handle,
+              minClusterAndDistanceView,
+              [cIdx] __device__(KeyValueT current, KeyValueT batch) {
+                batch.key += cIdx;
+                return batch.value < current.value ? batch : current;
+              },
+              raft::make_const_mdspan(minClusterAndDistanceView),
+              batchMinView);
+          }
+          cIdx += nc;
+        }
+        dIdx += ns;
+      }
     }
   } else {
     auto dataBatchSize      = getDataBatchSize(batch_samples, n_samples);
