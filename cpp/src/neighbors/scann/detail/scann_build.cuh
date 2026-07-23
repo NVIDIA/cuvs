@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -36,6 +36,134 @@ using namespace cuvs::spatial::knn::detail;  // NOLINT
  * @{
  */
 
+/**
+ * Helper for training kmeans centers in a balaned or unbalaned manner
+ *
+ * @tparam T
+ * @tparam IxT
+ * @tparms Accessor
+ * @param res raft resources
+ * @param dataset the dataset (host or device), size [n_rows, dim]
+ * @param centers cluster centers, size [n_clusters, dim]
+ * @param n_iters max kmeans training iterations
+ * @param n_rows_train number of dataset rows for training
+ * @param random_state random generator state
+ * @param kmeans_type whether to use balanced or unbalanced training
+ */
+template <typename T,
+          typename IdxT = int64_t,
+          typename Accessor =
+            raft::host_device_accessor<cuda::std::default_accessor<T>, raft::memory_type::host>>
+void train_kmeans(
+  raft::resources const& res,
+  raft::mdspan<const T, raft::matrix_extent<IdxT>, raft::row_major, Accessor> dataset,
+  raft::device_matrix_view<float, IdxT> centers,
+  uint32_t n_iters,
+  uint32_t n_rows_train,
+  raft::random::RngState random_state,
+  cuvs::cluster::kmeans::kmeans_type type)
+{
+  auto trainset = raft::make_device_matrix<T, int64_t>(res, 0, 0);
+
+  // sample/project
+  try {
+    trainset = raft::make_device_matrix<T, int64_t>(res, n_rows_train, dataset.extent(1));
+  } catch (raft::logic_error& e) {
+    RAFT_LOG_ERROR(
+      "Insufficient device memory for kmeans training set allocation. Please "
+      "reduce kmeans_n_rows_train.");
+    throw;
+  }
+
+  raft::matrix::sample_rows(res, random_state, dataset, trainset.view());
+
+  if (type == cuvs::cluster::kmeans::kmeans_type::KMeansBalanced) {
+    cuvs::cluster::kmeans::balanced_params kmeans_params;
+    kmeans_params.n_iters = n_iters;
+
+    cuvs::cluster::kmeans::fit(
+      res, kmeans_params, raft::make_const_mdspan(trainset.view()), centers);
+  } else {
+    cuvs::cluster::kmeans::params kmeans_params;
+    kmeans_params.max_iter   = n_iters;
+    kmeans_params.n_clusters = centers.extent(0);
+    kmeans_params.init       = cuvs::cluster::kmeans::params::InitMethod::Random;
+    kmeans_params.tol        = 1e-5;
+
+    float inertia  = 0.0;
+    int64_t n_iter = 0;
+
+    cuvs::cluster::kmeans::fit(res,
+                               kmeans_params,
+                               raft::make_const_mdspan(trainset.view()),
+                               std::nullopt,
+                               centers,
+                               raft::make_host_scalar_view<float>(&inertia),
+                               raft::make_host_scalar_view<int64_t>(&n_iter));
+  }
+  raft::resource::sync_stream(res);
+}
+
+/**
+ * Helper for kmeans prediction
+ *
+ * @tparam T
+ * @tparam IxT
+ * @tparms Accessor
+ * @param res raft resources
+ * @param dataset the dataset (host or device), size [n_rows, dim]
+ * @param centers cluster centers, size [n_clusters, dim]
+ * @param labels cluster labels for dataset rows, size [n_rows]
+ * @param batch_size number of rows per batch
+ * @param enable_prefetch toggle prefetching for HtoD when dataset in host memory
+ * @param copy_stream cuda stream for prefetching
+ */
+template <typename T,
+          typename IdxT = int64_t,
+          typename Accessor =
+            raft::host_device_accessor<cuda::std::default_accessor<T>, raft::memory_type::host>>
+void predict_kmeans(
+  raft::resources const& res,
+  raft::mdspan<const T, raft::matrix_extent<IdxT>, raft::row_major, Accessor> dataset,
+  raft::device_matrix_view<const float, IdxT> centers,
+  raft::device_vector_view<uint32_t, IdxT> labels,
+  size_t batch_size,
+  bool enable_prefetch,
+  cudaStream_t copy_stream)
+{
+  cuvs::cluster::kmeans::balanced_params kmeans_params;
+
+  auto device_memory = raft::resource::get_workspace_resource_ref(res);
+
+  auto dataset_vec_batches = utils::make_batch_load_iterator<T>(res,
+                                                                dataset.data_handle(),
+                                                                dataset.extent(0),
+                                                                dataset.extent(1),
+                                                                batch_size,
+                                                                copy_stream,
+                                                                device_memory,
+                                                                enable_prefetch);
+
+  dataset_vec_batches.reset();
+  dataset_vec_batches.prefetch_next_batch();
+
+  RAFT_LOG_DEBUG("Batched kmeans prediction.\n");
+  for (const auto& batch : dataset_vec_batches) {
+    auto batch_view = raft::make_device_matrix_view<const T, int64_t>(
+      batch.data(), batch.size(), dataset.extent(1));
+
+    auto batch_labels_view = raft::make_device_vector_view<uint32_t, int64_t>(
+      labels.data_handle() + batch.offset(), batch.size());
+
+    cuvs::cluster::kmeans::predict(res, kmeans_params, batch_view, centers, batch_labels_view);
+
+    dataset_vec_batches.prefetch_next_batch();
+
+    // Make sure work on device is finished before swapping buffers
+    raft::resource::sync_stream(res);
+  }
+}
+
 template <typename T,
           typename IdxT = int64_t,
           typename Accessor =
@@ -51,42 +179,11 @@ index<T, IdxT> build(
   RAFT_LOG_DEBUG("Creating empty index");
 
   index<T, IdxT> idx(res, params, dataset.extent(0), dataset.extent(1));
-  raft::device_matrix_view<T, int64_t> centroids_view = idx.centers();
-  raft::random::RngState random_state{137};
-  // sample/project
-
-  cuvs::cluster::kmeans::balanced_params kmeans_params;
-  kmeans_params.n_iters = params.kmeans_n_iters;
-
-  {
-    auto trainset = raft::make_device_matrix<T, int64_t>(res, 0, 0);
-
-    try {
-      trainset =
-        raft::make_device_matrix<T, int64_t>(res, params.kmeans_n_rows_train, dataset.extent(1));
-    } catch (raft::logic_error& e) {
-      RAFT_LOG_ERROR(
-        "Insufficient device memory for kmeans training set allocation. Please "
-        "reduce kmeans_n_rows_train.");
-      throw;
-    }
-
-    RAFT_LOG_DEBUG("Sampling rows.\n");
-    raft::matrix::sample_rows(res, random_state, dataset, trainset.view());
-
-    raft::resource::sync_stream(res);
-
-    // fit kmean
-
-    RAFT_LOG_DEBUG("Fitting Kmeans");
-    cuvs::cluster::kmeans::fit(
-      res, kmeans_params, raft::make_const_mdspan(trainset.view()), centroids_view);
-  }
-  raft::resource::sync_stream(res);
-
+  raft::device_matrix_view<float, int64_t> centers_view   = idx.centers();
   raft::device_vector_view<uint32_t, int64_t> labels_view = idx.labels();
+  raft::random::RngState random_state{137};
 
-  // setup batching for kmeans prediction + quantization
+  // setup params for kmeans prediction + quantization
   auto device_memory = raft::resource::get_workspace_resource_ref(res);
 
   constexpr size_t kReasonableMaxBatchSize = 65536;
@@ -102,43 +199,74 @@ index<T, IdxT> build(
     }
   }
 
-  auto dataset_vec_batches =
-    utils::make_batch_load_iterator<T>(res,
-                                       dataset.data_handle(),
-                                       static_cast<int64_t>(dataset.extent(0)),
-                                       static_cast<int64_t>(dataset.extent(1)),
-                                       max_batch_size,
-                                       copy_stream,
-                                       device_memory,
-                                       enable_prefetch);
+  train_kmeans(res,
+               dataset,
+               centers_view,
+               params.kmeans_n_iters,
+               params.kmeans_n_rows_train,
+               random_state,
+               cuvs::cluster::kmeans::kmeans_type::KMeansBalanced);
 
-  dataset_vec_batches.reset();
-  dataset_vec_batches.prefetch_next_batch();
-
-  RAFT_LOG_DEBUG("Batched kmeans prediction.\n");
-  for (const auto& batch : dataset_vec_batches) {
-    auto batch_view = raft::make_device_matrix_view<const T, int64_t>(
-      batch.data(), batch.size(), dataset.extent(1));
-
-    auto batch_labels_view = raft::make_device_vector_view<uint32_t, int64_t>(
-      labels_view.data_handle() + batch.offset(), batch.size());
-
-    cuvs::cluster::kmeans::predict(
-      res, kmeans_params, batch_view, raft::make_const_mdspan(centroids_view), batch_labels_view);
-
-    dataset_vec_batches.prefetch_next_batch();
-
-    // Make sure work on device is finished before swapping buffers
-    raft::resource::sync_stream(res);
-  }
+  predict_kmeans(res,
+                 dataset,
+                 raft::make_const_mdspan(centers_view),
+                 labels_view,
+                 max_batch_size,
+                 enable_prefetch,
+                 copy_stream);
 
   // AVQ update of KMeans centroids
   apply_avq(res,
             dataset,
-            centroids_view,
+            centers_view,
             raft::make_const_mdspan(labels_view),
             params.partitioning_eta,
             copy_stream);
+
+  if (params.n_coarse_clusters > 0) {
+    raft::device_matrix_view<float, int64_t> coarse_centers   = idx.coarse_centers();
+    raft::device_vector_view<uint32_t, int64_t> coarse_labels = idx.coarse_labels();
+
+    // Coarse clusters are trained in an unbalanced manner, which gives better recall
+    train_kmeans(res,
+                 raft::make_const_mdspan(centers_view),
+                 coarse_centers,
+                 params.kmeans_n_iters,
+                 centers_view.extent(0),
+                 random_state,
+                 cuvs::cluster::kmeans::kmeans_type::KMeans);
+
+    size_t top_level_batch_size = std::min<size_t>(centers_view.extent(0), kReasonableMaxBatchSize);
+
+    predict_kmeans(res,
+                   raft::make_const_mdspan(centers_view),
+                   raft::make_const_mdspan(coarse_centers),
+                   coarse_labels,
+                   top_level_batch_size,
+                   enable_prefetch,
+                   copy_stream);
+
+    // AVQ coarse centers are not rescaled
+    apply_avq(res,
+              raft::make_const_mdspan(centers_view),
+              coarse_centers,
+              raft::make_const_mdspan(coarse_labels),
+              params.partitioning_eta,
+              copy_stream);
+
+    auto residuals = compute_residuals<T, uint32_t>(res,
+                                                    raft::make_const_mdspan(centers_view),
+                                                    raft::make_const_mdspan(coarse_centers),
+                                                    coarse_labels);
+
+    compute_soar_labels<T, uint32_t>(res,
+                                     raft::make_const_mdspan(centers_view),
+                                     raft::make_const_mdspan(residuals.view()),
+                                     coarse_centers,
+                                     coarse_labels,
+                                     idx.coarse_soar_labels(),
+                                     params.soar_lambda);
+  }
 
   raft::device_vector_view<uint32_t, int64_t> soar_labels_view = idx.soar_labels();
 
@@ -154,7 +282,7 @@ index<T, IdxT> build(
   auto trainset_residuals = sample_training_residuals(res,
                                                       random_state,
                                                       dataset,
-                                                      raft::make_const_mdspan(centroids_view),
+                                                      raft::make_const_mdspan(centers_view),
                                                       raft::make_const_mdspan(labels_view),
                                                       pq_n_rows_train);
 
@@ -176,6 +304,15 @@ index<T, IdxT> build(
   auto pq_quantizer = cuvs::preprocessing::quantize::pq::build(
     res, pq_build_params, raft::make_const_mdspan(trainset_residuals.view()));
 
+  auto dataset_vec_batches = utils::make_batch_load_iterator<T>(res,
+                                                                dataset.data_handle(),
+                                                                dataset.extent(0),
+                                                                dataset.extent(1),
+                                                                max_batch_size,
+                                                                copy_stream,
+                                                                device_memory,
+                                                                enable_prefetch);
+
   dataset_vec_batches.reset();
   dataset_vec_batches.prefetch_next_batch();
 
@@ -193,14 +330,14 @@ index<T, IdxT> build(
 
     // Compute residuals for use in SOAR + quantization
     auto avq_residuals = compute_residuals<T, uint32_t>(
-      res, batch_view, raft::make_const_mdspan(centroids_view), batch_labels_view);
+      res, batch_view, raft::make_const_mdspan(centers_view), batch_labels_view);
 
     // Compute SOAR labels.
     // We compute SOAR labels in this loop to eliminate one HtoD copy of the full dataset.
     compute_soar_labels<T, uint32_t>(res,
                                      batch_view,
                                      raft::make_const_mdspan(avq_residuals.view()),
-                                     centroids_view,
+                                     centers_view,
                                      batch_labels_view,
                                      batch_soar_labels_view,
                                      params.soar_lambda);
@@ -215,7 +352,7 @@ index<T, IdxT> build(
     auto soar_residuals =
       compute_residuals<T, uint32_t>(res,
                                      batch_view,
-                                     raft::make_const_mdspan(centroids_view),
+                                     raft::make_const_mdspan(centers_view),
                                      raft::make_const_mdspan(batch_soar_labels_view));
 
     auto soar_quant = raft::make_device_matrix<uint8_t, IdxT>(res, batch.size(), codes_dim);
