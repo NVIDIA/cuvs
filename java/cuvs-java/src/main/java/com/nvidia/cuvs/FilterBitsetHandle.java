@@ -12,6 +12,17 @@ import com.nvidia.cuvs.spi.CuVSProvider;
  * <p>The packed {@code long[]} host arrays are immutable after construction. A single shared device
  * allocation is uploaded lazily on first use and reused thereafter.
  *
+ * <h2>Device pool configuration</h2>
+ *
+ * <p>Filter bitset device allocations use a shared, process-lifetime resources object with a
+ * growable RMM pool initially sized to 4 MiB. Applications can set the
+ * {@code com.nvidia.cuvs.filterBitsetPoolSize} system property before the first filter bitset upload
+ * to customize it: zero explicitly disables pooling, while a positive value selects the initial
+ * size. An invalid or negative value produces a warning and uses the 4 MiB default.
+ *
+ * <p>The initial size is a reservation, not a memory cap or a host-side cache policy. The pool can
+ * grow as needed.
+ *
  * <h2>Lifecycle</h2>
  *
  * <p>The handle is reference-counted. Construction grants one initial reference, held by the owner

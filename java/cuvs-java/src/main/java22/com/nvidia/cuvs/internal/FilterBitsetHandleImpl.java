@@ -36,10 +36,11 @@ public final class FilterBitsetHandleImpl implements FilterBitsetHandle {
   private static final System.Logger LOG = System.getLogger(FilterBitsetHandleImpl.class.getName());
 
   /**
-   * Size in bytes of a pre-warmed RMM pool to back filter bitset device allocations. When set, the
-   * shared filter resources' workspace memory resource becomes a growable pool so repeated
-   * cache-eviction/rebuild uploads reuse slabs instead of hitting cudaMalloc/cudaFree each time.
-   * Distinct from {@code com.nvidia.cuvs.workspacePoolSize}, which sizes the per-query search pool.
+   * Optional initial size in bytes of the growable RMM pool that backs filter bitset device
+   * allocations. When unset, a 4 MiB pool is created. Zero explicitly disables pooling; a positive
+   * value selects the initial pool size; and an invalid or negative value warns and uses the
+   * default. This process-wide property must be set before the first filter bitset upload. It is
+   * distinct from {@code com.nvidia.cuvs.workspacePoolSize}, which sizes the per-query search pool.
    */
   static final String FILTER_POOL_SIZE_PROPERTY = "com.nvidia.cuvs.filterBitsetPoolSize";
 
@@ -95,16 +96,17 @@ public final class FilterBitsetHandleImpl implements FilterBitsetHandle {
   }
 
   /**
-   * Backs filter uploads with a pre-warmed, growable workspace pool when {@link
-   * #FILTER_POOL_SIZE_PROPERTY} is sized (cuvs-lucene defaults it to its filter cache byte budget; an
-   * operator can override it). RMM requires the initial pool size to be a multiple of 256 bytes, so
-   * the requested size is rounded up. The pool is only a reuse optimization, so a sizing failure
-   * falls back to the default workspace resource rather than breaking filter creation.
+   * Backs filter uploads with a pre-warmed, growable workspace pool unless {@link
+   * #FILTER_POOL_SIZE_PROPERTY} explicitly disables it with zero. RMM requires the initial pool
+   * size to be a multiple of 256 bytes, so explicit sizes are rounded up. The pool is only a reuse
+   * optimization, so a sizing failure falls back to the default workspace resource rather than
+   * breaking filter creation.
    */
   private static void maybeSetFilterPool(CuVSResources r) {
-    long poolBytes = Long.getLong(FILTER_POOL_SIZE_PROPERTY, 0L);
-    if (poolBytes <= 0) return;
-    poolBytes = (poolBytes + 255L) & ~255L; // round up to a 256-byte multiple for RMM
+    var resolvedPoolBytes =
+        FilterBitsetPoolConfig.resolvePoolBytes(System.getProperty(FILTER_POOL_SIZE_PROPERTY));
+    if (resolvedPoolBytes.isEmpty()) return;
+    long poolBytes = resolvedPoolBytes.getAsLong();
     try {
       r.setWorkspacePool(poolBytes);
     } catch (Throwable poolError) {
