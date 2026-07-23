@@ -389,7 +389,7 @@ if (( CLEAN == 1 )); then
     for bd in ${BUILD_DIRS}; do
       if [ -d "${bd}" ]; then
           find "${bd}" -mindepth 1 -delete
-          rmdir "${bd}" || true
+          rmdir "${bd}" || echo "WARNING: Can't remove '${bd}'"
       fi
     done
 fi
