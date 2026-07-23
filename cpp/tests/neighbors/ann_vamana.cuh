@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -11,6 +11,7 @@
 
 #include "naive_knn.cuh"
 
+#include <cuda_fp16.h>
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/cagra.hpp>
 #include <cuvs/neighbors/vamana.hpp>
@@ -19,15 +20,14 @@
 #include <raft/core/host_mdarray.hpp>
 #include <raft/core/host_mdspan.hpp>
 #include <raft/core/logger.hpp>
-#include <raft/linalg/add.cuh>
+#include <raft/core/operators.hpp>
+#include <raft/linalg/map.cuh>
 #include <raft/random/rng.cuh>
 #include <raft/util/itertools.hpp>
 
 #include <rmm/device_buffer.hpp>
 
 #include <gtest/gtest.h>
-
-#include <thrust/sequence.h>
 
 #include <cstddef>
 #include <filesystem>
@@ -251,7 +251,22 @@ class AnnVamanaTest : public ::testing::TestWithParam<AnnVamanaInputs> {
     database.resize(((size_t)ps.n_rows) * ps.dim, stream_);
     search_queries.resize(((size_t)ps.n_queries) * ps.dim, stream_);
     raft::random::RngState r(1234ULL);
-    if constexpr (std::is_same<DataT, float>{}) {
+    if constexpr (std::is_same_v<DataT, half>) {
+      rmm::device_uvector<float> database_f(ps.n_rows * ps.dim, stream_);
+      rmm::device_uvector<float> queries_f(ps.n_queries * ps.dim, stream_);
+      raft::random::normal(handle_, r, database_f.data(), ps.n_rows * ps.dim, 0.1f, 2.0f);
+      raft::random::normal(handle_, r, queries_f.data(), ps.n_queries * ps.dim, 0.1f, 2.0f);
+      auto database_f_view =
+        raft::make_device_vector_view<const float, int64_t>(database_f.data(), database_f.size());
+      auto database_h_view =
+        raft::make_device_vector_view<half, int64_t>(database.data(), database.size());
+      raft::linalg::map(handle_, database_h_view, raft::cast_op<half>{}, database_f_view);
+      auto queries_f_view =
+        raft::make_device_vector_view<const float, int64_t>(queries_f.data(), queries_f.size());
+      auto queries_h_view =
+        raft::make_device_vector_view<half, int64_t>(search_queries.data(), search_queries.size());
+      raft::linalg::map(handle_, queries_h_view, raft::cast_op<half>{}, queries_f_view);
+    } else if constexpr (std::is_same_v<DataT, float>) {
       raft::random::normal(handle_, r, database.data(), ps.n_rows * ps.dim, DataT(0.1), DataT(2.0));
       raft::random::normal(
         handle_, r, search_queries.data(), ps.n_queries * ps.dim, DataT(0.1), DataT(2.0));
