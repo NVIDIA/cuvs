@@ -20,7 +20,7 @@ function(cuvs_c_add_header_check project_root binding_header COMPONENT_PLACEHOLD
   set(all_headers_to_match @all_headers_to_match@)
   set(binding_header_name @binding_header@)
   set(binary_dir @CMAKE_CURRENT_BINARY_DIR@)
-  set(src_dir @CMAKE_SOURCE_DIR@)
+  set(src_dir @project_root@)
 
   function(check_binding_header mode header_list_var)
 

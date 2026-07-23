@@ -87,7 +87,9 @@ ConfigureTest(NAME IVF_FLAT_C_TEST PATH neighbors/run_ivf_flat_c.c neighbors/ann
 ConfigureTest(NAME IVF_PQ_C_TEST PATH neighbors/run_ivf_pq_c.c neighbors/ann_ivf_pq_c.cu)
 ConfigureTest(NAME IVF_SQ_C_TEST PATH neighbors/run_ivf_sq_c.c neighbors/ann_ivf_sq_c.cu)
 ConfigureTest(NAME CAGRA_C_TEST PATH neighbors/ann_cagra_c.cu)
-ConfigureTest(NAME MG_C_TEST PATH neighbors/run_mg_c.c neighbors/ann_mg_c.cu)
+if(BUILD_MG_ALGOS)
+  ConfigureTest(NAME MG_C_TEST PATH neighbors/run_mg_c.c neighbors/ann_mg_c.cu)
+endif()
 ConfigureTest(
   NAME ALL_NEIGHBORS_C_TEST PATH neighbors/run_all_neighbors_c.c neighbors/all_neighbors_c.cu
 )
@@ -112,7 +114,7 @@ ConfigureTest(NAME cuvs_c_neighbors_test PATH neighbors/c_api.c)
 # * Validate installed headers are listed in `all.h`
 
 include(cmake/header_check.cmake)
-cuvs_c_add_header_check("${CUVS_C_SOURCE_DIR}" "cuvs/core/all.h" INSTALL_COMPONENT_SET testing)
+cuvs_c_add_header_check("${CMAKE_CURRENT_SOURCE_DIR}/.." "cuvs/core/all.h" INSTALL_COMPONENT_SET testing)
 
 # ##################################################################################################
 # * Install Tests ---------------------------------------------------------------
