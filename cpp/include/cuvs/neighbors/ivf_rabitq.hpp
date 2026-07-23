@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -8,6 +8,7 @@
 #include <cuda_fp16.h>
 
 #include <cuvs/core/export.hpp>
+#include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/common.hpp>
 
 #include <raft/core/device_mdarray.hpp>
@@ -149,13 +150,17 @@ struct index : cuvs::neighbors::index {
         size_t n_rows,
         uint32_t dim,
         uint32_t n_lists,
-        uint32_t bits_per_dim);
+        uint32_t bits_per_dim,
+        cuvs::distance::DistanceType metric = cuvs::distance::DistanceType::L2Expanded);
 
   /** Dimensionality of the input data. */
   uint32_t dim() const noexcept;
 
   /** Total length of the index. */
   IdxT size() const noexcept;
+
+  /** Distance metric used to build the index. */
+  cuvs::distance::DistanceType metric() const noexcept;
 
   /** Accessor for underlying RaBitQ index */
   detail::IVFGPU& rabitq_index() noexcept;

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -10,7 +10,8 @@
 
 namespace {
 
-constexpr bool with_ex = @with_ex_value@;
+constexpr bool with_ex   = @with_ex_value@;
+constexpr bool is_signed = @signed_value@;
 
 }  // namespace
 
@@ -31,6 +32,9 @@ __device__ void bitwise_emit_distances(const ComputeInnerProductsKernelParams pa
 {
   const int tid         = threadIdx.x;
   const int num_threads = blockDim.x;
+
+  // ‖q‖² for the InnerProduct pseudo-distance transform pd = (‖q−x‖² − ‖q‖² − ‖x‖²)/2 = −⟨q,x⟩.
+  float q_sqr_norm = is_signed ? params.d_q_sqr_norms[query_idx] : 0.0f;
 
   extern __shared__ __align__(256) char shared_mem_raw[];
   float* shared_query = reinterpret_cast<float*>(shared_mem_raw);
@@ -81,10 +85,14 @@ __device__ void bitwise_emit_distances(const ComputeInnerProductsKernelParams pa
       float f_ex_add        = ex_factors.x;
       float f_ex_rescale    = ex_factors.y;
 
-      params.d_topk_dists[output_offset + vec_idx] =
+      float dist =
         f_ex_add + q_g_add +
         f_ex_rescale * (static_cast<float>(1 << params.ex_bits) * exact_ip + ip2 + q_kbxsumq);
-      params.d_topk_pids[output_offset + vec_idx] = params.d_pids[global_vec_idx];
+      if constexpr (is_signed) {
+        dist = (dist - q_sqr_norm - params.d_vec_sqr_norms[global_vec_idx]) * 0.5f;
+      }
+      params.d_topk_dists[output_offset + vec_idx] = dist;
+      params.d_topk_pids[output_offset + vec_idx]  = params.d_pids[global_vec_idx];
     }
   } else {
     float q_k1xsumq = params.d_G_k1xSumq[query_idx];
@@ -104,9 +112,12 @@ __device__ void bitwise_emit_distances(const ComputeInnerProductsKernelParams pa
                                                        short_code_length,
                                                        params.D);
 
-      params.d_topk_dists[output_offset + vec_idx] =
-        f_add + q_g_add + f_rescale * (exact_ip + q_k1xsumq);
-      params.d_topk_pids[output_offset + vec_idx] = params.d_pids[global_vec_idx];
+      float dist = f_add + q_g_add + f_rescale * (exact_ip + q_k1xsumq);
+      if constexpr (is_signed) {
+        dist = (dist - q_sqr_norm - params.d_vec_sqr_norms[global_vec_idx]) * 0.5f;
+      }
+      params.d_topk_dists[output_offset + vec_idx] = dist;
+      params.d_topk_pids[output_offset + vec_idx]  = params.d_pids[global_vec_idx];
     }
   }
 }

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -36,13 +36,19 @@
 
 namespace cuvs::neighbors::ivf_rabitq::detail {
 
-IVFGPU::IVFGPU(raft::resources const& handle, size_t n, size_t dim, size_t k, size_t bits_per_dim)
+IVFGPU::IVFGPU(raft::resources const& handle,
+               size_t n,
+               size_t dim,
+               size_t k,
+               size_t bits_per_dim,
+               cuvs::distance::DistanceType metric)
   : handle_(handle),
     num_vectors(n),
     num_dimensions(dim),
     num_padded_dim(raft::round_up_safe<size_t>(dim, 64)),
     num_centroids(k),
     ex_bits(bits_per_dim - 1),
+    metric_(metric),
     initializer(nullptr),
     DQ(std::make_unique<DataQuantizerGPU>(handle_, dim, bits_per_dim - 1)),
     Rota(std::make_unique<RotatorGPU>(handle_, dim))
@@ -70,6 +76,12 @@ void IVFGPU::AllocateDeviceMemory()
     raft::make_device_vector<ExFactor, int64_t>(handle_, ex_factor_size / sizeof(ExFactor));
   ids_ = raft::make_device_vector<PID, int64_t>(handle_, pids_size / sizeof(PID));
 
+  // Per-vector squared norms are only needed to reconstruct inner products.
+  if (is_inner_product()) {
+    vec_sqr_norms_ =
+      raft::make_device_vector<float, int64_t>(handle_, GetVecSqrNormBytes() / sizeof(float));
+  }
+
   // Allocate memory for the per-cluster metadata and centroids.
   cluster_meta_ = raft::make_device_vector<GPUClusterMeta, int64_t>(handle_, num_centroids);
   raft::resource::sync_stream(handle_);
@@ -92,6 +104,10 @@ void IVFGPU::AllocateHostMemory()
   this->ids_host_ = raft::make_host_vector<PID, int64_t>(pids_size / sizeof(PID));
 }
 
+// Serialized-format version. The IVF-RaBitQ on-disk format is not backward compatible: bumping
+// this constant (or reading a pre-versioning index) is a hard error at load time.
+static constexpr std::uint32_t kSerializationVersion = 1;
+
 // load transposed data for short codes
 void IVFGPU::load_transposed(const char* filename)
 {
@@ -105,6 +121,16 @@ void IVFGPU::load_transposed(const char* filename)
                  filename);
   };
 
+  // Format version is the first field.
+  std::uint32_t version = 0;
+  read_exact(&version, sizeof(std::uint32_t));
+  RAFT_EXPECTS(version == kSerializationVersion,
+               "ivf_rabitq::deserialize: serialization version mismatch (got %u, expected %u) "
+               "in: %s",
+               version,
+               kSerializationVersion,
+               filename);
+
   // Load metadata.
   read_exact(&this->num_vectors, sizeof(size_t));
   read_exact(&this->num_dimensions, sizeof(size_t));
@@ -112,6 +138,16 @@ void IVFGPU::load_transposed(const char* filename)
   this->num_padded_dim = raft::round_up_safe<size_t>(this->num_dimensions, 64);
   read_exact(&this->num_centroids, sizeof(size_t));
   read_exact(&this->ex_bits, sizeof(size_t));
+
+  // Distance metric (must be set before AllocateDeviceMemory, which allocates the per-vector
+  // norm array only for InnerProduct).
+  read_exact(&this->metric_, sizeof(cuvs::distance::DistanceType));
+  RAFT_EXPECTS(cuvs::util::is_valid_distance_type(metric_) &&
+                 (metric_ == cuvs::distance::DistanceType::L2Expanded ||
+                  metric_ == cuvs::distance::DistanceType::InnerProduct),
+               "ivf_rabitq::deserialize: unsupported metric %d in: %s",
+               static_cast<int>(metric_),
+               filename);
 
   // Skip legacy batch_flag field for backward compatibility
   bool legacy_batch_flag;
@@ -256,6 +292,8 @@ void IVFGPU::load_transposed(const char* filename)
   read_into_device_host(
     ex_factor_.data_handle(), ex_factor_host_.data_handle(), GetExFactorBytes());
   read_into_device_host(ids_.data_handle(), ids_host_.data_handle(), GetPIDsBytes());
+  // Per-vector squared norms (InnerProduct only), same permuted order as ids_.
+  if (is_inner_product()) { read_into_device(vec_sqr_norms_.data_handle(), GetVecSqrNormBytes()); }
 
   // Initialize cluster metadata (host side) based on the loaded cluster sizes.
   init_clusters(cluster_sizes);
@@ -352,11 +390,16 @@ void IVFGPU::save(const char* filename) const
     RAFT_EXPECTS(static_cast<bool>(output), "write failed to: %s", filename);
   };
 
+  // Format version is the first field.
+  write_exact(&kSerializationVersion, sizeof(std::uint32_t));
+
   // Save meta data.
   write_exact(&num_vectors, sizeof(size_t));
   write_exact(&num_dimensions, sizeof(size_t));
   write_exact(&num_centroids, sizeof(size_t));
   write_exact(&ex_bits, sizeof(size_t));
+  // Distance metric (mirrors the read order in load_transposed).
+  write_exact(&metric_, sizeof(cuvs::distance::DistanceType));
   // Write legacy batch_flag=true for backward compatibility
   bool legacy_batch_flag = true;
   write_exact(&legacy_batch_flag, sizeof(bool));
@@ -417,6 +460,18 @@ void IVFGPU::save(const char* filename) const
   write_exact(h_long_code_buf.data_handle(), long_code_size);
   write_exact(h_ex_factor_buf.data_handle(), ex_factor_size);
   write_exact(h_ids_buf.data_handle(), ids_size);
+
+  // Per-vector squared norms (InnerProduct only), same permuted order as ids.
+  if (is_inner_product()) {
+    size_t norms_size = GetVecSqrNormBytes();
+    auto h_norms_buf  = raft::make_host_vector<uint8_t, int64_t>(norms_size);
+    raft::copy(h_norms_buf.data_handle(),
+               reinterpret_cast<const uint8_t*>(vec_sqr_norms_.data_handle()),
+               norms_size,
+               stream_);
+    raft::resource::sync_stream(handle_);
+    write_exact(h_norms_buf.data_handle(), norms_size);
+  }
 
   output.close();
 }
@@ -852,7 +907,8 @@ void IVFGPU::construct_on_gpu_streaming(const float* host_data,
                                         cp.short_factor_batch(*this, 0),
                                         cp.long_code(*this, 0, DQ->long_code_length()),
                                         reinterpret_cast<float*>(cp.ex_factor(*this, 0)),
-                                        cur_rotated_c);
+                                        cur_rotated_c,
+                                        is_inner_product() ? cp.vec_sqr_norm(*this, 0) : nullptr);
 
       batch_offset += cluster_size;
     }
@@ -886,7 +942,8 @@ void IVFGPU::quantize_cluster(GPUClusterMeta& cp,
                          cp.short_factor_batch(*this, 0),
                          cp.long_code(*this, 0, DQ->long_code_length()),
                          reinterpret_cast<float*>(cp.ex_factor(*this, 0)),
-                         d_rotated_c);
+                         d_rotated_c,
+                         is_inner_product() ? cp.vec_sqr_norm(*this, 0) : nullptr);
 }
 
 // Optimized kernel to prepare keys and values from d_raft_idx
@@ -1094,8 +1151,35 @@ void IVFGPU::PrepareClusterSearchInputs(
   // Step 4: select top-nprobe clusters per query
   auto d_raft_vals = raft::make_device_matrix<float, int64_t>(searcher_handle, batch_size, nprobe);
   auto d_raft_idx  = raft::make_device_matrix<int, int64_t>(searcher_handle, batch_size, nprobe);
-  auto in_view     = raft::make_device_matrix_view<const float, int64_t, raft::row_major>(
-    searcher.get_centroid_distances(), batch_size, num_centroids);
+
+  // Clusters are scored by ‖q−c‖² for L2 (minimized). For InnerProduct we instead pick the
+  // clusters maximizing ⟨q,c⟩, computed into a separate scratch buffer (mirroring ivf_pq's
+  // select_clusters with alpha=-1) so that centroid_distances is left as ‖q−c‖² — it still feeds
+  // q_g_add in the search kernels, which reconstruct the estimate in the q−c residual space.
+  auto qc_scores         = raft::make_device_matrix<float, int64_t>(searcher_handle, 0, 0);
+  const float* select_in = searcher.get_centroid_distances();
+  if (is_inner_product()) {
+    qc_scores =
+      raft::make_device_matrix<float, int64_t>(searcher_handle, batch_size, num_centroids);
+    const float alpha_ip = -1.f, beta_ip = 0.f;
+    raft::linalg::detail::matmul</* DevicePointerMode = */ false>(searcher_handle,
+                                                                  /* trans_a = */ true,
+                                                                  /* trans_b = */ false,
+                                                                  num_centroids,
+                                                                  batch_size,
+                                                                  num_padded_dim,
+                                                                  &alpha_ip,
+                                                                  initializer->GetCentroid(0),
+                                                                  num_padded_dim,
+                                                                  queries.data_handle(),
+                                                                  num_padded_dim,
+                                                                  &beta_ip,
+                                                                  qc_scores.data_handle(),
+                                                                  num_centroids);
+    select_in = qc_scores.data_handle();
+  }
+  auto in_view = raft::make_device_matrix_view<const float, int64_t, raft::row_major>(
+    select_in, batch_size, num_centroids);
   cuvs::selection::select_k(searcher_handle,
                             in_view,
                             std::nullopt,

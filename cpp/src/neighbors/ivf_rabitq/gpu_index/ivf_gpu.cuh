@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -13,6 +13,8 @@
 #include "initializer_gpu.cuh"
 #include "quantizer_gpu.cuh"
 #include "rotator_gpu.cuh"
+
+#include <cuvs/distance/distance.hpp>
 
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/host_mdarray.hpp>
@@ -91,6 +93,12 @@ class IVFGPU {
       return parent.get_short_factors_batch_device() + (start_index + i) * 3;
     }
 
+    // Per-vector ‖x‖² for the i-th vector in this cluster (InnerProduct metric only).
+    float* vec_sqr_norm(const IVFGPU& parent, size_t i) const
+    {
+      return parent.get_vec_sqr_norms_device() + (start_index + i);
+    }
+
     /**
      * @brief Get the pointer to the long code for the i-th vector in this cluster.
      *
@@ -156,7 +164,12 @@ class IVFGPU {
    * @param k Num of centroids.
    * @param bits_per_dim totalbits = EX_BITS+1
    */
-  IVFGPU(raft::resources const& handle, size_t n, size_t dim, size_t k, size_t bits_per_dim);
+  IVFGPU(raft::resources const& handle,
+         size_t n,
+         size_t dim,
+         size_t k,
+         size_t bits_per_dim,
+         cuvs::distance::DistanceType metric = cuvs::distance::DistanceType::L2Expanded);
   IVFGPU(raft::resources const& handle)
     : handle_(handle), initializer(nullptr), Rota(std::make_unique<RotatorGPU>(handle_, 128))
   {
@@ -249,6 +262,15 @@ class IVFGPU {
   size_t get_num_centroids() const { return num_centroids; }
   size_t get_max_cluster_length() const noexcept { return max_cluster_length; }
   size_t get_ex_bits() const noexcept { return ex_bits; }
+  cuvs::distance::DistanceType metric() const noexcept { return metric_; }
+  bool is_inner_product() const noexcept
+  {
+    return metric_ == cuvs::distance::DistanceType::InnerProduct;
+  }
+  __host__ __device__ float* get_vec_sqr_norms_device() const noexcept
+  {
+    return const_cast<float*>(this->vec_sqr_norms_.data_handle());
+  }
 
   // member object getters
   DataQuantizerGPU& quantizer() const { return *(this->DQ); }
@@ -326,6 +348,9 @@ class IVFGPU {
 
   size_t GetPIDsBytes() const { return sizeof(PID) * num_vectors; }
 
+  // Per-vector squared-norm array; only allocated/serialized for the InnerProduct metric.
+  size_t GetVecSqrNormBytes() const { return sizeof(float) * num_vectors; }
+
   size_t GetLongCodeBytes() const
   {
     return sizeof(uint8_t) * quantizer().long_code_length() * num_vectors;
@@ -364,6 +389,13 @@ class IVFGPU {
   raft::device_vector<float, int64_t> short_factors_batch_ =
     raft::make_device_vector<float, int64_t>(handle_, 0);  // N * 3 float rabitq factors
 
+  // Per-vector squared L2 norm ‖x‖² of the original (rotation-invariant) vectors, in the same
+  // cluster-permuted order as the factors. Only populated for the InnerProduct metric, where the
+  // reconstructed squared-L2 estimate is converted to an inner product via
+  // ⟨q,x⟩ = (‖q‖² + ‖x‖² − ‖q−x‖²)/2.
+  raft::device_vector<float, int64_t> vec_sqr_norms_ =
+    raft::make_device_vector<float, int64_t>(handle_, 0);
+
   // host-side copies
   raft::host_vector<uint32_t, int64_t> short_data_host_ = raft::make_host_vector<uint32_t, int64_t>(
     0);  // TODO: CPU side, we need on factors from short_data_host_, so no need to
@@ -384,6 +416,8 @@ class IVFGPU {
   size_t num_centroids;       // Centroids && Clusters
   size_t max_cluster_length;  // Maximum length of clusters
   size_t ex_bits;             // Extra bits parameter for quantization.
+  cuvs::distance::DistanceType metric_ =
+    cuvs::distance::DistanceType::L2Expanded;  // Distance metric of the index.
 
   std::unique_ptr<InitializerGPU>
     initializer;  // Initializer, indicates which initializer to use (currently only FlatIVF)

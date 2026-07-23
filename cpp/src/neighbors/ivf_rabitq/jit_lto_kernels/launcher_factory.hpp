@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -99,15 +99,23 @@ make_compute_inner_products_with_lut16_opt_block_sort_launcher(int ex_bits, bool
 }
 
 inline std::shared_ptr<AlgorithmLauncher> make_compute_inner_products_with_bitwise_launcher(
-  int ex_bits, bool with_ex)
+  int ex_bits, bool with_ex, bool is_inner_product)
 {
   ComputeInnerProductsWithBitwisePlanner planner;
   planner.add_entrypoint();
   if (with_ex) {
-    planner.add_bitwise_emit_distances_device_function<true>();
+    if (is_inner_product) {
+      planner.add_bitwise_emit_distances_device_function<true, true>();
+    } else {
+      planner.add_bitwise_emit_distances_device_function<true, false>();
+    }
     add_ex_bits_device_functions(planner, ex_bits);
   } else {
-    planner.add_bitwise_emit_distances_device_function<false>();
+    if (is_inner_product) {
+      planner.add_bitwise_emit_distances_device_function<false, true>();
+    } else {
+      planner.add_bitwise_emit_distances_device_function<false, false>();
+    }
   }
   return planner.get_launcher();
 }
@@ -115,20 +123,33 @@ inline std::shared_ptr<AlgorithmLauncher> make_compute_inner_products_with_bitwi
 inline std::shared_ptr<AlgorithmLauncher>
 make_compute_inner_products_with_bitwise_block_sort_launcher(int num_bits,
                                                              int ex_bits,
-                                                             bool with_ex)
+                                                             bool with_ex,
+                                                             bool is_inner_product)
 {
   ComputeInnerProductsWithBitwiseBlockSortPlanner planner;
-  planner.add_entrypoint();
+  if (is_inner_product) {
+    planner.add_entrypoint<true>();
+  } else {
+    planner.add_entrypoint<false>();
+  }
   if (num_bits == 4) {
     planner.add_compute_bitwise_quantized_ip_for_vec_device_function<4>();
   } else {
     planner.add_compute_bitwise_quantized_ip_for_vec_device_function<8>();
   }
   if (with_ex) {
-    planner.add_bitwise_block_sort_emit_topk_device_function<true>();
+    if (is_inner_product) {
+      planner.add_bitwise_block_sort_emit_topk_device_function<true, true>();
+    } else {
+      planner.add_bitwise_block_sort_emit_topk_device_function<true, false>();
+    }
     add_ex_bits_device_functions(planner, ex_bits);
   } else {
-    planner.add_bitwise_block_sort_emit_topk_device_function<false>();
+    if (is_inner_product) {
+      planner.add_bitwise_block_sort_emit_topk_device_function<false, true>();
+    } else {
+      planner.add_bitwise_block_sort_emit_topk_device_function<false, false>();
+    }
   }
   return planner.get_launcher();
 }
