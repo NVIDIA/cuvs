@@ -225,7 +225,7 @@ jobs:
     permissions:
       contents: read
     secrets:
-        GPUTESTER_CRATES_TOKEN: ${{ secrets.GPUTESTER_CRATES_TOKEN }}
+      GPUTESTER_CRATES_TOKEN: ${{ secrets.GPUTESTER_CRATES_TOKEN }}
     uses: ./.github/workflows/publish-rust.yaml
   docs-build:
     if: github.ref_type == 'branch'
