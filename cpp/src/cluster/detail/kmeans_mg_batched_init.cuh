@@ -247,7 +247,7 @@ template <typename DataT, typename IndexT, typename Accessor>
 void init_centroids_for_mg_batched(
   raft::resources const& handle,
   const cuvs::cluster::kmeans::params& params,
-  IndexT /*streaming_batch_size*/,
+  IndexT /*device_buffer_samples*/,
   const std::vector<
     raft::mdspan<const DataT, raft::matrix_extent<IndexT>, raft::row_major, Accessor>>& X_parts,
   IndexT n_features,
