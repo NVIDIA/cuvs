@@ -326,6 +326,7 @@ export K=10
 export BATCH_SIZE=
 export BUILD_BATCH_SIZE=
 export NUMBER_OF_SHARDS=1
+export APPROXIMATE_THRESHOLD=10000
 
 mkdir -p "${DATASET_PATH}"
 

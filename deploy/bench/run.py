@@ -47,6 +47,9 @@ BUILD_BATCH_SIZE = int(BUILD_BATCH_SIZE) if BUILD_BATCH_SIZE else None
 NUMBER_OF_SHARDS = int(os.environ.get("NUMBER_OF_SHARDS", "1"))
 if NUMBER_OF_SHARDS < 1:
     raise ValueError("NUMBER_OF_SHARDS must be at least 1")
+APPROXIMATE_THRESHOLD = int(os.environ.get("APPROXIMATE_THRESHOLD", "10000"))
+if APPROXIMATE_THRESHOLD < -1:
+    raise ValueError("APPROXIMATE_THRESHOLD must be -1 or greater")
 
 ALGORITHM = "opensearch_faiss_hnsw"
 REPO_NAME = os.environ.get("REMOTE_VECTOR_REPOSITORY", "vector-repo").strip()
@@ -291,6 +294,7 @@ def main() -> None:
         f"{BUILD_BATCH_SIZE if BUILD_BATCH_SIZE is not None else 'backend auto'}"
     )
     print(f"  Index shards       : {NUMBER_OF_SHARDS}")
+    print(f"  Approx. threshold  : {APPROXIMATE_THRESHOLD}")
 
     if REMOTE_INDEX_BUILD:
         register_repository()
@@ -316,6 +320,7 @@ def main() -> None:
     build_kwargs = dict(
         common_kwargs,
         remote_index_build=REMOTE_INDEX_BUILD,
+        approximate_threshold=APPROXIMATE_THRESHOLD,
     )
     if BUILD_BATCH_SIZE is not None:
         build_kwargs["build_batch_size"] = BUILD_BATCH_SIZE

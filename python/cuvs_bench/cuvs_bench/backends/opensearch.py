@@ -131,6 +131,7 @@ class OpenSearchConfigLoader(ConfigLoader):
             "use_ssl",
             "verify_certs",
             "build_batch_size",
+            "approximate_threshold",
             # Remote Index Build (OpenSearch 3.0+, faiss engine only)
             "remote_index_build",
             "remote_build_size_min",
@@ -285,6 +286,8 @@ class OpenSearchBackend(BenchmarkBackend):
         - ``verify_certs`` – verify SSL certs (default: ``False``)
         - ``build_batch_size`` – vectors per bulk request. If omitted, choose
           a batch size with roughly 1 MiB of raw vector data.
+        - ``approximate_threshold`` – minimum vectors per segment before
+          building ANN data structures (default: OpenSearch's default).
         - ``requires_network`` – trigger network pre-flight check (default: ``True``)
         - ``remote_index_build`` – set ``index.knn.remote_index_build.enabled=true``
           on the index at creation time, opting it into the GPU build path (default: ``False``).
@@ -356,6 +359,7 @@ class OpenSearchBackend(BenchmarkBackend):
         build_param: Dict[str, Any],
         remote_index_build: bool = False,
         remote_build_size_min: Optional[str] = None,
+        approximate_threshold: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         Construct the OpenSearch index mapping dict for k-NN.
@@ -405,6 +409,15 @@ class OpenSearchBackend(BenchmarkBackend):
             "number_of_shards": build_param.get("number_of_shards", 1),
             "number_of_replicas": build_param.get("number_of_replicas", 0),
         }
+        if approximate_threshold is not None:
+            approximate_threshold = int(approximate_threshold)
+            if approximate_threshold < -1:
+                raise ValueError(
+                    "approximate_threshold must be -1 or greater"
+                )
+            index_settings["knn.advanced.approximate_threshold"] = (
+                approximate_threshold
+            )
         if remote_index_build:
             if engine != "faiss":
                 raise ValueError(
@@ -710,6 +723,7 @@ class OpenSearchBackend(BenchmarkBackend):
         build_batch_size = self.config.get("build_batch_size")
         remote_index_build = bool(self.config.get("remote_index_build", False))
         remote_build_size_min = self.config.get("remote_build_size_min")
+        approximate_threshold = self.config.get("approximate_threshold")
 
         if dry_run:
             print(
@@ -761,6 +775,7 @@ class OpenSearchBackend(BenchmarkBackend):
             build_param,
             remote_index_build,
             remote_build_size_min,
+            approximate_threshold,
         )
         self._client.indices.create(index=index_name, body=mapping)
 
@@ -801,6 +816,7 @@ class OpenSearchBackend(BenchmarkBackend):
                 "engine": engine,
                 "space_type": space_type,
                 "remote_index_build": remote_index_build,
+                "approximate_threshold": approximate_threshold,
             },
             success=True,
         )

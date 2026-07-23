@@ -73,8 +73,15 @@ export K=10                                # number of neighbors (default: 10)
 export BATCH_SIZE=                         # optional query batch size override
 export BUILD_BATCH_SIZE=                   # optional bulk ingest batch size override
 export NUMBER_OF_SHARDS=1                  # number of primary index shards (default: 1)
+export APPROXIMATE_THRESHOLD=10000         # vectors per segment before ANN build (default: 10000)
 export REMOTE_BUILD_TIMEOUT=1800           # seconds to wait for remote builds (default: 1800)
 ```
+
+`APPROXIMATE_THRESHOLD` sets
+`index.knn.advanced.approximate_threshold` on each benchmark index. AWS
+recommends `10000` as a starting point for GPU-accelerated indexing so smaller
+segments do not build ANN structures prematurely. Set it to `0` to always
+build ANN structures or `-1` to disable them.
 
 Start all services:
 

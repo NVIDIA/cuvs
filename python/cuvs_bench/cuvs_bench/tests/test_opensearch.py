@@ -157,12 +157,14 @@ class TestOpenSearchConfigLoader:
             remote_build_size_min="2kb",
             remote_build_timeout=123,
             remote_build_s3_endpoint="http://s3:9000",
+            approximate_threshold=10_000,
         )
 
         bc = configs[0].backend_config
         assert bc["remote_index_build"] is True
         assert bc["remote_build_size_min"] == "2kb"
         assert bc["remote_build_timeout"] == 123
+        assert bc["approximate_threshold"] == 10_000
         assert "remote_build_s3_endpoint" not in bc
 
     def test_load_overrides_number_of_shards(self, config_dir):
@@ -247,6 +249,46 @@ class TestOpenSearchBackend:
 
         settings = mapping["settings"]["index"]
         assert settings["knn.remote_index_build.size.min"] == "2kb"
+
+    def test_approximate_threshold_is_added_to_index_settings(self):
+        backend = _make_backend()
+        mapping = backend._build_index_mapping(
+            dims=4,
+            engine="faiss",
+            space_type="l2",
+            build_param={},
+            approximate_threshold=10_000,
+        )
+
+        settings = mapping["settings"]["index"]
+        assert settings["knn.advanced.approximate_threshold"] == 10_000
+
+    def test_approximate_threshold_accepts_disable_value(self):
+        backend = _make_backend()
+        mapping = backend._build_index_mapping(
+            dims=4,
+            engine="faiss",
+            space_type="l2",
+            build_param={},
+            approximate_threshold=-1,
+        )
+
+        settings = mapping["settings"]["index"]
+        assert settings["knn.advanced.approximate_threshold"] == -1
+
+    def test_approximate_threshold_rejects_values_below_minus_one(self):
+        backend = _make_backend()
+        with pytest.raises(
+            ValueError,
+            match="approximate_threshold must be -1 or greater",
+        ):
+            backend._build_index_mapping(
+                dims=4,
+                engine="faiss",
+                space_type="l2",
+                build_param={},
+                approximate_threshold=-2,
+            )
 
     def test_wait_for_remote_build_raises_on_failure_count(self):
         backend = _make_backend()

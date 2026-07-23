@@ -123,6 +123,7 @@ curl -X PUT http://localhost:9200/my-vectors \
       "index.knn": true,
       "index.knn.remote_index_build.enabled": true,
       "index.knn.remote_index_build.size.min": "1kb",
+      "index.knn.advanced.approximate_threshold": 10000,
       "number_of_shards": 1,
       "number_of_replicas": 1
     },
@@ -163,6 +164,7 @@ docker compose run --rm \
   -e REMOTE_BUILD_SIZE_MIN=${REMOTE_BUILD_SIZE_MIN:-} \
   -e REMOTE_BUILD_TIMEOUT=${REMOTE_BUILD_TIMEOUT:-1800} \
   -e NUMBER_OF_SHARDS=${NUMBER_OF_SHARDS:-1} \
+  -e APPROXIMATE_THRESHOLD=${APPROXIMATE_THRESHOLD:-10000} \
   -v $(pwd)/remote-index-build:/app/remote-index-build \
   --no-deps bench \
   python remote-index-build/run.py
