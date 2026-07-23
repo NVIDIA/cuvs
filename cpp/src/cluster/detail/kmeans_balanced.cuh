@@ -1287,8 +1287,12 @@ void build_hierarchical(const raft::resources& handle,
         reinterpret_cast<const MathT*>(dataset), n_rows, dim);
       auto centroids_view =
         raft::make_device_matrix_view<const MathT, IdxT>(cluster_centers, n_clusters, dim);
-      cuvs::cluster::kmeans::cluster_cost(
-        handle, X_view, centroids_view, raft::make_host_scalar_view<MathT>(inertia));
+      auto d_inertia = raft::make_device_scalar<MathT>(handle, MathT{0});
+      cuvs::cluster::kmeans::cluster_cost(handle, X_view, centroids_view, d_inertia.view());
+      raft::copy(handle,
+                 raft::make_host_scalar_view<MathT>(inertia),
+                 raft::make_const_mdspan(d_inertia.view()));
+      raft::resource::sync_stream(handle, stream);
     } else {
       RAFT_LOG_WARN("Inertia is not computed for non float/double types");
     }

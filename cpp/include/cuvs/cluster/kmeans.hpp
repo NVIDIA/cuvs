@@ -1584,14 +1584,16 @@ void transform(raft::resources const& handle,
  * @param[out] cost           Resulting cluster cost
  * @param[in]  sample_weight  Optional per-sample weights.
  *                            [len = n_samples]
- *
+ * @param[in]  X_norm         Optional precomputed squared L2 row norms of X (||x||^2) [n_samples].
+ *                            When provided, the internal norm computation is skipped.
  */
 void cluster_cost(
   const raft::resources& handle,
   raft::device_matrix_view<const float, int> X,
   raft::device_matrix_view<const float, int> centroids,
-  raft::host_scalar_view<float> cost,
-  std::optional<raft::device_vector_view<const float, int>> sample_weight = std::nullopt);
+  raft::device_scalar_view<float> cost,
+  std::optional<raft::device_vector_view<const float, int>> sample_weight = std::nullopt,
+  std::optional<raft::device_vector_view<const float, int>> X_norm        = std::nullopt);
 
 /**
  * @brief Compute cluster cost
@@ -1606,8 +1608,102 @@ void cluster_cost(
  * @param[out] cost           Resulting cluster cost
  * @param[in]  sample_weight  Optional per-sample weights.
  *                            [len = n_samples]
+ * @param[in]  X_norm         Optional precomputed squared L2 row norms of X (||x||^2,
+ *                            i.e. sum of squares without the sqrt) [n_samples]. When
+ *                            provided, the internal norm computation is skipped.
  */
 void cluster_cost(
+  const raft::resources& handle,
+  raft::device_matrix_view<const double, int> X,
+  raft::device_matrix_view<const double, int> centroids,
+  raft::device_scalar_view<double> cost,
+  std::optional<raft::device_vector_view<const double, int>> sample_weight = std::nullopt,
+  std::optional<raft::device_vector_view<const double, int>> X_norm        = std::nullopt);
+
+/**
+ * @brief Compute (optionally weighted) cluster cost
+ *
+ * @param[in]  handle         The raft handle
+ * @param[in]  X              Training instances to cluster. The data must
+ *                            be in row-major format.
+ *                            [dim = n_samples x n_features]
+ * @param[in]  centroids      Cluster centroids. The data must be in
+ *                            row-major format.
+ *                            [dim = n_clusters x n_features]
+ * @param[out] cost           Resulting cluster cost
+ * @param[in]  sample_weight  Optional per-sample weights.
+ *                            [len = n_samples]
+ * @param[in]  X_norm         Optional precomputed squared L2 row norms of X (||x||^2,
+ *                            i.e. sum of squares without the sqrt) [n_samples]. When
+ *                            provided, the internal norm computation is skipped.
+ */
+void cluster_cost(
+  const raft::resources& handle,
+  raft::device_matrix_view<const float, int64_t> X,
+  raft::device_matrix_view<const float, int64_t> centroids,
+  raft::device_scalar_view<float> cost,
+  std::optional<raft::device_vector_view<const float, int64_t>> sample_weight = std::nullopt,
+  std::optional<raft::device_vector_view<const float, int64_t>> X_norm        = std::nullopt);
+
+/**
+ * @brief Compute (optionally weighted) cluster cost
+ *
+ * @param[in]  handle         The raft handle
+ * @param[in]  X              Training instances to cluster. The data must
+ *                            be in row-major format.
+ *                            [dim = n_samples x n_features]
+ * @param[in]  centroids      Cluster centroids. The data must be in
+ *                            row-major format.
+ *                            [dim = n_clusters x n_features]
+ * @param[out] cost           Resulting cluster cost
+ * @param[in]  sample_weight  Optional per-sample weights.
+ *                            [len = n_samples]
+ * @param[in]  X_norm         Optional precomputed squared L2 row norms of X (||x||^2,
+ *                            i.e. sum of squares without the sqrt) [n_samples]. When
+ *                            provided, the internal norm computation is skipped.
+ */
+void cluster_cost(
+  const raft::resources& handle,
+  raft::device_matrix_view<const double, int64_t> X,
+  raft::device_matrix_view<const double, int64_t> centroids,
+  raft::device_scalar_view<double> cost,
+  std::optional<raft::device_vector_view<const double, int64_t>> sample_weight = std::nullopt,
+  std::optional<raft::device_vector_view<const double, int64_t>> X_norm        = std::nullopt);
+
+/**
+ * @brief [deprecated] Compute (optionally weighted) cluster cost, writing the result to a host
+ *        scalar.
+ *
+ * @param[in]  handle         The raft handle
+ * @param[in]  X              Training instances [n_samples x n_features], row-major
+ * @param[in]  centroids      Cluster centroids [n_clusters x n_features], row-major
+ * @param[out] cost           Resulting cluster cost
+ * @param[in]  sample_weight  Optional per-sample weights [n_samples]
+ */
+[[deprecated(
+  "Pass a raft::device_scalar_view; this host-scalar overload forces a D->H copy and "
+  "stream sync")]] void
+cluster_cost(
+  const raft::resources& handle,
+  raft::device_matrix_view<const float, int> X,
+  raft::device_matrix_view<const float, int> centroids,
+  raft::host_scalar_view<float> cost,
+  std::optional<raft::device_vector_view<const float, int>> sample_weight = std::nullopt);
+
+/**
+ * @brief [deprecated] Compute (optionally weighted) cluster cost, writing the result to a host
+ *        scalar.
+ *
+ * @param[in]  handle         The raft handle
+ * @param[in]  X              Training instances [n_samples x n_features], row-major
+ * @param[in]  centroids      Cluster centroids [n_clusters x n_features], row-major
+ * @param[out] cost           Resulting cluster cost
+ * @param[in]  sample_weight  Optional per-sample weights [n_samples]
+ */
+[[deprecated(
+  "Pass a raft::device_scalar_view; this host-scalar overload forces a D->H copy and "
+  "stream sync")]] void
+cluster_cost(
   const raft::resources& handle,
   raft::device_matrix_view<const double, int> X,
   raft::device_matrix_view<const double, int> centroids,
@@ -1615,20 +1711,19 @@ void cluster_cost(
   std::optional<raft::device_vector_view<const double, int>> sample_weight = std::nullopt);
 
 /**
- * @brief Compute (optionally weighted) cluster cost
+ * @brief [deprecated] Compute (optionally weighted) cluster cost, writing the result to a host
+ *        scalar.
  *
  * @param[in]  handle         The raft handle
- * @param[in]  X              Training instances to cluster. The data must
- *                            be in row-major format.
- *                            [dim = n_samples x n_features]
- * @param[in]  centroids      Cluster centroids. The data must be in
- *                            row-major format.
- *                            [dim = n_clusters x n_features]
+ * @param[in]  X              Training instances [n_samples x n_features], row-major
+ * @param[in]  centroids      Cluster centroids [n_clusters x n_features], row-major
  * @param[out] cost           Resulting cluster cost
- * @param[in]  sample_weight  Optional per-sample weights.
- *                            [len = n_samples]
+ * @param[in]  sample_weight  Optional per-sample weights [n_samples]
  */
-void cluster_cost(
+[[deprecated(
+  "Pass a raft::device_scalar_view; this host-scalar overload forces a D->H copy and "
+  "stream sync")]] void
+cluster_cost(
   const raft::resources& handle,
   raft::device_matrix_view<const float, int64_t> X,
   raft::device_matrix_view<const float, int64_t> centroids,
@@ -1636,25 +1731,25 @@ void cluster_cost(
   std::optional<raft::device_vector_view<const float, int64_t>> sample_weight = std::nullopt);
 
 /**
- * @brief Compute (optionally weighted) cluster cost
+ * @brief [deprecated] Compute (optionally weighted) cluster cost, writing the result to a host
+ *        scalar.
  *
  * @param[in]  handle         The raft handle
- * @param[in]  X              Training instances to cluster. The data must
- *                            be in row-major format.
- *                            [dim = n_samples x n_features]
- * @param[in]  centroids      Cluster centroids. The data must be in
- *                            row-major format.
- *                            [dim = n_clusters x n_features]
+ * @param[in]  X              Training instances [n_samples x n_features], row-major
+ * @param[in]  centroids      Cluster centroids [n_clusters x n_features], row-major
  * @param[out] cost           Resulting cluster cost
- * @param[in]  sample_weight  Optional per-sample weights.
- *                            [len = n_samples]
+ * @param[in]  sample_weight  Optional per-sample weights [n_samples]
  */
-void cluster_cost(
+[[deprecated(
+  "Pass a raft::device_scalar_view; this host-scalar overload forces a D->H copy and "
+  "stream sync")]] void
+cluster_cost(
   const raft::resources& handle,
   raft::device_matrix_view<const double, int64_t> X,
   raft::device_matrix_view<const double, int64_t> centroids,
   raft::host_scalar_view<double> cost,
   std::optional<raft::device_vector_view<const double, int64_t>> sample_weight = std::nullopt);
+
 /**
  * @}
  */

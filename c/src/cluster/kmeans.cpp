@@ -11,6 +11,11 @@
 #include <cuvs/cluster/kmeans.hpp>
 #include <cuvs/core/c_api.h>
 
+#include <raft/core/copy.hpp>
+#include <raft/core/device_mdarray.hpp>
+#include <raft/core/mdspan.hpp>
+#include <raft/core/resource/cuda_stream.hpp>
+
 #include "../core/exceptions.hpp"
 #include "../core/interop.hpp"
 
@@ -213,10 +218,14 @@ void _cluster_cost(cuvsResources_t res,
   if (cuvs::core::is_dlpack_device_compatible(X)) {
     using mdspan_type = raft::device_matrix_view<const T, IdxT, raft::row_major>;
 
+    auto d_cost = raft::make_device_scalar<T>(*res_ptr, T{0});
     cuvs::cluster::kmeans::cluster_cost(*res_ptr,
                                         cuvs::core::from_dlpack<mdspan_type>(X_tensor),
                                         cuvs::core::from_dlpack<mdspan_type>(centroids_tensor),
-                                        raft::make_host_scalar_view<T>(&cost_temp));
+                                        d_cost.view());
+    raft::copy(
+      *res_ptr, raft::make_host_scalar_view<T>(&cost_temp), raft::make_const_mdspan(d_cost.view()));
+    raft::resource::sync_stream(*res_ptr);
   } else {
     RAFT_FAIL("X dataset must be accessible on device memory");
   }
