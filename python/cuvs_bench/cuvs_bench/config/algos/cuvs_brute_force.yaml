@@ -3,3 +3,6 @@ groups:
   base:
     build:
     search:
+  test:
+    build:
+    search:

@@ -116,10 +116,25 @@ void bench_build(::benchmark::State& state,
   cuvs::bench::benchmark_thread_id = state.thread_index();
   cuvs::bench::benchmark_n_threads = state.threads();
   dump_parameters(state, index.build_param);
+
+  if (state.thread_index() == 0) {
+    log_info(
+      "bench_build start: algo=%s index=%s file=%s force_overwrite=%d threads=%d dim=%d "
+      "base_set_size=%zu",
+      index.algo.c_str(),
+      index.name.c_str(),
+      index.file.c_str(),
+      force_overwrite ? 1 : 0,
+      state.threads(),
+      dataset->dim(),
+      dataset->base_set_size());
+  }
+
   if (file_exists(index.file)) {
     if (force_overwrite) {
-      log_info("Overwriting file: %s", index.file.c_str());
+      log_info("bench_build overwriting existing index file: %s", index.file.c_str());
     } else {
+      log_info("bench_build skipped existing index file: %s", index.file.c_str());
       return state.SkipWithMessage(
         "Index file already exists (use --force to overwrite the index).");
     }
@@ -127,15 +142,39 @@ void bench_build(::benchmark::State& state,
 
   std::unique_ptr<algo<T>> algo;
   try {
+    if (state.thread_index() == 0) {
+      log_info(
+        "bench_build create algo start: algo=%s index=%s", index.algo.c_str(), index.name.c_str());
+    }
     algo = create_algo<T>(index.algo, dataset->distance(), dataset->dim(), index.build_param);
+    if (state.thread_index() == 0) {
+      log_info(
+        "bench_build create algo finish: algo=%s index=%s", index.algo.c_str(), index.name.c_str());
+    }
   } catch (const std::exception& e) {
+    log_warn("bench_build create algo failed: algo=%s index=%s error=%s",
+             index.algo.c_str(),
+             index.name.c_str(),
+             e.what());
     return state.SkipWithError("Failed to create an algo: " + std::string(e.what()));
   }
 
   const auto algo_property = parse_algo_property(algo->get_preference(), index.build_param);
+  if (state.thread_index() == 0) {
+    log_info("bench_build algo properties: algo=%s dataset_memory_type=%d query_memory_type=%d",
+             index.algo.c_str(),
+             static_cast<int>(algo_property.dataset_memory_type),
+             static_cast<int>(algo_property.query_memory_type));
+  }
 
   const T* base_set      = dataset->base_set(algo_property.dataset_memory_type);
   std::size_t index_size = dataset->base_set_size();
+  if (state.thread_index() == 0) {
+    log_info("bench_build base_set ready: algo=%s pointer=%p index_size=%zu",
+             index.algo.c_str(),
+             static_cast<const void*>(base_set),
+             index_size);
+  }
 
   cuda_timer gpu_timer{algo};
   {
@@ -155,11 +194,24 @@ void bench_build(::benchmark::State& state,
     */
     [[maybe_unused]] auto gpu_all = gpu_timer.lap(no_lap_sync);
     for (auto _ : state) {
+      if (state.thread_index() == 0) {
+        log_info(
+          "bench_build iteration start: algo=%s index=%s", index.algo.c_str(), index.name.c_str());
+      }
       [[maybe_unused]] auto ntx_lap = nvtx.lap();
       [[maybe_unused]] auto gpu_lap = gpu_timer.lap(!no_lap_sync);
       try {
         algo->build(base_set, index_size);
+        if (state.thread_index() == 0) {
+          log_info("bench_build iteration finish: algo=%s index=%s",
+                   index.algo.c_str(),
+                   index.name.c_str());
+        }
       } catch (const std::exception& e) {
+        log_warn("bench_build iteration failed: algo=%s index=%s error=%s",
+                 index.algo.c_str(),
+                 index.name.c_str(),
+                 e.what());
         state.SkipWithError(std::string(e.what()));
       }
     }
@@ -171,7 +223,25 @@ void bench_build(::benchmark::State& state,
 
   if (state.skipped()) { return; }
   make_sure_parent_dir_exists(index.file);
-  algo->save(index.file);
+  try {
+    log_info("bench_build save start: algo=%s index=%s file=%s",
+             index.algo.c_str(),
+             index.name.c_str(),
+             index.file.c_str());
+    algo->save(index.file);
+    log_info("bench_build save finish: algo=%s index=%s file=%s exists=%d",
+             index.algo.c_str(),
+             index.name.c_str(),
+             index.file.c_str(),
+             file_exists(index.file) ? 1 : 0);
+  } catch (const std::exception& e) {
+    log_warn("bench_build save failed: algo=%s index=%s file=%s error=%s",
+             index.algo.c_str(),
+             index.name.c_str(),
+             index.file.c_str(),
+             e.what());
+    state.SkipWithError("Failed to save an index: " + std::string(e.what()));
+  }
 }
 
 template <typename T>
@@ -197,10 +267,26 @@ void bench_search(::benchmark::State& state,
   // Round down the query data to a multiple of the batch size to loop over full batches of data
   const std::size_t query_set_size = (dataset->query_set_size() / n_queries) * n_queries;
 
+  if (state.thread_index() == 0) {
+    log_info(
+      "bench_search start: algo=%s index=%s file=%s search_param_ix=%zu threads=%d "
+      "raw_queries=%zu query_set_size=%zu k=%u n_queries=%zu",
+      index.algo.c_str(),
+      index.name.c_str(),
+      index.file.c_str(),
+      search_param_ix,
+      state.threads(),
+      dataset->query_set_size(),
+      query_set_size,
+      k,
+      n_queries);
+  }
+
   if (dataset->query_set_size() < n_queries) {
     std::stringstream msg;
     msg << "Not enough queries in benchmark set. Expected " << n_queries << ", actual "
         << dataset->query_set_size();
+    if (state.thread_index() == 0) { log_warn("bench_search skipped: %s", msg.str().c_str()); }
     state.SkipWithError(msg.str());
     return;
   }
@@ -215,8 +301,17 @@ void bench_search(::benchmark::State& state,
   const T* query_set = nullptr;
 
   if (!file_exists(index.file)) {
+    if (state.thread_index() == 0) {
+      log_warn("bench_search missing index file: algo=%s index=%s file=%s",
+               index.algo.c_str(),
+               index.name.c_str(),
+               index.file.c_str());
+    }
     state.SkipWithError("Index file is missing. Run the benchmark in the build mode first.");
     return;
+  }
+  if (state.thread_index() == 0) {
+    log_info("bench_search index file exists: file=%s", index.file.c_str());
   }
 
   /**
@@ -227,6 +322,9 @@ void bench_search(::benchmark::State& state,
     // algo is static to cache it between close search runs to save time on index loading
     static std::string index_file = "";
     if (index.file != index_file) {
+      log_info("bench_search cache reset: previous_file=%s new_file=%s",
+               index_file.c_str(),
+               index.file.c_str());
       current_algo.reset();
       index_file = index.file;
     }
@@ -235,26 +333,63 @@ void bench_search(::benchmark::State& state,
     algo<T>* a;
     try {
       if (!current_algo || (a = dynamic_cast<algo<T>*>(current_algo.get())) == nullptr) {
+        log_info("bench_search create algo start: algo=%s index=%s dim=%d",
+                 index.algo.c_str(),
+                 index.name.c_str(),
+                 dataset->dim());
         auto ualgo =
           create_algo<T>(index.algo, dataset->distance(), dataset->dim(), index.build_param);
         a = ualgo.get();
+        log_info(
+          "bench_search load algo start: algo=%s file=%s", index.algo.c_str(), index_file.c_str());
         a->load(index_file);
+        log_info(
+          "bench_search load algo finish: algo=%s file=%s", index.algo.c_str(), index_file.c_str());
         current_algo = std::move(ualgo);
+      } else {
+        log_info("bench_search using cached algo: algo=%s file=%s",
+                 index.algo.c_str(),
+                 index_file.c_str());
       }
+      log_info("bench_search create search_param start: algo=%s index=%s",
+               index.algo.c_str(),
+               index.name.c_str());
       search_param = create_search_param<T>(index.algo, sp_json);
+      log_info("bench_search create search_param finish: algo=%s index=%s",
+               index.algo.c_str(),
+               index.name.c_str());
     } catch (const std::exception& e) {
+      log_warn("bench_search load/create failed: algo=%s index=%s file=%s error=%s",
+               index.algo.c_str(),
+               index.name.c_str(),
+               index_file.c_str(),
+               e.what());
       state.SkipWithError("Failed to create an algo: " + std::string(e.what()));
       return;
     }
 
     current_algo_props =
       std::make_unique<algo_property>(std::move(parse_algo_property(a->get_preference(), sp_json)));
+    log_info("bench_search algo properties: algo=%s dataset_memory_type=%d query_memory_type=%d",
+             index.algo.c_str(),
+             static_cast<int>(current_algo_props->dataset_memory_type),
+             static_cast<int>(current_algo_props->query_memory_type));
 
     if (search_param->needs_dataset()) {
       try {
+        log_info("bench_search set_search_dataset start: algo=%s index=%s",
+                 index.algo.c_str(),
+                 index.name.c_str());
         a->set_search_dataset(dataset->base_set(current_algo_props->dataset_memory_type),
                               dataset->base_set_size());
+        log_info("bench_search set_search_dataset finish: algo=%s index=%s",
+                 index.algo.c_str(),
+                 index.name.c_str());
       } catch (const std::exception& ex) {
+        log_warn("bench_search set_search_dataset failed: algo=%s index=%s error=%s",
+                 index.algo.c_str(),
+                 index.name.c_str(),
+                 ex.what());
         state.SkipWithError("The algorithm '" + index.name +
                             "' requires the base set, but it's not available. " +
                             "Exception: " + std::string(ex.what()));
@@ -262,14 +397,28 @@ void bench_search(::benchmark::State& state,
       }
     }
     try {
+      log_info("bench_search set_search_param start: algo=%s index=%s",
+               index.algo.c_str(),
+               index.name.c_str());
       a->set_search_param(*search_param,
                           dataset->filter_bitset(current_algo_props->dataset_memory_type));
+      log_info("bench_search set_search_param finish: algo=%s index=%s",
+               index.algo.c_str(),
+               index.name.c_str());
     } catch (const std::exception& ex) {
+      log_warn("bench_search set_search_param failed: algo=%s index=%s error=%s",
+               index.algo.c_str(),
+               index.name.c_str(),
+               ex.what());
       state.SkipWithError("An error occurred setting search parameters: " + std::string(ex.what()));
       return;
     }
 
     query_set = dataset->query_set(current_algo_props->query_memory_type);
+    log_info("bench_search query_set acquired: algo=%s pointer=%p query_memory_type=%d",
+             index.algo.c_str(),
+             static_cast<const void*>(query_set),
+             static_cast<int>(current_algo_props->query_memory_type));
     load_barrier.arrive(state.threads());
   } else {
     // All other threads will wait for the first thread to initialize the algo.
@@ -293,6 +442,12 @@ void bench_search(::benchmark::State& state,
   auto* neighbors_ptr =
     reinterpret_cast<index_type*>(result_buf.data(current_algo_props->query_memory_type));
   auto* distances_ptr = reinterpret_cast<float*>(neighbors_ptr + result_elem_count);
+  if (state.thread_index() == 0) {
+    log_info("bench_search result buffer ready: algo=%s result_elem_count=%zu memory_type=%d",
+             index.algo.c_str(),
+             result_elem_count,
+             static_cast<int>(current_algo_props->query_memory_type));
+  }
 
   {
     nvtx_stats nvtx_stats{state};
@@ -300,8 +455,21 @@ void bench_search(::benchmark::State& state,
 
     std::unique_ptr<algo<T>> a{nullptr};
     try {
+      if (state.thread_index() == 0) {
+        log_info(
+          "bench_search algo copy start: algo=%s index=%s", index.algo.c_str(), index.name.c_str());
+      }
       dynamic_cast<algo<T>*>(current_algo.get())->copy().swap(a);
+      if (state.thread_index() == 0) {
+        log_info("bench_search algo copy finish: algo=%s index=%s",
+                 index.algo.c_str(),
+                 index.name.c_str());
+      }
     } catch (const std::exception& e) {
+      log_warn("bench_search algo copy failed: algo=%s index=%s error=%s",
+               index.algo.c_str(),
+               index.name.c_str(),
+               e.what());
       state.SkipWithError("Algo::copy: " + std::string(e.what()));
       return;
     }
@@ -321,6 +489,16 @@ void bench_search(::benchmark::State& state,
                     neighbors_ptr + out_offset * k,
                     distances_ptr + out_offset * k);
         } catch (const std::exception& e) {
+          log_warn(
+            "bench_search benchmark loop failed: algo=%s index=%s batch_offset=%td "
+            "out_offset=%td n_queries=%zu k=%u error=%s",
+            index.algo.c_str(),
+            index.name.c_str(),
+            batch_offset,
+            out_offset,
+            n_queries,
+            k,
+            e.what());
           state.SkipWithError("Benchmark loop: " + std::string(e.what()));
           break;
         }
@@ -347,11 +525,27 @@ void bench_search(::benchmark::State& state,
   // This will be the total number of queries across all threads
   state.counters.insert({{"total_queries", queries_processed}});
 
-  if (state.skipped()) { return; }
+  if (state.skipped()) {
+    if (state.thread_index() == 0) {
+      log_warn("bench_search skipped before recall: algo=%s index=%s queries_processed=%zu",
+               index.algo.c_str(),
+               index.name.c_str(),
+               queries_processed);
+    }
+    return;
+  }
 
   // Each thread calculates recall on their partition of queries.
   // evaluate recall
   if (dataset->max_k() >= k && dataset->gt_maps().has_value()) {
+    if (state.thread_index() == 0) {
+      log_info("bench_search recall start: algo=%s index=%s max_k=%u k=%u queries_processed=%zu",
+               index.algo.c_str(),
+               index.name.c_str(),
+               dataset->max_k(),
+               k,
+               queries_processed);
+    }
     // gt_maps[i] is a hash map of {id, neighbor_rank} for query i
     const auto& gt_maps = dataset->gt_maps();
     result_buf.transfer_data(MemoryType::kHost, current_algo_props->query_memory_type);
@@ -410,6 +604,16 @@ void bench_search(::benchmark::State& state,
       batch_offset = (batch_offset + queries_stride) % query_set_size;
     }
     double actual_recall = static_cast<double>(match_count) / static_cast<double>(total_count);
+    if (state.thread_index() == 0) {
+      log_info(
+        "bench_search recall finish: algo=%s index=%s match_count=%zu total_count=%zu "
+        "recall=%f",
+        index.algo.c_str(),
+        index.name.c_str(),
+        match_count,
+        total_count,
+        actual_recall);
+    }
     /* NOTE: recall in the throughput mode & filtering
 
     When filtering is enabled, `total_count` may vary between individual threads, but we still take

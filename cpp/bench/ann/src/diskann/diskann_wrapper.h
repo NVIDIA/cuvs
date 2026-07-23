@@ -16,13 +16,31 @@
 #include <pq_flash_index.h>
 #include <utils.h>
 
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
 #include <memory>
+#include <stdexcept>
+#include <string>
+#include <system_error>
 #include <vector>
 
 namespace cuvs::bench {
+
+inline bool diskann_memory_artifact_exists(const std::string& file)
+{
+  std::error_code ec;
+  return std::filesystem::exists(file, ec);
+}
+
+inline std::uintmax_t diskann_memory_artifact_size(const std::string& file)
+{
+  std::error_code ec;
+  auto size = std::filesystem::file_size(file, ec);
+  return ec ? 0 : size;
+}
 
 diskann::Metric parse_metric_to_diskann(cuvs::bench::Metric metric)
 {
@@ -80,9 +98,13 @@ class diskann_memory : public algo<T> {
  private:
   std::shared_ptr<diskann::IndexWriteParameters> diskann_index_write_params_{nullptr};
   uint32_t max_points_;
-  uint32_t build_pq_bytes_ = 0;
-  int num_threads_;
-  uint32_t L_search_;
+  uint32_t build_pq_bytes_            = 0;
+  uint32_t configured_build_pq_bytes_ = 0;
+  uint32_t graph_degree_              = 0;
+  uint32_t L_build_                   = 0;
+  float alpha_                        = 0.0f;
+  int num_threads_                    = 0;
+  uint32_t L_search_                  = 0;
   Mode bench_mode_;
   std::string index_path_prefix_;
   std::shared_ptr<diskann::Index<T>> mem_index_{nullptr};
@@ -94,6 +116,10 @@ diskann_memory<T>::diskann_memory(Metric metric, int dim, const build_param& par
   : algo<T>(metric, dim)
 {
   assert(this->dim_ > 0);
+  configured_build_pq_bytes_  = param.build_pq_bytes;
+  graph_degree_               = param.R;
+  L_build_                    = param.L_build;
+  alpha_                      = param.alpha;
   num_threads_                = param.num_threads;
   diskann_index_write_params_ = std::make_shared<diskann::IndexWriteParameters>(
     diskann::IndexWriteParametersBuilder(param.L_build, param.R)
@@ -124,8 +150,25 @@ void diskann_memory<T>::initialize_index_(size_t max_points)
 template <typename T>
 void diskann_memory<T>::build(const T* dataset, size_t nrow)
 {
+  log_info(
+    "diskann_memory build start: nrow=%zu dim=%d graph_degree=%u L_build=%u alpha=%f "
+    "configured_build_pq_bytes=%u build_pq_bytes=%u threads=%d",
+    nrow,
+    this->dim_,
+    static_cast<unsigned>(graph_degree_),
+    static_cast<unsigned>(L_build_),
+    static_cast<double>(alpha_),
+    static_cast<unsigned>(configured_build_pq_bytes_),
+    static_cast<unsigned>(build_pq_bytes_),
+    num_threads_);
   initialize_index_(nrow);
-  mem_index_->build(dataset, nrow, std::vector<uint32_t>());
+  try {
+    mem_index_->build(dataset, nrow, std::vector<uint32_t>());
+  } catch (const std::exception& e) {
+    log_warn("diskann_memory build failed: nrow=%zu dim=%d error=%s", nrow, this->dim_, e.what());
+    throw;
+  }
+  log_info("diskann_memory build finish: nrow=%zu dim=%d", nrow, this->dim_);
 }
 
 template <typename T>
@@ -134,25 +177,66 @@ void diskann_memory<T>::set_search_param(const search_param_base& param, const v
   if (filter_bitset != nullptr) { throw std::runtime_error("Filtering is not supported yet."); }
   auto sp   = dynamic_cast<const search_param&>(param);
   L_search_ = sp.L_search;
+  log_info("diskann_memory set_search_param: L_search=%u dim=%d",
+           static_cast<unsigned>(L_search_),
+           this->dim_);
 }
 
 template <typename T>
 void diskann_memory<T>::search(
   const T* queries, int batch_size, int k, algo_base::index_type* indices, float* distances) const
 {
+  static std::atomic<bool> search_logged{false};
+  bool expected = false;
+  if (search_logged.compare_exchange_strong(expected, true)) {
+    log_info(
+      "diskann_memory search first call: prefix=%s batch_size=%d k=%d L_search=%u dim=%d "
+      "mode=%s benchmark_threads=%d",
+      index_path_prefix_.c_str(),
+      batch_size,
+      k,
+      static_cast<unsigned>(L_search_),
+      this->dim_,
+      bench_mode_ == Mode::kThroughput ? "throughput" : "latency",
+      cuvs::bench::benchmark_n_threads);
+  }
+
   for (int i = 0; i < batch_size; i++) {
-    mem_index_->search(queries + i * this->dim_,
-                       static_cast<size_t>(k),
-                       L_search_,
-                       reinterpret_cast<uint64_t*>(indices + i * k),
-                       distances + i * k);
+    try {
+      mem_index_->search(queries + i * this->dim_,
+                         static_cast<size_t>(k),
+                         L_search_,
+                         reinterpret_cast<uint64_t*>(indices + i * k),
+                         distances + i * k);
+    } catch (const std::exception& e) {
+      log_warn(
+        "diskann_memory search failed: prefix=%s query_in_batch=%d batch_size=%d k=%d "
+        "L_search=%u error=%s",
+        index_path_prefix_.c_str(),
+        i,
+        batch_size,
+        k,
+        static_cast<unsigned>(L_search_),
+        e.what());
+      throw;
+    }
   }
 }
 
 template <typename T>
 void diskann_memory<T>::save(const std::string& index_file) const
 {
-  this->mem_index_->save(index_file.c_str());
+  log_info("diskann_memory save start: file=%s dim=%d", index_file.c_str(), this->dim_);
+  try {
+    this->mem_index_->save(index_file.c_str());
+  } catch (const std::exception& e) {
+    log_warn("diskann_memory save failed: file=%s error=%s", index_file.c_str(), e.what());
+    throw;
+  }
+  log_info("diskann_memory save finish: file=%s exists=%d bytes=%zu",
+           index_file.c_str(),
+           diskann_memory_artifact_exists(index_file) ? 1 : 0,
+           static_cast<size_t>(diskann_memory_artifact_size(index_file)));
 }
 
 template <typename T>
@@ -162,10 +246,45 @@ void diskann_memory<T>::load(const std::string& index_file)
 
   bench_mode_ = (cuvs::bench::benchmark_n_threads > 1) ? Mode::kThroughput : Mode::kLatency;
 
-  initialize_index_(0);
-
   int load_threads = (bench_mode_ == Mode::kThroughput) ? cuvs::bench::benchmark_n_threads : 1;
-  this->mem_index_->load(index_path_prefix_.c_str(), load_threads, 2000);
+  log_info(
+    "diskann_memory load enter: prefix=%s dim=%d benchmark_threads=%d load_threads=%d "
+    "mode=%s build_threads=%d",
+    index_path_prefix_.c_str(),
+    this->dim_,
+    cuvs::bench::benchmark_n_threads,
+    load_threads,
+    bench_mode_ == Mode::kThroughput ? "throughput" : "latency",
+    num_threads_);
+
+  try {
+    log_info("diskann_memory initialize_index start: prefix=%s max_points=0",
+             index_path_prefix_.c_str());
+    initialize_index_(0);
+    log_info("diskann_memory initialize_index finish: prefix=%s", index_path_prefix_.c_str());
+  } catch (const std::exception& e) {
+    log_warn("diskann_memory initialize_index failed: prefix=%s error=%s",
+             index_path_prefix_.c_str(),
+             e.what());
+    throw;
+  } catch (...) {
+    log_warn("diskann_memory initialize_index failed: prefix=%s unknown error",
+             index_path_prefix_.c_str());
+    throw;
+  }
+
+  log_info("diskann_memory load start: prefix=%s", index_path_prefix_.c_str());
+  try {
+    this->mem_index_->load(index_path_prefix_.c_str(), load_threads, 100);
+  } catch (const std::exception& e) {
+    log_warn(
+      "diskann_memory load failed: prefix=%s error=%s", index_path_prefix_.c_str(), e.what());
+    throw;
+  } catch (...) {
+    log_warn("diskann_memory load failed: prefix=%s unknown error", index_path_prefix_.c_str());
+    throw;
+  }
+  log_info("diskann_memory load finish: prefix=%s", index_path_prefix_.c_str());
 }
 
 template <typename T>
