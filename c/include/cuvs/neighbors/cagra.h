@@ -224,6 +224,19 @@ struct cuvsCagraIndexParams {
    * - Others: nullptr
    */
   void* graph_build_params;
+  /**
+   * Whether to add the dataset content to the index after building the graph.
+   *
+   *  - true (default): the index is filled with the dataset vectors and ready to search
+   *    after build, but requires enough memory to hold an aligned copy of the dataset.
+   *  - false: only the search graph is built. The user must call cuvsCagraUpdateDataset
+   *    to attach the dataset before searching. This avoids duplicating the dataset in
+   *    device memory during build, which is useful for memory-constrained scenarios.
+   *
+   * When compression is set, this parameter is ignored (compressed dataset is always
+   * added to the index).
+   */
+  bool attach_dataset_on_build;
 };
 
 typedef struct cuvsCagraIndexParams* cuvsCagraIndexParams_t;
@@ -618,6 +631,26 @@ CUVS_EXPORT cuvsError_t cuvsCagraBuild(cuvsResources_t res,
                            cuvsCagraIndexParams_t params,
                            DLManagedTensor* dataset,
                            cuvsCagraIndex_t index);
+
+/**
+ * @brief Update (attach) a dataset to an existing CAGRA index.
+ *
+ * This is intended for use after building an index with attach_dataset_on_build = false.
+ * If the dataset rows are already aligned on 16 bytes and reside on the device, only a
+ * reference is stored (zero-copy). Otherwise, an aligned copy is made.
+ *
+ * It is the caller's responsibility to ensure that the same dataset used for building
+ * is supplied here. The dataset must remain valid for the lifetime of the index when
+ * zero-copy is used.
+ *
+ * @param[in] res cuvsResources_t opaque C handle
+ * @param[in] dataset DLManagedTensor* dataset to attach
+ * @param[in] index cuvsCagraIndex_t the index to update
+ * @return cuvsError_t
+ */
+cuvsError_t cuvsCagraUpdateDataset(cuvsResources_t res,
+                                   DLManagedTensor* dataset,
+                                   cuvsCagraIndex_t index);
 
 /**
  * @}
