@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -211,40 +211,36 @@ __host__ __device__ bool operator>(const Node<SUMTYPE>& first, const Node<SUMTYP
   return first.distance > other.distance;
 }
 
+// each warp scans its own pq with laneId and stride 32 to find duplicates
 template <typename accT>
-__device__ bool check_duplicate(const Node<accT>* pq, const int size, Node<accT> new_node)
+__device__ bool check_duplicate_warp(const Node<accT>* pq,
+                                     const int size,
+                                     Node<accT> new_node,
+                                     int laneId)
 {
   bool found = false;
-  for (int i = threadIdx.x; i < size; i += blockDim.x) {
+  for (int i = laneId; i < size; i += 32) {
     if (pq[i].nodeid == new_node.nodeid) {
       found = true;
       break;
     }
   }
-
   unsigned mask = raft::ballot(found);
-
-  if (mask == 0)
-    return false;
-
-  else
-    return true;
+  return (mask != 0);
 }
 
-/*
-  Enqueuing a input value into parallel queue with tracker
-*/
+// Warp-level version: no __syncthreads, uses laneId for single-thread ops and warp shuffle
 template <typename SUMTYPE>
-__inline__ __device__ void parallel_pq_max_enqueue(Node<SUMTYPE>* pq,
-                                                   int* size,
-                                                   const int pq_size,
-                                                   Node<SUMTYPE> input_data,
-                                                   SUMTYPE* cur_max_val,
-                                                   int* max_idx)
+__inline__ __device__ void parallel_pq_max_enqueue_warp(Node<SUMTYPE>* pq,
+                                                        int* size,
+                                                        const int pq_size,
+                                                        Node<SUMTYPE> input_data,
+                                                        SUMTYPE* cur_max_val,
+                                                        int* max_idx,
+                                                        int laneId)
 {
   if (*size < pq_size) {
-    __syncthreads();
-    if (threadIdx.x == 0) {
+    if (laneId == 0) {
       pq[*size].distance = input_data.distance;
       pq[*size].nodeid   = input_data.nodeid;
       *size              = *size + 1;
@@ -253,21 +249,17 @@ __inline__ __device__ void parallel_pq_max_enqueue(Node<SUMTYPE>* pq,
         *max_idx     = *size - 1;
       }
     }
-    __syncthreads();
     return;
   } else {
-    if (input_data.distance >= (*cur_max_val)) {
-      __syncthreads();
-      return;
-    }
-    if (threadIdx.x == 0) {
+    if (input_data.distance >= (*cur_max_val)) { return; }
+    if (laneId == 0) {
       pq[*max_idx].distance = input_data.distance;
       pq[*max_idx].nodeid   = input_data.nodeid;
     }
     int idx         = 0;
     SUMTYPE max_val = pq[0].distance;
 
-    for (int i = threadIdx.x; i < pq_size; i += 32) {
+    for (int i = laneId; i < pq_size; i += 32) {
       if (pq[i].distance > max_val) {
         max_val = pq[i].distance;
         idx     = i;
@@ -283,34 +275,72 @@ __inline__ __device__ void parallel_pq_max_enqueue(Node<SUMTYPE>* pq,
       }
     }
 
-    if (threadIdx.x == 31) {
+    if (laneId == 31) {
       *max_idx     = idx;
       *cur_max_val = max_val;
     }
   }
-  __syncthreads();
 }
 
-/*
-  Compute the distances between the source vector and all nodes in the neighbor_array and enqueue
-  them in the PQ
-*/
-template <typename T, typename accT, typename IdxT>
-__forceinline__ __device__ void enqueue_all_neighbors(int num_neighbors,
-                                                      Point<T, accT>* query_vec,
-                                                      const T* vec_ptr,
-                                                      int* neighbor_array,
-                                                      PriorityQueue<IdxT, accT>& heap_queue,
-                                                      int dim,
-                                                      cuvs::distance::DistanceType metric)
+// Warp-level version: lane 0 does insert_back, no __syncthreads
+template <typename QueryT, typename DataT, typename accT, typename IdxT>
+__forceinline__ __device__ void enqueue_all_neighbors_warp(int num_neighbors,
+                                                           Point<QueryT, accT>* query_vec,
+                                                           const DataT* vec_ptr,
+                                                           IdxT* neighbor_array,
+                                                           PriorityQueue<IdxT, accT>& heap_queue,
+                                                           int dim,
+                                                           cuvs::distance::DistanceType metric,
+                                                           int laneId)
 {
   for (int i = 0; i < num_neighbors; i++) {
-    accT dist_out = dist<T, accT>(
-      query_vec->coords, &vec_ptr[(size_t)(neighbor_array[i]) * (size_t)(dim)], dim, metric);
+    const DataT* neighbor_vec = &vec_ptr[(size_t)(neighbor_array[i]) * (size_t)(dim)];
+    accT dist_out;
+    if constexpr (std::is_same_v<QueryT, __half>) {
+      dist_out =
+        dist_warp_half_query<accT, DataT>(query_vec->coords, neighbor_vec, dim, metric, laneId);
+    } else if constexpr (std::is_same_v<QueryT, float> && is_cuda_fp16_v<DataT>) {
+      dist_out = dist_warp<accT>(query_vec->coords, neighbor_vec, dim, metric, laneId);
+    } else {
+      static_assert(std::is_same_v<QueryT, DataT>);
+      dist_out = dist_warp<QueryT, accT>(query_vec->coords, neighbor_vec, dim, metric, laneId);
+    }
+    if (laneId == 0) { heap_queue.insert_back(dist_out, neighbor_array[i]); }
+  }
+}
 
-    __syncthreads();
-    if (threadIdx.x == 0) { heap_queue.insert_back(dist_out, neighbor_array[i]); }
-    __syncthreads();
+// Half-precision version with two code paths based on query being fp16 or fp32
+template <typename T, typename accT, typename IdxT>
+__forceinline__ __device__ void enqueue_all_neighbors_warp(
+  int num_neighbors,
+  bool fp16_query_smem,
+  __half* s_coords_half,
+  typename greedy_search_query_coord<T>::type* s_coords,
+  const T* vec_ptr,
+  IdxT* neighbor_array,
+  PriorityQueue<IdxT, accT>& heap_queue,
+  int dim,
+  cuvs::distance::DistanceType metric,
+  int laneId)
+{
+  if (fp16_query_smem) {
+    Point<__half, accT> query_vec;
+    query_vec.coords = s_coords_half;
+    query_vec.Dim    = dim;
+    enqueue_all_neighbors_warp<__half, T, accT, IdxT>(
+      num_neighbors, &query_vec, vec_ptr, neighbor_array, heap_queue, dim, metric, laneId);
+  } else if constexpr (is_cuda_fp16_v<T>) {
+    Point<float, accT> query_vec;
+    query_vec.coords = reinterpret_cast<float*>(s_coords);
+    query_vec.Dim    = dim;
+    enqueue_all_neighbors_warp<float, T, accT, IdxT>(
+      num_neighbors, &query_vec, vec_ptr, neighbor_array, heap_queue, dim, metric, laneId);
+  } else {
+    Point<T, accT> query_vec;
+    query_vec.coords = reinterpret_cast<T*>(s_coords);
+    query_vec.Dim    = dim;
+    enqueue_all_neighbors_warp<T, T, accT, IdxT>(
+      num_neighbors, &query_vec, vec_ptr, neighbor_array, heap_queue, dim, metric, laneId);
   }
 }
 

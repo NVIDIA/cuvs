@@ -1,9 +1,10 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #include <cstdint>
+#include <cuda_fp16.h>
 #include <dlpack/dlpack.h>
 
 #include <raft/core/error.hpp>
@@ -82,6 +83,8 @@ extern "C" cuvsError_t cuvsVamanaIndexDestroy(cuvsVamanaIndex_t index_c_ptr)
     if (index.addr != 0) {
       if (index.dtype.code == kDLFloat && index.dtype.bits == 32) {
         delete reinterpret_cast<cuvs::neighbors::vamana::index<float, uint32_t>*>(index.addr);
+      } else if (index.dtype.code == kDLFloat && index.dtype.bits == 16) {
+        delete reinterpret_cast<cuvs::neighbors::vamana::index<half, uint32_t>*>(index.addr);
       } else if (index.dtype.code == kDLInt && index.dtype.bits == 8) {
         delete reinterpret_cast<cuvs::neighbors::vamana::index<int8_t, uint32_t>*>(index.addr);
       } else if (index.dtype.code == kDLUInt && index.dtype.bits == 8) {
@@ -99,6 +102,10 @@ extern "C" cuvsError_t cuvsVamanaIndexGetDims(cuvsVamanaIndex_t index, int* dim)
     if (index->dtype.code == kDLFloat && index->dtype.bits == 32) {
       auto index_ptr =
         reinterpret_cast<cuvs::neighbors::vamana::index<float, uint32_t>*>(index->addr);
+      *dim = index_ptr->dim();
+    } else if (index->dtype.code == kDLFloat && index->dtype.bits == 16) {
+      auto index_ptr =
+        reinterpret_cast<cuvs::neighbors::vamana::index<half, uint32_t>*>(index->addr);
       *dim = index_ptr->dim();
     } else if (index->dtype.code == kDLInt && index->dtype.bits == 8) {
       auto index_ptr =
@@ -123,6 +130,8 @@ extern "C" cuvsError_t cuvsVamanaBuild(cuvsResources_t res,
 
     if (dataset.dtype.code == kDLFloat && dataset.dtype.bits == 32) {
       index->addr = reinterpret_cast<uintptr_t>(_build<float>(res, params, dataset_tensor));
+    } else if (dataset.dtype.code == kDLFloat && dataset.dtype.bits == 16) {
+      index->addr = reinterpret_cast<uintptr_t>(_build<half>(res, params, dataset_tensor));
     } else if (dataset.dtype.code == kDLInt && dataset.dtype.bits == 8) {
       index->addr = reinterpret_cast<uintptr_t>(_build<int8_t>(res, params, dataset_tensor));
     } else if (dataset.dtype.code == kDLUInt && dataset.dtype.bits == 8) {
@@ -143,6 +152,8 @@ extern "C" cuvsError_t cuvsVamanaSerialize(cuvsResources_t res,
   return cuvs::core::translate_exceptions([=] {
     if (index->dtype.code == kDLFloat && index->dtype.bits == 32) {
       _serialize<float>(res, filename, index, include_dataset);
+    } else if (index->dtype.code == kDLFloat && index->dtype.bits == 16) {
+      _serialize<half>(res, filename, index, include_dataset);
     } else if (index->dtype.code == kDLInt && index->dtype.bits == 8) {
       _serialize<int8_t>(res, filename, index, include_dataset);
     } else if (index->dtype.code == kDLUInt && index->dtype.bits == 8) {

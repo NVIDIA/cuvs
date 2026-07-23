@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -254,6 +254,13 @@ class AnnVamanaTest : public ::testing::TestWithParam<AnnVamanaInputs> {
     if constexpr (std::is_same<DataT, float>{}) {
       raft::random::normal(handle_, r, database.data(), ps.n_rows * ps.dim, DataT(0.1), DataT(2.0));
       raft::random::normal(
+        handle_, r, search_queries.data(), ps.n_queries * ps.dim, DataT(0.1), DataT(2.0));
+    } else if constexpr (std::is_same_v<DataT, half>) {
+      // raft::random::normal requires std::is_floating_point (excludes half); use uniform,
+      // which supports half. uniformInt (the integer branch below) rejects half.
+      raft::random::uniform(
+        handle_, r, database.data(), ps.n_rows * ps.dim, DataT(0.1), DataT(2.0));
+      raft::random::uniform(
         handle_, r, search_queries.data(), ps.n_queries * ps.dim, DataT(0.1), DataT(2.0));
     } else {
       raft::random::uniformInt(

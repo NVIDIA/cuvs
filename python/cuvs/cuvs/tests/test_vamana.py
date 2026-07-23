@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 import numpy as np
@@ -12,6 +12,8 @@ def _gen_data(shape, dtype):
     rng = np.random.default_rng(12345)
     if dtype == np.float32:
         return rng.random(shape, dtype=np.float32)
+    if dtype == np.float16:
+        return rng.random(shape, dtype=np.float32).astype(np.float16)
     if dtype == np.int8:
         # keep small magnitude to avoid overflow if used elsewhere
         return rng.integers(low=-10, high=10, size=shape, dtype=np.int8)
@@ -20,7 +22,7 @@ def _gen_data(shape, dtype):
     raise AssertionError("unexpected dtype in test helper")
 
 
-@pytest.mark.parametrize("dtype", [np.float32, np.int8, np.uint8])
+@pytest.mark.parametrize("dtype", [np.float32, np.float16, np.int8, np.uint8])
 def test_vamana_build_basic(dtype):
     n_rows, n_cols = 1000, 16
     data = _gen_data((n_rows, n_cols), dtype)
@@ -36,7 +38,7 @@ def test_vamana_build_basic(dtype):
     assert "Index(type=Vamana" in repr(idx)
 
 
-@pytest.mark.parametrize("dtype", [np.float32, np.int8, np.uint8])
+@pytest.mark.parametrize("dtype", [np.float32, np.float16, np.int8, np.uint8])
 @pytest.mark.skip(
     reason="Skipping host build test because of CUDA error "
     "in C++ API. Reference issue: "
@@ -69,9 +71,9 @@ def test_vamana_serialize(tmp_path, include_dataset):
 
 
 def test_vamana_build_rejects_unsupported_dtype():
-    # float16 is not in the accepted list in the build wrapper; expect failure
+    # e.g. float64 is not supported for Vamana build
     n_rows, n_cols = 64, 8
-    data = _gen_data((n_rows, n_cols), np.float32).astype(np.float16)
+    data = np.random.default_rng(1).random((n_rows, n_cols), dtype=np.float64)
     from pylibraft.common import device_ndarray
 
     data_dev = device_ndarray(data)
