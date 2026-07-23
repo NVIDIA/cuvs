@@ -214,6 +214,14 @@ files:
       table: project
     includes:
       - bench_python
+  py_elastic_cuvs_bench:
+    output: pyproject
+    pyproject_dir: python/cuvs_bench
+    extras:
+      table: project.optional-dependencies
+      key: elastic
+    includes:
+      - bench_elastic
   py_opensearch_cuvs_bench:
     output: pyproject
     pyproject_dir: python/cuvs_bench
@@ -619,6 +627,11 @@ dependencies:
       - output_types: [requirements, pyproject]
         packages:
           - matplotlib>=3.9
+  bench_elastic:
+    common:
+      - output_types: [conda, pyproject, requirements]
+        packages:
+          - elasticsearch>=8.0
   bench_python_opensearch:
     common:
       - output_types: [conda, pyproject]

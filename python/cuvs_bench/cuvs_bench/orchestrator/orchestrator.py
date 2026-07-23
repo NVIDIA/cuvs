@@ -24,6 +24,11 @@ from ..backends._utils import compute_recall
 from .config_loaders import DatasetConfig
 
 
+def _should_compute_recall(result: SearchResult) -> bool:
+    """Return True when orchestrator should derive recall from neighbors."""
+    return result.success and result.neighbors.size > 0
+
+
 class BenchmarkOrchestrator:
     """
     Orchestrator for running benchmarks using the pluggable backend system.
@@ -260,13 +265,7 @@ class BenchmarkOrchestrator:
                     # Compute recall for backends that return actual neighbors.
                     # The C++ backend computes recall in the subprocess and returns
                     # empty neighbors, so this is skipped for it.
-                    # Empty neighbors or nonzero recall indicate that the backend
-                    # already handled recall itself.
-                    if (
-                        search_result.success
-                        and search_result.neighbors.size > 0
-                        and search_result.recall == 0.0
-                    ):
+                    if _should_compute_recall(search_result):
                         gt = bench_dataset.groundtruth_neighbors
                         if gt is not None:
                             search_result.recall = compute_recall(
@@ -572,10 +571,9 @@ class BenchmarkOrchestrator:
             "append_results": append_results,
         }
         backend = self.backend_class(backend_config)
+        result = None
         try:
             backend.initialize()
-
-            result = None
 
             if build:
                 result = backend.build(
@@ -600,13 +598,7 @@ class BenchmarkOrchestrator:
                 )
 
                 # Compute recall for backends that return actual neighbors.
-                # Empty neighbors or nonzero recall indicate that the backend
-                # already handled recall itself.
-                if (
-                    result.success
-                    and result.neighbors.size > 0
-                    and result.recall == 0.0
-                ):
+                if _should_compute_recall(result):
                     gt = bench_dataset.groundtruth_neighbors
                     if gt is not None:
                         result.recall = compute_recall(

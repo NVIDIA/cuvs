@@ -1,0 +1,52 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Elasticsearch GPU HNSW: index_options (build) and knn (search)
+# Per ES-GPU-API-REFERENCE.md and DOCKER-INSPECT-FINDINGS.md
+#
+# Build (index_options): type, m, ef_construction
+#   type: hnsw (float), int8_hnsw (4x quantized), int4_hnsw (8x), bbq_hnsw (32x)
+#   similarity: l2_norm, cosine, max_inner_product (overrides dataset distance)
+# Index settings: number_of_shards, number_of_replicas, use_gpu, vector_field
+# Search (knn): num_candidates, vector_field
+name: elastic_hnsw
+groups:
+  base:
+    build:
+      type: [hnsw]
+      m: [16, 32]
+      ef_construction: [100, 200]
+      similarity: [l2_norm, cosine]
+      number_of_shards: [1]
+      number_of_replicas: [0]
+
+      vector_field: [embedding]
+    search:
+      num_candidates: [100, 200]
+      vector_field: [embedding]
+  quantized:
+    build:
+      type: [hnsw, int8_hnsw]
+      m: [16, 32]
+      ef_construction: [100]
+      similarity: [l2_norm]
+      number_of_shards: [1]
+      number_of_replicas: [0]
+
+      vector_field: [embedding]
+    search:
+      num_candidates: [100, 200]
+      vector_field: [embedding]
+  test:
+    build:
+      type: [hnsw]
+      m: [16]
+      ef_construction: [100]
+      similarity: [l2_norm]
+      number_of_shards: [1]
+      number_of_replicas: [0]
+
+      vector_field: [embedding]
+    search:
+      num_candidates: [100]
+      vector_field: [embedding]

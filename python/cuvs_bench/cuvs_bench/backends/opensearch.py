@@ -559,8 +559,8 @@ class OpenSearchBackend(BenchmarkBackend):
         search_params: Optional[List[Dict[str, Any]]] = None,
     ) -> SearchResult:
         return SearchResult(
-            neighbors=np.zeros((0, k), dtype=np.int64),
-            distances=np.zeros((0, k), dtype=np.float32),
+            neighbors=np.empty((0, k), dtype=np.int64),
+            distances=np.empty((0, k), dtype=np.float32),
             search_time_ms=0.0,
             queries_per_second=0.0,
             recall=0.0,
@@ -871,8 +871,8 @@ class OpenSearchBackend(BenchmarkBackend):
             )
 
             return SearchResult(
-                neighbors=np.zeros((0, k), dtype=np.int64),
-                distances=np.zeros((0, k), dtype=np.float32),
+                neighbors=np.empty((0, k), dtype=np.int64),
+                distances=np.empty((0, k), dtype=np.float32),
                 search_time_ms=0.0,
                 queries_per_second=0.0,
                 recall=0.0,
