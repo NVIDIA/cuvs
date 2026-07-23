@@ -294,7 +294,6 @@ dependencies:
         packages:
           - clang==20.1.8
           - clang-tools==20.1.8
-          - libclang==20.1.8
   # 'cuda_version' intentionally does not contain fallback entries... we want
   # a loud error if an unsupported 'cuda' value is passed
   cuda_version:
