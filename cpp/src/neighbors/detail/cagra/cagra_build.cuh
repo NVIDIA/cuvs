@@ -70,6 +70,17 @@ void check_graph_degree(size_t& intermediate_degree, size_t& graph_degree, size_
       intermediate_degree);
     graph_degree = intermediate_degree;
   }
+
+  const size_t recommended_intermediate = recommended_intermediate_graph_degree(graph_degree);
+  if (intermediate_degree < recommended_intermediate) {
+    RAFT_LOG_WARN(
+      "CAGRA: intermediate_graph_degree (%lu) is below the recommended minimum (%lu, i.e. "
+      "1.5 * graph_degree). Pruning to graph_degree (%lu) may result in a disconnected graph"
+      " if the intermediate graph does not retain enough neighborhood information.",
+      intermediate_degree,
+      recommended_intermediate,
+      graph_degree);
+  }
 }
 
 // ACE: Get partition labels for partitioned approach

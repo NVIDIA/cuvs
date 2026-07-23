@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -1676,11 +1676,19 @@ void prune_graph_gpu(
   raft::copy(res, host_stats.view(), raft::make_const_mdspan(dev_stats.view()));
   raft::resource::sync_stream(res);
 
+  const size_t recommended_intermediate =
+    recommended_intermediate_graph_degree(output_graph_degree);
   RAFT_EXPECTS(
     invalid_neighbor_list == 0,
-    "Could not generate an intermediate CAGRA graph because the initial kNN graph contains too "
-    "many invalid or duplicated neighbor nodes. This error can occur, for example, if too many "
-    "overflows occur during the norm computation between the dataset vectors.");
+    "CAGRA graph pruning failed: could not select graph_degree (%lu) distinct neighbors for "
+    "every node from the intermediate kNN graph (intermediate_graph_degree=%lu). This usually "
+    "means the intermediate graph does not encode enough neighborhood information for pruning — "
+    "for example when intermediate_graph_degree is too close to graph_degree. Set "
+    "intermediate_graph_degree >= %lu (1.5 * graph_degree). "
+    "Other causes include invalid or duplicate neighbor indices in the intermediate kNN graph.",
+    output_graph_degree,
+    knn_graph_degree,
+    recommended_intermediate);
 
   num_keep = host_stats.data_handle()[0];
   num_full = host_stats.data_handle()[1];
