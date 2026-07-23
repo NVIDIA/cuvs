@@ -8,7 +8,7 @@ IVF-Flat works well when the index fits in GPU memory, exact recall is not requi
 
 ## Example API Usage
 
-[C API](/api-reference/c-api-neighbors-ivf-flat) | [C++ API](/api-reference/cpp-api-neighbors-ivf-flat) | [Python API](/api-reference/python-api-neighbors-ivf-flat) | [Rust API](/api-reference/rust-api-cuvs-ivf-flat) | [Go API](/api-reference/go-api-ivf-flat)
+[C API](/api-reference/c-api-neighbors-ivf-flat) | [C++ API](/api-reference/cpp-api-neighbors-ivf-flat) | [Python API](/api-reference/python-api-neighbors-ivf-flat) | [Rust API](/api-reference/rust-api-cuvs-neighbors-ivf-flat) | [Go API](/api-reference/go-api-ivf-flat)
 
 ### Building an index
 

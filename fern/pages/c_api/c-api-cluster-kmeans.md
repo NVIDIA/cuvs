@@ -47,7 +47,7 @@ struct cuvsKMeansParams {
   bool inertia_check;
   bool hierarchical;
   int hierarchical_n_iters;
-  int64_t streaming_batch_size;
+  int64_t device_buffer_samples;
   int64_t init_size;
   cuvsDistanceType metric;
 };
@@ -68,7 +68,7 @@ struct cuvsKMeansParams {
 | `inertia_check` | `bool` | Deprecated, ignored. Kept for ABI compatibility. |
 | `hierarchical` | `bool` | Whether to use hierarchical (balanced) kmeans or not |
 | `hierarchical_n_iters` | `int` | For hierarchical k-means , defines the number of training iterations |
-| `streaming_batch_size` | `int64_t` | Number of samples to process per GPU batch for the batched (host-data) API. When set to 0, defaults to n_samples (process all at once). |
+| `device_buffer_samples` | `int64_t` | Number of samples to process per GPU batch for the batched (host-data) API. When set to 0, defaults to n_samples (process all at once). |
 | `init_size` | `int64_t` | Number of samples to draw for KMeansPlusPlus initialization. When set to 0, uses heuristic min(3 * n_clusters, n_samples) for host data, or n_samples for device data. |
 | `metric` | [`cuvsDistanceType`](/api-reference/c-api-distance-distance#cuvsdistancetype) |  |
 
@@ -89,7 +89,7 @@ struct cuvsKMeansParams_v2 {
   int batch_centroids;
   bool hierarchical;
   int hierarchical_n_iters;
-  int64_t streaming_batch_size;
+  int64_t device_buffer_samples;
   int64_t init_size;
   cuvsDistanceType metric;
 };
@@ -109,7 +109,7 @@ struct cuvsKMeansParams_v2 {
 | `batch_centroids` | `int` | if 0 then batch_centroids = n_clusters |
 | `hierarchical` | `bool` | Whether to use hierarchical (balanced) kmeans or not |
 | `hierarchical_n_iters` | `int` | For hierarchical k-means , defines the number of training iterations |
-| `streaming_batch_size` | `int64_t` | Number of samples to process per GPU batch for the batched (host-data) API. When set to 0, defaults to n_samples (process all at once). |
+| `device_buffer_samples` | `int64_t` | Number of samples to process per GPU batch for the batched (host-data) API. When set to 0, defaults to n_samples (process all at once). |
 | `init_size` | `int64_t` | Number of samples to draw for KMeansPlusPlus initialization. When set to 0, uses heuristic min(3 * n_clusters, n_samples) for host data, or n_samples for device data. |
 | `metric` | [`cuvsDistanceType`](/api-reference/c-api-distance-distance#cuvsdistancetype) |  |
 
@@ -233,7 +233,7 @@ int* n_iter);
 
 Initial centroids are chosen with k-means++ algorithm. Empty clusters are reinitialized by choosing new centroids with k-means++ algorithm.
 
-X may reside on either host (CPU) or device (GPU) memory. When X is on the host the data is streamed to the GPU in batches controlled by params-&gt;streaming_batch_size.
+X may reside on either host (CPU) or device (GPU) memory. When X is on the host the data is streamed to the GPU in batches controlled by params-&gt;device_buffer_samples.
 
 **Note:** In cuVS 26.08 (next ABI major version) this signature will be<br />replaced by cuvsKMeansFit_v2.
 
