@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -551,6 +551,7 @@ __device__ void search_single_cta_p_impl(
   const std::uint32_t small_hash_reset_interval,
   const std::uint32_t query_id_offset,  // Offset to add to query_id when calling filter
   const dataset_descriptor_base_t<DataT, IndexT, DistanceT>* dataset_desc,
+  const IndexT graph_size,
   cagra_sample_filter<SourceIndexT> filter_payload)
 {
   using job_desc_type = job_desc_t<job_desc_traits<DataT, IndexT, DistanceT>>;
@@ -625,7 +626,8 @@ __device__ void search_single_cta_p_impl(
                               query_id,
                               query_id_offset,
                               dataset_desc,
-                              filter_payload);
+                              filter_payload,
+                              graph_size);
 
     // make sure all writes are visible even for the host
     //     (e.g. when result buffers are in pinned memory)
