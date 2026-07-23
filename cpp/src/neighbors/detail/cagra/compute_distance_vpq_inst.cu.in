@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -13,6 +13,7 @@ constexpr uint32_t team_size = @team_size@;
 constexpr uint32_t dim       = @dim@;
 constexpr uint32_t pq_bits   = @pq_bits@;
 constexpr uint32_t pq_len    = @pq_len@;
+constexpr auto smem_dtype    = @smem_dtype@;
 using codebook_t             = @codebook_type@;
 using data_t                 = @data_type@;
 using index_t                = @index_type@;
@@ -30,6 +31,7 @@ template struct vpq_descriptor_spec<metric,
                                     codebook_t,
                                     data_t,
                                     index_t,
-                                    distance_t>;
+                                    distance_t,
+                                    smem_dtype>;
 
 }  // namespace cuvs::neighbors::cagra::detail

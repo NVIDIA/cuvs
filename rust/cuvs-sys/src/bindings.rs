@@ -188,6 +188,15 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
+    #[doc = " @brief Create an opaque C handle for C++ type `raft::resources` whose memory\n        allocations are tracked and written as CSV samples from a background\n        thread.\n\n The returned handle wraps all reachable memory resources (host, pinned,\n managed, device, workspace, large_workspace) with allocation-tracking\n adaptors and replaces the global host and device memory resources for the\n lifetime of the handle. It is otherwise indistinguishable from a handle\n created by ::cuvsResourcesCreate and can be used wherever a\n ::cuvsResources_t is accepted. The CSV reporter is stopped and the global\n memory resources are restored when the handle is destroyed via\n ::cuvsResourcesDestroy.\n\n @param[out] res                 cuvsResources_t opaque C handle\n @param[in]  csv_path            Path to the output CSV file\n                                 (created/truncated). Must be a non-empty,\n                                 null-terminated UTF-8 string.\n @param[in]  sample_interval_ms  Minimum time in milliseconds between\n                                 successive CSV samples. Pass 10 to match the\n                                 C++ default.\n @return cuvsError_t"]
+    pub fn cuvsResourcesCreateWithMemoryTracking(
+        res: *mut cuvsResources_t,
+        csv_path: *const ::std::os::raw::c_char,
+        sample_interval_ms: i64,
+    ) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
     #[doc = " @brief Destroy and de-allocate opaque C handle for C++ type `raft::resources`\n\n @param[in] res cuvsResources_t opaque C handle\n @return cuvsError_t"]
     pub fn cuvsResourcesDestroy(res: cuvsResources_t) -> cuvsError_t;
 }
@@ -396,10 +405,12 @@ pub struct cuvsKMeansParams {
     pub hierarchical_n_iters: ::std::os::raw::c_int,
     #[doc = " Number of samples to process per GPU batch for the batched (host-data) API.\n When set to 0, defaults to n_samples (process all at once)."]
     pub streaming_batch_size: i64,
+    #[doc = " Number of samples to draw for KMeansPlusPlus initialization.\n When set to 0, uses heuristic min(3 * n_clusters, n_samples) for host data,\n or n_samples for device data."]
+    pub init_size: i64,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of cuvsKMeansParams"][::std::mem::size_of::<cuvsKMeansParams>() - 64usize];
+    ["Size of cuvsKMeansParams"][::std::mem::size_of::<cuvsKMeansParams>() - 72usize];
     ["Alignment of cuvsKMeansParams"][::std::mem::align_of::<cuvsKMeansParams>() - 8usize];
     ["Offset of field: cuvsKMeansParams::metric"]
         [::std::mem::offset_of!(cuvsKMeansParams, metric) - 0usize];
@@ -427,6 +438,8 @@ const _: () = {
         [::std::mem::offset_of!(cuvsKMeansParams, hierarchical_n_iters) - 52usize];
     ["Offset of field: cuvsKMeansParams::streaming_batch_size"]
         [::std::mem::offset_of!(cuvsKMeansParams, streaming_batch_size) - 56usize];
+    ["Offset of field: cuvsKMeansParams::init_size"]
+        [::std::mem::offset_of!(cuvsKMeansParams, init_size) - 64usize];
 };
 pub type cuvsKMeansParams_t = *mut cuvsKMeansParams;
 unsafe extern "C" {

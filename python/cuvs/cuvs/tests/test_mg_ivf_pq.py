@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -15,15 +15,67 @@ from cuvs.neighbors.mg import ivf_pq as mg_ivf_pq
 from cuvs.tests.ann_utils import calc_recall, generate_data
 
 
-# Check if multi-GPU functionality is available
-def has_multiple_gpus():
-    """Check if system has multiple GPUs available."""
+MIN_IVF_PQ_LISTS = 20
+MIN_ROWS_PER_SHARDED_LIST = 10
+
+
+def get_gpu_count():
+    """Return the number of visible CUDA devices."""
     try:
         import cupy as cp
 
-        return cp.cuda.runtime.getDeviceCount() > 1
+        return cp.cuda.runtime.getDeviceCount()
     except Exception:
-        return False
+        return 0
+
+
+# Check if multi-GPU functionality is available
+def has_multiple_gpus():
+    """Check if system has multiple GPUs available."""
+    return get_gpu_count() > 1
+
+
+def _n_rows_for_distribution(n_rows, n_lists, distribution_mode):
+    """Keep sharded IVF indexes large enough as GPU count increases."""
+    if distribution_mode != "sharded":
+        return n_rows
+
+    min_rows = max(1, get_gpu_count()) * n_lists * MIN_ROWS_PER_SHARDED_LIST
+    return max(n_rows, min_rows)
+
+
+def _default_n_probes(n_lists, compare):
+    if compare:
+        return n_lists
+
+    return min(n_lists, max(20, (n_lists * 3) // 4))
+
+
+def _sharded_append_indices(n_existing_rows, n_new_rows):
+    """Create local IDs for appending to each shard of a sharded index."""
+    n_gpus = max(1, get_gpu_count())
+    existing_rows_per_shard = (n_existing_rows + n_gpus - 1) // n_gpus
+    new_rows_per_shard = (n_new_rows + n_gpus - 1) // n_gpus
+    indices = np.empty(n_new_rows, dtype=np.int64)
+
+    for rank in range(n_gpus):
+        new_offset = rank * new_rows_per_shard
+        n_rank_new_rows = min(new_rows_per_shard, n_new_rows - new_offset)
+        if n_rank_new_rows <= 0:
+            continue
+
+        existing_offset = rank * existing_rows_per_shard
+        n_rank_existing_rows = max(
+            0,
+            min(existing_rows_per_shard, n_existing_rows - existing_offset),
+        )
+        indices[new_offset : new_offset + n_rank_new_rows] = np.arange(
+            n_rank_existing_rows,
+            n_rank_existing_rows + n_rank_new_rows,
+            dtype=np.int64,
+        )
+
+    return indices
 
 
 # Mark tests that require multiple GPUs
@@ -57,6 +109,15 @@ def run_mg_ivf_pq_build_search_test(
     Note: Multi-GPU IVF-PQ requires host memory arrays (NumPy), not device
     arrays.
     """
+    # Build parameters - use fewer clusters for better recall with smaller
+    # datasets.
+    if n_lists is None:
+        # Keep helper-driven smoke tests cheap while avoiding very sparse
+        # sharded IVF lists.
+        n_lists = min(1024, max(MIN_IVF_PQ_LISTS, n_rows // 50))
+
+    n_rows = _n_rows_for_distribution(n_rows, n_lists, distribution_mode)
+
     # Generate host memory arrays (NumPy)
     dataset = generate_data((n_rows, n_cols), dtype)
     if metric == "inner_product":
@@ -68,13 +129,6 @@ def run_mg_ivf_pq_build_search_test(
 
     # Multi-GPU resources
     resources = MultiGpuResources()
-
-    # Build parameters - use fewer clusters for better recall with smaller
-    # datasets
-    if n_lists is None:
-        # Use fewer clusters for smaller datasets to ensure enough points per
-        # cluster
-        n_lists = min(1024, max(64, n_rows // 50))
 
     build_params = mg_ivf_pq.IndexParams(
         metric=metric,
@@ -92,21 +146,12 @@ def run_mg_ivf_pq_build_search_test(
 
     # If not adding data on build, extend the index
     if not add_data_on_build:
-        dataset_1 = dataset[: n_rows // 2, :]
-        dataset_2 = dataset[n_rows // 2 :, :]
-        indices_1 = np.arange(n_rows // 2, dtype=np.int64)
-        indices_2 = np.arange(n_rows // 2, n_rows, dtype=np.int64)
-
-        mg_ivf_pq.extend(index, dataset_1, indices_1, resources=resources)
-        mg_ivf_pq.extend(index, dataset_2, indices_2, resources=resources)
+        mg_ivf_pq.extend(index, dataset, resources=resources)
 
     # Search parameters
-    if search_params is None:
-        search_params = {}
-    # Use higher n_probes for better recall in multi-GPU setting
+    search_params = dict(search_params or {})
     if "n_probes" not in search_params:
-        # Use many clusters for good recall - search majority of clusters
-        search_params["n_probes"] = min(n_lists, max(20, (n_lists * 3) // 4))
+        search_params["n_probes"] = _default_n_probes(n_lists, compare)
     search_params_obj = mg_ivf_pq.SearchParams(
         search_mode=search_mode,
         merge_mode=merge_mode,
@@ -128,6 +173,9 @@ def run_mg_ivf_pq_build_search_test(
     assert isinstance(neighbors, np.ndarray)
     assert distances.shape == (n_queries, k)
     assert neighbors.shape == (n_queries, k)
+    assert np.all(neighbors >= 0)
+    assert np.all(neighbors < n_rows)
+    assert np.all(np.isfinite(distances))
 
     if not compare:
         return distances, neighbors
@@ -224,18 +272,45 @@ def test_mg_ivf_pq_distribution_modes(distribution_mode):
 
 
 @requires_multiple_gpus
-@pytest.mark.parametrize("search_mode", ["load_balancer", "round_robin"])
-@pytest.mark.parametrize("merge_mode", ["merge_on_root_rank", "tree_merge"])
-def test_mg_ivf_pq_search_params(search_mode, merge_mode):
-    """Test different multi-GPU search parameters for IVF-PQ."""
+@pytest.mark.parametrize("distribution_mode", ["sharded", "replicated"])
+def test_mg_ivf_pq_partial_probes(distribution_mode):
+    """Test approximate search with partial probes in both distribution modes."""
+    n_lists = 30
     run_mg_ivf_pq_build_search_test(
         n_rows=1500,
         n_cols=32,
         n_queries=15,
         k=5,
+        distribution_mode=distribution_mode,
+        search_params={"n_probes": n_lists // 2},
+        n_lists=n_lists,
+        compare=False,
+    )
+
+
+@requires_multiple_gpus
+@pytest.mark.parametrize(
+    "distribution_mode,search_mode,merge_mode,n_rows_per_batch",
+    [
+        ("replicated", "load_balancer", "tree_merge", 500),
+        ("replicated", "round_robin", "tree_merge", 2000),
+        ("sharded", "load_balancer", "merge_on_root_rank", 500),
+        ("sharded", "load_balancer", "tree_merge", 500),
+    ],
+)
+def test_mg_ivf_pq_search_params(
+    distribution_mode, search_mode, merge_mode, n_rows_per_batch
+):
+    """Test the relevant replicated and sharded search parameters for IVF-PQ."""
+    run_mg_ivf_pq_build_search_test(
+        n_rows=1500,
+        n_cols=32,
+        n_queries=15,
+        k=5,
+        distribution_mode=distribution_mode,
         search_mode=search_mode,
         merge_mode=merge_mode,
-        n_rows_per_batch=500,
+        n_rows_per_batch=n_rows_per_batch,
         n_lists=30,
         compare=False,
     )
@@ -275,13 +350,15 @@ def test_mg_ivf_pq_metrics(metric):
 
 
 @requires_multiple_gpus
-def test_mg_ivf_pq_extend():
+@pytest.mark.parametrize("distribution_mode", ["sharded", "replicated"])
+def test_mg_ivf_pq_extend(distribution_mode):
     """Test extending index with new vectors."""
     run_mg_ivf_pq_build_search_test(
         n_rows=1000,
         n_cols=32,
         n_queries=100,
         k=10,
+        distribution_mode=distribution_mode,
         add_data_on_build=False,  # This triggers extend functionality
         compare=False,
     )
@@ -291,7 +368,9 @@ def test_mg_ivf_pq_extend():
 def test_mg_ivf_pq_serialize():
     """Test serialization and deserialization."""
     # Generate data
-    n_rows, n_cols = 1000, 32
+    n_lists = 50
+    n_rows = _n_rows_for_distribution(1000, n_lists, "sharded")
+    n_cols = 32
     dataset = generate_data((n_rows, n_cols), np.float32)
     queries = generate_data((100, n_cols), np.float32)
 
@@ -300,14 +379,14 @@ def test_mg_ivf_pq_serialize():
     # Build index
     build_params = mg_ivf_pq.IndexParams(
         metric="euclidean",
-        n_lists=100,
+        n_lists=n_lists,
         pq_bits=8,
         pq_dim=16,
     )
     index = mg_ivf_pq.build(build_params, dataset, resources=resources)
 
     # Search before serialization
-    search_params = mg_ivf_pq.SearchParams(n_probes=50)
+    search_params = mg_ivf_pq.SearchParams(n_probes=n_lists)
     distances_1, neighbors_1 = mg_ivf_pq.search(
         search_params, index, queries, 10, resources=resources
     )
@@ -398,6 +477,9 @@ def test_mg_ivf_pq_distribute():
         # Verify results shape
         assert distances.shape == (100, k)
         assert neighbors.shape == (100, k)
+        assert np.all(neighbors >= 0)
+        assert np.all(neighbors < n_rows)
+        assert np.all(np.isfinite(distances))
 
     finally:
         if os.path.exists(temp_filename):
@@ -411,14 +493,15 @@ def test_memory_location_validation():
     except ImportError:
         pytest.skip("CuPy not available")
 
+    n_lists = 20
+    n_rows = _n_rows_for_distribution(1000, n_lists, "sharded")
+
     # Generate device arrays (should fail) - use enough data points for n_lists
-    dataset_gpu = cp.random.random((1000, 32), dtype=cp.float32)
+    dataset_gpu = cp.random.random((n_rows, 32), dtype=cp.float32)
     queries_gpu = cp.random.random((100, 32), dtype=cp.float32)
 
-    # Create parameters with smaller n_lists for the small dataset
-    build_params = mg_ivf_pq.IndexParams(
-        n_lists=20
-    )  # Smaller n_lists for 1000 points
+    # Create parameters with smaller n_lists for the validation dataset
+    build_params = mg_ivf_pq.IndexParams(n_lists=n_lists)
     search_params = mg_ivf_pq.SearchParams()
 
     # These should raise ValueError about memory location
@@ -510,7 +593,9 @@ def test_untrained_index_error():
 @requires_multiple_gpus
 def test_mg_ivf_pq_with_prealloc_output():
     """Test multi-GPU IVF-PQ search with pre-allocated output arrays."""
-    n_rows, n_cols = 1500, 32  # Ensure n_rows > n_lists
+    n_lists = 30
+    n_rows = _n_rows_for_distribution(1500, n_lists, "sharded")
+    n_cols = 32
     n_queries = 20
     k = 5
 
@@ -521,7 +606,7 @@ def test_mg_ivf_pq_with_prealloc_output():
     resources = MultiGpuResources()
 
     # Build index with fewer clusters to avoid n_rows < n_lists error
-    build_params = mg_ivf_pq.IndexParams(n_lists=30, pq_bits=8, pq_dim=16)
+    build_params = mg_ivf_pq.IndexParams(n_lists=n_lists, pq_bits=8, pq_dim=16)
     index = mg_ivf_pq.build(build_params, dataset, resources=resources)
 
     # Pre-allocate output arrays in host memory
@@ -529,7 +614,7 @@ def test_mg_ivf_pq_with_prealloc_output():
     distances = np.empty((n_queries, k), dtype=np.float32)
 
     # Search with pre-allocated arrays
-    search_params = mg_ivf_pq.SearchParams(n_probes=20)
+    search_params = mg_ivf_pq.SearchParams(n_probes=n_lists)
     ret_distances, ret_neighbors = mg_ivf_pq.search(
         search_params,
         index,
@@ -545,6 +630,9 @@ def test_mg_ivf_pq_with_prealloc_output():
     assert ret_neighbors is neighbors
     assert distances.shape == (n_queries, k)
     assert neighbors.shape == (n_queries, k)
+    assert np.all(neighbors >= 0)
+    assert np.all(neighbors < n_rows)
+    assert np.all(np.isfinite(distances))
 
 
 def test_index_repr():
@@ -561,7 +649,9 @@ def test_mg_ivf_pq_simple():
         pytest.skip("Multi-GPU tests require multiple GPUs")
 
     # Use simple test case that should definitely work
-    n_rows, n_cols = 1000, 32
+    n_lists = 32
+    n_rows = _n_rows_for_distribution(1000, n_lists, "sharded")
+    n_cols = 32
     n_queries, k = 20, 5
 
     # Generate data
@@ -573,7 +663,7 @@ def test_mg_ivf_pq_simple():
     # Use very few clusters for high recall
     build_params = mg_ivf_pq.IndexParams(
         metric="sqeuclidean",
-        n_lists=32,  # Very few clusters
+        n_lists=n_lists,  # Very few clusters
         pq_bits=8,
         pq_dim=16,
     )
@@ -582,7 +672,9 @@ def test_mg_ivf_pq_simple():
     index = mg_ivf_pq.build(build_params, dataset, resources=resources)
 
     # Search with many probes for maximum recall
-    search_params = mg_ivf_pq.SearchParams(n_probes=32)  # Search all clusters
+    search_params = mg_ivf_pq.SearchParams(
+        n_probes=n_lists
+    )  # Search all clusters
     distances, neighbors = mg_ivf_pq.search(
         search_params, index, queries, k, resources=resources
     )
@@ -609,7 +701,9 @@ def test_mg_ivf_pq_simple():
 @requires_multiple_gpus
 def test_mg_ivf_pq_integration():
     """Integration test covering build, search, extend, and serialization."""
-    n_rows, n_cols = 2000, 32
+    n_lists = 50
+    n_rows = _n_rows_for_distribution(2000, n_lists, "sharded")
+    n_cols = 32
     k = 5
 
     # Generate initial dataset
@@ -622,7 +716,7 @@ def test_mg_ivf_pq_integration():
     build_params = mg_ivf_pq.IndexParams(
         distribution_mode="sharded",
         metric="sqeuclidean",
-        n_lists=50,
+        n_lists=n_lists,
         pq_bits=8,
         pq_dim=16,
     )
@@ -630,7 +724,7 @@ def test_mg_ivf_pq_integration():
 
     # Initial search
     search_params = mg_ivf_pq.SearchParams(
-        n_probes=37,
+        n_probes=n_lists,
         search_mode="load_balancer",
         merge_mode="merge_on_root_rank",
     )
@@ -640,8 +734,7 @@ def test_mg_ivf_pq_integration():
 
     # Extend index with new vectors
     new_vectors = generate_data((200, n_cols), np.float32)
-    # Provide indices for extend operation on non-empty index
-    new_indices = np.arange(n_rows, n_rows + 200, dtype=np.int64)
+    new_indices = _sharded_append_indices(n_rows, new_vectors.shape[0])
     mg_ivf_pq.extend(index, new_vectors, new_indices, resources=resources)
 
     # Search after extend

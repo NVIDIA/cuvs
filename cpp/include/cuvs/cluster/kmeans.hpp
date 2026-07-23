@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -13,6 +13,7 @@
 
 #include <cuvs/core/export.hpp>
 #include <optional>
+#include <vector>
 
 namespace CUVS_EXPORT cuvs {
 namespace cluster {
@@ -94,7 +95,15 @@ struct params : base_params {
   int n_init = 1;
 
   /**
-   * Oversampling factor for use in the k-means|| algorithm
+   * Oversampling factor for use in the k-means|| algorithm.
+   *
+   * In the single-GPU path the value `0` is overloaded as an algorithm switch
+   * that selects the classic sequential k-means++ instead of the scalable
+   * variant. Any value `> 0` is used as-is.
+   *
+   * In the multi-GPU path (a `fit` call issued with a multi-GPU `handle` and
+   * device-resident inputs) any value `< 1.0` (including `0`) is internally clamped to `1.0`.
+   * Values `>= 1.0` are passed through unchanged.
    */
   double oversampling_factor = 2.0;
 
@@ -137,11 +146,12 @@ struct params : base_params {
   /**
    * Number of samples to process per GPU batch when fitting with host data.
    * When set to 0, defaults to n_samples (process all at once).
-   * Only used by the batched (host-data) code path and ignored by device-data
-   * overloads.
+   * Only used by the batched (host-data) code path and ignored by
+   * device-data overloads.
    *
-   * In multi-GPU mode, this is a per-rank batch size. Each rank processes up to
-   * this many local samples per batch, clamped to that rank's local sample count.
+   * In multi-GPU mode this is a per-rank batch size: each rank processes up
+   * to this many local samples per batch, clamped to that rank's local sample
+   * count. This is is ignored by device-data overloads.
    * Default: 0 (process all data at once).
    */
   int64_t streaming_batch_size = 0;
@@ -156,11 +166,51 @@ struct params : base_params {
  *  - L2Expanded
  *  - L2SqrtExpanded
  */
+/**
+ * Donor selection strategy used by balanced k-means rebalancing.
+ */
+enum class balanced_donor_selection { SizeSorted = 0, Random = 1 };
+
 struct balanced_params : base_params {
   /**
    * Number of training iterations
    */
   uint32_t n_iters = 20;
+
+  /**
+   * Lower balance tolerance used during hierarchical training. Clusters smaller than
+   * `average_cluster_size * balance_lower_tolerance` are underfull. The default value of `0.333`
+   * targets clusters smaller than roughly one third of the average size.
+   *
+   * Valid range: (0, 1).
+   */
+  float balance_lower_tolerance = 0.333f;
+
+  /**
+   * Upper balance tolerance used during hierarchical training. Clusters larger than
+   * `average_cluster_size * balance_upper_tolerance` are overfull donors. The default value of
+   * `3.0` targets clusters larger than roughly three times the average size. Very strict upper
+   * values around `1.4` or lower can be difficult for this heuristic rebalancing method to satisfy.
+   *
+   * Valid range: (1, infinity).
+   */
+  float balance_upper_tolerance = 3.0f;
+
+  /**
+   * Offset used when reinitializing an underfull cluster near an overfull cluster. The new center
+   * is placed at `donor_center + centroid_offset * (donor_point - donor_center)`.
+   *
+   * Valid range: (0, 1].
+   */
+  float centroid_offset = 0.01f;
+
+  /**
+   * Donor cluster selection strategy used when reinitializing underfull clusters. `SizeSorted`
+   * pairs the smallest clusters with the largest clusters and uses `balance_upper_tolerance` to
+   * identify overfull donors. `Random` selects donor points from clusters at least as large as the
+   * average cluster size; in that mode, `balance_upper_tolerance` does not control donor selection.
+   */
+  balanced_donor_selection donor_selection = balanced_donor_selection::SizeSorted;
 };
 
 /**
@@ -180,13 +230,16 @@ enum class kmeans_type { KMeans = 0, KMeansBalanced = 1 };
 /**
  * @brief Find clusters with k-means algorithm using batched processing of host data.
  *
+ * Runs on multiple GPUs when `handle` carries an SNMG clique
+ * (`raft::resource::is_multi_gpu(handle)`) or initialized RAFT comms
+ * (`raft::resource::comms_initialized(handle)`), and on a single GPU otherwise.
+ *
  * TODO: Evaluate replacing the extent type with int64_t. Reference issue:
  * https://github.com/rapidsai/cuvs/issues/1961
  *
  * This overload supports out-of-core computation where the dataset resides
- * on the host. Data is processed in GPU-sized batches, streaming from host to device.
- * The batch size is controlled by params.streaming_batch_size. In multi-GPU mode,
- * this is a per-rank batch size.
+ * on the host. Data is processed in batches, streaming from host to
+ * device. The batch size is controlled by `params.streaming_batch_size`.
  *
  * Multi-GPU dispatch is selected automatically based on the handle state:
  *   - If `raft::resource::is_multi_gpu(handle)` (cuVS SNMG): the full dataset X
@@ -1606,6 +1659,141 @@ void cluster_cost(
 /**
  * @}
  */
+
+#ifdef CUVS_BUILD_MG_ALGOS
+/**
+ * @defgroup kmeans_mg Multi-GPU / out-of-core k-means fit (multiple partitions per rank)
+ * @{
+ *
+ * @brief k-means `fit` overloads where each rank passes a `std::vector` of local
+ * data partitions.
+ *
+ * Runs on multiple GPUs when `handle` carries an SNMG clique
+ * (`raft::resource::is_multi_gpu(handle)`) or initialized RAFT comms
+ * (`raft::resource::comms_initialized(handle)`).
+ * @code{.cpp}
+ *   raft::resources handle; // NCCL comms or SNMG clique attached
+ *   // One partition per rank:
+ *   cuvs::cluster::kmeans::fit(handle, params, local_X, std::nullopt,
+ *                              centroids, inertia, n_iter);
+ *   // Multiple partitions per rank:
+ *   cuvs::cluster::kmeans::fit(handle, params, local_X_parts, std::nullopt,
+ *                              centroids, inertia, n_iter);
+ * @endcode
+ */
+
+/**
+ * @brief Multi-GPU k-means fit with one or more local data
+ *        partitions per rank.
+ *
+ * Each rank supplies its local training data as a vector of partitions. For
+ * host-resident partitions the implementation streams each partition using
+ * `params.streaming_batch_size` (per rank). For device-resident partitions
+ * `streaming_batch_size` is ignored and each local partition is processed in full.
+ *
+ * The active backend is selected by the resources attached to
+ * `handle`:
+ *   - When `raft::resource::is_multi_gpu(handle)` is true (SNMG clique), the
+ *     call must be issued from inside an OpenMP region with one thread per
+ *     rank in the clique.
+ *   - Otherwise, multi-process NCCL comms must be initialized on the handle
+ *     (`raft::resource::comms_initialized(handle)`); each process supplies its
+ *     own local partitions.
+ *
+ * @param[in]     handle              The raft handle. Must have NCCL comms or
+ *                                    a SNMG clique initialized.
+ * @param[in]     params              K-means parameters. For host-resident
+ *                                    partitions the per-rank streaming batch
+ *                                    size is read from
+ *                                    `params.streaming_batch_size`; it is
+ *                                    ignored for device-resident partitions.
+ * @param[in]     X_parts             Per-partition local data on this rank.
+ *                                    Each entry is [n_rows_i x n_features].
+ * @param[in]     sample_weight_parts Optional per-partition row weights with
+ *                                    one vector per data partition.
+ * @param[inout]  centroids           Device matrix [n_clusters x n_features].
+ *                                    On entry, used as the initial centers
+ *                                    when `params.init == InitMethod::Array`.
+ *                                    On return, holds the converged
+ *                                    centroids.
+ * @param[out]    inertia             Host scalar receiving the final
+ *                                    clustering cost.
+ * @param[out]    n_iter              Host scalar receiving the iteration
+ *                                    count at which the run terminated.
+ */
+void fit(
+  raft::resources const& handle,
+  const cuvs::cluster::kmeans::params& params,
+  const std::vector<raft::device_matrix_view<const float, int>>& X_parts,
+  const std::optional<std::vector<raft::device_vector_view<const float, int>>>& sample_weight_parts,
+  raft::device_matrix_view<float, int> centroids,
+  raft::host_scalar_view<float> inertia,
+  raft::host_scalar_view<int> n_iter);
+
+/**
+ * @brief Multi-GPU k-means fit.
+ */
+void fit(raft::resources const& handle,
+         const cuvs::cluster::kmeans::params& params,
+         const std::vector<raft::device_matrix_view<const float, int64_t>>& X_parts,
+         const std::optional<std::vector<raft::device_vector_view<const float, int64_t>>>&
+           sample_weight_parts,
+         raft::device_matrix_view<float, int64_t> centroids,
+         raft::host_scalar_view<float> inertia,
+         raft::host_scalar_view<int64_t> n_iter);
+
+/**
+ * @brief Multi-GPU k-means fit.
+ */
+void fit(raft::resources const& handle,
+         const cuvs::cluster::kmeans::params& params,
+         const std::vector<raft::device_matrix_view<const double, int>>& X_parts,
+         const std::optional<std::vector<raft::device_vector_view<const double, int>>>&
+           sample_weight_parts,
+         raft::device_matrix_view<double, int> centroids,
+         raft::host_scalar_view<double> inertia,
+         raft::host_scalar_view<int> n_iter);
+
+/**
+ * @brief Multi-GPU k-means fit.
+ */
+void fit(raft::resources const& handle,
+         const cuvs::cluster::kmeans::params& params,
+         const std::vector<raft::device_matrix_view<const double, int64_t>>& X_parts,
+         const std::optional<std::vector<raft::device_vector_view<const double, int64_t>>>&
+           sample_weight_parts,
+         raft::device_matrix_view<double, int64_t> centroids,
+         raft::host_scalar_view<double> inertia,
+         raft::host_scalar_view<int64_t> n_iter);
+
+/**
+ * @brief Multi-GPU / out-of-core k-means fit.
+ */
+void fit(raft::resources const& handle,
+         const cuvs::cluster::kmeans::params& params,
+         const std::vector<raft::host_matrix_view<const float, int64_t>>& X_parts,
+         const std::optional<std::vector<raft::host_vector_view<const float, int64_t>>>&
+           sample_weight_parts,
+         raft::device_matrix_view<float, int64_t> centroids,
+         raft::host_scalar_view<float> inertia,
+         raft::host_scalar_view<int64_t> n_iter);
+
+/**
+ * @brief Multi-GPU / out-of-core k-means fit.
+ */
+void fit(raft::resources const& handle,
+         const cuvs::cluster::kmeans::params& params,
+         const std::vector<raft::host_matrix_view<const double, int64_t>>& X_parts,
+         const std::optional<std::vector<raft::host_vector_view<const double, int64_t>>>&
+           sample_weight_parts,
+         raft::device_matrix_view<double, int64_t> centroids,
+         raft::host_scalar_view<double> inertia,
+         raft::host_scalar_view<int64_t> n_iter);
+
+/**
+ * @}
+ */
+#endif
 
 namespace helpers {
 /**
