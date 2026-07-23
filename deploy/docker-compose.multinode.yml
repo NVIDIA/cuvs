@@ -1,0 +1,147 @@
+# Multi-node split of the benchmark stack.
+#
+# Copy this file to all three EC2 instances from the deploy-opensearch-tmp
+# branch of https://github.com/jrbourbeau/cuvs. The default OpenSearch and
+# bench images build from that checkout, so keep the opensearch/ directory on
+# the OpenSearch node and the bench/ directory on the client node unless you
+# set OPENSEARCH_IMAGE and BENCH_IMAGE to prebuilt images. The OpenSearch image
+# contains opensearch.yml, so a prebuilt image does not need the opensearch/
+# directory at runtime.
+#
+#   OpenSearch node:
+#     docker compose -f docker-compose.multinode.yml --profile opensearch up -d
+#
+#   GPU remote index builder node:
+#     docker compose -f docker-compose.multinode.yml --profile builder up -d
+#
+#   Client/benchmark node:
+#     docker compose -f docker-compose.multinode.yml --profile client build bench
+#     docker compose -f docker-compose.multinode.yml --profile client run --rm bench
+#
+# Docker Compose networks are host-local. Across EC2 instances, use private
+# EC2 DNS names or private IPv4 addresses in OPENSEARCH_URL,
+# OPENSEARCH_HOST, and REMOTE_INDEX_BUILDER_URL.
+
+name: opensearch-cuvs-bench-multinode
+
+x-aws-env: &aws-env
+  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+  AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
+  AWS_REGION: ${AWS_REGION:-us-west-2}
+  AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-west-2}
+  S3_BUCKET: ${S3_BUCKET:-}
+  S3_PREFIX: ${S3_PREFIX:-knn-indexes}
+
+x-bench-env: &bench-env
+  <<: *aws-env
+  OPENSEARCH_URL: ${OPENSEARCH_URL:-http://opensearch:9200}
+  OPENSEARCH_HOST: ${OPENSEARCH_HOST:-opensearch}
+  OPENSEARCH_PORT: ${OPENSEARCH_PORT:-9200}
+  BUILDER_URL: ${REMOTE_INDEX_BUILDER_URL:-http://remote-index-builder:1025}
+  REMOTE_INDEX_BUILDER_URL: ${REMOTE_INDEX_BUILDER_URL:-http://remote-index-builder:1025}
+  REMOTE_INDEX_BUILD: ${REMOTE_INDEX_BUILD:-true}
+  REMOTE_BUILD_SIZE_MIN: ${REMOTE_BUILD_SIZE_MIN:-}
+  REMOTE_BUILD_TIMEOUT: ${REMOTE_BUILD_TIMEOUT:-1800}
+  REMOTE_VECTOR_REPOSITORY: ${REMOTE_VECTOR_REPOSITORY:-vector-repo}
+  DATASET: ${DATASET:-sift-128-euclidean}
+  DATASET_PATH: /data/datasets
+  BENCH_GROUPS: ${BENCH_GROUPS:-test}
+  K: ${K:-10}
+  BATCH_SIZE: ${BATCH_SIZE:-}
+  BUILD_BATCH_SIZE: ${BUILD_BATCH_SIZE:-}
+
+services:
+  opensearch:
+    profiles: ["opensearch"]
+    image: ${OPENSEARCH_IMAGE:-opensearch-cuvs-bench-opensearch}
+    build:
+      context: ${OPENSEARCH_BUILD_CONTEXT:-./opensearch}
+      dockerfile: ${OPENSEARCH_DOCKERFILE:-Dockerfile}
+    container_name: opensearch
+    restart: unless-stopped
+    ports:
+      - "${OPENSEARCH_BIND_ADDR:-0.0.0.0}:${OPENSEARCH_PORT:-9200}:9200"
+      - "${OPENSEARCH_PERF_BIND_ADDR:-127.0.0.1}:${OPENSEARCH_PERF_PORT:-9600}:9600"
+    environment:
+      <<: *aws-env
+      cluster.name: ${OPENSEARCH_CLUSTER_NAME:-opensearch-cuvs-bench}
+      node.name: ${OPENSEARCH_NODE_NAME:-opensearch-node-1}
+      discovery.type: single-node
+      bootstrap.memory_lock: "true"
+      OPENSEARCH_JAVA_OPTS: ${OPENSEARCH_JAVA_OPTS:--Xms16g -Xmx16g}
+      DISABLE_SECURITY_PLUGIN: ${DISABLE_SECURITY_PLUGIN:-true}
+      OPENSEARCH_INITIAL_ADMIN_PASSWORD: ${OPENSEARCH_INITIAL_ADMIN_PASSWORD:-}
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cluster/health >/dev/null || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 30
+
+  remote-index-builder:
+    profiles: ["builder", "gpu"]
+    image: ${REMOTE_INDEX_BUILDER_IMAGE:-opensearchproject/remote-vector-index-builder:api-latest}
+    container_name: remote-index-builder
+    restart: unless-stopped
+    ports:
+      - "${REMOTE_INDEX_BUILDER_BIND_ADDR:-0.0.0.0}:${REMOTE_INDEX_BUILDER_HOST_PORT:-1025}:1025"
+    environment:
+      <<: *aws-env
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c 'import socket; socket.create_connection((\"localhost\", 1025), 2).close()'"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 10s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: ${GPU_COUNT:-1}
+              capabilities: ["gpu"]
+
+  bench:
+    profiles: ["client"]
+    image: ${BENCH_IMAGE:-opensearch-cuvs-bench-bench}
+    build:
+      context: ${BENCH_BUILD_CONTEXT:-./bench}
+      dockerfile: ${BENCH_DOCKERFILE:-Dockerfile}
+    environment:
+      <<: *bench-env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ${DATASET_PATH:-/tmp/datasets}:/data/datasets
+
+  configure-remote-index-build:
+    profiles: ["configure"]
+    image: curlimages/curl:latest
+    environment:
+      <<: *bench-env
+    command:
+      - sh
+      - -ec
+      - |
+        : "$${S3_BUCKET:?S3_BUCKET must be set}"
+        : "$${REMOTE_INDEX_BUILDER_URL:?REMOTE_INDEX_BUILDER_URL must be set}"
+
+        curl -fsS -X PUT "$${OPENSEARCH_URL}/_snapshot/$${REMOTE_VECTOR_REPOSITORY}" \
+          -H 'Content-Type: application/json' \
+          -d "{\"type\":\"s3\",\"settings\":{\"bucket\":\"$${S3_BUCKET}\",\"base_path\":\"$${S3_PREFIX}\",\"region\":\"$${AWS_REGION}\"}}"
+
+        curl -fsS -X PUT "$${OPENSEARCH_URL}/_cluster/settings" \
+          -H 'Content-Type: application/json' \
+          -d "{\"persistent\":{\"knn.remote_index_build.enabled\":\"true\",\"knn.remote_index_build.repository\":\"$${REMOTE_VECTOR_REPOSITORY}\",\"knn.remote_index_build.service.endpoint\":\"$${REMOTE_INDEX_BUILDER_URL}\"}}"
+
+volumes:
+  opensearch-data:

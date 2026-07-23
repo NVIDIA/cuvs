@@ -1,0 +1,137 @@
+# OpenSearch GPU Remote Index Build — Docker Compose Demo
+#
+# Architecture:
+#   opensearch         OpenSearch node with kNN plugin (requires 2.17+)
+#   remote-index-builder  GPU-accelerated Faiss index builder (FastAPI service)
+#   bench              Registers repo + cluster settings, runs cuvs-bench build/search
+#
+# Requirements:
+#   - Docker Compose v2
+#   - vm.max_map_count >= 262144 on the host:
+#       sudo sysctl -w vm.max_map_count=262144
+#
+# GPU mode only (--profile gpu):
+#   - NVIDIA GPU with CUDA support
+#   - NVIDIA Container Toolkit  https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html
+#   - An S3 bucket and credentials from AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY
+#     or another AWS default credential provider, such as an EC2 instance role
+#
+# Required environment variables (set in shell or a .env file):
+#   DATASET_PATH            Absolute path to the directory containing dataset files
+#
+# GPU mode only:
+#   S3_BUCKET               S3 bucket name for staging vectors and built indexes
+#
+# Optional environment variables:
+#   AWS_ACCESS_KEY_ID       AWS access key ID (optional if using default credentials)
+#   AWS_SECRET_ACCESS_KEY   AWS secret access key (optional if using default credentials)
+#   AWS_SESSION_TOKEN       STS session token (required for temporary static credentials)
+#   AWS_DEFAULT_REGION      AWS region for the S3 bucket (default: us-west-2)
+#   REMOTE_INDEX_BUILD      Override GPU/CPU mode detection (true/false); normally auto-detected
+#   REMOTE_BUILD_SIZE_MIN   Optional minimum segment size override for remote builds
+#   REMOTE_BUILD_TIMEOUT    Remote build wait timeout in seconds (default: 1800)
+#   REMOTE_VECTOR_REPOSITORY Optional snapshot repository name (default: vector-repo)
+#   S3_PREFIX               Optional S3 prefix for staged vectors/indexes (default: knn-indexes)
+#   DATASET                 Dataset name (default: sift-128-euclidean)
+#   BENCH_GROUPS            Parameter sweep group: test | base (default: test)
+#   K                       Number of neighbors to search for (default: 10)
+#   BATCH_SIZE              Optional cuvs-bench query batch size override
+#   BUILD_BATCH_SIZE        Optional OpenSearch bulk ingest batch size override
+#
+# Usage:
+#   CPU:  docker compose up --build
+#   GPU:  docker compose --profile gpu up --build
+#
+# Data flow:
+#   OpenSearch flushes a segment  →  uploads vectors + doc-IDs to S3
+#   OpenSearch POSTs /_build to the remote-index-builder with the S3 paths
+#   remote-index-builder downloads from S3, builds index on GPU, uploads result
+#   OpenSearch downloads the finished index from S3 and merges it into the shard
+
+x-aws-env: &aws-env
+  AWS_ACCESS_KEY_ID:
+  AWS_SECRET_ACCESS_KEY:
+  AWS_SESSION_TOKEN:
+  AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-west-2}
+
+services:
+
+  # ── OpenSearch ───────────────────────────────────────────────────────────────
+  opensearch:
+    build:
+      context: ./opensearch
+    environment:
+      <<: *aws-env
+      OPENSEARCH_JAVA_OPTS: -Xms16g -Xmx16g
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+      - ./opensearch/opensearch.yml:/usr/share/opensearch/config/opensearch.yml:ro
+    ports:
+      - "9200:9200"
+    healthcheck:
+      # wait_for_status=yellow blocks until the cluster is at least yellow
+      test: ["CMD-SHELL", "curl -sf 'http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s'"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 30s
+
+  # ── GPU Index Builder ────────────────────────────────────────────────────────
+  remote-index-builder:
+    profiles: [gpu]
+    image: opensearchproject/remote-vector-index-builder:api-latest
+    environment:
+      <<: *aws-env
+    ports:
+      - "1025:1025"
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c 'import socket; socket.create_connection((\"localhost\", 1025), 2).close()'"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 10s
+    restart: on-failure
+    # GPU device reservation
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # ── Benchmark ────────────────────────────────────────────────────────────────
+  bench:
+    build:
+      context: ./bench
+    depends_on:
+      opensearch:
+        condition: service_healthy
+    environment:
+      <<: *aws-env
+      OPENSEARCH_URL: http://opensearch:9200
+      OPENSEARCH_HOST: opensearch
+      OPENSEARCH_PORT: "9200"
+      BUILDER_URL: http://remote-index-builder:1025
+      REMOTE_INDEX_BUILD: ${REMOTE_INDEX_BUILD:-}
+      REMOTE_BUILD_SIZE_MIN: ${REMOTE_BUILD_SIZE_MIN:-}
+      REMOTE_BUILD_TIMEOUT: ${REMOTE_BUILD_TIMEOUT:-1800}
+      REMOTE_VECTOR_REPOSITORY: ${REMOTE_VECTOR_REPOSITORY:-vector-repo}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_PREFIX: ${S3_PREFIX:-knn-indexes}
+      DATASET: ${DATASET:-sift-128-euclidean}
+      DATASET_PATH: /data/datasets
+      BENCH_GROUPS: ${BENCH_GROUPS:-test}
+      K: ${K:-10}
+      BATCH_SIZE: ${BATCH_SIZE:-}
+      BUILD_BATCH_SIZE: ${BUILD_BATCH_SIZE:-}
+    volumes:
+      - ${DATASET_PATH:-/tmp/datasets}:/data/datasets
+    restart: "no"
+
+volumes:
+  opensearch-data:

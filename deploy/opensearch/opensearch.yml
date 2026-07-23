@@ -1,0 +1,11 @@
+# Bind to all interfaces so other containers can reach OpenSearch
+network.host: 0.0.0.0
+
+# Single-node cluster — suppresses the production bootstrap checks that
+# require seed_hosts / initial_cluster_manager_nodes to be configured.
+# Must be in opensearch.yml (not an env var) because our entrypoint.sh
+# execs the opensearch binary directly.
+discovery.type: single-node
+
+# Disable the security plugin — no SSL certs needed for this demo
+plugins.security.disabled: true
