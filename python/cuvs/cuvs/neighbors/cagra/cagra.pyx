@@ -434,6 +434,15 @@ cdef class PaddedDatasetView:
             check_cuvs(cuvsDatasetPaddedViewDestroy(self.view))
 
 
+cdef class StandardDatasetView:
+    def __cinit__(self):
+        self.view = NULL
+
+    def __dealloc__(self):
+        if self.view != NULL:
+            check_cuvs(cuvsDatasetStandardViewDestroy(self.view))
+
+
 @auto_sync_resources
 def build(IndexParams index_params, dataset, resources=None):
     """
@@ -602,6 +611,32 @@ def make_device_padded_dataset(dataset, resources=None):
     return padded
 
 
+@auto_sync_resources
+def make_device_padded_dataset_view(dataset, resources=None):
+    """
+    Create a device padded dataset view handle via explicit C API factory.
+    """
+    dataset_ai = wrap_array(dataset)
+    _check_input_array(dataset_ai, [np.dtype('float32'),
+                                    np.dtype('float16'),
+                                    np.dtype('byte'),
+                                    np.dtype('ubyte')])
+    if not hasattr(dataset, '__cuda_array_interface__'):
+        raise ValueError("dataset must be in device memory")
+
+    cdef cydlpack.DLManagedTensor* dataset_dlpack = \
+        cydlpack.dlpack_c(dataset_ai)
+    cdef cuvsResources_t res = <cuvsResources_t>resources.get_c_obj()
+    cdef PaddedDatasetView padded_view = PaddedDatasetView()
+    with cuda_interruptible():
+        check_cuvs(cuvsDatasetMakeDevicePaddedView(
+            res,
+            dataset_dlpack,
+            &padded_view.view
+        ))
+    return padded_view
+
+
 def make_view_from_owning_padded(PaddedDataset padded_dataset):
     """
     Create a padded dataset view handle from an owning padded dataset handle.
@@ -617,29 +652,69 @@ def make_view_from_owning_padded(PaddedDataset padded_dataset):
 
 
 @auto_sync_resources
-def attach_device_dataset_on_host_index(Index index, device_dataset, resources=None):
+def make_device_standard_dataset_view(dataset, resources=None):
     """
-    Convert a host-built CAGRA index to device index by attaching a device dataset.
+    Create a device standard dataset view handle via explicit C API factory.
     """
-    if not index.trained:
-        raise ValueError("Index needs to be built before attaching device dataset.")
-    if not hasattr(device_dataset, '__cuda_array_interface__'):
-        raise ValueError("device_dataset must be in device memory")
-
-    dataset_ai = wrap_array(device_dataset)
+    dataset_ai = wrap_array(dataset)
     _check_input_array(dataset_ai, [np.dtype('float32'),
                                     np.dtype('float16'),
                                     np.dtype('byte'),
                                     np.dtype('ubyte')])
+    if not hasattr(dataset, '__cuda_array_interface__'):
+        raise ValueError("dataset must be in device memory")
+
     cdef cydlpack.DLManagedTensor* dataset_dlpack = \
         cydlpack.dlpack_c(dataset_ai)
     cdef cuvsResources_t res = <cuvsResources_t>resources.get_c_obj()
+    cdef StandardDatasetView standard_view = StandardDatasetView()
     with cuda_interruptible():
-        check_cuvs(cuvsCagraAttachDeviceDatasetOnHostIndex(
+        check_cuvs(cuvsDatasetMakeDeviceStandardView(
             res,
             dataset_dlpack,
-            index.index
+            &standard_view.view
         ))
+    return standard_view
+
+
+@auto_sync_resources
+def attach_device_dataset_on_host_index(Index index, device_dataset_view, resources=None):
+    """
+    Convert a host-built CAGRA index to device index by attaching an explicit
+    device dataset view.
+    """
+    if not index.trained:
+        raise ValueError("Index needs to be built before attaching device dataset.")
+
+    cdef cuvsResources_t res = <cuvsResources_t>resources.get_c_obj()
+    cdef cuvsDatasetPaddedView_t padded_view = NULL
+    cdef cuvsDatasetStandardView_t standard_view = NULL
+
+    if isinstance(device_dataset_view, PaddedDatasetView):
+        padded_view = (<PaddedDatasetView>device_dataset_view).view
+        if padded_view == NULL:
+            raise ValueError("device_dataset_view padded view is uninitialized")
+        with cuda_interruptible():
+            check_cuvs(cuvsCagraAttachDevicePaddedDatasetOnHostIndex(
+                res,
+                padded_view,
+                index.index
+            ))
+    elif isinstance(device_dataset_view, StandardDatasetView):
+        standard_view = (<StandardDatasetView>device_dataset_view).view
+        if standard_view == NULL:
+            raise ValueError("device_dataset_view standard view is uninitialized")
+        with cuda_interruptible():
+            check_cuvs(cuvsCagraAttachDeviceStandardDatasetOnHostIndex(
+                res,
+                standard_view,
+                index.index
+            ))
+    else:
+        raise TypeError(
+            "device_dataset_view must be a PaddedDatasetView or "
+            "StandardDatasetView. Create it explicitly via dataset view factories."
+        )
     return index
 
 
@@ -1178,8 +1253,8 @@ def extend(ExtendParams params, Index index, additional_dataset, extended_datase
     if not isinstance(additional_dataset, PaddedDatasetView):
         raise TypeError(
             "additional_dataset must be a PaddedDatasetView. "
-            "Create it explicitly via make_device_padded_dataset() + "
-            "make_view_from_owning_padded()."
+            "Create it explicitly via make_device_padded_dataset_view() or "
+            "make_device_padded_dataset() + make_view_from_owning_padded()."
         )
     cdef cuvsDatasetPaddedView_t padded_view = (<PaddedDatasetView>additional_dataset).view
     if padded_view == NULL:

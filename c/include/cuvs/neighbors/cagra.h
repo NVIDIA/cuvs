@@ -575,19 +575,33 @@ CUVS_EXPORT cuvsError_t cuvsCagraAttachPaddedDatasetForSearch(cuvsResources_t re
                                                               cuvsCagraIndex_t index);
 
 /**
- * @brief Attach a device dataset to a host-built index, converting it into a device index.
+ * @brief Attach a device standard dataset to a host standard index, converting it into a device index.
  *
- * This is the explicit C equivalent of C++ `attach_device_dataset_on_host_index`.
- * The `device_dataset` must be device-compatible memory.
+ * This is the explicit C equivalent of C++ `attach_device_dataset_on_host_index` for
+ * standard-layout datasets.
  *
  * @param[in] res               cuvsResources_t opaque C handle
- * @param[in] device_dataset    device dataset tensor to attach
- * @param[in,out] index         host CAGRA index handle; replaced in-place with device index handle
+ * @param[in] device_dataset    device standard dataset view handle to attach
+ * @param[in,out] index         host standard CAGRA index handle; replaced in-place with device index handle
  * @return cuvsError_t
  */
-CUVS_EXPORT cuvsError_t cuvsCagraAttachDeviceDatasetOnHostIndex(cuvsResources_t res,
-                                                                 DLManagedTensor* device_dataset,
-                                                                 cuvsCagraIndex_t index);
+CUVS_EXPORT cuvsError_t cuvsCagraAttachDeviceStandardDatasetOnHostIndex(
+  cuvsResources_t res, cuvsDatasetStandardView_t device_dataset, cuvsCagraIndex_t index);
+
+/**
+ * @brief Attach a device padded dataset to a host padded index, converting it into a device index.
+ *
+ * This is the explicit C equivalent of C++ `attach_device_dataset_on_host_index` for
+ * padded-layout datasets.
+ *
+ * @param[in] res               cuvsResources_t opaque C handle
+ * @param[in] device_dataset    device padded dataset view handle to attach
+ * @param[in,out] index         host padded CAGRA index handle; replaced in-place with device index handle
+ * @return cuvsError_t
+ */
+CUVS_EXPORT cuvsError_t cuvsCagraAttachDevicePaddedDatasetOnHostIndex(cuvsResources_t res,
+                                                                       cuvsDatasetPaddedView_t device_dataset,
+                                                                       cuvsCagraIndex_t index);
 
 /**
  * @}

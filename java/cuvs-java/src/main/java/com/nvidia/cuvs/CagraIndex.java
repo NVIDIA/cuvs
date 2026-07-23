@@ -24,6 +24,55 @@ import java.util.Objects;
  */
 public interface CagraIndex extends AutoCloseable {
   /**
+   * Caller-owned input dataset view handle for host-index attach.
+   */
+  abstract class DeviceDatasetView implements AutoCloseable {
+    private AutoCloseable delegate;
+    private long handleAddress;
+
+    /**
+     * Internal wiring hook used by the Java wrapper implementation.
+     */
+    public final void setDelegate(AutoCloseable delegate, long handleAddress) {
+      this.delegate = delegate;
+      this.handleAddress = handleAddress;
+    }
+
+    /**
+     * Returns true when this view has a native handle.
+     */
+    public final boolean isPresent() {
+      return delegate != null && handleAddress != 0;
+    }
+
+    /**
+     * Internal accessor for native handle address.
+     */
+    public final long nativeHandleAddress() {
+      return handleAddress;
+    }
+
+    @Override
+    public void close() throws Exception {
+      if (delegate != null) {
+        delegate.close();
+        delegate = null;
+      }
+      handleAddress = 0;
+    }
+  }
+
+  /** Caller-owned device padded dataset view for host-index attach. */
+  final class DevicePaddedDatasetView extends DeviceDatasetView {
+    public DevicePaddedDatasetView() {}
+  }
+
+  /** Caller-owned device standard dataset view for host-index attach. */
+  final class DeviceStandardDatasetView extends DeviceDatasetView {
+    public DeviceStandardDatasetView() {}
+  }
+
+  /**
    * Caller-owned output dataset handle populated by {@link #deserialize(InputStream, DeserializeDataset)}.
    */
   abstract class DeserializeDataset implements AutoCloseable {
@@ -77,6 +126,28 @@ public interface CagraIndex extends AutoCloseable {
    * @return an instance of {@link SearchResults} containing the results
    */
   SearchResults search(CagraQuery query) throws Throwable;
+
+  /**
+   * Create a caller-owned device padded dataset view handle from a device matrix.
+   */
+  DevicePaddedDatasetView makeDevicePaddedDatasetView(CuVSDeviceMatrix dataset) throws Throwable;
+
+  /**
+   * Create a caller-owned device standard dataset view handle from a device matrix.
+   */
+  DeviceStandardDatasetView makeDeviceStandardDatasetView(CuVSDeviceMatrix dataset)
+      throws Throwable;
+
+  /**
+   * Convert a host-built index to device by attaching a caller-provided padded device dataset view.
+   */
+  void attachDevicePaddedDatasetOnHostIndex(DevicePaddedDatasetView datasetView) throws Throwable;
+
+  /**
+   * Convert a host-built index to device by attaching a caller-provided standard device dataset view.
+   */
+  void attachDeviceStandardDatasetOnHostIndex(DeviceStandardDatasetView datasetView)
+      throws Throwable;
 
   /**
    * Deserializes into this pre-allocated index and optionally populates an output dataset handle.

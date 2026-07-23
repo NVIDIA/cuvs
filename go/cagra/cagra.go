@@ -26,6 +26,11 @@ type PaddedDatasetView struct {
 	view C.cuvsDatasetPaddedView_t
 }
 
+// Non-owning standard dataset view handle.
+type StandardDatasetView struct {
+	view C.cuvsDatasetStandardView_t
+}
+
 // Creates an owning device padded dataset from a device tensor.
 func MakeDevicePaddedDataset[T any](Resources cuvs.Resource, dataset *cuvs.Tensor[T]) (*PaddedDataset, error) {
 	if dataset == nil || dataset.C_tensor == nil {
@@ -57,6 +62,22 @@ func MakeViewFromOwningPadded(paddedDataset *PaddedDataset) (*PaddedDatasetView,
 	return &PaddedDatasetView{view: paddedView}, nil
 }
 
+// Creates a non-owning device padded dataset view from a device tensor.
+func MakeDevicePaddedDatasetView[T any](Resources cuvs.Resource, dataset *cuvs.Tensor[T]) (*PaddedDatasetView, error) {
+	if dataset == nil || dataset.C_tensor == nil {
+		return nil, errors.New("dataset is nil")
+	}
+	datasetTensor := (*C.DLManagedTensor)(unsafe.Pointer(dataset.C_tensor))
+	var paddedView C.cuvsDatasetPaddedView_t
+	err := cuvs.CheckCuvs(cuvs.CuvsError(C.cuvsDatasetMakeDevicePaddedView(
+		C.cuvsResources_t(Resources.Resource), datasetTensor, &paddedView,
+	)))
+	if err != nil {
+		return nil, err
+	}
+	return &PaddedDatasetView{view: paddedView}, nil
+}
+
 // Destroys an owning padded dataset handle.
 func (dataset *PaddedDataset) Close() error {
 	if dataset == nil || dataset.dataset == nil {
@@ -80,6 +101,75 @@ func (view *PaddedDatasetView) Close() error {
 		return err
 	}
 	view.view = nil
+	return nil
+}
+
+// Creates a non-owning device standard dataset view from a device tensor.
+func MakeDeviceStandardDatasetView[T any](Resources cuvs.Resource, dataset *cuvs.Tensor[T]) (*StandardDatasetView, error) {
+	if dataset == nil || dataset.C_tensor == nil {
+		return nil, errors.New("dataset is nil")
+	}
+	datasetTensor := (*C.DLManagedTensor)(unsafe.Pointer(dataset.C_tensor))
+	var standardView C.cuvsDatasetStandardView_t
+	err := cuvs.CheckCuvs(cuvs.CuvsError(C.cuvsDatasetMakeDeviceStandardView(
+		C.cuvsResources_t(Resources.Resource), datasetTensor, &standardView,
+	)))
+	if err != nil {
+		return nil, err
+	}
+	return &StandardDatasetView{view: standardView}, nil
+}
+
+// Destroys a standard dataset view handle.
+func (view *StandardDatasetView) Close() error {
+	if view == nil || view.view == nil {
+		return nil
+	}
+	err := cuvs.CheckCuvs(cuvs.CuvsError(C.cuvsDatasetStandardViewDestroy(view.view)))
+	if err != nil {
+		return err
+	}
+	view.view = nil
+	return nil
+}
+
+// Converts a host-built CAGRA index to device index by attaching a caller-provided
+// device standard dataset view handle.
+func AttachDeviceStandardDatasetOnHostIndex(Resources cuvs.Resource, standardView *StandardDatasetView, index *CagraIndex) error {
+	if !index.trained {
+		return errors.New("index needs to be built before attaching device dataset")
+	}
+	if standardView == nil || standardView.view == nil {
+		return errors.New("device standard dataset view is nil")
+	}
+	err := cuvs.CheckCuvs(cuvs.CuvsError(C.cuvsCagraAttachDeviceStandardDatasetOnHostIndex(
+		C.cuvsResources_t(Resources.Resource),
+		standardView.view,
+		index.index,
+	)))
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// Converts a host-built CAGRA index to device index by attaching a caller-provided
+// device padded dataset view handle.
+func AttachDevicePaddedDatasetOnHostIndex(Resources cuvs.Resource, paddedView *PaddedDatasetView, index *CagraIndex) error {
+	if !index.trained {
+		return errors.New("index needs to be built before attaching device dataset")
+	}
+	if paddedView == nil || paddedView.view == nil {
+		return errors.New("device padded dataset view is nil")
+	}
+	err := cuvs.CheckCuvs(cuvs.CuvsError(C.cuvsCagraAttachDevicePaddedDatasetOnHostIndex(
+		C.cuvsResources_t(Resources.Resource),
+		paddedView.view,
+		index.index,
+	)))
+	if err != nil {
+		return err
+	}
 	return nil
 }
 

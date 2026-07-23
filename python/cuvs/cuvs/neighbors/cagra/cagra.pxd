@@ -221,9 +221,13 @@ cdef extern from "cuvs/neighbors/cagra.h" nogil:
         cuvsResources_t res,
         cuvsDatasetPaddedView_t padded_dataset,
         cuvsCagraIndex_t index)
-    cuvsError_t cuvsCagraAttachDeviceDatasetOnHostIndex(
+    cuvsError_t cuvsCagraAttachDeviceStandardDatasetOnHostIndex(
         cuvsResources_t res,
-        DLManagedTensor* device_dataset,
+        cuvsDatasetStandardView_t device_dataset,
+        cuvsCagraIndex_t index)
+    cuvsError_t cuvsCagraAttachDevicePaddedDatasetOnHostIndex(
+        cuvsResources_t res,
+        cuvsDatasetPaddedView_t device_dataset,
         cuvsCagraIndex_t index)
 
     cuvsError_t cuvsCagraSerialize(cuvsResources_t res,
@@ -285,6 +289,10 @@ cdef class StandardDataset:
 
 cdef class PaddedDatasetView:
     cdef cuvsDatasetPaddedView_t view
+
+
+cdef class StandardDatasetView:
+    cdef cuvsDatasetStandardView_t view
 
 
 cdef class IndexParams:

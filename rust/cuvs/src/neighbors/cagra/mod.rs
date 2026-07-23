@@ -22,7 +22,7 @@ mod params;
 
 pub use crate::neighbors::filters::{Bitset, Filter};
 pub use index::{
-    DeserializeOutput, Index, PaddedDataset, PaddedDatasetView, StandardDataset,
+    DeserializeOutput, DeviceDatasetView, Index, PaddedDataset, PaddedDatasetView, StandardDataset,
     StandardDatasetView,
 };
 pub use params::{IndexParams, SearchParams};

@@ -137,6 +137,13 @@ pub enum DeserializeOutput<'a> {
     Standard(&'a mut Option<StandardDataset>),
 }
 
+/// Typed input selector for attaching a device dataset to a host-built index.
+#[derive(Debug)]
+pub enum DeviceDatasetView<'a> {
+    Padded(&'a PaddedDatasetView),
+    Standard(&'a StandardDatasetView),
+}
+
 impl StandardDatasetView {
     /// Create a standard dataset view handle from a source dataset tensor.
     pub fn new<T>(res: &Resources, dataset: &T) -> Result<Self>
@@ -263,22 +270,40 @@ impl<'d> Index<'d> {
         Ok(())
     }
 
-    /// Converts a host-built index to a device index by attaching a device dataset.
-    pub fn attach_device_dataset_on_host_index<T>(
+    /// Converts a host-built index to a device index by attaching an explicit
+    /// device dataset view created by the caller.
+    pub fn attach_device_dataset_on_host_index(
         &mut self,
         res: &Resources,
-        device_dataset: &T,
-    ) -> Result<()>
-    where
-        T: AsDlTensor + ?Sized,
-    {
-        let device_dataset = device_dataset.as_dl_tensor()?;
+        device_dataset_view: DeviceDatasetView<'_>,
+    ) -> Result<()> {
         unsafe {
-            check_cuvs(ffi::cuvsCagraAttachDeviceDatasetOnHostIndex(
-                res.handle(),
-                device_dataset.to_c().as_mut_ptr(),
-                self.handle,
-            ))?;
+            match device_dataset_view {
+                DeviceDatasetView::Padded(padded_view) => {
+                    if padded_view.handle.is_null() {
+                        return Err(CagraError::Validation(
+                            "device dataset padded view is uninitialized".to_string(),
+                        ));
+                    }
+                    check_cuvs(ffi::cuvsCagraAttachDevicePaddedDatasetOnHostIndex(
+                        res.handle(),
+                        padded_view.handle,
+                        self.handle,
+                    ))?;
+                }
+                DeviceDatasetView::Standard(standard_view) => {
+                    if standard_view.handle.is_null() {
+                        return Err(CagraError::Validation(
+                            "device dataset standard view is uninitialized".to_string(),
+                        ));
+                    }
+                    check_cuvs(ffi::cuvsCagraAttachDeviceStandardDatasetOnHostIndex(
+                        res.handle(),
+                        standard_view.handle,
+                        self.handle,
+                    ))?;
+                }
+            }
         }
         Ok(())
     }
