@@ -7,6 +7,7 @@
 #include "../neighbors_device_intrinsics.cuh"
 
 #include <cuvs/neighbors/cagra.hpp>
+#include <cuvs/selection/select_k.hpp>
 
 #include <raft/core/copy.hpp>
 #include <raft/core/device_mdarray.hpp>
@@ -281,51 +282,6 @@ inline auto bucket_split_parents(split_plan const& plan, split_params const& par
   return buckets;
 }
 
-/** One candidate assignment of a row to a leader. Defaults to the invalid sentinel, which sorts
- * after every real candidate. */
-struct leader_candidate {
-  float distance  = std::numeric_limits<float>::max();
-  uint32_t leader = std::numeric_limits<uint32_t>::max();
-
-  __device__ auto valid() const -> bool { return leader != std::numeric_limits<uint32_t>::max(); }
-};
-
-/** Nearer candidates order first. Equal distances order by the lower leader index, keeping the
- * selection deterministic. */
-__device__ inline auto operator<(leader_candidate a, leader_candidate b) -> bool
-{
-  return a.distance < b.distance || (a.distance == b.distance && a.leader < b.leader);
-}
-
-/** Replace the worst entry in the best list if the new candidate is better. */
-__device__ inline void manyway_insert_local(leader_candidate candidate,
-                                            int fanout,
-                                            leader_candidate* best)
-{
-  int worst = 0;
-  for (int j = 1; j < fanout; ++j) {
-    if (best[worst] < best[j]) { worst = j; }
-  }
-  if (candidate < best[worst]) { best[worst] = candidate; }
-}
-
-/** Sort the selected candidates in place from the nearest to the farthest.
- *
- * This is hand-rolled because thrust::sort has an allocation and I can't get a cuda::std::sort to
- * compile. */
-__device__ inline void manyway_sort_selected(int fanout, leader_candidate* selected)
-{
-  for (int i = 1; i < fanout; ++i) {
-    leader_candidate candidate = selected[i];
-    int j                      = i;
-    while (j > 0 && candidate < selected[j - 1]) {
-      selected[j] = selected[j - 1];
-      --j;
-    }
-    selected[j] = candidate;
-  }
-}
-
 /** Write the identity membership for each dataset row. */
 static __global__ void initialize_root_memberships_kernel(partition_membership* memberships,
                                                           int64_t rows)
@@ -419,64 +375,69 @@ __global__ void manyway_gather_tile_leaders_kernel(T const* dataset,
   }
 }
 
-/** Select the nearest leaders for each tile row from the dot products. Write the child keys and
- *  memberships. One warp does one row. */
-static __global__ void manyway_select_tiles_kernel(float const* dots,
-                                                   int batch_size,
-                                                   int tile_rows,
-                                                   int padded_leaders,
-                                                   int fanout,
-                                                   int occurrence_stride,
-                                                   float const* norms,
-                                                   uint32_t const* leader_ids,
-                                                   partition_membership const* input_memberships,
-                                                   assignment_tile const* tiles,
-                                                   uint32_t* output_keys,
-                                                   partition_membership* output_memberships)
+/** Convert the batched point-leader dot products into squared L2 distances in place. Invalid
+ * padded rows and leaders become infinity so the generic selection primitive ignores them. */
+static __global__ void manyway_materialize_tile_distances_kernel(
+  float* dots,
+  int batch_size,
+  int tile_rows,
+  int padded_leaders,
+  float const* norms,
+  uint32_t const* leader_ids,
+  partition_membership const* input_memberships,
+  assignment_tile const* tiles)
 {
-  int lane           = threadIdx.x % raft::WarpSize;
-  int warp           = threadIdx.x / raft::WarpSize;
-  int64_t linear_row = static_cast<int64_t>(blockIdx.x) * ROW_WARPS_PER_BLOCK + warp;
-  int64_t total_rows = static_cast<int64_t>(batch_size) * tile_rows;
-  if (linear_row >= total_rows) { return; }
-  int batch = static_cast<int>(linear_row / tile_rows);
-  int row   = static_cast<int>(linear_row % tile_rows);
-  auto tile = tiles[batch];
-  if (row >= tile.rows) { return; }
-
-  int64_t input_index = tile.input_start + row;
-  auto membership     = input_memberships[input_index];
-  leader_candidate local_best[MAX_FANOUT];
-
-  for (int leader = lane; leader < tile.leader_count; leader += raft::WarpSize) {
-    uint32_t leader_id = leader_ids[static_cast<int64_t>(batch) * padded_leaders + leader];
-    float dot = dots[(static_cast<int64_t>(batch) * tile_rows + row) * padded_leaders + leader];
-    float distance = fmaxf(0.0f, norms[membership.id] + norms[leader_id] - 2.0f * dot);
-    manyway_insert_local(
-      {.distance = distance, .leader = static_cast<uint32_t>(leader)}, fanout, local_best);
-  }
-
-  extern __shared__ unsigned char shared_bytes[];
-  auto* shared_candidates = reinterpret_cast<leader_candidate*>(shared_bytes);
-  int shared_base         = (warp * raft::WarpSize + lane) * fanout;
-  for (int j = 0; j < fanout; ++j) {
-    shared_candidates[shared_base + j] = local_best[j];
-  }
-  __syncwarp();
-
-  if (lane == 0) {
-    leader_candidate selected[MAX_FANOUT];
-    int warp_base = warp * raft::WarpSize * fanout;
-    for (int candidate = 0; candidate < raft::WarpSize * fanout; ++candidate) {
-      if (shared_candidates[warp_base + candidate].valid()) {
-        manyway_insert_local(shared_candidates[warp_base + candidate], fanout, selected);
-      }
+  int64_t linear = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  int64_t stride = static_cast<int64_t>(blockDim.x) * gridDim.x;
+  int64_t total  = static_cast<int64_t>(batch_size) * tile_rows * padded_leaders;
+  for (; linear < total; linear += stride) {
+    int leader     = static_cast<int>(linear % padded_leaders);
+    int row        = static_cast<int>((linear / padded_leaders) % tile_rows);
+    int batch      = static_cast<int>(linear / (static_cast<int64_t>(padded_leaders) * tile_rows));
+    auto tile      = tiles[batch];
+    float distance = std::numeric_limits<float>::infinity();
+    if (row < tile.rows && leader < tile.leader_count) {
+      auto membership = input_memberships[tile.input_start + row];
+      auto leader_id =
+        leader_ids[static_cast<int64_t>(batch) * padded_leaders + static_cast<int64_t>(leader)];
+      // This could omit the point norm because it is constant across every leader in a row and
+      // select_k only depends on their relative ordering. Doing so would also require removing the
+      // nonnegative clamp because the resulting ranking scores may legitimately be negative.
+      // I'm not doing this for the sake of simplicity and because it would be unlikely to have a
+      // performance impact; we still need those norms for sorting the edges by distance.
+      distance = fmaxf(0.0f, norms[membership.id] + norms[leader_id] - 2.0f * dots[linear]);
     }
-    manyway_sort_selected(fanout, selected);
-    int64_t output_base =
-      tile.output_start + (input_index - tile.input_start) * static_cast<int64_t>(fanout);
+    dots[linear] = distance;
+  }
+}
+
+/** Write selected leader offsets as child keys and copy their point memberships. */
+static __global__ void manyway_emit_tile_assignments_kernel(
+  int const* selected_leaders,
+  int batch_size,
+  int tile_rows,
+  int fanout,
+  int occurrence_stride,
+  partition_membership const* input_memberships,
+  assignment_tile const* tiles,
+  uint32_t* output_keys,
+  partition_membership* output_memberships)
+{
+  int64_t linear = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  int64_t stride = static_cast<int64_t>(blockDim.x) * gridDim.x;
+  int64_t total  = static_cast<int64_t>(batch_size) * tile_rows;
+  for (; linear < total; linear += stride) {
+    int row   = static_cast<int>(linear % tile_rows);
+    int batch = static_cast<int>(linear / tile_rows);
+    auto tile = tiles[batch];
+    if (row >= tile.rows) { continue; }
+
+    auto membership       = input_memberships[tile.input_start + row];
+    int64_t output_base   = tile.output_start + static_cast<int64_t>(row) * fanout;
+    int64_t selected_base = linear * fanout;
     for (int rank = 0; rank < fanout; ++rank) {
-      output_keys[output_base + rank]        = tile.child_key_base + selected[rank].leader;
+      auto leader = static_cast<uint32_t>(selected_leaders[selected_base + rank]);
+      output_keys[output_base + rank]        = tile.child_key_base + leader;
       output_memberships[output_base + rank] = {
         membership.id,
         static_cast<uint16_t>(membership.occurrence + rank * occurrence_stride),
@@ -611,10 +572,9 @@ void batched_row_dot_products(raft::resources const& res,
  * Parents are cut into tiles of `assignment_tile_rows` rows; every tile in a bucket shares the
  * same padded leader count, so one strided batched GEMM per batch produces all point-leader dot
  * products. Tiles are processed in batches sized to the GEMM workspace: each batch gathers its
- * tile vectors and its parents' leader vectors into dense float buffers, and the selection kernel
- * converts dots to distances with the precomputed row norms (|x|^2 + |l|^2 - 2 x.l), keeps the
- * `fanout` nearest leaders per row (ties broken by lower leader index), and writes the child keys
- * and memberships.
+ * tile vectors and its parents' leader vectors into dense float buffers, converts dots to
+ * distances with the precomputed row norms (|x|^2 + |l|^2 - 2 x.l), uses `select_k` to keep the
+ * `fanout` nearest leaders per row, and writes the child keys and memberships.
  */
 template <typename T>
 void assign_bucket(raft::resources const& res,
@@ -640,12 +600,14 @@ void assign_bucket(raft::resources const& res,
   }
 
   // Size the batch so all per-tile buffers fit in the GEMM workspace budget
-  size_t point_elements  = static_cast<size_t>(tile_rows) * dim;
-  size_t leader_elements = static_cast<size_t>(padded_leaders) * dim;
-  size_t dot_elements    = static_cast<size_t>(tile_rows) * padded_leaders;
-  size_t bytes_per_batch = (point_elements + leader_elements + dot_elements) * sizeof(float) +
-                           static_cast<size_t>(padded_leaders) * sizeof(uint32_t) +
-                           sizeof(assignment_tile);
+  size_t point_elements    = static_cast<size_t>(tile_rows) * dim;
+  size_t leader_elements   = static_cast<size_t>(padded_leaders) * dim;
+  size_t dot_elements      = static_cast<size_t>(tile_rows) * padded_leaders;
+  size_t selected_elements = static_cast<size_t>(tile_rows) * params.fanout;
+  size_t bytes_per_batch =
+    (point_elements + leader_elements + dot_elements + selected_elements) * sizeof(float) +
+    static_cast<size_t>(padded_leaders) * sizeof(uint32_t) + selected_elements * sizeof(int) +
+    sizeof(assignment_tile);
   RAFT_EXPECTS(bytes_per_batch <= context.gemm_workspace_bytes,
                "Fastener assignment workspace is too small for one tile");
   size_t batch_capacity = std::max<size_t>(
@@ -656,12 +618,12 @@ void assign_bucket(raft::resources const& res,
   rmm::device_uvector<float> tile_leaders(batch_capacity * leader_elements, stream);
   rmm::device_uvector<float> tile_dots(batch_capacity * dot_elements, stream);
   rmm::device_uvector<uint32_t> tile_leader_ids(batch_capacity * padded_leaders, stream);
+  rmm::device_uvector<float> selected_distances(batch_capacity * selected_elements, stream);
+  rmm::device_uvector<int> selected_leaders(batch_capacity * selected_elements, stream);
 
   auto point_stride  = static_cast<int64_t>(point_elements);
   auto leader_stride = static_cast<int64_t>(leader_elements);
   auto dot_stride    = static_cast<int64_t>(dot_elements);
-  size_t selection_shared =
-    ROW_WARPS_PER_BLOCK * raft::WarpSize * params.fanout * sizeof(leader_candidate);
 
   for (size_t tile_offset = 0; tile_offset < tiles.size(); tile_offset += batch_capacity) {
     size_t batch_size = std::min(batch_capacity, tiles.size() - tile_offset);
@@ -704,25 +666,42 @@ void assign_bucket(raft::resources const& res,
                              static_cast<int>(dim),
                              static_cast<int>(batch_size));
 
-    // Keep each row's `fanout` nearest leaders and write child keys and memberships
-    int selection_blocks =
-      static_cast<int>((static_cast<int64_t>(batch_size) * tile_rows + ROW_WARPS_PER_BLOCK - 1) /
-                       ROW_WARPS_PER_BLOCK);
-    manyway_select_tiles_kernel<<<selection_blocks,
-                                  ROW_WARPS_PER_BLOCK * raft::WarpSize,
-                                  selection_shared,
-                                  stream>>>(tile_dots.data(),
-                                            static_cast<int>(batch_size),
-                                            tile_rows,
-                                            padded_leaders,
-                                            static_cast<int>(params.fanout),
-                                            static_cast<int>(params.occurrence_stride),
-                                            context.norms.data(),
-                                            tile_leader_ids.data(),
-                                            parents.memberships.data(),
-                                            device_tiles.data(),
-                                            keys.data(),
-                                            memberships.data());
+    // Materialize distances, keep each row's nearest leaders, and emit their memberships
+    int64_t selection_rows = static_cast<int64_t>(batch_size) * tile_rows;
+    int distance_blocks    = strided_grid_size(selection_rows * padded_leaders);
+    manyway_materialize_tile_distances_kernel<<<distance_blocks, THREADS_PER_BLOCK, 0, stream>>>(
+      tile_dots.data(),
+      static_cast<int>(batch_size),
+      tile_rows,
+      padded_leaders,
+      context.norms.data(),
+      tile_leader_ids.data(),
+      parents.memberships.data(),
+      device_tiles.data());
+    RAFT_CUDA_TRY(cudaGetLastError());
+
+    cuvs::selection::select_k(res,
+                              raft::make_device_matrix_view<const float, int64_t>(
+                                tile_dots.data(), selection_rows, padded_leaders),
+                              std::nullopt,
+                              raft::make_device_matrix_view<float, int64_t>(
+                                selected_distances.data(), selection_rows, params.fanout),
+                              raft::make_device_matrix_view<int, int64_t>(
+                                selected_leaders.data(), selection_rows, params.fanout),
+                              true,
+                              true);
+
+    int assignment_blocks = strided_grid_size(selection_rows);
+    manyway_emit_tile_assignments_kernel<<<assignment_blocks, THREADS_PER_BLOCK, 0, stream>>>(
+      selected_leaders.data(),
+      static_cast<int>(batch_size),
+      tile_rows,
+      static_cast<int>(params.fanout),
+      static_cast<int>(params.occurrence_stride),
+      parents.memberships.data(),
+      device_tiles.data(),
+      keys.data(),
+      memberships.data());
     RAFT_CUDA_TRY(cudaGetLastError());
   }
 }
