@@ -45,7 +45,7 @@ struct params : base_params {
   int batch_samples;
   int batch_centroids;
   int64_t init_size;
-  int64_t streaming_batch_size;
+  int64_t device_buffer_samples;
 };
 ```
 
@@ -61,10 +61,10 @@ struct params : base_params {
 | `rng_state` | `raft::random::RngState` | Seed to the random number generator. |
 | `n_init` | `int` | Number of instance k-means algorithm will be run with different seeds. |
 | `oversampling_factor` | `double` | Oversampling factor for use in the k-means\|\| algorithm |
-| `batch_samples` | `int` | batch_samples and batch_centroids are used to tile 1NN computation which is useful to optimize/control the memory footprint<br />Default tile is [batch_samples x n_clusters] i.e. when batch_centroids is 0 then don't tile the centroids<br /><br />NB: These parameters are unrelated to streaming_batch_size, which controls how many samples to transfer from host to device per batch when processing out-of-core data. |
+| `batch_samples` | `int` | batch_samples and batch_centroids are used to tile 1NN computation which is useful to optimize/control the memory footprint<br />Default tile is [batch_samples x n_clusters] i.e. when batch_centroids is 0 then don't tile the centroids<br /><br />NB: These parameters are unrelated to device_buffer_samples, which controls how many samples to transfer from host to device per batch when processing out-of-core data. |
 | `batch_centroids` | `int` | if 0 then batch_centroids = n_clusters |
 | `init_size` | `int64_t` | Number of samples to randomly draw for the KMeansPlusPlus initialization step. A random subset of this size is used for centroid seeding.<br /><br />Only applies when dataset is on host; for device data the full dataset is always used for seeding and this parameter is ignored.<br /><br />When set to 0 (default) with host data uses `min(3 * n_clusters, n_samples)` as a default.<br /><br />In Batched multi-GPU host-data fits, the effective KMeansPlusPlus initialization sample is materialized on device on every rank. Every rank must have enough GPU memory for this sample, and rank 0 must also have enough GPU memory for the seeding workspace.<br /><br />Default: 0. |
-| `streaming_batch_size` | `int64_t` | Number of samples to process per GPU batch when fitting with host data. When set to 0, defaults to n_samples (process all at once). Only used by the batched (host-data) code path and ignored by device-data overloads.<br /><br />In multi-GPU mode, this is a per-rank batch size. Each rank processes up to this many local samples per batch, clamped to that rank's local sample count.<br />Default: 0 (process all data at once). |
+| `device_buffer_samples` | `int64_t` | Number of samples to process per GPU batch when fitting with host data. When set to 0, defaults to n_samples (process all at once). Only used by the batched (host-data) code path and ignored by device-data overloads.<br /><br />In multi-GPU mode, this is a per-rank batch size. Each rank processes up to this many local samples per batch, clamped to that rank's local sample count.<br />Default: 0 (process all data at once). |
 
 <a id="cluster-kmeans-balanced-params"></a>
 ### cluster::kmeans::balanced_params
@@ -128,7 +128,7 @@ raft::host_scalar_view<int64_t> n_iter);
 
 TODO: Evaluate replacing the extent type with int64_t. Reference issue: https://github.com/rapidsai/cuvs/issues/1961
 
-This overload supports out-of-core computation where the dataset resides on the host. Data is processed in GPU-sized batches, streaming from host to device. The batch size is controlled by params.streaming_batch_size. In multi-GPU mode, this is a per-rank batch size.
+This overload supports out-of-core computation where the dataset resides on the host. Data is processed in GPU-sized batches, streaming from host to device. The batch size is controlled by params.device_buffer_samples. In multi-GPU mode, this is a per-rank batch size.
 
 Multi-GPU dispatch is selected automatically based on the handle state:
 
@@ -143,7 +143,7 @@ With `params.init == InitMethod::KMeansPlusPlus` in multi-GPU mode, the effectiv
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `handle` | in | `raft::resources const&` | The raft handle. When a multi-GPU resource is attached, multi-GPU dispatch is used automatically. |
-| `params` | in | [`const cuvs::cluster::kmeans::params&`](/api-reference/cpp-api-cluster-kmeans#cluster-kmeans-params) | Parameters for KMeans model. Batch size is read from params.streaming_batch_size. |
+| `params` | in | [`const cuvs::cluster::kmeans::params&`](/api-reference/cpp-api-cluster-kmeans#cluster-kmeans-params) | Parameters for KMeans model. Batch size is read from params.device_buffer_samples. |
 | `X` | in | `raft::host_matrix_view<const float, int64_t>` | Training instances on HOST memory. The data must be in row-major format. [dim = n_samples x n_features] |
 | `sample_weight` | in | `std::optional<raft::host_vector_view<const float, int64_t>>` | Optional weights for each observation in X (on host). [len = n_samples] |
 | `centroids` | inout | `raft::device_matrix_view<float, int64_t>` | [in] When init is InitMethod::Array, use centroids as the initial cluster centers. [out] The generated centroids from the kmeans algorithm are stored at the address pointed by 'centroids'. [dim = n_clusters x n_features] |
