@@ -204,9 +204,8 @@ repos:
         additional_dependencies: [pyyaml]
         exclude: |
           (?x)^(
-            [.]clang-format$|
             conda/environments/.*|
-            cpp/[.]clang-format|
+            cpp/[.]clang-format$|
             cpp/[.]clang-tidy$
           )
   - repo: https://github.com/zizmorcore/zizmor-pre-commit
