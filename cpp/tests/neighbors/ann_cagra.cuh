@@ -37,6 +37,7 @@
 #include <thrust/sequence.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
@@ -1077,11 +1078,18 @@ class AnnCagraFilterTest : public ::testing::TestWithParam<AnnCagraInputs> {
                         bloom_match_count,
                         bloom_total_count,
                         target_false_positive_rate);
-          auto bloom_recall_slack = std::max(1.0, 0.01 * static_cast<double>(bloom_total_count)) /
-                                    static_cast<double>(bloom_total_count);
-          auto bloom_min_recall = std::max(
-            0.0,
-            ps.min_recall - static_cast<double>(target_false_positive_rate) - bloom_recall_slack);
+          auto required_baseline_matches = static_cast<std::size_t>(
+            std::ceil(ps.min_recall * static_cast<double>(bloom_total_count)));
+          auto fpr_slack_matches = static_cast<std::size_t>(
+            std::ceil(static_cast<double>(target_false_positive_rate) * bloom_total_count));
+          auto recall_slack_matches = std::max<std::size_t>(
+            1, static_cast<std::size_t>(std::ceil(0.01 * static_cast<double>(bloom_total_count))));
+          auto permitted_misses       = fpr_slack_matches + recall_slack_matches;
+          auto required_bloom_matches = required_baseline_matches > permitted_misses
+                                          ? required_baseline_matches - permitted_misses
+                                          : 0;
+          auto bloom_min_recall =
+            static_cast<double>(required_bloom_matches) / static_cast<double>(bloom_total_count);
           EXPECT_GE(bloom_recall, bloom_min_recall);
         }
       }
