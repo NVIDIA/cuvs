@@ -263,11 +263,14 @@ __global__ void pack_and_compute_factors_kernel(
     xu_sq += xu * xu;
   }
 
-  // Perform parallel reduction within the block
-  l2_sqr       = blockReduceSum(l2_sqr);
-  ip_resi_xucb = blockReduceSum(ip_resi_xucb);
-  ip_cent_xucb = blockReduceSum(ip_cent_xucb);
-  xu_sq        = blockReduceSum(xu_sq);
+  // Fused single-pass reduction of the four factor components: one call over its own
+  // shared scratch, so no back-to-back scratch reuse and no inter-call __syncthreads.
+  float reduce_buf[4] = {l2_sqr, ip_resi_xucb, ip_cent_xucb, xu_sq};
+  blockReduceSumN<4>(reduce_buf);
+  l2_sqr       = reduce_buf[0];
+  ip_resi_xucb = reduce_buf[1];
+  ip_cent_xucb = reduce_buf[2];
+  xu_sq        = reduce_buf[3];
 
   // Thread 0 performs the final calculations and writes the factors
   if (threadIdx.x == 0) {
@@ -401,11 +404,14 @@ __global__ void exrabitq_fused_kernel_batch(
     xu_sq += xu * xu;
   }
 
-  // Perform parallel reductions for all factor components
-  l2_sqr       = blockReduceSum(l2_sqr);
-  ip_resi_xucb = blockReduceSum(ip_resi_xucb);
-  ip_cent_xucb = blockReduceSum(ip_cent_xucb);
-  xu_sq        = blockReduceSum(xu_sq);
+  // Fused single-pass reduction of the four factor components: one call over its own
+  // shared scratch, so no back-to-back scratch reuse and no inter-call __syncthreads.
+  float reduce_buf[4] = {l2_sqr, ip_resi_xucb, ip_cent_xucb, xu_sq};
+  blockReduceSumN<4>(reduce_buf);
+  l2_sqr       = reduce_buf[0];
+  ip_resi_xucb = reduce_buf[1];
+  ip_cent_xucb = reduce_buf[2];
+  xu_sq        = reduce_buf[3];
 
   // Thread 0 computes and writes the final factors
   if (tid == 0) {
@@ -1145,11 +1151,14 @@ __global__ void exrabitq_fused_kernel_batch_ori(
     xu_sq += xu * xu;
   }
 
-  // Perform parallel reductions for all factor components
-  l2_sqr       = blockReduceSum(l2_sqr);
-  ip_resi_xucb = blockReduceSum(ip_resi_xucb);
-  ip_cent_xucb = blockReduceSum(ip_cent_xucb);
-  xu_sq        = blockReduceSum(xu_sq);
+  // Fused single-pass reduction of the four factor components: one call over its own
+  // shared scratch, so no back-to-back scratch reuse and no inter-call __syncthreads.
+  float reduce_buf[4] = {l2_sqr, ip_resi_xucb, ip_cent_xucb, xu_sq};
+  blockReduceSumN<4>(reduce_buf);
+  l2_sqr       = reduce_buf[0];
+  ip_resi_xucb = reduce_buf[1];
+  ip_cent_xucb = reduce_buf[2];
+  xu_sq        = reduce_buf[3];
 
   // Thread 0 computes and writes the final factors
   if (tid == 0) {
