@@ -617,7 +617,7 @@ inline filtered_search_path select_filtered_search_path(
 {
   // SDDMM competes against a fixed setup cost, so it stops paying off at an absolute row
   // count rather than at a fraction of the dataset.
-  constexpr int64_t kSddmmMaxPassingRows = 10000;
+  constexpr int64_t kSddmmMaxPassingRows = 2000;
   constexpr double kSddmmMaxSelectivity  = 0.03;
   // Gathering trades memory traffic (proportional to dim) against a GEMM (proportional to
   // n_dataset), and cannot beat simply GEMMing everything once most rows pass.
