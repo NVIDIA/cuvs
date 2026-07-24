@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -310,12 +310,16 @@ std::enable_if_t<hierarchy == HnswHierarchy::CPU, std::unique_ptr<index<T>>> fro
   for (size_t i = 0; i < static_cast<size_t>(host_graph_view.extent(0)); ++i) {
     auto hnsw_internal_id = appr_algo->label_lookup_.find(i)->second;
     auto ll_i             = appr_algo->get_linklist0(hnsw_internal_id);
-    appr_algo->setListCount(ll_i, host_graph_view.extent(1));
-    auto* data = (uint32_t*)(ll_i + 1);
+    size_t actual_count   = 0;
+    auto* data            = (uint32_t*)(ll_i + 1);
     for (size_t j = 0; j < static_cast<size_t>(host_graph_view.extent(1)); ++j) {
-      auto neighbor_internal_id = appr_algo->label_lookup_.find(host_graph(i, j))->second;
-      data[j]                   = neighbor_internal_id;
+      auto neighbor_id = host_graph(i, j);
+      if (neighbor_id == static_cast<uint32_t>(-1)) { break; }
+      auto neighbor_internal_id = appr_algo->label_lookup_.find(neighbor_id)->second;
+      data[actual_count]        = neighbor_internal_id;
+      actual_count++;
     }
+    appr_algo->setListCount(ll_i, actual_count);
   }
 
   hnsw_index->set_index(std::move(appr_algo));
@@ -543,9 +547,17 @@ void serialize_to_hnswlib_batched(raft::resources const& res,
     for (int64_t batch_idx = 0; batch_idx < current_batch_size; batch_idx++) {
       const int64_t i = batch_start + batch_idx;
 
-      os.write(reinterpret_cast<char*>(&graph_degree_int), sizeof(int));
-
+      // Variable-degree graphs pad unused neighbor slots with kInvalidNeighbor; the per-node
+      // hnswlib link-list size is the number of valid neighbors before the first sentinel.
       const IdxT* graph_row = &graph_buffer(batch_idx, 0);
+      int actual_degree_int = graph_degree_int;
+      for (int gj = 0; gj < graph_degree_int; gj++) {
+        if (graph_row[gj] == cuvs::neighbors::cagra::kInvalidNeighbor<IdxT>) {
+          actual_degree_int = gj;
+          break;
+        }
+      }
+      os.write(reinterpret_cast<char*>(&actual_degree_int), sizeof(int));
       os.write(reinterpret_cast<const char*>(graph_row), sizeof(IdxT) * graph_degree_int);
 
       if (odd_graph_degree) {
@@ -1123,14 +1135,21 @@ std::enable_if_t<hierarchy == HnswHierarchy::GPU, std::unique_ptr<index<T>>> fro
   // iterate over the points in the descending order of their levels
   for (size_t pt_level = hist.size() - 1; pt_level >= 1; pt_level--) {
     common::nvtx::range<common::nvtx::domain::cuvs> level_scope("level %zu", pt_level);
-    auto start_idx     = offsets[pt_level - 1];
-    auto end_idx       = offsets[hist.size() - 1];
-    auto num_pts       = end_idx - start_idx;
-    auto neighbor_size = num_pts > appr_algo->M_ ? appr_algo->M_ : num_pts - 1;
+    auto start_idx = offsets[pt_level - 1];
+    auto end_idx   = offsets[hist.size() - 1];
+    auto num_pts   = end_idx - start_idx;
     if (num_pts <= 1) {
       // this means only 1 point in the level
       continue;
     }
+
+    // Final per-layer degree (capped at the upper-layer limit maxM_ == M_) and the
+    // denser intermediate kNN degree we prune from (capped at maxM0_ == 2*M_). This
+    // mirrors CAGRA's own build_knn_graph -> optimize pipeline: build a richer kNN
+    // graph, then prune detourable edges and add reverse edges down to the target
+    // degree. Both are clamped so a tiny top layer is at most fully connected.
+    const int64_t knn_degree = std::min<int64_t>(appr_algo->maxM0_, num_pts - 1);
+    const int64_t out_degree = std::min<int64_t>(appr_algo->maxM_, knn_degree);
 
     // gather points from dataset to form query set on host
     auto host_query_set = raft::make_host_matrix<T, int64_t>(num_pts, dim);
@@ -1145,11 +1164,21 @@ std::enable_if_t<hierarchy == HnswHierarchy::GPU, std::unique_ptr<index<T>>> fro
     }
 
     // find neighbors of the query set
-    auto host_neighbors = raft::make_host_matrix<uint32_t, int64_t>(num_pts, neighbor_size);
-    all_neighbors_graph(res,
-                        raft::make_const_mdspan(host_query_set.view()),
-                        host_neighbors.view(),
-                        cagra_index.metric());
+    auto host_neighbors = raft::make_host_matrix<uint32_t, int64_t>(num_pts, out_degree);
+    if (knn_degree > out_degree) {
+      // Build a denser intermediate kNN graph, then prune it down to out_degree with
+      // variable degree disabled (mirrors CAGRA's build_knn_graph -> optimize). The
+      // constant-degree optimize output is full fixed degree with no invalid padding.
+      auto host_knn = raft::make_host_matrix<uint32_t, int64_t>(num_pts, knn_degree);
+      all_neighbors_graph(
+        res, raft::make_const_mdspan(host_query_set.view()), host_knn.view(), cagra_index.metric());
+      cuvs::neighbors::cagra::helpers::optimize(res, host_knn.view(), host_neighbors.view());
+    } else {
+      all_neighbors_graph(res,
+                          raft::make_const_mdspan(host_query_set.view()),
+                          host_neighbors.view(),
+                          cagra_index.metric());
+    }
 
     {
       common::nvtx::range<common::nvtx::domain::cuvs> copy_scope(
@@ -1186,12 +1215,16 @@ std::enable_if_t<hierarchy == HnswHierarchy::GPU, std::unique_ptr<index<T>>> fro
     common::nvtx::range<common::nvtx::domain::cuvs> copy_scope("get_linklist0<host>");
 #pragma omp parallel for num_threads(num_threads)
     for (int64_t i = 0; i < n_rows; i++) {
-      auto ll_i = appr_algo->get_linklist0(i);
-      appr_algo->setListCount(ll_i, degree);
-      auto* data = (uint32_t*)(ll_i + 1);
+      auto ll_i            = appr_algo->get_linklist0(i);
+      auto* data           = (uint32_t*)(ll_i + 1);
+      int64_t actual_count = 0;
       for (int64_t j = 0; j < degree; j++) {
-        data[j] = graph_ptr[i * degree + j];
+        auto neighbor_id = graph_ptr[i * degree + j];
+        if (neighbor_id == cuvs::neighbors::cagra::kInvalidNeighbor<uint32_t>) { break; }
+        data[actual_count] = neighbor_id;
+        actual_count++;
       }
+      appr_algo->setListCount(ll_i, actual_count);
     }
   } else {
     common::nvtx::range<common::nvtx::domain::cuvs> copy_scope("get_linklist0<device>");
@@ -1203,11 +1236,20 @@ std::enable_if_t<hierarchy == HnswHierarchy::GPU, std::unique_ptr<index<T>>> fro
                                     n_rows,
                                     cudaMemcpyDefault,
                                     raft::resource::get_cuda_stream(res)));
+    raft::resource::sync_stream(res);
 #pragma omp parallel for num_threads(num_threads)
     for (int64_t i = 0; i < n_rows; i++) {
-      appr_algo->setListCount(appr_algo->get_linklist0(i), degree);
+      auto ll_i            = appr_algo->get_linklist0(i);
+      auto* data           = (uint32_t*)(ll_i + 1);
+      int64_t actual_count = degree;
+      for (int64_t j = 0; j < degree; j++) {
+        if (data[j] == cuvs::neighbors::cagra::kInvalidNeighbor<uint32_t>) {
+          actual_count = j;
+          break;
+        }
+      }
+      appr_algo->setListCount(ll_i, actual_count);
     }
-    raft::resource::sync_stream(res);
   }
   hnsw_index->set_index(std::move(appr_algo));
   return hnsw_index;

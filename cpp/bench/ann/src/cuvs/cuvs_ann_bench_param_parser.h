@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -341,49 +341,57 @@ void parse_build_param(const nlohmann::json& conf, cuvs::neighbors::cagra::index
     params.guarantee_connectivity = conf.at("guarantee_connectivity");
   }
 
-  // Override the graph_build_algo if requested explicitly
-  if (conf.contains("graph_build_algo")) {
-    if (conf.at("graph_build_algo") == "IVF_PQ") {
-      if (!std::holds_alternative<cuvs::neighbors::graph_build_params::ivf_pq_params>(
-            params.graph_build_params)) {
-        params.graph_build_params = cuvs::neighbors::graph_build_params::ivf_pq_params{};
-      }
-    } else if (conf.at("graph_build_algo") == "NN_DESCENT") {
-      if (!std::holds_alternative<cuvs::neighbors::graph_build_params::nn_descent_params>(
-            params.graph_build_params)) {
-        params.graph_build_params = cuvs::neighbors::graph_build_params::nn_descent_params{};
-      }
-    } else if (conf.at("graph_build_algo") == "ACE") {
-      if (!std::holds_alternative<cuvs::neighbors::graph_build_params::ace_params>(
-            params.graph_build_params)) {
-        params.graph_build_params = cuvs::neighbors::graph_build_params::ace_params{};
-      }
-    } else if (conf.at("graph_build_algo") == "ITERATIVE_SEARCH") {
-      if (!std::holds_alternative<cuvs::neighbors::graph_build_params::iterative_search_params>(
-            params.graph_build_params)) {
-        params.graph_build_params = cuvs::neighbors::graph_build_params::iterative_search_params{};
-      }
-    }
+  if (conf.contains("variable_graph_degree_fraction")) {
+    params.variable_graph_degree_fraction = conf.at("variable_graph_degree_fraction");
   }
 
-  // Parse build-algo-specific parameters and use them to decide on the algo type
+  // Extract build-algo-specific parameters
   nlohmann::json ivf_pq_build_conf  = collect_conf_with_prefix(conf, "ivf_pq_build_");
   nlohmann::json ivf_pq_search_conf = collect_conf_with_prefix(conf, "ivf_pq_search_");
   nlohmann::json nn_descent_conf    = collect_conf_with_prefix(conf, "nn_descent_");
   nlohmann::json ace_conf           = collect_conf_with_prefix(conf, "ace_");
 
-  // When graph_build_algo is not specified, leave graph_build_params as monostate so the
-  // CAGRA build uses AUTO selection (NN_DESCENT or IVF_PQ based on dataset/heuristics).
-  // Only infer from algo-specific config keys when present.
-  if (std::holds_alternative<std::monostate>(params.graph_build_params)) {
+  // Determine and initialize graph build algorithm.
+  // Priority 1: explicit "graph_build_algo" config key.
+  // Priority 2: infer from algorithm-specific prefixed config keys (only when monostate).
+  // Priority 3: leave as-is (from prior heuristics or monostate for AUTO at build time).
+  std::string graph_build_algo;
+  if (conf.contains("graph_build_algo")) {
+    graph_build_algo = conf.at("graph_build_algo");
+  } else if (std::holds_alternative<std::monostate>(params.graph_build_params)) {
     if (!ivf_pq_build_conf.empty() || !ivf_pq_search_conf.empty()) {
-      params.graph_build_params = cuvs::neighbors::graph_build_params::ivf_pq_params{};
+      graph_build_algo = "IVF_PQ";
     } else if (!nn_descent_conf.empty()) {
-      params.graph_build_params = cuvs::neighbors::graph_build_params::nn_descent_params{};
+      graph_build_algo = "NN_DESCENT";
     } else if (!ace_conf.empty()) {
-      params.graph_build_params = cuvs::neighbors::graph_build_params::ace_params{};
+      graph_build_algo = "ACE";
     }
     // else: leave as monostate → AUTO in cagra_build.cuh
+  }
+
+  if (!graph_build_algo.empty()) {
+    if (graph_build_algo == "IVF_PQ") {
+      if (!std::holds_alternative<cuvs::neighbors::graph_build_params::ivf_pq_params>(
+            params.graph_build_params)) {
+        params.graph_build_params = cuvs::neighbors::graph_build_params::ivf_pq_params{};
+      }
+    } else if (graph_build_algo == "NN_DESCENT") {
+      if (!std::holds_alternative<cuvs::neighbors::graph_build_params::nn_descent_params>(
+            params.graph_build_params)) {
+        params.graph_build_params = cuvs::neighbors::graph_build_params::nn_descent_params(
+          params.intermediate_graph_degree, params.metric);
+      }
+    } else if (graph_build_algo == "ACE") {
+      if (!std::holds_alternative<cuvs::neighbors::graph_build_params::ace_params>(
+            params.graph_build_params)) {
+        params.graph_build_params = cuvs::neighbors::graph_build_params::ace_params{};
+      }
+    } else if (graph_build_algo == "ITERATIVE_SEARCH") {
+      if (!std::holds_alternative<cuvs::neighbors::graph_build_params::iterative_search_params>(
+            params.graph_build_params)) {
+        params.graph_build_params = cuvs::neighbors::graph_build_params::iterative_search_params{};
+      }
+    }
   }
 
   // Apply build-algo-specific parameters

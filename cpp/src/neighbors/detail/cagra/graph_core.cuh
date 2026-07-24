@@ -1,11 +1,13 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
 
 #include "cagra_helpers.hpp"
 #include "utils.hpp"
+
+#include <cuvs/neighbors/cagra.hpp>
 
 #include <raft/core/copy.cuh>
 #include <raft/core/device_mdspan.hpp>
@@ -14,7 +16,9 @@
 #include <raft/core/mdspan.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resources.hpp>
+#include <raft/linalg/reduce.cuh>
 #include <raft/matrix/init.cuh>
+#include <raft/stats/mean.cuh>
 
 // TODO: This shouldn't be invoking anything from spatial/knn
 #include "../../../core/nvtx.hpp"
@@ -174,22 +178,30 @@ __global__ void kern_sort(const DATA_T* const dataset,  // [dataset_chunk_size, 
   }
 }
 
-template <typename IdxT, typename OutputMatrixView>
+// `output_graph` may be either the full 2D graph ([graph_size, degree], indexed with column `k`)
+// or a single pre-extracted column passed as a 1D vector ([graph_size], indexed by row only). The
+// rank is inspected at compile time; `k` is always the logical column index and is used for the
+// natural-degree mask regardless of the view rank.
+template <typename IdxT, typename OutputView>
 __global__ void kern_make_rev_graph_k(
-  OutputMatrixView output_graph,                                // [graph_size, degree]
-  raft::device_matrix_view<IdxT, int64_t> rev_graph,            // [graph_size, degree]
+  OutputView output_graph,                            // [graph_size, degree] or [graph_size]
+  raft::device_matrix_view<IdxT, int64_t> rev_graph,  // [graph_size, degree]
   raft::device_vector_view<uint32_t, int64_t> rev_graph_count,  // [graph_size]
   uint64_t k)
 {
   const uint64_t tid  = threadIdx.x + (blockDim.x * blockIdx.x);
   const uint64_t tnum = blockDim.x * gridDim.x;
 
-  const uint64_t graph_size          = rev_graph.extent(0);
-  const uint32_t rev_graph_degree    = rev_graph.extent(1);
-  const uint32_t output_graph_degree = output_graph.extent(1);
+  const uint64_t graph_size       = rev_graph.extent(0);
+  const uint32_t rev_graph_degree = rev_graph.extent(1);
 
   for (uint64_t src_id = tid; src_id < graph_size; src_id += tnum) {
-    IdxT dest_id = output_graph(src_id, k);
+    IdxT dest_id;
+    if constexpr (OutputView::rank() == 2) {
+      dest_id = output_graph(src_id, k);
+    } else {
+      dest_id = output_graph(src_id);
+    }
     if (dest_id >= graph_size) continue;
 
     const uint32_t pos = atomicAdd(&rev_graph_count(dest_id), 1);
@@ -202,13 +214,26 @@ __global__ void kern_make_rev_graph_k(
 // layout_stride (the result of cuda::std::submdspan), and any accessor that is
 // device-accessible (default_accessor, raft::host_device_accessor with a
 // device-accessible memory_type, etc.).
-template <class IdxT, uint32_t num_warps, class KnnGraphView, class OutputGraphView>
+//
+// When VariableDegree is true, the kernel additionally writes a per-node
+// "natural degree" (count of low-detour edges) into d_natural_degree.
+// target_pruned_degree is the user-provided floor controlling where the natural
+// detour-band boundary is detected (see comments in optimize()). When
+// VariableDegree is false, d_natural_degree and target_pruned_degree are unused
+// and the kernel behaves identically to its pre-feature form.
+template <class IdxT,
+          uint32_t num_warps,
+          bool VariableDegree,
+          class KnnGraphView,
+          class OutputGraphView>
 __global__ void kern_fused_prune(KnnGraphView knn_graph,        // [graph_chunk_size, graph_degree]
                                  OutputGraphView output_graph,  // [batch_size, output_graph_degree]
                                  const uint32_t batch_size,
                                  const uint32_t batch_id,
                                  uint32_t* const d_invalid_neighbor_list,
-                                 uint64_t* const stats)
+                                 uint64_t* const stats,
+                                 raft::device_vector_view<uint32_t, int64_t> d_natural_degree,
+                                 const uint32_t target_pruned_degree)
 {
   // Check assumption we have at least one warp per row of the batch
   assert(blockDim.x == raft::WarpSize * num_warps);
@@ -297,6 +322,15 @@ __global__ void kern_fused_prune(KnnGraphView knn_graph,        // [graph_chunk_
   }
 #endif
 
+  // Detour level recorded at iteration (target_pruned_degree - 1). The natural-degree boundary is
+  // the first iteration `i >= target_pruned_degree` for which warp_min_count strictly exceeds
+  // this level. Initialized to maxval16 so the comparison below is well-defined before we reach
+  // the target index.
+  uint32_t target_detour_level = maxval16;
+  // Final natural degree to write back to global memory; the default `output_graph_degree` means
+  // "all edges fit under the target detour level" (i.e. no padding will be needed).
+  uint32_t natural_degree = output_graph_degree;
+
   for (uint32_t i = 0; i < output_graph_degree; i++) {
     uint32_t local_min = maxval16;
     uint32_t local_idx = maxval16;
@@ -317,6 +351,17 @@ __global__ void kern_fused_prune(KnnGraphView knn_graph,        // [graph_chunk_
       break;
     }
 
+    if constexpr (VariableDegree) {
+      if (i + 1 == target_pruned_degree) {
+        // Freeze the detour level after we've placed exactly target_pruned_degree edges.
+        target_detour_level = warp_min_count;
+      } else if (i >= target_pruned_degree && warp_min_count > target_detour_level &&
+                 natural_degree == output_graph_degree) {
+        // The detour level just rose above the target band. Record the natural degree once.
+        natural_degree = i;
+      }
+    }
+
     IdxT selected_node = smem_indices[warp_local_idx];
 
     for (uint32_t k = lane_id; k < knn_graph_degree; k += raft::WarpSize) {
@@ -326,6 +371,19 @@ __global__ void kern_fused_prune(KnnGraphView knn_graph,        // [graph_chunk_
 
     if (lane_id == 0) { output_graph(nid_batch, i) = selected_node; }
   }
+
+  if constexpr (VariableDegree) {
+    if (lane_id == 0) { d_natural_degree(nid) = natural_degree; }
+  }
+}
+
+// Cheap stateless integer hash (PCG-style mixing) used for deterministic, warp-uniform thinning of
+// reverse-graph edges during the merge step.
+__device__ __forceinline__ uint32_t mix_hash(uint32_t x)
+{
+  x             = x * 747796405u + 2891336453u;
+  uint32_t word = ((x >> ((x >> 28u) + 4u)) ^ x) * 277803737u;
+  return (word >> 22u) ^ word;
 }
 
 // Helper functions for merging the graph
@@ -367,8 +425,16 @@ __device__ void warp_shift_array_one_right(uint32_t lane_id, T* array, uint64_t 
 // OutputGraphView, MstGraphView and MstNumEdgesView are 2D mdspans that may
 // have layout_right or layout_stride and any device-accessible accessor; see
 // the comment on kern_fused_prune for details.
+//
+// When VariableDegree is true, `d_natural_degree` (size graph_size) drives:
+//   * the per-node `effective_degree` used to cap `num_protected_edges`
+//   * the `kInvalidNeighbor` sentinel padding for slots past the final degree
+//   * the write-back of the final effective degree
+//   * popularity-based thinning of reverse-graph candidates (see the merge loop)
+// When VariableDegree is false, the parameter is unused (and may be a default view).
 template <typename IdxT,
           uint32_t num_warps,
+          bool VariableDegree,
           class OutputGraphView,
           class MstGraphView,
           class MstNumEdgesView>
@@ -381,7 +447,8 @@ __global__ void kern_merge_graph(
   const uint32_t batch_size,
   const uint32_t batch_id,
   bool guarantee_connectivity,
-  uint32_t* check_num_protected_edges)
+  raft::device_scalar_view<uint32_t> check_num_protected_edges,
+  raft::device_vector_view<uint32_t, int64_t> d_natural_degree)
 {
   // Check assumption we have at least one warp per row of the batch
   assert(blockDim.x == raft::WarpSize * num_warps);
@@ -404,6 +471,10 @@ __global__ void kern_merge_graph(
                        (static_cast<uint64_t>(batch_size) * static_cast<uint64_t>(batch_id));
 
   if (nid >= graph_size) { return; }
+
+  // Per-node "in" degree before reverse-graph back-fill. In the constant-degree path this is just
+  // `output_graph_degree`. In the variable-degree path it comes from the prune step.
+  uint32_t effective_degree = VariableDegree ? d_natural_degree(nid) : output_graph_degree;
 
   const auto current_mst_graph_num_edges =
     guarantee_connectivity ? mst_graph_num_edges(nid_batch, 0) : 0;
@@ -442,20 +513,43 @@ __global__ void kern_merge_graph(
     __syncwarp();
   }
 
-  const auto num_protected_edges = max(current_mst_graph_num_edges, output_graph_degree / 2);
+  // In the variable-degree path, `num_protected_edges` is additionally capped by the per-node
+  // `effective_degree`: protecting more than the natural degree would prevent rev-graph edges
+  // from being inserted (since they always go into slot `num_protected_edges`) and would mask
+  // them with the prune-step contents that have not yet been validated as kept.
+  const auto num_protected_edges =
+    max(current_mst_graph_num_edges, min(effective_degree, output_graph_degree / 2));
 
-  if (num_protected_edges > output_graph_degree) {
-    check_num_protected_edges[0] = 0u;
+  if (num_protected_edges > effective_degree) {
+    check_num_protected_edges(0) = 0u;
     return;
   }
-  if (num_protected_edges == output_graph_degree) { return; }
+  // Variable-degree path always needs to write the -1 padding (and write-back natural_degree),
+  // so we cannot early-return like the constant-degree path does when there is no room to insert.
+  if constexpr (!VariableDegree) {
+    if (num_protected_edges == output_graph_degree) { return; }
+  }
 
-  auto kr = min(rev_graph_count(nid), output_graph_degree);
+  const auto my_in_degree = rev_graph_count(nid);
+  const auto ed0          = effective_degree;
+  auto kr                 = min(my_in_degree, output_graph_degree);
 
   while (kr) {
     kr -= 1;
     const auto rev_graph_value = rev_graph(nid, kr);
     if (rev_graph_value < graph_size) {
+      if constexpr (VariableDegree) {
+        const uint32_t in_degree = rev_graph_count(rev_graph_value);
+        if (my_in_degree < output_graph_degree * 2 || in_degree < output_graph_degree * 2) {
+          // Don't prune highways (edges between high in-degree nodes)
+          // P(skipping the edge) = a / b
+          const uint32_t a = output_graph_degree + ed0;
+          const uint32_t b = output_graph_degree * 2;
+          const uint32_t r = mix_hash(static_cast<uint32_t>(nid) * 0x9e3779b9u ^
+                                      static_cast<uint32_t>(rev_graph_value));
+          if ((r % b) < a) { continue; }
+        }
+      }
       uint64_t pos =
         warp_pos_in_array<IdxT>(rev_graph_value, smem_sorted_output_graph, output_graph_degree);
       if (pos < num_protected_edges) { continue; }
@@ -465,11 +559,26 @@ __global__ void kern_merge_graph(
         lane_id, smem_sorted_output_graph + num_protected_edges, num_shift);
       if (lane_id == 0) { smem_sorted_output_graph[num_protected_edges] = rev_graph_value; }
       __syncwarp();
+      // A new rev-graph edge has been inserted at position `num_protected_edges`, growing the
+      // node's effective degree up to (but not beyond) the full output_graph_degree. In the
+      // constant-degree path effective_degree already equals output_graph_degree, so this is a
+      // no-op and needs no VariableDegree guard.
+      if (effective_degree < output_graph_degree) { effective_degree++; }
     }
   }
 
+  // The write-back stays guarded: d_natural_degree is an empty view in the constant-degree path.
+  if constexpr (VariableDegree) {
+    if (lane_id == 0) { d_natural_degree(nid) = effective_degree; }
+  }
+
+  // Slots past the final effective degree are written with the kInvalidNeighbor sentinel that
+  // downstream consumers (HNSW serialization, out-of-range check) recognize as "end of neighbor
+  // list". In the constant-degree path effective_degree == output_graph_degree, so no slot is
+  // padded.
   for (uint32_t i = lane_id; i < output_graph_degree; i += raft::WarpSize) {
-    output_graph(nid_batch, i) = smem_sorted_output_graph[i];
+    output_graph(nid_batch, i) =
+      (i < effective_degree) ? smem_sorted_output_graph[i] : kInvalidNeighbor<IdxT>;
   }
 }
 
@@ -804,6 +913,10 @@ void check_duplicates_and_out_of_range(
     for (uint32_t j = 0; j < output_graph_degree; j++) {
       const auto neighbor_a = my_out_graph[j];
 
+      // The variable-degree path pads unused slots with kInvalidNeighbor. Without this guard the
+      // sentinel would (correctly) trigger the `>= graph_size` out-of-range check below.
+      if (neighbor_a == kInvalidNeighbor<IdxT>) { continue; }
+
       if (neighbor_a >= graph_size) {
         num_oor++;
         continue;
@@ -824,7 +937,7 @@ void check_duplicates_and_out_of_range(
     num_oor == 0, "%lu out-of-range index node(s) are found in the generated CAGRA graph", num_oor);
 }
 
-template <typename IdxT, typename AccessorOutputGraph>
+template <typename IdxT, typename AccessorOutputGraph, bool VariableDegree>
 void merge_graph_gpu(
   raft::resources const& res,
   raft::mdspan<IdxT, raft::matrix_extent<int64_t>, raft::row_major, AccessorOutputGraph>
@@ -833,7 +946,8 @@ void merge_graph_gpu(
   raft::device_vector_view<uint32_t, int64_t> d_rev_graph_count,
   raft::host_matrix_view<IdxT, int64_t> mst_graph,
   raft::host_vector_view<uint32_t, int64_t> mst_graph_num_edges,
-  bool guarantee_connectivity)
+  bool guarantee_connectivity,
+  raft::device_vector_view<uint32_t, int64_t> d_natural_degree)
 {
   const uint64_t graph_size          = output_graph.extent(0);
   const uint64_t output_graph_degree = output_graph.extent(1);
@@ -888,7 +1002,7 @@ void merge_graph_gpu(
     auto mst_graph_view           = (*d_mst_graph).view();
     auto mst_graph_num_edges_view = (*d_mst_graph_num_edges).view();
     auto output_view              = (*d_output_graph).view();
-    kern_merge_graph<IdxT, num_warps>
+    kern_merge_graph<IdxT, num_warps, VariableDegree>
       <<<blocks_merge, threads_merge, merge_smem_size, raft::resource::get_cuda_stream(res)>>>(
         output_view,
         d_rev_graph,
@@ -898,7 +1012,8 @@ void merge_graph_gpu(
         batch_size,
         i_batch,
         guarantee_connectivity,
-        d_check_num_protected_edges.data_handle());
+        d_check_num_protected_edges.view(),
+        d_natural_degree);
 
     d_output_graph.prefetch_next_batch();
     d_mst_graph.prefetch_next_batch();
@@ -940,7 +1055,7 @@ void make_reverse_graph_gpu(
   //
   // Make reverse graph
   //
-  raft::matrix::fill(res, d_rev_graph, IdxT(-1));
+  raft::matrix::fill(res, d_rev_graph, kInvalidNeighbor<IdxT>);
   raft::matrix::fill(res, d_rev_graph_count, uint32_t(0));
 
   if constexpr (AccessorOutputGraph::is_device_accessible) {
@@ -952,8 +1067,11 @@ void make_reverse_graph_gpu(
         output_graph, d_rev_graph, d_rev_graph_count, k);
     }
   } else {
-    auto d_dest_nodes = raft::make_device_matrix<IdxT, int64_t>(res, graph_size, 1);
-    auto dest_nodes   = raft::make_host_vector<IdxT, int64_t>(graph_size);
+    // Host variant: the output graph is host-only, so we extract one column at a time into a
+    // device vector and hand that to the kernel.
+    auto d_dest_nodes = raft::make_device_vector<IdxT, int64_t>(res, graph_size);
+    auto dest_nodes   = raft::make_host_vector<IdxT, int64_t>(res, graph_size);
+
     for (uint64_t k = 0; k < output_graph_degree; k++) {
 #pragma omp parallel for
       for (uint64_t i = 0; i < graph_size; i++) {
@@ -964,7 +1082,7 @@ void make_reverse_graph_gpu(
       dim3 threads(256, 1, 1);
       dim3 blocks(1024, 1, 1);
       kern_make_rev_graph_k<<<blocks, threads, 0, raft::resource::get_cuda_stream(res)>>>(
-        d_dest_nodes.view(), d_rev_graph, d_rev_graph_count, 0);
+        d_dest_nodes.view(), d_rev_graph, d_rev_graph_count, k);
       raft::resource::sync_stream(res);
       RAFT_LOG_DEBUG("# Making reverse graph on GPUs: %lu / %u    \r", k, output_graph_degree);
     }
@@ -1592,12 +1710,17 @@ void mst_optimization(
 // specified number of edges are picked up for each node, starting with the edge with
 // the lowest number of 2-hop detours.
 //
-template <typename IdxT, typename AccessorKnnGraph, typename AccessorOutputGraph>
+template <typename IdxT,
+          typename AccessorKnnGraph,
+          typename AccessorOutputGraph,
+          bool VariableDegree>
 void prune_graph_gpu(
   raft::resources const& res,
   raft::mdspan<IdxT, raft::matrix_extent<int64_t>, raft::row_major, AccessorKnnGraph> knn_graph,
   raft::mdspan<IdxT, raft::matrix_extent<int64_t>, raft::row_major, AccessorOutputGraph>
-    output_graph)
+    output_graph,
+  raft::device_vector_view<uint32_t, int64_t> d_natural_degree,
+  uint32_t target_pruned_degree)
 {
   const uint64_t graph_size          = output_graph.extent(0);
   const uint64_t knn_graph_degree    = knn_graph.extent(1);
@@ -1652,14 +1775,16 @@ void prune_graph_gpu(
 
   for (uint32_t i_batch = 0; i_batch < num_batch; i_batch++) {
     auto output_view = (*d_output_graph).view();
-    kern_fused_prune<IdxT, num_warps>
+    kern_fused_prune<IdxT, num_warps, VariableDegree>
       <<<blocks_prune, threads_prune, prune_smem_size, raft::resource::get_cuda_stream(res)>>>(
         input_view,
         output_view,
         batch_size,
         i_batch,
         d_invalid_neighbor_list.data_handle(),
-        dev_stats.data_handle());
+        dev_stats.data_handle(),
+        d_natural_degree,
+        target_pruned_degree);
 
     d_output_graph.prefetch_next_batch();
     ++d_output_graph;
@@ -1707,8 +1832,9 @@ void optimize(
   raft::resources const& res_const,
   raft::mdspan<IdxT, raft::matrix_extent<int64_t>, raft::row_major, AccessorKnnGraph> knn_graph,
   raft::mdspan<IdxT, raft::matrix_extent<int64_t>, raft::row_major, AccessorOutputGraph> new_graph,
-  const bool guarantee_connectivity       = true,
-  const bool use_gpu_for_mst_optimization = true)
+  const bool guarantee_connectivity           = true,
+  const bool use_gpu_for_mst_optimization     = true,
+  const double variable_graph_degree_fraction = 1.0)
 {
   RAFT_LOG_DEBUG(
     "# Pruning kNN graph (size=%lu, degree=%lu)\n", knn_graph.extent(0), knn_graph.extent(1));
@@ -1735,12 +1861,31 @@ void optimize(
   RAFT_EXPECTS(new_graph.extent(1) <= knn_graph.extent(1),
                "output graph cannot have more columns than input graph");
   // const uint64_t input_graph_degree  = knn_graph.extent(1);
-  const uint64_t knn_graph_degree    = knn_graph.extent(1);
-  const uint64_t output_graph_degree = new_graph.extent(1);
-  const uint64_t graph_size          = new_graph.extent(0);
+  const uint64_t knn_graph_degree     = knn_graph.extent(1);
+  const uint64_t output_graph_degree  = new_graph.extent(1);
+  const uint64_t graph_size           = new_graph.extent(0);
+  const uint64_t target_pruned_degree = std::max<uint64_t>(
+    1, static_cast<uint64_t>(std::ceil(output_graph_degree * variable_graph_degree_fraction)));
+  const bool variable_graph_degree = (target_pruned_degree < output_graph_degree);
+
+  if (variable_graph_degree) {
+    RAFT_LOG_INFO("# Pruning kNN graph (size=%lu, degree=%lu, target_pruned_degree=%lu)",
+                  graph_size,
+                  knn_graph_degree,
+                  target_pruned_degree);
+  }
 
   raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> fun_scope(
     "cagra::graph::optimize(%zu, %zu, %u)", graph_size, knn_graph_degree, output_graph_degree);
+
+  // Per-node "natural" degree produced by the prune step. Only allocated when the variable-degree
+  // path is enabled. The prune kernel records here the count of edges with detour level <=
+  // detour level at position (target_pruned_degree - 1). The merge kernel then both reads and
+  // updates this array (after rev-graph back-fill the value becomes the final effective degree).
+  auto d_natural_degree = raft::make_device_mdarray<uint32_t>(
+    res,
+    default_ws_mr,
+    raft::make_extents<int64_t>(variable_graph_degree ? static_cast<int64_t>(graph_size) : 0));
 
   // MST optimization
   // currently, only using GPU path for MST optimization
@@ -1765,7 +1910,13 @@ void optimize(
 
   // prune graph -- will always use GPU path
   {
-    prune_graph_gpu<IdxT>(res, knn_graph, new_graph);
+    if (variable_graph_degree) {
+      prune_graph_gpu<IdxT, AccessorKnnGraph, AccessorOutputGraph, true>(
+        res, knn_graph, new_graph, d_natural_degree.view(), target_pruned_degree);
+    } else {
+      prune_graph_gpu<IdxT, AccessorKnnGraph, AccessorOutputGraph, false>(
+        res, knn_graph, new_graph, d_natural_degree.view(), target_pruned_degree);
+    }
   }
 
   // reverse graph creation will always use the GPU / large workspace resource
@@ -1788,16 +1939,44 @@ void optimize(
 
   // merge graph -- will always use GPU path
   {
-    merge_graph_gpu<IdxT>(res,
-                          new_graph,
-                          d_rev_graph.view(),
-                          d_rev_graph_count.view(),
-                          mst_graph.view(),
-                          mst_graph_num_edges.view(),
-                          guarantee_connectivity);
+    if (variable_graph_degree) {
+      merge_graph_gpu<IdxT, AccessorOutputGraph, true>(res,
+                                                       new_graph,
+                                                       d_rev_graph.view(),
+                                                       d_rev_graph_count.view(),
+                                                       mst_graph.view(),
+                                                       mst_graph_num_edges.view(),
+                                                       guarantee_connectivity,
+                                                       d_natural_degree.view());
+    } else {
+      merge_graph_gpu<IdxT, AccessorOutputGraph, false>(res,
+                                                        new_graph,
+                                                        d_rev_graph.view(),
+                                                        d_rev_graph_count.view(),
+                                                        mst_graph.view(),
+                                                        mst_graph_num_edges.view(),
+                                                        guarantee_connectivity,
+                                                        d_natural_degree.view());
+    }
   }
 
   raft::resource::sync_stream(res);
+
+  // Debug: compute and log average graph degree if relevant
+  if (raft::default_logger().should_log(rapids_logger::level_enum::debug) &&
+      variable_graph_degree) {
+    auto d_avg_natural = raft::make_device_scalar<double>(res, 0);
+    double avg_natural = 0;
+    raft::stats::mean(
+      res,
+      raft::make_device_matrix_view<const uint32_t, int64_t, raft::row_major>(
+        d_natural_degree.data_handle(), static_cast<int64_t>(graph_size), int64_t{1}),
+      raft::make_device_vector_view<double, int64_t>(d_avg_natural.data_handle(), int64_t{1}));
+    raft::copy(res, raft::make_host_scalar_view(&avg_natural), d_avg_natural.view());
+    raft::resource::sync_stream(res);
+    RAFT_LOG_DEBUG(
+      "# Variable graph degree: avg natural degree = %.2f / %lu", avg_natural, output_graph_degree);
+  }
 
   // These host-side checks are expensive (O(N*D^2)) and only used as debug
   // diagnostics, so only run them when debug logging is active at runtime.

@@ -146,11 +146,37 @@ enum class hnsw_heuristic_type : uint32_t {
   SAME_GRAPH_FOOTPRINT = 1
 };
 
+/**
+ * Sentinel marking an invalid / absent neighbor in a CAGRA graph. Variable-degree
+ * graphs (see index_params::variable_graph_degree_fraction) pad unused neighbor
+ * slots with this value, and consumers should treat it as "end of neighbor list".
+ */
+template <typename IdxT>
+constexpr static IdxT kInvalidNeighbor = static_cast<IdxT>(-1);
+
 struct index_params : cuvs::neighbors::index_params {
   /** Degree of input graph for pruning. */
   size_t intermediate_graph_degree = 128;
   /** Degree of output graph. */
   size_t graph_degree = 64;
+  /**
+   * Fraction of output graph_degree to define the minimum output graph degree,
+   * allowing variable-degree neighbor graphs.
+   *
+   * This fraction is used as the target for low-detour edges
+   * during the pruning step. Must be in (0, 1]. The default value of 1.0
+   * disables variable-degree logic (normal CAGRA behavior). Values < 1.0
+   * enable variable-degree graphs: the optimize step finds the minimum detour
+   * threshold that covers at least ceil(graph_degree * fraction) edges per node,
+   * then lets reverse edges expand the degree further. Unused slots are filled
+   * with a sentinel value (`kInvalidNeighbor`).
+   *
+   * This is intended for the CAGRA-to-HNSW conversion pipeline: the resulting
+   * graph, when imported into hnswlib, produces variable-degree neighbor lists
+   * similar to natively-built HNSW graphs. Do not use this with CAGRA's native
+   * GPU search.
+   */
+  double variable_graph_degree_fraction = 1.0;
   /**
    * Specify compression parameters if compression is desired. If set, overrides the
    * attach_dataset_on_build (and the compressed dataset is always added to the index).

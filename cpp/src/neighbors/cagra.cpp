@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -40,13 +40,15 @@ cagra::index_params index_params::from_hnsw_params(raft::matrix_extent<int64_t> 
   cagra::index_params params;
   switch (heuristic) {
     case hnsw_heuristic_type::SAME_GRAPH_FOOTPRINT:
-      params.graph_degree              = M * 2;
-      params.intermediate_graph_degree = M * 3;
+      params.graph_degree                   = M * 2;
+      params.intermediate_graph_degree      = M * 3;
+      params.variable_graph_degree_fraction = 0.35;
       break;
     case hnsw_heuristic_type::SIMILAR_SEARCH_PERFORMANCE:
     default:
-      params.graph_degree              = 2 + M * 2 / 3;
-      params.intermediate_graph_degree = M + M * ef_construction / 256;
+      params.graph_degree                   = M;
+      params.intermediate_graph_degree      = M + M * ef_construction / 256;
+      params.variable_graph_degree_fraction = 0.7;
       break;
   }
   params.graph_build_params =
