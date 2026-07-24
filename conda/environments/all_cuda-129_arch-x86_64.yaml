@@ -19,7 +19,7 @@ dependencies:
 - cupy>=14.0.1,!=14.1.0
 - cxx-compiler
 - cython>=3.2.2
-- dlpack>=0.8,<1.0
+- dlpack>=1.0,<1.1
 - gcc_linux-64=14.*
 - go
 - libclang==20.1.8
