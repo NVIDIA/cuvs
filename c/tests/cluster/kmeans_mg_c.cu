@@ -77,7 +77,7 @@ void test_mg_fit_host()
   params->max_iter             = 100;
   params->tol                  = 1e-6;
   params->init                 = Array;
-  params->streaming_batch_size = 4;  // force at least 2 streamed batches
+  params->device_buffer_samples = 4;  // force at least 2 streamed batches
 
   DLManagedTensor dataset_t{};
   cuvs::core::to_dlpack(raft::make_host_matrix_view<float, int64_t>(
