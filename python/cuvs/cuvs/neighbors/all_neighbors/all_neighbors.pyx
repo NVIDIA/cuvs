@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # cython: language_level=3
@@ -219,14 +219,17 @@ def build(dataset, k, params, *,
         Parameters object containing all build settings including algorithm
         choice and algorithm-specific parameters.
     indices : array_like, optional
-        Optional output buffer for indices [num_rows x k] on device
-        (int64). If not provided, will be allocated automatically.
+        Optional output buffer for indices [num_rows x k] (int64), on host
+        or device. If not provided, will be allocated automatically (on
+        device, unless the other provided outputs are on host). A host
+        dataset supports host or device outputs; a device dataset requires
+        device outputs. All provided outputs must share the same memory space.
     distances : array_like, optional
-        Optional output buffer for distances [num_rows x k] on device
-        (float32)
+        Optional output buffer for distances [num_rows x k] (float32), on
+        host or device.
     core_distances : array_like, optional
-        Optional output buffer for core distances [num_rows] on device
-        (float32). Requires distances parameter to be provided.
+        Optional output buffer for core distances [num_rows] (float32), on
+        host or device. Requires distances parameter to be provided.
     alpha : float, default=1.0
         Mutual-reachability scaling; used only when core_distances is
         provided
@@ -238,9 +241,9 @@ def build(dataset, k, params, *,
     Returns
     -------
     indices : array_like
-        k-NN indices for each point [num_rows x k], always on device.
-        If indices buffer was provided, returns the same array filled
-        with results.
+        k-NN indices for each point [num_rows x k], on the same memory space
+        as the outputs (device by default). If an indices buffer was
+        provided, returns the same array filled with results.
     distances : array_like or None
         k-NN distances if distances buffer was provided, None otherwise
     core_distances : array_like or None
@@ -273,29 +276,37 @@ def build(dataset, k, params, *,
             "distances must be provided when core_distances is provided"
         )
 
-    # Validate user-provided outputs (must be device arrays if provided)
-    if indices is not None and not hasattr(
-        indices, "__cuda_array_interface__"
-    ):
+    # Outputs may live on host (e.g. numpy) or device (CUDA array interface),
+    # but all provided outputs must be on same memory. A host dataset supports either
+    # location; a device dataset requires device outputs. When no output is
+    # given, indices default to device.
+    def _is_on_device(arr):
+        return hasattr(arr, "__cuda_array_interface__")
+
+    output_locations = {
+        _is_on_device(a)
+        for a in (indices, distances, core_distances)
+        if a is not None
+    }
+    if len(output_locations) > 1:
         raise ValueError(
-            "indices must be a device array (CUDA array interface)"
+            "indices, distances, and core_distances must all be on the same "
+            "memory space (all host or all device)"
         )
-    if distances is not None and not hasattr(
-        distances, "__cuda_array_interface__"
-    ):
+    output_on_device = output_locations.pop() if output_locations else True
+
+    if on_device and not output_on_device:
         raise ValueError(
-            "distances must be a device array (CUDA array interface)"
-        )
-    if core_distances is not None and not hasattr(
-        core_distances, "__cuda_array_interface__"
-    ):
-        raise ValueError(
-            "core_distances must be a device array (CUDA array interface)"
+            "A device dataset requires device outputs. Put the dataset on host "
+            "to produce host outputs."
         )
 
     # Handle indices array (create if not provided)
     if indices is None:
-        indices = device_ndarray.empty((n_rows, k), dtype="int64")
+        if output_on_device:
+            indices = device_ndarray.empty((n_rows, k), dtype="int64")
+        else:
+            indices = np.empty((n_rows, k), dtype="int64")
 
     indices_out = wrap_array(indices)
     _check_input_array(
