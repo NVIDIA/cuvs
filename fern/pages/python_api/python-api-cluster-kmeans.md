@@ -35,7 +35,7 @@ Hyper-parameters for the kmeans algorithm
 **Constructor**
 
 ```python
-def __init__(self, *, metric=None, n_clusters=None, init_method=None, max_iter=None, tol=None, n_init=None, oversampling_factor=None, batch_samples=None, batch_centroids=None, inertia_check=None, init_size=None, device_buffer_samples=None, hierarchical=None, hierarchical_n_iters=None)
+def __init__(self, *, metric=None, n_clusters=None, init_method=None, max_iter=None, tol=None, n_init=None, oversampling_factor=None, batch_samples=None, batch_centroids=None, init_size=None, device_buffer_samples=None, hierarchical=None, hierarchical_n_iters=None)
 ```
 
 **Members**
