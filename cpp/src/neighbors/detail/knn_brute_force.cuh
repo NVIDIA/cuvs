@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -671,13 +671,7 @@ void brute_force_search_filtered(
 
     // create filter csr view
     auto compressed_csr_view = csr.structure_view();
-    rmm::device_uvector<IdxT> rows(compressed_csr_view.get_nnz(), stream);
-    raft::sparse::convert::csr_to_coo(compressed_csr_view.get_indptr().data(),
-                                      compressed_csr_view.get_n_rows(),
-                                      rows.data(),
-                                      compressed_csr_view.get_nnz(),
-                                      stream);
-    auto dataset_view = raft::make_device_matrix_view<const T, IdxT, raft::row_major>(
+    auto dataset_view        = raft::make_device_matrix_view<const T, IdxT, raft::row_major>(
       idx.dataset().data_handle(), n_dataset, dim);
 
     auto csr_view = raft::make_device_csr_matrix_view<DistanceT, IdxT, IdxT, IdxT>(
@@ -714,6 +708,12 @@ void brute_force_search_filtered(
             query_norms_->view());
         }
       }
+      rmm::device_uvector<IdxT> rows(compressed_csr_view.get_nnz(), stream);
+      raft::sparse::convert::csr_to_coo(compressed_csr_view.get_indptr().data(),
+                                        compressed_csr_view.get_n_rows(),
+                                        rows.data(),
+                                        compressed_csr_view.get_nnz(),
+                                        stream);
       cuvs::neighbors::detail::epilogue_on_csr(
         res,
         csr.get_elements().data(),

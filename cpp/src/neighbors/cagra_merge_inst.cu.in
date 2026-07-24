@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -10,11 +10,34 @@
 
 namespace {
 
-using data_t  = @data_type@;
-using index_t = @index_type@;
+using data_t                    = @data_type@;
+using index_t                   = @index_type@;
+using inst_device_padded_view_t = cuvs::neighbors::device_padded_dataset_view<data_t, int64_t>;
 
 }  // namespace
 
 namespace cuvs::neighbors::cagra {
-CUVS_INST_CAGRA_MERGE(data_t, index_t);
+
+using inst_device_standard_view_t = cuvs::neighbors::device_standard_dataset_view<data_t, int64_t>;
+
+extern template void index<data_t, index_t, inst_device_padded_view_t>::compute_dataset_norms_(
+  raft::resources const&);
+extern template void index<data_t, index_t, inst_device_standard_view_t>::compute_dataset_norms_(
+  raft::resources const&);
+
+CUVS_INST_CAGRA_MERGE(data_t, index_t, inst_device_padded_view_t);
+CUVS_INST_CAGRA_MERGE(data_t, index_t, inst_device_standard_view_t);
+
+// Keep explicit merge instantiations retained in libcuvs.so even when they are only
+// referenced from external test/library link units.
+template <typename AnchorT = data_t>
+CUVS_EXPORT void merge_instantiation_keepalive()
+{
+  (void)&cuvs::neighbors::cagra::make_merged_storage<data_t, index_t, inst_device_padded_view_t>;
+  (void)&cuvs::neighbors::cagra::make_merged_storage<data_t, index_t, inst_device_standard_view_t>;
+  (void)&cuvs::neighbors::cagra::merge<data_t, index_t, inst_device_padded_view_t>;
+  (void)&cuvs::neighbors::cagra::merge<data_t, index_t, inst_device_standard_view_t>;
+}
+template CUVS_EXPORT void merge_instantiation_keepalive<data_t>();
+
 }  // namespace cuvs::neighbors::cagra

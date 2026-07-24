@@ -1,5 +1,5 @@
 #!/bin/bash
-# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 set -euo pipefail
@@ -20,6 +20,7 @@ PYDISTCHECK_ARGS=(
 # PyPI hard limit is 1GiB, but try to keep these as small as possible
 if [[ "${package_dir}" == "python/libcuvs" ]]; then
     if [[ "${RAPIDS_CUDA_MAJOR}" == "12" ]]; then
+        # Cap is below PyPI’s 1 GiB limit; raise when the shipped libcuvs.so grows.
         PYDISTCHECK_ARGS+=(
             --max-allowed-size-compressed '350Mi'
         )

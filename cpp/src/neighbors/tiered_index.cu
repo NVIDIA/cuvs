@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -28,14 +28,85 @@ void typed_search(raft::resources const& res,
 }
 }  // namespace cuvs::neighbors::ivf_pq
 
+namespace {
+// Wrapper with the exact signature expected by upstream_build_function_type<device_standard_index>.
+// cagra::build is now a template (no concrete device_matrix_view overload), so it cannot be
+// passed as a plain function pointer; this wrapper bridges the gap.
+cuvs::neighbors::cagra::device_standard_index<float, uint32_t> cagra_build_for_tiered_standard(
+  raft::resources const& res,
+  cuvs::neighbors::cagra::index_params const& params,
+  raft::device_matrix_view<const float, int64_t, raft::row_major> dataset)
+{
+  auto view = cuvs::neighbors::make_device_standard_dataset_view(dataset);
+  return cuvs::neighbors::cagra::build(res, params, view);
+}
+
+cuvs::neighbors::cagra::device_padded_index<float, uint32_t> cagra_build_for_tiered_padded(
+  raft::resources const& res,
+  cuvs::neighbors::cagra::index_params const& params,
+  raft::device_matrix_view<const float, int64_t, raft::row_major> dataset)
+{
+  auto view = cuvs::neighbors::make_device_padded_dataset_view(res, dataset);
+  return cuvs::neighbors::cagra::build(res, params, view);
+}
+
+}  // namespace
+
 namespace cuvs::neighbors::tiered_index {
 auto build(raft::resources const& res,
            const index_params<cagra::index_params>& params,
-           raft::device_matrix_view<const float, int64_t, raft::row_major> dataset)
-  -> tiered_index::index<cagra::index<float, uint32_t>>
+           cuvs::neighbors::device_padded_dataset_view<float, int64_t> dataset)
+  -> tiered_index::index<cagra::device_padded_index<float, uint32_t>>
 {
-  auto state = detail::build<cagra::index<float, uint32_t>>(res, params, cagra::build, dataset);
-  return cuvs::neighbors::tiered_index::index<cagra::index<float, uint32_t>>(state);
+  auto state = detail::build<cagra::device_padded_index<float, uint32_t>>(
+    res, params, cagra_build_for_tiered_padded, dataset.view());
+  return cuvs::neighbors::tiered_index::index<cagra::device_padded_index<float, uint32_t>>(state);
+}
+
+auto build(raft::resources const& res,
+           const index_params<cagra::index_params>& params,
+           raft::device_matrix_view<const float, int64_t, raft::row_major> dataset)
+  -> tiered_index::index<cagra::device_standard_index<float, uint32_t>>
+{
+  auto state = detail::build<cagra::device_standard_index<float, uint32_t>>(
+    res, params, cagra_build_for_tiered_standard, dataset);
+  return cuvs::neighbors::tiered_index::index<cagra::device_standard_index<float, uint32_t>>(state);
+}
+
+auto convert_standard_to_padded_index(
+  raft::resources const& res,
+  const tiered_index::index<cagra::device_standard_index<float, uint32_t>>& idx,
+  cuvs::neighbors::device_padded_dataset_view<float, int64_t> padded_dataset)
+  -> tiered_index::index<cagra::device_padded_index<float, uint32_t>>
+{
+  RAFT_EXPECTS(padded_dataset.n_rows() == idx.size(),
+               "padded_dataset row count must match tiered index size");
+  RAFT_EXPECTS(padded_dataset.dim() == idx.dim(),
+               "padded_dataset dimension must match tiered index dimension");
+
+  auto next_state =
+    std::make_shared<detail::index_state<cagra::device_padded_index<float, uint32_t>>>();
+  next_state->storage      = idx.state->storage;
+  next_state->build_params = idx.state->build_params;
+  next_state->build_fn     = cagra_build_for_tiered_padded;
+  next_state->ann_index.reset();
+
+  if (idx.state->ann_index) {
+    auto padded_mds = padded_dataset.view();
+    auto ann_rows   = static_cast<int64_t>(idx.state->ann_rows());
+    auto ann_mds    = raft::make_device_matrix_view<const float, int64_t>(
+      padded_mds.data_handle(), ann_rows, static_cast<int64_t>(padded_mds.extent(1)));
+    auto ann_padded_view =
+      cuvs::neighbors::device_padded_dataset_view<float, int64_t>(ann_mds, padded_dataset.dim());
+    auto ann_padded_idx = cuvs::neighbors::cagra::convert_standard_to_padded_index(
+      res, *idx.state->ann_index, ann_padded_view);
+    next_state->ann_index =
+      std::make_shared<cuvs::neighbors::cagra::device_padded_index<float, uint32_t>>(
+        std::move(ann_padded_idx));
+  }
+
+  return cuvs::neighbors::tiered_index::index<cagra::device_padded_index<float, uint32_t>>(
+    next_state);
 }
 
 auto build(raft::resources const& res,
@@ -60,7 +131,16 @@ auto build(raft::resources const& res,
 
 void extend(raft::resources const& res,
             raft::device_matrix_view<const float, int64_t, raft::row_major> new_vectors,
-            tiered_index::index<cagra::index<float, uint32_t>>* idx)
+            tiered_index::index<cagra::device_padded_index<float, uint32_t>>* idx)
+{
+  std::scoped_lock lock(idx->write_mutex);
+  auto next_state = detail::extend(res, *idx->state, new_vectors);
+  idx->state      = next_state;
+}
+
+void extend(raft::resources const& res,
+            raft::device_matrix_view<const float, int64_t, raft::row_major> new_vectors,
+            tiered_index::index<cagra::device_standard_index<float, uint32_t>>* idx)
 {
   std::scoped_lock lock(idx->write_mutex);
   auto next_state = detail::extend(res, *idx->state, new_vectors);
@@ -78,7 +158,7 @@ void extend(raft::resources const& res,
       // Block 'search' calls during the update_dataset call to ensure that this
       // doesn't cause issues in a multithreaded environment
       std::unique_lock<std::shared_mutex> lock(idx->ann_mutex);
-      next_state->ann_index->update_dataset(res, dataset);
+      detail::update_cagra_ann_dataset_for_stride(res, *next_state->ann_index, dataset);
     }
   }
 
@@ -103,7 +183,16 @@ void extend(raft::resources const& res,
   idx->state      = next_state;
 }
 
-void compact(raft::resources const& res, tiered_index::index<cagra::index<float, uint32_t>>* idx)
+void compact(raft::resources const& res,
+             tiered_index::index<cagra::device_padded_index<float, uint32_t>>* idx)
+{
+  std::scoped_lock lock(idx->write_mutex);
+  auto next_state = detail::compact(res, *idx->state);
+  idx->state      = next_state;
+}
+
+void compact(raft::resources const& res,
+             tiered_index::index<cagra::device_standard_index<float, uint32_t>>* idx)
 {
   std::scoped_lock lock(idx->write_mutex);
   auto next_state = detail::compact(res, *idx->state);
@@ -127,17 +216,29 @@ void compact(raft::resources const& res,
 
 void search(raft::resources const& res,
             const cagra::search_params& search_params,
-            const tiered_index::index<cagra::index<float, uint32_t>>& index,
+            const tiered_index::index<cagra::device_padded_index<float, uint32_t>>& index,
             raft::device_matrix_view<const float, int64_t, raft::row_major> queries,
             raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
             raft::device_matrix_view<float, int64_t, raft::row_major> distances,
             const cuvs::neighbors::filtering::base_filter& sample_filter)
 {
-  // use a read-write lock to handle calls to update_dataset for cagra
-  // This allows multiple readers concurrently, but only one writer
   std::shared_lock<std::shared_mutex> lock(index.ann_mutex);
   index.state->search(
     res, search_params, cagra::search, queries, neighbors, distances, sample_filter);
+}
+
+void search(raft::resources const& res,
+            const cagra::search_params& search_params,
+            const tiered_index::index<cagra::device_standard_index<float, uint32_t>>& index,
+            raft::device_matrix_view<const float, int64_t, raft::row_major> queries,
+            raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
+            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
+            const cuvs::neighbors::filtering::base_filter& sample_filter)
+{
+  RAFT_FAIL(
+    "tiered_index::search(standard CAGRA) requires explicit attach first. "
+    "Call tiered_index::convert_standard_to_padded_index(...) and then search the returned padded "
+    "tiered index.");
 }
 
 void search(raft::resources const& res,
@@ -164,13 +265,24 @@ void search(raft::resources const& res,
     res, search_params, ivf_pq::typed_search, queries, neighbors, distances, sample_filter);
 }
 
-auto merge(raft::resources const& res,
-           const index_params<cagra::index_params>& index_params,
-           const std::vector<tiered_index::index<cagra::index<float, uint32_t>>*>& indices)
-  -> tiered_index::index<cagra::index<float, uint32_t>>
+auto merge(
+  raft::resources const& res,
+  const index_params<cagra::index_params>& index_params,
+  const std::vector<tiered_index::index<cagra::device_padded_index<float, uint32_t>>*>& indices)
+  -> tiered_index::index<cagra::device_padded_index<float, uint32_t>>
 {
   auto state = detail::merge(res, index_params, indices);
-  return cuvs::neighbors::tiered_index::index<cagra::index<float, uint32_t>>(state);
+  return cuvs::neighbors::tiered_index::index<cagra::device_padded_index<float, uint32_t>>(state);
+}
+
+auto merge(
+  raft::resources const& res,
+  const index_params<cagra::index_params>& index_params,
+  const std::vector<tiered_index::index<cagra::device_standard_index<float, uint32_t>>*>& indices)
+  -> tiered_index::index<cagra::device_standard_index<float, uint32_t>>
+{
+  auto state = detail::merge(res, index_params, indices);
+  return cuvs::neighbors::tiered_index::index<cagra::device_standard_index<float, uint32_t>>(state);
 }
 
 auto merge(raft::resources const& res,
@@ -203,7 +315,15 @@ int64_t index<UpstreamT>::dim() const noexcept
   return state->dim();
 }
 
-template struct index<cagra::index<float, uint32_t>>;
+template CUVS_EXPORT int64_t
+index<cagra::device_padded_index<float, uint32_t>>::size() const noexcept;
+template CUVS_EXPORT int64_t
+index<cagra::device_padded_index<float, uint32_t>>::dim() const noexcept;
+template CUVS_EXPORT int64_t
+index<cagra::device_standard_index<float, uint32_t>>::size() const noexcept;
+template CUVS_EXPORT int64_t
+index<cagra::device_standard_index<float, uint32_t>>::dim() const noexcept;
+
 template struct index<ivf_flat::index<float, int64_t>>;
 template struct index<ivf_pq::typed_index<float, int64_t>>;
 

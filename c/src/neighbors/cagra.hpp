@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #include <cuvs/neighbors/cagra.h>
@@ -15,4 +15,7 @@ void convert_c_index_params(cuvsCagraIndexParams params,
 /// Converts C search params to C++
 void convert_c_search_params(cuvsCagraSearchParams params,
                              cuvs::neighbors::cagra::search_params* out);
+
+/** Resolves `cuvsCagraIndex::addr` to `cagra::index*`; nullptr if the handle is empty. */
+void* cagra_c_api_index_ptr(cuvsCagraIndex const* idx);
 }  // namespace cuvs::neighbors::cagra

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -82,11 +82,7 @@ class cuvs_cagra_hnswlib : public algo<T>, public algo_gpu {
 template <typename T, typename IdxT>
 void cuvs_cagra_hnswlib<T, IdxT>::build(const T* dataset, size_t nrow)
 {
-  // when the data set is on host, we can pass it directly to HNSW
-  bool dataset_is_on_host = raft::get_device_for_address(dataset) == -1;
-
   auto dataset_view = raft::make_host_matrix_view<const T, int64_t>(dataset, nrow, this->dim_);
-  // convert the index to HNSW format
   hnsw_index_ = cuvs::neighbors::hnsw::build(handle_, build_param_.hnsw_index_params, dataset_view);
 }
 

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2024, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -53,7 +53,9 @@ void cagra_build_search_simple()
   cuvsCagraIndex_t index;
   CHECK_CUVS(cuvsCagraIndexCreate(&index));
 
-  CHECK_CUVS(cuvsCagraBuild(res, index_params, &dataset_tensor, index));
+  cuvsDatasetStandardView_t host_dataset_view = NULL;
+  CHECK_CUVS(cuvsDatasetMakeHostStandardView(res, &dataset_tensor, &host_dataset_view));
+  CHECK_CUVS(cuvsCagraBuildHostStandard(res, index_params, host_dataset_view, index));
 
   // Allocate memory for `queries`, `neighbors` and `distances` output
   uint32_t* neighbors;
@@ -98,6 +100,20 @@ void cagra_build_search_simple()
   distances_tensor.dl_tensor.shape              = distances_shape;
   distances_tensor.dl_tensor.strides            = NULL;
 
+  // Attach a caller-provided device padded dataset to get a search-ready index.
+  DLManagedTensor device_dataset_tensor = dataset_tensor;
+  float* dataset_d                      = NULL;
+  CHECK_CUVS(cuvsRMMAlloc(res, (void**)&dataset_d, sizeof(float) * n_rows * n_cols));
+  CHECK_CUDA(cudaMemcpy(dataset_d, dataset, sizeof(float) * n_rows * n_cols, cudaMemcpyDefault));
+  device_dataset_tensor.dl_tensor.data               = dataset_d;
+  device_dataset_tensor.dl_tensor.device.device_type = kDLCUDA;
+  device_dataset_tensor.dl_tensor.device.device_id   = 0;
+  cuvsDatasetPadded_t padded_owner                   = NULL;
+  CHECK_CUVS(cuvsDatasetMakeDevicePadded(res, &device_dataset_tensor, &padded_owner));
+  cuvsDatasetPaddedView_t padded_view = NULL;
+  CHECK_CUVS(cuvsDatasetMakeViewFromOwningPadded(padded_owner, &padded_view));
+  CHECK_CUVS(cuvsCagraAttachDataset(res, padded_view, index));
+
   // Search the CAGRA index
   cuvsCagraSearchParams_t search_params;
   CHECK_CUVS(cuvsCagraSearchParamsCreate(&search_params));
@@ -124,10 +140,14 @@ void cagra_build_search_simple()
   free(distances_h);
 
   CHECK_CUVS(cuvsCagraSearchParamsDestroy(search_params));
+  CHECK_CUVS(cuvsDatasetPaddedViewDestroy(padded_view));
+  CHECK_CUVS(cuvsDatasetPaddedDestroy(padded_owner));
+  CHECK_CUVS(cuvsDatasetStandardViewDestroy(host_dataset_view));
 
   CHECK_CUVS(cuvsRMMFree(res, distances, sizeof(float) * n_queries * topk));
   CHECK_CUVS(cuvsRMMFree(res, neighbors, sizeof(uint32_t) * n_queries * topk));
   CHECK_CUVS(cuvsRMMFree(res, queries_d, sizeof(float) * n_queries * n_cols));
+  CHECK_CUVS(cuvsRMMFree(res, dataset_d, sizeof(float) * n_rows * n_cols));
 
   CHECK_CUVS(cuvsCagraIndexDestroy(index));
   CHECK_CUVS(cuvsCagraIndexParamsDestroy(index_params));

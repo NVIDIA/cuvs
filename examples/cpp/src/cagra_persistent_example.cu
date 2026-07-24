@@ -1,11 +1,12 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #include "common.cuh"
 
 #include <cuvs/neighbors/cagra.hpp>
+#include <cuvs/neighbors/common.hpp>
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/device_resources.hpp>
 #include <raft/random/make_blobs.cuh>
@@ -68,7 +69,9 @@ void cagra_build_search_variants(raft::device_resources const& res,
   cagra::index_params index_params;
 
   std::cout << "Building CAGRA index (search graph)" << std::endl;
-  auto index = cagra::build(res, index_params, dataset);
+  auto padded = cuvs::neighbors::make_device_padded_dataset_view(res, dataset);
+  auto index  = cagra::build(res, index_params, padded);
+  index.update_dataset(res, padded);
 
   std::cout << "CAGRA index has " << index.size() << " vectors" << std::endl;
   std::cout << "CAGRA graph has degree " << index.graph_degree() << ", graph size ["

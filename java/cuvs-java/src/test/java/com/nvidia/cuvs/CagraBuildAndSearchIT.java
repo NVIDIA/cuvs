@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs;
@@ -139,7 +139,8 @@ public class CagraBuildAndSearchIT extends CuVSTestCase {
       for (int j = 0; j < numTestsRuns; j++) {
         try (var index = indexOnce(CuVSMatrix.ofArray(dataset), resources)) {
           var indexPath = serializeOnce(index);
-          try (var loadedIndex = deserializeOnce(indexPath, resources)) {
+          try (var outDataset = new CagraIndex.StandardDataset();
+              var loadedIndex = deserializeOnce(indexPath, resources, outDataset)) {
             queryAndCompare(
                 index,
                 loadedIndex,
@@ -170,7 +171,8 @@ public class CagraBuildAndSearchIT extends CuVSTestCase {
             () -> {
               try (var index = indexOnce(CuVSMatrix.ofArray(dataset), resources)) {
                 var indexPath = serializeOnce(index);
-                try (var loadedIndex = deserializeOnce(indexPath, resources)) {
+                try (var outDataset = new CagraIndex.StandardDataset();
+                    var loadedIndex = deserializeOnce(indexPath, resources, outDataset)) {
                   queryAndCompare(
                       index,
                       loadedIndex,
@@ -219,7 +221,8 @@ public class CagraBuildAndSearchIT extends CuVSTestCase {
                   var matrix = CuVSMatrix.ofArray(dataset);
                   var index = indexOnce(matrix, resources)) {
                 var indexPath = serializeOnce(index);
-                try (var loadedIndex = deserializeOnce(indexPath, resources)) {
+                try (var outDataset = new CagraIndex.StandardDataset();
+                    var loadedIndex = deserializeOnce(indexPath, resources, outDataset)) {
                   log.debug(
                       "Querying threadIdx:{}-{}", threadIdx, Thread.currentThread().getName());
                   queryAndCompare(
@@ -417,8 +420,10 @@ public class CagraBuildAndSearchIT extends CuVSTestCase {
             numTestsRuns,
             threadIdx ->
                 () -> {
-                  try (CuVSResources resources = CheckedCuVSResources.create()) {
-                    deserializeOnce(indexPath, resources).close();
+                  try (CuVSResources resources = CheckedCuVSResources.create();
+                      var outDataset = new CagraIndex.StandardDataset();
+                      var loadedIndex = deserializeOnce(indexPath, resources, outDataset)) {
+                    // just validate deserialize/close path under concurrency
                   } catch (Throwable e) {
                     throw new RuntimeException(e);
                   }
@@ -491,7 +496,8 @@ public class CagraBuildAndSearchIT extends CuVSTestCase {
     try (CuVSResources resources = CheckedCuVSResources.create();
         var index = indexOnce(dataset, resources)) {
       var indexPath = serializeOnce(index);
-      try (var loadedIndex = deserializeOnce(indexPath, resources)) {
+      try (var outDataset = new CagraIndex.StandardDataset();
+          var loadedIndex = deserializeOnce(indexPath, resources, outDataset)) {
         queryAndCompare(index, loadedIndex, rotate, queries, expectedResults, resources);
       } finally {
         Files.deleteIfExists(indexPath);
@@ -515,7 +521,8 @@ public class CagraBuildAndSearchIT extends CuVSTestCase {
     try (CuVSResources resources = CheckedCuVSResources.create();
         var index = indexOnce(dataset, resources)) {
       var indexPath = serializeOnce(index);
-      try (var loadedIndex = deserializeOnce(indexPath, resources)) {
+      try (var outDataset = new CagraIndex.StandardDataset();
+          var loadedIndex = deserializeOnce(indexPath, resources, outDataset)) {
         queryAndCompare(index, loadedIndex, rotate, queries, expectedResults, resources);
       } finally {
         Files.deleteIfExists(indexPath);
@@ -622,10 +629,14 @@ public class CagraBuildAndSearchIT extends CuVSTestCase {
     return indexFilePath;
   }
 
-  private CagraIndex deserializeOnce(Path indexFilePath, CuVSResources resources) throws Throwable {
+  private CagraIndex deserializeOnce(
+      Path indexFilePath, CuVSResources resources, CagraIndex.DeserializeDataset outDataset)
+      throws Throwable {
     // Loading a CAGRA index from disk.
     try (var inputStream = Files.newInputStream(indexFilePath)) {
-      return CagraIndex.newBuilder(resources).from(inputStream).build();
+      var loadedIndex = CagraIndex.newBuilder(resources).build();
+      loadedIndex.deserialize(inputStream, outDataset);
+      return loadedIndex;
     }
   }
 
@@ -818,13 +829,14 @@ public class CagraBuildAndSearchIT extends CuVSTestCase {
           mergedIndex.serialize(out);
         }
 
-        try (var inputStream = Files.newInputStream(indexFile)) {
-          CagraIndex loadedMergedIndex = CagraIndex.newBuilder(resources).from(inputStream).build();
+        try (var inputStream = Files.newInputStream(indexFile);
+            CagraIndex.StandardDataset outDataset = new CagraIndex.StandardDataset();
+            CagraIndex loadedMergedIndex = CagraIndex.newBuilder(resources).build()) {
+          loadedMergedIndex.deserialize(inputStream, outDataset);
 
           SearchResults resultsFromLoaded = loadedMergedIndex.search(query);
           assertEquals(expectedResults, resultsFromLoaded.getResults());
           mergedIndex.close();
-          loadedMergedIndex.close();
         } finally {
           Files.deleteIfExists(indexFile);
         }
@@ -925,8 +937,9 @@ public class CagraBuildAndSearchIT extends CuVSTestCase {
           }
 
           try (var physicalInputStream = Files.newInputStream(physicalIndexFile);
-              CagraIndex loadedPhysicalIndex =
-                  CagraIndex.newBuilder(resources).from(physicalInputStream).build()) {
+              CagraIndex.StandardDataset outDataset = new CagraIndex.StandardDataset();
+              CagraIndex loadedPhysicalIndex = CagraIndex.newBuilder(resources).build()) {
+            loadedPhysicalIndex.deserialize(physicalInputStream, outDataset);
 
             SearchResults resultsFromLoadedPhysical = loadedPhysicalIndex.search(query);
             assertEquals(

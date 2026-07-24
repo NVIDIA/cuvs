@@ -5,8 +5,10 @@
 
 #include "../test_utils.cuh"
 #include "ann_utils.cuh"
+#include "cagra_padded_build_helpers.cuh"
 
 #include <cstdint>
+#include <cuvs/neighbors/cagra.hpp>
 #include <cuvs/neighbors/hnsw.hpp>
 #include <raft/core/host_mdspan.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
@@ -93,8 +95,10 @@ class AnnHNSWTest : public ::testing::TestWithParam<AnnHNSWInputs> {
 
       auto database_view = raft::make_device_matrix_view<const DataT, int64_t>(
         (const DataT*)database.data(), ps.n_rows, ps.dim);
+      cuvs::neighbors::test::padded_device_matrix_for_cagra<DataT> padded(handle_, database_view);
 
-      auto index = cuvs::neighbors::cagra::build(handle_, index_params, database_view);
+      auto index = cuvs::neighbors::cagra::build(handle_, index_params, padded.view);
+      index.update_dataset(handle_, padded.view);
       raft::resource::sync_stream(handle_);
 
       cuvs::neighbors::hnsw::search_params search_params;

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs;
@@ -23,6 +23,93 @@ import java.util.Objects;
  * @since 25.02
  */
 public interface CagraIndex extends AutoCloseable {
+  /**
+   * Caller-owned input dataset view handle for host-index attach.
+   */
+  abstract class DeviceDatasetView implements AutoCloseable {
+    private AutoCloseable delegate;
+    private long handleAddress;
+
+    /**
+     * Internal wiring hook used by the Java wrapper implementation.
+     */
+    public final void setDelegate(AutoCloseable delegate, long handleAddress) {
+      this.delegate = delegate;
+      this.handleAddress = handleAddress;
+    }
+
+    /**
+     * Returns true when this view has a native handle.
+     */
+    public final boolean isPresent() {
+      return delegate != null && handleAddress != 0;
+    }
+
+    /**
+     * Internal accessor for native handle address.
+     */
+    public final long nativeHandleAddress() {
+      return handleAddress;
+    }
+
+    @Override
+    public void close() throws Exception {
+      if (delegate != null) {
+        delegate.close();
+        delegate = null;
+      }
+      handleAddress = 0;
+    }
+  }
+
+  /** Caller-owned device padded dataset view for host-index attach. */
+  final class DevicePaddedDatasetView extends DeviceDatasetView {
+    public DevicePaddedDatasetView() {}
+  }
+
+  /** Caller-owned device standard dataset view for host-index attach. */
+  final class DeviceStandardDatasetView extends DeviceDatasetView {
+    public DeviceStandardDatasetView() {}
+  }
+
+  /**
+   * Caller-owned output dataset handle populated by {@link #deserialize(InputStream, DeserializeDataset)}.
+   */
+  abstract class DeserializeDataset implements AutoCloseable {
+    private AutoCloseable delegate;
+
+    /**
+     * Internal wiring hook used by the Java wrapper implementation.
+     */
+    public final void setDelegate(AutoCloseable delegate) {
+      this.delegate = delegate;
+    }
+
+    /**
+     * Returns true when deserialization populated this handle with dataset payload ownership.
+     */
+    public final boolean isPresent() {
+      return delegate != null;
+    }
+
+    @Override
+    public void close() throws Exception {
+      if (delegate != null) {
+        delegate.close();
+        delegate = null;
+      }
+    }
+  }
+
+  /** Output dataset handle for padded deserialize path. */
+  final class PaddedDataset extends DeserializeDataset {
+    public PaddedDataset() {}
+  }
+
+  /** Output dataset handle for standard deserialize path. */
+  final class StandardDataset extends DeserializeDataset {
+    public StandardDataset() {}
+  }
 
   /**
    * Invokes the native destroy_cagra_index to de-allocate the CAGRA index
@@ -39,6 +126,32 @@ public interface CagraIndex extends AutoCloseable {
    * @return an instance of {@link SearchResults} containing the results
    */
   SearchResults search(CagraQuery query) throws Throwable;
+
+  /**
+   * Create a caller-owned device padded dataset view handle from a device matrix.
+   */
+  DevicePaddedDatasetView makeDevicePaddedDatasetView(CuVSDeviceMatrix dataset) throws Throwable;
+
+  /**
+   * Create a caller-owned device standard dataset view handle from a device matrix.
+   */
+  DeviceStandardDatasetView makeDeviceStandardDatasetView(CuVSDeviceMatrix dataset)
+      throws Throwable;
+
+  /**
+   * Attach a caller-provided padded device dataset view and convert to a
+   * search-ready padded-device index.
+   */
+  void attachDataset(DevicePaddedDatasetView datasetView) throws Throwable;
+
+  /**
+   * Deserializes into this pre-allocated index and optionally populates an output dataset handle.
+   * <p>
+   * Pass a {@link PaddedDataset} or {@link StandardDataset} to receive ownership of deserialized
+   * dataset payload. Passing {@code null} mirrors the C/C++ optional out-dataset contract; this is
+   * valid only when serialized data does not contain dataset payload.
+   */
+  void deserialize(InputStream inputStream, DeserializeDataset outDataset) throws Throwable;
 
   /** Returns the CAGRA graph
    *
@@ -195,15 +308,6 @@ public interface CagraIndex extends AutoCloseable {
    * Builder helps configure and create an instance of {@link CagraIndex}.
    */
   interface Builder {
-
-    /**
-     * Sets an instance of InputStream typically used when index deserialization is
-     * needed.
-     *
-     * @param inputStream an instance of {@link InputStream}
-     * @return an instance of this Builder
-     */
-    Builder from(InputStream inputStream);
 
     /**
      * Sets a CAGRA graph instance to re-create an index from a

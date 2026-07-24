@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -587,7 +587,8 @@ void search(const raft::resources& clique,
         static_cast<const cuvs::neighbors::mg_search_params<ivf_pq::search_params>*>(search_params);
       search_mode      = mg_search_params->search_mode;
       n_rows_per_batch = mg_search_params->n_rows_per_batch;
-    } else if constexpr (std::is_same<AnnIndexType, cagra::index<T, IdxT>>::value) {
+    } else if constexpr (std::is_same<AnnIndexType, cagra::device_padded_index<T, IdxT>>::value ||
+                         std::is_same<AnnIndexType, cagra::device_standard_index<T, IdxT>>::value) {
       const cuvs::neighbors::mg_search_params<cagra::search_params>* mg_search_params =
         static_cast<const cuvs::neighbors::mg_search_params<cagra::search_params>*>(search_params);
       search_mode      = mg_search_params->search_mode;
@@ -666,7 +667,8 @@ void search(const raft::resources& clique,
         static_cast<const cuvs::neighbors::mg_search_params<ivf_pq::search_params>*>(search_params);
       merge_mode       = mg_search_params->merge_mode;
       n_rows_per_batch = mg_search_params->n_rows_per_batch;
-    } else if constexpr (std::is_same<AnnIndexType, cagra::index<T, IdxT>>::value) {
+    } else if constexpr (std::is_same<AnnIndexType, cagra::device_padded_index<T, IdxT>>::value ||
+                         std::is_same<AnnIndexType, cagra::device_standard_index<T, IdxT>>::value) {
       const cuvs::neighbors::mg_search_params<cagra::search_params>* mg_search_params =
         static_cast<const cuvs::neighbors::mg_search_params<cagra::search_params>*>(search_params);
       merge_mode       = mg_search_params->merge_mode;
@@ -763,6 +765,12 @@ void serialize(const raft::resources& clique,
 namespace cuvs::neighbors {
 using namespace cuvs::neighbors;
 using namespace raft;
+
+template <typename AnnIndexType, typename T, typename IdxT>
+mg_index<AnnIndexType, T, IdxT>::mg_index(const raft::resources& clique)
+  : mg_index(clique, cuvs::neighbors::REPLICATED)
+{
+}
 
 template <typename AnnIndexType, typename T, typename IdxT>
 mg_index<AnnIndexType, T, IdxT>::mg_index(const raft::resources& clique, distribution_mode mode)

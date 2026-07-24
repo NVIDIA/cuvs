@@ -1,33 +1,50 @@
-# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 
 from .cagra import (
     AceParams,
-    CompressionParams,
     ExtendParams,
     Index,
     IndexParams,
+    PaddedDataset,
+    PaddedDatasetView,
+    StandardDataset,
+    StandardDatasetView,
     SearchParams,
+    attach_dataset,
     build,
     extend,
     from_graph,
+    get_dataset_view_kind,
     load,
+    make_device_padded_dataset_view,
+    make_device_standard_dataset_view,
+    make_device_padded_dataset, make_view_from_owning_padded,
     save,
     search,
 )
 
 __all__ = [
     "AceParams",
-    "CompressionParams",
     "ExtendParams",
     "Index",
     "IndexParams",
+    "PaddedDataset",
+    "PaddedDatasetView",
+    "StandardDataset",
+    "StandardDatasetView",
     "SearchParams",
+    "attach_dataset",
     "build",
     "extend",
     "from_graph",
+    "get_dataset_view_kind",
     "load",
+    "make_device_padded_dataset_view",
+    "make_device_standard_dataset_view",
+    "make_device_padded_dataset",
+    "make_view_from_owning_padded",
     "save",
     "search",
 ]

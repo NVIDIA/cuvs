@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -9,6 +9,7 @@
 #include "ann_utils.cuh"
 #include <raft/core/resource/cuda_stream.hpp>
 
+#include "cagra_padded_build_helpers.cuh"
 #include "naive_knn.cuh"
 
 #include <cuvs/distance/distance.hpp>
@@ -207,10 +208,10 @@ class AnnVamanaTest : public ::testing::TestWithParam<AnnVamanaInputs> {
         handle_, index.graph().extent(0), index.graph().extent(1));
       raft::linalg::map(handle_, graph_valid.view(), edge_op{}, index.graph());
 
-      auto cagra_index = cagra::index<DataT, IdxT>(handle_,
-                                                   ps.metric,
-                                                   raft::make_const_mdspan(database_view),
-                                                   raft::make_const_mdspan(graph_valid.view()));
+      cuvs::neighbors::test::padded_device_matrix_for_cagra<DataT> cagra_base(handle_,
+                                                                              database_view);
+      auto cagra_index = cagra::device_padded_index<DataT, IdxT>(
+        handle_, ps.metric, cagra_base.view, raft::make_const_mdspan(graph_valid.view()));
 
       cagra::search_params search_params;
       search_params.algo        = ps.algo;

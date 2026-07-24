@@ -1,10 +1,11 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #include <gtest/gtest.h>
 
+#include "../cagra_padded_build_helpers.cuh"
 #include <cuvs/neighbors/cagra.hpp>
 
 #include <raft/core/device_mdarray.hpp>
@@ -54,7 +55,9 @@ class cagra_graph_smaller_than_dataset_test : public ::testing::Test {
     index_params.graph_degree              = 32;
     index_params.intermediate_graph_degree = 64;
 
-    auto index = cagra::build(res, index_params, raft::make_const_mdspan(dataset.view()));
+    cuvs::neighbors::test::padded_device_matrix_for_cagra<data_type> padded_full(
+      res, raft::make_const_mdspan(dataset.view()));
+    auto index = cagra::build(res, index_params, padded_full.view);
     raft::resource::sync_stream(res);
 
     // Get the graph from the index
@@ -71,17 +74,23 @@ class cagra_graph_smaller_than_dataset_test : public ::testing::Test {
 
     cagra::index_params small_index_params;
     small_index_params.graph_degree = 32;
-    auto small_index                = cagra::build(res, small_index_params, small_dataset_view);
+    cuvs::neighbors::test::padded_device_matrix_for_cagra<data_type> padded_small(
+      res, small_dataset_view);
+    auto small_index = cagra::build(res, small_index_params, padded_small.view);
+    small_index.update_dataset(res, padded_small.view);
     raft::resource::sync_stream(res);
 
     // Step 2: Update to FULL dataset (1000 points) but keep small graph (500 nodes)
     // This creates the exact bug scenario: dataset.size=1000, graph.extent(0)=500
-    small_index.update_dataset(res, raft::make_const_mdspan(dataset.view()));
+    small_index.update_dataset(res,
+                               cuvs::neighbors::make_device_padded_dataset_view(
+                                 res, raft::make_const_mdspan(dataset.view())));
 
     // Verify the mismatch - THIS IS THE BUG SCENARIO!
-    ASSERT_EQ(small_index.graph().extent(0), n_graph);             // Graph has 500 nodes
-    ASSERT_EQ(small_index.size(), n_dataset);                      // Dataset has 1000 points
-    ASSERT_NE(small_index.graph().extent(0), small_index.size());  // Mismatch!
+    ASSERT_EQ(small_index.graph().extent(0), n_graph);  // Graph has 500 nodes
+    ASSERT_EQ(small_index.size(), n_dataset);           // Dataset has 1000 points
+    ASSERT_NE(small_index.graph().extent(0),
+              small_index.size());  // Mismatch!
 
     // Create queries
     auto queries = raft::make_device_matrix<data_type, int64_t>(res, n_queries, n_dim);

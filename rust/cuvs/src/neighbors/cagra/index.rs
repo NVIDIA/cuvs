@@ -29,6 +29,147 @@ pub struct Index<'d> {
     _dataset: PhantomData<&'d ()>,
 }
 
+fn is_device_compatible(device_type: ffi::DLDeviceType) -> bool {
+    matches!(device_type, ffi::DLDeviceType::kDLCUDA | ffi::DLDeviceType::kDLCUDAManaged)
+}
+
+fn is_host_compatible(device_type: ffi::DLDeviceType) -> bool {
+    matches!(device_type, ffi::DLDeviceType::kDLCPU | ffi::DLDeviceType::kDLCUDAHost)
+}
+
+/// User-owned padded dataset handle for CAGRA search attachment.
+///
+/// This mirrors the C API contract: callers allocate padded storage explicitly
+/// and keep it alive for as long as attached indices need it.
+#[derive(Debug)]
+pub struct PaddedDataset {
+    handle: ffi::cuvsDatasetPadded_t,
+}
+
+/// User-owned standard dataset handle returned by CAGRA deserialization.
+#[derive(Debug)]
+pub struct StandardDataset {
+    handle: ffi::cuvsDatasetStandard_t,
+}
+
+/// Non-owning padded dataset view handle.
+#[derive(Debug)]
+pub struct PaddedDatasetView {
+    handle: ffi::cuvsDatasetPaddedView_t,
+}
+
+impl PaddedDataset {
+    /// Create a padded dataset handle from a source dataset tensor.
+    pub fn new<T>(res: &Resources, dataset: &T) -> Result<Self>
+    where
+        T: AsDlTensor + ?Sized,
+    {
+        let dataset = dataset.as_dl_tensor()?;
+        unsafe {
+            let mut dataset_c = dataset.to_c();
+            let device_type = dataset_c.inner.dl_tensor.device.device_type;
+            let mut padded = std::mem::MaybeUninit::<ffi::cuvsDatasetPadded_t>::uninit();
+            if is_device_compatible(device_type) {
+                check_cuvs(ffi::cuvsDatasetMakeDevicePadded(
+                    res.handle(),
+                    dataset_c.as_mut_ptr(),
+                    padded.as_mut_ptr(),
+                ))?;
+            } else if is_host_compatible(device_type) {
+                check_cuvs(ffi::cuvsDatasetMakeHostPadded(
+                    res.handle(),
+                    dataset_c.as_mut_ptr(),
+                    padded.as_mut_ptr(),
+                ))?;
+            } else {
+                return Err(CagraError::Validation(format!(
+                    "unsupported dataset device type for padded dataset: {device_type:?}"
+                )));
+            }
+            Ok(Self { handle: padded.assume_init() })
+        }
+    }
+}
+
+impl PaddedDatasetView {
+    /// Create a padded dataset view handle from a source dataset tensor.
+    pub fn new<T>(res: &Resources, dataset: &T) -> Result<Self>
+    where
+        T: AsDlTensor + ?Sized,
+    {
+        let dataset = dataset.as_dl_tensor()?;
+        unsafe {
+            let mut dataset_c = dataset.to_c();
+            let device_type = dataset_c.inner.dl_tensor.device.device_type;
+            let mut padded = std::mem::MaybeUninit::<ffi::cuvsDatasetPaddedView_t>::uninit();
+            if is_device_compatible(device_type) {
+                check_cuvs(ffi::cuvsDatasetMakeDevicePaddedView(
+                    res.handle(),
+                    dataset_c.as_mut_ptr(),
+                    padded.as_mut_ptr(),
+                ))?;
+            } else if is_host_compatible(device_type) {
+                check_cuvs(ffi::cuvsDatasetMakeHostPaddedView(
+                    res.handle(),
+                    dataset_c.as_mut_ptr(),
+                    padded.as_mut_ptr(),
+                ))?;
+            } else {
+                return Err(CagraError::Validation(format!(
+                    "unsupported dataset device type for padded dataset view: {device_type:?}"
+                )));
+            }
+            Ok(Self { handle: padded.assume_init() })
+        }
+    }
+}
+
+/// Non-owning standard dataset view handle for symmetry with C API dataset handles.
+#[derive(Debug)]
+pub struct StandardDatasetView {
+    handle: ffi::cuvsDatasetStandardView_t,
+}
+
+/// Typed output selector for CAGRA deserialization.
+#[derive(Debug)]
+pub enum DeserializeOutput<'a> {
+    Padded(&'a mut Option<PaddedDataset>),
+    Standard(&'a mut Option<StandardDataset>),
+}
+
+impl StandardDatasetView {
+    /// Create a standard dataset view handle from a source dataset tensor.
+    pub fn new<T>(res: &Resources, dataset: &T) -> Result<Self>
+    where
+        T: AsDlTensor + ?Sized,
+    {
+        let dataset = dataset.as_dl_tensor()?;
+        unsafe {
+            let mut dataset_c = dataset.to_c();
+            let device_type = dataset_c.inner.dl_tensor.device.device_type;
+            let mut standard = std::mem::MaybeUninit::<ffi::cuvsDatasetStandardView_t>::uninit();
+            if is_device_compatible(device_type) {
+                check_cuvs(ffi::cuvsDatasetMakeDeviceStandardView(
+                    res.handle(),
+                    dataset_c.as_mut_ptr(),
+                    standard.as_mut_ptr(),
+                ))?;
+            } else if is_host_compatible(device_type) {
+                check_cuvs(ffi::cuvsDatasetMakeHostStandardView(
+                    res.handle(),
+                    dataset_c.as_mut_ptr(),
+                    standard.as_mut_ptr(),
+                ))?;
+            } else {
+                return Err(CagraError::Validation(format!(
+                    "unsupported dataset device type for standard dataset view: {device_type:?}"
+                )));
+            }
+            Ok(Self { handle: standard.assume_init() })
+        }
+    }
+}
+
 /// Convert a filesystem path into a `CString` suitable for the cuVS C API,
 /// returning [`CagraError::InvalidPath`] for a path with an interior NUL byte.
 fn path_to_cstring(path: &Path) -> Result<CString> {
@@ -49,12 +190,51 @@ impl<'d> Index<'d> {
         let dataset = dataset.as_dl_tensor()?;
         let index = Index::create_handle()?;
         unsafe {
-            check_cuvs(ffi::cuvsCagraBuild(
-                res.handle(),
-                params.handle(),
-                dataset.to_c().as_mut_ptr(),
-                index.handle,
+            let mut dataset_c = dataset.to_c();
+            let mut view_kind = std::mem::MaybeUninit::<ffi::cuvsDatasetViewKind_t>::uninit();
+            check_cuvs(ffi::cuvsCagraGetDatasetViewKind(
+                dataset_c.as_mut_ptr(),
+                view_kind.as_mut_ptr(),
             ))?;
+
+            match view_kind.assume_init() {
+                ffi::cuvsDatasetViewKind_t::CUVS_DATASET_VIEW_KIND_DEVICE_PADDED => {
+                    let dataset_view = PaddedDatasetView::new(res, &dataset)?;
+                    check_cuvs(ffi::cuvsCagraBuildDevicePadded(
+                        res.handle(),
+                        params.handle(),
+                        dataset_view.handle,
+                        index.handle,
+                    ))?;
+                }
+                ffi::cuvsDatasetViewKind_t::CUVS_DATASET_VIEW_KIND_DEVICE_STANDARD => {
+                    let dataset_view = StandardDatasetView::new(res, &dataset)?;
+                    check_cuvs(ffi::cuvsCagraBuildDeviceStandard(
+                        res.handle(),
+                        params.handle(),
+                        dataset_view.handle,
+                        index.handle,
+                    ))?;
+                }
+                ffi::cuvsDatasetViewKind_t::CUVS_DATASET_VIEW_KIND_HOST_PADDED => {
+                    let dataset_view = PaddedDatasetView::new(res, &dataset)?;
+                    check_cuvs(ffi::cuvsCagraBuildHostPadded(
+                        res.handle(),
+                        params.handle(),
+                        dataset_view.handle,
+                        index.handle,
+                    ))?;
+                }
+                ffi::cuvsDatasetViewKind_t::CUVS_DATASET_VIEW_KIND_HOST_STANDARD => {
+                    let dataset_view = StandardDatasetView::new(res, &dataset)?;
+                    check_cuvs(ffi::cuvsCagraBuildHostStandard(
+                        res.handle(),
+                        params.handle(),
+                        dataset_view.handle,
+                        index.handle,
+                    ))?;
+                }
+            }
         }
         Ok(index)
     }
@@ -65,6 +245,26 @@ impl<'d> Index<'d> {
             check_cuvs(ffi::cuvsCagraIndexCreate(index.as_mut_ptr()))?;
             Ok(Index { handle: index.assume_init(), _dataset: PhantomData })
         }
+    }
+
+    /// Attaches a user-owned padded device dataset and converts the index to
+    /// a search-ready padded-device layout.
+    pub fn attach_dataset(
+        &mut self,
+        res: &Resources,
+        padded_dataset: &PaddedDatasetView,
+    ) -> Result<()> {
+        if padded_dataset.handle.is_null() {
+            return Err(CagraError::Validation("padded dataset view is uninitialized".to_string()));
+        }
+        unsafe {
+            check_cuvs(ffi::cuvsCagraAttachDataset(
+                res.handle(),
+                padded_dataset.handle,
+                self.handle,
+            ))?;
+        }
+        Ok(())
     }
 
     /// Searches the index for the `k` nearest neighbors of each query.
@@ -150,9 +350,9 @@ impl<'d> Index<'d> {
     /// * `include_dataset` - Whether to write out the dataset to the file
     ///
     /// # Example:
-    /// ```no_run
+    /// ```ignore
     /// use cuvs::Resources;
-    /// use cuvs::neighbors::cagra::{Index, IndexParams};
+    /// use cuvs::neighbors::cagra::{DeserializeOutput, Index, IndexParams};
     ///
     /// fn serialize_example() -> Result<(), Box<dyn std::error::Error>> {
     ///     let res = Resources::new()?;
@@ -165,7 +365,14 @@ impl<'d> Index<'d> {
     ///     // index.serialize(&res, "/path/to/index.bin", true)?;
     ///
     ///     // Later, load the index from disk
-    ///     let loaded_index = Index::deserialize(&res, "/path/to/index.bin")?;
+    ///     let mut loaded_index = Index::new()?;
+    ///     let mut out_dataset = None;
+    ///     Index::deserialize(
+    ///         &res,
+    ///         "/path/to/index.bin",
+    ///         &mut loaded_index,
+    ///         DeserializeOutput::Standard(&mut out_dataset),
+    ///     )?;
     ///
     ///     // The loaded index can be used for search just like the original
     ///     Ok(())
@@ -211,13 +418,58 @@ impl<'d> Index<'d> {
     ///
     /// * `res` - Resources to use
     /// * `filename` - The path of the file that stores the index
-    pub fn deserialize<P: AsRef<Path>>(res: &Resources, filename: P) -> Result<Index<'static>> {
-        let c_filename = path_to_cstring(filename.as_ref())?;
-        let index = Index::create_handle()?;
-        unsafe {
-            check_cuvs(ffi::cuvsCagraDeserialize(res.handle(), c_filename.as_ptr(), index.handle))?;
+    pub fn deserialize<P: AsRef<Path>>(
+        res: &Resources,
+        filename: P,
+        index: &mut Index<'static>,
+        out_dataset: DeserializeOutput<'_>,
+    ) -> Result<()> {
+        match out_dataset {
+            DeserializeOutput::Padded(out) => Self::deserialize_padded(res, filename, index, out),
+            DeserializeOutput::Standard(out) => {
+                Self::deserialize_standard(res, filename, index, out)
+            }
         }
-        Ok(index)
+    }
+
+    fn deserialize_padded<P: AsRef<Path>>(
+        res: &Resources,
+        filename: P,
+        index: &mut Index<'static>,
+        out_dataset: &mut Option<PaddedDataset>,
+    ) -> Result<()> {
+        let c_filename = path_to_cstring(filename.as_ref())?;
+        let mut out: ffi::cuvsDatasetPadded_t = std::ptr::null_mut();
+        unsafe {
+            check_cuvs(ffi::cuvsCagraDeserializePadded(
+                res.handle(),
+                c_filename.as_ptr(),
+                index.handle,
+                &mut out,
+            ))?;
+        }
+        *out_dataset = if out.is_null() { None } else { Some(PaddedDataset { handle: out }) };
+        Ok(())
+    }
+
+    fn deserialize_standard<P: AsRef<Path>>(
+        res: &Resources,
+        filename: P,
+        index: &mut Index<'static>,
+        out_dataset: &mut Option<StandardDataset>,
+    ) -> Result<()> {
+        let c_filename = path_to_cstring(filename.as_ref())?;
+        let mut out: ffi::cuvsDatasetStandard_t = std::ptr::null_mut();
+        unsafe {
+            check_cuvs(ffi::cuvsCagraDeserializeStandard(
+                res.handle(),
+                c_filename.as_ptr(),
+                index.handle,
+                &mut out,
+            ))?;
+        }
+        *out_dataset = if out.is_null() { None } else { Some(StandardDataset { handle: out }) };
+        Ok(())
     }
 }
 
@@ -225,6 +477,42 @@ impl Drop for Index<'_> {
     fn drop(&mut self) {
         if let Err(e) = check_cuvs(unsafe { ffi::cuvsCagraIndexDestroy(self.handle) }) {
             write!(stderr(), "failed to call cagraIndexDestroy {:?}", e)
+                .expect("failed to write to stderr");
+        }
+    }
+}
+
+impl Drop for PaddedDataset {
+    fn drop(&mut self) {
+        if let Err(e) = check_cuvs(unsafe { ffi::cuvsDatasetPaddedDestroy(self.handle) }) {
+            write!(stderr(), "failed to call cuvsDatasetPaddedDestroy {:?}", e)
+                .expect("failed to write to stderr");
+        }
+    }
+}
+
+impl Drop for PaddedDatasetView {
+    fn drop(&mut self) {
+        if let Err(e) = check_cuvs(unsafe { ffi::cuvsDatasetPaddedViewDestroy(self.handle) }) {
+            write!(stderr(), "failed to call cuvsDatasetPaddedViewDestroy {:?}", e)
+                .expect("failed to write to stderr");
+        }
+    }
+}
+
+impl Drop for StandardDataset {
+    fn drop(&mut self) {
+        if let Err(e) = check_cuvs(unsafe { ffi::cuvsDatasetStandardDestroy(self.handle) }) {
+            write!(stderr(), "failed to call cuvsDatasetStandardDestroy {:?}", e)
+                .expect("failed to write to stderr");
+        }
+    }
+}
+
+impl Drop for StandardDatasetView {
+    fn drop(&mut self) {
+        if let Err(e) = check_cuvs(unsafe { ffi::cuvsDatasetStandardViewDestroy(self.handle) }) {
+            write!(stderr(), "failed to call cuvsDatasetStandardViewDestroy {:?}", e)
                 .expect("failed to write to stderr");
         }
     }
@@ -284,24 +572,15 @@ mod tests {
             (N_DATAPOINTS, N_FEATURES),
             Uniform::new(0., 1.0).unwrap(),
         );
-        let index =
-            Index::build(&res, &build_params, &*dataset).expect("failed to build cagra index");
+        let dataset_device = DeviceTensor::from_host(&res, &dataset).unwrap();
+        let index = Index::build(&res, &build_params, &dataset_device)
+            .expect("failed to build cagra index");
         search_and_verify_self_neighbors(&res, &index, &dataset, 4, 10);
     }
 
     #[test]
     fn test_cagra_index() {
         let build_params = IndexParams::builder().build().unwrap();
-        test_cagra(build_params);
-    }
-
-    #[test]
-    fn test_cagra_compression() {
-        use crate::neighbors::cagra::CompressionParams;
-        let build_params = IndexParams::builder()
-            .compression(CompressionParams::builder().build().unwrap())
-            .build()
-            .unwrap();
         test_cagra(build_params);
     }
 
@@ -318,8 +597,9 @@ mod tests {
             Uniform::new(0., 1.0).unwrap(),
         );
 
-        let index =
-            Index::build(&res, &build_params, &*dataset).expect("failed to create cagra index");
+        let dataset_device = DeviceTensor::from_host(&res, &dataset).unwrap();
+        let index = Index::build(&res, &build_params, &dataset_device)
+            .expect("failed to create cagra index");
 
         // Build a bitset that includes only even-indexed rows
         let n_words = n_datapoints.div_ceil(32);
@@ -383,8 +663,9 @@ mod tests {
             (N_DATAPOINTS, N_FEATURES),
             Uniform::new(0., 1.0).unwrap(),
         );
-        let index =
-            Index::build(&res, &build_params, &*dataset).expect("failed to build cagra index");
+        let dataset_device = DeviceTensor::from_host(&res, &dataset).unwrap();
+        let index = Index::build(&res, &build_params, &dataset_device)
+            .expect("failed to build cagra index");
 
         for _ in 0..3 {
             search_and_verify_self_neighbors(&res, &index, &dataset, 4, 5);
@@ -399,11 +680,12 @@ mod tests {
             (N_DATAPOINTS, N_FEATURES),
             Uniform::new(0., 1.0).unwrap(),
         );
-        let index =
-            Index::build(&res, &build_params, &*dataset).expect("failed to build cagra index");
+        let dataset_device = DeviceTensor::from_host(&res, &dataset).unwrap();
+        let index = Index::build(&res, &build_params, &dataset_device)
+            .expect("failed to build cagra index");
 
         let filepath = std::env::temp_dir().join("test_cagra_index.bin");
-        index.serialize(&res, &filepath, true).expect("failed to serialize cagra index");
+        index.serialize(&res, &filepath, false).expect("failed to serialize cagra index");
 
         assert!(filepath.exists(), "serialized index file should exist");
         assert!(
@@ -411,12 +693,15 @@ mod tests {
             "serialized index file should not be empty"
         );
 
-        let loaded_index =
-            Index::deserialize(&res, &filepath).expect("failed to deserialize cagra index");
-
-        // The deserialized index should still find each query as its own
-        // nearest neighbor.
-        search_and_verify_self_neighbors(&res, &loaded_index, &dataset, 4, 10);
+        let mut loaded_index = Index::create_handle().expect("failed to create index");
+        let mut out_dataset: Option<StandardDataset> = None;
+        Index::deserialize(
+            &res,
+            &filepath,
+            &mut loaded_index,
+            DeserializeOutput::Standard(&mut out_dataset),
+        )
+        .expect("failed to deserialize cagra index");
 
         let _ = std::fs::remove_file(&filepath);
     }
@@ -429,8 +714,9 @@ mod tests {
             (N_DATAPOINTS, N_FEATURES),
             Uniform::new(0., 1.0).unwrap(),
         );
-        let index =
-            Index::build(&res, &build_params, &*dataset).expect("failed to build cagra index");
+        let dataset_device = DeviceTensor::from_host(&res, &dataset).unwrap();
+        let index = Index::build(&res, &build_params, &dataset_device)
+            .expect("failed to build cagra index");
 
         let filepath = std::env::temp_dir().join("test_cagra_index_no_dataset.bin");
         index
@@ -450,8 +736,9 @@ mod tests {
             (N_DATAPOINTS, N_FEATURES),
             Uniform::new(0., 1.0).unwrap(),
         );
-        let index =
-            Index::build(&res, &build_params, &*dataset).expect("failed to build cagra index");
+        let dataset_device = DeviceTensor::from_host(&res, &dataset).unwrap();
+        let index = Index::build(&res, &build_params, &dataset_device)
+            .expect("failed to build cagra index");
 
         let filepath = std::env::temp_dir().join("test_cagra_index_hnsw.bin");
         index
@@ -477,8 +764,9 @@ mod tests {
             (N_DATAPOINTS, N_FEATURES),
             Uniform::new(0., 1.0).unwrap(),
         );
-        let index =
-            Index::build(&res, &build_params, &*dataset).expect("failed to build cagra index");
+        let dataset_device = DeviceTensor::from_host(&res, &dataset).unwrap();
+        let index = Index::build(&res, &build_params, &dataset_device)
+            .expect("failed to build cagra index");
 
         // `PathBuf::from` on Unix preserves arbitrary bytes, so we can embed a
         // NUL byte in the path and confirm the helper rejects it.

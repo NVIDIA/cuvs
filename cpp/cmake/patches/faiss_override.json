@@ -7,7 +7,7 @@
       "patches" : [
         {
           "file" : "${current_json_dir}/faiss-1.14-cuvs-26.08.diff",
-          "issue" : "Multiple fixes for cuVS compatibility",
+          "issue" : "Multiple fixes for cuVS compatibility. Update Faiss cuVS to be compatible with new Dataset API: update_dataset now takes dataset_view and make_padded_dataset_view must be called beforehand. Loading an index built from a user-provided KNN graph passes dataset_view into cagra::index, not raw mdspan.",
           "fixed_in" : ""
         }
       ]

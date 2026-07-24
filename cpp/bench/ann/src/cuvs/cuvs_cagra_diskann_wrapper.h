@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -10,6 +10,8 @@
 
 #include <chrono>
 #include <memory>
+#include <optional>
+#include <variant>
 
 #include "../common/ann_types.hpp"
 #include "../diskann/diskann_wrapper.h"
@@ -165,18 +167,28 @@ void cuvs_cagra_diskann<T, IdxT>::save(const std::string& file) const
 
   // try allocating a buffer for the dataset on host
   try {
-    const cuvs::neighbors::strided_dataset<T, int64_t>* strided_dataset =
-      dynamic_cast<cuvs::neighbors::strided_dataset<T, int64_t>*>(
-        const_cast<cuvs::neighbors::dataset<int64_t>*>(&cagra_build_.get_index()->data()));
-    if (strided_dataset == nullptr) {
-      RAFT_LOG_DEBUG("dynamic_cast to strided_dataset failed");
+    auto const* idx_ptr                                    = cagra_build_.get_index();
+    std::optional<raft::host_matrix<T, int64_t>> h_dataset = std::nullopt;
+    auto const& data_view                                  = idx_ptr->data();
+    if constexpr (cuvs::neighbors::is_padded_dataset_view_v<std::decay_t<decltype(data_view)>>) {
+      auto const& v = data_view;
+      auto n_rows   = v.n_rows();
+      auto dim      = v.dim();
+      auto stride   = v.stride();
+      h_dataset.emplace(raft::make_host_matrix<T, int64_t>(n_rows, dim));
+      raft::copy_matrix(h_dataset->data_handle(),
+                        dim,
+                        v.view().data_handle(),
+                        stride,
+                        dim,
+                        n_rows,
+                        raft::resource::get_cuda_stream(handle_));
     } else {
-      auto h_dataset =
-        raft::make_host_matrix<T, int64_t>(strided_dataset->n_rows(), strided_dataset->dim());
-      raft::copy(h_dataset.data_handle(),
-                 strided_dataset->view().data_handle(),
-                 strided_dataset->n_rows() * strided_dataset->dim(),
-                 raft::resource::get_cuda_stream(handle_));
+      RAFT_LOG_DEBUG("dataset serialization: index dataset is not device_padded_dataset_view");
+    }
+
+    if (h_dataset.has_value()) {
+      raft::resource::sync_stream(handle_);
       std::string dataset_base_file = file + ".data";
       std::ofstream dataset_of(dataset_base_file, std::ios::out | std::ios::binary);
       if (!dataset_of) { RAFT_FAIL("Cannot open file %s", dataset_base_file.c_str()); }
@@ -187,7 +199,7 @@ void cuvs_cagra_diskann<T, IdxT>::save(const std::string& file) const
       dataset_of.write((char*)&size, sizeof(int));
       dataset_of.write((char*)&dim, sizeof(int));
       for (int i = 0; i < size; i++) {
-        dataset_of.write((char*)(h_dataset.data_handle() + i * h_dataset.extent(1)),
+        dataset_of.write((char*)(h_dataset->data_handle() + i * h_dataset->extent(1)),
                          dim * sizeof(T));
       }
       dataset_of.close();

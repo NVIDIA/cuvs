@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -8,28 +8,54 @@
 
 namespace {
 
-using data_t = @data_type@;
+using data_t                      = @data_type@;
+using inst_device_padded_view_t   = cuvs::neighbors::device_padded_dataset_view<data_t, int64_t>;
+using inst_device_standard_view_t = cuvs::neighbors::device_standard_dataset_view<data_t, int64_t>;
+using inst_vpq_f16_view_t         = cuvs::neighbors::device_vpq_dataset_view<half, int64_t>;
+using inst_vpq_f32_view_t         = cuvs::neighbors::device_vpq_dataset_view<float, int64_t>;
+using inst_empty_view_t           = cuvs::neighbors::device_empty_dataset_view<int64_t>;
 
-}
+}  // namespace
 
 namespace cuvs::neighbors::cagra {
 
-#define CUVS_INST_CAGRA_SEARCH(T, IdxT, OutputIdxT)                                     \
+#define CUVS_INST_CAGRA_SEARCH(T, IdxT, DatasetViewT, OutputIdxT)                       \
   void search(raft::resources const& handle,                                            \
               cuvs::neighbors::cagra::search_params const& params,                      \
-              const cuvs::neighbors::cagra::index<T, IdxT>& index,                      \
+              const cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>& index,        \
               raft::device_matrix_view<const T, int64_t, raft::row_major> queries,      \
               raft::device_matrix_view<OutputIdxT, int64_t, raft::row_major> neighbors, \
               raft::device_matrix_view<float, int64_t, raft::row_major> distances,      \
               const cuvs::neighbors::filtering::base_filter& sample_filter)             \
   {                                                                                     \
-    cuvs::neighbors::cagra::search<T, IdxT, OutputIdxT>(                                \
+    cuvs::neighbors::cagra::search<T, IdxT, DatasetViewT, OutputIdxT>(                  \
       handle, params, index, queries, neighbors, distances, sample_filter);             \
   }
 
-CUVS_INST_CAGRA_SEARCH(data_t, uint32_t, uint32_t);
-CUVS_INST_CAGRA_SEARCH(data_t, uint32_t, int64_t);
+#define CUVS_INST_CAGRA_SEARCH_ALL_VIEWS(T, OutputIdxT)                         \
+  CUVS_INST_CAGRA_SEARCH(T, uint32_t, inst_device_padded_view_t, OutputIdxT);   \
+  CUVS_INST_CAGRA_SEARCH(T, uint32_t, inst_device_standard_view_t, OutputIdxT); \
+  CUVS_INST_CAGRA_SEARCH(T, uint32_t, inst_vpq_f16_view_t, OutputIdxT);         \
+  CUVS_INST_CAGRA_SEARCH(T, uint32_t, inst_vpq_f32_view_t, OutputIdxT);         \
+  CUVS_INST_CAGRA_SEARCH(T, uint32_t, inst_empty_view_t, OutputIdxT)
 
+CUVS_INST_CAGRA_SEARCH_ALL_VIEWS(data_t, uint32_t);
+CUVS_INST_CAGRA_SEARCH_ALL_VIEWS(data_t, int64_t);
+
+#undef CUVS_INST_CAGRA_SEARCH_ALL_VIEWS
 #undef CUVS_INST_CAGRA_SEARCH
+
+template CUVS_EXPORT __attribute__((externally_visible)) void
+index<data_t, uint32_t, inst_device_padded_view_t>::compute_dataset_norms_(
+  raft::resources const& res);
+template CUVS_EXPORT __attribute__((externally_visible)) void
+index<data_t, uint32_t, inst_device_standard_view_t>::compute_dataset_norms_(
+  raft::resources const& res);
+template CUVS_EXPORT __attribute__((externally_visible)) void
+index<data_t, uint32_t, inst_vpq_f16_view_t>::compute_dataset_norms_(raft::resources const& res);
+template CUVS_EXPORT __attribute__((externally_visible)) void
+index<data_t, uint32_t, inst_vpq_f32_view_t>::compute_dataset_norms_(raft::resources const& res);
+template CUVS_EXPORT __attribute__((externally_visible)) void
+index<data_t, uint32_t, inst_empty_view_t>::compute_dataset_norms_(raft::resources const& res);
 
 }  // namespace cuvs::neighbors::cagra

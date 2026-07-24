@@ -1,11 +1,12 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
 
 #include <cuvs/core/c_api.h>
+#include <cuvs/core/dataset.h>
 #include <cuvs/distance/distance.h>
 #include <cuvs/neighbors/common.h>
 #include <cuvs/neighbors/ivf_pq.h>
@@ -211,12 +212,6 @@ struct cuvsCagraIndexParams {
   enum cuvsCagraGraphBuildAlgo build_algo;
   /** Number of Iterations to run if building with NN_DESCENT */
   size_t nn_descent_niter;
-  /**
-   * Optional: specify compression parameters if compression is desired.
-   *
-   * NOTE: this is experimental new API, consider it unsafe.
-   */
-  cuvsCagraCompressionParams_t compression;
   /**
    * Optional: specify graph build params based on build_algo
    * - IVF_PQ: cuvsIvfPqParams_t
@@ -466,13 +461,15 @@ CUVS_EXPORT cuvsError_t cuvsCagraSearchParamsDestroy(cuvsCagraSearchParams_t par
  */
 
 /**
- * @brief Struct to hold address of cuvs::neighbors::cagra::index and its active trained dtype
+ * @brief Struct holding the CAGRA index storage address and vector element dtype (DLPack-style)
  *
+ * Matches the usual cuVS C index pattern (`addr` + `dtype`). \p addr points at implementation-owned
+ * storage (not always a bare `cagra::index*`); free only via \ref cuvsCagraIndexDestroy. \p dtype
+ * describes index vector elements for queries and template dispatch.
  */
-typedef struct {
+typedef struct cuvsCagraIndex {
   uintptr_t addr;
   DLDataType dtype;
-
 } cuvsCagraIndex;
 
 typedef cuvsCagraIndex* cuvsCagraIndex_t;
@@ -562,6 +559,22 @@ CUVS_EXPORT cuvsError_t cuvsCagraIndexGetDataset(cuvsCagraIndex_t index, DLManag
 CUVS_EXPORT cuvsError_t cuvsCagraIndexGetGraph(cuvsCagraIndex_t index, DLManagedTensor* graph);
 
 /**
+ * @brief Attach a device-padded dataset and return a search-ready padded-device index.
+ *
+ * Accepts any CAGRA index layout (host/device + standard/padded). The input \p index is replaced
+ * in-place with a padded-device index on success. Caller retains ownership of
+ * \p device_padded_dataset and must keep it alive while \p index uses it.
+ *
+ * @param[in] res                    cuvsResources_t opaque C handle
+ * @param[in] device_padded_dataset  device padded dataset view handle
+ * @param[in,out] index              CAGRA index handle (any layout), replaced with padded-device index
+ * @return cuvsError_t
+ */
+CUVS_EXPORT cuvsError_t cuvsCagraAttachDataset(cuvsResources_t res,
+                                               cuvsDatasetPaddedView_t device_padded_dataset,
+                                               cuvsCagraIndex_t index);
+
+/**
  * @}
  */
 
@@ -571,53 +584,50 @@ CUVS_EXPORT cuvsError_t cuvsCagraIndexGetGraph(cuvsCagraIndex_t index, DLManaged
  */
 
 /**
- * @brief Build a CAGRA index with a `DLManagedTensor` which has underlying
- *        `DLDeviceType` equal to `kDLCUDA`, `kDLCUDAHost`, `kDLCUDAManaged`,
- *        or `kDLCPU`. Also, acceptable underlying types are:
- *        1. `kDLDataType.code == kDLFloat` and `kDLDataType.bits = 32`
- *        2. `kDLDataType.code == kDLFloat` and `kDLDataType.bits = 16`
- *        3. `kDLDataType.code == kDLInt` and `kDLDataType.bits = 8`
- *        4. `kDLDataType.code == kDLUInt` and `kDLDataType.bits = 8`
+ * @brief Determine CAGRA dataset view kind (host/device + padded/standard) for an input tensor.
  *
- * @code {.c}
- * #include <cuvs/core/c_api.h>
- * #include <cuvs/neighbors/cagra.h>
+ * This reuses the same C++ row-width check used by CAGRA internals
+ * (`matrix_row_width_matches_cagra_required`) so downstream wrappers can dispatch
+ * deterministically without duplicating alignment math.
  *
- * // Create cuvsResources_t
- * cuvsResources_t res;
- * cuvsError_t res_create_status = cuvsResourcesCreate(&res);
- *
- * // Assume a populated `DLManagedTensor` type here
- * DLManagedTensor dataset;
- *
- * // Create default index params
- * cuvsCagraIndexParams_t params;
- * cuvsError_t params_create_status = cuvsCagraIndexParamsCreate(&params);
- *
- * // Create CAGRA index
- * cuvsCagraIndex_t index;
- * cuvsError_t index_create_status = cuvsCagraIndexCreate(&index);
- *
- * // Build the CAGRA Index
- * cuvsError_t build_status = cuvsCagraBuild(res, params, &dataset, index);
- *
- * // de-allocate `params`, `index` and `res`
- * cuvsError_t params_destroy_status = cuvsCagraIndexParamsDestroy(params);
- * cuvsError_t index_destroy_status = cuvsCagraIndexDestroy(index);
- * cuvsError_t res_destroy_status = cuvsResourcesDestroy(res);
- * @endcode
- *
- * @param[in] res cuvsResources_t opaque C handle
- * @param[in] params cuvsCagraIndexParams_t used to build CAGRA index
- * @param[in] dataset DLManagedTensor* training dataset
- * @param[inout] index cuvsCagraIndex_t Newly built CAGRA index. This index needs to be already
- *                                      created with cuvsCagraIndexCreate.
+ * @param[in] dataset   input dataset tensor
+ * @param[out] kind     resolved dataset view kind
  * @return cuvsError_t
  */
-CUVS_EXPORT cuvsError_t cuvsCagraBuild(cuvsResources_t res,
-                           cuvsCagraIndexParams_t params,
-                           DLManagedTensor* dataset,
-                           cuvsCagraIndex_t index);
+CUVS_EXPORT cuvsError_t cuvsCagraGetDatasetViewKind(DLManagedTensor* dataset,
+                                                    cuvsDatasetViewKind_t* kind);
+
+/**
+ * @brief Build CAGRA from a device padded dataset view.
+ */
+CUVS_EXPORT cuvsError_t cuvsCagraBuildDevicePadded(cuvsResources_t res,
+                                                   cuvsCagraIndexParams_t params,
+                                                   cuvsDatasetPaddedView_t dataset_view,
+                                                   cuvsCagraIndex_t index);
+
+/**
+ * @brief Build CAGRA from a device standard dataset view.
+ */
+CUVS_EXPORT cuvsError_t cuvsCagraBuildDeviceStandard(cuvsResources_t res,
+                                                     cuvsCagraIndexParams_t params,
+                                                     cuvsDatasetStandardView_t dataset_view,
+                                                     cuvsCagraIndex_t index);
+
+/**
+ * @brief Build CAGRA from a host padded dataset view.
+ */
+CUVS_EXPORT cuvsError_t cuvsCagraBuildHostPadded(cuvsResources_t res,
+                                                 cuvsCagraIndexParams_t params,
+                                                 cuvsDatasetPaddedView_t dataset_view,
+                                                 cuvsCagraIndex_t index);
+
+/**
+ * @brief Build CAGRA from a host standard dataset view.
+ */
+CUVS_EXPORT cuvsError_t cuvsCagraBuildHostStandard(cuvsResources_t res,
+                                                   cuvsCagraIndexParams_t params,
+                                                   cuvsDatasetStandardView_t dataset_view,
+                                                   cuvsCagraIndex_t index);
 
 /**
  * @}
@@ -629,23 +639,20 @@ CUVS_EXPORT cuvsError_t cuvsCagraBuild(cuvsResources_t res,
  */
 
 /**
- * @brief Extend a CAGRA index with a `DLManagedTensor` which has underlying
- *        `DLDeviceType` equal to `kDLCUDA`, `kDLCUDAHost`, `kDLCUDAManaged`,
- *        or `kDLCPU`. Also, acceptable underlying types are:
- *        1. `kDLDataType.code == kDLFloat` and `kDLDataType.bits = 32`
- *        2. `kDLDataType.code == kDLFloat` and `kDLDataType.bits = 16`
- *        3. `kDLDataType.code == kDLInt` and `kDLDataType.bits = 8`
- *        4. `kDLDataType.code == kDLUInt` and `kDLDataType.bits = 8`
+ * @brief Extend a CAGRA index with an explicit padded dataset view.
  *
  * @param[in] res cuvsResources_t opaque C handle
  * @param[in] params cuvsCagraExtendParams_t used to extend CAGRA index
- * @param[in] additional_dataset DLManagedTensor* additional dataset
+ * @param[in] additional_dataset cuvsDatasetPaddedView_t additional dataset
+ * @param[in,out] extended_dataset caller-owned writable device-padded dataset view receiving the
+ * extended rows
  * @param[in,out] index cuvsCagraIndex_t CAGRA index
  * @return cuvsError_t
  */
 CUVS_EXPORT cuvsError_t cuvsCagraExtend(cuvsResources_t res,
                             cuvsCagraExtendParams_t params,
-                            DLManagedTensor* additional_dataset,
+                            cuvsDatasetPaddedView_t additional_dataset,
+                            cuvsDatasetPaddedView_t extended_dataset,
                             cuvsCagraIndex_t index);
 
 /**
@@ -784,10 +791,29 @@ CUVS_EXPORT cuvsError_t cuvsCagraSerializeToHnswlib(cuvsResources_t res,
  *
  * @param[in] res cuvsResources_t opaque C handle
  * @param[in] filename the name of the file that stores the index
+ * @param[in] deserialize_layout target index layout to deserialize into (padded or standard)
  * @param[inout] index cuvsCagraIndex_t CAGRA index loaded from disk. This index needs to be already
  *                                      created with cuvsCagraIndexCreate.
  */
-CUVS_EXPORT cuvsError_t cuvsCagraDeserialize(cuvsResources_t res, const char* filename, cuvsCagraIndex_t index);
+CUVS_EXPORT cuvsError_t cuvsCagraDeserializePadded(cuvsResources_t res,
+                                                    const char* filename,
+                                                    cuvsCagraIndex_t index,
+                                                    cuvsDatasetPadded_t* out_padded_dataset);
+
+/**
+ * Load standard-layout index from file.
+ *
+ * Experimental, both the API and the serialization format are subject to change.
+ *
+ * @param[in] res cuvsResources_t opaque C handle
+ * @param[in] filename the name of the file that stores the index
+ * @param[inout] index cuvsCagraIndex_t CAGRA index loaded from disk. This index needs to be already
+ *                                      created with cuvsCagraIndexCreate.
+ */
+CUVS_EXPORT cuvsError_t cuvsCagraDeserializeStandard(cuvsResources_t res,
+                                                     const char* filename,
+                                                     cuvsCagraIndex_t index,
+                                                     cuvsDatasetStandard_t* out_standard_dataset);
 
 /**
  * Load index from a dataset and graph
@@ -895,6 +921,7 @@ CUVS_EXPORT cuvsError_t cuvsCagraMerge(cuvsResources_t res,
                            cuvsCagraIndex_t* indices,
                            size_t num_indices,
                            cuvsFilter filter,
+                           cuvsDatasetStorage_t merged_dataset,
                            cuvsCagraIndex_t output_index);
 
 /**

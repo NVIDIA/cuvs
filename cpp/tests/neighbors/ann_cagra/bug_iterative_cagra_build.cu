@@ -1,10 +1,11 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #include <gtest/gtest.h>
 
+#include "../cagra_padded_build_helpers.cuh"
 #include <cuvs/neighbors/cagra.hpp>
 
 #include <raft/core/device_mdarray.hpp>
@@ -34,8 +35,10 @@ class CagraIterativeBuildBugTest : public ::testing::Test {
     // Use iterative CAGRA search for graph building
     index_params.graph_build_params = graph_build_params::iterative_search_params();
 
-    // Build the index
-    auto cagra_index = cagra::build(res, index_params, raft::make_const_mdspan(dataset->view()));
+    cuvs::neighbors::test::padded_device_matrix_for_cagra<data_type> padded(
+      res, raft::make_const_mdspan(dataset->view()));
+    auto cagra_index = cagra::build(res, index_params, padded.view);
+    cagra_index.update_dataset(res, padded.view);
     raft::resource::sync_stream(res);
 
     // Verify the index was built successfully

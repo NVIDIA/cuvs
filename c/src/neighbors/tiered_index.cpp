@@ -1,10 +1,11 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #include <cstdint>
 #include <dlpack/dlpack.h>
+#include <type_traits>
 
 #include <raft/core/error.hpp>
 #include <raft/core/mdspan_types.hpp>
@@ -18,16 +19,84 @@
 #include <cuvs/neighbors/tiered_index.hpp>
 
 
-#include <fstream>
-
 #include "../core/exceptions.hpp"
 #include "../core/interop.hpp"
 #include "cagra.hpp"
+#include "c_api_box.hpp"
 #include "ivf_flat.hpp"
 #include "ivf_pq.hpp"
 
 namespace {
 using namespace cuvs::neighbors;
+
+enum class tiered_cagra_dataset_layout : uint8_t { not_applicable, device_padded, device_standard };
+
+struct tiered_c_api_index_box {
+  void* index_ptr;
+  cuvsTieredIndexANNAlgo algo;
+  tiered_cagra_dataset_layout cagra_layout;
+  cuvs::neighbors::c_api::detail::owner_record owner_rec;
+};
+
+template <typename UpstreamT>
+static auto make_tiered_index_box(tiered_index::index<UpstreamT>* ptr,
+                                  cuvsTieredIndexANNAlgo algo,
+                                  tiered_cagra_dataset_layout cagra_layout =
+                                    tiered_cagra_dataset_layout::not_applicable)
+  -> tiered_c_api_index_box*
+{
+  return new tiered_c_api_index_box{
+    ptr, algo, cagra_layout, cuvs::neighbors::c_api::detail::make_owner_record(ptr)};
+}
+
+static auto require_tiered_index_box(cuvsTieredIndex const& index, const char* null_handle_err)
+  -> tiered_c_api_index_box*
+{
+  auto* box = reinterpret_cast<tiered_c_api_index_box*>(index.addr);
+  if (box == nullptr) { RAFT_FAIL("%s", null_handle_err); }
+  return box;
+}
+
+template <typename Fn>
+static void with_tiered_cagra_index_by_layout(tiered_c_api_index_box* box,
+                                              const char* null_handle_err,
+                                              Fn&& fn)
+{
+  if (box == nullptr) { RAFT_FAIL("%s", null_handle_err); }
+  RAFT_EXPECTS(box->algo == CUVS_TIERED_INDEX_ALGO_CAGRA,
+               "with_tiered_cagra_index_by_layout requires CAGRA algo");
+  if (box->cagra_layout == tiered_cagra_dataset_layout::device_padded) {
+    auto* index_ptr = reinterpret_cast<tiered_index::index<cagra::device_padded_index<float, uint32_t>>*>(
+      box->index_ptr);
+    fn(index_ptr);
+  } else if (box->cagra_layout == tiered_cagra_dataset_layout::device_standard) {
+    auto* index_ptr = reinterpret_cast<tiered_index::index<cagra::device_standard_index<float, uint32_t>>*>(
+      box->index_ptr);
+    fn(index_ptr);
+  } else {
+    RAFT_FAIL("Tiered CAGRA index layout is not initialized");
+  }
+}
+
+template <typename UpstreamT>
+static auto require_typed_tiered_index(cuvsTieredIndex const& index,
+                                       cuvsTieredIndexANNAlgo expected_algo,
+                                       const char* null_handle_err,
+                                       const char* wrong_algo_err)
+  -> tiered_index::index<UpstreamT>*
+{
+  auto* box = require_tiered_index_box(index, null_handle_err);
+  if (box->algo != expected_algo) { RAFT_FAIL("%s", wrong_algo_err); }
+  return reinterpret_cast<tiered_index::index<UpstreamT>*>(box->index_ptr);
+}
+
+template <typename TieredIndexT>
+struct tiered_upstream_type;
+
+template <typename UpstreamT>
+struct tiered_upstream_type<tiered_index::index<UpstreamT>> {
+  using type = UpstreamT;
+};
 
 template <typename T>
 void convert_c_index_params(cuvsTieredIndexParams params,
@@ -71,20 +140,31 @@ void* _build(cuvsResources_t res, cuvsTieredIndexParams params, DLManagedTensor*
     case CUVS_TIERED_INDEX_ALGO_CAGRA: {
       auto build_params = tiered_index::index_params<cagra::index_params>();
       convert_c_index_params(params, dataset.shape[0], dataset.shape[1], &build_params);
-      return new tiered_index::index<cagra::index<T, uint32_t>>(
+      if (cuvs::neighbors::matrix_row_width_matches_cagra_required(mds)) {
+        auto padded_view = cuvs::neighbors::make_device_padded_dataset_view(*res_ptr, mds);
+        auto* ptr = new tiered_index::index<cagra::device_padded_index<T, uint32_t>>(
+          tiered_index::build(*res_ptr, build_params, padded_view));
+        return make_tiered_index_box(
+          ptr, CUVS_TIERED_INDEX_ALGO_CAGRA, tiered_cagra_dataset_layout::device_padded);
+      }
+      auto* ptr = new tiered_index::index<cagra::device_standard_index<T, uint32_t>>(
         tiered_index::build(*res_ptr, build_params, mds));
+      return make_tiered_index_box(
+        ptr, CUVS_TIERED_INDEX_ALGO_CAGRA, tiered_cagra_dataset_layout::device_standard);
     }
     case CUVS_TIERED_INDEX_ALGO_IVF_FLAT: {
       auto build_params = tiered_index::index_params<ivf_flat::index_params>();
       convert_c_index_params(params, dataset.shape[0], dataset.shape[1], &build_params);
-      return new tiered_index::index<ivf_flat::index<T, int64_t>>(
+      auto* ptr = new tiered_index::index<ivf_flat::index<T, int64_t>>(
         tiered_index::build(*res_ptr, build_params, mds));
+      return make_tiered_index_box(ptr, CUVS_TIERED_INDEX_ALGO_IVF_FLAT);
     }
     case CUVS_TIERED_INDEX_ALGO_IVF_PQ: {
       auto build_params = tiered_index::index_params<ivf_pq::index_params>();
       convert_c_index_params(params, dataset.shape[0], dataset.shape[1], &build_params);
-      return new tiered_index::index<ivf_pq::typed_index<T, int64_t>>(
+      auto* ptr = new tiered_index::index<ivf_pq::typed_index<T, int64_t>>(
         tiered_index::build(*res_ptr, build_params, mds));
+      return make_tiered_index_box(ptr, CUVS_TIERED_INDEX_ALGO_IVF_PQ);
     }
     default: RAFT_FAIL("unsupported tiered index algorithm");
   }
@@ -100,7 +180,8 @@ void _search(cuvsResources_t res,
              cuvsFilter filter)
 {
   auto res_ptr   = reinterpret_cast<raft::resources*>(res);
-  auto index_ptr = reinterpret_cast<tiered_index::index<UpstreamT>*>(index.addr);
+  auto index_ptr = require_typed_tiered_index<UpstreamT>(
+    index, index.algo, "_search: null index handle", "_search: index algorithm mismatch");
 
   auto search_params = typename UpstreamT::search_params_type();
   if (params != NULL) {
@@ -154,7 +235,8 @@ template <typename UpstreamT>
 void _extend(cuvsResources_t res, DLManagedTensor* new_vectors, cuvsTieredIndex index)
 {
   auto res_ptr              = reinterpret_cast<raft::resources*>(res);
-  auto index_ptr            = reinterpret_cast<tiered_index::index<UpstreamT>*>(index.addr);
+  auto index_ptr            = require_typed_tiered_index<UpstreamT>(
+    index, index.algo, "_extend: null index handle", "_extend: index algorithm mismatch");
   using T                   = typename UpstreamT::value_type;
   using vectors_mdspan_type = raft::device_matrix_view<T const, int64_t, raft::row_major>;
 
@@ -174,6 +256,11 @@ void _merge(cuvsResources_t res,
   std::vector<cuvs::neighbors::tiered_index::index<UpstreamT>*> cpp_indices;
 
   int64_t n_rows = 0, dim = 0;
+  tiered_cagra_dataset_layout expected_layout = tiered_cagra_dataset_layout::not_applicable;
+  if (indices[0]->algo == CUVS_TIERED_INDEX_ALGO_CAGRA) {
+    auto* box0 = require_tiered_index_box(*indices[0], "_merge: null index handle");
+    expected_layout = box0->cagra_layout;
+  }
   for (size_t i = 0; i < num_indices; ++i) {
     RAFT_EXPECTS(indices[i]->dtype.code == indices[0]->dtype.code,
                  "indices must all have the same dtype");
@@ -181,9 +268,16 @@ void _merge(cuvsResources_t res,
                  "indices must all have the same dtype");
     RAFT_EXPECTS(indices[i]->algo == indices[0]->algo,
                  "indices must all have the same index algorithm");
+    if (indices[i]->algo == CUVS_TIERED_INDEX_ALGO_CAGRA) {
+      auto* boxi = require_tiered_index_box(*indices[i], "_merge: null index handle");
+      RAFT_EXPECTS(boxi->cagra_layout == expected_layout,
+                   "indices must all have the same CAGRA layout");
+    }
 
-    auto idx_ptr =
-      reinterpret_cast<cuvs::neighbors::tiered_index::index<UpstreamT>*>(indices[i]->addr);
+    auto idx_ptr = require_typed_tiered_index<UpstreamT>(*indices[i],
+                                                         indices[0]->algo,
+                                                         "_merge: null index handle",
+                                                         "_merge: index algorithm mismatch");
     n_rows += idx_ptr->size();
     if (dim) {
       RAFT_EXPECTS(dim == idx_ptr->dim(), "indices must all have the same dimensionality");
@@ -196,10 +290,15 @@ void _merge(cuvsResources_t res,
   auto build_params = tiered_index::index_params<typename UpstreamT::index_params_type>();
   convert_c_index_params(params, n_rows, dim, &build_params);
 
-  auto ptr = new cuvs::neighbors::tiered_index::index<UpstreamT>(
+  auto* ptr = new cuvs::neighbors::tiered_index::index<UpstreamT>(
     cuvs::neighbors::tiered_index::merge(*res_ptr, build_params, cpp_indices));
-
-  output_index->addr  = reinterpret_cast<uintptr_t>(ptr);
+  auto cagra_layout = tiered_cagra_dataset_layout::not_applicable;
+  if (indices[0]->algo == CUVS_TIERED_INDEX_ALGO_CAGRA) {
+    auto* box0 = require_tiered_index_box(*indices[0], "_merge: null index handle");
+    cagra_layout = box0->cagra_layout;
+  }
+  auto* box           = make_tiered_index_box(ptr, indices[0]->algo, cagra_layout);
+  output_index->addr  = reinterpret_cast<uintptr_t>(box);
   output_index->dtype = indices[0]->dtype;
   output_index->algo  = indices[0]->algo;
 }
@@ -215,28 +314,10 @@ extern "C" cuvsError_t cuvsTieredIndexDestroy(cuvsTieredIndex_t index_c_ptr)
 {
   return cuvs::core::translate_exceptions([=] {
     auto index = *index_c_ptr;
-    if (index.dtype.code == kDLFloat && index.dtype.bits == 32) {
-      switch (index.algo) {
-        case CUVS_TIERED_INDEX_ALGO_CAGRA: {
-          auto index_ptr =
-            reinterpret_cast<tiered_index::index<cagra::index<float, uint32_t>>*>(index.addr);
-          delete index_ptr;
-          break;
-        }
-        case CUVS_TIERED_INDEX_ALGO_IVF_FLAT: {
-          auto index_ptr =
-            reinterpret_cast<tiered_index::index<ivf_flat::index<float, int64_t>>*>(index.addr);
-          delete index_ptr;
-          break;
-        }
-        case CUVS_TIERED_INDEX_ALGO_IVF_PQ: {
-          auto index_ptr =
-            reinterpret_cast<tiered_index::index<ivf_pq::typed_index<float, int64_t>>*>(index.addr);
-          delete index_ptr;
-          break;
-        }
-        default: RAFT_FAIL("unsupported tiered index algorithm");
-      }
+    auto* box  = reinterpret_cast<tiered_c_api_index_box*>(index.addr);
+    if (box != nullptr) {
+      cuvs::neighbors::c_api::detail::destroy_owner_record(box->owner_rec);
+      delete box;
     }
     delete index_c_ptr;
   });
@@ -292,8 +373,13 @@ extern "C" cuvsError_t cuvsTieredIndexSearch(cuvsResources_t res,
 
     switch (index.algo) {
       case CUVS_TIERED_INDEX_ALGO_CAGRA: {
-        _search<cagra::index<float, uint32_t>>(
-          res, search_params, index, queries_tensor, neighbors_tensor, distances_tensor, filter);
+        auto* box = require_tiered_index_box(index, "cuvsTieredIndexSearch: null index handle");
+        with_tiered_cagra_index_by_layout(
+          box, "cuvsTieredIndexSearch: null index handle", [&](auto* typed_index) {
+            using ann_t = typename tiered_upstream_type<std::remove_reference_t<decltype(*typed_index)>>::type;
+            _search<ann_t>(
+              res, search_params, index, queries_tensor, neighbors_tensor, distances_tensor, filter);
+          });
         break;
       }
       case CUVS_TIERED_INDEX_ALGO_IVF_FLAT: {
@@ -336,7 +422,12 @@ extern "C" cuvsError_t cuvsTieredIndexExtend(cuvsResources_t res,
     auto index = *index_c_ptr;
     switch (index.algo) {
       case CUVS_TIERED_INDEX_ALGO_CAGRA: {
-        _extend<cagra::index<float, uint32_t>>(res, new_vectors, index);
+        auto* box = require_tiered_index_box(index, "cuvsTieredIndexExtend: null index handle");
+        with_tiered_cagra_index_by_layout(
+          box, "cuvsTieredIndexExtend: null index handle", [&](auto* typed_index) {
+            using ann_t = typename tiered_upstream_type<std::remove_reference_t<decltype(*typed_index)>>::type;
+            _extend<ann_t>(res, new_vectors, index);
+          });
         break;
       }
       case CUVS_TIERED_INDEX_ALGO_IVF_FLAT: {
@@ -363,7 +454,12 @@ extern "C" cuvsError_t cuvsTieredIndexMerge(cuvsResources_t res,
 
     switch (indices[0]->algo) {
       case CUVS_TIERED_INDEX_ALGO_CAGRA: {
-        _merge<cagra::index<float, uint32_t>>(res, *params, indices, num_indices, output_index);
+        auto* box = require_tiered_index_box(*indices[0], "cuvsTieredIndexMerge: null index handle");
+        with_tiered_cagra_index_by_layout(
+          box, "cuvsTieredIndexMerge: null index handle", [&](auto* typed_index) {
+            using ann_t = typename tiered_upstream_type<std::remove_reference_t<decltype(*typed_index)>>::type;
+            _merge<ann_t>(res, *params, indices, num_indices, output_index);
+          });
         break;
       }
       case CUVS_TIERED_INDEX_ALGO_IVF_FLAT: {

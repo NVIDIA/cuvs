@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -301,15 +301,17 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
     raft::copy(database_host.data_handle(), database_dev.data(), ps.n_rows * ps.dim, stream_);
     raft::resource::sync_stream(handle_);
 
-    auto database_view =
+    auto database_dev_view =
       raft::make_device_matrix_view<const DataT, int64_t>(database_dev.data(), ps.n_rows, ps.dim);
+    cuvs::neighbors::test::padded_device_matrix_for_cagra<DataT> device_padded(handle_,
+                                                                               database_dev_view);
 
     // Build an in-memory CAGRA index (device graph + device dataset).
     cuvs::neighbors::cagra::index_params cagra_params;
     cagra_params.metric                    = ps.metric;
     cagra_params.graph_degree              = 64;
     cagra_params.intermediate_graph_degree = 128;
-    auto cagra_index = cuvs::neighbors::cagra::build(handle_, cagra_params, database_view);
+    auto cagra_index = cuvs::neighbors::cagra::build(handle_, cagra_params, device_padded.view);
     raft::resource::sync_stream(handle_);
 
     cuvs::neighbors::hnsw::search_params search_params;
@@ -318,7 +320,7 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
 
     // Runs from_cagra with a tiny host-memory limit to force the disk spill, searches the
     // returned (disk-backed) index, checks recall, and returns the neighbor indices.
-    auto run_spilled = [&](const cuvs::neighbors::cagra::index<DataT, uint32_t>& idx,
+    auto run_spilled = [&](const cuvs::neighbors::cagra::device_padded_index<DataT, uint32_t>& idx,
                            hnsw::HnswHierarchy hierarchy,
                            bool pass_host_dataset) -> std::vector<uint64_t> {
       static std::atomic<uint64_t> counter{0};
@@ -402,8 +404,8 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
       raft::resource::sync_stream(handle_);
       auto managed_graph_view = raft::make_device_matrix_view<const uint32_t, int64_t>(
         managed_graph.data(), ps.n_rows, degree);
-      cuvs::neighbors::cagra::index<DataT, uint32_t> managed_index(
-        handle_, ps.metric, database_view, managed_graph_view);
+      cuvs::neighbors::cagra::device_padded_index<DataT, uint32_t> managed_index(
+        handle_, ps.metric, device_padded.view, managed_graph_view);
       run_spilled(managed_index, hnsw::HnswHierarchy::NONE, /*pass_host_dataset=*/false);
     }
 

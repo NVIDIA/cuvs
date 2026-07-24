@@ -1,11 +1,12 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #include <gtest/gtest.h>
 
 #include "../ann_cagra.cuh"
+#include "../cagra_padded_build_helpers.cuh"
 
 #include <cuvs/neighbors/cagra.hpp>
 
@@ -27,8 +28,9 @@ class AnnCagraBugMultiCTACrash : public ::testing::TestWithParam<cagra::search_a
     cagra_index_params.graph_degree              = 32;
     cagra_index_params.intermediate_graph_degree = 48;
 
-    auto cagra_index =
-      cagra::build(res, cagra_index_params, raft::make_const_mdspan(dataset->view()));
+    build_padded_.emplace(res, raft::make_const_mdspan(dataset->view()));
+    auto cagra_index = cagra::build(res, cagra_index_params, build_padded_->view);
+    cagra_index.update_dataset(res, build_padded_->view);
     raft::resource::sync_stream(res);
 
     cagra::search_params cagra_search_params;
@@ -67,6 +69,7 @@ class AnnCagraBugMultiCTACrash : public ::testing::TestWithParam<cagra::search_a
 
   void TearDown() override
   {
+    build_padded_.reset();
     dataset.reset();
     queries.reset();
     neighbors.reset();
@@ -76,6 +79,7 @@ class AnnCagraBugMultiCTACrash : public ::testing::TestWithParam<cagra::search_a
 
  private:
   raft::resources res;
+  std::optional<cuvs::neighbors::test::padded_device_matrix_for_cagra<data_type>> build_padded_{};
   std::optional<raft::device_matrix<data_type, int64_t>> dataset  = std::nullopt;
   std::optional<raft::device_matrix<data_type, int64_t>> queries  = std::nullopt;
   std::optional<raft::device_matrix<uint32_t, int64_t>> neighbors = std::nullopt;

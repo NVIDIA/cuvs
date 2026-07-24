@@ -1,11 +1,12 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
 
 #include "../test_utils.cuh"
 #include "ann_utils.cuh"
+#include "cagra_padded_build_helpers.cuh"
 #include "naive_knn.cuh"
 
 #include <cuvs/neighbors/cagra.hpp>
@@ -218,15 +219,16 @@ class AnnMGTest : public ::testing::TestWithParam<AnnMGInputs> {
         d_mode = distribution_mode::SHARDED;
 
       mg_index_params<cagra::index_params> index_params;
-      index_params.graph_build_params = cagra::graph_build_params::ivf_pq_params(
-        raft::matrix_extent<int64_t>(ps.num_db_vecs, ps.dim));
-      index_params.mode = d_mode;
+      // Host dataset uses ACE build path; must set ace_params (not ivf_pq_params).
+      index_params.graph_build_params = cagra::graph_build_params::ace_params{};
+      index_params.mode               = d_mode;
 
       mg_search_params<cagra::search_params> search_params;
 
       auto index_dataset = raft::make_host_matrix_view<const DataT, int64_t, row_major>(
         h_index_dataset.data(), ps.num_db_vecs, ps.dim);
-      auto queries = raft::make_host_matrix_view<const DataT, int64_t, row_major>(
+      auto index_dataset_view = cuvs::neighbors::make_host_standard_dataset_view(index_dataset);
+      auto queries            = raft::make_host_matrix_view<const DataT, int64_t, row_major>(
         h_queries.data(), ps.num_queries, ps.dim);
       auto neighbors = raft::make_host_matrix_view<int64_t, int64_t, row_major>(
         neighbors_snmg_ann.data(), ps.num_queries, ps.k);
@@ -235,11 +237,21 @@ class AnnMGTest : public ::testing::TestWithParam<AnnMGInputs> {
 
       tmp_index_file index_file;
       {
-        auto index = cuvs::neighbors::cagra::build(clique_, index_params, index_dataset);
+        auto index = cuvs::neighbors::cagra::build(clique_, index_params, index_dataset_view);
         cuvs::neighbors::cagra::serialize(clique_, index, index_file.filename);
       }
       auto new_index =
-        cuvs::neighbors::cagra::deserialize<DataT, uint32_t>(clique_, index_file.filename);
+        cuvs::neighbors::mg_index<cuvs::neighbors::cagra::device_standard_index<DataT, uint32_t>,
+                                  DataT,
+                                  uint32_t>(clique_);
+      cuvs::neighbors::cagra::deserialize<DataT, uint32_t>(
+        clique_, index_file.filename, &new_index);
+      auto index_dataset_device = raft::make_device_matrix_view<const DataT, int64_t>(
+        d_index_dataset.data(), ps.num_db_vecs, ps.dim);
+      auto padded_index_dataset =
+        cuvs::neighbors::make_device_padded_dataset(clique_, index_dataset_device);
+      auto search_index = cuvs::neighbors::cagra::attach_dataset(
+        clique_, new_index, padded_index_dataset->as_dataset_view());
 
       if (ps.m_mode == m_mode_t::MERGE_ON_ROOT_RANK)
         search_params.merge_mode = MERGE_ON_ROOT_RANK;
@@ -248,7 +260,7 @@ class AnnMGTest : public ::testing::TestWithParam<AnnMGInputs> {
 
       search_params.n_rows_per_batch = n_rows_per_search_batch;
       cuvs::neighbors::cagra::search(
-        clique_, new_index, search_params, queries, neighbors, distances);
+        clique_, search_index, search_params, queries, neighbors, distances);
       resource::sync_stream(clique_);
 
       double min_recall = static_cast<double>(ps.nprobe) / static_cast<double>(ps.nlist);
@@ -376,7 +388,8 @@ class AnnMGTest : public ::testing::TestWithParam<AnnMGInputs> {
       {
         auto index_dataset = raft::make_device_matrix_view<const DataT, int64_t>(
           d_index_dataset.data(), ps.num_db_vecs, ps.dim);
-        auto index = cuvs::neighbors::cagra::build(clique_, index_params, index_dataset);
+        auto standard_view = cuvs::neighbors::make_device_standard_dataset_view(index_dataset);
+        auto index         = cuvs::neighbors::cagra::build(clique_, index_params, standard_view);
         cuvs::neighbors::cagra::serialize(clique_, index_file.filename, index);
       }
 
@@ -388,13 +401,23 @@ class AnnMGTest : public ::testing::TestWithParam<AnnMGInputs> {
         distances_snmg_ann.data(), ps.num_queries, ps.k);
 
       auto distributed_index =
-        cuvs::neighbors::cagra::distribute<DataT, uint32_t>(clique_, index_file.filename);
+        cuvs::neighbors::mg_index<cuvs::neighbors::cagra::device_standard_index<DataT, uint32_t>,
+                                  DataT,
+                                  uint32_t>(clique_);
+      cuvs::neighbors::cagra::distribute<DataT, uint32_t>(
+        clique_, index_file.filename, &distributed_index);
+      auto index_dataset_device = raft::make_device_matrix_view<const DataT, int64_t>(
+        d_index_dataset.data(), ps.num_db_vecs, ps.dim);
+      auto padded_index_dataset =
+        cuvs::neighbors::make_device_padded_dataset(clique_, index_dataset_device);
+      auto search_index = cuvs::neighbors::cagra::attach_dataset(
+        clique_, distributed_index, padded_index_dataset->as_dataset_view());
 
       search_params.merge_mode = TREE_MERGE;
 
       search_params.n_rows_per_batch = n_rows_per_search_batch;
       cuvs::neighbors::cagra::search(
-        clique_, distributed_index, search_params, queries, neighbors, distances);
+        clique_, search_index, search_params, queries, neighbors, distances);
 
       resource::sync_stream(clique_);
 
@@ -554,19 +577,26 @@ class AnnMGTest : public ::testing::TestWithParam<AnnMGInputs> {
       ASSERT_TRUE(ps.num_queries <= 4);
 
       mg_index_params<cagra::index_params> index_params;
-      index_params.graph_build_params = cagra::graph_build_params::ivf_pq_params(
-        raft::matrix_extent<int64_t>(ps.num_db_vecs, ps.dim));
-      index_params.mode = REPLICATED;
+      // Host dataset uses ACE build path; must set ace_params (not ivf_pq_params).
+      index_params.graph_build_params = cagra::graph_build_params::ace_params{};
+      index_params.mode               = REPLICATED;
 
       mg_search_params<cagra::search_params> search_params;
       search_params.search_mode = ROUND_ROBIN;
 
       auto index_dataset = raft::make_host_matrix_view<const DataT, int64_t, row_major>(
         h_index_dataset.data(), ps.num_db_vecs, ps.dim);
-      auto small_batch_query = raft::make_host_matrix_view<const DataT, int64_t, row_major>(
+      auto index_dataset_view = cuvs::neighbors::make_host_standard_dataset_view(index_dataset);
+      auto small_batch_query  = raft::make_host_matrix_view<const DataT, int64_t, row_major>(
         h_queries.data(), ps.num_queries, ps.dim);
 
-      auto index = cuvs::neighbors::cagra::build(clique_, index_params, index_dataset);
+      auto index = cuvs::neighbors::cagra::build(clique_, index_params, index_dataset_view);
+      auto index_dataset_device = raft::make_device_matrix_view<const DataT, int64_t>(
+        d_index_dataset.data(), ps.num_db_vecs, ps.dim);
+      auto padded_index_dataset =
+        cuvs::neighbors::make_device_padded_dataset(clique_, index_dataset_device);
+      auto search_index = cuvs::neighbors::cagra::attach_dataset(
+        clique_, index, padded_index_dataset->as_dataset_view());
 
       int n_parallel_searches = 16;
       std::vector<char> searches_correctness(n_parallel_searches);
@@ -587,7 +617,7 @@ class AnnMGTest : public ::testing::TestWithParam<AnnMGInputs> {
 
         search_params.n_rows_per_batch = n_rows_per_search_batch;
         cuvs::neighbors::cagra::search(clique_,
-                                       index,
+                                       search_index,
                                        search_params,
                                        small_batch_query,
                                        small_batch_neighbors,

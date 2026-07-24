@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -123,7 +123,10 @@ class CagraUdfFilterTest : public ::testing::TestWithParam<cagra::search_algo> {
     index_params.graph_build_params =
       cagra::graph_build_params::nn_descent_params(index_params.intermediate_graph_degree);
 
-    index.emplace(cagra::build(res, index_params, raft::make_const_mdspan(dataset->view())));
+    index.emplace(cagra::build(res,
+                               index_params,
+                               cuvs::neighbors::make_device_padded_dataset_view(
+                                 res, raft::make_const_mdspan(dataset->view()))));
     raft::resource::sync_stream(res);
   }
 
@@ -166,9 +169,9 @@ class CagraUdfFilterTest : public ::testing::TestWithParam<cagra::search_algo> {
   }
 
   raft::resources res;
-  std::optional<raft::device_matrix<float, int64_t>> dataset = std::nullopt;
-  std::optional<raft::device_matrix<float, int64_t>> queries = std::nullopt;
-  std::optional<cagra::index<float, uint32_t>> index         = std::nullopt;
+  std::optional<raft::device_matrix<float, int64_t>> dataset       = std::nullopt;
+  std::optional<raft::device_matrix<float, int64_t>> queries       = std::nullopt;
+  std::optional<cagra::device_padded_index<float, uint32_t>> index = std::nullopt;
 };
 
 class CagraUdfFilterHalfTest : public ::testing::TestWithParam<cagra::search_algo> {
@@ -199,7 +202,10 @@ class CagraUdfFilterHalfTest : public ::testing::TestWithParam<cagra::search_alg
     index_params.graph_build_params =
       cagra::graph_build_params::nn_descent_params(index_params.intermediate_graph_degree);
 
-    index.emplace(cagra::build(res, index_params, raft::make_const_mdspan(dataset->view())));
+    index.emplace(cagra::build(res,
+                               index_params,
+                               cuvs::neighbors::make_device_padded_dataset_view(
+                                 res, raft::make_const_mdspan(dataset->view()))));
     raft::resource::sync_stream(res);
   }
 
@@ -242,9 +248,9 @@ class CagraUdfFilterHalfTest : public ::testing::TestWithParam<cagra::search_alg
   }
 
   raft::resources res;
-  std::optional<raft::device_matrix<half, int64_t>> dataset = std::nullopt;
-  std::optional<raft::device_matrix<half, int64_t>> queries = std::nullopt;
-  std::optional<cagra::index<half, uint32_t>> index         = std::nullopt;
+  std::optional<raft::device_matrix<half, int64_t>> dataset       = std::nullopt;
+  std::optional<raft::device_matrix<half, int64_t>> queries       = std::nullopt;
+  std::optional<cagra::device_padded_index<half, uint32_t>> index = std::nullopt;
 };
 
 TEST_P(CagraUdfFilterTest, AcceptAllMatchesNoFilter)

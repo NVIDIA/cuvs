@@ -5,42 +5,25 @@ use crate::{cudaDataType_t, cudaStream_t};
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum DLDeviceType {
-    #[doc = " \\brief CPU device"]
     kDLCPU = 1,
-    #[doc = " \\brief CUDA GPU device"]
     kDLCUDA = 2,
-    #[doc = " \\brief Pinned CUDA CPU memory by cudaMallocHost"]
     kDLCUDAHost = 3,
-    #[doc = " \\brief OpenCL devices."]
     kDLOpenCL = 4,
-    #[doc = " \\brief Vulkan buffer for next generation graphics."]
     kDLVulkan = 7,
-    #[doc = " \\brief Metal for Apple GPU."]
     kDLMetal = 8,
-    #[doc = " \\brief Verilog simulator buffer"]
     kDLVPI = 9,
-    #[doc = " \\brief ROCm GPUs for AMD GPUs"]
     kDLROCM = 10,
-    #[doc = " \\brief Pinned ROCm CPU memory allocated by hipMallocHost"]
     kDLROCMHost = 11,
-    #[doc = " \\brief Reserved extension device type,\n used for quickly test extension device\n The semantics can differ depending on the implementation."]
     kDLExtDev = 12,
-    #[doc = " \\brief CUDA managed/unified memory allocated by cudaMallocManaged"]
     kDLCUDAManaged = 13,
-    #[doc = " \\brief Unified shared memory allocated on a oneAPI non-partititioned\n device. Call to oneAPI runtime is required to determine the device\n type, the USM allocation type and the sycl context it is bound to.\n"]
     kDLOneAPI = 14,
-    #[doc = " \\brief GPU support for next generation WebGPU standard."]
     kDLWebGPU = 15,
-    #[doc = " \\brief Qualcomm Hexagon DSP"]
     kDLHexagon = 16,
 }
-#[doc = " \\brief A Device for Tensor and operator."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct DLDevice {
-    #[doc = " \\brief The device type used in the device."]
     pub device_type: DLDeviceType,
-    #[doc = " \\brief The device index.\n For vanilla CPU memory, pinned memory, or managed memory, this is set to 0."]
     pub device_id: i32,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -52,33 +35,21 @@ const _: () = {
     ["Offset of field: DLDevice::device_id"][::std::mem::offset_of!(DLDevice, device_id) - 4usize];
 };
 #[repr(u32)]
-#[doc = " \\brief The type code options DLDataType."]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum DLDataTypeCode {
-    #[doc = " \\brief signed integer"]
     kDLInt = 0,
-    #[doc = " \\brief unsigned integer"]
     kDLUInt = 1,
-    #[doc = " \\brief IEEE floating point"]
     kDLFloat = 2,
-    #[doc = " \\brief Opaque handle type, reserved for testing purposes.\n Frameworks need to agree on the handle data type for the exchange to be well-defined."]
     kDLOpaqueHandle = 3,
-    #[doc = " \\brief bfloat16"]
     kDLBfloat = 4,
-    #[doc = " \\brief complex number\n (C/C++/Python layout: compact struct per complex number)"]
     kDLComplex = 5,
-    #[doc = " \\brief boolean"]
     kDLBool = 6,
 }
-#[doc = " \\brief The data type the tensor can hold. The data type is assumed to follow the\n native endian-ness. An explicit error message should be raised when attempting to\n export an array with non-native endianness\n\n  Examples\n   - float: type_code = 2, bits = 32, lanes = 1\n   - float4(vectorized 4 float): type_code = 2, bits = 32, lanes = 4\n   - int8: type_code = 0, bits = 8, lanes = 1\n   - std::complex<float>: type_code = 5, bits = 64, lanes = 1\n   - bool: type_code = 6, bits = 8, lanes = 1 (as per common array library convention, the underlying storage size of bool is 8 bits)"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct DLDataType {
-    #[doc = " \\brief Type code of base types.\n We keep it uint8_t instead of DLDataTypeCode for minimal memory\n footprint, but the value should be one of DLDataTypeCode enum values."]
     pub code: u8,
-    #[doc = " \\brief Number of bits, common choices are 8, 16, 32."]
     pub bits: u8,
-    #[doc = " \\brief Number of lanes in the type, used for vector types."]
     pub lanes: u16,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -89,23 +60,15 @@ const _: () = {
     ["Offset of field: DLDataType::bits"][::std::mem::offset_of!(DLDataType, bits) - 1usize];
     ["Offset of field: DLDataType::lanes"][::std::mem::offset_of!(DLDataType, lanes) - 2usize];
 };
-#[doc = " \\brief Plain C Tensor object, does not manage memory."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct DLTensor {
-    #[doc = " \\brief The data pointer points to the allocated data. This will be CUDA\n device pointer or cl_mem handle in OpenCL. It may be opaque on some device\n types. This pointer is always aligned to 256 bytes as in CUDA. The\n `byte_offset` field should be used to point to the beginning of the data.\n\n Note that as of Nov 2021, multiply libraries (CuPy, PyTorch, TensorFlow,\n TVM, perhaps others) do not adhere to this 256 byte aligment requirement\n on CPU/CUDA/ROCm, and always use `byte_offset=0`.  This must be fixed\n (after which this note will be updated); at the moment it is recommended\n to not rely on the data pointer being correctly aligned.\n\n For given DLTensor, the size of memory required to store the contents of\n data is calculated as follows:\n\n \\code{.c}\n static inline size_t GetDataSize(const DLTensor* t) {\n   size_t size = 1;\n   for (tvm_index_t i = 0; i < t->ndim; ++i) {\n     size *= t->shape[i];\n   }\n   size *= (t->dtype.bits * t->dtype.lanes + 7) / 8;\n   return size;\n }\n \\endcode"]
     pub data: *mut ::std::os::raw::c_void,
-    #[doc = " \\brief The device of the tensor"]
     pub device: DLDevice,
-    #[doc = " \\brief Number of dimensions"]
     pub ndim: i32,
-    #[doc = " \\brief The data type of the pointer"]
     pub dtype: DLDataType,
-    #[doc = " \\brief The shape of the tensor"]
     pub shape: *mut i64,
-    #[doc = " \\brief strides of the tensor (in number of elements, not bytes)\n  can be NULL, indicating tensor is compact and row-majored."]
     pub strides: *mut i64,
-    #[doc = " \\brief The offset in bytes to the beginning pointer to data"]
     pub byte_offset: u64,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -121,15 +84,11 @@ const _: () = {
     ["Offset of field: DLTensor::byte_offset"]
         [::std::mem::offset_of!(DLTensor, byte_offset) - 40usize];
 };
-#[doc = " \\brief C Tensor object, manage memory of DLTensor. This data structure is\n  intended to facilitate the borrowing of DLTensor by another framework. It is\n  not meant to transfer the tensor. When the borrowing framework doesn't need\n  the tensor, it should call the deleter to notify the host that the resource\n  is no longer needed."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct DLManagedTensor {
-    #[doc = " \\brief DLTensor which is being memory managed"]
     pub dl_tensor: DLTensor,
-    #[doc = " \\brief the context of the original host framework of DLManagedTensor in\n   which DLManagedTensor is used in the framework. It can also be NULL."]
     pub manager_ctx: *mut ::std::os::raw::c_void,
-    #[doc = " \\brief Destructor signature void (*)(void*) - this should be called\n   to destruct manager_ctx which holds the DLManagedTensor. It can be NULL\n   if there is no way for the caller to provide a reasonable destructor.\n   The destructors deletes the argument self as well."]
     pub deleter: ::std::option::Option<unsafe extern "C" fn(self_: *mut DLManagedTensor)>,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -144,7 +103,6 @@ const _: () = {
         [::std::mem::offset_of!(DLManagedTensor, deleter) - 56usize];
 };
 #[repr(u32)]
-#[doc = " @defgroup error_c cuVS Error Messages\n @{\n/\n/**\n @brief An enum denoting error statuses for function calls\n"]
 #[must_use]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum cuvsError_t {
@@ -152,15 +110,12 @@ pub enum cuvsError_t {
     CUVS_SUCCESS = 1,
 }
 unsafe extern "C" {
-    #[doc = " @brief Returns a string describing the last seen error on this thread, or\n         NULL if the last function succeeded."]
     pub fn cuvsGetLastErrorText() -> *const ::std::os::raw::c_char;
 }
 unsafe extern "C" {
-    #[doc = " @brief Sets a string describing an error seen on the thread. Passing NULL\n        clears any previously seen error message."]
     pub fn cuvsSetLastErrorText(error: *const ::std::os::raw::c_char);
 }
 #[repr(u32)]
-#[doc = " @brief An enum denoting log levels\n"]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum cuvsLogLevel_t {
     CUVS_LOG_LEVEL_TRACE = 0,
@@ -172,23 +127,18 @@ pub enum cuvsLogLevel_t {
     CUVS_LOG_LEVEL_OFF = 6,
 }
 unsafe extern "C" {
-    #[doc = " @brief Returns the current log level"]
     pub fn cuvsGetLogLevel() -> cuvsLogLevel_t;
 }
 unsafe extern "C" {
-    #[doc = " @brief Sets the log level"]
     pub fn cuvsSetLogLevel(arg1: cuvsLogLevel_t);
 }
-#[doc = " @brief An opaque C handle for C++ type `raft::resources`\n"]
 pub type cuvsResources_t = usize;
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Create an Initialized opaque C handle for C++ type `raft::resources`\n\n @param[in] res cuvsResources_t opaque C handle\n @return cuvsError_t"]
     pub fn cuvsResourcesCreate(res: *mut cuvsResources_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Create an opaque C handle for C++ type `raft::resources` whose memory\n        allocations are tracked and written as CSV samples from a background\n        thread.\n\n The returned handle wraps all reachable memory resources (host, pinned,\n managed, device, workspace, large_workspace) with allocation-tracking\n adaptors and replaces the global host and device memory resources for the\n lifetime of the handle. It is otherwise indistinguishable from a handle\n created by ::cuvsResourcesCreate and can be used wherever a\n ::cuvsResources_t is accepted. The CSV reporter is stopped and the global\n memory resources are restored when the handle is destroyed via\n ::cuvsResourcesDestroy.\n\n @param[out] res                 cuvsResources_t opaque C handle\n @param[in]  csv_path            Path to the output CSV file\n                                 (created/truncated). Must be a non-empty,\n                                 null-terminated UTF-8 string.\n @param[in]  sample_interval_ms  Minimum time in milliseconds between\n                                 successive CSV samples. Pass 10 to match the\n                                 C++ default.\n @return cuvsError_t"]
     pub fn cuvsResourcesCreateWithMemoryTracking(
         res: *mut cuvsResources_t,
         csv_path: *const ::std::os::raw::c_char,
@@ -197,27 +147,22 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Destroy and de-allocate opaque C handle for C++ type `raft::resources`\n\n @param[in] res cuvsResources_t opaque C handle\n @return cuvsError_t"]
     pub fn cuvsResourcesDestroy(res: cuvsResources_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Set cudaStream_t on cuvsResources_t to queue CUDA kernels on APIs\n        that accept a cuvsResources_t handle\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] stream cudaStream_t stream to queue CUDA kernels\n @return cuvsError_t"]
     pub fn cuvsStreamSet(res: cuvsResources_t, stream: cudaStream_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Get the cudaStream_t from a cuvsResources_t\n\n @param[in] res cuvsResources_t opaque C handle\n @param[out] stream cudaStream_t stream to queue CUDA kernels\n @return cuvsError_t"]
     pub fn cuvsStreamGet(res: cuvsResources_t, stream: *mut cudaStream_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Syncs the current CUDA stream on the resources object\n\n @param[in] res cuvsResources_t opaque C handle\n @return cuvsError_t"]
     pub fn cuvsStreamSync(res: cuvsResources_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Get the id of the device associated with this cuvsResources_t\n\n @param[in] res cuvsResources_t opaque C handle\n @param[out] device_id int the id of the device associated with res\n @return cuvsError_t"]
     pub fn cuvsDeviceIdGet(
         res: cuvsResources_t,
         device_id: *mut ::std::os::raw::c_int,
@@ -225,12 +170,10 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Create an Initialized opaque C handle for C++ type `raft::device_resources_snmg`\n        for multi-GPU operations\n\n @param[in] res cuvsResources_t opaque C handle\n @return cuvsError_t"]
     pub fn cuvsMultiGpuResourcesCreate(res: *mut cuvsResources_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Create an Initialized opaque C handle for C++ type `raft::device_resources_snmg`\n        for multi-GPU operations with specific device IDs\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] device_ids DLManagedTensor* containing device IDs to use\n @return cuvsError_t"]
     pub fn cuvsMultiGpuResourcesCreateWithDeviceIds(
         res: *mut cuvsResources_t,
         device_ids: *mut DLManagedTensor,
@@ -238,12 +181,10 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Destroy and de-allocate opaque C handle for C++ type `raft::device_resources_snmg`\n\n @param[in] res cuvsResources_t opaque C handle\n @return cuvsError_t"]
     pub fn cuvsMultiGpuResourcesDestroy(res: cuvsResources_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Set a memory pool on all devices managed by the multi-GPU resources\n\n @param[in] res cuvsResources_t opaque C handle for multi-GPU resources\n @param[in] percent_of_free_memory Percent of free memory to allocate for the pool\n @return cuvsError_t"]
     pub fn cuvsMultiGpuResourcesSetMemoryPool(
         res: cuvsResources_t,
         percent_of_free_memory: ::std::os::raw::c_int,
@@ -251,7 +192,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Allocates device memory using RMM\n\n\n @param[in] res cuvsResources_t opaque C handle\n @param[out] ptr Pointer to allocated device memory\n @param[in] bytes Size in bytes to allocate\n @return cuvsError_t"]
     pub fn cuvsRMMAlloc(
         res: cuvsResources_t,
         ptr: *mut *mut ::std::os::raw::c_void,
@@ -260,7 +200,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Deallocates device memory using RMM\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] ptr Pointer to allocated device memory to free\n @param[in] bytes Size in bytes to allocate\n @return cuvsError_t"]
     pub fn cuvsRMMFree(
         res: cuvsResources_t,
         ptr: *mut ::std::os::raw::c_void,
@@ -269,7 +208,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Switches the working memory resource to use the RMM pool memory resource, which will\n bypass unnecessary synchronizations by allocating a chunk of device memory up front and carving\n that up for temporary memory allocations within algorithms. Be aware that this function will\n change the memory resource for the whole process and the new memory resource will be used until\n explicitly changed.\n\n @param[in] initial_pool_size_percent The initial pool size as a percentage of the total\n available memory\n @param[in] max_pool_size_percent The maximum pool size as a percentage of the total\n available memory\n @param[in] managed Whether to use a managed memory resource as upstream resource or not\n @return cuvsError_t"]
     pub fn cuvsRMMPoolMemoryResourceEnable(
         initial_pool_size_percent: ::std::os::raw::c_int,
         max_pool_size_percent: ::std::os::raw::c_int,
@@ -278,27 +216,22 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Resets the memory resource to use the default memory resource (cuda_memory_resource)\n @return cuvsError_t"]
     pub fn cuvsRMMMemoryResourceReset() -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Allocates pinned memory on the host using RMM\n @param[out] ptr Pointer to allocated host memory\n @param[in] bytes Size in bytes to allocate\n @return cuvsError_t"]
     pub fn cuvsRMMHostAlloc(ptr: *mut *mut ::std::os::raw::c_void, bytes: usize) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Deallocates pinned memory on the host using RMM\n @param[in] ptr Pointer to allocated host memory to free\n @param[in] bytes Size in bytes to deallocate\n @return cuvsError_t"]
     pub fn cuvsRMMHostFree(ptr: *mut ::std::os::raw::c_void, bytes: usize) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Get the version of the cuVS library\n @param[out] major Major version\n @param[out] minor Minor version\n @param[out] patch Patch version\n @return cuvsError_t"]
     pub fn cuvsVersionGet(major: *mut u16, minor: *mut u16, patch: *mut u16) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Copy a matrix\n\n This function copies a matrix from dst to src. This lets you copy a matrix\n from device memory to host memory (or vice versa), while accounting for\n differences in strides.\n\n Both src and dst must have the same shape and dtype, but can have different\n strides and device type. The memory for the output dst tensor must already be\n allocated and the tensor initialized.\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] src Pointer to DLManagedTensor to copy\n @param[out] dst Pointer to DLManagedTensor to receive copy of data"]
     pub fn cuvsMatrixCopy(
         res: cuvsResources_t,
         src: *mut DLManagedTensor,
@@ -307,7 +240,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Slices rows from a matrix\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] src Pointer to DLManagedTensor to copy\n @param[in] start First row index to include in the output\n @param[in] end Last row index to include in the output\n @param[out] dst Pointer to DLManagedTensor to receive slice from matrix"]
     pub fn cuvsMatrixSliceRows(
         res: cuvsResources_t,
         src: *mut DLManagedTensor,
@@ -317,91 +249,307 @@ unsafe extern "C" {
     ) -> cuvsError_t;
 }
 #[repr(u32)]
-#[doc = " enum to tell how to compute distance"]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub enum cuvsFilterType {
+    NO_FILTER = 0,
+    BITSET = 1,
+    BITMAP = 2,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct cuvsFilter {
+    pub addr: usize,
+    pub type_: cuvsFilterType,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of cuvsFilter"][::std::mem::size_of::<cuvsFilter>() - 16usize];
+    ["Alignment of cuvsFilter"][::std::mem::align_of::<cuvsFilter>() - 8usize];
+    ["Offset of field: cuvsFilter::addr"][::std::mem::offset_of!(cuvsFilter, addr) - 0usize];
+    ["Offset of field: cuvsFilter::type_"][::std::mem::offset_of!(cuvsFilter, type_) - 8usize];
+};
+#[repr(u32)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub enum cuvsMergeStrategy {
+    MERGE_STRATEGY_PHYSICAL = 0,
+    MERGE_STRATEGY_LOGICAL = 1,
+}
+#[repr(u32)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub enum cuvsDatasetLayout_t {
+    CUVS_DATASET_LAYOUT_STANDARD = 0,
+    CUVS_DATASET_LAYOUT_PADDED = 1,
+}
+#[repr(u32)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub enum cuvsDatasetViewKind_t {
+    CUVS_DATASET_VIEW_KIND_DEVICE_PADDED = 0,
+    CUVS_DATASET_VIEW_KIND_HOST_PADDED = 1,
+    CUVS_DATASET_VIEW_KIND_DEVICE_STANDARD = 2,
+    CUVS_DATASET_VIEW_KIND_HOST_STANDARD = 3,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct cuvsDatasetPadded {
+    pub addr: usize,
+    pub destroy_addr:
+        ::std::option::Option<unsafe extern "C" fn(arg1: *mut ::std::os::raw::c_void)>,
+    pub dtype: DLDataType,
+    pub layout: cuvsDatasetLayout_t,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of cuvsDatasetPadded"][::std::mem::size_of::<cuvsDatasetPadded>() - 24usize];
+    ["Alignment of cuvsDatasetPadded"][::std::mem::align_of::<cuvsDatasetPadded>() - 8usize];
+    ["Offset of field: cuvsDatasetPadded::addr"]
+        [::std::mem::offset_of!(cuvsDatasetPadded, addr) - 0usize];
+    ["Offset of field: cuvsDatasetPadded::destroy_addr"]
+        [::std::mem::offset_of!(cuvsDatasetPadded, destroy_addr) - 8usize];
+    ["Offset of field: cuvsDatasetPadded::dtype"]
+        [::std::mem::offset_of!(cuvsDatasetPadded, dtype) - 16usize];
+    ["Offset of field: cuvsDatasetPadded::layout"]
+        [::std::mem::offset_of!(cuvsDatasetPadded, layout) - 20usize];
+};
+pub type cuvsDatasetPadded_t = *mut cuvsDatasetPadded;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct cuvsDatasetStandard {
+    pub addr: usize,
+    pub destroy_addr:
+        ::std::option::Option<unsafe extern "C" fn(arg1: *mut ::std::os::raw::c_void)>,
+    pub dtype: DLDataType,
+    pub layout: cuvsDatasetLayout_t,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of cuvsDatasetStandard"][::std::mem::size_of::<cuvsDatasetStandard>() - 24usize];
+    ["Alignment of cuvsDatasetStandard"][::std::mem::align_of::<cuvsDatasetStandard>() - 8usize];
+    ["Offset of field: cuvsDatasetStandard::addr"]
+        [::std::mem::offset_of!(cuvsDatasetStandard, addr) - 0usize];
+    ["Offset of field: cuvsDatasetStandard::destroy_addr"]
+        [::std::mem::offset_of!(cuvsDatasetStandard, destroy_addr) - 8usize];
+    ["Offset of field: cuvsDatasetStandard::dtype"]
+        [::std::mem::offset_of!(cuvsDatasetStandard, dtype) - 16usize];
+    ["Offset of field: cuvsDatasetStandard::layout"]
+        [::std::mem::offset_of!(cuvsDatasetStandard, layout) - 20usize];
+};
+pub type cuvsDatasetStandard_t = *mut cuvsDatasetStandard;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct cuvsDatasetPaddedView {
+    pub addr: usize,
+    pub destroy_addr:
+        ::std::option::Option<unsafe extern "C" fn(arg1: *mut ::std::os::raw::c_void)>,
+    pub kind: cuvsDatasetViewKind_t,
+    pub dtype: DLDataType,
+    pub layout: cuvsDatasetLayout_t,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of cuvsDatasetPaddedView"][::std::mem::size_of::<cuvsDatasetPaddedView>() - 32usize];
+    ["Alignment of cuvsDatasetPaddedView"]
+        [::std::mem::align_of::<cuvsDatasetPaddedView>() - 8usize];
+    ["Offset of field: cuvsDatasetPaddedView::addr"]
+        [::std::mem::offset_of!(cuvsDatasetPaddedView, addr) - 0usize];
+    ["Offset of field: cuvsDatasetPaddedView::destroy_addr"]
+        [::std::mem::offset_of!(cuvsDatasetPaddedView, destroy_addr) - 8usize];
+    ["Offset of field: cuvsDatasetPaddedView::kind"]
+        [::std::mem::offset_of!(cuvsDatasetPaddedView, kind) - 16usize];
+    ["Offset of field: cuvsDatasetPaddedView::dtype"]
+        [::std::mem::offset_of!(cuvsDatasetPaddedView, dtype) - 20usize];
+    ["Offset of field: cuvsDatasetPaddedView::layout"]
+        [::std::mem::offset_of!(cuvsDatasetPaddedView, layout) - 24usize];
+};
+pub type cuvsDatasetPaddedView_t = *mut cuvsDatasetPaddedView;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct cuvsDatasetStandardView {
+    pub addr: usize,
+    pub destroy_addr:
+        ::std::option::Option<unsafe extern "C" fn(arg1: *mut ::std::os::raw::c_void)>,
+    pub kind: cuvsDatasetViewKind_t,
+    pub dtype: DLDataType,
+    pub layout: cuvsDatasetLayout_t,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of cuvsDatasetStandardView"][::std::mem::size_of::<cuvsDatasetStandardView>() - 32usize];
+    ["Alignment of cuvsDatasetStandardView"]
+        [::std::mem::align_of::<cuvsDatasetStandardView>() - 8usize];
+    ["Offset of field: cuvsDatasetStandardView::addr"]
+        [::std::mem::offset_of!(cuvsDatasetStandardView, addr) - 0usize];
+    ["Offset of field: cuvsDatasetStandardView::destroy_addr"]
+        [::std::mem::offset_of!(cuvsDatasetStandardView, destroy_addr) - 8usize];
+    ["Offset of field: cuvsDatasetStandardView::kind"]
+        [::std::mem::offset_of!(cuvsDatasetStandardView, kind) - 16usize];
+    ["Offset of field: cuvsDatasetStandardView::dtype"]
+        [::std::mem::offset_of!(cuvsDatasetStandardView, dtype) - 20usize];
+    ["Offset of field: cuvsDatasetStandardView::layout"]
+        [::std::mem::offset_of!(cuvsDatasetStandardView, layout) - 24usize];
+};
+pub type cuvsDatasetStandardView_t = *mut cuvsDatasetStandardView;
+#[repr(u32)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub enum cuvsDatasetStorageKind_t {
+    CUVS_DATASET_STORAGE_KIND_EXTENDED = 0,
+    CUVS_DATASET_STORAGE_KIND_MERGED = 1,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct cuvsDatasetStorage {
+    pub addr: usize,
+    pub dtype: DLDataType,
+    pub kind: cuvsDatasetStorageKind_t,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of cuvsDatasetStorage"][::std::mem::size_of::<cuvsDatasetStorage>() - 16usize];
+    ["Alignment of cuvsDatasetStorage"][::std::mem::align_of::<cuvsDatasetStorage>() - 8usize];
+    ["Offset of field: cuvsDatasetStorage::addr"]
+        [::std::mem::offset_of!(cuvsDatasetStorage, addr) - 0usize];
+    ["Offset of field: cuvsDatasetStorage::dtype"]
+        [::std::mem::offset_of!(cuvsDatasetStorage, dtype) - 8usize];
+    ["Offset of field: cuvsDatasetStorage::kind"]
+        [::std::mem::offset_of!(cuvsDatasetStorage, kind) - 12usize];
+};
+pub type cuvsDatasetStorage_t = *mut cuvsDatasetStorage;
+pub type cuvsCagraIndex_t = *mut cuvsCagraIndex;
+unsafe extern "C" {
+    #[must_use]
+    pub fn cuvsDatasetMakeDevicePadded(
+        res: cuvsResources_t,
+        dataset: *mut DLManagedTensor,
+        padded_dataset: *mut cuvsDatasetPadded_t,
+    ) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    pub fn cuvsDatasetMakeHostPadded(
+        res: cuvsResources_t,
+        dataset: *mut DLManagedTensor,
+        padded_dataset: *mut cuvsDatasetPadded_t,
+    ) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    pub fn cuvsDatasetMakeDevicePaddedView(
+        res: cuvsResources_t,
+        dataset: *mut DLManagedTensor,
+        padded_dataset: *mut cuvsDatasetPaddedView_t,
+    ) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    pub fn cuvsDatasetMakeViewFromOwningPadded(
+        padded_dataset: cuvsDatasetPadded_t,
+        padded_view: *mut cuvsDatasetPaddedView_t,
+    ) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    pub fn cuvsDatasetMakeHostPaddedView(
+        res: cuvsResources_t,
+        dataset: *mut DLManagedTensor,
+        padded_dataset: *mut cuvsDatasetPaddedView_t,
+    ) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    pub fn cuvsDatasetPaddedDestroy(padded_dataset: cuvsDatasetPadded_t) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    pub fn cuvsDatasetStandardDestroy(standard_dataset: cuvsDatasetStandard_t) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    pub fn cuvsDatasetPaddedViewDestroy(padded_dataset: cuvsDatasetPaddedView_t) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    pub fn cuvsDatasetMakeDeviceStandardView(
+        res: cuvsResources_t,
+        dataset: *mut DLManagedTensor,
+        standard_dataset: *mut cuvsDatasetStandardView_t,
+    ) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    pub fn cuvsDatasetMakeHostStandardView(
+        res: cuvsResources_t,
+        dataset: *mut DLManagedTensor,
+        standard_dataset: *mut cuvsDatasetStandardView_t,
+    ) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    pub fn cuvsDatasetStandardViewDestroy(
+        standard_dataset: cuvsDatasetStandardView_t,
+    ) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    pub fn cuvsMakeMergedStorage(
+        res: cuvsResources_t,
+        indices: *mut cuvsCagraIndex_t,
+        num_indices: usize,
+        filter: cuvsFilter,
+        merged_storage: *mut cuvsDatasetStorage_t,
+    ) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    pub fn cuvsDatasetStorageDestroy(dataset_storage: cuvsDatasetStorage_t) -> cuvsError_t;
+}
+#[repr(u32)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum cuvsDistanceType {
-    #[doc = " evaluate as dist_ij = sum(x_ik^2) + sum(y_ij)^2 - 2*sum(x_ik * y_jk)"]
     L2Expanded = 0,
-    #[doc = " same as above, but inside the epilogue, perform square root operation"]
     L2SqrtExpanded = 1,
-    #[doc = " cosine distance"]
     CosineExpanded = 2,
-    #[doc = " L1 distance"]
     L1 = 3,
-    #[doc = " evaluate as dist_ij += (x_ik - y-jk)^2"]
     L2Unexpanded = 4,
-    #[doc = " same as above, but inside the epilogue, perform square root operation"]
     L2SqrtUnexpanded = 5,
-    #[doc = " basic inner product"]
     InnerProduct = 6,
-    #[doc = " Chebyshev (Linf) distance"]
     Linf = 7,
-    #[doc = " Canberra distance"]
     Canberra = 8,
-    #[doc = " Generalized Minkowski distance"]
     LpUnexpanded = 9,
-    #[doc = " Correlation distance"]
     CorrelationExpanded = 10,
-    #[doc = " Jaccard distance"]
     JaccardExpanded = 11,
-    #[doc = " Hellinger distance"]
     HellingerExpanded = 12,
-    #[doc = " Haversine distance"]
     Haversine = 13,
-    #[doc = " Bray-Curtis distance"]
     BrayCurtis = 14,
-    #[doc = " Jensen-Shannon distance"]
     JensenShannon = 15,
-    #[doc = " Hamming distance"]
     HammingUnexpanded = 16,
-    #[doc = " KLDivergence"]
     KLDivergence = 17,
-    #[doc = " RusselRao"]
     RusselRaoExpanded = 18,
-    #[doc = " Dice-Sorensen distance"]
     DiceExpanded = 19,
-    #[doc = " Bitstring Hamming distance"]
     BitwiseHamming = 20,
-    #[doc = " Precomputed (special value)"]
     Precomputed = 100,
 }
 #[repr(u32)]
-#[doc = " @defgroup kmeans_c_params k-means hyperparameters\n @{"]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum cuvsKMeansInitMethod {
-    #[doc = " Sample the centroids using the kmeans++ strategy"]
     KMeansPlusPlus = 0,
-    #[doc = " Sample the centroids uniformly at random"]
     Random = 1,
-    #[doc = " User provides the array of initial centroids"]
     Array = 2,
 }
-#[doc = " @brief Hyper-parameters for the kmeans algorithm"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsKMeansParams {
     pub metric: cuvsDistanceType,
-    #[doc = " The number of clusters to form as well as the number of centroids to generate (default:8)."]
     pub n_clusters: ::std::os::raw::c_int,
-    #[doc = " Method for initialization, defaults to k-means++:\n  - cuvsKMeansInitMethod::KMeansPlusPlus (k-means++): Use scalable k-means++ algorithm\n to select the initial cluster centers.\n  - cuvsKMeansInitMethod::Random (random): Choose 'n_clusters' observations (rows) at\n random from the input data for the initial centroids.\n  - cuvsKMeansInitMethod::Array (ndarray): Use 'centroids' as initial cluster centers."]
     pub init: cuvsKMeansInitMethod,
-    #[doc = " Maximum number of iterations of the k-means algorithm for a single run."]
     pub max_iter: ::std::os::raw::c_int,
-    #[doc = " Relative tolerance with regards to inertia to declare convergence."]
     pub tol: f64,
-    #[doc = " Number of instance k-means algorithm will be run with different seeds."]
     pub n_init: ::std::os::raw::c_int,
-    #[doc = " Oversampling factor for use in the k-means|| algorithm"]
     pub oversampling_factor: f64,
-    #[doc = " batch_samples and batch_centroids are used to tile 1NN computation which is\n useful to optimize/control the memory footprint\n Default tile is [batch_samples x n_clusters] i.e. when batch_centroids is 0\n then don't tile the centroids"]
     pub batch_samples: ::std::os::raw::c_int,
-    #[doc = " if 0 then batch_centroids = n_clusters"]
     pub batch_centroids: ::std::os::raw::c_int,
     #[doc = " Check inertia during iterations for early convergence."]
     pub inertia_check: bool,
     #[doc = " Whether to use hierarchical (balanced) kmeans or not"]
     pub hierarchical: bool,
-    #[doc = " For hierarchical k-means , defines the number of training iterations"]
     pub hierarchical_n_iters: ::std::os::raw::c_int,
     #[doc = " Number of samples to process per GPU batch for the batched (host-data) API.\n When set to 0, defaults to n_samples (process all at once)."]
     pub device_buffer_samples: i64,
@@ -444,16 +592,13 @@ const _: () = {
 pub type cuvsKMeansParams_t = *mut cuvsKMeansParams;
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Allocate KMeans params, and populate with default values\n\n @param[in] params cuvsKMeansParams_t to allocate\n @return cuvsError_t"]
     pub fn cuvsKMeansParamsCreate(params: *mut cuvsKMeansParams_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief De-allocate KMeans params\n\n @param[in] params\n @return cuvsError_t"]
     pub fn cuvsKMeansParamsDestroy(params: cuvsKMeansParams_t) -> cuvsError_t;
 }
 #[repr(u32)]
-#[doc = " @brief Type of k-means algorithm."]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum cuvsKMeansType {
     CUVS_KMEANS_TYPE_KMEANS = 0,
@@ -474,7 +619,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Predict the closest cluster each sample in X belongs to.\n\n @param[in]     res              opaque C handle\n @param[in]     params           Parameters for KMeans model.\n @param[in]     X                New data to predict.\n                                 [dim = n_samples x n_features]\n @param[in]     sample_weight    Optional weights for each observation in X.\n                                 [len = n_samples]\n @param[in]     centroids        Cluster centroids. The data must be in\n                                 row-major format.\n                                 [dim = n_clusters x n_features]\n @param[in]     normalize_weight True if the weights should be normalized\n @param[out]    labels           Index of the cluster each sample in X\n                                 belongs to.\n                                 [len = n_samples]\n @param[out]    inertia          Sum of squared distances of samples to\n                                 their closest cluster center."]
     pub fn cuvsKMeansPredict(
         res: cuvsResources_t,
         params: cuvsKMeansParams_t,
@@ -488,7 +632,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Compute cluster cost\n\n @param[in]  res            opaque C handle\n @param[in]  X              Training instances to cluster. The data must\n                            be in row-major format.\n                            [dim = n_samples x n_features]\n @param[in]  centroids      Cluster centroids. The data must be in\n                            row-major format.\n                            [dim = n_clusters x n_features]\n @param[out] cost           Resulting cluster cost\n"]
     pub fn cuvsKMeansClusterCost(
         res: cuvsResources_t,
         X: *mut DLManagedTensor,
@@ -498,7 +641,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Compute pairwise distances for two matrices\n\n\n Usage example:\n @code{.c}\n #include <cuvs/core/c_api.h>\n #include <cuvs/distance/pairwise_distance.h>\n\n // Create cuvsResources_t\n cuvsResources_t res;\n cuvsError_t res_create_status = cuvsResourcesCreate(&res);\n\n // Assume a populated `DLManagedTensor` type here\n DLManagedTensor x;\n DLManagedTensor y;\n DLManagedTensor dist;\n\n cuvsPairwiseDistance(res, &x, &y, &dist, L2SqrtUnexpanded, 2.0);\n @endcode\n\n @param[in] res cuvs resources object for managing expensive resources\n @param[in] x first set of points (size n*k)\n @param[in] y second set of points (size m*k)\n @param[out] dist output distance matrix (size n*m)\n @param[in] metric distance to evaluate\n @param[in] metric_arg metric argument (used for Minkowski distance)"]
     pub fn cuvsPairwiseDistance(
         res: cuvsResources_t,
         x: *mut DLManagedTensor,
@@ -509,48 +651,32 @@ unsafe extern "C" {
     ) -> cuvsError_t;
 }
 #[repr(u32)]
-#[doc = " @defgroup ivf_pq_c_index_params IVF-PQ index build parameters\n @{\n/\n/**\n @brief A type for specifying how PQ codebooks are created\n"]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum cuvsIvfPqCodebookGen {
     CUVS_IVF_PQ_CODEBOOK_GEN_PER_SUBSPACE = 0,
     CUVS_IVF_PQ_CODEBOOK_GEN_PER_CLUSTER = 1,
 }
 #[repr(u32)]
-#[doc = " @brief A type for specifying the memory layout of IVF-PQ list data\n"]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum cuvsIvfPqListLayout {
     CUVS_IVF_PQ_LIST_LAYOUT_FLAT = 0,
     CUVS_IVF_PQ_LIST_LAYOUT_INTERLEAVED = 1,
 }
-#[doc = " @brief Supplemental parameters to build IVF-PQ Index\n"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsIvfPqIndexParams {
-    #[doc = " Distance type."]
     pub metric: cuvsDistanceType,
-    #[doc = " The argument used by some distance metrics."]
     pub metric_arg: f32,
-    #[doc = " Whether to add the dataset content to the index, i.e.:\n\n  - `true` means the index is filled with the dataset vectors and ready to search after calling\n `build`.\n  - `false` means `build` only trains the underlying model (e.g. quantizer or clustering), but\n the index is left empty; you'd need to call `extend` on the index afterwards to populate it."]
     pub add_data_on_build: bool,
-    #[doc = " The number of inverted lists (clusters)\n\n Hint: the number of vectors per cluster (`n_rows/n_lists`) should be approximately 1,000 to\n 10,000."]
     pub n_lists: u32,
-    #[doc = " The number of iterations searching for kmeans centers (index building)."]
     pub kmeans_n_iters: u32,
-    #[doc = " The fraction of data to use during iterative kmeans building."]
     pub kmeans_trainset_fraction: f64,
-    #[doc = " The bit length of the vector element after compression by PQ.\n\n Possible values: [4, 5, 6, 7, 8].\n\n Hint: the smaller the 'pq_bits', the smaller the index size and the better the search\n performance, but the lower the recall."]
     pub pq_bits: u32,
-    #[doc = " The dimensionality of the vector after compression by PQ. When zero, an optimal value is\n selected using a heuristic.\n\n NB: `pq_dim * pq_bits` must be a multiple of 8.\n\n Hint: a smaller 'pq_dim' results in a smaller index size and better search performance, but\n lower recall. If 'pq_bits' is 8, 'pq_dim' can be set to any number, but multiple of 8 are\n desirable for good performance. If 'pq_bits' is not 8, 'pq_dim' should be a multiple of 8.\n For good performance, it is desirable that 'pq_dim' is a multiple of 32. Ideally, 'pq_dim'\n should be also a divisor of the dataset dim."]
     pub pq_dim: u32,
-    #[doc = " How PQ codebooks are created."]
     pub codebook_kind: cuvsIvfPqCodebookGen,
-    #[doc = " Apply a random rotation matrix on the input data and queries even if `dim % pq_dim == 0`.\n\n Note: if `dim` is not multiple of `pq_dim`, a random rotation is always applied to the input\n data and queries to transform the working space from `dim` to `rot_dim`, which may be slightly\n larger than the original space and and is a multiple of `pq_dim` (`rot_dim % pq_dim == 0`).\n However, this transform is not necessary when `dim` is multiple of `pq_dim`\n   (`dim == rot_dim`, hence no need in adding \"extra\" data columns / features).\n\n By default, if `dim == rot_dim`, the rotation transform is initialized with the identity\n matrix. When `force_random_rotation == true`, a random orthogonal transform matrix is generated\n regardless of the values of `dim` and `pq_dim`."]
     pub force_random_rotation: bool,
-    #[doc = " By default, the algorithm allocates more space than necessary for individual clusters\n (`list_data`). This allows to amortize the cost of memory allocation and reduce the number of\n data copies during repeated calls to `extend` (extending the database).\n\n The alternative is the conservative allocation behavior; when enabled, the algorithm always\n allocates the minimum amount of memory required to store the given number of records. Set this\n flag to `true` if you prefer to use as little GPU memory for the database as possible."]
     pub conservative_memory_allocation: bool,
-    #[doc = " The max number of data points to use per PQ code during PQ codebook training. Using more data\n points per PQ code may increase the quality of PQ codebook but may also increase the build\n time. The parameter is applied to both PQ codebook generation methods, i.e., PER_SUBSPACE and\n PER_CLUSTER. In both cases, we will use `pq_book_size * max_train_points_per_pq_code` training\n points to train each codebook."]
     pub max_train_points_per_pq_code: u32,
-    #[doc = " Memory layout of the IVF-PQ list data.\n\n - CUVS_IVF_PQ_LIST_LAYOUT_FLAT: Codes are stored contiguously, one vector's codes after another.\n - CUVS_IVF_PQ_LIST_LAYOUT_INTERLEAVED: Codes are interleaved for optimized search performance.\n   This is the default and recommended for search workloads."]
     pub codes_layout: cuvsIvfPqListLayout,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -587,28 +713,19 @@ const _: () = {
 pub type cuvsIvfPqIndexParams_t = *mut cuvsIvfPqIndexParams;
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Allocate IVF-PQ Index params, and populate with default values\n\n @param[in] index_params cuvsIvfPqIndexParams_t to allocate\n @return cuvsError_t"]
     pub fn cuvsIvfPqIndexParamsCreate(index_params: *mut cuvsIvfPqIndexParams_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief De-allocate IVF-PQ Index params\n\n @param[in] index_params\n @return cuvsError_t"]
     pub fn cuvsIvfPqIndexParamsDestroy(index_params: cuvsIvfPqIndexParams_t) -> cuvsError_t;
 }
-#[doc = " @defgroup ivf_pq_c_search_params IVF-PQ index search parameters\n @{\n/\n/**\n @brief Supplemental parameters to search IVF-PQ index\n"]
 #[repr(C)]
 pub struct cuvsIvfPqSearchParams {
-    #[doc = " The number of clusters to search."]
     pub n_probes: u32,
-    #[doc = " Data type of look up table to be created dynamically at search time.\n\n Possible values: [CUDA_R_32F, CUDA_R_16F, CUDA_R_8U]\n\n The use of low-precision types reduces the amount of shared memory required at search time, so\n fast shared memory kernels can be used even for datasets with large dimansionality. Note that\n the recall is slightly degraded when low-precision type is selected."]
     pub lut_dtype: cudaDataType_t,
-    #[doc = " Storage data type for distance/similarity computed at search time.\n\n Possible values: [CUDA_R_16F, CUDA_R_32F]\n\n If the performance limiter at search time is device memory access, selecting FP16 will improve\n performance slightly."]
     pub internal_distance_dtype: cudaDataType_t,
-    #[doc = " The data type to use as the GEMM element type when searching the clusters to probe.\n\n Possible values: [CUDA_R_8I, CUDA_R_16F, CUDA_R_32F].\n\n - Legacy default: CUDA_R_32F (float)\n - Recommended for performance: CUDA_R_16F (half)\n - Experimental/low-precision: CUDA_R_8I (int8_t)\n    (WARNING: int8_t variant degrades recall unless data is normalized and low-dimensional)"]
     pub coarse_search_dtype: cudaDataType_t,
-    #[doc = " Set the internal batch size to improve GPU utilization at the cost of larger memory footprint."]
     pub max_internal_batch_size: u32,
-    #[doc = " Preferred fraction of SM's unified memory / L1 cache to be used as shared memory.\n\n Possible values: [0.0 - 1.0] as a fraction of the `sharedMemPerMultiprocessor`.\n\n One wants to increase the carveout to make sure a good GPU occupancy for the main search\n kernel, but not to keep it too high to leave some memory to be used as L1 cache. Note, this\n value is interpreted only as a hint. Moreover, a GPU usually allows only a fixed set of cache\n configurations, so the provided value is rounded up to the nearest configuration. Refer to the\n NVIDIA tuning guide for the target GPU architecture.\n\n Note, this is a low-level tuning parameter that can have drastic negative effects on the search\n performance if tweaked incorrectly."]
     pub preferred_shmem_carveout: f64,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -632,15 +749,12 @@ const _: () = {
 pub type cuvsIvfPqSearchParams_t = *mut cuvsIvfPqSearchParams;
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Allocate IVF-PQ search params, and populate with default values\n\n @param[in] params cuvsIvfPqSearchParams_t to allocate\n @return cuvsError_t"]
     pub fn cuvsIvfPqSearchParamsCreate(params: *mut cuvsIvfPqSearchParams_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief De-allocate IVF-PQ search params\n\n @param[in] params\n @return cuvsError_t"]
     pub fn cuvsIvfPqSearchParamsDestroy(params: cuvsIvfPqSearchParams_t) -> cuvsError_t;
 }
-#[doc = " @defgroup ivf_pq_c_index IVF-PQ index\n @{\n/\n/**\n @brief Struct to hold address of cuvs::neighbors::ivf_pq::index and its active trained dtype\n"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsIvfPqIndex {
@@ -659,47 +773,38 @@ const _: () = {
 pub type cuvsIvfPqIndex_t = *mut cuvsIvfPqIndex;
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Allocate IVF-PQ index\n\n @param[in] index cuvsIvfPqIndex_t to allocate\n @return cuvsError_t"]
     pub fn cuvsIvfPqIndexCreate(index: *mut cuvsIvfPqIndex_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief De-allocate IVF-PQ index\n\n @param[in] index cuvsIvfPqIndex_t to de-allocate"]
     pub fn cuvsIvfPqIndexDestroy(index: cuvsIvfPqIndex_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " Get the number of clusters/inverted lists"]
     pub fn cuvsIvfPqIndexGetNLists(index: cuvsIvfPqIndex_t, n_lists: *mut i64) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " Get the dimensionality"]
     pub fn cuvsIvfPqIndexGetDim(index: cuvsIvfPqIndex_t, dim: *mut i64) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " Get the size of the index"]
     pub fn cuvsIvfPqIndexGetSize(index: cuvsIvfPqIndex_t, size: *mut i64) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " Get the dimensionality of an encoded vector after compression by PQ."]
     pub fn cuvsIvfPqIndexGetPqDim(index: cuvsIvfPqIndex_t, pq_dim: *mut i64) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " Get the bit length of an encoded vector element after compression by PQ."]
     pub fn cuvsIvfPqIndexGetPqBits(index: cuvsIvfPqIndex_t, pq_bits: *mut i64) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " Get the Dimensionality of a subspace, i.e. the number of vector\n components mapped to a subspace"]
     pub fn cuvsIvfPqIndexGetPqLen(index: cuvsIvfPqIndex_t, pq_len: *mut i64) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Get the cluster centers corresponding to the lists in the original space\n\n @param[in] index cuvsIvfPqIndex_t Built Ivf-Pq index\n @param[out] centers Output tensor that will be populated with a non-owning view of the data\n @return cuvsError_t"]
     pub fn cuvsIvfPqIndexGetCenters(
         index: cuvsIvfPqIndex_t,
         centers: *mut DLManagedTensor,
@@ -707,7 +812,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Get the padded cluster centers [n_lists, dim_ext]\n   where dim_ext = round_up(dim + 1, 8)\n\n This returns the full padded centers as a contiguous array, suitable for\n use with cuvsIvfPqBuildPrecomputed.\n\n @param[in] index cuvsIvfPqIndex_t Built Ivf-Pq index\n @param[out] centers Output tensor that will be populated with a non-owning view of the data\n @return cuvsError_t"]
     pub fn cuvsIvfPqIndexGetCentersPadded(
         index: cuvsIvfPqIndex_t,
         centers: *mut DLManagedTensor,
@@ -715,7 +819,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Get the PQ cluster centers\n\n   - CUVS_IVF_PQ_CODEBOOK_GEN_PER_SUBSPACE: [pq_dim , pq_len, pq_book_size]\n   - CUVS_IVF_PQ_CODEBOOK_GEN_PER_CLUSTER:  [n_lists, pq_len, pq_book_size]\n\n @param[in] index cuvsIvfPqIndex_t Built Ivf-Pq index\n @param[out] pq_centers Output tensor that will be populated with a non-owning view of the data\n @return cuvsError_t"]
     pub fn cuvsIvfPqIndexGetPqCenters(
         index: cuvsIvfPqIndex_t,
         pq_centers: *mut DLManagedTensor,
@@ -723,7 +826,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Get the rotated cluster centers [n_lists, rot_dim]\n   where rot_dim = pq_len * pq_dim\n\n @param[in] index cuvsIvfPqIndex_t Built Ivf-Pq index\n @param[out] centers_rot Output tensor that will be populated with a non-owning view of the data\n @return cuvsError_t"]
     pub fn cuvsIvfPqIndexGetCentersRot(
         index: cuvsIvfPqIndex_t,
         centers_rot: *mut DLManagedTensor,
@@ -731,7 +833,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Get the rotation matrix [rot_dim, dim]\n   Transform matrix (original space -> rotated padded space)\n\n @param[in] index cuvsIvfPqIndex_t Built Ivf-Pq index\n @param[out] rotation_matrix Output tensor that will be populated with a non-owning view of the\n data\n @return cuvsError_t"]
     pub fn cuvsIvfPqIndexGetRotationMatrix(
         index: cuvsIvfPqIndex_t,
         rotation_matrix: *mut DLManagedTensor,
@@ -739,7 +840,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Get the sizes of each list\n\n @param[in] index cuvsIvfPqIndex_t Built Ivf-Pq index\n @param[out] list_sizes Output tensor that will be populated with a non-owning view of the data\n @return cuvsError_t"]
     pub fn cuvsIvfPqIndexGetListSizes(
         index: cuvsIvfPqIndex_t,
         list_sizes: *mut DLManagedTensor,
@@ -747,7 +847,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Unpack `n_rows` consecutive PQ encoded vectors of a single list (cluster) in the\n compressed index starting at given `offset`, not expanded to one code per byte. Each code in the\n output buffer occupies ceildiv(index.pq_dim() * index.pq_bits(), 8) bytes.\n\n @param[in] res raft resource\n @param[in] index cuvsIvfPqIndex_t Built Ivf-Pq index\n @param[out] out_codes\n   the destination buffer [n_rows, ceildiv(index.pq_dim() * index.pq_bits(), 8)].\n   The length `n_rows` defines how many records to unpack,\n   offset + n_rows must be smaller than or equal to the list size.\n   This DLManagedTensor must already point to allocated device memory\n @param[in] label\n   The id of the list (cluster) to decode.\n @param[in] offset\n   How many records in the list to skip."]
     pub fn cuvsIvfPqIndexUnpackContiguousListData(
         res: cuvsResources_t,
         index: cuvsIvfPqIndex_t,
@@ -758,7 +857,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Get the indices of each vector in a ivf-pq list\n\n @param[in] index cuvsIvfPqIndex_t Built Ivf-Pq index\n @param[in] label\n   The id of the list (cluster) to decode.\n @param[out] out_labels\n   output tensor that will be populated with a non-owning view of the data\n @return cuvsError_t"]
     pub fn cuvsIvfPqIndexGetListIndices(
         index: cuvsIvfPqIndex_t,
         label: u32,
@@ -767,7 +865,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @defgroup ivf_pq_c_index_build IVF-PQ index build\n @{\n/\n/**\n @brief Build a IVF-PQ index with a `DLManagedTensor` which has underlying\n        `DLDeviceType` equal to `kDLCUDA`, `kDLCUDAHost`, `kDLCUDAManaged`,\n        or `kDLCPU`. Also, acceptable underlying types are:\n        1. `kDLDataType.code == kDLFloat` and `kDLDataType.bits = 32`\n        2. `kDLDataType.code == kDLFloat` and `kDLDataType.bits = 16`\n        3. `kDLDataType.code == kDLInt` and `kDLDataType.bits = 8`\n        4. `kDLDataType.code == kDLUInt` and `kDLDataType.bits = 8`\n\n @code {.c}\n #include <cuvs/core/c_api.h>\n #include <cuvs/neighbors/ivf_pq.h>\n\n // Create cuvsResources_t\n cuvsResources_t res;\n cuvsError_t res_create_status = cuvsResourcesCreate(&res);\n\n // Assume a populated `DLManagedTensor` type here\n DLManagedTensor dataset;\n\n // Create default index params\n cuvsIvfPqIndexParams_t index_params;\n cuvsError_t params_create_status = cuvsIvfPqIndexParamsCreate(&index_params);\n\n // Create IVF-PQ index\n cuvsIvfPqIndex_t index;\n cuvsError_t index_create_status = cuvsIvfPqIndexCreate(&index);\n\n // Build the IVF-PQ Index\n cuvsError_t build_status = cuvsIvfPqBuild(res, index_params, &dataset, index);\n\n // de-allocate `index_params`, `index` and `res`\n cuvsError_t params_destroy_status = cuvsIvfPqIndexParamsDestroy(index_params);\n cuvsError_t index_destroy_status = cuvsIvfPqIndexDestroy(index);\n cuvsError_t res_destroy_status = cuvsResourcesDestroy(res);\n @endcode\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] params cuvsIvfPqIndexParams_t used to build IVF-PQ index\n @param[in] dataset DLManagedTensor* training dataset\n @param[out] index cuvsIvfPqIndex_t Newly built IVF-PQ index\n @return cuvsError_t"]
     pub fn cuvsIvfPqBuild(
         res: cuvsResources_t,
         params: cuvsIvfPqIndexParams_t,
@@ -777,7 +874,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Build a view-type IVF-PQ index from device memory precomputed centroids and codebook.\n\n This function creates a non-owning index that stores a reference to the provided device data.\n All parameters must be provided with correct extents. The caller is responsible for ensuring\n the lifetime of the input data exceeds the lifetime of the returned index.\n\n The index_params must be consistent with the provided matrices. Specifically:\n - index_params.codebook_kind determines the expected shape of pq_centers\n - index_params.metric will be stored in the index\n - index_params.conservative_memory_allocation will be stored in the index\n The function will verify consistency between index_params, dim, and the matrix extents.\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] params cuvsIvfPqIndexParams_t used to configure the index (must be consistent with\n matrices)\n @param[in] dim dimensionality of the input data\n @param[in] pq_centers PQ codebook on device memory with required shape:\n   - codebook_kind CUVS_IVF_PQ_CODEBOOK_GEN_PER_SUBSPACE: [pq_dim, pq_len, pq_book_size]\n   - codebook_kind CUVS_IVF_PQ_CODEBOOK_GEN_PER_CLUSTER:  [n_lists, pq_len, pq_book_size]\n @param[in] centers Cluster centers in the original space [n_lists, dim_ext]\n   where dim_ext = round_up(dim + 1, 8)\n @param[in] centers_rot Rotated cluster centers [n_lists, rot_dim]\n   where rot_dim = pq_len * pq_dim\n @param[in] rotation_matrix Transform matrix (original space -> rotated padded space) [rot_dim,\n dim]\n @param[out] index cuvsIvfPqIndex_t Newly built view-type IVF-PQ index\n @return cuvsError_t"]
     pub fn cuvsIvfPqBuildPrecomputed(
         res: cuvsResources_t,
         params: cuvsIvfPqIndexParams_t,
@@ -791,7 +887,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @defgroup ivf_pq_c_index_search IVF-PQ index search\n @{\n/\n/**\n @brief Search a IVF-PQ index with a `DLManagedTensor` which has underlying\n        `DLDeviceType` equal to `kDLCUDA`, `kDLCUDAHost`, `kDLCUDAManaged`.\n        It is also important to note that the IVF-PQ Index must have been built\n        with the same type of `queries`, such that `index.dtype.code ==\n queries.dl_tensor.dtype.code` Types for input are:\n        1. `queries`: `kDLDataType.code == kDLFloat` and `kDLDataType.bits = 32`\n            or `kDLDataType.bits = 16`\n        2. `neighbors`: `kDLDataType.code == kDLUInt` and `kDLDataType.bits = 32`\n        3. `distances`: `kDLDataType.code == kDLFloat` and `kDLDataType.bits = 32`\n\n @code {.c}\n #include <cuvs/core/c_api.h>\n #include <cuvs/neighbors/ivf_pq.h>\n\n // Create cuvsResources_t\n cuvsResources_t res;\n cuvsError_t res_create_status = cuvsResourcesCreate(&res);\n\n // Assume a populated `DLManagedTensor` type here\n DLManagedTensor dataset;\n DLManagedTensor queries;\n DLManagedTensor neighbors;\n\n // Create default search params\n cuvsIvfPqSearchParams_t search_params;\n cuvsError_t params_create_status = cuvsIvfPqSearchParamsCreate(&search_params);\n\n // Search the `index` built using `cuvsIvfPqBuild`\n cuvsError_t search_status = cuvsIvfPqSearch(res, search_params, index, &queries, &neighbors,\n &distances);\n\n // de-allocate `search_params` and `res`\n cuvsError_t params_destroy_status = cuvsIvfPqSearchParamsDestroy(search_params);\n cuvsError_t res_destroy_status = cuvsResourcesDestroy(res);\n @endcode\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] search_params cuvsIvfPqSearchParams_t used to search IVF-PQ index\n @param[in] index cuvsIvfPqIndex which has been returned by `cuvsIvfPqBuild`\n @param[in] queries DLManagedTensor* queries dataset to search\n @param[out] neighbors DLManagedTensor* output `k` neighbors for queries\n @param[out] distances DLManagedTensor* output `k` distances for queries"]
     pub fn cuvsIvfPqSearch(
         res: cuvsResources_t,
         search_params: cuvsIvfPqSearchParams_t,
@@ -803,7 +898,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @defgroup ivf_pq_c_index_serialize IVF-PQ C-API serialize functions\n @{\n/\n/**\n Save the index to file.\n\n Experimental, both the API and the serialization format are subject to change.\n\n @code{.cpp}\n #include <cuvs/neighbors/ivf_pq.h>\n\n // Create cuvsResources_t\n cuvsResources_t res;\n cuvsError_t res_create_status = cuvsResourcesCreate(&res);\n\n // create an index with `cuvsIvfPqBuild`\n cuvsIvfPqSerialize(res, \"/path/to/index\", index, true);\n @endcode\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] filename the file name for saving the index\n @param[in] index IVF-PQ index"]
     pub fn cuvsIvfPqSerialize(
         res: cuvsResources_t,
         filename: *const ::std::os::raw::c_char,
@@ -812,7 +906,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " Load index from file.\n\n Experimental, both the API and the serialization format are subject to change.\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] filename the name of the file that stores the index\n @param[out] index IVF-PQ index loaded disk"]
     pub fn cuvsIvfPqDeserialize(
         res: cuvsResources_t,
         filename: *const ::std::os::raw::c_char,
@@ -821,7 +914,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @defgroup ivf_pq_c_index_extend IVF-PQ index extend\n @{\n/\n/**\n @brief Extend the index with the new data.\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] new_vectors DLManagedTensor* the new vectors to add to the index\n @param[in] new_indices DLManagedTensor* vector of new indices for the new vectors\n @param[inout] index IVF-PQ index to be extended\n @return cuvsError_t"]
     pub fn cuvsIvfPqExtend(
         res: cuvsResources_t,
         new_vectors: *mut DLManagedTensor,
@@ -831,7 +923,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @defgroup ivf_pq_c_index_transform IVF-PQ index transform\n @{\n/\n/**\n @brief Transform the input data by applying pq-encoding\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] index IVF-PQ index\n @param[in] input_dataset DLManagedTensor* vectors to transform\n @param[out] output_labels DLManagedTensor* Vector of cluster labels for each vector in the input\n @param[out] output_dataset DLManagedTensor* input vectors after pq-encoding\n @return cuvsError_t"]
     pub fn cuvsIvfPqTransform(
         res: cuvsResources_t,
         index: cuvsIvfPqIndex_t,
@@ -841,14 +932,12 @@ unsafe extern "C" {
     ) -> cuvsError_t;
 }
 #[repr(u32)]
-#[doc = " @brief Dtype to use for distance computation\n - `NND_DIST_COMP_AUTO`: Automatically determine the best dtype for distance computation based on the dataset dimensions.\n - `NND_DIST_COMP_FP32`: Use fp32 distance computation for better precision at the cost of performance and memory usage.\n - `NND_DIST_COMP_FP16`: Use fp16 distance computation."]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum cuvsNNDescentDistCompDtype {
     NND_DIST_COMP_AUTO = 0,
     NND_DIST_COMP_FP32 = 1,
     NND_DIST_COMP_FP16 = 2,
 }
-#[doc = " @defgroup nn_descent_c_index_params The nn-descent algorithm parameters.\n @{\n/\n/**\n @brief Parameters used to build an nn-descent index\n\n `metric`: The distance metric to use\n `metric_arg`: The argument used by distance metrics like Minkowskidistance\n `graph_degree`: For an input dataset of dimensions (N, D),\n determines the final dimensions of the all-neighbors knn graph\n which turns out to be of dimensions (N, graph_degree)\n `intermediate_graph_degree`: Internally, nn-descent builds an\n all-neighbors knn graph of dimensions (N, intermediate_graph_degree)\n before selecting the final `graph_degree` neighbors. It's recommended\n that `intermediate_graph_degree` >= 1.5 * graph_degree\n `max_iterations`: The number of iterations that nn-descent will refine\n the graph for. More iterations produce a better quality graph at cost of performance\n `termination_threshold`: The delta at which nn-descent will terminate its iterations\n `return_distances`: Boolean to decide whether to return distances array\n `dist_comp_dtype`: dtype to use for distance computation. Defaults to `NND_DIST_COMP_AUTO` which automatically determines the best dtype for distance computation based on the dataset dimensions. Use `NND_DIST_COMP_FP32` for better precision at the cost of performance and memory usage. This option is only valid when data type is fp32. Use `NND_DIST_COMP_FP16` for better performance and memory usage at the cost of precision."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsNNDescentIndexParams {
@@ -887,18 +976,15 @@ const _: () = {
 pub type cuvsNNDescentIndexParams_t = *mut cuvsNNDescentIndexParams;
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Allocate NN-Descent Index params, and populate with default values\n\n @param[in] index_params cuvsNNDescentIndexParams_t to allocate\n @return cuvsError_t"]
     pub fn cuvsNNDescentIndexParamsCreate(
         index_params: *mut cuvsNNDescentIndexParams_t,
     ) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief De-allocate NN-Descent Index params\n\n @param[in] index_params\n @return cuvsError_t"]
     pub fn cuvsNNDescentIndexParamsDestroy(index_params: cuvsNNDescentIndexParams_t)
     -> cuvsError_t;
 }
-#[doc = " @defgroup nn_descent_c_index NN-Descent index\n @{\n/\n/**\n @brief Struct to hold address of cuvs::neighbors::nn_descent::index and its active trained dtype\n"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsNNDescentIndex {
@@ -917,17 +1003,14 @@ const _: () = {
 pub type cuvsNNDescentIndex_t = *mut cuvsNNDescentIndex;
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Allocate NN-Descent index\n\n @param[in] index cuvsNNDescentIndex_t to allocate\n @return cuvsError_t"]
     pub fn cuvsNNDescentIndexCreate(index: *mut cuvsNNDescentIndex_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief De-allocate NN-Descent index\n\n @param[in] index cuvsNNDescentIndex_t to de-allocate"]
     pub fn cuvsNNDescentIndexDestroy(index: cuvsNNDescentIndex_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @defgroup nn_descent_c_index_build NN-Descent index build\n @{\n/\n/**\n @brief Build a NN-Descent index with a `DLManagedTensor` which has underlying\n        `DLDeviceType` equal to `kDLCUDA`, `kDLCUDAHost`, `kDLCUDAManaged`,\n        or `kDLCPU`. Also, acceptable underlying types are:\n        1. `kDLDataType.code == kDLFloat` and `kDLDataType.bits = 32`\n        2. `kDLDataType.code == kDLFloat` and `kDLDataType.bits = 16`\n        3. `kDLDataType.code == kDLInt` and `kDLDataType.bits = 8`\n        4. `kDLDataType.code == kDLUInt` and `kDLDataType.bits = 8`\n\n @code {.c}\n #include <cuvs/core/c_api.h>\n #include <cuvs/neighbors/nn_descent.h>\n\n // Create cuvsResources_t\n cuvsResources_t res;\n cuvsError_t res_create_status = cuvsResourcesCreate(&res);\n\n // Assume a populated `DLManagedTensor` type here\n DLManagedTensor dataset;\n\n // Create default index params\n cuvsNNDescentIndexParams_t index_params;\n cuvsError_t params_create_status = cuvsNNDescentIndexParamsCreate(&index_params);\n\n // Create NN-Descent index\n cuvsNNDescentIndex_t index;\n cuvsError_t index_create_status = cuvsNNDescentIndexCreate(&index);\n\n // Build the NN-Descent Index\n cuvsError_t build_status = cuvsNNDescentBuild(res, index_params, &dataset, index);\n\n // de-allocate `index_params`, `index` and `res`\n cuvsError_t params_destroy_status = cuvsNNDescentIndexParamsDestroy(index_params);\n cuvsError_t index_destroy_status = cuvsNNDescentIndexDestroy(index);\n cuvsError_t res_destroy_status = cuvsResourcesDestroy(res);\n @endcode\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] index_params cuvsNNDescentIndexParams_t used to build NN-Descent index\n @param[in] dataset DLManagedTensor* training dataset on host or device memory\n @param[inout] graph Optional preallocated graph on host memory to store output\n @param[out] index cuvsNNDescentIndex_t Newly built NN-Descent index\n @return cuvsError_t"]
     pub fn cuvsNNDescentBuild(
         res: cuvsResources_t,
         index_params: cuvsNNDescentIndexParams_t,
@@ -938,7 +1021,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Get the KNN graph from a built NN-Descent index\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] index cuvsNNDescentIndex_t Built NN-Descent index\n @param[out] graph Preallocated graph on host memory to store output\n @return cuvsError_t"]
     pub fn cuvsNNDescentIndexGetGraph(
         res: cuvsResources_t,
         index: cuvsNNDescentIndex_t,
@@ -947,7 +1029,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Get the distances from a build NN_Descent index\n\n This requires that the `return_distances` parameter was set when building the\n graph\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] index cuvsNNDescentIndex_t Built NN-Descent index\n @param[out] distances Preallocated memory to store the output distances tensor\n @return cuvsError_t"]
     pub fn cuvsNNDescentIndexGetDistances(
         res: cuvsResources_t,
         index: cuvsNNDescentIndex_t,
@@ -955,31 +1036,20 @@ unsafe extern "C" {
     ) -> cuvsError_t;
 }
 #[repr(u32)]
-#[doc = " @brief Graph build algorithm selection."]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum cuvsAllNeighborsAlgo {
-    #[doc = "< Use Brute Force for local kNN subgraphs"]
     CUVS_ALL_NEIGHBORS_ALGO_BRUTE_FORCE = 0,
-    #[doc = "< Use IVF-PQ for local kNN subgraphs (host dataset only)"]
     CUVS_ALL_NEIGHBORS_ALGO_IVF_PQ = 1,
-    #[doc = "< Use NN-Descent for local kNN subgraphs"]
     CUVS_ALL_NEIGHBORS_ALGO_NN_DESCENT = 2,
 }
-#[doc = " @brief Parameters controlling SNMG all-neighbors build."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsAllNeighborsIndexParams {
-    #[doc = "< Local kNN graph build algorithm"]
     pub algo: cuvsAllNeighborsAlgo,
-    #[doc = "< Number of clusters each point is assigned to (must be < n_clusters)"]
     pub overlap_factor: usize,
-    #[doc = "< Number of clusters/batches to partition the dataset into (> overlap_factor)"]
     pub n_clusters: usize,
-    #[doc = "< Distance metric used for graph construction"]
     pub metric: cuvsDistanceType,
-    #[doc = "< Parameters for IVF-PQ algorithm (when algo ==\n< CUVS_ALL_NEIGHBORS_ALGO_IVF_PQ)"]
     pub ivf_pq_params: cuvsIvfPqIndexParams_t,
-    #[doc = "< Parameters for NN-Descent algorithm (when algo\n< == CUVS_ALL_NEIGHBORS_ALGO_NN_DESCENT)"]
     pub nn_descent_params: cuvsNNDescentIndexParams_t,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -1004,21 +1074,18 @@ const _: () = {
 pub type cuvsAllNeighborsIndexParams_t = *mut cuvsAllNeighborsIndexParams;
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Create a default all-neighbors index parameters struct.\n\n @param[out] index_params  Pointer to allocated index_params struct\n\n @return cuvsError_t"]
     pub fn cuvsAllNeighborsIndexParamsCreate(
         index_params: *mut cuvsAllNeighborsIndexParams_t,
     ) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Destroy an all-neighbors index parameters struct.\n\n @param[in] index_params  Index parameters struct to destroy\n\n @return cuvsError_t"]
     pub fn cuvsAllNeighborsIndexParamsDestroy(
         index_params: cuvsAllNeighborsIndexParams_t,
     ) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Build an all-neighbors k-NN graph automatically detecting host vs device dataset.\n\n @param[in] res             Can be a SNMG multi-GPU resources (`cuvsResources_t`) or single-GPU\n resources\n @param[in] params          Build parameters (see cuvsAllNeighborsIndexParams)\n @param[in] dataset         2D tensor [num_rows x dim] on host or device (auto-detected)\n @param[out] indices        2D tensor [num_rows x k] on device (int64)\n @param[out] distances      Optional 2D tensor [num_rows x k] on device (float32); can be NULL\n @param[out] core_distances Optional 1D tensor [num_rows] on device (float32); can be NULL\n @param[in] alpha           Mutual-reachability scaling; used only when core_distances is provided\n\n The function automatically detects whether the dataset is host-resident or device-resident\n and calls the appropriate implementation. For host datasets, it partitions data into\n `n_clusters` clusters and assigns each row to `overlap_factor` nearest clusters. For device\n datasets, `n_clusters` must be 1 (no batching); `overlap_factor` is ignored.\n Outputs always reside in device memory."]
     pub fn cuvsAllNeighborsBuild(
         res: cuvsResources_t,
         params: cuvsAllNeighborsIndexParams_t,
@@ -1029,38 +1096,6 @@ unsafe extern "C" {
         alpha: f32,
     ) -> cuvsError_t;
 }
-#[repr(u32)]
-#[doc = " @brief Enum to denote filter type."]
-#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
-pub enum cuvsFilterType {
-    NO_FILTER = 0,
-    BITSET = 1,
-    BITMAP = 2,
-}
-#[doc = " @brief Struct to hold address of cuvs::neighbors::prefilter and its type\n"]
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct cuvsFilter {
-    pub addr: usize,
-    pub type_: cuvsFilterType,
-}
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    ["Size of cuvsFilter"][::std::mem::size_of::<cuvsFilter>() - 16usize];
-    ["Alignment of cuvsFilter"][::std::mem::align_of::<cuvsFilter>() - 8usize];
-    ["Offset of field: cuvsFilter::addr"][::std::mem::offset_of!(cuvsFilter, addr) - 0usize];
-    ["Offset of field: cuvsFilter::type_"][::std::mem::offset_of!(cuvsFilter, type_) - 8usize];
-};
-#[repr(u32)]
-#[doc = " @brief Strategy for merging indices."]
-#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
-pub enum cuvsMergeStrategy {
-    #[doc = "< Merge indices physically"]
-    MERGE_STRATEGY_PHYSICAL = 0,
-    #[doc = "< Merge indices logically"]
-    MERGE_STRATEGY_LOGICAL = 1,
-}
-#[doc = " @defgroup bruteforce_c_index Bruteforce index\n @{\n/\n/**\n @brief Struct to hold address of cuvs::neighbors::brute_force::index and its active trained dtype\n"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsBruteForceIndex {
@@ -1079,17 +1114,14 @@ const _: () = {
 pub type cuvsBruteForceIndex_t = *mut cuvsBruteForceIndex;
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Allocate BRUTEFORCE index\n\n @param[in] index cuvsBruteForceIndex_t to allocate\n @return cuvsError_t"]
     pub fn cuvsBruteForceIndexCreate(index: *mut cuvsBruteForceIndex_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief De-allocate BRUTEFORCE index\n\n @param[in] index cuvsBruteForceIndex_t to de-allocate"]
     pub fn cuvsBruteForceIndexDestroy(index: cuvsBruteForceIndex_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @defgroup bruteforce_c_index_build Bruteforce index build\n @{\n/\n/**\n @brief Build a BRUTEFORCE index with a `DLManagedTensor` which has underlying\n        `DLDeviceType` equal to `kDLCUDA`, `kDLCUDAHost`, `kDLCUDAManaged`,\n        or `kDLCPU`. Also, acceptable underlying types are:\n        1. `kDLDataType.code == kDLFloat` and `kDLDataType.bits = 32`\n        2. `kDLDataType.code == kDLFloat` and `kDLDataType.bits = 16`\n\n @code {.c}\n #include <cuvs/core/c_api.h>\n #include <cuvs/neighbors/brute_force.h>\n\n // Create cuvsResources_t\n cuvsResources_t res;\n cuvsError_t res_create_status = cuvsResourcesCreate(&res);\n\n // Assume a populated `DLManagedTensor` type here\n DLManagedTensor dataset;\n\n // Create BRUTEFORCE index\n cuvsBruteForceIndex_t index;\n cuvsError_t index_create_status = cuvsBruteForceIndexCreate(&index);\n\n // Build the BRUTEFORCE Index\n cuvsError_t build_status = cuvsBruteForceBuild(res, &dataset_tensor, L2Expanded, 0.f, index);\n\n // de-allocate `index` and `res`\n cuvsError_t index_destroy_status = cuvsBruteForceIndexDestroy(index);\n cuvsError_t res_destroy_status = cuvsResourcesDestroy(res);\n @endcode\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] dataset DLManagedTensor* training dataset\n @param[in] metric metric\n @param[in] metric_arg metric_arg\n @param[out] index cuvsBruteForceIndex_t Newly built BRUTEFORCE index\n @return cuvsError_t"]
     pub fn cuvsBruteForceBuild(
         res: cuvsResources_t,
         dataset: *mut DLManagedTensor,
@@ -1100,7 +1132,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @defgroup bruteforce_c_index_search Bruteforce index search\n @{\n/\n/**\n @brief Search a BRUTEFORCE index with a `DLManagedTensor` which has underlying\n        `DLDeviceType` equal to `kDLCUDA`, `kDLCUDAHost`, `kDLCUDAManaged`.\n        It is also important to note that the BRUTEFORCE index must have been built\n        with the same type of `queries`, such that `index.dtype.code ==\n        queries.dl_tensor.dtype.code` Types for input are:\n        1. `queries`: `kDLDataType.code == kDLFloat` and `kDLDataType.bits = 32` or\n          `kDLDataType.bits = 16`\n        2. `neighbors`: `kDLDataType.code == kDLUInt` and `kDLDataType.bits = 32`\n        3. `distances`: `kDLDataType.code == kDLFloat` and `kDLDataType.bits = 32`\n\n @code {.c}\n #include <cuvs/core/c_api.h>\n #include <cuvs/neighbors/brute_force.h>\n\n // Create cuvsResources_t\n cuvsResources_t res;\n cuvsError_t res_create_status = cuvsResourcesCreate(&res);\n\n // Assume a populated `DLManagedTensor` type here\n DLManagedTensor dataset;\n DLManagedTensor queries;\n DLManagedTensor neighbors;\n DLManagedTensor bitmap;\n\n cuvsFilter prefilter{(uintptr_t)&bitmap, BITMAP};\n\n // Search the `index` built using `cuvsBruteForceBuild`\n cuvsError_t search_status = cuvsBruteForceSearch(res, index, &queries, &neighbors, &distances,\n prefilter);\n\n // de-allocate `res`\n cuvsError_t res_destroy_status = cuvsResourcesDestroy(res);\n @endcode\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] index cuvsBruteForceIndex which has been returned by `cuvsBruteForceBuild`\n @param[in] queries DLManagedTensor* queries dataset to search\n @param[out] neighbors DLManagedTensor* output `k` neighbors for queries\n @param[out] distances DLManagedTensor* output `k` distances for queries\n @param[in] prefilter cuvsFilter input prefilter that can be used\nto filter queries and neighbors based on the given bitmap."]
     pub fn cuvsBruteForceSearch(
         res: cuvsResources_t,
         index: cuvsBruteForceIndex_t,
@@ -1112,7 +1143,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @defgroup bruteforce_c_index_serialize BRUTEFORCE C-API serialize functions\n @{\n/\n/**\n Save the index to file.\n The serialization format can be subject to changes, therefore loading\n an index saved with a previous version of cuvs is not guaranteed\n to work.\n\n @code{.c}\n #include <cuvs/neighbors/brute_force.h>\n\n // Create cuvsResources_t\n cuvsResources_t res;\n cuvsError_t res_create_status = cuvsResourcesCreate(&res);\n\n // create an index with `cuvsBruteforceBuild`\n cuvsBruteForceSerialize(res, \"/path/to/index\", index);\n @endcode\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] filename the file name for saving the index\n @param[in] index BRUTEFORCE index\n"]
     pub fn cuvsBruteForceSerialize(
         res: cuvsResources_t,
         filename: *const ::std::os::raw::c_char,
@@ -1121,7 +1151,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " Load index from file.\n The serialization format can be subject to changes, therefore loading\n an index saved with a previous version of cuvs is not guaranteed\n to work.\n\n @code{.c}\n #include <cuvs/neighbors/brute_force.h>\n\n // Create cuvsResources_t\n cuvsResources_t res;\n cuvsError_t res_create_status = cuvsResourcesCreate(&res);\n\n // Deserialize an index previously built with `cuvsBruteforceBuild`\n cuvsBruteForceIndex_t index;\n cuvsBruteForceIndexCreate(&index);\n cuvsBruteForceDeserialize(res, \"/path/to/index\", index);\n @endcode\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] filename the name of the file that stores the index\n @param[out] index BRUTEFORCE index loaded disk"]
     pub fn cuvsBruteForceDeserialize(
         res: cuvsResources_t,
         filename: *const ::std::os::raw::c_char,
@@ -1129,40 +1158,28 @@ unsafe extern "C" {
     ) -> cuvsError_t;
 }
 #[repr(u32)]
-#[doc = " @brief Enum to denote which ANN algorithm is used to build CAGRA graph\n"]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum cuvsCagraGraphBuildAlgo {
     AUTO_SELECT = 0,
     IVF_PQ = 1,
     NN_DESCENT = 2,
     ITERATIVE_CAGRA_SEARCH = 3,
-    #[doc = " Experimental, use ACE (Augmented Core Extraction) to build the graph. ACE partitions the\n dataset into core and augmented partitions and builds a sub-index for each partition. This\n enables building indices for datasets too large to fit in GPU or host memory.\n See cuvsAceParams for more details about the ACE algorithm and its parameters."]
     ACE = 4,
 }
 #[repr(u32)]
-#[doc = " @brief A strategy for selecting the graph build parameters based on similar HNSW index\n parameters.\n\n Define how cuvsCagraIndexParamsFromHnswParams should construct a graph to construct a graph\n that is to be converted to (used by) a CPU HNSW index."]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum cuvsCagraHnswHeuristicType {
-    #[doc = " Create a graph that is very similar to an HNSW graph in\n terms of the number of nodes and search performance. Since HNSW produces a variable-degree\n graph (2M being the max graph degree) and CAGRA produces a fixed-degree graph, there's always a\n difference in the performance of the two.\n\n This function attempts to produce such a graph that the QPS and recall of the two graphs being\n searched by HNSW are close for any search parameter combination. The CAGRA-produced graph tends\n to have a \"longer tail\" on the low recall side (that is being slightly faster and less\n precise).\n"]
     CUVS_CAGRA_HEURISTIC_SIMILAR_SEARCH_PERFORMANCE = 0,
-    #[doc = " Create a graph that has the same binary size as an HNSW graph with the given parameters\n (graph_degree = 2 * M) while trying to match the search performance as closely as possible.\n\n The reference HNSW index and the corresponding from-CAGRA generated HNSW index will NOT produce\n the same recalls and QPS for the same parameter ef. The graphs are different internally. For\n the same ef, the from-CAGRA index likely has a slightly higher recall and slightly lower QPS.\n However, the Recall-QPS curves should be similar (i.e. the points are just shifted along the\n curve)."]
     CUVS_CAGRA_HEURISTIC_SAME_GRAPH_FOOTPRINT = 1,
 }
-#[doc = " Parameters for VPQ compression."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsCagraCompressionParams {
-    #[doc = " The bit length of the vector element after compression by PQ.\n\n Possible values: [4, 5, 6, 7, 8].\n\n Hint: the smaller the 'pq_bits', the smaller the index size and the better the search\n performance, but the lower the recall."]
     pub pq_bits: u32,
-    #[doc = " The dimensionality of the vector after compression by PQ.\n When zero, an optimal value is selected using a heuristic.\n\n TODO: at the moment `dim` must be a multiple `pq_dim`."]
     pub pq_dim: u32,
-    #[doc = " Vector Quantization (VQ) codebook size - number of \"coarse cluster centers\".\n When zero, an optimal value is selected using a heuristic."]
     pub vq_n_centers: u32,
-    #[doc = " The number of iterations searching for kmeans centers (both VQ & PQ phases)."]
     pub kmeans_n_iters: u32,
-    #[doc = " The fraction of data to use during iterative kmeans building (VQ phase).\n When zero, an optimal value is selected using a heuristic."]
     pub vq_kmeans_trainset_fraction: f64,
-    #[doc = " The fraction of data to use during iterative kmeans building (PQ phase).\n When zero, an optimal value is selected using a heuristic."]
     pub pq_kmeans_trainset_fraction: f64,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -1204,21 +1221,14 @@ const _: () = {
         [::std::mem::offset_of!(cuvsIvfPqParams, refinement_rate) - 16usize];
 };
 pub type cuvsIvfPqParams_t = *mut cuvsIvfPqParams;
-#[doc = " Parameters for ACE (Augmented Core Extraction) graph build.\n ACE enables building indexes for datasets too large to fit in GPU memory by:\n 1. Partitioning the dataset in core (closest) and augmented (second-closest)\n partitions using balanced k-means.\n 2. Building sub-indexes for each partition independently\n 3. Concatenating sub-graphs into a final unified index"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsAceParams {
-    #[doc = " Number of partitions for ACE (Augmented Core Extraction) partitioned build.\n\n When set to 0 (default), the number of partitions is automatically derived\n based on available host and GPU memory to maximize partition size while\n ensuring the build fits in memory.\n\n Small values might improve recall but potentially degrade performance and\n increase memory usage. Partitions should not be too small to prevent issues\n in KNN graph construction. The partition size is on average 2 * (n_rows /\n npartitions) * dim * sizeof(T). 2 is because of the core and augmented\n vectors. Please account for imbalance in the partition sizes (up to 3x in\n our tests).\n\n If the specified number of partitions results in partitions that exceed\n available memory, the value will be automatically increased to fit memory\n constraints and a warning will be issued."]
     pub npartitions: usize,
-    #[doc = " The index quality for the ACE build.\n\n Bigger values increase the index quality. At some point, increasing this will no longer\n improve the quality."]
     pub ef_construction: usize,
-    #[doc = " Directory to store ACE build artifacts (e.g., KNN graph, optimized graph).\n\n Used when `use_disk` is true or when the graph does not fit in host and GPU\n memory. This should be the fastest disk in the system and hold enough space\n for twice the dataset, final graph, and label mapping."]
     pub build_dir: *const ::std::os::raw::c_char,
-    #[doc = " Whether to use disk-based storage for ACE build.\n\n When true, enables disk-based operations for memory-efficient graph construction."]
     pub use_disk: bool,
-    #[doc = " Maximum host memory to use for ACE build in GiB.\n\n When set to 0 (default), uses available host memory.\n When set to a positive value, limits host memory usage to the specified amount.\n Useful for testing or when running alongside other memory-intensive processes."]
     pub max_host_memory_gb: f64,
-    #[doc = " Maximum GPU memory to use for ACE build in GiB.\n\n When set to 0 (default), uses available GPU memory.\n When set to a positive value, limits GPU memory usage to the specified amount.\n Useful for testing or when running alongside other memory-intensive processes."]
     pub max_gpu_memory_gb: f64,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -1239,28 +1249,19 @@ const _: () = {
         [::std::mem::offset_of!(cuvsAceParams, max_gpu_memory_gb) - 40usize];
 };
 pub type cuvsAceParams_t = *mut cuvsAceParams;
-#[doc = " @brief Supplemental parameters to build CAGRA Index\n"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsCagraIndexParams {
-    #[doc = " Distance type."]
     pub metric: cuvsDistanceType,
-    #[doc = " Degree of input graph for pruning."]
     pub intermediate_graph_degree: usize,
-    #[doc = " Degree of output graph."]
     pub graph_degree: usize,
-    #[doc = " ANN algorithm to build knn graph."]
     pub build_algo: cuvsCagraGraphBuildAlgo,
-    #[doc = " Number of Iterations to run if building with NN_DESCENT"]
     pub nn_descent_niter: usize,
-    #[doc = " Optional: specify compression parameters if compression is desired.\n\n NOTE: this is experimental new API, consider it unsafe."]
-    pub compression: cuvsCagraCompressionParams_t,
-    #[doc = " Optional: specify graph build params based on build_algo\n - IVF_PQ: cuvsIvfPqParams_t\n - ACE: cuvsAceParams_t\n - Others: nullptr"]
     pub graph_build_params: *mut ::std::os::raw::c_void,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of cuvsCagraIndexParams"][::std::mem::size_of::<cuvsCagraIndexParams>() - 56usize];
+    ["Size of cuvsCagraIndexParams"][::std::mem::size_of::<cuvsCagraIndexParams>() - 48usize];
     ["Alignment of cuvsCagraIndexParams"][::std::mem::align_of::<cuvsCagraIndexParams>() - 8usize];
     ["Offset of field: cuvsCagraIndexParams::metric"]
         [::std::mem::offset_of!(cuvsCagraIndexParams, metric) - 0usize];
@@ -1272,47 +1273,38 @@ const _: () = {
         [::std::mem::offset_of!(cuvsCagraIndexParams, build_algo) - 24usize];
     ["Offset of field: cuvsCagraIndexParams::nn_descent_niter"]
         [::std::mem::offset_of!(cuvsCagraIndexParams, nn_descent_niter) - 32usize];
-    ["Offset of field: cuvsCagraIndexParams::compression"]
-        [::std::mem::offset_of!(cuvsCagraIndexParams, compression) - 40usize];
     ["Offset of field: cuvsCagraIndexParams::graph_build_params"]
-        [::std::mem::offset_of!(cuvsCagraIndexParams, graph_build_params) - 48usize];
+        [::std::mem::offset_of!(cuvsCagraIndexParams, graph_build_params) - 40usize];
 };
 pub type cuvsCagraIndexParams_t = *mut cuvsCagraIndexParams;
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Allocate CAGRA Index params, and populate with default values\n\n @param[in] params cuvsCagraIndexParams_t to allocate\n @return cuvsError_t"]
     pub fn cuvsCagraIndexParamsCreate(params: *mut cuvsCagraIndexParams_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief De-allocate CAGRA Index params\n\n @param[in] params\n @return cuvsError_t"]
     pub fn cuvsCagraIndexParamsDestroy(params: cuvsCagraIndexParams_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Allocate CAGRA Compression params, and populate with default values\n\n @param[in] params cuvsCagraCompressionParams_t to allocate\n @return cuvsError_t"]
     pub fn cuvsCagraCompressionParamsCreate(
         params: *mut cuvsCagraCompressionParams_t,
     ) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief De-allocate CAGRA Compression params\n\n @param[in] params\n @return cuvsError_t"]
     pub fn cuvsCagraCompressionParamsDestroy(params: cuvsCagraCompressionParams_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Allocate ACE params, and populate with default values\n\n @param[in] params cuvsAceParams_t to allocate\n @return cuvsError_t"]
     pub fn cuvsAceParamsCreate(params: *mut cuvsAceParams_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief De-allocate ACE params\n\n @param[in] params\n @return cuvsError_t"]
     pub fn cuvsAceParamsDestroy(params: cuvsAceParams_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Create CAGRA index parameters similar to an HNSW index\n\n This factory function creates CAGRA parameters that yield a graph compatible with\n an HNSW graph with the given parameters.\n\n @param[out] params The CAGRA index params to populate\n @param[in] n_rows Number of rows in the dataset\n @param[in] dim Number of dimensions in the dataset\n @param[in] M HNSW index parameter M\n @param[in] ef_construction HNSW index parameter ef_construction\n @param[in] heuristic Strategy for parameter selection\n @param[in] metric Distance metric to use\n @return cuvsError_t"]
     pub fn cuvsCagraIndexParamsFromHnswParams(
         params: cuvsCagraIndexParams_t,
         n_rows: i64,
@@ -1323,11 +1315,9 @@ unsafe extern "C" {
         metric: cuvsDistanceType,
     ) -> cuvsError_t;
 }
-#[doc = " @defgroup cagra_c_extend_params C API for CUDA ANN Graph-based nearest neighbor search\n @{\n/\n/**\n @brief Supplemental parameters to extend CAGRA Index\n"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsCagraExtendParams {
-    #[doc = " The additional dataset is divided into chunks and added to the graph. This is the knob to\n adjust the tradeoff between the recall and operation throughput. Large chunk sizes can result\n in high throughput, but use more working memory (O(max_chunk_size*degree^2)). This can also\n degrade recall because no edges are added between the nodes in the same chunk. Auto select when\n 0."]
     pub max_chunk_size: u32,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -1341,70 +1331,45 @@ const _: () = {
 pub type cuvsCagraExtendParams_t = *mut cuvsCagraExtendParams;
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Allocate CAGRA Extend params, and populate with default values\n\n @param[in] params cuvsCagraExtendParams_t to allocate\n @return cuvsError_t"]
     pub fn cuvsCagraExtendParamsCreate(params: *mut cuvsCagraExtendParams_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief De-allocate CAGRA Extend params\n\n @param[in] params\n @return cuvsError_t"]
     pub fn cuvsCagraExtendParamsDestroy(params: cuvsCagraExtendParams_t) -> cuvsError_t;
 }
 #[repr(u32)]
-#[doc = " @brief Enum to denote algorithm used to search CAGRA Index\n"]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum cuvsCagraSearchAlgo {
-    #[doc = " For large batch sizes."]
     SINGLE_CTA = 0,
-    #[doc = " For small batch sizes."]
     MULTI_CTA = 1,
-    #[doc = " For small batch sizes."]
     MULTI_KERNEL = 2,
-    #[doc = " For small batch sizes."]
     AUTO = 100,
 }
 #[repr(u32)]
-#[doc = " @brief Enum to denote Hash Mode used while searching CAGRA index\n"]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum cuvsCagraHashMode {
     HASH = 0,
     SMALL = 1,
     AUTO_HASH = 100,
 }
-#[doc = " @brief Supplemental parameters to search CAGRA index\n"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsCagraSearchParams {
-    #[doc = " Maximum number of queries to search at the same time (batch size). Auto select when 0."]
     pub max_queries: usize,
-    #[doc = " Number of intermediate search results retained during the search.\n\n  This is the main knob to adjust trade off between accuracy and search speed.\n  Higher values improve the search accuracy."]
     pub itopk_size: usize,
-    #[doc = " Upper limit of search iterations. Auto select when 0."]
     pub max_iterations: usize,
-    #[doc = " Which search implementation to use."]
     pub algo: cuvsCagraSearchAlgo,
-    #[doc = " Number of threads used to calculate a single distance. 4, 8, 16, or 32."]
     pub team_size: usize,
-    #[doc = " Number of graph nodes to select as the starting point for the search in each iteration. aka\n search width?"]
     pub search_width: usize,
-    #[doc = " Lower limit of search iterations."]
     pub min_iterations: usize,
-    #[doc = " Thread block size. 0, 64, 128, 256, 512, 1024. Auto selection when 0."]
     pub thread_block_size: usize,
-    #[doc = " Hashmap type. Auto selection when AUTO."]
     pub hashmap_mode: cuvsCagraHashMode,
-    #[doc = " Lower limit of hashmap bit length. More than 8."]
     pub hashmap_min_bitlen: usize,
-    #[doc = " Upper limit of hashmap fill rate. More than 0.1, less than 0.9."]
     pub hashmap_max_fill_rate: f32,
-    #[doc = " Number of iterations of initial random seed node selection. 1 or more."]
     pub num_random_samplings: u32,
-    #[doc = " Bit mask used for initial random seed node selection."]
     pub rand_xor_mask: u64,
-    #[doc = " Whether to use the persistent version of the kernel (only SINGLE_CTA is supported a.t.m.)"]
     pub persistent: bool,
-    #[doc = " Persistent kernel: time in seconds before the kernel stops if no requests received."]
     pub persistent_lifetime: f32,
-    #[doc = " Set the fraction of maximum grid size used by persistent kernel.\n Value 1.0 means the kernel grid size is maximum possible for the selected device.\n The value must be greater than 0.0 and not greater than 1.0.\n\n One may need to run other kernels alongside this persistent kernel. This parameter can\n be used to reduce the grid size of the persistent kernel to leave a few SMs idle.\n Note: running any other work on GPU alongside with the persistent kernel makes the setup\n fragile.\n   - Running another kernel in another thread usually works, but no progress guaranteed\n   - Any CUDA allocations block the context (this issue may be obscured by using pools)\n   - Memory copies to not-pinned host memory may block the context\n\n Even when we know there are no other kernels working at the same time, setting\n kDeviceUsage to 1.0 surprisingly sometimes hurts performance. Proceed with care.\n If you suspect this is an issue, you can reduce this number to ~0.9 without a significant\n impact on the throughput."]
     pub persistent_device_usage: f32,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -1448,15 +1413,12 @@ const _: () = {
 pub type cuvsCagraSearchParams_t = *mut cuvsCagraSearchParams;
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Allocate CAGRA search params, and populate with default values\n\n @param[in] params cuvsCagraSearchParams_t to allocate\n @return cuvsError_t"]
     pub fn cuvsCagraSearchParamsCreate(params: *mut cuvsCagraSearchParams_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief De-allocate CAGRA search params\n\n @param[in] params\n @return cuvsError_t"]
     pub fn cuvsCagraSearchParamsDestroy(params: cuvsCagraSearchParams_t) -> cuvsError_t;
 }
-#[doc = " @brief Struct to hold address of cuvs::neighbors::cagra::index and its active trained dtype\n"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsCagraIndex {
@@ -1472,30 +1434,24 @@ const _: () = {
     ["Offset of field: cuvsCagraIndex::dtype"]
         [::std::mem::offset_of!(cuvsCagraIndex, dtype) - 8usize];
 };
-pub type cuvsCagraIndex_t = *mut cuvsCagraIndex;
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Allocate CAGRA index\n\n @param[in] index cuvsCagraIndex_t to allocate\n @return cagraError_t"]
     pub fn cuvsCagraIndexCreate(index: *mut cuvsCagraIndex_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief De-allocate CAGRA index\n\n @param[in] index cuvsCagraIndex_t to de-allocate"]
     pub fn cuvsCagraIndexDestroy(index: cuvsCagraIndex_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Get dimension of the CAGRA index\n\n @param[in] index CAGRA index\n @param[out] dim return dimension of the index\n @return cuvsError_t"]
     pub fn cuvsCagraIndexGetDims(index: cuvsCagraIndex_t, dim: *mut i64) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Get size of the CAGRA index\n\n @param[in] index CAGRA index\n @param[out] size return number of vectors in the index\n @return cuvsError_t"]
     pub fn cuvsCagraIndexGetSize(index: cuvsCagraIndex_t, size: *mut i64) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Get graph degree of the CAGRA index\n\n @param[in] index CAGRA index\n @param[out] graph_degree return graph degree\n @return cuvsError_t"]
     pub fn cuvsCagraIndexGetGraphDegree(
         index: cuvsCagraIndex_t,
         graph_degree: *mut i64,
@@ -1503,7 +1459,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Returns a view of the CAGRA dataset\n\n This function returns a non-owning view of the CAGRA dataset.\n The output will be referencing device memory that is directly used\n in CAGRA, without copying the dataset at all. This means that the\n output is only valid as long as the CAGRA index is alive, and once\n cuvsCagraIndexDestroy is called on the cagra index - the returned\n dataset view will be invalid.\n\n Note that the DLManagedTensor dataset returned will have an associated\n 'deleter' function that must be called when the dataset is no longer\n needed. This will free up host memory that stores the shape of the\n dataset view.\n\n @param[in] index CAGRA index\n @param[out] dataset the dataset used in cagra\n @return cuvsError_t"]
     pub fn cuvsCagraIndexGetDataset(
         index: cuvsCagraIndex_t,
         dataset: *mut DLManagedTensor,
@@ -1511,7 +1466,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Returns a view of the CAGRA graph\n\n This function returns a non-owning view of the CAGRA graph.\n The output will be referencing device memory that is directly used\n in CAGRA, without copying the graph at all. This means that the\n output is only valid as long as the CAGRA index is alive, and once\n cuvsCagraIndexDestroy is called on the cagra index - the returned\n graph view will be invalid.\n\n Note that the DLManagedTensor graph returned will have an associated\n 'deleter' function that must be called when the graph is no longer\n needed. This will free up host memory that stores the metadata for the\n graph view.\n\n @param[in] index CAGRA index\n @param[out] graph the output knn graph.\n @return cuvsError_t"]
     pub fn cuvsCagraIndexGetGraph(
         index: cuvsCagraIndex_t,
         graph: *mut DLManagedTensor,
@@ -1519,27 +1473,67 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Build a CAGRA index with a `DLManagedTensor` which has underlying\n        `DLDeviceType` equal to `kDLCUDA`, `kDLCUDAHost`, `kDLCUDAManaged`,\n        or `kDLCPU`. Also, acceptable underlying types are:\n        1. `kDLDataType.code == kDLFloat` and `kDLDataType.bits = 32`\n        2. `kDLDataType.code == kDLFloat` and `kDLDataType.bits = 16`\n        3. `kDLDataType.code == kDLInt` and `kDLDataType.bits = 8`\n        4. `kDLDataType.code == kDLUInt` and `kDLDataType.bits = 8`\n\n @code {.c}\n #include <cuvs/core/c_api.h>\n #include <cuvs/neighbors/cagra.h>\n\n // Create cuvsResources_t\n cuvsResources_t res;\n cuvsError_t res_create_status = cuvsResourcesCreate(&res);\n\n // Assume a populated `DLManagedTensor` type here\n DLManagedTensor dataset;\n\n // Create default index params\n cuvsCagraIndexParams_t params;\n cuvsError_t params_create_status = cuvsCagraIndexParamsCreate(&params);\n\n // Create CAGRA index\n cuvsCagraIndex_t index;\n cuvsError_t index_create_status = cuvsCagraIndexCreate(&index);\n\n // Build the CAGRA Index\n cuvsError_t build_status = cuvsCagraBuild(res, params, &dataset, index);\n\n // de-allocate `params`, `index` and `res`\n cuvsError_t params_destroy_status = cuvsCagraIndexParamsDestroy(params);\n cuvsError_t index_destroy_status = cuvsCagraIndexDestroy(index);\n cuvsError_t res_destroy_status = cuvsResourcesDestroy(res);\n @endcode\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] params cuvsCagraIndexParams_t used to build CAGRA index\n @param[in] dataset DLManagedTensor* training dataset\n @param[inout] index cuvsCagraIndex_t Newly built CAGRA index. This index needs to be already\n                                      created with cuvsCagraIndexCreate.\n @return cuvsError_t"]
-    pub fn cuvsCagraBuild(
+    pub fn cuvsCagraAttachDataset(
         res: cuvsResources_t,
-        params: cuvsCagraIndexParams_t,
-        dataset: *mut DLManagedTensor,
+        device_padded_dataset: cuvsDatasetPaddedView_t,
         index: cuvsCagraIndex_t,
     ) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Extend a CAGRA index with a `DLManagedTensor` which has underlying\n        `DLDeviceType` equal to `kDLCUDA`, `kDLCUDAHost`, `kDLCUDAManaged`,\n        or `kDLCPU`. Also, acceptable underlying types are:\n        1. `kDLDataType.code == kDLFloat` and `kDLDataType.bits = 32`\n        2. `kDLDataType.code == kDLFloat` and `kDLDataType.bits = 16`\n        3. `kDLDataType.code == kDLInt` and `kDLDataType.bits = 8`\n        4. `kDLDataType.code == kDLUInt` and `kDLDataType.bits = 8`\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] params cuvsCagraExtendParams_t used to extend CAGRA index\n @param[in] additional_dataset DLManagedTensor* additional dataset\n @param[in,out] index cuvsCagraIndex_t CAGRA index\n @return cuvsError_t"]
+    pub fn cuvsCagraGetDatasetViewKind(
+        dataset: *mut DLManagedTensor,
+        kind: *mut cuvsDatasetViewKind_t,
+    ) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    pub fn cuvsCagraBuildDevicePadded(
+        res: cuvsResources_t,
+        params: cuvsCagraIndexParams_t,
+        dataset_view: cuvsDatasetPaddedView_t,
+        index: cuvsCagraIndex_t,
+    ) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    pub fn cuvsCagraBuildDeviceStandard(
+        res: cuvsResources_t,
+        params: cuvsCagraIndexParams_t,
+        dataset_view: cuvsDatasetStandardView_t,
+        index: cuvsCagraIndex_t,
+    ) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    pub fn cuvsCagraBuildHostPadded(
+        res: cuvsResources_t,
+        params: cuvsCagraIndexParams_t,
+        dataset_view: cuvsDatasetPaddedView_t,
+        index: cuvsCagraIndex_t,
+    ) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    pub fn cuvsCagraBuildHostStandard(
+        res: cuvsResources_t,
+        params: cuvsCagraIndexParams_t,
+        dataset_view: cuvsDatasetStandardView_t,
+        index: cuvsCagraIndex_t,
+    ) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
     pub fn cuvsCagraExtend(
         res: cuvsResources_t,
         params: cuvsCagraExtendParams_t,
-        additional_dataset: *mut DLManagedTensor,
+        additional_dataset: cuvsDatasetPaddedView_t,
+        extended_dataset: cuvsDatasetPaddedView_t,
         index: cuvsCagraIndex_t,
     ) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @defgroup cagra_c_index_search C API for CUDA ANN Graph-based nearest neighbor search\n @{\n/\n/**\n @brief Search a CAGRA index with a `DLManagedTensor` which has underlying\n        `DLDeviceType` equal to `kDLCUDA`, `kDLCUDAHost`, `kDLCUDAManaged`.\n        It is also important to note that the CAGRA Index must have been built\n        with the same type of `queries`, such that `index.dtype.code ==\n queries.dl_tensor.dtype.code` Types for input are:\n        1. `queries`:\n          a. `kDLDataType.code == kDLFloat` and `kDLDataType.bits = 32`\n          b. `kDLDataType.code == kDLFloat` and `kDLDataType.bits = 16`\n          c. `kDLDataType.code == kDLInt` and `kDLDataType.bits = 8`\n          d. `kDLDataType.code == kDLUInt` and `kDLDataType.bits = 8`\n        2. `neighbors`: `kDLDataType.code == kDLUInt` and `kDLDataType.bits = 32`\n                     or `kDLDataType.code == kDLInt`  and `kDLDataType.bits = 64`\n        3. `distances`: `kDLDataType.code == kDLFloat` and `kDLDataType.bits = 32`\n\n @code {.c}\n #include <cuvs/core/c_api.h>\n #include <cuvs/neighbors/cagra.h>\n\n // Create cuvsResources_t\n cuvsResources_t res;\n cuvsError_t res_create_status = cuvsResourcesCreate(&res);\n\n // Assume a populated `DLManagedTensor` type here\n DLManagedTensor dataset;\n DLManagedTensor queries;\n DLManagedTensor neighbors;\n\n // Create default search params\n cuvsCagraSearchParams_t params;\n cuvsError_t params_create_status = cuvsCagraSearchParamsCreate(&params);\n\n // Search the `index` built using `cuvsCagraBuild`\n cuvsError_t search_status = cuvsCagraSearch(res, params, index, &queries, &neighbors,\n &distances);\n\n // de-allocate `params` and `res`\n cuvsError_t params_destroy_status = cuvsCagraSearchParamsDestroy(params);\n cuvsError_t res_destroy_status = cuvsResourcesDestroy(res);\n @endcode\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] params cuvsCagraSearchParams_t used to search CAGRA index\n @param[in] index cuvsCagraIndex which has been returned by `cuvsCagraBuild`\n @param[in] queries DLManagedTensor* queries dataset to search\n @param[out] neighbors DLManagedTensor* output `k` neighbors for queries\n @param[out] distances DLManagedTensor* output `k` distances for queries\n @param[in] filter cuvsFilter input filter that can be used\nto filter queries and neighbors based on the given bitset."]
     pub fn cuvsCagraSearch(
         res: cuvsResources_t,
         params: cuvsCagraSearchParams_t,
@@ -1552,7 +1546,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @defgroup cagra_c_index_serialize CAGRA C-API serialize functions\n @{\n/\n/**\n Save the index to file.\n\n Experimental, both the API and the serialization format are subject to change.\n\n @code{.c}\n #include <cuvs/neighbors/cagra.h>\n\n // Create cuvsResources_t\n cuvsResources_t res;\n cuvsError_t res_create_status = cuvsResourcesCreate(&res);\n\n // create an index with `cuvsCagraBuild`\n cuvsCagraSerialize(res, \"/path/to/index\", index, true);\n @endcode\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] filename the file name for saving the index\n @param[in] index CAGRA index\n @param[in] include_dataset Whether or not to write out the dataset to the file.\n"]
     pub fn cuvsCagraSerialize(
         res: cuvsResources_t,
         filename: *const ::std::os::raw::c_char,
@@ -1562,7 +1555,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " Save the CAGRA index to file in hnswlib format.\n NOTE: The saved index can only be read by the hnswlib wrapper in cuVS,\n       as the serialization format is not compatible with the original hnswlib.\n\n Experimental, both the API and the serialization format are subject to change.\n\n @code{.c}\n #include <cuvs/core/c_api.h>\n #include <cuvs/neighbors/cagra.h>\n\n // Create cuvsResources_t\n cuvsResources_t res;\n cuvsError_t res_create_status = cuvsResourcesCreate(&res);\n\n // create an index with `cuvsCagraBuild`\n cuvsCagraSerializeHnswlib(res, \"/path/to/index\", index);\n @endcode\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] filename the file name for saving the index\n @param[in] index CAGRA index\n"]
     pub fn cuvsCagraSerializeToHnswlib(
         res: cuvsResources_t,
         filename: *const ::std::os::raw::c_char,
@@ -1571,16 +1563,24 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " Load index from file.\n\n Experimental, both the API and the serialization format are subject to change.\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] filename the name of the file that stores the index\n @param[inout] index cuvsCagraIndex_t CAGRA index loaded from disk. This index needs to be already\n                                      created with cuvsCagraIndexCreate."]
-    pub fn cuvsCagraDeserialize(
+    pub fn cuvsCagraDeserializePadded(
         res: cuvsResources_t,
         filename: *const ::std::os::raw::c_char,
         index: cuvsCagraIndex_t,
+        out_padded_dataset: *mut cuvsDatasetPadded_t,
     ) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " Load index from a dataset and graph\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] metric cuvsDistanceType to use in the index\n @param[in] graph the knn graph to use, shape (size, graph_degree)\n @param[in] dataset the dataset to use, shape (size, dim)\n @param[inout] index cuvsCagraIndex_t CAGRA index populated with the graph and dataset.\n                                      This index needs to be already created with\n                                      cuvsCagraIndexCreate.\n\n @code {.c}\n #include <cuvs/core/c_api.h>\n #include <cuvs/neighbors/cagra.h>\n\n // Create cuvsResources_t\n cuvsResources_t res;\n cuvsError_t res_create_status = cuvsResourcesCreate(&res);\n\n // Create CAGRA index\n cuvsCagraIndex_t index;\n cuvsError_t index_create_status = cuvsCagraIndexCreate(&index);\n\n // Assume a populated `DLManagedTensor` type here for the graph and dataset\n DLManagedTensor dataset;\n DLManagedTensor graph;\n\n cuvsDistanceType metric = L2Expanded;\n\n // Build the CAGRA Index from the graph/dataset\n cuvsError_t status = cuvsCagraIndexFromArgs(res, metric, &graph, &dataset, index);\n\n @endcode"]
+    pub fn cuvsCagraDeserializeStandard(
+        res: cuvsResources_t,
+        filename: *const ::std::os::raw::c_char,
+        index: cuvsCagraIndex_t,
+        out_standard_dataset: *mut cuvsDatasetStandard_t,
+    ) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
     pub fn cuvsCagraIndexFromArgs(
         res: cuvsResources_t,
         metric: cuvsDistanceType,
@@ -1591,35 +1591,26 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Merge multiple CAGRA indices into a single CAGRA index.\n\n All input indices must have been built with the same data type (`index.dtype`) and\n have the same dimensionality (`index.dims`). The merged index uses the output\n parameters specified in `cuvsCagraIndexParams`.\n\n Input indices must have:\n  - `index.dtype.code` and `index.dtype.bits` matching across all indices.\n  - Supported data types for indices:\n      a. `kDLFloat` with `bits = 32`\n      b. `kDLFloat` with `bits = 16`\n      c. `kDLInt` with `bits = 8`\n      d. `kDLUInt` with `bits = 8`\n\n The resulting output index will have the same data type as the input indices.\n\n Example:\n @code{.c}\n #include <cuvs/core/c_api.h>\n #include <cuvs/neighbors/cagra.h>\n\n cuvsResources_t res;\n cuvsError_t res_create_status = cuvsResourcesCreate(&res);\n\n cuvsCagraIndex_t index1, index2, merged_index;\n cuvsCagraIndexCreate(&index1);\n cuvsCagraIndexCreate(&index2);\n cuvsCagraIndexCreate(&merged_index);\n\n // Assume index1 and index2 have been built using cuvsCagraBuild\n\n cuvsCagraIndexParams_t merge_params;\n cuvsError_t params_create_status = cuvsCagraIndexParamsCreate(&merge_params);\n\n cuvsError_t merge_status = cuvsCagraMerge(res, merge_params, (cuvsCagraIndex_t[]){index1,\n index2}, 2, merged_index);\n\n // Use merged_index for search operations\n\n cuvsError_t params_destroy_status = cuvsCagraIndexParamsDestroy(merge_params);\n cuvsError_t res_destroy_status = cuvsResourcesDestroy(res);\n @endcode\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] params cuvsCagraIndexParams_t parameters controlling merge behavior\n @param[in] indices Array of input cuvsCagraIndex_t handles to merge\n @param[in] num_indices Number of input indices\n @param[in] filter Filter that can be used to filter out vectors from the merged index\n @param[out] output_index Output handle that will store the merged index.\n                          Must be initialized using `cuvsCagraIndexCreate` before use."]
     pub fn cuvsCagraMerge(
         res: cuvsResources_t,
         params: cuvsCagraIndexParams_t,
         indices: *mut cuvsCagraIndex_t,
         num_indices: usize,
         filter: cuvsFilter,
+        merged_dataset: cuvsDatasetStorage_t,
         output_index: cuvsCagraIndex_t,
     ) -> cuvsError_t;
 }
-#[doc = " @defgroup ivf_flat_c_index_params IVF-Flat index build parameters\n @{\n/\n/**\n @brief Supplemental parameters to build IVF-Flat Index\n"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsIvfFlatIndexParams {
-    #[doc = " Distance type."]
     pub metric: cuvsDistanceType,
-    #[doc = " The argument used by some distance metrics."]
     pub metric_arg: f32,
-    #[doc = " Whether to add the dataset content to the index, i.e.:\n\n  - `true` means the index is filled with the dataset vectors and ready to search after calling\n `build`.\n  - `false` means `build` only trains the underlying model (e.g. quantizer or clustering), but\n the index is left empty; you'd need to call `extend` on the index afterwards to populate it."]
     pub add_data_on_build: bool,
-    #[doc = " The number of inverted lists (clusters)"]
     pub n_lists: u32,
-    #[doc = " The number of iterations searching for kmeans centers (index building)."]
     pub kmeans_n_iters: u32,
-    #[doc = " The fraction of data to use during iterative kmeans building."]
     pub kmeans_trainset_fraction: f64,
-    #[doc = " By default (adaptive_centers = false), the cluster centers are trained in `ivf_flat::build`,\n and never modified in `ivf_flat::extend`. As a result, you may need to retrain the index\n from scratch after invoking (`ivf_flat::extend`) a few times with new data, the distribution of\n which is no longer representative of the original training set.\n\n The alternative behavior (adaptive_centers = true) is to update the cluster centers for new\n data when it is added. In this case, `index.centers()` are always exactly the centroids of the\n data in the corresponding clusters. The drawback of this behavior is that the centroids depend\n on the order of adding new data (through the classification of the added data); that is,\n `index.centers()` \"drift\" together with the changing distribution of the newly added data."]
     pub adaptive_centers: bool,
-    #[doc = " By default, the algorithm allocates more space than necessary for individual clusters\n (`list_data`). This allows to amortize the cost of memory allocation and reduce the number of\n data copies during repeated calls to `extend` (extending the database).\n\n The alternative is the conservative allocation behavior; when enabled, the algorithm always\n allocates the minimum amount of memory required to store the given number of records. Set this\n flag to `true` if you prefer to use as little GPU memory for the database as possible."]
     pub conservative_memory_allocation: bool,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -1647,20 +1638,16 @@ const _: () = {
 pub type cuvsIvfFlatIndexParams_t = *mut cuvsIvfFlatIndexParams;
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Allocate IVF-Flat Index params, and populate with default values\n\n @param[in] index_params cuvsIvfFlatIndexParams_t to allocate\n @return cuvsError_t"]
     pub fn cuvsIvfFlatIndexParamsCreate(index_params: *mut cuvsIvfFlatIndexParams_t)
     -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief De-allocate IVF-Flat Index params\n\n @param[in] index_params\n @return cuvsError_t"]
     pub fn cuvsIvfFlatIndexParamsDestroy(index_params: cuvsIvfFlatIndexParams_t) -> cuvsError_t;
 }
-#[doc = " @defgroup ivf_flat_c_search_params IVF-Flat index search parameters\n @{\n/\n/**\n @brief Supplemental parameters to search IVF-Flat index\n"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsIvfFlatSearchParams {
-    #[doc = " The number of clusters to search."]
     pub n_probes: u32,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -1674,15 +1661,12 @@ const _: () = {
 pub type cuvsIvfFlatSearchParams_t = *mut cuvsIvfFlatSearchParams;
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Allocate IVF-Flat search params, and populate with default values\n\n @param[in] params cuvsIvfFlatSearchParams_t to allocate\n @return cuvsError_t"]
     pub fn cuvsIvfFlatSearchParamsCreate(params: *mut cuvsIvfFlatSearchParams_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief De-allocate IVF-Flat search params\n\n @param[in] params\n @return cuvsError_t"]
     pub fn cuvsIvfFlatSearchParamsDestroy(params: cuvsIvfFlatSearchParams_t) -> cuvsError_t;
 }
-#[doc = " @defgroup ivf_flat_c_index IVF-Flat index\n @{\n/\n/**\n @brief Struct to hold address of cuvs::neighbors::ivf_flat::index and its active trained dtype\n"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsIvfFlatIndex {
@@ -1701,27 +1685,22 @@ const _: () = {
 pub type cuvsIvfFlatIndex_t = *mut cuvsIvfFlatIndex;
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Allocate IVF-Flat index\n\n @param[in] index cuvsIvfFlatIndex_t to allocate\n @return cuvsError_t"]
     pub fn cuvsIvfFlatIndexCreate(index: *mut cuvsIvfFlatIndex_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief De-allocate IVF-Flat index\n\n @param[in] index cuvsIvfFlatIndex_t to de-allocate"]
     pub fn cuvsIvfFlatIndexDestroy(index: cuvsIvfFlatIndex_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " Get the number of clusters/inverted lists"]
     pub fn cuvsIvfFlatIndexGetNLists(index: cuvsIvfFlatIndex_t, n_lists: *mut i64) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " Get the dimensionality of the data"]
     pub fn cuvsIvfFlatIndexGetDim(index: cuvsIvfFlatIndex_t, dim: *mut i64) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Get the cluster centers corresponding to the lists [n_lists, dim]\n\n @param[in] index cuvsIvfFlatIndex_t Built Ivf-Flat Index\n @param[out] centers Preallocated array on host or device memory to store output, [n_lists, dim]\n @return cuvsError_t"]
     pub fn cuvsIvfFlatIndexGetCenters(
         index: cuvsIvfFlatIndex_t,
         centers: *mut DLManagedTensor,
@@ -1729,7 +1708,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @defgroup ivf_flat_c_index_build IVF-Flat index build\n @{\n/\n/**\n @brief Build a IVF-Flat index with a `DLManagedTensor` which has underlying\n        `DLDeviceType` equal to `kDLCUDA`, `kDLCUDAHost`, `kDLCUDAManaged`,\n        or `kDLCPU`. Also, acceptable underlying types are:\n        1. `kDLDataType.code == kDLFloat` and `kDLDataType.bits = 32`\n        2. `kDLDataType.code == kDLInt` and `kDLDataType.bits = 8`\n        3. `kDLDataType.code == kDLUInt` and `kDLDataType.bits = 8`\n\n @code {.c}\n #include <cuvs/core/c_api.h>\n #include <cuvs/neighbors/ivf_flat.h>\n\n // Create cuvsResources_t\n cuvsResources_t res;\n cuvsError_t res_create_status = cuvsResourcesCreate(&res);\n\n // Assume a populated `DLManagedTensor` type here\n DLManagedTensor dataset;\n\n // Create default index params\n cuvsIvfFlatIndexParams_t index_params;\n cuvsError_t params_create_status = cuvsIvfFlatIndexParamsCreate(&index_params);\n\n // Create IVF-Flat index\n cuvsIvfFlatIndex_t index;\n cuvsError_t index_create_status = cuvsIvfFlatIndexCreate(&index);\n\n // Build the IVF-Flat Index\n cuvsError_t build_status = cuvsIvfFlatBuild(res, index_params, &dataset, index);\n\n // de-allocate `index_params`, `index` and `res`\n cuvsError_t params_destroy_status = cuvsIvfFlatIndexParamsDestroy(index_params);\n cuvsError_t index_destroy_status = cuvsIvfFlatIndexDestroy(index);\n cuvsError_t res_destroy_status = cuvsResourcesDestroy(res);\n @endcode\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] index_params cuvsIvfFlatIndexParams_t used to build IVF-Flat index\n @param[in] dataset DLManagedTensor* training dataset\n @param[out] index cuvsIvfFlatIndex_t Newly built IVF-Flat index\n @return cuvsError_t"]
     pub fn cuvsIvfFlatBuild(
         res: cuvsResources_t,
         index_params: cuvsIvfFlatIndexParams_t,
@@ -1739,7 +1717,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @defgroup ivf_flat_c_index_search IVF-Flat index search\n @{\n/\n/**\n @brief Search a IVF-Flat index with a `DLManagedTensor` which has underlying\n        `DLDeviceType` equal to `kDLCUDA`, `kDLCUDAHost`, `kDLCUDAManaged`.\n        It is also important to note that the IVF-Flat Index must have been built\n        with the same type of `queries`, such that `index.dtype.code ==\n queries.dl_tensor.dtype.code` Types for input are:\n        1. `queries`: `kDLDataType.code == kDLFloat` and `kDLDataType.bits = 32`\n        2. `neighbors`: `kDLDataType.code == kDLUInt` and `kDLDataType.bits = 32`\n        3. `distances`: `kDLDataType.code == kDLFloat` and `kDLDataType.bits = 32`\n\n @code {.c}\n #include <cuvs/core/c_api.h>\n #include <cuvs/neighbors/ivf_flat.h>\n\n // Create cuvsResources_t\n cuvsResources_t res;\n cuvsError_t res_create_status = cuvsResourcesCreate(&res);\n\n // Assume a populated `DLManagedTensor` type here\n DLManagedTensor dataset;\n DLManagedTensor queries;\n DLManagedTensor neighbors;\n\n // Create default search params\n cuvsIvfFlatSearchParams_t search_params;\n cuvsError_t params_create_status = cuvsIvfFlatSearchParamsCreate(&search_params);\n\n // Search the `index` built using `ivfFlatBuild`\n cuvsError_t search_status = cuvsIvfFlatSearch(res, search_params, index, &queries, &neighbors,\n &distances);\n\n // de-allocate `search_params` and `res`\n cuvsError_t params_destroy_status = cuvsIvfFlatSearchParamsDestroy(search_params);\n cuvsError_t res_destroy_status = cuvsResourcesDestroy(res);\n @endcode\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] search_params cuvsIvfFlatSearchParams_t used to search IVF-Flat index\n @param[in] index ivfFlatIndex which has been returned by `ivfFlatBuild`\n @param[in] queries DLManagedTensor* queries dataset to search\n @param[out] neighbors DLManagedTensor* output `k` neighbors for queries\n @param[out] distances DLManagedTensor* output `k` distances for queries\n @param[in] filter cuvsFilter input filter that can be used\nto filter queries and neighbors based on the given bitset."]
     pub fn cuvsIvfFlatSearch(
         res: cuvsResources_t,
         search_params: cuvsIvfFlatSearchParams_t,
@@ -1752,7 +1729,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @defgroup ivf_flat_c_index_serialize IVF-Flat C-API serialize functions\n @{\n/\n/**\n Save the index to file.\n\n Experimental, both the API and the serialization format are subject to change.\n\n @code{.cpp}\n #include <cuvs/neighbors/ivf_flat.h>\n\n // Create cuvsResources_t\n cuvsResources_t res;\n cuvsError_t res_create_status = cuvsResourcesCreate(&res);\n\n // create an index with `cuvsIvfFlatBuild`\n cuvsIvfFlatSerialize(res, \"/path/to/index\", index, true);\n @endcode\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] filename the file name for saving the index\n @param[in] index IVF-Flat index"]
     pub fn cuvsIvfFlatSerialize(
         res: cuvsResources_t,
         filename: *const ::std::os::raw::c_char,
@@ -1761,7 +1737,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " Load index from file.\n\n Experimental, both the API and the serialization format are subject to change.\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] filename the name of the file that stores the index\n @param[out] index IVF-Flat index loaded disk"]
     pub fn cuvsIvfFlatDeserialize(
         res: cuvsResources_t,
         filename: *const ::std::os::raw::c_char,
@@ -1770,7 +1745,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @defgroup ivf_flat_c_index_extend IVF-Flat index extend\n @{\n/\n/**\n @brief Extend the index with the new data.\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] new_vectors DLManagedTensor* the new vectors to add to the index\n @param[in] new_indices DLManagedTensor* vector of new indices for the new vectors\n @param[inout] index IVF-Flat index to be extended\n @return cuvsError_t"]
     pub fn cuvsIvfFlatExtend(
         res: cuvsResources_t,
         new_vectors: *mut DLManagedTensor,
@@ -1778,9 +1752,158 @@ unsafe extern "C" {
         index: cuvsIvfFlatIndex_t,
     ) -> cuvsError_t;
 }
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct cuvsIvfSqIndexParams {
+    pub metric: cuvsDistanceType,
+    pub metric_arg: f32,
+    pub add_data_on_build: bool,
+    pub n_lists: u32,
+    pub kmeans_n_iters: u32,
+    pub max_train_points_per_cluster: u32,
+    pub conservative_memory_allocation: bool,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of cuvsIvfSqIndexParams"][::std::mem::size_of::<cuvsIvfSqIndexParams>() - 28usize];
+    ["Alignment of cuvsIvfSqIndexParams"][::std::mem::align_of::<cuvsIvfSqIndexParams>() - 4usize];
+    ["Offset of field: cuvsIvfSqIndexParams::metric"]
+        [::std::mem::offset_of!(cuvsIvfSqIndexParams, metric) - 0usize];
+    ["Offset of field: cuvsIvfSqIndexParams::metric_arg"]
+        [::std::mem::offset_of!(cuvsIvfSqIndexParams, metric_arg) - 4usize];
+    ["Offset of field: cuvsIvfSqIndexParams::add_data_on_build"]
+        [::std::mem::offset_of!(cuvsIvfSqIndexParams, add_data_on_build) - 8usize];
+    ["Offset of field: cuvsIvfSqIndexParams::n_lists"]
+        [::std::mem::offset_of!(cuvsIvfSqIndexParams, n_lists) - 12usize];
+    ["Offset of field: cuvsIvfSqIndexParams::kmeans_n_iters"]
+        [::std::mem::offset_of!(cuvsIvfSqIndexParams, kmeans_n_iters) - 16usize];
+    ["Offset of field: cuvsIvfSqIndexParams::max_train_points_per_cluster"]
+        [::std::mem::offset_of!(cuvsIvfSqIndexParams, max_train_points_per_cluster) - 20usize];
+    ["Offset of field: cuvsIvfSqIndexParams::conservative_memory_allocation"]
+        [::std::mem::offset_of!(cuvsIvfSqIndexParams, conservative_memory_allocation) - 24usize];
+};
+pub type cuvsIvfSqIndexParams_t = *mut cuvsIvfSqIndexParams;
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @defgroup ann_refine_c Approximate Nearest Neighbors Refinement C-API\n @{\n/\n/**\n @brief Refine nearest neighbor search.\n\n Refinement is an operation that follows an approximate NN search. The approximate search has\n already selected n_candidates neighbor candidates for each query. We narrow it down to k\n neighbors. For each query, we calculate the exact distance between the query and its\n n_candidates neighbor candidate, and select the k nearest ones.\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] dataset device matrix that stores the dataset [n_rows, dims]\n @param[in] queries device matrix of the queries [n_queris, dims]\n @param[in] candidates indices of candidate vectors [n_queries, n_candidates], where\n   n_candidates >= k\n @param[in] metric distance metric to use. Euclidean (L2) is used by default\n @param[out] indices device matrix that stores the refined indices [n_queries, k]\n @param[out] distances device matrix that stores the refined distances [n_queries, k]"]
+    pub fn cuvsIvfSqIndexParamsCreate(index_params: *mut cuvsIvfSqIndexParams_t) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    pub fn cuvsIvfSqIndexParamsDestroy(index_params: cuvsIvfSqIndexParams_t) -> cuvsError_t;
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct cuvsIvfSqSearchParams {
+    pub n_probes: u32,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of cuvsIvfSqSearchParams"][::std::mem::size_of::<cuvsIvfSqSearchParams>() - 4usize];
+    ["Alignment of cuvsIvfSqSearchParams"]
+        [::std::mem::align_of::<cuvsIvfSqSearchParams>() - 4usize];
+    ["Offset of field: cuvsIvfSqSearchParams::n_probes"]
+        [::std::mem::offset_of!(cuvsIvfSqSearchParams, n_probes) - 0usize];
+};
+pub type cuvsIvfSqSearchParams_t = *mut cuvsIvfSqSearchParams;
+unsafe extern "C" {
+    #[must_use]
+    pub fn cuvsIvfSqSearchParamsCreate(params: *mut cuvsIvfSqSearchParams_t) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    pub fn cuvsIvfSqSearchParamsDestroy(params: cuvsIvfSqSearchParams_t) -> cuvsError_t;
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct cuvsIvfSqIndex {
+    pub addr: usize,
+    pub dtype: DLDataType,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of cuvsIvfSqIndex"][::std::mem::size_of::<cuvsIvfSqIndex>() - 16usize];
+    ["Alignment of cuvsIvfSqIndex"][::std::mem::align_of::<cuvsIvfSqIndex>() - 8usize];
+    ["Offset of field: cuvsIvfSqIndex::addr"]
+        [::std::mem::offset_of!(cuvsIvfSqIndex, addr) - 0usize];
+    ["Offset of field: cuvsIvfSqIndex::dtype"]
+        [::std::mem::offset_of!(cuvsIvfSqIndex, dtype) - 8usize];
+};
+pub type cuvsIvfSqIndex_t = *mut cuvsIvfSqIndex;
+unsafe extern "C" {
+    #[must_use]
+    pub fn cuvsIvfSqIndexCreate(index: *mut cuvsIvfSqIndex_t) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    pub fn cuvsIvfSqIndexDestroy(index: cuvsIvfSqIndex_t) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    pub fn cuvsIvfSqIndexGetNLists(index: cuvsIvfSqIndex_t, n_lists: *mut i64) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    pub fn cuvsIvfSqIndexGetDim(index: cuvsIvfSqIndex_t, dim: *mut i64) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    pub fn cuvsIvfSqIndexGetSize(index: cuvsIvfSqIndex_t, size: *mut i64) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    pub fn cuvsIvfSqIndexGetCenters(
+        index: cuvsIvfSqIndex_t,
+        centers: *mut DLManagedTensor,
+    ) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    pub fn cuvsIvfSqBuild(
+        res: cuvsResources_t,
+        index_params: cuvsIvfSqIndexParams_t,
+        dataset: *mut DLManagedTensor,
+        index: cuvsIvfSqIndex_t,
+    ) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    pub fn cuvsIvfSqSearch(
+        res: cuvsResources_t,
+        search_params: cuvsIvfSqSearchParams_t,
+        index: cuvsIvfSqIndex_t,
+        queries: *mut DLManagedTensor,
+        neighbors: *mut DLManagedTensor,
+        distances: *mut DLManagedTensor,
+        filter: cuvsFilter,
+    ) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    pub fn cuvsIvfSqSerialize(
+        res: cuvsResources_t,
+        filename: *const ::std::os::raw::c_char,
+        index: cuvsIvfSqIndex_t,
+    ) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    pub fn cuvsIvfSqDeserialize(
+        res: cuvsResources_t,
+        filename: *const ::std::os::raw::c_char,
+        index: cuvsIvfSqIndex_t,
+    ) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    pub fn cuvsIvfSqExtend(
+        res: cuvsResources_t,
+        new_vectors: *mut DLManagedTensor,
+        new_indices: *mut DLManagedTensor,
+        index: cuvsIvfSqIndex_t,
+    ) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
     pub fn cuvsRefine(
         res: cuvsResources_t,
         dataset: *mut DLManagedTensor,
@@ -1792,14 +1915,12 @@ unsafe extern "C" {
     ) -> cuvsError_t;
 }
 #[repr(u32)]
-#[doc = " @brief Enum to hold which ANN algorithm is being used in the tiered index"]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum cuvsTieredIndexANNAlgo {
     CUVS_TIERED_INDEX_ALGO_CAGRA = 0,
     CUVS_TIERED_INDEX_ALGO_IVF_FLAT = 1,
     CUVS_TIERED_INDEX_ALGO_IVF_PQ = 2,
 }
-#[doc = " @defgroup tiered_index_c_index Tiered Index\n @{\n/\n/**\n @brief Struct to hold address of cuvs::neighbors::tiered_index::index and its active trained\n dtype\n"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsTieredIndex {
@@ -1821,31 +1942,21 @@ const _: () = {
 pub type cuvsTieredIndex_t = *mut cuvsTieredIndex;
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Allocate Tiered Index\n\n @param[in] index cuvsTieredIndex_t to allocate\n @return cuvsError_t"]
     pub fn cuvsTieredIndexCreate(index: *mut cuvsTieredIndex_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief De-allocate Tiered index\n\n @param[in] index cuvsTieredIndex_t to de-allocate"]
     pub fn cuvsTieredIndexDestroy(index: cuvsTieredIndex_t) -> cuvsError_t;
 }
-#[doc = " @defgroup tiered_c_index_params Tiered Index build parameters\n @{\n/\n/**\n @brief Supplemental parameters to build a TieredIndex"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsTieredIndexParams {
-    #[doc = " Distance type."]
     pub metric: cuvsDistanceType,
-    #[doc = " The type of ANN algorithm we are using"]
     pub algo: cuvsTieredIndexANNAlgo,
-    #[doc = " The minimum number of rows necessary in the index to create an\nann index"]
     pub min_ann_rows: i64,
-    #[doc = " Whether or not to create a new ann index on extend, if the number\nof rows in the incremental (bfknn) portion is above min_ann_rows"]
     pub create_ann_index_on_extend: bool,
-    #[doc = " Optional parameters for building a cagra index"]
     pub cagra_params: cuvsCagraIndexParams_t,
-    #[doc = " Optional parameters for building a ivf_flat index"]
     pub ivf_flat_params: cuvsIvfFlatIndexParams_t,
-    #[doc = " Optional parameters for building a ivf-pq index"]
     pub ivf_pq_params: cuvsIvfPqIndexParams_t,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -1871,17 +1982,14 @@ const _: () = {
 pub type cuvsTieredIndexParams_t = *mut cuvsTieredIndexParams;
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Allocate Tiered Index Params and populate with default values\n\n @param[in] index_params cuvsTieredIndexParams_t to allocate\n @return cuvsError_t"]
     pub fn cuvsTieredIndexParamsCreate(index_params: *mut cuvsTieredIndexParams_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief De-allocate Tiered Index params\n\n @param[in] index_params\n @return cuvsError_t"]
     pub fn cuvsTieredIndexParamsDestroy(index_params: cuvsTieredIndexParams_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @defgroup tieredindex_c_index_build Tiered index build\n @{\n/\n/**\n @brief Build a TieredIndex index with a `DLManagedTensor` which has underlying\n        `DLDeviceType` equal to `kDLCUDA`, `kDLCUDAHost`, `kDLCUDAManaged`,\n        or `kDLCPU`. Also, acceptable underlying types are:\n        1. `kDLDataType.code == kDLFloat` and `kDLDataType.bits = 32`\n        2. `kDLDataType.code == kDLFloat` and `kDLDataType.bits = 16`\n\n @code {.c}\n #include <cuvs/core/c_api.h>\n #include <cuvs/neighbors/tiered_index.h>\n\n // Create cuvsResources_t\n cuvsResources_t res;\n cuvsError_t res_create_status = cuvsResourcesCreate(&res);\n\n // Assume a populated `DLManagedTensor` type here\n DLManagedTensor dataset;\n\n // Create TieredIndex index\n cuvsTieredIndex_t index;\n cuvsError_t index_create_status = cuvsTieredIndexCreate(&index);\n\n // Create default index params\n cuvsTieredIndexParams_t index_params;\n cuvsError_t params_create_status = cuvsTieredIndexParamsCreate(&index_params);\n\n // Build the TieredIndex Index\n cuvsError_t build_status = cuvsTieredIndexBuild(res, index_params, &dataset_tensor, index);\n\n // de-allocate `index` and `res`\n cuvsError_t index_destroy_status = cuvsTieredIndexDestroy(index);\n cuvsError_t res_destroy_status = cuvsResourcesDestroy(res);\n @endcode\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] dataset DLManagedTensor* training dataset\n @param[in] index_params Index parameters to use when building the index\n @param[out] index cuvsTieredIndex_t Newly built TieredIndex index\n @return cuvsError_t"]
     pub fn cuvsTieredIndexBuild(
         res: cuvsResources_t,
         index_params: cuvsTieredIndexParams_t,
@@ -1891,7 +1999,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @defgroup tieredindex_c_index_search Tiered index search\n @{\n/\n/**\n @brief Search a TieredIndex index with a `DLManagedTensor`\n\n @code {.c}\n #include <cuvs/core/c_api.h>\n #include <cuvs/neighbors/tiered_index.h>\n\n // Create cuvsResources_t\n cuvsResources_t res;\n cuvsError_t res_create_status = cuvsResourcesCreate(&res);\n\n // Assume a populated `DLManagedTensor` type here\n DLManagedTensor dataset;\n DLManagedTensor queries;\n DLManagedTensor neighbors;\n DLManagedTensor bitmap;\n\n cuvsFilter prefilter{(uintptr_t)&bitmap, BITMAP};\n\n // Search the `index` built using `cuvsTieredIndexBuild`\n cuvsError_t search_status = cuvsTieredIndexSearch(res, index, &queries, &neighbors, &distances,\n prefilter);\n\n // de-allocate `res`\n cuvsError_t res_destroy_status = cuvsResourcesDestroy(res);\n @endcode\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] search_params params used to the ANN index, should be one of\n cuvsCagraSearchParams_t, cuvsIvfFlatSearchParams_t, cuvsIvfPqSearchParams_t\n depending on the type of the tiered index used\n @param[in] index cuvsTieredIndex which has been returned by `cuvsTieredIndexBuild`\n @param[in] queries DLManagedTensor* queries dataset to search\n @param[out] neighbors DLManagedTensor* output `k` neighbors for queries\n @param[out] distances DLManagedTensor* output `k` distances for queries\n @param[in] prefilter cuvsFilter input prefilter that can be used\nto filter queries and neighbors based on the given bitmap."]
     pub fn cuvsTieredIndexSearch(
         res: cuvsResources_t,
         search_params: *mut ::std::os::raw::c_void,
@@ -1904,7 +2011,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @}\n/\n/**\n @defgroup tiered_c_index_extend Tiered index extend\n @{\n/\n/**\n @brief Extend the index with the new data.\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] new_vectors DLManagedTensor* the new vectors to add to the index\n @param[inout] index Tiered index to be extended\n @return cuvsError_t"]
     pub fn cuvsTieredIndexExtend(
         res: cuvsResources_t,
         new_vectors: *mut DLManagedTensor,
@@ -1913,7 +2019,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @defgroup tiered_c_index_merge Tiered index merge\n @{\n/\n/**\n @brief Merge multiple indices together into a single index\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] index_params Index parameters to use when merging\n @param[in] indices pointers to indices to merge together\n @param[in] num_indices the number of indices to merge\n @param[out] output_index the merged index\n @return cuvsError_t"]
     pub fn cuvsTieredIndexMerge(
         res: cuvsResources_t,
         index_params: cuvsTieredIndexParams_t,
@@ -1922,27 +2027,17 @@ unsafe extern "C" {
         output_index: cuvsTieredIndex_t,
     ) -> cuvsError_t;
 }
-#[doc = " @brief Supplemental parameters to build Vamana Index\n\n `graph_degree`: Maximum degree of graph; corresponds to the R parameter of\n Vamana algorithm in the literature.\n `visited_size`: Maximum number of visited nodes per search during Vamana algorithm.\n Loosely corresponds to the L parameter in the literature.\n `vamana_iters`: The number of times all vectors are inserted into the graph. If > 1,\n all vectors are re-inserted to improve graph quality.\n `max_fraction`: The maximum batch size is this fraction of the total dataset size. Larger\n gives faster build but lower graph quality.\n `alpha`: Used to determine how aggressive the pruning will be."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsVamanaIndexParams {
-    #[doc = " Distance type."]
     pub metric: cuvsDistanceType,
-    #[doc = " Maximum degree of output graph corresponds to the R parameter in the original Vamana\n literature."]
     pub graph_degree: u32,
-    #[doc = " Maximum number of visited nodes per search corresponds to the L parameter in the Vamana\n literature"]
     pub visited_size: u32,
-    #[doc = " Number of Vamana vector insertion iterations (each iteration inserts all vectors)."]
     pub vamana_iters: f32,
-    #[doc = " Alpha for pruning parameter"]
     pub alpha: f32,
-    #[doc = " Maximum fraction of dataset inserted per batch.              *\n Larger max batch decreases graph quality, but improves speed"]
     pub max_fraction: f32,
-    #[doc = " Base of growth rate of batch sizes"]
     pub batch_base: f32,
-    #[doc = " Size of candidate queue structure - should be (2^x)-1"]
     pub queue_size: u32,
-    #[doc = " Max batchsize of reverse edge processing (reduces memory footprint)"]
     pub reverse_batchsize: u32,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -1972,15 +2067,12 @@ const _: () = {
 pub type cuvsVamanaIndexParams_t = *mut cuvsVamanaIndexParams;
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Allocate Vamana Index params, and populate with default values\n\n @param[in] params cuvsVamanaIndexParams_t to allocate\n @return cuvsError_t"]
     pub fn cuvsVamanaIndexParamsCreate(params: *mut cuvsVamanaIndexParams_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief De-allocate Vamana Index params\n\n @param[in] params cuvsVamanaIndexParams_t to de-allocate\n @return cuvsError_t"]
     pub fn cuvsVamanaIndexParamsDestroy(params: cuvsVamanaIndexParams_t) -> cuvsError_t;
 }
-#[doc = " @brief Struct to hold address of cuvs::neighbors::vamana::index and its active trained dtype\n"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsVamanaIndex {
@@ -1999,17 +2091,14 @@ const _: () = {
 pub type cuvsVamanaIndex_t = *mut cuvsVamanaIndex;
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Allocate Vamana index\n\n @param[in] index cuvsVamanaIndex_t to allocate\n @return cuvsError_t"]
     pub fn cuvsVamanaIndexCreate(index: *mut cuvsVamanaIndex_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief De-allocate Vamana index\n\n @param[in] index cuvsVamanaIndex_t to de-allocate\n @return cuvsError_t"]
     pub fn cuvsVamanaIndexDestroy(index: cuvsVamanaIndex_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Get the dimension of the index\n\n @param[in] index cuvsVamanaIndex_t to get dimension of\n @param[out] dim pointer to dimension to set\n @return cuvsError_t"]
     pub fn cuvsVamanaIndexGetDims(
         index: cuvsVamanaIndex_t,
         dim: *mut ::std::os::raw::c_int,
@@ -2017,7 +2106,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Build Vamana index\n\n Build the index from the dataset for efficient DiskANN search.\n\n The build uses the Vamana insertion-based algorithm to create the graph. The algorithm\n starts with an empty graph and iteratively inserts batches of nodes. Each batch involves\n performing a greedy search for each vector to be inserted, and inserting it with edges to\n all nodes traversed during the search. Reverse edges are also inserted and robustPrune is applied\n to improve graph quality. The index_params struct controls the degree of the final graph.\n\n The following distance metrics are supported:\n - L2\n\n Usage example:\n @code{.c}\n   // Create cuvsResources_t\n   cuvsResources_t res;\n   cuvsResourcesCreate(&res);\n\n   // Assume a row-major dataset [n_rows, n_cols] is defined as `float* dataset`\n   cuvsVamanaIndexParams_t index_params;\n   cuvsVamanaIndexParamsCreate(&index_params);\n   index_params->metric = L2Expanded; // set distance metric\n   cuvsVamanaIndex_t index;\n   cuvsVamanaIndexCreate(&index);\n   cuvsVamanaBuild(res, index_params, dataset, index);\n @endcode\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] params cuvsVamanaIndexParams_t used to build Vamana index\n @param[in] dataset DLManagedTensor* training dataset\n @param[out] index cuvsVamanaIndex_t Vamana index\n @return cuvsError_t"]
     pub fn cuvsVamanaBuild(
         res: cuvsResources_t,
         params: cuvsVamanaIndexParams_t,
@@ -2027,7 +2115,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Save Vamana index to file\n\n Matches the file format used by the DiskANN open-source repository, allowing cross-compatibility.\n\n Serialized Index is to be used by the DiskANN open-source repository for graph search.\n\n @code{.c}\n   // Create cuvsResources_t\n   cuvsResources_t res;\n   cuvsResourcesCreate(&res);\n\n   // create an index with `cuvsVamanaBuild`\n   cuvsVamanaSerialize(res, \"/path/to/index\", index, true);\n @endcode\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] filename the file prefix for where the index is saved\n @param[in] index cuvsVamanaIndex_t to serialize\n @param[in] include_dataset whether to include the dataset in the serialized index\n @return cuvsError_t"]
     pub fn cuvsVamanaSerialize(
         res: cuvsResources_t,
         filename: *const ::std::os::raw::c_char,
@@ -2036,26 +2123,19 @@ unsafe extern "C" {
     ) -> cuvsError_t;
 }
 #[repr(u32)]
-#[doc = " @brief Hierarchy for HNSW index when converting from CAGRA index\n\n NOTE: When the value is `NONE`, the HNSW index is built as a base-layer-only index."]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum cuvsHnswHierarchy {
     NONE = 0,
     CPU = 1,
     GPU = 2,
 }
-#[doc = " Parameters for ACE (Augmented Core Extraction) graph build for HNSW.\n ACE enables building indexes for datasets too large to fit in GPU memory by:\n 1. Partitioning the dataset in core and augmented partitions using balanced k-means\n 2. Building sub-indexes for each partition independently\n 3. Concatenating sub-graphs into a final unified index"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsHnswAceParams {
-    #[doc = " Number of partitions for ACE partitioned build.\n\n When set to 0 (default), the number of partitions is automatically derived\n based on available host and GPU memory to maximize partition size while\n ensuring the build fits in memory.\n\n Small values might improve recall but potentially degrade performance and\n increase memory usage. The partition size is on average 2 * (n_rows /\n npartitions) * dim * sizeof(T). 2 is because of the core and augmented\n vectors. Please account for imbalance in the partition sizes (up to 3x in\n our tests).\n\n If the specified number of partitions results in partitions that exceed\n available memory, the value will be automatically increased to fit memory\n constraints and a warning will be issued."]
     pub npartitions: usize,
-    #[doc = " Directory to store ACE build artifacts (e.g., KNN graph, optimized graph).\n Used when `use_disk` is true or when the graph does not fit in memory."]
     pub build_dir: *const ::std::os::raw::c_char,
-    #[doc = " Whether to use disk-based storage for ACE build.\n When true, enables disk-based operations for memory-efficient graph construction."]
     pub use_disk: bool,
-    #[doc = " Maximum host memory to use for ACE build in GiB.\n When set to 0 (default), uses available host memory.\n Useful for testing or when running alongside other memory-intensive processes."]
     pub max_host_memory_gb: f64,
-    #[doc = " Maximum GPU memory to use for ACE build in GiB.\n When set to 0 (default), uses available GPU memory.\n Useful for testing or when running alongside other memory-intensive processes."]
     pub max_gpu_memory_gb: f64,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -2076,27 +2156,20 @@ const _: () = {
 pub type cuvsHnswAceParams_t = *mut cuvsHnswAceParams;
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Allocate HNSW ACE params, and populate with default values\n\n @param[in] params cuvsHnswAceParams_t to allocate\n @return cuvsError_t"]
     pub fn cuvsHnswAceParamsCreate(params: *mut cuvsHnswAceParams_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief De-allocate HNSW ACE params\n\n @param[in] params\n @return cuvsError_t"]
     pub fn cuvsHnswAceParamsDestroy(params: cuvsHnswAceParams_t) -> cuvsError_t;
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsHnswIndexParams {
     pub hierarchy: cuvsHnswHierarchy,
-    #[doc = " Size of the candidate list during hierarchy construction when hierarchy is `CPU`"]
     pub ef_construction: ::std::os::raw::c_int,
-    #[doc = " Number of host threads to use to construct hierarchy when hierarchy is `CPU` or `GPU`.\nWhen the value is 0, the number of threads is automatically determined to the\nmaximum number of threads available.\nNOTE: When hierarchy is `GPU`, while the majority of the work is done on the GPU,\ninitialization of the HNSW index itself and some other work\nis parallelized with the help of CPU threads."]
     pub num_threads: ::std::os::raw::c_int,
-    #[doc = " HNSW M parameter: number of bi-directional links per node (used when building with ACE).\n  graph_degree = m * 2, intermediate_graph_degree = m * 3."]
     pub M: usize,
-    #[doc = " Distance type for the index."]
     pub metric: cuvsDistanceType,
-    #[doc = " Optional: specify ACE parameters for building HNSW index using ACE algorithm.\n Set to nullptr for default behavior (from_cagra conversion)."]
     pub ace_params: cuvsHnswAceParams_t,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -2119,15 +2192,12 @@ const _: () = {
 pub type cuvsHnswIndexParams_t = *mut cuvsHnswIndexParams;
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Allocate HNSW Index params, and populate with default values\n\n @param[in] params cuvsHnswIndexParams_t to allocate\n @return cuvsError_t"]
     pub fn cuvsHnswIndexParamsCreate(params: *mut cuvsHnswIndexParams_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief De-allocate HNSW Index params\n\n @param[in] params\n @return cuvsError_t"]
     pub fn cuvsHnswIndexParamsDestroy(params: cuvsHnswIndexParams_t) -> cuvsError_t;
 }
-#[doc = " @brief Struct to hold address of cuvs::neighbors::Hnsw::index and its active trained dtype\n"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsHnswIndex {
@@ -2145,19 +2215,15 @@ const _: () = {
 pub type cuvsHnswIndex_t = *mut cuvsHnswIndex;
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Allocate HNSW index\n\n @param[in] index cuvsHnswIndex_t to allocate\n @return HnswError_t"]
     pub fn cuvsHnswIndexCreate(index: *mut cuvsHnswIndex_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief De-allocate HNSW index\n\n @param[in] index cuvsHnswIndex_t to de-allocate"]
     pub fn cuvsHnswIndexDestroy(index: cuvsHnswIndex_t) -> cuvsError_t;
 }
-#[doc = " @defgroup hnsw_c_extend_params Parameters for extending HNSW index\n @{"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsHnswExtendParams {
-    #[doc = " Number of CPU threads used to extend additional vectors"]
     pub num_threads: ::std::os::raw::c_int,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -2170,17 +2236,14 @@ const _: () = {
 pub type cuvsHnswExtendParams_t = *mut cuvsHnswExtendParams;
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Allocate HNSW extend params, and populate with default values\n\n @param[in] params cuvsHnswExtendParams_t to allocate\n @return cuvsError_t"]
     pub fn cuvsHnswExtendParamsCreate(params: *mut cuvsHnswExtendParams_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief De-allocate HNSW extend params\n\n @param[in] params cuvsHnswExtendParams_t to de-allocate\n @return cuvsError_t"]
     pub fn cuvsHnswExtendParamsDestroy(params: cuvsHnswExtendParams_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Convert a CAGRA Index to an HNSW index.\n NOTE: When hierarchy is:\n       1. `NONE`: This method uses the filesystem to write the CAGRA index in\n `/tmp/<random_number>.bin` before reading it as an hnswlib index, then deleting the temporary\n file. The returned index is immutable and can only be searched by the hnswlib wrapper in cuVS,\n as the format is not compatible with the original hnswlib.\n       2. `CPU`: The returned index is mutable and can be extended with additional vectors. The\n serialized index is also compatible with the original hnswlib library.\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] params cuvsHnswIndexParams_t used to load Hnsw index\n @param[in] cagra_index cuvsCagraIndex_t to convert to HNSW index\n @param[out] hnsw_index cuvsHnswIndex_t to return the HNSW index\n\n @return cuvsError_t\n\n @code{.c}\n #include <cuvs/core/c_api.h>\n #include <cuvs/neighbors/cagra.h>\n #include <cuvs/neighbors/hnsw.h>\n\n // Create cuvsResources_t\n cuvsResources_t res;\n cuvsError_t res_create_status = cuvsResourcesCreate(&res);\n\n // create a CAGRA index with `cuvsCagraBuild`\n\n // Convert the CAGRA index to an HNSW index\n cuvsHnswIndex_t hnsw_index;\n cuvsHnswIndexCreate(&hnsw_index);\n cuvsHnswIndexParams_t hnsw_params;\n cuvsHnswIndexParamsCreate(&hnsw_params);\n cuvsHnswFromCagra(res, hnsw_params, cagra_index, hnsw_index);\n\n // de-allocate `hnsw_params`, `hnsw_index` and `res`\n cuvsError_t hnsw_params_destroy_status = cuvsHnswIndexParamsDestroy(hnsw_params);\n cuvsError_t hnsw_index_destroy_status = cuvsHnswIndexDestroy(hnsw_index);\n cuvsError_t res_destroy_status = cuvsResourcesDestroy(res);\n @endcode"]
     pub fn cuvsHnswFromCagra(
         res: cuvsResources_t,
         params: cuvsHnswIndexParams_t,
@@ -2200,7 +2263,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Build an HNSW index using ACE (Augmented Core Extraction) algorithm.\n\n ACE enables building HNSW indexes for datasets too large to fit in GPU memory by:\n 1. Partitioning the dataset using balanced k-means into core and augmented partitions\n 2. Building sub-indexes for each partition independently\n 3. Concatenating sub-graphs into a final unified index\n\n NOTE: This function requires CUDA to be available at runtime.\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] params cuvsHnswIndexParams_t with ACE parameters configured\n @param[in] dataset DLManagedTensor* host dataset to build index from\n @param[out] index cuvsHnswIndex_t to return the built HNSW index\n\n @return cuvsError_t\n\n @code{.c}\n #include <cuvs/core/c_api.h>\n #include <cuvs/neighbors/hnsw.h>\n\n // Create cuvsResources_t\n cuvsResources_t res;\n cuvsResourcesCreate(&res);\n\n // Create ACE parameters\n cuvsHnswAceParams_t ace_params;\n cuvsHnswAceParamsCreate(&ace_params);\n ace_params->npartitions = 4;\n ace_params->use_disk = true;\n ace_params->build_dir = \"/tmp/hnsw_ace_build\";\n\n // Create index parameters\n cuvsHnswIndexParams_t params;\n cuvsHnswIndexParamsCreate(&params);\n params->hierarchy = GPU;\n params->ace_params = ace_params;\n params->M = 32;\n params->ef_construction = 120;\n\n // Create HNSW index\n cuvsHnswIndex_t hnsw_index;\n cuvsHnswIndexCreate(&hnsw_index);\n\n // Assume dataset is a populated DLManagedTensor with host data\n DLManagedTensor dataset;\n\n // Build the index\n cuvsHnswBuild(res, params, &dataset, hnsw_index);\n\n // Clean up\n cuvsHnswAceParamsDestroy(ace_params);\n cuvsHnswIndexParamsDestroy(params);\n cuvsHnswIndexDestroy(hnsw_index);\n cuvsResourcesDestroy(res);\n @endcode"]
     pub fn cuvsHnswBuild(
         res: cuvsResources_t,
         params: cuvsHnswIndexParams_t,
@@ -2210,7 +2272,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Add new vectors to an HNSW index\n NOTE: The HNSW index can only be extended when the hierarchy is `CPU`\n       when converting from a CAGRA index.\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] params cuvsHnswExtendParams_t used to extend Hnsw index\n @param[in] additional_dataset DLManagedTensor* additional dataset to extend the index\n @param[inout] index cuvsHnswIndex_t to extend\n\n @return cuvsError_t\n\n @code{.c}\n #include <cuvs/core/c_api.h>\n #include <cuvs/neighbors/cagra.h>\n #include <cuvs/neighbors/hnsw.h>\n\n // Create cuvsResources_t\n cuvsResources_t res;\n cuvsError_t res_create_status = cuvsResourcesCreate(&res);\n\n // create an index with `cuvsCagraBuild`\n\n // Convert the CAGRA index to an HNSW index\n cuvsHnswIndex_t hnsw_index;\n cuvsHnswIndexCreate(&hnsw_index);\n cuvsHnswIndexParams_t hnsw_params;\n cuvsHnswIndexParamsCreate(&hnsw_params);\n cuvsHnswFromCagra(res, hnsw_params, cagra_index, hnsw_index);\n\n // Extend the HNSW index with additional vectors\n DLManagedTensor additional_dataset;\n cuvsHnswExtendParams_t extend_params;\n cuvsHnswExtendParamsCreate(&extend_params);\n cuvsHnswExtend(res, extend_params, additional_dataset, hnsw_index);\n\n // de-allocate `hnsw_params`, `hnsw_index`, `extend_params` and `res`\n cuvsError_t hnsw_params_destroy_status = cuvsHnswIndexParamsDestroy(hnsw_params);\n cuvsError_t hnsw_index_destroy_status = cuvsHnswIndexDestroy(hnsw_index);\n cuvsError_t extend_params_destroy_status = cuvsHnswExtendParamsDestroy(extend_params);\n cuvsError_t res_destroy_status = cuvsResourcesDestroy(res);\n @endcode"]
     pub fn cuvsHnswExtend(
         res: cuvsResources_t,
         params: cuvsHnswExtendParams_t,
@@ -2218,7 +2279,6 @@ unsafe extern "C" {
         index: cuvsHnswIndex_t,
     ) -> cuvsError_t;
 }
-#[doc = " @defgroup hnsw_c_search_params C API for hnswlib wrapper search params\n @{"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsHnswSearchParams {
@@ -2237,17 +2297,14 @@ const _: () = {
 pub type cuvsHnswSearchParams_t = *mut cuvsHnswSearchParams;
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Allocate HNSW search params, and populate with default values\n\n @param[in] params cuvsHnswSearchParams_t to allocate\n @return cuvsError_t"]
     pub fn cuvsHnswSearchParamsCreate(params: *mut cuvsHnswSearchParams_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief De-allocate HNSW search params\n\n @param[in] params cuvsHnswSearchParams_t to de-allocate\n @return cuvsError_t"]
     pub fn cuvsHnswSearchParamsDestroy(params: cuvsHnswSearchParams_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @defgroup hnsw_c_index_search C API for CUDA ANN Graph-based nearest neighbor search\n @{\n/\n/**\n @brief Search a HNSW index with a `DLManagedTensor` which has underlying\n        `DLDeviceType` equal to `kDLCPU`, `kDLCUDAHost`, or `kDLCUDAManaged`.\n        It is also important to note that the HNSW Index must have been built\n        with the same type of `queries`, such that `index.dtype.code ==\n        queries.dl_tensor.dtype.code`\n        Supported types for input are:\n        1. `queries`:\n          a. `kDLDataType.code == kDLFloat` and `kDLDataType.bits = 32`\n          b. `kDLDataType.code == kDLInt` and `kDLDataType.bits = 8`\n          c. `kDLDataType.code == kDLUInt` and `kDLDataType.bits = 8`\n        2. `neighbors`: `kDLDataType.code == kDLUInt` and `kDLDataType.bits = 64`\n        3. `distances`: `kDLDataType.code == kDLFloat` and `kDLDataType.bits = 32`\n NOTE: When hierarchy is `NONE`, the HNSW index can only be searched by the hnswlib wrapper in\n cuVS, as the format is not compatible with the original hnswlib.\n\n @code {.c}\n #include <cuvs/core/c_api.h>\n #include <cuvs/neighbors/hnsw.h>\n\n // Create cuvsResources_t\n cuvsResources_t res;\n cuvsError_t res_create_status = cuvsResourcesCreate(&res);\n\n // Assume a populated `DLManagedTensor` type here\n DLManagedTensor dataset;\n DLManagedTensor queries;\n DLManagedTensor neighbors;\n\n // Create default search params\n cuvsHnswSearchParams_t params;\n cuvsError_t params_create_status = cuvsHnswSearchParamsCreate(&params);\n\n // Search the `index` built using `cuvsHnswFromCagra`\n cuvsError_t search_status = cuvsHnswSearch(res, params, index, &queries, &neighbors,\n &distances);\n\n // de-allocate `params` and `res`\n cuvsError_t params_destroy_status = cuvsHnswSearchParamsDestroy(params);\n cuvsError_t res_destroy_status = cuvsResourcesDestroy(res);\n @endcode\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] params cuvsHnswSearchParams_t used to search Hnsw index\n @param[in] index cuvsHnswIndex which has been returned by `cuvsHnswFromCagra`\n @param[in] queries DLManagedTensor* queries dataset to search\n @param[out] neighbors DLManagedTensor* output `k` neighbors for queries\n @param[out] distances DLManagedTensor* output `k` distances for queries"]
     pub fn cuvsHnswSearch(
         res: cuvsResources_t,
         params: cuvsHnswSearchParams_t,
@@ -2259,7 +2316,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Serialize a CAGRA index to a file as an hnswlib index\n NOTE: When hierarchy is `NONE`, the saved hnswlib index is immutable and can only be read by\n the hnswlib wrapper in cuVS, as the serialization format is not compatible with the original\n hnswlib. However, when hierarchy is `CPU`, the saved hnswlib index is compatible with the\n original hnswlib library.\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] filename the name of the file to save the index\n @param[in] index cuvsHnswIndex_t to serialize\n @return cuvsError_t\n\n @code{.c}\n #include <cuvs/core/c_api.h>\n #include <cuvs/neighbors/cagra.h>\n #include <cuvs/neighbors/hnsw.h>\n\n // Create cuvsResources_t\n cuvsResources_t res;\n cuvsError_t res_create_status = cuvsResourcesCreate(&res);\n\n // create an index with `cuvsCagraBuild`\n\n // Convert the CAGRA index to an HNSW index\n cuvsHnswIndex_t hnsw_index;\n cuvsHnswIndexCreate(&hnsw_index);\n cuvsHnswIndexParams_t hnsw_params;\n cuvsHnswIndexParamsCreate(&hnsw_params);\n cuvsHnswFromCagra(res, hnsw_params, cagra_index, hnsw_index);\n\n // Serialize the HNSW index\n cuvsHnswSerialize(res, \"/path/to/index\", hnsw_index);\n\n // de-allocate `hnsw_params`, `hnsw_index` and `res`\n cuvsError_t hnsw_params_destroy_status = cuvsHnswIndexParamsDestroy(hnsw_params);\n cuvsError_t hnsw_index_destroy_status = cuvsHnswIndexDestroy(hnsw_index);\n cuvsError_t res_destroy_status = cuvsResourcesDestroy(res);\n @endcode"]
     pub fn cuvsHnswSerialize(
         res: cuvsResources_t,
         filename: *const ::std::os::raw::c_char,
@@ -2268,7 +2324,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " Load hnswlib index from file which was serialized from a HNSW index.\n NOTE: When hierarchy is `NONE`, the loaded hnswlib index is immutable, and only be read by the\n hnswlib wrapper in cuVS, as the serialization format is not compatible with the original\n hnswlib. Experimental, both the API and the serialization format are subject to change.\n\n @code{.c}\n #include <cuvs/core/c_api.h>\n #include <cuvs/neighbors/cagra.h>\n #include <cuvs/neighbors/hnsw.h>\n\n // Create cuvsResources_t\n cuvsResources_t res;\n cuvsError_t res_create_status = cuvsResourcesCreate(&res);\n\n // create an index with `cuvsCagraBuild`\n cuvsCagraSerializeHnswlib(res, \"/path/to/index\", index);\n\n // Load the serialized CAGRA index from file as an hnswlib index\n // The index should have the same dtype as the one used to build CAGRA the index\n cuvsHnswIndex_t hnsw_index;\n cuvsHnswIndexCreate(&hnsw_index);\n cuvsHnsWIndexParams_t hnsw_params;\n cuvsHnswIndexParamsCreate(&hnsw_params);\n hnsw_params->hierarchy = NONE;\n hnsw_index->dtype = index->dtype;\n cuvsHnswDeserialize(res, hnsw_params, \"/path/to/index\", dim, metric hnsw_index);\n @endcode\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] params cuvsHnswIndexParams_t used to load Hnsw index\n @param[in] filename the name of the file that stores the index\n @param[in] dim the dimension of the vectors in the index\n @param[in] metric the distance metric used to build the index\n @param[out] index HNSW index loaded disk"]
     pub fn cuvsHnswDeserialize(
         res: cuvsResources_t,
         params: cuvsHnswIndexParams_t,
@@ -2278,40 +2333,40 @@ unsafe extern "C" {
         index: cuvsHnswIndex_t,
     ) -> cuvsError_t;
 }
+unsafe extern "C" {
+    #[must_use]
+    pub fn cuvsMultiGpuKMeansFit(
+        res: cuvsResources_t,
+        params: cuvsKMeansParams_t,
+        X: *mut DLManagedTensor,
+        sample_weight: *mut DLManagedTensor,
+        centroids: *mut DLManagedTensor,
+        inertia: *mut f64,
+        n_iter: *mut ::std::os::raw::c_int,
+    ) -> cuvsError_t;
+}
 #[repr(u32)]
-#[doc = " @brief Distribution mode for multi-GPU indexes"]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum cuvsMultiGpuDistributionMode {
-    #[doc = " Index is replicated on each device, favors throughput"]
     CUVS_NEIGHBORS_MG_REPLICATED = 0,
-    #[doc = " Index is split on several devices, favors scaling"]
     CUVS_NEIGHBORS_MG_SHARDED = 1,
 }
 #[repr(u32)]
-#[doc = " @brief Search mode when using a replicated index"]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum cuvsMultiGpuReplicatedSearchMode {
-    #[doc = " Search queries are split to maintain equal load on GPUs"]
     CUVS_NEIGHBORS_MG_LOAD_BALANCER = 0,
-    #[doc = " Each search query is processed by a single GPU in a round-robin fashion"]
     CUVS_NEIGHBORS_MG_ROUND_ROBIN = 1,
 }
 #[repr(u32)]
-#[doc = " @brief Merge mode when using a sharded index"]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum cuvsMultiGpuShardedMergeMode {
-    #[doc = " Search batches are merged on the root rank"]
     CUVS_NEIGHBORS_MG_MERGE_ON_ROOT_RANK = 0,
-    #[doc = " Search batches are merged in a tree reduction fashion"]
     CUVS_NEIGHBORS_MG_TREE_MERGE = 1,
 }
-#[doc = " @brief Multi-GPU parameters to build CAGRA Index\n\n This structure extends the base CAGRA index parameters with multi-GPU specific settings."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsMultiGpuCagraIndexParams {
-    #[doc = " Base CAGRA index parameters"]
     pub base_params: cuvsCagraIndexParams_t,
-    #[doc = " Distribution mode for multi-GPU setup"]
     pub mode: cuvsMultiGpuDistributionMode,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -2328,29 +2383,22 @@ const _: () = {
 pub type cuvsMultiGpuCagraIndexParams_t = *mut cuvsMultiGpuCagraIndexParams;
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Allocate Multi-GPU CAGRA Index params, and populate with default values\n\n @param[in] index_params cuvsMultiGpuCagraIndexParams_t to allocate\n @return cuvsError_t"]
     pub fn cuvsMultiGpuCagraIndexParamsCreate(
         index_params: *mut cuvsMultiGpuCagraIndexParams_t,
     ) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief De-allocate Multi-GPU CAGRA Index params\n\n @param[in] index_params\n @return cuvsError_t"]
     pub fn cuvsMultiGpuCagraIndexParamsDestroy(
         index_params: cuvsMultiGpuCagraIndexParams_t,
     ) -> cuvsError_t;
 }
-#[doc = " @brief Multi-GPU parameters to search CAGRA index\n\n This structure extends the base CAGRA search parameters with multi-GPU specific settings."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsMultiGpuCagraSearchParams {
-    #[doc = " Base CAGRA search parameters"]
     pub base_params: cuvsCagraSearchParams_t,
-    #[doc = " Replicated search mode"]
     pub search_mode: cuvsMultiGpuReplicatedSearchMode,
-    #[doc = " Sharded merge mode"]
     pub merge_mode: cuvsMultiGpuShardedMergeMode,
-    #[doc = " Number of rows per batch"]
     pub n_rows_per_batch: i64,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -2371,19 +2419,16 @@ const _: () = {
 pub type cuvsMultiGpuCagraSearchParams_t = *mut cuvsMultiGpuCagraSearchParams;
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Allocate Multi-GPU CAGRA search params, and populate with default values\n\n @param[in] params cuvsMultiGpuCagraSearchParams_t to allocate\n @return cuvsError_t"]
     pub fn cuvsMultiGpuCagraSearchParamsCreate(
         params: *mut cuvsMultiGpuCagraSearchParams_t,
     ) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief De-allocate Multi-GPU CAGRA search params\n\n @param[in] params\n @return cuvsError_t"]
     pub fn cuvsMultiGpuCagraSearchParamsDestroy(
         params: cuvsMultiGpuCagraSearchParams_t,
     ) -> cuvsError_t;
 }
-#[doc = " @brief Struct to hold address of cuvs::neighbors::mg_index<cagra::index> and its active trained\n dtype"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsMultiGpuCagraIndex {
@@ -2403,17 +2448,14 @@ const _: () = {
 pub type cuvsMultiGpuCagraIndex_t = *mut cuvsMultiGpuCagraIndex;
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Allocate Multi-GPU CAGRA index\n\n @param[in] index cuvsMultiGpuCagraIndex_t to allocate\n @return cuvsError_t"]
     pub fn cuvsMultiGpuCagraIndexCreate(index: *mut cuvsMultiGpuCagraIndex_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief De-allocate Multi-GPU CAGRA index\n\n @param[in] index cuvsMultiGpuCagraIndex_t to de-allocate\n @return cuvsError_t"]
     pub fn cuvsMultiGpuCagraIndexDestroy(index: cuvsMultiGpuCagraIndex_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Build a Multi-GPU CAGRA index\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] params Multi-GPU CAGRA index parameters\n @param[in] dataset_tensor DLManagedTensor* training dataset\n @param[out] index Multi-GPU CAGRA index\n @return cuvsError_t"]
     pub fn cuvsMultiGpuCagraBuild(
         res: cuvsResources_t,
         params: cuvsMultiGpuCagraIndexParams_t,
@@ -2423,7 +2465,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Search a Multi-GPU CAGRA index\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] params Multi-GPU CAGRA search parameters\n @param[in] index Multi-GPU CAGRA index\n @param[in] queries_tensor DLManagedTensor* queries dataset\n @param[out] neighbors_tensor DLManagedTensor* output neighbors\n @param[out] distances_tensor DLManagedTensor* output distances\n @return cuvsError_t"]
     pub fn cuvsMultiGpuCagraSearch(
         res: cuvsResources_t,
         params: cuvsMultiGpuCagraSearchParams_t,
@@ -2435,7 +2476,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Extend a Multi-GPU CAGRA index\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in,out] index Multi-GPU CAGRA index to extend\n @param[in] new_vectors_tensor DLManagedTensor* new vectors to add\n @param[in] new_indices_tensor DLManagedTensor* new indices (optional, can be NULL)\n @return cuvsError_t"]
     pub fn cuvsMultiGpuCagraExtend(
         res: cuvsResources_t,
         index: cuvsMultiGpuCagraIndex_t,
@@ -2445,7 +2485,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Serialize a Multi-GPU CAGRA index to file\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] index Multi-GPU CAGRA index to serialize\n @param[in] filename Path to the output file\n @return cuvsError_t"]
     pub fn cuvsMultiGpuCagraSerialize(
         res: cuvsResources_t,
         index: cuvsMultiGpuCagraIndex_t,
@@ -2454,7 +2493,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Deserialize a Multi-GPU CAGRA index from file\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] filename Path to the input file\n @param[out] index Multi-GPU CAGRA index\n @return cuvsError_t"]
     pub fn cuvsMultiGpuCagraDeserialize(
         res: cuvsResources_t,
         filename: *const ::std::os::raw::c_char,
@@ -2463,20 +2501,16 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Distribute a local CAGRA index to create a Multi-GPU index\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] filename Path to the local index file\n @param[out] index Multi-GPU CAGRA index\n @return cuvsError_t"]
     pub fn cuvsMultiGpuCagraDistribute(
         res: cuvsResources_t,
         filename: *const ::std::os::raw::c_char,
         index: cuvsMultiGpuCagraIndex_t,
     ) -> cuvsError_t;
 }
-#[doc = " @brief Multi-GPU parameters to build IVF-Flat Index\n\n This structure extends the base IVF-Flat index parameters with multi-GPU specific settings."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsMultiGpuIvfFlatIndexParams {
-    #[doc = " Base IVF-Flat index parameters"]
     pub base_params: cuvsIvfFlatIndexParams_t,
-    #[doc = " Distribution mode for multi-GPU setup"]
     pub mode: cuvsMultiGpuDistributionMode,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -2493,29 +2527,22 @@ const _: () = {
 pub type cuvsMultiGpuIvfFlatIndexParams_t = *mut cuvsMultiGpuIvfFlatIndexParams;
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Allocate Multi-GPU IVF-Flat Index params, and populate with default values\n\n @param[in] index_params cuvsMultiGpuIvfFlatIndexParams_t to allocate\n @return cuvsError_t"]
     pub fn cuvsMultiGpuIvfFlatIndexParamsCreate(
         index_params: *mut cuvsMultiGpuIvfFlatIndexParams_t,
     ) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief De-allocate Multi-GPU IVF-Flat Index params\n\n @param[in] index_params\n @return cuvsError_t"]
     pub fn cuvsMultiGpuIvfFlatIndexParamsDestroy(
         index_params: cuvsMultiGpuIvfFlatIndexParams_t,
     ) -> cuvsError_t;
 }
-#[doc = " @brief Multi-GPU parameters to search IVF-Flat index\n\n This structure extends the base IVF-Flat search parameters with multi-GPU specific settings."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsMultiGpuIvfFlatSearchParams {
-    #[doc = " Base IVF-Flat search parameters"]
     pub base_params: cuvsIvfFlatSearchParams_t,
-    #[doc = " Replicated search mode"]
     pub search_mode: cuvsMultiGpuReplicatedSearchMode,
-    #[doc = " Sharded merge mode"]
     pub merge_mode: cuvsMultiGpuShardedMergeMode,
-    #[doc = " Number of rows per batch"]
     pub n_rows_per_batch: i64,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -2536,19 +2563,16 @@ const _: () = {
 pub type cuvsMultiGpuIvfFlatSearchParams_t = *mut cuvsMultiGpuIvfFlatSearchParams;
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Allocate Multi-GPU IVF-Flat search params, and populate with default values\n\n @param[in] params cuvsMultiGpuIvfFlatSearchParams_t to allocate\n @return cuvsError_t"]
     pub fn cuvsMultiGpuIvfFlatSearchParamsCreate(
         params: *mut cuvsMultiGpuIvfFlatSearchParams_t,
     ) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief De-allocate Multi-GPU IVF-Flat search params\n\n @param[in] params\n @return cuvsError_t"]
     pub fn cuvsMultiGpuIvfFlatSearchParamsDestroy(
         params: cuvsMultiGpuIvfFlatSearchParams_t,
     ) -> cuvsError_t;
 }
-#[doc = " @brief Struct to hold address of cuvs::neighbors::mg_index<ivf_flat::index> and its active\n trained dtype"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsMultiGpuIvfFlatIndex {
@@ -2569,17 +2593,14 @@ const _: () = {
 pub type cuvsMultiGpuIvfFlatIndex_t = *mut cuvsMultiGpuIvfFlatIndex;
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Allocate Multi-GPU IVF-Flat index\n\n @param[in] index cuvsMultiGpuIvfFlatIndex_t to allocate\n @return cuvsError_t"]
     pub fn cuvsMultiGpuIvfFlatIndexCreate(index: *mut cuvsMultiGpuIvfFlatIndex_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief De-allocate Multi-GPU IVF-Flat index\n\n @param[in] index cuvsMultiGpuIvfFlatIndex_t to de-allocate\n @return cuvsError_t"]
     pub fn cuvsMultiGpuIvfFlatIndexDestroy(index: cuvsMultiGpuIvfFlatIndex_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Build a Multi-GPU IVF-Flat index\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] params Multi-GPU IVF-Flat index parameters\n @param[in] dataset_tensor DLManagedTensor* training dataset\n @param[out] index Multi-GPU IVF-Flat index\n @return cuvsError_t"]
     pub fn cuvsMultiGpuIvfFlatBuild(
         res: cuvsResources_t,
         params: cuvsMultiGpuIvfFlatIndexParams_t,
@@ -2589,7 +2610,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Search a Multi-GPU IVF-Flat index\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] params Multi-GPU IVF-Flat search parameters\n @param[in] index Multi-GPU IVF-Flat index\n @param[in] queries_tensor DLManagedTensor* queries dataset\n @param[out] neighbors_tensor DLManagedTensor* output neighbors\n @param[out] distances_tensor DLManagedTensor* output distances\n @return cuvsError_t"]
     pub fn cuvsMultiGpuIvfFlatSearch(
         res: cuvsResources_t,
         params: cuvsMultiGpuIvfFlatSearchParams_t,
@@ -2601,7 +2621,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Extend a Multi-GPU IVF-Flat index\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in,out] index Multi-GPU IVF-Flat index to extend\n @param[in] new_vectors_tensor DLManagedTensor* new vectors to add\n @param[in] new_indices_tensor DLManagedTensor* new indices (optional, can be NULL)\n @return cuvsError_t"]
     pub fn cuvsMultiGpuIvfFlatExtend(
         res: cuvsResources_t,
         index: cuvsMultiGpuIvfFlatIndex_t,
@@ -2611,7 +2630,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Serialize a Multi-GPU IVF-Flat index to file\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] index Multi-GPU IVF-Flat index to serialize\n @param[in] filename Path to the output file\n @return cuvsError_t"]
     pub fn cuvsMultiGpuIvfFlatSerialize(
         res: cuvsResources_t,
         index: cuvsMultiGpuIvfFlatIndex_t,
@@ -2620,7 +2638,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Deserialize a Multi-GPU IVF-Flat index from file\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] filename Path to the input file\n @param[out] index Multi-GPU IVF-Flat index\n @return cuvsError_t"]
     pub fn cuvsMultiGpuIvfFlatDeserialize(
         res: cuvsResources_t,
         filename: *const ::std::os::raw::c_char,
@@ -2629,20 +2646,16 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Distribute a local IVF-Flat index to create a Multi-GPU index\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] filename Path to the local index file\n @param[out] index Multi-GPU IVF-Flat index\n @return cuvsError_t"]
     pub fn cuvsMultiGpuIvfFlatDistribute(
         res: cuvsResources_t,
         filename: *const ::std::os::raw::c_char,
         index: cuvsMultiGpuIvfFlatIndex_t,
     ) -> cuvsError_t;
 }
-#[doc = " @brief Multi-GPU parameters to build IVF-PQ Index\n\n This structure extends the base IVF-PQ index parameters with multi-GPU specific settings."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsMultiGpuIvfPqIndexParams {
-    #[doc = " Base IVF-PQ index parameters"]
     pub base_params: cuvsIvfPqIndexParams_t,
-    #[doc = " Distribution mode for multi-GPU setup"]
     pub mode: cuvsMultiGpuDistributionMode,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -2659,29 +2672,22 @@ const _: () = {
 pub type cuvsMultiGpuIvfPqIndexParams_t = *mut cuvsMultiGpuIvfPqIndexParams;
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Allocate Multi-GPU IVF-PQ Index params, and populate with default values\n\n @param[in] index_params cuvsMultiGpuIvfPqIndexParams_t to allocate\n @return cuvsError_t"]
     pub fn cuvsMultiGpuIvfPqIndexParamsCreate(
         index_params: *mut cuvsMultiGpuIvfPqIndexParams_t,
     ) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief De-allocate Multi-GPU IVF-PQ Index params\n\n @param[in] index_params\n @return cuvsError_t"]
     pub fn cuvsMultiGpuIvfPqIndexParamsDestroy(
         index_params: cuvsMultiGpuIvfPqIndexParams_t,
     ) -> cuvsError_t;
 }
-#[doc = " @brief Multi-GPU parameters to search IVF-PQ index\n\n This structure extends the base IVF-PQ search parameters with multi-GPU specific settings."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsMultiGpuIvfPqSearchParams {
-    #[doc = " Base IVF-PQ search parameters"]
     pub base_params: cuvsIvfPqSearchParams_t,
-    #[doc = " Replicated search mode"]
     pub search_mode: cuvsMultiGpuReplicatedSearchMode,
-    #[doc = " Sharded merge mode"]
     pub merge_mode: cuvsMultiGpuShardedMergeMode,
-    #[doc = " Number of rows per batch"]
     pub n_rows_per_batch: i64,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -2702,19 +2708,16 @@ const _: () = {
 pub type cuvsMultiGpuIvfPqSearchParams_t = *mut cuvsMultiGpuIvfPqSearchParams;
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Allocate Multi-GPU IVF-PQ search params, and populate with default values\n\n @param[in] params cuvsMultiGpuIvfPqSearchParams_t to allocate\n @return cuvsError_t"]
     pub fn cuvsMultiGpuIvfPqSearchParamsCreate(
         params: *mut cuvsMultiGpuIvfPqSearchParams_t,
     ) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief De-allocate Multi-GPU IVF-PQ search params\n\n @param[in] params\n @return cuvsError_t"]
     pub fn cuvsMultiGpuIvfPqSearchParamsDestroy(
         params: cuvsMultiGpuIvfPqSearchParams_t,
     ) -> cuvsError_t;
 }
-#[doc = " @brief Struct to hold address of cuvs::neighbors::mg_index<ivf_pq::index> and its active trained\n dtype"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsMultiGpuIvfPqIndex {
@@ -2734,17 +2737,14 @@ const _: () = {
 pub type cuvsMultiGpuIvfPqIndex_t = *mut cuvsMultiGpuIvfPqIndex;
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Allocate Multi-GPU IVF-PQ index\n\n @param[in] index cuvsMultiGpuIvfPqIndex_t to allocate\n @return cuvsError_t"]
     pub fn cuvsMultiGpuIvfPqIndexCreate(index: *mut cuvsMultiGpuIvfPqIndex_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief De-allocate Multi-GPU IVF-PQ index\n\n @param[in] index cuvsMultiGpuIvfPqIndex_t to de-allocate\n @return cuvsError_t"]
     pub fn cuvsMultiGpuIvfPqIndexDestroy(index: cuvsMultiGpuIvfPqIndex_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Build a Multi-GPU IVF-PQ index\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] params Multi-GPU IVF-PQ index parameters\n @param[in] dataset_tensor DLManagedTensor* training dataset\n @param[out] index Multi-GPU IVF-PQ index\n @return cuvsError_t"]
     pub fn cuvsMultiGpuIvfPqBuild(
         res: cuvsResources_t,
         params: cuvsMultiGpuIvfPqIndexParams_t,
@@ -2754,7 +2754,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Search a Multi-GPU IVF-PQ index\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] params Multi-GPU IVF-PQ search parameters\n @param[in] index Multi-GPU IVF-PQ index\n @param[in] queries_tensor DLManagedTensor* queries dataset\n @param[out] neighbors_tensor DLManagedTensor* output neighbors\n @param[out] distances_tensor DLManagedTensor* output distances\n @return cuvsError_t"]
     pub fn cuvsMultiGpuIvfPqSearch(
         res: cuvsResources_t,
         params: cuvsMultiGpuIvfPqSearchParams_t,
@@ -2766,7 +2765,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Extend a Multi-GPU IVF-PQ index\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in,out] index Multi-GPU IVF-PQ index to extend\n @param[in] new_vectors_tensor DLManagedTensor* new vectors to add\n @param[in] new_indices_tensor DLManagedTensor* new indices (optional, can be NULL)\n @return cuvsError_t"]
     pub fn cuvsMultiGpuIvfPqExtend(
         res: cuvsResources_t,
         index: cuvsMultiGpuIvfPqIndex_t,
@@ -2776,7 +2774,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Serialize a Multi-GPU IVF-PQ index to file\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] index Multi-GPU IVF-PQ index to serialize\n @param[in] filename Path to the output file\n @return cuvsError_t"]
     pub fn cuvsMultiGpuIvfPqSerialize(
         res: cuvsResources_t,
         index: cuvsMultiGpuIvfPqIndex_t,
@@ -2785,7 +2782,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Deserialize a Multi-GPU IVF-PQ index from file\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] filename Path to the input file\n @param[out] index Multi-GPU IVF-PQ index\n @return cuvsError_t"]
     pub fn cuvsMultiGpuIvfPqDeserialize(
         res: cuvsResources_t,
         filename: *const ::std::os::raw::c_char,
@@ -2794,7 +2790,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Distribute a local IVF-PQ index to create a Multi-GPU index\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] filename Path to the local index file\n @param[out] index Multi-GPU IVF-PQ index\n @return cuvsError_t"]
     pub fn cuvsMultiGpuIvfPqDistribute(
         res: cuvsResources_t,
         filename: *const ::std::os::raw::c_char,
@@ -2802,29 +2797,19 @@ unsafe extern "C" {
     ) -> cuvsError_t;
 }
 #[repr(u32)]
-#[doc = " @brief Solver algorithm for PCA eigen decomposition."]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum cuvsPcaSolver {
-    #[doc = " Covariance + divide-and-conquer eigen decomposition"]
     CUVS_PCA_COV_EIG_DQ = 0,
-    #[doc = " Covariance + Jacobi eigen decomposition"]
     CUVS_PCA_COV_EIG_JACOBI = 1,
 }
-#[doc = " @brief Parameters for PCA decomposition."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsPcaParams {
-    #[doc = " Number of principal components to keep."]
     pub n_components: ::std::os::raw::c_int,
-    #[doc = " If false, data passed to fit are overwritten and running fit(X).transform(X) will\n not yield the expected results; use fit_transform(X) instead."]
     pub copy: bool,
-    #[doc = " When true the component vectors are multiplied by the square root of n_samples and then\n divided by the singular values to ensure uncorrelated outputs with unit component-wise\n variances."]
     pub whiten: bool,
-    #[doc = " Solver algorithm to use."]
     pub algorithm: cuvsPcaSolver,
-    #[doc = " Tolerance for singular values (used by Jacobi solver)."]
     pub tol: f32,
-    #[doc = " Number of iterations for the power method (Jacobi solver)."]
     pub n_iterations: ::std::os::raw::c_int,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -2845,17 +2830,14 @@ const _: () = {
 pub type cuvsPcaParams_t = *mut cuvsPcaParams;
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Allocate PCA params and populate with default values.\n\n @param[out] params cuvsPcaParams_t to allocate\n @return cuvsError_t"]
     pub fn cuvsPcaParamsCreate(params: *mut cuvsPcaParams_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief De-allocate PCA params.\n\n @param[in] params cuvsPcaParams_t to de-allocate\n @return cuvsError_t"]
     pub fn cuvsPcaParamsDestroy(params: cuvsPcaParams_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Perform PCA fit operation.\n\n Computes the principal components, explained variances, singular values, and column means\n from the input data.\n\n @code {.c}\n #include <cuvs/core/c_api.h>\n #include <cuvs/preprocessing/pca.h>\n\n // Create cuvsResources_t\n cuvsResources_t res;\n cuvsResourcesCreate(&res);\n\n // Create PCA params\n cuvsPcaParams_t params;\n cuvsPcaParamsCreate(&params);\n params->n_components = 2;\n\n // Assume populated DLManagedTensor objects (col-major, float32, device memory)\n DLManagedTensor input;          // [n_rows x n_cols]\n DLManagedTensor components;     // [n_components x n_cols]\n DLManagedTensor explained_var;  // [n_components]\n DLManagedTensor explained_var_ratio; // [n_components]\n DLManagedTensor singular_vals;  // [n_components]\n DLManagedTensor mu;             // [n_cols]\n DLManagedTensor noise_vars;     // [1] (scalar)\n\n cuvsPcaFit(res, params, &input, &components, &explained_var,\n            &explained_var_ratio, &singular_vals, &mu, &noise_vars, false);\n\n // Cleanup\n cuvsPcaParamsDestroy(params);\n cuvsResourcesDestroy(res);\n @endcode\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] params PCA parameters\n @param[inout] input input data [n_rows x n_cols] (col-major, float32, device)\n @param[out] components principal components [n_components x n_cols] (col-major, float32, device)\n @param[out] explained_var explained variances [n_components] (float32, device)\n @param[out] explained_var_ratio explained variance ratios [n_components] (float32, device)\n @param[out] singular_vals singular values [n_components] (float32, device)\n @param[out] mu column means [n_cols] (float32, device)\n @param[out] noise_vars noise variance [1] (float32, device)\n @param[in] flip_signs_based_on_U whether to determine signs by U (true) or V.T (false)\n @return cuvsError_t"]
     pub fn cuvsPcaFit(
         res: cuvsResources_t,
         params: cuvsPcaParams_t,
@@ -2871,7 +2853,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Perform PCA fit and transform in a single operation.\n\n Computes the principal components and transforms the input data into the eigenspace.\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] params PCA parameters\n @param[inout] input input data [n_rows x n_cols] (col-major, float32, device)\n @param[out] trans_input transformed data [n_rows x n_components] (col-major, float32, device)\n @param[out] components principal components [n_components x n_cols] (col-major, float32, device)\n @param[out] explained_var explained variances [n_components] (float32, device)\n @param[out] explained_var_ratio explained variance ratios [n_components] (float32, device)\n @param[out] singular_vals singular values [n_components] (float32, device)\n @param[out] mu column means [n_cols] (float32, device)\n @param[out] noise_vars noise variance [1] (float32, device)\n @param[in] flip_signs_based_on_U whether to determine signs by U (true) or V.T (false)\n @return cuvsError_t"]
     pub fn cuvsPcaFitTransform(
         res: cuvsResources_t,
         params: cuvsPcaParams_t,
@@ -2888,7 +2869,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Perform PCA transform operation.\n\n Transforms the input data into the eigenspace using previously computed principal components.\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] params PCA parameters\n @param[inout] input data to transform [n_rows x n_cols] (col-major, float32, device)\n @param[in] components principal components [n_components x n_cols] (col-major, float32, device)\n @param[in] singular_vals singular values [n_components] (float32, device)\n @param[in] mu column means [n_cols] (float32, device)\n @param[out] trans_input transformed data [n_rows x n_components] (col-major, float32, device)\n @return cuvsError_t"]
     pub fn cuvsPcaTransform(
         res: cuvsResources_t,
         params: cuvsPcaParams_t,
@@ -2901,7 +2881,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Perform PCA inverse transform operation.\n\n Transforms data from the eigenspace back to the original space.\n\n @param[in] res cuvsResources_t opaque C handle\n @param[in] params PCA parameters\n @param[in] trans_input transformed data [n_rows x n_components] (col-major, float32, device)\n @param[in] components principal components [n_components x n_cols] (col-major, float32, device)\n @param[in] singular_vals singular values [n_components] (float32, device)\n @param[in] mu column means [n_cols] (float32, device)\n @param[out] output reconstructed data [n_rows x n_cols] (col-major, float32, device)\n @return cuvsError_t"]
     pub fn cuvsPcaInverseTransform(
         res: cuvsResources_t,
         params: cuvsPcaParams_t,
@@ -2913,14 +2892,12 @@ unsafe extern "C" {
     ) -> cuvsError_t;
 }
 #[repr(u32)]
-#[doc = " @defgroup preprocessing_c_binary C API for Binary Quantizer\n @{\n/\n/**\n @brief In the cuvsBinaryQuantizerTransform function, a bit is set if the corresponding element in\n the dataset vector is greater than the corresponding element in the threshold vector. The mean\n and sampling_median thresholds are calculated separately for each dimension.\n"]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum cuvsBinaryQuantizerThreshold {
     ZERO = 0,
     MEAN = 1,
     SAMPLING_MEDIAN = 2,
 }
-#[doc = " @brief Binary quantizer parameters."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsBinaryQuantizerParams {
@@ -2941,16 +2918,13 @@ const _: () = {
 pub type cuvsBinaryQuantizerParams_t = *mut cuvsBinaryQuantizerParams;
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Allocate Binary Quantizer params, and populate with default values\n\n @param[in] params cuvsBinaryQuantizerParams_t to allocate\n @return cuvsError_t"]
     pub fn cuvsBinaryQuantizerParamsCreate(params: *mut cuvsBinaryQuantizerParams_t)
     -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief De-allocate Binary Quantizer params\n\n @param[in] params\n @return cuvsError_t"]
     pub fn cuvsBinaryQuantizerParamsDestroy(params: cuvsBinaryQuantizerParams_t) -> cuvsError_t;
 }
-#[doc = " @brief Defines and stores threshold for quantization upon training\n\n The quantization is performed by a linear mapping of an interval in the\n float data type to the full range of the quantized int type."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsBinaryQuantizer {
@@ -2969,17 +2943,14 @@ const _: () = {
 pub type cuvsBinaryQuantizer_t = *mut cuvsBinaryQuantizer;
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Allocate Binary Quantizer and populate with default values\n\n @param[in] quantizer cuvsBinaryQuantizer_t to allocate\n @return cuvsError_t"]
     pub fn cuvsBinaryQuantizerCreate(quantizer: *mut cuvsBinaryQuantizer_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief De-allocate Binary Quantizer\n\n @param[in] quantizer\n @return cuvsError_t"]
     pub fn cuvsBinaryQuantizerDestroy(quantizer: cuvsBinaryQuantizer_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Trains a binary quantizer to be used later for quantizing the dataset.\n\n @param[in] res raft resource\n @param[in] params configure binary quantizer, e.g. threshold\n @param[in] dataset a row-major host or device matrix\n @param[out] quantizer trained binary quantizer"]
     pub fn cuvsBinaryQuantizerTrain(
         res: cuvsResources_t,
         params: cuvsBinaryQuantizerParams_t,
@@ -2989,7 +2960,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Applies binary quantization transform to the given dataset\n\n This applies binary quantization to a dataset, changing any positive\n values to a bitwise 1. This is useful for searching with the\n BitwiseHamming distance type.\n\n @param[in] res raft resource\n @param[in] dataset a row-major host or device matrix to transform\n @param[out] out a row-major host or device matrix to store transformed data"]
     pub fn cuvsBinaryQuantizerTransform(
         res: cuvsResources_t,
         dataset: *mut DLManagedTensor,
@@ -2998,7 +2968,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Applies binary quantization transform to the given dataset\n\n This applies binary quantization to a dataset, changing any values that are larger than the\n threshold specified in the param to a bitwise 1. This is useful for searching with the\n BitwiseHamming distance type.\n\n @param[in] res raft resource\n @param[in] quantizer binary quantizer\n @param[in] dataset a row-major host or device matrix to transform\n @param[out] out a row-major host or device matrix to store transformed data"]
     pub fn cuvsBinaryQuantizerTransformWithParams(
         res: cuvsResources_t,
         quantizer: cuvsBinaryQuantizer_t,
@@ -3006,27 +2975,17 @@ unsafe extern "C" {
         out: *mut DLManagedTensor,
     ) -> cuvsError_t;
 }
-#[doc = " @defgroup preprocessing_c_pq C API for Product Quantizer\n @{\n/\n/**\n @brief Product quantizer parameters."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsProductQuantizerParams {
-    #[doc = " The bit length of the vector element after compression by PQ.\n\n Possible values: within [4, 16].\n\n Hint: the smaller the 'pq_bits', the smaller the index size and the better the search\n performance, but the lower the recall."]
     pub pq_bits: u32,
-    #[doc = " The dimensionality of the vector after compression by PQ.\n When zero, an optimal value is selected using a heuristic.\n\n TODO: at the moment `dim` must be a multiple `pq_dim`."]
     pub pq_dim: u32,
-    #[doc = " Whether to use subspaces for product quantization (PQ).\n When true, one PQ codebook is used for each subspace. Otherwise, a single\n PQ codebook is used."]
     pub use_subspaces: bool,
-    #[doc = " Whether to use Vector Quantization (KMeans) before product quantization (PQ).\n When true, VQ is used before PQ. When false, only product quantization is used."]
     pub use_vq: bool,
-    #[doc = " Vector Quantization (VQ) codebook size - number of \"coarse cluster centers\".\n When zero, an optimal value is selected using a heuristic.\n When one, only product quantization is used."]
     pub vq_n_centers: u32,
-    #[doc = " The number of iterations searching for kmeans centers (both VQ & PQ phases)."]
     pub kmeans_n_iters: u32,
-    #[doc = " The type of kmeans algorithm to use for PQ training."]
     pub pq_kmeans_type: cuvsKMeansType,
-    #[doc = " The max number of data points to use per PQ code during PQ codebook training. Using more data\n points per PQ code may increase the quality of PQ codebook but may also increase the build\n time. We will use `pq_n_centers * max_train_points_per_pq_code` training\n points to train each PQ codebook."]
     pub max_train_points_per_pq_code: u32,
-    #[doc = " The max number of data points to use per VQ cluster."]
     pub max_train_points_per_vq_cluster: u32,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -3061,17 +3020,14 @@ const _: () = {
 pub type cuvsProductQuantizerParams_t = *mut cuvsProductQuantizerParams;
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Allocate Product Quantizer params, and populate with default values\n\n @param[in] params cuvsProductQuantizerParams_t to allocate\n @return cuvsError_t"]
     pub fn cuvsProductQuantizerParamsCreate(
         params: *mut cuvsProductQuantizerParams_t,
     ) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief De-allocate Product Quantizer params\n\n @param[in] params\n @return cuvsError_t"]
     pub fn cuvsProductQuantizerParamsDestroy(params: cuvsProductQuantizerParams_t) -> cuvsError_t;
 }
-#[doc = " @brief Defines and stores product quantizer upon training\n\n The quantization is performed by a linear mapping of an interval in the\n float data type to the full range of the quantized int type."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsProductQuantizer {
@@ -3090,17 +3046,14 @@ const _: () = {
 pub type cuvsProductQuantizer_t = *mut cuvsProductQuantizer;
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Allocate Product Quantizer\n\n @param[in] quantizer cuvsProductQuantizer_t to allocate\n @return cuvsError_t"]
     pub fn cuvsProductQuantizerCreate(quantizer: *mut cuvsProductQuantizer_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief De-allocate Product Quantizer\n\n @param[in] quantizer\n @return cuvsError_t"]
     pub fn cuvsProductQuantizerDestroy(quantizer: cuvsProductQuantizer_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Builds a product quantizer to be used later for quantizing the dataset.\n\n @param[in] res raft resource\n @param[in] params Parameters for product quantizer training\n @param[in] dataset a row-major host or device matrix\n @param[out] quantizer trained product quantizer"]
     pub fn cuvsProductQuantizerBuild(
         res: cuvsResources_t,
         params: cuvsProductQuantizerParams_t,
@@ -3110,7 +3063,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Applies product quantization transform to the given dataset\n\n This applies product quantization to a dataset.\n\n @param[in] res raft resource\n @param[in] quantizer product quantizer\n @param[in] dataset a row-major host or device matrix to transform\n @param[out] codes_out a row-major device matrix to store transformed data\n @param[out] vq_labels a device vector to store VQ labels.\n   Optional, can be NULL."]
     pub fn cuvsProductQuantizerTransform(
         res: cuvsResources_t,
         quantizer: cuvsProductQuantizer_t,
@@ -3121,7 +3073,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Applies product quantization inverse transform to the given quantized codes\n\n This applies product quantization inverse transform to the given quantized codes.\n\n @param[in] res raft resource\n @param[in] quantizer product quantizer\n @param[in] pq_codes a row-major device matrix of quantized codes\n @param[out] out a row-major device matrix to store the original data\n @param[out] vq_labels a device vector containing the VQ labels when VQ is used.\n   Optional, can be NULL."]
     pub fn cuvsProductQuantizerInverseTransform(
         res: cuvsResources_t,
         quantizer: cuvsProductQuantizer_t,
@@ -3132,7 +3083,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Get the bit length of the vector element after compression by PQ.\n\n @param[in] quantizer product quantizer\n @param[out] pq_bits bit length of the vector element after compression by PQ"]
     pub fn cuvsProductQuantizerGetPqBits(
         quantizer: cuvsProductQuantizer_t,
         pq_bits: *mut u32,
@@ -3140,7 +3090,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Get the dimensionality of the vector after compression by PQ.\n\n @param[in] quantizer product quantizer\n @param[out] pq_dim dimensionality of the vector after compression by PQ"]
     pub fn cuvsProductQuantizerGetPqDim(
         quantizer: cuvsProductQuantizer_t,
         pq_dim: *mut u32,
@@ -3148,7 +3097,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Get the PQ codebook.\n\n @param[in] quantizer product quantizer\n @param[out] pq_codebook PQ codebook"]
     pub fn cuvsProductQuantizerGetPqCodebook(
         quantizer: cuvsProductQuantizer_t,
         pq_codebook: *mut DLManagedTensor,
@@ -3156,7 +3104,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Get the VQ codebook.\n\n @param[in] quantizer product quantizer\n @param[out] vq_codebook VQ codebook"]
     pub fn cuvsProductQuantizerGetVqCodebook(
         quantizer: cuvsProductQuantizer_t,
         vq_codebook: *mut DLManagedTensor,
@@ -3164,7 +3111,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Get the encoded dimension of the quantized dataset.\n\n @param[in] quantizer product quantizer\n @param[out] encoded_dim encoded dimension of the quantized dataset"]
     pub fn cuvsProductQuantizerGetEncodedDim(
         quantizer: cuvsProductQuantizer_t,
         encoded_dim: *mut u32,
@@ -3172,13 +3118,11 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Get whether VQ is used.\n\n @param[in] quantizer product quantizer\n @param[out] use_vq whether VQ is used"]
     pub fn cuvsProductQuantizerGetUseVq(
         quantizer: cuvsProductQuantizer_t,
         use_vq: *mut bool,
     ) -> cuvsError_t;
 }
-#[doc = " @defgroup preprocessing_c_scalar C API for Scalar Quantizer\n @{\n/\n/**\n @brief Scalar quantizer parameters."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsScalarQuantizerParams {
@@ -3196,16 +3140,13 @@ const _: () = {
 pub type cuvsScalarQuantizerParams_t = *mut cuvsScalarQuantizerParams;
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Allocate Scalar Quantizer params, and populate with default values\n\n @param[in] params cuvsScalarQuantizerParams_t to allocate\n @return cuvsError_t"]
     pub fn cuvsScalarQuantizerParamsCreate(params: *mut cuvsScalarQuantizerParams_t)
     -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief De-allocate Scalar Quantizer params\n\n @param[in] params\n @return cuvsError_t"]
     pub fn cuvsScalarQuantizerParamsDestroy(params: cuvsScalarQuantizerParams_t) -> cuvsError_t;
 }
-#[doc = " @brief Defines and stores scalar for quantisation upon training\n\n The quantization is performed by a linear mapping of an interval in the\n float data type to the full range of the quantized int type."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsScalarQuantizer {
@@ -3224,17 +3165,14 @@ const _: () = {
 pub type cuvsScalarQuantizer_t = *mut cuvsScalarQuantizer;
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Allocate Scalar Quantizer and populate with default values\n\n @param[in] quantizer cuvsScalarQuantizer_t to allocate\n @return cuvsError_t"]
     pub fn cuvsScalarQuantizerCreate(quantizer: *mut cuvsScalarQuantizer_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief De-allocate Scalar Quantizer\n\n @param[in] quantizer\n @return cuvsError_t"]
     pub fn cuvsScalarQuantizerDestroy(quantizer: cuvsScalarQuantizer_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Trains a scalar quantizer to be used later for quantizing the dataset.\n\n @param[in] res raft resource\n @param[in] params configure scalar quantizer, e.g. quantile\n @param[in] dataset a row-major host or device matrix\n @param[out] quantizer trained scalar quantizer"]
     pub fn cuvsScalarQuantizerTrain(
         res: cuvsResources_t,
         params: cuvsScalarQuantizerParams_t,
@@ -3244,7 +3182,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Applies quantization transform to given dataset\n\n @param[in] res raft resource\n @param[in] quantizer a scalar quantizer\n @param[in] dataset a row-major host or device matrix to transform\n @param[out] out a row-major host or device matrix to store transformed data"]
     pub fn cuvsScalarQuantizerTransform(
         res: cuvsResources_t,
         quantizer: cuvsScalarQuantizer_t,
@@ -3254,7 +3191,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    #[doc = " @brief Perform inverse quantization step on previously quantized dataset\n\n Note that depending on the chosen data types train dataset the conversion is\n not lossless.\n\n @param[in] res raft resource\n @param[in] quantizer a scalar quantizer\n @param[in] dataset a row-major host or device matrix\n @param[out] out a row-major host or device matrix\n"]
     pub fn cuvsScalarQuantizerInverseTransform(
         res: cuvsResources_t,
         quantizer: cuvsScalarQuantizer_t,

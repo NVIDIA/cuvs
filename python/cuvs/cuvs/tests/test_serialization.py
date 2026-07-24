@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -7,7 +7,10 @@ import pytest
 from pylibraft.common import device_ndarray
 
 from cuvs.neighbors import brute_force, cagra, ivf_flat, ivf_pq
-from cuvs.tests.ann_utils import calc_recall, generate_data
+from cuvs.tests.ann_utils import (
+    calc_recall,
+    generate_data,
+)
 
 
 @pytest.mark.parametrize("dtype", [np.float32, np.int8, np.ubyte])
@@ -41,11 +44,51 @@ def run_save_load(ann_module, dtype):
     else:
         build_params = ann_module.IndexParams()
         index = ann_module.build(build_params, dataset_device)
+        keepalive = []
+        if ann_module == cagra:
+            if (
+                ann_module.get_dataset_view_kind(dataset_device)
+                == "device_standard"
+            ):
+                padded_dataset = ann_module.make_device_padded_dataset(
+                    dataset_device
+                )
+                padded_view = ann_module.make_view_from_owning_padded(
+                    padded_dataset
+                )
+                ann_module.attach_dataset(index, padded_view)
+                keepalive = [padded_dataset, padded_view]
+        assert keepalive is not None
 
     assert index.trained
     filename = "my_index.bin"
     ann_module.save(filename, index)
-    loaded_index = ann_module.load(filename)
+    if ann_module == cagra:
+        loaded_index = ann_module.Index()
+        view_kind = ann_module.get_dataset_view_kind(dataset_device)
+        layout = "standard" if view_kind.endswith("standard") else "padded"
+        out_dataset = (
+            ann_module.StandardDataset()
+            if layout == "standard"
+            else ann_module.PaddedDataset()
+        )
+        ann_module.load(
+            loaded_index,
+            filename,
+            out_dataset=out_dataset,
+        )
+        reloaded_keepalive = [out_dataset]
+        if layout == "standard":
+            padded_dataset = ann_module.make_device_padded_dataset(
+                dataset_device
+            )
+            padded_view = ann_module.make_view_from_owning_padded(
+                padded_dataset
+            )
+            ann_module.attach_dataset(loaded_index, padded_view)
+            reloaded_keepalive.extend([padded_dataset, padded_view])
+    else:
+        loaded_index = ann_module.load(filename)
 
     queries = generate_data((n_queries, n_cols), dtype)
 
