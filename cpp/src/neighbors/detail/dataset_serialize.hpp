@@ -1,11 +1,13 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
 
 #include <cuvs/neighbors/common.hpp>
+#include <cuvs/util/file_io.hpp>
 
+#include <raft/core/device_mdarray.hpp>
 #include <raft/core/host_mdarray.hpp>
 #include <raft/core/resources.hpp>
 #include <raft/core/serialize.hpp>
@@ -15,8 +17,13 @@
 
 #include <cuda_fp16.h>
 
+#include <algorithm>
+#include <cstddef>
 #include <fstream>
 #include <memory>
+#include <type_traits>
+
+#include "../../util/kvikio_serialize.hpp"
 
 namespace cuvs::neighbors::detail {
 
@@ -32,10 +39,53 @@ void serialize(const raft::resources& res, std::ostream& os, const empty_dataset
 }
 
 template <typename DataT, typename IdxT>
+void serialize_strided_kvikio(const raft::resources& res,
+                              cuvs::util::kvikio_ofstream& os,
+                              const strided_dataset<DataT, IdxT>& dataset)
+{
+  const auto n_rows = dataset.n_rows();
+  const auto dim    = dataset.dim();
+  const auto stride = dataset.stride();
+  raft::serialize_scalar(res, os, n_rows);
+  raft::serialize_scalar(res, os, dim);
+  raft::serialize_scalar(res, os, stride);
+
+  cuvs::util::detail::write_numpy_header<DataT>(
+    os, {static_cast<size_t>(n_rows), static_cast<size_t>(dim)});
+  if (n_rows == 0 || dim == 0) { return; }
+
+  const auto src       = dataset.view();
+  const size_t row_len = static_cast<size_t>(dim) * sizeof(DataT);
+  if (stride == dim) {
+    raft::resource::sync_stream(res);
+    os.write_device(src.data_handle(), static_cast<size_t>(n_rows) * row_len);
+    return;
+  }
+
+  const auto batch_rows = static_cast<IdxT>(std::min<size_t>(
+    static_cast<size_t>(n_rows),
+    std::max<size_t>(1, cuvs::util::detail::kDeviceSerializationBatchBytes / row_len)));
+  auto packed           = raft::make_device_matrix<DataT, IdxT>(res, batch_rows, dim);
+  const auto stream     = raft::resource::get_cuda_stream(res);
+  for (IdxT first_row = 0; first_row < n_rows; first_row += batch_rows) {
+    const auto rows = std::min<IdxT>(batch_rows, n_rows - first_row);
+    raft::copy_matrix(
+      packed.data_handle(), dim, src.data_handle() + first_row * stride, stride, dim, rows, stream);
+    raft::resource::sync_stream(res);
+    os.write_device(packed.data_handle(), static_cast<size_t>(rows) * row_len);
+  }
+}
+
+template <typename DataT, typename IdxT>
 void serialize(const raft::resources& res,
                std::ostream& os,
                const strided_dataset<DataT, IdxT>& dataset)
 {
+  if (auto* kvikio_stream = dynamic_cast<cuvs::util::kvikio_ofstream*>(&os);
+      kvikio_stream != nullptr) {
+    return serialize_strided_kvikio(res, *kvikio_stream, dataset);
+  }
+
   auto n_rows = dataset.n_rows();
   auto dim    = dataset.dim();
   auto stride = dataset.stride();
@@ -56,6 +106,14 @@ void serialize(const raft::resources& res,
   raft::serialize_mdspan(res, os, dst.view());
 }
 
+template <typename DataT, typename IdxT>
+void serialize(const raft::resources& res,
+               cuvs::util::kvikio_ofstream& os,
+               const strided_dataset<DataT, IdxT>& dataset)
+{
+  serialize_strided_kvikio(res, os, dataset);
+}
+
 template <typename MathT, typename IdxT>
 void serialize(const raft::resources& res,
                std::ostream& os,
@@ -67,13 +125,31 @@ void serialize(const raft::resources& res,
   raft::serialize_scalar(res, os, dataset.pq_n_centers());
   raft::serialize_scalar(res, os, dataset.pq_len());
   raft::serialize_scalar(res, os, dataset.encoded_row_length());
-  raft::serialize_mdspan(res, os, make_const_mdspan(dataset.vq_code_book.view()));
-  raft::serialize_mdspan(res, os, make_const_mdspan(dataset.pq_code_book.view()));
-  raft::serialize_mdspan(res, os, make_const_mdspan(dataset.data.view()));
+  cuvs::util::detail::serialize_mdspan(res, os, make_const_mdspan(dataset.vq_code_book.view()));
+  cuvs::util::detail::serialize_mdspan(res, os, make_const_mdspan(dataset.pq_code_book.view()));
+  cuvs::util::detail::serialize_mdspan(res, os, make_const_mdspan(dataset.data.view()));
 }
 
-template <typename IdxT>
-void serialize(const raft::resources& res, std::ostream& os, const dataset<IdxT>& dataset)
+template <typename MathT, typename IdxT>
+void serialize(const raft::resources& res,
+               cuvs::util::kvikio_ofstream& os,
+               const vpq_dataset<MathT, IdxT>& dataset)
+{
+  raft::serialize_scalar(res, os, dataset.n_rows());
+  raft::serialize_scalar(res, os, dataset.dim());
+  raft::serialize_scalar(res, os, dataset.vq_n_centers());
+  raft::serialize_scalar(res, os, dataset.pq_n_centers());
+  raft::serialize_scalar(res, os, dataset.pq_len());
+  raft::serialize_scalar(res, os, dataset.encoded_row_length());
+  cuvs::util::detail::serialize_device_mdspan(
+    res, os, make_const_mdspan(dataset.vq_code_book.view()));
+  cuvs::util::detail::serialize_device_mdspan(
+    res, os, make_const_mdspan(dataset.pq_code_book.view()));
+  cuvs::util::detail::serialize_device_mdspan(res, os, make_const_mdspan(dataset.data.view()));
+}
+
+template <typename OutputStream, typename IdxT>
+void serialize_dataset(const raft::resources& res, OutputStream& os, const dataset<IdxT>& dataset)
 {
   if (auto x = dynamic_cast<const empty_dataset<IdxT>*>(&dataset); x != nullptr) {
     raft::serialize_scalar(res, os, kSerializeEmptyDataset);
@@ -113,9 +189,24 @@ void serialize(const raft::resources& res, std::ostream& os, const dataset<IdxT>
 }
 
 template <typename IdxT>
-auto deserialize_empty(raft::resources const& res, std::istream& is)
+void serialize(const raft::resources& res, std::ostream& os, const dataset<IdxT>& dataset)
+{
+  serialize_dataset(res, os, dataset);
+}
+
+template <typename IdxT>
+void serialize(const raft::resources& res,
+               cuvs::util::kvikio_ofstream& os,
+               const dataset<IdxT>& dataset)
+{
+  serialize_dataset(res, os, dataset);
+}
+
+template <typename IdxT, typename Input>
+auto deserialize_empty(raft::resources const& res, Input& input)
   -> std::unique_ptr<empty_dataset<IdxT>>
 {
+  auto& is           = cuvs::util::detail::input_stream(input);
   auto suggested_dim = raft::deserialize_scalar<uint32_t>(res, is);
   return std::make_unique<empty_dataset<IdxT>>(suggested_dim);
 }
@@ -132,10 +223,72 @@ auto deserialize_strided(raft::resources const& res, std::istream& is)
   return make_strided_dataset(res, std::move(host_array), stride);
 }
 
-template <typename MathT, typename IdxT>
-auto deserialize_vpq(raft::resources const& res, std::istream& is)
+template <typename DataT, typename IdxT>
+auto deserialize_strided(raft::resources const& res, cuvs::util::kvikio_file_reader& reader)
+  -> std::unique_ptr<strided_dataset<DataT, IdxT>>
+{
+  auto& is          = reader.stream();
+  const auto rows   = raft::deserialize_scalar<IdxT>(res, is);
+  const auto dim    = raft::deserialize_scalar<uint32_t>(res, is);
+  const auto stride = raft::deserialize_scalar<uint32_t>(res, is);
+  if constexpr (std::is_signed_v<IdxT>) {
+    RAFT_EXPECTS(rows >= 0, "Failed to deserialize dataset: row count must not be negative.");
+  }
+  RAFT_EXPECTS(
+    dim <= stride, "Failed to deserialize dataset: dimension %u exceeds stride %u.", dim, stride);
+
+  auto data = raft::make_device_matrix<DataT, IdxT>(res, rows, static_cast<IdxT>(stride));
+  cuvs::util::detail::validate_numpy_header<DataT>(
+    reader, {static_cast<size_t>(rows), static_cast<size_t>(dim)});
+
+  const auto stream = raft::resource::get_cuda_stream(res);
+  if (data.size() > 0) {
+    RAFT_CUDA_TRY(cudaMemsetAsync(data.data_handle(), 0, data.size() * sizeof(DataT), stream));
+    raft::resource::sync_stream(res);
+  }
+
+  if (rows > 0 && dim > 0) {
+    const size_t row_bytes = static_cast<size_t>(dim) * sizeof(DataT);
+    if (stride == dim) {
+      reader.read_device(data.data_handle(), static_cast<size_t>(rows) * row_bytes);
+    } else {
+      const auto batch_rows = static_cast<IdxT>(std::min<size_t>(
+        static_cast<size_t>(rows),
+        std::max<size_t>(1, cuvs::util::detail::kDeviceSerializationBatchBytes / row_bytes)));
+      auto packed = raft::make_device_matrix<DataT, IdxT>(res, batch_rows, static_cast<IdxT>(dim));
+      raft::resource::sync_stream(res);
+
+      for (IdxT first_row = 0; first_row < rows; first_row += batch_rows) {
+        const auto batch_size = std::min<IdxT>(batch_rows, rows - first_row);
+        reader.read_device(packed.data_handle(), static_cast<size_t>(batch_size) * row_bytes);
+        raft::copy_matrix(data.data_handle() + first_row * stride,
+                          stride,
+                          packed.data_handle(),
+                          dim,
+                          dim,
+                          batch_size,
+                          stream);
+        raft::resource::sync_stream(res);
+      }
+    }
+  }
+
+  const auto logical_extents = raft::make_extents<IdxT>(rows, static_cast<IdxT>(dim));
+  const auto layout          = raft::make_strided_layout(
+    logical_extents, cuda::std::array<IdxT, 2>{static_cast<IdxT>(stride), 1});
+  using storage_type        = decltype(data);
+  using owning_dataset_type = owning_dataset<DataT,
+                                             IdxT,
+                                             typename storage_type::layout_type,
+                                             typename storage_type::container_policy_type>;
+  return std::make_unique<owning_dataset_type>(std::move(data), layout);
+}
+
+template <typename MathT, typename IdxT, typename Input>
+auto deserialize_vpq(raft::resources const& res, Input& input)
   -> std::unique_ptr<vpq_dataset<MathT, IdxT>>
 {
+  auto& is                = cuvs::util::detail::input_stream(input);
   auto n_rows             = raft::deserialize_scalar<IdxT>(res, is);
   auto dim                = raft::deserialize_scalar<uint32_t>(res, is);
   auto vq_n_centers       = raft::deserialize_scalar<uint32_t>(res, is);
@@ -150,28 +303,28 @@ auto deserialize_vpq(raft::resources const& res, std::istream& is)
   auto data =
     raft::make_device_matrix<uint8_t, IdxT, raft::row_major>(res, n_rows, encoded_row_length);
 
-  raft::deserialize_mdspan(res, is, vq_code_book.view());
-  raft::deserialize_mdspan(res, is, pq_code_book.view());
-  raft::deserialize_mdspan(res, is, data.view());
+  cuvs::util::detail::deserialize_mdspan(res, input, vq_code_book.view());
+  cuvs::util::detail::deserialize_mdspan(res, input, pq_code_book.view());
+  cuvs::util::detail::deserialize_mdspan(res, input, data.view());
 
   return std::make_unique<vpq_dataset<MathT, IdxT>>(
     std::move(vq_code_book), std::move(pq_code_book), std::move(data));
 }
 
-template <typename IdxT>
-auto deserialize_dataset(raft::resources const& res, std::istream& is)
-  -> std::unique_ptr<dataset<IdxT>>
+template <typename IdxT, typename Input>
+auto deserialize_dataset(raft::resources const& res, Input& input) -> std::unique_ptr<dataset<IdxT>>
 {
+  auto& is       = cuvs::util::detail::input_stream(input);
   const auto tag = raft::deserialize_scalar<dataset_instance_tag>(res, is);
   switch (tag) {
-    case kSerializeEmptyDataset: return deserialize_empty<IdxT>(res, is);
+    case kSerializeEmptyDataset: return deserialize_empty<IdxT>(res, input);
     case kSerializeStridedDataset: {
       const auto dtype = raft::deserialize_scalar<cudaDataType_t>(res, is);
       switch (dtype) {
-        case CUDA_R_32F: return deserialize_strided<float, IdxT>(res, is);
-        case CUDA_R_16F: return deserialize_strided<half, IdxT>(res, is);
-        case CUDA_R_8I: return deserialize_strided<int8_t, IdxT>(res, is);
-        case CUDA_R_8U: return deserialize_strided<uint8_t, IdxT>(res, is);
+        case CUDA_R_32F: return deserialize_strided<float, IdxT>(res, input);
+        case CUDA_R_16F: return deserialize_strided<half, IdxT>(res, input);
+        case CUDA_R_8I: return deserialize_strided<int8_t, IdxT>(res, input);
+        case CUDA_R_8U: return deserialize_strided<uint8_t, IdxT>(res, input);
         default:
           RAFT_FAIL("Failed to deserialize dataset: unsupported strided dataset element type %d.",
                     static_cast<int>(dtype));
@@ -180,8 +333,8 @@ auto deserialize_dataset(raft::resources const& res, std::istream& is)
     case kSerializeVPQDataset: {
       const auto dtype = raft::deserialize_scalar<cudaDataType_t>(res, is);
       switch (dtype) {
-        case CUDA_R_32F: return deserialize_vpq<float, IdxT>(res, is);
-        case CUDA_R_16F: return deserialize_vpq<half, IdxT>(res, is);
+        case CUDA_R_32F: return deserialize_vpq<float, IdxT>(res, input);
+        case CUDA_R_16F: return deserialize_vpq<half, IdxT>(res, input);
         default:
           RAFT_FAIL("Failed to deserialize dataset: unsupported VPQ dtype %d.",
                     static_cast<int>(dtype));

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -173,27 +173,22 @@ void deserialize(const raft::resources& handle,
 {
   std::lock_guard lock(*interface.mutex_);
 
-  std::ifstream is(filename, std::ios::in | std::ios::binary);
-  if (!is) { RAFT_FAIL("Cannot open file %s", filename.c_str()); }
-
   if constexpr (std::is_same<AnnIndexType, ivf_flat::index<T, IdxT>>::value) {
     ivf_flat::index<T, IdxT> idx(handle);
-    ivf_flat::deserialize(handle, is, &idx);
+    ivf_flat::deserialize(handle, filename, &idx);
     resource::sync_stream(handle);
     interface.index_.emplace(std::move(idx));
   } else if constexpr (std::is_same<AnnIndexType, ivf_pq::index<IdxT>>::value) {
     ivf_pq::index<IdxT> idx(handle);
-    ivf_pq::deserialize(handle, is, &idx);
+    ivf_pq::deserialize(handle, filename, &idx);
     resource::sync_stream(handle);
     interface.index_.emplace(std::move(idx));
   } else if constexpr (std::is_same<AnnIndexType, cagra::index<T, IdxT>>::value) {
     cagra::index<T, IdxT> idx(handle);
-    cagra::deserialize(handle, is, &idx);
+    cagra::deserialize(handle, filename, &idx);
     resource::sync_stream(handle);
     interface.index_.emplace(std::move(idx));
   }
-
-  is.close();
 }
 
 };  // namespace cuvs::neighbors

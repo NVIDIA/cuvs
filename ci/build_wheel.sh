@@ -1,5 +1,5 @@
 #!/bin/bash
-# SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 set -euo pipefail
@@ -40,6 +40,7 @@ EXCLUDE_ARGS=(
   --exclude "libcurand.so.*"
   --exclude "libcusolver.so.*"
   --exclude "libcusparse.so.*"
+  --exclude "libkvikio.so*"
   --exclude "libnccl.so.*"
   --exclude "libnvJitLink.so.*"
   --exclude "libnvrtc.so.*"

@@ -172,6 +172,7 @@ target_link_libraries(
           $<IF:$<BOOL:${CUVSC_STATIC_CUVS_LIBRARY}>,cuvs::cuvs_static,cuvs::cuvs> #
           $<COMPILE_ONLY:raft::raft> # enforce we shouldn't use raft symbols
           $<TARGET_NAME_IF_EXISTS:hnswlib::hnswlib>
+          $<BUILD_LOCAL_INTERFACE:$<TARGET_NAME_IF_EXISTS:kvikio::kvikio>>
 )
 
 # ##################################################################################################
@@ -191,6 +192,19 @@ if(PROJECT_IS_TOP_LEVEL)
     COMPONENT c_api
     EXPORT cuvs-c-exports
   )
+  if(CUVSC_STATIC_CUVS_LIBRARY AND TARGET kvikio::kvikio)
+    get_target_property(_cuvs_kvikio_aliased_target kvikio::kvikio ALIASED_TARGET)
+    if(_cuvs_kvikio_aliased_target)
+      set(_cuvs_kvikio_runtime_target "${_cuvs_kvikio_aliased_target}")
+    else()
+      set(_cuvs_kvikio_runtime_target kvikio::kvikio)
+    endif()
+    install(
+      FILES "$<TARGET_FILE:${_cuvs_kvikio_runtime_target}>"
+      DESTINATION ${lib_dir}
+      COMPONENT c_api
+    )
+  endif()
   install(
     DIRECTORY include/cuvs
     COMPONENT c_api
@@ -214,6 +228,10 @@ if(BUILD_TESTS)
   rapids_cuda_init_architectures(CUVS_C)
   enable_language(CUDA)
   find_package(CUDAToolkit REQUIRED)
+
+  if(CUVSC_STATIC_CUVS_LIBRARY AND NOT TARGET kvikio::kvikio)
+    include(../cpp/cmake/thirdparty/get_kvikio.cmake)
+  endif()
 
   enable_testing()
   add_subdirectory(tests)

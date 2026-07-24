@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -48,18 +48,12 @@ void FlatInitializerGPU::LoadCentroids(std::ifstream& input, const char* filenam
   raft::resource::sync_stream(handle_);
 }
 
-// Saves the centroids to a file.
-// The centroids are first copied from device memory to a temporary host buffer,
-// and then the entire block of data is written to the output stream.
-void FlatInitializerGPU::SaveCentroids(std::ofstream& output, const char* filename) const
+// Saves the centroids directly from device memory.
+void FlatInitializerGPU::SaveCentroids(cuvs::util::kvikio_ofstream& output,
+                                       const char* filename) const
 {
-  // Allocate temporary host buffer for centroids.
-  auto host_buf = raft::make_host_vector<float, int64_t>(K * D);
-  // Copy centroids from device to host.
-  raft::copy(host_buf.data_handle(), centroids_.data_handle(), data_elements(), stream_);
   raft::resource::sync_stream(handle_);
-  // Write the raw data to the file.
-  output.write(reinterpret_cast<char*>(host_buf.data_handle()), data_bytes());
+  output.write_device(centroids_.data_handle(), data_bytes());
   RAFT_EXPECTS(static_cast<bool>(output), "Failed to write centroids to file: %s", filename);
 }
 
