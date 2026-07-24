@@ -217,17 +217,9 @@ cdef extern from "cuvs/neighbors/cagra.h" nogil:
                                 DLManagedTensor* neighbors,
                                 DLManagedTensor* distances,
                                 cuvsFilter filter)
-    cuvsError_t cuvsCagraAttachPaddedDatasetForSearch(
+    cuvsError_t cuvsCagraAttachDataset(
         cuvsResources_t res,
-        cuvsDatasetPaddedView_t padded_dataset,
-        cuvsCagraIndex_t index)
-    cuvsError_t cuvsCagraAttachDeviceStandardDatasetOnHostIndex(
-        cuvsResources_t res,
-        cuvsDatasetStandardView_t device_dataset,
-        cuvsCagraIndex_t index)
-    cuvsError_t cuvsCagraAttachDevicePaddedDatasetOnHostIndex(
-        cuvsResources_t res,
-        cuvsDatasetPaddedView_t device_dataset,
+        cuvsDatasetPaddedView_t device_padded_dataset,
         cuvsCagraIndex_t index)
 
     cuvsError_t cuvsCagraSerialize(cuvsResources_t res,

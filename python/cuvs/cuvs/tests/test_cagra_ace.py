@@ -86,23 +86,18 @@ def run_cagra_ace_build_search_test(
                 padded_view = cagra.make_view_from_owning_padded(
                     padded_dataset
                 )
-                cagra.attach_device_dataset_on_host_index(index, padded_view)
+                cagra.attach_dataset(index, padded_view)
                 keepalive = [dataset_device, padded_dataset, padded_view]
             elif dataset_kind == "host_standard":
-                standard_view = cagra.make_device_standard_dataset_view(
-                    dataset_device
-                )
-                cagra.attach_device_dataset_on_host_index(index, standard_view)
                 padded_dataset = cagra.make_device_padded_dataset(
                     dataset_device
                 )
                 padded_view = cagra.make_view_from_owning_padded(
                     padded_dataset
                 )
-                cagra.attach_padded_dataset_for_search(index, padded_view)
+                cagra.attach_dataset(index, padded_view)
                 keepalive = [
                     dataset_device,
-                    standard_view,
                     padded_dataset,
                     padded_view,
                 ]

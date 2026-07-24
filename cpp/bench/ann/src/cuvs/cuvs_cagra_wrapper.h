@@ -244,8 +244,8 @@ void cuvs_cagra<T, IdxT>::build(const T* dataset, size_t nrow)
       }
       auto ace_host_index = cuvs::neighbors::cagra::build(handle_, params, *host_pdv);
       auto padded         = cuvs::neighbors::make_device_padded_dataset(handle_, dataset_view_host);
-      auto ace_index      = cuvs::neighbors::cagra::attach_device_dataset_on_host_index(
-        handle_, ace_host_index, padded->as_dataset_view());
+      auto ace_index =
+        cuvs::neighbors::cagra::attach_dataset(handle_, ace_host_index, padded->as_dataset_view());
       *dataset_ = std::move(padded->data_);
       index_    = std::make_shared<index_type>(std::move(ace_index));
     } else {
@@ -348,7 +348,7 @@ void cuvs_cagra<T, IdxT>::build(const T* dataset, size_t nrow)
           }
           auto ace_host_index = cuvs::neighbors::cagra::build(handle_, params, *host_pdv_sub);
           auto padded_sub     = cuvs::neighbors::make_device_padded_dataset(handle_, sub_host);
-          sub_index           = cuvs::neighbors::cagra::attach_device_dataset_on_host_index(
+          sub_index           = cuvs::neighbors::cagra::attach_dataset(
             handle_, ace_host_index, padded_sub->as_dataset_view());
           sub_dataset_buffers_->push_back(std::move(padded_sub->data_));
         } else if (dataset_is_on_host) {

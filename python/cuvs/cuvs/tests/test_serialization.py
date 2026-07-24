@@ -56,7 +56,7 @@ def run_save_load(ann_module, dtype):
                 padded_view = ann_module.make_view_from_owning_padded(
                     padded_dataset
                 )
-                ann_module.attach_padded_dataset_for_search(index, padded_view)
+                ann_module.attach_dataset(index, padded_view)
                 keepalive = [padded_dataset, padded_view]
         assert keepalive is not None
 
@@ -85,9 +85,7 @@ def run_save_load(ann_module, dtype):
             padded_view = ann_module.make_view_from_owning_padded(
                 padded_dataset
             )
-            ann_module.attach_padded_dataset_for_search(
-                loaded_index, padded_view
-            )
+            ann_module.attach_dataset(loaded_index, padded_view)
             reloaded_keepalive.extend([padded_dataset, padded_view])
     else:
         loaded_index = ann_module.load(filename)

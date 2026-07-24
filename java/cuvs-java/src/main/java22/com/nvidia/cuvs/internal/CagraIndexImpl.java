@@ -439,7 +439,7 @@ public class CagraIndexImpl implements CagraIndex {
   }
 
   @Override
-  public void attachDevicePaddedDatasetOnHostIndex(CagraIndex.DevicePaddedDatasetView datasetView)
+  public void attachDataset(CagraIndex.DevicePaddedDatasetView datasetView)
       throws Throwable {
     checkNotDestroyed();
     Objects.requireNonNull(datasetView);
@@ -450,31 +450,11 @@ public class CagraIndexImpl implements CagraIndex {
     try (var resourcesAccessor = resources.access()) {
       var cuvsRes = resourcesAccessor.handle();
       var returnValue =
-          cuvsCagraAttachDevicePaddedDatasetOnHostIndex(
+          cuvsCagraAttachDataset(
               cuvsRes,
               MemorySegment.ofAddress(datasetView.nativeHandleAddress()),
               cagraIndexReference.getMemorySegment());
-      checkCuVSError(returnValue, "cuvsCagraAttachDevicePaddedDatasetOnHostIndex");
-    }
-  }
-
-  @Override
-  public void attachDeviceStandardDatasetOnHostIndex(CagraIndex.DeviceStandardDatasetView datasetView)
-      throws Throwable {
-    checkNotDestroyed();
-    Objects.requireNonNull(datasetView);
-    if (!datasetView.isPresent()) {
-      throw new IllegalArgumentException("datasetView is uninitialized");
-    }
-
-    try (var resourcesAccessor = resources.access()) {
-      var cuvsRes = resourcesAccessor.handle();
-      var returnValue =
-          cuvsCagraAttachDeviceStandardDatasetOnHostIndex(
-              cuvsRes,
-              MemorySegment.ofAddress(datasetView.nativeHandleAddress()),
-              cagraIndexReference.getMemorySegment());
-      checkCuVSError(returnValue, "cuvsCagraAttachDeviceStandardDatasetOnHostIndex");
+      checkCuVSError(returnValue, "cuvsCagraAttachDataset");
     }
   }
 

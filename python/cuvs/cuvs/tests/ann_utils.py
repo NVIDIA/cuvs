@@ -95,7 +95,7 @@ def run_filtered_search_test(
             padded_view = search_module.make_view_from_owning_padded(
                 padded_dataset
             )
-            search_module.attach_padded_dataset_for_search(index, padded_view)
+            search_module.attach_dataset(index, padded_view)
             keepalive = [padded_dataset, padded_view]
     assert keepalive is not None
     filter_ = filters.from_bitset(bitset_device)

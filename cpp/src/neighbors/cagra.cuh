@@ -285,8 +285,8 @@ void optimize(
  * view**, the `dataset` view is stored in the returned index as a non-owning view — no copy is
  * made. The caller must keep the underlying storage alive for the lifetime of the index.
  *
- * For host views, `attach_dataset_on_build` is ignored — the host_padded_index cannot be
- * searched; call `attach_device_dataset_on_host_index` to get a search-ready device index.
+ * For host views, `attach_dataset_on_build` is ignored — host indices cannot be searched; call
+ * `attach_dataset` with a device-padded dataset to get a search-ready device index.
  */
 template <typename DatasetViewT>
   requires(!cuvs::neighbors::is_empty_dataset_view_v<DatasetViewT> &&
@@ -299,8 +299,8 @@ auto build(raft::resources const& res, const index_params& params, DatasetViewT 
   using IdxT = uint32_t;
 
   // Device path: build graph, optionally attach dataset view.
-  // attach_dataset_on_build is only meaningful for device builds — a host_padded_index cannot
-  // be searched regardless; the caller must call attach_device_dataset_on_host_index.
+  // attach_dataset_on_build is only meaningful for device builds — host indices are not
+  // searchable and require attach_dataset(...) with a device-padded dataset.
   if constexpr (cuvs::neighbors::is_device_vpq_dataset_view_v<DatasetViewT>) {
     RAFT_FAIL("cagra::build: VPQ-compressed dataset cannot be used for dense graph construction.");
   } else if constexpr (cuvs::neighbors::is_dense_row_major_device_dataset_view_v<DatasetViewT>) {

@@ -559,49 +559,20 @@ CUVS_EXPORT cuvsError_t cuvsCagraIndexGetDataset(cuvsCagraIndex_t index, DLManag
 CUVS_EXPORT cuvsError_t cuvsCagraIndexGetGraph(cuvsCagraIndex_t index, DLManagedTensor* graph);
 
 /**
- * @brief Attach a padded dataset to a standard CAGRA index to make it searchable.
+ * @brief Attach a device-padded dataset and return a search-ready padded-device index.
  *
- * The function converts the index to the padded-search-ready form using C++ API
- * `attach_padded_dataset_for_search`.
- * Caller retains ownership of \p padded_dataset and must keep it alive while \p index uses it.
+ * Accepts any CAGRA index layout (host/device + standard/padded). The input \p index is replaced
+ * in-place with a padded-device index on success. Caller retains ownership of
+ * \p device_padded_dataset and must keep it alive while \p index uses it.
  *
- * @param[in] res             cuvsResources_t opaque C handle
- * @param[in] padded_dataset  padded dataset view handle created by \ref cuvsDatasetMakePaddedView
- * @param[inout] index        CAGRA index handle
+ * @param[in] res                    cuvsResources_t opaque C handle
+ * @param[in] device_padded_dataset  device padded dataset view handle
+ * @param[in,out] index              CAGRA index handle (any layout), replaced with padded-device index
  * @return cuvsError_t
  */
-CUVS_EXPORT cuvsError_t cuvsCagraAttachPaddedDatasetForSearch(cuvsResources_t res,
-                                                              cuvsDatasetPaddedView_t padded_dataset,
-                                                              cuvsCagraIndex_t index);
-
-/**
- * @brief Attach a device standard dataset to a host standard index, converting it into a device index.
- *
- * This is the explicit C equivalent of C++ `attach_device_dataset_on_host_index` for
- * standard-layout datasets.
- *
- * @param[in] res               cuvsResources_t opaque C handle
- * @param[in] device_dataset    device standard dataset view handle to attach
- * @param[in,out] index         host standard CAGRA index handle; replaced in-place with device index handle
- * @return cuvsError_t
- */
-CUVS_EXPORT cuvsError_t cuvsCagraAttachDeviceStandardDatasetOnHostIndex(
-  cuvsResources_t res, cuvsDatasetStandardView_t device_dataset, cuvsCagraIndex_t index);
-
-/**
- * @brief Attach a device padded dataset to a host padded index, converting it into a device index.
- *
- * This is the explicit C equivalent of C++ `attach_device_dataset_on_host_index` for
- * padded-layout datasets.
- *
- * @param[in] res               cuvsResources_t opaque C handle
- * @param[in] device_dataset    device padded dataset view handle to attach
- * @param[in,out] index         host padded CAGRA index handle; replaced in-place with device index handle
- * @return cuvsError_t
- */
-CUVS_EXPORT cuvsError_t cuvsCagraAttachDevicePaddedDatasetOnHostIndex(cuvsResources_t res,
-                                                                       cuvsDatasetPaddedView_t device_dataset,
-                                                                       cuvsCagraIndex_t index);
+CUVS_EXPORT cuvsError_t cuvsCagraAttachDataset(cuvsResources_t res,
+                                               cuvsDatasetPaddedView_t device_padded_dataset,
+                                               cuvsCagraIndex_t index);
 
 /**
  * @}

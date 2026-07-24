@@ -73,7 +73,7 @@ auto build(raft::resources const& res,
   return cuvs::neighbors::tiered_index::index<cagra::device_standard_index<float, uint32_t>>(state);
 }
 
-auto attach_padded_dataset_for_search(
+auto convert_standard_to_padded_index(
   raft::resources const& res,
   const tiered_index::index<cagra::device_standard_index<float, uint32_t>>& idx,
   cuvs::neighbors::device_padded_dataset_view<float, int64_t> padded_dataset)
@@ -98,7 +98,7 @@ auto attach_padded_dataset_for_search(
       padded_mds.data_handle(), ann_rows, static_cast<int64_t>(padded_mds.extent(1)));
     auto ann_padded_view =
       cuvs::neighbors::device_padded_dataset_view<float, int64_t>(ann_mds, padded_dataset.dim());
-    auto ann_padded_idx = cuvs::neighbors::cagra::attach_padded_dataset_for_search(
+    auto ann_padded_idx = cuvs::neighbors::cagra::convert_standard_to_padded_index(
       res, *idx.state->ann_index, ann_padded_view);
     next_state->ann_index =
       std::make_shared<cuvs::neighbors::cagra::device_padded_index<float, uint32_t>>(
@@ -237,7 +237,7 @@ void search(raft::resources const& res,
 {
   RAFT_FAIL(
     "tiered_index::search(standard CAGRA) requires explicit attach first. "
-    "Call tiered_index::attach_padded_dataset_for_search(...) and then search the returned padded "
+    "Call tiered_index::convert_standard_to_padded_index(...) and then search the returned padded "
     "tiered index.");
 }
 

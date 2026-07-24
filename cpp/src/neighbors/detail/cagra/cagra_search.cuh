@@ -251,14 +251,14 @@ void search_main(raft::resources const& res,
     RAFT_FAIL(
       "CAGRA search requires a padded device dataset. Build from a standard dataset view, then "
       "call "
-      "cagra::attach_padded_dataset_for_search(res, index, padded_view) before search.");
+      "cagra::attach_dataset(res, index, padded_view) before search.");
   } else if constexpr (cuvs::neighbors::is_device_padded_dataset_view_v<DatasetViewT>) {
     run_strided_like(index.dataset());
   } else if constexpr (cuvs::neighbors::is_host_dataset_view_v<DatasetViewT>) {
     static_assert(sizeof(DatasetViewT) == 0,
                   "search requires a device-resident dataset. "
-                  "Call cagra::attach_device_dataset_on_host_index(res, host_idx, device_view) "
-                  "to convert the host index and attach a device dataset before searching.");
+                  "Call cagra::attach_dataset(res, index, padded_view) "
+                  "to convert/attach into a search-ready device padded index before searching.");
   } else {
     static_assert(sizeof(DatasetViewT) == 0, "search: unsupported dataset view type");
   }

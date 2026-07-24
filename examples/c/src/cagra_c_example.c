@@ -100,7 +100,7 @@ void cagra_build_search_simple()
   distances_tensor.dl_tensor.shape              = distances_shape;
   distances_tensor.dl_tensor.strides            = NULL;
 
-  // Convert host index to device and attach padded dataset for search.
+  // Attach a caller-provided device padded dataset to get a search-ready index.
   DLManagedTensor device_dataset_tensor = dataset_tensor;
   float* dataset_d                      = NULL;
   CHECK_CUVS(cuvsRMMAlloc(res, (void**)&dataset_d, sizeof(float) * n_rows * n_cols));
@@ -108,14 +108,11 @@ void cagra_build_search_simple()
   device_dataset_tensor.dl_tensor.data               = dataset_d;
   device_dataset_tensor.dl_tensor.device.device_type = kDLCUDA;
   device_dataset_tensor.dl_tensor.device.device_id   = 0;
-  cuvsDatasetStandardView_t device_dataset_view      = NULL;
-  CHECK_CUVS(cuvsDatasetMakeDeviceStandardView(res, &device_dataset_tensor, &device_dataset_view));
-  CHECK_CUVS(cuvsCagraAttachDeviceStandardDatasetOnHostIndex(res, device_dataset_view, index));
-  cuvsDatasetPadded_t padded_owner = NULL;
+  cuvsDatasetPadded_t padded_owner                   = NULL;
   CHECK_CUVS(cuvsDatasetMakeDevicePadded(res, &device_dataset_tensor, &padded_owner));
   cuvsDatasetPaddedView_t padded_view = NULL;
   CHECK_CUVS(cuvsDatasetMakeViewFromOwningPadded(padded_owner, &padded_view));
-  CHECK_CUVS(cuvsCagraAttachPaddedDatasetForSearch(res, padded_view, index));
+  CHECK_CUVS(cuvsCagraAttachDataset(res, padded_view, index));
 
   // Search the CAGRA index
   cuvsCagraSearchParams_t search_params;
@@ -145,7 +142,6 @@ void cagra_build_search_simple()
   CHECK_CUVS(cuvsCagraSearchParamsDestroy(search_params));
   CHECK_CUVS(cuvsDatasetPaddedViewDestroy(padded_view));
   CHECK_CUVS(cuvsDatasetPaddedDestroy(padded_owner));
-  CHECK_CUVS(cuvsDatasetStandardViewDestroy(device_dataset_view));
   CHECK_CUVS(cuvsDatasetStandardViewDestroy(host_dataset_view));
 
   CHECK_CUVS(cuvsRMMFree(res, distances, sizeof(float) * n_queries * topk));

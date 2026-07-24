@@ -1473,25 +1473,9 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    pub fn cuvsCagraAttachPaddedDatasetForSearch(
+    pub fn cuvsCagraAttachDataset(
         res: cuvsResources_t,
-        padded_dataset: cuvsDatasetPaddedView_t,
-        index: cuvsCagraIndex_t,
-    ) -> cuvsError_t;
-}
-unsafe extern "C" {
-    #[must_use]
-    pub fn cuvsCagraAttachDeviceStandardDatasetOnHostIndex(
-        res: cuvsResources_t,
-        device_dataset: cuvsDatasetStandardView_t,
-        index: cuvsCagraIndex_t,
-    ) -> cuvsError_t;
-}
-unsafe extern "C" {
-    #[must_use]
-    pub fn cuvsCagraAttachDevicePaddedDatasetOnHostIndex(
-        res: cuvsResources_t,
-        device_dataset: cuvsDatasetPaddedView_t,
+        device_padded_dataset: cuvsDatasetPaddedView_t,
         index: cuvsCagraIndex_t,
     ) -> cuvsError_t;
 }

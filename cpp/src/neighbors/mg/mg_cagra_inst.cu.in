@@ -38,7 +38,7 @@
     return index;                                                                                 \
   }                                                                                               \
                                                                                                   \
-  auto attach_padded_dataset_for_search(                                                          \
+  auto attach_dataset(                                                                            \
     const raft::resources& res,                                                                   \
     const cuvs::neighbors::mg_index<cagra::device_standard_index<T, IdxT>, T, IdxT>& idx,         \
     cuvs::neighbors::device_padded_dataset_view<T, int64_t> const& padded_dataset)                \
@@ -61,8 +61,7 @@
       const raft::resources& dev_res = raft::resource::set_current_device_to_rank(res, rank);     \
       const auto& in_if              = idx.ann_interfaces_[rank];                                 \
       auto& out_if                   = out.ann_interfaces_[rank];                                 \
-      RAFT_EXPECTS(in_if.index_.has_value(),                                                      \
-                   "attach_padded_dataset_for_search: missing rank index");                       \
+      RAFT_EXPECTS(in_if.index_.has_value(), "attach_dataset: missing rank index");               \
       auto const& standard_idx = in_if.index_.value();                                            \
       int64_t rank_rows        = static_cast<int64_t>(standard_idx.size());                       \
       int64_t rank_offset      = (idx.mode_ == SHARDED) ? offset : 0;                             \
@@ -75,7 +74,7 @@
       auto rank_device_padded =                                                                   \
         std::make_unique<cuvs::neighbors::device_padded_dataset<T, int64_t>>(                     \
           std::move(rank_device_matrix), padded_dataset.dim());                                   \
-      auto padded_idx = cuvs::neighbors::cagra::attach_padded_dataset_for_search(                 \
+      auto padded_idx = cuvs::neighbors::cagra::attach_dataset(                                   \
         dev_res, standard_idx, rank_device_padded->as_dataset_view());                            \
       out_if.cagra_owned_padded_dataset_ = std::move(rank_device_padded);                         \
       out_if.cagra_owned_standard_dataset_.reset();                                               \

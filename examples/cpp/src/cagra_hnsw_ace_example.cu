@@ -99,8 +99,8 @@ void cagra_build_search_ace(raft::device_resources const& dev_resources,
     // In-memory ACE path: graph is in host memory. Upload the original dataset to device and
     // attach it before from_cagra builds the HNSW hierarchy in memory.
     padded_owner = cuvs::neighbors::make_device_padded_dataset(dev_resources, dataset_host_view);
-    auto device_index = cagra::attach_device_dataset_on_host_index(
-      dev_resources, ace_host_index, padded_owner->as_dataset_view());
+    auto device_index =
+      cagra::attach_dataset(dev_resources, ace_host_index, padded_owner->as_dataset_view());
     hnsw_index = hnsw::from_cagra(dev_resources, hnsw_params, device_index, dataset_host_view);
   }
 

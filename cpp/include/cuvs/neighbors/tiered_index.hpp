@@ -90,12 +90,12 @@ auto build(raft::resources const& res,
   -> tiered_index::index<cagra::device_standard_index<float, uint32_t>>;
 
 /**
- * @brief Attach caller-managed padded dataset for searching a standard CAGRA tiered index.
+ * @brief Convert a standard CAGRA tiered index into a padded CAGRA tiered index.
  *
- * This is an explicit contract step: callers create/manage padded storage and attach it
- * before calling `search` on the returned padded tiered index.
+ * This helper wraps CAGRA standard->padded conversion for the ANN tier and attaches the
+ * caller-managed padded dataset before returning the padded tiered index.
  */
-auto attach_padded_dataset_for_search(
+auto convert_standard_to_padded_index(
   raft::resources const& res,
   const index<cagra::device_standard_index<float, uint32_t>>& idx,
   cuvs::neighbors::device_padded_dataset_view<float, int64_t> padded_dataset)

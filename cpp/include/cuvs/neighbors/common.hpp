@@ -901,7 +901,7 @@ inline constexpr bool is_host_dataset_view_v =
 
 /**
  * True when a host view `H` and device view `D` represent the same storage kind and differ
- * only in residency (host vs. device). Used to constrain `attach_device_dataset_on_host_index`.
+ * only in residency (host vs. device). Used by host/device conversion helpers.
  */
 template <typename HostViewT, typename DeviceViewT>
 inline constexpr bool compatible_host_device_dataset_views_v =

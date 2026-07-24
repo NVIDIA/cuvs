@@ -250,7 +250,7 @@ class AnnMGTest : public ::testing::TestWithParam<AnnMGInputs> {
         d_index_dataset.data(), ps.num_db_vecs, ps.dim);
       auto padded_index_dataset =
         cuvs::neighbors::make_device_padded_dataset(clique_, index_dataset_device);
-      auto search_index = cuvs::neighbors::cagra::attach_padded_dataset_for_search(
+      auto search_index = cuvs::neighbors::cagra::attach_dataset(
         clique_, new_index, padded_index_dataset->as_dataset_view());
 
       if (ps.m_mode == m_mode_t::MERGE_ON_ROOT_RANK)
@@ -410,7 +410,7 @@ class AnnMGTest : public ::testing::TestWithParam<AnnMGInputs> {
         d_index_dataset.data(), ps.num_db_vecs, ps.dim);
       auto padded_index_dataset =
         cuvs::neighbors::make_device_padded_dataset(clique_, index_dataset_device);
-      auto search_index = cuvs::neighbors::cagra::attach_padded_dataset_for_search(
+      auto search_index = cuvs::neighbors::cagra::attach_dataset(
         clique_, distributed_index, padded_index_dataset->as_dataset_view());
 
       search_params.merge_mode = TREE_MERGE;
@@ -595,7 +595,7 @@ class AnnMGTest : public ::testing::TestWithParam<AnnMGInputs> {
         d_index_dataset.data(), ps.num_db_vecs, ps.dim);
       auto padded_index_dataset =
         cuvs::neighbors::make_device_padded_dataset(clique_, index_dataset_device);
-      auto search_index = cuvs::neighbors::cagra::attach_padded_dataset_for_search(
+      auto search_index = cuvs::neighbors::cagra::attach_dataset(
         clique_, index, padded_index_dataset->as_dataset_view());
 
       int n_parallel_searches = 16;

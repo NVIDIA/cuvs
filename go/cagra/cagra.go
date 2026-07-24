@@ -133,36 +133,16 @@ func (view *StandardDatasetView) Close() error {
 	return nil
 }
 
-// Converts a host-built CAGRA index to device index by attaching a caller-provided
-// device standard dataset view handle.
-func AttachDeviceStandardDatasetOnHostIndex(Resources cuvs.Resource, standardView *StandardDatasetView, index *CagraIndex) error {
+// Attaches a caller-provided device padded dataset view and converts the index
+// in-place to a search-ready padded-device layout.
+func AttachDataset(Resources cuvs.Resource, paddedView *PaddedDatasetView, index *CagraIndex) error {
 	if !index.trained {
-		return errors.New("index needs to be built before attaching device dataset")
-	}
-	if standardView == nil || standardView.view == nil {
-		return errors.New("device standard dataset view is nil")
-	}
-	err := cuvs.CheckCuvs(cuvs.CuvsError(C.cuvsCagraAttachDeviceStandardDatasetOnHostIndex(
-		C.cuvsResources_t(Resources.Resource),
-		standardView.view,
-		index.index,
-	)))
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-// Converts a host-built CAGRA index to device index by attaching a caller-provided
-// device padded dataset view handle.
-func AttachDevicePaddedDatasetOnHostIndex(Resources cuvs.Resource, paddedView *PaddedDatasetView, index *CagraIndex) error {
-	if !index.trained {
-		return errors.New("index needs to be built before attaching device dataset")
+		return errors.New("index needs to be built before attaching dataset")
 	}
 	if paddedView == nil || paddedView.view == nil {
 		return errors.New("device padded dataset view is nil")
 	}
-	err := cuvs.CheckCuvs(cuvs.CuvsError(C.cuvsCagraAttachDevicePaddedDatasetOnHostIndex(
+	err := cuvs.CheckCuvs(cuvs.CuvsError(C.cuvsCagraAttachDataset(
 		C.cuvsResources_t(Resources.Resource),
 		paddedView.view,
 		index.index,

@@ -139,15 +139,10 @@ public interface CagraIndex extends AutoCloseable {
       throws Throwable;
 
   /**
-   * Convert a host-built index to device by attaching a caller-provided padded device dataset view.
+   * Attach a caller-provided padded device dataset view and convert to a
+   * search-ready padded-device index.
    */
-  void attachDevicePaddedDatasetOnHostIndex(DevicePaddedDatasetView datasetView) throws Throwable;
-
-  /**
-   * Convert a host-built index to device by attaching a caller-provided standard device dataset view.
-   */
-  void attachDeviceStandardDatasetOnHostIndex(DeviceStandardDatasetView datasetView)
-      throws Throwable;
+  void attachDataset(DevicePaddedDatasetView datasetView) throws Throwable;
 
   /**
    * Deserializes into this pre-allocated index and optionally populates an output dataset handle.

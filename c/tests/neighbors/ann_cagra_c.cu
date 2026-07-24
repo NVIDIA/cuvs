@@ -80,26 +80,21 @@ TEST(CagraC, BuildSearch)
   ASSERT_EQ(cuvsDatasetMakeHostStandardView(res, &dataset_tensor, &dataset_view), CUVS_SUCCESS);
   ASSERT_EQ(cuvsCagraBuildHostStandard(res, build_params, dataset_view, index), CUVS_SUCCESS);
 
-  // Host build yields a host index. Attach the dataset on device, then attach a padded dataset
-  // for search.
+  // Host build yields a host index. Attach a caller-provided device padded dataset
+  // to produce a search-ready device padded index.
   rmm::device_uvector<float> dataset_d(4 * 2, stream);
   raft::copy(dataset_d.data(), (float*)dataset, 4 * 2, stream);
   DLManagedTensor device_dataset_tensor = dataset_tensor;
   device_dataset_tensor.dl_tensor.data               = dataset_d.data();
   device_dataset_tensor.dl_tensor.device.device_type = kDLCUDA;
   device_dataset_tensor.dl_tensor.device.device_id   = 0;
-  cuvsDatasetStandardView_t device_dataset_view = nullptr;
-  ASSERT_EQ(cuvsDatasetMakeDeviceStandardView(res, &device_dataset_tensor, &device_dataset_view),
-            CUVS_SUCCESS);
-  ASSERT_EQ(cuvsCagraAttachDeviceStandardDatasetOnHostIndex(res, device_dataset_view, index),
-            CUVS_SUCCESS);
   cuvsDatasetPadded_t padded_dataset_owner = nullptr;
   ASSERT_EQ(cuvsDatasetMakeDevicePadded(res, &device_dataset_tensor, &padded_dataset_owner),
             CUVS_SUCCESS);
   cuvsDatasetPaddedView_t padded_dataset_view = nullptr;
   ASSERT_EQ(cuvsDatasetMakeViewFromOwningPadded(padded_dataset_owner, &padded_dataset_view),
             CUVS_SUCCESS);
-  ASSERT_EQ(cuvsCagraAttachPaddedDatasetForSearch(res, padded_dataset_view, index), CUVS_SUCCESS);
+  ASSERT_EQ(cuvsCagraAttachDataset(res, padded_dataset_view, index), CUVS_SUCCESS);
 
   // create queries DLTensor
   rmm::device_uvector<float> queries_d(4 * 2, stream);
@@ -164,7 +159,6 @@ TEST(CagraC, BuildSearch)
   // de-allocate index and res
   cuvsCagraSearchParamsDestroy(search_params);
   cuvsDatasetStandardViewDestroy(dataset_view);
-  cuvsDatasetStandardViewDestroy(device_dataset_view);
   cuvsDatasetPaddedViewDestroy(padded_dataset_view);
   cuvsDatasetPaddedDestroy(padded_dataset_owner);
   cuvsCagraIndexParamsDestroy(build_params);
@@ -433,25 +427,21 @@ TEST(CagraC, BuildSearchFiltered)
   ASSERT_EQ(cuvsDatasetMakeHostStandardView(res, &dataset_tensor, &dataset_view), CUVS_SUCCESS);
   ASSERT_EQ(cuvsCagraBuildHostStandard(res, build_params, dataset_view, index), CUVS_SUCCESS);
 
-  // Host build yields a host index. Attach device dataset and padded dataset for search.
+  // Host build yields a host index. Attach a caller-provided device padded dataset
+  // to produce a search-ready device padded index.
   rmm::device_uvector<float> dataset_d(4 * 2, stream);
   raft::copy(dataset_d.data(), (float*)dataset, 4 * 2, stream);
   DLManagedTensor device_dataset_tensor = dataset_tensor;
   device_dataset_tensor.dl_tensor.data               = dataset_d.data();
   device_dataset_tensor.dl_tensor.device.device_type = kDLCUDA;
   device_dataset_tensor.dl_tensor.device.device_id   = 0;
-  cuvsDatasetStandardView_t device_dataset_view = nullptr;
-  ASSERT_EQ(cuvsDatasetMakeDeviceStandardView(res, &device_dataset_tensor, &device_dataset_view),
-            CUVS_SUCCESS);
-  ASSERT_EQ(cuvsCagraAttachDeviceStandardDatasetOnHostIndex(res, device_dataset_view, index),
-            CUVS_SUCCESS);
   cuvsDatasetPadded_t padded_dataset_owner = nullptr;
   ASSERT_EQ(cuvsDatasetMakeDevicePadded(res, &device_dataset_tensor, &padded_dataset_owner),
             CUVS_SUCCESS);
   cuvsDatasetPaddedView_t padded_dataset_view = nullptr;
   ASSERT_EQ(cuvsDatasetMakeViewFromOwningPadded(padded_dataset_owner, &padded_dataset_view),
             CUVS_SUCCESS);
-  ASSERT_EQ(cuvsCagraAttachPaddedDatasetForSearch(res, padded_dataset_view, index), CUVS_SUCCESS);
+  ASSERT_EQ(cuvsCagraAttachDataset(res, padded_dataset_view, index), CUVS_SUCCESS);
 
   // create queries DLTensor
   rmm::device_uvector<float> queries_d(4 * 2, stream);
@@ -531,7 +521,6 @@ TEST(CagraC, BuildSearchFiltered)
   // de-allocate index and res
   cuvsCagraSearchParamsDestroy(search_params);
   cuvsDatasetStandardViewDestroy(dataset_view);
-  cuvsDatasetStandardViewDestroy(device_dataset_view);
   cuvsDatasetPaddedViewDestroy(padded_dataset_view);
   cuvsDatasetPaddedDestroy(padded_dataset_owner);
   cuvsCagraIndexParamsDestroy(build_params);
@@ -642,7 +631,7 @@ TEST(CagraC, BuildMergeSearch)
   cuvsDatasetPaddedView_t padded_dataset = nullptr;
   ASSERT_EQ(cuvsDatasetMakeViewFromOwningPadded(padded_dataset_owner, &padded_dataset),
             CUVS_SUCCESS);
-  ASSERT_EQ(cuvsCagraAttachPaddedDatasetForSearch(res, padded_dataset, index_merged), CUVS_SUCCESS);
+  ASSERT_EQ(cuvsCagraAttachDataset(res, padded_dataset, index_merged), CUVS_SUCCESS);
 
   int64_t merged_dim = -1;
   ASSERT_EQ(cuvsCagraIndexGetDims(index_merged, &merged_dim), CUVS_SUCCESS);
@@ -745,25 +734,21 @@ TEST(CagraC, BuildSearchACEMemory)
   ASSERT_EQ(cuvsDatasetMakeHostStandardView(res, &dataset_tensor, &dataset_view), CUVS_SUCCESS);
   ASSERT_EQ(cuvsCagraBuildHostStandard(res, build_params, dataset_view, index), CUVS_SUCCESS);
 
-  // Host build yields a host index. Attach device dataset and padded dataset for search.
+  // Host build yields a host index. Attach a caller-provided device padded dataset
+  // to produce a search-ready device padded index.
   rmm::device_uvector<float> dataset_d(4 * 2, stream);
   raft::copy(dataset_d.data(), (float*)dataset, 4 * 2, stream);
   DLManagedTensor device_dataset_tensor = dataset_tensor;
   device_dataset_tensor.dl_tensor.data               = dataset_d.data();
   device_dataset_tensor.dl_tensor.device.device_type = kDLCUDA;
   device_dataset_tensor.dl_tensor.device.device_id   = 0;
-  cuvsDatasetStandardView_t device_dataset_view = nullptr;
-  ASSERT_EQ(cuvsDatasetMakeDeviceStandardView(res, &device_dataset_tensor, &device_dataset_view),
-            CUVS_SUCCESS);
-  ASSERT_EQ(cuvsCagraAttachDeviceStandardDatasetOnHostIndex(res, device_dataset_view, index),
-            CUVS_SUCCESS);
   cuvsDatasetPadded_t padded_dataset_owner = nullptr;
   ASSERT_EQ(cuvsDatasetMakeDevicePadded(res, &device_dataset_tensor, &padded_dataset_owner),
             CUVS_SUCCESS);
   cuvsDatasetPaddedView_t padded_dataset_view = nullptr;
   ASSERT_EQ(cuvsDatasetMakeViewFromOwningPadded(padded_dataset_owner, &padded_dataset_view),
             CUVS_SUCCESS);
-  ASSERT_EQ(cuvsCagraAttachPaddedDatasetForSearch(res, padded_dataset_view, index), CUVS_SUCCESS);
+  ASSERT_EQ(cuvsCagraAttachDataset(res, padded_dataset_view, index), CUVS_SUCCESS);
 
   // create queries DLTensor
   rmm::device_uvector<float> queries_d(4 * 2, stream);
@@ -828,7 +813,6 @@ TEST(CagraC, BuildSearchACEMemory)
   // de-allocate index and res
   cuvsCagraSearchParamsDestroy(search_params);
   cuvsDatasetStandardViewDestroy(dataset_view);
-  cuvsDatasetStandardViewDestroy(device_dataset_view);
   cuvsDatasetPaddedViewDestroy(padded_dataset_view);
   cuvsDatasetPaddedDestroy(padded_dataset_owner);
   cuvsCagraIndexParamsDestroy(build_params);

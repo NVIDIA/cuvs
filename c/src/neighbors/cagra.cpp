@@ -427,110 +427,38 @@ static void make_host_standard_dataset_view(raft::resources*,
 }
 
 template <typename T>
-static void attach_padded_dataset_for_search(raft::resources* res_ptr,
-                                             cuvsDatasetPaddedView_t padded_dataset,
-                                             cuvsCagraIndex_t index)
+static void attach_dataset(raft::resources* res_ptr,
+                           cuvsDatasetPaddedView_t device_padded_dataset_view,
+                           cuvsCagraIndex_t index)
 {
-  RAFT_EXPECTS(padded_dataset != nullptr, "cuvsCagraAttachPaddedDatasetForSearch: null padded dataset");
-  RAFT_EXPECTS(index != nullptr, "cuvsCagraAttachPaddedDatasetForSearch: null index handle");
-  RAFT_EXPECTS(index->addr != 0, "cuvsCagraAttachPaddedDatasetForSearch: null index storage");
+  RAFT_EXPECTS(device_padded_dataset_view != nullptr, "cuvsCagraAttachDataset: null padded dataset");
+  RAFT_EXPECTS(index != nullptr, "cuvsCagraAttachDataset: null index handle");
+  RAFT_EXPECTS(index->addr != 0, "cuvsCagraAttachDataset: null index storage");
+  RAFT_EXPECTS(device_padded_dataset_view->addr != 0,
+               "cuvsCagraAttachDataset: null padded dataset view storage");
 
   auto* box = reinterpret_cast<sg_cagra_c_api_index_box*>(index->addr);
-  RAFT_EXPECTS(box->layout == sg_cagra_c_api_index_box::dataset_layout::device_standard,
-               "cuvsCagraAttachPaddedDatasetForSearch: index must be standard layout");
+  RAFT_EXPECTS(device_padded_dataset_view->kind == CUVS_DATASET_VIEW_KIND_DEVICE_PADDED,
+               "cuvsCagraAttachDataset: dataset view must be device padded");
 
-  RAFT_EXPECTS(padded_dataset->kind == CUVS_DATASET_VIEW_KIND_DEVICE_PADDED,
-               "cuvsCagraAttachPaddedDatasetForSearch: padded dataset view must be device-resident");
-  RAFT_EXPECTS(padded_dataset->addr != 0,
-               "cuvsCagraAttachPaddedDatasetForSearch: null padded dataset view storage");
   auto const& padded_view =
     *reinterpret_cast<cuvs::neighbors::device_padded_dataset_view<T, int64_t> const*>(
-      padded_dataset->addr);
+      device_padded_dataset_view->addr);
 
-  auto* standard_idx =
-    reinterpret_cast<cuvs::neighbors::cagra::device_standard_index<T, uint32_t>*>(box->index_ptr);
-
-  auto padded_idx = cuvs::neighbors::cagra::attach_padded_dataset_for_search(
-    *res_ptr, *standard_idx, padded_view);
-
-  auto* holder =
-    new cuvs_cagra_c_api_index_lifetime_holder<T, cuvs::neighbors::device_padded_dataset_view<T, int64_t>>{
-      std::move(padded_idx)};
-
-  destroy_sg_cagra_c_api_box(index->addr);
-  index->addr = 0;
-  bind_index_lifetime_holder_to_C_index<T, cuvs::neighbors::device_padded_dataset_view<T, int64_t>>(
-    index, index->dtype, holder);
-}
-
-template <typename T, typename HostIndexT, cuvs::neighbors::ann_dataset_view DatasetViewT>
-  requires(cuvs::neighbors::is_device_standard_dataset_view_v<DatasetViewT> ||
-           cuvs::neighbors::is_device_padded_dataset_view_v<DatasetViewT>)
-static void attach_device_dataset_on_host_index_impl(raft::resources* res_ptr,
-                                                     cuvsCagraIndex_t index,
-                                                     DatasetViewT const& typed_dataset_view)
-{
-  auto* box = reinterpret_cast<sg_cagra_c_api_index_box*>(index->addr);
-  auto* host_idx = reinterpret_cast<HostIndexT*>(box->index_ptr);
-  auto device_idx = cuvs::neighbors::cagra::attach_device_dataset_on_host_index(
-    *res_ptr, *host_idx, typed_dataset_view);
-  auto* holder = new cuvs_cagra_c_api_index_lifetime_holder<T, DatasetViewT>{std::move(device_idx)};
-  destroy_sg_cagra_c_api_box(index->addr);
-  index->addr = 0;
-  bind_index_lifetime_holder_to_C_index<T, DatasetViewT>(index, index->dtype, holder);
-}
-
-template <typename T>
-static void attach_device_standard_dataset_on_host_index(raft::resources* res_ptr,
-                                                         cuvsDatasetStandardView_t device_dataset_view,
-                                                         cuvsCagraIndex_t index)
-{
-  RAFT_EXPECTS(device_dataset_view != nullptr,
-               "cuvsCagraAttachDeviceStandardDatasetOnHostIndex: null dataset view");
-  RAFT_EXPECTS(index != nullptr, "cuvsCagraAttachDeviceStandardDatasetOnHostIndex: null index handle");
-  RAFT_EXPECTS(index->addr != 0, "cuvsCagraAttachDeviceStandardDatasetOnHostIndex: null index storage");
-  RAFT_EXPECTS(device_dataset_view->addr != 0,
-               "cuvsCagraAttachDeviceStandardDatasetOnHostIndex: null dataset view storage");
-  auto* box = reinterpret_cast<sg_cagra_c_api_index_box*>(index->addr);
-  RAFT_EXPECTS(box->layout == sg_cagra_c_api_index_box::dataset_layout::host_standard,
-               "cuvsCagraAttachDeviceStandardDatasetOnHostIndex: index must be host standard layout");
-  RAFT_EXPECTS(device_dataset_view->kind == CUVS_DATASET_VIEW_KIND_DEVICE_STANDARD,
-               "cuvsCagraAttachDeviceStandardDatasetOnHostIndex: dataset view must be device standard");
-
-  auto const& typed_device_dataset_view =
-    *reinterpret_cast<cuvs::neighbors::device_standard_dataset_view<T, int64_t> const*>(
-      device_dataset_view->addr);
-  attach_device_dataset_on_host_index_impl<T,
-                                           cuvs::neighbors::cagra::host_standard_index<T, uint32_t>,
-                                           cuvs::neighbors::device_standard_dataset_view<T, int64_t>>(
-    res_ptr, index, typed_device_dataset_view);
-}
-
-template <typename T>
-static void attach_device_padded_dataset_on_host_index(raft::resources* res_ptr,
-                                                       cuvsDatasetPaddedView_t device_dataset_view,
-                                                       cuvsCagraIndex_t index)
-{
-  RAFT_EXPECTS(device_dataset_view != nullptr,
-               "cuvsCagraAttachDevicePaddedDatasetOnHostIndex: null dataset view");
-  RAFT_EXPECTS(index != nullptr, "cuvsCagraAttachDevicePaddedDatasetOnHostIndex: null index handle");
-  RAFT_EXPECTS(index->addr != 0, "cuvsCagraAttachDevicePaddedDatasetOnHostIndex: null index storage");
-  RAFT_EXPECTS(device_dataset_view->addr != 0,
-               "cuvsCagraAttachDevicePaddedDatasetOnHostIndex: null dataset view storage");
-
-  auto* box = reinterpret_cast<sg_cagra_c_api_index_box*>(index->addr);
-  RAFT_EXPECTS(box->layout == sg_cagra_c_api_index_box::dataset_layout::host_padded,
-               "cuvsCagraAttachDevicePaddedDatasetOnHostIndex: index must be host padded layout");
-  RAFT_EXPECTS(device_dataset_view->kind == CUVS_DATASET_VIEW_KIND_DEVICE_PADDED,
-               "cuvsCagraAttachDevicePaddedDatasetOnHostIndex: dataset view must be device padded");
-
-  auto const& typed_device_dataset_view =
-    *reinterpret_cast<cuvs::neighbors::device_padded_dataset_view<T, int64_t> const*>(
-      device_dataset_view->addr);
-  attach_device_dataset_on_host_index_impl<T,
-                                           cuvs::neighbors::cagra::host_padded_index<T, uint32_t>,
-                                           cuvs::neighbors::device_padded_dataset_view<T, int64_t>>(
-    res_ptr, index, typed_device_dataset_view);
+  with_index_by_layout<T, uint32_t, true>(
+    box,
+    "cuvsCagraAttachDataset: null index handle",
+    "cuvsCagraAttachDataset: host index layout is allowed for this operation",
+    [&](auto& idx) {
+      auto padded_idx = cuvs::neighbors::cagra::attach_dataset(*res_ptr, idx, padded_view);
+      auto* holder = new cuvs_cagra_c_api_index_lifetime_holder<
+        T,
+        cuvs::neighbors::device_padded_dataset_view<T, int64_t>>{std::move(padded_idx)};
+      destroy_sg_cagra_c_api_box(index->addr);
+      index->addr = 0;
+      bind_index_lifetime_holder_to_C_index<T, cuvs::neighbors::device_padded_dataset_view<T, int64_t>>(
+        index, index->dtype, holder);
+    });
 }
 
 static void _set_graph_build_params(
@@ -660,8 +588,7 @@ void _from_args(cuvsResources_t res,
   } else if (cuvs::core::is_dlpack_host_compatible(dataset)) {
     RAFT_FAIL("cuvsCagraIndexFromArgs: host dataset is unsupported; use cuvsCagraBuild for host "
               "datasets, then attach a matching device dataset view via "
-              "cuvsCagraAttachDeviceStandardDatasetOnHostIndex (host standard) or "
-              "cuvsCagraAttachDevicePaddedDatasetOnHostIndex (host padded).");
+              "cuvsCagraAttachDataset with a device padded dataset view.");
   }
 }
 
@@ -740,8 +667,7 @@ void _search(cuvsResources_t res,
     box,
     "cuvsCagraSearch: null index handle",
     "cuvsCagraSearch: host index must be converted to device first via "
-    "cuvsCagraAttachDeviceStandardDatasetOnHostIndex (host standard) or "
-    "cuvsCagraAttachDevicePaddedDatasetOnHostIndex (host padded)",
+    "cuvsCagraAttachDataset with a device padded dataset view",
     [&](auto& idx) {
       auto search_params = cuvs::neighbors::cagra::search_params();
       convert_c_search_params(params, &search_params);
@@ -809,8 +735,7 @@ void _serialize(cuvsResources_t res,
     box,
     "cuvsCagraSerialize: null index handle",
     "cuvsCagraSerialize: host index must be converted to device first via "
-    "cuvsCagraAttachDeviceStandardDatasetOnHostIndex (host standard) or "
-    "cuvsCagraAttachDevicePaddedDatasetOnHostIndex (host padded)",
+    "cuvsCagraAttachDataset with a device padded dataset view",
     [&](auto& idx) { cuvs::neighbors::cagra::serialize(*res_ptr, std::string(filename), idx, include_dataset); });
 }
 
@@ -823,8 +748,7 @@ void _serialize_to_hnswlib(cuvsResources_t res, const char* filename, cuvsCagraI
     box,
     "cuvsCagraSerializeToHnswlib: null index handle",
     "cuvsCagraSerializeToHnswlib: host index must be converted to device first via "
-    "cuvsCagraAttachDeviceStandardDatasetOnHostIndex (host standard) or "
-    "cuvsCagraAttachDevicePaddedDatasetOnHostIndex (host padded)",
+    "cuvsCagraAttachDataset with a device padded dataset view",
     [&](auto& idx) { cuvs::neighbors::cagra::serialize_to_hnswlib(*res_ptr, std::string(filename), idx); });
 }
 
@@ -1462,81 +1386,27 @@ extern "C" cuvsError_t cuvsDatasetStandardViewDestroy(cuvsDatasetStandardView_t 
   });
 }
 
-extern "C" cuvsError_t cuvsCagraAttachPaddedDatasetForSearch(cuvsResources_t res,
-                                                              cuvsDatasetPaddedView_t padded_dataset,
-                                                              cuvsCagraIndex_t index)
+extern "C" cuvsError_t cuvsCagraAttachDataset(cuvsResources_t res,
+                                              cuvsDatasetPaddedView_t device_padded_dataset,
+                                              cuvsCagraIndex_t index)
 {
   return cuvs::core::translate_exceptions([=] {
     auto* res_ptr = reinterpret_cast<raft::resources*>(res);
-    RAFT_EXPECTS(padded_dataset != nullptr,
-                 "cuvsCagraAttachPaddedDatasetForSearch: null padded dataset");
-    RAFT_EXPECTS(index != nullptr, "cuvsCagraAttachPaddedDatasetForSearch: null index handle");
-    RAFT_EXPECTS(padded_dataset->layout == CUVS_DATASET_LAYOUT_PADDED,
-                 "cuvsCagraAttachPaddedDatasetForSearch: dataset handle layout must be PADDED");
-    RAFT_EXPECTS(index->dtype.code == padded_dataset->dtype.code &&
-                   index->dtype.bits == padded_dataset->dtype.bits,
-                 "cuvsCagraAttachPaddedDatasetForSearch: dtype mismatch between index and padded dataset");
+    RAFT_EXPECTS(index != nullptr, "cuvsCagraAttachDataset: null index handle");
+    RAFT_EXPECTS(device_padded_dataset != nullptr, "cuvsCagraAttachDataset: null dataset view");
+    RAFT_EXPECTS(device_padded_dataset->layout == CUVS_DATASET_LAYOUT_PADDED,
+                 "cuvsCagraAttachDataset: dataset handle layout must be PADDED");
+    RAFT_EXPECTS(index->dtype.code == device_padded_dataset->dtype.code &&
+                   index->dtype.bits == device_padded_dataset->dtype.bits,
+                 "cuvsCagraAttachDataset: dtype mismatch between index and dataset");
     if (index->dtype.code == kDLFloat && index->dtype.bits == 32) {
-      attach_padded_dataset_for_search<float>(res_ptr, padded_dataset, index);
+      attach_dataset<float>(res_ptr, device_padded_dataset, index);
     } else if (index->dtype.code == kDLFloat && index->dtype.bits == 16) {
-      attach_padded_dataset_for_search<half>(res_ptr, padded_dataset, index);
+      attach_dataset<half>(res_ptr, device_padded_dataset, index);
     } else if (index->dtype.code == kDLInt && index->dtype.bits == 8) {
-      attach_padded_dataset_for_search<int8_t>(res_ptr, padded_dataset, index);
+      attach_dataset<int8_t>(res_ptr, device_padded_dataset, index);
     } else if (index->dtype.code == kDLUInt && index->dtype.bits == 8) {
-      attach_padded_dataset_for_search<uint8_t>(res_ptr, padded_dataset, index);
-    } else {
-      RAFT_FAIL("Unsupported index dtype: %d and bits: %d", index->dtype.code, index->dtype.bits);
-    }
-  });
-}
-
-extern "C" cuvsError_t
-cuvsCagraAttachDeviceStandardDatasetOnHostIndex(cuvsResources_t res,
-                                                 cuvsDatasetStandardView_t device_dataset_view,
-                                                 cuvsCagraIndex_t index)
-{
-  return cuvs::core::translate_exceptions([=] {
-    auto* res_ptr = reinterpret_cast<raft::resources*>(res);
-    RAFT_EXPECTS(index != nullptr, "cuvsCagraAttachDeviceStandardDatasetOnHostIndex: null index handle");
-    RAFT_EXPECTS(device_dataset_view != nullptr,
-                 "cuvsCagraAttachDeviceStandardDatasetOnHostIndex: null dataset view");
-    RAFT_EXPECTS(index->dtype.code == device_dataset_view->dtype.code &&
-                   index->dtype.bits == device_dataset_view->dtype.bits,
-                 "cuvsCagraAttachDeviceStandardDatasetOnHostIndex: dtype mismatch between index and dataset");
-    if (index->dtype.code == kDLFloat && index->dtype.bits == 32) {
-      attach_device_standard_dataset_on_host_index<float>(res_ptr, device_dataset_view, index);
-    } else if (index->dtype.code == kDLFloat && index->dtype.bits == 16) {
-      attach_device_standard_dataset_on_host_index<half>(res_ptr, device_dataset_view, index);
-    } else if (index->dtype.code == kDLInt && index->dtype.bits == 8) {
-      attach_device_standard_dataset_on_host_index<int8_t>(res_ptr, device_dataset_view, index);
-    } else if (index->dtype.code == kDLUInt && index->dtype.bits == 8) {
-      attach_device_standard_dataset_on_host_index<uint8_t>(res_ptr, device_dataset_view, index);
-    } else {
-      RAFT_FAIL("Unsupported index dtype: %d and bits: %d", index->dtype.code, index->dtype.bits);
-    }
-  });
-}
-
-extern "C" cuvsError_t cuvsCagraAttachDevicePaddedDatasetOnHostIndex(cuvsResources_t res,
-                                                                      cuvsDatasetPaddedView_t device_dataset_view,
-                                                                      cuvsCagraIndex_t index)
-{
-  return cuvs::core::translate_exceptions([=] {
-    auto* res_ptr = reinterpret_cast<raft::resources*>(res);
-    RAFT_EXPECTS(index != nullptr, "cuvsCagraAttachDevicePaddedDatasetOnHostIndex: null index handle");
-    RAFT_EXPECTS(device_dataset_view != nullptr,
-                 "cuvsCagraAttachDevicePaddedDatasetOnHostIndex: null dataset view");
-    RAFT_EXPECTS(index->dtype.code == device_dataset_view->dtype.code &&
-                   index->dtype.bits == device_dataset_view->dtype.bits,
-                 "cuvsCagraAttachDevicePaddedDatasetOnHostIndex: dtype mismatch between index and dataset");
-    if (index->dtype.code == kDLFloat && index->dtype.bits == 32) {
-      attach_device_padded_dataset_on_host_index<float>(res_ptr, device_dataset_view, index);
-    } else if (index->dtype.code == kDLFloat && index->dtype.bits == 16) {
-      attach_device_padded_dataset_on_host_index<half>(res_ptr, device_dataset_view, index);
-    } else if (index->dtype.code == kDLInt && index->dtype.bits == 8) {
-      attach_device_padded_dataset_on_host_index<int8_t>(res_ptr, device_dataset_view, index);
-    } else if (index->dtype.code == kDLUInt && index->dtype.bits == 8) {
-      attach_device_padded_dataset_on_host_index<uint8_t>(res_ptr, device_dataset_view, index);
+      attach_dataset<uint8_t>(res_ptr, device_padded_dataset, index);
     } else {
       RAFT_FAIL("Unsupported index dtype: %d and bits: %d", index->dtype.code, index->dtype.bits);
     }
@@ -1910,7 +1780,7 @@ extern "C" cuvsError_t cuvsCagraSearch(cuvsResources_t res,
     RAFT_EXPECTS(box != nullptr, "cuvsCagraSearch: null index handle");
     RAFT_EXPECTS(box->layout == sg_cagra_c_api_index_box::dataset_layout::device_padded,
                  "cuvsCagraSearch: index must be device-padded. For standard indices, call "
-                 "cuvsCagraAttachPaddedDatasetForSearch first.");
+                 "cuvsCagraAttachDataset first.");
     RAFT_EXPECTS(queries.dtype.code == index.dtype.code, "type mismatch between index and queries");
 
     if (queries.dtype.code == kDLFloat && queries.dtype.bits == 32) {

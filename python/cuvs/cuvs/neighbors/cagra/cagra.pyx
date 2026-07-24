@@ -678,60 +678,19 @@ def make_device_standard_dataset_view(dataset, resources=None):
 
 
 @auto_sync_resources
-def attach_device_dataset_on_host_index(Index index, device_dataset_view, resources=None):
+def attach_dataset(Index index, PaddedDatasetView padded_dataset_view, resources=None):
     """
-    Convert a host-built CAGRA index to device index by attaching an explicit
-    device dataset view.
-    """
-    if not index.trained:
-        raise ValueError("Index needs to be built before attaching device dataset.")
+    Attach a caller-provided device padded dataset view to any CAGRA index layout.
 
-    cdef cuvsResources_t res = <cuvsResources_t>resources.get_c_obj()
-    cdef cuvsDatasetPaddedView_t padded_view = NULL
-    cdef cuvsDatasetStandardView_t standard_view = NULL
-
-    if isinstance(device_dataset_view, PaddedDatasetView):
-        padded_view = (<PaddedDatasetView>device_dataset_view).view
-        if padded_view == NULL:
-            raise ValueError("device_dataset_view padded view is uninitialized")
-        with cuda_interruptible():
-            check_cuvs(cuvsCagraAttachDevicePaddedDatasetOnHostIndex(
-                res,
-                padded_view,
-                index.index
-            ))
-    elif isinstance(device_dataset_view, StandardDatasetView):
-        standard_view = (<StandardDatasetView>device_dataset_view).view
-        if standard_view == NULL:
-            raise ValueError("device_dataset_view standard view is uninitialized")
-        with cuda_interruptible():
-            check_cuvs(cuvsCagraAttachDeviceStandardDatasetOnHostIndex(
-                res,
-                standard_view,
-                index.index
-            ))
-    else:
-        raise TypeError(
-            "device_dataset_view must be a PaddedDatasetView or "
-            "StandardDatasetView. Create it explicitly via dataset view factories."
-        )
-    return index
-
-
-@auto_sync_resources
-def attach_padded_dataset_for_search(Index index,
-                                     PaddedDatasetView padded_dataset_view,
-                                     resources=None):
-    """
-    Attach a padded dataset view to a standard CAGRA index before search.
+    The index is converted in-place to a search-ready device padded index.
     """
     if not index.trained:
-        raise ValueError("Index needs to be built before attaching padded dataset.")
+        raise ValueError("Index needs to be built before attaching dataset.")
     if padded_dataset_view is None or padded_dataset_view.view == NULL:
         raise ValueError("padded_dataset_view is uninitialized")
     cdef cuvsResources_t res = <cuvsResources_t>resources.get_c_obj()
     with cuda_interruptible():
-        check_cuvs(cuvsCagraAttachPaddedDatasetForSearch(
+        check_cuvs(cuvsCagraAttachDataset(
             res,
             padded_dataset_view.view,
             index.index
