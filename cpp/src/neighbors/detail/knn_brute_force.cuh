@@ -628,7 +628,6 @@ inline filtered_search_path select_filtered_search_path(
 
   const auto n_dataset_d = static_cast<double>(n_dataset);
 
-  // SDDMM has to beat whichever of the other two is available.
   const bool sddmm_beats_dense = selectivity < kSddmmMaxSelectivity;
   if (!passing) {
     return sddmm_beats_dense ? filtered_search_path::sddmm : filtered_search_path::dense;
@@ -666,7 +665,6 @@ void brute_force_search_gathered(
   raft::device_matrix_view<DistanceT, IdxT, raft::row_major> distances,
   std::optional<raft::device_vector_view<const DistanceT, IdxT>> query_norms = std::nullopt)
 {
-  auto stream    = raft::resource::get_cuda_stream(res);
   auto policy    = raft::resource::get_thrust_policy(res);
   IdxT n_queries = queries.extent(0);
   IdxT n_dataset = idx.dataset().extent(0);
@@ -674,37 +672,38 @@ void brute_force_search_gathered(
   IdxT k         = neighbors.extent(1);
 
   // 1. enumerate the rows the filter keeps
-  rmm::device_uvector<IdxT> passing(n_pass, stream);
+  auto passing = raft::make_device_vector<IdxT, IdxT>(res, n_pass);
   thrust::copy_if(policy,
                   thrust::make_counting_iterator<IdxT>(0),
                   thrust::make_counting_iterator<IdxT>(n_dataset),
-                  passing.data(),
+                  passing.data_handle(),
                   [filter_view] __device__(IdxT i) { return filter_view.test(i); });
 
   // 2. compact those rows, and their norms, into a dense dataset
-  rmm::device_uvector<T> gathered(static_cast<size_t>(n_pass) * dim, stream);
+  auto gathered = raft::make_device_matrix<T, IdxT, raft::row_major>(res, n_pass, dim);
   raft::matrix::gather(
     res,
     raft::make_device_matrix_view<const T, IdxT, raft::row_major>(
       idx.dataset().data_handle(), n_dataset, dim),
-    raft::make_device_vector_view<const IdxT, IdxT>(passing.data(), n_pass),
-    raft::make_device_matrix_view<T, IdxT, raft::row_major>(gathered.data(), n_pass, dim));
+    raft::make_device_vector_view<const IdxT, IdxT>(passing.data_handle(), n_pass),
+    gathered.view());
 
-  rmm::device_uvector<DistanceT> gathered_norms(idx.has_norms() ? n_pass : 0, stream);
+  auto gathered_norms =
+    raft::make_device_vector<DistanceT, IdxT>(res, idx.has_norms() ? n_pass : 0);
   if (idx.has_norms()) {
     thrust::gather(policy,
-                   passing.data(),
-                   passing.data() + n_pass,
+                   passing.data_handle(),
+                   passing.data_handle() + n_pass,
                    idx.norms().data_handle(),
-                   gathered_norms.data());
+                   gathered_norms.data_handle());
   }
 
   // 3. ordinary unfiltered search over the compacted dataset
-  rmm::device_uvector<IdxT> compact_neighbors(static_cast<size_t>(n_queries) * k, stream);
-  std::vector<T*> dataset    = {gathered.data()};
+  auto compact_neighbors = raft::make_device_matrix<IdxT, IdxT, raft::row_major>(res, n_queries, k);
+  std::vector<T*> dataset    = {gathered.data_handle()};
   std::vector<int64_t> sizes = {static_cast<int64_t>(n_pass)};
   std::vector<DistanceT*> norms;
-  if (idx.has_norms()) { norms.push_back(gathered_norms.data()); }
+  if (idx.has_norms()) { norms.push_back(gathered_norms.data_handle()); }
 
   brute_force_knn_impl<int64_t, IdxT, T, DistanceT>(
     res,
@@ -713,7 +712,7 @@ void brute_force_search_gathered(
     dim,
     const_cast<T*>(queries.data_handle()),
     n_queries,
-    compact_neighbors.data(),
+    compact_neighbors.data_handle(),
     distances.data_handle(),
     k,
     true,
@@ -726,9 +725,9 @@ void brute_force_search_gathered(
 
   // 4. translate compacted row numbers back into the original dataset's numbering
   thrust::gather(policy,
-                 compact_neighbors.data(),
-                 compact_neighbors.data() + static_cast<size_t>(n_queries) * k,
-                 passing.data(),
+                 compact_neighbors.data_handle(),
+                 compact_neighbors.data_handle() + compact_neighbors.size(),
+                 passing.data_handle(),
                  neighbors.data_handle());
 }
 
