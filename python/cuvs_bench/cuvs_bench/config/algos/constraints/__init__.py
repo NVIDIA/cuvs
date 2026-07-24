@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 
@@ -20,9 +20,35 @@ dtype_sizes = {
 
 
 def cuvs_cagra_build(params, dims):
+    valid = True
     if "graph_degree" in params and "intermediate_graph_degree" in params:
-        return params["graph_degree"] <= params["intermediate_graph_degree"]
-    return True
+        valid = params["graph_degree"] <= params["intermediate_graph_degree"]
+    if params.get("merge_algo") == "FASTENER":
+        levels = params.get("fastener_levels", 2)
+        root_fanout = params.get("fastener_root_fanout", 2)
+        lower_fanout = params.get("fastener_lower_fanout", 3)
+        leader_fraction = params.get("fastener_leader_fraction", 0.02)
+        max_leaders = params.get("fastener_max_leaders", 1000)
+        leaf_size = params.get("fastener_leaf_size", 256)
+        leaf_degree = params.get("fastener_leaf_degree", 4)
+        valid = valid and levels > 0
+        valid = valid and 1 <= root_fanout <= 32
+        valid = valid and 1 <= lower_fanout <= 32
+        valid = valid and 0.0 < leader_fraction <= 1.0
+        valid = valid and max(root_fanout, lower_fanout) <= max_leaders <= 8192
+        valid = valid and 1 <= leaf_size <= 256
+        valid = valid and 1 <= leaf_degree <= 8
+        if valid:
+            max_spill = 255 // leaf_degree
+            spill = root_fanout
+            if lower_fanout > 1:
+                for _ in range(1, levels):
+                    if spill > max_spill // lower_fanout:
+                        valid = False
+                        break
+                    spill *= lower_fanout
+            valid = valid and spill <= max_spill
+    return valid
 
 
 def cuvs_ivf_pq_build(params, dims):

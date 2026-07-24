@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -422,6 +422,37 @@ void parse_build_param(const nlohmann::json& conf,
     } else {
       throw std::runtime_error("invalid value for merge_type");
     }
+  }
+  if (conf.contains("merge_algo")) {
+    std::string algo = conf.at("merge_algo");
+    if (algo == "AUTO") {
+      param.merge_params.algo = cuvs::neighbors::cagra::merge_algo::AUTO;
+    } else if (algo == "FASTENER") {
+      param.merge_params.algo = cuvs::neighbors::cagra::merge_algo::FASTENER;
+    } else if (algo == "REBUILD") {
+      param.merge_params.algo = cuvs::neighbors::cagra::merge_algo::REBUILD;
+    } else {
+      throw std::runtime_error("invalid value for merge_algo");
+    }
+  }
+  if (conf.contains("fastener_levels")) { param.merge_params.levels = conf.at("fastener_levels"); }
+  if (conf.contains("fastener_root_fanout")) {
+    param.merge_params.root_fanout = conf.at("fastener_root_fanout");
+  }
+  if (conf.contains("fastener_lower_fanout")) {
+    param.merge_params.lower_fanout = conf.at("fastener_lower_fanout");
+  }
+  if (conf.contains("fastener_leader_fraction")) {
+    param.merge_params.leader_fraction = conf.at("fastener_leader_fraction");
+  }
+  if (conf.contains("fastener_max_leaders")) {
+    param.merge_params.max_leaders = conf.at("fastener_max_leaders");
+  }
+  if (conf.contains("fastener_leaf_size")) {
+    param.merge_params.leaf_size = conf.at("fastener_leaf_size");
+  }
+  if (conf.contains("fastener_leaf_degree")) {
+    param.merge_params.leaf_degree = conf.at("fastener_leaf_degree");
   }
   param.cagra_params = [conf](raft::matrix_extent<int64_t> extents,
                               cuvs::distance::DistanceType dist_type) {

@@ -31,3 +31,50 @@ groups:
       itopk: [32, 64, 128, 256, 512]
       max_iterations: [0, 16]
       search_width: [1, 2, 4, 8]
+  merge_fastener_default:
+    build:
+      graph_degree: [64]
+      intermediate_graph_degree: [64]
+      graph_build_algo: ["NN_DESCENT"]
+      num_dataset_splits: [2, 8, 32]
+      merge_type: ["PHYSICAL"]
+      merge_algo: ["FASTENER"]
+      fastener_levels: [2]
+      fastener_root_fanout: [2]
+      fastener_lower_fanout: [3]
+      fastener_leader_fraction: [0.02]
+      fastener_max_leaders: [1000]
+      fastener_leaf_size: [256]
+      fastener_leaf_degree: [4]
+    search:
+      itopk: [64]
+      search_width: [1, 4, 16]
+  merge_fastener_high_quality:
+    build:
+      graph_degree: [64]
+      intermediate_graph_degree: [64]
+      graph_build_algo: ["NN_DESCENT"]
+      num_dataset_splits: [2, 8, 32]
+      merge_type: ["PHYSICAL"]
+      merge_algo: ["FASTENER"]
+      fastener_levels: [2]
+      fastener_root_fanout: [4]
+      fastener_lower_fanout: [2]
+      fastener_leader_fraction: [0.01]
+      fastener_max_leaders: [1000]
+      fastener_leaf_size: [256]
+      fastener_leaf_degree: [4]
+    search:
+      itopk: [64]
+      search_width: [1, 4, 16]
+  merge_rebuild:
+    build:
+      graph_degree: [64]
+      intermediate_graph_degree: [64]
+      graph_build_algo: ["NN_DESCENT"]
+      num_dataset_splits: [2, 8, 32]
+      merge_type: ["PHYSICAL"]
+      merge_algo: ["REBUILD"]
+    search:
+      itopk: [64]
+      search_width: [1, 4, 16]

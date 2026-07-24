@@ -278,6 +278,8 @@ struct AnnCagraInputs {
   cuvs::neighbors::MergeStrategy merge_strategy =
     cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_PHYSICAL;
   cuvs::neighbors::cagra::internal_dtype smem_dtype = cuvs::neighbors::cagra::internal_dtype::F16;
+  /** When set, physical merge uses this overload instead of the default-params merge. */
+  std::optional<cagra::merge_params> physical_merge_params = std::nullopt;
 };
 
 inline ::std::ostream& operator<<(::std::ostream& os, const AnnCagraInputs& p)
@@ -1448,7 +1450,10 @@ class AnnCagraIndexMergeTest : public ::testing::TestWithParam<AnnCagraInputs> {
         std::vector<cagra::index<DataT, IdxT>*> indices_to_merge{&index0, &index1};
 
         if (ps.merge_strategy == cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_PHYSICAL) {
-          auto merged = cagra::merge(handle_, index_params, indices_to_merge);
+          auto merged =
+            ps.physical_merge_params.has_value()
+              ? cagra::merge(handle_, index_params, indices_to_merge, *ps.physical_merge_params)
+              : cagra::merge(handle_, index_params, indices_to_merge);
           cagra::search(
             handle_, search_params, merged, search_queries_view, indices_out_view, dists_out_view);
         } else {

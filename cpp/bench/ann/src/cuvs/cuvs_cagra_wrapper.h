@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -101,6 +101,7 @@ class cuvs_cagra : public algo<T>, public algo_gpu {
     dataset_dependent_params cagra_params;
     size_t num_dataset_splits = 1;
     CagraMergeType merge_type = CagraMergeType::kPhysical;
+    cuvs::neighbors::cagra::merge_params merge_params;
   };
 
   cuvs_cagra(Metric metric, int dim, const build_param& param, int concurrent_searches = 1)
@@ -228,21 +229,10 @@ void cuvs_cagra<T, IdxT>::build(const T* dataset, size_t nrow)
       auto sub_dev =
         raft::make_device_matrix_view<const T, int64_t, raft::row_major>(sub_ptr, rows, dim_);
 
-      auto sub_index = cuvs::neighbors::cagra::index<T, IdxT>(handle_, params.metric);
-      if (index_params_.merge_type == CagraMergeType::kPhysical) {
-        if (dataset_is_on_host) {
-          sub_index.update_dataset(handle_, sub_host);
-        } else {
-          sub_index.update_dataset(handle_, sub_dev);
-        }
-      }
-      if (index_params_.merge_type == CagraMergeType::kLogical) {
-        if (dataset_is_on_host) {
-          sub_index = cuvs::neighbors::cagra::build(handle_, params, sub_host);
-        } else {
-          sub_index = cuvs::neighbors::cagra::build(handle_, params, sub_dev);
-        }
-      }
+      // Build every partition before the merge so FASTENER and REBUILD consume identical prepared
+      // inputs. Partition construction remains outside cagra::merge's NVTX range.
+      auto sub_index = dataset_is_on_host ? cuvs::neighbors::cagra::build(handle_, params, sub_host)
+                                          : cuvs::neighbors::cagra::build(handle_, params, sub_dev);
       auto sub_index_shared =
         std::make_shared<cuvs::neighbors::cagra::index<T, IdxT>>(std::move(sub_index));
       sub_indices_.push_back(std::move(sub_index_shared));
@@ -254,8 +244,8 @@ void cuvs_cagra<T, IdxT>::build(const T* dataset, size_t nrow)
         indices.push_back(ptr.get());
       }
 
-      index_ = std::make_shared<cuvs::neighbors::cagra::index<T, IdxT>>(
-        std::move(cuvs::neighbors::cagra::merge(handle_, params, indices)));
+      index_ = std::make_shared<cuvs::neighbors::cagra::index<T, IdxT>>(std::move(
+        cuvs::neighbors::cagra::merge(handle_, params, indices, index_params_.merge_params)));
     }
   }
 }
