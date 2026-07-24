@@ -54,10 +54,6 @@ inline constexpr int THREADS_PER_BLOCK       = 256;
 inline constexpr int MAX_STRIDED_GRID_BLOCKS = 1 << 20;
 /** Warps per block in the one-row-per-warp kernels; their launch geometry derives from this. */
 inline constexpr int ROW_WARPS_PER_BLOCK = 4;
-// Centered INT8 dot products accumulate into INT32. Overflow requires more than 131,071
-// dimensions even at the worst-case magnitude of 128, which is not realistic.
-inline constexpr int64_t MAX_INTEGER_LEAF_DIMENSION =
-  std::numeric_limits<int32_t>::max() / (128 * 128);
 
 /** Grid size for the grid-stride kernels: blocks of THREADS_PER_BLOCK covering `items`, capped so
  * oversized workloads loop within resident threads instead. */
@@ -517,28 +513,23 @@ inline void carry_parents(raft::resources const& res,
  * out_i[b * a_rows + a] = A_i[a] . B_i[b].
  *
  * Pretty much a wrapper around `cublasGemmStridedBatchedEx`. */
-template <typename DataT, typename AccT>
-void batched_row_dot_products(raft::resources const& res,
-                              DataT const* a,
-                              int a_rows,
-                              long long a_stride,
-                              DataT const* b,
-                              int b_rows,
-                              long long b_stride,
-                              AccT* out,
-                              long long out_stride,
-                              int row_width,
-                              int batch_count)
+/** Float strided-batched GEMM for row-wise dots. Integer datasets are gathered to float first;
+ * native INT8 cuBLAS paths are not portable across architectures (e.g. Ada returns
+ * CUBLAS_STATUS_NOT_SUPPORTED for CUDA_R_8I / CUBLAS_COMPUTE_32I strided-batched GEMM). */
+inline void batched_row_dot_products(raft::resources const& res,
+                                     float const* a,
+                                     int a_rows,
+                                     long long a_stride,
+                                     float const* b,
+                                     int b_rows,
+                                     long long b_stride,
+                                     float* out,
+                                     long long out_stride,
+                                     int row_width,
+                                     int batch_count)
 {
-  static_assert((std::is_same_v<DataT, float> && std::is_same_v<AccT, float>) ||
-                  (std::is_same_v<DataT, int8_t> && std::is_same_v<AccT, int32_t>),
-                "Unsupported batched dot product type combination");
-  constexpr auto data_type = std::is_same_v<DataT, float> ? CUDA_R_32F : CUDA_R_8I;
-  constexpr auto out_type  = std::is_same_v<AccT, float> ? CUDA_R_32F : CUDA_R_32I;
-  constexpr auto compute_type =
-    std::is_same_v<AccT, float> ? CUBLAS_COMPUTE_32F : CUBLAS_COMPUTE_32I;
-  AccT alpha         = 1;
-  AccT beta          = 0;
+  float alpha        = 1.0f;
+  float beta         = 0.0f;
   auto cublas_handle = raft::resource::get_cublas_handle(res);
   RAFT_CUBLAS_TRY(cublasSetPointerMode(cublas_handle, CUBLAS_POINTER_MODE_HOST));
   RAFT_CUBLAS_TRY(cublasGemmStridedBatchedEx(cublas_handle,
@@ -549,20 +540,20 @@ void batched_row_dot_products(raft::resources const& res,
                                              row_width,
                                              &alpha,
                                              a,
-                                             data_type,
+                                             CUDA_R_32F,
                                              row_width,
                                              a_stride,
                                              b,
-                                             data_type,
+                                             CUDA_R_32F,
                                              row_width,
                                              b_stride,
                                              &beta,
                                              out,
-                                             out_type,
+                                             CUDA_R_32F,
                                              a_rows,
                                              out_stride,
                                              batch_count,
-                                             compute_type,
+                                             CUBLAS_COMPUTE_32F,
                                              CUBLAS_GEMM_DEFAULT));
 }
 
@@ -762,27 +753,17 @@ auto split_manyway(raft::resources const& res,
 // Leaf processing: bounded leaf slicing and cross-input leaf KNN
 // ----------------------------------------------------------------------------
 
-/** Return true if one leaf of this dimension and leaf size goes into the GEMM workspace. */
+/** Return true if one leaf of this dimension and leaf size fits the float GEMM workspace. */
 template <typename T>
 inline auto leaf_gemm_supported(int64_t dimension, uint32_t leaf_size) -> bool
 {
+  // All scalar types (including integers) gather into float leaf buffers before the GEMM.
+  (void)sizeof(T);
   if (dimension <= 0 || dimension > std::numeric_limits<int>::max()) { return false; }
 
-  int64_t storage_dimension  = dimension;
-  size_t vector_element_size = sizeof(float);
-  size_t gram_element_size   = sizeof(float);
-  if constexpr (std::is_integral_v<T>) {
-    // The below check is a little paranoid
-    if (dimension > MAX_INTEGER_LEAF_DIMENSION) { return false; }
-    storage_dimension   = (dimension + 3) & ~int64_t{3};
-    vector_element_size = sizeof(int8_t);
-    gram_element_size   = sizeof(int32_t);
-  }
-
-  size_t vector_elements = static_cast<size_t>(leaf_size) * storage_dimension;
+  size_t vector_elements = static_cast<size_t>(leaf_size) * static_cast<size_t>(dimension);
   size_t gram_elements   = static_cast<size_t>(leaf_size) * leaf_size;
-  return vector_elements * vector_element_size + gram_elements * gram_element_size <=
-         GEMM_WORKSPACE_BYTES;
+  return vector_elements * sizeof(float) + gram_elements * sizeof(float) <= GEMM_WORKSPACE_BYTES;
 }
 
 struct leaf_set {
@@ -846,7 +827,7 @@ static __global__ void initialize_self_scaffold_kernel(uint32_t* graph,
 }
 
 /** Copy the vectors of each leaf into a dense buffer of OutT, zero-padding rows past the leaf
- *  end and dimensions past `input_dim`. Unsigned input values move to a center of zero. */
+ *  end and dimensions past `input_dim`. Every scalar type is promoted to OutT (float) as-is. */
 template <typename T, typename OutT>
 __global__ void manyway_gather_leaf_vectors_kernel(T const* dataset,
                                                    int64_t input_dim,
@@ -872,11 +853,7 @@ __global__ void manyway_gather_leaf_vectors_kernel(T const* dataset,
     if (local_row < leaf_n && d < input_dim) {
       uint32_t point = memberships[leaf_starts[leaf] + local_row].id;
       auto input     = dataset[static_cast<int64_t>(point) * input_dim + d];
-      if constexpr (std::is_same_v<T, uint8_t>) {
-        value = static_cast<OutT>(static_cast<int>(input) - 128);
-      } else {
-        value = static_cast<OutT>(input);
-      }
+      value          = static_cast<OutT>(input);
     }
     leaf_vectors[linear] = value;
   }
@@ -981,124 +958,62 @@ auto build_leaf_neighbors(raft::resources const& res,
     graph.data_handle(), rows, union_degree);
   RAFT_CUDA_TRY(cudaGetLastError());
 
-  if constexpr (std::is_same_v<T, float> || std::is_same_v<T, half>) {
-    // Size the leaf batch so the vector and Gram buffers fit the GEMM workspace budget
-    int64_t input_dimension         = dataset.extent(1);
-    int dimension                   = static_cast<int>(input_dimension);
-    size_t vector_elements_per_leaf = static_cast<size_t>(leaf_size) * dimension;
-    size_t gram_elements_per_leaf   = static_cast<size_t>(leaf_size) * leaf_size;
-    size_t bytes_per_leaf =
-      vector_elements_per_leaf * sizeof(float) + gram_elements_per_leaf * sizeof(float);
-    size_t batch_capacity = std::max<size_t>(
-      1, std::min<size_t>(leaves.starts_host.size(), GEMM_WORKSPACE_BYTES / bytes_per_leaf));
-    rmm::device_uvector<float> leaf_vectors(batch_capacity * vector_elements_per_leaf, stream);
-    rmm::device_uvector<float> gram(batch_capacity * gram_elements_per_leaf, stream);
-    auto vector_stride = static_cast<int64_t>(vector_elements_per_leaf);
-    auto gram_stride   = static_cast<int64_t>(gram_elements_per_leaf);
+  // Gather every scalar type into float leaf buffers. Native INT8 cuBLAS is not portable across
+  // architectures (Ada returns CUBLAS_STATUS_NOT_SUPPORTED for the strided-batched INT8 path).
+  int64_t input_dimension         = dataset.extent(1);
+  int dimension                   = static_cast<int>(input_dimension);
+  size_t vector_elements_per_leaf = static_cast<size_t>(leaf_size) * dimension;
+  size_t gram_elements_per_leaf   = static_cast<size_t>(leaf_size) * leaf_size;
+  size_t bytes_per_leaf =
+    vector_elements_per_leaf * sizeof(float) + gram_elements_per_leaf * sizeof(float);
+  size_t batch_capacity = std::max<size_t>(
+    1, std::min<size_t>(leaves.starts_host.size(), GEMM_WORKSPACE_BYTES / bytes_per_leaf));
+  rmm::device_uvector<float> leaf_vectors(batch_capacity * vector_elements_per_leaf, stream);
+  rmm::device_uvector<float> gram(batch_capacity * gram_elements_per_leaf, stream);
+  auto vector_stride = static_cast<int64_t>(vector_elements_per_leaf);
+  auto gram_stride   = static_cast<int64_t>(gram_elements_per_leaf);
 
-    for (size_t leaf_offset = 0; leaf_offset < leaves.starts_host.size();
-         leaf_offset += batch_capacity) {
-      size_t batch_size = std::min(batch_capacity, leaves.starts_host.size() - leaf_offset);
-      int gather_blocks =
-        strided_grid_size(static_cast<int64_t>(batch_size * vector_elements_per_leaf));
-      // Gather this batch's leaves into the dense vector buffer.
-      manyway_gather_leaf_vectors_kernel<<<gather_blocks, THREADS_PER_BLOCK, 0, stream>>>(
-        dataset.data_handle(),
-        input_dimension,
-        input_dimension,
-        leaf_size,
-        memberships.data(),
-        leaves.starts.data(),
-        leaves.ends.data(),
-        static_cast<int64_t>(leaf_offset),
-        static_cast<int64_t>(batch_size),
-        leaf_vectors.data());
-      RAFT_CUDA_TRY(cudaGetLastError());
-      // the Gram matrix of every leaf in the batch
-      batched_row_dot_products(res,
-                               leaf_vectors.data(),
-                               leaf_size,
-                               vector_stride,
-                               leaf_vectors.data(),
-                               leaf_size,
-                               vector_stride,
-                               gram.data(),
-                               gram_stride,
-                               dimension,
-                               static_cast<int>(batch_size));
-      // select each point's nearest cross-input neighbors from the corresponding Gram matrix
-      manyway_leaf_gram_knn_kernel<float>
-        <<<static_cast<int>(batch_size), leaf_size, 0, stream>>>(gram.data(),
-                                                                 memberships.data(),
-                                                                 origins,
-                                                                 leaves.starts.data(),
-                                                                 leaves.ends.data(),
-                                                                 static_cast<int64_t>(leaf_offset),
-                                                                 static_cast<int64_t>(batch_size),
-                                                                 leaf_size,
-                                                                 leaf_degree,
-                                                                 union_degree,
-                                                                 graph.data_handle());
-      RAFT_CUDA_TRY(cudaGetLastError());
-    }
-  } else if constexpr (std::is_same_v<T, uint8_t> || std::is_same_v<T, int8_t>) {
-    // Same pipeline as the float path, with rows padded to a multiple of 4 and an INT32 Gram.
-    int64_t input_dimension         = dataset.extent(1);
-    int64_t padded_dimension        = (input_dimension + 3) & ~int64_t{3};
-    size_t vector_elements_per_leaf = static_cast<size_t>(leaf_size) * padded_dimension;
-    size_t gram_elements_per_leaf   = static_cast<size_t>(leaf_size) * leaf_size;
-    size_t bytes_per_leaf =
-      vector_elements_per_leaf * sizeof(int8_t) + gram_elements_per_leaf * sizeof(int32_t);
-    size_t batch_capacity = std::max<size_t>(
-      1, std::min<size_t>(leaves.starts_host.size(), GEMM_WORKSPACE_BYTES / bytes_per_leaf));
-    rmm::device_uvector<int8_t> leaf_vectors(batch_capacity * vector_elements_per_leaf, stream);
-    rmm::device_uvector<int32_t> gram(batch_capacity * gram_elements_per_leaf, stream);
-    int dimension      = static_cast<int>(padded_dimension);
-    auto vector_stride = static_cast<int64_t>(vector_elements_per_leaf);
-    auto gram_stride   = static_cast<int64_t>(gram_elements_per_leaf);
-
-    for (size_t leaf_offset = 0; leaf_offset < leaves.starts_host.size();
-         leaf_offset += batch_capacity) {
-      size_t batch_size = std::min(batch_capacity, leaves.starts_host.size() - leaf_offset);
-      int gather_blocks =
-        strided_grid_size(static_cast<int64_t>(batch_size * vector_elements_per_leaf));
-      manyway_gather_leaf_vectors_kernel<<<gather_blocks, THREADS_PER_BLOCK, 0, stream>>>(
-        dataset.data_handle(),
-        input_dimension,
-        padded_dimension,
-        leaf_size,
-        memberships.data(),
-        leaves.starts.data(),
-        leaves.ends.data(),
-        static_cast<int64_t>(leaf_offset),
-        static_cast<int64_t>(batch_size),
-        leaf_vectors.data());
-      RAFT_CUDA_TRY(cudaGetLastError());
-      batched_row_dot_products(res,
-                               leaf_vectors.data(),
-                               leaf_size,
-                               vector_stride,
-                               leaf_vectors.data(),
-                               leaf_size,
-                               vector_stride,
-                               gram.data(),
-                               gram_stride,
-                               dimension,
-                               static_cast<int>(batch_size));
-      manyway_leaf_gram_knn_kernel<int32_t>
-        <<<static_cast<int>(batch_size), leaf_size, 0, stream>>>(gram.data(),
-                                                                 memberships.data(),
-                                                                 origins,
-                                                                 leaves.starts.data(),
-                                                                 leaves.ends.data(),
-                                                                 static_cast<int64_t>(leaf_offset),
-                                                                 static_cast<int64_t>(batch_size),
-                                                                 leaf_size,
-                                                                 leaf_degree,
-                                                                 union_degree,
-                                                                 graph.data_handle());
-      RAFT_CUDA_TRY(cudaGetLastError());
-    }
+  for (size_t leaf_offset = 0; leaf_offset < leaves.starts_host.size();
+       leaf_offset += batch_capacity) {
+    size_t batch_size = std::min(batch_capacity, leaves.starts_host.size() - leaf_offset);
+    int gather_blocks =
+      strided_grid_size(static_cast<int64_t>(batch_size * vector_elements_per_leaf));
+    manyway_gather_leaf_vectors_kernel<<<gather_blocks, THREADS_PER_BLOCK, 0, stream>>>(
+      dataset.data_handle(),
+      input_dimension,
+      input_dimension,
+      leaf_size,
+      memberships.data(),
+      leaves.starts.data(),
+      leaves.ends.data(),
+      static_cast<int64_t>(leaf_offset),
+      static_cast<int64_t>(batch_size),
+      leaf_vectors.data());
+    RAFT_CUDA_TRY(cudaGetLastError());
+    batched_row_dot_products(res,
+                             leaf_vectors.data(),
+                             leaf_size,
+                             vector_stride,
+                             leaf_vectors.data(),
+                             leaf_size,
+                             vector_stride,
+                             gram.data(),
+                             gram_stride,
+                             dimension,
+                             static_cast<int>(batch_size));
+    manyway_leaf_gram_knn_kernel<float>
+      <<<static_cast<int>(batch_size), leaf_size, 0, stream>>>(gram.data(),
+                                                               memberships.data(),
+                                                               origins,
+                                                               leaves.starts.data(),
+                                                               leaves.ends.data(),
+                                                               static_cast<int64_t>(leaf_offset),
+                                                               static_cast<int64_t>(batch_size),
+                                                               leaf_size,
+                                                               leaf_degree,
+                                                               union_degree,
+                                                               graph.data_handle());
+    RAFT_CUDA_TRY(cudaGetLastError());
   }
 
   return graph;

@@ -104,13 +104,22 @@ void expect_dataset_order(raft::resources const& res,
                           index<T, uint32_t> const& merged,
                           raft::host_matrix_view<const T, int64_t> expected)
 {
-  ASSERT_EQ(merged.dataset().extent(0), expected.extent(0));
-  ASSERT_EQ(merged.dataset().extent(1), expected.extent(1));
-  auto host = raft::make_host_matrix<T, int64_t>(res, expected.extent(0), expected.extent(1));
-  raft::copy(host.data_handle(),
-             merged.dataset().data_handle(),
-             host.size(),
-             raft::resource::get_cuda_stream(res));
+  auto view = merged.dataset();
+  ASSERT_EQ(view.extent(0), expected.extent(0));
+  ASSERT_EQ(view.extent(1), expected.extent(1));
+  // The merged owning dataset is attached through make_aligned_dataset, which pads each row to a
+  // 16-byte stride. For int8/uint8 (and any dim whose byte width is not a multiple of 16) the
+  // stride exceeds the logical dimension, so the rows must be copied honoring that stride rather
+  // than as one contiguous block.
+  auto host          = raft::make_host_matrix<T, int64_t>(res, expected.extent(0), expected.extent(1));
+  auto stream        = raft::resource::get_cuda_stream(res);
+  int64_t row_stride = view.stride(0);
+  for (int64_t row = 0; row < view.extent(0); ++row) {
+    raft::copy(host.data_handle() + row * view.extent(1),
+               view.data_handle() + row * row_stride,
+               view.extent(1),
+               stream);
+  }
   raft::resource::sync_stream(res);
   for (int64_t row = 0; row < expected.extent(0); ++row) {
     for (int64_t column = 0; column < expected.extent(1); ++column) {
@@ -384,22 +393,28 @@ TEST(CagraMergeFastener, DuplicateAcrossInputsAppearInEachOthersScaffoldNeighbor
 }
 
 /**
- * Verifies the leaf-GEMM eligibility boundary for every scalar type and confirms that an integer
- * dimension beyond the safe accumulation limit is rejected before either input index is mutated.
+ * Verifies the leaf-GEMM eligibility boundary for every scalar type and confirms that a dimension
+ * that cannot fit one float leaf in the GEMM workspace is rejected before either input is mutated.
  */
-TEST(CagraMergeFastener, LeafGemmLimitsRejectOnlyUnrealisticIntegerDimensions)
+TEST(CagraMergeFastener, LeafGemmLimitsRejectOversizedWorkspaceDimensions)
 {
   using namespace detail::merge_scaffold;
   EXPECT_TRUE(leaf_gemm_supported<float>(4096, 256));
   EXPECT_TRUE(leaf_gemm_supported<half>(4096, 256));
-  EXPECT_TRUE(leaf_gemm_supported<int8_t>(MAX_INTEGER_LEAF_DIMENSION, 256));
-  EXPECT_TRUE(leaf_gemm_supported<uint8_t>(MAX_INTEGER_LEAF_DIMENSION, 256));
-  EXPECT_FALSE(leaf_gemm_supported<int8_t>(MAX_INTEGER_LEAF_DIMENSION + 1, 256));
-  EXPECT_FALSE(leaf_gemm_supported<uint8_t>(MAX_INTEGER_LEAF_DIMENSION + 1, 256));
+  EXPECT_TRUE(leaf_gemm_supported<int8_t>(4096, 256));
+  EXPECT_TRUE(leaf_gemm_supported<uint8_t>(4096, 256));
+
+  // One float leaf of this width exceeds GEMM_WORKSPACE_BYTES (~2 GiB).
+  constexpr uint32_t leaf_size = 256;
+  constexpr int64_t oversized_dim =
+    static_cast<int64_t>(GEMM_WORKSPACE_BYTES / sizeof(float) / leaf_size) + 1;
+  EXPECT_FALSE(leaf_gemm_supported<float>(oversized_dim, leaf_size));
+  EXPECT_FALSE(leaf_gemm_supported<int8_t>(oversized_dim, leaf_size));
+  EXPECT_FALSE(leaf_gemm_supported<uint8_t>(oversized_dim, leaf_size));
 
   raft::resources res;
   constexpr int64_t rows = 2;
-  constexpr int64_t dim  = MAX_INTEGER_LEAF_DIMENSION + 1;
+  constexpr int64_t dim  = oversized_dim;
   auto dataset0          = make_dataset<int8_t>(res, rows, dim, 1234ULL);
   auto dataset1          = make_dataset<int8_t>(res, rows, dim, 5678ULL);
   auto graph0            = make_ring_graph(res, rows, 1);
@@ -416,13 +431,13 @@ TEST(CagraMergeFastener, LeafGemmLimitsRejectOnlyUnrealisticIntegerDimensions)
   params.intermediate_graph_degree = 1;
   merge_params fastener;
   fastener.algo      = merge_algo::FASTENER;
-  fastener.leaf_size = 64;
+  fastener.leaf_size = leaf_size;
   std::vector<index<int8_t, uint32_t>*> indices{&index0, &index1};
 
   auto result = detail::preflight_fastener(
     params, fastener, indices, cuvs::neighbors::filtering::none_sample_filter{});
   EXPECT_FALSE(result.eligible);
-  EXPECT_EQ(result.reason, "integer dataset dimension exceeds the INT32 leaf GEMM limit");
+  EXPECT_EQ(result.reason, "dataset dimension exceeds the leaf GEMM workspace limit");
   EXPECT_EQ(index0.dataset().extent(0), rows);
   EXPECT_EQ(index1.dataset().extent(0), rows);
 }

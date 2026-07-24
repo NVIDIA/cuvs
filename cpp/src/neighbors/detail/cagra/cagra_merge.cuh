@@ -319,11 +319,7 @@ auto preflight_fastener(cagra::index_params const& params,
     return reject("dataset dimension must be positive and fit cuBLAS int dimensions");
   }
   if (!merge_scaffold::leaf_gemm_supported<T>(result.dim, merge_params.leaf_size)) {
-    if constexpr (std::is_integral_v<T>) {
-      return reject("integer dataset dimension exceeds the INT32 leaf GEMM limit");
-    } else {
-      return reject("dataset dimension exceeds the leaf GEMM workspace limit");
-    }
+    return reject("dataset dimension exceeds the leaf GEMM workspace limit");
   }
   if (rows > std::numeric_limits<uint32_t>::max() / spill) {
     return reject("combined rows times the configured spill width must fit in uint32_t");
