@@ -1,9 +1,12 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
 
+#include <algorithm>
+#include <limits>
+#include <mutex>
 #include <optional>
 #include <raft/core/copy.cuh>
 #include <raft/core/device_mdarray.hpp>
@@ -11,11 +14,12 @@
 #include <raft/core/host_mdarray.hpp>
 #include <raft/core/host_mdspan.hpp>
 #include <raft/core/kvp.hpp>
-#include <raft/core/managed_mdspan.hpp>
 #include <raft/core/operators.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resources.hpp>
 #include <raft/util/cudart_utils.hpp>
+#include <unordered_set>
+#include <vector>
 
 namespace cuvs::neighbors::all_neighbors::detail {
 using namespace cuvs::neighbors;
@@ -76,8 +80,8 @@ RAFT_KERNEL merge_subgraphs_kernel(IdxT* cluster_data_indices,
           threadKeyValuePair[i].key   = std::numeric_limits<float>::max();
           threadKeyValuePair[i].value = std::numeric_limits<IdxT>::max();
         } else {
-          threadKeyValuePair[i].key   = std::numeric_limits<float>::min();
-          threadKeyValuePair[i].value = std::numeric_limits<IdxT>::min();
+          threadKeyValuePair[i].key   = std::numeric_limits<float>::lowest();
+          threadKeyValuePair[i].value = std::numeric_limits<IdxT>::lowest();
         }
       }
     }
@@ -246,7 +250,9 @@ void merge_subgraphs(raft::resources const& res,
 template <typename T,
           typename IdxT         = int64_t,
           typename BeforeRemapT = int64_t,
-          bool SweepAll         = false>
+          bool SweepAll         = false,
+          typename GNbrView     = raft::device_matrix_view<IdxT, IdxT>,
+          typename GDistView    = raft::device_matrix_view<T, IdxT>>
 void remap_and_merge_subgraphs(raft::resources const& res,
                                raft::device_vector_view<IdxT, IdxT> inverted_indices_d,
                                raft::host_vector_view<IdxT, IdxT> inverted_indices,
@@ -254,8 +260,8 @@ void remap_and_merge_subgraphs(raft::resources const& res,
                                raft::host_matrix_view<IdxT, IdxT> batch_neighbors_h,
                                raft::device_matrix_view<IdxT, IdxT> batch_neighbors_d,
                                raft::device_matrix_view<T, IdxT> batch_distances_d,
-                               raft::managed_matrix_view<IdxT, IdxT> global_neighbors,
-                               raft::managed_matrix_view<T, IdxT> global_distances,
+                               GNbrView global_neighbors,
+                               GDistView global_distances,
                                size_t num_data_in_cluster,
                                size_t k,
                                bool select_min)
@@ -289,6 +295,76 @@ void remap_and_merge_subgraphs(raft::resources const& res,
                                      global_neighbors.data_handle(),
                                      batch_neighbors_d.data_handle(),
                                      select_min);
+}
+
+/**
+ * Host-side counterpart of merge_subgraphs_kernel + the remap, used when the output lives in host
+ * memory.
+ *
+ * Arguments:
+ * - [in] inverted_indices: host [num_data_in_cluster] mapping a cluster-local row to its global
+ * row.
+ * - [in] indices_for_remap_h: host [num_data_in_cluster x k] cluster-local neighbor ids.
+ * - [in] batch_distances_h: host [num_data_in_cluster x k] cluster distances.
+ * - [inout] global_distances / global_neighbors: host [num_rows x k] global knn graph.
+ * - [in] row_locks / num_row_locks: optional striped locks. When several GPUs merge into the same
+ *   shared host global graph concurrently, each row's read-modify-write is guarded by
+ *   row_locks[global_row % num_row_locks] so overlapping rows serialize while distinct rows proceed
+ *   in parallel. nullptr for single-GPU (no contention).
+ */
+template <typename T, typename IdxT = int64_t, typename BeforeRemapT = int64_t>
+void remap_and_merge_subgraphs(raft::resources const& res,
+                               raft::host_vector_view<IdxT, IdxT> inverted_indices,
+                               raft::host_matrix_view<BeforeRemapT, IdxT> indices_for_remap_h,
+                               raft::host_matrix_view<const T, IdxT> batch_distances_h,
+                               raft::host_matrix_view<IdxT, IdxT> global_neighbors,
+                               raft::host_matrix_view<T, IdxT> global_distances,
+                               size_t num_data_in_cluster,
+                               size_t k,
+                               bool select_min,
+                               std::mutex* row_locks = nullptr,
+                               size_t num_row_locks  = 0)
+{
+  // Parallelizing across this cluster's rows.
+#pragma omp parallel for
+  for (size_t i = 0; i < num_data_in_cluster; i++) {
+    IdxT global_row = inverted_indices(i);
+
+    // Lock this specific row for multi-GPU runs
+    if (row_locks != nullptr) row_locks[static_cast<size_t>(global_row) % num_row_locks].lock();
+
+    // Combine the existing global k neighbors with this cluster's k
+    std::vector<raft::KeyValuePair<T, IdxT>> merged;
+    merged.reserve(2 * k);
+    for (size_t j = 0; j < k; j++) {
+      merged.push_back({global_distances(global_row, j), global_neighbors(global_row, j)});
+    }
+    for (size_t j = 0; j < k; j++) {
+      merged.push_back({batch_distances_h(i, j), inverted_indices(indices_for_remap_h(i, j))});
+    }
+
+    if (select_min) {
+      std::stable_sort(
+        merged.begin(), merged.end(), [](const auto& a, const auto& b) { return a.key < b.key; });
+    } else {
+      std::stable_sort(
+        merged.begin(), merged.end(), [](const auto& a, const auto& b) { return a.key > b.key; });
+    }
+
+    // Deduplicate by neighbor id, keeping the first occurrence, and write top-k.
+    std::unordered_set<IdxT> seen;
+    seen.reserve(2 * k);
+    size_t out = 0;
+    for (size_t m = 0; m < merged.size() && out < k; m++) {
+      if (seen.insert(merged[m].value).second) {
+        global_distances(global_row, out) = merged[m].key;
+        global_neighbors(global_row, out) = merged[m].value;
+        out++;
+      }
+    }
+
+    if (row_locks != nullptr) row_locks[static_cast<size_t>(global_row) % num_row_locks].unlock();
+  }
 }
 
 }  // namespace cuvs::neighbors::all_neighbors::detail
