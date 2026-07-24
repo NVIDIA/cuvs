@@ -1,0 +1,249 @@
+<!--
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+-->
+
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>com.nvidia.cuvs.lucene</groupId>
+  <artifactId>cuvs-lucene</artifactId>
+  <!-- NOTE: The version automatically gets updated when ci/release/update-version.sh is invoked. -->
+  <!--CUVS_LUCENE#VERSION_UPDATE_MARKER_START--><version>26.10.0</version><!--CUVS_LUCENE#VERSION_UPDATE_MARKER_END-->
+  <name>cuvs-lucene</name>
+  <packaging>jar</packaging>
+
+  <description>
+      This project provides pluggable codecs for Apache Lucene to enable GPU-based accelerated vector search.
+  </description>
+  <url>https://rapids.ai</url>
+
+  <licenses>
+      <license>
+          <name>Apache License, Version 2.0</name>
+          <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+          <distribution>repo</distribution>
+          <comments>A business-friendly OSS license</comments>
+      </license>
+  </licenses>
+  <scm>
+      <connection>scm:git:https://github.com/rapidsai/cuvs.git</connection>
+      <developerConnection>scm:git:git@github.com:rapidsai/cuvs.git</developerConnection>
+      <tag>HEAD</tag>
+      <url>https://github.com/rapidsai/cuvs</url>
+  </scm>
+
+  <properties>
+    <maven.compiler.target>22</maven.compiler.target>
+    <maven.compiler.source>22</maven.compiler.source>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+  </properties>
+
+    <repositories>
+        <!-- Prefer Google Cloud mirror, which has higher rate limits -->
+        <repository>
+            <id>gcs-maven-central-mirror</id>
+            <name>GCS Maven Central mirror</name>
+            <url>https://maven-central.storage-download.googleapis.com/maven2/</url>
+            <releases>
+                <enabled>true</enabled>
+            </releases>
+            <snapshots>
+                <enabled>false</enabled>
+            </snapshots>
+        </repository>
+        <!-- Fall back to Maven upstream for packages not found in GCS mirror -->
+        <repository>
+            <id>central</id>
+            <name>Maven Central</name>
+            <url>https://repo.maven.apache.org/maven2</url>
+            <releases>
+                <enabled>true</enabled>
+            </releases>
+            <snapshots>
+                <enabled>false</enabled>
+            </snapshots>
+        </repository>
+    </repositories>
+
+    <pluginRepositories>
+        <!-- Prefer Google Cloud mirror, which has higher rate limits -->
+        <pluginRepository>
+            <id>gcs-maven-central-mirror</id>
+            <name>GCS Maven Central mirror</name>
+            <url>https://maven-central.storage-download.googleapis.com/maven2/</url>
+            <releases>
+                <enabled>true</enabled>
+            </releases>
+            <snapshots>
+                <enabled>false</enabled>
+            </snapshots>
+        </pluginRepository>
+        <!-- Fall back to Maven upstream for packages not found in GCS mirror -->
+        <pluginRepository>
+            <id>central</id>
+            <name>Maven Plugin Repository</name>
+            <url>https://repo.maven.apache.org/maven2</url>
+            <releases>
+                <enabled>true</enabled>
+            </releases>
+            <snapshots>
+                <enabled>false</enabled>
+            </snapshots>
+        </pluginRepository>
+    </pluginRepositories>
+
+  <dependencies>
+    <dependency>
+        <groupId>org.apache.lucene</groupId>
+        <artifactId>lucene-core</artifactId>
+        <version>10.2.0</version>
+    </dependency>
+    <dependency>
+        <groupId>org.apache.lucene</groupId>
+        <artifactId>lucene-codecs</artifactId>
+        <version>10.2.0</version>
+        <scope>test</scope>
+    </dependency>
+    <dependency>
+        <groupId>org.apache.lucene</groupId>
+        <artifactId>lucene-backward-codecs</artifactId>
+        <version>10.2.0</version>
+    </dependency>
+    <dependency>
+        <groupId>org.apache.lucene</groupId>
+        <artifactId>lucene-test-framework</artifactId>
+        <version>10.2.0</version>
+        <scope>test</scope>
+    </dependency>
+    <dependency>
+        <groupId>commons-io</groupId>
+        <artifactId>commons-io</artifactId>
+        <version>2.18.0</version>
+        <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.nvidia.cuvs</groupId>
+      <artifactId>cuvs-java</artifactId>
+      <!--CUVS_LUCENE#VERSION_UPDATE_MARKER_START--><version>26.10.0</version><!--CUVS_LUCENE#VERSION_UPDATE_MARKER_END-->
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>com.diffplug.spotless</groupId>
+        <artifactId>spotless-maven-plugin</artifactId>
+        <version>2.44.5</version>
+        <executions>
+            <execution>
+                <goals>
+                    <goal>apply</goal>
+                </goals>
+                <phase>validate</phase>
+            </execution>
+        </executions>
+        <configuration>
+            <java>
+                <includes>
+                    <include>src/**/*.java</include>
+                </includes>
+                <googleJavaFormat>
+                    <version>1.27.0</version>
+                    <style>GOOGLE</style>
+                    <reflowLongStrings>true</reflowLongStrings>
+                    <formatJavadoc>false</formatJavadoc>
+                </googleJavaFormat>
+            </java>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-assembly-plugin</artifactId>
+        <version>3.6.0</version>
+        <configuration>
+          <descriptorRefs>
+            <descriptorRef>jar-with-dependencies</descriptorRef>
+          </descriptorRefs>
+        </configuration>
+        <executions>
+          <execution>
+            <id>make-assembly</id>
+            <phase>package</phase>
+            <goals>
+              <goal>single</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>3.5.4</version>
+        <configuration>
+          <reportFormat>plain</reportFormat>
+          <trimStackTrace>false</trimStackTrace>
+          <redirectTestOutputToFile>false</redirectTestOutputToFile>
+          <useFile>false</useFile>
+          <rerunFailingTestsCount>0</rerunFailingTestsCount>
+          <systemPropertyVariables>
+            <java.util.logging.config.file>${project.basedir}/src/main/resources/logging.properties</java.util.logging.config.file>
+          </systemPropertyVariables>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-source-plugin</artifactId>
+        <version>3.3.1</version>
+        <executions>
+          <execution>
+            <id>attach-sources</id>
+            <goals>
+              <goal>jar-no-fork</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-javadoc-plugin</artifactId>
+        <version>3.12.0</version>
+        <executions>
+          <execution>
+            <id>attach-javadocs</id>
+            <goals>
+                <goal>jar</goal>
+            </goals>
+            <configuration>
+                <doclint>all,-missing</doclint>
+                <outputDirectory>${project.build.directory}/javadocs</outputDirectory>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+          <groupId>org.jacoco</groupId>
+          <artifactId>jacoco-maven-plugin</artifactId>
+          <version>0.8.14</version>
+          <executions>
+              <execution>
+                  <goals>
+                      <goal>prepare-agent</goal>
+                  </goals>
+              </execution>
+              <execution>
+                  <id>report</id>
+                  <phase>prepare-package</phase>
+                  <goals>
+                      <goal>report</goal>
+                  </goals>
+              </execution>
+          </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

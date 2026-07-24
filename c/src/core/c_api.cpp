@@ -257,6 +257,8 @@ extern "C" cuvsError_t cuvsVersionGet(uint16_t* major, uint16_t* minor, uint16_t
   return CUVS_SUCCESS;
 }
 
+extern "C" int cuvsBogusAdd(int a, int b) { return a + b; }
+
 namespace {
 template <typename T>
 void _copy_matrix(cuvsResources_t res, DLManagedTensor* src_managed, DLManagedTensor* dst_managed)

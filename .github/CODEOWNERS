@@ -11,6 +11,10 @@ examples/cpp/      @NVIDIA/cuvs-cpp-codeowners
 java/              @NVIDIA/cuvs-java-codeowners
 examples/java/     @NVIDIA/cuvs-java-codeowners
 
+#cuvs lucene code owners
+# TODO: should we have this?
+#java/cuvs-lucene   @NVIDIA/cuvs-lucene-write
+
 #python code owners
 python/            @NVIDIA/cuvs-python-codeowners
 

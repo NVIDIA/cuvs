@@ -59,3 +59,13 @@ times, by passing `-Dtests.iters=10` through the command line.
 ## Examples
 
 A few starter examples of CAGRA, HNSW, and Bruteforce indexing and searching are provided in the `examples` directory.
+
+## cuVS Lucene
+
+The [`cuvs-lucene`](cuvs-lucene) directory contains the cuVS integration for
+[Apache Lucene](https://github.com/apache/lucene) — a pluggable `KnnVectorsFormat` that enables
+GPU-accelerated vector search. It depends on the `cuvs-java` bindings described above.
+
+`lucene` is a separate top-level build target: build it with `./build.sh lucene` (or
+`./build.sh java lucene` to rebuild `cuvs-java` first, or `./build.sh libcuvs java lucene` to build
+everything from scratch). See [`cuvs-lucene/README.md`](cuvs-lucene/README.md) for details.

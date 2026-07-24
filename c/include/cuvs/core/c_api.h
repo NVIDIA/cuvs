@@ -271,6 +271,16 @@ CUVS_EXPORT cuvsError_t cuvsRMMHostFree(void* ptr, size_t bytes);
 CUVS_EXPORT cuvsError_t cuvsVersionGet(uint16_t* major, uint16_t* minor, uint16_t* patch);
 
 /**
+ * @brief Bogus function used to verify end-to-end build propagation from the cuVS C
+ *        layer, through the cuvs-java bindings, to cuvs-lucene. Returns the sum of its
+ *        two arguments.
+ * @param[in] a First addend
+ * @param[in] b Second addend
+ * @return The sum @p a + @p b
+ */
+CUVS_EXPORT int cuvsBogusAdd(int a, int b);
+
+/**
  * @brief Copy a matrix
  *
  * This function copies a matrix from dst to src. This lets you copy a matrix

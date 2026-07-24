@@ -104,6 +104,40 @@ jobs:
       script: "ci/test_java.sh"
       artifact-name: "cuvs-java-cuda${{ matrix.CUDA_VER }}"
       file_to_upload: "java/cuvs-java/target/"
+  conda-lucene-build-and-tests-matrix:
+    permissions:
+      contents: read
+    uses: rapidsai/shared-workflows/.github/workflows/compute-matrix.yaml@main
+    with:
+      build_type: ${{ inputs.build_type }}
+      matrix_name: conda-cpp-build
+      matrix_filter: map(select(.ARCH == "amd64"))
+  conda-lucene-build-and-tests:
+    # Consumes the cuvs-java artifact uploaded by conda-java-build-and-tests instead of
+    # rebuilding cuvs-java.
+    needs: [conda-java-build-and-tests, conda-lucene-build-and-tests-matrix]
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+      pull-requests: read
+    secrets: inherit # zizmor: ignore[secrets-inherit]
+    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@main
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.conda-lucene-build-and-tests-matrix.outputs.matrix) }}
+    with:
+      build_type: ${{ inputs.build_type }}
+      branch: ${{ inputs.branch }}
+      date: ${{ inputs.date }}
+      sha: ${{ inputs.sha }}
+      node_type: "gpu-l4-latest-1"
+      arch: "amd64"
+      container_image: "rapidsai/ci-conda:26.10-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
+      script: "ci/test_lucene.sh"
+      artifact-name: "cuvs-lucene-cuda${{ matrix.CUDA_VER }}"
+      file_to_upload: "java/cuvs-lucene/target/"
   wheel-tests-cuvs:
     permissions:
       actions: read

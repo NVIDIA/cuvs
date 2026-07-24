@@ -7,3 +7,5 @@ openjdk-22-jextract*
 /cuvs-java/bin/
 /cuvs-java/src/main/java22/com/nvidia/cuvs/internal/panama/
 /cuvs-java/*.cag
+# cuvs-lucene
+/cuvs-lucene/bin/
