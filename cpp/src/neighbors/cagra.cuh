@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -378,6 +378,28 @@ void search(raft::resources const& res,
       const float max_filtering_rate = 0.999;
       params_copy.filtering_rate =
         std::min(std::max(filtering_rate, min_filtering_rate), max_filtering_rate);
+    }
+    auto sample_filter_copy = sample_filter;
+    return search_with_filtering<T, IdxT, decltype(sample_filter_copy), OutputIdxT>(
+      res, params_copy, idx, queries, neighbors, distances, sample_filter_copy);
+  } catch (const std::bad_cast&) {
+  }
+
+  try {
+    auto& sample_filter =
+      dynamic_cast<const cuvs::neighbors::filtering::bloom_filter&>(sample_filter_ref);
+    search_params params_copy = params;
+    if (params.filtering_rate < 0.0f) {
+      const float min_filtering_rate = 0.0f;
+      const float max_filtering_rate = 0.999f;
+      auto const* bloom_filter_obj =
+        static_cast<const cuvs::core::bloom_filter*>(sample_filter.filter_data);
+      RAFT_EXPECTS(bloom_filter_obj != nullptr,
+                   "bloom_filter must carry a valid cuvs::core::bloom_filter handle.");
+      params_copy.filtering_rate = bloom_filter_obj->estimate_filtering_rate(
+        res, static_cast<std::size_t>(idx.data().n_rows()));
+      params_copy.filtering_rate =
+        std::min(std::max(params_copy.filtering_rate, min_filtering_rate), max_filtering_rate);
     }
     auto sample_filter_copy = sample_filter;
     return search_with_filtering<T, IdxT, decltype(sample_filter_copy), OutputIdxT>(

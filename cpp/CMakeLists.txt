@@ -365,7 +365,9 @@ if(NOT BUILD_CPU_ONLY)
                                                 "$<$<COMPILE_LANGUAGE:CUDA>:${CUVS_CUDA_FLAGS}>"
   )
   target_compile_features(jit_lto_kernel_usage_requirements INTERFACE cuda_std_20)
-  target_link_libraries(jit_lto_kernel_usage_requirements INTERFACE rmm::rmm raft::raft CCCL::CCCL)
+  target_link_libraries(
+    jit_lto_kernel_usage_requirements INTERFACE rmm::rmm raft::raft CCCL::CCCL cuco::cuco
+  )
 
   block(PROPAGATE jit_lto_files)
   set(jit_lto_files)
@@ -1326,6 +1328,7 @@ if(NOT BUILD_CPU_ONLY)
     src/cluster/single_linkage_float.cu
     src/cluster/spectral.cu
     src/core/bitset.cu
+    src/core/bloom_filter.cu
     src/core/omp_wrapper.cpp
     src/util/file_io.cpp
     src/util/host_memory.cpp

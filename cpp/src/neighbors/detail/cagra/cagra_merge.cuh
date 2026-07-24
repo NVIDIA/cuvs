@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -44,6 +44,8 @@ index<T, IdxT> merge(raft::resources const& handle,
 
   RAFT_EXPECTS(row_filter.get_filter_type() != cuvs::neighbors::filtering::FilterType::Bitmap,
                "Bitmap filter isn't supported inside cagra::merge");
+  RAFT_EXPECTS(row_filter.get_filter_type() != cuvs::neighbors::filtering::FilterType::Bloom,
+               "Bloom filter isn't supported inside cagra::merge");
 
   for (cagra_index_t* index : indices) {
     RAFT_EXPECTS(index != nullptr,
