@@ -24,7 +24,6 @@ dependencies:
 - gcc_linux-aarch64=14.*
 - glog>=0.6.0
 - h5py>=3.8.0
-- libclang==20.1.8
 - libcublas-dev
 - libcurand-dev
 - libcusolver-dev
