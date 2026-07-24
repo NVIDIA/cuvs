@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs;
@@ -73,7 +73,10 @@ public class HnswBuildAndSearchIT extends CuVSTestCase {
 
       // Use NONE hierarchy since serializeToHNSW creates a base-layer-only index
       HnswIndexParams hnswIndexParams =
-          new HnswIndexParams.Builder().withVectorDimension(2).withHierarchy(HnswHierarchy.NONE).build();
+          new HnswIndexParams.Builder()
+              .withVectorDimension(2)
+              .withHierarchy(HnswHierarchy.NONE)
+              .build();
       try (var inputStreamHNSW = Files.newInputStream(hnswIndexPath)) {
         var hnswIndex =
             HnswIndex.newBuilder(resources)
