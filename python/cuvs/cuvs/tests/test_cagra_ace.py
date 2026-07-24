@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -163,13 +163,32 @@ def test_cagra_ace_dtypes_and_metrics(dtype, metric, use_disk):
     )
 
 
-@pytest.mark.parametrize("npartitions", [2, 3, 8])
+@pytest.mark.parametrize("npartitions", [0, 1, 2, 3, 8])
 def test_cagra_ace_partitions(npartitions):
     """Test ACE with different partition sizes (disk mode only)."""
     run_cagra_ace_build_search_test(
         use_disk=True,
         npartitions=npartitions,
     )
+
+
+@pytest.mark.parametrize(
+    ("npartitions", "message"),
+    [
+        (33, "cannot exceed dataset size"),
+    ],
+)
+def test_cagra_ace_rejects_invalid_partition_count(npartitions, message):
+    """ACE rejects partition counts that would make partition labeling invalid."""
+    dataset = np.zeros((32, 8), dtype=np.float32)
+    ace_params = cagra.AceParams(npartitions=npartitions, use_disk=False)
+    build_params = cagra.IndexParams(
+        build_algo="ace",
+        ace_params=ace_params,
+    )
+
+    with pytest.raises(Exception, match=message):
+        cagra.build(build_params, dataset)
 
 
 @pytest.mark.parametrize("ef_construction", [50, 100, 200])

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -262,6 +262,31 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
     std::filesystem::remove_all(temp_dir);
   }
 
+  void testHnswAceRejectsTooManyPartitions()
+  {
+    auto database_host = raft::make_host_matrix<DataT, int64_t>(ps.n_rows, ps.dim);
+    raft::copy(database_host.data_handle(), database_dev.data(), ps.n_rows * ps.dim, stream_);
+    raft::resource::sync_stream(handle_);
+
+    hnsw::index_params hnsw_params;
+    hnsw_params.metric          = ps.metric;
+    hnsw_params.hierarchy       = hnsw::HnswHierarchy::GPU;
+    hnsw_params.M               = 32;
+    hnsw_params.ef_construction = ps.ef_construction;
+
+    auto ace_params                = graph_build_params::ace_params();
+    ace_params.npartitions         = static_cast<size_t>(ps.n_rows) + 1;
+    hnsw_params.graph_build_params = ace_params;
+
+    try {
+      [[maybe_unused]] auto hnsw_index =
+        hnsw::build(handle_, hnsw_params, raft::make_const_mdspan(database_host.view()));
+      FAIL() << "ACE accepted more partitions than dataset rows";
+    } catch (const std::exception& e) {
+      EXPECT_NE(std::string(e.what()).find("cannot exceed dataset size"), std::string::npos);
+    }
+  }
+
   // Verify the in-memory CAGRA -> HNSW conversion spills to disk when the resulting HNSW
   // index would not fit in (an artificially constrained) host memory. This exercises
   // serialize_to_hnswlib_from_inmem and the batched serializer core, covering:
@@ -472,7 +497,7 @@ inline std::vector<AnnHnswAceInputs> generate_hnsw_ace_inputs()
     {5000},         // n_rows
     {64, 128},      // dim
     {10},           // k
-    {2, 4},         // npartitions
+    {0, 1, 2, 4},   // npartitions (auto, adjusted, and explicit)
     {100},          // ef_construction
     {false, true},  // use_disk (test both modes)
     {cuvs::distance::DistanceType::L2Expanded,
@@ -502,6 +527,19 @@ inline std::vector<AnnHnswAceInputs> generate_hnsw_ace_memory_fallback_inputs()
   };
 }
 
+inline std::vector<AnnHnswAceInputs> generate_hnsw_ace_invalid_partition_inputs()
+{
+  return {{10,
+           5000,
+           64,
+           10,
+           0,  // Set to n_rows + 1 by testHnswAceRejectsTooManyPartitions.
+           100,
+           false,
+           cuvs::distance::DistanceType::L2Expanded,
+           0.0}};
+}
+
 // Inputs for testing the in-memory CAGRA -> HNSW disk-spill conversion path.
 inline std::vector<AnnHnswAceInputs> generate_hnsw_inmem_spill_inputs()
 {
@@ -524,6 +562,8 @@ inline std::vector<AnnHnswAceInputs> generate_hnsw_inmem_spill_inputs()
 const std::vector<AnnHnswAceInputs> hnsw_ace_inputs = generate_hnsw_ace_inputs();
 const std::vector<AnnHnswAceInputs> hnsw_ace_memory_fallback_inputs =
   generate_hnsw_ace_memory_fallback_inputs();
+const std::vector<AnnHnswAceInputs> hnsw_ace_invalid_partition_inputs =
+  generate_hnsw_ace_invalid_partition_inputs();
 const std::vector<AnnHnswAceInputs> hnsw_inmem_spill_inputs = generate_hnsw_inmem_spill_inputs();
 
 }  // namespace cuvs::neighbors::hnsw
