@@ -390,13 +390,9 @@ auto merge_fastener(raft::resources const& handle,
   index<T, IdxT> merged_index(handle, params.metric);
   merged_index.update_graph(handle, std::move(optimized_graph));
   if (params.attach_dataset_on_build) {
-    using matrix_t           = decltype(dataset);
-    using layout_t           = typename matrix_t::layout_type;
-    using container_policy_t = typename matrix_t::container_policy_type;
-    using owning_t           = owning_dataset<T, int64_t, layout_t, container_policy_t>;
-    auto out_layout          = raft::make_strided_layout(dataset.view().extents(),
-                                                cuda::std::array<int64_t, 2>{preflight.dim, 1});
-    merged_index.update_dataset(handle, owning_t{std::move(dataset), out_layout});
+    // CAGRA search assumes 16-byte row alignment (vectorized loads). Consolidate remains dense for
+    // the scaffold; attach through make_aligned_dataset so unaligned dims are padded.
+    merged_index.update_dataset(handle, make_aligned_dataset(handle, std::move(dataset), 16));
   } else {
     using ds_idx_type = typename index<T, IdxT>::dataset_index_type;
     merged_index.update_dataset(

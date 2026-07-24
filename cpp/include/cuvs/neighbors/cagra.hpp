@@ -2492,7 +2492,8 @@ struct merge_params {
  * `index_params::graph_degree` is the final output degree.
  *
  * Fastener copies the input datasets into one contiguous device allocation and never mutates the
- * input indices. When `attach_dataset_on_build` is true, the result owns that consolidated copy.
+ * input indices. When `attach_dataset_on_build` is true, the result owns a 16-byte-row-aligned
+ * copy of that consolidated dataset (matching `cagra::build` / `update_dataset`).
  *
  * @param[in] res RAFT resources used for the merge.
  * @param[in] params Parameters for the returned CAGRA index.
