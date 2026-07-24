@@ -13,29 +13,13 @@ cuVS: Rust bindings for Vector Search on the GPU
 This crate provides Rust bindings for cuVS, allowing you to run
 approximate nearest neighbors search on the GPU.
 
-## brute_force
-
-```rust
-pub mod brute_force;
-```
-
-_Source: `rust/cuvs/src/lib.rs:12`_
-
-## cagra
-
-```rust
-pub mod cagra;
-```
-
-_Source: `rust/cuvs/src/lib.rs:13`_
-
 ## cluster
 
 ```rust
 pub mod cluster;
 ```
 
-_Source: `rust/cuvs/src/lib.rs:14`_
+_Source: `rust/cuvs/src/lib.rs:12`_
 
 ## distance
 
@@ -43,55 +27,55 @@ _Source: `rust/cuvs/src/lib.rs:14`_
 pub mod distance;
 ```
 
-_Source: `rust/cuvs/src/lib.rs:15`_
+_Source: `rust/cuvs/src/lib.rs:13`_
 
-## distance_type
+## dlpack
 
 ```rust
-pub mod distance_type;
+pub mod dlpack;
+```
+
+_Source: `rust/cuvs/src/lib.rs:14`_
+
+## error
+
+```rust
+pub mod error;
+```
+
+_Source: `rust/cuvs/src/lib.rs:15`_
+
+## neighbors
+
+```rust
+pub mod neighbors;
 ```
 
 _Source: `rust/cuvs/src/lib.rs:16`_
 
-## ivf_flat
+## resources
 
 ```rust
-pub mod ivf_flat;
+pub mod resources;
 ```
 
-_Source: `rust/cuvs/src/lib.rs:19`_
+_Source: `rust/cuvs/src/lib.rs:17`_
 
-## ivf_pq
+## dlpack::\{AsDlTensor, AsDlTensorMut, DLPackError, DLTensorView, DLTensorViewMut, DType\}
 
 ```rust
-pub mod ivf_pq;
+pub use dlpack::{AsDlTensor, AsDlTensorMut, DLPackError, DLTensorView, DLTensorViewMut, DType};
 ```
 
-_Source: `rust/cuvs/src/lib.rs:20`_
+_Source: `rust/cuvs/src/lib.rs:21`_
 
-## vamana
+## error::LibraryError
 
 ```rust
-pub mod vamana;
+pub use error::LibraryError;
 ```
 
 _Source: `rust/cuvs/src/lib.rs:22`_
-
-## dlpack::ManagedTensor
-
-```rust
-pub use dlpack::ManagedTensor;
-```
-
-_Source: `rust/cuvs/src/lib.rs:24`_
-
-## error::\{Error, Result\}
-
-```rust
-pub use error::{Error, Result};
-```
-
-_Source: `rust/cuvs/src/lib.rs:25`_
 
 ## resources::Resources
 
@@ -99,4 +83,16 @@ _Source: `rust/cuvs/src/lib.rs:25`_
 pub use resources::Resources;
 ```
 
-_Source: `rust/cuvs/src/lib.rs:26`_
+_Source: `rust/cuvs/src/lib.rs:23`_
+
+## ReadmeDocTests
+
+```rust
+#[cfg(doctest)]
+#[doc = include_str!("../../../README.md")]
+pub struct ReadmeDocTests; {
+    /* private fields */
+}
+```
+
+_Source: `rust/cuvs/src/lib.rs:29`_

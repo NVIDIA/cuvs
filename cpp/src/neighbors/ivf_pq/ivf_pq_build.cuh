@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -395,6 +395,15 @@ void train_per_subset(raft::resources const& handle,
     cuvs::cluster::kmeans::balanced_params kmeans_params;
     kmeans_params.n_iters = kmeans_n_iters;
     kmeans_params.metric  = cuvs::distance::DistanceType::L2Expanded;
+    // Preserve the historical donor selection behavior for IVF-PQ recall stability.
+    kmeans_params.donor_selection         = cuvs::cluster::kmeans::balanced_donor_selection::Random;
+    kmeans_params.balance_lower_tolerance = 0.25f;
+    kmeans_params.balance_upper_tolerance = 4.0f;
+    kmeans_params.centroid_offset         = 0.05f;
+    RAFT_LOG_DEBUG("tolerance: %f, %f, centroid_offset: %f",
+                   kmeans_params.balance_lower_tolerance,
+                   kmeans_params.balance_upper_tolerance,
+                   kmeans_params.centroid_offset);
     cuvs::cluster::kmeans_balanced::helpers::build_clusters(handle,
                                                             kmeans_params,
                                                             sub_trainset_view,
@@ -485,6 +494,15 @@ void train_per_cluster(raft::resources const& handle,
     cuvs::cluster::kmeans::balanced_params kmeans_params;
     kmeans_params.n_iters = kmeans_n_iters;
     kmeans_params.metric  = cuvs::distance::DistanceType::L2Expanded;
+    // Preserve the historical donor selection behavior for IVF-PQ recall stability.
+    kmeans_params.donor_selection         = cuvs::cluster::kmeans::balanced_donor_selection::Random;
+    kmeans_params.balance_lower_tolerance = 0.25f;
+    kmeans_params.balance_upper_tolerance = 4.0f;
+    kmeans_params.centroid_offset         = 0.05f;
+    RAFT_LOG_DEBUG("tolerance: %f, %f, centroid_offset: %f",
+                   kmeans_params.balance_lower_tolerance,
+                   kmeans_params.balance_upper_tolerance,
+                   kmeans_params.centroid_offset);
     cuvs::cluster::kmeans_balanced::helpers::build_clusters(handle,
                                                             kmeans_params,
                                                             rot_vectors_view,
@@ -1332,7 +1350,7 @@ auto build(raft::resources const& handle,
     cuvs::cluster::kmeans::balanced_params kmeans_params;
     kmeans_params.n_iters = params.kmeans_n_iters;
     kmeans_params.metric  = coarse_clustering_metric(impl->metric());
-
+    // Use the default SizeSorted donor selection to prioritize balanced coarse partitions.
     if (impl->metric() == distance::DistanceType::CosineExpanded) {
       raft::linalg::row_normalize<raft::linalg::L2Norm>(
         handle, trainset_const_view, trainset.view());

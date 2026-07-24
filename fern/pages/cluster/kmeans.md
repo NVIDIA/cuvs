@@ -366,9 +366,12 @@ Balanced K-Means encourages more even cluster sizes. It is useful when clusters 
 | `batch_samples` | `32768` | Number of samples per tile for the nearest-centroid computation. Lower values reduce temporary memory. |
 | `batch_centroids` | `0` | Number of centroids per tile. `0` means all centroids. Lower values reduce temporary memory. |
 | `init_size` | `0` | Number of rows sampled for k-means++ initialization on host-data paths. `0` uses the default heuristic. |
-| `streaming_batch_size` | `0` | Number of host rows streamed to the GPU per batch. `0` processes all host rows at once. |
+| `device_buffer_samples` | `0` | Number of host rows streamed to the GPU per batch. `0` processes all host rows at once. |
 | `hierarchical` | `false` | Enables hierarchical, balanced K-Means in C and Python. |
 | `hierarchical_n_iters` | implementation default | Number of training iterations for hierarchical K-Means. |
+| `balance_lower_tolerance` | `0.333` | C++ balanced K-Means lower tolerance for rebalancing clusters during hierarchical training and final global fine-tuning iterations. Small clusters are adjusted when their size is smaller than `average_cluster_size * balance_lower_tolerance`. The default targets clusters smaller than roughly one third of the average size. |
+| `balance_upper_tolerance` | `3.0` | C++ balanced K-Means upper tolerance for selecting overfull donor clusters during hierarchical training and final global fine-tuning iterations. Donor clusters are selected when their size is larger than `average_cluster_size * balance_upper_tolerance`. The default targets clusters larger than roughly three times the average size. Very strict upper tolerance values around `1.4` or lower can be difficult for this heuristic rebalancing method to satisfy. |
+| `centroid_offset` | `0.01` | C++ balanced K-Means offset used when reinitializing a small cluster near a large cluster. The new center is placed at `donor_center + centroid_offset * (donor_point - donor_center)`. |
 
 ## Tuning
 
@@ -380,7 +383,7 @@ Tune `max_iter` and `tol` together. If `n_iter` often reaches `max_iter`, increa
 
 Use `batch_samples` and `batch_centroids` to control device memory for device-resident data. Smaller tiles reduce temporary memory but add more tiled work.
 
-Use `streaming_batch_size` when fitting host-resident datasets that do not fit on the GPU. Smaller batches reduce GPU memory pressure, while larger batches reduce transfer and launch overhead.
+Use `device_buffer_samples` when fitting host-resident datasets that do not fit on the GPU. Smaller batches reduce GPU memory pressure, while larger batches reduce transfer and launch overhead.
 
 Use balanced K-Means when cluster size matters. This is often useful when clusters are later used as work partitions, batches, or coarse groups for another algorithm.
 
@@ -484,7 +487,7 @@ $$
 
 ### Host streaming fit
 
-For host-resident data, NVIDIA cuVS can stream rows to the GPU in batches. If `streaming_batch_size = 0`, then `S = N`; otherwise `S = streaming_batch_size`.
+For host-resident data, NVIDIA cuVS can stream rows to the GPU in batches. If `device_buffer_samples = 0`, then `S = N`; otherwise `S = device_buffer_samples`.
 
 $$
 \begin{aligned}
@@ -498,7 +501,7 @@ $$
 \end{aligned}
 $$
 
-Use a smaller `streaming_batch_size` when the host-data fit path runs out of GPU memory. Use a larger value when GPU memory is available and transfer overhead dominates.
+Use a smaller `device_buffer_samples` when the host-data fit path runs out of GPU memory. Use a larger value when GPU memory is available and transfer overhead dominates.
 
 ### Prediction
 

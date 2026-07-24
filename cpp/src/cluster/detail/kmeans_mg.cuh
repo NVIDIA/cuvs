@@ -188,18 +188,18 @@ void mnmg_fit(
                  static_cast<size_t>(n_features),
                  static_cast<int>(n_clusters));
 
-  IndexT streaming_batch_size = static_cast<IndexT>(params.streaming_batch_size);
-  if (streaming_batch_size <= 0 || streaming_batch_size > max_part_rows) {
-    streaming_batch_size = std::max(max_part_rows, IndexT{1});
+  IndexT device_buffer_samples = static_cast<IndexT>(params.device_buffer_samples);
+  if (device_buffer_samples <= 0 || device_buffer_samples > max_part_rows) {
+    device_buffer_samples = std::max(max_part_rows, IndexT{1});
   }
 
-  if (data_on_device && streaming_batch_size < max_part_rows) {
+  if (data_on_device && device_buffer_samples < max_part_rows) {
     RAFT_LOG_WARN(
-      "MNMG KMeans: streaming_batch_size (%zu) ignored when partitions reside on device; using "
+      "MNMG KMeans: device_buffer_samples (%zu) ignored when partitions reside on device; using "
       "max partition size (%zu)",
-      static_cast<size_t>(streaming_batch_size),
+      static_cast<size_t>(device_buffer_samples),
       static_cast<size_t>(max_part_rows));
-    streaming_batch_size = max_part_rows;
+    device_buffer_samples = max_part_rows;
   }
 
   auto rank_centroids_arr =
@@ -212,7 +212,7 @@ void mnmg_fit(
   auto clustering_cost       = raft::make_device_vector<DataT, IndexT>(dev_res, 1);
   auto batch_clustering_cost = raft::make_device_vector<DataT, IndexT>(dev_res, 1);
   auto sqrd_norm_error_dev   = raft::make_device_scalar<DataT>(dev_res, DataT{0});
-  IndexT alloc_batch_size    = streaming_batch_size;
+  IndexT alloc_batch_size    = device_buffer_samples;
   auto batch_weights         = raft::make_device_vector<DataT, IndexT>(dev_res, alloc_batch_size);
   auto minClusterAndDistance =
     raft::make_device_vector<raft::KeyValuePair<IndexT, DataT>, IndexT>(dev_res, alloc_batch_size);
@@ -363,7 +363,7 @@ void mnmg_fit(
 
     init_centroids_for_mg_batched<DataT, IndexT, Accessor>(dev_res,
                                                            iter_params,
-                                                           streaming_batch_size,
+                                                           device_buffer_samples,
                                                            X_parts,
                                                            n_features,
                                                            input_centroids_const,
@@ -404,7 +404,7 @@ void mnmg_fit(
 
         data_batch_iterator_t data_batches(dev_res,
                                            X_part,
-                                           static_cast<size_t>(streaming_batch_size),
+                                           static_cast<size_t>(device_buffer_samples),
                                            stream,
                                            rmm::mr::get_current_device_resource_ref(),
                                            true);
@@ -532,7 +532,7 @@ void mnmg_fit(
 
       data_batch_iterator_t data_batches(dev_res,
                                          X_part,
-                                         static_cast<size_t>(streaming_batch_size),
+                                         static_cast<size_t>(device_buffer_samples),
                                          stream,
                                          rmm::mr::get_current_device_resource_ref(),
                                          true);

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -118,7 +118,8 @@ struct CUVS_EXPORT list_spec {
   constexpr auto make_list_extents(SizeT n_rows) const -> list_extents
   {
     uint32_t padded = raft::round_up_safe<uint32_t>(dim, kVecLen);
-    return raft::make_extents<SizeT>(n_rows, padded);
+    return raft::make_extents<SizeT>(raft::round_up_safe<SizeT>(n_rows, SizeT{kIndexGroupSize}),
+                                     padded);
   }
 };
 
