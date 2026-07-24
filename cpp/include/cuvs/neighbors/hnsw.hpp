@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <cuvs/core/export.hpp>
 #include <memory>
+#include <string>
 #include <type_traits>
 #include <variant>
 
@@ -41,9 +42,10 @@ namespace graph_build_params = cuvs::neighbors::graph_build_params;
  * NOTE: When the value is `NONE`, the HNSW index is built as a base-layer-only index.
  */
 enum class HnswHierarchy {
-  NONE,  // base-layer-only index
-  CPU,   // full index with CPU-built hierarchy
-  GPU    // full index with GPU-built hierarchy
+  NONE,                // base-layer-only index
+  CPU,                 // full index with CPU-built hierarchy
+  GPU,                 // full index with GPU-built hierarchy
+  GPU_LAYERED_ON_DISK  // GPU-built hierarchy stored as layered on-disk topology
 };
 
 struct index_params : cuvs::neighbors::index_params {
@@ -63,6 +65,16 @@ struct index_params : cuvs::neighbors::index_params {
   /** HNSW M parameter: number of bi-directional links per node (used when building with ACE).
    */
   size_t M = 32;
+
+  /** Local dataset path used by layered HNSW deserialization.
+   *
+   * When `hierarchy == HnswHierarchy::GPU_LAYERED_ON_DISK`, the index artifact stores graph
+   * topology only. `deserialize` loads vectors from this local dataset path to reconstruct an
+   * in-memory HNSW index.
+   * Currently supported local dataset formats are `.npy` and ANN benchmark `*.bin` files with a
+   * `[uint32 rows, uint32 cols]` header.
+   */
+  std::string dataset_path;
 
   /** Parameters to fine tune GPU graph building. By default we select the parameters based on
    * dataset shape and HNSW build parameters. You can override these parameters to fine tune the

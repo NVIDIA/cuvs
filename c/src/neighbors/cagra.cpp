@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -884,10 +884,13 @@ extern "C" cuvsError_t cuvsCagraDeserialize(cuvsResources_t res,
 
     index->dtype.bits = dtype.itemsize * 8;
     if (dtype.kind == 'f' && dtype.itemsize == 4) {
-      index->addr       = reinterpret_cast<uintptr_t>(_deserialize<float>(res, filename));
+      index->addr =
+          reinterpret_cast<uintptr_t>(_deserialize<float>(res, filename));
       index->dtype.code = kDLFloat;
-    } else if (dtype.kind == 'e' && dtype.itemsize == 2) {
-      index->addr       = reinterpret_cast<uintptr_t>(_deserialize<half>(res, filename));
+    } else if ((dtype.kind == 'f' || dtype.kind == 'e') &&
+               dtype.itemsize == 2) {
+      index->addr =
+          reinterpret_cast<uintptr_t>(_deserialize<half>(res, filename));
       index->dtype.code = kDLFloat;
     } else if (dtype.kind == 'i' && dtype.itemsize == 1) {
       index->addr       = reinterpret_cast<uintptr_t>(_deserialize<int8_t>(res, filename));

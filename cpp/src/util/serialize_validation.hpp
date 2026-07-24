@@ -1,13 +1,13 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
 
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/ivf_pq.hpp>
+#include <cuvs/util/numpy_dtype.hpp>
 
-#include <raft/core/detail/mdspan_numpy_serializer.hpp>
 #include <raft/core/error.hpp>
 
 #include <algorithm>
@@ -44,7 +44,7 @@ inline bool validate_serialized_dtype(const char* dtype_prefix, std::size_t dtyp
 {
   if (dtype_prefix == nullptr || dtype_prefix_size != 4) { return false; }
 
-  auto expected_dtype = raft::detail::numpy_serializer::get_numpy_dtype<T>().to_string();
+  auto expected_dtype = cuvs::util::detail::numpy_dtype_string<T>();
   expected_dtype.resize(dtype_prefix_size, '\0');
 
   return std::equal(dtype_prefix, dtype_prefix + dtype_prefix_size, expected_dtype.begin());

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -22,6 +22,16 @@ TEST_P(AnnHnswAceMemoryFallbackTest_half, AnnHnswAceMemoryLimitFallback)
 INSTANTIATE_TEST_CASE_P(AnnHnswAceMemoryFallbackTest,
                         AnnHnswAceMemoryFallbackTest_half,
                         ::testing::ValuesIn(hnsw_ace_memory_fallback_inputs));
+
+typedef AnnHnswAceTest<float, half, uint32_t> AnnHnswAceLayeredTest_half;
+TEST_P(AnnHnswAceLayeredTest_half, AnnHnswAceLayeredBuildDeserializeSearch)
+{
+  this->testHnswAceLayeredBuildDeserializeSearch();
+}
+
+INSTANTIATE_TEST_CASE_P(AnnHnswAceLayeredTest,
+                        AnnHnswAceLayeredTest_half,
+                        ::testing::ValuesIn(hnsw_ace_layered_inputs));
 
 // Test for in-memory CAGRA -> HNSW disk-spill conversion
 typedef AnnHnswAceTest<float, half, uint32_t> AnnHnswInmemSpillTest_half;
