@@ -262,6 +262,7 @@ SPDX-License-Identifier: Apache-2.0
                         </excludes>
                         <!--
                             TODO: When we have more rules that should go to checkstyle or PMD
+                            (tracking issue: https://github.com/NVIDIA/cuvs/issues/2364)
                         -->
                         <replaceRegex>
                             <name>Use the headers_h facade, not numbered jextract classes</name>
