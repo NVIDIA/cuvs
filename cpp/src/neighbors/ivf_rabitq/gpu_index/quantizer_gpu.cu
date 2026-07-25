@@ -922,6 +922,9 @@ extern __constant__ float d_kTightStart_opt[9] = {
   0.81f,
 };
 
+// PRECONDITION: s_xp_norm must be block-visible before the call — callers
+// fill it with block-strided writes and must issue a __syncthreads() between
+// the last write and this call (CUB-style caller-owned input visibility).
 __device__ float compute_best_rescale_parallel(
   float* s_xp_norm, int D, int EX_BITS, float* reuse_space, int BlockSize)
 {
@@ -929,26 +932,22 @@ __device__ float compute_best_rescale_parallel(
   constexpr float kEps = 1e-5f;
   constexpr int kNEnum = 10;
 
+  // Tournament winners are broadcast through a dedicated shared slot (never
+  // aliased by the workspace and never reused as tournament scratch), so the
+  // final combine of each argmax tree doubles as the broadcast write and the
+  // publish/overwrite races need no guard barriers.
+  __shared__ float s_best_t;
+
   //=========================================================================
-  // Step 1: Find maximum value using parallel reduction
+  // Step 1: Block maximum via warp-shuffle all-reduce. fmaxf is exactly
+  // associative, so this is bit-identical to the former tree reduction; the
+  // result lands in every thread, which also keeps the early return uniform.
   //=========================================================================
   float local_max = 0.0f;
   for (int i = tid; i < D; i += BlockSize) {
     local_max = fmaxf(local_max, fabsf(s_xp_norm[i]));
   }
-
-  // Block-level reduction for max
-  float* s_reduce;
-  s_reduce      = reuse_space;
-  s_reduce[tid] = local_max;
-  __syncthreads();
-
-  for (int stride = BlockSize / 2; stride > 0; stride >>= 1) {
-    if (tid < stride) { s_reduce[tid] = fmaxf(s_reduce[tid], s_reduce[tid + stride]); }
-    __syncthreads();
-  }
-
-  float max_o = s_reduce[0];  // full max, already visible to all threads via the reduction's sync
+  float max_o = blockAllReduceMax(local_max);
   if (max_o < kEps) return 1.0f;
 
   //=========================================================================
@@ -995,7 +994,7 @@ __device__ float compute_best_rescale_parallel(
   s_coarse_t[tid]  = best_coarse_t;
   __syncthreads();
 
-  for (int stride = BlockSize / 2; stride > 0; stride >>= 1) {
+  for (int stride = BlockSize / 2; stride > 1; stride >>= 1) {
     if (tid < stride) {
       if (s_coarse_ip[tid + stride] > s_coarse_ip[tid]) {
         s_coarse_ip[tid] = s_coarse_ip[tid + stride];
@@ -1004,11 +1003,18 @@ __device__ float compute_best_rescale_parallel(
     }
     __syncthreads();
   }
+  // Final combine writes the winner straight into the broadcast slot; the
+  // barrier below both completes the tree and publishes s_best_t, and the
+  // fine phase may then overwrite the tournament scratch freely.
+  if (tid == 0) {
+    s_best_t = (s_coarse_ip[1] > s_coarse_ip[0]) ? s_coarse_t[1] : s_coarse_t[0];
+  }
+  __syncthreads();
 
   //=========================================================================
   // Phase 2: Fine search around best coarse point
   //=========================================================================
-  float center_t   = s_coarse_t[0];
+  float center_t   = s_best_t;
   float range      = (t_end - t_start) / COARSE_SAMPLES;
   float fine_start = fmaxf(t_start, center_t - range);
   float fine_end   = fminf(t_end, center_t + range);
@@ -1047,7 +1053,7 @@ __device__ float compute_best_rescale_parallel(
   s_fine_t[tid]  = best_fine_t;
   __syncthreads();
 
-  for (int stride = BlockSize / 2; stride > 0; stride >>= 1) {
+  for (int stride = BlockSize / 2; stride > 1; stride >>= 1) {
     if (tid < stride) {
       if (s_fine_ip[tid + stride] > s_fine_ip[tid]) {
         s_fine_ip[tid] = s_fine_ip[tid + stride];
@@ -1056,8 +1062,15 @@ __device__ float compute_best_rescale_parallel(
     }
     __syncthreads();
   }
-
-  return s_fine_t[0];
+  // Overwriting s_best_t is safe: the fine-publish barrier above ordered
+  // every thread's read of the coarse center before it. Returning the static
+  // slot keeps the result immune to workspace reuse in callers (e.g.
+  // s_tmp_code aliases the workspace in exrabitq_fused_kernel_batch_ori).
+  if (tid == 0) {
+    s_best_t = (s_fine_ip[1] > s_fine_ip[0]) ? s_fine_t[1] : s_fine_t[0];
+  }
+  __syncthreads();
+  return s_best_t;
 }
 
 template <unsigned int BlockSize>
@@ -1096,6 +1109,9 @@ __global__ void exrabitq_fused_kernel_batch_ori(
     s_xp_norm[j] = d_XP_norm[row * D + j];
     // Note: s_bin_xp, s_xp not loaded yet - we'll reuse as workspace
   }
+  // compute_best_rescale_parallel cross-reads every element of s_xp_norm:
+  // its precondition requires the writes above to be block-visible.
+  __syncthreads();
   // Compute scaling factor (reusing unused buffers)
   float const_scaling_factor =
     compute_best_rescale_parallel(s_xp_norm,
@@ -1321,6 +1337,9 @@ __global__ void fully_fused_kernel(float* __restrict__ output_factors,
   for (int i = tid; i < cols; i += block_size) {
     row_data[i] = fabsf(row_data[i] * inv_norm);
   }
+  // compute_best_rescale_parallel cross-reads every element of row_data:
+  // its precondition requires the writes above to be block-visible.
+  __syncthreads();
 
   float rescale_factor =
     compute_best_rescale_parallel(row_data, cols, ex_bits, reuse_space, block_size);

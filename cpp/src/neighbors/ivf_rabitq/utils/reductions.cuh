@@ -72,4 +72,34 @@ __inline__ __device__ T blockReduceSum(T val)
   return v[0];
 }
 
+// Block-level max all-reduce: butterfly shuffles + one shared-memory exchange,
+// a single __syncthreads(), and EVERY thread receives the full block maximum
+// (no separate broadcast barrier needed). Because fmaxf is exactly associative
+// and commutative, the result is bit-identical to a tree reduction over the
+// same inputs. Uses its own private scratch; the same one-call-per-kernel
+// contract as blockReduceSumN applies. Assumes blockDim.x is a multiple of the
+// warp size and uses at most 32 warps.
+__inline__ __device__ float blockAllReduceMax(float val)
+{
+  __shared__ float shared[32];
+  int lane            = threadIdx.x & 31;
+  int wid             = threadIdx.x >> 5;
+  int nwarps          = blockDim.x >> 5;
+  const float kNegInf = __int_as_float(0xff800000);  // -inf
+
+#pragma unroll
+  for (int offset = raft::WarpSize / 2; offset > 0; offset >>= 1) {
+    val = fmaxf(val, __shfl_xor_sync(0xffffffff, val, offset));
+  }
+  if (lane == 0) { shared[wid] = val; }
+  __syncthreads();
+
+  float v = (lane < nwarps) ? shared[lane] : kNegInf;
+#pragma unroll
+  for (int offset = raft::WarpSize / 2; offset > 0; offset >>= 1) {
+    v = fmaxf(v, __shfl_xor_sync(0xffffffff, v, offset));
+  }
+  return v;
+}
+
 }  // namespace cuvs::neighbors::ivf_rabitq::detail
