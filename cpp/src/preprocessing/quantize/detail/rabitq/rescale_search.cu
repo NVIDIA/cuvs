@@ -21,7 +21,13 @@
 
 #include <cstdint>
 #include <raft/core/error.hpp>
+#include <raft/core/resource/cuda_stream.hpp>
+#include <raft/core/resource/device_memory_resource.hpp>
+#include <raft/core/resource/device_properties.hpp>
+#include <raft/core/resources.hpp>
 #include <raft/util/cuda_rt_essentials.hpp>
+
+#include <rmm/device_uvector.hpp>
 
 namespace cuvs::preprocessing::quantize::rabitq::detail {
 
@@ -244,16 +250,18 @@ __global__ void rabitq_rescale_sample_kernel(
 // ---------------------------------------------------------------------------
 // Host entry point — average the per-row factors on device.
 // ---------------------------------------------------------------------------
-float get_const_scaling_factor(size_t dim, size_t ex_bits,
-                                           uint64_t seed,
-                                           int coarse_samples,
-                                           int fine_samples) {
+float get_const_scaling_factor(raft::resources const& res,
+                               size_t dim, size_t ex_bits,
+                               uint64_t seed,
+                               int coarse_samples,
+                               int fine_samples) {
     constexpr long kConstNum = 100;
 
-    float* d_factors;
-    float* d_sum;
-    RAFT_CUDA_TRY(cudaMalloc(&d_factors, kConstNum * sizeof(float)));
-    RAFT_CUDA_TRY(cudaMalloc(&d_sum, sizeof(float)));
+    auto stream    = raft::resource::get_cuda_stream(res);
+    auto workspace = raft::resource::get_workspace_resource_ref(res);
+
+    rmm::device_uvector<float> d_factors(static_cast<size_t>(kConstNum), stream, workspace);
+    rmm::device_uvector<float> d_sum(1, stream, workspace);
 
     int block_size = 256;
     if (dim <= 512) block_size = 128;
@@ -261,32 +269,31 @@ float get_const_scaling_factor(size_t dim, size_t ex_bits,
 
     size_t shared_mem_size = (dim + 3 * block_size) * sizeof(float);
 
-    cudaDeviceProp prop;
-    cudaGetDeviceProperties(&prop, 0);
+    // Device properties of the *resource's* device (cached on `res`), not device 0.
+    cudaDeviceProp const& prop = raft::resource::get_device_properties(res);
     if (shared_mem_size > prop.sharedMemPerBlock) {
         block_size = 128;
         shared_mem_size = (dim + 3 * block_size) * sizeof(float);
     }
 
-    rabitq_rescale_sample_kernel<<<kConstNum, block_size, shared_mem_size>>>(
-        d_factors, kConstNum, static_cast<int>(dim), static_cast<int>(ex_bits), seed,
+    rabitq_rescale_sample_kernel<<<kConstNum, block_size, shared_mem_size, stream>>>(
+        d_factors.data(), kConstNum, static_cast<int>(dim), static_cast<int>(ex_bits), seed,
         coarse_samples, fine_samples);
     RAFT_CUDA_TRY(cudaGetLastError());
 
     size_t temp_storage_bytes = 0;
-    cub::DeviceReduce::Sum(nullptr, temp_storage_bytes, d_factors, d_sum, kConstNum);
+    RAFT_CUDA_TRY(cub::DeviceReduce::Sum(
+        nullptr, temp_storage_bytes, d_factors.data(), d_sum.data(), kConstNum, stream));
 
-    void* d_temp_storage = nullptr;
-    RAFT_CUDA_TRY(cudaMalloc(&d_temp_storage, temp_storage_bytes));
-    cub::DeviceReduce::Sum(d_temp_storage, temp_storage_bytes, d_factors, d_sum, kConstNum);
-    RAFT_CUDA_TRY(cudaGetLastError());
+    rmm::device_uvector<char> d_temp_storage(temp_storage_bytes, stream, workspace);
+    RAFT_CUDA_TRY(cub::DeviceReduce::Sum(
+        d_temp_storage.data(), temp_storage_bytes, d_factors.data(), d_sum.data(), kConstNum,
+        stream));
 
     float sum;
-    RAFT_CUDA_TRY(cudaMemcpy(&sum, d_sum, sizeof(float), cudaMemcpyDeviceToHost));
-
-    RAFT_CUDA_TRY(cudaFree(d_factors));
-    RAFT_CUDA_TRY(cudaFree(d_sum));
-    RAFT_CUDA_TRY(cudaFree(d_temp_storage));
+    RAFT_CUDA_TRY(
+        cudaMemcpyAsync(&sum, d_sum.data(), sizeof(float), cudaMemcpyDeviceToHost, stream));
+    raft::resource::sync_stream(res);
 
     return sum / kConstNum;
 }

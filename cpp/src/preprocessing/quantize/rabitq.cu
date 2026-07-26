@@ -121,17 +121,6 @@ void check_factors(int64_t n_rows,
                "rabitq: factors must be a n_rows x 3 matrix");
 }
 
-/**
- * The imported quantizer entry points still launch on the (per-thread) default
- * stream, which is not the resource stream. Bridge the two around a direct call
- * to detail::quantize_*_on_residuals: flush the resource stream so the caller's
- * inputs are visible, and flush the default stream afterwards so the codes are
- * visible to work the caller issues next.
- * TODO(rabitq): drop both once quantize_*_on_residuals is stream-aware.
- */
-void sync_before_quantize(raft::resources const& res) { raft::resource::sync_stream(res); }
-void sync_after_quantize() { RAFT_CUDA_TRY(cudaStreamSynchronize(0)); }
-
 template <typename CodeT>
 void transform_impl(raft::resources const& res,
                     rabitq::quantizer const& q,
@@ -245,8 +234,8 @@ void transform_residuals_impl(
   check_delta_vl(n_rows, delta, vl);
   if (n_rows == 0) { return; }
 
-  sync_before_quantize(res);
-  detail::quantize_fused_on_residuals(residuals.data_handle(),
+  detail::quantize_fused_on_residuals(raft::resource::get_cuda_stream(res),
+                                      residuals.data_handle(),
                                       static_cast<size_t>(n_rows),
                                       static_cast<size_t>(q.padded_dim),
                                       static_cast<size_t>(q.params_quantizer.ex_bits),
@@ -258,7 +247,6 @@ void transform_residuals_impl(
                                       static_cast<int>(q.params_quantizer.delta_mode),
                                       static_cast<int>(q.params_quantizer.coarse_samples),
                                       static_cast<int>(q.params_quantizer.fine_samples));
-  sync_after_quantize();
 }
 
 template <typename CodeT>
@@ -298,8 +286,8 @@ void transform_residuals_full_impl(
     d_centroid = zero_centroid.data();
   }
 
-  sync_before_quantize(res);
-  detail::quantize_full_on_residuals(residuals.data_handle(),
+  detail::quantize_full_on_residuals(stream,
+                                     residuals.data_handle(),
                                      d_centroid,
                                      static_cast<size_t>(n_rows),
                                      static_cast<size_t>(q.padded_dim),
@@ -308,7 +296,6 @@ void transform_residuals_full_impl(
                                      q.params_quantizer.use_fast,
                                      codes.data_handle(),
                                      factors.data_handle());
-  sync_after_quantize();
 }
 
 }  // namespace
@@ -336,13 +323,10 @@ rotator init_rotator(raft::resources const& res, params const& params, int64_t d
   return rot;
 }
 
-// `res` is unused: RaBitQ needs no training data, and the detail estimator owns
-// its own (blocking) stream and allocations. It stays in the signature for
-// symmetry with the rest of the API and for when that estimator becomes
-// stream-aware.
-quantizer init_quantizer([[maybe_unused]] raft::resources const& res,
-                         params const& params,
-                         int64_t dim)
+// RaBitQ needs no training data: `res` only supplies the stream, the workspace
+// memory resource and the device properties used by the scaling-factor
+// estimator below (and is unused when `params.use_fast` is false).
+quantizer init_quantizer(raft::resources const& res, params const& params, int64_t dim)
 {
   RAFT_EXPECTS(dim > 0, "rabitq::init_quantizer: dim must be positive");
   check_params(params);
@@ -355,7 +339,8 @@ quantizer init_quantizer([[maybe_unused]] raft::resources const& res,
   // factor of the fast path, and it is estimated from random probe vectors.
   if (params.use_fast) {
     q.const_scaling_factor =
-      detail::get_const_scaling_factor(static_cast<size_t>(q.padded_dim),
+      detail::get_const_scaling_factor(res,
+                                       static_cast<size_t>(q.padded_dim),
                                        static_cast<size_t>(params.ex_bits),
                                        params.seed,
                                        static_cast<int>(params.coarse_samples),

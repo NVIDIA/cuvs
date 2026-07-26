@@ -101,17 +101,6 @@ void prepare_residuals(raft::resources const& res,
     }
 }
 
-/// The residual stage above runs on the resource stream, while the imported
-/// quantizer entry points still launch on the (per-thread) default stream.
-/// Bridge the two with a host-side sync until quantize.cuh takes a stream.
-/// TODO(rabitq): drop once quantize_*_on_residuals is stream-aware.
-void sync_before_quantize(raft::resources const& res) { raft::resource::sync_stream(res); }
-
-/// Mirror of sync_before_quantize: make the codes written by the quantizer
-/// visible to work the caller subsequently issues on the resource stream.
-/// TODO(rabitq): drop together with sync_before_quantize.
-void sync_after_quantize() { RAFT_CUDA_TRY(cudaStreamSynchronize(0)); }
-
 template <typename CodeT>
 void quantize_data_impl(raft::resources const& res,
                         const float* d_data, size_t N, size_t dim,
@@ -123,12 +112,11 @@ void quantize_data_impl(raft::resources const& res,
                         int delta_mode, int coarse_samples, int fine_samples) {
     prepare_residuals(res, d_data, N, dim, rotator, d_centroid, d_rotated_centroid,
                       d_residuals, /*require_rotated_c=*/false);
-    sync_before_quantize(res);
     quantize_fused_on_residuals(
+        raft::resource::get_cuda_stream(res),
         d_residuals, N, static_cast<size_t>(rotator.padded_dim), ex_bits,
         const_scaling_factor, use_fast,
         d_total_code, d_delta, d_vl, delta_mode, coarse_samples, fine_samples);
-    sync_after_quantize();
 }
 
 template <typename CodeT>
@@ -141,11 +129,10 @@ void quantize_data_full_impl(raft::resources const& res,
                              float* d_residuals) {
     prepare_residuals(res, d_data, N, dim, rotator, d_centroid, d_rotated_centroid,
                       d_residuals, /*require_rotated_c=*/true);
-    sync_before_quantize(res);
     quantize_full_on_residuals(
+        raft::resource::get_cuda_stream(res),
         d_residuals, d_rotated_centroid, N, static_cast<size_t>(rotator.padded_dim), ex_bits,
         const_scaling_factor, use_fast, d_total_code, d_factors);
-    sync_after_quantize();
 }
 
 }  // namespace

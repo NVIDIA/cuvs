@@ -267,6 +267,7 @@ __global__ void sa_quantize_fused_kernel(
 // ---------------------------------------------------------------------------
 template<typename CodeT>
 static void launch_quantize_fused(
+    cudaStream_t stream,
     const float* d_residual, size_t N, uint32_t padded_dim, size_t ex_bits,
     float const_scaling_factor, bool use_fast, int delta_mode,
     int coarse_samples, int fine_samples,
@@ -279,7 +280,7 @@ static void launch_quantize_fused(
     constexpr int nwarps = block / 32;
 
     size_t q_smem = (padded_dim + 2 * nwarps) * sizeof(float);
-    sa_quantize_fused_kernel<CodeT, block, false><<<iN, block, q_smem>>>(
+    sa_quantize_fused_kernel<CodeT, block, false><<<iN, block, q_smem, stream>>>(
         d_residual, d_total_code, iN, iD, iB, const_scaling_factor, use_fast,
         coarse_samples, fine_samples,
         d_delta, d_vl, delta_mode, nullptr, nullptr);
@@ -287,24 +288,28 @@ static void launch_quantize_fused(
 }
 
 void quantize_fused_on_residuals(
+    cudaStream_t stream,
     const float* d_residuals, size_t N, size_t padded_dim,
     size_t ex_bits, float const_scaling_factor, bool use_fast,
     uint16_t* d_total_code, float* d_delta, float* d_vl, int delta_mode,
     int coarse_samples, int fine_samples)
 {
-    launch_quantize_fused(d_residuals, N, static_cast<uint32_t>(padded_dim), ex_bits,
+    launch_quantize_fused(stream,
+                          d_residuals, N, static_cast<uint32_t>(padded_dim), ex_bits,
                           const_scaling_factor, use_fast, delta_mode,
                           coarse_samples, fine_samples,
                           d_total_code, d_delta, d_vl);
 }
 
 void quantize_fused_on_residuals(
+    cudaStream_t stream,
     const float* d_residuals, size_t N, size_t padded_dim,
     size_t ex_bits, float const_scaling_factor, bool use_fast,
     uint8_t* d_total_code, float* d_delta, float* d_vl, int delta_mode,
     int coarse_samples, int fine_samples)
 {
-    launch_quantize_fused(d_residuals, N, static_cast<uint32_t>(padded_dim), ex_bits,
+    launch_quantize_fused(stream,
+                          d_residuals, N, static_cast<uint32_t>(padded_dim), ex_bits,
                           const_scaling_factor, use_fast, delta_mode,
                           coarse_samples, fine_samples,
                           d_total_code, d_delta, d_vl);
@@ -312,6 +317,7 @@ void quantize_fused_on_residuals(
 
 template<typename CodeT>
 static void launch_quantize_full(
+    cudaStream_t stream,
     const float* d_residual, const float* d_centroid,
     size_t N, uint32_t padded_dim, size_t ex_bits,
     float const_scaling_factor, bool use_fast,
@@ -324,7 +330,7 @@ static void launch_quantize_full(
     constexpr int nwarps = block / 32;
 
     size_t q_smem = (padded_dim + 2 * nwarps) * sizeof(float);
-    sa_quantize_fused_kernel<CodeT, block, true><<<iN, block, q_smem>>>(
+    sa_quantize_fused_kernel<CodeT, block, true><<<iN, block, q_smem, stream>>>(
         d_residual, d_total_code, iN, iD, iB, const_scaling_factor, use_fast,
         64, 64,
         nullptr, nullptr, 0, d_centroid, d_factors);
@@ -332,24 +338,26 @@ static void launch_quantize_full(
 }
 
 void quantize_full_on_residuals(
+    cudaStream_t stream,
     const float* d_residuals, const float* d_centroid,
     size_t N, size_t padded_dim,
     size_t ex_bits, float const_scaling_factor, bool use_fast,
     uint16_t* d_total_code, float* d_factors)
 {
-    launch_quantize_full(d_residuals, d_centroid, N,
+    launch_quantize_full(stream, d_residuals, d_centroid, N,
                          static_cast<uint32_t>(padded_dim), ex_bits,
                          const_scaling_factor, use_fast,
                          d_total_code, d_factors);
 }
 
 void quantize_full_on_residuals(
+    cudaStream_t stream,
     const float* d_residuals, const float* d_centroid,
     size_t N, size_t padded_dim,
     size_t ex_bits, float const_scaling_factor, bool use_fast,
     uint8_t* d_total_code, float* d_factors)
 {
-    launch_quantize_full(d_residuals, d_centroid, N,
+    launch_quantize_full(stream, d_residuals, d_centroid, N,
                          static_cast<uint32_t>(padded_dim), ex_bits,
                          const_scaling_factor, use_fast,
                          d_total_code, d_factors);

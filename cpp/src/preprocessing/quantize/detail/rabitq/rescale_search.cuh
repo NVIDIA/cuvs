@@ -17,6 +17,8 @@
 #ifndef RABITQ_GPU_RESCALE_SEARCH_CUH
 #define RABITQ_GPU_RESCALE_SEARCH_CUH
 
+#include <raft/core/resources.hpp>
+
 #include <cstddef>
 #include <cstdint>
 
@@ -46,10 +48,18 @@ __device__ float compute_best_rescale_parallel(
 
 /// Host: estimate the constant scaling factor used by the fast-quantize path.
 /// Averages `kConstNum` rescale factors computed on random Gaussian vectors.
-float get_const_scaling_factor(size_t dim, size_t ex_bits,
-                                           uint64_t seed = 12345ULL,
-                                           int coarse_samples = 64,
-                                           int fine_samples = 64);
+///
+/// All work is issued on `raft::resource::get_cuda_stream(res)` and all scratch
+/// memory comes from `raft::resource::get_workspace_resource_ref(res)`; the
+/// device properties used to pick the block size are read from `res` as well,
+/// so the sizing follows the resource's device rather than device 0.
+/// Because the estimate is returned by value, the function synchronizes that
+/// stream once before returning.
+float get_const_scaling_factor(raft::resources const& res,
+                               size_t dim, size_t ex_bits,
+                               uint64_t seed = 12345ULL,
+                               int coarse_samples = 64,
+                               int fine_samples = 64);
 
 }  // namespace cuvs::preprocessing::quantize::rabitq::detail
 
