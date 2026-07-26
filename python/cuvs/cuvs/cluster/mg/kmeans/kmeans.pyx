@@ -151,7 +151,7 @@ def fit(
     params_v2.batch_centroids = params.params.batch_centroids
     params_v2.hierarchical = params.params.hierarchical
     params_v2.hierarchical_n_iters = params.params.hierarchical_n_iters
-    params_v2.streaming_batch_size = params.params.streaming_batch_size
+    params_v2.device_buffer_samples = params.params.device_buffer_samples
     params_v2.init_size = params.params.init_size
 
     with cuda_interruptible():
