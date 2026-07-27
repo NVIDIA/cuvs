@@ -216,11 +216,6 @@ void search(raft::resources const& handle,
                "n_probes (%u) cannot exceed number of IVF lists (%zu)",
                params.n_probes,
                idx.rabitq_index().get_num_centroids());
-  // InnerProduct is currently implemented only on the bitwise (QUANT4/QUANT8) search paths; the
-  // LUT paths would silently return squared-L2 results, so reject them explicitly.
-  RAFT_EXPECTS(idx.rabitq_index().metric() != cuvs::distance::DistanceType::InnerProduct ||
-                 params.mode == search_mode::QUANT4 || params.mode == search_mode::QUANT8,
-               "ivf_rabitq: InnerProduct search currently supports only QUANT4 and QUANT8 modes");
 
   auto padded_dim      = idx.rabitq_index().get_num_padded_dim();
   auto rotated_queries = raft::make_device_matrix<T, int64_t>(handle, NQ, padded_dim);

@@ -9,20 +9,20 @@ namespace cuvs::neighbors::ivf_rabitq::detail {
 
 struct fragment_tag_compute_inner_products_with_lut {};
 
-template <bool WithEx>
+template <bool WithEx, bool Signed>
 struct fragment_tag_lut_emit_distances {};
 
 struct fragment_tag_compute_inner_products_with_lut_block_sort {};
 
-template <bool WithEx>
+template <bool WithEx, bool Signed>
 struct fragment_tag_lut_block_sort_emit_topk {};
 
 struct fragment_tag_compute_inner_products_with_lut16_opt {};
 
-template <bool WithEx>
+template <bool WithEx, bool Signed>
 struct fragment_tag_lut16_opt_emit_distances {};
 
-template <bool WithEx>
+template <bool WithEx, bool Signed>
 struct fragment_tag_compute_inner_products_with_lut16_opt_block_sort {};
 
 struct fragment_tag_compute_inner_products_with_bitwise {};

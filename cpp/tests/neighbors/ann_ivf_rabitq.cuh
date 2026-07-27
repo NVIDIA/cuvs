@@ -375,13 +375,16 @@ inline auto var_search_mode_1_bit() -> test_cases_t
   });
 }
 
-// InnerProduct metric. Only the bitwise (QUANT4/QUANT8) search paths implement it, so restrict to
-// those modes. Cover both the block-sort (k <= kMaxTopKBlockSort == 64) and non-block-sort (k >
-// 64) sub-paths, and both the no-ex (bits_per_dim == 1) and with-ex (bits_per_dim > 1) code paths.
+// InnerProduct metric across all four search modes. Cover both the block-sort
+// (k <= kMaxTopKBlockSort == 64) and non-block-sort (k > 64) sub-paths, and both the no-ex
+// (bits_per_dim == 1) and with-ex (bits_per_dim > 1) code paths.
 inline auto var_metric() -> test_cases_t
 {
   test_cases_t xs;
-  for (auto mode : {ivf_rabitq::search_mode::QUANT4, ivf_rabitq::search_mode::QUANT8}) {
+  for (auto mode : {ivf_rabitq::search_mode::LUT16,
+                    ivf_rabitq::search_mode::LUT32,
+                    ivf_rabitq::search_mode::QUANT4,
+                    ivf_rabitq::search_mode::QUANT8}) {
     for (uint32_t k : {uint32_t{10}, uint32_t{128}}) {
       for (uint32_t bits : {uint32_t{1}, uint32_t{4}}) {
         ivf_rabitq_inputs x;

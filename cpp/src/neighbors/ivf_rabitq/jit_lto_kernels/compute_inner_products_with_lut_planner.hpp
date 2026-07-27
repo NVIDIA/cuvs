@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -24,10 +24,10 @@ struct ComputeInnerProductsWithLutPlanner : AlgorithmPlanner {
     this->add_static_fragment<fragment_tag_compute_inner_products_with_lut>();
   }
 
-  template <bool WithEx>
+  template <bool WithEx, bool Signed>
   void add_lut_emit_distances_device_function()
   {
-    this->add_static_fragment<fragment_tag_lut_emit_distances<WithEx>>();
+    this->add_static_fragment<fragment_tag_lut_emit_distances<WithEx, Signed>>();
   }
 
   template <int EX_BITS>
