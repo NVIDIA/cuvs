@@ -111,8 +111,8 @@ void expect_dataset_order(raft::resources const& res,
   // 16-byte stride. For int8/uint8 (and any dim whose byte width is not a multiple of 16) the
   // stride exceeds the logical dimension, so the rows must be copied honoring that stride rather
   // than as one contiguous block.
-  auto host          = raft::make_host_matrix<T, int64_t>(res, expected.extent(0), expected.extent(1));
-  auto stream        = raft::resource::get_cuda_stream(res);
+  auto host   = raft::make_host_matrix<T, int64_t>(res, expected.extent(0), expected.extent(1));
+  auto stream = raft::resource::get_cuda_stream(res);
   int64_t row_stride = view.stride(0);
   for (int64_t row = 0; row < view.extent(0); ++row) {
     raft::copy(host.data_handle() + row * view.extent(1),
