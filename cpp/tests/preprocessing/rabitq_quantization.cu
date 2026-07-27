@@ -254,15 +254,15 @@ class RabitqQuantizationTest : public ::testing::TestWithParam<RabitqQuantizatio
   {
     const auto p = make_params();
 
-    auto pipe = init_pipeline(handle_, p, ps_.dim);
+    auto pipe = make_pipeline(handle_, p, ps_.dim);
     verify_shape(pipe.rotator, pipe.quantizer);
     verify_state(pipe.rotator);
 
     // The peers built on their own must be interchangeable with the pipeline's:
-    // that is what makes the header's "store the seed and re-run init_rotator"
+    // that is what makes the header's "store the seed and re-run make_rotator"
     // recipe safe.
-    auto rot   = init_rotator(handle_, p, ps_.dim);
-    auto quant = init_quantizer(handle_, p, ps_.dim);
+    auto rot   = make_rotator(handle_, p, ps_.dim);
+    auto quant = make_quantizer(handle_, p, ps_.dim);
     verify_shape(rot, quant);
     verify_state(rot);
     ASSERT_EQ(rot.padded_dim, pipe.quantizer.padded_dim);
@@ -285,11 +285,11 @@ class RabitqQuantizationTest : public ::testing::TestWithParam<RabitqQuantizatio
     }
 
     // dim must be positive, and ex_bits must stay inside the tight-start table.
-    EXPECT_THROW(init_rotator(handle_, p, 0), raft::logic_error);
-    EXPECT_THROW(init_quantizer(handle_, p, -1), raft::logic_error);
+    EXPECT_THROW(make_rotator(handle_, p, 0), raft::logic_error);
+    EXPECT_THROW(make_quantizer(handle_, p, -1), raft::logic_error);
     auto bad_params    = p;
     bad_params.ex_bits = 9;
-    EXPECT_THROW(init_quantizer(handle_, bad_params, ps_.dim), raft::logic_error);
+    EXPECT_THROW(make_quantizer(handle_, bad_params, ps_.dim), raft::logic_error);
   }
 
   // -------------------------------------------------------------------------
@@ -298,7 +298,7 @@ class RabitqQuantizationTest : public ::testing::TestWithParam<RabitqQuantizatio
   void testRotate()
   {
     const auto p     = make_params();
-    auto rot         = init_rotator(handle_, p, ps_.dim);
+    auto rot         = make_rotator(handle_, p, ps_.dim);
     const int64_t pd = rot.padded_dim;
     const int64_t n  = ps_.rows;
 
@@ -363,7 +363,7 @@ class RabitqQuantizationTest : public ::testing::TestWithParam<RabitqQuantizatio
   void testTransform()
   {
     const auto p     = make_params();
-    auto pipe        = init_pipeline(handle_, p, ps_.dim);
+    auto pipe        = make_pipeline(handle_, p, ps_.dim);
     const int64_t pd = pipe.quantizer.padded_dim;
     const int64_t n  = ps_.rows;
     const size_t len = static_cast<size_t>(n) * static_cast<size_t>(pd);
@@ -623,7 +623,7 @@ TEST(RabitqQuantizationBasicTest, CodeWidthValidation)
 
   params p;
   p.ex_bits = 8;  // 9 bits per code element
-  auto pipe = init_pipeline(handle, p, kDim);
+  auto pipe = make_pipeline(handle, p, kDim);
 
   const int64_t kPadded = pipe.quantizer.padded_dim;
 
@@ -663,8 +663,8 @@ TEST(RabitqQuantizationBasicTest, MismatchedPeers)
 {
   raft::resources handle;
   params p;
-  auto rot   = init_rotator(handle, p, 128);
-  auto quant = init_quantizer(handle, p, 256);
+  auto rot   = make_rotator(handle, p, 128);
+  auto quant = make_quantizer(handle, p, 256);
   ASSERT_NE(rot.padded_dim, quant.padded_dim);
 
   auto dataset = raft::make_device_matrix<float, int64_t>(handle, 4, 256);
@@ -690,7 +690,7 @@ TEST(RabitqQuantizationBasicTest, EmptyInput)
   raft::resources handle;
   constexpr int64_t kDim = 64;
   params p;
-  auto pipe = init_pipeline(handle, p, kDim);
+  auto pipe = make_pipeline(handle, p, kDim);
 
   auto dataset = raft::make_device_matrix<float, int64_t>(handle, 0, kDim);
   auto codes   = raft::make_device_matrix<uint8_t, int64_t>(handle, 0, pipe.quantizer.padded_dim);

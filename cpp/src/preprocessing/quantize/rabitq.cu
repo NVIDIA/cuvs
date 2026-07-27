@@ -56,7 +56,7 @@ void check_params(params const& p)
 void check_rotator(rabitq::rotator const& rot)
 {
   RAFT_EXPECTS(rot.padded_dim > 0,
-               "rabitq: rotator is not initialized (padded_dim == 0); use init_rotator()");
+               "rabitq: rotator is not initialized (padded_dim == 0); use make_rotator()");
   RAFT_EXPECTS(rot.padded_dim % 32 == 0, "rabitq: rotator.padded_dim must be a multiple of 32");
   if (rot.kind == rotator_kind::matmul) {
     RAFT_EXPECTS(rot.rotation_matrix.extent(0) == rot.padded_dim &&
@@ -70,7 +70,7 @@ void check_rotator(rabitq::rotator const& rot)
 
 void check_quantizer(rabitq::quantizer const& q)
 {
-  RAFT_EXPECTS(q.dim > 0, "rabitq: quantizer is not initialized (dim == 0); use init_quantizer()");
+  RAFT_EXPECTS(q.dim > 0, "rabitq: quantizer is not initialized (dim == 0); use make_quantizer()");
   RAFT_EXPECTS(q.padded_dim == detail::padded_dim(q.dim),
                "rabitq: quantizer.padded_dim is inconsistent with quantizer.dim");
   check_params(q.params_quantizer);
@@ -300,9 +300,9 @@ void transform_residuals_full_impl(
 
 }  // namespace
 
-rotator init_rotator(raft::resources const& res, params const& params, int64_t dim)
+rotator make_rotator(raft::resources const& res, params const& params, int64_t dim)
 {
-  RAFT_EXPECTS(dim > 0, "rabitq::init_rotator: dim must be positive");
+  RAFT_EXPECTS(dim > 0, "rabitq::make_rotator: dim must be positive");
   check_params(params);
 
   rotator rot{res};
@@ -326,9 +326,9 @@ rotator init_rotator(raft::resources const& res, params const& params, int64_t d
 // RaBitQ needs no training data: `res` only supplies the stream, the workspace
 // memory resource and the device properties used by the scaling-factor
 // estimator below (and is unused when `params.use_fast` is false).
-quantizer init_quantizer(raft::resources const& res, params const& params, int64_t dim)
+quantizer make_quantizer(raft::resources const& res, params const& params, int64_t dim)
 {
-  RAFT_EXPECTS(dim > 0, "rabitq::init_quantizer: dim must be positive");
+  RAFT_EXPECTS(dim > 0, "rabitq::make_quantizer: dim must be positive");
   check_params(params);
 
   quantizer q;
@@ -349,11 +349,11 @@ quantizer init_quantizer(raft::resources const& res, params const& params, int64
   return q;
 }
 
-pipeline init_pipeline(raft::resources const& res, params const& params, int64_t dim)
+pipeline make_pipeline(raft::resources const& res, params const& params, int64_t dim)
 {
   pipeline p{res};
-  p.rotator   = init_rotator(res, params, dim);
-  p.quantizer = init_quantizer(res, params, dim);
+  p.rotator   = make_rotator(res, params, dim);
+  p.quantizer = make_quantizer(res, params, dim);
   return p;
 }
 

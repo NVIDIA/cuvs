@@ -56,7 +56,7 @@ enum class delta_kind : uint8_t {
  * @brief RaBitQ quantizer parameters.
  *
  * These parameters fully describe the quantizer: RaBitQ is data-oblivious, so
- * none of them are learned from a dataset (see init_quantizer / init_rotator).
+ * none of them are learned from a dataset (see make_quantizer / make_rotator).
  */
 struct params {
   /**
@@ -99,7 +99,7 @@ struct params {
  * with one rotator are only comparable to queries transformed by the very same
  * rotator. There is deliberately no serialization API here, so the caller owns
  * this object and is responsible for keeping it alongside the codes (e.g. by
- * storing `params::seed` and re-running init_rotator, or by embedding the
+ * storing `params::seed` and re-running make_rotator, or by embedding the
  * buffers below in its own index format).
  *
  * A rotator is an independent peer of the quantizer: neither contains the
@@ -187,7 +187,7 @@ struct pipeline {
  * raft::resources res;
  * cuvs::preprocessing::quantize::rabitq::params params;
  * auto rotator =
- *   cuvs::preprocessing::quantize::rabitq::init_rotator(res, params, dataset.extent(1));
+ *   cuvs::preprocessing::quantize::rabitq::make_rotator(res, params, dataset.extent(1));
  * @endcode
  *
  * @param[in] res raft resource
@@ -196,7 +196,7 @@ struct pipeline {
  *
  * @return rotator
  */
-rotator init_rotator(raft::resources const& res, params const& params, int64_t dim);
+rotator make_rotator(raft::resources const& res, params const& params, int64_t dim);
 
 /**
  * @brief Initializes a RaBitQ quantizer.
@@ -210,7 +210,7 @@ rotator init_rotator(raft::resources const& res, params const& params, int64_t d
  * raft::resources res;
  * cuvs::preprocessing::quantize::rabitq::params params;
  * auto quantizer =
- *   cuvs::preprocessing::quantize::rabitq::init_quantizer(res, params, dataset.extent(1));
+ *   cuvs::preprocessing::quantize::rabitq::make_quantizer(res, params, dataset.extent(1));
  * @endcode
  *
  * @param[in] res raft resource
@@ -219,12 +219,12 @@ rotator init_rotator(raft::resources const& res, params const& params, int64_t d
  *
  * @return quantizer
  */
-quantizer init_quantizer(raft::resources const& res, params const& params, int64_t dim);
+quantizer make_quantizer(raft::resources const& res, params const& params, int64_t dim);
 
 /**
  * @brief Initializes a rotator and a quantizer from the same parameters.
  *
- * Equivalent to calling init_rotator() and init_quantizer() with the same
+ * Equivalent to calling make_rotator() and make_quantizer() with the same
  * arguments. No training data is required.
  *
  * Usage example:
@@ -232,7 +232,7 @@ quantizer init_quantizer(raft::resources const& res, params const& params, int64
  * raft::resources res;
  * cuvs::preprocessing::quantize::rabitq::params params;
  * auto pipeline =
- *   cuvs::preprocessing::quantize::rabitq::init_pipeline(res, params, dataset.extent(1));
+ *   cuvs::preprocessing::quantize::rabitq::make_pipeline(res, params, dataset.extent(1));
  * cuvs::preprocessing::quantize::rabitq::transform(res, pipeline.quantizer, pipeline.rotator,
  *   dataset, std::nullopt, codes.view(), delta.view(), vl.view());
  * @endcode
@@ -243,7 +243,7 @@ quantizer init_quantizer(raft::resources const& res, params const& params, int64
  *
  * @return pipeline
  */
-pipeline init_pipeline(raft::resources const& res, params const& params, int64_t dim);
+pipeline make_pipeline(raft::resources const& res, params const& params, int64_t dim);
 
 /**
  * @brief Applies the random rotation to already-padded rows.
@@ -288,8 +288,8 @@ void rotate(raft::resources const& res,
  * @code{.cpp}
  * raft::resources res;
  * cuvs::preprocessing::quantize::rabitq::params params;
- * auto quantizer = cuvs::preprocessing::quantize::rabitq::init_quantizer(res, params, dim);
- * auto rotator   = cuvs::preprocessing::quantize::rabitq::init_rotator(res, params, dim);
+ * auto quantizer = cuvs::preprocessing::quantize::rabitq::make_quantizer(res, params, dim);
+ * auto rotator   = cuvs::preprocessing::quantize::rabitq::make_rotator(res, params, dim);
  * auto codes = raft::make_device_matrix<uint8_t, int64_t>(res, n_rows, quantizer.padded_dim);
  * auto delta = raft::make_device_vector<float, int64_t>(res, n_rows);
  * auto vl    = raft::make_device_vector<float, int64_t>(res, n_rows);
