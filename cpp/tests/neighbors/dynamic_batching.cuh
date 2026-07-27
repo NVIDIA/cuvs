@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -43,7 +43,7 @@ inline ::std::ostream& operator<<(::std::ostream& os, const dynamic_batching_spe
   os << ", max_batch_size=" << p.max_batch_size;
   os << ", n_queues=" << p.n_queues;
   os << ", conservative_dispatch=" << p.conservative_dispatch;
-  os << '}' << std::endl;
+  os << '}';
   return os;
 }
 

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -87,6 +87,7 @@ struct key {
   uint32_t extra_val;  // this one has different meanings for different descriptor types
   uint32_t team_size;
   uint32_t metric;
+  uint32_t smem_dtype;
 };
 
 template <typename DatasetT>
@@ -100,7 +101,8 @@ auto make_key(const cagra::search_params& params,
              dataset.dim(),
              dataset.stride(),
              uint32_t(params.team_size),
-             uint32_t(metric)};
+             uint32_t(metric),
+             uint32_t(params.smem_dtype)};
 }
 
 template <typename DatasetT>
@@ -114,20 +116,22 @@ auto make_key(const cagra::search_params& params,
              dataset.dim(),
              uint32_t(reinterpret_cast<uint64_t>(dataset.pq_code_book.data_handle()) >> 6),
              uint32_t(params.team_size),
-             uint32_t(metric)};
+             uint32_t(metric),
+             uint32_t(params.smem_dtype)};
 }
 
 inline auto operator==(const key& a, const key& b) -> bool
 {
   return a.data_ptr == b.data_ptr && a.n_rows == b.n_rows && a.dim == b.dim &&
-         a.extra_val == b.extra_val && a.team_size == b.team_size && a.metric == b.metric;
+         a.extra_val == b.extra_val && a.team_size == b.team_size && a.metric == b.metric &&
+         a.smem_dtype == b.smem_dtype;
 }
 
 struct key_hash {
   inline auto operator()(const key& x) const noexcept -> std::size_t
   {
     return size_t{x.data_ptr} + size_t{x.n_rows} * size_t{x.dim} * size_t{x.extra_val} +
-           (size_t{x.team_size} ^ size_t{x.metric});
+           (size_t{x.team_size} ^ size_t{x.metric}) + size_t{x.smem_dtype};
   }
 };
 

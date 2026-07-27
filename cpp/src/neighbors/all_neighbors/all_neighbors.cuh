@@ -1,23 +1,70 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
 #include "../detail/reachability.cuh"
 #include "all_neighbors_batched.cuh"
+#include <algorithm>
 #include <cuvs/neighbors/all_neighbors.hpp>
 #include <raft/matrix/shift.cuh>
 #include <raft/util/cudart_utils.hpp>
+#include <type_traits>
 #include <unordered_set>
 
 namespace cuvs::neighbors::all_neighbors::detail {
 using namespace cuvs::neighbors;
 
+template <typename T,
+          typename IdxT,
+          typename DatasetView,
+          typename IndicesView,
+          typename DistancesView,
+          typename CoreView>
 GRAPH_BUILD_ALGO check_params_validity(const all_neighbors_params& params,
-                                       bool do_mutual_reachability_dist)
+                                       DatasetView dataset,
+                                       IndicesView indices,
+                                       const std::optional<DistancesView>& distances,
+                                       const std::optional<CoreView>& core_distances)
 {
-  using DT = cuvs::distance::DistanceType;
+  // 1. Check output memory-space consistency
+  constexpr bool host_output =
+    std::is_same_v<IndicesView, raft::host_matrix_view<IdxT, IdxT, row_major>>;
+  constexpr bool device_output =
+    std::is_same_v<IndicesView, raft::device_matrix_view<IdxT, IdxT, row_major>>;
+  static_assert(host_output || device_output,
+                "indices must be a host_matrix_view or device_matrix_view");
+  if constexpr (host_output) {
+    static_assert(std::is_same_v<DistancesView, raft::host_matrix_view<T, IdxT, row_major>>,
+                  "distances must be a host_matrix_view when indices are on host");
+    static_assert(std::is_same_v<CoreView, raft::host_vector_view<T, IdxT, row_major>>,
+                  "core_distances must be a host_vector_view when indices are on host");
+  } else {
+    static_assert(std::is_same_v<DistancesView, raft::device_matrix_view<T, IdxT, row_major>>,
+                  "distances must be a device_matrix_view when indices are on device");
+    static_assert(std::is_same_v<CoreView, raft::device_vector_view<T, IdxT, row_major>>,
+                  "core_distances must be a device_vector_view when indices are on device");
+  }
+
+  // 2. Check shape consistency
+  RAFT_EXPECTS(dataset.extent(0) == indices.extent(0),
+               "number of rows in dataset should be the same as number of rows in indices matrix");
+  if (distances.has_value()) {
+    RAFT_EXPECTS(indices.extent(0) == distances.value().extent(0) &&
+                   indices.extent(1) == distances.value().extent(1),
+                 "indices matrix and distances matrix has to be the same shape.");
+  }
+  if (core_distances.has_value()) {
+    RAFT_EXPECTS(distances.has_value(),
+                 "distances matrix should be allocated to get mutual reachability distance.");
+    RAFT_EXPECTS(core_distances.value().size() == static_cast<size_t>(dataset.extent(0)),
+                 "core_distances size must equal the number of rows in dataset.");
+  }
+
+  // 3. Check metric / algorithm validity
+  const bool do_mutual_reachability_dist = core_distances.has_value();
+  using DT                               = cuvs::distance::DistanceType;
 
   // InnerProduct is not supported for mutual reachability distance, because mutual reachability
   // distance takes "max" of core distances and pairwise distance.
@@ -78,9 +125,9 @@ GRAPH_BUILD_ALGO check_params_validity(const all_neighbors_params& params,
   }
 }
 
-// Single build (i.e. no batching) supports both host and device datasets
+// Full build (i.e. no batching) for output indices/distances on device memory.
 template <typename T, typename IdxT, typename Accessor, typename DistEpilogueT = raft::identity_op>
-void single_build(
+void full_build(
   const raft::resources& handle,
   const all_neighbors_params& params,
   mdspan<const T, matrix_extent<IdxT>, row_major, Accessor> dataset,
@@ -91,42 +138,147 @@ void single_build(
   size_t num_rows = static_cast<size_t>(dataset.extent(0));
   size_t num_cols = static_cast<size_t>(dataset.extent(1));
 
-  auto knn_builder = get_knn_builder<T, IdxT>(
-    handle, params, num_rows, num_rows, indices.extent(1), indices, distances, dist_epilogue);
+  auto knn_builder =
+    get_knn_builder<T, IdxT>(handle, params, num_rows, num_rows, indices.extent(1), dist_epilogue);
 
   knn_builder->prepare_build(dataset);
-  knn_builder->build_knn(dataset);
+  knn_builder->build_knn(dataset, std::nullopt, global_graph_view<T, IdxT>{indices, distances});
 }
 
-template <typename T, typename IdxT>
-void build(
+// Full build (i.e. no batching) for output indices/distances on host memory.
+template <typename T, typename IdxT, typename Accessor, typename DistEpilogueT = raft::identity_op>
+void full_build_host(
   const raft::resources& handle,
   const all_neighbors_params& params,
-  raft::host_matrix_view<const T, IdxT, row_major> dataset,
-  raft::device_matrix_view<IdxT, IdxT, row_major> indices,
-  std::optional<raft::device_matrix_view<T, IdxT, row_major>> distances      = std::nullopt,
-  std::optional<raft::device_vector_view<T, IdxT, row_major>> core_distances = std::nullopt,
-  T alpha                                                                    = 1.0)
+  mdspan<const T, matrix_extent<IdxT>, row_major, Accessor> dataset,
+  raft::host_matrix_view<IdxT, IdxT, row_major> indices,
+  std::optional<raft::host_matrix_view<T, IdxT, row_major>> distances = std::nullopt,
+  DistEpilogueT dist_epilogue                                         = DistEpilogueT{})
 {
-  auto build_algo = check_params_validity(params, core_distances.has_value());
+  size_t num_rows = static_cast<size_t>(dataset.extent(0));
+  size_t k        = static_cast<size_t>(indices.extent(1));
 
-  RAFT_EXPECTS(dataset.extent(0) == indices.extent(0),
-               "number of rows in dataset should be the same as number of rows in indices matrix");
-
+  // kNN algorithms require device-resident output graph
+  auto indices_d = raft::make_device_matrix<IdxT, IdxT>(handle, num_rows, k);
+  std::optional<raft::device_matrix<T, IdxT>> distances_d;
+  std::optional<raft::device_matrix_view<T, IdxT, row_major>> distances_d_view;
   if (distances.has_value()) {
-    RAFT_EXPECTS(indices.extent(0) == distances.value().extent(0) &&
-                   indices.extent(1) == distances.value().extent(1),
-                 "indices matrix and distances matrix has to be the same shape.");
+    distances_d.emplace(raft::make_device_matrix<T, IdxT>(handle, num_rows, k));
+    distances_d_view = distances_d.value().view();
   }
 
-  if (core_distances.has_value()) {
-    RAFT_EXPECTS(distances.has_value(),
-                 "distances matrix should be allocated to get mutual reachability distance.");
+  full_build(handle, params, dataset, indices_d.view(), distances_d_view, dist_epilogue);
+
+  raft::copy(handle, indices, indices_d.view());
+  if (distances.has_value()) { raft::copy(handle, distances.value(), distances_d.value().view()); }
+  raft::resource::sync_stream(handle);
+}
+
+// Host counterparts of raft::matrix::shift used to insert the self-references.
+template <typename IdxT>
+void host_shift_self_indices(raft::host_matrix_view<IdxT, IdxT, row_major> indices)
+{
+  size_t num_rows = static_cast<size_t>(indices.extent(0));
+  size_t k        = static_cast<size_t>(indices.extent(1));
+#pragma omp parallel for
+  for (size_t i = 0; i < num_rows; i++) {
+    IdxT* row = indices.data_handle() + i * k;
+    std::shift_right(row, row + k, 1);
+    row[0] = static_cast<IdxT>(i);
   }
+}
+
+// Mirrors use cases of raft::matrix::shift, the distance side adjustments for inserting
+// self-references. Shift each row of distances right by 1. Column 0 is filled from col0(i) when
+// provided (e.g. the core distances), otherwise with fill_val.
+template <typename T, typename IdxT>
+void host_shift_distances(
+  raft::host_matrix_view<T, IdxT, row_major> distances,
+  std::optional<T> fill_val,
+  std::optional<raft::host_vector_view<const T, IdxT, row_major>> col0 = std::nullopt)
+{
+  size_t num_rows = static_cast<size_t>(distances.extent(0));
+  size_t k        = static_cast<size_t>(distances.extent(1));
+#pragma omp parallel for
+  for (size_t i = 0; i < num_rows; i++) {
+    T* row = distances.data_handle() + i * k;
+    std::shift_right(row, row + k, 1);
+    row[0] = col0.has_value() ? col0.value()(i) : fill_val.value();
+  }
+}
+
+// Inserts the self-reference for the kNN graph
+template <typename T,
+          typename IdxT,
+          typename IndicesView,
+          typename DistancesView,
+          typename CoreView = raft::host_vector_view<const T, IdxT>>
+void shift_indices_distances(const raft::resources& handle,
+                             IndicesView indices,
+                             std::optional<DistancesView> distances = std::nullopt,
+                             std::optional<CoreView> core_distances = std::nullopt)
+{
+  constexpr bool host_output =
+    std::is_same_v<IndicesView, raft::host_matrix_view<IdxT, IdxT, row_major>>;
+
+  if constexpr (host_output) {
+    host_shift_self_indices<IdxT>(indices);
+    if (distances.has_value()) {
+      if (core_distances.has_value()) {
+        host_shift_distances<T, IdxT>(
+          distances.value(), std::nullopt, raft::make_const_mdspan(core_distances.value()));
+      } else {
+        host_shift_distances<T, IdxT>(distances.value(), std::make_optional<T>(0.0));
+      }
+    }
+  } else {
+    raft::matrix::shift(handle, indices, 1);
+    if (distances.has_value()) {
+      if (core_distances.has_value()) {
+        raft::matrix::shift(handle,
+                            distances.value(),
+                            raft::make_device_matrix_view<const T, IdxT>(
+                              core_distances.value().data_handle(), indices.extent(0), IdxT{1}));
+      } else {
+        raft::matrix::shift(handle, distances.value(), 1, std::make_optional<T>(0.0));
+      }
+    }
+  }
+}
+
+// Builds an all-neighbors knn graph with the dataset on host. The output (indices/distances/
+// core_distances) can be either on device or host.
+template <typename T,
+          typename IdxT,
+          typename IndicesView,
+          typename DistancesView,
+          typename CoreView>
+void build(const raft::resources& handle,
+           const all_neighbors_params& params,
+           raft::host_matrix_view<const T, IdxT, row_major> dataset,
+           IndicesView indices,
+           std::optional<DistancesView> distances = std::nullopt,
+           std::optional<CoreView> core_distances = std::nullopt,
+           T alpha                                = 1.0)
+{
+  constexpr bool host_output =
+    std::is_same_v<IndicesView, raft::host_matrix_view<IdxT, IdxT, row_major>>;
+
+  auto build_algo =
+    check_params_validity<T, IdxT>(params, dataset, indices, distances, core_distances);
+
+  // Runs the no-batching build into the (device or host) output, selected at compile time.
+  auto run_full_build = [&](auto epilogue) {
+    if constexpr (host_output) {
+      full_build_host(handle, params, dataset, indices, distances, epilogue);
+    } else {
+      full_build(handle, params, dataset, indices, distances, epilogue);
+    }
+  };
 
   std::unique_ptr<BatchBuildAux<IdxT>> aux_vectors;
   if (params.n_clusters == 1) {
-    single_build(handle, params, dataset, indices, distances);
+    run_full_build(raft::identity_op{});
   } else {
     if (core_distances.has_value()) {
       aux_vectors = std::make_unique<BatchBuildAux<IdxT>>(
@@ -140,39 +292,55 @@ void build(
   // NN Descent doesn't include self loops. Shifted to keep it consistent with brute force and ivfpq
   bool need_shift = (build_algo == GRAPH_BUILD_ALGO::NN_DESCENT) &&
                     (params.metric != cuvs::distance::DistanceType::InnerProduct);
-
-  if (need_shift) {
-    raft::matrix::shift(handle, indices, 1);
-    if (distances.has_value()) {
-      raft::matrix::shift(handle, distances.value(), 1, std::make_optional<T>(0.0));
-    }
-  }
+  if (need_shift) { shift_indices_distances<T, IdxT>(handle, indices, distances); }
 
   if (core_distances.has_value()) {  // calculate mutual reachability distances
     size_t k        = indices.extent(1);
     size_t num_rows = core_distances.value().size();
-    cuvs::neighbors::detail::reachability::core_distances<IdxT, T>(
-      handle,
-      distances.value().data_handle(),
-      k,
-      k,
-      num_rows,
-      core_distances.value().data_handle());
+
+    std::optional<raft::device_vector<T, IdxT>> core_dists_d;
+    const T* core_dists_ptr = nullptr;
+
+    if constexpr (host_output) {
+      auto core_dists      = core_distances.value();
+      auto distances_value = distances.value();
+#pragma omp parallel for
+      for (size_t r = 0; r < num_rows; r++) {
+        core_dists(r) = distances_value(r, k - 1);
+      }
+
+      if (params.n_clusters > 1 && raft::resource::is_multi_gpu(handle)) {
+        // Multi-GPU batched builds redistribute core distances to each GPU through host inside
+        // multi_gpu_batch_build
+        core_dists_ptr = core_dists.data_handle();
+      } else {
+        core_dists_d.emplace(raft::make_device_vector<T, IdxT>(handle, num_rows));
+        raft::copy(handle,
+                   core_dists_d.value().view(),
+                   raft::make_host_vector_view<const T, IdxT>(core_dists.data_handle(), num_rows));
+        core_dists_ptr = core_dists_d.value().data_handle();
+      }
+    } else {
+      cuvs::neighbors::detail::reachability::core_distances<IdxT, T>(
+        handle,
+        distances.value().data_handle(),
+        k,
+        k,
+        num_rows,
+        core_distances.value().data_handle());
+      core_dists_ptr = core_distances.value().data_handle();
+    }
 
     using ReachabilityPP = cuvs::neighbors::detail::reachability::ReachabilityPostProcess<IdxT, T>;
-    auto dist_epilogue   = ReachabilityPP{core_distances.value().data_handle(), alpha, num_rows};
+    auto dist_epilogue   = ReachabilityPP{core_dists_ptr, alpha, num_rows};
     if (params.n_clusters == 1) {
-      single_build(handle, params, dataset, indices, distances, dist_epilogue);
+      run_full_build(dist_epilogue);
     } else {
       batch_build(handle, params, dataset, indices, distances, aux_vectors.get(), dist_epilogue);
     }
 
     if (need_shift) {
-      raft::matrix::shift(handle, indices, 1);
-      raft::matrix::shift(handle,
-                          distances.value(),
-                          raft::make_device_matrix_view<const T, IdxT>(
-                            core_distances.value().data_handle(), num_rows, 1));
+      shift_indices_distances<T, IdxT>(handle, indices, distances, core_distances);
     }
   }
 }
@@ -187,40 +355,21 @@ void build(
   std::optional<raft::device_vector_view<T, IdxT, row_major>> core_distances = std::nullopt,
   T alpha                                                                    = 1.0)
 {
-  auto build_algo = check_params_validity(params, core_distances.has_value());
-
-  RAFT_EXPECTS(dataset.extent(0) == indices.extent(0),
-               "number of rows in dataset should be the same as number of rows in indices matrix");
-
-  if (distances.has_value()) {
-    RAFT_EXPECTS(indices.extent(0) == distances.value().extent(0) &&
-                   indices.extent(1) == distances.value().extent(1),
-                 "indices matrix and distances matrix has to be the same shape.");
-  }
-
-  if (core_distances.has_value()) {
-    RAFT_EXPECTS(distances.has_value(),
-                 "distances matrix should be allocated to get mutual reachability distance.");
-  }
+  auto build_algo =
+    check_params_validity<T, IdxT>(params, dataset, indices, distances, core_distances);
 
   if (params.n_clusters > 1) {
     RAFT_FAIL(
       "Batched all-neighbors build is not supported with data on device. Put data on host for "
       "batch build.");
   } else {
-    single_build(handle, params, dataset, indices, distances);
+    full_build(handle, params, dataset, indices, distances);
   }
 
   // NN Descent doesn't include self loops. Shifted to keep it consistent with brute force and ivfpq
   bool need_shift = (build_algo == GRAPH_BUILD_ALGO::NN_DESCENT) &&
                     (params.metric != cuvs::distance::DistanceType::InnerProduct);
-
-  if (need_shift) {
-    raft::matrix::shift(handle, indices, 1);
-    if (distances.has_value()) {
-      raft::matrix::shift(handle, distances.value(), 1, std::make_optional<T>(0.0));
-    }
-  }
+  if (need_shift) { shift_indices_distances<T, IdxT>(handle, indices, distances); }
 
   if (core_distances.has_value()) {
     size_t k        = indices.extent(1);
@@ -235,14 +384,10 @@ void build(
 
     using ReachabilityPP = cuvs::neighbors::detail::reachability::ReachabilityPostProcess<IdxT, T>;
     auto dist_epilogue   = ReachabilityPP{core_distances.value().data_handle(), alpha, num_rows};
-    single_build(handle, params, dataset, indices, distances, dist_epilogue);
+    full_build(handle, params, dataset, indices, distances, dist_epilogue);
 
     if (need_shift) {
-      raft::matrix::shift(handle, indices, 1);
-      raft::matrix::shift(handle,
-                          distances.value(),
-                          raft::make_device_matrix_view<const T, IdxT>(
-                            core_distances.value().data_handle(), num_rows, 1));
+      shift_indices_distances<T, IdxT>(handle, indices, distances, core_distances);
     }
   }
 }

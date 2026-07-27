@@ -8,7 +8,7 @@ IVF-PQ works well when the dataset is too large for full-precision storage on th
 
 ## Example API Usage
 
-[C API](/api-reference/c-api-neighbors-ivf-pq) | [C++ API](/api-reference/cpp-api-neighbors-ivf-pq) | [Python API](/api-reference/python-api-neighbors-ivf-pq) | [Java IVF-PQ Params](/api-reference/java-api-com-nvidia-cuvs-cuvsivfpqparams) | [Rust API](/api-reference/rust-api-cuvs-ivf-pq) | [Go API](/api-reference/go-api-ivf-pq)
+[C API](/api-reference/c-api-neighbors-ivf-pq) | [C++ API](/api-reference/cpp-api-neighbors-ivf-pq) | [Python API](/api-reference/python-api-neighbors-ivf-pq) | [Java IVF-PQ Params](/api-reference/java-api-com-nvidia-cuvs-cuvsivfpqparams) | [Rust API](/api-reference/rust-api-cuvs-neighbors-ivf-pq) | [Go API](/api-reference/go-api-ivf-pq)
 
 Java currently exposes IVF-PQ parameter classes for CAGRA graph construction, not a standalone IVF-PQ index/search binding. The runnable standalone examples below cover C, C++, Python, Rust, and Go.
 

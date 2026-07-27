@@ -59,10 +59,14 @@ std::shared_ptr<AlgorithmLauncher> build_single_cta_launcher(
             persistent);
 
   if constexpr (std::is_same_v<CodebookTag, tag_codebook_half>) {
-    planner.add_setup_workspace_device_function(
-      dataset_desc.team_size, dataset_desc.dataset_block_dim, dataset_desc.pq_len);
-    planner.add_compute_distance_device_function(
-      dataset_desc.team_size, dataset_desc.dataset_block_dim, dataset_desc.pq_len);
+    planner.add_setup_workspace_device_function(dataset_desc.team_size,
+                                                dataset_desc.dataset_block_dim,
+                                                dataset_desc.pq_len,
+                                                dataset_desc.smem_dtype);
+    planner.add_compute_distance_device_function(dataset_desc.team_size,
+                                                 dataset_desc.dataset_block_dim,
+                                                 dataset_desc.pq_len,
+                                                 dataset_desc.smem_dtype);
   } else {
     planner.add_setup_workspace_device_function(dataset_desc.team_size,
                                                 dataset_desc.dataset_block_dim);
@@ -105,10 +109,14 @@ std::shared_ptr<AlgorithmLauncher> build_multi_cta_launcher(
             dataset_desc.pq_len);
 
   if constexpr (std::is_same_v<CodebookTag, tag_codebook_half>) {
-    planner.add_setup_workspace_device_function(
-      dataset_desc.team_size, dataset_desc.dataset_block_dim, dataset_desc.pq_len);
-    planner.add_compute_distance_device_function(
-      dataset_desc.team_size, dataset_desc.dataset_block_dim, dataset_desc.pq_len);
+    planner.add_setup_workspace_device_function(dataset_desc.team_size,
+                                                dataset_desc.dataset_block_dim,
+                                                dataset_desc.pq_len,
+                                                dataset_desc.smem_dtype);
+    planner.add_compute_distance_device_function(dataset_desc.team_size,
+                                                 dataset_desc.dataset_block_dim,
+                                                 dataset_desc.pq_len,
+                                                 dataset_desc.smem_dtype);
   } else {
     planner.add_setup_workspace_device_function(dataset_desc.team_size,
                                                 dataset_desc.dataset_block_dim);
@@ -151,10 +159,14 @@ std::shared_ptr<AlgorithmLauncher> build_multi_kernel_launcher(
             dataset_desc.pq_bits,
             dataset_desc.pq_len);
   if constexpr (std::is_same_v<CodebookTag, tag_codebook_half>) {
-    planner.add_setup_workspace_device_function(
-      dataset_desc.team_size, dataset_desc.dataset_block_dim, dataset_desc.pq_len);
-    planner.add_compute_distance_device_function(
-      dataset_desc.team_size, dataset_desc.dataset_block_dim, dataset_desc.pq_len);
+    planner.add_setup_workspace_device_function(dataset_desc.team_size,
+                                                dataset_desc.dataset_block_dim,
+                                                dataset_desc.pq_len,
+                                                dataset_desc.smem_dtype);
+    planner.add_compute_distance_device_function(dataset_desc.team_size,
+                                                 dataset_desc.dataset_block_dim,
+                                                 dataset_desc.pq_len,
+                                                 dataset_desc.smem_dtype);
   } else {
     planner.add_setup_workspace_device_function(dataset_desc.team_size,
                                                 dataset_desc.dataset_block_dim);
