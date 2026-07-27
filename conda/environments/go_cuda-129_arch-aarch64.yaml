@@ -17,7 +17,7 @@ dependencies:
 - cuda-profiler-api
 - cuda-version=12.9
 - cxx-compiler
-- dlpack>=0.8,<1.0
+- dlpack>=1.0,<1.1
 - gcc_linux-aarch64=14.*
 - go
 - libclang==20.1.8
