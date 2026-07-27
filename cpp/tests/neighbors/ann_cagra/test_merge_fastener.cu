@@ -145,6 +145,8 @@ void run_explicit_fastener(cuvs::distance::DistanceType metric)
     res, metric, raft::make_const_mdspan(dataset0.view()), raft::make_const_mdspan(graph0.view()));
   index<T, uint32_t> index1(
     res, metric, raft::make_const_mdspan(dataset1.view()), raft::make_const_mdspan(graph1.view()));
+  auto index0_owns_data = index0.data().is_owning();
+  auto index1_owns_data = index1.data().is_owning();
 
   index_params params;
   params.metric                    = metric;
@@ -164,8 +166,8 @@ void run_explicit_fastener(cuvs::distance::DistanceType metric)
   EXPECT_TRUE(merged.data().is_owning());
   EXPECT_EQ(index0.dataset().extent(0), rows);
   EXPECT_EQ(index1.dataset().extent(0), rows);
-  EXPECT_TRUE(index0.data().is_owning());
-  EXPECT_TRUE(index1.data().is_owning());
+  EXPECT_EQ(index0.data().is_owning(), index0_owns_data);
+  EXPECT_EQ(index1.data().is_owning(), index1_owns_data);
   EXPECT_EQ(index0.size(), rows);
   EXPECT_EQ(index1.size(), rows);
   EXPECT_EQ(index0.dim(), dim);
@@ -469,7 +471,12 @@ TEST(CagraMergeFastener, MixedDatasetOwnershipPreservesInputs)
   auto dataset1            = make_dataset<float>(res, rows, dim, 5678ULL);
   auto expected            = concat_host_datasets<float>(
     res, raft::make_const_mdspan(dataset0.view()), raft::make_const_mdspan(dataset1.view()));
+  auto device_dataset0 = raft::make_device_matrix<float, int64_t>(res, rows, dim);
   auto device_dataset1 = raft::make_device_matrix<float, int64_t>(res, rows, dim);
+  raft::copy(device_dataset0.data_handle(),
+             dataset0.data_handle(),
+             dataset0.size(),
+             raft::resource::get_cuda_stream(res));
   raft::copy(device_dataset1.data_handle(),
              dataset1.data_handle(),
              dataset1.size(),
@@ -483,6 +490,10 @@ TEST(CagraMergeFastener, MixedDatasetOwnershipPreservesInputs)
                                 metric,
                                 raft::make_const_mdspan(device_dataset1.view()),
                                 raft::make_const_mdspan(graph1.view()));
+  // Explicitly transfer the first allocation so this test remains mixed-ownership even when
+  // mapped host allocations are device-accessible and would otherwise be wrapped non-owningly.
+  index0.update_dataset(
+    res, make_aligned_dataset(res, std::move(device_dataset0), /* align_bytes = */ 16));
   ASSERT_TRUE(index0.data().is_owning());
   ASSERT_FALSE(index1.data().is_owning());
 
