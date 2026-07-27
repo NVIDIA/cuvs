@@ -1,6 +1,6 @@
 # =============================================================================
 # cmake-format: off
-# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 # cmake-format: on
 # =============================================================================
@@ -29,6 +29,6 @@ function(find_and_configure_dlpack VERSION)
   endif()
 endfunction()
 
-set(CUVS_MIN_VERSION_dlpack 0.8)
+set(CUVS_MIN_VERSION_dlpack 1.0)
 
 find_and_configure_dlpack(${CUVS_MIN_VERSION_dlpack})
