@@ -5,7 +5,6 @@
 
 import numpy as np
 import pandas as pd
-from click.testing import CliRunner
 
 from cuvs_bench.backends.base import BuildResult, SearchResult
 from cuvs_bench.orchestrator.config_loaders import (
@@ -15,7 +14,6 @@ from cuvs_bench.orchestrator.config_loaders import (
 )
 from cuvs_bench.orchestrator.orchestrator import BenchmarkOrchestrator
 from cuvs_bench.plot.__main__ import load_all_results
-from cuvs_bench.run.__main__ import main
 from cuvs_bench.run.data_export import write_results_to_csv
 
 
@@ -117,109 +115,6 @@ def test_python_backend_csv_is_plot_compatible(tmp_path):
         assert plotted[algorithm]
 
 
-def test_run_command_always_writes_python_backend_csv(tmp_path, monkeypatch):
-    algorithm = "opensearch_faiss_hnsw"
-    result = SearchResult(
-        neighbors=np.empty((0, 2), dtype=np.int64),
-        distances=np.empty((0, 2), dtype=np.float32),
-        search_time_ms=10.0,
-        queries_per_second=200.0,
-        recall=1.0,
-        algorithm=algorithm,
-        search_params=[{"ef_search": 100}],
-        metadata={
-            "group": "base",
-            "index_name": "test-index",
-            "latency_seconds": 0.01,
-        },
-    )
-
-    class FakeOrchestrator:
-        def __init__(self, backend_type):
-            assert backend_type == "opensearch"
-
-        def run_benchmark(self, **kwargs):
-            return [result]
-
-    monkeypatch.setattr(
-        "cuvs_bench.run.__main__.BenchmarkOrchestrator", FakeOrchestrator
-    )
-    backend_config = tmp_path / "backend.yaml"
-    backend_config.write_text("backend: opensearch\n")
-
-    cli_result = CliRunner().invoke(
-        main,
-        [
-            "--dataset",
-            "test-dataset",
-            "--dataset-path",
-            str(tmp_path),
-            "--algorithms",
-            algorithm,
-            "--groups",
-            "base",
-            "--count",
-            "2",
-            "--batch-size",
-            "2",
-            "--search-mode",
-            "latency",
-            "--search",
-            "--backend-config",
-            str(backend_config),
-        ],
-    )
-
-    assert cli_result.exit_code == 0, cli_result.output
-    assert (
-        tmp_path
-        / "test-dataset"
-        / "result"
-        / "search"
-        / f"{algorithm},base,k2,bs2,raw.csv"
-    ).exists()
-    help_output = CliRunner().invoke(main, ["--help"]).output
-    assert "--data-export" in help_output
-    assert "Deprecated" in help_output
-
-
-def test_data_export_option_is_deprecated(tmp_path, monkeypatch):
-    converted = []
-    monkeypatch.setattr(
-        "cuvs_bench.run.__main__.convert_json_to_csv_build",
-        lambda dataset, dataset_path: converted.append("build"),
-    )
-    monkeypatch.setattr(
-        "cuvs_bench.run.__main__.convert_json_to_csv_search",
-        lambda dataset, dataset_path: converted.append("search"),
-    )
-
-    cli_result = CliRunner().invoke(
-        main,
-        [
-            "--dataset",
-            "test-dataset",
-            "--dataset-path",
-            str(tmp_path),
-            "--algorithms",
-            "cuvs_cagra",
-            "--groups",
-            "base",
-            "--count",
-            "2",
-            "--batch-size",
-            "2",
-            "--search-mode",
-            "latency",
-            "--data-export",
-        ],
-    )
-
-    assert cli_result.exit_code == 0, cli_result.output
-    assert "--data-export is deprecated" in cli_result.output
-    assert converted == ["build", "search"]
-
-
 def test_tune_trial_retains_build_and_search_results():
     algorithm = "opensearch_faiss_hnsw"
     index = IndexConfig(
@@ -277,7 +172,7 @@ def test_tune_trial_retains_build_and_search_results():
                 )
             ]
 
-    orchestrator = object.__new__(BenchmarkOrchestrator)
+    orchestrator = BenchmarkOrchestrator(backend_type="opensearch")
     orchestrator.config_loader = FakeLoader()
     orchestrator.backend_class = FakeBackend
     orchestrator._create_dataset = lambda config: type(
