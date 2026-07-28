@@ -84,7 +84,8 @@ __device__ void compute_inner_products_with_lut16_opt_block_sort_impl(
     float local_ip    = 0.0f;
     bool is_candidate = false;
 
-    if (vec_idx < num_vectors_in_cluster) {
+    if (vec_idx < num_vectors_in_cluster &&
+        is_sample_allowed(params, cluster_start_index + vec_idx)) {
       size_t factor_offset = cluster_start_index + vec_idx;
       float3 factors       = reinterpret_cast<const float3*>(params.d_short_factors)[factor_offset];
       float f_add          = factors.x;

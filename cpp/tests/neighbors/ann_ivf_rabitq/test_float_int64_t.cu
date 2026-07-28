@@ -7,7 +7,12 @@
 
 namespace cuvs::neighbors::ivf_rabitq {
 
-using f32_f32_i64 = ivf_rabitq_test<float, float, int64_t>;
+using f32_f32_i64        = ivf_rabitq_test<float, float, int64_t>;
+using f32_f32_i64_filter = ivf_rabitq_filter_test<float, float, int64_t>;
+
+TEST_P(f32_f32_i64_filter, build_serialize_search) { this->run_filter(); }
+
+INSTANTIATE(f32_f32_i64_filter, filter_cases());
 
 TEST_BUILD_SERIALIZE_SEARCH(f32_f32_i64)
 TEST_BUILD_HOST_INPUT_SERIALIZE_SEARCH(f32_f32_i64)

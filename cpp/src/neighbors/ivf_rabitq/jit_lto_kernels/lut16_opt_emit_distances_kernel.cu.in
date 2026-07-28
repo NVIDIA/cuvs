@@ -83,6 +83,12 @@ __device__ void lut16_opt_emit_distances(const ComputeInnerProductsKernelParams 
     float q_kbxsumq = params.d_G_kbxSumq[query_idx];
 
     for (size_t vec_idx = tid; vec_idx < num_vectors_in_cluster; vec_idx += num_threads) {
+      size_t global_vec_idx = cluster_start_index + vec_idx;
+      if (!is_sample_allowed(params, global_vec_idx)) {
+        params.d_topk_dists[output_offset + vec_idx] = INFINITY;
+        continue;
+      }
+
       float ip = compute_lut_ip_for_vec<__half>(params.d_short_data,
                                                 shared_lut_fp16,
                                                 cluster_start_index,
@@ -90,8 +96,7 @@ __device__ void lut16_opt_emit_distances(const ComputeInnerProductsKernelParams 
                                                 vec_idx,
                                                 short_code_length);
 
-      float ip2             = shared_ip2_results[vec_idx];
-      size_t global_vec_idx = cluster_start_index + vec_idx;
+      float ip2 = shared_ip2_results[vec_idx];
 
       float2 ex_factors  = reinterpret_cast<const float2*>(params.d_ex_factor)[global_vec_idx];
       float f_ex_add     = ex_factors.x;
@@ -124,10 +129,15 @@ __device__ void lut16_opt_emit_distances(const ComputeInnerProductsKernelParams 
     uint32_t output_offset = query_idx * params.max_candidates_per_query + probe_slot;
 
     for (size_t vec_idx = tid; vec_idx < num_vectors_in_cluster; vec_idx += num_threads) {
-      size_t factor_offset = cluster_start_index + vec_idx;
-      float3 factors       = reinterpret_cast<const float3*>(params.d_short_factors)[factor_offset];
-      float f_add          = factors.x;
-      float f_rescale      = factors.y;
+      size_t global_vec_idx = cluster_start_index + vec_idx;
+      if (!is_sample_allowed(params, global_vec_idx)) {
+        params.d_topk_dists[output_offset + vec_idx] = INFINITY;
+        continue;
+      }
+
+      float3 factors  = reinterpret_cast<const float3*>(params.d_short_factors)[global_vec_idx];
+      float f_add     = factors.x;
+      float f_rescale = factors.y;
 
       float ip = compute_lut_ip_for_vec<__half>(params.d_short_data,
                                                 shared_lut_fp16,
@@ -138,7 +148,7 @@ __device__ void lut16_opt_emit_distances(const ComputeInnerProductsKernelParams 
 
       float dist                                   = f_add + q_g_add + f_rescale * (ip + q_k1xsumq);
       params.d_topk_dists[output_offset + vec_idx] = dist;
-      params.d_topk_pids[output_offset + vec_idx]  = params.d_pids[cluster_start_index + vec_idx];
+      params.d_topk_pids[output_offset + vec_idx]  = params.d_pids[global_vec_idx];
     }
   }
 }

@@ -92,7 +92,8 @@ void SearcherGPU::SearchClusterQueryPairsSharedMemOpt(
   size_t nprobe,
   size_t topk,
   raft::device_matrix_view<float, int64_t, raft::row_major> d_final_dists,
-  raft::device_matrix_view<uint32_t, int64_t, raft::row_major> d_final_pids)
+  raft::device_matrix_view<uint32_t, int64_t, raft::row_major> d_final_pids,
+  SampleFilterParams sample_filter)
 {
   // Using FP16 for storage
 
@@ -200,12 +201,15 @@ void SearcherGPU::SearchClusterQueryPairsSharedMemOpt(
   kernelParams.max_candidates_per_pair = max_cluster_size;
   kernelParams.max_candidates_per_query =
     use_block_sort ? 0 /* unused */ : max_probed_vectors_count.value();
-  kernelParams.ex_bits      = cur_ivf.get_ex_bits();
-  kernelParams.d_long_code  = cur_ivf.get_long_code_device();
-  kernelParams.d_ex_factor  = reinterpret_cast<const float*>(cur_ivf.get_ex_factor_device());
-  kernelParams.d_pids       = cur_ivf.get_ids_device();
-  kernelParams.d_topk_dists = d_topk_dists.data_handle();
-  kernelParams.d_topk_pids  = d_topk_pids.data_handle();
+  kernelParams.ex_bits        = cur_ivf.get_ex_bits();
+  kernelParams.d_long_code    = cur_ivf.get_long_code_device();
+  kernelParams.d_ex_factor    = reinterpret_cast<const float*>(cur_ivf.get_ex_factor_device());
+  kernelParams.d_pids         = cur_ivf.get_ids_device();
+  kernelParams.bitset_ptr     = sample_filter.bitset_ptr;
+  kernelParams.bitset_len     = sample_filter.bitset_len;
+  kernelParams.original_nbits = sample_filter.original_nbits;
+  kernelParams.d_topk_dists   = d_topk_dists.data_handle();
+  kernelParams.d_topk_pids    = d_topk_pids.data_handle();
   kernelParams.d_query_write_counters = d_query_write_counters.data();
 
   if (cur_ivf.get_ex_bits() != 0) {
@@ -220,11 +224,12 @@ void SearcherGPU::SearchClusterQueryPairsSharedMemOpt(
     size_t shared_mem_size =
       max(first_part_shared_mem + second_part_shared_mem + third_part_shared_mem,
           (size_t)queue_buffer_smem_bytes);
-    auto jit_launcher           = use_block_sort
-                                    ? make_compute_inner_products_with_lut16_opt_block_sort_launcher(
-                              cur_ivf.get_ex_bits(), /*with_ex=*/true, is_inner_product)
-                                    : make_compute_inner_products_with_lut16_opt_launcher(
-                              cur_ivf.get_ex_bits(), /*with_ex=*/true);
+    auto jit_launcher =
+      use_block_sort
+        ? make_compute_inner_products_with_lut16_opt_block_sort_launcher(
+            cur_ivf.get_ex_bits(), /*with_ex=*/true, is_inner_product, sample_filter.type)
+        : make_compute_inner_products_with_lut16_opt_launcher(
+            cur_ivf.get_ex_bits(), /*with_ex=*/true, sample_filter.type);
     auto const& kernel_launcher = [&]() -> void {
       jit_launcher->dispatch<compute_inner_products_with_lut_func_t>(
         stream_, gridDim, blockDim, shared_mem_size, kernelParams);
@@ -239,11 +244,11 @@ void SearcherGPU::SearchClusterQueryPairsSharedMemOpt(
     // queue buffer reuses first 2 parts
     size_t shared_mem_size =
       max(first_part_shared_mem + second_part_shared_mem, (size_t)queue_buffer_smem_bytes);
-    auto jit_launcher           = use_block_sort
-                                    ? make_compute_inner_products_with_lut16_opt_block_sort_launcher(
-                              /*ex_bits=*/0, /*with_ex=*/false, is_inner_product)
-                          : make_compute_inner_products_with_lut16_opt_launcher(
-                              /*ex_bits=*/0, /*with_ex=*/false);
+    auto jit_launcher =
+      use_block_sort ? make_compute_inner_products_with_lut16_opt_block_sort_launcher(
+                         /*ex_bits=*/0, /*with_ex=*/false, is_inner_product, sample_filter.type)
+                     : make_compute_inner_products_with_lut16_opt_launcher(
+                         /*ex_bits=*/0, /*with_ex=*/false, sample_filter.type);
     auto const& kernel_launcher = [&]() -> void {
       jit_launcher->dispatch<compute_inner_products_with_lut_func_t>(
         stream_, gridDim, blockDim, shared_mem_size, kernelParams);

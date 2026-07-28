@@ -7,8 +7,15 @@
 #include "../test_utils.cuh"
 #include "ann_utils.cuh"
 #include "naive_knn.cuh"
+#include <cuvs/core/bitset.hpp>
 #include <cuvs/neighbors/common.hpp>
 #include <cuvs/neighbors/ivf_rabitq.hpp>
+#include <raft/linalg/add.cuh>
+
+#include <thrust/sequence.h>
+
+#include <cmath>
+#include <utility>
 
 namespace cuvs::neighbors::ivf_rabitq {
 
@@ -17,6 +24,7 @@ struct ivf_rabitq_inputs {
   uint32_t num_queries             = 1024;
   uint32_t dim                     = 64;
   uint32_t k                       = 10;
+  uint32_t filter_pass_count       = 0;
   std::optional<double> min_recall = std::nullopt;
   // Generate signed, mean-zero data instead of the default positive-only data. Used by the
   // InnerProduct cases to produce mixed-sign inner products (which exercise both branches of the
@@ -61,8 +69,10 @@ inline auto operator<<(std::ostream& os, const ivf_rabitq_inputs& p) -> std::ost
   PRINT_DIFF(.num_queries);
   PRINT_DIFF(.dim);
   PRINT_DIFF(.k);
+  PRINT_DIFF(.filter_pass_count);
   PRINT_DIFF_V(.min_recall, p.min_recall.value_or(0));
   PRINT_DIFF(.signed_data);
+  PRINT_DIFF_V(.index_params.metric, static_cast<int>(p.index_params.metric));
   PRINT_DIFF(.index_params.n_lists);
   PRINT_DIFF(.index_params.bits_per_dim);
   PRINT_DIFF(.index_params.kmeans_n_iters);
@@ -109,6 +119,16 @@ class ivf_rabitq_test : public ::testing::TestWithParam<ivf_rabitq_inputs> {
 
   void calc_ref()
   {
+    const IdxT filter_offset = static_cast<IdxT>(ps.num_db_vecs - ps.filter_pass_count);
+    const bool filtered      = ps.filter_pass_count > 0;
+    const IdxT ref_offset    = filtered ? filter_offset : IdxT{0};
+    const uint32_t ref_size  = filtered ? ps.filter_pass_count : ps.num_db_vecs;
+    if (ref_size < ps.k) {
+      indices_ref.clear();
+      distances_ref.clear();
+      return;
+    }
+
     size_t queries_size = size_t{ps.num_queries} * size_t{ps.k};
     rmm::device_uvector<EvalT> distances_naive_dev(queries_size, stream_);
     rmm::device_uvector<IdxT> indices_naive_dev(queries_size, stream_);
@@ -117,12 +137,16 @@ class ivf_rabitq_test : public ::testing::TestWithParam<ivf_rabitq_inputs> {
       distances_naive_dev.data(),
       indices_naive_dev.data(),
       search_queries.data(),
-      database.data(),
+      database.data() + static_cast<size_t>(ref_offset) * ps.dim,
       ps.num_queries,
-      ps.num_db_vecs,
+      ref_size,
       ps.dim,
       ps.k,
       static_cast<cuvs::distance::DistanceType>((int)ps.index_params.metric));
+    if (filtered) {
+      raft::linalg::addScalar(
+        indices_naive_dev.data(), indices_naive_dev.data(), ref_offset, queries_size, stream_);
+    }
     distances_ref.resize(queries_size);
     raft::update_host(distances_ref.data(), distances_naive_dev.data(), queries_size, stream_);
     indices_ref.resize(queries_size);
@@ -239,6 +263,79 @@ class ivf_rabitq_test : public ::testing::TestWithParam<ivf_rabitq_inputs> {
       << ps;
   }
 
+  void run_filter()
+  {
+    ASSERT_GT(ps.filter_pass_count, 0);
+    ASSERT_LE(ps.filter_pass_count, ps.num_db_vecs);
+    const IdxT filter_offset = static_cast<IdxT>(ps.num_db_vecs - ps.filter_pass_count);
+
+    index<IdxT> index         = build_serialize();
+    const size_t queries_size = size_t{ps.num_queries} * ps.k;
+    auto distances = raft::make_device_matrix<EvalT, IdxT>(handle_, ps.num_queries, ps.k);
+    auto indices   = raft::make_device_matrix<IdxT, IdxT>(handle_, ps.num_queries, ps.k);
+
+    auto removed_indices = raft::make_device_vector<IdxT, int64_t>(handle_, filter_offset);
+    thrust::sequence(raft::resource::get_thrust_policy(handle_),
+                     thrust::device_pointer_cast(removed_indices.data_handle()),
+                     thrust::device_pointer_cast(removed_indices.data_handle() + filter_offset));
+    cuvs::core::bitset<uint32_t, IdxT> bitset(handle_, removed_indices.view(), ps.num_db_vecs);
+    auto filter = cuvs::neighbors::filtering::bitset_filter(bitset.view());
+
+    auto queries = raft::make_device_matrix_view<const DataT, IdxT>(
+      search_queries.data(), ps.num_queries, ps.dim);
+    cuvs::neighbors::ivf_rabitq::search(
+      handle_, ps.search_params, index, queries, indices.view(), distances.view(), filter);
+
+    std::vector<IdxT> host_indices(queries_size);
+    std::vector<EvalT> host_distances(queries_size);
+    raft::update_host(host_indices.data(), indices.data_handle(), queries_size, stream_);
+    raft::update_host(host_distances.data(), distances.data_handle(), queries_size, stream_);
+    raft::resource::sync_stream(handle_);
+
+    const uint32_t expected_valid = std::min(ps.filter_pass_count, ps.k);
+    for (uint32_t query_ix = 0; query_ix < ps.num_queries; ++query_ix) {
+      uint32_t valid_count = 0;
+      uint32_t oob_count   = 0;
+      std::vector<bool> seen(ps.filter_pass_count, false);
+      for (uint32_t neighbor_ix = 0; neighbor_ix < ps.k; ++neighbor_ix) {
+        const size_t flat_ix = size_t{query_ix} * ps.k + neighbor_ix;
+        const IdxT id        = host_indices[flat_ix];
+        if (id == kOutOfBoundsRecord<IdxT>) {
+          ++oob_count;
+          ASSERT_TRUE(std::isinf(host_distances[flat_ix])) << ps;
+          continue;
+        }
+        ASSERT_GE(id, filter_offset) << ps;
+        ASSERT_LT(id, static_cast<IdxT>(ps.num_db_vecs)) << ps;
+        const size_t allowed_ix = static_cast<size_t>(id - filter_offset);
+        ASSERT_FALSE(seen[allowed_ix]) << ps;
+        seen[allowed_ix] = true;
+        ++valid_count;
+      }
+      ASSERT_EQ(valid_count, expected_valid) << ps;
+      ASSERT_EQ(oob_count, ps.k - expected_valid) << ps;
+    }
+
+    if (ps.filter_pass_count < ps.k) {
+      RAFT_LOG_INFO("Filter validation = %u valid, %u out-of-bounds results per query.",
+                    expected_valid,
+                    ps.k - expected_valid);
+      return;
+    }
+
+    double compression_ratio = sizeof(DataT) * 8 / ps.index_params.bits_per_dim;
+    const double min_recall  = ps.min_recall.value_or(0.5);
+    ASSERT_TRUE(cuvs::neighbors::eval_neighbours(indices_ref,
+                                                 host_indices,
+                                                 distances_ref,
+                                                 host_distances,
+                                                 ps.num_queries,
+                                                 ps.k,
+                                                 0.0001 * compression_ratio,
+                                                 min_recall))
+      << ps;
+  }
+
   void SetUp() override  // NOLINT
   {
     gen_data();
@@ -262,6 +359,9 @@ class ivf_rabitq_test : public ::testing::TestWithParam<ivf_rabitq_inputs> {
   std::vector<IdxT> indices_ref;              // NOLINT
   std::vector<EvalT> distances_ref;           // NOLINT
 };
+
+template <typename EvalT, typename DataT, typename IdxT>
+class ivf_rabitq_filter_test : public ivf_rabitq_test<EvalT, DataT, IdxT> {};
 
 /* Test cases */
 using test_cases_t = std::vector<ivf_rabitq_inputs>;
@@ -341,6 +441,76 @@ inline auto var_bits_per_dim() -> test_cases_t
     if (bits_per_dim == 1) { x.min_recall = 0.3; }
     return x;
   });
+}
+
+inline auto filter_cases() -> test_cases_t
+{
+  test_cases_t cases;
+  const std::vector<search_mode> modes{
+    search_mode::LUT16, search_mode::LUT32, search_mode::QUANT4, search_mode::QUANT8};
+  const std::vector<cuvs::distance::DistanceType> metrics{
+    cuvs::distance::DistanceType::L2Expanded, cuvs::distance::DistanceType::InnerProduct};
+  // Keep the existing 70.7%-pass coverage and add an exact 1%-pass dataset.
+  // For the latter, k=65 exercises the non-block path without the largely
+  // forced overlap produced by selecting 96 of only 100 eligible vectors.
+  for (auto [num_db_vecs, filter_pass_count] : {std::pair{1024u, 724u}, std::pair{10000u, 100u}}) {
+    const uint32_t non_block_k = filter_pass_count == 100 ? 65u : 96u;
+    for (auto mode : modes) {
+      for (uint32_t bits_per_dim : {1u, 3u}) {
+        for (uint32_t k : {10u, non_block_k}) {
+          for (auto metric : metrics) {
+            ivf_rabitq_inputs x;
+            x.num_db_vecs               = num_db_vecs;
+            x.num_queries               = 4;
+            x.k                         = k;
+            x.filter_pass_count         = filter_pass_count;
+            x.index_params.n_lists      = 16;
+            x.index_params.bits_per_dim = bits_per_dim;
+            x.index_params.metric       = metric;
+            x.signed_data               = metric == cuvs::distance::DistanceType::InnerProduct;
+            // Large-k L2 searches should recover nearly all eligible neighbors. At small k,
+            // account for coarser 1-bit quantization while requiring higher recall when only 1%
+            // of the database can pass the filter. InnerProduct uses the conservative bounds from
+            // the existing metric sweep until filtered recall measurements are available.
+            if (metric == cuvs::distance::DistanceType::InnerProduct) {
+              x.min_recall = bits_per_dim == 1 ? 0.30 : 0.50;
+            } else if (k > 64) {
+              x.min_recall = 0.90;
+            } else if (filter_pass_count == 100) {
+              x.min_recall = bits_per_dim == 1 ? 0.50 : 0.85;
+            } else {
+              x.min_recall = bits_per_dim == 1 ? 0.45 : 0.70;
+            }
+            x.search_params.n_probes = 16;
+            x.search_params.mode     = mode;
+            cases.push_back(x);
+          }
+        }
+      }
+    }
+  }
+  // Exercise under-filled output for both block-sort and non-block-sort search.
+  for (auto mode : modes) {
+    for (uint32_t bits_per_dim : {1u, 3u}) {
+      for (uint32_t k : {10u, 65u}) {
+        for (auto metric : metrics) {
+          ivf_rabitq_inputs x;
+          x.num_db_vecs               = 1024;
+          x.num_queries               = 4;
+          x.k                         = k;
+          x.filter_pass_count         = 5;
+          x.index_params.n_lists      = 16;
+          x.index_params.bits_per_dim = bits_per_dim;
+          x.index_params.metric       = metric;
+          x.signed_data               = metric == cuvs::distance::DistanceType::InnerProduct;
+          x.search_params.n_probes    = 16;
+          x.search_params.mode        = mode;
+          cases.push_back(x);
+        }
+      }
+    }
+  }
+  return cases;
 }
 
 inline auto var_search_mode() -> test_cases_t

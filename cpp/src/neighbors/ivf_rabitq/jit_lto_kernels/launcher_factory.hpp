@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../gpu_index/searcher_gpu.cuh"
 #include "compute_inner_products_with_bitwise_block_sort_planner.hpp"
 #include "compute_inner_products_with_bitwise_planner.hpp"
 #include "compute_inner_products_with_lut16_opt_block_sort_planner.hpp"
@@ -13,6 +14,7 @@
 #include "compute_inner_products_with_lut_planner.hpp"
 
 #include <cuvs/detail/jit_lto/AlgorithmLauncher.hpp>
+#include <cuvs/detail/jit_lto/common_fragments.hpp>
 
 #include <cassert>
 #include <memory>
@@ -20,6 +22,22 @@
 namespace cuvs::neighbors::ivf_rabitq::detail {
 
 namespace {
+
+template <typename Planner>
+inline void add_sample_filter_device_function(Planner& planner, SampleFilterType filter_type)
+{
+  switch (filter_type) {
+    case SampleFilterType::None:
+      planner
+        .template add_sample_filter_device_function<cuvs::neighbors::detail::tag_filter_none>();
+      break;
+    case SampleFilterType::Bitset:
+      planner
+        .template add_sample_filter_device_function<cuvs::neighbors::detail::tag_filter_bitset>();
+      break;
+    default: assert(false);
+  }
+}
 
 template <typename Planner>
 inline void add_ex_bits_device_functions(Planner& planner, int ex_bits)
@@ -40,9 +58,10 @@ inline void add_ex_bits_device_functions(Planner& planner, int ex_bits)
 }  // namespace
 
 inline std::shared_ptr<AlgorithmLauncher> make_compute_inner_products_with_lut_launcher(
-  int ex_bits, bool with_ex)
+  int ex_bits, bool with_ex, SampleFilterType filter_type)
 {
   ComputeInnerProductsWithLutPlanner planner;
+  add_sample_filter_device_function(planner, filter_type);
   planner.add_entrypoint();
   planner.add_compute_lut_ip_for_vec_device_function();
   if (with_ex) {
@@ -55,9 +74,10 @@ inline std::shared_ptr<AlgorithmLauncher> make_compute_inner_products_with_lut_l
 }
 
 inline std::shared_ptr<AlgorithmLauncher> make_compute_inner_products_with_lut_block_sort_launcher(
-  int ex_bits, bool with_ex, bool is_inner_product)
+  int ex_bits, bool with_ex, bool is_inner_product, SampleFilterType filter_type)
 {
   ComputeInnerProductsWithLutBlockSortPlanner planner;
+  add_sample_filter_device_function(planner, filter_type);
   planner.add_entrypoint();
   planner.add_compute_lut_ip_for_vec_device_function();
   if (with_ex) {
@@ -78,9 +98,10 @@ inline std::shared_ptr<AlgorithmLauncher> make_compute_inner_products_with_lut_b
 }
 
 inline std::shared_ptr<AlgorithmLauncher> make_compute_inner_products_with_lut16_opt_launcher(
-  int ex_bits, bool with_ex)
+  int ex_bits, bool with_ex, SampleFilterType filter_type)
 {
   ComputeInnerProductsWithLut16OptPlanner planner;
+  add_sample_filter_device_function(planner, filter_type);
   planner.add_entrypoint();
   planner.add_compute_lut_ip_for_vec_device_function();
   if (with_ex) {
@@ -95,9 +116,11 @@ inline std::shared_ptr<AlgorithmLauncher> make_compute_inner_products_with_lut16
 inline std::shared_ptr<AlgorithmLauncher>
 make_compute_inner_products_with_lut16_opt_block_sort_launcher(int ex_bits,
                                                                bool with_ex,
-                                                               bool is_inner_product)
+                                                               bool is_inner_product,
+                                                               SampleFilterType filter_type)
 {
   ComputeInnerProductsWithLut16OptBlockSortPlanner planner;
+  add_sample_filter_device_function(planner, filter_type);
   planner.add_compute_lut_ip_for_vec_device_function();
   if (with_ex) {
     if (is_inner_product) {
@@ -117,9 +140,10 @@ make_compute_inner_products_with_lut16_opt_block_sort_launcher(int ex_bits,
 }
 
 inline std::shared_ptr<AlgorithmLauncher> make_compute_inner_products_with_bitwise_launcher(
-  int ex_bits, bool with_ex)
+  int ex_bits, bool with_ex, SampleFilterType filter_type)
 {
   ComputeInnerProductsWithBitwisePlanner planner;
+  add_sample_filter_device_function(planner, filter_type);
   planner.add_entrypoint();
   if (with_ex) {
     planner.add_bitwise_emit_distances_device_function<true>();
@@ -131,12 +155,11 @@ inline std::shared_ptr<AlgorithmLauncher> make_compute_inner_products_with_bitwi
 }
 
 inline std::shared_ptr<AlgorithmLauncher>
-make_compute_inner_products_with_bitwise_block_sort_launcher(int num_bits,
-                                                             int ex_bits,
-                                                             bool with_ex,
-                                                             bool is_inner_product)
+make_compute_inner_products_with_bitwise_block_sort_launcher(
+  int num_bits, int ex_bits, bool with_ex, bool is_inner_product, SampleFilterType filter_type)
 {
   ComputeInnerProductsWithBitwiseBlockSortPlanner planner;
+  add_sample_filter_device_function(planner, filter_type);
   if (is_inner_product) {
     planner.add_entrypoint<true>();
   } else {

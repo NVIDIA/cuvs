@@ -143,7 +143,8 @@ void SearcherGPU::SearchClusterQueryPairs(
   size_t nprobe,
   size_t topk,
   raft::device_matrix_view<float, int64_t, raft::row_major> d_final_dists,
-  raft::device_matrix_view<uint32_t, int64_t, raft::row_major> d_final_pids)
+  raft::device_matrix_view<uint32_t, int64_t, raft::row_major> d_final_pids,
+  SampleFilterParams sample_filter)
 {
   // First allocate space for LUT
   size_t lut_size = num_queries * (D / BITS_PER_CHUNK) * LUT_SIZE * sizeof(float);
@@ -244,12 +245,15 @@ void SearcherGPU::SearchClusterQueryPairs(
   kernelParams.max_candidates_per_pair = max_cluster_size;
   kernelParams.max_candidates_per_query =
     use_block_sort ? 0 /* unused */ : max_probed_vectors_count.value();
-  kernelParams.ex_bits      = cur_ivf.get_ex_bits();
-  kernelParams.d_long_code  = cur_ivf.get_long_code_device();
-  kernelParams.d_ex_factor  = reinterpret_cast<const float*>(cur_ivf.get_ex_factor_device());
-  kernelParams.d_pids       = cur_ivf.get_ids_device();
-  kernelParams.d_topk_dists = d_topk_dists.data_handle();
-  kernelParams.d_topk_pids  = d_topk_pids.data_handle();
+  kernelParams.ex_bits        = cur_ivf.get_ex_bits();
+  kernelParams.d_long_code    = cur_ivf.get_long_code_device();
+  kernelParams.d_ex_factor    = reinterpret_cast<const float*>(cur_ivf.get_ex_factor_device());
+  kernelParams.d_pids         = cur_ivf.get_ids_device();
+  kernelParams.bitset_ptr     = sample_filter.bitset_ptr;
+  kernelParams.bitset_len     = sample_filter.bitset_len;
+  kernelParams.original_nbits = sample_filter.original_nbits;
+  kernelParams.d_topk_dists   = d_topk_dists.data_handle();
+  kernelParams.d_topk_pids    = d_topk_pids.data_handle();
   kernelParams.d_query_write_counters = d_query_write_counters.data();
 
   if (cur_ivf.get_ex_bits() != 0) {
@@ -258,8 +262,9 @@ void SearcherGPU::SearchClusterQueryPairs(
     auto jit_launcher =
       use_block_sort
         ? make_compute_inner_products_with_lut_block_sort_launcher(
-            cur_ivf.get_ex_bits(), /*with_ex=*/true, is_inner_product)
-        : make_compute_inner_products_with_lut_launcher(cur_ivf.get_ex_bits(), /*with_ex=*/true);
+            cur_ivf.get_ex_bits(), /*with_ex=*/true, is_inner_product, sample_filter.type)
+        : make_compute_inner_products_with_lut_launcher(
+            cur_ivf.get_ex_bits(), /*with_ex=*/true, sample_filter.type);
     auto const& kernel_launcher = [&]() -> void {
       jit_launcher->dispatch<compute_inner_products_with_lut_func_t>(
         stream_, gridDim, blockDim, shared_mem_size, kernelParams);
@@ -272,10 +277,11 @@ void SearcherGPU::SearchClusterQueryPairs(
       max(num_chunks * LUT_SIZE * sizeof(float) +
             (use_block_sort ? max_cluster_size * (sizeof(float) + sizeof(int)) : 0),
           (size_t)queue_buffer_smem_bytes);
-    auto jit_launcher = use_block_sort ? make_compute_inner_products_with_lut_block_sort_launcher(
-                                           /*ex_bits=*/0, /*with_ex=*/false, is_inner_product)
-                                       : make_compute_inner_products_with_lut_launcher(
-                                           /*ex_bits=*/0, /*with_ex=*/false);
+    auto jit_launcher =
+      use_block_sort ? make_compute_inner_products_with_lut_block_sort_launcher(
+                         /*ex_bits=*/0, /*with_ex=*/false, is_inner_product, sample_filter.type)
+                     : make_compute_inner_products_with_lut_launcher(
+                         /*ex_bits=*/0, /*with_ex=*/false, sample_filter.type);
     auto const& kernel_launcher = [&]() -> void {
       jit_launcher->dispatch<compute_inner_products_with_lut_func_t>(
         stream_, gridDim, blockDim, shared_mem_size, kernelParams);

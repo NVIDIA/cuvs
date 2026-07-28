@@ -18,6 +18,7 @@
 #include <raft/core/resources.hpp>
 #include <raft/util/integer_utils.hpp>
 
+#include <limits>
 #include <optional>
 #include <tuple>
 #include <variant>
@@ -99,6 +100,13 @@ enum class search_mode {
   QUANT4 = 2,
   QUANT8 = 3,
 };
+
+/**
+ * Default value returned by `search` when fewer than k samples pass the filter or the combined
+ * size of the probed clusters is smaller than k.
+ */
+template <typename IdxT>
+constexpr static IdxT kOutOfBoundsRecord = std::numeric_limits<IdxT>::max();
 
 struct search_params : cuvs::neighbors::search_params {
   /** The number of clusters to search. */
@@ -240,13 +248,17 @@ auto build(raft::resources const& handle,
  * [n_queries, k]
  * @param[out] distances a device matrix view to the distances to the selected neighbors [n_queries,
  * k]
+ * @param[in] sample_filter an optional device filter function object that greenlights samples
+ * for a given query. Supports `none_sample_filter` and `bitset_filter<uint32_t, int64_t>`.
  */
 void search(raft::resources const& handle,
             const cuvs::neighbors::ivf_rabitq::search_params& search_params,
             cuvs::neighbors::ivf_rabitq::index<int64_t>& index,
             raft::device_matrix_view<const float, int64_t, raft::row_major> queries,
             raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
-            raft::device_matrix_view<float, int64_t, raft::row_major> distances);
+            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
+            const cuvs::neighbors::filtering::base_filter& sample_filter =
+              cuvs::neighbors::filtering::none_sample_filter{});
 
 /**
  * @}

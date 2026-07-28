@@ -34,6 +34,7 @@
 namespace cuvs::neighbors::ivf_rabitq::detail {
 
 class SearcherGPU;
+struct SampleFilterParams;
 
 // Structure for cluster-query pairs
 struct ClusterQueryPair {
@@ -266,14 +267,14 @@ class IVFGPU {
   DataQuantizerGPU& quantizer() const { return *(this->DQ); }
   RotatorGPU& rotator() const { return *(this->Rota); }
 
-  void BatchClusterSearch(
-    raft::device_matrix_view<const float, int64_t, raft::row_major> queries,
-    size_t k,
-    size_t nprobe,
-    SearcherGPU& searcher,
-    size_t batch_size,
-    raft::device_matrix_view<float, int64_t, raft::row_major> d_final_dists,
-    raft::device_matrix_view<uint32_t, int64_t, raft::row_major> d_final_pids);
+  void BatchClusterSearch(raft::device_matrix_view<const float, int64_t, raft::row_major> queries,
+                          size_t k,
+                          size_t nprobe,
+                          SearcherGPU& searcher,
+                          size_t batch_size,
+                          raft::device_matrix_view<float, int64_t, raft::row_major> d_final_dists,
+                          raft::device_matrix_view<uint32_t, int64_t, raft::row_major> d_final_pids,
+                          SampleFilterParams sample_filter);
 
   void BatchClusterSearchLUT16(
     raft::device_matrix_view<const float, int64_t, raft::row_major> queries,
@@ -282,7 +283,8 @@ class IVFGPU {
     SearcherGPU& searcher,
     size_t batch_size,
     raft::device_matrix_view<float, int64_t, raft::row_major> d_final_dists,
-    raft::device_matrix_view<uint32_t, int64_t, raft::row_major> d_final_pids);
+    raft::device_matrix_view<uint32_t, int64_t, raft::row_major> d_final_pids,
+    SampleFilterParams sample_filter);
 
   void BatchClusterSearchQuantizeQuery(
     raft::device_matrix_view<const float, int64_t, raft::row_major> queries,
@@ -292,7 +294,8 @@ class IVFGPU {
     size_t batch_size,
     raft::device_matrix_view<float, int64_t, raft::row_major> d_final_dists,
     raft::device_matrix_view<uint32_t, int64_t, raft::row_major> d_final_pids,
-    int query_bits);
+    int query_bits,
+    SampleFilterParams sample_filter);
 
  private:
   void PrepareClusterSearchInputs(

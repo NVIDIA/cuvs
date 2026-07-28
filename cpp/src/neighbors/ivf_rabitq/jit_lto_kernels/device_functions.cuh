@@ -22,6 +22,18 @@ namespace cuvs::neighbors::ivf_rabitq::detail {
 // adds them via add_*_device_function().
 __device__ uint32_t extract_code(const uint8_t* codes, size_t d);
 
+__device__ bool sample_filter(PID source_id,
+                              uint32_t* bitset_ptr,
+                              int64_t bitset_len,
+                              int64_t original_nbits);
+
+__forceinline__ __device__ bool is_sample_allowed(const ComputeInnerProductsKernelParams& params,
+                                                  size_t global_vec_idx)
+{
+  return sample_filter(
+    params.d_pids[global_vec_idx], params.bitset_ptr, params.bitset_len, params.original_nbits);
+}
+
 // The body does not depend on ex_bits; the inner extract_code call is the
 // ex_bits-specialized fragment, resolved at nvJitLink time based on which
 // extract_code variant the planner adds.
