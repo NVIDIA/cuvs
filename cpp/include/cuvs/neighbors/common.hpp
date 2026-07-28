@@ -497,7 +497,7 @@ namespace filtering {
  * @{
  */
 
-enum class FilterType { None, Bitmap, Bitset, UDF };
+enum class FilterType { None, Bitmap, Bitset, UDF, Roaring, RoaringMatrix };
 
 struct base_filter {
   ~base_filter()                             = default;

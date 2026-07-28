@@ -15,6 +15,7 @@
 #include "./fused_l2_knn.cuh"
 #include "./haversine_distance.cuh"
 #include "./knn_utils.cuh"
+#include "./knn_brute_force_roaring.cuh"
 
 #include <raft/core/bitmap.cuh>
 #include <raft/core/copy.cuh>
@@ -589,7 +590,7 @@ void brute_force_search_filtered(
   const cuvs::neighbors::filtering::base_filter* filter,
   raft::device_matrix_view<IdxT, IdxT, raft::row_major> neighbors,
   raft::device_matrix_view<DistanceT, IdxT, raft::row_major> distances,
-  std::optional<raft::device_vector_view<const DistanceT, IdxT>> query_norms = std::nullopt)
+  std::optional<raft::device_vector_view<const DistanceT, IdxT>> query_norms)
 {
   auto metric = idx.metric();
 
@@ -754,6 +755,29 @@ void search(raft::resources const& res,
   if constexpr (std::is_same_v<LayoutT, raft::col_major>) {
     RAFT_FAIL("filtered search isn't available with col_major queries yet");
   } else {
+    if constexpr (std::is_same_v<T, float> && std::is_same_v<DistT, float>) {
+      try {
+        auto& sample_filter =
+          dynamic_cast<const cuvs::neighbors::filtering::roaring_filter&>(sample_filter_ref);
+        return brute_force_search_roaring(res, idx, queries, sample_filter, neighbors, distances);
+      } catch (const std::bad_cast&) {
+      }
+      try {
+        auto& sample_filter =
+          dynamic_cast<const cuvs::neighbors::filtering::roaring_matrix_filter&>(
+            sample_filter_ref);
+        return brute_force_search_roaring_matrix(
+          res, idx, queries, sample_filter, neighbors, distances);
+      } catch (const std::bad_cast&) {
+      }
+    } else {
+      RAFT_EXPECTS(
+        sample_filter_ref.get_filter_type() != cuvs::neighbors::filtering::FilterType::Roaring &&
+          sample_filter_ref.get_filter_type() !=
+            cuvs::neighbors::filtering::FilterType::RoaringMatrix,
+        "roaring filters currently support float32 data only");
+    }
+
     try {
       auto& sample_filter =
         dynamic_cast<const cuvs::neighbors::filtering::bitmap_filter<uint32_t, int64_t>&>(
