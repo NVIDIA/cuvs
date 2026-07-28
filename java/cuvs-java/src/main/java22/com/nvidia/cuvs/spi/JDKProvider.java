@@ -39,9 +39,9 @@ final class JDKProvider implements CuVSProvider {
 
     static CuVSVersion fromString(String versionString) {
       var tokens = versionString.split("\\.");
-      final short major = parseToken(tokens, 0);
-      final short minor = parseToken(tokens, 1);
-      final short patch = parseToken(tokens, 2);
+final short major = parseToken(tokens, 0);
+final short minor = parseToken(tokens, 1);
+final short patch = parseToken(tokens, 2);
       if (major == 0 || minor == 0) {
         return null;
       }
