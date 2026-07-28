@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 """
@@ -21,12 +21,14 @@ from cuvs_bench.backends.opensearch import (
     OpenSearchConfigLoader,
 )
 from cuvs_bench.orchestrator.config_loaders import IndexConfig
+from cuvs_bench.orchestrator.orchestrator import BenchmarkOrchestrator
 
 
 def _make_backend(config_overrides: dict = None) -> OpenSearchBackend:
     """Backend with no network requirement so pre-flight passes without a server."""
     config = {
         "name": "test_index",
+        "group": "base",
         "index_name": "test_index",
         "engine": "faiss",
         "algo": "opensearch_faiss_hnsw",
@@ -90,6 +92,7 @@ def live_backend(opensearch_url):
     backend = OpenSearchBackend(
         {
             "name": index_name,
+            "group": "base",
             "index_name": index_name,
             "engine": "faiss",
             "algo": "opensearch_faiss_hnsw",
@@ -146,6 +149,7 @@ class TestOpenSearchConfigLoader:
         assert len(benchmark_configs) == 4
         bc = benchmark_configs[0]
         assert bc.backend_config["engine"] == "faiss"
+        assert bc.backend_config["group"] == "test"
         assert len(bc.indexes[0].search_params) == 2  # ef_search: [50, 100]
 
     def test_load_forwards_remote_build_kwargs(self, config_dir):
@@ -205,11 +209,56 @@ class TestOpenSearchBackend:
         assert result.index_path == backend.config["index_name"]
 
     def test_search_dry_run(self):
-        result = _make_backend().search(
+        results = _make_backend().search(
             _make_dataset(), [_make_index_cfg()], k=3, dry_run=True
         )
-        assert result.success
-        assert len(result.search_params) == 2
+        assert len(results) == 2
+        assert all(result.success for result in results)
+        assert [result.search_params for result in results] == [
+            [{"ef_search": 50}],
+            [{"ef_search": 100}],
+        ]
+
+    def test_recall_is_computed_for_each_search_parameter(self):
+        class FakeIndices:
+            def __init__(self):
+                self.ef_search = None
+
+            def put_settings(self, index, body):
+                self.ef_search = body["index.knn.algo_param.ef_search"]
+
+        class FakeClient:
+            def __init__(self):
+                self.indices = FakeIndices()
+
+            def msearch(self, index, body):
+                ids = [2, 3] if self.indices.ef_search == 50 else [0, 1]
+                response = {
+                    "hits": {
+                        "hits": [
+                            {"_id": str(neighbor), "_score": 1.0}
+                            for neighbor in ids
+                        ]
+                    }
+                }
+                return {"responses": [response for _ in body[::2]]}
+
+        dataset = Dataset(
+            name="test",
+            query_vectors=np.zeros((2, 4), dtype=np.float32),
+            groundtruth_neighbors=np.array([[0, 1], [0, 1]]),
+        )
+        backend = _make_backend()
+        backend._OpenSearchBackend__client = FakeClient()
+
+        results = backend.search(
+            dataset, [_make_index_cfg()], k=2, batch_size=2
+        )
+        for result in results:
+            BenchmarkOrchestrator._finalize_search_result(result, dataset, 2)
+
+        assert [result.recall for result in results] == [0.0, 1.0]
+        assert all(result.neighbors.shape == (2, 2) for result in results)
 
     def test_remote_build_requires_faiss_engine(self):
         backend = _make_backend({"engine": "lucene"})
@@ -395,7 +444,7 @@ class TestOpenSearchBackend:
             training_vectors=np.empty((0, 4), dtype=np.float32),
             query_vectors=np.empty((0, 4), dtype=np.float32),
         )
-        result = _make_backend().search(dataset, [_make_index_cfg()], k=3)
+        result = _make_backend().search(dataset, [_make_index_cfg()], k=3)[0]
         assert not result.success
         assert "No query vectors" in result.error_message
 
@@ -541,6 +590,7 @@ def live_remote_build_backend(opensearch_url, remote_build_env):
     backend = OpenSearchBackend(
         {
             "name": index_name,
+            "group": "base",
             "index_name": index_name,
             "engine": "faiss",
             "algo": "opensearch_faiss_hnsw",
@@ -572,12 +622,11 @@ class TestOpenSearchBackendIntegration:
         assert build_result.build_time_seconds > 0
         assert build_result.index_size_bytes > 0
 
-        search_result = live_backend.search(dataset, [idx], k=k)
+        search_result = live_backend.search(dataset, [idx], k=k)[0]
         assert search_result.success
         assert search_result.recall == 0.0
         assert search_result.queries_per_second > 0
         assert search_result.neighbors.shape == (10, k)
-        assert len(search_result.metadata["per_search_param_results"]) == 1
 
 
 @pytest.mark.opensearch
@@ -594,7 +643,9 @@ class TestOpenSearchRemoteIndexBuildIntegration:
         assert build_result.build_time_seconds > 0
         assert build_result.metadata["remote_index_build"] is True
 
-        search_result = live_remote_build_backend.search(dataset, [idx], k=k)
+        search_result = live_remote_build_backend.search(dataset, [idx], k=k)[
+            0
+        ]
         assert search_result.success
         assert search_result.recall == 0.0
         assert search_result.queries_per_second > 0
