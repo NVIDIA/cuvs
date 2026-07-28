@@ -95,11 +95,11 @@ repos:
                 language: rust
               - id: spotless-fmt
                 name: spotless-fmt
-                entry: mvn --batch-mode --quiet -f java/cuvs-java/pom.xml spotless:apply
+                entry: ci/checks/run_spotless.sh
                 pass_filenames: false
                 files: ^java/cuvs-java/src/.*\.java$
                 exclude: .*/panama/.*
-                language: system
+                language: script
               - id: clang-format-with-cmake-placeholders
                 name: clang-format-with-cmake-placeholders
                 entry: python3 ci/checks/clang_format_with_cmake_placeholders.py
