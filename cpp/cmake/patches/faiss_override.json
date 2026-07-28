@@ -1,28 +1,13 @@
 {
   "packages" : {
     "faiss" : {
-      "version": "1.14.0",
+      "version": "1.14.3",
       "git_url": "https://github.com/facebookresearch/faiss.git",
       "git_tag": "v${version}",
       "patches" : [
         {
-          "file" : "${current_json_dir}/faiss-1.14-cuvs-25.12.diff",
-          "issue" : "Multiple fixes for cuVS and RMM compatibility",
-          "fixed_in" : ""
-        },
-        {
-          "file" : "${current_json_dir}/faiss-1.14-cuvs-26.02.diff",
-          "issue" : "Multiple fixes for cuVS and RMM compatibility",
-          "fixed_in" : ""
-        },
-        {
-          "file" : "${current_json_dir}/faiss-1.14-cuvs-26.04.diff",
+          "file" : "${current_json_dir}/faiss-1.14-cuvs-26.08.diff",
           "issue" : "Multiple fixes for cuVS compatibility",
-          "fixed_in" : ""
-        },
-        {
-          "file" : "${current_json_dir}/faiss-1.14-cuvs-26.06.diff",
-          "issue" : "Migrate from removed rmm::mr::device_memory_resource to CCCL memory resources",
           "fixed_in" : ""
         }
       ]

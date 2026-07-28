@@ -87,7 +87,7 @@ export default function CustomFooter() {
             </div>
           </div>
           <div className="footer-item">
-            <p className="copyright">Copyright &#169; {currentYear}, NVIDIA Corporation.</p>
+            <p className="copyright">Copyright &#169; 2020-{currentYear}, NVIDIA Corporation.</p>
           </div>
         </div>
       </div>

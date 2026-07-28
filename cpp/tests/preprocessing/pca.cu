@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2018-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2018-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -10,8 +10,6 @@
 #include <raft/core/device_resources.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/random/rng.cuh>
-#include <raft/util/cuda_utils.cuh>
-#include <raft/util/cudart_utils.hpp>
 
 #include <gtest/gtest.h>
 #include <test_utils.h>
@@ -42,11 +40,12 @@ template <typename T>
 /**
  * @brief Run fit_transform followed by inverse_transform.
  *
+ * Templated on layout to exercise both col-major and row-major paths.
  * Intermediate buffers are managed internally unless the caller provides
  * pre-allocated pointers via the optional parameters, in which case the
  * results are written there directly.
  */
-template <typename T>
+template <typename T, typename LayoutT = raft::col_major>
 void pca_roundtrip(raft::resources const& handle,
                    T* input,
                    int n_rows,
@@ -54,11 +53,12 @@ void pca_roundtrip(raft::resources const& handle,
                    T* output,
                    int n_components,
                    int algo,
-                   cudaStream_t stream,
                    T* components_out    = nullptr,
                    T* explained_var_out = nullptr,
                    T* trans_out         = nullptr)
 {
+  auto stream = raft::resource::get_cuda_stream(handle);
+
   params prms;
   prms.n_components = n_components;
   if (algo == 0)
@@ -79,19 +79,17 @@ void pca_roundtrip(raft::resources const& handle,
   rmm::device_uvector<T> mu(n_cols, stream);
   rmm::device_uvector<T> nv(1, stream);
 
-  auto input_view =
-    raft::make_device_matrix_view<T, int64_t, raft::col_major>(input, n_rows, n_cols);
+  auto input_view = raft::make_device_matrix_view<T, int64_t, LayoutT>(input, n_rows, n_cols);
   auto trans_view =
-    raft::make_device_matrix_view<T, int64_t, raft::col_major>(trans_ptr, n_rows, n_components);
+    raft::make_device_matrix_view<T, int64_t, LayoutT>(trans_ptr, n_rows, n_components);
   auto comp_view =
-    raft::make_device_matrix_view<T, int64_t, raft::col_major>(comp_ptr, n_components, n_cols);
-  auto ev_view  = raft::make_device_vector_view<T, int64_t>(ev_ptr, n_components);
-  auto evr_view = raft::make_device_vector_view<T, int64_t>(evr.data(), n_components);
-  auto sv_view  = raft::make_device_vector_view<T, int64_t>(sv.data(), n_components);
-  auto mu_view  = raft::make_device_vector_view<T, int64_t>(mu.data(), n_cols);
-  auto nv_view  = raft::make_device_scalar_view<T>(nv.data());
-  auto output_view =
-    raft::make_device_matrix_view<T, int64_t, raft::col_major>(output, n_rows, n_cols);
+    raft::make_device_matrix_view<T, int64_t, LayoutT>(comp_ptr, n_components, n_cols);
+  auto ev_view     = raft::make_device_vector_view<T, int64_t>(ev_ptr, n_components);
+  auto evr_view    = raft::make_device_vector_view<T, int64_t>(evr.data(), n_components);
+  auto sv_view     = raft::make_device_vector_view<T, int64_t>(sv.data(), n_components);
+  auto mu_view     = raft::make_device_vector_view<T, int64_t>(mu.data(), n_cols);
+  auto nv_view     = raft::make_device_scalar_view<T>(nv.data());
+  auto output_view = raft::make_device_matrix_view<T, int64_t, LayoutT>(output, n_rows, n_cols);
 
   fit_transform(
     handle, prms, input_view, trans_view, comp_view, ev_view, evr_view, sv_view, mu_view, nv_view);
@@ -151,7 +149,6 @@ class PcaTest : public ::testing::TestWithParam<PcaInputs<T>> {
                     data_back.data(),
                     params_.n_col,
                     params_.algo,
-                    stream,
                     components.data(),
                     explained_vars.data(),
                     trans_data.data());
@@ -168,8 +165,7 @@ class PcaTest : public ::testing::TestWithParam<PcaInputs<T>> {
                     params_.n_col2,
                     data2_back.data(),
                     params_.n_col2,
-                    params_.algo,
-                    stream);
+                    params_.algo);
     }
 
     // --- dim reduction test: n_components < n_cols, random data ---
@@ -190,14 +186,13 @@ class PcaTest : public ::testing::TestWithParam<PcaInputs<T>> {
                     params_.n_col2,
                     recon.data(),
                     n_components,
-                    params_.algo,
-                    stream);
+                    params_.algo);
 
       std::vector<T> orig_h(len2);
       std::vector<T> recon_h(len2);
       raft::update_host(orig_h.data(), input_copy.data(), len2, stream);
       raft::update_host(recon_h.data(), recon.data(), len2, stream);
-      RAFT_CUDA_TRY(cudaStreamSynchronize(stream));
+      raft::resource::sync_stream(handle);
 
       max_recon_err = T(0);
       for (int i = 0; i < len2; ++i) {
@@ -262,5 +257,138 @@ typedef PcaTest<float> PcaTestF;
 TEST_P(PcaTestF, Result) { this->testPca(); }
 
 INSTANTIATE_TEST_CASE_P(PcaTests, PcaTestF, ::testing::ValuesIn(inputsf2));
+
+/**
+ * Row-major end-to-end test: runs fit_transform + inverse_transform on row-major
+ * inputs and verifies the reconstruction matches the original. Also checks that
+ * row-major and col-major inputs (representing the same logical data) produce
+ * the same explained variances, singular values, and column means.
+ */
+template <typename T>
+class PcaRowMajorTest : public ::testing::TestWithParam<PcaInputs<T>> {
+ public:
+  PcaRowMajorTest()
+    : params_(::testing::TestWithParam<PcaInputs<T>>::GetParam()),
+      stream(raft::resource::get_cuda_stream(handle))
+  {
+  }
+
+ protected:
+  // Convert col-major data of shape (n_rows, n_cols) into row-major in dst.
+  // Both buffers live on device.
+  void to_row_major(const T* col_major_src, T* row_major_dst, int n_rows, int n_cols)
+  {
+    std::vector<T> host_col(n_rows * n_cols);
+    std::vector<T> host_row(n_rows * n_cols);
+    raft::update_host(host_col.data(), col_major_src, n_rows * n_cols, stream);
+    raft::resource::sync_stream(handle);
+    for (int i = 0; i < n_rows; ++i) {
+      for (int j = 0; j < n_cols; ++j) {
+        host_row[i * n_cols + j] = host_col[j * n_rows + i];
+      }
+    }
+    raft::update_device(row_major_dst, host_row.data(), n_rows * n_cols, stream);
+  }
+
+  void testRowMajorRoundtrip()
+  {
+    int n_rows = params_.n_row2;
+    int n_cols = params_.n_col2;
+    int len    = n_rows * n_cols;
+
+    rmm::device_uvector<T> data_col(len, stream);
+    rmm::device_uvector<T> data_row(len, stream);
+    rmm::device_uvector<T> data_back_row(len, stream);
+
+    raft::random::Rng r(params_.seed, raft::random::GenPC);
+    r.uniform(data_col.data(), len, T(-1.0), T(1.0), stream);
+    to_row_major(data_col.data(), data_row.data(), n_rows, n_cols);
+
+    pca_roundtrip<T, raft::row_major>(
+      handle, data_row.data(), n_rows, n_cols, data_back_row.data(), n_cols, params_.algo);
+
+    ASSERT_TRUE(devArrMatch(data_row.data(),
+                            data_back_row.data(),
+                            len,
+                            cuvs::CompareApprox<T>(params_.tolerance),
+                            stream));
+  }
+
+  void testLayoutsAgreeNumerically()
+  {
+    int n_rows = params_.n_row2;
+    int n_cols = params_.n_col2;
+    int len    = n_rows * n_cols;
+
+    rmm::device_uvector<T> data_col(len, stream);
+    rmm::device_uvector<T> data_row(len, stream);
+
+    raft::random::Rng r(params_.seed, raft::random::GenPC);
+    r.uniform(data_col.data(), len, T(-1.0), T(1.0), stream);
+    to_row_major(data_col.data(), data_row.data(), n_rows, n_cols);
+
+    // Run col-major path
+    rmm::device_uvector<T> col_back(len, stream);
+    rmm::device_uvector<T> col_ev(n_cols, stream);
+    rmm::device_uvector<T> col_components(n_cols * n_cols, stream);
+    rmm::device_uvector<T> col_trans(len, stream);
+    pca_roundtrip<T, raft::col_major>(handle,
+                                      data_col.data(),
+                                      n_rows,
+                                      n_cols,
+                                      col_back.data(),
+                                      n_cols,
+                                      params_.algo,
+                                      col_components.data(),
+                                      col_ev.data(),
+                                      col_trans.data());
+
+    // Run row-major path on the same logical data
+    rmm::device_uvector<T> row_back(len, stream);
+    rmm::device_uvector<T> row_ev(n_cols, stream);
+    rmm::device_uvector<T> row_components(n_cols * n_cols, stream);
+    rmm::device_uvector<T> row_trans(len, stream);
+    pca_roundtrip<T, raft::row_major>(handle,
+                                      data_row.data(),
+                                      n_rows,
+                                      n_cols,
+                                      row_back.data(),
+                                      n_cols,
+                                      params_.algo,
+                                      row_components.data(),
+                                      row_ev.data(),
+                                      row_trans.data());
+
+    // Explained variances and reconstructions should agree across layouts.
+    ASSERT_TRUE(devArrMatch(
+      col_ev.data(), row_ev.data(), n_cols, cuvs::CompareApprox<T>(params_.tolerance), stream));
+
+    // Reconstructions are stored in their native layouts; compare element-by-
+    // element after a host-side reshape of the row-major result back to col.
+    std::vector<T> col_back_h(len);
+    std::vector<T> row_back_h(len);
+    raft::update_host(col_back_h.data(), col_back.data(), len, stream);
+    raft::update_host(row_back_h.data(), row_back.data(), len, stream);
+    raft::resource::sync_stream(handle);
+    for (int i = 0; i < n_rows; ++i) {
+      for (int j = 0; j < n_cols; ++j) {
+        T col_val = col_back_h[j * n_rows + i];
+        T row_val = row_back_h[i * n_cols + j];
+        ASSERT_NEAR(col_val, row_val, params_.tolerance) << "Mismatch at (" << i << "," << j << ")";
+      }
+    }
+  }
+
+ private:
+  raft::device_resources handle;
+  cudaStream_t stream;
+  PcaInputs<T> params_;
+};
+
+typedef PcaRowMajorTest<float> PcaRowMajorTestF;
+TEST_P(PcaRowMajorTestF, Roundtrip) { this->testRowMajorRoundtrip(); }
+TEST_P(PcaRowMajorTestF, AgreesWithColMajor) { this->testLayoutsAgreeNumerically(); }
+
+INSTANTIATE_TEST_CASE_P(PcaTests, PcaRowMajorTestF, ::testing::ValuesIn(inputsf2));
 
 }  // end namespace cuvs::preprocessing::pca

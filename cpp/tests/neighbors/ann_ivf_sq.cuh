@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -42,7 +42,7 @@ template <typename IdxT>
   os << "{ " << p.num_queries << ", " << p.num_db_vecs << ", " << p.dim << ", " << p.k << ", "
      << p.nprobe << ", " << p.nlist << ", "
      << cuvs::neighbors::print_metric{static_cast<cuvs::distance::DistanceType>((int)p.metric)}
-     << ", " << (p.host_dataset ? "host" : "device") << '}' << std::endl;
+     << ", " << (p.host_dataset ? "host" : "device") << '}';
   return os;
 }
 

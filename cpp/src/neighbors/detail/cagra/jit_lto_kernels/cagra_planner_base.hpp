@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -52,11 +52,13 @@ struct CagraPlannerBase : AlgorithmPlanner {
                                                              TeamSz,
                                                              Dim,
                                                              PqBitsV,
-                                                             PqLenV>>();
+                                                             PqLenV,
+                                                             tag_smem_f16>>();
     };
-    dispatch_cagra_team_dim(team_size, dataset_block_dim, [&add]<uint32_t TeamSz, uint32_t Dim>() {
-      add.template operator()<TeamSz, Dim, 0u, 0u>();
-    });
+    dispatch_cagra_standard_team_dim(
+      team_size, dataset_block_dim, [&add]<uint32_t TeamSz, uint32_t Dim>() {
+        add.template operator()<TeamSz, Dim, 0u, 0u>();
+      });
   }
 
   /// VPQ (`tag_codebook_half`): JIT matrix fixes `pq_bits=8`; only `pq_len` is selected at runtime.
@@ -64,30 +66,35 @@ struct CagraPlannerBase : AlgorithmPlanner {
             std::enable_if_t<std::is_same_v<CB, tag_codebook_half>, int> = 0>
   void add_setup_workspace_device_function(uint32_t team_size,
                                            uint32_t dataset_block_dim,
-                                           uint32_t pq_len)
+                                           uint32_t pq_len,
+                                           cuvs::neighbors::cagra::internal_dtype smem_dtype)
   {
-    if (pq_len != 2 && pq_len != 4) {
-      RAFT_FAIL("CAGRA JIT VPQ setup_workspace expects pq_len in {2,4} (matrix uses pq_bits=8)");
+    if (pq_len != 2 && pq_len != 4 && pq_len != 8) {
+      RAFT_FAIL("CAGRA JIT VPQ setup_workspace expects pq_len in {2,4,8} (matrix uses pq_bits=8)");
     }
-    auto add = [&]<uint32_t TeamSz, uint32_t Dim, uint32_t PqBitsV, uint32_t PqLenV>() {
-      this->add_static_fragment<fragment_tag_setup_workspace<DataTag,
-                                                             IndexTag,
-                                                             DistanceTag,
-                                                             QueryTag,
-                                                             CodebookTag,
-                                                             TeamSz,
-                                                             Dim,
-                                                             PqBitsV,
-                                                             PqLenV>>();
+    auto add =
+      [&]<uint32_t TeamSz, uint32_t Dim, uint32_t PqBitsV, uint32_t PqLenV, typename SmemTag>() {
+        this->add_static_fragment<fragment_tag_setup_workspace<DataTag,
+                                                               IndexTag,
+                                                               DistanceTag,
+                                                               QueryTag,
+                                                               CodebookTag,
+                                                               TeamSz,
+                                                               Dim,
+                                                               PqBitsV,
+                                                               PqLenV,
+                                                               SmemTag>>();
+      };
+    auto dispatch_smem = [&]<typename SmemTag>() {
+      dispatch_cagra_vpq_team_dim(
+        team_size,
+        dataset_block_dim,
+        pq_len,
+        [&add]<uint32_t TeamSz, uint32_t Dim, uint32_t PqBitsV, uint32_t PqLenV>() {
+          add.template operator()<TeamSz, Dim, PqBitsV, PqLenV, SmemTag>();
+        });
     };
-    dispatch_cagra_team_dim(
-      team_size, dataset_block_dim, [&add, pq_len]<uint32_t TeamSz, uint32_t Dim>() {
-        if (pq_len == 2) {
-          add.template operator()<TeamSz, Dim, 8u, 2u>();
-        } else {
-          add.template operator()<TeamSz, Dim, 8u, 4u>();
-        }
-      });
+    dispatch_cagra_smem_dtype(smem_dtype, dispatch_smem);
   }
 
   /// Registers dist_op + normalization + `compute_distance` for standard layout.
@@ -108,11 +115,13 @@ struct CagraPlannerBase : AlgorithmPlanner {
                                                               TeamSz,
                                                               Dim,
                                                               PqBitsV,
-                                                              PqLenV>>();
+                                                              PqLenV,
+                                                              tag_smem_f16>>();
     };
-    dispatch_cagra_team_dim(team_size, dataset_block_dim, [&add]<uint32_t TeamSz, uint32_t Dim>() {
-      add.template operator()<TeamSz, Dim, 0u, 0u>();
-    });
+    dispatch_cagra_standard_team_dim(
+      team_size, dataset_block_dim, [&add]<uint32_t TeamSz, uint32_t Dim>() {
+        add.template operator()<TeamSz, Dim, 0u, 0u>();
+      });
   }
 
   /// VPQ: only the `compute_distance` fragment (no standard dist_op / normalization in this path).
@@ -120,33 +129,77 @@ struct CagraPlannerBase : AlgorithmPlanner {
             std::enable_if_t<std::is_same_v<CB, tag_codebook_half>, int> = 0>
   void add_compute_distance_device_function(uint32_t team_size,
                                             uint32_t dataset_block_dim,
-                                            uint32_t pq_len)
+                                            uint32_t pq_len,
+                                            cuvs::neighbors::cagra::internal_dtype smem_dtype)
   {
-    if (pq_len != 2 && pq_len != 4) {
-      RAFT_FAIL("CAGRA JIT VPQ compute_distance expects pq_len in {2,4} (matrix uses pq_bits=8)");
+    if (pq_len != 2 && pq_len != 4 && pq_len != 8) {
+      RAFT_FAIL("CAGRA JIT VPQ compute_distance expects pq_len in {2,4,8} (matrix uses pq_bits=8)");
     }
-    auto add = [&]<uint32_t TeamSz, uint32_t Dim, uint32_t PqBitsV, uint32_t PqLenV>() {
-      this->add_static_fragment<fragment_tag_compute_distance<DataTag,
-                                                              IndexTag,
-                                                              DistanceTag,
-                                                              QueryTag,
-                                                              CodebookTag,
-                                                              TeamSz,
-                                                              Dim,
-                                                              PqBitsV,
-                                                              PqLenV>>();
+    auto add =
+      [&]<uint32_t TeamSz, uint32_t Dim, uint32_t PqBitsV, uint32_t PqLenV, typename SmemTag>() {
+        this->add_static_fragment<fragment_tag_compute_distance<DataTag,
+                                                                IndexTag,
+                                                                DistanceTag,
+                                                                QueryTag,
+                                                                CodebookTag,
+                                                                TeamSz,
+                                                                Dim,
+                                                                PqBitsV,
+                                                                PqLenV,
+                                                                SmemTag>>();
+      };
+    auto dispatch_smem = [&]<typename SmemTag>() {
+      dispatch_cagra_vpq_team_dim(
+        team_size,
+        dataset_block_dim,
+        pq_len,
+        [&add]<uint32_t TeamSz, uint32_t Dim, uint32_t PqBitsV, uint32_t PqLenV>() {
+          add.template operator()<TeamSz, Dim, PqBitsV, PqLenV, SmemTag>();
+        });
     };
-    dispatch_cagra_team_dim(
-      team_size, dataset_block_dim, [&add, pq_len]<uint32_t TeamSz, uint32_t Dim>() {
-        if (pq_len == 2) {
-          add.template operator()<TeamSz, Dim, 8u, 2u>();
-        } else {
-          add.template operator()<TeamSz, Dim, 8u, 4u>();
-        }
-      });
+    dispatch_cagra_smem_dtype(smem_dtype, dispatch_smem);
   }
 
  private:
+  template <typename Lambda>
+  static void dispatch_cagra_smem_dtype(cuvs::neighbors::cagra::internal_dtype smem_dtype,
+                                        Lambda&& l)
+  {
+    switch (smem_dtype) {
+      case cuvs::neighbors::cagra::internal_dtype::F16:
+        std::forward<Lambda>(l).template operator()<tag_smem_f16>();
+        return;
+      case cuvs::neighbors::cagra::internal_dtype::E5M2:
+        std::forward<Lambda>(l).template operator()<tag_smem_e5m2>();
+        return;
+      default: break;
+    }
+    RAFT_FAIL("Unsupported CAGRA JIT smem_dtype: %u", static_cast<unsigned>(smem_dtype));
+  }
+
+  template <typename Lambda>
+  static void dispatch_cagra_vpq_team_dim(uint32_t team_size,
+                                          uint32_t dataset_block_dim,
+                                          uint32_t pq_len,
+                                          Lambda&& l)
+  {
+    switch (pq_len) {
+      case 2:
+        dispatch_cagra_vpq_pq2_4_team_dim<2u>(
+          team_size, dataset_block_dim, std::forward<Lambda>(l));
+        return;
+      case 4:
+        dispatch_cagra_vpq_pq2_4_team_dim<4u>(
+          team_size, dataset_block_dim, std::forward<Lambda>(l));
+        return;
+      case 8:
+        dispatch_cagra_vpq_pq8_team_dim(team_size, dataset_block_dim, std::forward<Lambda>(l));
+        return;
+      default: break;
+    }
+    RAFT_FAIL("CAGRA JIT VPQ expects pq_len in {2,4,8}; got %u", static_cast<unsigned>(pq_len));
+  }
+
   void add_dist_op_device_function(cuvs::distance::DistanceType metric)
   {
     // dist_op_matrix.json pairs tag_metric_hamming with uint8 query (tag_u8) only; L2/IP/L1 use
@@ -191,15 +244,16 @@ struct CagraPlannerBase : AlgorithmPlanner {
                                          uint32_t dataset_block_dim)
   {
     auto go = [&]<typename NormT>() {
-      dispatch_cagra_team_dim(team_size, dataset_block_dim, [&]<uint32_t TeamSz, uint32_t Dim>() {
-        this->add_static_fragment<fragment_tag_apply_normalization_standard<DataTag,
-                                                                            IndexTag,
-                                                                            DistanceTag,
-                                                                            QueryTag,
-                                                                            TeamSz,
-                                                                            Dim,
-                                                                            NormT>>();
-      });
+      dispatch_cagra_standard_team_dim(
+        team_size, dataset_block_dim, [&]<uint32_t TeamSz, uint32_t Dim>() {
+          this->add_static_fragment<fragment_tag_apply_normalization_standard<DataTag,
+                                                                              IndexTag,
+                                                                              DistanceTag,
+                                                                              QueryTag,
+                                                                              TeamSz,
+                                                                              Dim,
+                                                                              NormT>>();
+        });
     };
     // tag_u8 is only used for BitwiseHamming query layout; cosine norm fragments are built for
     // float query tag. Use if constexpr so we do not instantiate tag_norm_cosine with tag_u8
@@ -218,7 +272,9 @@ struct CagraPlannerBase : AlgorithmPlanner {
   // template parameters; CAGRA reads team_size / dataset_block_dim from the host descriptor at
   // planning time.
   template <typename Lambda>
-  static void dispatch_cagra_team_dim(uint32_t team_size, uint32_t dataset_block_dim, Lambda&& l)
+  static void dispatch_cagra_standard_team_dim(uint32_t team_size,
+                                               uint32_t dataset_block_dim,
+                                               Lambda&& l)
   {
     switch (team_size) {
       case 8:
@@ -247,9 +303,86 @@ struct CagraPlannerBase : AlgorithmPlanner {
         break;
       default: break;
     }
-    RAFT_FAIL("Unsupported team_size / dataset_block_dim for CAGRA JIT: team=%u dim=%u",
+    RAFT_FAIL("Unsupported standard team_size / dataset_block_dim for CAGRA JIT: team=%u dim=%u",
               static_cast<unsigned>(team_size),
               static_cast<unsigned>(dataset_block_dim));
+  }
+
+  template <uint32_t PqLenV, typename Lambda>
+  static void dispatch_cagra_vpq_pq2_4_team_dim(uint32_t team_size,
+                                                uint32_t dataset_block_dim,
+                                                Lambda&& l)
+  {
+    switch (team_size) {
+      case 8:
+        switch (dataset_block_dim) {
+          case 128: std::forward<Lambda>(l).template operator()<8u, 128u, 8u, PqLenV>(); return;
+          case 256: std::forward<Lambda>(l).template operator()<8u, 256u, 8u, PqLenV>(); return;
+          case 512: std::forward<Lambda>(l).template operator()<8u, 512u, 8u, PqLenV>(); return;
+          default: break;
+        }
+        break;
+      case 16:
+        switch (dataset_block_dim) {
+          case 128: std::forward<Lambda>(l).template operator()<16u, 128u, 8u, PqLenV>(); return;
+          case 256: std::forward<Lambda>(l).template operator()<16u, 256u, 8u, PqLenV>(); return;
+          case 512: std::forward<Lambda>(l).template operator()<16u, 512u, 8u, PqLenV>(); return;
+          default: break;
+        }
+        break;
+      case 32:
+        switch (dataset_block_dim) {
+          case 128: std::forward<Lambda>(l).template operator()<32u, 128u, 8u, PqLenV>(); return;
+          case 256: std::forward<Lambda>(l).template operator()<32u, 256u, 8u, PqLenV>(); return;
+          case 512: std::forward<Lambda>(l).template operator()<32u, 512u, 8u, PqLenV>(); return;
+          default: break;
+        }
+        break;
+      default: break;
+    }
+    RAFT_FAIL(
+      "Unsupported VPQ pq_len=%u team_size / dataset_block_dim for CAGRA JIT: team=%u dim=%u",
+      static_cast<unsigned>(PqLenV),
+      static_cast<unsigned>(team_size),
+      static_cast<unsigned>(dataset_block_dim));
+  }
+
+  template <typename Lambda>
+  static void dispatch_cagra_vpq_pq8_team_dim(uint32_t team_size,
+                                              uint32_t dataset_block_dim,
+                                              Lambda&& l)
+  {
+    switch (team_size) {
+      case 4:
+        switch (dataset_block_dim) {
+          case 128: std::forward<Lambda>(l).template operator()<4u, 128u, 8u, 8u>(); return;
+          default: break;
+        }
+        break;
+      case 8:
+        switch (dataset_block_dim) {
+          case 256: std::forward<Lambda>(l).template operator()<8u, 256u, 8u, 8u>(); return;
+          default: break;
+        }
+        break;
+      case 16:
+        switch (dataset_block_dim) {
+          case 512: std::forward<Lambda>(l).template operator()<16u, 512u, 8u, 8u>(); return;
+          default: break;
+        }
+        break;
+      case 32:
+        switch (dataset_block_dim) {
+          case 1024: std::forward<Lambda>(l).template operator()<32u, 1024u, 8u, 8u>(); return;
+          default: break;
+        }
+        break;
+      default: break;
+    }
+    RAFT_FAIL(
+      "Unsupported VPQ pq_len=8 team_size / dataset_block_dim for CAGRA JIT: team=%u dim=%u",
+      static_cast<unsigned>(team_size),
+      static_cast<unsigned>(dataset_block_dim));
   }
 
   void add_sample_filter_device_function(std::unique_ptr<UDFFatbinFragment> udf_fragment = nullptr)

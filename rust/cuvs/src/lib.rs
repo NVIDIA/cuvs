@@ -9,20 +9,21 @@
 //! approximate nearest neighbors search on the GPU.
 extern crate cuvs_sys as ffi;
 
-pub mod brute_force;
-pub mod cagra;
 pub mod cluster;
 pub mod distance;
-pub mod distance_type;
 pub mod dlpack;
-mod error;
-pub mod ivf_flat;
-pub mod ivf_pq;
-mod resources;
+pub mod error;
+pub mod neighbors;
+pub mod resources;
 #[cfg(test)]
 pub(crate) mod test_utils;
-pub mod vamana;
 
 pub use dlpack::{AsDlTensor, AsDlTensorMut, DLPackError, DLTensorView, DLTensorViewMut, DType};
-pub use error::{Error, Result};
+pub use error::LibraryError;
 pub use resources::Resources;
+
+// Compile the Rust code blocks in the top-level README as doctests so the
+// documented examples can't drift from the API.
+#[cfg(doctest)]
+#[doc = include_str!("../../../README.md")]
+pub struct ReadmeDocTests;

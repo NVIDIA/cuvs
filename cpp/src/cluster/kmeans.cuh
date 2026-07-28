@@ -1,11 +1,10 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
 
 #include "detail/kmeans.cuh"
-#include "kmeans_mg.hpp"
 #include <cuvs/cluster/kmeans.hpp>
 #include <raft/core/copy.cuh>
 #include <raft/core/device_mdspan.hpp>
@@ -34,56 +33,6 @@ using SamplingOp = cuvs::cluster::kmeans::detail::SamplingOp<DataT, IndexT>;
 template <typename IndexT, typename DataT>
 using KeyValueIndexOp = cuvs::cluster::kmeans::detail::KeyValueIndexOp<IndexT, DataT>;
 
-/*
- * @brief Main function used to fit KMeans (after cluster initialization)
- *
- * @tparam DataT the type of data used for weights, distances.
- * @tparam IndexT the type of data used for indexing.
- *
- * @param[in]     handle        The raft handle.
- * @param[in]     params        Parameters for KMeans model.
- * @param[in]     X             Training instances to cluster. The data must
- *                              be in row-major format.
- *                              [dim = n_samples x n_features]
- * @param[in]     sample_weight Weights for each observation in X.
- *                              [len = n_samples]
- * @param[inout]  centroids     [in] Initial cluster centers.
- *                              [out] The generated centroids from the
- *                              kmeans algorithm are stored at the address
- *                              pointed by 'centroids'.
- *                              [dim = n_clusters x n_features]
- * @param[out]    inertia       Sum of squared distances of samples to their
- *                              closest cluster center.
- * @param[out]    n_iter        Number of iterations run.
- * @param[in]     workspace     Temporary workspace buffer which can get resized
- */
-template <typename DataT, typename IndexT>
-void fit_main(raft::resources const& handle,
-              const kmeans::params& params,
-              raft::device_matrix_view<const DataT, IndexT> X,
-              raft::device_vector_view<const DataT, IndexT> sample_weights,
-              raft::device_matrix_view<DataT, IndexT> centroids,
-              raft::host_scalar_view<DataT> inertia,
-              raft::host_scalar_view<IndexT> n_iter,
-              rmm::device_uvector<char>& workspace);
-
-#define EXTERN_TEMPLATE_FIT_MAIN(DataT, IndexT)                   \
-  extern template void fit_main<DataT, IndexT>(                   \
-    raft::resources const& handle,                                \
-    const kmeans::params& params,                                 \
-    raft::device_matrix_view<const DataT, IndexT> X,              \
-    raft::device_vector_view<const DataT, IndexT> sample_weights, \
-    raft::device_matrix_view<DataT, IndexT> centroids,            \
-    raft::host_scalar_view<DataT> inertia,                        \
-    raft::host_scalar_view<IndexT> n_iter,                        \
-    rmm::device_uvector<char>& workspace);
-
-EXTERN_TEMPLATE_FIT_MAIN(double, int)
-EXTERN_TEMPLATE_FIT_MAIN(double, int64_t)
-EXTERN_TEMPLATE_FIT_MAIN(float, int64_t)
-EXTERN_TEMPLATE_FIT_MAIN(float, int)
-
-#undef EXTERN_TEMPLATE_FIT_MAIN
 /**
  * @brief Find clusters with k-means algorithm.
  *   Initial centroids are chosen with k-means++ algorithm. Empty
