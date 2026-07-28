@@ -44,4 +44,5 @@
 #include <cuvs/preprocessing/pca.h>
 #include <cuvs/preprocessing/quantize/binary.h>
 #include <cuvs/preprocessing/quantize/pq.h>
+#include <cuvs/preprocessing/quantize/rabitq.h>
 #include <cuvs/preprocessing/quantize/scalar.h>

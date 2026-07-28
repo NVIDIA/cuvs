@@ -93,6 +93,7 @@ ConfigureTest(
 )
 
 ConfigureTest(NAME PCA_C_TEST PATH preprocessing/pca_c.cu)
+ConfigureTest(NAME RABITQ_C_TEST PATH preprocessing/rabitq_c.cu)
 
 if(BUILD_CAGRA_HNSWLIB)
   ConfigureTest(NAME HNSW_C_TEST PATH neighbors/ann_hnsw_c.cu)
