@@ -1,5 +1,5 @@
 #!/bin/bash
-# SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 set -euo pipefail
@@ -52,6 +52,9 @@ rapids-logger "Run libcuvs tests"
 pushd "$CONDA_PREFIX"/bin/gtests/libcuvs
 ctest -j8 --output-on-failure
 popd
+
+rapids-logger "Run libcuvs NVBench smoke tests"
+./ci/run_cuvs_nvbench_smoketests.sh
 
 rapids-logger "Test script exiting with value: $EXITCODE"
 exit ${EXITCODE}
