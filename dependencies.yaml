@@ -55,7 +55,6 @@ files:
       - cuda_version
       - test_libcuvs
       - depends_on_libcuvs
-      - depends_on_libcuvs_bench_ann
       - depends_on_libcuvs_tests
   test_python:
     output: none
@@ -685,11 +684,6 @@ dependencies:
             packages:
               - libcuvs-cu13==26.10.*,>=0.0.0a0
           - {matrix: null, packages: [*libcuvs_unsuffixed]}
-  depends_on_libcuvs_bench_ann:
-    common:
-      - output_types: conda
-        packages:
-          - libcuvs-bench-ann==26.10.*,>=0.0.0a0
   depends_on_libcuvs_tests:
     common:
       - output_types: conda
