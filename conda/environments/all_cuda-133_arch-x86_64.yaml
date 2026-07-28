@@ -22,7 +22,6 @@ dependencies:
 - dlpack>=0.8,<1.0
 - gcc_linux-64=14.*
 - go
-- libclang==20.1.8
 - libcublas-dev
 - libcurand-dev
 - libcusolver-dev

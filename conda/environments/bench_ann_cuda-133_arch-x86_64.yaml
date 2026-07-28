@@ -26,7 +26,6 @@ dependencies:
 - h5py>=3.8.0
 - libaio
 - libboost-devel=1.87
-- libclang==20.1.8
 - libcublas-dev
 - libcurand-dev
 - libcusolver-dev
