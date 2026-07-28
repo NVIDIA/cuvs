@@ -29,6 +29,6 @@ function(find_and_configure_dlpack VERSION)
   endif()
 endfunction()
 
-set(CUVS_MIN_VERSION_dlpack 1.0)
+set(CUVS_MIN_VERSION_dlpack 0.8)
 
 find_and_configure_dlpack(${CUVS_MIN_VERSION_dlpack})
