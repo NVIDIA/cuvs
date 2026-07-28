@@ -1288,7 +1288,16 @@ void build_hierarchical(const raft::resources& handle,
       auto centroids_view =
         raft::make_device_matrix_view<const MathT, IdxT>(cluster_centers, n_clusters, dim);
       auto d_inertia = raft::make_device_scalar<MathT>(handle, MathT{0});
-      cuvs::cluster::kmeans::cluster_cost(handle, X_view, centroids_view, d_inertia.view());
+      // Reuse precomputed ||x||^2 for L2 metrics; CosineExpanded stores sqrt norms
+      // which are incompatible with cluster_cost
+      std::optional<raft::device_vector_view<const MathT, IdxT>> X_norm = std::nullopt;
+      if (dataset_norm != nullptr &&
+          (params.metric == cuvs::distance::DistanceType::L2Expanded ||
+           params.metric == cuvs::distance::DistanceType::L2SqrtExpanded)) {
+        X_norm = raft::make_device_vector_view<const MathT, IdxT>(dataset_norm, n_rows);
+      }
+      cuvs::cluster::kmeans::cluster_cost(
+        handle, X_view, centroids_view, d_inertia.view(), std::nullopt, X_norm);
       raft::copy(handle,
                  raft::make_host_scalar_view<MathT>(inertia),
                  raft::make_const_mdspan(d_inertia.view()));
