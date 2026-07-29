@@ -159,7 +159,7 @@ def create_bitset_filter(n_samples, filter_reject_rate):
     return np.packbits(bool_mask, bitorder="little").view(np.uint32)
 
 
-def cpu_search(dataset, queries, k, metric="squeclidean", accept_mask=None):
+def cpu_search(dataset, queries, k, metric="sqeuclidean", accept_mask=None):
     """
     Find the k nearest neighbors for each query point in the dataset using the
     specified metric.
@@ -174,8 +174,8 @@ def cpu_search(dataset, queries, k, metric="squeclidean", accept_mask=None):
     k : int
         The number of nearest neighbors to find.
     metric : str, optional
-        The distance metric to use. Can be 'squeclidean' or 'inner_product'.
-        Default is 'squeclidean'.
+        The distance metric to use. Can be 'sqeuclidean' or 'inner_product'.
+        Default is 'sqeuclidean'.
     accept_mask : numpy.ndarray, optional
         Boolean array of shape (n_samples,). Where False, the corresponding
         dataset vector is excluded from results.
@@ -184,14 +184,14 @@ def cpu_search(dataset, queries, k, metric="squeclidean", accept_mask=None):
     -------
     distances : numpy.ndarray
         An array of shape (n_queries, k) containing the distances
-        (for 'squeclidean') or similarities
+        (for 'sqeuclidean') or similarities
         (for 'inner_product') to the k nearest neighbors for each query.
     indices : numpy.ndarray
         An array of shape (n_queries, k) containing the indices of the
         k nearest neighbors in the dataset for each query.
 
     """
-    if metric == "squeclidean":
+    if metric == "sqeuclidean":
         diff = queries[:, xp.newaxis, :] - dataset[xp.newaxis, :, :]
         dist_sq = xp.sum(diff**2, axis=2)  # Shape: (n_queries, n_samples)
 
@@ -222,7 +222,7 @@ def cpu_search(dataset, queries, k, metric="squeclidean", accept_mask=None):
     else:
         raise ValueError(
             "Unsupported metric in cuvs-bench-cpu. "
-            "Use 'squeclidean' or 'inner_product' or use the GPU package"
+            "Use 'sqeuclidean' or 'inner_product', or use the GPU package "
             "to use any distance supported by cuVS."
         )
 
