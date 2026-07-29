@@ -65,6 +65,8 @@ std::tuple<size_t, size_t, size_t, size_t> optimize_workspace_size(size_t n_rows
 
   size_t prune_dev = n_rows * intermediate_degree * index_size;  // d_input_graph
   prune_dev += prune_dev_fixed;
+  // d_natural_degree (only allocated when variable_graph_degree_fraction < 1.0)
+  prune_dev += n_rows * sizeof(uint32_t);
 
   // Reverse graph stage memory
   size_t rev_dev = n_rows * graph_degree * index_size;  // d_rev_graph

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -198,8 +198,14 @@ void serialize_to_hnswlib(
   size_t bytes_written = 0;
   float GiB            = 1 << 30;
   for (std::size_t i = 0; i < index_.size(); i++) {
-    auto graph_degree = static_cast<int>(index_.graph_degree());
-    os.write(reinterpret_cast<char*>(&graph_degree), sizeof(int));
+    int actual_degree = static_cast<int>(index_.graph_degree());
+    for (int j = 0; j < actual_degree; j++) {
+      if (host_graph(i, j) == static_cast<IdxT>(-1)) {
+        actual_degree = j;
+        break;
+      }
+    }
+    os.write(reinterpret_cast<char*>(&actual_degree), sizeof(int));
 
     IdxT* graph_row = &host_graph(i, 0);
     os.write(reinterpret_cast<char*>(graph_row), sizeof(IdxT) * index_.graph_degree());
