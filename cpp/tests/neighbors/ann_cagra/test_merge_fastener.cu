@@ -395,24 +395,29 @@ TEST(CagraMergeFastener, DuplicateAcrossInputsAppearInEachOthersScaffoldNeighbor
 }
 
 /**
- * Verifies the leaf-GEMM eligibility boundary for every scalar type and confirms that a dimension
- * that cannot fit one float leaf in the GEMM workspace is rejected before either input is mutated.
+ * Verifies the leaf-GEMM eligibility boundary, which is the same for every scalar type because
+ * every type gathers into float leaf vectors, and confirms that a dimension that cannot fit one
+ * float leaf in the GEMM workspace is rejected before either input is mutated.
  */
 TEST(CagraMergeFastener, LeafGemmLimitsRejectOversizedWorkspaceDimensions)
 {
   using namespace detail::merge_scaffold;
-  EXPECT_TRUE(leaf_gemm_supported<float>(4096, 256));
-  EXPECT_TRUE(leaf_gemm_supported<half>(4096, 256));
-  EXPECT_TRUE(leaf_gemm_supported<int8_t>(4096, 256));
-  EXPECT_TRUE(leaf_gemm_supported<uint8_t>(4096, 256));
+  EXPECT_TRUE(leaf_gemm_supported(4096, 256));
+  EXPECT_FALSE(leaf_gemm_supported(0, 256));
+  EXPECT_FALSE(leaf_gemm_supported(-1, 256));
 
-  // One float leaf of this width exceeds GEMM_WORKSPACE_BYTES (~2 GiB).
+  // The widest leaf whose float vectors and float Gram matrix together fit GEMM_WORKSPACE_BYTES.
   constexpr uint32_t leaf_size = 256;
+  constexpr int64_t widest_dim =
+    static_cast<int64_t>((GEMM_WORKSPACE_BYTES - size_t{leaf_size} * leaf_size * sizeof(float)) /
+                         sizeof(float) / leaf_size);
+  EXPECT_TRUE(leaf_gemm_supported(widest_dim, leaf_size));
+  EXPECT_FALSE(leaf_gemm_supported(widest_dim + 1, leaf_size));
+
+  // Comfortably past the workspace, used below to check pre-mutation rejection.
   constexpr int64_t oversized_dim =
     static_cast<int64_t>(GEMM_WORKSPACE_BYTES / sizeof(float) / leaf_size) + 1;
-  EXPECT_FALSE(leaf_gemm_supported<float>(oversized_dim, leaf_size));
-  EXPECT_FALSE(leaf_gemm_supported<int8_t>(oversized_dim, leaf_size));
-  EXPECT_FALSE(leaf_gemm_supported<uint8_t>(oversized_dim, leaf_size));
+  EXPECT_FALSE(leaf_gemm_supported(oversized_dim, leaf_size));
 
   raft::resources res;
   constexpr int64_t rows = 2;

@@ -508,14 +508,35 @@ inline void carry_parents(raft::resources const& res,
   RAFT_CUDA_TRY(cudaGetLastError());
 }
 
-/** Compute every pairwise dot product between the rows of A_i and the rows of B_i for a strided
+/**
+ * Compute type for both scaffold GEMMs.
+ *
+ * TF32 inputs cost nothing for three of the four supported dataset types: int8_t, uint8_t and half
+ * values are all exactly representable in TF32's 11-bit significand, and the accumulator stays
+ * float, so only float datasets lose input precision. Both consumers form
+ * |u|^2 + |v|^2 - 2 u.v, which cancels for near-duplicate points, but they only rank merge
+ * candidates; every surviving edge is re-scored at full precision by sort_knn_graph_device_inplace
+ * before the graph is optimized.
+ *
+ * Wider tensor-core modes are not worth their precision. These shapes are bandwidth-bound once off
+ * the FP32 path, so CUBLAS_COMPUTE_32F_FAST_16BF measures no faster than TF32 despite roughly
+ * double the arithmetic peak.
+ */
+inline constexpr cublasComputeType_t GEMM_COMPUTE_TYPE = CUBLAS_COMPUTE_32F_FAST_TF32;
+
+/**
+ * Compute every pairwise dot product between the rows of A_i and the rows of B_i for a strided
  * batch of row-major matrices with rows of length `row_width`:
  * out_i[b * a_rows + a] = A_i[a] . B_i[b].
  *
- * Pretty much a wrapper around `cublasGemmStridedBatchedEx`. */
-/** Float strided-batched GEMM for row-wise dots. Integer datasets are gathered to float first;
- * native INT8 cuBLAS paths are not portable across architectures (e.g. Ada returns
- * CUBLAS_STATUS_NOT_SUPPORTED for CUDA_R_8I / CUBLAS_COMPUTE_32I strided-batched GEMM). */
+ * Pretty much a wrapper around `cublasGemmStridedBatchedEx`.
+ *
+ * Every dataset scalar type is gathered to float before this call. Native INT8 cuBLAS paths are
+ * not portable across architectures (e.g. Ada returns CUBLAS_STATUS_NOT_SUPPORTED for
+ * CUDA_R_8I / CUBLAS_COMPUTE_32I strided-batched GEMM), and would gain little here in any case:
+ * these shapes run at the memory roofline, where shrinking the operands without shrinking the
+ * float output recovers well under the type's arithmetic advantage.
+ */
 inline void batched_row_dot_products(raft::resources const& res,
                                      float const* a,
                                      int a_rows,
@@ -553,7 +574,7 @@ inline void batched_row_dot_products(raft::resources const& res,
                                              a_rows,
                                              out_stride,
                                              batch_count,
-                                             CUBLAS_COMPUTE_32F,
+                                             GEMM_COMPUTE_TYPE,
                                              CUBLAS_GEMM_DEFAULT));
 }
 
@@ -753,12 +774,12 @@ auto split_manyway(raft::resources const& res,
 // Leaf processing: bounded leaf slicing and cross-input leaf KNN
 // ----------------------------------------------------------------------------
 
-/** Return true if one leaf of this dimension and leaf size fits the float GEMM workspace. */
-template <typename T>
+/** Return true if one leaf of this dimension and leaf size fits the float GEMM workspace.
+ *
+ * The limit does not depend on the dataset scalar type: every type, integers included, is gathered
+ * into float leaf vectors and produces a float Gram matrix. */
 inline auto leaf_gemm_supported(int64_t dimension, uint32_t leaf_size) -> bool
 {
-  // All scalar types (including integers) gather into float leaf buffers before the GEMM.
-  (void)sizeof(T);
   if (dimension <= 0 || dimension > std::numeric_limits<int>::max()) { return false; }
 
   size_t vector_elements = static_cast<size_t>(leaf_size) * static_cast<size_t>(dimension);
@@ -1090,7 +1111,7 @@ auto build(raft::resources const& res,
   RAFT_EXPECTS(params.leaf_degree >= 1 && params.leaf_degree <= MAX_LEAF_DEGREE,
                "Fastener leaf degree must be between 1 and %d",
                MAX_LEAF_DEGREE);
-  RAFT_EXPECTS(leaf_gemm_supported<T>(dataset.extent(1), params.leaf_size),
+  RAFT_EXPECTS(leaf_gemm_supported(dataset.extent(1), params.leaf_size),
                "Fastener dataset dimension exceeds the leaf GEMM limits");
 
   // the number of leaf partitions that a given point will end up in

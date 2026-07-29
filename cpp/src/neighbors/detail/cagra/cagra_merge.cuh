@@ -318,7 +318,7 @@ auto preflight_fastener(cagra::index_params const& params,
   if (result.dim <= 0 || result.dim > std::numeric_limits<int>::max()) {
     return reject("dataset dimension must be positive and fit cuBLAS int dimensions");
   }
-  if (!merge_scaffold::leaf_gemm_supported<T>(result.dim, merge_params.leaf_size)) {
+  if (!merge_scaffold::leaf_gemm_supported(result.dim, merge_params.leaf_size)) {
     return reject("dataset dimension exceeds the leaf GEMM workspace limit");
   }
   if (rows > std::numeric_limits<uint32_t>::max() / spill) {
