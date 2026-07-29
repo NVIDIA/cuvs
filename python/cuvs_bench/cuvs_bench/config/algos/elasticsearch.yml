@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 #
-# Elasticsearch GPU HNSW benchmark configuration
+# Elasticsearch GPU HNSW benchmark configuration.
 # Per ES-GPU-API-REFERENCE.md and DOCKER-INSPECT-FINDINGS.md
 #
 # Build (index_options): type, m, ef_construction
