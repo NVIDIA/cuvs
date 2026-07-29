@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -38,8 +38,8 @@ class cagra_graph_smaller_than_dataset_test : public ::testing::Test {
  protected:
   void run()
   {
-    // Create a dataset with 1000 points
-    constexpr int64_t n_dataset = 1000;
+    // Create a dataset with 10000 points
+    constexpr int64_t n_dataset = 10000;
     constexpr int64_t n_dim     = 128;
     constexpr int64_t n_queries = 100;
     constexpr int64_t k         = 10;
@@ -63,9 +63,9 @@ class cagra_graph_smaller_than_dataset_test : public ::testing::Test {
 
     // Recreate the bug scenario: LARGE dataset, SMALL graph
     // (like iterative_build_graph does in intermediate iterations)
-    constexpr int64_t n_graph = n_dataset / 2;  // Only 500 nodes in graph
+    constexpr int64_t n_graph = n_dataset / 2;  // Only 5000 nodes in graph
 
-    // Step 1: Build index on SMALL subset (500 points)
+    // Step 1: Build index on SMALL subset (5000 points)
     auto small_dataset_view = raft::make_device_matrix_view<const data_type, int64_t>(
       dataset.data_handle(), n_graph, n_dim);
 
@@ -74,13 +74,13 @@ class cagra_graph_smaller_than_dataset_test : public ::testing::Test {
     auto small_index                = cagra::build(res, small_index_params, small_dataset_view);
     raft::resource::sync_stream(res);
 
-    // Step 2: Update to FULL dataset (1000 points) but keep small graph (500 nodes)
-    // This creates the exact bug scenario: dataset.size=1000, graph.extent(0)=500
+    // Step 2: Update to FULL dataset (10000 points) but keep small graph (5000 nodes)
+    // This creates the exact bug scenario: dataset.size=10000, graph.extent(0)=5000
     small_index.update_dataset(res, raft::make_const_mdspan(dataset.view()));
 
     // Verify the mismatch - THIS IS THE BUG SCENARIO!
-    ASSERT_EQ(small_index.graph().extent(0), n_graph);             // Graph has 500 nodes
-    ASSERT_EQ(small_index.size(), n_dataset);                      // Dataset has 1000 points
+    ASSERT_EQ(small_index.graph().extent(0), n_graph);             // Graph has 5000 nodes
+    ASSERT_EQ(small_index.size(), n_dataset);                      // Dataset has 10000 points
     ASSERT_NE(small_index.graph().extent(0), small_index.size());  // Mismatch!
 
     // Create queries
@@ -100,8 +100,8 @@ class cagra_graph_smaller_than_dataset_test : public ::testing::Test {
     search_params.algo           = cagra::search_algo::SINGLE_CTA;
 
     // THIS SHOULD NOT CRASH OR CAUSE OOB ACCESS
-    // Before fix: random seeds use dataset.size (1000) -> tries to access graph[700] -> CRASH!
-    // After fix: random seeds use graph.extent(0) (500) -> only accesses graph[0-499] -> SAFE!
+    // Before fix: random seeds use dataset.size (10000) -> tries to access graph[7000] -> CRASH!
+    // After fix: random seeds use graph.extent(0) (5000) -> only accesses graph[0-4999] -> SAFE!
     cagra::search(res,
                   search_params,
                   small_index,
