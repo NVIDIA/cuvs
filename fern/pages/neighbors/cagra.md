@@ -6,7 +6,7 @@ CAGRA works well when you want strong recall, high GPU throughput, and fast grap
 
 ## Example API Usage
 
-[C API](/api-reference/c-api-neighbors-cagra) | [C++ API](/api-reference/cpp-api-neighbors-cagra) | [Python API](/api-reference/python-api-neighbors-cagra) | [Java API](/api-reference/java-api-com-nvidia-cuvs-cagraindex) | [Rust API](/api-reference/rust-api-cuvs-cagra) | [Go API](/api-reference/go-api-cagra)
+[C API](/api-reference/c-api-neighbors-cagra) | [C++ API](/api-reference/cpp-api-neighbors-cagra) | [Python API](/api-reference/python-api-neighbors-cagra) | [Java API](/api-reference/java-api-com-nvidia-cuvs-cagraindex) | [Rust API](/api-reference/rust-api-cuvs-neighbors-cagra) | [Go API](/api-reference/go-api-cagra)
 
 ### Building an index
 

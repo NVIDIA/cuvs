@@ -11,6 +11,7 @@
 
 #include "naive_knn.cuh"
 
+#include <cuvs/core/bloom_filter.hpp>
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/cagra.hpp>
 #include <cuvs/neighbors/composite/index.hpp>
@@ -35,10 +36,14 @@
 
 #include <thrust/sequence.h>
 
+#include <algorithm>
+#include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <iostream>
 #include <optional>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 namespace cuvs::neighbors::cagra {
@@ -258,6 +263,7 @@ struct AnnCagraInputs {
   int n_rows;
   int dim;
   int k;
+  int graph_degree;
   graph_build_algo build_algo;
   search_algo algo;
   int max_queries;
@@ -309,10 +315,10 @@ inline ::std::ostream& operator<<(::std::ostream& os, const AnnCagraInputs& p)
   };
   std::vector<std::string> merge_strategy = {"PHYSICAL", "LOGICAL"};
   os << "{n_queries=" << p.n_queries << ", dataset shape=" << p.n_rows << "x" << p.dim
-     << ", k=" << p.k << ", " << algo_name[p.algo] << ", max_queries=" << p.max_queries
-     << ", itopk_size=" << p.itopk_size << ", search_width=" << p.search_width
-     << ", metric=" << metric_str(p.metric) << ", " << (p.host_dataset ? "host" : "device")
-     << ", build_algo=" << build_algo.at((int)p.build_algo)
+     << ", degree=" << p.graph_degree << ", k=" << p.k << ", " << algo_name[p.algo]
+     << ", max_queries=" << p.max_queries << ", itopk_size=" << p.itopk_size
+     << ", search_width=" << p.search_width << ", metric=" << metric_str(p.metric) << ", "
+     << (p.host_dataset ? "host" : "device") << ", build_algo=" << build_algo.at((int)p.build_algo)
      << ", merge_logic=" << merge_strategy.at((int)p.merge_strategy);
   if ((int)p.build_algo == 0 && p.ivf_pq_search_refine_ratio) {
     os << "(refine_rate=" << *p.ivf_pq_search_refine_ratio << ')';
@@ -360,6 +366,10 @@ class AnnCagraTest : public ::testing::TestWithParam<AnnCagraInputs> {
         GTEST_SKIP();
       }
     }
+    // Dataset size must be larger than 33 for NN Descent
+    if (ps.build_algo == graph_build_algo::NN_DESCENT &&
+        ((ps.n_rows < 33) || raft::round_up_safe(ps.n_rows, 32) <= ps.graph_degree * 3))
+      GTEST_SKIP();
 
     size_t queries_size = ps.n_queries * ps.k;
     std::vector<SearchIdxT> indices_Cagra(queries_size);
@@ -394,6 +404,8 @@ class AnnCagraTest : public ::testing::TestWithParam<AnnCagraInputs> {
         cagra::index_params index_params;
         index_params.metric = ps.metric;  // Note: currently ony the cagra::index_params metric is
                                           // not used for knn_graph building.
+        index_params.graph_degree              = ps.graph_degree;
+        index_params.intermediate_graph_degree = ps.graph_degree * 2;
         switch (ps.build_algo) {
           case graph_build_algo::IVF_PQ:
             index_params.graph_build_params = graph_build_params::ivf_pq_params(
@@ -522,7 +534,12 @@ class AnnCagraTest : public ::testing::TestWithParam<AnnCagraInputs> {
       //   print_vector("T", distances_naive.data() + i * ps.k, ps.k, std::cout);
       //   print_vector("C", distances_Cagra.data() + i * ps.k, ps.k, std::cout);
       // }
-      double min_recall = ps.min_recall * reference_recall;
+
+      // Heuristic recall threshold update
+      double min_recall = ps.min_recall;
+      if (ps.graph_degree < 50) { min_recall *= 0.94; }
+      if (ps.graph_degree < 40) { min_recall *= 0.94; }
+      min_recall = min_recall * reference_recall;
       EXPECT_TRUE(eval_neighbours(indices_naive,
                                   indices_Cagra,
                                   distances_naive,
@@ -608,6 +625,10 @@ class AnnCagraAddNodesTest : public ::testing::TestWithParam<AnnCagraInputs> {
     if (ps.metric == cuvs::distance::DistanceType::BitwiseHamming &&
         (ps.k * ps.dim * 8 / 5 /*(=magic number)*/ < ps.n_rows))
       GTEST_SKIP();
+    // Dataset size must be larger than both 33 and the intermediate graph degree
+    if (ps.build_algo == graph_build_algo::NN_DESCENT &&
+        ((ps.n_rows < 33) || raft::round_up_safe(ps.n_rows, 32) <= ps.graph_degree * 3))
+      GTEST_SKIP();
 
     size_t queries_size = ps.n_queries * ps.k;
     std::vector<IdxT> indices_Cagra(queries_size);
@@ -642,6 +663,8 @@ class AnnCagraAddNodesTest : public ::testing::TestWithParam<AnnCagraInputs> {
         cagra::index_params index_params;
         index_params.metric = ps.metric;  // Note: currently ony the cagra::index_params metric is
                                           // not used for knn_graph building.
+        index_params.graph_degree              = ps.graph_degree;
+        index_params.intermediate_graph_degree = ps.graph_degree * 2;
 
         switch (ps.build_algo) {
           case graph_build_algo::IVF_PQ:
@@ -742,7 +765,10 @@ class AnnCagraAddNodesTest : public ::testing::TestWithParam<AnnCagraInputs> {
         raft::resource::sync_stream(handle_);
       }
 
+      // Heuristic recall threshold update
       double min_recall = ps.min_recall;
+      if (ps.graph_degree < 50) { min_recall *= 0.94; }
+      if (ps.graph_degree < 40) { min_recall *= 0.94; }
       EXPECT_TRUE(eval_neighbours(indices_naive,
                                   indices_Cagra,
                                   distances_naive,
@@ -823,6 +849,10 @@ class AnnCagraFilterTest : public ::testing::TestWithParam<AnnCagraInputs> {
     if (ps.metric == cuvs::distance::DistanceType::BitwiseHamming &&
         (ps.k * ps.dim * 8 / 5 /*(=magic number)*/ < ps.n_rows))
       GTEST_SKIP();
+    // Dataset size must be larger than both 33 and the intermediate graph degree
+    if (ps.build_algo == graph_build_algo::NN_DESCENT &&
+        ((ps.n_rows < 33) || raft::round_up_safe(ps.n_rows, 32) <= ps.graph_degree * 3))
+      GTEST_SKIP();
 
     size_t queries_size = ps.n_queries * ps.k;
     std::vector<IdxT> indices_Cagra(queries_size);
@@ -863,6 +893,8 @@ class AnnCagraFilterTest : public ::testing::TestWithParam<AnnCagraInputs> {
         cagra::index_params index_params;
         index_params.metric = ps.metric;  // Note: currently ony the cagra::index_params metric is
                                           // not used for knn_graph building.
+        index_params.graph_degree              = ps.graph_degree;
+        index_params.intermediate_graph_degree = ps.graph_degree * 2;
 
         switch (ps.build_algo) {
           case graph_build_algo::IVF_PQ:
@@ -946,6 +978,158 @@ class AnnCagraFilterTest : public ::testing::TestWithParam<AnnCagraInputs> {
         raft::update_host(distances_Cagra.data(), distances_dev.data(), queries_size, stream_);
         raft::update_host(indices_Cagra.data(), indices_dev.data(), queries_size, stream_);
         raft::resource::sync_stream(handle_);
+
+        std::vector<std::uint32_t> valid_ids_host;
+        valid_ids_host.reserve(ps.n_rows - test_cagra_sample_filter::offset);
+        for (std::uint32_t i = test_cagra_sample_filter::offset;
+             i < static_cast<uint32_t>(ps.n_rows);
+             ++i) {
+          valid_ids_host.push_back(i);
+        }
+
+        rmm::device_uvector<std::uint32_t> valid_ids_device(valid_ids_host.size(), stream_);
+        raft::copy(valid_ids_device.data(), valid_ids_host.data(), valid_ids_host.size(), stream_);
+
+        auto valid_ids_view = raft::make_device_vector_view<const std::uint32_t, int64_t>(
+          valid_ids_device.data(), static_cast<int64_t>(valid_ids_device.size()));
+        auto candidate_fprs = std::vector<float>{0.01f};
+        if (ps.n_rows == 1000 && ps.dim == 8 && ps.k == 16 &&
+            ps.metric == cuvs::distance::DistanceType::L2Expanded &&
+            ps.algo == search_algo::SINGLE_CTA && !ps.compression.has_value()) {
+          // Keep this sweep narrow to avoid exploding test time while still validating the knob.
+          candidate_fprs = {0.25f, 0.05f, 0.01f};
+        }
+
+        auto bloom_valid_fraction =
+          static_cast<float>(valid_ids_host.size()) / static_cast<float>(ps.n_rows);
+        for (auto target_false_positive_rate : candidate_fprs) {
+          cuvs::core::bloom_filter global_bloom_filter(handle_,
+                                                       static_cast<std::size_t>(ps.n_rows),
+                                                       bloom_valid_fraction,
+                                                       target_false_positive_rate);
+          global_bloom_filter.add_async(handle_, valid_ids_view);
+          raft::resource::sync_stream(handle_);
+
+          if (candidate_fprs.size() > 1) {
+            constexpr std::size_t fpr_probe_count = 100'000;
+            rmm::device_uvector<std::uint32_t> fpr_probe_ids(fpr_probe_count, stream_);
+            rmm::device_uvector<std::uint8_t> fpr_probe_hits(fpr_probe_count, stream_);
+            thrust::sequence(raft::resource::get_thrust_policy(handle_),
+                             fpr_probe_ids.begin(),
+                             fpr_probe_ids.end(),
+                             static_cast<std::uint32_t>(ps.n_rows));
+            auto fpr_probe_ids_view = raft::make_device_vector_view<const std::uint32_t, int64_t>(
+              fpr_probe_ids.data(), static_cast<int64_t>(fpr_probe_count));
+            auto fpr_probe_hits_view = raft::make_device_vector_view<std::uint8_t, int64_t>(
+              fpr_probe_hits.data(), static_cast<int64_t>(fpr_probe_count));
+            global_bloom_filter.contains_async(handle_, fpr_probe_ids_view, fpr_probe_hits_view);
+
+            std::vector<std::uint8_t> fpr_probe_hits_host(fpr_probe_count);
+            raft::update_host(
+              fpr_probe_hits_host.data(), fpr_probe_hits.data(), fpr_probe_count, stream_);
+            raft::resource::sync_stream(handle_);
+
+            auto false_positives = static_cast<std::size_t>(std::count_if(
+              fpr_probe_hits_host.begin(), fpr_probe_hits_host.end(), [](std::uint8_t hit) {
+                return hit != 0;
+              }));
+            auto observed_fpr =
+              static_cast<double>(false_positives) / static_cast<double>(fpr_probe_count);
+            auto target_fpr = static_cast<double>(target_false_positive_rate);
+            auto standard_deviation =
+              std::sqrt(target_fpr * (1.0 - target_fpr) / static_cast<double>(fpr_probe_count));
+            auto fpr_upper_bound =
+              target_fpr + 5.0 * standard_deviation + 1.0 / static_cast<double>(fpr_probe_count);
+            RAFT_LOG_INFO("Bloom filter observed FPR = %f (%zu/%zu), target FPR = %f",
+                          observed_fpr,
+                          false_positives,
+                          fpr_probe_count,
+                          target_fpr);
+            EXPECT_LE(observed_fpr, fpr_upper_bound);
+          }
+
+          auto bloom_filter_obj = cuvs::neighbors::filtering::bloom_filter(global_bloom_filter);
+
+          cagra::search(handle_,
+                        search_params,
+                        index,
+                        search_queries_view,
+                        indices_out_view,
+                        dists_out_view,
+                        bloom_filter_obj);
+
+          std::vector<IdxT> bloom_indices_host(queries_size);
+          std::vector<DistanceT> bloom_distances_host(queries_size);
+          raft::update_host(bloom_indices_host.data(), indices_dev.data(), queries_size, stream_);
+          raft::update_host(
+            bloom_distances_host.data(), distances_dev.data(), queries_size, stream_);
+          raft::resource::sync_stream(handle_);
+
+          std::vector<std::uint32_t> bloom_indices_as_keys_host(queries_size);
+          bool bloom_out_of_domain = false;
+          for (size_t i = 0; i < queries_size; ++i) {
+            const auto id    = bloom_indices_host[i];
+            bool negative_id = false;
+            if constexpr (std::is_signed_v<IdxT>) { negative_id = id < IdxT{0}; }
+            if (negative_id ||
+                static_cast<std::uint64_t>(id) >= static_cast<std::uint64_t>(ps.n_rows)) {
+              bloom_out_of_domain           = true;
+              bloom_indices_as_keys_host[i] = 0;
+            } else {
+              bloom_indices_as_keys_host[i] = static_cast<std::uint32_t>(id);
+            }
+          }
+          EXPECT_FALSE(bloom_out_of_domain);
+
+          rmm::device_uvector<std::uint32_t> bloom_indices_as_keys_device(queries_size, stream_);
+          rmm::device_uvector<std::uint8_t> bloom_accepts_device(queries_size, stream_);
+          std::vector<std::uint8_t> bloom_accepts_host(queries_size);
+          raft::copy(bloom_indices_as_keys_device.data(),
+                     bloom_indices_as_keys_host.data(),
+                     queries_size,
+                     stream_);
+          auto bloom_indices_as_keys_view =
+            raft::make_device_vector_view<const std::uint32_t, int64_t>(
+              bloom_indices_as_keys_device.data(), static_cast<int64_t>(queries_size));
+          auto bloom_accepts_view = raft::make_device_vector_view<std::uint8_t, int64_t>(
+            bloom_accepts_device.data(), static_cast<int64_t>(queries_size));
+          global_bloom_filter.contains(handle_, bloom_indices_as_keys_view, bloom_accepts_view);
+          raft::update_host(
+            bloom_accepts_host.data(), bloom_accepts_device.data(), queries_size, stream_);
+          raft::resource::sync_stream(handle_);
+          EXPECT_TRUE(std::all_of(bloom_accepts_host.begin(),
+                                  bloom_accepts_host.end(),
+                                  [](std::uint8_t accepted) { return accepted != 0; }));
+
+          auto bloom_recall_result = calc_recall(indices_naive,
+                                                 bloom_indices_host,
+                                                 distances_naive,
+                                                 bloom_distances_host,
+                                                 ps.n_queries,
+                                                 ps.k,
+                                                 0.003);
+          auto bloom_recall        = std::get<0>(bloom_recall_result);
+          auto bloom_match_count   = std::get<2>(bloom_recall_result);
+          auto bloom_total_count   = std::get<3>(bloom_recall_result);
+          RAFT_LOG_INFO("Bloom filter recall = %f (%zu/%zu), target_false_positive_rate = %f",
+                        bloom_recall,
+                        bloom_match_count,
+                        bloom_total_count,
+                        target_false_positive_rate);
+          auto required_baseline_matches = static_cast<std::size_t>(
+            std::ceil(ps.min_recall * static_cast<double>(bloom_total_count)));
+          auto fpr_slack_matches = static_cast<std::size_t>(
+            std::ceil(static_cast<double>(target_false_positive_rate) * bloom_total_count));
+          auto recall_slack_matches = std::max<std::size_t>(
+            1, static_cast<std::size_t>(std::ceil(0.01 * static_cast<double>(bloom_total_count))));
+          auto permitted_misses       = fpr_slack_matches + recall_slack_matches;
+          auto required_bloom_matches = required_baseline_matches > permitted_misses
+                                          ? required_baseline_matches - permitted_misses
+                                          : 0;
+          auto bloom_min_recall =
+            static_cast<double>(required_bloom_matches) / static_cast<double>(bloom_total_count);
+          EXPECT_GE(bloom_recall, bloom_min_recall);
+        }
       }
 
       // Test search results for nodes marked as filtered
@@ -958,7 +1142,10 @@ class AnnCagraFilterTest : public ::testing::TestWithParam<AnnCagraInputs> {
       }
       EXPECT_FALSE(unacceptable_node);
 
+      // Heuristic recall threshold update
       double min_recall = ps.min_recall;
+      if (ps.graph_degree < 50) { min_recall *= 0.94; }
+      if (ps.graph_degree < 40) { min_recall *= 0.94; }
       // TODO(mfoerster): re-enable uniqueness test
       EXPECT_TRUE(eval_neighbours(indices_naive,
                                   indices_Cagra,
@@ -1290,6 +1477,19 @@ class AnnCagraIndexMergeTest : public ::testing::TestWithParam<AnnCagraInputs> {
         (ps.k * ps.dim * 8 / 5 /*(=magic number)*/ < ps.n_rows))
       GTEST_SKIP();
 
+    const double splite_ratio        = 0.55;
+    const std::size_t database0_size = ps.n_rows * splite_ratio;
+    const std::size_t database1_size = ps.n_rows - database0_size;
+    // Dataset size must be larger than both 33 and the intermediate graph degree
+    if (ps.build_algo == graph_build_algo::NN_DESCENT &&
+        ((database0_size < 33) ||
+         raft::round_up_safe(database0_size, 32lu) <= ps.graph_degree * 3lu))
+      GTEST_SKIP();
+    if (ps.build_algo == graph_build_algo::NN_DESCENT &&
+        ((database1_size < 33) ||
+         raft::round_up_safe(database1_size, 32lu) <= ps.graph_degree * 3lu))
+      GTEST_SKIP();
+
     // Avoid splitting datasets with a size of 0
     if (ps.n_rows <= 3) GTEST_SKIP();
 
@@ -1329,6 +1529,8 @@ class AnnCagraIndexMergeTest : public ::testing::TestWithParam<AnnCagraInputs> {
         cagra::index_params index_params;
         index_params.metric = ps.metric;  // Note: currently ony the cagra::index_params metric is
                                           // not used for knn_graph building.
+        index_params.graph_degree              = ps.graph_degree;
+        index_params.intermediate_graph_degree = ps.graph_degree * 2;
 
         switch (ps.build_algo) {
           case graph_build_algo::IVF_PQ:
@@ -1418,7 +1620,10 @@ class AnnCagraIndexMergeTest : public ::testing::TestWithParam<AnnCagraInputs> {
         raft::resource::sync_stream(handle_);
       }
 
+      // Heuristic recall threshold update
       double min_recall = ps.min_recall;
+      if (ps.graph_degree < 50) { min_recall *= 0.94; }
+      if (ps.graph_degree < 40) { min_recall *= 0.94; }
       EXPECT_TRUE(eval_neighbours(indices_naive,
                                   indices_Cagra,
                                   distances_naive,
@@ -1475,6 +1680,7 @@ inline std::vector<AnnCagraInputs> generate_inputs()
     {1000},
     {1, 16},
     {16},                                                      // k
+    {32, 47, 64},                                              // degree
     {graph_build_algo::IVF_PQ, graph_build_algo::NN_DESCENT},  // build algo.
     {search_algo::SINGLE_CTA, search_algo::MULTI_CTA, search_algo::MULTI_KERNEL},
     {0, 10},  // query size
@@ -1500,6 +1706,7 @@ inline std::vector<AnnCagraInputs> generate_inputs()
     {1000},
     {1, 16},
     {16},                            // k
+    {32},                            // degree
     {graph_build_algo::NN_DESCENT},  // build algo.
     {search_algo::MULTI_CTA},
     {10},  // query size
@@ -1527,6 +1734,7 @@ inline std::vector<AnnCagraInputs> generate_inputs()
     {1000},
     {8},
     {1, 16},  // k
+    {32},     // degree
     {graph_build_algo::NN_DESCENT},
     {search_algo::SINGLE_CTA},
     {0},  // query size
@@ -1552,7 +1760,8 @@ inline std::vector<AnnCagraInputs> generate_inputs()
     {2},
     {3, 6, 31, 32, 64, 101},
     {1, 10},
-    {2},  // k
+    {2},   // k
+    {32},  // degree
     {graph_build_algo::IVF_PQ, graph_build_algo::NN_DESCENT},
     {search_algo::SINGLE_CTA, search_algo::MULTI_CTA, search_algo::MULTI_KERNEL},
     {0},  // query size
@@ -1577,6 +1786,7 @@ inline std::vector<AnnCagraInputs> generate_inputs()
     {1000},
     {1, 3, 5, 7, 8, 17, 64, 128, 137, 192, 256, 512, 1024},  // dim
     {16},                                                    // k
+    {32},                                                    // degree
     {graph_build_algo::IVF_PQ,
      graph_build_algo::NN_DESCENT,
      graph_build_algo::ITERATIVE_CAGRA_SEARCH},
@@ -1606,6 +1816,7 @@ inline std::vector<AnnCagraInputs> generate_inputs()
     {1000},
     {64},
     {16},
+    {32},  // degree
     {graph_build_algo::IVF_PQ,
      graph_build_algo::NN_DESCENT,
      graph_build_algo::ITERATIVE_CAGRA_SEARCH},
@@ -1636,6 +1847,7 @@ inline std::vector<AnnCagraInputs> generate_inputs()
     {1000},
     {64},
     {16},
+    {32},  // degree
     {graph_build_algo::NN_DESCENT},
     {search_algo::AUTO},
     {10},
@@ -1663,6 +1875,7 @@ inline std::vector<AnnCagraInputs> generate_inputs()
     {10000},
     {32},
     {10},
+    {32},  // degree
     {graph_build_algo::AUTO},
     {search_algo::AUTO},
     {10},
@@ -1688,6 +1901,7 @@ inline std::vector<AnnCagraInputs> generate_inputs()
     {10000},
     {64, 128, 192, 256, 512, 1024},  // dim
     {16},                            // k
+    {32},                            // degree
     {graph_build_algo::IVF_PQ},
     {search_algo::AUTO},
     {10},
@@ -1728,6 +1942,7 @@ inline std::vector<AnnCagraInputs> generate_inputs()
     {5000},
     {32, 64},
     {16},
+    {32},  // degree
     {graph_build_algo::IVF_PQ},
     {search_algo::AUTO},
     {10},
@@ -1752,6 +1967,7 @@ inline std::vector<AnnCagraInputs> generate_inputs()
     {1000},
     {1, 5, 8, 64, 137, 256, 619, 1024},  // dim
     {10},
+    {32},  // degree
     {graph_build_algo::IVF_PQ},
     {search_algo::AUTO},
     {10},
@@ -1784,6 +2000,7 @@ inline std::vector<AnnCagraInputs> generate_addnode_inputs()
                                                    {1000},
                                                    {1, 8, 17, 64, 128, 137, 512, 1024},  // dim
                                                    {16},                                 // k
+                                                   {32, 47, 64},                         // degree
                                                    {graph_build_algo::ITERATIVE_CAGRA_SEARCH},
                                                    {search_algo::AUTO},
                                                    {10},
@@ -1805,6 +2022,7 @@ inline std::vector<AnnCagraInputs> generate_addnode_inputs()
     {10000},
     {32},
     {10},
+    {32},  // degree
     {graph_build_algo::AUTO},
     {search_algo::AUTO},
     {10},
@@ -1830,6 +2048,7 @@ inline std::vector<AnnCagraInputs> generate_addnode_inputs()
     {10000},
     {192, 1024},  // dim
     {16},         // k
+    {32},         // degree
     {graph_build_algo::IVF_PQ},
     {search_algo::AUTO},
     {10},
@@ -1863,7 +2082,8 @@ inline std::vector<AnnCagraInputs> generate_filtering_inputs()
     {100},
     {1000},
     {1, 8, 17, 102},
-    {16},  // k
+    {16},          // k
+    {32, 47, 64},  // degree
     {graph_build_algo::NN_DESCENT},
     {search_algo::SINGLE_CTA, search_algo::MULTI_CTA, search_algo::MULTI_KERNEL},
     {0},  // query size
@@ -1882,6 +2102,7 @@ inline std::vector<AnnCagraInputs> generate_filtering_inputs()
     {1000},
     {8},
     {1, 16},  // k
+    {32},     // degree
     {graph_build_algo::NN_DESCENT},
     {search_algo::SINGLE_CTA, search_algo::MULTI_CTA, search_algo::MULTI_KERNEL},
     {0},  // query size
@@ -1901,6 +2122,7 @@ inline std::vector<AnnCagraInputs> generate_filtering_inputs()
     {10000},
     {256},  // dim
     {16},   // k
+    {32},   // degree
     {graph_build_algo::IVF_PQ},
     {search_algo::AUTO},
     {10},

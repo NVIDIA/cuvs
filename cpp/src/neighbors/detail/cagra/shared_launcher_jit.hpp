@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -100,6 +100,8 @@ struct sample_filter_jit_tag {
       using namespace cuvs::neighbors::filtering;
       if constexpr (std::is_same_v<U, none_sample_filter>) {
         return cuvs::neighbors::detail::tag_filter_none{};
+      } else if constexpr (is_bloom_filter<U>::value) {
+        return cuvs::neighbors::detail::tag_filter_bloom_filter{};
       } else if constexpr (is_udf_filter<U>::value) {
         return cuvs::neighbors::detail::tag_filter_udf{};
       } else if constexpr (requires { std::declval<U>().filter; }) {
@@ -109,6 +111,8 @@ struct sample_filter_jit_tag {
                       std::is_same_v<std::decay_t<InnerFilter>,
                                      bitset_filter<uint32_t, uint32_t>>) {
           return cuvs::neighbors::detail::tag_filter_bitset{};
+        } else if constexpr (is_bloom_filter<std::decay_t<InnerFilter>>::value) {
+          return cuvs::neighbors::detail::tag_filter_bloom_filter{};
         } else if constexpr (is_udf_filter<std::decay_t<InnerFilter>>::value) {
           return cuvs::neighbors::detail::tag_filter_udf{};
         } else {

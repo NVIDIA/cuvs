@@ -20,14 +20,13 @@ dependencies:
 - dlpack>=0.8,<1.0
 - gcc_linux-64=14.*
 - go
-- libclang==20.1.8
 - libcublas-dev
 - libcurand-dev
 - libcusolver-dev
 - libcusparse-dev
-- libcuvs==26.8.*,>=0.0.0a0
+- libcuvs==26.10.*,>=0.0.0a0
 - libnvjitlink-dev
-- libraft==26.8.*,>=0.0.0a0
+- libraft==26.10.*,>=0.0.0a0
 - nccl>=2.19
 - ninja
 - sysroot_linux-64==2.28
