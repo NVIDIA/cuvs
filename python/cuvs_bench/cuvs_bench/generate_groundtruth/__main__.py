@@ -348,16 +348,16 @@ def main():
 --output=groundtruth_dir --queries=random-jitter --n_queries=10000
 
     # Prefiltered ground truth using a saved bitset file
-    python -m cuvs_bench.generate_groundtruth --dataset /dataset/base.\
-fbin --output=groundtruth_dir --queries=/dataset/query.fbin \
+    python -m cuvs_bench.generate_groundtruth /dataset/base.fbin \
+--output=groundtruth_dir --queries=/dataset/query.fbin \
 --bitset=/dataset/groundtruth.filter.bin
 
     # Generate a prefilter bitset on the fly from a reject rate, use it to
     # compute the ground truth, and save the bitset to disk so the benchmark
     # can later run searches against the exact same filter.  The bitset is
     # written to <output>/groundtruth.filter.bin alongside the GT files.
-    python -m cuvs_bench.generate_groundtruth --dataset /dataset/base.\
-fbin --output=groundtruth_dir --queries=/dataset/query.fbin \
+    python -m cuvs_bench.generate_groundtruth /dataset/base.fbin \
+--output=groundtruth_dir --queries=/dataset/query.fbin \
 --filter_reject_rate=0.1
     """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
