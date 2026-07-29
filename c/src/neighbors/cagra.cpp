@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -829,6 +829,22 @@ extern "C" cuvsError_t cuvsCagraIndexParamsFromHnswParams(cuvsCagraIndexParams_t
     auto cpp_heuristic = static_cast<cuvs::neighbors::cagra::hnsw_heuristic_type>((int)heuristic);
     auto cpp_params = cuvs::neighbors::cagra::index_params::from_hnsw_params(
       raft::matrix_extent<int64_t>(n_rows, dim), M, ef_construction, cpp_heuristic, cpp_metric);
+
+    _populate_cagra_index_params_from_cpp(params, cpp_params);
+  });
+}
+
+extern "C" cuvsError_t cuvsCagraIndexParamsFromDataset(cuvsCagraIndexParams_t params,
+                                                       int64_t n_rows,
+                                                       int64_t dim,
+                                                       size_t graph_degree,
+                                                       cuvsDistanceType metric,
+                                                       size_t build_quality)
+{
+  return cuvs::core::translate_exceptions([=] {
+    auto cpp_metric = static_cast<cuvs::distance::DistanceType>((int)metric);
+    auto cpp_params = cuvs::neighbors::cagra::index_params::from_dataset(
+      raft::matrix_extent<int64_t>(n_rows, dim), graph_degree, cpp_metric, build_quality);
 
     _populate_cagra_index_params_from_cpp(params, cpp_params);
   });
