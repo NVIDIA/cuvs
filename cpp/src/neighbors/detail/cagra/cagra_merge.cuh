@@ -27,6 +27,7 @@
 
 #include <limits>
 #include <memory>
+#include <new>
 #include <string>
 #include <type_traits>
 #include <vector>
@@ -330,6 +331,14 @@ auto preflight_fastener(cagra::index_params const& params,
   if (static_cast<uint64_t>(params.graph_degree) > max_input_degree + scaffold_degree) {
     return reject("graph_degree exceeds the input graph plus scaffold capacity");
   }
+  // The appended candidate graph is sorted by sort_knn_graph_device_inplace, whose kernel capacity
+  // is kMaxSortDegree. Without this check an input degree at the limit plus any scaffold passes
+  // preflight and then fails inside the sorter, after the merge has already started mutating -- and
+  // in AUTO that also loses the rebuild fallback.
+  if (max_input_degree + scaffold_degree > cagra::detail::graph::kMaxSortDegree) {
+    return reject("the widest input graph degree plus the scaffold degree must not exceed " +
+                  std::to_string(cagra::detail::graph::kMaxSortDegree));
+  }
 
   result.rows     = static_cast<int64_t>(rows);
   result.eligible = true;
@@ -422,6 +431,23 @@ index<T, IdxT> merge(raft::resources const& handle,
       return merge_rebuild(handle, params, indices, row_filter);
     }
     RAFT_FAIL("FASTENER cagra::merge is unsupported: %s", preflight.reason.c_str());
+  }
+
+  if (merge_params.algo == cagra::merge_algo::AUTO) {
+    // Preflight validates shapes and configured limits, but it cannot know whether the consolidated
+    // dataset, the temporary GEMM workspaces and the candidate graph will all fit at run time. The
+    // rebuild path can still fall back to host memory, so without this retry an AUTO merge that
+    // succeeded before this algorithm existed could start failing. Fastener never mutates its
+    // inputs -- it only reads them and allocates its own output -- so the rebuild is free to run on
+    // the same indices after a failed attempt has unwound. Explicit FASTENER still surfaces the
+    // failure rather than silently doing something much slower.
+    try {
+      return merge_fastener(handle, params, merge_params, indices, preflight);
+    } catch (std::bad_alloc const& failure) {
+      RAFT_LOG_WARN("Fastener cagra::merge could not allocate (%s); falling back to rebuild",
+                    failure.what());
+      return merge_rebuild(handle, params, indices, row_filter);
+    }
   }
 
   return merge_fastener(handle, params, merge_params, indices, preflight);
