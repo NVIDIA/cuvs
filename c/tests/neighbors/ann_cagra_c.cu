@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -511,7 +511,13 @@ TEST(CagraC, BuildMergeSearch)
   filter.addr = 0;
 
   cuvsCagraIndex_t index_array[2] = {index_main, index_add};
-  ASSERT_EQ(cuvsCagraMerge(res, build_params, index_array, 2, filter, index_merged), CUVS_SUCCESS);
+  cuvsCagraMergeParams_t merge_params;
+  ASSERT_EQ(cuvsCagraMergeParamsCreate(&merge_params), CUVS_SUCCESS);
+  EXPECT_EQ(merge_params->algo, CUVS_CAGRA_MERGE_AUTO);
+  merge_params->algo = CUVS_CAGRA_MERGE_REBUILD;
+  ASSERT_EQ(
+    cuvsCagraMergeWithParams(res, build_params, merge_params, index_array, 2, filter, index_merged),
+    CUVS_SUCCESS);
 
   int64_t merged_dim = -1;
   ASSERT_EQ(cuvsCagraIndexGetDims(index_merged, &merged_dim), CUVS_SUCCESS);
@@ -562,6 +568,7 @@ TEST(CagraC, BuildMergeSearch)
   EXPECT_NEAR(distance_host, 0.0f, 1e-6);
 
   cuvsCagraSearchParamsDestroy(search_params);
+  cuvsCagraMergeParamsDestroy(merge_params);
   cuvsCagraIndexParamsDestroy(build_params);
   cuvsCagraIndexDestroy(index_merged);
   cuvsCagraIndexDestroy(index_add);
