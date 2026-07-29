@@ -1,11 +1,13 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs.internal;
 
 import static com.nvidia.cuvs.internal.CuVSParamsHelper.*;
 import static com.nvidia.cuvs.internal.common.CloseableRMMAllocation.allocateRMMSegment;
+import static com.nvidia.cuvs.internal.common.LinkerHelper.C_FLOAT;
+import static com.nvidia.cuvs.internal.common.LinkerHelper.C_FLOAT_BYTE_SIZE;
 import static com.nvidia.cuvs.internal.common.LinkerHelper.C_INT;
 import static com.nvidia.cuvs.internal.common.LinkerHelper.C_INT_BYTE_SIZE;
 import static com.nvidia.cuvs.internal.common.Util.CudaMemcpyKind.DEVICE_TO_HOST;
@@ -224,13 +226,12 @@ public class CagraIndexImpl implements CagraIndex {
       long numBlocks = topK * numQueries;
 
       SequenceLayout neighborsSequenceLayout = MemoryLayout.sequenceLayout(numBlocks, C_INT);
-      SequenceLayout distancesSequenceLayout =
-          MemoryLayout.sequenceLayout(numBlocks, queryVectors.valueLayout());
+      SequenceLayout distancesSequenceLayout = MemoryLayout.sequenceLayout(numBlocks, C_FLOAT);
       MemorySegment neighborsMemorySegment = localArena.allocate(neighborsSequenceLayout);
       MemorySegment distancesMemorySegment = localArena.allocate(distancesSequenceLayout);
 
       final long neighborsBytes = C_INT_BYTE_SIZE * numQueries * topK;
-      final long distancesBytes = queryVectors.valueLayout().byteSize() * numQueries * topK;
+      final long distancesBytes = C_FLOAT_BYTE_SIZE * numQueries * topK;
       final boolean hasPreFilter = query.getPrefilter() != null;
       final BitSet[] prefilters =
           hasPreFilter ? new BitSet[] {query.getPrefilter()} : EMPTY_PREFILTER_BITSET;
@@ -259,12 +260,7 @@ public class CagraIndexImpl implements CagraIndex {
           long[] distancesShape = {numQueries, topK};
           MemorySegment distancesTensor =
               prepareTensor(
-                  localArena,
-                  distancesDP.handle(),
-                  distancesShape,
-                  deviceQueryVectors.code(),
-                  deviceQueryVectors.bits(),
-                  kDLCUDA());
+                  localArena, distancesDP.handle(), distancesShape, kDLFloat(), 32, kDLCUDA());
 
           // prepare the prefiltering data
           MemorySegment prefilter = cuvsFilter.allocate(localArena);
@@ -275,7 +271,8 @@ public class CagraIndexImpl implements CagraIndex {
           } else {
             BitSet concatenatedFilters = concatenate(prefilters, query.getNumDocs());
             long[] filters = concatenatedFilters.toLongArray();
-            var prefilterDataMemorySegment = buildMemorySegment(localArena, filters);
+            var prefilterDataMemorySegment =
+                buildMemorySegment(localArena, filters, (prefilterDataLength + 63) / 64);
 
             long[] prefilterShape = {prefilterLen};
 
@@ -632,8 +629,10 @@ public class CagraIndexImpl implements CagraIndex {
       cuvsAceParams.npartitions(cuvsAceParamsMemorySegment, cuVSAceParams.getNpartitions());
       cuvsAceParams.ef_construction(cuvsAceParamsMemorySegment, cuVSAceParams.getEfConstruction());
       cuvsAceParams.use_disk(cuvsAceParamsMemorySegment, cuVSAceParams.isUseDisk());
-      cuvsAceParams.max_host_memory_gb(cuvsAceParamsMemorySegment, cuVSAceParams.getMaxHostMemoryGb());
-      cuvsAceParams.max_gpu_memory_gb(cuvsAceParamsMemorySegment, cuVSAceParams.getMaxGpuMemoryGb());
+      cuvsAceParams.max_host_memory_gb(
+          cuvsAceParamsMemorySegment, cuVSAceParams.getMaxHostMemoryGb());
+      cuvsAceParams.max_gpu_memory_gb(
+          cuvsAceParamsMemorySegment, cuVSAceParams.getMaxGpuMemoryGb());
 
       String buildDir = cuVSAceParams.getBuildDir();
       if (buildDir != null && !buildDir.isEmpty()) {

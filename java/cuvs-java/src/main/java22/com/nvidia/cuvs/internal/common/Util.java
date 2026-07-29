@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs.internal.common;
@@ -9,6 +9,11 @@ import static com.nvidia.cuvs.internal.common.LinkerHelper.C_FLOAT;
 import static com.nvidia.cuvs.internal.common.LinkerHelper.C_INT;
 import static com.nvidia.cuvs.internal.common.LinkerHelper.C_LONG;
 import static com.nvidia.cuvs.internal.panama.headers_h.*;
+import static com.nvidia.cuvs.internal.panama.headers_h_1.C_POINTER;
+import static com.nvidia.cuvs.internal.panama.headers_h_1.cudaMemcpyDeviceToDevice;
+import static com.nvidia.cuvs.internal.panama.headers_h_1.cudaMemcpyDeviceToHost;
+import static com.nvidia.cuvs.internal.panama.headers_h_1.cudaMemcpyHostToDevice;
+import static com.nvidia.cuvs.internal.panama.headers_h_1.cudaMemcpyHostToHost;
 import static com.nvidia.cuvs.internal.panama.headers_h_1.cudaStream_t;
 
 import com.nvidia.cuvs.CuVSResources;
@@ -241,10 +246,20 @@ public class Util {
    * @return an instance of {@link MemorySegment}
    */
   public static MemorySegment buildMemorySegment(Arena arena, long[] data) {
-    int cells = data.length;
-    MemoryLayout dataMemoryLayout = MemoryLayout.sequenceLayout(cells, C_LONG);
+    return buildMemorySegment(arena, data, data.length);
+  }
+
+  /**
+   * A utility method for building a {@link MemorySegment} for a 1D long array of given size.
+   *
+   * @param data The 1D long array for which the {@link MemorySegment} is needed
+   * @param lengthInLongs if lengthInLongs is longer then the data array, 0s will be appended to the end of the array
+   * @return an instance of {@link MemorySegment}
+   */
+  public static MemorySegment buildMemorySegment(Arena arena, long[] data, long lengthInLongs) {
+    MemoryLayout dataMemoryLayout = MemoryLayout.sequenceLayout(lengthInLongs, C_LONG);
     MemorySegment dataMemorySegment = arena.allocate(dataMemoryLayout);
-    MemorySegment.copy(data, 0, dataMemorySegment, C_LONG, 0, cells);
+    MemorySegment.copy(data, 0, dataMemorySegment, C_LONG, 0, data.length);
     return dataMemorySegment;
   }
 
