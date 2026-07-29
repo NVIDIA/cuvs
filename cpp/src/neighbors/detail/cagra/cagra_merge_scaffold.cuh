@@ -787,18 +787,30 @@ inline auto leaf_gemm_supported(int64_t dimension, uint32_t leaf_size) -> bool
   return vector_elements * sizeof(float) + gram_elements * sizeof(float) <= GEMM_WORKSPACE_BYTES;
 }
 
+/** Leaves as strided views into `partitions->memberships`: leaf `i` holds the `counts[i]` records
+ * at `starts[i] + k * strides[i]`. A unit stride is a plain contiguous slice. */
 struct leaf_set {
   partition_set const* partitions = nullptr;
   std::vector<uint32_t> starts_host;
-  std::vector<uint32_t> ends_host;
+  std::vector<uint32_t> counts_host;
+  std::vector<uint32_t> strides_host;
   rmm::device_uvector<uint32_t> starts;
-  rmm::device_uvector<uint32_t> ends;
+  rmm::device_uvector<uint32_t> counts;
+  rmm::device_uvector<uint32_t> strides;
 };
 
-/** Divide final grouped partitions into consecutive bounded leaves, without geometric resplitting.
+/** Divide final grouped partitions into bounded leaves, without geometric resplitting.
  *
  * This is really just a fallback for when the tree isn't deep enough, and will produce obviously
  * inferior leaves but at no additional cost.
+ *
+ * A partition's memberships are ascending in consolidated row id (the root is the identity and
+ * every regroup is a stable sort), and origins are contiguous row-id blocks, so a partition is
+ * always origin-sorted. Slicing it into consecutive chunks can therefore hand the leaf kernel a
+ * single-origin leaf, and that kernel skips every same-origin pair -- such a leaf contributes no
+ * cross-input edges at all. Dealing the members round-robin across the same number of leaves
+ * spreads every origin block of length >= the leaf count over every leaf instead. A range that
+ * already fits in one leaf yields a unit stride, i.e. exactly the consecutive slice.
  */
 inline auto make_leaves(raft::resources const& res,
                         partition_set const& partitions,
@@ -806,19 +818,26 @@ inline auto make_leaves(raft::resources const& res,
 {
   auto stream = raft::resource::get_cuda_stream(res);
   std::vector<uint32_t> starts_host;
-  std::vector<uint32_t> ends_host;
+  std::vector<uint32_t> counts_host;
+  std::vector<uint32_t> strides_host;
   starts_host.reserve((partitions.memberships.size() + leaf_size - 1) / leaf_size);
-  ends_host.reserve(starts_host.capacity());
+  counts_host.reserve(starts_host.capacity());
+  strides_host.reserve(starts_host.capacity());
 
   int64_t covered = 0;
   for (auto const& range : partitions.ranges) {
     RAFT_EXPECTS(range.start == covered && range.end > range.start &&
                    range.end <= static_cast<int64_t>(partitions.memberships.size()),
                  "Fastener partition ranges must compactly cover all memberships");
-    for (int64_t start = range.start; start < range.end; start += leaf_size) {
-      starts_host.push_back(static_cast<uint32_t>(start));
-      ends_host.push_back(static_cast<uint32_t>(
-        std::min<int64_t>(range.end, start + static_cast<int64_t>(leaf_size))));
+    // Deal round-robin: leaf j takes local positions j, j + leaves, j + 2 * leaves, ... Leaf sizes
+    // differ by at most one and none exceeds leaf_size, so this also avoids the tiny trailing leaf
+    // that consecutive slicing leaves behind (a one-row leaf contributes nothing at all).
+    int64_t const size   = range.end - range.start;
+    int64_t const leaves = (size + static_cast<int64_t>(leaf_size) - 1) / leaf_size;
+    for (int64_t leaf = 0; leaf < leaves; ++leaf) {
+      starts_host.push_back(static_cast<uint32_t>(range.start + leaf));
+      counts_host.push_back(static_cast<uint32_t>((size - leaf + leaves - 1) / leaves));
+      strides_host.push_back(static_cast<uint32_t>(leaves));
     }
     covered = range.end;
   }
@@ -827,11 +846,18 @@ inline auto make_leaves(raft::resources const& res,
     "Fastener partition ranges did not cover all memberships");
 
   rmm::device_uvector<uint32_t> starts(starts_host.size(), stream);
-  rmm::device_uvector<uint32_t> ends(ends_host.size(), stream);
+  rmm::device_uvector<uint32_t> counts(counts_host.size(), stream);
+  rmm::device_uvector<uint32_t> strides(strides_host.size(), stream);
   raft::copy(starts.data(), starts_host.data(), starts.size(), stream);
-  raft::copy(ends.data(), ends_host.data(), ends.size(), stream);
-  return {
-    &partitions, std::move(starts_host), std::move(ends_host), std::move(starts), std::move(ends)};
+  raft::copy(counts.data(), counts_host.data(), counts.size(), stream);
+  raft::copy(strides.data(), strides_host.data(), strides.size(), stream);
+  return {&partitions,
+          std::move(starts_host),
+          std::move(counts_host),
+          std::move(strides_host),
+          std::move(starts),
+          std::move(counts),
+          std::move(strides)};
 }
 
 /** Fill every unwritten scaffold slot with its row ID; final prefix deduplication removes it. */
@@ -856,7 +882,8 @@ __global__ void manyway_gather_leaf_vectors_kernel(T const* dataset,
                                                    int leaf_size,
                                                    partition_membership const* memberships,
                                                    uint32_t const* leaf_starts,
-                                                   uint32_t const* leaf_ends,
+                                                   uint32_t const* leaf_counts,
+                                                   uint32_t const* leaf_strides,
                                                    int64_t leaf_offset,
                                                    int64_t leaf_count,
                                                    OutT* leaf_vectors)
@@ -869,12 +896,13 @@ __global__ void manyway_gather_leaf_vectors_kernel(T const* dataset,
     int64_t local_row  = (linear / output_dim) % leaf_size;
     int64_t local_leaf = linear / (output_dim * leaf_size);
     int64_t leaf       = leaf_offset + local_leaf;
-    int64_t leaf_n     = static_cast<int64_t>(leaf_ends[leaf] - leaf_starts[leaf]);
+    int64_t leaf_n     = static_cast<int64_t>(leaf_counts[leaf]);
     OutT value         = 0;
     if (local_row < leaf_n && d < input_dim) {
-      uint32_t point = memberships[leaf_starts[leaf] + local_row].id;
-      auto input     = dataset[static_cast<int64_t>(point) * input_dim + d];
-      value          = static_cast<OutT>(input);
+      uint32_t point =
+        memberships[leaf_starts[leaf] + local_row * static_cast<int64_t>(leaf_strides[leaf])].id;
+      auto input = dataset[static_cast<int64_t>(point) * input_dim + d];
+      value      = static_cast<OutT>(input);
     }
     leaf_vectors[linear] = value;
   }
@@ -887,7 +915,8 @@ static __global__ void manyway_leaf_gram_knn_kernel(GramT const* gram,
                                                     partition_membership const* memberships,
                                                     uint32_t const* origins,
                                                     uint32_t const* leaf_starts,
-                                                    uint32_t const* leaf_ends,
+                                                    uint32_t const* leaf_counts,
+                                                    uint32_t const* leaf_strides,
                                                     int64_t leaf_offset,
                                                     int64_t leaf_count,
                                                     int leaf_size,
@@ -897,16 +926,17 @@ static __global__ void manyway_leaf_gram_knn_kernel(GramT const* gram,
 {
   int64_t local_leaf = blockIdx.x;
   if (local_leaf >= leaf_count) { return; }
-  int64_t leaf   = leaf_offset + local_leaf;
-  uint32_t start = leaf_starts[leaf];
-  int leaf_n     = static_cast<int>(leaf_ends[leaf] - start);
+  int64_t leaf         = leaf_offset + local_leaf;
+  uint32_t start       = leaf_starts[leaf];
+  uint32_t leaf_stride = leaf_strides[leaf];
+  int leaf_n           = static_cast<int>(leaf_counts[leaf]);
   if (leaf_n <= 1 || leaf_n > MAX_LEAF_SIZE) { return; }
 
   // Stage the leaf's memberships and origin labels once per block.
   __shared__ partition_membership records[MAX_LEAF_SIZE];
   __shared__ uint32_t leaf_origins[MAX_LEAF_SIZE];
   for (int i = threadIdx.x; i < leaf_n; i += blockDim.x) {
-    records[i]      = memberships[start + i];
+    records[i]      = memberships[start + static_cast<uint32_t>(i) * leaf_stride];
     leaf_origins[i] = origins[records[i].id];
   }
   __syncthreads();
@@ -1006,7 +1036,8 @@ auto build_leaf_neighbors(raft::resources const& res,
       leaf_size,
       memberships.data(),
       leaves.starts.data(),
-      leaves.ends.data(),
+      leaves.counts.data(),
+      leaves.strides.data(),
       static_cast<int64_t>(leaf_offset),
       static_cast<int64_t>(batch_size),
       leaf_vectors.data());
@@ -1027,7 +1058,8 @@ auto build_leaf_neighbors(raft::resources const& res,
                                                                memberships.data(),
                                                                origins,
                                                                leaves.starts.data(),
-                                                               leaves.ends.data(),
+                                                               leaves.counts.data(),
+                                                               leaves.strides.data(),
                                                                static_cast<int64_t>(leaf_offset),
                                                                static_cast<int64_t>(batch_size),
                                                                leaf_size,
@@ -1167,7 +1199,7 @@ auto build(raft::resources const& res,
     occurrence_stride *= fanout;
   }
 
-  // Leaf construction: only consecutive range slicing occurs after configured geometric depth.
+  // Leaf construction: only range slicing occurs after configured geometric depth.
   auto leaves   = make_leaves(res, partitions, params.leaf_size);
   auto scaffold = build_leaf_neighbors(res, dataset, leaves, origins.data(), union_degree, params);
   raft::resource::sync_stream(res);
