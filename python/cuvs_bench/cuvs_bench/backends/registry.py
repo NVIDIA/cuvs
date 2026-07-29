@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -445,10 +445,7 @@ def _try_load_plugin(name: str) -> None:
                 if rewritten is not None:
                     raise rewritten from e
                 raise
-            if (
-                name in registry._backends
-                and name in _CONFIG_LOADER_REGISTRY
-            ):
+            if name in registry._backends and name in _CONFIG_LOADER_REGISTRY:
                 return
 
 

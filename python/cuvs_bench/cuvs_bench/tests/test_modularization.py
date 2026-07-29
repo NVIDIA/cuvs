@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 """
@@ -145,6 +145,7 @@ class TestModularizationSmoke:
         assert orch.backend_type == "cpp_gbench"
         assert orch.backend_class is not None
         assert orch.config_loader is not None
+
 
 class TestPluginLoaderMocked:
     """

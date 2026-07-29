@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 """
@@ -18,7 +18,7 @@ Search params (knn): num_candidates, vector_field.
 import os
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import numpy as np
 
@@ -27,7 +27,6 @@ from .registry import register_backend, register_config_loader
 from ..orchestrator.config_loaders import (
     BenchmarkConfig,
     ConfigLoader,
-    DatasetConfig,
     IndexConfig,
 )
 
