@@ -44,6 +44,7 @@ class configuration {
     std::string dtype;
 
     std::optional<double> filtering_rate{std::nullopt};
+    std::optional<std::string> filter_bitset_file{std::nullopt};
   };
 
   [[nodiscard]] inline auto get_dataset_conf() const -> const dataset_conf&
@@ -88,6 +89,9 @@ class configuration {
     dataset_conf_.distance   = conf.at("distance");
     if (conf.contains("filtering_rate")) {
       dataset_conf_.filtering_rate.emplace(conf.at("filtering_rate"));
+    }
+    if (conf.contains("filter_bitset_file")) {
+      dataset_conf_.filter_bitset_file = combine_path(data_prefix, conf.at("filter_bitset_file"));
     }
 
     if (conf.contains("groundtruth_neighbors_file")) {
