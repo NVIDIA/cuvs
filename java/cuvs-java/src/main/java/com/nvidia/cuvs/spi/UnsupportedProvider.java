@@ -106,6 +106,16 @@ final class UnsupportedProvider implements CuVSProvider {
   }
 
   @Override
+  public CagraIndexParams cagraIndexParamsFromDataset(
+      long rows,
+      long dim,
+      long graphDegree,
+      CagraIndexParams.CuvsDistanceType metric,
+      long buildQuality) {
+    throw new UnsupportedOperationException(reasons);
+  }
+
+  @Override
   public void setLogLevel(Level level) {
     throw new UnsupportedOperationException(reasons);
   }
