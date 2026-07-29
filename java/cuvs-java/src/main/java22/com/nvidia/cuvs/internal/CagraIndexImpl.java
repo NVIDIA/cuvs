@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs.internal;
@@ -275,7 +275,8 @@ public class CagraIndexImpl implements CagraIndex {
           } else {
             BitSet concatenatedFilters = concatenate(prefilters, query.getNumDocs());
             long[] filters = concatenatedFilters.toLongArray();
-            var prefilterDataMemorySegment = buildMemorySegment(localArena, filters);
+            var prefilterDataMemorySegment =
+                buildMemorySegment(localArena, filters, (prefilterDataLength + 63) / 64);
 
             long[] prefilterShape = {prefilterLen};
 
