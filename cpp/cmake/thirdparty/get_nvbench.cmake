@@ -5,10 +5,9 @@
 # cmake-format: on
 # =============================================================================
 
-# This function finds nvbench and applies any needed patches.
+# This function finds or builds NVBench.
 function(find_and_configure_nvbench)
   include(${rapids-cmake-dir}/cpm/nvbench.cmake)
-  include(${rapids-cmake-dir}/cpm/package_override.cmake)
   rapids_cpm_nvbench(BUILD_STATIC)
 endfunction()
 

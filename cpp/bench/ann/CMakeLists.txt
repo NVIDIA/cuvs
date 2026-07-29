@@ -238,12 +238,10 @@ function(ConfigureNVBench)
   cmake_parse_arguments(ConfigureNVBench "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
 
   set(BENCH_NAME ${ConfigureNVBench_NAME}_NVBENCH)
-  add_executable(
-    ${BENCH_NAME} ${ConfigureNVBench_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/src/common/nvbench_main.cpp
-  )
+  add_executable(${BENCH_NAME} ${ConfigureNVBench_PATH})
   target_link_libraries(
     ${BENCH_NAME}
-    PRIVATE ${ConfigureNVBench_LINKS} nvbench::nvbench CUDA::cudart_static
+    PRIVATE ${ConfigureNVBench_LINKS} nvbench::main CUDA::cudart_static
             $<TARGET_NAME_IF_EXISTS:OpenMP::OpenMP_CXX> $<TARGET_NAME_IF_EXISTS:conda_env>
   )
 
@@ -323,6 +321,7 @@ if(CUVS_ANN_BENCH_USE_CUVS_BRUTE_FORCE)
 endif()
 
 if(CUVS_KNN_BENCH_USE_CUVS_BRUTE_FORCE)
+  include(cmake/thirdparty/get_nvbench)
   ConfigureNVBench(
     NAME CUVS_KNN_BRUTE_FORCE PATH
     $<$<BOOL:${CUVS_KNN_BENCH_USE_CUVS_BRUTE_FORCE}>:src/cuvs/cuvs_brute_force_knn.cu> LINKS cuvs
