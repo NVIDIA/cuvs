@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs;
@@ -357,6 +357,12 @@ public class CagraIndexParams {
       CuvsDistanceType metric) {
     return CuVSProvider.provider()
         .cagraIndexParamsFromHnswParams(rows, dim, M, efConstruction, heuristic, metric);
+  }
+
+  public static CagraIndexParams fromDataset(
+      long rows, long dim, long graphDegree, CuvsDistanceType metric, long buildQuality) {
+    return CuVSProvider.provider()
+        .cagraIndexParamsFromDataset(rows, dim, graphDegree, metric, buildQuality);
   }
 
   /**
