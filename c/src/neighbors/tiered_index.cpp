@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -71,6 +71,9 @@ void* _build(cuvsResources_t res, cuvsTieredIndexParams params, DLManagedTensor*
     case CUVS_TIERED_INDEX_ALGO_CAGRA: {
       auto build_params = tiered_index::index_params<cagra::index_params>();
       convert_c_index_params(params, dataset.shape[0], dataset.shape[1], &build_params);
+      // The tiered index sub-CAGRA always needs the dataset attached for search.
+      // Force this in case the caller did not set the field (e.g. zero-initialized struct).
+      build_params.attach_dataset_on_build = true;
       return new tiered_index::index<cagra::index<T, uint32_t>>(
         tiered_index::build(*res_ptr, build_params, mds));
     }
