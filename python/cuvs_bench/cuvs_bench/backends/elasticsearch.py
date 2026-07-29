@@ -115,7 +115,7 @@ _SUPPORTED_ALGOS = tuple(
 )
 
 
-class ElasticBackend(BenchmarkBackend):
+class ElasticsearchBackend(BenchmarkBackend):
     """Elasticsearch GPU backend for vector benchmarking."""
 
     def __init__(self, config: Dict[str, Any]):
@@ -795,6 +795,6 @@ def register() -> None:
 
     reg = get_registry()
     if not reg.is_registered("elastic"):
-        register_backend("elastic", ElasticBackend)
+        register_backend("elastic", ElasticsearchBackend)
     if "elastic" not in _CONFIG_LOADER_REGISTRY:
         register_config_loader("elastic", ElasticConfigLoader)

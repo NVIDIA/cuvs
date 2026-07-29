@@ -556,7 +556,7 @@ class TestElasticWithExtraInstalled:
         assert config.backend_config["type"] == "int8_hnsw"
 
     def test_elastic_dry_run_build(self):
-        """ElasticBackend.build(dry_run=True) returns synthetic result without ES."""
+        """ElasticsearchBackend.build(dry_run=True) returns a synthetic result."""
         cls = get_backend_class("elastic")
         backend = cls(
             config={"name": "test", "host": "localhost", "port": 9200}
@@ -587,7 +587,7 @@ class TestElasticWithExtraInstalled:
         assert result.build_time_seconds == 0
 
     def test_elastic_dry_run_search(self):
-        """ElasticBackend.search(dry_run=True) returns synthetic result without ES."""
+        """ElasticsearchBackend.search(dry_run=True) returns a synthetic result."""
         cls = get_backend_class("elastic")
         backend = cls(
             config={"name": "test", "host": "localhost", "port": 9200}
@@ -620,7 +620,7 @@ class TestElasticWithExtraInstalled:
         assert result.search_time_ms == 0
 
     def test_elastic_build_requires_training_vectors(self):
-        """ElasticBackend.build returns error when no training vectors are available."""
+        """ElasticsearchBackend.build errors without training vectors."""
         cls = get_backend_class("elastic")
         backend = cls(
             config={"name": "test", "host": "localhost", "port": 9200}
@@ -654,7 +654,7 @@ class TestElasticWithExtraInstalled:
         assert "training_vectors" in (result.error_message or "")
 
     def test_elastic_preflight_fails_when_no_network(self):
-        """ElasticBackend.build returns success=False when network is unavailable."""
+        """ElasticsearchBackend.build fails when the network is unavailable."""
         cls = get_backend_class("elastic")
         backend = cls(
             config={"name": "test", "host": "localhost", "port": 9200}
@@ -688,7 +688,7 @@ class TestElasticWithExtraInstalled:
         assert "pre-flight" in (result.error_message or "").lower()
 
     def test_elastic_search_preflight_fails_when_no_network(self):
-        """ElasticBackend.search returns success=False when network is unavailable."""
+        """ElasticsearchBackend.search fails when the network is unavailable."""
         cls = get_backend_class("elastic")
         backend = cls(
             config={"name": "test", "host": "localhost", "port": 9200}
@@ -775,7 +775,7 @@ class TestElasticWithExtraInstalled:
         mock_client.indices.delete.assert_not_called()
 
     def test_elastic_build_uses_lazy_loaded_training_vectors(self):
-        """ElasticBackend.build works with Dataset lazy-loading via base_file."""
+        """ElasticsearchBackend.build supports lazy loading via base_file."""
         cls = get_backend_class("elastic")
         backend = cls(
             config={"name": "test", "host": "localhost", "port": 9200}
@@ -820,7 +820,7 @@ class TestElasticWithExtraInstalled:
         assert result.index_size_bytes == 2048
 
     def test_elastic_search_uses_lazy_loaded_query_vectors(self):
-        """ElasticBackend.search works with Dataset lazy-loading via query_file."""
+        """ElasticsearchBackend.search supports lazy loading via query_file."""
         cls = get_backend_class("elastic")
         backend = cls(
             config={"name": "test", "host": "localhost", "port": 9200}
@@ -867,7 +867,7 @@ class TestElasticWithExtraInstalled:
         assert "recall" not in result.metadata["per_search_param_results"][0]
 
     def test_elastic_algo_from_config(self):
-        """ElasticBackend.algo derives from config type (elastic_hnsw, elastic_int8_hnsw)."""
+        """ElasticsearchBackend.algo derives from the configured index type."""
         cls = get_backend_class("elastic")
         backend_hnsw = cls(config={"name": "test", "type": "hnsw"})
         assert backend_hnsw.algo == "elastic_hnsw"
@@ -944,7 +944,7 @@ class TestElasticWithExtraInstalled:
         assert "dot_product" in (result.error_message or "")
 
     def test_elastic_cleanup_closes_client(self):
-        """ElasticBackend.cleanup() closes client and sets _client to None."""
+        """ElasticsearchBackend.cleanup() closes and clears the client."""
         cls = get_backend_class("elastic")
         backend = cls(
             config={"name": "test", "host": "localhost", "port": 9200}
