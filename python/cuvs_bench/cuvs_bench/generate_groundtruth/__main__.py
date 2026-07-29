@@ -129,7 +129,7 @@ def choose_random_queries_with_jitter(dataset, n_queries, seed=12345):
     return add_jitter(sampled, rng, normalize=False)
 
 
-def create_bitset_filter(n_samples, filter_reject_rate):
+def create_bitset_filter(n_samples, filter_reject_rate, seed=None):
     """
     Creates a packed uint32 bitset where bit i is set iff vector i passes the
     filter.  Each vector independently passes with probability
@@ -142,6 +142,10 @@ def create_bitset_filter(n_samples, filter_reject_rate):
         Number of vectors in the dataset.
     filter_reject_rate : float
         Per-vector rejection probability, in [0.0, 1.0).
+    seed : int, optional
+        Seed for the sampling. ``None`` draws fresh entropy, so the bitset
+        differs between runs; the generated bitset is written to disk either
+        way, so a seed is only needed to reproduce one without that file.
 
     Returns
     -------
@@ -152,11 +156,50 @@ def create_bitset_filter(n_samples, filter_reject_rate):
 
     n_padded = ((n_samples + 31) // 32) * 32
     bool_mask = np.zeros(n_padded, dtype=bool)
-    rng = np.random.default_rng()
+    rng = np.random.default_rng(seed)
     bool_mask[:n_samples] = rng.random(n_samples) >= filter_reject_rate
     # Pack with little-endian bit order: bit j maps to bit (j%32) of uint32
     # word (j//32), LSB first — matching cuVS bitset layout.
     return np.packbits(bool_mask, bitorder="little").view(np.uint32)
+
+
+def count_accepted(bitset, n_samples):
+    """
+    Count how many of the first ``n_samples`` rows the bitset accepts.
+
+    Padding bits in the final word are excluded, so a bitset whose padding
+    happens to be set does not inflate the count.
+
+    Parameters
+    ----------
+    bitset : numpy.ndarray
+        Packed uint32 bitset covering the dataset.
+    n_samples : int
+        Number of dataset rows to consider.
+
+    Returns
+    -------
+    int
+        Number of accepted rows.
+    """
+    import numpy as np
+
+    words = np.asarray(bitset)
+    # Byte-wise popcount table; avoids unpackbits, which would allocate eight
+    # bytes per bit and is a real cost on billion-row datasets.
+    table = np.array([bin(i).count("1") for i in range(256)], dtype=np.uint8)
+
+    n_full_words = n_samples // 32
+    total = int(table[words[:n_full_words].view(np.uint8)].sum(dtype=np.int64))
+
+    remainder = n_samples - n_full_words * 32
+    if remainder:
+        tail = np.unpackbits(
+            words[n_full_words : n_full_words + 1].view(np.uint8),
+            bitorder="little",
+        )
+        total += int(tail[:remainder].sum())
+    return total
 
 
 def slice_bitset(bitset, start, count):
@@ -501,6 +544,14 @@ def main():
         "saved to <output>/groundtruth.filter.bin. Mutually exclusive with "
         "--bitset.",
     )
+    parser.add_argument(
+        "--filter_seed",
+        type=int,
+        default=None,
+        help="Seed for --filter_reject_rate sampling. Unseeded by default; "
+        "the generated bitset is saved either way, so this is only needed to "
+        "reproduce one without that file. Does not affect query generation.",
+    )
 
     if len(sys.argv) == 1:
         parser.print_help()
@@ -568,9 +619,25 @@ def main():
             f"Generating prefilter bitset for filter_reject_rate="
             f"{args.filter_reject_rate}"
         )
-        bitset = create_bitset_filter(n_samples, args.filter_reject_rate)
+        bitset = create_bitset_filter(
+            n_samples, args.filter_reject_rate, args.filter_seed
+        )
         bitset_filename = os.path.join(args.output, "groundtruth.filter.bin")
         write_bin(bitset_filename, bitset.reshape(-1, 1))
+
+    if bitset is not None:
+        # Fewer than k accepted vectors cannot produce k valid neighbors for
+        # any query: the top-k would be padded with rejected ids at infinite
+        # distance, which is silently wrong ground truth. Only the global
+        # count matters, since results are merged across batches.
+        accepted = count_accepted(bitset, n_samples)
+        if accepted < args.k:
+            raise ValueError(
+                f"prefilter accepts only {accepted} of {n_samples} vectors, "
+                f"which is fewer than k={args.k}; the ground truth would be "
+                f"padded with filtered-out ids. Lower k or the reject rate."
+            )
+        print(f"Prefilter accepts {accepted}/{n_samples} vectors")
 
     print("Calculating true nearest neighbors")
     distances, indices = calc_truth(
