@@ -159,6 +159,64 @@ def create_bitset_filter(n_samples, filter_reject_rate):
     return np.packbits(bool_mask, bitorder="little").view(np.uint32)
 
 
+def slice_bitset(bitset, start, count):
+    """
+    Extract rows ``[start, start + count)`` of a packed bitset.
+
+    Returns ``(mask, words)`` where ``mask`` is a boolean array of length
+    ``count`` and ``words`` is a packed uint32 bitset whose *bit 0* is row
+    ``start``.  Ground truth is computed in batches against an index holding
+    only the batch's rows, so the prefilter handed to that index has to be
+    re-based to the batch rather than to the whole dataset.
+
+    Slicing by word (``bitset[start // 32:]``) would only be correct when
+    ``start`` is a multiple of 32.  This unpacks, realigns by ``start % 32``,
+    and repacks, so any ``start`` works.  The repacked tail is zero-padded out
+    to a whole word; those bits sit past the end of the batch index and are
+    never consulted, and zero can only ever reject, never admit a row that
+    does not exist.
+
+    Parameters
+    ----------
+    bitset : numpy.ndarray
+        Packed uint32 bitset covering the whole dataset.
+    start : int
+        First dataset row of the batch.
+    count : int
+        Number of rows in the batch.
+
+    Returns
+    -------
+    mask : numpy.ndarray
+        Boolean array of shape ``(count,)``; True means the row passes.
+    words : numpy.ndarray
+        Packed uint32 array of shape ``(ceil(count / 32),)``.
+    """
+    import numpy as np
+
+    n_words = int(np.asarray(bitset).size)
+    if n_words * 32 < start + count:
+        raise ValueError(
+            f"prefilter bitset covers {n_words * 32} vectors, but rows "
+            f"[{start}, {start + count}) were requested; the bitset does not "
+            f"match the dataset"
+        )
+
+    word_start = start // 32
+    word_end = (start + count + 31) // 32
+    bits = np.unpackbits(
+        np.asarray(bitset[word_start:word_end]).view(np.uint8),
+        bitorder="little",
+    )
+    offset = start - word_start * 32
+    mask = bits[offset : offset + count].astype(bool)
+
+    padded = np.zeros(((count + 31) // 32) * 32, dtype=np.uint8)
+    padded[:count] = mask
+    words = np.packbits(padded, bitorder="little").view(np.uint32)
+    return mask, words
+
+
 def cpu_search(dataset, queries, k, metric="sqeuclidean", accept_mask=None):
     """
     Find the k nearest neighbors for each query point in the dataset using the
@@ -251,8 +309,6 @@ def calc_truth(dataset, queries, k, metric="sqeuclidean", bitset=None):
         :func:`create_bitset_filter`.  Bit i set means vector i passes the
         filter.  When None, all vectors are considered.
     """
-    import numpy as np
-
     n_samples = dataset.shape[0]
     n = 500000  # batch size for processing neighbors
     i = 0
@@ -269,27 +325,26 @@ def calc_truth(dataset, queries, k, metric="sqeuclidean", bitset=None):
 
         X = xp.asarray(dataset[i : i + n_batch, :], xp.float32)
 
+        # Re-base the prefilter onto this batch: the index holds only rows
+        # [i, i + n_batch), so bit 0 of the filter must be row i.
+        accept_mask, batch_words = (
+            (None, None)
+            if bitset is None
+            else slice_bitset(bitset, i, n_batch)
+        )
+
         if gpu_system:
             index = build(X, metric=metric, resources=resources)
-            prefilter = None
-            if bitset is not None:
-                word_start = i // 32
-                word_end = (i + n_batch + 31) // 32
-                batch_words = xp.asarray(bitset[word_start:word_end])
-                prefilter = filters.from_bitset(batch_words)
+            prefilter = (
+                None
+                if batch_words is None
+                else filters.from_bitset(xp.asarray(batch_words))
+            )
             D, Ind = search(
                 index, queries, k, resources=resources, prefilter=prefilter
             )
             resources.sync()
         else:
-            accept_mask = None
-            if bitset is not None:
-                word_start = i // 32
-                word_end = (i + n_batch + 31) // 32
-                batch_bytes = bitset[word_start:word_end].view(np.uint8)
-                accept_mask = np.unpackbits(batch_bytes, bitorder="little")[
-                    :n_batch
-                ].astype(bool)
             D, Ind = cpu_search(
                 X, queries, k, metric=metric, accept_mask=accept_mask
             )

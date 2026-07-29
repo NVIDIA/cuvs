@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -211,26 +211,41 @@ struct dataset {
         "dataset: at most one of 'filtering_rate' or 'filter_bitset_file' may be set");
     }
 
-    if (filter_bitset_file.has_value()) {
-      // Load a pre-generated bitset from disk. The producer
-      // (cuvs_bench.generate_groundtruth) writes it in cuVS .bin format with
-      // shape (ceil(n_rows / 32), 1), matching the in-memory layout below.
-      filter_bitset_.emplace(blob<bitset_carrier_type>{filter_bitset_file.value()});
-    } else if (filtering_rate.has_value()) {
-      // Generate a random bitset for filtering
+    if (filtering_rate.has_value() || filter_bitset_file.has_value()) {
       auto n_rows = static_cast<size_t>(subset_size) + static_cast<size_t>(subset_first_row);
       if (subset_size == 0) {
         // Read the base set size as a last resort only - for better laziness
         n_rows = base_set_size();
       }
       auto bitset_size = (n_rows - 1) / kBitsPerCarrierValue + 1;
-      blob_file<bitset_carrier_type> bitset_blob_file{static_cast<uint32_t>(bitset_size), 1};
-      blob_mmap<bitset_carrier_type> bitset_blob{
-        std::move(bitset_blob_file), false, HugePages::kDisable};
-      generate_bernoulli(const_cast<bitset_carrier_type*>(bitset_blob.data()),
-                         bitset_size,
-                         1.0 - filtering_rate.value());
-      filter_bitset_.emplace(std::move(bitset_blob));
+
+      if (filter_bitset_file.has_value()) {
+        // Load a pre-generated bitset from disk. The producer
+        // (cuvs_bench.generate_groundtruth) writes it in cuVS .bin format with
+        // shape (ceil(n_rows / 32), 1), matching the in-memory layout below.
+        filter_bitset_.emplace(blob<bitset_carrier_type>{filter_bitset_file.value()});
+        // Reject a bitset that does not cover the whole dataset up front: the
+        // filter is indexed by absolute row id, so a short file would be read
+        // out of bounds (past the end of the mmap) rather than fail cleanly.
+        auto loaded_words = static_cast<size_t>(filter_bitset_->n_rows()) *
+                            static_cast<size_t>(filter_bitset_->n_cols());
+        if (loaded_words < bitset_size) {
+          throw std::invalid_argument("dataset: filter bitset file '" + filter_bitset_file.value() +
+                                      "' holds " + std::to_string(loaded_words) + " words, but " +
+                                      std::to_string(bitset_size) + " are needed to cover " +
+                                      std::to_string(n_rows) +
+                                      " rows; the bitset and dataset do not match");
+        }
+      } else {
+        // Generate a random bitset for filtering
+        blob_file<bitset_carrier_type> bitset_blob_file{static_cast<uint32_t>(bitset_size), 1};
+        blob_mmap<bitset_carrier_type> bitset_blob{
+          std::move(bitset_blob_file), false, HugePages::kDisable};
+        generate_bernoulli(const_cast<bitset_carrier_type*>(bitset_blob.data()),
+                           bitset_size,
+                           1.0 - filtering_rate.value());
+        filter_bitset_.emplace(std::move(bitset_blob));
+      }
     }
 
     if (groundtruth_neighbors_file.has_value()) {
