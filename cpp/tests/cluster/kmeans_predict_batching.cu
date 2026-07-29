@@ -145,8 +145,7 @@ TEST(KMeansPredict, BatchParametersPreserveResultsAndReduceUnfusedAllocations)
     auto int64_bytes = run_predict_with_batching<int64_t>(handle, config);
 
     if (uses_unfused_path) {
-      // Before the batching fix every configuration allocated the full
-      // samples-by-centroids matrix.
+      // Verify that batching uses less memory than the unbatched path.
       EXPECT_LT(int_bytes, unbatched_int_bytes) << config.name;
       EXPECT_LT(int64_bytes, unbatched_int64_bytes) << config.name;
     }
