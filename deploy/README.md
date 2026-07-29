@@ -22,7 +22,7 @@ OpenSearch flushes a segment
 |---|---|---|
 | `opensearch` | custom build of `opensearchproject/opensearch` | OpenSearch node with kNN plugin and `repository-s3` plugin |
 | `remote-index-builder` | `opensearchproject/remote-vector-index-builder:api-latest` | FastAPI service that builds Faiss indexes on the GPU |
-| `bench` | custom Python | Downloads dataset, registers repo + cluster settings, runs cuvs-bench build/search benchmark, exports results, generates plots |
+| `bench` | `python:3.11-slim` | Downloads the dataset, configures OpenSearch, runs the standard cuvs-bench CLI, and generates plots |
 
 ## Requirements
 
@@ -127,15 +127,14 @@ docker compose down -v
 1. Downloads the dataset (skipped if already present in `$DATASET_PATH`)
 2. **GPU mode only**: Registers the S3 bucket as an OpenSearch snapshot repository
 3. **GPU mode only**: Applies cluster settings to enable remote index build and point OpenSearch at the builder service
-4. Runs `cuvs-bench` build phase (handled entirely by the OpenSearch backend):
+4. Runs the standard `python -m cuvs_bench.run` build and search workflow:
    - Creates the kNN index and bulk-ingests dataset vectors
    - **GPU mode**: Flushes segments, waits for all submitted remote GPU builds to complete, and polls the kNN stats API every 5 s until the build is confirmed complete
    - **CPU mode**: Flushes and refreshes the local OpenSearch index
    - Uses the backend's automatic OpenSearch bulk-ingest batch sizing by default; set `BUILD_BATCH_SIZE` to override it
    - Records total build time in the result
-5. Runs `cuvs-bench` search phase and prints a recall/QPS/latency table
-6. Exports benchmark JSON results to CSV
-7. Generates recall vs. latency/throughput plots as PNGs in `$DATASET_PATH` (`cuvs_bench.plot`)
+   - Computes recall for each search-parameter set and writes the Python-backend results directly to the plotting CSV schema
+5. Generates recall vs. latency/throughput plots as PNGs in `$DATASET_PATH` (`cuvs_bench.plot`)
 
 ## Dataset format
 
@@ -161,7 +160,7 @@ $DATASET_PATH/
 
 ## Key configuration
 
-**Cluster settings** (applied by `bench/run.py`):
+**Cluster settings** (applied by `bench/configure_opensearch.py`):
 
 ```json
 {
@@ -231,7 +230,7 @@ docker compose up -d --wait opensearch
 docker compose run --rm --no-deps \
     -e OPENSEARCH_URL=http://opensearch:9200 \
     bench \
-    pytest /opt/cuvs/python/cuvs_bench/cuvs_bench/tests/test_opensearch.py -v -m integration
+    pytest /opt/cuvs/python/cuvs_bench/cuvs_bench/tests/test_opensearch.py -v -m opensearch
 ```
 
 ### Remote index build integration tests (full GPU stack)
@@ -249,10 +248,10 @@ docker compose run --rm --no-deps \
     -e S3_BUCKET=${S3_BUCKET} \
     -e AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION} \
     bench \
-    pytest /opt/cuvs/python/cuvs_bench/cuvs_bench/tests/test_opensearch.py -v -m integration
+    pytest /opt/cuvs/python/cuvs_bench/cuvs_bench/tests/test_opensearch.py -v -m opensearch
 ```
 
-This lets the pytest `integration` marker decide which tests run. With only OpenSearch running, remote-build tests skip because the GPU builder and S3 environment are unavailable. With the GPU stack running, the same marker includes the remote-build coverage.
+This lets the pytest `opensearch` marker decide which tests run. With only OpenSearch running, remote-build tests skip because the GPU builder and S3 environment are unavailable. With the GPU stack running, the same marker includes the remote-build coverage.
 
 ## Ports
 

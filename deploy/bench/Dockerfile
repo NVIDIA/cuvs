@@ -37,5 +37,5 @@ RUN pip install --no-cache-dir \
     scikit-learn \
     scipy
 
-COPY --chmod=755 run.py entrypoint.sh prepare_custom_dataset.py .
+COPY --chmod=755 configure_opensearch.py entrypoint.sh prepare_custom_dataset.py .
 CMD ["/app/entrypoint.sh"]

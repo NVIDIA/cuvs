@@ -5,7 +5,9 @@ DATASET="${DATASET:-sift-128-euclidean}"
 CUSTOM_DATASET="miracl-en-5m-1024d-fp32"
 BENCH_GROUPS="${BENCH_GROUPS:-test}"
 K="${K:-10}"
+BATCH_SIZE="${BATCH_SIZE:-10000}"
 ALGORITHM="opensearch_faiss_hnsw"
+BACKEND_CONFIG="/tmp/opensearch-backend.yaml"
 
 export DATASET
 if [ "$DATASET" = "$CUSTOM_DATASET" ]; then
@@ -61,20 +63,29 @@ else
         --dataset-path /data/datasets
 fi
 
-# Step 2: Run benchmark (build + search + writes result JSON files)
-python -u run.py
+# Step 2: Configure OpenSearch and write the backend configuration.
+python -u configure_opensearch.py "$BACKEND_CONFIG"
 
-# Step 3: Export JSON → CSV (required by cuvs_bench.plot)
-# --batch-size is ignored when --data-export is set, but Click prompts for it
-# before entering main(), so pass a dummy value to keep the container non-interactive.
-python -m cuvs_bench.run --data-export \
-    --dataset "$DATASET" \
-    --dataset-path /data/datasets \
-    --algorithms "$ALGORITHM" \
-    --groups "$BENCH_GROUPS" \
-    --count "$K" \
-    --batch-size 1 \
+# Step 3: Run the standard cuvs-bench CLI. Python backends write plotting CSV
+# files automatically.
+run_args=(
+    python -m cuvs_bench.run
+    --backend-config "$BACKEND_CONFIG"
+    --dataset "$DATASET"
+    --dataset-path /data/datasets
+    --algorithms "$ALGORITHM"
+    --groups "$BENCH_GROUPS"
+    --count "$K"
+    --batch-size "$BATCH_SIZE"
     --search-mode latency
+    --build
+    --search
+    --force
+)
+if [ -n "${DATASET_CONFIGURATION:-}" ]; then
+    run_args+=(--dataset-configuration "$DATASET_CONFIGURATION")
+fi
+"${run_args[@]}"
 
 # Step 4: Plot — PNGs written to /data/datasets (mounted from host $DATASET_PATH)
 python -m cuvs_bench.plot \
@@ -83,4 +94,5 @@ python -m cuvs_bench.plot \
     --algorithms "$ALGORITHM" \
     --groups "$BENCH_GROUPS" \
     --count "$K" \
+    --batch-size "$BATCH_SIZE" \
     --output-filepath /data/datasets
