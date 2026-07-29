@@ -316,6 +316,21 @@ void serialize(raft::resources const& res,
                bool include_dataset,
                bool sector_aligned)
 {
+  if constexpr (std::is_same_v<T, half>) {
+    if (include_dataset) {
+      RAFT_LOG_WARN(
+        "Serializing a half-precision (float16) dataset is not compatible with DiskANN search. "
+        "The serialized .data file uses raw half values with no type metadata, so DiskANN (which "
+        "only supports float, int8, and uint8) will misinterpret it. "
+        "Set include_dataset to false if cross-compatibility with DiskANN is required.");
+    }
+    if (sector_aligned) {
+      RAFT_LOG_WARN(
+        "Sector-aligned serialization embeds half-precision vectors directly into the disk index. "
+        "DiskANN search does not support half-precision data and will misinterpret these vectors.");
+    }
+  }
+
   auto d_graph = index_.graph();
   auto h_graph = raft::make_host_matrix<IdxT, int64_t>(d_graph.extent(0), d_graph.extent(1));
   raft::copy(res, h_graph.view(), d_graph);
