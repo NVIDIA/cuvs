@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs.internal.common;
@@ -24,6 +24,9 @@ public class LinkerHelper {
 
   public static final ValueLayout.OfLong C_LONG =
       (ValueLayout.OfLong) LINKER.canonicalLayouts().get("long");
+
+  public static final ValueLayout.OfShort C_SHORT =
+      (ValueLayout.OfShort) LINKER.canonicalLayouts().get("short");
 
   public static final ValueLayout.OfFloat C_FLOAT =
       (ValueLayout.OfFloat) LINKER.canonicalLayouts().get("float");

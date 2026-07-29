@@ -335,6 +335,11 @@ public class CagraIndexImpl implements CagraIndex {
     }
   }
 
+  /** Returns the underlying {@code cuvsCagraIndex_t} handle for native-side index passing. */
+  public MemorySegment getIndexHandle() {
+    return cagraIndexReference.getMemorySegment();
+  }
+
   @Override
   public void serialize(OutputStream outputStream) throws Throwable {
     Path path =
@@ -397,6 +402,17 @@ public class CagraIndexImpl implements CagraIndex {
       var graph = CuVSMatrixBaseImpl.fromTensor(graphDeviceTensor, resources);
       assert graph instanceof CuVSDeviceMatrix;
       return (CuVSDeviceMatrix) graph;
+    }
+  }
+
+  @Override
+  public long getGraphDegree() {
+    try (var localArena = Arena.ofConfined()) {
+      MemorySegment graphDegree = localArena.allocate(int64_t);
+      checkCuVSError(
+          cuvsCagraIndexGetGraphDegree(cagraIndexReference.getMemorySegment(), graphDegree),
+          "cuvsCagraIndexGetGraphDegree");
+      return graphDegree.get(int64_t, 0);
     }
   }
 
