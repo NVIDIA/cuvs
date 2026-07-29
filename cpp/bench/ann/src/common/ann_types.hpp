@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2024, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -78,6 +78,8 @@ struct algo_property {
   MemoryType dataset_memory_type;
   // neighbors/distances should have same memory type as queries
   MemoryType query_memory_type;
+  // GPU filters should be device-resident by default, independently of the dataset.
+  MemoryType filter_memory_type = MemoryType::kDevice;
 };
 
 class algo_base {

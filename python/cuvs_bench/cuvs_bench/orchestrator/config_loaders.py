@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -123,6 +123,8 @@ class DatasetConfig:
     distance: str = "euclidean"
     dims: Optional[int] = None
     subset_size: Optional[int] = None
+    filtering_rate: Optional[float] = None
+    filter_bitset_file: Optional[str] = None
 
 
 class ConfigLoader(ABC):
@@ -282,6 +284,14 @@ class ConfigLoader(ABC):
                 return os.path.join(dataset_path, rel)
             return rel
 
+        filtering_rate = dataset_conf.get("filtering_rate")
+        filter_bitset_file = _resolve(dataset_conf.get("filter_bitset_file"))
+        if filtering_rate is not None and filter_bitset_file is not None:
+            raise ValueError(
+                "dataset config must set at most one of filtering_rate or "
+                "filter_bitset_file"
+            )
+
         return DatasetConfig(
             name=dataset_conf["name"],
             base_file=_resolve(dataset_conf.get("base_file")),
@@ -292,6 +302,8 @@ class ConfigLoader(ABC):
             groundtruth_distances_file=_resolve(
                 dataset_conf.get("groundtruth_distances_file")
             ),
+            filtering_rate=filtering_rate,
+            filter_bitset_file=filter_bitset_file,
             distance=dataset_conf.get("distance", "euclidean"),
             dims=dataset_conf.get("dims"),
             subset_size=subset_size,

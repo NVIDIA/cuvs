@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -304,6 +304,54 @@ class TestCppBackendBuildSearch:
 
         finally:
             temp_exec.unlink(missing_ok=True)
+
+    @pytest.mark.parametrize(
+        "filter_config",
+        [{"filtering_rate": 0.9}, {"filter_bitset_file": "filter.bin"}],
+    )
+    def test_search_serializes_filter_configuration(
+        self, monkeypatch, tmp_path, filter_config
+    ):
+        executable = tmp_path / "benchmark"
+        executable.touch()
+        executable.chmod(0o755)
+        backend = CppGoogleBenchmarkBackend(
+            {
+                "name": "test_backend",
+                "executable_path": str(executable),
+                "data_prefix": str(tmp_path),
+                "dataset": "filtered",
+                "output_filename": ("build", "search"),
+            }
+        )
+        dataset = Dataset(
+            name="filtered",
+            base_file="base.fbin",
+            query_file="query.fbin",
+            groundtruth_neighbors_file="groundtruth.ibin",
+            **filter_config,
+        )
+        indexes = [
+            IndexConfig(
+                name="rabitq",
+                algo="cuvs_ivf_rabitq",
+                build_param={"nlist": 16},
+                search_params=[{"nprobe": 4}],
+                file="index",
+            )
+        ]
+        captured = {}
+
+        def capture_config(config, *_args, **_kwargs):
+            captured.update(config)
+
+        monkeypatch.setattr(
+            "cuvs_bench.backends.cpp_gbench.json.dump", capture_config
+        )
+        backend.search(dataset, indexes, k=10, batch_size=4, dry_run=True)
+
+        for key, value in filter_config.items():
+            assert captured["dataset"][key] == value
 
     def test_search_dry_run(self):
         """Test search dry run mode."""

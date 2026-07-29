@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -101,6 +101,9 @@ inline auto parse_algo_property(algo_property prop, const nlohmann::json& conf) 
   }
   if (conf.contains("query_memory_type")) {
     prop.query_memory_type = parse_memory_type(conf.at("query_memory_type"));
+  }
+  if (conf.contains("filter_memory_type")) {
+    prop.filter_memory_type = parse_memory_type(conf.at("filter_memory_type"));
   }
   return prop;
 };
@@ -263,7 +266,7 @@ void bench_search(::benchmark::State& state,
     }
     try {
       a->set_search_param(*search_param,
-                          dataset->filter_bitset(current_algo_props->dataset_memory_type));
+                          dataset->filter_bitset(current_algo_props->filter_memory_type));
     } catch (const std::exception& ex) {
       state.SkipWithError("An error occurred setting search parameters: " + std::string(ex.what()));
       return;

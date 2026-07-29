@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -165,6 +165,12 @@ class CppGoogleBenchmarkBackend(BenchmarkBackend):
             if dataset.groundtruth_neighbors_file:
                 dataset_config["groundtruth_neighbors_file"] = (
                     dataset.groundtruth_neighbors_file
+                )
+            if dataset.filtering_rate is not None:
+                dataset_config["filtering_rate"] = dataset.filtering_rate
+            if dataset.filter_bitset_file is not None:
+                dataset_config["filter_bitset_file"] = (
+                    dataset.filter_bitset_file
                 )
 
             # Build index list from ALL IndexConfig objects (matches runners.py)
@@ -408,6 +414,12 @@ class CppGoogleBenchmarkBackend(BenchmarkBackend):
             if dataset.groundtruth_neighbors_file:
                 dataset_config["groundtruth_neighbors_file"] = (
                     dataset.groundtruth_neighbors_file
+                )
+            if dataset.filtering_rate is not None:
+                dataset_config["filtering_rate"] = dataset.filtering_rate
+            if dataset.filter_bitset_file is not None:
+                dataset_config["filter_bitset_file"] = (
+                    dataset.filter_bitset_file
                 )
 
             # Build index list from ALL IndexConfig objects (matches runners.py)
