@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs;
@@ -592,6 +592,50 @@ public class CagraBuildAndSearchIT extends CuVSTestCase {
         assertEquals(expectedResults, fullResults);
         assertEquals(expectedFilteredResults, filteredResults);
       }
+    }
+  }
+
+  /**
+   * Regression test for a bug in {@code CagraIndexImpl.search}: the {@code distances} output tensor
+   * was described (dtype and buffer size) using the <em>query</em> vectors' data type instead of the
+   * float32 type the C API mandates. Float queries masked the bug because their dtype already matches
+   * float32. With byte (uint8) queries the distances tensor became uint8/8-bit and its device buffer
+   * was sized at 1 byte per value instead of 4, which the C wrapper rejects up front
+   * ("distances should be of type float32") -- and would otherwise be a GPU buffer overflow. The
+   * existing byte tests only cover build/serialize/deserialize, never search, so this path was
+   * uncovered.
+   */
+  @Test
+  public void testByteQuerySearch() throws Throwable {
+    // Small, unambiguous byte dataset (values within signed-byte range, mapped to uint8).
+    byte[][] dataset = {
+      {0, 0},
+      {5, 5},
+      {50, 50},
+      {100, 100}
+    };
+    // Each query equals a dataset row, so its nearest neighbor is that row at distance 0.
+    byte[][] queries = {
+      {0, 0}, // -> id 0
+      {100, 100} // -> id 3
+    };
+    List<Map<Integer, Float>> expectedResults = List.of(Map.of(0, 0.0f), Map.of(3, 0.0f));
+
+    try (CuVSResources resources = CheckedCuVSResources.create();
+        var index = indexOnce(CuVSMatrix.ofArray(dataset), resources);
+        var queryVectors = CuVSMatrix.ofArray(queries)) {
+      CagraQuery query =
+          new CagraQuery.Builder(resources)
+              .withTopK(1)
+              .withSearchParams(new CagraSearchParams.Builder().build())
+              .withQueryVectors(queryVectors)
+              .withMapping(SearchResults.IDENTITY_MAPPING)
+              .build();
+
+      // Fails with "distances should be of type float32" when the bug is present.
+      SearchResults results = index.search(query);
+      log.debug("Byte-query search results: {}", results.getResults());
+      checkResults(expectedResults, results.getResults());
     }
   }
 

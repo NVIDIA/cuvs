@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -33,6 +33,9 @@
 #endif
 
 namespace CUVS_EXPORT cuvs {
+namespace core {
+class bloom_filter;
+}
 namespace neighbors {
 /**
  * @addtogroup cagra_cpp_index_params
@@ -497,7 +500,7 @@ namespace filtering {
  * @{
  */
 
-enum class FilterType { None, Bitmap, Bitset, UDF };
+enum class FilterType : int { None = 0, Bitmap = 1, Bitset = 2, Bloom = 3, UDF = 100 };
 
 struct base_filter {
   ~base_filter()                             = default;
@@ -615,6 +618,34 @@ struct bitset_filter : public base_filter {
 
   template <typename csr_matrix_t>
   void to_csr(raft::resources const& handle, csr_matrix_t& csr);
+};
+
+/**
+ * @brief Filter CAGRA candidates with a global @c cuvs::core::bloom_filter over the index.
+ *
+ * Build the filter once on the host with bulk @c add() over the allowed dataset row ids and pass
+ * the owning @c cuvs::core::bloom_filter to this wrapper. CAGRA internals build/cache the device
+ * payload, similar to @ref bitset_filter, and the linked JIT-LTO fragment probes the same filter
+ * for every query and candidate with probabilistic membership tests.
+ *
+ * Bloom filters have no false negatives: if a row was inserted, @c contains returns @c true. False
+ * positives are possible, so highly selective predicates may still need a bitset or UDF for exact
+ * filtering.
+ *
+ * This adapter is non-owning. The referenced @c cuvs::core::bloom_filter must outlive the adapter
+ * and any searches that use it, and must not be moved or mutated concurrently with a search.
+ */
+struct bloom_filter : public base_filter {
+  void* filter_data{nullptr};
+
+  bloom_filter() = default;
+
+  explicit bloom_filter(const cuvs::core::bloom_filter& bloom_filter)
+    : filter_data(const_cast<cuvs::core::bloom_filter*>(&bloom_filter))
+  {
+  }
+
+  FilterType get_filter_type() const override { return FilterType::Bloom; }
 };
 
 /**

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -80,6 +80,8 @@ std::uint64_t cagra_sample_filter_type_id(const SampleFilterT& sample_filter)
 {
   using DecayedFilter = std::decay_t<SampleFilterT>;
   if constexpr (is_udf_filter<DecayedFilter>::value) {
+    return 3;
+  } else if constexpr (is_bloom_filter<DecayedFilter>::value) {
     return 2;
   } else if constexpr (is_bitset_filter<DecayedFilter>::value) {
     return 1;

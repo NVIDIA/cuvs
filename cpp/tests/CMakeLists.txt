@@ -123,8 +123,13 @@ ConfigureTest(
 
 ConfigureTest(
   NAME CLUSTER_TEST
-  PATH cluster/kmeans.cu cluster/kmeans_balanced.cu cluster/kmeans_find_k.cu cluster/linkage.cu
-       cluster/connect_knn.cu cluster/spectral.cu
+  PATH cluster/kmeans.cu
+       cluster/kmeans_balanced.cu
+       cluster/kmeans_find_k.cu
+       cluster/kmeans_predict_batching.cu
+       cluster/linkage.cu
+       cluster/connect_knn.cu
+       cluster/spectral.cu
   GPUS 1
   PERCENT 100
 )

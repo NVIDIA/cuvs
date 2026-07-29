@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -10,25 +10,38 @@
 
 namespace cuvs::neighbors::cagra {
 
-inline auto graph_params_heuristic(raft::matrix_extent<int64_t> dataset,
-                                   int intermediate_graph_degree,
-                                   int ef_construction,
-                                   cuvs::distance::DistanceType metric)
-  -> decltype(index_params::graph_build_params)
+graph_build_params_t index_params::graph_build_heuristic(raft::matrix_extent<int64_t> dataset,
+                                                         size_t intermediate_graph_degree,
+                                                         cuvs::distance::DistanceType metric,
+                                                         size_t build_quality)
 {
   if (dataset.extent(0) < int64_t(1e6)) {
     // Use NN descent for smaller datasets
     auto nn_descent_params =
       graph_build_params::nn_descent_params(intermediate_graph_degree, metric);
-    nn_descent_params.max_iterations = 5 + ef_construction / 16;
+    nn_descent_params.max_iterations = 5 + build_quality;
     return nn_descent_params;
   } else {
     // Otherwise, use IVF-PQ
     auto ivf_pq_params = cuvs::neighbors::graph_build_params::ivf_pq_params(dataset, metric);
     ivf_pq_params.search_params.n_probes =
-      std::round(2 + std::sqrt(ivf_pq_params.build_params.n_lists) / 20 + ef_construction / 16);
+      std::round(2 + std::sqrt(ivf_pq_params.build_params.n_lists) / 20 + build_quality);
     return ivf_pq_params;
   }
+}
+
+cagra::index_params index_params::from_dataset(raft::matrix_extent<int64_t> dataset,
+                                               size_t graph_degree,
+                                               cuvs::distance::DistanceType metric,
+                                               size_t build_quality)
+{
+  cagra::index_params params;
+  params.metric                    = metric;
+  params.graph_degree              = graph_degree;
+  params.intermediate_graph_degree = graph_degree * 3 / 2;
+  params.graph_build_params =
+    graph_build_heuristic(dataset, params.intermediate_graph_degree, metric, build_quality);
+  return params;
 }
 
 cagra::index_params index_params::from_hnsw_params(raft::matrix_extent<int64_t> dataset,
@@ -50,7 +63,7 @@ cagra::index_params index_params::from_hnsw_params(raft::matrix_extent<int64_t> 
       break;
   }
   params.graph_build_params =
-    graph_params_heuristic(dataset, params.intermediate_graph_degree, ef_construction, metric);
+    graph_build_heuristic(dataset, params.intermediate_graph_degree, metric, ef_construction / 16);
   return params;
 }
 

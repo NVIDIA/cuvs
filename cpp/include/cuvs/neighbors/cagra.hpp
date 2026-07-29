@@ -112,6 +112,12 @@ namespace graph_build_params = cuvs::neighbors::graph_build_params;
  * @{
  */
 
+using graph_build_params_t = std::variant<std::monostate,
+                                          graph_build_params::ivf_pq_params,
+                                          graph_build_params::nn_descent_params,
+                                          graph_build_params::ace_params,
+                                          graph_build_params::iterative_search_params>;
+
 /**
  * @brief A strategy for selecting the graph build parameters based on similar HNSW index
  * parameters.
@@ -181,12 +187,7 @@ struct index_params : cuvs::neighbors::index_params {
    * cagra::graph_build_params::iterative_search_params();
    * @endcode
    */
-  std::variant<std::monostate,
-               graph_build_params::ivf_pq_params,
-               graph_build_params::nn_descent_params,
-               graph_build_params::ace_params,
-               graph_build_params::iterative_search_params>
-    graph_build_params;
+  graph_build_params_t graph_build_params;
   /**
    * Whether to use MST optimization to guarantee graph connectivity.
    */
@@ -222,6 +223,55 @@ struct index_params : cuvs::neighbors::index_params {
    * @endcode
    */
   bool attach_dataset_on_build = true;
+
+  /**
+   * @brief Select the graph build algorithm and its parameters for a dataset.
+   *
+   * This is the main CAGRA build heuristic: it chooses between NN-descent and IVF-PQ based on the
+   * dataset size and tunes their parameters based on the target intermediate graph degree and the
+   * requested build quality. It returns the `graph_build_params` variant only; the caller is
+   * responsible for setting `graph_degree` / `intermediate_graph_degree`.
+   *
+   * @param dataset The shape of the input dataset
+   * @param intermediate_graph_degree The intermediate (kNN) graph degree the build should target.
+   *  Note: the intermediate graph degree must be not smaller than the output graph degree; a good
+   *        practice is to have it 1.5x to 2x of the desired graph_degree and a multiple of 32.
+   * @param metric The distance metric to search
+   * @param build_quality Higher values increase the build quality (and cost) up to a point.
+   *        Any value is valid, but values below 20 are the most practical (default = 7).
+   */
+  static graph_build_params_t graph_build_heuristic(
+    raft::matrix_extent<int64_t> dataset,
+    size_t intermediate_graph_degree,
+    cuvs::distance::DistanceType metric = cuvs::distance::DistanceType::L2Expanded,
+    size_t build_quality                = 7);
+
+  /**
+   * @brief Create CAGRA index parameters heuristically tuned for a dataset.
+   *
+   * Returns default CAGRA `index_params` with `graph_build_params` selected by
+   * `graph_build_heuristic` for the given dataset.
+   *
+   * @param dataset The shape of the input dataset
+   * @param graph_degree Degree of the output graph.
+   * @param metric The distance metric to search
+   * @param build_quality Higher values increase the build quality (and cost) up to a point.
+   *        Any value is valid, but values below 20 are the most practical (default = 7).
+   *
+   * Usage example:
+   * @code{.cpp}
+   *   using namespace cuvs::neighbors;
+   *   raft::resources res;
+   *   auto dataset = raft::make_device_matrix<float, int64_t>(res, N, D);
+   *   auto cagra_params = cagra::index_params::from_dataset(dataset.extents());
+   *   auto cagra_index = cagra::build(res, cagra_params, dataset);
+   * @endcode
+   */
+  static cagra::index_params from_dataset(
+    raft::matrix_extent<int64_t> dataset,
+    size_t graph_degree                 = 64,
+    cuvs::distance::DistanceType metric = cuvs::distance::DistanceType::L2Expanded,
+    size_t build_quality                = 7);
 
   /**
    * @brief Create a CAGRA index parameters compatible with HNSW index
