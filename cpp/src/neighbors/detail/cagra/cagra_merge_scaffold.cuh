@@ -602,8 +602,28 @@ void assign_bucket(raft::resources const& res,
   auto stream = raft::resource::get_cuda_stream(res);
   auto dim    = dataset.extent(1);
 
+  // Derive the tile height from this bucket's shapes rather than assuming the configured default
+  // fits. The assignment workspace holds the gathered leader matrix once, plus per-row point,
+  // dot-product and selection storage, so a large dimension or a wide padded leader count can
+  // overflow the budget at the default height -- preflight only validates the leaf GEMM shape, so
+  // such a configuration would otherwise pass preflight and then trip the assertion below.
+  //
+  // This only ever shrinks the tile, so every configuration that fits today is unaffected.
+  size_t leader_bytes =
+    static_cast<size_t>(padded_leaders) * static_cast<size_t>(dim) * sizeof(float) +
+    static_cast<size_t>(padded_leaders) * sizeof(uint32_t) + sizeof(assignment_tile);
+  size_t row_bytes = (static_cast<size_t>(dim) + static_cast<size_t>(padded_leaders) +
+     static_cast<size_t>(params.fanout)) *
+      sizeof(float) +
+    static_cast<size_t>(params.fanout) * sizeof(int);
+  RAFT_EXPECTS(leader_bytes + row_bytes <= context.gemm_workspace_bytes,
+               "Fastener assignment workspace cannot fit the leader matrix and a single point row");
+  int tile_rows = static_cast<int>(
+    std::max<size_t>(1,
+                     std::min<size_t>(static_cast<size_t>(context.assignment_tile_rows),
+                                      (context.gemm_workspace_bytes - leader_bytes) / row_bytes)));
+
   // Cut every parent in the bucket into fixed-height tiles
-  int tile_rows = context.assignment_tile_rows;
   std::vector<assignment_tile> tiles;
   for (auto const* entry : bucket) {
     for (int64_t start = entry->parent.start; start < entry->parent.end; start += tile_rows) {
