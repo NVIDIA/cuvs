@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -45,6 +45,7 @@ namespace cuvs::neighbors::vamana {
  *
  * The following distance metrics are supported:
  * - L2Expanded
+ * - L2SqrtExpanded
  *
  * Usage example:
  * @code{.cpp}
