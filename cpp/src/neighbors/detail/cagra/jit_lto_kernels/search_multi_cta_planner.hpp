@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -37,6 +37,35 @@ struct CagraMultiCtaSearchPlanner
   {
     this->template add_static_fragment<
       fragment_tag_search_multi_cta<DataTag, SourceIndexTag, IndexTag, DistanceTag>>();
+  }
+};
+
+template <typename DataTag,
+          typename IndexTag,
+          typename DistanceTag,
+          typename SourceIndexTag,
+          typename QueryTag,
+          typename CodebookTag,
+          typename SampleFilterJitTag>
+struct CagraMultiCtaMpSearchPlanner
+  : CagraPlannerBase<DataTag, IndexTag, DistanceTag, QueryTag, CodebookTag, SampleFilterJitTag> {
+  static inline LauncherJitCache launcher_jit_cache{};
+
+  CagraMultiCtaMpSearchPlanner(cuvs::distance::DistanceType /*metric*/,
+                               uint32_t /*team_size*/,
+                               uint32_t /*dataset_block_dim*/,
+                               bool /*is_vpq*/,
+                               uint32_t /*pq_bits*/,
+                               uint32_t /*pq_len*/)
+    : CagraPlannerBase<DataTag, IndexTag, DistanceTag, QueryTag, CodebookTag, SampleFilterJitTag>(
+        "search_multi_cta_mp", launcher_jit_cache)
+  {
+  }
+
+  void add_search_multi_cta_kernel_fragment()
+  {
+    this->template add_static_fragment<
+      fragment_tag_search_multi_cta_mp<DataTag, SourceIndexTag, IndexTag, DistanceTag>>();
   }
 };
 

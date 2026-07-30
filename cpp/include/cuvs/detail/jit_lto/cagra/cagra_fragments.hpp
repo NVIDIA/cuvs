@@ -79,8 +79,19 @@ template <typename DataTag,
           bool BitonicSortAndMergeMultiWarps>
 struct fragment_tag_search_single_cta_p {};
 
+template <typename DataTag,
+          typename SourceIndexTag,
+          typename IndexTag,
+          typename DistanceTag,
+          bool TopkByBitonicSort,
+          bool BitonicSortAndMergeMultiWarps>
+struct fragment_tag_search_single_cta_mp {};
+
 template <typename DataTag, typename SourceIndexTag, typename IndexTag, typename DistanceTag>
 struct fragment_tag_search_multi_cta {};
+
+template <typename DataTag, typename SourceIndexTag, typename IndexTag, typename DistanceTag>
+struct fragment_tag_search_multi_cta_mp {};
 
 template <typename DataTag, typename IndexTag, typename DistanceTag>
 struct fragment_tag_random_pickup {};

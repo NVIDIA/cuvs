@@ -593,6 +593,13 @@ struct bitmap_filter : public base_filter {
 /**
  * @brief Filter an index with a bitset
  *
+ * This filter holds a non-owning view of the bitset; it does not allocate or copy the underlying
+ * device buffer. The library performs no caching of the bitset across search calls. Allocating and
+ * populating the device bitset may be more expensive than a single filtered search, so callers that
+ * issue repeated searches against the same filter (e.g. many queries over one index) should build
+ * the bitset once and reuse it across those calls rather than rebuild it per search. Reusing the
+ * bitset is essential for realizing the full throughput of filtered search.
+ *
  * @tparam bitset_t Data type of the bitset
  * @tparam index_t Indexing type
  */
