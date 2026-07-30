@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -162,26 +162,34 @@ void countLabels(raft::resources const& handle,
  * @brief Compute the sum of sample weights into a device scalar.
  *
  * Device-accessible mdspans are reduced on device. Host mdspans are summed on the host.
+ * When `check_positive` is true, the resulting sum is brought to host and asserted to be > 0.
  */
 template <typename DataT, typename IndexT, typename Accessor>
 void weightSum(
   raft::resources const& handle,
   raft::mdspan<const DataT, raft::vector_extent<IndexT>, raft::layout_right, Accessor> weight,
-  raft::device_scalar_view<DataT> d_wt_sum)
+  raft::device_scalar_view<DataT> d_wt_sum,
+  bool check_positive = true)
 {
   auto n_samples = weight.extent(0);
   auto stream    = raft::resource::get_cuda_stream(handle);
+  DataT wt_sum_h = DataT{0};
 
   if constexpr (raft::is_device_mdspan_v<decltype(weight)>) {
     raft::linalg::mapThenSumReduce(
       d_wt_sum.data_handle(), n_samples, raft::identity_op{}, stream, weight.data_handle());
-  } else {
-    DataT wt_sum = DataT{0};
-    for (IndexT i = 0; i < n_samples; ++i) {
-      wt_sum += weight(i);
+    if (check_positive) {
+      raft::copy(&wt_sum_h, d_wt_sum.data_handle(), 1, stream);
+      raft::resource::sync_stream(handle);
     }
-    RAFT_EXPECTS(wt_sum > DataT{0}, "invalid parameter (sum of sample weights must be positive)");
-    raft::copy(d_wt_sum.data_handle(), &wt_sum, 1, stream);
+  } else {
+    for (IndexT i = 0; i < n_samples; ++i) {
+      wt_sum_h += weight(i);
+    }
+    raft::copy(d_wt_sum.data_handle(), &wt_sum_h, 1, stream);
+  }
+  if (check_positive) {
+    RAFT_EXPECTS(wt_sum_h > DataT{0}, "invalid parameter (sum of sample weights must be positive)");
   }
 }
 

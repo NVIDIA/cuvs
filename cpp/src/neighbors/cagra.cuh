@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -19,6 +19,7 @@
 #include <raft/linalg/norm.cuh>
 #include <raft/linalg/reduce.cuh>
 
+#include <cuvs/core/bitset.hpp>
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/cagra.hpp>
 
@@ -387,6 +388,23 @@ void search(raft::resources const& res,
 
   try {
     auto& sample_filter =
+      dynamic_cast<const cuvs::neighbors::filtering::bloom_filter&>(sample_filter_ref);
+    search_params params_copy = params;
+    if (params.filtering_rate < 0.0f) {
+      auto const* bloom_filter_obj =
+        static_cast<const cuvs::core::bloom_filter*>(sample_filter.filter_data);
+      RAFT_EXPECTS(bloom_filter_obj != nullptr,
+                   "bloom_filter must carry a valid cuvs::core::bloom_filter handle.");
+      params_copy.filtering_rate = bloom_filter_obj->estimate_filtering_rate();
+    }
+    auto sample_filter_copy = sample_filter;
+    return search_with_filtering<T, IdxT, decltype(sample_filter_copy), OutputIdxT>(
+      res, params_copy, idx, queries, neighbors, distances, sample_filter_copy);
+  } catch (const std::bad_cast&) {
+  }
+
+  try {
+    auto& sample_filter =
       dynamic_cast<const cuvs::neighbors::filtering::udf_filter&>(sample_filter_ref);
     search_params params_copy = params;
     if (params.filtering_rate < 0.0) {
@@ -425,6 +443,70 @@ index<T, IdxT> merge(raft::resources const& handle,
                      const cuvs::neighbors::filtering::base_filter& row_filter)
 {
   return cagra::detail::merge<T, IdxT>(handle, params, indices, row_filter);
+}
+
+template <typename T, typename IdxT = uint32_t, typename OutputIdxT = uint32_t>
+void search(
+  raft::resources const& res,
+  search_params const& params,
+  const std::vector<const index<T, IdxT>*>& indices,
+  raft::device_matrix_view<const T, int64_t, raft::row_major> queries,
+  raft::device_matrix_view<uint32_t, int64_t, raft::row_major> partition_ids,
+  raft::device_matrix_view<OutputIdxT, int64_t, raft::row_major> neighbors,
+  raft::device_matrix_view<float, int64_t, raft::row_major> distances,
+  const std::vector<cuvs::core::bitset_view<std::uint32_t, int64_t>>& partition_bitsets = {})
+{
+  RAFT_EXPECTS(!indices.empty(), "At least one index partition must be provided.");
+
+  RAFT_EXPECTS(queries.extent(0) == partition_ids.extent(0) &&
+                 queries.extent(0) == neighbors.extent(0) &&
+                 queries.extent(0) == distances.extent(0),
+               "Number of rows in output partition_ids, neighbors and distances matrices must "
+               "equal the number of queries.");
+
+  RAFT_EXPECTS(
+    neighbors.extent(1) == distances.extent(1) && neighbors.extent(1) == partition_ids.extent(1),
+    "Number of columns in output partition_ids, neighbors and distances matrices must "
+    "equal k");
+
+  for (const auto* idx : indices) {
+    RAFT_EXPECTS(idx != nullptr, "Index partitions must not be null.");
+    RAFT_EXPECTS(queries.extent(1) == idx->dim(),
+                 "Number of query dimensions should equal number of dimensions in the index.");
+  }
+
+  // Select the kernel by filter type: with no per-partition bitset use the (faster) none path;
+  // otherwise use the bitset path (a partition with no filter has an empty view = accept-all). The
+  // representative filter only selects the kernel — the per-partition bitset data is carried in the
+  // partition descriptors, not in this filter.
+  const cuvs::core::bitset_view<std::uint32_t, int64_t>* rep = nullptr;
+  for (const auto& v : partition_bitsets) {
+    if (v.data() != nullptr && v.size() > 0) {
+      rep = &v;
+      break;
+    }
+  }
+
+  if (rep == nullptr) {
+    cagra::detail::search_multi_partition<T,
+                                          OutputIdxT,
+                                          IdxT,
+                                          float,
+                                          cuvs::neighbors::filtering::none_sample_filter>(
+      res, params, indices, queries, partition_ids, neighbors, distances, partition_bitsets);
+  } else {
+    using bitset_filter_t = cuvs::neighbors::filtering::bitset_filter<std::uint32_t, int64_t>;
+    cagra::detail::search_multi_partition<T, OutputIdxT, IdxT, float, bitset_filter_t>(
+      res,
+      params,
+      indices,
+      queries,
+      partition_ids,
+      neighbors,
+      distances,
+      partition_bitsets,
+      bitset_filter_t{*rep});
+  }
 }
 
 /** @} */  // end group cagra
