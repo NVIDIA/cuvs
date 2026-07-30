@@ -2839,9 +2839,9 @@ struct merge_params {
   uint32_t root_fanout   = 2;
   uint32_t lower_fanout  = 3;
   double leader_fraction = 0.02;
-  uint32_t max_leaders = 1024;
-  uint32_t leaf_size   = 256;
-  uint32_t leaf_degree = 4;
+  uint32_t max_leaders   = 1024;
+  uint32_t leaf_size     = 256;
+  uint32_t leaf_degree   = 4;
 };
 
 /** @brief Merge multiple physical CAGRA indices into one.
