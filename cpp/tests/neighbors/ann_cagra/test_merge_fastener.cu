@@ -435,6 +435,64 @@ TEST(CagraMergeFastener, DuplicateAcrossInputsAppearInEachOthersScaffoldNeighbor
 }
 
 /**
+ * Scaffold construction should be deterministic, and if future changes break that determinism,
+ * they should do so deliberately.
+ *
+ * Everything the merge contributes ahead of graph::optimize is deterministic by design: the leader
+ * sample is a fixed seed and a strided offset, assignment is a batched GEMM plus a deterministic
+ * select_k, and every regroup is a stable sort. graph::optimize is not deterministic because its
+ * reverse graph is built with an atomic bump allocator, so the adjacency order, and therefore the
+ * pruning outcome, varies between runs. Making that deterministic is out of scope, but we still
+ * want to be checking we're not accidentally introducing non-determinism.
+ *
+ * Sized to exercise the paths that could plausibly introduce non-determinism: enough rows for
+ * several assignment tiles per parent, two configured levels, and both leader buckets.
+ */
+TEST(CagraMergeFastener, ScaffoldConstructionIsBitReproducible)
+{
+  using namespace detail::merge_scaffold;
+  raft::resources res;
+  auto stream                 = raft::resource::get_cuda_stream(res);
+  constexpr int64_t part_rows = 4000;  // > ASSIGNMENT_TILE_ROWS, so parents span multiple tiles
+  constexpr int64_t rows      = part_rows * 2;
+  constexpr int64_t dim       = 32;
+
+  auto host = make_dataset<float>(res, rows, dim, 4242ULL);
+  auto data = raft::make_device_matrix<float, int64_t>(res, rows, dim);
+  raft::copy(data.data_handle(), host.data_handle(), host.size(), stream);
+  raft::resource::sync_stream(res);
+
+  std::vector<int64_t> offsets{0, part_rows, rows};
+  build_params params;  // default two-level controls
+
+  auto scaffold_bytes = [&] {
+    auto scaffold = build<float>(res, raft::make_const_mdspan(data.view()), offsets, params);
+    std::vector<uint32_t> host_scaffold(
+      static_cast<size_t>(scaffold.extent(0) * scaffold.extent(1)));
+    raft::copy(host_scaffold.data(), scaffold.data_handle(), host_scaffold.size(), stream);
+    raft::resource::sync_stream(res);
+    return host_scaffold;
+  };
+
+  auto first  = scaffold_bytes();
+  auto second = scaffold_bytes();
+
+  ASSERT_EQ(first.size(), second.size());
+  ASSERT_GT(first.size(), 0u);
+  size_t differing        = 0;
+  size_t first_difference = first.size();
+  for (size_t i = 0; i < first.size(); ++i) {
+    if (first[i] != second[i]) {
+      ++differing;
+      first_difference = std::min(first_difference, i);
+    }
+  }
+  EXPECT_EQ(differing, 0u) << differing << " of " << first.size()
+                           << " scaffold entries differ between identical runs, first at index "
+                           << first_difference;
+}
+
+/**
  * A partition's memberships are ascending in consolidated row id: the root is the identity, tiles
  * emit in parent input order, and every regroup is a stable sort. `make_leaves` relies on this to
  * know that consecutive slicing groups a leaf by origin, so pin the invariant down explicitly --
