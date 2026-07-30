@@ -73,7 +73,7 @@ struct build_params {
   uint32_t root_fanout   = 2;
   uint32_t lower_fanout  = 3;
   double leader_fraction = 0.02;
-  uint32_t max_leaders   = 1000;
+  uint32_t max_leaders   = 1024;
   uint32_t leaf_size     = MAX_LEAF_SIZE;
   uint32_t leaf_degree   = 4;
 };
@@ -82,7 +82,7 @@ struct build_params {
 struct split_params {
   uint32_t fanout            = 1;
   double leader_fraction     = 0.02;
-  uint32_t max_leaders       = 1000;
+  uint32_t max_leaders       = 1024;
   uint32_t leaf_size         = MAX_LEAF_SIZE;
   uint32_t level             = 0;
   uint32_t occurrence_stride = 1;
