@@ -74,6 +74,7 @@ export BATCH_SIZE=                         # optional query batch size override
 export BUILD_BATCH_SIZE=                   # optional bulk ingest batch size override
 export NUMBER_OF_SHARDS=1                  # number of primary index shards (default: 1)
 export APPROXIMATE_THRESHOLD=10000         # vectors per segment before ANN build (default: 10000)
+export REFRESH_INTERVAL=                   # optional index refresh interval (for example: 30s or -1)
 export REMOTE_BUILD_TIMEOUT=1800           # seconds to wait for remote builds (default: 1800)
 ```
 
@@ -82,6 +83,11 @@ export REMOTE_BUILD_TIMEOUT=1800           # seconds to wait for remote builds (
 recommends `10000` as a starting point for GPU-accelerated indexing so smaller
 segments do not build ANN structures prematurely. Set it to `0` to always
 build ANN structures or `-1` to disable them.
+
+`REFRESH_INTERVAL` sets `index.refresh_interval` on each benchmark index.
+Leave it empty to use the OpenSearch default, or set it to `-1` to disable
+automatic refreshes during ingestion. cuvs-bench performs an explicit refresh
+before searching.
 
 Start all services:
 
@@ -134,7 +140,8 @@ docker compose down -v
    - Uses the backend's automatic OpenSearch bulk-ingest batch sizing by default; set `BUILD_BATCH_SIZE` to override it
    - Records total build time in the result
    - Computes recall for each search-parameter set and writes the Python-backend results directly to the plotting CSV schema
-5. Generates recall vs. latency/throughput plots as PNGs in `$DATASET_PATH` (`cuvs_bench.plot`)
+5. Prints a compact build-time and search recall/QPS/latency overview
+6. Generates recall vs. latency/throughput plots as PNGs in `$DATASET_PATH` (`cuvs_bench.plot`)
 
 ## Dataset format
 

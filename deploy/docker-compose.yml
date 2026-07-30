@@ -39,6 +39,7 @@
 #   BUILD_BATCH_SIZE        Optional OpenSearch bulk ingest batch size override
 #   NUMBER_OF_SHARDS        Number of primary index shards (default: 1)
 #   APPROXIMATE_THRESHOLD   Vectors per segment before ANN build (default: 10000)
+#   REFRESH_INTERVAL        Optional index refresh interval (for example: 30s or -1)
 #   CUVS_REPOSITORY         Repository cloned into the benchmark image
 #   CUVS_BRANCH             Repository branch cloned into the benchmark image
 #
@@ -138,6 +139,7 @@ services:
       BUILD_BATCH_SIZE: ${BUILD_BATCH_SIZE:-}
       NUMBER_OF_SHARDS: ${NUMBER_OF_SHARDS:-1}
       APPROXIMATE_THRESHOLD: ${APPROXIMATE_THRESHOLD:-10000}
+      REFRESH_INTERVAL: ${REFRESH_INTERVAL:-}
     volumes:
       - ${DATASET_PATH:-/tmp/datasets}:/data/datasets
     restart: "no"

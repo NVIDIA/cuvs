@@ -132,6 +132,7 @@ class OpenSearchConfigLoader(ConfigLoader):
             "verify_certs",
             "build_batch_size",
             "approximate_threshold",
+            "refresh_interval",
             # Remote Index Build (OpenSearch 3.0+, faiss engine only)
             "remote_index_build",
             "remote_build_size_min",
@@ -290,6 +291,9 @@ class OpenSearchBackend(BenchmarkBackend):
           a batch size with roughly 1 MiB of raw vector data.
         - ``approximate_threshold`` – minimum vectors per segment before
           building ANN data structures (default: OpenSearch's default).
+        - ``refresh_interval`` – how often OpenSearch refreshes the index,
+          e.g. ``"1s"`` or ``"-1"`` to disable automatic refreshes during
+          ingestion (default: OpenSearch's default).
         - ``requires_network`` – trigger network pre-flight check (default: ``True``)
         - ``remote_index_build`` – set ``index.knn.remote_index_build.enabled=true``
           on the index at creation time, opting it into the GPU build path (default: ``False``).
@@ -362,6 +366,7 @@ class OpenSearchBackend(BenchmarkBackend):
         remote_index_build: bool = False,
         remote_build_size_min: Optional[str] = None,
         approximate_threshold: Optional[int] = None,
+        refresh_interval: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Construct the OpenSearch index mapping dict for k-NN.
@@ -420,6 +425,8 @@ class OpenSearchBackend(BenchmarkBackend):
             index_settings["knn.advanced.approximate_threshold"] = (
                 approximate_threshold
             )
+        if refresh_interval is not None:
+            index_settings["refresh_interval"] = str(refresh_interval)
         if remote_index_build:
             if engine != "faiss":
                 raise ValueError(
@@ -731,6 +738,7 @@ class OpenSearchBackend(BenchmarkBackend):
         remote_index_build = bool(self.config.get("remote_index_build", False))
         remote_build_size_min = self.config.get("remote_build_size_min")
         approximate_threshold = self.config.get("approximate_threshold")
+        refresh_interval = self.config.get("refresh_interval")
 
         if dry_run:
             print(
@@ -781,13 +789,14 @@ class OpenSearchBackend(BenchmarkBackend):
 
         # Create index
         mapping = self._build_index_mapping(
-            dims,
-            engine,
-            space_type,
-            build_param,
-            remote_index_build,
-            remote_build_size_min,
-            approximate_threshold,
+            dims=dims,
+            engine=engine,
+            space_type=space_type,
+            build_param=build_param,
+            remote_index_build=remote_index_build,
+            remote_build_size_min=remote_build_size_min,
+            approximate_threshold=approximate_threshold,
+            refresh_interval=refresh_interval,
         )
         self._client.indices.create(index=index_name, body=mapping)
 
@@ -830,6 +839,7 @@ class OpenSearchBackend(BenchmarkBackend):
                 "space_type": space_type,
                 "remote_index_build": remote_index_build,
                 "approximate_threshold": approximate_threshold,
+                "refresh_interval": refresh_interval,
             },
             success=True,
         )

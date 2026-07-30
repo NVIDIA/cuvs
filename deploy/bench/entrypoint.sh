@@ -87,7 +87,16 @@ if [ -n "${DATASET_CONFIGURATION:-}" ]; then
 fi
 "${run_args[@]}"
 
-# Step 4: Plot — PNGs written to /data/datasets (mounted from host $DATASET_PATH)
+# Step 4: Print a compact overview of the generated results.
+python -u print_results.py \
+    --dataset-path /data/datasets \
+    --dataset "$DATASET" \
+    --algorithm "$ALGORITHM" \
+    --groups "$BENCH_GROUPS" \
+    --count "$K" \
+    --batch-size "$BATCH_SIZE"
+
+# Step 5: Plot — PNGs written to /data/datasets (mounted from host $DATASET_PATH)
 python -m cuvs_bench.plot \
     --dataset "$DATASET" \
     --dataset-path /data/datasets \

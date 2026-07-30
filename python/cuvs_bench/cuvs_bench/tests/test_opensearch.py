@@ -162,6 +162,7 @@ class TestOpenSearchConfigLoader:
             remote_build_timeout=123,
             remote_build_s3_endpoint="http://s3:9000",
             approximate_threshold=10_000,
+            refresh_interval="-1",
         )
 
         bc = configs[0].backend_config
@@ -169,6 +170,7 @@ class TestOpenSearchConfigLoader:
         assert bc["remote_build_size_min"] == "2kb"
         assert bc["remote_build_timeout"] == 123
         assert bc["approximate_threshold"] == 10_000
+        assert bc["refresh_interval"] == "-1"
         assert "remote_build_s3_endpoint" not in bc
 
     def test_load_overrides_number_of_shards(self, config_dir):
@@ -338,6 +340,29 @@ class TestOpenSearchBackend:
                 build_param={},
                 approximate_threshold=-2,
             )
+
+    def test_refresh_interval_is_added_to_index_settings(self):
+        backend = _make_backend()
+        mapping = backend._build_index_mapping(
+            dims=4,
+            engine="faiss",
+            space_type="l2",
+            build_param={},
+            refresh_interval="-1",
+        )
+
+        assert mapping["settings"]["index"]["refresh_interval"] == "-1"
+
+    def test_refresh_interval_uses_opensearch_default_when_unspecified(self):
+        backend = _make_backend()
+        mapping = backend._build_index_mapping(
+            dims=4,
+            engine="faiss",
+            space_type="l2",
+            build_param={},
+        )
+
+        assert "refresh_interval" not in mapping["settings"]["index"]
 
     def test_wait_for_remote_build_raises_on_failure_count(self):
         backend = _make_backend()

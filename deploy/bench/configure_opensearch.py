@@ -42,6 +42,10 @@ def create_backend_config() -> dict:
     if build_batch_size is not None:
         config["build_batch_size"] = build_batch_size
 
+    refresh_interval = os.environ.get("REFRESH_INTERVAL", "").strip()
+    if refresh_interval:
+        config["refresh_interval"] = refresh_interval
+
     if remote_index_build:
         config["remote_build_timeout"] = int(
             os.environ.get("REMOTE_BUILD_TIMEOUT", "1800")
