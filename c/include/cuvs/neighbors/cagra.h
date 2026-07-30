@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -298,6 +298,27 @@ CUVS_EXPORT cuvsError_t cuvsCagraIndexParamsFromHnswParams(cuvsCagraIndexParams_
                                                 int ef_construction,
                                                 enum cuvsCagraHnswHeuristicType heuristic,
                                                 cuvsDistanceType metric);
+
+/**
+ * @brief Create CAGRA index parameters heuristically tuned for a dataset
+ *
+ * This factory function selects the graph build algorithm and its parameters based on the shape of
+ * the dataset.
+ *
+ * @param[out] params The CAGRA index params to populate
+ * @param[in] n_rows Number of rows in the dataset
+ * @param[in] dim Number of dimensions in the dataset
+ * @param[in] graph_degree Degree of the output graph
+ * @param[in] metric Distance metric to use
+ * @param[in] build_quality Higher values increase build quality (and cost) up to a point
+ * @return cuvsError_t
+ */
+CUVS_EXPORT cuvsError_t cuvsCagraIndexParamsFromDataset(cuvsCagraIndexParams_t params,
+                                                int64_t n_rows,
+                                                int64_t dim,
+                                                size_t graph_degree,
+                                                cuvsDistanceType metric,
+                                                size_t build_quality);
 
 /**
  * @}
@@ -713,6 +734,49 @@ CUVS_EXPORT cuvsError_t cuvsCagraSearch(cuvsResources_t res,
                             DLManagedTensor* neighbors,
                             DLManagedTensor* distances,
                             cuvsFilter filter);
+
+/**
+ * @brief Search multiple CAGRA index partitions concurrently and return the global top-k per
+ * query.
+ *
+ * For each query row, the function searches all partitions in parallel into an internal
+ * intermediate buffer, applies per-partition distance post-processing, runs a batched top-k
+ * merge across partitions, and writes the final outputs to the caller-supplied device tensors.
+ * All work is submitted to the CUDA stream associated with @p res; use @c cuvsStreamSync to
+ * wait for completion.
+ *
+ * The index element type may be float32, float16, int8, or uint8. All partitions must share the
+ * same element type, and the queries must use that same type.
+ *
+ * @param[in]  res            cuvsResources_t opaque C handle
+ * @param[in]  params         search parameters (shared across partitions)
+ * @param[in]  num_partitions number of index partitions
+ * @param[in]  indices        array of num_partitions cuvsCagraIndex_t pointers, all of the same
+ *                            element type
+ * @param[in]  queries        DLManagedTensor* (device, same dtype as the indices, [n_queries,
+ *                            dim]); the queries matrix is searched against every partition
+ * @param[out] partition_ids  DLManagedTensor* (device, uint32, [n_queries, k]); which partition
+ *                            each returned neighbor came from
+ * @param[out] neighbors      DLManagedTensor* (device, uint32 or int64, [n_queries, k]); ordinal
+ *                            in the corresponding partition's dataset
+ * @param[out] distances      DLManagedTensor* (device, float32, [n_queries, k]); post-processed
+ *                            distance for each (query, neighbor)
+ * @param[in]  filters        array of `num_partitions` filters, one per partition (or NULL for a
+ *                            fully unfiltered search). `filters[i]` applies to partition `i`: use
+ *                            {.type=NO_FILTER, .addr=0} for no filter on that partition, or
+ *                            {.type=BITSET, .addr=ptr} where ptr is a uintptr_t-cast
+ *                            DLManagedTensor* holding that partition's own bitset (one bit per
+ *                            vector in that partition; standard 32-bit packing).
+ */
+CUVS_EXPORT cuvsError_t cuvsCagraSearchMultiPartition(cuvsResources_t res,
+                                                      cuvsCagraSearchParams_t params,
+                                                      uint32_t num_partitions,
+                                                      cuvsCagraIndex_t* indices,
+                                                      DLManagedTensor* queries,
+                                                      DLManagedTensor* partition_ids,
+                                                      DLManagedTensor* neighbors,
+                                                      DLManagedTensor* distances,
+                                                      cuvsFilter* filters);
 
 /**
  * @}
