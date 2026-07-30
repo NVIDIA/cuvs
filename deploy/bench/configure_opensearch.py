@@ -13,6 +13,18 @@ def _optional_int(name: str) -> int | None:
     return int(value) if value else None
 
 
+def _bool(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None or not value.strip():
+        return default
+    normalized = value.strip().lower()
+    if normalized in {"true", "1", "yes"}:
+        return True
+    if normalized in {"false", "0", "no"}:
+        return False
+    raise ValueError(f"{name} must be true or false")
+
+
 def create_backend_config() -> dict:
     remote_index_build = (
         os.environ.get("REMOTE_INDEX_BUILD", "false").lower() == "true"
@@ -33,6 +45,7 @@ def create_backend_config() -> dict:
         "verify_certs": False,
         "number_of_shards": number_of_shards,
         "remote_index_build": remote_index_build,
+        "force_merge": _bool("FORCE_MERGE"),
     }
     if approximate_threshold is not None:
         config["approximate_threshold"] = approximate_threshold

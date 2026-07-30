@@ -133,6 +133,7 @@ class OpenSearchConfigLoader(ConfigLoader):
             "build_batch_size",
             "approximate_threshold",
             "refresh_interval",
+            "force_merge",
             # Remote Index Build (OpenSearch 3.0+, faiss engine only)
             "remote_index_build",
             "remote_build_size_min",
@@ -294,6 +295,8 @@ class OpenSearchBackend(BenchmarkBackend):
         - ``refresh_interval`` – how often OpenSearch refreshes the index,
           e.g. ``"1s"`` or ``"-1"`` to disable automatic refreshes during
           ingestion (default: OpenSearch's default).
+        - ``force_merge`` – merge each shard down to one segment after
+          ingestion and flush complete (default: ``False``).
         - ``requires_network`` – trigger network pre-flight check (default: ``True``)
         - ``remote_index_build`` – set ``index.knn.remote_index_build.enabled=true``
           on the index at creation time, opting it into the GPU build path (default: ``False``).
@@ -564,6 +567,23 @@ class OpenSearchBackend(BenchmarkBackend):
                 f"Flush did not complete on all shards for {index_name}: {resp}"
             )
 
+    def _force_merge_index(self, index_name: str) -> None:
+        resp = self._client.indices.forcemerge(
+            index=index_name,
+            max_num_segments=1,
+            request_timeout=None,
+        )
+        shards = resp.get("_shards", {})
+        total = shards.get("total", 0)
+        successful = shards.get("successful", 0)
+        failed = shards.get("failed", 0)
+
+        if failed or successful != total:
+            raise RuntimeError(
+                f"Force merge did not complete on all shards for "
+                f"{index_name}: {resp}"
+            )
+
     def _resolve_index_name(self, index_cfg: IndexConfig) -> str:
         return self.config.get(
             "index_name", index_cfg.name.replace(".", "_").lower()
@@ -701,9 +721,10 @@ class OpenSearchBackend(BenchmarkBackend):
         vectors. If the index already exists and ``force=False`` the build is
         skipped.
 
-        Build time measures ingest and flush. When ``remote_index_build=True``
-        it also includes waiting for GPU build confirmation via the kNN stats
-        API. The final index refresh runs after build timing is recorded.
+        Build time measures ingest, flush, and the optional force merge. When
+        ``remote_index_build=True`` it also includes waiting for GPU build
+        confirmation via the kNN stats API. The final index refresh runs after
+        build timing is recorded.
 
         Parameters
         ----------
@@ -739,11 +760,13 @@ class OpenSearchBackend(BenchmarkBackend):
         remote_build_size_min = self.config.get("remote_build_size_min")
         approximate_threshold = self.config.get("approximate_threshold")
         refresh_interval = self.config.get("refresh_interval")
+        force_merge = bool(self.config.get("force_merge", False))
 
         if dry_run:
             print(
                 f"[dry_run] Would build OpenSearch index '{index_name}' "
-                f"(engine={engine}, remote_index_build={remote_index_build}, build_param={build_param})"
+                f"(engine={engine}, remote_index_build={remote_index_build}, "
+                f"force_merge={force_merge}, build_param={build_param})"
             )
 
             return BuildResult(
@@ -817,6 +840,8 @@ class OpenSearchBackend(BenchmarkBackend):
                 initial_stats=pre_ingest_stats,
                 timeout=remote_timeout,
             )
+        if force_merge:
+            self._force_merge_index(index_name)
         build_time = time.perf_counter() - t0
 
         self._client.indices.refresh(index=index_name, request_timeout=120)
@@ -840,6 +865,7 @@ class OpenSearchBackend(BenchmarkBackend):
                 "remote_index_build": remote_index_build,
                 "approximate_threshold": approximate_threshold,
                 "refresh_interval": refresh_interval,
+                "force_merge": force_merge,
             },
             success=True,
         )

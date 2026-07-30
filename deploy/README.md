@@ -75,6 +75,7 @@ export BUILD_BATCH_SIZE=                   # optional bulk ingest batch size ove
 export NUMBER_OF_SHARDS=1                  # number of primary index shards (default: 1)
 export APPROXIMATE_THRESHOLD=              # optional vectors per segment before ANN build
 export REFRESH_INTERVAL=                   # optional index refresh interval (for example: 30s or -1)
+export FORCE_MERGE=false                   # optionally merge each shard to one segment
 export REMOTE_BUILD_TIMEOUT=1800           # seconds to wait for remote builds (default: 1800)
 ```
 
@@ -89,6 +90,10 @@ them.
 Leave it empty to use the OpenSearch default, or set it to `-1` to disable
 automatic refreshes during ingestion. cuvs-bench performs an explicit refresh
 before searching.
+
+Set `FORCE_MERGE=true` to merge every primary shard down to one segment after
+ingestion and flush complete. The force-merge time is included in the reported
+build time. It is disabled by default.
 
 Start all services:
 

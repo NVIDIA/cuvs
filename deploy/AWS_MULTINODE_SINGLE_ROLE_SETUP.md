@@ -328,6 +328,7 @@ export BUILD_BATCH_SIZE=
 export NUMBER_OF_SHARDS=1
 export APPROXIMATE_THRESHOLD=
 export REFRESH_INTERVAL=
+export FORCE_MERGE=false
 
 mkdir -p "${DATASET_PATH}"
 

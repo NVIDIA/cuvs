@@ -40,6 +40,7 @@
 #   NUMBER_OF_SHARDS        Number of primary index shards (default: 1)
 #   APPROXIMATE_THRESHOLD   Optional vectors per segment before ANN build
 #   REFRESH_INTERVAL        Optional index refresh interval (for example: 30s or -1)
+#   FORCE_MERGE             Merge each shard to one segment after ingest (default: false)
 #   CUVS_REPOSITORY         Repository cloned into the benchmark image
 #   CUVS_BRANCH             Repository branch cloned into the benchmark image
 #
@@ -140,6 +141,7 @@ services:
       NUMBER_OF_SHARDS: ${NUMBER_OF_SHARDS:-1}
       APPROXIMATE_THRESHOLD: ${APPROXIMATE_THRESHOLD:-}
       REFRESH_INTERVAL: ${REFRESH_INTERVAL:-}
+      FORCE_MERGE: ${FORCE_MERGE:-false}
     volumes:
       - ${DATASET_PATH:-/tmp/datasets}:/data/datasets
     restart: "no"
