@@ -930,8 +930,7 @@ __global__ void manyway_gather_leaf_vectors_kernel(T const* dataset,
 
 /** Select the nearest cross-input neighbors of each point from the leaf Gram matrix. One block
  *  does one leaf. One thread does one point. */
-template <typename GramT>
-static __global__ void manyway_leaf_gram_knn_kernel(GramT const* gram,
+static __global__ void manyway_leaf_gram_knn_kernel(float const* gram,
                                                     partition_membership const* memberships,
                                                     uint32_t const* origins,
                                                     uint32_t const* leaf_starts,
@@ -1073,19 +1072,19 @@ auto build_leaf_neighbors(raft::resources const& res,
                              gram_stride,
                              dimension,
                              static_cast<int>(batch_size));
-    manyway_leaf_gram_knn_kernel<float>
-      <<<static_cast<int>(batch_size), leaf_size, 0, stream>>>(gram.data(),
-                                                               memberships.data(),
-                                                               origins,
-                                                               leaves.starts.data(),
-                                                               leaves.counts.data(),
-                                                               leaves.strides.data(),
-                                                               static_cast<int64_t>(leaf_offset),
-                                                               static_cast<int64_t>(batch_size),
-                                                               leaf_size,
-                                                               leaf_degree,
-                                                               union_degree,
-                                                               graph.data_handle());
+    manyway_leaf_gram_knn_kernel<<<static_cast<int>(batch_size), leaf_size, 0, stream>>>(
+      gram.data(),
+      memberships.data(),
+      origins,
+      leaves.starts.data(),
+      leaves.counts.data(),
+      leaves.strides.data(),
+      static_cast<int64_t>(leaf_offset),
+      static_cast<int64_t>(batch_size),
+      leaf_size,
+      leaf_degree,
+      union_degree,
+      graph.data_handle());
     RAFT_CUDA_TRY(cudaGetLastError());
   }
 
