@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -298,6 +298,27 @@ CUVS_EXPORT cuvsError_t cuvsCagraIndexParamsFromHnswParams(cuvsCagraIndexParams_
                                                 int ef_construction,
                                                 enum cuvsCagraHnswHeuristicType heuristic,
                                                 cuvsDistanceType metric);
+
+/**
+ * @brief Create CAGRA index parameters heuristically tuned for a dataset
+ *
+ * This factory function selects the graph build algorithm and its parameters based on the shape of
+ * the dataset.
+ *
+ * @param[out] params The CAGRA index params to populate
+ * @param[in] n_rows Number of rows in the dataset
+ * @param[in] dim Number of dimensions in the dataset
+ * @param[in] graph_degree Degree of the output graph
+ * @param[in] metric Distance metric to use
+ * @param[in] build_quality Higher values increase build quality (and cost) up to a point
+ * @return cuvsError_t
+ */
+CUVS_EXPORT cuvsError_t cuvsCagraIndexParamsFromDataset(cuvsCagraIndexParams_t params,
+                                                int64_t n_rows,
+                                                int64_t dim,
+                                                size_t graph_degree,
+                                                cuvsDistanceType metric,
+                                                size_t build_quality);
 
 /**
  * @}

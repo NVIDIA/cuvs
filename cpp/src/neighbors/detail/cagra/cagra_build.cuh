@@ -1383,15 +1383,11 @@ index<T, IdxT> build_ace(raft::resources const& res,
         std::chrono::duration_cast<std::chrono::milliseconds>(read_end - start).count();
 
       // Create index for this partition
-      cuvs::neighbors::cagra::index_params sub_index_params;
-      sub_index_params = cuvs::neighbors::cagra::index_params::from_hnsw_params(
+      auto sub_index_params = cuvs::neighbors::cagra::index_params::from_dataset(
         raft::make_extents<int64_t>(sub_dataset_size, dataset_dim),
-        graph_degree / 2,
-        ef_construction,
-        cuvs::neighbors::cagra::hnsw_heuristic_type::SAME_GRAPH_FOOTPRINT,
-        params.metric);
-      // avoid rounding down graph_degree via heuristics doing `(graph_degree / 2) * 2`
-      sub_index_params.graph_degree            = graph_degree;
+        graph_degree,
+        params.metric,
+        ef_construction / 16);
       sub_index_params.attach_dataset_on_build = false;
       sub_index_params.guarantee_connectivity  = params.guarantee_connectivity;
 

@@ -240,10 +240,20 @@ public class Util {
    * @return an instance of {@link MemorySegment}
    */
   public static MemorySegment buildMemorySegment(Arena arena, long[] data) {
-    int cells = data.length;
-    MemoryLayout dataMemoryLayout = MemoryLayout.sequenceLayout(cells, C_LONG);
+    return buildMemorySegment(arena, data, data.length);
+  }
+
+  /**
+   * A utility method for building a {@link MemorySegment} for a 1D long array of given size.
+   *
+   * @param data The 1D long array for which the {@link MemorySegment} is needed
+   * @param lengthInLongs if lengthInLongs is longer then the data array, 0s will be appended to the end of the array
+   * @return an instance of {@link MemorySegment}
+   */
+  public static MemorySegment buildMemorySegment(Arena arena, long[] data, long lengthInLongs) {
+    MemoryLayout dataMemoryLayout = MemoryLayout.sequenceLayout(lengthInLongs, C_LONG);
     MemorySegment dataMemorySegment = arena.allocate(dataMemoryLayout);
-    MemorySegment.copy(data, 0, dataMemorySegment, C_LONG, 0, cells);
+    MemorySegment.copy(data, 0, dataMemorySegment, C_LONG, 0, data.length);
     return dataMemorySegment;
   }
 
