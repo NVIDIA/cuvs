@@ -43,7 +43,7 @@ groups:
       fastener_root_fanout: [2]
       fastener_lower_fanout: [3]
       fastener_leader_fraction: [0.02]
-      fastener_max_leaders: [1000]
+      fastener_max_leaders: [1024]
       fastener_leaf_size: [256]
       fastener_leaf_degree: [4]
     search:
@@ -61,7 +61,7 @@ groups:
       fastener_root_fanout: [4]
       fastener_lower_fanout: [2]
       fastener_leader_fraction: [0.01]
-      fastener_max_leaders: [1000]
+      fastener_max_leaders: [1024]
       fastener_leaf_size: [256]
       fastener_leaf_degree: [4]
     search:

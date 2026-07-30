@@ -28,7 +28,7 @@ def cuvs_cagra_build(params, dims):
         root_fanout = params.get("fastener_root_fanout", 2)
         lower_fanout = params.get("fastener_lower_fanout", 3)
         leader_fraction = params.get("fastener_leader_fraction", 0.02)
-        max_leaders = params.get("fastener_max_leaders", 1000)
+        max_leaders = params.get("fastener_max_leaders", 1024)
         leaf_size = params.get("fastener_leaf_size", 256)
         leaf_degree = params.get("fastener_leaf_degree", 4)
         valid = valid and levels > 0
