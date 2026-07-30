@@ -21,10 +21,8 @@ def create_backend_config() -> dict:
     if number_of_shards < 1:
         raise ValueError("NUMBER_OF_SHARDS must be at least 1")
 
-    approximate_threshold = int(
-        os.environ.get("APPROXIMATE_THRESHOLD", "10000")
-    )
-    if approximate_threshold < -1:
+    approximate_threshold = _optional_int("APPROXIMATE_THRESHOLD")
+    if approximate_threshold is not None and approximate_threshold < -1:
         raise ValueError("APPROXIMATE_THRESHOLD must be -1 or greater")
 
     config = {
@@ -34,9 +32,10 @@ def create_backend_config() -> dict:
         "use_ssl": False,
         "verify_certs": False,
         "number_of_shards": number_of_shards,
-        "approximate_threshold": approximate_threshold,
         "remote_index_build": remote_index_build,
     }
+    if approximate_threshold is not None:
+        config["approximate_threshold"] = approximate_threshold
 
     build_batch_size = _optional_int("BUILD_BATCH_SIZE")
     if build_batch_size is not None:

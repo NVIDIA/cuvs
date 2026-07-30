@@ -164,7 +164,7 @@ docker compose run --rm \
   -e REMOTE_BUILD_SIZE_MIN=${REMOTE_BUILD_SIZE_MIN:-} \
   -e REMOTE_BUILD_TIMEOUT=${REMOTE_BUILD_TIMEOUT:-1800} \
   -e NUMBER_OF_SHARDS=${NUMBER_OF_SHARDS:-1} \
-  -e APPROXIMATE_THRESHOLD=${APPROXIMATE_THRESHOLD:-10000} \
+  -e APPROXIMATE_THRESHOLD=${APPROXIMATE_THRESHOLD:-} \
   -v $(pwd)/remote-index-build:/app/remote-index-build \
   --no-deps bench \
   python remote-index-build/run.py

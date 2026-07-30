@@ -104,4 +104,5 @@ python -m cuvs_bench.plot \
     --groups "$BENCH_GROUPS" \
     --count "$K" \
     --batch-size "$BATCH_SIZE" \
+    --raw \
     --output-filepath /data/datasets

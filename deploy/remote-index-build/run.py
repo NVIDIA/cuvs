@@ -39,8 +39,11 @@ REMOTE_BUILD_TIMEOUT = int(os.environ.get("REMOTE_BUILD_TIMEOUT", "1800"))
 NUMBER_OF_SHARDS = int(os.environ.get("NUMBER_OF_SHARDS", "1"))
 if NUMBER_OF_SHARDS < 1:
     raise ValueError("NUMBER_OF_SHARDS must be at least 1")
-APPROXIMATE_THRESHOLD = int(os.environ.get("APPROXIMATE_THRESHOLD", "10000"))
-if APPROXIMATE_THRESHOLD < -1:
+_approximate_threshold = os.environ.get("APPROXIMATE_THRESHOLD", "").strip()
+APPROXIMATE_THRESHOLD = (
+    int(_approximate_threshold) if _approximate_threshold else None
+)
+if APPROXIMATE_THRESHOLD is not None and APPROXIMATE_THRESHOLD < -1:
     raise ValueError("APPROXIMATE_THRESHOLD must be -1 or greater")
 
 session = requests.Session()
@@ -102,8 +105,11 @@ def create_index() -> None:
         "index.knn.remote_index_build.enabled": True,
         "number_of_shards": NUMBER_OF_SHARDS,
         "number_of_replicas": 0,
-        "index.knn.advanced.approximate_threshold": APPROXIMATE_THRESHOLD,
     }
+    if APPROXIMATE_THRESHOLD is not None:
+        index_settings["index.knn.advanced.approximate_threshold"] = (
+            APPROXIMATE_THRESHOLD
+        )
     if REMOTE_BUILD_SIZE_MIN:
         index_settings["index.knn.remote_index_build.size.min"] = (
             REMOTE_BUILD_SIZE_MIN
