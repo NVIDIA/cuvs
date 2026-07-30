@@ -613,9 +613,9 @@ void assign_bucket(raft::resources const& res,
     static_cast<size_t>(padded_leaders) * static_cast<size_t>(dim) * sizeof(float) +
     static_cast<size_t>(padded_leaders) * sizeof(uint32_t) + sizeof(assignment_tile);
   size_t row_bytes = (static_cast<size_t>(dim) + static_cast<size_t>(padded_leaders) +
-     static_cast<size_t>(params.fanout)) *
-      sizeof(float) +
-    static_cast<size_t>(params.fanout) * sizeof(int);
+                      static_cast<size_t>(params.fanout)) *
+                       sizeof(float) +
+                     static_cast<size_t>(params.fanout) * sizeof(int);
   RAFT_EXPECTS(leader_bytes + row_bytes <= context.gemm_workspace_bytes,
                "Fastener assignment workspace cannot fit the leader matrix and a single point row");
   int tile_rows = static_cast<int>(
@@ -1298,7 +1298,7 @@ auto append_to_input_graphs(
       static_cast<uint32_t>(offsets[part]));
     RAFT_CUDA_TRY(cudaGetLastError());
   }
-  raft::resource::sync_stream(res);
+
   return graph;
 }
 
