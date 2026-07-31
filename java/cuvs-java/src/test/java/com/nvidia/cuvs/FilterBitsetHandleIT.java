@@ -47,6 +47,7 @@ public class FilterBitsetHandleIT extends CuVSTestCase {
 
   /** Device storage and views attached to the partition indexes, released by {@link #closeAll}. */
   private final List<CuVSDeviceMatrix> partitionDeviceDatasets = new ArrayList<>();
+
   private final List<CagraIndex.PaddedDatasetView> partitionDatasetViews = new ArrayList<>();
 
   @Before
