@@ -21,6 +21,7 @@ requires-python = ">=3.11"
 dependencies = [
     "click",
     "cuvs==26.10.*,>=0.0.0a0",
+    "h5py>=3.8.0",
     "matplotlib>=3.9",
     "pandas",
     "pyyaml",
