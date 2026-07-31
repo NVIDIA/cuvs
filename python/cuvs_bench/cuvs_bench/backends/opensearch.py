@@ -825,9 +825,9 @@ class OpenSearchBackend(BenchmarkBackend):
         Search the OpenSearch k-NN index for nearest neighbors.
 
         Iterates over every search-parameter combination defined in the index
-        config, updating the index-level ``ef_search`` setting between runs.
-        Returns one result per parameter set so the orchestrator can compute
-        recall for each set independently.
+        config, passing ``ef_search`` directly in every k-NN query. Returns one
+        result per parameter set so the orchestrator can compute recall for
+        each set independently.
 
         Parameters
         ----------
@@ -919,12 +919,6 @@ class OpenSearchBackend(BenchmarkBackend):
         for sp in search_params_list:
             ef_search = sp.get("ef_search", 100)
 
-            if engine == "faiss":
-                self._client.indices.put_settings(
-                    index=index_name,
-                    body={"index.knn.algo_param.ef_search": ef_search},
-                )
-
             neighbors = np.full((n_queries, k), -1, dtype=np.int64)
             distances = np.zeros((n_queries, k), dtype=np.float32)
 
@@ -942,6 +936,9 @@ class OpenSearchBackend(BenchmarkBackend):
                                     "vector": {
                                         "vector": q_vec.tolist(),
                                         "k": k,
+                                        "method_parameters": {
+                                            "ef_search": ef_search,
+                                        },
                                     }
                                 }
                             },

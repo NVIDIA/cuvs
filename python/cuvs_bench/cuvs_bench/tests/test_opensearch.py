@@ -190,47 +190,6 @@ class TestOpenSearchBackend:
             [{"ef_search": 100}],
         ]
 
-    def test_recall_is_computed_for_each_search_parameter(self):
-        class FakeIndices:
-            def __init__(self):
-                self.ef_search = None
-
-            def put_settings(self, index, body):
-                self.ef_search = body["index.knn.algo_param.ef_search"]
-
-        class FakeClient:
-            def __init__(self):
-                self.indices = FakeIndices()
-
-            def msearch(self, index, body):
-                ids = [2, 3] if self.indices.ef_search == 50 else [0, 1]
-                response = {
-                    "hits": {
-                        "hits": [
-                            {"_id": str(neighbor), "_score": 1.0}
-                            for neighbor in ids
-                        ]
-                    }
-                }
-                return {"responses": [response for _ in body[::2]]}
-
-        dataset = Dataset(
-            name="test",
-            query_vectors=np.zeros((2, 4), dtype=np.float32),
-            groundtruth_neighbors=np.array([[0, 1], [0, 1]]),
-        )
-        backend = _make_backend()
-        backend._OpenSearchBackend__client = FakeClient()
-
-        results = backend.search(
-            dataset, [_make_index_cfg()], k=2, batch_size=2
-        )
-        for result in results:
-            BenchmarkOrchestrator._finalize_search_result(result, dataset, 2)
-
-        assert [result.recall for result in results] == [0.0, 1.0]
-        assert all(result.neighbors.shape == (2, 2) for result in results)
-
     def test_remote_build_requires_faiss_engine(self):
         backend = _make_backend({"engine": "lucene"})
         with pytest.raises(ValueError, match="faiss engine"):
@@ -558,6 +517,37 @@ class TestOpenSearchBackendIntegration:
         assert search_result.recall == 0.0
         assert search_result.queries_per_second > 0
         assert search_result.neighbors.shape == (10, k)
+
+    def test_recall_is_computed_for_each_search_parameter(self, live_backend):
+        # Regression test for https://github.com/NVIDIA/cuvs/issues/2358
+        k = 10
+        dataset = _make_dataset(
+            n_base=5_000,
+            n_queries=100,
+            dims=16,
+            k=k,
+        )
+        idx = IndexConfig(
+            name="test_index",
+            algo="opensearch_faiss_hnsw",
+            build_param={"m": 4, "ef_construction": 64},
+            search_params=[{"ef_search": 10}, {"ef_search": 100}],
+            file="",
+        )
+
+        build_result = live_backend.build(dataset, [idx], force=True)
+        assert build_result.success
+
+        results = live_backend.search(dataset, [idx], k=k)
+        for result in results:
+            BenchmarkOrchestrator._finalize_search_result(result, dataset, k)
+
+        assert [result.search_params for result in results] == [
+            [{"ef_search": 10}],
+            [{"ef_search": 100}],
+        ]
+        assert all(result.neighbors.shape == (100, k) for result in results)
+        assert results[0].recall < results[1].recall
 
 
 @pytest.mark.opensearch
