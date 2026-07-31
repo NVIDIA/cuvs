@@ -10,8 +10,6 @@
 
 #include <chrono>
 #include <memory>
-#include <optional>
-#include <variant>
 
 #include "../common/ann_types.hpp"
 #include "../diskann/diskann_wrapper.h"
@@ -71,6 +69,10 @@ class cuvs_cagra_diskann : public algo<T>, public algo_gpu {
   search_param search_param_;
   cuvs_cagra<T, IdxT> cagra_build_;
   std::shared_ptr<diskann_memory<T>> diskann_memory_search_;
+  // The CAGRA index only keeps the graph when it is constructed from host memory, so remember the
+  // rows we were given: save() has to write them next to the graph.
+  const T* dataset_    = nullptr;
+  size_t dataset_size_ = 0;
 };
 
 template <typename T, typename IdxT>
@@ -87,6 +89,8 @@ template <typename T, typename IdxT>
 void cuvs_cagra_diskann<T, IdxT>::build(const T* dataset, size_t nrow)
 {
   cagra_build_.build(dataset, nrow);
+  dataset_      = dataset;
+  dataset_size_ = nrow;
 }
 
 template <typename T, typename IdxT>
@@ -167,44 +171,26 @@ void cuvs_cagra_diskann<T, IdxT>::save(const std::string& file) const
 
   // try allocating a buffer for the dataset on host
   try {
-    auto const* idx_ptr                                    = cagra_build_.get_index();
-    std::optional<raft::host_matrix<T, int64_t>> h_dataset = std::nullopt;
-    auto const& data_view                                  = idx_ptr->dataset();
-    if constexpr (cuvs::neighbors::is_padded_dataset_view_v<std::decay_t<decltype(data_view)>>) {
-      auto const& v = data_view;
-      auto n_rows   = v.n_rows();
-      auto dim      = v.dim();
-      auto stride   = v.stride();
-      h_dataset.emplace(raft::make_host_matrix<T, int64_t>(n_rows, dim));
-      raft::copy_matrix(h_dataset->data_handle(),
-                        dim,
-                        v.view().data_handle(),
-                        stride,
-                        dim,
-                        n_rows,
-                        raft::resource::get_cuda_stream(handle_));
-    } else {
-      RAFT_LOG_DEBUG("dataset serialization: index dataset is not device_padded_dataset_view");
+    int size       = static_cast<int>(dataset_size_);
+    int dim        = this->dim_;
+    auto h_dataset = raft::make_host_matrix<T, int64_t>(size, dim);
+    raft::copy(h_dataset.data_handle(),
+               dataset_,
+               static_cast<size_t>(size) * dim,
+               raft::resource::get_cuda_stream(handle_));
+    raft::resource::sync_stream(handle_);
+    std::string dataset_base_file = file + ".data";
+    std::ofstream dataset_of(dataset_base_file, std::ios::out | std::ios::binary);
+    if (!dataset_of) { RAFT_FAIL("Cannot open file %s", dataset_base_file.c_str()); }
+    size_t dataset_file_offset = 0;
+    dataset_of.seekp(dataset_file_offset, dataset_of.beg);
+    dataset_of.write((char*)&size, sizeof(int));
+    dataset_of.write((char*)&dim, sizeof(int));
+    for (int i = 0; i < size; i++) {
+      dataset_of.write((char*)(h_dataset.data_handle() + i * h_dataset.extent(1)), dim * sizeof(T));
     }
-
-    if (h_dataset.has_value()) {
-      raft::resource::sync_stream(handle_);
-      std::string dataset_base_file = file + ".data";
-      std::ofstream dataset_of(dataset_base_file, std::ios::out | std::ios::binary);
-      if (!dataset_of) { RAFT_FAIL("Cannot open file %s", dataset_base_file.c_str()); }
-      size_t dataset_file_offset = 0;
-      int size                   = static_cast<int>(cagra_build_.get_index()->size());
-      int dim                    = static_cast<int>(cagra_build_.get_index()->dim());
-      dataset_of.seekp(dataset_file_offset, dataset_of.beg);
-      dataset_of.write((char*)&size, sizeof(int));
-      dataset_of.write((char*)&dim, sizeof(int));
-      for (int i = 0; i < size; i++) {
-        dataset_of.write((char*)(h_dataset->data_handle() + i * h_dataset->extent(1)),
-                         dim * sizeof(T));
-      }
-      dataset_of.close();
-      if (!dataset_of) { RAFT_FAIL("Error writing output %s", dataset_base_file.c_str()); }
-    }
+    dataset_of.close();
+    if (!dataset_of) { RAFT_FAIL("Error writing output %s", dataset_base_file.c_str()); }
   } catch (std::bad_alloc& e) {
     RAFT_LOG_INFO("Failed to serialize dataset");
   } catch (raft::logic_error& e) {
