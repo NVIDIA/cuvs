@@ -8,10 +8,16 @@
 #include <cuvs/neighbors/hnsw.hpp>
 #include <raft/core/logger.hpp>
 
+#include <algorithm>
 #include <chrono>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <memory>
 
 #include "../common/ann_types.hpp"
+#include "../common/blob.hpp"
+#include "../common/conf.hpp"
 #include "../diskann/diskann_wrapper.h"
 #include "cuvs_ann_bench_utils.h"
 #include <cuvs/neighbors/vamana.hpp>
@@ -69,10 +75,6 @@ class cuvs_cagra_diskann : public algo<T>, public algo_gpu {
   search_param search_param_;
   cuvs_cagra<T, IdxT> cagra_build_;
   std::shared_ptr<diskann_memory<T>> diskann_memory_search_;
-  // The CAGRA index only keeps the graph when it is constructed from host memory, so remember the
-  // rows we were given: save() has to write them next to the graph.
-  const T* dataset_    = nullptr;
-  size_t dataset_size_ = 0;
 };
 
 template <typename T, typename IdxT>
@@ -89,8 +91,6 @@ template <typename T, typename IdxT>
 void cuvs_cagra_diskann<T, IdxT>::build(const T* dataset, size_t nrow)
 {
   cagra_build_.build(dataset, nrow);
-  dataset_      = dataset;
-  dataset_size_ = nrow;
 }
 
 template <typename T, typename IdxT>
@@ -169,33 +169,35 @@ void cuvs_cagra_diskann<T, IdxT>::save(const std::string& file) const
   index_of.close();
   if (!index_of) { RAFT_FAIL("Error writing output %s", file.c_str()); }
 
-  // try allocating a buffer for the dataset on host
-  try {
-    int size       = static_cast<int>(dataset_size_);
-    int dim        = this->dim_;
-    auto h_dataset = raft::make_host_matrix<T, int64_t>(size, dim);
-    raft::copy(h_dataset.data_handle(),
-               dataset_,
-               static_cast<size_t>(size) * dim,
-               raft::resource::get_cuda_stream(handle_));
-    raft::resource::sync_stream(handle_);
-    std::string dataset_base_file = file + ".data";
-    std::ofstream dataset_of(dataset_base_file, std::ios::out | std::ios::binary);
-    if (!dataset_of) { RAFT_FAIL("Cannot open file %s", dataset_base_file.c_str()); }
-    size_t dataset_file_offset = 0;
-    dataset_of.seekp(dataset_file_offset, dataset_of.beg);
-    dataset_of.write((char*)&size, sizeof(int));
-    dataset_of.write((char*)&dim, sizeof(int));
-    for (int i = 0; i < size; i++) {
-      dataset_of.write((char*)(h_dataset.data_handle() + i * h_dataset.extent(1)), dim * sizeof(T));
-    }
-    dataset_of.close();
-    if (!dataset_of) { RAFT_FAIL("Error writing output %s", dataset_base_file.c_str()); }
-  } catch (std::bad_alloc& e) {
-    RAFT_LOG_INFO("Failed to serialize dataset");
-  } catch (raft::logic_error& e) {
-    RAFT_LOG_INFO("Failed to serialize dataset");
-  }
+  // Write the rows next to the graph; diskann::Index::load() reads them from `<file>.data`.
+  // The benchmark base file is already in the same bin format, so copy it rather than pull the
+  // rows out of memory - this way `save()` does not care where the dataset was allocated.
+  const auto& ds_conf = configuration::singleton().get_dataset_conf();
+  blob_file<T> base{ds_conf.base_file, ds_conf.subset_first_row, ds_conf.subset_size};
+  int size = static_cast<int>(base.rows_limit());
+  int dim  = static_cast<int>(base.n_cols());
+  RAFT_EXPECTS(dim == this->dim_, "base_file dimensionality does not match the index");
+
+  size_t header_bytes = 2 * sizeof(uint32_t);
+  size_t skip_bytes   = sizeof(T) * static_cast<size_t>(base.rows_offset()) * dim;
+  size_t copy_bytes   = sizeof(T) * static_cast<size_t>(size) * dim;
+  RAFT_EXPECTS(std::filesystem::file_size(base.path()) >= header_bytes + skip_bytes + copy_bytes,
+               "base_file is shorter than its header claims");
+
+  std::ifstream base_in(base.path(), std::ios::in | std::ios::binary);
+  if (!base_in) { RAFT_FAIL("Cannot open file %s", base.path().c_str()); }
+  base_in.seekg(header_bytes + skip_bytes);
+
+  std::string dataset_base_file = file + ".data";
+  std::ofstream dataset_of(dataset_base_file, std::ios::out | std::ios::binary);
+  if (!dataset_of) { RAFT_FAIL("Cannot open file %s", dataset_base_file.c_str()); }
+  dataset_of.write((char*)&size, sizeof(int));
+  dataset_of.write((char*)&dim, sizeof(int));
+  std::copy_n(std::istreambuf_iterator<char>(base_in),
+              copy_bytes,
+              std::ostreambuf_iterator<char>(dataset_of));
+  dataset_of.close();
+  if (!base_in || !dataset_of) { RAFT_FAIL("Error writing output %s", dataset_base_file.c_str()); }
 }
 
 template <typename T, typename IdxT>
