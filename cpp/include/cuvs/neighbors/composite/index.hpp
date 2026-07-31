@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -48,7 +48,8 @@ class CUVS_EXPORT composite_index {
   using out_index_type    = OutputIdxT;
   using matrix_index_type = int64_t;
 
-  explicit composite_index(std::vector<cuvs::neighbors::cagra::index<T, IdxT>*> children)
+  explicit composite_index(
+    std::vector<cuvs::neighbors::cagra::device_padded_index<T, IdxT>*> children)
     : children_(std::move(children))
   {
   }
@@ -91,7 +92,7 @@ class CUVS_EXPORT composite_index {
   }
 
  private:
-  std::vector<cuvs::neighbors::cagra::index<T, IdxT>*> children_;
+  std::vector<cuvs::neighbors::cagra::device_padded_index<T, IdxT>*> children_;
 };
 
 }  // namespace composite

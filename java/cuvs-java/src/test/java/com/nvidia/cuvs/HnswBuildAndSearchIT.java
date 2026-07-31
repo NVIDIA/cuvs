@@ -63,6 +63,8 @@ public class HnswBuildAndSearchIT extends CuVSTestCase {
     CagraIndex index =
         CagraIndex.newBuilder(resources).withDataset(dataset).withIndexParams(indexParams).build();
 
+    // hnswlib search runs on the host, so a host-built index serializes straight from its own
+    // host-resident vectors without a detour through device-padded storage.
     // Saving the HNSW index on to the disk.
     String hnswIndexFileName = UUID.randomUUID() + ".hnsw";
     var hnswIndexPath = Path.of(hnswIndexFileName);
