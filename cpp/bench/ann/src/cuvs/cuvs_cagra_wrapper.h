@@ -474,7 +474,9 @@ void cuvs_cagra<T, IdxT>::set_search_param(const search_param_base& param,
     needs_dynamic_batcher_update = true;
   }
 
-  if (sp.dataset_mem != dataset_mem_ || need_dataset_update_) {
+  // CAGRA-Q searches the compressed rows in vpq_index_, so the dense dataset is never needed.
+  if (!index_params_.compression.has_value() &&
+      (sp.dataset_mem != dataset_mem_ || need_dataset_update_)) {
     dataset_mem_ = sp.dataset_mem;
 
     // First free up existing memory
