@@ -59,6 +59,26 @@ public interface CuVSResources extends AutoCloseable {
   Path tempDirectory();
 
   /**
+   * Configure the temporary workspace on this resources object as an uncapped pool backed by the
+   * current device memory resource. After the initial reservation is allocated on first use,
+   * subsequent calls to {@code cuvsRMMAlloc} / {@code cuvsRMMFree} on this handle hit the pool
+   * cache rather than calling {@code cudaMallocAsync} / {@code cudaFreeAsync}, reducing CUDA
+   * context lock contention under concurrent query threads. The pool grows without shrinking:
+   * freed allocations are returned to the pool rather than to the device, so the pool's
+   * high-water mark only increases until the resources object is closed.
+   *
+   * <p>The pool is per-resources-handle (i.e. per query thread when resources are thread-local),
+   * so there is no cross-thread pool mutex contention. Call this once after creating the resources
+   * object; calling it again replaces the pool.
+   *
+   * @param initialSizeBytes initial pool reservation in bytes; must be {@code > 0}. Size
+   *                         {@code initialSizeBytes} to cover the steady-state working set to avoid
+   *                         growth after warmup
+   * @throws IllegalArgumentException if {@code initialSizeBytes} is not greater than 0
+   */
+  void setWorkspacePool(long initialSizeBytes);
+
+  /**
    * Creates a new resources.
    * Equivalent to
    * <pre>{@code

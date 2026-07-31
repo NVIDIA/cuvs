@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs;
@@ -46,6 +46,15 @@ public interface CagraIndex extends AutoCloseable {
    * the cagra graph
    */
   CuVSDeviceMatrix getGraph();
+
+  /**
+   * Returns the degree of the built CAGRA graph (its number of edges per node), which may be
+   * smaller than the requested {@code graph_degree} when the dataset is small enough that the
+   * build truncated it.
+   *
+   * @return the built graph degree ({@code graph().extent(1)})
+   */
+  long getGraphDegree();
 
   /**
    * A method to persist a CAGRA index using an instance of {@link OutputStream}
