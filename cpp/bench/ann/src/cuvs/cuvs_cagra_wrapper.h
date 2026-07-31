@@ -110,29 +110,22 @@ void grow_buffers(const raft::resources& res,
 /**
  * Turn a host-resident index into a searchable device index carrying only the graph.
  *
- * The graph is already in device memory; `buffer` takes a copy of it so that the host index can be
- * released. The dataset is attached later, by `set_search_param` or `set_search_dataset`.
+ * The graph is already in device memory, owned by `host_index`; the returned index only views it,
+ * so the caller must keep `host_index` alive. The dataset is attached later, by `set_search_param`
+ * or `set_search_dataset`.
  */
-template <typename T, typename HostIndexT, typename IdxT>
-auto to_graph_only_index(const raft::resources& res,
-                         HostIndexT& host_index,
-                         raft::device_matrix<IdxT, int64_t, raft::row_major>& buffer)
+template <typename T, typename IdxT, typename HostIndexT>
+auto to_graph_only_index(const raft::resources& res, HostIndexT& host_index)
   -> cuvs::neighbors::cagra::device_padded_index<T, IdxT>
 {
+  cuvs::neighbors::cagra::device_padded_index<T, IdxT> index(res, host_index.metric());
   if (host_index.graph_fd().has_value()) {
     // ACE in disk mode keeps the graph and the rows in files; hand the descriptors over instead
     // of copying anything.
-    cuvs::neighbors::cagra::device_padded_index<T, IdxT> index(res, host_index.metric());
     cuvs::neighbors::cagra::detail::fd_transfer::steal_disk_fds_to(res, host_index, index);
-    return index;
+  } else {
+    index.update_graph(res, host_index.graph());
   }
-  auto graph = host_index.graph();
-  buffer     = raft::make_device_matrix<IdxT, int64_t>(res, graph.extent(0), graph.extent(1));
-  raft::copy(
-    buffer.data_handle(), graph.data_handle(), graph.size(), raft::resource::get_cuda_stream(res));
-  cuvs::neighbors::cagra::device_padded_index<T, IdxT> index(res, host_index.metric());
-  index.update_graph(res, raft::make_const_mdspan(buffer.view()));
-  raft::resource::sync_stream(res);
   return index;
 }
 
@@ -146,6 +139,7 @@ template <typename T, typename IdxT>
 class cuvs_cagra : public algo<T>, public algo_gpu {
  public:
   using index_type        = cuvs::neighbors::cagra::device_padded_index<T, IdxT>;
+  using host_index_type   = cuvs::neighbors::cagra::host_standard_index<T, IdxT>;
   using search_param_base = typename algo<T>::search_param;
   using algo<T>::dim_;
   using algo<T>::metric_;
@@ -252,6 +246,9 @@ class cuvs_cagra : public algo<T>, public algo_gpu {
   bool need_dataset_update_{true};
   cuvs::neighbors::cagra::search_params search_params_;
   std::shared_ptr<index_type> index_;
+  // Owns the graph viewed by index_ when it was constructed from host memory; dropped as soon as
+  // graph_ takes over in set_search_param.
+  std::shared_ptr<host_index_type> host_index_;
   std::shared_ptr<raft::device_matrix<IdxT, int64_t, raft::row_major>> graph_;
   std::shared_ptr<raft::device_matrix<T, int64_t, raft::row_major>> dataset_;
   std::shared_ptr<raft::device_matrix_view<const T, int64_t, raft::row_major>> input_dataset_v_;
@@ -265,12 +262,10 @@ class cuvs_cagra : public algo<T>, public algo_gpu {
 
   std::shared_ptr<cuvs::neighbors::filtering::base_filter> filter_;
   std::vector<std::shared_ptr<index_type>> sub_indices_;
+  std::vector<std::shared_ptr<host_index_type>> sub_host_indices_;
   std::shared_ptr<std::vector<raft::device_matrix<T, int64_t, raft::row_major>>>
     sub_dataset_buffers_ =
       std::make_shared<std::vector<raft::device_matrix<T, int64_t, raft::row_major>>>();
-  std::shared_ptr<std::vector<raft::device_matrix<IdxT, int64_t, raft::row_major>>>
-    sub_graph_buffers_ =
-      std::make_shared<std::vector<raft::device_matrix<IdxT, int64_t, raft::row_major>>>();
   std::shared_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>> vpq_dataset_;
   std::shared_ptr<cuvs::neighbors::cagra::vpq_f16_index<T, IdxT>> vpq_index_;
 
@@ -287,17 +282,16 @@ class cuvs_cagra : public algo<T>, public algo_gpu {
 template <typename T, typename IdxT>
 void cuvs_cagra<T, IdxT>::build(const T* dataset, size_t nrow)
 {
-  auto dataset_extents = raft::make_extents<IdxT>(nrow, dim_);
+  auto dataset_extents = raft::make_extents<int64_t>(nrow, dim_);
   auto params          = index_params_.cagra_params(dataset_extents, parse_metric_type(metric_));
+  // The host paths keep the graph only, so the index need not hold a view of the caller's rows.
+  auto host_params                    = params;
+  host_params.attach_dataset_on_build = false;
 
-  // Use int64_t throughout so that device copies are compatible with dataset_ (device_matrix<T,
-  // int64_t>) and so that the dataset views carry the correct index type.
-  auto dataset_extents_i64 =
-    raft::make_extents<int64_t>(static_cast<int64_t>(nrow), static_cast<int64_t>(dim_));
   auto dataset_view_host =
-    raft::make_mdspan<const T, int64_t, raft::row_major, true, false>(dataset, dataset_extents_i64);
+    raft::make_mdspan<const T, int64_t, raft::row_major, true, false>(dataset, dataset_extents);
   auto dataset_view_device =
-    raft::make_mdspan<const T, int64_t, raft::row_major, false, true>(dataset, dataset_extents_i64);
+    raft::make_mdspan<const T, int64_t, raft::row_major, false, true>(dataset, dataset_extents);
   // Pinned and managed allocations are readable by the GPU and hence take the device path, where
   // CAGRA can use them without a copy.
   bool dataset_is_on_host = !detail::is_device_accessible(dataset);
@@ -306,10 +300,13 @@ void cuvs_cagra<T, IdxT>::build(const T* dataset, size_t nrow)
       // Construct the graph straight from host memory: cagra::build streams the rows in batches
       // (and dispatches to ACE when it is configured), so the dataset is not uploaded here at all.
       // The single device copy needed for search is made later, by set_search_param.
-      auto host_index = cuvs::neighbors::cagra::build(
-        handle_, params, cuvs::neighbors::make_host_standard_dataset_view(dataset_view_host));
+      host_index_ = std::make_shared<host_index_type>(cuvs::neighbors::cagra::build(
+        handle_, host_params, cuvs::neighbors::make_host_standard_dataset_view(dataset_view_host)));
       index_ =
-        std::make_shared<index_type>(detail::to_graph_only_index<T>(handle_, host_index, *graph_));
+        std::make_shared<index_type>(detail::to_graph_only_index<T, IdxT>(handle_, *host_index_));
+      // The graph moved into the index along with the file descriptors; nothing views the host
+      // index any more.
+      if (index_->graph_fd().has_value()) { host_index_.reset(); }
     } else {
       index_ = std::make_shared<index_type>(cuvs::neighbors::cagra::build(
         handle_, params, detail::make_padded_view<T>(handle_, dataset_view_device, *dataset_)));
@@ -322,7 +319,6 @@ void cuvs_cagra<T, IdxT>::build(const T* dataset, size_t nrow)
     IdxT rows_per_split =
       raft::ceildiv<IdxT>(nrow, static_cast<IdxT>(index_params_.num_dataset_splits));
     detail::grow_buffers(handle_, *sub_dataset_buffers_, index_params_.num_dataset_splits);
-    detail::grow_buffers(handle_, *sub_graph_buffers_, index_params_.num_dataset_splits);
     for (size_t i = 0; i < index_params_.num_dataset_splits; ++i) {
       IdxT start = static_cast<IdxT>(i * rows_per_split);
       if (start >= nrow) break;
@@ -348,9 +344,11 @@ void cuvs_cagra<T, IdxT>::build(const T* dataset, size_t nrow)
       if (index_params_.merge_type == CagraMergeType::kLogical) {
         if (dataset_is_on_host) {
           // As in the single-split case: graph only, the rows are uploaded by set_search_dataset.
-          auto host_index = cuvs::neighbors::cagra::build(
-            handle_, params, cuvs::neighbors::make_host_standard_dataset_view(sub_host));
-          sub_index = detail::to_graph_only_index<T>(handle_, host_index, (*sub_graph_buffers_)[i]);
+          sub_host_indices_.push_back(
+            std::make_shared<host_index_type>(cuvs::neighbors::cagra::build(
+              handle_, host_params, cuvs::neighbors::make_host_standard_dataset_view(sub_host))));
+          sub_index = detail::to_graph_only_index<T, IdxT>(handle_, *sub_host_indices_.back());
+          if (sub_index.graph_fd().has_value()) { sub_host_indices_.pop_back(); }
         } else {
           sub_index = cuvs::neighbors::cagra::build(
             handle_, params, detail::make_padded_view<T>(handle_, sub_dev, sub_dataset_buffer));
@@ -380,6 +378,7 @@ void cuvs_cagra<T, IdxT>::build(const T* dataset, size_t nrow)
       // The merged index holds all the rows now; drop the splits rather than keep a second copy
       // of the dataset on the device for the rest of the run.
       sub_indices_.clear();
+      sub_host_indices_.clear();
       sub_dataset_buffers_->clear();
       *input_dataset_v_    = dataset_view_device;
       need_dataset_update_ = false;
@@ -470,6 +469,8 @@ void cuvs_cagra<T, IdxT>::set_search_param(const search_param_base& param,
     // NB: update_graph() only stores a view in the index. We need to keep the graph object alive.
     index_->update_graph(handle_, make_const_mdspan(graph_->view()));
     if (vpq_index_) { vpq_index_->update_graph(handle_, make_const_mdspan(graph_->view())); }
+    // graph_ owns the graph now, so release the host index that used to own it.
+    host_index_.reset();
     needs_dynamic_batcher_update = true;
   }
 
@@ -549,8 +550,8 @@ void cuvs_cagra<T, IdxT>::set_search_dataset(const T* dataset, size_t nrow)
       const T* sub_ptr = dataset + static_cast<size_t>(start) * dim_;
       auto sub_host =
         raft::make_host_matrix_view<const T, int64_t, raft::row_major>(sub_ptr, rows, dim_);
-      auto sub_dev = raft::make_device_matrix_view<const T, int64_t, raft::row_major>(
-        sub_ptr, static_cast<int64_t>(rows), static_cast<int64_t>(dim_));
+      auto sub_dev =
+        raft::make_device_matrix_view<const T, int64_t, raft::row_major>(sub_ptr, rows, dim_);
       auto sub_index = sub_indices_[i].get();
       // Release the storage of this split before allocating its replacement, so that the device
       // never holds two copies of a split at once.
@@ -612,6 +613,7 @@ void cuvs_cagra<T, IdxT>::load(const std::string& file)
     meta >> count;
     meta.close();
     sub_indices_.clear();
+    sub_host_indices_.clear();
     for (size_t i = 0; i < count; ++i) {
       std::string subfile = file + (i == 0 ? "" : ".subidx." + std::to_string(i));
       auto sub_index      = std::make_shared<index_type>(handle_);
