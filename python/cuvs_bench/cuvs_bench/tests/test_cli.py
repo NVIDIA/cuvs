@@ -1,9 +1,10 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
@@ -519,11 +520,182 @@ def test_plot_command_creates_png_files(temp_datasets_dir: Path):
         )
 
 
-# FIXME: Tests below use --dry-run to verify CLI flag parsing and orchestrator
-# routing without requiring actual benchmark execution. Tune mode (--mode tune)
-# requires Optuna and actual search results, so only flag acceptance is tested
-# here. End-to-end tests for tune mode and non-C++ backends should be added
-# when those features are exercised in integration testing.
+# The mocked-result tests below isolate CLI outcome and export semantics.
+# Later tests use --dry-run to verify flag parsing and orchestrator routing
+# without requiring native benchmark execution.
+
+
+def _invoke_run_with_results(monkeypatch, tmp_path, mode, results):
+    from cuvs_bench.run import __main__ as run_module
+
+    orchestrator = SimpleNamespace(
+        run_benchmark=lambda **_kwargs: results,
+    )
+    monkeypatch.setattr(
+        run_module,
+        "BenchmarkOrchestrator",
+        lambda backend_type: orchestrator,
+    )
+    exported = []
+    monkeypatch.setattr(
+        run_module,
+        "convert_json_to_csv_build",
+        lambda dataset, dataset_path: exported.append(
+            ("build", dataset, dataset_path)
+        ),
+    )
+    monkeypatch.setattr(
+        run_module,
+        "convert_json_to_csv_search",
+        lambda dataset, dataset_path: exported.append(
+            ("search", dataset, dataset_path)
+        ),
+    )
+
+    result = CliRunner().invoke(
+        run_module.main,
+        [
+            "--dataset",
+            "test-data",
+            "--dataset-path",
+            str(tmp_path),
+            "--algorithms",
+            "fake",
+            "--groups",
+            "base",
+            "--batch-size",
+            "1",
+            "-k",
+            "1",
+            "-m",
+            "latency",
+            "--mode",
+            mode,
+        ],
+    )
+    return result, exported
+
+
+def _benchmark_result(success, error_message=None):
+    return SimpleNamespace(
+        success=success,
+        algorithm="fake",
+        error_message=error_message,
+    )
+
+
+def test_tune_mixed_trial_results_exit_zero_and_export(monkeypatch, tmp_path):
+    result, exported = _invoke_run_with_results(
+        monkeypatch,
+        tmp_path,
+        "tune",
+        [
+            _benchmark_result(False, "trial failed"),
+            _benchmark_result(True),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert exported == [
+        ("build", "test-data", str(tmp_path)),
+        ("search", "test-data", str(tmp_path)),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("results", "expected_message"),
+    [
+        ([_benchmark_result(False, "trial failed")], "trial failed"),
+        ([], "tune mode produced no benchmark results"),
+    ],
+)
+def test_tune_without_successful_results_exits_nonzero(
+    monkeypatch, tmp_path, results, expected_message
+):
+    result, exported = _invoke_run_with_results(
+        monkeypatch, tmp_path, "tune", results
+    )
+
+    assert result.exit_code != 0
+    assert expected_message in result.output
+    assert exported == []
+
+
+def test_tune_all_constraint_pruned_measurements_exit_zero_and_export(
+    monkeypatch, tmp_path
+):
+    # _run_tune retains successful measurements even when Optuna prunes every
+    # trial for violating a hard constraint.
+    result, exported = _invoke_run_with_results(
+        monkeypatch,
+        tmp_path,
+        "tune",
+        [_benchmark_result(True), _benchmark_result(True)],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert exported == [
+        ("build", "test-data", str(tmp_path)),
+        ("search", "test-data", str(tmp_path)),
+    ]
+
+
+def test_sweep_mixed_results_exit_nonzero(monkeypatch, tmp_path):
+    result, exported = _invoke_run_with_results(
+        monkeypatch,
+        tmp_path,
+        "sweep",
+        [
+            _benchmark_result(False, "benchmark failed"),
+            _benchmark_result(True),
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "benchmark failed" in result.output
+    assert exported == []
+
+
+def test_sweep_without_results_exits_nonzero(monkeypatch, tmp_path):
+    result, exported = _invoke_run_with_results(
+        monkeypatch, tmp_path, "sweep", []
+    )
+
+    assert result.exit_code != 0
+    assert "sweep mode produced no benchmark results" in result.output
+    assert exported == []
+
+
+@pytest.mark.parametrize(
+    "dataset", ["..", "../escape", "nested/dataset", "/absolute/dataset"]
+)
+def test_data_export_rejects_invalid_dataset_name(tmp_path, dataset):
+    from cuvs_bench.run.__main__ import main as run_main
+
+    runner = CliRunner()
+    result = runner.invoke(
+        run_main,
+        [
+            "--data-export",
+            "--dataset",
+            dataset,
+            "--dataset-path",
+            str(tmp_path),
+            "--count",
+            "10",
+            "--batch-size",
+            "100",
+            "--algorithms",
+            "cuvs_cagra",
+            "--groups",
+            "base",
+            "--search-mode",
+            "latency",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "Invalid benchmark dataset name" in result.output
 
 
 def test_run_with_mode_sweep(temp_datasets_dir):

@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -10,7 +10,7 @@ This module provides the BenchmarkOrchestrator class that coordinates
 benchmark runs across different backends using the registry pattern.
 """
 
-from typing import List, Optional, Union
+from typing import List, Optional, Set, Tuple, Union
 
 import numpy as np
 
@@ -22,6 +22,11 @@ from ..backends.registry import (
 )
 from ..backends._utils import compute_recall
 from .config_loaders import DatasetConfig
+from .result_files import (
+    ResultRecord,
+    validate_sweep_output_filenames,
+    write_result_files,
+)
 
 
 class BenchmarkOrchestrator:
@@ -217,6 +222,8 @@ class BenchmarkOrchestrator:
 
         # Collect results
         results: List[Union[BuildResult, SearchResult]] = []
+        result_records: List[ResultRecord] = []
+        stale_search_filenames: Set[str] = set()
 
         # Run benchmarks
         # Each config contains ALL indexes for one executable (matches runners.py)
@@ -224,6 +231,17 @@ class BenchmarkOrchestrator:
             # Create backend instance
             backend = self.backend_class(config.backend_config)
             try:
+                output_filenames: Optional[Tuple[str, str]] = None
+                if backend.orchestrator_persists_results:
+                    if len(config.indexes) != 1:
+                        raise ValueError(
+                            "Opt-in sweep result persistence requires exactly "
+                            "one index per benchmark configuration"
+                        )
+                    output_filenames = validate_sweep_output_filenames(
+                        config.output_filename
+                    )
+
                 backend.initialize()
 
                 if build:
@@ -235,8 +253,18 @@ class BenchmarkOrchestrator:
                         dry_run=dry_run,
                     )
                     results.append(build_result)
+                    if output_filenames is not None:
+                        result_records.append(
+                            ResultRecord(
+                                result=build_result,
+                                index_name=config.index_name,
+                                output_filename=output_filenames[0],
+                            )
+                        )
 
                     if not build_result.success:
+                        if search and output_filenames is not None:
+                            stale_search_filenames.add(output_filenames[1])
                         print(
                             f"Build failed for {config.index_name}: {build_result.error_message}"
                         )
@@ -274,6 +302,14 @@ class BenchmarkOrchestrator:
                             )
 
                     results.append(search_result)
+                    if output_filenames is not None:
+                        result_records.append(
+                            ResultRecord(
+                                result=search_result,
+                                index_name=config.index_name,
+                                output_filename=output_filenames[1],
+                            )
+                        )
 
                     if not search_result.success:
                         print(
@@ -281,6 +317,14 @@ class BenchmarkOrchestrator:
                         )
             finally:
                 backend.cleanup()
+
+        if (result_records or stale_search_filenames) and not dry_run:
+            write_result_files(
+                result_records,
+                dataset=dataset_config.name,
+                dataset_path=loader_kwargs["dataset_path"],
+                stale_search_filenames=stale_search_filenames,
+            )
 
         return results
 
@@ -503,10 +547,17 @@ class BenchmarkOrchestrator:
             print(f"Best params: {study.best_params}")
             print(f"Best {optimize_metric}: {study.best_value:.4f}")
         except ValueError:
-            print(
-                f"\n⚠️ All {n_trials} trials were pruned (constraints not met)"
-            )
-            print(f"   Consider relaxing constraints: {hard_constraints}")
+            if any(result.success for result in all_results):
+                print(
+                    f"\n⚠️ All {n_trials} trials were pruned "
+                    "(constraints not met)"
+                )
+                print(f"   Consider relaxing constraints: {hard_constraints}")
+            else:
+                print(
+                    f"\n⚠️ All {n_trials} benchmark trials failed before "
+                    "producing valid metrics"
+                )
 
         return all_results
 

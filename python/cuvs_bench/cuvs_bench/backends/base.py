@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -243,15 +243,23 @@ class BuildResult:
         Dict[str, Any]
             Dictionary with benchmark results
         """
-        return {
-            "name": f"{self.algorithm}/build",
-            "real_time": self.build_time_seconds,
-            "time_unit": "s",
-            "index_size": self.index_size_bytes,
-            "success": self.success,
+        result = {
             **self.build_params,
             **self.metadata,
         }
+        result.pop("error_message", None)
+        result.update(
+            {
+                "name": f"{self.algorithm}/build",
+                "real_time": self.build_time_seconds,
+                "time_unit": "s",
+                "index_size": self.index_size_bytes,
+                "success": self.success,
+            }
+        )
+        if self.error_message is not None:
+            result["error_message"] = self.error_message
+        return result
 
 
 @dataclass
@@ -288,6 +296,10 @@ class SearchResult:
         Whether the search succeeded
     error_message : Optional[str]
         Error message if search failed
+    latency_seconds : Optional[float]
+        Backend-reported mean latency in seconds. For batched backends, this
+        is mean batch latency. This field is last to preserve
+        compatibility with existing positional construction.
     """
 
     neighbors: np.ndarray
@@ -303,6 +315,7 @@ class SearchResult:
     metadata: Dict[str, Any] = field(default_factory=dict)
     success: bool = True
     error_message: Optional[str] = None
+    latency_seconds: Optional[float] = None
 
     def to_json(self) -> Dict[str, Any]:
         """
@@ -313,25 +326,38 @@ class SearchResult:
         Dict[str, Any]
             Dictionary with benchmark results
         """
-        result = {
-            "name": f"{self.algorithm}/search",
-            "real_time": self.search_time_ms,
-            "time_unit": "ms",
-            "items_per_second": self.queries_per_second,
-            "Recall": self.recall,
-            "success": self.success,
-            "search_params": self.search_params,
-            **self.metadata,
-        }
-
+        result = dict(self.metadata)
+        result.pop("error_message", None)
         if self.latency_percentiles:
             result.update(self.latency_percentiles)
 
+        real_time_ms = (
+            self.latency_seconds * 1000.0
+            if self.latency_seconds is not None
+            else self.search_time_ms
+        )
+        result.update(
+            {
+                "name": f"{self.algorithm}/search",
+                "real_time": real_time_ms,
+                "time_unit": "ms",
+                "search_time_ms": self.search_time_ms,
+                "items_per_second": self.queries_per_second,
+                "Recall": self.recall,
+                "success": self.success,
+                "search_params": self.search_params,
+            }
+        )
+        if self.latency_seconds is not None:
+            result["Latency"] = self.latency_seconds
         if self.gpu_time_seconds is not None:
             result["GPU"] = self.gpu_time_seconds
 
         if self.cpu_time_seconds is not None:
             result["cpu_time"] = self.cpu_time_seconds
+
+        if self.error_message is not None:
+            result["error_message"] = self.error_message
 
         return result
 
@@ -367,6 +393,11 @@ class BenchmarkBackend(ABC):
         - api_key : str - Authentication key
         - requires_network : bool - Whether backend requires network (default: False)
     """
+
+    # Opt in when this backend's sweep results should be persisted by the
+    # orchestrator. Tune-mode and existing backends retain their own
+    # result-file behavior.
+    orchestrator_persists_results = False
 
     def __init__(self, config: Dict[str, Any]):
         """Initialize backend with configuration."""
