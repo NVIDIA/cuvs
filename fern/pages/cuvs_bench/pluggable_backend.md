@@ -222,6 +222,10 @@ get_registry().register("elasticsearch", ElasticsearchBackend)
 | `BenchmarkBackend` | Abstract class whose `build(...)` method returns `BuildResult` and whose `search(...)` method returns `SearchResult`. Register with `BackendRegistry.register(name, backend_class)`. |
 | `BackendRegistry` | Singleton registry returned by `get_registry()`. It maps backend type names to backend classes. |
 
+## PyLucene Backend
+
+The built-in `pylucene` loader expands algorithm YAML groups into one Lucene index per selected codec. The backend initializes PyLucene's process-global JVM and resolves cuVS-Lucene codecs through Lucene's service-provider interface. See [Installation](/user-guide/benchmarking-guide/cu-vs-bench-tool/installation#pylucene-backend-prerequisites) and [Usage](/user-guide/benchmarking-guide/cu-vs-bench-tool/usage#running-the-pylucene-backend) for the provisional dependency, configuration, and runtime limits.
+
 ## C++ Backend
 
 The built-in `CppGoogleBenchmarkBackend` uses `backend_type="cpp_gbench"`. Its config loader reads YAML under `config/datasets` and `config/algos`, expands parameter combinations, and validates constraints. Its backend runs the C++ benchmark executables and merges their results.
