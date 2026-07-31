@@ -59,7 +59,7 @@ public class AcceleratedHNSWParams {
   public static final int DEFAULT_MAX_CONN = 32;
   public static final int DEFAULT_BEAM_WIDTH = 32;
   public static final CagraGraphBuildAlgo DEFAULT_CAGRA_GRAPH_BUILD_ALGO =
-      CagraGraphBuildAlgo.NN_DESCENT;
+      CagraGraphBuildAlgo.AUTO_SELECT;
   public static final int DEFAULT_NUM_MERGE_WORKERS = 1;
   public static final Strategy DEFAULT_STRATEGY = Strategy.HEURISTIC;
   public static final CuvsDistanceType DEFAULT_CUVS_DISTANCE_TYPE = CuvsDistanceType.L2Expanded;
