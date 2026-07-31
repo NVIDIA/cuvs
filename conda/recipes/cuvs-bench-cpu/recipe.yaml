@@ -8,7 +8,7 @@ context:
   head_rev: '${{ git.head_rev(".")[:8] }}'
   linux64: ${{ linux and x86_64 }}
   py_abi_min: ${{ env.get("RAPIDS_PY_VERSION") }}
-  py_buildstring : ${{ py_abi_min | version_to_buildstring }}
+  py_buildstring: ${{ py_abi_min | version_to_buildstring }}
   py_runtime_latest: "3.14"
 
 package:
