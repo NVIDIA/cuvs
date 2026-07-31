@@ -629,7 +629,8 @@ public class CagraBuildAndSearchIT extends CuVSTestCase {
       CagraQuery query =
           new CagraQuery.Builder(resources)
               .withTopK(1)
-              // Pin SINGLE_CTA; AUTO may pick MULTI_CTA, which drops neighbors on this tiny dataset.
+              // Pin SINGLE_CTA; AUTO may pick MULTI_CTA, which drops neighbors on this tiny
+              // dataset.
               .withSearchParams(
                   new CagraSearchParams.Builder()
                       .withAlgo(CagraSearchParams.SearchAlgo.SINGLE_CTA)

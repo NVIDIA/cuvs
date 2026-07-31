@@ -68,7 +68,8 @@ public class FilterBitsetHandleIT extends CuVSTestCase {
         // Warm up the device upload on the long-lived `resources` so the shared allocation is bound
         // to it. Per-thread resources are closed when each search thread finishes; binding the
         // allocation to one of those would free it against destroyed resources at handle close.
-        assertNoFilteredRows(searchOnce(resources, indices, queries, partStart, filters), partStart);
+        assertNoFilteredRows(
+            searchOnce(resources, indices, queries, partStart, filters), partStart);
         List<Throwable> errors =
             runConcurrentSearches(
                 indices, queries, partStart, filters, numThreads, searchesPerThread);
