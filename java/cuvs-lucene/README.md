@@ -25,6 +25,7 @@ Four codecs are currently provided:
 
 ### Prerequisites
 
+- A machine with an NVIDIA GPU
 - [CUDA 12.0+](https://developer.nvidia.com/cuda-toolkit-archive)
 - [JDK 22](https://jdk.java.net/archive/)
 - [Maven 3.9.6+](https://maven.apache.org/download.cgi)
@@ -44,17 +45,18 @@ To pull `cuvs-lucene` into a Maven project, add the following dependency to your
 
 ### Building from source
 
-```sh
-git clone https://github.com/rapidsai/cuvs-lucene.git
-cd cuvs-lucene
-mvn clean compile package
-```
+`cuvs-lucene` lives in the [cuVS repository](https://github.com/rapidsai/cuvs) and builds against the cuVS
+Java bindings. If the libcuvs libraries and the Java bindings have not been built and installed, use
+`./build.sh libcuvs java lucene` in the top level directory.
 
-The resulting artifacts are written to `target/`. To run the tests, first install cuVS and add it to your system library load path, as described in the cuVS [tarball install instructions](https://docs.rapids.ai/api/cuvs/stable/build/#download-extract), then run:
+Alternatively, if libcuvs is already built and the `cuvs-java` artifact is already installed in your local
+Maven repository, do `./build.sh lucene` in the top level directory or just do `./build.sh` in this directory.
 
-```sh
-mvn clean test
-```
+The resulting artifacts are written to `target/`.
+
+To run the tests, add `--run-java-tests` to any of the commands above. Be sure to set (manually, if needed)
+your `LD_LIBRARY_PATH` to include the directory with the appropriate (matching) version of `libcuvs.so`, as
+described in the cuVS [tarball install instructions](https://docs.rapids.ai/api/cuvs/stable/build/#download-extract).
 
 ## Getting Started
 
@@ -130,10 +132,10 @@ For more examples, including one that indexes and searches entirely on the GPU u
 
 ## Contributing
 
-If you are interested in contributing to cuvs-lucene, please read our [Contributing guide](CONTRIBUTING.md).
+If you are interested in contributing to cuvs-lucene, please read the cuVS [Contributing guide](https://docs.nvidia.com/cuvs/developer-guide/contributing).
 
 > [!NOTE]
-> The code style format is automatically enforced (including the missing license header, if any) using the [Spotless maven plugin](https://github.com/diffplug/spotless/tree/main/plugin-maven). This currently happens in the maven's `validate` stage.
+> The code style format is enforced using the [Spotless maven plugin](https://github.com/diffplug/spotless/tree/main/plugin-maven), which runs as a `pre-commit` hook. Run `pre-commit run --all-files`, or `mvn spotless:apply` in this directory, to format the sources.
 
 ## References
 

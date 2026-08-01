@@ -182,5 +182,4 @@ sed_runner "s|/[[:digit:]]\{2\}\.[[:digit:]]\{2\}\.[[:digit:]]\{1,2\}/|/${NEXT_F
 # title contains a release number, and that reference must not be rewritten.
 sed_runner "s|<version>[[:digit:]]\{2\}\.[[:digit:]]\{2\}\.[[:digit:]]\{1,2\}</version>|<version>${NEXT_FULL_JAVA_TAG}</version>|g" java/cuvs-lucene/README.md
 
-sed_runner "s|rapidsai/ci-conda:[\.0-9]*-cuda|rapidsai/ci-conda:${NEXT_SHORT_TAG}-cuda|g" java/cuvs-lucene/examples/README.md
 sed_runner "s|target/examples-[\.0-9]*-jar|target/examples-${NEXT_FULL_JAVA_TAG}-jar|g" java/cuvs-lucene/examples/README.md

@@ -4,28 +4,21 @@ This maven project contains basic examples that showcase how `cuvs-lucene` can b
 
 ## Prerequisites
 
-- [Docker](https://www.docker.com/)
-- [Nvidia Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
-- A machine with an Nvidia GPU
+- The [`cuvs-lucene` prerequisites](../README.md#prerequisites)
 
 ## Steps
 
-If you are currently in this directory (and to be in the `cuvs-lucene's` root directory) do:
+First build `cuvs-lucene` and install it into your local Maven repository, as described in
+[Building from source](../README.md#building-from-source). From the cuVS repository root:
 
 ```sh
-cd ..
+./build.sh libcuvs java lucene
 ```
 
-Then do:
+Then return to this directory:
 
 ```sh
-docker run --rm --gpus all --pull=always --volume $PWD:$PWD --workdir $PWD -it rapidsai/ci-conda:26.10-cuda13.3.0-ubuntu24.04-py3.13
-```
-
-Inside the docker container (and in the `cuvs-lucene's` root directory) do:
-
-```sh
-./ci/build_java.sh && conda activate java && cd examples
+cd java/cuvs-lucene/examples
 ```
 
 To run Accelerated HNSW example do:
