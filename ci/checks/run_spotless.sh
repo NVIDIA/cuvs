@@ -2,7 +2,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# pre-commit hook wrapper that runs 'spotless:apply' to format the Java client sources.
+# pre-commit hook wrapper that runs 'spotless:apply' to format the Java sources of every Maven
+# project under java/.
 #
 # Most cuvs contributors do not work on the Java client and do not have Maven installed. For them
 # (running outside CI without Maven) this skips gracefully, so that 'pre-commit run --all-files'
@@ -20,4 +21,11 @@ if ! command -v mvn >/dev/null 2>&1; then
   exit 0
 fi
 
-exec mvn --batch-mode --quiet -f java/cuvs-java/pom.xml spotless:apply
+POMS=(
+  java/cuvs-java/pom.xml
+  java/cuvs-lucene/pom.xml
+)
+
+for pom in "${POMS[@]}"; do
+  mvn --batch-mode --quiet -f "${pom}" spotless:apply
+done

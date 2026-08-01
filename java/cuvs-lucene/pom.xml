@@ -1,10 +1,7 @@
 <!--
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
- * SPDX-License-Identifier: Apache-2.0
- */
+SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+SPDX-License-Identifier: Apache-2.0
 -->
-
 <project xmlns="http://maven.apache.org/POM/4.0.0"
   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
   xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
@@ -12,7 +9,7 @@
   <groupId>com.nvidia.cuvs.lucene</groupId>
   <artifactId>cuvs-lucene</artifactId>
   <!-- NOTE: The version automatically gets updated when ci/release/update-version.sh is invoked. -->
-  <!--CUVS_LUCENE#VERSION_UPDATE_MARKER_START--><version>26.10.0</version><!--CUVS_LUCENE#VERSION_UPDATE_MARKER_END-->
+  <!--CUVS_JAVA#VERSION_UPDATE_MARKER_START--><version>26.10.0</version><!--CUVS_JAVA#VERSION_UPDATE_MARKER_END-->
   <name>cuvs-lucene</name>
   <packaging>jar</packaging>
 
@@ -30,10 +27,10 @@
       </license>
   </licenses>
   <scm>
-      <connection>scm:git:https://github.com/rapidsai/cuvs-lucene.git</connection>
-      <developerConnection>scm:git:git@github.com:rapidsai/cuvs-lucene.git</developerConnection>
+      <connection>scm:git:https://github.com/rapidsai/cuvs.git</connection>
+      <developerConnection>scm:git:git@github.com:rapidsai/cuvs.git</developerConnection>
       <tag>HEAD</tag>
-      <url>https://github.com/rapidsai/cuvs-lucene</url>
+      <url>https://github.com/rapidsai/cuvs</url>
   </scm>
 
   <developers>
@@ -79,12 +76,6 @@
             <snapshots>
                 <enabled>false</enabled>
             </snapshots>
-        </repository>
-        <repository>
-            <id>central-snapshots</id>
-            <url>https://central.sonatype.com/repository/maven-snapshots/</url>
-            <snapshots><enabled>true</enabled></snapshots>
-            <releases><enabled>false</enabled></releases>
         </repository>
     </repositories>
 
@@ -147,16 +138,9 @@
     <dependency>
       <groupId>com.nvidia.cuvs</groupId>
       <artifactId>cuvs-java</artifactId>
-      <!--CUVS_LUCENE#VERSION_UPDATE_MARKER_START--><version>26.10.0</version><!--CUVS_LUCENE#VERSION_UPDATE_MARKER_END-->
+      <!--CUVS_JAVA#VERSION_UPDATE_MARKER_START--><version>26.10.0</version><!--CUVS_JAVA#VERSION_UPDATE_MARKER_END-->
     </dependency>
   </dependencies>
-
-  <distributionManagement>
-    <snapshotRepository>
-      <id>central</id>
-      <url>https://central.sonatype.com/repository/maven-snapshots/</url>
-    </snapshotRepository>
-  </distributionManagement>
 
   <build>
     <plugins>
@@ -164,14 +148,6 @@
         <groupId>com.diffplug.spotless</groupId>
         <artifactId>spotless-maven-plugin</artifactId>
         <version>2.44.5</version>
-        <executions>
-            <execution>
-                <goals>
-                    <goal>apply</goal>
-                </goals>
-                <phase>validate</phase>
-            </execution>
-        </executions>
         <configuration>
             <java>
                 <includes>
@@ -183,9 +159,6 @@
                     <reflowLongStrings>true</reflowLongStrings>
                     <formatJavadoc>false</formatJavadoc>
                 </googleJavaFormat>
-                <licenseHeader>
-                    <file>${project.basedir}/license-header.txt</file>
-                </licenseHeader>
             </java>
         </configuration>
       </plugin>

@@ -1,6 +1,6 @@
 <!--
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 -->
@@ -11,7 +11,7 @@
 
   <groupId>com.nvidia.cuvs.lucene.examples</groupId>
   <artifactId>examples</artifactId>
-  <!--CUVS_LUCENE#VERSION_UPDATE_MARKER_START--><version>26.10.0</version><!--CUVS_LUCENE#VERSION_UPDATE_MARKER_END-->
+  <!--CUVS_JAVA#VERSION_UPDATE_MARKER_START--><version>26.10.0</version><!--CUVS_JAVA#VERSION_UPDATE_MARKER_END-->
   <name>examples</name>
 
   <properties>
@@ -100,7 +100,7 @@
     <dependency>
       <groupId>com.nvidia.cuvs.lucene</groupId>
       <artifactId>cuvs-lucene</artifactId>
-      <!--CUVS_LUCENE#VERSION_UPDATE_MARKER_START--><version>26.10.0</version><!--CUVS_LUCENE#VERSION_UPDATE_MARKER_END-->
+      <!--CUVS_JAVA#VERSION_UPDATE_MARKER_START--><version>26.10.0</version><!--CUVS_JAVA#VERSION_UPDATE_MARKER_END-->
     </dependency>
   </dependencies>
 

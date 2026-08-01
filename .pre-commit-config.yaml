@@ -97,7 +97,7 @@ repos:
         name: spotless-fmt
         entry: ci/checks/run_spotless.sh
         pass_filenames: false
-        files: ^java/cuvs-java/src/.*\.java$
+        files: ^java/(cuvs-java|cuvs-lucene)/src/.*\.java$
         exclude: .*/panama/.*
         language: script
       - id: clang-format-with-cmake-placeholders

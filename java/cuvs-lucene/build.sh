@@ -15,32 +15,38 @@ function hasArg {
     (( NUMARGS != 0 )) && (echo " ${ARGS} " | grep -q " $1 ")
 }
 
+# Resolve paths from this script's location so it can be invoked from anywhere.
+LUCENE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPODIR="$(cd "${LUCENE_DIR}"/../.. && pwd)"
 
-if hasArg --build-cuvs-java; then
-  CUVS_WORKDIR="cuvs-workdir"
-  CUVS_GIT_REPO="https://github.com/rapidsai/cuvs.git"
-  BRANCH=$(cat "RAPIDS_BRANCH")
-  if [[ -d "$CUVS_WORKDIR" && -n "$(ls -A "$CUVS_WORKDIR")" ]]; then
-    echo "Directory '$CUVS_WORKDIR' exists and is not empty."
-    pushd $CUVS_WORKDIR
-    git pull
-  else
-    echo "Directory '$CUVS_WORKDIR' does not exist or is empty. Cloning the cuvs's '$BRANCH' branch."
-    # Correct branch selection is crucial to avoid version mismatch issues when testing.
-    git clone --branch "$BRANCH" $CUVS_GIT_REPO $CUVS_WORKDIR
-    pushd $CUVS_WORKDIR
-  fi
+# cuvs-lucene compiles against the cuvs-java artifact built by this repo, which
+# './build.sh java' installs into the local Maven repository.
+MAVEN_LOCAL_REPO="${MAVEN_LOCAL_REPO:-${HOME}/.m2/repository}"
+if [ ! -f "${MAVEN_LOCAL_REPO}/com/nvidia/cuvs/cuvs-java/${VERSION}/cuvs-java-${VERSION}.jar" ]; then
+    echo "com.nvidia.cuvs:cuvs-java:${VERSION} was not found in ${MAVEN_LOCAL_REPO}."
+    echo "Please build it first (ex. '${REPODIR}/build.sh libcuvs java') if it is not already installed."
+fi
 
-  ./build.sh java
-  popd
+# The tests load libcuvs_c.so through the JVM, so make a local libcuvs build
+# discoverable. In CI, libcuvs comes from the conda environment instead.
+CUVS_LIB_DIR="${CMAKE_PREFIX_PATH:-${REPODIR}/cpp/build}"
+if [ -d "${CUVS_LIB_DIR}" ]; then
+    export LD_LIBRARY_PATH="${CUVS_LIB_DIR}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 fi
 
 MAVEN_VERIFY_ARGS=()
 if ! hasArg --run-java-tests; then
-  MAVEN_VERIFY_ARGS=("-DskipTests")
+    MAVEN_VERIFY_ARGS=("-DskipTests")
 fi
 
-mvn clean verify "${MAVEN_VERIFY_ARGS[@]}" \
-  && mvn jacoco:report \
-  && mvn install:install-file -Dfile=./target/cuvs-lucene-$VERSION.jar -DgroupId=$GROUP_ID -DartifactId=cuvs-lucene -Dversion=$VERSION -Dpackaging=jar \
-  && cp pom.xml ./target/
+cd "${LUCENE_DIR}"
+
+mvn clean verify "${MAVEN_VERIFY_ARGS[@]}"
+
+# Coverage data only exists when the tests actually ran.
+if hasArg --run-java-tests; then
+    mvn jacoco:report
+fi
+
+mvn install:install-file -Dfile=./target/cuvs-lucene-$VERSION.jar -DgroupId=$GROUP_ID -DartifactId=cuvs-lucene -Dversion=$VERSION -Dpackaging=jar
+cp pom.xml ./target/
