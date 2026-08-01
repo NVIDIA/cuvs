@@ -28,7 +28,7 @@ Four codecs are currently provided:
 - [CUDA 12.0+](https://developer.nvidia.com/cuda-toolkit-archive)
 - [JDK 22](https://jdk.java.net/archive/)
 - [Maven 3.9.6+](https://maven.apache.org/download.cgi)
-- A compatible cuVS installation (26.04 - 26.06). For Maven usage, install the cuVS tarball and add it to your system library load path. See the cuVS [tarball install instructions](https://docs.rapids.ai/api/cuvs/stable/build/#download-extract).
+- A matching version of the [cuVS libraries](https://docs.rapids.ai/api/cuvs/stable/build/#build-from-source). For Maven usage, install the cuVS tarball and add it to your system library load path. See the cuVS [tarball install instructions](https://docs.rapids.ai/api/cuvs/stable/build/#download-extract).
 
 ### Maven
 
@@ -38,7 +38,7 @@ To pull `cuvs-lucene` into a Maven project, add the following dependency to your
 <dependency>
   <groupId>com.nvidia.cuvs.lucene</groupId>
   <artifactId>cuvs-lucene</artifactId>
-  <version>26.06.0</version>
+  <version>26.10.0</version>
 </dependency>
 ```
 

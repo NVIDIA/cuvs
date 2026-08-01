@@ -168,10 +168,19 @@ done
 # Update Java API version
 NEXT_FULL_JAVA_TAG="${NEXT_SHORT_TAG}.${PATCH_PEP440}"
 sed_runner "s/VERSION=\".*\"/VERSION=\"${NEXT_FULL_JAVA_TAG}\"/g" java/build.sh
-for FILE in java/*/pom.xml; do
+sed_runner "s/VERSION=\".*\"/VERSION=\"${NEXT_FULL_JAVA_TAG}\"/g" java/cuvs-lucene/build.sh
+# The second glob picks up the cuvs-lucene bench and examples projects.
+for FILE in java/*/pom.xml java/cuvs-lucene/*/pom.xml; do
   sed_runner "/<!--CUVS_JAVA#VERSION_UPDATE_MARKER_START-->.*<!--CUVS_JAVA#VERSION_UPDATE_MARKER_END-->/s//<!--CUVS_JAVA#VERSION_UPDATE_MARKER_START--><version>${NEXT_FULL_JAVA_TAG}<\/version><!--CUVS_JAVA#VERSION_UPDATE_MARKER_END-->/g" "${FILE}"
 done
 
 sed_runner "s| CuVS [[:digit:]]\{2\}\.[[:digit:]]\{2\} | CuVS ${NEXT_SHORT_TAG} |g" java/README.md
 sed_runner "s|-[[:digit:]]\{2\}\.[[:digit:]]\{2\}\.[[:digit:]]\{1,2\}\.jar|-${NEXT_FULL_JAVA_TAG}\.jar|g" java/examples/README.md
 sed_runner "s|/[[:digit:]]\{2\}\.[[:digit:]]\{2\}\.[[:digit:]]\{1,2\}/|/${NEXT_FULL_JAVA_TAG}/|g" java/examples/README.md
+
+# This pattern is deliberately narrow: java/cuvs-lucene/README.md also links to a blog post whose
+# title contains a release number, and that reference must not be rewritten.
+sed_runner "s|<version>[[:digit:]]\{2\}\.[[:digit:]]\{2\}\.[[:digit:]]\{1,2\}</version>|<version>${NEXT_FULL_JAVA_TAG}</version>|g" java/cuvs-lucene/README.md
+
+sed_runner "s|rapidsai/ci-conda:[\.0-9]*-cuda|rapidsai/ci-conda:${NEXT_SHORT_TAG}-cuda|g" java/cuvs-lucene/examples/README.md
+sed_runner "s|target/examples-[\.0-9]*-jar|target/examples-${NEXT_FULL_JAVA_TAG}-jar|g" java/cuvs-lucene/examples/README.md
