@@ -69,8 +69,10 @@ int main()
     index_params.intermediate_graph_degree);
 
   std::cout << "Building CAGRA index" << std::endl;
-  auto index =
-    cuvs::neighbors::cagra::build(res, index_params, raft::make_const_mdspan(dataset.view()));
+  auto padded =
+    cuvs::neighbors::make_device_padded_dataset_view(res, raft::make_const_mdspan(dataset.view()));
+  auto index = cuvs::neighbors::cagra::build(res, index_params, padded);
+  index.update_device_dataset_same_layout(res, padded);
 
   // Build one global bloom filter over the index: bulk-insert every valid row id once.
   std::vector<key_type> valid_ids_host;
