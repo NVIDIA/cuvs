@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -14,6 +14,7 @@
 
 #include <cuda_runtime.h>
 #include <gtest/gtest.h>
+#include <rmm/device_uvector.hpp>
 #include <sys/types.h>
 #include <vector>
 
@@ -34,6 +35,8 @@ TEST(CagraHnswC, BuildSearch)
   // create cuvsResources_t
   cuvsResources_t res;
   cuvsResourcesCreate(&res);
+  cudaStream_t stream;
+  cuvsStreamGet(res, &stream);
 
   // create dataset DLTensor
   DLManagedTensor dataset_tensor;
@@ -54,8 +57,14 @@ TEST(CagraHnswC, BuildSearch)
   // build index
   cuvsCagraIndexParams_t build_params;
   cuvsCagraIndexParamsCreate(&build_params);
-  cuvsCagraBuild(res, build_params, &dataset_tensor, index);
-  cuvsCagraSerializeToHnswlib(res, "/tmp/cagra_hnswlib.index", index);
+  cuvsDataset_t dataset_view;
+  ASSERT_EQ(cuvsDatasetMakeStandardView(res, &dataset_tensor, &dataset_view), CUVS_SUCCESS);
+  ASSERT_EQ(cuvsCagraBuild(res, build_params, dataset_view, index), CUVS_SUCCESS);
+  ASSERT_EQ(cuvsDatasetDestroy(dataset_view), CUVS_SUCCESS);
+
+  // hnswlib search runs on the host, so a host index can be serialized straight from its own
+  // host-resident vectors without a detour through device-padded storage.
+  ASSERT_EQ(cuvsCagraSerializeToHnswlib(res, "/tmp/cagra_hnswlib.index", index), CUVS_SUCCESS);
 
   DLManagedTensor queries_tensor;
   queries_tensor.dl_tensor.data               = queries;
@@ -104,13 +113,16 @@ TEST(CagraHnswC, BuildSearch)
   cuvsHnswIndexParamsCreate(&hnsw_params);
   // Use NONE hierarchy since cuvsCagraSerializeToHnswlib creates a base-layer-only index
   hnsw_params->hierarchy = NONE;
-  cuvsHnswDeserialize(res, hnsw_params, "/tmp/cagra_hnswlib.index", 2, L2Expanded, hnsw_index);
+  ASSERT_EQ(
+    cuvsHnswDeserialize(res, hnsw_params, "/tmp/cagra_hnswlib.index", 2, L2Expanded, hnsw_index),
+    CUVS_SUCCESS);
 
   // search index
   cuvsHnswSearchParams_t search_params;
   cuvsHnswSearchParamsCreate(&search_params);
-  cuvsHnswSearch(
-    res, search_params, hnsw_index, &queries_tensor, &neighbors_tensor, &distances_tensor);
+  ASSERT_EQ(cuvsHnswSearch(
+              res, search_params, hnsw_index, &queries_tensor, &neighbors_tensor, &distances_tensor),
+            CUVS_SUCCESS);
 
   // verify output
   ASSERT_TRUE(cuvs::hostVecMatch(neighbors_exp, neighbors, cuvs::Compare<uint64_t>()));
@@ -118,6 +130,7 @@ TEST(CagraHnswC, BuildSearch)
 
   cuvsCagraIndexParamsDestroy(build_params);
   cuvsCagraIndexDestroy(index);
+  cuvsHnswIndexParamsDestroy(hnsw_params);
   cuvsHnswSearchParamsDestroy(search_params);
   cuvsHnswIndexDestroy(hnsw_index);
   cuvsResourcesDestroy(res);

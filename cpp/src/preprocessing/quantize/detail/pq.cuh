@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -193,7 +193,7 @@ quantizer<MathT> build(
       res, filled_params, dataset, raft::make_const_mdspan(vq_code_book.view()));
   }
   return {filled_params,
-          cuvs::neighbors::vpq_dataset<MathT, int64_t>{
+          cuvs::neighbors::device_vpq_dataset<MathT, int64_t>{
             std::move(vq_code_book), std::move(pq_code_book), std::move(empty_codes)}};
 }
 
@@ -369,8 +369,8 @@ void inverse_transform(
 
 template <typename NewMathT, typename OldMathT, typename IdxT>
 void vpq_convert_math_type(const raft::resources& res,
-                           const cuvs::neighbors::vpq_dataset<OldMathT, IdxT>& src,
-                           cuvs::neighbors::vpq_dataset<NewMathT, IdxT>& dst)
+                           const cuvs::neighbors::device_vpq_dataset<OldMathT, IdxT>& src,
+                           cuvs::neighbors::device_vpq_dataset<NewMathT, IdxT>& dst)
 {
   raft::linalg::map(res,
                     dst.vq_code_book.view(),
@@ -409,7 +409,7 @@ inline auto make_pq_params_from_vpq(const cuvs::neighbors::vpq_params& in_params
 template <typename DatasetT, typename MathT, typename IdxT>
 auto vpq_build(const raft::resources& res,
                const cuvs::neighbors::vpq_params& params,
-               const DatasetT& dataset) -> cuvs::neighbors::vpq_dataset<MathT, IdxT>
+               const DatasetT& dataset) -> cuvs::neighbors::device_vpq_dataset<MathT, IdxT>
 {
   using label_t = uint32_t;
   // Use a heuristic to impute missing parameters.
@@ -437,17 +437,17 @@ auto vpq_build(const raft::resources& res,
     codes.view(),
     true);
 
-  return cuvs::neighbors::vpq_dataset<MathT, IdxT>{
+  return cuvs::neighbors::device_vpq_dataset<MathT, IdxT>{
     std::move(vq_code_book), std::move(pq_code_book), std::move(codes)};
 }
 
 template <typename DatasetT>
 auto vpq_build_half(const raft::resources& res,
                     const cuvs::neighbors::vpq_params& params,
-                    const DatasetT& dataset) -> cuvs::neighbors::vpq_dataset<half, int64_t>
+                    const DatasetT& dataset) -> cuvs::neighbors::device_vpq_dataset<half, int64_t>
 {
   auto old_type = vpq_build<decltype(dataset), float, int64_t>(res, params, dataset);
-  auto new_type = cuvs::neighbors::vpq_dataset<half, int64_t>{
+  auto new_type = cuvs::neighbors::device_vpq_dataset<half, int64_t>{
     raft::make_device_mdarray<half>(res, old_type.vq_code_book.extents()),
     raft::make_device_mdarray<half>(res, old_type.pq_code_book.extents()),
     std::move(old_type.data)};
