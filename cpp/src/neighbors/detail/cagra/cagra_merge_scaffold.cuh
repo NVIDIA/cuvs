@@ -59,7 +59,7 @@ inline constexpr int ROW_WARPS_PER_BLOCK = 4;
  * oversized workloads loop within resident threads instead. */
 inline auto strided_grid_size(int64_t items) -> int
 {
-  return static_cast<int>(std::min<int64_t>((items + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK,
+  return static_cast<int>(std::min<int64_t>(raft::div_rounding_up_safe(items, THREADS_PER_BLOCK),
                                             MAX_STRIDED_GRID_BLOCKS));
 }
 
@@ -114,10 +114,8 @@ struct partition_range {
   int64_t end   = 0;
 };
 
-struct partition_set {
-  rmm::device_uvector<partition_membership> memberships;
-  std::vector<partition_range> ranges;
-};
+  raft::device_vector<partition_membership> memberships;
+  raft::host_vector<partition_range> ranges;
 
 // ----------------------------------------------------------------------------
 // Many-way partitioning
