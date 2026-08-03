@@ -239,9 +239,7 @@ final class JDKProvider implements CuVSProvider {
 
   @Override
   public CuVSResources newCuVSResources(
-      Path tempDirectory,
-      Path memoryTrackingCsvPath,
-      Duration memoryTrackingSampleInterval) {
+      Path tempDirectory, Path memoryTrackingCsvPath, Duration memoryTrackingSampleInterval) {
     Objects.requireNonNull(tempDirectory);
     Objects.requireNonNull(memoryTrackingCsvPath);
     Objects.requireNonNull(memoryTrackingSampleInterval);

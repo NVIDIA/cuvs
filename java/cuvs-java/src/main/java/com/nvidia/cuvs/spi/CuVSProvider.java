@@ -55,9 +55,8 @@ public interface CuVSProvider {
    *                                     CSV samples
    */
   default CuVSResources newCuVSResources(
-      Path tempDirectory,
-      Path memoryTrackingCsvPath,
-      Duration memoryTrackingSampleInterval) throws Throwable {
+      Path tempDirectory, Path memoryTrackingCsvPath, Duration memoryTrackingSampleInterval)
+      throws Throwable {
     throw new UnsupportedOperationException(
         "Memory-tracking resources are not supported by this provider");
   }
