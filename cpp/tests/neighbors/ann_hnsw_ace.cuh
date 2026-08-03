@@ -98,7 +98,8 @@ void build_ace_with_workspace(raft::resources const& resources,
   ace_params.use_disk        = true;
   params.graph_build_params  = ace_params;
 
-  [[maybe_unused]] auto index = cagra::build(resources, params, dataset);
+  auto dataset_view           = cuvs::neighbors::make_host_standard_dataset_view(dataset);
+  [[maybe_unused]] auto index = cagra::build(resources, params, dataset_view);
 }
 
 template <typename DataT>
