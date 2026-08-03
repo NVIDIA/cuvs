@@ -62,7 +62,7 @@ jobs:
         run: |
           echo "⚠️ No baseline artifacts found, extracting from main branch..."
           echo "This is slower but ensures we always have a baseline for comparison."
-          git worktree add ../cuvs-main main
+          git worktree add ../cuvs-main origin/main
           mkdir -p baseline
           check-c-abi extract \
             --header-path ../cuvs-main/c/include \

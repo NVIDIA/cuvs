@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -15,13 +15,12 @@
 #include <raft/core/mdarray.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/serialize.hpp>
-#include <raft/util/pow2_utils.cuh>
 
 #include <fstream>
 
 namespace cuvs::neighbors::ivf_sq::detail {
 
-constexpr int serialization_version = 1;
+constexpr int serialization_version = 2;
 
 template <typename CodeT>
 void serialize(raft::resources const& handle, std::ostream& os, const index<CodeT>& index_)
@@ -63,11 +62,7 @@ void serialize(raft::resources const& handle, std::ostream& os, const index<Code
 
   list_spec<uint32_t, CodeT, int64_t> list_store_spec{index_.dim(), true};
   for (uint32_t label = 0; label < index_.n_lists(); label++) {
-    ivf::serialize_list(handle,
-                        os,
-                        index_.lists()[label],
-                        list_store_spec,
-                        raft::Pow2<kIndexGroupSize>::roundUp(sizes_host(label)));
+    ivf::serialize_list(handle, os, index_.lists()[label], list_store_spec, sizes_host(label));
   }
   raft::resource::sync_stream(handle);
 }

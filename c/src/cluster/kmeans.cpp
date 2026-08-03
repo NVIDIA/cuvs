@@ -29,7 +29,7 @@ cuvs::cluster::kmeans::params convert_params(const cuvsKMeansParams& params)
   kmeans_params.batch_samples       = params.batch_samples;
   kmeans_params.batch_centroids     = params.batch_centroids;
   kmeans_params.init_size             = params.init_size;
-  kmeans_params.streaming_batch_size  = params.streaming_batch_size;
+  kmeans_params.device_buffer_samples  = params.device_buffer_samples;
   return kmeans_params;
 }
 
@@ -239,7 +239,7 @@ extern "C" cuvsError_t cuvsKMeansParamsCreate(cuvsKMeansParams_t* params)
       .batch_centroids      = cpp_params.batch_centroids,
       .hierarchical         = false,
       .hierarchical_n_iters = static_cast<int>(cpp_balanced_params.n_iters),
-      .streaming_batch_size = cpp_params.streaming_batch_size,
+      .device_buffer_samples = cpp_params.device_buffer_samples,
       .init_size            = cpp_params.init_size};
   });
 }
