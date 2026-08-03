@@ -290,7 +290,7 @@ inline auto make_root_partition(raft::resources const& res, int64_t rows) -> par
   auto stream = raft::resource::get_cuda_stream(res);
   partition_set root{rmm::device_uvector<partition_membership>(static_cast<size_t>(rows), stream),
                      {{uint32_t{0}, int64_t{0}, rows}}};
-  int blocks = static_cast<int>((rows + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
+  int blocks = raft::div_rounding_up_safe<int>(rows, THREADS_PER_BLOCK);
   initialize_root_memberships_kernel<<<blocks, THREADS_PER_BLOCK, 0, stream>>>(
     root.memberships.data(), rows);
   RAFT_CUDA_TRY(cudaGetLastError());
