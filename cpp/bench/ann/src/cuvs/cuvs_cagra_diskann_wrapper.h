@@ -14,6 +14,8 @@
 #include <fstream>
 #include <iterator>
 #include <memory>
+#include <optional>
+#include <variant>
 
 #include "../common/ann_types.hpp"
 #include "../common/blob.hpp"

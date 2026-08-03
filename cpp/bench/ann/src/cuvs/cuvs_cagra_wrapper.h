@@ -288,6 +288,10 @@ void cuvs_cagra<T, IdxT>::build(const T* dataset, size_t nrow)
   auto host_params                    = params;
   host_params.attach_dataset_on_build = false;
 
+  // Use int64_t throughout so that device copies are compatible with dataset_ (device_matrix<T,
+  // int64_t>) and so that host padded dataset views carry the correct index type.
+  auto dataset_extents_i64 =
+    raft::make_extents<int64_t>(static_cast<int64_t>(nrow), static_cast<int64_t>(dim_));
   auto dataset_view_host =
     raft::make_mdspan<const T, int64_t, raft::row_major, true, false>(dataset, dataset_extents);
   auto dataset_view_device =
@@ -550,10 +554,8 @@ void cuvs_cagra<T, IdxT>::set_search_dataset(const T* dataset, size_t nrow)
       if (start >= nrow) break;
       IdxT rows        = std::min(rows_per_split, static_cast<IdxT>(nrow) - start);
       const T* sub_ptr = dataset + static_cast<size_t>(start) * dim_;
-      auto sub_host =
-        raft::make_host_matrix_view<const T, int64_t, raft::row_major>(sub_ptr, rows, dim_);
-      auto sub_dev =
-        raft::make_device_matrix_view<const T, int64_t, raft::row_major>(sub_ptr, rows, dim_);
+      auto sub_dev     = raft::make_device_matrix_view<const T, int64_t, raft::row_major>(
+        sub_ptr, static_cast<int64_t>(rows), static_cast<int64_t>(dim_));
       auto sub_index = sub_indices_[i].get();
       // Release the storage of this split before allocating its replacement, so that the device
       // never holds two copies of a split at once.
@@ -576,7 +578,7 @@ void cuvs_cagra<T, IdxT>::set_search_dataset(const T* dataset, size_t nrow)
         input_dataset_v_->data_handle() != dataset) {
       *input_dataset_v_ =
         raft::make_device_matrix_view<const T, int64_t>(dataset, nrow, this->dim_);
-      need_dataset_update_ = !is_vpq;  // ignore update if this is a VPQ dataset.
+      need_dataset_update_ = true;
     }
   }
 }
@@ -631,7 +633,29 @@ void cuvs_cagra<T, IdxT>::load(const std::string& file)
 template <typename T, typename IdxT>
 std::unique_ptr<algo<T>> cuvs_cagra<T, IdxT>::copy()
 {
-  return std::make_unique<cuvs_cagra<T, IdxT>>(std::cref(*this));  // use copy constructor
+  auto out                  = std::make_unique<cuvs_cagra<T, IdxT>>(metric_, dim_, index_params_);
+  out->refine_ratio_        = refine_ratio_;
+  out->graph_mem_           = graph_mem_;
+  out->dataset_mem_         = dataset_mem_;
+  out->need_dataset_update_ = need_dataset_update_;
+  out->search_params_       = search_params_;
+  out->index_               = index_;
+  out->graph_               = graph_;
+  out->dataset_             = dataset_;
+  out->input_dataset_v_ =
+    std::make_shared<raft::device_matrix_view<const T, int64_t, raft::row_major>>(
+      *input_dataset_v_);
+  out->dynamic_batcher_                        = dynamic_batcher_;
+  out->dynamic_batcher_sp_                     = dynamic_batcher_sp_;
+  out->dynamic_batching_max_batch_size_        = dynamic_batching_max_batch_size_;
+  out->dynamic_batching_n_queues_              = dynamic_batching_n_queues_;
+  out->dynamic_batching_conservative_dispatch_ = dynamic_batching_conservative_dispatch_;
+  out->filter_                                 = filter_;
+  out->sub_indices_                            = sub_indices_;
+  out->sub_dataset_buffers_                    = sub_dataset_buffers_;
+  out->deserialized_dataset_                   = deserialized_dataset_;
+  out->sub_deserialized_datasets_              = sub_deserialized_datasets_;
+  return out;
 }
 
 template <typename T, typename IdxT>
