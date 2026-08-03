@@ -22,13 +22,13 @@ function(find_and_configure_rtcx VERSION)
     BUILD_EXPORT_SET    cuvs-static-exports
     INSTALL_EXPORT_SET  cuvs-static-exports
     CPM_ARGS
-    GIT_REPOSITORY https://github.com/arhag23/librtcx.git
-    GIT_TAG 2a3e06f93d4123f3cd0546dfd11e40348f0d23a8
+    GIT_REPOSITORY https://github.com/rapidsai/librtcx
+    GIT_TAG b5e753e9427e331c02f8c370143cb0d5f40da0fd
     GIT_SHALLOW FALSE
   )
 
-  # When CPM fetches from source (add_subdirectory), embed.cmake is not auto-included. Include it
-  # explicitly so add_embed/embed_includes/embed functions are available.
+  # When CPM fetches from source (add_subdirectory), generate_jit_lto_kernels.cmake is not
+  # auto-included. Include it explicitly so necessary functions are available.
   if(rtcx_ADDED OR DEFINED CPM_rtcx_SOURCE)
     include("${rtcx_SOURCE_DIR}/generate_jit_lto_kernels.cmake")
   endif()
