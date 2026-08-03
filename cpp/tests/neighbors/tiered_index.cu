@@ -159,8 +159,28 @@ class ANNTieredIndexTest : public ::testing::TestWithParam<AnnTieredIndexInputs>
       auto indices_view = raft::make_device_matrix_view<int64_t, int64_t>(
         (int64_t*)indices_tiered_dev.data(), ps.n_queries, ps.k);
 
-      cuvs::neighbors::tiered_index::search(
-        handle_, search_params, *final_index, queries_view, indices_view, distances_view);
+      if constexpr (std::is_same_v<UpstreamT, cagra::device_standard_index<float, uint32_t>>) {
+        auto full_database_view = raft::make_device_matrix_view<const value_type, int64_t>(
+          (const value_type*)database.data(), ps.n_rows, ps.dim);
+        if (cuvs::neighbors::matrix_row_width_matches_cagra_required(full_database_view)) {
+          auto padded_view =
+            cuvs::neighbors::make_device_padded_dataset_view(handle_, full_database_view);
+          auto attached_index = cuvs::neighbors::tiered_index::convert_standard_to_padded_index(
+            handle_, *final_index, padded_view);
+          cuvs::neighbors::tiered_index::search(
+            handle_, search_params, attached_index, queries_view, indices_view, distances_view);
+        } else {
+          auto padded_dataset =
+            cuvs::neighbors::make_device_padded_dataset(handle_, full_database_view);
+          auto attached_index = cuvs::neighbors::tiered_index::convert_standard_to_padded_index(
+            handle_, *final_index, padded_dataset->as_dataset_view());
+          cuvs::neighbors::tiered_index::search(
+            handle_, search_params, attached_index, queries_view, indices_view, distances_view);
+        }
+      } else {
+        cuvs::neighbors::tiered_index::search(
+          handle_, search_params, *final_index, queries_view, indices_view, distances_view);
+      }
 
       raft::update_host(
         distances_tiered.data(), distances_tiered_dev.data(), ps.n_queries * ps.k, stream_);
@@ -216,7 +236,7 @@ const std::vector<AnnTieredIndexInputs> inputs =
     {10},                                          // n_queries
     {TEST_EXTEND, TEST_MERGE}                      // test_strategy
   );
-typedef ANNTieredIndexTest<cagra::index<float, uint32_t>> CAGRA_F;
+typedef ANNTieredIndexTest<cagra::device_standard_index<float, uint32_t>> CAGRA_F;
 TEST_P(CAGRA_F, AnnTieredIndex) { this->testTieredIndex(); }
 INSTANTIATE_TEST_CASE_P(ANNTieredIndexTest, CAGRA_F, ::testing::ValuesIn(inputs));
 
