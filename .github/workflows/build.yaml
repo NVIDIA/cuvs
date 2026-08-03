@@ -43,7 +43,7 @@ jobs:
       packages: read
       pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
-    uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-build.yaml@main
+    uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-build.yaml@codex/release-build-output-manifests
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
       branch: ${{ inputs.branch }}
@@ -51,6 +51,8 @@ jobs:
       node_type: cpu16
       script: ci/build_cpp.sh
       sha: ${{ inputs.sha }}
+      release-build-output: true
+      release-unit: conda:cuvs-cpp
 
   rocky8-clib-standalone-build-matrix:
     permissions:
@@ -82,8 +84,25 @@ jobs:
       requires_license_builder: true
       script: "ci/build_standalone_c.sh"
       artifact-name: "libcuvs_c_${{ matrix.CUDA_VER }}_${{ matrix.ARCH }}.tar.gz"
-      file_to_upload: "libcuvs_c.tar.gz"
+      file_to_upload: |
+        libcuvs_c.tar.gz
+        libcuvs_c.release-package.json
       sha: ${{ inputs.sha }}
+  rocky8-clib-standalone-release-output:
+    needs: [rocky8-clib-standalone-build-matrix, rocky8-clib-standalone-build]
+    permissions:
+      actions: read
+      contents: read
+    uses: rapidsai/shared-workflows/.github/workflows/release-build-output.yaml@codex/release-build-output-manifests
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.rocky8-clib-standalone-build-matrix.outputs.matrix) }}
+    with:
+      artifact-name: "libcuvs_c_${{ matrix.CUDA_VER }}_${{ matrix.ARCH }}.tar.gz"
+      release-unit: archive:libcuvs-c
+      release-package-file: libcuvs_c.release-package.json
+      release-artifacts: '[{"path":"libcuvs_c.tar.gz"}]'
+      source-sha: ${{ inputs.sha || github.sha }}
   rust-build-matrix:
     needs: cpp-build
     permissions:
@@ -184,6 +203,21 @@ jobs:
       artifact-name: "cuvs-java-cuda${{ matrix.CUDA_VER }}"
       file_to_upload: "java/cuvs-java/target/"
       sha: ${{ inputs.sha }}
+  java-release-output:
+    needs: [java-build-matrix, java-build]
+    permissions:
+      actions: read
+      contents: read
+    uses: rapidsai/shared-workflows/.github/workflows/release-build-output.yaml@codex/release-build-output-manifests
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.java-build-matrix.outputs.matrix) }}
+    with:
+      artifact-name: "cuvs-java-cuda${{ matrix.CUDA_VER }}"
+      release-unit: maven:cuvs-java
+      release-package-file: cuvs-java.release-package.json
+      release-artifacts: '[{"path":"cuvs-java-*-x86_64-cuda*.jar"}]'
+      source-sha: ${{ inputs.sha || github.sha }}
   python-build:
     needs: [cpp-build]
     permissions:
@@ -193,13 +227,15 @@ jobs:
       packages: read
       pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
-    uses: rapidsai/shared-workflows/.github/workflows/conda-python-build.yaml@main
+    uses: rapidsai/shared-workflows/.github/workflows/conda-python-build.yaml@codex/release-build-output-manifests
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
       branch: ${{ inputs.branch }}
       date: ${{ inputs.date }}
       script: ci/build_python.sh
       sha: ${{ inputs.sha }}
+      release-build-output: true
+      release-unit: conda:cuvs-python
       # Build a conda package for each CUDA x ARCH x minimum supported Python version
       matrix_filter: group_by({CUDA_VER, ARCH}) | map(min_by(.PY_VER | split(".") | map(tonumber)))
   upload-conda:
@@ -254,7 +290,7 @@ jobs:
       packages: read
       pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
-    uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@main
+    uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@codex/release-build-output-manifests
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
       branch: ${{ inputs.branch }}
@@ -266,6 +302,8 @@ jobs:
       matrix_filter: group_by([.ARCH, (.CUDA_VER|split(".")|map(tonumber)|.[0])]) | map(max_by(.PY_VER|split(".")|map(tonumber)))
       package-name: libcuvs
       package-type: cpp
+      release-build-output: true
+      release-unit: wheel:libcuvs
   wheel-publish-libcuvs:
     needs: wheel-build-libcuvs
     permissions:
@@ -295,7 +333,7 @@ jobs:
       packages: read
       pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
-    uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@main
+    uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@codex/release-build-output-manifests
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
       branch: ${{ inputs.branch }}
@@ -305,6 +343,8 @@ jobs:
       script: ci/build_wheel_cuvs.sh
       package-name: cuvs
       package-type: python
+      release-build-output: true
+      release-unit: wheel:cuvs
       # Build a wheel for each CUDA x ARCH x minimum supported Python version
       matrix_filter: group_by({CUDA_VER, ARCH}) | map(min_by(.PY_VER | split(".") | map(tonumber)))
   wheel-publish-cuvs:

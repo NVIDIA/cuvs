@@ -1,5 +1,5 @@
 #!/bin/bash
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 set -euo pipefail
@@ -57,6 +57,14 @@ RAPIDS_CUDA_MAJOR="${RAPIDS_CUDA_VERSION%%.*}"
 export RAPIDS_CUDA_MAJOR
 
 bash ./build.sh java "${EXTRA_BUILD_ARGS[@]}"
+
+if [[ "${EXITCODE}" -eq 0 ]]; then
+  JAVA_PACKAGE_VERSION="$(sed -n 's/.*<version>\([^<]*\)<\/version>.*/\1/p' java/cuvs-java/pom.xml | head -n 1)"
+  jq -n \
+    --arg version "${JAVA_PACKAGE_VERSION}" \
+    '{ecosystem: "maven", name: "com.nvidia.cuvs:cuvs-java", version: $version}' \
+    >java/cuvs-java/target/cuvs-java.release-package.json
+fi
 
 sccache --show-adv-stats
 sccache --stop-server >/dev/null 2>&1 || true
