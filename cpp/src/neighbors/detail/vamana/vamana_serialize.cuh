@@ -22,6 +22,7 @@
 #include "../../../util/kvikio_serialize.hpp"
 #include "../dataset_serialize.hpp"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -34,8 +35,8 @@ void serialize_dataset_view(raft::resources const& res,
                             DatasetView dataset,
                             const std::string& dataset_base_file)
 {
-  const auto n_rows = dataset.extent(0);
-  const auto dim    = dataset.extent(1);
+  auto const n_rows = dataset.extent(0);
+  auto const dim    = dataset.extent(1);
   RAFT_EXPECTS(n_rows <= std::numeric_limits<int>::max() && dim <= std::numeric_limits<int>::max(),
                "Vamana dataset shape (%lld, %lld) exceeds the on-disk format limits",
                static_cast<long long>(n_rows),
@@ -43,25 +44,25 @@ void serialize_dataset_view(raft::resources const& res,
 
   cuvs::util::kvikio_ofstream dataset_of(dataset_base_file);
   if (!dataset_of) { RAFT_FAIL("Cannot open file %s", dataset_base_file.c_str()); }
-  const int size = static_cast<int>(n_rows);
-  const int cols = static_cast<int>(dim);
+  int const size = static_cast<int>(n_rows);
+  int const cols = static_cast<int>(dim);
   dataset_of.write((char*)&size, sizeof(int));
   dataset_of.write((char*)&cols, sizeof(int));
 
   if (n_rows > 0 && dim > 0) {
-    const auto stride      = dataset.stride(0);
-    const size_t row_bytes = static_cast<size_t>(dim) * sizeof(T);
+    auto const stride    = dataset.stride(0);
+    auto const row_bytes = static_cast<size_t>(dim) * sizeof(T);
     if (stride == dim) {
       raft::resource::sync_stream(res);
       dataset_of.write_device(dataset.data_handle(), static_cast<size_t>(n_rows) * row_bytes);
     } else {
-      const auto batch_rows = static_cast<int64_t>(std::min<size_t>(
+      auto const batch_rows = static_cast<int64_t>(std::min<size_t>(
         static_cast<size_t>(n_rows),
         std::max<size_t>(1, cuvs::util::detail::kDeviceSerializationBatchBytes / row_bytes)));
       auto packed           = raft::make_device_matrix<T, int64_t>(res, batch_rows, dim);
-      const auto stream     = raft::resource::get_cuda_stream(res);
+      auto const stream     = raft::resource::get_cuda_stream(res);
       for (int64_t first_row = 0; first_row < n_rows; first_row += batch_rows) {
-        const auto rows = std::min<int64_t>(batch_rows, n_rows - first_row);
+        auto const rows = std::min<int64_t>(batch_rows, n_rows - first_row);
         raft::copy_matrix(packed.data_handle(),
                           dim,
                           dataset.data_handle() + first_row * stride,
@@ -74,7 +75,6 @@ void serialize_dataset_view(raft::resources const& res,
       }
     }
   }
-
   dataset_of.close();
   if (!dataset_of) { RAFT_FAIL("Error writing output %s", dataset_base_file.c_str()); }
 }
@@ -91,17 +91,12 @@ void serialize_dataset_view(raft::resources const& res,
  */
 template <typename T>
 void serialize_dataset(raft::resources const& res,
-                       const cuvs::neighbors::dataset<int64_t>* dataset,
+                       const cuvs::neighbors::device_padded_dataset_view<T, int64_t>* dataset,
                        const std::string& dataset_base_file)
 {
+  if (dataset == nullptr) { return; }
   try {
-    const auto* strided_dataset =
-      dynamic_cast<const cuvs::neighbors::strided_dataset<T, int64_t>*>(dataset);
-    if (strided_dataset) {
-      serialize_dataset_view<T>(res, strided_dataset->view(), dataset_base_file);
-    } else {
-      RAFT_LOG_DEBUG("dynamic_cast to strided_dataset failed");
-    }
+    serialize_dataset_view<T>(res, dataset->view(), dataset_base_file);
   } catch (std::bad_alloc& e) {
     RAFT_LOG_INFO("Failed to serialize dataset");
   } catch (raft::logic_error& e) {
@@ -135,11 +130,12 @@ void serialize_dataset(raft::resources const& res,
  *
  */
 template <typename T, typename IdxT, typename HostMatT>
-void serialize_sector_aligned(raft::resources const& res,
-                              const HostMatT& h_graph,
-                              const cuvs::neighbors::dataset<int64_t>& dataset,
-                              const uint64_t medoid,
-                              std::ostream& output_writer)
+void serialize_sector_aligned(
+  raft::resources const& res,
+  const HostMatT& h_graph,
+  const cuvs::neighbors::device_padded_dataset_view<T, int64_t>& dataset,
+  const uint64_t medoid,
+  std::ostream& output_writer)
 {
   if constexpr (!std::is_same_v<IdxT, uint32_t>) {
     RAFT_FAIL("serialization is only implemented for uint32_t graph");
@@ -174,15 +170,11 @@ void serialize_sector_aligned(raft::resources const& res,
   const uint64_t nnodes_per_sector = sector_len / max_node_len;  // 0 if max_node_len > sector_len
 
   // copy dataset to host
-  auto dataset_strided =
-    dynamic_cast<const cuvs::neighbors::strided_dataset<T, int64_t>*>(&dataset);
-  if (!dataset_strided) { RAFT_FAIL("Invalid dataset"); }
-  auto d_data = dataset_strided->view();
   auto h_data = raft::make_host_matrix<T, int64_t>(npts, ndims);
   raft::copy_matrix(h_data.data_handle(),
                     ndims,
-                    d_data.data_handle(),
-                    dataset_strided->stride(),
+                    dataset.view().data_handle(),
+                    dataset.stride(),
                     ndims,
                     npts,
                     raft::resource::get_cuda_stream(res));
@@ -214,7 +206,7 @@ void serialize_sector_aligned(raft::resources const& res,
   output_meta.push_back(static_cast<uint64_t>(append_reorder_data));
   output_meta.push_back(disk_index_file_size);
 
-  // Build and write the complete metadata sector without seeking so KvikIO can stay sequential.
+  // Build and write the complete metadata sector so the KvikIO stream remains sequential.
   memset(sector_buf.get(), 0, sector_len);
   const int metadata_size  = static_cast<int>(output_meta.size());
   const int metadata_ndims = 1;
@@ -359,10 +351,9 @@ void serialize(raft::resources const& res,
   size_t index_size        = 24;  // Starting metadata
   uint32_t start           = static_cast<uint32_t>(index_.medoid());
   size_t num_frozen_points = 0;
-
-  size_t total_edges = 0;
-  size_t num_sparse  = 0;
-  size_t num_single  = 0;
+  size_t total_edges       = 0;
+  size_t num_sparse        = 0;
+  size_t num_single        = 0;
 
   for (uint32_t i = 0; i < h_graph.extent(0); i++) {
     uint32_t node_edges = 0;

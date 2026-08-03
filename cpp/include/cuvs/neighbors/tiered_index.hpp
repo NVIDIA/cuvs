@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -87,7 +87,24 @@ struct index_params : upstream_index_params_type {
 auto build(raft::resources const& res,
            const index_params<cagra::index_params>& index_params,
            raft::device_matrix_view<const float, int64_t, raft::row_major> dataset)
-  -> tiered_index::index<cagra::index<float, uint32_t>>;
+  -> tiered_index::index<cagra::device_standard_index<float, uint32_t>>;
+
+/**
+ * @brief Convert a standard CAGRA tiered index into a padded CAGRA tiered index.
+ *
+ * This helper wraps CAGRA standard->padded conversion for the ANN tier and attaches the
+ * caller-managed padded dataset before returning the padded tiered index.
+ */
+auto convert_standard_to_padded_index(
+  raft::resources const& res,
+  const index<cagra::device_standard_index<float, uint32_t>>& idx,
+  cuvs::neighbors::device_padded_dataset_view<float, int64_t> padded_dataset)
+  -> index<cagra::device_padded_index<float, uint32_t>>;
+
+auto build(raft::resources const& res,
+           const index_params<cagra::index_params>& index_params,
+           cuvs::neighbors::device_padded_dataset_view<float, int64_t> dataset)
+  -> tiered_index::index<cagra::device_padded_index<float, uint32_t>>;
 
 /** @copydoc build */
 auto build(raft::resources const& res,
@@ -121,7 +138,12 @@ auto build(raft::resources const& res,
  */
 void extend(raft::resources const& res,
             raft::device_matrix_view<const float, int64_t, raft::row_major> new_vectors,
-            tiered_index::index<cagra::index<float, uint32_t>>* idx);
+            tiered_index::index<cagra::device_padded_index<float, uint32_t>>* idx);
+
+/** @copydoc extend */
+void extend(raft::resources const& res,
+            raft::device_matrix_view<const float, int64_t, raft::row_major> new_vectors,
+            tiered_index::index<cagra::device_standard_index<float, uint32_t>>* idx);
 
 /** @copydoc extend */
 void extend(raft::resources const& res,
@@ -141,7 +163,12 @@ void extend(raft::resources const& res,
  * @param[in] res
  * @param[inout] idx
  */
-void compact(raft::resources const& res, tiered_index::index<cagra::index<float, uint32_t>>* idx);
+void compact(raft::resources const& res,
+             tiered_index::index<cagra::device_padded_index<float, uint32_t>>* idx);
+
+/** @copydoc compact */
+void compact(raft::resources const& res,
+             tiered_index::index<cagra::device_standard_index<float, uint32_t>>* idx);
 
 /** @copydoc compact */
 void compact(raft::resources const& res, tiered_index::index<ivf_flat::index<float, int64_t>>* idx);
@@ -166,7 +193,17 @@ void compact(raft::resources const& res,
  */
 void search(raft::resources const& res,
             const cagra::search_params& search_params,
-            const tiered_index::index<cagra::index<float, uint32_t>>& index,
+            const tiered_index::index<cagra::device_padded_index<float, uint32_t>>& index,
+            raft::device_matrix_view<const float, int64_t, raft::row_major> queries,
+            raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
+            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
+            const cuvs::neighbors::filtering::base_filter& sample_filter =
+              cuvs::neighbors::filtering::none_sample_filter{});
+
+/** @copydoc search */
+void search(raft::resources const& res,
+            const cagra::search_params& search_params,
+            const tiered_index::index<cagra::device_standard_index<float, uint32_t>>& index,
             raft::device_matrix_view<const float, int64_t, raft::row_major> queries,
             raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
             raft::device_matrix_view<float, int64_t, raft::row_major> distances,
@@ -205,10 +242,18 @@ void search(raft::resources const& res,
  *
  * @return A new tiered index containing the merged indices
  */
-auto merge(raft::resources const& res,
-           const index_params<cagra::index_params>& index_params,
-           const std::vector<tiered_index::index<cagra::index<float, uint32_t>>*>& indices)
-  -> tiered_index::index<cagra::index<float, uint32_t>>;
+auto merge(
+  raft::resources const& res,
+  const index_params<cagra::index_params>& index_params,
+  const std::vector<tiered_index::index<cagra::device_padded_index<float, uint32_t>>*>& indices)
+  -> tiered_index::index<cagra::device_padded_index<float, uint32_t>>;
+
+/** @copydoc merge */
+auto merge(
+  raft::resources const& res,
+  const index_params<cagra::index_params>& index_params,
+  const std::vector<tiered_index::index<cagra::device_standard_index<float, uint32_t>>*>& indices)
+  -> tiered_index::index<cagra::device_standard_index<float, uint32_t>>;
 
 /** @copydoc merge */
 auto merge(raft::resources const& res,

@@ -33,6 +33,16 @@ use tinyvec::TinyVec;
 
 pub use ffi::{DLDataType, DLDataTypeCode, DLDevice, DLDeviceType, DLManagedTensor, DLTensor};
 
+pub(crate) trait DeviceTypeExt {
+    fn is_device_compatible(&self) -> bool;
+}
+
+impl DeviceTypeExt for ffi::DLDeviceType {
+    fn is_device_compatible(&self) -> bool {
+        matches!(*self, Self::kDLCUDA | Self::kDLCUDAManaged)
+    }
+}
+
 /// Number of dimensions kept inline before [`TensorDims`] spills to the heap.
 /// 1-D and 2-D tensors are the norm; IVF-PQ codebooks need 3-D.
 const INLINE_DIMS: usize = 3;

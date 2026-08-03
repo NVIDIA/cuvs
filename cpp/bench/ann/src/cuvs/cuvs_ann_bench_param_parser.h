@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -328,13 +328,6 @@ void parse_build_param(const nlohmann::json& conf, cuvs::neighbors::cagra::index
     // Only update the intermediate graph degree if it's invalid.
     params.intermediate_graph_degree =
       std::max(params.graph_degree, params.intermediate_graph_degree);
-  }
-
-  nlohmann::json comp_search_conf = collect_conf_with_prefix(conf, "compression_");
-  if (!comp_search_conf.empty()) {
-    auto vpq_pams = params.compression.value_or(cuvs::neighbors::vpq_params{});
-    parse_build_param(comp_search_conf, vpq_pams);
-    params.compression.emplace(vpq_pams);
   }
 
   if (conf.contains("guarantee_connectivity")) {

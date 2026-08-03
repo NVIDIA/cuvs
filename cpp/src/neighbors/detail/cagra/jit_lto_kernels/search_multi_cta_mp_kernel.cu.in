@@ -1,0 +1,60 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <neighbors/detail/cagra/jit_lto_kernels/kernel_def.hpp>
+#include <neighbors/detail/cagra/jit_lto_kernels/search_multi_cta_jit.cuh>
+
+namespace {
+
+using data_t         = @data_type@;
+using index_t        = @index_type@;
+using distance_t     = @distance_type@;
+using source_index_t = @source_index_type@;
+using mp_desc_t      = cuvs::neighbors::cagra::detail::multi_cta_search::
+  multi_partition_desc_t<data_t, index_t, distance_t>;
+
+}  // namespace
+
+namespace cuvs::neighbors::cagra::detail::multi_cta_search {
+
+extern "C" __global__ __launch_bounds__(1024, 1) void search_multi_cta_mp(
+  const mp_desc_t* partition_descs,
+  index_t* const result_indices_ptr,
+  distance_t* const result_distances_ptr,
+  const data_t* const queries_ptr,
+  const std::uint32_t max_elements,
+  const std::uint32_t max_graph_degree,
+  const unsigned num_distilation,
+  const uint64_t rand_xor_mask,
+  const std::uint32_t visited_hash_bitlen,
+  index_t* const traversed_hashmap_ptr,
+  const std::uint32_t traversed_hash_bitlen,
+  const std::uint32_t itopk_size,
+  const std::uint32_t min_iteration,
+  const std::uint32_t max_iteration,
+  const std::uint32_t query_id_offset)
+{
+  search_multi_cta_mp_jit<data_t, index_t, distance_t, source_index_t>(partition_descs,
+                                                                       result_indices_ptr,
+                                                                       result_distances_ptr,
+                                                                       queries_ptr,
+                                                                       max_elements,
+                                                                       max_graph_degree,
+                                                                       num_distilation,
+                                                                       rand_xor_mask,
+                                                                       visited_hash_bitlen,
+                                                                       traversed_hashmap_ptr,
+                                                                       traversed_hash_bitlen,
+                                                                       itopk_size,
+                                                                       min_iteration,
+                                                                       max_iteration,
+                                                                       query_id_offset);
+}
+
+static_assert(
+  std::is_same_v<decltype(search_multi_cta_mp),
+                 search_multi_cta_mp_kernel_func_t<data_t, index_t, distance_t, source_index_t>>);
+
+}  // namespace cuvs::neighbors::cagra::detail::multi_cta_search
