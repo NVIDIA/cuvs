@@ -199,11 +199,10 @@ cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> merge_rebuild(
   return index;
 }
 
-
 struct fastener_preflight_result {
-  bool eligible = false;
-  int64_t rows  = 0;
-  int64_t dim   = 0;
+  bool eligible  = false;
+  int64_t rows   = 0;
+  int64_t dim    = 0;
   int64_t stride = 0;
   std::vector<int64_t> offsets;
   std::string reason;
@@ -212,6 +211,7 @@ struct fastener_preflight_result {
 /** Validate every input and option without mutating anything. */
 template <typename T, typename IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
 auto preflight_fastener(
+  raft::resources const& handle,
   cagra::index_params const& params,
   cagra::merge_params const& merge_params,
   std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*> const& indices,
@@ -237,7 +237,6 @@ auto preflight_fastener(
   if (row_filter.get_filter_type() != cuvs::neighbors::filtering::FilterType::None) {
     return reject("row filters are not supported");
   }
-  if (params.compression.has_value()) { return reject("compressed output is not supported"); }
   if (params.metric != cuvs::distance::DistanceType::L2Expanded) {
     return reject("only L2Expanded is supported");
   }
@@ -326,7 +325,8 @@ auto preflight_fastener(
   if (result.dim <= 0 || result.dim > std::numeric_limits<int>::max()) {
     return reject("dataset dimension must be positive and fit cuBLAS int dimensions");
   }
-  if (!merge_scaffold::leaf_gemm_supported(result.dim, merge_params.leaf_size)) {
+  if (!merge_scaffold::leaf_gemm_supported(
+        result.dim, merge_params.leaf_size, raft::resource::get_workspace_free_bytes(handle))) {
     return reject("dataset dimension exceeds the leaf GEMM workspace limit");
   }
   if (rows > std::numeric_limits<uint32_t>::max() / spill) {
@@ -401,11 +401,11 @@ auto merge_fastener(raft::resources const& handle,
     raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> scope("cagra::merge/consolidate");
     // Zero first so the pad columns are defined: the sorter treats the padded width as the
     // dimension, which is exact for L2 only because the padding contributes nothing.
-    RAFT_CUDA_TRY(cudaMemsetAsync(destination,
-                                  0,
-                                  static_cast<std::size_t>(preflight.rows) *
-                                    static_cast<std::size_t>(stride) * sizeof(T),
-                                  raft::resource::get_cuda_stream(handle)));
+    RAFT_CUDA_TRY(cudaMemsetAsync(
+      destination,
+      0,
+      static_cast<std::size_t>(preflight.rows) * static_cast<std::size_t>(stride) * sizeof(T),
+      raft::resource::get_cuda_stream(handle)));
     copy_input_datasets<T, IdxT, DatasetViewT>(
       handle, indices, preflight.offsets, preflight.dim, stride, destination);
   }
@@ -450,7 +450,9 @@ auto merge_fastener(raft::resources const& handle,
 
   // The caller owns merged_dataset; the returned index holds only a view of it.
   cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> merged_index(handle, params.metric);
-  merged_index.update_graph(handle, raft::make_const_mdspan(optimized_graph.view()));
+  // Must move: the device_matrix_view overload only stores a view, which would dangle once
+  // optimized_graph goes out of scope.
+  merged_index.update_graph(handle, std::move(optimized_graph));
   merged_index.update_device_dataset_same_layout(handle, merged_dataset);
   return merged_index;
 }
@@ -477,7 +479,7 @@ auto merge(raft::resources const& handle,
   }
 
   auto preflight =
-    preflight_fastener<T, IdxT, DatasetViewT>(params, merge_params, indices, row_filter);
+    preflight_fastener<T, IdxT, DatasetViewT>(handle, params, merge_params, indices, row_filter);
   if (!preflight.eligible) {
     if (merge_params.algo == cagra::merge_algo::AUTO) {
       return merge_rebuild<T, IdxT, DatasetViewT>(
@@ -516,7 +518,9 @@ auto merge(raft::resources const& handle,
            cuvs::neighbors::filtering::base_filter const& row_filter)
   -> cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>
 {
-  return merge<T, IdxT, DatasetViewT>(
+  // Fully qualified: an unqualified call also finds cuvs::neighbors::cagra::merge via ADL on the
+  // index arguments, which is ambiguous with this overload.
+  return cuvs::neighbors::cagra::detail::merge<T, IdxT, DatasetViewT>(
     handle, params, indices, merged_dataset, cagra::merge_params{}, row_filter);
 }
 

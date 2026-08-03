@@ -402,12 +402,13 @@ void cuvs_cagra<T, IdxT>::build(const T* dataset, size_t nrow)
       *dataset_                = raft::make_device_matrix<T, int64_t>(handle_, merged_rows, stride);
       auto merged_dataset_view = cuvs::neighbors::device_padded_dataset_view<T, int64_t>(
         raft::make_const_mdspan(dataset_->view()), static_cast<uint32_t>(dim_));
-      index_ = std::make_shared<index_type>(cuvs::neighbors::cagra::merge(handle_,
-                                                                         params,
-                                                                         indices,
-                                                                         merged_dataset_view,
-                                                                         index_params_.merge_params,
-                                                                         merge_row_filter));
+      index_ =
+        std::make_shared<index_type>(cuvs::neighbors::cagra::merge(handle_,
+                                                                   params,
+                                                                   indices,
+                                                                   merged_dataset_view,
+                                                                   index_params_.merge_params,
+                                                                   merge_row_filter));
     }
   }
 }

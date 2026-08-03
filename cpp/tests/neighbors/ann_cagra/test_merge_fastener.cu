@@ -10,6 +10,7 @@
 
 #include "../../../src/neighbors/detail/cagra/cagra_merge.cuh"
 #include "../ann_cagra.cuh"
+#include "../cagra_padded_build_helpers.cuh"
 
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/cagra.hpp>
@@ -32,6 +33,67 @@
 
 namespace cuvs::neighbors::cagra {
 namespace {
+
+/** Padded device storage plus a view of it.
+ *
+ * The new dataset API makes an index hold only a *view*, so the storage must outlive every index
+ * built from it. Keeping both together in one object makes that lifetime explicit. Rows are padded
+ * to the CAGRA-required width and zero-filled, matching what cagra::merge produces.
+ */
+/** plan_split now takes a raft::host_vector; tests still express ranges as literals. */
+inline auto make_ranges(raft::resources const& res,
+                        std::initializer_list<detail::merge_scaffold::partition_range> items)
+  -> raft::host_vector<detail::merge_scaffold::partition_range, int64_t>
+{
+  auto out = raft::make_host_vector<detail::merge_scaffold::partition_range, int64_t>(
+    res, static_cast<int64_t>(items.size()));
+  int64_t i = 0;
+  for (auto const& item : items) {
+    out(i++) = item;
+  }
+  return out;
+}
+
+template <typename T>
+struct padded_storage {
+  raft::device_matrix<T, int64_t> matrix;
+  cuvs::neighbors::device_padded_dataset_view<T, int64_t> view;
+};
+
+template <typename T>
+auto make_padded(raft::resources const& res, raft::host_matrix_view<const T, int64_t> src)
+  -> padded_storage<T>
+{
+  auto stream       = raft::resource::get_cuda_stream(res);
+  auto const dim    = static_cast<uint32_t>(src.extent(1));
+  auto const stride = cuvs::neighbors::cagra_required_row_width<T>(dim, 16);
+  auto matrix =
+    raft::make_device_matrix<T, int64_t>(res, src.extent(0), static_cast<int64_t>(stride));
+  RAFT_CUDA_TRY(cudaMemsetAsync(
+    matrix.data_handle(), 0, static_cast<size_t>(matrix.size()) * sizeof(T), stream));
+  raft::copy_matrix(matrix.data_handle(),
+                    static_cast<size_t>(stride),
+                    src.data_handle(),
+                    static_cast<size_t>(dim),
+                    static_cast<size_t>(dim),
+                    static_cast<size_t>(src.extent(0)),
+                    stream);
+  raft::resource::sync_stream(res);
+  cuvs::neighbors::device_padded_dataset_view<T, int64_t> view(
+    raft::make_const_mdspan(matrix.view()), dim);
+  return padded_storage<T>{std::move(matrix), view};
+}
+
+/** Allocate merged-dataset storage matching what cagra::merge expects for `rows` of `dim`. */
+template <typename T>
+auto make_merged_storage(raft::resources const& res, int64_t rows, int64_t dim) -> padded_storage<T>
+{
+  auto const stride = cuvs::neighbors::cagra_required_row_width<T>(static_cast<uint32_t>(dim), 16);
+  auto matrix       = raft::make_device_matrix<T, int64_t>(res, rows, static_cast<int64_t>(stride));
+  cuvs::neighbors::device_padded_dataset_view<T, int64_t> view(
+    raft::make_const_mdspan(matrix.view()), static_cast<uint32_t>(dim));
+  return padded_storage<T>{std::move(matrix), view};
+}
 
 template <typename T>
 auto make_dataset(raft::resources const& res,
@@ -80,7 +142,9 @@ auto make_ring_graph(raft::resources const& res, int64_t rows, int64_t degree)
 }
 
 template <typename T>
-void expect_valid_graph(index<T, uint32_t> const& merged, int64_t rows, int64_t degree)
+void expect_valid_graph(cagra::device_padded_index<T, uint32_t> const& merged,
+                        int64_t rows,
+                        int64_t degree)
 {
   ASSERT_EQ(merged.size(), rows);
   ASSERT_EQ(merged.graph().extent(0), rows);
@@ -104,7 +168,7 @@ void expect_valid_graph(index<T, uint32_t> const& merged, int64_t rows, int64_t 
  * `expect_valid_graph` only checks that entries are in range and not self-loops, so it cannot see a
  * merge that left the input graphs as separate components. */
 template <typename T>
-auto count_connected_components(index<T, uint32_t> const& merged) -> int64_t
+auto count_connected_components(cagra::device_padded_index<T, uint32_t> const& merged) -> int64_t
 {
   raft::resources res;
   int64_t rows   = merged.graph().extent(0);
@@ -141,24 +205,22 @@ auto count_connected_components(index<T, uint32_t> const& merged) -> int64_t
 
 template <typename T>
 void expect_dataset_order(raft::resources const& res,
-                          index<T, uint32_t> const& merged,
+                          cagra::device_padded_index<T, uint32_t> const& merged,
                           raft::host_matrix_view<const T, int64_t> expected)
 {
   auto view = merged.dataset();
-  ASSERT_EQ(view.extent(0), expected.extent(0));
-  ASSERT_EQ(view.extent(1), expected.extent(1));
-  // The merged owning dataset is attached through make_aligned_dataset, which pads each row to a
-  // 16-byte stride. For int8/uint8 (and any dim whose byte width is not a multiple of 16) the
-  // stride exceeds the logical dimension, so the rows must be copied honoring that stride rather
-  // than as one contiguous block.
+  ASSERT_EQ(view.n_rows(), expected.extent(0));
+  ASSERT_EQ(static_cast<int64_t>(view.dim()), expected.extent(1));
+  // The merged dataset is padded to a 16-byte row stride. For int8/uint8 (and any dim whose byte
+  // width is not a multiple of 16) the stride exceeds the logical dimension, so rows must be copied
+  // honouring that stride rather than as one contiguous block.
   auto host   = raft::make_host_matrix<T, int64_t>(res, expected.extent(0), expected.extent(1));
   auto stream = raft::resource::get_cuda_stream(res);
-  int64_t row_stride = view.stride(0);
-  for (int64_t row = 0; row < view.extent(0); ++row) {
-    raft::copy(host.data_handle() + row * view.extent(1),
-               view.data_handle() + row * row_stride,
-               view.extent(1),
-               stream);
+  int64_t const row_stride = static_cast<int64_t>(view.stride());
+  int64_t const dim        = static_cast<int64_t>(view.dim());
+  for (int64_t row = 0; row < view.n_rows(); ++row) {
+    raft::copy(
+      host.data_handle() + row * dim, view.view().data_handle() + row * row_stride, dim, stream);
   }
   raft::resource::sync_stream(res);
   for (int64_t row = 0; row < expected.extent(0); ++row) {
@@ -179,14 +241,17 @@ void run_explicit_fastener(cuvs::distance::DistanceType metric)
   auto dataset1            = make_dataset<T>(res, rows, dim, 5678ULL, metric);
   auto expected            = concat_host_datasets<T>(
     res, raft::make_const_mdspan(dataset0.view()), raft::make_const_mdspan(dataset1.view()));
-  auto graph0 = make_ring_graph(res, rows, degree);
-  auto graph1 = make_ring_graph(res, rows, degree);
-  index<T, uint32_t> index0(
-    res, metric, raft::make_const_mdspan(dataset0.view()), raft::make_const_mdspan(graph0.view()));
-  index<T, uint32_t> index1(
-    res, metric, raft::make_const_mdspan(dataset1.view()), raft::make_const_mdspan(graph1.view()));
-  auto index0_owns_data = index0.data().is_owning();
-  auto index1_owns_data = index1.data().is_owning();
+  auto graph0         = make_ring_graph(res, rows, degree);
+  auto graph1         = make_ring_graph(res, rows, degree);
+  auto index0_storage = make_padded<T>(res, raft::make_const_mdspan(dataset0.view()));
+  cagra::index<T, uint32_t> index0(
+    res, metric, index0_storage.view, raft::make_const_mdspan(graph0.view()));
+  auto index1_storage = make_padded<T>(res, raft::make_const_mdspan(dataset1.view()));
+  cagra::index<T, uint32_t> index1(
+    res, metric, index1_storage.view, raft::make_const_mdspan(graph1.view()));
+  // Ownership is expressed by the view type now, so record the observable shape instead.
+  auto const index0_rows = index0.dataset().n_rows();
+  auto const index1_rows = index1.dataset().n_rows();
 
   index_params params;
   params.metric                    = metric;
@@ -198,16 +263,16 @@ void run_explicit_fastener(cuvs::distance::DistanceType metric)
   fastener.algo        = merge_algo::FASTENER;
   fastener.leaf_size   = 64;
   fastener.leaf_degree = 4;
-  std::vector<index<T, uint32_t>*> indices{&index0, &index1};
+  std::vector<cagra::device_padded_index<T, uint32_t>*> indices{&index0, &index1};
 
-  auto merged = merge(res, params, indices, fastener);
+  auto merged_storage = make_merged_storage<T>(res, rows * 2, dim);
+  auto merged         = merge(res, params, indices, merged_storage.view, fastener);
   expect_valid_graph(merged, rows * 2, degree);
   expect_dataset_order(res, merged, raft::make_const_mdspan(expected.view()));
-  EXPECT_TRUE(merged.data().is_owning());
-  EXPECT_EQ(index0.dataset().extent(0), rows);
-  EXPECT_EQ(index1.dataset().extent(0), rows);
-  EXPECT_EQ(index0.data().is_owning(), index0_owns_data);
-  EXPECT_EQ(index1.data().is_owning(), index1_owns_data);
+  EXPECT_EQ(index0.dataset().n_rows(), rows);
+  EXPECT_EQ(index1.dataset().n_rows(), rows);
+  EXPECT_EQ(index0.dataset().n_rows(), index0_rows);
+  EXPECT_EQ(index1.dataset().n_rows(), index1_rows);
   EXPECT_EQ(index0.size(), rows);
   EXPECT_EQ(index1.size(), rows);
   EXPECT_EQ(index0.dim(), dim);
@@ -221,7 +286,8 @@ void run_explicit_fastener(cuvs::distance::DistanceType metric)
 TEST(CagraMergeFastener, PlanSplitIsDeterministicDenseAndCompact)
 {
   using namespace detail::merge_scaffold;
-  std::vector<partition_range> ranges{{0, 0, 40}, {1, 40, 300}, {2, 300, 1000}};
+  raft::resources res;
+  auto ranges = make_ranges(res, {{0, 0, 40}, {1, 40, 300}, {2, 300, 1000}});
   split_params params{.fanout            = 2,
                       .leader_fraction   = 0.05,
                       .max_leaders       = 16,
@@ -256,7 +322,7 @@ TEST(CagraMergeFastener, PlanSplitIsDeterministicDenseAndCompact)
   EXPECT_EQ(plan.child_count, key_cursor);
   EXPECT_EQ(plan.output_rows, 40 + 260 * 2 + 700 * 2);
 
-  std::vector<partition_range> overlapping{{0, 0, 40}, {1, 30, 100}};
+  auto overlapping = make_ranges(res, {{0, 0, 40}, {1, 30, 100}});
   EXPECT_THROW(plan_split(overlapping, 100, params, DETERMINISTIC_SEED), raft::exception);
 }
 
@@ -275,9 +341,9 @@ TEST(CagraMergeFastener, SplitManywayCarriesSmallParentsAndSupportsRepeatedLevel
   auto dataset           = raft::make_device_matrix<float, int64_t>(res, rows, dim);
   raft::copy(dataset.data_handle(), host_dataset.data_handle(), dataset.size(), stream);
 
-  split_context context(stream, rows);
+  split_context context(res, rows, dim);
   manyway_l2_norms_kernel<<<static_cast<int>((rows + 3) / 4), 128, 0, stream>>>(
-    dataset.data_handle(), rows, dim, context.norms.data());
+    dataset.data_handle(), rows, dim, dim, context.norms.data_handle());
   RAFT_CUDA_TRY(cudaGetLastError());
 
   auto root   = make_root_partition(res, rows);
@@ -304,7 +370,8 @@ TEST(CagraMergeFastener, SplitManywayCarriesSmallParentsAndSupportsRepeatedLevel
   EXPECT_EQ(second.memberships.size(), static_cast<size_t>(rows * 4));
 
   int64_t cursor = 0;
-  for (auto const& range : second.ranges) {
+  for (int64_t range_index = 0; range_index < second.ranges.extent(0); ++range_index) {
+    auto const& range = second.ranges(range_index);
     EXPECT_EQ(range.start, cursor);
     EXPECT_GT(range.end, range.start);
     EXPECT_LE(range.end, static_cast<int64_t>(second.memberships.size()));
@@ -313,7 +380,7 @@ TEST(CagraMergeFastener, SplitManywayCarriesSmallParentsAndSupportsRepeatedLevel
   EXPECT_EQ(cursor, static_cast<int64_t>(second.memberships.size()));
 
   std::vector<partition_membership> records(second.memberships.size());
-  raft::copy(records.data(), second.memberships.data(), records.size(), stream);
+  raft::copy(records.data(), second.memberships.data_handle(), records.size(), stream);
   raft::resource::sync_stream(res);
   for (auto const& record : records) {
     EXPECT_LT(record.id, static_cast<uint32_t>(rows));
@@ -322,7 +389,7 @@ TEST(CagraMergeFastener, SplitManywayCarriesSmallParentsAndSupportsRepeatedLevel
 
   constexpr int64_t small_rows = 32;
   auto small_root              = make_root_partition(res, small_rows);
-  split_context small_context(stream, small_rows);
+  split_context small_context(res, small_rows, dim);
   auto carried = split_manyway(res,
                                raft::make_const_mdspan(dataset.view()),
                                small_root,
@@ -336,7 +403,8 @@ TEST(CagraMergeFastener, SplitManywayCarriesSmallParentsAndSupportsRepeatedLevel
   ASSERT_EQ(carried.ranges.size(), 1);
   EXPECT_EQ(carried.memberships.size(), static_cast<size_t>(small_rows));
   std::vector<partition_membership> carried_records(carried.memberships.size());
-  raft::copy(carried_records.data(), carried.memberships.data(), carried_records.size(), stream);
+  raft::copy(
+    carried_records.data(), carried.memberships.data_handle(), carried_records.size(), stream);
   raft::resource::sync_stream(res);
   for (int64_t row = 0; row < small_rows; ++row) {
     EXPECT_EQ(carried_records[row].id, static_cast<uint32_t>(row));
@@ -414,7 +482,7 @@ TEST(CagraMergeFastener, DuplicateAcrossInputsAppearInEachOthersScaffoldNeighbor
   params.leaf_degree     = leaf_degree;
 
   std::vector<int64_t> offsets{0, part0_rows, rows};
-  auto scaffold = build(res, raft::make_const_mdspan(dataset.view()), offsets, params);
+  auto scaffold = build(res, raft::make_const_mdspan(dataset.view()), dim, offsets, params);
   ASSERT_EQ(scaffold.extent(0), rows);
   ASSERT_EQ(scaffold.extent(1), params.root_fanout * leaf_degree);
 
@@ -466,7 +534,7 @@ TEST(CagraMergeFastener, ScaffoldConstructionIsBitReproducible)
   build_params params;  // default two-level controls
 
   auto scaffold_bytes = [&] {
-    auto scaffold = build<float>(res, raft::make_const_mdspan(data.view()), offsets, params);
+    auto scaffold = build<float>(res, raft::make_const_mdspan(data.view()), dim, offsets, params);
     std::vector<uint32_t> host_scaffold(
       static_cast<size_t>(scaffold.extent(0) * scaffold.extent(1)));
     raft::copy(host_scaffold.data(), scaffold.data_handle(), host_scaffold.size(), stream);
@@ -509,9 +577,9 @@ TEST(CagraMergeFastener, MembershipsRemainAscendingWithinEachPartition)
   auto dataset           = raft::make_device_matrix<float, int64_t>(res, rows, dim);
   raft::copy(dataset.data_handle(), host_dataset.data_handle(), dataset.size(), stream);
 
-  split_context context(stream, rows);
+  split_context context(res, rows, dim);
   manyway_l2_norms_kernel<<<static_cast<int>((rows + 3) / 4), 128, 0, stream>>>(
-    dataset.data_handle(), rows, dim, context.norms.data());
+    dataset.data_handle(), rows, dim, dim, context.norms.data_handle());
   RAFT_CUDA_TRY(cudaGetLastError());
 
   auto partitions            = make_root_partition(res, rows);
@@ -531,10 +599,11 @@ TEST(CagraMergeFastener, MembershipsRemainAscendingWithinEachPartition)
   }
 
   std::vector<partition_membership> records(partitions.memberships.size());
-  raft::copy(records.data(), partitions.memberships.data(), records.size(), stream);
+  raft::copy(records.data(), partitions.memberships.data_handle(), records.size(), stream);
   raft::resource::sync_stream(res);
 
-  for (auto const& range : partitions.ranges) {
+  for (int64_t range_index = 0; range_index < partitions.ranges.extent(0); ++range_index) {
+    auto const& range = partitions.ranges(range_index);
     for (int64_t slot = range.start + 1; slot < range.end; ++slot) {
       EXPECT_LT(records[slot - 1].id, records[slot].id)
         << "partition [" << range.start << ", " << range.end << ") is not ascending at " << slot;
@@ -584,7 +653,7 @@ TEST(CagraMergeFastener, IdenticalInputsAlignedToLeafSizeGetCrossOriginScaffoldE
   params.leaf_degree     = leaf_degree;
 
   std::vector<int64_t> offsets{0, part_rows, rows};
-  auto scaffold = build(res, raft::make_const_mdspan(dataset.view()), offsets, params);
+  auto scaffold = build(res, raft::make_const_mdspan(dataset.view()), dim, offsets, params);
   ASSERT_EQ(scaffold.extent(0), rows);
   ASSERT_EQ(scaffold.extent(1), static_cast<int64_t>(leaf_degree));
 
@@ -616,14 +685,16 @@ TEST(CagraMergeFastener, IdenticalInputsAlignedToLeafSizeStayConnected)
   constexpr int64_t dim       = 8;
   constexpr int64_t degree    = 4;
 
-  auto data   = make_dataset<float>(res, part_rows, dim, 1234ULL);
-  auto graph0 = make_ring_graph(res, part_rows, degree);
-  auto graph1 = make_ring_graph(res, part_rows, degree);
-  auto metric = cuvs::distance::DistanceType::L2Expanded;
-  index<float, uint32_t> index0(
-    res, metric, raft::make_const_mdspan(data.view()), raft::make_const_mdspan(graph0.view()));
-  index<float, uint32_t> index1(
-    res, metric, raft::make_const_mdspan(data.view()), raft::make_const_mdspan(graph1.view()));
+  auto data           = make_dataset<float>(res, part_rows, dim, 1234ULL);
+  auto graph0         = make_ring_graph(res, part_rows, degree);
+  auto graph1         = make_ring_graph(res, part_rows, degree);
+  auto metric         = cuvs::distance::DistanceType::L2Expanded;
+  auto index0_storage = make_padded<float>(res, raft::make_const_mdspan(data.view()));
+  cagra::index<float, uint32_t> index0(
+    res, metric, index0_storage.view, raft::make_const_mdspan(graph0.view()));
+  auto index1_storage = make_padded<float>(res, raft::make_const_mdspan(data.view()));
+  cagra::index<float, uint32_t> index1(
+    res, metric, index1_storage.view, raft::make_const_mdspan(graph1.view()));
 
   index_params params;
   params.metric                    = metric;
@@ -642,8 +713,9 @@ TEST(CagraMergeFastener, IdenticalInputsAlignedToLeafSizeStayConnected)
   fastener.leaf_size       = 64;
   fastener.leaf_degree     = 4;
 
-  std::vector<index<float, uint32_t>*> indices{&index0, &index1};
-  auto merged = merge(res, params, indices, fastener);
+  std::vector<cagra::device_padded_index<float, uint32_t>*> indices{&index0, &index1};
+  auto merged_storage = make_merged_storage<float>(res, rows, dim);
+  auto merged         = merge(res, params, indices, merged_storage.view, fastener);
   expect_valid_graph(merged, rows, degree);
   EXPECT_EQ(count_connected_components(merged), 1)
     << "the inputs were merged without any edge connecting them";
@@ -657,24 +729,26 @@ TEST(CagraMergeFastener, IdenticalInputsAlignedToLeafSizeStayConnected)
 TEST(CagraMergeFastener, LeafGemmLimitsRejectOversizedWorkspaceDimensions)
 {
   using namespace detail::merge_scaffold;
-  EXPECT_TRUE(leaf_gemm_supported(4096, 256));
-  EXPECT_FALSE(leaf_gemm_supported(0, 256));
-  EXPECT_FALSE(leaf_gemm_supported(-1, 256));
+  constexpr size_t workspace_bytes = size_t{64} * 1024 * 1024;
+  EXPECT_TRUE(leaf_gemm_supported(4096, 256, workspace_bytes));
+  EXPECT_FALSE(leaf_gemm_supported(0, 256, workspace_bytes));
+  EXPECT_FALSE(leaf_gemm_supported(-1, 256, workspace_bytes));
 
-  // The widest leaf whose float vectors and float Gram matrix together fit GEMM_WORKSPACE_BYTES.
+  // The widest leaf whose float vectors and float Gram matrix together fit the configured
+  // workspace.
   constexpr uint32_t leaf_size = 256;
-  constexpr int64_t widest_dim =
-    static_cast<int64_t>((GEMM_WORKSPACE_BYTES - size_t{leaf_size} * leaf_size * sizeof(float)) /
-                         sizeof(float) / leaf_size);
-  EXPECT_TRUE(leaf_gemm_supported(widest_dim, leaf_size));
-  EXPECT_FALSE(leaf_gemm_supported(widest_dim + 1, leaf_size));
+  constexpr int64_t widest_dim = static_cast<int64_t>(
+    (workspace_bytes - size_t{leaf_size} * leaf_size * sizeof(float)) / sizeof(float) / leaf_size);
+  EXPECT_TRUE(leaf_gemm_supported(widest_dim, leaf_size, workspace_bytes));
+  EXPECT_FALSE(leaf_gemm_supported(widest_dim + 1, leaf_size, workspace_bytes));
 
   // Comfortably past the workspace, used below to check pre-mutation rejection.
   constexpr int64_t oversized_dim =
-    static_cast<int64_t>(GEMM_WORKSPACE_BYTES / sizeof(float) / leaf_size) + 1;
-  EXPECT_FALSE(leaf_gemm_supported(oversized_dim, leaf_size));
+    static_cast<int64_t>(workspace_bytes / sizeof(float) / leaf_size) + 1;
+  EXPECT_FALSE(leaf_gemm_supported(oversized_dim, leaf_size, workspace_bytes));
 
   raft::resources res;
+  raft::resource::set_workspace_to_global_resource(res, workspace_bytes);
   constexpr int64_t rows = 2;
   constexpr int64_t dim  = oversized_dim;
   auto dataset0          = make_dataset<int8_t>(res, rows, dim, 1234ULL);
@@ -682,10 +756,12 @@ TEST(CagraMergeFastener, LeafGemmLimitsRejectOversizedWorkspaceDimensions)
   auto graph0            = make_ring_graph(res, rows, 1);
   auto graph1            = make_ring_graph(res, rows, 1);
   auto metric            = cuvs::distance::DistanceType::L2Expanded;
-  index<int8_t, uint32_t> index0(
-    res, metric, raft::make_const_mdspan(dataset0.view()), raft::make_const_mdspan(graph0.view()));
-  index<int8_t, uint32_t> index1(
-    res, metric, raft::make_const_mdspan(dataset1.view()), raft::make_const_mdspan(graph1.view()));
+  auto index0_storage    = make_padded<int8_t>(res, raft::make_const_mdspan(dataset0.view()));
+  cagra::index<int8_t, uint32_t> index0(
+    res, metric, index0_storage.view, raft::make_const_mdspan(graph0.view()));
+  auto index1_storage = make_padded<int8_t>(res, raft::make_const_mdspan(dataset1.view()));
+  cagra::index<int8_t, uint32_t> index1(
+    res, metric, index1_storage.view, raft::make_const_mdspan(graph1.view()));
 
   index_params params;
   params.metric                    = metric;
@@ -697,11 +773,11 @@ TEST(CagraMergeFastener, LeafGemmLimitsRejectOversizedWorkspaceDimensions)
   std::vector<index<int8_t, uint32_t>*> indices{&index0, &index1};
 
   auto result = detail::preflight_fastener(
-    params, fastener, indices, cuvs::neighbors::filtering::none_sample_filter{});
+    res, params, fastener, indices, cuvs::neighbors::filtering::none_sample_filter{});
   EXPECT_FALSE(result.eligible);
   EXPECT_EQ(result.reason, "dataset dimension exceeds the leaf GEMM workspace limit");
-  EXPECT_EQ(index0.dataset().extent(0), rows);
-  EXPECT_EQ(index1.dataset().extent(0), rows);
+  EXPECT_EQ(index0.dataset().n_rows(), rows);
+  EXPECT_EQ(index1.dataset().n_rows(), rows);
 }
 
 /**
@@ -726,16 +802,14 @@ TEST(CagraMergeFastener, PreflightRejectsCandidateDegreeAboveSortLimit)
   auto dataset1 = make_dataset<float>(res, rows, dim, 5678ULL);
 
   auto check = [&](int64_t input_degree) {
-    auto graph0 = make_ring_graph(res, rows, input_degree);
-    auto graph1 = make_ring_graph(res, rows, input_degree);
-    index<float, uint32_t> index0(res,
-                                  metric,
-                                  raft::make_const_mdspan(dataset0.view()),
-                                  raft::make_const_mdspan(graph0.view()));
-    index<float, uint32_t> index1(res,
-                                  metric,
-                                  raft::make_const_mdspan(dataset1.view()),
-                                  raft::make_const_mdspan(graph1.view()));
+    auto graph0         = make_ring_graph(res, rows, input_degree);
+    auto graph1         = make_ring_graph(res, rows, input_degree);
+    auto index0_storage = make_padded<float>(res, raft::make_const_mdspan(dataset0.view()));
+    cagra::index<float, uint32_t> index0(
+      res, metric, index0_storage.view, raft::make_const_mdspan(graph0.view()));
+    auto index1_storage = make_padded<float>(res, raft::make_const_mdspan(dataset1.view()));
+    cagra::index<float, uint32_t> index1(
+      res, metric, index1_storage.view, raft::make_const_mdspan(graph1.view()));
 
     index_params params;
     params.metric                    = metric;
@@ -743,9 +817,9 @@ TEST(CagraMergeFastener, PreflightRejectsCandidateDegreeAboveSortLimit)
     params.intermediate_graph_degree = 64;
     merge_params fastener;
     fastener.algo = merge_algo::FASTENER;
-    std::vector<index<float, uint32_t>*> indices{&index0, &index1};
+    std::vector<cagra::device_padded_index<float, uint32_t>*> indices{&index0, &index1};
     return detail::preflight_fastener(
-      params, fastener, indices, cuvs::neighbors::filtering::none_sample_filter{});
+      res, params, fastener, indices, cuvs::neighbors::filtering::none_sample_filter{});
   };
 
   // Exactly at the limit stays eligible; one degree past it is rejected for that specific reason.
@@ -772,6 +846,45 @@ TEST(CagraMergeFastener, SupportsAllScalarTypes)
   run_explicit_fastener<uint8_t>(metric);
 }
 
+/** The assignment and leaf buffers must shrink to the caller's bounded workspace rather than
+ * allocating against a fixed compile-time budget. */
+TEST(CagraMergeFastener, BatchesWithinConfiguredWorkspace)
+{
+  raft::resources res;
+  constexpr size_t workspace_bytes = size_t{64} * 1024;
+  raft::resource::set_workspace_to_global_resource(res, workspace_bytes);
+
+  constexpr int64_t rows   = 512;
+  constexpr int64_t dim    = 16;
+  constexpr int64_t degree = 8;
+  auto dataset0            = make_dataset<float>(res, rows, dim, 1234ULL);
+  auto dataset1            = make_dataset<float>(res, rows, dim, 5678ULL);
+  auto graph0              = make_ring_graph(res, rows, degree);
+  auto graph1              = make_ring_graph(res, rows, degree);
+  auto metric              = cuvs::distance::DistanceType::L2Expanded;
+  auto index0_storage      = make_padded<float>(res, raft::make_const_mdspan(dataset0.view()));
+  cagra::index<float, uint32_t> index0(
+    res, metric, index0_storage.view, raft::make_const_mdspan(graph0.view()));
+  auto index1_storage = make_padded<float>(res, raft::make_const_mdspan(dataset1.view()));
+  cagra::index<float, uint32_t> index1(
+    res, metric, index1_storage.view, raft::make_const_mdspan(graph1.view()));
+
+  index_params params;
+  params.metric                    = metric;
+  params.graph_degree              = degree;
+  params.intermediate_graph_degree = degree;
+  params.guarantee_connectivity    = false;
+  merge_params fastener;
+  fastener.algo      = merge_algo::FASTENER;
+  fastener.leaf_size = 32;
+  std::vector<cagra::device_padded_index<float, uint32_t>*> indices{&index0, &index1};
+
+  auto merged_storage = make_merged_storage<float>(res, rows * 2, dim);
+  auto merged         = merge(res, params, indices, merged_storage.view, fastener);
+  expect_valid_graph(merged, rows * 2, degree);
+  EXPECT_EQ(raft::resource::get_workspace_used_bytes(res), 0);
+}
+
 /**
  * Verifies that merging one owning and one non-owning input preserves both inputs and their
  * ownership modes while producing an owning output with the expected dataset order.
@@ -796,21 +909,20 @@ TEST(CagraMergeFastener, MixedDatasetOwnershipPreservesInputs)
              dataset1.data_handle(),
              dataset1.size(),
              raft::resource::get_cuda_stream(res));
-  auto graph0 = make_ring_graph(res, rows, degree);
-  auto graph1 = make_ring_graph(res, rows, degree);
-  auto metric = cuvs::distance::DistanceType::L2Expanded;
-  index<float, uint32_t> index0(
-    res, metric, raft::make_const_mdspan(dataset0.view()), raft::make_const_mdspan(graph0.view()));
-  index<float, uint32_t> index1(res,
-                                metric,
-                                raft::make_const_mdspan(device_dataset1.view()),
-                                raft::make_const_mdspan(graph1.view()));
-  // Explicitly transfer the first allocation so this test remains mixed-ownership even when
-  // mapped host allocations are device-accessible and would otherwise be wrapped non-owningly.
-  index0.update_dataset(
-    res, make_aligned_dataset(res, std::move(device_dataset0), /* align_bytes = */ 16));
-  ASSERT_TRUE(index0.data().is_owning());
-  ASSERT_FALSE(index1.data().is_owning());
+  auto graph0         = make_ring_graph(res, rows, degree);
+  auto graph1         = make_ring_graph(res, rows, degree);
+  auto metric         = cuvs::distance::DistanceType::L2Expanded;
+  auto index0_storage = make_padded<float>(res, raft::make_const_mdspan(dataset0.view()));
+  cagra::index<float, uint32_t> index0(
+    res, metric, index0_storage.view, raft::make_const_mdspan(graph0.view()));
+  auto index1_storage = make_padded<float>(res, raft::make_const_mdspan(dataset1.view()));
+  cagra::index<float, uint32_t> index1(
+    res, metric, index1_storage.view, raft::make_const_mdspan(graph1.view()));
+  // The old mixed-ownership assertions are gone: under the dataset-view API an index always holds
+  // a non-owning view and ownership lives in the type, so there is no runtime ownership to probe.
+  // What still matters is that merging leaves both inputs intact.
+  ASSERT_EQ(index0.dataset().n_rows(), rows);
+  ASSERT_EQ(index1.dataset().n_rows(), rows);
 
   index_params params;
   params.metric                    = metric;
@@ -822,16 +934,17 @@ TEST(CagraMergeFastener, MixedDatasetOwnershipPreservesInputs)
   fastener.algo        = merge_algo::FASTENER;
   fastener.leaf_size   = 64;
   fastener.leaf_degree = 4;
-  std::vector<index<float, uint32_t>*> indices{&index0, &index1};
+  std::vector<cagra::device_padded_index<float, uint32_t>*> indices{&index0, &index1};
 
-  auto merged = merge(res, params, indices, fastener);
+  auto merged_storage = make_merged_storage<float>(res, rows * 2, dim);
+  auto merged         = merge(res, params, indices, merged_storage.view, fastener);
   expect_valid_graph(merged, rows * 2, degree);
   expect_dataset_order(res, merged, raft::make_const_mdspan(expected.view()));
-  EXPECT_TRUE(merged.data().is_owning());
-  EXPECT_EQ(index0.dataset().extent(0), rows);
-  EXPECT_EQ(index1.dataset().extent(0), rows);
-  EXPECT_TRUE(index0.data().is_owning());
-  EXPECT_FALSE(index1.data().is_owning());
+  EXPECT_EQ(merged.dataset().n_rows(), rows * 2);
+  EXPECT_EQ(index0.dataset().n_rows(), rows);
+  EXPECT_EQ(index1.dataset().n_rows(), rows);
+  EXPECT_EQ(index0.dataset().dim(), static_cast<uint32_t>(dim));
+  EXPECT_EQ(index1.dataset().dim(), static_cast<uint32_t>(dim));
 }
 
 /**
@@ -861,7 +974,7 @@ std::vector<AnnCagraInputs> generate_fastener_merge_recall_inputs()
     {false},
     {0.95},
     {std::optional<float>{std::nullopt}},
-    {std::optional<vpq_params>{std::nullopt}},
+    // AnnCagraInputs::compression was removed upstream along with index_params::compression.
     {std::optional<bool>{std::nullopt}},
     {cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_PHYSICAL});
   for (auto& input : inputs) {
@@ -911,7 +1024,9 @@ void run_fastener_merge_recall(size_t n_inputs, double min_recall)
   build_params.attach_dataset_on_build   = true;
 
   // Consecutive, near-equal slices so the merged row order matches the original database.
-  std::vector<index<DataT, uint32_t>> parts;
+  std::vector<cuvs::neighbors::test::padded_device_matrix_for_cagra<DataT>> part_storage;
+  part_storage.reserve(n_inputs);
+  std::vector<cagra::device_padded_index<DataT, uint32_t>> parts;
   parts.reserve(n_inputs);
   int64_t rows_per_part = raft::ceildiv<int64_t>(rows, static_cast<int64_t>(n_inputs));
   for (size_t part = 0; part < n_inputs; ++part) {
@@ -920,16 +1035,21 @@ void run_fastener_merge_recall(size_t n_inputs, double min_recall)
     ASSERT_GT(count, 0);
     auto slice = raft::make_device_matrix_view<const DataT, int64_t>(
       data.data_handle() + start * dim, count, dim);
-    parts.emplace_back(cagra::build(res, build_params, slice));
+    // build() takes a dataset view now, and the index keeps only a view, so the padded storage
+    // must outlive every part.
+    part_storage.emplace_back(res, slice);
+    parts.emplace_back(cagra::build(res, build_params, part_storage.back().view));
+    parts.back().update_device_dataset_same_layout(res, part_storage.back().view);
   }
 
-  std::vector<index<DataT, uint32_t>*> inputs;
+  std::vector<cagra::device_padded_index<DataT, uint32_t>*> inputs;
   for (auto& part : parts) {
     inputs.push_back(&part);
   }
   merge_params fastener;
-  fastener.algo = merge_algo::FASTENER;
-  auto merged   = merge(res, build_params, inputs, fastener);
+  fastener.algo       = merge_algo::FASTENER;
+  auto merged_storage = make_merged_storage<DataT>(res, rows, dim);
+  auto merged         = merge(res, build_params, inputs, merged_storage.view, fastener);
   ASSERT_EQ(merged.size(), rows);
 
   auto found_indices   = raft::make_device_matrix<uint32_t, int64_t>(res, n_query, k);
@@ -1012,14 +1132,16 @@ TEST(CagraMergeFastener, MixedDegreesAndThreeLevelUint8OptionsProduceExactDegree
   auto dataset1          = make_dataset<uint8_t>(res, rows, dim, 5678ULL);
   auto graph0            = make_ring_graph(res, rows, 6);
   auto graph1            = make_ring_graph(res, rows, 8);
-  index<uint8_t, uint32_t> index0(res,
-                                  cuvs::distance::DistanceType::L2Expanded,
-                                  raft::make_const_mdspan(dataset0.view()),
-                                  raft::make_const_mdspan(graph0.view()));
-  index<uint8_t, uint32_t> index1(res,
-                                  cuvs::distance::DistanceType::L2Expanded,
-                                  raft::make_const_mdspan(dataset1.view()),
-                                  raft::make_const_mdspan(graph1.view()));
+  auto index0_storage    = make_padded<uint8_t>(res, raft::make_const_mdspan(dataset0.view()));
+  cagra::index<uint8_t, uint32_t> index0(res,
+                                         cuvs::distance::DistanceType::L2Expanded,
+                                         index0_storage.view,
+                                         raft::make_const_mdspan(graph0.view()));
+  auto index1_storage = make_padded<uint8_t>(res, raft::make_const_mdspan(dataset1.view()));
+  cagra::index<uint8_t, uint32_t> index1(res,
+                                         cuvs::distance::DistanceType::L2Expanded,
+                                         index1_storage.view,
+                                         raft::make_const_mdspan(graph1.view()));
 
   index_params params;
   params.metric                  = cuvs::distance::DistanceType::L2Expanded;
@@ -1034,9 +1156,10 @@ TEST(CagraMergeFastener, MixedDegreesAndThreeLevelUint8OptionsProduceExactDegree
   fastener.max_leaders     = 32;
   fastener.leaf_size       = 64;
   fastener.leaf_degree     = 8;
-  std::vector<index<uint8_t, uint32_t>*> indices{&index0, &index1};
+  std::vector<cagra::device_padded_index<uint8_t, uint32_t>*> indices{&index0, &index1};
 
-  auto merged = merge(res, params, indices, fastener);
+  auto merged_storage = make_merged_storage<uint8_t>(res, rows * 2, dim);
+  auto merged         = merge(res, params, indices, merged_storage.view, fastener);
   expect_valid_graph(merged, rows * 2, 8);
 }
 
@@ -1047,19 +1170,21 @@ TEST(CagraMergeFastener, MixedDegreesAndThreeLevelUint8OptionsProduceExactDegree
 TEST(CagraMergeFastener, AppendCyclicallyPadsMixedInputDegrees)
 {
   raft::resources res;
-  auto dataset0 = make_dataset<float>(res, 2, 1, 1234ULL);
-  auto dataset1 = make_dataset<float>(res, 2, 1, 5678ULL);
-  auto graph0   = make_ring_graph(res, 2, 2);
-  auto graph1   = make_ring_graph(res, 2, 4);
-  index<float, uint32_t> index0(res,
-                                cuvs::distance::DistanceType::L2Expanded,
-                                raft::make_const_mdspan(dataset0.view()),
-                                raft::make_const_mdspan(graph0.view()));
-  index<float, uint32_t> index1(res,
-                                cuvs::distance::DistanceType::L2Expanded,
-                                raft::make_const_mdspan(dataset1.view()),
-                                raft::make_const_mdspan(graph1.view()));
-  std::vector<index<float, uint32_t>*> indices{&index0, &index1};
+  auto dataset0       = make_dataset<float>(res, 2, 1, 1234ULL);
+  auto dataset1       = make_dataset<float>(res, 2, 1, 5678ULL);
+  auto graph0         = make_ring_graph(res, 2, 2);
+  auto graph1         = make_ring_graph(res, 2, 4);
+  auto index0_storage = make_padded<float>(res, raft::make_const_mdspan(dataset0.view()));
+  cagra::index<float, uint32_t> index0(res,
+                                       cuvs::distance::DistanceType::L2Expanded,
+                                       index0_storage.view,
+                                       raft::make_const_mdspan(graph0.view()));
+  auto index1_storage = make_padded<float>(res, raft::make_const_mdspan(dataset1.view()));
+  cagra::index<float, uint32_t> index1(res,
+                                       cuvs::distance::DistanceType::L2Expanded,
+                                       index1_storage.view,
+                                       raft::make_const_mdspan(graph1.view()));
+  std::vector<cagra::device_padded_index<float, uint32_t>*> indices{&index0, &index1};
   std::vector<int64_t> offsets{0, 2, 4};
 
   auto scaffold_host        = raft::make_host_matrix<uint32_t, int64_t>(4, 1);
@@ -1107,14 +1232,16 @@ TEST(CagraMergeFastener, MergeSupportsOutputDegreeBelowInputDegree)
   auto dataset1                  = make_dataset<float>(res, rows, dim, 5678ULL);
   auto graph0                    = make_ring_graph(res, rows, input_degree);
   auto graph1                    = make_ring_graph(res, rows, input_degree);
-  index<float, uint32_t> index0(res,
-                                cuvs::distance::DistanceType::L2Expanded,
-                                raft::make_const_mdspan(dataset0.view()),
-                                raft::make_const_mdspan(graph0.view()));
-  index<float, uint32_t> index1(res,
-                                cuvs::distance::DistanceType::L2Expanded,
-                                raft::make_const_mdspan(dataset1.view()),
-                                raft::make_const_mdspan(graph1.view()));
+  auto index0_storage = make_padded<float>(res, raft::make_const_mdspan(dataset0.view()));
+  cagra::index<float, uint32_t> index0(res,
+                                       cuvs::distance::DistanceType::L2Expanded,
+                                       index0_storage.view,
+                                       raft::make_const_mdspan(graph0.view()));
+  auto index1_storage = make_padded<float>(res, raft::make_const_mdspan(dataset1.view()));
+  cagra::index<float, uint32_t> index1(res,
+                                       cuvs::distance::DistanceType::L2Expanded,
+                                       index1_storage.view,
+                                       raft::make_const_mdspan(graph1.view()));
 
   index_params params;
   params.metric                  = cuvs::distance::DistanceType::L2Expanded;
@@ -1124,25 +1251,33 @@ TEST(CagraMergeFastener, MergeSupportsOutputDegreeBelowInputDegree)
   fastener.algo        = merge_algo::FASTENER;
   fastener.leaf_size   = 64;
   fastener.leaf_degree = 4;
-  std::vector<index<float, uint32_t>*> indices{&index0, &index1};
+  std::vector<cagra::device_padded_index<float, uint32_t>*> indices{&index0, &index1};
 
-  auto merged = merge(res, params, indices, fastener);
+  auto merged_storage = make_merged_storage<float>(res, rows * 2, dim);
+  auto merged         = merge(res, params, indices, merged_storage.view, fastener);
   expect_valid_graph(merged, rows * 2, params.graph_degree);
 }
+
+/** Indices hold only views, so the padded storage travels with them. */
+struct float_index_pair {
+  padded_storage<float> storage0;
+  padded_storage<float> storage1;
+  std::vector<cagra::device_padded_index<float, uint32_t>> indices;
+};
 
 auto make_float_indices(raft::resources const& res,
                         cuvs::distance::DistanceType metric,
                         raft::host_matrix<float, int64_t>& dataset0,
                         raft::host_matrix<float, int64_t>& dataset1,
                         raft::host_matrix<uint32_t, int64_t>& graph0,
-                        raft::host_matrix<uint32_t, int64_t>& graph1)
+                        raft::host_matrix<uint32_t, int64_t>& graph1) -> float_index_pair
 {
-  std::vector<index<float, uint32_t>> output;
-  output.emplace_back(
-    res, metric, raft::make_const_mdspan(dataset0.view()), raft::make_const_mdspan(graph0.view()));
-  output.emplace_back(
-    res, metric, raft::make_const_mdspan(dataset1.view()), raft::make_const_mdspan(graph1.view()));
-  return output;
+  auto storage0 = make_padded<float>(res, raft::make_const_mdspan(dataset0.view()));
+  auto storage1 = make_padded<float>(res, raft::make_const_mdspan(dataset1.view()));
+  std::vector<cagra::device_padded_index<float, uint32_t>> output;
+  output.emplace_back(res, metric, storage0.view, raft::make_const_mdspan(graph0.view()));
+  output.emplace_back(res, metric, storage1.view, raft::make_const_mdspan(graph1.view()));
+  return float_index_pair{std::move(storage0), std::move(storage1), std::move(output)};
 }
 
 /**
@@ -1164,7 +1299,8 @@ TEST(CagraMergeFastener, InvalidManywayOptionsFailPreflightWithoutMutation)
   params.intermediate_graph_degree = 8;
   params.attach_dataset_on_build   = true;
   auto owned = make_float_indices(res, params.metric, dataset0, dataset1, graph0, graph1);
-  std::vector<index<float, uint32_t>*> indices{&owned[0], &owned[1]};
+  std::vector<cagra::device_padded_index<float, uint32_t>*> indices{&owned.indices[0],
+                                                                    &owned.indices[1]};
 
   std::vector<merge_params> invalid;
   auto add_invalid = [&](auto update) {
@@ -1197,11 +1333,11 @@ TEST(CagraMergeFastener, InvalidManywayOptionsFailPreflightWithoutMutation)
 
   for (auto const& candidate : invalid) {
     auto result = detail::preflight_fastener(
-      params, candidate, indices, cuvs::neighbors::filtering::none_sample_filter{});
+      res, params, candidate, indices, cuvs::neighbors::filtering::none_sample_filter{});
     EXPECT_FALSE(result.eligible) << result.reason;
   }
-  EXPECT_EQ(owned[0].dataset().extent(0), rows);
-  EXPECT_EQ(owned[1].dataset().extent(0), rows);
+  EXPECT_EQ(owned.indices[0].dataset().n_rows(), rows);
+  EXPECT_EQ(owned.indices[1].dataset().n_rows(), rows);
 }
 
 /**
@@ -1225,46 +1361,55 @@ TEST(CagraMergeFastener, DispatchRejectsOrFallsBackBeforeMutation)
 
   {
     auto owned = make_float_indices(res, params.metric, dataset0, dataset1, graph0, graph1);
-    std::vector<index<float, uint32_t>*> indices{&owned[0], &owned[1]};
+    auto throwaway_storage = make_merged_storage<float>(res, rows * 2, dim);
+    std::vector<cagra::device_padded_index<float, uint32_t>*> indices{&owned.indices[0],
+                                                                      &owned.indices[1]};
     merge_params unsupported;
     unsupported.algo      = merge_algo::FASTENER;
     unsupported.leaf_size = 512;
-    EXPECT_ANY_THROW(merge(res, params, indices, unsupported));
-    EXPECT_EQ(owned[0].dataset().extent(0), rows);
-    EXPECT_EQ(owned[1].dataset().extent(0), rows);
+    EXPECT_ANY_THROW(merge(res, params, indices, throwaway_storage.view, unsupported));
+    EXPECT_EQ(owned.indices[0].dataset().n_rows(), rows);
+    EXPECT_EQ(owned.indices[1].dataset().n_rows(), rows);
   }
   {
     auto inner_product_params   = params;
     inner_product_params.metric = cuvs::distance::DistanceType::InnerProduct;
     auto owned =
       make_float_indices(res, inner_product_params.metric, dataset0, dataset1, graph0, graph1);
-    std::vector<index<float, uint32_t>*> indices{&owned[0], &owned[1]};
+    auto throwaway_storage = make_merged_storage<float>(res, rows * 2, dim);
+    std::vector<cagra::device_padded_index<float, uint32_t>*> indices{&owned.indices[0],
+                                                                      &owned.indices[1]};
     merge_params fastener;
     fastener.algo      = merge_algo::FASTENER;
     fastener.leaf_size = 64;
-    EXPECT_ANY_THROW(merge(res, inner_product_params, indices, fastener));
-    EXPECT_EQ(owned[0].dataset().extent(0), rows);
-    EXPECT_EQ(owned[1].dataset().extent(0), rows);
+    EXPECT_ANY_THROW(merge(res, inner_product_params, indices, throwaway_storage.view, fastener));
+    EXPECT_EQ(owned.indices[0].dataset().n_rows(), rows);
+    EXPECT_EQ(owned.indices[1].dataset().n_rows(), rows);
   }
   {
     auto owned = make_float_indices(res, params.metric, dataset0, dataset1, graph0, graph1);
-    std::vector<index<float, uint32_t>*> indices{&owned[0], &owned[1]};
+    auto throwaway_storage = make_merged_storage<float>(res, rows * 2, dim);
+    std::vector<cagra::device_padded_index<float, uint32_t>*> indices{&owned.indices[0],
+                                                                      &owned.indices[1]};
     merge_params automatic;
     automatic.algo      = merge_algo::AUTO;
     automatic.leaf_size = 512;
-    auto merged         = merge(res, params, indices, automatic);
+    auto merged         = merge(res, params, indices, throwaway_storage.view, automatic);
     EXPECT_EQ(merged.size(), rows * 2);
-    EXPECT_EQ(owned[0].dataset().extent(0), rows);
-    EXPECT_EQ(owned[1].dataset().extent(0), rows);
+    EXPECT_EQ(owned.indices[0].dataset().n_rows(), rows);
+    EXPECT_EQ(owned.indices[1].dataset().n_rows(), rows);
   }
   {
     auto owned = make_float_indices(res, params.metric, dataset0, dataset1, graph0, graph1);
-    std::vector<index<float, uint32_t>*> indices{&owned[0], &owned[1]};
+    auto throwaway_storage = make_merged_storage<float>(res, rows * 2, dim);
+    std::vector<cagra::device_padded_index<float, uint32_t>*> indices{&owned.indices[0],
+                                                                      &owned.indices[1]};
     merge_params rebuild{merge_algo::REBUILD};
-    auto merged = merge(res, params, indices, rebuild);
+    auto merged_storage = make_merged_storage<float>(res, rows * 2, dim);
+    auto merged         = merge(res, params, indices, merged_storage.view, rebuild);
     EXPECT_EQ(merged.size(), rows * 2);
-    EXPECT_EQ(owned[0].dataset().extent(0), rows);
-    EXPECT_EQ(owned[1].dataset().extent(0), rows);
+    EXPECT_EQ(owned.indices[0].dataset().n_rows(), rows);
+    EXPECT_EQ(owned.indices[1].dataset().n_rows(), rows);
   }
 }
 
@@ -1329,23 +1474,25 @@ TEST(CagraMergeFastener, InnerProductOrderingDiffersFromL2)
 TEST(CagraMergeFastener, AppendSortAndDedupHandleOffsetsAndPadding)
 {
   raft::resources res;
-  auto dataset0  = raft::make_host_matrix<float, int64_t>(2, 1);
-  auto dataset1  = raft::make_host_matrix<float, int64_t>(2, 1);
-  dataset0(0, 0) = 0.0f;
-  dataset0(1, 0) = 2.0f;
-  dataset1(0, 0) = 10.0f;
-  dataset1(1, 0) = 12.0f;
-  auto graph0    = make_ring_graph(res, 2, 1);
-  auto graph1    = make_ring_graph(res, 2, 1);
-  index<float, uint32_t> index0(res,
-                                cuvs::distance::DistanceType::L2Expanded,
-                                raft::make_const_mdspan(dataset0.view()),
-                                raft::make_const_mdspan(graph0.view()));
-  index<float, uint32_t> index1(res,
-                                cuvs::distance::DistanceType::L2Expanded,
-                                raft::make_const_mdspan(dataset1.view()),
-                                raft::make_const_mdspan(graph1.view()));
-  std::vector<index<float, uint32_t>*> indices{&index0, &index1};
+  auto dataset0       = raft::make_host_matrix<float, int64_t>(2, 1);
+  auto dataset1       = raft::make_host_matrix<float, int64_t>(2, 1);
+  dataset0(0, 0)      = 0.0f;
+  dataset0(1, 0)      = 2.0f;
+  dataset1(0, 0)      = 10.0f;
+  dataset1(1, 0)      = 12.0f;
+  auto graph0         = make_ring_graph(res, 2, 1);
+  auto graph1         = make_ring_graph(res, 2, 1);
+  auto index0_storage = make_padded<float>(res, raft::make_const_mdspan(dataset0.view()));
+  cagra::index<float, uint32_t> index0(res,
+                                       cuvs::distance::DistanceType::L2Expanded,
+                                       index0_storage.view,
+                                       raft::make_const_mdspan(graph0.view()));
+  auto index1_storage = make_padded<float>(res, raft::make_const_mdspan(dataset1.view()));
+  cagra::index<float, uint32_t> index1(res,
+                                       cuvs::distance::DistanceType::L2Expanded,
+                                       index1_storage.view,
+                                       raft::make_const_mdspan(graph1.view()));
+  std::vector<cagra::device_padded_index<float, uint32_t>*> indices{&index0, &index1};
   std::vector<int64_t> offsets{0, 2, 4};
 
   auto scaffold_host           = raft::make_host_matrix<uint32_t, int64_t>(4, 2);

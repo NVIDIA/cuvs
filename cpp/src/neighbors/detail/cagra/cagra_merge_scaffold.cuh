@@ -15,11 +15,13 @@
 #include <raft/core/error.hpp>
 #include <raft/core/resource/cublas_handle.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
+#include <raft/core/resource/device_memory_resource.hpp>
 #include <raft/core/resources.hpp>
 #include <raft/util/cuda_rt_essentials.hpp>
 #include <raft/util/cudart_utils.hpp>
 
-#include <rmm/device_uvector.hpp>
+#include <rmm/aligned.hpp>
+#include <rmm/exec_policy.hpp>
 
 #include <thrust/device_ptr.h>
 #include <thrust/execution_policy.h>
@@ -49,7 +51,6 @@ inline constexpr uint32_t MAX_LEAF_SIZE      = 256;
 inline constexpr int MAX_LEAF_DEGREE         = 8;
 inline constexpr int ASSIGNMENT_TILE_ROWS    = 2048;
 inline constexpr uint64_t DETERMINISTIC_SEED = 0x4c616e6472756d;
-inline constexpr size_t GEMM_WORKSPACE_BYTES = size_t{2} * 1024 * 1024 * 1024;
 inline constexpr int THREADS_PER_BLOCK       = 256;
 inline constexpr int MAX_STRIDED_GRID_BLOCKS = 1 << 20;
 /** Warps per block in the one-row-per-warp kernels; their launch geometry derives from this. */
@@ -59,8 +60,8 @@ inline constexpr int ROW_WARPS_PER_BLOCK = 4;
  * oversized workloads loop within resident threads instead. */
 inline auto strided_grid_size(int64_t items) -> int
 {
-  return static_cast<int>(std::min<int64_t>(raft::div_rounding_up_safe(items, THREADS_PER_BLOCK),
-                                            MAX_STRIDED_GRID_BLOCKS));
+  return static_cast<int>(std::min<int64_t>(
+    raft::div_rounding_up_safe<int64_t>(items, THREADS_PER_BLOCK), MAX_STRIDED_GRID_BLOCKS));
 }
 
 // ----------------------------------------------------------------------------
@@ -91,18 +92,23 @@ struct split_params {
 /** Device state and tuning knobs shared by every split level: the precomputed row norms, the
  * tiling and workspace capacities, and the seed feeding the deterministic leader samples. */
 struct split_context {
-  split_context(rmm::cuda_stream_view stream, int64_t rows)
-    : norms(static_cast<size_t>(rows), stream)
+  /** Norms are dataset-sized, so they come from the large workspace resource rather than the
+   *  bounded one. Taking `raft::resources` lets the caller control where this memory lives. */
+  split_context(raft::resources const& res, int64_t rows, int64_t dim)
+    : norms(raft::make_device_mdarray<float, int64_t>(
+        res,
+        raft::resource::get_large_workspace_resource_ref(res),
+        raft::make_extents<int64_t>(rows))),
+      logical_dim(dim)
   {
   }
 
-  rmm::device_uvector<float> norms;
+  raft::device_vector<float, int64_t> norms;
   /** Logical dimension of the dataset. The dataset view's extent(1) is its row pitch, which
    *  may exceed this when the consolidated dataset is padded for CAGRA row alignment. */
-  int64_t logical_dim         = 0;
-  int assignment_tile_rows    = ASSIGNMENT_TILE_ROWS;
-  size_t gemm_workspace_bytes = GEMM_WORKSPACE_BYTES;
-  uint64_t seed               = DETERMINISTIC_SEED;
+  int64_t logical_dim;
+  int assignment_tile_rows = ASSIGNMENT_TILE_ROWS;
+  uint64_t seed            = DETERMINISTIC_SEED;
 };
 
 struct partition_membership {
@@ -117,8 +123,13 @@ struct partition_range {
   int64_t end   = 0;
 };
 
-  raft::device_vector<partition_membership> memberships;
-  raft::host_vector<partition_range> ranges;
+/** Memberships live on the device; their grouping into contiguous ranges is host-side metadata.
+ *  Both are fixed-size once built, so raft mdarrays are a good fit -- but note they are neither
+ *  default-constructible nor resizable, so every producer sizes them exactly at construction. */
+struct partition_set {
+  raft::device_vector<partition_membership, int64_t> memberships;
+  raft::host_vector<partition_range, int64_t> ranges;
+};
 
 // ----------------------------------------------------------------------------
 // Many-way partitioning
@@ -198,7 +209,7 @@ struct split_plan {
  * starting from an offset hashed from the seed, level, and parent identity, so reruns select the
  * same leaders. Child keys and output rows are dense in parent order.
  */
-inline auto plan_split(std::vector<partition_range> const& ranges,
+inline auto plan_split(raft::host_vector<partition_range, int64_t> const& ranges,
                        int64_t membership_count,
                        split_params const& params,
                        uint64_t seed) -> split_plan
@@ -213,13 +224,13 @@ inline auto plan_split(std::vector<partition_range> const& ranges,
                MAX_LEADERS);
 
   split_plan plan;
-  plan.parents.reserve(ranges.size());
+  plan.parents.reserve(static_cast<size_t>(ranges.size()));
   int64_t covered     = 0;
   int64_t output_rows = 0;
   int64_t child_keys  = 0;
 
-  for (size_t parent_index = 0; parent_index < ranges.size(); ++parent_index) {
-    auto const& parent = ranges[parent_index];
+  for (size_t parent_index = 0; parent_index < static_cast<size_t>(ranges.size()); ++parent_index) {
+    auto const& parent = ranges(static_cast<int64_t>(parent_index));
     RAFT_EXPECTS(parent.start == covered && parent.end > parent.start,
                  "Fastener parent ranges must compactly cover all memberships");
     covered = parent.end;
@@ -291,11 +302,16 @@ static __global__ void initialize_root_memberships_kernel(partition_membership* 
 inline auto make_root_partition(raft::resources const& res, int64_t rows) -> partition_set
 {
   auto stream = raft::resource::get_cuda_stream(res);
-  partition_set root{rmm::device_uvector<partition_membership>(static_cast<size_t>(rows), stream),
-                     {{uint32_t{0}, int64_t{0}, rows}}};
-  int blocks = raft::div_rounding_up_safe<int>(rows, THREADS_PER_BLOCK);
+  // Memberships are dataset-sized, so they come from the large workspace rather than the bounded
+  // one; the single root range is host metadata.
+  auto memberships = raft::make_device_mdarray<partition_membership, int64_t>(
+    res, raft::resource::get_large_workspace_resource_ref(res), raft::make_extents<int64_t>(rows));
+  auto ranges = raft::make_host_vector<partition_range, int64_t>(res, 1);
+  ranges(0)   = partition_range{uint32_t{0}, int64_t{0}, rows};
+  partition_set root{std::move(memberships), std::move(ranges)};
+  int blocks = raft::div_rounding_up_safe<int>(static_cast<int>(rows), THREADS_PER_BLOCK);
   initialize_root_memberships_kernel<<<blocks, THREADS_PER_BLOCK, 0, stream>>>(
-    root.memberships.data(), rows);
+    root.memberships.data_handle(), rows);
   RAFT_CUDA_TRY(cudaGetLastError());
   return root;
 }
@@ -449,34 +465,39 @@ static __global__ void manyway_emit_tile_assignments_kernel(
 inline auto collect_partition_ranges(raft::resources const& res,
                                      uint32_t const* keys,
                                      int64_t count,
-                                     uint32_t key_count) -> std::vector<partition_range>
+                                     uint32_t key_count)
+  -> raft::host_vector<partition_range, int64_t>
 {
-  auto stream          = raft::resource::get_cuda_stream(res);
-  auto output_capacity = static_cast<size_t>(std::min<int64_t>(count, key_count));
-  rmm::device_uvector<uint32_t> device_unique_keys(output_capacity, stream);
-  rmm::device_uvector<uint32_t> device_counts(output_capacity, stream);
-  auto reduced_end = thrust::reduce_by_key(thrust::cuda::par.on(stream),
-                                           thrust::device_pointer_cast(keys),
-                                           thrust::device_pointer_cast(keys + count),
-                                           thrust::make_constant_iterator(uint32_t{1}),
-                                           thrust::device_pointer_cast(device_unique_keys.data()),
-                                           thrust::device_pointer_cast(device_counts.data()));
-  auto group_count =
-    static_cast<size_t>(reduced_end.first - thrust::device_pointer_cast(device_unique_keys.data()));
+  auto stream             = raft::resource::get_cuda_stream(res);
+  auto output_capacity    = std::min<int64_t>(count, key_count);
+  auto large_mr           = raft::resource::get_large_workspace_resource_ref(res);
+  auto device_unique_keys = raft::make_device_mdarray<uint32_t, int64_t>(
+    res, large_mr, raft::make_extents<int64_t>(output_capacity));
+  auto device_counts = raft::make_device_mdarray<uint32_t, int64_t>(
+    res, large_mr, raft::make_extents<int64_t>(output_capacity));
+  rmm::exec_policy_nosync thrust_policy{stream, large_mr};
+  auto reduced_end =
+    thrust::reduce_by_key(thrust_policy,
+                          thrust::device_pointer_cast(keys),
+                          thrust::device_pointer_cast(keys + count),
+                          thrust::make_constant_iterator(uint32_t{1}),
+                          thrust::device_pointer_cast(device_unique_keys.data_handle()),
+                          thrust::device_pointer_cast(device_counts.data_handle()));
+  auto group_count = static_cast<int64_t>(
+    reduced_end.first - thrust::device_pointer_cast(device_unique_keys.data_handle()));
 
-  std::vector<uint32_t> unique_keys(group_count);
-  std::vector<uint32_t> counts(group_count);
-  raft::copy(unique_keys.data(), device_unique_keys.data(), group_count, stream);
-  raft::copy(counts.data(), device_counts.data(), group_count, stream);
+  auto unique_keys = raft::make_host_vector<uint32_t, int64_t>(res, group_count);
+  auto counts      = raft::make_host_vector<uint32_t, int64_t>(res, group_count);
+  raft::copy(unique_keys.data_handle(), device_unique_keys.data_handle(), group_count, stream);
+  raft::copy(counts.data_handle(), device_counts.data_handle(), group_count, stream);
   raft::resource::sync_stream(res);
 
-  std::vector<partition_range> groups;
-  groups.reserve(group_count);
+  auto groups    = raft::make_host_vector<partition_range, int64_t>(res, group_count);
   int64_t cursor = 0;
-  for (size_t index = 0; index < group_count; ++index) {
-    RAFT_EXPECTS(unique_keys[index] < key_count, "Many-way group key is out of range");
-    groups.push_back({unique_keys[index], cursor, cursor + counts[index]});
-    cursor += counts[index];
+  for (int64_t index = 0; index < group_count; ++index) {
+    RAFT_EXPECTS(unique_keys(index) < key_count, "Many-way group key is out of range");
+    groups(index) = {unique_keys(index), cursor, cursor + counts(index)};
+    cursor += counts(index);
   }
   RAFT_EXPECTS(cursor == count, "Many-way partition membership histogram lost entries");
   return groups;
@@ -486,8 +507,8 @@ inline auto collect_partition_ranges(raft::resources const& res,
 inline void carry_parents(raft::resources const& res,
                           partition_set const& parents,
                           split_plan const& plan,
-                          rmm::device_uvector<uint32_t>& keys,
-                          rmm::device_uvector<partition_membership>& memberships)
+                          raft::device_vector<uint32_t, int64_t>& keys,
+                          raft::device_vector<partition_membership, int64_t>& memberships)
 {
   std::vector<carry_span> carries;
   for (auto const& entry : plan.parents) {
@@ -500,14 +521,19 @@ inline void carry_parents(raft::resources const& res,
   }
   if (carries.empty()) { return; }
 
-  auto stream = raft::resource::get_cuda_stream(res);
-  rmm::device_uvector<carry_span> device_carries(carries.size(), stream);
-  raft::copy(device_carries.data(), carries.data(), carries.size(), stream);
+  auto stream         = raft::resource::get_cuda_stream(res);
+  auto device_carries = raft::make_device_mdarray<carry_span, int64_t>(
+    res,
+    raft::resource::get_large_workspace_resource_ref(res),
+    raft::make_extents<int64_t>(static_cast<int64_t>(carries.size())));
+  raft::copy(device_carries.data_handle(), carries.data(), carries.size(), stream);
   carry_completed_parents_kernel<<<static_cast<int>(carries.size()),
                                    THREADS_PER_BLOCK,
                                    0,
-                                   stream>>>(
-    parents.memberships.data(), device_carries.data(), memberships.data(), keys.data());
+                                   stream>>>(parents.memberships.data_handle(),
+                                             device_carries.data_handle(),
+                                             memberships.data_handle(),
+                                             keys.data_handle());
   RAFT_CUDA_TRY(cudaGetLastError());
 }
 
@@ -599,33 +625,52 @@ void assign_bucket(raft::resources const& res,
                    int padded_leaders,
                    split_params const& params,
                    split_context& context,
-                   rmm::device_uvector<uint32_t>& keys,
-                   rmm::device_uvector<partition_membership>& memberships)
+                   raft::device_vector<uint32_t, int64_t>& keys,
+                   raft::device_vector<partition_membership, int64_t>& memberships)
 {
-  auto stream          = raft::resource::get_cuda_stream(res);
+  auto stream           = raft::resource::get_cuda_stream(res);
   auto const row_stride = dataset.extent(1);
-  auto dim             = context.logical_dim;
+  auto dim              = context.logical_dim;
+  auto workspace_mr     = raft::resource::get_workspace_resource_ref(res);
+  auto workspace_bytes  = raft::resource::get_workspace_free_bytes(res);
 
-  // Derive the tile height from this bucket's shapes rather than assuming the configured default
-  // fits. The assignment workspace holds the gathered leader matrix once, plus per-row point,
-  // dot-product and selection storage, so a large dimension or a wide padded leader count can
-  // overflow the budget at the default height -- preflight only validates the leaf GEMM shape, so
-  // such a configuration would otherwise pass preflight and then trip the assertion below.
-  //
-  // This only ever shrinks the tile, so every configuration that fits today is unaffected.
-  size_t leader_bytes =
-    static_cast<size_t>(padded_leaders) * static_cast<size_t>(dim) * sizeof(float) +
-    static_cast<size_t>(padded_leaders) * sizeof(uint32_t) + sizeof(assignment_tile);
-  size_t row_bytes = (static_cast<size_t>(dim) + static_cast<size_t>(padded_leaders) +
-                      static_cast<size_t>(params.fanout)) *
-                       sizeof(float) +
-                     static_cast<size_t>(params.fanout) * sizeof(int);
-  RAFT_EXPECTS(leader_bytes + row_bytes <= context.gemm_workspace_bytes,
+  // RMM's limiting workspace accounts for every allocation rounded to the CUDA allocation
+  // alignment. Model the seven explicit buffers independently so a raw-byte sum cannot overrun a
+  // small caller-configured workspace through alignment alone. RAFT select-k also allocates value
+  // and index scratch; each is no larger than its input matrix, so reserve two aligned dot-matrix
+  // buffers as a conservative upper bound.
+  auto assignment_workspace_bytes = [&](size_t capacity, size_t rows_per_tile) {
+    auto aligned = [](size_t bytes) {
+      return rmm::align_up(bytes, rmm::CUDA_ALLOCATION_ALIGNMENT);
+    };
+    size_t point_elements    = rows_per_tile * static_cast<size_t>(dim);
+    size_t leader_elements   = static_cast<size_t>(padded_leaders) * static_cast<size_t>(dim);
+    size_t dot_elements      = rows_per_tile * static_cast<size_t>(padded_leaders);
+    size_t selected_elements = rows_per_tile * static_cast<size_t>(params.fanout);
+    return aligned(capacity * sizeof(assignment_tile)) +
+           aligned(capacity * point_elements * sizeof(float)) +
+           aligned(capacity * leader_elements * sizeof(float)) +
+           aligned(capacity * dot_elements * sizeof(float)) +
+           aligned(capacity * static_cast<size_t>(padded_leaders) * sizeof(uint32_t)) +
+           aligned(capacity * selected_elements * sizeof(float)) +
+           aligned(capacity * selected_elements * sizeof(int)) +
+           aligned(capacity * dot_elements * sizeof(float)) +
+           aligned(capacity * dot_elements * sizeof(int));
+  };
+
+  RAFT_EXPECTS(assignment_workspace_bytes(1, 1) <= workspace_bytes,
                "Fastener assignment workspace cannot fit the leader matrix and a single point row");
-  int tile_rows = static_cast<int>(
-    std::max<size_t>(1,
-                     std::min<size_t>(static_cast<size_t>(context.assignment_tile_rows),
-                                      (context.gemm_workspace_bytes - leader_bytes) / row_bytes)));
+  size_t min_tile_rows = 1;
+  size_t max_tile_rows = static_cast<size_t>(context.assignment_tile_rows);
+  while (min_tile_rows < max_tile_rows) {
+    size_t candidate = min_tile_rows + (max_tile_rows - min_tile_rows + 1) / 2;
+    if (assignment_workspace_bytes(1, candidate) <= workspace_bytes) {
+      min_tile_rows = candidate;
+    } else {
+      max_tile_rows = candidate - 1;
+    }
+  }
+  int tile_rows = static_cast<int>(min_tile_rows);
 
   // Cut every parent in the bucket into fixed-height tiles
   std::vector<assignment_tile> tiles;
@@ -636,26 +681,48 @@ void assign_bucket(raft::resources const& res,
   }
 
   // Size the batch so all per-tile buffers fit in the GEMM workspace budget
-  size_t point_elements    = static_cast<size_t>(tile_rows) * dim;
-  size_t leader_elements   = static_cast<size_t>(padded_leaders) * dim;
-  size_t dot_elements      = static_cast<size_t>(tile_rows) * padded_leaders;
-  size_t selected_elements = static_cast<size_t>(tile_rows) * params.fanout;
-  size_t bytes_per_batch =
-    (point_elements + leader_elements + dot_elements + selected_elements) * sizeof(float) +
-    static_cast<size_t>(padded_leaders) * sizeof(uint32_t) + selected_elements * sizeof(int) +
-    sizeof(assignment_tile);
-  RAFT_EXPECTS(bytes_per_batch <= context.gemm_workspace_bytes,
-               "Fastener assignment workspace is too small for one tile");
-  size_t batch_capacity = std::max<size_t>(
-    1, std::min<size_t>(tiles.size(), context.gemm_workspace_bytes / bytes_per_batch));
+  size_t point_elements     = static_cast<size_t>(tile_rows) * dim;
+  size_t leader_elements    = static_cast<size_t>(padded_leaders) * dim;
+  size_t dot_elements       = static_cast<size_t>(tile_rows) * padded_leaders;
+  size_t selected_elements  = static_cast<size_t>(tile_rows) * params.fanout;
+  size_t min_batch_capacity = 1;
+  size_t max_batch_capacity = tiles.size();
+  while (min_batch_capacity < max_batch_capacity) {
+    size_t candidate = min_batch_capacity + (max_batch_capacity - min_batch_capacity + 1) / 2;
+    if (assignment_workspace_bytes(candidate, static_cast<size_t>(tile_rows)) <= workspace_bytes) {
+      min_batch_capacity = candidate;
+    } else {
+      max_batch_capacity = candidate - 1;
+    }
+  }
+  size_t batch_capacity = min_batch_capacity;
 
-  rmm::device_uvector<assignment_tile> device_tiles(batch_capacity, stream);
-  rmm::device_uvector<float> tile_points(batch_capacity * point_elements, stream);
-  rmm::device_uvector<float> tile_leaders(batch_capacity * leader_elements, stream);
-  rmm::device_uvector<float> tile_dots(batch_capacity * dot_elements, stream);
-  rmm::device_uvector<uint32_t> tile_leader_ids(batch_capacity * padded_leaders, stream);
-  rmm::device_uvector<float> selected_distances(batch_capacity * selected_elements, stream);
-  rmm::device_uvector<int> selected_leaders(batch_capacity * selected_elements, stream);
+  auto device_tiles = raft::make_device_mdarray<assignment_tile, int64_t>(
+    res, workspace_mr, raft::make_extents<int64_t>(static_cast<int64_t>(batch_capacity)));
+  auto tile_points = raft::make_device_mdarray<float, int64_t>(
+    res,
+    workspace_mr,
+    raft::make_extents<int64_t>(static_cast<int64_t>(batch_capacity * point_elements)));
+  auto tile_leaders = raft::make_device_mdarray<float, int64_t>(
+    res,
+    workspace_mr,
+    raft::make_extents<int64_t>(static_cast<int64_t>(batch_capacity * leader_elements)));
+  auto tile_dots = raft::make_device_mdarray<float, int64_t>(
+    res,
+    workspace_mr,
+    raft::make_extents<int64_t>(static_cast<int64_t>(batch_capacity * dot_elements)));
+  auto tile_leader_ids = raft::make_device_mdarray<uint32_t, int64_t>(
+    res,
+    workspace_mr,
+    raft::make_extents<int64_t>(static_cast<int64_t>(batch_capacity) * padded_leaders));
+  auto selected_distances = raft::make_device_mdarray<float, int64_t>(
+    res,
+    workspace_mr,
+    raft::make_extents<int64_t>(static_cast<int64_t>(batch_capacity * selected_elements)));
+  auto selected_leaders = raft::make_device_mdarray<int, int64_t>(
+    res,
+    workspace_mr,
+    raft::make_extents<int64_t>(static_cast<int64_t>(batch_capacity * selected_elements)));
 
   auto point_stride  = static_cast<int64_t>(point_elements);
   auto leader_stride = static_cast<int64_t>(leader_elements);
@@ -663,7 +730,7 @@ void assign_bucket(raft::resources const& res,
 
   for (size_t tile_offset = 0; tile_offset < tiles.size(); tile_offset += batch_capacity) {
     size_t batch_size = std::min(batch_capacity, tiles.size() - tile_offset);
-    raft::copy(device_tiles.data(), tiles.data() + tile_offset, batch_size, stream);
+    raft::copy(device_tiles.data_handle(), tiles.data() + tile_offset, batch_size, stream);
 
     // Gather the batch's tile rows and leader vectors
     int point_blocks = strided_grid_size(static_cast<int64_t>(batch_size * point_elements));
@@ -671,11 +738,11 @@ void assign_bucket(raft::resources const& res,
       dataset.data_handle(),
       dim,
       row_stride,
-      parents.memberships.data(),
-      device_tiles.data(),
+      parents.memberships.data_handle(),
+      device_tiles.data_handle(),
       static_cast<int>(batch_size),
       tile_rows,
-      tile_points.data());
+      tile_points.data_handle());
     RAFT_CUDA_TRY(cudaGetLastError());
 
     int leader_blocks = strided_grid_size(static_cast<int64_t>(batch_size * leader_elements));
@@ -683,23 +750,23 @@ void assign_bucket(raft::resources const& res,
       dataset.data_handle(),
       dim,
       row_stride,
-      parents.memberships.data(),
-      device_tiles.data(),
+      parents.memberships.data_handle(),
+      device_tiles.data_handle(),
       static_cast<int>(batch_size),
       padded_leaders,
-      tile_leaders.data(),
-      tile_leader_ids.data());
+      tile_leaders.data_handle(),
+      tile_leader_ids.data_handle());
     RAFT_CUDA_TRY(cudaGetLastError());
 
     // point-leader dot products for the batch
     batched_row_dot_products(res,
-                             tile_leaders.data(),
+                             tile_leaders.data_handle(),
                              padded_leaders,
                              leader_stride,
-                             tile_points.data(),
+                             tile_points.data_handle(),
                              tile_rows,
                              point_stride,
-                             tile_dots.data(),
+                             tile_dots.data_handle(),
                              dot_stride,
                              static_cast<int>(dim),
                              static_cast<int>(batch_size));
@@ -708,38 +775,38 @@ void assign_bucket(raft::resources const& res,
     int64_t selection_rows = static_cast<int64_t>(batch_size) * tile_rows;
     int distance_blocks    = strided_grid_size(selection_rows * padded_leaders);
     manyway_materialize_tile_distances_kernel<<<distance_blocks, THREADS_PER_BLOCK, 0, stream>>>(
-      tile_dots.data(),
+      tile_dots.data_handle(),
       static_cast<int>(batch_size),
       tile_rows,
       padded_leaders,
-      context.norms.data(),
-      tile_leader_ids.data(),
-      parents.memberships.data(),
-      device_tiles.data());
+      context.norms.data_handle(),
+      tile_leader_ids.data_handle(),
+      parents.memberships.data_handle(),
+      device_tiles.data_handle());
     RAFT_CUDA_TRY(cudaGetLastError());
 
     cuvs::selection::select_k(res,
                               raft::make_device_matrix_view<const float, int64_t>(
-                                tile_dots.data(), selection_rows, padded_leaders),
+                                tile_dots.data_handle(), selection_rows, padded_leaders),
                               std::nullopt,
                               raft::make_device_matrix_view<float, int64_t>(
-                                selected_distances.data(), selection_rows, params.fanout),
+                                selected_distances.data_handle(), selection_rows, params.fanout),
                               raft::make_device_matrix_view<int, int64_t>(
-                                selected_leaders.data(), selection_rows, params.fanout),
+                                selected_leaders.data_handle(), selection_rows, params.fanout),
                               true,
                               true);
 
     int assignment_blocks = strided_grid_size(selection_rows);
     manyway_emit_tile_assignments_kernel<<<assignment_blocks, THREADS_PER_BLOCK, 0, stream>>>(
-      selected_leaders.data(),
+      selected_leaders.data_handle(),
       static_cast<int>(batch_size),
       tile_rows,
       static_cast<int>(params.fanout),
       static_cast<int>(params.occurrence_stride),
-      parents.memberships.data(),
-      device_tiles.data(),
-      keys.data(),
-      memberships.data());
+      parents.memberships.data_handle(),
+      device_tiles.data_handle(),
+      keys.data_handle(),
+      memberships.data_handle());
     RAFT_CUDA_TRY(cudaGetLastError());
   }
 }
@@ -769,9 +836,12 @@ auto split_manyway(raft::resources const& res,
   auto plan   = plan_split(
     parents.ranges, static_cast<int64_t>(parents.memberships.size()), params, context.seed);
 
-  rmm::device_uvector<uint32_t> keys(static_cast<size_t>(plan.output_rows), stream);
-  rmm::device_uvector<partition_membership> memberships(static_cast<size_t>(plan.output_rows),
-                                                        stream);
+  // Both scale with the dataset, so they come from the large workspace.
+  auto const large_mr = raft::resource::get_large_workspace_resource_ref(res);
+  auto keys           = raft::make_device_mdarray<uint32_t, int64_t>(
+    res, large_mr, raft::make_extents<int64_t>(plan.output_rows));
+  auto memberships = raft::make_device_mdarray<partition_membership, int64_t>(
+    res, large_mr, raft::make_extents<int64_t>(plan.output_rows));
 
   carry_parents(res, parents, plan, keys, memberships);
   auto buckets = bucket_split_parents(plan, params);
@@ -788,11 +858,13 @@ auto split_manyway(raft::resources const& res,
                   memberships);
   }
 
-  thrust::stable_sort_by_key(thrust::cuda::par.on(stream),
-                             thrust::device_pointer_cast(keys.data()),
-                             thrust::device_pointer_cast(keys.data() + keys.size()),
-                             thrust::device_pointer_cast(memberships.data()));
-  auto ranges = collect_partition_ranges(res, keys.data(), plan.output_rows, plan.child_count);
+  rmm::exec_policy_nosync thrust_policy{stream, large_mr};
+  thrust::stable_sort_by_key(thrust_policy,
+                             thrust::device_pointer_cast(keys.data_handle()),
+                             thrust::device_pointer_cast(keys.data_handle() + keys.size()),
+                             thrust::device_pointer_cast(memberships.data_handle()));
+  auto ranges =
+    collect_partition_ranges(res, keys.data_handle(), plan.output_rows, plan.child_count);
   return {std::move(memberships), std::move(ranges)};
 }
 
@@ -804,13 +876,16 @@ auto split_manyway(raft::resources const& res,
  *
  * The limit does not depend on the dataset scalar type: every type, integers included, is gathered
  * into float leaf vectors and produces a float Gram matrix. */
-inline auto leaf_gemm_supported(int64_t dimension, uint32_t leaf_size) -> bool
+inline auto leaf_gemm_supported(int64_t dimension, uint32_t leaf_size, size_t workspace_bytes)
+  -> bool
 {
   if (dimension <= 0 || dimension > std::numeric_limits<int>::max()) { return false; }
 
   size_t vector_elements = static_cast<size_t>(leaf_size) * static_cast<size_t>(dimension);
   size_t gram_elements   = static_cast<size_t>(leaf_size) * leaf_size;
-  return vector_elements * sizeof(float) + gram_elements * sizeof(float) <= GEMM_WORKSPACE_BYTES;
+  return rmm::align_up(vector_elements * sizeof(float), rmm::CUDA_ALLOCATION_ALIGNMENT) +
+           rmm::align_up(gram_elements * sizeof(float), rmm::CUDA_ALLOCATION_ALIGNMENT) <=
+         workspace_bytes;
 }
 
 /** Leaves as strided views into `partitions->memberships`: leaf `i` holds the `counts[i]` records
@@ -820,9 +895,9 @@ struct leaf_set {
   std::vector<uint32_t> starts_host;
   std::vector<uint32_t> counts_host;
   std::vector<uint32_t> strides_host;
-  rmm::device_uvector<uint32_t> starts;
-  rmm::device_uvector<uint32_t> counts;
-  rmm::device_uvector<uint32_t> strides;
+  raft::device_vector<uint32_t, int64_t> starts;
+  raft::device_vector<uint32_t, int64_t> counts;
+  raft::device_vector<uint32_t, int64_t> strides;
 };
 
 /** Divide final grouped partitions into bounded leaves, without geometric resplitting.
@@ -851,7 +926,8 @@ inline auto make_leaves(raft::resources const& res,
   strides_host.reserve(starts_host.capacity());
 
   int64_t covered = 0;
-  for (auto const& range : partitions.ranges) {
+  for (int64_t range_index = 0; range_index < partitions.ranges.extent(0); ++range_index) {
+    auto const& range = partitions.ranges(range_index);
     RAFT_EXPECTS(range.start == covered && range.end > range.start &&
                    range.end <= static_cast<int64_t>(partitions.memberships.size()),
                  "Fastener partition ranges must compactly cover all memberships");
@@ -871,12 +947,16 @@ inline auto make_leaves(raft::resources const& res,
     covered == static_cast<int64_t>(partitions.memberships.size()) && !starts_host.empty(),
     "Fastener partition ranges did not cover all memberships");
 
-  rmm::device_uvector<uint32_t> starts(starts_host.size(), stream);
-  rmm::device_uvector<uint32_t> counts(counts_host.size(), stream);
-  rmm::device_uvector<uint32_t> strides(strides_host.size(), stream);
-  raft::copy(starts.data(), starts_host.data(), starts.size(), stream);
-  raft::copy(counts.data(), counts_host.data(), counts.size(), stream);
-  raft::copy(strides.data(), strides_host.data(), strides.size(), stream);
+  auto large_mr = raft::resource::get_large_workspace_resource_ref(res);
+  auto starts   = raft::make_device_mdarray<uint32_t, int64_t>(
+    res, large_mr, raft::make_extents<int64_t>(static_cast<int64_t>(starts_host.size())));
+  auto counts = raft::make_device_mdarray<uint32_t, int64_t>(
+    res, large_mr, raft::make_extents<int64_t>(static_cast<int64_t>(counts_host.size())));
+  auto strides = raft::make_device_mdarray<uint32_t, int64_t>(
+    res, large_mr, raft::make_extents<int64_t>(static_cast<int64_t>(strides_host.size())));
+  raft::copy(starts.data_handle(), starts_host.data(), starts.size(), stream);
+  raft::copy(counts.data_handle(), counts_host.data(), counts.size(), stream);
+  raft::copy(strides.data_handle(), strides_host.data(), strides.size(), stream);
   return {&partitions,
           std::move(starts_host),
           std::move(counts_host),
@@ -1030,7 +1110,10 @@ auto build_leaf_neighbors(raft::resources const& res,
   auto const& memberships = leaves.partitions->memberships;
 
   // Prefill every slot with its own row id, leaf KNN overwrites the slots it fills
-  auto graph          = raft::make_device_matrix<uint32_t, int64_t>(res, rows, union_degree);
+  auto graph = raft::make_device_mdarray<uint32_t, int64_t>(
+    res,
+    raft::resource::get_large_workspace_resource_ref(res),
+    raft::make_extents<int64_t>(rows, union_degree));
   int scaffold_blocks = strided_grid_size(rows * union_degree);
   initialize_self_scaffold_kernel<<<scaffold_blocks, THREADS_PER_BLOCK, 0, stream>>>(
     graph.data_handle(), rows, union_degree);
@@ -1043,12 +1126,35 @@ auto build_leaf_neighbors(raft::resources const& res,
   int dimension                   = static_cast<int>(input_dimension);
   size_t vector_elements_per_leaf = static_cast<size_t>(leaf_size) * dimension;
   size_t gram_elements_per_leaf   = static_cast<size_t>(leaf_size) * leaf_size;
-  size_t bytes_per_leaf =
-    vector_elements_per_leaf * sizeof(float) + gram_elements_per_leaf * sizeof(float);
-  size_t batch_capacity = std::max<size_t>(
-    1, std::min<size_t>(leaves.starts_host.size(), GEMM_WORKSPACE_BYTES / bytes_per_leaf));
-  rmm::device_uvector<float> leaf_vectors(batch_capacity * vector_elements_per_leaf, stream);
-  rmm::device_uvector<float> gram(batch_capacity * gram_elements_per_leaf, stream);
+  auto workspace_mr               = raft::resource::get_workspace_resource_ref(res);
+  auto workspace_bytes            = raft::resource::get_workspace_free_bytes(res);
+  auto leaf_workspace_bytes       = [&](size_t capacity) {
+    return rmm::align_up(capacity * vector_elements_per_leaf * sizeof(float),
+                         rmm::CUDA_ALLOCATION_ALIGNMENT) +
+           rmm::align_up(capacity * gram_elements_per_leaf * sizeof(float),
+                         rmm::CUDA_ALLOCATION_ALIGNMENT);
+  };
+  RAFT_EXPECTS(leaf_workspace_bytes(1) <= workspace_bytes,
+               "Fastener leaf workspace cannot fit one leaf");
+  size_t min_batch_capacity = 1;
+  size_t max_batch_capacity = leaves.starts_host.size();
+  while (min_batch_capacity < max_batch_capacity) {
+    size_t candidate = min_batch_capacity + (max_batch_capacity - min_batch_capacity + 1) / 2;
+    if (leaf_workspace_bytes(candidate) <= workspace_bytes) {
+      min_batch_capacity = candidate;
+    } else {
+      max_batch_capacity = candidate - 1;
+    }
+  }
+  size_t batch_capacity = min_batch_capacity;
+  auto leaf_vectors     = raft::make_device_mdarray<float, int64_t>(
+    res,
+    workspace_mr,
+    raft::make_extents<int64_t>(static_cast<int64_t>(batch_capacity * vector_elements_per_leaf)));
+  auto gram = raft::make_device_mdarray<float, int64_t>(
+    res,
+    workspace_mr,
+    raft::make_extents<int64_t>(static_cast<int64_t>(batch_capacity * gram_elements_per_leaf)));
   auto vector_stride = static_cast<int64_t>(vector_elements_per_leaf);
   auto gram_stride   = static_cast<int64_t>(gram_elements_per_leaf);
 
@@ -1063,32 +1169,32 @@ auto build_leaf_neighbors(raft::resources const& res,
       row_stride,
       input_dimension,
       leaf_size,
-      memberships.data(),
-      leaves.starts.data(),
-      leaves.counts.data(),
-      leaves.strides.data(),
+      memberships.data_handle(),
+      leaves.starts.data_handle(),
+      leaves.counts.data_handle(),
+      leaves.strides.data_handle(),
       static_cast<int64_t>(leaf_offset),
       static_cast<int64_t>(batch_size),
-      leaf_vectors.data());
+      leaf_vectors.data_handle());
     RAFT_CUDA_TRY(cudaGetLastError());
     batched_row_dot_products(res,
-                             leaf_vectors.data(),
+                             leaf_vectors.data_handle(),
                              leaf_size,
                              vector_stride,
-                             leaf_vectors.data(),
+                             leaf_vectors.data_handle(),
                              leaf_size,
                              vector_stride,
-                             gram.data(),
+                             gram.data_handle(),
                              gram_stride,
                              dimension,
                              static_cast<int>(batch_size));
     manyway_leaf_gram_knn_kernel<<<static_cast<int>(batch_size), leaf_size, 0, stream>>>(
-      gram.data(),
-      memberships.data(),
+      gram.data_handle(),
+      memberships.data_handle(),
       origins,
-      leaves.starts.data(),
-      leaves.counts.data(),
-      leaves.strides.data(),
+      leaves.starts.data_handle(),
+      leaves.counts.data_handle(),
+      leaves.strides.data_handle(),
       static_cast<int64_t>(leaf_offset),
       static_cast<int64_t>(batch_size),
       leaf_size,
@@ -1174,8 +1280,9 @@ auto build(raft::resources const& res,
   RAFT_EXPECTS(params.leaf_degree >= 1 && params.leaf_degree <= MAX_LEAF_DEGREE,
                "Fastener leaf degree must be between 1 and %d",
                MAX_LEAF_DEGREE);
-  RAFT_EXPECTS(leaf_gemm_supported(dim, params.leaf_size),
-               "Fastener dataset dimension exceeds the leaf GEMM limits");
+  RAFT_EXPECTS(
+    leaf_gemm_supported(dim, params.leaf_size, raft::resource::get_workspace_free_bytes(res)),
+    "Fastener dataset dimension exceeds the leaf GEMM limits");
 
   // the number of leaf partitions that a given point will end up in
   uint64_t spill = params.root_fanout;
@@ -1195,21 +1302,21 @@ auto build(raft::resources const& res,
   int union_degree = static_cast<int>(spill * params.leaf_degree);
 
   // Per-row index of the input partition this point came from, used to skip same-origin pairs
-  rmm::device_uvector<uint32_t> origins(static_cast<size_t>(rows), stream);
+  auto origins = raft::make_device_mdarray<uint32_t, int64_t>(
+    res, raft::resource::get_large_workspace_resource_ref(res), raft::make_extents<int64_t>(rows));
 
   for (size_t part = 0; part + 1 < offsets.size(); ++part) {
     int64_t part_rows = offsets[part + 1] - offsets[part];
     int blocks        = static_cast<int>((part_rows + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
     initialize_origins_kernel<<<blocks, THREADS_PER_BLOCK, 0, stream>>>(
-      origins.data(), offsets[part], part_rows, static_cast<uint32_t>(part));
+      origins.data_handle(), offsets[part], part_rows, static_cast<uint32_t>(part));
     RAFT_CUDA_TRY(cudaGetLastError());
   }
 
-  split_context context(stream, rows);
-  context.logical_dim = dim;
+  split_context context(res, rows, dim);
   int norm_blocks = static_cast<int>((rows + ROW_WARPS_PER_BLOCK - 1) / ROW_WARPS_PER_BLOCK);
   manyway_l2_norms_kernel<<<norm_blocks, ROW_WARPS_PER_BLOCK * raft::WarpSize, 0, stream>>>(
-    dataset.data_handle(), rows, dim, dataset.extent(1), context.norms.data());
+    dataset.data_handle(), rows, dim, dataset.extent(1), context.norms.data_handle());
   RAFT_CUDA_TRY(cudaGetLastError());
 
   // the actual splitting
@@ -1232,9 +1339,9 @@ auto build(raft::resources const& res,
   }
 
   // Leaf construction: only range slicing occurs after configured geometric depth.
-  auto leaves   = make_leaves(res, partitions, params.leaf_size);
+  auto leaves = make_leaves(res, partitions, params.leaf_size);
   auto scaffold =
-    build_leaf_neighbors(res, dataset, dim, leaves, origins.data(), union_degree, params);
+    build_leaf_neighbors(res, dataset, dim, leaves, origins.data_handle(), union_degree, params);
   raft::resource::sync_stream(res);
   return scaffold;
 }
@@ -1293,7 +1400,10 @@ auto append_to_input_graphs(
   }
   int64_t scaffold_degree = scaffold.extent(1);
   int64_t graph_degree    = base_degree + scaffold_degree;
-  auto graph = raft::make_device_matrix<uint32_t, int64_t>(res, scaffold.extent(0), graph_degree);
+  auto graph              = raft::make_device_mdarray<uint32_t, int64_t>(
+    res,
+    raft::resource::get_large_workspace_resource_ref(res),
+    raft::make_extents<int64_t>(scaffold.extent(0), graph_degree));
 
   for (size_t part = 0; part < indices.size(); ++part) {
     auto source = indices[part]->graph();
@@ -1370,7 +1480,10 @@ inline auto cap_sorted_graph(
 {
   RAFT_EXPECTS(output_degree > 0 && output_degree <= graph.extent(1),
                "Pre-optimize graph degree cap must be within the sorted graph degree");
-  auto output = raft::make_device_matrix<uint32_t, int64_t>(res, graph.extent(0), output_degree);
+  auto output = raft::make_device_mdarray<uint32_t, int64_t>(
+    res,
+    raft::resource::get_large_workspace_resource_ref(res),
+    raft::make_extents<int64_t>(graph.extent(0), output_degree));
   constexpr int WARPS_PER_BLOCK = THREADS_PER_BLOCK / raft::WarpSize;
   int blocks = static_cast<int>((graph.extent(0) + WARPS_PER_BLOCK - 1) / WARPS_PER_BLOCK);
   deduplicate_graph_prefix_kernel<<<blocks,
