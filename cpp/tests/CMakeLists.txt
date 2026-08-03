@@ -414,6 +414,7 @@ ConfigureTest(
        preprocessing/binary_quantization.cu
        preprocessing/spectral_embedding.cu
        preprocessing/product_quantization.cu
+       preprocessing/rabitq_quantization.cu
        preprocessing/pca.cu
   GPUS 1
   PERCENT 100
