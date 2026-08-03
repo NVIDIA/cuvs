@@ -571,6 +571,7 @@ class OpenSearchBackend(BenchmarkBackend):
         resp = self._client.indices.forcemerge(
             index=index_name,
             max_num_segments=1,
+            wait_for_completion=True,
             request_timeout=None,
         )
         shards = resp.get("_shards", {})

@@ -207,15 +207,32 @@ The build raises a `TimeoutError` (causing the `bench` container to exit with co
 
 To compare CPU and GPU builds on the same dataset, run the benchmark twice — once in each mode — clearing the OpenSearch volume between runs so the index is rebuilt from scratch each time:
 
+Use identical indexing settings for both runs. In particular, enable force
+merge so every shard has the same one-segment final layout; otherwise normal
+background merging can leave the CPU and GPU indexes with different segment
+counts. Keep separate output directories so the second run does not overwrite
+the first run's results.
+
 ```bash
+export FORCE_MERGE=true
+export GPU_DATASET_PATH="$(pwd)/opensearch-cuvs-datasets-gpu"
+export CPU_DATASET_PATH="$(pwd)/opensearch-cuvs-datasets-cpu"
+
 # GPU build (starts the remote-index-builder via --profile gpu)
+export DATASET_PATH="$GPU_DATASET_PATH"
 docker compose --profile gpu up --build
 docker compose --profile gpu down -v
 
 # CPU build (no GPU or S3 required)
+export DATASET_PATH="$CPU_DATASET_PATH"
 docker compose up --build
 docker compose down -v
 ```
+
+Keep `DATASET`, `BENCH_GROUPS`, `K`, `BATCH_SIZE`, `BUILD_BATCH_SIZE`,
+`NUMBER_OF_SHARDS`, `APPROXIMATE_THRESHOLD`, and `REFRESH_INTERVAL` unchanged
+between the two runs. The force-merge call is synchronous and its time is
+included in the reported build time for both modes.
 
 ## Running tests
 
