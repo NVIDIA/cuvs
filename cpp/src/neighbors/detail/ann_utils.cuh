@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -188,6 +188,14 @@ struct mapping {
     if constexpr (std::is_floating_point_v<S>) { return static_cast<T>(x * static_cast<S>(kMult)); }
     if constexpr (std::is_floating_point_v<T>) { return static_cast<T>(x) * static_cast<T>(kMult); }
     return static_cast<T>(static_cast<float>(x) * static_cast<float>(kMult));
+  };
+
+  /** Allow RAFT kernels to pass unused metadata, such as an element index. */
+  template <typename S, typename... UnusedArgs>
+  HDI constexpr auto operator()(const S& x, UnusedArgs...) const
+    -> std::enable_if_t<(sizeof...(UnusedArgs) > 0), T>
+  {
+    return (*this)(x);
   };
   /** @} */
 };
