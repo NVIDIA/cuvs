@@ -1135,9 +1135,7 @@ auto build_from_device_matrix(raft::resources const& res,
 // The returned index is not usable for search. Use the created files for search instead.
 template <typename T, typename IdxT, typename DatasetViewT>
   requires cuvs::neighbors::is_host_dataset_view_v<DatasetViewT>
-auto build_ace(raft::resources const& res,
-               const index_params& params,
-               raft::host_matrix_view<const T, int64_t, row_major> dataset)
+auto build_ace(raft::resources const& res, const index_params& params, DatasetViewT const& dataset)
   -> cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>
 {
   // Extract ACE parameters from graph_build_params
@@ -1157,8 +1155,9 @@ auto build_ace(raft::resources const& res,
     params.graph_degree,
     npartitions);
 
-  size_t dataset_size = dataset.extent(0);
-  size_t dataset_dim  = dataset.extent(1);
+  auto dataset_view   = dataset.view();
+  size_t dataset_size = dataset.n_rows();
+  size_t dataset_dim  = dataset.dim();
 
   RAFT_EXPECTS(dataset_size > 0, "ACE build: dataset must not be empty");
   if (dataset_size < 1000) {
@@ -1284,7 +1283,7 @@ auto build_ace(raft::resources const& res,
     size_t min_partition_size = std::max<size_t>(1000ULL, dataset_size / n_partitions * 0.1);
 
     ace_get_partition_labels<T, IdxT>(
-      res, dataset, partition_labels.view(), partition_histogram.view(), min_partition_size);
+      res, dataset_view, partition_labels.view(), partition_histogram.view(), min_partition_size);
 
     ace_check_partition_sizes<IdxT>(dataset_size,
                                     n_partitions,
@@ -1330,7 +1329,7 @@ auto build_ace(raft::resources const& res,
     if (use_disk_mode) {
       ace_reorder_and_store_dataset<T, IdxT>(res,
                                              build_dir,
-                                             dataset,
+                                             dataset_view,
                                              partition_labels.view(),
                                              partition_histogram.view(),
                                              core_backward_mapping.view(),
@@ -1390,7 +1389,7 @@ auto build_ace(raft::resources const& res,
                                               augmented_sub_dataset_size,
                                               dataset_dim,
                                               partition_id,
-                                              dataset,
+                                              dataset_view,
                                               core_backward_mapping.view(),
                                               augmented_backward_mapping.view(),
                                               core_partition_offsets.view(),
@@ -1517,20 +1516,11 @@ auto build_ace(raft::resources const& res,
     auto index_creation_start = std::chrono::high_resolution_clock::now();
     cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> idx(res, params.metric);
     if (!use_disk_mode) {
-      idx.update_graph(res, raft::make_const_mdspan(search_graph.view()));
-
       if (params.attach_dataset_on_build) {
-        try {
-          idx.update_dataset(res, dataset);
-        } catch (std::bad_alloc& e) {
-          RAFT_LOG_WARN(
-            "ACE build: insufficient GPU memory to attach dataset to index; only the graph will "
-            "be stored");
-        } catch (raft::logic_error& e) {
-          RAFT_LOG_WARN(
-            "ACE build: insufficient GPU memory to attach dataset to index; only the graph will "
-            "be stored");
-        }
+        idx = cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>(
+          res, params.metric, dataset, raft::make_const_mdspan(search_graph.view()));
+      } else {
+        idx.update_graph(res, raft::make_const_mdspan(search_graph.view()));
       }
     } else {
       idx.update_dataset(res, std::move(reordered_fd));

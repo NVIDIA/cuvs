@@ -826,14 +826,15 @@ inline auto open_layered_dataset_file(const std::string& path) -> npy_file
           false};
 }
 
-template <typename T, typename IdxT>
-void write_layered_base_links_from_disk(const cuvs::neighbors::cagra::index<T, IdxT>& index_,
+template <typename T, typename CagraIndexT>
+void write_layered_base_links_from_disk(const CagraIndexT& index_,
                                         const cuvs::util::file_descriptor& output_fd,
                                         size_t base_nodes_offset,
                                         size_t base_links_offset,
                                         size_t base_link_row_bytes,
                                         size_t maxM0)
 {
+  using IdxT = typename CagraIndexT::index_type;
   static_assert(std::is_same_v<IdxT, uint32_t>,
                 "Layered HNSW artifacts store topology ids as uint32_t");
   const auto& graph_fd_opt   = index_.graph_fd();
@@ -1004,13 +1005,16 @@ void write_layered_base_links_from_disk(const cuvs::neighbors::cagra::index<T, I
     to_gib(link_bytes_written));
 }
 
-template <typename T, typename IdxT>
+template <typename T, typename CagraIndexT>
 auto serialize_to_layered_hnswlib_from_disk(
   raft::resources const& res,
   const cuvs::neighbors::hnsw::index_params& params,
-  const cuvs::neighbors::cagra::index<T, IdxT>& index_,
+  const CagraIndexT& index_,
   raft::host_matrix_view<const T, int64_t, raft::row_major> dataset) -> std::string
 {
+  using IdxT = typename CagraIndexT::index_type;
+  static_assert(is_cagra_hnsw_export_index_v<T, CagraIndexT>,
+                "Layered HNSW serialization expects a CAGRA index type");
   raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> fun_scope("hnsw::serialize_layered");
   const auto total_start_time = std::chrono::steady_clock::now();
 
@@ -1126,12 +1130,12 @@ auto serialize_to_layered_hnswlib_from_disk(
 
   RAFT_LOG_INFO("Layered HNSW artifact: writing hnswlib-ready base topology section");
   const auto layer0_start_time = std::chrono::steady_clock::now();
-  write_layered_base_links_from_disk<T, IdxT>(index_,
-                                              artifact_fd,
-                                              base_nodes_offset,
-                                              base_links_offset,
-                                              metadata.base_link_row_bytes,
-                                              metadata.maxM0);
+  write_layered_base_links_from_disk<T, CagraIndexT>(index_,
+                                                     artifact_fd,
+                                                     base_nodes_offset,
+                                                     base_links_offset,
+                                                     metadata.base_link_row_bytes,
+                                                     metadata.maxM0);
   const auto layer0_elapsed_ms = elapsed_ms_since(layer0_start_time);
   static_cast<void>(layer0_elapsed_ms);
   RAFT_LOG_INFO(
