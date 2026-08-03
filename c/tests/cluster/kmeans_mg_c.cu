@@ -41,9 +41,9 @@ float kExpectedCentroids[kNClusters * kNFeatures] = {1.5f, 1.5f, 10.5f, 10.5f};
 constexpr double kExpectedInertia = 4.0;
 
 struct kmeans_mg_api {
-  using params_t = cuvsKMeansParams_v2_t;
-  static cuvsError_t params_create(params_t* p) { return cuvsKMeansParamsCreate_v2(p); }
-  static cuvsError_t params_destroy(params_t p) { return cuvsKMeansParamsDestroy_v2(p); }
+  using params_t = cuvsKMeansParams_t;
+  static cuvsError_t params_create(params_t* p) { return cuvsKMeansParamsCreate(p); }
+  static cuvsError_t params_destroy(params_t p) { return cuvsKMeansParamsDestroy(p); }
   static cuvsError_t fit(cuvsResources_t res,
                          params_t params,
                          DLManagedTensor* dataset,
@@ -77,7 +77,7 @@ void test_mg_fit_host()
   params->max_iter             = 100;
   params->tol                  = 1e-6;
   params->init                 = Array;
-  params->streaming_batch_size = 4;  // force at least 2 streamed batches
+  params->device_buffer_samples = 4;  // force at least 2 streamed batches
 
   DLManagedTensor dataset_t{};
   cuvs::core::to_dlpack(raft::make_host_matrix_view<float, int64_t>(
