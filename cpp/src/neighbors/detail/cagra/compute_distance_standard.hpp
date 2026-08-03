@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -28,7 +28,7 @@ struct standard_descriptor_spec : public instance_spec<DataT, IndexT, DistanceT>
   template <typename DatasetT>
   constexpr static inline bool accepts_dataset()
   {
-    return is_strided_dataset_v<DatasetT>;
+    return is_padded_dataset_v<DatasetT>;
   }
 
   template <typename DatasetT>

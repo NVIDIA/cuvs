@@ -400,16 +400,16 @@ Usage examples:
 `void`
 
 <a id="neighbors-cagra-index-update-dataset"></a>
-### neighbors::cagra::index::update_dataset
+### neighbors::cagra::index::update_device_dataset_same_layout
 
 Replace the dataset with a new dataset.
 
 ```cpp
-void update_dataset(raft::resources const& res,
+void update_device_dataset_same_layout(raft::resources const& res,
 raft::device_matrix_view<const T, int64_t, raft::row_major> dataset);
 ```
 
-If the new dataset rows are aligned on 16 bytes, then only a reference is stored to the dataset. It is the caller's responsibility to ensure that dataset stays alive as long as the index. It is expected that the same set of vectors are used for update_dataset and index build.
+If the new dataset rows are aligned on 16 bytes, then only a reference is stored to the dataset. It is the caller's responsibility to ensure that dataset stays alive as long as the index. It is expected that the same set of vectors are used for update_device_dataset_same_layout and index build.
 
 Note: This will clear any precomputed dataset norms.
 
@@ -424,12 +424,12 @@ Note: This will clear any precomputed dataset norms.
 
 `void`
 
-**Additional overload:** `neighbors::cagra::index::update_dataset`
+**Additional overload:** `neighbors::cagra::index::update_device_dataset_same_layout`
 
 Set the dataset reference explicitly to a device matrix view with padding.
 
 ```cpp
-void update_dataset(raft::resources const& res,
+void update_device_dataset_same_layout(raft::resources const& res,
 raft::device_matrix_view<const T, int64_t, raft::layout_stride> dataset);
 ```
 
@@ -444,16 +444,16 @@ raft::device_matrix_view<const T, int64_t, raft::layout_stride> dataset);
 
 `void`
 
-**Additional overload:** `neighbors::cagra::index::update_dataset`
+**Additional overload:** `neighbors::cagra::index::update_device_dataset_same_layout`
 
 Replace the dataset with a new dataset.
 
 ```cpp
-void update_dataset(raft::resources const& res,
+void update_device_dataset_same_layout(raft::resources const& res,
 raft::host_matrix_view<const T, int64_t, raft::row_major> dataset);
 ```
 
-We create a copy of the dataset on the device. The index manages the lifetime of this copy. It is expected that the same set of vectors are used for update_dataset and index build.
+We create a copy of the dataset on the device. The index manages the lifetime of this copy. It is expected that the same set of vectors are used for update_device_dataset_same_layout and index build.
 
 Note: This will clear any precomputed dataset norms.
 
@@ -468,17 +468,17 @@ Note: This will clear any precomputed dataset norms.
 
 `void`
 
-**Additional overload:** `neighbors::cagra::index::update_dataset`
+**Additional overload:** `neighbors::cagra::index::update_device_dataset_same_layout`
 
 Replace the dataset with a new dataset. It is expected that the same set of vectors are used
 
 ```cpp
 template <typename DatasetT>
-auto update_dataset(raft::resources const& res, DatasetT&& dataset)
+auto update_device_dataset_same_layout(raft::resources const& res, DatasetT&& dataset)
 -> std::enable_if_t<std::is_base_of_v<cuvs::neighbors::dataset<dataset_index_type>, DatasetT>>;
 ```
 
-for update_dataset and index build.
+for update_device_dataset_same_layout and index build.
 
 Note: This will clear any precomputed dataset norms.
 

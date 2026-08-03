@@ -5,6 +5,6 @@ groups:
       M: [16, 32]
       efConstruction: [32, 64, 128, 256, 512]
     search:
-      bounded_queue: [False, True]
-      check_relative_distance: [False, True]
+      bounded_queue: [false, true]
+      check_relative_distance: [false, true]
       efSearch: [8, 16, 32, 64, 128, 256, 512, 768, 1024]
