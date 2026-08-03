@@ -70,7 +70,16 @@ jobs:
       date: ${{ inputs.date }}
       script: ci/test_python.sh
       sha: ${{ inputs.sha }}
-  conda-java-tests:
+  conda-java-build-and-tests-matrix:
+    permissions:
+      contents: read
+    uses: rapidsai/shared-workflows/.github/workflows/compute-matrix.yaml@main
+    with:
+      build_type: ${{ inputs.build_type }}
+      matrix_name: conda-cpp-build
+      matrix_filter: map(select(.ARCH == "amd64"))
+  conda-java-build-and-tests:
+    needs: conda-java-build-and-tests-matrix
     permissions:
       actions: read
       contents: read
@@ -83,10 +92,7 @@ jobs:
     # If these jobs start producing artifacts, the names will have to differentiate between CUDA versions.
     strategy:
       fail-fast: false
-      matrix:
-        cuda_version:
-          - '12.9.1'
-          - '13.3.0'
+      matrix: ${{ fromJSON(needs.conda-java-build-and-tests-matrix.outputs.matrix) }}
     with:
       build_type: ${{ inputs.build_type }}
       branch: ${{ inputs.branch }}
@@ -94,8 +100,10 @@ jobs:
       sha: ${{ inputs.sha }}
       node_type: "gpu-l4-latest-1"
       arch: "amd64"
-      container_image: "rapidsai/ci-conda:26.10-cuda${{ matrix.cuda_version }}-ubuntu24.04-py3.13"
+      container_image: "rapidsai/ci-conda:26.10-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
       script: "ci/test_java.sh"
+      artifact-name: "cuvs-java-cuda${{ matrix.CUDA_VER }}"
+      file_to_upload: "java/cuvs-java/target/"
   wheel-tests-cuvs:
     permissions:
       actions: read

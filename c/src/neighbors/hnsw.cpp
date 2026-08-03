@@ -20,6 +20,7 @@
 
 #include "../core/exceptions.hpp"
 #include "../core/interop.hpp"
+#include "cagra.hpp"
 
 namespace {
 
@@ -65,7 +66,8 @@ void _from_cagra(cuvsResources_t res,
                  std::optional<DLManagedTensor*> dataset_tensor)
 {
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
-  auto index   = reinterpret_cast<cuvs::neighbors::cagra::index<T, uint32_t>*>(cagra_index->addr);
+  auto index   = reinterpret_cast<cuvs::neighbors::cagra::device_padded_index<T, uint32_t>*>(
+    cuvs::neighbors::cagra::cagra_c_api_index_ptr(cagra_index));
   auto cpp_params            = cuvs::neighbors::hnsw::index_params();
   cpp_params.hierarchy       = static_cast<cuvs::neighbors::hnsw::HnswHierarchy>(params->hierarchy);
   cpp_params.ef_construction = params->ef_construction;
