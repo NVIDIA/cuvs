@@ -27,6 +27,7 @@
 #   AWS_SECRET_ACCESS_KEY   AWS secret access key (optional if using default credentials)
 #   AWS_SESSION_TOKEN       STS session token (required for temporary static credentials)
 #   AWS_DEFAULT_REGION      AWS region for the S3 bucket (default: us-west-2)
+#   REMOTE_INDEX_BUILDER_IMAGE Remote index builder image (default: opensearchproject/remote-vector-index-builder:api-latest)
 #   REMOTE_INDEX_BUILD      Override GPU/CPU mode detection (true/false); normally auto-detected
 #   REMOTE_BUILD_SIZE_MIN   Optional minimum segment size override for remote builds
 #   REMOTE_BUILD_TIMEOUT    Remote build wait timeout in seconds (default: 1800)
@@ -89,7 +90,7 @@ services:
   # ── GPU Index Builder ────────────────────────────────────────────────────────
   remote-index-builder:
     profiles: [gpu]
-    image: opensearchproject/remote-vector-index-builder:api-latest
+    image: ${REMOTE_INDEX_BUILDER_IMAGE:-opensearchproject/remote-vector-index-builder:api-latest}
     environment:
       <<: *aws-env
     ports:
