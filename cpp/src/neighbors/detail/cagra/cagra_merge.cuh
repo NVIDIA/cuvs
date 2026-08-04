@@ -18,6 +18,7 @@
 #include <raft/core/host_mdspan.hpp>
 #include <raft/core/logger.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
+#include <raft/core/resource/device_memory_resource.hpp>
 #include <raft/matrix/copy.cuh>
 #include <raft/util/cudart_utils.hpp>
 
@@ -152,7 +153,10 @@ cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> merge_rebuild(
   cudaStream_t stream = raft::resource::get_cuda_stream(handle);
 
   if (bitset_filtered) {
-    auto staging = raft::make_device_matrix<T, int64_t>(handle, merged_rows, stride);
+    auto staging = raft::make_device_mdarray<T, int64_t>(
+      handle,
+      raft::resource::get_large_workspace_resource_ref(handle),
+      raft::make_extents<int64_t>(merged_rows, stride));
     RAFT_CUDA_TRY(cudaMemsetAsync(
       staging.data_handle(), 0, static_cast<std::size_t>(staging.size()) * sizeof(T), stream));
     merge_dataset(staging.data_handle(), static_cast<std::size_t>(stride));
