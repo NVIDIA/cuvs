@@ -4,12 +4,6 @@
 
 set -euo pipefail
 
-source rapids-configure-sccache
-
-export SCCACHE_S3_KEY_PREFIX="cuvs-lucene/${RAPIDS_CONDA_ARCH}/cuda${RAPIDS_CUDA_VERSION%%.*}/maven/objects-cache"
-export SCCACHE_S3_PREPROCESSOR_CACHE_KEY_PREFIX="cuvs-lucene/${RAPIDS_CONDA_ARCH}/cuda${RAPIDS_CUDA_VERSION%%.*}/maven/preprocessor-cache"
-export SCCACHE_S3_USE_PREPROCESSOR_CACHE_MODE=true
-
 # Takes the name of the cuvs-java artifact uploaded by the Java job, plus an optional
 # --run-java-tests flag.
 # TODO: Remove the flag handling when build and test workflows are separated,
@@ -96,9 +90,6 @@ RAPIDS_CUDA_MAJOR="${RAPIDS_CUDA_VERSION%%.*}"
 export RAPIDS_CUDA_MAJOR
 
 bash ./build.sh lucene "${EXTRA_BUILD_ARGS[@]}"
-
-sccache --show-adv-stats
-sccache --stop-server >/dev/null 2>&1 || true
 
 rapids-logger "Test script exiting with value: $EXITCODE"
 exit ${EXITCODE}
