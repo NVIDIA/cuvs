@@ -122,11 +122,9 @@ public interface CuVSResources extends AutoCloseable {
    * @throws LibraryException if the native library cannot be loaded
    */
   static CuVSResources create(
-      Path tempDirectory,
-      Path memoryTrackingCsvPath,
-      Duration memoryTrackingSampleInterval) throws Throwable {
+      Path tempDirectory, Path memoryTrackingCsvPath, Duration memoryTrackingSampleInterval)
+      throws Throwable {
     return CuVSProvider.provider()
-        .newCuVSResources(
-            tempDirectory, memoryTrackingCsvPath, memoryTrackingSampleInterval);
+        .newCuVSResources(tempDirectory, memoryTrackingCsvPath, memoryTrackingSampleInterval);
   }
 }

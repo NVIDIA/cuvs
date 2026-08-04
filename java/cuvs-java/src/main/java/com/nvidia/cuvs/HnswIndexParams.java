@@ -281,13 +281,7 @@ public class HnswIndexParams {
      */
     public HnswIndexParams build() {
       return new HnswIndexParams(
-          hierarchy,
-          efConstruction,
-          numThreads,
-          vectorDimension,
-          m,
-          metric,
-          aceParams);
+          hierarchy, efConstruction, numThreads, vectorDimension, m, metric, aceParams);
     }
   }
 }

@@ -30,11 +30,13 @@ dependencies:
 - libopenblas<=0.3.30
 - librmm==26.10.*,>=0.0.0a0
 - make
+- maven
 - nccl>=2.19
 - ninja
 - nodejs>=22
 - numpy>=2.0,<3.0
 - openblas
+- openjdk=22.*
 - pre-commit
 - pylibraft==26.10.*,>=0.0.0a0
 - pytest

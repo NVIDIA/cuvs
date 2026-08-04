@@ -251,8 +251,8 @@ public class HnswIndexImpl implements HnswIndex {
    * @return A new HNSW index ready for search
    * @throws Throwable if an error occurs during building
    */
-  public static HnswIndex build(CuVSResources resources, HnswIndexParams hnswParams, CuVSMatrix dataset)
-      throws Throwable {
+  public static HnswIndex build(
+      CuVSResources resources, HnswIndexParams hnswParams, CuVSMatrix dataset) throws Throwable {
     Objects.requireNonNull(resources);
     Objects.requireNonNull(hnswParams);
     Objects.requireNonNull(dataset);
@@ -287,7 +287,8 @@ public class HnswIndexImpl implements HnswIndex {
     return new HnswIndexImpl(new IndexReference(hnswIndex), resources, hnswParams);
   }
 
-  private static CloseableHandle createHnswIndexParamsForBuild(Arena arena, HnswIndexParams params) {
+  private static CloseableHandle createHnswIndexParamsForBuild(
+      Arena arena, HnswIndexParams params) {
     var hnswParams = createHnswIndexParams();
     MemorySegment seg = hnswParams.handle();
 
@@ -327,7 +328,7 @@ public class HnswIndexImpl implements HnswIndex {
       return prepareTensor(
           arena,
           matrixInternal.memorySegment(),
-          new long[]{dataset.size(), dataset.columns()},
+          new long[] {dataset.size(), dataset.columns()},
           matrixInternal.code(),
           matrixInternal.bits(),
           kDLCPU());
