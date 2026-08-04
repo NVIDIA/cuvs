@@ -9,12 +9,6 @@ import static com.nvidia.cuvs.internal.common.LinkerHelper.C_FLOAT;
 import static com.nvidia.cuvs.internal.common.LinkerHelper.C_INT;
 import static com.nvidia.cuvs.internal.common.LinkerHelper.C_LONG;
 import static com.nvidia.cuvs.internal.panama.headers_h.*;
-import static com.nvidia.cuvs.internal.panama.headers_h_1.C_POINTER;
-import static com.nvidia.cuvs.internal.panama.headers_h_1.cudaMemcpyDeviceToDevice;
-import static com.nvidia.cuvs.internal.panama.headers_h_1.cudaMemcpyDeviceToHost;
-import static com.nvidia.cuvs.internal.panama.headers_h_1.cudaMemcpyHostToDevice;
-import static com.nvidia.cuvs.internal.panama.headers_h_1.cudaMemcpyHostToHost;
-import static com.nvidia.cuvs.internal.panama.headers_h_1.cudaStream_t;
 
 import com.nvidia.cuvs.CuVSResources;
 import com.nvidia.cuvs.internal.panama.DLDataType;
