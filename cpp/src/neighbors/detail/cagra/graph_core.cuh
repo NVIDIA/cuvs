@@ -5,6 +5,7 @@
 #pragma once
 
 #include "cagra_helpers.hpp"
+#include "graph_shared.cuh"
 #include "utils.hpp"
 
 #include <raft/core/copy.cuh>
@@ -23,7 +24,6 @@
 
 #include <cuvs/neighbors/cagra.hpp>
 
-#include <raft/util/bitonic_sort.cuh>
 #include <raft/util/cuda_rt_essentials.hpp>
 #include <raft/util/integer_utils.hpp>
 
@@ -52,151 +52,6 @@ inline double cur_time(void)
   struct timeval tv;
   gettimeofday(&tv, NULL);
   return ((double)tv.tv_sec + (double)tv.tv_usec * 1e-6);
-}
-
-template <typename T>
-__device__ inline void swap(T& val1, T& val2)
-{
-  T val0 = val1;
-  val1   = val2;
-  val2   = val0;
-}
-
-template <typename K, typename V>
-__device__ inline bool swap_if_needed(K& key1, K& key2, V& val1, V& val2, bool ascending)
-{
-  if (key1 == key2) { return false; }
-  if ((key1 > key2) == ascending) {
-    swap<K>(key1, key2);
-    swap<V>(val1, val2);
-    return true;
-  }
-  return false;
-}
-
-template <class DATA_T, class IdxT, int numElementsPerThread>
-__global__ void kern_sort(const DATA_T* const dataset,  // [dataset_chunk_size, dataset_dim]
-                          const IdxT dataset_size,
-                          const uint32_t dataset_dim,
-                          IdxT* const knn_graph,  // [graph_chunk_size, graph_degree]
-                          const uint32_t graph_size,
-                          const uint32_t graph_degree,
-                          const cuvs::distance::DistanceType metric)
-{
-  const IdxT srcNode = (blockDim.x * blockIdx.x + threadIdx.x) / raft::WarpSize;
-  if (srcNode >= graph_size) { return; }
-
-  const uint32_t lane_id = threadIdx.x % raft::WarpSize;
-
-  float my_keys[numElementsPerThread];
-  IdxT my_vals[numElementsPerThread];
-
-  // Compute distance from a src node to its neighbors
-  for (int k = 0; k < graph_degree; k++) {
-    const IdxT dstNode = knn_graph[k + static_cast<uint64_t>(graph_degree) * srcNode];
-    float dist         = 0;
-    float norm2_dst    = 0;
-    if (metric == cuvs::distance::DistanceType::InnerProduct ||
-        metric == cuvs::distance::DistanceType::CosineExpanded) {
-      for (int d = lane_id; d < dataset_dim; d += raft::WarpSize) {
-        auto elem_b = cuvs::spatial::knn::detail::utils::mapping<float>{}(
-          dataset[d + static_cast<uint64_t>(dataset_dim) * dstNode]);
-        dist -= cuvs::spatial::knn::detail::utils::mapping<float>{}(
-                  dataset[d + static_cast<uint64_t>(dataset_dim) * srcNode]) *
-                elem_b;
-
-        if (metric == cuvs::distance::DistanceType::CosineExpanded) {
-          norm2_dst += elem_b * elem_b;
-        }
-      }
-    } else if (metric == cuvs::distance::DistanceType::L2Expanded) {
-      // L2Expanded
-      for (int d = lane_id; d < dataset_dim; d += raft::WarpSize) {
-        float diff = cuvs::spatial::knn::detail::utils::mapping<float>{}(
-                       dataset[d + static_cast<uint64_t>(dataset_dim) * srcNode]) -
-                     cuvs::spatial::knn::detail::utils::mapping<float>{}(
-                       dataset[d + static_cast<uint64_t>(dataset_dim) * dstNode]);
-        dist += diff * diff;
-      }
-    } else if (metric == cuvs::distance::DistanceType::L1) {
-      for (int d = lane_id; d < dataset_dim; d += raft::WarpSize) {
-        float diff = cuvs::spatial::knn::detail::utils::mapping<float>{}(
-                       dataset[d + static_cast<uint64_t>(dataset_dim) * srcNode]) -
-                     cuvs::spatial::knn::detail::utils::mapping<float>{}(
-                       dataset[d + static_cast<uint64_t>(dataset_dim) * dstNode]);
-        dist += raft::abs(diff);
-      }
-    } else if (metric == cuvs::distance::DistanceType::BitwiseHamming) {
-      if constexpr (std::is_integral_v<DATA_T>) {
-        for (int d = lane_id; d < dataset_dim; d += raft::WarpSize) {
-          dist += __popc(
-            static_cast<uint32_t>(dataset[d + static_cast<uint64_t>(dataset_dim) * srcNode] ^
-                                  dataset[d + static_cast<uint64_t>(dataset_dim) * dstNode]) &
-            0xffu);
-        }
-      }
-    }
-    dist += __shfl_xor_sync(0xffffffff, dist, 1);
-    dist += __shfl_xor_sync(0xffffffff, dist, 2);
-    dist += __shfl_xor_sync(0xffffffff, dist, 4);
-    dist += __shfl_xor_sync(0xffffffff, dist, 8);
-    dist += __shfl_xor_sync(0xffffffff, dist, 16);
-
-    if (metric == cuvs::distance::DistanceType::CosineExpanded) {
-      norm2_dst += __shfl_xor_sync(0xffffffff, norm2_dst, 1);
-      norm2_dst += __shfl_xor_sync(0xffffffff, norm2_dst, 2);
-      norm2_dst += __shfl_xor_sync(0xffffffff, norm2_dst, 4);
-      norm2_dst += __shfl_xor_sync(0xffffffff, norm2_dst, 8);
-      norm2_dst += __shfl_xor_sync(0xffffffff, norm2_dst, 16);
-      if (lane_id == (k % raft::WarpSize)) { dist /= sqrt(norm2_dst); }
-    }
-
-    if (lane_id == (k % raft::WarpSize)) {
-      my_keys[k / raft::WarpSize] = dist;
-      my_vals[k / raft::WarpSize] = dstNode;
-    }
-  }
-  for (int k = graph_degree; k < raft::WarpSize * numElementsPerThread; k++) {
-    if (lane_id == k % raft::WarpSize) {
-      my_keys[k / raft::WarpSize] = utils::get_max_value<float>();
-      my_vals[k / raft::WarpSize] = utils::get_max_value<IdxT>();
-    }
-  }
-
-  // Sort by RAFT bitonic sort
-  raft::util::bitonic<numElementsPerThread>(true).sort(my_keys, my_vals);
-
-  // Update knn_graph
-  for (int i = 0; i < numElementsPerThread; i++) {
-    const int k = i * raft::WarpSize + lane_id;
-    if (k < graph_degree) {
-      knn_graph[k + (static_cast<uint64_t>(graph_degree) * srcNode)] = my_vals[i];
-    }
-  }
-}
-
-// kern_sort capacity is WarpSize * numElementsPerThread; largest specialization uses 32.
-constexpr int kMaxSortElementsPerThread = 32;
-constexpr uint64_t kMaxSortDegree =
-  static_cast<uint64_t>(raft::WarpSize) * kMaxSortElementsPerThread;
-
-template <typename DataT, typename IdxT>
-using sort_kernel_type =
-  void (*)(DataT const*, IdxT, uint32_t, IdxT*, uint32_t, uint32_t, cuvs::distance::DistanceType);
-
-template <typename DataT, typename IdxT>
-auto select_sort_kernel(uint64_t degree) -> sort_kernel_type<DataT, IdxT>
-{
-  if (degree <= raft::WarpSize * 1) { return kern_sort<DataT, IdxT, 1>; }
-  if (degree <= raft::WarpSize * 2) { return kern_sort<DataT, IdxT, 2>; }
-  if (degree <= raft::WarpSize * 4) { return kern_sort<DataT, IdxT, 4>; }
-  if (degree <= raft::WarpSize * 8) { return kern_sort<DataT, IdxT, 8>; }
-  if (degree <= raft::WarpSize * 16) { return kern_sort<DataT, IdxT, 16>; }
-  if (degree <= kMaxSortDegree) { return kern_sort<DataT, IdxT, kMaxSortElementsPerThread>; }
-  RAFT_FAIL(
-    "The degree of input knn graph is too large (%lu). It must be equal to or smaller than %lu.",
-    degree,
-    kMaxSortDegree);
 }
 
 template <typename IdxT, typename OutputMatrixView>
@@ -1004,6 +859,7 @@ void sort_knn_graph_device_inplace(
   raft::device_matrix_view<const DataT, int64_t, raft::row_major> dataset,
   raft::device_matrix_view<IdxT, int64_t, raft::row_major> knn_graph)
 {
+  static_assert(std::is_same_v<IdxT, uint32_t>, "CAGRA graph indices must be uint32_t");
   RAFT_EXPECTS(dataset.extent(0) == knn_graph.extent(0),
                "dataset size is expected to have the same number of graph index size");
   RAFT_EXPECTS(
@@ -1026,20 +882,13 @@ void sort_knn_graph_device_inplace(
   RAFT_EXPECTS(
     degree > 0 && degree <= kMaxSortDegree, "Graph degree must be in [1, %lu]", kMaxSortDegree);
 
-  auto kernel = select_sort_kernel<DataT, IdxT>(degree);
-
-  constexpr uint32_t block_size = 256;
-  auto const warps              = block_size / raft::WarpSize;
-  auto const blocks             = static_cast<uint32_t>((rows + warps - 1) / warps);
-  kernel<<<blocks, block_size, 0, raft::resource::get_cuda_stream(res)>>>(
-    dataset.data_handle(),
-    static_cast<IdxT>(rows),
-    static_cast<uint32_t>(dim),
-    knn_graph.data_handle(),
-    static_cast<uint32_t>(rows),
-    static_cast<uint32_t>(degree),
-    metric);
-  RAFT_CUDA_TRY(cudaGetLastError());
+  launch_sort_knn_graph(res,
+                        metric,
+                        dataset.data_handle(),
+                        static_cast<uint32_t>(rows),
+                        static_cast<uint32_t>(dim),
+                        knn_graph.data_handle(),
+                        static_cast<uint32_t>(degree));
 }
 
 template <typename DataT,

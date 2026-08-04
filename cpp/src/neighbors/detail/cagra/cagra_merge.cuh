@@ -448,7 +448,7 @@ auto merge_fastener(raft::resources const& handle,
     raft::make_device_matrix<uint32_t, int64_t>(handle, preflight.rows, params.graph_degree);
   {
     raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> scope("cagra::merge/optimize");
-    cagra::detail::graph::optimize(
+    cagra::detail::graph::optimize_device_graph(
       handle, merged_graph.view(), optimized_graph.view(), params.guarantee_connectivity);
   }
 
