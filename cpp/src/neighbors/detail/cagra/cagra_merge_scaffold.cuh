@@ -13,7 +13,7 @@
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/error.hpp>
-#include <raft/core/resource/cublas_handle.hpp>
+#include <raft/core/resource/cublaslt_handle.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resource/device_memory_resource.hpp>
 #include <raft/core/resources.hpp>
@@ -35,6 +35,7 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -558,7 +559,7 @@ inline constexpr cublasComputeType_t GEMM_COMPUTE_TYPE = CUBLAS_COMPUTE_32F_FAST
  * batch of row-major matrices with rows of length `row_width`:
  * out_i[b * a_rows + a] = A_i[a] . B_i[b].
  *
- * Pretty much a wrapper around `cublasGemmStridedBatchedEx`.
+ * Pretty much a wrapper around strided-batched `cublasLtMatmul`.
  *
  * Every dataset scalar type is gathered to float before this call. Native INT8 cuBLAS paths are
  * not portable across architectures (e.g. Ada returns CUBLAS_STATUS_NOT_SUPPORTED for
@@ -578,33 +579,58 @@ inline void batched_row_dot_products(raft::resources const& res,
                                      int row_width,
                                      int batch_count)
 {
-  float alpha        = 1.0f;
-  float beta         = 0.0f;
-  auto cublas_handle = raft::resource::get_cublas_handle(res);
-  RAFT_CUBLAS_TRY(cublasSetPointerMode(cublas_handle, CUBLAS_POINTER_MODE_HOST));
-  RAFT_CUBLAS_TRY(cublasGemmStridedBatchedEx(cublas_handle,
-                                             CUBLAS_OP_T,
-                                             CUBLAS_OP_N,
-                                             a_rows,
-                                             b_rows,
-                                             row_width,
-                                             &alpha,
-                                             a,
-                                             CUDA_R_32F,
-                                             row_width,
-                                             a_stride,
-                                             b,
-                                             CUDA_R_32F,
-                                             row_width,
-                                             b_stride,
-                                             &beta,
-                                             out,
-                                             CUDA_R_32F,
-                                             a_rows,
-                                             out_stride,
-                                             batch_count,
-                                             GEMM_COMPUTE_TYPE,
-                                             CUBLAS_GEMM_DEFAULT));
+  float alpha = 1.0f;
+  float beta  = 0.0f;
+
+  using matmul_descriptor = std::unique_ptr<std::remove_pointer_t<cublasLtMatmulDesc_t>,
+                                            decltype(&cublasLtMatmulDescDestroy)>;
+  using matrix_layout     = std::unique_ptr<std::remove_pointer_t<cublasLtMatrixLayout_t>,
+                                            decltype(&cublasLtMatrixLayoutDestroy)>;
+
+  cublasLtMatmulDesc_t operation_raw = nullptr;
+  RAFT_CUBLAS_TRY(cublasLtMatmulDescCreate(&operation_raw, GEMM_COMPUTE_TYPE, CUDA_R_32F));
+  matmul_descriptor operation{operation_raw, &cublasLtMatmulDescDestroy};
+  cublasOperation_t transpose = CUBLAS_OP_T;
+  RAFT_CUBLAS_TRY(cublasLtMatmulDescSetAttribute(
+    operation.get(), CUBLASLT_MATMUL_DESC_TRANSA, &transpose, sizeof(transpose)));
+
+  auto make_layout = [batch_count](uint64_t rows,
+                                   uint64_t columns,
+                                   int64_t leading_dimension,
+                                   int64_t batch_stride) {
+    cublasLtMatrixLayout_t raw = nullptr;
+    RAFT_CUBLAS_TRY(cublasLtMatrixLayoutCreate(&raw, CUDA_R_32F, rows, columns, leading_dimension));
+    matrix_layout layout{raw, &cublasLtMatrixLayoutDestroy};
+    auto count = static_cast<int32_t>(batch_count);
+    RAFT_CUBLAS_TRY(cublasLtMatrixLayoutSetAttribute(
+      raw, CUBLASLT_MATRIX_LAYOUT_BATCH_COUNT, &count, sizeof(count)));
+    RAFT_CUBLAS_TRY(cublasLtMatrixLayoutSetAttribute(
+      raw, CUBLASLT_MATRIX_LAYOUT_STRIDED_BATCH_OFFSET, &batch_stride, sizeof(batch_stride)));
+    return layout;
+  };
+  auto a_layout = make_layout(
+    static_cast<uint64_t>(row_width), static_cast<uint64_t>(a_rows), row_width, a_stride);
+  auto b_layout = make_layout(
+    static_cast<uint64_t>(row_width), static_cast<uint64_t>(b_rows), row_width, b_stride);
+  auto out_layout =
+    make_layout(static_cast<uint64_t>(a_rows), static_cast<uint64_t>(b_rows), a_rows, out_stride);
+
+  RAFT_CUBLAS_TRY(cublasLtMatmul(raft::resource::get_cublaslt_handle(res),
+                                 operation.get(),
+                                 &alpha,
+                                 a,
+                                 a_layout.get(),
+                                 b,
+                                 b_layout.get(),
+                                 &beta,
+                                 out,
+                                 out_layout.get(),
+                                 out,
+                                 out_layout.get(),
+                                 nullptr,
+                                 nullptr,
+                                 0,
+                                 raft::resource::get_cuda_stream(res)));
 }
 
 /**
