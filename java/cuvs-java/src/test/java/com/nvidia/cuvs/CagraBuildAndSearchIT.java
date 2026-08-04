@@ -179,8 +179,7 @@ public class CagraBuildAndSearchIT extends CuVSTestCase {
       try (var indexDataset = index.makePaddedDataset(deviceVectors);
           var outDataset = new CagraIndex.StandardDataset();
           var inputStream = Files.newInputStream(indexPath);
-          var loadedIndex =
-              CagraIndex.newBuilder(resources).from(inputStream, outDataset).build();
+          var loadedIndex = CagraIndex.newBuilder(resources).from(inputStream, outDataset).build();
           // The deserialized standard dataset is caller-owned but not searchable as-is.
           var loadedDataset = loadedIndex.makePaddedDataset(deviceVectors)) {
         assertTrue(outDataset.isPresent());

@@ -43,8 +43,7 @@ final class FilterBitsetPoolConfig {
       return OptionalLong.of(DEFAULT_FILTER_POOL_BYTES);
     }
 
-    long alignedBytes =
-        (requestedBytes + (RMM_ALIGNMENT_BYTES - 1)) & ~(RMM_ALIGNMENT_BYTES - 1);
+    long alignedBytes = (requestedBytes + (RMM_ALIGNMENT_BYTES - 1)) & ~(RMM_ALIGNMENT_BYTES - 1);
     return OptionalLong.of(alignedBytes);
   }
 
