@@ -24,6 +24,8 @@ fi
 POMS=(
   java/cuvs-java/pom.xml
   java/cuvs-lucene/pom.xml
+  java/cuvs-lucene/bench/pom.xml
+  java/cuvs-lucene/examples/pom.xml
 )
 
 for pom in "${POMS[@]}"; do
