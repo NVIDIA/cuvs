@@ -1924,7 +1924,7 @@ extern "C" cuvsError_t cuvsCagraMerge(cuvsResources_t res,
                                       cuvsCagraIndex_t output_index)
 {
   return cuvsCagraMergeWithParams(
-    res, params, nullptr, indices, num_indices, filter, output_index);
+    res, params, nullptr, indices, num_indices, filter, merged_dataset, output_index);
 }
 
 extern "C" cuvsError_t cuvsCagraMergeWithParams(cuvsResources_t res,
@@ -1933,6 +1933,7 @@ extern "C" cuvsError_t cuvsCagraMergeWithParams(cuvsResources_t res,
                                                 cuvsCagraIndex_t* indices,
                                                 size_t num_indices,
                                                 cuvsFilter filter,
+                                                cuvsDataset_t merged_dataset,
                                                 cuvsCagraIndex_t output_index)
 {
   return cuvs::core::translate_exceptions([=] {

@@ -964,7 +964,6 @@ TEST(CagraC, BuildMergeSearch)
   cuvsDatasetDestroy(additional_dataset_view);
   cuvsDatasetDestroy(main_dataset_view);
   cuvsDatasetDestroy(merged_dataset);
-  cuvsCagraIndexParamsDestroy(build_params);
   cuvsResourcesDestroy(res);
 }
 
