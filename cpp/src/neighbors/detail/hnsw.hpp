@@ -2895,11 +2895,7 @@ std::unique_ptr<index<T>> build(raft::resources const& res,
 
   RAFT_LOG_INFO("hnsw::build - Converting CAGRA index to HNSW format");
 
-  return from_cagra<T>(
-    res,
-    params,
-    ace_host_index,
-    ace_host_index.dataset_fd().has_value() ? std::nullopt : std::make_optional(dataset));
+  return from_cagra<T>(res, params, ace_host_index, std::make_optional(dataset));
 }
 
 }  // namespace cuvs::neighbors::hnsw::detail
