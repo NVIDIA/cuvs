@@ -1,0 +1,138 @@
+name: pr
+on:
+  push:
+    branches:
+      - "pull-request/[0-9]+"
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+permissions: {}
+jobs:
+  pr-builder:
+    needs:
+      - check-nightly-ci
+      - changed-files
+      - checks
+      - conda-java-tests-matrix
+      - conda-java-tests
+      - telemetry-setup
+    secrets: inherit # zizmor: ignore[secrets-inherit]
+    uses: rapidsai/shared-workflows/.github/workflows/pr-builder.yaml@main
+    if: always()
+    with:
+      needs: ${{ toJSON(needs) }}
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+      pull-requests: read
+  telemetry-setup:
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    env:
+      OTEL_SERVICE_NAME: 'pr-cuvs'
+    steps:
+      - name: Telemetry setup
+        if: ${{ vars.TELEMETRY_ENABLED == 'true' }}
+        uses: rapidsai/shared-actions/telemetry-dispatch-stash-base-env-vars@main
+  check-nightly-ci:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      id-token: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Get PR Info
+        id: get-pr-info
+        uses: nv-gha-runners/get-pr-info@090577647b8ddc4e06e809e264f7881650ecdccf # main
+      - name: Check if nightly CI is passing
+        uses: rapidsai/shared-actions/check_nightly_success/dispatch@main
+        with:
+          repo: ${{ github.repository }}
+          target-branch: ${{ fromJSON(steps.get-pr-info.outputs.pr-info).base.ref }}
+  changed-files:
+    needs: telemetry-setup
+    secrets: inherit # zizmor: ignore[secrets-inherit]
+    uses: rapidsai/shared-workflows/.github/workflows/changed-files.yaml@main
+    with:
+      files_yaml: |
+        test_java:
+          - '**'
+          - '!.github/CODEOWNERS'
+          - '!.github/build.yaml'
+          - '!.github/copy-pr-bot.yaml'
+          - '!.github/ops-bot.yaml'
+          - '!.github/release.yml'
+          - '!.gihtub/test.yaml'
+          - '!.github/zizmor.yml'
+          - '!.gitignore'
+          - '!.pre-commit-config.yaml'
+          - '!.yamllint.yaml'
+          - '!README.md'
+          - '!SECURITY.md'
+          - '!ci/check_style.sh'
+          - '!ci/release/update-version.sh'
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+      pull-requests: read
+  checks:
+    needs: telemetry-setup
+    secrets: inherit # zizmor: ignore[secrets-inherit]
+    uses: rapidsai/shared-workflows/.github/workflows/checks.yaml@main
+    with:
+      enable_check_generated_files: false
+      ignored_pr_jobs: "telemetry-summarize"
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+      pull-requests: read
+  conda-java-tests-matrix:
+    permissions:
+      contents: read
+    uses: rapidsai/shared-workflows/.github/workflows/compute-matrix.yaml@main
+    with:
+      build_type: pull-request
+      matrix_name: conda-cpp-build
+      matrix_filter: map(select(.ARCH == "amd64"))
+  conda-java-tests:
+    needs: conda-java-tests-matrix
+    secrets: inherit # zizmor: ignore[secrets-inherit]
+    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@main
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.conda-java-tests-matrix.outputs.matrix) }}
+    with:
+      build_type: pull-request
+      branch: ${{ inputs.branch }}
+      date: ${{ inputs.date }}
+      sha: ${{ inputs.sha }}
+      node_type: "gpu-l4-latest-1"
+      arch: "amd64"
+      container_image: "rapidsai/ci-conda:26.10-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
+      script: "ci/test_java.sh"
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+      pull-requests: read
+  telemetry-summarize:
+    # This job must use a self-hosted runner to record telemetry traces.
+    runs-on: linux-amd64-cpu4
+    needs: pr-builder
+    if: ${{ vars.TELEMETRY_ENABLED == 'true' && !cancelled() }}
+    continue-on-error: true
+    steps:
+      - name: Telemetry summarize
+        uses: rapidsai/shared-actions/telemetry-dispatch-summarize@main
+    env:
+      GH_TOKEN: ${{ github.token }}
+    permissions:
+      actions: write
