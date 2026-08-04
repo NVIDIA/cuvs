@@ -156,8 +156,9 @@ public class BruteForceAndSearchIT extends CuVSTestCase {
     // farthest of all - so any leaked document from the corrupted high words would displace it.
     float[][] localQueries = {{64.0f, 0.0f}};
 
-    // Allow only document 0. All higher bits are 0, so BitSet.toLongArray() drops the trailing words
-    // covering documents 64..127 - exactly the region the buggy copy fills from adjacent host memory.
+    // Allow only document 0. All higher bits are 0, so BitSet.toLongArray() drops the trailing
+    // words covering documents 64..127 - exactly the region the buggy copy fills from adjacent host
+    // memory.
     BitSet prefilter = new BitSet(numDocs);
     prefilter.set(0);
 
