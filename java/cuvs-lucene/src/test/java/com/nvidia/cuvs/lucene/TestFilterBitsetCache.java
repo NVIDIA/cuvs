@@ -162,8 +162,7 @@ public class TestFilterBitsetCache {
       CountingHandle h = new CountingHandle();
       handles.add(h);
       final String field = "bcap-" + i;
-      FilterBitsetHandle got =
-          cache.acquire(null, segKey(field), field, ENTRY_BYTES, () -> h);
+      FilterBitsetHandle got = cache.acquire(null, segKey(field), field, ENTRY_BYTES, () -> h);
       assertSame(h, got);
       got.decRef(); // caller finished; the cache keeps its reference
     }
@@ -173,8 +172,7 @@ public class TestFilterBitsetCache {
     assertFalse("second handle should still be cached", handles.get(1).freed.get());
     assertFalse("third handle should still be cached", handles.get(2).freed.get());
     assertTrue(
-        "total bytes must stay within budget",
-        cache.currentBytesForTests() <= 2 * ENTRY_BYTES);
+        "total bytes must stay within budget", cache.currentBytesForTests() <= 2 * ENTRY_BYTES);
   }
 
   /** clear() releases every cache reference (freeing all handles) and resets byte accounting. */
@@ -264,8 +262,7 @@ public class TestFilterBitsetCache {
   /** Entries and lifecycle operations are isolated between cache instances. */
   @Test
   public void cacheInstancesAreIndependent() throws Exception {
-    FilterBitsetCache other =
-        new FilterBitsetCache(new FilterBitsetCacheConfig(true, HUGE_BUDGET));
+    FilterBitsetCache other = new FilterBitsetCache(new FilterBitsetCacheConfig(true, HUGE_BUDGET));
     CountingHandle first = new CountingHandle();
     CountingHandle second = new CountingHandle();
     Object key = segKey("shared-reader-key");
@@ -293,8 +290,7 @@ public class TestFilterBitsetCache {
   @Test
   public void enabledFlagReflectsConfiguration() {
     assertTrue(cache.isEnabled());
-    FilterBitsetCache disabled =
-        new FilterBitsetCache(new FilterBitsetCacheConfig(false, 0));
+    FilterBitsetCache disabled = new FilterBitsetCache(new FilterBitsetCacheConfig(false, 0));
     assertFalse(disabled.isEnabled());
   }
 
@@ -308,7 +304,8 @@ public class TestFilterBitsetCache {
     AtomicInteger buildA = new AtomicInteger();
 
     // Cache one entry per segment, releasing the caller ref so the cache keeps its own.
-    cache.acquire(
+    cache
+        .acquire(
             null,
             keyA,
             "f",
@@ -329,7 +326,8 @@ public class TestFilterBitsetCache {
     assertEquals("segment B handle must not be closed", 0, hB.closeCalls.get());
 
     // Segment A's entry is gone, so a later acquire rebuilds it.
-    cache.acquire(
+    cache
+        .acquire(
             null,
             keyA,
             "f",
@@ -406,8 +404,7 @@ public class TestFilterBitsetCache {
                     final String field = "stress-" + ((seed + i) % keySpace);
                     // A fresh handle per build; a cached key reuses whatever was built first.
                     FilterBitsetHandle h =
-                        cache.acquire(
-                            null, segKey(field), field, ENTRY_BYTES, CountingHandle::new);
+                        cache.acquire(null, segKey(field), field, ENTRY_BYTES, CountingHandle::new);
                     h.decRef();
                   }
                   return null;

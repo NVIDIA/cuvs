@@ -40,7 +40,6 @@ public class TestThreadLocalCuVSResourcesProvider {
   public void roundingOverflowDisablesPool() {
     assertEquals(
         0,
-        ThreadLocalCuVSResourcesProvider.resolveWorkspacePoolBytes(
-            Long.toString(Long.MAX_VALUE)));
+        ThreadLocalCuVSResourcesProvider.resolveWorkspacePoolBytes(Long.toString(Long.MAX_VALUE)));
   }
 }

@@ -237,8 +237,7 @@ final class FilterBitsetCache {
    * in-flight acquire). Runs under the cache lock; the evicted futures are collected into {@code
    * out} so their cache references are released after the lock is dropped.
    */
-  private void evictToBudget(
-      FilterCacheKey keep, List<CompletableFuture<FilterBitsetHandle>> out) {
+  private void evictToBudget(FilterCacheKey keep, List<CompletableFuture<FilterBitsetHandle>> out) {
     long budget = maxBytes > 0 ? maxBytes : Long.MAX_VALUE;
     var it = cache.entrySet().iterator();
     while ((totalBytes > budget || cache.size() > MAX_ENTRIES_GUARD) && it.hasNext()) {

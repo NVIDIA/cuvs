@@ -83,9 +83,7 @@ public class TestMultiSegmentGPUFilterConcurrency extends LuceneTestCase {
       assumeTrue("cuVS not supported: " + unsupported.getMessage(), false);
     }
     assumeTrue("cuVS not supported", isSupported());
-    codec =
-        new CuVS2510GPUSearchCodec(
-            new GPUSearchParams.Builder().build(), TEST_CACHE_CONFIG);
+    codec = new CuVS2510GPUSearchCodec(new GPUSearchParams.Builder().build(), TEST_CACHE_CONFIG);
 
     int datasetSize = 2000;
     int dimensions = 128;

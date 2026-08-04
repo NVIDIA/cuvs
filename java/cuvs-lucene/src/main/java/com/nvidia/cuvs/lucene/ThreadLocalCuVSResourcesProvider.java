@@ -51,8 +51,7 @@ public class ThreadLocalCuVSResourcesProvider {
     try {
       // Resolve configuration before allocating resources so malformed input cannot leak a newly
       // created native handle and pinned host buffer.
-      long poolBytes =
-          resolveWorkspacePoolBytes(System.getProperty(WORKSPACE_POOL_SIZE_PROPERTY));
+      long poolBytes = resolveWorkspacePoolBytes(System.getProperty(WORKSPACE_POOL_SIZE_PROPERTY));
       resources = CuVSResources.create();
       if (poolBytes > 0) {
         resources.setWorkspacePool(poolBytes);
@@ -91,8 +90,7 @@ public class ThreadLocalCuVSResourcesProvider {
     }
 
     if (requestedBytes == 0) return 0;
-    if (requestedBytes < 0
-        || requestedBytes > Long.MAX_VALUE - (RMM_ALIGNMENT_BYTES - 1)) {
+    if (requestedBytes < 0 || requestedBytes > Long.MAX_VALUE - (RMM_ALIGNMENT_BYTES - 1)) {
       warnInvalidWorkspacePoolSize(raw);
       return 0;
     }

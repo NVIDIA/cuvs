@@ -152,11 +152,7 @@ class FilterCuVSProvider implements CuVSProvider {
 
   @Override
   public CagraIndexParams cagraIndexParamsFromDataset(
-      long rows,
-      long dim,
-      long graphDegree,
-      CuvsDistanceType metric,
-      long buildQuality) {
+      long rows, long dim, long graphDegree, CuvsDistanceType metric, long buildQuality) {
     return delegate.cagraIndexParamsFromDataset(rows, dim, graphDegree, metric, buildQuality);
   }
 
