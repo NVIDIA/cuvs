@@ -352,8 +352,7 @@ if(NOT BUILD_CPU_ONLY)
     set(JIT_LTO_TARGET_ARCHITECTURE "75-real")
   endif()
 
-  # Generate interleaved scan kernel files at build time add_subdirectory(../../librtcx
-  # src/detail/librtcx)
+  # Generate interleaved scan kernel files at build time
 
   add_library(jit_lto_kernel_usage_requirements INTERFACE)
   target_include_directories(
