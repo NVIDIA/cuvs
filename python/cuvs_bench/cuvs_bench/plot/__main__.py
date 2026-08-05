@@ -6,7 +6,7 @@
 # 1: https://github.com/erikbern/ann-benchmarks/blob/main/plot.py
 # 2: https://github.com/erikbern/ann-benchmarks/blob/main/ann_benchmarks/plotting/utils.py  # noqa: E501
 # 3: https://github.com/erikbern/ann-benchmarks/blob/main/ann_benchmarks/plotting/metrics.py  # noqa: E501
-# License: https://github.com/rapidsai/cuvs/blob/main/thirdparty/LICENSES/LICENSE.ann-benchmark # noqa: E501
+# License: https://github.com/rapidsai/cuvs/blob/release/26.08/thirdparty/LICENSES/LICENSE.ann-benchmark # noqa: E501
 
 import itertools
 import os

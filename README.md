@@ -143,7 +143,7 @@ cuvsCagraIndexParamsDestroy(index_params);
 cuvsResourcesDestroy(res);
 ```
 
-For more code examples of the C APIs, including drop-in Cmake project templates, please refer to the [C examples](https://github.com/rapidsai/cuvs/tree/main/examples/c)
+For more code examples of the C APIs, including drop-in Cmake project templates, please refer to the [C examples](https://github.com/rapidsai/cuvs/tree/release/26.08/examples/c)
 
 ### Rust API
 
@@ -168,7 +168,7 @@ impl AsDlTensorMut for GpuTensor {
     }
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn release/26.08() -> Result<(), Box<dyn std::error::Error>> {
     let res = Resources::new()?;
 
     // Build a CAGRA index over your dataset.
