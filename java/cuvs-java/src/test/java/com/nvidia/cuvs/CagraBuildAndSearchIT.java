@@ -135,11 +135,20 @@ public class CagraBuildAndSearchIT extends CuVSTestCase {
     List<Map<Integer, Float>> expectedResults = getExpectedResults();
 
     int numTestsRuns = 5;
-    try (CuVSResources resources = CheckedCuVSResources.create()) {
+    try (CuVSResources resources = CheckedCuVSResources.create();
+        var hostVectors = CuVSMatrix.ofArray(dataset);
+        var deviceVectors = hostVectors.toDevice(resources)) {
       for (int j = 0; j < numTestsRuns; j++) {
         try (var index = indexOnce(CuVSMatrix.ofArray(dataset), resources)) {
+          // Serialize the host index first, so the file keeps its host layout.
           var indexPath = serializeOnce(index);
-          try (var loadedIndex = deserializeOnce(indexPath, resources)) {
+          // A host build and a graph-only deserialization both leave the index without the
+          // device-padded vectors CAGRA search needs, so give each index its own padded copy.
+          try (var indexDataset = index.makePaddedDataset(deviceVectors);
+              var loadedIndex = deserializeOnce(indexPath, resources);
+              var loadedDataset = loadedIndex.makePaddedDataset(deviceVectors)) {
+            index.updateDataset(indexDataset);
+            loadedIndex.updateDataset(loadedDataset);
             queryAndCompare(
                 index,
                 loadedIndex,
@@ -150,6 +159,41 @@ public class CagraBuildAndSearchIT extends CuVSTestCase {
             Files.deleteIfExists(indexPath);
           }
         }
+      }
+    }
+  }
+
+  @Test
+  public void testDeserializeReturnsCallerOwnedStandardDataset() throws Throwable {
+    float[][] dataset = createSampleData();
+    float[][] queries = createSampleQueries();
+    List<Map<Integer, Float>> expectedResults = getExpectedResults();
+
+    try (CuVSResources resources = CheckedCuVSResources.create();
+        var hostVectors = CuVSMatrix.ofArray(dataset);
+        var deviceVectors = hostVectors.toDevice(resources);
+        var index = indexOnce(CuVSMatrix.ofArray(dataset), resources)) {
+      // Serialize the host index first, so the file keeps the host standard layout this test
+      // deserializes into.
+      var indexPath = serializeOnce(index);
+      try (var indexDataset = index.makePaddedDataset(deviceVectors);
+          var outDataset = new CagraIndex.StandardDataset();
+          var inputStream = Files.newInputStream(indexPath);
+          var loadedIndex = CagraIndex.newBuilder(resources).from(inputStream, outDataset).build();
+          // The deserialized standard dataset is caller-owned but not searchable as-is.
+          var loadedDataset = loadedIndex.makePaddedDataset(deviceVectors)) {
+        assertTrue(outDataset.isPresent());
+        index.updateDataset(indexDataset);
+        loadedIndex.updateDataset(loadedDataset);
+        queryAndCompare(
+            index,
+            loadedIndex,
+            SearchResults.IDENTITY_MAPPING,
+            queries,
+            expectedResults,
+            resources);
+      } finally {
+        Files.deleteIfExists(indexPath);
       }
     }
   }
@@ -168,9 +212,17 @@ public class CagraBuildAndSearchIT extends CuVSTestCase {
       for (int j = 0; j < numTestsRuns; j++) {
         runInAnotherThread(
             () -> {
-              try (var index = indexOnce(CuVSMatrix.ofArray(dataset), resources)) {
+              try (var index = indexOnce(CuVSMatrix.ofArray(dataset), resources);
+                  var hostVectors = CuVSMatrix.ofArray(dataset);
+                  var deviceVectors = hostVectors.toDevice(resources)) {
                 var indexPath = serializeOnce(index);
-                try (var loadedIndex = deserializeOnce(indexPath, resources)) {
+                // Neither the host build nor the graph-only deserialization leaves device-padded
+                // vectors behind, so give each index its own padded copy.
+                try (var indexDataset = index.makePaddedDataset(deviceVectors);
+                    var loadedIndex = deserializeOnce(indexPath, resources);
+                    var loadedDataset = loadedIndex.makePaddedDataset(deviceVectors)) {
+                  index.updateDataset(indexDataset);
+                  loadedIndex.updateDataset(loadedDataset);
                   queryAndCompare(
                       index,
                       loadedIndex,
@@ -217,9 +269,17 @@ public class CagraBuildAndSearchIT extends CuVSTestCase {
               log.debug("Indexing threadIdx:{}-{}", threadIdx, Thread.currentThread().getName());
               try (CuVSResources resources = CheckedCuVSResources.create();
                   var matrix = CuVSMatrix.ofArray(dataset);
-                  var index = indexOnce(matrix, resources)) {
+                  var index = indexOnce(matrix, resources);
+                  var hostVectors = CuVSMatrix.ofArray(dataset);
+                  var deviceVectors = hostVectors.toDevice(resources)) {
                 var indexPath = serializeOnce(index);
-                try (var loadedIndex = deserializeOnce(indexPath, resources)) {
+                // Neither the host build nor the graph-only deserialization leaves device-padded
+                // vectors behind, so give each index its own padded copy.
+                try (var indexDataset = index.makePaddedDataset(deviceVectors);
+                    var loadedIndex = deserializeOnce(indexPath, resources);
+                    var loadedDataset = loadedIndex.makePaddedDataset(deviceVectors)) {
+                  index.updateDataset(indexDataset);
+                  loadedIndex.updateDataset(loadedDataset);
                   log.debug(
                       "Querying threadIdx:{}-{}", threadIdx, Thread.currentThread().getName());
                   queryAndCompare(
@@ -417,8 +477,9 @@ public class CagraBuildAndSearchIT extends CuVSTestCase {
             numTestsRuns,
             threadIdx ->
                 () -> {
-                  try (CuVSResources resources = CheckedCuVSResources.create()) {
-                    deserializeOnce(indexPath, resources).close();
+                  try (CuVSResources resources = CheckedCuVSResources.create();
+                      var loadedIndex = deserializeOnce(indexPath, resources)) {
+                    // just validate deserialize/close path under concurrency
                   } catch (Throwable e) {
                     throw new RuntimeException(e);
                   }
@@ -438,21 +499,35 @@ public class CagraBuildAndSearchIT extends CuVSTestCase {
 
   @Test
   public void testReconstructIndexFromGraph() throws Throwable {
-    try (var dataset = CuVSMatrix.ofArray(createSampleData())) {
+    float[][] sampleData = createSampleData();
+    try (var dataset = CuVSMatrix.ofArray(sampleData)) {
       var queries = createSampleQueries();
       List<Map<Integer, Float>> expectedResults = getExpectedResults();
 
       try (CuVSResources resources = CuVSResources.create();
-          var index = indexOnce(dataset, resources)) {
-        var graph = index.getGraph();
+          var hostVectors = CuVSMatrix.ofArray(sampleData);
+          // Reconstructing from a graph needs the vectors on device.
+          var deviceVectors = hostVectors.toDevice(resources);
+          var index = indexOnce(dataset, resources);
+          // getGraph() returns a view of the index's own graph, and a device graph is kept as a
+          // view rather than copied. Hand over a host copy so the reconstruction owns its graph
+          // and survives updates to the index it came from.
+          var graph = index.getGraph().toHost()) {
 
         try (var reconstructedIndex =
-            CagraIndex.newBuilder(resources)
-                .from(graph)
-                .withDataset(dataset)
-                .withIndexParams(
-                    new CagraIndexParams.Builder().withMetric(CuvsDistanceType.L2Expanded).build())
-                .build()) {
+                CagraIndex.newBuilder(resources)
+                    .from(graph)
+                    .withDataset(deviceVectors)
+                    .withIndexParams(
+                        new CagraIndexParams.Builder()
+                            .withMetric(CuvsDistanceType.L2Expanded)
+                            .build())
+                    .build();
+            var indexDataset = index.makePaddedDataset(deviceVectors);
+            var reconstructedDataset = reconstructedIndex.makePaddedDataset(deviceVectors)) {
+          index.updateDataset(indexDataset);
+          reconstructedIndex.updateDataset(reconstructedDataset);
+
           queryAndCompare(
               index,
               reconstructedIndex,
@@ -478,7 +553,8 @@ public class CagraBuildAndSearchIT extends CuVSTestCase {
 
   @Test
   public void testIndexingAndSearchingFlowWithCustomMappingFunction() throws Throwable {
-    var dataset = CuVSMatrix.ofArray(createSampleData());
+    float[][] sampleData = createSampleData();
+    var dataset = CuVSMatrix.ofArray(sampleData);
     float[][] queries = createSampleQueries();
     var expectedResults =
         List.of(
@@ -489,9 +565,15 @@ public class CagraBuildAndSearchIT extends CuVSTestCase {
 
     LongToIntFunction rotate = l -> (int) ((l + 1) % dataset.size());
     try (CuVSResources resources = CheckedCuVSResources.create();
-        var index = indexOnce(dataset, resources)) {
+        var index = indexOnce(dataset, resources);
+        var hostVectors = CuVSMatrix.ofArray(sampleData);
+        var deviceVectors = hostVectors.toDevice(resources)) {
       var indexPath = serializeOnce(index);
-      try (var loadedIndex = deserializeOnce(indexPath, resources)) {
+      try (var indexDataset = index.makePaddedDataset(deviceVectors);
+          var loadedIndex = deserializeOnce(indexPath, resources);
+          var loadedDataset = loadedIndex.makePaddedDataset(deviceVectors)) {
+        index.updateDataset(indexDataset);
+        loadedIndex.updateDataset(loadedDataset);
         queryAndCompare(index, loadedIndex, rotate, queries, expectedResults, resources);
       } finally {
         Files.deleteIfExists(indexPath);
@@ -501,7 +583,8 @@ public class CagraBuildAndSearchIT extends CuVSTestCase {
 
   @Test
   public void testIndexingAndSearchingFlowWithCustomMappingList() throws Throwable {
-    var dataset = CuVSMatrix.ofArray(createSampleData());
+    float[][] sampleData = createSampleData();
+    var dataset = CuVSMatrix.ofArray(sampleData);
     float[][] queries = createSampleQueries();
     var mappings = List.of(4, 3, 2, 1);
     var expectedResults =
@@ -513,9 +596,15 @@ public class CagraBuildAndSearchIT extends CuVSTestCase {
 
     LongToIntFunction rotate = SearchResults.mappingsFromList(mappings);
     try (CuVSResources resources = CheckedCuVSResources.create();
-        var index = indexOnce(dataset, resources)) {
+        var index = indexOnce(dataset, resources);
+        var hostVectors = CuVSMatrix.ofArray(sampleData);
+        var deviceVectors = hostVectors.toDevice(resources)) {
       var indexPath = serializeOnce(index);
-      try (var loadedIndex = deserializeOnce(indexPath, resources)) {
+      try (var indexDataset = index.makePaddedDataset(deviceVectors);
+          var loadedIndex = deserializeOnce(indexPath, resources);
+          var loadedDataset = loadedIndex.makePaddedDataset(deviceVectors)) {
+        index.updateDataset(indexDataset);
+        loadedIndex.updateDataset(loadedDataset);
         queryAndCompare(index, loadedIndex, rotate, queries, expectedResults, resources);
       } finally {
         Files.deleteIfExists(indexPath);
@@ -554,10 +643,17 @@ public class CagraBuildAndSearchIT extends CuVSTestCase {
             CagraIndex.newBuilder(resources)
                 .withDataset(dataset)
                 .withIndexParams(indexParams)
-                .build()) {
+                .build();
+        var hostVectors = CuVSMatrix.ofArray(dataset);
+        var deviceVectors = hostVectors.toDevice(resources);
+        var indexDataset = index.makePaddedDataset(deviceVectors)) {
+
+      index.updateDataset(indexDataset);
 
       // No prefilter (all points allowed)
-      CagraSearchParams searchParams = new CagraSearchParams.Builder().build();
+      // Pin SINGLE_CTA; AUTO may pick MULTI_CTA, which drops neighbors on this tiny dataset.
+      CagraSearchParams searchParams =
+          new CagraSearchParams.Builder().withAlgo(CagraSearchParams.SearchAlgo.SINGLE_CTA).build();
 
       // No prefilter (all points allowed)
       try (var queryVectors = CuVSMatrix.ofArray(queries)) {
@@ -623,11 +719,21 @@ public class CagraBuildAndSearchIT extends CuVSTestCase {
 
     try (CuVSResources resources = CheckedCuVSResources.create();
         var index = indexOnce(CuVSMatrix.ofArray(dataset), resources);
+        var hostVectors = CuVSMatrix.ofArray(dataset);
+        var deviceVectors = hostVectors.toDevice(resources);
+        var indexDataset = index.makePaddedDataset(deviceVectors);
         var queryVectors = CuVSMatrix.ofArray(queries)) {
+      index.updateDataset(indexDataset);
+
       CagraQuery query =
           new CagraQuery.Builder(resources)
               .withTopK(1)
-              .withSearchParams(new CagraSearchParams.Builder().build())
+              // Pin SINGLE_CTA; AUTO may pick MULTI_CTA, which drops neighbors on this tiny
+              // dataset.
+              .withSearchParams(
+                  new CagraSearchParams.Builder()
+                      .withAlgo(CagraSearchParams.SearchAlgo.SINGLE_CTA)
+                      .build())
               .withQueryVectors(queryVectors)
               .withMapping(SearchResults.IDENTITY_MAPPING)
               .build();
@@ -681,8 +787,10 @@ public class CagraBuildAndSearchIT extends CuVSTestCase {
       List<Map<Integer, Float>> expectedResults,
       CuVSResources resources)
       throws Throwable {
-    // Configure search parameters
-    CagraSearchParams searchParams = new CagraSearchParams.Builder().build();
+    // Configure search parameters.
+    // Pin SINGLE_CTA; AUTO may pick MULTI_CTA, which drops neighbors on this tiny dataset.
+    CagraSearchParams searchParams =
+        new CagraSearchParams.Builder().withAlgo(CagraSearchParams.SearchAlgo.SINGLE_CTA).build();
 
     // Create a query object with the query vectors
     try (var queryVectors = CuVSMatrix.ofArray(queries)) {
@@ -741,7 +849,12 @@ public class CagraBuildAndSearchIT extends CuVSTestCase {
                   dataMemorySegment, rows, cols, CuVSMatrix.DataType.FLOAT);
           // Indexing with an on-heap and native datasets produce the same results
           var javaIndex = indexOnce(javaDataset, resources);
-          var nativeIndex = indexOnce(nativeDataset, resources)) {
+          var nativeIndex = indexOnce(nativeDataset, resources);
+          var deviceVectors = CuVSMatrix.ofArray(sampleData).toDevice(resources);
+          var javaIndexDataset = javaIndex.makePaddedDataset(deviceVectors);
+          var nativeIndexDataset = nativeIndex.makePaddedDataset(deviceVectors)) {
+        javaIndex.updateDataset(javaIndexDataset);
+        nativeIndex.updateDataset(nativeIndexDataset);
         queryAndCompare(
             javaIndex,
             nativeIndex,
@@ -833,47 +946,62 @@ public class CagraBuildAndSearchIT extends CuVSTestCase {
               .withIndexParams(indexParams)
               .build();
 
-      log.trace("Merging indexes...");
-      CagraIndex mergedIndex = CagraIndex.merge(new CagraIndex[] {index1, index2});
-      log.trace("Merge completed successfully");
+      // Host-built indexes are not mergeable. Dim=2 is not 16-byte aligned, so upload to device,
+      // allocate owning padded copies, and attach them before merge. Keep them alive until the
+      // inputs are closed.
+      try (var device1 = CuVSMatrix.ofArray(vector1).toDevice(resources);
+          var device2 = CuVSMatrix.ofArray(vector2).toDevice(resources);
+          var padded1 = index1.makePaddedDataset(device1);
+          var padded2 = index2.makePaddedDataset(device2)) {
+        index1.updateDataset(padded1);
+        index2.updateDataset(padded2);
 
-      CagraSearchParams searchParams = new CagraSearchParams.Builder().build();
+        log.trace("Merging indexes...");
+        CagraIndex mergedIndex = CagraIndex.merge(new CagraIndex[] {index1, index2});
+        log.trace("Merge completed successfully");
 
-      try (var queryVectors = CuVSMatrix.ofArray(queries)) {
-        CagraQuery query =
-            new CagraQuery.Builder(resources)
-                .withTopK(3)
-                .withSearchParams(searchParams)
-                .withQueryVectors(queryVectors)
-                .withMapping(SearchResults.IDENTITY_MAPPING)
+        // Pin SINGLE_CTA; AUTO may pick MULTI_CTA, which drops neighbors on this tiny dataset.
+        CagraSearchParams searchParams =
+            new CagraSearchParams.Builder()
+                .withAlgo(CagraSearchParams.SearchAlgo.SINGLE_CTA)
                 .build();
 
-        log.trace("Searching merged index...");
-        SearchResults results = mergedIndex.search(query);
-        log.debug("Search results: " + results.getResults().toString());
+        try (var queryVectors = CuVSMatrix.ofArray(queries)) {
+          CagraQuery query =
+              new CagraQuery.Builder(resources)
+                  .withTopK(3)
+                  .withSearchParams(searchParams)
+                  .withQueryVectors(queryVectors)
+                  .withMapping(SearchResults.IDENTITY_MAPPING)
+                  .build();
 
-        assertEquals(expectedResults, results.getResults());
+          log.trace("Searching merged index...");
+          SearchResults results = mergedIndex.search(query);
+          log.debug("Search results: " + results.getResults().toString());
 
-        // --- Serialization/deserialization check ---
-        String indexFileName = UUID.randomUUID() + ".cag";
-        var indexFile = Path.of(indexFileName);
+          assertEquals(expectedResults, results.getResults());
 
-        try (var out = Files.newOutputStream(indexFile)) {
-          mergedIndex.serialize(out);
+          // --- Serialization/deserialization check ---
+          String indexFileName = UUID.randomUUID() + ".cag";
+          var indexFile = Path.of(indexFileName);
+
+          try (var out = Files.newOutputStream(indexFile)) {
+            mergedIndex.serialize(out);
+          }
+
+          try (var inputStream = Files.newInputStream(indexFile);
+              CagraIndex loadedMergedIndex =
+                  CagraIndex.newBuilder(resources).from(inputStream).build()) {
+
+            SearchResults resultsFromLoaded = loadedMergedIndex.search(query);
+            assertEquals(expectedResults, resultsFromLoaded.getResults());
+            mergedIndex.close();
+          } finally {
+            Files.deleteIfExists(indexFile);
+          }
+          index1.close();
+          index2.close();
         }
-
-        try (var inputStream = Files.newInputStream(indexFile)) {
-          CagraIndex loadedMergedIndex = CagraIndex.newBuilder(resources).from(inputStream).build();
-
-          SearchResults resultsFromLoaded = loadedMergedIndex.search(query);
-          assertEquals(expectedResults, resultsFromLoaded.getResults());
-          mergedIndex.close();
-          loadedMergedIndex.close();
-        } finally {
-          Files.deleteIfExists(indexFile);
-        }
-        index1.close();
-        index2.close();
       }
     }
   }
@@ -936,53 +1064,68 @@ public class CagraBuildAndSearchIT extends CuVSTestCase {
               .withMetric(CuvsDistanceType.L2Expanded)
               .build();
 
-      log.trace("Merging indexes with PHYSICAL strategy...");
-      try (CagraIndex physicalMergedIndex =
-          CagraIndex.merge(new CagraIndex[] {index1, index2}, outputIndexParams)) {
-        log.trace("Physical merge completed successfully");
+      // Host-built indexes are not mergeable. Dim=2 is not 16-byte aligned, so upload to device,
+      // allocate owning padded copies, and attach them before merge. Keep them alive until the
+      // inputs are closed.
+      try (var device1 = CuVSMatrix.ofArray(vector1).toDevice(resources);
+          var device2 = CuVSMatrix.ofArray(vector2).toDevice(resources);
+          var padded1 = index1.makePaddedDataset(device1);
+          var padded2 = index2.makePaddedDataset(device2)) {
+        index1.updateDataset(padded1);
+        index2.updateDataset(padded2);
 
-        CagraSearchParams searchParams = new CagraSearchParams.Builder().build();
+        log.trace("Merging indexes with PHYSICAL strategy...");
+        try (CagraIndex physicalMergedIndex =
+            CagraIndex.merge(new CagraIndex[] {index1, index2}, outputIndexParams)) {
+          log.trace("Physical merge completed successfully");
 
-        try (var queryVectors = CuVSMatrix.ofArray(queries)) {
-          CagraQuery query =
-              new CagraQuery.Builder(resources)
-                  .withTopK(3)
-                  .withSearchParams(searchParams)
-                  .withQueryVectors(queryVectors)
-                  .withMapping(SearchResults.IDENTITY_MAPPING)
+          // Pin SINGLE_CTA; AUTO may pick MULTI_CTA, which drops neighbors on this tiny dataset.
+          CagraSearchParams searchParams =
+              new CagraSearchParams.Builder()
+                  .withAlgo(CagraSearchParams.SearchAlgo.SINGLE_CTA)
                   .build();
 
-          log.trace("Searching physically merged index...");
-          SearchResults physicalResults = physicalMergedIndex.search(query);
-          assertNotNull("Physical merge search results should not be null", physicalResults);
-          assertEquals(
-              "Physical merge search results should match expected",
-              expectedResults,
-              physicalResults.getResults());
+          try (var queryVectors = CuVSMatrix.ofArray(queries)) {
+            CagraQuery query =
+                new CagraQuery.Builder(resources)
+                    .withTopK(3)
+                    .withSearchParams(searchParams)
+                    .withQueryVectors(queryVectors)
+                    .withMapping(SearchResults.IDENTITY_MAPPING)
+                    .build();
 
-          // --- Serialization/deserialization check for both merged indexes ---
-          String physicalIndexFileName = UUID.randomUUID() + ".cag";
-          var physicalIndexFile = Path.of(physicalIndexFileName);
-
-          try (var out = Files.newOutputStream(physicalIndexFile)) {
-            physicalMergedIndex.serialize(out);
-          }
-
-          try (var physicalInputStream = Files.newInputStream(physicalIndexFile);
-              CagraIndex loadedPhysicalIndex =
-                  CagraIndex.newBuilder(resources).from(physicalInputStream).build()) {
-
-            SearchResults resultsFromLoadedPhysical = loadedPhysicalIndex.search(query);
+            log.trace("Searching physically merged index...");
+            SearchResults physicalResults = physicalMergedIndex.search(query);
+            assertNotNull("Physical merge search results should not be null", physicalResults);
             assertEquals(
-                "Loaded physical index search results should match expected",
+                "Physical merge search results should match expected",
                 expectedResults,
-                resultsFromLoadedPhysical.getResults());
-          } finally {
-            Files.deleteIfExists(physicalIndexFile);
+                physicalResults.getResults());
+
+            // --- Serialization/deserialization check for both merged indexes ---
+            String physicalIndexFileName = UUID.randomUUID() + ".cag";
+            var physicalIndexFile = Path.of(physicalIndexFileName);
+
+            try (var out = Files.newOutputStream(physicalIndexFile)) {
+              physicalMergedIndex.serialize(out);
+            }
+
+            try (var physicalInputStream = Files.newInputStream(physicalIndexFile);
+                CagraIndex loadedPhysicalIndex =
+                    CagraIndex.newBuilder(resources).from(physicalInputStream).build()) {
+
+              SearchResults resultsFromLoadedPhysical = loadedPhysicalIndex.search(query);
+              assertEquals(
+                  "Loaded physical index search results should match expected",
+                  expectedResults,
+                  resultsFromLoadedPhysical.getResults());
+            } finally {
+              Files.deleteIfExists(physicalIndexFile);
+            }
           }
+          index1.close();
+          index2.close();
         }
-        index1.close();
-        index2.close();
       }
     }
   }
