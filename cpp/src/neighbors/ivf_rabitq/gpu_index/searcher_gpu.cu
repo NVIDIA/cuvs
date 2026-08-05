@@ -58,11 +58,16 @@ SearcherGPU::SearcherGPU(raft::resources const& handle,
   }
 }
 
-void SearcherGPU::AllocateSearcherSpace(size_t num_centroids, size_t num_queries)
+void SearcherGPU::AllocateSearcherSpace(size_t num_centroids,
+                                        size_t num_queries,
+                                        bool is_inner_product)
 {
   centroid_distances_ =
     raft::make_device_vector<float, int64_t>(handle_, num_queries * num_centroids);
   q_norms_ = raft::make_device_vector<float, int64_t>(handle_, num_queries);
+  if (is_inner_product) {
+    g_add_ = raft::make_device_vector<float, int64_t>(handle_, num_queries * num_centroids);
+  }
 };
 
 __global__ void precomputeAllLUTs(const float* d_query,      // Query vectors
@@ -225,18 +230,17 @@ void SearcherGPU::SearchClusterQueryPairs(
   kernelParams.d_G_k1xSumq             = d_G_k1xSumq;
   kernelParams.d_G_kbxSumq             = d_G_kbxSumq;
   kernelParams.d_centroid_distances    = get_centroid_distances();
-  // InnerProduct emits −⟨q,x⟩ (pseudo-distances); reconstructed from the squared-L2 estimate and
-  // negated after select_k below.
-  const bool is_inner_product  = cur_ivf.is_inner_product();
-  kernelParams.d_q_sqr_norms   = is_inner_product ? get_q_norms() : nullptr;
-  kernelParams.d_vec_sqr_norms = is_inner_product ? cur_ivf.get_vec_sqr_norms_device() : nullptr;
-  kernelParams.topk            = topk;
-  kernelParams.num_queries     = num_queries;
-  kernelParams.nprobe          = nprobe;
-  kernelParams.num_pairs       = num_pairs;
-  kernelParams.num_centroids   = cur_ivf.get_num_centroids();
-  kernelParams.D               = D;
-  kernelParams.d_threshold     = d_topk_threshold_batch.data();
+  // InnerProduct emits −⟨q,x⟩ (pseudo-distances), so it minimizes like L2 and is negated after
+  // select_k below. Its query-side additive term is −⟨q,c⟩ rather than ‖q−c‖².
+  const bool is_inner_product          = cur_ivf.is_inner_product();
+  kernelParams.d_g_add                 = is_inner_product ? get_g_add() : get_centroid_distances();
+  kernelParams.topk                    = topk;
+  kernelParams.num_queries             = num_queries;
+  kernelParams.nprobe                  = nprobe;
+  kernelParams.num_pairs               = num_pairs;
+  kernelParams.num_centroids           = cur_ivf.get_num_centroids();
+  kernelParams.D                       = D;
+  kernelParams.d_threshold             = d_topk_threshold_batch.data();
   kernelParams.max_candidates_per_pair = max_cluster_size;
   kernelParams.max_candidates_per_query =
     use_block_sort ? 0 /* unused */ : max_probed_vectors_count.value();
@@ -251,11 +255,11 @@ void SearcherGPU::SearchClusterQueryPairs(
   if (cur_ivf.get_ex_bits() != 0) {
     size_t shared_mem_size =
       num_chunks * LUT_SIZE * sizeof(float) + candidate_storage + queue_buffer_smem_bytes;
-    auto jit_launcher           = use_block_sort
-                                    ? make_compute_inner_products_with_lut_block_sort_launcher(
-                              cur_ivf.get_ex_bits(), /*with_ex=*/true, is_inner_product)
-                                    : make_compute_inner_products_with_lut_launcher(
-                              cur_ivf.get_ex_bits(), /*with_ex=*/true, is_inner_product);
+    auto jit_launcher =
+      use_block_sort
+        ? make_compute_inner_products_with_lut_block_sort_launcher(
+            cur_ivf.get_ex_bits(), /*with_ex=*/true, is_inner_product)
+        : make_compute_inner_products_with_lut_launcher(cur_ivf.get_ex_bits(), /*with_ex=*/true);
     auto const& kernel_launcher = [&]() -> void {
       jit_launcher->dispatch<compute_inner_products_with_lut_func_t>(
         stream_, gridDim, blockDim, shared_mem_size, kernelParams);
@@ -271,7 +275,7 @@ void SearcherGPU::SearchClusterQueryPairs(
     auto jit_launcher = use_block_sort ? make_compute_inner_products_with_lut_block_sort_launcher(
                                            /*ex_bits=*/0, /*with_ex=*/false, is_inner_product)
                                        : make_compute_inner_products_with_lut_launcher(
-                                           /*ex_bits=*/0, /*with_ex=*/false, is_inner_product);
+                                           /*ex_bits=*/0, /*with_ex=*/false);
     auto const& kernel_launcher = [&]() -> void {
       jit_launcher->dispatch<compute_inner_products_with_lut_func_t>(
         stream_, gridDim, blockDim, shared_mem_size, kernelParams);

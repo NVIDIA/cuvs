@@ -500,19 +500,17 @@ void SearcherGPU::SearchClusterQueryPairsQuantizeQuery(
   kernelParams.d_G_k1xSumq          = d_G_k1xSumq;
   kernelParams.d_G_kbxSumq          = d_G_kbxSumq;
   kernelParams.d_centroid_distances = get_centroid_distances();
-  // InnerProduct reconstructs ⟨q,x⟩ = (‖q‖² + ‖x‖² − ‖q−x‖²)/2 from the squared-L2 estimate; the
-  // kernels emit the negated inner product (a "pseudo-distance") so the existing min-selection is
-  // reused, and the result is negated after select_k below.
-  const bool is_inner_product  = cur_ivf.is_inner_product();
-  kernelParams.d_q_sqr_norms   = is_inner_product ? get_q_norms() : nullptr;
-  kernelParams.d_vec_sqr_norms = is_inner_product ? cur_ivf.get_vec_sqr_norms_device() : nullptr;
-  kernelParams.topk            = topk;
-  kernelParams.num_queries     = num_queries;
-  kernelParams.nprobe          = nprobe;
-  kernelParams.num_pairs       = num_pairs;
-  kernelParams.num_centroids   = cur_ivf.get_num_centroids();
-  kernelParams.D               = D;
-  kernelParams.d_threshold     = d_topk_threshold_batch.data_handle();
+  // InnerProduct emits −⟨q,x⟩ (pseudo-distances), so it minimizes like L2 and is negated after
+  // select_k below. Its query-side additive term is −⟨q,c⟩ rather than ‖q−c‖².
+  const bool is_inner_product          = cur_ivf.is_inner_product();
+  kernelParams.d_g_add                 = is_inner_product ? get_g_add() : get_centroid_distances();
+  kernelParams.topk                    = topk;
+  kernelParams.num_queries             = num_queries;
+  kernelParams.nprobe                  = nprobe;
+  kernelParams.num_pairs               = num_pairs;
+  kernelParams.num_centroids           = cur_ivf.get_num_centroids();
+  kernelParams.D                       = D;
+  kernelParams.d_threshold             = d_topk_threshold_batch.data_handle();
   kernelParams.max_candidates_per_pair = max_cluster_size;
   kernelParams.max_candidates_per_query =
     use_block_sort ? 0 /* unused */ : max_probed_vectors_count.value();
@@ -528,12 +526,12 @@ void SearcherGPU::SearchClusterQueryPairsQuantizeQuery(
 
   const int num_bits_for_dispatch = use_4bit ? 4 : 8;
   const bool with_ex              = (cur_ivf.get_ex_bits() != 0);
-  auto jit_launcher               = use_block_sort
-                                      ? make_compute_inner_products_with_bitwise_block_sort_launcher(
-                            num_bits_for_dispatch, cur_ivf.get_ex_bits(), with_ex, is_inner_product)
-                                      : make_compute_inner_products_with_bitwise_launcher(
-                            cur_ivf.get_ex_bits(), with_ex, is_inner_product);
-  auto const& kernel_launcher     = [&]() -> void {
+  auto jit_launcher =
+    use_block_sort
+      ? make_compute_inner_products_with_bitwise_block_sort_launcher(
+          num_bits_for_dispatch, cur_ivf.get_ex_bits(), with_ex, is_inner_product)
+      : make_compute_inner_products_with_bitwise_launcher(cur_ivf.get_ex_bits(), with_ex);
+  auto const& kernel_launcher = [&]() -> void {
     jit_launcher->dispatch<compute_inner_products_with_lut_func_t>(
       stream_, gridDim, blockDim, shared_mem_size, kernelParams);
   };

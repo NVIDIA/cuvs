@@ -698,13 +698,12 @@ if(NOT BUILD_CPU_ONLY)
   )
   generate_jit_lto_kernels(
     jit_lto_files
-    NAME_FORMAT "ivf_rabitq_lut_emit_distances_@with_ex_descriptor@_@signed_descriptor@"
+    NAME_FORMAT "ivf_rabitq_lut_emit_distances_@with_ex_descriptor@"
     MATRIX_JSON_FILE
       "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/ivf_rabitq/jit_lto_kernels/lut_emit_distances_matrix.json"
     KERNEL_INPUT_FILE
       "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/ivf_rabitq/jit_lto_kernels/lut_emit_distances_kernel.cu.in"
-    FRAGMENT_TAG_FORMAT
-      "${ivf_rabitq_ns}::fragment_tag_lut_emit_distances<@with_ex_value@, @signed_value@>"
+    FRAGMENT_TAG_FORMAT "${ivf_rabitq_ns}::fragment_tag_lut_emit_distances<@with_ex_value@>"
     FRAGMENT_TAG_HEADER_FILES "<cuvs/detail/jit_lto/ivf_rabitq/ivf_rabitq_fragments.hpp>"
     OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated_kernels/ivf_rabitq/lut_emit_distances"
     KERNEL_LINK_LIBRARIES jit_lto_kernel_usage_requirements
@@ -791,13 +790,12 @@ if(NOT BUILD_CPU_ONLY)
   )
   generate_jit_lto_kernels(
     jit_lto_files
-    NAME_FORMAT "ivf_rabitq_lut16_opt_emit_distances_@with_ex_descriptor@_@signed_descriptor@"
+    NAME_FORMAT "ivf_rabitq_lut16_opt_emit_distances_@with_ex_descriptor@"
     MATRIX_JSON_FILE
       "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/ivf_rabitq/jit_lto_kernels/lut16_opt_emit_distances_matrix.json"
     KERNEL_INPUT_FILE
       "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/ivf_rabitq/jit_lto_kernels/lut16_opt_emit_distances_kernel.cu.in"
-    FRAGMENT_TAG_FORMAT
-      "${ivf_rabitq_ns}::fragment_tag_lut16_opt_emit_distances<@with_ex_value@, @signed_value@>"
+    FRAGMENT_TAG_FORMAT "${ivf_rabitq_ns}::fragment_tag_lut16_opt_emit_distances<@with_ex_value@>"
     FRAGMENT_TAG_HEADER_FILES "<cuvs/detail/jit_lto/ivf_rabitq/ivf_rabitq_fragments.hpp>"
     OUTPUT_DIRECTORY
       "${CMAKE_CURRENT_BINARY_DIR}/generated_kernels/ivf_rabitq/lut16_opt_emit_distances"
@@ -833,13 +831,12 @@ if(NOT BUILD_CPU_ONLY)
   )
   generate_jit_lto_kernels(
     jit_lto_files
-    NAME_FORMAT "ivf_rabitq_bitwise_emit_distances_@with_ex_descriptor@_@signed_descriptor@"
+    NAME_FORMAT "ivf_rabitq_bitwise_emit_distances_@with_ex_descriptor@"
     MATRIX_JSON_FILE
       "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/ivf_rabitq/jit_lto_kernels/bitwise_emit_distances_matrix.json"
     KERNEL_INPUT_FILE
       "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/ivf_rabitq/jit_lto_kernels/bitwise_emit_distances_kernel.cu.in"
-    FRAGMENT_TAG_FORMAT
-      "${ivf_rabitq_ns}::fragment_tag_bitwise_emit_distances<@with_ex_value@, @signed_value@>"
+    FRAGMENT_TAG_FORMAT "${ivf_rabitq_ns}::fragment_tag_bitwise_emit_distances<@with_ex_value@>"
     FRAGMENT_TAG_HEADER_FILES "<cuvs/detail/jit_lto/ivf_rabitq/ivf_rabitq_fragments.hpp>"
     OUTPUT_DIRECTORY
       "${CMAKE_CURRENT_BINARY_DIR}/generated_kernels/ivf_rabitq/bitwise_emit_distances"

@@ -24,10 +24,10 @@ struct ComputeInnerProductsWithLut16OptPlanner : AlgorithmPlanner {
     this->add_static_fragment<fragment_tag_compute_inner_products_with_lut16_opt>();
   }
 
-  template <bool WithEx, bool Signed>
+  template <bool WithEx>
   void add_lut16_opt_emit_distances_device_function()
   {
-    this->add_static_fragment<fragment_tag_lut16_opt_emit_distances<WithEx, Signed>>();
+    this->add_static_fragment<fragment_tag_lut16_opt_emit_distances<WithEx>>();
   }
 
   template <int EX_BITS>

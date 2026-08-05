@@ -45,9 +45,6 @@ __device__ void lut_block_sort_emit_topk(const ComputeInnerProductsKernelParams 
   const int tid         = threadIdx.x;
   const int num_threads = blockDim.x;
 
-  // ‖q‖² for the InnerProduct pseudo-distance transform pd = (‖q−x‖² − ‖q‖² − ‖x‖²)/2 = −⟨q,x⟩.
-  float q_sqr_norm = is_signed ? params.d_q_sqr_norms[query_idx] : 0.0f;
-
   __shared__ int num_candidates;
   if (tid == 0) { num_candidates = 0; }
   __syncthreads();
@@ -56,7 +53,8 @@ __device__ void lut_block_sort_emit_topk(const ComputeInnerProductsKernelParams 
   const int vectors_per_iteration = num_threads;
 
   if constexpr (with_ex) {
-    float q_g_error = sqrtf(q_g_add);
+    float q_g_error =
+      sqrtf(params.d_centroid_distances[query_idx * params.num_centroids + cluster_idx]);
 
     // Shared memory layout after LUT: [cand_dists][cand_ips][cand_indices][queue_buffer]
     float* shared_candidate_dists = reinterpret_cast<float*>(shared_mem_raw + lut_bytes);
@@ -89,10 +87,6 @@ __device__ void lut_block_sort_emit_topk(const ComputeInnerProductsKernelParams 
 
         float est_dist = f_add + q_g_add + f_rescale * (ip + q_k1xsumq);
         float low_dist = est_dist - f_error * q_g_error;
-
-        if constexpr (is_signed) {
-          low_dist = (low_dist - q_sqr_norm - params.d_vec_sqr_norms[factor_offset]) * 0.5f;
-        }
 
         if (low_dist < threshold) {
           is_candidate   = true;
@@ -164,9 +158,6 @@ __device__ void lut_block_sort_emit_topk(const ComputeInnerProductsKernelParams 
 
           ex_dist = f_ex_add + q_g_add +
                     f_ex_rescale * (static_cast<float>(1 << params.ex_bits) * ip + ip2 + q_kbxsumq);
-          if constexpr (is_signed) {
-            ex_dist = (ex_dist - q_sqr_norm - params.d_vec_sqr_norms[global_vec_idx]) * 0.5f;
-          }
           pid = (uint32_t)params.d_pids[global_vec_idx];
         } else {
           ex_dist = INFINITY;
@@ -228,11 +219,6 @@ __device__ void lut_block_sort_emit_topk(const ComputeInnerProductsKernelParams 
                                                  short_code_length);
 
         final_1bit_dist = f_add + q_g_add + f_rescale * (ip + q_k1xsumq);
-        if constexpr (is_signed) {
-          final_1bit_dist =
-            (final_1bit_dist - q_sqr_norm - params.d_vec_sqr_norms[factor_offset]) * 0.5f;
-        }
-
         if (final_1bit_dist < threshold) {
           is_candidate   = true;
           final_1bit_pid = params.d_pids[cluster_start_index + vec_idx];

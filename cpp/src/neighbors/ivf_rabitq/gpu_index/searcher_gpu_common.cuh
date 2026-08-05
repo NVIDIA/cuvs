@@ -40,12 +40,13 @@ struct ComputeInnerProductsKernelParams {
   const float* d_short_factors                 = nullptr;
   const float* d_G_k1xSumq                     = nullptr;
   const float* d_G_kbxSumq                     = nullptr;
-  const float* d_centroid_distances            = nullptr;
-  // Squared L2 norms for the InnerProduct metric: ‖q‖² per query and ‖x‖² per data vector.
-  // Used to convert the reconstructed squared-L2 estimate into an inner product via
-  // ⟨q,x⟩ = (‖q‖² + ‖x‖² − ‖q−x‖²)/2. Null for the L2 metric.
-  const float* d_q_sqr_norms       = nullptr;
-  const float* d_vec_sqr_norms     = nullptr;
+  // ‖q−c‖² per (query, centroid). Always the squared distance to the centroid, for both metrics:
+  // it supplies the query-side error factor g_error = ‖q−c‖ used by the pruning bounds.
+  const float* d_centroid_distances = nullptr;
+  // The query-side additive term g_add of the RaBitQ estimator, per (query, centroid). For L2 this
+  // aliases d_centroid_distances (g_add = ‖q−c‖²); the two are kept separate because the
+  // InnerProduct estimator needs a different g_add while reusing the same g_error.
+  const float* d_g_add             = nullptr;
   uint32_t topk                    = 0;
   uint32_t num_queries             = 0;
   uint32_t nprobe                  = 0;

@@ -49,14 +49,13 @@ __device__ void compute_inner_products_with_lut16_opt_block_sort_impl(
   __syncthreads();
 
   __shared__ int num_candidates;
-  float q_g_add   = params.d_centroid_distances[query_idx * params.num_centroids + cluster_idx];
+  float q_g_add   = params.d_g_add[query_idx * params.num_centroids + cluster_idx];
   float q_k1xsumq = params.d_G_k1xSumq[query_idx];
   float threshold = params.d_threshold[query_idx];
-  // ‖q‖² for the InnerProduct pseudo-distance transform pd = (‖q−x‖² − ‖q‖² − ‖x‖²)/2 = −⟨q,x⟩.
-  float q_sqr_norm = Signed ? params.d_q_sqr_norms[query_idx] : 0.0f;
-
   float q_g_error;
-  if constexpr (WithEx) { q_g_error = sqrtf(q_g_add); }
+  if constexpr (WithEx) {
+    q_g_error = sqrtf(params.d_centroid_distances[query_idx * params.num_centroids + cluster_idx]);
+  }
 
   if (tid == 0) { num_candidates = 0; }
   __syncthreads();
@@ -103,17 +102,11 @@ __device__ void compute_inner_products_with_lut16_opt_block_sort_impl(
       if constexpr (WithEx) {
         float f_error  = factors.z;
         float low_dist = est_dist - f_error * q_g_error;
-        if constexpr (Signed) {
-          low_dist = (low_dist - q_sqr_norm - params.d_vec_sqr_norms[factor_offset]) * 0.5f;
-        }
         if (low_dist < threshold) {
           is_candidate = true;
           local_ip     = ip;
         }
       } else {
-        if constexpr (Signed) {
-          est_dist = (est_dist - q_sqr_norm - params.d_vec_sqr_norms[factor_offset]) * 0.5f;
-        }
         if (est_dist < threshold) {
           is_candidate = true;
           local_ip     = est_dist;
@@ -183,9 +176,6 @@ __device__ void compute_inner_products_with_lut16_opt_block_sort_impl(
             ex_dist =
               f_ex_add + q_g_add +
               f_ex_rescale * (static_cast<float>(1 << params.ex_bits) * ip + ip2 + q_kbxsumq);
-            if constexpr (Signed) {
-              ex_dist = (ex_dist - q_sqr_norm - params.d_vec_sqr_norms[global_vec_idx]) * 0.5f;
-            }
             pid = (uint32_t)params.d_pids[global_vec_idx];
           } else {
             ex_dist = INFINITY;

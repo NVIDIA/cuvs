@@ -40,24 +40,16 @@ inline void add_ex_bits_device_functions(Planner& planner, int ex_bits)
 }  // namespace
 
 inline std::shared_ptr<AlgorithmLauncher> make_compute_inner_products_with_lut_launcher(
-  int ex_bits, bool with_ex, bool is_inner_product)
+  int ex_bits, bool with_ex)
 {
   ComputeInnerProductsWithLutPlanner planner;
   planner.add_entrypoint();
   planner.add_compute_lut_ip_for_vec_device_function();
   if (with_ex) {
-    if (is_inner_product) {
-      planner.add_lut_emit_distances_device_function<true, true>();
-    } else {
-      planner.add_lut_emit_distances_device_function<true, false>();
-    }
+    planner.add_lut_emit_distances_device_function<true>();
     add_ex_bits_device_functions(planner, ex_bits);
   } else {
-    if (is_inner_product) {
-      planner.add_lut_emit_distances_device_function<false, true>();
-    } else {
-      planner.add_lut_emit_distances_device_function<false, false>();
-    }
+    planner.add_lut_emit_distances_device_function<false>();
   }
   return planner.get_launcher();
 }
@@ -86,24 +78,16 @@ inline std::shared_ptr<AlgorithmLauncher> make_compute_inner_products_with_lut_b
 }
 
 inline std::shared_ptr<AlgorithmLauncher> make_compute_inner_products_with_lut16_opt_launcher(
-  int ex_bits, bool with_ex, bool is_inner_product)
+  int ex_bits, bool with_ex)
 {
   ComputeInnerProductsWithLut16OptPlanner planner;
   planner.add_entrypoint();
   planner.add_compute_lut_ip_for_vec_device_function();
   if (with_ex) {
-    if (is_inner_product) {
-      planner.add_lut16_opt_emit_distances_device_function<true, true>();
-    } else {
-      planner.add_lut16_opt_emit_distances_device_function<true, false>();
-    }
+    planner.add_lut16_opt_emit_distances_device_function<true>();
     add_ex_bits_device_functions(planner, ex_bits);
   } else {
-    if (is_inner_product) {
-      planner.add_lut16_opt_emit_distances_device_function<false, true>();
-    } else {
-      planner.add_lut16_opt_emit_distances_device_function<false, false>();
-    }
+    planner.add_lut16_opt_emit_distances_device_function<false>();
   }
   return planner.get_launcher();
 }
@@ -133,23 +117,15 @@ make_compute_inner_products_with_lut16_opt_block_sort_launcher(int ex_bits,
 }
 
 inline std::shared_ptr<AlgorithmLauncher> make_compute_inner_products_with_bitwise_launcher(
-  int ex_bits, bool with_ex, bool is_inner_product)
+  int ex_bits, bool with_ex)
 {
   ComputeInnerProductsWithBitwisePlanner planner;
   planner.add_entrypoint();
   if (with_ex) {
-    if (is_inner_product) {
-      planner.add_bitwise_emit_distances_device_function<true, true>();
-    } else {
-      planner.add_bitwise_emit_distances_device_function<true, false>();
-    }
+    planner.add_bitwise_emit_distances_device_function<true>();
     add_ex_bits_device_functions(planner, ex_bits);
   } else {
-    if (is_inner_product) {
-      planner.add_bitwise_emit_distances_device_function<false, true>();
-    } else {
-      planner.add_bitwise_emit_distances_device_function<false, false>();
-    }
+    planner.add_bitwise_emit_distances_device_function<false>();
   }
   return planner.get_launcher();
 }

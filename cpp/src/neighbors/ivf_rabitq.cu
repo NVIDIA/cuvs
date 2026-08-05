@@ -256,7 +256,8 @@ void search(raft::resources const& handle,
                                search_mode_to_string(params.mode),
                                idx.rabitq_index().quantizer().get_query_scaling_factor(),
                                /* rabitq_quantize_flag = */ true);
-  searcher.AllocateSearcherSpace(idx.rabitq_index().get_num_centroids(), NQ);
+  searcher.AllocateSearcherSpace(
+    idx.rabitq_index().get_num_centroids(), NQ, idx.rabitq_index().is_inner_product());
 
   auto final_ids = raft::make_device_matrix<uint32_t, int64_t>(handle, NQ, k);
   auto queries_view =

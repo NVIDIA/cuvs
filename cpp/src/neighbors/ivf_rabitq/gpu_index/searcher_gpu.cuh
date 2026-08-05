@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -47,7 +47,7 @@ class SearcherGPU {
    * @param num_centroids number of cluster centroids
    * @param num_queries number of queries
    */
-  void AllocateSearcherSpace(size_t num_centroids, size_t num_queries);
+  void AllocateSearcherSpace(size_t num_centroids, size_t num_queries, bool is_inner_product);
 
   // Getter methods
   std::string const& get_mode() { return mode_; }
@@ -55,6 +55,7 @@ class SearcherGPU {
   rmm::cuda_stream_view get_stream() const { return stream_; }
   float* get_centroid_distances() { return centroid_distances_.data_handle(); }
   float* get_q_norms() { return q_norms_.data_handle(); }
+  float* get_g_add() { return g_add_.data_handle(); }
 
   // Setter methods
   void set_query(const float* query) { query_ = query; }
@@ -126,6 +127,9 @@ class SearcherGPU {
       handle_, 0);  // stores distances between centroids and queries (l2 square)
   raft::device_vector<float, int64_t> q_norms_ =
     raft::make_device_vector<float, int64_t>(handle_, 0);  // query norms
+  // InnerProduct only: the estimator's query-side additive term -<q, c>, which also serves as the
+  // probe-selection score. Empty for L2, where centroid_distances_ plays both roles.
+  raft::device_vector<float, int64_t> g_add_ = raft::make_device_vector<float, int64_t>(handle_, 0);
 
   // quantization for queries
   float best_rescaling_factor = 0.0f;

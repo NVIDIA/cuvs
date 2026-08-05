@@ -13,6 +13,8 @@
 #include "rotator_gpu.cuh"
 #include <raft/util/integer_utils.hpp>
 
+#include <cuvs/distance/distance.hpp>
+
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resources.hpp>
 
@@ -106,17 +108,18 @@ class DataQuantizerGPU {
    * @param outExFactor Output buffer for extra factors.
    * @param outTemp Temporary buffer.
    */
-  void quantize_batch_opt(const float* d_data,
-                          const float* d_centroid,
-                          const PID* d_IDs,
-                          size_t num_points,
-                          const RotatorGPU& rotator,
-                          uint32_t* d_short_data,
-                          float* short_data_factors,
-                          uint8_t* d_long_code,
-                          float* d_ex_factor,
-                          float* d_rotated_c,
-                          float* d_vec_sqr_norms = nullptr);
+  void quantize_batch_opt(
+    const float* d_data,
+    const float* d_centroid,
+    const PID* d_IDs,
+    size_t num_points,
+    const RotatorGPU& rotator,
+    uint32_t* d_short_data,
+    float* short_data_factors,
+    uint8_t* d_long_code,
+    float* d_ex_factor,
+    float* d_rotated_c,
+    cuvs::distance::DistanceType metric = cuvs::distance::DistanceType::L2Expanded);
 
   /*!
    * @brief Quantize contiguous cluster data for batch layout (without PID gathering).
@@ -131,16 +134,17 @@ class DataQuantizerGPU {
    * @param d_ex_factor Output buffer for extra factors.
    * @param d_rotated_c Output buffer for rotated centroid.
    */
-  void quantize_batch_opt_contiguous(const float* d_contiguous_data,
-                                     const float* d_centroid,
-                                     size_t num_points,
-                                     const RotatorGPU& rotator,
-                                     uint32_t* d_short_data,
-                                     float* short_data_factors,
-                                     uint8_t* d_long_code,
-                                     float* d_ex_factor,
-                                     float* d_rotated_c,
-                                     float* d_vec_sqr_norms = nullptr);
+  void quantize_batch_opt_contiguous(
+    const float* d_contiguous_data,
+    const float* d_centroid,
+    size_t num_points,
+    const RotatorGPU& rotator,
+    uint32_t* d_short_data,
+    float* short_data_factors,
+    uint8_t* d_long_code,
+    float* d_ex_factor,
+    float* d_rotated_c,
+    cuvs::distance::DistanceType metric = cuvs::distance::DistanceType::L2Expanded);
 
  private:
   // Dimension and quantization parameters

@@ -20,7 +20,6 @@
 #include <raft/core/host_mdarray.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/linalg/map.cuh>
-#include <raft/linalg/norm.cuh>
 #include <raft/linalg/norm_types.hpp>
 #include <raft/linalg/normalize.cuh>
 #include <raft/random/rng.cuh>
@@ -70,6 +69,7 @@ void rabitq_codes_and_factors_fused(const float* d_rotated_c,
                                     float* d_short_data_factors,
                                     size_t num_points,
                                     size_t D,
+                                    cuvs::distance::DistanceType metric,
                                     raft::resources const& handle);
 
 void exrabitq_codes_and_factors_fused(const int* d_bin_XP,
@@ -82,6 +82,7 @@ void exrabitq_codes_and_factors_fused(const int* d_bin_XP,
                                       size_t D,
                                       size_t EX_BITS,
                                       float const_scaling_factor,
+                                      cuvs::distance::DistanceType metric,
                                       raft::resources const& handle);
 
 void exrabitq_codes_and_factors_fused_ori(const int* d_bin_XP,
@@ -93,6 +94,7 @@ void exrabitq_codes_and_factors_fused_ori(const int* d_bin_XP,
                                           size_t num_points,
                                           size_t D,
                                           size_t EX_BITS,
+                                          cuvs::distance::DistanceType metric,
                                           raft::resources const& handle);
 
 //---------------------------------------------------------------------------
@@ -235,6 +237,7 @@ __global__ void pack_and_compute_factors_kernel(
   // Common parameters
   size_t N,
   size_t D,
+  cuvs::distance::DistanceType metric,
   // Outputs
   float* __restrict__ d_factors,        // [3*N], packed factors
   uint32_t* __restrict__ d_packed_code  // [N * (D/32)], packed codes
@@ -251,6 +254,7 @@ __global__ void pack_and_compute_factors_kernel(
   float ip_resi_xucb = 0.f;
   float ip_cent_xucb = 0.f;
   float xu_sq        = 0.f;
+  float ip_resi_cent = 0.f;
 
   // Each thread in the block processes a subset of the columns
   for (size_t d = threadIdx.x; d < D; d += blockDim.x) {
@@ -262,6 +266,7 @@ __global__ void pack_and_compute_factors_kernel(
     ip_resi_xucb += res * xu;
     ip_cent_xucb += c * xu;
     xu_sq += xu * xu;
+    ip_resi_cent += res * c;
   }
 
   // Perform parallel reduction within the block
@@ -269,6 +274,12 @@ __global__ void pack_and_compute_factors_kernel(
   ip_resi_xucb = blockReduceSum(ip_resi_xucb);
   ip_cent_xucb = blockReduceSum(ip_cent_xucb);
   xu_sq        = blockReduceSum(xu_sq);
+  // Only InnerProduct consumes ⟨o−c, c⟩, and each blockReduceSum costs two __syncthreads()
+  // regardless of D. `metric` is a kernel-wide scalar, so this branch is uniform across the
+  // block and skipping the reduction cannot desynchronize it.
+  if (metric == cuvs::distance::DistanceType::InnerProduct) {
+    ip_resi_cent = blockReduceSum(ip_resi_cent);
+  }
 
   // Thread 0 performs the final calculations and writes the factors
   if (threadIdx.x == 0) {
@@ -277,14 +288,32 @@ __global__ void pack_and_compute_factors_kernel(
     float l2_norm = sqrtf(fmaxf(l2_sqr, 0.f));
     float denom   = ip_resi_xucb;
 
-    float fadd     = l2_sqr + 2.f * l2_sqr * (ip_cent_xucb / denom);
-    float frescale = -2.f * l2_sqr / denom;
-
     float ratio     = (l2_sqr * xu_sq) / (denom * denom);
     float inner     = (ratio - 1.f) / fmaxf(float(D - 1), 1.f);
     inner           = fmaxf(inner, 0.f);
     float tmp_error = l2_norm * kConstEpsilon * sqrtf(inner);
-    float ferr      = 2.f * tmp_error;
+
+    float fadd, frescale, ferr;
+    switch (metric) {
+      case cuvs::distance::DistanceType::L2Expanded:
+        fadd     = l2_sqr + 2.f * l2_sqr * (ip_cent_xucb / denom);
+        frescale = -2.f * l2_sqr / denom;
+        ferr     = 2.f * tmp_error;
+        break;
+      // The same RaBitQ estimator with the data-side factors re-derived for −⟨o,q⟩ instead of
+      // ‖o−q‖². Every term of ‖o−c‖² + ‖q−c‖² that does not depend on the code cancels against
+      // ‖o‖² and ‖q‖², halving the rescale and error factors and replacing the ‖o−c‖² offset
+      // with −⟨o−c,c⟩. The query side supplies g_add = −⟨q,c⟩.
+      case cuvs::distance::DistanceType::InnerProduct:
+        fadd     = -ip_resi_cent + l2_sqr * (ip_cent_xucb / denom);
+        frescale = -l2_sqr / denom;
+        ferr     = tmp_error;
+        break;
+      // Unsupported metrics are rejected when the index is built, so this is unreachable. Emit
+      // NaN rather than falling back to L2 so that a metric added without a case here fails
+      // loudly instead of silently producing wrong distances.
+      default: fadd = frescale = ferr = nanf(""); break;
+    }
 
     size_t base         = 3 * row;
     d_factors[base + 0] = fadd;
@@ -331,6 +360,7 @@ __global__ void exrabitq_fused_kernel_batch(
   size_t EX_BITS,
   float const_scaling_factor,
   float kConstEpsilon,
+  cuvs::distance::DistanceType metric,
   // Outputs
   uint8_t* d_long_code,
   float* d_ex_factor)
@@ -388,7 +418,7 @@ __global__ void exrabitq_fused_kernel_batch(
   //=========================================================================
   // Part B: Factor Computation
   //=========================================================================
-  float l2_sqr = 0.f, ip_resi_xucb = 0.f, ip_cent_xucb = 0.f, xu_sq = 0.f;
+  float l2_sqr = 0.f, ip_resi_xucb = 0.f, ip_cent_xucb = 0.f, xu_sq = 0.f, ip_resi_cent = 0.f;
 
   for (size_t j = tid; j < D; j += BlockSize) {
     float res  = d_XP[row * D + j];
@@ -400,6 +430,7 @@ __global__ void exrabitq_fused_kernel_batch(
     ip_resi_xucb += res * xu;
     ip_cent_xucb += c * xu;
     xu_sq += xu * xu;
+    ip_resi_cent += res * c;
   }
 
   // Perform parallel reductions for all factor components
@@ -407,6 +438,10 @@ __global__ void exrabitq_fused_kernel_batch(
   ip_resi_xucb = blockReduceSum(ip_resi_xucb);
   ip_cent_xucb = blockReduceSum(ip_cent_xucb);
   xu_sq        = blockReduceSum(xu_sq);
+  // See pack_and_compute_factors_kernel: uniform branch, and L2 never consumes this reduction.
+  if (metric == cuvs::distance::DistanceType::InnerProduct) {
+    ip_resi_cent = blockReduceSum(ip_resi_cent);
+  }
 
   // Thread 0 computes and writes the final factors
   if (tid == 0) {
@@ -414,8 +449,20 @@ __global__ void exrabitq_fused_kernel_batch(
     if (denom == 0.0f) denom = INFINITY;
     float l2_norm = sqrtf(fmaxf(l2_sqr, 0.f));
 
-    float fadd     = l2_sqr + 2.f * l2_sqr * ip_cent_xucb / denom;
-    float frescale = -2.f * l2_norm * ip_norm_inv;
+    // See pack_and_compute_factors_kernel: for InnerProduct the offset becomes −⟨o−c,c⟩ and the
+    // rescale factor loses the factor of 2 that the squared-L2 expansion carries.
+    float fadd, frescale;
+    switch (metric) {
+      case cuvs::distance::DistanceType::L2Expanded:
+        fadd     = l2_sqr + 2.f * l2_sqr * ip_cent_xucb / denom;
+        frescale = -2.f * l2_norm * ip_norm_inv;
+        break;
+      case cuvs::distance::DistanceType::InnerProduct:
+        fadd     = -ip_resi_cent + l2_sqr * ip_cent_xucb / denom;
+        frescale = -l2_norm * ip_norm_inv;
+        break;
+      default: fadd = frescale = nanf(""); break;
+    }
 
     float ratio     = (l2_sqr * xu_sq) / (ip_resi_xucb * ip_resi_xucb);
     float inner     = (ratio - 1.f) / fmaxf(float(D - 1), 1.f);
@@ -545,6 +592,7 @@ void rabitq_codes_and_factors_fused(const float* d_rotated_c,
                                     float* d_short_data_factors,
                                     size_t num_points,
                                     size_t D,
+                                    cuvs::distance::DistanceType metric,
                                     raft::resources const& handle)
 {
   auto stream = raft::resource::get_cuda_stream(handle);
@@ -560,6 +608,7 @@ void rabitq_codes_and_factors_fused(const float* d_rotated_c,
     1.9f,  // kConstEpsilon, hardcoded from original call
     num_points,
     D,
+    metric,
     d_short_data_factors,
     d_short_data);
   RAFT_CUDA_TRY(cudaPeekAtLastError());
@@ -579,6 +628,7 @@ void exrabitq_codes_and_factors_fused(const int* d_bin_XP,
                                       size_t D,
                                       size_t EX_BITS,
                                       float const_scaling_factor,
+                                      cuvs::distance::DistanceType metric,
                                       raft::resources const& handle)
 {
   auto stream = raft::resource::get_cuda_stream(handle);
@@ -602,6 +652,7 @@ void exrabitq_codes_and_factors_fused(const int* d_bin_XP,
                                                      EX_BITS,
                                                      const_scaling_factor,
                                                      1.9f,  // kConstEpsilon
+                                                     metric,
                                                      d_long_code,
                                                      d_ex_factor);
   RAFT_CUDA_TRY(cudaPeekAtLastError());
@@ -620,7 +671,7 @@ void DataQuantizerGPU::quantize_batch_opt(const float* d_data,
                                           uint8_t* d_long_code,
                                           float* d_ex_factor,
                                           float* d_rotated_c,
-                                          float* d_vec_sqr_norms)
+                                          cuvs::distance::DistanceType metric)
 {
   // 1. Data Transformation:
   data_transformation_batch_opt(d_data,
@@ -637,18 +688,6 @@ void DataQuantizerGPU::quantize_batch_opt(const float* d_data,
                                 D,
                                 handle_);
 
-  // For the InnerProduct metric, capture the squared L2 norm ‖x‖² of each (padded, unrotated)
-  // input vector. gatherAndPadKernel just wrote the first num_points rows of d_X_and_C_pad with
-  // the padded data and the zero-padding does not affect the norm. raft's L2Norm returns the sum
-  // of squares (no sqrt) with the default finalizer, i.e. exactly ‖x‖².
-  if (d_vec_sqr_norms != nullptr) {
-    raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
-      handle_,
-      raft::make_device_matrix_view<const float, int64_t>(
-        d_X_and_C_pad.data_handle(), num_points, D),
-      raft::make_device_vector_view<float, int64_t>(d_vec_sqr_norms, num_points));
-  }
-
   rabitq_codes_and_factors_fused(d_rotated_c,
                                  d_bin_XP.data_handle(),
                                  d_XP.data_handle(),
@@ -656,6 +695,7 @@ void DataQuantizerGPU::quantize_batch_opt(const float* d_data,
                                  d_short_data_factors,
                                  num_points,
                                  D,
+                                 metric,
                                  handle_);
 
   // 5. Compute ExRaBitQ quantization codes.
@@ -670,6 +710,7 @@ void DataQuantizerGPU::quantize_batch_opt(const float* d_data,
                                      D,
                                      EX_BITS,
                                      const_scaling_factor,
+                                     metric,
                                      handle_);
   } else {
     exrabitq_codes_and_factors_fused_ori(d_bin_XP.data_handle(),
@@ -681,6 +722,7 @@ void DataQuantizerGPU::quantize_batch_opt(const float* d_data,
                                          num_points,
                                          D,
                                          EX_BITS,
+                                         metric,
                                          handle_);
   }
 }
@@ -754,7 +796,7 @@ void DataQuantizerGPU::quantize_batch_opt_contiguous(const float* d_contiguous_d
                                                      uint8_t* d_long_code,
                                                      float* d_ex_factor,
                                                      float* d_rotated_c,
-                                                     float* d_vec_sqr_norms)
+                                                     cuvs::distance::DistanceType metric)
 {
   // 1. Data Transformation:
   data_transformation_batch_opt_contiguous(d_contiguous_data,
@@ -770,16 +812,6 @@ void DataQuantizerGPU::quantize_batch_opt_contiguous(const float* d_contiguous_d
                                            D,
                                            handle_);
 
-  // See quantize_batch_opt: capture ‖x‖² for the InnerProduct metric before the residual
-  // transform. d_X_and_C_pad holds the padded, unrotated cluster data.
-  if (d_vec_sqr_norms != nullptr) {
-    raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
-      handle_,
-      raft::make_device_matrix_view<const float, int64_t>(
-        d_X_and_C_pad.data_handle(), num_points, D),
-      raft::make_device_vector_view<float, int64_t>(d_vec_sqr_norms, num_points));
-  }
-
   rabitq_codes_and_factors_fused(d_rotated_c,
                                  d_bin_XP.data_handle(),
                                  d_XP.data_handle(),
@@ -787,6 +819,7 @@ void DataQuantizerGPU::quantize_batch_opt_contiguous(const float* d_contiguous_d
                                  d_short_data_factors,
                                  num_points,
                                  D,
+                                 metric,
                                  handle_);
 
   // 5. Compute ExRaBitQ quantization codes.
@@ -801,6 +834,7 @@ void DataQuantizerGPU::quantize_batch_opt_contiguous(const float* d_contiguous_d
                                      D,
                                      EX_BITS,
                                      const_scaling_factor,
+                                     metric,
                                      handle_);
   } else {
     exrabitq_codes_and_factors_fused_ori(d_bin_XP.data_handle(),
@@ -812,6 +846,7 @@ void DataQuantizerGPU::quantize_batch_opt_contiguous(const float* d_contiguous_d
                                          num_points,
                                          D,
                                          EX_BITS,
+                                         metric,
                                          handle_);
   }
 }
@@ -1090,6 +1125,7 @@ __global__ void exrabitq_fused_kernel_batch_ori(
   size_t D,
   size_t EX_BITS,
   float kConstEpsilon,
+  cuvs::distance::DistanceType metric,
   // Outputs
   uint8_t* d_long_code,
   float* d_ex_factor)
@@ -1156,7 +1192,7 @@ __global__ void exrabitq_fused_kernel_batch_ori(
   //=========================================================================
   // Part B: Factor Computation
   //=========================================================================
-  float l2_sqr = 0.f, ip_resi_xucb = 0.f, ip_cent_xucb = 0.f, xu_sq = 0.f;
+  float l2_sqr = 0.f, ip_resi_xucb = 0.f, ip_cent_xucb = 0.f, xu_sq = 0.f, ip_resi_cent = 0.f;
 
   for (size_t j = tid; j < D; j += BlockSize) {
     float res  = d_XP[row * D + j];
@@ -1168,6 +1204,7 @@ __global__ void exrabitq_fused_kernel_batch_ori(
     ip_resi_xucb += res * xu;
     ip_cent_xucb += c * xu;
     xu_sq += xu * xu;
+    ip_resi_cent += res * c;
   }
 
   // Perform parallel reductions for all factor components
@@ -1175,6 +1212,10 @@ __global__ void exrabitq_fused_kernel_batch_ori(
   ip_resi_xucb = blockReduceSum(ip_resi_xucb);
   ip_cent_xucb = blockReduceSum(ip_cent_xucb);
   xu_sq        = blockReduceSum(xu_sq);
+  // See pack_and_compute_factors_kernel: uniform branch, and L2 never consumes this reduction.
+  if (metric == cuvs::distance::DistanceType::InnerProduct) {
+    ip_resi_cent = blockReduceSum(ip_resi_cent);
+  }
 
   // Thread 0 computes and writes the final factors
   if (tid == 0) {
@@ -1182,8 +1223,20 @@ __global__ void exrabitq_fused_kernel_batch_ori(
     if (denom == 0.0f) denom = INFINITY;
     float l2_norm = sqrtf(fmaxf(l2_sqr, 0.f));
 
-    float fadd     = l2_sqr + 2.f * l2_sqr * ip_cent_xucb / denom;
-    float frescale = -2.f * l2_norm * ip_norm_inv;
+    // See pack_and_compute_factors_kernel: for InnerProduct the offset becomes −⟨o−c,c⟩ and the
+    // rescale factor loses the factor of 2 that the squared-L2 expansion carries.
+    float fadd, frescale;
+    switch (metric) {
+      case cuvs::distance::DistanceType::L2Expanded:
+        fadd     = l2_sqr + 2.f * l2_sqr * ip_cent_xucb / denom;
+        frescale = -2.f * l2_norm * ip_norm_inv;
+        break;
+      case cuvs::distance::DistanceType::InnerProduct:
+        fadd     = -ip_resi_cent + l2_sqr * ip_cent_xucb / denom;
+        frescale = -l2_norm * ip_norm_inv;
+        break;
+      default: fadd = frescale = nanf(""); break;
+    }
 
     float ratio     = (l2_sqr * xu_sq) / (ip_resi_xucb * ip_resi_xucb);
     float inner     = (ratio - 1.f) / fmaxf(float(D - 1), 1.f);
@@ -1260,6 +1313,7 @@ void exrabitq_codes_and_factors_fused_ori(const int* d_bin_XP,
                                           size_t num_points,
                                           size_t D,
                                           size_t EX_BITS,
+                                          cuvs::distance::DistanceType metric,
                                           raft::resources const& handle)
 {
   auto stream = raft::resource::get_cuda_stream(handle);
@@ -1289,6 +1343,7 @@ void exrabitq_codes_and_factors_fused_ori(const int* d_bin_XP,
                                                      D,
                                                      EX_BITS,
                                                      1.9f,  // kConstEpsilon
+                                                     metric,
                                                      d_long_code,
                                                      d_ex_factor);
   RAFT_CUDA_TRY(cudaPeekAtLastError());

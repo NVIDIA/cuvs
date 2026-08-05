@@ -54,13 +54,11 @@ __device__ void compute_inner_products_with_bitwise_block_sort_impl(
   float query_width = params.d_widths[query_idx];
 
   __shared__ int num_candidates;
-  float q_g_add   = params.d_centroid_distances[query_idx * params.num_centroids + cluster_idx];
+  float q_g_add   = params.d_g_add[query_idx * params.num_centroids + cluster_idx];
   float q_k1xsumq = params.d_G_k1xSumq[query_idx];
-  float q_g_error = sqrtf(q_g_add);
+  float q_g_error =
+    sqrtf(params.d_centroid_distances[query_idx * params.num_centroids + cluster_idx]);
   float threshold = params.d_threshold[query_idx];
-  // ‖q‖² for the InnerProduct pseudo-distance transform pd = (‖q−x‖² − ‖q‖² − ‖x‖²)/2 = −⟨q,x⟩.
-  float q_sqr_norm = Signed ? params.d_q_sqr_norms[query_idx] : 0.0f;
-
   if (tid == 0) { num_candidates = 0; }
   __syncthreads();
 
@@ -95,14 +93,6 @@ __device__ void compute_inner_products_with_bitwise_block_sort_impl(
       float ip       = (float)accumulator * query_width;
       float est_dist = f_add + q_g_add + f_rescale * (ip + q_k1xsumq);
       float low_dist = est_dist - f_error * q_g_error;
-
-      if constexpr (Signed) {
-        // Convert the squared-L2 lower bound into the pseudo-distance lower bound. The map
-        // est → (est − ‖q‖² − ‖x‖²)/2 is affine with positive slope, so a lower bound on the
-        // L2 estimate is a valid lower bound on pd = −⟨q,x⟩; the `< threshold` prune stays correct.
-        float x_sqr = params.d_vec_sqr_norms[cluster_start_index + vec_idx];
-        low_dist    = (low_dist - q_sqr_norm - x_sqr) * 0.5f;
-      }
 
       if (low_dist < threshold) {
         is_candidate       = true;
