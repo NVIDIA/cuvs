@@ -26,6 +26,7 @@ import java.lang.invoke.MethodType;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.jar.JarFile;
@@ -138,6 +139,9 @@ final class JDKProvider implements CuVSProvider {
   private final cuvsRMMMemoryResourceReset cuvsRMMMemoryResourceResetInvoker =
       cuvsRMMMemoryResourceReset.makeInvoker();
 
+  private final cuvsRMMAsyncMemoryResourceEnable cuvsRMMAsyncMemoryResourceEnableInvoker =
+      cuvsRMMAsyncMemoryResourceEnable.makeInvoker();
+
   private final cuvsGetLogLevel GET_LOG_LEVEL_INVOKER = cuvsGetLogLevel.makeInvoker();
 
   private JDKProvider() {}
@@ -235,9 +239,7 @@ final class JDKProvider implements CuVSProvider {
 
   @Override
   public CuVSResources newCuVSResources(
-      Path tempDirectory,
-      Path memoryTrackingCsvPath,
-      Duration memoryTrackingSampleInterval) {
+      Path tempDirectory, Path memoryTrackingCsvPath, Duration memoryTrackingSampleInterval) {
     Objects.requireNonNull(tempDirectory);
     Objects.requireNonNull(memoryTrackingCsvPath);
     Objects.requireNonNull(memoryTrackingSampleInterval);
@@ -259,6 +261,22 @@ final class JDKProvider implements CuVSProvider {
   @Override
   public CagraIndex.Builder newCagraIndexBuilder(CuVSResources cuVSResources) {
     return CagraIndexImpl.newBuilder(Objects.requireNonNull(cuVSResources));
+  }
+
+  @Override
+  public FilterBitsetHandle newFilterBitsetHandle(long[] combinedLongs) {
+    return new FilterBitsetHandleImpl(combinedLongs);
+  }
+
+  @Override
+  public MultiPartitionSearchResults searchCagraMultiPartition(
+      CuVSResources resources,
+      List<CagraIndex> indices,
+      CagraQuery query,
+      int k,
+      List<FilterBitsetHandle> filters)
+      throws Throwable {
+    return MultiPartitionCagraSearchImpl.search(resources, indices, query, k, filters);
   }
 
   @Override
@@ -489,6 +507,12 @@ final class JDKProvider implements CuVSProvider {
   }
 
   @Override
+  public void enableRMMAsyncMemory() {
+    checkCuVSError(
+        cuvsRMMAsyncMemoryResourceEnableInvoker.apply(), "cuvsRMMAsyncMemoryResourceEnable");
+  }
+
+  @Override
   public void enableRMMPooledMemory(int initialPoolSizePercent, int maxPoolSizePercent) {
     checkCuVSError(
         cuvsRMMPoolMemoryResourceEnable(initialPoolSizePercent, maxPoolSizePercent, false),
@@ -647,6 +671,15 @@ final class JDKProvider implements CuVSProvider {
     }
 
     public void addVector(int[] vector) {
+      if (vector.length != columns) {
+        throw new IllegalArgumentException(
+            String.format(
+                Locale.ROOT, "Expected a vector of size [%d], got [%d]", columns, vector.length));
+      }
+      internalAddVector(MemorySegment.ofArray(vector));
+    }
+
+    public void addVector(short[] vector) {
       if (vector.length != columns) {
         throw new IllegalArgumentException(
             String.format(
