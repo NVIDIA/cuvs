@@ -19,7 +19,7 @@ dependencies:
 - cupy>=14.0.1,!=14.1.0
 - cxx-compiler
 - cython>=3.2.2
-- dlpack>=1.0,<1.1
+- dlpack>=0.8,<1.0
 - gcc_linux-64=14.*
 - go
 - libcublas-dev
@@ -29,11 +29,13 @@ dependencies:
 - libnvjitlink-dev
 - librmm==26.10.*,>=0.0.0a0
 - make
+- maven
 - nccl>=2.19
 - ninja
 - nodejs>=22
 - numpy>=2.0,<3.0
 - openblas
+- openjdk=22.*
 - pre-commit
 - pylibraft==26.10.*,>=0.0.0a0
 - pytest

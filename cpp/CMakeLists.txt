@@ -365,7 +365,9 @@ if(NOT BUILD_CPU_ONLY)
                                                 "$<$<COMPILE_LANGUAGE:CUDA>:${CUVS_CUDA_FLAGS}>"
   )
   target_compile_features(jit_lto_kernel_usage_requirements INTERFACE cuda_std_20)
-  target_link_libraries(jit_lto_kernel_usage_requirements INTERFACE rmm::rmm raft::raft CCCL::CCCL)
+  target_link_libraries(
+    jit_lto_kernel_usage_requirements INTERFACE rmm::rmm raft::raft CCCL::CCCL cuco::cuco
+  )
 
   block(PROPAGATE jit_lto_files)
   set(jit_lto_files)
@@ -979,6 +981,35 @@ if(NOT BUILD_CPU_ONLY)
   )
   generate_jit_lto_kernels(
     jit_lto_files
+    NAME_FORMAT
+      "cagra_search_single_cta_mp_@topk_by_bitonic_sort_str@_@bitonic_sort_and_merge_multi_warps_str@_data_@data_abbrev@"
+    MATRIX_JSON_FILE
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/detail/cagra/jit_lto_kernels/search_single_cta_mp_matrix.json"
+    KERNEL_INPUT_FILE
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/detail/cagra/jit_lto_kernels/search_single_cta_mp_kernel.cu.in"
+    FRAGMENT_TAG_FORMAT
+      "${cagra_ns}::fragment_tag_search_single_cta_mp<${neighbors_ns}::tag_@data_abbrev@, ${neighbors_ns}::tag_index_@source_index_abbrev@, ${neighbors_ns}::tag_index_@index_abbrev@, ${cagra_ns}::tag_dist_@distance_abbrev@, @topk_by_bitonic_sort@, @bitonic_sort_and_merge_multi_warps@>"
+    FRAGMENT_TAG_HEADER_FILES "<cuvs/detail/jit_lto/cagra/cagra_fragments.hpp>"
+                              "<cuvs/detail/jit_lto/common_fragments.hpp>"
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated_kernels/cagra/search_single_cta_mp"
+    KERNEL_LINK_LIBRARIES jit_lto_kernel_usage_requirements
+  )
+  generate_jit_lto_kernels(
+    jit_lto_files
+    NAME_FORMAT "cagra_search_multi_cta_mp_data_@data_abbrev@"
+    MATRIX_JSON_FILE
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/detail/cagra/jit_lto_kernels/search_multi_cta_mp_matrix.json"
+    KERNEL_INPUT_FILE
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/detail/cagra/jit_lto_kernels/search_multi_cta_mp_kernel.cu.in"
+    FRAGMENT_TAG_FORMAT
+      "${cagra_ns}::fragment_tag_search_multi_cta_mp<${neighbors_ns}::tag_@data_abbrev@, ${neighbors_ns}::tag_index_@source_index_abbrev@, ${neighbors_ns}::tag_index_@index_abbrev@, ${cagra_ns}::tag_dist_@distance_abbrev@>"
+    FRAGMENT_TAG_HEADER_FILES "<cuvs/detail/jit_lto/cagra/cagra_fragments.hpp>"
+                              "<cuvs/detail/jit_lto/common_fragments.hpp>"
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated_kernels/cagra/search_multi_cta_mp"
+    KERNEL_LINK_LIBRARIES jit_lto_kernel_usage_requirements
+  )
+  generate_jit_lto_kernels(
+    jit_lto_files
     NAME_FORMAT "cagra_random_pickup_data_@data_abbrev@"
     MATRIX_JSON_FILE
       "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/detail/cagra/jit_lto_kernels/random_pickup_matrix.json"
@@ -1328,6 +1359,7 @@ if(NOT BUILD_CPU_ONLY)
     src/cluster/single_linkage_float.cu
     src/cluster/spectral.cu
     src/core/bitset.cu
+    src/core/bloom_filter.cu
     src/core/omp_wrapper.cpp
     src/util/file_io.cpp
     src/util/host_memory.cpp
