@@ -78,7 +78,10 @@ if [ "${#CUVS_JAVA_JARS[@]}" -ne 1 ]; then
   exit 1
 fi
 
+# Install cuvs jar into .m2, cd is needed to pick up pom.xml in order to avoid rate limit of main maven repo
+pushd java/cuvs-lucene
 mvn --batch-mode install:install-file -Dfile="${CUVS_JAVA_JARS[0]}" -DpomFile="${CUVS_JAVA_POM}"
+popd
 
 EXITCODE=0
 trap "EXITCODE=1" ERR
