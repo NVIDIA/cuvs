@@ -1,0 +1,45 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <neighbors/ivf_rabitq/gpu_index/searcher_gpu_common.cuh>
+
+#include <raft/core/bitset.cuh>
+
+#include <cstdint>
+
+namespace cuvs::neighbors::ivf_rabitq::detail {
+
+namespace {
+
+template <typename = void>
+__device__ bool sample_filter_none(PID, uint32_t*, int64_t, int64_t)
+{
+  return true;
+}
+
+template <typename = void>
+__device__ bool sample_filter_bitset(PID source_id,
+                                     uint32_t* bitset_ptr,
+                                     int64_t bitset_len,
+                                     int64_t original_nbits)
+{
+  auto bitset_view =
+    raft::core::bitset_view<uint32_t, int64_t>{bitset_ptr, bitset_len, original_nbits};
+  return bitset_view.test(source_id);
+}
+
+constexpr auto sample_filter_impl = sample_filter_@filter_name@<>;
+
+}  // namespace
+
+__device__ bool sample_filter(PID source_id,
+                              uint32_t* bitset_ptr,
+                              int64_t bitset_len,
+                              int64_t original_nbits)
+{
+  return sample_filter_impl(source_id, bitset_ptr, bitset_len, original_nbits);
+}
+
+}  // namespace cuvs::neighbors::ivf_rabitq::detail

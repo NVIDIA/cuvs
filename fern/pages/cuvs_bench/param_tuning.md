@@ -35,6 +35,8 @@ The parameter tables below describe the build and search knobs that sweep mode v
 
 ## NVIDIA cuVS Indexes
 
+Filter-capable GPU algorithms store the filter in device memory by default, independently of the base dataset. Set `filter_memory_type` in a search configuration to override this. Accepted values are `device`, `managed`, `pinned`, `host`, and `mmap`; `host` and `mmap` require a platform where the GPU can directly access pageable host memory.
+
 ### cuvs_brute_force
 
 Use NVIDIA cuVS brute-force index for exact search. Brute-force has no further build or search parameters.
@@ -72,6 +74,22 @@ IVF-pq is an inverted-file index, which partitions the vectors into a series of 
 | `internalDistanceDtype` | `search` | N | [`float`, `half`] | `half` | The precision to use for the distance computations. Lower precision can increase performance at the cost of accuracy. |
 | `smemLutDtype` | `search` | N | [`float`, `half`, `fp8`] | `half` | The precision to use for the lookup table in shared memory. Lower precision can increase performance at the cost of accuracy. |
 | `refine_ratio` | `search` | N | Positive integer >0 | 1 | `refine_ratio * k` nearest neighbors are queried from the index initially and an additional refinement step improves recall by selecting only the best `k` neighbors. |
+
+### cuvs_ivf_rabitq
+
+IVF-RaBitQ partitions vectors into inverted lists and compresses each dimension to a small number of bits. Its search modes trade lookup-table precision and query quantization cost for throughput.
+
+| Parameter | Type | Required | Data Type | Default | Description |
+| --- | --- | --- | --- | --- | --- |
+| `nlist` | `build` | N | Positive integer >0 | 1024 | Number of inverted lists. |
+| `niter` | `build` | N | Positive integer >0 | 20 | Number of k-means iterations. |
+| `max_points_per_cluster` | `build` | N | Positive integer >0 | 256 | Maximum training points per cluster. |
+| `bits_per_dim` | `build` | N | Integer [1-9] | 3 | Number of bits used to encode each dimension. |
+| `fast_quantize_flag` | `build` | N | Boolean | `true` | Enable the faster index quantization path. |
+| `force_streaming` | `build` | N | Boolean | `false` | Force host-data streaming during construction. |
+| `nprobe` | `search` | N | Positive integer <= `nlist` | 20 | Number of inverted lists searched per query. |
+| `mode` | `search` | N | [`lut16`, `lut32`, `quant4`, `quant8`] | `quant4` | Distance evaluation mode. |
+| `filter_memory_type` | `search` | N | [`device`, `managed`, `pinned`, `host`, `mmap`] | `device` | Residency used for a configured filter bitset. |
 
 ### cuvs_cagra
 

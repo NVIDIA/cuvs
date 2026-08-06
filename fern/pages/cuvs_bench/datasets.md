@@ -83,16 +83,34 @@ If a dataset does not include ground truth, generate it with `cuvs_bench.generat
 
 ```bash
 # With an existing query file
-python -m cuvs_bench.generate_groundtruth --dataset /dataset/base.fbin --output=groundtruth_dir --queries=/dataset/query.public.10K.fbin
+python -m cuvs_bench.generate_groundtruth /dataset/base.fbin --output=groundtruth_dir --queries=/dataset/query.public.10K.fbin
 
 # With randomly generated queries
-python -m cuvs_bench.generate_groundtruth --dataset /dataset/base.fbin --output=groundtruth_dir --queries=random --n_queries=10000
+python -m cuvs_bench.generate_groundtruth /dataset/base.fbin --output=groundtruth_dir --queries=random --n_queries=10000
 
 # With random queries selected from a subset of the dataset
-python -m cuvs_bench.generate_groundtruth --dataset /dataset/base.fbin --nrows=2000000 --output=groundtruth_dir --queries=random-choice --n_queries=10000
+python -m cuvs_bench.generate_groundtruth /dataset/base.fbin --rows=2000000 --output=groundtruth_dir --queries=random-choice --n_queries=10000
 ```
 
 For billion-scale sources that provide ground truth for only the first 10M or 100M base vectors, use `subset_size` in the dataset configuration so the benchmark uses the matching prefix of the base file.
+
+### Prefiltered ground truth
+
+To benchmark filtered search, generate ground truth against the same filter the benchmark will apply. `--filter_reject_rate` builds a random bitset, uses it while computing the neighbors, and saves it next to the ground truth as `groundtruth.filter.bin`:
+
+```bash
+python -m cuvs_bench.generate_groundtruth /dataset/base.fbin --output=groundtruth_dir --queries=/dataset/query.fbin --filter_reject_rate=0.9
+```
+
+`--bitset` reuses an existing one instead, so several ground-truth sets can share a filter. The two options are mutually exclusive:
+
+```bash
+python -m cuvs_bench.generate_groundtruth /dataset/base.fbin --output=groundtruth_dir --queries=/dataset/query.fbin --bitset=groundtruth_dir/groundtruth.filter.bin
+```
+
+The alternative is `filtering_rate` (below), which filters unfiltered ground truth on the fly. That is simpler to configure, but at high reject rates it discards most ground-truth neighbors and leaves fewer than `k` valid entries per query, so recall becomes unreliable. Prefiltered ground truth keeps `k` valid neighbors regardless of the reject rate.
+
+The bitset is indexed by absolute row id, so it must cover the whole dataset and match the ground truth it was generated with. Both the generator and the benchmark reject a bitset that is too short; a mismatched one of the right size is reported as a warning during the run.
 
 ## Dataset configurations
 
@@ -122,6 +140,24 @@ For a new dataset, create a descriptor such as `mydataset.yaml`:
 ```
 
 Choose any `name` and pass it as `--dataset`. File paths are relative to `--dataset-path`. The optional `subset_size` uses the first `subset_size` vectors, which lets you benchmark subsets without duplicating base files. Generate separate ground truth for each subset.
+
+Two optional keys enable filtered search, and at most one may be set:
+
+| Key | Purpose |
+| --- | --- |
+| `filtering_rate` | Fraction of vectors to reject. Generates a random bitset at startup and filters the ground truth on the fly. Needs no extra files, but see the caveat above at high reject rates. |
+| `filter_bitset_file` | Path to a bitset written by `generate_groundtruth`, applied during search. Pair it with the prefiltered `groundtruth_neighbors_file` produced by the same run. |
+
+```yaml
+- name: mydata-1M-filtered
+  base_file: mydata-1M/base.100M.u8bin
+  subset_size: 1000000
+  dims: 128
+  query_file: mydata-10M/queries.u8bin
+  groundtruth_neighbors_file: mydata-1M/groundtruth.neighbors.ibin
+  filter_bitset_file: mydata-1M/groundtruth.filter.bin
+  distance: euclidean
+```
 
 Run the custom dataset with:
 

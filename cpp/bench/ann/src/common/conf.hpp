@@ -8,6 +8,7 @@
 
 #include <iostream>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -44,6 +45,7 @@ class configuration {
     std::string dtype;
 
     std::optional<double> filtering_rate{std::nullopt};
+    std::optional<std::string> filter_bitset_file{std::nullopt};
   };
 
   [[nodiscard]] inline auto get_dataset_conf() const -> const dataset_conf&
@@ -88,6 +90,14 @@ class configuration {
     dataset_conf_.distance   = conf.at("distance");
     if (conf.contains("filtering_rate")) {
       dataset_conf_.filtering_rate.emplace(conf.at("filtering_rate"));
+    }
+    if (conf.contains("filter_bitset_file")) {
+      dataset_conf_.filter_bitset_file = combine_path(data_prefix, conf.at("filter_bitset_file"));
+    }
+    if (dataset_conf_.filtering_rate.has_value() && dataset_conf_.filter_bitset_file.has_value()) {
+      throw std::invalid_argument(
+        "dataset config must set at most one of 'filtering_rate' or "
+        "'filter_bitset_file'; got both");
     }
 
     if (conf.contains("groundtruth_neighbors_file")) {

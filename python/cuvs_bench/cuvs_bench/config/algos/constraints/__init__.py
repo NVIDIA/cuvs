@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 
@@ -51,6 +51,12 @@ def cuvs_cagra_search(params, build_params, k, batch_size):
 
 
 def cuvs_ivf_sq_search(params, build_params, k, batch_size):
+    if "nlist" in build_params and "nprobe" in params:
+        return build_params["nlist"] >= params["nprobe"]
+    return True
+
+
+def cuvs_ivf_rabitq_search(params, build_params, k, batch_size):
     if "nlist" in build_params and "nprobe" in params:
         return build_params["nlist"] >= params["nprobe"]
     return True

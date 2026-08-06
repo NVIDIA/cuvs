@@ -35,6 +35,11 @@ struct ComputeInnerProductsWithBitwisePlanner : AlgorithmPlanner {
   {
     this->add_static_fragment<fragment_tag_extract_code<EX_BITS>>();
   }
+  template <typename FilterTag>
+  void add_sample_filter_device_function()
+  {
+    this->add_static_fragment<fragment_tag_sample_filter<FilterTag>>();
+  }
 };
 
 }  // namespace cuvs::neighbors::ivf_rabitq::detail

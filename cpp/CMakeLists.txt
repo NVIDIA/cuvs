@@ -687,6 +687,20 @@ if(NOT BUILD_CPU_ONLY)
   set(ivf_rabitq_ns "cuvs::neighbors::ivf_rabitq::detail")
   generate_jit_lto_kernels(
     jit_lto_files
+    NAME_FORMAT "ivf_rabitq_sample_filter_@filter_name@"
+    MATRIX_JSON_FILE
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/ivf_rabitq/jit_lto_kernels/sample_filter_matrix.json"
+    KERNEL_INPUT_FILE
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/ivf_rabitq/jit_lto_kernels/sample_filter_kernel.cu.in"
+    FRAGMENT_TAG_FORMAT
+      "${ivf_rabitq_ns}::fragment_tag_sample_filter<${neighbors_ns}::tag_filter_@filter_name@>"
+    FRAGMENT_TAG_HEADER_FILES "<cuvs/detail/jit_lto/ivf_rabitq/ivf_rabitq_fragments.hpp>"
+                              "<cuvs/detail/jit_lto/common_fragments.hpp>"
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated_kernels/ivf_rabitq/sample_filter"
+    KERNEL_LINK_LIBRARIES jit_lto_kernel_usage_requirements
+  )
+  generate_jit_lto_kernels(
+    jit_lto_files
     NAME_FORMAT "ivf_rabitq_compute_inner_products_with_lut"
     MATRIX_JSON_FILE
       "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/ivf_rabitq/jit_lto_kernels/compute_inner_products_with_lut_matrix.json"

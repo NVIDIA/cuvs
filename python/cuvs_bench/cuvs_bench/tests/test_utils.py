@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -668,6 +668,39 @@ class TestConfigLoaderMethods:
         result = loader.get_dataset_configuration("glove-100", datasets)
         assert result["name"] == "glove-100"
         assert result["dims"] == 100
+
+    def test_build_dataset_config_preserves_filter_configuration(self):
+        loader = CppGBenchConfigLoader()
+        result = loader.build_dataset_config(
+            {
+                "name": "filtered",
+                "base_file": "base.fbin",
+                "query_file": "query.fbin",
+                "distance": "euclidean",
+                "filter_bitset_file": "filter.bin",
+            },
+            "/data",
+            None,
+        )
+
+        assert result.filtering_rate is None
+        assert result.filter_bitset_file == "/data/filter.bin"
+
+    def test_build_dataset_config_rejects_multiple_filter_sources(self):
+        loader = CppGBenchConfigLoader()
+        with pytest.raises(ValueError, match="at most one"):
+            loader.build_dataset_config(
+                {
+                    "name": "filtered",
+                    "base_file": "base.fbin",
+                    "query_file": "query.fbin",
+                    "distance": "euclidean",
+                    "filtering_rate": 0.5,
+                    "filter_bitset_file": "filter.bin",
+                },
+                "/data",
+                None,
+            )
 
     def test_get_dataset_configuration_not_found(self):
         """Test that missing datasets raise ValueError."""

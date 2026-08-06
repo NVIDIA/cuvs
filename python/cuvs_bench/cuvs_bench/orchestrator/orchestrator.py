@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -644,6 +644,8 @@ class BenchmarkOrchestrator:
             query_file=dataset_config.query_file,
             groundtruth_neighbors_file=dataset_config.groundtruth_neighbors_file,
             groundtruth_distances_file=dataset_config.groundtruth_distances_file,
+            filtering_rate=dataset_config.filtering_rate,
+            filter_bitset_file=dataset_config.filter_bitset_file,
             distance_metric=dataset_config.distance,
             metadata={"subset_size": dataset_config.subset_size},
         )

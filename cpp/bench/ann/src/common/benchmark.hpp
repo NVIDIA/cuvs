@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -101,6 +101,9 @@ inline auto parse_algo_property(algo_property prop, const nlohmann::json& conf) 
   }
   if (conf.contains("query_memory_type")) {
     prop.query_memory_type = parse_memory_type(conf.at("query_memory_type"));
+  }
+  if (conf.contains("filter_memory_type")) {
+    prop.filter_memory_type = parse_memory_type(conf.at("filter_memory_type"));
   }
   return prop;
 };
@@ -263,7 +266,7 @@ void bench_search(::benchmark::State& state,
     }
     try {
       a->set_search_param(*search_param,
-                          dataset->filter_bitset(current_algo_props->dataset_memory_type));
+                          dataset->filter_bitset(current_algo_props->filter_memory_type));
     } catch (const std::exception& ex) {
       state.SkipWithError("An error occurred setting search parameters: " + std::string(ex.what()));
       return;
@@ -537,15 +540,16 @@ void dispatch_benchmark(std::string cmdline,
   auto base_file     = dataset_conf.base_file;
   auto query_file    = dataset_conf.query_file;
   auto gt_file       = dataset_conf.groundtruth_neighbors_file;
-  auto dataset =
-    std::make_shared<bench::dataset<T>>(dataset_conf.name,
-                                        base_file,
-                                        dataset_conf.subset_first_row,
-                                        dataset_conf.subset_size,
-                                        query_file,
-                                        dataset_conf.distance,
-                                        gt_file,
-                                        search_mode ? dataset_conf.filtering_rate : std::nullopt);
+  auto dataset       = std::make_shared<bench::dataset<T>>(
+    dataset_conf.name,
+    base_file,
+    dataset_conf.subset_first_row,
+    dataset_conf.subset_size,
+    query_file,
+    dataset_conf.distance,
+    gt_file,
+    search_mode ? dataset_conf.filtering_rate : std::nullopt,
+    search_mode ? dataset_conf.filter_bitset_file : std::nullopt);
   ::benchmark::AddCustomContext("dataset", dataset_conf.name);
   ::benchmark::AddCustomContext("distance", dataset_conf.distance);
   std::vector<configuration::index>& indices = conf.get_indices();

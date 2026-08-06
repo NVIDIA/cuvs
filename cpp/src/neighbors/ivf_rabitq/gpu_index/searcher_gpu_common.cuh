@@ -61,6 +61,9 @@ struct ComputeInnerProductsKernelParams {
   const uint8_t* d_long_code  = nullptr;  // long codes for all vectors
   const float* d_ex_factor    = nullptr;  // ex factors for distance computation
   const PID* d_pids           = nullptr;  // PIDs for all vectors
+  uint32_t* bitset_ptr        = nullptr;
+  int64_t bitset_len          = 0;
+  int64_t original_nbits      = 0;
   float* d_topk_dists         = nullptr;  // output top-k distances
   PID* d_topk_pids            = nullptr;  // output top-k PIDs
   int* d_query_write_counters = nullptr;

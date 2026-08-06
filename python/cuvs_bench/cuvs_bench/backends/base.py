@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -57,6 +57,10 @@ class Dataset:
         Path to ground truth distances file
     metadata : Optional[Dict[str, Any]]
         Additional dataset metadata like {"subset_size": 10000}
+    filtering_rate : Optional[float]
+        Fraction of dataset vectors rejected by a generated random filter
+    filter_bitset_file : Optional[str]
+        Path to a persisted cuVS bitset file used during search
     """
 
     def __init__(
@@ -72,6 +76,8 @@ class Dataset:
         groundtruth_neighbors_file: Optional[str] = None,
         groundtruth_distances_file: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        filtering_rate: Optional[float] = None,
+        filter_bitset_file: Optional[str] = None,
     ):
         self.name = name
         # Vectors are stored privately to support lazy loading.
@@ -96,6 +102,8 @@ class Dataset:
         self.query_file = query_file
         self.groundtruth_neighbors_file = groundtruth_neighbors_file
         self.groundtruth_distances_file = groundtruth_distances_file
+        self.filtering_rate = filtering_rate
+        self.filter_bitset_file = filter_bitset_file
         self.metadata = metadata or {}
 
     @property

@@ -73,10 +73,12 @@ auto build(raft::resources const& handle,
       host_dataset_ptr = dataset.data_handle();
       if (params.force_streaming) {
         RAFT_LOG_INFO(
-          "Using streaming construction: explicitly requested via force_streaming parameter");
+          "Using streaming construction: explicitly requested "
+          "via force_streaming parameter");
       } else {
         RAFT_LOG_INFO(
-          "Using streaming construction: dataset size (%.2f GB) exceeds comfortable GPU memory "
+          "Using streaming construction: dataset size (%.2f GB) "
+          "exceeds comfortable GPU memory "
           "limit",
           dataset_bytes / (1024.0 * 1024.0 * 1024.0));
       }
@@ -123,8 +125,10 @@ auto build(raft::resources const& handle,
         handle, big_memory_resource, raft::make_extents<int64_t>(n_rows_train, dim));
     } catch (raft::logic_error& e) {
       RAFT_LOG_ERROR(
-        "Insufficient memory for kmeans training set allocation. Please decrease "
-        "max_train_points_per_cluster, or set large_workspace_resource appropriately.");
+        "Insufficient memory for kmeans training set "
+        "allocation. Please decrease "
+        "max_train_points_per_cluster, or set "
+        "large_workspace_resource appropriately.");
       throw;
     }
     raft::matrix::sample_rows<T, int64_t>(handle, random_state, dataset, trainset.view());
@@ -193,7 +197,8 @@ void search(raft::resources const& handle,
             index<IdxT>& idx,
             raft::device_matrix_view<const T, IdxT, raft::row_major> queries,
             raft::device_matrix_view<IdxT, IdxT, raft::row_major> neighbors,
-            raft::device_matrix_view<float, IdxT, raft::row_major> distances)
+            raft::device_matrix_view<float, IdxT, raft::row_major> distances,
+            SampleFilterParams sample_filter)
 {
   auto stream = raft::resource::get_cuda_stream(handle).value();
 
@@ -265,25 +270,46 @@ void search(raft::resources const& handle,
 
   if (params.mode == search_mode::LUT32) {
     idx.rabitq_index().BatchClusterSearch(
-      queries_view, k, params.n_probes, searcher, NQ, distances, final_ids.view());
+      queries_view, k, params.n_probes, searcher, NQ, distances, final_ids.view(), sample_filter);
   } else if (params.mode == search_mode::LUT16) {
     // test v3 lut using fp16
     idx.rabitq_index().BatchClusterSearchLUT16(
-      queries_view, k, params.n_probes, searcher, NQ, distances, final_ids.view());
+      queries_view, k, params.n_probes, searcher, NQ, distances, final_ids.view(), sample_filter);
   } else if (params.mode == search_mode::QUANT8) {
-    idx.rabitq_index().BatchClusterSearchQuantizeQuery(
-      queries_view, k, params.n_probes, searcher, NQ, distances, final_ids.view(), 8);
+    idx.rabitq_index().BatchClusterSearchQuantizeQuery(queries_view,
+                                                       k,
+                                                       params.n_probes,
+                                                       searcher,
+                                                       NQ,
+                                                       distances,
+                                                       final_ids.view(),
+                                                       8,
+                                                       sample_filter);
   } else if (params.mode == search_mode::QUANT4) {
-    idx.rabitq_index().BatchClusterSearchQuantizeQuery(
-      queries_view, k, params.n_probes, searcher, NQ, distances, final_ids.view(), 4);
+    idx.rabitq_index().BatchClusterSearchQuantizeQuery(queries_view,
+                                                       k,
+                                                       params.n_probes,
+                                                       searcher,
+                                                       NQ,
+                                                       distances,
+                                                       final_ids.view(),
+                                                       4,
+                                                       sample_filter);
   }
 
-  // cast data in final_ids to array of IdxT in neighbors
+  // Dummy candidates have an infinite distance. InnerProduct search negates its pseudo-distances
+  // before returning, so accept either sign here. Preserve every finite-result PID, including
+  // UINT32_MAX, and represent missing results with the public out-of-bounds sentinel.
   raft::linalg::map(
     handle,
     neighbors,
-    raft::cast_op<IdxT>{},
-    raft::make_device_vector_view<const uint32_t, IdxT>(final_ids.data_handle(), NQ * k));
+    [] __device__(uint32_t id, float distance) {
+      return distance == raft::upper_bound<float>() || distance == raft::lower_bound<float>()
+               ? kOutOfBoundsRecord<IdxT>
+               : static_cast<IdxT>(id);
+    },
+    raft::make_device_vector_view<const uint32_t, IdxT>(final_ids.data_handle(), NQ * k),
+    raft::make_device_vector_view<const float, IdxT>(distances.data_handle(), NQ * k));
 }
 
 template <typename IdxT>
@@ -382,10 +408,29 @@ void search(raft::resources const& handle,
             cuvs::neighbors::ivf_rabitq::index<int64_t>& index,
             raft::device_matrix_view<const float, int64_t, raft::row_major> queries,
             raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
-            raft::device_matrix_view<float, int64_t, raft::row_major> distances)
+            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
+            const cuvs::neighbors::filtering::base_filter& sample_filter_ref)
 {
+  detail::SampleFilterParams sample_filter;
+  try {
+    dynamic_cast<const cuvs::neighbors::filtering::none_sample_filter&>(sample_filter_ref);
+  } catch (const std::bad_cast&) {
+    try {
+      auto& bitset_filter =
+        dynamic_cast<const cuvs::neighbors::filtering::bitset_filter<uint32_t, int64_t>&>(
+          sample_filter_ref);
+      RAFT_EXPECTS(bitset_filter.view().size() >= index.size(),
+                   "Bitset filter must contain at least index.size() bits");
+      sample_filter.type           = detail::SampleFilterType::Bitset;
+      sample_filter.bitset_ptr     = bitset_filter.view().data();
+      sample_filter.bitset_len     = bitset_filter.view().size();
+      sample_filter.original_nbits = bitset_filter.view().get_original_nbits();
+    } catch (const std::bad_cast&) {
+      RAFT_FAIL("Unsupported sample filter type");
+    }
+  }
   cuvs::neighbors::ivf_rabitq::detail::search(
-    handle, search_params, index, queries, neighbors, distances);
+    handle, search_params, index, queries, neighbors, distances, sample_filter);
 }
 
 void serialize(raft::resources const& handle,

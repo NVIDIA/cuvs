@@ -48,4 +48,7 @@ struct fragment_tag_compute_lut_ip_for_vec {};
 template <int NumBits>
 struct fragment_tag_compute_bitwise_quantized_ip_for_vec {};
 
+template <typename FilterTag>
+struct fragment_tag_sample_filter {};
+
 }  // namespace cuvs::neighbors::ivf_rabitq::detail

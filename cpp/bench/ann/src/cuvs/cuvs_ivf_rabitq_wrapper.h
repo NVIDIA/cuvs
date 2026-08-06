@@ -81,6 +81,7 @@ class cuvs_ivf_rabitq : public algo<T>, public algo_gpu {
   int dimension_;
   float refine_ratio_ = 1.0;
   raft::device_matrix_view<const T, IdxT> dataset_;
+  std::shared_ptr<cuvs::neighbors::filtering::base_filter> filter_;
 };
 
 template <typename T, typename IdxT>
@@ -118,8 +119,10 @@ std::unique_ptr<algo<T>> cuvs_ivf_rabitq<T, IdxT>::copy()
 }
 
 template <typename T, typename IdxT>
-void cuvs_ivf_rabitq<T, IdxT>::set_search_param(const search_param_base& param, const void*)
+void cuvs_ivf_rabitq<T, IdxT>::set_search_param(const search_param_base& param,
+                                                const void* filter_bitset)
 {
+  filter_        = make_cuvs_filter(filter_bitset, index_->size());
   auto sp        = dynamic_cast<const search_param&>(param);
   search_params_ = sp.rabitq_param;
   refine_ratio_  = sp.refine_ratio;
@@ -154,7 +157,7 @@ void cuvs_ivf_rabitq<T, IdxT>::search(
   auto distances_view = raft::make_device_matrix_view<float, int64_t>(distances, batch_size, k);
 
   cuvs::neighbors::ivf_rabitq::search(
-    handle_, search_params_, *index_, queries_view, neighbors_view, distances_view);
+    handle_, search_params_, *index_, queries_view, neighbors_view, distances_view, *filter_);
 
   if constexpr (sizeof(IdxT) != sizeof(algo_base::index_type)) {
     raft::linalg::unaryOp(neighbors,

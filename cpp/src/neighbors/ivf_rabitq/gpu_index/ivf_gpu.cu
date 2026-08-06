@@ -125,7 +125,8 @@ void IVFGPU::load_transposed(const char* filename)
   std::uint32_t version = 0;
   read_exact(&version, sizeof(std::uint32_t));
   RAFT_EXPECTS(version == kSerializationVersion,
-               "ivf_rabitq::deserialize: serialization version mismatch (got %u, expected %u) "
+               "ivf_rabitq::deserialize: serialization version mismatch (got "
+               "%u, expected %u) "
                "in: %s",
                version,
                kSerializationVersion,
@@ -162,12 +163,14 @@ void IVFGPU::load_transposed(const char* filename)
                ex_bits,
                filename);
   RAFT_EXPECTS(num_centroids > 0 && num_centroids <= cuvs::util::kMaxIvfNLists,
-               "ivf_rabitq::deserialize: num_centroids=%zu out of valid range (0, %u] in: %s",
+               "ivf_rabitq::deserialize: num_centroids=%zu out of valid "
+               "range (0, %u] in: %s",
                num_centroids,
                cuvs::util::kMaxIvfNLists,
                filename);
   RAFT_EXPECTS(cuvs::util::is_mul_no_overflow(num_vectors, num_padded_dim),
-               "ivf_rabitq::deserialize: num_vectors=%zu * num_padded_dim=%zu overflows size_t "
+               "ivf_rabitq::deserialize: num_vectors=%zu * "
+               "num_padded_dim=%zu overflows size_t "
                "in: %s",
                num_vectors,
                num_padded_dim,
@@ -1195,7 +1198,8 @@ void IVFGPU::BatchClusterSearch(
   SearcherGPU& searcher,
   size_t batch_size,
   raft::device_matrix_view<float, int64_t, raft::row_major> d_final_dists,
-  raft::device_matrix_view<uint32_t, int64_t, raft::row_major> d_final_pids)
+  raft::device_matrix_view<uint32_t, int64_t, raft::row_major> d_final_pids,
+  SampleFilterParams sample_filter)
 {
   auto d_sorted_pairs =
     raft::make_device_vector<ClusterQueryPair, int64_t>(searcher.get_handle(), 0);
@@ -1212,7 +1216,8 @@ void IVFGPU::BatchClusterSearch(
                                    nprobe,
                                    k,
                                    d_final_dists,
-                                   d_final_pids);
+                                   d_final_pids,
+                                   sample_filter);
 }
 
 void IVFGPU::BatchClusterSearchLUT16(
@@ -1222,7 +1227,8 @@ void IVFGPU::BatchClusterSearchLUT16(
   SearcherGPU& searcher,
   size_t batch_size,
   raft::device_matrix_view<float, int64_t, raft::row_major> d_final_dists,
-  raft::device_matrix_view<uint32_t, int64_t, raft::row_major> d_final_pids)
+  raft::device_matrix_view<uint32_t, int64_t, raft::row_major> d_final_pids,
+  SampleFilterParams sample_filter)
 {
   auto d_sorted_pairs =
     raft::make_device_vector<ClusterQueryPair, int64_t>(searcher.get_handle(), 0);
@@ -1239,7 +1245,8 @@ void IVFGPU::BatchClusterSearchLUT16(
                                                nprobe,
                                                k,
                                                d_final_dists,
-                                               d_final_pids);
+                                               d_final_pids,
+                                               sample_filter);
 }
 
 void IVFGPU::BatchClusterSearchQuantizeQuery(
@@ -1250,7 +1257,8 @@ void IVFGPU::BatchClusterSearchQuantizeQuery(
   size_t batch_size,
   raft::device_matrix_view<float, int64_t, raft::row_major> d_final_dists,
   raft::device_matrix_view<uint32_t, int64_t, raft::row_major> d_final_pids,
-  int query_bits)
+  int query_bits,
+  SampleFilterParams sample_filter)
 {
   auto d_sorted_pairs =
     raft::make_device_vector<ClusterQueryPair, int64_t>(searcher.get_handle(), 0);
@@ -1268,7 +1276,8 @@ void IVFGPU::BatchClusterSearchQuantizeQuery(
                                                 k,
                                                 d_final_dists,
                                                 d_final_pids,
-                                                query_bits == 4);
+                                                query_bits == 4,
+                                                sample_filter);
 }
 
 }  // namespace cuvs::neighbors::ivf_rabitq::detail

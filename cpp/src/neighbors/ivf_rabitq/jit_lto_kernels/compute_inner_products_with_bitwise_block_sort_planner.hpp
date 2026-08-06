@@ -43,6 +43,11 @@ struct ComputeInnerProductsWithBitwiseBlockSortPlanner : AlgorithmPlanner {
   {
     this->add_static_fragment<fragment_tag_compute_bitwise_quantized_ip_for_vec<NumBits>>();
   }
+  template <typename FilterTag>
+  void add_sample_filter_device_function()
+  {
+    this->add_static_fragment<fragment_tag_sample_filter<FilterTag>>();
+  }
 };
 
 }  // namespace cuvs::neighbors::ivf_rabitq::detail

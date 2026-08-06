@@ -21,6 +21,15 @@
 
 namespace cuvs::neighbors::ivf_rabitq::detail {
 
+enum class SampleFilterType { None, Bitset };
+
+struct SampleFilterParams {
+  SampleFilterType type  = SampleFilterType::None;
+  uint32_t* bitset_ptr   = nullptr;
+  int64_t bitset_len     = 0;
+  int64_t original_nbits = 0;
+};
+
 // block-level sorting used if topk <= kMaxTopKBlockSort; must be power of 2; increases shared mem
 // usage
 static constexpr int kMaxTopKBlockSort = 64;
@@ -80,7 +89,8 @@ class SearcherGPU {
     size_t nprobe,
     size_t topk,
     raft::device_matrix_view<float, int64_t, raft::row_major> d_final_dists,
-    raft::device_matrix_view<uint32_t, int64_t, raft::row_major> d_final_pids);
+    raft::device_matrix_view<uint32_t, int64_t, raft::row_major> d_final_pids,
+    SampleFilterParams sample_filter);
 
   void SearchClusterQueryPairsSharedMemOpt(
     const IVFGPU& cur_ivf,
@@ -93,7 +103,8 @@ class SearcherGPU {
     size_t nprobe,
     size_t topk,
     raft::device_matrix_view<float, int64_t, raft::row_major> d_final_dists,
-    raft::device_matrix_view<uint32_t, int64_t, raft::row_major> d_final_pids);
+    raft::device_matrix_view<uint32_t, int64_t, raft::row_major> d_final_pids,
+    SampleFilterParams sample_filter);
 
   void SearchClusterQueryPairsQuantizeQuery(
     const IVFGPU& cur_ivf,
@@ -107,7 +118,8 @@ class SearcherGPU {
     size_t topk,
     raft::device_matrix_view<float, int64_t, raft::row_major> d_final_dists,
     raft::device_matrix_view<uint32_t, int64_t, raft::row_major> d_final_pids,
-    bool use_4bit = false);
+    bool use_4bit,
+    SampleFilterParams sample_filter);
 
  private:
   raft::resources const& handle_;  // reusable resource handle

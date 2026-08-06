@@ -324,8 +324,8 @@ void SearcherGPU::SearchClusterQueryPairsQuantizeQuery(
   size_t topk,
   raft::device_matrix_view<float, int64_t, raft::row_major> d_final_dists,
   raft::device_matrix_view<uint32_t, int64_t, raft::row_major> d_final_pids,
-  bool use_4bit  // Add parameter to choose 4-bit or 8-bit
-)
+  bool use_4bit,
+  SampleFilterParams sample_filter)
 {
   // check if the inner products kernel should use block sort to keep a top-k priority queue vs.
   // outputting distances from all vectors in probed clusters
@@ -514,23 +514,29 @@ void SearcherGPU::SearchClusterQueryPairsQuantizeQuery(
   kernelParams.max_candidates_per_pair = max_cluster_size;
   kernelParams.max_candidates_per_query =
     use_block_sort ? 0 /* unused */ : max_probed_vectors_count.value();
-  kernelParams.ex_bits      = cur_ivf.get_ex_bits();
-  kernelParams.d_long_code  = cur_ivf.get_long_code_device();
-  kernelParams.d_ex_factor  = reinterpret_cast<const float*>(cur_ivf.get_ex_factor_device());
-  kernelParams.d_pids       = cur_ivf.get_ids_device();
-  kernelParams.d_topk_dists = d_topk_dists.data_handle();
-  kernelParams.d_topk_pids  = d_topk_pids.data_handle();
+  kernelParams.ex_bits        = cur_ivf.get_ex_bits();
+  kernelParams.d_long_code    = cur_ivf.get_long_code_device();
+  kernelParams.d_ex_factor    = reinterpret_cast<const float*>(cur_ivf.get_ex_factor_device());
+  kernelParams.d_pids         = cur_ivf.get_ids_device();
+  kernelParams.bitset_ptr     = sample_filter.bitset_ptr;
+  kernelParams.bitset_len     = sample_filter.bitset_len;
+  kernelParams.original_nbits = sample_filter.original_nbits;
+  kernelParams.d_topk_dists   = d_topk_dists.data_handle();
+  kernelParams.d_topk_pids    = d_topk_pids.data_handle();
   kernelParams.d_query_write_counters = d_query_write_counters.data_handle();
   kernelParams.num_bits               = num_bits;
   kernelParams.num_words              = num_words;
 
   const int num_bits_for_dispatch = use_4bit ? 4 : 8;
   const bool with_ex              = (cur_ivf.get_ex_bits() != 0);
-  auto jit_launcher =
-    use_block_sort
-      ? make_compute_inner_products_with_bitwise_block_sort_launcher(
-          num_bits_for_dispatch, cur_ivf.get_ex_bits(), with_ex, is_inner_product)
-      : make_compute_inner_products_with_bitwise_launcher(cur_ivf.get_ex_bits(), with_ex);
+  auto jit_launcher = use_block_sort ? make_compute_inner_products_with_bitwise_block_sort_launcher(
+                                         num_bits_for_dispatch,
+                                         cur_ivf.get_ex_bits(),
+                                         with_ex,
+                                         is_inner_product,
+                                         sample_filter.type)
+                                     : make_compute_inner_products_with_bitwise_launcher(
+                                         cur_ivf.get_ex_bits(), with_ex, sample_filter.type);
   auto const& kernel_launcher = [&]() -> void {
     jit_launcher->dispatch<compute_inner_products_with_lut_func_t>(
       stream_, gridDim, blockDim, shared_mem_size, kernelParams);
