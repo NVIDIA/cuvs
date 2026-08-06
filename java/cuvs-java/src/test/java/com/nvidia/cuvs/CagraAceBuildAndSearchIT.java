@@ -191,7 +191,10 @@ public class CagraAceBuildAndSearchIT extends CuVSTestCase {
         // Convert CAGRA index to HNSW using fromCagra
         // This automatically handles disk-based indices
         HnswIndexParams hnswIndexParams =
-            new HnswIndexParams.Builder().withVectorDimension(2).withHierarchy(HnswHierarchy.GPU).build();
+            new HnswIndexParams.Builder()
+                .withVectorDimension(2)
+                .withHierarchy(HnswHierarchy.GPU)
+                .build();
 
         try (var hnswIndexSerialized = HnswIndex.fromCagra(hnswIndexParams, index)) {
           var hnswIndexSerializedPath = buildDir.resolve("hnsw_index.bin");
