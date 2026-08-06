@@ -310,7 +310,7 @@ inline auto make_root_partition(raft::resources const& res, int64_t rows) -> par
   auto ranges = raft::make_host_vector<partition_range, int64_t>(res, 1);
   ranges(0)   = partition_range{uint32_t{0}, int64_t{0}, rows};
   partition_set root{std::move(memberships), std::move(ranges)};
-  int blocks = raft::div_rounding_up_safe<int>(static_cast<int>(rows), THREADS_PER_BLOCK);
+  auto blocks = static_cast<int>(raft::div_rounding_up_safe<int64_t>(rows, THREADS_PER_BLOCK));
   initialize_root_memberships_kernel<<<blocks, THREADS_PER_BLOCK, 0, stream>>>(
     root.memberships.data_handle(), rows);
   RAFT_CUDA_TRY(cudaGetLastError());
