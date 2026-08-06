@@ -21,6 +21,7 @@
 #include <raft/core/operators.hpp>
 #include <raft/core/resources.hpp>
 #include <raft/linalg/add.cuh>
+#include <raft/linalg/map.cuh>
 #include <raft/linalg/norm.cuh>
 #include <raft/matrix/init.cuh>
 #include <raft/random/rng.cuh>
@@ -294,21 +295,14 @@ void initKMeansPlusPlus_distributed(
   RAFT_LOG_DEBUG(
     "Distributed KMeans||: rank=%d, psi=%g, niter=%d", rank, static_cast<double>(psi), niter);
 
-  // Steps 3-6: sample candidates `O(log psi)` times, gathering across ranks.
-  for (int iter = 0; iter < niter; ++iter) {
-    if (iter > 0)
-      psi = compute_global_cluster_cost<DataT, IndexT>(handle,
-                                                       params,
-                                                       X_parts,
-                                                       part_offsets,
-                                                       n_local,
-                                                       L2NormX.view(),
-                                                       potentialCentroids,
-                                                       minClusterDistance.view(),
-                                                       L2NormBuf_OR_DistBuf,
-                                                       workspace,
-                                                       comms);
+  // Buffer for d(x, C') when incrementally updating min distances after each round.
+  auto newMinClusterDistance =
+    raft::make_device_vector<DataT, IndexT>(handle, std::max(n_local, IndexT{1}));
 
+  // Steps 3-6: sample candidates `O(log psi)` times, gathering across ranks.
+  // minClusterDistance / psi already hold d(x, C) / phi_X(C) from Step-2 (and are
+  // refreshed at the end of each round against only the newly sampled C').
+  for (int iter = 0; iter < niter; ++iter) {
     if (n_local > 0) {
       auto rands_view =
         raft::make_device_vector_view<DataT, IndexT>(uniformRands.data_handle(), n_local);
@@ -390,6 +384,58 @@ void initKMeansPlusPlus_distributed(
     IndexT tot_centroids = static_cast<IndexT>(potentialCentroids.extent(0)) + total_new;
     potentialCentroids =
       raft::make_device_matrix_view<DataT, IndexT>(centroidsBuf.data(), tot_centroids, n_features);
+
+    // Refresh d(x, C) = min(d(x, C), d(x, C')) for the next sampling round.
+    // Skip when C' is empty or this was the last oversampling iteration.
+    if (total_new > 0 && iter + 1 < niter) {
+      auto Cp = raft::make_device_matrix_view<DataT, IndexT>(
+        centroidsBuf.data() + (static_cast<IndexT>(potentialCentroids.extent(0)) - total_new) *
+                                n_features,
+        total_new,
+        n_features);
+
+      auto d_partial = raft::make_device_scalar<DataT>(handle, DataT{0});
+      for (std::size_t p = 0; p < X_parts.size(); ++p) {
+        auto part_rows = static_cast<IndexT>(X_parts[p].extent(0));
+        if (part_rows == 0) { continue; }
+        auto x_slice = raft::make_device_matrix_view<const DataT, IndexT>(
+          X_parts[p].data_handle(), part_rows, n_features);
+        auto mcd_slice = raft::make_device_vector_view<DataT, IndexT>(
+          minClusterDistance.data_handle() + part_offsets[p], part_rows);
+        auto new_mcd_slice = raft::make_device_vector_view<DataT, IndexT>(
+          newMinClusterDistance.data_handle() + part_offsets[p], part_rows);
+        auto norm_slice = raft::make_device_vector_view<DataT, IndexT>(
+          L2NormX.data_handle() + part_offsets[p], part_rows);
+
+        cuvs::cluster::kmeans::min_cluster_distance<DataT, IndexT>(handle,
+                                                                   x_slice,
+                                                                   Cp,
+                                                                   new_mcd_slice,
+                                                                   norm_slice,
+                                                                   L2NormBuf_OR_DistBuf,
+                                                                   params.metric,
+                                                                   params.batch_samples,
+                                                                   params.batch_centroids,
+                                                                   workspace);
+
+        raft::linalg::map(handle,
+                          mcd_slice,
+                          raft::min_op{},
+                          raft::make_const_mdspan(mcd_slice),
+                          raft::make_const_mdspan(new_mcd_slice));
+      }
+
+      if (n_local > 0) {
+        auto mcd_view =
+          raft::make_device_vector_view<DataT, IndexT>(minClusterDistance.data_handle(), n_local);
+        cuvs::cluster::kmeans::cluster_cost<DataT, IndexT>(
+          handle, mcd_view, workspace, d_partial.view(), raft::add_op{});
+      }
+
+      comms.allreduce(d_partial.data_handle(), d_partial.data_handle(), 1);
+      raft::copy(&psi, d_partial.data_handle(), 1, stream);
+      raft::resource::sync_stream(handle);
+    }
   }
 
   RAFT_LOG_DEBUG("Distributed KMeans||: rank=%d, total candidates = %d",
