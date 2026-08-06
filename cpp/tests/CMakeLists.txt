@@ -426,6 +426,17 @@ ConfigureTest(
   PERCENT 100
 )
 
+# TEMPORARY PR DEBUGGING: BEGIN Runs the A100/CUDA-12 multi-process batched silhouette diagnostic on
+# every GPU test job. Remove this registration together with stats/silhouette_score_concurrency.cu
+# before merge.
+ConfigureTest(
+  NAME BATCHED_SILHOUETTE_CONCURRENCY_TEST
+  PATH stats/silhouette_score_concurrency.cu
+  GPUS 1
+  PERCENT 100 RUN_SERIAL
+)
+# TEMPORARY PR DEBUGGING: END
+
 # ##################################################################################################
 # Install tests ####################################################################################
 # ##################################################################################################
