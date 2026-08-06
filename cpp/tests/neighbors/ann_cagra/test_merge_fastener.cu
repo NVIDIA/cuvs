@@ -781,6 +781,93 @@ TEST(CagraMergeFastener, LeafGemmLimitsRejectOversizedWorkspaceDimensions)
 }
 
 /**
+ * The leaf GEMM is not the only indivisible workspace shape. Assignment must also hold one parent's
+ * padded leader matrix next to at least one point row, and the leader matrix can be far wider than
+ * a leaf: leaders are capped at `max_leaders` while leaves are capped at MAX_LEAF_SIZE. So a
+ * dimension can fit a whole leaf and still fail on a single assignment row. Preflight must cover
+ * that shape too -- otherwise the configuration passes preflight and dies inside assign_bucket, by
+ * which point AUTO has already committed to Fastener and cannot fall back to rebuild.
+ */
+TEST(CagraMergeFastener, AssignmentGemmLimitsRejectDimensionsThatFitALeaf)
+{
+  using namespace detail::merge_scaffold;
+  constexpr size_t workspace_bytes = size_t{1} * 1024 * 1024;
+  constexpr uint32_t leaf_size     = 256;  // the default, spelled out for the arithmetic below
+  constexpr uint32_t max_leaders   = 1024;
+  constexpr int64_t rows_per_input = 512;
+  constexpr int64_t merged_rows    = rows_per_input * 2;
+
+  // Sampling every row as a leader is what drives the leader matrix to its cap; the default
+  // fraction of 0.02 would pick only 21 leaders out of these rows.
+  split_params const worst_case{
+    .fanout = 3, .leader_fraction = 1.0, .max_leaders = max_leaders, .leaf_size = leaf_size};
+
+  // A leaf of this dimension fits comfortably (1024 * dim + 256 KiB Gram), while a single
+  // assignment row does not: the padded leader matrix alone is 1024 * dim * 4 = 2 MiB.
+  constexpr int64_t dim = 512;
+  EXPECT_TRUE(leaf_gemm_supported(dim, leaf_size, workspace_bytes));
+  EXPECT_FALSE(assignment_gemm_supported(dim, merged_rows, worst_case, workspace_bytes));
+
+  // Degenerate shapes are rejected rather than wrapping around in the byte model.
+  EXPECT_FALSE(assignment_gemm_supported(0, merged_rows, worst_case, workspace_bytes));
+  EXPECT_FALSE(assignment_gemm_supported(-1, merged_rows, worst_case, workspace_bytes));
+  EXPECT_FALSE(assignment_gemm_supported(dim, 0, worst_case, workspace_bytes));
+
+  // The leader count follows the sample fraction and the row count, not just the cap, so the same
+  // dimension is fine once no parent can reach a wide leader matrix. Bounding on max_leaders alone
+  // would reject both of these.
+  EXPECT_TRUE(assignment_gemm_supported(dim, 64, worst_case, workspace_bytes));
+  auto sparse_leaders            = worst_case;
+  sparse_leaders.leader_fraction = 0.02;
+  EXPECT_TRUE(assignment_gemm_supported(dim, merged_rows, sparse_leaders, workspace_bytes));
+
+  raft::resources res;
+  raft::resource::set_workspace_to_global_resource(res, workspace_bytes);
+  auto metric         = cuvs::distance::DistanceType::L2Expanded;
+  auto dataset0       = make_dataset<int8_t>(res, rows_per_input, dim, 1234ULL);
+  auto dataset1       = make_dataset<int8_t>(res, rows_per_input, dim, 5678ULL);
+  auto graph0         = make_ring_graph(res, rows_per_input, 4);
+  auto graph1         = make_ring_graph(res, rows_per_input, 4);
+  auto index0_storage = make_padded<int8_t>(res, raft::make_const_mdspan(dataset0.view()));
+  cagra::index<int8_t, uint32_t> index0(
+    res, metric, index0_storage.view, raft::make_const_mdspan(graph0.view()));
+  auto index1_storage = make_padded<int8_t>(res, raft::make_const_mdspan(dataset1.view()));
+  cagra::index<int8_t, uint32_t> index1(
+    res, metric, index1_storage.view, raft::make_const_mdspan(graph1.view()));
+
+  index_params params;
+  params.metric                    = metric;
+  params.graph_degree              = 4;
+  params.intermediate_graph_degree = 8;
+  params.attach_dataset_on_build   = true;
+  std::vector<index<int8_t, uint32_t>*> indices{&index0, &index1};
+
+  merge_params fastener;
+  fastener.algo            = merge_algo::FASTENER;
+  fastener.leader_fraction = worst_case.leader_fraction;
+  fastener.max_leaders     = worst_case.max_leaders;
+  fastener.leaf_size       = worst_case.leaf_size;
+  auto result              = detail::preflight_fastener(
+    res, params, fastener, indices, cuvs::neighbors::filtering::none_sample_filter{});
+  EXPECT_FALSE(result.eligible);
+  EXPECT_EQ(result.reason, "dataset dimension exceeds the assignment GEMM workspace limit");
+
+  // Explicit Fastener surfaces the rejection; AUTO takes the rebuild path and still produces an
+  // index. Reaching rebuild at all is the regression this test guards.
+  auto fastener_storage = make_merged_storage<int8_t>(res, merged_rows, dim);
+  EXPECT_ANY_THROW(merge(res, params, indices, fastener_storage.view, fastener));
+
+  auto automatic      = fastener;
+  automatic.algo      = merge_algo::AUTO;
+  auto merged_storage = make_merged_storage<int8_t>(res, merged_rows, dim);
+  auto merged         = merge(res, params, indices, merged_storage.view, automatic);
+  EXPECT_EQ(merged.size(), merged_rows);
+
+  EXPECT_EQ(index0.dataset().n_rows(), rows_per_input);
+  EXPECT_EQ(index1.dataset().n_rows(), rows_per_input);
+}
+
+/**
  * The appended candidate graph is sorted by launch_sort_knn_graph, whose kernel capacity is
  * kMaxSortDegree. Preflight must reject a combined candidate width above that limit, because the
  * sorter would otherwise fail only after consolidation and scaffold construction had already run --

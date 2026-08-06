@@ -633,6 +633,45 @@ inline void batched_row_dot_products(raft::resources const& res,
                                  raft::resource::get_cuda_stream(res)));
 }
 
+/** Workspace bytes `assign_bucket` needs for `capacity` tiles of `rows_per_tile` rows each */
+inline auto assignment_workspace_bytes(
+  size_t capacity, size_t rows_per_tile, size_t padded_leaders, size_t dim, size_t fanout) -> size_t
+{
+  auto aligned = [](size_t bytes) { return rmm::align_up(bytes, rmm::CUDA_ALLOCATION_ALIGNMENT); };
+  size_t point_elements    = rows_per_tile * dim;
+  size_t leader_elements   = padded_leaders * dim;
+  size_t dot_elements      = rows_per_tile * padded_leaders;
+  size_t selected_elements = rows_per_tile * fanout;
+  return aligned(capacity * sizeof(assignment_tile)) +
+         aligned(capacity * point_elements * sizeof(float)) +
+         aligned(capacity * leader_elements * sizeof(float)) +
+         aligned(capacity * dot_elements * sizeof(float)) +
+         aligned(capacity * padded_leaders * sizeof(uint32_t)) +
+         aligned(capacity * selected_elements * sizeof(float)) +
+         aligned(capacity * selected_elements * sizeof(int)) +
+         aligned(capacity * dot_elements * sizeof(float)) +
+         aligned(capacity * dot_elements * sizeof(int));
+}
+
+/** Return true if the widest padded leader matrix + a single point row fits the workspace.
+ *
+ * `assign_bucket` shrinks its tile height and batch capacity to whatever the workspace allows, but
+ * the leader matrix can't get any smaller than one tile of one row.
+ */
+inline auto assignment_gemm_supported(int64_t dimension,
+                                      int64_t rows,
+                                      split_params const& worst_case,
+                                      size_t workspace_bytes) -> bool
+{
+  if (dimension <= 0 || dimension > std::numeric_limits<int>::max() || rows <= 0) { return false; }
+  auto const leaders = select_leader_count(rows, worst_case);
+  return assignment_workspace_bytes(1,
+                                    1,
+                                    std::bit_ceil(static_cast<unsigned>(leaders)),
+                                    static_cast<size_t>(dimension),
+                                    static_cast<size_t>(worst_case.fanout)) <= workspace_bytes;
+}
+
 /**
  * Assign every row of one bucket's split parents to its `fanout` nearest leaders.
  *
@@ -660,37 +699,23 @@ void assign_bucket(raft::resources const& res,
   auto workspace_mr     = raft::resource::get_workspace_resource_ref(res);
   auto workspace_bytes  = raft::resource::get_workspace_free_bytes(res);
 
-  // RMM's limiting workspace accounts for every allocation rounded to the CUDA allocation
-  // alignment. Model the seven explicit buffers independently so a raw-byte sum cannot overrun a
-  // small caller-configured workspace through alignment alone. RAFT select-k also allocates value
-  // and index scratch; each is no larger than its input matrix, so reserve two aligned dot-matrix
-  // buffers as a conservative upper bound.
-  auto assignment_workspace_bytes = [&](size_t capacity, size_t rows_per_tile) {
-    auto aligned = [](size_t bytes) {
-      return rmm::align_up(bytes, rmm::CUDA_ALLOCATION_ALIGNMENT);
-    };
-    size_t point_elements    = rows_per_tile * static_cast<size_t>(dim);
-    size_t leader_elements   = static_cast<size_t>(padded_leaders) * static_cast<size_t>(dim);
-    size_t dot_elements      = rows_per_tile * static_cast<size_t>(padded_leaders);
-    size_t selected_elements = rows_per_tile * static_cast<size_t>(params.fanout);
-    return aligned(capacity * sizeof(assignment_tile)) +
-           aligned(capacity * point_elements * sizeof(float)) +
-           aligned(capacity * leader_elements * sizeof(float)) +
-           aligned(capacity * dot_elements * sizeof(float)) +
-           aligned(capacity * static_cast<size_t>(padded_leaders) * sizeof(uint32_t)) +
-           aligned(capacity * selected_elements * sizeof(float)) +
-           aligned(capacity * selected_elements * sizeof(int)) +
-           aligned(capacity * dot_elements * sizeof(float)) +
-           aligned(capacity * dot_elements * sizeof(int));
+  auto tile_bytes = [&](size_t capacity, size_t rows_per_tile) {
+    return assignment_workspace_bytes(capacity,
+                                      rows_per_tile,
+                                      static_cast<size_t>(padded_leaders),
+                                      static_cast<size_t>(dim),
+                                      static_cast<size_t>(params.fanout));
   };
 
-  RAFT_EXPECTS(assignment_workspace_bytes(1, 1) <= workspace_bytes,
+  // Preflight rejects any configuration whose widest leader matrix cannot host a single point row,
+  // so this only fires for callers that drive the scaffold directly.
+  RAFT_EXPECTS(tile_bytes(1, 1) <= workspace_bytes,
                "Fastener assignment workspace cannot fit the leader matrix and a single point row");
   size_t min_tile_rows = 1;
   size_t max_tile_rows = static_cast<size_t>(context.assignment_tile_rows);
   while (min_tile_rows < max_tile_rows) {
     size_t candidate = min_tile_rows + (max_tile_rows - min_tile_rows + 1) / 2;
-    if (assignment_workspace_bytes(1, candidate) <= workspace_bytes) {
+    if (tile_bytes(1, candidate) <= workspace_bytes) {
       min_tile_rows = candidate;
     } else {
       max_tile_rows = candidate - 1;
@@ -715,7 +740,7 @@ void assign_bucket(raft::resources const& res,
   size_t max_batch_capacity = tiles.size();
   while (min_batch_capacity < max_batch_capacity) {
     size_t candidate = min_batch_capacity + (max_batch_capacity - min_batch_capacity + 1) / 2;
-    if (assignment_workspace_bytes(candidate, static_cast<size_t>(tile_rows)) <= workspace_bytes) {
+    if (tile_bytes(candidate, static_cast<size_t>(tile_rows)) <= workspace_bytes) {
       min_batch_capacity = candidate;
     } else {
       max_batch_capacity = candidate - 1;
@@ -1309,6 +1334,14 @@ auto build(raft::resources const& res,
   RAFT_EXPECTS(
     leaf_gemm_supported(dim, params.leaf_size, raft::resource::get_workspace_free_bytes(res)),
     "Fastener dataset dimension exceeds the leaf GEMM limits");
+  RAFT_EXPECTS(assignment_gemm_supported(
+                 dim,
+                 rows,
+                 split_params{.fanout          = std::max(params.root_fanout, params.lower_fanout),
+                              .leader_fraction = params.leader_fraction,
+                              .max_leaders     = params.max_leaders},
+                 raft::resource::get_workspace_free_bytes(res)),
+               "Fastener dataset dimension exceeds the assignment GEMM limits");
 
   // the number of leaf partitions that a given point will end up in
   uint64_t spill = params.root_fanout;

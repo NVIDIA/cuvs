@@ -333,6 +333,16 @@ auto preflight_fastener(
         result.dim, merge_params.leaf_size, raft::resource::get_workspace_free_bytes(handle))) {
     return reject("dataset dimension exceeds the leaf GEMM workspace limit");
   }
+  if (!merge_scaffold::assignment_gemm_supported(
+        result.dim,
+        static_cast<int64_t>(rows),
+        merge_scaffold::split_params{
+          .fanout          = std::max(merge_params.root_fanout, merge_params.lower_fanout),
+          .leader_fraction = merge_params.leader_fraction,
+          .max_leaders     = merge_params.max_leaders},
+        raft::resource::get_workspace_free_bytes(handle))) {
+    return reject("dataset dimension exceeds the assignment GEMM workspace limit");
+  }
   if (rows > std::numeric_limits<uint32_t>::max() / spill) {
     return reject("combined rows times the configured spill width must fit in uint32_t");
   }
