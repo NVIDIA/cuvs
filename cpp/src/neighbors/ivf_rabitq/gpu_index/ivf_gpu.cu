@@ -17,7 +17,9 @@
 #include <cuvs/selection/select_k.hpp>
 #include <raft/core/cublas_macros.hpp>
 #include <raft/core/device_mdspan.hpp>
+#include <raft/core/operators.hpp>
 #include <raft/core/resources.hpp>
+#include <raft/linalg/binary_op.cuh>
 #include <raft/linalg/detail/cublaslt_wrappers.hpp>
 #include <raft/linalg/norm.cuh>
 
@@ -1102,23 +1104,26 @@ void IVFGPU::PrepareClusterSearchInputs(
   rmm::cuda_stream_view searcher_stream  = searcher.get_stream();
   const size_t batch_size                = queries.extent(0);
 
-  // Compute ||q - c||^2 = -2 * q . c + ||q||^2 + ||c||^2 into centroid_distances:
-  //  (1) query norms (squared L2, no sqrt - default fin_op on L2Norm returns sum of squares;
-  //      centroid norms were precomputed in compute_centroid_norms() and cached in centroid_norms_)
-  //  (2) outer_add writes (q_norm + c_norm) into centroid_distances, overwriting the prior
-  //      uninitialized contents of the freshly-allocated SearcherGPU scratch buffer
-  //  (3) matmul with beta=1 accumulates -2 * Q * C^T on top
+  // Compute query norms (squared L2, no sqrt - default fin_op on L2Norm returns sum of squares;
+  // centroid norms were precomputed in compute_centroid_norms() and cached in centroid_norms_).
   raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
     searcher_handle,
     queries,
     raft::make_device_vector_view<float, int64_t>(searcher.get_q_norms(), batch_size));
+
+  // Initialize centroid_distances with ||q||^2 + ||c||^2. For L2, GEMM accumulates
+  // -2 * Q * C^T into this buffer. For InnerProduct, GEMM writes -Q * C^T directly to g_add;
+  // a cheap elementwise pass then uses it to complete ||q-c||^2 without a second GEMM.
   cuvs::spatial::knn::detail::utils::outer_add(searcher.get_q_norms(),
                                                batch_size,
                                                centroid_norms_.data_handle(),
                                                num_centroids,
                                                searcher.get_centroid_distances(),
                                                searcher_stream);
-  const float alpha = -2.f, beta = 1.f;
+  const bool is_ip   = is_inner_product();
+  const float alpha  = is_ip ? -1.f : -2.f;
+  const float beta   = is_ip ? 0.f : 1.f;
+  float* gemm_output = is_ip ? searcher.get_g_add() : searcher.get_centroid_distances();
   raft::linalg::detail::matmul</* DevicePointerMode = */ false>(searcher_handle,
                                                                 /* trans_a = */ true,
                                                                 /* trans_b = */ false,
@@ -1131,8 +1136,24 @@ void IVFGPU::PrepareClusterSearchInputs(
                                                                 queries.data_handle(),
                                                                 num_padded_dim,
                                                                 &beta,
-                                                                searcher.get_centroid_distances(),
+                                                                gemm_output,
                                                                 num_centroids);
+
+  if (is_ip) {
+    // Complete ‖q−c‖² = (‖q‖² + ‖c‖²) + 2·(−⟨q,c⟩) in place: outer_add left the norm sum in
+    // centroid_distances and the GEMM wrote −⟨q,c⟩ to g_add, so one elementwise pass finishes
+    // the identity. g_add is left holding exactly −⟨q,c⟩ for the estimator and probe ranking.
+    // A raft operator rather than a lambda: nvcc rejects extended __device__ lambdas enclosed
+    // in a private member function.
+    raft::linalg::binaryOp(
+      searcher.get_centroid_distances(),
+      searcher.get_centroid_distances(),
+      searcher.get_g_add(),
+      batch_size * num_centroids,
+      raft::map_args_op<raft::add_op, raft::identity_op, raft::mul_const_op<float>>{
+        raft::add_op{}, raft::identity_op{}, raft::mul_const_op<float>{2.f}},
+      searcher_stream);
+  }
 
   // Step 4: select top-nprobe clusters per query
   auto d_raft_vals = raft::make_device_matrix<float, int64_t>(searcher_handle, batch_size, nprobe);
@@ -1141,28 +1162,10 @@ void IVFGPU::PrepareClusterSearchInputs(
   // Clusters are scored by ‖q−c‖² for L2 (minimized). For InnerProduct we instead pick the
   // clusters maximizing ⟨q,c⟩, i.e. minimizing −⟨q,c⟩ (mirroring ivf_pq's select_clusters with
   // alpha=-1). That same −⟨q,c⟩ is the estimator's query-side g_add term, so it is computed once
-  // into the searcher's persistent g_add buffer and reused by the search kernels. Meanwhile
-  // centroid_distances is left as ‖q−c‖², which still supplies g_error = ‖q−c‖ for both metrics.
-  const float* select_in = searcher.get_centroid_distances();
-  if (is_inner_product()) {
-    const float alpha_ip = -1.f, beta_ip = 0.f;
-    raft::linalg::detail::matmul</* DevicePointerMode = */ false>(searcher_handle,
-                                                                  /* trans_a = */ true,
-                                                                  /* trans_b = */ false,
-                                                                  num_centroids,
-                                                                  batch_size,
-                                                                  num_padded_dim,
-                                                                  &alpha_ip,
-                                                                  initializer->GetCentroid(0),
-                                                                  num_padded_dim,
-                                                                  queries.data_handle(),
-                                                                  num_padded_dim,
-                                                                  &beta_ip,
-                                                                  searcher.get_g_add(),
-                                                                  num_centroids);
-    select_in = searcher.get_g_add();
-  }
-  auto in_view = raft::make_device_matrix_view<const float, int64_t, raft::row_major>(
+  // into the searcher's persistent g_add buffer and reused by the search kernels, while
+  // centroid_distances carries ‖q−c‖², which supplies g_error = ‖q−c‖ for both metrics.
+  const float* select_in = is_ip ? searcher.get_g_add() : searcher.get_centroid_distances();
+  auto in_view           = raft::make_device_matrix_view<const float, int64_t, raft::row_major>(
     select_in, batch_size, num_centroids);
   cuvs::selection::select_k(searcher_handle,
                             in_view,
