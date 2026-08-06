@@ -164,48 +164,38 @@ struct params {
  * @param[in]    warm_start      Use the incoming weights/means/covariances as
  *                               the single initialization.
  */
-template <typename T>
 void fit(raft::resources const& handle,
          const params& params,
-         raft::device_matrix_view<const T, int64_t> X,
-         raft::device_vector_view<T, int64_t> weights,
-         raft::device_matrix_view<T, int64_t> means,
-         raft::device_vector_view<T, int64_t> covariances,
-         raft::device_vector_view<T, int64_t> precisions_chol,
-         raft::device_vector_view<T, int64_t> precisions,
+         raft::device_matrix_view<const float, int64_t> X,
+         raft::device_vector_view<float, int64_t> weights,
+         raft::device_matrix_view<float, int64_t> means,
+         raft::device_vector_view<float, int64_t> covariances,
+         raft::device_vector_view<float, int64_t> precisions_chol,
+         raft::device_vector_view<float, int64_t> precisions,
          raft::device_vector_view<int, int64_t> labels,
-         raft::host_scalar_view<T> lower_bound,
+         raft::host_scalar_view<float> lower_bound,
          raft::host_scalar_view<int> n_iter,
          raft::host_scalar_view<bool> converged,
          bool warm_start = false);
 
-extern template void fit<float>(raft::resources const& handle,
-                                const params& params,
-                                raft::device_matrix_view<const float, int64_t> X,
-                                raft::device_vector_view<float, int64_t> weights,
-                                raft::device_matrix_view<float, int64_t> means,
-                                raft::device_vector_view<float, int64_t> covariances,
-                                raft::device_vector_view<float, int64_t> precisions_chol,
-                                raft::device_vector_view<float, int64_t> precisions,
-                                raft::device_vector_view<int, int64_t> labels,
-                                raft::host_scalar_view<float> lower_bound,
-                                raft::host_scalar_view<int> n_iter,
-                                raft::host_scalar_view<bool> converged,
-                                bool warm_start);
-
-extern template void fit<double>(raft::resources const& handle,
-                                 const params& params,
-                                 raft::device_matrix_view<const double, int64_t> X,
-                                 raft::device_vector_view<double, int64_t> weights,
-                                 raft::device_matrix_view<double, int64_t> means,
-                                 raft::device_vector_view<double, int64_t> covariances,
-                                 raft::device_vector_view<double, int64_t> precisions_chol,
-                                 raft::device_vector_view<double, int64_t> precisions,
-                                 raft::device_vector_view<int, int64_t> labels,
-                                 raft::host_scalar_view<double> lower_bound,
-                                 raft::host_scalar_view<int> n_iter,
-                                 raft::host_scalar_view<bool> converged,
-                                 bool warm_start);
+/**
+ * @brief Fit a Gaussian mixture with the EM algorithm.
+ *
+ * Double-precision overload; see the single-precision overload for details.
+ */
+void fit(raft::resources const& handle,
+         const params& params,
+         raft::device_matrix_view<const double, int64_t> X,
+         raft::device_vector_view<double, int64_t> weights,
+         raft::device_matrix_view<double, int64_t> means,
+         raft::device_vector_view<double, int64_t> covariances,
+         raft::device_vector_view<double, int64_t> precisions_chol,
+         raft::device_vector_view<double, int64_t> precisions,
+         raft::device_vector_view<int, int64_t> labels,
+         raft::host_scalar_view<double> lower_bound,
+         raft::host_scalar_view<int> n_iter,
+         raft::host_scalar_view<bool> converged,
+         bool warm_start = false);
 
 /**
  * @brief Hard component labels (argmax responsibility) for new data.
@@ -224,31 +214,26 @@ extern template void fit<double>(raft::resources const& handle,
  * @param[out] labels          Hard component assignment per sample.
  *                             [len = n_samples]
  */
-template <typename T>
 void predict(raft::resources const& handle,
              const params& params,
-             raft::device_matrix_view<const T, int64_t> X,
-             raft::device_vector_view<const T, int64_t> weights,
-             raft::device_matrix_view<const T, int64_t> means,
-             raft::device_vector_view<const T, int64_t> precisions_chol,
+             raft::device_matrix_view<const float, int64_t> X,
+             raft::device_vector_view<const float, int64_t> weights,
+             raft::device_matrix_view<const float, int64_t> means,
+             raft::device_vector_view<const float, int64_t> precisions_chol,
              raft::device_vector_view<int, int64_t> labels);
 
-extern template void predict<float>(raft::resources const& handle,
-                                    const params& params,
-                                    raft::device_matrix_view<const float, int64_t> X,
-                                    raft::device_vector_view<const float, int64_t> weights,
-                                    raft::device_matrix_view<const float, int64_t> means,
-                                    raft::device_vector_view<const float, int64_t> precisions_chol,
-                                    raft::device_vector_view<int, int64_t> labels);
-
-extern template void predict<double>(
-  raft::resources const& handle,
-  const params& params,
-  raft::device_matrix_view<const double, int64_t> X,
-  raft::device_vector_view<const double, int64_t> weights,
-  raft::device_matrix_view<const double, int64_t> means,
-  raft::device_vector_view<const double, int64_t> precisions_chol,
-  raft::device_vector_view<int, int64_t> labels);
+/**
+ * @brief Hard component labels (argmax responsibility) for new data.
+ *
+ * Double-precision overload; see the single-precision overload for details.
+ */
+void predict(raft::resources const& handle,
+             const params& params,
+             raft::device_matrix_view<const double, int64_t> X,
+             raft::device_vector_view<const double, int64_t> weights,
+             raft::device_matrix_view<const double, int64_t> means,
+             raft::device_vector_view<const double, int64_t> precisions_chol,
+             raft::device_vector_view<int, int64_t> labels);
 
 /**
  * @brief Posterior responsibilities for new data.
@@ -268,32 +253,26 @@ extern template void predict<double>(
  *                             each sample, row-major.
  *                             [dim = n_samples x n_components]
  */
-template <typename T>
 void predict_proba(raft::resources const& handle,
                    const params& params,
-                   raft::device_matrix_view<const T, int64_t> X,
-                   raft::device_vector_view<const T, int64_t> weights,
-                   raft::device_matrix_view<const T, int64_t> means,
-                   raft::device_vector_view<const T, int64_t> precisions_chol,
-                   raft::device_matrix_view<T, int64_t> resp);
+                   raft::device_matrix_view<const float, int64_t> X,
+                   raft::device_vector_view<const float, int64_t> weights,
+                   raft::device_matrix_view<const float, int64_t> means,
+                   raft::device_vector_view<const float, int64_t> precisions_chol,
+                   raft::device_matrix_view<float, int64_t> resp);
 
-extern template void predict_proba<float>(
-  raft::resources const& handle,
-  const params& params,
-  raft::device_matrix_view<const float, int64_t> X,
-  raft::device_vector_view<const float, int64_t> weights,
-  raft::device_matrix_view<const float, int64_t> means,
-  raft::device_vector_view<const float, int64_t> precisions_chol,
-  raft::device_matrix_view<float, int64_t> resp);
-
-extern template void predict_proba<double>(
-  raft::resources const& handle,
-  const params& params,
-  raft::device_matrix_view<const double, int64_t> X,
-  raft::device_vector_view<const double, int64_t> weights,
-  raft::device_matrix_view<const double, int64_t> means,
-  raft::device_vector_view<const double, int64_t> precisions_chol,
-  raft::device_matrix_view<double, int64_t> resp);
+/**
+ * @brief Posterior responsibilities for new data.
+ *
+ * Double-precision overload; see the single-precision overload for details.
+ */
+void predict_proba(raft::resources const& handle,
+                   const params& params,
+                   raft::device_matrix_view<const double, int64_t> X,
+                   raft::device_vector_view<const double, int64_t> weights,
+                   raft::device_matrix_view<const double, int64_t> means,
+                   raft::device_vector_view<const double, int64_t> precisions_chol,
+                   raft::device_matrix_view<double, int64_t> resp);
 
 /**
  * @brief Per-sample log-likelihood log p(x_i) for new data.
@@ -312,32 +291,26 @@ extern template void predict_proba<double>(
  * @param[out] log_prob_norm   Log-likelihood of each sample under the model.
  *                             [len = n_samples]
  */
-template <typename T>
 void score_samples(raft::resources const& handle,
                    const params& params,
-                   raft::device_matrix_view<const T, int64_t> X,
-                   raft::device_vector_view<const T, int64_t> weights,
-                   raft::device_matrix_view<const T, int64_t> means,
-                   raft::device_vector_view<const T, int64_t> precisions_chol,
-                   raft::device_vector_view<T, int64_t> log_prob_norm);
+                   raft::device_matrix_view<const float, int64_t> X,
+                   raft::device_vector_view<const float, int64_t> weights,
+                   raft::device_matrix_view<const float, int64_t> means,
+                   raft::device_vector_view<const float, int64_t> precisions_chol,
+                   raft::device_vector_view<float, int64_t> log_prob_norm);
 
-extern template void score_samples<float>(
-  raft::resources const& handle,
-  const params& params,
-  raft::device_matrix_view<const float, int64_t> X,
-  raft::device_vector_view<const float, int64_t> weights,
-  raft::device_matrix_view<const float, int64_t> means,
-  raft::device_vector_view<const float, int64_t> precisions_chol,
-  raft::device_vector_view<float, int64_t> log_prob_norm);
-
-extern template void score_samples<double>(
-  raft::resources const& handle,
-  const params& params,
-  raft::device_matrix_view<const double, int64_t> X,
-  raft::device_vector_view<const double, int64_t> weights,
-  raft::device_matrix_view<const double, int64_t> means,
-  raft::device_vector_view<const double, int64_t> precisions_chol,
-  raft::device_vector_view<double, int64_t> log_prob_norm);
+/**
+ * @brief Per-sample log-likelihood log p(x_i) for new data.
+ *
+ * Double-precision overload; see the single-precision overload for details.
+ */
+void score_samples(raft::resources const& handle,
+                   const params& params,
+                   raft::device_matrix_view<const double, int64_t> X,
+                   raft::device_vector_view<const double, int64_t> weights,
+                   raft::device_matrix_view<const double, int64_t> means,
+                   raft::device_vector_view<const double, int64_t> precisions_chol,
+                   raft::device_vector_view<double, int64_t> log_prob_norm);
 
 /**
  * @}

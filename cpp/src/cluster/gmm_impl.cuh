@@ -10,25 +10,27 @@
 #include <cuvs/cluster/gmm.hpp>
 #include <cuvs/cluster/kmeans.hpp>
 
+#include <raft/core/operators.hpp>
 #include <raft/core/resource/cublas_handle.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resource/cusolver_dn_handle.hpp>
 #include <raft/core/resources.hpp>
+#include <raft/core/types.hpp>
 #include <raft/linalg/detail/cublas_wrappers.hpp>
 #include <raft/linalg/detail/cusolver_wrappers.hpp>
 #include <raft/linalg/gemm.cuh>
 #include <raft/linalg/gemv.cuh>
+#include <raft/linalg/reduce.cuh>
 #include <raft/random/rng.cuh>
 #include <raft/random/rng_state.hpp>
 #include <raft/random/sample_without_replacement.cuh>
 #include <raft/util/cudart_utils.hpp>
 
+#include <rmm/device_scalar.hpp>
 #include <rmm/device_uvector.hpp>
 
 #include <thrust/execution_policy.h>
 #include <thrust/fill.h>
-#include <thrust/functional.h>
-#include <thrust/reduce.h>
 
 #include <cublas_v2.h>
 #include <cusolverDn.h>
@@ -62,6 +64,10 @@ inline const char* precision_error_message()
 // trsm calls go through RAFT's central wrappers (raft/linalg/detail/*_wrappers.hpp),
 // which have no public equivalents yet. RAFT has no potrfBatched / trsmBatched
 // wrappers at all, so those two are wrapped locally in the same style.
+
+// TODO(gmm): temporary. Replace with raft::linalg::detail::cusolverDnpotrfBatched
+// once that wrapper is added to raft/linalg/detail/cusolver_wrappers.hpp; this
+// local copy only exists so GMM can be built and tested before that RAFT PR lands.
 template <typename T>
 cusolverStatus_t potrf_batched(cusolverDnHandle_t h,
                                cublasFillMode_t uplo,
@@ -98,6 +104,9 @@ inline cusolverStatus_t potrf_batched<double>(cusolverDnHandle_t h,
   return cusolverDnDpotrfBatched(h, uplo, nn, Aarray, lda, infoArray, batch);
 }
 
+// TODO(gmm): temporary. Replace with raft::linalg::detail::cublastrsmBatched
+// once that wrapper is added to raft/linalg/detail/cublas_wrappers.hpp; this
+// local copy only exists so GMM can be built and tested before that RAFT PR lands.
 template <typename T>
 cublasStatus_t trsm_batched(cublasHandle_t h,
                             cublasSideMode_t side,
@@ -718,11 +727,16 @@ void update_precisions(raft::resources const& handle,
       <<<dim3(1), dim3(REDUCE_BLOCK), 0, stream>>>(prec_chol, d, K, log_det);
   } else {
     size_t total = cov_elems(ct, d, K);
-    T min_var    = thrust::reduce(thrust::cuda::par.on(stream),
-                               covariances,
-                               covariances + total,
-                               std::numeric_limits<T>::max(),
-                               thrust::minimum<T>());
+    rmm::device_scalar<T> d_min_var(stream);
+    raft::linalg::reduce<raft::Apply::ALONG_ROWS>(
+      handle,
+      raft::make_device_matrix_view<const T, int64_t>(covariances, 1, (int64_t)total),
+      raft::make_device_vector_view<T, int64_t>(d_min_var.data(), 1),
+      std::numeric_limits<T>::max(),
+      false,
+      raft::identity_op(),
+      raft::min_op());
+    T min_var = d_min_var.value(stream);
     if (min_var <= T(0)) {
       // a non-positive variance means the covariance is ill-defined
       throw std::runtime_error(precision_error_message());
@@ -821,8 +835,16 @@ template <typename T>
 T mean_device(raft::resources const& handle, const T* v, int n)
 {
   cudaStream_t stream = raft::resource::get_cuda_stream(handle);
-  T sum = thrust::reduce(thrust::cuda::par.on(stream), v, v + n, T(0), thrust::plus<T>());
-  return sum / T(n);
+  rmm::device_scalar<T> d_sum(stream);
+  raft::linalg::reduce<raft::Apply::ALONG_ROWS>(
+    handle,
+    raft::make_device_matrix_view<const T, int64_t>(v, 1, (int64_t)n),
+    raft::make_device_vector_view<T, int64_t>(d_sum.data(), 1),
+    T(0),
+    false,
+    raft::identity_op(),
+    raft::add_op());
+  return d_sum.value(stream) / T(n);
 }
 
 template <typename T>
