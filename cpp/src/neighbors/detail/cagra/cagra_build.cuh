@@ -1427,8 +1427,7 @@ auto build_ace(raft::resources const& res, const index_params& params, DatasetVi
       // Iterative CAGRA uploads and pads the partition inside build_from_host_matrix.
       auto sub_dataset_view = cuvs::neighbors::make_host_standard_dataset_view(
         raft::make_const_mdspan(sub_dataset.view()));
-      auto sub_index = ::cuvs::neighbors::cagra::detail::build_from_host_matrix<T, IdxT>(
-        res, sub_index_params, sub_dataset_view);
+      auto sub_index = ::cuvs::neighbors::cagra::build(res, sub_index_params, sub_dataset_view);
       static_assert(
         std::is_same_v<decltype(sub_index), cuvs::neighbors::cagra::host_standard_index<T, IdxT>>);
 
