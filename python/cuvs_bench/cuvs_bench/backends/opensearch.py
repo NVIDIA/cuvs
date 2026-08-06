@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -131,6 +131,9 @@ class OpenSearchConfigLoader(ConfigLoader):
             "use_ssl",
             "verify_certs",
             "build_batch_size",
+            "approximate_threshold",
+            "refresh_interval",
+            "force_merge",
             # Remote Index Build (OpenSearch 3.0+, faiss engine only)
             "remote_index_build",
             "remote_build_size_min",
@@ -141,6 +144,11 @@ class OpenSearchConfigLoader(ConfigLoader):
         tune_mode = kwargs.get("_tune_mode", False)
         tune_build_params = kwargs.get("_tune_build_params")
         tune_search_params = kwargs.get("_tune_search_params")
+        number_of_shards = kwargs.get("number_of_shards")
+        if number_of_shards is not None:
+            number_of_shards = int(number_of_shards)
+            if number_of_shards < 1:
+                raise ValueError("number_of_shards must be at least 1")
 
         benchmark_configs: List[BenchmarkConfig] = []
 
@@ -161,7 +169,10 @@ class OpenSearchConfigLoader(ConfigLoader):
                 actual_build = build_combos
                 actual_search = search_combos
 
-            for build_param in actual_build:
+            for raw_build_param in actual_build:
+                build_param = raw_build_param.copy()
+                if number_of_shards is not None:
+                    build_param["number_of_shards"] = number_of_shards
                 prefix = (
                     algo_name
                     if group_name == "base"
@@ -190,6 +201,7 @@ class OpenSearchConfigLoader(ConfigLoader):
 
                 backend_cfg: Dict[str, Any] = {
                     "name": index_label,
+                    "group": group_name,
                     "host": host,
                     "port": port,
                     "index_name": os_index_name,
@@ -264,6 +276,7 @@ class OpenSearchBackend(BenchmarkBackend):
 
         Required:
         - ``name`` – index label (e.g. ``"opensearch_faiss_hnsw.m16.ef_construction100"``)
+        - ``group`` – algorithm configuration group selected from YAML
         - ``index_name`` – OpenSearch index name (lowercase, no dots)
         - ``engine`` – ``"faiss"`` or ``"lucene"``
         - ``algo`` – algorithm name (e.g. ``"opensearch_faiss_hnsw"``)
@@ -277,6 +290,13 @@ class OpenSearchBackend(BenchmarkBackend):
         - ``verify_certs`` – verify SSL certs (default: ``False``)
         - ``build_batch_size`` – vectors per bulk request. If omitted, choose
           a batch size with roughly 1 MiB of raw vector data.
+        - ``approximate_threshold`` – minimum vectors per segment before
+          building ANN data structures (default: OpenSearch's default).
+        - ``refresh_interval`` – how often OpenSearch refreshes the index,
+          e.g. ``"1s"`` or ``"-1"`` to disable automatic refreshes during
+          ingestion (default: OpenSearch's default).
+        - ``force_merge`` – merge each shard down to one segment after
+          ingestion and flush complete (default: ``False``).
         - ``requires_network`` – trigger network pre-flight check (default: ``True``)
         - ``remote_index_build`` – set ``index.knn.remote_index_build.enabled=true``
           on the index at creation time, opting it into the GPU build path (default: ``False``).
@@ -348,6 +368,8 @@ class OpenSearchBackend(BenchmarkBackend):
         build_param: Dict[str, Any],
         remote_index_build: bool = False,
         remote_build_size_min: Optional[str] = None,
+        approximate_threshold: Optional[int] = None,
+        refresh_interval: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Construct the OpenSearch index mapping dict for k-NN.
@@ -397,6 +419,17 @@ class OpenSearchBackend(BenchmarkBackend):
             "number_of_shards": build_param.get("number_of_shards", 1),
             "number_of_replicas": build_param.get("number_of_replicas", 0),
         }
+        if approximate_threshold is not None:
+            approximate_threshold = int(approximate_threshold)
+            if approximate_threshold < -1:
+                raise ValueError(
+                    "approximate_threshold must be -1 or greater"
+                )
+            index_settings["knn.advanced.approximate_threshold"] = (
+                approximate_threshold
+            )
+        if refresh_interval is not None:
+            index_settings["refresh_interval"] = str(refresh_interval)
         if remote_index_build:
             if engine != "faiss":
                 raise ValueError(
@@ -534,6 +567,24 @@ class OpenSearchBackend(BenchmarkBackend):
                 f"Flush did not complete on all shards for {index_name}: {resp}"
             )
 
+    def _force_merge_index(self, index_name: str) -> None:
+        resp = self._client.indices.forcemerge(
+            index=index_name,
+            max_num_segments=1,
+            wait_for_completion=True,
+            request_timeout=None,
+        )
+        shards = resp.get("_shards", {})
+        total = shards.get("total", 0)
+        successful = shards.get("successful", 0)
+        failed = shards.get("failed", 0)
+
+        if failed or successful != total:
+            raise RuntimeError(
+                f"Force merge did not complete on all shards for "
+                f"{index_name}: {resp}"
+            )
+
     def _resolve_index_name(self, index_cfg: IndexConfig) -> str:
         return self.config.get(
             "index_name", index_cfg.name.replace(".", "_").lower()
@@ -543,11 +594,12 @@ class OpenSearchBackend(BenchmarkBackend):
         self, error_message: str, build_params: Optional[Dict[str, Any]] = None
     ) -> BuildResult:
         return BuildResult(
-            index_path="",
+            index_path=self.config.get("index_name", ""),
             build_time_seconds=0.0,
             index_size_bytes=0,
             algorithm=self.algo,
             build_params=build_params or {},
+            metadata={"group": self.config["group"]},
             success=False,
             error_message=error_message,
         )
@@ -566,6 +618,10 @@ class OpenSearchBackend(BenchmarkBackend):
             recall=0.0,
             algorithm=self.algo,
             search_params=search_params or [],
+            metadata={
+                "group": self.config["group"],
+                "index_name": self.config.get("index_name", ""),
+            },
             success=False,
             error_message=error_message,
         )
@@ -666,9 +722,10 @@ class OpenSearchBackend(BenchmarkBackend):
         vectors. If the index already exists and ``force=False`` the build is
         skipped.
 
-        Build time measures ingest and flush. When ``remote_index_build=True``
-        it also includes waiting for GPU build confirmation via the kNN stats
-        API. The final index refresh runs after build timing is recorded.
+        Build time measures ingest, flush, and the optional force merge. When
+        ``remote_index_build=True`` it also includes waiting for GPU build
+        confirmation via the kNN stats API. The final index refresh runs after
+        build timing is recorded.
 
         Parameters
         ----------
@@ -702,11 +759,15 @@ class OpenSearchBackend(BenchmarkBackend):
         build_batch_size = self.config.get("build_batch_size")
         remote_index_build = bool(self.config.get("remote_index_build", False))
         remote_build_size_min = self.config.get("remote_build_size_min")
+        approximate_threshold = self.config.get("approximate_threshold")
+        refresh_interval = self.config.get("refresh_interval")
+        force_merge = bool(self.config.get("force_merge", False))
 
         if dry_run:
             print(
                 f"[dry_run] Would build OpenSearch index '{index_name}' "
-                f"(engine={engine}, remote_index_build={remote_index_build}, build_param={build_param})"
+                f"(engine={engine}, remote_index_build={remote_index_build}, "
+                f"force_merge={force_merge}, build_param={build_param})"
             )
 
             return BuildResult(
@@ -715,6 +776,7 @@ class OpenSearchBackend(BenchmarkBackend):
                 index_size_bytes=0,
                 algorithm=self.algo,
                 build_params=build_param,
+                metadata={"group": self.config["group"]},
                 success=True,
             )
 
@@ -729,6 +791,10 @@ class OpenSearchBackend(BenchmarkBackend):
                     index_size_bytes=0,
                     algorithm=self.algo,
                     build_params=build_param,
+                    metadata={
+                        "group": self.config["group"],
+                        "skipped": True,
+                    },
                     success=True,
                 )
 
@@ -747,12 +813,14 @@ class OpenSearchBackend(BenchmarkBackend):
 
         # Create index
         mapping = self._build_index_mapping(
-            dims,
-            engine,
-            space_type,
-            build_param,
-            remote_index_build,
-            remote_build_size_min,
+            dims=dims,
+            engine=engine,
+            space_type=space_type,
+            build_param=build_param,
+            remote_index_build=remote_index_build,
+            remote_build_size_min=remote_build_size_min,
+            approximate_threshold=approximate_threshold,
+            refresh_interval=refresh_interval,
         )
         self._client.indices.create(index=index_name, body=mapping)
 
@@ -773,6 +841,8 @@ class OpenSearchBackend(BenchmarkBackend):
                 initial_stats=pre_ingest_stats,
                 timeout=remote_timeout,
             )
+        if force_merge:
+            self._force_merge_index(index_name)
         build_time = time.perf_counter() - t0
 
         self._client.indices.refresh(index=index_name, request_timeout=120)
@@ -790,9 +860,13 @@ class OpenSearchBackend(BenchmarkBackend):
             algorithm=self.algo,
             build_params=build_param,
             metadata={
+                "group": self.config["group"],
                 "engine": engine,
                 "space_type": space_type,
                 "remote_index_build": remote_index_build,
+                "approximate_threshold": approximate_threshold,
+                "refresh_interval": refresh_interval,
+                "force_merge": force_merge,
             },
             success=True,
         )
@@ -807,21 +881,14 @@ class OpenSearchBackend(BenchmarkBackend):
         force: bool = False,
         search_threads: Optional[int] = None,
         dry_run: bool = False,
-    ) -> SearchResult:
+    ) -> List[SearchResult]:
         """
         Search the OpenSearch k-NN index for nearest neighbors.
 
         Iterates over every search-parameter combination defined in the index
-        config, updating the index-level ``ef_search`` setting between runs.
-        Metrics (QPS, latency) are collected per parameter set and stored in
-        ``SearchResult.metadata["per_search_param_results"]``.
-
-        The *neighbors* and *distances* arrays in the returned result reflect
-        the **last** search-parameter combination (highest ef_search by
-        convention), while *queries_per_second* is the average across all
-        parameter combinations. This backend returns ``recall=0.0``; the
-        shared orchestrator path computes recall from the returned neighbors
-        and dataset ground truth.
+        config, passing ``ef_search`` directly in every k-NN query. Returns one
+        result per parameter set so the orchestrator can compute recall for
+        each set independently.
 
         Parameters
         ----------
@@ -847,16 +914,18 @@ class OpenSearchBackend(BenchmarkBackend):
 
         Returns
         -------
-        SearchResult
+        List[SearchResult]
         """
         skip = self._pre_flight_check()
         if skip:
-            return self._failed_search_result(
-                k, f"pre-flight check failed: {skip}"
-            )
+            return [
+                self._failed_search_result(
+                    k, f"pre-flight check failed: {skip}"
+                )
+            ]
 
         if not indexes:
-            return self._failed_search_result(k, "No indexes provided")
+            return [self._failed_search_result(k, "No indexes provided")]
 
         index_cfg = indexes[0]
         index_name = self._resolve_index_name(index_cfg)
@@ -870,44 +939,46 @@ class OpenSearchBackend(BenchmarkBackend):
                 f"(k={k}, batch_size={batch_size})"
             )
 
-            return SearchResult(
-                neighbors=np.zeros((0, k), dtype=np.int64),
-                distances=np.zeros((0, k), dtype=np.float32),
-                search_time_ms=0.0,
-                queries_per_second=0.0,
-                recall=0.0,
-                algorithm=self.algo,
-                search_params=search_params_list,
-                success=True,
-            )
+            return [
+                SearchResult(
+                    neighbors=np.zeros((0, k), dtype=np.int64),
+                    distances=np.zeros((0, k), dtype=np.float32),
+                    search_time_ms=0.0,
+                    queries_per_second=0.0,
+                    recall=0.0,
+                    algorithm=self.algo,
+                    search_params=[search_params],
+                    metadata={
+                        "group": self.config["group"],
+                        "index_name": index_name,
+                        "dry_run": True,
+                    },
+                    success=True,
+                )
+                for search_params in search_params_list
+            ]
 
         # Dataset handles lazy loading from query files when needed.
         query_vectors = dataset.query_vectors
 
         if query_vectors.size == 0:
-            return self._failed_search_result(
-                k,
-                "No query vectors available. Provide dataset.query_vectors "
-                "or a valid dataset.query_file path.",
-                search_params=search_params_list,
-            )
+            return [
+                self._failed_search_result(
+                    k,
+                    "No query vectors available. Provide "
+                    "dataset.query_vectors or a valid dataset.query_file path.",
+                    search_params=search_params_list,
+                )
+            ]
 
         n_queries = query_vectors.shape[0]
         n_batches = (n_queries + batch_size - 1) // batch_size
 
         # Run search for each search-parameter combination
-        per_param_results: List[Dict[str, Any]] = []
-        last_neighbors = np.full((n_queries, k), -1, dtype=np.int64)
-        last_distances = np.zeros((n_queries, k), dtype=np.float32)
+        results: List[SearchResult] = []
 
         for sp in search_params_list:
             ef_search = sp.get("ef_search", 100)
-
-            if engine == "faiss":
-                self._client.indices.put_settings(
-                    index=index_name,
-                    body={"index.knn.algo_param.ef_search": ef_search},
-                )
 
             neighbors = np.full((n_queries, k), -1, dtype=np.int64)
             distances = np.zeros((n_queries, k), dtype=np.float32)
@@ -926,6 +997,9 @@ class OpenSearchBackend(BenchmarkBackend):
                                     "vector": {
                                         "vector": q_vec.tolist(),
                                         "k": k,
+                                        "method_parameters": {
+                                            "ef_search": ef_search,
+                                        },
                                     }
                                 }
                             },
@@ -957,39 +1031,25 @@ class OpenSearchBackend(BenchmarkBackend):
             elapsed = time.perf_counter() - t0
             qps = n_queries / elapsed if elapsed > 0 else 0.0
 
-            per_param_results.append(
-                {
-                    "search_params": sp,
-                    "search_time_ms": elapsed * 1000.0,
-                    "queries_per_second": qps,
-                    "batch_size": batch_size,
-                    "num_batches": n_batches,
-                }
+            results.append(
+                SearchResult(
+                    neighbors=neighbors,
+                    distances=distances,
+                    search_time_ms=elapsed * 1000.0,
+                    queries_per_second=qps,
+                    recall=0.0,
+                    algorithm=self.algo,
+                    search_params=[sp],
+                    metadata={
+                        "group": self.config["group"],
+                        "index_name": index_name,
+                        "engine": engine,
+                        "batch_size": batch_size,
+                        "num_batches": n_batches,
+                        "latency_seconds": elapsed / n_batches,
+                    },
+                    success=True,
+                )
             )
-            last_neighbors = neighbors
-            last_distances = distances
 
-        # Aggregate across all search-param combinations
-        avg_qps = float(
-            np.mean([r["queries_per_second"] for r in per_param_results])
-        )
-        total_search_time_ms = float(
-            sum(r["search_time_ms"] for r in per_param_results)
-        )
-
-        return SearchResult(
-            neighbors=last_neighbors,
-            distances=last_distances,
-            search_time_ms=total_search_time_ms,
-            queries_per_second=avg_qps,
-            recall=0.0,
-            algorithm=self.algo,
-            search_params=search_params_list,
-            metadata={
-                "engine": engine,
-                "batch_size": batch_size,
-                "num_batches": n_batches,
-                "per_search_param_results": per_param_results,
-            },
-            success=True,
-        )
+        return results
