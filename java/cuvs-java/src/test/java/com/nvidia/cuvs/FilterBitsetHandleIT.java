@@ -45,6 +45,11 @@ public class FilterBitsetHandleIT extends CuVSTestCase {
   private static final int N_ROWS = NUM_PARTITIONS * PART_ROWS;
   private static final int REMOVE_COUNT = 12; // remove global rows [0, REMOVE_COUNT)
 
+  /** Device storage and views attached to the partition indexes, released by {@link #closeAll}. */
+  private final List<CuVSDeviceMatrix> partitionDeviceDatasets = new ArrayList<>();
+
+  private final List<CagraIndex.PaddedDatasetView> partitionDatasetViews = new ArrayList<>();
+
   @Before
   public void setup() {
     assumeTrue("not supported on " + System.getProperty("os.name"), isLinuxAmd64());
@@ -68,7 +73,8 @@ public class FilterBitsetHandleIT extends CuVSTestCase {
         // Warm up the device upload on the long-lived `resources` so the shared allocation is bound
         // to it. Per-thread resources are closed when each search thread finishes; binding the
         // allocation to one of those would free it against destroyed resources at handle close.
-        assertNoFilteredRows(searchOnce(resources, indices, queries, partStart, filters), partStart);
+        assertNoFilteredRows(
+            searchOnce(resources, indices, queries, partStart, filters), partStart);
         List<Throwable> errors =
             runConcurrentSearches(
                 indices, queries, partStart, filters, numThreads, searchesPerThread);
@@ -352,15 +358,32 @@ public class FilterBitsetHandleIT extends CuVSTestCase {
     List<CagraIndex> indices = new ArrayList<>();
     for (int p = 0; p < partStart.length; p++) {
       float[][] slice = Arrays.copyOfRange(dataset, partStart[p], partStart[p] + PART_ROWS);
-      indices.add(
-          CagraIndex.newBuilder(resources).withDataset(slice).withIndexParams(indexParams).build());
+      var index =
+          CagraIndex.newBuilder(resources).withDataset(slice).withIndexParams(indexParams).build();
+      // DIM=16 float rows are already aligned, so retain the device matrix behind this view.
+      try (var hostDataset = CuVSMatrix.ofArray(slice)) {
+        var deviceDataset = hostDataset.toDevice(resources);
+        var paddedView = index.makePaddedDatasetView(deviceDataset);
+        index.updateDataset(paddedView);
+        partitionDeviceDatasets.add(deviceDataset);
+        partitionDatasetViews.add(paddedView);
+      }
+      indices.add(index);
     }
     return indices;
   }
 
-  private static void closeAll(List<CagraIndex> indices) throws Exception {
+  private void closeAll(List<CagraIndex> indices) throws Exception {
     for (CagraIndex idx : indices) {
       idx.close();
     }
+    for (CagraIndex.PaddedDatasetView view : partitionDatasetViews) {
+      view.close();
+    }
+    for (CuVSDeviceMatrix dataset : partitionDeviceDatasets) {
+      dataset.close();
+    }
+    partitionDatasetViews.clear();
+    partitionDeviceDatasets.clear();
   }
 }

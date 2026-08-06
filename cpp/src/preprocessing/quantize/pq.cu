@@ -1,11 +1,14 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #include "./detail/pq.cuh"
 
 #include <cuvs/preprocessing/quantize/pq.hpp>
+
+#include <raft/matrix/copy.cuh>
+#include <raft/util/cudart_utils.hpp>
 
 namespace cuvs::preprocessing::quantize::pq {
 
@@ -72,5 +75,59 @@ CUVS_INST_VPQ_BUILD(int8_t);
 CUVS_INST_VPQ_BUILD(uint8_t);
 
 #undef CUVS_INST_VPQ_BUILD
+
+namespace detail {
+
+template <typename T>
+auto vpq_train_from_device_rows(raft::resources const& res,
+                                cuvs::neighbors::vpq_params const& params,
+                                T const* src_ptr,
+                                int64_t n_rows,
+                                int64_t dim,
+                                int64_t stride)
+  -> cuvs::neighbors::device_vpq_dataset<half, int64_t>
+{
+  auto stream = raft::resource::get_cuda_stream(res);
+  if (stride != dim) {
+    auto dense = raft::make_device_matrix<T, int64_t>(res, n_rows, dim);
+    raft::copy_matrix(dense.data_handle(), dim, src_ptr, stride, dim, n_rows, stream);
+    auto dense_view =
+      raft::make_device_matrix_view<const T, int64_t>(dense.data_handle(), n_rows, dim);
+    return detail::vpq_build_half(res, params, dense_view);
+  }
+  auto row_view = raft::make_device_matrix_view<const T, int64_t>(src_ptr, n_rows, dim);
+  return detail::vpq_build_half(res, params, row_view);
+}
+
+}  // namespace detail
+
+template cuvs::neighbors::device_vpq_dataset<half, int64_t>
+detail::vpq_train_from_device_rows<float>(raft::resources const&,
+                                          cuvs::neighbors::vpq_params const&,
+                                          float const*,
+                                          int64_t,
+                                          int64_t,
+                                          int64_t);
+template cuvs::neighbors::device_vpq_dataset<half, int64_t>
+detail::vpq_train_from_device_rows<half>(raft::resources const&,
+                                         cuvs::neighbors::vpq_params const&,
+                                         half const*,
+                                         int64_t,
+                                         int64_t,
+                                         int64_t);
+template cuvs::neighbors::device_vpq_dataset<half, int64_t>
+detail::vpq_train_from_device_rows<int8_t>(raft::resources const&,
+                                           cuvs::neighbors::vpq_params const&,
+                                           int8_t const*,
+                                           int64_t,
+                                           int64_t,
+                                           int64_t);
+template cuvs::neighbors::device_vpq_dataset<half, int64_t>
+detail::vpq_train_from_device_rows<uint8_t>(raft::resources const&,
+                                            cuvs::neighbors::vpq_params const&,
+                                            uint8_t const*,
+                                            int64_t,
+                                            int64_t,
+                                            int64_t);
 
 }  // namespace cuvs::preprocessing::quantize::pq

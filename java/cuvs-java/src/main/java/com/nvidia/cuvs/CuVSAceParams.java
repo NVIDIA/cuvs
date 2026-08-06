@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs;
@@ -75,8 +75,13 @@ public class CuVSAceParams {
    */
   private final double maxGpuMemoryGb;
 
-  private CuVSAceParams(long npartitions, long efConstruction, String buildDir, boolean useDisk,
-                        double maxHostMemoryGb, double maxGpuMemoryGb) {
+  private CuVSAceParams(
+      long npartitions,
+      long efConstruction,
+      String buildDir,
+      boolean useDisk,
+      double maxHostMemoryGb,
+      double maxGpuMemoryGb) {
     this.npartitions = npartitions;
     this.efConstruction = efConstruction;
     this.buildDir = buildDir;
@@ -259,8 +264,8 @@ public class CuVSAceParams {
      * @return an instance of {@link CuVSAceParams}
      */
     public CuVSAceParams build() {
-      return new CuVSAceParams(npartitions, efConstruction, buildDir, useDisk,
-                               maxHostMemoryGb, maxGpuMemoryGb);
+      return new CuVSAceParams(
+          npartitions, efConstruction, buildDir, useDisk, maxHostMemoryGb, maxGpuMemoryGb);
     }
   }
 }

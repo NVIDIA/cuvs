@@ -80,6 +80,9 @@ void expect_multi_partition_search_throws(
   raft::resource::sync_stream(handle);
 
   std::vector<cagra::index<float, std::uint32_t>> part_indices;
+  // An index only holds a view, so any padded copy has to outlive it.
+  std::vector<cuvs::neighbors::test::padded_device_matrix_for_cagra<float>> part_padded;
+  part_padded.reserve(num_partitions);
   for (int i = 0; i < num_partitions; i++) {
     const auto [metric, graph_degree] = partition_specs[i];
     cagra::index_params index_params;
@@ -90,7 +93,10 @@ void expect_multi_partition_search_throws(
       graph_build_params::nn_descent_params(index_params.intermediate_graph_degree, metric);
     auto view = raft::make_device_matrix_view<const float, int64_t>(
       database.data() + static_cast<size_t>(i) * part_size * dim, part_size, dim);
-    part_indices.push_back(cagra::build(handle, index_params, view));
+    part_padded.emplace_back(handle, view);
+    auto const& padded = part_padded.back().view;
+    part_indices.push_back(cagra::build(handle, index_params, padded));
+    part_indices.back().update_device_dataset_same_layout(handle, padded);
   }
   std::vector<const cagra::index<float, std::uint32_t>*> index_ptrs;
   for (auto& idx : part_indices) {
