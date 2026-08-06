@@ -168,7 +168,7 @@ impl AsDlTensorMut for GpuTensor {
     }
 }
 
-fn release/26.08() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let res = Resources::new()?;
 
     // Build a CAGRA index over your dataset.
