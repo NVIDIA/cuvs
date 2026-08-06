@@ -51,8 +51,6 @@ jobs:
       node_type: cpu16
       script: ci/build_cpp.sh
       sha: ${{ inputs.sha }}
-      release-build-output: true
-      release-unit: conda:cuvs-cpp
 
   rocky8-clib-standalone-build-matrix:
     permissions:
@@ -214,8 +212,6 @@ jobs:
       date: ${{ inputs.date }}
       script: ci/build_python.sh
       sha: ${{ inputs.sha }}
-      release-build-output: true
-      release-unit: conda:cuvs-python
       # Build a conda package for each CUDA x ARCH x minimum supported Python version
       matrix_filter: group_by({CUDA_VER, ARCH}) | map(min_by(.PY_VER | split(".") | map(tonumber)))
   upload-conda:
@@ -282,8 +278,6 @@ jobs:
       matrix_filter: group_by([.ARCH, (.CUDA_VER|split(".")|map(tonumber)|.[0])]) | map(max_by(.PY_VER|split(".")|map(tonumber)))
       package-name: libcuvs
       package-type: cpp
-      release-build-output: true
-      release-unit: wheel:libcuvs
   wheel-publish-libcuvs:
     needs: wheel-build-libcuvs
     permissions:
@@ -323,8 +317,6 @@ jobs:
       script: ci/build_wheel_cuvs.sh
       package-name: cuvs
       package-type: python
-      release-build-output: true
-      release-unit: wheel:cuvs
       # Build a wheel for each CUDA x ARCH x minimum supported Python version
       matrix_filter: group_by({CUDA_VER, ARCH}) | map(min_by(.PY_VER | split(".") | map(tonumber)))
   wheel-publish-cuvs:

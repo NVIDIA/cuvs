@@ -404,8 +404,6 @@ jobs:
       build_type: pull-request
       node_type: cpu16
       script: ci/build_cpp.sh
-      release-build-output: true
-      release-unit: conda:cuvs-cpp
   conda-cpp-tests:
     needs: [conda-cpp-build, changed-files]
     permissions:
@@ -446,8 +444,6 @@ jobs:
     with:
       build_type: pull-request
       script: ci/build_python.sh
-      release-build-output: true
-      release-unit: conda:cuvs-python
       # Build a conda package for each CUDA x ARCH x minimum supported Python version
       matrix_filter: group_by({CUDA_VER, ARCH}) | map(min_by(.PY_VER | split(".") | map(tonumber)))
   conda-python-tests:
@@ -666,8 +662,6 @@ jobs:
       matrix_filter: group_by([.ARCH, (.CUDA_VER|split(".")|map(tonumber)|.[0])]) | map(max_by(.PY_VER|split(".")|map(tonumber)))
       package-name: libcuvs
       package-type: cpp
-      release-build-output: true
-      release-unit: wheel:libcuvs
   wheel-build-cuvs:
     needs: wheel-build-libcuvs
     permissions:
@@ -684,8 +678,6 @@ jobs:
       script: ci/build_wheel_cuvs.sh
       package-name: cuvs
       package-type: python
-      release-build-output: true
-      release-unit: wheel:cuvs
       # Build a wheel for each CUDA x ARCH x minimum supported Python version
       matrix_filter: group_by({CUDA_VER, ARCH}) | map(min_by(.PY_VER | split(".") | map(tonumber)))
   wheel-tests-cuvs:
