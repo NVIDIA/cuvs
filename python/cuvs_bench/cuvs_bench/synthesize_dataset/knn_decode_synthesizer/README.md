@@ -37,7 +37,7 @@ We **fit** on a small `SS`-node real sample and **generate** a large `N`-node sy
 
 **Fit** — once, on the `SS`-node sample:
 1. Build the sample's all-neighbors kNN graph and cluster it (KMeans).
-2. Measure the graph statistics the upsampled kNN must preserve cluster sizes, in-degree (hub) tail, in-cluster edge fraction, and the coherence (a.k.a. clustering coefficient — how often my neighbors' neighbors are also my neighbors, i.e. triangle density).
+2. Measure the graph statistics the upsampled kNN must preserve: cluster sizes, in-degree (hub) tail, in-cluster edge fraction, and the coherence (a.k.a. clustering coefficient — how often my neighbors' neighbors are also my neighbors, i.e. triangle density).
 3. Train the decoder (a small neural net of MLPs) to map `(kNN graph + per-node features) → vector`, by regressing each sample node's real embedding from its graph neighborhood.
 4. Fit the residual model — a per-cluster low-rank Gaussian (same as the shipped generator in `cuvs_bench`) capturing the within-cluster spread the decoder can't reproduce.
 
@@ -70,12 +70,12 @@ Coherent edges supply the local structure, and the Chung–Lu blend supplies the
 We use a **`kNNDecoder`**, which is a small neural net. Decoding runs in three steps:
 
 **1. Turn the kNN graph into per-node features.** The decoder never sees raw coordinates. It only sees the graph. Each synthetic node is assigned an anchor (which is one of the real sample points), and we build its feature vector from two things:
-   - an anchor embedding — `MLP(anchor)` of that sample point (roughly, which region of space the node lives in), and
+   - the anchor embedding — `MLP(anchor)` of that sample point (roughly, which region of space the node lives in), and
    - structural features read off the graph — the node's in-degree and its neighbors' mean in-degree (how *hub-like* the node and its neighborhood are).
 
-**2. Decode with the model.** For each node, the `kNNDecoder` attention-pools its `k` neighbors' features, concatenates with the node's own features, and passes them through the MLP to output a `d`-dim vector for that node. It was trained (during Fit) with MSE to regress each node's real embedding. But many nodes map to nearly identical inputs (same cluster + similar local graph topology) yet had different real embeddings, so MSE can only predict the conditional mean for that input (the average of all real vectors whose nodes shared that graph-position). The decoded manifold thus comes out very smooth, dropping the spread among nodes that share the same graph-position.
+**2. Decode with the model.** For each node in the target `N` nodes, the `kNNDecoder` attention-pools its `k` neighbors' features, concatenates with the node's own features, and passes them through the MLP to output a `d`-dim vector for that node. It was trained (during Fit) with MSE to regress each node's real embedding. But many nodes map to nearly identical inputs (same cluster + similar local graph topology) yet had different real embeddings, so the decoder can only predict the conditional mean for that input (the average of all real vectors whose nodes shared that graph-position). The decoded manifold thus comes out very smooth, dropping the spread among nodes that share the same graph-position.
 
-**3. Add the residual → the spread.** To overcome the smoothness, for each node, draw a sample from a fitted low-rank Gaussian and add it to the decoded mean, like we do in the shipped `cuvs_bench` data synthesizer. Finally, a radial percentile step resets each vector's norm from its cluster's real norm inverse-CDF (also as we already do in `cuvs_bench`).
+**3. Add the residual → the spread.** To overcome the smoothness, for each node, draw a sample from a fitted low-rank Gaussian, like we do in the shipped `cuvs_bench` data synthesizer, and add it to the decoded mean. Finally, a radial percentile step resets each vector's norm from its cluster's real norm inverse-CDF (also as we already do in `cuvs_bench`).
 
 ---
 
@@ -96,7 +96,7 @@ An NVIDIA GPU, plus:
 ### The pipeline
 **Generate data → build the index (build time) → search (recall/QPS)** — run once for synthetic, once for a real reference, then compare.
 
-**1. Real reference.** Omit `--target` to split the sample itself into base + held-out queries + exact GT — the ground truth every synthetic run is scored against:
+**1. Real reference.** Omit `--target` to split the sample itself into base + held-out queries + exact GT:
 ```bash
 python generate_data.py --sample SAMPLE.fbin --out-dir out/real_10m
 ```
@@ -117,7 +117,7 @@ python build_vamana.py out/synth_10m/base.fbin --num-vectors 9990000 --save
 python build_vamana.py out/real_10m/base.fbin --num-vectors 9990000 --save
 ```
 
-For data too big to build on GPU call DiskANN's on-disk builder directly over `base.fbin`:
+For data too big to build on GPU, call DiskANN's on-disk builder directly over `base.fbin`:
 ```bash
 $DISKANN_APPS/build_disk_index --data_type float --dist_fn l2 \
     --data_path         out/synth_100m/base.fbin \
@@ -144,7 +144,7 @@ Similar for a large index, but use `search_disk_index` instead.
 - **`upsample.py`** — the **upsampling stage**: build the `N`-node graph from the sample graph.
 - **`knn_decoder.py`** — the **decoding stage** (`kNNDecoder`): graph → vectors (mean + per-cluster residual + radial norm), plus training.
 - **`utils.py`** — shared helpers.
-- **`build_vamana.py`** — builds a cuVS Vamana index over a `base.fbin`, reports build time.
+- **`build_vamana.py`** — additional helper that builds a cuVS Vamana index over a `base.fbin`, reports build time. Is irrelevant to the synthetic data generation pipeline.
 
 ---
 
@@ -267,7 +267,7 @@ The default pipeline builds the whole synthetic graph `(N, k)` and then decodes 
 
 ### Where the memory goes
 
-**Fit / train — fine at any target.** The model is trained once on the `SS`-node sample data, which is much smaller (suggested `SS = N/200`). When the sample itself becomes too for GPU memory, the **`--host-gather`** flag keeps the training anchor table / kNN graph / struct features on the CPU RAM and ships each minibatch to the GPU per step. This improves memory usage at the cost of performance, but is runnable.
+**Fit / train — fine at any target.** The model is trained once on the `SS`-node sample data, which is much smaller (suggested `SS = N/200`) than the target `N`. When the sample itself becomes too big for GPU memory, the **`--host-gather`** flag keeps the training anchor table / kNN graph / structural features on the CPU RAM and ships each minibatch to the GPU per step. This improves memory usage at the cost of performance, but is runnable.
 
 **Generate + decode — the wall.** The default whole-graph path materializes everything at once:
 - **Host RAM** — the full `(N, k)` kNN graph plus the `O(N)` per-node feature arrays (each node's anchor id, structural features, and target norm).
@@ -277,20 +277,20 @@ At `N=100B` neither fits — and because this is the part that grows with `N`, i
 
 ### How Block Decode removes the wall
 
-**Main idea:** group the `N` nodes by their anchor (the sample point each synthetic node is assigned to), and process one contiguous block of anchors at a time (the reason we say a few blocks of anchors is to improve GPU utilization, because the points assigned to a sample point is on average `N/SS ≈ 200`).
+**Main idea:** group the `N` nodes by their anchor (the sample point each synthetic node is assigned to), and process one contiguous block of anchors at a time (the reason we say a few blocks of anchors is to improve GPU utilization, because the points assigned to a sample point - i.e. the anchor - is on average `N/SS ≈ 200`).
 Coherent edges are within-anchor (the windowed wiring from [§1](#the-upsampling-stage-building-a-coherent-n-node-graph)), so every node's coherent neighbors fall in the same block. Each block generates + decodes on its own, streams its base rows to disk, and is discarded. The full graph, the global sort, and the `O(N)` arrays never materialize; peak memory is set by the block size (`--block-size`), not `N`.
 
 **The remaining wall is the hub tail.** Coherent edges are local. They stay inside a node's anchor, hence inside its block that will be generated together with the approach above. However, the Chung–Lu hub edges are global. A node in block 3 can point at a hub that lives in block 500. To decode block 3 the decoder needs that hub-neighbor's *features* (its anchor embedding + structural features), but block 500 isn't in memory with the block-approach suggested above.
 
-**The fix: a parametric hub field.** The decoder doesn't care *which* node a hub is — only its **anchor** (→ embedding `cluster_mlp(anchor)`) and its **in-degree** (→ struct feature `[log1p(in_deg), log1p(mean_nbr_in_deg)]`). Two hubs with the same anchor + in-degree decode identically, so we store no hub nodes at all and **sample those two properties per Chung–Lu edge**:
-  - **`anchor ~ uniform`** over the `SS` anchors (weight and anchor are independent in the blend, so a ∝-weight target draw doesn't bias the anchor).
+**The fix: a parametric hub field.** The decoder doesn't care *which* node a hub is — it reads only the hub's **anchor** (for the embedding `cluster_mlp(anchor)`) and its **structural feature** `[log1p(in_deg), log1p(mean_nbr_in_deg)]`. The second term (a hub's neighbors' mean in-degree) is almost constant across hubs because every node's `k` neighbors are drawn the same way (~`knn_frac` coherent + ~`(1-knn_frac)` other hubs). So we hold it at one analytic value and let only the **anchor** and **in-degree** vary. That leaves just two properties determining a hub, so we store no hub nodes at all and sample those two per Chung–Lu edge:
+  - **`anchor ~ uniform`** over the `SS` anchors (weight and anchor are independent in the blend, so a target drawn with probability proporional to the weight doesn't bias the anchor).
   - **`in-degree ~ size-biased(indeg_dist)`**: targets are drawn proportional to the weight, so a selected hub's weight follows `P(w) ∝ w·hist(w)`. This is precomputed once from the sample's in-degree histogram.
 
 The default pipeline still uses the whole-graph path; pass `--block-local` to switch to this streaming generator.
 
 ### Result: Block Decode vs. the real reference (50K→10M)
 
-Block Decode (parametric hub field) reproduces the real reference — build time and the full recall–QPS curve line up. (Real is the [§3](#3-headline-result) headline number; Block Decode was run with `--block-local --knn-frac 0.35`.)
+Block Decode reproduces the real reference at 10M. (Real is the [§3](#3-headline-result) headline number).
 
 Build time: real **1,040 s** · Block Decode **1,021 s**
 
@@ -305,6 +305,7 @@ Build time: real **1,040 s** · Block Decode **1,021 s**
 | 200 | 99.24% (4,527)  | 100.00% (4,341) |
 | 300 | 99.50% (3,255)  | 100.00% (3,086) |
 
+To reproduce the block decode result:
 ```
 # 50K -> 10M
 python generate_data.py --sample SAMPLE_50K.fbin --out-dir out/50k_10m \
@@ -313,6 +314,9 @@ python generate_data.py --sample SAMPLE_50K.fbin --out-dir out/50k_10m \
    --block-local --block-size 1000000
 python build_vamana.py "$d/base.fbin" --num-vectors 9990000 --save  # Build using cuVS vamana
 ```
+
+Should be validated for larger data too.
+
 ---
 
 ## 6. TODOs and Future Work

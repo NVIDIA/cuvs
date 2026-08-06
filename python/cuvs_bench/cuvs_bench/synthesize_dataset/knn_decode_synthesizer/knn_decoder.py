@@ -11,16 +11,15 @@ import time
 
 import numpy as np
 import torch
-import torch.nn as nn
+from torch import nn
 from tqdm import tqdm
-
 from utils import (
+    CHUNK_SIZE,
+    batched_mean_std,
     normalize_features,
     sample_residuals,
     ts,
     write_fbin_header,
-    batched_mean_std,
-    CHUNK_SIZE,
 )
 
 STRUCT_FEAT_DIM = 2
@@ -129,12 +128,12 @@ def train_model(
     in_deg     : (ss,) per-node in-degree of the sample kNN (the stats' indeg_dist),
                  reused for the structural features.
     host_gather: if False (default), the anchor table / kNN graph / struct features are
-                 held GPU-RESIDENT and gathered on-device. This is fast, for samples that fit in
-                 GPU memory.  If True, they stay on the HOST and each
-                 minibatch's rows are shipped to the GPU per step — slower per step but
-                 scales to samples too big for GPU memory.  Same loop either way:
-                 only the storage device changes (the per-batch `.to(device)` is a no-op
-                 when resident).
+                 held GPU-RESIDENT and gathered on-device. This is fast, for samples that
+                 fit in GPU memory.  If True, they stay on the HOST and each minibatch's
+                 rows are shipped to the GPU per step — slower per step but scales to
+                 samples too big for GPU memory.  Same loop either way: only the storage
+                 device changes (the per-batch `.to(device)` is a no-op when resident).
+
 
     Returns (model, mu, sd, feat_mu, feat_sd, struct_feats):
       mu/sd           per-dim stats of X
@@ -289,8 +288,9 @@ def fit_residuals(
         struct_feats = compute_structural_features(sample_knn, in_deg)
         struct_feats = normalize_features(struct_feats, feat_mu, feat_sd)
 
-    # Decode all real nodes -> prediction; residual = target - prediction.  For each chunk, gather the unique anchor rows
-    # (centers + neighbors) host->GPU and run cluster_mlp once each (Row i is anchor i, so the chunk's center ids are i..end.)
+    # Decode all real nodes -> prediction; residual = target - prediction.
+    # For each chunk, gather the unique anchor rows (centers + neighbors) host->GPU
+    # and run cluster_mlp once each (Row i is anchor i, so the chunk's center ids are i..end.)
     R = np.empty((ss, D), dtype=np.float32)
     for i in tqdm(
         range(0, ss, chunk), desc="residual: decode sample", unit="chunk"

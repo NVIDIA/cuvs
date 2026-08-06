@@ -8,13 +8,12 @@ from __future__ import annotations
 
 import numpy as np
 from tqdm import tqdm
-
 from utils import CHUNK_SIZE
 
 
 def _node_coherence(nbr, idx):
-    """Triangle Density for the nodes in `idx`.  Returns (len(idx),) float32: fraction of each node's ordered neighbor-pairs (j, j')
-    where j' is also its neighbor.
+    """Triangle Density for the nodes in `idx`.  Returns (len(idx),) float32: fraction
+    of each node's ordered neighbor-pairs (j, j') where j' is also its neighbor.
     """
     k = nbr.shape[1]
     nb = nbr[idx]  # (m, k) i.e. the k nbrs
@@ -48,9 +47,9 @@ def blend_chunglu(core_nbr, k_keep, indeg_dist, N, k, seed, chunk=CHUNK_SIZE):
     proportional to it, so a few nodes accumulate many in-edges — the heavy
     in-degree tail (hubs) the index leans on.  Returns (N, k) int64.
 
-    Note: the result may contain DUPLICATE neighbors and self-loops. This is not a problem because `nbr` is a
-    throwaway decoder input, not the ANN index graph. A duplicate just gives that neighbor a
-    little extra weight in the order-invariant attention aggregate.
+    Note: the result may contain DUPLICATE neighbors and self-loops. This is not a problem because
+    `nbr` is a throwaway decoder input. A duplicate just gives that neighbor a little extra
+    weight in the order-invariant attention aggregate.
     """
     import cupy as cp
 
@@ -85,10 +84,11 @@ def blend_chunglu(core_nbr, k_keep, indeg_dist, N, k, seed, chunk=CHUNK_SIZE):
 def triadic_coherent_knn(cluster_ids, k, seed, tgt):
     """Coordinate-free coherent graph.
 
-    Within each cluster, lay the nodes in a random order and connect each to k random nodes inside a sliding window of width
-    w.  Overlapping windows produce continuous, mutually-overlapping neighborhoods
-    (triangles).  The window width sets the coherence, so w is auto-sized to the
-    sample's measured coherence (tgt) with one proportional correction. A smaller window results in a higher coherence
+    Within each cluster, lay the nodes in a random order and connect each to k random
+    nodes inside a sliding window of width w.  Overlapping windows produce continuous,
+    mutually-overlapping neighborhoods (triangles). The window width sets the coherence,
+    so w is auto-sized to the sample's measured coherence (tgt) with one proportional
+    correction. A smaller window results in a higher coherence.
 
     Returns (N, k) int64
     """
@@ -140,7 +140,7 @@ def triadic_coherent_knn(cluster_ids, k, seed, tgt):
     nbr = build(w, seed + 7)
     C = _est_coherence(nbr, seed=1)
     if abs(C - tgt) > 0.015 and C > 0:  # one proportional correction (C ~ 1/w)
-        w = max(k + 1, int(round(w * C / tgt)))
+        w = max(k + 1, round(w * C / tgt))
         nbr = build(w, seed + 8)
         C = _est_coherence(nbr, seed=1)
     print(
@@ -154,10 +154,11 @@ def triadic_coherent_knn(cluster_ids, k, seed, tgt):
 def generate_graph_knn(stats, N, k, seed, knn_frac=1.0):
     """Build coherent N-node kNN graph, blended with a Chung-Lu hub tail.
 
-    Generate a coherent kNN graph using triadic_coherent_knn. blend_chunglu then keeps ~knn_frac*k coherent edges per
-    node and fills the rest with degree-weighted random (Chung-Lu) edges. The coherent
-    edges drive recall, the random tail drives the hub tail + search difficulty
-    (knn_frac=1.0 = fully coherent). Larger knn_frac means an easier data.
+    Generate a coherent kNN graph using triadic_coherent_knn. blend_chunglu then
+    keeps ~knn_frac*k coherent edges per node and fills the rest with degree-weighted
+    random (Chung-Lu) edges. The coherentedges drive recall, the random tail drives
+    the hub tail + search difficulty (knn_frac=1.0 = fully coherent). Larger knn_frac
+    means an easier data.
 
     Returns (anchor_ids (N,) int32 — each node's anchor, nbr (N, k) int64).
     """

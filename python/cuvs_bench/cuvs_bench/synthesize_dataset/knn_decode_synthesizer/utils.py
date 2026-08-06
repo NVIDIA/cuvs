@@ -82,7 +82,7 @@ class PhaseTimer:
                 flush=True,
             )
             for n, s in items:
-                bar = "#" * int(round(30 * s / max(tot, 1e-9)))
+                bar = "#" * round(30 * s / max(tot, 1e-9))
                 print(
                     f"      {n:26s} {s:9.1f}s  {100 * s / tot:5.1f}%  {bar}",
                     flush=True,
@@ -98,7 +98,9 @@ def normalize_features(feats, mu, sd):
 
 
 def batched_mean_std(X, chunk=CHUNK_SIZE):
-    """Per-dim mean & std of a (n, D) array, computed in batches.  Returns (mu (1, D), sd (1, D)) float32."""
+    """Per-dim mean & std of a (n, D) array, computed in batches.
+    Returns (mu (1, D), sd (1, D)) float32.
+    """
     import cupy as cp
 
     n, D = X.shape

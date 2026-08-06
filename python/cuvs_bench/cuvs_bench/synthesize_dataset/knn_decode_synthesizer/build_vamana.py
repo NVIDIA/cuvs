@@ -1,12 +1,11 @@
-#!/usr/bin/env python
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 """Build a cuVS Vamana index on a subset of an fbin dataset.
 
-Reads an .fbin file, takes the first N vectors,
-moves them to the GPU and runs cuVS Vamana with the given parameters while
-timing the build.
+Reads an .fbin file, takes the first N vectors, moves them to the GPU
+and runs cuVS Vamana with the given parameters while timing the build.
+
 """
 
 import argparse

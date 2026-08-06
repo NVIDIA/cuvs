@@ -15,9 +15,8 @@ from __future__ import annotations
 
 import numpy as np
 import torch
-from tqdm import tqdm
-
 from knn_decoder import STRUCT_FEAT_DIM, sample_norms_percentile
+from tqdm import tqdm
 from upsample import _est_coherence
 from utils import normalize_features, sample_residuals, write_fbin_header
 
@@ -46,8 +45,8 @@ def _hub_field_setup(indeg_dist, k, knn_frac):
     Returns (sb_cdf, cl_scale, hub_mni):
 
     - `sb_cdf`  : (SS,) float64 — inverse-CDF for the size-biased in-degree draw.
-    - `cl_scale`: scalar float — weight -> expected Chung-Lu in-degree. Total Chung-Lu
-                  edges `e_cl = N·k·(1-knn_frac)` are spread proportional to the weight
+    - `cl_scale`: scalar float for transforming weight -> expected Chung-Lu in-degree. Total
+                  Chung-Lu edges `e_cl = N·k·(1-knn_frac)` are spread proportional to the weight
                   over all N nodes, so a node with weight w expects
                   `e_cl·w/(N·E[w]) = k·(1-knn_frac)·w/E[w]` edges.
                   `cl_scale = k·(1-knn_frac)/E[w]` (N cancels). Multiplied by the weight
@@ -119,7 +118,7 @@ def generate_block_local(
     base_count = N - n_queries
     queries = np.empty((n_queries, D), dtype=np.float32)
     q_off = 0
-    fbase = open(base_path, "wb")  # noqa: SIM115 — streamed across the loop, closed at end
+    fbase = open(base_path, "wb")
     write_fbin_header(fbase, base_count, D)
 
     # group whole clusters into ~block_size-node blocks
@@ -167,7 +166,7 @@ def generate_block_local(
         sz_of = np.repeat(sizes[ca:cb], sizes[ca:cb])  # (b,) anchor size
         loc = np.arange(lo, hi, dtype=np.int64) - gstart  # (b,) local index
 
-        # --- coherent (windowed within-cluster) neighbours ---
+        # --- coherent (windowed within-cluster) neighbors ---
         coh_gid = _coherent_edges(
             loc, sz_of, gstart, k, w, brng
         )  # (b, k) in [lo, hi)

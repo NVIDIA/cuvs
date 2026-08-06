@@ -13,28 +13,27 @@ import time
 
 import numpy as np
 import torch
-
-from utils import (
-    load_fbin,
-    build_all_neighbors,
-    build_kmeans,
-    section,
-    step,
-    holdout_split,
-    write_bundle,
-    write_bundle_streamed,
-    PhaseTimer,
-)
-from upsample import _est_coherence, generate_graph_knn
+from block_local import generate_block_local
 from knn_decoder import (
-    kNNDecoder,
-    train_model,
-    fit_residuals,
     decode_graph,
     fit_norm_quantiles,
+    fit_residuals,
+    kNNDecoder,
     sample_norms_percentile,
+    train_model,
 )
-from block_local import generate_block_local
+from upsample import _est_coherence, generate_graph_knn
+from utils import (
+    PhaseTimer,
+    build_all_neighbors,
+    build_kmeans,
+    holdout_split,
+    load_fbin,
+    section,
+    step,
+    write_bundle,
+    write_bundle_streamed,
+)
 
 
 def get_args():
@@ -64,7 +63,8 @@ def get_args():
         "--target",
         type=int,
         default=None,
-        help="number of synthetic BASE vectors to generate. If this is not given, we just split the sample data to base and n_queries and return.",
+        help="number of synthetic BASE vectors to generate. If this is not given, "
+        "we just split the sample data to base and n_queries and return.",
     )
     g_data.add_argument(
         "--n-queries",
@@ -136,14 +136,15 @@ def get_args():
         type=int,
         default=None,
         help="# clusters for the per-cluster residual/norm fit — same as "
-        "cuvs-bench synthesize_dataset's `nc`. Recommended default: ss / 100.",
+        "cuvs-bench synthesize_dataset's `nc`. Recommended default: sample_size / 100.",
     )
     g_dec.add_argument(
         "--resid-rank",
         type=int,
         default=64,
         help="rank of the per-cluster residual Gaussian "
-        "(within-cluster spread added to the Model output). This is similar to pca-components in cuvs_bench.",
+        "(within-cluster spread added to the Model output). This is similar to"
+        "pca-components in cuvs_bench.",
     )
     g_dec.add_argument(
         "--resid-scale",
@@ -164,8 +165,8 @@ def get_args():
         "--host-gather",
         action="store_true",
         help="hold the training anchor table / kNN graph / struct on the "
-        "HOST and gather each minibatch to the GPU per step. Use only when the sample is too big to "
-        "fit in GPU memory (100M+ sample).",
+        "HOST and gather each minibatch to the GPU per step. Use only when the sample "
+        "is too big to fit in GPU memory (100M+ sample).",
     )
 
     # ================================================================== #
@@ -175,11 +176,10 @@ def get_args():
     g_bl.add_argument(
         "--block-local",
         action="store_true",
-        help="use the cluster-ordered block-local generator (block_local.py) "
-        "instead of the default whole-graph pool+decode. Streams one "
-        "cluster-ordered block at a time (hub tail = parametric hub "
-        "field). This option allows to never materialize the full (N,k) graph or the O(N) "
-        "feature arrays. USE WHEN: the target (N, k) graph is too large for the "
+        help="use the cluster-ordered block-local generator (block_local.py) instead "
+        "of the default whole-graph pool+decode. Streams one cluster-ordered block "
+        "at a time. This option allows to never materialize the full (N,k) graph or the "
+        "O(N) feature arrays. USE WHEN: the target (N, k) graph is too large for the "
         "default path to hold in memory (roughly multi-billion-scale+); the "
         "whole-graph path is simpler and fine for smaller ones (1B and under).",
     )
@@ -188,9 +188,7 @@ def get_args():
         type=int,
         default=1_000_000,
         help="[--block-local] target # nodes per streamed block — caps peak "
-        "GPU memory (a block holds its (block_size, D) decoded vectors plus "
-        "a ~(1-knn_frac)*block_size*k anchor gather on the GPU). Default "
-        "1M is okay, but lower it if you hit GPU OOM, raise it to "
+        "GPU memory. Default 1M is okay, but lower it if you hit GPU OOM, raise it to "
         "cut per-block overhead when memory allows.",
     )
 
@@ -379,8 +377,8 @@ def main():
     base_path = os.path.join(args.out_dir, "base.fbin")
 
     if args.block_local:
-        # cluster-ordered streaming generate+decode. Fuses graph gen
-        # and decode per block, so the (N,k) graph and O(N) features never materialize.
+        # cluster-ordered streaming generate+decode. Fuses graph gen and decode
+        # per block, so the (N,k) graph and O(N) features never materialize.
         section("BLOCK-LOCAL generate+decode  (parametric hub field)")
         t0 = time.perf_counter()
         queries = generate_block_local(
