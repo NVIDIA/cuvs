@@ -1626,13 +1626,13 @@ inline std::vector<AnnCagraInputs> generate_inputs()
   // Varying dim and build algo.
   inputs2 = raft::util::itertools::product<AnnCagraInputs>(
     {100},
-    {1000000},
-    {768},  // dim
+    {1000},
+    {1, 3, 5, 7, 8, 17, 64, 128, 137, 192, 256, 512, 768, 1024},  // dim
     {16},   // k
     {32},   // degree
-    {       // graph_build_algo::IVF_PQ,
-     // graph_build_algo::NN_DESCENT,
-     graph_build_algo::ITERATIVE_CAGRA_SEARCH},
+    {graph_build_algo::IVF_PQ,
+     graph_build_algo::NN_DESCENT,
+     graph_build_algo::ITERATIVE_CAGRA_SEARCH}, // Iterative cagra q build
     {search_algo::AUTO},
     {10},
     {0},
@@ -1645,7 +1645,7 @@ inline std::vector<AnnCagraInputs> generate_inputs()
     {false},
     {true},
     {false},
-    {0.01},
+    {0.995},
     {std::optional<float>{std::nullopt}},
     {std::optional<vpq_params>{std::nullopt}},
     {std::optional<bool>{std::nullopt}},
