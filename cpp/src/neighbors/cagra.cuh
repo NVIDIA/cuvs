@@ -264,15 +264,18 @@ void sort_knn_graph(
  * @param[in] res raft resources
  * @param[in] knn_graph a matrix view (host or device) of the input knn graph [n_rows,
  * knn_graph_degree]
- * @param[out] new_graph a host matrix view of the optimized knn graph [n_rows, graph_degree]
+ * @param[out] new_graph a matrix view (host or device) of the optimized knn graph [n_rows,
+ * graph_degree]
  */
 template <typename IdxT = uint32_t,
           typename g_accessor =
+            raft::host_device_accessor<cuda::std::default_accessor<IdxT>, raft::memory_type::host>,
+          typename n_accessor =
             raft::host_device_accessor<cuda::std::default_accessor<IdxT>, raft::memory_type::host>>
 void optimize(
   raft::resources const& res,
   raft::mdspan<IdxT, raft::matrix_extent<int64_t>, raft::row_major, g_accessor> knn_graph,
-  raft::host_matrix_view<IdxT, int64_t, raft::row_major> new_graph,
+  raft::mdspan<IdxT, raft::matrix_extent<int64_t>, raft::row_major, n_accessor> new_graph,
   const bool guarantee_connectivity = false)
 {
   detail::optimize(res, knn_graph, new_graph, guarantee_connectivity);

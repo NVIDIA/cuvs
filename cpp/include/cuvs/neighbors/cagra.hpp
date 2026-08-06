@@ -4656,10 +4656,45 @@ std::pair<size_t, size_t> cagra_build_mem_usage(raft::resources const& res,
  * @param[in] handle RAFT resources
  * @param[in] knn_graph Input KNN graph on host [n_rows, k_in]
  * @param[out] new_graph Output CAGRA graph on host [n_rows, k_out]
+ * @param[in] guarantee_connectivity Run the MST pass so the pruned graph is guaranteed
+ *            to be connected
  */
 void optimize(raft::resources const& handle,
               raft::host_matrix_view<uint32_t, int64_t, raft::row_major> knn_graph,
-              raft::host_matrix_view<uint32_t, int64_t, raft::row_major> new_graph);
+              raft::host_matrix_view<uint32_t, int64_t, raft::row_major> new_graph,
+              bool guarantee_connectivity = false);
+
+/**
+ * @brief Optimize a KNN graph into a CAGRA graph without leaving device memory.
+ *
+ * Same as the host overload, but both graphs stay in device memory. Pruning,
+ * reverse-graph construction and the final merge all run on device with no host
+ * staging. This avoids copying the graph out and back, and avoids serialising the
+ * reverse-graph phase into `graph_degree` separate host gathers, each with its own
+ * H2D copy and stream synchronisation.
+ *
+ * Prefer this overload when the k-NN graph is already on device, for example the
+ * output of `all_neighbors::build`.
+ *
+ * Usage example:
+ * @code{.cpp}
+ *   raft::resources res;
+ *   auto d_knn = raft::make_device_matrix<uint32_t, int64_t>(res, N, K_in);
+ *   // Fill d_knn with the KNN graph
+ *   auto d_out = raft::make_device_matrix<uint32_t, int64_t>(res, N, K_out);
+ *   cuvs::neighbors::cagra::helpers::optimize(res, d_knn.view(), d_out.view());
+ * @endcode
+ *
+ * @param[in] handle RAFT resources
+ * @param[in] knn_graph Input KNN graph on device [n_rows, k_in]
+ * @param[out] new_graph Output CAGRA graph on device [n_rows, k_out]
+ * @param[in] guarantee_connectivity Run the MST pass so the pruned graph is guaranteed
+ *            to be connected
+ */
+void optimize(raft::resources const& handle,
+              raft::device_matrix_view<uint32_t, int64_t, raft::row_major> knn_graph,
+              raft::device_matrix_view<uint32_t, int64_t, raft::row_major> new_graph,
+              bool guarantee_connectivity = false);
 
 }  // namespace helpers
 }  // namespace cagra
