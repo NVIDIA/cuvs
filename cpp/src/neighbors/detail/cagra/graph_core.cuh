@@ -37,9 +37,9 @@
 
 #include <climits>
 #include <iostream>
-#include <limits>
 #include <memory>
 #include <random>
+#include <type_traits>
 
 namespace cg = cooperative_groups;
 
@@ -851,46 +851,6 @@ void make_reverse_graph_gpu(
   }
 }
 
-/** Sort a device-resident graph in place without staging the dataset or graph. */
-template <typename DataT, typename IdxT = uint32_t>
-void sort_knn_graph_device_inplace(
-  raft::resources const& res,
-  cuvs::distance::DistanceType metric,
-  raft::device_matrix_view<const DataT, int64_t, raft::row_major> dataset,
-  raft::device_matrix_view<IdxT, int64_t, raft::row_major> knn_graph)
-{
-  static_assert(std::is_same_v<IdxT, uint32_t>, "CAGRA graph indices must be uint32_t");
-  RAFT_EXPECTS(dataset.extent(0) == knn_graph.extent(0),
-               "dataset size is expected to have the same number of graph index size");
-  RAFT_EXPECTS(
-    metric == cuvs::distance::DistanceType::InnerProduct ||
-      metric == cuvs::distance::DistanceType::CosineExpanded ||
-      metric == cuvs::distance::DistanceType::L2Expanded ||
-      metric == cuvs::distance::DistanceType::BitwiseHamming ||
-      metric == cuvs::distance::DistanceType::L1,
-    "Unsupported metric. Only InnerProduct, CosineExpanded, L2Expanded, BitwiseHamming and L1 are "
-    "supported");
-
-  auto const rows   = static_cast<uint64_t>(dataset.extent(0));
-  auto const dim    = static_cast<uint64_t>(dataset.extent(1));
-  auto const degree = static_cast<uint64_t>(knn_graph.extent(1));
-  RAFT_EXPECTS(rows <= static_cast<uint64_t>(std::numeric_limits<IdxT>::max()),
-               "Dataset size must fit in the graph index type");
-  RAFT_EXPECTS(rows <= static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()) &&
-                 dim <= static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()),
-               "Dataset extents must fit in uint32_t");
-  RAFT_EXPECTS(
-    degree > 0 && degree <= kMaxSortDegree, "Graph degree must be in [1, %lu]", kMaxSortDegree);
-
-  launch_sort_knn_graph(res,
-                        metric,
-                        dataset.data_handle(),
-                        static_cast<uint32_t>(rows),
-                        static_cast<uint32_t>(dim),
-                        knn_graph.data_handle(),
-                        static_cast<uint32_t>(degree));
-}
-
 template <typename DataT,
           typename IdxT       = uint32_t,
           typename d_accessor = raft::host_device_accessor<cuda::std::default_accessor<DataT>,
@@ -903,13 +863,24 @@ void sort_knn_graph(
   raft::mdspan<const DataT, raft::matrix_extent<int64_t>, raft::row_major, d_accessor> dataset,
   raft::mdspan<IdxT, raft::matrix_extent<int64_t>, raft::row_major, g_accessor> knn_graph)
 {
+  static_assert(std::is_same_v<IdxT, uint32_t>, "CAGRA graph indices must be uint32_t");
   RAFT_EXPECTS(dataset.extent(0) == knn_graph.extent(0),
                "dataset size is expected to have the same number of graph index size");
+  RAFT_EXPECTS(
+    metric == cuvs::distance::DistanceType::InnerProduct ||
+      metric == cuvs::distance::DistanceType::CosineExpanded ||
+      metric == cuvs::distance::DistanceType::L2Expanded ||
+      metric == cuvs::distance::DistanceType::BitwiseHamming ||
+      metric == cuvs::distance::DistanceType::L1,
+    "Unsupported metric. Only InnerProduct, CosineExpanded, L2Expanded, BitwiseHamming and L1 are "
+    "supported");
   const uint64_t dataset_size = dataset.extent(0);
   const uint64_t dataset_dim  = dataset.extent(1);
+  const DataT* dataset_ptr    = dataset.data_handle();
 
   const IdxT graph_size             = dataset_size;
   const uint64_t input_graph_degree = knn_graph.extent(1);
+  IdxT* const input_graph_ptr       = knn_graph.data_handle();
 
   auto large_tmp_mr = raft::resource::get_large_workspace_resource_ref(res);
 
@@ -929,8 +900,13 @@ void sort_knn_graph(
   raft::copy(res, d_input_graph.view(), knn_graph);
 
   RAFT_LOG_DEBUG(".");
-  sort_knn_graph_device_inplace<DataT, IdxT>(
-    res, metric, raft::make_const_mdspan(d_dataset.view()), d_input_graph.view());
+  launch_sort_knn_graph(res,
+                        metric,
+                        d_dataset.data_handle(),
+                        static_cast<uint32_t>(dataset_size),
+                        static_cast<uint32_t>(dataset_dim),
+                        d_input_graph.data_handle(),
+                        static_cast<uint32_t>(input_graph_degree));
   raft::resource::sync_stream(res);
   RAFT_LOG_DEBUG(".");
   raft::copy(res, knn_graph, raft::make_const_mdspan(d_input_graph.view()));

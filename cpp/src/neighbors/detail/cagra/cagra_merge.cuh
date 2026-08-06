@@ -342,8 +342,8 @@ auto preflight_fastener(
   if (static_cast<uint64_t>(params.graph_degree) > max_input_degree + scaffold_degree) {
     return reject("graph_degree exceeds the input graph plus scaffold capacity");
   }
-  // The appended candidate graph is sorted by sort_knn_graph_device_inplace, whose kernel capacity
-  // is kMaxSortDegree. Without this check an input degree at the limit plus any scaffold passes
+  // The appended candidate graph is sorted by launch_sort_knn_graph, whose kernel capacity is
+  // kMaxSortDegree. Without this check an input degree at the limit plus any scaffold passes
   // preflight and then fails inside the sorter, after the merge has already started mutating -- and
   // in AUTO that also loses the rebuild fallback.
   if (max_input_degree + scaffold_degree > cagra::detail::graph::kMaxSortDegree) {
@@ -438,8 +438,13 @@ auto merge_fastener(raft::resources const& handle,
     raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> scope("cagra::merge/append/sort");
     // Padding is zeroed above, so passing the padded width as the dimension is exact for the
     // L2Expanded metric that preflight restricts Fastener to.
-    cagra::detail::graph::sort_knn_graph_device_inplace(
-      handle, params.metric, dataset_view, merged_graph.view());
+    cagra::detail::graph::launch_sort_knn_graph(handle,
+                                                params.metric,
+                                                dataset_view.data_handle(),
+                                                static_cast<uint32_t>(dataset_view.extent(0)),
+                                                static_cast<uint32_t>(dataset_view.extent(1)),
+                                                merged_graph.data_handle(),
+                                                static_cast<uint32_t>(merged_graph.extent(1)));
     merged_graph = merge_scaffold::cap_sorted_graph(
       handle, raft::make_const_mdspan(merged_graph.view()), params.graph_degree);
   }

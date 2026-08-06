@@ -545,8 +545,8 @@ inline void carry_parents(raft::resources const& res,
  * values are all exactly representable in TF32's 11-bit significand, and the accumulator stays
  * float, so only float datasets lose input precision. Both consumers form
  * |u|^2 + |v|^2 - 2 u.v, which cancels for near-duplicate points, but they only rank merge
- * candidates; every surviving edge is re-scored at full precision by sort_knn_graph_device_inplace
- * before the graph is optimized.
+ * candidates; every surviving edge is re-scored at full precision by launch_sort_knn_graph before
+ * the graph is optimized.
  *
  * Wider tensor-core modes are not worth their precision. These shapes are bandwidth-bound once off
  * the FP32 path, so CUBLAS_COMPUTE_32F_FAST_16BF measures no faster than TF32 despite roughly

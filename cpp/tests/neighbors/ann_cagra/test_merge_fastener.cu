@@ -781,7 +781,7 @@ TEST(CagraMergeFastener, LeafGemmLimitsRejectOversizedWorkspaceDimensions)
 }
 
 /**
- * The appended candidate graph is sorted by sort_knn_graph_device_inplace, whose kernel capacity is
+ * The appended candidate graph is sorted by launch_sort_knn_graph, whose kernel capacity is
  * kMaxSortDegree. Preflight must reject a combined candidate width above that limit, because the
  * sorter would otherwise fail only after consolidation and scaffold construction had already run --
  * and under AUTO, past the point where the rebuild fallback could still be taken.
@@ -1447,14 +1447,20 @@ TEST(CagraMergeFastener, InnerProductOrderingDiffersFromL2)
   raft::copy(
     ip.data_handle(), source.data_handle(), source.size(), raft::resource::get_cuda_stream(res));
 
-  detail::graph::sort_knn_graph_device_inplace(res,
-                                               cuvs::distance::DistanceType::L2Expanded,
-                                               raft::make_const_mdspan(device_dataset.view()),
-                                               l2.view());
-  detail::graph::sort_knn_graph_device_inplace(res,
-                                               cuvs::distance::DistanceType::InnerProduct,
-                                               raft::make_const_mdspan(device_dataset.view()),
-                                               ip.view());
+  detail::graph::launch_sort_knn_graph(res,
+                                       cuvs::distance::DistanceType::L2Expanded,
+                                       device_dataset.data_handle(),
+                                       static_cast<uint32_t>(device_dataset.extent(0)),
+                                       static_cast<uint32_t>(device_dataset.extent(1)),
+                                       l2.data_handle(),
+                                       static_cast<uint32_t>(l2.extent(1)));
+  detail::graph::launch_sort_knn_graph(res,
+                                       cuvs::distance::DistanceType::InnerProduct,
+                                       device_dataset.data_handle(),
+                                       static_cast<uint32_t>(device_dataset.extent(0)),
+                                       static_cast<uint32_t>(device_dataset.extent(1)),
+                                       ip.data_handle(),
+                                       static_cast<uint32_t>(ip.extent(1)));
   auto l2_host = raft::make_host_matrix<uint32_t, int64_t>(3, 2);
   auto ip_host = raft::make_host_matrix<uint32_t, int64_t>(3, 2);
   raft::copy(
@@ -1520,10 +1526,13 @@ TEST(CagraMergeFastener, AppendSortAndDedupHandleOffsetsAndPadding)
              combined_host.data_handle(),
              combined.size(),
              raft::resource::get_cuda_stream(res));
-  detail::graph::sort_knn_graph_device_inplace(res,
-                                               cuvs::distance::DistanceType::L2Expanded,
-                                               raft::make_const_mdspan(combined.view()),
-                                               appended.view());
+  detail::graph::launch_sort_knn_graph(res,
+                                       cuvs::distance::DistanceType::L2Expanded,
+                                       combined.data_handle(),
+                                       static_cast<uint32_t>(combined.extent(0)),
+                                       static_cast<uint32_t>(combined.extent(1)),
+                                       appended.data_handle(),
+                                       static_cast<uint32_t>(appended.extent(1)));
   auto output =
     detail::merge_scaffold::cap_sorted_graph(res, raft::make_const_mdspan(appended.view()), 3);
   auto host = raft::make_host_matrix<uint32_t, int64_t>(4, 3);
