@@ -15,12 +15,10 @@ groups:
   base:
     build:
       m: [16, 32, 48, 64]
-      number_of_shards: [6]
     search:
       ef_search: [10, 20, 40, 60, 80, 120, 200, 400, 600, 800]
   test:
     build:
       m: [16]
-      number_of_shards: [6]
     search:
       ef_search: [10, 20]

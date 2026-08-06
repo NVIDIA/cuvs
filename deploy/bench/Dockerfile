@@ -38,4 +38,5 @@ RUN pip install --no-cache-dir \
     scipy
 
 COPY --chmod=755 configure_opensearch.py entrypoint.sh prepare_custom_dataset.py print_results.py .
+COPY opensearch_m64.yaml /app/opensearch_m64.yaml
 CMD ["/app/entrypoint.sh"]

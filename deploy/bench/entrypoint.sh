@@ -85,6 +85,9 @@ run_args=(
 if [ -n "${DATASET_CONFIGURATION:-}" ]; then
     run_args+=(--dataset-configuration "$DATASET_CONFIGURATION")
 fi
+if [ -n "${ALGORITHM_CONFIGURATION:-}" ]; then
+    run_args+=(--configuration "$ALGORITHM_CONFIGURATION")
+fi
 "${run_args[@]}"
 
 # Step 4: Print a compact overview of the generated results.
