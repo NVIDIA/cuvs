@@ -266,8 +266,12 @@ On the GPU builder node:
 export S3_BUCKET=opensearch-cuvs-bench
 export AWS_REGION=us-west-2
 export AWS_DEFAULT_REGION=us-west-2
+export REMOTE_INDEX_BUILDER_IMAGE=nvcr.io/r2kuatviomfd/internal-sandbox/opensearchproject-remote-vector-index-builder:api-latest
+docker login nvcr.io --username '$oauthtoken'
 docker compose -f docker-compose.multinode.yml --profile builder up -d
 ```
+
+For `docker login`, supply an NGC API key that has access to the image.
 
 Verify the container is running:
 

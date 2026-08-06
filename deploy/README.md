@@ -21,7 +21,7 @@ OpenSearch flushes a segment
 | Service | Image | Purpose |
 |---|---|---|
 | `opensearch` | custom build of `opensearchproject/opensearch` | OpenSearch node with kNN plugin and `repository-s3` plugin |
-| `remote-index-builder` | `opensearchproject/remote-vector-index-builder:api-latest` | FastAPI service that builds Faiss indexes on the GPU |
+| `remote-index-builder` | `${REMOTE_INDEX_BUILDER_IMAGE}` (NGC image shown below) | FastAPI service that builds Faiss indexes on the GPU |
 | `bench` | `python:3.11-slim` | Downloads the dataset, configures OpenSearch, runs the standard cuvs-bench CLI, and generates plots |
 
 ## Requirements
@@ -53,6 +53,14 @@ EC2 instance role:
 
 ```bash
 export S3_BUCKET=opensearch-cuvs-bench            # S3 bucket name
+export REMOTE_INDEX_BUILDER_IMAGE=nvcr.io/r2kuatviomfd/internal-sandbox/opensearchproject-remote-vector-index-builder:api-latest
+```
+
+Authenticate Docker to `nvcr.io` before starting the GPU profile. Use an NGC
+API key that has access to the image, with `$oauthtoken` as the username:
+
+```bash
+docker login nvcr.io --username '$oauthtoken'
 ```
 
 If you are using static credentials instead of a default provider, also export:

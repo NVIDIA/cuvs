@@ -31,7 +31,7 @@ sequenceDiagram
 | Service | Image | Purpose |
 |---|---|---|
 | `opensearch` | custom build of `opensearchproject/opensearch:3.6.0` | OpenSearch node with kNN plugin and `repository-s3` plugin |
-| `remote-index-builder` | `opensearchproject/remote-vector-index-builder:api-latest` | GPU-accelerated Faiss HNSW index builder |
+| `remote-index-builder` | `${REMOTE_INDEX_BUILDER_IMAGE}` (NGC image shown below) | GPU-accelerated Faiss HNSW index builder |
 
 The custom OpenSearch image adds the `repository-s3` plugin (required for S3-backed vector staging). When static AWS keys are provided, the image populates the S3 keystore at startup so credentials are never baked into image layers. Without static keys, OpenSearch can fall back to the AWS default credential provider chain, such as an EC2 instance role.
 
@@ -54,6 +54,14 @@ Set the required bucket name:
 
 ```bash
 export S3_BUCKET=opensearch-cuvs-bench
+export REMOTE_INDEX_BUILDER_IMAGE=nvcr.io/r2kuatviomfd/internal-sandbox/opensearchproject-remote-vector-index-builder:api-latest
+```
+
+Authenticate Docker to `nvcr.io` before starting the GPU builder. Use an NGC
+API key that has access to the image, with `$oauthtoken` as the username:
+
+```bash
+docker login nvcr.io --username '$oauthtoken'
 ```
 
 If you are using static credentials instead of a default AWS credential provider, also export:
