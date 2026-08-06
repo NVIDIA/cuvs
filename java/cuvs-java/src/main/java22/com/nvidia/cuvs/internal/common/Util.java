@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs.internal.common;
@@ -9,7 +9,6 @@ import static com.nvidia.cuvs.internal.common.LinkerHelper.C_FLOAT;
 import static com.nvidia.cuvs.internal.common.LinkerHelper.C_INT;
 import static com.nvidia.cuvs.internal.common.LinkerHelper.C_LONG;
 import static com.nvidia.cuvs.internal.panama.headers_h.*;
-import static com.nvidia.cuvs.internal.panama.headers_h_1.cudaStream_t;
 
 import com.nvidia.cuvs.CuVSResources;
 import com.nvidia.cuvs.internal.panama.DLDataType;
@@ -27,6 +26,7 @@ import java.lang.foreign.SymbolLookup;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.VarHandle;
 import java.util.BitSet;
+import java.util.logging.Logger;
 
 public class Util {
 
@@ -35,8 +35,49 @@ public class Util {
 
   private Util() {}
 
+  private static final Logger log = Logger.getLogger(Util.class.getName());
+
+  static {
+    if (!tryLoadCudart()) {
+      log.warning(
+          "Could not load libcudart from java.library.path, LD_LIBRARY_PATH, or"
+              + " /usr/local/cuda/lib64. If libcuvs_c.so was built with static CUDA,"
+              + " initialization will fail. Set -Djava.library.path to your CUDA lib64"
+              + " directory.");
+    }
+  }
+
+  private static boolean tryLoadCudart() {
+    try {
+      System.loadLibrary("cudart");
+      return true;
+    } catch (UnsatisfiedLinkError ignored) {
+    }
+    String ldLibPath = System.getenv("LD_LIBRARY_PATH");
+    if (ldLibPath != null) {
+      for (String dir : ldLibPath.split(":")) {
+        try {
+          System.load(dir + "/" + System.mapLibraryName("cudart"));
+          return true;
+        } catch (UnsatisfiedLinkError ignored) {
+        }
+      }
+    }
+    try {
+      System.load("/usr/local/cuda/lib64/" + System.mapLibraryName("cudart"));
+      return true;
+    } catch (UnsatisfiedLinkError ignored) {
+    }
+    return false;
+  }
+
   private static final Linker LINKER = Linker.nativeLinker();
 
+  // The cudart entry and the static tryLoadCudart() initializer above are complementary, not
+  // redundant: the static block loads libcudart into the process so cudart symbols can be resolved
+  // when libcuvs_c.so is built with static CUDA, while this explicit libraryLookup resolves them
+  // directly here rather than relying on that load reaching loaderLookup(). Keeping both makes
+  // symbol resolution robust across dynamic and static CUDA linkage.
   static final SymbolLookup SYMBOL_LOOKUP =
       SymbolLookup.libraryLookup(System.mapLibraryName("cuvs_c"), Arena.ofAuto())
           .or(SymbolLookup.libraryLookup(System.mapLibraryName("cudart"), Arena.ofAuto()))
@@ -241,10 +282,20 @@ public class Util {
    * @return an instance of {@link MemorySegment}
    */
   public static MemorySegment buildMemorySegment(Arena arena, long[] data) {
-    int cells = data.length;
-    MemoryLayout dataMemoryLayout = MemoryLayout.sequenceLayout(cells, C_LONG);
+    return buildMemorySegment(arena, data, data.length);
+  }
+
+  /**
+   * A utility method for building a {@link MemorySegment} for a 1D long array of given size.
+   *
+   * @param data The 1D long array for which the {@link MemorySegment} is needed
+   * @param lengthInLongs if lengthInLongs is longer then the data array, 0s will be appended to the end of the array
+   * @return an instance of {@link MemorySegment}
+   */
+  public static MemorySegment buildMemorySegment(Arena arena, long[] data, long lengthInLongs) {
+    MemoryLayout dataMemoryLayout = MemoryLayout.sequenceLayout(lengthInLongs, C_LONG);
     MemorySegment dataMemorySegment = arena.allocate(dataMemoryLayout);
-    MemorySegment.copy(data, 0, dataMemorySegment, C_LONG, 0, cells);
+    MemorySegment.copy(data, 0, dataMemorySegment, C_LONG, 0, data.length);
     return dataMemorySegment;
   }
 

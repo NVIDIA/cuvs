@@ -588,9 +588,9 @@ void kmeans_fit(
 
   raft::default_logger().set_level(pams.verbosity);
 
-  IndexT streaming_batch_size = static_cast<IndexT>(pams.streaming_batch_size);
-  if (streaming_batch_size <= 0 || streaming_batch_size > static_cast<IndexT>(n_samples)) {
-    streaming_batch_size = static_cast<IndexT>(n_samples);
+  IndexT device_buffer_samples = static_cast<IndexT>(pams.device_buffer_samples);
+  if (device_buffer_samples <= 0 || device_buffer_samples > static_cast<IndexT>(n_samples)) {
+    device_buffer_samples = static_cast<IndexT>(n_samples);
   }
 
   constexpr bool data_on_device = raft::is_device_mdspan_v<decltype(X)>;
@@ -606,13 +606,13 @@ void kmeans_fit(
   rmm::device_uvector<char> local_workspace(0, stream);
   rmm::device_uvector<char>& ws = workspace.has_value() ? workspace->get() : local_workspace;
 
-  if (data_on_device && streaming_batch_size != static_cast<IndexT>(n_samples)) {
+  if (data_on_device && device_buffer_samples != static_cast<IndexT>(n_samples)) {
     RAFT_LOG_WARN(
-      "KMeans: streaming_batch_size (%zu) ignored when data resides on device; using n_samples "
+      "KMeans: device_buffer_samples (%zu) ignored when data resides on device; using n_samples "
       "(%zu)",
-      static_cast<size_t>(streaming_batch_size),
+      static_cast<size_t>(device_buffer_samples),
       static_cast<size_t>(n_samples));
-    streaming_batch_size = static_cast<IndexT>(n_samples);
+    device_buffer_samples = static_cast<IndexT>(n_samples);
   }
 
   // Preallocate the host-side KMeans++ init sample buffer.
@@ -685,26 +685,26 @@ void kmeans_fit(
   DataT* new_centroids_ptr = new_centroids_buf.data();
 
   auto minClusterAndDistance = raft::make_device_vector<raft::KeyValuePair<IndexT, DataT>, IndexT>(
-    handle, streaming_batch_size);
-  auto L2NormBatch       = raft::make_device_vector<DataT, IndexT>(handle, streaming_batch_size);
-  auto batch_weights_buf = raft::make_device_vector<DataT, IndexT>(handle, streaming_batch_size);
+    handle, device_buffer_samples);
+  auto L2NormBatch       = raft::make_device_vector<DataT, IndexT>(handle, device_buffer_samples);
+  auto batch_weights_buf = raft::make_device_vector<DataT, IndexT>(handle, device_buffer_samples);
   rmm::device_uvector<DataT> L2NormBuf_OR_DistBuf(0, stream);
 
   auto centroid_sums      = raft::make_device_matrix<DataT, IndexT>(handle, n_clusters, n_features);
   auto weight_per_cluster = raft::make_device_vector<DataT, IndexT>(handle, n_clusters);
   auto clustering_cost    = raft::make_device_scalar<DataT>(handle, DataT{0});
 
-  rmm::device_uvector<char> batch_workspace(streaming_batch_size, stream);
+  rmm::device_uvector<char> batch_workspace(device_buffer_samples, stream);
 
   auto data_batches = cuvs::spatial::knn::detail::utils::make_batch_load_iterator<DataT>(
-    handle, X.data_handle(), n_samples, n_features, streaming_batch_size, stream);
+    handle, X.data_handle(), n_samples, n_features, device_buffer_samples, stream);
   // Host-path weight batches: only materialized when weights are provided and
   // the data resides on host
   std::optional<cuvs::spatial::knn::detail::utils::batch_load_iterator_dyn<DataT>> weight_batches;
   if constexpr (!data_on_device) {
     if (weight_ptr != nullptr) {
       weight_batches = cuvs::spatial::knn::detail::utils::make_batch_load_iterator<DataT>(
-        handle, weight_ptr, n_samples, IndexT{1}, streaming_batch_size, stream);
+        handle, weight_ptr, n_samples, IndexT{1}, device_buffer_samples, stream);
     } else {
       raft::matrix::fill(handle, batch_weights_buf.view(), DataT{1});
     }
@@ -759,11 +759,11 @@ void kmeans_fit(
   };
 
   RAFT_LOG_DEBUG(
-    "KMeans.fit: n_samples=%zu, n_features=%zu, n_clusters=%d, streaming_batch_size=%zu",
+    "KMeans.fit: n_samples=%zu, n_features=%zu, n_clusters=%d, device_buffer_samples=%zu",
     static_cast<size_t>(n_samples),
     static_cast<size_t>(n_features),
     n_clusters,
-    static_cast<size_t>(streaming_batch_size));
+    static_cast<size_t>(device_buffer_samples));
 
   bool need_compute_norms = metric == cuvs::distance::DistanceType::L2Expanded ||
                             metric == cuvs::distance::DistanceType::L2SqrtExpanded;
