@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -8,7 +8,8 @@
 
 namespace {
 
-constexpr bool with_ex = @with_ex_value@;
+constexpr bool with_ex   = @with_ex_value@;
+constexpr bool is_signed = @signed_value@;
 
 }  // namespace
 
@@ -17,7 +18,7 @@ namespace cuvs::neighbors::ivf_rabitq::detail {
 extern "C" __global__ void compute_inner_products_with_lut16_opt_block_sort(
   const ComputeInnerProductsKernelParams params)
 {
-  compute_inner_products_with_lut16_opt_block_sort_impl<with_ex>(params);
+  compute_inner_products_with_lut16_opt_block_sort_impl<with_ex, is_signed>(params);
 }
 
 static_assert(std::is_same_v<decltype(compute_inner_products_with_lut16_opt_block_sort),

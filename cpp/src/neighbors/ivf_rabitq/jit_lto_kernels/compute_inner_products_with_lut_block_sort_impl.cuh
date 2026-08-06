@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -49,9 +49,9 @@ __device__ void compute_inner_products_with_lut_block_sort_impl(
 
   size_t num_vectors_in_cluster = params.d_cluster_meta[cluster_idx].num;
   size_t cluster_start_index    = params.d_cluster_meta[cluster_idx].start_index;
-  float q_g_add   = params.d_centroid_distances[query_idx * params.num_centroids + cluster_idx];
-  float q_k1xsumq = params.d_G_k1xSumq[query_idx];
-  float threshold = params.d_threshold[query_idx];
+  float q_g_add                 = params.d_g_add[query_idx * params.num_centroids + cluster_idx];
+  float q_k1xsumq               = params.d_G_k1xSumq[query_idx];
+  float threshold               = params.d_threshold[query_idx];
 
   lut_block_sort_emit_topk(params,
                            query_idx,

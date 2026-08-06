@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -41,6 +41,7 @@ class cuvs_ivf_rabitq : public algo<T>, public algo_gpu {
   cuvs_ivf_rabitq(Metric metric, int dim, const build_param& param)
     : algo<T>(metric, dim), index_params_(param), dimension_(dim)
   {
+    index_params_.metric = parse_metric_type(metric);
   }
 
   void build(const T* dataset, size_t nrow) final;

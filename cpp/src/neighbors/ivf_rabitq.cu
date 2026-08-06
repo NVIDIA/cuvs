@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -37,6 +37,9 @@ auto build(raft::resources const& handle,
 
   RAFT_EXPECTS(n_rows > 0 && dim > 0, "empty dataset");
   RAFT_EXPECTS(n_rows >= params.n_lists, "number of rows can't be less than n_lists");
+  RAFT_EXPECTS(params.metric == cuvs::distance::DistanceType::L2Expanded ||
+                 params.metric == cuvs::distance::DistanceType::InnerProduct,
+               "ivf_rabitq only supports L2Expanded and InnerProduct metrics");
 
   // Calculate dataset size and available workspace once
   size_t dataset_bytes             = sizeof(T) * n_rows * dim;
@@ -165,7 +168,7 @@ auto build(raft::resources const& handle,
     }
   }
 
-  index<IdxT> index(handle, n_rows, dim, params.n_lists, params.bits_per_dim);
+  index<IdxT> index(handle, n_rows, dim, params.n_lists, params.bits_per_dim, params.metric);
 
   // Call RaBitQ index construct - use streaming if dataset doesn't fit in GPU memory
   if (use_streaming) {
@@ -253,7 +256,8 @@ void search(raft::resources const& handle,
                                search_mode_to_string(params.mode),
                                idx.rabitq_index().quantizer().get_query_scaling_factor(),
                                /* rabitq_quantize_flag = */ true);
-  searcher.AllocateSearcherSpace(idx.rabitq_index().get_num_centroids(), NQ);
+  searcher.AllocateSearcherSpace(
+    idx.rabitq_index().get_num_centroids(), NQ, idx.rabitq_index().is_inner_product());
 
   auto final_ids = raft::make_device_matrix<uint32_t, int64_t>(handle, NQ, k);
   auto queries_view =
@@ -314,10 +318,12 @@ index<IdxT>::index(raft::resources const& handle,
                    size_t n_rows,
                    uint32_t dim,
                    uint32_t n_lists,
-                   uint32_t bits_per_dim)
+                   uint32_t bits_per_dim,
+                   cuvs::distance::DistanceType metric)
 {
   RAFT_EXPECTS(bits_per_dim >= 1 && bits_per_dim <= 9, "Unsupported bits_per_dim");
-  rabitq_index_ = std::make_unique<detail::IVFGPU>(handle, n_rows, dim, n_lists, bits_per_dim);
+  rabitq_index_ =
+    std::make_unique<detail::IVFGPU>(handle, n_rows, dim, n_lists, bits_per_dim, metric);
 }
 
 template <typename IdxT>
@@ -347,6 +353,12 @@ template <typename IdxT>
 IdxT index<IdxT>::size() const noexcept
 {
   return rabitq_index_->get_num_vectors();
+}
+
+template <typename IdxT>
+cuvs::distance::DistanceType index<IdxT>::metric() const noexcept
+{
+  return rabitq_index_->metric();
 }
 
 auto build(raft::resources const& handle,

@@ -8,5 +8,15 @@
       "with_ex_descriptor": "no_ex",
       "with_ex_value": "false"
     }
+  ],
+  "_signed": [
+    {
+      "signed_descriptor": "signed",
+      "signed_value": "true"
+    },
+    {
+      "signed_descriptor": "unsigned",
+      "signed_value": "false"
+    }
   ]
 }

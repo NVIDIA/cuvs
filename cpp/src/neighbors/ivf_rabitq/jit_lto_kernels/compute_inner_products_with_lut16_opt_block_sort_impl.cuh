@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -16,7 +16,7 @@
 
 namespace cuvs::neighbors::ivf_rabitq::detail {
 
-template <bool WithEx>
+template <bool WithEx, bool Signed>
 __device__ void compute_inner_products_with_lut16_opt_block_sort_impl(
   const ComputeInnerProductsKernelParams params)
 {
@@ -49,12 +49,13 @@ __device__ void compute_inner_products_with_lut16_opt_block_sort_impl(
   __syncthreads();
 
   __shared__ int num_candidates;
-  float q_g_add   = params.d_centroid_distances[query_idx * params.num_centroids + cluster_idx];
+  float q_g_add   = params.d_g_add[query_idx * params.num_centroids + cluster_idx];
   float q_k1xsumq = params.d_G_k1xSumq[query_idx];
   float threshold = params.d_threshold[query_idx];
-
   float q_g_error;
-  if constexpr (WithEx) { q_g_error = sqrtf(q_g_add); }
+  if constexpr (WithEx) {
+    q_g_error = sqrtf(params.d_centroid_distances[query_idx * params.num_centroids + cluster_idx]);
+  }
 
   if (tid == 0) { num_candidates = 0; }
   __syncthreads();
@@ -214,14 +215,14 @@ __device__ void compute_inner_products_with_lut16_opt_block_sort_impl(
     }
 
     if (num_candidates >= params.topk) {
-      update_threshold_atomicmin(params.d_topk_dists,
-                                 params.d_threshold,
-                                 query_idx,
-                                 params.topk,
-                                 params.nprobe,
-                                 probe_slot,
-                                 threshold,
-                                 tid);
+      update_threshold_atomicmin<Signed>(params.d_topk_dists,
+                                         params.d_threshold,
+                                         query_idx,
+                                         params.topk,
+                                         params.nprobe,
+                                         probe_slot,
+                                         threshold,
+                                         tid);
     }
   }
 }

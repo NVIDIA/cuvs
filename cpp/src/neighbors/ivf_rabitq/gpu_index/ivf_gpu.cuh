@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -13,6 +13,8 @@
 #include "initializer_gpu.cuh"
 #include "quantizer_gpu.cuh"
 #include "rotator_gpu.cuh"
+
+#include <cuvs/distance/distance.hpp>
 
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/host_mdarray.hpp>
@@ -156,7 +158,12 @@ class IVFGPU {
    * @param k Num of centroids.
    * @param bits_per_dim totalbits = EX_BITS+1
    */
-  IVFGPU(raft::resources const& handle, size_t n, size_t dim, size_t k, size_t bits_per_dim);
+  IVFGPU(raft::resources const& handle,
+         size_t n,
+         size_t dim,
+         size_t k,
+         size_t bits_per_dim,
+         cuvs::distance::DistanceType metric = cuvs::distance::DistanceType::L2Expanded);
   IVFGPU(raft::resources const& handle)
     : handle_(handle), initializer(nullptr), Rota(std::make_unique<RotatorGPU>(handle_, 128))
   {
@@ -249,6 +256,11 @@ class IVFGPU {
   size_t get_num_centroids() const { return num_centroids; }
   size_t get_max_cluster_length() const noexcept { return max_cluster_length; }
   size_t get_ex_bits() const noexcept { return ex_bits; }
+  cuvs::distance::DistanceType metric() const noexcept { return metric_; }
+  bool is_inner_product() const noexcept
+  {
+    return metric_ == cuvs::distance::DistanceType::InnerProduct;
+  }
 
   // member object getters
   DataQuantizerGPU& quantizer() const { return *(this->DQ); }
@@ -384,6 +396,8 @@ class IVFGPU {
   size_t num_centroids;       // Centroids && Clusters
   size_t max_cluster_length;  // Maximum length of clusters
   size_t ex_bits;             // Extra bits parameter for quantization.
+  cuvs::distance::DistanceType metric_ =
+    cuvs::distance::DistanceType::L2Expanded;  // Distance metric of the index.
 
   std::unique_ptr<InitializerGPU>
     initializer;  // Initializer, indicates which initializer to use (currently only FlatIVF)

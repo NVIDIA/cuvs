@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -19,11 +19,11 @@ struct ComputeInnerProductsWithLut16OptBlockSortPlanner : AlgorithmPlanner {
   {
   }
 
-  template <bool WithEx>
+  template <bool WithEx, bool Signed>
   void add_entrypoint()
   {
     this->add_static_fragment<
-      fragment_tag_compute_inner_products_with_lut16_opt_block_sort<WithEx>>();
+      fragment_tag_compute_inner_products_with_lut16_opt_block_sort<WithEx, Signed>>();
   }
 
   template <int EX_BITS>
