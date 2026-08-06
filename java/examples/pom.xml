@@ -105,9 +105,6 @@ SPDX-License-Identifier: Apache-2.0
                         <reflowLongStrings>true</reflowLongStrings>
                         <formatJavadoc>false</formatJavadoc>
                     </googleJavaFormat>
-                    <licenseHeader>
-                        <file>${project.basedir}/../license-header.txt</file>
-                    </licenseHeader>
                 </java>
             </configuration>
         </plugin>

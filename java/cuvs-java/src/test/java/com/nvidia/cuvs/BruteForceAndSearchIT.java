@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs;
@@ -136,6 +136,56 @@ public class BruteForceAndSearchIT extends CuVSTestCase {
                 .withMapping(SearchResults.IDENTITY_MAPPING)
                 .build();
         indexAndQueryOnce(resources, cuvsQuery, expectedResultsWithFiltering);
+      }
+    }
+  }
+
+  /**
+   * Test for the prefilter buffer under-allocation.
+   */
+  @Test
+  public void testPrefilterWithTrailingZeroWords() throws Throwable {
+    // 128 documents => the concatenated bitmap spans multiple 64-bit words. Each document i sits at
+    // (i, 0), so document i is at squared-L2 distance (i - 64)^2 from the query below.
+    int numDocs = 128;
+    float[][] largeDataset = new float[numDocs][2];
+    for (int i = 0; i < numDocs; i++) {
+      largeDataset[i] = new float[] {i, 0.0f};
+    }
+    // Query sits on the (excluded) nearest document id 64; the only allowed document, id 0, is the
+    // farthest of all - so any leaked document from the corrupted high words would displace it.
+    float[][] localQueries = {{64.0f, 0.0f}};
+
+    // Allow only document 0. All higher bits are 0, so BitSet.toLongArray() drops the trailing
+    // words covering documents 64..127 - exactly the region the buggy copy fills from adjacent host
+    // memory.
+    BitSet prefilter = new BitSet(numDocs);
+    prefilter.set(0);
+
+    // id 0 is at squared-L2 distance 64^2 = 4096 from the query.
+    List<Map<Integer, Float>> expected = List.of(Map.of(0, 4096.0f));
+
+    BruteForceIndexParams indexParams =
+        new BruteForceIndexParams.Builder().withNumWriterThreads(32).build();
+
+    for (int j = 0; j < 20; j++) {
+      try (CuVSResources resources = CheckedCuVSResources.create();
+          BruteForceIndex index =
+              BruteForceIndex.newBuilder(resources)
+                  .withDataset(largeDataset)
+                  .withIndexParams(indexParams)
+                  .build()) {
+        BruteForceQuery cuvsQuery =
+            new BruteForceQuery.Builder(resources)
+                .withTopK(1)
+                .withQueryVectors(localQueries)
+                .withPrefilters(new BitSet[] {prefilter}, numDocs)
+                .withMapping(SearchResults.IDENTITY_MAPPING)
+                .build();
+
+        // With the bug, an excluded high-index document (closer than id 0) can appear here.
+        SearchResults results = index.search(cuvsQuery);
+        checkResults(expected, results.getResults());
       }
     }
   }

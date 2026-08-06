@@ -222,6 +222,15 @@ files:
       key: opensearch
     includes:
       - bench_python_opensearch
+  py_synthesize_dataset_cuvs_bench:
+    output: pyproject
+    pyproject_dir: python/cuvs_bench
+    extras:
+      table: project.optional-dependencies
+      key: synthesize_dataset
+    includes:
+      - bench_python_synthesize_dataset
+      - depends_on_cupy
 channels:
   - rapidsai-nightly
   - rapidsai
@@ -288,13 +297,17 @@ dependencies:
       - output_types: [conda]
         packages:
           - c-compiler
+      # spotless-fmt pre-commit hook requires Maven and a JDK
+      - output_types: [conda]
+        packages:
+          - maven
+          - &openjdk openjdk=22.*
   clang:
     common:
       - output_types: conda
         packages:
           - clang==20.1.8
           - clang-tools==20.1.8
-          - libclang==20.1.8
   # 'cuda_version' intentionally does not contain fallback entries... we want
   # a loud error if an unsupported 'cuda' value is passed
   cuda_version:
@@ -583,7 +596,7 @@ dependencies:
           - *cmake_ver
           - libboost-devel
           - maven
-          - openjdk=22.*
+          - *openjdk
   bench:
     common:
       - output_types: [conda, pyproject, requirements]
@@ -625,6 +638,12 @@ dependencies:
       - output_types: [conda, pyproject]
         packages:
           - opensearch-py>=2.4.0
+  bench_python_synthesize_dataset:
+    common:
+      - output_types: pyproject
+        packages:
+          - *numpy
+          - tqdm
   depends_on_cuda_python:
     specific:
       - output_types: [conda, requirements, pyproject]

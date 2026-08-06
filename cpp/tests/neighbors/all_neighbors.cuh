@@ -44,6 +44,7 @@ struct AllNeighborsInputs {
   int k;
   bool data_on_host;
   bool mutual_reach;
+  bool output_on_host;
 };
 
 inline ::std::ostream& operator<<(::std::ostream& os, const AllNeighborsInputs& p)
@@ -51,7 +52,8 @@ inline ::std::ostream& operator<<(::std::ostream& os, const AllNeighborsInputs& 
   os << "dataset shape=" << p.n_rows << "x" << p.dim << ", k=" << p.k
      << ", metric=" << static_cast<int>(std::get<1>(p.build_algo_metric_recall))
      << ", clusters=" << std::get<0>(p.cluster_nearestcluster)
-     << ", overlap_factor=" << std::get<1>(p.cluster_nearestcluster);
+     << ", overlap_factor=" << std::get<1>(p.cluster_nearestcluster)
+     << ", output_on_host=" << p.output_on_host << std::endl;
   return os;
 }
 
@@ -149,7 +151,27 @@ void get_graphs(raft::resources& handle,
     raft::resource::sync_stream(handle);
   }
 
-  {
+  if (ps.output_on_host) {
+    // Host-output path: dataset and outputs all live in host memory (no managed memory).
+    auto database_h = raft::make_host_matrix<DataT, IdxT>(ps.n_rows, ps.dim);
+    raft::copy(database_h.data_handle(), database.data(), ps.n_rows * ps.dim, cuda_stream);
+    raft::resource::sync_stream(handle);
+
+    auto indices_allNN_view =
+      raft::make_host_matrix_view<IdxT, IdxT>(indices_allNN.data(), ps.n_rows, ps.k);
+    auto distances_allNN_view =
+      raft::make_host_matrix_view<DistanceT, IdxT>(distances_allNN.data(), ps.n_rows, ps.k);
+
+    all_neighbors::build(
+      handle,
+      params,
+      raft::make_const_mdspan(database_h.view()),
+      indices_allNN_view,
+      std::make_optional(distances_allNN_view),
+      ps.mutual_reach
+        ? std::make_optional(raft::make_host_vector<DistanceT, IdxT>(ps.n_rows).view())
+        : std::nullopt);
+  } else {
     rmm::device_uvector<DistanceT> distances_allNN_dev(queries_size, cuda_stream);
     rmm::device_uvector<IdxT> indices_allNN_dev(queries_size, cuda_stream);
 
@@ -258,7 +280,8 @@ const std::vector<AllNeighborsInputs> inputsSingle =
     {64, 137},                    // dim
     {16, 23},                     // graph_degree
     {false, true},                // data on host
-    {false}                       // mutual_reach
+    {false},                      // mutual_reach
+    {false, true}                 // output on host
   );
 
 const std::vector<AllNeighborsInputs> inputsBatch =
@@ -281,7 +304,8 @@ const std::vector<AllNeighborsInputs> inputsBatch =
     {64, 137},     // dim
     {16, 23},      // graph_degree
     {true},        // data on host
-    {false}        // mutual_reach
+    {false},       // mutual_reach
+    {false, true}  // output on host
   );
 
 const std::vector<AllNeighborsInputs> mutualReachSingle =
@@ -297,7 +321,8 @@ const std::vector<AllNeighborsInputs> mutualReachSingle =
     {64, 137},                    // dim
     {16, 23},                     // graph_degree
     {false, true},                // data on host
-    {true}                        // mutual_reach
+    {true},                       // mutual_reach
+    {false, true}                 // output on host
   );
 
 const std::vector<AllNeighborsInputs> mutualReachBatch =
@@ -317,7 +342,8 @@ const std::vector<AllNeighborsInputs> mutualReachBatch =
     {64, 137},     // dim
     {16, 23},      // graph_degree
     {true},        // data on host
-    {true}         // mutual_reach
+    {true},        // mutual_reach
+    {false, true}  // output on host
   );
 
 }  // namespace cuvs::neighbors::all_neighbors

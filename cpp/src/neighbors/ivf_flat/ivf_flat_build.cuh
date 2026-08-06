@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -282,11 +282,8 @@ void extend(raft::resources const& handle,
     raft::resource::sync_stream(handle);
     auto& lists = index->lists();
     for (uint32_t label = 0; label < n_lists; label++) {
-      ivf::resize_list(handle,
-                       lists[label],
-                       list_device_spec,
-                       new_list_sizes[label],
-                       raft::Pow2<kIndexGroupSize>::roundUp(old_list_sizes[label]));
+      ivf::resize_list(
+        handle, lists[label], list_device_spec, new_list_sizes[label], old_list_sizes[label]);
     }
   }
   // Update the pointers and the sizes
