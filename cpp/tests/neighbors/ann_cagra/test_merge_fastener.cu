@@ -231,6 +231,25 @@ void expect_dataset_order(raft::resources const& res,
 }
 
 template <typename T>
+void expect_zero_padding(raft::resources const& res,
+                         cagra::device_padded_index<T, uint32_t> const& merged)
+{
+  auto view            = merged.dataset();
+  int64_t const rows   = view.n_rows();
+  int64_t const dim    = static_cast<int64_t>(view.dim());
+  int64_t const stride = static_cast<int64_t>(view.stride());
+  std::vector<T> host(static_cast<std::size_t>(rows * stride));
+  auto stream = raft::resource::get_cuda_stream(res);
+  raft::copy(host.data(), view.view().data_handle(), host.size(), stream);
+  raft::resource::sync_stream(res);
+  for (int64_t row = 0; row < rows; ++row) {
+    for (int64_t column = dim; column < stride; ++column) {
+      EXPECT_EQ(static_cast<float>(host[row * stride + column]), 0.0f);
+    }
+  }
+}
+
+template <typename T>
 void run_explicit_fastener(cuvs::distance::DistanceType metric)
 {
   raft::resources res;
@@ -266,9 +285,14 @@ void run_explicit_fastener(cuvs::distance::DistanceType metric)
   std::vector<cagra::device_padded_index<T, uint32_t>*> indices{&index0, &index1};
 
   auto merged_storage = make_merged_storage<T>(res, rows * 2, dim);
-  auto merged         = merge(res, params, indices, merged_storage.view, fastener);
+  RAFT_CUDA_TRY(cudaMemsetAsync(merged_storage.matrix.data_handle(),
+                                0xff,
+                                merged_storage.matrix.size() * sizeof(T),
+                                raft::resource::get_cuda_stream(res)));
+  auto merged = merge(res, params, indices, merged_storage.view, fastener);
   expect_valid_graph(merged, rows * 2, degree);
   expect_dataset_order(res, merged, raft::make_const_mdspan(expected.view()));
+  expect_zero_padding(res, merged);
   EXPECT_EQ(index0.dataset().n_rows(), rows);
   EXPECT_EQ(index1.dataset().n_rows(), rows);
   EXPECT_EQ(index0.dataset().n_rows(), index0_rows);

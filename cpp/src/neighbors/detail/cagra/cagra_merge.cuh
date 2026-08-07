@@ -413,13 +413,16 @@ auto merge_fastener(raft::resources const& handle,
   auto* destination            = const_cast<T*>(output_const_view.data_handle());
   {
     raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> scope("cagra::merge/consolidate");
-    // Zero first so the pad columns are defined: the sorter treats the padded width as the
-    // dimension, which is exact for L2 only because the padding contributes nothing.
-    RAFT_CUDA_TRY(cudaMemsetAsync(
-      destination,
-      0,
-      static_cast<std::size_t>(preflight.rows) * static_cast<std::size_t>(stride) * sizeof(T),
-      raft::resource::get_cuda_stream(handle)));
+    // The copy below overwrites columns [0, dim), while the sorter computes L2 over [0, stride).
+    // Zero the remaining padded columns; when stride == dim, there are none to initialize.
+    if (stride > preflight.dim) {
+      RAFT_CUDA_TRY(cudaMemset2DAsync(destination + preflight.dim,
+                                      static_cast<std::size_t>(stride) * sizeof(T),
+                                      0,
+                                      static_cast<std::size_t>(stride - preflight.dim) * sizeof(T),
+                                      static_cast<std::size_t>(preflight.rows),
+                                      raft::resource::get_cuda_stream(handle)));
+    }
     copy_input_datasets<T, IdxT, DatasetViewT>(
       handle, indices, preflight.offsets, preflight.dim, stride, destination);
   }
