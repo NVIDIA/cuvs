@@ -184,18 +184,9 @@ jobs:
       artifact-name: "cuvs-java-cuda${{ matrix.CUDA_VER }}"
       file_to_upload: "java/cuvs-java/target/"
       sha: ${{ inputs.sha }}
-  lucene-build-matrix:
-    needs: cpp-build
-    permissions:
-      contents: read
-    uses: rapidsai/shared-workflows/.github/workflows/compute-matrix.yaml@main
-    with:
-      build_type: pull-request
-      matrix_name: conda-cpp-build
-      matrix_filter: map(select(.ARCH == "amd64"))
   lucene-build:
     # Depends on the Java job for the cuvs-java artifact that cuvs-lucene builds against.
-    needs: [lucene-build-matrix, java-build]
+    needs: [java-build-matrix, java-build]
     permissions:
       actions: read
       contents: read
@@ -208,7 +199,7 @@ jobs:
     # If these jobs start producing artifacts, the names will have to differentiate between CUDA versions.
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.lucene-build-matrix.outputs.matrix) }}
+      matrix: ${{ fromJSON(needs.java-build-matrix.outputs.matrix) }}
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
       branch: ${{ inputs.branch }}
