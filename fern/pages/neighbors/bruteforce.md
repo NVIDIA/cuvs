@@ -6,7 +6,7 @@ Brute-force works well when exact results matter, the dataset is small enough to
 
 ## Example API Usage
 
-[C API](/api-reference/c-api-neighbors-brute-force) | [C++ API](/api-reference/cpp-api-neighbors-brute-force) | [Python API](/api-reference/python-api-neighbors-brute-force) | [Java API](/api-reference/java-api-com-nvidia-cuvs-bruteforceindex) | [Rust API](/api-reference/rust-api-cuvs-brute-force) | [Go API](/api-reference/go-api-brute-force)
+[C API](/api-reference/c-api-neighbors-brute-force) | [C++ API](/api-reference/cpp-api-neighbors-brute-force) | [Python API](/api-reference/python-api-neighbors-brute-force) | [Java API](/api-reference/java-api-com-nvidia-cuvs-bruteforceindex) | [Rust API](/api-reference/rust-api-cuvs-neighbors-brute-force) | [Go API](/api-reference/go-api-brute-force)
 
 ### Building an index
 

@@ -26,19 +26,16 @@ public class MemoryTrackingResourcesIT extends CuVSTestCase {
     Path csv = Files.createTempFile("cuvs-mtrack", ".csv");
     try {
       try (var resources =
-          CuVSResources.create(
-              CuVSProvider.tempDirectory(), csv, Duration.ofMillis(2))) {
+          CuVSResources.create(CuVSProvider.tempDirectory(), csv, Duration.ofMillis(2))) {
 
         // Allocate / release a couple of small device buffers so the
         // background CSV reporter has something to report.
-        var b1 =
-            CuVSMatrix.deviceBuilder(resources, 64, 32, CuVSMatrix.DataType.FLOAT);
+        var b1 = CuVSMatrix.deviceBuilder(resources, 64, 32, CuVSMatrix.DataType.FLOAT);
         for (int i = 0; i < 64; ++i) {
           b1.addVector(new float[32]);
         }
         try (var m1 = b1.build()) {
-          var b2 =
-              CuVSMatrix.deviceBuilder(resources, 32, 16, CuVSMatrix.DataType.FLOAT);
+          var b2 = CuVSMatrix.deviceBuilder(resources, 32, 16, CuVSMatrix.DataType.FLOAT);
           for (int i = 0; i < 32; ++i) {
             b2.addVector(new float[16]);
           }

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 """Generate Fern API reference pages from cuVS source code.
@@ -4773,7 +4773,7 @@ def generate_rust_api_pages() -> None:
 def collect_rust_pages() -> list[RustPage]:
     pages: list[RustPage] = []
     for path in sorted(RUST_SOURCE_DIR.rglob("*.rs")):
-        if path.name.endswith("_test.rs"):
+        if path.name.endswith("_test.rs") or path.name == "test_utils.rs":
             continue
         page = parse_rust_page(path)
         if page.module_doc or page.items:

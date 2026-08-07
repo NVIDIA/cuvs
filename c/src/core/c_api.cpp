@@ -10,11 +10,13 @@
 #include <raft/core/memory_tracking_resources.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resource/device_id.hpp>
+#include <raft/core/resource/device_memory_resource.hpp>
 #include <raft/core/resource/resource_types.hpp>
 #include <raft/core/resources.hpp>
 #include <raft/util/cudart_utils.hpp>
 #include <rapids_logger/logger.hpp>
 #include <rmm/cuda_stream_view.hpp>
+#include <rmm/mr/cuda_async_memory_resource.hpp>
 #include <rmm/mr/cuda_memory_resource.hpp>
 #include <rmm/mr/managed_memory_resource.hpp>
 #include <rmm/mr/per_device_resource.hpp>
@@ -36,6 +38,19 @@ extern "C" cuvsError_t cuvsResourcesCreate(cuvsResources_t* res)
   return cuvs::core::translate_exceptions([=] {
     auto res_ptr = new raft::resources{};
     *res         = reinterpret_cast<uintptr_t>(res_ptr);
+  });
+}
+
+extern "C" cuvsError_t cuvsResourcesSetWorkspacePool(cuvsResources_t res, size_t initial_size_bytes)
+{
+  return cuvs::core::translate_exceptions([=] {
+    auto res_ptr = reinterpret_cast<raft::resources*>(res);
+    // Create an uncapped pool: pre-warms with initial_size_bytes to avoid cudaMalloc on every
+    // query, but can grow beyond that if an allocation exceeds the initial reservation.
+    raft::resource::set_workspace_resource(
+      *res_ptr,
+      rmm::mr::pool_memory_resource{rmm::mr::get_current_device_resource_ref(),
+                                    initial_size_bytes});
   });
 }
 
@@ -153,8 +168,8 @@ extern "C" cuvsError_t cuvsRMMAlloc(cuvsResources_t res, void** ptr, size_t byte
 {
   return cuvs::core::translate_exceptions([=] {
     auto res_ptr = reinterpret_cast<raft::resources*>(res);
-    auto mr      = rmm::mr::get_current_device_resource_ref();
-    *ptr         = mr.allocate(raft::resource::get_cuda_stream(*res_ptr), bytes);
+    auto stream  = raft::resource::get_cuda_stream(*res_ptr);
+    *ptr         = raft::resource::get_workspace_resource_ref(*res_ptr).allocate(stream, bytes);
   });
 }
 
@@ -162,8 +177,8 @@ extern "C" cuvsError_t cuvsRMMFree(cuvsResources_t res, void* ptr, size_t bytes)
 {
   return cuvs::core::translate_exceptions([=] {
     auto res_ptr = reinterpret_cast<raft::resources*>(res);
-    auto mr      = rmm::mr::get_current_device_resource_ref();
-    mr.deallocate(raft::resource::get_cuda_stream(*res_ptr), ptr, bytes);
+    auto stream  = raft::resource::get_cuda_stream(*res_ptr);
+    raft::resource::get_workspace_resource_ref(*res_ptr).deallocate(stream, ptr, bytes);
   });
 }
 
@@ -185,9 +200,18 @@ extern "C" cuvsError_t cuvsRMMPoolMemoryResourceEnable(int initial_pool_size_per
   });
 }
 
+extern "C" cuvsError_t cuvsRMMAsyncMemoryResourceEnable()
+{
+  return cuvs::core::translate_exceptions([=] {
+    rmm::mr::set_current_device_resource(rmm::mr::cuda_async_memory_resource{});
+  });
+}
+
 extern "C" cuvsError_t cuvsRMMMemoryResourceReset()
 {
-  return cuvs::core::translate_exceptions([=] { rmm::mr::reset_current_device_resource(); });
+  return cuvs::core::translate_exceptions([=] {
+    rmm::mr::reset_current_device_resource();
+  });
 }
 
 thread_local std::unique_ptr<rmm::mr::pinned_host_memory_resource> pinned_mr;

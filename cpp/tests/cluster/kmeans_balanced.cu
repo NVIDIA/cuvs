@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -45,7 +45,7 @@ template <typename MathT, typename IdxT>
 ::std::ostream& operator<<(::std::ostream& os, const KmeansBalancedInputs<MathT, IdxT>& p)
 {
   os << "{ " << p.n_rows << ", " << p.n_cols << ", " << p.n_clusters << ", " << p.kb_params.n_iters
-     << static_cast<int>(p.kb_params.metric) << '}' << std::endl;
+     << static_cast<int>(p.kb_params.metric) << '}';
   return os;
 }
 
