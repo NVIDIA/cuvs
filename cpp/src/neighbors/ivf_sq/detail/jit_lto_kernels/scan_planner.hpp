@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -13,10 +13,10 @@
 
 namespace cuvs::neighbors::ivf_sq::detail {
 
-struct IvfSqScanPlanner : AlgorithmPlanner {
+struct IvfSqScanPlanner : LTOAlgorithmPlanner {
   inline static LauncherJitCache launcher_jit_cache{};
 
-  IvfSqScanPlanner() : AlgorithmPlanner("ivf_sq_scan", launcher_jit_cache) {}
+  IvfSqScanPlanner() : LTOAlgorithmPlanner("ivf_sq_scan", launcher_jit_cache) {}
 
   template <int Capacity>
   void add_entrypoint()

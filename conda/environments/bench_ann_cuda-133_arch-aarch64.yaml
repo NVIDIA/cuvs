@@ -38,6 +38,7 @@ dependencies:
 - openblas
 - opensearch-py>=2.4.0
 - pandas
+- pip
 - pylibraft==26.10.*,>=0.0.0a0
 - pyyaml
 - rapids-build-backend>=0.4.0,<0.5.0
@@ -46,4 +47,7 @@ dependencies:
 - setuptools>=77.0.0
 - sysroot_linux-aarch64==2.28
 - wheel
+- pip:
+  - cuda-tile
+  - cuda-toolkit[tileiras]==13.3.*
 name: bench_ann_cuda-133_arch-aarch64

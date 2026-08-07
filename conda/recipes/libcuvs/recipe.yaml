@@ -30,6 +30,20 @@ cache:
         export CXXFLAGS=$(echo $CXXFLAGS | sed -E 's@\-fdebug\-prefix\-map[^ ]*@@g')
         set +x
 
+        # cuTile and TileIRAS are PyPI-only build tools. Their CUDA components
+        # are installed under the Python package namespace, alongside the conda toolchain.
+        if [[ "${{ cuda_major }}" == "13" ]]; then
+          # rattler-build disables package indexes and dependency resolution by default.
+          env -u PIP_NO_INDEX \
+              -u PIP_NO_DEPENDENCIES \
+              -u PIP_NO_DEPS \
+              -u PIP_IGNORE_INSTALLED \
+            python -m pip install --no-cache-dir \
+            --index-url https://pypi.org/simple \
+            "cuda-tile" \
+            "cuda-toolkit[tileiras]==${{ cuda_version }}.*"
+        fi
+
         ./build.sh libcuvs bench-ann tests --allgpuarch --mnmg-tests --build-metrics=compile_lib --incl-cache-stats --no-nvtx -n
 
       secrets:
@@ -84,6 +98,10 @@ cache:
       - libcurand-dev
       - libcusolver-dev
       - libcusparse-dev
+      - if: cuda_major == "13"
+        then:
+          - pip
+          - python
       # These are used for bench-ann
       - openblas
       - if: linux64
