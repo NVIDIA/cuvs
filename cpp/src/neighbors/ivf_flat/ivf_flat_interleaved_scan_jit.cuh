@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -8,8 +8,8 @@
 #include "../ivf_common.cuh"
 #include "detail/jit_lto_kernels/interleaved_scan_planner.hpp"
 #include "detail/jit_lto_kernels/kernel_def.hpp"
+#include <NVRTCLTOFragmentCompiler.hpp>
 #include <cstdint>
-#include <cuvs/detail/jit_lto/NVRTCLTOFragmentCompiler.hpp>
 #include <cuvs/detail/jit_lto/common_fragments.hpp>
 #include <cuvs/detail/jit_lto/ivf_flat/interleaved_scan_fragments.hpp>
 #include <cuvs/neighbors/common.hpp>

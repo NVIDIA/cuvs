@@ -12,7 +12,7 @@
 #include "search_multi_kernel_planner.hpp"
 #include "search_single_cta_planner.hpp"
 
-#include <cuvs/detail/jit_lto/AlgorithmLauncher.hpp>
+#include <AlgorithmLauncher.hpp>
 #include <cuvs/detail/jit_lto/cagra/cagra_fragments.hpp>
 #include <cuvs/distance/distance.hpp>
 

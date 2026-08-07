@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include <cuvs/detail/jit_lto/AlgorithmPlanner.hpp>
+#include <AlgorithmPlanner.hpp>
 #include <cuvs/detail/jit_lto/cagra/cagra_fragments.hpp>
 #include <cuvs/detail/jit_lto/common_fragments.hpp>
 #include <cuvs/distance/distance.hpp>

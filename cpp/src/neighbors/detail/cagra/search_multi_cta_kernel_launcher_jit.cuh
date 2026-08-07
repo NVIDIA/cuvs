@@ -18,7 +18,7 @@
 #include "search_plan.cuh"          // For search_params
 #include "set_value_batch.cuh"      // For set_value_batch
 #include "shared_launcher_jit.hpp"  // For shared JIT helper functions
-#include <cuvs/detail/jit_lto/AlgorithmLauncher.hpp>
+#include <AlgorithmLauncher.hpp>
 #include <cuvs/distance/distance.hpp>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/logger.hpp>
