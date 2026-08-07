@@ -102,6 +102,7 @@ class cuvs_cagra : public algo<T>, public algo_gpu {
     dataset_dependent_params cagra_params;
     size_t num_dataset_splits = 1;
     CagraMergeType merge_type = CagraMergeType::kPhysical;
+    cuvs::neighbors::cagra::merge_params merge_params;
   };
 
   cuvs_cagra(Metric metric, int dim, const build_param& param, int concurrent_searches = 1)
@@ -307,33 +308,12 @@ void cuvs_cagra<T, IdxT>::build(const T* dataset, size_t nrow)
       auto sub_dev = raft::make_device_matrix_view<const T, int64_t, raft::row_major>(
         sub_ptr, static_cast<int64_t>(rows), static_cast<int64_t>(dim_));
 
+      // Build every partition before the merge so FASTENER and REBUILD consume identical
+      // prepared inputs. Unlike the rebuild path, Fastener reuses the input graphs, so every
+      // partition must be fully built here, not merely have a dataset attached.
       auto sub_index = index_type(handle_, params.metric);
-      if (index_params_.merge_type == CagraMergeType::kPhysical) {
-        if (dataset_is_on_host) {
-          sub_dataset_buffers_->emplace_back(
-            raft::make_device_matrix<T, int64_t>(handle_, rows, dim_));
-          raft::copy(sub_dataset_buffers_->back().data_handle(),
-                     sub_ptr,
-                     static_cast<size_t>(rows) * dim_,
-                     raft::resource::get_cuda_stream(handle_));
-          cuvs::neighbors::device_padded_dataset_view<T, int64_t> dv(
-            raft::make_const_mdspan(sub_dataset_buffers_->back().view()), dim_);
-          sub_index.update_device_dataset_same_layout(handle_, dv);
-        } else {
-          if (cuvs::neighbors::matrix_row_width_matches_cagra_required(sub_dev)) {
-            auto pdv = cuvs::neighbors::make_device_padded_dataset_view(handle_, sub_dev);
-            sub_index.update_device_dataset_same_layout(handle_, pdv);
-          } else {
-            auto padded = cuvs::neighbors::make_device_padded_dataset(handle_, sub_dev);
-            sub_dataset_buffers_->push_back(std::move(padded->data_));
-            cuvs::neighbors::device_padded_dataset_view<T, int64_t> pdv(
-              raft::make_const_mdspan(sub_dataset_buffers_->back().view()), dim_);
-            sub_index.update_device_dataset_same_layout(handle_, pdv);
-          }
-        }
-      }
-      if (index_params_.merge_type == CagraMergeType::kLogical) {
-        if (use_ace_host) {
+      {
+        if (index_params_.merge_type == CagraMergeType::kLogical && use_ace_host) {
           // ACE build is always graph-only; build the graph from a host_padded_dataset_view
           // (required by the new build() API), then upload and attach a device padded copy.
           const uint32_t req_stride_sub =
@@ -417,12 +397,18 @@ void cuvs_cagra<T, IdxT>::build(const T* dataset, size_t nrow)
       for (auto* index : indices) {
         merged_rows += static_cast<int64_t>(index->size());
       }
+      // dataset_ is a long-lived member, so the merged index's view stays valid.
       auto const stride        = static_cast<int64_t>(indices.front()->dataset().stride());
       *dataset_                = raft::make_device_matrix<T, int64_t>(handle_, merged_rows, stride);
       auto merged_dataset_view = cuvs::neighbors::device_padded_dataset_view<T, int64_t>(
         raft::make_const_mdspan(dataset_->view()), static_cast<uint32_t>(dim_));
-      index_ = std::make_shared<index_type>(cuvs::neighbors::cagra::merge(
-        handle_, params, indices, merged_dataset_view, merge_row_filter));
+      index_ =
+        std::make_shared<index_type>(cuvs::neighbors::cagra::merge(handle_,
+                                                                   params,
+                                                                   indices,
+                                                                   merged_dataset_view,
+                                                                   index_params_.merge_params,
+                                                                   merge_row_filter));
     }
   }
 }

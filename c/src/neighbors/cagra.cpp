@@ -122,6 +122,7 @@ static void merge_indices_for_layout(
   cuvs::neighbors::cagra::index_params const& params_cpp,
   std::vector<cuvs::neighbors::cagra::index<T, uint32_t, DatasetViewT>*>& index_ptrs,
   cuvsFilter filter,
+  cuvs::neighbors::cagra::merge_params const& merge_params,
   cuvsDataset_t merged_dataset,
   cuvsCagraIndex_t output_index)
 {
@@ -151,7 +152,8 @@ static void merge_indices_for_layout(
       auto owner    = std::make_unique<owner_t>(std::move(matrix), dim);
       auto view     = owner->as_dataset_view();
       auto merged_idx =
-        cuvs::neighbors::cagra::merge(*res_ptr, params_cpp, index_ptrs, view, row_filter);
+        cuvs::neighbors::cagra::merge(
+          *res_ptr, params_cpp, index_ptrs, view, merge_params, row_filter);
       auto* holder =
         new cuvs_cagra_c_api_index_lifetime_holder<T, DatasetViewT>{std::move(merged_idx)};
       bind_index_lifetime_holder_to_C_index<T, DatasetViewT>(
@@ -164,7 +166,10 @@ static void merge_indices_for_layout(
       merged_dataset->layout       = output_layout;
       merged_dataset->is_owning    = true;
       return;
-    } catch (std::bad_alloc const&) {
+    } catch (std::bad_alloc const& failure) {
+      if (merge_params.algo == cuvs::neighbors::cagra::merge_algo::FASTENER) {
+        RAFT_FAIL("FASTENER cagra::merge could not allocate device memory: %s", failure.what());
+      }
       // Filtered merge gathers rows with device-only primitives, matching the restriction on the
       // legacy host fallback.
       RAFT_EXPECTS(filter.type == NO_FILTER,
@@ -1132,6 +1137,7 @@ void _merge(cuvsResources_t res,
             cuvsCagraIndex_t* indices,
             size_t num_indices,
             cuvsFilter filter,
+            const cuvs::neighbors::cagra::merge_params& merge_params,
             cuvsDataset_t merged_dataset,
             cuvsCagraIndex_t output_index)
 {
@@ -1179,13 +1185,13 @@ void _merge(cuvsResources_t res,
       convert_opaque_indices_to_concrete_types<T, cuvs::neighbors::device_padded_dataset_view<T, int64_t>>(
         indices, num_indices);
     merge_indices_for_layout<T, cuvs::neighbors::device_padded_dataset_view<T, int64_t>>(
-      res_ptr, params_cpp, index_ptrs, filter, merged_dataset, output_index);
+      res_ptr, params_cpp, index_ptrs, filter, merge_params, merged_dataset, output_index);
   } else {
     auto index_ptrs =
       convert_opaque_indices_to_concrete_types<T, cuvs::neighbors::device_standard_dataset_view<T, int64_t>>(
         indices, num_indices);
     merge_indices_for_layout<T, cuvs::neighbors::device_standard_dataset_view<T, int64_t>>(
-      res_ptr, params_cpp, index_ptrs, filter, merged_dataset, output_index);
+      res_ptr, params_cpp, index_ptrs, filter, merge_params, merged_dataset, output_index);
   }
 }
 
@@ -1920,14 +1926,40 @@ extern "C" cuvsError_t cuvsCagraMerge(cuvsResources_t res,
                                       cuvsDataset_t merged_dataset,
                                       cuvsCagraIndex_t output_index)
 {
+  return cuvsCagraMergeWithParams(
+    res, params, nullptr, indices, num_indices, filter, merged_dataset, output_index);
+}
+
+extern "C" cuvsError_t cuvsCagraMergeWithParams(cuvsResources_t res,
+                                                cuvsCagraIndexParams_t params,
+                                                cuvsCagraMergeParams_t merge_params,
+                                                cuvsCagraIndex_t* indices,
+                                                size_t num_indices,
+                                                cuvsFilter filter,
+                                                cuvsDataset_t merged_dataset,
+                                                cuvsCagraIndex_t output_index)
+{
   return cuvs::core::translate_exceptions([=] {
-    // Basic checks on inputs
     RAFT_EXPECTS(indices != nullptr && num_indices > 0, "indices array cannot be null or empty");
     RAFT_EXPECTS(params != nullptr, "params cannot be null");
     RAFT_EXPECTS(indices[0] != nullptr && indices[0]->addr != 0,
                  "All input indices must be built (non-empty)");
 
-    // Use first index dtype as reference
+    auto merge_params_cpp = cuvs::neighbors::cagra::merge_params{};
+    if (merge_params != nullptr) {
+      RAFT_EXPECTS(merge_params->algo >= CUVS_CAGRA_MERGE_AUTO &&
+                     merge_params->algo <= CUVS_CAGRA_MERGE_REBUILD,
+                   "Unsupported CAGRA merge algorithm");
+      merge_params_cpp = {
+        .algo = static_cast<cuvs::neighbors::cagra::merge_algo>(merge_params->algo),
+        .levels = merge_params->levels,
+        .root_fanout = merge_params->root_fanout,
+        .lower_fanout = merge_params->lower_fanout,
+        .leader_fraction = merge_params->leader_fraction,
+        .max_leaders = merge_params->max_leaders,
+        .leaf_size = merge_params->leaf_size,
+        .leaf_degree = merge_params->leaf_degree};
+    }
     auto dtype = (*indices[0]).dtype;
     for (size_t i = 1; i < num_indices; ++i) {
       RAFT_EXPECTS(indices[i] != nullptr && indices[i]->addr != 0,
@@ -1943,13 +1975,17 @@ extern "C" cuvsError_t cuvsCagraMerge(cuvsResources_t res,
     output_index->addr = 0;
     // Dispatch based on data type
     if (dtype.code == kDLFloat && dtype.bits == 32) {
-      _merge<float>(res, *params, indices, num_indices, filter, merged_dataset, output_index);
+      _merge<float>(
+        res, *params, indices, num_indices, filter, merge_params_cpp, merged_dataset, output_index);
     } else if (dtype.code == kDLFloat && dtype.bits == 16) {
-      _merge<half>(res, *params, indices, num_indices, filter, merged_dataset, output_index);
+      _merge<half>(
+        res, *params, indices, num_indices, filter, merge_params_cpp, merged_dataset, output_index);
     } else if (dtype.code == kDLInt && dtype.bits == 8) {
-      _merge<int8_t>(res, *params, indices, num_indices, filter, merged_dataset, output_index);
+      _merge<int8_t>(
+        res, *params, indices, num_indices, filter, merge_params_cpp, merged_dataset, output_index);
     } else if (dtype.code == kDLUInt && dtype.bits == 8) {
-      _merge<uint8_t>(res, *params, indices, num_indices, filter, merged_dataset, output_index);
+      _merge<uint8_t>(
+        res, *params, indices, num_indices, filter, merge_params_cpp, merged_dataset, output_index);
     } else {
       RAFT_FAIL("Unsupported index data type: code=%d, bits=%d", dtype.code, dtype.bits);
     }
@@ -1993,6 +2029,26 @@ extern "C" cuvsError_t cuvsCagraIndexParamsDestroy(cuvsCagraIndexParams_t params
     }
     delete params;
   });
+}
+
+extern "C" cuvsError_t cuvsCagraMergeParamsCreate(cuvsCagraMergeParams_t* params)
+{
+  return cuvs::core::translate_exceptions([=] {
+    auto defaults = cuvs::neighbors::cagra::merge_params{};
+    *params       = new cuvsCagraMergeParams{.algo            = CUVS_CAGRA_MERGE_AUTO,
+                                             .levels          = defaults.levels,
+                                             .root_fanout     = defaults.root_fanout,
+                                             .lower_fanout    = defaults.lower_fanout,
+                                             .leader_fraction = defaults.leader_fraction,
+                                             .max_leaders     = defaults.max_leaders,
+                                             .leaf_size       = defaults.leaf_size,
+                                             .leaf_degree     = defaults.leaf_degree};
+  });
+}
+
+extern "C" cuvsError_t cuvsCagraMergeParamsDestroy(cuvsCagraMergeParams_t params)
+{
+  return cuvs::core::translate_exceptions([=] { delete params; });
 }
 
 extern "C" cuvsError_t cuvsCagraCompressionParamsCreate(cuvsCagraCompressionParams_t* params)
