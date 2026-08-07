@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -60,6 +60,7 @@ void rbc_eps_pass(raft::resources const& handle,
                   dist_func& dfunc,
                   value_idx* adj_ia,
                   value_idx* adj_ja,
-                  value_idx* vd);
+                  value_idx* vd,
+                  value_t* dists);
 
 }  // namespace cuvs::neighbors::ball_cover::detail

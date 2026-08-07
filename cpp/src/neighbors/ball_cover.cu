@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -40,9 +40,10 @@ void eps_nn(raft::resources const& handle,
             raft::device_vector_view<int64_t, int64_t> vd,
             raft::device_matrix_view<const float, int64_t, raft::row_major> query,
             float eps,
-            std::optional<raft::host_scalar_view<int64_t, int64_t>> max_k)
+            std::optional<raft::host_scalar_view<int64_t, int64_t>> max_k,
+            std::optional<raft::device_vector_view<float, int64_t>> dists)
 {
-  detail::eps_nn<int64_t, float>(handle, index, adj_ia, adj_ja, vd, query, eps, max_k);
+  detail::eps_nn<int64_t, float>(handle, index, adj_ia, adj_ja, vd, query, eps, max_k, dists);
 }
 
 void knn_query(raft::resources const& handle,
