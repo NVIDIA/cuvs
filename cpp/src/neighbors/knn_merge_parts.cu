@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -15,7 +15,8 @@ void _knn_merge_parts(raft::resources const& res,
                       raft::device_matrix_view<const IdxT, int64_t> inV,
                       raft::device_matrix_view<T, int64_t> outK,
                       raft::device_matrix_view<IdxT, int64_t> outV,
-                      raft::device_vector_view<IdxT, int64_t> translations)
+                      raft::device_vector_view<IdxT, int64_t> translations,
+                      bool select_min)
 {
   auto parts = translations.extent(0);
   auto rows  = outK.extent(0);
@@ -29,7 +30,8 @@ void _knn_merge_parts(raft::resources const& res,
                           parts,
                           k,
                           raft::resource::get_cuda_stream(res),
-                          translations.data_handle());
+                          translations.data_handle(),
+                          select_min);
 }
 }  // namespace
 
@@ -40,7 +42,17 @@ void knn_merge_parts(raft::resources const& res,
                      raft::device_matrix_view<int64_t, int64_t> outV,
                      raft::device_vector_view<int64_t, int64_t> translations)
 {
-  _knn_merge_parts(res, inK, inV, outK, outV, translations);
+  _knn_merge_parts(res, inK, inV, outK, outV, translations, true);
+}
+void knn_merge_parts(raft::resources const& res,
+                     raft::device_matrix_view<const float, int64_t> inK,
+                     raft::device_matrix_view<const int64_t, int64_t> inV,
+                     raft::device_matrix_view<float, int64_t> outK,
+                     raft::device_matrix_view<int64_t, int64_t> outV,
+                     raft::device_vector_view<int64_t, int64_t> translations,
+                     bool select_min)
+{
+  _knn_merge_parts(res, inK, inV, outK, outV, translations, select_min);
 }
 void knn_merge_parts(raft::resources const& res,
                      raft::device_matrix_view<const float, int64_t> inK,
@@ -49,7 +61,17 @@ void knn_merge_parts(raft::resources const& res,
                      raft::device_matrix_view<uint32_t, int64_t> outV,
                      raft::device_vector_view<uint32_t, int64_t> translations)
 {
-  _knn_merge_parts(res, inK, inV, outK, outV, translations);
+  _knn_merge_parts(res, inK, inV, outK, outV, translations, true);
+}
+void knn_merge_parts(raft::resources const& res,
+                     raft::device_matrix_view<const float, int64_t> inK,
+                     raft::device_matrix_view<const uint32_t, int64_t> inV,
+                     raft::device_matrix_view<float, int64_t> outK,
+                     raft::device_matrix_view<uint32_t, int64_t> outV,
+                     raft::device_vector_view<uint32_t, int64_t> translations,
+                     bool select_min)
+{
+  _knn_merge_parts(res, inK, inV, outK, outV, translations, select_min);
 }
 void knn_merge_parts(raft::resources const& res,
                      raft::device_matrix_view<const float, int64_t> inK,
@@ -58,6 +80,16 @@ void knn_merge_parts(raft::resources const& res,
                      raft::device_matrix_view<int32_t, int64_t> outV,
                      raft::device_vector_view<int32_t, int64_t> translations)
 {
-  _knn_merge_parts(res, inK, inV, outK, outV, translations);
+  _knn_merge_parts(res, inK, inV, outK, outV, translations, true);
+}
+void knn_merge_parts(raft::resources const& res,
+                     raft::device_matrix_view<const float, int64_t> inK,
+                     raft::device_matrix_view<const int32_t, int64_t> inV,
+                     raft::device_matrix_view<float, int64_t> outK,
+                     raft::device_matrix_view<int32_t, int64_t> outV,
+                     raft::device_vector_view<int32_t, int64_t> translations,
+                     bool select_min)
+{
+  _knn_merge_parts(res, inK, inV, outK, outV, translations, select_min);
 }
 }  // namespace cuvs::neighbors
