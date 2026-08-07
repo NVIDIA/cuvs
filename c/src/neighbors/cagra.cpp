@@ -993,7 +993,7 @@ static auto read_serialized_header(cuvsResources_t res, const char *filename)
       .code = 0, .bits = static_cast<uint8_t>(dtype.itemsize * 8), .lanes = 1};
   if (dtype.kind == 'f' && dtype.itemsize == 4) {
     output_dtype.code = kDLFloat;
-  } else if (dtype.kind == 'e' && dtype.itemsize == 2) {
+  } else if ((dtype.kind == 'f' || dtype.kind == 'e') && dtype.itemsize == 2) {
     output_dtype.code = kDLFloat;
   } else if (dtype.kind == 'i' && dtype.itemsize == 1) {
     output_dtype.code = kDLInt;
