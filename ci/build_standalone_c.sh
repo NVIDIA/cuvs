@@ -38,7 +38,7 @@ fi
 
 source rapids-install-sccache
 source rapids-configure-sccache
-source rapids-date-string
+source rapids-datetime-string
 
 rapids-pip-retry install cmake
 pyenv rehash
