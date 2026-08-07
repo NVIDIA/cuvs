@@ -43,11 +43,11 @@ void run_merge(bool select_min,
     raft::make_device_matrix<float, int64_t>(res, n_parts * n_queries, k);
   auto input_neighbors_device =
     raft::make_device_matrix<int64_t, int64_t>(res, n_parts * n_queries, k);
-  auto output_distances_device = raft::make_device_matrix<float, int64_t>(res, n_queries, k);
-  auto output_neighbors_device = raft::make_device_matrix<int64_t, int64_t>(res, n_queries, k);
+  auto output_distances_device   = raft::make_device_matrix<float, int64_t>(res, n_queries, k);
+  auto output_neighbors_device   = raft::make_device_matrix<int64_t, int64_t>(res, n_queries, k);
   auto expected_distances_device = raft::make_device_matrix<float, int64_t>(res, n_queries, k);
   auto expected_neighbors_device = raft::make_device_matrix<int64_t, int64_t>(res, n_queries, k);
-  auto translations_device = raft::make_device_vector<int64_t, int64_t>(res, n_parts);
+  auto translations_device       = raft::make_device_vector<int64_t, int64_t>(res, n_parts);
 
   raft::update_device(
     input_distances_device.data_handle(), input_distances.data(), input_distances.size(), stream);
@@ -95,16 +95,12 @@ void run_merge(bool select_min,
 
 TEST(KnnMergeParts, SelectsSmallestByDefault)
 {
-  run_merge(true,
-            {5.0f, 6.0f, 7.0f, -5.0f, -3.0f, -1.0f},
-            {102, 2, 101, 2, 1, 0});
+  run_merge(true, {5.0f, 6.0f, 7.0f, -5.0f, -3.0f, -1.0f}, {102, 2, 101, 2, 1, 0});
 }
 
 TEST(KnnMergeParts, SelectsLargestWhenRequested)
 {
-  run_merge(false,
-            {10.0f, 9.0f, 8.0f, 4.0f, 2.0f, 0.0f},
-            {0, 100, 1, 100, 101, 102});
+  run_merge(false, {10.0f, 9.0f, 8.0f, 4.0f, 2.0f, 0.0f}, {0, 100, 1, 100, 101, 102});
 }
 
 }  // namespace

@@ -16,7 +16,12 @@
 
 namespace cuvs::neighbors::detail {
 
-template <typename value_idx, typename value_t, bool SelectMin, int warp_q, int thread_q, int tpb>
+template <typename value_idx = std::int64_t,
+          typename value_t   = float,
+          int warp_q,
+          int thread_q,
+          int tpb,
+          bool SelectMin = true>
 RAFT_KERNEL knn_merge_parts_kernel(const value_t* inK,
                                    const value_idx* inV,
                                    value_t* outK,
@@ -91,7 +96,11 @@ RAFT_KERNEL knn_merge_parts_kernel(const value_t* inK,
   }
 }
 
-template <typename value_idx, typename value_t, bool SelectMin, int warp_q, int thread_q>
+template <typename value_idx = std::int64_t,
+          typename value_t   = float,
+          int warp_q,
+          int thread_q,
+          bool SelectMin = true>
 inline void knn_merge_parts_impl(const value_t* inK,
                                  const value_idx* inV,
                                  value_t* outK,
@@ -109,7 +118,7 @@ inline void knn_merge_parts_impl(const value_t* inK,
 
   auto kInit = SelectMin ? raft::upper_bound<value_t>() : raft::lower_bound<value_t>();
   auto vInit = -1;
-  knn_merge_parts_kernel<value_idx, value_t, SelectMin, warp_q, thread_q, n_threads>
+  knn_merge_parts_kernel<value_idx, value_t, warp_q, thread_q, n_threads, SelectMin>
     <<<grid, block, 0, stream>>>(
       inK, inV, outK, outV, n_samples, n_parts, kInit, vInit, k, translations);
   RAFT_CUDA_TRY(cudaPeekAtLastError());
@@ -141,25 +150,25 @@ inline void knn_merge_parts_dispatch(const value_t* inK,
                                      value_idx* translations)
 {
   if (k == 1)
-    knn_merge_parts_impl<value_idx, value_t, SelectMin, 1, 1>(
+    knn_merge_parts_impl<value_idx, value_t, 1, 1, SelectMin>(
       inK, inV, outK, outV, n_samples, n_parts, k, stream, translations);
   else if (k <= 32)
-    knn_merge_parts_impl<value_idx, value_t, SelectMin, 32, 2>(
+    knn_merge_parts_impl<value_idx, value_t, 32, 2, SelectMin>(
       inK, inV, outK, outV, n_samples, n_parts, k, stream, translations);
   else if (k <= 64)
-    knn_merge_parts_impl<value_idx, value_t, SelectMin, 64, 3>(
+    knn_merge_parts_impl<value_idx, value_t, 64, 3, SelectMin>(
       inK, inV, outK, outV, n_samples, n_parts, k, stream, translations);
   else if (k <= 128)
-    knn_merge_parts_impl<value_idx, value_t, SelectMin, 128, 3>(
+    knn_merge_parts_impl<value_idx, value_t, 128, 3, SelectMin>(
       inK, inV, outK, outV, n_samples, n_parts, k, stream, translations);
   else if (k <= 256)
-    knn_merge_parts_impl<value_idx, value_t, SelectMin, 256, 4>(
+    knn_merge_parts_impl<value_idx, value_t, 256, 4, SelectMin>(
       inK, inV, outK, outV, n_samples, n_parts, k, stream, translations);
   else if (k <= 512)
-    knn_merge_parts_impl<value_idx, value_t, SelectMin, 512, 8>(
+    knn_merge_parts_impl<value_idx, value_t, 512, 8, SelectMin>(
       inK, inV, outK, outV, n_samples, n_parts, k, stream, translations);
   else if (k <= 1024)
-    knn_merge_parts_impl<value_idx, value_t, SelectMin, 1024, 8>(
+    knn_merge_parts_impl<value_idx, value_t, 1024, 8, SelectMin>(
       inK, inV, outK, outV, n_samples, n_parts, k, stream, translations);
   else
     THROW("Unimplemented for k=%d, knn_merge_parts works for k<=1024", k);
