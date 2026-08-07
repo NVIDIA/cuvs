@@ -46,7 +46,7 @@ __global__ void decode_vpq_dataset_kernel(data_t* const decoded_dataset_ptr,
 
 template <class data_t, class math_t>
 void decode_vpq_dataset(raft::device_matrix_view<data_t, int64_t> decoded_dataset,
-                        const cuvs::neighbors::vpq_dataset<math_t, int64_t>& vpq_dataset,
+                        const cuvs::neighbors::device_vpq_dataset<math_t, int64_t>& vpq_dataset,
                         cudaStream_t cuda_stream)
 {
   const auto dataset_size = decoded_dataset.extent(0);
