@@ -166,7 +166,10 @@ static void merge_indices_for_layout(
       merged_dataset->layout       = output_layout;
       merged_dataset->is_owning    = true;
       return;
-    } catch (std::bad_alloc const&) {
+    } catch (std::bad_alloc const& failure) {
+      if (merge_params.algo == cuvs::neighbors::cagra::merge_algo::FASTENER) {
+        RAFT_FAIL("FASTENER cagra::merge could not allocate device memory: %s", failure.what());
+      }
       // Filtered merge gathers rows with device-only primitives, matching the restriction on the
       // legacy host fallback.
       RAFT_EXPECTS(filter.type == NO_FILTER,
