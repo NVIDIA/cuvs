@@ -1411,6 +1411,7 @@ auto build(raft::resources const& res,
 
 /**
  * Offset-copy one input partition graph and append its global scaffold neighbors.
+ * One warp copies one row so lanes access contiguous columns.
  */
 static __global__ void copy_partition_with_scaffold_kernel(uint32_t const* source,
                                                            uint32_t const* scaffold,
@@ -1422,7 +1423,10 @@ static __global__ void copy_partition_with_scaffold_kernel(uint32_t const* sourc
                                                            int64_t scaffold_degree,
                                                            uint32_t offset)
 {
-  int64_t row = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  constexpr int WARPS_PER_BLOCK = THREADS_PER_BLOCK / raft::WarpSize;
+  int lane                      = threadIdx.x % raft::WarpSize;
+  int warp                      = threadIdx.x / raft::WarpSize;
+  int64_t row                   = static_cast<int64_t>(blockIdx.x) * WARPS_PER_BLOCK + warp;
   if (row >= source_rows) { return; }
   int64_t source_base      = row * source_degree;
   int64_t global_row       = row + offset;
@@ -1431,10 +1435,10 @@ static __global__ void copy_partition_with_scaffold_kernel(uint32_t const* sourc
   // Rows from lower-degree input graphs are cyclically repeated to the common base width, which is
   // not ideal (adds work to the sorting by distance) but practical applications for mismatched
   // degrees seem hard to imagine.
-  for (int64_t j = 0; j < base_degree; ++j) {
+  for (int64_t j = lane; j < base_degree; j += raft::WarpSize) {
     destination[destination_base + j] = source[source_base + (j % source_degree)] + offset;
   }
-  for (int64_t j = 0; j < scaffold_degree; ++j) {
+  for (int64_t j = lane; j < scaffold_degree; j += raft::WarpSize) {
     destination[destination_base + base_degree + j] = scaffold[global_row * scaffold_degree + j];
   }
 }
@@ -1467,7 +1471,8 @@ auto append_to_input_graphs(
   for (size_t part = 0; part < indices.size(); ++part) {
     auto source = indices[part]->graph();
     RAFT_EXPECTS(source.extent(1) > 0, "Input CAGRA graphs must have nonzero degree");
-    int blocks = static_cast<int>((source.extent(0) + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
+    constexpr int WARPS_PER_BLOCK = THREADS_PER_BLOCK / raft::WarpSize;
+    int blocks = static_cast<int>((source.extent(0) + WARPS_PER_BLOCK - 1) / WARPS_PER_BLOCK);
     copy_partition_with_scaffold_kernel<<<blocks, THREADS_PER_BLOCK, 0, stream>>>(
       source.data_handle(),
       scaffold.data_handle(),
