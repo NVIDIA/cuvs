@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -12,6 +12,7 @@
 #include "../utils/reductions.cuh"
 #include "ivf_gpu.cuh"
 #include "searcher_gpu.cuh"
+#include <cuvs/util/file_io.hpp>
 #include <raft/util/integer_utils.hpp>
 
 #include <cuvs/selection/select_k.hpp>
@@ -344,8 +345,8 @@ void IVFGPU::save(const char* filename) const
 {
   RAFT_EXPECTS(num_centroids > 0, "IVF index has not been constructed");
 
-  std::ofstream output(filename, std::ios::binary);
-  RAFT_EXPECTS(output.is_open(), "failed to open file for saving: %s", filename);
+  cuvs::util::kvikio_ofstream output(filename);
+  RAFT_EXPECTS(output, "failed to open file for saving: %s", filename);
 
   auto write_exact = [&](const void* ptr, size_t n_bytes) {
     output.write(reinterpret_cast<const char*>(ptr), n_bytes);
@@ -386,37 +387,14 @@ void IVFGPU::save(const char* filename) const
   // for batch data
   size_t short_factors_size = GetShortDataFactorBytesBatch();
 
-  // Allocate temporary host buffers.
-  auto h_short_data_buf = raft::make_host_vector<uint8_t, int64_t>(short_data_size);
-  auto h_long_code_buf  = raft::make_host_vector<uint8_t, int64_t>(long_code_size);
-  auto h_ex_factor_buf =
-    raft::make_host_vector<ExFactor, int64_t>(ex_factor_size / sizeof(ExFactor));
-  auto h_ids_buf                 = raft::make_host_vector<PID, int64_t>(ids_size / sizeof(PID));
-  auto h_short_factors_batch_buf = raft::make_host_vector<uint8_t, int64_t>(short_factors_size);
-
-  // Copy device data to host (SoA layout).
-  raft::copy(h_short_data_buf.data_handle(),
-             reinterpret_cast<const uint8_t*>(short_data_.data_handle()),
-             short_data_size,
-             stream_);
-  raft::copy(h_short_factors_batch_buf.data_handle(),
-             reinterpret_cast<const uint8_t*>(short_factors_batch_.data_handle()),
-             short_factors_size,
-             stream_);
-  raft::copy(h_long_code_buf.data_handle(), long_code_.data_handle(), long_code_size, stream_);
-  raft::copy(h_ex_factor_buf.data_handle(),
-             ex_factor_.data_handle(),
-             ex_factor_size / sizeof(ExFactor),
-             stream_);
-  raft::copy(h_ids_buf.data_handle(), ids_.data_handle(), ids_size / sizeof(PID), stream_);
   raft::resource::sync_stream(handle_);
 
   // Write raw arrays to file.
-  write_exact(h_short_data_buf.data_handle(), short_data_size);
-  write_exact(h_short_factors_batch_buf.data_handle(), short_factors_size);
-  write_exact(h_long_code_buf.data_handle(), long_code_size);
-  write_exact(h_ex_factor_buf.data_handle(), ex_factor_size);
-  write_exact(h_ids_buf.data_handle(), ids_size);
+  output.write_device(short_data_.data_handle(), short_data_size);
+  output.write_device(short_factors_batch_.data_handle(), short_factors_size);
+  output.write_device(long_code_.data_handle(), long_code_size);
+  output.write_device(ex_factor_.data_handle(), ex_factor_size);
+  output.write_device(ids_.data_handle(), ids_size);
 
   output.close();
 }

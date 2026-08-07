@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../util/kvikio_serialize.hpp"
 #include "../../util/serialize_validation.hpp"
 #include "../ivf_common.cuh"
 #include "../ivf_list.cuh"
@@ -38,8 +39,8 @@ constexpr int serialization_version = 5;
  * @param[in] index_ IVF-Flat index
  *
  */
-template <typename T, typename IdxT>
-void serialize(raft::resources const& handle, std::ostream& os, const index<T, IdxT>& index_)
+template <typename T, typename IdxT, typename Output>
+void serialize(raft::resources const& handle, Output& os, const index<T, IdxT>& index_)
 {
   RAFT_LOG_DEBUG(
     "Saving IVF-Flat index, size %zu, dim %u", static_cast<size_t>(index_.size()), index_.dim());
@@ -55,11 +56,11 @@ void serialize(raft::resources const& handle, std::ostream& os, const index<T, I
   serialize_scalar(handle, os, index_.metric());
   serialize_scalar(handle, os, index_.adaptive_centers());
   serialize_scalar(handle, os, index_.conservative_memory_allocation());
-  serialize_mdspan(handle, os, index_.centers());
+  cuvs::util::detail::serialize_mdspan(handle, os, index_.centers());
   if (index_.center_norms()) {
     bool has_norms = true;
     serialize_scalar(handle, os, has_norms);
-    serialize_mdspan(handle, os, *index_.center_norms());
+    cuvs::util::detail::serialize_mdspan(handle, os, *index_.center_norms());
   } else {
     bool has_norms = false;
     serialize_scalar(handle, os, has_norms);
@@ -67,7 +68,7 @@ void serialize(raft::resources const& handle, std::ostream& os, const index<T, I
   auto sizes_host = raft::make_host_vector<uint32_t, uint32_t>(index_.list_sizes().extent(0));
   raft::copy(handle, sizes_host.view(), index_.list_sizes());
   raft::resource::sync_stream(handle);
-  serialize_mdspan(handle, os, sizes_host.view());
+  cuvs::util::detail::serialize_mdspan(handle, os, sizes_host.view());
 
   list_spec<uint32_t, T, IdxT> list_store_spec{index_.dim(), true};
   for (uint32_t label = 0; label < index_.n_lists(); label++) {
@@ -81,7 +82,7 @@ void serialize(raft::resources const& handle,
                const std::string& filename,
                const index<T, IdxT>& index_)
 {
-  std::ofstream of(filename, std::ios::out | std::ios::binary);
+  cuvs::util::kvikio_ofstream of(filename);
   if (!of) { RAFT_FAIL("Cannot open file %s", filename.c_str()); }
 
   detail::serialize(handle, of, index_);
@@ -99,9 +100,11 @@ void serialize(raft::resources const& handle,
  * @param[in] index_ IVF-Flat index
  *
  */
-template <typename T, typename IdxT>
-auto deserialize(raft::resources const& handle, std::istream& is) -> index<T, IdxT>
+template <typename T, typename IdxT, typename Input>
+auto deserialize_impl(raft::resources const& handle, Input& input) -> index<T, IdxT>
 {
+  auto& is = cuvs::util::detail::input_stream(input);
+
   char dtype_string[4];
   RAFT_EXPECTS(is.read(dtype_string, 4), "ivf_flat::deserialize: failed to read dtype prefix");
   RAFT_EXPECTS(cuvs::util::validate_serialized_dtype<T>(dtype_string, sizeof(dtype_string)),
@@ -134,7 +137,7 @@ auto deserialize(raft::resources const& handle, std::istream& is) -> index<T, Id
 
   index<T, IdxT> index_ = index<T, IdxT>(handle, metric, n_lists, adaptive_centers, cma, dim);
 
-  deserialize_mdspan(handle, is, index_.centers());
+  cuvs::util::detail::deserialize_mdspan(handle, input, index_.centers());
   bool has_norms = raft::deserialize_scalar<bool>(handle, is);
   if (has_norms) {
     index_.allocate_center_norms(handle);
@@ -142,15 +145,15 @@ auto deserialize(raft::resources const& handle, std::istream& is) -> index<T, Id
       RAFT_FAIL("Error inconsistent center norms");
     } else {
       auto center_norms = index_.center_norms().value();
-      deserialize_mdspan(handle, is, center_norms);
+      cuvs::util::detail::deserialize_mdspan(handle, input, center_norms);
     }
   }
-  deserialize_mdspan(handle, is, index_.list_sizes());
+  cuvs::util::detail::deserialize_mdspan(handle, input, index_.list_sizes());
 
   list_spec<uint32_t, T, IdxT> list_device_spec{index_.dim(), cma};
   list_spec<uint32_t, T, IdxT> list_store_spec{index_.dim(), true};
   for (uint32_t label = 0; label < index_.n_lists(); label++) {
-    ivf::deserialize_list(handle, is, index_.lists()[label], list_store_spec, list_device_spec);
+    ivf::deserialize_list(handle, input, index_.lists()[label], list_store_spec, list_device_spec);
   }
   raft::resource::sync_stream(handle);
 
@@ -160,17 +163,16 @@ auto deserialize(raft::resources const& handle, std::istream& is) -> index<T, Id
 }
 
 template <typename T, typename IdxT>
+auto deserialize(raft::resources const& handle, std::istream& is) -> index<T, IdxT>
+{
+  return deserialize_impl<T, IdxT>(handle, is);
+}
+
+template <typename T, typename IdxT>
 auto deserialize(raft::resources const& handle, const std::string& filename) -> index<T, IdxT>
 {
-  std::ifstream is(filename, std::ios::in | std::ios::binary);
-
-  if (!is) { RAFT_FAIL("Cannot open file %s", filename.c_str()); }
-
-  auto index = detail::deserialize<T, IdxT>(handle, is);
-
-  is.close();
-
-  return index;
+  cuvs::util::kvikio_file_reader reader(filename);
+  return deserialize_impl<T, IdxT>(handle, reader);
 }
 }  // namespace cuvs::neighbors::ivf_flat::detail
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-# SPDX-FileCopyrightText: Copyright (c) 2020-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2020-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 ########################
 # CUVS Version Updater #
@@ -110,6 +110,7 @@ DEPENDENCIES=(
   cuvs-bench
   libcuvs
   libcuvs-tests
+  libkvikio
   libraft
   librmm
   pylibraft
