@@ -420,20 +420,27 @@ TEST(CagraMergeFastener, InitializesUnwrittenScaffoldSlotsWithSelf)
 {
   using namespace detail::merge_scaffold;
   raft::resources res;
-  auto stream              = raft::resource::get_cuda_stream(res);
-  constexpr int64_t rows   = 3;
-  constexpr int64_t degree = 4;
-  auto graph               = raft::make_device_matrix<uint32_t, int64_t>(res, rows, degree);
+  auto stream                        = raft::resource::get_cuda_stream(res);
+  constexpr int64_t rows             = 3;
+  constexpr int64_t scaffold_offset  = 2;
+  constexpr int64_t scaffold_degree  = 4;
+  constexpr int64_t candidate_degree = scaffold_offset + scaffold_degree;
+  auto graph = raft::make_device_matrix<uint32_t, int64_t>(res, rows, candidate_degree);
 
-  initialize_self_scaffold_kernel<<<1, 256, 0, stream>>>(graph.data_handle(), rows, degree);
+  RAFT_CUDA_TRY(
+    cudaMemsetAsync(graph.data_handle(), 0xff, graph.size() * sizeof(uint32_t), stream));
+  initialize_self_scaffold_kernel<<<1, 256, 0, stream>>>(
+    graph.data_handle(), rows, candidate_degree, scaffold_offset, scaffold_degree);
   RAFT_CUDA_TRY(cudaGetLastError());
 
   std::vector<uint32_t> initialized(graph.size());
   raft::copy(initialized.data(), graph.data_handle(), initialized.size(), stream);
   raft::resource::sync_stream(res);
   for (int64_t row = 0; row < rows; ++row) {
-    for (int64_t column = 0; column < degree; ++column) {
-      EXPECT_EQ(initialized[row * degree + column], static_cast<uint32_t>(row));
+    for (int64_t column = 0; column < candidate_degree; ++column) {
+      auto expected = column < scaffold_offset ? std::numeric_limits<uint32_t>::max()
+                                               : static_cast<uint32_t>(row);
+      EXPECT_EQ(initialized[row * candidate_degree + column], expected);
     }
   }
 }
@@ -1285,8 +1292,17 @@ TEST(CagraMergeFastener, AppendCyclicallyPadsMixedInputDegrees)
              scaffold.size(),
              raft::resource::get_cuda_stream(res));
 
-  auto appended = detail::merge_scaffold::append_to_input_graphs<float, uint32_t>(
-    res, indices, offsets, raft::make_const_mdspan(scaffold.view()));
+  constexpr int64_t base_degree = 4;
+  auto appended                 = raft::make_device_matrix<uint32_t, int64_t>(res, 4, 5);
+  raft::copy_matrix(appended.data_handle() + base_degree,
+                    static_cast<std::size_t>(appended.extent(1)),
+                    scaffold.data_handle(),
+                    static_cast<std::size_t>(scaffold.extent(1)),
+                    static_cast<std::size_t>(scaffold.extent(1)),
+                    static_cast<std::size_t>(scaffold.extent(0)),
+                    raft::resource::get_cuda_stream(res));
+  detail::merge_scaffold::append_to_input_graphs<float, uint32_t>(
+    res, indices, offsets, appended.view(), base_degree);
   ASSERT_EQ(appended.extent(0), 4);
   ASSERT_EQ(appended.extent(1), 5);
 
@@ -1600,8 +1616,17 @@ TEST(CagraMergeFastener, AppendSortAndDedupHandleOffsetsAndPadding)
              scaffold_host.data_handle(),
              scaffold.size(),
              raft::resource::get_cuda_stream(res));
-  auto appended = detail::merge_scaffold::append_to_input_graphs<float, uint32_t>(
-    res, indices, offsets, raft::make_const_mdspan(scaffold.view()));
+  constexpr int64_t base_degree = 1;
+  auto appended                 = raft::make_device_matrix<uint32_t, int64_t>(res, 4, 3);
+  raft::copy_matrix(appended.data_handle() + base_degree,
+                    static_cast<std::size_t>(appended.extent(1)),
+                    scaffold.data_handle(),
+                    static_cast<std::size_t>(scaffold.extent(1)),
+                    static_cast<std::size_t>(scaffold.extent(1)),
+                    static_cast<std::size_t>(scaffold.extent(0)),
+                    raft::resource::get_cuda_stream(res));
+  detail::merge_scaffold::append_to_input_graphs<float, uint32_t>(
+    res, indices, offsets, appended.view(), base_degree);
 
   auto combined_host  = raft::make_host_matrix<float, int64_t>(4, 1);
   combined_host(0, 0) = 0.0f;

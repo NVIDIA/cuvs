@@ -438,10 +438,15 @@ auto merge_fastener(raft::resources const& handle,
 
   auto merged_graph = [&] {
     raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> scope("cagra::merge/scaffold");
-    auto scaffold = merge_scaffold::build<T>(
-      handle, dataset_view, preflight.dim, preflight.offsets, scaffold_params);
-    return merge_scaffold::append_to_input_graphs<T, IdxT, DatasetViewT>(
-      handle, indices, preflight.offsets, raft::make_const_mdspan(scaffold.view()));
+    int64_t base_degree = 0;
+    for (auto const* index : indices) {
+      base_degree = std::max<int64_t>(base_degree, index->graph_degree());
+    }
+    auto graph = merge_scaffold::build<T>(
+      handle, dataset_view, preflight.dim, preflight.offsets, scaffold_params, base_degree);
+    merge_scaffold::append_to_input_graphs<T, IdxT, DatasetViewT>(
+      handle, indices, preflight.offsets, graph.view(), base_degree);
+    return graph;
   }();
 
   {

@@ -1020,13 +1020,17 @@ inline auto make_leaves(raft::resources const& res,
 /** Fill every unwritten scaffold slot with its row ID; final prefix deduplication removes it. */
 static __global__ void initialize_self_scaffold_kernel(uint32_t* graph,
                                                        int64_t rows,
-                                                       int graph_degree)
+                                                       int64_t graph_degree,
+                                                       int64_t scaffold_offset,
+                                                       int64_t scaffold_degree)
 {
   int64_t linear = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
-  int64_t total  = rows * graph_degree;
+  int64_t total  = rows * scaffold_degree;
   int64_t stride = static_cast<int64_t>(blockDim.x) * gridDim.x;
   for (; linear < total; linear += stride) {
-    graph[linear] = static_cast<uint32_t>(linear / graph_degree);
+    int64_t row                                          = linear / scaffold_degree;
+    int64_t column                                       = linear % scaffold_degree;
+    graph[row * graph_degree + scaffold_offset + column] = static_cast<uint32_t>(row);
   }
 }
 
@@ -1078,7 +1082,8 @@ static __global__ void manyway_leaf_gram_knn_kernel(float const* gram,
                                                     int64_t leaf_count,
                                                     int leaf_size,
                                                     int leaf_degree,
-                                                    int union_degree,
+                                                    int64_t graph_degree,
+                                                    int64_t scaffold_offset,
                                                     uint32_t* graph)
 {
   int64_t local_leaf = blockIdx.x;
@@ -1136,7 +1141,7 @@ static __global__ void manyway_leaf_gram_knn_kernel(float const* gram,
   for (int t = 0; t < leaf_degree; ++t) {
     bool valid = top_v[t] != std::numeric_limits<uint16_t>::max() && isfinite(top_d[t]);
     if (valid) {
-      int64_t output = static_cast<int64_t>(records[u].id) * union_degree +
+      int64_t output = static_cast<int64_t>(records[u].id) * graph_degree + scaffold_offset +
                        static_cast<int>(records[u].occurrence) * leaf_degree + selected;
       graph[output] = records[top_v[t]].id;
       ++selected;
@@ -1152,6 +1157,7 @@ auto build_leaf_neighbors(raft::resources const& res,
                           leaf_set const& leaves,
                           uint32_t const* origins,
                           int union_degree,
+                          int64_t base_degree,
                           build_params const& params) -> raft::device_matrix<uint32_t, int64_t>
 {
   auto stream             = raft::resource::get_cuda_stream(res);
@@ -1160,14 +1166,14 @@ auto build_leaf_neighbors(raft::resources const& res,
   int leaf_degree         = static_cast<int>(params.leaf_degree);
   auto const& memberships = leaves.partitions->memberships;
 
-  // Prefill every slot with its own row id, leaf KNN overwrites the slots it fills
+  // Prefill every scaffold slot with its own row id; leaf KNN overwrites the slots it fills.
   auto graph = raft::make_device_mdarray<uint32_t, int64_t>(
     res,
     raft::resource::get_large_workspace_resource_ref(res),
-    raft::make_extents<int64_t>(rows, union_degree));
+    raft::make_extents<int64_t>(rows, base_degree + union_degree));
   int scaffold_blocks = strided_grid_size(rows * union_degree);
   initialize_self_scaffold_kernel<<<scaffold_blocks, THREADS_PER_BLOCK, 0, stream>>>(
-    graph.data_handle(), rows, union_degree);
+    graph.data_handle(), rows, graph.extent(1), base_degree, union_degree);
   RAFT_CUDA_TRY(cudaGetLastError());
 
   // Gather every scalar type into float leaf buffers. Native INT8 cuBLAS is not portable across
@@ -1250,11 +1256,11 @@ auto build_leaf_neighbors(raft::resources const& res,
       static_cast<int64_t>(batch_size),
       leaf_size,
       leaf_degree,
-      union_degree,
+      graph.extent(1),
+      base_degree,
       graph.data_handle());
     RAFT_CUDA_TRY(cudaGetLastError());
   }
-
   return graph;
 }
 
@@ -1301,13 +1307,14 @@ __global__ void manyway_l2_norms_kernel(
   if (lane == 0) { norms[row] = sum; }
 }
 
-/** Build the many-way scaffold through splitting and leaf construction. */
+/** Build the many-way scaffold as the suffix of a candidate graph with `base_degree` columns. */
 template <typename T>
 auto build(raft::resources const& res,
            raft::device_matrix_view<const T, int64_t, raft::row_major> dataset,
            int64_t dim,
            std::vector<int64_t> const& offsets,
-           build_params const& params = {}) -> raft::device_matrix<uint32_t, int64_t>
+           build_params const& params = {},
+           int64_t base_degree        = 0) -> raft::device_matrix<uint32_t, int64_t>
 {
   auto stream  = raft::resource::get_cuda_stream(res);
   int64_t rows = dataset.extent(0);
@@ -1331,6 +1338,7 @@ auto build(raft::resources const& res,
   RAFT_EXPECTS(params.leaf_degree >= 1 && params.leaf_degree <= MAX_LEAF_DEGREE,
                "Fastener leaf degree must be between 1 and %d",
                MAX_LEAF_DEGREE);
+  RAFT_EXPECTS(base_degree >= 0, "Fastener base graph degree must be nonnegative");
   RAFT_EXPECTS(
     leaf_gemm_supported(dim, params.leaf_size, raft::resource::get_workspace_free_bytes(res)),
     "Fastener dataset dimension exceeds the leaf GEMM limits");
@@ -1399,10 +1407,10 @@ auto build(raft::resources const& res,
 
   // Leaf construction: only range slicing occurs after configured geometric depth.
   auto leaves = make_leaves(res, partitions, params.leaf_size);
-  auto scaffold =
-    build_leaf_neighbors(res, dataset, dim, leaves, origins.data_handle(), union_degree, params);
+  auto graph  = build_leaf_neighbors(
+    res, dataset, dim, leaves, origins.data_handle(), union_degree, base_degree, params);
   raft::resource::sync_stream(res);
-  return scaffold;
+  return graph;
 }
 
 // ----------------------------------------------------------------------------
@@ -1410,18 +1418,16 @@ auto build(raft::resources const& res,
 // ----------------------------------------------------------------------------
 
 /**
- * Offset-copy one input partition graph and append its global scaffold neighbors.
+ * Offset-copy one input partition graph into the prefix of the final candidate graph.
  * One warp copies one row so lanes access contiguous columns.
  */
-static __global__ void copy_partition_with_scaffold_kernel(uint32_t const* source,
-                                                           uint32_t const* scaffold,
-                                                           int64_t source_rows,
-                                                           int64_t source_degree,
-                                                           uint32_t* destination,
-                                                           int64_t destination_degree,
-                                                           int64_t base_degree,
-                                                           int64_t scaffold_degree,
-                                                           uint32_t offset)
+static __global__ void copy_partition_graph_kernel(uint32_t const* source,
+                                                   int64_t source_rows,
+                                                   int64_t source_degree,
+                                                   uint32_t* destination,
+                                                   int64_t destination_degree,
+                                                   int64_t base_degree,
+                                                   uint32_t offset)
 {
   constexpr int WARPS_PER_BLOCK = THREADS_PER_BLOCK / raft::WarpSize;
   int lane                      = threadIdx.x % raft::WarpSize;
@@ -1438,55 +1444,40 @@ static __global__ void copy_partition_with_scaffold_kernel(uint32_t const* sourc
   for (int64_t j = lane; j < base_degree; j += raft::WarpSize) {
     destination[destination_base + j] = source[source_base + (j % source_degree)] + offset;
   }
-  for (int64_t j = lane; j < scaffold_degree; j += raft::WarpSize) {
-    destination[destination_base + base_degree + j] = scaffold[global_row * scaffold_degree + j];
-  }
 }
 
 /**
- * @brief Form the pre-optimization candidate graph from input graphs and scaffold edges.
+ * @brief Populate the input-graph prefix of the pre-optimization candidate graph.
  *
  * The maximum input graph degree defines the base width, allowing partitions with mixed degrees.
  */
 template <typename T, typename IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
-auto append_to_input_graphs(
+void append_to_input_graphs(
   raft::resources const& res,
   std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*> const& indices,
   std::vector<int64_t> const& offsets,
-  raft::device_matrix_view<const uint32_t, int64_t, raft::row_major> scaffold)
-  -> raft::device_matrix<uint32_t, int64_t>
+  raft::device_matrix_view<uint32_t, int64_t, raft::row_major> graph,
+  int64_t base_degree)
 {
-  auto stream         = raft::resource::get_cuda_stream(res);
-  int64_t base_degree = 0;
-  for (auto const* index : indices) {
-    base_degree = std::max<int64_t>(base_degree, index->graph_degree());
-  }
-  int64_t scaffold_degree = scaffold.extent(1);
-  int64_t graph_degree    = base_degree + scaffold_degree;
-  auto graph              = raft::make_device_mdarray<uint32_t, int64_t>(
-    res,
-    raft::resource::get_large_workspace_resource_ref(res),
-    raft::make_extents<int64_t>(scaffold.extent(0), graph_degree));
+  auto stream = raft::resource::get_cuda_stream(res);
+  RAFT_EXPECTS(graph.extent(0) == offsets.back() && graph.extent(1) >= base_degree,
+               "Candidate graph shape must cover the merged rows and base degree");
 
   for (size_t part = 0; part < indices.size(); ++part) {
     auto source = indices[part]->graph();
     RAFT_EXPECTS(source.extent(1) > 0, "Input CAGRA graphs must have nonzero degree");
     constexpr int WARPS_PER_BLOCK = THREADS_PER_BLOCK / raft::WarpSize;
     int blocks = static_cast<int>((source.extent(0) + WARPS_PER_BLOCK - 1) / WARPS_PER_BLOCK);
-    copy_partition_with_scaffold_kernel<<<blocks, THREADS_PER_BLOCK, 0, stream>>>(
+    copy_partition_graph_kernel<<<blocks, THREADS_PER_BLOCK, 0, stream>>>(
       source.data_handle(),
-      scaffold.data_handle(),
       source.extent(0),
       source.extent(1),
       graph.data_handle(),
-      graph_degree,
+      graph.extent(1),
       base_degree,
-      scaffold_degree,
       static_cast<uint32_t>(offsets[part]));
     RAFT_CUDA_TRY(cudaGetLastError());
   }
-
-  return graph;
 }
 
 /**
