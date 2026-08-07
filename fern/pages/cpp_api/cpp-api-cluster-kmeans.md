@@ -967,8 +967,9 @@ void cluster_cost(
 const raft::resources& handle,
 raft::device_matrix_view<const float, int> X,
 raft::device_matrix_view<const float, int> centroids,
-raft::host_scalar_view<float> cost,
-std::optional<raft::device_vector_view<const float, int>> sample_weight = std::nullopt);
+raft::device_scalar_view<float> cost,
+std::optional<raft::device_vector_view<const float, int>> sample_weight = std::nullopt,
+std::optional<raft::device_vector_view<const float, int>> X_norm        = std::nullopt);
 ```
 
 **Parameters**
@@ -978,8 +979,9 @@ std::optional<raft::device_vector_view<const float, int>> sample_weight = std::n
 | `handle` | in | `const raft::resources&` | The raft handle |
 | `X` | in | `raft::device_matrix_view<const float, int>` | Training instances to cluster. The data must be in row-major format. [dim = n_samples x n_features] |
 | `centroids` | in | `raft::device_matrix_view<const float, int>` | Cluster centroids. The data must be in row-major format. [dim = n_clusters x n_features] |
-| `cost` | out | `raft::host_scalar_view<float>` | Resulting cluster cost |
+| `cost` | out | `raft::device_scalar_view<float>` | Resulting cluster cost |
 | `sample_weight` | in | `std::optional<raft::device_vector_view<const float, int>>` | Optional per-sample weights. [len = n_samples]<br />Default: `std::nullopt`. |
+| `X_norm` | in | `std::optional<raft::device_vector_view<const float, int>>` | Optional precomputed squared L2 row norms of X (\|\|x\|\|^2) [n_samples]. When provided, the internal norm computation is skipped.<br />Default: `std::nullopt`. |
 
 **Returns**
 
@@ -994,8 +996,9 @@ void cluster_cost(
 const raft::resources& handle,
 raft::device_matrix_view<const double, int> X,
 raft::device_matrix_view<const double, int> centroids,
-raft::host_scalar_view<double> cost,
-std::optional<raft::device_vector_view<const double, int>> sample_weight = std::nullopt);
+raft::device_scalar_view<double> cost,
+std::optional<raft::device_vector_view<const double, int>> sample_weight = std::nullopt,
+std::optional<raft::device_vector_view<const double, int>> X_norm        = std::nullopt);
 ```
 
 **Parameters**
@@ -1005,8 +1008,9 @@ std::optional<raft::device_vector_view<const double, int>> sample_weight = std::
 | `handle` | in | `const raft::resources&` | The raft handle |
 | `X` | in | `raft::device_matrix_view<const double, int>` | Training instances to cluster. The data must be in row-major format. [dim = n_samples x n_features] |
 | `centroids` | in | `raft::device_matrix_view<const double, int>` | Cluster centroids. The data must be in row-major format. [dim = n_clusters x n_features] |
-| `cost` | out | `raft::host_scalar_view<double>` | Resulting cluster cost |
+| `cost` | out | `raft::device_scalar_view<double>` | Resulting cluster cost |
 | `sample_weight` | in | `std::optional<raft::device_vector_view<const double, int>>` | Optional per-sample weights. [len = n_samples]<br />Default: `std::nullopt`. |
+| `X_norm` | in | `std::optional<raft::device_vector_view<const double, int>>` | Optional precomputed squared L2 row norms of X (\|\|x\|\|^2, i.e. sum of squares without the sqrt) [n_samples]. When provided, the internal norm computation is skipped.<br />Default: `std::nullopt`. |
 
 **Returns**
 
@@ -1021,8 +1025,9 @@ void cluster_cost(
 const raft::resources& handle,
 raft::device_matrix_view<const float, int64_t> X,
 raft::device_matrix_view<const float, int64_t> centroids,
-raft::host_scalar_view<float> cost,
-std::optional<raft::device_vector_view<const float, int64_t>> sample_weight = std::nullopt);
+raft::device_scalar_view<float> cost,
+std::optional<raft::device_vector_view<const float, int64_t>> sample_weight = std::nullopt,
+std::optional<raft::device_vector_view<const float, int64_t>> X_norm        = std::nullopt);
 ```
 
 **Parameters**
@@ -1032,8 +1037,9 @@ std::optional<raft::device_vector_view<const float, int64_t>> sample_weight = st
 | `handle` | in | `const raft::resources&` | The raft handle |
 | `X` | in | `raft::device_matrix_view<const float, int64_t>` | Training instances to cluster. The data must be in row-major format. [dim = n_samples x n_features] |
 | `centroids` | in | `raft::device_matrix_view<const float, int64_t>` | Cluster centroids. The data must be in row-major format. [dim = n_clusters x n_features] |
-| `cost` | out | `raft::host_scalar_view<float>` | Resulting cluster cost |
+| `cost` | out | `raft::device_scalar_view<float>` | Resulting cluster cost |
 | `sample_weight` | in | `std::optional<raft::device_vector_view<const float, int64_t>>` | Optional per-sample weights. [len = n_samples]<br />Default: `std::nullopt`. |
+| `X_norm` | in | `std::optional<raft::device_vector_view<const float, int64_t>>` | Optional precomputed squared L2 row norms of X (\|\|x\|\|^2, i.e. sum of squares without the sqrt) [n_samples]. When provided, the internal norm computation is skipped.<br />Default: `std::nullopt`. |
 
 **Returns**
 
@@ -1048,8 +1054,9 @@ void cluster_cost(
 const raft::resources& handle,
 raft::device_matrix_view<const double, int64_t> X,
 raft::device_matrix_view<const double, int64_t> centroids,
-raft::host_scalar_view<double> cost,
-std::optional<raft::device_vector_view<const double, int64_t>> sample_weight = std::nullopt);
+raft::device_scalar_view<double> cost,
+std::optional<raft::device_vector_view<const double, int64_t>> sample_weight = std::nullopt,
+std::optional<raft::device_vector_view<const double, int64_t>> X_norm        = std::nullopt);
 ```
 
 **Parameters**
@@ -1059,8 +1066,9 @@ std::optional<raft::device_vector_view<const double, int64_t>> sample_weight = s
 | `handle` | in | `const raft::resources&` | The raft handle |
 | `X` | in | `raft::device_matrix_view<const double, int64_t>` | Training instances to cluster. The data must be in row-major format. [dim = n_samples x n_features] |
 | `centroids` | in | `raft::device_matrix_view<const double, int64_t>` | Cluster centroids. The data must be in row-major format. [dim = n_clusters x n_features] |
-| `cost` | out | `raft::host_scalar_view<double>` | Resulting cluster cost |
+| `cost` | out | `raft::device_scalar_view<double>` | Resulting cluster cost |
 | `sample_weight` | in | `std::optional<raft::device_vector_view<const double, int64_t>>` | Optional per-sample weights. [len = n_samples]<br />Default: `std::nullopt`. |
+| `X_norm` | in | `std::optional<raft::device_vector_view<const double, int64_t>>` | Optional precomputed squared L2 row norms of X (\|\|x\|\|^2, i.e. sum of squares without the sqrt) [n_samples]. When provided, the internal norm computation is skipped.<br />Default: `std::nullopt`. |
 
 **Returns**
 
