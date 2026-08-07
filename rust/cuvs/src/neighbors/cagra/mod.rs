@@ -20,13 +20,29 @@
 mod index;
 mod params;
 
-pub use crate::dataset::{CuvsDataset, Dataset, DatasetKind, DatasetView, PaddedDataset};
+pub use crate::dataset::{
+    CuvsDataset, Dataset, DatasetKind, DatasetView, PaddedDataset, VpqDataset,
+};
 pub use crate::neighbors::filters::{Bitset, Filter};
 pub use index::{DeserializedIndex, Index};
-pub use params::{IndexParams, SearchParams};
+pub use params::{CompressionParams, IndexParams, SearchParams};
 
 use crate::dlpack::DLPackError;
 use crate::error::LibraryError;
+use crate::resources::Resources;
+
+/// Train an owning device VPQ dataset (CAGRA-Q) from a device-padded source.
+///
+/// `params` may be `None` to use library defaults. Keep the returned dataset
+/// alive while any index uses it, then attach with [`Index::update_dataset`].
+pub fn make_vpq_dataset(
+    res: &Resources,
+    source: &impl CuvsDataset,
+    params: Option<&CompressionParams>,
+) -> Result<VpqDataset, CagraError> {
+    let params_ptr = params.map(CompressionParams::as_ptr).unwrap_or(std::ptr::null_mut());
+    VpqDataset::train_raw(res, source, params_ptr)
+}
 
 /// Algorithm for building the internal k-NN graph.
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]

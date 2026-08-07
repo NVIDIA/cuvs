@@ -256,6 +256,24 @@ CUVS_EXPORT cuvsError_t cuvsCagraCompressionParamsCreate(cuvsCagraCompressionPar
 CUVS_EXPORT cuvsError_t cuvsCagraCompressionParamsDestroy(cuvsCagraCompressionParams_t params);
 
 /**
+ * @brief Train an owning device VPQ (f16 codebook) dataset from a device-padded source.
+ *
+ * Used for CAGRA-Q: build a dense CAGRA index, train VPQ with this factory, then attach via
+ * `cuvsCagraUpdateDataset`. Caller owns the returned dataset and must keep it alive while any
+ * index uses it. Metric for subsequent search must remain `L2Expanded`.
+ *
+ * @param[in] res cuvs resources
+ * @param[in] source_dataset device-padded dataset (owning or view)
+ * @param[in] params VPQ compression params; NULL selects defaults
+ * @param[out] vpq_dataset newly allocated owning VPQ dataset handle
+ * @return cuvsError_t
+ */
+CUVS_EXPORT cuvsError_t cuvsDatasetMakeVpq(cuvsResources_t res,
+                                           cuvsDataset_t source_dataset,
+                                           cuvsCagraCompressionParams_t params,
+                                           cuvsDataset_t* vpq_dataset);
+
+/**
  * @brief Allocate ACE params, and populate with default values
  *
  * @param[in] params cuvsAceParams_t to allocate
@@ -580,21 +598,25 @@ CUVS_EXPORT cuvsError_t cuvsCagraIndexGetDataset(cuvsCagraIndex_t index, DLManag
 CUVS_EXPORT cuvsError_t cuvsCagraIndexGetGraph(cuvsCagraIndex_t index, DLManagedTensor* graph);
 
 /**
- * @brief Update a CAGRA index with a device-padded dataset.
+ * @brief Update a CAGRA index with a device dataset (padded or VPQ).
  *
- * This is the centralized dataset update operation for C callers. If \p index
- * is already device-padded, its dataset view is replaced in place. Otherwise,
- * the index is converted and its opaque handle is rebound to a search-ready
- * device-padded index. Caller retains ownership of
- * \p device_padded_dataset and must keep it alive while \p index uses it.
+ * This is the centralized dataset update/attach operation for C callers.
  *
- * @param[in] res             cuvsResources_t opaque C handle
- * @param[in] device_padded_dataset owning or non-owning device-padded dataset handle
- * @param[inout] index        CAGRA index handle
+ * - Device-padded dataset: if \p index is already device-padded, its dataset view is replaced in
+ *   place (same index object); otherwise the index is converted via attach and rebound.
+ * - Device VPQ_F16 dataset (from `cuvsDatasetMakeVpq`): if \p index is already VPQ-typed, its
+ *   dataset view is replaced in place; otherwise the graph is copied into a new VPQ-typed index
+ *   (CAGRA-Q). Search requires metric `L2Expanded`. The VPQ handle must be owning.
+ *
+ * Caller retains ownership of \p dataset and must keep it alive while \p index uses it.
+ *
+ * @param[in] res      cuvsResources_t opaque C handle
+ * @param[in] dataset  device-padded or owning device VPQ_F16 dataset handle
+ * @param[inout] index CAGRA index handle
  * @return cuvsError_t
  */
 CUVS_EXPORT cuvsError_t cuvsCagraUpdateDataset(cuvsResources_t res,
-                                               cuvsDataset_t device_padded_dataset,
+                                               cuvsDataset_t dataset,
                                                cuvsCagraIndex_t index);
 
 /**

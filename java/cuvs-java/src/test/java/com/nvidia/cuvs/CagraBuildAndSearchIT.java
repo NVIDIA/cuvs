@@ -163,6 +163,77 @@ public class CagraBuildAndSearchIT extends CuVSTestCase {
     }
   }
 
+  /**
+   * CAGRA-Q smoke: dense build → makeVpqDataset → updateDataset → search.
+   *
+   * Uses dim=30 so {@link CagraIndex#makePaddedDataset} creates an owning padded
+   * copy (dim=32 is already CAGRA-aligned and MakePadded refuses a no-op device copy).
+   * {@link CagraIndex#makeVpqDataset} requires an owning {@link CagraIndex.PaddedDataset}.
+   */
+  @Test
+  public void testVpqBuildUpdateSearch() throws Throwable {
+    final int nRows = 256;
+    final int nCols = 30;
+    final int nQueries = 4;
+    final int topK = 1;
+
+    float[][] dataset = generateData(random, nRows, nCols);
+    float[][] queries = Arrays.copyOf(dataset, nQueries);
+
+    CagraIndexParams indexParams =
+        new CagraIndexParams.Builder()
+            .withCagraGraphBuildAlgo(CagraGraphBuildAlgo.NN_DESCENT)
+            .withGraphDegree(32)
+            .withIntermediateGraphDegree(64)
+            .withMetric(CuvsDistanceType.L2Expanded)
+            .build();
+
+    CagraCompressionParams compressionParams =
+        new CagraCompressionParams.Builder().withPqBits(8).withPqDim(8).build();
+
+    CagraSearchParams searchParams =
+        new CagraSearchParams.Builder().withAlgo(CagraSearchParams.SearchAlgo.SINGLE_CTA).build();
+
+    try (CuVSResources resources = CheckedCuVSResources.create();
+        var hostVectors = CuVSMatrix.ofArray(dataset);
+        var deviceVectors = hostVectors.toDevice(resources);
+        var index =
+            CagraIndex.newBuilder(resources)
+                .withDataset(hostVectors)
+                .withIndexParams(indexParams)
+                .build();
+        var padded = index.makePaddedDataset(deviceVectors);
+        var vpq = index.makeVpqDataset(padded, compressionParams);
+        var queryVectors = CuVSMatrix.ofArray(queries)) {
+      assertTrue(padded.isPresent());
+      assertTrue(vpq.isPresent());
+      index.updateDataset(vpq);
+
+      CagraQuery query =
+          new CagraQuery.Builder(resources)
+              .withTopK(topK)
+              .withSearchParams(searchParams)
+              .withQueryVectors(queryVectors)
+              .withMapping(SearchResults.IDENTITY_MAPPING)
+              .build();
+
+      SearchResults results = index.search(query);
+      List<Map<Integer, Float>> rows = results.getResults();
+      assertEquals(nQueries, rows.size());
+      for (int i = 0; i < nQueries; i++) {
+        Integer topNeighbor =
+            rows.get(i).entrySet().stream()
+                .min(Map.Entry.comparingByValue())
+                .map(Map.Entry::getKey)
+                .orElseThrow();
+        assertEquals(
+            "query " + i + " should find itself as top-1 neighbor",
+            Integer.valueOf(i),
+            topNeighbor);
+      }
+    }
+  }
+
   @Test
   public void testDeserializeReturnsCallerOwnedStandardDataset() throws Throwable {
     float[][] dataset = createSampleData();

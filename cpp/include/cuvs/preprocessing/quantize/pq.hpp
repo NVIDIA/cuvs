@@ -246,14 +246,17 @@ void inverse_transform(
 
 namespace detail {
 
+// Must be CUVS_EXPORT: libcuvs_c (and header-inline make_device_vpq_dataset) resolve this
+// across the shared-library boundary. Without default visibility, -fvisibility=hidden
+// + --gc-sections drop the pq.cu instantiations from libcuvs.so.
 template <typename T>
-[[nodiscard]] cuvs::neighbors::device_vpq_dataset<half, int64_t> vpq_train_from_device_rows(
-  raft::resources const& res,
-  cuvs::neighbors::vpq_params const& params,
-  T const* src_ptr,
-  int64_t n_rows,
-  int64_t dim,
-  int64_t stride);
+[[nodiscard]] CUVS_EXPORT cuvs::neighbors::device_vpq_dataset<half, int64_t>
+vpq_train_from_device_rows(raft::resources const& res,
+                           cuvs::neighbors::vpq_params const& params,
+                           T const* src_ptr,
+                           int64_t n_rows,
+                           int64_t dim,
+                           int64_t stride);
 
 }  // namespace detail
 
@@ -267,32 +270,33 @@ template <typename T>
  *
  * Typical **CAGRA** usage: build the graph on dense vectors, then attach VPQ for search (metric
  * must remain `L2Expanded` for this path). Train VPQ from the same CAGRA-padded device layout you
- * used for graph build, keep the `device_vpq_dataset` alive, and call
- * `index::update_device_dataset_same_layout` with a non-owning view.
+ * used for graph build, keep the `device_vpq_dataset` alive, and attach it with
+ * `cagra::attach_dataset` (returns a `vpq_f16_index`).
  *
  * @code{.cpp}
  * #include <cuvs/neighbors/cagra.hpp>
  * #include <cuvs/preprocessing/quantize/pq.hpp>
  *
- * // `idx` is a `cagra::index<float, uint32_t>` with graph built on dense rows.
+ * // `idx` is a dense CAGRA index with graph built on padded rows.
  * // `padded` is a `device_padded_dataset_view<float, int64_t>` view of those same rows.
  * cuvs::neighbors::vpq_params vpq_params{};
- * auto vpq = cuvs::preprocessing::quantize::pq::make_vpq_dataset(res, vpq_params, padded.view());
- * idx.update_device_dataset_same_layout(res, vpq.as_dataset_view());
+ * auto vpq = cuvs::preprocessing::quantize::pq::make_device_vpq_dataset(res, vpq_params,
+ * padded.view()); auto vpq_idx = cuvs::neighbors::cagra::attach_dataset(res, idx,
+ * vpq.as_dataset_view());
  * @endcode
  */
 template <typename SrcT>
-[[nodiscard]] auto make_vpq_dataset(raft::resources const& res,
-                                    cuvs::neighbors::vpq_params const& params,
-                                    SrcT const& src)
+[[nodiscard]] auto make_device_vpq_dataset(raft::resources const& res,
+                                           cuvs::neighbors::vpq_params const& params,
+                                           SrcT const& src)
   -> cuvs::neighbors::device_vpq_dataset<half, int64_t>
 {
   using T = typename SrcT::value_type;
-  RAFT_EXPECTS(src.extent(0) > 0, "make_vpq_dataset: dataset is empty");
+  RAFT_EXPECTS(src.extent(0) > 0, "make_device_vpq_dataset: dataset is empty");
   cudaPointerAttributes ptr_attrs;
   RAFT_CUDA_TRY(cudaPointerGetAttributes(&ptr_attrs, src.data_handle()));
   auto const* device_ptr = reinterpret_cast<T const*>(ptr_attrs.devicePointer);
-  RAFT_EXPECTS(device_ptr != nullptr, "make_vpq_dataset: source must be device-accessible.");
+  RAFT_EXPECTS(device_ptr != nullptr, "make_device_vpq_dataset: source must be device-accessible.");
   const int64_t n_rows = src.extent(0);
   const int64_t dim    = src.extent(1);
   const int64_t stride = src.stride(0) > 0 ? src.stride(0) : dim;

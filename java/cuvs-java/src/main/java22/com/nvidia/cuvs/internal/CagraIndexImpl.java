@@ -504,6 +504,16 @@ public class CagraIndexImpl implements CagraIndex {
     updateDataset(dataset.nativeHandleAddress());
   }
 
+  @Override
+  public void updateDataset(CagraIndex.VpqDataset vpqDataset) throws Throwable {
+    checkNotDestroyed();
+    Objects.requireNonNull(vpqDataset);
+    if (!vpqDataset.isPresent()) {
+      throw new IllegalArgumentException("vpqDataset is uninitialized");
+    }
+    updateDataset(vpqDataset.nativeHandleAddress());
+  }
+
   private void updateDataset(long datasetHandleAddress) {
     try (var resourcesAccessor = resources.access()) {
       var cuvsRes = resourcesAccessor.handle();
@@ -513,6 +523,55 @@ public class CagraIndexImpl implements CagraIndex {
               MemorySegment.ofAddress(datasetHandleAddress),
               cagraIndexReference.getMemorySegment());
       checkCuVSError(returnValue, "cuvsCagraUpdateDataset");
+    }
+  }
+
+  @Override
+  public CagraIndex.VpqDataset makeVpqDataset(
+      CagraIndex.PaddedDataset paddedDataset, CagraCompressionParams compressionParams)
+      throws Throwable {
+    checkNotDestroyed();
+    Objects.requireNonNull(paddedDataset);
+    if (!paddedDataset.isPresent()) {
+      throw new IllegalArgumentException("paddedDataset is uninitialized");
+    }
+
+    try (var localArena = Arena.ofConfined();
+        var resourcesAccessor = resources.access()) {
+      var cuvsRes = resourcesAccessor.handle();
+      MemorySegment paramsSeg = MemorySegment.NULL;
+      CloseableHandle compressionHandle = null;
+      try {
+        if (compressionParams != null) {
+          compressionHandle = createCagraCompressionParams();
+          paramsSeg = compressionHandle.handle();
+          cuvsCagraCompressionParams.pq_bits(paramsSeg, compressionParams.getPqBits());
+          cuvsCagraCompressionParams.pq_dim(paramsSeg, compressionParams.getPqDim());
+          cuvsCagraCompressionParams.vq_n_centers(paramsSeg, compressionParams.getVqNCenters());
+          cuvsCagraCompressionParams.kmeans_n_iters(paramsSeg, compressionParams.getKmeansNIters());
+          cuvsCagraCompressionParams.vq_kmeans_trainset_fraction(
+              paramsSeg, compressionParams.getVqKmeansTrainsetFraction());
+          cuvsCagraCompressionParams.pq_kmeans_trainset_fraction(
+              paramsSeg, compressionParams.getPqKmeansTrainsetFraction());
+        }
+        MemorySegment vpqDatasetPtr = localArena.allocate(cuvsDataset_t);
+        var returnValue =
+            cuvsDatasetMakeVpq(
+                cuvsRes,
+                MemorySegment.ofAddress(paddedDataset.nativeHandleAddress()),
+                paramsSeg,
+                vpqDatasetPtr);
+        checkCuVSError(returnValue, "cuvsDatasetMakeVpq");
+        MemorySegment vpqDataset = vpqDatasetPtr.get(cuvsDataset_t, 0);
+
+        var out = new CagraIndex.VpqDataset();
+        out.setDelegate(new DatasetCloseDelegate(vpqDataset), vpqDataset.address());
+        return out;
+      } finally {
+        if (compressionHandle != null) {
+          compressionHandle.close();
+        }
+      }
     }
   }
 

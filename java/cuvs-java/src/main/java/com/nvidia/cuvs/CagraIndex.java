@@ -131,6 +131,14 @@ public interface CagraIndex extends AutoCloseable {
   }
 
   /**
+   * Owning VPQ dataset handle for CAGRA-Q. Keep this alive for as long as any index using it
+   * remains in use.
+   */
+  final class VpqDataset extends DeserializeDataset {
+    public VpqDataset() {}
+  }
+
+  /**
    * Invokes the native destroy_cagra_index to de-allocate the CAGRA index
    */
   @Override
@@ -175,6 +183,21 @@ public interface CagraIndex extends AutoCloseable {
    * while this index uses it.
    */
   void updateDataset(PaddedDataset dataset) throws Throwable;
+
+  /**
+   * Update this index with a caller-owned device VPQ dataset (CAGRA-Q). Keep {@code vpqDataset}
+   * alive while this index uses it. Metric must remain L2Expanded.
+   */
+  void updateDataset(VpqDataset vpqDataset) throws Throwable;
+
+  /**
+   * Train an owning device VPQ dataset (CAGRA-Q) from a device-padded source.
+   *
+   * @param paddedDataset device-padded source dataset
+   * @param compressionParams VPQ training parameters; may be {@code null} for defaults
+   */
+  VpqDataset makeVpqDataset(PaddedDataset paddedDataset, CagraCompressionParams compressionParams)
+      throws Throwable;
 
   /** Returns the CAGRA graph
    *

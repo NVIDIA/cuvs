@@ -5,6 +5,8 @@
 
 #include "./detail/pq.cuh"
 
+#include <cuvs/core/cuda_fp16.hpp>
+#include <cuvs/core/export.hpp>
 #include <cuvs/preprocessing/quantize/pq.hpp>
 
 #include <raft/matrix/copy.cuh>
@@ -101,28 +103,28 @@ auto vpq_train_from_device_rows(raft::resources const& res,
 
 }  // namespace detail
 
-template cuvs::neighbors::device_vpq_dataset<half, int64_t>
+template CUVS_EXPORT cuvs::neighbors::device_vpq_dataset<half, int64_t>
 detail::vpq_train_from_device_rows<float>(raft::resources const&,
                                           cuvs::neighbors::vpq_params const&,
                                           float const*,
                                           int64_t,
                                           int64_t,
                                           int64_t);
-template cuvs::neighbors::device_vpq_dataset<half, int64_t>
+template CUVS_EXPORT cuvs::neighbors::device_vpq_dataset<half, int64_t>
 detail::vpq_train_from_device_rows<half>(raft::resources const&,
                                          cuvs::neighbors::vpq_params const&,
                                          half const*,
                                          int64_t,
                                          int64_t,
                                          int64_t);
-template cuvs::neighbors::device_vpq_dataset<half, int64_t>
+template CUVS_EXPORT cuvs::neighbors::device_vpq_dataset<half, int64_t>
 detail::vpq_train_from_device_rows<int8_t>(raft::resources const&,
                                            cuvs::neighbors::vpq_params const&,
                                            int8_t const*,
                                            int64_t,
                                            int64_t,
                                            int64_t);
-template cuvs::neighbors::device_vpq_dataset<half, int64_t>
+template CUVS_EXPORT cuvs::neighbors::device_vpq_dataset<half, int64_t>
 detail::vpq_train_from_device_rows<uint8_t>(raft::resources const&,
                                             cuvs::neighbors::vpq_params const&,
                                             uint8_t const*,

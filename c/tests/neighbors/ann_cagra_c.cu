@@ -19,6 +19,7 @@
 #include <string>
 #include <type_traits>
 #include <unistd.h>
+#include <vector>
 
 #include <cuda_runtime.h>
 #include <gtest/gtest.h>
@@ -2006,5 +2007,111 @@ TEST(CagraC, SearchMultiPartitionMultiKernelRejected)
     cuvsDatasetDestroy(part_padded_owners[p]);
     cuvsDatasetDestroy(part_views[p]);
   }
+  cuvsResourcesDestroy(res);
+}
+
+TEST(CagraC, BuildAttachVpqSearch)
+{
+  // CAGRA-Q smoke test: dense build → MakeVpq → UpdateDataset(VPQ) → Search.
+  constexpr int64_t n_rows    = 256;
+  constexpr int64_t dim       = 32;
+  constexpr int64_t n_queries = 4;
+  constexpr int64_t k         = 1;
+
+  cuvsResources_t res;
+  ASSERT_EQ(cuvsResourcesCreate(&res), CUVS_SUCCESS);
+  cudaStream_t stream;
+  ASSERT_EQ(cuvsStreamGet(res, &stream), CUVS_SUCCESS);
+
+  rmm::device_uvector<float> dataset_d(n_rows * dim, stream);
+  {
+    std::vector<float> host(n_rows * dim);
+    for (int64_t i = 0; i < n_rows * dim; ++i) {
+      host[i] = static_cast<float>((i % 17) + 1);
+    }
+    raft::copy(dataset_d.data(), host.data(), host.size(), stream);
+  }
+
+  // dim=32 float already matches CAGRA padded row width; MakePadded refuses a
+  // no-op device copy — wrap with MakePaddedView instead.
+  DLManagedTensor dataset_tensor{};
+  dataset_tensor.dl_tensor.data               = dataset_d.data();
+  dataset_tensor.dl_tensor.device.device_type = kDLCUDA;
+  dataset_tensor.dl_tensor.ndim               = 2;
+  dataset_tensor.dl_tensor.dtype              = {kDLFloat, 32, 1};
+  int64_t dataset_shape[2]                    = {n_rows, dim};
+  dataset_tensor.dl_tensor.shape              = dataset_shape;
+  dataset_tensor.dl_tensor.strides            = nullptr;
+
+  cuvsDataset_t padded;
+  ASSERT_EQ(cuvsDatasetMakePaddedView(res, &dataset_tensor, &padded), CUVS_SUCCESS);
+
+  cuvsCagraIndexParams_t build_params;
+  ASSERT_EQ(cuvsCagraIndexParamsCreate(&build_params), CUVS_SUCCESS);
+  cuvsCagraIndex_t index;
+  ASSERT_EQ(cuvsCagraIndexCreate(&index), CUVS_SUCCESS);
+  ASSERT_EQ(cuvsCagraBuild(res, build_params, padded, index), CUVS_SUCCESS);
+
+  cuvsCagraCompressionParams_t compression;
+  ASSERT_EQ(cuvsCagraCompressionParamsCreate(&compression), CUVS_SUCCESS);
+  compression->pq_bits = 8;
+  compression->pq_dim  = 8;
+
+  cuvsDataset_t vpq = nullptr;
+  ASSERT_EQ(cuvsDatasetMakeVpq(res, padded, compression, &vpq), CUVS_SUCCESS);
+  {
+    cuvsDatasetLayout_t layout;
+    ASSERT_EQ(cuvsDatasetGetLayout(vpq, &layout), CUVS_SUCCESS);
+    EXPECT_EQ(layout, CUVS_DATASET_LAYOUT_VPQ_F16);
+    bool owning = false;
+    ASSERT_EQ(cuvsDatasetGetIsOwning(vpq, &owning), CUVS_SUCCESS);
+    EXPECT_TRUE(owning);
+  }
+
+  ASSERT_EQ(cuvsCagraUpdateDataset(res, vpq, index), CUVS_SUCCESS);
+
+  rmm::device_uvector<float> queries_d(n_queries * dim, stream);
+  raft::copy(queries_d.data(), dataset_d.data(), n_queries * dim, stream);
+  DLManagedTensor queries_tensor{};
+  queries_tensor.dl_tensor.data               = queries_d.data();
+  queries_tensor.dl_tensor.device.device_type = kDLCUDA;
+  queries_tensor.dl_tensor.ndim               = 2;
+  queries_tensor.dl_tensor.dtype              = {kDLFloat, 32, 1};
+  int64_t queries_shape[2]                    = {n_queries, dim};
+  queries_tensor.dl_tensor.shape              = queries_shape;
+
+  rmm::device_uvector<uint32_t> neighbors_d(n_queries * k, stream);
+  DLManagedTensor neighbors_tensor{};
+  neighbors_tensor.dl_tensor.data               = neighbors_d.data();
+  neighbors_tensor.dl_tensor.device.device_type = kDLCUDA;
+  neighbors_tensor.dl_tensor.ndim               = 2;
+  neighbors_tensor.dl_tensor.dtype              = {kDLUInt, 32, 1};
+  int64_t neighbors_shape[2]                    = {n_queries, k};
+  neighbors_tensor.dl_tensor.shape              = neighbors_shape;
+
+  rmm::device_uvector<float> distances_d(n_queries * k, stream);
+  DLManagedTensor distances_tensor{};
+  distances_tensor.dl_tensor.data               = distances_d.data();
+  distances_tensor.dl_tensor.device.device_type = kDLCUDA;
+  distances_tensor.dl_tensor.ndim               = 2;
+  distances_tensor.dl_tensor.dtype              = {kDLFloat, 32, 1};
+  int64_t distances_shape[2]                    = {n_queries, k};
+  distances_tensor.dl_tensor.shape              = distances_shape;
+
+  cuvsFilter filter;
+  filter.type = NO_FILTER;
+  filter.addr = (uintptr_t)NULL;
+  cuvsCagraSearchParams_t search_params;
+  ASSERT_EQ(cuvsCagraSearchParamsCreate(&search_params), CUVS_SUCCESS);
+  ASSERT_EQ(cuvsCagraSearch(
+              res, search_params, index, &queries_tensor, &neighbors_tensor, &distances_tensor, filter),
+            CUVS_SUCCESS);
+
+  cuvsCagraSearchParamsDestroy(search_params);
+  cuvsCagraCompressionParamsDestroy(compression);
+  cuvsDatasetDestroy(vpq);
+  cuvsCagraIndexDestroy(index);
+  cuvsCagraIndexParamsDestroy(build_params);
+  cuvsDatasetDestroy(padded);
   cuvsResourcesDestroy(res);
 }

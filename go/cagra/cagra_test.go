@@ -128,6 +128,134 @@ func TestCagra(t *testing.T) {
 	}
 }
 
+func TestCagraVpqBuildUpdateSearch(t *testing.T) {
+	// CAGRA-Q smoke: dense build → MakeVpqDataset → UpdateDataset → Search.
+	const (
+		nDataPoints = 256
+		nFeatures   = 32
+		nQueries    = 4
+		k           = 1
+	)
+	r := rand.New(rand.NewPCG(42, 0))
+
+	resource, err := cuvs.NewResource(nil)
+	if err != nil {
+		t.Fatalf("error creating resource: %v", err)
+	}
+	defer resource.Close()
+
+	testDataset := make([][]float32, nDataPoints)
+	for i := range testDataset {
+		testDataset[i] = make([]float32, nFeatures)
+		for j := range testDataset[i] {
+			testDataset[i][j] = r.Float32()
+		}
+	}
+
+	dataset, err := cuvs.NewTensor(testDataset)
+	if err != nil {
+		t.Fatalf("error creating dataset tensor: %v", err)
+	}
+	defer dataset.Close()
+
+	if _, err := dataset.ToDevice(&resource); err != nil {
+		t.Fatalf("error moving dataset to device: %v", err)
+	}
+
+	indexParams, err := CreateIndexParams()
+	if err != nil {
+		t.Fatalf("error creating index params: %v", err)
+	}
+	defer indexParams.Close()
+
+	index, err := CreateIndex()
+	if err != nil {
+		t.Fatalf("error creating index: %v", err)
+	}
+	defer index.Close()
+
+	if err := BuildIndex(resource, indexParams, &dataset, index); err != nil {
+		t.Fatalf("error building index: %v", err)
+	}
+
+	// dim=32 float already matches CAGRA padded row width; wrap with a view.
+	padded, err := MakePaddedDatasetView(resource, &dataset)
+	if err != nil {
+		t.Fatalf("error creating padded dataset view: %v", err)
+	}
+	defer padded.Close()
+
+	compression, err := CreateCompressionParams()
+	if err != nil {
+		t.Fatalf("error creating compression params: %v", err)
+	}
+	defer compression.Close()
+	if _, err := compression.SetPQBits(8); err != nil {
+		t.Fatalf("error setting pq_bits: %v", err)
+	}
+	if _, err := compression.SetPQDim(8); err != nil {
+		t.Fatalf("error setting pq_dim: %v", err)
+	}
+
+	vpq, err := MakeVpqDataset(resource, padded, compression)
+	if err != nil {
+		t.Fatalf("error creating VPQ dataset: %v", err)
+	}
+	defer vpq.Close()
+
+	if err := UpdateDataset(resource, vpq, index); err != nil {
+		t.Fatalf("error updating index with VPQ dataset: %v", err)
+	}
+
+	queries, err := cuvs.NewTensor(testDataset[:nQueries])
+	if err != nil {
+		t.Fatalf("error creating queries tensor: %v", err)
+	}
+	defer queries.Close()
+	if _, err := queries.ToDevice(&resource); err != nil {
+		t.Fatalf("error moving queries to device: %v", err)
+	}
+
+	neighbors, err := cuvs.NewTensorOnDevice[uint32](&resource, []int64{int64(nQueries), int64(k)})
+	if err != nil {
+		t.Fatalf("error creating neighbors tensor: %v", err)
+	}
+	defer neighbors.Close()
+
+	distances, err := cuvs.NewTensorOnDevice[float32](&resource, []int64{int64(nQueries), int64(k)})
+	if err != nil {
+		t.Fatalf("error creating distances tensor: %v", err)
+	}
+	defer distances.Close()
+
+	searchParams, err := CreateSearchParams()
+	if err != nil {
+		t.Fatalf("error creating search params: %v", err)
+	}
+	defer searchParams.Close()
+
+	if err := SearchIndex(resource, searchParams, index, &queries, &neighbors, &distances, nil); err != nil {
+		t.Fatalf("error searching VPQ index: %v", err)
+	}
+
+	if _, err := neighbors.ToHost(&resource); err != nil {
+		t.Fatalf("error moving neighbors to host: %v", err)
+	}
+	if err := resource.Sync(); err != nil {
+		t.Fatalf("error syncing resource: %v", err)
+	}
+
+	neighborsSlice, err := neighbors.Slice()
+	if err != nil {
+		t.Fatalf("error getting neighbors slice: %v", err)
+	}
+	for i := range neighborsSlice {
+		if neighborsSlice[i][0] != uint32(i) {
+			t.Errorf("wrong neighbor for query %d: expected %d, got %d", i, i, neighborsSlice[i][0])
+		}
+	}
+}
+
 func TestCagraFiltering(t *testing.T) {
 	const (
 		nDataPoints  = 1024
