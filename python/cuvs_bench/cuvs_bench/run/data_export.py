@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -70,6 +70,12 @@ def read_json_files(dataset, dataset_path, method):
         DataFrame of JSON content.
     """
     dir_path = os.path.join(dataset_path, dataset, "result", method)
+    if not os.path.isdir(dir_path):
+        print(
+            f"[cuvs-bench] Export skipped: result directory does not exist: "
+            f"{dir_path}"
+        )
+        return
     for file in os.listdir(dir_path):
         if file.endswith(".json"):
             file_path = os.path.join(dir_path, file)
@@ -103,6 +109,36 @@ def clean_algo_name(algo_name):
     return name.removesuffix(".json")
 
 
+def log_missing_export_columns(file, df, required_columns, method):
+    """
+    Print enough context to diagnose why a JSON result cannot become CSV.
+    """
+    missing = [name for name in required_columns if name not in df.columns]
+    if not missing:
+        return False
+
+    print(
+        f"[cuvs-bench] Cannot export {method} CSV for {file}: "
+        f"missing column(s) {missing}; available columns: {list(df.columns)}"
+    )
+
+    if "error_occurred" in df.columns:
+        error_rows = df[
+            df["error_occurred"].map(
+                lambda value: value is True
+                or str(value).lower() in {"true", "1"}
+            )
+        ]
+        for _, row in error_rows.iterrows():
+            print(
+                "[cuvs-bench] Google Benchmark error row: "
+                f"name={row.get('name', '<missing>')} "
+                f"message={row.get('error_message', '<missing>')}"
+            )
+
+    return True
+
+
 def write_csv(file, algo_name, df, extra_columns=None, skip_cols=None):
     """
     Write a DataFrame to CSV with specified columns skipped.
@@ -120,6 +156,9 @@ def write_csv(file, algo_name, df, extra_columns=None, skip_cols=None):
     skip_cols : set, optional
         Set of columns to skip when writing to CSV (default is None).
     """
+    if log_missing_export_columns(file, df, ["name", "real_time"], "build"):
+        return
+
     df["name"] = df["name"].str.split("/").str[0]
     write_data = pd.DataFrame(
         {
@@ -183,6 +222,14 @@ def convert_json_to_csv_search(dataset, dataset_path):
                 f"{','.join(algo_name)}.csv",
             )
             algo_name = clean_algo_name(algo_name)
+            if log_missing_export_columns(
+                file,
+                df,
+                ["name", "Recall", "items_per_second", "Latency"],
+                "search",
+            ):
+                continue
+
             df["name"] = df["name"].str.split("/").str[0]
             write = pd.DataFrame(
                 {
@@ -213,9 +260,10 @@ def convert_json_to_csv_search(dataset, dataset_path):
                     write["build GPU"] = None
                 for col_idx in range(start_idx, len(build_df.columns)):
                     col_name = build_df.columns[col_idx]
-                    write[col_name] = None
                     if col_name == "num_threads":
                         write["build_num_threads"] = None
+                    else:
+                        write[col_name] = None
                 for s_index, search_row in write.iterrows():
                     for b_index, build_row in build_df.iterrows():
                         if search_row["index_name"] == build_row["index_name"]:
