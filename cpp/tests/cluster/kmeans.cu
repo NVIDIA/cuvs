@@ -381,6 +381,9 @@ class KmeansFitBatchedTest : public ::testing::TestWithParam<KmeansBatchedInputs
     params.tol                 = testparams.tol;
     params.rng_state.seed      = 1;
     params.oversampling_factor = 0;
+    // Limit the number of iterations to ensure same number of iterations for reference and batched
+    // code paths.
+    params.max_iter = 3;
 
     auto stream = raft::resource::get_cuda_stream(handle);
 
@@ -402,8 +405,7 @@ class KmeansFitBatchedTest : public ::testing::TestWithParam<KmeansBatchedInputs
 
     auto d_sw = d_sw_view();
 
-    params.init     = cuvs::cluster::kmeans::params::Array;
-    params.max_iter = 20;
+    params.init = cuvs::cluster::kmeans::params::Array;
 
     T ref_inertia  = 0;
     int ref_n_iter = 0;
