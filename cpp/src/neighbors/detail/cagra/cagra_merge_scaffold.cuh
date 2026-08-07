@@ -1100,24 +1100,24 @@ static __global__ void manyway_leaf_gram_knn_kernel(float const* gram,
 
   int u = threadIdx.x;
   if (u >= leaf_n) { return; }
-  double top_d[MAX_LEAF_DEGREE];
+  float top_d[MAX_LEAF_DEGREE];
   uint16_t top_v[MAX_LEAF_DEGREE];
   for (int t = 0; t < leaf_degree; ++t) {
-    top_d[t] = std::numeric_limits<double>::max();
+    top_d[t] = std::numeric_limits<float>::max();
     top_v[t] = std::numeric_limits<uint16_t>::max();
   }
 
   // Scan this point's Gram row, keeping the `leaf_degree` nearest cross-origin neighbors.
   int64_t gram_base = local_leaf * leaf_size * leaf_size;
-  double norm_u     = static_cast<double>(gram[gram_base + u * leaf_size + u]);
+  float norm_u      = gram[gram_base + u * leaf_size + u];
   for (int v = 0; v < leaf_n; ++v) {
     if (u == v || leaf_origins[u] == leaf_origins[v] || records[u].id == records[v].id) {
       continue;
     }
-    double norm_v   = static_cast<double>(gram[gram_base + v * leaf_size + v]);
-    double dot      = static_cast<double>(gram[gram_base + v * leaf_size + u]);
-    double distance = norm_u + norm_v - 2.0 * dot;
-    if (isfinite(distance)) { distance = fmax(0.0, distance); }
+    float norm_v   = gram[gram_base + v * leaf_size + v];
+    float dot      = gram[gram_base + v * leaf_size + u];
+    float distance = norm_u + norm_v - 2.0f * dot;
+    if (isfinite(distance)) { distance = fmaxf(0.0f, distance); }
     int worst = 0;
     for (int t = 1; t < leaf_degree; ++t) {
       if (top_d[t] > top_d[worst] || (top_d[t] == top_d[worst] && top_v[t] > top_v[worst])) {
