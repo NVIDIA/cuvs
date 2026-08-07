@@ -17,6 +17,7 @@
 #include <raft/util/cuda_dev_essentials.cuh>
 
 #include "../../core/omp_wrapper.hpp"
+#include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/cagra.hpp>
 #include <cuvs/neighbors/common.hpp>
 #include <cuvs/neighbors/ivf_flat.hpp>
@@ -258,6 +259,8 @@ void sharded_search_with_direct_merge(
   int64_t n_neighbors,
   int64_t n_batches)
 {
+  const bool select_min =
+    cuvs::distance::is_min_close(index.ann_interfaces_.front().index_.value().metric());
   const auto& root_handle = raft::resource::set_current_device_to_root_rank(clique);
   auto in_neighbors       = raft::make_device_matrix<searchIdxT, int64_t, row_major>(
     root_handle, index.num_ranks_ * n_rows_per_batch, n_neighbors);
@@ -360,7 +363,8 @@ void sharded_search_with_direct_merge(
                     in_neighbors.view(),
                     out_distances.view(),
                     out_neighbors.view(),
-                    d_trans.view());
+                    d_trans.view(),
+                    select_min);
 
     raft::copy(
       root_handle_,
@@ -388,6 +392,8 @@ void sharded_search_with_tree_merge(
   int64_t n_neighbors,
   int64_t n_batches)
 {
+  const bool select_min =
+    cuvs::distance::is_min_close(index.ann_interfaces_.front().index_.value().metric());
   for (int64_t batch_idx = 0; batch_idx < n_batches; batch_idx++) {
     int64_t offset                  = batch_idx * n_rows_per_batch;
     int64_t query_offset            = offset * n_cols;
@@ -487,7 +493,8 @@ void sharded_search_with_tree_merge(
                           tmp_neighbors.view(),
                           distances_merge_res.view(),
                           neighbors_merge_res.view(),
-                          d_trans.view());
+                          d_trans.view(),
+                          select_min);
           raft::copy(dev_res,
                      raft::make_device_vector_view(tmp_neighbors.data_handle(), part_size),
                      raft::make_device_vector_view<const searchIdxT>(
