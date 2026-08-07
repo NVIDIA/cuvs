@@ -99,3 +99,7 @@ license-builder . --output-json c/build/install/licenses.json --output-txt c/bui
 rapids-logger "Begin c tarball creation"
 tar czf libcuvs_c.tar.gz -C c/build/install/ .
 ls -lh libcuvs_c.tar.gz
+jq -n \
+      --arg version "${RAPIDS_PACKAGE_VERSION}" \
+      '{ecosystem: "archive", name: "libcuvs-c", version: $version}' \
+      >libcuvs_c.release-package.json
