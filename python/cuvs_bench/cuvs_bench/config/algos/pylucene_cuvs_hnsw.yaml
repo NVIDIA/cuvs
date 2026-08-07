@@ -1,0 +1,13 @@
+name: pylucene_cuvs_hnsw
+groups:
+  base:
+    build:
+      codec:
+        - "Lucene101AcceleratedHNSWCodec"
+        - "Lucene101AcceleratedHNSWBaseLayerCodec"
+        - "Lucene101AcceleratedHNSWMultiLayerCodec"
+    search: {}
+  test:
+    build:
+      codec: ["Lucene101AcceleratedHNSWCodec"]
+    search: {}

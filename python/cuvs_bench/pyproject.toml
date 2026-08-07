@@ -21,6 +21,7 @@ requires-python = ">=3.11"
 dependencies = [
     "click",
     "cuvs==26.10.*,>=0.0.0a0",
+    "h5py>=3.8.0",
     "matplotlib>=3.9",
     "pandas",
     "pyyaml",
@@ -57,6 +58,7 @@ Homepage = "https://github.com/rapidsai/cuvs"
 [tool.pytest.ini_options]
 markers = [
     "opensearch: tests that require a live OpenSearch node (run with '-m opensearch')",
+    "pylucene: real PyLucene/JVM/cuVS tests (set CUVS_BENCH_PYLUCENE_INTEGRATION=1 and run with '-m pylucene')",
 ]
 
 [tool.isort]

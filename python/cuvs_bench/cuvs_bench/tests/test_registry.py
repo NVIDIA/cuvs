@@ -1,10 +1,12 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 """
 Unit tests for the backend registry system.
 """
+
+import json
 
 import pytest
 import numpy as np
@@ -19,6 +21,12 @@ from cuvs_bench.backends import (
     register_backend,
     get_backend,
 )
+from cuvs_bench.orchestrator import (
+    BenchmarkConfig,
+    BenchmarkOrchestrator,
+    DatasetConfig,
+)
+from cuvs_bench.orchestrator.config_loaders import IndexConfig
 
 
 class DummyBackend(BenchmarkBackend):
@@ -197,6 +205,28 @@ class TestBuildResult:
         assert json_result["nlist"] == 1024
         assert json_result["gpu_time"] == 4.2
 
+    def test_build_result_core_fields_cannot_be_overridden(self):
+        result = BuildResult(
+            index_path="/path/to/index",
+            build_time_seconds=5.5,
+            index_size_bytes=1024000,
+            algorithm="test_algo",
+            build_params={"name": "wrong", "real_time": -1},
+            metadata={
+                "time_unit": "ms",
+                "success": False,
+                "error_message": "wrong",
+            },
+        )
+
+        json_result = result.to_json()
+
+        assert json_result["name"] == "test_algo/build"
+        assert json_result["real_time"] == 5.5
+        assert json_result["time_unit"] == "s"
+        assert json_result["success"] is True
+        assert "error_message" not in json_result
+
 
 class TestSearchResult:
     """Tests for SearchResult dataclass."""
@@ -219,6 +249,36 @@ class TestSearchResult:
         assert result.recall == 0.95
         assert result.queries_per_second == 20.0
         assert result.success is True
+
+    def test_search_result_preserves_legacy_positional_arguments(self):
+        neighbors = np.array([[1]])
+        distances = np.array([[0.1]])
+        latency_percentiles = {"p50": 1.0}
+        metadata = {"source": "legacy"}
+
+        result = SearchResult(
+            neighbors,
+            distances,
+            2.0,
+            500.0,
+            0.9,
+            "test_algo",
+            [{}],
+            latency_percentiles,
+            0.5,
+            0.75,
+            metadata,
+            False,
+            "failed",
+        )
+
+        assert result.latency_percentiles is latency_percentiles
+        assert result.gpu_time_seconds == 0.5
+        assert result.cpu_time_seconds == 0.75
+        assert result.metadata is metadata
+        assert result.success is False
+        assert result.error_message == "failed"
+        assert result.latency_seconds is None
 
     def test_search_result_to_json(self):
         """Test conversion to JSON format."""
@@ -245,6 +305,284 @@ class TestSearchResult:
         assert json_result["GPU"] == 0.04
         assert json_result["p50"] == 50.0
         assert json_result["p95"] == 95.0
+
+    def test_search_result_core_fields_cannot_be_overridden(self):
+        result = SearchResult(
+            neighbors=np.array([[1]]),
+            distances=np.array([[0.1]]),
+            search_time_ms=6.0,
+            queries_per_second=500.0,
+            recall=0.95,
+            algorithm="test_algo",
+            search_params=[{}],
+            latency_seconds=0.003,
+            gpu_time_seconds=0.004,
+            cpu_time_seconds=0.005,
+            metadata={
+                "name": "wrong",
+                "real_time": -1,
+                "Latency": -1,
+                "GPU": -1,
+                "cpu_time": -1,
+                "Recall": -1,
+                "success": False,
+                "error_message": "wrong",
+            },
+        )
+
+        json_result = result.to_json()
+
+        assert json_result["name"] == "test_algo/search"
+        assert json_result["real_time"] == 3.0
+        assert json_result["Latency"] == 0.003
+        assert json_result["GPU"] == 0.004
+        assert json_result["cpu_time"] == 0.005
+        assert json_result["Recall"] == 0.95
+        assert json_result["success"] is True
+        assert "error_message" not in json_result
+
+    def test_search_result_optional_metadata_fields_are_fallbacks(self):
+        result = SearchResult(
+            neighbors=np.array([[1]]),
+            distances=np.array([[0.1]]),
+            search_time_ms=6.0,
+            queries_per_second=500.0,
+            recall=0.95,
+            algorithm="test_algo",
+            search_params=[{}],
+            metadata={
+                "Latency": 0.006,
+                "GPU": 0.004,
+                "cpu_time": 0.005,
+            },
+        )
+
+        json_result = result.to_json()
+
+        assert json_result["Latency"] == 0.006
+        assert json_result["GPU"] == 0.004
+        assert json_result["cpu_time"] == 0.005
+
+
+def test_backend_without_result_stems_runs_without_generic_persistence(
+    tmp_path, monkeypatch
+):
+    class DummyConfigLoader:
+        def load(self, **_kwargs):
+            return DatasetConfig(name="dummy"), [
+                BenchmarkConfig(
+                    indexes=[
+                        IndexConfig(
+                            name="dummy-index",
+                            algo="dummy",
+                            build_param={},
+                            search_params=[{}],
+                            file=str(tmp_path / "dummy-index"),
+                        )
+                    ],
+                    backend_config={"name": "dummy-index"},
+                )
+            ]
+
+    monkeypatch.setattr(
+        "cuvs_bench.orchestrator.orchestrator.get_backend_class",
+        lambda _backend_type: DummyBackend,
+    )
+    monkeypatch.setattr(
+        "cuvs_bench.orchestrator.orchestrator.get_config_loader",
+        lambda _backend_type: DummyConfigLoader,
+    )
+    orchestrator = BenchmarkOrchestrator(backend_type="dummy")
+
+    results = orchestrator.run_benchmark(
+        build=True,
+        search=False,
+        dataset="dummy",
+        dataset_path=str(tmp_path),
+    )
+
+    assert len(results) == 1
+    assert results[0].success is True
+    assert not (tmp_path / "dummy" / "result").exists()
+
+
+def test_failed_opt_in_build_clears_only_matching_stale_search_artifacts(
+    tmp_path, monkeypatch
+):
+    build_stem = "dummy,base"
+    search_stem = f"{build_stem},k1,bs1"
+
+    class DummyConfigLoader:
+        def load(self, **_kwargs):
+            return DatasetConfig(name="dummy"), [
+                BenchmarkConfig(
+                    indexes=[
+                        IndexConfig(
+                            name="dummy-index",
+                            algo="dummy",
+                            build_param={},
+                            search_params=[{}],
+                            file=str(tmp_path / "dummy-index"),
+                        )
+                    ],
+                    backend_config={
+                        "name": "dummy-index",
+                        "output_filename": (build_stem, search_stem),
+                    },
+                )
+            ]
+
+    class FailedBuildBackend(DummyBackend):
+        orchestrator_persists_results = True
+
+        def build(self, dataset, indexes, force=False, dry_run=False):
+            return BuildResult(
+                index_path=indexes[0].file,
+                build_time_seconds=0.0,
+                index_size_bytes=0,
+                algorithm=self.algo,
+                build_params={},
+                success=False,
+                error_message="expected build failure",
+            )
+
+        def search(self, *args, **kwargs):
+            raise AssertionError("search must not run after a failed build")
+
+    result_root = tmp_path / "dummy" / "result"
+    search_dir = result_root / "search"
+    search_dir.mkdir(parents=True)
+    stale_paths = [
+        search_dir / f"{search_stem}.json",
+        search_dir / f"{search_stem},raw.csv",
+        search_dir / f"{search_stem},throughput.csv",
+        search_dir / f"{search_stem},latency.csv",
+    ]
+    unrelated_paths = [
+        search_dir / "other,base,k1,bs1.json",
+        search_dir / "other,base,k1,bs1,raw.csv",
+    ]
+    for path in [*stale_paths, *unrelated_paths]:
+        path.write_text("stale\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "cuvs_bench.orchestrator.orchestrator.get_backend_class",
+        lambda _backend_type: FailedBuildBackend,
+    )
+    monkeypatch.setattr(
+        "cuvs_bench.orchestrator.orchestrator.get_config_loader",
+        lambda _backend_type: DummyConfigLoader,
+    )
+
+    results = BenchmarkOrchestrator(backend_type="dummy").run_benchmark(
+        build=True,
+        search=True,
+        count=1,
+        batch_size=1,
+        dataset="dummy",
+        dataset_path=str(tmp_path),
+    )
+
+    assert len(results) == 1
+    assert results[0].success is False
+    assert not any(path.exists() for path in stale_paths)
+    assert all(
+        path.read_text(encoding="utf-8") == "stale\n"
+        for path in unrelated_paths
+    )
+
+    build_path = result_root / "build" / f"{build_stem}.json"
+    build_rows = json.loads(build_path.read_text(encoding="utf-8"))[
+        "benchmarks"
+    ]
+    assert len(build_rows) == 1
+    assert build_rows[0]["success"] is False
+    assert build_rows[0]["error_message"] == "expected build failure"
+
+
+@pytest.mark.parametrize(
+    ("index_count", "output_filenames", "expected_message"),
+    [
+        (
+            2,
+            ("dummy,base", "dummy,base,k1,bs1"),
+            "exactly one index",
+        ),
+        (
+            1,
+            ("dummy", "dummy,k1,bs1"),
+            "Build result filename stem",
+        ),
+        (
+            1,
+            ("dummy,base", "other,base,k1,bs1"),
+            "Search result filename stem",
+        ),
+        (
+            1,
+            ("dummy,base",),
+            "exactly two result filename stems",
+        ),
+        (
+            1,
+            ("../dummy,base", "../dummy,base,k1,bs1"),
+            "Invalid benchmark result filename",
+        ),
+    ],
+)
+def test_opt_in_sweep_persistence_validates_artifact_identity(
+    tmp_path,
+    monkeypatch,
+    index_count,
+    output_filenames,
+    expected_message,
+):
+    indexes = [
+        IndexConfig(
+            name=f"dummy-index-{position}",
+            algo="dummy",
+            build_param={},
+            search_params=[{}],
+            file=str(tmp_path / f"dummy-index-{position}"),
+        )
+        for position in range(index_count)
+    ]
+
+    class DummyConfigLoader:
+        def load(self, **_kwargs):
+            return DatasetConfig(name="dummy"), [
+                BenchmarkConfig(
+                    indexes=indexes,
+                    backend_config={
+                        "name": "dummy-index",
+                        "output_filename": output_filenames,
+                    },
+                )
+            ]
+
+    class PersistedDummyBackend(DummyBackend):
+        orchestrator_persists_results = True
+
+    monkeypatch.setattr(
+        "cuvs_bench.orchestrator.orchestrator.get_backend_class",
+        lambda _backend_type: PersistedDummyBackend,
+    )
+    monkeypatch.setattr(
+        "cuvs_bench.orchestrator.orchestrator.get_config_loader",
+        lambda _backend_type: DummyConfigLoader,
+    )
+
+    with pytest.raises(ValueError, match=expected_message):
+        BenchmarkOrchestrator(backend_type="dummy").run_benchmark(
+            build=True,
+            search=False,
+            count=1,
+            batch_size=1,
+            dataset="dummy",
+            dataset_path=str(tmp_path),
+        )
+
+    assert not (tmp_path / "dummy" / "result").exists()
 
 
 class TestBackendRegistry:

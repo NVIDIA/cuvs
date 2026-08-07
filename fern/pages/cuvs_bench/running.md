@@ -64,6 +64,7 @@ Create a custom YAML file with a `base` group to override the default benchmark 
 | HNSWLIB | `hnswlib` |
 | DiskANN | `diskann_memory`, `diskann_ssd` |
 | NVIDIA cuVS | `cuvs_brute_force`, `cuvs_cagra`, `cuvs_ivf_flat`, `cuvs_ivf_pq`, `cuvs_cagra_hnswlib`, `cuvs_vamana` |
+| PyLucene/cuVS | `pylucene_cuvs_hnsw`, `pylucene_cuvs_cagra` |
 
 ### Multi-GPU algorithms
 
@@ -74,6 +75,70 @@ cuVS Bench includes single-node multi-GPU versions of IVF-Flat, IVF-PQ, and CAGR
 | IVF-Flat | `cuvs_mg_ivf_flat` |
 | IVF-PQ | `cuvs_mg_ivf_pq` |
 | CAGRA | `cuvs_mg_cagra` |
+
+## Running the PyLucene backend
+
+The PyLucene backend type is `pylucene`. It runs through Python's embedded JVM, not the `*_ANN_BENCH` executables or `--executable-dir`. It accepts only FLOAT32 datasets with Euclidean distance and requires the prerequisites described in [Installation](/user-guide/benchmarking-guide/cu-vs-bench-tool/installation#pylucene-backend-prerequisites).
+
+Install the development checkout into the activated PyLucene environment:
+
+```bash
+cd <cuvs-checkout>
+python -m pip install -e ./python/cuvs_bench
+```
+
+Create `pylucene-backend.yaml` with absolute paths to the base `cuvs-java` JAR, the standard `cuvs-lucene` JAR, and a path-separated list of directories containing the matching cuVS and CUDA native libraries:
+
+```yaml
+backend: pylucene
+cuvs_java_jar: /home/user/.m2/repository/com/nvidia/cuvs/cuvs-java/VERSION/cuvs-java-VERSION.jar
+cuvs_lucene_jar: /absolute/path/to/cuvs-lucene/target/cuvs-lucene-VERSION.jar
+java_library_path: /work/cuvs-pylucene-deps/cpp/build:/work/cuvs-pylucene-deps/cpp/build/c:/usr/local/cuda/lib64
+```
+
+Configuration sources are:
+
+| Backend configuration key | Environment variable |
+| --- | --- |
+| `cuvs_java_jar` | `CUVS_LUCENE_CUVS_JAVA_JAR` |
+| `cuvs_lucene_jar` | `CUVS_LUCENE_JAR` |
+| `java_library_path` | `JAVA_LIBRARY_PATH` or `LD_LIBRARY_PATH` |
+| `jvm_args` | No environment alias; YAML list of additional JVM arguments. |
+
+Use one explicit dataset root for both preparation and execution. This small synthetic run is a functional smoke test:
+
+```bash
+export DATASET_ROOT=/absolute/path/to/cuvs-bench-data
+
+python -m cuvs_bench.get_dataset \
+    --dataset test-data \
+    --dataset-path "$DATASET_ROOT" \
+    --test-data-n-train 512 \
+    --test-data-n-test 4 \
+    --test-data-k 5
+
+python -m cuvs_bench.run \
+    --backend-config pylucene-backend.yaml \
+    --dataset test-data \
+    --dataset-path "$DATASET_ROOT" \
+    --algorithms pylucene_cuvs_hnsw \
+    --groups test \
+    --batch-size 2 -k 5 \
+    -m latency \
+    --build --search --force
+```
+
+Do not use this tiny synthetic smoke run as performance or quality evidence; it exists only to verify the workflow. For a representative recall run, prepare `deep-image-96-angular` with `--normalize` into the same `DATASET_ROOT`, then run the backend against `deep-image-96-inner` with the same `--dataset-path`.
+
+The HNSW `base` group sweeps `Lucene101AcceleratedHNSWCodec`, `Lucene101AcceleratedHNSWBaseLayerCodec`, and `Lucene101AcceleratedHNSWMultiLayerCodec`; its `test` group uses `Lucene101AcceleratedHNSWCodec`. These codecs build the HNSW graph on the GPU with cuVS and use Lucene's CPU HNSW search. Use `--algorithms pylucene_cuvs_cagra` to run `CuVS2510GPUSearchCodec`, which builds and searches on the GPU.
+
+The supplied configurations use Lucene's public `KnnFloatVectorQuery` and do not expose search-time tuning parameters. The backend accepts FLOAT32 Euclidean datasets with at most 4096 dimensions. All supplied codecs require at least two indexed vectors because cuVS-Lucene bypasses cuVS for a single-vector index. CAGRA requires a GPU for build and search. Although cuVS-Lucene uses an effective `lucene_k` of `min(k, document_count)`, the backend conservatively requires `k <= 1024` to avoid cuVS-Lucene paths that can use brute-force search above that limit. HNSW requires a GPU for graph construction, and new builds reject cuVS-Lucene's CPU fallback.
+
+New HNSW and CAGRA builds atomically write commit-bound provenance manifests named `.cuvs-bench-pylucene-hnsw.json` and `.cuvs-bench-pylucene-cagra.json`, respectively. Reuse and search fail if the applicable manifest is missing, malformed, stale, or names a different codec. Indexes created outside this backend without the applicable manifest must be rebuilt with `--force`. CAGRA indexes also undergo structural and checksum-integrity verification.
+
+The backend currently supports latency mode with one search thread. `--batch-size` groups queries for measurement, and the reported latency percentiles are per batch. Throughput mode and multiple search threads are not implemented.
+
+PyLucene's JVM is process-global and can be initialized only once. Set the JAR, native-library locations, and `jvm_args` before the first PyLucene benchmark, and start a new Python process to change any of them.
 
 ## Smaller-scale benchmarks (&lt;1M to 10M vectors)
 
@@ -192,7 +257,9 @@ Containers can also run in detached mode.
 
 ## Evaluating results
 
-Build benchmarks report:
+The tables below describe fields emitted by the default C++ Google Benchmark backend. Other backends report the fields that apply to their execution model, so not every field is present for every backend. In particular, PyLucene reports `index_size` as the total on-disk index size in bytes.
+
+C++ build benchmarks report:
 
 | Name | Description |
 | --- | --- |
@@ -203,7 +270,7 @@ Build benchmarks report:
 | GPU | GPU time spent building. |
 | index_size | Number of vectors used to train the index. |
 
-Search benchmarks report:
+C++ search benchmarks report:
 
 | Name | Description |
 | --- | --- |

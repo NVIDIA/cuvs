@@ -1,0 +1,602 @@
+#
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+
+"""PyLucene JVM and Java-boundary unit tests."""
+
+from __future__ import annotations
+
+import zipfile
+from types import SimpleNamespace
+
+import numpy as np
+import pytest
+
+import cuvs_bench.backends.pylucene as pylucene_backend
+from cuvs_bench.backends.pylucene import _ResolvedCodec
+from cuvs_bench.tests._pylucene_test_utils import _HNSW_CODEC
+
+
+def _resolved_codec(java_codec=None, writer_path="gpu-hnsw") -> _ResolvedCodec:
+    return _ResolvedCodec(
+        codec_name=_HNSW_CODEC,
+        java_codec=java_codec if java_codec is not None else object(),
+        telemetry={"writerPath": writer_path},
+        writer_path=writer_path,
+    )
+
+
+class _FakeVMEnvironment:
+    def __init__(self):
+        self.attach_count = 0
+
+    def attachCurrentThread(self):
+        self.attach_count += 1
+
+
+class _FakeLuceneModule:
+    CLASSPATH = "/pylucene/lucene-core.jar"
+    VERSION = "test"
+
+    def __init__(self):
+        self.environment = None
+        self.init_calls = []
+
+    def getVMEnv(self):
+        return self.environment
+
+    def initVM(self, **kwargs):
+        self.init_calls.append(kwargs)
+        self.environment = _FakeVMEnvironment()
+        return self.environment
+
+
+class _FakeIndexWriter:
+    def __init__(self, error_at=None):
+        self.error_at = error_at
+        self.documents = []
+        self.committed = False
+        self.rollback_called = False
+        self.close_called = False
+
+    def addDocument(self, document):
+        if self.error_at in {"interrupt", "interrupt-rollback"}:
+            raise KeyboardInterrupt
+        if self.error_at in {"add", "rollback"}:
+            raise RuntimeError("add failed")
+        self.documents.append(document)
+
+    def commit(self):
+        if self.error_at == "commit":
+            raise RuntimeError("commit failed")
+        self.committed = True
+
+    def rollback(self):
+        self.rollback_called = True
+        if self.error_at in {"rollback", "interrupt-rollback"}:
+            raise RuntimeError("rollback failed")
+
+    def close(self):
+        self.close_called = True
+        if self.error_at == "close":
+            raise RuntimeError("close failed")
+
+
+class _FakeIndexWriterConfig:
+    OpenMode = SimpleNamespace(CREATE=object())
+
+    def setOpenMode(self, _mode):
+        pass
+
+    def setCodec(self, _codec):
+        pass
+
+    def setUseCompoundFile(self, _enabled):
+        pass
+
+    def setMergeScheduler(self, _scheduler):
+        pass
+
+
+def _fake_index_writer_runtime(error_at=None, directory_close_error=None):
+    writer = _FakeIndexWriter(error_at=error_at)
+    directory = SimpleNamespace(closed=False)
+
+    def close_directory():
+        directory.closed = True
+        if directory_close_error is not None:
+            raise directory_close_error
+
+    directory.close = close_directory
+    runtime = pylucene_backend._PyLuceneRuntime.__new__(
+        pylucene_backend._PyLuceneRuntime
+    )
+    runtime.attach_current_thread = lambda: None
+    runtime.resolve_codec = lambda _codec_name: object()
+    runtime.Paths = SimpleNamespace(get=lambda path: path)
+    runtime.FSDirectory = SimpleNamespace(open=lambda _path: directory)
+    runtime.IndexWriterConfig = _FakeIndexWriterConfig
+    runtime.SerialMergeScheduler = lambda: object()
+    runtime.IndexWriter = lambda _directory, _config: writer
+    runtime._vector_document = lambda document_id, vector: (
+        document_id,
+        vector.copy(),
+    )
+    runtime._test_writer = writer
+    runtime._test_directory = directory
+    runtime._test_codec = object()
+    return runtime
+
+
+@pytest.fixture(autouse=True)
+def _reset_jvm_tracking(monkeypatch):
+    monkeypatch.setattr(pylucene_backend, "_INITIALIZED_CLASSPATH", None)
+    monkeypatch.setattr(pylucene_backend, "_INITIALIZED_VMARGS", None)
+
+
+def test_initialize_pylucene_uses_verified_classpath_and_vmargs(
+    tmp_path, monkeypatch
+):
+    cuvs_java = tmp_path / "cuvs-java.jar"
+    cuvs_lucene = tmp_path / "cuvs-lucene.jar"
+    cuvs_java.touch()
+    cuvs_lucene.touch()
+    fake_lucene = _FakeLuceneModule()
+    monkeypatch.setattr(
+        pylucene_backend.importlib,
+        "import_module",
+        lambda name: fake_lucene,
+    )
+
+    returned = pylucene_backend._initialize_pylucene(
+        {
+            "cuvs_java_jar": cuvs_java,
+            "cuvs_lucene_jar": cuvs_lucene,
+            "java_library_path": "/native",
+            "jvm_args": ["-Xms1g"],
+        }
+    )
+
+    assert returned is fake_lucene
+    assert len(fake_lucene.init_calls) == 1
+    init_call = fake_lucene.init_calls[0]
+    assert init_call["classpath"].split(":") == [
+        str(cuvs_java),
+        str(cuvs_lucene),
+        fake_lucene.CLASSPATH,
+    ]
+    assert init_call["vmargs"] == [
+        "--enable-native-access=ALL-UNNAMED",
+        "--add-modules=jdk.incubator.vector",
+        "-Djava.library.path=/native",
+        "-Xms1g",
+    ]
+    assert fake_lucene.environment.attach_count == 1
+
+    pylucene_backend._initialize_pylucene(
+        {
+            "cuvs_java_jar": cuvs_java,
+            "cuvs_lucene_jar": cuvs_lucene,
+            "java_library_path": "/native",
+            "jvm_args": ["-Xms1g"],
+        }
+    )
+    assert len(fake_lucene.init_calls) == 1
+    assert fake_lucene.environment.attach_count == 2
+
+
+@pytest.mark.parametrize(
+    ("library_paths", "expected_library_path"),
+    [
+        (
+            {
+                "JAVA_LIBRARY_PATH": "/java-native",
+                "LD_LIBRARY_PATH": "/ld-native",
+            },
+            "/java-native",
+        ),
+        ({"LD_LIBRARY_PATH": "/ld-native"}, "/ld-native"),
+    ],
+    ids=["java-library-path-precedence", "ld-library-path-fallback"],
+)
+def test_initialize_pylucene_uses_environment_runtime_config(
+    library_paths,
+    expected_library_path,
+    tmp_path,
+    monkeypatch,
+):
+    cuvs_java = tmp_path / "cuvs-java.jar"
+    cuvs_lucene = tmp_path / "cuvs-lucene.jar"
+    cuvs_java.touch()
+    cuvs_lucene.touch()
+    fake_lucene = _FakeLuceneModule()
+    monkeypatch.setattr(
+        pylucene_backend.importlib,
+        "import_module",
+        lambda _name: fake_lucene,
+    )
+    monkeypatch.setenv("CUVS_LUCENE_CUVS_JAVA_JAR", str(cuvs_java))
+    monkeypatch.setenv("CUVS_LUCENE_JAR", str(cuvs_lucene))
+    monkeypatch.delenv("JAVA_LIBRARY_PATH", raising=False)
+    monkeypatch.delenv("LD_LIBRARY_PATH", raising=False)
+    for name, value in library_paths.items():
+        monkeypatch.setenv(name, value)
+
+    pylucene_backend._initialize_pylucene({})
+
+    init_call = fake_lucene.init_calls[0]
+    assert init_call["classpath"].split(":") == [
+        str(cuvs_java),
+        str(cuvs_lucene),
+        fake_lucene.CLASSPATH,
+    ]
+    assert init_call["vmargs"] == [
+        "--enable-native-access=ALL-UNNAMED",
+        "--add-modules=jdk.incubator.vector",
+        f"-Djava.library.path={expected_library_path}",
+    ]
+
+
+def test_initialize_pylucene_rejects_fat_cuvs_lucene_jar_before_init(
+    tmp_path, monkeypatch
+):
+    cuvs_java = tmp_path / "cuvs-java.jar"
+    cuvs_lucene = tmp_path / "cuvs-lucene-jar-with-dependencies.jar"
+    cuvs_java.touch()
+    with zipfile.ZipFile(cuvs_lucene, "w") as archive:
+        archive.writestr(
+            pylucene_backend._LUCENE_CORE_CLASS,
+            b"bundled Lucene bytecode",
+        )
+    fake_lucene = _FakeLuceneModule()
+    monkeypatch.setattr(
+        pylucene_backend.importlib,
+        "import_module",
+        lambda _name: fake_lucene,
+    )
+
+    with pytest.raises(RuntimeError, match="standard thin cuvs-lucene JAR"):
+        pylucene_backend._initialize_pylucene(
+            {
+                "cuvs_java_jar": cuvs_java,
+                "cuvs_lucene_jar": cuvs_lucene,
+            }
+        )
+
+    assert fake_lucene.init_calls == []
+
+
+def test_initialize_pylucene_rejects_externally_started_jvm(
+    tmp_path, monkeypatch
+):
+    cuvs_java = tmp_path / "cuvs-java.jar"
+    cuvs_lucene = tmp_path / "cuvs-lucene.jar"
+    cuvs_java.touch()
+    cuvs_lucene.touch()
+    fake_lucene = _FakeLuceneModule()
+    fake_lucene.environment = _FakeVMEnvironment()
+    monkeypatch.setattr(
+        pylucene_backend.importlib,
+        "import_module",
+        lambda name: fake_lucene,
+    )
+
+    with pytest.raises(RuntimeError, match="initialized before"):
+        pylucene_backend._initialize_pylucene(
+            {
+                "cuvs_java_jar": cuvs_java,
+                "cuvs_lucene_jar": cuvs_lucene,
+            }
+        )
+
+
+def test_initialize_pylucene_rejects_different_jars_after_start(
+    tmp_path, monkeypatch
+):
+    first_java = tmp_path / "first-java.jar"
+    first_lucene = tmp_path / "first-lucene.jar"
+    second_java = tmp_path / "second-java.jar"
+    for path in (first_java, first_lucene, second_java):
+        path.touch()
+    fake_lucene = _FakeLuceneModule()
+    monkeypatch.setattr(
+        pylucene_backend.importlib,
+        "import_module",
+        lambda name: fake_lucene,
+    )
+
+    pylucene_backend._initialize_pylucene(
+        {
+            "cuvs_java_jar": first_java,
+            "cuvs_lucene_jar": first_lucene,
+        }
+    )
+
+    with pytest.raises(RuntimeError, match="different"):
+        pylucene_backend._initialize_pylucene(
+            {
+                "cuvs_java_jar": second_java,
+                "cuvs_lucene_jar": first_lucene,
+            }
+        )
+
+
+def test_initialize_pylucene_rejects_different_vmargs_after_start(
+    tmp_path, monkeypatch
+):
+    cuvs_java = tmp_path / "cuvs-java.jar"
+    cuvs_lucene = tmp_path / "cuvs-lucene.jar"
+    cuvs_java.touch()
+    cuvs_lucene.touch()
+    fake_lucene = _FakeLuceneModule()
+    monkeypatch.setattr(
+        pylucene_backend.importlib,
+        "import_module",
+        lambda name: fake_lucene,
+    )
+
+    pylucene_backend._initialize_pylucene(
+        {
+            "cuvs_java_jar": cuvs_java,
+            "cuvs_lucene_jar": cuvs_lucene,
+            "java_library_path": "/first",
+        }
+    )
+
+    with pytest.raises(RuntimeError, match="different JVM arguments"):
+        pylucene_backend._initialize_pylucene(
+            {
+                "cuvs_java_jar": cuvs_java,
+                "cuvs_lucene_jar": cuvs_lucene,
+                "java_library_path": "/second",
+            }
+        )
+
+
+def test_initialize_pylucene_reports_missing_binding(monkeypatch):
+    def missing_import(_name):
+        raise ImportError("missing")
+
+    monkeypatch.setattr(
+        pylucene_backend.importlib, "import_module", missing_import
+    )
+
+    with pytest.raises(ImportError, match="must be built"):
+        pylucene_backend._initialize_pylucene({})
+
+
+def test_initialize_pylucene_reports_missing_jar(monkeypatch):
+    monkeypatch.delenv("CUVS_LUCENE_CUVS_JAVA_JAR", raising=False)
+    monkeypatch.delenv("CUVS_LUCENE_JAR", raising=False)
+    monkeypatch.setattr(
+        pylucene_backend.importlib,
+        "import_module",
+        lambda _name: _FakeLuceneModule(),
+    )
+
+    with pytest.raises(RuntimeError, match="cuvs_java_jar"):
+        pylucene_backend._initialize_pylucene({})
+
+
+@pytest.mark.parametrize("jvm_args", ["-Xmx1g", ["-Xmx1g", 1]])
+def test_initialize_pylucene_rejects_invalid_jvm_args(
+    jvm_args, tmp_path, monkeypatch
+):
+    cuvs_java = tmp_path / "cuvs-java.jar"
+    cuvs_lucene = tmp_path / "cuvs-lucene.jar"
+    cuvs_java.touch()
+    cuvs_lucene.touch()
+    monkeypatch.setattr(
+        pylucene_backend.importlib,
+        "import_module",
+        lambda _name: _FakeLuceneModule(),
+    )
+
+    with pytest.raises(TypeError, match="jvm_args"):
+        pylucene_backend._initialize_pylucene(
+            {
+                "cuvs_java_jar": cuvs_java,
+                "cuvs_lucene_jar": cuvs_lucene,
+                "jvm_args": jvm_args,
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    ("description", "expected"),
+    [
+        (
+            "Format(writerPath=gpu-hnsw;hnswLayers=1)",
+            {"writerPath": "gpu-hnsw", "hnswLayers": "1"},
+        ),
+        ("Format(writerPath=gpu-cagra)", {"writerPath": "gpu-cagra"}),
+    ],
+)
+def test_parse_writer_telemetry(description, expected):
+    assert pylucene_backend._parse_writer_telemetry(description) == expected
+
+
+@pytest.mark.parametrize(
+    "description",
+    ["Format", "Format(writerPath)", "Format(=gpu-hnsw)"],
+)
+def test_parse_writer_telemetry_rejects_malformed_description(description):
+    with pytest.raises(RuntimeError, match="Malformed"):
+        pylucene_backend._parse_writer_telemetry(description)
+
+
+def test_resolved_codec_copies_and_freezes_writer_telemetry():
+    telemetry = {"writerPath": "gpu-hnsw"}
+
+    resolved_codec = _ResolvedCodec(
+        codec_name=_HNSW_CODEC,
+        java_codec=object(),
+        telemetry=telemetry,
+        writer_path="gpu-hnsw",
+    )
+    telemetry["writerPath"] = "changed"
+
+    assert dict(resolved_codec.telemetry) == {"writerPath": "gpu-hnsw"}
+    with pytest.raises(TypeError):
+        resolved_codec.telemetry["writerPath"] = "changed"
+
+
+def test_runtime_build_index_commits_and_closes_writer_and_directory(tmp_path):
+    runtime = _fake_index_writer_runtime()
+    vectors = np.zeros((2, 4), dtype=np.float32)
+
+    telemetry = runtime.build_index(
+        tmp_path,
+        vectors,
+        _resolved_codec(runtime._test_codec),
+    )
+
+    assert telemetry == {"writerPath": "gpu-hnsw"}
+    assert len(runtime._test_writer.documents) == 2
+    assert runtime._test_writer.committed is True
+    assert runtime._test_writer.rollback_called is False
+    assert runtime._test_writer.close_called is True
+    assert runtime._test_directory.closed is True
+
+
+@pytest.mark.parametrize(
+    ("error_at", "expected_error", "expect_rollback", "expect_close"),
+    [
+        ("add", "add failed", True, False),
+        ("commit", "commit failed", True, False),
+        ("rollback", "rollback failed", True, False),
+        ("close", "close failed", False, True),
+    ],
+)
+def test_runtime_build_index_preserves_transaction_cleanup(
+    tmp_path, error_at, expected_error, expect_rollback, expect_close
+):
+    runtime = _fake_index_writer_runtime(error_at=error_at)
+    vectors = np.zeros((2, 4), dtype=np.float32)
+
+    with pytest.raises(RuntimeError, match=expected_error):
+        runtime.build_index(
+            tmp_path,
+            vectors,
+            _resolved_codec(runtime._test_codec),
+        )
+
+    assert runtime._test_writer.rollback_called is expect_rollback
+    assert runtime._test_writer.close_called is expect_close
+    assert runtime._test_directory.closed is True
+
+
+def test_runtime_build_index_rolls_back_on_interrupt(tmp_path):
+    runtime = _fake_index_writer_runtime(error_at="interrupt")
+    vectors = np.zeros((2, 4), dtype=np.float32)
+
+    with pytest.raises(KeyboardInterrupt):
+        runtime.build_index(
+            tmp_path,
+            vectors,
+            _resolved_codec(runtime._test_codec),
+        )
+
+    assert runtime._test_writer.rollback_called is True
+    assert runtime._test_writer.close_called is False
+    assert runtime._test_directory.closed is True
+
+
+def test_runtime_build_index_preserves_interrupt_when_rollback_fails(tmp_path):
+    runtime = _fake_index_writer_runtime(error_at="interrupt-rollback")
+    vectors = np.zeros((2, 4), dtype=np.float32)
+
+    with pytest.raises(KeyboardInterrupt) as exc_info:
+        runtime.build_index(
+            tmp_path,
+            vectors,
+            _resolved_codec(runtime._test_codec),
+        )
+
+    assert exc_info.value.__notes__ == [
+        "IndexWriter rollback also failed: RuntimeError: rollback failed"
+    ]
+    assert runtime._test_writer.rollback_called is True
+    assert runtime._test_directory.closed is True
+
+
+def test_runtime_build_index_preserves_interrupt_when_directory_close_fails(
+    tmp_path,
+):
+    runtime = _fake_index_writer_runtime(
+        error_at="interrupt",
+        directory_close_error=RuntimeError("directory close failed"),
+    )
+    vectors = np.zeros((2, 4), dtype=np.float32)
+
+    with pytest.raises(KeyboardInterrupt) as exc_info:
+        runtime.build_index(
+            tmp_path,
+            vectors,
+            _resolved_codec(runtime._test_codec),
+        )
+
+    assert exc_info.value.__notes__ == [
+        "Failed to close Lucene directory: "
+        "RuntimeError: directory close failed"
+    ]
+    assert runtime._test_writer.rollback_called is True
+    assert runtime._test_directory.closed is True
+
+
+def test_search_cleanup_attempts_directory_after_reader_close_fails():
+    close_calls = []
+
+    def fail_reader_close():
+        close_calls.append("reader")
+        raise RuntimeError("reader close failed")
+
+    def fail_directory_close():
+        close_calls.append("directory")
+        raise RuntimeError("directory close failed")
+
+    reader = SimpleNamespace(close=fail_reader_close)
+    directory = SimpleNamespace(close=fail_directory_close)
+
+    with pytest.raises(RuntimeError, match="reader close failed") as exc_info:
+        with pylucene_backend._CleanupStack() as cleanups:
+            cleanups.add("close Lucene directory", directory.close)
+            cleanups.add("close Lucene index reader", reader.close)
+
+    assert close_calls == ["reader", "directory"]
+    assert exc_info.value.__notes__ == [
+        "Failed to close Lucene directory: "
+        "RuntimeError: directory close failed"
+    ]
+
+
+def test_cleanup_stack_ignores_unrelated_handled_exception():
+    def fail_close():
+        raise RuntimeError("close failed")
+
+    unrelated_error = None
+    try:
+        raise ValueError("unrelated")
+    except ValueError as exc:
+        unrelated_error = exc
+        with pytest.raises(RuntimeError, match="close failed"):
+            with pylucene_backend._CleanupStack() as cleanups:
+                cleanups.add("close test resource", fail_close)
+
+    assert getattr(unrelated_error, "__notes__", []) == []
+
+
+def test_cleanup_stack_prioritizes_cleanup_interrupt_over_operation_error():
+    def interrupt_close():
+        raise KeyboardInterrupt("stop")
+
+    with pytest.raises(KeyboardInterrupt, match="stop") as exc_info:
+        with pylucene_backend._CleanupStack() as cleanups:
+            cleanups.add("close test resource", interrupt_close)
+            raise RuntimeError("operation failed")
+
+    assert exc_info.value.__notes__ == [
+        "Raised while attempting to close test resource; prior failure: "
+        "RuntimeError: operation failed"
+    ]

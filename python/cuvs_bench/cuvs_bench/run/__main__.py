@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -11,8 +11,12 @@ from typing import Optional
 import click
 import yaml
 
-from .data_export import convert_json_to_csv_build, convert_json_to_csv_search
+from .data_export import (
+    convert_json_to_csv_build,
+    convert_json_to_csv_search,
+)
 from ..orchestrator import BenchmarkOrchestrator
+from ..orchestrator.result_files import validate_dataset_name
 
 
 @click.command()
@@ -257,6 +261,11 @@ def main(
         and any backend-specific connection parameters (host, port, etc.).
 
     """
+    try:
+        validate_dataset_name(dataset)
+    except ValueError as exc:
+        raise click.BadParameter(str(exc), param_hint="--dataset") from exc
+
     if not data_export:
         # Determine backend type and extra kwargs from --backend-config
         backend_type = "cpp_gbench"
@@ -277,7 +286,7 @@ def main(
             backend_kwargs = cfg
 
         orchestrator = BenchmarkOrchestrator(backend_type=backend_type)
-        orchestrator.run_benchmark(
+        results = orchestrator.run_benchmark(
             mode=mode,
             constraints=json.loads(constraints) if constraints else None,
             n_trials=n_trials,
@@ -300,6 +309,24 @@ def main(
             executable_dir=executable_dir,
             **backend_kwargs,
         )
+        failures = [result for result in results if not result.success]
+        if mode == "sweep":
+            run_failed = not results or bool(failures)
+        else:
+            run_failed = not any(result.success for result in results)
+        if run_failed:
+            details = (
+                "; ".join(
+                    f"{result.algorithm}: "
+                    f"{result.error_message or 'benchmark failed'}"
+                    for result in failures
+                )
+                if failures
+                else f"{mode} mode produced no benchmark results"
+            )
+            raise click.ClickException(details)
+        if dry_run:
+            return
 
     convert_json_to_csv_build(dataset, dataset_path)
     convert_json_to_csv_search(dataset, dataset_path)

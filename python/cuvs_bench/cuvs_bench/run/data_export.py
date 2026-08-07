@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -8,6 +8,8 @@ import os
 import traceback
 
 import pandas as pd
+
+from ..orchestrator.result_files import validate_dataset_name
 
 skip_build_cols = set(
     [
@@ -25,11 +27,24 @@ skip_build_cols = set(
         "real_time",
         "time_unit",
         "index_size",
+        "success",
+        "error_message",
+        "skipped",
     ]
 )
 
 skip_search_cols = (
-    set(["recall", "qps", "latency", "items_per_second", "Recall", "Latency"])
+    set(
+        [
+            "recall",
+            "qps",
+            "latency",
+            "items_per_second",
+            "Recall",
+            "Latency",
+            "search_params",
+        ]
+    )
     | skip_build_cols
 )
 
@@ -69,7 +84,11 @@ def read_json_files(dataset, dataset_path, method):
         A tuple containing the file path, algorithm name, and the
         DataFrame of JSON content.
     """
+    validate_dataset_name(dataset)
     dir_path = os.path.join(dataset_path, dataset, "result", method)
+    if not os.path.isdir(dir_path):
+        return
+
     for file in os.listdir(dir_path):
         if file.endswith(".json"):
             file_path = os.path.join(dir_path, file)
@@ -77,6 +96,10 @@ def read_json_files(dataset, dataset_path, method):
                 with open(file_path, "r", encoding="ISO-8859-1") as f:
                     data = json.load(f)
                     df = pd.DataFrame(data["benchmarks"])
+                    if "success" in df.columns:
+                        df = df[df["success"].ne(False)].copy()
+                    if method == "build" and "skipped" in df.columns:
+                        df = df[df["skipped"].ne(True)].copy()
                     algo_name = tuple(file.split(",")[:2])
                     yield file_path, algo_name, df
             except Exception as e:
@@ -101,6 +124,15 @@ def clean_algo_name(algo_name):
 
     name = algo_name[0] if "base" in algo_name[1] else "_".join(algo_name)
     return name.removesuffix(".json")
+
+
+def _remove_derived_csvs(file, suffixes):
+    stem = os.path.splitext(file)[0]
+    for suffix in suffixes:
+        try:
+            os.remove(f"{stem}{suffix}")
+        except FileNotFoundError:
+            pass
 
 
 def write_csv(file, algo_name, df, extra_columns=None, skip_cols=None):
@@ -153,6 +185,9 @@ def convert_json_to_csv_build(dataset, dataset_path):
     """
     for file, algo_name, df in read_json_files(dataset, dataset_path, "build"):
         try:
+            if df.empty:
+                _remove_derived_csvs(file, (".csv",))
+                continue
             algo_name = clean_algo_name(algo_name)
             write_csv(file, algo_name, df, skip_cols=skip_build_cols)
         except Exception as e:
@@ -175,12 +210,26 @@ def convert_json_to_csv_search(dataset, dataset_path):
         dataset, dataset_path, "search"
     ):
         try:
+            if df.empty:
+                _remove_derived_csvs(
+                    file, (",raw.csv", ",throughput.csv", ",latency.csv")
+                )
+                continue
+            search_stem = os.path.splitext(os.path.basename(file))[0]
+            # Search stems end in k and batch-size components. Preserve every
+            # preceding component, including an optional dataset subset.
+            search_stem_parts = search_stem.rsplit(",", maxsplit=2)
+            build_stem = (
+                search_stem_parts[0]
+                if len(search_stem_parts) == 3
+                else ",".join(algo_name)
+            )
             build_file = os.path.join(
                 dataset_path,
                 dataset,
                 "result",
                 "build",
-                f"{','.join(algo_name)}.csv",
+                f"{build_stem}.csv",
             )
             algo_name = clean_algo_name(algo_name)
             df["name"] = df["name"].str.split("/").str[0]
@@ -202,29 +251,46 @@ def convert_json_to_csv_search(dataset, dataset_path):
                     ]
             if os.path.exists(build_file):
                 build_df = pd.read_csv(build_file)
-                write_ncols = len(write.columns)
                 write["build time"] = None
                 write["build threads"] = None
                 write["build cpu_time"] = None
 
-                start_idx = 5
+                build_columns = {
+                    "time": "build time",
+                    "threads": "build threads",
+                    "cpu_time": "build cpu_time",
+                }
                 if "GPU" in build_df.columns:
-                    start_idx = 6
                     write["build GPU"] = None
-                for col_idx in range(start_idx, len(build_df.columns)):
-                    col_name = build_df.columns[col_idx]
-                    write[col_name] = None
-                    if col_name == "num_threads":
-                        write["build_num_threads"] = None
+                    build_columns["GPU"] = "build GPU"
+
+                ignored_columns = {"algo_name", "index_name"}
+                for col_name in build_df.columns:
+                    if (
+                        col_name in ignored_columns
+                        or col_name in build_columns
+                    ):
+                        continue
+                    target_name = (
+                        "build_num_threads"
+                        if col_name == "num_threads"
+                        else col_name
+                    )
+                    if target_name not in write.columns:
+                        write[target_name] = None
+                        build_columns[col_name] = target_name
+
                 for s_index, search_row in write.iterrows():
-                    for b_index, build_row in build_df.iterrows():
+                    for _, build_row in build_df.iterrows():
                         if search_row["index_name"] == build_row["index_name"]:
-                            write.iloc[s_index, write_ncols] = build_df.iloc[
-                                b_index, 2
-                            ]
-                            write.iloc[s_index, write_ncols + 1 :] = (
-                                build_df.iloc[b_index, 3:]
-                            )
+                            for (
+                                source_name,
+                                target_name,
+                            ) in build_columns.items():
+                                if source_name in build_df.columns:
+                                    write.at[s_index, target_name] = build_row[
+                                        source_name
+                                    ]
                             break
             # Write search data and compute frontiers
             write.to_csv(file.replace(".json", ",raw.csv"), index=False)
