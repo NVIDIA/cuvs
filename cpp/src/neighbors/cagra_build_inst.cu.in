@@ -9,6 +9,7 @@
 #include <neighbors/cagra.cuh>
 
 #include <memory>
+#include <utility>
 
 namespace {
 
@@ -56,5 +57,30 @@ CUVS_DEFINE_CAGRA_BUILD_OVERLOAD(inst_host_standard_view_t,
                                  cuvs::neighbors::cagra::host_standard_index<data_t, uint32_t>);
 
 #undef CUVS_DEFINE_CAGRA_BUILD_OVERLOAD
+
+#define CUVS_INST_CAGRA_UPDATE_DATASET(T, IdxT, SrcDatasetViewT, DstDatasetViewT)             \
+  auto update_dataset(raft::resources const& res,                                             \
+                      index<T, IdxT, SrcDatasetViewT>&& cagra_index,                          \
+                      DstDatasetViewT dataset) -> index<T, IdxT, DstDatasetViewT>             \
+  {                                                                                           \
+    return cuvs::neighbors::cagra::update_dataset<T, IdxT, SrcDatasetViewT, DstDatasetViewT>( \
+      res, std::move(cagra_index), dataset);                                                  \
+  }
+
+CUVS_INST_CAGRA_UPDATE_DATASET(data_t,
+                               index_t,
+                               inst_host_standard_view_t,
+                               inst_device_padded_view_t);
+CUVS_INST_CAGRA_UPDATE_DATASET(data_t,
+                               index_t,
+                               inst_host_standard_view_t,
+                               inst_device_standard_view_t);
+CUVS_INST_CAGRA_UPDATE_DATASET(data_t, index_t, inst_host_padded_view_t, inst_device_padded_view_t);
+CUVS_INST_CAGRA_UPDATE_DATASET(data_t,
+                               index_t,
+                               inst_device_standard_view_t,
+                               inst_device_padded_view_t);
+
+#undef CUVS_INST_CAGRA_UPDATE_DATASET
 
 }  // namespace cuvs::neighbors::cagra

@@ -30,7 +30,7 @@ class AnnCagraBugMultiCTACrash : public ::testing::TestWithParam<cagra::search_a
 
     build_padded_.emplace(res, raft::make_const_mdspan(dataset->view()));
     auto cagra_index = cagra::build(res, cagra_index_params, build_padded_->view);
-    cagra_index.update_device_dataset_same_layout(res, build_padded_->view);
+    cagra_index.update_dataset(res, build_padded_->view);
     raft::resource::sync_stream(res);
 
     cagra::search_params cagra_search_params;

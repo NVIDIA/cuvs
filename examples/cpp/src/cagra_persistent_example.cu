@@ -71,7 +71,7 @@ void cagra_build_search_variants(raft::device_resources const& res,
   std::cout << "Building CAGRA index (search graph)" << std::endl;
   auto padded = cuvs::neighbors::make_device_padded_dataset_view(res, dataset);
   auto index  = cagra::build(res, index_params, padded);
-  index.update_device_dataset_same_layout(res, padded);
+  index.update_dataset(res, padded);
 
   std::cout << "CAGRA index has " << index.size() << " vectors" << std::endl;
   std::cout << "CAGRA graph has degree " << index.graph_degree() << ", graph size ["
