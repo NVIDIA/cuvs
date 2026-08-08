@@ -283,13 +283,13 @@ void cuvs_cagra<T, IdxT>::build(const T* dataset, size_t nrow)
         *input_dataset_v_ = raft::make_device_matrix_view<const T, int64_t, raft::row_major>(
           mds.data_handle(), static_cast<int64_t>(nrow), static_cast<int64_t>(dim_));
         auto index = cuvs::neighbors::cagra::build(handle_, params, pdv);
-        index.update_device_dataset_same_layout(handle_, pdv);
+        index.update_dataset(handle_, pdv);
         index_ = std::make_shared<index_type>(std::move(index));
       } else {
         auto padded = cuvs::neighbors::make_device_padded_dataset(handle_, mds);
         auto view   = padded->as_dataset_view();
         auto index  = cuvs::neighbors::cagra::build(handle_, params, view);
-        index.update_device_dataset_same_layout(handle_, view);
+        index.update_dataset(handle_, view);
         *dataset_ = std::move(padded->data_);
         index_    = std::make_shared<index_type>(std::move(index));
       }
@@ -318,17 +318,17 @@ void cuvs_cagra<T, IdxT>::build(const T* dataset, size_t nrow)
                      raft::resource::get_cuda_stream(handle_));
           cuvs::neighbors::device_padded_dataset_view<T, int64_t> dv(
             raft::make_const_mdspan(sub_dataset_buffers_->back().view()), dim_);
-          sub_index.update_device_dataset_same_layout(handle_, dv);
+          sub_index.update_dataset(handle_, dv);
         } else {
           if (cuvs::neighbors::matrix_row_width_matches_cagra_required(sub_dev)) {
             auto pdv = cuvs::neighbors::make_device_padded_dataset_view(handle_, sub_dev);
-            sub_index.update_device_dataset_same_layout(handle_, pdv);
+            sub_index.update_dataset(handle_, pdv);
           } else {
             auto padded = cuvs::neighbors::make_device_padded_dataset(handle_, sub_dev);
             sub_dataset_buffers_->push_back(std::move(padded->data_));
             cuvs::neighbors::device_padded_dataset_view<T, int64_t> pdv(
               raft::make_const_mdspan(sub_dataset_buffers_->back().view()), dim_);
-            sub_index.update_device_dataset_same_layout(handle_, pdv);
+            sub_index.update_dataset(handle_, pdv);
           }
         }
       }
@@ -370,12 +370,12 @@ void cuvs_cagra<T, IdxT>::build(const T* dataset, size_t nrow)
           if (sub_device && src_sub == req_sub) {
             auto pdv_sub = cuvs::neighbors::make_device_padded_dataset_view(handle_, mds_sub);
             sub_index    = cuvs::neighbors::cagra::build(handle_, params, pdv_sub);
-            sub_index.update_device_dataset_same_layout(handle_, pdv_sub);
+            sub_index.update_dataset(handle_, pdv_sub);
           } else {
             auto padded_sub = cuvs::neighbors::make_device_padded_dataset(handle_, mds_sub);
             auto view       = padded_sub->as_dataset_view();
             auto index      = cuvs::neighbors::cagra::build(handle_, params, view);
-            index.update_device_dataset_same_layout(handle_, view);
+            index.update_dataset(handle_, view);
             sub_dataset_buffers_->push_back(std::move(padded_sub->data_));
             sub_index = std::move(index);
           }
@@ -391,12 +391,12 @@ void cuvs_cagra<T, IdxT>::build(const T* dataset, size_t nrow)
           if (sub_device && src_sub == req_sub) {
             auto pdv_sub = cuvs::neighbors::make_device_padded_dataset_view(handle_, mds_sub);
             sub_index    = cuvs::neighbors::cagra::build(handle_, params, pdv_sub);
-            sub_index.update_device_dataset_same_layout(handle_, pdv_sub);
+            sub_index.update_dataset(handle_, pdv_sub);
           } else {
             auto padded_sub = cuvs::neighbors::make_device_padded_dataset(handle_, mds_sub);
             auto view       = padded_sub->as_dataset_view();
             auto index      = cuvs::neighbors::cagra::build(handle_, params, view);
-            index.update_device_dataset_same_layout(handle_, view);
+            index.update_dataset(handle_, view);
             sub_dataset_buffers_->push_back(std::move(padded_sub->data_));
             sub_index = std::move(index);
           }
@@ -484,7 +484,7 @@ void cuvs_cagra<T, IdxT>::set_search_param(const search_param_base& param,
     *dataset_ = raft::make_device_matrix<T, int64_t>(handle_, 0, 0);
     cuvs::neighbors::device_padded_dataset_view<T, int64_t> empty_dv(
       raft::make_device_matrix_view(static_cast<T const*>(nullptr), 0, this->dim_), this->dim_);
-    index_->update_device_dataset_same_layout(handle_, empty_dv);
+    index_->update_dataset(handle_, empty_dv);
 
     // Allocate space using the correct memory resource.
     RAFT_LOG_DEBUG("moving dataset to new memory space: %s",
@@ -497,7 +497,7 @@ void cuvs_cagra<T, IdxT>::set_search_param(const search_param_base& param,
       raft::make_device_matrix_view(
         dataset_->data_handle(), dataset_->extent(0), dataset_->extent(1)),
       this->dim_);
-    index_->update_device_dataset_same_layout(handle_, dv);
+    index_->update_dataset(handle_, dv);
 
     need_dataset_update_         = false;
     needs_dynamic_batcher_update = true;
@@ -554,17 +554,17 @@ void cuvs_cagra<T, IdxT>::set_search_dataset(const T* dataset, size_t nrow)
                      raft::resource::get_cuda_stream(handle_));
           cuvs::neighbors::device_padded_dataset_view<T, int64_t> dv(
             raft::make_const_mdspan(sub_dataset_buffers_->back().view()), dim_);
-          sub_index->update_device_dataset_same_layout(handle_, dv);
+          sub_index->update_dataset(handle_, dv);
         } else {
           if (cuvs::neighbors::matrix_row_width_matches_cagra_required(sub_dev)) {
             auto pdv = cuvs::neighbors::make_device_padded_dataset_view(handle_, sub_dev);
-            sub_index->update_device_dataset_same_layout(handle_, pdv);
+            sub_index->update_dataset(handle_, pdv);
           } else {
             auto padded = cuvs::neighbors::make_device_padded_dataset(handle_, sub_dev);
             sub_dataset_buffers_->push_back(std::move(padded->data_));
             cuvs::neighbors::device_padded_dataset_view<T, int64_t> pdv(
               raft::make_const_mdspan(sub_dataset_buffers_->back().view()), dim_);
-            sub_index->update_device_dataset_same_layout(handle_, pdv);
+            sub_index->update_dataset(handle_, pdv);
           }
         }
       }

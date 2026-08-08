@@ -79,7 +79,7 @@ index b331fdc..c7b5733 100644
 -            cuvs_index->update_dataset(raft_handle, dataset);
 +            auto dataset_view =
 +                    cuvs::neighbors::make_device_padded_dataset_view(raft_handle, dataset);
-+            cuvs_index->update_device_dataset_same_layout(raft_handle, dataset_view);
++            cuvs_index->update_dataset(raft_handle, dataset_view);
          } else {
 -            auto dataset = raft::make_host_matrix_view<const uint8_t, int64_t>(
 +            auto host_dataset = raft::make_host_matrix_view<const uint8_t, int64_t>(
@@ -87,7 +87,7 @@ index b331fdc..c7b5733 100644
 -            cuvs_index->update_dataset(raft_handle, dataset);
 +            host_to_device_dataset_ =
 +                    cuvs::neighbors::make_device_padded_dataset(raft_handle, host_dataset);
-+            cuvs_index->update_device_dataset_same_layout(raft_handle,
++            cuvs_index->update_dataset(raft_handle,
 +                    host_to_device_dataset_->as_dataset_view());
          }
          store_dataset_ = true;
@@ -210,7 +210,7 @@ index 755817f..0eb03ae 100644
 -            cuvs_index->update_dataset(raft_handle, dataset);
 +            auto dataset_view =
 +                    cuvs::neighbors::make_device_padded_dataset_view(raft_handle, dataset);
-+            cuvs_index->update_device_dataset_same_layout(raft_handle, dataset_view);
++            cuvs_index->update_dataset(raft_handle, dataset_view);
          } else {
 -            auto dataset = raft::make_host_matrix_view<const data_t, int64_t>(
 +            auto host_dataset = raft::make_host_matrix_view<const data_t, int64_t>(
@@ -218,7 +218,7 @@ index 755817f..0eb03ae 100644
 -            cuvs_index->update_dataset(raft_handle, dataset);
 +            host_to_device_dataset_ =
 +                    cuvs::neighbors::make_device_padded_dataset(raft_handle, host_dataset);
-+            cuvs_index->update_device_dataset_same_layout(raft_handle,
++            cuvs_index->update_dataset(raft_handle,
 +                    host_to_device_dataset_->as_dataset_view());
          }
          store_dataset_ = true;
