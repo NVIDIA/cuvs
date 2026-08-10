@@ -1628,11 +1628,11 @@ inline std::vector<AnnCagraInputs> generate_inputs()
     {100},
     {1000},
     {1, 3, 5, 7, 8, 17, 64, 128, 137, 192, 256, 512, 768, 1024},  // dim
-    {16},   // k
-    {32},   // degree
+    {16},                                                         // k
+    {32},                                                         // degree
     {graph_build_algo::IVF_PQ,
      graph_build_algo::NN_DESCENT,
-     graph_build_algo::ITERATIVE_CAGRA_SEARCH}, // Iterative cagra q build
+     graph_build_algo::ITERATIVE_CAGRA_SEARCH},  // Iterative cagra q build
     {search_algo::AUTO},
     {10},
     {0},
