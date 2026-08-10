@@ -2079,56 +2079,115 @@ void reconstruct_vpq_queries(raft::resources const& res,
       output.data_handle());
 }
 
+// Runs CAGRA search for `curr_query_size` queries against `idx` in chunks of `max_chunk_size`,
+// stacks the results into a kNN graph, and optimizes it into the next graph (returned).
+//
+// Query source:
+//   - `vpq_queries == nullptr`: queries are read directly from `dev_query_view` (uncompressed
+//     build; the view is a slice of the resident device dataset).
+//   - `vpq_queries != nullptr`: `dev_query_view` is ignored and each chunk of queries is
+//     reconstructed on the fly from the VPQ codes into a small reusable scratch buffer, so we
+//     never materialize the whole (up to N x dim) reconstructed dataset.
 template <typename T, typename IdxT>
-void search_and_optimize(raft::resources const& res,
-                         const cuvs::neighbors::cagra::search_params& search_params,
-                         const index<T, IdxT>& idx,
-                         raft::device_matrix_view<const T, int64_t> dev_query_view,
-                         raft::device_matrix_view<IdxT, int64_t> dev_neighbors,
-                         raft::device_matrix_view<float, int64_t> dev_distances,
-                         raft::device_matrix<IdxT, int64_t>& dev_output_graph,
-                         size_t curr_query_size,
-                         size_t next_graph_degree,
-                         size_t curr_topk,
-                         uint64_t max_chunk_size)
+raft::device_matrix<IdxT, int64_t> search_and_optimize(
+  raft::resources const& res,
+  const cuvs::neighbors::cagra::search_params& search_params,
+  const index<T, IdxT>& idx,
+  raft::device_matrix_view<const T, int64_t> dev_query_view,
+  raft::device_matrix_view<IdxT, int64_t> dev_neighbors,
+  raft::device_matrix_view<float, int64_t> dev_distances,
+  raft::device_matrix<IdxT, int64_t> prev_graph,
+  const vpq_dataset<half, int64_t>* vpq_queries,
+  size_t curr_query_size,
+  size_t next_graph_degree,
+  size_t curr_topk,
+  uint64_t max_chunk_size)
 {
   auto stream = raft::resource::get_cuda_stream(res);
 
-  auto dev_knn_graph = raft::make_device_matrix<IdxT, int64_t>(res, curr_query_size, curr_topk);
+  // These buffers scale with N (e.g. N * (intermediate_degree+1) for the kNN graph). Allocate them
+  // from the default device resource (a pool over device memory): allocating from the large
+  // workspace resource here would use an unpooled managed_memory_resource, paying a synchronous
+  // cudaMallocManaged/cudaFree every iteration for multi-GB buffers.
+  auto dev_knn_graph =
+    raft::make_device_matrix<IdxT, int64_t>(res, curr_query_size, curr_topk);
 
-  auto query_batch = cuvs::spatial::knn::detail::utils::make_batch_load_iterator<T>(
-    res,
-    dev_query_view.data_handle(),
-    static_cast<int64_t>(curr_query_size),
-    static_cast<int64_t>(dev_query_view.extent(1)),
-    max_chunk_size,
-    stream,
-    raft::resource::get_workspace_resource_ref(res));
-  for (const auto& batch : query_batch) {
-    auto batch_dev_query_view = raft::make_device_matrix_view<const T, int64_t>(
-      batch.data(), batch.size(), dev_query_view.extent(1));
+  // Query row length: the VPQ dim when reconstructing, otherwise the dataset view's stride.
+  const int64_t query_dim =
+    vpq_queries != nullptr ? static_cast<int64_t>(vpq_queries->dim()) : dev_query_view.extent(1);
+
+  // Scratch for one reconstructed chunk (only when compressing). Reused across chunks; safe because
+  // all reconstruct/search/copy work is serialized on `stream`.
+  auto batch_queries =
+    vpq_queries != nullptr
+      ? raft::make_device_matrix<T, int64_t>(res, static_cast<int64_t>(max_chunk_size), query_dim)
+      : raft::make_device_matrix<T, int64_t>(res, 0, 0);
+
+  auto run_batch = [&](int64_t offset,
+                       int64_t batch_size,
+                       raft::device_matrix_view<const T, int64_t> batch_query_view) {
     auto batch_dev_neighbors_view = raft::make_device_matrix_view<IdxT, int64_t>(
-      dev_neighbors.data_handle(), batch.size(), curr_topk);
+      dev_neighbors.data_handle(), batch_size, curr_topk);
     auto batch_dev_distances_view = raft::make_device_matrix_view<float, int64_t>(
-      dev_distances.data_handle(), batch.size(), curr_topk);
+      dev_distances.data_handle(), batch_size, curr_topk);
 
     cuvs::neighbors::cagra::search(res,
                                    search_params,
                                    idx,
-                                   batch_dev_query_view,
+                                   batch_query_view,
                                    batch_dev_neighbors_view,
                                    batch_dev_distances_view);
 
-    raft::copy(dev_knn_graph.data_handle() + batch.offset() * curr_topk,
+    raft::copy(dev_knn_graph.data_handle() + offset * curr_topk,
                batch_dev_neighbors_view.data_handle(),
-               batch.size() * curr_topk,
+               batch_size * curr_topk,
                stream);
+  };
+
+  if (vpq_queries != nullptr) {
+    // Reconstruct-and-search one chunk at a time: reconstruct source rows [offset, offset+bs) into
+    // the scratch, then search that chunk.
+    for (int64_t offset = 0; offset < static_cast<int64_t>(curr_query_size);
+         offset += static_cast<int64_t>(max_chunk_size)) {
+      const int64_t batch_size =
+        std::min<int64_t>(static_cast<int64_t>(max_chunk_size),
+                          static_cast<int64_t>(curr_query_size) - offset);
+      reconstruct_vpq_queries<T, half, int64_t>(res,
+                                                *vpq_queries,
+                                                static_cast<uint64_t>(offset),
+                                                static_cast<uint32_t>(batch_size),
+                                                batch_queries.view());
+      auto batch_query_view = raft::make_device_matrix_view<const T, int64_t>(
+        batch_queries.data_handle(), batch_size, query_dim);
+      run_batch(offset, batch_size, batch_query_view);
+    }
+  } else {
+    auto query_batch = cuvs::spatial::knn::detail::utils::make_batch_load_iterator<T>(
+      res,
+      dev_query_view.data_handle(),
+      static_cast<int64_t>(curr_query_size),
+      query_dim,
+      max_chunk_size,
+      stream,
+      raft::resource::get_workspace_resource_ref(res));
+    for (const auto& batch : query_batch) {
+      auto batch_query_view = raft::make_device_matrix_view<const T, int64_t>(
+        batch.data(), static_cast<int64_t>(batch.size()), query_dim);
+      run_batch(
+        static_cast<int64_t>(batch.offset()), static_cast<int64_t>(batch.size()), batch_query_view);
+    }
   }
 
-  dev_output_graph =
+  // The previous-iteration graph (which `idx` was built on) is no longer needed now that the
+  // search has produced `dev_knn_graph`. Release it before allocating the full-size output graph
+  // so we never hold two large graph buffers at once.
+  prev_graph = raft::make_device_matrix<IdxT, int64_t>(res, 0, 0);
+
+  auto dev_output_graph =
     raft::make_device_matrix<IdxT, int64_t>(res, curr_query_size, next_graph_degree);
 
   graph::optimize<IdxT>(res, dev_knn_graph.view(), dev_output_graph.view(), false);
+  return dev_output_graph;
 }
 
 // Builds a CAGRA graph iteratively, growing the graph while repeatedly running CAGRA's search()
@@ -2292,6 +2351,7 @@ auto iterative_build_graph(
       "# Freed original dataset from device (%.1f MiB); queries will use VPQ reconstruction",
       to_mib(final_graph_size * dataset_dim * sizeof(T)));
   }
+
   while (true) {
     auto start           = std::chrono::high_resolution_clock::now();
     auto curr_query_size = std::min(2 * curr_graph_size, final_graph_size);
@@ -2352,40 +2412,34 @@ auto iterative_build_graph(
     }
     const auto& idx = *idx_opt;
 
-    // When compression is enabled, reconstruct queries from VPQ codes instead of
-    // reading from the (freed) original dataset.
-    auto dev_reconstructed_queries =
-      build_compression.has_value()
-        ? raft::make_device_matrix<T, int64_t>(res, curr_query_size, dataset_dim)
-        : raft::make_device_matrix<T, int64_t>(res, 0, 0);
+    // With compression, search_and_optimize reconstructs queries from the VPQ codes per batch, so
+    // pass the VPQ dataset and leave the query view empty. Without compression, queries are slices
+    // of the resident device dataset.
+    const vpq_dataset<half, int64_t>* vpq_queries = nullptr;
     if (build_compression.has_value()) {
-      auto* vpq_dset = dynamic_cast<const vpq_dataset<half, int64_t>*>(&idx.data());
-      RAFT_EXPECTS(vpq_dset != nullptr, "Expected VPQ dataset in compressed index");
-      reconstruct_vpq_queries<T, half, int64_t>(
-        res, *vpq_dset, 0, curr_query_size, dev_reconstructed_queries.view());
+      vpq_queries = dynamic_cast<const vpq_dataset<half, int64_t>*>(&idx.data());
+      RAFT_EXPECTS(vpq_queries != nullptr, "Expected VPQ dataset in compressed index");
     }
     auto dev_query_view =
       build_compression.has_value()
-        ? raft::make_device_matrix_view<const T, int64_t>(
-            dev_reconstructed_queries.data_handle(), (int64_t)curr_query_size, dataset_dim)
+        ? raft::make_device_matrix_view<const T, int64_t>(static_cast<const T*>(nullptr), 0, 0)
         : raft::make_device_matrix_view<const T, int64_t>(
             dev_dataset.data_handle(), (int64_t)curr_query_size, dev_dataset.extent(1));
 
-    auto dev_optimized_graph = raft::make_device_matrix<IdxT, int64_t>(res, 0, 0);
-
-    search_and_optimize(res,
-                        search_params,
-                        idx,
-                        dev_query_view,
-                        dev_neighbors.view(),
-                        dev_distances.view(),
-                        dev_optimized_graph,
-                        curr_query_size,
-                        next_graph_degree,
-                        curr_topk,
-                        max_chunk_size);
-
-    dev_graph        = std::move(dev_optimized_graph);
+    // Hand the current graph to search_and_optimize so it can release it as soon as the search
+    // consumes it (before the new output graph is allocated), then take back the new graph.
+    dev_graph        = search_and_optimize(res,
+                                    search_params,
+                                    idx,
+                                    dev_query_view,
+                                    dev_neighbors.view(),
+                                    dev_distances.view(),
+                                    std::move(dev_graph),
+                                    vpq_queries,
+                                    curr_query_size,
+                                    next_graph_degree,
+                                    curr_topk,
+                                    max_chunk_size);
     use_device_graph = true;
 
     auto end        = std::chrono::high_resolution_clock::now();
