@@ -62,32 +62,6 @@ namespace cuvs::neighbors::cagra::detail {
 constexpr double to_mib(size_t bytes) { return static_cast<double>(bytes) / (1 << 20); }
 constexpr double to_gib(size_t bytes) { return static_cast<double>(bytes) / (1 << 30); }
 
-// Functor to remap indices using a permutation lookup table
-template <typename IdxT>
-struct remap_indices_op {
-  const IdxT* perm;
-  __host__ __device__ IdxT operator()(IdxT idx) const { return perm[idx]; }
-};
-
-// Functor to compute scattered output index for graph row reordering
-template <typename IdxT>
-struct graph_scatter_index_op {
-  const IdxT* perm;
-  int64_t degree;
-  __host__ __device__ int64_t operator()(int64_t idx) const
-  {
-    int64_t row = idx / degree;
-    int64_t col = idx % degree;
-    return static_cast<int64_t>(perm[row]) * degree + col;
-  }
-};
-
-// Functor to convert int64_t to IdxT
-template <typename IdxT>
-struct cast_to_idx_op {
-  __host__ __device__ IdxT operator()(int64_t v) const { return static_cast<IdxT>(v); }
-};
-
 template <typename T, typename IdxT>
 void check_graph_degree(size_t& intermediate_degree, size_t& graph_degree, size_t dataset_size)
 {
@@ -2157,6 +2131,12 @@ void search_and_optimize(raft::resources const& res,
   graph::optimize<IdxT>(res, dev_knn_graph.view(), dev_output_graph.view(), false);
 }
 
+// Builds a CAGRA graph iteratively, growing the graph while repeatedly running CAGRA's search()
+// and optimize(). When compression is enabled the compressed dataset is consumed as-is.
+//
+// NOTE: This function EXPECTS the dataset to already be shuffled by the caller when a randomized
+// build order is desired. It no longer performs any dataset shuffling (or graph unshuffling)
+// internally, so the returned graph's node ordering matches the order of the input dataset.
 template <typename T,
           typename IdxT = uint32_t,
           typename Accessor =
@@ -2290,17 +2270,6 @@ auto iterative_build_graph(
   const uint64_t dataset_dim = dev_dataset.extent(1);
   std::optional<index<T, IdxT>> idx_opt;
 
-  // Optional shuffle permutation for randomizing dataset order during build.
-  // inverse_perm[shuffled_idx] = original_idx
-  // perm[shuffled_idx] = original_idx, used to unshuffle the graph after build
-  auto dev_perm         = raft::make_device_vector<IdxT, int64_t>(res, 0);
-  bool dataset_shuffled = false;
-
-  // Warn if shuffle is requested but compression is not enabled
-  if (iter_params.shuffle_dataset && !build_compression.has_value()) {
-    RAFT_LOG_WARN("shuffle_dataset is only supported with compression enabled; ignoring");
-  }
-
   if (build_compression.has_value()) {
     auto start = std::chrono::high_resolution_clock::now();
     RAFT_EXPECTS(params.metric == cuvs::distance::DistanceType::L2Expanded,
@@ -2310,62 +2279,8 @@ auto iterative_build_graph(
     auto vpq_dset =
       cuvs::preprocessing::quantize::pq::vpq_build(res, *build_compression, dev_dataset);
 
-    // Optionally shuffle the compressed dataset to break spatial locality
-    if (iter_params.shuffle_dataset) {
-      auto shuffle_start = std::chrono::high_resolution_clock::now();
-      RAFT_LOG_INFO("Shuffling compressed dataset to randomize build order...");
-
-      auto stream        = raft::resource::get_cuda_stream(res);
-      const auto n_rows  = vpq_dset.data.extent(0);
-      const auto row_len = vpq_dset.data.extent(1);
-
-      // Generate random permutation: perm[i] = source index for output row i
-      // i.e., shuffled_data[i] = original_data[perm[i]]
-      // So perm maps: shuffled_idx -> original_idx
-      // Use int64_t for permutation to match vpq_dataset's index type
-      auto dev_perm_i64 = raft::make_device_vector<int64_t, int64_t>(res, n_rows);
-
-      // Use legacy permute API to generate permutation indices only (out=nullptr, in=nullptr)
-      // This just fills dev_perm_i64 with a random permutation of [0, n_rows)
-      raft::random::permute<uint8_t, int64_t, int64_t>(dev_perm_i64.data_handle(),
-                                                       static_cast<uint8_t*>(nullptr),
-                                                       static_cast<const uint8_t*>(nullptr),
-                                                       static_cast<int64_t>(row_len),
-                                                       static_cast<int64_t>(n_rows),
-                                                       true,
-                                                       stream);
-
-      // Apply permutation to VPQ data in place: data[i] = original_data[perm[i]].
-      // Previously this used an out-of-place gather into a temporary buffer to work around
-      // an illegal memory access in the in-place gather overload when n_rows * row_len
-      // exceeded 2^31 (32-bit index overflow). That bug is fixed upstream in raft
-      // (rapidsai/raft#3059, issue #3055), which cuvs now pins, so the in-place gather is
-      // safe again and avoids the extra full-size temporary allocation and copy.
-      raft::matrix::gather(res, vpq_dset.data.view(), raft::make_const_mdspan(dev_perm_i64.view()));
-
-      // Store perm as IdxT for graph unshuffling later
-      // perm[shuffled_idx] = original_idx
-      // This is used for:
-      // 1. Remapping neighbor values: neighbor j (shuffled) -> perm[j] (original)
-      // 2. Reordering rows: row i (for shuffled node i) -> position perm[i] (original node)
-      dev_perm = raft::make_device_vector<IdxT, int64_t>(res, n_rows);
-      cast_to_idx_op<IdxT> cast_op;
-      thrust::transform(raft::resource::get_thrust_policy(res),
-                        dev_perm_i64.data_handle(),
-                        dev_perm_i64.data_handle() + n_rows,
-                        dev_perm.data_handle(),
-                        cast_op);
-
-      dataset_shuffled = true;
-
-      auto shuffle_end = std::chrono::high_resolution_clock::now();
-      auto shuffle_ms =
-        std::chrono::duration_cast<std::chrono::milliseconds>(shuffle_end - shuffle_start).count();
-      RAFT_LOG_INFO("# Dataset shuffle time: %.3lf sec", (double)shuffle_ms / 1000);
-    }
-
     idx_opt.emplace(res, params.metric);
-    // Use the (optionally shuffled) compressed dataset built above.
+    // Use the compressed dataset built above (expected to be pre-shuffled by the caller).
     idx_opt->update_dataset(res, std::move(vpq_dset));
     auto end        = std::chrono::high_resolution_clock::now();
     auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
@@ -2487,53 +2402,6 @@ auto iterative_build_graph(
   // (once for the build loop and once in build()'s shared tail). We could avoid this by returning
   // the index directly (with its VPQ dataset and device-side graph) instead of just the host graph.
   auto stream = raft::resource::get_cuda_stream(res);
-
-  // If the dataset was shuffled, we need to unshuffle the graph:
-  // Recall: perm[shuffled_idx] = original_idx (stored in dev_perm)
-  // 1. Remap neighbor indices from shuffled space to original space
-  // 2. Reorder rows from shuffled order to original order
-  if (dataset_shuffled) {
-    auto unshuffle_start = std::chrono::high_resolution_clock::now();
-    RAFT_LOG_INFO("Unshuffling graph to restore original dataset ordering...");
-
-    const auto n_rows = dev_graph.extent(0);
-    const auto degree = dev_graph.extent(1);
-
-    // Step 1: Remap all neighbor indices using perm
-    // graph[i][j] contains shuffled index j; we need original index = perm[j]
-    remap_indices_op<IdxT> remap_op{dev_perm.data_handle()};
-    thrust::transform(raft::resource::get_thrust_policy(res),
-                      dev_graph.data_handle(),
-                      dev_graph.data_handle() + n_rows * degree,
-                      dev_graph.data_handle(),
-                      remap_op);
-
-    // Step 2: Reorder rows back to original order
-    // Row i in dev_graph is for shuffled node i, which is original node perm[i].
-    // We want this row to be at position perm[i] in the final graph.
-    // scatter: output[map[i]] = input[i], so map[i] = perm[i]
-    auto dev_unshuffled_graph = raft::make_device_matrix<IdxT, int64_t>(res, n_rows, degree);
-
-    // Use thrust::scatter to reorder: for each row i, place it at position perm[i]
-    // We scatter row-by-row conceptually, but do it element-wise with computed output indices
-    graph_scatter_index_op<IdxT> scatter_idx_op{dev_perm.data_handle(), degree};
-    auto output_indices =
-      thrust::make_transform_iterator(thrust::make_counting_iterator<int64_t>(0), scatter_idx_op);
-
-    thrust::scatter(raft::resource::get_thrust_policy(res),
-                    dev_graph.data_handle(),
-                    dev_graph.data_handle() + n_rows * degree,
-                    output_indices,
-                    dev_unshuffled_graph.data_handle());
-
-    dev_graph = std::move(dev_unshuffled_graph);
-
-    auto unshuffle_end = std::chrono::high_resolution_clock::now();
-    auto unshuffle_ms =
-      std::chrono::duration_cast<std::chrono::milliseconds>(unshuffle_end - unshuffle_start)
-        .count();
-    RAFT_LOG_INFO("# Graph unshuffle time: %.3lf sec", (double)unshuffle_ms / 1000);
-  }
 
   cagra_graph = raft::make_host_matrix<IdxT, int64_t>(dev_graph.extent(0), dev_graph.extent(1));
   raft::copy(cagra_graph.data_handle(),
