@@ -3484,8 +3484,9 @@ struct merge_params {
  * @param[in] res RAFT resources used for the merge.
  * @param[in] params Parameters for the returned CAGRA index.
  * @param[in] indices CAGRA indices to merge.
- * @param[in] merged_dataset Caller-owned storage for the consolidated dataset. Size it with
- * `cuvs::neighbors::cagra::detail::merged_dataset_size`.
+ * @param[in] merged_dataset Caller-owned storage for the consolidated dataset. Should have as many
+ * rows as the combined datasets, will (after the application of `row_filter`, if present) and have
+ * the same dimension and stride as the input datasets.
  * @param[in] row_filter Optional row filter. Any filter selects rebuild in AUTO and is rejected by
  * explicit FASTENER.
  * @return The merged physical CAGRA index.
