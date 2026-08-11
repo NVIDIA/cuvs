@@ -427,7 +427,7 @@ if (( NUMARGS == 0 )) || hasArg libcuvs || hasArg tests || hasArg bench-prims ||
     cmake -S "${REPODIR}"/cpp -B "${LIBCUVS_BUILD_DIR}" \
           -DCMAKE_INSTALL_PREFIX="${INSTALL_PREFIX}" \
           -DCMAKE_CUDA_ARCHITECTURES="${CUVS_CMAKE_CUDA_ARCHITECTURES}" \
-          -DCMAKE_BUILD_TYPE=${BUILD_TYPE} \
+          -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" \
           -DBUILD_C_LIBRARY=${COMPILE_LIBRARY} \
           -DCUVS_NVTX=${NVTX} \
           -DCUDA_LOG_COMPILE_TIME=${LOG_COMPILE_TIME} \
