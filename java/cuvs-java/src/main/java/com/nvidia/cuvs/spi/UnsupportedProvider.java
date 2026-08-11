@@ -29,9 +29,7 @@ final class UnsupportedProvider implements CuVSProvider {
 
   @Override
   public CuVSResources newCuVSResources(
-      Path tempDirectory,
-      Path memoryTrackingCsvPath,
-      Duration memoryTrackingSampleInterval) {
+      Path tempDirectory, Path memoryTrackingCsvPath, Duration memoryTrackingSampleInterval) {
     throw new UnsupportedOperationException(reasons);
   }
 
