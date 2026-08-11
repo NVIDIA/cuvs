@@ -47,6 +47,7 @@ x-bench-env: &bench-env
   DATASET: ${DATASET:-sift-128-euclidean}
   DATASET_PATH: /data/datasets
   BENCH_GROUPS: ${BENCH_GROUPS:-test}
+  ALGORITHM_CONFIGURATION: ${ALGORITHM_CONFIGURATION:-}
   K: ${K:-10}
   BATCH_SIZE: ${BATCH_SIZE:-}
   BUILD_BATCH_SIZE: ${BUILD_BATCH_SIZE:-}
