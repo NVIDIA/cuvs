@@ -22,15 +22,15 @@ function(find_and_configure_rtcx VERSION)
     BUILD_EXPORT_SET    cuvs-static-exports
     INSTALL_EXPORT_SET  cuvs-static-exports
     CPM_ARGS
-    GIT_REPOSITORY https://github.com/rapidsai/librtcx
-    GIT_TAG b5e753e9427e331c02f8c370143cb0d5f40da0fd
+    GIT_REPOSITORY https://github.com/arhag23/librtcx
+    GIT_TAG 67b5e05f5282fca9ad04d44b7dc93d75d89f1ad1
     GIT_SHALLOW FALSE
   )
 
   # When CPM fetches from source (add_subdirectory), generate_jit_lto_kernels.cmake is not
   # auto-included. Include it explicitly so necessary functions are available.
   if(rtcx_ADDED OR DEFINED CPM_rtcx_SOURCE)
-    include("${rtcx_SOURCE_DIR}/generate_jit_lto_kernels.cmake")
+    include("${rtcx_SOURCE_DIR}/cmake/modules/generate_jit_lto_kernels.cmake")
   endif()
 endfunction()
 

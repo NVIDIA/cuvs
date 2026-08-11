@@ -9,7 +9,7 @@
 
 #include <memory>
 
-#include <AlgorithmLauncher.hpp>
+#include <rtcx/algorithm_launcher.hpp>
 
 namespace cuvs::neighbors::ivf_pq::detail {
 
@@ -19,11 +19,11 @@ struct selected {
   dim3 block_dim;
   size_t smem_size;
   size_t device_lut_size;
-  std::shared_ptr<AlgorithmLauncher> launcher;
+  std::shared_ptr<rtcx::algorithm_launcher> launcher;
 
   selected() = default;
 
-  selected(std::shared_ptr<AlgorithmLauncher> launcher,
+  selected(std::shared_ptr<rtcx::algorithm_launcher> launcher,
            dim3 grid,
            dim3 block,
            size_t smem,

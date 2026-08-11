@@ -5,8 +5,8 @@
 
 #pragma once
 
-#include <AlgorithmPlanner.hpp>
 #include <cuvs/detail/jit_lto/pairwise_matrix/pairwise_matrix_fragments.hpp>
+#include <rtcx/algorithm_planner.hpp>
 
 namespace cuvs::distance::detail {
 
@@ -20,7 +20,7 @@ template <typename DistanceTag_,
           typename FinOpTag_,
           typename LayoutTag_,
           int Veclen_>
-struct PairwiseMatrixPlanner : AlgorithmPlanner {
+struct PairwiseMatrixPlanner : rtcx::algorithm_planner {
   using DistanceTag = DistanceTag_;
   using DataTag     = DataTag_;
   using AccTag      = AccTag_;
@@ -31,9 +31,12 @@ struct PairwiseMatrixPlanner : AlgorithmPlanner {
 
   static constexpr int Veclen = Veclen_;
 
-  inline static LauncherJitCache launcher_jit_cache{};
+  inline static rtcx::launcher_jit_cache launcher_jit_cache{};
 
-  PairwiseMatrixPlanner() : AlgorithmPlanner(kPairwiseMatrixJitEntrypoint, launcher_jit_cache) {}
+  PairwiseMatrixPlanner()
+    : rtcx::algorithm_planner(kPairwiseMatrixJitEntrypoint, launcher_jit_cache)
+  {
+  }
 
   void add_entrypoint()
   {

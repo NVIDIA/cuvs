@@ -5,17 +5,17 @@
 
 #pragma once
 
-#include <AlgorithmPlanner.hpp>
-#include <FragmentEntry.hpp>
 #include <cuvs/detail/jit_lto/ivf_rabitq/ivf_rabitq_fragments.hpp>
+#include <rtcx/algorithm_planner.hpp>
+#include <rtcx/fragment_entry.hpp>
 
 namespace cuvs::neighbors::ivf_rabitq::detail {
 
-struct ComputeInnerProductsWithBitwisePlanner : AlgorithmPlanner {
-  inline static LauncherJitCache launcher_jit_cache{};
+struct ComputeInnerProductsWithBitwisePlanner : rtcx::algorithm_planner {
+  inline static rtcx::launcher_jit_cache launcher_jit_cache{};
 
   ComputeInnerProductsWithBitwisePlanner()
-    : AlgorithmPlanner("compute_inner_products_with_bitwise", launcher_jit_cache)
+    : rtcx::algorithm_planner("compute_inner_products_with_bitwise", launcher_jit_cache)
   {
   }
 
