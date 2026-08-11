@@ -1,5 +1,5 @@
 #!/bin/bash
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 set -euo pipefail
@@ -38,7 +38,7 @@ fi
 
 source rapids-install-sccache
 source rapids-configure-sccache
-source rapids-date-string
+source rapids-datetime-string
 
 rapids-pip-retry install cmake
 pyenv rehash

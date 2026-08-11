@@ -297,6 +297,11 @@ dependencies:
       - output_types: [conda]
         packages:
           - c-compiler
+      # spotless-fmt pre-commit hook requires Maven and a JDK
+      - output_types: [conda]
+        packages:
+          - maven
+          - &openjdk openjdk=22.*
   clang:
     common:
       - output_types: conda
@@ -591,7 +596,7 @@ dependencies:
           - *cmake_ver
           - libboost-devel
           - maven
-          - openjdk=22.*
+          - *openjdk
   bench:
     common:
       - output_types: [conda, pyproject, requirements]
