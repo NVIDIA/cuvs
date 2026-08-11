@@ -697,29 +697,27 @@ void kmeans_fit(
 
   rmm::device_uvector<char> batch_workspace(device_buffer_samples, stream);
 
-  auto large_workspace_mr = raft::resource::get_large_workspace_resource_ref(handle);
-  auto data_batches =
-    cuvs::spatial::knn::detail::utils::make_batch_load_iterator<DataT>(
-      handle,
-      X.data_handle(),
-      n_samples,
-      n_features,
-      device_buffer_samples,
-      stream,
-      large_workspace_mr);
+  auto batch_memory = raft::resource::get_workspace_resource_ref(handle);
+  if constexpr (!data_on_device) {
+    size_t batch_staging_bytes =
+      static_cast<size_t>(device_buffer_samples) * static_cast<size_t>(n_features) * sizeof(DataT);
+    if (weight_ptr != nullptr) {
+      batch_staging_bytes += static_cast<size_t>(device_buffer_samples) * sizeof(DataT);
+    }
+    if (batch_staging_bytes > raft::resource::get_workspace_free_bytes(handle)) {
+      batch_memory = raft::resource::get_large_workspace_resource_ref(handle);
+    }
+  }
+
+  auto data_batches = cuvs::spatial::knn::detail::utils::make_batch_load_iterator<DataT>(
+    handle, X.data_handle(), n_samples, n_features, device_buffer_samples, stream, batch_memory);
   // Host-path weight batches: only materialized when weights are provided and
   // the data resides on host
   std::optional<cuvs::spatial::knn::detail::utils::batch_load_iterator_dyn<DataT>> weight_batches;
   if constexpr (!data_on_device) {
     if (weight_ptr != nullptr) {
       weight_batches = cuvs::spatial::knn::detail::utils::make_batch_load_iterator<DataT>(
-        handle,
-        weight_ptr,
-        n_samples,
-        IndexT{1},
-        device_buffer_samples,
-        stream,
-        large_workspace_mr);
+        handle, weight_ptr, n_samples, IndexT{1}, device_buffer_samples, stream, batch_memory);
     } else {
       raft::matrix::fill(handle, batch_weights_buf.view(), DataT{1});
     }
