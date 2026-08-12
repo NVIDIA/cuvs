@@ -126,6 +126,7 @@ ConfigureTest(
   PATH cluster/kmeans.cu
        cluster/kmeans_balanced.cu
        cluster/kmeans_find_k.cu
+       cluster/gmm.cu
        cluster/kmeans_predict_batching.cu
        cluster/linkage.cu
        cluster/connect_knn.cu
