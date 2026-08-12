@@ -24,6 +24,11 @@ from ..backends._utils import compute_recall
 from .config_loaders import DatasetConfig
 
 
+def _should_compute_recall(result: SearchResult) -> bool:
+    """Return True when orchestrator should derive recall from neighbors."""
+    return result.success and result.neighbors.size > 0
+
+
 class BenchmarkOrchestrator:
     """
     Orchestrator for running benchmarks using the pluggable backend system.
@@ -582,7 +587,6 @@ class BenchmarkOrchestrator:
             backend.initialize()
 
             trial_results: List[Union[BuildResult, SearchResult]] = []
-
             if build:
                 build_result = backend.build(
                     dataset=bench_dataset,
@@ -625,11 +629,7 @@ class BenchmarkOrchestrator:
         result: SearchResult, dataset: Dataset, k: int
     ) -> None:
         """Compute recall for backends that return neighbor arrays."""
-        if (
-            result.success
-            and result.neighbors.size > 0
-            and result.recall == 0.0
-        ):
+        if _should_compute_recall(result):
             groundtruth = dataset.groundtruth_neighbors
             if groundtruth is not None:
                 result.recall = compute_recall(
