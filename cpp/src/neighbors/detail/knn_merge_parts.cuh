@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2025, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -20,8 +20,7 @@ template <typename value_idx = std::int64_t,
           typename value_t   = float,
           int warp_q,
           int thread_q,
-          int tpb,
-          bool SelectMin = true>
+          int tpb>
 RAFT_KERNEL knn_merge_parts_kernel(const value_t* inK,
                                    const value_idx* inV,
                                    value_t* outK,
@@ -44,7 +43,7 @@ RAFT_KERNEL knn_merge_parts_kernel(const value_t* inK,
   cuvs::neighbors::detail::faiss_select::BlockSelect<
     value_t,
     value_idx,
-    !SelectMin,
+    false,
     cuvs::neighbors::detail::faiss_select::Comparator<value_t>,
     warp_q,
     thread_q,
@@ -96,11 +95,7 @@ RAFT_KERNEL knn_merge_parts_kernel(const value_t* inK,
   }
 }
 
-template <typename value_idx = std::int64_t,
-          typename value_t   = float,
-          int warp_q,
-          int thread_q,
-          bool SelectMin = true>
+template <typename value_idx = std::int64_t, typename value_t = float, int warp_q, int thread_q>
 inline void knn_merge_parts_impl(const value_t* inK,
                                  const value_idx* inV,
                                  value_t* outK,
@@ -116,9 +111,9 @@ inline void knn_merge_parts_impl(const value_t* inK,
   constexpr int n_threads = (warp_q < 1024) ? 128 : 64;
   auto block              = dim3(n_threads);
 
-  auto kInit = SelectMin ? raft::upper_bound<value_t>() : raft::lower_bound<value_t>();
+  auto kInit = std::numeric_limits<value_t>::max();
   auto vInit = -1;
-  knn_merge_parts_kernel<value_idx, value_t, warp_q, thread_q, n_threads, SelectMin>
+  knn_merge_parts_kernel<value_idx, value_t, warp_q, thread_q, n_threads>
     <<<grid, block, 0, stream>>>(
       inK, inV, outK, outV, n_samples, n_parts, kInit, vInit, k, translations);
   RAFT_CUDA_TRY(cudaPeekAtLastError());
@@ -138,42 +133,6 @@ inline void knn_merge_parts_impl(const value_t* inK,
  * @param stream CUDA stream to use
  * @param translations mapping of index offsets for each partition
  */
-template <bool SelectMin, typename value_idx = std::int64_t, typename value_t = float>
-inline void knn_merge_parts_dispatch(const value_t* inK,
-                                     const value_idx* inV,
-                                     value_t* outK,
-                                     value_idx* outV,
-                                     size_t n_samples,
-                                     int n_parts,
-                                     int k,
-                                     cudaStream_t stream,
-                                     value_idx* translations)
-{
-  if (k == 1)
-    knn_merge_parts_impl<value_idx, value_t, 1, 1, SelectMin>(
-      inK, inV, outK, outV, n_samples, n_parts, k, stream, translations);
-  else if (k <= 32)
-    knn_merge_parts_impl<value_idx, value_t, 32, 2, SelectMin>(
-      inK, inV, outK, outV, n_samples, n_parts, k, stream, translations);
-  else if (k <= 64)
-    knn_merge_parts_impl<value_idx, value_t, 64, 3, SelectMin>(
-      inK, inV, outK, outV, n_samples, n_parts, k, stream, translations);
-  else if (k <= 128)
-    knn_merge_parts_impl<value_idx, value_t, 128, 3, SelectMin>(
-      inK, inV, outK, outV, n_samples, n_parts, k, stream, translations);
-  else if (k <= 256)
-    knn_merge_parts_impl<value_idx, value_t, 256, 4, SelectMin>(
-      inK, inV, outK, outV, n_samples, n_parts, k, stream, translations);
-  else if (k <= 512)
-    knn_merge_parts_impl<value_idx, value_t, 512, 8, SelectMin>(
-      inK, inV, outK, outV, n_samples, n_parts, k, stream, translations);
-  else if (k <= 1024)
-    knn_merge_parts_impl<value_idx, value_t, 1024, 8, SelectMin>(
-      inK, inV, outK, outV, n_samples, n_parts, k, stream, translations);
-  else
-    THROW("Unimplemented for k=%d, knn_merge_parts works for k<=1024", k);
-}
-
 template <typename value_idx = std::int64_t, typename value_t = float>
 inline void knn_merge_parts(const value_t* inK,
                             const value_idx* inV,
@@ -183,15 +142,30 @@ inline void knn_merge_parts(const value_t* inK,
                             int n_parts,
                             int k,
                             cudaStream_t stream,
-                            value_idx* translations,
-                            bool select_min = true)
+                            value_idx* translations)
 {
-  if (select_min) {
-    knn_merge_parts_dispatch<true>(
+  if (k == 1)
+    knn_merge_parts_impl<value_idx, value_t, 1, 1>(
       inK, inV, outK, outV, n_samples, n_parts, k, stream, translations);
-  } else {
-    knn_merge_parts_dispatch<false>(
+  else if (k <= 32)
+    knn_merge_parts_impl<value_idx, value_t, 32, 2>(
       inK, inV, outK, outV, n_samples, n_parts, k, stream, translations);
-  }
+  else if (k <= 64)
+    knn_merge_parts_impl<value_idx, value_t, 64, 3>(
+      inK, inV, outK, outV, n_samples, n_parts, k, stream, translations);
+  else if (k <= 128)
+    knn_merge_parts_impl<value_idx, value_t, 128, 3>(
+      inK, inV, outK, outV, n_samples, n_parts, k, stream, translations);
+  else if (k <= 256)
+    knn_merge_parts_impl<value_idx, value_t, 256, 4>(
+      inK, inV, outK, outV, n_samples, n_parts, k, stream, translations);
+  else if (k <= 512)
+    knn_merge_parts_impl<value_idx, value_t, 512, 8>(
+      inK, inV, outK, outV, n_samples, n_parts, k, stream, translations);
+  else if (k <= 1024)
+    knn_merge_parts_impl<value_idx, value_t, 1024, 8>(
+      inK, inV, outK, outV, n_samples, n_parts, k, stream, translations);
+  else
+    THROW("Unimplemented for k=%d, knn_merge_parts works for k<=1024", k);
 }
 }  // namespace cuvs::neighbors::detail

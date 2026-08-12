@@ -9,6 +9,7 @@
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resources.hpp>
+#include <raft/linalg/map.cuh>
 #include <raft/util/cudart_utils.hpp>
 
 #include <gtest/gtest.h>
@@ -64,22 +65,25 @@ void run_merge(bool select_min,
   raft::update_device(
     translations_device.data_handle(), translations.data(), translations.size(), stream);
 
-  if (select_min) {
-    // Exercise the legacy overload, which must continue to select minimum distances.
-    knn_merge_parts(res,
-                    input_distances_device.view(),
-                    input_neighbors_device.view(),
-                    output_distances_device.view(),
-                    output_neighbors_device.view(),
-                    translations_device.view());
-  } else {
-    knn_merge_parts(res,
-                    input_distances_device.view(),
-                    input_neighbors_device.view(),
-                    output_distances_device.view(),
-                    output_neighbors_device.view(),
-                    translations_device.view(),
-                    false);
+  if (!select_min) {
+    raft::linalg::map(res,
+                      input_distances_device.view(),
+                      raft::mul_const_op<float>(-1),
+                      raft::make_const_mdspan(input_distances_device.view()));
+  }
+
+  knn_merge_parts(res,
+                  input_distances_device.view(),
+                  input_neighbors_device.view(),
+                  output_distances_device.view(),
+                  output_neighbors_device.view(),
+                  translations_device.view());
+
+  if (!select_min) {
+    raft::linalg::map(res,
+                      output_distances_device.view(),
+                      raft::mul_const_op<float>(-1),
+                      raft::make_const_mdspan(output_distances_device.view()));
   }
 
   ASSERT_TRUE(devArrMatchKnnPair(expected_neighbors_device.data_handle(),
@@ -98,7 +102,7 @@ TEST(KnnMergeParts, SelectsSmallestByDefault)
   run_merge(true, {5.0f, 6.0f, 7.0f, -5.0f, -3.0f, -1.0f}, {102, 2, 101, 2, 1, 0});
 }
 
-TEST(KnnMergeParts, SelectsLargestWhenRequested)
+TEST(KnnMergeParts, SelectsLargestAfterNegation)
 {
   run_merge(false, {10.0f, 9.0f, 8.0f, 4.0f, 2.0f, 0.0f}, {0, 100, 1, 100, 101, 102});
 }

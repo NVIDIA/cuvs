@@ -23,16 +23,7 @@ namespace neighbors {
  * @param outK merged knn distance matrix
  * @param outV merged knn index matrix
  * @param translations mapping of index offsets for each partition
- * @param select_min whether to retain the smallest or largest values. Overloads
- * without this parameter retain the smallest values.
  */
-void knn_merge_parts(raft::resources const& res,
-                     raft::device_matrix_view<const float, int64_t> inK,
-                     raft::device_matrix_view<const int64_t, int64_t> inV,
-                     raft::device_matrix_view<float, int64_t> outK,
-                     raft::device_matrix_view<int64_t, int64_t> outV,
-                     raft::device_vector_view<int64_t, int64_t> translations,
-                     bool select_min);
 void knn_merge_parts(raft::resources const& res,
                      raft::device_matrix_view<const float, int64_t> inK,
                      raft::device_matrix_view<const int64_t, int64_t> inV,
@@ -47,23 +38,9 @@ void knn_merge_parts(raft::resources const& res,
                      raft::device_vector_view<uint32_t, int64_t> translations);
 void knn_merge_parts(raft::resources const& res,
                      raft::device_matrix_view<const float, int64_t> inK,
-                     raft::device_matrix_view<const uint32_t, int64_t> inV,
-                     raft::device_matrix_view<float, int64_t> outK,
-                     raft::device_matrix_view<uint32_t, int64_t> outV,
-                     raft::device_vector_view<uint32_t, int64_t> translations,
-                     bool select_min);
-void knn_merge_parts(raft::resources const& res,
-                     raft::device_matrix_view<const float, int64_t> inK,
                      raft::device_matrix_view<const int32_t, int64_t> inV,
                      raft::device_matrix_view<float, int64_t> outK,
                      raft::device_matrix_view<int32_t, int64_t> outV,
                      raft::device_vector_view<int32_t, int64_t> translations);
-void knn_merge_parts(raft::resources const& res,
-                     raft::device_matrix_view<const float, int64_t> inK,
-                     raft::device_matrix_view<const int32_t, int64_t> inV,
-                     raft::device_matrix_view<float, int64_t> outK,
-                     raft::device_matrix_view<int32_t, int64_t> outV,
-                     raft::device_vector_view<int32_t, int64_t> translations,
-                     bool select_min);
 }  // namespace neighbors
 }  // namespace CUVS_EXPORT cuvs
