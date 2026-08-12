@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -24,7 +24,6 @@
 #include <cstdint>
 #include <fstream>
 #include <type_traits>
-
 namespace cuvs::neighbors::vamana::detail {
 
 // write matrix containing dataset to file
@@ -58,31 +57,26 @@ void to_file(const std::string& dataset_base_file, raft::host_matrix<T, int64_t>
  */
 template <typename T>
 void serialize_dataset(raft::resources const& res,
-                       const cuvs::neighbors::dataset<int64_t>* dataset,
+                       const cuvs::neighbors::device_padded_dataset_view<T, int64_t>* dataset,
                        const std::string& dataset_base_file)
 {
+  if (dataset == nullptr) { return; }
   // try allocating a buffer for the dataset on host
   try {
-    const auto* strided_dataset =
-      dynamic_cast<const cuvs::neighbors::strided_dataset<T, int64_t>*>(dataset);
-    if (strided_dataset) {
-      auto nrows     = strided_dataset->n_rows();
-      auto dim       = strided_dataset->dim();
-      auto stride    = strided_dataset->stride();
-      auto d_data    = strided_dataset->view();
-      auto h_dataset = raft::make_host_matrix<T, int64_t>(nrows, dim);
-      raft::copy_matrix(h_dataset.data_handle(),
-                        dim,
-                        d_data.data_handle(),
-                        stride,
-                        dim,
-                        nrows,
-                        raft::resource::get_cuda_stream(res));
-      raft::resource::sync_stream(res);
-      to_file(dataset_base_file, h_dataset);
-    } else {
-      RAFT_LOG_DEBUG("dynamic_cast to strided_dataset failed");
-    }
+    auto nrows     = dataset->n_rows();
+    auto dim       = dataset->dim();
+    auto stride    = dataset->stride();
+    auto d_data    = dataset->view();
+    auto h_dataset = raft::make_host_matrix<T, int64_t>(nrows, dim);
+    raft::copy_matrix(h_dataset.data_handle(),
+                      dim,
+                      d_data.data_handle(),
+                      stride,
+                      dim,
+                      nrows,
+                      raft::resource::get_cuda_stream(res));
+    raft::resource::sync_stream(res);
+    to_file(dataset_base_file, h_dataset);
   } catch (std::bad_alloc& e) {
     RAFT_LOG_INFO("Failed to serialize dataset");
   } catch (raft::logic_error& e) {
@@ -120,11 +114,12 @@ void serialize_dataset(raft::resources const& res,
  *
  */
 template <typename T, typename IdxT, typename HostMatT>
-void serialize_sector_aligned(raft::resources const& res,
-                              const HostMatT& h_graph,
-                              const cuvs::neighbors::dataset<int64_t>& dataset,
-                              const uint64_t medoid,
-                              std::ofstream& output_writer)
+void serialize_sector_aligned(
+  raft::resources const& res,
+  const HostMatT& h_graph,
+  const cuvs::neighbors::device_padded_dataset_view<T, int64_t>& dataset,
+  const uint64_t medoid,
+  std::ofstream& output_writer)
 {
   if constexpr (!std::is_same_v<IdxT, uint32_t>) {
     RAFT_FAIL("serialization is only implemented for uint32_t graph");
@@ -159,15 +154,11 @@ void serialize_sector_aligned(raft::resources const& res,
   const uint64_t nnodes_per_sector = sector_len / max_node_len;  // 0 if max_node_len > sector_len
 
   // copy dataset to host
-  auto dataset_strided =
-    dynamic_cast<const cuvs::neighbors::strided_dataset<T, int64_t>*>(&dataset);
-  if (!dataset_strided) { RAFT_FAIL("Invalid dataset"); }
-  auto d_data = dataset_strided->view();
   auto h_data = raft::make_host_matrix<T, int64_t>(npts, ndims);
   raft::copy_matrix(h_data.data_handle(),
                     ndims,
-                    d_data.data_handle(),
-                    dataset_strided->stride(),
+                    dataset.view().data_handle(),
+                    dataset.stride(),
                     ndims,
                     npts,
                     raft::resource::get_cuda_stream(res));

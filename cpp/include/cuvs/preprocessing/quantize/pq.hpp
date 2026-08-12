@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -10,8 +10,11 @@
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/handle.hpp>
 #include <raft/core/host_mdspan.hpp>
+#include <raft/util/cuda_data_type.hpp>
 
+#include <cuda_runtime.h>
 #include <cuvs/core/export.hpp>
+#include <type_traits>
 #include <variant>
 
 namespace CUVS_EXPORT cuvs {
@@ -147,7 +150,7 @@ struct quantizer {
   /** Parameters used to build this quantizer. */
   params params_quantizer;
   /** VPQ codebooks produced during training. */
-  cuvs::neighbors::vpq_dataset<T, int64_t> vpq_codebooks;
+  cuvs::neighbors::device_vpq_dataset<T, int64_t> vpq_codebooks;
 };
 
 /**
@@ -242,6 +245,91 @@ void inverse_transform(
   raft::device_matrix_view<const uint8_t, int64_t> pq_codes,
   raft::device_matrix_view<float, int64_t> out,
   std::optional<raft::device_vector_view<const uint32_t, int64_t>> vq_labels = std::nullopt);
+
+namespace detail {
+
+// Trains from `n_rows` rows of `stride` elements each, whether they are device-accessible or
+// host-resident; the residency is detected from the pointer.
+//
+// NB: the element type is erased into `dtype` so that this stays a plain function: under hidden
+// default visibility, an instantiation cannot be exported from the shared library when one of its
+// template arguments (`half`, or any mdspan type) is itself hidden, because the visibility of an
+// instantiation is capped by that of its template arguments.
+[[nodiscard]] CUVS_EXPORT cuvs::neighbors::device_vpq_dataset<half, int64_t> vpq_train_from_rows(
+  raft::resources const& res,
+  cuvs::neighbors::vpq_params const& params,
+  void const* src_ptr,
+  cudaDataType_t dtype,
+  int64_t n_rows,
+  int64_t dim,
+  int64_t stride);
+
+}  // namespace detail
+
+/**
+ * @brief Train VPQ storage (codebooks + encoded rows) from a row-major mdspan/mdarray/dataset.
+ *
+ * Accepts either a row-major mdspan with `value_type`, `extent`, `stride`, and `data_handle` (same
+ * pattern as `cuvs::neighbors::make_device_padded_dataset`), or any cuVS dense dataset / dataset
+ * view exposing `view`, `dim` and `stride`, in which case the logical `dim()` is quantized and the
+ * row padding is skipped. The rows may be device-accessible or host-resident. Device-accessible
+ * rows (device, managed or pinned) with tight row-major storage (logical stride equals dimension)
+ * are passed through to training as they are; a wider row pitch triggers a contiguous dense copy
+ * first. Host-resident rows are subsampled for training and encoded in bounded batches, so the
+ * dense dataset is never staged on the device in full; they must be tightly packed. Empty sources
+ * are rejected. The element type must be `float`, `half`, `int8_t` or `uint8_t`.
+ *
+ * Typical **CAGRA** usage: build the graph on dense vectors, then attach VPQ for search (metric
+ * must remain `L2Expanded` for this path). Train VPQ from the same CAGRA-padded device layout you
+ * used for graph build, keep the `device_vpq_dataset` alive, and call
+ * `index::update_device_dataset_same_layout` with a non-owning view.
+ *
+ * @code{.cpp}
+ * #include <cuvs/neighbors/cagra.hpp>
+ * #include <cuvs/preprocessing/quantize/pq.hpp>
+ *
+ * // `idx` is a `cagra::index<float, uint32_t>` with graph built on dense rows.
+ * // `padded` is a `device_padded_dataset_view<float, int64_t>` view of those same rows.
+ * cuvs::neighbors::vpq_params vpq_params{};
+ * auto vpq = cuvs::preprocessing::quantize::pq::make_vpq_dataset(res, vpq_params, padded);
+ * idx.update_device_dataset_same_layout(res, vpq.as_dataset_view());
+ * @endcode
+ */
+template <typename SrcT>
+[[nodiscard]] auto make_vpq_dataset(raft::resources const& res,
+                                    cuvs::neighbors::vpq_params const& params,
+                                    SrcT const& src)
+  -> cuvs::neighbors::device_vpq_dataset<half, int64_t>
+{
+  // A cuVS dataset keeps its logical width in `dim()` while `view()` spans the full row pitch.
+  if constexpr (requires {
+                  src.view();
+                  src.dim();
+                  src.stride();
+                }) {
+    auto const rows    = src.view();
+    using value_type   = typename decltype(rows)::value_type;
+    using extents_type = raft::matrix_extent<int64_t>;
+    return make_vpq_dataset(
+      res,
+      params,
+      raft::mdspan<const value_type, extents_type, raft::layout_stride>{
+        rows.data_handle(),
+        raft::make_strided_layout(extents_type{rows.extent(0), int64_t{src.dim()}},
+                                  cuda::std::array<int64_t, 2>{int64_t{src.stride()}, 1})});
+  } else {
+    using value_type = typename SrcT::value_type;
+    static_assert(std::is_same_v<value_type, float> || std::is_same_v<value_type, half> ||
+                    std::is_same_v<value_type, int8_t> || std::is_same_v<value_type, uint8_t>,
+                  "make_vpq_dataset: element type must be float, half, int8_t or uint8_t");
+    const int64_t n_rows = src.extent(0);
+    const int64_t dim    = src.extent(1);
+    const int64_t stride = src.stride(0) > 0 ? src.stride(0) : dim;
+    RAFT_EXPECTS(n_rows > 0, "make_vpq_dataset: dataset is empty");
+    return detail::vpq_train_from_rows(
+      res, params, src.data_handle(), raft::get_cuda_data_type<value_type>(), n_rows, dim, stride);
+  }
+}
 
 /** @} */  // end of group product
 
