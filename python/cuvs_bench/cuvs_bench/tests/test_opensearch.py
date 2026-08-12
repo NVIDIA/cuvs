@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 """
@@ -21,12 +21,14 @@ from cuvs_bench.backends.opensearch import (
     OpenSearchConfigLoader,
 )
 from cuvs_bench.orchestrator.config_loaders import IndexConfig
+from cuvs_bench.orchestrator.orchestrator import BenchmarkOrchestrator
 
 
 def _make_backend(config_overrides: dict = None) -> OpenSearchBackend:
     """Backend with no network requirement so pre-flight passes without a server."""
     config = {
         "name": "test_index",
+        "group": "base",
         "index_name": "test_index",
         "engine": "faiss",
         "algo": "opensearch_faiss_hnsw",
@@ -90,6 +92,7 @@ def live_backend(opensearch_url):
     backend = OpenSearchBackend(
         {
             "name": index_name,
+            "group": "base",
             "index_name": index_name,
             "engine": "faiss",
             "algo": "opensearch_faiss_hnsw",
@@ -146,6 +149,7 @@ class TestOpenSearchConfigLoader:
         assert len(benchmark_configs) == 4
         bc = benchmark_configs[0]
         assert bc.backend_config["engine"] == "faiss"
+        assert bc.backend_config["group"] == "test"
         assert len(bc.indexes[0].search_params) == 2  # ef_search: [50, 100]
 
     def test_load_forwards_remote_build_kwargs(self, config_dir):
@@ -157,13 +161,44 @@ class TestOpenSearchConfigLoader:
             remote_build_size_min="2kb",
             remote_build_timeout=123,
             remote_build_s3_endpoint="http://s3:9000",
+            approximate_threshold=10_000,
+            refresh_interval="-1",
         )
 
         bc = configs[0].backend_config
         assert bc["remote_index_build"] is True
         assert bc["remote_build_size_min"] == "2kb"
         assert bc["remote_build_timeout"] == 123
+        assert bc["approximate_threshold"] == 10_000
+        assert bc["refresh_interval"] == "-1"
         assert "remote_build_s3_endpoint" not in bc
+
+    def test_load_overrides_number_of_shards(self, config_dir):
+        loader = OpenSearchConfigLoader(config_path=config_dir)
+        _, configs = loader.load(
+            dataset="test-ds",
+            dataset_path="/data",
+            groups="test",
+            number_of_shards=4,
+        )
+
+        assert all(
+            config.indexes[0].build_param["number_of_shards"] == 4
+            for config in configs
+        )
+        assert all(
+            "number_of_shards4" in config.indexes[0].name
+            for config in configs
+        )
+
+    def test_load_rejects_invalid_number_of_shards(self, config_dir):
+        loader = OpenSearchConfigLoader(config_path=config_dir)
+        with pytest.raises(ValueError, match="number_of_shards must be at least 1"):
+            loader.load(
+                dataset="test-ds",
+                dataset_path="/data",
+                number_of_shards=0,
+            )
 
 
 class TestOpenSearchBackend:
@@ -176,11 +211,56 @@ class TestOpenSearchBackend:
         assert result.index_path == backend.config["index_name"]
 
     def test_search_dry_run(self):
-        result = _make_backend().search(
+        results = _make_backend().search(
             _make_dataset(), [_make_index_cfg()], k=3, dry_run=True
         )
-        assert result.success
-        assert len(result.search_params) == 2
+        assert len(results) == 2
+        assert all(result.success for result in results)
+        assert [result.search_params for result in results] == [
+            [{"ef_search": 50}],
+            [{"ef_search": 100}],
+        ]
+
+    def test_recall_is_computed_for_each_search_parameter(self):
+        class FakeIndices:
+            def __init__(self):
+                self.ef_search = None
+
+            def put_settings(self, index, body):
+                self.ef_search = body["index.knn.algo_param.ef_search"]
+
+        class FakeClient:
+            def __init__(self):
+                self.indices = FakeIndices()
+
+            def msearch(self, index, body):
+                ids = [2, 3] if self.indices.ef_search == 50 else [0, 1]
+                response = {
+                    "hits": {
+                        "hits": [
+                            {"_id": str(neighbor), "_score": 1.0}
+                            for neighbor in ids
+                        ]
+                    }
+                }
+                return {"responses": [response for _ in body[::2]]}
+
+        dataset = Dataset(
+            name="test",
+            query_vectors=np.zeros((2, 4), dtype=np.float32),
+            groundtruth_neighbors=np.array([[0, 1], [0, 1]]),
+        )
+        backend = _make_backend()
+        backend._OpenSearchBackend__client = FakeClient()
+
+        results = backend.search(
+            dataset, [_make_index_cfg()], k=2, batch_size=2
+        )
+        for result in results:
+            BenchmarkOrchestrator._finalize_search_result(result, dataset, 2)
+
+        assert [result.recall for result in results] == [0.0, 1.0]
+        assert all(result.neighbors.shape == (2, 2) for result in results)
 
     def test_remote_build_requires_faiss_engine(self):
         backend = _make_backend({"engine": "lucene"})
@@ -220,6 +300,69 @@ class TestOpenSearchBackend:
 
         settings = mapping["settings"]["index"]
         assert settings["knn.remote_index_build.size.min"] == "2kb"
+
+    def test_approximate_threshold_is_added_to_index_settings(self):
+        backend = _make_backend()
+        mapping = backend._build_index_mapping(
+            dims=4,
+            engine="faiss",
+            space_type="l2",
+            build_param={},
+            approximate_threshold=10_000,
+        )
+
+        settings = mapping["settings"]["index"]
+        assert settings["knn.advanced.approximate_threshold"] == 10_000
+
+    def test_approximate_threshold_accepts_disable_value(self):
+        backend = _make_backend()
+        mapping = backend._build_index_mapping(
+            dims=4,
+            engine="faiss",
+            space_type="l2",
+            build_param={},
+            approximate_threshold=-1,
+        )
+
+        settings = mapping["settings"]["index"]
+        assert settings["knn.advanced.approximate_threshold"] == -1
+
+    def test_approximate_threshold_rejects_values_below_minus_one(self):
+        backend = _make_backend()
+        with pytest.raises(
+            ValueError,
+            match="approximate_threshold must be -1 or greater",
+        ):
+            backend._build_index_mapping(
+                dims=4,
+                engine="faiss",
+                space_type="l2",
+                build_param={},
+                approximate_threshold=-2,
+            )
+
+    def test_refresh_interval_is_added_to_index_settings(self):
+        backend = _make_backend()
+        mapping = backend._build_index_mapping(
+            dims=4,
+            engine="faiss",
+            space_type="l2",
+            build_param={},
+            refresh_interval="-1",
+        )
+
+        assert mapping["settings"]["index"]["refresh_interval"] == "-1"
+
+    def test_refresh_interval_uses_opensearch_default_when_unspecified(self):
+        backend = _make_backend()
+        mapping = backend._build_index_mapping(
+            dims=4,
+            engine="faiss",
+            space_type="l2",
+            build_param={},
+        )
+
+        assert "refresh_interval" not in mapping["settings"]["index"]
 
     def test_wait_for_remote_build_raises_on_failure_count(self):
         backend = _make_backend()
@@ -326,7 +469,7 @@ class TestOpenSearchBackend:
             training_vectors=np.empty((0, 4), dtype=np.float32),
             query_vectors=np.empty((0, 4), dtype=np.float32),
         )
-        result = _make_backend().search(dataset, [_make_index_cfg()], k=3)
+        result = _make_backend().search(dataset, [_make_index_cfg()], k=3)[0]
         assert not result.success
         assert "No query vectors" in result.error_message
 
@@ -472,6 +615,7 @@ def live_remote_build_backend(opensearch_url, remote_build_env):
     backend = OpenSearchBackend(
         {
             "name": index_name,
+            "group": "base",
             "index_name": index_name,
             "engine": "faiss",
             "algo": "opensearch_faiss_hnsw",
@@ -503,12 +647,11 @@ class TestOpenSearchBackendIntegration:
         assert build_result.build_time_seconds > 0
         assert build_result.index_size_bytes > 0
 
-        search_result = live_backend.search(dataset, [idx], k=k)
+        search_result = live_backend.search(dataset, [idx], k=k)[0]
         assert search_result.success
         assert search_result.recall == 0.0
         assert search_result.queries_per_second > 0
         assert search_result.neighbors.shape == (10, k)
-        assert len(search_result.metadata["per_search_param_results"]) == 1
 
 
 @pytest.mark.opensearch
@@ -525,7 +668,9 @@ class TestOpenSearchRemoteIndexBuildIntegration:
         assert build_result.build_time_seconds > 0
         assert build_result.metadata["remote_index_build"] is True
 
-        search_result = live_remote_build_backend.search(dataset, [idx], k=k)
+        search_result = live_remote_build_backend.search(dataset, [idx], k=k)[
+            0
+        ]
         assert search_result.success
         assert search_result.recall == 0.0
         assert search_result.queries_per_second > 0

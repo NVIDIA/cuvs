@@ -1,0 +1,7 @@
+name: opensearch_faiss_hnsw
+groups:
+  m64:
+    build:
+      m: [64]
+    search:
+      ef_search: [10, 20, 40, 60, 80, 120, 200, 400, 600, 800]
