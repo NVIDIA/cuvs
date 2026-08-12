@@ -80,27 +80,6 @@ void distribute_padded_dataset(
     return index;                                                                                 \
   }                                                                                               \
                                                                                                   \
-  auto attach_dataset(                                                                            \
-    const raft::resources& res,                                                                   \
-    const cuvs::neighbors::mg_index<cagra::device_standard_index<T, IdxT>, T, IdxT>& idx,         \
-    cuvs::neighbors::device_padded_dataset_view<T, int64_t> const& padded_dataset)                \
-    -> cuvs::neighbors::mg_index<cagra::device_padded_index<T, IdxT>, T, IdxT>                    \
-  {                                                                                               \
-    cuvs::neighbors::mg_index<cagra::device_padded_index<T, IdxT>, T, IdxT> out(res, idx.mode_);  \
-    out.ann_interfaces_.resize(idx.num_ranks_);                                                   \
-    detail::distribute_padded_dataset(                                                            \
-      res, idx, padded_dataset, [&](const raft::resources& dev_res, int rank, auto dataset) {     \
-        const auto& in_if = idx.ann_interfaces_[rank];                                            \
-        auto& out_if      = out.ann_interfaces_[rank];                                            \
-        auto padded_idx   = cuvs::neighbors::cagra::attach_dataset(                               \
-          dev_res, in_if.index_.value(), dataset->as_dataset_view());                           \
-        out_if.cagra_owned_padded_dataset_ = std::move(dataset);                                  \
-        out_if.cagra_owned_standard_dataset_.reset();                                             \
-        out_if.index_.emplace(std::move(padded_idx));                                             \
-      });                                                                                         \
-    return out;                                                                                   \
-  }                                                                                               \
-                                                                                                  \
   auto update_dataset(                                                                            \
     const raft::resources& res,                                                                   \
     cuvs::neighbors::mg_index<cagra::device_standard_index<T, IdxT>, T, IdxT>&& idx,              \
@@ -122,7 +101,7 @@ void distribute_padded_dataset(
     return out;                                                                                   \
   }                                                                                               \
                                                                                                   \
-  void update_device_dataset_same_layout(                                                         \
+  void update_dataset(                                                                            \
     const raft::resources& res,                                                                   \
     cuvs::neighbors::mg_index<cagra::device_padded_index<T, IdxT>, T, IdxT>& idx,                 \
     cuvs::neighbors::device_padded_dataset_view<T, int64_t> const& padded_dataset)                \

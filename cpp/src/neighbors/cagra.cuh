@@ -286,8 +286,8 @@ void optimize(
  * stored in the returned index as a non-owning view — no copy is made. The caller must keep the
  * underlying storage alive for the lifetime of the index.
  *
- * Host-backed indexes cannot be searched; call `attach_dataset` with a device-padded dataset to get
- * a search-ready device index.
+ * Host-backed indexes cannot be searched; call the type-changing `update_dataset` with a
+ * device-padded dataset to get a search-ready device index.
  */
 template <typename DatasetViewT>
   requires(!cuvs::neighbors::is_empty_dataset_view_v<DatasetViewT> &&
@@ -300,7 +300,7 @@ auto build(raft::resources const& res, const index_params& params, DatasetViewT 
   using IdxT = uint32_t;
 
   // Dense paths build the graph and optionally attach the input dataset view. Host indexes remain
-  // non-searchable until attach_dataset(...) supplies a device-padded dataset.
+  // non-searchable until the type-changing update_dataset(...) supplies a device-padded dataset.
   if constexpr (cuvs::neighbors::is_device_vpq_dataset_view_v<DatasetViewT>) {
     RAFT_FAIL("cagra::build: VPQ-compressed dataset cannot be used for dense graph construction.");
   } else if constexpr (cuvs::neighbors::is_dense_row_major_device_dataset_view_v<DatasetViewT>) {
@@ -598,6 +598,12 @@ auto update_dataset(raft::resources const& res,
   static_assert(!std::is_same_v<SrcDatasetViewT, DstDatasetViewT>,
                 "For updating a dataset of the same type use the cagra_index.update_dataset() "
                 "function instead.");
+
+  RAFT_EXPECTS(dataset.n_rows() == static_cast<int64_t>(cagra_index.size()),
+               "The new dataset row count must match the source dataset row count");
+  RAFT_EXPECTS(cagra_index.dim() == 0 || dataset.dim() == cagra_index.dim(),
+               "The new dataset dimension must match the source dataset dimension");
+
   index<T, IdxT, DstDatasetViewT> new_index(res, std::move(cagra_index), dataset);
   return new_index;
 }

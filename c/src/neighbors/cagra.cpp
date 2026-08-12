@@ -547,12 +547,25 @@ static void attach_dataset(raft::resources* res_ptr,
       "cuvsCagraUpdateDataset: null index handle",
       "cuvsCagraUpdateDataset: host index layout is allowed for this operation",
       [&](auto& idx) {
-        auto padded_idx = cuvs::neighbors::cagra::attach_dataset(*res_ptr, idx, padded_view);
-        auto* holder =
-          new cuvs_cagra_c_api_index_lifetime_holder<T, view_t>{std::move(padded_idx)};
-        destroy_sg_cagra_c_api_box(index->addr);
-        index->addr = 0;
-        bind_index_lifetime_holder_to_C_index<T, view_t>(index, index->dtype, holder);
+        using index_t = std::remove_cvref_t<decltype(idx)>;
+        if constexpr (std::is_same_v<
+                        index_t,
+                        cuvs::neighbors::cagra::device_padded_index<T, uint32_t>>) {
+          idx.update_dataset(*res_ptr, padded_view);
+          auto* holder =
+            new cuvs_cagra_c_api_index_lifetime_holder<T, view_t>{std::move(idx)};
+          destroy_sg_cagra_c_api_box(index->addr);
+          index->addr = 0;
+          bind_index_lifetime_holder_to_C_index<T, view_t>(index, index->dtype, holder);
+        } else {
+          auto padded_idx =
+            cuvs::neighbors::cagra::update_dataset(*res_ptr, std::move(idx), padded_view);
+          auto* holder =
+            new cuvs_cagra_c_api_index_lifetime_holder<T, view_t>{std::move(padded_idx)};
+          destroy_sg_cagra_c_api_box(index->addr);
+          index->addr = 0;
+          bind_index_lifetime_holder_to_C_index<T, view_t>(index, index->dtype, holder);
+        }
       });
   });
 }

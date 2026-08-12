@@ -72,7 +72,7 @@ void cagra_build_into_index(
       *ace_host_dataset, static_cast<uint32_t>(ace_host_dataset->extent(1)));
     auto host_idx = cagra::build(res, params, host_view);
     // In-memory ACE returns graph-only; attach device padded storage for search.
-    index = cagra::attach_dataset(res, host_idx, padded);
+    index = cagra::update_dataset(res, std::move(host_idx), padded);
     return;
   }
   index = cagra::build(res, params, padded);
