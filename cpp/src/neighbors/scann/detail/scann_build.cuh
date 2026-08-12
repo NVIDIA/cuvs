@@ -63,11 +63,21 @@ void train_kmeans(
   raft::random::RngState random_state,
   cuvs::cluster::kmeans::kmeans_type type)
 {
+  IdxT dim = dataset.extent(1);
+
   auto trainset = raft::make_device_matrix<T, int64_t>(res, 0, 0);
 
+  rmm::device_async_resource_ref trainset_mr = raft::resource::get_workspace_resource_ref(res);
+
+  size_t free_mem = raft::resource::get_workspace_free_bytes(res);
+
+  if (n_rows_train * dim * sizeof(T) > free_mem) {
+    trainset_mr = raft::resource::get_large_workspace_resource_ref(res);
+  }
   // sample/project
   try {
-    trainset = raft::make_device_matrix<T, int64_t>(res, n_rows_train, dataset.extent(1));
+    trainset = raft::make_device_mdarray<T, int64_t>(
+      res, trainset_mr, raft::make_extents<int64_t>(n_rows_train, dim));
   } catch (raft::logic_error& e) {
     RAFT_LOG_ERROR(
       "Insufficient device memory for kmeans training set allocation. Please "
@@ -90,16 +100,16 @@ void train_kmeans(
     kmeans_params.init       = cuvs::cluster::kmeans::params::InitMethod::Random;
     kmeans_params.tol        = 1e-5;
 
-    float inertia  = 0.0;
-    int64_t n_iter = 0;
+    auto inertia = raft::make_host_scalar<float>(res, 0.0);
+    auto n_iter  = raft::make_host_scalar<int64_t>(res, 0);
 
     cuvs::cluster::kmeans::fit(res,
                                kmeans_params,
                                raft::make_const_mdspan(trainset.view()),
                                std::nullopt,
                                centers,
-                               raft::make_host_scalar_view<float>(&inertia),
-                               raft::make_host_scalar_view<int64_t>(&n_iter));
+                               inertia.view(),
+                               n_iter.view());
   }
   raft::resource::sync_stream(res);
 }
