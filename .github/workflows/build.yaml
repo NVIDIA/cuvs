@@ -78,7 +78,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.rocky8-clib-standalone-build-matrix.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ inputs.sha || github.sha }}
           fetch-depth: 0
@@ -94,7 +94,7 @@ jobs:
           log-file: ${{ env.RAPIDS_ARTIFACTS_DIR }}/sccache.log
           request-timeout: 7140
       - name: Get RAPIDS License Builder
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           repository: rapidsai/spdx-license-builder
           ref: refs/heads/main
