@@ -19,7 +19,7 @@ ARGS=$*
 # scripts, and that this script resides in the repo dir!
 REPODIR=$(cd "$(dirname "$0")"; pwd)
 
-VALIDARGS="clean libcuvs python rust go java docs tests bench-ann examples tarball --uninstall  -v -g -n --allgpuarch --no-mg --mnmg-tests --no-cpu --cpu-only --no-shared-libs --no-nvtx --show_depr_warn --incl-cache-stats --time -h --run-java-tests"
+VALIDARGS="clean libcuvs python rust go java docs tests bench-ann examples tarball --build-tests --uninstall  -v -g -n --allgpuarch --no-mg --mnmg-tests --no-cpu --cpu-only --no-shared-libs --no-nvtx --show_depr_warn --incl-cache-stats --time -h --run-java-tests"
 HELP="$0 [<target> ...] [<flag> ...] [--cmake-args=\"<args>\"] [--cache-tool=<tool>] [--limit-tests=<targets>] [--limit-bench-ann=<targets>] [--build-metrics=<filename>]
  where <target> is:
    clean            - remove all existing build artifacts and configuration (start over)
@@ -33,7 +33,7 @@ HELP="$0 [<target> ...] [<flag> ...] [--cmake-args=\"<args>\"] [--cache-tool=<to
    tests            - build the tests
    bench-ann        - build end-to-end ann benchmarks
    examples         - build the examples
-   tarball          - create the standalone C library tarball from c/build/install
+   tarball          - build the standalone C library tarball with Docker
 
  and <flag> is:
    -v                          - verbose build mode
@@ -57,6 +57,7 @@ HELP="$0 [<target> ...] [<flag> ...] [--cmake-args=\"<args>\"] [--cache-tool=<to
    --no-shared-libs            - build without shared libraries
    --show_depr_warn            - show cmake deprecation warnings
    --run-java-tests            - run Java tests after building
+   --build-tests               - include the C library tests in the standalone tarball
    --build-metrics             - filename for generating build metrics report for libcuvs
    --incl-cache-stats          - include cache statistics in build metrics report
    --cmake-args=\\\"<args>\\\" - pass arbitrary list of CMake configuration options (escape all quotes in argument)
@@ -577,9 +578,58 @@ if hasArg examples; then
 fi
 
 ################################################################################
-# Create the standalone C library tarball (if requested)
+# Build the standalone C library tarball (if requested)
 
 if hasArg tarball; then
-    tar czf "${REPODIR}/libcuvs_c.tar.gz" -C "${REPODIR}/c/build/install" .
-    ls -lh "${REPODIR}/libcuvs_c.tar.gz"
+    if [[ "${CUVS_TARBALL_IN_CONTAINER:-0}" == "1" ]]; then
+        tar czf "${REPODIR}/libcuvs_c.tar.gz" -C "${REPODIR}/c/build/install" .
+        ls -lh "${REPODIR}/libcuvs_c.tar.gz"
+    else
+        CUDA_VERSION="${CUDA_VERSION:-13.0}"
+        PYTHON_VERSION="${PYTHON_VERSION:-3.11}"
+        BUILD_OUTPUT_DIR="${BUILD_OUTPUT_DIR:-${REPODIR}/build}"
+        IMAGE_NAME="${IMAGE_NAME:-cuvs-standalone-c}"
+
+        BUILD_ARGS=()
+        if hasArg --build-tests; then
+            BUILD_ARGS+=(--build-tests)
+        fi
+
+        mkdir -p "${BUILD_OUTPUT_DIR}"
+        BUILD_OUTPUT_DIR_ABS=$(cd "${BUILD_OUTPUT_DIR}"; pwd)
+
+        echo "Building Docker image ${IMAGE_NAME} (CUDA ${CUDA_VERSION}, Python ${PYTHON_VERSION})..."
+        docker build -f "${REPODIR}/Dockerfile.standalone" \
+            --build-arg CUDA_VERSION="${CUDA_VERSION}" \
+            --build-arg PYTHON_VERSION="${PYTHON_VERSION}" \
+            -t "${IMAGE_NAME}" \
+            "${REPODIR}"
+
+        DOCKER_ENV=()
+        for var in ${CUVS_TARBALL_DOCKER_ENV_VARS:-}; do
+            if [[ ! "${var}" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]]; then
+                echo "Invalid Docker environment variable name: ${var}" >&2
+                exit 1
+            fi
+            if [[ -n "${!var:-}" ]]; then
+                DOCKER_ENV+=(-e "${var}=${!var}")
+            fi
+        done
+
+        echo "Running standalone C build in container..."
+        docker run --rm \
+            -v "${REPODIR}:/workspace" \
+            -v "${BUILD_OUTPUT_DIR_ABS}:/build" \
+            "${DOCKER_ENV[@]}" \
+            "${IMAGE_NAME}" \
+            "${BUILD_ARGS[@]}"
+
+        if [[ ! -f "${BUILD_OUTPUT_DIR_ABS}/libcuvs_c.tar.gz" ]]; then
+            echo "Expected tarball not found at ${BUILD_OUTPUT_DIR_ABS}/libcuvs_c.tar.gz" >&2
+            exit 1
+        fi
+
+        cp -v "${BUILD_OUTPUT_DIR_ABS}/libcuvs_c.tar.gz" "${REPODIR}/libcuvs_c.tar.gz"
+        echo "Copied libcuvs_c.tar.gz to ${REPODIR}/libcuvs_c.tar.gz"
+    fi
 fi

@@ -56,7 +56,7 @@ Use the standalone Docker build when you want a `libcuvs_c.tar.gz` archive that 
 From the repository root, run:
 
 ```bash
-ci/run_standalone_c_docker.sh
+./build.sh tarball
 ```
 
 The script builds the Docker image, runs the build in a container, writes the tarball to `./build/libcuvs_c.tar.gz`, and copies it to `./libcuvs_c.tar.gz` for CI artifact upload and convenience.
@@ -64,13 +64,13 @@ The script builds the Docker image, runs the build in a container, writes the ta
 To select CUDA and Python versions, set environment variables to values that match a valid [`rapidsai/ci-wheel` image tag](https://hub.docker.com/r/rapidsai/ci-wheel/tags):
 
 ```bash
-CUDA_VERSION=12.9 PYTHON_VERSION=3.11 ci/run_standalone_c_docker.sh
+CUDA_VERSION=12.9 PYTHON_VERSION=3.11 ./build.sh tarball
 ```
 
 To write the tarball to another directory, set `BUILD_OUTPUT_DIR`:
 
 ```bash
-BUILD_OUTPUT_DIR=/path/to/output ci/run_standalone_c_docker.sh
+BUILD_OUTPUT_DIR=/path/to/output ./build.sh tarball
 ```
 
 The tarball is written to `/path/to/output/libcuvs_c.tar.gz` and is also copied to the repository root.
@@ -78,7 +78,7 @@ The tarball is written to `/path/to/output/libcuvs_c.tar.gz` and is also copied 
 To build and install the C library tests in the archive, pass `--build-tests`:
 
 ```bash
-ci/run_standalone_c_docker.sh --build-tests
+./build.sh tarball --build-tests
 ```
 
 ### Tarball Contents
