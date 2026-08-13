@@ -14,7 +14,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 TOOLSET_VERSION=14
 
 BUILD_C_LIB_TESTS="OFF"
-if [[ "${1:-}" == "--build-tests" ]]; then
+if [[ "${1:-}" == "--tarball-build-tests" ]]; then
   BUILD_C_LIB_TESTS="ON"
 fi
 

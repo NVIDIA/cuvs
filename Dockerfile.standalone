@@ -5,7 +5,7 @@
 # Build args: CUDA_VERSION (default 13.0), PYTHON_VERSION (default 3.11).
 #
 # End-user instructions: https://docs.nvidia.com/cuvs/installation#build-the-standalone-c-library-with-docker
-# Quick run: docker run -v $(pwd):/workspace -v $(pwd)/build:/build <image> [--build-tests]
+# Quick run: docker run -v $(pwd):/workspace -v $(pwd)/build:/build <image> [--tarball-build-tests]
 
 ARG CUDA_VERSION=13.0
 ARG PYTHON_VERSION=3.11
@@ -53,5 +53,5 @@ ENV CUVS_TARBALL_IN_CONTAINER=1
 WORKDIR /workspace
 
 # Run the build script, then copy the standalone tarball into the mounted output dir.
-# Example: docker run -v $(pwd):/workspace -v $(pwd)/build:/build <image> [--build-tests]
+# Example: docker run -v $(pwd):/workspace -v $(pwd)/build:/build <image> [--tarball-build-tests]
 ENTRYPOINT ["/bin/bash", "-c", "ci/standalone_c/build_standalone_c.sh \"$@\" && cp -v libcuvs_c.tar.gz \"$BUILD_OUTPUT_DIR/\"", "--"]

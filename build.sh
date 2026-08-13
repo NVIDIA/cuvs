@@ -19,7 +19,7 @@ ARGS=$*
 # scripts, and that this script resides in the repo dir!
 REPODIR=$(cd "$(dirname "$0")"; pwd)
 
-VALIDARGS="clean libcuvs python rust go java docs tests bench-ann examples tarball --build-tests --uninstall  -v -g -n --allgpuarch --no-mg --mnmg-tests --no-cpu --cpu-only --no-shared-libs --no-nvtx --show_depr_warn --incl-cache-stats --time -h --run-java-tests"
+VALIDARGS="clean libcuvs python rust go java docs tests bench-ann examples tarball --tarball-build-tests --uninstall  -v -g -n --allgpuarch --no-mg --mnmg-tests --no-cpu --cpu-only --no-shared-libs --no-nvtx --show_depr_warn --incl-cache-stats --time -h --run-java-tests"
 HELP="$0 [<target> ...] [<flag> ...] [--cmake-args=\"<args>\"] [--cache-tool=<tool>] [--limit-tests=<targets>] [--limit-bench-ann=<targets>] [--build-metrics=<filename>]
  where <target> is:
    clean            - remove all existing build artifacts and configuration (start over)
@@ -57,7 +57,7 @@ HELP="$0 [<target> ...] [<flag> ...] [--cmake-args=\"<args>\"] [--cache-tool=<to
    --no-shared-libs            - build without shared libraries
    --show_depr_warn            - show cmake deprecation warnings
    --run-java-tests            - run Java tests after building
-   --build-tests               - include the C library tests in the standalone tarball
+   --tarball-build-tests       - include the C library tests in the standalone tarball
    --build-metrics             - filename for generating build metrics report for libcuvs
    --incl-cache-stats          - include cache statistics in build metrics report
    --cmake-args=\\\"<args>\\\" - pass arbitrary list of CMake configuration options (escape all quotes in argument)
@@ -591,8 +591,8 @@ if hasArg tarball; then
         IMAGE_NAME="${IMAGE_NAME:-cuvs-standalone-c}"
 
         BUILD_ARGS=()
-        if hasArg --build-tests; then
-            BUILD_ARGS+=(--build-tests)
+        if hasArg --tarball-build-tests; then
+            BUILD_ARGS+=(--tarball-build-tests)
         fi
 
         mkdir -p "${BUILD_OUTPUT_DIR}"

@@ -75,10 +75,10 @@ BUILD_OUTPUT_DIR=/path/to/output ./build.sh tarball
 
 The tarball is written to `/path/to/output/libcuvs_c.tar.gz` and is also copied to the repository root.
 
-To build and install the C library tests in the archive, pass `--build-tests`:
+To build and install the C library tests in the archive, pass `--tarball-build-tests`:
 
 ```bash
-./build.sh tarball --build-tests
+./build.sh tarball --tarball-build-tests
 ```
 
 ### Tarball Contents
@@ -122,13 +122,13 @@ docker run --rm \
   cuvs-standalone-c
 ```
 
-Pass `--build-tests` to include the C library tests:
+Pass `--tarball-build-tests` to include the C library tests:
 
 ```bash
 docker run --rm \
   -v "$(pwd):/workspace" \
   -v "$(pwd)/build:/build" \
-  cuvs-standalone-c --build-tests
+  cuvs-standalone-c --tarball-build-tests
 ```
 
 ## Documentation Preview

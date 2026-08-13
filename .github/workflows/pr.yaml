@@ -554,7 +554,7 @@ jobs:
           CUDA_VERSION: ${{ matrix.CUDA_VER }}
           PYTHON_VERSION: ${{ matrix.PY_VER }}
           RAPIDS_AUX_SECRET_1: ${{ secrets.GIST_REPO_READ_ORG_GITHUB_TOKEN }}
-        run: ci/run_standalone_c_docker.sh --build-tests
+        run: ci/run_standalone_c_docker.sh --tarball-build-tests
       - name: Upload file to GitHub Artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
