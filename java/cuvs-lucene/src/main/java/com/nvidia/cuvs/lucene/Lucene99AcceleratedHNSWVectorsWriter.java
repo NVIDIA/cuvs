@@ -110,6 +110,11 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
     this.acceleratedHNSWParams = acceleratedHNSWParams;
     this.numInputVectors = acceleratedHNSWParams.getNumInputVectors();
     this.nativeMode = numInputVectors > 0;
+    if (nativeMode && state.segmentInfo.getIndexSort() != null) {
+      throw new IllegalArgumentException(
+          "AcceleratedHNSWParams.numInputVectors (native flat buffering) does not support"
+              + " index-sorted segments; unset it (0) to use the heap-buffered path");
+    }
     vemFileName =
         IndexFileNames.segmentFileName(
             state.segmentInfo.name, state.segmentSuffix, HNSW_META_CODEC_EXT);

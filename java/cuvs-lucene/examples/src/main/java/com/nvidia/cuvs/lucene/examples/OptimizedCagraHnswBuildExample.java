@@ -6,9 +6,10 @@ package com.nvidia.cuvs.lucene.examples;
 
 import static org.apache.lucene.index.VectorSimilarityFunction.EUCLIDEAN;
 
-import com.nvidia.cuvs.CagraIndexParams.CagraGraphBuildAlgo;
+import com.nvidia.cuvs.CagraIndexParams.CuvsDistanceType;
 import com.nvidia.cuvs.lucene.AcceleratedHNSWParams;
 import com.nvidia.cuvs.lucene.Lucene101AcceleratedHNSWCodec;
+import com.nvidia.cuvs.spi.CuVSProvider;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -67,11 +68,11 @@ import org.apache.lucene.store.FSDirectory;
  *       the buffer the GPU build consumes instead of piling up as a {@code List<float[]>} on the JVM
  *       heap that must then be assembled. This removes the assembly copy and roughly halves peak host
  *       memory. It requires a <b>single-segment</b> build (no flush before commit, no merge).
- *   <li><b>Automatic graph-build algorithm.</b> {@code HEURISTIC} + {@code AUTO_SELECT} lets cuVS
- *       pick the CAGRA build algorithm by dataset size (NN_DESCENT below ~5M vectors, IVF_PQ at or
- *       above) and auto-tune its parameters. NN_DESCENT generally reaches higher recall but takes
- *       longer to build; IVF_PQ is faster but slightly lower recall. Force one explicitly only under
- *       expert guidance.
+ *   <li><b>Automatic graph-build algorithm.</b> {@code HEURISTIC} strategy defaults to
+ *       {@code AUTO_SELECT}, letting cuVS pick the CAGRA build algorithm by dataset size (NN_DESCENT
+ *       below ~5M vectors, IVF_PQ at or above) and auto-tune its parameters. NN_DESCENT generally
+ *       reaches higher recall but takes longer to build; IVF_PQ is faster but slightly lower recall.
+ *       Force one explicitly via {@code withCagraGraphBuildAlgo} only under expert guidance.
  *   <li><b>Partitioned multi-segment build.</b> Because native flat buffering is single-segment, "K
  *       segments" means K independent single-segment builds over contiguous slices, combined at the
  *       end. This is a deliberate memory/throughput lever — see the assumptions below.
@@ -141,6 +142,9 @@ public class OptimizedCagraHnswBuildExample {
       log.info("No .fbin provided; generated a demo file at " + fbinPath);
     }
 
+    // Must not be called when using a CPU-only Lucene codec: those paths never load the cuVS
+    // native library, so CuVSProvider resolves to UnsupportedProvider and throws.
+    CuVSProvider.provider().enableRMMAsyncMemory();
     try {
       buildIndex(fbinPath, indexDirPath, chunkSizeMB, numSegments, overlap);
       runSampleSearch(indexDirPath, fbinPath, 5);
@@ -367,9 +371,25 @@ public class OptimizedCagraHnswBuildExample {
   private static Codec codecFor(int numInputVectors) throws Exception {
     AcceleratedHNSWParams params =
         new AcceleratedHNSWParams.Builder()
-            .withStrategy(AcceleratedHNSWParams.Strategy.HEURISTIC) // auto-tune graph params
-            .withCagraGraphBuildAlgo(CagraGraphBuildAlgo.AUTO_SELECT) // pick algo by dataset size
-            .withNumInputVectors(numInputVectors) // native flat buffering (single segment)
+            // HEURISTIC lets cuVS pick the build algorithm and auto-tune its parameters based on
+            // maxConn and beamWidth below.
+            .withStrategy(AcceleratedHNSWParams.Strategy.HEURISTIC)
+            // Primary recall/graph-size knobs. Higher values improve recall at the cost of a
+            // larger graph and longer build. Match to your dataset and recall target.
+            .withMaxConn(32)
+            .withBeamWidth(32)
+            // Must match the distance metric used when querying the index.
+            .withCuvsDistanceType(CuvsDistanceType.L2Expanded)
+            // Starting point: one thread per logical CPU. Profile and tune for your hardware.
+            .withWriterThreads(Runtime.getRuntime().availableProcessors())
+            // Native flat buffering: the value MUST equal the number of vectors actually ingested
+            // into this segment; the writer fails fast if they differ. If some input vectors are
+            // excluded (e.g. filtered during ingest), either pre-count the survivors in a separate
+            // pass or omit withNumInputVectors (pass 0) to fall back to the heap-buffered path,
+            // which buffers all vectors in a List<float[]> on the JVM heap before building and
+            // therefore uses more peak host memory. Index-sorted segments (IndexWriterConfig
+            // .setIndexSort) are also unsupported.
+            .withNumInputVectors(numInputVectors)
             .build();
     return new Lucene101AcceleratedHNSWCodec(params);
   }
