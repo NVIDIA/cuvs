@@ -1389,6 +1389,7 @@ if(NOT BUILD_CPU_ONLY)
     ${cagra_extend_inst_files}
     src/neighbors/cagra_optimize.cu
     src/neighbors/detail/cagra/graph_shared.cu
+    src/neighbors/detail/cagra/cagra_merge_scaffold_shared.cu
     ${cagra_serialize_inst_files}
     ${cagra_merge_inst_files}
     ${iface_cagra_inst_files}

@@ -453,9 +453,8 @@ TEST(CagraMergeFastener, InitializesUnwrittenScaffoldSlotsWithSelf)
 
   RAFT_CUDA_TRY(
     cudaMemsetAsync(graph.data_handle(), 0xff, graph.size() * sizeof(uint32_t), stream));
-  initialize_self_scaffold_kernel<<<1, 256, 0, stream>>>(
-    graph.data_handle(), rows, candidate_degree, scaffold_offset, scaffold_degree);
-  RAFT_CUDA_TRY(cudaGetLastError());
+  launch_initialize_self_scaffold(
+    res, graph.data_handle(), rows, candidate_degree, scaffold_offset, scaffold_degree);
 
   std::vector<uint32_t> initialized(graph.size());
   raft::copy(initialized.data(), graph.data_handle(), initialized.size(), stream);
