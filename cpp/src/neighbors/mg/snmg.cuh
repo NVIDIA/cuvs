@@ -13,10 +13,12 @@
 #include <raft/core/resource/nccl_comm.hpp>
 #include <raft/core/serialize.hpp>
 #include <raft/linalg/add.cuh>
+#include <raft/linalg/map.cuh>
 #include <raft/matrix/init.cuh>
 #include <raft/util/cuda_dev_essentials.cuh>
 
 #include "../../core/omp_wrapper.hpp"
+#include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/cagra.hpp>
 #include <cuvs/neighbors/common.hpp>
 #include <cuvs/neighbors/ivf_flat.hpp>
@@ -258,6 +260,8 @@ void sharded_search_with_direct_merge(
   int64_t n_neighbors,
   int64_t n_batches)
 {
+  const bool select_min =
+    cuvs::distance::is_min_close(index.ann_interfaces_.front().index_.value().metric());
   const auto& root_handle = raft::resource::set_current_device_to_root_rank(clique);
   auto in_neighbors       = raft::make_device_matrix<searchIdxT, int64_t, row_major>(
     root_handle, index.num_ranks_ * n_rows_per_batch, n_neighbors);
@@ -355,12 +359,26 @@ void sharded_search_with_direct_merge(
                d_trans.view(),
                raft::make_host_vector_view<const searchIdxT>(h_trans.data(), index.num_ranks_));
 
+    if (!select_min) {
+      raft::linalg::map(root_handle_,
+                        in_distances.view(),
+                        raft::mul_const_op<float>(-1),
+                        raft::make_const_mdspan(in_distances.view()));
+    }
+
     knn_merge_parts(root_handle_,
                     in_distances.view(),
                     in_neighbors.view(),
                     out_distances.view(),
                     out_neighbors.view(),
                     d_trans.view());
+
+    if (!select_min) {
+      raft::linalg::map(root_handle_,
+                        out_distances.view(),
+                        raft::mul_const_op<float>(-1),
+                        raft::make_const_mdspan(out_distances.view()));
+    }
 
     raft::copy(
       root_handle_,
@@ -388,6 +406,8 @@ void sharded_search_with_tree_merge(
   int64_t n_neighbors,
   int64_t n_batches)
 {
+  const bool select_min =
+    cuvs::distance::is_min_close(index.ann_interfaces_.front().index_.value().metric());
   for (int64_t batch_idx = 0; batch_idx < n_batches; batch_idx++) {
     int64_t offset                  = batch_idx * n_rows_per_batch;
     int64_t query_offset            = offset * n_cols;
@@ -416,6 +436,13 @@ void sharded_search_with_tree_merge(
         tmp_distances.data_handle(), n_rows_of_current_batch, n_neighbors);
       cuvs::neighbors::search(
         dev_res, ann_if, search_params, query_partition, neighbors_view, distances_view);
+
+      if (!select_min) {
+        raft::linalg::map(dev_res,
+                          distances_view,
+                          raft::mul_const_op<float>(-1),
+                          raft::make_const_mdspan(distances_view));
+      }
 
       searchIdxT translation_offset = 0;
       for (int r = 0; r < rank; r++) {
@@ -499,6 +526,12 @@ void sharded_search_with_tree_merge(
 
           // If done, copy the final result
           if (remaining <= 1) {
+            if (!select_min) {
+              raft::linalg::map(dev_res,
+                                distances_view,
+                                raft::mul_const_op<float>(-1),
+                                raft::make_const_mdspan(distances_view));
+            }
             raft::copy(
               dev_res,
               raft::make_host_vector_view(neighbors.data_handle() + output_offset, part_size),
