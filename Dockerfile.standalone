@@ -4,7 +4,7 @@
 # Environment and runner for the standalone C build (see ci/standalone_c/build_standalone_c.sh).
 # Build args: CUDA_VERSION (default 13.0), PYTHON_VERSION (default 3.11).
 #
-# End-user instructions: see ci/README-standalone-c.md
+# End-user instructions: https://docs.nvidia.com/cuvs/installation#build-the-standalone-c-library-with-docker
 # Quick run: docker run -v $(pwd):/workspace -v $(pwd)/build:/build <image> [--build-tests]
 
 ARG CUDA_VERSION=13.0
