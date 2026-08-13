@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -11,11 +11,11 @@
 
 namespace cuvs::neighbors::ivf_rabitq::detail {
 
-struct ComputeInnerProductsWithLut16OptPlanner : AlgorithmPlanner {
+struct ComputeInnerProductsWithLut16OptPlanner : LTOAlgorithmPlanner {
   inline static LauncherJitCache launcher_jit_cache{};
 
   ComputeInnerProductsWithLut16OptPlanner()
-    : AlgorithmPlanner("compute_inner_products_with_lut16_opt", launcher_jit_cache)
+    : LTOAlgorithmPlanner("compute_inner_products_with_lut16_opt", launcher_jit_cache)
   {
   }
 

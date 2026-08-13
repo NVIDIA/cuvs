@@ -25,7 +25,7 @@ template <typename DataTag_,
           typename QueryTag_,
           typename CodebookTag_,
           typename SampleFilterJitTag_ = tag_cagra_jit_sample_filter_link_absent>
-struct CagraPlannerBase : AlgorithmPlanner {
+struct CagraPlannerBase : LTOAlgorithmPlanner {
   using DataTag            = DataTag_;
   using IndexTag           = IndexTag_;
   using DistanceTag        = DistanceTag_;
@@ -34,7 +34,7 @@ struct CagraPlannerBase : AlgorithmPlanner {
   using SampleFilterJitTag = SampleFilterJitTag_;
 
   explicit CagraPlannerBase(std::string entrypoint, LauncherJitCache& jit_cache)
-    : AlgorithmPlanner(std::move(entrypoint), jit_cache)
+    : LTOAlgorithmPlanner(std::move(entrypoint), jit_cache)
   {
   }
 

@@ -1,0 +1,291 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include "fused_1nn_tile.hpp"
+
+#include "fused_1nn_planner.hpp"
+
+#include <cuvs/core/export.hpp>
+#include <cuvs/detail/jit_lto/cutile_module.hpp>
+#include <cuvs/detail/jit_lto/fused_distance_nn/fused_1nn_fragments.hpp>
+#include <raft/core/operators.hpp>
+#include <raft/linalg/unary_op.cuh>
+#include <raft/util/cuda_utils.cuh>
+
+#include <algorithm>
+#include <cstdint>
+#include <limits>
+#include <type_traits>
+
+namespace cuvs {
+namespace distance {
+namespace detail {
+
+namespace {
+
+template <typename DataT, typename IdxT, typename AbiTag>
+bool launch_fused_1nn_tile(IdxT* nearest_idx,
+                           DataT* nearest_dist,
+                           const DataT* x,
+                           const DataT* y,
+                           const DataT* xn,
+                           const DataT* yn,
+                           IdxT m,
+                           IdxT n,
+                           IdxT k,
+                           cuvs::distance::DistanceType metric,
+                           bool is_sqrt,
+                           cudaStream_t stream)
+{
+  if constexpr (!std::is_same_v<DataT, float> && !std::is_same_v<DataT, half>) { return false; }
+
+  if (nearest_dist == nullptr) { return false; }
+
+  Fused1nnTilePlanner<DataT, AbiTag> planner;
+  planner.add_entrypoint();
+  planner.add_tileir_fallback();
+  const CutileTileConfig tile_cfg = planner.tile_config();
+  auto launcher                   = planner.try_get_launcher();
+  if (!launcher) { return false; }
+
+  int metric_code;
+  bool apply_sqrt = false;
+  switch (metric) {
+    case cuvs::distance::DistanceType::InnerProduct:
+      metric_code = static_cast<int>(cuvs::distance::DistanceType::InnerProduct);
+      break;
+    case cuvs::distance::DistanceType::L2Expanded:
+    case cuvs::distance::DistanceType::L2SqrtExpanded:
+      metric_code = static_cast<int>(cuvs::distance::DistanceType::L2Expanded);
+      apply_sqrt  = is_sqrt;
+      break;
+    case cuvs::distance::DistanceType::CosineExpanded:
+      metric_code = static_cast<int>(cuvs::distance::DistanceType::CosineExpanded);
+      break;
+    default: return false;
+  }
+
+  IdxT shape_x[2]  = {m, k};
+  IdxT stride_x[2] = {k, IdxT{1}};
+  IdxT shape_y[2]  = {n, k};
+  IdxT stride_y[2] = {k, IdxT{1}};
+  IdxT shape_xn    = m;
+  IdxT stride_xn   = IdxT{1};
+  IdxT shape_yn    = n;
+  IdxT stride_yn   = IdxT{1};
+  IdxT shape_idx   = m;
+  IdxT stride_idx  = IdxT{1};
+  IdxT shape_dist  = m;
+  IdxT stride_dist = IdxT{1};
+
+  IdxT M = m;
+  IdxT N = n;
+  IdxT K = k;
+
+  void* x_ptr  = const_cast<DataT*>(x);
+  void* y_ptr  = const_cast<DataT*>(y);
+  void* xn_ptr = const_cast<DataT*>(xn);
+  void* yn_ptr = const_cast<DataT*>(yn);
+  // OutIdx must be a valid device pointer for the launch ABI; when store_idx is 0 the kernel
+  // does not write it (dist-only callers pass nearest_dist as a stand-in).
+  const IdxT store_idx = nearest_idx != nullptr ? IdxT{1} : IdxT{0};
+  void* idx_ptr =
+    nearest_idx != nullptr ? static_cast<void*>(nearest_idx) : static_cast<void*>(nearest_dist);
+  void* dist_ptr = nearest_dist;
+
+  const int tile_m = tile_cfg.tile_m;
+  dim3 grid((static_cast<uint64_t>(m) + tile_m - 1) / tile_m, 1, 1);
+  dim3 block(1, 1, 1);
+
+  using fused_1nn_cutile_kernel_t = void(void*,
+                                         IdxT,
+                                         IdxT,
+                                         IdxT,
+                                         IdxT,
+                                         void*,
+                                         IdxT,
+                                         IdxT,
+                                         IdxT,
+                                         IdxT,
+                                         void*,
+                                         IdxT,
+                                         IdxT,
+                                         void*,
+                                         IdxT,
+                                         IdxT,
+                                         void*,
+                                         IdxT,
+                                         IdxT,
+                                         void*,
+                                         IdxT,
+                                         IdxT,
+                                         IdxT,
+                                         IdxT,
+                                         IdxT,
+                                         IdxT,
+                                         IdxT,
+                                         int);
+  launcher->template dispatch<fused_1nn_cutile_kernel_t>(stream,
+                                                         grid,
+                                                         block,
+                                                         0,
+                                                         x_ptr,
+                                                         shape_x[0],
+                                                         shape_x[1],
+                                                         stride_x[0],
+                                                         stride_x[1],
+                                                         y_ptr,
+                                                         shape_y[0],
+                                                         shape_y[1],
+                                                         stride_y[0],
+                                                         stride_y[1],
+                                                         xn_ptr,
+                                                         shape_xn,
+                                                         stride_xn,
+                                                         yn_ptr,
+                                                         shape_yn,
+                                                         stride_yn,
+                                                         idx_ptr,
+                                                         shape_idx,
+                                                         stride_idx,
+                                                         dist_ptr,
+                                                         shape_dist,
+                                                         stride_dist,
+                                                         M,
+                                                         N,
+                                                         K,
+                                                         static_cast<IdxT>(apply_sqrt),
+                                                         store_idx,
+                                                         metric_code);
+  RAFT_CUDA_TRY(cudaGetLastError());
+  return true;
+}
+
+template <typename AbiTag, typename DataT, typename IdxT>
+bool try_fused_1nn_tile_dispatch(IdxT* nearest_idx,
+                                 DataT* nearest_dist,
+                                 const DataT* x,
+                                 const DataT* y,
+                                 const DataT* xn,
+                                 const DataT* yn,
+                                 IdxT m,
+                                 IdxT n,
+                                 IdxT k,
+                                 cuvs::distance::DistanceType metric,
+                                 bool is_sqrt,
+                                 cudaStream_t stream)
+{
+  return launch_fused_1nn_tile<DataT, IdxT, AbiTag>(
+    nearest_idx, nearest_dist, x, y, xn, yn, m, n, k, metric, is_sqrt, stream);
+}
+
+}  // namespace
+
+template <typename DataT, typename IdxT>
+  requires is_fused_1nn_cutile_data_v<DataT>
+bool try_fused_1nn_tile(IdxT* nearest_idx,
+                        DataT* nearest_dist,
+                        const DataT* x,
+                        const DataT* y,
+                        const DataT* xn,
+                        const DataT* yn,
+                        IdxT m,
+                        IdxT n,
+                        IdxT k,
+                        cuvs::distance::DistanceType metric,
+                        bool is_sqrt,
+                        void* index_workspace,
+                        cudaStream_t stream)
+{
+  if (!cuvs::detail::jit_lto::cutile_launch_available_on_current_device()) { return false; }
+  static_assert(std::is_same_v<IdxT, int> || std::is_same_v<IdxT, int64_t>);
+
+  int cc_major = 0;
+  int cc_minor = 0;
+  if (!cuvs::detail::jit_lto::get_device_compute_capability(cc_major, cc_minor)) { return false; }
+  constexpr int tma_pitch_elements = 16 / sizeof(DataT);
+  const bool use_strict_abi        = cc_major >= 9 && k % tma_pitch_elements == 0;
+
+  if constexpr (std::is_same_v<IdxT, int>) {
+    if (use_strict_abi) {
+      return try_fused_1nn_tile_dispatch<cutile_abi_strict, DataT, int>(
+        nearest_idx, nearest_dist, x, y, xn, yn, m, n, k, metric, is_sqrt, stream);
+    }
+    return try_fused_1nn_tile_dispatch<cutile_abi_relaxed, DataT, int>(
+      nearest_idx, nearest_dist, x, y, xn, yn, m, n, k, metric, is_sqrt, stream);
+  } else {
+    constexpr int64_t max_i32 = std::numeric_limits<int>::max();
+    if (n > max_i32 || k > max_i32) { return false; }
+    if (nearest_idx != nullptr && index_workspace == nullptr) { return false; }
+
+    auto* tmp_idx = static_cast<int*>(index_workspace);
+    for (int64_t offset = 0; offset < m; offset += max_i32) {
+      const int batch_m    = static_cast<int>(std::min<int64_t>(max_i32, m - offset));
+      const auto* batch_x  = x + static_cast<size_t>(offset) * static_cast<size_t>(k);
+      const auto* batch_xn = xn == nullptr ? nullptr : xn + offset;
+      auto* batch_dist     = nearest_dist == nullptr ? nullptr : nearest_dist + offset;
+
+      const bool launched =
+        use_strict_abi
+          ? try_fused_1nn_tile_dispatch<cutile_abi_strict, DataT, int>(tmp_idx,
+                                                                       batch_dist,
+                                                                       batch_x,
+                                                                       y,
+                                                                       batch_xn,
+                                                                       yn,
+                                                                       batch_m,
+                                                                       static_cast<int>(n),
+                                                                       static_cast<int>(k),
+                                                                       metric,
+                                                                       is_sqrt,
+                                                                       stream)
+          : try_fused_1nn_tile_dispatch<cutile_abi_relaxed, DataT, int>(tmp_idx,
+                                                                        batch_dist,
+                                                                        batch_x,
+                                                                        y,
+                                                                        batch_xn,
+                                                                        yn,
+                                                                        batch_m,
+                                                                        static_cast<int>(n),
+                                                                        static_cast<int>(k),
+                                                                        metric,
+                                                                        is_sqrt,
+                                                                        stream);
+      if (!launched) { return false; }
+
+      if (nearest_idx != nullptr) {
+        raft::linalg::unaryOp(
+          nearest_idx + offset, tmp_idx, batch_m, raft::cast_op<int64_t>{}, stream);
+      }
+    }
+    return true;
+  }
+}
+
+#define CUVS_INST_TRY_FUSED_1NN_TILE(DataT, IdxT)                                         \
+  template CUVS_EXPORT bool try_fused_1nn_tile<DataT, IdxT>(IdxT*,                        \
+                                                            DataT*,                       \
+                                                            const DataT*,                 \
+                                                            const DataT*,                 \
+                                                            const DataT*,                 \
+                                                            const DataT*,                 \
+                                                            IdxT,                         \
+                                                            IdxT,                         \
+                                                            IdxT,                         \
+                                                            cuvs::distance::DistanceType, \
+                                                            bool,                         \
+                                                            void*,                        \
+                                                            cudaStream_t)
+
+CUVS_INST_TRY_FUSED_1NN_TILE(float, int);
+CUVS_INST_TRY_FUSED_1NN_TILE(float, int64_t);
+CUVS_INST_TRY_FUSED_1NN_TILE(half, int);
+CUVS_INST_TRY_FUSED_1NN_TILE(half, int64_t);
+
+#undef CUVS_INST_TRY_FUSED_1NN_TILE
+
+}  // namespace detail
+}  // namespace distance
+}  // namespace cuvs
