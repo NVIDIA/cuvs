@@ -9,7 +9,7 @@
 
 ARG CUDA_VERSION=13.0
 ARG PYTHON_VERSION=3.11
-FROM rapidsai/ci-wheel:26.04-cuda${CUDA_VERSION}-rockylinux8-py${PYTHON_VERSION}
+FROM rapidsai/ci-wheel:26.10-cuda${CUDA_VERSION}-rockylinux8-py${PYTHON_VERSION}
 
 ARG NINJA_VERSION=v1.13.1
 
