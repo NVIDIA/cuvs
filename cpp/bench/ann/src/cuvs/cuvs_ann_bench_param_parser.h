@@ -416,6 +416,14 @@ void parse_build_param(const nlohmann::json& conf,
       throw std::runtime_error("invalid value for merge_type");
     }
   }
+
+  nlohmann::json comp_search_conf = collect_conf_with_prefix(conf, "compression_");
+  if (!comp_search_conf.empty()) {
+    auto vpq_pams = param.compression.value_or(cuvs::neighbors::vpq_params{});
+    parse_build_param(comp_search_conf, vpq_pams);
+    param.compression.emplace(vpq_pams);
+  }
+
   param.cagra_params = [conf](raft::matrix_extent<int64_t> extents,
                               cuvs::distance::DistanceType dist_type) {
     // Delayed parsing/initialization of cagra_params - it's called once the dataset shape is known
