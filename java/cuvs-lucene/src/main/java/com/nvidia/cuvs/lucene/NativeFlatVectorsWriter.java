@@ -32,7 +32,11 @@ import org.apache.lucene.util.IOUtils;
  *
  * <p><b>Ported code — version-pinned.</b> The dense float32 layout (format constants, header, meta
  * field order, and footer) is transcribed from Lucene <b>10.2.0</b>, which must stay equal to the
- * {@code lucene-core} version in {@code pom.xml}. Sources (tag {@code releases/lucene/10.2.0}):
+ * {@code lucene-core} version in {@code pom.xml}. This is enforced by
+ * {@code TestNativeFlatVectorsWriterFormatConstants}, which fails the build if the resolved
+ * {@code lucene-core} classpath version drifts from the pin below — update
+ * {@code PINNED_LUCENE_VERSION} there together with this class on a verified upgrade. Sources (tag
+ * {@code releases/lucene/10.2.0}):
  *
  * <ul>
  *   <li>{@code org.apache.lucene.codecs.lucene99.Lucene99FlatVectorsFormat} — format constants:
@@ -46,8 +50,21 @@ import org.apache.lucene.util.IOUtils;
  * on read via {@code CodecUtil.checkIndexHeader} (codec name + version range) plus the fixed meta
  * layout — so if the new version bumps {@code VERSION_CURRENT}, renames a codec, or changes the meta
  * field order, files written here will be silently incompatible and the stock
- * {@code Lucene99FlatVectorsReader} will reject or misread them. Update the mirrored constants and
- * the {@code writeField}/{@code writeMeta} sequence to match, or bind to Lucene's own writer.
+ * {@code Lucene99FlatVectorsReader} will reject or misread them. Concretely:
+ *
+ * <ol>
+ *   <li>Diff the new version's {@code Lucene99FlatVectorsFormat}/{@code Lucene99FlatVectorsWriter}
+ *       sources against the ones linked above and mirror any changed constants and any change to
+ *       the {@code writeField}/{@code writeMeta} byte sequence (header, meta field order, footer)
+ *       here. This class writes directly from native memory to avoid the per-vector {@code
+ *       FloatVectorValues} indirection Lucene's own writer requires — that's the reason to keep
+ *       hand-porting the format rather than delegating to it.
+ *   <li>Bump {@code PINNED_LUCENE_VERSION} in {@code TestNativeFlatVectorsWriterFormatConstants} to
+ *       clear the tripwire.
+ *   <li>Note: {@code TestNativeFlatVectorsWriterRoundTrip} positively verifies the result
+ *       by building a small index with {@code numInputVectors} set and asserting every
+ *       vector round-trips byte-exact through the stock {@code Lucene99FlatVectorsReader}.
+ * </ol>
  */
 final class NativeFlatVectorsWriter implements Closeable {
 
