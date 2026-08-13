@@ -4,6 +4,9 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
 TOOLSET_VERSION=14
 NINJA_VERSION=v1.13.1
 
@@ -97,5 +100,4 @@ rapids-pip-retry install git+https://github.com/rapidsai/spdx-license-builder.gi
 license-builder . --output-json c/build/install/licenses.json --output-txt c/build/install/LICENSE
 
 rapids-logger "Begin c tarball creation"
-tar czf libcuvs_c.tar.gz -C c/build/install/ .
-ls -lh libcuvs_c.tar.gz
+"${REPO_ROOT}/build.sh" tarball
