@@ -1,6 +1,6 @@
 <!--
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 -->
@@ -10,7 +10,7 @@
 
     <groupId>com.nvidia.cuvs</groupId>
     <artifactId>benchmarks</artifactId>
-    <!--CUVS_JAVA#VERSION_UPDATE_MARKER_START--><version>26.08.0</version><!--CUVS_JAVA#VERSION_UPDATE_MARKER_END-->
+    <!--CUVS_JAVA#VERSION_UPDATE_MARKER_START--><version>26.10.0</version><!--CUVS_JAVA#VERSION_UPDATE_MARKER_END-->
     <packaging>jar</packaging>
 
     <name>cuvs-java-benchmarks</name>
@@ -84,7 +84,7 @@
         <dependency>
             <groupId>com.nvidia.cuvs</groupId>
             <artifactId>cuvs-java</artifactId>
-            <!--CUVS_JAVA#VERSION_UPDATE_MARKER_START--><version>26.08.0</version><!--CUVS_JAVA#VERSION_UPDATE_MARKER_END-->
+            <!--CUVS_JAVA#VERSION_UPDATE_MARKER_START--><version>26.10.0</version><!--CUVS_JAVA#VERSION_UPDATE_MARKER_END-->
             <type>jar</type>
         </dependency>
     </dependencies>

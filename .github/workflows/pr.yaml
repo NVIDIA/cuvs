@@ -10,6 +10,7 @@ permissions: {}
 jobs:
   pr-builder:
     needs:
+      - build-details
       - check-nightly-ci
       - changed-files
       - checks
@@ -52,6 +53,8 @@ jobs:
       - name: Telemetry setup
         if: ${{ vars.TELEMETRY_ENABLED == 'true' }}
         uses: rapidsai/shared-actions/telemetry-dispatch-stash-base-env-vars@main
+  build-details:
+    uses: rapidsai/shared-workflows/.github/workflows/compute-build-details.yaml@main
   check-nightly-ci:
     runs-on: ubuntu-latest
     permissions:
@@ -93,10 +96,17 @@ jobs:
           - '!.github/labeler.yml'
           - '!.github/ops-bot.yaml'
           - '!.github/release.yml'
+          - '!.github/workflows/build.yaml'
+          - '!.github/workflows/check-c-abi.yaml'
+          - '!.github/workflows/labeler.yml'
           - '!.github/workflows/publish-rust.yaml'
+          - '!.github/workflows/store-c-abi-baseline.yaml'
+          - '!.github/workflows/test.yaml'
           - '!.github/workflows/trigger-breaking-change-alert.yaml'
+          - '!.github/workflows/update-c-abi-baseline.yaml'
           - '!.pre-commit-config.yaml'
           - '!.shellcheckrc'
+          - '!.yamllint.yaml'
           - '!Dockerfile'
           - '!SECURITY.md'
           - '!ci/build_wheel*.sh'
@@ -118,10 +128,17 @@ jobs:
           - '!.github/labeler.yml'
           - '!.github/ops-bot.yaml'
           - '!.github/release.yml'
+          - '!.github/workflows/build.yaml'
+          - '!.github/workflows/check-c-abi.yaml'
+          - '!.github/workflows/labeler.yml'
           - '!.github/workflows/publish-rust.yaml'
+          - '!.github/workflows/store-c-abi-baseline.yaml'
+          - '!.github/workflows/test.yaml'
           - '!.github/workflows/trigger-breaking-change-alert.yaml'
+          - '!.github/workflows/update-c-abi-baseline.yaml'
           - '!.pre-commit-config.yaml'
           - '!.shellcheckrc'
+          - '!.yamllint.yaml'
           - '!Dockerfile'
           - '!README.md'
           - '!SECURITY.md'
@@ -156,10 +173,17 @@ jobs:
           - '!.github/labeler.yml'
           - '!.github/ops-bot.yaml'
           - '!.github/release.yml'
+          - '!.github/workflows/build.yaml'
+          - '!.github/workflows/check-c-abi.yaml'
+          - '!.github/workflows/labeler.yml'
           - '!.github/workflows/publish-rust.yaml'
+          - '!.github/workflows/store-c-abi-baseline.yaml'
+          - '!.github/workflows/test.yaml'
           - '!.github/workflows/trigger-breaking-change-alert.yaml'
+          - '!.github/workflows/update-c-abi-baseline.yaml'
           - '!.pre-commit-config.yaml'
           - '!.shellcheckrc'
+          - '!.yamllint.yaml'
           - '!CODEOWNERS'
           - '!Dockerfile'
           - '!README.md'
@@ -201,14 +225,17 @@ jobs:
           - '!.github/labeler.yml'
           - '!.github/ops-bot.yaml'
           - '!.github/release.yml'
+          - '!.github/workflows/build.yaml'
           - '!.github/workflows/check-c-abi.yaml'
           - '!.github/workflows/labeler.yml'
           - '!.github/workflows/publish-rust.yaml'
           - '!.github/workflows/store-c-abi-baseline.yaml'
+          - '!.github/workflows/test.yaml'
           - '!.github/workflows/trigger-breaking-change-alert.yaml'
           - '!.github/workflows/update-c-abi-baseline.yaml'
           - '!.pre-commit-config.yaml'
           - '!.shellcheckrc'
+          - '!.yamllint.yaml'
           - '!ci/build_go.sh'
           - '!ci/build_java.sh'
           - '!ci/build_rust.sh'
@@ -247,10 +274,17 @@ jobs:
           - '!.github/labeler.yml'
           - '!.github/ops-bot.yaml'
           - '!.github/release.yml'
+          - '!.github/workflows/build.yaml'
+          - '!.github/workflows/check-c-abi.yaml'
+          - '!.github/workflows/labeler.yml'
           - '!.github/workflows/publish-rust.yaml'
+          - '!.github/workflows/store-c-abi-baseline.yaml'
+          - '!.github/workflows/test.yaml'
           - '!.github/workflows/trigger-breaking-change-alert.yaml'
+          - '!.github/workflows/update-c-abi-baseline.yaml'
           - '!.pre-commit-config.yaml'
           - '!.shellcheckrc'
+          - '!.yamllint.yaml'
           - '!ci/build_cpp.sh'
           - '!ci/build_docs.sh'
           - '!ci/build_go.sh'
@@ -294,10 +328,17 @@ jobs:
           - '!.github/labeler.yml'
           - '!.github/ops-bot.yaml'
           - '!.github/release.yml'
+          - '!.github/workflows/build.yaml'
+          - '!.github/workflows/check-c-abi.yaml'
+          - '!.github/workflows/labeler.yml'
           - '!.github/workflows/publish-rust.yaml'
+          - '!.github/workflows/store-c-abi-baseline.yaml'
+          - '!.github/workflows/test.yaml'
           - '!.github/workflows/trigger-breaking-change-alert.yaml'
+          - '!.github/workflows/update-c-abi-baseline.yaml'
           - '!.pre-commit-config.yaml'
           - '!.shellcheckrc'
+          - '!.yamllint.yaml'
           - '!CODEOWNERS'
           - '!Dockerfile'
           - '!README.md'
@@ -336,10 +377,17 @@ jobs:
           - '!.github/labeler.yml'
           - '!.github/ops-bot.yaml'
           - '!.github/release.yml'
+          - '!.github/workflows/build.yaml'
+          - '!.github/workflows/check-c-abi.yaml'
+          - '!.github/workflows/labeler.yml'
           - '!.github/workflows/publish-rust.yaml'
+          - '!.github/workflows/store-c-abi-baseline.yaml'
+          - '!.github/workflows/test.yaml'
           - '!.github/workflows/trigger-breaking-change-alert.yaml'
+          - '!.github/workflows/update-c-abi-baseline.yaml'
           - '!.pre-commit-config.yaml'
           - '!.shellcheckrc'
+          - '!.yamllint.yaml'
           - '!CODEOWNERS'
           - '!Dockerfile'
           - '!README.md'
@@ -384,7 +432,7 @@ jobs:
       pull-requests: read
     uses: ./.github/workflows/check-c-abi.yaml
   conda-cpp-build:
-    needs: checks
+    needs: [build-details, checks]
     permissions:
       actions: read
       contents: read
@@ -395,6 +443,7 @@ jobs:
     uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-build.yaml@main
     with:
       build_type: pull-request
+      build-datetime: ${{ needs.build-details.outputs.build-datetime }}
       node_type: cpu16
       script: ci/build_cpp.sh
   conda-cpp-tests:
@@ -425,7 +474,7 @@ jobs:
       symbol_exclusions: (void (thrust::|cub::))
       package_name: libcuvs
   conda-python-build:
-    needs: conda-cpp-build
+    needs: [build-details, conda-cpp-build]
     permissions:
       actions: read
       contents: read
@@ -436,6 +485,7 @@ jobs:
     uses: rapidsai/shared-workflows/.github/workflows/conda-python-build.yaml@main
     with:
       build_type: pull-request
+      build-datetime: ${{ needs.build-details.outputs.build-datetime }}
       script: ci/build_python.sh
       # Build a conda package for each CUDA x ARCH x minimum supported Python version
       matrix_filter: group_by({CUDA_VER, ARCH}) | map(min_by(.PY_VER | split(".") | map(tonumber)))
@@ -462,7 +512,7 @@ jobs:
       build_type: pull-request
       matrix_name: conda-cpp-build
   rocky8-clib-standalone-build:
-    needs: rocky8-clib-standalone-build-matrix
+    needs: [build-details, rocky8-clib-standalone-build-matrix]
     permissions:
       actions: read
       contents: read
@@ -476,9 +526,10 @@ jobs:
       matrix: ${{ fromJSON(needs.rocky8-clib-standalone-build-matrix.outputs.matrix) }}
     with:
       build_type: pull-request
+      build-datetime: ${{ needs.build-details.outputs.build-datetime }}
       arch: "${{matrix.arch}}"
       date: ${{ inputs.date }}_c
-      container_image: "rapidsai/ci-wheel:26.08-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
+      container_image: "rapidsai/ci-wheel:26.10-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
       node_type: "cpu16"
       requires_license_builder: true
       script: "ci/build_standalone_c.sh --build-tests"
@@ -512,7 +563,7 @@ jobs:
       node_type: "gpu-l4-latest-1"
       arch: "${{matrix.arch}}"
       date: ${{ inputs.date }}_c
-      container_image: "rapidsai/ci-wheel:26.08-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
+      container_image: "rapidsai/ci-wheel:26.10-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
       script: "ci/test_standalone_c.sh libcuvs_c_${{ matrix.CUDA_VER }}_${{ matrix.ARCH }}.tar.gz"
       sha: ${{ inputs.sha }}
   conda-java-build-and-tests-matrix:
@@ -544,7 +595,7 @@ jobs:
       build_type: pull-request
       node_type: "gpu-l4-latest-1"
       arch: "amd64"
-      container_image: "rapidsai/ci-conda:26.08-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
+      container_image: "rapidsai/ci-conda:26.10-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
       script: "ci/test_java.sh"
       artifact-name: "cuvs-java-cuda${{ matrix.CUDA_VER }}"
       file_to_upload: "java/cuvs-java/target/"
@@ -577,7 +628,7 @@ jobs:
       build_type: pull-request
       node_type: "gpu-l4-latest-1"
       arch: "amd64"
-      container_image: "rapidsai/ci-conda:26.08-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
+      container_image: "rapidsai/ci-conda:26.10-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
       script: "ci/build_rust.sh"
   go-build-matrix:
     needs: [conda-cpp-build, changed-files]
@@ -608,7 +659,7 @@ jobs:
       build_type: pull-request
       node_type: "gpu-l4-latest-1"
       arch: "amd64"
-      container_image: "rapidsai/ci-conda:26.08-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
+      container_image: "rapidsai/ci-conda:26.10-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
       script: "ci/build_go.sh"
   docs-build:
     permissions:
@@ -623,10 +674,10 @@ jobs:
       build_type: pull-request
       node_type: "gpu-l4-latest-1"
       arch: "amd64"
-      container_image: "rapidsai/ci-conda:26.08-latest"
+      container_image: "rapidsai/ci-conda:26.10-latest"
       script: "ci/build_docs.sh"
   wheel-build-libcuvs:
-    needs: checks
+    needs: [build-details, checks]
     permissions:
       actions: read
       contents: read
@@ -637,6 +688,7 @@ jobs:
     uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@main
     with:
       build_type: pull-request
+      build-datetime: ${{ needs.build-details.outputs.build-datetime }}
       node_type: cpu16
       script: ci/build_wheel_libcuvs.sh
       # build for every combination of arch and CUDA version, but only for the latest Python
@@ -644,7 +696,7 @@ jobs:
       package-name: libcuvs
       package-type: cpp
   wheel-build-cuvs:
-    needs: wheel-build-libcuvs
+    needs: [build-details, wheel-build-libcuvs]
     permissions:
       actions: read
       contents: read
@@ -655,6 +707,7 @@ jobs:
     uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@main
     with:
       build_type: pull-request
+      build-datetime: ${{ needs.build-details.outputs.build-datetime }}
       node_type: cpu8
       script: ci/build_wheel_cuvs.sh
       package-name: cuvs

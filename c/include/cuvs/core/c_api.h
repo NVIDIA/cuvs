@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -88,6 +88,33 @@ typedef uintptr_t cuvsResources_t;
 CUVS_EXPORT cuvsError_t cuvsResourcesCreate(cuvsResources_t* res);
 
 /**
+ * @brief Create an opaque C handle for C++ type `raft::resources` whose memory
+ *        allocations are tracked and written as CSV samples from a background
+ *        thread.
+ *
+ * The returned handle wraps all reachable memory resources (host, pinned,
+ * managed, device, workspace, large_workspace) with allocation-tracking
+ * adaptors and replaces the global host and device memory resources for the
+ * lifetime of the handle. It is otherwise indistinguishable from a handle
+ * created by ::cuvsResourcesCreate and can be used wherever a
+ * ::cuvsResources_t is accepted. The CSV reporter is stopped and the global
+ * memory resources are restored when the handle is destroyed via
+ * ::cuvsResourcesDestroy.
+ *
+ * @param[out] res                 cuvsResources_t opaque C handle
+ * @param[in]  csv_path            Path to the output CSV file
+ *                                 (created/truncated). Must be a non-empty,
+ *                                 null-terminated UTF-8 string.
+ * @param[in]  sample_interval_ms  Minimum time in milliseconds between
+ *                                 successive CSV samples. Pass 10 to match the
+ *                                 C++ default.
+ * @return cuvsError_t
+ */
+CUVS_EXPORT cuvsError_t cuvsResourcesCreateWithMemoryTracking(cuvsResources_t* res,
+                                                              const char* csv_path,
+                                                              int64_t sample_interval_ms);
+
+/**
  * @brief Destroy and de-allocate opaque C handle for C++ type `raft::resources`
  *
  * @param[in] res cuvsResources_t opaque C handle
@@ -130,6 +157,23 @@ CUVS_EXPORT cuvsError_t cuvsStreamSync(cuvsResources_t res);
  * @return cuvsError_t
  */
 CUVS_EXPORT cuvsError_t cuvsDeviceIdGet(cuvsResources_t res, int* device_id);
+
+/**
+ * @brief Configure the temporary workspace on this resources object as an uncapped pool, backed
+ *        by the current device memory resource. After the initial reservation is allocated on
+ *        first use, subsequent calls to cuvsRMMAlloc / cuvsRMMFree on the same resources handle
+ *        hit the pool cache rather than calling cudaMallocAsync / cudaFreeAsync, reducing CUDA
+ *        context lock contention under concurrent query threads. The pool grows without shrinking:
+ *        freed allocations are returned to the pool rather than to the device, so the pool's
+ *        high-water mark only increases until the resources object is destroyed.
+ *
+ * @param[in] res                cuvsResources_t opaque C handle
+ * @param[in] initial_size_bytes initial pool reservation in bytes; size to cover the
+ *                               steady-state working set to avoid growth after warmup
+ * @return cuvsError_t
+ */
+CUVS_EXPORT cuvsError_t cuvsResourcesSetWorkspacePool(cuvsResources_t res,
+                                                      size_t initial_size_bytes);
 
 /**
  * @brief Create an Initialized opaque C handle for C++ type `raft::device_resources_snmg`
@@ -212,6 +256,19 @@ CUVS_EXPORT cuvsError_t cuvsRMMFree(cuvsResources_t res, void* ptr, size_t bytes
 CUVS_EXPORT cuvsError_t cuvsRMMPoolMemoryResourceEnable(int initial_pool_size_percent,
                                             int max_pool_size_percent,
                                             bool managed);
+/**
+ * @brief Switches the working memory resource to use stream-ordered asynchronous allocation
+ * (cudaMallocAsync / cudaFreeAsync). Unlike the pool resource, this resource returns memory to
+ * the stream immediately without blocking the CPU, eliminating device-wide synchronization on
+ * deallocation. This is especially beneficial when multiple CAGRA searches run concurrently on
+ * separate CUDA streams, because the internal workspace allocations no longer serialize kernel
+ * launches. Be aware that this function will change the memory resource for the whole process
+ * and the new memory resource will be used until explicitly changed.
+ *
+ * @return cuvsError_t
+ */
+CUVS_EXPORT cuvsError_t cuvsRMMAsyncMemoryResourceEnable();
+
 /**
  * @brief Resets the memory resource to use the default memory resource (cuda_memory_resource)
  * @return cuvsError_t
