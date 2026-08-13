@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -310,6 +310,59 @@ TEST(ProductQuantizationTestF, Parameters)
   pq_params.kmeans_params   = kmeans_params_variant(my_balanced_params);
   EXPECT_THROW(build(handle, pq_params, raft::make_const_mdspan(dataset_host.view())),
                raft::logic_error);
+}
+
+TEST(ProductQuantizationTestF, MakeVpqDatasetFromHost)
+{
+  raft::resources handle;
+  constexpr int64_t n_rows = 64;
+  constexpr int64_t dim    = 16;
+  auto dataset             = raft::make_host_matrix<float, int64_t>(n_rows, dim);
+  for (std::size_t i = 0; i < dataset.size(); ++i) {
+    dataset.data_handle()[i] = static_cast<float>(i % 31) / 31.0f;
+  }
+
+  cuvs::neighbors::vpq_params params{
+    .pq_bits = 4, .pq_dim = 4, .vq_n_centers = 1, .kmeans_n_iters = 2};
+  auto vpq = make_vpq_dataset(handle, params, raft::make_const_mdspan(dataset.view()));
+  raft::resource::sync_stream(handle);
+
+  EXPECT_EQ(vpq.n_rows(), n_rows);
+  EXPECT_EQ(vpq.dim(), dim);
+  EXPECT_NE(vpq.data.data_handle(), nullptr);
+}
+
+TEST(ProductQuantizationTestF, MakeVpqDatasetFromPaddedView)
+{
+  raft::resources handle;
+  constexpr int64_t n_rows = 64;
+  constexpr int64_t dim    = 16;
+  constexpr int64_t stride = 24;  // row pitch wider than the logical width
+
+  auto host_rows = raft::make_host_matrix<float, int64_t>(n_rows, stride);
+  for (int64_t i = 0; i < n_rows; i++) {
+    for (int64_t j = 0; j < stride; j++) {
+      // The padding is far away from the payload: quantizing it would be plainly visible.
+      host_rows(i, j) = j < dim ? static_cast<float>((i * dim + j) % 31) / 31.0f : 1e3f;
+    }
+  }
+  auto device_rows = raft::make_device_matrix<float, int64_t>(handle, n_rows, stride);
+  raft::copy(device_rows.data_handle(),
+             host_rows.data_handle(),
+             host_rows.size(),
+             raft::resource::get_cuda_stream(handle));
+  cuvs::neighbors::device_padded_dataset_view<float, int64_t> padded(
+    raft::make_device_matrix_view<const float, int64_t>(device_rows.data_handle(), n_rows, stride),
+    dim);
+
+  cuvs::neighbors::vpq_params params{
+    .pq_bits = 4, .pq_dim = 4, .vq_n_centers = 1, .kmeans_n_iters = 2};
+  auto vpq = make_vpq_dataset(handle, params, padded);
+  raft::resource::sync_stream(handle);
+
+  EXPECT_EQ(vpq.n_rows(), n_rows);
+  EXPECT_EQ(vpq.dim(), dim);
+  EXPECT_NE(vpq.data.data_handle(), nullptr);
 }
 
 // Define test cases with different parameters
