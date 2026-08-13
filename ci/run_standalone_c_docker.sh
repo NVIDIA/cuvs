@@ -27,7 +27,7 @@ mkdir -p "${BUILD_OUTPUT_DIR}"
 BUILD_OUTPUT_DIR_ABS="$(cd "${BUILD_OUTPUT_DIR}" && pwd)"
 
 echo "Building Docker image ${IMAGE_NAME} (CUDA ${CUDA_VERSION}, Python ${PYTHON_VERSION})..."
-docker build -f ci/standalone_c/Dockerfile.standalone_c \
+docker build -f Dockerfile.standalone \
   --build-arg CUDA_VERSION="${CUDA_VERSION}" \
   --build-arg PYTHON_VERSION="${PYTHON_VERSION}" \
   -t "${IMAGE_NAME}" \

@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 #
-# Environment and runner for standalone C build (see build_standalone_c.sh in this dir).
+# Environment and runner for the standalone C build (see ci/standalone_c/build_standalone_c.sh).
 # Build args: CUDA_VERSION (default 13.0), PYTHON_VERSION (default 3.11).
 #
 # End-user instructions: see ci/README-standalone-c.md
@@ -13,7 +13,7 @@ FROM rapidsai/ci-wheel:26.04-cuda${CUDA_VERSION}-rockylinux8-py${PYTHON_VERSION}
 
 ARG NINJA_VERSION=v1.13.1
 
-# System packages required by build_standalone_c.sh
+# System packages required by ci/standalone_c/build_standalone_c.sh
 RUN dnf install -y \
     patch \
     tar \
@@ -40,7 +40,7 @@ RUN set -euo pipefail; \
         rm /tmp/ninja-linux.zip; \
     fi
 
-# CMake; sccache/date are configured at runtime by build_standalone_c.sh
+# CMake; sccache/date are configured at runtime by ci/standalone_c/build_standalone_c.sh
 RUN rapids-pip-retry install cmake \
     && pyenv rehash
 

@@ -19,7 +19,7 @@ ARGS=$*
 # scripts, and that this script resides in the repo dir!
 REPODIR=$(cd "$(dirname "$0")"; pwd)
 
-VALIDARGS="clean libcuvs python rust go java docs tests bench-ann examples --uninstall  -v -g -n --allgpuarch --no-mg --mnmg-tests --no-cpu --cpu-only --no-shared-libs --no-nvtx --show_depr_warn --incl-cache-stats --time -h --run-java-tests"
+VALIDARGS="clean libcuvs python rust go java docs tests bench-ann examples tarball --uninstall  -v -g -n --allgpuarch --no-mg --mnmg-tests --no-cpu --cpu-only --no-shared-libs --no-nvtx --show_depr_warn --incl-cache-stats --time -h --run-java-tests"
 HELP="$0 [<target> ...] [<flag> ...] [--cmake-args=\"<args>\"] [--cache-tool=<tool>] [--limit-tests=<targets>] [--limit-bench-ann=<targets>] [--build-metrics=<filename>]
  where <target> is:
    clean            - remove all existing build artifacts and configuration (start over)
@@ -33,6 +33,7 @@ HELP="$0 [<target> ...] [<flag> ...] [--cmake-args=\"<args>\"] [--cache-tool=<to
    tests            - build the tests
    bench-ann        - build end-to-end ann benchmarks
    examples         - build the examples
+   tarball          - create the standalone C library tarball from c/build/install
 
  and <flag> is:
    -v                          - verbose build mode
@@ -573,4 +574,12 @@ if hasArg examples; then
     pushd "${REPODIR}"/examples
     ./build.sh
     popd
+fi
+
+################################################################################
+# Create the standalone C library tarball (if requested)
+
+if hasArg tarball; then
+    tar czf "${REPODIR}/libcuvs_c.tar.gz" -C "${REPODIR}/c/build/install" .
+    ls -lh "${REPODIR}/libcuvs_c.tar.gz"
 fi

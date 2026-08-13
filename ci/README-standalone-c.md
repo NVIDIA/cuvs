@@ -56,7 +56,7 @@ If you prefer to build and run the image yourself instead of using the helper sc
 
 ```bash
 # Build the image (defaults: CUDA 13.0, Python 3.11)
-docker build -f ci/standalone_c/Dockerfile.standalone_c -t cuvs-standalone-c .
+docker build -f Dockerfile.standalone -t cuvs-standalone-c .
 
 # Run the build; the tarball will appear in ./build on your machine
 docker run --rm \
@@ -68,7 +68,7 @@ docker run --rm \
 **Custom CUDA or Python version:** add build args when building the image:
 
 ```bash
-docker build -f ci/standalone_c/Dockerfile.standalone_c \
+docker build -f Dockerfile.standalone \
   --build-arg CUDA_VERSION=12.4 \
   --build-arg PYTHON_VERSION=3.10 \
   -t cuvs-standalone-c .

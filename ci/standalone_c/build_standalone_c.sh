@@ -4,9 +4,12 @@
 #
 # Build script for the standalone C library. Expects to be run inside an
 # environment that already provides: dnf packages (patch, tar, unzip, wget),
-# ninja, cmake (e.g. ci/standalone_c/Dockerfile.standalone_c).
+# ninja, cmake (e.g. Dockerfile.standalone).
 
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 TOOLSET_VERSION=14
 
@@ -73,5 +76,4 @@ rapids-pip-retry install git+https://github.com/rapidsai/spdx-license-builder.gi
 license-builder . --output-json c/build/install/licenses.json --output-txt c/build/install/LICENSE
 
 rapids-logger "Begin c tarball creation"
-tar czf libcuvs_c.tar.gz -C c/build/install/ .
-ls -lh libcuvs_c.tar.gz
+"${REPO_ROOT}/build.sh" tarball
