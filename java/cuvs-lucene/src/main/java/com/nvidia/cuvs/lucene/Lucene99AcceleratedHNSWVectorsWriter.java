@@ -246,8 +246,7 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
           vectorIndexLength,
           size,
           hnswGraph,
-          graphLevelNodeOffsets,
-          acceleratedHNSWParams.getGraphdegree());
+          graphLevelNodeOffsets);
       cagraIndex.close();
     } catch (Throwable t) {
       Utils.handleThrowable(t);
@@ -300,10 +299,7 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
     FieldInfo fieldInfo = fieldData.fieldInfo();
     try {
       CuVSHostMatrix dataset = fieldData.getHostMatrix();
-      long ts = StageTimers.start();
       nativeFlat.writeField(fieldInfo, dataset, maxDoc, fieldData.getDocsWithFieldSet());
-      StageTimers.stop(
-          "flat-write [DISK]", ts, (long) count * fieldInfo.getVectorDimension() * Float.BYTES);
       writeFieldInternal(fieldInfo, dataset);
     } finally {
       fieldData.releaseNativeBuffer();

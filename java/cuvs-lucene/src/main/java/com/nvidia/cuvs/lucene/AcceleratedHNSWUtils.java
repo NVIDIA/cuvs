@@ -83,7 +83,7 @@ public class AcceleratedHNSWUtils {
    * M = ceil(cagraGraphDegree / 2), where cagraGraphDegree is the CAGRA adjacency list's degree
    * (its column count). Ceil is used to accommodate odd graph degrees.
    * Each layer contains 1/M nodes from the previous layer
-   * Creates layers until the highest layer has <= M nodes
+   * Creates layers until the highest layer has ≤ M nodes
    * <p>
    * Vectors for higher-layer subsets are read directly from the native matrix
    * via {@link CuVSMatrix#getRow(long)} and {@link RowView#toArray(float[])},
