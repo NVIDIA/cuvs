@@ -19,14 +19,14 @@ if [[ "${1:-}" == "--tarball-build-tests" ]]; then
 fi
 
 source rapids-install-sccache
+source rapids-configure-sccache
 
-# The base image enables anonymous S3 access. CI forwards temporary AWS
-# credentials into the container, and sccache rejects both modes at once.
+# rapids-configure-sccache enables anonymous S3 access by default. CI forwards
+# temporary AWS credentials, and sccache rejects both modes at once.
 if [[ -n "${AWS_ACCESS_KEY_ID:-}" ]]; then
   unset SCCACHE_S3_NO_CREDENTIALS
 fi
 
-source rapids-configure-sccache
 source rapids-datetime-string
 
 rapids-print-env
