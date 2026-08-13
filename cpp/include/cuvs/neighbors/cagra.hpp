@@ -4641,7 +4641,7 @@ std::pair<size_t, size_t> cagra_build_mem_usage(raft::resources const& res,
 /**
  * @brief Optimize a KNN graph into a CAGRA graph.
  *
- * This function optimizes a k-NN graph to create a CAGRA graph.
+ * This function optimizes a host-side k-NN graph to create a CAGRA graph.
  * The input/output graphs must be on host memory.
  *
  * Usage example:
@@ -4665,16 +4665,10 @@ void optimize(raft::resources const& handle,
               bool guarantee_connectivity = false);
 
 /**
- * @brief Optimize a KNN graph into a CAGRA graph without leaving device memory.
+ * @brief Optimize a KNN graph into a CAGRA graph.
  *
- * Same as the host overload, but both graphs stay in device memory. Pruning,
- * reverse-graph construction and the final merge all run on device with no host
- * staging. This avoids copying the graph out and back, and avoids serialising the
- * reverse-graph phase into `graph_degree` separate host gathers, each with its own
- * H2D copy and stream synchronisation.
- *
- * Prefer this overload when the k-NN graph is already on device, for example the
- * output of `all_neighbors::build`.
+ * This function optimizes a device-side k-NN graph to create a CAGRA graph.
+ * The input/output graphs must be on device memory.
  *
  * Usage example:
  * @code{.cpp}

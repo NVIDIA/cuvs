@@ -1952,12 +1952,6 @@ void optimize(
 {
   using internal_IdxT = typename std::make_unsigned<IdxT>::type;
 
-  // Propagate the caller's memory types rather than erasing them to
-  // `memory_type::host`. Erasing them makes the device-resident branches
-  // inside graph::optimize unreachable -- the `is_device_accessible` path in
-  // make_reverse_graph_gpu, and the zero-copy `kPassthrough` mode of
-  // batch_load_iterator -- so a caller that already holds the graph on device
-  // is forced through host staging.
   using g_accessor_internal =
     raft::host_device_accessor<cuda::std::default_accessor<internal_IdxT>, g_accessor::mem_type>;
   using n_accessor_internal =
