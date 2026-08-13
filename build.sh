@@ -582,8 +582,9 @@ fi
 
 if hasArg tarball; then
     if [[ "${CUVS_TARBALL_IN_CONTAINER:-0}" == "1" ]]; then
-        tar czf "${REPODIR}/libcuvs_c.tar.gz" -C "${REPODIR}/c/build/install" .
-        ls -lh "${REPODIR}/libcuvs_c.tar.gz"
+        BUILD_OUTPUT_DIR="${BUILD_OUTPUT_DIR:-${REPODIR}}"
+        tar czf "${BUILD_OUTPUT_DIR}/libcuvs_c.tar.gz" -C "${REPODIR}/c/build/install" .
+        ls -lh "${BUILD_OUTPUT_DIR}/libcuvs_c.tar.gz"
     else
         CUDA_VERSION="${CUDA_VERSION:-13.0}"
         PYTHON_VERSION="${PYTHON_VERSION:-3.11}"

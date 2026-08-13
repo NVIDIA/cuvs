@@ -52,6 +52,6 @@ ENV CUVS_TARBALL_IN_CONTAINER=1
 # Run from repo root; the repo is expected to be bind-mounted at /workspace.
 WORKDIR /workspace
 
-# Run the build script, then copy the standalone tarball into the mounted output dir.
+# Run the build script, which writes the standalone tarball to the mounted output dir.
 # Example: docker run -v $(pwd):/workspace -v $(pwd)/build:/build <image> [--tarball-build-tests]
-ENTRYPOINT ["/bin/bash", "-c", "ci/standalone_c/build_standalone_c.sh \"$@\" && cp -v libcuvs_c.tar.gz \"$BUILD_OUTPUT_DIR/\"", "--"]
+ENTRYPOINT ["/bin/bash", "-c", "ci/standalone_c/build_standalone_c.sh \"$@\"", "--"]
