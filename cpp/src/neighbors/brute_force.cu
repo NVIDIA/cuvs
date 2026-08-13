@@ -3,6 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+// Must precede any RAFT header: supplies atomicAdd(double*) / atomicAdd_block for
+// device passes below sm_60, where CUDA does not declare them.
+#include <util/atomic_compat.cuh>
+
 #include <cuvs/core/cuda_fp16.hpp>
 
 #include "./detail/knn_brute_force.cuh"

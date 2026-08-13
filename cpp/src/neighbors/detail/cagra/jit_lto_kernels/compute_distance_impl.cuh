@@ -14,6 +14,8 @@
 #include "../compute_distance_vpq.hpp"
 #include "../device_memory_ops.hpp"
 
+#include <util/half_compat.cuh>  // cuvs::util::half2_sq_residual
+
 #include <raft/util/integer_utils.hpp>
 #include <type_traits>
 
@@ -175,10 +177,10 @@ _RAFT_DEVICE RAFT_DEVICE_INLINE_FUNCTION auto compute_distance_vpq_worker_impl(
               device::lds(c2,
                           pq_codebook_ptr +
                             sizeof(smem_val_pack_uint_t) * ((1 << PQ_BITS) * m + (pq_code & 0xff)));
-              auto dist =
-                q2 - c2 - reinterpret_cast<half2(&)[PQ_LEN * vlen / 2]>(vq_vals)[vq_half2_index];
-              dist = dist * dist;
-              norm += static_cast<DISTANCE_T>(dist.x + dist.y);
+              norm += static_cast<DISTANCE_T>(cuvs::util::half2_sq_residual(
+                q2,
+                c2,
+                reinterpret_cast<half2(&)[PQ_LEN * vlen / 2]>(vq_vals)[vq_half2_index]));
             } else if constexpr (num_packed_elements == 4 || num_packed_elements == 8) {
               smem_val_pack_t q_vec, c_vec;
               device::lds(q_vec.as_uint(),
@@ -192,10 +194,10 @@ _RAFT_DEVICE RAFT_DEVICE_INLINE_FUNCTION auto compute_distance_vpq_worker_impl(
               for (uint32_t bi = 0; bi < num_packed_elements / 2; bi++) {
                 q2 = q_vec.as_half2(bi);
                 c2 = c_vec.as_half2(bi);
-                auto dist =
-                  q2 - c2 - reinterpret_cast<half2(&)[PQ_LEN * vlen / 2]>(vq_vals)[vq_half2_index];
-                dist = dist * dist;
-                norm += static_cast<DISTANCE_T>(dist.x + dist.y);
+                norm += static_cast<DISTANCE_T>(cuvs::util::half2_sq_residual(
+                  q2,
+                  c2,
+                  reinterpret_cast<half2(&)[PQ_LEN * vlen / 2]>(vq_vals)[vq_half2_index]));
                 vq_half2_index += 1;
               }
             }

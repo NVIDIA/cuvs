@@ -16,6 +16,7 @@
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resource/device_memory_resource.hpp>
 #include <raft/core/resources.hpp>
+#include <raft/util/cudart_utils.hpp>  // raft::getComputeCapability
 
 #include <cooperative_groups.h>
 #include <cuda/atomic>
@@ -686,6 +687,35 @@ struct gpu_time_keeper {
  * this kernel, and the upstream search is dispatched right after this kernel (in the same stream).
  *
  */
+
+// ---------------------------------------------------------------------------------------------
+// Dynamic batching relies on *system-scope* atomics for the CPU<->GPU handshake (host threads
+// commit queries into a token while the device kernel polls it). System-scope atomics -- indeed
+// any scope-qualified atomic -- are an sm_60 feature; libcu++ lowers `cuda::atomic` to
+// `atom.*.sys` / `atom.*.gpu` PTX unconditionally, which ptxas rejects for older targets.
+//
+// There is no meaningful emulation: sm_50 has no coherent host/device atomics at all. The kernel
+// bodies below are therefore compiled out for pre-Pascal device passes, and the host side refuses
+// to construct a batch runner on such a device (see `assert_dynamic_batching_supported`).
+// ---------------------------------------------------------------------------------------------
+#if !defined(__CUDA_ARCH__) || (__CUDA_ARCH__ >= 600)
+#define CUVS_DYNAMIC_BATCHING_DEVICE_SUPPORTED 1
+#else
+#define CUVS_DYNAMIC_BATCHING_DEVICE_SUPPORTED 0
+#endif
+
+/** Throws a descriptive error if the current device cannot run the dynamic batching kernels. */
+inline void assert_dynamic_batching_supported()
+{
+  auto cc = raft::getComputeCapability();
+  RAFT_EXPECTS(cc.first >= 6,
+               "cuvs::neighbors::dynamic_batching requires compute capability 6.0 or newer "
+               "(system-scope atomics are used for the host/device handshake), but the current "
+               "device is %d.%d.",
+               cc.first,
+               cc.second);
+}
+
 template <typename T, typename IdxT>
 RAFT_KERNEL gather_inputs(
   raft::device_matrix_view<T, uint32_t, raft::row_major> batch_queries,
@@ -708,6 +738,9 @@ RAFT_KERNEL gather_inputs(
    */
   cuda::atomic<uint32_t, cuda::std::thread_scope_device>* kernel_progress_counter)
 {
+#if !CUVS_DYNAMIC_BATCHING_DEVICE_SUPPORTED
+  __trap();
+#else
   const uint32_t query_id = blockIdx.x;
   __shared__ const T* query_ptr;
 
@@ -797,6 +830,7 @@ RAFT_KERNEL gather_inputs(
   for (uint32_t i = threadIdx.x; i < dim; i += blockDim.x) {
     batch_queries(query_id, i) = query_ptr_local[i];
   }
+#endif  // CUVS_DYNAMIC_BATCHING_DEVICE_SUPPORTED
 }
 
 /** Copy the results of the search back to the requesters. */
@@ -809,6 +843,9 @@ RAFT_KERNEL scatter_outputs(
   cuda::atomic<batch_token, cuda::thread_scope_system>* next_token,
   uint32_t batch_id)
 {
+#if !CUVS_DYNAMIC_BATCHING_DEVICE_SUPPORTED
+  __trap();
+#else
   __shared__ uint32_t batch_size;
   if (threadIdx.x == 0 && threadIdx.y == 0) {
     batch_size = kernel_progress_counter->exchange(0, cuda::std::memory_order_relaxed);
@@ -831,6 +868,7 @@ RAFT_KERNEL scatter_outputs(
   reinterpret_cast<cuda::atomic<uint32_t, cuda::thread_scope_system>*>(
     &reinterpret_cast<batch_token*>(next_token)->id())
     ->store(batch_id, cuda::std::memory_order_relaxed);
+#endif  // CUVS_DYNAMIC_BATCHING_DEVICE_SUPPORTED
 }
 
 /**
@@ -910,6 +948,9 @@ class batch_runner {
       request_ptrs_{raft::make_pinned_matrix<request_pointers<T, IdxT>, uint32_t>(
         res_, n_queues_, max_batch_size_)}
   {
+    // Fail early and explicitly rather than at kernel launch: the batching kernels are compiled
+    // out on pre-Pascal devices (see the note above `gather_inputs`).
+    assert_dynamic_batching_supported();
     RAFT_CUDA_TRY(cudaMemsetAsync(
       kernel_progress_counters_.data_handle(),
       0,

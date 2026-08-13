@@ -36,7 +36,11 @@ RAFT_KERNEL compute_binary_row_norm_kernel(value_t* out,
     // possible there could be some stray zeros in
     // the sparse structure and removing them would be
     // more expensive.
-    atomicAdd(&out[coo_rows[i]], data[i] == 1.0);
+    // The explicit cast matters: without it the arguments are `(value_t*, bool)`. On sm_60+ that
+    // still resolves, through an implicit conversion, to CUDA's native `atomicAdd(double*, double)`.
+    // That overload does not exist below sm_60, leaving only RAFT's `atomicAdd(T*, T)` template,
+    // whose deduction then fails on the mismatched argument types.
+    atomicAdd(&out[coo_rows[i]], static_cast<value_t>(data[i] == value_t(1)));
   }
 }
 

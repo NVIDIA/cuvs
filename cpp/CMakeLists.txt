@@ -36,6 +36,52 @@ set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 rapids_cmake_write_version_file(include/cuvs/version_config.h)
 
 # ##################################################################################################
+# * target architecture capabilities -----------------------------------------
+#
+# Determine the lowest/highest SM version this build targets and expose it to the sources through a
+# generated header (rather than a global -D, which would invalidate every object file whenever the
+# architecture list changes). Sources use it to compile out code paths that simply cannot be built
+# for pre-Volta targets, most notably the CUTLASS-backed distance kernels.
+
+set(CUVS_MIN_CUDA_ARCH 0)
+set(CUVS_MAX_CUDA_ARCH 0)
+
+if(NOT BUILD_CPU_ONLY AND CMAKE_CUDA_ARCHITECTURES)
+  set(_cuvs_arch_values)
+  foreach(_cuvs_arch IN LISTS CMAKE_CUDA_ARCHITECTURES)
+    # Entries may look like "80", "80-real", "80-virtual", "90a", "100f"; keep the leading digits.
+    if(_cuvs_arch MATCHES "^([0-9]+)")
+      list(APPEND _cuvs_arch_values "${CMAKE_MATCH_1}")
+    endif()
+  endforeach()
+  if(_cuvs_arch_values)
+    list(SORT _cuvs_arch_values COMPARE NATURAL)
+    list(GET _cuvs_arch_values 0 _cuvs_arch_lo)
+    list(GET _cuvs_arch_values -1 _cuvs_arch_hi)
+    math(EXPR CUVS_MIN_CUDA_ARCH "${_cuvs_arch_lo} * 10")
+    math(EXPR CUVS_MAX_CUDA_ARCH "${_cuvs_arch_hi} * 10")
+  endif()
+  unset(_cuvs_arch_values)
+endif()
+
+# CUTLASS (and the cuVS epilogues layered on it) require sm_70 or newer to even compile. The kernels
+# are only ever dispatched to on sm_80+, so dropping them for older targets is behaviour-preserving.
+if(CUVS_MIN_CUDA_ARCH EQUAL 0 OR CUVS_MIN_CUDA_ARCH GREATER_EQUAL 700)
+  set(CUVS_CUTLASS_ENABLED 1)
+else()
+  set(CUVS_CUTLASS_ENABLED 0)
+  message(
+    STATUS
+      "cuVS: targeting SM ${CUVS_MIN_CUDA_ARCH}; CUTLASS distance kernels disabled (need sm_70+), falling back to SIMT/JIT kernels"
+  )
+endif()
+
+configure_file(
+  "${CMAKE_CURRENT_SOURCE_DIR}/cmake/arch_config.hpp.in"
+  "${CMAKE_CURRENT_BINARY_DIR}/include/cuvs/detail/arch_config.hpp" @ONLY
+)
+
+# ##################################################################################################
 # * build type ---------------------------------------------------------------
 
 # Set a default build type if none was specified
@@ -347,10 +393,27 @@ if(NOT BUILD_CPU_ONLY)
     )
   endif()
 
+  # The JIT-LTO fragments are compiled once, to LTO-IR, and retargeted to the running device by
+  # nvJitLink (see src/detail/jit_lto/AlgorithmPlanner.cpp). LTO-IR is forward compatible, so a
+  # single baseline architecture covers every newer device -- but it can *not* be linked down to an
+  # older one. The baseline therefore has to be no higher than the oldest architecture we build for.
   set(JIT_LTO_TARGET_ARCHITECTURE "70-real")
   if(CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 13.0)
     set(JIT_LTO_TARGET_ARCHITECTURE "75-real")
   endif()
+
+  string(REGEX MATCH "^[0-9]+" _jit_lto_baseline "${JIT_LTO_TARGET_ARCHITECTURE}")
+  math(EXPR _jit_lto_baseline "${_jit_lto_baseline} * 10")
+  if(CUVS_MIN_CUDA_ARCH GREATER 0 AND CUVS_MIN_CUDA_ARCH LESS ${_jit_lto_baseline})
+    math(EXPR _jit_lto_arch "${CUVS_MIN_CUDA_ARCH} / 10")
+    set(JIT_LTO_TARGET_ARCHITECTURE "${_jit_lto_arch}-real")
+    message(
+      STATUS
+        "cuVS: lowering JIT-LTO baseline architecture to ${JIT_LTO_TARGET_ARCHITECTURE} to match CMAKE_CUDA_ARCHITECTURES"
+    )
+    unset(_jit_lto_arch)
+  endif()
+  unset(_jit_lto_baseline)
 
   # Generate interleaved scan kernel files at build time
 
@@ -359,6 +422,8 @@ if(NOT BUILD_CPU_ONLY)
     jit_lto_kernel_usage_requirements
     INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/include" "${CMAKE_CURRENT_SOURCE_DIR}/src"
               "${CMAKE_CURRENT_SOURCE_DIR}/../c/include"
+              # so the offline-compiled kernels can see the generated cuvs/detail/arch_config.hpp
+              "${CMAKE_CURRENT_BINARY_DIR}/include"
   )
   target_compile_options(
     jit_lto_kernel_usage_requirements INTERFACE "$<$<COMPILE_LANGUAGE:CXX>:${CUVS_CXX_FLAGS}>"

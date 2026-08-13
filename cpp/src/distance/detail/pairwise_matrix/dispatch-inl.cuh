@@ -21,6 +21,7 @@
 
 #include "../distance_ops/cutlass.cuh"                                 // ops::has_cutlass_op
 #include "../pairwise_matrix/jit_lto_kernels/pairwise_matrix_jit.cuh"  // pairwise_matrix_jit_dispatch
+#include <cuvs/detail/arch_config.hpp>                                 // CUVS_CUTLASS_ENABLED
 #include <raft/util/arch.cuh>                                          // raft::util::arch::SM_*
 
 // NOTE: to minimize compile times, we do not include dispatch_sm80.cuh.
@@ -30,6 +31,8 @@
 // src/distance/detail/pairwise_matrix/dispatch_*.cu.
 
 namespace cuvs::distance::detail {
+
+#if CUVS_CUTLASS_ENABLED
 
 // This forward-declaration ensures that we do not need to include
 // dispatch_sm80.cuh if we are not calling it in practice. This makes compiling
@@ -59,6 +62,8 @@ template <typename OpT,
 __global__ void pairwise_matrix_arch_probe_kernel()
 {
 }
+
+#endif  // CUVS_CUTLASS_ENABLED
 
 template <typename OpT,
           typename DataT,
@@ -92,6 +97,10 @@ void pairwise_matrix_dispatch(OpT distance_op,
   // Dispatch rule:
   // - execute CUTLASS-based kernel on SM_80 and above when the op supports it
   // - execute JIT kernel otherwise
+  //
+  // When the build targets pre-Volta hardware the CUTLASS path does not exist at all (it cannot be
+  // compiled there) and every op goes through the JIT kernels.
+#if CUVS_CUTLASS_ENABLED
   namespace arch = raft::util::arch;
 
   constexpr bool cutlass_op_unavailable = !ops::has_cutlass_op<OpT>::value;
@@ -115,6 +124,9 @@ void pairwise_matrix_dispatch(OpT distance_op,
 
     pairwise_matrix_jit_dispatch(distance_op, params, stream);
   }
+#else
+  pairwise_matrix_jit_dispatch(distance_op, params, stream);
+#endif
 }
 
 };  // namespace cuvs::distance::detail

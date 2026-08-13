@@ -5,6 +5,12 @@
 
 #pragma once
 
+#include <cuvs/detail/arch_config.hpp>  // CUVS_CUTLASS_ENABLED
+
+// See the note in fused_distance_nn/cutlass_base.cuh: CUTLASS requires sm_70+ to compile, and is
+// only ever dispatched to on sm_80+. Pre-Volta builds use the JIT pairwise-matrix kernels instead.
+#if CUVS_CUTLASS_ENABLED
+
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wstrict-aliasing"
 #pragma GCC diagnostic ignored "-Wtautological-compare"
@@ -172,3 +178,5 @@ std::enable_if_t<ops::has_cutlass_op<OpT>::value> cutlassDistanceKernel(const Da
 };  // namespace cuvs
 
 #pragma GCC diagnostic pop
+
+#endif  // CUVS_CUTLASS_ENABLED

@@ -3,6 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+// Must precede any RAFT header: supplies atomicAdd(double*) / atomicAdd_block for
+// device passes below sm_60, where CUDA does not declare them.
+#include <util/atomic_compat.cuh>
+
 #include "../../../distance/distance.cuh"
 #include <cuvs/distance/grammian.hpp>
 

@@ -10,6 +10,7 @@
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resource/thrust_policy.hpp>
 #include <raft/util/cuda_dev_essentials.cuh>
+#include <raft/util/cudart_utils.hpp>  // raft::getComputeCapability
 
 #include <cuco/static_map.cuh>
 #include <cuda/iterator>
@@ -232,6 +233,37 @@ class hash_strategy : public coo_spmv_strategy<value_idx, value_t, tpb> {
     }
   }
 
+  // `cuco::static_map_ref` is backed by `cuda::atomic_ref<..., cuda::thread_scope_block>`, which
+  // libcu++ lowers to scope-qualified PTX (`atom.cas.cta.*`). Scopes on atomic operations are an
+  // sm_60 feature, so on Maxwell-1 (sm_50) these three device methods cannot be compiled at all.
+  //
+  // Rather than silently degrade, the bodies become traps for that device pass and the host side
+  // refuses to select this strategy (see `assert_supported()` and its callers in coo_spmv.cuh).
+  // The `dense_smem_strategy` path stays fully functional on sm_50.
+#if !defined(__CUDA_ARCH__) || (__CUDA_ARCH__ >= 600)
+#define CUVS_SPARSE_HASH_STRATEGY_AVAILABLE 1
+#else
+#define CUVS_SPARSE_HASH_STRATEGY_AVAILABLE 0
+#endif
+
+  /** Whether this strategy can execute on the given compute capability. */
+  static bool is_supported(int cc_major, int cc_minor)
+  {
+    return (cc_major * 10 + cc_minor) >= 60;
+  }
+
+  /** Throws a descriptive error when the running device cannot execute this strategy. */
+  static void assert_supported()
+  {
+    auto cc = raft::getComputeCapability();
+    RAFT_EXPECTS(is_supported(cc.first, cc.second),
+                 "The sparse hash-table SpMV strategy requires compute capability 6.0 or newer "
+                 "(scoped atomics), but the current device is %d.%d. The input is too wide for the "
+                 "dense shared-memory strategy on this device.",
+                 cc.first,
+                 cc.second);
+  }
+
   __device__ inline map_type init_map(void* storage, const value_idx& cache_size)
   {
     auto map_ref =
@@ -242,14 +274,25 @@ class hash_strategy : public coo_spmv_strategy<value_idx, value_t, tpb> {
                cuco::cuda_thread_scope<cuda::thread_scope_block>{},
                storage_ref_type{cuco::extent<int>{cache_size},
                                 static_cast<typename storage_ref_type::value_type*>(storage)}};
+#if CUVS_SPARSE_HASH_STRATEGY_AVAILABLE
     map_ref.initialize(cooperative_groups::this_thread_block());
+#else
+    __trap();
+#endif
 
     return map_ref;
   }
 
   __device__ inline void insert(map_type& map_ref, const value_idx& key, const value_t& value)
   {
+#if CUVS_SPARSE_HASH_STRATEGY_AVAILABLE
     map_ref.insert(cuco::pair{key, value});
+#else
+    (void)map_ref;
+    (void)key;
+    (void)value;
+    __trap();
+#endif
   }
 
   // Note: init_find is now merged with init_map since the new API uses the same ref for both
@@ -257,10 +300,16 @@ class hash_strategy : public coo_spmv_strategy<value_idx, value_t, tpb> {
 
   __device__ inline value_t find(map_type& map_ref, const value_idx& key)
   {
+    value_t a_col = 0.0;
+#if CUVS_SPARSE_HASH_STRATEGY_AVAILABLE
     auto a_pair = map_ref.find(key);
 
-    value_t a_col = 0.0;
     if (a_pair != map_ref.end()) { a_col = a_pair->second; }
+#else
+    (void)map_ref;
+    (void)key;
+    __trap();
+#endif
     return a_col;
   }
 

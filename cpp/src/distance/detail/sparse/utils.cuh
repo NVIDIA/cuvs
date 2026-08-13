@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include "../../../util/arch_compat.cuh"  // cuvs::util::arch_compat::atomic_add_block
+
 #include <raft/core/math.hpp>
 
 #include <cub/warp/warp_reduce.cuh>
@@ -77,7 +79,8 @@ RAFT_KERNEL faster_dot_on_csr_kernel(dot_t* __restrict__ dot,
       __shared__ typename WarpReduce::TempStorage temp_storage;
       dot_t warp_sum = WarpReduce(temp_storage).Sum(l_dot_);
 
-      if (lane_id == 0) { atomicAdd_block(dot + dot_id, warp_sum); }
+      // Block-scoped atomics require sm_60; fall back to the device-scoped atomic below that.
+      if (lane_id == 0) { cuvs::util::arch_compat::atomic_add_block(dot + dot_id, warp_sum); }
     }
   }
 }
