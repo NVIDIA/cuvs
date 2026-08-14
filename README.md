@@ -86,7 +86,7 @@ Please see the [Build and Install Guide](https://docs.rapids.ai/api/cuvs/nightly
 
 ### Standalone C library (Docker)
 
-To build the standalone C library tarball (`libcuvs_c.tar.gz`) for use in your own C/C++ projects, see **[Building the standalone C library with Docker](https://docs.nvidia.com/cuvs/installation#build-the-standalone-c-library-with-docker)**. That guide covers prerequisites, Docker build/run commands, custom CUDA/Python versions, and where the output is written.
+To build the standalone C library tarball (`libcuvs_c.tar.gz`) for use in your own C/C++ projects, see **[Building the standalone C library with Docker](https://docs.nvidia.com/cuvs/installation#build-the-standalone-c-library-with-docker)**.
 
 ## Getting Started
 
