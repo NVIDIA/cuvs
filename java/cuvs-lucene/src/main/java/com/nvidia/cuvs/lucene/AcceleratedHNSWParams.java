@@ -86,6 +86,7 @@ public class AcceleratedHNSWParams {
   private final int beamWidth;
   private final CagraGraphBuildAlgo cagraGraphBuildAlgo;
   private final CuVSIvfPqParams cuVSIvfPqParams;
+  private final boolean cuVSIvfPqParamsExplicit;
   private final int numMergeWorkers;
   private final ExecutorService mergeExec;
   private final Strategy strategy;
@@ -105,6 +106,9 @@ public class AcceleratedHNSWParams {
    * @param beamWidth The beam width parameter used when building HNSW index with the fallback mechanism.
    * @param cagraGraphBuildAlgo The CAGRA graph build algorithm to use [NN_DESCENT, IVF_PQ].
    * @param cuVSIvfPqParams An instance of CuVSIvfPqParams containing IVF_PQ specific parameters.
+   * @param cuVSIvfPqParamsExplicit whether cuVSIvfPqParams was set explicitly by the caller, as
+   *     opposed to defaulted; consulted under HEURISTIC with an explicit IVF_PQ override so a
+   *     caller-supplied value is honored instead of silently replaced by the auto-tuned one.
    * @param numMergeWorkers The number of merge workers to use with the fallback mechanism.
    * @param mergeExec The instance of {@link ExecutorService} to use with the fallback mechanism.
    * @param strategy either HEURISTIC [Default] that delegates the CAGRA build parameters to cuVS (derived from the HNSW-equivalent maxConn and beamWidth) or CUSTOM that uses the parameters passed through this class.
@@ -122,6 +126,7 @@ public class AcceleratedHNSWParams {
       int beamWidth,
       CagraGraphBuildAlgo cagraGraphBuildAlgo,
       CuVSIvfPqParams cuVSIvfPqParams,
+      boolean cuVSIvfPqParamsExplicit,
       int numMergeWorkers,
       ExecutorService mergeExec,
       Strategy strategy,
@@ -138,6 +143,7 @@ public class AcceleratedHNSWParams {
     this.beamWidth = beamWidth;
     this.cagraGraphBuildAlgo = cagraGraphBuildAlgo;
     this.cuVSIvfPqParams = cuVSIvfPqParams;
+    this.cuVSIvfPqParamsExplicit = cuVSIvfPqParamsExplicit;
     this.numMergeWorkers = numMergeWorkers;
     this.mergeExec = mergeExec;
     this.strategy = strategy;
@@ -217,6 +223,16 @@ public class AcceleratedHNSWParams {
    */
   public CuVSIvfPqParams getCuVSIvfPqParams() {
     return cuVSIvfPqParams;
+  }
+
+  /**
+   * Whether {@link #getCuVSIvfPqParams()} was set explicitly via {@link
+   * Builder#withCuVSIvfPqParams(CuVSIvfPqParams)}, as opposed to defaulted.
+   *
+   * @return true if the caller explicitly set cuVSIvfPqParams
+   */
+  public boolean isCuVSIvfPqParamsExplicit() {
+    return cuVSIvfPqParamsExplicit;
   }
 
   /**
@@ -337,6 +353,7 @@ public class AcceleratedHNSWParams {
     private CagraGraphBuildAlgo cagraGraphBuildAlgo = DEFAULT_CAGRA_GRAPH_BUILD_ALGO;
     private int numMergeWorkers = DEFAULT_NUM_MERGE_WORKERS;
     private CuVSIvfPqParams cuVSIvfPqParams = null;
+    private boolean cuVSIvfPqParamsExplicit = false;
     private ExecutorService mergeExec = null;
     private Strategy strategy = DEFAULT_STRATEGY;
     private CuvsDistanceType cuvsDistanceType = DEFAULT_CUVS_DISTANCE_TYPE;
@@ -442,6 +459,7 @@ public class AcceleratedHNSWParams {
      */
     public Builder withCuVSIvfPqParams(CuVSIvfPqParams cuVSIvfPqParams) {
       this.cuVSIvfPqParams = cuVSIvfPqParams;
+      this.cuVSIvfPqParamsExplicit = true;
       return this;
     }
 
@@ -654,6 +672,7 @@ public class AcceleratedHNSWParams {
           beamWidth,
           cagraGraphBuildAlgo,
           cuVSIvfPqParams,
+          cuVSIvfPqParamsExplicit,
           numMergeWorkers,
           mergeExec,
           strategy,

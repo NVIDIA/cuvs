@@ -23,10 +23,22 @@ import com.nvidia.cuvs.CuVSIvfPqSearchParams;
  */
 public class CagraIndexParamsFactory {
 
-  private static final int ALGO_SWITCH_THRESHOLD = 5_000_000;
-
   private CagraIndexParamsFactory() {}
 
+  /**
+   * Translation of the internal logic found in the constructor of {@code struct ivf_pq_params} in
+   * cuVS's {@code cpp/include/cuvs/neighbors/ivf_pq.hpp}.
+   *
+   * Ideally we should hook into the internal API but this is currently replicated to avoid complications
+   * in other parts of code base.
+   *
+   * TODO: cuvs-java has no standalone binding for that C++ constructor -- only fromHnswParams and
+   * fromDataset, which bundle algorithm selection together with parameter tuning and offer no way
+   * to pin the algorithm while still getting cuVS's own auto-tuned IVF-PQ parameters. If cuvs-java
+   * exposed the ivf_pq_params(dataset_extents, metric) constructor directly (or an equivalent
+   * narrower entry point that derives IVF-PQ parameters without also choosing the algorithm), this
+   * method could delegate to it instead of reimplementing the heuristic here.
+   */
   private static CuVSIvfPqParams getCuVSIvfPqParams(long rows, long dimension) {
     int pqDim;
     int pqBits;
@@ -104,16 +116,23 @@ public class CagraIndexParamsFactory {
         .build();
   }
 
+  /**
+   * @param explicitIvfPqParams the caller's own IVF-PQ params if they set one ({@link
+   *     AcceleratedHNSWParams#isCuVSIvfPqParamsExplicit()}), honored as-is; otherwise {@code
+   *     null}, in which case params are auto-tuned from {@code rows}/{@code dimension}.
+   */
   private static CagraIndexParams getIVFPQParams(
       int graphDegree,
       int intGraphDegree,
       int writerThreads,
       long rows,
       long dimension,
-      CuvsDistanceType cuvsDistanceType) {
+      CuvsDistanceType cuvsDistanceType,
+      CuVSIvfPqParams explicitIvfPqParams) {
     return new CagraIndexParams.Builder()
         .withCagraGraphBuildAlgo(CagraGraphBuildAlgo.IVF_PQ)
-        .withCuVSIvfPqParams(getCuVSIvfPqParams(rows, dimension))
+        .withCuVSIvfPqParams(
+            explicitIvfPqParams != null ? explicitIvfPqParams : getCuVSIvfPqParams(rows, dimension))
         .withNumWriterThreads(writerThreads)
         .withIntermediateGraphDegree(intGraphDegree)
         .withGraphDegree(graphDegree)
@@ -187,7 +206,10 @@ public class CagraIndexParamsFactory {
             acceleratedHNSWParams.getWriterThreads(),
             rows,
             dimension,
-            acceleratedHNSWParams.getCuvsDistanceType());
+            acceleratedHNSWParams.getCuvsDistanceType(),
+            acceleratedHNSWParams.isCuVSIvfPqParamsExplicit()
+                ? acceleratedHNSWParams.getCuVSIvfPqParams()
+                : null);
       } else if (algo == CagraGraphBuildAlgo.NN_DESCENT) {
         return getNNDescentParams(
             acceleratedHNSWParams.getGraphdegree(),
