@@ -597,7 +597,7 @@ if hasArg tarball; then
         fi
 
         mkdir -p "${BUILD_OUTPUT_DIR}"
-        BUILD_OUTPUT_DIR_ABS=$(cd "${BUILD_OUTPUT_DIR}"; pwd)
+        BUILD_OUTPUT_DIR_ABS=$(realpath "${BUILD_OUTPUT_DIR}")
 
         echo "Building Docker image ${IMAGE_NAME} (CUDA ${CUDA_VERSION}, Python ${PYTHON_VERSION})..."
         docker build -f "${REPODIR}/Dockerfile.standalone" \
