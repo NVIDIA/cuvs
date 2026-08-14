@@ -22,8 +22,8 @@ function(find_and_configure_rtcx VERSION)
     BUILD_EXPORT_SET    cuvs-static-exports
     INSTALL_EXPORT_SET  cuvs-static-exports
     CPM_ARGS
-    GIT_REPOSITORY https://github.com/rapidsai/librtcx
-    GIT_TAG ab54b94596f06a141453f1fc81e66e43b65a49c5
+    GIT_REPOSITORY https://github.com/arhag23/librtcx
+    GIT_TAG 0e00b7e32aeae5656ca91bfa886b6f050050bffa
     GIT_SHALLOW FALSE
   )
 
