@@ -4,8 +4,6 @@ groups:
     build:
       codec:
         - "Lucene101AcceleratedHNSWCodec"
-        - "Lucene101AcceleratedHNSWBaseLayerCodec"
-        - "Lucene101AcceleratedHNSWMultiLayerCodec"
     search: {}
   test:
     build:

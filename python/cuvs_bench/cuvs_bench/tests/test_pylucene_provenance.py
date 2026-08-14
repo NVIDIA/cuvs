@@ -40,10 +40,10 @@ def test_hnsw_provenance_round_trip(tmp_path):
     )
 
     assert verification.to_metadata() == {
-        "status": "gpu-hnsw-provenance",
-        "schema_version": 1,
+        "status": "gpu-with-cpu-fallback-provenance",
+        "schema_version": 2,
         "codec": _HNSW_CODEC,
-        "writer_path": "gpu-hnsw",
+        "writer_policy": "gpu-with-cpu-fallback",
         "vector_count": 10,
         "dimensions": 4,
         "commit_file_count": 1,
@@ -74,9 +74,9 @@ def test_cagra_provenance_round_trip(tmp_path):
 
     assert verification.to_metadata() == {
         "status": "gpu-cagra-provenance",
-        "schema_version": 1,
+        "schema_version": 2,
         "codec": _CAGRA_CODEC,
-        "writer_path": "gpu-cagra",
+        "writer_policy": "gpu-cagra",
         "vector_count": 10,
         "dimensions": 4,
         "commit_file_count": 1,
@@ -109,7 +109,7 @@ def test_hnsw_provenance_rejects_dataset_shape_mismatch(
 @pytest.mark.parametrize(
     ("manifest_state", "error"),
     [
-        ("wrong-writer", "required GPU writer path"),
+        ("wrong-policy", "expected writer policy"),
         ("boolean-count", "positive integer"),
         ("malformed-fingerprint", "malformed Lucene commit fingerprint"),
         ("duplicate-fingerprint", "must be unique and sorted"),
@@ -122,8 +122,8 @@ def test_hnsw_provenance_rejects_malformed_manifest_fields(
     manifest_path = _prepare_hnsw_index(index_path)
     payload = json.loads(manifest_path.read_text())
 
-    if manifest_state == "wrong-writer":
-        payload["writer_path"] = "cpu-hnsw"
+    if manifest_state == "wrong-policy":
+        payload["writer_policy"] = "gpu-cagra"
     elif manifest_state == "boolean-count":
         payload["vector_count"] = True
     elif manifest_state == "malformed-fingerprint":

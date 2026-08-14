@@ -14,16 +14,14 @@ import numpy as np
 import pytest
 
 import cuvs_bench.backends.pylucene as pylucene_backend
-from cuvs_bench.backends.pylucene import _ResolvedCodec
+from cuvs_bench.backends.pylucene import _BuildCodec
 from cuvs_bench.tests._pylucene_test_utils import _HNSW_CODEC
 
 
-def _resolved_codec(java_codec=None, writer_path="gpu-hnsw") -> _ResolvedCodec:
-    return _ResolvedCodec(
-        codec_name=_HNSW_CODEC,
+def _build_codec(java_codec=None) -> _BuildCodec:
+    return _BuildCodec(
         java_codec=java_codec if java_codec is not None else object(),
-        telemetry={"writerPath": writer_path},
-        writer_path=writer_path,
+        writer_policy="gpu-with-cpu-fallback",
     )
 
 
@@ -97,6 +95,37 @@ class _FakeIndexWriterConfig:
 
     def setMergeScheduler(self, _scheduler):
         pass
+
+
+class _FakeAvailableCodecs:
+    def __init__(self, names):
+        self.names = names
+
+    def contains(self, name):
+        return name in self.names
+
+    def __iter__(self):
+        return iter(self.names)
+
+
+def _fake_codec_runtime(codec, available_names=(_HNSW_CODEC,)):
+    registry = SimpleNamespace(
+        calls=[],
+        availableCodecs=lambda: _FakeAvailableCodecs(available_names),
+    )
+
+    def for_name(codec_name):
+        registry.calls.append(codec_name)
+        return codec
+
+    registry.forName = for_name
+    runtime = pylucene_backend._PyLuceneRuntime.__new__(
+        pylucene_backend._PyLuceneRuntime
+    )
+    runtime.attach_current_thread = lambda: None
+    runtime.Codec = registry
+    runtime._codec_cache = {}
+    return runtime, registry
 
 
 def _fake_index_writer_runtime(error_at=None, directory_close_error=None):
@@ -379,6 +408,46 @@ def test_initialize_pylucene_reports_missing_jar(monkeypatch):
         pylucene_backend._initialize_pylucene({})
 
 
+def test_resolve_codec_validates_and_caches_initialized_vector_format():
+    vectors_format = object()
+    codec = SimpleNamespace(
+        getName=lambda: _HNSW_CODEC,
+        knnVectorsFormat=lambda: vectors_format,
+    )
+    runtime, registry = _fake_codec_runtime(codec)
+
+    assert runtime.resolve_codec(_HNSW_CODEC) is codec
+    assert runtime.resolve_codec(_HNSW_CODEC) is codec
+    assert registry.calls == [_HNSW_CODEC]
+
+
+@pytest.mark.parametrize(
+    ("available_names", "returned_name", "vectors_format", "error"),
+    [
+        ((), _HNSW_CODEC, object(), "was not advertised by Lucene SPI"),
+        ((_HNSW_CODEC,), "DifferentCodec", object(), "Requested codec"),
+        (
+            (_HNSW_CODEC,),
+            _HNSW_CODEC,
+            None,
+            "did not initialize a Lucene vector format",
+        ),
+    ],
+    ids=["missing-spi", "wrong-name", "missing-vector-format"],
+)
+def test_resolve_codec_rejects_unusable_codec(
+    available_names, returned_name, vectors_format, error
+):
+    codec = SimpleNamespace(
+        getName=lambda: returned_name,
+        knnVectorsFormat=lambda: vectors_format,
+    )
+    runtime, _ = _fake_codec_runtime(codec, available_names)
+
+    with pytest.raises(RuntimeError, match=error):
+        runtime.resolve_codec(_HNSW_CODEC)
+
+
 @pytest.mark.parametrize("jvm_args", ["-Xmx1g", ["-Xmx1g", 1]])
 def test_initialize_pylucene_rejects_invalid_jvm_args(
     jvm_args, tmp_path, monkeypatch
@@ -403,56 +472,17 @@ def test_initialize_pylucene_rejects_invalid_jvm_args(
         )
 
 
-@pytest.mark.parametrize(
-    ("description", "expected"),
-    [
-        (
-            "Format(writerPath=gpu-hnsw;hnswLayers=1)",
-            {"writerPath": "gpu-hnsw", "hnswLayers": "1"},
-        ),
-        ("Format(writerPath=gpu-cagra)", {"writerPath": "gpu-cagra"}),
-    ],
-)
-def test_parse_writer_telemetry(description, expected):
-    assert pylucene_backend._parse_writer_telemetry(description) == expected
-
-
-@pytest.mark.parametrize(
-    "description",
-    ["Format", "Format(writerPath)", "Format(=gpu-hnsw)"],
-)
-def test_parse_writer_telemetry_rejects_malformed_description(description):
-    with pytest.raises(RuntimeError, match="Malformed"):
-        pylucene_backend._parse_writer_telemetry(description)
-
-
-def test_resolved_codec_copies_and_freezes_writer_telemetry():
-    telemetry = {"writerPath": "gpu-hnsw"}
-
-    resolved_codec = _ResolvedCodec(
-        codec_name=_HNSW_CODEC,
-        java_codec=object(),
-        telemetry=telemetry,
-        writer_path="gpu-hnsw",
-    )
-    telemetry["writerPath"] = "changed"
-
-    assert dict(resolved_codec.telemetry) == {"writerPath": "gpu-hnsw"}
-    with pytest.raises(TypeError):
-        resolved_codec.telemetry["writerPath"] = "changed"
-
-
 def test_runtime_build_index_commits_and_closes_writer_and_directory(tmp_path):
     runtime = _fake_index_writer_runtime()
     vectors = np.zeros((2, 4), dtype=np.float32)
 
-    telemetry = runtime.build_index(
+    result = runtime.build_index(
         tmp_path,
         vectors,
-        _resolved_codec(runtime._test_codec),
+        _build_codec(runtime._test_codec),
     )
 
-    assert telemetry == {"writerPath": "gpu-hnsw"}
+    assert result is None
     assert len(runtime._test_writer.documents) == 2
     assert runtime._test_writer.committed is True
     assert runtime._test_writer.rollback_called is False
@@ -479,7 +509,7 @@ def test_runtime_build_index_preserves_transaction_cleanup(
         runtime.build_index(
             tmp_path,
             vectors,
-            _resolved_codec(runtime._test_codec),
+            _build_codec(runtime._test_codec),
         )
 
     assert runtime._test_writer.rollback_called is expect_rollback
@@ -495,7 +525,7 @@ def test_runtime_build_index_rolls_back_on_interrupt(tmp_path):
         runtime.build_index(
             tmp_path,
             vectors,
-            _resolved_codec(runtime._test_codec),
+            _build_codec(runtime._test_codec),
         )
 
     assert runtime._test_writer.rollback_called is True
@@ -511,7 +541,7 @@ def test_runtime_build_index_preserves_interrupt_when_rollback_fails(tmp_path):
         runtime.build_index(
             tmp_path,
             vectors,
-            _resolved_codec(runtime._test_codec),
+            _build_codec(runtime._test_codec),
         )
 
     assert exc_info.value.__notes__ == [
@@ -534,7 +564,7 @@ def test_runtime_build_index_preserves_interrupt_when_directory_close_fails(
         runtime.build_index(
             tmp_path,
             vectors,
-            _resolved_codec(runtime._test_codec),
+            _build_codec(runtime._test_codec),
         )
 
     assert exc_info.value.__notes__ == [

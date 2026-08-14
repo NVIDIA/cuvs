@@ -23,7 +23,6 @@ from cuvs_bench.backends.pylucene import (
 from cuvs_bench.orchestrator.config_loaders import IndexConfig
 
 _HNSW_CODEC = "Lucene101AcceleratedHNSWCodec"
-_HNSW_BASE_LAYER_CODEC = "Lucene101AcceleratedHNSWBaseLayerCodec"
 _CAGRA_CODEC = "CuVS2510GPUSearchCodec"
 
 
@@ -33,21 +32,18 @@ class _FakeRuntime:
     def __init__(
         self,
         *,
-        writer_path: str = "gpu-hnsw",
         index_dimensions: int = 4,
         document_count: int = 10,
         hits: list[list[_SearchHit]] | None = None,
         batch_latencies_ms: list[float] | None = None,
         validate_query_dimensions: bool = True,
     ):
-        self.writer_path = writer_path
         self.index_dimensions = index_dimensions
         self.document_count = document_count
         self.hits = hits
         self.batch_latencies_ms = batch_latencies_ms
         self.validate_query_dimensions = validate_query_dimensions
         self.resolve_calls = []
-        self.telemetry_calls = []
         self.build_calls = []
         self.search_calls = []
         self.verification_calls = []
@@ -62,19 +58,13 @@ class _FakeRuntime:
             raise self.resolve_error
         return codec_name
 
-    def codec_telemetry(self, codec_name, java_codec):
-        self.telemetry_calls.append(codec_name)
-        assert java_codec == codec_name
-        return {"writerPath": self.writer_path, "codec": codec_name}
-
-    def build_index(self, index_path, vectors, resolved_codec):
-        self.build_calls.append((index_path, vectors.copy(), resolved_codec))
+    def build_index(self, index_path, vectors, build_codec):
+        self.build_calls.append((index_path, vectors.copy(), build_codec))
         if self.build_error is not None:
             (index_path / "partial").write_bytes(b"partial")
             raise self.build_error
         self.document_count = int(vectors.shape[0])
         (index_path / "segments_1").write_bytes(b"index")
-        return dict(resolved_codec.telemetry)
 
     def verify_cagra_index(
         self,

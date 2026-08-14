@@ -21,11 +21,11 @@ from cuvs_bench._bin_format import write_bin_header
 from cuvs_bench.backends._utils import compute_recall
 from cuvs_bench.backends.base import Dataset
 from cuvs_bench.backends.pylucene import (
+    _BuildCodec,
     _CAGRA_PROVENANCE_FILE,
     PyLuceneBackend,
     _HNSW_PROVENANCE_FILE,
     _PyLuceneRuntime,
-    _ResolvedCodec,
 )
 from cuvs_bench.orchestrator.config_loaders import IndexConfig
 
@@ -41,6 +41,21 @@ _CUVS_JAVA_JAR_ENV = "CUVS_LUCENE_CUVS_JAVA_JAR"
 _CUVS_LUCENE_JAR_ENV = "CUVS_LUCENE_JAR"
 _CAGRA_CODEC = "CuVS2510GPUSearchCodec"
 _HNSW_CODEC = "Lucene101AcceleratedHNSWCodec"
+_HNSW_WRITER_POLICY = "gpu-with-cpu-fallback"
+_GPU_HNSW_WRITER = (
+    "com.nvidia.cuvs.lucene.Lucene99AcceleratedHNSWVectorsWriter"
+)
+_WRITER_SELECTION_CODEC = "com.nvidia.cuvs.bench.PyLuceneWriterSelectionCodec"
+_WRITER_SELECTION_SOURCE = (
+    Path(__file__).resolve().parents[2]
+    / "tests"
+    / "java"
+    / "com"
+    / "nvidia"
+    / "cuvs"
+    / "bench"
+    / "PyLuceneWriterSelectionCodec.java"
+)
 
 
 def _write_test_bin(path: Path, data: np.ndarray) -> None:
@@ -61,6 +76,55 @@ def _required_jar(env_name: str) -> Path:
     return jar.resolve()
 
 
+def _single_search_result(results):
+    assert len(results) == 1
+    return results[0]
+
+
+def _compile_writer_selection_codec(
+    output_dir: Path,
+    cuvs_java_jar: Path,
+    cuvs_lucene_jar: Path,
+    pylucene_classpath: str,
+) -> None:
+    environment_javac = Path(sys.prefix) / "lib" / "jvm" / "bin" / "javac"
+    javac = shutil.which("javac")
+    if javac is None and environment_javac.is_file():
+        javac = str(environment_javac)
+    if javac is None:
+        pytest.fail("javac is required for the PyLucene integration tests")
+    if not _WRITER_SELECTION_SOURCE.is_file():
+        pytest.fail(
+            "PyLucene writer-selection test source is missing: "
+            f"{_WRITER_SELECTION_SOURCE}"
+        )
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    compile_classpath = os.pathsep.join(
+        (str(cuvs_java_jar), str(cuvs_lucene_jar), pylucene_classpath)
+    )
+    completed = subprocess.run(
+        [
+            javac,
+            "--release",
+            "22",
+            "-classpath",
+            compile_classpath,
+            "-d",
+            str(output_dir),
+            str(_WRITER_SELECTION_SOURCE),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        pytest.fail(
+            "Could not compile the PyLucene writer-selection test codec:\n"
+            f"stdout:\n{completed.stdout}\nstderr:\n{completed.stderr}"
+        )
+
+
 def _assert_cagra_verification(
     metadata, expected_vector_count, expected_dimensions
 ):
@@ -77,9 +141,9 @@ def _assert_cagra_provenance(
 ):
     assert metadata["cagra_provenance"] == {
         "status": "gpu-cagra-provenance",
-        "schema_version": 1,
+        "schema_version": 2,
         "codec": _CAGRA_CODEC,
-        "writer_path": "gpu-cagra",
+        "writer_policy": "gpu-cagra",
         "vector_count": expected_vector_count,
         "dimensions": expected_dimensions,
         "commit_file_count": 1,
@@ -116,10 +180,10 @@ def _assert_hnsw_verification(
 ):
     verification = metadata["hnsw_verification"]
     assert verification == {
-        "status": "gpu-hnsw-provenance",
-        "schema_version": 1,
+        "status": "gpu-with-cpu-fallback-provenance",
+        "schema_version": 2,
         "codec": codec,
-        "writer_path": "gpu-hnsw",
+        "writer_policy": _HNSW_WRITER_POLICY,
         "vector_count": expected_vector_count,
         "dimensions": expected_dimensions,
         "commit_file_count": 1,
@@ -127,7 +191,7 @@ def _assert_hnsw_verification(
 
 
 @pytest.fixture(scope="module")
-def pylucene_runtime_config():
+def pylucene_runtime_config(tmp_path_factory):
     """Resolve the explicitly configured PyLucene/cuVS runtime."""
     if os.environ.get(_OPT_IN_ENV) != "1":
         pytest.skip(f"set {_OPT_IN_ENV}=1 to run PyLucene integration tests")
@@ -145,9 +209,18 @@ def pylucene_runtime_config():
         )
 
     try:
-        importlib.import_module("lucene")
+        lucene = importlib.import_module("lucene")
     except ImportError as exc:
         pytest.fail(f"PyLucene is not importable: {exc}")
+
+    test_classes = tmp_path_factory.mktemp("pylucene-java-test-classes")
+    _compile_writer_selection_codec(
+        test_classes,
+        cuvs_java_jar,
+        cuvs_lucene_jar,
+        lucene.CLASSPATH,
+    )
+    lucene.CLASSPATH = os.pathsep.join((str(test_classes), lucene.CLASSPATH))
 
     return {
         "cuvs_java_jar": str(cuvs_java_jar),
@@ -160,59 +233,21 @@ def pylucene_runtime_config():
     (
         "algo",
         "codec",
-        "expected_writer_telemetry",
+        "expected_writer_policy",
         "expected_index_suffix",
     ),
     [
         pytest.param(
             "pylucene_cuvs_hnsw",
             "Lucene101AcceleratedHNSWCodec",
-            {
-                "writerPath": "gpu-hnsw",
-                "hnswLayers": "1",
-                "cagraGraphBuildAlgo": "NN_DESCENT",
-                "cagraGraphDegree": "64",
-                "cagraIntermediateGraphDegree": "128",
-            },
+            _HNSW_WRITER_POLICY,
             ".vex",
             id="accelerated-hnsw",
         ),
         pytest.param(
-            "pylucene_cuvs_hnsw",
-            "Lucene101AcceleratedHNSWBaseLayerCodec",
-            {
-                "writerPath": "gpu-hnsw",
-                "hnswLayers": "1",
-                "cagraGraphBuildAlgo": "NN_DESCENT",
-                "cagraGraphDegree": "32",
-                "cagraIntermediateGraphDegree": "64",
-            },
-            ".vex",
-            id="accelerated-hnsw-base-layer",
-        ),
-        pytest.param(
-            "pylucene_cuvs_hnsw",
-            "Lucene101AcceleratedHNSWMultiLayerCodec",
-            {
-                "writerPath": "gpu-hnsw",
-                "hnswLayers": "3",
-                "cagraGraphBuildAlgo": "NN_DESCENT",
-                "cagraGraphDegree": "32",
-                "cagraIntermediateGraphDegree": "64",
-            },
-            ".vex",
-            id="accelerated-hnsw-multi-layer",
-        ),
-        pytest.param(
             "pylucene_cuvs_cagra",
             "CuVS2510GPUSearchCodec",
-            {
-                "writerPath": "gpu-cagra",
-                "cagraStrategy": "HEURISTIC",
-                "cagraGraphBuildAlgo": "NN_DESCENT",
-                "cagraGraphDegree": "64",
-                "cagraIntermediateGraphDegree": "128",
-            },
+            "gpu-cagra",
             ".vcag",
             id="cagra",
         ),
@@ -223,7 +258,7 @@ def test_build_and_search_with_real_pylucene_runtime(
     pylucene_runtime_config,
     algo,
     codec,
-    expected_writer_telemetry,
+    expected_writer_policy,
     expected_index_suffix,
 ):
     """Build and search through Lucene's public codec and query SPI."""
@@ -275,14 +310,7 @@ def test_build_and_search_with_real_pylucene_runtime(
         assert build_result.index_size_bytes > 0
         assert build_result.metadata["codec"] == codec
         assert build_result.metadata["pylucene_version"] != "unknown"
-        assert (
-            build_result.metadata["writer_path"]
-            == expected_writer_telemetry["writerPath"]
-        )
-        assert (
-            build_result.metadata["writer_telemetry"]
-            == expected_writer_telemetry
-        )
+        assert build_result.metadata["writer_policy"] == expected_writer_policy
         assert any(
             path.suffix == expected_index_suffix
             for path in index_path.iterdir()
@@ -330,7 +358,9 @@ def test_build_and_search_with_real_pylucene_runtime(
                 training_vectors.shape[1],
             )
 
-        search_result = backend.search(dataset, [index], k=k, batch_size=2)
+        search_result = _single_search_result(
+            backend.search(dataset, [index], k=k, batch_size=2)
+        )
         assert search_result.success, search_result.error_message
         assert search_result.neighbors.shape == (query_vectors.shape[0], k)
         assert search_result.distances.shape == (query_vectors.shape[0], k)
@@ -351,8 +381,7 @@ def test_build_and_search_with_real_pylucene_runtime(
         )
         assert np.all(np.diff(search_result.distances, axis=1) >= -1e-6)
         assert search_result.search_time_ms > 0
-        assert search_result.latency_seconds is not None
-        assert search_result.latency_seconds > 0
+        assert search_result.metadata["latency_seconds"] > 0
         assert search_result.queries_per_second > 0
         assert search_result.metadata["codec"] == codec
         assert search_result.metadata["pylucene_version"] != "unknown"
@@ -382,7 +411,9 @@ def test_build_and_search_with_real_pylucene_runtime(
             assert "vector count does not match the dataset: 512 != 511" in (
                 rejected.error_message
             )
-            rejected = backend.search(wrong_count_dataset, [index], k=k)
+            rejected = _single_search_result(
+                backend.search(wrong_count_dataset, [index], k=k)
+            )
             assert not rejected.success
             assert "vector count does not match the dataset: 512 != 511" in (
                 rejected.error_message
@@ -392,13 +423,17 @@ def test_build_and_search_with_real_pylucene_runtime(
             original_data = data_path.read_bytes()
 
             data_path.unlink()
-            rejected = backend.search(dataset, [index], k=k)
+            rejected = _single_search_result(
+                backend.search(dataset, [index], k=k)
+            )
             assert not rejected.success
             assert "cannot read" in rejected.error_message
             data_path.write_bytes(original_data)
 
             data_path.write_bytes(original_data[:-1])
-            rejected = backend.search(dataset, [index], k=k)
+            rejected = _single_search_result(
+                backend.search(dataset, [index], k=k)
+            )
             assert not rejected.success
             assert "do not exactly cover" in rejected.error_message
             data_path.write_bytes(original_data)
@@ -411,7 +446,9 @@ def test_build_and_search_with_real_pylucene_runtime(
                 data_path,
                 ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns),
             )
-            rejected = backend.search(dataset, [index], k=k)
+            rejected = _single_search_result(
+                backend.search(dataset, [index], k=k)
+            )
             assert not rejected.success
             assert "checksum" in rejected.error_message.lower()
             data_path.write_bytes(original_data)
@@ -428,7 +465,9 @@ def test_build_and_search_with_real_pylucene_runtime(
             _commit_one_deletion(backend, deleted_index_path)
             with pytest.raises(RuntimeError, match="committed deletions"):
                 backend._get_runtime().verify_cagra_index(deleted_index_path)
-            rejected = backend.search(dataset, [deleted_index], k=k)
+            rejected = _single_search_result(
+                backend.search(dataset, [deleted_index], k=k)
+            )
             assert not rejected.success
             assert "does not match the current Lucene commit" in (
                 rejected.error_message
@@ -455,7 +494,9 @@ def test_build_and_search_with_real_pylucene_runtime(
                 original_segment = segment_path.read_bytes()
 
                 manifest_path.unlink()
-                rejected = backend.search(dataset, [index], k=k)
+                rejected = _single_search_result(
+                    backend.search(dataset, [index], k=k)
+                )
                 assert not rejected.success
                 assert "provenance manifest is missing" in (
                     rejected.error_message
@@ -463,7 +504,9 @@ def test_build_and_search_with_real_pylucene_runtime(
                 manifest_path.write_bytes(original_manifest)
 
                 manifest_path.write_text("{")
-                rejected = backend.search(dataset, [index], k=k)
+                rejected = _single_search_result(
+                    backend.search(dataset, [index], k=k)
+                )
                 assert not rejected.success
                 assert "provenance manifest cannot be read" in (
                     rejected.error_message
@@ -471,7 +514,9 @@ def test_build_and_search_with_real_pylucene_runtime(
                 manifest_path.write_bytes(original_manifest)
 
                 segment_path.write_bytes(original_segment + b"stale")
-                rejected = backend.search(dataset, [index], k=k)
+                rejected = _single_search_result(
+                    backend.search(dataset, [index], k=k)
+                )
                 assert not rejected.success
                 assert "does not match the current Lucene commit" in (
                     rejected.error_message
@@ -479,9 +524,11 @@ def test_build_and_search_with_real_pylucene_runtime(
                 segment_path.write_bytes(original_segment)
 
                 payload = json.loads(original_manifest)
-                payload["codec"] = "Lucene101AcceleratedHNSWBaseLayerCodec"
+                payload["codec"] = _CAGRA_CODEC
                 manifest_path.write_text(json.dumps(payload))
-                rejected = backend.search(dataset, [index], k=k)
+                rejected = _single_search_result(
+                    backend.search(dataset, [index], k=k)
+                )
                 assert not rejected.success
                 assert "does not match the requested codec" in (
                     rejected.error_message
@@ -489,6 +536,30 @@ def test_build_and_search_with_real_pylucene_runtime(
                 manifest_path.write_bytes(original_manifest)
     finally:
         backend.cleanup()
+
+
+def test_real_hnsw_codec_selects_gpu_writer(tmp_path, pylucene_runtime_config):
+    """Prove the production HNSW codec selects its GPU writer on this host."""
+    runtime = _PyLuceneRuntime.create(pylucene_runtime_config)
+    runtime.attach_current_thread()
+    reflected_codec = runtime.Class.forName(
+        _WRITER_SELECTION_CODEC
+    ).newInstance()
+    java_codec = runtime.Codec.cast_(reflected_codec)
+    index_path = tmp_path / "hnsw-writer-selection-index"
+    index_path.mkdir()
+
+    runtime.build_index(
+        index_path,
+        np.ones((2, 32), dtype=np.float32),
+        _BuildCodec(
+            java_codec=java_codec,
+            writer_policy=_HNSW_WRITER_POLICY,
+        ),
+    )
+
+    diagnostics = str(java_codec.knnVectorsFormat())
+    assert f"writerClass={_GPU_HNSW_WRITER}" in diagnostics
 
 
 def test_real_verifier_rejects_cagra_brute_force_fallback(
@@ -500,16 +571,12 @@ def test_real_verifier_rejects_cagra_brute_force_fallback(
     index_path = tmp_path / "cagra-fallback-index"
     index_path.mkdir()
     java_codec = runtime.resolve_codec(_CAGRA_CODEC)
-    telemetry = runtime.codec_telemetry(_CAGRA_CODEC, java_codec)
-    assert telemetry["writerPath"] == "gpu-cagra"
     runtime.build_index(
         index_path,
         vectors,
-        _ResolvedCodec(
-            codec_name=_CAGRA_CODEC,
+        _BuildCodec(
             java_codec=java_codec,
-            telemetry=telemetry,
-            writer_path=telemetry["writerPath"],
+            writer_policy="gpu-cagra",
         ),
     )
 
@@ -539,7 +606,7 @@ def test_real_verifier_rejects_cagra_brute_force_fallback(
     )
     backend._runtime = runtime
     try:
-        result = backend.search(dataset, [index], k=1)
+        result = _single_search_result(backend.search(dataset, [index], k=1))
         assert not result.success
         assert "CAGRA provenance manifest is missing" in result.error_message
     finally:
@@ -650,45 +717,23 @@ def test_cli_build_and_search_with_real_pylucene_runtime(
     )
 
     codec = "Lucene101AcceleratedHNSWCodec"
-    index_name = f"pylucene_cuvs_hnsw_test.codec{codec}"
+    index_name = f"pylucene_cuvs_hnsw[group=test][codec={codec}]"
     index_path = dataset_dir / "index" / index_name
     assert any(path.suffix == ".vex" for path in index_path.iterdir())
     assert (index_path / _HNSW_PROVENANCE_FILE).is_file()
 
     result_path = dataset_dir / "result"
-    build_json = result_path / "build" / "pylucene_cuvs_hnsw,test.json"
+    build_csv = result_path / "build" / "pylucene_cuvs_hnsw,test.csv"
     search_stem = f"pylucene_cuvs_hnsw,test,k{k},bs2"
-    search_json = result_path / "search" / f"{search_stem}.json"
-    build_rows = json.loads(build_json.read_text())["benchmarks"]
-    search_rows = json.loads(search_json.read_text())["benchmarks"]
+    with build_csv.open(newline="") as file:
+        build_rows = list(csv.DictReader(file))
     assert len(build_rows) == 1
-    assert len(search_rows) == 1
 
     build_row = build_rows[0]
-    assert build_row["name"] == f"{index_name}/build"
-    assert build_row["real_time"] > 0
-    assert build_row["index_size"] > 0
+    assert build_row["index_name"] == index_name
+    assert float(build_row["time"]) > 0
     assert build_row["codec"] == codec
-    assert build_row["writer_path"] == "gpu-hnsw"
-    _assert_hnsw_verification(
-        build_row,
-        codec,
-        training_vectors.shape[0],
-        training_vectors.shape[1],
-    )
-
-    search_row = search_rows[0]
-    assert search_row["name"] == f"{index_name}/search"
-    assert search_row["Recall"] >= 0.75
-    assert search_row["items_per_second"] > 0
-    assert search_row["Latency"] > 0
-    assert search_row["search_time_ms"] > 0
-    _assert_hnsw_verification(
-        search_row,
-        codec,
-        training_vectors.shape[0],
-        training_vectors.shape[1],
-    )
+    assert build_row["writer_policy"] == _HNSW_WRITER_POLICY
 
     raw_csv = result_path / "search" / f"{search_stem},raw.csv"
     with raw_csv.open(newline="") as file:
@@ -700,5 +745,9 @@ def test_cli_build_and_search_with_real_pylucene_runtime(
     assert float(csv_row["throughput"]) > 0
     assert float(csv_row["latency"]) > 0
     assert float(csv_row["build time"]) > 0
+    assert float(csv_row["p50"]) > 0
+    assert float(csv_row["p95"]) > 0
+    assert float(csv_row["p99"]) > 0
+    assert csv_row["codec"] == codec
     assert (result_path / "search" / f"{search_stem},latency.csv").is_file()
     assert (result_path / "search" / f"{search_stem},throughput.csv").is_file()

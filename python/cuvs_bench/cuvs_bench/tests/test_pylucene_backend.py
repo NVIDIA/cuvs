@@ -17,7 +17,6 @@ import cuvs_bench.backends.pylucene as pylucene_backend
 from cuvs_bench.backends.pylucene import _SearchHit
 from cuvs_bench.tests._pylucene_test_utils import (
     _CAGRA_CODEC,
-    _HNSW_BASE_LAYER_CODEC,
     _HNSW_CODEC,
     _FakeRuntime,
     _backend,
@@ -26,6 +25,11 @@ from cuvs_bench.tests._pylucene_test_utils import (
     _prepare_cagra_index,
     _prepare_hnsw_index,
 )
+
+
+def _only_search_result(results):
+    assert len(results) == 1
+    return results[0]
 
 
 @pytest.mark.parametrize(
@@ -49,7 +53,7 @@ def test_build_dry_run_does_not_initialize_pylucene(tmp_path):
     assert result.metadata["codec"] == _HNSW_CODEC
 
 
-def test_build_creates_index_and_reports_gpu_writer(tmp_path):
+def test_build_creates_index_and_records_hnsw_writer_policy(tmp_path):
     runtime = _FakeRuntime()
     backend = _backend(runtime)
     index_path = tmp_path / "index"
@@ -58,26 +62,25 @@ def test_build_creates_index_and_reports_gpu_writer(tmp_path):
 
     assert result.success
     assert result.index_size_bytes > len(b"index")
-    assert result.metadata["writer_path"] == "gpu-hnsw"
-    assert result.metadata["writer_telemetry"]["writerPath"] == "gpu-hnsw"
+    assert result.metadata["writer_policy"] == "gpu-with-cpu-fallback"
     assert result.metadata["hnsw_verification"] == {
-        "status": "gpu-hnsw-provenance",
-        "schema_version": 1,
+        "status": "gpu-with-cpu-fallback-provenance",
+        "schema_version": 2,
         "codec": _HNSW_CODEC,
-        "writer_path": "gpu-hnsw",
+        "writer_policy": "gpu-with-cpu-fallback",
         "vector_count": 10,
         "dimensions": 4,
         "commit_file_count": 1,
     }
     assert (index_path / pylucene_backend._HNSW_PROVENANCE_FILE).is_file()
     assert runtime.resolve_calls == [_HNSW_CODEC]
-    assert runtime.telemetry_calls == [_HNSW_CODEC]
     assert len(runtime.build_calls) == 1
+    assert runtime.build_calls[0][2].writer_policy == ("gpu-with-cpu-fallback")
     assert runtime.verification_calls == []
 
 
 def test_build_verifies_persisted_cagra_index(tmp_path):
-    runtime = _FakeRuntime(writer_path="gpu-cagra")
+    runtime = _FakeRuntime()
     index_path = tmp_path / "index"
 
     result = _backend(runtime, codec=_CAGRA_CODEC).build(
@@ -90,9 +93,9 @@ def test_build_verifies_persisted_cagra_index(tmp_path):
     assert runtime.verification_calls == [(index_path, 10, 4)]
     assert result.metadata["cagra_provenance"] == {
         "status": "gpu-cagra-provenance",
-        "schema_version": 1,
+        "schema_version": 2,
         "codec": _CAGRA_CODEC,
-        "writer_path": "gpu-cagra",
+        "writer_policy": "gpu-cagra",
         "vector_count": 10,
         "dimensions": 4,
         "commit_file_count": 1,
@@ -108,7 +111,7 @@ def test_build_verifies_persisted_cagra_index(tmp_path):
 
 
 def test_build_rejects_persisted_cagra_fallback_and_removes_index(tmp_path):
-    runtime = _FakeRuntime(writer_path="gpu-cagra")
+    runtime = _FakeRuntime()
     runtime.verification_error = RuntimeError("persisted brute-force index")
     index_path = tmp_path / "index"
 
@@ -136,10 +139,9 @@ def test_build_reuses_existing_index_without_runtime(tmp_path):
     assert result.success
     assert result.metadata["skipped"] is True
     assert result.metadata["hnsw_verification"]["status"] == (
-        "gpu-hnsw-provenance"
+        "gpu-with-cpu-fallback-provenance"
     )
     assert runtime.resolve_calls == []
-    assert runtime.telemetry_calls == []
     assert runtime.build_calls == []
     assert runtime.verification_calls == []
 
@@ -158,7 +160,6 @@ def test_build_reports_reused_index_sizing_failure(tmp_path, monkeypatch):
 
     assert not result.success
     assert "cannot read index size" in result.error_message
-    assert runtime.telemetry_calls == []
     assert runtime.build_calls == []
 
 
@@ -172,14 +173,13 @@ def test_build_rejects_reused_hnsw_index_without_provenance(tmp_path):
 
     assert not result.success
     assert "provenance manifest is missing" in result.error_message
-    assert runtime.telemetry_calls == []
     assert runtime.build_calls == []
 
 
 def test_build_verifies_reused_cagra_index(tmp_path):
     index_path = tmp_path / "index"
     _prepare_cagra_index(index_path)
-    runtime = _FakeRuntime(writer_path="gpu-cagra")
+    runtime = _FakeRuntime()
 
     result = _backend(runtime, codec=_CAGRA_CODEC).build(
         _dataset(),
@@ -199,7 +199,6 @@ def test_build_verifies_reused_cagra_index(tmp_path):
         "vector_count": 10,
         "dimensions": 4,
     }
-    assert runtime.telemetry_calls == []
     assert runtime.build_calls == []
 
 
@@ -207,7 +206,7 @@ def test_build_rejects_reused_cagra_index_that_cannot_be_verified(tmp_path):
     index_path = tmp_path / "index"
     _prepare_cagra_index(index_path)
     segments_file = index_path / "segments_1"
-    runtime = _FakeRuntime(writer_path="gpu-cagra")
+    runtime = _FakeRuntime()
     runtime.verification_error = RuntimeError("persisted brute-force index")
 
     result = _backend(runtime, codec=_CAGRA_CODEC).build(
@@ -219,7 +218,6 @@ def test_build_rejects_reused_cagra_index_that_cannot_be_verified(tmp_path):
     assert "persisted brute-force index" in result.error_message
     assert runtime.verification_calls == [(index_path, 10, 4)]
     assert segments_file.read_bytes() == b"index"
-    assert runtime.telemetry_calls == []
     assert runtime.build_calls == []
 
 
@@ -229,7 +227,7 @@ def test_build_rejects_reused_cagra_index_without_provenance_before_runtime(
     index_path = tmp_path / "index"
     index_path.mkdir()
     (index_path / "segments_1").write_bytes(b"existing")
-    runtime = _FakeRuntime(writer_path="gpu-cagra")
+    runtime = _FakeRuntime()
 
     result = _backend(runtime, codec=_CAGRA_CODEC).build(
         _dataset(),
@@ -257,7 +255,6 @@ def test_build_rejects_unrelated_existing_directory(tmp_path, force):
     assert not result.success
     assert "does not contain a Lucene segments file" in result.error_message
     assert unrelated_file.exists()
-    assert runtime.telemetry_calls == []
 
 
 def test_build_rejects_existing_index_path_that_is_a_file(tmp_path):
@@ -290,6 +287,39 @@ def test_build_force_replaces_existing_index(tmp_path):
     assert (index_path / "segments_1").exists()
 
 
+def test_build_refuses_index_outside_configured_root(tmp_path):
+    allowed_root = tmp_path / "dataset" / "index"
+    external_index = tmp_path / "external-index"
+    external_index.mkdir()
+    (external_index / "segments_1").write_bytes(b"existing")
+    old_file = external_index / "old"
+    old_file.write_bytes(b"must remain")
+    runtime = _FakeRuntime()
+    backend = _backend(runtime)
+    backend.config["index_root"] = str(allowed_root)
+
+    result = backend.build(_dataset(), [_index(external_index)], force=True)
+
+    assert not result.success
+    assert "immediate child" in result.error_message
+    assert old_file.read_bytes() == b"must remain"
+    assert runtime.resolve_calls == []
+    assert runtime.build_calls == []
+
+
+def test_safe_remove_rechecks_configured_root(tmp_path):
+    allowed_root = tmp_path / "allowed"
+    external_index = tmp_path / "external-index"
+    external_index.mkdir()
+    old_file = external_index / "old"
+    old_file.write_bytes(b"must remain")
+
+    with pytest.raises(ValueError, match="outside its configured root"):
+        pylucene_backend._safe_remove_index(external_index, allowed_root)
+
+    assert old_file.read_bytes() == b"must remain"
+
+
 def test_build_preserves_existing_index_if_codec_preflight_fails(tmp_path):
     index_path = tmp_path / "index"
     index_path.mkdir()
@@ -308,36 +338,17 @@ def test_build_preserves_existing_index_if_codec_preflight_fails(tmp_path):
     assert old_file.exists()
 
 
-def test_build_rejects_silent_cpu_fallback_and_removes_index(tmp_path):
-    runtime = _FakeRuntime(writer_path="cpu-hnsw-fallback")
+def test_build_accepts_production_hnsw_fallback_policy(tmp_path):
+    runtime = _FakeRuntime()
     index_path = tmp_path / "index"
 
     result = _backend(runtime).build(
         _dataset(), [_index(index_path)], force=True
     )
 
-    assert not result.success
-    assert "silent CPU" in result.error_message
-    assert not index_path.exists()
-    assert runtime.build_calls == []
-
-
-def test_build_preserves_existing_index_on_cpu_fallback(tmp_path):
-    runtime = _FakeRuntime(writer_path="cpu-hnsw-fallback")
-    index_path = tmp_path / "index"
-    index_path.mkdir()
-    (index_path / "segments_1").write_bytes(b"existing")
-    old_file = index_path / "old"
-    old_file.write_bytes(b"old")
-
-    result = _backend(runtime).build(
-        _dataset(), [_index(index_path)], force=True
-    )
-
-    assert not result.success
-    assert "silent CPU" in result.error_message
-    assert old_file.read_bytes() == b"old"
-    assert runtime.build_calls == []
+    assert result.success
+    assert result.metadata["writer_policy"] == "gpu-with-cpu-fallback"
+    assert runtime.build_calls[0][2].writer_policy == ("gpu-with-cpu-fallback")
 
 
 @pytest.mark.parametrize(
@@ -369,15 +380,15 @@ def test_build_rejects_nonfinite_vectors(tmp_path):
 
 
 @pytest.mark.parametrize(
-    ("codec", "writer_path"),
+    "codec",
     [
-        (_HNSW_CODEC, "gpu-hnsw"),
-        (_CAGRA_CODEC, "gpu-cagra"),
+        _HNSW_CODEC,
+        _CAGRA_CODEC,
     ],
     ids=["hnsw", "cagra"],
 )
-def test_build_rejects_single_vector_cuvs_bypass(tmp_path, codec, writer_path):
-    runtime = _FakeRuntime(writer_path=writer_path)
+def test_build_rejects_single_vector_cuvs_bypass(tmp_path, codec):
+    runtime = _FakeRuntime()
 
     result = _backend(runtime, codec=codec).build(
         _dataset(n_base=1),
@@ -388,7 +399,6 @@ def test_build_rejects_single_vector_cuvs_bypass(tmp_path, codec, writer_path):
     assert not result.success
     assert "at least two training vectors" in result.error_message
     assert "does not invoke cuVS" in result.error_message
-    assert runtime.telemetry_calls == []
     assert not (tmp_path / "index").exists()
 
 
@@ -416,7 +426,9 @@ def test_explicit_invalid_codec_does_not_fall_back_to_backend_config(
     backend = _backend(codec=_HNSW_CODEC)
 
     build_result = backend.build(_dataset(), [index], dry_run=True)
-    search_result = backend.search(_dataset(), [index], k=3, dry_run=True)
+    search_result = _only_search_result(
+        backend.search(_dataset(), [index], k=3, dry_run=True)
+    )
 
     for result in (build_result, search_result):
         assert not result.success
@@ -514,7 +526,7 @@ def test_build_preserves_interrupt_when_partial_index_cleanup_fails(
     runtime.build_error = KeyboardInterrupt()
     index_path = tmp_path / "index"
 
-    def fail_cleanup(_index_path):
+    def fail_cleanup(_index_path, trusted_index_root=None):
         raise PermissionError("cleanup denied")
 
     monkeypatch.setattr(pylucene_backend, "_safe_remove_index", fail_cleanup)
@@ -532,7 +544,7 @@ def test_build_reports_partial_index_cleanup_failure(tmp_path, monkeypatch):
     runtime.build_error = RuntimeError("Java build failed")
     index_path = tmp_path / "index"
 
-    def fail_cleanup(_index_path):
+    def fail_cleanup(_index_path, trusted_index_root=None):
         raise PermissionError("cleanup denied")
 
     monkeypatch.setattr(pylucene_backend, "_safe_remove_index", fail_cleanup)
@@ -550,8 +562,10 @@ def test_build_reports_partial_index_cleanup_failure(tmp_path, monkeypatch):
 def test_search_dry_run_does_not_initialize_pylucene(tmp_path):
     backend = _backend()
 
-    result = backend.search(
-        _dataset(), [_index(tmp_path / "index")], k=3, dry_run=True
+    result = _only_search_result(
+        backend.search(
+            _dataset(), [_index(tmp_path / "index")], k=3, dry_run=True
+        )
     )
 
     assert result.success
@@ -572,8 +586,10 @@ def test_search_converts_hits_scores_and_padding(tmp_path):
         ]
     )
 
-    result = _backend(runtime).search(
-        _dataset(), [_index(index_path)], k=3, batch_size=1
+    result = _only_search_result(
+        _backend(runtime).search(
+            _dataset(), [_index(index_path)], k=3, batch_size=1
+        )
     )
 
     assert result.success
@@ -585,7 +601,7 @@ def test_search_converts_hits_scores_and_padding(tmp_path):
     assert result.distances[1, 0] == pytest.approx(4.0)
     assert np.isinf(result.distances[:, -1]).all()
     assert result.search_time_ms == pytest.approx(2.0)
-    assert result.latency_seconds == pytest.approx(0.001)
+    assert result.metadata["latency_seconds"] == pytest.approx(0.001)
     assert result.queries_per_second == pytest.approx(1000.0)
     assert result.latency_percentiles == {
         "p50": 1.0,
@@ -594,7 +610,7 @@ def test_search_converts_hits_scores_and_padding(tmp_path):
     }
     assert result.metadata["num_batches"] == 2
     assert result.metadata["hnsw_verification"]["status"] == (
-        "gpu-hnsw-provenance"
+        "gpu-with-cpu-fallback-provenance"
     )
     assert "per_search_param_results" not in result.metadata
     assert runtime.search_calls[0][3] == 1
@@ -622,8 +638,8 @@ def test_search_end_to_end_timing_starts_before_input_verification(
     monkeypatch.setattr(pylucene_backend.time, "perf_counter", record_time)
     monkeypatch.setattr(backend, "_load_search_inputs", record_input_loading)
 
-    result = backend.search(
-        _dataset(), [_index(index_path)], k=3, batch_size=2
+    result = _only_search_result(
+        backend.search(_dataset(), [_index(index_path)], k=3, batch_size=2)
     )
 
     assert result.success
@@ -721,8 +737,10 @@ def test_search_rejects_invalid_runtime_results(tmp_path, runtime, error):
     index_path = tmp_path / "index"
     _prepare_hnsw_index(index_path)
 
-    result = _backend(runtime).search(
-        _dataset(), [_index(index_path)], k=3, batch_size=2
+    result = _only_search_result(
+        _backend(runtime).search(
+            _dataset(), [_index(index_path)], k=3, batch_size=2
+        )
     )
 
     assert not result.success
@@ -732,12 +750,14 @@ def test_search_rejects_invalid_runtime_results(tmp_path, runtime, error):
 def test_search_verifies_cagra_index_before_querying(tmp_path):
     index_path = tmp_path / "index"
     _prepare_cagra_index(index_path)
-    runtime = _FakeRuntime(writer_path="gpu-cagra")
+    runtime = _FakeRuntime()
 
-    result = _backend(runtime, codec=_CAGRA_CODEC).search(
-        _dataset(),
-        [_index(index_path, codec=_CAGRA_CODEC)],
-        k=3,
+    result = _only_search_result(
+        _backend(runtime, codec=_CAGRA_CODEC).search(
+            _dataset(),
+            [_index(index_path, codec=_CAGRA_CODEC)],
+            k=3,
+        )
     )
 
     assert result.success
@@ -758,13 +778,15 @@ def test_search_verifies_cagra_index_before_querying(tmp_path):
 def test_search_rejects_unverified_cagra_index_before_querying(tmp_path):
     index_path = tmp_path / "index"
     _prepare_cagra_index(index_path)
-    runtime = _FakeRuntime(writer_path="gpu-cagra")
+    runtime = _FakeRuntime()
     runtime.verification_error = RuntimeError("persisted brute-force index")
 
-    result = _backend(runtime, codec=_CAGRA_CODEC).search(
-        _dataset(),
-        [_index(index_path, codec=_CAGRA_CODEC)],
-        k=3,
+    result = _only_search_result(
+        _backend(runtime, codec=_CAGRA_CODEC).search(
+            _dataset(),
+            [_index(index_path, codec=_CAGRA_CODEC)],
+            k=3,
+        )
     )
 
     assert not result.success
@@ -783,12 +805,14 @@ def test_search_rejects_invalid_cagra_provenance_before_runtime(
         manifest_path.unlink()
     else:
         (index_path / "segments_1").write_bytes(b"changed commit")
-    runtime = _FakeRuntime(writer_path="gpu-cagra")
+    runtime = _FakeRuntime()
 
-    result = _backend(runtime, codec=_CAGRA_CODEC).search(
-        _dataset(),
-        [_index(index_path, codec=_CAGRA_CODEC)],
-        k=3,
+    result = _only_search_result(
+        _backend(runtime, codec=_CAGRA_CODEC).search(
+            _dataset(),
+            [_index(index_path, codec=_CAGRA_CODEC)],
+            k=3,
+        )
     )
 
     assert not result.success
@@ -853,14 +877,16 @@ def test_search_rejects_invalid_cagra_provenance_before_runtime(
 def test_search_rejects_unsupported_options(
     index, k, batch_size, search_threads, mode, error
 ):
-    result = _backend(_FakeRuntime()).search(
-        _dataset(),
-        [index],
-        k=k,
-        batch_size=batch_size,
-        mode=mode,
-        search_threads=search_threads,
-        dry_run=True,
+    result = _only_search_result(
+        _backend(_FakeRuntime()).search(
+            _dataset(),
+            [index],
+            k=k,
+            batch_size=batch_size,
+            mode=mode,
+            search_threads=search_threads,
+            dry_run=True,
+        )
     )
 
     assert not result.success
@@ -889,14 +915,21 @@ def test_resolve_search_plan_normalizes_the_complete_request(tmp_path):
 
 
 def test_search_validation_preserves_first_error_precedence(tmp_path):
-    result = _backend().search(
-        _dataset(),
-        [_index(tmp_path / "index", search_params=[{"unsupported": True}])],
-        k=0,
-        batch_size=0,
-        mode="throughput",
-        search_threads=2,
-        dry_run=True,
+    result = _only_search_result(
+        _backend().search(
+            _dataset(),
+            [
+                _index(
+                    tmp_path / "index",
+                    search_params=[{"unsupported": True}],
+                )
+            ],
+            k=0,
+            batch_size=0,
+            mode="throughput",
+            search_threads=2,
+            dry_run=True,
+        )
     )
 
     assert not result.success
@@ -910,15 +943,19 @@ def test_search_requires_exactly_one_index(index_count, tmp_path):
         for index_id in range(index_count)
     ]
 
-    result = _backend(_FakeRuntime()).search(_dataset(), indexes, k=3)
+    result = _only_search_result(
+        _backend(_FakeRuntime()).search(_dataset(), indexes, k=3)
+    )
 
     assert not result.success
     assert "exactly one" in result.error_message
 
 
 def test_search_rejects_missing_index(tmp_path):
-    result = _backend(_FakeRuntime()).search(
-        _dataset(), [_index(tmp_path / "missing")], k=3
+    result = _only_search_result(
+        _backend(_FakeRuntime()).search(
+            _dataset(), [_index(tmp_path / "missing")], k=3
+        )
     )
 
     assert not result.success
@@ -931,8 +968,8 @@ def test_search_rejects_empty_query_vectors(tmp_path):
     dataset = _dataset()
     dataset.query_vectors = np.empty((0, 4), dtype=np.float32)
 
-    result = _backend(_FakeRuntime()).search(
-        dataset, [_index(index_path)], k=3
+    result = _only_search_result(
+        _backend(_FakeRuntime()).search(dataset, [_index(index_path)], k=3)
     )
 
     assert not result.success
@@ -944,8 +981,10 @@ def test_search_reports_runtime_query_dimension_mismatch(tmp_path):
     _prepare_hnsw_index(index_path)
     runtime = _FakeRuntime(index_dimensions=8)
 
-    result = _backend(runtime).search(
-        _dataset(dimensions=4), [_index(index_path)], k=3
+    result = _only_search_result(
+        _backend(runtime).search(
+            _dataset(dimensions=4), [_index(index_path)], k=3
+        )
     )
 
     assert not result.success
@@ -962,8 +1001,10 @@ def test_search_rejects_runtime_dimensions_that_disagree_with_provenance(
         validate_query_dimensions=False,
     )
 
-    result = _backend(runtime).search(
-        _dataset(dimensions=4), [_index(index_path)], k=3
+    result = _only_search_result(
+        _backend(runtime).search(
+            _dataset(dimensions=4), [_index(index_path)], k=3
+        )
     )
 
     assert not result.success
@@ -981,7 +1022,9 @@ def test_search_rejects_query_dimensions_that_disagree_with_dataset(tmp_path):
     dataset.query_vectors = np.zeros((2, 8), dtype=np.float32)
     runtime = _FakeRuntime()
 
-    result = _backend(runtime).search(dataset, [_index(index_path)], k=3)
+    result = _only_search_result(
+        _backend(runtime).search(dataset, [_index(index_path)], k=3)
+    )
 
     assert not result.success
     assert "Query vector dimensions do not match the dataset" in (
@@ -996,7 +1039,9 @@ def test_search_reports_runtime_failure(tmp_path):
     runtime = _FakeRuntime()
     runtime.search_error = RuntimeError("Java search failed")
 
-    result = _backend(runtime).search(_dataset(), [_index(index_path)], k=3)
+    result = _only_search_result(
+        _backend(runtime).search(_dataset(), [_index(index_path)], k=3)
+    )
 
     assert not result.success
     assert "Java search failed" in result.error_message
@@ -1019,11 +1064,13 @@ def test_search_rejects_invalid_hnsw_provenance_before_runtime(
         (index_path / "segments_1").write_bytes(b"changed commit")
     else:
         payload = json.loads(manifest_path.read_text())
-        payload["codec"] = _HNSW_BASE_LAYER_CODEC
+        payload["codec"] = "DifferentCodec"
         manifest_path.write_text(json.dumps(payload))
 
     runtime = _FakeRuntime()
-    result = _backend(runtime).search(_dataset(), [_index(index_path)], k=3)
+    result = _only_search_result(
+        _backend(runtime).search(_dataset(), [_index(index_path)], k=3)
+    )
 
     assert not result.success
     assert "provenance" in result.error_message.lower()

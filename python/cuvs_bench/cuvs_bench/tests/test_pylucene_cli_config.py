@@ -8,7 +8,6 @@
 from __future__ import annotations
 
 import csv
-import json
 import subprocess
 import sys
 from pathlib import Path
@@ -18,9 +17,8 @@ import pytest
 from click.testing import CliRunner
 
 import cuvs_bench.backends.pylucene as pylucene_backend
-from cuvs_bench.backends import CppGoogleBenchmarkBackend, get_registry
+from cuvs_bench.backends import get_registry
 from cuvs_bench.backends.pylucene import (
-    PyLuceneBackend,
     PyLuceneConfigLoader,
     _SearchHit,
 )
@@ -134,11 +132,6 @@ def test_backend_and_loader_are_registered():
     assert list_config_loaders()["pylucene"] is PyLuceneConfigLoader
 
 
-def test_result_file_ownership_is_explicit():
-    assert PyLuceneBackend.orchestrator_persists_results is True
-    assert CppGoogleBenchmarkBackend.orchestrator_persists_results is False
-
-
 def test_import_does_not_load_pylucene():
     subprocess.run(
         [
@@ -208,36 +201,19 @@ def test_cli_build_search_persists_metrics_and_build_join(
     )
 
     assert result.exit_code == 0, result.output
-    index_name = f"pylucene_test_test.codec{_HNSW_CODEC}"
+    index_name = f"pylucene_test[group=test][codec={_HNSW_CODEC}]"
     index_path = dataset_path / "test-dataset" / "index" / index_name
     assert (index_path / "segments_1").is_file()
     assert (index_path / pylucene_backend._HNSW_PROVENANCE_FILE).is_file()
-    expected_index_size = sum(
-        path.stat().st_size for path in index_path.rglob("*") if path.is_file()
-    )
-
-    build_json = result_path / "build" / "pylucene_test,test.json"
-    search_json = result_path / "search" / "pylucene_test,test,k1,bs2.json"
-    build_rows = json.loads(build_json.read_text())["benchmarks"]
-    search_rows = json.loads(search_json.read_text())["benchmarks"]
+    build_csv = result_path / "build" / "pylucene_test,test.csv"
+    with build_csv.open(newline="") as file:
+        build_rows = list(csv.DictReader(file))
     assert len(build_rows) == 1
-    assert len(search_rows) == 1
-
     build_row = build_rows[0]
-    assert build_row["name"] == f"{index_name}/build"
-    assert build_row["real_time"] > 0.0
-    assert build_row["index_size"] == expected_index_size
+    assert build_row["index_name"] == index_name
+    assert float(build_row["time"]) > 0.0
     assert build_row["codec"] == _HNSW_CODEC
-    assert build_row["writer_path"] == "gpu-hnsw"
-
-    search_row = search_rows[0]
-    assert search_row["name"] == f"{index_name}/search"
-    assert search_row["Recall"] == pytest.approx(1.0)
-    assert search_row["items_per_second"] == pytest.approx(2000.0)
-    assert search_row["search_time_ms"] == pytest.approx(1.0)
-    assert search_row["real_time"] == pytest.approx(1.0)
-    assert search_row["Latency"] == pytest.approx(0.001)
-    assert search_row["p50"] == pytest.approx(1.0)
+    assert build_row["writer_policy"] == "gpu-with-cpu-fallback"
 
     raw_csv = result_path / "search" / "pylucene_test,test,k1,bs2,raw.csv"
     with raw_csv.open(newline="") as file:
@@ -249,13 +225,14 @@ def test_cli_build_search_persists_metrics_and_build_join(
     assert float(csv_row["throughput"]) == pytest.approx(2000.0)
     assert float(csv_row["latency"]) == pytest.approx(0.001)
     assert float(csv_row["build time"]) > 0.0
+    assert float(csv_row["p50"]) == pytest.approx(1.0)
     assert (raw_csv.parent / "pylucene_test,test,k1,bs2,latency.csv").is_file()
     assert (
         raw_csv.parent / "pylucene_test,test,k1,bs2,throughput.csv"
     ).is_file()
 
 
-def test_cli_returns_nonzero_and_persists_build_failure(
+def test_cli_returns_nonzero_without_persisting_failed_measurement(
     config_dir, tmp_path, monkeypatch
 ):
     from cuvs_bench.run.__main__ import main as run_main
@@ -279,17 +256,14 @@ def test_cli_returns_nonzero_and_persists_build_failure(
 
     assert result.exit_code != 0
     assert "intentional build failure" in result.output
-    build_json = (
+    build_csv = (
         dataset_path
         / "test-dataset"
         / "result"
         / "build"
-        / "pylucene_test,test.json"
+        / "pylucene_test,test.csv"
     )
-    build_rows = json.loads(build_json.read_text())["benchmarks"]
-    assert len(build_rows) == 1
-    assert build_rows[0]["success"] is False
-    assert "intentional build failure" in build_rows[0]["error_message"]
+    assert not build_csv.exists()
     assert not (dataset_path / "test-dataset" / "result" / "search").exists()
 
 
@@ -320,11 +294,14 @@ def test_config_loader_expands_codecs_and_forwards_runtime_config(config_dir):
         )
         assert config.backend_config["java_library_path"] == "/native"
         assert config.backend_config["jvm_args"] == ["-Xms1g"]
-        assert config.backend_config["requires_gpu"] is True
-        assert config.output_filename == (
-            "pylucene_test,base",
-            "pylucene_test,base,k10,bs10000",
+        codec = config.indexes[0].build_param["codec"]
+        assert config.backend_config["requires_gpu"] is (codec == _CAGRA_CODEC)
+        assert config.backend_config["group"] == "base"
+        assert config.backend_config["index_name"] == config.index_name
+        assert config.backend_config["index_root"] == str(
+            Path("/datasets/test-dataset/index")
         )
+        assert config.backend_config["result_scope"] is None
 
 
 @pytest.mark.parametrize(
@@ -369,6 +346,40 @@ groups:
         )
 
 
+@pytest.mark.parametrize(
+    ("algorithm_name", "group_name", "match"),
+    [
+        ("../../../escaped", "test", "PyLucene algorithm name"),
+        ("pylucene_safe", "../escaped", "PyLucene group name"),
+        ("pylucene,ambiguous", "test", "PyLucene algorithm name"),
+    ],
+)
+def test_config_loader_rejects_unsafe_artifact_identity(
+    config_dir, tmp_path, algorithm_name, group_name, match
+):
+    custom_config = tmp_path / "unsafe-identity.yaml"
+    custom_config.write_text(
+        f"""\
+backend: pylucene
+name: {algorithm_name}
+groups:
+  {group_name}:
+    build:
+      codec: [{_HNSW_CODEC}]
+    search: {{}}
+"""
+    )
+
+    with pytest.raises(ValueError, match=match):
+        PyLuceneConfigLoader(config_path=config_dir).load(
+            dataset="test-dataset",
+            dataset_path="/datasets",
+            algorithms=(None if "," in algorithm_name else algorithm_name),
+            groups=group_name,
+            algorithm_configuration=str(custom_config),
+        )
+
+
 def test_config_loader_scopes_artifact_identity_by_dataset_subset(config_dir):
     loader = PyLuceneConfigLoader(config_path=config_dir)
     identities = []
@@ -391,26 +402,46 @@ def test_config_loader_scopes_artifact_identity_by_dataset_subset(config_dir):
         assert dataset_config.subset_size == subset_size
         assert len(configs) == 1
         config = configs[0]
-        index_prefix = "pylucene_test_test"
-        result_stem = "pylucene_test,test"
+        index_prefix = "pylucene_test[group=test]"
         if subset_scope is not None:
-            index_prefix = f"{index_prefix}.{subset_scope}"
-            result_stem = f"{result_stem},{subset_scope}"
-        index_name = f"{index_prefix}.codec{_HNSW_CODEC}"
+            index_prefix = f"{index_prefix}[scope={subset_scope}]"
+        index_name = f"{index_prefix}[codec={_HNSW_CODEC}]"
         assert config.index_name == index_name
         assert config.index_path == (
             Path("/datasets/test-dataset/index") / index_name
         )
-        assert config.output_filename == (
-            result_stem,
-            f"{result_stem},k1,bs2",
-        )
-        assert all(Path(stem).name == stem for stem in config.output_filename)
+        assert config.backend_config["group"] == "test"
+        assert config.backend_config["index_name"] == index_name
+        assert config.backend_config["result_scope"] == subset_scope
         identities.append(
-            (config.index_name, config.index_path, config.output_filename)
+            (
+                config.index_name,
+                config.index_path,
+                config.backend_config["result_scope"],
+            )
         )
 
     assert len(set(identities)) == 3
+
+
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [
+        (("foo.subset2", "base", None), ("foo", "base", "subset2")),
+        (("a_b", "c", None), ("a", "b_c", None)),
+    ],
+)
+def test_index_labels_are_injective(first, second):
+    build_params = {"codec": _HNSW_CODEC}
+
+    first_label = PyLuceneConfigLoader._index_label(
+        first[0], first[1], first[2], build_params
+    )
+    second_label = PyLuceneConfigLoader._index_label(
+        second[0], second[1], second[2], build_params
+    )
+
+    assert first_label != second_label
 
 
 @pytest.mark.parametrize("subset_size", [0, -1, True, "../other"])
@@ -464,7 +495,9 @@ groups:
 
     assert len(configs) == 1
     assert configs[0].indexes[0].algo == algorithm_name
-    assert configs[0].index_name.startswith(f"{algorithm_name}_test.")
+    assert configs[0].index_name == (
+        f"{algorithm_name}[group=test][codec={_HNSW_CODEC}]"
+    )
 
 
 def test_config_loader_excludes_explicit_other_backend(config_dir, tmp_path):
@@ -505,7 +538,9 @@ def test_config_loader_honors_algorithm_and_group_filters(config_dir):
         groups="test",
     )
     assert len(configs) == 1
-    assert configs[0].index_name.startswith("pylucene_test_test")
+    assert configs[0].index_name == (
+        f"pylucene_test[group=test][codec={_HNSW_CODEC}]"
+    )
 
 
 def test_algorithm_config_discovery_is_deterministic(tmp_path):
@@ -578,7 +613,7 @@ def test_config_loader_unions_global_and_algorithm_specific_groups(config_dir):
     assert len(configs) == 3
     assert (
         sum(
-            config.index_name.startswith("pylucene_test_test.")
+            config.index_name.startswith("pylucene_test[group=test]")
             for config in configs
         )
         == 1
@@ -595,7 +630,7 @@ def test_config_loader_selects_only_explicit_algorithm_group(config_dir):
     )
 
     assert len(configs) == 1
-    assert configs[0].index_name.startswith("pylucene_test_test.")
+    assert configs[0].index_name.startswith("pylucene_test[group=test]")
 
 
 @pytest.mark.parametrize(
@@ -742,7 +777,9 @@ groups:
         **selectors,
     )
 
-    selected_groups = [config.output_filename[0] for config in configs]
+    selected_groups = [
+        f"{config.algo},{config.backend_config['group']}" for config in configs
+    ]
     assert selected_groups == expected_groups
 
 
@@ -877,11 +914,7 @@ def test_config_loader_rejects_unknown_selectors(config_dir, selectors, error):
     [
         (
             "pylucene_cuvs_hnsw",
-            {
-                "Lucene101AcceleratedHNSWCodec",
-                "Lucene101AcceleratedHNSWBaseLayerCodec",
-                "Lucene101AcceleratedHNSWMultiLayerCodec",
-            },
+            {_HNSW_CODEC},
         ),
         ("pylucene_cuvs_cagra", {_CAGRA_CODEC}),
     ],

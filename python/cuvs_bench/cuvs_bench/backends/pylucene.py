@@ -19,13 +19,11 @@ import zipfile
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from types import MappingProxyType
 from typing import (
     Any,
     Callable,
     Dict,
     List,
-    Mapping,
     NamedTuple,
     Optional,
     Tuple,
@@ -35,6 +33,7 @@ from typing import (
 import numpy as np
 
 from .._bin_format import read_bin_header
+from .._validation import format_artifact_identity, validate_path_component
 from ..orchestrator.config_loaders import (
     BenchmarkConfig,
     ConfigLoader,
@@ -48,18 +47,12 @@ _ID_FIELD = "id"
 _VECTOR_FIELD = "vector"
 _MAX_DIMENSIONS = 4096
 
-_HNSW_CODECS = frozenset(
-    {
-        "Lucene101AcceleratedHNSWCodec",
-        "Lucene101AcceleratedHNSWBaseLayerCodec",
-        "Lucene101AcceleratedHNSWMultiLayerCodec",
-    }
-)
+_HNSW_CODEC = "Lucene101AcceleratedHNSWCodec"
 _CAGRA_CODEC = "CuVS2510GPUSearchCodec"
-_SUPPORTED_CODECS = _HNSW_CODECS | {_CAGRA_CODEC}
+_SUPPORTED_CODECS = frozenset({_HNSW_CODEC, _CAGRA_CODEC})
 _SUPPORTED_BUILD_KEYS = frozenset({"codec"})
-_EXPECTED_WRITER_PATH = {
-    **{codec: "gpu-hnsw" for codec in _HNSW_CODECS},
+_EXPECTED_WRITER_POLICY = {
+    _HNSW_CODEC: "gpu-with-cpu-fallback",
     _CAGRA_CODEC: "gpu-cagra",
 }
 _CAGRA_META_EXTENSION = ".vemc"
@@ -76,12 +69,12 @@ _EUCLIDEAN_SIMILARITY_ORDINAL = 0
 
 _HNSW_PROVENANCE_FILE = ".cuvs-bench-pylucene-hnsw.json"
 _CAGRA_PROVENANCE_FILE = ".cuvs-bench-pylucene-cagra.json"
-_PROVENANCE_SCHEMA_VERSION = 1
+_PROVENANCE_SCHEMA_VERSION = 2
 _PROVENANCE_KEYS = frozenset(
     {
         "schema_version",
         "codec",
-        "writer_path",
+        "writer_policy",
         "vector_count",
         "dimensions",
         "commit_fingerprints",
@@ -294,26 +287,6 @@ def _initialize_pylucene(config: Dict[str, Any]) -> Any:
     return lucene
 
 
-def _parse_writer_telemetry(description: str) -> Dict[str, str]:
-    """Parse cuVS-Lucene vector-format diagnostics."""
-    _, separator, payload = description.partition("(")
-    if not separator or not payload.endswith(")"):
-        raise RuntimeError(
-            f"Malformed cuVS-Lucene writer telemetry: {description!r}"
-        )
-
-    telemetry: Dict[str, str] = {}
-    for item in payload[:-1].split(";"):
-        key, item_separator, value = item.partition("=")
-        if not item_separator or not key:
-            raise RuntimeError(
-                "Malformed cuVS-Lucene writer telemetry item "
-                f"{item!r} in {description!r}"
-            )
-        telemetry[key] = value
-    return telemetry
-
-
 def _score_to_squared_euclidean(score: float) -> float:
     """Convert Lucene's Euclidean score to squared Euclidean distance."""
     if score <= 0.0:
@@ -390,7 +363,7 @@ def _validate_search_params(search_params: Any) -> List[Dict[str, Any]]:
     return search_params
 
 
-def _safe_remove_index(index_path: Path) -> None:
+def _safe_remove_index(index_path: Path, trusted_index_root: Path) -> None:
     resolved = index_path.resolve()
     forbidden = {
         Path(resolved.anchor),
@@ -399,6 +372,11 @@ def _safe_remove_index(index_path: Path) -> None:
     }
     if resolved in forbidden:
         raise ValueError(f"Refusing to remove unsafe index path: {resolved}")
+    if resolved.parent != trusted_index_root.resolve():
+        raise ValueError(
+            "Refusing to remove PyLucene index outside its configured root: "
+            f"{resolved}"
+        )
     if index_path.is_symlink() or not index_path.is_dir():
         raise ValueError(
             f"PyLucene index path must be a directory: {index_path}"
@@ -474,17 +452,17 @@ def _commit_fingerprints(index_path: Path) -> List[Dict[str, str]]:
 @dataclass(frozen=True)
 class _IndexProvenanceVerification:
     codec: str
-    writer_path: str
+    writer_policy: str
     vector_count: int
     dimensions: int
     commit_file_count: int
 
     def to_metadata(self) -> Dict[str, Union[str, int]]:
         return {
-            "status": f"{self.writer_path}-provenance",
+            "status": f"{self.writer_policy}-provenance",
             "schema_version": _PROVENANCE_SCHEMA_VERSION,
             "codec": self.codec,
-            "writer_path": self.writer_path,
+            "writer_policy": self.writer_policy,
             "vector_count": self.vector_count,
             "dimensions": self.dimensions,
             "commit_file_count": self.commit_file_count,
@@ -514,7 +492,7 @@ def _write_index_provenance(
     payload = {
         "schema_version": _PROVENANCE_SCHEMA_VERSION,
         "codec": codec,
-        "writer_path": _EXPECTED_WRITER_PATH[codec],
+        "writer_policy": _EXPECTED_WRITER_POLICY[codec],
         "vector_count": int(vector_count),
         "dimensions": int(dimensions),
         "commit_fingerprints": _commit_fingerprints(index_path),
@@ -628,12 +606,12 @@ def _validate_provenance_identity(
             f"{payload['codec']!r} != {expected_codec!r}"
         )
 
-    writer_path = payload["writer_path"]
-    if writer_path != _EXPECTED_WRITER_PATH[expected_codec]:
+    writer_policy = payload["writer_policy"]
+    if writer_policy != _EXPECTED_WRITER_POLICY[expected_codec]:
         raise _IndexProvenanceError(
-            f"{provenance_label} does not record the required GPU writer path"
+            f"{provenance_label} does not record the expected writer policy"
         )
-    return writer_path
+    return writer_policy
 
 
 def _validate_provenance_shape(
@@ -746,7 +724,7 @@ def _verify_index_provenance(
     payload = _read_index_provenance(
         index_path / expectation.manifest_name, expectation.label
     )
-    writer_path = _validate_provenance_identity(
+    writer_policy = _validate_provenance_identity(
         payload, expectation.codec, expectation.label
     )
     vector_count, dimensions = _validate_provenance_shape(
@@ -771,7 +749,7 @@ def _verify_index_provenance(
 
     return _IndexProvenanceVerification(
         codec=expectation.codec,
-        writer_path=writer_path,
+        writer_policy=writer_policy,
         vector_count=vector_count,
         dimensions=dimensions,
         commit_file_count=len(current_fingerprints),
@@ -908,16 +886,9 @@ class _SearchPlan:
 
 
 @dataclass(frozen=True)
-class _ResolvedCodec:
-    codec_name: str
+class _BuildCodec:
     java_codec: Any
-    telemetry: Mapping[str, str]
-    writer_path: str
-
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self, "telemetry", MappingProxyType(dict(self.telemetry))
-        )
+    writer_policy: str
 
 
 class _ExistingIndexAction(Enum):
@@ -1847,17 +1818,12 @@ class _PyLuceneRuntime:
             raise RuntimeError(
                 f"Requested codec {codec_name}, got {codec.getName()}"
             )
-        self._codec_cache[codec_name] = codec
-        return codec
-
-    def codec_telemetry(self, codec_name: str, codec: Any) -> Dict[str, str]:
-        """Inspect the selected writer path before indexing starts."""
-        vectors_format = codec.knnVectorsFormat()
-        if vectors_format is None:
+        if codec.knnVectorsFormat() is None:
             raise RuntimeError(
                 f"{codec_name} did not initialize a Lucene vector format"
             )
-        return _parse_writer_telemetry(str(vectors_format))
+        self._codec_cache[codec_name] = codec
+        return codec
 
     def _java_float_array(self, vector: np.ndarray) -> Any:
         return self.lucene.JArray("float")(
@@ -1880,20 +1846,19 @@ class _PyLuceneRuntime:
         self,
         index_path: Path,
         vectors: np.ndarray,
-        resolved_codec: _ResolvedCodec,
-    ) -> Dict[str, str]:
+        build_codec: _BuildCodec,
+    ) -> None:
         self.attach_current_thread()
         directory = self.FSDirectory.open(self.Paths.get(str(index_path)))
         with _CleanupStack() as cleanups:
             cleanups.add("close Lucene directory", directory.close)
             writer_config = self.IndexWriterConfig()
             writer_config.setOpenMode(self.IndexWriterConfig.OpenMode.CREATE)
-            writer_config.setCodec(resolved_codec.java_codec)
+            writer_config.setCodec(build_codec.java_codec)
             writer_config.setUseCompoundFile(False)
             writer_config.setMergeScheduler(self.SerialMergeScheduler())
             writer = self.IndexWriter(directory, writer_config)
             self._write_and_close_index(writer, vectors)
-            return dict(resolved_codec.telemetry)
 
     def _write_and_close_index(self, writer: Any, vectors: np.ndarray) -> None:
         try:
@@ -2163,8 +2128,6 @@ class _BenchmarkConfigContext:
     dataset_path: str
     subset_scope: Optional[str]
     runtime_config: Dict[str, Any]
-    neighbor_count: int
-    batch_size: int
 
 
 class PyLuceneConfigLoader(ConfigLoader):
@@ -2320,13 +2283,11 @@ class PyLuceneConfigLoader(ConfigLoader):
         subset_scope: Optional[str],
         build_params: Dict[str, Any],
     ) -> str:
-        prefix = algorithm if group == "base" else f"{algorithm}_{group}"
-        label_parts = [prefix]
-        if subset_scope is not None:
-            label_parts.append(subset_scope)
-        for key, value in build_params.items():
-            label_parts.append(f"{key}{value}")
-        return ".".join(label_parts)
+        identity = format_artifact_identity(
+            algorithm, group, subset_scope, description="PyLucene"
+        )
+        codec = _validate_codec(build_params.get("codec"))
+        return f"{identity}[codec={codec}]"
 
     @classmethod
     def _benchmark_config(
@@ -2337,36 +2298,30 @@ class PyLuceneConfigLoader(ConfigLoader):
         build_params: Dict[str, Any],
         search_params: List[Dict[str, Any]],
     ) -> BenchmarkConfig:
+        dataset = validate_path_component(
+            context.dataset, "PyLucene dataset name"
+        )
         index_label = cls._index_label(
             algorithm, group, context.subset_scope, build_params
         )
-        index_path = os.path.join(
-            context.dataset_path,
-            context.dataset,
-            "index",
-            index_label,
-        )
-        result_stem = f"{algorithm},{group}"
-        if context.subset_scope is not None:
-            result_stem = f"{result_stem},{context.subset_scope}"
-
+        index_root = Path(context.dataset_path, dataset, "index")
+        index_path = index_root / index_label
         index_config = IndexConfig(
             name=index_label,
             algo=algorithm,
             build_param=build_params,
             search_params=search_params,
-            file=index_path,
+            file=str(index_path),
         )
         backend_config = {
             "name": index_label,
             "algo": algorithm,
+            "group": group,
+            "index_name": index_label,
+            "index_root": str(index_root),
+            "result_scope": context.subset_scope,
             "codec": build_params.get("codec"),
-            "requires_gpu": True,
-            "output_filename": (
-                result_stem,
-                f"{result_stem},k{context.neighbor_count},"
-                f"bs{context.batch_size}",
-            ),
+            "requires_gpu": build_params.get("codec") == _CAGRA_CODEC,
             **context.runtime_config,
         }
         return BenchmarkConfig(
@@ -2412,8 +2367,6 @@ class PyLuceneConfigLoader(ConfigLoader):
             dataset_path=dataset_path,
             subset_scope=self._subset_scope(dataset_config.subset_size),
             runtime_config=self._runtime_config(kwargs),
-            neighbor_count=kwargs.get("count", 10),
-            batch_size=kwargs.get("batch_size", 10000),
         )
         tune_mode = kwargs.get("_tune_mode", False)
         tune_build_params = kwargs.get("_tune_build_params")
@@ -2451,8 +2404,6 @@ class PyLuceneConfigLoader(ConfigLoader):
 class PyLuceneBackend(BenchmarkBackend):
     """Build and search cuVS-Lucene indexes through PyLucene."""
 
-    orchestrator_persists_results = True
-
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
         self._runtime: Optional[_PyLuceneRuntime] = None
@@ -2460,6 +2411,18 @@ class PyLuceneBackend(BenchmarkBackend):
     @property
     def algo(self) -> str:
         return self.config.get("algo", "pylucene")
+
+    def _result_identity(self) -> Dict[str, Any]:
+        identity = {
+            "group": self.config.get("group", "base"),
+            "index_name": self.config.get(
+                "index_name", self.config.get("name", self.algo)
+            ),
+        }
+        result_scope = self.config.get("result_scope")
+        if result_scope is not None:
+            identity["result_scope"] = result_scope
+        return identity
 
     def cleanup(self) -> None:
         """Release Python references; the process-wide JVM remains active."""
@@ -2469,6 +2432,27 @@ class PyLuceneBackend(BenchmarkBackend):
         if self._runtime is None:
             self._runtime = _PyLuceneRuntime.create(self.config)
         return self._runtime
+
+    def _trusted_index_root(self, index_path: Path) -> Path:
+        configured_root = self.config.get("index_root")
+        if configured_root is None:
+            # Direct backend users explicitly supply IndexConfig.file. The
+            # built-in loader supplies an independent root for CLI runs.
+            return index_path.parent
+        return Path(os.fspath(configured_root))
+
+    def _validate_index_location(self, index_path: Path) -> None:
+        trusted_root = self._trusted_index_root(index_path).resolve()
+        if index_path.resolve().parent != trusted_root:
+            raise ValueError(
+                "PyLucene index path must be an immediate child of its "
+                f"configured root {trusted_root}: {index_path.resolve()}"
+            )
+
+    def _remove_index(self, index_path: Path) -> None:
+        _safe_remove_index(
+            index_path, trusted_index_root=self._trusted_index_root(index_path)
+        )
 
     def _failed_build_result(
         self,
@@ -2482,6 +2466,7 @@ class PyLuceneBackend(BenchmarkBackend):
             index_size_bytes=0,
             algorithm=self.algo,
             build_params=build_params or {},
+            metadata=self._result_identity(),
             success=False,
             error_message=error_message,
         )
@@ -2501,6 +2486,7 @@ class PyLuceneBackend(BenchmarkBackend):
             recall=0.0,
             algorithm=self.algo,
             search_params=search_params or [],
+            metadata=self._result_identity(),
             success=False,
             error_message=error_message,
         )
@@ -2555,7 +2541,7 @@ class PyLuceneBackend(BenchmarkBackend):
             index_size_bytes=0,
             algorithm=self.algo,
             build_params=build_params,
-            metadata={"codec": codec_name},
+            metadata={**self._result_identity(), "codec": codec_name},
             success=True,
         )
 
@@ -2590,6 +2576,7 @@ class PyLuceneBackend(BenchmarkBackend):
             return _ExistingIndexDecision.build()
 
         metadata: Dict[str, Any] = {
+            **self._result_identity(),
             "codec": codec_name,
             "skipped": True,
         }
@@ -2643,24 +2630,12 @@ class PyLuceneBackend(BenchmarkBackend):
         return vectors
 
     @staticmethod
-    def _require_gpu_writer(
+    def _resolve_build_codec(
         runtime: _PyLuceneRuntime, codec_name: str
-    ) -> _ResolvedCodec:
-        java_codec = runtime.resolve_codec(codec_name)
-        telemetry = runtime.codec_telemetry(codec_name, java_codec)
-        writer_path = telemetry.get("writerPath")
-        expected_writer_path = _EXPECTED_WRITER_PATH[codec_name]
-        if writer_path != expected_writer_path:
-            raise RuntimeError(
-                f"{codec_name} uses writerPath={writer_path!r}; "
-                f"expected {expected_writer_path!r}. Refusing to run "
-                "a silent CPU or alternate-index fallback as a cuVS build."
-            )
-        return _ResolvedCodec(
-            codec_name=codec_name,
-            java_codec=java_codec,
-            telemetry=telemetry,
-            writer_path=writer_path,
+    ) -> _BuildCodec:
+        return _BuildCodec(
+            java_codec=runtime.resolve_codec(codec_name),
+            writer_policy=_EXPECTED_WRITER_POLICY[codec_name],
         )
 
     @staticmethod
@@ -2707,14 +2682,13 @@ class PyLuceneBackend(BenchmarkBackend):
         )
         return {"hnsw_verification": verification.to_metadata()}
 
-    @staticmethod
     def _cleanup_partial_index(
-        index_path: Path, created_for_build: bool
+        self, index_path: Path, created_for_build: bool
     ) -> Optional[Exception]:
         if not created_for_build or not index_path.exists():
             return None
         try:
-            _safe_remove_index(index_path)
+            self._remove_index(index_path)
         except Exception as exc:
             return exc
         return None
@@ -2738,6 +2712,7 @@ class PyLuceneBackend(BenchmarkBackend):
         try:
             _validate_build_params(build_params)
             codec_name = _configured_codec(build_params, self.config)
+            self._validate_index_location(index_path)
         except Exception as exc:
             return self._failed_build_result(
                 str(exc), str(index_path), build_params
@@ -2772,24 +2747,22 @@ class PyLuceneBackend(BenchmarkBackend):
             vectors = self._training_vectors_for_build(dataset, codec_name)
             runtime = self._get_runtime()
             # Preflight must succeed before an existing index is replaced.
-            resolved_codec = self._require_gpu_writer(runtime, codec_name)
+            build_codec = self._resolve_build_codec(runtime, codec_name)
 
             if index_path.exists():
-                _safe_remove_index(index_path)
+                self._remove_index(index_path)
             index_path.mkdir(parents=True)
             created_for_build = True
 
             start = time.perf_counter()
-            telemetry = runtime.build_index(
-                index_path, vectors, resolved_codec
-            )
+            runtime.build_index(index_path, vectors, build_codec)
             build_time = time.perf_counter() - start
 
             metadata = {
+                **self._result_identity(),
                 "codec": codec_name,
                 "pylucene_version": runtime.pylucene_version,
-                "writer_path": resolved_codec.writer_path,
-                "writer_telemetry": telemetry,
+                "writer_policy": build_codec.writer_policy,
             }
             metadata.update(
                 self._verify_and_persist_built_index_provenance(
@@ -2889,7 +2862,7 @@ class PyLuceneBackend(BenchmarkBackend):
             recall=0.0,
             algorithm=self.algo,
             search_params=plan.search_params,
-            metadata={"codec": plan.codec_name},
+            metadata={**self._result_identity(), "codec": plan.codec_name},
             success=True,
         )
 
@@ -2945,6 +2918,7 @@ class PyLuceneBackend(BenchmarkBackend):
             batch_size=plan.batch_size,
         )
         metadata = {
+            **self._result_identity(),
             "codec": plan.codec_name,
             "pylucene_version": runtime.pylucene_version,
             "index_dimensions": runtime_result.index_dimensions,
@@ -2952,6 +2926,7 @@ class PyLuceneBackend(BenchmarkBackend):
             "batch_size": plan.batch_size,
             "num_batches": processed.num_batches,
             "mode": plan.mode,
+            "latency_seconds": processed.latency_seconds,
             "end_to_end_time_ms": end_to_end_time_ms,
             "non_query_overhead_time_ms": max(
                 0.0, end_to_end_time_ms - processed.search_time_ms
@@ -2967,7 +2942,6 @@ class PyLuceneBackend(BenchmarkBackend):
             recall=0.0,
             algorithm=self.algo,
             search_params=plan.search_params,
-            latency_seconds=processed.latency_seconds,
             latency_percentiles=processed.latency_percentiles,
             metadata=metadata,
             success=True,
@@ -2983,12 +2957,15 @@ class PyLuceneBackend(BenchmarkBackend):
         force: bool = False,
         search_threads: Optional[int] = None,
         dry_run: bool = False,
-    ) -> SearchResult:
+    ) -> List[SearchResult]:
         """Search one local Lucene index and report per-batch latency."""
         if len(indexes) != 1:
-            return self._failed_search_result(
-                k, "PyLucene backend requires exactly one index configuration"
-            )
+            return [
+                self._failed_search_result(
+                    k,
+                    "PyLucene backend requires exactly one index configuration",
+                )
+            ]
 
         index_config = indexes[0]
         try:
@@ -3000,30 +2977,37 @@ class PyLuceneBackend(BenchmarkBackend):
                 search_threads=search_threads,
             )
         except Exception as exc:
-            return self._failed_search_result(
-                k,
-                str(exc),
-                index_config.search_params or [{}],
-            )
+            return [
+                self._failed_search_result(
+                    k,
+                    str(exc),
+                    index_config.search_params or [{}],
+                )
+            ]
 
         if dry_run:
-            return self._dry_run_search_result(plan)
+            return [self._dry_run_search_result(plan)]
 
         if not plan.index_path.is_dir():
-            return self._failed_search_result(
-                k,
-                f"PyLucene index directory does not exist: {plan.index_path}",
-                plan.search_params,
-            )
+            return [
+                self._failed_search_result(
+                    k,
+                    "PyLucene index directory does not exist: "
+                    f"{plan.index_path}",
+                    plan.search_params,
+                )
+            ]
 
         try:
-            return self._execute_search(dataset, plan)
+            return [self._execute_search(dataset, plan)]
         except Exception as exc:
-            return self._failed_search_result(
-                k,
-                _exception_summary(exc),
-                plan.search_params,
-            )
+            return [
+                self._failed_search_result(
+                    k,
+                    _exception_summary(exc),
+                    plan.search_params,
+                )
+            ]
 
 
 __all__ = ["PyLuceneBackend", "PyLuceneConfigLoader"]
