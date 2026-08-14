@@ -10,6 +10,11 @@ from collections import defaultdict
 
 import pandas as pd
 
+from .._validation import (
+    format_artifact_identity,
+    validate_path_component,
+    validate_result_component,
+)
 from ..backends.base import BuildResult, SearchResult
 
 skip_build_cols = set(
@@ -32,16 +37,7 @@ skip_build_cols = set(
 )
 
 skip_search_cols = (
-    set(
-        [
-            "recall",
-            "qps",
-            "latency",
-            "items_per_second",
-            "Recall",
-            "Latency",
-        ]
-    )
+    set(["recall", "qps", "latency", "items_per_second", "Recall", "Latency"])
     | skip_build_cols
 )
 
@@ -62,8 +58,37 @@ metrics = {
 }
 
 
-def write_results_to_csv(results, dataset, dataset_path, count, batch_size):
+def validate_dataset_name(dataset):
+    """Validate a dataset name before using it as a path component."""
+    return validate_path_component(dataset, "benchmark dataset name")
+
+
+def _result_stem(algorithm, group, scope=None):
+    parts = [
+        validate_result_component(algorithm, "benchmark algorithm name"),
+        validate_result_component(group, "benchmark group name"),
+    ]
+    if scope is not None:
+        parts.append(
+            validate_result_component(scope, "benchmark result scope")
+        )
+    return ",".join(parts)
+
+
+def _series_name(algorithm, group, scope):
+    return format_artifact_identity(algorithm, group, scope)
+
+
+def write_results_to_csv(
+    results,
+    dataset,
+    dataset_path,
+    count,
+    batch_size,
+    search_requested=False,
+):
     """Write Python-backend results using the existing plotting CSV schema."""
+    validate_dataset_name(dataset)
     grouped = defaultdict(list)
     for result in results:
         group = result.metadata.get("group")
@@ -73,29 +98,43 @@ def write_results_to_csv(results, dataset, dataset_path, count, batch_size):
         ):
             continue
         method = "build" if isinstance(result, BuildResult) else "search"
-        grouped[(method, result.algorithm, group)].append(result)
+        scope = result.metadata.get("result_scope")
+        grouped[(method, result.algorithm, group, scope)].append(result)
 
-    for (method, algorithm, group), group_results in grouped.items():
+    for (method, algorithm, group, scope), group_results in grouped.items():
         if method == "build":
             _write_build_results(
-                group_results, algorithm, group, dataset, dataset_path
+                group_results,
+                algorithm,
+                group,
+                scope,
+                dataset,
+                dataset_path,
             )
         else:
             _write_search_results(
                 group_results,
                 algorithm,
                 group,
+                scope,
                 dataset,
                 dataset_path,
                 count,
                 batch_size,
             )
 
+    if search_requested:
+        _remove_search_artifacts_after_failed_builds(
+            grouped, dataset, dataset_path, count, batch_size
+        )
 
-def _write_build_results(results, algorithm, group, dataset, dataset_path):
+
+def _write_build_results(
+    results, algorithm, group, scope, dataset, dataset_path
+):
     output_dir = os.path.join(dataset_path, dataset, "result", "build")
     os.makedirs(output_dir, exist_ok=True)
-    algo_name = algorithm if group == "base" else f"{algorithm}_{group}"
+    algo_name = _series_name(algorithm, group, scope)
 
     rows = []
     for result in results:
@@ -107,14 +146,18 @@ def _write_build_results(results, algorithm, group, dataset, dataset_path):
                 **result.build_params,
                 **metadata,
                 "algo_name": algo_name,
-                "index_name": result.index_path,
+                "index_name": result.metadata.get(
+                    "index_name", result.index_path
+                ),
                 "time": result.build_time_seconds,
             }
         )
 
     columns = ["algo_name", "index_name", "time"]
     dataframe = pd.DataFrame(rows)
-    build_file = os.path.join(output_dir, f"{algorithm},{group}.csv")
+    build_file = os.path.join(
+        output_dir, f"{_result_stem(algorithm, group, scope)}.csv"
+    )
 
     complete_run = all(
         result.success and not result.metadata.get("skipped")
@@ -140,11 +183,18 @@ def _write_build_results(results, algorithm, group, dataset, dataset_path):
 
 
 def _write_search_results(
-    results, algorithm, group, dataset, dataset_path, count, batch_size
+    results,
+    algorithm,
+    group,
+    scope,
+    dataset,
+    dataset_path,
+    count,
+    batch_size,
 ):
     output_dir = os.path.join(dataset_path, dataset, "result", "search")
     os.makedirs(output_dir, exist_ok=True)
-    algo_name = algorithm if group == "base" else f"{algorithm}_{group}"
+    algo_name = _series_name(algorithm, group, scope)
 
     rows = []
     for result in results:
@@ -157,6 +207,7 @@ def _write_search_results(
         rows.append(
             {
                 **search_params,
+                **(result.latency_percentiles or {}),
                 **metadata,
                 "algo_name": algo_name,
                 "index_name": result.metadata["index_name"],
@@ -188,7 +239,7 @@ def _write_search_results(
         dataset,
         "result",
         "build",
-        f"{algorithm},{group}.csv",
+        f"{_result_stem(algorithm, group, scope)}.csv",
     )
     if os.path.exists(build_file):
         build = pd.read_csv(build_file).drop_duplicates(
@@ -203,7 +254,7 @@ def _write_search_results(
                 how="left",
             )
 
-    stem = f"{algorithm},{group},k{count},bs{batch_size}"
+    stem = f"{_result_stem(algorithm, group, scope)},k{count},bs{batch_size}"
     raw_file = os.path.join(output_dir, f"{stem},raw.csv")
     dataframe.to_csv(raw_file, index=False)
     frontier_file = os.path.join(output_dir, f"{stem}.json")
@@ -212,13 +263,33 @@ def _write_search_results(
 
 
 def _scalar_metadata(metadata):
-    reserved = {"group", "index_name", "latency_seconds"}
+    reserved = {"group", "index_name", "latency_seconds", "result_scope"}
     return {
         key: value
         for key, value in metadata.items()
         if key not in reserved
         and isinstance(value, (str, int, float, bool, type(None)))
     }
+
+
+def _remove_search_artifacts_after_failed_builds(
+    grouped, dataset, dataset_path, count, batch_size
+):
+    search_dir = os.path.join(dataset_path, dataset, "result", "search")
+    for (method, algorithm, group, scope), results in grouped.items():
+        if method != "build" or any(result.success for result in results):
+            continue
+        search_key = ("search", algorithm, group, scope)
+        if search_key in grouped:
+            continue
+        stem = (
+            f"{_result_stem(algorithm, group, scope)},k{count},bs{batch_size}"
+        )
+        for suffix in (",raw.csv", ",throughput.csv", ",latency.csv"):
+            try:
+                os.remove(os.path.join(search_dir, f"{stem}{suffix}"))
+            except FileNotFoundError:
+                pass
 
 
 def read_json_files(dataset, dataset_path, method):
@@ -240,6 +311,7 @@ def read_json_files(dataset, dataset_path, method):
         A tuple containing the file path, algorithm name, and the
         DataFrame of JSON content.
     """
+    validate_dataset_name(dataset)
     dir_path = os.path.join(dataset_path, dataset, "result", method)
     if not os.path.isdir(dir_path):
         return
@@ -274,15 +346,6 @@ def clean_algo_name(algo_name):
 
     name = algo_name[0] if "base" in algo_name[1] else "_".join(algo_name)
     return name.removesuffix(".json")
-
-
-def _remove_derived_csvs(file, suffixes):
-    stem = os.path.splitext(file)[0]
-    for suffix in suffixes:
-        try:
-            os.remove(f"{stem}{suffix}")
-        except FileNotFoundError:
-            pass
 
 
 def write_csv(file, algo_name, df, extra_columns=None, skip_cols=None):
@@ -335,9 +398,6 @@ def convert_json_to_csv_build(dataset, dataset_path):
     """
     for file, algo_name, df in read_json_files(dataset, dataset_path, "build"):
         try:
-            if df.empty:
-                _remove_derived_csvs(file, (".csv",))
-                continue
             algo_name = clean_algo_name(algo_name)
             write_csv(file, algo_name, df, skip_cols=skip_build_cols)
         except Exception as e:
@@ -360,26 +420,12 @@ def convert_json_to_csv_search(dataset, dataset_path):
         dataset, dataset_path, "search"
     ):
         try:
-            if df.empty:
-                _remove_derived_csvs(
-                    file, (",raw.csv", ",throughput.csv", ",latency.csv")
-                )
-                continue
-            search_stem = os.path.splitext(os.path.basename(file))[0]
-            # Search stems end in k and batch-size components. Preserve every
-            # preceding component, including an optional dataset subset.
-            search_stem_parts = search_stem.rsplit(",", maxsplit=2)
-            build_stem = (
-                search_stem_parts[0]
-                if len(search_stem_parts) == 3
-                else ",".join(algo_name)
-            )
             build_file = os.path.join(
                 dataset_path,
                 dataset,
                 "result",
                 "build",
-                f"{build_stem}.csv",
+                f"{','.join(algo_name)}.csv",
             )
             algo_name = clean_algo_name(algo_name)
             df["name"] = df["name"].str.split("/").str[0]
@@ -401,46 +447,29 @@ def convert_json_to_csv_search(dataset, dataset_path):
                     ]
             if os.path.exists(build_file):
                 build_df = pd.read_csv(build_file)
+                write_ncols = len(write.columns)
                 write["build time"] = None
                 write["build threads"] = None
                 write["build cpu_time"] = None
 
-                build_columns = {
-                    "time": "build time",
-                    "threads": "build threads",
-                    "cpu_time": "build cpu_time",
-                }
+                start_idx = 5
                 if "GPU" in build_df.columns:
+                    start_idx = 6
                     write["build GPU"] = None
-                    build_columns["GPU"] = "build GPU"
-
-                ignored_columns = {"algo_name", "index_name"}
-                for col_name in build_df.columns:
-                    if (
-                        col_name in ignored_columns
-                        or col_name in build_columns
-                    ):
-                        continue
-                    target_name = (
-                        "build_num_threads"
-                        if col_name == "num_threads"
-                        else col_name
-                    )
-                    if target_name not in write.columns:
-                        write[target_name] = None
-                        build_columns[col_name] = target_name
-
+                for col_idx in range(start_idx, len(build_df.columns)):
+                    col_name = build_df.columns[col_idx]
+                    write[col_name] = None
+                    if col_name == "num_threads":
+                        write["build_num_threads"] = None
                 for s_index, search_row in write.iterrows():
-                    for _, build_row in build_df.iterrows():
+                    for b_index, build_row in build_df.iterrows():
                         if search_row["index_name"] == build_row["index_name"]:
-                            for (
-                                source_name,
-                                target_name,
-                            ) in build_columns.items():
-                                if source_name in build_df.columns:
-                                    write.at[s_index, target_name] = build_row[
-                                        source_name
-                                    ]
+                            write.iloc[s_index, write_ncols] = build_df.iloc[
+                                b_index, 2
+                            ]
+                            write.iloc[s_index, write_ncols + 1 :] = (
+                                build_df.iloc[b_index, 3:]
+                            )
                             break
             # Write search data and compute frontiers
             write.to_csv(file.replace(".json", ",raw.csv"), index=False)

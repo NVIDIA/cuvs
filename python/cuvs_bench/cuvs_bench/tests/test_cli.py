@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 from click.testing import CliRunner
+from cuvs_bench.backends.base import BuildResult, SearchResult
 from cuvs_bench.get_dataset.__main__ import main
 
 
@@ -525,7 +526,15 @@ def test_plot_command_creates_png_files(temp_datasets_dir: Path):
 # without requiring native benchmark execution.
 
 
-def _invoke_run_with_results(monkeypatch, tmp_path, mode, results):
+def _invoke_run_with_results(
+    monkeypatch,
+    tmp_path,
+    mode,
+    results,
+    *,
+    dry_run=False,
+    backend_type="fake",
+):
     from cuvs_bench.run import __main__ as run_module
 
     orchestrator = SimpleNamespace(
@@ -539,47 +548,66 @@ def _invoke_run_with_results(monkeypatch, tmp_path, mode, results):
     exported = []
     monkeypatch.setattr(
         run_module,
-        "convert_json_to_csv_build",
-        lambda dataset, dataset_path: exported.append(
-            ("build", dataset, dataset_path)
-        ),
+        "write_results_to_csv",
+        lambda *args, **kwargs: exported.append((args, kwargs)),
     )
-    monkeypatch.setattr(
-        run_module,
-        "convert_json_to_csv_search",
-        lambda dataset, dataset_path: exported.append(
-            ("search", dataset, dataset_path)
-        ),
-    )
+    backend_config = tmp_path / "backend.yaml"
+    backend_config.write_text(f"backend: {backend_type}\n")
+
+    args = [
+        "--dataset",
+        "test-data",
+        "--dataset-path",
+        str(tmp_path),
+        "--algorithms",
+        "fake",
+        "--groups",
+        "base",
+        "--batch-size",
+        "1",
+        "-k",
+        "1",
+        "-m",
+        "latency",
+        "--mode",
+        mode,
+        "--backend-config",
+        str(backend_config),
+    ]
+    if dry_run:
+        args.append("--dry-run")
 
     result = CliRunner().invoke(
         run_module.main,
-        [
-            "--dataset",
-            "test-data",
-            "--dataset-path",
-            str(tmp_path),
-            "--algorithms",
-            "fake",
-            "--groups",
-            "base",
-            "--batch-size",
-            "1",
-            "-k",
-            "1",
-            "-m",
-            "latency",
-            "--mode",
-            mode,
-        ],
+        args,
     )
     return result, exported
 
 
-def _benchmark_result(success, error_message=None):
-    return SimpleNamespace(
+def _build_result(success=True, error_message=None):
+    return BuildResult(
+        index_path="test-index",
+        build_time_seconds=1.0,
+        index_size_bytes=1,
+        algorithm="fake",
+        build_params={},
+        metadata={"group": "base", "index_name": "test-index"},
+        success=success,
+        error_message=error_message,
+    )
+
+
+def _search_result(success=True, error_message=None):
+    return SearchResult(
+        neighbors=None,
+        distances=None,
+        search_time_ms=1.0,
+        queries_per_second=1.0,
+        recall=1.0,
         success=success,
         algorithm="fake",
+        search_params=[{}],
+        metadata={"group": "base", "index_name": "test-index"},
         error_message=error_message,
     )
 
@@ -590,22 +618,21 @@ def test_tune_mixed_trial_results_exit_zero_and_export(monkeypatch, tmp_path):
         tmp_path,
         "tune",
         [
-            _benchmark_result(False, "trial failed"),
-            _benchmark_result(True),
+            _search_result(False, "trial failed"),
+            _search_result(),
         ],
     )
 
     assert result.exit_code == 0, result.output
-    assert exported == [
-        ("build", "test-data", str(tmp_path)),
-        ("search", "test-data", str(tmp_path)),
-    ]
+    assert len(exported) == 1
+    assert exported[0][1]["search_requested"] is True
 
 
 @pytest.mark.parametrize(
     ("results", "expected_message"),
     [
-        ([_benchmark_result(False, "trial failed")], "trial failed"),
+        ([_search_result(False, "trial failed")], "trial failed"),
+        ([_build_result()], "no successful search result"),
         ([], "tune mode produced no benchmark results"),
     ],
 )
@@ -618,7 +645,7 @@ def test_tune_without_successful_results_exits_nonzero(
 
     assert result.exit_code != 0
     assert expected_message in result.output
-    assert exported == []
+    assert len(exported) == 1
 
 
 def test_tune_all_constraint_pruned_measurements_exit_zero_and_export(
@@ -630,14 +657,11 @@ def test_tune_all_constraint_pruned_measurements_exit_zero_and_export(
         monkeypatch,
         tmp_path,
         "tune",
-        [_benchmark_result(True), _benchmark_result(True)],
+        [_search_result(), _search_result()],
     )
 
     assert result.exit_code == 0, result.output
-    assert exported == [
-        ("build", "test-data", str(tmp_path)),
-        ("search", "test-data", str(tmp_path)),
-    ]
+    assert len(exported) == 1
 
 
 def test_sweep_mixed_results_exit_nonzero(monkeypatch, tmp_path):
@@ -646,14 +670,14 @@ def test_sweep_mixed_results_exit_nonzero(monkeypatch, tmp_path):
         tmp_path,
         "sweep",
         [
-            _benchmark_result(False, "benchmark failed"),
-            _benchmark_result(True),
+            _build_result(False, "benchmark failed"),
+            _search_result(),
         ],
     )
 
     assert result.exit_code != 0
     assert "benchmark failed" in result.output
-    assert exported == []
+    assert len(exported) == 1
 
 
 def test_sweep_without_results_exits_nonzero(monkeypatch, tmp_path):
@@ -663,6 +687,48 @@ def test_sweep_without_results_exits_nonzero(monkeypatch, tmp_path):
 
     assert result.exit_code != 0
     assert "sweep mode produced no benchmark results" in result.output
+    assert len(exported) == 1
+
+
+def test_dry_run_allows_native_backend_without_result_objects(
+    monkeypatch, tmp_path
+):
+    result, exported = _invoke_run_with_results(
+        monkeypatch,
+        tmp_path,
+        "sweep",
+        [],
+        dry_run=True,
+        backend_type="cpp_gbench",
+    )
+
+    assert result.exit_code == 0, result.output
+    assert exported == []
+
+
+def test_dry_run_rejects_python_backend_without_result_objects(
+    monkeypatch, tmp_path
+):
+    result, exported = _invoke_run_with_results(
+        monkeypatch, tmp_path, "sweep", [], dry_run=True
+    )
+
+    assert result.exit_code != 0
+    assert "sweep mode produced no benchmark results" in result.output
+    assert exported == []
+
+
+def test_dry_run_reports_explicit_backend_failures(monkeypatch, tmp_path):
+    result, exported = _invoke_run_with_results(
+        monkeypatch,
+        tmp_path,
+        "sweep",
+        [_build_result(False, "invalid configuration")],
+        dry_run=True,
+    )
+
+    assert result.exit_code != 0
+    assert "invalid configuration" in result.output
     assert exported == []
 
 

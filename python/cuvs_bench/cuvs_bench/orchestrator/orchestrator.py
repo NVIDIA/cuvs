@@ -243,6 +243,7 @@ class BenchmarkOrchestrator:
                         dry_run=dry_run,
                     )
                     results.append(build_result)
+
                     if not build_result.success:
                         print(
                             f"Build failed for {config.index_name}: {build_result.error_message}"
@@ -506,17 +507,10 @@ class BenchmarkOrchestrator:
             print(f"Best params: {study.best_params}")
             print(f"Best {optimize_metric}: {study.best_value:.4f}")
         except ValueError:
-            if any(result.success for result in all_results):
-                print(
-                    f"\n⚠️ All {n_trials} trials were pruned "
-                    "(constraints not met)"
-                )
-                print(f"   Consider relaxing constraints: {hard_constraints}")
-            else:
-                print(
-                    f"\n⚠️ All {n_trials} benchmark trials failed before "
-                    "producing valid metrics"
-                )
+            print(
+                f"\n⚠️ All {n_trials} trials were pruned (constraints not met)"
+            )
+            print(f"   Consider relaxing constraints: {hard_constraints}")
 
         return all_results
 
