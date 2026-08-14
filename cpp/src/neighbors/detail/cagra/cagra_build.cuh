@@ -102,7 +102,7 @@ void ace_get_partition_labels(
 
   // Sampling vectors from dataset. Uses float conversion on host instead of
   // raft::matrix::sample_rows to minimize GPU memory usage.
-  // TODO(julianmi): Switch to sample_rows when https://github.com/rapidsai/cuvs/issues/1461 is
+  // TODO(julianmi): Switch to sample_rows when https://github.com/nvidia/cuvs/issues/1461 is
   // addressed.
   size_t n_samples         = dataset_size * sampling_rate;
   const size_t min_samples = 100 * n_partitions;
