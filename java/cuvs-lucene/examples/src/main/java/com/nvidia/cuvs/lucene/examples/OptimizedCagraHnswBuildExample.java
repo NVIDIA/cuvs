@@ -388,7 +388,8 @@ public class OptimizedCagraHnswBuildExample {
             // pass or omit withNumInputVectors (pass 0) to fall back to the heap-buffered path,
             // which buffers all vectors in a List<float[]> on the JVM heap before building and
             // therefore uses more peak host memory. Index-sorted segments (IndexWriterConfig
-            // .setIndexSort) are also unsupported.
+            // .setIndexSort) are also unsupported, and binary/scalar quantized fields are not yet
+            // supported.
             .withNumInputVectors(numInputVectors)
             .build();
     return new Lucene101AcceleratedHNSWCodec(params);

@@ -549,9 +549,9 @@ public class AcceleratedHNSWParams {
      * native flat buffer (avoiding the on-heap {@code List<float[]>} and the extra host-matrix
      * copy). The native buffer is sized for exactly this many rows, so the value MUST equal the
      * number of vectors actually added; the writer fails fast otherwise. Only supported for the
-     * unsorted single-segment CAGRA_HNSW build (no merges). A value of
-     * {@value DEFAULT_NUM_INPUT_VECTORS} (the default) disables it and uses the default
-     * heap-buffered flat path.
+     * unsorted single-segment CAGRA_HNSW build (no merges). Not yet supported for the
+     * binary/scalar quantized writers. A value of {@value DEFAULT_NUM_INPUT_VECTORS} (the
+     * default) disables it and uses the default heap-buffered flat path.
      *
      * @param numInputVectors the exact number of vectors to be indexed, or 0 to disable
      * @return instance of {@link Builder}

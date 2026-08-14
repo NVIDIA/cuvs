@@ -38,6 +38,8 @@ public class FieldWriter extends KnnFieldVectorsWriter<Object> {
    *
    * <p>The matrix is preallocated for exactly {@code numInputVectors} rows, so the hint must equal
    * the number of vectors actually added (validated at build time in the caller).
+   *
+   * <p>Not yet supported for quantized fields ({@code quantizationType != QuantizationType.NONE}).
    */
   private final int numInputVectors;
 
@@ -68,6 +70,11 @@ public class FieldWriter extends KnnFieldVectorsWriter<Object> {
     this.numInputVectors = numInputVectors;
     this.nativeBuffering = numInputVectors > 0;
     if (nativeBuffering) {
+      if (quantizationType != QuantizationType.NONE) {
+        throw new UnsupportedOperationException(
+            "AcceleratedHNSWParams.numInputVectors (native flat buffering) does not support"
+                + " quantized fields; unset it (0) to use the heap-buffered path");
+      }
       // Preallocates one contiguous native region of numInputVectors * dimension * 4 bytes.
       this.hostMatrixBuilder =
           CuVSMatrix.hostBuilder(numInputVectors, dimension, CuVSMatrix.DataType.FLOAT);
