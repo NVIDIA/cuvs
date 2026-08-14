@@ -130,11 +130,11 @@ python -m cuvs_bench.run \
 
 Do not use this tiny synthetic smoke run as performance or quality evidence; it exists only to verify the workflow. For a representative recall run, prepare `deep-image-96-angular` with `--normalize` into the same `DATASET_ROOT`, then run the backend against `deep-image-96-inner` with the same `--dataset-path`.
 
-The HNSW `base` group sweeps `Lucene101AcceleratedHNSWCodec`, `Lucene101AcceleratedHNSWBaseLayerCodec`, and `Lucene101AcceleratedHNSWMultiLayerCodec`; its `test` group uses `Lucene101AcceleratedHNSWCodec`. These codecs build the HNSW graph on the GPU with cuVS and use Lucene's CPU HNSW search. Use `--algorithms pylucene_cuvs_cagra` to run `CuVS2510GPUSearchCodec`, which builds and searches on the GPU.
+The HNSW `base` and `test` groups use `Lucene101AcceleratedHNSWCodec`. It uses cuVS for HNSW graph construction when GPU support is available and intentionally falls back, with a warning, to Lucene's CPU HNSW writer otherwise. Search uses Lucene's CPU HNSW implementation in either case. Use `--algorithms pylucene_cuvs_cagra` to run `CuVS2510GPUSearchCodec`, which builds and searches on the GPU.
 
-The supplied configurations use Lucene's public `KnnFloatVectorQuery` and do not expose search-time tuning parameters. The backend accepts FLOAT32 Euclidean datasets with at most 4096 dimensions. All supplied codecs require at least two indexed vectors because cuVS-Lucene bypasses cuVS for a single-vector index. CAGRA requires a GPU for build and search. Although cuVS-Lucene uses an effective `lucene_k` of `min(k, document_count)`, the backend conservatively requires `k <= 1024` to avoid cuVS-Lucene paths that can use brute-force search above that limit. HNSW requires a GPU for graph construction, and new builds reject cuVS-Lucene's CPU fallback.
+The supplied configurations use Lucene's public `KnnFloatVectorQuery` and do not expose search-time tuning parameters. The backend accepts FLOAT32 Euclidean datasets with at most 4096 dimensions and at least two indexed vectors. CAGRA requires a GPU for build and search. Although cuVS-Lucene uses an effective `lucene_k` of `min(k, document_count)`, the backend conservatively requires `k <= 1024` to avoid cuVS-Lucene paths that can use brute-force search above that limit.
 
-New HNSW and CAGRA builds atomically write commit-bound provenance manifests named `.cuvs-bench-pylucene-hnsw.json` and `.cuvs-bench-pylucene-cagra.json`, respectively. Reuse and search fail if the applicable manifest is missing, malformed, stale, or names a different codec. Indexes created outside this backend without the applicable manifest must be rebuilt with `--force`. CAGRA indexes also undergo structural and checksum-integrity verification.
+New HNSW and CAGRA builds atomically write commit-bound provenance manifests named `.cuvs-bench-pylucene-hnsw.json` and `.cuvs-bench-pylucene-cagra.json`, respectively. Reuse and search fail if the applicable manifest is missing, malformed, stale, or names a different codec or writer policy. Indexes created outside this backend without the applicable manifest must be rebuilt with `--force`. For HNSW, the policy permits cuVS-Lucene's production CPU fallback. For CAGRA, the backend fails closed: it verifies the committed vector segments and checksums and rejects an index that is not CAGRA-only.
 
 The backend currently supports latency mode with one search thread. `--batch-size` groups queries for measurement, and the reported latency percentiles are per batch. Throughput mode and multiple search threads are not implemented.
 
@@ -257,7 +257,7 @@ Containers can also run in detached mode.
 
 ## Evaluating results
 
-The tables below describe fields emitted by the default C++ Google Benchmark backend. Other backends report the fields that apply to their execution model, so not every field is present for every backend. In particular, PyLucene reports `index_size` as the total on-disk index size in bytes.
+The tables below describe fields emitted by the default C++ Google Benchmark backend. Other backends report the fields that apply to their execution model, so not every field is present for every backend.
 
 C++ build benchmarks report:
 
