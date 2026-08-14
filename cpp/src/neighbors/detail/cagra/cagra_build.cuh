@@ -87,16 +87,21 @@ template <typename T, typename IdxT>
 void ace_get_partition_labels(
   raft::resources const& res,
   raft::host_matrix_view<const T, int64_t, raft::row_major> dataset,
+  size_t dataset_dim,
   raft::host_matrix_view<IdxT, int64_t, raft::row_major> partition_labels,
   raft::host_matrix_view<IdxT, int64_t, raft::row_major> partition_histogram,
   size_t min_partition_size,
   double sampling_rate = 0.01)
 {
   size_t dataset_size = dataset.extent(0);
-  size_t dataset_dim  = dataset.extent(1);
   size_t labels_size  = partition_labels.extent(0);
   size_t labels_dim   = partition_labels.extent(1);
   RAFT_EXPECTS(dataset_size == labels_size, "Dataset size must match partition labels extent");
+  RAFT_EXPECTS(dataset_dim > 0, "Dataset dimension must be greater than 0");
+  RAFT_EXPECTS(static_cast<size_t>(dataset.extent(1)) >= dataset_dim,
+               "Dataset row extent (%zu) must be >= logical dimension (%zu)",
+               static_cast<size_t>(dataset.extent(1)),
+               dataset_dim);
   size_t n_partitions = partition_histogram.extent(0);
   RAFT_EXPECTS(labels_dim == 2, "Labels must have 2 columns");
   RAFT_EXPECTS(partition_histogram.extent(1) == 2, "Partition histogram must have 2 columns");
@@ -104,7 +109,7 @@ void ace_get_partition_labels(
 
   // Sampling vectors from dataset. Uses float conversion on host instead of
   // raft::matrix::sample_rows to minimize GPU memory usage.
-  // TODO(julianmi): Switch to sample_rows when https://github.com/rapidsai/cuvs/issues/1461 is
+  // TODO(julianmi): Switch to sample_rows when https://github.com/nvidia/cuvs/issues/1461 is
   // addressed.
   size_t n_samples         = dataset_size * sampling_rate;
   const size_t min_samples = 100 * n_partitions;
@@ -477,6 +482,7 @@ void ace_reorder_and_store_dataset(
   raft::resources const& res,
   const std::string& build_dir,
   raft::host_matrix_view<const T, int64_t, row_major> dataset,
+  size_t dataset_dim,
   raft::host_matrix_view<IdxT, int64_t, raft::row_major> partition_labels,
   raft::host_matrix_view<IdxT, int64_t, raft::row_major> partition_histogram,
   raft::host_vector_view<IdxT, int64_t, raft::row_major> core_backward_mapping,
@@ -492,8 +498,12 @@ void ace_reorder_and_store_dataset(
   auto start = std::chrono::high_resolution_clock::now();
 
   size_t dataset_size = dataset.extent(0);
-  size_t dataset_dim  = dataset.extent(1);
   size_t n_partitions = partition_histogram.extent(0);
+  RAFT_EXPECTS(dataset_dim > 0, "Dataset dimension must be greater than 0");
+  RAFT_EXPECTS(static_cast<size_t>(dataset.extent(1)) >= dataset_dim,
+               "Dataset row extent (%zu) must be >= logical dimension (%zu)",
+               static_cast<size_t>(dataset.extent(1)),
+               dataset_dim);
 
   RAFT_LOG_DEBUG("ACE build: reordering dataset to disk (rows=%lu dim=%lu partitions=%lu)",
                  dataset_size,
@@ -1124,6 +1134,13 @@ auto build_from_device_matrix(raft::resources const& res,
                               DatasetViewT const& device_dataset)
   -> cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>;
 
+template <typename T, typename IdxT, typename DatasetViewT>
+  requires cuvs::neighbors::is_host_dataset_view_v<DatasetViewT>
+auto build_from_host_matrix(raft::resources const& res,
+                            const index_params& params,
+                            DatasetViewT const& dataset)
+  -> cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>;
+
 // Build CAGRA index using ACE (Augmented Core Extraction) partitioning
 // ACE enables building indexes for datasets too large to fit in GPU memory by:
 // 1. Partitioning the dataset using balanced k-means in core (non-overlapping) and augmented
@@ -1282,8 +1299,12 @@ auto build_ace(raft::resources const& res, const index_params& params, DatasetVi
     // Determine minimum partition size for stable KNN graph construction
     size_t min_partition_size = std::max<size_t>(1000ULL, dataset_size / n_partitions * 0.1);
 
-    ace_get_partition_labels<T, IdxT>(
-      res, dataset_view, partition_labels.view(), partition_histogram.view(), min_partition_size);
+    ace_get_partition_labels<T, IdxT>(res,
+                                      dataset_view,
+                                      dataset_dim,
+                                      partition_labels.view(),
+                                      partition_histogram.view(),
+                                      min_partition_size);
 
     ace_check_partition_sizes<IdxT>(dataset_size,
                                     n_partitions,
@@ -1330,6 +1351,7 @@ auto build_ace(raft::resources const& res, const index_params& params, DatasetVi
       ace_reorder_and_store_dataset<T, IdxT>(res,
                                              build_dir,
                                              dataset_view,
+                                             dataset_dim,
                                              partition_labels.view(),
                                              partition_histogram.view(),
                                              core_backward_mapping.view(),
@@ -1409,12 +1431,13 @@ auto build_ace(raft::resources const& res, const index_params& params, DatasetVi
       sub_index_params.attach_dataset_on_build = false;
       sub_index_params.guarantee_connectivity  = params.guarantee_connectivity;
 
-      // Copy host partition to device with padding; build_from_device_matrix accepts
-      // device_padded_dataset_view.
-      auto sub_dataset_dev = cuvs::neighbors::make_device_padded_dataset(
-        res, raft::make_const_mdspan(sub_dataset.view()));
-      auto sub_index = ::cuvs::neighbors::cagra::detail::build_from_device_matrix<T, IdxT>(
-        res, sub_index_params, sub_dataset_dev->as_dataset_view());
+      // Keep the partition host-resident so IVF-PQ and NN-descent can consume it in batches.
+      // Iterative CAGRA uploads and pads the partition inside build_from_host_matrix.
+      auto sub_dataset_view = cuvs::neighbors::make_host_standard_dataset_view(
+        raft::make_const_mdspan(sub_dataset.view()));
+      auto sub_index = ::cuvs::neighbors::cagra::build(res, sub_index_params, sub_dataset_view);
+      static_assert(
+        std::is_same_v<decltype(sub_index), cuvs::neighbors::cagra::host_standard_index<T, IdxT>>);
 
       auto optimize_end = std::chrono::high_resolution_clock::now();
       auto optimize_elapsed =
