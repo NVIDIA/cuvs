@@ -29,7 +29,7 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/rapidsai/cuvs"
+Homepage = "https://github.com/nvidia/cuvs"
 Documentation = "https://docs.rapids.ai/api/cuvs/stable/"
 
 [project.entry-points."cmake.prefix"]

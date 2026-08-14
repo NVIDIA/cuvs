@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs;
@@ -35,7 +35,7 @@ public class CagraRandomizedIT extends CuVSTestCase {
     DEVICE
   }
 
-  @Ignore // https://github.com/rapidsai/cuvs/issues/1468
+  @Ignore // https://github.com/nvidia/cuvs/issues/1468
   @Test
   public void testResultsTopKWithRandomValues() throws Throwable {
     TestDatasetMemoryKind[] testDatasetMemoryKinds = {

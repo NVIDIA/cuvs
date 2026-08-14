@@ -844,7 +844,7 @@ struct search_params : cuvs::neighbors::search_params {
  * @}
  */
 
-// TODO: Filtered Search APIs: https://github.com/rapidsai/cuvs/issues/363
+// TODO: Filtered Search APIs: https://github.com/nvidia/cuvs/issues/363
 
 /**
  * @defgroup hnsw_cpp_index_search Search hnswlib index

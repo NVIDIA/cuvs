@@ -641,7 +641,7 @@ void search(const raft::resources& clique,
       cuvs::core::omp::check_threads(index.num_ranks_);
 // Each rank gets its own thread; that thread handles all batches for that rank sequentially.
 // This prevents concurrent access to the same GPU from multiple threads. (see
-// https://github.com/rapidsai/cuvs/issues/1720)
+// https://github.com/nvidia/cuvs/issues/1720)
 #pragma omp parallel for num_threads(index.num_ranks_)
       for (int rank = 0; rank < index.num_ranks_; rank++) {
         for (int64_t batch_idx = rank; batch_idx < n_batches; batch_idx += index.num_ranks_) {
