@@ -120,7 +120,7 @@ RAFT_KERNEL merge_subgraphs_kernel(IdxT* cluster_data_indices,
         // to each other after sorting by distances. Thus, for now we sweep a neighboring window of
         // size 4 or sweep the entire row to check for duplicates, and keep the first occurrence
         // only.
-        // related issue: https://github.com/rapidsai/cuvs/issues/1056
+        // related issue: https://github.com/nvidia/cuvs/issues/1056
         // uniqueMask[colId] = static_cast<int16_t>(blockValues[colId] != blockValues[colId - 1]);
 
         int is_unique = 1;
