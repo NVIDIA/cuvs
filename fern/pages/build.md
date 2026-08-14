@@ -70,7 +70,7 @@ CUDA_VERSION=12.9.2 PYTHON_VERSION=3.11 ./build.sh tarball
 To write the tarball to another directory, set `BUILD_OUTPUT_DIR`:
 
 ```bash
-BUILD_OUTPUT_DIR=/path/to/output ./build.sh tarball
+BUILD_OUTPUT_DIR=$(pwd)/dist ./build.sh tarball
 ```
 
 The tarball is written to `/path/to/output/libcuvs_c.tar.gz` and is also copied to the repository root.
