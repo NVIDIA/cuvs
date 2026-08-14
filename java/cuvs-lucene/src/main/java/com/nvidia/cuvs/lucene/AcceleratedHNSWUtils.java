@@ -105,11 +105,12 @@ public class AcceleratedHNSWUtils {
     int size = (int) vectorDataset.size();
     int M = Math.ceilDiv((int) adjacencyListMatrix.columns(), 2);
 
+    // Store all layers data
     List<int[]> layerNodes = new ArrayList<>();
     List<CuVSMatrix> layerAdjacencies = new ArrayList<>();
 
     // Layer 0: Use full CAGRA adjacency list
-    layerNodes.add(null);
+    layerNodes.add(null); // Layer 0 contains all nodes, so we don't need to store node list
     layerAdjacencies.add(adjacencyListMatrix);
 
     int currentLayerSize = size;
@@ -117,22 +118,28 @@ public class AcceleratedHNSWUtils {
     Random random = new Random();
 
     while (layerIndex < hnswLayers && currentLayerSize > 1) {
+      // Calculate size for next layer (1/M of current layer)
       int nextLayerSize = Math.max(2, currentLayerSize / M);
+      // Select nodes for this layer
       SortedSet<Integer> selectedNodesSet = new TreeSet<>();
 
       if (layerIndex == 1) {
+        // Select from all nodes (Layer 0)
         while (selectedNodesSet.size() < nextLayerSize) {
           selectedNodesSet.add(random.nextInt(size));
         }
       } else {
+        // Select from previous layer nodes
         int[] prevLayerNodes = layerNodes.get(layerNodes.size() - 1);
         while (selectedNodesSet.size() < nextLayerSize) {
           selectedNodesSet.add(prevLayerNodes[random.nextInt(prevLayerNodes.length)]);
         }
       }
 
+      // Convert to sorted array
       int[] selectedNodes =
           selectedNodesSet.stream().mapToInt(Integer::intValue).sorted().toArray();
+
       layerNodes.add(selectedNodes);
 
       if (quantization == QuantizationType.NONE) {
@@ -141,6 +148,8 @@ public class AcceleratedHNSWUtils {
         for (int i = 0; i < nextLayerSize; i++) {
           vectorDataset.getRow(selectedNodes[i]).toArray(selectedVectors[i]);
         }
+
+        // Build CAGRA graph for this layer
         layerAdjacencies.add(
             buildCagraGraphForSubset(
                 selectedVectors, selectedNodes, 0, params, dimensions, quantization));
@@ -151,16 +160,22 @@ public class AcceleratedHNSWUtils {
         for (int i = 0; i < nextLayerSize; i++) {
           vectorDataset.getRow(selectedNodes[i]).toArray(selectedVectors[i]);
         }
+
+        // Build CAGRA graph for this layer
         layerAdjacencies.add(
             buildCagraGraphForSubset(
                 selectedVectors, selectedNodes, bytesPerVector, params, dimensions, quantization));
       }
 
+      // Update for next iteration
       currentLayerSize = nextLayerSize;
       layerIndex++;
+
+      // Use different seed for each layer
       random = new Random(new Random().nextLong());
     }
 
+    // Create the multi-layer graph with all layers
     return new GPUBuiltHnswGraph(size, dimensions, layerNodes, layerAdjacencies, numThreads);
   }
 
@@ -230,6 +245,7 @@ public class AcceleratedHNSWUtils {
    */
   public static int[][] writeGraph(
       GPUBuiltHnswGraph graph, IndexOutput vectorIndex, int numThreads) throws IOException {
+    // write vectors' neighbors on each level into the vectorIndex file
     int countOnLevel0 = graph.size();
     int numLevels = graph.numLevels();
     int[][] offsets = new int[numLevels][];
@@ -251,6 +267,7 @@ public class AcceleratedHNSWUtils {
       offsets[level] = new int[sortedNodes.length];
       writeLevelSerial(graph, vectorIndex, level, sortedNodes, offsets[level], countOnLevel0);
     }
+    // Return offsets (information written while writing the meta info)
     return offsets;
   }
 
