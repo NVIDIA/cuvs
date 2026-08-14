@@ -310,8 +310,7 @@ auto build(raft::resources const& res, const index_params& params, DatasetViewT 
     return idx;
   } else {
     if (std::holds_alternative<graph_build_params::ace_params>(params.graph_build_params)) {
-      return cuvs::neighbors::cagra::detail::build_ace<T, IdxT, DatasetViewT>(
-        res, params, dataset.view());
+      return cuvs::neighbors::cagra::detail::build_ace<T, IdxT, DatasetViewT>(res, params, dataset);
     }
     return cuvs::neighbors::cagra::detail::build_from_host_matrix<T, IdxT, DatasetViewT>(
       res, params, dataset);

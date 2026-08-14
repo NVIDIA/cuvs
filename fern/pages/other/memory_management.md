@@ -132,7 +132,7 @@ fn main() -> Result<(), &'static str> {
 ```go
 package main
 
-import cuvs "github.com/rapidsai/cuvs/go"
+import cuvs "github.com/nvidia/cuvs/go"
 
 func main() error {
 	mem, err := cuvs.NewCuvsPoolMemory(50, 90, false)
@@ -411,7 +411,7 @@ fn main() -> Result<(), &'static str> {
 ```go
 package main
 
-import cuvs "github.com/rapidsai/cuvs/go"
+import cuvs "github.com/nvidia/cuvs/go"
 
 func main() error {
 	mem, err := cuvs.NewCuvsPoolMemory(50, 90, true)

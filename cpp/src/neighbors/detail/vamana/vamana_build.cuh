@@ -216,7 +216,7 @@ void batched_insert_vamana(
 
   // Random medoid has minor impact on recall
   // TODO: use heuristic for better medoid selection, issue:
-  // https://github.com/rapidsai/cuvs/issues/355
+  // https://github.com/nvidia/cuvs/issues/355
   *medoid_id = rand() % N;
 
   // size of current batch of inserts, increases logarithmically until max_batchsize
