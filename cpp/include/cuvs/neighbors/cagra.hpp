@@ -934,10 +934,6 @@ using device_standard_index =
 template <typename T, typename IdxT = uint32_t>
 using host_standard_index = index<T, IdxT, cuvs::neighbors::host_standard_dataset_view<T, int64_t>>;
 
-/** CAGRA index with float queries and a device-resident VPQ dataset view. */
-template <typename CodebookT = half, typename IdxT = uint32_t>
-using vpq_index = index<float, IdxT, cuvs::neighbors::device_vpq_dataset_view<CodebookT, int64_t>>;
-
 /** CAGRA index with a device-resident VPQ dataset (f16 codebook vectors). */
 template <typename T, typename IdxT = uint32_t>
 using vpq_f16_index = index<T, IdxT, cuvs::neighbors::device_vpq_dataset_view<half, int64_t>>;
@@ -948,12 +944,12 @@ using vpq_f32_index = index<T, IdxT, cuvs::neighbors::device_vpq_dataset_view<fl
 
 /** Index type returned by `cagra::build(res, params, dataset_view)`. */
 template <typename DatasetViewT>
-using cagra_index_t =
-  std::conditional_t<cuvs::neighbors::is_device_vpq_f16_dataset_view_v<DatasetViewT>,
-                     vpq_index<half, uint32_t>,
-                     index<cuvs::neighbors::cagra_view_element_type_t<DatasetViewT>,
-                           uint32_t,
-                           cuvs::neighbors::dataset_view_type_t<DatasetViewT>>>;
+using cagra_index_t = std::conditional_t<
+  cuvs::neighbors::is_device_vpq_f16_dataset_view_v<DatasetViewT>,
+  index<float, uint32_t, cuvs::neighbors::device_vpq_dataset_view<half, int64_t>>,
+  index<cuvs::neighbors::cagra_view_element_type_t<DatasetViewT>,
+        uint32_t,
+        cuvs::neighbors::dataset_view_type_t<DatasetViewT>>>;
 
 /**
  * @}
@@ -1001,12 +997,12 @@ using cagra_index_t =
  * @param[in] res raft resources
  * @param[in] params CAGRA index build parameters
  * @param[in] dataset device VPQ dataset view
- * @return built `vpq_index<half, uint32_t>`
+ * @return built `index<float, uint32_t, device_vpq_dataset_view<half, int64_t>>`
  */
 auto build(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
            cuvs::neighbors::device_vpq_dataset_view<half, int64_t> const& dataset)
-  -> cuvs::neighbors::cagra::vpq_index<half, uint32_t>;
+  -> index<float, uint32_t, cuvs::neighbors::device_vpq_dataset_view<half, int64_t>>;
 
 /**
  * @brief Build from a device padded dataset view (`float`).
