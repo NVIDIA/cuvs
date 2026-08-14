@@ -97,14 +97,13 @@ public class AcceleratedHNSWUtils {
       CuVSMatrix adjacencyListMatrix,
       CuVSMatrix vectorDataset,
       int hnswLayers,
-      int graphDegree,
       CagraIndexParams params,
       QuantizationType quantization,
       int numThreads)
       throws Throwable {
 
     int size = (int) vectorDataset.size();
-    int M = graphDegree / 2;
+    int M = Math.ceilDiv((int) adjacencyListMatrix.columns(), 2);
 
     List<int[]> layerNodes = new ArrayList<>();
     List<CuVSMatrix> layerAdjacencies = new ArrayList<>();

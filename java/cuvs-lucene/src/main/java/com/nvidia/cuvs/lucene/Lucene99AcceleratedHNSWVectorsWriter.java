@@ -232,7 +232,6 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
               adjacencyListMatrix,
               dataset,
               acceleratedHNSWParams.getHnswLayers(),
-              acceleratedHNSWParams.getGraphdegree(),
               params,
               QuantizationType.NONE,
               acceleratedHNSWParams.getWriterThreads());

@@ -182,7 +182,6 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends KnnVector
               adjacencyListMatrix,
               dataset,
               acceleratedHNSWParams.getHnswLayers(),
-              acceleratedHNSWParams.getGraphdegree(),
               params,
               QuantizationType.BINARY,
               acceleratedHNSWParams.getWriterThreads());

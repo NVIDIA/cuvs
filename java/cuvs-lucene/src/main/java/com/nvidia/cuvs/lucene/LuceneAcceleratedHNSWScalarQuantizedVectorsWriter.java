@@ -207,7 +207,6 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends KnnVector
               adjacencyListMatrix,
               dataset,
               acceleratedHNSWParams.getHnswLayers(),
-              acceleratedHNSWParams.getGraphdegree(),
               params,
               QuantizationType.SCALAR,
               acceleratedHNSWParams.getWriterThreads());
