@@ -1,6 +1,6 @@
 # =============================================================================
 # cmake-format: off
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 # cmake-format: on
 # =============================================================================
@@ -19,7 +19,8 @@ function(compute_matrix_product output_var)
   if(_JIT_LTO_MATRIX_JSON_FILE)
     execute_process(
       COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/compute_matrix_product.py"
-              "${_JIT_LTO_MATRIX_JSON_FILE}" OUTPUT_VARIABLE output COMMAND_ERROR_IS_FATAL ANY
+              "${_JIT_LTO_MATRIX_JSON_FILE}" #
+      OUTPUT_VARIABLE output COMMAND_ERROR_IS_FATAL ANY
     )
   else()
     execute_process(

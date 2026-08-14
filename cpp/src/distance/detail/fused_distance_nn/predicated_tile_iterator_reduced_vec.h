@@ -1,7 +1,7 @@
 // clang-format off
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0 AND BSD-3-Clause
  */
 // clang-format on
@@ -437,8 +437,10 @@ class PredicatedTileIteratorReducedVec {
       __syncthreads();
 
       if (row < total_rows) {
+        volatile Element* gmem_ptr = reinterpret_cast<volatile Element*>(first_tile_byte_pointer_);
+
         if ((block_start_row_first_tile_ + row) < extent_row_) {
-          user_params.red_op_.merge(block_start_row_first_tile_ + row, row_local_min);
+          user_params.red_op_(block_start_row_first_tile_ + row, (gmem_ptr + row), row_local_min);
         }
       }
 

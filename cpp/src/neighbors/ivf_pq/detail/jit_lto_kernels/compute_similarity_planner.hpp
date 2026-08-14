@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -12,10 +12,10 @@
 
 namespace cuvs::neighbors::ivf_pq::detail {
 
-struct ComputeSimilarityPlanner : LTOAlgorithmPlanner {
+struct ComputeSimilarityPlanner : AlgorithmPlanner {
   inline static LauncherJitCache launcher_jit_cache{};
 
-  ComputeSimilarityPlanner() : LTOAlgorithmPlanner("compute_similarity", launcher_jit_cache) {}
+  ComputeSimilarityPlanner() : AlgorithmPlanner("compute_similarity", launcher_jit_cache) {}
 
   template <typename OutTag, typename LutTag>
   void add_entrypoint()
