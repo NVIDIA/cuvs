@@ -64,10 +64,12 @@ jobs:
       build_type: pull-request
       matrix_name: conda-cpp-build
   rocky8-clib-standalone-build:
-    needs: rocky8-clib-standalone-build-matrix
+    needs: [build-details, rocky8-clib-standalone-build-matrix]
     runs-on: linux-${{ matrix.ARCH }}-cpu16
     env:
       RAPIDS_ARTIFACTS_DIR: ${{ github.workspace }}/artifacts
+      RAPIDS_BUILD_TYPE: ${{ inputs.build_type || 'branch' }}
+      RAPIDS_DATETIME_STRING: ${{ needs.build-details.outputs.build-datetime }}
     permissions:
       actions: read
       contents: read
@@ -83,6 +85,12 @@ jobs:
           ref: ${{ inputs.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
+      - name: Standardize repository information
+        uses: rapidsai/shared-actions/rapids-github-info@main
+        with:
+          branch: ${{ inputs.branch }}
+          date: ${{ inputs.date }}
+          sha: ${{ inputs.sha }}
       - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
