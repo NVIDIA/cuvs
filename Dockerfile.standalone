@@ -21,27 +21,7 @@ RUN dnf install -y \
     wget \
     && dnf clean all
 
-# Install ninja (architecture-aware)
-RUN set -euo pipefail; \
-    if ! command -V ninja >/dev/null 2>&1; then \
-        case "$(uname -m)" in \
-            x86_64) \
-                wget --no-hsts -q -O /tmp/ninja-linux.zip "https://github.com/ninja-build/ninja/releases/download/${NINJA_VERSION}/ninja-linux.zip"; \
-                ;; \
-            aarch64) \
-                wget --no-hsts -q -O /tmp/ninja-linux.zip "https://github.com/ninja-build/ninja/releases/download/${NINJA_VERSION}/ninja-linux-aarch64.zip"; \
-                ;; \
-            *) \
-                echo "Unrecognized platform '$(uname -m)'" >&2; exit 1; \
-                ;; \
-        esac; \
-        unzip -d /usr/bin /tmp/ninja-linux.zip; \
-        chmod +x /usr/bin/ninja; \
-        rm /tmp/ninja-linux.zip; \
-    fi
-
-# CMake; sccache/date are configured at runtime by ci/standalone_c/build_standalone_c.sh
-RUN rapids-pip-retry install cmake \
+RUN rapids-pip-retry install cmake 'ninja>=1.13' \
     && pyenv rehash
 
 # Output directory for the standalone archive. Bind-mount a host folder here
