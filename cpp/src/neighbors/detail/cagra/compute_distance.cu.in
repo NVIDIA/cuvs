@@ -1,0 +1,14 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include "compute_distance-ext.cuh"
+
+namespace cuvs::neighbors::cagra::detail {
+
+using namespace cuvs::distance;
+
+template struct instance_selector<@cagra_compute_distance_standard_selector_template_params@, @cagra_compute_distance_vpq_selector_template_params@>;
+
+}  // namespace cuvs::neighbors::cagra::detail

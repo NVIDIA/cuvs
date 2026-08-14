@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -143,7 +143,7 @@ void batched_insert_vamana(
   auto query_ids      = raft::make_device_vector<IdxT>(res, max_batchsize);
   auto query_list_ptr = raft::make_device_mdarray<QueryCandidates<IdxT, accT>>(
     res,
-    raft::resource::get_large_workspace_resource(res),
+    raft::resource::get_large_workspace_resource_ref(res),
     raft::make_extents<int64_t>(max_batchsize + 1));
   QueryCandidates<IdxT, accT>* query_list =
     static_cast<QueryCandidates<IdxT, accT>*>(query_list_ptr.data_handle());
@@ -151,14 +151,14 @@ void batched_insert_vamana(
   // Results of each batch of inserts during build - Memory is used by query_list structure
   auto visited_ids =
     raft::make_device_mdarray<IdxT>(res,
-                                    raft::resource::get_large_workspace_resource(res),
+                                    raft::resource::get_large_workspace_resource_ref(res),
                                     raft::make_extents<int64_t>(max_batchsize, visited_size));
   auto visited_dists =
     raft::make_device_mdarray<accT>(res,
-                                    raft::resource::get_large_workspace_resource(res),
+                                    raft::resource::get_large_workspace_resource_ref(res),
                                     raft::make_extents<int64_t>(max_batchsize, visited_size));
 
-  // Assign memory to query_list structures and initiailize
+  // Assign memory to query_list structures and initialize
   init_query_candidate_list<IdxT, accT><<<256, blockD, 0, stream>>>(query_list,
                                                                     visited_ids.data_handle(),
                                                                     visited_dists.data_handle(),
@@ -167,14 +167,14 @@ void batched_insert_vamana(
                                                                     1);
   auto topk_pq_mem =
     raft::make_device_mdarray<Node<accT>>(res,
-                                          raft::resource::get_large_workspace_resource(res),
+                                          raft::resource::get_large_workspace_resource_ref(res),
                                           raft::make_extents<int64_t>(max_batchsize, visited_size));
 
   int align_padding = raft::alignTo(dim, 16) - dim;
 
   auto s_coords_mem = raft::make_device_mdarray<T>(
     res,
-    raft::resource::get_large_workspace_resource(res),
+    raft::resource::get_large_workspace_resource_ref(res),
     raft::make_extents<int64_t>(min(maxBlocks, max(max_batchsize, reverse_batch)),
                                 dim + align_padding));
 
@@ -216,7 +216,7 @@ void batched_insert_vamana(
 
   // Random medoid has minor impact on recall
   // TODO: use heuristic for better medoid selection, issue:
-  // https://github.com/rapidsai/cuvs/issues/355
+  // https://github.com/nvidia/cuvs/issues/355
   *medoid_id = rand() % N;
 
   // size of current batch of inserts, increases logarithmically until max_batchsize
@@ -318,7 +318,7 @@ void batched_insert_vamana(
 
     // compute prefix sums of query_list sizes - TODO parallelize prefix sums
     //    auto d_total_edges = raft::make_device_mdarray<int>(
-    //      res, raft::resource::get_workspace_resource(res), raft::make_extents<int64_t>(1));
+    //      res, raft::resource::get_workspace_resource_ref(res), raft::make_extents<int64_t>(1));
     rmm::device_scalar<int> d_total_edges(stream);
     prefix_sums_sizes<accT, IdxT><<<1, 1, 0, stream>>>(query_list, step_size, d_total_edges.data());
     RAFT_CUDA_TRY(cudaPeekAtLastError());
@@ -329,16 +329,16 @@ void batched_insert_vamana(
 
     auto edge_dist_pair = raft::make_device_mdarray<DistPair<IdxT, accT>>(
       res,
-      raft::resource::get_large_workspace_resource(res),
+      raft::resource::get_large_workspace_resource_ref(res),
       raft::make_extents<int64_t>(total_edges));
 
     auto edge_dest =
       raft::make_device_mdarray<IdxT>(res,
-                                      raft::resource::get_large_workspace_resource(res),
+                                      raft::resource::get_large_workspace_resource_ref(res),
                                       raft::make_extents<int64_t>(total_edges));
     auto edge_src =
       raft::make_device_mdarray<IdxT>(res,
-                                      raft::resource::get_large_workspace_resource(res),
+                                      raft::resource::get_large_workspace_resource_ref(res),
                                       raft::make_extents<int64_t>(total_edges));
 
     // Create reverse edge list
@@ -367,7 +367,7 @@ void batched_insert_vamana(
 
       auto temp_sort_storage = raft::make_device_mdarray<IdxT>(
         res,
-        raft::resource::get_large_workspace_resource(res),
+        raft::resource::get_large_workspace_resource_ref(res),
         raft::make_extents<int64_t>(temp_storage_bytes / sizeof(IdxT)));
 
       // Sort to group reverse edges by destination
@@ -406,7 +406,7 @@ void batched_insert_vamana(
 
     auto temp_sort_storage = raft::make_device_mdarray<IdxT>(
       res,
-      raft::resource::get_large_workspace_resource(res),
+      raft::resource::get_large_workspace_resource_ref(res),
       raft::make_extents<int64_t>(temp_storage_bytes / sizeof(IdxT)));
 
     // Sort to group reverse edges by destination
@@ -451,16 +451,16 @@ void batched_insert_vamana(
       // Allocate reverse QueryCandidate list based on number of unique destinations
       auto reverse_list_ptr = raft::make_device_mdarray<QueryCandidates<IdxT, accT>>(
         res,
-        raft::resource::get_large_workspace_resource(res),
+        raft::resource::get_large_workspace_resource_ref(res),
         raft::make_extents<int64_t>(reverse_batch));
       auto rev_ids =
         raft::make_device_mdarray<IdxT>(res,
-                                        raft::resource::get_large_workspace_resource(res),
+                                        raft::resource::get_large_workspace_resource_ref(res),
                                         raft::make_extents<int64_t>(reverse_batch, visited_size));
 
       auto rev_dists =
         raft::make_device_mdarray<accT>(res,
-                                        raft::resource::get_large_workspace_resource(res),
+                                        raft::resource::get_large_workspace_resource_ref(res),
                                         raft::make_extents<int64_t>(reverse_batch, visited_size));
 
       QueryCandidates<IdxT, accT>* reverse_list =
@@ -646,7 +646,7 @@ index<T, IdxT> build(
 
     auto quantizer = cuvs::preprocessing::quantize::pq::quantizer<float>(
       pq_params,
-      cuvs::neighbors::vpq_dataset<float, int64_t>{
+      cuvs::neighbors::device_vpq_dataset<float, int64_t>{
         raft::make_device_matrix<float, uint32_t, raft::row_major>(res, 0, 0),
         std::move(pq_codebook),
         raft::make_device_matrix<uint8_t, int64_t, raft::row_major>(res, 0, 0)});
@@ -656,13 +656,15 @@ index<T, IdxT> build(
     // TODO: with scaling workspace we could choose the batch size dynamically
     constexpr uint32_t kReasonableMaxBatchSize = 65536;
     const uint32_t max_batch_size              = std::min(n_rows, kReasonableMaxBatchSize);
-    for (const auto& batch : cuvs::spatial::knn::detail::utils::batch_load_iterator<T>(
-           dataset.data_handle(),
-           n_rows,
-           dim,
-           max_batch_size,
-           raft::resource::get_cuda_stream(res),
-           raft::resource::get_workspace_resource(res))) {
+    auto _vamana_batches = cuvs::spatial::knn::detail::utils::make_batch_load_iterator<T>(
+      res,
+      dataset.data_handle(),
+      static_cast<int64_t>(n_rows),
+      static_cast<int64_t>(dim),
+      static_cast<size_t>(max_batch_size),
+      raft::resource::get_cuda_stream(res),
+      raft::resource::get_workspace_resource_ref(res));
+    for (const auto& batch : _vamana_batches) {
       // perform rotation
       auto dataset_rotated = raft::make_device_matrix<float, int64_t>(res, batch.size(), dim);
       if constexpr (std::is_same_v<T, float>) {

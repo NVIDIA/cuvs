@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -9,9 +9,12 @@
 #include <cuvs/neighbors/cagra.hpp>
 #include <raft/core/device_mdspan.hpp>
 
+#include <cuvs/core/export.hpp>
 #include <vector>
 
-namespace cuvs::neighbors::composite {
+namespace CUVS_EXPORT cuvs {
+namespace neighbors {
+namespace composite {
 
 /**
  * @brief Composite index that searches multiple CAGRA sub-indices and merges results.
@@ -38,14 +41,15 @@ namespace cuvs::neighbors::composite {
  * @endcode
  */
 template <typename T, typename IdxT, typename OutputIdxT = IdxT>
-class composite_index {
+class CUVS_EXPORT composite_index {
  public:
   using value_type        = T;
   using index_type        = IdxT;
   using out_index_type    = OutputIdxT;
   using matrix_index_type = int64_t;
 
-  explicit composite_index(std::vector<cuvs::neighbors::cagra::index<T, IdxT>*> children)
+  explicit composite_index(
+    std::vector<cuvs::neighbors::cagra::device_padded_index<T, IdxT>*> children)
     : children_(std::move(children))
   {
   }
@@ -88,7 +92,9 @@ class composite_index {
   }
 
  private:
-  std::vector<cuvs::neighbors::cagra::index<T, IdxT>*> children_;
+  std::vector<cuvs::neighbors::cagra::device_padded_index<T, IdxT>*> children_;
 };
 
-}  // namespace cuvs::neighbors::composite
+}  // namespace composite
+}  // namespace neighbors
+}  // namespace CUVS_EXPORT cuvs

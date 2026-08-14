@@ -5,6 +5,7 @@
 # cmake-format: on
 # =============================================================================
 
+add_subdirectory(pca)
 add_subdirectory(quantize/binary)
 add_subdirectory(quantize/pq)
 add_subdirectory(quantize/scalar)

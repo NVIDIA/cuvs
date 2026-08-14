@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -13,7 +13,8 @@
 #include <raft/core/resource/cuda_stream.hpp>
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_uvector.hpp>
-#include <rmm/mr/device_memory_resource.hpp>
+#include <rmm/mr/per_device_resource.hpp>
+#include <rmm/resource_ref.hpp>
 
 namespace cuvs::neighbors {
 
@@ -87,8 +88,7 @@ void naive_knn(raft::resources const& handle,
                uint32_t k,
                cuvs::distance::DistanceType type)
 {
-  rmm::mr::device_memory_resource* mr = nullptr;
-  auto pool_guard                     = raft::get_pool_memory_resource(mr, 1024 * 1024);
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource_ref();
 
   auto stream = raft::resource::get_cuda_stream(handle);
   dim3 block_dim(16, 32, 1);
@@ -116,8 +116,7 @@ void naive_knn(raft::resources const& handle,
                                           static_cast<int>(k),
                                           dist_topk + offset * k,
                                           indices_topk + offset * k,
-                                          type != cuvs::distance::DistanceType::InnerProduct,
-                                          mr);
+                                          type != cuvs::distance::DistanceType::InnerProduct);
   }
   RAFT_CUDA_TRY(cudaStreamSynchronize(stream));
 }

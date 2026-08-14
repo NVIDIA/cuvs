@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -11,7 +11,6 @@
 #include <raft/linalg/map.cuh>
 #include <raft/util/cudart_utils.hpp>
 
-#include <rmm/mr/device_memory_resource.hpp>
 #include <rmm/mr/pool_memory_resource.hpp>
 
 #include <cstdint>
@@ -86,7 +85,7 @@ void ivf_flat_build_extend_search(raft::device_resources const& dev_resources,
                            std::make_optional(raft::make_const_mdspan(data_indices.view())),
                            index);
 
-  std::cout << "Index size after addin dataset vectors " << index.size() << std::endl;
+  std::cout << "Index size after adding dataset vectors " << index.size() << std::endl;
 
   // Set search parameters.
   ivf_flat::search_params search_params;
@@ -113,9 +112,9 @@ int main()
   raft::device_resources dev_resources;
 
   // Set pool memory resource with 1 GiB initial pool size. All allocations use the same pool.
-  rmm::mr::pool_memory_resource<rmm::mr::device_memory_resource> pool_mr(
-    rmm::mr::get_current_device_resource(), 1024 * 1024 * 1024ull);
-  rmm::mr::set_current_device_resource(&pool_mr);
+  rmm::mr::pool_memory_resource pool_mr(rmm::mr::get_current_device_resource_ref(),
+                                        1024 * 1024 * 1024ull);
+  rmm::mr::set_current_device_resource(pool_mr);
 
   // Create input arrays.
   int64_t n_samples = 10000;

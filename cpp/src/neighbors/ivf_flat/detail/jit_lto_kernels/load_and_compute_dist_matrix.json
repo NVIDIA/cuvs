@@ -1,0 +1,42 @@
+{
+  "_compute_norm": [
+    {
+      "compute_norm_name": "compute_norm",
+      "compute_norm_value": "true"
+    },
+    {
+      "compute_norm_name": "no_compute_norm",
+      "compute_norm_value": "false"
+    }
+  ],
+  "_data_type": [
+    {
+      "data_type": "float",
+      "data_abbrev": "f",
+      "acc_type": "float",
+      "acc_abbrev": "f",
+      "veclen": ["1", "4"]
+    },
+    {
+      "data_type": "__half",
+      "data_abbrev": "h",
+      "acc_type": "__half",
+      "acc_abbrev": "h",
+      "veclen": ["1", "8"]
+    },
+    {
+      "data_type": "uint8_t",
+      "data_abbrev": "u8",
+      "acc_type": "uint32_t",
+      "acc_abbrev": "u32",
+      "veclen": ["1", "16"]
+    },
+    {
+      "data_type": "int8_t",
+      "data_abbrev": "i8",
+      "acc_type": "int32_t",
+      "acc_abbrev": "i32",
+      "veclen": ["1", "16"]
+    }
+  ]
+}

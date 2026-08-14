@@ -1,0 +1,20 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <cuvs/neighbors/ivf_flat.hpp>
+
+#include <neighbors/ivf_flat/ivf_flat_serialize.cuh>
+
+namespace {
+
+using data_t  = @data_type@;
+using index_t = @index_type@;
+
+}  // namespace
+
+namespace cuvs::neighbors::ivf_flat {
+CUVS_INST_IVF_FLAT_SERIALIZE(data_t, index_t);
+
+}  // namespace cuvs::neighbors::ivf_flat

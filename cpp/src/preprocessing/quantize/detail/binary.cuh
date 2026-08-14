@@ -17,6 +17,7 @@
 #include <raft/random/rng.cuh>
 #include <raft/random/sample_without_replacement.cuh>
 #include <raft/stats/mean.cuh>
+#include <raft/util/cudart_utils.hpp>
 #include <thrust/execution_policy.h>
 #include <thrust/sort.h>
 
@@ -145,7 +146,7 @@ void mean_f16_in_f32(raft::resources const& res,
                      const size_t dataset_size,
                      cudaStream_t cuda_stream)
 {
-  auto mr = raft::resource::get_workspace_resource(res);
+  auto mr = raft::resource::get_workspace_resource_ref(res);
   auto f32_result_vec =
     raft::make_device_mdarray<float, int64_t>(res, mr, raft::make_extents<int64_t>(dataset_dim));
   raft::matrix::fill(res, f32_result_vec.view(), float(0));
@@ -211,7 +212,7 @@ auto train(raft::resources const& res,
                static_cast<std::size_t>(dataset_dim));
 
     raft::random::RngState rng(29837lu);
-    auto mr                    = raft::resource::get_workspace_resource(res);
+    auto mr                    = raft::resource::get_workspace_resource_ref(res);
     auto sampled_dataset_chunk = raft::make_device_mdarray<T, int64_t>(
       res, mr, raft::make_extents<int64_t>(num_samples, max_dim_chunk));
     auto transposed_sampled_dataset_chunk = raft::make_device_mdarray<T, int64_t>(
@@ -238,14 +239,13 @@ auto train(raft::resources const& res,
         thrust::sort(thrust::device, start_ptr, start_ptr + num_samples);
       }
 
-      RAFT_CUDA_TRY(cudaMemcpy2DAsync(threshold_ptr + dim_offset,
-                                      sizeof(T),
-                                      sampled_dataset_chunk.data_handle() + (num_samples - 1) / 2,
-                                      num_samples * sizeof(T),
-                                      sizeof(T),
-                                      dim_chunk,
-                                      cudaMemcpyDefault,
-                                      raft::resource::get_cuda_stream(res)));
+      raft::copy_matrix(threshold_ptr + dim_offset,
+                        size_t(1),
+                        sampled_dataset_chunk.data_handle() + (num_samples - 1) / 2,
+                        num_samples,
+                        size_t(1),
+                        dim_chunk,
+                        raft::resource::get_cuda_stream(res));
     }
   }
   return quantizer;
@@ -331,7 +331,7 @@ auto train(raft::resources const& res,
       raft::make_host_vector_view<const compute_t>(host_threshold_vec.data(),
                                                    (int64_t)dataset_dim));
   } else {
-    auto mr         = raft::resource::get_workspace_resource(res);
+    auto mr         = raft::resource::get_workspace_resource_ref(res);
     auto casted_vec = raft::make_device_mdarray<compute_t, int64_t>(
       res, mr, raft::make_extents<int64_t>(dataset_dim));
     raft::copy(res,
@@ -425,7 +425,7 @@ void transform(raft::resources const& res,
                  raft::make_device_vector_view<const T>(quantizer.threshold.data_handle(),
                                                         (int64_t)dataset_dim));
     } else {
-      auto mr         = raft::resource::get_workspace_resource(res);
+      auto mr         = raft::resource::get_workspace_resource_ref(res);
       auto casted_vec = raft::make_device_mdarray<float, int64_t>(
         res, mr, raft::make_extents<int64_t>(dataset_dim));
       raft::linalg::map(res,

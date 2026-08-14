@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -69,7 +69,7 @@ void build_mr_linkage(
       auto dists = raft::make_device_matrix<value_t, value_idx>(handle, m, min_samples);
 
       if (all_neighbors_p.metric != metric) {
-        RAFT_LOG_WARN("Setting all neighbors metric to given metrix for build_mr_linkage");
+        RAFT_LOG_WARN("Setting all neighbors metric to given metric for build_mr_linkage");
         all_neighbors_p.metric = metric;
       }
       cuvs::neighbors::all_neighbors::build(
@@ -250,7 +250,7 @@ void build_dist_linkage(raft::resources const& handle,
  * @param[in] X dense input matrix in row-major layout
  * @param[in] m number of rows in X
  * @param[in] n number of columns in X
- * @param[in] metric distance metrix to use when constructing connectivities graph
+ * @param[in] metric distance metric to use when constructing connectivities graph
  * @param[out] out struct containing output dendrogram and cluster assignments
  * @param[in] c a constant used when constructing connectivities from knn graph. Allows the indirect
  control

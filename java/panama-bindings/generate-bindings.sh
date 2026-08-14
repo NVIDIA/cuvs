@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 
 set -e -u -o pipefail
@@ -40,6 +40,7 @@ jextract \
  --output "${REPODIR}/java/cuvs-java/src/main/java22/" \
  --target-package ${TARGET_PACKAGE} \
  --library cuvs_c \
+ --library cudart \
  "${CURDIR}"/headers.h
 
 echo "Panama FFM API bindings generation done"

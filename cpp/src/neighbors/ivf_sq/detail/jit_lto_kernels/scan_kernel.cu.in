@@ -1,0 +1,61 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <neighbors/ivf_sq/detail/jit_lto_kernels/kernel_def.hpp>
+#include <neighbors/ivf_sq/detail/jit_lto_kernels/scan_impl.cuh>
+
+namespace {
+
+constexpr int capacity = @capacity@;
+
+}  // namespace
+
+namespace cuvs::neighbors::ivf_sq::detail {
+
+extern "C" __global__ __launch_bounds__(kSqScanThreads) void ivf_sq_scan(
+  const uint8_t* const* data_ptrs,
+  const uint32_t* list_sizes,
+  const uint32_t* coarse_indices,
+  const float* queries_float,
+  const float* centers,
+  const float* sq_vmin,
+  const float* sq_delta,
+  const float* query_norms,
+  uint32_t n_probes,
+  uint32_t dim,
+  uint32_t k,
+  uint32_t max_samples,
+  const uint32_t* chunk_indices,
+  float* out_distances,
+  uint32_t* out_indices,
+  int64_t* const* inds_ptrs,
+  uint32_t* bitset_ptr,
+  int64_t bitset_len,
+  int64_t original_nbits)
+{
+  ivf_sq_scan_impl<capacity>(data_ptrs,
+                             list_sizes,
+                             coarse_indices,
+                             queries_float,
+                             centers,
+                             sq_vmin,
+                             sq_delta,
+                             query_norms,
+                             n_probes,
+                             dim,
+                             k,
+                             max_samples,
+                             chunk_indices,
+                             out_distances,
+                             out_indices,
+                             inds_ptrs,
+                             bitset_ptr,
+                             bitset_len,
+                             original_nbits);
+}
+
+static_assert(std::is_same_v<decltype(ivf_sq_scan), ivf_sq_scan_func_t<int64_t>>);
+
+}  // namespace cuvs::neighbors::ivf_sq::detail

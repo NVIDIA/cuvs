@@ -7,11 +7,12 @@ channels:
 dependencies:
 - _go_select *=cgo
 - c-compiler
-- clang-tools==20.1.4
-- clang==20.1.4
-- cmake>=3.30.4
+- clang-tools==20.1.8
+- clang==20.1.8
+- cmake>=4.0
 - cuda-cudart-dev
 - cuda-nvcc
+- cuda-nvrtc-dev
 - cuda-nvtx-dev
 - cuda-profiler-api
 - cuda-version=12.9
@@ -19,13 +20,13 @@ dependencies:
 - dlpack>=0.8,<1.0
 - gcc_linux-aarch64=14.*
 - go
-- libclang==20.1.4
 - libcublas-dev
 - libcurand-dev
 - libcusolver-dev
 - libcusparse-dev
-- libcuvs==26.4.*,>=0.0.0a0
-- libraft==26.4.*,>=0.0.0a0
+- libcuvs==26.10.*,>=0.0.0a0
+- libnvjitlink-dev
+- libraft==26.10.*,>=0.0.0a0
 - nccl>=2.19
 - ninja
 - sysroot_linux-aarch64==2.28

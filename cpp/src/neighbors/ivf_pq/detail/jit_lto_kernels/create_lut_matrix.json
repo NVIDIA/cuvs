@@ -1,0 +1,32 @@
+{
+  "_lut": [
+    {
+      "lut_type": "float",
+      "lut_abbrev": "f"
+    },
+    {
+      "lut_type": "half",
+      "lut_abbrev": "h"
+    },
+    {
+      "lut_type": "cuvs::neighbors::ivf_pq::detail::fp_8bit<5u, false>",
+      "lut_abbrev": "fp8_unsigned"
+    },
+    {
+      "lut_type": "cuvs::neighbors::ivf_pq::detail::fp_8bit<5u, true>",
+      "lut_abbrev": "fp8_signed"
+    }
+  ],
+  "_precomp_base_diff": [
+    {
+      "precomp_base_diff": "true",
+      "precomp_base_diff_str": "precomp_base_diff"
+    },
+    {
+      "precomp_base_diff": "false",
+      "precomp_base_diff_str": "no_precomp_base_diff"
+    }
+  ],
+  "pq_bits": ["4", "5", "6", "7", "8"],
+  "metric": ["euclidean", "inner_product"]
+}

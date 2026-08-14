@@ -1,0 +1,47 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <neighbors/detail/cagra/jit_lto_kernels/extern_device_functions.cuh>
+#include <neighbors/detail/cagra/jit_lto_kernels/setup_workspace_impl.cuh>
+
+namespace {
+
+constexpr uint32_t k_team_size         = @team_size@u;
+constexpr uint32_t k_dataset_block_dim = @dataset_block_dim@u;
+constexpr uint32_t k_pq_bits           = @pq_bits@u;
+constexpr uint32_t k_pq_len            = @pq_len@u;
+constexpr auto k_smem_dtype            = @smem_dtype@;
+
+using data_t     = @data_type@;
+using index_t    = @index_type@;
+using distance_t = @distance_type@;
+using query_t    = @query_type@;
+using codebook_t = @codebook_type@;
+
+}  // namespace
+
+namespace cuvs::neighbors::cagra::detail {
+
+template <>
+__device__ const dataset_descriptor_base_t<data_t, index_t, distance_t>*
+setup_workspace<data_t, index_t, distance_t>(
+  const dataset_descriptor_base_t<data_t, index_t, distance_t>* desc,
+  void* smem,
+  const data_t* queries,
+  uint32_t query_id)
+{
+  return setup_workspace_impl<k_team_size,
+                              k_dataset_block_dim,
+                              k_pq_bits,
+                              k_pq_len,
+                              codebook_t,
+                              data_t,
+                              index_t,
+                              distance_t,
+                              query_t,
+                              k_smem_dtype>(desc, smem, queries, query_id);
+}
+
+}  // namespace cuvs::neighbors::cagra::detail

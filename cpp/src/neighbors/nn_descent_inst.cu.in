@@ -1,0 +1,55 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <cuvs/neighbors/nn_descent.hpp>
+#include <neighbors/detail/nn_descent_gnnd.hpp>
+#include <neighbors/detail/reachability.cuh>
+#include <neighbors/nn_descent.cuh>
+
+namespace {
+
+using data_t  = @data_type@;
+using index_t = @index_type@;
+
+}  // namespace
+
+namespace cuvs::neighbors::nn_descent {
+
+auto build(raft::resources const& handle,
+           const cuvs::neighbors::nn_descent::index_params& params,
+           raft::device_matrix_view<const data_t, int64_t, raft::row_major> dataset,
+           std::optional<raft::host_matrix_view<uint32_t, int64_t, raft::row_major>> graph)
+  -> cuvs::neighbors::nn_descent::index<index_t>
+{
+  if (!graph.has_value()) {
+    return cuvs::neighbors::nn_descent::build<data_t, index_t>(handle, params, dataset);
+  } else {
+    std::optional<raft::device_matrix_view<float, int64_t, raft::row_major>> distances =
+      std::nullopt;
+    cuvs::neighbors::nn_descent::index<index_t> idx{
+      handle, graph.value(), distances, params.metric};
+    cuvs::neighbors::nn_descent::build<data_t, index_t>(handle, params, dataset, idx);
+    return idx;
+  };
+}
+auto build(raft::resources const& handle,
+           const cuvs::neighbors::nn_descent::index_params& params,
+           raft::host_matrix_view<const data_t, int64_t, raft::row_major> dataset,
+           std::optional<raft::host_matrix_view<uint32_t, int64_t, raft::row_major>> graph)
+  -> cuvs::neighbors::nn_descent::index<index_t>
+{
+  if (!graph.has_value()) {
+    return cuvs::neighbors::nn_descent::build<data_t, index_t>(handle, params, dataset);
+  } else {
+    std::optional<raft::device_matrix_view<float, int64_t, raft::row_major>> distances =
+      std::nullopt;
+    cuvs::neighbors::nn_descent::index<index_t> idx{
+      handle, graph.value(), distances, params.metric};
+    cuvs::neighbors::nn_descent::build<data_t, index_t>(handle, params, dataset, idx);
+    return idx;
+  }
+};
+
+}  // namespace cuvs::neighbors::nn_descent

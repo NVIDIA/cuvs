@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -45,7 +45,7 @@ template <typename MathT, typename IdxT>
 ::std::ostream& operator<<(::std::ostream& os, const KmeansBalancedInputs<MathT, IdxT>& p)
 {
   os << "{ " << p.n_rows << ", " << p.n_cols << ", " << p.n_clusters << ", " << p.kb_params.n_iters
-     << static_cast<int>(p.kb_params.metric) << '}' << std::endl;
+     << static_cast<int>(p.kb_params.metric) << '}';
   return os;
 }
 
@@ -179,10 +179,34 @@ std::vector<KmeansBalancedInputs<MathT, IdxT>> get_kmeans_balanced_inputs()
   return out;
 }
 
+template <typename MathT, typename IdxT>
+std::vector<KmeansBalancedInputs<MathT, IdxT>> get_kmeans_balanced_cosine_inputs()
+{
+  std::vector<KmeansBalancedInputs<MathT, IdxT>> out;
+  KmeansBalancedInputs<MathT, IdxT> p;
+  p.kb_params.n_iters = 20;
+  p.kb_params.metric  = cuvs::distance::DistanceType::CosineExpanded;
+  p.tol               = MathT{0.0001};
+  std::vector<std::tuple<size_t, size_t, size_t>> row_cols_k = {
+    {1000, 32, 5},
+    {1000, 100, 20},
+    {10000, 32, 10},
+    {10000, 100, 50},
+  };
+  for (auto& rck : row_cols_k) {
+    p.n_rows     = static_cast<IdxT>(std::get<0>(rck));
+    p.n_cols     = static_cast<IdxT>(std::get<1>(rck));
+    p.n_clusters = static_cast<IdxT>(std::get<2>(rck));
+    out.push_back(p);
+  }
+  return out;
+}
+
 const auto inputsf_i32 = get_kmeans_balanced_inputs<float, int>();
 // const auto inputsd_i32 = get_kmeans_balanced_inputs<double, int>();
 const auto inputsf_i64 = get_kmeans_balanced_inputs<float, int64_t>();
 // const auto inputsd_i64 = get_kmeans_balanced_inputs<double, int64_t>();
+const auto inputsf_cosine_i32 = get_kmeans_balanced_cosine_inputs<float, int>();
 
 #define KB_TEST(test_type, test_name, test_inputs)         \
   typedef RAFT_DEPAREN(test_type) test_name;               \
@@ -223,6 +247,9 @@ KB_TEST((KmeansBalancedTest<float, float, int, int64_t, raft::identity_op, true>
 // KB_TEST((KmeansBalancedTest<float, float, int64_t, int64_t, raft::identity_op>),
 //         KmeansBalancedTestFFI64I64,
 //         inputsf_i64);
+KB_TEST((KmeansBalancedTest<float, float, uint32_t, int, raft::identity_op, false>),
+        KmeansBalancedTestCosineFFU32I32,
+        inputsf_cosine_i32);
 
 /*
  * Second set of tests: integer dataset with conversion

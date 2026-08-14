@@ -1,0 +1,41 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <neighbors/ivf_pq/detail/jit_lto_kernels/device_functions.cuh>
+#include <neighbors/ivf_pq/detail/jit_lto_kernels/store_calculated_distances_impl.cuh>
+#include <neighbors/ivf_pq/ivf_pq_fp_8bit.cuh>
+
+namespace {
+
+using out_t                        = @out_type@;
+constexpr bool k_manage_local_topk = @k_manage_local_topk@;
+
+}  // namespace
+
+namespace cuvs::neighbors::ivf_pq::detail {
+
+template <>
+__device__ void store_calculated_distances<out_t>(out_t* _out_scores,
+                                                  uint32_t* _out_indices,
+                                                  uint32_t probe_ix,
+                                                  uint32_t n_probes,
+                                                  uint32_t query_ix,
+                                                  uint32_t topk,
+                                                  uint32_t max_samples,
+                                                  out_t*& out_scores,
+                                                  uint32_t*& out_indices)
+{
+  store_calculated_distances_impl<out_t, k_manage_local_topk>(_out_scores,
+                                                              _out_indices,
+                                                              probe_ix,
+                                                              n_probes,
+                                                              query_ix,
+                                                              topk,
+                                                              max_samples,
+                                                              out_scores,
+                                                              out_indices);
+}
+
+}  // namespace cuvs::neighbors::ivf_pq::detail

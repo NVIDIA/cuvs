@@ -1,8 +1,8 @@
-# RAFT Development Containers
+# cuVS Development Containers
 
 This directory contains [devcontainer configurations](https://containers.dev/implementors/json_reference/) for using VSCode to [develop in a container](https://code.visualstudio.com/docs/devcontainers/containers) via the `Remote Containers` [extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) or [GitHub Codespaces](https://github.com/codespaces).
 
-This container is a turnkey development environment for building and testing the RAFT C++ and Python libraries.
+This container is a turnkey development environment for building and testing the cuVS C++ and Python libraries.
 
 ## Table of Contents
 
@@ -30,7 +30,7 @@ This ensures caches, configurations, dependencies, and your commits are persiste
 
 ## Launch a Dev Container
 
-To launch a devcontainer from VSCode, open the RAFT repo and select the "Reopen in Container" button in the bottom right:<br/><img src="https://user-images.githubusercontent.com/178183/221771999-97ab29d5-e718-4e5f-b32f-2cdd51bba25c.png"/>
+To launch a devcontainer from VSCode, open the cuVS repo and select the "Reopen in Container" button in the bottom right:<br/><img src="https://user-images.githubusercontent.com/178183/221771999-97ab29d5-e718-4e5f-b32f-2cdd51bba25c.png"/>
 
 Alternatively, open the VSCode command palette (typically `cmd/ctrl + shift + P`) and run the "Rebuild and Reopen in Container" command.
 

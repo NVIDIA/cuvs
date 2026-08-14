@@ -1,0 +1,29 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <neighbors/ivf_pq/detail/jit_lto_kernels/device_functions.cuh>
+#include <neighbors/ivf_pq/detail/jit_lto_kernels/prepare_lut_impl.cuh>
+#include <neighbors/ivf_pq/ivf_pq_fp_8bit.cuh>
+
+namespace {
+
+using lut_t                    = @lut_type@;
+constexpr bool enable_smem_lut = @enable_smem_lut@;
+constexpr uint32_t pq_bits     = @pq_bits@;
+
+}  // namespace
+
+namespace cuvs::neighbors::ivf_pq::detail {
+
+template <>
+__device__ void prepare_lut<lut_t>(uint8_t* smem_buf,
+                                   uint32_t pq_dim,
+                                   lut_t*& lut_scores,
+                                   uint8_t*& lut_end)
+{
+  prepare_lut_impl<lut_t, enable_smem_lut, pq_bits>(smem_buf, pq_dim, lut_scores, lut_end);
+}
+
+}  // namespace cuvs::neighbors::ivf_pq::detail

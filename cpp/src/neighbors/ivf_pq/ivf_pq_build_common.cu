@@ -9,6 +9,7 @@
 #include <cuvs/neighbors/common.hpp>
 #include <cuvs/neighbors/ivf_pq.hpp>
 #include <raft/core/mdspan_types.hpp>
+#include <raft/util/cudart_utils.hpp>
 
 namespace cuvs::neighbors::ivf_pq {
 namespace helpers {
@@ -248,16 +249,7 @@ void make_rotation_matrix(raft::resources const& handle,
     float* mat = inplace ? rotation_matrix : buf.data();
     raft::random::normal(handle, rng, mat, n * n, 0.0f, 1.0f);
     raft::linalg::detail::qrGetQ_inplace(handle, mat, n, n, stream);
-    if (!inplace) {
-      RAFT_CUDA_TRY(cudaMemcpy2DAsync(rotation_matrix,
-                                      sizeof(float) * n_cols,
-                                      mat,
-                                      sizeof(float) * n,
-                                      sizeof(float) * n_cols,
-                                      n_rows,
-                                      cudaMemcpyDefault,
-                                      stream));
-    }
+    if (!inplace) { raft::copy_matrix(rotation_matrix, n_cols, mat, n, n_cols, n_rows, stream); }
   } else {
     uint32_t stride = n + 1;
     auto rotation_matrix_view =

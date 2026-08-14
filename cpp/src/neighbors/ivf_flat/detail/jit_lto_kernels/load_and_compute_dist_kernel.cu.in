@@ -1,0 +1,42 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <neighbors/ivf_flat/detail/jit_lto_kernels/device_functions.cuh>
+#include <neighbors/ivf_flat/detail/jit_lto_kernels/load_and_compute_dist_impl.cuh>
+
+namespace {
+
+using data_t                = @data_type@;
+using acc_t                 = @acc_type@;
+constexpr bool compute_norm = @compute_norm_value@;
+constexpr int veclen        = @veclen@;
+
+}  // namespace
+
+namespace cuvs::neighbors::ivf_flat::detail {
+
+template <>
+__device__ float load_and_compute_dist<data_t, acc_t>(acc_t& dist,
+                                                      acc_t& norm_query,
+                                                      acc_t& norm_dataset,
+                                                      uint32_t shm_assisted_dim,
+                                                      const data_t*& data,
+                                                      const data_t* query,
+                                                      data_t* query_shared,
+                                                      const uint32_t dim,
+                                                      const uint32_t query_smem_elems)
+{
+  return load_and_compute_dist_impl<data_t, acc_t, compute_norm, veclen>(dist,
+                                                                         norm_query,
+                                                                         norm_dataset,
+                                                                         shm_assisted_dim,
+                                                                         data,
+                                                                         query,
+                                                                         query_shared,
+                                                                         dim,
+                                                                         query_smem_elems);
+}
+
+}  // namespace cuvs::neighbors::ivf_flat::detail

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -151,7 +151,7 @@ class BloomFilter {
 };
 
 template <typename Index_t>
-struct GnndGraph {
+struct CUVS_EXPORT GnndGraph {
   raft::resources const& res;
   static constexpr int segment_size = 32;
   InternalID_t<Index_t>* h_graph;
@@ -192,7 +192,7 @@ struct GnndGraph {
 };
 
 template <typename Data_t = float, typename Index_t = int>
-class GNND {
+class CUVS_EXPORT GNND {
  public:
   GNND(raft::resources const& res, const BuildConfig& build_config);
   GNND(const GNND&)            = delete;
@@ -216,7 +216,7 @@ class GNND {
                          int2* list_sizes,
                          cudaStream_t stream = 0);
 
-  template <typename DistEpilogue_t = raft::identity_op>
+  template <typename DistEpilogue_t>
   void local_join(cudaStream_t stream = 0, DistEpilogue_t dist_epilogue = DistEpilogue_t{});
 
   raft::resources const& res;
@@ -228,8 +228,18 @@ class GNND {
   size_t nrow_;
   size_t ndim_;
 
-  std::optional<raft::device_matrix<float, size_t, raft::row_major>> d_data_float_;
+  using input_t = std::remove_const_t<Data_t>;
+
+  // d_data_half_ is used for a special case when input data is fp32 on host and distances will be
+  // computed in fp16 (dist_comp_dtype == FP16, or AUTO with dim > 16): we store the dataset on
+  // device as fp16 (instead of fp32) to halve the device memory footprint and WMMA kernel read
+  // bandwidth.
   std::optional<raft::device_matrix<half, size_t, raft::row_major>> d_data_half_;
+  // d_data_direct_ is used when input data is on host, and we need to copy it to device
+  std::optional<raft::device_matrix<input_t, size_t, raft::row_major>> d_data_direct_;
+
+  // d_data_ptr_ is used to store the general pointer to the input data
+  const void* d_data_ptr_{nullptr};
   raft::device_vector<DistData_t, size_t> l2_norms_;
 
   raft::device_matrix<ID_t, size_t, raft::row_major> graph_buffer_;
@@ -264,10 +274,11 @@ inline BuildConfig get_build_config(raft::resources const& res,
                          params.metric == cuvs::distance::DistanceType::L2SqrtExpanded ||
                          params.metric == cuvs::distance::DistanceType::CosineExpanded ||
                          params.metric == cuvs::distance::DistanceType::InnerProduct ||
-                         params.metric == cuvs::distance::DistanceType::BitwiseHamming;
+                         params.metric == cuvs::distance::DistanceType::BitwiseHamming ||
+                         params.metric == cuvs::distance::DistanceType::L1;
   RAFT_EXPECTS(allowed_metrics,
                "The metric for NN Descent should be L2Expanded, L2SqrtExpanded, CosineExpanded, "
-               "InnerProduct or BitwiseHamming");
+               "InnerProduct, BitwiseHamming or L1");
   RAFT_EXPECTS(
     metric == params.metric,
     "The metrics set in nn_descent::index_params and nn_descent::index are inconsistent");

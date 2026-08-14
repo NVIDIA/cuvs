@@ -8,6 +8,7 @@
 #include "../../detail/ann_utils.cuh"
 #include <cuvs/cluster/kmeans.hpp>
 #include <cuvs/neighbors/scann.hpp>
+#include <cuvs/preprocessing/quantize/pq.hpp>
 
 #include <cuda_bf16.h>
 #include <raft/core/copy.cuh>
@@ -86,7 +87,7 @@ index<T, IdxT> build(
   raft::device_vector_view<uint32_t, int64_t> labels_view = idx.labels();
 
   // setup batching for kmeans prediction + quantization
-  auto* device_memory = raft::resource::get_workspace_resource(res);
+  auto device_memory = raft::resource::get_workspace_resource_ref(res);
 
   constexpr size_t kReasonableMaxBatchSize = 65536;
   size_t max_batch_size = std::min<size_t>(dataset.extent(0), kReasonableMaxBatchSize);
@@ -101,13 +102,15 @@ index<T, IdxT> build(
     }
   }
 
-  utils::batch_load_iterator<T> dataset_vec_batches(dataset.data_handle(),
-                                                    dataset.extent(0),
-                                                    dataset.extent(1),
-                                                    max_batch_size,
-                                                    copy_stream,
-                                                    device_memory,
-                                                    enable_prefetch);
+  auto dataset_vec_batches =
+    utils::make_batch_load_iterator<T>(res,
+                                       dataset.data_handle(),
+                                       static_cast<int64_t>(dataset.extent(0)),
+                                       static_cast<int64_t>(dataset.extent(1)),
+                                       max_batch_size,
+                                       copy_stream,
+                                       device_memory,
+                                       enable_prefetch);
 
   dataset_vec_batches.reset();
   dataset_vec_batches.prefetch_next_batch();
@@ -159,47 +162,19 @@ index<T, IdxT> build(
   int dim_per_subspace = params.pq_dim;
   int num_clusters     = 1 << params.pq_bits;
 
-  auto full_codebook =
-    raft::make_device_matrix<T, uint32_t>(res, num_clusters * num_subspaces, dim_per_subspace);
+  cuvs::preprocessing::quantize::pq::params pq_build_params(
+    params.pq_bits,
+    num_subspaces,
+    true,
+    false,
+    0,
+    params.pq_train_iters,
+    cuvs::cluster::kmeans::kmeans_type::KMeansBalanced,
+    pq_n_rows_train / num_clusters,
+    1024);
 
-  // Loop each subspace, training codebooks for each
-  for (int subspace = 0; subspace < num_subspaces; subspace++) {
-    int sub_dim_start = subspace * dim_per_subspace;
-    int sub_dim_end   = (subspace + 1) * dim_per_subspace;
-
-    auto sub_trainset = raft::make_device_matrix<T, int64_t>(
-      res, trainset_residuals.extent(0), (int64_t)dim_per_subspace);
-    raft::matrix::slice_coordinates<int64_t> avq_sub_coords(
-      0, sub_dim_start, trainset_residuals.extent(0), sub_dim_end);
-    raft::matrix::slice(
-      res, raft::make_const_mdspan(trainset_residuals.view()), sub_trainset.view(), avq_sub_coords);
-
-    // Set up quantization bits and params
-    cuvs::neighbors::vpq_params pq_params;
-    pq_params.pq_bits = params.pq_bits;
-    // For VPQ, pq_dim is the number of subspaces, not the dimension of the subspaces
-    pq_params.pq_dim = 1;
-    // We handle sampling/training set construction above, so use the full set in VPQ
-    pq_params.pq_kmeans_trainset_fraction = 1.0;
-    pq_params.kmeans_n_iters              = params.pq_train_iters;
-
-    // Create pq codebook for this subspace
-    auto sub_pq_codebook =
-      create_pq_codebook<T>(res, raft::make_const_mdspan(sub_trainset.view()), pq_params);
-
-    raft::copy(
-      res,
-      raft::make_device_vector_view(
-        full_codebook.data_handle() + (subspace * sub_pq_codebook.size()), sub_pq_codebook.size()),
-      raft::make_device_vector_view<const float>(sub_pq_codebook.data_handle(),
-                                                 sub_pq_codebook.size()));
-  }
-  raft::resource::sync_stream(res);
-
-  // Set up quantization bits and params
-  cuvs::neighbors::vpq_params pq_params;
-  pq_params.pq_bits = params.pq_bits;
-  pq_params.pq_dim  = dataset.extent(1) / params.pq_dim;
+  auto pq_quantizer = cuvs::preprocessing::quantize::pq::build(
+    res, pq_build_params, raft::make_const_mdspan(trainset_residuals.view()));
 
   dataset_vec_batches.reset();
   dataset_vec_batches.prefetch_next_batch();
@@ -230,9 +205,11 @@ index<T, IdxT> build(
                                      batch_soar_labels_view,
                                      params.soar_lambda);
 
-    // Compute and quantize residuals
-    auto avq_quant = quantize_residuals<T, IdxT, uint32_t>(
-      res, raft::make_const_mdspan(avq_residuals.view()), full_codebook.view(), pq_params);
+    // Compute and quantize residuals using the public PQ API
+    int64_t codes_dim = cuvs::preprocessing::quantize::pq::get_quantized_dim(pq_build_params);
+    auto avq_quant    = raft::make_device_matrix<uint8_t, IdxT>(res, batch.size(), codes_dim);
+    cuvs::preprocessing::quantize::pq::transform(
+      res, pq_quantizer, raft::make_const_mdspan(avq_residuals.view()), avq_quant.view());
 
     // Compute and quantize SOAR residuals
     auto soar_residuals =
@@ -241,56 +218,64 @@ index<T, IdxT> build(
                                      raft::make_const_mdspan(centroids_view),
                                      raft::make_const_mdspan(batch_soar_labels_view));
 
-    auto soar_quant = quantize_residuals<T, IdxT, uint32_t>(
-      res, raft::make_const_mdspan(soar_residuals.view()), full_codebook.view(), pq_params);
+    auto soar_quant = raft::make_device_matrix<uint8_t, IdxT>(res, batch.size(), codes_dim);
+    cuvs::preprocessing::quantize::pq::transform(
+      res, pq_quantizer, raft::make_const_mdspan(soar_residuals.view()), soar_quant.view());
 
+    // Prefetch next batch
+    dataset_vec_batches.prefetch_next_batch();
     // unpack codes
-    auto quantized_residuals =
-      raft::make_device_matrix<uint8_t, IdxT>(res, batch.size(), num_subspaces);
-    auto quantized_soar_residuals =
-      raft::make_device_matrix<uint8_t, IdxT>(res, batch.size(), num_subspaces);
+    if (pq_quantizer.params_quantizer.pq_bits == 8) {
+      // Copy unpacked codes to host
+      // TODO (rmaschal): these copies are blocking and not overlapped
+      raft::copy(idx.quantized_residuals().data_handle() + batch.offset() * num_subspaces,
+                 avq_quant.data_handle(),
+                 avq_quant.size(),
+                 stream);
 
-    unpack_codes(res,
-                 quantized_residuals.view(),
-                 raft::make_const_mdspan(avq_quant.view()),
-                 params.pq_bits,
-                 num_subspaces);
-    unpack_codes(res,
-                 quantized_soar_residuals.view(),
-                 raft::make_const_mdspan(soar_quant.view()),
-                 params.pq_bits,
-                 num_subspaces);
+      raft::copy(idx.quantized_soar_residuals().data_handle() + batch.offset() * num_subspaces,
+                 soar_quant.data_handle(),
+                 soar_quant.size(),
+                 stream);
+    } else {
+      auto quantized_residuals =
+        raft::make_device_matrix<uint8_t, IdxT>(res, batch.size(), num_subspaces);
+      auto quantized_soar_residuals =
+        raft::make_device_matrix<uint8_t, IdxT>(res, batch.size(), num_subspaces);
+
+      unpack_codes(res,
+                   quantized_residuals.view(),
+                   raft::make_const_mdspan(avq_quant.view()),
+                   params.pq_bits,
+                   num_subspaces);
+      unpack_codes(res,
+                   quantized_soar_residuals.view(),
+                   raft::make_const_mdspan(soar_quant.view()),
+                   params.pq_bits,
+                   num_subspaces);
+      raft::copy(res,
+                 raft::make_host_vector_view(
+                   idx.quantized_residuals().data_handle() + batch.offset() * num_subspaces,
+                   quantized_residuals.size()),
+                 raft::make_device_vector_view<const uint8_t>(quantized_residuals.data_handle(),
+                                                              quantized_residuals.size()));
+
+      raft::copy(res,
+                 raft::make_host_vector_view(
+                   idx.quantized_soar_residuals().data_handle() + batch.offset() * num_subspaces,
+                   quantized_soar_residuals.size()),
+                 raft::make_device_vector_view<const uint8_t>(
+                   quantized_soar_residuals.data_handle(), quantized_soar_residuals.size()));
+    }
 
     // quantize dataset to bfloat16, if enabled. Similar to SOAR, quantization
     // is performed in this loop to improve locality
     // TODO (rmaschal): Might be more efficient to do on CPU, to avoid DtoH copy
-    auto bf16_dataset = raft::make_device_matrix<int16_t, int64_t>(res, batch_view.extent(0), dim);
-
     if (params.reordering_bf16) {
+      auto bf16_dataset =
+        raft::make_device_matrix<int16_t, int64_t>(res, batch_view.extent(0), dim);
       quantize_bfloat16(
         res, batch_view, bf16_dataset.view(), params.reordering_noise_shaping_threshold);
-    }
-
-    // Prefetch next batch
-    dataset_vec_batches.prefetch_next_batch();
-
-    // Copy unpacked codes to host
-    // TODO (rmaschal): these copies are blocking and not overlapped
-    raft::copy(res,
-               raft::make_host_vector_view(
-                 idx.quantized_residuals().data_handle() + batch.offset() * num_subspaces,
-                 quantized_residuals.size()),
-               raft::make_device_vector_view<const uint8_t>(quantized_residuals.data_handle(),
-                                                            quantized_residuals.size()));
-
-    raft::copy(res,
-               raft::make_host_vector_view(
-                 idx.quantized_soar_residuals().data_handle() + batch.offset() * num_subspaces,
-                 quantized_soar_residuals.size()),
-               raft::make_device_vector_view<const uint8_t>(quantized_soar_residuals.data_handle(),
-                                                            quantized_soar_residuals.size()));
-
-    if (params.reordering_bf16) {
       raft::copy(res,
                  raft::make_host_vector_view(
                    idx.bf16_dataset().data_handle() + batch.offset() * dim, bf16_dataset.size()),
@@ -305,7 +290,7 @@ index<T, IdxT> build(
   // Codebooks from VPQ have the shape [subspace idx, subspace dim, code]
   // This converts the codebook into matrix format for easy interoperability
   // with open-source ScaNN search
-  auto full_codebook_view = full_codebook.view();
+  auto full_codebook_view = pq_quantizer.vpq_codebooks.pq_code_book.view();
 
   raft::linalg::map_offset(
     res,

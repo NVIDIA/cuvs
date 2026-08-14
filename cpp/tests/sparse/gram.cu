@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2019-2024, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -36,7 +36,7 @@ enum SparseType { DENSE, MIX, CSR };
 
 struct GramMatrixInputs {
   int n1;      // feature vectors in matrix 1
-  int n2;      // featuer vectors in matrix 2
+  int n2;      // feature vectors in matrix 2
   int n_cols;  // number of elements in a feature vector
   bool is_row_major;
   SparseType sparse_input;

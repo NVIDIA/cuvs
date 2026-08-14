@@ -1,0 +1,66 @@
+{
+  "_data": [
+    {
+      "data_type": "float",
+      "data_abbrev": "f"
+    },
+    {
+      "data_type": "__half",
+      "data_abbrev": "h"
+    },
+    {
+      "data_type": "uint8_t",
+      "data_abbrev": "u8"
+    },
+    {
+      "data_type": "int8_t",
+      "data_abbrev": "i8"
+    }
+  ],
+  "_index": [
+    {
+      "index_type": "uint32_t",
+      "index_abbrev": "u32"
+    }
+  ],
+  "_distance": [
+    {
+      "distance_type": "float",
+      "distance_abbrev": "f"
+    }
+  ],
+  "team_size": [
+    "8",
+    "16",
+    "32"
+  ],
+  "dataset_block_dim": [
+    "128",
+    "256",
+    "512"
+  ],
+  "_normalization": [
+    {
+      "norm_kind": "noop",
+      "_query": [
+        {
+          "query_type": "float",
+          "query_abbrev": "f"
+        },
+        {
+          "query_type": "uint8_t",
+          "query_abbrev": "u8"
+        }
+      ]
+    },
+    {
+      "norm_kind": "cosine",
+      "_query": [
+        {
+          "query_type": "float",
+          "query_abbrev": "f"
+        }
+      ]
+    }
+  ]
+}

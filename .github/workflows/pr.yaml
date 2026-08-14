@@ -6,21 +6,29 @@ on:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+permissions: {}
 jobs:
   pr-builder:
     needs:
+      - build-details
       - check-nightly-ci
       - changed-files
       - checks
+      - check-c-abi
       - conda-cpp-build
       - conda-cpp-tests
       - conda-cpp-checks
       - conda-python-build
       - conda-python-tests
+      - rocky8-clib-standalone-build-matrix
       - rocky8-clib-standalone-build
+      - rocky8-clib-tests-matrix
       - rocky8-clib-tests
+      - conda-java-build-and-tests-matrix
       - conda-java-build-and-tests
+      - rust-build-matrix
       - rust-build
+      - go-build-matrix
       - go-build
       - docs-build
       - wheel-build-libcuvs
@@ -28,31 +36,38 @@ jobs:
       - wheel-tests-cuvs
       - devcontainer
       - telemetry-setup
-    secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/pr-builder.yaml@python-3.14
+    uses: rapidsai/shared-workflows/.github/workflows/pr-builder.yaml@main
+    permissions:
+      contents: read
     if: always()
     with:
       needs: ${{ toJSON(needs) }}
   telemetry-setup:
     continue-on-error: true
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     env:
       OTEL_SERVICE_NAME: 'pr-cuvs'
     steps:
       - name: Telemetry setup
         if: ${{ vars.TELEMETRY_ENABLED == 'true' }}
         uses: rapidsai/shared-actions/telemetry-dispatch-stash-base-env-vars@main
+  build-details:
+    uses: rapidsai/shared-workflows/.github/workflows/compute-build-details.yaml@main
   check-nightly-ci:
     runs-on: ubuntu-latest
     permissions:
       actions: read
+      contents: read
       id-token: write
+      pull-requests: read
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
       - name: Get PR Info
         id: get-pr-info
-        uses: nv-gha-runners/get-pr-info@main
+        uses: nv-gha-runners/get-pr-info@090577647b8ddc4e06e809e264f7881650ecdccf # main
       - name: Check if nightly CI is passing
         uses: rapidsai/shared-actions/check_nightly_success/dispatch@main
         with:
@@ -61,12 +76,18 @@ jobs:
           max-days-without-success: 30
   changed-files:
     needs: telemetry-setup
-    secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/changed-files.yaml@python-3.14
+    permissions:
+      actions: read
+      contents: read
+      packages: read
+      pull-requests: read
+    uses: rapidsai/shared-workflows/.github/workflows/changed-files.yaml@main
     with:
       files_yaml: |
         build_docs:
           - '**'
+          - '!**/*/REVIEW_GUIDELINES.md'
+          - '!.coderabbit.yaml'
           - '!.devcontainer/**'
           - '!.github/CODEOWNERS'
           - '!.github/ISSUE_TEMPLATE/**'
@@ -75,11 +96,19 @@ jobs:
           - '!.github/labeler.yml'
           - '!.github/ops-bot.yaml'
           - '!.github/release.yml'
+          - '!.github/workflows/build.yaml'
+          - '!.github/workflows/check-c-abi.yaml'
+          - '!.github/workflows/labeler.yml'
           - '!.github/workflows/publish-rust.yaml'
+          - '!.github/workflows/store-c-abi-baseline.yaml'
+          - '!.github/workflows/test.yaml'
           - '!.github/workflows/trigger-breaking-change-alert.yaml'
+          - '!.github/workflows/update-c-abi-baseline.yaml'
           - '!.pre-commit-config.yaml'
           - '!.shellcheckrc'
+          - '!.yamllint.yaml'
           - '!Dockerfile'
+          - '!SECURITY.md'
           - '!ci/build_wheel*.sh'
           - '!ci/check_style.sh'
           - '!ci/release/update-version.sh'
@@ -89,6 +118,8 @@ jobs:
           - '!thirdparty/LICENSES/**'
         test_cpp:
           - '**'
+          - '!**/*/REVIEW_GUIDELINES.md'
+          - '!.coderabbit.yaml'
           - '!.devcontainer/**'
           - '!.github/CODEOWNERS'
           - '!.github/ISSUE_TEMPLATE/**'
@@ -97,12 +128,20 @@ jobs:
           - '!.github/labeler.yml'
           - '!.github/ops-bot.yaml'
           - '!.github/release.yml'
+          - '!.github/workflows/build.yaml'
+          - '!.github/workflows/check-c-abi.yaml'
+          - '!.github/workflows/labeler.yml'
           - '!.github/workflows/publish-rust.yaml'
+          - '!.github/workflows/store-c-abi-baseline.yaml'
+          - '!.github/workflows/test.yaml'
           - '!.github/workflows/trigger-breaking-change-alert.yaml'
+          - '!.github/workflows/update-c-abi-baseline.yaml'
           - '!.pre-commit-config.yaml'
           - '!.shellcheckrc'
+          - '!.yamllint.yaml'
           - '!Dockerfile'
           - '!README.md'
+          - '!SECURITY.md'
           - '!ci/build_docs.sh'
           - '!ci/build_python.sh'
           - '!ci/build_wheel*.sh'
@@ -114,6 +153,7 @@ jobs:
           - '!ci/test_wheel_cuvs.sh'
           - '!ci/validate_wheel.sh'
           - '!docs/**'
+          - '!fern/**'
           - '!go/**'
           - '!img/**'
           - '!java/**'
@@ -123,6 +163,8 @@ jobs:
           - '!thirdparty/LICENSES/**'
         test_java:
           - '**'
+          - '!**/*/REVIEW_GUIDELINES.md'
+          - '!.coderabbit.yaml'
           - '!.devcontainer/**'
           - '!.github/CODEOWNERS'
           - '!.github/ISSUE_TEMPLATE/**'
@@ -131,10 +173,21 @@ jobs:
           - '!.github/labeler.yml'
           - '!.github/ops-bot.yaml'
           - '!.github/release.yml'
+          - '!.github/workflows/build.yaml'
+          - '!.github/workflows/check-c-abi.yaml'
+          - '!.github/workflows/labeler.yml'
           - '!.github/workflows/publish-rust.yaml'
+          - '!.github/workflows/store-c-abi-baseline.yaml'
+          - '!.github/workflows/test.yaml'
           - '!.github/workflows/trigger-breaking-change-alert.yaml'
+          - '!.github/workflows/update-c-abi-baseline.yaml'
           - '!.pre-commit-config.yaml'
           - '!.shellcheckrc'
+          - '!.yamllint.yaml'
+          - '!CODEOWNERS'
+          - '!Dockerfile'
+          - '!README.md'
+          - '!SECURITY.md'
           - '!ci/build_docs.sh'
           - '!ci/build_go.sh'
           - '!ci/build_python.sh'
@@ -146,16 +199,24 @@ jobs:
           - '!ci/test_python.sh'
           - '!ci/test_wheel_cuvs.sh'
           - '!ci/validate_wheel.sh'
-          - '!Dockerfile'
+          - '!conda/environments/**'
+          - '!conda/recipes/cuvs/**'
+          - '!conda/recipes/cuvs-bench/**'
+          - '!conda/recipes/cuvs-bench-cpu/**'
           - '!docs/**'
+          - '!examples/**'
+          - '!fern/**'
+          - '!go/**'
           - '!img/**'
           - '!notebooks/**'
+          - '!pyproject.toml'
           - '!python/**'
           - '!rust/**'
-          - '!go/**'
           - '!thirdparty/LICENSES/**'
         test_python_conda:
           - '**'
+          - '!**/*/REVIEW_GUIDELINES.md'
+          - '!.coderabbit.yaml'
           - '!.devcontainer/**'
           - '!.github/CODEOWNERS'
           - '!.github/ISSUE_TEMPLATE/**'
@@ -164,10 +225,17 @@ jobs:
           - '!.github/labeler.yml'
           - '!.github/ops-bot.yaml'
           - '!.github/release.yml'
+          - '!.github/workflows/build.yaml'
+          - '!.github/workflows/check-c-abi.yaml'
+          - '!.github/workflows/labeler.yml'
           - '!.github/workflows/publish-rust.yaml'
+          - '!.github/workflows/store-c-abi-baseline.yaml'
+          - '!.github/workflows/test.yaml'
           - '!.github/workflows/trigger-breaking-change-alert.yaml'
+          - '!.github/workflows/update-c-abi-baseline.yaml'
           - '!.pre-commit-config.yaml'
           - '!.shellcheckrc'
+          - '!.yamllint.yaml'
           - '!ci/build_go.sh'
           - '!ci/build_java.sh'
           - '!ci/build_rust.sh'
@@ -182,9 +250,12 @@ jobs:
           - '!cpp/.clang-format'
           - '!cpp/.clang-tidy'
           - '!cpp/doxygen/**'
+          - '!CODEOWNERS'
           - '!Dockerfile'
           - '!README.md'
+          - '!SECURITY.md'
           - '!docs/**'
+          - '!fern/**'
           - '!go/**'
           - '!img/**'
           - '!java/**'
@@ -193,6 +264,8 @@ jobs:
           - '!thirdparty/LICENSES/**'
         test_python_wheels:
           - '**'
+          - '!**/*/REVIEW_GUIDELINES.md'
+          - '!.coderabbit.yaml'
           - '!.devcontainer/**'
           - '!.github/CODEOWNERS'
           - '!.github/ISSUE_TEMPLATE/**'
@@ -201,10 +274,17 @@ jobs:
           - '!.github/labeler.yml'
           - '!.github/ops-bot.yaml'
           - '!.github/release.yml'
+          - '!.github/workflows/build.yaml'
+          - '!.github/workflows/check-c-abi.yaml'
+          - '!.github/workflows/labeler.yml'
           - '!.github/workflows/publish-rust.yaml'
+          - '!.github/workflows/store-c-abi-baseline.yaml'
+          - '!.github/workflows/test.yaml'
           - '!.github/workflows/trigger-breaking-change-alert.yaml'
+          - '!.github/workflows/update-c-abi-baseline.yaml'
           - '!.pre-commit-config.yaml'
           - '!.shellcheckrc'
+          - '!.yamllint.yaml'
           - '!ci/build_cpp.sh'
           - '!ci/build_docs.sh'
           - '!ci/build_go.sh'
@@ -220,13 +300,16 @@ jobs:
           - '!ci/test_python.sh'
           - '!ci/test_standalone_c.sh'
           - '!ci/validate_wheel.sh'
+          - '!CODEOWNERS'
           - '!Dockerfile'
           - '!README.md'
+          - '!SECURITY.md'
           - '!conda/**'
           - '!cpp/.clang-format'
           - '!cpp/.clang-tidy'
           - '!cpp/doxygen/**'
           - '!docs/**'
+          - '!fern/**'
           - '!java/**'
           - '!go/**'
           - '!img/**'
@@ -235,6 +318,8 @@ jobs:
           - '!thirdparty/LICENSES/**'
         test_rust:
           - '**'
+          - '!**/*/REVIEW_GUIDELINES.md'
+          - '!.coderabbit.yaml'
           - '!.devcontainer/**'
           - '!.github/CODEOWNERS'
           - '!.github/ISSUE_TEMPLATE/**'
@@ -243,12 +328,21 @@ jobs:
           - '!.github/labeler.yml'
           - '!.github/ops-bot.yaml'
           - '!.github/release.yml'
+          - '!.github/workflows/build.yaml'
+          - '!.github/workflows/check-c-abi.yaml'
+          - '!.github/workflows/labeler.yml'
           - '!.github/workflows/publish-rust.yaml'
+          - '!.github/workflows/store-c-abi-baseline.yaml'
+          - '!.github/workflows/test.yaml'
           - '!.github/workflows/trigger-breaking-change-alert.yaml'
+          - '!.github/workflows/update-c-abi-baseline.yaml'
           - '!.pre-commit-config.yaml'
           - '!.shellcheckrc'
+          - '!.yamllint.yaml'
+          - '!CODEOWNERS'
           - '!Dockerfile'
           - '!README.md'
+          - '!SECURITY.md'
           - '!ci/build_docs.sh'
           - '!ci/build_go.sh'
           - '!ci/build_java.sh'
@@ -264,6 +358,7 @@ jobs:
           - '!ci/test_wheel_cuvs.sh'
           - '!ci/validate_wheel.sh'
           - '!docs/**'
+          - '!fern/**'
           - '!go/**'
           - '!img/**'
           - '!java/**'
@@ -272,6 +367,8 @@ jobs:
           - '!thirdparty/LICENSES/**'
         test_go:
           - '**'
+          - '!**/*/REVIEW_GUIDELINES.md'
+          - '!.coderabbit.yaml'
           - '!.devcontainer/**'
           - '!.github/CODEOWNERS'
           - '!.github/ISSUE_TEMPLATE/**'
@@ -280,12 +377,21 @@ jobs:
           - '!.github/labeler.yml'
           - '!.github/ops-bot.yaml'
           - '!.github/release.yml'
+          - '!.github/workflows/build.yaml'
+          - '!.github/workflows/check-c-abi.yaml'
+          - '!.github/workflows/labeler.yml'
           - '!.github/workflows/publish-rust.yaml'
+          - '!.github/workflows/store-c-abi-baseline.yaml'
+          - '!.github/workflows/test.yaml'
           - '!.github/workflows/trigger-breaking-change-alert.yaml'
+          - '!.github/workflows/update-c-abi-baseline.yaml'
           - '!.pre-commit-config.yaml'
           - '!.shellcheckrc'
+          - '!.yamllint.yaml'
+          - '!CODEOWNERS'
           - '!Dockerfile'
           - '!README.md'
+          - '!SECURITY.md'
           - '!ci/build_docs.sh'
           - '!ci/build_java.sh'
           - '!ci/build_python.sh'
@@ -302,6 +408,7 @@ jobs:
           - '!ci/test_wheel_cuvs.sh'
           - '!ci/validate_wheel.sh'
           - '!docs/**'
+          - '!fern/**'
           - '!img/**'
           - '!java/**'
           - '!notebooks/**'
@@ -310,172 +417,278 @@ jobs:
           - '!thirdparty/LICENSES/**'
   checks:
     needs: telemetry-setup
-    secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/checks.yaml@python-3.14
+    uses: rapidsai/shared-workflows/.github/workflows/checks.yaml@main
+    permissions:
+      contents: read
     with:
       enable_check_generated_files: false
       ignored_pr_jobs: "telemetry-summarize"
+  check-c-abi:
+    needs: telemetry-setup
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+      pull-requests: read
+    uses: ./.github/workflows/check-c-abi.yaml
   conda-cpp-build:
-    needs: checks
-    secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-build.yaml@python-3.14
+    needs: [build-details, checks]
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+      pull-requests: read
+    secrets: inherit # zizmor: ignore[secrets-inherit]
+    uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-build.yaml@main
     with:
       build_type: pull-request
+      build-datetime: ${{ needs.build-details.outputs.build-datetime }}
       node_type: cpu16
       script: ci/build_cpp.sh
   conda-cpp-tests:
     needs: [conda-cpp-build, changed-files]
-    secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-tests.yaml@python-3.14
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+      pull-requests: read
+    secrets: inherit # zizmor: ignore[secrets-inherit]
+    uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-tests.yaml@main
     if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_cpp
     with:
       build_type: pull-request
       script: ci/test_cpp.sh
   conda-cpp-checks:
     needs: conda-cpp-build
-    secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-post-build-checks.yaml@python-3.14
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+      pull-requests: read
+    uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-post-build-checks.yaml@main
     with:
       build_type: pull-request
       symbol_exclusions: (void (thrust::|cub::))
+      package_name: libcuvs
   conda-python-build:
-    needs: conda-cpp-build
-    secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/conda-python-build.yaml@python-3.14
+    needs: [build-details, conda-cpp-build]
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+      pull-requests: read
+    secrets: inherit # zizmor: ignore[secrets-inherit]
+    uses: rapidsai/shared-workflows/.github/workflows/conda-python-build.yaml@main
     with:
       build_type: pull-request
+      build-datetime: ${{ needs.build-details.outputs.build-datetime }}
       script: ci/build_python.sh
       # Build a conda package for each CUDA x ARCH x minimum supported Python version
       matrix_filter: group_by({CUDA_VER, ARCH}) | map(min_by(.PY_VER | split(".") | map(tonumber)))
   conda-python-tests:
     needs: [conda-python-build, changed-files]
-    secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/conda-python-tests.yaml@python-3.14
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+      pull-requests: read
+    secrets: inherit # zizmor: ignore[secrets-inherit]
+    uses: rapidsai/shared-workflows/.github/workflows/conda-python-tests.yaml@main
     if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_python_conda
     with:
       build_type: pull-request
       script: ci/test_python.sh
-  rocky8-clib-standalone-build:
-    needs: [checks]
-    secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@python-3.14
-    strategy:
-      fail-fast: false
-      matrix:
-        cuda_version:
-          - &latest_cuda12 '12.9.1'
-          - &latest_cuda13 '13.1.1'
-        arch:
-          - amd64
-          - arm64
+  rocky8-clib-standalone-build-matrix:
+    needs: checks
+    permissions:
+      contents: read
+    uses: rapidsai/shared-workflows/.github/workflows/compute-matrix.yaml@main
     with:
       build_type: pull-request
+      matrix_name: conda-cpp-build
+  rocky8-clib-standalone-build:
+    needs: [build-details, rocky8-clib-standalone-build-matrix]
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+      pull-requests: read
+    secrets: inherit # zizmor: ignore[secrets-inherit]
+    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@main
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.rocky8-clib-standalone-build-matrix.outputs.matrix) }}
+    with:
+      build_type: pull-request
+      build-datetime: ${{ needs.build-details.outputs.build-datetime }}
       arch: "${{matrix.arch}}"
       date: ${{ inputs.date }}_c
-      container_image: "rapidsai/ci-wheel:26.04-cuda${{ matrix.cuda_version }}-rockylinux8-py3.11"
+      container_image: "rapidsai/ci-wheel:26.10-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
       node_type: "cpu16"
       requires_license_builder: true
       script: "ci/build_standalone_c.sh --build-tests"
-      artifact-name: "libcuvs_c_${{ matrix.cuda_version }}_${{ matrix.arch }}.tar.gz"
+      artifact-name: "libcuvs_c_${{ matrix.CUDA_VER }}_${{ matrix.ARCH }}.tar.gz"
       file_to_upload: "libcuvs_c.tar.gz"
       sha: ${{ inputs.sha }}
-  rocky8-clib-tests:
+  rocky8-clib-tests-matrix:
     needs: [rocky8-clib-standalone-build, changed-files]
-    secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@python-3.14
+    permissions:
+      contents: read
+    uses: rapidsai/shared-workflows/.github/workflows/compute-matrix.yaml@main
     if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_cpp
+    with:
+      build_type: pull-request
+      matrix_name: conda-cpp-build
+  rocky8-clib-tests:
+    needs: rocky8-clib-tests-matrix
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+      pull-requests: read
+    secrets: inherit # zizmor: ignore[secrets-inherit]
+    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@main
     strategy:
       fail-fast: false
-      matrix:
-        cuda_version:
-          - *latest_cuda12
-          - *latest_cuda13
-        arch:
-          - amd64
-          - arm64
+      matrix: ${{ fromJSON(needs.rocky8-clib-tests-matrix.outputs.matrix) }}
     with:
       build_type: pull-request
       node_type: "gpu-l4-latest-1"
       arch: "${{matrix.arch}}"
       date: ${{ inputs.date }}_c
-      container_image: "rapidsai/ci-wheel:26.04-cuda${{ matrix.cuda_version }}-rockylinux8-py3.11"
-      script: "ci/test_standalone_c.sh libcuvs_c_${{ matrix.cuda_version }}_${{ matrix.arch }}.tar.gz"
+      container_image: "rapidsai/ci-wheel:26.10-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
+      script: "ci/test_standalone_c.sh libcuvs_c_${{ matrix.CUDA_VER }}_${{ matrix.ARCH }}.tar.gz"
       sha: ${{ inputs.sha }}
-  conda-java-build-and-tests:
+  conda-java-build-and-tests-matrix:
     needs: [conda-cpp-build, changed-files]
-    secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@python-3.14
+    permissions:
+      contents: read
+    uses: rapidsai/shared-workflows/.github/workflows/compute-matrix.yaml@main
     if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_java || fromJSON(needs.changed-files.outputs.changed_file_groups).test_cpp
+    with:
+      build_type: pull-request
+      matrix_name: conda-cpp-build
+      matrix_filter: map(select(.ARCH == "amd64"))
+  conda-java-build-and-tests:
+    needs: conda-java-build-and-tests-matrix
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+      pull-requests: read
+    secrets: inherit # zizmor: ignore[secrets-inherit]
+    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@main
     # Artifacts are not published from these jobs, so it's safe to run for multiple CUDA versions.
     # If these jobs start producing artifacts, the names will have to differentiate between CUDA versions.
     strategy:
       fail-fast: false
-      matrix:
-        cuda_version:
-          - *latest_cuda12
-          - *latest_cuda13
+      matrix: ${{ fromJSON(needs.conda-java-build-and-tests-matrix.outputs.matrix) }}
     with:
       build_type: pull-request
       node_type: "gpu-l4-latest-1"
       arch: "amd64"
-      container_image: "rapidsai/ci-conda:26.04-cuda${{ matrix.cuda_version }}-ubuntu24.04-py3.13"
+      container_image: "rapidsai/ci-conda:26.10-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
       script: "ci/test_java.sh"
-      artifact-name: "cuvs-java-cuda${{ matrix.cuda_version }}"
+      artifact-name: "cuvs-java-cuda${{ matrix.CUDA_VER }}"
       file_to_upload: "java/cuvs-java/target/"
-  rust-build:
+  rust-build-matrix:
     needs: [conda-cpp-build, changed-files]
-    secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@python-3.14
+    permissions:
+      contents: read
+    uses: rapidsai/shared-workflows/.github/workflows/compute-matrix.yaml@main
     if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_rust || fromJSON(needs.changed-files.outputs.changed_file_groups).test_cpp
+    with:
+      build_type: pull-request
+      matrix_name: conda-cpp-build
+      matrix_filter: map(select(.ARCH == "amd64"))
+  rust-build:
+    needs: rust-build-matrix
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+      pull-requests: read
+    secrets: inherit # zizmor: ignore[secrets-inherit]
+    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@main
     # Artifacts are not published from these jobs, so it's safe to run for multiple CUDA versions.
     # If these jobs start producing artifacts, the names will have to differentiate between CUDA versions.
     strategy:
       fail-fast: false
-      matrix:
-        cuda_version:
-          - *latest_cuda12
-          - *latest_cuda13
+      matrix: ${{ fromJSON(needs.rust-build-matrix.outputs.matrix) }}
     with:
       build_type: pull-request
       node_type: "gpu-l4-latest-1"
       arch: "amd64"
-      container_image: "rapidsai/ci-conda:26.04-cuda${{ matrix.cuda_version }}-ubuntu24.04-py3.13"
+      container_image: "rapidsai/ci-conda:26.10-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
       script: "ci/build_rust.sh"
-  go-build:
+  go-build-matrix:
     needs: [conda-cpp-build, changed-files]
-    secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@python-3.14
+    permissions:
+      contents: read
+    uses: rapidsai/shared-workflows/.github/workflows/compute-matrix.yaml@main
     if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_go || fromJSON(needs.changed-files.outputs.changed_file_groups).test_cpp
+    with:
+      build_type: pull-request
+      matrix_name: conda-cpp-build
+      matrix_filter: map(select(.ARCH == "amd64"))
+  go-build:
+    needs: go-build-matrix
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+      pull-requests: read
+    secrets: inherit # zizmor: ignore[secrets-inherit]
+    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@main
     # Artifacts are not published from these jobs, so it's safe to run for multiple CUDA versions.
     # If these jobs start producing artifacts, the names will have to differentiate between CUDA versions.
     strategy:
       fail-fast: false
-      matrix:
-        cuda_version:
-          - *latest_cuda12
-          - *latest_cuda13
+      matrix: ${{ fromJSON(needs.go-build-matrix.outputs.matrix) }}
     with:
       build_type: pull-request
       node_type: "gpu-l4-latest-1"
       arch: "amd64"
-      container_image: "rapidsai/ci-conda:26.04-cuda${{ matrix.cuda_version }}-ubuntu24.04-py3.13"
+      container_image: "rapidsai/ci-conda:26.10-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
       script: "ci/build_go.sh"
   docs-build:
-    needs: conda-python-build
-    secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@python-3.14
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+      pull-requests: read
+    secrets: inherit # zizmor: ignore[secrets-inherit]
+    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@main
     with:
       build_type: pull-request
       node_type: "gpu-l4-latest-1"
       arch: "amd64"
-      container_image: "rapidsai/ci-conda:26.04-latest"
+      container_image: "rapidsai/ci-conda:26.10-latest"
       script: "ci/build_docs.sh"
   wheel-build-libcuvs:
-    needs: checks
-    secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@python-3.14
+    needs: [build-details, checks]
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+      pull-requests: read
+    secrets: inherit # zizmor: ignore[secrets-inherit]
+    uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@main
     with:
       build_type: pull-request
+      build-datetime: ${{ needs.build-details.outputs.build-datetime }}
       node_type: cpu16
       script: ci/build_wheel_libcuvs.sh
       # build for every combination of arch and CUDA version, but only for the latest Python
@@ -483,11 +696,18 @@ jobs:
       package-name: libcuvs
       package-type: cpp
   wheel-build-cuvs:
-    needs: wheel-build-libcuvs
-    secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@python-3.14
+    needs: [build-details, wheel-build-libcuvs]
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+      pull-requests: read
+    secrets: inherit # zizmor: ignore[secrets-inherit]
+    uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@main
     with:
       build_type: pull-request
+      build-datetime: ${{ needs.build-details.outputs.build-datetime }}
       node_type: cpu8
       script: ci/build_wheel_cuvs.sh
       package-name: cuvs
@@ -496,19 +716,31 @@ jobs:
       matrix_filter: group_by({CUDA_VER, ARCH}) | map(min_by(.PY_VER | split(".") | map(tonumber)))
   wheel-tests-cuvs:
     needs: [wheel-build-cuvs, changed-files]
-    secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/wheels-test.yaml@python-3.14
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+      pull-requests: read
+    secrets: inherit # zizmor: ignore[secrets-inherit]
+    uses: rapidsai/shared-workflows/.github/workflows/wheels-test.yaml@main
     if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_python_wheels
     with:
       build_type: pull-request
       script: ci/test_wheel_cuvs.sh
   devcontainer:
-    secrets: inherit
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+      pull-requests: read
+    secrets: inherit # zizmor: ignore[secrets-inherit]
     needs: telemetry-setup
-    uses: rapidsai/shared-workflows/.github/workflows/build-in-devcontainer.yaml@python-3.14
+    uses: rapidsai/shared-workflows/.github/workflows/build-in-devcontainer.yaml@main
     with:
       arch: '["amd64", "arm64"]'
-      cuda: '["13.1"]'
+      cuda: '["13.3"]'
       node_type: "cpu8"
       env: |
         SCCACHE_DIST_MAX_RETRIES=inf
@@ -522,6 +754,8 @@ jobs:
     # This job must use a self-hosted runner to record telemetry traces.
     runs-on: linux-amd64-cpu4
     needs: pr-builder
+    permissions:
+      actions: write
     if: ${{ vars.TELEMETRY_ENABLED == 'true' && !cancelled() }}
     continue-on-error: true
     steps:

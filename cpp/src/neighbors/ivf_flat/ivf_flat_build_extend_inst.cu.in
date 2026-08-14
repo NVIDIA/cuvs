@@ -1,0 +1,99 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <cuvs/core/cuda_fp16.hpp>
+
+#include <cuvs/neighbors/ivf_flat.hpp>
+
+#include <neighbors/ivf_flat/ivf_flat_build.cuh>
+
+namespace {
+
+using data_t  = @data_type@;
+using index_t = @index_type@;
+
+}  // namespace
+
+namespace cuvs::neighbors::ivf_flat {
+
+auto build(raft::resources const& handle,
+           const cuvs::neighbors::ivf_flat::index_params& params,
+           raft::device_matrix_view<const data_t, index_t, raft::row_major> dataset)
+  -> cuvs::neighbors::ivf_flat::index<data_t, index_t>
+{
+  return cuvs::neighbors::ivf_flat::index<data_t, index_t>(
+    std::move(cuvs::neighbors::ivf_flat::detail::build(handle, params, dataset)));
+}
+
+void build(raft::resources const& handle,
+           const cuvs::neighbors::ivf_flat::index_params& params,
+           raft::device_matrix_view<const data_t, index_t, raft::row_major> dataset,
+           cuvs::neighbors::ivf_flat::index<data_t, index_t>& idx)
+{
+  cuvs::neighbors::ivf_flat::detail::build(handle, params, dataset, idx);
+}
+auto build(raft::resources const& handle,
+           const cuvs::neighbors::ivf_flat::index_params& params,
+           raft::host_matrix_view<const data_t, index_t, raft::row_major> dataset)
+  -> cuvs::neighbors::ivf_flat::index<data_t, index_t>
+{
+  return cuvs::neighbors::ivf_flat::index<data_t, index_t>(
+    std::move(cuvs::neighbors::ivf_flat::detail::build(handle, params, dataset)));
+}
+
+void build(raft::resources const& handle,
+           const cuvs::neighbors::ivf_flat::index_params& params,
+           raft::host_matrix_view<const data_t, index_t, raft::row_major> dataset,
+           cuvs::neighbors::ivf_flat::index<data_t, index_t>& idx)
+{
+  cuvs::neighbors::ivf_flat::detail::build(handle, params, dataset, idx);
+}
+auto extend(raft::resources const& handle,
+            raft::device_matrix_view<const data_t, index_t, raft::row_major> new_vectors,
+            std::optional<raft::device_vector_view<const index_t, index_t>> new_indices,
+            const cuvs::neighbors::ivf_flat::index<data_t, index_t>& orig_index)
+  -> cuvs::neighbors::ivf_flat::index<data_t, index_t>
+{
+  return cuvs::neighbors::ivf_flat::index<data_t, index_t>(std::move(
+    cuvs::neighbors::ivf_flat::detail::extend(handle, new_vectors, new_indices, orig_index)));
+}
+
+void extend(raft::resources const& handle,
+            raft::device_matrix_view<const data_t, index_t, raft::row_major> new_vectors,
+            std::optional<raft::device_vector_view<const index_t, index_t>> new_indices,
+            cuvs::neighbors::ivf_flat::index<data_t, index_t>* idx)
+{
+  cuvs::neighbors::ivf_flat::detail::extend(handle, new_vectors, new_indices, idx);
+}
+auto extend(raft::resources const& handle,
+            raft::host_matrix_view<const data_t, index_t, raft::row_major> new_vectors,
+            std::optional<raft::host_vector_view<const index_t, index_t>> new_indices,
+            const cuvs::neighbors::ivf_flat::index<data_t, index_t>& orig_index)
+  -> cuvs::neighbors::ivf_flat::index<data_t, index_t>
+{
+  return cuvs::neighbors::ivf_flat::index<data_t, index_t>(std::move(
+    cuvs::neighbors::ivf_flat::detail::extend(handle, new_vectors, new_indices, orig_index)));
+}
+
+void extend(raft::resources const& handle,
+            raft::host_matrix_view<const data_t, index_t, raft::row_major> new_vectors,
+            std::optional<raft::host_vector_view<const index_t, index_t>> new_indices,
+            cuvs::neighbors::ivf_flat::index<data_t, index_t>* idx)
+{
+  cuvs::neighbors::ivf_flat::detail::extend(handle, new_vectors, new_indices, idx);
+}
+
+}  // namespace cuvs::neighbors::ivf_flat
+
+namespace cuvs::neighbors::ivf {
+
+template void resize_list<list<cuvs::neighbors::ivf_flat::list_spec, uint32_t, data_t, index_t>>(
+  raft::resources const&,
+  std::shared_ptr<list<cuvs::neighbors::ivf_flat::list_spec, uint32_t, data_t, index_t>>&,
+  const list<cuvs::neighbors::ivf_flat::list_spec, uint32_t, data_t, index_t>::spec_type&,
+  list<cuvs::neighbors::ivf_flat::list_spec, uint32_t, data_t, index_t>::size_type,
+  list<cuvs::neighbors::ivf_flat::list_spec, uint32_t, data_t, index_t>::size_type);
+
+}  // namespace cuvs::neighbors::ivf

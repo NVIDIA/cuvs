@@ -1,7 +1,7 @@
 // clang-format off
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0 AND BSD-3-Clause
  */
 // clang-format on
@@ -502,7 +502,7 @@ class EpilogueWithBroadcastCustom : public EpilogueBase<Shape_,
       broadcast_fragment,  ///< Fragment containing the accumulated partial reduction over columns
     OutputTileIterator destination_iterator,  ///< Tile iterator for destination
     AccumulatorTile const& accumulators,      ///< Complete warp-level accumulator tile
-    TensorTileIterator tensor_iterator  ///< Threadblock tile iterator for additioanl tensor operand
+    TensorTileIterator tensor_iterator  ///< Threadblock tile iterator for additional tensor operand
   )
   {
   }
@@ -544,7 +544,7 @@ class EpilogueWithBroadcastCustom : public EpilogueBase<Shape_,
     AccumulatorTile const& accumulators,  ///< Complete warp-level accumulator tile
     OutputTileIterator
       source_iterator,  ///< Threadblock tile coordinate in GEMM (in units of threadblock tiles)
-    TensorTileIterator tensor_iterator  ///< Threadblock tile iterator for additioanl tensor operand
+    TensorTileIterator tensor_iterator  ///< Threadblock tile iterator for additional tensor operand
   )
   {
     typename OutputTileIterator::Fragment source_fragment;

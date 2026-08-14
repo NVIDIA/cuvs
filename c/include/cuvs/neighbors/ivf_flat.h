@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -11,6 +11,8 @@
 #include <dlpack/dlpack.h>
 #include <stdbool.h>
 #include <stdint.h>
+
+#include <cuvs/core/export.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -77,7 +79,7 @@ typedef struct cuvsIvfFlatIndexParams* cuvsIvfFlatIndexParams_t;
  * @param[in] index_params cuvsIvfFlatIndexParams_t to allocate
  * @return cuvsError_t
  */
-cuvsError_t cuvsIvfFlatIndexParamsCreate(cuvsIvfFlatIndexParams_t* index_params);
+CUVS_EXPORT cuvsError_t cuvsIvfFlatIndexParamsCreate(cuvsIvfFlatIndexParams_t* index_params);
 
 /**
  * @brief De-allocate IVF-Flat Index params
@@ -85,7 +87,7 @@ cuvsError_t cuvsIvfFlatIndexParamsCreate(cuvsIvfFlatIndexParams_t* index_params)
  * @param[in] index_params
  * @return cuvsError_t
  */
-cuvsError_t cuvsIvfFlatIndexParamsDestroy(cuvsIvfFlatIndexParams_t index_params);
+CUVS_EXPORT cuvsError_t cuvsIvfFlatIndexParamsDestroy(cuvsIvfFlatIndexParams_t index_params);
 /**
  * @}
  */
@@ -111,7 +113,7 @@ typedef struct cuvsIvfFlatSearchParams* cuvsIvfFlatSearchParams_t;
  * @param[in] params cuvsIvfFlatSearchParams_t to allocate
  * @return cuvsError_t
  */
-cuvsError_t cuvsIvfFlatSearchParamsCreate(cuvsIvfFlatSearchParams_t* params);
+CUVS_EXPORT cuvsError_t cuvsIvfFlatSearchParamsCreate(cuvsIvfFlatSearchParams_t* params);
 
 /**
  * @brief De-allocate IVF-Flat search params
@@ -119,7 +121,7 @@ cuvsError_t cuvsIvfFlatSearchParamsCreate(cuvsIvfFlatSearchParams_t* params);
  * @param[in] params
  * @return cuvsError_t
  */
-cuvsError_t cuvsIvfFlatSearchParamsDestroy(cuvsIvfFlatSearchParams_t params);
+CUVS_EXPORT cuvsError_t cuvsIvfFlatSearchParamsDestroy(cuvsIvfFlatSearchParams_t params);
 /**
  * @}
  */
@@ -145,20 +147,32 @@ typedef cuvsIvfFlatIndex* cuvsIvfFlatIndex_t;
  * @param[in] index cuvsIvfFlatIndex_t to allocate
  * @return cuvsError_t
  */
-cuvsError_t cuvsIvfFlatIndexCreate(cuvsIvfFlatIndex_t* index);
+CUVS_EXPORT cuvsError_t cuvsIvfFlatIndexCreate(cuvsIvfFlatIndex_t* index);
 
 /**
  * @brief De-allocate IVF-Flat index
  *
  * @param[in] index cuvsIvfFlatIndex_t to de-allocate
  */
-cuvsError_t cuvsIvfFlatIndexDestroy(cuvsIvfFlatIndex_t index);
+CUVS_EXPORT cuvsError_t cuvsIvfFlatIndexDestroy(cuvsIvfFlatIndex_t index);
 
-/** Get the number of clusters/inverted lists */
-cuvsError_t cuvsIvfFlatIndexGetNLists(cuvsIvfFlatIndex_t index, int64_t* n_lists);
+/**
+ * @brief Get the number of clusters/inverted lists in the index
+ *
+ * @param[in] index cuvsIvfFlatIndex_t Built IVF-Flat index
+ * @param[out] n_lists Pointer to store the number of lists
+ * @return cuvsError_t
+ */
+CUVS_EXPORT cuvsError_t cuvsIvfFlatIndexGetNLists(cuvsIvfFlatIndex_t index, int64_t* n_lists);
 
-/** Get the dimensionality of the data */
-cuvsError_t cuvsIvfFlatIndexGetDim(cuvsIvfFlatIndex_t index, int64_t* dim);
+/**
+ * @brief Get the dimensionality of the indexed data
+ *
+ * @param[in] index cuvsIvfFlatIndex_t Built IVF-Flat index
+ * @param[out] dim Pointer to store the dimensionality
+ * @return cuvsError_t
+ */
+CUVS_EXPORT cuvsError_t cuvsIvfFlatIndexGetDim(cuvsIvfFlatIndex_t index, int64_t* dim);
 
 /**
  * @brief Get the cluster centers corresponding to the lists [n_lists, dim]
@@ -167,7 +181,7 @@ cuvsError_t cuvsIvfFlatIndexGetDim(cuvsIvfFlatIndex_t index, int64_t* dim);
  * @param[out] centers Preallocated array on host or device memory to store output, [n_lists, dim]
  * @return cuvsError_t
  */
-cuvsError_t cuvsIvfFlatIndexGetCenters(cuvsIvfFlatIndex_t index, DLManagedTensor* centers);
+CUVS_EXPORT cuvsError_t cuvsIvfFlatIndexGetCenters(cuvsIvfFlatIndex_t index, DLManagedTensor* centers);
 
 /**
  * @}
@@ -219,7 +233,7 @@ cuvsError_t cuvsIvfFlatIndexGetCenters(cuvsIvfFlatIndex_t index, DLManagedTensor
  * @param[out] index cuvsIvfFlatIndex_t Newly built IVF-Flat index
  * @return cuvsError_t
  */
-cuvsError_t cuvsIvfFlatBuild(cuvsResources_t res,
+CUVS_EXPORT cuvsError_t cuvsIvfFlatBuild(cuvsResources_t res,
                              cuvsIvfFlatIndexParams_t index_params,
                              DLManagedTensor* dataset,
                              cuvsIvfFlatIndex_t index);
@@ -276,7 +290,7 @@ cuvsError_t cuvsIvfFlatBuild(cuvsResources_t res,
  * @param[in] filter cuvsFilter input filter that can be used
               to filter queries and neighbors based on the given bitset.
  */
-cuvsError_t cuvsIvfFlatSearch(cuvsResources_t res,
+CUVS_EXPORT cuvsError_t cuvsIvfFlatSearch(cuvsResources_t res,
                               cuvsIvfFlatSearchParams_t search_params,
                               cuvsIvfFlatIndex_t index,
                               DLManagedTensor* queries,
@@ -312,7 +326,7 @@ cuvsError_t cuvsIvfFlatSearch(cuvsResources_t res,
  * @param[in] filename the file name for saving the index
  * @param[in] index IVF-Flat index
  */
-cuvsError_t cuvsIvfFlatSerialize(cuvsResources_t res,
+CUVS_EXPORT cuvsError_t cuvsIvfFlatSerialize(cuvsResources_t res,
                                  const char* filename,
                                  cuvsIvfFlatIndex_t index);
 
@@ -325,7 +339,7 @@ cuvsError_t cuvsIvfFlatSerialize(cuvsResources_t res,
  * @param[in] filename the name of the file that stores the index
  * @param[out] index IVF-Flat index loaded disk
  */
-cuvsError_t cuvsIvfFlatDeserialize(cuvsResources_t res,
+CUVS_EXPORT cuvsError_t cuvsIvfFlatDeserialize(cuvsResources_t res,
                                    const char* filename,
                                    cuvsIvfFlatIndex_t index);
 /**
@@ -345,7 +359,7 @@ cuvsError_t cuvsIvfFlatDeserialize(cuvsResources_t res,
  * @param[inout] index IVF-Flat index to be extended
  * @return cuvsError_t
  */
-cuvsError_t cuvsIvfFlatExtend(cuvsResources_t res,
+CUVS_EXPORT cuvsError_t cuvsIvfFlatExtend(cuvsResources_t res,
                               DLManagedTensor* new_vectors,
                               DLManagedTensor* new_indices,
                               cuvsIvfFlatIndex_t index);

@@ -1,5 +1,5 @@
 #!/bin/bash
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 set -euo pipefail
@@ -12,7 +12,7 @@ export SCCACHE_S3_USE_PREPROCESSOR_CACHE_MODE=true
 
 # TODO: Remove this argument-handling when build and test workflows are separated,
 #       and test_java.sh no longer calls build_java.sh
-#       ref: https://github.com/rapidsai/cuvs/issues/868
+#       ref: https://github.com/nvidia/cuvs/issues/868
 EXTRA_BUILD_ARGS=()
 if [[ "${1:-}" == "--run-java-tests" ]]; then
   EXTRA_BUILD_ARGS+=("--run-java-tests")
@@ -26,7 +26,7 @@ rapids-logger "Configuring conda strict channel priority"
 conda config --set channel_priority strict
 
 rapids-logger "Downloading artifacts from previous jobs"
-CPP_CHANNEL=$(rapids-download-conda-from-github cpp)
+CPP_CHANNEL=$(rapids-download-from-github "$(rapids-artifact-name conda_cpp libcuvs cuvs --cuda "$RAPIDS_CUDA_VERSION")")
 
 rapids-logger "Generate Java testing dependencies"
 

@@ -1,0 +1,30 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <neighbors/ivf_pq/detail/jit_lto_kernels/compute_score_impl.cuh>
+#include <neighbors/ivf_pq/detail/jit_lto_kernels/device_functions.cuh>
+#include <neighbors/ivf_pq/ivf_pq_fp_8bit.cuh>
+
+namespace {
+
+using out_t                = @out_type@;
+using lut_t                = @lut_type@;
+constexpr uint32_t pq_bits = @pq_bits@;
+
+}  // namespace
+
+namespace cuvs::neighbors::ivf_pq::detail {
+
+template <>
+__device__ out_t compute_score<out_t, lut_t>(uint32_t pq_dim,
+                                             const typename vec_t::io_t* pq_head,
+                                             const lut_t* lut_scores,
+                                             out_t early_stop_limit)
+{
+  return compute_score_impl<out_t, lut_t, vec_t, pq_bits>(
+    pq_dim, pq_head, lut_scores, early_stop_limit);
+}
+
+}  // namespace cuvs::neighbors::ivf_pq::detail

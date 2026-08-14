@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -7,24 +7,30 @@
 #include <cuvs/version_config.h>
 
 #include <raft/core/device_resources_snmg.hpp>
+#include <raft/core/memory_tracking_resources.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resource/device_id.hpp>
+#include <raft/core/resource/device_memory_resource.hpp>
 #include <raft/core/resource/resource_types.hpp>
 #include <raft/core/resources.hpp>
 #include <raft/util/cudart_utils.hpp>
 #include <rapids_logger/logger.hpp>
 #include <rmm/cuda_stream_view.hpp>
-#include <rmm/mr/device_memory_resource.hpp>
+#include <rmm/mr/cuda_async_memory_resource.hpp>
+#include <rmm/mr/cuda_memory_resource.hpp>
 #include <rmm/mr/managed_memory_resource.hpp>
-#include <rmm/mr/owning_wrapper.hpp>
 #include <rmm/mr/per_device_resource.hpp>
-#include <rmm/mr/pool_memory_resource.hpp>
 #include <rmm/mr/pinned_host_memory_resource.hpp>
+#include <rmm/mr/pool_memory_resource.hpp>
+#include <rmm/resource_ref.hpp>
 
 #include "../core/exceptions.hpp"
 
+#include <chrono>
 #include <cstdint>
 #include <memory>
+#include <stdexcept>
+#include <string>
 #include <thread>
 
 extern "C" cuvsError_t cuvsResourcesCreate(cuvsResources_t* res)
@@ -32,6 +38,36 @@ extern "C" cuvsError_t cuvsResourcesCreate(cuvsResources_t* res)
   return cuvs::core::translate_exceptions([=] {
     auto res_ptr = new raft::resources{};
     *res         = reinterpret_cast<uintptr_t>(res_ptr);
+  });
+}
+
+extern "C" cuvsError_t cuvsResourcesSetWorkspacePool(cuvsResources_t res, size_t initial_size_bytes)
+{
+  return cuvs::core::translate_exceptions([=] {
+    auto res_ptr = reinterpret_cast<raft::resources*>(res);
+    // Create an uncapped pool: pre-warms with initial_size_bytes to avoid cudaMalloc on every
+    // query, but can grow beyond that if an allocation exceeds the initial reservation.
+    raft::resource::set_workspace_resource(
+      *res_ptr,
+      rmm::mr::pool_memory_resource{rmm::mr::get_current_device_resource_ref(),
+                                    initial_size_bytes});
+  });
+}
+
+extern "C" cuvsError_t cuvsResourcesCreateWithMemoryTracking(cuvsResources_t* res,
+                                                             const char* csv_path,
+                                                             int64_t sample_interval_ms)
+{
+  return cuvs::core::translate_exceptions([=] {
+    if (csv_path == nullptr || csv_path[0] == '\0') {
+      throw std::invalid_argument("csv_path must be a non-empty string");
+    }
+    if (sample_interval_ms < 0) {
+      throw std::invalid_argument("sample_interval_ms must be >= 0");
+    }
+    auto res_ptr = new raft::memory_tracking_resources{
+      std::string{csv_path}, std::chrono::milliseconds{sample_interval_ms}};
+    *res = reinterpret_cast<uintptr_t>(res_ptr);
   });
 }
 
@@ -132,8 +168,8 @@ extern "C" cuvsError_t cuvsRMMAlloc(cuvsResources_t res, void** ptr, size_t byte
 {
   return cuvs::core::translate_exceptions([=] {
     auto res_ptr = reinterpret_cast<raft::resources*>(res);
-    auto mr      = rmm::mr::get_current_device_resource();
-    *ptr         = mr->allocate(raft::resource::get_cuda_stream(*res_ptr), bytes);
+    auto stream  = raft::resource::get_cuda_stream(*res_ptr);
+    *ptr         = raft::resource::get_workspace_resource_ref(*res_ptr).allocate(stream, bytes);
   });
 }
 
@@ -141,52 +177,40 @@ extern "C" cuvsError_t cuvsRMMFree(cuvsResources_t res, void* ptr, size_t bytes)
 {
   return cuvs::core::translate_exceptions([=] {
     auto res_ptr = reinterpret_cast<raft::resources*>(res);
-    auto mr      = rmm::mr::get_current_device_resource();
-    mr->deallocate(raft::resource::get_cuda_stream(*res_ptr), ptr, bytes);
+    auto stream  = raft::resource::get_cuda_stream(*res_ptr);
+    raft::resource::get_workspace_resource_ref(*res_ptr).deallocate(stream, ptr, bytes);
   });
 }
-
-thread_local std::shared_ptr<
-  rmm::mr::owning_wrapper<rmm::mr::pool_memory_resource<rmm::mr::device_memory_resource>,
-                          rmm::mr::device_memory_resource>>
-  pool_mr;
 
 extern "C" cuvsError_t cuvsRMMPoolMemoryResourceEnable(int initial_pool_size_percent,
                                                        int max_pool_size_percent,
                                                        bool managed)
 {
   return cuvs::core::translate_exceptions([=] {
-    // Upstream memory resource needs to be a cuda_memory_resource
-    auto cuda_mr         = rmm::mr::get_current_device_resource();
-    auto* cuda_mr_casted = dynamic_cast<rmm::mr::cuda_memory_resource*>(cuda_mr);
-    if (cuda_mr_casted == nullptr) {
-      throw std::runtime_error("Current memory resource is not a cuda_memory_resource");
-    }
-
     auto initial_size = rmm::percent_of_free_device_memory(initial_pool_size_percent);
     auto max_size     = rmm::percent_of_free_device_memory(max_pool_size_percent);
 
-    auto mr = std::shared_ptr<rmm::mr::device_memory_resource>();
     if (managed) {
-      mr = std::static_pointer_cast<rmm::mr::device_memory_resource>(
-        std::make_shared<rmm::mr::managed_memory_resource>());
+      rmm::mr::set_current_device_resource(
+        rmm::mr::pool_memory_resource{rmm::mr::managed_memory_resource{}, initial_size, max_size});
     } else {
-      mr = std::static_pointer_cast<rmm::mr::device_memory_resource>(
-        std::make_shared<rmm::mr::cuda_memory_resource>());
+      rmm::mr::set_current_device_resource(
+        rmm::mr::pool_memory_resource{rmm::mr::cuda_memory_resource{}, initial_size, max_size});
     }
+  });
+}
 
-    pool_mr =
-      rmm::mr::make_owning_wrapper<rmm::mr::pool_memory_resource>(mr, initial_size, max_size);
-
-    rmm::mr::set_current_device_resource(pool_mr.get());
+extern "C" cuvsError_t cuvsRMMAsyncMemoryResourceEnable()
+{
+  return cuvs::core::translate_exceptions([=] {
+    rmm::mr::set_current_device_resource(rmm::mr::cuda_async_memory_resource{});
   });
 }
 
 extern "C" cuvsError_t cuvsRMMMemoryResourceReset()
 {
   return cuvs::core::translate_exceptions([=] {
-    rmm::mr::set_current_device_resource(rmm::mr::detail::initial_resource());
-    pool_mr.reset();
+    rmm::mr::reset_current_device_resource();
   });
 }
 

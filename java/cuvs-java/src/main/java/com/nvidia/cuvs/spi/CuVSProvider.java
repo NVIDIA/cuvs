@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs.spi;
@@ -8,6 +8,8 @@ import com.nvidia.cuvs.*;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodType;
 import java.nio.file.Path;
+import java.time.Duration;
+import java.util.List;
 
 /**
  * A provider of low-level cuvs resources and builders.
@@ -34,6 +36,30 @@ public interface CuVSProvider {
 
   /** Creates a new CuVSResources. */
   CuVSResources newCuVSResources(Path tempDirectory) throws Throwable;
+
+  /**
+   * Creates a new CuVSResources whose memory allocations are tracked and
+   * written as CSV samples from a background thread.
+   *
+   * <p>This method is declared as a {@code default} method so that adding it
+   * does not break binary compatibility with providers compiled against an
+   * earlier version of this interface; the default implementation throws
+   * {@link UnsupportedOperationException} and providers must override it to
+   * opt in.
+   *
+   * @param tempDirectory                the temporary directory to use for
+   *                                     intermediate operations
+   * @param memoryTrackingCsvPath        path to the output CSV file
+   *                                     (created/truncated)
+   * @param memoryTrackingSampleInterval minimum interval between successive
+   *                                     CSV samples
+   */
+  default CuVSResources newCuVSResources(
+      Path tempDirectory, Path memoryTrackingCsvPath, Duration memoryTrackingSampleInterval)
+      throws Throwable {
+    throw new UnsupportedOperationException(
+        "Memory-tracking resources are not supported by this provider");
+  }
 
   /** Create a {@link CuVSMatrix.Builder} instance for a host memory matrix **/
   CuVSMatrix.Builder<CuVSHostMatrix> newHostMatrixBuilder(
@@ -162,6 +188,33 @@ public interface CuVSProvider {
     return mergeCagraIndexes(indexes);
   }
 
+  /**
+   * Creates a device-backed multi-partition filter handle from the pre-packed combined bitset.
+   * Per-partition bit offsets are recomputed inside cuVS from the index sizes.
+   *
+   * @param combinedLongs packed bitset words for a single partition
+   */
+  FilterBitsetHandle newFilterBitsetHandle(long[] combinedLongs);
+
+  /**
+   * Searches multiple CAGRA index partitions for the global top-k nearest neighbors per query.
+   *
+   * @param resources shared resources handle
+   * @param indices   one CAGRA index per partition, in partition order
+   * @param query     query whose vectors are searched against every partition
+   * @param k         number of global nearest neighbors to return per query
+   * @param filters   one filter per partition (same order as {@code indices}), or {@code null}/empty
+   *                  for unfiltered search; a {@code null} entry means no filter for that partition
+   * @throws Throwable if an error occurs during the search
+   */
+  MultiPartitionSearchResults searchCagraMultiPartition(
+      CuVSResources resources,
+      List<CagraIndex> indices,
+      CagraQuery query,
+      int k,
+      List<FilterBitsetHandle> filters)
+      throws Throwable;
+
   /** Returns a {@link GPUInfoProvider} to query the system for GPU related information */
   GPUInfoProvider gpuInfoProvider();
 
@@ -188,6 +241,16 @@ public interface CuVSProvider {
    * @param maxPoolSizePercent The maximum pool size, in percentage of the total GPU memory
    */
   void enableRMMManagedPooledMemory(int initialPoolSizePercent, int maxPoolSizePercent);
+
+  /**
+   * Switch RMM allocations to use stream-ordered asynchronous allocation
+   * ({@code cudaMallocAsync} / {@code cudaFreeAsync}). Unlike the pool resource, this resource
+   * returns memory to the stream without blocking the CPU, eliminating device-wide synchronization
+   * on deallocation. This is especially beneficial when multiple CAGRA searches run concurrently
+   * on separate CUDA streams, because internal workspace allocations no longer serialize kernel
+   * launches. This operation has a global effect and will affect all resources on the current device.
+   */
+  void enableRMMAsyncMemory();
 
   /** Disables pooled memory on the current device, reverting back to the default setting.  */
   void resetRMMPooledMemory();
@@ -220,4 +283,21 @@ public interface CuVSProvider {
       int efConstruction,
       CagraIndexParams.HnswHeuristicType heuristic,
       CagraIndexParams.CuvsDistanceType metric);
+
+  /**
+   * Create CAGRA index parameters heuristically tuned for a dataset.
+   *
+   * @param rows The number of rows in the input dataset
+   * @param dim The number of dimensions in the input dataset
+   * @param graphDegree Degree of the output graph
+   * @param metric The distance metric to search
+   * @param buildQuality Higher values increase build quality (and cost) up to a point
+   * @return A new CAGRA index parameters object
+   */
+  CagraIndexParams cagraIndexParamsFromDataset(
+      long rows,
+      long dim,
+      long graphDegree,
+      CagraIndexParams.CuvsDistanceType metric,
+      long buildQuality);
 }

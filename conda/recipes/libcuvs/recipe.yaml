@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 schema_version: 1
 
@@ -7,7 +7,7 @@ context:
   minor_version: ${{ (version | split("."))[:2] | join(".") }}
   cuda_version: ${{ (env.get("RAPIDS_CUDA_VERSION") | split("."))[:2] | join(".") }}
   cuda_major: '${{ (env.get("RAPIDS_CUDA_VERSION") | split("."))[0] }}'
-  date_string: '${{ env.get("RAPIDS_DATE_STRING") }}'
+  datetime_string: '${{ env.get("RAPIDS_DATETIME_STRING") }}'
   head_rev: '${{ git.head_rev(".")[:8] }}'
   linux64: ${{ linux and x86_64 }}
 
@@ -30,7 +30,7 @@ cache:
         export CXXFLAGS=$(echo $CXXFLAGS | sed -E 's@\-fdebug\-prefix\-map[^ ]*@@g')
         set +x
 
-        ./build.sh libcuvs bench-ann tests --allgpuarch --build-metrics=compile_lib --incl-cache-stats --no-nvtx -n
+        ./build.sh libcuvs bench-ann tests --allgpuarch --mnmg-tests --build-metrics=compile_lib --incl-cache-stats --no-nvtx -n
 
       secrets:
         - AWS_ACCESS_KEY_ID
@@ -72,14 +72,13 @@ cache:
       - ninja
       - ${{ stdlib("c") }}
     host:
-      - if: cuda_major == "13"
-        then:
-          - libnvjitlink-dev
+      - libnvjitlink-dev
       - librmm =${{ minor_version }}
       - libraft-headers =${{ minor_version }}
       - nccl ${{ nccl_version }}
       - cuda-version =${{ cuda_version }}
       - cuda-cudart-dev
+      - cuda-nvrtc-dev
       - cuda-profiler-api
       - libcublas-dev
       - libcurand-dev
@@ -98,11 +97,11 @@ outputs:
       name: libcuvs-headers
       version: ${{ version }}
     build:
-      string: cuda${{ cuda_major }}_${{ date_string }}_${{ head_rev }}
+      string: cuda${{ cuda_major }}_${{ datetime_string }}_${{ head_rev }}
       dynamic_linking:
         overlinking_behavior: "error"
       prefix_detection:
-        ignore_binary_files: True
+        ignore_binary_files: true
       script:
         content: |
           cmake --install cpp/build --component cuvs_cpp_headers
@@ -116,30 +115,27 @@ outputs:
         - nccl ${{ nccl_version }}
         - cuda-version =${{ cuda_version }}
         - cuda-cudart-dev
+        - cuda-nvrtc-dev
         - cuda-profiler-api
         - libcublas-dev
         - libcurand-dev
         - libcusolver-dev
         - libcusparse-dev
-        - if: cuda_major == "13"
-          then:
-            - libnvjitlink-dev
+        - libnvjitlink-dev
       run:
         - ${{ pin_compatible("cuda-version", upper_bound="x", lower_bound="x") }}
         - libraft-headers =${{ minor_version }}
         - librmm =${{ minor_version }}
+        - cuda-nvrtc
         - nccl
-        - cuda-cudart
         - libcublas
         - libcurand
         - libcusolver
         - libcusparse
-        - if: cuda_major == "13"
-          then:
-            - libnvjitlink
       ignore_run_exports:
         by_name:
           - cuda-cudart
+          - cuda-nvrtc
           - cuda-version
           - libaio
           - libboost
@@ -150,9 +146,6 @@ outputs:
           - librmm
           - mkl
           - nccl
-          - if: cuda_major == "13"
-            then:
-              - libnvjitlink
     about:
       homepage: ${{ load_from_file("python/libcuvs/pyproject.toml").project.urls.Homepage }}
       license: ${{ load_from_file("python/libcuvs/pyproject.toml").project.license }}
@@ -162,11 +155,11 @@ outputs:
       name: libcuvs
       version: ${{ version }}
     build:
-      string: cuda${{ cuda_major }}_${{ date_string }}_${{ head_rev }}
+      string: cuda${{ cuda_major }}_${{ datetime_string }}_${{ head_rev }}
       dynamic_linking:
         overlinking_behavior: "error"
       prefix_detection:
-        ignore_binary_files: True
+        ignore_binary_files: true
       script:
         content: |
           cmake --install cpp/build --component cuvs
@@ -184,31 +177,28 @@ outputs:
         - nccl ${{ nccl_version }}
         - cuda-version =${{ cuda_version }}
         - cuda-cudart-dev
+        - cuda-nvrtc-dev
         - cuda-profiler-api
         - libcublas-dev
         - libcurand-dev
         - libcusolver-dev
         - libcusparse-dev
-        - if: cuda_major == "13"
-          then:
-            - libnvjitlink-dev
+        - libnvjitlink-dev
       run:
         - ${{ pin_compatible("cuda-version", upper_bound="x", lower_bound="x") }}
         - ${{ pin_subpackage("libcuvs-headers", exact=True) }}
         - libraft-headers =${{ minor_version }}
         - librmm =${{ minor_version }}
+        - cuda-nvrtc
         - nccl
-        - cuda-cudart
         - libcublas
         - libcurand
         - libcusolver
         - libcusparse
-        - if: cuda_major == "13"
-          then:
-            - libnvjitlink
       ignore_run_exports:
         by_name:
           - cuda-cudart
+          - cuda-nvrtc
           - cuda-version
           - libaio
           - libboost
@@ -219,9 +209,6 @@ outputs:
           - librmm
           - mkl
           - nccl
-          - if: cuda_major == "13"
-            then:
-              - libnvjitlink
     about:
       homepage: ${{ load_from_file("python/libcuvs/pyproject.toml").project.urls.Homepage }}
       license: ${{ load_from_file("python/libcuvs/pyproject.toml").project.license }}
@@ -231,11 +218,11 @@ outputs:
       name: libcuvs-static
       version: ${{ version }}
     build:
-      string: cuda${{ cuda_major }}_${{ date_string }}_${{ head_rev }}
+      string: cuda${{ cuda_major }}_${{ datetime_string }}_${{ head_rev }}
       dynamic_linking:
         overlinking_behavior: "error"
       prefix_detection:
-        ignore_binary_files: True
+        ignore_binary_files: true
       script:
         content: |
           cmake --install cpp/build --component cuvs_static
@@ -251,31 +238,28 @@ outputs:
         - nccl ${{ nccl_version }}
         - cuda-version =${{ cuda_version }}
         - cuda-cudart-dev
+        - cuda-nvrtc-dev
         - cuda-profiler-api
         - libcublas-dev
         - libcurand-dev
         - libcusolver-dev
         - libcusparse-dev
-        - if: cuda_major == "13"
-          then:
-            - libnvjitlink-dev
+        - libnvjitlink-dev
       run:
         - ${{ pin_compatible("cuda-version", upper_bound="x", lower_bound="x") }}
         - ${{ pin_subpackage("libcuvs-headers", exact=True) }}
         - libraft-headers =${{ minor_version }}
         - librmm =${{ minor_version }}
+        - cuda-nvrtc
         - nccl
-        - cuda-cudart
         - libcublas
         - libcurand
         - libcusolver
         - libcusparse
-        - if: cuda_major == "13"
-          then:
-            - libnvjitlink
       ignore_run_exports:
         by_name:
           - cuda-cudart
+          - cuda-nvrtc
           - cuda-version
           - libaio
           - libboost
@@ -283,9 +267,6 @@ outputs:
           - libcurand
           - libcusolver
           - libcusparse
-          - if: cuda_major == "13"
-            then:
-              - libnvjitlink
           - librmm
           - mkl
           - nccl
@@ -299,11 +280,11 @@ outputs:
       version: ${{ version }}
     build:
       script: cmake --install cpp/build --component testing
-      string: cuda${{ cuda_major }}_${{ date_string }}_${{ head_rev }}
+      string: cuda${{ cuda_major }}_${{ datetime_string }}_${{ head_rev }}
       dynamic_linking:
         overlinking_behavior: "error"
       prefix_detection:
-        ignore_binary_files: True
+        ignore_binary_files: true
     requirements:
       build:
         - cmake ${{ cmake_version }}
@@ -328,7 +309,6 @@ outputs:
         - ${{ pin_compatible("cuda-version", upper_bound="x", lower_bound="x") }}
         - libraft-headers =${{ minor_version }}
         - nccl
-        - cuda-cudart
         - libcublas
         - libcurand
         - libcusolver
@@ -336,6 +316,7 @@ outputs:
       ignore_run_exports:
         by_name:
           - cuda-cudart
+          - cuda-nvrtc
           - cuda-version
           - libaio
           - libboost
@@ -355,11 +336,11 @@ outputs:
       name: libcuvs-examples
       version: ${{ version }}
     build:
-      string: cuda${{ cuda_major }}_${{ date_string }}_${{ head_rev }}
+      string: cuda${{ cuda_major }}_${{ datetime_string }}_${{ head_rev }}
       dynamic_linking:
         overlinking_behavior: "error"
       prefix_detection:
-        ignore_binary_files: True
+        ignore_binary_files: true
       script:
         content: |
           # Remove `-fdebug-prefix-map` line from CFLAGS and CXXFLAGS so the
@@ -418,30 +399,27 @@ outputs:
         - librmm =${{ minor_version }}
         - nccl ${{ nccl_version }}
         - cuda-cudart-dev
+        - cuda-nvrtc-dev
         - cuda-profiler-api
         - libcublas-dev
         - libcurand-dev
         - libcusolver-dev
         - libcusparse-dev
-        - if: cuda_major == "13"
-          then:
-            - libnvjitlink-dev
+        - libnvjitlink-dev
       run:
         - ${{ pin_subpackage("libcuvs-headers", exact=True) }}
         - ${{ pin_subpackage("libcuvs", exact=True) }}
         - ${{ pin_compatible("cuda-version", upper_bound="x", lower_bound="x") }}
+        - cuda-nvrtc
         - nccl
-        - cuda-cudart
         - libcublas
         - libcurand
         - libcusolver
         - libcusparse
-        - if: cuda_major == "13"
-          then:
-            - libnvjitlink
       ignore_run_exports:
         by_name:
           - cuda-cudart
+          - cuda-nvrtc
           - cuda-version
           - libaio
           - libboost
@@ -449,9 +427,6 @@ outputs:
           - libcurand
           - libcusolver
           - libcusparse
-          - if: cuda_major == "13"
-            then:
-              - libnvjitlink
           - librmm
           - mkl
           - nccl
@@ -473,11 +448,11 @@ outputs:
             # component associated with it. Probably a better way to do this.
             cp cpp/build/_deps/diskann-build/src/libdiskann.so $PREFIX/lib/
           fi
-      string: cuda${{ cuda_major }}_${{ date_string }}_${{ head_rev }}
+      string: cuda${{ cuda_major }}_${{ datetime_string }}_${{ head_rev }}
       dynamic_linking:
         overlinking_behavior: "error"
       prefix_detection:
-        ignore_binary_files: True
+        ignore_binary_files: true
     requirements:
       build:
         - cmake ${{ cmake_version }}
@@ -506,7 +481,6 @@ outputs:
         - ${{ pin_subpackage("libcuvs-headers", exact=True) }}
         - ${{ pin_subpackage("libcuvs", exact=True) }}
         - ${{ pin_compatible("cuda-version", upper_bound="x", lower_bound="x") }}
-        - cuda-cudart
         - libcublas
         - libcurand
         - libcusolver
@@ -518,6 +492,7 @@ outputs:
       ignore_run_exports:
         by_name:
           - cuda-cudart
+          - cuda-nvrtc
           - cuda-version
           - libcublas
           - libcurand
@@ -525,7 +500,6 @@ outputs:
           - libcusparse
           - librmm
           - mkl
-          - nccl
     about:
       homepage: ${{ load_from_file("python/cuvs_bench/pyproject.toml").project.urls.Homepage }}
       license: ${{ load_from_file("python/cuvs_bench/pyproject.toml").project.license }}

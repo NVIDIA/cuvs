@@ -1,0 +1,76 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <cstdint>
+#include <type_traits>
+
+#include <cuda_fp16.h>
+
+#include <@header_file@>
+#define CUVS_DISTANCE_PAIRWISE_USE_JIT
+#include <distance/detail/pairwise_distance_base.cuh>
+#undef CUVS_DISTANCE_PAIRWISE_USE_JIT
+#include <distance/detail/pairwise_matrix/params.cuh>
+#include <raft/core/operators.hpp>
+#include <raft/linalg/contractions.cuh>
+
+namespace {
+
+using data_t             = @data_type@;
+using acc_t              = @acc_type@;
+using out_t              = @out_type@;
+using index_t            = @index_type@;
+using fin_op_t           = raft::identity_op;
+using op_t               = @op_type@<data_t, acc_t, index_t>;
+constexpr int veclen     = @veclen@;
+using policies_t         = raft::linalg::Policy4x4<data_t, veclen>;
+using policy_t           = typename policies_t::@policy_type@;
+constexpr bool row_major = std::is_same_v<policy_t, typename policies_t::Policy>;
+using base_t             = raft::linalg::Contractions_NT<data_t, index_t, policy_t, row_major>;
+
+}  // namespace
+
+namespace cuvs::distance::detail {
+
+extern "C" __global__ __launch_bounds__(policy_t::Nthreads, 2) void pairwise_matrix_kernel(
+  op_t distance_op, pairwise_matrix_params<index_t, data_t, out_t, fin_op_t> params)
+{
+  extern __shared__ char smem[];
+
+  auto epilog_op     = raft::void_op();
+  auto row_epilog_op = raft::void_op();
+
+  constexpr bool write_out = true;
+  PairwiseDistances<data_t,
+                    out_t,
+                    index_t,
+                    policy_t,
+                    op_t,
+                    decltype(epilog_op),
+                    fin_op_t,
+                    decltype(row_epilog_op),
+                    row_major,
+                    write_out,
+                    base_t>
+    obj(params.x,
+        params.y,
+        params.m,
+        params.n,
+        params.k,
+        params.ldx,
+        params.ldy,
+        params.ld_out,
+        params.x_norm,
+        params.y_norm,
+        params.out,
+        smem,
+        distance_op,
+        epilog_op,
+        params.fin_op,
+        row_epilog_op);
+  obj.run();
+}
+
+}  // namespace cuvs::distance::detail

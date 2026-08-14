@@ -1,12 +1,12 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
 
 #include "ann_utils.cuh"
-#include "cagra/device_common.hpp"
+#include "neighbors_device_intrinsics.cuh"
 #include "nn_descent_gnnd.hpp"
 
 #include "../../core/omp_wrapper.hpp"
@@ -39,6 +39,7 @@
 #include <mma.h>
 
 #include <limits>
+#include <numeric>
 #include <optional>
 #include <queue>
 #include <random>
@@ -121,6 +122,35 @@ constexpr __host__ __device__ __forceinline__ int skew_dim(int ndim)
     return ndim + (ndim % 32 == 0) * 4;
   }
 }
+
+template <typename T>
+struct dtype_traits;
+
+template <>
+struct dtype_traits<float> {
+  static constexpr int APAD           = 4;
+  static constexpr int BPAD           = 4;
+  static constexpr int TILE_COL_WIDTH = 32;
+  static __device__ __forceinline__ float to_float(float v) { return v; }
+};
+
+template <>
+struct dtype_traits<__half> {
+  static constexpr int APAD           = 8;
+  static constexpr int BPAD           = 8;
+  static constexpr int TILE_COL_WIDTH = 64;
+  static __device__ __forceinline__ float to_float(__half v) { return __half2float(v); }
+};
+
+template <typename T>
+concept Byte = std::is_same_v<T, uint8_t> or std::is_same_v<T, int8_t>;
+template <Byte T>
+struct dtype_traits<T> {
+  static constexpr int APAD           = 4;
+  static constexpr int BPAD           = 4;
+  static constexpr int TILE_COL_WIDTH = 128;
+  static __device__ __forceinline__ float to_float(T v) { return static_cast<float>(v); }
+};
 
 template <typename T>
 __device__ __forceinline__ ResultItem<T> xor_swap(ResultItem<T> x, int mask, int dir)
@@ -225,68 +255,64 @@ __device__ __forceinline__ void load_vec(Data_t* vec_buffer,
   }
 }
 
-// TODO: Replace with RAFT utilities https://github.com/rapidsai/raft/issues/1827
-/** Calculate L2 norm, and cast data to Output_t */
-template <typename Data_t, typename Output_t = __half>
-RAFT_KERNEL preprocess_data_kernel(
-  const Data_t* input_data,
-  Output_t* output_data,
-  int dim,
-  DistData_t* l2_norms,
-  size_t list_offset                  = 0,
-  cuvs::distance::DistanceType metric = cuvs::distance::DistanceType::L2Expanded)
+/** Converting load: loads Data_t from global memory into __half shared memory buffer. */
+template <typename Data_t>
+  requires(!std::is_same_v<Data_t, __half>)
+__device__ __forceinline__ void load_vec(__half* vec_buffer,
+                                         const Data_t* d_vec,
+                                         const int load_dims,
+                                         const int padding_dims,
+                                         const int lane_id)
+{
+  constexpr int num_load_elems_per_warp = raft::warp_size();
+  const __half half_0                   = __float2half(0.0f);
+  for (int step = 0; step < raft::ceildiv(padding_dims, num_load_elems_per_warp); step++) {
+    int idx = step * num_load_elems_per_warp + lane_id;
+    if (idx < load_dims) {
+      vec_buffer[idx] = d_vec[idx];
+    } else if (idx < padding_dims) {
+      vec_buffer[idx] = half_0;
+    }
+  }
+}
+
+/** One warp per block. Computes squared L2 norm for each row. */
+template <typename Data_t>
+RAFT_KERNEL compute_l2_norms_kernel(const Data_t* data, int dim, DistData_t* l2_norms)
 {
   extern __shared__ char buffer[];
   __shared__ float l2_norm;
   Data_t* s_vec  = (Data_t*)buffer;
-  size_t list_id = list_offset + blockIdx.x;
+  size_t list_id = blockIdx.x;
+  int lane_id    = threadIdx.x % raft::warp_size();
 
-  load_vec(s_vec,
-           input_data + static_cast<size_t>(blockIdx.x) * dim,
-           dim,
-           dim,
-           threadIdx.x % raft::warp_size());
+  load_vec(s_vec, data + static_cast<size_t>(blockIdx.x) * dim, dim, dim, lane_id);
   if (threadIdx.x == 0) { l2_norm = 0; }
   __syncthreads();
 
-  if (metric == cuvs::distance::DistanceType::L2Expanded ||
-      metric == cuvs::distance::DistanceType::L2SqrtExpanded ||
-      metric == cuvs::distance::DistanceType::CosineExpanded) {
-    int lane_id = threadIdx.x % raft::warp_size();
-    for (int step = 0; step < raft::ceildiv(dim, raft::warp_size()); step++) {
-      int idx         = step * raft::warp_size() + lane_id;
-      float part_dist = 0;
-      if (idx < dim) {
-        part_dist = s_vec[idx];
-        part_dist = part_dist * part_dist;
-      }
-      __syncwarp();
-      for (int offset = raft::warp_size() >> 1; offset >= 1; offset >>= 1) {
-        part_dist += __shfl_down_sync(raft::warp_full_mask(), part_dist, offset);
-      }
-      if (lane_id == 0) { l2_norm += part_dist; }
-      __syncwarp();
+  for (int step = 0; step < raft::ceildiv(dim, raft::warp_size()); step++) {
+    int idx         = step * raft::warp_size() + lane_id;
+    float part_dist = 0;
+    if (idx < dim) {
+      part_dist = static_cast<float>(s_vec[idx]);
+      part_dist = part_dist * part_dist;
     }
+    __syncwarp();
+    for (int offset = raft::warp_size() >> 1; offset >= 1; offset >>= 1) {
+      part_dist += __shfl_down_sync(raft::warp_full_mask(), part_dist, offset);
+    }
+    if (lane_id == 0) { l2_norm += part_dist; }
+    __syncwarp();
   }
 
-  for (int step = 0; step < raft::ceildiv(dim, raft::warp_size()); step++) {
-    int idx = step * raft::warp_size() + threadIdx.x;
-    if (idx < dim) {
-      if (metric == cuvs::distance::DistanceType::InnerProduct) {
-        output_data[list_id * dim + idx] = input_data[(size_t)blockIdx.x * dim + idx];
-      } else if (metric == cuvs::distance::DistanceType::CosineExpanded) {
-        output_data[list_id * dim + idx] =
-          (float)input_data[(size_t)blockIdx.x * dim + idx] / sqrt(l2_norm);
-      } else if (metric == cuvs::distance::DistanceType::BitwiseHamming) {
-        int idx_for_byte           = list_id * dim + idx;  // uint8 or int8 data
-        uint8_t* output_bytes      = reinterpret_cast<uint8_t*>(output_data);
-        output_bytes[idx_for_byte] = input_data[(size_t)blockIdx.x * dim + idx];
-      } else {  // L2Expanded or L2SqrtExpanded
-        output_data[list_id * dim + idx] = input_data[(size_t)blockIdx.x * dim + idx];
-        if (idx == 0) { l2_norms[list_id] = l2_norm; }
-      }
-    }
-  }
+  if (lane_id == 0) { l2_norms[list_id] = l2_norm; }
+}
+
+template <typename Src_t, typename Dst_t>
+RAFT_KERNEL convert_copy_kernel(const Src_t* src, Dst_t* dst, size_t n)
+{
+  size_t idx = static_cast<size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  if (idx < n) { dst[idx] = static_cast<Dst_t>(src[idx]); }
 }
 
 template <typename Index_t>
@@ -507,22 +533,25 @@ __device__ __forceinline__ void calculate_metric(float* s_distances,
       if (metric == cuvs::distance::DistanceType::InnerProduct && can_postprocess_dist) {
         s_distances[i] = -s_distances[i];
       } else if (metric == cuvs::distance::DistanceType::CosineExpanded) {
-        s_distances[i] = 1.0 - s_distances[i];
+        float norm_product = l2_norms[row_neighbors[row_id]] * l2_norms[col_neighbors[col_id]];
+        s_distances[i] =
+          (norm_product > 0.0f) ? (1.0f - s_distances[i] / sqrtf(norm_product)) : 0.0f;
       } else if (metric == cuvs::distance::DistanceType::BitwiseHamming) {
         s_distances[i] = 0.0;
         int n1         = row_neighbors[row_id];
         int n2         = col_neighbors[col_id];
-        // TODO: https://github.com/rapidsai/cuvs/issues/1127
+        // TODO: https://github.com/nvidia/cuvs/issues/1127
         const uint8_t* data_n1 = reinterpret_cast<const uint8_t*>(data) + n1 * data_dim;
         const uint8_t* data_n2 = reinterpret_cast<const uint8_t*>(data) + n2 * data_dim;
         for (int d = 0; d < data_dim; d++) {
           s_distances[i] += __popc(static_cast<uint32_t>(data_n1[d] ^ data_n2[d]) & 0xff);
         }
-      } else {  // L2Expanded or L2SqrtExpanded
+      } else if (metric == cuvs::distance::DistanceType::L2Expanded ||
+                 metric == cuvs::distance::DistanceType::L2SqrtExpanded) {
         s_distances[i] =
           l2_norms[row_neighbors[row_id]] + l2_norms[col_neighbors[col_id]] - 2.0 * s_distances[i];
         // for fp32 vs fp16 precision differences resulting in negative distances when distance
-        // should be 0 related issue: https://github.com/rapidsai/cuvs/issues/991
+        // should be 0 related issue: https://github.com/nvidia/cuvs/issues/991
         s_distances[i] = s_distances[i] < 0.0f ? 0.0f : s_distances[i];
         if (!can_postprocess_dist && metric == cuvs::distance::DistanceType::L2SqrtExpanded) {
           s_distances[i] = sqrtf(s_distances[i]);
@@ -535,13 +564,29 @@ __device__ __forceinline__ void calculate_metric(float* s_distances,
   }
 }
 
+struct DistAccumulator {
+  cuvs::distance::DistanceType metric;
+  __device__ __forceinline__ float operator()(float a, float b) const
+  {
+    if (metric == cuvs::distance::DistanceType::L1) { return raft::abs(a - b); }
+    // dot product: reused by IP, cosine, and L2 (postprocessed in calculate_metric)
+    return a * b;
+  }
+};
+
 // launch_bounds here denote BLOCK_SIZE = 512 and MIN_BLOCKS_PER_SM = 4
 // Per
 // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#features-and-technical-specifications,
 // MAX_RESIDENT_THREAD_PER_SM = BLOCK_SIZE * BLOCKS_PER_SM = 2048
 // For architectures 750 and 860 (890), the values for MAX_RESIDENT_THREAD_PER_SM
 // is 1024 and 1536 respectively, which means the bounds don't work anymore
-template <typename Index_t, typename ID_t = InternalID_t<Index_t>, typename DistEpilogue_t>
+// SIMT kernel: scalar element-wise distance computation.
+// Used for fp32 data (all metrics) and L1 distance computation for all dtypes (which cannot use
+// tensor cores).
+template <typename Data_t,
+          typename Index_t,
+          typename ID_t = InternalID_t<Index_t>,
+          typename DistEpilogue_t>
 RAFT_KERNEL
 #ifdef __CUDA_ARCH__
 // Use minBlocksPerMultiprocessor = 4 on specific arches
@@ -552,32 +597,31 @@ __launch_bounds__(BLOCK_SIZE, 4)
 __launch_bounds__(BLOCK_SIZE)
 #endif
 #endif
-  local_join_kernel(const Index_t* graph_new,
-                    const Index_t* rev_graph_new,
-                    const int2* sizes_new,
-                    const Index_t* graph_old,
-                    const Index_t* rev_graph_old,
-                    const int2* sizes_old,
-                    const int width,
-                    const float* data,
-                    const int data_dim,
-                    ID_t* graph,
-                    DistData_t* dists,
-                    int graph_width,
-                    int* locks,
-                    DistData_t* l2_norms,
-                    cuvs::distance::DistanceType metric,
-                    DistEpilogue_t dist_epilogue)
+  local_join_kernel_simt(const Index_t* graph_new,
+                         const Index_t* rev_graph_new,
+                         const int2* sizes_new,
+                         const Index_t* graph_old,
+                         const Index_t* rev_graph_old,
+                         const int2* sizes_old,
+                         const int width,
+                         const Data_t* data,
+                         const int data_dim,
+                         ID_t* graph,
+                         DistData_t* dists,
+                         int graph_width,
+                         int* locks,
+                         DistData_t* l2_norms,
+                         cuvs::distance::DistanceType metric,
+                         DistEpilogue_t dist_epilogue)
 {
 #if (__CUDA_ARCH__ >= 700)
-  using namespace nvcuda;
   __shared__ int s_list[MAX_NUM_BI_SAMPLES * 2];
 
-  constexpr int APAD           = 4;
-  constexpr int BPAD           = 4;
-  constexpr int TILE_COL_WIDTH = 32;
-  __shared__ float s_nv[MAX_NUM_BI_SAMPLES][TILE_COL_WIDTH + APAD];
-  __shared__ float s_ov[MAX_NUM_BI_SAMPLES][TILE_COL_WIDTH + BPAD];
+  constexpr int APAD           = dtype_traits<Data_t>::APAD;
+  constexpr int BPAD           = dtype_traits<Data_t>::BPAD;
+  constexpr int TILE_COL_WIDTH = dtype_traits<Data_t>::TILE_COL_WIDTH;
+  __shared__ Data_t s_nv[MAX_NUM_BI_SAMPLES][TILE_COL_WIDTH + APAD];
+  __shared__ Data_t s_ov[MAX_NUM_BI_SAMPLES][TILE_COL_WIDTH + BPAD];
   __shared__ float s_distances[MAX_NUM_BI_SAMPLES * SKEWED_MAX_NUM_BI_SAMPLES];
 
   // s_distances: MAX_NUM_BI_SAMPLES x SKEWED_MAX_NUM_BI_SAMPLES, reuse the space of s_ov
@@ -635,48 +679,51 @@ __launch_bounds__(BLOCK_SIZE)
   int lane_id             = threadIdx.x % raft::warp_size();
   constexpr int num_warps = BLOCK_SIZE / raft::warp_size();
 
-  if (metric != cuvs::distance::DistanceType::BitwiseHamming) {
-    int tid = threadIdx.x;
-    for (int i = tid; i < MAX_NUM_BI_SAMPLES * SKEWED_MAX_NUM_BI_SAMPLES; i += blockDim.x)
-      s_distances[i] = 0.0f;
+  DistAccumulator dist_acc(metric);
 
+  int tid = threadIdx.x;
+  for (int i = tid; i < MAX_NUM_BI_SAMPLES * SKEWED_MAX_NUM_BI_SAMPLES; i += blockDim.x)
+    s_distances[i] = 0.0f;
+
+  __syncthreads();
+
+  for (int step = 0; step < raft::ceildiv(data_dim, TILE_COL_WIDTH); step++) {
+    int num_load_elems = (step == raft::ceildiv(data_dim, TILE_COL_WIDTH) - 1)
+                           ? data_dim - step * TILE_COL_WIDTH
+                           : TILE_COL_WIDTH;
+#pragma unroll
+    for (int i = 0; i < MAX_NUM_BI_SAMPLES / num_warps; i++) {
+      int idx = i * num_warps + warp_id;
+      if (idx < list_new_size) {
+        size_t neighbor_id = new_neighbors[idx];
+        size_t idx_in_data = neighbor_id * data_dim;
+        // loaded to shared memory while keeping the original dtype
+        load_vec(s_nv[idx],
+                 data + idx_in_data + step * TILE_COL_WIDTH,
+                 num_load_elems,
+                 TILE_COL_WIDTH,
+                 lane_id);
+      }
+    }
     __syncthreads();
 
-    for (int step = 0; step < raft::ceildiv(data_dim, TILE_COL_WIDTH); step++) {
-      int num_load_elems = (step == raft::ceildiv(data_dim, TILE_COL_WIDTH) - 1)
-                             ? data_dim - step * TILE_COL_WIDTH
-                             : TILE_COL_WIDTH;
-#pragma unroll
-      for (int i = 0; i < MAX_NUM_BI_SAMPLES / num_warps; i++) {
-        int idx = i * num_warps + warp_id;
-        if (idx < list_new_size) {
-          size_t neighbor_id = new_neighbors[idx];
-          size_t idx_in_data = neighbor_id * data_dim;
-          load_vec(s_nv[idx],
-                   data + idx_in_data + step * TILE_COL_WIDTH,
-                   num_load_elems,
-                   TILE_COL_WIDTH,
-                   lane_id);
+    // this is much faster than a warp-collaborative multiplication because MAX_NUM_BI_SAMPLES is
+    // fixed and small (64)
+    for (int i = threadIdx.x; i < MAX_NUM_BI_SAMPLES * SKEWED_MAX_NUM_BI_SAMPLES; i += blockDim.x) {
+      int tmp_row = i / SKEWED_MAX_NUM_BI_SAMPLES;
+      int tmp_col = i % SKEWED_MAX_NUM_BI_SAMPLES;
+      if (tmp_row < list_new_size && tmp_col < list_new_size) {
+        float acc = 0.0f;
+        for (int d = 0; d < num_load_elems; d++) {
+          // converted to float for distance computation
+          float a = dtype_traits<Data_t>::to_float(s_nv[tmp_row][d]);
+          float b = dtype_traits<Data_t>::to_float(s_nv[tmp_col][d]);
+          acc += dist_acc(a, b);
         }
+        s_distances[i] += acc;
       }
-      __syncthreads();
-
-      // this is much faster than a warp-collaborative multiplication because MAX_NUM_BI_SAMPLES is
-      // fixed and small (64)
-      for (int i = threadIdx.x; i < MAX_NUM_BI_SAMPLES * SKEWED_MAX_NUM_BI_SAMPLES;
-           i += blockDim.x) {
-        int tmp_row = i / SKEWED_MAX_NUM_BI_SAMPLES;
-        int tmp_col = i % SKEWED_MAX_NUM_BI_SAMPLES;
-        if (tmp_row < list_new_size && tmp_col < list_new_size) {
-          float acc = 0.0f;
-          for (int d = 0; d < num_load_elems; d++) {
-            acc += s_nv[tmp_row][d] * s_nv[tmp_col][d];
-          }
-          s_distances[i] += acc;
-        }
-      }
-      __syncthreads();
     }
+    __syncthreads();
   }
   __syncthreads();
 
@@ -706,63 +753,61 @@ __launch_bounds__(BLOCK_SIZE)
 
   __syncthreads();
 
-  if (metric != cuvs::distance::DistanceType::BitwiseHamming) {
-    int tid = threadIdx.x;
-    for (int i = tid; i < MAX_NUM_BI_SAMPLES * SKEWED_MAX_NUM_BI_SAMPLES; i += blockDim.x)
-      s_distances[i] = 0.0f;
+  for (int i = tid; i < MAX_NUM_BI_SAMPLES * SKEWED_MAX_NUM_BI_SAMPLES; i += blockDim.x)
+    s_distances[i] = 0.0f;
 
-    __syncthreads();
+  __syncthreads();
 
-    for (int step = 0; step < raft::ceildiv(data_dim, TILE_COL_WIDTH); step++) {
-      int num_load_elems = (step == raft::ceildiv(data_dim, TILE_COL_WIDTH) - 1)
-                             ? data_dim - step * TILE_COL_WIDTH
-                             : TILE_COL_WIDTH;
-      if (TILE_COL_WIDTH < data_dim) {
-#pragma unroll
-        for (int i = 0; i < MAX_NUM_BI_SAMPLES / num_warps; i++) {
-          int idx = i * num_warps + warp_id;
-          if (idx < list_new_size) {
-            size_t neighbor_id = new_neighbors[idx];
-            size_t idx_in_data = neighbor_id * data_dim;
-            load_vec(s_nv[idx],
-                     data + idx_in_data + step * TILE_COL_WIDTH,
-                     num_load_elems,
-                     TILE_COL_WIDTH,
-                     lane_id);
-          }
-        }
-      }
+  for (int step = 0; step < raft::ceildiv(data_dim, TILE_COL_WIDTH); step++) {
+    int num_load_elems = (step == raft::ceildiv(data_dim, TILE_COL_WIDTH) - 1)
+                           ? data_dim - step * TILE_COL_WIDTH
+                           : TILE_COL_WIDTH;
+    if (TILE_COL_WIDTH < data_dim) {
 #pragma unroll
       for (int i = 0; i < MAX_NUM_BI_SAMPLES / num_warps; i++) {
         int idx = i * num_warps + warp_id;
-        if (idx < list_old_size) {
-          size_t neighbor_id = old_neighbors[idx];
+        if (idx < list_new_size) {
+          size_t neighbor_id = new_neighbors[idx];
           size_t idx_in_data = neighbor_id * data_dim;
-          load_vec(s_ov[idx],
+          load_vec(s_nv[idx],
                    data + idx_in_data + step * TILE_COL_WIDTH,
                    num_load_elems,
                    TILE_COL_WIDTH,
                    lane_id);
         }
       }
-      __syncthreads();
-
-      // this is much faster than a warp-collaborative multiplication because MAX_NUM_BI_SAMPLES is
-      // fixed and small (64)
-      for (int i = threadIdx.x; i < MAX_NUM_BI_SAMPLES * SKEWED_MAX_NUM_BI_SAMPLES;
-           i += blockDim.x) {
-        int tmp_row = i / SKEWED_MAX_NUM_BI_SAMPLES;
-        int tmp_col = i % SKEWED_MAX_NUM_BI_SAMPLES;
-        if (tmp_row < list_new_size && tmp_col < list_old_size) {
-          float acc = 0.0f;
-          for (int d = 0; d < num_load_elems; d++) {
-            acc += s_nv[tmp_row][d] * s_ov[tmp_col][d];
-          }
-          s_distances[i] += acc;
-        }
-      }
-      __syncthreads();
     }
+#pragma unroll
+    for (int i = 0; i < MAX_NUM_BI_SAMPLES / num_warps; i++) {
+      int idx = i * num_warps + warp_id;
+      if (idx < list_old_size) {
+        size_t neighbor_id = old_neighbors[idx];
+        size_t idx_in_data = neighbor_id * data_dim;
+        load_vec(s_ov[idx],
+                 data + idx_in_data + step * TILE_COL_WIDTH,
+                 num_load_elems,
+                 TILE_COL_WIDTH,
+                 lane_id);
+      }
+    }
+    __syncthreads();
+
+    // this is much faster than a warp-collaborative multiplication because MAX_NUM_BI_SAMPLES is
+    // fixed and small (64)
+    for (int i = threadIdx.x; i < MAX_NUM_BI_SAMPLES * SKEWED_MAX_NUM_BI_SAMPLES; i += blockDim.x) {
+      int tmp_row = i / SKEWED_MAX_NUM_BI_SAMPLES;
+      int tmp_col = i % SKEWED_MAX_NUM_BI_SAMPLES;
+      if (tmp_row < list_new_size && tmp_col < list_old_size) {
+        float acc = 0.0f;
+        for (int d = 0; d < num_load_elems; d++) {
+          float a = dtype_traits<Data_t>::to_float(s_nv[tmp_row][d]);
+          float b = dtype_traits<Data_t>::to_float(s_ov[tmp_col][d]);
+          acc += dist_acc(a, b);
+        }
+        s_distances[i] += acc;
+      }
+    }
+    __syncthreads();
   }
   __syncthreads();
 
@@ -809,7 +854,11 @@ __launch_bounds__(BLOCK_SIZE)
 // MAX_RESIDENT_THREAD_PER_SM = BLOCK_SIZE * BLOCKS_PER_SM = 2048
 // For architectures 750 and 860 (890), the values for MAX_RESIDENT_THREAD_PER_SM
 // is 1024 and 1536 respectively, which means the bounds don't work anymore
-template <typename Index_t, typename ID_t = InternalID_t<Index_t>, typename DistEpilogue_t>
+// Used for fp32 data downcast to fp16, and all types using non-L1 distance metric.
+template <typename Data_t,
+          typename Index_t,
+          typename ID_t = InternalID_t<Index_t>,
+          typename DistEpilogue_t>
 RAFT_KERNEL
 #ifdef __CUDA_ARCH__
 // Use minBlocksPerMultiprocessor = 4 on specific arches
@@ -820,22 +869,22 @@ __launch_bounds__(BLOCK_SIZE, 4)
 __launch_bounds__(BLOCK_SIZE)
 #endif
 #endif
-  local_join_kernel(const Index_t* graph_new,
-                    const Index_t* rev_graph_new,
-                    const int2* sizes_new,
-                    const Index_t* graph_old,
-                    const Index_t* rev_graph_old,
-                    const int2* sizes_old,
-                    const int width,
-                    const __half* data,
-                    const int data_dim,
-                    ID_t* graph,
-                    DistData_t* dists,
-                    int graph_width,
-                    int* locks,
-                    DistData_t* l2_norms,
-                    cuvs::distance::DistanceType metric,
-                    DistEpilogue_t dist_epilogue)
+  local_join_kernel_wmma(const Index_t* graph_new,
+                         const Index_t* rev_graph_new,
+                         const int2* sizes_new,
+                         const Index_t* graph_old,
+                         const Index_t* rev_graph_old,
+                         const int2* sizes_old,
+                         const int width,
+                         const Data_t* data,
+                         const int data_dim,
+                         ID_t* graph,
+                         DistData_t* dists,
+                         int graph_width,
+                         int* locks,
+                         DistData_t* l2_norms,
+                         cuvs::distance::DistanceType metric,
+                         DistEpilogue_t dist_epilogue)
 {
 #if (__CUDA_ARCH__ >= 700)
   using namespace nvcuda;
@@ -923,6 +972,7 @@ __launch_bounds__(BLOCK_SIZE)
         if (idx < list_new_size) {
           size_t neighbor_id = new_neighbors[idx];
           size_t idx_in_data = neighbor_id * data_dim;
+          // converted to fp16 on-the-fly while loading
           load_vec(s_nv[idx],
                    data + idx_in_data + step * TILE_COL_WIDTH,
                    num_load_elems,
@@ -1117,8 +1167,14 @@ GnndGraph<Index_t>::GnndGraph(raft::resources const& res,
     h_list_sizes_old{raft::make_pinned_vector<int2, size_t>(res, nrow)}
 {
   // node_degree must be a multiple of segment_size;
-  assert(node_degree % segment_size == 0);
-  assert(internal_node_degree % segment_size == 0);
+  RAFT_EXPECTS(node_degree % segment_size == 0,
+               "node_degree (%u) %% segment_size (%u) == 0",
+               static_cast<uint32_t>(node_degree),
+               static_cast<uint32_t>(segment_size));
+  RAFT_EXPECTS(internal_node_degree % segment_size == 0,
+               "internal_node_degree (%u) %% segment_size (%u) == 0",
+               static_cast<uint32_t>(internal_node_degree),
+               static_cast<uint32_t>(segment_size));
 
   num_segments = node_degree / segment_size;
   // To save the CPU memory, graph should be allocated by external function
@@ -1149,38 +1205,47 @@ void GnndGraph<Index_t>::sample_graph_new(InternalID_t<Index_t>* new_neighbors, 
   }
 }
 
+// Initialize the graph with random neighbors and apply the segmentation rule. Split the neighbor
+// list into num_segments segments. A neighbor with index v is placed into segment (v %
+// num_segments). The details are in Sec 4.3 in H Wang et.al. "Fast k-NN Graph Construction by GPU
+// based NN-Descent".
 template <typename Index_t>
 void GnndGraph<Index_t>::init_random_graph()
 {
-  for (size_t seg_idx = 0; seg_idx < static_cast<size_t>(num_segments); seg_idx++) {
-    // random sequence (range: 0~nrow)
-    // segment_x stores neighbors which id % num_segments == x
-    std::vector<Index_t> rand_seq((nrow + num_segments - 1) / num_segments);
-    std::iota(rand_seq.begin(), rand_seq.end(), 0);
-    auto gen = std::default_random_engine{seg_idx};
-    std::shuffle(rand_seq.begin(), rand_seq.end(), gen);
+  const auto extended_nrows =
+    raft::round_up_safe(static_cast<uint32_t>(nrow), static_cast<uint32_t>(num_segments));
+  for (uint32_t seg_id = 0; seg_id < static_cast<uint32_t>(num_segments); seg_id++) {
+    const auto actual_segment_size =
+      std::min(static_cast<uint64_t>(segment_size), node_degree - seg_id * segment_size);
+
+    uint64_t stride = nrow / segment_size;
+    while (std::gcd(extended_nrows, stride) != 1 || std::gcd(actual_segment_size, stride) != 1) {
+      stride++;
+    }
 
 #pragma omp parallel for
-    for (size_t i = 0; i < nrow; i++) {
-      size_t base_idx         = i * node_degree + seg_idx * segment_size;
-      auto h_neighbor_list    = h_graph + base_idx;
-      auto h_dist_list        = h_dists.data_handle() + base_idx;
-      size_t idx              = base_idx;
-      size_t self_in_this_seg = 0;
-      for (size_t j = 0; j < static_cast<size_t>(segment_size); j++) {
-        Index_t id = rand_seq[idx % rand_seq.size()] * num_segments + seg_idx;
-        if ((size_t)id == i) {
-          idx++;
-          id               = rand_seq[idx % rand_seq.size()] * num_segments + seg_idx;
-          self_in_this_seg = 1;
+    for (uint64_t i = 0; i < nrow; i++) {
+      // Generate a starting index. The node ((i + 1) % nrow) will be included in the neighbor list
+      // of node i. This rule guarantees the connectivity of the graph.
+      uint64_t id;
+      if ((i + 1) % num_segments == seg_id) {
+        id = i + 1;
+        if (id >= nrow) { id = seg_id; }
+      } else {
+        id = (i + 1) * num_segments + seg_id;
+      }
+
+      for (uint32_t j = 0; j < actual_segment_size; j++) {
+        for (uint32_t steps = 0; (id >= nrow || id == i) && steps < extended_nrows; steps++) {
+          id = (id + stride * num_segments) % extended_nrows;
         }
 
-        h_neighbor_list[j].id_with_flag() =
-          j < (rand_seq.size() - self_in_this_seg) && size_t(id) < nrow
-            ? id
-            : std::numeric_limits<Index_t>::max();
-        h_dist_list[j] = std::numeric_limits<DistData_t>::max();
-        idx++;
+        const auto store_index = i * node_degree + seg_id * segment_size + j;
+        h_graph[store_index].id_with_flag() =
+          (id >= nrow || id == i) ? std::numeric_limits<Index_t>::max() : id;
+        h_dists.data_handle()[store_index] = std::numeric_limits<DistData_t>::max();
+
+        id = (id + num_segments * stride) % nrow;
       }
     }
   }
@@ -1281,7 +1346,6 @@ void GnndGraph<Index_t>::clear()
 template <typename Index_t>
 GnndGraph<Index_t>::~GnndGraph()
 {
-  assert(h_graph == nullptr);
 }
 
 template <typename Data_t, typename Index_t>
@@ -1317,23 +1381,6 @@ GNND<Data_t, Index_t>::GNND(raft::resources const& res, const BuildConfig& build
 {
   static_assert(NUM_SAMPLES <= 32);
 
-  using input_t = typename std::remove_const<Data_t>::type;
-  if (std::is_same_v<input_t, float> &&
-      (build_config.dist_comp_dtype == cuvs::neighbors::nn_descent::DIST_COMP_DTYPE::FP32 ||
-       (build_config.dist_comp_dtype == cuvs::neighbors::nn_descent::DIST_COMP_DTYPE::AUTO &&
-        build_config.dataset_dim <= 16))) {
-    // use fp32 distance computation for better precision with smaller dimension
-    d_data_float_.emplace(
-      raft::make_device_matrix<float, size_t, raft::row_major>(res, nrow_, ndim_));
-  } else {
-    d_data_half_.emplace(raft::make_device_matrix<half, size_t, raft::row_major>(
-      res,
-      nrow_,
-      build_config.metric == cuvs::distance::DistanceType::BitwiseHamming
-        ? (build_config.dataset_dim + 1) / 2
-        : build_config.dataset_dim));
-  }
-
   raft::matrix::fill(res, dists_buffer_.view(), std::numeric_limits<float>::max());
   auto graph_buffer_view = raft::make_device_matrix_view<Index_t, int64_t>(
     reinterpret_cast<Index_t*>(graph_buffer_.data_handle()), nrow_, DEGREE_ON_DEVICE);
@@ -1341,7 +1388,11 @@ GNND<Data_t, Index_t>::GNND(raft::resources const& res, const BuildConfig& build
   raft::matrix::fill(res, d_locks_.view(), 0);
 
   if (build_config.metric == cuvs::distance::DistanceType::L2Expanded ||
-      build_config.metric == cuvs::distance::DistanceType::L2SqrtExpanded) {
+      build_config.metric == cuvs::distance::DistanceType::L2SqrtExpanded ||
+      build_config.metric == cuvs::distance::DistanceType::CosineExpanded) {
+    // for device memory efficiency, we do not allocate a separate array for the data
+    // to normalize the data when using CosineExpanded metric. Instead, we use the l2_norms_ vector
+    // and compute inside the calculate_metric kernel.
     l2_norms_ = raft::make_device_vector<DistData_t, size_t>(res, nrow_);
   }
 };
@@ -1379,40 +1430,69 @@ template <typename DistEpilogue_t>
 void GNND<Data_t, Index_t>::local_join(cudaStream_t stream, DistEpilogue_t dist_epilogue)
 {
   raft::matrix::fill(res, dists_buffer_.view(), std::numeric_limits<float>::max());
-  if (d_data_float_.has_value()) {
-    local_join_kernel<<<nrow_, BLOCK_SIZE, 0, stream>>>(graph_.h_graph_new.data_handle(),
-                                                        h_rev_graph_new_.data_handle(),
-                                                        d_list_sizes_new_.data_handle(),
-                                                        h_graph_old_.data_handle(),
-                                                        h_rev_graph_old_.data_handle(),
-                                                        d_list_sizes_old_.data_handle(),
-                                                        NUM_SAMPLES,
-                                                        d_data_float_.value().data_handle(),
-                                                        ndim_,
-                                                        graph_buffer_.data_handle(),
-                                                        dists_buffer_.data_handle(),
-                                                        DEGREE_ON_DEVICE,
-                                                        d_locks_.data_handle(),
-                                                        l2_norms_.data_handle(),
-                                                        build_config_.metric,
-                                                        dist_epilogue);
+
+  // Kernel dispatch logic, based on the effective distance-computation dtype (which depends on
+  // the input dtype and dist_comp_dtype):
+  //   fp32 dist (only fp32 input, dist_comp_dtype == FP32 or AUTO with dim <= 16) -> SIMT: scalar
+  //     element-wise distance computation in fp32.
+  //   fp16 dist (everything else: fp16/int8/uint8 input, or fp32 input with dist_comp_dtype ==
+  //     FP16 or AUTO with dim > 16) -> WMMA (tensor-core accelerated dot product). Non-fp16
+  //     dtypes are converted to fp16 on-the-fly while loading into shared memory; for fp32 host
+  //     input this conversion happens earlier at copy-in time (see d_data_half_).
+  //   L1 distance for any input -> SIMT (L1 needs element-wise ops, can't use tensor cores).
+  using DCT = cuvs::neighbors::nn_descent::DIST_COMP_DTYPE;
+  bool use_fp16_dist =
+    std::is_same_v<input_t, float> && (build_config_.dist_comp_dtype == DCT::FP16 ||
+                                       (build_config_.dist_comp_dtype == DCT::AUTO && ndim_ > 16));
+  bool use_simt = (std::is_same_v<input_t, float> && !use_fp16_dist) ||
+                  build_config_.metric == cuvs::distance::DistanceType::L1;
+
+  auto launch_kernel = [&](auto* typed_ptr) {
+    if (use_simt) {
+      local_join_kernel_simt<<<nrow_, BLOCK_SIZE, 0, stream>>>(graph_.h_graph_new.data_handle(),
+                                                               h_rev_graph_new_.data_handle(),
+                                                               d_list_sizes_new_.data_handle(),
+                                                               h_graph_old_.data_handle(),
+                                                               h_rev_graph_old_.data_handle(),
+                                                               d_list_sizes_old_.data_handle(),
+                                                               NUM_SAMPLES,
+                                                               typed_ptr,
+                                                               ndim_,
+                                                               graph_buffer_.data_handle(),
+                                                               dists_buffer_.data_handle(),
+                                                               DEGREE_ON_DEVICE,
+                                                               d_locks_.data_handle(),
+                                                               l2_norms_.data_handle(),
+                                                               build_config_.metric,
+                                                               dist_epilogue);
+    } else {
+      local_join_kernel_wmma<<<nrow_, BLOCK_SIZE, 0, stream>>>(graph_.h_graph_new.data_handle(),
+                                                               h_rev_graph_new_.data_handle(),
+                                                               d_list_sizes_new_.data_handle(),
+                                                               h_graph_old_.data_handle(),
+                                                               h_rev_graph_old_.data_handle(),
+                                                               d_list_sizes_old_.data_handle(),
+                                                               NUM_SAMPLES,
+                                                               typed_ptr,
+                                                               ndim_,
+                                                               graph_buffer_.data_handle(),
+                                                               dists_buffer_.data_handle(),
+                                                               DEGREE_ON_DEVICE,
+                                                               d_locks_.data_handle(),
+                                                               l2_norms_.data_handle(),
+                                                               build_config_.metric,
+                                                               dist_epilogue);
+    }
+    RAFT_CUDA_TRY(cudaPeekAtLastError());
+  };
+
+  if (d_data_half_.has_value()) {
+    // Host fp32 input was downcast to a device-side fp16 buffer because distances are computed in
+    // fp16 (dist_comp_dtype == FP16, or AUTO with dim > 16).
+    launch_kernel(static_cast<const half*>(d_data_ptr_));
   } else {
-    local_join_kernel<<<nrow_, BLOCK_SIZE, 0, stream>>>(graph_.h_graph_new.data_handle(),
-                                                        h_rev_graph_new_.data_handle(),
-                                                        d_list_sizes_new_.data_handle(),
-                                                        h_graph_old_.data_handle(),
-                                                        h_rev_graph_old_.data_handle(),
-                                                        d_list_sizes_old_.data_handle(),
-                                                        NUM_SAMPLES,
-                                                        d_data_half_.value().data_handle(),
-                                                        ndim_,
-                                                        graph_buffer_.data_handle(),
-                                                        dists_buffer_.data_handle(),
-                                                        DEGREE_ON_DEVICE,
-                                                        d_locks_.data_handle(),
-                                                        l2_norms_.data_handle(),
-                                                        build_config_.metric,
-                                                        dist_epilogue);
+    // Data stored as input_t: device data used directly, or host data copied as-is.
+    launch_kernel(static_cast<const input_t*>(d_data_ptr_));
   }
 }
 
@@ -1440,46 +1520,94 @@ void GNND<Data_t, Index_t>::build(Data_t* data,
   update_counter_ = 0;
   graph_.h_graph  = (InternalID_t<Index_t>*)output_graph;
 
-  if (d_data_float_.has_value()) {
-    raft::matrix::fill(res, d_data_float_.value().view(), static_cast<float>(0));
-  } else {
-    raft::matrix::fill(res, d_data_half_.value().view(), static_cast<half>(0));
-  }
+  d_data_ptr_ = nullptr;
 
   cudaPointerAttributes data_ptr_attr;
   RAFT_CUDA_TRY(cudaPointerGetAttributes(&data_ptr_attr, data));
-  size_t batch_size = (data_ptr_attr.devicePointer == nullptr) ? 100000 : nrow_;
+  bool data_on_device = (data_ptr_attr.type == cudaMemoryTypeDevice);
 
-  cuvs::spatial::knn::detail::utils::batch_load_iterator vec_batches{
-    data, static_cast<size_t>(nrow_), build_config_.dataset_dim, batch_size, stream};
-  for (auto const& batch : vec_batches) {
-    if (d_data_float_.has_value()) {
-      preprocess_data_kernel<<<batch.size(),
-                               raft::warp_size(),
-                               sizeof(Data_t) *
-                                 ceildiv(build_config_.dataset_dim,
-                                         static_cast<size_t>(raft::warp_size())) *
-                                 raft::warp_size(),
-                               stream>>>(batch.data(),
-                                         d_data_float_.value().data_handle(),
-                                         build_config_.dataset_dim,
-                                         l2_norms_.data_handle(),
-                                         batch.offset(),
-                                         build_config_.metric);
-    } else {
-      preprocess_data_kernel<<<batch.size(),
-                               raft::warp_size(),
-                               sizeof(Data_t) *
-                                 ceildiv(build_config_.dataset_dim,
-                                         static_cast<size_t>(raft::warp_size())) *
-                                 raft::warp_size(),
-                               stream>>>(batch.data(),
-                                         d_data_half_.value().data_handle(),
-                                         build_config_.dataset_dim,
-                                         l2_norms_.data_handle(),
-                                         batch.offset(),
-                                         build_config_.metric);
+  bool needs_l2_norms = build_config_.metric == cuvs::distance::DistanceType::L2Expanded ||
+                        build_config_.metric == cuvs::distance::DistanceType::L2SqrtExpanded ||
+                        build_config_.metric == cuvs::distance::DistanceType::CosineExpanded;
+
+  // For fp32 host input, downcast to a device-side fp16 buffer when distance computation will be
+  // done in fp16 anyway: dispatch matches the SIMT/WMMA decision in local_join() (FP16 explicit, or
+  // AUTO with dim > 16).
+  using DCT = cuvs::neighbors::nn_descent::DIST_COMP_DTYPE;
+  bool fp32_input_uses_fp16_dist =
+    std::is_same_v<input_t, float> &&
+    (build_config_.dist_comp_dtype == DCT::FP16 ||
+     (build_config_.dist_comp_dtype == DCT::AUTO && build_config_.dataset_dim > 16));
+  bool downcast_host_data = !data_on_device && fp32_input_uses_fp16_dist;
+
+  if (data_on_device) {
+    // When user-given data is on device, we use it directly. This can be any type (fp32, fp16,
+    // int8, uint8)
+    d_data_ptr_ = data;
+  } else if (downcast_host_data) {
+    // When user-given data is fp32 host data and distances will be computed in fp16, we allocate
+    // an fp16 device buffer and downcast at copy-in time. Storing the dataset on device in fp16
+    // (instead of fp32) for this path halves both the device memory footprint and the per-
+    // iteration read bandwidth of the WMMA kernel.
+    if (!d_data_half_.has_value()) {
+      d_data_half_.emplace(raft::make_device_matrix<half, size_t, raft::row_major>(
+        res, build_config_.max_dataset_size, build_config_.dataset_dim));
     }
+    size_t batch_size = 100000;
+    auto vec_batches  = cuvs::spatial::knn::detail::utils::make_batch_load_iterator<Data_t>(
+      res,
+      data,
+      static_cast<int64_t>(nrow_),
+      static_cast<int64_t>(build_config_.dataset_dim),
+      batch_size,
+      stream);
+    constexpr int TPB = 256;
+    for (auto const& batch : vec_batches) {
+      size_t n_elems    = batch.size() * build_config_.dataset_dim;
+      int num_blocks    = raft::ceildiv(n_elems, static_cast<size_t>(TPB));
+      size_t dst_offset = batch.offset() * build_config_.dataset_dim;
+      if (needs_l2_norms) {
+        // Compute l2 norms on the fp32 batches before they're downcast to fp16.
+        compute_l2_norms_kernel<<<batch.size(),
+                                  raft::warp_size(),
+                                  sizeof(float) *
+                                    raft::ceildiv(build_config_.dataset_dim,
+                                                  static_cast<size_t>(raft::warp_size())) *
+                                    raft::warp_size(),
+                                  stream>>>(
+          batch.data(), build_config_.dataset_dim, l2_norms_.data_handle() + batch.offset());
+        RAFT_CUDA_TRY(cudaPeekAtLastError());
+      }
+      convert_copy_kernel<<<num_blocks, TPB, 0, stream>>>(
+        batch.data(), d_data_half_.value().data_handle() + dst_offset, n_elems);
+      RAFT_CUDA_TRY(cudaPeekAtLastError());
+    }
+    d_data_ptr_ = d_data_half_.value().data_handle();
+  } else {
+    // Other cases: user-given data is not device-accessible, but we don't need a precision
+    // conversion. Allocate a device buffer in input_t and copy as-is.
+    if (!d_data_direct_.has_value()) {
+      d_data_direct_.emplace(raft::make_device_matrix<input_t, size_t, raft::row_major>(
+        res, build_config_.max_dataset_size, build_config_.dataset_dim));
+    }
+    raft::copy(d_data_direct_.value().data_handle(),
+               data,
+               static_cast<size_t>(nrow_) * build_config_.dataset_dim,
+               stream);
+    d_data_ptr_ = d_data_direct_.value().data_handle();
+  }
+
+  if (needs_l2_norms && !downcast_host_data) {
+    compute_l2_norms_kernel<<<nrow_,
+                              raft::warp_size(),
+                              sizeof(input_t) *
+                                raft::ceildiv(build_config_.dataset_dim,
+                                              static_cast<size_t>(raft::warp_size())) *
+                                raft::warp_size(),
+                              stream>>>(
+      static_cast<const input_t*>(d_data_ptr_), build_config_.dataset_dim, l2_norms_.data_handle());
+    RAFT_CUDA_TRY(cudaPeekAtLastError());
+    raft::resource::sync_stream(res);
   }
 
   graph_.clear();
@@ -1509,7 +1637,7 @@ void GNND<Data_t, Index_t>::build(Data_t* data,
 
     std::thread update_and_sample_thread(update_and_sample, it);
 
-    RAFT_LOG_DEBUG("# GNND iteraton: %lu / %lu", it + 1, build_config_.max_iterations);
+    RAFT_LOG_DEBUG("# GNND iteration: %lu / %lu", it + 1, build_config_.max_iterations);
 
     // Reuse dists_buffer_ to save GPU memory. graph_buffer_ cannot be reused, because it
     // contains some information for local_join.
@@ -1530,7 +1658,7 @@ void GNND<Data_t, Index_t>::build(Data_t* data,
     // __CUDA_ARCH__ >= 700. Since RAFT supports compilation for ARCH 600,
     // we need to ensure that `local_join_kernel` (which uses tensor) operations
     // is not only not compiled, but also a runtime error is presented to the user
-    auto kernel       = preprocess_data_kernel<input_t>;
+    auto kernel       = compute_l2_norms_kernel<input_t>;
     void* kernel_ptr  = reinterpret_cast<void*>(kernel);
     auto runtime_arch = raft::util::arch::kernel_virtual_arch(kernel_ptr);
     auto wmma_range =
@@ -1599,17 +1727,47 @@ void GNND<Data_t, Index_t>::build(Data_t* data,
 
   Index_t* graph_shrink_buffer = (Index_t*)graph_.h_dists.data_handle();
 
+  // Copy the output graph while removing duplicates.
 #pragma omp parallel for
   for (size_t i = 0; i < (size_t)nrow_; i++) {
-    for (size_t j = 0; j < build_config_.node_degree; j++) {
-      size_t idx = i * graph_.node_degree + j;
-      int id     = graph_.h_graph[idx].id();
-      if (id < static_cast<int>(nrow_)) {
-        graph_shrink_buffer[i * build_config_.node_degree + j] = id;
-      } else {
-        graph_shrink_buffer[i * build_config_.node_degree + j] =
-          cuvs::neighbors::cagra::detail::device::xorshift64(idx) % nrow_;
+    auto output_neighbor_list_ptr = graph_shrink_buffer + i * build_config_.node_degree;
+
+    size_t out_j = 0;
+
+    // Copy neighbor list while removing duplicates.
+    for (size_t in_j = 0; in_j < build_config_.node_degree; in_j++) {
+      size_t idx = graph_.h_graph[i * graph_.node_degree + in_j].id();
+
+      bool dup = false;
+      for (size_t exi_j = 0; exi_j < out_j; exi_j++) {
+        if (static_cast<decltype(idx)>(output_neighbor_list_ptr[exi_j]) == idx || i == idx) {
+          dup = true;
+          break;
+        }
       }
+      if (!dup) {
+        output_neighbor_list_ptr[out_j] = idx;
+        out_j++;
+      }
+    }
+
+    // Fill with random nodes if the length of the filled neighbor list is less than the degree.
+    for (size_t j = out_j; j < build_config_.node_degree; j++) {
+      uint64_t rnd = static_cast<uint64_t>(i * build_config_.node_degree + j + 1);
+      uint64_t idx;
+      bool dup = true;
+      for (size_t attempts = 0; dup && attempts < build_config_.node_degree; attempts++) {
+        rnd = cuvs::neighbors::detail::device::xorshift64(rnd);
+        idx = rnd % nrow_;
+        dup = false;
+        for (size_t exi_j = 0; exi_j < j; exi_j++) {
+          if (static_cast<decltype(idx)>(output_neighbor_list_ptr[exi_j]) == idx || i == idx) {
+            dup = true;
+            break;
+          }
+        }
+      }
+      output_neighbor_list_ptr[j] = static_cast<int>(idx);
     }
   }
   graph_.h_graph = nullptr;
@@ -1643,6 +1801,18 @@ void build(raft::resources const& res,
 
   auto int_graph =
     raft::make_host_matrix<int, int64_t, raft::row_major>(dataset.extent(0), extended_graph_degree);
+
+  // When the graph will be a complete graph, output it without NND process for better performance.
+  if (static_cast<size_t>(dataset.extent(0) - 1) == graph_degree && (!params.return_distances)) {
+    auto graph = idx.graph().data_handle();
+#pragma omp parallel for
+    for (size_t i = 0; i < static_cast<size_t>(dataset.extent(0)); i++) {
+      for (size_t j = 0; j < graph_degree; j++) {
+        graph[i * graph_degree + j] = (i + j + 1) % dataset.extent(0);
+      }
+    }
+    return;
+  }
 
   GNND<const T, int> nnd(res, build_config);
 

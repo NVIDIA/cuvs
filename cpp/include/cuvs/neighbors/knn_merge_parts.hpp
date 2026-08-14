@@ -1,16 +1,18 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
 
 #include <cstdint>
+#include <cuvs/core/export.hpp>
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/device_resources.hpp>
 
-namespace cuvs::neighbors {
+namespace CUVS_EXPORT cuvs {
+namespace neighbors {
 /**
  * @brief Merge knn distances and index matrix, which have been partitioned
  * by row, into a single matrix with only the k-nearest neighbors.
@@ -40,4 +42,5 @@ void knn_merge_parts(raft::resources const& res,
                      raft::device_matrix_view<float, int64_t> outK,
                      raft::device_matrix_view<int32_t, int64_t> outV,
                      raft::device_vector_view<int32_t, int64_t> translations);
-}  // namespace cuvs::neighbors
+}  // namespace neighbors
+}  // namespace CUVS_EXPORT cuvs

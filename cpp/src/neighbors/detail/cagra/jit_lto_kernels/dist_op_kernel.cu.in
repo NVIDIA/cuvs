@@ -1,0 +1,25 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <cstdint>
+
+#include <neighbors/detail/cagra/jit_lto_kernels/dist_op_impl.cuh>
+
+namespace {
+
+using query_t    = @query_type@;
+using distance_t = @distance_type@;
+
+}  // namespace
+
+namespace cuvs::neighbors::cagra::detail {
+
+template <>
+__device__ distance_t dist_op<query_t, distance_t>(query_t a, query_t b)
+{
+  return dist_op_@metric_tag@_impl<query_t, distance_t>(a, b);
+}
+
+}  // namespace cuvs::neighbors::cagra::detail

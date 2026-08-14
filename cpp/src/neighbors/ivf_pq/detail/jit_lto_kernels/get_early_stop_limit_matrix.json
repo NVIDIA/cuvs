@@ -1,0 +1,13 @@
+{
+  "_out": [
+    {
+      "out_type": "float",
+      "out_abbrev": "f"
+    },
+    {
+      "out_type": "half",
+      "out_abbrev": "h"
+    }
+  ],
+  "metric": ["euclidean", "inner_product"]
+}

@@ -1,0 +1,38 @@
+[
+  {
+    "_data": [
+      {
+        "data_type": "float",
+        "data_abbrev": "f"
+      }
+    ],
+    "_index": [
+      {
+        "index_type": "int",
+        "index_abbrev": "i"
+      },
+      {
+        "index_type": "int64_t",
+        "index_abbrev": "i64"
+      },
+      {
+        "index_type": "uint32_t",
+        "index_abbrev": "u32"
+      }
+    ]
+  },
+  {
+    "_data": [
+      {
+        "data_type": "half",
+        "data_abbrev": "h"
+      }
+    ],
+    "_index": [
+      {
+        "index_type": "uint32_t",
+        "index_abbrev": "u32"
+      }
+    ]
+  }
+]

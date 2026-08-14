@@ -26,21 +26,24 @@
         },
         "kwargs": {
           "KERNEL_FILE": 1,
-          "EMBEDDED_HEADER_FILE": 1,
-          "LINK_LIBRARIES": "*"
+          "FATBIN_HEADER_FILE": 1,
+          "LINK_LIBRARIES": "*",
+          "EXTRA_COMPILE_OPTIONS": "*"
         }
       },
-      "process_matrix_entry": {
+      "process_jit_lto_matrix_entry": {
         "pargs": {
           "nargs": 1
         },
         "kwargs": {
           "NAME_FORMAT": 1,
           "KERNEL_INPUT_FILE": 1,
-          "EMBEDDED_INPUT_FILE": 1,
+          "FRAGMENT_TAG_FORMAT": 1,
+          "FRAGMENT_TAG_HEADER_FILES": "*",
           "OUTPUT_DIRECTORY": 1,
           "MATRIX_JSON_ENTRY": 1,
-          "KERNEL_LINK_LIBRARIES": "*"
+          "KERNEL_LINK_LIBRARIES": "*",
+          "KERNEL_EXTRA_COMPILE_OPTIONS": "*"
         }
       },
       "generate_jit_lto_kernels": {
@@ -52,9 +55,32 @@
           "MATRIX_JSON_FILE": "?",
           "MATRIX_JSON_STRING": "?",
           "KERNEL_INPUT_FILE": 1,
-          "EMBEDDED_INPUT_FILE": 1,
+          "FRAGMENT_TAG_FORMAT": 1,
+          "FRAGMENT_TAG_HEADER_FILES": "*",
           "OUTPUT_DIRECTORY": 1,
-          "KERNEL_LINK_LIBRARIES": "*"
+          "KERNEL_LINK_LIBRARIES": "*",
+          "KERNEL_EXTRA_COMPILE_OPTIONS": "*"
+        }
+      },
+      "generate_inst_matrix": {
+        "pargs": {
+          "nargs": 1
+        },
+        "kwargs": {
+          "MATRIX_JSON_FILE": "?",
+          "MATRIX_JSON_STRING": "?",
+          "INPUT_FILE": 1,
+          "OUTPUT_FILE_FORMAT": 1
+        }
+      },
+      "process_inst_matrix_entry": {
+        "pargs": {
+          "nargs": 1
+        },
+        "kwargs": {
+          "INPUT_FILE": 1,
+          "OUTPUT_FILE_FORMAT": 1,
+          "MATRIX_JSON_ENTRY": 1
         }
       }
     }

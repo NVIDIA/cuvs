@@ -1,0 +1,36 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#pragma once
+
+#include <neighbors/detail/cagra/compute_distance_standard.hpp>
+#include <neighbors/detail/cagra/compute_distance_vpq.hpp>
+
+namespace cuvs::neighbors::cagra::detail {
+
+using namespace cuvs::distance;
+
+@cagra_compute_distance_standard_template_inst@@cagra_compute_distance_vpq_template_inst@
+
+  extern template struct instance_selector<@cagra_compute_distance_standard_selector_template_params@, @cagra_compute_distance_vpq_selector_template_params@>;
+
+using descriptor_instances = instance_selector<@cagra_compute_distance_standard_selector_template_params@, @cagra_compute_distance_vpq_selector_template_params@>;
+
+template <typename DataT, typename IndexT, typename DistanceT, typename DatasetT>
+auto dataset_descriptor_init(const cagra::search_params& params,
+                             const DatasetT& dataset,
+                             cuvs::distance::DistanceType metric,
+                             const DistanceT* dataset_norms = nullptr)
+  -> dataset_descriptor_host<DataT, IndexT, DistanceT>
+{
+  auto [init, priority] =
+    descriptor_instances::select<DataT, IndexT, DistanceT>(params, dataset, metric, dataset_norms);
+  if (init == nullptr || priority < 0) {
+    RAFT_FAIL("No dataset descriptor instance compiled for this parameter combination.");
+  }
+  return init(params, dataset, metric, dataset_norms);
+}
+
+}  // namespace cuvs::neighbors::cagra::detail

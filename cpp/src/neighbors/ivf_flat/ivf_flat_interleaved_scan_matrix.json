@@ -1,0 +1,36 @@
+{
+  "_data": [
+    {
+      "data_type": "float",
+      "data_abbrev": "f"
+    },
+    {
+      "data_type": "half",
+      "data_abbrev": "h"
+    },
+    {
+      "data_type": "int8_t",
+      "data_abbrev": "i8"
+    },
+    {
+      "data_type": "uint8_t",
+      "data_abbrev": "u8"
+    }
+  ],
+  "_index": [
+    {
+      "index_type": "int64_t",
+      "index_abbrev": "i64"
+    }
+  ],
+  "_filter": [
+    {
+      "filter_name": "none",
+      "filter_type": "cuvs::neighbors::filtering::none_sample_filter"
+    },
+    {
+      "filter_name": "bitset",
+      "filter_type": "cuvs::neighbors::filtering::bitset_filter<uint32_t, int64_t>"
+    }
+  ]
+}

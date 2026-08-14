@@ -1,0 +1,132 @@
+name: C ABI Compatibility Check
+
+on:
+  workflow_call:
+
+jobs:
+  # Check PRs for breaking ABI changes
+  check-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip
+          pip install ci/check_c_abi
+
+      - name: Get dlpack dependency
+        run: |
+          git clone https://github.com/dmlc/dlpack
+
+      - name: Find merge base commit
+        id: merge-base
+        run: |
+          git fetch origin main
+          MERGE_BASE=$(git merge-base HEAD origin/main)
+          echo "merge_base_sha=${MERGE_BASE}" >> $GITHUB_OUTPUT
+          echo "Merge base commit: ${MERGE_BASE}"
+
+      - name: Try to download baseline for merge-base commit (most accurate)
+        id: download-merge-base
+        continue-on-error: true
+        uses: dawidd6/action-download-artifact@8a338493df3d275e4a7a63bcff3b8fe97e51a927 # v19
+        with:
+          name: c-abi-baseline-${{ steps.merge-base.outputs.merge_base_sha }}
+          workflow: check-c-abi.yaml
+          commit: ${{ steps.merge-base.outputs.merge_base_sha }}
+          path: baseline/
+
+      - name: Try to download latest main baseline (fallback 1)
+        id: download-main
+        if: steps.download-merge-base.outcome == 'failure'
+        continue-on-error: true
+        uses: dawidd6/action-download-artifact@8a338493df3d275e4a7a63bcff3b8fe97e51a927 # v19
+        with:
+          name: c-abi-baseline-main
+          workflow: check-c-abi.yaml
+          branch: main
+          path: baseline/
+
+      - name: Extract baseline ABI from main branch (fallback 2)
+        if: steps.download-merge-base.outcome == 'failure' && steps.download-main.outcome == 'failure'
+        run: |
+          echo "⚠️ No baseline artifacts found, extracting from main branch..."
+          echo "This is slower but ensures we always have a baseline for comparison."
+          git worktree add ../cuvs-main origin/main
+          mkdir -p baseline
+          check-c-abi extract \
+            --header-path ../cuvs-main/c/include \
+            --include-file cuvs/core/all.h \
+            --output-file baseline/c_abi.json.gz \
+            --dlpack-include-path dlpack/include
+
+          echo "✓ Baseline ABI extracted from main branch"
+
+      - name: Report baseline source
+        run: |
+          if [ "$DOWNLOAD_MERGE_BASE_OUTCOME" == "success" ]; then
+            echo "✓ Using baseline from merge-base commit: $MERGE_BASE_SHA"
+          elif [ "$DOWNLOAD_MAIN_OUTCOME" == "success" ]; then
+            echo "✓ Using latest main baseline (merge-base baseline not yet available)"
+          else
+            echo "✓ Using freshly extracted baseline from main branch"
+          fi
+        env:
+          DOWNLOAD_MERGE_BASE_OUTCOME: ${{ steps.download-merge-base.outcome }}
+          MERGE_BASE_SHA: ${[ steps.merge-base.outputs.merge_base_sha }}
+          DOWNLOAD_MAIN_OUTCOME: ${{ steps.download-main.outcome }}
+
+      - name: Analyze current branch for ABI breaking changes
+        run: |
+          check-c-abi analyze \
+            --abi-file baseline/c_abi.json.gz \
+            --header-path c/include \
+            --include-file cuvs/core/all.h \
+            --dlpack-include-path dlpack/include
+
+      - name: Comment on PR with results
+        if: failure()
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## ⚠️ C ABI Breaking Changes Detected
+                This PR introduces breaking changes to the C ABI. Please review the changes carefully.
+
+                Breaking ABI changes are only allowed in major releases. If this is intentional for a major release,
+                the baseline ABI will need to be updated after merge.
+
+                See the job logs for details on what specific changes were detected.
+
+                ### What are breaking ABI changes?
+
+                Breaking ABI changes include:
+                - Removing functions from the public API
+                - Changing function signatures (parameters or return types)
+                - Removing struct members or changing their types
+                - Removing or changing enum values
+
+                ### Next steps
+
+                1. Review the changes flagged in the CI logs
+                2. If these changes are unintentional, update your PR to maintain ABI compatibility
+                3. If these changes are required, ensure:
+                   - This is part of a major version release
+                   - The changes are documented in the changelog
+                   - Migration guide is provided for users
+
+                For more information, see the [C API documentation](../fern/pages/c_api/index.md).`
+            });

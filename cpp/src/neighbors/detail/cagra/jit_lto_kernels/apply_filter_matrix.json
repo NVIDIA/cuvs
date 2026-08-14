@@ -1,0 +1,20 @@
+{
+  "_source_index": [
+    {
+      "source_index_type": "uint32_t",
+      "source_index_abbrev": "u32"
+    }
+  ],
+  "_index": [
+    {
+      "index_type": "uint32_t",
+      "index_abbrev": "u32"
+    }
+  ],
+  "_distance": [
+    {
+      "distance_type": "float",
+      "distance_abbrev": "f"
+    }
+  ]
+}

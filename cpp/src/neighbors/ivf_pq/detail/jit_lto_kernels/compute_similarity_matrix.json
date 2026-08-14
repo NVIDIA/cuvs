@@ -1,0 +1,34 @@
+[
+  {
+    "_out": [
+      {
+        "out_type": "float",
+        "out_abbrev": "f"
+      },
+      {
+        "out_type": "half",
+        "out_abbrev": "h"
+      }
+    ],
+    "_lut": [
+      {
+        "lut_type": "half",
+        "lut_abbrev": "h"
+      },
+      {
+        "lut_type": "cuvs::neighbors::ivf_pq::detail::fp_8bit<5u, false>",
+        "lut_abbrev": "fp8_unsigned"
+      },
+      {
+        "lut_type": "cuvs::neighbors::ivf_pq::detail::fp_8bit<5u, true>",
+        "lut_abbrev": "fp8_signed"
+      }
+    ]
+  },
+  {
+    "out_type": "float",
+    "out_abbrev": "f",
+    "lut_type": "float",
+    "lut_abbrev": "f"
+  }
+]

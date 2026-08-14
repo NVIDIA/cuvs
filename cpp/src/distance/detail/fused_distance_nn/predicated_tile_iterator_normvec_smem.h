@@ -1,7 +1,7 @@
 // clang-format off
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0 AND BSD-3-Clause
  */
 // clang-format on
@@ -82,7 +82,7 @@ using namespace cutlass::epilogue::threadblock;
 ///
 /// Satisfies: ReadableTileIterator | PredicatedTileIterator | ForwardTileIterator
 ///
-template <typename ThreadMap_,  ///< Thread map (conept: OutputTileThreadMap)
+template <typename ThreadMap_,  ///< Thread map (concept: OutputTileThreadMap)
           typename Element_,    ///< Element data type
           typename Layout_,
           bool ScatterD     = false,  ///< Scatter D operand or not

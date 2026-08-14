@@ -1,0 +1,9 @@
+{
+  "filter_name": ["none", "bitset"],
+  "_index": [
+    {
+      "index_type": "int64_t",
+      "index_abbrev": "i64"
+    }
+  ]
+}

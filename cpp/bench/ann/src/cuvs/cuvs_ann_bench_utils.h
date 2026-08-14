@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -15,14 +15,16 @@
 #include <raft/core/host_mdspan.hpp>
 #include <raft/core/logger.hpp>
 #include <raft/core/operators.hpp>
+#include <raft/core/resource/device_memory_resource.hpp>
 #include <raft/util/cudart_utils.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_uvector.hpp>
-#include <rmm/mr/device_memory_resource.hpp>
 #include <rmm/mr/failure_callback_resource_adaptor.hpp>
 #include <rmm/mr/managed_memory_resource.hpp>
+#include <rmm/mr/per_device_resource.hpp>
 #include <rmm/mr/pool_memory_resource.hpp>
+#include <rmm/resource_ref.hpp>
 
 #include <memory>
 #include <type_traits>
@@ -65,17 +67,16 @@ inline auto rmm_oom_callback(std::size_t bytes, void*) -> bool
  */
 class shared_raft_resources {
  public:
-  using pool_mr_type  = rmm::mr::pool_memory_resource<rmm::mr::device_memory_resource>;
-  using mr_type       = rmm::mr::failure_callback_resource_adaptor<pool_mr_type>;
   using large_mr_type = rmm::mr::managed_memory_resource;
 
   shared_raft_resources()
-  try
-    : orig_resource_{rmm::mr::get_current_device_resource()},
-      pool_resource_(orig_resource_, 1024 * 1024 * 1024ull),
-      resource_(&pool_resource_, rmm_oom_callback, nullptr),
-      large_mr_() {
-    rmm::mr::set_current_device_resource(&resource_);
+  try : large_mr_() {
+    orig_resource_ =
+      rmm::mr::set_current_device_resource(rmm::mr::failure_callback_resource_adaptor<>{
+        rmm::mr::pool_memory_resource{rmm::mr::get_current_device_resource_ref(),
+                                      1024 * 1024 * 1024ull},
+        rmm_oom_callback,
+        nullptr});
   } catch (const std::exception& e) {
     auto cuda_status = cudaGetLastError();
     size_t free      = 0;
@@ -97,15 +98,10 @@ class shared_raft_resources {
 
   ~shared_raft_resources() noexcept { rmm::mr::set_current_device_resource(orig_resource_); }
 
-  auto get_large_memory_resource() noexcept
-  {
-    return static_cast<rmm::mr::device_memory_resource*>(&large_mr_);
-  }
+  auto get_large_memory_resource() noexcept -> rmm::device_async_resource_ref { return large_mr_; }
 
  private:
-  rmm::mr::device_memory_resource* orig_resource_;
-  pool_mr_type pool_resource_;
-  mr_type resource_;
+  cuda::mr::any_resource<cuda::mr::device_accessible> orig_resource_;
   large_mr_type large_mr_;
 };
 
@@ -129,12 +125,8 @@ class configured_raft_resources {
       res_{std::make_unique<raft::device_resources>(
         rmm::cuda_stream_view(get_stream_from_global_pool()))}
   {
-    // set the large workspace resource to the raft handle, but without the deleter
-    // (this resource is managed by the shared_res).
     raft::resource::set_large_workspace_resource(
-      *res_,
-      std::shared_ptr<rmm::mr::device_memory_resource>(shared_res_->get_large_memory_resource(),
-                                                       raft::void_op{}));
+      *res_, raft::mr::device_resource{shared_res_->get_large_memory_resource()});
   }
 
   /** Default constructor creates all resources anew. */

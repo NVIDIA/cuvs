@@ -59,7 +59,7 @@ void compute_cluster_offsets(raft::resources const& dev_resources,
 {
   cudaStream_t stream = raft::resource::get_cuda_stream(dev_resources);
   rmm::device_async_resource_ref device_memory =
-    raft::resource::get_workspace_resource(dev_resources);
+    raft::resource::get_workspace_resource_ref(dev_resources);
 
   // Histrogram to compute cluster sizes
   int num_levels  = cluster_sizes.extent(0) + 1;
@@ -138,7 +138,7 @@ void sum_reduce_vector(raft::resources const& dev_resources,
 {
   cudaStream_t stream = raft::resource::get_cuda_stream(dev_resources);
   rmm::device_async_resource_ref device_memory =
-    raft::resource::get_workspace_resource(dev_resources);
+    raft::resource::get_workspace_resource_ref(dev_resources);
 
   size_t temp_storage_bytes = 0;
 
@@ -166,7 +166,7 @@ void cholesky_solver(raft::resources const& dev_resources,
   cudaStream_t stream          = raft::resource::get_cuda_stream(dev_resources);
   cusolverDnHandle_t cusolverH = raft::resource::get_cusolver_dn_handle(dev_resources);
   rmm::device_async_resource_ref device_memory =
-    raft::resource::get_workspace_resource(dev_resources);
+    raft::resource::get_workspace_resource_ref(dev_resources);
 
   // RAFT_CUSOLVER_TRY(cusolverDnSetStream(cusolverH, stream));
 
@@ -511,11 +511,16 @@ class cluster_loader {
       raft::make_device_matrix_view<float, int64_t>(d_cluster_copy_buf_.data_handle(), size, dim_);
 
     if (needs_copy_) {
+      // For prefetching to overlap with other gpu work
+      // we need to schedule copies on the provided copy stream stream_
+      auto copy_res = raft::resources(res);
+      raft::resource::set_cuda_stream(copy_res, stream_);
+
       // htod
       auto h_cluster_ids =
         raft::make_pinned_vector_view<LabelT, int64_t>(cluster_ids_buf_.data_handle(), size);
 
-      raft::copy(res, h_cluster_ids, cluster_ids);
+      raft::copy(copy_res, h_cluster_ids, cluster_ids);
       raft::resource::sync_stream(res, stream_);
 
       auto pinned_cluster = raft::make_pinned_matrix_view<T, int64_t>(
@@ -529,9 +534,8 @@ class cluster_loader {
                sizeof(T) * dim_);
       }
 
-      raft::copy(res, cluster_vectors, raft::make_const_mdspan(pinned_cluster));
+      raft::copy(copy_res, cluster_vectors, raft::make_const_mdspan(pinned_cluster));
       raft::resource::sync_stream(res, stream_);
-
     } else {
       // dtod
       auto dataset_view =

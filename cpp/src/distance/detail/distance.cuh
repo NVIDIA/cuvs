@@ -7,8 +7,6 @@
 
 #include "distance_ops/all_ops.cuh"
 #include "pairwise_matrix/dispatch.cuh"
-#include "pairwise_matrix/dispatch_sm60.cuh"
-#include "pairwise_matrix/dispatch_sm80.cuh"
 #include <cuvs/distance/distance.hpp>
 #include <raft/core/operators.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
@@ -772,12 +770,12 @@ void distance_impl(raft::resources const& handle,
 }
 
 /**
- * @brief Evaluate pairwise distances with the user epilogue lamba allowed
+ * @brief Evaluate pairwise distances with the user epilogue lambda allowed
  * @tparam DistanceType which distance to evaluate
  * @tparam InType input argument type
  * @tparam AccType accumulation type
  * @tparam OutType output type
- * @tparam FinalLambda user-defined epilogue lamba
+ * @tparam FinalLambda user-defined epilogue lambda
  * @tparam Index_ Index type
  *
  * @param x first set of points

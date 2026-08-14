@@ -1,0 +1,10 @@
+[
+  {
+    "filter_name": "none",
+    "filter_type": "cuvs::neighbors::filtering::none_sample_filter"
+  },
+  {
+    "filter_name": "bitset",
+    "filter_type": "cuvs::neighbors::filtering::bitset_filter<uint32_t, int64_t>"
+  }
+]

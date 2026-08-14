@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -9,9 +9,12 @@
 #include <cuvs/neighbors/ivf_pq.hpp>
 #include <cuvs/neighbors/nn_descent.hpp>
 
+#include <cuvs/core/export.hpp>
 #include <variant>
 
-namespace cuvs::neighbors::all_neighbors {
+namespace CUVS_EXPORT cuvs {
+namespace neighbors {
+namespace all_neighbors {
 // For re-exporting into all_neighbors namespace
 namespace graph_build_params = cuvs::neighbors::graph_build_params;
 /**
@@ -111,13 +114,13 @@ struct all_neighbors_params {
  *  all_neighbors::build(res, params, dataset, indices.view(), distances.view());
  * @endcode
  *
- * @param[in] handle raft::resources is an object mangaging resources
+ * @param[in] handle raft::resources is an object managing resources
  * @param[in] params an instance of all_neighbors::all_neighbors_params that are parameters
  *               to build all-neighbors knn graph
  * @param[in] dataset raft::host_matrix_view input dataset expected to be located
  *                in host memory
- * @param[out] indices nearest neighbor indices of shape [n_row x k]
- * @param[out] distances nearest neighbor distances [n_row x k]
+ * @param[out] indices nearest neighbor indices of shape [n_row x k] on device memory
+ * @param[out] distances nearest neighbor distances [n_row x k] on device memory
  * @param[out] core_distances array for core distances of size [n_row]. Requires distances matrix to
  * compute core_distances. If core_distances is given, the resulting indices and distances will be
  * mutual reachability space.
@@ -131,6 +134,40 @@ void build(
   std::optional<raft::device_matrix_view<float, int64_t, row_major>> distances      = std::nullopt,
   std::optional<raft::device_vector_view<float, int64_t, row_major>> core_distances = std::nullopt,
   float alpha                                                                       = 1.0);
+
+/**
+ * @brief Builds an approximate all-neighbors knn graph  (find nearest neighbors for all the
+ * training vectors)
+ *
+ * Usage example:
+ * @code{.cpp}
+ *  using namespace cuvs::neighbors;
+ *  all_neighbors::all_neighbors_params params;
+ *  params.n_clusters = 4;
+ *  auto indices   = raft::make_host_matrix<int64_t, int64_t>(n_row, k);
+ *  auto distances = raft::make_host_matrix<float, int64_t>(n_row, k);
+ *  all_neighbors::build(res, params, dataset, indices.view(), distances.view());
+ * @endcode
+ *
+ * @param[in] handle raft::resources is an object managing resources
+ * @param[in] params an instance of all_neighbors::all_neighbors_params that are parameters
+ *               to build all-neighbors knn graph
+ * @param[in] dataset raft::host_matrix_view input dataset expected to be located in host memory
+ * @param[out] indices nearest neighbor indices of shape [n_row x k] on host memory
+ * @param[out] distances nearest neighbor distances [n_row x k] on host memory
+ * @param[out] core_distances array for core distances of size [n_row] on host memory. Requires
+ * distances matrix to compute core_distances. If core_distances is given, the resulting indices and
+ * distances will be mutual reachability space.
+ * @param[in] alpha distance scaling parameter as used in robust single linkage.
+ */
+void build(
+  const raft::resources& handle,
+  const all_neighbors_params& params,
+  raft::host_matrix_view<const float, int64_t, row_major> dataset,
+  raft::host_matrix_view<int64_t, int64_t, row_major> indices,
+  std::optional<raft::host_matrix_view<float, int64_t, row_major>> distances      = std::nullopt,
+  std::optional<raft::host_vector_view<float, int64_t, row_major>> core_distances = std::nullopt,
+  float alpha                                                                     = 1.0);
 
 /**
  * @brief Builds an approximate all-neighbors knn graph (find nearest neighbors for all the training
@@ -147,13 +184,13 @@ void build(
  *  all_neighbors::build(res, params, dataset, indices.view(), distances.view());
  * @endcode
  *
- * @param[in] handle raft::resources is an object mangaging resources
+ * @param[in] handle raft::resources is an object managing resources
  * @param[in] params an instance of all_neighbors::all_neighbors_params that are parameters
  *               to build all-neighbors knn graph
  * @param[in] dataset raft::device_matrix_view input dataset expected to be located
  *                in device memory
- * @param[out] indices nearest neighbor indices of shape [n_row x k]
- * @param[out] distances nearest neighbor distances [n_row x k]
+ * @param[out] indices nearest neighbor indices of shape [n_row x k] on device memory
+ * @param[out] distances nearest neighbor distances [n_row x k] on device memory
  * @param[out] core_distances array for core distances of size [n_row]. Requires distances matrix to
  * compute core_distances. If core_distances is given, the resulting indices and distances will be
  * mutual reachability space.
@@ -169,4 +206,6 @@ void build(
   float alpha                                                                       = 1.0);
 
 /** @} */
-}  // namespace cuvs::neighbors::all_neighbors
+}  // namespace all_neighbors
+}  // namespace neighbors
+}  // namespace CUVS_EXPORT cuvs

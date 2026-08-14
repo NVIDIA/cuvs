@@ -1,9 +1,10 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2024, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # cython: language_level=3
 
+import warnings
 from collections import namedtuple
 
 import numpy as np
@@ -70,13 +71,30 @@ cdef class KMeansParams:
         Number of instance k-means algorithm will be run with different seeds
     oversampling_factor : double
         Oversampling factor for use in the k-means|| algorithm
+    batch_samples : int
+        Number of samples to process in each batch for tiled 1NN computation.
+        Useful to optimize/control memory footprint. Default tile is
+        [batch_samples x n_clusters].
+    batch_centroids : int
+        Number of centroids to process in each batch. If 0, uses n_clusters.
+    init_size : int
+        Number of samples to draw for KMeansPlusPlus initialization with
+        host (out-of-core) data. When set to 0, uses the heuristic
+        min(3 * n_clusters, n_samples). Default: 0.
+    device_buffer_samples : int
+        Number of samples to process per GPU batch when fitting with host
+        (numpy) data. When set to 0, defaults to n_samples (process all
+        at once). Only used by the batched (host-data) code path. Reducing
+        device_buffer_samples can help reduce GPU memory pressure but increases
+        overhead as the number of times centroid adjustments are computed
+        increases.
+
+        Default: 0 (process all data at once).
     hierarchical : bool
         Whether to use hierarchical (balanced) kmeans or not
     hierarchical_n_iters : int
         For hierarchical k-means , defines the number of training iterations
     """
-
-    cdef cuvsKMeansParams* params
 
     def __cinit__(self):
         cuvsKMeansParamsCreate(&self.params)
@@ -92,6 +110,10 @@ cdef class KMeansParams:
                  tol=None,
                  n_init=None,
                  oversampling_factor=None,
+                 batch_samples=None,
+                 batch_centroids=None,
+                 init_size=None,
+                 device_buffer_samples=None,
                  hierarchical=None,
                  hierarchical_n_iters=None):
         if metric is not None:
@@ -109,6 +131,14 @@ cdef class KMeansParams:
             self.params.n_init = n_init
         if oversampling_factor is not None:
             self.params.oversampling_factor = oversampling_factor
+        if batch_samples is not None:
+            self.params.batch_samples = batch_samples
+        if batch_centroids is not None:
+            self.params.batch_centroids = batch_centroids
+        if init_size is not None:
+            self.params.init_size = init_size
+        if device_buffer_samples is not None:
+            self.params.device_buffer_samples = device_buffer_samples
         if hierarchical is not None:
             self.params.hierarchical = hierarchical
         if hierarchical_n_iters is not None:
@@ -146,6 +176,22 @@ cdef class KMeansParams:
         return self.params.oversampling_factor
 
     @property
+    def batch_samples(self):
+        return self.params.batch_samples
+
+    @property
+    def batch_centroids(self):
+        return self.params.batch_centroids
+
+    @property
+    def init_size(self):
+        return self.params.init_size
+
+    @property
+    def device_buffer_samples(self):
+        return self.params.device_buffer_samples
+
+    @property
     def hierarchical(self):
         return self.params.hierarchical
 
@@ -165,16 +211,27 @@ def fit(
     """
     Find clusters with the k-means algorithm
 
+    When X is a device array (CUDA array interface), standard on-device
+    k-means is used.  When X is a host array (numpy ndarray or
+    ``__array_interface__``), data is streamed to the GPU in batches
+    controlled by ``params.device_buffer_samples``. For large host datasets, consider
+    reducing ``device_buffer_samples`` to reduce GPU memory usage.
+
     Parameters
     ----------
 
     params : KMeansParams
-        Parameters to use to fit KMeans model
-    X : Input CUDA array interface compliant matrix shape (m, k)
+        Parameters to use to fit KMeans model.  For host data,
+        ``params.device_buffer_samples`` controls how many samples are sent to the
+        GPU per batch.
+    X : array-like
+        Training instances, shape (m, k).  Accepts both device arrays
+        (cupy / CUDA array interface) and host arrays (numpy).
     centroids : Optional writable CUDA array interface compliant matrix
                 shape (n_clusters, k)
-    sample_weights : Optional input CUDA array interface compliant matrix shape
-                     (n_clusters, 1) default: None
+    sample_weights : Optional weights per observation.  Must reside on
+                     the same memory space as X (device or host).
+                     default: None
     {resources_docstring}
 
     Returns
@@ -202,10 +259,49 @@ def fit(
 
     >>> params = KMeansParams(n_clusters=n_clusters)
     >>> centroids, inertia, n_iter = fit(params, X)
+
+    Host-data (batched) example:
+
+    >>> import numpy as np
+    >>> X_host = np.random.random((10_000_000, 128)).astype(np.float32)
+    >>> params = KMeansParams(n_clusters=1000, device_buffer_samples=1_000_000)
+    >>> centroids, inertia, n_iter = fit(params, X_host)
     """
 
+    is_host = isinstance(X, np.ndarray) or (
+        hasattr(X, '__array_interface__') and
+        not hasattr(X, '__cuda_array_interface__')
+    )
+
+    if sample_weights is not None:
+        is_sample_weight_host = isinstance(sample_weights, np.ndarray) or (
+            hasattr(sample_weights, '__array_interface__') and
+            not hasattr(sample_weights, '__cuda_array_interface__')
+        )
+        if is_host != is_sample_weight_host:
+            raise ValueError(
+                "X and sample_weights must have the same memory residency "
+                "(both host or both device). X is {}, sample_weights is {}.".format(
+                    "host" if is_host else "device",
+                    "host" if is_sample_weight_host else "device"
+                )
+            )
+
+    if is_host:
+        if not isinstance(X, np.ndarray):
+            X = np.asarray(X)
+        if not X.flags['C_CONTIGUOUS']:
+            raise ValueError("X must have C contiguous layout")
+        if sample_weights is not None:
+            if not isinstance(sample_weights, np.ndarray):
+                sample_weights = np.asarray(sample_weights)
+            if not sample_weights.flags['C_CONTIGUOUS']:
+                raise ValueError("sample_weights must have C contiguous layout")
+
     x_ai = wrap_array(X)
-    _check_input_array(x_ai, [np.dtype('float32'), np.dtype('float64')])
+    _check_input_array(
+        x_ai, [np.dtype('float32'), np.dtype('float64')]
+    )
 
     cdef cydlpack.DLManagedTensor* x_dlpack = cydlpack.dlpack_c(x_ai)
     cdef cydlpack.DLManagedTensor* sample_weight_dlpack = NULL
@@ -216,15 +312,17 @@ def fit(
     cdef int n_iter = 0
 
     if centroids is None:
-        centroids = device_ndarray.empty((params.n_clusters, x_ai.shape[1]),
-                                         dtype=x_ai.dtype)
+        centroids = device_ndarray.empty(
+            (params.n_clusters, x_ai.shape[1]), dtype=x_ai.dtype
+        )
 
     centroids_ai = wrap_array(centroids)
-    cdef cydlpack.DLManagedTensor * centroids_dlpack = \
+    cdef cydlpack.DLManagedTensor* centroids_dlpack = \
         cydlpack.dlpack_c(centroids_ai)
 
     if sample_weights is not None:
-        sample_weight_dlpack = cydlpack.dlpack_c(wrap_array(sample_weights))
+        sample_weight_dlpack = \
+            cydlpack.dlpack_c(wrap_array(sample_weights))
 
     with cuda_interruptible():
         check_cuvs(cuvsKMeansFit(

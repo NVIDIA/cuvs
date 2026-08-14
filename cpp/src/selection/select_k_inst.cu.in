@@ -1,0 +1,15 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <selection/select_k.cuh>
+
+namespace {
+
+using data_t  = @data_type@;
+using index_t = @index_type@;
+
+}  // namespace
+
+instantiate_cuvs_selection_select_k(data_t, index_t);

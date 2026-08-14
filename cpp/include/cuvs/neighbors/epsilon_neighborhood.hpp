@@ -1,15 +1,18 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
 
+#include <cuvs/core/export.hpp>
 #include <cuvs/distance/distance.hpp>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 
-namespace cuvs::neighbors::epsilon_neighborhood {
+namespace CUVS_EXPORT cuvs {
+namespace neighbors {
+namespace epsilon_neighborhood {
 
 /**
  * @defgroup epsilon_neighborhood_cpp_l2 Epsilon Neighborhood L2 Operations
@@ -66,4 +69,6 @@ void compute(raft::resources const& handle,
 
 /** @} */  // end group epsilon_neighborhood_cpp_l2
 
-}  // namespace cuvs::neighbors::epsilon_neighborhood
+}  // namespace epsilon_neighborhood
+}  // namespace neighbors
+}  // namespace CUVS_EXPORT cuvs

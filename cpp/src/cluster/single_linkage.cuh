@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -29,7 +29,7 @@ namespace cuvs::cluster::agglomerative {
  * @param[in] X dense input matrix in row-major layout
  * @param[in] m number of rows in X
  * @param[in] n number of columns in X
- * @param[in] metric distance metrix to use when constructing connectivities graph
+ * @param[in] metric distance metric to use when constructing connectivities graph
  * @param[out] out struct containing output dendrogram and cluster assignments
  * @param[in] c a constant used when constructing connectivities from knn graph. Allows the indirect
  control
@@ -63,7 +63,7 @@ void single_linkage(raft::resources const& handle,
  * @param[in] X dense input matrix in row-major layout
  * @param[out] dendrogram output dendrogram (size [n_rows - 1] * 2)
  * @param[out] labels output labels vector (size n_rows)
- * @param[in] metric distance metrix to use when constructing connectivities graph
+ * @param[in] metric distance metric to use when constructing connectivities graph
  * @param[in] n_clusters number of clusters to assign data samples
  * @param[in] c a constant used when constructing connectivities from knn graph. Allows the indirect
  control of k. The algorithm will set `k = log(n) + c`

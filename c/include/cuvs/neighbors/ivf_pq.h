@@ -11,6 +11,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include <cuvs/core/export.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -141,7 +143,7 @@ typedef struct cuvsIvfPqIndexParams* cuvsIvfPqIndexParams_t;
  * @param[in] index_params cuvsIvfPqIndexParams_t to allocate
  * @return cuvsError_t
  */
-cuvsError_t cuvsIvfPqIndexParamsCreate(cuvsIvfPqIndexParams_t* index_params);
+CUVS_EXPORT cuvsError_t cuvsIvfPqIndexParamsCreate(cuvsIvfPqIndexParams_t* index_params);
 
 /**
  * @brief De-allocate IVF-PQ Index params
@@ -149,7 +151,7 @@ cuvsError_t cuvsIvfPqIndexParamsCreate(cuvsIvfPqIndexParams_t* index_params);
  * @param[in] index_params
  * @return cuvsError_t
  */
-cuvsError_t cuvsIvfPqIndexParamsDestroy(cuvsIvfPqIndexParams_t index_params);
+CUVS_EXPORT cuvsError_t cuvsIvfPqIndexParamsDestroy(cuvsIvfPqIndexParams_t index_params);
 /**
  * @}
  */
@@ -224,7 +226,7 @@ typedef struct cuvsIvfPqSearchParams* cuvsIvfPqSearchParams_t;
  * @param[in] params cuvsIvfPqSearchParams_t to allocate
  * @return cuvsError_t
  */
-cuvsError_t cuvsIvfPqSearchParamsCreate(cuvsIvfPqSearchParams_t* params);
+CUVS_EXPORT cuvsError_t cuvsIvfPqSearchParamsCreate(cuvsIvfPqSearchParams_t* params);
 
 /**
  * @brief De-allocate IVF-PQ search params
@@ -232,7 +234,7 @@ cuvsError_t cuvsIvfPqSearchParamsCreate(cuvsIvfPqSearchParams_t* params);
  * @param[in] params
  * @return cuvsError_t
  */
-cuvsError_t cuvsIvfPqSearchParamsDestroy(cuvsIvfPqSearchParams_t params);
+CUVS_EXPORT cuvsError_t cuvsIvfPqSearchParamsDestroy(cuvsIvfPqSearchParams_t params);
 /**
  * @}
  */
@@ -258,33 +260,33 @@ typedef cuvsIvfPqIndex* cuvsIvfPqIndex_t;
  * @param[in] index cuvsIvfPqIndex_t to allocate
  * @return cuvsError_t
  */
-cuvsError_t cuvsIvfPqIndexCreate(cuvsIvfPqIndex_t* index);
+CUVS_EXPORT cuvsError_t cuvsIvfPqIndexCreate(cuvsIvfPqIndex_t* index);
 
 /**
  * @brief De-allocate IVF-PQ index
  *
  * @param[in] index cuvsIvfPqIndex_t to de-allocate
  */
-cuvsError_t cuvsIvfPqIndexDestroy(cuvsIvfPqIndex_t index);
+CUVS_EXPORT cuvsError_t cuvsIvfPqIndexDestroy(cuvsIvfPqIndex_t index);
 
 /** Get the number of clusters/inverted lists */
-cuvsError_t cuvsIvfPqIndexGetNLists(cuvsIvfPqIndex_t index, int64_t* n_lists);
+CUVS_EXPORT cuvsError_t cuvsIvfPqIndexGetNLists(cuvsIvfPqIndex_t index, int64_t* n_lists);
 
 /** Get the dimensionality */
-cuvsError_t cuvsIvfPqIndexGetDim(cuvsIvfPqIndex_t index, int64_t* dim);
+CUVS_EXPORT cuvsError_t cuvsIvfPqIndexGetDim(cuvsIvfPqIndex_t index, int64_t* dim);
 
 /** Get the size of the index */
-cuvsError_t cuvsIvfPqIndexGetSize(cuvsIvfPqIndex_t index, int64_t* size);
+CUVS_EXPORT cuvsError_t cuvsIvfPqIndexGetSize(cuvsIvfPqIndex_t index, int64_t* size);
 
 /** Get the dimensionality of an encoded vector after compression by PQ. */
-cuvsError_t cuvsIvfPqIndexGetPqDim(cuvsIvfPqIndex_t index, int64_t* pq_dim);
+CUVS_EXPORT cuvsError_t cuvsIvfPqIndexGetPqDim(cuvsIvfPqIndex_t index, int64_t* pq_dim);
 
 /** Get the bit length of an encoded vector element after compression by PQ.*/
-cuvsError_t cuvsIvfPqIndexGetPqBits(cuvsIvfPqIndex_t index, int64_t* pq_bits);
+CUVS_EXPORT cuvsError_t cuvsIvfPqIndexGetPqBits(cuvsIvfPqIndex_t index, int64_t* pq_bits);
 
 /** Get the Dimensionality of a subspace, i.e. the number of vector
  * components mapped to a subspace */
-cuvsError_t cuvsIvfPqIndexGetPqLen(cuvsIvfPqIndex_t index, int64_t* pq_len);
+CUVS_EXPORT cuvsError_t cuvsIvfPqIndexGetPqLen(cuvsIvfPqIndex_t index, int64_t* pq_len);
 
 /**
  * @brief Get the cluster centers corresponding to the lists in the original space
@@ -293,7 +295,7 @@ cuvsError_t cuvsIvfPqIndexGetPqLen(cuvsIvfPqIndex_t index, int64_t* pq_len);
  * @param[out] centers Output tensor that will be populated with a non-owning view of the data
  * @return cuvsError_t
  */
-cuvsError_t cuvsIvfPqIndexGetCenters(cuvsIvfPqIndex_t index, DLManagedTensor* centers);
+CUVS_EXPORT cuvsError_t cuvsIvfPqIndexGetCenters(cuvsIvfPqIndex_t index, DLManagedTensor* centers);
 
 /**
  * @brief Get the padded cluster centers [n_lists, dim_ext]
@@ -306,7 +308,7 @@ cuvsError_t cuvsIvfPqIndexGetCenters(cuvsIvfPqIndex_t index, DLManagedTensor* ce
  * @param[out] centers Output tensor that will be populated with a non-owning view of the data
  * @return cuvsError_t
  */
-cuvsError_t cuvsIvfPqIndexGetCentersPadded(cuvsIvfPqIndex_t index, DLManagedTensor* centers);
+CUVS_EXPORT cuvsError_t cuvsIvfPqIndexGetCentersPadded(cuvsIvfPqIndex_t index, DLManagedTensor* centers);
 
 /**
  * @brief Get the PQ cluster centers
@@ -318,7 +320,7 @@ cuvsError_t cuvsIvfPqIndexGetCentersPadded(cuvsIvfPqIndex_t index, DLManagedTens
  * @param[out] pq_centers Output tensor that will be populated with a non-owning view of the data
  * @return cuvsError_t
  */
-cuvsError_t cuvsIvfPqIndexGetPqCenters(cuvsIvfPqIndex_t index, DLManagedTensor* pq_centers);
+CUVS_EXPORT cuvsError_t cuvsIvfPqIndexGetPqCenters(cuvsIvfPqIndex_t index, DLManagedTensor* pq_centers);
 
 /**
  * @brief Get the rotated cluster centers [n_lists, rot_dim]
@@ -328,7 +330,7 @@ cuvsError_t cuvsIvfPqIndexGetPqCenters(cuvsIvfPqIndex_t index, DLManagedTensor* 
  * @param[out] centers_rot Output tensor that will be populated with a non-owning view of the data
  * @return cuvsError_t
  */
-cuvsError_t cuvsIvfPqIndexGetCentersRot(cuvsIvfPqIndex_t index, DLManagedTensor* centers_rot);
+CUVS_EXPORT cuvsError_t cuvsIvfPqIndexGetCentersRot(cuvsIvfPqIndex_t index, DLManagedTensor* centers_rot);
 
 /**
  * @brief Get the rotation matrix [rot_dim, dim]
@@ -339,7 +341,7 @@ cuvsError_t cuvsIvfPqIndexGetCentersRot(cuvsIvfPqIndex_t index, DLManagedTensor*
  * data
  * @return cuvsError_t
  */
-cuvsError_t cuvsIvfPqIndexGetRotationMatrix(cuvsIvfPqIndex_t index,
+CUVS_EXPORT cuvsError_t cuvsIvfPqIndexGetRotationMatrix(cuvsIvfPqIndex_t index,
                                             DLManagedTensor* rotation_matrix);
 
 /**
@@ -349,7 +351,7 @@ cuvsError_t cuvsIvfPqIndexGetRotationMatrix(cuvsIvfPqIndex_t index,
  * @param[out] list_sizes Output tensor that will be populated with a non-owning view of the data
  * @return cuvsError_t
  */
-cuvsError_t cuvsIvfPqIndexGetListSizes(cuvsIvfPqIndex_t index, DLManagedTensor* list_sizes);
+CUVS_EXPORT cuvsError_t cuvsIvfPqIndexGetListSizes(cuvsIvfPqIndex_t index, DLManagedTensor* list_sizes);
 
 /**
  * @brief Unpack `n_rows` consecutive PQ encoded vectors of a single list (cluster) in the
@@ -368,7 +370,7 @@ cuvsError_t cuvsIvfPqIndexGetListSizes(cuvsIvfPqIndex_t index, DLManagedTensor* 
  * @param[in] offset
  *   How many records in the list to skip.
  */
-cuvsError_t cuvsIvfPqIndexUnpackContiguousListData(cuvsResources_t res,
+CUVS_EXPORT cuvsError_t cuvsIvfPqIndexUnpackContiguousListData(cuvsResources_t res,
                                                    cuvsIvfPqIndex_t index,
                                                    DLManagedTensor* out_codes,
                                                    uint32_t label,
@@ -383,7 +385,7 @@ cuvsError_t cuvsIvfPqIndexUnpackContiguousListData(cuvsResources_t res,
  *   output tensor that will be populated with a non-owning view of the data
  * @return cuvsError_t
  */
-cuvsError_t cuvsIvfPqIndexGetListIndices(cuvsIvfPqIndex_t index,
+CUVS_EXPORT cuvsError_t cuvsIvfPqIndexGetListIndices(cuvsIvfPqIndex_t index,
                                          uint32_t label,
                                          DLManagedTensor* out_labels);
 /**
@@ -437,7 +439,7 @@ cuvsError_t cuvsIvfPqIndexGetListIndices(cuvsIvfPqIndex_t index,
  * @param[out] index cuvsIvfPqIndex_t Newly built IVF-PQ index
  * @return cuvsError_t
  */
-cuvsError_t cuvsIvfPqBuild(cuvsResources_t res,
+CUVS_EXPORT cuvsError_t cuvsIvfPqBuild(cuvsResources_t res,
                            cuvsIvfPqIndexParams_t params,
                            DLManagedTensor* dataset,
                            cuvsIvfPqIndex_t index);
@@ -471,7 +473,7 @@ cuvsError_t cuvsIvfPqBuild(cuvsResources_t res,
  * @param[out] index cuvsIvfPqIndex_t Newly built view-type IVF-PQ index
  * @return cuvsError_t
  */
-cuvsError_t cuvsIvfPqBuildPrecomputed(cuvsResources_t res,
+CUVS_EXPORT cuvsError_t cuvsIvfPqBuildPrecomputed(cuvsResources_t res,
                                       cuvsIvfPqIndexParams_t params,
                                       uint32_t dim,
                                       DLManagedTensor* pq_centers,
@@ -531,7 +533,7 @@ cuvsError_t cuvsIvfPqBuildPrecomputed(cuvsResources_t res,
  * @param[out] neighbors DLManagedTensor* output `k` neighbors for queries
  * @param[out] distances DLManagedTensor* output `k` distances for queries
  */
-cuvsError_t cuvsIvfPqSearch(cuvsResources_t res,
+CUVS_EXPORT cuvsError_t cuvsIvfPqSearch(cuvsResources_t res,
                             cuvsIvfPqSearchParams_t search_params,
                             cuvsIvfPqIndex_t index,
                             DLManagedTensor* queries,
@@ -565,7 +567,7 @@ cuvsError_t cuvsIvfPqSearch(cuvsResources_t res,
  * @param[in] filename the file name for saving the index
  * @param[in] index IVF-PQ index
  */
-cuvsError_t cuvsIvfPqSerialize(cuvsResources_t res, const char* filename, cuvsIvfPqIndex_t index);
+CUVS_EXPORT cuvsError_t cuvsIvfPqSerialize(cuvsResources_t res, const char* filename, cuvsIvfPqIndex_t index);
 
 /**
  * Load index from file.
@@ -576,7 +578,7 @@ cuvsError_t cuvsIvfPqSerialize(cuvsResources_t res, const char* filename, cuvsIv
  * @param[in] filename the name of the file that stores the index
  * @param[out] index IVF-PQ index loaded disk
  */
-cuvsError_t cuvsIvfPqDeserialize(cuvsResources_t res, const char* filename, cuvsIvfPqIndex_t index);
+CUVS_EXPORT cuvsError_t cuvsIvfPqDeserialize(cuvsResources_t res, const char* filename, cuvsIvfPqIndex_t index);
 /**
  * @}
  */
@@ -594,7 +596,7 @@ cuvsError_t cuvsIvfPqDeserialize(cuvsResources_t res, const char* filename, cuvs
  * @param[inout] index IVF-PQ index to be extended
  * @return cuvsError_t
  */
-cuvsError_t cuvsIvfPqExtend(cuvsResources_t res,
+CUVS_EXPORT cuvsError_t cuvsIvfPqExtend(cuvsResources_t res,
                             DLManagedTensor* new_vectors,
                             DLManagedTensor* new_indices,
                             cuvsIvfPqIndex_t index);
@@ -616,7 +618,7 @@ cuvsError_t cuvsIvfPqExtend(cuvsResources_t res,
  * @param[out] output_dataset DLManagedTensor* input vectors after pq-encoding
  * @return cuvsError_t
  */
-cuvsError_t cuvsIvfPqTransform(cuvsResources_t res,
+CUVS_EXPORT cuvsError_t cuvsIvfPqTransform(cuvsResources_t res,
                                cuvsIvfPqIndex_t index,
                                DLManagedTensor* input_dataset,
                                DLManagedTensor* output_labels,

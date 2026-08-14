@@ -1,16 +1,16 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #include "common.cuh"
 
 #include <cuvs/neighbors/cagra.hpp>
+#include <cuvs/neighbors/common.hpp>
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/device_resources.hpp>
 #include <raft/random/make_blobs.cuh>
 #include <rmm/mr/arena_memory_resource.hpp>
-#include <rmm/mr/device_memory_resource.hpp>
 
 #include <chrono>
 #include <cstdint>
@@ -69,7 +69,9 @@ void cagra_build_search_variants(raft::device_resources const& res,
   cagra::index_params index_params;
 
   std::cout << "Building CAGRA index (search graph)" << std::endl;
-  auto index = cagra::build(res, index_params, dataset);
+  auto padded = cuvs::neighbors::make_device_padded_dataset_view(res, dataset);
+  auto index  = cagra::build(res, index_params, padded);
+  index.update_device_dataset_same_layout(res, padded);
 
   std::cout << "CAGRA index has " << index.size() << " vectors" << std::endl;
   std::cout << "CAGRA graph has degree " << index.graph_degree() << ", graph size ["
@@ -261,9 +263,8 @@ int main()
   // This is important because we run the async loop with a very large number of jobs,
   // which would otherwise swamp a normal pool memory resource.
   // (the non-persistent implementation would hang forever).
-  rmm::mr::arena_memory_resource<rmm::mr::device_memory_resource> mr(
-    rmm::mr::get_current_device_resource(), mem_size);
-  rmm::mr::set_current_device_resource(&mr);
+  rmm::mr::arena_memory_resource mr(rmm::mr::get_current_device_resource_ref(), mem_size);
+  rmm::mr::set_current_device_resource(mr);
   std::cout << "GPU Arena memory resource size: " << mem_size / (1024ll * 1024ll) << " MiB"
             << std::endl;
 

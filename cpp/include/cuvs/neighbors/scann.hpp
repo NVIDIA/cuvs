@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -20,10 +20,14 @@
 #include <rmm/cuda_stream_view.hpp>
 
 #include <cmath>
+#include <cuvs/core/export.hpp>
 #include <optional>
 #include <variant>
 
-namespace cuvs::neighbors::experimental::scann {
+namespace CUVS_EXPORT cuvs {
+namespace neighbors {
+namespace experimental {
+namespace scann {
 /**
  * @defgroup scann_cpp_index_params ScaNN index build parameters
  * @{
@@ -266,7 +270,7 @@ struct index : cuvs::neighbors::index {
    * The bits of __nv_bfloat16 are stored here reinterpreted as int16_t
    *
    * int16_t is used for two reaosns:
-   * * OSS ScaNN expects int16_t, so the serialzed bf16_dataset_ can be consumed
+   * * OSS ScaNN expects int16_t, so the serialized bf16_dataset_ can be consumed
    *   without any additional post-processing
    * * For AVQ, we need to find the next bfloat16 number that is larger/smaller than a
    *   given float. This is equivalent to incrementing/decrementing the mantissa
@@ -321,4 +325,7 @@ void serialize(raft::resources const& handle,
  * @}
  */
 
-}  // namespace cuvs::neighbors::experimental::scann
+}  // namespace scann
+}  // namespace experimental
+}  // namespace neighbors
+}  // namespace CUVS_EXPORT cuvs

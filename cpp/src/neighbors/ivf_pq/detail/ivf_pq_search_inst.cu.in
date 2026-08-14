@@ -1,0 +1,31 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <cuvs/neighbors/ivf_pq.hpp>
+
+#include <neighbors/ivf_pq/ivf_pq_search.cuh>
+
+namespace {
+
+using data_t  = @data_type@;
+using index_t = @index_type@;
+
+}  // namespace
+
+namespace cuvs::neighbors::ivf_pq {
+
+void search(raft::resources const& handle,
+            const cuvs::neighbors::ivf_pq::search_params& params,
+            const cuvs::neighbors::ivf_pq::index<index_t>& index,
+            raft::device_matrix_view<const data_t, index_t, raft::row_major> queries,
+            raft::device_matrix_view<index_t, index_t, raft::row_major> neighbors,
+            raft::device_matrix_view<float, index_t, raft::row_major> distances,
+            const cuvs::neighbors::filtering::base_filter& sample_filter_ref)
+{
+  cuvs::neighbors::ivf_pq::detail::search(
+    handle, params, index, queries, neighbors, distances, sample_filter_ref);
+}
+
+}  // namespace cuvs::neighbors::ivf_pq

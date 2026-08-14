@@ -12,6 +12,7 @@
 #include "refine_common.hpp"
 #include <cuvs/neighbors/common.hpp>
 #include <cuvs/neighbors/ivf_flat.hpp>
+#include <optional>
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/host_mdspan.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
@@ -117,7 +118,8 @@ void refine_device(
     neighbors_uint32,
     distances.data_handle(),
     grid_dim_x,
-    raft::resource::get_cuda_stream(handle));
+    raft::resource::get_cuda_stream(handle),
+    std::nullopt);
 
   // postprocessing -- neighbors from position to actual id
   cuvs::neighbors::ivf::detail::postprocess_neighbors(indices.data_handle(),

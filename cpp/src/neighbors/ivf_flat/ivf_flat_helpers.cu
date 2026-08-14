@@ -1,11 +1,12 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #include <cstdint>
 
 #include "../ivf_common.cuh"
+#include "../ivf_list.cuh"
 #include "ivf_flat_helpers.cuh"
 #include <cuvs/neighbors/ivf_flat.hpp>
 
@@ -206,3 +207,15 @@ void recompute_internal_state(const raft::resources& res, index<uint8_t, int64_t
 }
 
 }  // namespace cuvs::neighbors::ivf_flat::helpers
+
+namespace cuvs::neighbors::ivf {
+
+template CUVS_EXPORT void
+resize_list<list<cuvs::neighbors::ivf_flat::list_spec, uint32_t, half, int64_t>>(
+  raft::resources const&,
+  std::shared_ptr<list<cuvs::neighbors::ivf_flat::list_spec, uint32_t, half, int64_t>>&,
+  const list<cuvs::neighbors::ivf_flat::list_spec, uint32_t, half, int64_t>::spec_type&,
+  list<cuvs::neighbors::ivf_flat::list_spec, uint32_t, half, int64_t>::size_type,
+  list<cuvs::neighbors::ivf_flat::list_spec, uint32_t, half, int64_t>::size_type);
+
+}  // namespace cuvs::neighbors::ivf

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -84,11 +84,29 @@ auto create_algo(const std::string& algo_name,
     }
   }
 #endif
+#ifdef CUVS_ANN_BENCH_USE_CUVS_IVF_SQ
+  if constexpr (std::is_same_v<T, float> || std::is_same_v<T, half>) {
+    if (algo_name == "cuvs_ivf_sq") {
+      typename cuvs::bench::cuvs_ivf_sq<T>::build_param param;
+      parse_build_param<T>(conf, param);
+      a = std::make_unique<cuvs::bench::cuvs_ivf_sq<T>>(metric, dim, param);
+    }
+  }
+#endif
 #ifdef CUVS_ANN_BENCH_USE_CUVS_IVF_PQ
   if (algo_name == "raft_ivf_pq" || algo_name == "cuvs_ivf_pq") {
     typename cuvs::bench::cuvs_ivf_pq<T, int64_t>::build_param param;
     parse_build_param<T, int64_t>(conf, param);
     a = std::make_unique<cuvs::bench::cuvs_ivf_pq<T, int64_t>>(metric, dim, param);
+  }
+#endif
+#ifdef CUVS_ANN_BENCH_USE_CUVS_IVF_RABITQ
+  if constexpr (std::is_same_v<T, float>) {
+    if (algo_name == "cuvs_ivf_rabitq") {
+      typename cuvs::bench::cuvs_ivf_rabitq<T, int64_t>::build_param param;
+      parse_build_param<T, int64_t>(conf, param);
+      a = std::make_unique<cuvs::bench::cuvs_ivf_rabitq<T, int64_t>>(metric, dim, param);
+    }
   }
 #endif
 #ifdef CUVS_ANN_BENCH_USE_CUVS_CAGRA
@@ -151,11 +169,30 @@ auto create_search_param(const std::string& algo_name, const nlohmann::json& con
     }
   }
 #endif
+#ifdef CUVS_ANN_BENCH_USE_CUVS_IVF_SQ
+  if constexpr (std::is_same_v<T, float> || std::is_same_v<T, half>) {
+    if (algo_name == "cuvs_ivf_sq") {
+      auto param = std::make_unique<typename cuvs::bench::cuvs_ivf_sq<T>::search_param>();
+      parse_search_param<T>(conf, *param);
+      return param;
+    }
+  }
+#endif
 #ifdef CUVS_ANN_BENCH_USE_CUVS_IVF_PQ
   if (algo_name == "raft_ivf_pq" || algo_name == "cuvs_ivf_pq") {
     auto param = std::make_unique<typename cuvs::bench::cuvs_ivf_pq<T, int64_t>::search_param>();
     parse_search_param<T, int64_t>(conf, *param);
     return param;
+  }
+#endif
+#ifdef CUVS_ANN_BENCH_USE_CUVS_IVF_RABITQ
+  if constexpr (std::is_same_v<T, float>) {
+    if (algo_name == "cuvs_ivf_rabitq") {
+      auto param =
+        std::make_unique<typename cuvs::bench::cuvs_ivf_rabitq<T, int64_t>::search_param>();
+      parse_search_param<T, int64_t>(conf, *param);
+      return param;
+    }
   }
 #endif
 #ifdef CUVS_ANN_BENCH_USE_CUVS_CAGRA

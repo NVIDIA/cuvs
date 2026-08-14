@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../util/serialize_validation.hpp"
 #include "../ivf_common.cuh"
 #include "../ivf_list.cuh"
 #include "../ivf_pq_impl.hpp"
@@ -143,6 +144,34 @@ auto deserialize(raft::resources const& handle_, std::istream& is) -> index<IdxT
                  static_cast<int>(pq_dim),
                  static_cast<int>(pq_bits),
                  static_cast<int>(n_lists));
+
+  RAFT_EXPECTS(cuvs::util::is_valid_distance_type(metric),
+               "ivf_pq::deserialize: invalid metric value %d",
+               static_cast<int>(metric));
+  RAFT_EXPECTS(cuvs::util::is_valid_codebook_gen(codebook_kind),
+               "ivf_pq::deserialize: invalid codebook_gen value %d",
+               static_cast<int>(codebook_kind));
+  RAFT_EXPECTS(cuvs::util::is_valid_list_layout(codes_layout),
+               "ivf_pq::deserialize: invalid list_layout value %d",
+               static_cast<int>(codes_layout));
+  RAFT_EXPECTS(n_lists <= cuvs::util::kMaxIvfNLists,
+               "ivf_pq::deserialize: n_lists=%u exceeds maximum %u",
+               n_lists,
+               cuvs::util::kMaxIvfNLists);
+  RAFT_EXPECTS(cuvs::util::is_mul_no_overflow(static_cast<std::size_t>(n_lists),
+                                              static_cast<std::size_t>(dim)),
+               "ivf_pq::deserialize: integer overflow in n_lists*dim "
+               "(n_lists=%u, dim=%u)",
+               n_lists,
+               dim);
+  RAFT_EXPECTS(cuvs::util::is_mul_no_overflow(static_cast<std::size_t>(n_lists),
+                                              static_cast<std::size_t>(pq_dim),
+                                              static_cast<std::size_t>(pq_bits)),
+               "ivf_pq::deserialize: integer overflow in n_lists*pq_dim*pq_bits "
+               "(n_lists=%u, pq_dim=%u, pq_bits=%u)",
+               n_lists,
+               pq_dim,
+               pq_bits);
 
   // Create owning_impl directly to get mutable access for deserialization
   auto impl = std::make_unique<owning_impl<IdxT>>(

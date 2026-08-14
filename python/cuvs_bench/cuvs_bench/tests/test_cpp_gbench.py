@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -201,7 +201,7 @@ class TestCppBackendBuildSearch:
             # Create dataset with file paths (C++ backend reads from files)
             dataset = Dataset(
                 name="test",
-                base_vectors=np.empty((0, 0)),
+                training_vectors=np.empty((0, 0)),
                 query_vectors=np.empty((0, 0)),
                 base_file="/path/to/base.fbin",
                 query_file="/path/to/query.fbin",
@@ -234,7 +234,7 @@ class TestCppBackendBuildSearch:
 
             dataset = Dataset(
                 name="test",
-                base_vectors=np.empty((0, 0)),
+                training_vectors=np.empty((0, 0)),
                 query_vectors=np.empty((0, 0)),
                 base_file="/path/to/base.fbin",
                 query_file="/path/to/query.fbin",
@@ -243,7 +243,7 @@ class TestCppBackendBuildSearch:
             # Search with empty indexes list
             result = backend.search(
                 dataset=dataset, indexes=[], k=10, batch_size=1000
-            )
+            )[0]
 
             assert result.success is True
             assert result.metadata.get("skipped") is True
@@ -277,7 +277,7 @@ class TestCppBackendBuildSearch:
 
             dataset = Dataset(
                 name="sift-128-euclidean",
-                base_vectors=np.empty((0, 0)),
+                training_vectors=np.empty((0, 0)),
                 query_vectors=np.empty((0, 0)),
                 base_file="sift-128-euclidean/base.fbin",
                 query_file="sift-128-euclidean/query.fbin",
@@ -328,7 +328,7 @@ class TestCppBackendBuildSearch:
 
             dataset = Dataset(
                 name="sift-128-euclidean",
-                base_vectors=np.empty((0, 0)),
+                training_vectors=np.empty((0, 0)),
                 query_vectors=np.empty((0, 0)),
                 base_file="sift-128-euclidean/base.fbin",
                 query_file="sift-128-euclidean/query.fbin",
@@ -351,7 +351,7 @@ class TestCppBackendBuildSearch:
                 k=10,
                 batch_size=1000,
                 dry_run=True,
-            )
+            )[0]
 
             assert result.success is True
             assert result.metadata.get("dry_run") is True
@@ -383,7 +383,7 @@ class TestDatasetValidation:
             # Dataset without base_file
             dataset = Dataset(
                 name="test",
-                base_vectors=np.empty((0, 0)),
+                training_vectors=np.empty((0, 0)),
                 query_vectors=np.empty((0, 0)),
                 query_file="/path/to/query.fbin",
                 # base_file is None
@@ -420,7 +420,7 @@ class TestDatasetValidation:
             # Dataset without query_file
             dataset = Dataset(
                 name="test",
-                base_vectors=np.empty((0, 0)),
+                training_vectors=np.empty((0, 0)),
                 query_vectors=np.empty((0, 0)),
                 base_file="/path/to/base.fbin",
                 # query_file is None

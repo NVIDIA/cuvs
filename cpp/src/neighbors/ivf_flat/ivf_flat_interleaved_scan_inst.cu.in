@@ -1,0 +1,20 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <neighbors/ivf_flat/ivf_flat_interleaved_scan_explicit_inst.cuh>
+
+namespace {
+
+using data_t   = @data_type@;
+using index_t  = @index_type@;
+using filter_t = @filter_type@;
+
+}  // namespace
+
+namespace cuvs::neighbors::ivf_flat::detail {
+
+CUVS_INST_IVF_FLAT_INTERLEAVED_SCAN(data_t, index_t, filter_t);
+
+}  // namespace cuvs::neighbors::ivf_flat::detail

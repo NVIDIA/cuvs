@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -10,6 +10,8 @@
 #include <cuvs/neighbors/mg_common.h>
 #include <dlpack/dlpack.h>
 #include <stdint.h>
+
+#include <cuvs/core/export.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -40,7 +42,7 @@ typedef struct cuvsMultiGpuIvfFlatIndexParams* cuvsMultiGpuIvfFlatIndexParams_t;
  * @param[in] index_params cuvsMultiGpuIvfFlatIndexParams_t to allocate
  * @return cuvsError_t
  */
-cuvsError_t cuvsMultiGpuIvfFlatIndexParamsCreate(cuvsMultiGpuIvfFlatIndexParams_t* index_params);
+CUVS_EXPORT cuvsError_t cuvsMultiGpuIvfFlatIndexParamsCreate(cuvsMultiGpuIvfFlatIndexParams_t* index_params);
 
 /**
  * @brief De-allocate Multi-GPU IVF-Flat Index params
@@ -48,7 +50,7 @@ cuvsError_t cuvsMultiGpuIvfFlatIndexParamsCreate(cuvsMultiGpuIvfFlatIndexParams_
  * @param[in] index_params
  * @return cuvsError_t
  */
-cuvsError_t cuvsMultiGpuIvfFlatIndexParamsDestroy(cuvsMultiGpuIvfFlatIndexParams_t index_params);
+CUVS_EXPORT cuvsError_t cuvsMultiGpuIvfFlatIndexParamsDestroy(cuvsMultiGpuIvfFlatIndexParams_t index_params);
 
 /**
  * @}
@@ -83,7 +85,7 @@ typedef struct cuvsMultiGpuIvfFlatSearchParams* cuvsMultiGpuIvfFlatSearchParams_
  * @param[in] params cuvsMultiGpuIvfFlatSearchParams_t to allocate
  * @return cuvsError_t
  */
-cuvsError_t cuvsMultiGpuIvfFlatSearchParamsCreate(cuvsMultiGpuIvfFlatSearchParams_t* params);
+CUVS_EXPORT cuvsError_t cuvsMultiGpuIvfFlatSearchParamsCreate(cuvsMultiGpuIvfFlatSearchParams_t* params);
 
 /**
  * @brief De-allocate Multi-GPU IVF-Flat search params
@@ -91,7 +93,7 @@ cuvsError_t cuvsMultiGpuIvfFlatSearchParamsCreate(cuvsMultiGpuIvfFlatSearchParam
  * @param[in] params
  * @return cuvsError_t
  */
-cuvsError_t cuvsMultiGpuIvfFlatSearchParamsDestroy(cuvsMultiGpuIvfFlatSearchParams_t params);
+CUVS_EXPORT cuvsError_t cuvsMultiGpuIvfFlatSearchParamsDestroy(cuvsMultiGpuIvfFlatSearchParams_t params);
 
 /**
  * @}
@@ -119,7 +121,7 @@ typedef cuvsMultiGpuIvfFlatIndex* cuvsMultiGpuIvfFlatIndex_t;
  * @param[in] index cuvsMultiGpuIvfFlatIndex_t to allocate
  * @return cuvsError_t
  */
-cuvsError_t cuvsMultiGpuIvfFlatIndexCreate(cuvsMultiGpuIvfFlatIndex_t* index);
+CUVS_EXPORT cuvsError_t cuvsMultiGpuIvfFlatIndexCreate(cuvsMultiGpuIvfFlatIndex_t* index);
 
 /**
  * @brief De-allocate Multi-GPU IVF-Flat index
@@ -127,7 +129,7 @@ cuvsError_t cuvsMultiGpuIvfFlatIndexCreate(cuvsMultiGpuIvfFlatIndex_t* index);
  * @param[in] index cuvsMultiGpuIvfFlatIndex_t to de-allocate
  * @return cuvsError_t
  */
-cuvsError_t cuvsMultiGpuIvfFlatIndexDestroy(cuvsMultiGpuIvfFlatIndex_t index);
+CUVS_EXPORT cuvsError_t cuvsMultiGpuIvfFlatIndexDestroy(cuvsMultiGpuIvfFlatIndex_t index);
 
 /**
  * @}
@@ -147,7 +149,7 @@ cuvsError_t cuvsMultiGpuIvfFlatIndexDestroy(cuvsMultiGpuIvfFlatIndex_t index);
  * @param[out] index Multi-GPU IVF-Flat index
  * @return cuvsError_t
  */
-cuvsError_t cuvsMultiGpuIvfFlatBuild(cuvsResources_t res,
+CUVS_EXPORT cuvsError_t cuvsMultiGpuIvfFlatBuild(cuvsResources_t res,
                                      cuvsMultiGpuIvfFlatIndexParams_t params,
                                      DLManagedTensor* dataset_tensor,
                                      cuvsMultiGpuIvfFlatIndex_t index);
@@ -172,7 +174,7 @@ cuvsError_t cuvsMultiGpuIvfFlatBuild(cuvsResources_t res,
  * @param[out] distances_tensor DLManagedTensor* output distances
  * @return cuvsError_t
  */
-cuvsError_t cuvsMultiGpuIvfFlatSearch(cuvsResources_t res,
+CUVS_EXPORT cuvsError_t cuvsMultiGpuIvfFlatSearch(cuvsResources_t res,
                                       cuvsMultiGpuIvfFlatSearchParams_t params,
                                       cuvsMultiGpuIvfFlatIndex_t index,
                                       DLManagedTensor* queries_tensor,
@@ -197,7 +199,7 @@ cuvsError_t cuvsMultiGpuIvfFlatSearch(cuvsResources_t res,
  * @param[in] new_indices_tensor DLManagedTensor* new indices (optional, can be NULL)
  * @return cuvsError_t
  */
-cuvsError_t cuvsMultiGpuIvfFlatExtend(cuvsResources_t res,
+CUVS_EXPORT cuvsError_t cuvsMultiGpuIvfFlatExtend(cuvsResources_t res,
                                       cuvsMultiGpuIvfFlatIndex_t index,
                                       DLManagedTensor* new_vectors_tensor,
                                       DLManagedTensor* new_indices_tensor);
@@ -219,7 +221,7 @@ cuvsError_t cuvsMultiGpuIvfFlatExtend(cuvsResources_t res,
  * @param[in] filename Path to the output file
  * @return cuvsError_t
  */
-cuvsError_t cuvsMultiGpuIvfFlatSerialize(cuvsResources_t res,
+CUVS_EXPORT cuvsError_t cuvsMultiGpuIvfFlatSerialize(cuvsResources_t res,
                                          cuvsMultiGpuIvfFlatIndex_t index,
                                          const char* filename);
 
@@ -240,7 +242,7 @@ cuvsError_t cuvsMultiGpuIvfFlatSerialize(cuvsResources_t res,
  * @param[out] index Multi-GPU IVF-Flat index
  * @return cuvsError_t
  */
-cuvsError_t cuvsMultiGpuIvfFlatDeserialize(cuvsResources_t res,
+CUVS_EXPORT cuvsError_t cuvsMultiGpuIvfFlatDeserialize(cuvsResources_t res,
                                            const char* filename,
                                            cuvsMultiGpuIvfFlatIndex_t index);
 
@@ -261,7 +263,7 @@ cuvsError_t cuvsMultiGpuIvfFlatDeserialize(cuvsResources_t res,
  * @param[out] index Multi-GPU IVF-Flat index
  * @return cuvsError_t
  */
-cuvsError_t cuvsMultiGpuIvfFlatDistribute(cuvsResources_t res,
+CUVS_EXPORT cuvsError_t cuvsMultiGpuIvfFlatDistribute(cuvsResources_t res,
                                           const char* filename,
                                           cuvsMultiGpuIvfFlatIndex_t index);
 

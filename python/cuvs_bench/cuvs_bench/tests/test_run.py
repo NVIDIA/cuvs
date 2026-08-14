@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -117,6 +117,7 @@ def test_prepare_executables(
     algos_yaml = {"algo1": {}}
     gpu_present = True
     conf_file = {}
+    executable_dir = "executable_dir"
     dataset_path = "dataset_path"
     dataset = "dataset"
     count = 10
@@ -126,6 +127,7 @@ def test_prepare_executables(
         algos_yaml,
         gpu_present,
         conf_file,
+        executable_dir,
         dataset_path,
         dataset,
         count,
@@ -258,7 +260,7 @@ def test_rmm_present():
 @patch("cuvs_bench.run.run.get_build_path", return_value="build_path")
 def test_find_executable(mock_get_build_path):
     algos_conf = {"algo1": {"executable": "executable1"}}
-    result = find_executable(algos_conf, "algo1", "group1", 10, 128)
+    result = find_executable(algos_conf, "algo1", "group1", 10, 128, None)
     assert result == (
         "executable1",
         "build_path",
@@ -266,7 +268,7 @@ def test_find_executable(mock_get_build_path):
     )
     mock_get_build_path.return_value = None
     with pytest.raises(FileNotFoundError):
-        find_executable(algos_conf, "algo1", "group1", 10, 128)
+        find_executable(algos_conf, "algo1", "group1", 10, 128, None)
 
 
 def test_validate_algorithm():

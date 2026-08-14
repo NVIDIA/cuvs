@@ -1,26 +1,89 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
 
+#include <cuvs/cluster/kmeans.hpp>
 #include <cuvs/neighbors/common.hpp>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/handle.hpp>
 #include <raft/core/host_mdspan.hpp>
+#include <raft/util/cuda_data_type.hpp>
 
-namespace cuvs::preprocessing::quantize::pq {
+#include <cuda_runtime.h>
+#include <cuvs/core/export.hpp>
+#include <type_traits>
+#include <variant>
+
+namespace CUVS_EXPORT cuvs {
+namespace preprocessing {
+namespace quantize {
+namespace pq {
 
 /**
  * @defgroup pq Product Quantizer utilities
  * @{
  */
 
+/** Alias for the variant holding either balanced or regular k-means parameters. */
+using kmeans_params_variant =
+  std::variant<cuvs::cluster::kmeans::balanced_params, cuvs::cluster::kmeans::params>;
+
 /**
  * @brief Product Quantizer parameters.
  */
 struct params {
+  /**
+   * Simplified constructor that will build an appropriate kmeans params object.
+   */
+  params(uint32_t pq_bits,
+         uint32_t pq_dim,
+         bool use_subspaces,
+         bool use_vq,
+         uint32_t vq_n_centers,
+         uint32_t kmeans_n_iters,
+         cuvs::cluster::kmeans::kmeans_type pq_kmeans_type =
+           cuvs::cluster::kmeans::kmeans_type::KMeansBalanced,
+         uint32_t max_train_points_per_pq_code    = 256,
+         uint32_t max_train_points_per_vq_cluster = 1024)
+    : pq_bits(pq_bits),
+      pq_dim(pq_dim),
+      use_subspaces(use_subspaces),
+      use_vq(use_vq),
+      vq_n_centers(vq_n_centers),
+      kmeans_params(
+        pq_kmeans_type == cuvs::cluster::kmeans::kmeans_type::KMeansBalanced
+          ? kmeans_params_variant{cuvs::cluster::kmeans::balanced_params{.n_iters = kmeans_n_iters}}
+          : kmeans_params_variant{cuvs::cluster::kmeans::params{
+              .n_clusters = 1 << pq_bits, .max_iter = static_cast<int>(kmeans_n_iters)}}),
+      max_train_points_per_pq_code(max_train_points_per_pq_code),
+      max_train_points_per_vq_cluster(max_train_points_per_vq_cluster)
+  {
+  }
+
+  params(uint32_t pq_bits,
+         uint32_t pq_dim,
+         bool use_subspaces,
+         bool use_vq,
+         uint32_t vq_n_centers,
+         kmeans_params_variant kmeans_params,
+         uint32_t max_train_points_per_pq_code    = 256,
+         uint32_t max_train_points_per_vq_cluster = 1024)
+    : pq_bits(pq_bits),
+      pq_dim(pq_dim),
+      use_subspaces(use_subspaces),
+      use_vq(use_vq),
+      vq_n_centers(vq_n_centers),
+      kmeans_params(kmeans_params),
+      max_train_points_per_pq_code(max_train_points_per_pq_code),
+      max_train_points_per_vq_cluster(max_train_points_per_vq_cluster)
+  {
+  }
+
+  params() = default;
+
   /**
    * The bit length of the vector element after compression by PQ.
    *
@@ -32,7 +95,7 @@ struct params {
   uint32_t pq_bits = 8;
   /**
    * The dimensionality of the vector after compression by PQ.
-   * When zero, an optimal value is selected using a heuristic.
+   * When zero, dim / 4 is used as default.
    *
    * TODO: at the moment `dim` must be a multiple `pq_dim`.
    */
@@ -50,19 +113,19 @@ struct params {
   bool use_vq = false;
   /**
    * Vector Quantization (VQ) codebook size - number of "coarse cluster centers".
-   * When zero, an optimal value is selected using a heuristic.
+   * When zero, an optimal value is selected using a heuristic. (sqrt(n_rows))
    */
   uint32_t vq_n_centers = 0;
-  /** The number of iterations searching for kmeans centers (both VQ & PQ phases). */
-  uint32_t kmeans_n_iters = 25;
   /**
-   * Type of k-means algorithm for PQ training.
-   * Balanced k-means tends to be faster than regular k-means for PQ training, for
-   * problem sets where the number of points per cluster are approximately equal.
-   * Regular k-means may be better for skewed cluster distributions.
+   * K-means parameters for PQ codebook training.
+   *
+   * Set to cuvs::cluster::kmeans::balanced_params for balanced k-means (default),
+   * or cuvs::cluster::kmeans::params for regular k-means.
+   * The active variant type selects the algorithm; balanced k-means tends to be faster
+   * for PQ training where cluster sizes are approximately equal.
+   * Only L2Expanded metric is supported. The number of clusters is always set to 1 << pq_bits.
    */
-  cuvs::cluster::kmeans::kmeans_type pq_kmeans_type =
-    cuvs::cluster::kmeans::kmeans_type::KMeansBalanced;
+  kmeans_params_variant kmeans_params = cuvs::cluster::kmeans::balanced_params{};
   /**
    * The max number of data points to use per PQ code during PQ codebook training. Using more data
    * points per PQ code may increase the quality of PQ codebook but may also increase the build
@@ -84,8 +147,10 @@ struct params {
  */
 template <typename T>
 struct quantizer {
+  /** Parameters used to build this quantizer. */
   params params_quantizer;
-  cuvs::neighbors::vpq_dataset<T, int64_t> vpq_codebooks;
+  /** VPQ codebooks produced during training. */
+  cuvs::neighbors::device_vpq_dataset<T, int64_t> vpq_codebooks;
 };
 
 /**
@@ -181,6 +246,94 @@ void inverse_transform(
   raft::device_matrix_view<float, int64_t> out,
   std::optional<raft::device_vector_view<const uint32_t, int64_t>> vq_labels = std::nullopt);
 
+namespace detail {
+
+// Trains from `n_rows` rows of `stride` elements each, whether they are device-accessible or
+// host-resident; the residency is detected from the pointer.
+//
+// NB: the element type is erased into `dtype` so that this stays a plain function: under hidden
+// default visibility, an instantiation cannot be exported from the shared library when one of its
+// template arguments (`half`, or any mdspan type) is itself hidden, because the visibility of an
+// instantiation is capped by that of its template arguments.
+[[nodiscard]] CUVS_EXPORT cuvs::neighbors::device_vpq_dataset<half, int64_t> vpq_train_from_rows(
+  raft::resources const& res,
+  cuvs::neighbors::vpq_params const& params,
+  void const* src_ptr,
+  cudaDataType_t dtype,
+  int64_t n_rows,
+  int64_t dim,
+  int64_t stride);
+
+}  // namespace detail
+
+/**
+ * @brief Train VPQ storage (codebooks + encoded rows) from a row-major mdspan/mdarray/dataset.
+ *
+ * Accepts either a row-major mdspan with `value_type`, `extent`, `stride`, and `data_handle` (same
+ * pattern as `cuvs::neighbors::make_device_padded_dataset`), or any cuVS dense dataset / dataset
+ * view exposing `view`, `dim` and `stride`, in which case the logical `dim()` is quantized and the
+ * row padding is skipped. The rows may be device-accessible or host-resident. Device-accessible
+ * rows (device, managed or pinned) with tight row-major storage (logical stride equals dimension)
+ * are passed through to training as they are; a wider row pitch triggers a contiguous dense copy
+ * first. Host-resident rows are subsampled for training and encoded in bounded batches, so the
+ * dense dataset is never staged on the device in full; they must be tightly packed. Empty sources
+ * are rejected. The element type must be `float`, `half`, `int8_t` or `uint8_t`.
+ *
+ * Typical **CAGRA** usage: build the graph on dense vectors, then attach VPQ for search (metric
+ * must remain `L2Expanded` for this path). Train VPQ from the same CAGRA-padded device layout you
+ * used for graph build, keep the `device_vpq_dataset` alive, and call
+ * `index::update_device_dataset_same_layout` with a non-owning view.
+ *
+ * @code{.cpp}
+ * #include <cuvs/neighbors/cagra.hpp>
+ * #include <cuvs/preprocessing/quantize/pq.hpp>
+ *
+ * // `idx` is a `cagra::index<float, uint32_t>` with graph built on dense rows.
+ * // `padded` is a `device_padded_dataset_view<float, int64_t>` view of those same rows.
+ * cuvs::neighbors::vpq_params vpq_params{};
+ * auto vpq = cuvs::preprocessing::quantize::pq::make_vpq_dataset(res, vpq_params, padded);
+ * idx.update_device_dataset_same_layout(res, vpq.as_dataset_view());
+ * @endcode
+ */
+template <typename SrcT>
+[[nodiscard]] auto make_vpq_dataset(raft::resources const& res,
+                                    cuvs::neighbors::vpq_params const& params,
+                                    SrcT const& src)
+  -> cuvs::neighbors::device_vpq_dataset<half, int64_t>
+{
+  // A cuVS dataset keeps its logical width in `dim()` while `view()` spans the full row pitch.
+  if constexpr (requires {
+                  src.view();
+                  src.dim();
+                  src.stride();
+                }) {
+    auto const rows    = src.view();
+    using value_type   = typename decltype(rows)::value_type;
+    using extents_type = raft::matrix_extent<int64_t>;
+    return make_vpq_dataset(
+      res,
+      params,
+      raft::mdspan<const value_type, extents_type, raft::layout_stride>{
+        rows.data_handle(),
+        raft::make_strided_layout(extents_type{rows.extent(0), int64_t{src.dim()}},
+                                  cuda::std::array<int64_t, 2>{int64_t{src.stride()}, 1})});
+  } else {
+    using value_type = typename SrcT::value_type;
+    static_assert(std::is_same_v<value_type, float> || std::is_same_v<value_type, half> ||
+                    std::is_same_v<value_type, int8_t> || std::is_same_v<value_type, uint8_t>,
+                  "make_vpq_dataset: element type must be float, half, int8_t or uint8_t");
+    const int64_t n_rows = src.extent(0);
+    const int64_t dim    = src.extent(1);
+    const int64_t stride = src.stride(0) > 0 ? src.stride(0) : dim;
+    RAFT_EXPECTS(n_rows > 0, "make_vpq_dataset: dataset is empty");
+    return detail::vpq_train_from_rows(
+      res, params, src.data_handle(), raft::get_cuda_data_type<value_type>(), n_rows, dim, stride);
+  }
+}
+
 /** @} */  // end of group product
 
-}  // namespace cuvs::preprocessing::quantize::pq
+}  // namespace pq
+}  // namespace quantize
+}  // namespace preprocessing
+}  // namespace CUVS_EXPORT cuvs

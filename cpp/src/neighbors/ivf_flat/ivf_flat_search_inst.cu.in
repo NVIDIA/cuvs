@@ -1,0 +1,31 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <cuvs/neighbors/ivf_flat.hpp>
+
+#include <neighbors/ivf_flat/ivf_flat_search.cuh>
+
+namespace {
+
+using data_t  = @data_type@;
+using index_t = @index_type@;
+
+}  // namespace
+
+namespace cuvs::neighbors::ivf_flat {
+
+void search(raft::resources const& handle,
+            const cuvs::neighbors::ivf_flat::search_params& params,
+            const cuvs::neighbors::ivf_flat::index<data_t, index_t>& index,
+            raft::device_matrix_view<const data_t, index_t, raft::row_major> queries,
+            raft::device_matrix_view<index_t, index_t, raft::row_major> neighbors,
+            raft::device_matrix_view<float, index_t, raft::row_major> distances,
+            const cuvs::neighbors::filtering::base_filter& sample_filter)
+{
+  cuvs::neighbors::ivf_flat::detail::search(
+    handle, params, index, queries, neighbors, distances, sample_filter);
+}
+
+}  // namespace cuvs::neighbors::ivf_flat

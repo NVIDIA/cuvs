@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -8,9 +8,16 @@
 #include <cuvs/core/c_api.h>
 #include <cuvs/distance/distance.h>
 
+#include <cuvs/core/export.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/**
+ * @defgroup pairwise_distance_c C pairwise distance
+ * @{
+ */
 
 /**
  * @brief Compute pairwise distances for two matrices
@@ -40,12 +47,15 @@ extern "C" {
  * @param[in] metric distance to evaluate
  * @param[in] metric_arg metric argument (used for Minkowski distance)
  */
-cuvsError_t cuvsPairwiseDistance(cuvsResources_t res,
+CUVS_EXPORT cuvsError_t cuvsPairwiseDistance(cuvsResources_t res,
                                  DLManagedTensor* x,
                                  DLManagedTensor* y,
                                  DLManagedTensor* dist,
                                  cuvsDistanceType metric,
                                  float metric_arg);
+
+/** @} */
+
 #ifdef __cplusplus
 }
 #endif

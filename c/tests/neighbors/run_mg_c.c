@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -9,6 +9,7 @@
 #include <cuvs/neighbors/mg_cagra.h>
 #include <cuvs/neighbors/mg_ivf_flat.h>
 #include <cuvs/neighbors/mg_ivf_pq.h>
+#include <cuda_runtime_api.h>
 #include <stdio.h>
 
 typedef enum { MG_ALGO_IVF_FLAT, MG_ALGO_IVF_PQ, MG_ALGO_CAGRA } mg_algo_t;
@@ -368,6 +369,9 @@ int run_mg_cagra_test(mg_test_params params,
   // Create index
   cuvsMultiGpuCagraIndex_t index;
   cuvsMultiGpuCagraIndexCreate(&index);
+  cuvsDataset_t padded_view = NULL;
+  cuvsMultiGpuCagraSearchParams_t search_params = NULL;
+  void* device_dataset_data = NULL;
 
   // Build index
   cuvsMultiGpuCagraIndexParams_t build_params;
@@ -402,6 +406,29 @@ int run_mg_cagra_test(mg_test_params params,
   cuvsError_t deserialize_result = cuvsMultiGpuCagraDeserialize(res, serialize_filename, index);
   if (deserialize_result != CUVS_SUCCESS) {
     printf("MG CAGRA deserialize failed\n");
+    goto cleanup;
+  }
+
+  size_t dataset_bytes = params.num_db_vecs * params.dim * sizeof(float);
+  if (cudaMalloc(&device_dataset_data, dataset_bytes) != cudaSuccess ||
+      cudaMemcpy(device_dataset_data, index_data, dataset_bytes, cudaMemcpyHostToDevice) !=
+        cudaSuccess) {
+    printf("MG CAGRA device dataset allocation failed\n");
+    goto cleanup;
+  }
+  DLManagedTensor device_dataset_tensor = dataset_tensor;
+  device_dataset_tensor.dl_tensor.data = device_dataset_data;
+  device_dataset_tensor.dl_tensor.device.device_type = kDLCUDA;
+  device_dataset_tensor.dl_tensor.device.device_id = 0;
+  cuvsError_t padded_result =
+    cuvsDatasetMakePaddedView(res, &device_dataset_tensor, &padded_view);
+  if (padded_result != CUVS_SUCCESS) {
+    printf("MG CAGRA padded dataset view creation failed\n");
+    goto cleanup;
+  }
+  padded_result = cuvsMultiGpuCagraUpdateDataset(res, padded_view, index);
+  if (padded_result != CUVS_SUCCESS) {
+    printf("MG CAGRA dataset update failed\n");
     goto cleanup;
   }
 
@@ -442,7 +469,6 @@ int run_mg_cagra_test(mg_test_params params,
   distances_tensor.dl_tensor.strides            = NULL;
 
   // Search index
-  cuvsMultiGpuCagraSearchParams_t search_params;
   cuvsMultiGpuCagraSearchParamsCreate(&search_params);
   search_params->search_mode      = CUVS_NEIGHBORS_MG_LOAD_BALANCER;
   search_params->merge_mode       = CUVS_NEIGHBORS_MG_TREE_MERGE;
@@ -458,6 +484,8 @@ int run_mg_cagra_test(mg_test_params params,
   printf("MG CAGRA test completed successfully\n");
 
 cleanup:
+  cuvsDatasetDestroy(padded_view);
+  cudaFree(device_dataset_data);
   cuvsMultiGpuCagraSearchParamsDestroy(search_params);
   cuvsMultiGpuCagraIndexParamsDestroy(build_params);
   cuvsMultiGpuCagraIndexDestroy(index);

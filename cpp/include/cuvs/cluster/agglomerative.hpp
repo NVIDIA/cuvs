@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -10,11 +10,14 @@
 #include <optional>
 #include <variant>
 
+#include <cuvs/core/export.hpp>
 #include <raft/core/device_coo_matrix.hpp>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/resources.hpp>
 
-namespace cuvs::cluster::agglomerative {
+namespace CUVS_EXPORT cuvs {
+namespace cluster {
+namespace agglomerative {
 
 // constant to indirectly control the number of neighbors. k = sqrt(n) + c. default to 15
 constexpr int DEFAULT_CONST_C = 15;
@@ -91,7 +94,7 @@ class single_linkage_output {
  * @param[in] X dense input matrix in row-major layout
  * @param[out] dendrogram output dendrogram (size [n_rows - 1] * 2)
  * @param[out] labels output labels vector (size n_rows)
- * @param[in] metric distance metrix to use when constructing connectivities graph
+ * @param[in] metric distance metric to use when constructing connectivities graph
  * @param[in] n_clusters number of clusters to assign data samples
  * @param[in] linkage strategy for constructing the linkage. PAIRWISE uses more memory but can be
  faster for
@@ -257,4 +260,6 @@ void build_dendrogram(raft::resources const& handle,
 /**
  * @}
  */
-};  // end namespace  cuvs::cluster::agglomerative
+}  // namespace agglomerative
+}  // namespace cluster
+}  // namespace CUVS_EXPORT cuvs

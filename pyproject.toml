@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023-2025, NVIDIA CORPORATION. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 [tool.ruff]
@@ -47,6 +47,6 @@ follow_imports = "skip"
 skip = "./.git,./.github,./cpp/build,.*egg-info.*,./.mypy_cache,.*_skbuild"
 # ignore short words, and typename parameters like OffsetT
 ignore-regex = "\\b(.{1,4}|[A-Z]\\w*T)\\b"
-ignore-words-list = "inout,unparseable,numer"
+ignore-words-list = "inout,unparseable,numer,rocess,thirdparty,couldn,subtile"
 builtin = "clear"
 quiet-level = 3

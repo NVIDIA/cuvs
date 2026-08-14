@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2018-2024, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2018-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -23,12 +23,12 @@ namespace distance {
  */
 
 /**
- * @brief Evaluate pairwise distances with the user epilogue lamba allowed
+ * @brief Evaluate pairwise distances with the user epilogue lambda allowed
  * @tparam DistanceType which distance to evaluate
  * @tparam DataT input argument type
  * @tparam AccT accumulation type
  * @tparam OutT output type
- * @tparam FinalLambda user-defined epilogue lamba
+ * @tparam FinalLambda user-defined epilogue lambda
  * @tparam IdxT Index type
  * @param handle raft handle for managing expensive resources
  * @param x first set of points

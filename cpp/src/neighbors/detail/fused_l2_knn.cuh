@@ -362,7 +362,7 @@ __launch_bounds__(Policy::Nthreads, 2) RAFT_KERNEL fusedL2kNN(const DataT* x,
           heapArr[i]->warpKTop = tempKV.value;
         }
 
-        // total vals can atmost be 256, (32*8)
+        // total vals can at most be 256, (32*8)
         int numValsWarpTopK[Policy::AccRowsPerTh];
         int anyWarpTopKs = 0;
 #pragma unroll

@@ -1,6 +1,6 @@
 ---
 name: Feature request
-about: Suggest an idea for RAFT
+about: Suggest an idea for cuVS
 title: "[FEA]"
 labels: "? - Needs Triage, feature request"
 assignees: ''
@@ -8,7 +8,7 @@ assignees: ''
 ---
 
 **Is your feature request related to a problem? Please describe.**
-A clear and concise description of what the problem is. Ex. I wish I could use RAFT to do [...]
+A clear and concise description of what the problem is. Ex. I wish I could use cuVS to do [...]
 
 **Describe the solution you'd like**
 A clear and concise description of what you want to happen.

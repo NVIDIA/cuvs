@@ -3,88 +3,66 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-use std::env;
-use std::io::BufRead;
-use std::path::PathBuf;
+mod cmake;
 
-fn main() {
-    // build the cuvs c-api library with cmake, and link it into this crate
-    let cuvs_build = cmake::Config::new(".").build();
+#[cfg(feature = "generate-bindings")]
+use std::path::{Path, PathBuf};
 
-    println!(
-        "cargo:rustc-link-search=native={}/lib",
-        cuvs_build.display()
-    );
-    println!("cargo:rustc-link-lib=dylib=cuvs_c");
-    println!("cargo:rustc-link-lib=dylib=cudart");
+#[cfg(feature = "generate-bindings")]
+fn generate_bindings(include_dir: &Path, include_dirs: &[PathBuf]) {
+    let out_dir = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR not set by Cargo"));
+    let stub_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("bindgen-stubs");
 
-    // we need some extra flags both to link against cuvs, and also to run bindgen
-    // specifically we need to:
-    //  * -I flags to set the include path to pick up cudaruntime.h during bindgen
-    //  * -rpath-link settings to link to libraft/libcuvs.so etc during the link
-    // Rather than redefine the logic to set all these things, lets pick up the values from
-    // the cuvs cmake build in its CMakeCache.txt and set from there
-    let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
+    let mut builder = bindgen::Builder::default()
+        .header("cuvs_c_wrapper.h")
+        .must_use_type("cuvsError_t")
+        .allowlist_function("cuvs.*")
+        .allowlist_type("(cuvs|DL).*")
+        .rustified_enum("(cuvs|DL).*")
+        .blocklist_item("cuda.*")
+        .blocklist_item("CUstream_st")
+        .raw_line("use crate::{cudaDataType_t, cudaStream_t};")
+        .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()));
 
-    let cmake_cache: Vec<String> = std::io::BufReader::new(
-        std::fs::File::open(format!("{}/build/CMakeCache.txt", out_path.display()))
-            .expect("Failed to open cuvs CMakeCache.txt"),
-    )
-    .lines()
-    .map(|x| x.expect("Couldn't parse line from CMakeCache.txt"))
-    .collect();
+    builder = builder.clang_arg(format!("-I{}", stub_dir.display()));
+    builder = builder.clang_arg(format!("-I{}", include_dir.display()));
 
-    let cmake_cxx_flags = cmake_cache
-        .iter()
-        .find(|x| x.starts_with("CMAKE_CXX_FLAGS:STRING="))
-        .expect("failed to find CMAKE_CXX_FLAGS in CMakeCache.txt")
-        .strip_prefix("CMAKE_CXX_FLAGS:STRING=")
-        .unwrap();
-
-    let cmake_linker_flags = cmake_cache
-        .iter()
-        .find(|x| x.starts_with("CMAKE_EXE_LINKER_FLAGS:STRING="))
-        .expect("failed to find CMAKE_EXE_LINKER_FLAGS in CMakeCache.txt")
-        .strip_prefix("CMAKE_EXE_LINKER_FLAGS:STRING=")
-        .unwrap();
-
-    // need to propagate the rpath-link settings to dependent crates =(
-    // (this will get added as DEP_CUVS_CMAKE_LINKER_ARGS in dependent crates)
-    println!("cargo:cmake_linker_flags={}", cmake_linker_flags);
-
-    // add the required rpath-link flags to the cargo build
-    for flag in cmake_linker_flags.split(' ') {
-        if flag.starts_with("-Wl,-rpath-link") {
-            println!("cargo:rustc-link-arg={}", flag);
-        }
+    for include_dir in include_dirs {
+        builder = builder.clang_arg(format!("-I{}", include_dir.display()));
     }
 
-    // run bindgen to automatically create rust bindings for the cuvs c-api
-    bindgen::Builder::default()
-        .header("cuvs_c_wrapper.h")
-        // needed to find cudaruntime.h
-        .clang_args(cmake_cxx_flags.split(' '))
-        // include cuvs c headers and dlpack headers we copied
-        // into our staging location
-        .clang_arg(format!("-I{}/build/bindings/include/", out_path.display()))
-        // include dlpack from the cmake build dependencies
-        .clang_arg(format!(
-            "-I{}/build/_deps/dlpack-src/include/",
-            out_path.display()
-        ))
-        // add `must_use' declarations to functions returning cuvsError_t
-        // (so that if you don't check the error code a compile warning is
-        // generated)
-        .must_use_type("cuvsError_t")
-        // Only generate bindings for cuvs/cagra types and functions
-        .allowlist_type("(cuvs|bruteForce|cagra|DL).*")
-        .allowlist_function("(cuvs|bruteForce|cagra).*")
-        .rustified_enum("(cuvs|cagra|DL|DistanceType|cudaDataType_t).*")
-        // also need some basic cuda mem functions for copying data
-        .allowlist_function("(cudaMemcpyAsync|cudaMemcpy)")
-        .rustified_enum("cudaError")
+    builder
         .generate()
-        .expect("Unable to generate cagra_c bindings")
-        .write_to_file(out_path.join("cuvs_bindings.rs"))
-        .expect("Failed to write generated rust bindings");
+        .expect("bindgen failed to generate cuvs bindings")
+        .write_to_file(out_dir.join("cuvs_bindings.rs"))
+        .expect("failed to write cuvs_bindings.rs");
+}
+
+fn main() {
+    println!("cargo::rerun-if-changed=cmake.rs");
+    println!("cargo::rerun-if-changed=bindgen-stubs/cuda_runtime.h");
+    println!("cargo::rerun-if-env-changed=CMAKE_PREFIX_PATH");
+    println!("cargo::rerun-if-env-changed=CONDA_PREFIX");
+    println!("cargo::rerun-if-env-changed=LIBCUVS_USE_PYTHON");
+    println!("cargo::rerun-if-env-changed=VIRTUAL_ENV");
+
+    if cfg!(feature = "doc-only") {
+        return;
+    }
+
+    let metadata = match cmake::locate_cuvs() {
+        Ok(metadata) => metadata,
+        Err(error) => {
+            eprintln!("error: {error}");
+            std::process::exit(1);
+        }
+    };
+
+    // Expose include path to downstream crates via DEP_CUVS_INCLUDE.
+    println!("cargo::metadata=include={}", metadata.include_dir.display());
+    // Expose the directory containing libcuvs_c.so via DEP_CUVS_LIB.
+    println!("cargo::metadata=lib={}", metadata.lib_dir.display());
+
+    #[cfg(feature = "generate-bindings")]
+    generate_bindings(&metadata.include_dir, &metadata.bindgen_include_dirs);
 }

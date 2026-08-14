@@ -1,0 +1,18 @@
+[
+  {
+    "data_type": "float",
+    "data_abbrev": "f"
+  },
+  {
+    "data_type": "half",
+    "data_abbrev": "h"
+  },
+  {
+    "data_type": "int8_t",
+    "data_abbrev": "i8"
+  },
+  {
+    "data_type": "uint8_t",
+    "data_abbrev": "u8"
+  }
+]

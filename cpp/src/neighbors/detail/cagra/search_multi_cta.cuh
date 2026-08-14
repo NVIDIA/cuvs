@@ -1,17 +1,18 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
 
+#include "../neighbors_device_intrinsics.cuh"
 #include "bitonic.hpp"
-#include "compute_distance-ext.cuh"
-#include "device_common.hpp"
+#include "device_memory_ops.hpp"
 #include "hashmap.hpp"
 #include "search_multi_cta_kernel.cuh"
 #include "search_plan.cuh"
 #include "topk_for_cagra/topk.h"  // TODO replace with raft topk if possible
 #include "utils.hpp"
+#include <neighbors/detail/cagra/compute_distance-ext.cuh>
 
 #include <raft/core/detail/macros.hpp>
 #include <raft/core/device_mdspan.hpp>
@@ -29,6 +30,8 @@
 
 #include <raft/util/cuda_rt_essentials.hpp>
 #include <raft/util/cudart_utils.hpp>  // RAFT_CUDA_TRY_NOT_THROW is used TODO(tfeher): consider moving this to cuda_rt_essentials.hpp
+
+#include <rmm/device_uvector.hpp>
 
 #include <algorithm>
 #include <cassert>
@@ -91,10 +94,10 @@ struct search
   constexpr static bool kNeedIndexCopy = sizeof(INDEX_T) != sizeof(OutputIndexT);
 
   uint32_t num_cta_per_query;
-  lightweight_uvector<INDEX_T> intermediate_indices;
-  lightweight_uvector<float> intermediate_distances;
+  rmm::device_uvector<INDEX_T> intermediate_indices;
+  rmm::device_uvector<float> intermediate_distances;
   size_t topk_workspace_size;
-  lightweight_uvector<uint32_t> topk_workspace;
+  rmm::device_uvector<uint32_t> topk_workspace;
 
   search(raft::resources const& res,
          search_params params,
@@ -104,9 +107,9 @@ struct search
          int64_t graph_degree,
          uint32_t topk)
     : base_type(res, params, dataset_desc, dim, dataset_size, graph_degree, topk),
-      intermediate_indices(res),
-      intermediate_distances(res),
-      topk_workspace(res)
+      intermediate_indices(0, raft::resource::get_cuda_stream(res)),
+      intermediate_distances(0, raft::resource::get_cuda_stream(res)),
+      topk_workspace(0, raft::resource::get_cuda_stream(res))
   {
     set_params(res, params);
   }
@@ -277,6 +280,58 @@ struct search
         raft::make_device_matrix_view<const IndexT, int64_t>(
           output_indices_ptr, num_queries, topk));
     }
+  }
+
+  /**
+   * Multi-partition search. Drives `search_kernel_mp` across all partitions in one fused
+   * launch. Each partition's data (dataset_desc, graph, graph_degree) is read by the kernel
+   * from partition_descs[blockIdx.z]; smem and the result buffer are sized for the max
+   * graph_degree across partitions.
+   *
+   * No per-partition top-k merge is performed here — the kernel emits
+   * num_cta_per_query * itopk_size candidates per (query, partition) into the caller's
+   * intermediate buffer (laid out [num_partitions, num_queries, num_cta_per_query * itopk_size]
+   * partition-major). The cross-partition select_k in cagra::detail::search_multi_partition
+   * consolidates everything into the final global top-k in one shot.
+   */
+  template <typename SampleFilterT_>
+  void run_multi_partition(
+    raft::resources const& res,
+    const multi_partition_desc_t<DATA_T, INDEX_T, DISTANCE_T>* partition_descs,
+    uint32_t num_partitions,
+    uint32_t max_graph_degree,
+    const DATA_T* queries_ptr,
+    uint32_t num_queries,
+    INDEX_T*
+      intermediate_indices_ptr,  // [num_partitions, num_queries, num_cta_per_query * itopk_size]
+    DISTANCE_T* intermediate_distances_ptr,
+    SampleFilterT_ sample_filter)
+  {
+    cudaStream_t stream = raft::resource::get_cuda_stream(res);
+
+    // Scale the cross-CTA traversed hashmap to (num_queries * num_partitions) rows.
+    const size_t traversed_hash_size = hashmap::get_size(hash_bitlen);
+    hashmap.resize(traversed_hash_size * static_cast<size_t>(num_queries) * num_partitions, stream);
+
+    select_and_run_mp<DATA_T, INDEX_T, DISTANCE_T, INDEX_T, SampleFilterT_>(
+      dataset_desc,
+      partition_descs,
+      num_partitions,
+      max_graph_degree,
+      intermediate_indices_ptr,
+      intermediate_distances_ptr,
+      queries_ptr,
+      num_queries,
+      /* search_params */ *this,
+      thread_block_size,
+      result_buffer_size,
+      smem_size,
+      small_hash_bitlen,
+      hash_bitlen,
+      hashmap.data(),
+      num_cta_per_query,
+      sample_filter,
+      stream);
   }
 };
 

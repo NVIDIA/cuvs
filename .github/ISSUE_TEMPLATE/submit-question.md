@@ -1,6 +1,6 @@
 ---
 name: Submit question
-about: Ask a general question about RAFT
+about: Ask a general question about cuVS
 title: "[QST]"
 labels: "? - Needs Triage, question"
 assignees: ''

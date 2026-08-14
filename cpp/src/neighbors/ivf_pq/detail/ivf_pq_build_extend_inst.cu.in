@@ -1,0 +1,20 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <cuvs/neighbors/ivf_pq.hpp>
+
+#include <neighbors/ivf_pq/detail/ivf_pq_build_extend_inst.cuh>
+
+namespace {
+
+using data_t  = @data_type@;
+using index_t = @index_type@;
+
+}  // namespace
+
+namespace cuvs::neighbors::ivf_pq {
+CUVS_INST_IVF_PQ_BUILD_EXTEND(data_t, index_t);
+
+}  // namespace cuvs::neighbors::ivf_pq

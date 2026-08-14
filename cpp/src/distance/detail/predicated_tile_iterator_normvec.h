@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2018-2023, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2018-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -46,7 +46,7 @@ namespace threadblock {
 ///
 /// Satisfies: ReadableTileIterator | PredicatedTileIterator | ForwardTileIterator
 ///
-template <typename ThreadMap_,  ///< Thread map (conept: OutputTileThreadMap)
+template <typename ThreadMap_,  ///< Thread map (concept: OutputTileThreadMap)
           typename Element_,    ///< Element data type
           typename Layout_,
           bool ScatterD     = false,  ///< Scatter D operand or not

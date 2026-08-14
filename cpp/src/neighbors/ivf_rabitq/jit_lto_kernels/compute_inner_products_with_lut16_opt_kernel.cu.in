@@ -1,0 +1,20 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <neighbors/ivf_rabitq/jit_lto_kernels/compute_inner_products_with_lut16_opt_impl.cuh>
+#include <neighbors/ivf_rabitq/jit_lto_kernels/kernel_def.hpp>
+
+namespace cuvs::neighbors::ivf_rabitq::detail {
+
+extern "C" __global__ void compute_inner_products_with_lut16_opt(
+  const ComputeInnerProductsKernelParams params)
+{
+  compute_inner_products_with_lut16_opt_impl(params);
+}
+
+static_assert(std::is_same_v<decltype(compute_inner_products_with_lut16_opt),
+                             compute_inner_products_with_lut_func_t>);
+
+}  // namespace cuvs::neighbors::ivf_rabitq::detail

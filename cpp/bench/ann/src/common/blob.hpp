@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -16,6 +16,8 @@
 #include <cassert>
 #include <cstdint>
 #include <cstdio>
+#include <memory>
+#include <mutex>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -425,66 +427,80 @@ struct blob_mmap {
   mutable bool hugepages_2mb_actual_;
 
   mutable std::optional<std::tuple<mmap_owner, ptrdiff_t>> handle_;
+  // Heap-allocate the once_flag so that blob_mmap remains movable (std::once_flag
+  // itself is neither copyable nor movable). Multiple threads can race on the
+  // first call to handle() via blob<T>::data(); without this serialization each
+  // racing thread would mmap the file and the losing emplace would munmap
+  // the winner's mapping AND invalidate the reference the winner had already
+  // returned to its caller -- a flaky SIGSEGV in ann benchmarks.
+  mutable std::unique_ptr<std::once_flag> handle_once_ = std::make_unique<std::once_flag>();
 
   [[nodiscard]] auto handle() const -> const std::tuple<mmap_owner, ptrdiff_t>&
   {
-    if (!handle_.has_value()) {
-      size_t page_size = hugepages_2mb_actual_ ? 1024ull * 1024ull * 2ull : sysconf(_SC_PAGE_SIZE);
-      int flags        = 0;
-      if (hugepages_2mb_actual_) { flags |= MAP_HUGETLB | MAP_HUGE_2MB; }
-      size_t data_start = sizeof(T) * file_.rows_offset() * file_.n_cols() + sizeof(uint32_t) * 2;
-      size_t data_end   = sizeof(T) * file_.rows_limit() * file_.n_cols() + data_start;
+    std::call_once(*handle_once_, [this] {
+      // Loop here so that the huge-page fallback (formerly a recursive call
+      // to handle()) does not re-enter std::call_once, which would deadlock.
+      while (!handle_.has_value()) {
+        size_t page_size =
+          hugepages_2mb_actual_ ? 1024ull * 1024ull * 2ull : sysconf(_SC_PAGE_SIZE);
+        int flags = 0;
+        if (hugepages_2mb_actual_) { flags |= MAP_HUGETLB | MAP_HUGE_2MB; }
+        size_t data_start = sizeof(T) * file_.rows_offset() * file_.n_cols() + sizeof(uint32_t) * 2;
+        size_t data_end   = sizeof(T) * file_.rows_limit() * file_.n_cols() + data_start;
 
-      try {
-        if (copy_in_memory_) {
-          // Copy the content in-memory
-          flags |= MAP_ANONYMOUS | MAP_PRIVATE;
-          size_t size = data_end - data_start;
-          mmap_owner owner{size, flags};
-          std::fseek(file_.descriptor().value(), data_start, SEEK_SET);
-          auto n_elems =
-            static_cast<size_t>(file_.rows_limit()) * static_cast<size_t>(file_.n_cols());
-          if (std::fread(owner.data(), sizeof(T), n_elems, file_.descriptor().value()) != n_elems) {
-            throw std::runtime_error{"cuvs::bench::blob_mmap() fread " + file_.path() + " failed"};
+        try {
+          if (copy_in_memory_) {
+            // Copy the content in-memory
+            flags |= MAP_ANONYMOUS | MAP_PRIVATE;
+            size_t size = data_end - data_start;
+            mmap_owner owner{size, flags};
+            std::fseek(file_.descriptor().value(), data_start, SEEK_SET);
+            auto n_elems =
+              static_cast<size_t>(file_.rows_limit()) * static_cast<size_t>(file_.n_cols());
+            if (std::fread(owner.data(), sizeof(T), n_elems, file_.descriptor().value()) !=
+                n_elems) {
+              throw std::runtime_error{"cuvs::bench::blob_mmap() fread " + file_.path() +
+                                       " failed"};
+            }
+            handle_.emplace(std::move(owner), 0);
+          } else {
+            // Map the file
+            // If this is a temporary file, we're supposed to write to it, hence MAP_SHARED.
+            flags |= file_.is_temporary() ? MAP_SHARED : MAP_PRIVATE;
+            size_t mmap_start = (data_start / page_size) * page_size;
+            size_t mmap_size  = data_end - mmap_start;
+            handle_.emplace(
+              mmap_owner{file_.descriptor(), mmap_start, mmap_size, flags, file_.is_temporary()},
+              data_start - mmap_start);
           }
-          handle_.emplace(std::move(owner), 0);
-        } else {
-          // Map the file
-          // If this is a temporary file, we're supposed to write to it, hence MAP_SHARED.
-          flags |= file_.is_temporary() ? MAP_SHARED : MAP_PRIVATE;
-          size_t mmap_start = (data_start / page_size) * page_size;
-          size_t mmap_size  = data_end - mmap_start;
-          handle_.emplace(
-            mmap_owner{file_.descriptor(), mmap_start, mmap_size, flags, file_.is_temporary()},
-            data_start - mmap_start);
-        }
-      } catch (const mmap_error& e) {
-        bool hugepages_2mb_asked = hugepages_2mb_requested_ == HugePages::kAsk ||
-                                   hugepages_2mb_requested_ == HugePages::kRequire;
-        if (e.code() == EPERM && hugepages_2mb_asked && hugepages_2mb_actual_) {
-          if (hugepages_2mb_requested_ == HugePages::kRequire) {
-            log_warn(
-              "cuvs::bench::blob_mmap: `mmap` failed to map due to EPERM, which is likely caused "
-              "by the permissions issue. You either need a CAP_IPC_LOCK capability or run the "
-              "program with sudo. We will try again without huge pages.");
+        } catch (const mmap_error& e) {
+          bool hugepages_2mb_asked = hugepages_2mb_requested_ == HugePages::kAsk ||
+                                     hugepages_2mb_requested_ == HugePages::kRequire;
+          if (e.code() == EPERM && hugepages_2mb_asked && hugepages_2mb_actual_) {
+            if (hugepages_2mb_requested_ == HugePages::kRequire) {
+              log_warn(
+                "cuvs::bench::blob_mmap: `mmap` failed to map due to EPERM, which is likely "
+                "caused by the permissions issue. You either need a CAP_IPC_LOCK capability or "
+                "run the program with sudo. We will try again without huge pages.");
+            }
+            hugepages_2mb_actual_ = false;
+            continue;  // retry the loop with huge pages disabled
           }
-          hugepages_2mb_actual_ = false;
-          return handle();
-        }
-        if (e.code() == EINVAL && hugepages_2mb_asked && hugepages_2mb_actual_ &&
-            !copy_in_memory_) {
-          if (hugepages_2mb_requested_ == HugePages::kRequire) {
-            log_warn(
-              "cuvs::bench::blob_mmap: `mmap` failed to map due to EINVAL, which is likely caused "
-              "by the file system not supporting huge pages. We will try again without huge "
-              "pages.");
+          if (e.code() == EINVAL && hugepages_2mb_asked && hugepages_2mb_actual_ &&
+              !copy_in_memory_) {
+            if (hugepages_2mb_requested_ == HugePages::kRequire) {
+              log_warn(
+                "cuvs::bench::blob_mmap: `mmap` failed to map due to EINVAL, which is likely "
+                "caused by the file system not supporting huge pages. We will try again without "
+                "huge pages.");
+            }
+            hugepages_2mb_actual_ = false;
+            continue;  // retry the loop with huge pages disabled
           }
-          hugepages_2mb_actual_ = false;
-          return handle();
+          throw;  // The error is not due to huge pages or otherwise unrecoverable
         }
-        throw;  // The error is not due to huge pages or otherwise unrecoverable
       }
-    }
+    });
     return handle_.value();
   }
 

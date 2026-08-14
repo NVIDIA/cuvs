@@ -1,0 +1,37 @@
+{
+  "_data": [
+    {
+      "data_type": "float",
+      "data_abbrev": "f",
+      "acc_type": "float",
+      "acc_abbrev": "f",
+      "out_type": "float",
+      "out_abbrev": "f"
+    },
+    {
+      "data_type": "double",
+      "data_abbrev": "d",
+      "acc_type": "double",
+      "acc_abbrev": "d",
+      "out_type": "double",
+      "out_abbrev": "d"
+    },
+    {
+      "data_type": "half",
+      "data_abbrev": "h",
+      "acc_type": "float",
+      "acc_abbrev": "f",
+      "out_type": "float",
+      "out_abbrev": "f"
+    }
+  ],
+  "index_type": "int64_t",
+  "index_abbrev": "i64",
+  "_op": [
+    {
+      "op_type": "cuvs::distance::detail::ops::l2_unexp_distance_op",
+      "op_abbrev": "l2_unexpanded",
+      "arch_includes": ""
+    }
+  ]
+}

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -44,6 +44,7 @@
 #include <raft/random/rng.cuh>
 #include <raft/stats/histogram.cuh>
 #include <raft/util/cuda_utils.cuh>
+#include <raft/util/cudart_utils.hpp>
 #include <raft/util/device_atomics.cuh>
 #include <raft/util/integer_utils.hpp>
 #include <raft/util/pow2_utils.cuh>
@@ -66,6 +67,14 @@ using namespace cuvs::spatial::knn::detail;  // NOLINT
 
 using internal_extents_t = int64_t;  // The default mdspan extent type used internally.
 
+inline cuvs::distance::DistanceType coarse_clustering_metric(
+  cuvs::distance::DistanceType metric) noexcept
+{
+  return metric == cuvs::distance::DistanceType::InnerProduct
+           ? cuvs::distance::DistanceType::L2Expanded
+           : metric;
+}
+
 /**
  * @brief Compute residual vectors from the source dataset given by selected indices.
  *
@@ -82,7 +91,7 @@ void select_residuals(raft::resources const& handle,
                       const float* center,           // [dim]
                       const T* dataset,              // [.., dim]
                       const IdxT* row_ids,           // [n_rows]
-                      rmm::mr::device_memory_resource* device_memory
+                      rmm::device_async_resource_ref device_memory
 
 )
 {
@@ -233,7 +242,7 @@ auto calculate_offsets_and_indices(IdxT n_rows,
   IdxT cumsum = 0;
   raft::update_device(cluster_offsets, &cumsum, 1, stream);
   thrust::inclusive_scan(
-    exec_policy, cluster_sizes, cluster_sizes + n_lists, cluster_offsets + 1, raft::add_op{});
+    exec_policy, cluster_sizes, cluster_sizes + n_lists, cluster_offsets + 1, thrust::plus<>{});
   raft::update_host(&cumsum, cluster_offsets + n_lists, 1, stream);
   uint32_t max_cluster_size =
     *thrust::max_element(exec_policy, cluster_sizes, cluster_sizes + n_lists);
@@ -263,28 +272,15 @@ inline void pad_centers_with_norms(raft::resources const& res,
   // We rely on this to enable padded tensor gemm kernels during coarse search.
   cuvs::spatial::knn::detail::utils::memzero(padded_centers, n_lists * dim_ext, stream);
   // combine cluster_centers and their norms
-  RAFT_CUDA_TRY(cudaMemcpy2DAsync(padded_centers,
-                                  sizeof(float) * dim_ext,
-                                  centers,
-                                  sizeof(float) * dim,
-                                  sizeof(float) * dim,
-                                  n_lists,
-                                  cudaMemcpyDefault,
-                                  stream));
+  raft::copy_matrix(padded_centers, dim_ext, centers, dim, dim, n_lists, stream);
 
   rmm::device_uvector<float> center_norms(n_lists, stream);
   raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
     res,
     raft::make_device_matrix_view<const float, uint32_t, raft::row_major>(centers, n_lists, dim),
     raft::make_device_vector_view<float, uint32_t>(center_norms.data(), n_lists));
-  RAFT_CUDA_TRY(cudaMemcpy2DAsync(padded_centers + dim,
-                                  sizeof(float) * dim_ext,
-                                  center_norms.data(),
-                                  sizeof(float),
-                                  sizeof(float),
-                                  n_lists,
-                                  cudaMemcpyDefault,
-                                  stream));
+  raft::copy_matrix(
+    padded_centers + dim, dim_ext, center_norms.data(), size_t(1), size_t(1), n_lists, stream);
 }
 
 template <typename IdxT>
@@ -338,7 +334,7 @@ void train_per_subset(raft::resources const& handle,
                       uint32_t max_train_points_per_pq_code)
 {
   auto stream        = raft::resource::get_cuda_stream(handle);
-  auto device_memory = raft::resource::get_workspace_resource(handle);
+  auto device_memory = raft::resource::get_workspace_resource_ref(handle);
 
   rmm::device_uvector<float> pq_centers_tmp(impl->pq_centers().size(), stream, device_memory);
   // Subsampling the train set for codebook generation based on max_train_points_per_pq_code.
@@ -399,6 +395,15 @@ void train_per_subset(raft::resources const& handle,
     cuvs::cluster::kmeans::balanced_params kmeans_params;
     kmeans_params.n_iters = kmeans_n_iters;
     kmeans_params.metric  = cuvs::distance::DistanceType::L2Expanded;
+    // Preserve the historical donor selection behavior for IVF-PQ recall stability.
+    kmeans_params.donor_selection         = cuvs::cluster::kmeans::balanced_donor_selection::Random;
+    kmeans_params.balance_lower_tolerance = 0.25f;
+    kmeans_params.balance_upper_tolerance = 4.0f;
+    kmeans_params.centroid_offset         = 0.05f;
+    RAFT_LOG_DEBUG("tolerance: %f, %f, centroid_offset: %f",
+                   kmeans_params.balance_lower_tolerance,
+                   kmeans_params.balance_upper_tolerance,
+                   kmeans_params.centroid_offset);
     cuvs::cluster::kmeans_balanced::helpers::build_clusters(handle,
                                                             kmeans_params,
                                                             sub_trainset_view,
@@ -420,7 +425,7 @@ void train_per_cluster(raft::resources const& handle,
                        uint32_t max_train_points_per_pq_code)
 {
   auto stream        = raft::resource::get_cuda_stream(handle);
-  auto device_memory = raft::resource::get_workspace_resource(handle);
+  auto device_memory = raft::resource::get_workspace_resource_ref(handle);
   // NB: Managed memory is used for small arrays accessed from both device and host. There's no
   // performance reasoning behind this, just avoiding the boilerplate of explicit copies.
   rmm::mr::managed_memory_resource managed_memory;
@@ -489,6 +494,15 @@ void train_per_cluster(raft::resources const& handle,
     cuvs::cluster::kmeans::balanced_params kmeans_params;
     kmeans_params.n_iters = kmeans_n_iters;
     kmeans_params.metric  = cuvs::distance::DistanceType::L2Expanded;
+    // Preserve the historical donor selection behavior for IVF-PQ recall stability.
+    kmeans_params.donor_selection         = cuvs::cluster::kmeans::balanced_donor_selection::Random;
+    kmeans_params.balance_lower_tolerance = 0.25f;
+    kmeans_params.balance_upper_tolerance = 4.0f;
+    kmeans_params.centroid_offset         = 0.05f;
+    RAFT_LOG_DEBUG("tolerance: %f, %f, centroid_offset: %f",
+                   kmeans_params.balance_lower_tolerance,
+                   kmeans_params.balance_upper_tolerance,
+                   kmeans_params.centroid_offset);
     cuvs::cluster::kmeans_balanced::helpers::build_clusters(handle,
                                                             kmeans_params,
                                                             rot_vectors_view,
@@ -600,7 +614,7 @@ void reconstruct_list_data(raft::resources const& res,
 
   auto tmp =
     raft::make_device_mdarray<float>(res,
-                                     raft::resource::get_workspace_resource(res),
+                                     raft::resource::get_workspace_resource_ref(res),
                                      raft::make_extents<uint32_t>(n_rows, index.rot_dim()));
 
   constexpr uint32_t kBlockSize = 256;
@@ -627,7 +641,7 @@ void reconstruct_list_data(raft::resources const& res,
 
   float* out_float_ptr = nullptr;
   rmm::device_uvector<float> out_float_buf(
-    0, raft::resource::get_cuda_stream(res), raft::resource::get_workspace_resource(res));
+    0, raft::resource::get_cuda_stream(res), raft::resource::get_workspace_resource_ref(res));
   if constexpr (std::is_same_v<T, float>) {
     out_float_ptr = out_vectors.data_handle();
   } else {
@@ -710,7 +724,7 @@ void encode_list_data(raft::resources const& res,
   auto n_rows = new_vectors.extent(0);
   if (n_rows == 0) { return; }
 
-  auto mr = raft::resource::get_workspace_resource(res);
+  auto mr = raft::resource::get_workspace_resource_ref(res);
 
   auto new_vectors_residual = raft::make_device_mdarray<float>(
     res, mr, raft::make_extents<uint32_t>(n_rows, index->rot_dim()));
@@ -1001,9 +1015,9 @@ void extend(raft::resources const& handle,
                   std::is_same_v<T, int8_t>,
                 "Unsupported data type");
 
-  rmm::device_async_resource_ref device_memory = raft::resource::get_workspace_resource(handle);
+  rmm::device_async_resource_ref device_memory = raft::resource::get_workspace_resource_ref(handle);
   rmm::device_async_resource_ref large_memory =
-    raft::resource::get_large_workspace_resource(handle);
+    raft::resource::get_large_workspace_resource_ref(handle);
 
   // Try to allocate an index with the same parameters and the projected new size
   // (which can be slightly larger than index->size() + n_rows, due to padding for interleaved).
@@ -1090,8 +1104,14 @@ void extend(raft::resources const& handle,
     }
   }
   // Predict the cluster labels for the new data, in batches if necessary
-  utils::batch_load_iterator<T> vec_batches(
-    new_vectors, n_rows, index->dim(), max_batch_size, copy_stream, device_memory, enable_prefetch);
+  auto vec_batches = utils::make_batch_load_iterator<T>(handle,
+                                                        new_vectors,
+                                                        n_rows,
+                                                        index->dim(),
+                                                        max_batch_size,
+                                                        copy_stream,
+                                                        device_memory,
+                                                        enable_prefetch);
   // Release the placeholder memory, because we don't intend to allocate any more long-living
   // temporary buffers before we allocate the index data.
   // This memory could potentially speed up UVM accesses, if any.
@@ -1102,14 +1122,13 @@ void extend(raft::resources const& handle,
     // the kmeans_balanced::predict. Thus, we need the restructuring raft::copy.
     rmm::device_uvector<float> cluster_centers(
       size_t(n_clusters) * size_t(index->dim()), stream, device_memory);
-    RAFT_CUDA_TRY(cudaMemcpy2DAsync(cluster_centers.data(),
-                                    sizeof(float) * index->dim(),
-                                    index->centers().data_handle(),
-                                    sizeof(float) * index->dim_ext(),
-                                    sizeof(float) * index->dim(),
-                                    n_clusters,
-                                    cudaMemcpyDefault,
-                                    stream));
+    raft::copy_matrix(cluster_centers.data(),
+                      index->dim(),
+                      index->centers().data_handle(),
+                      index->dim_ext(),
+                      index->dim(),
+                      n_clusters,
+                      stream);
     vec_batches.prefetch_next_batch();
     for (const auto& batch : vec_batches) {
       auto batch_data_view = raft::make_device_matrix_view<const T, internal_extents_t>(
@@ -1119,7 +1138,7 @@ void extend(raft::resources const& handle,
       auto centers_view = raft::make_device_matrix_view<const float, internal_extents_t>(
         cluster_centers.data(), n_clusters, index->dim());
       cuvs::cluster::kmeans::balanced_params kmeans_params;
-      kmeans_params.metric = index->metric();
+      kmeans_params.metric = coarse_clustering_metric(index->metric());
       cuvs::cluster::kmeans::predict(
         handle, kmeans_params, batch_data_view, centers_view, batch_labels_view);
       vec_batches.prefetch_next_batch();
@@ -1188,8 +1207,8 @@ void extend(raft::resources const& handle,
 
   // By this point, the index state is updated and valid except it doesn't contain the new data
   // Fill the extended index with the new data (possibly, in batches)
-  utils::batch_load_iterator<IdxT> idx_batches(
-    new_indices, n_rows, 1, max_batch_size, stream, batches_mr);
+  auto idx_batches = utils::make_batch_load_iterator<IdxT>(
+    handle, new_indices, n_rows, IdxT{1}, max_batch_size, stream, batches_mr);
   vec_batches.reset();
   vec_batches.prefetch_next_batch();
   for (const auto& vec_batch : vec_batches) {
@@ -1268,13 +1287,14 @@ auto build(raft::resources const& handle,
       size_t(n_rows) / std::max<size_t>(params.kmeans_trainset_fraction * n_rows, impl->n_lists()));
     size_t n_rows_train = n_rows / trainset_ratio;
 
-    rmm::device_async_resource_ref device_memory = raft::resource::get_workspace_resource(handle);
+    rmm::device_async_resource_ref device_memory =
+      raft::resource::get_workspace_resource_ref(handle);
 
     // If the trainset is small enough to comfortably fit into device memory, put it there.
     // Otherwise, use the managed memory.
     constexpr size_t kTolerableRatio = 4;
     rmm::device_async_resource_ref big_memory_resource =
-      raft::resource::get_large_workspace_resource(handle);
+      raft::resource::get_large_workspace_resource_ref(handle);
     if (sizeof(float) * n_rows_train * impl->dim() * kTolerableRatio <
         raft::resource::get_workspace_free_bytes(handle)) {
       big_memory_resource = device_memory;
@@ -1329,8 +1349,8 @@ auto build(raft::resources const& handle,
       cluster_centers, impl->n_lists(), impl->dim());
     cuvs::cluster::kmeans::balanced_params kmeans_params;
     kmeans_params.n_iters = params.kmeans_n_iters;
-    kmeans_params.metric  = static_cast<cuvs::distance::DistanceType>((int)impl->metric());
-
+    kmeans_params.metric  = coarse_clustering_metric(impl->metric());
+    // Use the default SizeSorted donor selection to prioritize balanced coarse partitions.
     if (impl->metric() == distance::DistanceType::CosineExpanded) {
       raft::linalg::row_normalize<raft::linalg::L2Norm>(
         handle, trainset_const_view, trainset.view());
@@ -1656,13 +1676,12 @@ inline void extract_centers(raft::resources const& res,
     cluster_centers.extent(1) == index.dim(),
     "Number of columns in the output buffer for cluster centers and index dim are different");
   auto stream = raft::resource::get_cuda_stream(res);
-  RAFT_CUDA_TRY(cudaMemcpy2DAsync(cluster_centers.data_handle(),
-                                  sizeof(float) * index.dim(),
-                                  index.centers().data_handle(),
-                                  sizeof(float) * index.dim_ext(),
-                                  sizeof(float) * index.dim(),
-                                  index.n_lists(),
-                                  cudaMemcpyDefault,
-                                  stream));
+  raft::copy_matrix(cluster_centers.data_handle(),
+                    index.dim(),
+                    index.centers().data_handle(),
+                    index.dim_ext(),
+                    index.dim(),
+                    index.n_lists(),
+                    stream);
 }
 }  // namespace cuvs::neighbors::ivf_pq::detail

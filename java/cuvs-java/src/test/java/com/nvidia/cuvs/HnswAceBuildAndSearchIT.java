@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs;
@@ -227,7 +227,8 @@ public class HnswAceBuildAndSearchIT extends CuVSTestCase {
     float[][] queries = createSampleQueries();
     List<Map<Integer, Float>> expectedResults = getExpectedResults();
 
-    for (CuvsHnswHierarchy hierarchy : Arrays.asList(CuvsHnswHierarchy.NONE, CuvsHnswHierarchy.GPU)) {
+    for (CuvsHnswHierarchy hierarchy :
+        Arrays.asList(CuvsHnswHierarchy.NONE, CuvsHnswHierarchy.GPU)) {
       try (CuVSResources resources = CheckedCuVSResources.create()) {
         Path buildDir = Files.createTempDirectory("hnsw_ace_hierarchy_test");
 

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -8,7 +8,10 @@
 #include "ann_utils.cuh"
 #include <cuvs/neighbors/common.hpp>
 #include <cuvs/neighbors/scann.hpp>
+#include <cuvs/preprocessing/quantize/pq.hpp>
 
+#include <algorithm>
+#include <cmath>
 #include <raft/core/resource/cuda_stream_pool.hpp>
 #include <raft/linalg/add.cuh>
 #include <raft/matrix/gather.cuh>
@@ -123,6 +126,146 @@ class scann_test : public ::testing::TestWithParam<scann_inputs> {
     IdxT expected_bf16_size = ps.index_params.reordering_bf16 ? ps.dim * ps.num_db_vecs : 0;
 
     ASSERT_EQ(index.bf16_dataset().size(), expected_bf16_size);
+    check_code_validity(index, num_subspaces, num_pq_clusters);
+    check_reconstruction(index, num_subspaces);
+  }
+
+  void check_code_validity(const index<DataT, IdxT>& idx, int num_subspaces, int num_pq_clusters)
+  {
+    auto quant_res_host =
+      raft::make_host_matrix<uint8_t, IdxT>(handle_, ps.num_db_vecs, num_subspaces);
+    auto quant_soar_host =
+      raft::make_host_matrix<uint8_t, IdxT>(handle_, ps.num_db_vecs, num_subspaces);
+
+    raft::copy(quant_res_host.data_handle(),
+               idx.quantized_residuals().data_handle(),
+               idx.quantized_residuals().size(),
+               stream_);
+    raft::copy(quant_soar_host.data_handle(),
+               idx.quantized_soar_residuals().data_handle(),
+               idx.quantized_soar_residuals().size(),
+               stream_);
+    raft::resource::sync_stream(handle_);
+
+    bool all_zeros       = true;
+    auto n_vecs_to_check = std::min(ps.num_db_vecs, 50u);
+    for (IdxT i = 0; i < n_vecs_to_check * num_subspaces; i++) {
+      if (quant_res_host.data_handle()[i] != 0) { all_zeros = false; }
+      if (quant_soar_host.data_handle()[i] != 0) { all_zeros = false; }
+      // Check that unpacked codes are in valid range
+      if (ps.index_params.pq_bits == 4) {
+        ASSERT_LT(quant_res_host.data_handle()[i], num_pq_clusters)
+          << "AVQ quantized code out of range at position " << i;
+        ASSERT_LT(quant_soar_host.data_handle()[i], num_pq_clusters)
+          << "SOAR quantized code out of range at position " << i;
+      }
+    }
+    ASSERT_FALSE(all_zeros) << "Quantized output contains all zeros";
+  }
+
+  void check_reconstruction(const index<DataT, IdxT>& idx, int num_subspaces)
+  {
+    cuvs::preprocessing::quantize::pq::params pq_params;
+    pq_params.pq_bits       = ps.index_params.pq_bits;
+    pq_params.pq_dim        = num_subspaces;
+    pq_params.use_subspaces = true;
+    pq_params.use_vq        = true;  // SCANN uses centroids separately
+
+    auto pq_codebook_copy = raft::make_device_matrix<float, uint32_t, raft::row_major>(
+      handle_, idx.pq_codebook().extent(0), idx.pq_codebook().extent(1));
+    raft::copy(pq_codebook_copy.data_handle(),
+               idx.pq_codebook().data_handle(),
+               idx.pq_codebook().size(),
+               stream_);
+
+    auto vq_codebook = raft::make_device_matrix<float, uint32_t, raft::row_major>(
+      handle_, idx.centers().extent(0), idx.centers().extent(1));
+    raft::copy(
+      vq_codebook.data_handle(), idx.centers().data_handle(), idx.centers().size(), stream_);
+    auto empty_data = raft::make_device_matrix<uint8_t, int64_t, raft::row_major>(handle_, 0, 0);
+
+    cuvs::preprocessing::quantize::pq::quantizer<float> quantizer{
+      pq_params,
+      cuvs::neighbors::device_vpq_dataset<float, int64_t>{
+        std::move(vq_codebook), std::move(pq_codebook_copy), std::move(empty_data)}};
+
+    auto quantized_residuals_device =
+      raft::make_device_matrix<uint8_t, IdxT>(handle_, ps.num_db_vecs, num_subspaces);
+    raft::copy(quantized_residuals_device.data_handle(),
+               idx.quantized_residuals().data_handle(),
+               idx.quantized_residuals().size(),
+               stream_);
+
+    // Re-pack 4-bit codes. The 8-bit codes are already in the right format
+    auto codes_dim    = cuvs::preprocessing::quantize::pq::get_quantized_dim(pq_params);
+    auto packed_codes = raft::make_device_matrix<uint8_t, IdxT>(handle_, ps.num_db_vecs, codes_dim);
+
+    if (ps.index_params.pq_bits == 4) {
+      raft::linalg::map_offset(
+        handle_,
+        packed_codes.view(),
+        [qr_view = quantized_residuals_device.view(), num_subspaces, codes_dim] __device__(
+          size_t i) {
+          int64_t row_idx       = i / codes_dim;
+          int64_t packed_idx    = i % codes_dim;
+          int64_t code_idx      = packed_idx * 2;
+          int64_t code_idx_next = code_idx + 1;
+
+          uint8_t first_code = (code_idx < num_subspaces) ? qr_view(row_idx, code_idx) : 0;
+          uint8_t second_code =
+            (code_idx_next < num_subspaces) ? qr_view(row_idx, code_idx_next) : 0;
+
+          return (first_code << 4) | (second_code & 0x0F);
+        });
+    } else {
+      raft::copy(packed_codes.data_handle(),
+                 quantized_residuals_device.data_handle(),
+                 packed_codes.size(),
+                 stream_);
+    }
+
+    auto reconstructed_vectors =
+      raft::make_device_matrix<float, IdxT>(handle_, ps.num_db_vecs, ps.dim);
+    auto reconstructed_vectors_view = reconstructed_vectors.view();
+    cuvs::preprocessing::quantize::pq::inverse_transform(
+      handle_,
+      quantizer,
+      raft::make_const_mdspan(packed_codes.view()),
+      reconstructed_vectors_view,
+      raft::make_const_mdspan(idx.labels()));
+
+    // Compute L2 distances for reconstruction error
+    auto database_view =
+      raft::make_device_matrix_view<const float, int64_t>(database.data(), ps.num_db_vecs, ps.dim);
+    auto distances = raft::make_device_vector<float, IdxT>(handle_, ps.num_db_vecs);
+    raft::linalg::map_offset(
+      handle_,
+      distances.view(),
+      [database_view, reconstructed_vectors_view, dim = ps.dim] __device__(IdxT i) {
+        float dist = 0.0f;
+        for (uint32_t j = 0; j < dim; j++) {
+          float diff = database_view(i, j) - reconstructed_vectors_view(i, j);
+          dist += diff * diff;
+        }
+        return sqrtf(dist / static_cast<float>(dim));
+      });
+
+    float max_allowed_error = 0.95f;
+    auto distances_host     = raft::make_host_vector<float, IdxT>(handle_, ps.num_db_vecs);
+    raft::copy(distances_host.data_handle(), distances.data_handle(), ps.num_db_vecs, stream_);
+    raft::resource::sync_stream(handle_);
+
+    float mean_error = 0.0f;
+    float max_error  = 0.0f;
+    for (IdxT i = 0; i < ps.num_db_vecs; i++) {
+      mean_error += distances_host(i);
+      max_error = std::max(max_error, distances_host(i));
+    }
+    mean_error /= static_cast<float>(ps.num_db_vecs);
+    ASSERT_LT(mean_error, max_allowed_error)
+      << "Mean reconstruction error too large: " << mean_error;
+    ASSERT_LT(max_error, max_allowed_error * 1.5f)
+      << "Max reconstruction error too large: " << max_error;
   }
 
   void SetUp() override  // NOLINT

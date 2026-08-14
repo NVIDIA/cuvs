@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -9,6 +9,8 @@
 #include <cuvs/distance/distance.h>
 #include <dlpack/dlpack.h>
 #include <stdint.h>
+
+#include <cuvs/core/export.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -35,6 +37,7 @@ typedef enum {
    */
   Array = 2
 } cuvsKMeansInitMethod;
+
 
 /**
  * @brief Hyper-parameters for the kmeans algorithm
@@ -90,8 +93,6 @@ struct cuvsKMeansParams {
    */
   int batch_centroids;
 
-  bool inertia_check;
-
   /**
    * Whether to use hierarchical (balanced) kmeans or not
    */
@@ -101,6 +102,19 @@ struct cuvsKMeansParams {
    * For hierarchical k-means , defines the number of training iterations
    */
   int hierarchical_n_iters;
+
+  /**
+   * Number of samples to process per GPU batch for the batched (host-data) API.
+   * When set to 0, defaults to n_samples (process all at once).
+   */
+  int64_t device_buffer_samples;
+
+  /**
+   * Number of samples to draw for KMeansPlusPlus initialization.
+   * When set to 0, uses heuristic min(3 * n_clusters, n_samples) for host data,
+   * or n_samples for device data.
+   */
+  int64_t init_size;
 };
 
 typedef struct cuvsKMeansParams* cuvsKMeansParams_t;
@@ -111,7 +125,7 @@ typedef struct cuvsKMeansParams* cuvsKMeansParams_t;
  * @param[in] params cuvsKMeansParams_t to allocate
  * @return cuvsError_t
  */
-cuvsError_t cuvsKMeansParamsCreate(cuvsKMeansParams_t* params);
+CUVS_EXPORT cuvsError_t cuvsKMeansParamsCreate(cuvsKMeansParams_t* params);
 
 /**
  * @brief De-allocate KMeans params
@@ -119,7 +133,7 @@ cuvsError_t cuvsKMeansParamsCreate(cuvsKMeansParams_t* params);
  * @param[in] params
  * @return cuvsError_t
  */
-cuvsError_t cuvsKMeansParamsDestroy(cuvsKMeansParams_t params);
+CUVS_EXPORT cuvsError_t cuvsKMeansParamsDestroy(cuvsKMeansParams_t params);
 
 /**
  * @brief Type of k-means algorithm.
@@ -142,24 +156,30 @@ typedef enum { CUVS_KMEANS_TYPE_KMEANS = 0, CUVS_KMEANS_TYPE_KMEANS_BALANCED = 1
  *   clusters are reinitialized by choosing new centroids with
  *   k-means++ algorithm.
  *
+ *   X may reside on either host (CPU) or device (GPU) memory.
+ *   When X is on the host the data is buffered to the GPU in
+ *   batches controlled by params->device_buffer_samples.
+ *
  * @param[in]     res           opaque C handle
  * @param[in]     params        Parameters for KMeans model.
  * @param[in]     X             Training instances to cluster. The data must
- *                              be in row-major format.
+ *                              be in row-major format. May be on host or
+ *                              device memory.
  *                              [dim = n_samples x n_features]
  * @param[in]     sample_weight Optional weights for each observation in X.
+ *                              Must be on the same memory space as X.
  *                              [len = n_samples]
  * @param[inout]  centroids     [in] When init is InitMethod::Array, use
  *                              centroids as the initial cluster centers.
  *                              [out] The generated centroids from the
  *                              kmeans algorithm are stored at the address
- *                              pointed by 'centroids'.
+ *                              pointed by 'centroids'. Must be on device.
  *                              [dim = n_clusters x n_features]
  * @param[out]    inertia       Sum of squared distances of samples to their
  *                              closest cluster center.
  * @param[out]    n_iter        Number of iterations run.
  */
-cuvsError_t cuvsKMeansFit(cuvsResources_t res,
+CUVS_EXPORT cuvsError_t cuvsKMeansFit(cuvsResources_t res,
                           cuvsKMeansParams_t params,
                           DLManagedTensor* X,
                           DLManagedTensor* sample_weight,
@@ -186,7 +206,7 @@ cuvsError_t cuvsKMeansFit(cuvsResources_t res,
  * @param[out]    inertia          Sum of squared distances of samples to
  *                                 their closest cluster center.
  */
-cuvsError_t cuvsKMeansPredict(cuvsResources_t res,
+CUVS_EXPORT cuvsError_t cuvsKMeansPredict(cuvsResources_t res,
                               cuvsKMeansParams_t params,
                               DLManagedTensor* X,
                               DLManagedTensor* sample_weight,
@@ -208,10 +228,11 @@ cuvsError_t cuvsKMeansPredict(cuvsResources_t res,
  * @param[out] cost           Resulting cluster cost
  *
  */
-cuvsError_t cuvsKMeansClusterCost(cuvsResources_t res,
+CUVS_EXPORT cuvsError_t cuvsKMeansClusterCost(cuvsResources_t res,
                                   DLManagedTensor* X,
                                   DLManagedTensor* centroids,
                                   double* cost);
+
 /**
  * @}
  */

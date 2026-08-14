@@ -1,5 +1,5 @@
 # cmake-format: off
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 # cmake-format: on
 # =============================================================================
@@ -22,8 +22,10 @@ set(SVE_CODE
 
 # Check for SVE support
 message("Checking for SVE support")
+set(CMAKE_REQUIRED_FLAGS_SAVE ${CMAKE_REQUIRED_FLAGS})
 set(CMAKE_REQUIRED_FLAGS "-march=armv9-a+sve")
 check_cxx_source_runs("${SVE_CODE}" CXX_HAS_SVE)
+set(CMAKE_REQUIRED_FLAGS ${CMAKE_REQUIRED_FLAGS_SAVE})
 
 if(CXX_HAS_SVE)
   set(CXX_SVE_FOUND

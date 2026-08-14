@@ -40,7 +40,7 @@ void composite_index<T, IdxT, OutputIdxT>::search(
   size_t buffer_size = num_queries * K * num_indices;
 
   auto main_stream = raft::resource::get_cuda_stream(handle);
-  auto tmp_res     = raft::resource::get_workspace_resource(handle);
+  auto tmp_res     = raft::resource::get_workspace_resource_ref(handle);
 
   rmm::device_uvector<out_index_type> neighbors_buffer(buffer_size, main_stream, tmp_res);
   rmm::device_uvector<float> distances_buffer(buffer_size, main_stream, tmp_res);
@@ -111,13 +111,13 @@ void composite_index<T, IdxT, OutputIdxT>::search(
                             cuvs::selection::SelectAlgo::kAuto);
 }
 
-template class composite_index<float, uint32_t, uint32_t>;
-template class composite_index<float, uint32_t, int64_t>;
-template class composite_index<half, uint32_t, uint32_t>;
-template class composite_index<half, uint32_t, int64_t>;
-template class composite_index<int8_t, uint32_t, uint32_t>;
-template class composite_index<int8_t, uint32_t, int64_t>;
-template class composite_index<uint8_t, uint32_t, uint32_t>;
-template class composite_index<uint8_t, uint32_t, int64_t>;
+template class CUVS_EXPORT composite_index<float, uint32_t, uint32_t>;
+template class CUVS_EXPORT composite_index<float, uint32_t, int64_t>;
+template class CUVS_EXPORT composite_index<half, uint32_t, uint32_t>;
+template class CUVS_EXPORT composite_index<half, uint32_t, int64_t>;
+template class CUVS_EXPORT composite_index<int8_t, uint32_t, uint32_t>;
+template class CUVS_EXPORT composite_index<int8_t, uint32_t, int64_t>;
+template class CUVS_EXPORT composite_index<uint8_t, uint32_t, uint32_t>;
+template class CUVS_EXPORT composite_index<uint8_t, uint32_t, int64_t>;
 
 }  // namespace cuvs::neighbors::composite

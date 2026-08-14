@@ -1,0 +1,37 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <cuvs/detail/jit_lto/ivf_pq/compute_similarity_fragments.hpp>
+#include <neighbors/ivf_pq/detail/jit_lto_kernels/create_lut_impl.cuh>
+#include <neighbors/ivf_pq/detail/jit_lto_kernels/device_functions.cuh>
+#include <neighbors/ivf_pq/ivf_pq_fp_8bit.cuh>
+
+namespace {
+
+using lut_t                      = @lut_type@;
+constexpr bool precomp_base_diff = @precomp_base_diff@;
+constexpr uint32_t pq_bits       = @pq_bits@;
+using metric_tag                 = cuvs::neighbors::ivf_pq::detail::tag_metric_@metric@;
+
+}  // namespace
+
+namespace cuvs::neighbors::ivf_pq::detail {
+
+template <>
+__device__ void create_lut<lut_t>(uint32_t pq_dim,
+                                  uint32_t pq_len,
+                                  uint32_t label,
+                                  const float* pq_centers,
+                                  codebook_gen codebook_kind,
+                                  lut_t* lut_scores,
+                                  uint8_t* lut_end,
+                                  const float* query,
+                                  const float* cluster_center)
+{
+  create_lut_impl<lut_t, metric_tag, precomp_base_diff, pq_bits>(
+    pq_dim, pq_len, label, pq_centers, codebook_kind, lut_scores, lut_end, query, cluster_center);
+}
+
+}  // namespace cuvs::neighbors::ivf_pq::detail

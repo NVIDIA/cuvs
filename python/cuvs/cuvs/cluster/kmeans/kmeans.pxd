@@ -1,10 +1,10 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # cython: language_level=3
 
-from libc.stdint cimport uintptr_t
+from libc.stdint cimport int64_t, uintptr_t
 from libcpp cimport bool
 
 from cuvs.common.c_api cimport cuvsError_t, cuvsResources_t
@@ -32,9 +32,10 @@ cdef extern from "cuvs/cluster/kmeans.h" nogil:
         double oversampling_factor,
         int batch_samples,
         int batch_centroids,
-        bool inertia_check,
         bool hierarchical,
-        int hierarchical_n_iters
+        int hierarchical_n_iters,
+        int64_t device_buffer_samples,
+        int64_t init_size
 
     ctypedef cuvsKMeansParams* cuvsKMeansParams_t
 
@@ -63,3 +64,7 @@ cdef extern from "cuvs/cluster/kmeans.h" nogil:
                                       DLManagedTensor* X,
                                       DLManagedTensor* centroids,
                                       double* cost)
+
+
+cdef class KMeansParams:
+    cdef cuvsKMeansParams* params

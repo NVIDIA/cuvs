@@ -1,6 +1,6 @@
 # =============================================================================
 # cmake-format: off
-# SPDX-FileCopyrightText: Copyright (c) 2021-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2021-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 # cmake-format: on
 # =============================================================================
@@ -14,9 +14,9 @@ rapids_test_init()
 
 function(ConfigureTest)
 
-  set(options NOCUDA FETCH_CODEBOOKS)
-  set(oneValueArgs NAME GPUS PERCENT ADDITIONAL_DEP)
-  set(multiValueArgs PATH)
+  set(options NOCUDA FETCH_CODEBOOKS RUN_SERIAL)
+  set(oneValueArgs NAME GPUS PERCENT)
+  set(multiValueArgs PATH ADDITIONAL_DEP)
 
   cmake_parse_arguments(_CUVS_TEST "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
   if(NOT DEFINED _CUVS_TEST_GPUS AND NOT DEFINED _CUVS_TEST_PERCENT)
@@ -96,6 +96,10 @@ function(ConfigureTest)
     PERCENT ${_CUVS_TEST_PERCENT}
     INSTALL_COMPONENT_SET testing
   )
+
+  if(_CUVS_TEST_RUN_SERIAL)
+    set_tests_properties(${TEST_NAME} PROPERTIES RUN_SERIAL ON)
+  endif()
 endfunction()
 
 # ##################################################################################################
@@ -105,7 +109,7 @@ endfunction()
 ConfigureTest(
   NAME NEIGHBORS_TEST
   PATH neighbors/brute_force.cu neighbors/brute_force_prefiltered.cu neighbors/sparse_brute_force.cu
-       neighbors/refine.cu
+       neighbors/refine.cu neighbors/distance_nn.cu neighbors/knn_merge_parts.cu
   GPUS 1
   PERCENT 100
 )
@@ -119,8 +123,21 @@ ConfigureTest(
 
 ConfigureTest(
   NAME CLUSTER_TEST
-  PATH cluster/kmeans.cu cluster/kmeans_balanced.cu cluster/kmeans_find_k.cu cluster/linkage.cu
-       cluster/connect_knn.cu cluster/spectral.cu
+  PATH cluster/kmeans.cu
+       cluster/kmeans_balanced.cu
+       cluster/kmeans_find_k.cu
+       cluster/gmm.cu
+       cluster/kmeans_predict_batching.cu
+       cluster/linkage.cu
+       cluster/connect_knn.cu
+       cluster/spectral.cu
+  GPUS 1
+  PERCENT 100
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_IVF_FLAT_UDF_TEST
+  PATH neighbors/ann_ivf_flat/test_udf.cu
   GPUS 1
   PERCENT 100
 )
@@ -134,9 +151,23 @@ ConfigureTest(
 )
 
 ConfigureTest(
+  NAME NEIGHBORS_ANN_IVF_SQ_TEST
+  PATH neighbors/ann_ivf_sq/test_float_int64_t.cu neighbors/ann_ivf_sq/test_half_int64_t.cu
+  GPUS 1
+  PERCENT 100
+)
+
+ConfigureTest(
   NAME NEIGHBORS_ANN_IVF_PQ_TEST
   PATH neighbors/ann_ivf_pq/test_float_int64_t.cu neighbors/ann_ivf_pq/test_int8_t_int64_t.cu
        neighbors/ann_ivf_pq/test_uint8_t_int64_t.cu
+  GPUS 1
+  PERCENT 100
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_IVF_RABITQ_TEST
+  PATH neighbors/ann_ivf_rabitq/test_float_int64_t.cu
   GPUS 1
   PERCENT 100
 )
@@ -159,6 +190,7 @@ ConfigureTest(
   NAME NEIGHBORS_ANN_CAGRA_TEST_BUGS
   PATH neighbors/ann_cagra/bug_extreme_inputs_oob.cu
        neighbors/ann_cagra/bug_multi_cta_crash.cu
+       neighbors/ann_cagra/bug_graph_smaller_than_dataset.cu
        neighbors/ann_cagra/bug_iterative_cagra_build.cu
        neighbors/ann_cagra/bug_issue_93_reproducer.cu
   GPUS 1
@@ -173,8 +205,15 @@ ConfigureTest(
 )
 
 ConfigureTest(
+  NAME NEIGHBORS_ANN_CAGRA_FILTER_UDF_TEST
+  PATH neighbors/ann_cagra/test_filter_udf.cu
+  GPUS 1
+  PERCENT 100
+)
+
+ConfigureTest(
   NAME NEIGHBORS_ANN_CAGRA_HELPERS_TEST
-  PATH neighbors/ann_cagra/test_optimize_uint32_t.cu
+  PATH neighbors/ann_cagra/test_optimize_uint32_t.cu neighbors/ann_cagra/test_batch_load_iterator.cu
   GPUS 1
   PERCENT 100
 )
@@ -308,8 +347,40 @@ if(BUILD_MG_ALGOS)
     PATH neighbors/mg/test_float.cu
     GPUS 1
     PERCENT 100
-    ADDITIONAL_DEP NCCL::NCCL
+    ADDITIONAL_DEP NCCL::NCCL RUN_SERIAL
   )
+
+  ConfigureTest(
+    NAME CLUSTER_KMEANS_MG_TEST
+    PATH cluster/kmeans_mg.cu
+    GPUS 1
+    PERCENT 100
+    ADDITIONAL_DEP NCCL::NCCL RUN_SERIAL
+  )
+
+  # The MNMG (multi-node multi-GPU) kmeans test depends on the distributed (UCXX) dependencies.
+  if(BUILD_MNMG_TESTS)
+    if(NOT TARGET ucx::ucp)
+      find_package(ucx REQUIRED)
+    endif()
+
+    if(NOT TARGET ucxx::ucxx)
+      find_package(ucxx REQUIRED)
+    endif()
+
+    ConfigureTest(
+      NAME CLUSTER_KMEANS_MNMG_TEST
+      PATH cluster/kmeans_mnmg.cu
+      GPUS 1
+      PERCENT 100
+      ADDITIONAL_DEP
+        NCCL::NCCL
+        ucx::ucp
+        ucx::ucs
+        ucxx::ucxx
+        RUN_SERIAL
+    )
+  endif()
 endif()
 
 ConfigureTest(
@@ -329,6 +400,7 @@ ConfigureTest(
        distance/dist_lp_unexp.cu
        distance/dist_russell_rao.cu
        distance/gram.cu
+       distance/kde.cu
        distance/masked_nn.cu
        distance/sparse_distance.cu
        sparse/gram.cu
@@ -339,8 +411,11 @@ ConfigureTest(
 
 ConfigureTest(
   NAME PREPROCESSING_TEST
-  PATH preprocessing/scalar_quantization.cu preprocessing/binary_quantization.cu
-       preprocessing/spectral_embedding.cu preprocessing/product_quantization.cu
+  PATH preprocessing/scalar_quantization.cu
+       preprocessing/binary_quantization.cu
+       preprocessing/spectral_embedding.cu
+       preprocessing/product_quantization.cu
+       preprocessing/pca.cu
   GPUS 1
   PERCENT 100
 )

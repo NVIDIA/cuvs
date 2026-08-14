@@ -6,6 +6,7 @@
 #=============================================================================
 
 function(find_and_configure_faiss)
+  option(CUVS_CPU_ONLY_FAISS_ENABLE_SVE "Enable SVE support for CPU ONLY FAISS" OFF)
   set(oneValueArgs VERSION REPOSITORY PINNED_TAG BUILD_STATIC_LIBS EXCLUDE_FROM_ALL ENABLE_GPU)
   cmake_parse_arguments(PKG "${options}" "${oneValueArgs}"
                         "${multiValueArgs}" ${ARGN} )
@@ -33,22 +34,30 @@ function(find_and_configure_faiss)
   endif()
 
   include(${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../modules/FindAVX.cmake)
+  include(${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../modules/FindSVE.cmake)
   # Link against AVX CPU lib if it exists
   set(CUVS_FAISS_OPT_LEVEL "generic")
   if(CXX_AVX2_FOUND)
     set(CUVS_FAISS_OPT_LEVEL "avx2")
   endif()
+  if(CXX_SVE_FOUND AND CUVS_CPU_ONLY_FAISS_ENABLE_SVE)
+    set(CUVS_FAISS_OPT_LEVEL "sve")
+  endif()
 
 
-  rapids_cpm_find(faiss ${version} ${find_args}
-    GLOBAL_TARGETS faiss faiss_avx2 faiss_gpu_objs faiss::faiss faiss::faiss_avx2
-    CPM_ARGS ${cpm_args}
+  rapids_cpm_find(faiss ${version} ${build_patch_only}
+    GLOBAL_TARGETS faiss faiss_avx2 faiss_sve faiss_gpu_objs faiss::faiss faiss::faiss_avx2 faiss::faiss_sve
+    CPM_ARGS
+    GIT_REPOSITORY ${repository}
+    GIT_TAG ${tag}
+    GIT_SHALLOW ${shallow} ${patch_command}
+    EXCLUDE_FROM_ALL ${exclude}
     OPTIONS
     "FAISS_ENABLE_GPU ${PKG_ENABLE_GPU}"
     "FAISS_ENABLE_CUVS ${PKG_ENABLE_GPU}"
     "FAISS_ENABLE_PYTHON OFF"
     "FAISS_OPT_LEVEL ${CUVS_FAISS_OPT_LEVEL}"
-    "FAISS_USE_CUDA_TOOLKIT_STATIC ${CUDA_STATIC_RUNTIME}"
+    "FAISS_USE_CUDA_TOOLKIT_STATIC ON"
     "BUILD_TESTING OFF"
     "CMAKE_MESSAGE_LOG_LEVEL VERBOSE"
     )
@@ -68,6 +77,12 @@ function(find_and_configure_faiss)
     # We need to ensure that faiss has all the conda information. So we use this approach so that
     # faiss will have the conda includes/link dirs
     target_link_libraries(faiss_avx2 PRIVATE $<TARGET_NAME_IF_EXISTS:conda_env>)
+  endif()
+  if(TARGET faiss_sve AND NOT TARGET faiss::faiss_sve)
+    add_library(faiss::faiss_sve ALIAS faiss_sve)
+    # We need to ensure that faiss has all the conda information. So we use this approach so that
+    # faiss will have the conda includes/link dirs
+    target_link_libraries(faiss_sve PRIVATE $<TARGET_NAME_IF_EXISTS:conda_env>)
   endif()
   if(TARGET faiss_gpu_objs AND NOT TARGET faiss::faiss_gpu_objs)
     add_library(faiss::faiss_gpu_objs ALIAS faiss_gpu_objs)
@@ -97,6 +112,8 @@ function(find_and_configure_faiss)
     set(CUVS_FAISS_TARGETS "$<LINK_GROUP:RESCAN,$<LINK_LIBRARY:WHOLE_ARCHIVE,faiss_gpu_objs>,faiss::faiss>" PARENT_SCOPE)
   elseif(CXX_AVX2_FOUND)
     set(CUVS_FAISS_TARGETS faiss::faiss_avx2 PARENT_SCOPE)
+  elseif(CXX_SVE_FOUND AND CUVS_CPU_ONLY_FAISS_ENABLE_SVE)
+    set(CUVS_FAISS_TARGETS faiss::faiss_sve PARENT_SCOPE)
   else()
     set(CUVS_FAISS_TARGETS faiss::faiss PARENT_SCOPE)
   endif()

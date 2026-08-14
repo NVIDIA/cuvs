@@ -3,6 +3,7 @@ package cuvs
 // #include <stdlib.h>
 // #include <dlpack/dlpack.h>
 // #include <cuvs/core/c_api.h>
+// #include <cuda_runtime_api.h>
 import "C"
 
 import (

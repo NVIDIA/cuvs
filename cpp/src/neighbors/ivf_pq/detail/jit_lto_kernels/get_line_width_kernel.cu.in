@@ -1,0 +1,19 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <neighbors/ivf_pq/detail/jit_lto_kernels/device_functions.cuh>
+#include <neighbors/ivf_pq/detail/jit_lto_kernels/get_line_width_impl.cuh>
+
+namespace {
+
+constexpr uint32_t pq_bits = @pq_bits@;
+
+}
+
+namespace cuvs::neighbors::ivf_pq::detail {
+
+__device__ uint32_t get_line_width(uint32_t pq_dim) { return get_line_width_impl<pq_bits>(pq_dim); }
+
+}  // namespace cuvs::neighbors::ivf_pq::detail

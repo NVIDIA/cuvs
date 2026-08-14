@@ -1,0 +1,34 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026, NVIDIA CORPORATION.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <distance/detail/distance_ops/all_ops.cuh>          // ops::*
+#include <distance/detail/pairwise_matrix/dispatch-inl.cuh>  // dispatch
+#include <raft/core/operators.hpp>                           // raft::identity_op
+@arch_includes@
+
+  namespace
+{
+  using data_t   = @data_type@;
+  using acc_t    = @acc_type@;
+  using out_t    = @out_type@;
+  using fin_op_t = raft::identity_op;
+  using index_t  = @index_type@;
+  using op_t     = @op_type@<data_t, acc_t, index_t>;
+}
+
+template void
+cuvs::distance::detail::pairwise_matrix_dispatch<op_t, data_t, acc_t, out_t, fin_op_t, index_t>(
+  op_t distance_op,
+  index_t m,
+  index_t n,
+  index_t k,
+  const data_t* x,
+  const data_t* y,
+  const out_t* x_norm,
+  const out_t* y_norm,
+  out_t* out,
+  fin_op_t fin_op,
+  cudaStream_t stream,
+  bool is_row_major);

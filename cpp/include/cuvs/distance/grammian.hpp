@@ -1,18 +1,21 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2024, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
 
 #include <cublas_v2.h>
+#include <cuvs/core/export.hpp>
 #include <cuvs/distance/distance.hpp>
 #include <raft/core/device_csr_matrix.hpp>
 #include <raft/core/mdspan.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resources.hpp>
 
-namespace cuvs::distance::kernels {
+namespace CUVS_EXPORT cuvs {
+namespace distance {
+namespace kernels {
 
 template <typename math_t>
 using dense_input_matrix_view_t = raft::device_matrix_view<const math_t, int, raft::layout_stride>;
@@ -651,4 +654,6 @@ class RBFKernel : public GramMatrixBase<math_t> {
                                int ld2,
                                int ld_out);
 };
-};  // end namespace cuvs::distance::kernels
+}  // namespace kernels
+}  // namespace distance
+}  // namespace CUVS_EXPORT cuvs

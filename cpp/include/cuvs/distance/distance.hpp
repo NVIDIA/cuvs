@@ -1,17 +1,19 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
 
 #include <cstdint>
-#include <cuda_fp16.h>
+#include <cuvs/core/cuda_fp16.hpp>
+#include <cuvs/core/export.hpp>
 #include <raft/core/device_csr_matrix.hpp>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/resources.hpp>
 
-namespace cuvs::distance {
+namespace CUVS_EXPORT cuvs {
+namespace distance {
 
 /** enum to tell how to compute distance */
 enum class DistanceType : int {
@@ -59,7 +61,9 @@ enum class DistanceType : int {
   /** Bitstring Hamming distance **/
   BitwiseHamming = 20,
   /** Precomputed (special value) **/
-  Precomputed = 100
+  Precomputed = 100,
+  /** Custom metric UDF **/
+  CustomUDF = 101
 };
 
 /**
@@ -79,6 +83,21 @@ inline bool is_min_close(DistanceType metric)
   }
   return select_min;
 }
+
+/**
+ * @brief Density kernel type for Kernel Density Estimation.
+ *
+ * These are the smoothing kernels used in KDE — distinct from the dot-product
+ * kernels (RBF, Polynomial, etc.) in cuvs::distance::kernels used by SVMs.
+ */
+enum class DensityKernelType : int {
+  Gaussian     = 0,
+  Tophat       = 1,
+  Epanechnikov = 2,
+  Exponential  = 3,
+  Linear       = 4,
+  Cosine       = 5
+};
 
 namespace kernels {
 enum KernelType { LINEAR, POLYNOMIAL, RBF, TANH };
@@ -448,4 +467,5 @@ void pairwise_distance(raft::resources const& handle,
 
 /** @} */  // end group pairwise_distance_runtime
 
-};  // namespace cuvs::distance
+}  // namespace distance
+}  // namespace CUVS_EXPORT cuvs

@@ -1,19 +1,21 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
 
-#include <cuda_fp16.h>
+#include <cuvs/core/cuda_fp16.hpp>
 
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/resources.hpp>
 #include <raft/matrix/select_k_types.hpp>
 
+#include <cuvs/core/export.hpp>
 #include <optional>
 
-namespace cuvs::selection {
+namespace CUVS_EXPORT cuvs {
+namespace selection {
 using SelectAlgo = raft::matrix::SelectAlgo;
 
 /**
@@ -197,4 +199,5 @@ void select_k(
   std::optional<raft::device_vector_view<const uint32_t, int64_t>> len_i = std::nullopt);
 /** @} */  // end of group select_k
 
-}  // namespace cuvs::selection
+}  // namespace selection
+}  // namespace CUVS_EXPORT cuvs

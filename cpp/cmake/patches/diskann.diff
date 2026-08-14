@@ -1,9 +1,15 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 3d3d2b8..a007fa4 100644
+index 3d3d2b86..c5642e64 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -23,10 +23,6 @@ set(CMAKE_STANDARD 17)
- set(CMAKE_CXX_STANDARD 17)
+@@ -19,14 +19,10 @@
+ cmake_minimum_required(VERSION 3.15)
+ project(diskann)
+
+-set(CMAKE_STANDARD 17)
+-set(CMAKE_CXX_STANDARD 17)
++set(CMAKE_STANDARD 20)
++set(CMAKE_CXX_STANDARD 20)
  set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 -if(NOT MSVC)
@@ -100,7 +106,7 @@ index 3d3d2b8..a007fa4 100644
  if (UNIT_TEST)
      enable_testing()
 diff --git a/include/ann_exception.h b/include/ann_exception.h
-index 6b81373..a385198 100644
+index 6b81373c..a3851988 100644
 --- a/include/ann_exception.h
 +++ b/include/ann_exception.h
 @@ -2,6 +2,7 @@
@@ -112,7 +118,7 @@ index 6b81373..a385198 100644
  #include <stdexcept>
  #include <system_error>
 diff --git a/include/distance.h b/include/distance.h
-index f3b1de2..d4da72e 100644
+index f3b1de25..d4da72e5 100644
 --- a/include/distance.h
 +++ b/include/distance.h
 @@ -77,6 +77,7 @@ class DistanceCosineInt8 : public Distance<int8_t>
@@ -197,7 +203,7 @@ index f3b1de2..d4da72e 100644
      {
          // Inner product returns negative values to indicate distance.
 diff --git a/include/utils.h b/include/utils.h
-index d3af5c3..417af31 100644
+index d3af5c3a..417af314 100644
 --- a/include/utils.h
 +++ b/include/utils.h
 @@ -29,6 +29,7 @@ typedef int FileHandle;
@@ -209,7 +215,7 @@ index d3af5c3..417af31 100644
  #ifdef EXEC_ENV_OLS
  #include "content_buf.h"
 diff --git a/src/index.cpp b/src/index.cpp
-index bf93344..9d8336c 100644
+index 486d41e7..1e3feae8 100644
 --- a/src/index.cpp
 +++ b/src/index.cpp
 @@ -17,9 +17,7 @@
@@ -223,7 +229,7 @@ index bf93344..9d8336c 100644
  #include "index.h"
 
 diff --git a/src/partition.cpp b/src/partition.cpp
-index 570d45c..fb54cbf 100644
+index 570d45c7..fb54cbfd 100644
 --- a/src/partition.cpp
 +++ b/src/partition.cpp
 @@ -21,9 +21,7 @@
@@ -237,7 +243,7 @@ index 570d45c..fb54cbf 100644
  // block size for reading/ processing large files and matrices in blocks
  #define BLOCK_SIZE 5000000
 diff --git a/src/pq_flash_index.cpp b/src/pq_flash_index.cpp
-index d9ad506..145a978 100644
+index 860ce58f..fc0fb0ec 100644
 --- a/src/pq_flash_index.cpp
 +++ b/src/pq_flash_index.cpp
 @@ -8,6 +8,7 @@

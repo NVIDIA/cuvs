@@ -1,0 +1,22 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+[project]
+name = "check_c_abi"
+dynamic = ["version"]
+description = "Tool to check ABI stability by analyzing C header files"
+authors = [
+    { name = "NVIDIA Corporation" },
+]
+license = "Apache-2.0"
+requires-python = ">=3.11"
+dependencies = ["libclang", "msgspec", "termcolor"]
+
+[project.scripts]
+check-c-abi = "check_c_abi.main:main_cli"
+
+[project.urls]
+Homepage = "https://github.com/nvidia/cuvs"
+
+[tool.setuptools.dynamic]
+version = { file = "VERSION" }

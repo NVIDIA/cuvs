@@ -1,0 +1,24 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <neighbors/detail/cagra/compute_distance_standard-impl.cuh>
+
+namespace {
+
+using namespace cuvs::distance;
+constexpr auto metric        = DistanceType::@metric@;
+constexpr uint32_t team_size = @team_size@;
+constexpr uint32_t dim       = @dim@;
+using data_t                 = @data_type@;
+using index_t                = @index_type@;
+using distance_t             = @distance_type@;
+
+}  // namespace
+
+namespace cuvs::neighbors::cagra::detail {
+
+template struct standard_descriptor_spec<metric, team_size, dim, data_t, index_t, distance_t>;
+
+}  // namespace cuvs::neighbors::cagra::detail

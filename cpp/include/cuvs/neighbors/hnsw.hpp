@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -7,22 +7,21 @@
 
 #pragma once
 
-#include "common.hpp"
-
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/cagra.hpp>
-
-#include "cagra.hpp"
 #include <raft/core/host_mdspan.hpp>
 
 #include <sys/types.h>
 
 #include <cstdint>
+#include <cuvs/core/export.hpp>
 #include <memory>
 #include <type_traits>
 #include <variant>
 
-namespace cuvs::neighbors::hnsw {
+namespace CUVS_EXPORT cuvs {
+namespace neighbors {
+namespace hnsw {
 
 // Re-export graph_build_params into hnsw namespace for convenience
 namespace graph_build_params = cuvs::neighbors::graph_build_params;
@@ -471,7 +470,7 @@ std::unique_ptr<index<int8_t>> build(
 std::unique_ptr<index<float>> from_cagra(
   raft::resources const& res,
   const index_params& params,
-  const cuvs::neighbors::cagra::index<float, uint32_t>& cagra_index,
+  const cuvs::neighbors::cagra::device_padded_index<float, uint32_t>& cagra_index,
   std::optional<raft::host_matrix_view<const float, int64_t, raft::row_major>> dataset =
     std::nullopt);
 
@@ -507,7 +506,7 @@ std::unique_ptr<index<float>> from_cagra(
 std::unique_ptr<index<half>> from_cagra(
   raft::resources const& res,
   const index_params& params,
-  const cuvs::neighbors::cagra::index<half, uint32_t>& cagra_index,
+  const cuvs::neighbors::cagra::device_padded_index<half, uint32_t>& cagra_index,
   std::optional<raft::host_matrix_view<const half, int64_t, raft::row_major>> dataset =
     std::nullopt);
 
@@ -543,7 +542,7 @@ std::unique_ptr<index<half>> from_cagra(
 std::unique_ptr<index<uint8_t>> from_cagra(
   raft::resources const& res,
   const index_params& params,
-  const cuvs::neighbors::cagra::index<uint8_t, uint32_t>& cagra_index,
+  const cuvs::neighbors::cagra::device_padded_index<uint8_t, uint32_t>& cagra_index,
   std::optional<raft::host_matrix_view<const uint8_t, int64_t, raft::row_major>> dataset =
     std::nullopt);
 
@@ -579,7 +578,105 @@ std::unique_ptr<index<uint8_t>> from_cagra(
 std::unique_ptr<index<int8_t>> from_cagra(
   raft::resources const& res,
   const index_params& params,
-  const cuvs::neighbors::cagra::index<int8_t, uint32_t>& cagra_index,
+  const cuvs::neighbors::cagra::device_padded_index<int8_t, uint32_t>& cagra_index,
+  std::optional<raft::host_matrix_view<const int8_t, int64_t, raft::row_major>> dataset =
+    std::nullopt);
+
+/**
+ * @brief Construct an hnswlib index from a device-standard CAGRA index.
+ *
+ * When the index has an attached device dataset view, `dataset` may be omitted. Otherwise pass a
+ * host matrix with the vectors (same contract as `device_padded_index`).
+ */
+std::unique_ptr<index<float>> from_cagra(
+  raft::resources const& res,
+  const index_params& params,
+  const cuvs::neighbors::cagra::device_standard_index<float, uint32_t>& cagra_index,
+  std::optional<raft::host_matrix_view<const float, int64_t, raft::row_major>> dataset =
+    std::nullopt);
+
+std::unique_ptr<index<half>> from_cagra(
+  raft::resources const& res,
+  const index_params& params,
+  const cuvs::neighbors::cagra::device_standard_index<half, uint32_t>& cagra_index,
+  std::optional<raft::host_matrix_view<const half, int64_t, raft::row_major>> dataset =
+    std::nullopt);
+
+std::unique_ptr<index<uint8_t>> from_cagra(
+  raft::resources const& res,
+  const index_params& params,
+  const cuvs::neighbors::cagra::device_standard_index<uint8_t, uint32_t>& cagra_index,
+  std::optional<raft::host_matrix_view<const uint8_t, int64_t, raft::row_major>> dataset =
+    std::nullopt);
+
+std::unique_ptr<index<int8_t>> from_cagra(
+  raft::resources const& res,
+  const index_params& params,
+  const cuvs::neighbors::cagra::device_standard_index<int8_t, uint32_t>& cagra_index,
+  std::optional<raft::host_matrix_view<const int8_t, int64_t, raft::row_major>> dataset =
+    std::nullopt);
+
+/**
+ * @brief Construct an hnswlib index from a host-built CAGRA index.
+ * Requires `dataset` for in-memory indices — host builds do not store vectors in the index.
+ */
+std::unique_ptr<index<float>> from_cagra(
+  raft::resources const& res,
+  const index_params& params,
+  const cuvs::neighbors::cagra::host_padded_index<float, uint32_t>& cagra_index,
+  std::optional<raft::host_matrix_view<const float, int64_t, raft::row_major>> dataset =
+    std::nullopt);
+
+std::unique_ptr<index<half>> from_cagra(
+  raft::resources const& res,
+  const index_params& params,
+  const cuvs::neighbors::cagra::host_padded_index<half, uint32_t>& cagra_index,
+  std::optional<raft::host_matrix_view<const half, int64_t, raft::row_major>> dataset =
+    std::nullopt);
+
+std::unique_ptr<index<uint8_t>> from_cagra(
+  raft::resources const& res,
+  const index_params& params,
+  const cuvs::neighbors::cagra::host_padded_index<uint8_t, uint32_t>& cagra_index,
+  std::optional<raft::host_matrix_view<const uint8_t, int64_t, raft::row_major>> dataset =
+    std::nullopt);
+
+std::unique_ptr<index<int8_t>> from_cagra(
+  raft::resources const& res,
+  const index_params& params,
+  const cuvs::neighbors::cagra::host_padded_index<int8_t, uint32_t>& cagra_index,
+  std::optional<raft::host_matrix_view<const int8_t, int64_t, raft::row_major>> dataset =
+    std::nullopt);
+
+/**
+ * @brief Construct an hnswlib index from a host-built CAGRA index (standard dataset layout).
+ * Requires `dataset` for in-memory indices — host builds do not store vectors in the index.
+ */
+std::unique_ptr<index<float>> from_cagra(
+  raft::resources const& res,
+  const index_params& params,
+  const cuvs::neighbors::cagra::host_standard_index<float, uint32_t>& cagra_index,
+  std::optional<raft::host_matrix_view<const float, int64_t, raft::row_major>> dataset =
+    std::nullopt);
+
+std::unique_ptr<index<half>> from_cagra(
+  raft::resources const& res,
+  const index_params& params,
+  const cuvs::neighbors::cagra::host_standard_index<half, uint32_t>& cagra_index,
+  std::optional<raft::host_matrix_view<const half, int64_t, raft::row_major>> dataset =
+    std::nullopt);
+
+std::unique_ptr<index<uint8_t>> from_cagra(
+  raft::resources const& res,
+  const index_params& params,
+  const cuvs::neighbors::cagra::host_standard_index<uint8_t, uint32_t>& cagra_index,
+  std::optional<raft::host_matrix_view<const uint8_t, int64_t, raft::row_major>> dataset =
+    std::nullopt);
+
+std::unique_ptr<index<int8_t>> from_cagra(
+  raft::resources const& res,
+  const index_params& params,
+  const cuvs::neighbors::cagra::host_standard_index<int8_t, uint32_t>& cagra_index,
   std::optional<raft::host_matrix_view<const int8_t, int64_t, raft::row_major>> dataset =
     std::nullopt);
 
@@ -747,7 +844,7 @@ struct search_params : cuvs::neighbors::search_params {
  * @}
  */
 
-// TODO: Filtered Search APIs: https://github.com/rapidsai/cuvs/issues/363
+// TODO: Filtered Search APIs: https://github.com/nvidia/cuvs/issues/363
 
 /**
  * @defgroup hnsw_cpp_index_search Search hnswlib index
@@ -1231,8 +1328,9 @@ void deserialize(raft::resources const& res,
  * @}
  */
 
-}  // namespace cuvs::neighbors::hnsw
-
+}  // namespace hnsw
+}  // namespace neighbors
+}  // namespace CUVS_EXPORT cuvs
 #else
 #error "This header is only available if cuVS CMake option `BUILD_CAGRA_HNSWLIB=ON"
 #endif

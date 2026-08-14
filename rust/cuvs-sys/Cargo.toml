@@ -1,7 +1,10 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+# SPDX-License-Identifier: Apache-2.0
+
 [package]
 name = "cuvs-sys"
-description = "Low-level rust bindings to libcuvs"
-links = "cuvs"
+description = "Low-level FFI bindings for the cuVS C API (libcuvs_c)"
+links = "cuvs" # expose build variables to downstream crates via "DEP_CUVS_*"
 version.workspace = true
 edition.workspace = true
 repository.workspace = true
@@ -9,8 +12,15 @@ homepage.workspace = true
 authors.workspace = true
 license.workspace = true
 
-[dependencies]
+[features]
+default = []
+generate-bindings = ["bindgen"]
+doc-only = []
 
 [build-dependencies]
-cmake = ">=0.1"
-bindgen = ">=0.69"
+bindgen = { version = "0.72", optional = true }
+cmake-package = "0.2.0"
+anyhow = "1"
+
+[package.metadata.docs.rs]
+features = ["doc-only"]

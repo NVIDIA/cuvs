@@ -1,0 +1,33 @@
+
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <cuvs/neighbors/refine.hpp>
+
+#include <cuda_fp16.h>
+
+#include <neighbors/refine/refine_device.cuh>
+
+namespace {
+
+using data_t         = @data_type@;
+using index_t        = @index_type@;
+using distance_t     = @distance_type@;
+using matrix_index_t = @matrix_index_type@;
+
+}  // namespace
+
+void cuvs::neighbors::refine(
+  raft::resources const& handle,
+  raft::device_matrix_view<const data_t, matrix_index_t, raft::row_major> dataset,
+  raft::device_matrix_view<const data_t, matrix_index_t, raft::row_major> queries,
+  raft::device_matrix_view<const index_t, matrix_index_t, raft::row_major> neighbor_candidates,
+  raft::device_matrix_view<index_t, matrix_index_t, raft::row_major> indices,
+  raft::device_matrix_view<distance_t, matrix_index_t, raft::row_major> distances,
+  cuvs::distance::DistanceType metric)
+{
+  refine_impl<index_t, data_t, distance_t, matrix_index_t>(
+    handle, dataset, queries, neighbor_candidates, indices, distances, metric);
+}

@@ -1,0 +1,110 @@
+{
+  "_types": [
+    {
+      "data_type": "float",
+      "data_abbrev": "f",
+      "index_type": "uint32_t",
+      "index_abbrev": "u32",
+      "distance_type": "float",
+      "distance_abbrev": "f"
+    },
+    {
+      "data_type": "half",
+      "data_abbrev": "h",
+      "index_type": "uint32_t",
+      "index_abbrev": "u32",
+      "distance_type": "float",
+      "distance_abbrev": "f"
+    },
+    {
+      "data_type": "int8_t",
+      "data_abbrev": "i8",
+      "index_type": "uint32_t",
+      "index_abbrev": "u32",
+      "distance_type": "float",
+      "distance_abbrev": "f"
+    },
+    {
+      "data_type": "uint8_t",
+      "data_abbrev": "u8",
+      "index_type": "uint32_t",
+      "index_abbrev": "u32",
+      "distance_type": "float",
+      "distance_abbrev": "f"
+    }
+  ],
+  "_mxdim_team": [
+    {
+      "dim": "128",
+      "team_size": "8",
+      "pq_len": "2"
+    },
+    {
+      "dim": "256",
+      "team_size": "16",
+      "pq_len": "2"
+    },
+    {
+      "dim": "512",
+      "team_size": "32",
+      "pq_len": "2"
+    },
+    {
+      "dim": "128",
+      "team_size": "8",
+      "pq_len": "4"
+    },
+    {
+      "dim": "256",
+      "team_size": "16",
+      "pq_len": "4"
+    },
+    {
+      "dim": "512",
+      "team_size": "32",
+      "pq_len": "4"
+    },
+    {
+      "dim": "128",
+      "team_size": "4",
+      "pq_len": "8"
+    },
+    {
+      "dim": "256",
+      "team_size": "8",
+      "pq_len": "8"
+    },
+    {
+      "dim": "512",
+      "team_size": "16",
+      "pq_len": "8"
+    },
+    {
+      "dim": "1024",
+      "team_size": "32",
+      "pq_len": "8"
+    }
+  ],
+  "_codebook": [
+    {
+      "codebook_type": "half",
+      "codebook_abbrev": "h"
+    }
+  ],
+  "pq_bits": [
+    "8"
+  ],
+  "metric": [
+    "L2Expanded"
+  ],
+  "_smem": [
+    {
+      "smem_dtype": "cuvs::neighbors::cagra::internal_dtype::E5M2",
+      "smem_abbrev": "e5m2"
+    },
+    {
+      "smem_dtype": "cuvs::neighbors::cagra::internal_dtype::F16",
+      "smem_abbrev": "f16"
+    }
+  ]
+}

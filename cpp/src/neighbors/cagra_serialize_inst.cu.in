@@ -1,0 +1,27 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <cuvs/core/cuda_fp16.hpp>
+
+#include <neighbors/cagra_serialize.cuh>
+
+namespace {
+
+using data_t                      = @data_type@;
+using inst_device_padded_view_t   = cuvs::neighbors::device_padded_dataset_view<data_t, int64_t>;
+using inst_device_standard_view_t = cuvs::neighbors::device_standard_dataset_view<data_t, int64_t>;
+
+}  // namespace
+
+namespace cuvs::neighbors::cagra {
+
+extern template void index<data_t, uint32_t, inst_device_padded_view_t>::compute_dataset_norms_(
+  raft::resources const&);
+extern template void index<data_t, uint32_t, inst_device_standard_view_t>::compute_dataset_norms_(
+  raft::resources const&);
+
+CUVS_INST_CAGRA_SERIALIZE(data_t);
+
+}  // namespace cuvs::neighbors::cagra

@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # cmake-format: on
 
-cmake_minimum_required(VERSION 3.30.4 FATAL_ERROR)
+cmake_minimum_required(VERSION 4.0 FATAL_ERROR)
 
 # ------------- configure rapids-cmake --------------#
 
@@ -34,29 +34,29 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra -Werror")
 add_executable(CAGRA_C_EXAMPLE src/cagra_c_example.c)
 target_include_directories(CAGRA_C_EXAMPLE PUBLIC "$<BUILD_INTERFACE:${DLPACK_INCLUDE_DIR}>")
 target_link_libraries(
-  CAGRA_C_EXAMPLE PRIVATE cuvs::c_api CUDA::cudart $<TARGET_NAME_IF_EXISTS:conda_env>
+  CAGRA_C_EXAMPLE PRIVATE cuvs::c_api CUDA::cudart_static $<TARGET_NAME_IF_EXISTS:conda_env>
 )
 
 add_executable(L2_C_EXAMPLE src/L2_c_example.c)
 target_include_directories(L2_C_EXAMPLE PUBLIC "$<BUILD_INTERFACE:${DLPACK_INCLUDE_DIR}>")
 target_link_libraries(
-  L2_C_EXAMPLE PRIVATE cuvs::c_api CUDA::cudart $<TARGET_NAME_IF_EXISTS:conda_env>
+  L2_C_EXAMPLE PRIVATE cuvs::c_api CUDA::cudart_static $<TARGET_NAME_IF_EXISTS:conda_env>
 )
 
 add_executable(IVF_FLAT_C_EXAMPLE src/ivf_flat_c_example.c)
 target_include_directories(IVF_FLAT_C_EXAMPLE PUBLIC "$<BUILD_INTERFACE:${DLPACK_INCLUDE_DIR}>")
 target_link_libraries(
-  IVF_FLAT_C_EXAMPLE PRIVATE cuvs::c_api CUDA::cudart $<TARGET_NAME_IF_EXISTS:conda_env>
+  IVF_FLAT_C_EXAMPLE PRIVATE cuvs::c_api CUDA::cudart_static $<TARGET_NAME_IF_EXISTS:conda_env>
 )
 
 add_executable(IVF_PQ_C_EXAMPLE src/ivf_pq_c_example.c)
 target_include_directories(IVF_PQ_C_EXAMPLE PUBLIC "$<BUILD_INTERFACE:${DLPACK_INCLUDE_DIR}>")
 target_link_libraries(
-  IVF_PQ_C_EXAMPLE PRIVATE cuvs::c_api CUDA::cudart $<TARGET_NAME_IF_EXISTS:conda_env>
+  IVF_PQ_C_EXAMPLE PRIVATE cuvs::c_api CUDA::cudart_static $<TARGET_NAME_IF_EXISTS:conda_env>
 )
 
 add_executable(BRUTEFORCE_C_EXAMPLE src/bruteforce_c_example.c)
 target_include_directories(BRUTEFORCE_C_EXAMPLE PUBLIC "$<BUILD_INTERFACE:${DLPACK_INCLUDE_DIR}>")
 target_link_libraries(
-  BRUTEFORCE_C_EXAMPLE PRIVATE cuvs::c_api CUDA::cudart $<TARGET_NAME_IF_EXISTS:conda_env>
+  BRUTEFORCE_C_EXAMPLE PRIVATE cuvs::c_api CUDA::cudart_static $<TARGET_NAME_IF_EXISTS:conda_env>
 )

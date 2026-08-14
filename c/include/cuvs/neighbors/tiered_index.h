@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -13,6 +13,8 @@
 #include <cuvs/neighbors/ivf_pq.h>
 #include <dlpack/dlpack.h>
 #include <stdint.h>
+
+#include <cuvs/core/export.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -50,14 +52,14 @@ typedef cuvsTieredIndex* cuvsTieredIndex_t;
  * @param[in] index cuvsTieredIndex_t to allocate
  * @return cuvsError_t
  */
-cuvsError_t cuvsTieredIndexCreate(cuvsTieredIndex_t* index);
+CUVS_EXPORT cuvsError_t cuvsTieredIndexCreate(cuvsTieredIndex_t* index);
 
 /**
  * @brief De-allocate Tiered index
  *
  * @param[in] index cuvsTieredIndex_t to de-allocate
  */
-cuvsError_t cuvsTieredIndexDestroy(cuvsTieredIndex_t index);
+CUVS_EXPORT cuvsError_t cuvsTieredIndexDestroy(cuvsTieredIndex_t index);
 /**
  * @}
  */
@@ -102,7 +104,7 @@ typedef struct cuvsTieredIndexParams* cuvsTieredIndexParams_t;
  * @param[in] index_params cuvsTieredIndexParams_t to allocate
  * @return cuvsError_t
  */
-cuvsError_t cuvsTieredIndexParamsCreate(cuvsTieredIndexParams_t* index_params);
+CUVS_EXPORT cuvsError_t cuvsTieredIndexParamsCreate(cuvsTieredIndexParams_t* index_params);
 
 /**
  * @brief De-allocate Tiered Index params
@@ -110,7 +112,7 @@ cuvsError_t cuvsTieredIndexParamsCreate(cuvsTieredIndexParams_t* index_params);
  * @param[in] index_params
  * @return cuvsError_t
  */
-cuvsError_t cuvsTieredIndexParamsDestroy(cuvsTieredIndexParams_t index_params);
+CUVS_EXPORT cuvsError_t cuvsTieredIndexParamsDestroy(cuvsTieredIndexParams_t index_params);
 /**
  * @}
  */
@@ -159,7 +161,7 @@ cuvsError_t cuvsTieredIndexParamsDestroy(cuvsTieredIndexParams_t index_params);
  * @param[out] index cuvsTieredIndex_t Newly built TieredIndex index
  * @return cuvsError_t
  */
-cuvsError_t cuvsTieredIndexBuild(cuvsResources_t res,
+CUVS_EXPORT cuvsError_t cuvsTieredIndexBuild(cuvsResources_t res,
                                  cuvsTieredIndexParams_t index_params,
                                  DLManagedTensor* dataset,
                                  cuvsTieredIndex_t index);
@@ -209,7 +211,7 @@ cuvsError_t cuvsTieredIndexBuild(cuvsResources_t res,
  * @param[in] prefilter cuvsFilter input prefilter that can be used
               to filter queries and neighbors based on the given bitmap.
  */
-cuvsError_t cuvsTieredIndexSearch(cuvsResources_t res,
+CUVS_EXPORT cuvsError_t cuvsTieredIndexSearch(cuvsResources_t res,
                                   void* search_params,
                                   cuvsTieredIndex_t index,
                                   DLManagedTensor* queries,
@@ -232,7 +234,7 @@ cuvsError_t cuvsTieredIndexSearch(cuvsResources_t res,
  * @param[inout] index Tiered index to be extended
  * @return cuvsError_t
  */
-cuvsError_t cuvsTieredIndexExtend(cuvsResources_t res,
+CUVS_EXPORT cuvsError_t cuvsTieredIndexExtend(cuvsResources_t res,
                                   DLManagedTensor* new_vectors,
                                   cuvsTieredIndex_t index);
 /**
@@ -253,7 +255,7 @@ cuvsError_t cuvsTieredIndexExtend(cuvsResources_t res,
  * @param[out] output_index the merged index
  * @return cuvsError_t
  */
-cuvsError_t cuvsTieredIndexMerge(cuvsResources_t res,
+CUVS_EXPORT cuvsError_t cuvsTieredIndexMerge(cuvsResources_t res,
                                  cuvsTieredIndexParams_t index_params,
                                  cuvsTieredIndex_t* indices,
                                  size_t num_indices,

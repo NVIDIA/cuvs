@@ -1,0 +1,64 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <neighbors/ivf_pq/detail/jit_lto_kernels/compute_distances_impl.cuh>
+#include <neighbors/ivf_pq/detail/jit_lto_kernels/device_functions.cuh>
+#include <neighbors/ivf_pq/ivf_pq_fp_8bit.cuh>
+
+namespace {
+
+using out_t            = @out_type@;
+using lut_t            = @lut_type@;
+constexpr int capacity = @capacity@;
+
+}  // namespace
+
+namespace cuvs::neighbors::ivf_pq::detail {
+
+template <>
+__device__ void compute_distances<out_t, lut_t>(const uint32_t* chunk_indices,
+                                                float* query_kths,
+                                                uint32_t n_probes,
+                                                uint32_t probe_ix,
+                                                uint32_t query_ix,
+                                                uint32_t max_samples,
+                                                uint32_t topk,
+                                                uint8_t* lut_end,
+                                                uint32_t pq_dim,
+                                                const uint8_t* const* pq_dataset,
+                                                uint32_t label,
+                                                uint32_t queries_offset,
+                                                out_t* out_scores,
+                                                uint32_t* out_indices,
+                                                lut_t* lut_scores,
+                                                uint8_t* smem_buf,
+                                                const int64_t* const* inds_ptrs,
+                                                uint32_t* bitset_ptr,
+                                                int64_t bitset_len,
+                                                int64_t original_nbits)
+{
+  compute_distances_impl<out_t, lut_t, capacity>(chunk_indices,
+                                                 query_kths,
+                                                 n_probes,
+                                                 probe_ix,
+                                                 query_ix,
+                                                 max_samples,
+                                                 topk,
+                                                 lut_end,
+                                                 pq_dim,
+                                                 pq_dataset,
+                                                 label,
+                                                 queries_offset,
+                                                 out_scores,
+                                                 out_indices,
+                                                 lut_scores,
+                                                 smem_buf,
+                                                 inds_ptrs,
+                                                 bitset_ptr,
+                                                 bitset_len,
+                                                 original_nbits);
+}
+
+}  // namespace cuvs::neighbors::ivf_pq::detail

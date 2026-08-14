@@ -1,0 +1,26 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <neighbors/ivf_rabitq/jit_lto_kernels/compute_inner_products_with_lut16_opt_block_sort_impl.cuh>
+#include <neighbors/ivf_rabitq/jit_lto_kernels/kernel_def.hpp>
+
+namespace {
+
+constexpr bool with_ex = @with_ex_value@;
+
+}  // namespace
+
+namespace cuvs::neighbors::ivf_rabitq::detail {
+
+extern "C" __global__ void compute_inner_products_with_lut16_opt_block_sort(
+  const ComputeInnerProductsKernelParams params)
+{
+  compute_inner_products_with_lut16_opt_block_sort_impl<with_ex>(params);
+}
+
+static_assert(std::is_same_v<decltype(compute_inner_products_with_lut16_opt_block_sort),
+                             compute_inner_products_with_lut_func_t>);
+
+}  // namespace cuvs::neighbors::ivf_rabitq::detail

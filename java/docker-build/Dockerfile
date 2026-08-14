@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -28,7 +28,7 @@ ARG DEV_BUILD=OFF
 # Dependency versions
 # Act as default GCC toolset in the image
 ARG TOOLSET_VERSION=14
-ARG CMAKE_VERSION=3.30.4
+ARG CMAKE_VERSION=4.0
 ARG CCACHE_VERSION=4.11.2
 
 # Default x86_64 from x86 build, aarch64 cmake for arm build

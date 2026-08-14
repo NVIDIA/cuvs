@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -44,7 +44,7 @@ namespace cuvs::neighbors::nn_descent {
  *
  * @tparam T data-type of the input dataset
  * @tparam IdxT data-type for the output index
- * @param[in] res raft::resources is an object mangaging resources
+ * @param[in] res raft::resources is an object managing resources
  * @param[in] params an instance of nn_descent::index_params that are parameters
  *               to run the nn-descent algorithm
  * @param[in] dataset raft::device_matrix_view input dataset expected to be located
@@ -85,7 +85,7 @@ auto build(raft::resources const& res,
  *
  * @tparam T data-type of the input dataset
  * @tparam IdxT data-type for the output index
- * @param res raft::resources is an object mangaging resources
+ * @param res raft::resources is an object managing resources
  * @param[in] params an instance of nn_descent::index_params that are parameters
  *               to run the nn-descent algorithm
  * @param[in] dataset raft::device_matrix_view input dataset expected to be located
@@ -126,7 +126,7 @@ void build(raft::resources const& res,
  *
  * @tparam T data-type of the input dataset
  * @tparam IdxT data-type for the output index
- * @param res raft::resources is an object mangaging resources
+ * @param res raft::resources is an object managing resources
  * @param[in] params an instance of nn_descent::index_params that are parameters
  *               to run the nn-descent algorithm
  * @param[in] dataset raft::host_matrix_view input dataset expected to be located
@@ -167,7 +167,7 @@ auto build(raft::resources const& res,
  *
  * @tparam T data-type of the input dataset
  * @tparam IdxT data-type for the output index
- * @param[in] res raft::resources is an object mangaging resources
+ * @param[in] res raft::resources is an object managing resources
  * @param[in] params an instance of nn_descent::index_params that are parameters
  *               to run the nn-descent algorithm
  * @param[in] dataset raft::host_matrix_view input dataset expected to be located

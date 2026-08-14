@@ -1,0 +1,47 @@
+{
+  "capacity": [
+    "0", "1", "2", "4", "8", "16", "32", "64", "128", "256"
+  ],
+  "_ascending": [
+    {
+      "ascending_descending": "ascending",
+      "ascending_value": "true"
+    },
+    {
+      "ascending_descending": "descending",
+      "ascending_value": "false"
+    }
+  ],
+  "_data_type": [
+    {
+      "data_type": "float",
+      "data_abbrev": "f",
+      "acc_type": "float",
+      "acc_abbrev": "f"
+    },
+    {
+      "data_type": "__half",
+      "data_abbrev": "h",
+      "acc_type": "__half",
+      "acc_abbrev": "h"
+    },
+    {
+      "data_type": "uint8_t",
+      "data_abbrev": "u8",
+      "acc_type": "uint32_t",
+      "acc_abbrev": "u32"
+    },
+    {
+      "data_type": "int8_t",
+      "data_abbrev": "i8",
+      "acc_type": "int32_t",
+      "acc_abbrev": "i32"
+    }
+  ],
+  "_index": [
+    {
+      "index_type": "int64_t",
+      "index_abbrev": "i64"
+    }
+  ]
+}

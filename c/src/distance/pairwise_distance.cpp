@@ -1,6 +1,6 @@
 
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -13,6 +13,7 @@
 
 #include <cuvs/core/c_api.h>
 #include <cuvs/distance/distance.h>
+#include <cuvs/distance/pairwise_distance.h>
 #include <cuvs/distance/distance.hpp>
 
 #include "../core/exceptions.hpp"

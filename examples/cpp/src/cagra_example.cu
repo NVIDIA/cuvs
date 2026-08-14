@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -9,8 +9,8 @@
 #include <raft/random/make_blobs.cuh>
 
 #include <cuvs/neighbors/cagra.hpp>
+#include <cuvs/neighbors/common.hpp>
 
-#include <rmm/mr/device_memory_resource.hpp>
 #include <rmm/mr/pool_memory_resource.hpp>
 
 #include "common.cuh"
@@ -32,7 +32,9 @@ void cagra_build_search_simple(raft::device_resources const& dev_resources,
   cagra::index_params index_params;
 
   std::cout << "Building CAGRA index (search graph)" << std::endl;
-  auto index = cagra::build(dev_resources, index_params, dataset);
+  auto padded = cuvs::neighbors::make_device_padded_dataset_view(dev_resources, dataset);
+  auto index  = cagra::build(dev_resources, index_params, padded);
+  index.update_device_dataset_same_layout(dev_resources, padded);
 
   std::cout << "CAGRA index has " << index.size() << " vectors" << std::endl;
   std::cout << "CAGRA graph has degree " << index.graph_degree() << ", graph size ["
@@ -54,9 +56,9 @@ int main()
   raft::device_resources dev_resources;
 
   // Set pool memory resource with 1 GiB initial pool size. All allocations use the same pool.
-  rmm::mr::pool_memory_resource<rmm::mr::device_memory_resource> pool_mr(
-    rmm::mr::get_current_device_resource(), 1024 * 1024 * 1024ull);
-  rmm::mr::set_current_device_resource(&pool_mr);
+  rmm::mr::pool_memory_resource pool_mr(rmm::mr::get_current_device_resource_ref(),
+                                        1024 * 1024 * 1024ull);
+  rmm::mr::set_current_device_resource(pool_mr);
 
   // Alternatively, one could define a pool allocator for temporary arrays (used within RAFT
   // algorithms). In that case only the internal arrays would use the pool, any other allocation
