@@ -382,63 +382,73 @@ class ElasticsearchBackend(BenchmarkBackend):
         force: bool = False,
         search_threads: Optional[int] = None,
         dry_run: bool = False,
-    ) -> SearchResult:
+    ) -> List[SearchResult]:
         """Run kNN search over all search-param combinations."""
         if dry_run:
-            return SearchResult(
-                neighbors=np.empty((0, k), dtype=np.int64),
-                distances=np.empty((0, k), dtype=np.float32),
-                search_time_ms=0,
-                queries_per_second=0,
-                recall=0,
-                algorithm=self.algo,
-                search_params=[],
-                success=True,
-            )
+            search_params_list = indexes[0].search_params if indexes else []
+            return [
+                SearchResult(
+                    neighbors=np.empty((0, k), dtype=np.int64),
+                    distances=np.empty((0, k), dtype=np.float32),
+                    search_time_ms=0,
+                    queries_per_second=0,
+                    recall=0,
+                    algorithm=self.algo,
+                    search_params=[search_params],
+                    success=True,
+                )
+                for search_params in (search_params_list or [{}])
+            ]
 
         skip_reason = self._pre_flight_check()
         if skip_reason:
-            return SearchResult(
-                neighbors=np.empty((0, k), dtype=np.int64),
-                distances=np.empty((0, k), dtype=np.float32),
-                search_time_ms=0,
-                queries_per_second=0,
-                recall=0,
-                algorithm=self.algo,
-                search_params=[],
-                success=False,
-                error_message=f"pre-flight check failed: {skip_reason}",
-            )
+            return [
+                SearchResult(
+                    neighbors=np.empty((0, k), dtype=np.int64),
+                    distances=np.empty((0, k), dtype=np.float32),
+                    search_time_ms=0,
+                    queries_per_second=0,
+                    recall=0,
+                    algorithm=self.algo,
+                    search_params=[],
+                    success=False,
+                    error_message=f"pre-flight check failed: {skip_reason}",
+                )
+            ]
 
         if not indexes:
-            return SearchResult(
-                neighbors=np.empty((0, k), dtype=np.int64),
-                distances=np.empty((0, k), dtype=np.float32),
-                search_time_ms=0,
-                queries_per_second=0,
-                recall=0,
-                algorithm=self.algo,
-                search_params=[],
-                success=False,
-                error_message="No indexes provided",
-            )
+            return [
+                SearchResult(
+                    neighbors=np.empty((0, k), dtype=np.int64),
+                    distances=np.empty((0, k), dtype=np.float32),
+                    search_time_ms=0,
+                    queries_per_second=0,
+                    recall=0,
+                    algorithm=self.algo,
+                    search_params=[],
+                    success=False,
+                    error_message="No indexes provided",
+                )
+            ]
 
         query_vectors = dataset.query_vectors
         if query_vectors.size == 0:
-            return SearchResult(
-                neighbors=np.empty((0, k), dtype=np.int64),
-                distances=np.empty((0, k), dtype=np.float32),
-                search_time_ms=0,
-                queries_per_second=0,
-                recall=0,
-                algorithm=self.algo,
-                search_params=[],
-                success=False,
-                error_message=(
-                    "query_vectors are required for Elasticsearch backend "
-                    "(directly or via dataset.query_file)"
-                ),
-            )
+            return [
+                SearchResult(
+                    neighbors=np.empty((0, k), dtype=np.int64),
+                    distances=np.empty((0, k), dtype=np.float32),
+                    search_time_ms=0,
+                    queries_per_second=0,
+                    recall=0,
+                    algorithm=self.algo,
+                    search_params=[],
+                    success=False,
+                    error_message=(
+                        "query_vectors are required for Elasticsearch backend "
+                        "(directly or via dataset.query_file)"
+                    ),
+                )
+            ]
 
         try:
             n_queries = len(query_vectors)
@@ -447,9 +457,7 @@ class ElasticsearchBackend(BenchmarkBackend):
             index_cfg = indexes[0]
             search_params_list = index_cfg.search_params or [{}]
 
-            per_param_results: List[Dict[str, Any]] = []
-            last_neighbors = np.full((n_queries, k), -1, dtype=np.int64)
-            last_distances = np.zeros((n_queries, k), dtype=np.float32)
+            results: List[SearchResult] = []
 
             for sp in search_params_list:
                 num_candidates = sp.get(
@@ -486,56 +494,39 @@ class ElasticsearchBackend(BenchmarkBackend):
                     n_queries / (elapsed_ms / 1000) if elapsed_ms > 0 else 0.0
                 )
 
-                per_param_results.append(
-                    {
-                        "search_params": sp,
-                        "search_time_ms": elapsed_ms,
-                        "queries_per_second": qps,
-                        "p50_ms": float(np.percentile(latencies, 50)),
-                        "p95_ms": float(np.percentile(latencies, 95)),
-                        "p99_ms": float(np.percentile(latencies, 99)),
-                    }
+                results.append(
+                    SearchResult(
+                        neighbors=neighbors,
+                        distances=distances,
+                        search_time_ms=elapsed_ms,
+                        queries_per_second=qps,
+                        recall=0.0,
+                        algorithm=self.algo,
+                        search_params=[sp],
+                        latency_percentiles={
+                            "p50_ms": float(np.percentile(latencies, 50)),
+                            "p95_ms": float(np.percentile(latencies, 95)),
+                            "p99_ms": float(np.percentile(latencies, 99)),
+                        },
+                        success=True,
+                    )
                 )
-                last_neighbors = neighbors
-                last_distances = distances
 
-            avg_qps = float(
-                np.mean([r["queries_per_second"] for r in per_param_results])
-            )
-            total_ms = float(
-                sum(r["search_time_ms"] for r in per_param_results)
-            )
-
-            return SearchResult(
-                neighbors=last_neighbors,
-                distances=last_distances,
-                search_time_ms=total_ms,
-                queries_per_second=avg_qps,
-                recall=0.0,
-                algorithm=self.algo,
-                search_params=search_params_list,
-                latency_percentiles={
-                    "p50_ms": per_param_results[-1]["p50_ms"],
-                    "p95_ms": per_param_results[-1]["p95_ms"],
-                    "p99_ms": per_param_results[-1]["p99_ms"],
-                },
-                metadata={
-                    "per_search_param_results": per_param_results,
-                },
-                success=True,
-            )
+            return results
         except Exception as e:
-            return SearchResult(
-                neighbors=np.empty((0, k), dtype=np.int64),
-                distances=np.empty((0, k), dtype=np.float32),
-                search_time_ms=0,
-                queries_per_second=0,
-                recall=0,
-                algorithm=self.algo,
-                search_params=[],
-                success=False,
-                error_message=str(e),
-            )
+            return [
+                SearchResult(
+                    neighbors=np.empty((0, k), dtype=np.int64),
+                    distances=np.empty((0, k), dtype=np.float32),
+                    search_time_ms=0,
+                    queries_per_second=0,
+                    recall=0,
+                    algorithm=self.algo,
+                    search_params=[],
+                    success=False,
+                    error_message=str(e),
+                )
+            ]
 
 
 def _get_cuvs_bench_config_path() -> str:

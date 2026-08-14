@@ -1642,7 +1642,7 @@ constexpr static IdxT kInvalidRecord =
  * @tparam IdxT The index type for source indices
  * @tparam SizeT The size type
  *
- * TODO: Make this struct internal (tracking issue: https://github.com/rapidsai/cuvs/issues/1726)
+ * TODO: Make this struct internal (tracking issue: https://github.com/nvidia/cuvs/issues/1726)
  */
 template <typename ValueT, typename IdxT, typename SizeT = uint32_t>
 struct list_base {

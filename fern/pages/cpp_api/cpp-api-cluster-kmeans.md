@@ -126,7 +126,7 @@ raft::host_scalar_view<float> inertia,
 raft::host_scalar_view<int64_t> n_iter);
 ```
 
-TODO: Evaluate replacing the extent type with int64_t. Reference issue: https://github.com/rapidsai/cuvs/issues/1961
+TODO: Evaluate replacing the extent type with int64_t. Reference issue: https://github.com/nvidia/cuvs/issues/1961
 
 This overload supports out-of-core computation where the dataset resides on the host. Data is processed in GPU-sized batches, streaming from host to device. The batch size is controlled by params.device_buffer_samples. In multi-GPU mode, this is a per-rank batch size.
 
