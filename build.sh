@@ -625,11 +625,6 @@ if hasArg tarball; then
             "${IMAGE_NAME}" \
             "${BUILD_ARGS[@]}"
 
-        if [[ ! -f "${BUILD_OUTPUT_DIR_ABS}/libcuvs_c.tar.gz" ]]; then
-            echo "Expected tarball not found at ${BUILD_OUTPUT_DIR_ABS}/libcuvs_c.tar.gz" >&2
-            exit 1
-        fi
-
         cp -v "${BUILD_OUTPUT_DIR_ABS}/libcuvs_c.tar.gz" "${REPODIR}/libcuvs_c.tar.gz"
         echo "Copied libcuvs_c.tar.gz to ${REPODIR}/libcuvs_c.tar.gz"
     fi
