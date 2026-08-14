@@ -61,10 +61,10 @@ From the repository root, run:
 
 The script builds the Docker image, runs the build in a container, writes the tarball to `./build/libcuvs_c.tar.gz`, and copies it to `./libcuvs_c.tar.gz` for CI artifact upload and convenience.
 
-To select CUDA and Python versions, set environment variables to values that match a valid [`rapidsai/ci-wheel` image tag](https://hub.docker.com/r/rapidsai/ci-wheel/tags):
+To select CUDA and Python versions, set environment variables to exact versions from a valid [`rapidsai/ci-wheel` image tag](https://hub.docker.com/r/rapidsai/ci-wheel/tags). For example:
 
 ```bash
-CUDA_VERSION=12.9 PYTHON_VERSION=3.11 ./build.sh tarball
+CUDA_VERSION=12.9.2 PYTHON_VERSION=3.11 ./build.sh tarball
 ```
 
 To write the tarball to another directory, set `BUILD_OUTPUT_DIR`:
@@ -95,9 +95,12 @@ If you do not want to use the helper script, build the image directly from the r
 docker build -f Dockerfile.standalone -t cuvs-standalone-c .
 ```
 
+This command builds from the published `rapidsai/ci-wheel` base image and tags the resulting local image as `cuvs-standalone-c`. The following `docker run` examples use that same local tag; Docker does not pull an image named `cuvs-standalone-c` from a registry.
+
 Run the build and mount the repository plus an output directory:
 
 ```bash
+mkdir -p build
 docker run --rm \
   -v "$(pwd):/workspace" \
   -v "$(pwd)/build:/build" \
@@ -108,7 +111,7 @@ To select different CUDA and Python versions, pass build arguments:
 
 ```bash
 docker build -f Dockerfile.standalone \
-  --build-arg CUDA_VERSION=12.9 \
+  --build-arg CUDA_VERSION=12.9.2 \
   --build-arg PYTHON_VERSION=3.11 \
   -t cuvs-standalone-c .
 ```
@@ -116,6 +119,7 @@ docker build -f Dockerfile.standalone \
 Mount another host directory at `/build` to change the output location:
 
 ```bash
+mkdir -p /path/to/output
 docker run --rm \
   -v "$(pwd):/workspace" \
   -v "/path/to/output:/build" \
@@ -125,6 +129,7 @@ docker run --rm \
 Pass `--tarball-build-tests` to include the C library tests:
 
 ```bash
+mkdir -p build
 docker run --rm \
   -v "$(pwd):/workspace" \
   -v "$(pwd)/build:/build" \

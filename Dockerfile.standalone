@@ -2,12 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Environment and runner for the standalone C build (see ci/standalone_c/build_standalone_c.sh).
-# Build args: CUDA_VERSION (default 13.0), PYTHON_VERSION (default 3.11).
+# Build args: CUDA_VERSION (default 13.3.0), PYTHON_VERSION (default 3.11).
 #
 # End-user instructions: https://docs.nvidia.com/cuvs/installation#build-the-standalone-c-library-with-docker
-# Quick run: docker run -v $(pwd):/workspace -v $(pwd)/build:/build <image> [--tarball-build-tests]
+# Quick run: docker run -v $(pwd):/workspace -v $(pwd)/build:/build cuvs-standalone-c [--tarball-build-tests]
 
-ARG CUDA_VERSION=13.0
+ARG CUDA_VERSION=13.3.0
 ARG PYTHON_VERSION=3.11
 FROM rapidsai/ci-wheel:26.10-cuda${CUDA_VERSION}-rockylinux8-py${PYTHON_VERSION}
 
@@ -53,5 +53,5 @@ ENV CUVS_TARBALL_IN_CONTAINER=1
 WORKDIR /workspace
 
 # Run the build script, which writes the standalone tarball to the mounted output dir.
-# Example: docker run -v $(pwd):/workspace -v $(pwd)/build:/build <image> [--tarball-build-tests]
+# Example: docker run -v $(pwd):/workspace -v $(pwd)/build:/build cuvs-standalone-c [--tarball-build-tests]
 ENTRYPOINT ["/bin/bash", "-c", "ci/standalone_c/build_standalone_c.sh \"$@\"", "--"]

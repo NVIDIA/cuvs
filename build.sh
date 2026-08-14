@@ -586,7 +586,7 @@ if hasArg tarball; then
         tar czf "${BUILD_OUTPUT_DIR}/libcuvs_c.tar.gz" -C "${REPODIR}/c/build/install" .
         ls -lh "${BUILD_OUTPUT_DIR}/libcuvs_c.tar.gz"
     else
-        CUDA_VERSION="${CUDA_VERSION:-13.0}"
+        CUDA_VERSION="${CUDA_VERSION:-13.3.0}"
         PYTHON_VERSION="${PYTHON_VERSION:-3.11}"
         BUILD_OUTPUT_DIR="${BUILD_OUTPUT_DIR:-${REPODIR}/build}"
         IMAGE_NAME="${IMAGE_NAME:-cuvs-standalone-c}"
