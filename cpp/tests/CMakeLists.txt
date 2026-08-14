@@ -109,7 +109,7 @@ endfunction()
 ConfigureTest(
   NAME NEIGHBORS_TEST
   PATH neighbors/brute_force.cu neighbors/brute_force_prefiltered.cu neighbors/sparse_brute_force.cu
-       neighbors/refine.cu neighbors/distance_nn.cu
+       neighbors/refine.cu neighbors/distance_nn.cu neighbors/knn_merge_parts.cu
   GPUS 1
   PERCENT 100
 )
@@ -126,6 +126,7 @@ ConfigureTest(
   PATH cluster/kmeans.cu
        cluster/kmeans_balanced.cu
        cluster/kmeans_find_k.cu
+       cluster/gmm.cu
        cluster/kmeans_predict_batching.cu
        cluster/linkage.cu
        cluster/connect_knn.cu

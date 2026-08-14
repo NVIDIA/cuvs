@@ -408,7 +408,7 @@ __launch_bounds__(BlockSize) RAFT_KERNEL process_and_fill_codes_kernel(
 /**
  * Note: `inline_vq_labels` should only be used for CAGRA-Q compatibility or internal use-cases.
  * Otherwise, vq_labels should be preferred.
- * Issue: https://github.com/rapidsai/cuvs/issues/1722
+ * Issue: https://github.com/nvidia/cuvs/issues/1722
  */
 template <typename MathT, typename IdxT, typename DatasetT>
 void process_and_fill_codes(
@@ -422,7 +422,7 @@ void process_and_fill_codes(
   bool inline_vq_labels = false)
 {
   using data_t     = typename DatasetT::value_type;
-  using cdataset_t = vpq_dataset<MathT, IdxT>;
+  using cdataset_t = device_vpq_dataset<MathT, IdxT>;
   using label_t    = uint32_t;
 
   const ix_t n_rows       = dataset.extent(0);
@@ -814,7 +814,7 @@ void process_and_fill_codes_subspaces(
   raft::device_matrix_view<uint8_t, IdxT, raft::row_major> codes)
 {
   using data_t     = typename DatasetT::value_type;
-  using cdataset_t = vpq_dataset<MathT, IdxT>;
+  using cdataset_t = device_vpq_dataset<MathT, IdxT>;
   using label_t    = uint32_t;
 
   const ix_t n_rows       = dataset.extent(0);

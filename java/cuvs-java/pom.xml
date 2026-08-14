@@ -26,10 +26,10 @@ SPDX-License-Identifier: Apache-2.0
         </license>
     </licenses>
     <scm>
-        <connection>scm:git:https://github.com/rapidsai/cuvs.git</connection>
+        <connection>scm:git:https://github.com/nvidia/cuvs.git</connection>
         <developerConnection>scm:git:git@github.com:rapidsai/cuvs.git</developerConnection>
         <tag>HEAD</tag>
-        <url>https://github.com/rapidsai/cuvs</url>
+        <url>https://github.com/nvidia/cuvs</url>
     </scm>
     <developers>
         <developer>
@@ -252,14 +252,6 @@ SPDX-License-Identifier: Apache-2.0
                 <groupId>com.diffplug.spotless</groupId>
                 <artifactId>spotless-maven-plugin</artifactId>
                 <version>2.44.5</version>
-                <executions>
-                    <execution>
-                        <goals>
-                            <goal>apply</goal>
-                        </goals>
-                        <phase>validate</phase>
-                    </execution>
-                </executions>
                 <configuration>
                     <java>
                         <includes>
@@ -268,15 +260,21 @@ SPDX-License-Identifier: Apache-2.0
                         <excludes>
                             <exclude>src/**/panama/*.java</exclude>
                         </excludes>
+                        <!--
+                            TODO: When we have more rules that should go to checkstyle or PMD
+                            (tracking issue: https://github.com/NVIDIA/cuvs/issues/2364)
+                        -->
+                        <replaceRegex>
+                            <name>Use the headers_h facade, not numbered jextract classes</name>
+                            <searchRegex>\bheaders_h_[0-9]+\b</searchRegex>
+                            <replacement>headers_h</replacement>
+                        </replaceRegex>
                         <googleJavaFormat>
                             <version>1.27.0</version>
                             <style>GOOGLE</style>
                             <reflowLongStrings>true</reflowLongStrings>
                             <formatJavadoc>false</formatJavadoc>
                         </googleJavaFormat>
-                        <licenseHeader>
-                            <file>${project.basedir}/../license-header.txt</file>
-                        </licenseHeader>
                     </java>
                 </configuration>
             </plugin>

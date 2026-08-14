@@ -10,7 +10,7 @@ This module provides the BenchmarkOrchestrator class that coordinates
 benchmark runs across different backends using the registry pattern.
 """
 
-from typing import List, Optional, Set, Tuple, Union
+from typing import List, Optional, Union
 
 import numpy as np
 
@@ -22,11 +22,11 @@ from ..backends.registry import (
 )
 from ..backends._utils import compute_recall
 from .config_loaders import DatasetConfig
-from .result_files import (
-    ResultRecord,
-    validate_sweep_output_filenames,
-    write_result_files,
-)
+
+
+def _should_compute_recall(result: SearchResult) -> bool:
+    """Return True when orchestrator should derive recall from neighbors."""
+    return result.success and result.neighbors.size > 0
 
 
 class BenchmarkOrchestrator:
@@ -148,9 +148,12 @@ class BenchmarkOrchestrator:
         Returns
         -------
         List[Union[BuildResult, SearchResult]]
-            List of result objects, one per benchmark run:
-            - sweep mode: One result per IndexConfig (Cartesian product of params)
-            - tune mode: One result per Optuna trial (n_trials total)
+            All measurements produced by the benchmark:
+            - sweep mode: build results plus the search results returned for
+              each benchmark configuration.
+            - tune mode: build and search results produced by each trial. A
+              successful build-and-search trial normally contributes two
+              objects.
 
             Each SearchResult contains: recall, search_time_ms,
             queries_per_second, success, metadata, etc.
@@ -222,8 +225,6 @@ class BenchmarkOrchestrator:
 
         # Collect results
         results: List[Union[BuildResult, SearchResult]] = []
-        result_records: List[ResultRecord] = []
-        stale_search_filenames: Set[str] = set()
 
         # Run benchmarks
         # Each config contains ALL indexes for one executable (matches runners.py)
@@ -231,17 +232,6 @@ class BenchmarkOrchestrator:
             # Create backend instance
             backend = self.backend_class(config.backend_config)
             try:
-                output_filenames: Optional[Tuple[str, str]] = None
-                if backend.orchestrator_persists_results:
-                    if len(config.indexes) != 1:
-                        raise ValueError(
-                            "Opt-in sweep result persistence requires exactly "
-                            "one index per benchmark configuration"
-                        )
-                    output_filenames = validate_sweep_output_filenames(
-                        config.output_filename
-                    )
-
                 backend.initialize()
 
                 if build:
@@ -253,18 +243,7 @@ class BenchmarkOrchestrator:
                         dry_run=dry_run,
                     )
                     results.append(build_result)
-                    if output_filenames is not None:
-                        result_records.append(
-                            ResultRecord(
-                                result=build_result,
-                                index_name=config.index_name,
-                                output_filename=output_filenames[0],
-                            )
-                        )
-
                     if not build_result.success:
-                        if search and output_filenames is not None:
-                            stale_search_filenames.add(output_filenames[1])
                         print(
                             f"Build failed for {config.index_name}: {build_result.error_message}"
                         )
@@ -274,7 +253,7 @@ class BenchmarkOrchestrator:
                     # Pass ALL indexes at once - ONE C++ command searches all
                     # Each index has its own search_params list
                     # Total benchmarks = sum(len(idx.search_params) for idx in indexes)
-                    search_result = backend.search(
+                    search_results = backend.search(
                         dataset=bench_dataset,
                         indexes=config.indexes,
                         k=count,
@@ -285,46 +264,19 @@ class BenchmarkOrchestrator:
                         dry_run=dry_run,
                     )
 
-                    # Compute recall for backends that return actual neighbors.
-                    # The C++ backend computes recall in the subprocess and returns
-                    # empty neighbors, so this is skipped for it.
-                    # Empty neighbors or nonzero recall indicate that the backend
-                    # already handled recall itself.
-                    if (
-                        search_result.success
-                        and search_result.neighbors.size > 0
-                        and search_result.recall == 0.0
-                    ):
-                        gt = bench_dataset.groundtruth_neighbors
-                        if gt is not None:
-                            search_result.recall = compute_recall(
-                                search_result.neighbors, gt, count
-                            )
-
-                    results.append(search_result)
-                    if output_filenames is not None:
-                        result_records.append(
-                            ResultRecord(
-                                result=search_result,
-                                index_name=config.index_name,
-                                output_filename=output_filenames[1],
-                            )
+                    for search_result in search_results:
+                        self._finalize_search_result(
+                            search_result, bench_dataset, count
                         )
+                        results.append(search_result)
 
-                    if not search_result.success:
-                        print(
-                            f"Search failed for {config.index_name}: {search_result.error_message}"
-                        )
+                        if not search_result.success:
+                            print(
+                                f"Search failed for {config.index_name}: "
+                                f"{search_result.error_message}"
+                            )
             finally:
                 backend.cleanup()
-
-        if (result_records or stale_search_filenames) and not dry_run:
-            write_result_files(
-                result_records,
-                dataset=dataset_config.name,
-                dataset_path=loader_kwargs["dataset_path"],
-                stale_search_filenames=stale_search_filenames,
-            )
 
         return results
 
@@ -474,7 +426,7 @@ class BenchmarkOrchestrator:
 
             # Run single trial with these specific parameters
             # First trial (trial.number=0) overwrites, subsequent trials append
-            result = self._run_trial(
+            trial_results = self._run_trial(
                 algorithm=algorithm,
                 build_params=build_params,
                 search_params=search_params_dict,
@@ -490,12 +442,19 @@ class BenchmarkOrchestrator:
                 **loader_kwargs,
             )
 
-            # Store result for pareto plot
-            all_results.append(result)
+            # Retain every measurement for export. The last result is the
+            # search result used as the Optuna objective on successful trials.
+            all_results.extend(trial_results)
+            result = trial_results[-1]
 
             # Check if trial failed
             if not result.success:
                 raise optuna.TrialPruned()
+
+            if not isinstance(result, SearchResult):
+                raise RuntimeError(
+                    "Successful tune trial did not produce a search result"
+                )
 
             # Build metrics dict from SearchResult attributes
             # No fallbacks - if metrics are missing, let it fail loudly so we can fix the root cause
@@ -576,7 +535,7 @@ class BenchmarkOrchestrator:
         search_threads: Optional[int],
         append_results: bool = False,
         **loader_kwargs,
-    ) -> Union[BuildResult, SearchResult]:
+    ) -> List[Union[BuildResult, SearchResult]]:
         """
         Run a single benchmark trial with specific parameters.
 
@@ -609,12 +568,19 @@ class BenchmarkOrchestrator:
 
         # Should have exactly one config for single trial
         if not benchmark_configs:
-            return SearchResult(
-                success=False,
-                error_message="No config generated for trial",
-                metrics={},
-                search_params=[],
-            )
+            return [
+                SearchResult(
+                    neighbors=np.empty((0, count), dtype=np.int64),
+                    distances=np.empty((0, count), dtype=np.float32),
+                    search_time_ms=0.0,
+                    queries_per_second=0.0,
+                    recall=0.0,
+                    algorithm=algorithm,
+                    search_params=[],
+                    success=False,
+                    error_message="No config generated for trial",
+                )
+            ]
 
         config = benchmark_configs[0]
         # Pass append_results via config (backend-specific, not in base class)
@@ -626,20 +592,20 @@ class BenchmarkOrchestrator:
         try:
             backend.initialize()
 
-            result = None
-
+            trial_results: List[Union[BuildResult, SearchResult]] = []
             if build:
-                result = backend.build(
+                build_result = backend.build(
                     dataset=bench_dataset,
                     indexes=config.indexes,
                     force=force,
                     dry_run=dry_run,
                 )
-                if not result.success:
-                    return result
+                trial_results.append(build_result)
+                if not build_result.success:
+                    return trial_results
 
             if search:
-                result = backend.search(
+                search_results = backend.search(
                     dataset=bench_dataset,
                     indexes=config.indexes,
                     k=count,
@@ -650,23 +616,31 @@ class BenchmarkOrchestrator:
                     dry_run=dry_run,
                 )
 
-                # Compute recall for backends that return actual neighbors.
-                # Empty neighbors or nonzero recall indicate that the backend
-                # already handled recall itself.
-                if (
-                    result.success
-                    and result.neighbors.size > 0
-                    and result.recall == 0.0
-                ):
-                    gt = bench_dataset.groundtruth_neighbors
-                    if gt is not None:
-                        result.recall = compute_recall(
-                            result.neighbors, gt, count
-                        )
+                if len(search_results) != 1:
+                    raise RuntimeError(
+                        "Tune mode expected one search-parameter result"
+                    )
+                search_result = search_results[0]
+                self._finalize_search_result(
+                    search_result, bench_dataset, count
+                )
+                trial_results.append(search_result)
 
-            return result
+            return trial_results
         finally:
             backend.cleanup()
+
+    @staticmethod
+    def _finalize_search_result(
+        result: SearchResult, dataset: Dataset, k: int
+    ) -> None:
+        """Compute recall for backends that return neighbor arrays."""
+        if _should_compute_recall(result):
+            groundtruth = dataset.groundtruth_neighbors
+            if groundtruth is not None:
+                result.recall = compute_recall(
+                    result.neighbors, groundtruth, k
+                )
 
     def _create_dataset(self, dataset_config: DatasetConfig) -> Dataset:
         """

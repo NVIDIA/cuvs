@@ -1332,6 +1332,8 @@ if(NOT BUILD_CPU_ONLY)
     cuvs_objs OBJECT
     src/cluster/detail/minClusterDistanceCompute.cu
     src/cluster/agglomerative.cu
+    src/cluster/gmm_double.cu
+    src/cluster/gmm_float.cu
     src/cluster/kmeans_cluster_cost.cu
     src/cluster/kmeans_fit_double.cu
     src/cluster/kmeans_fit_float.cu
@@ -1386,6 +1388,7 @@ if(NOT BUILD_CPU_ONLY)
     ${cagra_build_inst_files}
     ${cagra_extend_inst_files}
     src/neighbors/cagra_optimize.cu
+    src/neighbors/detail/cagra/graph_shared.cu
     ${cagra_serialize_inst_files}
     ${cagra_merge_inst_files}
     ${iface_cagra_inst_files}
