@@ -85,8 +85,6 @@ To build and install the C library tests in the archive, pass `--tarball-build-t
 
 The archive contains the headers, libraries, CMake configuration, and license information needed to compile and link C or C++ applications against the standalone NVIDIA cuVS libraries.
 
-CI checks out the [RAPIDS SPDX license builder](https://github.com/rapidsai/spdx-license-builder) before running the container so that the generated license artifacts are included in the tarball.
-
 ### Build and Run the Docker Image Manually
 
 If you do not want to use the helper script, build the image directly from the repository root:
