@@ -7,7 +7,6 @@
 #include "../../../core/nvtx.hpp"
 #include "../../ivf_pq/ivf_pq_fp16_overflow.cuh"
 #include "graph_core.cuh"
-#include <cuvs/preprocessing/quantize/pq.hpp>
 
 #include <raft/core/copy.cuh>
 #include <raft/core/device_mdarray.hpp>
@@ -2158,7 +2157,8 @@ auto ensure_device_padded_for_iterative_search(
 }
 
 template <typename T, typename IdxT = uint32_t, typename DatasetViewT>
-  requires cuvs::neighbors::is_dense_row_major_dataset_view_v<DatasetViewT>
+  requires(cuvs::neighbors::is_dense_row_major_dataset_view_v<DatasetViewT> ||
+           cuvs::neighbors::is_device_vpq_f16_dataset_view_v<DatasetViewT>)
 auto iterative_build_graph(raft::resources const& res,
                            const index_params& params,
                            DatasetViewT const& dataset) -> raft::host_matrix<IdxT, int64_t>
@@ -2168,45 +2168,34 @@ auto iterative_build_graph(raft::resources const& res,
 
   const auto& iter_params =
     std::get<cagra::graph_build_params::iterative_search_params>(params.graph_build_params);
-  const auto& build_compression = iter_params.build_compression;
-
-  if (build_compression.has_value()) {
-    const auto& bc = *build_compression;
-    RAFT_LOG_INFO(
-      "Build compression params: pq_bits=%u, pq_dim=%u, vq_n_centers=%u, kmeans_n_iters=%u, "
-      "vq_kmeans_trainset_fraction=%.4f, pq_kmeans_trainset_fraction=%.4f, "
-      "max_train_points_per_pq_code=%u, max_train_points_per_vq_cluster=%u",
-      bc.pq_bits,
-      bc.pq_dim,
-      bc.vq_n_centers,
-      bc.kmeans_n_iters,
-      bc.vq_kmeans_trainset_fraction,
-      bc.pq_kmeans_trainset_fraction,
-      bc.max_train_points_per_pq_code,
-      bc.max_train_points_per_vq_cluster);
-  } else {
-    RAFT_LOG_INFO("Build compression: disabled (uncompressed build)");
-  }
   RAFT_LOG_INFO("Build search params: search_width=%zu, max_iterations=%zu",
                 iter_params.search_width,
                 iter_params.max_iterations);
 
   auto cagra_graph = raft::make_host_matrix<IdxT, int64_t>(0, 0);
 
-  // Iteratively improve the accuracy of the graph by repeatedly running
-  // CAGRA's search() and optimize(). Host or non-CAGRA-aligned device inputs are uploaded
-  // and padded here only for the internal search loop — same role as main's
-  // make_aligned_dataset() inside iterative_build_graph. IVF-PQ / NN-descent never take this path.
+  // Iteratively improve the graph by repeatedly running CAGRA search and optimize. Dense inputs are
+  // padded on device; VPQ inputs are searched directly and reconstructed per query batch.
   RAFT_LOG_INFO("Iteratively creating/improving graph index using CAGRA's search() and optimize()");
 
   std::unique_ptr<cuvs::neighbors::device_padded_dataset<T, int64_t>> padded_own;
-  auto search_dataset = ensure_device_padded_for_iterative_search<T>(res, dataset, padded_own);
+  auto dev_dataset =
+    raft::make_device_matrix_view<const T, int64_t>(static_cast<const T*>(nullptr), 0, 0);
+  uint32_t logical_dim = dataset.dim();
+  uint64_t final_graph_size;
+  const cuvs::neighbors::device_vpq_dataset<half, int64_t>* vpq_dataset = nullptr;
 
-  auto dev_dataset     = search_dataset.view();
-  uint32_t logical_dim = search_dataset.dim();
+  if constexpr (cuvs::neighbors::is_device_vpq_f16_dataset_view_v<DatasetViewT>) {
+    final_graph_size = static_cast<uint64_t>(dataset.n_rows());
+    vpq_dataset      = &dataset.dset();
+  } else {
+    auto search_dataset = ensure_device_padded_for_iterative_search<T>(res, dataset, padded_own);
+    dev_dataset         = search_dataset.view();
+    logical_dim         = search_dataset.dim();
+    final_graph_size    = static_cast<uint64_t>(search_dataset.n_rows());
+  }
 
   // Determine initial graph size.
-  uint64_t final_graph_size   = (uint64_t)search_dataset.n_rows();
   uint64_t initial_graph_size = (final_graph_size + 1) / 2;
   while (initial_graph_size > graph_degree * 64) {
     initial_graph_size = (initial_graph_size + 1) / 2;
@@ -2264,33 +2253,6 @@ auto iterative_build_graph(raft::resources const& res,
   auto dev_graph        = raft::make_device_matrix<IdxT, int64_t>(res, 0, 0);
   bool use_device_graph = false;
 
-  // Generate the compressed dataset once if compression is enabled. The owner remains alive for
-  // the complete iterative loop while each temporary index stores only its non-owning view.
-  const uint64_t dataset_row_width = dev_dataset.extent(1);
-  std::optional<cuvs::neighbors::device_vpq_dataset<half, int64_t>> vpq_dataset;
-
-  if (build_compression.has_value()) {
-    auto start = std::chrono::high_resolution_clock::now();
-    RAFT_EXPECTS(params.metric == cuvs::distance::DistanceType::L2Expanded,
-                 "VPQ compression is only supported with L2Expanded distance metric");
-
-    vpq_dataset.emplace(
-      cuvs::preprocessing::quantize::pq::make_vpq_dataset(res, *build_compression, search_dataset));
-    auto end = std::chrono::high_resolution_clock::now();
-    [[maybe_unused]] auto elapsed_ms =
-      std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-    RAFT_LOG_INFO("# VPQ compression time: %.3lf sec", (double)elapsed_ms / 1000);
-
-    // Release only storage created internally. Caller-owned device storage remains untouched.
-    if (padded_own) {
-      padded_own.reset();
-      RAFT_LOG_INFO(
-        "# Freed internally padded dataset from device (%.1f MiB); queries will use VPQ "
-        "reconstruction",
-        to_mib(final_graph_size * dataset_row_width * sizeof(T)));
-    }
-  }
-
   while (true) {
     auto start           = std::chrono::high_resolution_clock::now();
     auto curr_query_size = std::min(2 * curr_graph_size, final_graph_size);
@@ -2333,7 +2295,7 @@ auto iterative_build_graph(raft::resources const& res,
 
     // Each index holds non-owning dataset and graph views. The local dataset owner and the graph
     // passed to search_and_optimize keep those views alive for the duration of the search.
-    if (vpq_dataset.has_value()) {
+    if (vpq_dataset != nullptr) {
       auto idx = cuvs::neighbors::cagra::vpq_f16_index<T, IdxT>(res, params.metric);
       idx.update_device_dataset_same_layout(res, vpq_dataset->as_dataset_view());
       if (use_device_graph) {
@@ -2351,7 +2313,7 @@ auto iterative_build_graph(raft::resources const& res,
                                       dev_neighbors.view(),
                                       dev_distances.view(),
                                       std::move(dev_graph),
-                                      &*vpq_dataset,
+                                      vpq_dataset,
                                       curr_query_size,
                                       next_graph_degree,
                                       curr_topk,

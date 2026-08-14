@@ -18,6 +18,9 @@ using inst_device_padded_view_t   = cuvs::neighbors::device_padded_dataset_view<
 using inst_device_standard_view_t = cuvs::neighbors::device_standard_dataset_view<data_t, int64_t>;
 using inst_host_padded_view_t     = cuvs::neighbors::host_padded_dataset_view<data_t, int64_t>;
 using inst_host_standard_view_t   = cuvs::neighbors::host_standard_dataset_view<data_t, int64_t>;
+#if @emit_vpq_build@
+using inst_device_vpq_view_t = cuvs::neighbors::device_vpq_dataset_view<half, int64_t>;
+#endif
 }  // namespace
 
 namespace cuvs::neighbors::cagra {
@@ -54,6 +57,11 @@ CUVS_DEFINE_CAGRA_BUILD_OVERLOAD(inst_host_padded_view_t,
                                  cuvs::neighbors::cagra::host_padded_index<data_t, uint32_t>);
 CUVS_DEFINE_CAGRA_BUILD_OVERLOAD(inst_host_standard_view_t,
                                  cuvs::neighbors::cagra::host_standard_index<data_t, uint32_t>);
+
+#if @emit_vpq_build@
+CUVS_DEFINE_CAGRA_BUILD_OVERLOAD(inst_device_vpq_view_t,
+                                 cuvs::neighbors::cagra::vpq_index<half, uint32_t>);
+#endif
 
 #undef CUVS_DEFINE_CAGRA_BUILD_OVERLOAD
 

@@ -34,6 +34,7 @@
 #include <numeric>
 #include <optional>
 #include <string>
+#include <type_traits>
 #include <variant>
 #include <vector>
 
@@ -161,19 +162,8 @@ namespace graph_build_params {
  * The defaults are tuned for the build loop (e.g. search_width=1,
  * max_iterations=8) and may differ from the regular search defaults.
  *
- * `build_compression` controls the VPQ parameters applied to the dataset
- * *while building the graph*. It does not change the dataset view attached to the final index.
  */
 struct iterative_search_params : cuvs::neighbors::cagra::search_params {
-  /**
-   * Optional VPQ compression parameters used during iterative graph construction.
-   *
-   * When set, the dataset is compressed with these parameters for the
-   * search-and-optimize loop. When std::nullopt (default), the builder
-   * uses the dense input dataset.
-   */
-  std::optional<cuvs::neighbors::vpq_params> build_compression = std::nullopt;
-
   iterative_search_params()
   {
     this->search_width   = 1;
@@ -944,6 +934,10 @@ using device_standard_index =
 template <typename T, typename IdxT = uint32_t>
 using host_standard_index = index<T, IdxT, cuvs::neighbors::host_standard_dataset_view<T, int64_t>>;
 
+/** CAGRA index with float queries and a device-resident VPQ dataset view. */
+template <typename CodebookT = half, typename IdxT = uint32_t>
+using vpq_index = index<float, IdxT, cuvs::neighbors::device_vpq_dataset_view<CodebookT, int64_t>>;
+
 /** CAGRA index with a device-resident VPQ dataset (f16 codebook vectors). */
 template <typename T, typename IdxT = uint32_t>
 using vpq_f16_index = index<T, IdxT, cuvs::neighbors::device_vpq_dataset_view<half, int64_t>>;
@@ -954,9 +948,12 @@ using vpq_f32_index = index<T, IdxT, cuvs::neighbors::device_vpq_dataset_view<fl
 
 /** Index type returned by `cagra::build(res, params, dataset_view)`. */
 template <typename DatasetViewT>
-using cagra_index_t = index<cuvs::neighbors::cagra_view_element_type_t<DatasetViewT>,
-                            uint32_t,
-                            cuvs::neighbors::dataset_view_type_t<DatasetViewT>>;
+using cagra_index_t =
+  std::conditional_t<cuvs::neighbors::is_device_vpq_f16_dataset_view_v<DatasetViewT>,
+                     vpq_index<half, uint32_t>,
+                     index<cuvs::neighbors::cagra_view_element_type_t<DatasetViewT>,
+                           uint32_t,
+                           cuvs::neighbors::dataset_view_type_t<DatasetViewT>>>;
 
 /**
  * @}
@@ -968,10 +965,11 @@ using cagra_index_t = index<cuvs::neighbors::cagra_view_element_type_t<DatasetVi
  */
 
 /**
- * @brief Build the index from a `dataset_view` (device padded/standard or host padded/standard).
+ * @brief Build the index from a `dataset_view`.
  *
- * VPQ-compressed device views are rejected: dense graph construction requires uncompressed data.
- * Use a separate VPQ index workflow after building the graph from an uncompressed dataset.
+ * Dense device/host views support the usual graph-build algorithms. A device VPQ view with FP16
+ * codebooks is built with iterative CAGRA search and must use L2Expanded, 8-bit PQ codes, and a
+ * supported PQ subvector length.
  *
  * When `index_params.attach_dataset_on_build = true` (the default), a dense `dataset` view is
  * stored in the returned index as a **non-owning view** — no copy is made. The caller must keep the
@@ -989,6 +987,27 @@ using cagra_index_t = index<cuvs::neighbors::cagra_view_element_type_t<DatasetVi
  */
 // Concrete non-template overloads for all supported build dataset view types.
 // This keeps the public header explicit and stable while implementation remains shared internally.
+/**
+ * @brief Build directly from a device VPQ dataset view with FP16 codebooks.
+ *
+ * A VPQ input can only use iterative CAGRA graph construction. When `graph_build_params` is
+ * `std::monostate`, iterative construction is selected automatically; explicitly selecting another
+ * graph builder is an error. The metric must be `L2Expanded`, PQ codes must be 8-bit, and the PQ
+ * subvector length must be 2, 4, or 8.
+ *
+ * The returned index accepts float queries and stores a non-owning copy of `dataset` when
+ * `attach_dataset_on_build` is true. The owning `device_vpq_dataset` must outlive the index.
+ *
+ * @param[in] res raft resources
+ * @param[in] params CAGRA index build parameters
+ * @param[in] dataset device VPQ dataset view
+ * @return built `vpq_index<half, uint32_t>`
+ */
+auto build(raft::resources const& res,
+           const cuvs::neighbors::cagra::index_params& params,
+           cuvs::neighbors::device_vpq_dataset_view<half, int64_t> const& dataset)
+  -> cuvs::neighbors::cagra::vpq_index<half, uint32_t>;
+
 /**
  * @brief Build from a device padded dataset view (`float`).
  * @param[in] res raft resources
