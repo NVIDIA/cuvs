@@ -43,6 +43,7 @@ import org.apache.lucene.index.Sorter;
 import org.apache.lucene.index.Sorter.DocMap;
 import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.store.IndexOutput;
+import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.IOUtils;
 import org.apache.lucene.util.InfoStream;
 
@@ -373,9 +374,48 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
    */
   private void vectorBasedMerge(FieldInfo fieldInfo, MergeState mergeState) throws IOException {
     try {
+      // FloatVectorValues#size() on the merged view is the raw sum of every source segment's
+      // on-disk vector count (MergedVectorValues.MergedFloat32VectorValues computes it once at
+      // construction from each sub-reader's unfiltered size) -- NOT the number of live
+      // (non-deleted) vectors the iterator below will actually yield, which is what
+      // CuVSMatrix.hostBuilder needs since it preallocates a fixed-size native buffer. Using
+      // size() here under-fills that buffer whenever the merge drops deleted docs, leaving the
+      // graph built over more rows than were actually populated.
+      //
+      // size() IS trustworthy when no segment being merged has any deletions: per-segment vector
+      // counts already exclude docs without a value for this field (sparse fields are handled at
+      // the single-segment level, independent of deletions), so the raw sum equals the live count
+      // in that case and the extra counting pass below can be skipped.
+      boolean anySegmentHasDeletions = false;
+      for (Bits liveDocs : mergeState.liveDocs) {
+        if (liveDocs != null) {
+          anySegmentHasDeletions = true;
+          break;
+        }
+      }
+
+      int size;
+      if (anySegmentHasDeletions) {
+        // Count the live vectors via a throwaway iteration first (mergeFloatVectorValues
+        // constructs a fresh, independent view each call, so this doesn't disturb the real build
+        // pass below).
+        size = 0;
+        FloatVectorValues counting =
+            KnnVectorsWriter.MergedVectorValues.mergeFloatVectorValues(fieldInfo, mergeState);
+        KnnVectorValues.DocIndexIterator countingIt = counting.iterator();
+        for (int doc = countingIt.nextDoc();
+            doc != DocIdSetIterator.NO_MORE_DOCS;
+            doc = countingIt.nextDoc()) {
+          size++;
+        }
+      } else {
+        size =
+            KnnVectorsWriter.MergedVectorValues.mergeFloatVectorValues(fieldInfo, mergeState)
+                .size();
+      }
+
       FloatVectorValues mergedVectors =
           KnnVectorsWriter.MergedVectorValues.mergeFloatVectorValues(fieldInfo, mergeState);
-      int size = mergedVectors.size();
       int dims = fieldInfo.getVectorDimension();
       CuVSMatrix.Builder<CuVSHostMatrix> builder =
           CuVSMatrix.hostBuilder(size, dims, CuVSMatrix.DataType.FLOAT);
