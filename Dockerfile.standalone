@@ -24,7 +24,7 @@ RUN rapids-pip-retry install cmake 'ninja>=1.13' \
 
 # Output directory for the standalone archive. Bind-mount a host folder here
 # (e.g. -v $(pwd)/build:/build) so libcuvs_c.tar.gz is written to the host.
-ENV BUILD_OUTPUT_DIR=/build
+ENV CUVS_TARBALL_BUILD_OUTPUT_DIR=/build
 ENV CUVS_TARBALL_IN_CONTAINER=1
 
 # Run from repo root; the repo is expected to be bind-mounted at /workspace.

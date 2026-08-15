@@ -111,8 +111,8 @@ jobs:
           persist-credentials: false
       - name: Build and run standalone C Docker image
         env:
-          CUDA_VERSION: ${{ matrix.CUDA_VER }}
-          PYTHON_VERSION: ${{ matrix.PY_VER }}
+          CUVS_TARBALL_CUDA_VERSION: ${{ matrix.CUDA_VER }}
+          CUVS_TARBALL_PYTHON_VERSION: ${{ matrix.PY_VER }}
         run: ci/run_standalone_c_docker.sh
       - name: Upload file to GitHub Artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

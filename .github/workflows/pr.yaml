@@ -551,8 +551,8 @@ jobs:
           persist-credentials: false
       - name: Build and run standalone C Docker image
         env:
-          CUDA_VERSION: ${{ matrix.CUDA_VER }}
-          PYTHON_VERSION: ${{ matrix.PY_VER }}
+          CUVS_TARBALL_CUDA_VERSION: ${{ matrix.CUDA_VER }}
+          CUVS_TARBALL_PYTHON_VERSION: ${{ matrix.PY_VER }}
           RAPIDS_AUX_SECRET_1: ${{ secrets.GIST_REPO_READ_ORG_GITHUB_TOKEN }}
         run: ci/run_standalone_c_docker.sh --tarball-build-tests
       - name: Upload file to GitHub Artifact

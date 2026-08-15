@@ -65,16 +65,38 @@ From the repository root, run:
 
 The script builds the Docker image, runs the build in a container, writes the tarball to `./build/libcuvs_c.tar.gz`, and copies it to `./libcuvs_c.tar.gz` for CI artifact upload and convenience.
 
+The helper accepts the following environment variables:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `CUVS_TARBALL_CUDA_VERSION` | `13.3.0` | Selects the CUDA version in the `rapidsai/ci-wheel` base image. |
+| `CUVS_TARBALL_PYTHON_VERSION` | `3.11` | Selects the Python version in the `rapidsai/ci-wheel` base image. |
+| `CUVS_TARBALL_BUILD_OUTPUT_DIR` | `./build` | Selects the host directory where the tarball is written. |
+| `CUVS_TARBALL_IMAGE_NAME` | `cuvs-standalone-c` | Sets the name of the locally built Docker image. |
+| `EXTRA_TARBALL_DOCKER_ARGS` | Empty | Passes additional arguments to `docker run`, such as environment-variable names. |
+
 To select CUDA and Python versions, set environment variables to exact versions from a valid [`rapidsai/ci-wheel` image tag](https://hub.docker.com/r/rapidsai/ci-wheel/tags). For example:
 
 ```bash
-CUDA_VERSION=12.9.2 PYTHON_VERSION=3.11 ./build.sh tarball
+CUVS_TARBALL_CUDA_VERSION=12.9.2 CUVS_TARBALL_PYTHON_VERSION=3.11 ./build.sh tarball
 ```
 
-To write the tarball to another directory, set `BUILD_OUTPUT_DIR`:
+To change the local Docker image name, set `CUVS_TARBALL_IMAGE_NAME`:
 
 ```bash
-BUILD_OUTPUT_DIR="${PWD}/dist" ./build.sh tarball
+CUVS_TARBALL_IMAGE_NAME=cuvs-standalone-custom ./build.sh tarball
+```
+
+To pass additional environment variables from the host into the build container, list their names as Docker arguments:
+
+```bash
+EXTRA_TARBALL_DOCKER_ARGS="--env HTTP_PROXY --env HTTPS_PROXY" ./build.sh tarball
+```
+
+To write the tarball to another directory, set `CUVS_TARBALL_BUILD_OUTPUT_DIR`:
+
+```bash
+CUVS_TARBALL_BUILD_OUTPUT_DIR="${PWD}/dist" ./build.sh tarball
 ```
 
 The tarball is written to `${PWD}/dist/libcuvs_c.tar.gz` and is also copied to the repository root.

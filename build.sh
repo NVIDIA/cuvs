@@ -582,47 +582,37 @@ fi
 
 if hasArg tarball; then
     if [[ "${CUVS_TARBALL_IN_CONTAINER:-0}" == "1" ]]; then
-        BUILD_OUTPUT_DIR="${BUILD_OUTPUT_DIR:-${REPODIR}}"
-        tar czf "${BUILD_OUTPUT_DIR}/libcuvs_c.tar.gz" -C "${REPODIR}/c/build/install" .
-        ls -lh "${BUILD_OUTPUT_DIR}/libcuvs_c.tar.gz"
+        CUVS_TARBALL_BUILD_OUTPUT_DIR="${CUVS_TARBALL_BUILD_OUTPUT_DIR:-${REPODIR}}"
+        tar czf "${CUVS_TARBALL_BUILD_OUTPUT_DIR}/libcuvs_c.tar.gz" -C "${REPODIR}/c/build/install" .
+        ls -lh "${CUVS_TARBALL_BUILD_OUTPUT_DIR}/libcuvs_c.tar.gz"
     else
-        CUDA_VERSION="${CUDA_VERSION:-13.3.0}"
-        PYTHON_VERSION="${PYTHON_VERSION:-3.11}"
-        BUILD_OUTPUT_DIR="${BUILD_OUTPUT_DIR:-${REPODIR}/build}"
-        IMAGE_NAME="${IMAGE_NAME:-cuvs-standalone-c}"
+        CUVS_TARBALL_CUDA_VERSION="${CUVS_TARBALL_CUDA_VERSION:-13.3.0}"
+        CUVS_TARBALL_PYTHON_VERSION="${CUVS_TARBALL_PYTHON_VERSION:-3.11}"
+        CUVS_TARBALL_BUILD_OUTPUT_DIR="${CUVS_TARBALL_BUILD_OUTPUT_DIR:-${REPODIR}/build}"
+        CUVS_TARBALL_IMAGE_NAME="${CUVS_TARBALL_IMAGE_NAME:-cuvs-standalone-c}"
 
         BUILD_ARGS=()
+        read -ra EXTRA_TARBALL_DOCKER_ARGS <<< "${EXTRA_TARBALL_DOCKER_ARGS:-}"
         if hasArg --tarball-build-tests; then
             BUILD_ARGS+=(--tarball-build-tests)
         fi
 
-        mkdir -p "${BUILD_OUTPUT_DIR}"
-        BUILD_OUTPUT_DIR_ABS=$(realpath "${BUILD_OUTPUT_DIR}")
+        mkdir -p "${CUVS_TARBALL_BUILD_OUTPUT_DIR}"
+        BUILD_OUTPUT_DIR_ABS=$(realpath "${CUVS_TARBALL_BUILD_OUTPUT_DIR}")
 
-        echo "Building Docker image ${IMAGE_NAME} (CUDA ${CUDA_VERSION}, Python ${PYTHON_VERSION})..."
+        echo "Building Docker image ${CUVS_TARBALL_IMAGE_NAME} (CUDA ${CUVS_TARBALL_CUDA_VERSION}, Python ${CUVS_TARBALL_PYTHON_VERSION})..."
         docker build -f "${REPODIR}/Dockerfile.standalone" \
-            --build-arg CUDA_VERSION="${CUDA_VERSION}" \
-            --build-arg PYTHON_VERSION="${PYTHON_VERSION}" \
-            -t "${IMAGE_NAME}" \
+            --build-arg CUDA_VERSION="${CUVS_TARBALL_CUDA_VERSION}" \
+            --build-arg PYTHON_VERSION="${CUVS_TARBALL_PYTHON_VERSION}" \
+            -t "${CUVS_TARBALL_IMAGE_NAME}" \
             "${REPODIR}"
 
         echo "Running standalone C build in container..."
         docker run --rm \
             -v "${REPODIR}:/workspace" \
             -v "${BUILD_OUTPUT_DIR_ABS}:/build" \
-            --env AWS_REGION \
-            --env AWS_ACCESS_KEY_ID \
-            --env AWS_SECRET_ACCESS_KEY \
-            --env AWS_SESSION_TOKEN \
-            --env RAPIDS_AUX_SECRET_1 \
-            --env RAPIDS_ARTIFACTS_DIR \
-            --env RAPIDS_BUILD_TYPE \
-            --env RAPIDS_DATETIME_STRING \
-            --env RAPIDS_REPOSITORY \
-            --env RAPIDS_SHA \
-            --env RAPIDS_REF_NAME \
-            --env RAPIDS_NIGHTLY_DATE \
-            "${IMAGE_NAME}" \
+            "${EXTRA_TARBALL_DOCKER_ARGS[@]}" \
+            "${CUVS_TARBALL_IMAGE_NAME}" \
             "${BUILD_ARGS[@]}"
 
         cp -v "${BUILD_OUTPUT_DIR_ABS}/libcuvs_c.tar.gz" "${REPODIR}/libcuvs_c.tar.gz"
