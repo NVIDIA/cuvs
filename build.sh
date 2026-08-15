@@ -606,22 +606,22 @@ if hasArg tarball; then
             -t "${IMAGE_NAME}" \
             "${REPODIR}"
 
-        DOCKER_ENV=()
-        for var in ${CUVS_TARBALL_DOCKER_ENV_VARS:-}; do
-            if [[ ! "${var}" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]]; then
-                echo "Invalid Docker environment variable name: ${var}" >&2
-                exit 1
-            fi
-            if [[ -n "${!var:-}" ]]; then
-                DOCKER_ENV+=(-e "${var}=${!var}")
-            fi
-        done
-
         echo "Running standalone C build in container..."
         docker run --rm \
             -v "${REPODIR}:/workspace" \
             -v "${BUILD_OUTPUT_DIR_ABS}:/build" \
-            "${DOCKER_ENV[@]}" \
+            --env AWS_REGION \
+            --env AWS_ACCESS_KEY_ID \
+            --env AWS_SECRET_ACCESS_KEY \
+            --env AWS_SESSION_TOKEN \
+            --env RAPIDS_AUX_SECRET_1 \
+            --env RAPIDS_ARTIFACTS_DIR \
+            --env RAPIDS_BUILD_TYPE \
+            --env RAPIDS_DATETIME_STRING \
+            --env RAPIDS_REPOSITORY \
+            --env RAPIDS_SHA \
+            --env RAPIDS_REF_NAME \
+            --env RAPIDS_NIGHTLY_DATE \
             "${IMAGE_NAME}" \
             "${BUILD_ARGS[@]}"
 

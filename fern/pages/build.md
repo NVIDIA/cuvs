@@ -43,6 +43,10 @@ You may prefer `mamba` over `conda` for faster environment solves. The `conda/en
 
 ## Build the Standalone C Library with Docker
 
+<Note>
+The standalone tarball is built with Docker so that it uses the supported toolchain versions and the build remains portable and reproducible across all supported installation platforms.
+</Note>
+
 Use the standalone Docker build when you want a `libcuvs_c.tar.gz` archive that you can unpack and use to build your own C or C++ binaries for deployment or integration.
 
 ### Prerequisites
@@ -70,10 +74,10 @@ CUDA_VERSION=12.9.2 PYTHON_VERSION=3.11 ./build.sh tarball
 To write the tarball to another directory, set `BUILD_OUTPUT_DIR`:
 
 ```bash
-BUILD_OUTPUT_DIR=$(pwd)/dist ./build.sh tarball
+BUILD_OUTPUT_DIR="${PWD}/dist" ./build.sh tarball
 ```
 
-The tarball is written to `/path/to/output/libcuvs_c.tar.gz` and is also copied to the repository root.
+The tarball is written to `${PWD}/dist/libcuvs_c.tar.gz` and is also copied to the repository root.
 
 To build and install the C library tests in the archive, pass `--tarball-build-tests`:
 
@@ -100,8 +104,8 @@ Run the build and mount the repository plus an output directory:
 ```bash
 mkdir -p build
 docker run --rm \
-  -v "$(pwd):/workspace" \
-  -v "$(pwd)/build:/build" \
+  -v "${PWD}:/workspace" \
+  -v "${PWD}/build:/build" \
   cuvs-standalone-c
 ```
 
@@ -117,10 +121,10 @@ docker build -f Dockerfile.standalone \
 Mount another host directory at `/build` to change the output location:
 
 ```bash
-mkdir -p /path/to/output
+mkdir -p "${PWD}/dist"
 docker run --rm \
-  -v "$(pwd):/workspace" \
-  -v "/path/to/output:/build" \
+  -v "${PWD}:/workspace" \
+  -v "${PWD}/dist:/build" \
   cuvs-standalone-c
 ```
 
@@ -129,8 +133,8 @@ Pass `--tarball-build-tests` to include the C library tests:
 ```bash
 mkdir -p build
 docker run --rm \
-  -v "$(pwd):/workspace" \
-  -v "$(pwd)/build:/build" \
+  -v "${PWD}:/workspace" \
+  -v "${PWD}/build:/build" \
   cuvs-standalone-c --tarball-build-tests
 ```
 
