@@ -11,8 +11,8 @@ resolver = "2"
 [workspace.package]
 version = "26.10.0"
 edition = "2024"
-repository = "https://github.com/rapidsai/cuvs"
-homepage = "https://github.com/rapidsai/cuvs"
+repository = "https://github.com/nvidia/cuvs"
+homepage = "https://github.com/nvidia/cuvs"
 description = "Vector Search and Clustering on the GPU"
 authors = ["NVIDIA Corporation"]
 license = "Apache-2.0"

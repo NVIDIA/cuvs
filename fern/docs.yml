@@ -71,7 +71,7 @@ experimental:
 navbar-links:
   - type: "secondary"
     text: "GitHub"
-    url: "https://github.com/rapidsai/cuvs"
+    url: "https://github.com/nvidia/cuvs"
   - type: "secondary"
     text: "CUDA-X"
     url: "https://www.nvidia.com/en-us/technologies/cuda-x/"
@@ -152,6 +152,8 @@ navigation:
             contents:
               - page: "K-Means"
                 path: "./pages/cluster/kmeans.md"
+              - page: "Gaussian Mixture Model"
+                path: "./pages/cluster/gmm.md"
               - page: "Single-linkage"
                 path: "./pages/cluster/single_linkage.md"
               - page: "Spectral Clustering"
@@ -261,6 +263,7 @@ navigation:
       - page: "Contributing"
         path: "./pages/contributing.md"
   - section: "API Reference"
+    path: "./pages/api_reference.md"
     contents:
       - section: "C API Documentation"
         path: "./pages/c_api/index.md"
@@ -320,6 +323,8 @@ navigation:
         contents:
           - page: "Cluster Agglomerative"
             path: "./pages/cpp_api/cpp-api-cluster-agglomerative.md"
+          - page: "Cluster Gmm"
+            path: "./pages/cpp_api/cpp-api-cluster-gmm.md"
           - page: "Cluster Kmeans"
             path: "./pages/cpp_api/cpp-api-cluster-kmeans.md"
           - page: "Cluster Spectral"
