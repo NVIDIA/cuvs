@@ -1,5 +1,5 @@
 #!/bin/bash
-# SPDX-FileCopyrightText: Copyright (c) 2020-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2020-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 ########################
 # CUVS Version Updater #
@@ -140,8 +140,9 @@ if [[ "${RUN_CONTEXT}" == "main" ]]; then
 elif [[ "${RUN_CONTEXT}" == "release" ]]; then
   # In release context, use release branch for documentation links (word boundaries to avoid partial matches)
   sed_runner "/rapidsai\\/cuvs/ s|\\bmain\\b|release/${NEXT_SHORT_TAG}|g" fern/pages/developer_guide.md
-  sed_runner "s|\\bmain\\b|release/${NEXT_SHORT_TAG}|g" README.md
-  # Only update the GitHub URL, not the main() function
+  # Only update GitHub URL paths, not code (e.g. fn main() in Rust examples)
+  sed_runner "s|/cuvs/blob/main/|/cuvs/blob/release/${NEXT_SHORT_TAG}/|g" README.md
+  sed_runner "s|/cuvs/tree/main/|/cuvs/tree/release/${NEXT_SHORT_TAG}/|g" README.md
   sed_runner "s|/cuvs/blob/\\bmain\\b/|/cuvs/blob/release/${NEXT_SHORT_TAG}/|g" python/cuvs_bench/cuvs_bench/plot/__main__.py
 fi
 

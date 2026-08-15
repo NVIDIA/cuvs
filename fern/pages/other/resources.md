@@ -141,7 +141,7 @@ fn run() -> Result<()> {
 ```go
 package main
 
-import cuvs "github.com/rapidsai/cuvs/go"
+import cuvs "github.com/nvidia/cuvs/go"
 
 func main() error {
 	resource, err := cuvs.NewResource(nil)
@@ -230,7 +230,7 @@ fn run() -> Result<()> {
 ```go
 package main
 
-import cuvs "github.com/rapidsai/cuvs/go"
+import cuvs "github.com/nvidia/cuvs/go"
 
 func syncWork(resource cuvs.Resource) error {
 	// Call cuVS Go APIs with resource first.
@@ -416,7 +416,7 @@ fn configure_stream(stream: cudaStream_t) -> cuvs::Result<Resources> {
 package main
 
 import "C"
-import cuvs "github.com/rapidsai/cuvs/go"
+import cuvs "github.com/nvidia/cuvs/go"
 
 func newResourceOnStream(stream C.cudaStream_t) (cuvs.Resource, error) {
 	return cuvs.NewResource(stream)
