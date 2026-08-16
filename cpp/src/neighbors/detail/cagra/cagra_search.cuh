@@ -85,6 +85,7 @@ void search_main_core(
     search_plan_impl<DataT, IndexT, DistanceT, CagraSampleFilterT_s, SourceIdxT, OutputIdxT>>
     plan = factory<DataT, IndexT, DistanceT, CagraSampleFilterT_s, SourceIdxT, OutputIdxT>::create(
       res, params, dataset_desc, queries.extent(1), graph.extent(0), graph.extent(1), topk);
+
   plan->check(topk);
 
   RAFT_LOG_DEBUG("Cagra search");
@@ -207,7 +208,6 @@ void search_main(raft::resources const& res,
       params.smem_dtype = cuvs::neighbors::cagra::internal_dtype::F16;
     }
     // Search using a plain (strided) row-major dataset
-    RAFT_LOG_DEBUG("Searching with strided dataset");
     RAFT_EXPECTS(index.metric() != cuvs::distance::DistanceType::CosineExpanded ||
                    index.dataset_norms().has_value(),
                  "Dataset norms must be provided for CosineExpanded metric");
@@ -238,7 +238,6 @@ void search_main(raft::resources const& res,
     RAFT_FAIL("FP32 VPQ dataset support is coming soon");
   } else if constexpr (cuvs::neighbors::is_device_vpq_f16_dataset_view_v<DatasetViewT>) {
     auto const& vv = index.dataset();
-    RAFT_LOG_DEBUG("Searching with VPQ dataset");
     if (params.smem_dtype == cuvs::neighbors::cagra::internal_dtype::E5M2 &&
         raft::getComputeCapability().first < 9) {
       RAFT_LOG_WARN(
