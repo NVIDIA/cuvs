@@ -12,8 +12,9 @@
  * the dtype-templated suites in ann_cagra.cuh and lives in its own file.
  *
  * What is checked here is that a compressed dataset, freshly compressed or loaded from disk,
- * builds a usable graph, and that the constraints above are rejected rather than accepted and
- * quietly ignored. Serialization fidelity itself is covered by preprocessing/vpq_serialization.cu.
+ * builds a usable graph, that such an index survives a trip through a file with its rows, and that
+ * the constraints above are rejected rather than accepted and quietly ignored. Fidelity of the
+ * dataset payload itself is covered by preprocessing/vpq_serialization.cu.
  */
 
 #include <gtest/gtest.h>
@@ -65,6 +66,28 @@ auto iterative_params(uint32_t graph_degree = 32) -> index_params
   return params;
 }
 
+constexpr int64_t kSearchK = 10;
+
+/** Neighbour ids for `queries`, row-major [n_queries, kSearchK]. */
+template <typename IndexT>
+auto neighbor_ids(const raft::resources& res,
+                  const IndexT& idx,
+                  raft::device_matrix_view<const float, int64_t> queries) -> std::vector<uint32_t>
+{
+  const auto n_queries = queries.extent(0);
+  auto neighbors       = raft::make_device_matrix<uint32_t, int64_t>(res, n_queries, kSearchK);
+  auto distances       = raft::make_device_matrix<float, int64_t>(res, n_queries, kSearchK);
+
+  search_params params;
+  params.itopk_size = 64;
+  search(res, params, idx, queries, neighbors.view(), distances.view());
+
+  std::vector<uint32_t> ids(static_cast<size_t>(n_queries * kSearchK));
+  raft::copy(ids.data(), neighbors.data_handle(), ids.size(), raft::resource::get_cuda_stream(res));
+  raft::resource::sync_stream(res);
+  return ids;
+}
+
 /**
  * Fraction of queries that retrieve their own row, where the queries are dataset rows.
  *
@@ -77,22 +100,11 @@ auto self_recall_at_1(const raft::resources& res,
                       const IndexT& idx,
                       raft::device_matrix_view<const float, int64_t> queries) -> double
 {
-  constexpr int64_t k  = 10;
+  auto ids             = neighbor_ids(res, idx, queries);
   const auto n_queries = queries.extent(0);
-  auto neighbors       = raft::make_device_matrix<uint32_t, int64_t>(res, n_queries, k);
-  auto distances       = raft::make_device_matrix<float, int64_t>(res, n_queries, k);
-
-  search_params params;
-  params.itopk_size = 64;
-  search(res, params, idx, queries, neighbors.view(), distances.view());
-
-  std::vector<uint32_t> ids(static_cast<size_t>(n_queries * k));
-  raft::copy(ids.data(), neighbors.data_handle(), ids.size(), raft::resource::get_cuda_stream(res));
-  raft::resource::sync_stream(res);
-
-  int64_t hits = 0;
+  int64_t hits         = 0;
   for (int64_t q = 0; q < n_queries; q++) {
-    if (ids[q * k] == static_cast<uint32_t>(q)) { hits++; }
+    if (ids[q * kSearchK] == static_cast<uint32_t>(q)) { hits++; }
   }
   return static_cast<double>(hits) / static_cast<double>(n_queries);
 }
@@ -220,6 +232,103 @@ INSTANTIATE_TEST_CASE_P(CagraQBuildTests,
                           {2000, 128, 32},  // pq_len 4
                           {2000, 256, 32},  // pq_len 8
                         }));
+
+/**
+ * An index over compressed rows is serialized with those rows, so that a loaded index can be
+ * searched without the dense dataset it came from and without retraining the codebooks. The
+ * ownership split is the usual one: the file yields an owning dataset, the index only views it.
+ */
+class CagraQSerializeTest : public CagraQCompressedTestBase {
+ protected:
+  void SetUp() override { make_dataset(n_rows, dim); }
+
+  static constexpr int64_t n_rows  = 2000;
+  static constexpr int64_t dim     = 128;
+  static constexpr uint32_t pq_dim = 32;  // pq_len 4
+};
+
+TEST_F(CagraQSerializeTest, RoundTripsThroughAFileWithItsDataset)
+{
+  auto compressed = compress(res_, dataset(), pq_dim);
+  auto idx        = cagra::build(res_, iterative_params(), compressed.as_dataset_view());
+  auto before     = neighbor_ids(res_, idx, queries(500));
+
+  std::stringstream stored;
+  cagra::serialize(res_, stored, idx);
+
+  vpq_f16_index<float> restored{res_};
+  std::unique_ptr<vpq_dataset_t> owner;
+  cagra::deserialize(res_, stored, &restored, &owner);
+
+  ASSERT_NE(owner, nullptr);
+  EXPECT_EQ(owner->n_rows(), compressed.n_rows());
+  EXPECT_EQ(owner->dim(), compressed.dim());
+  EXPECT_EQ(owner->pq_len(), compressed.pq_len());
+  EXPECT_EQ(owner->pq_bits(), compressed.pq_bits());
+  EXPECT_EQ(owner->vq_n_centers(), compressed.vq_n_centers());
+  EXPECT_EQ(owner->encoded_row_length(), compressed.encoded_row_length());
+
+  ASSERT_EQ(restored.size(), idx.size());
+  ASSERT_EQ(restored.dim(), idx.dim());
+  ASSERT_EQ(restored.graph_degree(), idx.graph_degree());
+  EXPECT_EQ(restored.metric(), idx.metric());
+
+  // Same graph over the same rows, so the results are identical rather than merely comparable.
+  auto after = neighbor_ids(res_, restored, queries(500));
+  ASSERT_EQ(after.size(), before.size());
+  size_t mismatches = 0;
+  for (size_t i = 0; i < before.size(); i++) {
+    mismatches += static_cast<size_t>(after[i] != before[i]);
+  }
+  EXPECT_EQ(mismatches, 0u) << mismatches << " of " << before.size() << " neighbour ids changed";
+}
+
+TEST_F(CagraQSerializeTest, RefusesToLoadWithoutItsDataset)
+{
+  auto compressed = compress(res_, dataset(), pq_dim);
+  auto idx        = cagra::build(res_, iterative_params(), compressed.as_dataset_view());
+
+  std::stringstream stored;
+  cagra::serialize(res_, stored, idx);
+
+  // Dropping the rows on load is fine for a dense index, whose caller can attach its own copy, but
+  // it would leave a VPQ index unsearchable with no way back: the rows exist nowhere else.
+  vpq_f16_index<float> restored{res_};
+  EXPECT_THROW(cagra::deserialize(res_, stored, &restored, nullptr), raft::exception);
+}
+
+TEST_F(CagraQSerializeTest, SerializesTheGraphAloneWhenAsked)
+{
+  auto compressed = compress(res_, dataset(), pq_dim);
+  auto idx        = cagra::build(res_, iterative_params(), compressed.as_dataset_view());
+
+  std::stringstream stored;
+  cagra::serialize(res_, stored, idx, /* include_dataset */ false);
+
+  vpq_f16_index<float> restored{res_};
+  std::unique_ptr<vpq_dataset_t> owner;
+  cagra::deserialize(res_, stored, &restored, &owner);
+
+  // Nothing to own, and a graph that only update_dataset() can make searchable again.
+  EXPECT_EQ(owner, nullptr);
+  EXPECT_EQ(restored.size(), idx.size());
+  EXPECT_EQ(restored.graph_degree(), idx.graph_degree());
+}
+
+TEST_F(CagraQSerializeTest, RejectsLoadingACompressedIndexAsDense)
+{
+  auto compressed = compress(res_, dataset(), pq_dim);
+  auto idx        = cagra::build(res_, iterative_params(), compressed.as_dataset_view());
+
+  std::stringstream stored;
+  cagra::serialize(res_, stored, idx);
+
+  // The dtype prefix says float either way, so it is the recorded dataset kind that has to stop
+  // the dense reader from interpreting VPQ codes as rows of floats.
+  device_padded_index<float> dense{res_};
+  std::unique_ptr<cuvs::neighbors::device_padded_dataset<float, int64_t>> dense_owner;
+  EXPECT_THROW(cagra::deserialize(res_, stored, &dense, &dense_owner), raft::exception);
+}
 
 /** The constraints the VPQ build overload documents, each of which must be rejected loudly. */
 class CagraQContractTest : public CagraQCompressedTestBase {
