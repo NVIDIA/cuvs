@@ -96,7 +96,7 @@ For billion-scale sources that provide ground truth for only the first 10M or 10
 
 ## Dataset configurations
 
-Each benchmark dataset needs a YAML descriptor with file names and basic properties. Common descriptors are available in [datasets.yaml](https://github.com/rapidsai/cuvs/blob/branch-25.04/python/cuvs_bench/cuvs_bench/config/datasets/datasets.yaml).
+Each benchmark dataset needs a YAML descriptor with file names and basic properties. Common descriptors are available in [datasets.yaml](https://github.com/nvidia/cuvs/blob/branch-25.04/python/cuvs_bench/cuvs_bench/config/datasets/datasets.yaml).
 
 The default `${CUVS_HOME}/python/cuvs_bench/cuvs_bench/config/datasets/datasets.yaml` includes entries like:
 
