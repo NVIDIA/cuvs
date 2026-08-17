@@ -8,11 +8,18 @@
 
 #include <iostream>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <unordered_set>
 #include <vector>
 
 namespace cuvs::bench {
+
+inline auto has_suffix(const std::string& str, const std::string& suffix) -> bool
+{
+  return str.size() >= suffix.size() &&
+         str.compare(str.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
 
 class configuration {
  public:
@@ -39,6 +46,12 @@ class configuration {
     std::string query_file;
     std::string distance;
     std::optional<std::string> groundtruth_neighbors_file{std::nullopt};
+
+    // The base_file holds rows already compressed for the algorithm (a .vpq written by the offline
+    // VPQ compression tool) rather than dense vectors. The benchmark cannot read such a file: its
+    // rows are not `dtype` values, so they cannot travel through `algo<T>::build`. The path is
+    // handed to the algorithm instead. Queries stay dense, and `dtype` keeps describing them.
+    bool base_compressed{false};
 
     // data type of input dataset, possible values ["float", "int8", "uint8"]
     std::string dtype;
@@ -99,11 +112,30 @@ class configuration {
     }
     if (conf.contains("subset_size")) { dataset_conf_.subset_size = conf.at("subset_size"); }
 
+    // Decided separately from the dtype inference below, so that an explicit "dtype" does not stop
+    // us noticing that the base set is compressed.
+    if (conf.contains("base_format")) {
+      const auto base_format = conf.at("base_format").get<std::string>();
+      if (base_format == "vpq") {
+        dataset_conf_.base_compressed = true;
+      } else if (base_format != "dense") {
+        throw std::runtime_error("Unknown base_format '" + base_format +
+                                 "', expected \"vpq\" or \"dense\"");
+      }
+    } else {
+      dataset_conf_.base_compressed = has_suffix(dataset_conf_.base_file, ".vpq");
+    }
+
     if (conf.contains("dtype")) {
       dataset_conf_.dtype = conf.at("dtype");
     } else {
       auto filename = dataset_conf_.base_file;
-      if (filename.size() > 6 && filename.compare(filename.size() - 6, 6, "f16bin") == 0) {
+      if (dataset_conf_.base_compressed) {
+        // A VPQ dataset stores its codebooks as half, but it is searched with float queries and
+        // yields a float index, so float is the type the benchmark instantiates. Keyed off the flag
+        // rather than the suffix, so that an explicit base_format also gets a dtype.
+        dataset_conf_.dtype = "float";
+      } else if (filename.size() > 6 && filename.compare(filename.size() - 6, 6, "f16bin") == 0) {
         dataset_conf_.dtype = "half";
       } else if (filename.size() > 9 &&
                  filename.compare(filename.size() - 9, 9, "fp16.fbin") == 0) {

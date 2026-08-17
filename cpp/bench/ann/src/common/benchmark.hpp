@@ -134,8 +134,22 @@ void bench_build(::benchmark::State& state,
 
   const auto algo_property = parse_algo_property(algo->get_preference(), index.build_param);
 
-  const T* base_set      = dataset->base_set(algo_property.dataset_memory_type);
-  std::size_t index_size = dataset->base_set_size();
+  // Loading the base set is setup, not part of the build, so a compressed one is read here rather
+  // than inside the timed loop below; its row count comes back from the algorithm, since the
+  // benchmark cannot read the file.
+  const bool base_compressed = dataset->base_is_compressed();
+  const T* base_set          = nullptr;
+  std::size_t index_size     = 0;
+  try {
+    if (base_compressed) {
+      index_size = algo->set_base_set_file(dataset->base_file());
+    } else {
+      base_set   = dataset->base_set(algo_property.dataset_memory_type);
+      index_size = dataset->base_set_size();
+    }
+  } catch (const std::exception& e) {
+    return state.SkipWithError("Failed to load the base set: " + std::string(e.what()));
+  }
 
   cuda_timer gpu_timer{algo};
   {
@@ -158,7 +172,11 @@ void bench_build(::benchmark::State& state,
       [[maybe_unused]] auto ntx_lap = nvtx.lap();
       [[maybe_unused]] auto gpu_lap = gpu_timer.lap(!no_lap_sync);
       try {
-        algo->build(base_set, index_size);
+        if (base_compressed) {
+          algo->build_from_base_set_file();
+        } else {
+          algo->build(base_set, index_size);
+        }
       } catch (const std::exception& e) {
         state.SkipWithError(std::string(e.what()));
       }
@@ -238,6 +256,11 @@ void bench_search(::benchmark::State& state,
         auto ualgo =
           create_algo<T>(index.algo, dataset->distance(), dataset->dim(), index.build_param);
         a = ualgo.get();
+        // An index built from a compressed base set stores only its graph, so `load` alone would
+        // leave it with nothing to search over. Handing the file over first lets `load` attach the
+        // same rows the graph was built from and return a complete index. The row count it returns
+        // is of no use here; only the build reports that.
+        if (dataset->base_is_compressed()) { a->set_base_set_file(dataset->base_file()); }
         a->load(index_file);
         current_algo = std::move(ualgo);
       }
@@ -251,6 +274,12 @@ void bench_search(::benchmark::State& state,
       std::make_unique<algo_property>(std::move(parse_algo_property(a->get_preference(), sp_json)));
 
     if (search_param->needs_dataset()) {
+      if (dataset->base_is_compressed()) {
+        state.SkipWithError("The search parameters of '" + index.name +
+                            "' require the dense base set, which a compressed base_file does not "
+                            "provide.");
+        return;
+      }
       try {
         a->set_search_dataset(dataset->base_set(current_algo_props->dataset_memory_type),
                               dataset->base_set_size());
@@ -540,6 +569,7 @@ void dispatch_benchmark(std::string cmdline,
   auto dataset =
     std::make_shared<bench::dataset<T>>(dataset_conf.name,
                                         base_file,
+                                        dataset_conf.base_compressed,
                                         dataset_conf.subset_first_row,
                                         dataset_conf.subset_size,
                                         query_file,
@@ -552,7 +582,13 @@ void dispatch_benchmark(std::string cmdline,
   if (build_mode) {
     if (file_exists(base_file)) {
       log_info("Using the dataset file '%s'", base_file.c_str());
-      ::benchmark::AddCustomContext("n_records", std::to_string(dataset->base_set_size()));
+      if (dataset_conf.base_compressed) {
+        // The row count sits inside the compressed file, so it is reported per benchmark as
+        // `index_size` once the algorithm has read it, rather than up front here.
+        ::benchmark::AddCustomContext("base_format", "vpq");
+      } else {
+        ::benchmark::AddCustomContext("n_records", std::to_string(dataset->base_set_size()));
+      }
       ::benchmark::AddCustomContext("dim", std::to_string(dataset->dim()));
     } else {
       log_warn("dataset file '%s' does not exist; benchmarking index building is impossible.",
@@ -718,51 +754,59 @@ inline auto run_main(int argc, char** argv) -> int
     log_warn("cudart library is not found, GPU-based indices won't work.");
   }
 
-  auto& conf        = bench::configuration::initialize(conf_stream, data_prefix, index_prefix);
-  std::string dtype = conf.get_dataset_conf().dtype;
+  // A rejected configuration reaches us as an exception, from the json parser or from the dataset
+  // itself. Reporting it here keeps that a legible error and a non-zero exit code, rather than an
+  // abort from an uncaught exception.
+  try {
+    auto& conf        = bench::configuration::initialize(conf_stream, data_prefix, index_prefix);
+    std::string dtype = conf.get_dataset_conf().dtype;
 
-  if (dtype == "float") {
-    dispatch_benchmark<float>(cmdline,
-                              conf,
-                              force_overwrite,
-                              build_mode,
-                              search_mode,
-                              override_kv,
-                              metric_objective,
-                              threads,
-                              no_lap_sync);
-  } else if (dtype == "half") {
-    dispatch_benchmark<half>(cmdline,
-                             conf,
-                             force_overwrite,
-                             build_mode,
-                             search_mode,
-                             override_kv,
-                             metric_objective,
-                             threads,
-                             no_lap_sync);
-  } else if (dtype == "uint8") {
-    dispatch_benchmark<std::uint8_t>(cmdline,
-                                     conf,
-                                     force_overwrite,
-                                     build_mode,
-                                     search_mode,
-                                     override_kv,
-                                     metric_objective,
-                                     threads,
-                                     no_lap_sync);
-  } else if (dtype == "int8") {
-    dispatch_benchmark<std::int8_t>(cmdline,
-                                    conf,
-                                    force_overwrite,
-                                    build_mode,
-                                    search_mode,
-                                    override_kv,
-                                    metric_objective,
-                                    threads,
-                                    no_lap_sync);
-  } else {
-    log_error("datatype '%s' is not supported", dtype.c_str());
+    if (dtype == "float") {
+      dispatch_benchmark<float>(cmdline,
+                                conf,
+                                force_overwrite,
+                                build_mode,
+                                search_mode,
+                                override_kv,
+                                metric_objective,
+                                threads,
+                                no_lap_sync);
+    } else if (dtype == "half") {
+      dispatch_benchmark<half>(cmdline,
+                               conf,
+                               force_overwrite,
+                               build_mode,
+                               search_mode,
+                               override_kv,
+                               metric_objective,
+                               threads,
+                               no_lap_sync);
+    } else if (dtype == "uint8") {
+      dispatch_benchmark<std::uint8_t>(cmdline,
+                                       conf,
+                                       force_overwrite,
+                                       build_mode,
+                                       search_mode,
+                                       override_kv,
+                                       metric_objective,
+                                       threads,
+                                       no_lap_sync);
+    } else if (dtype == "int8") {
+      dispatch_benchmark<std::int8_t>(cmdline,
+                                      conf,
+                                      force_overwrite,
+                                      build_mode,
+                                      search_mode,
+                                      override_kv,
+                                      metric_objective,
+                                      threads,
+                                      no_lap_sync);
+    } else {
+      log_error("datatype '%s' is not supported", dtype.c_str());
+      return -1;
+    }
+  } catch (const std::exception& e) {
+    log_error("%s", e.what());
     return -1;
   }
 

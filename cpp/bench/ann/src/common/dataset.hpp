@@ -13,6 +13,7 @@
 #include <mutex>
 #include <optional>
 #include <random>
+#include <stdexcept>
 #include <string>
 #include <thread>
 
@@ -152,6 +153,10 @@ struct dataset {
  private:
   std::string name_;
   std::string distance_;
+  std::string base_file_;
+  // A compressed base set is opaque to the benchmark: `base_set_` stays lazy and untouched, and the
+  // path is handed to the algorithm, which is the only thing able to decode it.
+  bool base_compressed_;
   blob<DataT> base_set_;
   blob<DataT> query_set_;
   std::optional<blob<bitset_carrier_type>> filter_bitset_;
@@ -171,9 +176,22 @@ struct dataset {
     }
   }
 
+  // Reading a compressed base set as a .bin would not fail, it would succeed on garbage: the first
+  // eight bytes of a .vpq are a dtype prefix and a numpy magic, which parse as an absurd shape.
+  // Hence an explicit error, and callers that can proceed must ask `base_is_compressed()` first.
+  inline void throw_if_base_compressed(const char* what) const
+  {
+    if (base_compressed_) {
+      throw std::runtime_error{std::string{"dataset::"} + what +
+                               "() is not available for the compressed base_file '" + base_file_ +
+                               "'; only the algorithm can read that file."};
+    }
+  }
+
  public:
   dataset(std::string name,
           std::string base_file,
+          bool base_compressed,
           uint32_t subset_first_row,
           uint32_t subset_size,
           std::string query_file,
@@ -182,9 +200,27 @@ struct dataset {
           std::optional<double> filtering_rate = std::nullopt)
     : name_{std::move(name)},
       distance_{std::move(distance)},
+      base_file_{base_file},
+      base_compressed_{base_compressed},
       base_set_{base_file, subset_first_row, subset_size},
       query_set_{query_file}
   {
+    if (base_compressed_) {
+      // Which rows went into the file was decided when it was written, so subsetting here is not
+      // merely unsupported: there is nothing left to select from.
+      if (subset_first_row != 0 || subset_size != 0) {
+        throw std::runtime_error{
+          "A compressed base_file cannot be subset by the benchmark; choose the rows when "
+          "compressing it (the tool's --subset_first_row / --subset_size) and drop these keys."};
+      }
+      // The bitset is sized from the base set row count, which is inside the compressed file.
+      if (filtering_rate.has_value()) {
+        throw std::runtime_error{
+          "filtering_rate is not supported with a compressed base_file: generating the filter "
+          "bitset needs the base set size, which only the algorithm can read."};
+      }
+    }
+
     if (filtering_rate.has_value()) {
       // Generate a random bitset for filtering
       auto n_rows = static_cast<size_t>(subset_size) + static_cast<size_t>(subset_first_row);
@@ -210,6 +246,8 @@ struct dataset {
 
   [[nodiscard]] auto name() const -> std::string { return name_; }
   [[nodiscard]] auto distance() const -> std::string { return distance_; }
+  [[nodiscard]] auto base_file() const -> std::string { return base_file_; }
+  [[nodiscard]] auto base_is_compressed() const -> bool { return base_compressed_; }
   [[nodiscard]] auto dim() const -> int
   {
     auto d = dim_.load(std::memory_order_relaxed);
@@ -221,6 +259,14 @@ struct dataset {
     } catch (const std::runtime_error& e) {
       // Any exception raised above will re-raise next time we try to access the query set.
       query_set_.reset_lazy_state();
+      // A compressed base set has no dense header to fall back on, and reading it as one would
+      // yield a nonsense dimension rather than an error.
+      if (base_compressed_) {
+        throw std::runtime_error{
+          "Cannot determine the dataset dimension: the query set is not readable and the base set "
+          "is compressed. " +
+          std::string{e.what()}};
+      }
       // If the query set is not accessible, use the base set.
       // Don't catch the exception here, because we have nothing else to do anyway.
       d = static_cast<int>(base_set_.n_cols());
@@ -235,6 +281,7 @@ struct dataset {
   }
   [[nodiscard]] auto base_set_size() const -> size_t
   {
+    throw_if_base_compressed("base_set_size");
     std::lock_guard<std::mutex> lock(mutex_);
     auto r = base_set_.n_rows();
     cache_dim(base_set_);
@@ -272,6 +319,7 @@ struct dataset {
 
   [[nodiscard]] auto base_set() const -> const DataT*
   {
+    throw_if_base_compressed("base_set");
     std::lock_guard<std::mutex> lock(mutex_);
     auto* r = base_set_.data();
     cache_dim(base_set_);
@@ -281,6 +329,7 @@ struct dataset {
                               HugePages request_hugepages_2mb = HugePages::kDisable) const
     -> const DataT*
   {
+    throw_if_base_compressed("base_set");
     std::lock_guard<std::mutex> lock(mutex_);
     auto* r = base_set_.data(memory_type, request_hugepages_2mb);
     cache_dim(base_set_);
