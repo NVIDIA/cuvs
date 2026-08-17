@@ -1,9 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# CI security scanning via the NVIDIA/security-workflows suite: Pulse secret scan + CodeQL SAST.
-# Pulse runs on Linux nv-gha-runners.
-# Pinned to security-workflows v0.3.0.
 
 name: security suite
 
@@ -43,4 +39,4 @@ jobs:
       #   strict     — fail on any finding (verified or unverified)
       #   all        — warn only; never fail the job on findings
       secret-failure-policy: unverified
-      sast-languages: '["python","actions"]'
+      sast-languages: '["actions","python"]'

@@ -3,8 +3,6 @@
 
 repos:
   # Runs first so a leaked credential blocks the commit before any formatter runs.
-  # Self-installing: pre-commit downloads a pinned, checksum-verified trufflehog into
-  # the hook environment on first use. CI enforces the same class of finding via Pulse.
   - repo: https://github.com/NVIDIA/security-workflows
     rev: v0.3.0
     hooks:
