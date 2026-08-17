@@ -6,8 +6,8 @@ import (
 	"math/rand"
 	"time"
 
-	cuvs "github.com/rapidsai/cuvs/go"
-	"github.com/rapidsai/cuvs/go/cagra"
+	cuvs "github.com/nvidia/cuvs/go"
+	"github.com/nvidia/cuvs/go/cagra"
 )
 
 func main() {

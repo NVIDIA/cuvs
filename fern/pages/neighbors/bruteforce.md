@@ -102,8 +102,8 @@ fn build_brute_force_index(dataset: &ndarray::Array2<f32>) -> Result<Index> {
 package main
 
 import (
-	cuvs "github.com/rapidsai/cuvs/go"
-	"github.com/rapidsai/cuvs/go/brute_force"
+	cuvs "github.com/nvidia/cuvs/go"
+	"github.com/nvidia/cuvs/go/brute_force"
 )
 
 func buildBruteForceIndex(dataset cuvs.Tensor[float32]) (*brute_force.BruteForceIndex, error) {
