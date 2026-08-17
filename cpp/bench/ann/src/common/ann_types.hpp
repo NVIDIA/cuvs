@@ -157,6 +157,10 @@ class algo : public algo_base {
   // and set_search_dataset() should save the passed-in pointer somewhere.
   // The client code should call set_search_dataset() before searching,
   // and should not release dataset before searching is finished.
+  //
+  // A compressed base set is never handed over this way, as it has no dense rows to pass, so
+  // needs_dataset() says nothing about one. An algorithm that cannot search the base set it was
+  // given with the parameters it was given has to reject them itself, from set_search_param().
   virtual void set_search_dataset(const T* /*dataset*/, size_t /*nrow*/) {};
 
   /* ### Base sets the benchmark cannot read ###

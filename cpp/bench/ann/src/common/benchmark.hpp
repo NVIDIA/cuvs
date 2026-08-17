@@ -273,13 +273,13 @@ void bench_search(::benchmark::State& state,
     current_algo_props =
       std::make_unique<algo_property>(std::move(parse_algo_property(a->get_preference(), sp_json)));
 
-    if (search_param->needs_dataset()) {
-      if (dataset->base_is_compressed()) {
-        state.SkipWithError("The search parameters of '" + index.name +
-                            "' require the dense base set, which a compressed base_file does not "
-                            "provide.");
-        return;
-      }
+    // Not a reliable signal for a compressed base set: cuvs_cagra answers true unconditionally,
+    // because its index file carries no dataset and the dense rows are re-attached here instead.
+    // There are no dense rows to attach for a compressed base, and the algorithm already has the
+    // file from `set_base_set_file` above. An algorithm that truly cannot search without the dense
+    // rows, such as CAGRA with refine_ratio > 1, has to reject that combination itself: only it
+    // knows which of its search parameters read them.
+    if (search_param->needs_dataset() && !dataset->base_is_compressed()) {
       try {
         a->set_search_dataset(dataset->base_set(current_algo_props->dataset_memory_type),
                               dataset->base_set_size());
