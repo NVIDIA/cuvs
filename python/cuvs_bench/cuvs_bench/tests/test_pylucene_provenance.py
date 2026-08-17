@@ -41,9 +41,10 @@ def test_hnsw_provenance_round_trip(tmp_path):
 
     assert verification.to_metadata() == {
         "status": "gpu-with-cpu-fallback-provenance",
-        "schema_version": 2,
+        "schema_version": 3,
         "codec": _HNSW_CODEC,
         "writer_policy": "gpu-with-cpu-fallback",
+        "compound_file_policy": "lucene-default",
         "vector_count": 10,
         "dimensions": 4,
         "commit_file_count": 1,
@@ -74,9 +75,10 @@ def test_cagra_provenance_round_trip(tmp_path):
 
     assert verification.to_metadata() == {
         "status": "gpu-cagra-provenance",
-        "schema_version": 2,
+        "schema_version": 3,
         "codec": _CAGRA_CODEC,
         "writer_policy": "gpu-cagra",
+        "compound_file_policy": "disabled",
         "vector_count": 10,
         "dimensions": 4,
         "commit_file_count": 1,
@@ -110,6 +112,7 @@ def test_hnsw_provenance_rejects_dataset_shape_mismatch(
     ("manifest_state", "error"),
     [
         ("wrong-policy", "expected writer policy"),
+        ("wrong-compound-policy", "expected compound-file policy"),
         ("boolean-count", "positive integer"),
         ("malformed-fingerprint", "malformed Lucene commit fingerprint"),
         ("duplicate-fingerprint", "must be unique and sorted"),
@@ -124,6 +127,8 @@ def test_hnsw_provenance_rejects_malformed_manifest_fields(
 
     if manifest_state == "wrong-policy":
         payload["writer_policy"] = "gpu-cagra"
+    elif manifest_state == "wrong-compound-policy":
+        payload["compound_file_policy"] = "disabled"
     elif manifest_state == "boolean-count":
         payload["vector_count"] = True
     elif manifest_state == "malformed-fingerprint":

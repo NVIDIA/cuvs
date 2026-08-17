@@ -25,7 +25,8 @@ public final class PyLuceneWriterSelectionCodec extends Lucene101AcceleratedHNSW
     private static final String NOT_SELECTED = "not-selected";
 
     private final KnnVectorsFormat delegate;
-    private volatile String writerClass = NOT_SELECTED;
+    private String writerClass = NOT_SELECTED;
+    private int fieldsWriterCalls;
 
     private WriterSelectionFormat(KnnVectorsFormat delegate) {
       super(delegate.getName());
@@ -35,14 +36,17 @@ public final class PyLuceneWriterSelectionCodec extends Lucene101AcceleratedHNSW
     @Override
     public KnnVectorsWriter fieldsWriter(SegmentWriteState state) throws IOException {
       KnnVectorsWriter writer = delegate.fieldsWriter(state);
-      String selectedClass = writer.getClass().getName();
-      String previousClass = writerClass;
-      if (!NOT_SELECTED.equals(previousClass) && !previousClass.equals(selectedClass)) {
+      recordWriter(writer.getClass().getName());
+      return writer;
+    }
+
+    private synchronized void recordWriter(String selectedClass) {
+      if (!NOT_SELECTED.equals(writerClass) && !writerClass.equals(selectedClass)) {
         throw new AssertionError(
-            "Vector writer selection changed from " + previousClass + " to " + selectedClass);
+            "Vector writer selection changed from " + writerClass + " to " + selectedClass);
       }
       writerClass = selectedClass;
-      return writer;
+      fieldsWriterCalls++;
     }
 
     @Override
@@ -56,8 +60,13 @@ public final class PyLuceneWriterSelectionCodec extends Lucene101AcceleratedHNSW
     }
 
     @Override
-    public String toString() {
-      return getName() + "(writerClass=" + writerClass + ")";
+    public synchronized String toString() {
+      return getName()
+          + "(writerClass="
+          + writerClass
+          + ", fieldsWriterCalls="
+          + fieldsWriterCalls
+          + ")";
     }
   }
 }

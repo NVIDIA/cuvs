@@ -15,13 +15,18 @@ import pytest
 
 import cuvs_bench.backends.pylucene as pylucene_backend
 from cuvs_bench.backends.pylucene import _BuildCodec
-from cuvs_bench.tests._pylucene_test_utils import _HNSW_CODEC
+from cuvs_bench.tests._pylucene_test_utils import _CAGRA_CODEC, _HNSW_CODEC
 
 
-def _build_codec(java_codec=None) -> _BuildCodec:
+def _build_codec(java_codec=None, codec_name=_HNSW_CODEC) -> _BuildCodec:
     return _BuildCodec(
+        codec_name=codec_name,
         java_codec=java_codec if java_codec is not None else object(),
-        writer_policy="gpu-with-cpu-fallback",
+        writer_policy=(
+            "gpu-cagra"
+            if codec_name == _CAGRA_CODEC
+            else "gpu-with-cpu-fallback"
+        ),
     )
 
 
@@ -35,7 +40,7 @@ class _FakeVMEnvironment:
 
 class _FakeLuceneModule:
     CLASSPATH = "/pylucene/lucene-core.jar"
-    VERSION = "test"
+    VERSION = pylucene_backend._REQUIRED_PYLUCENE_VERSION
 
     def __init__(self):
         self.environment = None
@@ -81,8 +86,20 @@ class _FakeIndexWriter:
             raise RuntimeError("close failed")
 
 
+class _FakeMergePolicy:
+    def __init__(self):
+        self.no_cfs_ratio = None
+
+    def setNoCFSRatio(self, ratio):
+        self.no_cfs_ratio = ratio
+
+
 class _FakeIndexWriterConfig:
     OpenMode = SimpleNamespace(CREATE=object())
+
+    def __init__(self):
+        self.use_compound_file = None
+        self.merge_policy = _FakeMergePolicy()
 
     def setOpenMode(self, _mode):
         pass
@@ -90,11 +107,17 @@ class _FakeIndexWriterConfig:
     def setCodec(self, _codec):
         pass
 
-    def setUseCompoundFile(self, _enabled):
-        pass
+    def setUseCompoundFile(self, enabled):
+        self.use_compound_file = enabled
+
+    def getMergePolicy(self):
+        return self.merge_policy
+
+    def setMergePolicy(self, _merge_policy):
+        raise AssertionError("PyLucene must use Lucene's default merge policy")
 
     def setMergeScheduler(self, _scheduler):
-        pass
+        raise AssertionError("PyLucene must use Lucene's default scheduler")
 
 
 class _FakeAvailableCodecs:
@@ -146,8 +169,12 @@ def _fake_index_writer_runtime(error_at=None, directory_close_error=None):
     runtime.Paths = SimpleNamespace(get=lambda path: path)
     runtime.FSDirectory = SimpleNamespace(open=lambda _path: directory)
     runtime.IndexWriterConfig = _FakeIndexWriterConfig
-    runtime.SerialMergeScheduler = lambda: object()
-    runtime.IndexWriter = lambda _directory, _config: writer
+
+    def create_writer(_directory, config):
+        runtime._test_writer_config = config
+        return writer
+
+    runtime.IndexWriter = create_writer
     runtime._vector_document = lambda document_id, vector: (
         document_id,
         vector.copy(),
@@ -213,6 +240,34 @@ def test_initialize_pylucene_uses_verified_classpath_and_vmargs(
     )
     assert len(fake_lucene.init_calls) == 1
     assert fake_lucene.environment.attach_count == 2
+
+
+@pytest.mark.parametrize(
+    "lucene",
+    [SimpleNamespace(VERSION="10.0.0"), SimpleNamespace()],
+    ids=["mismatched", "missing"],
+)
+def test_validate_pylucene_version_rejects_incompatible_binding(lucene):
+    with pytest.raises(
+        RuntimeError,
+        match="expected 10[.]2[.]0, found .*Activate a matching PyLucene build",
+    ):
+        pylucene_backend._validate_pylucene_version(lucene)
+
+
+def test_initialize_pylucene_checks_version_before_starting_jvm(monkeypatch):
+    fake_lucene = _FakeLuceneModule()
+    fake_lucene.VERSION = "10.0.0"
+    monkeypatch.setattr(
+        pylucene_backend.importlib,
+        "import_module",
+        lambda _name: fake_lucene,
+    )
+
+    with pytest.raises(RuntimeError, match="expected 10[.]2[.]0"):
+        pylucene_backend._initialize_pylucene({})
+
+    assert fake_lucene.init_calls == []
 
 
 @pytest.mark.parametrize(
@@ -488,6 +543,28 @@ def test_runtime_build_index_commits_and_closes_writer_and_directory(tmp_path):
     assert runtime._test_writer.rollback_called is False
     assert runtime._test_writer.close_called is True
     assert runtime._test_directory.closed is True
+    assert runtime._test_writer_config.use_compound_file is None
+    assert runtime._test_writer_config.merge_policy.no_cfs_ratio is None
+
+
+@pytest.mark.parametrize(
+    ("codec_name", "use_compound_file", "no_cfs_ratio"),
+    [
+        (_HNSW_CODEC, None, None),
+        (_CAGRA_CODEC, False, 0.0),
+    ],
+)
+def test_runtime_writer_config_applies_codec_compound_file_policy(
+    codec_name, use_compound_file, no_cfs_ratio
+):
+    runtime = _fake_index_writer_runtime()
+
+    config = runtime._new_index_writer_config(
+        _build_codec(runtime._test_codec, codec_name)
+    )
+
+    assert config.use_compound_file is use_compound_file
+    assert config.merge_policy.no_cfs_ratio == no_cfs_ratio
 
 
 @pytest.mark.parametrize(

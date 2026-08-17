@@ -51,6 +51,7 @@ def test_build_dry_run_does_not_initialize_pylucene(tmp_path):
     assert result.success
     assert backend._runtime is None
     assert result.metadata["codec"] == _HNSW_CODEC
+    assert result.metadata["compound_file_policy"] == "lucene-default"
 
 
 def test_build_creates_index_and_records_hnsw_writer_policy(tmp_path):
@@ -63,11 +64,13 @@ def test_build_creates_index_and_records_hnsw_writer_policy(tmp_path):
     assert result.success
     assert result.index_size_bytes > len(b"index")
     assert result.metadata["writer_policy"] == "gpu-with-cpu-fallback"
+    assert result.metadata["compound_file_policy"] == "lucene-default"
     assert result.metadata["hnsw_verification"] == {
         "status": "gpu-with-cpu-fallback-provenance",
-        "schema_version": 2,
+        "schema_version": 3,
         "codec": _HNSW_CODEC,
         "writer_policy": "gpu-with-cpu-fallback",
+        "compound_file_policy": "lucene-default",
         "vector_count": 10,
         "dimensions": 4,
         "commit_file_count": 1,
@@ -90,12 +93,14 @@ def test_build_verifies_persisted_cagra_index(tmp_path):
     )
 
     assert result.success
+    assert result.metadata["compound_file_policy"] == "disabled"
     assert runtime.verification_calls == [(index_path, 10, 4)]
     assert result.metadata["cagra_provenance"] == {
         "status": "gpu-cagra-provenance",
-        "schema_version": 2,
+        "schema_version": 3,
         "codec": _CAGRA_CODEC,
         "writer_policy": "gpu-cagra",
+        "compound_file_policy": "disabled",
         "vector_count": 10,
         "dimensions": 4,
         "commit_file_count": 1,

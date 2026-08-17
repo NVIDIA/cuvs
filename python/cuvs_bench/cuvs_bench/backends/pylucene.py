@@ -46,6 +46,7 @@ from .base import BenchmarkBackend, BuildResult, Dataset, SearchResult
 _ID_FIELD = "id"
 _VECTOR_FIELD = "vector"
 _MAX_DIMENSIONS = 4096
+_REQUIRED_PYLUCENE_VERSION = "10.2.0"
 
 _HNSW_CODEC = "Lucene101AcceleratedHNSWCodec"
 _CAGRA_CODEC = "CuVS2510GPUSearchCodec"
@@ -54,6 +55,10 @@ _SUPPORTED_BUILD_KEYS = frozenset({"codec"})
 _EXPECTED_WRITER_POLICY = {
     _HNSW_CODEC: "gpu-with-cpu-fallback",
     _CAGRA_CODEC: "gpu-cagra",
+}
+_COMPOUND_FILE_POLICY = {
+    _HNSW_CODEC: "lucene-default",
+    _CAGRA_CODEC: "disabled",
 }
 _CAGRA_META_EXTENSION = ".vemc"
 _CAGRA_META_CODEC_NAME = "Lucene102CuVSVectorsFormatMeta"
@@ -69,12 +74,13 @@ _EUCLIDEAN_SIMILARITY_ORDINAL = 0
 
 _HNSW_PROVENANCE_FILE = ".cuvs-bench-pylucene-hnsw.json"
 _CAGRA_PROVENANCE_FILE = ".cuvs-bench-pylucene-cagra.json"
-_PROVENANCE_SCHEMA_VERSION = 2
+_PROVENANCE_SCHEMA_VERSION = 3
 _PROVENANCE_KEYS = frozenset(
     {
         "schema_version",
         "codec",
         "writer_policy",
+        "compound_file_policy",
         "vector_count",
         "dimensions",
         "commit_fingerprints",
@@ -193,6 +199,17 @@ def _load_pylucene() -> Any:
         ) from exc
 
 
+def _validate_pylucene_version(lucene: Any) -> None:
+    actual_version = str(getattr(lucene, "VERSION", "<missing>"))
+    if actual_version != _REQUIRED_PYLUCENE_VERSION:
+        raise RuntimeError(
+            "PyLucene must be generated against the same Lucene version as "
+            "cuVS-Lucene: expected "
+            f"{_REQUIRED_PYLUCENE_VERSION}, found {actual_version}. "
+            "Activate a matching PyLucene build before initializing the JVM."
+        )
+
+
 def _pylucene_classpath(config: Dict[str, Any], lucene: Any) -> str:
     cuvs_java_jar = _configured_jar(
         config, "cuvs_java_jar", "CUVS_LUCENE_CUVS_JAVA_JAR"
@@ -281,6 +298,7 @@ def _validate_pylucene_jvm_configuration(
 def _initialize_pylucene(config: Dict[str, Any]) -> Any:
     """Initialize PyLucene once and attach the current Python thread."""
     lucene = _load_pylucene()
+    _validate_pylucene_version(lucene)
     classpath = _pylucene_classpath(config, lucene)
     vmargs = _pylucene_vmargs(config)
     _attach_pylucene_jvm(lucene, classpath, vmargs)
@@ -453,6 +471,7 @@ def _commit_fingerprints(index_path: Path) -> List[Dict[str, str]]:
 class _IndexProvenanceVerification:
     codec: str
     writer_policy: str
+    compound_file_policy: str
     vector_count: int
     dimensions: int
     commit_file_count: int
@@ -463,6 +482,7 @@ class _IndexProvenanceVerification:
             "schema_version": _PROVENANCE_SCHEMA_VERSION,
             "codec": self.codec,
             "writer_policy": self.writer_policy,
+            "compound_file_policy": self.compound_file_policy,
             "vector_count": self.vector_count,
             "dimensions": self.dimensions,
             "commit_file_count": self.commit_file_count,
@@ -493,6 +513,7 @@ def _write_index_provenance(
         "schema_version": _PROVENANCE_SCHEMA_VERSION,
         "codec": codec,
         "writer_policy": _EXPECTED_WRITER_POLICY[codec],
+        "compound_file_policy": _COMPOUND_FILE_POLICY[codec],
         "vector_count": int(vector_count),
         "dimensions": int(dimensions),
         "commit_fingerprints": _commit_fingerprints(index_path),
@@ -592,7 +613,7 @@ def _validate_provenance_identity(
     payload: Dict[str, Any],
     expected_codec: str,
     provenance_label: str,
-) -> str:
+) -> Tuple[str, str]:
     if (
         type(payload["schema_version"]) is not int
         or payload["schema_version"] != _PROVENANCE_SCHEMA_VERSION
@@ -611,7 +632,13 @@ def _validate_provenance_identity(
         raise _IndexProvenanceError(
             f"{provenance_label} does not record the expected writer policy"
         )
-    return writer_policy
+    compound_file_policy = payload["compound_file_policy"]
+    if compound_file_policy != _COMPOUND_FILE_POLICY[expected_codec]:
+        raise _IndexProvenanceError(
+            f"{provenance_label} does not record the expected compound-file "
+            "policy"
+        )
+    return writer_policy, compound_file_policy
 
 
 def _validate_provenance_shape(
@@ -724,7 +751,7 @@ def _verify_index_provenance(
     payload = _read_index_provenance(
         index_path / expectation.manifest_name, expectation.label
     )
-    writer_policy = _validate_provenance_identity(
+    writer_policy, compound_file_policy = _validate_provenance_identity(
         payload, expectation.codec, expectation.label
     )
     vector_count, dimensions = _validate_provenance_shape(
@@ -750,6 +777,7 @@ def _verify_index_provenance(
     return _IndexProvenanceVerification(
         codec=expectation.codec,
         writer_policy=writer_policy,
+        compound_file_policy=compound_file_policy,
         vector_count=vector_count,
         dimensions=dimensions,
         commit_file_count=len(current_fingerprints),
@@ -887,6 +915,7 @@ class _SearchPlan:
 
 @dataclass(frozen=True)
 class _BuildCodec:
+    codec_name: str
     java_codec: Any
     writer_policy: str
 
@@ -1742,7 +1771,6 @@ class _PyLuceneRuntime:
             IndexWriterConfig,
             SegmentCommitInfo,
             SegmentInfos,
-            SerialMergeScheduler,
             VectorEncoding,
             VectorSimilarityFunction,
         )
@@ -1762,7 +1790,6 @@ class _PyLuceneRuntime:
         self.DirectoryReader = DirectoryReader
         self.IndexWriter = IndexWriter
         self.IndexWriterConfig = IndexWriterConfig
-        self.SerialMergeScheduler = SerialMergeScheduler
         self.VectorSimilarityFunction = VectorSimilarityFunction
         self.IndexSearcher = IndexSearcher
         self.KnnFloatVectorQuery = KnnFloatVectorQuery
@@ -1852,13 +1879,22 @@ class _PyLuceneRuntime:
         directory = self.FSDirectory.open(self.Paths.get(str(index_path)))
         with _CleanupStack() as cleanups:
             cleanups.add("close Lucene directory", directory.close)
-            writer_config = self.IndexWriterConfig()
-            writer_config.setOpenMode(self.IndexWriterConfig.OpenMode.CREATE)
-            writer_config.setCodec(build_codec.java_codec)
-            writer_config.setUseCompoundFile(False)
-            writer_config.setMergeScheduler(self.SerialMergeScheduler())
+            writer_config = self._new_index_writer_config(build_codec)
             writer = self.IndexWriter(directory, writer_config)
             self._write_and_close_index(writer, vectors)
+
+    def _new_index_writer_config(
+        self, build_codec: _BuildCodec
+    ) -> Any:
+        writer_config = self.IndexWriterConfig()
+        writer_config.setOpenMode(self.IndexWriterConfig.OpenMode.CREATE)
+        writer_config.setCodec(build_codec.java_codec)
+        if build_codec.codec_name == _CAGRA_CODEC:
+            # The CAGRA verifier reads the codec's .vemc and .vcag files.
+            # Lucene controls compound files separately for flushes and merges.
+            writer_config.setUseCompoundFile(False)
+            writer_config.getMergePolicy().setNoCFSRatio(0.0)
+        return writer_config
 
     def _write_and_close_index(self, writer: Any, vectors: np.ndarray) -> None:
         try:
@@ -2424,6 +2460,13 @@ class PyLuceneBackend(BenchmarkBackend):
             identity["result_scope"] = result_scope
         return identity
 
+    def _index_metadata(self, codec_name: str) -> Dict[str, Any]:
+        return {
+            **self._result_identity(),
+            "codec": codec_name,
+            "compound_file_policy": _COMPOUND_FILE_POLICY[codec_name],
+        }
+
     def cleanup(self) -> None:
         """Release Python references; the process-wide JVM remains active."""
         self._runtime = None
@@ -2541,7 +2584,7 @@ class PyLuceneBackend(BenchmarkBackend):
             index_size_bytes=0,
             algorithm=self.algo,
             build_params=build_params,
-            metadata={**self._result_identity(), "codec": codec_name},
+            metadata=self._index_metadata(codec_name),
             success=True,
         )
 
@@ -2576,8 +2619,7 @@ class PyLuceneBackend(BenchmarkBackend):
             return _ExistingIndexDecision.build()
 
         metadata: Dict[str, Any] = {
-            **self._result_identity(),
-            "codec": codec_name,
+            **self._index_metadata(codec_name),
             "skipped": True,
         }
         try:
@@ -2634,6 +2676,7 @@ class PyLuceneBackend(BenchmarkBackend):
         runtime: _PyLuceneRuntime, codec_name: str
     ) -> _BuildCodec:
         return _BuildCodec(
+            codec_name=codec_name,
             java_codec=runtime.resolve_codec(codec_name),
             writer_policy=_EXPECTED_WRITER_POLICY[codec_name],
         )
@@ -2759,8 +2802,7 @@ class PyLuceneBackend(BenchmarkBackend):
             build_time = time.perf_counter() - start
 
             metadata = {
-                **self._result_identity(),
-                "codec": codec_name,
+                **self._index_metadata(codec_name),
                 "pylucene_version": runtime.pylucene_version,
                 "writer_policy": build_codec.writer_policy,
             }
@@ -2862,7 +2904,7 @@ class PyLuceneBackend(BenchmarkBackend):
             recall=0.0,
             algorithm=self.algo,
             search_params=plan.search_params,
-            metadata={**self._result_identity(), "codec": plan.codec_name},
+            metadata=self._index_metadata(plan.codec_name),
             success=True,
         )
 
@@ -2918,8 +2960,7 @@ class PyLuceneBackend(BenchmarkBackend):
             batch_size=plan.batch_size,
         )
         metadata = {
-            **self._result_identity(),
-            "codec": plan.codec_name,
+            **self._index_metadata(plan.codec_name),
             "pylucene_version": runtime.pylucene_version,
             "index_dimensions": runtime_result.index_dimensions,
             "document_count": runtime_result.document_count,
