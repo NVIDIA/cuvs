@@ -28,6 +28,14 @@ from cuvs_bench.tests._pylucene_test_utils import (
 )
 
 
+_DEFAULT_HNSW_BUILD_PARAMETERS = {
+    "codec": _HNSW_CODEC,
+    "m": 32,
+    "ef_construction": 32,
+    "direct_single_segment": False,
+}
+
+
 def test_hnsw_provenance_round_trip(tmp_path):
     index_path = tmp_path / "index"
     manifest_path = _prepare_hnsw_index(index_path)
@@ -41,21 +49,23 @@ def test_hnsw_provenance_round_trip(tmp_path):
 
     assert verification.to_metadata() == {
         "status": "gpu-with-cpu-fallback-provenance",
-        "schema_version": 3,
+        "schema_version": 4,
         "codec": _HNSW_CODEC,
+        "build_parameters": _DEFAULT_HNSW_BUILD_PARAMETERS,
         "writer_policy": "gpu-with-cpu-fallback",
         "compound_file_policy": "lucene-default",
         "vector_count": 10,
         "dimensions": 4,
+        "segment_count": 1,
         "commit_file_count": 1,
     }
     payload = json.loads(manifest_path.read_text())
+    assert payload["build_parameters"] == _DEFAULT_HNSW_BUILD_PARAMETERS
     assert payload["commit_fingerprints"] == [
         {
             "name": "segments_1",
             "sha256": (
-                "1bc04b5291c26a46d918139138b992d2de976d6851d0893b"
-                "0476b85bfbdfc6e6"
+                "1bc04b5291c26a46d918139138b992d2de976d6851d0893b0476b85bfbdfc6e6"
             ),
         }
     ]
@@ -75,15 +85,82 @@ def test_cagra_provenance_round_trip(tmp_path):
 
     assert verification.to_metadata() == {
         "status": "gpu-cagra-provenance",
-        "schema_version": 3,
+        "schema_version": 4,
         "codec": _CAGRA_CODEC,
+        "build_parameters": {"codec": _CAGRA_CODEC},
         "writer_policy": "gpu-cagra",
         "compound_file_policy": "disabled",
         "vector_count": 10,
         "dimensions": 4,
+        "segment_count": 1,
         "commit_file_count": 1,
     }
     assert stat.S_IMODE(manifest_path.stat().st_mode) == 0o644
+
+
+def test_hnsw_provenance_rejects_build_parameter_mismatch(tmp_path):
+    index_path = tmp_path / "index"
+    _prepare_hnsw_index(index_path)
+
+    with pytest.raises(RuntimeError, match="build parameter"):
+        pylucene_backend._verify_hnsw_provenance(
+            index_path,
+            _HNSW_CODEC,
+            expected_build_parameters={
+                **_DEFAULT_HNSW_BUILD_PARAMETERS,
+                "m": 24,
+            },
+        )
+
+
+def test_hnsw_provenance_rejects_inconsistent_direct_segment_count(tmp_path):
+    index_path = tmp_path / "index"
+    manifest_path = _prepare_hnsw_index(index_path)
+    build_parameters = {
+        **_DEFAULT_HNSW_BUILD_PARAMETERS,
+        "direct_single_segment": True,
+    }
+    payload = json.loads(manifest_path.read_text())
+    payload["build_parameters"] = build_parameters
+    payload["segment_count"] = 2
+    manifest_path.write_text(json.dumps(payload))
+
+    with pytest.raises(RuntimeError, match="must record exactly one segment"):
+        pylucene_backend._verify_hnsw_provenance(
+            index_path,
+            _HNSW_CODEC,
+            expected_build_parameters=build_parameters,
+        )
+
+
+@pytest.mark.parametrize(
+    "malformed_build_parameters",
+    [
+        {
+            **_DEFAULT_HNSW_BUILD_PARAMETERS,
+            "m": True,
+        },
+        {
+            **_DEFAULT_HNSW_BUILD_PARAMETERS,
+            "ef_construction": 513,
+        },
+        {
+            **_DEFAULT_HNSW_BUILD_PARAMETERS,
+            "direct_single_segment": 0,
+        },
+    ],
+)
+def test_hnsw_provenance_rejects_malformed_build_parameters(
+    tmp_path, malformed_build_parameters
+):
+    index_path = tmp_path / "index"
+    manifest_path = _prepare_hnsw_index(index_path)
+    payload = json.loads(manifest_path.read_text())
+    payload["build_parameters"] = malformed_build_parameters
+    manifest_path.write_text(json.dumps(payload))
+
+    with pytest.raises(RuntimeError, match="build parameter"):
+        pylucene_backend._verify_hnsw_provenance(index_path, _HNSW_CODEC)
 
 
 @pytest.mark.parametrize(

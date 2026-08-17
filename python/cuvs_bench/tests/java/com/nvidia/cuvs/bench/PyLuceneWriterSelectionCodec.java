@@ -4,20 +4,47 @@
  */
 package com.nvidia.cuvs.bench;
 
-import com.nvidia.cuvs.lucene.Lucene101AcceleratedHNSWCodec;
 import java.io.IOException;
+import org.apache.lucene.codecs.Codec;
+import org.apache.lucene.codecs.FilterCodec;
 import org.apache.lucene.codecs.KnnVectorsFormat;
 import org.apache.lucene.codecs.KnnVectorsReader;
 import org.apache.lucene.codecs.KnnVectorsWriter;
 import org.apache.lucene.index.SegmentReadState;
 import org.apache.lucene.index.SegmentWriteState;
 
-/** Test-only codec that reports the writer selected by the production HNSW codec. */
-public final class PyLuceneWriterSelectionCodec extends Lucene101AcceleratedHNSWCodec {
+/** Test-only codec that reports the writer selected by the configured production HNSW codec. */
+public final class PyLuceneWriterSelectionCodec extends FilterCodec {
+
+  private static final String CONFIGURED_CODEC_CLASS =
+      "com.nvidia.cuvs.bench.PyLuceneConfiguredHnswCodec";
+
+  private final KnnVectorsFormat knnVectorsFormat;
+  private final String configuredCodecDiagnostics;
 
   public PyLuceneWriterSelectionCodec() throws Exception {
-    super();
-    setKnnFormat(new WriterSelectionFormat(super.knnVectorsFormat()));
+    this(configuredCodec());
+  }
+
+  private PyLuceneWriterSelectionCodec(Codec delegate) {
+    super(delegate.getName(), delegate);
+    knnVectorsFormat = new WriterSelectionFormat(delegate.knnVectorsFormat());
+    configuredCodecDiagnostics = delegate.toString();
+  }
+
+  private static Codec configuredCodec() throws Exception {
+    return (Codec)
+        Class.forName(CONFIGURED_CODEC_CLASS).getConstructor().newInstance();
+  }
+
+  @Override
+  public KnnVectorsFormat knnVectorsFormat() {
+    return knnVectorsFormat;
+  }
+
+  @Override
+  public String toString() {
+    return getClass().getSimpleName() + "(" + configuredCodecDiagnostics + ")";
   }
 
   private static final class WriterSelectionFormat extends KnnVectorsFormat {

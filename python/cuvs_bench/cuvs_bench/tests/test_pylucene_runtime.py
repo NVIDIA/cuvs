@@ -13,12 +13,29 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+import cuvs_bench.backends._pylucene_java as pylucene_java
 import cuvs_bench.backends.pylucene as pylucene_backend
-from cuvs_bench.backends.pylucene import _BuildCodec
+from cuvs_bench.backends.pylucene import _BuildCodec, _IndexTopology
 from cuvs_bench.tests._pylucene_test_utils import _CAGRA_CODEC, _HNSW_CODEC
 
 
-def _build_codec(java_codec=None, codec_name=_HNSW_CODEC) -> _BuildCodec:
+def _build_codec(
+    java_codec=None,
+    codec_name=_HNSW_CODEC,
+    *,
+    build_parameters=None,
+) -> _BuildCodec:
+    if build_parameters is None:
+        build_parameters = (
+            {"codec": _CAGRA_CODEC}
+            if codec_name == _CAGRA_CODEC
+            else {
+                "codec": _HNSW_CODEC,
+                "m": 32,
+                "ef_construction": 32,
+                "direct_single_segment": False,
+            }
+        )
     return _BuildCodec(
         codec_name=codec_name,
         java_codec=java_codec if java_codec is not None else object(),
@@ -27,6 +44,7 @@ def _build_codec(java_codec=None, codec_name=_HNSW_CODEC) -> _BuildCodec:
             if codec_name == _CAGRA_CODEC
             else "gpu-with-cpu-fallback"
         ),
+        build_parameters=build_parameters,
     )
 
 
@@ -62,6 +80,7 @@ class _FakeIndexWriter:
         self.committed = False
         self.rollback_called = False
         self.close_called = False
+        self.force_merge_calls = []
 
     def addDocument(self, document):
         if self.error_at in {"interrupt", "interrupt-rollback"}:
@@ -85,6 +104,9 @@ class _FakeIndexWriter:
         if self.error_at == "close":
             raise RuntimeError("close failed")
 
+    def forceMerge(self, segment_count):
+        self.force_merge_calls.append(segment_count)
+
 
 class _FakeMergePolicy:
     def __init__(self):
@@ -96,10 +118,13 @@ class _FakeMergePolicy:
 
 class _FakeIndexWriterConfig:
     OpenMode = SimpleNamespace(CREATE=object())
+    DISABLE_AUTO_FLUSH = -1
 
     def __init__(self):
         self.use_compound_file = None
         self.merge_policy = _FakeMergePolicy()
+        self.max_buffered_docs = None
+        self.ram_buffer_size_mb = None
 
     def setOpenMode(self, _mode):
         pass
@@ -113,8 +138,14 @@ class _FakeIndexWriterConfig:
     def getMergePolicy(self):
         return self.merge_policy
 
-    def setMergePolicy(self, _merge_policy):
-        raise AssertionError("PyLucene must use Lucene's default merge policy")
+    def setMaxBufferedDocs(self, max_buffered_docs):
+        self.max_buffered_docs = max_buffered_docs
+
+    def setRAMBufferSizeMB(self, ram_buffer_size_mb):
+        self.ram_buffer_size_mb = ram_buffer_size_mb
+
+    def setMergePolicy(self, merge_policy):
+        self.merge_policy = merge_policy
 
     def setMergeScheduler(self, _scheduler):
         raise AssertionError("PyLucene must use Lucene's default scheduler")
@@ -151,6 +182,56 @@ def _fake_codec_runtime(codec, available_names=(_HNSW_CODEC,)):
     return runtime, registry
 
 
+def _fake_configured_codec_runtime(diagnostics, initial_properties=None):
+    properties = dict(initial_properties or {})
+    property_snapshots = []
+    class_names = []
+
+    class _System:
+        @staticmethod
+        def getProperty(name):
+            return properties.get(name)
+
+        @staticmethod
+        def setProperty(name, value):
+            properties[name] = value
+
+        @staticmethod
+        def clearProperty(name):
+            properties.pop(name, None)
+
+    class _Codec:
+        @staticmethod
+        def getName():
+            return _HNSW_CODEC
+
+        @staticmethod
+        def knnVectorsFormat():
+            return object()
+
+        def __str__(self):
+            return diagnostics
+
+    codec = _Codec()
+
+    def new_instance():
+        property_snapshots.append(dict(properties))
+        return codec
+
+    def for_name(class_name):
+        class_names.append(class_name)
+        return SimpleNamespace(newInstance=new_instance)
+
+    runtime = pylucene_backend._PyLuceneRuntime.__new__(
+        pylucene_backend._PyLuceneRuntime
+    )
+    runtime.attach_current_thread = lambda: None
+    runtime.System = _System
+    runtime.Class = SimpleNamespace(forName=for_name)
+    runtime.Codec = SimpleNamespace(cast_=lambda reflected: reflected)
+    return runtime, properties, property_snapshots, class_names, codec
+
+
 def _fake_index_writer_runtime(error_at=None, directory_close_error=None):
     writer = _FakeIndexWriter(error_at=error_at)
     directory = SimpleNamespace(closed=False)
@@ -169,6 +250,7 @@ def _fake_index_writer_runtime(error_at=None, directory_close_error=None):
     runtime.Paths = SimpleNamespace(get=lambda path: path)
     runtime.FSDirectory = SimpleNamespace(open=lambda _path: directory)
     runtime.IndexWriterConfig = _FakeIndexWriterConfig
+    runtime.NoMergePolicy = SimpleNamespace(INSTANCE=object())
 
     def create_writer(_directory, config):
         runtime._test_writer_config = config
@@ -182,6 +264,10 @@ def _fake_index_writer_runtime(error_at=None, directory_close_error=None):
     runtime._test_writer = writer
     runtime._test_directory = directory
     runtime._test_codec = object()
+    runtime._index_topology = lambda _directory: _IndexTopology(
+        segment_document_counts=(len(writer.documents),),
+        segment_vector_counts=(len(writer.documents),),
+    )
     return runtime
 
 
@@ -189,6 +275,11 @@ def _fake_index_writer_runtime(error_at=None, directory_close_error=None):
 def _reset_jvm_tracking(monkeypatch):
     monkeypatch.setattr(pylucene_backend, "_INITIALIZED_CLASSPATH", None)
     monkeypatch.setattr(pylucene_backend, "_INITIALIZED_VMARGS", None)
+    monkeypatch.setattr(
+        pylucene_backend,
+        "configured_codec_classes_path",
+        lambda *_args: "/configured-codec-classes",
+    )
 
 
 def test_initialize_pylucene_uses_verified_classpath_and_vmargs(
@@ -218,6 +309,7 @@ def test_initialize_pylucene_uses_verified_classpath_and_vmargs(
     assert len(fake_lucene.init_calls) == 1
     init_call = fake_lucene.init_calls[0]
     assert init_call["classpath"].split(":") == [
+        "/configured-codec-classes",
         str(cuvs_java),
         str(cuvs_lucene),
         fake_lucene.CLASSPATH,
@@ -240,6 +332,28 @@ def test_initialize_pylucene_uses_verified_classpath_and_vmargs(
     )
     assert len(fake_lucene.init_calls) == 1
     assert fake_lucene.environment.attach_count == 2
+
+
+def test_configured_codec_compile_error_identifies_required_cuvs_lucene_api(
+    monkeypatch,
+):
+    completed = SimpleNamespace(
+        returncode=1,
+        stderr="cannot find symbol: withHnswHeuristicType",
+        stdout="",
+    )
+    monkeypatch.setattr(pylucene_java, "_find_javac", lambda: "/jdk/bin/javac")
+    monkeypatch.setattr(
+        pylucene_java.subprocess,
+        "run",
+        lambda *_args, **_kwargs: completed,
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="PyLucene 10.2 support.*HNSW heuristic delegation",
+    ):
+        pylucene_java._compile("/dependencies")
 
 
 @pytest.mark.parametrize(
@@ -311,6 +425,7 @@ def test_initialize_pylucene_uses_environment_runtime_config(
 
     init_call = fake_lucene.init_calls[0]
     assert init_call["classpath"].split(":") == [
+        "/configured-codec-classes",
         str(cuvs_java),
         str(cuvs_lucene),
         fake_lucene.CLASSPATH,
@@ -503,6 +618,46 @@ def test_resolve_codec_rejects_unusable_codec(
         runtime.resolve_codec(_HNSW_CODEC)
 
 
+def test_resolve_configured_hnsw_codec_passes_parameters_and_restores_state():
+    diagnostics = "PyLuceneConfiguredHnswCodec(m=24, efConstruction=96)"
+    runtime, properties, snapshots, class_names, codec = (
+        _fake_configured_codec_runtime(
+            diagnostics,
+            {pylucene_backend.M_PROPERTY: "previous-m"},
+        )
+    )
+
+    assert runtime.resolve_configured_hnsw_codec(24, 96) is codec
+    assert snapshots == [
+        {
+            pylucene_backend.M_PROPERTY: "24",
+            pylucene_backend.EF_CONSTRUCTION_PROPERTY: "96",
+        }
+    ]
+    assert properties == {pylucene_backend.M_PROPERTY: "previous-m"}
+    assert class_names == [pylucene_backend.CONFIGURED_HNSW_CODEC_CLASS]
+
+
+def test_resolve_configured_hnsw_codec_rejects_diagnostic_mismatch_and_restores_state():
+    runtime, properties, snapshots, _, _ = _fake_configured_codec_runtime(
+        "PyLuceneConfiguredHnswCodec(m=16, efConstruction=48)",
+        {pylucene_backend.EF_CONSTRUCTION_PROPERTY: "previous-ef"},
+    )
+
+    with pytest.raises(RuntimeError, match="did not retain the requested"):
+        runtime.resolve_configured_hnsw_codec(24, 96)
+
+    assert snapshots == [
+        {
+            pylucene_backend.M_PROPERTY: "24",
+            pylucene_backend.EF_CONSTRUCTION_PROPERTY: "96",
+        }
+    ]
+    assert properties == {
+        pylucene_backend.EF_CONSTRUCTION_PROPERTY: "previous-ef"
+    }
+
+
 @pytest.mark.parametrize("jvm_args", ["-Xmx1g", ["-Xmx1g", 1]])
 def test_initialize_pylucene_rejects_invalid_jvm_args(
     jvm_args, tmp_path, monkeypatch
@@ -537,7 +692,10 @@ def test_runtime_build_index_commits_and_closes_writer_and_directory(tmp_path):
         _build_codec(runtime._test_codec),
     )
 
-    assert result is None
+    assert result == _IndexTopology(
+        segment_document_counts=(2,),
+        segment_vector_counts=(2,),
+    )
     assert len(runtime._test_writer.documents) == 2
     assert runtime._test_writer.committed is True
     assert runtime._test_writer.rollback_called is False
@@ -545,6 +703,7 @@ def test_runtime_build_index_commits_and_closes_writer_and_directory(tmp_path):
     assert runtime._test_directory.closed is True
     assert runtime._test_writer_config.use_compound_file is None
     assert runtime._test_writer_config.merge_policy.no_cfs_ratio is None
+    assert runtime._test_writer.force_merge_calls == []
 
 
 @pytest.mark.parametrize(
@@ -560,11 +719,170 @@ def test_runtime_writer_config_applies_codec_compound_file_policy(
     runtime = _fake_index_writer_runtime()
 
     config = runtime._new_index_writer_config(
-        _build_codec(runtime._test_codec, codec_name)
+        _build_codec(runtime._test_codec, codec_name),
+        vector_count=10,
     )
 
     assert config.use_compound_file is use_compound_file
     assert config.merge_policy.no_cfs_ratio == no_cfs_ratio
+
+
+def test_runtime_writer_config_builds_one_segment_without_force_merge():
+    runtime = _fake_index_writer_runtime()
+    build_parameters = {
+        "codec": _HNSW_CODEC,
+        "m": 24,
+        "ef_construction": 96,
+        "direct_single_segment": True,
+    }
+
+    config = runtime._new_index_writer_config(
+        _build_codec(
+            runtime._test_codec,
+            build_parameters=build_parameters,
+        ),
+        vector_count=1_000_000,
+    )
+
+    assert config.max_buffered_docs == 1_000_001
+    assert config.ram_buffer_size_mb == config.DISABLE_AUTO_FLUSH
+    assert type(config.ram_buffer_size_mb) is float
+    assert config.merge_policy is runtime.NoMergePolicy.INSTANCE
+
+
+def test_runtime_direct_single_segment_build_does_not_force_merge(tmp_path):
+    runtime = _fake_index_writer_runtime()
+    vectors = np.zeros((2, 4), dtype=np.float32)
+    build_parameters = {
+        "codec": _HNSW_CODEC,
+        "m": 32,
+        "ef_construction": 32,
+        "direct_single_segment": True,
+    }
+
+    topology = runtime.build_index(
+        tmp_path,
+        vectors,
+        _build_codec(
+            runtime._test_codec,
+            build_parameters=build_parameters,
+        ),
+    )
+
+    assert topology.segment_count == 1
+    assert runtime._test_writer.force_merge_calls == []
+    assert runtime._test_writer.close_called is True
+    assert runtime._test_directory.closed is True
+
+
+def test_runtime_reads_committed_segment_topology_and_closes_reader():
+    reader = SimpleNamespace(closed=False)
+
+    def close_reader():
+        reader.closed = True
+
+    def leaf(document_count, vector_count):
+        leaf_reader = SimpleNamespace(
+            numDocs=lambda: document_count,
+            getFloatVectorValues=lambda _field: SimpleNamespace(
+                size=lambda: vector_count
+            ),
+        )
+        return SimpleNamespace(reader=lambda: leaf_reader)
+
+    reader.close = close_reader
+    reader.leaves = lambda: [leaf(4, 4), leaf(6, 6)]
+    runtime = pylucene_backend._PyLuceneRuntime.__new__(
+        pylucene_backend._PyLuceneRuntime
+    )
+    runtime.DirectoryReader = SimpleNamespace(open=lambda _directory: reader)
+
+    topology = runtime._index_topology(object())
+
+    assert topology == _IndexTopology(
+        segment_document_counts=(4, 6),
+        segment_vector_counts=(4, 6),
+    )
+    assert reader.closed is True
+
+
+def test_runtime_topology_rejects_segment_without_vectors_and_closes_reader():
+    leaf_reader = SimpleNamespace(
+        numDocs=lambda: 2,
+        getFloatVectorValues=lambda _field: None,
+    )
+    reader = SimpleNamespace(
+        leaves=lambda: [SimpleNamespace(reader=lambda: leaf_reader)],
+        closed=False,
+    )
+
+    def close_reader():
+        reader.closed = True
+
+    reader.close = close_reader
+    runtime = pylucene_backend._PyLuceneRuntime.__new__(
+        pylucene_backend._PyLuceneRuntime
+    )
+    runtime.DirectoryReader = SimpleNamespace(open=lambda _directory: reader)
+
+    with pytest.raises(RuntimeError, match="contains no vector values"):
+        runtime._index_topology(object())
+
+    assert reader.closed is True
+
+
+@pytest.mark.parametrize(
+    ("topology", "direct_single_segment", "error"),
+    [
+        (_IndexTopology((), ()), False, "no committed segments"),
+        (
+            _IndexTopology((1,), (1,)),
+            False,
+            "document counts do not match",
+        ),
+        (
+            _IndexTopology((2,), (1,)),
+            False,
+            "document and vector counts do not match",
+        ),
+        (
+            _IndexTopology((1, 1), (1, 1)),
+            True,
+            "requested one committed Lucene segment",
+        ),
+    ],
+    ids=[
+        "no-segments",
+        "wrong-document-count",
+        "wrong-vector-count",
+        "multiple-direct-segments",
+    ],
+)
+def test_runtime_build_rejects_invalid_topology_and_closes_resources(
+    tmp_path, topology, direct_single_segment, error
+):
+    runtime = _fake_index_writer_runtime()
+    runtime._index_topology = lambda _directory: topology
+    vectors = np.zeros((2, 4), dtype=np.float32)
+    build_parameters = {
+        "codec": _HNSW_CODEC,
+        "m": 32,
+        "ef_construction": 32,
+        "direct_single_segment": direct_single_segment,
+    }
+
+    with pytest.raises(RuntimeError, match=error):
+        runtime.build_index(
+            tmp_path,
+            vectors,
+            _build_codec(
+                runtime._test_codec,
+                build_parameters=build_parameters,
+            ),
+        )
+
+    assert runtime._test_writer.close_called is True
+    assert runtime._test_directory.closed is True
 
 
 @pytest.mark.parametrize(
@@ -645,11 +963,46 @@ def test_runtime_build_index_preserves_interrupt_when_directory_close_fails(
         )
 
     assert exc_info.value.__notes__ == [
-        "Failed to close Lucene directory: "
-        "RuntimeError: directory close failed"
+        "Failed to close Lucene directory: RuntimeError: directory close failed"
     ]
     assert runtime._test_writer.rollback_called is True
     assert runtime._test_directory.closed is True
+
+
+def test_runtime_search_uses_candidates_for_query_and_top_k_for_results():
+    query_calls = []
+    search_calls = []
+    query = object()
+
+    def new_query(field, vector, num_candidates):
+        query_calls.append((field, vector, num_candidates))
+        return query
+
+    def search(received_query, top_k):
+        search_calls.append((received_query, top_k))
+        return SimpleNamespace(scoreDocs=[SimpleNamespace(doc=4, score=0.5)])
+
+    runtime = pylucene_backend._PyLuceneRuntime.__new__(
+        pylucene_backend._PyLuceneRuntime
+    )
+    runtime.KnnFloatVectorQuery = new_query
+    runtime._java_float_array = lambda vector: tuple(vector.tolist())
+    searcher = SimpleNamespace(search=search)
+    stored_fields = SimpleNamespace(
+        document=lambda _document_id: SimpleNamespace(get=lambda _field: "17")
+    )
+
+    hits = runtime._search_vector(
+        searcher,
+        stored_fields,
+        np.array([1.0, 2.0], dtype=np.float32),
+        k=150,
+        num_candidates=300,
+    )
+
+    assert query_calls == [(pylucene_backend._VECTOR_FIELD, (1.0, 2.0), 300)]
+    assert search_calls == [(query, 150)]
+    assert hits == [pylucene_backend._SearchHit(document_id=17, score=0.5)]
 
 
 def test_search_cleanup_attempts_directory_after_reader_close_fails():
@@ -673,8 +1026,7 @@ def test_search_cleanup_attempts_directory_after_reader_close_fails():
 
     assert close_calls == ["reader", "directory"]
     assert exc_info.value.__notes__ == [
-        "Failed to close Lucene directory: "
-        "RuntimeError: directory close failed"
+        "Failed to close Lucene directory: RuntimeError: directory close failed"
     ]
 
 

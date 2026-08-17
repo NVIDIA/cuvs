@@ -67,18 +67,35 @@ def test_build_creates_index_and_records_hnsw_writer_policy(tmp_path):
     assert result.metadata["compound_file_policy"] == "lucene-default"
     assert result.metadata["hnsw_verification"] == {
         "status": "gpu-with-cpu-fallback-provenance",
-        "schema_version": 3,
+        "schema_version": 4,
         "codec": _HNSW_CODEC,
+        "build_parameters": {
+            "codec": _HNSW_CODEC,
+            "m": 32,
+            "ef_construction": 32,
+            "direct_single_segment": False,
+        },
         "writer_policy": "gpu-with-cpu-fallback",
         "compound_file_policy": "lucene-default",
         "vector_count": 10,
         "dimensions": 4,
+        "segment_count": 1,
         "commit_file_count": 1,
     }
     assert (index_path / pylucene_backend._HNSW_PROVENANCE_FILE).is_file()
-    assert runtime.resolve_calls == [_HNSW_CODEC]
+    assert runtime.configured_resolve_calls == [(32, 32)]
+    assert runtime.resolve_calls == []
     assert len(runtime.build_calls) == 1
     assert runtime.build_calls[0][2].writer_policy == ("gpu-with-cpu-fallback")
+    assert runtime.build_calls[0][2].build_parameters == {
+        "codec": _HNSW_CODEC,
+        "m": 32,
+        "ef_construction": 32,
+        "direct_single_segment": False,
+    }
+    assert result.metadata["segment_count"] == 1
+    assert result.metadata["segment_document_counts"] == [10]
+    assert result.metadata["segment_vector_counts"] == [10]
     assert runtime.verification_calls == []
 
 
@@ -97,12 +114,14 @@ def test_build_verifies_persisted_cagra_index(tmp_path):
     assert runtime.verification_calls == [(index_path, 10, 4)]
     assert result.metadata["cagra_provenance"] == {
         "status": "gpu-cagra-provenance",
-        "schema_version": 3,
+        "schema_version": 4,
         "codec": _CAGRA_CODEC,
+        "build_parameters": {"codec": _CAGRA_CODEC},
         "writer_policy": "gpu-cagra",
         "compound_file_policy": "disabled",
         "vector_count": 10,
         "dimensions": 4,
+        "segment_count": 1,
         "commit_file_count": 1,
     }
     assert result.metadata["cagra_verification"] == {
@@ -450,6 +469,96 @@ def test_build_rejects_unsupported_parameter(tmp_path):
     assert "Unsupported PyLucene build parameter" in result.error_message
 
 
+def test_hnsw_build_parameters_have_canonical_defaults():
+    assert pylucene_backend._normalize_build_params(
+        {"codec": _HNSW_CODEC}
+    ) == {
+        "codec": _HNSW_CODEC,
+        "m": 32,
+        "ef_construction": 32,
+        "direct_single_segment": False,
+    }
+
+
+@pytest.mark.parametrize("name", ["m", "ef_construction"])
+@pytest.mark.parametrize("value", [1, 512])
+def test_hnsw_build_parameter_boundaries_are_inclusive(name, value):
+    parameters = pylucene_backend._normalize_build_params(
+        {"codec": _HNSW_CODEC, name: value}
+    )
+
+    assert parameters[name] == value
+
+
+@pytest.mark.parametrize("name", ["m", "ef_construction"])
+@pytest.mark.parametrize(
+    "value",
+    [0, 513, True, 1.5, "32", None],
+    ids=["below-min", "above-max", "bool", "float", "string", "none"],
+)
+def test_hnsw_build_parameters_reject_invalid_values(name, value):
+    with pytest.raises(ValueError, match=rf"{name} must be an integer"):
+        pylucene_backend._normalize_build_params(
+            {"codec": _HNSW_CODEC, name: value}
+        )
+
+
+@pytest.mark.parametrize("value", [0, 1, None, "true"])
+def test_direct_single_segment_rejects_non_boolean_values(value):
+    with pytest.raises(TypeError, match="must be a boolean"):
+        pylucene_backend._normalize_build_params(
+            {
+                "codec": _HNSW_CODEC,
+                "direct_single_segment": value,
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("m", 32),
+        ("ef_construction", 64),
+        ("direct_single_segment", False),
+    ],
+)
+def test_cagra_rejects_hnsw_only_build_parameters(name, value):
+    with pytest.raises(ValueError, match="apply only to"):
+        pylucene_backend._normalize_build_params(
+            {"codec": _CAGRA_CODEC, name: value}
+        )
+
+
+@pytest.mark.parametrize("parameters", [None, [], "codec"])
+def test_build_parameters_must_be_a_mapping(parameters):
+    with pytest.raises(TypeError, match="must be a mapping"):
+        pylucene_backend._normalize_build_params(parameters)
+
+
+def test_build_propagates_configured_hnsw_parameters_to_runtime(tmp_path):
+    runtime = _FakeRuntime()
+    index_path = tmp_path / "index"
+    index = _index(
+        index_path,
+        build_params={"m": 24, "ef_construction": 96},
+    )
+
+    result = _backend(runtime).build(_dataset(), [index], force=True)
+
+    assert result.success
+    assert runtime.configured_resolve_calls == [(24, 96)]
+    assert runtime.resolve_calls == []
+    build_codec = runtime.build_calls[0][2]
+    assert build_codec.java_codec == (_HNSW_CODEC, 24, 96)
+    assert build_codec.build_parameters == {
+        "codec": _HNSW_CODEC,
+        "m": 24,
+        "ef_construction": 96,
+        "direct_single_segment": False,
+    }
+    assert result.build_params == build_codec.build_parameters
+
+
 @pytest.mark.parametrize("index_count", [0, 2])
 def test_build_requires_exactly_one_index(index_count, tmp_path):
     indexes = [
@@ -494,6 +603,32 @@ def test_build_removes_partial_index_after_runtime_failure(tmp_path):
 
     assert not result.success
     assert "Java build failed" in result.error_message
+    assert not index_path.exists()
+
+
+def test_build_removes_index_when_direct_segment_topology_is_not_one(
+    tmp_path,
+):
+    runtime = _FakeRuntime()
+    runtime.topology = pylucene_backend._IndexTopology(
+        segment_document_counts=(5, 5),
+        segment_vector_counts=(5, 5),
+    )
+    index_path = tmp_path / "index"
+
+    result = _backend(runtime).build(
+        _dataset(),
+        [
+            _index(
+                index_path,
+                build_params={"direct_single_segment": True},
+            )
+        ],
+        force=True,
+    )
+
+    assert not result.success
+    assert "requested one committed Lucene segment" in result.error_message
     assert not index_path.exists()
 
 
@@ -576,6 +711,73 @@ def test_search_dry_run_does_not_initialize_pylucene(tmp_path):
     assert result.success
     assert backend._runtime is None
     assert result.neighbors.shape == (0, 3)
+    assert result.search_params == [{"num_candidates": 3}]
+
+
+def test_search_dry_run_returns_one_result_per_candidate_setting(tmp_path):
+    backend = _backend()
+    candidates = [150, 200, 300]
+    index = _index(
+        tmp_path / "index",
+        search_params=[
+            {"num_candidates": num_candidates} for num_candidates in candidates
+        ],
+    )
+
+    results = backend.search(_dataset(), [index], k=150, dry_run=True)
+
+    assert len(results) == 3
+    assert all(result.success for result in results)
+    assert backend._runtime is None
+    assert [result.search_params for result in results] == [
+        [{"num_candidates": num_candidates}] for num_candidates in candidates
+    ]
+    assert [result.metadata["num_candidates"] for result in results] == (
+        candidates
+    )
+
+
+def test_search_associates_each_candidate_setting_with_its_result(tmp_path):
+    class _SelectiveFailureRuntime(_FakeRuntime):
+        def search_index(
+            self,
+            index_path,
+            query_vectors,
+            k,
+            batch_size,
+            num_candidates=None,
+        ):
+            result = super().search_index(
+                index_path,
+                query_vectors,
+                k,
+                batch_size,
+                num_candidates,
+            )
+            if num_candidates == 4:
+                raise RuntimeError("candidate-specific failure")
+            return result
+
+    index_path = tmp_path / "index"
+    _prepare_hnsw_index(index_path)
+    runtime = _SelectiveFailureRuntime()
+    candidates = [3, 4, 5]
+    index = _index(
+        index_path,
+        search_params=[
+            {"num_candidates": num_candidates} for num_candidates in candidates
+        ],
+    )
+
+    results = _backend(runtime).search(_dataset(), [index], k=3)
+
+    assert len(results) == 3
+    assert [result.success for result in results] == [True, False, True]
+    assert [result.search_params for result in results] == [
+        [{"num_candidates": num_candidates}] for num_candidates in candidates
+    ]
+    assert "candidate-specific failure" in results[1].error_message
+    assert [call[4] for call in runtime.search_calls] == candidates
 
 
 def test_search_converts_hits_scores_and_padding(tmp_path):
@@ -614,11 +816,13 @@ def test_search_converts_hits_scores_and_padding(tmp_path):
         "p99": 1.0,
     }
     assert result.metadata["num_batches"] == 2
+    assert result.metadata["top_k"] == 3
+    assert result.metadata["num_candidates"] == 3
     assert result.metadata["hnsw_verification"]["status"] == (
         "gpu-with-cpu-fallback-provenance"
     )
     assert "per_search_param_results" not in result.metadata
-    assert runtime.search_calls[0][3] == 1
+    assert runtime.search_calls[0][2:] == (3, 1, 3)
     assert runtime.verification_calls == []
 
 
@@ -867,7 +1071,7 @@ def test_search_rejects_invalid_cagra_provenance_before_runtime(
             10000,
             None,
             "latency",
-            "does not expose",
+            "Unsupported PyLucene search parameter",
         ),
         (
             _index(Path("/tmp/index"), codec=_CAGRA_CODEC),
@@ -898,10 +1102,97 @@ def test_search_rejects_unsupported_options(
     assert error in result.error_message
 
 
-def test_resolve_search_plan_normalizes_the_complete_request(tmp_path):
+@pytest.mark.parametrize(
+    "num_candidates",
+    [0, -1, True, 1.5, "3", None],
+    ids=["zero", "negative", "bool", "float", "string", "none"],
+)
+def test_search_rejects_invalid_num_candidates(num_candidates, tmp_path):
+    result = _only_search_result(
+        _backend().search(
+            _dataset(),
+            [
+                _index(
+                    tmp_path / "index",
+                    search_params=[{"num_candidates": num_candidates}],
+                )
+            ],
+            k=3,
+            dry_run=True,
+        )
+    )
+
+    assert not result.success
+    assert "num_candidates must be a positive integer" in result.error_message
+
+
+def test_search_rejects_num_candidates_below_top_k(tmp_path):
+    result = _only_search_result(
+        _backend().search(
+            _dataset(),
+            [
+                _index(
+                    tmp_path / "index",
+                    search_params=[{"num_candidates": 2}],
+                )
+            ],
+            k=3,
+            dry_run=True,
+        )
+    )
+
+    assert not result.success
+    assert "greater than or equal to k (3)" in result.error_message
+
+
+def test_search_rejects_num_candidates_for_cagra(tmp_path):
+    result = _only_search_result(
+        _backend(codec=_CAGRA_CODEC).search(
+            _dataset(),
+            [
+                _index(
+                    tmp_path / "index",
+                    codec=_CAGRA_CODEC,
+                    search_params=[{"num_candidates": 3}],
+                )
+            ],
+            k=3,
+            dry_run=True,
+        )
+    )
+
+    assert not result.success
+    assert "num_candidates applies only to" in result.error_message
+
+
+@pytest.mark.parametrize("search_parameters", [1, None, "candidates"])
+def test_search_parameter_entries_must_be_mappings(
+    search_parameters, tmp_path
+):
+    result = _only_search_result(
+        _backend().search(
+            _dataset(),
+            [
+                _index(
+                    tmp_path / "index",
+                    search_params=[search_parameters],
+                )
+            ],
+            k=3,
+            dry_run=True,
+        )
+    )
+
+    assert not result.success
+    assert "Every PyLucene search parameter must be a mapping" in (
+        result.error_message
+    )
+
+
+def test_resolve_search_plans_normalizes_the_complete_request(tmp_path):
     index = _index(tmp_path / "index", search_params=[])
 
-    plan = _backend()._resolve_search_plan(
+    plans = _backend()._resolve_search_plans(
         index,
         k=3,
         batch_size=7,
@@ -909,14 +1200,23 @@ def test_resolve_search_plan_normalizes_the_complete_request(tmp_path):
         search_threads="1",
     )
 
-    assert plan == pylucene_backend._SearchPlan(
-        index_path=tmp_path / "index",
-        codec_name=_HNSW_CODEC,
-        search_params=[{}],
-        k=3,
-        batch_size=7,
-        mode="latency",
-    )
+    assert plans == [
+        pylucene_backend._SearchPlan(
+            index_path=tmp_path / "index",
+            codec_name=_HNSW_CODEC,
+            build_parameters={
+                "codec": _HNSW_CODEC,
+                "m": 32,
+                "ef_construction": 32,
+                "direct_single_segment": False,
+            },
+            search_parameters={"num_candidates": 3},
+            num_candidates=3,
+            k=3,
+            batch_size=7,
+            mode="latency",
+        )
+    ]
 
 
 def test_search_validation_preserves_first_error_precedence(tmp_path):

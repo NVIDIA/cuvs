@@ -17,6 +17,7 @@ from cuvs_bench.backends.base import Dataset
 from cuvs_bench.backends.pylucene import (
     PyLuceneBackend,
     _CagraIndexVerification,
+    _IndexTopology,
     _RuntimeSearchResult,
     _SearchHit,
 )
@@ -44,11 +45,13 @@ class _FakeRuntime:
         self.batch_latencies_ms = batch_latencies_ms
         self.validate_query_dimensions = validate_query_dimensions
         self.resolve_calls = []
+        self.configured_resolve_calls = []
         self.build_calls = []
         self.search_calls = []
         self.verification_calls = []
         self.resolve_error = None
         self.build_error = None
+        self.topology = None
         self.search_error = None
         self.verification_error = None
 
@@ -58,6 +61,12 @@ class _FakeRuntime:
             raise self.resolve_error
         return codec_name
 
+    def resolve_configured_hnsw_codec(self, m, ef_construction):
+        self.configured_resolve_calls.append((m, ef_construction))
+        if self.resolve_error is not None:
+            raise self.resolve_error
+        return (_HNSW_CODEC, m, ef_construction)
+
     def build_index(self, index_path, vectors, build_codec):
         self.build_calls.append((index_path, vectors.copy(), build_codec))
         if self.build_error is not None:
@@ -65,6 +74,15 @@ class _FakeRuntime:
             raise self.build_error
         self.document_count = int(vectors.shape[0])
         (index_path / "segments_1").write_bytes(b"index")
+        topology = self.topology or _IndexTopology(
+            segment_document_counts=(self.document_count,),
+            segment_vector_counts=(self.document_count,),
+        )
+        if build_codec.direct_single_segment:
+            topology.require_direct_single_segment(self.document_count)
+        else:
+            topology.validate(self.document_count)
+        return topology
 
     def verify_cagra_index(
         self,
@@ -90,9 +108,17 @@ class _FakeRuntime:
             ),
         )
 
-    def search_index(self, index_path, query_vectors, k, batch_size):
+    def search_index(
+        self, index_path, query_vectors, k, batch_size, num_candidates=None
+    ):
         self.search_calls.append(
-            (index_path, query_vectors.copy(), k, batch_size)
+            (
+                index_path,
+                query_vectors.copy(),
+                k,
+                batch_size,
+                num_candidates,
+            )
         )
         if self.search_error is not None:
             raise self.search_error
@@ -145,12 +171,16 @@ def _index(
     index_path: Path,
     *,
     codec: str = _HNSW_CODEC,
+    build_params: dict | None = None,
     search_params: list[dict] | None = None,
 ) -> IndexConfig:
+    parameters = {"codec": codec}
+    if build_params:
+        parameters.update(build_params)
     return IndexConfig(
         name="pylucene-test",
         algo="pylucene_cuvs_hnsw",
-        build_param={"codec": codec},
+        build_param=parameters,
         search_params=[{}] if search_params is None else search_params,
         file=str(index_path),
     )

@@ -13,20 +13,34 @@ from pathlib import Path
 import lucene
 import numpy as np
 
+from cuvs_bench.backends._pylucene_java import (
+    EF_CONSTRUCTION_PROPERTY,
+    M_PROPERTY,
+)
 from cuvs_bench.backends.pylucene import (
     _BuildCodec,
     _PyLuceneRuntime,
     _validate_pylucene_version,
 )
 
-_CPU_HNSW_WRITER = "org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsWriter"
+_CPU_HNSW_WRITER = (
+    "org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsWriter"
+)
 _HNSW_CODEC = "Lucene101AcceleratedHNSWCodec"
 _WRITER_SELECTION_CODEC = "com.nvidia.cuvs.bench.PyLuceneWriterSelectionCodec"
+_DEFAULT_HNSW_BUILD_PARAMETERS = {
+    "codec": _HNSW_CODEC,
+    "m": 32,
+    "ef_construction": 32,
+    "direct_single_segment": False,
+}
 
 
 def _writer_diagnostics(java_codec):
     diagnostics = str(java_codec.knnVectorsFormat())
-    match = re.search(r"writerClass=([^,)]+), fieldsWriterCalls=(\d+)", diagnostics)
+    match = re.search(
+        r"writerClass=([^,)]+), fieldsWriterCalls=(\d+)", diagnostics
+    )
     if match is None:
         raise AssertionError(f"Unexpected writer diagnostics: {diagnostics}")
     return match.group(1), int(match.group(2))
@@ -44,9 +58,15 @@ def main():
             "java_library_path": os.environ["JAVA_LIBRARY_PATH"],
         }
     )
-    reflected_codec = runtime.Class.forName(_WRITER_SELECTION_CODEC).newInstance()
+    runtime.System.setProperty(M_PROPERTY, "16")
+    runtime.System.setProperty(EF_CONSTRUCTION_PROPERTY, "48")
+    reflected_codec = runtime.Class.forName(
+        _WRITER_SELECTION_CODEC
+    ).newInstance()
     java_codec = runtime.Codec.cast_(reflected_codec)
-    vectors = np.random.default_rng(174).standard_normal((4, 32)).astype(np.float32)
+    vectors = (
+        np.random.default_rng(174).standard_normal((4, 32)).astype(np.float32)
+    )
 
     with tempfile.TemporaryDirectory(prefix="pylucene-cpu-fallback-") as temp:
         index_path = Path(temp)
@@ -57,17 +77,25 @@ def main():
                 codec_name=_HNSW_CODEC,
                 java_codec=java_codec,
                 writer_policy="gpu-with-cpu-fallback",
+                build_parameters={
+                    **_DEFAULT_HNSW_BUILD_PARAMETERS,
+                    "m": 16,
+                    "ef_construction": 48,
+                },
             ),
         )
         writer_class, writer_calls = _writer_diagnostics(java_codec)
         if writer_class != _CPU_HNSW_WRITER:
-            raise AssertionError(f"Expected {_CPU_HNSW_WRITER}, found {writer_class}")
+            raise AssertionError(
+                f"Expected {_CPU_HNSW_WRITER}, found {writer_class}"
+            )
 
         search = runtime.search_index(
             index_path,
             vectors[[2]],
             k=1,
             batch_size=1,
+            num_candidates=1,
         )
         first_hit = search.hits[0][0].document_id
 

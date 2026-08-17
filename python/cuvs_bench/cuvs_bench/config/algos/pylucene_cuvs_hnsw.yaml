@@ -4,8 +4,17 @@ groups:
     build:
       codec:
         - "Lucene101AcceleratedHNSWCodec"
+      m:
+        - 32
+      ef_construction:
+        - 32
+      direct_single_segment:
+        - false
     search: {}
   test:
     build:
       codec: ["Lucene101AcceleratedHNSWCodec"]
+      m: [32]
+      ef_construction: [32]
+      direct_single_segment: [false]
     search: {}

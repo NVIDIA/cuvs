@@ -20,6 +20,10 @@ import numpy as np
 import pytest
 
 from cuvs_bench._bin_format import write_bin_header
+from cuvs_bench.backends._pylucene_java import (
+    EF_CONSTRUCTION_PROPERTY,
+    M_PROPERTY,
+)
 from cuvs_bench.backends._utils import compute_recall
 from cuvs_bench.backends.base import BuildResult, Dataset
 from cuvs_bench.backends.pylucene import (
@@ -28,6 +32,7 @@ from cuvs_bench.backends.pylucene import (
     PyLuceneBackend,
     _HNSW_PROVENANCE_FILE,
     _PyLuceneRuntime,
+    _restore_java_property,
     _validate_pylucene_version,
 )
 from cuvs_bench.orchestrator.config_loaders import IndexConfig
@@ -49,9 +54,20 @@ _COMPOUND_FILE_POLICY = {
     _HNSW_CODEC: "lucene-default",
     _CAGRA_CODEC: "disabled",
 }
-_GPU_HNSW_WRITER = "com.nvidia.cuvs.lucene.Lucene99AcceleratedHNSWVectorsWriter"
-_CPU_HNSW_WRITER = "org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsWriter"
+_GPU_HNSW_WRITER = (
+    "com.nvidia.cuvs.lucene.Lucene99AcceleratedHNSWVectorsWriter"
+)
+_CPU_HNSW_WRITER = (
+    "org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsWriter"
+)
 _WRITER_SELECTION_CODEC = "com.nvidia.cuvs.bench.PyLuceneWriterSelectionCodec"
+_DEFAULT_HNSW_BUILD_PARAMETERS = {
+    "codec": _HNSW_CODEC,
+    "m": 32,
+    "ef_construction": 32,
+    "direct_single_segment": False,
+}
+_CAGRA_BUILD_PARAMETERS = {"codec": _CAGRA_CODEC}
 _WRITER_SELECTION_SOURCE = (
     Path(__file__).resolve().parents[2]
     / "tests"
@@ -62,7 +78,9 @@ _WRITER_SELECTION_SOURCE = (
     / "bench"
     / "PyLuceneWriterSelectionCodec.java"
 )
-_CPU_FALLBACK_PROBE = Path(__file__).with_name("pylucene_cpu_fallback_probe.py")
+_CPU_FALLBACK_PROBE = Path(__file__).with_name(
+    "pylucene_cpu_fallback_probe.py"
+)
 
 
 @dataclass(frozen=True)
@@ -84,6 +102,7 @@ class _BaselineIndex:
     algo: str
     codec: str
     writer_policy: str
+    build_parameters: dict[str, object]
     index_path: Path
     index: IndexConfig
     build_result: BuildResult
@@ -116,9 +135,29 @@ def _single_search_result(results):
 
 def _writer_diagnostics(java_codec):
     diagnostics = str(java_codec.knnVectorsFormat())
-    match = re.search(r"writerClass=([^,)]+), fieldsWriterCalls=(\d+)", diagnostics)
+    match = re.search(
+        r"writerClass=([^,)]+), fieldsWriterCalls=(\d+)", diagnostics
+    )
     assert match is not None, diagnostics
     return match.group(1), int(match.group(2))
+
+
+def _configured_writer_selection_codec(runtime, m, ef_construction):
+    properties = {
+        M_PROPERTY: str(m),
+        EF_CONSTRUCTION_PROPERTY: str(ef_construction),
+    }
+    previous = {name: runtime.System.getProperty(name) for name in properties}
+    try:
+        for name, value in properties.items():
+            runtime.System.setProperty(name, value)
+        reflected_codec = runtime.Class.forName(
+            _WRITER_SELECTION_CODEC
+        ).newInstance()
+        return runtime.Codec.cast_(reflected_codec)
+    finally:
+        for name, value in previous.items():
+            _restore_java_property(runtime.System, name, value)
 
 
 def _backend(algo, codec, runtime_config):
@@ -136,7 +175,7 @@ def _index_at(baseline, index_path):
     return IndexConfig(
         name=baseline.index.name,
         algo=baseline.algo,
-        build_param={"codec": baseline.codec},
+        build_param=baseline.build_parameters,
         search_params=[{}],
         file=str(index_path),
     )
@@ -150,7 +189,9 @@ def _copy_baseline(baseline, tmp_path):
 
 def _search_copied_index(baseline, index, dataset=None):
     backend = _backend(baseline.algo, baseline.codec, baseline.runtime_config)
-    search_dataset = baseline.dataset_case.dataset if dataset is None else dataset
+    search_dataset = (
+        baseline.dataset_case.dataset if dataset is None else dataset
+    )
     try:
         return _single_search_result(
             backend.search(
@@ -207,7 +248,9 @@ def _compile_writer_selection_codec(
         )
 
 
-def _assert_cagra_verification(metadata, expected_vector_count, expected_dimensions):
+def _assert_cagra_verification(
+    metadata, expected_vector_count, expected_dimensions
+):
     verification = metadata["cagra_verification"]
     assert verification["status"] == "cagra-only"
     assert verification["segment_count"] >= 1
@@ -216,15 +259,21 @@ def _assert_cagra_verification(metadata, expected_vector_count, expected_dimensi
     assert verification["dimensions"] == expected_dimensions
 
 
-def _assert_cagra_provenance(metadata, expected_vector_count, expected_dimensions):
+def _assert_cagra_provenance(
+    metadata,
+    expected_vector_count,
+    expected_dimensions,
+):
     assert metadata["cagra_provenance"] == {
         "status": "gpu-cagra-provenance",
-        "schema_version": 3,
+        "schema_version": 4,
         "codec": _CAGRA_CODEC,
+        "build_parameters": _CAGRA_BUILD_PARAMETERS,
         "writer_policy": "gpu-cagra",
         "compound_file_policy": "disabled",
         "vector_count": expected_vector_count,
         "dimensions": expected_dimensions,
+        "segment_count": metadata["segment_count"],
         "commit_file_count": 1,
     }
 
@@ -255,17 +304,23 @@ def _commit_one_deletion(backend, index_path):
 
 
 def _assert_hnsw_verification(
-    metadata, codec, expected_vector_count, expected_dimensions
+    metadata,
+    codec,
+    expected_vector_count,
+    expected_dimensions,
+    expected_build_parameters,
 ):
     verification = metadata["hnsw_verification"]
     assert verification == {
         "status": "gpu-with-cpu-fallback-provenance",
-        "schema_version": 3,
+        "schema_version": 4,
         "codec": codec,
+        "build_parameters": expected_build_parameters,
         "writer_policy": _HNSW_WRITER_POLICY,
         "compound_file_policy": "lucene-default",
         "vector_count": expected_vector_count,
         "dimensions": expected_dimensions,
+        "segment_count": metadata["segment_count"],
         "commit_file_count": 1,
     }
 
@@ -322,7 +377,8 @@ def integration_dataset_case():
     k = 5
 
     squared_distances = np.sum(
-        (query_vectors[:, np.newaxis, :] - training_vectors[np.newaxis, :, :]) ** 2,
+        (query_vectors[:, np.newaxis, :] - training_vectors[np.newaxis, :, :])
+        ** 2,
         axis=2,
     )
     groundtruth_neighbors = np.argsort(squared_distances, axis=1)[:, :k]
@@ -353,11 +409,16 @@ def _build_baseline(
     codec,
     writer_policy,
 ):
+    build_parameters = (
+        _DEFAULT_HNSW_BUILD_PARAMETERS
+        if codec == _HNSW_CODEC
+        else _CAGRA_BUILD_PARAMETERS
+    )
     index_path = tmp_path_factory.mktemp(f"{algo}-baseline") / "index"
     index = IndexConfig(
         name=f"{algo}-integration",
         algo=algo,
-        build_param={"codec": codec},
+        build_param=build_parameters,
         search_params=[{}],
         file=str(index_path),
     )
@@ -371,6 +432,7 @@ def _build_baseline(
         algo=algo,
         codec=codec,
         writer_policy=writer_policy,
+        build_parameters=build_parameters,
         index_path=index_path,
         index=index,
         build_result=build_result,
@@ -380,7 +442,9 @@ def _build_baseline(
 
 
 @pytest.fixture(scope="module")
-def hnsw_baseline(tmp_path_factory, pylucene_runtime_config, integration_dataset_case):
+def hnsw_baseline(
+    tmp_path_factory, pylucene_runtime_config, integration_dataset_case
+):
     return _build_baseline(
         tmp_path_factory,
         pylucene_runtime_config,
@@ -392,7 +456,9 @@ def hnsw_baseline(tmp_path_factory, pylucene_runtime_config, integration_dataset
 
 
 @pytest.fixture(scope="module")
-def cagra_baseline(tmp_path_factory, pylucene_runtime_config, integration_dataset_case):
+def cagra_baseline(
+    tmp_path_factory, pylucene_runtime_config, integration_dataset_case
+):
     return _build_baseline(
         tmp_path_factory,
         pylucene_runtime_config,
@@ -409,17 +475,28 @@ def _assert_build_contract(baseline):
     vectors = case.dataset.training_vectors
     assert result.build_time_seconds > 0
     assert result.index_size_bytes > 0
+    assert result.build_params == baseline.build_parameters
     assert result.metadata["codec"] == baseline.codec
     assert result.metadata["pylucene_version"] != "unknown"
     assert result.metadata["writer_policy"] == baseline.writer_policy
+    assert result.metadata["segment_count"] >= 1
     assert (
-        result.metadata["compound_file_policy"] == _COMPOUND_FILE_POLICY[baseline.codec]
+        result.metadata["compound_file_policy"]
+        == _COMPOUND_FILE_POLICY[baseline.codec]
     )
     if baseline.codec == _CAGRA_CODEC:
-        assert any(path.suffix == ".vemc" for path in baseline.index_path.iterdir())
-        assert any(path.suffix == ".vcag" for path in baseline.index_path.iterdir())
-        _assert_cagra_provenance(result.metadata, vectors.shape[0], vectors.shape[1])
-        _assert_cagra_verification(result.metadata, vectors.shape[0], vectors.shape[1])
+        assert any(
+            path.suffix == ".vemc" for path in baseline.index_path.iterdir()
+        )
+        assert any(
+            path.suffix == ".vcag" for path in baseline.index_path.iterdir()
+        )
+        _assert_cagra_provenance(
+            result.metadata, vectors.shape[0], vectors.shape[1]
+        )
+        _assert_cagra_verification(
+            result.metadata, vectors.shape[0], vectors.shape[1]
+        )
         assert (baseline.index_path / _CAGRA_PROVENANCE_FILE).is_file()
     else:
         _assert_hnsw_verification(
@@ -427,6 +504,7 @@ def _assert_build_contract(baseline):
             baseline.codec,
             vectors.shape[0],
             vectors.shape[1],
+            baseline.build_parameters,
         )
         assert (baseline.index_path / _HNSW_PROVENANCE_FILE).is_file()
 
@@ -441,7 +519,9 @@ def _assert_search_contract(baseline, result):
     assert result.distances.shape == (query_vectors.shape[0], case.k)
     np.testing.assert_array_equal(result.neighbors[:, 0], case.query_ids)
     assert np.all(np.isfinite(result.distances))
-    recall = compute_recall(result.neighbors, dataset.groundtruth_neighbors, case.k)
+    recall = compute_recall(
+        result.neighbors, dataset.groundtruth_neighbors, case.k
+    )
     assert recall >= 0.75
     returned_distances = np.take_along_axis(
         case.squared_distances, result.neighbors, axis=1
@@ -454,14 +534,17 @@ def _assert_search_contract(baseline, result):
     assert result.metadata["latency_seconds"] > 0
     assert result.queries_per_second > 0
     assert result.metadata["codec"] == baseline.codec
+    assert result.metadata["segment_count"] >= 1
     assert result.metadata["pylucene_version"] != "unknown"
     assert (
-        result.metadata["compound_file_policy"] == _COMPOUND_FILE_POLICY[baseline.codec]
+        result.metadata["compound_file_policy"]
+        == _COMPOUND_FILE_POLICY[baseline.codec]
     )
     assert result.metadata["num_batches"] == 2
     assert result.metadata["mode"] == "latency"
     assert set(result.latency_percentiles) == {"p50", "p95", "p99"}
     if baseline.codec == _CAGRA_CODEC:
+        assert result.search_params == [{}]
         _assert_cagra_provenance(
             result.metadata,
             training_vectors.shape[0],
@@ -473,12 +556,15 @@ def _assert_search_contract(baseline, result):
             training_vectors.shape[1],
         )
     else:
+        assert result.search_params == [{"num_candidates": case.k}]
+        assert result.metadata["num_candidates"] == case.k
         assert "cagra_verification" not in result.metadata
         _assert_hnsw_verification(
             result.metadata,
             baseline.codec,
             training_vectors.shape[0],
             training_vectors.shape[1],
+            baseline.build_parameters,
         )
 
 
@@ -505,21 +591,28 @@ def _assert_reuse_contract(baseline_index):
     finally:
         backend.cleanup()
     assert result.success, result.error_message
+    assert result.build_params == baseline_index.build_parameters
     assert result.metadata["skipped"] is True
+    assert result.metadata["segment_count"] >= 1
     assert (
         result.metadata["compound_file_policy"]
         == _COMPOUND_FILE_POLICY[baseline_index.codec]
     )
     vectors = baseline_index.dataset_case.dataset.training_vectors
     if baseline_index.codec == _CAGRA_CODEC:
-        _assert_cagra_provenance(result.metadata, vectors.shape[0], vectors.shape[1])
-        _assert_cagra_verification(result.metadata, vectors.shape[0], vectors.shape[1])
+        _assert_cagra_provenance(
+            result.metadata, vectors.shape[0], vectors.shape[1]
+        )
+        _assert_cagra_verification(
+            result.metadata, vectors.shape[0], vectors.shape[1]
+        )
     else:
         _assert_hnsw_verification(
             result.metadata,
             baseline_index.codec,
             vectors.shape[0],
             vectors.shape[1],
+            baseline_index.build_parameters,
         )
 
 
@@ -742,7 +835,9 @@ def _committed_segment_compound_flags(runtime, index_path):
         segment_infos = verifier.SegmentInfos.readLatestCommit(directory)
         return [
             bool(
-                verifier.SegmentCommitInfo.cast_(raw_segment).info.getUseCompoundFile()
+                verifier.SegmentCommitInfo.cast_(
+                    raw_segment
+                ).info.getUseCompoundFile()
             )
             for raw_segment in segment_infos
         ]
@@ -750,29 +845,46 @@ def _committed_segment_compound_flags(runtime, index_path):
         directory.close()
 
 
-def test_real_hnsw_codec_selects_gpu_writer(tmp_path, pylucene_runtime_config):
-    """Exercise GPU writer selection during default-scheduler merges."""
+def test_configured_hnsw_codec_selects_gpu_writer(
+    tmp_path, pylucene_runtime_config
+):
+    """Exercise configured GPU writer selection during default-scheduler merges."""
     runtime = _PyLuceneRuntime.create(pylucene_runtime_config.backend_config)
     runtime.attach_current_thread()
-    reflected_codec = runtime.Class.forName(_WRITER_SELECTION_CODEC).newInstance()
-    java_codec = runtime.Codec.cast_(reflected_codec)
+    m = 16
+    ef_construction = 48
+    java_codec = _configured_writer_selection_codec(
+        runtime, m, ef_construction
+    )
+    assert str(java_codec) == (
+        "PyLuceneWriterSelectionCodec("
+        "PyLuceneConfiguredHnswCodec(m=16, efConstruction=48))"
+    )
     index_path = tmp_path / "hnsw-writer-selection-index"
     index_path.mkdir()
-    vectors = np.random.default_rng(1907).standard_normal((6, 32)).astype(np.float32)
+    vectors = (
+        np.random.default_rng(1907).standard_normal((6, 32)).astype(np.float32)
+    )
     default_config = runtime.IndexWriterConfig()
     writer_config = runtime._new_index_writer_config(
         _BuildCodec(
             codec_name=_HNSW_CODEC,
             java_codec=java_codec,
             writer_policy=_HNSW_WRITER_POLICY,
-        )
+            build_parameters={
+                **_DEFAULT_HNSW_BUILD_PARAMETERS,
+                "m": m,
+                "ef_construction": ef_construction,
+            },
+        ),
+        vector_count=vectors.shape[0],
     )
     assert bool(writer_config.getUseCompoundFile()) == bool(
         default_config.getUseCompoundFile()
     )
-    assert float(writer_config.getMergePolicy().getNoCFSRatio()) == pytest.approx(
-        float(default_config.getMergePolicy().getNoCFSRatio())
-    )
+    assert float(
+        writer_config.getMergePolicy().getNoCFSRatio()
+    ) == pytest.approx(float(default_config.getMergePolicy().getNoCFSRatio()))
     _assert_default_merge_scheduler(writer_config)
     writer_config.setMaxBufferedDocs(2)
 
@@ -785,8 +897,84 @@ def test_real_hnsw_codec_selects_gpu_writer(tmp_path, pylucene_runtime_config):
     writer_class, writer_calls = _writer_diagnostics(java_codec)
     assert writer_class == _GPU_HNSW_WRITER
     assert writer_calls >= 4
-    search = runtime.search_index(index_path, vectors[[3]], k=2, batch_size=1)
+    search = runtime.search_index(
+        index_path,
+        vectors[[3]],
+        k=2,
+        batch_size=1,
+        num_candidates=2,
+    )
     assert search.hits[0][0].document_id == 3
+
+
+def test_configured_hnsw_codecs_retain_sequential_parameters(
+    pylucene_runtime_config,
+):
+    """Resolve independent configured codecs in the process-wide JVM."""
+    runtime = _PyLuceneRuntime.create(pylucene_runtime_config.backend_config)
+
+    first = runtime.resolve_configured_hnsw_codec(16, 48)
+    assert str(first) == "PyLuceneConfiguredHnswCodec(m=16, efConstruction=48)"
+
+    second = runtime.resolve_configured_hnsw_codec(24, 96)
+    assert (
+        str(second) == "PyLuceneConfiguredHnswCodec(m=24, efConstruction=96)"
+    )
+    assert str(first) == "PyLuceneConfiguredHnswCodec(m=16, efConstruction=48)"
+    assert str(first.getName()) == _HNSW_CODEC
+    assert str(second.getName()) == _HNSW_CODEC
+
+
+def test_configured_hnsw_direct_single_segment_and_num_candidates(
+    tmp_path, pylucene_runtime_config, integration_dataset_case
+):
+    """Build one committed leaf and over-fetch without changing top-k."""
+    runtime = _PyLuceneRuntime.create(pylucene_runtime_config.backend_config)
+    build_parameters = {
+        **_DEFAULT_HNSW_BUILD_PARAMETERS,
+        "m": 16,
+        "ef_construction": 48,
+        "direct_single_segment": True,
+    }
+    java_codec = runtime.resolve_configured_hnsw_codec(16, 48)
+    index_path = tmp_path / "configured-hnsw-single-segment"
+    index_path.mkdir()
+    vectors = integration_dataset_case.dataset.training_vectors
+
+    topology = runtime.build_index(
+        index_path,
+        vectors,
+        _BuildCodec(
+            codec_name=_HNSW_CODEC,
+            java_codec=java_codec,
+            writer_policy=_HNSW_WRITER_POLICY,
+            build_parameters=build_parameters,
+        ),
+    )
+
+    expected_vector_count = vectors.shape[0]
+    assert topology.segment_count == 1
+    assert topology.segment_document_counts == (expected_vector_count,)
+    assert topology.segment_vector_counts == (expected_vector_count,)
+
+    top_k = 5
+    num_candidates = 11
+    search = runtime.search_index(
+        index_path,
+        vectors[[137]],
+        k=top_k,
+        batch_size=1,
+        num_candidates=num_candidates,
+    )
+    hits = search.hits[0]
+    document_ids = [hit.document_id for hit in hits]
+    assert len(hits) == top_k
+    assert document_ids[0] == 137
+    assert len(set(document_ids)) == top_k
+    assert all(
+        0 <= document_id < expected_vector_count
+        for document_id in document_ids
+    )
 
 
 def test_real_cagra_codec_merges_without_compound_files(
@@ -803,7 +991,9 @@ def test_real_cagra_codec_merges_without_compound_files(
             codec_name=_CAGRA_CODEC,
             java_codec=java_codec,
             writer_policy="gpu-cagra",
-        )
+            build_parameters=_CAGRA_BUILD_PARAMETERS,
+        ),
+        vector_count=vectors.shape[0],
     )
     assert not bool(writer_config.getUseCompoundFile())
     assert float(writer_config.getMergePolicy().getNoCFSRatio()) == 0.0
@@ -827,7 +1017,13 @@ def test_real_cagra_codec_merges_without_compound_files(
         expected_dimensions=vectors.shape[1],
     )
     assert verification.segment_count == 1
-    search = runtime.search_index(index_path, vectors[[137]], k=1, batch_size=1)
+    search = runtime.search_index(
+        index_path,
+        vectors[[137]],
+        k=1,
+        batch_size=1,
+        num_candidates=1,
+    )
     assert search.hits[0][0].document_id == 137
 
 
@@ -853,7 +1049,9 @@ def test_real_hnsw_codec_falls_back_to_cpu_in_fresh_process(
                 pylucene_runtime_config.writer_selection_classes
             ),
             "PYTHONPATH": os.pathsep.join(
-                value for value in (source_root, environment.get("PYTHONPATH")) if value
+                value
+                for value in (source_root, environment.get("PYTHONPATH"))
+                if value
             ),
         }
     )
@@ -888,6 +1086,7 @@ def test_real_verifier_rejects_cagra_brute_force_fallback(
             codec_name=_CAGRA_CODEC,
             java_codec=java_codec,
             writer_policy="gpu-cagra",
+            build_parameters=_CAGRA_BUILD_PARAMETERS,
         ),
     )
 
@@ -927,14 +1126,15 @@ def test_real_verifier_rejects_cagra_brute_force_fallback(
 def test_cli_build_and_search_with_real_pylucene_runtime(
     tmp_path, pylucene_runtime_config
 ):
-    """Exercise the documented module CLI in a fresh PyLucene process."""
+    """Exercise a build/search parameter sweep in a fresh PyLucene process."""
     rng = np.random.default_rng(174)
     training_vectors = rng.standard_normal((512, 32)).astype(np.float32)
     query_ids = np.asarray([0, 137, 259, 511], dtype=np.int64)
     query_vectors = training_vectors[query_ids].copy()
     k = 5
     squared_distances = np.sum(
-        (query_vectors[:, np.newaxis, :] - training_vectors[np.newaxis, :, :]) ** 2,
+        (query_vectors[:, np.newaxis, :] - training_vectors[np.newaxis, :, :])
+        ** 2,
         axis=2,
     )
     groundtruth_neighbors = np.argsort(squared_distances, axis=1)[:, :k]
@@ -985,11 +1185,32 @@ def test_cli_build_and_search_with_real_pylucene_runtime(
             }
         )
     )
+    algorithm_config = tmp_path / "pylucene-hnsw-sweep.yaml"
+    algorithm_config.write_text(
+        json.dumps(
+            {
+                "name": "pylucene_cuvs_hnsw",
+                "groups": {
+                    "test": {
+                        "build": {
+                            "codec": [_HNSW_CODEC],
+                            "m": [16, 24],
+                            "ef_construction": [32],
+                            "direct_single_segment": [False],
+                        },
+                        "search": {"num_candidates": [k, 11]},
+                    }
+                },
+            }
+        )
+    )
 
     environment = os.environ.copy()
     source_root = str(Path(__file__).resolve().parents[2])
     environment["PYTHONPATH"] = os.pathsep.join(
-        value for value in (source_root, environment.get("PYTHONPATH")) if value
+        value
+        for value in (source_root, environment.get("PYTHONPATH"))
+        if value
     )
     completed = subprocess.run(
         [
@@ -1000,6 +1221,8 @@ def test_cli_build_and_search_with_real_pylucene_runtime(
             str(backend_config),
             "--dataset-configuration",
             str(dataset_config),
+            "--configuration",
+            str(algorithm_config),
             "--dataset",
             dataset_name,
             "--dataset-path",
@@ -1029,40 +1252,56 @@ def test_cli_build_and_search_with_real_pylucene_runtime(
         f"stdout:\n{completed.stdout}\nstderr:\n{completed.stderr}"
     )
 
-    codec = "Lucene101AcceleratedHNSWCodec"
-    index_name = f"pylucene_cuvs_hnsw[group=test][codec={codec}]"
-    index_path = dataset_dir / "index" / index_name
-    assert any(index_path.glob("segments_*"))
-    assert (index_path / _HNSW_PROVENANCE_FILE).is_file()
+    codec = _HNSW_CODEC
+    index_names = {
+        (
+            f"pylucene_cuvs_hnsw[group=test][codec={codec}]"
+            f"[m={m}][ef_construction=32][direct_single_segment=false]"
+        )
+        for m in (16, 24)
+    }
+    for index_name in index_names:
+        index_path = dataset_dir / "index" / index_name
+        assert any(index_path.glob("segments_*"))
+        assert (index_path / _HNSW_PROVENANCE_FILE).is_file()
 
     result_path = dataset_dir / "result"
     build_csv = result_path / "build" / "pylucene_cuvs_hnsw,test.csv"
     search_stem = f"pylucene_cuvs_hnsw,test,k{k},bs2"
     with build_csv.open(newline="") as file:
         build_rows = list(csv.DictReader(file))
-    assert len(build_rows) == 1
-
-    build_row = build_rows[0]
-    assert build_row["index_name"] == index_name
-    assert float(build_row["time"]) > 0
-    assert build_row["codec"] == codec
-    assert build_row["writer_policy"] == _HNSW_WRITER_POLICY
-    assert build_row["compound_file_policy"] == "lucene-default"
+    assert len(build_rows) == 2
+    assert {row["index_name"] for row in build_rows} == index_names
+    assert {int(row["m"]) for row in build_rows} == {16, 24}
+    for build_row in build_rows:
+        assert float(build_row["time"]) > 0
+        assert build_row["codec"] == codec
+        assert build_row["writer_policy"] == _HNSW_WRITER_POLICY
+        assert build_row["compound_file_policy"] == "lucene-default"
 
     raw_csv = result_path / "search" / f"{search_stem},raw.csv"
     with raw_csv.open(newline="") as file:
         csv_rows = list(csv.DictReader(file))
-    assert len(csv_rows) == 1
-    csv_row = csv_rows[0]
-    assert csv_row["index_name"] == index_name
-    assert float(csv_row["recall"]) >= 0.75
-    assert float(csv_row["throughput"]) > 0
-    assert float(csv_row["latency"]) > 0
-    assert float(csv_row["build time"]) > 0
-    assert float(csv_row["p50"]) > 0
-    assert float(csv_row["p95"]) > 0
-    assert float(csv_row["p99"]) > 0
-    assert csv_row["codec"] == codec
-    assert csv_row["compound_file_policy"] == "lucene-default"
+    assert len(csv_rows) == 4
+    assert {row["index_name"] for row in csv_rows} == index_names
+    assert {int(row["num_candidates"]) for row in csv_rows} == {k, 11}
+    assert {
+        (int(row["m"]), int(row["num_candidates"])) for row in csv_rows
+    } == {
+        (16, k),
+        (16, 11),
+        (24, k),
+        (24, 11),
+    }
+    for csv_row in csv_rows:
+        assert float(csv_row["recall"]) >= 0.75
+        assert float(csv_row["throughput"]) > 0
+        assert float(csv_row["latency"]) > 0
+        assert float(csv_row["build time"]) > 0
+        assert float(csv_row["p50"]) > 0
+        assert float(csv_row["p95"]) > 0
+        assert float(csv_row["p99"]) > 0
+        assert csv_row["codec"] == codec
+        assert csv_row["compound_file_policy"] == "lucene-default"
     assert (result_path / "search" / f"{search_stem},latency.csv").is_file()
     assert (result_path / "search" / f"{search_stem},throughput.csv").is_file()

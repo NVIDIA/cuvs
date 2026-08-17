@@ -11,6 +11,7 @@ import csv
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -18,17 +19,82 @@ from click.testing import CliRunner
 
 import cuvs_bench.backends.pylucene as pylucene_backend
 from cuvs_bench.backends import get_registry
+from cuvs_bench.backends.base import SearchResult
 from cuvs_bench.backends.pylucene import (
     PyLuceneConfigLoader,
     _SearchHit,
 )
 from cuvs_bench.backends.registry import list_config_loaders
+from cuvs_bench.backends.search_spaces import get_search_space
+from cuvs_bench.orchestrator.orchestrator import BenchmarkOrchestrator
 from cuvs_bench.tests._pylucene_test_utils import (
     _CAGRA_CODEC,
     _HNSW_CODEC,
     _FakeRuntime,
     _write_test_bin,
 )
+
+
+_DEFAULT_HNSW_BUILD_PARAMETERS = {
+    "codec": _HNSW_CODEC,
+    "m": 32,
+    "ef_construction": 32,
+    "direct_single_segment": False,
+}
+
+
+def _install_single_trial_optuna(monkeypatch):
+    suggested_ranges = {}
+    selected_parameters = {}
+
+    def suggest_int(name, minimum, maximum, *, log=False):
+        suggested_ranges[name] = (minimum, maximum, log)
+        selected_parameters[name] = minimum
+        return minimum
+
+    trial = SimpleNamespace(
+        number=0,
+        suggest_int=suggest_int,
+        suggest_float=lambda name, minimum, maximum, **kwargs: minimum,
+        suggest_categorical=lambda name, choices: choices[0],
+    )
+    study = SimpleNamespace(
+        best_trial=trial,
+        best_params=selected_parameters,
+        best_value=0.0,
+    )
+
+    def optimize(objective, **kwargs):
+        study.best_value = objective(trial)
+
+    study.optimize = optimize
+    fake_optuna = SimpleNamespace(
+        TrialPruned=RuntimeError,
+        create_study=lambda **kwargs: study,
+        logging=SimpleNamespace(WARNING=0, set_verbosity=lambda level: None),
+    )
+    monkeypatch.setitem(sys.modules, "optuna", fake_optuna)
+    return suggested_ranges
+
+
+def _hnsw_index_name(
+    algorithm: str,
+    group: str,
+    *,
+    subset_scope: str | None = None,
+    m: int = 32,
+    ef_construction: int = 32,
+    direct_single_segment: bool = False,
+) -> str:
+    identity = f"{algorithm}[group={group}]"
+    if subset_scope is not None:
+        identity = f"{identity}[scope={subset_scope}]"
+    return (
+        f"{identity}[codec={_HNSW_CODEC}]"
+        f"[m={m}]"
+        f"[ef_construction={ef_construction}]"
+        f"[direct_single_segment={str(direct_single_segment).lower()}]"
+    )
 
 
 def _prepare_cli_dataset(dataset_path: Path) -> None:
@@ -201,7 +267,7 @@ def test_cli_build_search_persists_metrics_and_build_join(
     )
 
     assert result.exit_code == 0, result.output
-    index_name = f"pylucene_test[group=test][codec={_HNSW_CODEC}]"
+    index_name = _hnsw_index_name("pylucene_test", "test")
     index_path = dataset_path / "test-dataset" / "index" / index_name
     assert (index_path / "segments_1").is_file()
     assert (index_path / pylucene_backend._HNSW_PROVENANCE_FILE).is_file()
@@ -304,6 +370,217 @@ def test_config_loader_expands_codecs_and_forwards_runtime_config(config_dir):
         assert config.backend_config["result_scope"] is None
 
 
+def test_hnsw_build_defaults_are_canonical_and_share_one_identity(config_dir):
+    _, configs = PyLuceneConfigLoader(config_path=config_dir).load(
+        dataset="test-dataset",
+        dataset_path="/datasets",
+        algorithms="pylucene_test",
+        groups="test",
+    )
+
+    assert len(configs) == 1
+    config = configs[0]
+    assert config.indexes[0].build_param == _DEFAULT_HNSW_BUILD_PARAMETERS
+    assert config.index_name == _hnsw_index_name("pylucene_test", "test")
+    assert PyLuceneConfigLoader._index_label(
+        "pylucene_test",
+        "test",
+        None,
+        {"codec": _HNSW_CODEC},
+    ) == PyLuceneConfigLoader._index_label(
+        "pylucene_test",
+        "test",
+        None,
+        _DEFAULT_HNSW_BUILD_PARAMETERS,
+    )
+
+
+def test_config_loader_expands_hnsw_build_and_search_sweeps(
+    config_dir, tmp_path
+):
+    algorithm_config = tmp_path / "pylucene_hnsw_sweep.yaml"
+    algorithm_config.write_text(
+        f"""\
+backend: pylucene
+name: pylucene_hnsw_sweep
+groups:
+  requested:
+    build:
+      codec: [{_HNSW_CODEC}]
+      m: [16, 24, 32]
+    search:
+      num_candidates: [150, 200, 300, 600]
+  build_grid:
+    build:
+      codec: [{_HNSW_CODEC}]
+      m: [16, 32]
+      ef_construction: [48, 64]
+    search: {{}}
+"""
+    )
+    loader = PyLuceneConfigLoader(config_path=config_dir)
+
+    _, requested_configs = loader.load(
+        dataset="test-dataset",
+        dataset_path="/datasets",
+        algorithms="pylucene_hnsw_sweep",
+        groups="requested",
+        algorithm_configuration=str(algorithm_config),
+    )
+
+    assert len(requested_configs) == 3
+    assert len({config.index_path for config in requested_configs}) == 3
+    assert (
+        sum(
+            len(config.indexes[0].search_params)
+            for config in requested_configs
+        )
+        == 12
+    )
+    for config, m in zip(requested_configs, (16, 24, 32), strict=True):
+        assert config.indexes[0].build_param == {
+            **_DEFAULT_HNSW_BUILD_PARAMETERS,
+            "m": m,
+        }
+        assert config.index_name == _hnsw_index_name(
+            "pylucene_hnsw_sweep", "requested", m=m
+        )
+        assert config.indexes[0].search_params == [
+            {"num_candidates": 150},
+            {"num_candidates": 200},
+            {"num_candidates": 300},
+            {"num_candidates": 600},
+        ]
+
+    _, build_grid_configs = loader.load(
+        dataset="test-dataset",
+        dataset_path="/datasets",
+        algorithms="pylucene_hnsw_sweep",
+        groups="build_grid",
+        algorithm_configuration=str(algorithm_config),
+    )
+
+    assert len(build_grid_configs) == 4
+    assert {
+        (
+            config.indexes[0].build_param["m"],
+            config.indexes[0].build_param["ef_construction"],
+        )
+        for config in build_grid_configs
+    } == {(16, 48), (16, 64), (32, 48), (32, 64)}
+
+
+def test_pylucene_tune_space_uses_runtime_top_k_for_candidates():
+    assert get_search_space("pylucene_cuvs_hnsw")["search"] == {
+        "num_candidates": {
+            "type": "int",
+            "min": "top_k",
+            "max": 500,
+        }
+    }
+
+
+def test_pylucene_tune_resolves_candidate_minimum_from_top_k(monkeypatch):
+    suggested_ranges = _install_single_trial_optuna(monkeypatch)
+    orchestrator = BenchmarkOrchestrator.__new__(BenchmarkOrchestrator)
+    trial_arguments = {}
+
+    def run_trial(**kwargs):
+        trial_arguments.update(kwargs)
+        return [
+            SearchResult(
+                neighbors=np.empty((0, 0), dtype=np.int64),
+                distances=np.empty((0, 0), dtype=np.float32),
+                search_time_ms=1.0,
+                queries_per_second=1.0,
+                recall=1.0,
+                algorithm="pylucene_cuvs_hnsw",
+                search_params=[kwargs["search_params"]],
+            )
+        ]
+
+    orchestrator._run_trial = run_trial
+    results = orchestrator._run_tune(
+        constraints={"recall": "maximize"},
+        n_trials=1,
+        build=True,
+        search=True,
+        force=False,
+        dry_run=False,
+        count=150,
+        batch_size=1,
+        search_mode="latency",
+        search_threads=1,
+        algorithms="pylucene_cuvs_hnsw",
+    )
+
+    assert suggested_ranges["num_candidates"] == (150, 500, False)
+    assert trial_arguments["search_params"] == {"num_candidates": 150}
+    assert results[0].search_params == [{"num_candidates": 150}]
+
+
+def test_pylucene_tune_rejects_top_k_above_candidate_ceiling(monkeypatch):
+    _install_single_trial_optuna(monkeypatch)
+    orchestrator = BenchmarkOrchestrator.__new__(BenchmarkOrchestrator)
+
+    with pytest.raises(ValueError, match="minimum 501 exceeds maximum 500"):
+        orchestrator._run_tune(
+            constraints={"recall": "maximize"},
+            n_trials=1,
+            build=True,
+            search=True,
+            force=False,
+            dry_run=False,
+            count=501,
+            batch_size=1,
+            search_mode="latency",
+            search_threads=1,
+            algorithms="pylucene_cuvs_hnsw",
+        )
+
+
+@pytest.mark.parametrize(
+    ("field_name", "field_value"),
+    [
+        ("m", True),
+        ("m", 0),
+        ("m", 513),
+        ("ef_construction", False),
+        ("ef_construction", 0),
+        ("ef_construction", 513),
+    ],
+)
+def test_hnsw_build_parameters_reject_booleans_and_values_outside_range(
+    field_name, field_value
+):
+    with pytest.raises(ValueError, match=field_name):
+        pylucene_backend._normalize_build_params(
+            {"codec": _HNSW_CODEC, field_name: field_value}
+        )
+
+
+def test_hnsw_build_parameter_boundaries_are_supported():
+    assert pylucene_backend._normalize_build_params(
+        {
+            "codec": _HNSW_CODEC,
+            "m": 1,
+            "ef_construction": 512,
+        }
+    ) == {
+        **_DEFAULT_HNSW_BUILD_PARAMETERS,
+        "m": 1,
+        "ef_construction": 512,
+    }
+
+
+@pytest.mark.parametrize("field_name", ["m", "ef_construction"])
+def test_hnsw_build_parameters_are_rejected_for_cagra(field_name):
+    with pytest.raises(ValueError, match=field_name):
+        pylucene_backend._normalize_build_params(
+            {"codec": _CAGRA_CODEC, field_name: 32}
+        )
+
+
 @pytest.mark.parametrize(
     ("build_yaml", "search_yaml", "error"),
     [
@@ -315,7 +592,7 @@ def test_config_loader_expands_codecs_and_forwards_runtime_config(config_dir):
         (
             f"codec: [{_HNSW_CODEC}]",
             "ignored: [1]",
-            "does not expose cuVS-specific search parameters",
+            "Unsupported PyLucene search parameter.*ignored",
         ),
     ],
 )
@@ -402,10 +679,9 @@ def test_config_loader_scopes_artifact_identity_by_dataset_subset(config_dir):
         assert dataset_config.subset_size == subset_size
         assert len(configs) == 1
         config = configs[0]
-        index_prefix = "pylucene_test[group=test]"
-        if subset_scope is not None:
-            index_prefix = f"{index_prefix}[scope={subset_scope}]"
-        index_name = f"{index_prefix}[codec={_HNSW_CODEC}]"
+        index_name = _hnsw_index_name(
+            "pylucene_test", "test", subset_scope=subset_scope
+        )
         assert config.index_name == index_name
         assert config.index_path == (
             Path("/datasets/test-dataset/index") / index_name
@@ -432,7 +708,7 @@ def test_config_loader_scopes_artifact_identity_by_dataset_subset(config_dir):
     ],
 )
 def test_index_labels_are_injective(first, second):
-    build_params = {"codec": _HNSW_CODEC}
+    build_params = _DEFAULT_HNSW_BUILD_PARAMETERS
 
     first_label = PyLuceneConfigLoader._index_label(
         first[0], first[1], first[2], build_params
@@ -495,9 +771,7 @@ groups:
 
     assert len(configs) == 1
     assert configs[0].indexes[0].algo == algorithm_name
-    assert configs[0].index_name == (
-        f"{algorithm_name}[group=test][codec={_HNSW_CODEC}]"
-    )
+    assert configs[0].index_name == _hnsw_index_name(algorithm_name, "test")
 
 
 def test_config_loader_excludes_explicit_other_backend(config_dir, tmp_path):
@@ -538,9 +812,7 @@ def test_config_loader_honors_algorithm_and_group_filters(config_dir):
         groups="test",
     )
     assert len(configs) == 1
-    assert configs[0].index_name == (
-        f"pylucene_test[group=test][codec={_HNSW_CODEC}]"
-    )
+    assert configs[0].index_name == _hnsw_index_name("pylucene_test", "test")
 
 
 def test_algorithm_config_discovery_is_deterministic(tmp_path):
