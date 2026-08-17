@@ -39,4 +39,4 @@ jobs:
       #   strict     — fail on any finding (verified or unverified)
       #   all        — warn only; never fail the job on findings
       secret-failure-policy: unverified
-      sast-languages: '["actions","python"]'
+      sast-languages: '["actions","java-kotlin","python","rust"]'
