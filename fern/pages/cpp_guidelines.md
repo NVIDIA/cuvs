@@ -288,7 +288,7 @@ pre-commit install
 
 ### Core Hooks
 
-C++ and CUDA code are formatted with [clang-format](https://clang.llvm.org/docs/ClangFormat.html). NVIDIA cuVS follows the Google C++ style with a few local adjustments documented in [cpp/.clang-format](https://github.com/rapidsai/cuvs/blob/main/cpp/.clang-format):
+C++ and CUDA code are formatted with [clang-format](https://clang.llvm.org/docs/ClangFormat.html). NVIDIA cuVS follows the Google C++ style with a few local adjustments documented in [cpp/.clang-format](https://github.com/nvidia/cuvs/blob/main/cpp/.clang-format):
 
 1. Empty functions, records, and namespaces are not split.
 2. Indentation is two spaces, including line continuations.

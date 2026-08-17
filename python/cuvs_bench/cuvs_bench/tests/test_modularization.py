@@ -357,10 +357,6 @@ class TestPluginLoaderMocked:
     ):
         """Mock entry point raising ImportError(opensearchpy) -> our install message."""
         registry = get_registry()
-        if "opensearch" in registry._backends:
-            registry.unregister("opensearch")
-            unregister_config_loader("opensearch")
-
         mock_ep = MagicMock()
         mock_ep.name = "opensearch"
         mock_ep.load.side_effect = ImportError(
@@ -370,12 +366,14 @@ class TestPluginLoaderMocked:
         mock_eps = MagicMock()
         mock_eps.select.return_value = [mock_ep]
 
-        with patch(
-            "cuvs_bench.backends.registry.importlib.metadata.entry_points",
-            return_value=mock_eps,
-        ):
-            with pytest.raises(ImportError) as exc_info:
-                get_backend_class("opensearch")
+        with patch.dict(registry._backends):
+            registry.unregister("opensearch")
+            with patch(
+                "cuvs_bench.backends.registry.importlib.metadata.entry_points",
+                return_value=mock_eps,
+            ):
+                with pytest.raises(ImportError) as exc_info:
+                    get_backend_class("opensearch")
 
         msg = str(exc_info.value)
         assert "pip install cuvs-bench[opensearch]" in msg
@@ -436,17 +434,20 @@ class TestPluginLoaderMocked:
 
     def test_unknown_optional_backend_includes_install_hint(self):
         """Missing optional backend names include install hints in the error."""
+        registry = get_registry()
         mock_eps = MagicMock()
         mock_eps.select.return_value = []
 
-        with patch(
-            "cuvs_bench.backends.registry.importlib.metadata.entry_points",
-            return_value=mock_eps,
-        ):
-            with pytest.raises(ValueError) as exc_info:
-                get_backend_class("opensearch")
+        with patch.dict(registry._backends):
+            registry.unregister("opensearch")
+            with patch(
+                "cuvs_bench.backends.registry.importlib.metadata.entry_points",
+                return_value=mock_eps,
+            ):
+                with pytest.raises(ValueError) as exc_info:
+                    get_backend_class("opensearch")
 
-        assert "pip install cuvs-bench[opensearch]" in str(exc_info.value)
+            assert "pip install cuvs-bench[opensearch]" in str(exc_info.value)
 
 
 def _elasticsearch_installed():
@@ -614,7 +615,7 @@ class TestElasticWithExtraInstalled:
 
         result = backend.search(
             dataset=dataset, indexes=indexes, k=10, dry_run=True
-        )
+        )[0]
 
         assert result.success
         assert result.algorithm == "elastic_hnsw"
@@ -714,7 +715,7 @@ class TestElasticWithExtraInstalled:
         with patch.object(
             backend, "_check_network_available", return_value=False
         ):
-            result = backend.search(dataset=dataset, indexes=indexes, k=10)
+            result = backend.search(dataset=dataset, indexes=indexes, k=10)[0]
 
         assert not result.success
         assert "pre-flight" in (result.error_message or "").lower()
@@ -860,12 +861,12 @@ class TestElasticWithExtraInstalled:
                 ):
                     result = backend.search(
                         dataset=dataset, indexes=indexes, k=1
-                    )
+                    )[0]
 
         assert result.success
         assert result.neighbors.shape == (1, 1)
         assert result.recall == 0.0
-        assert "recall" not in result.metadata["per_search_param_results"][0]
+        assert result.search_params == [{"num_candidates": 100}]
 
     def test_elastic_algo_from_config(self):
         """ElasticsearchBackend.algo derives from the configured index type."""
