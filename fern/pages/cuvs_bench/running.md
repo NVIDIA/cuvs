@@ -92,7 +92,7 @@ Create `pylucene-backend.yaml` with absolute paths to the base `cuvs-java` JAR, 
 ```yaml
 backend: pylucene
 cuvs_java_jar: /home/user/.m2/repository/com/nvidia/cuvs/cuvs-java/VERSION/cuvs-java-VERSION.jar
-cuvs_lucene_jar: /absolute/path/to/cuvs-lucene/target/cuvs-lucene-VERSION.jar
+cuvs_lucene_jar: /absolute/path/to/cuvs-lucene-pr174/target/cuvs-lucene-VERSION.jar
 java_library_path: /work/cuvs-pylucene-deps/cpp/build:/work/cuvs-pylucene-deps/cpp/build/c:/usr/local/cuda/lib64
 ```
 
@@ -134,11 +134,13 @@ The HNSW `base` and `test` groups use `Lucene101AcceleratedHNSWCodec`. It uses c
 
 The supplied configurations use Lucene's public `KnnFloatVectorQuery` and do not expose search-time tuning parameters. The backend accepts FLOAT32 Euclidean datasets with at most 4096 dimensions and at least two indexed vectors. CAGRA requires a GPU for build and search. Although cuVS-Lucene uses an effective `lucene_k` of `min(k, document_count)`, the backend conservatively requires `k <= 1024` to avoid cuVS-Lucene paths that can use brute-force search above that limit.
 
-New HNSW and CAGRA builds atomically write commit-bound provenance manifests named `.cuvs-bench-pylucene-hnsw.json` and `.cuvs-bench-pylucene-cagra.json`, respectively. Reuse and search fail if the applicable manifest is missing, malformed, stale, or names a different codec or writer policy. Indexes created outside this backend without the applicable manifest must be rebuilt with `--force`. For HNSW, the policy permits cuVS-Lucene's production CPU fallback. For CAGRA, the backend fails closed: it verifies the committed vector segments and checksums and rejects an index that is not CAGRA-only.
+New HNSW and CAGRA builds atomically write commit-bound provenance manifests named `.cuvs-bench-pylucene-hnsw.json` and `.cuvs-bench-pylucene-cagra.json`, respectively. Reuse and search fail if the applicable manifest is missing, malformed, stale, or names a different codec, writer policy, or compound-file policy. Indexes created outside this backend without the applicable manifest must be rebuilt with `--force`. For HNSW, the policy permits cuVS-Lucene's production CPU fallback. For CAGRA, the backend fails closed: it verifies the committed vector segments and checksums and rejects an index that is not CAGRA-only.
 
-The backend currently supports latency mode with one search thread. `--batch-size` groups queries for measurement, and the reported latency percentiles are per batch. Throughput mode and multiple search threads are not implemented.
+For CAGRA, the backend disables compound files for both flushed and merged segments so the verifier can inspect the codec's `.vemc` and `.vcag` files directly. HNSW retains Lucene's default compound-file policy. Both codecs retain Lucene's default index-writer scheduling behavior.
 
-PyLucene's JVM is process-global and can be initialized only once. Set the JAR, native-library locations, and `jvm_args` before the first PyLucene benchmark, and start a new Python process to change any of them.
+The backend currently supports latency mode with one search thread. `--batch-size` groups queries for measurement, and the reported latency percentiles are milliseconds per batch. Throughput mode and multiple search threads are not implemented.
+
+PyLucene's JVM is process-global and can be initialized only once. The backend requires a wrapper generated against Lucene 10.2.0 and checks its version before JVM initialization. Set the JAR, native-library locations, and `jvm_args` before the first PyLucene benchmark, and start a new Python process to change any of them.
 
 ## Smaller-scale benchmarks (&lt;1M to 10M vectors)
 
