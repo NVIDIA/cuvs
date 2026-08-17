@@ -302,6 +302,18 @@ inline void parse_build_param(const nlohmann::json& conf, cuvs::neighbors::vpq_p
   }
 }
 
+inline void parse_build_param(const nlohmann::json& conf,
+                              cuvs::neighbors::cagra::merge_params& param)
+{
+  param.levels          = conf.value("levels", param.levels);
+  param.root_fanout     = conf.value("root_fanout", param.root_fanout);
+  param.lower_fanout    = conf.value("lower_fanout", param.lower_fanout);
+  param.leader_fraction = conf.value("leader_fraction", param.leader_fraction);
+  param.max_leaders     = conf.value("max_leaders", param.max_leaders);
+  param.leaf_size       = conf.value("leaf_size", param.leaf_size);
+  param.leaf_degree     = conf.value("leaf_degree", param.leaf_degree);
+}
+
 nlohmann::json collect_conf_with_prefix(const nlohmann::json& conf,
                                         const std::string& prefix,
                                         bool remove_prefix = true)
@@ -428,25 +440,8 @@ void parse_build_param(const nlohmann::json& conf,
       throw std::runtime_error("invalid value for merge_algo");
     }
   }
-  if (conf.contains("fastener_levels")) { param.merge_params.levels = conf.at("fastener_levels"); }
-  if (conf.contains("fastener_root_fanout")) {
-    param.merge_params.root_fanout = conf.at("fastener_root_fanout");
-  }
-  if (conf.contains("fastener_lower_fanout")) {
-    param.merge_params.lower_fanout = conf.at("fastener_lower_fanout");
-  }
-  if (conf.contains("fastener_leader_fraction")) {
-    param.merge_params.leader_fraction = conf.at("fastener_leader_fraction");
-  }
-  if (conf.contains("fastener_max_leaders")) {
-    param.merge_params.max_leaders = conf.at("fastener_max_leaders");
-  }
-  if (conf.contains("fastener_leaf_size")) {
-    param.merge_params.leaf_size = conf.at("fastener_leaf_size");
-  }
-  if (conf.contains("fastener_leaf_degree")) {
-    param.merge_params.leaf_degree = conf.at("fastener_leaf_degree");
-  }
+  nlohmann::json fastener_conf = collect_conf_with_prefix(conf, "fastener_");
+  if (!fastener_conf.empty()) { parse_build_param(fastener_conf, param.merge_params); }
 
   nlohmann::json comp_search_conf = collect_conf_with_prefix(conf, "compression_");
   if (!comp_search_conf.empty()) {
