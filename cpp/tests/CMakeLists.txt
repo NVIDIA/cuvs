@@ -214,6 +214,7 @@ ConfigureTest(
 ConfigureTest(
   NAME NEIGHBORS_ANN_CAGRA_HELPERS_TEST
   PATH neighbors/ann_cagra/test_optimize_uint32_t.cu neighbors/ann_cagra/test_batch_load_iterator.cu
+       neighbors/ann_cagra/test_mem_usage.cu
   GPUS 1
   PERCENT 100
 )
