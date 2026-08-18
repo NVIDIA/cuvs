@@ -199,7 +199,7 @@ ConfigureTest(
 
 ConfigureTest(
   NAME NEIGHBORS_ANN_CAGRA_FLOAT_UINT32_TEST
-  PATH neighbors/ann_cagra/test_float_uint32_t.cu
+  PATH neighbors/ann_cagra/test_float_uint32_t.cu neighbors/ann_cagra/test_vpq_serialize.cu
   GPUS 1
   PERCENT 100
 )
@@ -415,6 +415,7 @@ ConfigureTest(
        preprocessing/binary_quantization.cu
        preprocessing/spectral_embedding.cu
        preprocessing/product_quantization.cu
+       preprocessing/vpq_serialization.cu
        preprocessing/pca.cu
   GPUS 1
   PERCENT 100
