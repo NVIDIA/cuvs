@@ -157,42 +157,7 @@ class algo : public algo_base {
   // and set_search_dataset() should save the passed-in pointer somewhere.
   // The client code should call set_search_dataset() before searching,
   // and should not release dataset before searching is finished.
-  //
-  // A compressed base set is never handed over this way, as it has no dense rows to pass, so
-  // needs_dataset() says nothing about one. An algorithm that cannot search the base set it was
-  // given with the parameters it was given has to reject them itself, from set_search_param().
   virtual void set_search_dataset(const T* /*dataset*/, size_t /*nrow*/) {};
-
-  /* ### Base sets the benchmark cannot read ###
-
-     Some algorithms build from a base set that has been compressed for them offline, which is
-     neither dense nor made of `T` values and so cannot be passed as `build`'s `const T*`. Such a
-     base set is handed over as a file path and the algorithm owns whatever it decodes.
-
-     A path rather than a library type on purpose: this header is shared with the faiss, hnswlib and
-     diskann wrappers, and must not acquire their unrelated dependencies.
-
-     Loading is separate from building because the benchmark times only `build_from_base_set_file`.
-     Deserializing a compressed base set is benchmark setup, the same as reading a dense one, and
-     folding it into the measured build would inflate build times by however long the file takes to
-     read. `set_base_set_file` is also called in search mode, before `load`, for algorithms whose
-     index file holds only part of the picture and needs the base set reattached.
-  */
-
-  /**
-   * Hand over a compressed base set as a file path. Returns the number of rows in it, which the
-   * benchmark has no way of reading for itself. Called outside the timed sections.
-   */
-  virtual auto set_base_set_file(const std::string& /*file*/) -> size_t
-  {
-    throw std::runtime_error{"This algorithm cannot read a compressed base set from a file."};
-  }
-
-  /** Build the index from the base set handed over by `set_base_set_file`. */
-  virtual void build_from_base_set_file()
-  {
-    throw std::runtime_error{"This algorithm cannot build from a compressed base set."};
-  }
 
   /**
    * Make a shallow copy of the algo wrapper that shares the resources and ensures thread-safe
