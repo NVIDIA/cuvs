@@ -537,10 +537,10 @@ jobs:
       file_to_upload: |
         libcuvs_c.tar.gz
         libcuvs_c.release-package.json
-      release-build-output: >-
+      release-catalog-config: >-
         {
           "artifact_type": "custom",
-          "component_id": "archive:libcuvs-c",
+          "release_catalog_key": "archive:libcuvs-c",
           "package_file": "libcuvs_c.release-package.json",
           "artifacts": [{"path": "libcuvs_c.tar.gz"}]
         }
@@ -608,10 +608,10 @@ jobs:
       script: "ci/test_java.sh"
       artifact-name: "cuvs-java-cuda${{ matrix.CUDA_VER }}"
       file_to_upload: "java/cuvs-java/target/"
-      release-build-output: >-
+      release-catalog-config: >-
         {
           "artifact_type": "custom",
-          "component_id": "maven:cuvs-java",
+          "release_catalog_key": "maven:cuvs-java",
           "output_directory": "java/cuvs-java/target",
           "package_file": "cuvs-java.release-package.json",
           "artifacts": [{"path": "cuvs-java-*-x86_64-cuda*.jar"}]
