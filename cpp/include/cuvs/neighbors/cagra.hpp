@@ -653,6 +653,16 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
   }
 
   /**
+   * Replace the graph by taking ownership of an existing device matrix.
+   */
+  void update_graph(raft::resources const&,
+                    raft::device_matrix<graph_index_type, int64_t, raft::row_major>&& knn_graph)
+  {
+    graph_      = std::move(knn_graph);
+    graph_view_ = graph_.view();
+  }
+
+  /**
    * Replace the graph with a new graph.
    *
    * We create a copy of the graph on the device. The index manages the lifetime of this copy.
@@ -3429,16 +3439,76 @@ void serialize_to_hnswlib(
  * @{
  */
 
-/** @brief Merge multiple CAGRA indices into a single index.
+enum class merge_algo {
+  /** Select Fastener when its complete preflight succeeds, otherwise preserve rebuild behavior. */
+  AUTO,
+  /** Require Fastener and reject unsupported configurations. */
+  FASTENER,
+  /** Concatenate datasets and rebuild the graph. */
+  REBUILD,
+};
+
+/** C++ controls for physical CAGRA index merge. */
+struct merge_params {
+  merge_algo algo        = merge_algo::AUTO;
+  uint32_t levels        = 2;
+  uint32_t root_fanout   = 2;
+  uint32_t lower_fanout  = 3;
+  double leader_fraction = 0.02;
+  uint32_t max_leaders   = 1024;
+  uint32_t leaf_size     = 256;
+  uint32_t leaf_degree   = 4;
+};
+
+/** @brief Merge multiple physical CAGRA indices into one.
+ *
+ * The overload without `merge_params` uses `merge_algo::AUTO`. AUTO runs Fastener only after a
+ * non-mutating preflight validates every input and option; otherwise it calls the existing rebuild
+ * implementation. REBUILD always preserves every input dataset.
+ *
+ * Fastener supports unfiltered, uncompressed `float`, `half`, `int8_t`, and `uint8_t`
+ * indices using L2Expanded and `uint32_t` graph IDs. Fastener uses `root_fanout` at the first
+ * split and `lower_fanout` at every later split. Fanouts from 1 through 32, leader fractions in
+ * (0, 1], leader caps through 8192, leaf sizes from 1 through 256, and leaf degrees from 1
+ * through 8 are supported. The configured spill width times `leaf_degree` must not exceed 255.
+ * `index_params::graph_degree` is the final output degree.
+ *
+ * Fastener copies the input datasets into `merged_dataset` and never mutates the input indices.
+ * The caller owns `merged_dataset` and must keep it alive for the lifetime of the returned index,
+ * which holds only a view of it.
  *
  * @note This API only supports physical merge (`merge_strategy = MERGE_STRATEGY_PHYSICAL`).
- * All input indices must use the same `DatasetViewT` (dense padded or standard device views).
+ * All input indices must use the same `DatasetViewT` (dense padded or standard device views),
+ * and must share one row stride.
+ *
+ * @param[in] res RAFT resources used for the merge.
+ * @param[in] params Parameters for the returned CAGRA index.
+ * @param[in] indices CAGRA indices to merge.
+ * @param[in] merged_dataset Caller-owned storage for the consolidated dataset. Must have one row
+ * per retained vector after applying `row_filter`, and the same dimension and stride as the input
+ * datasets.
+ * @param[in] row_filter Optional row filter. Any filter selects rebuild in AUTO and is rejected by
+ * explicit FASTENER.
+ * @return The merged physical CAGRA index.
  */
 template <typename T, typename IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
 auto merge(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
            std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*>& indices,
            DatasetViewT merged_dataset,
+           const cuvs::neighbors::filtering::base_filter& row_filter =
+             cuvs::neighbors::filtering::none_sample_filter{})
+  -> cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>;
+
+/** @copydoc merge
+ * @param[in] merge_params Parameters for the merge, including the algorithm selection.
+ */
+template <typename T, typename IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
+auto merge(raft::resources const& res,
+           const cuvs::neighbors::cagra::index_params& params,
+           std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*>& indices,
+           DatasetViewT merged_dataset,
+           const cuvs::neighbors::cagra::merge_params& merge_params,
            const cuvs::neighbors::filtering::base_filter& row_filter =
              cuvs::neighbors::filtering::none_sample_filter{})
   -> cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>;
