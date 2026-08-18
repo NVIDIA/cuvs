@@ -16,10 +16,12 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <iostream>
 #include <memory>
 #include <random>
+#include <utility>
 
 namespace cuvs {
 namespace stats {
@@ -258,6 +260,72 @@ TEST(silhouetteScore, BatchedStreamPoolOrdering)
     auto actual = cuvs::stats::silhouette_score_batched(
       handle, X_view, labels_view, std::nullopt, n_labels, n_rows, metric);
     ASSERT_NEAR(actual, expected, 1e-4f);
+  }
+}
+
+TEST(silhouetteScore, BatchedMatchesNonBatchedAcrossMetricsAndChunkSizes)
+{
+  constexpr int64_t n_rows  = 1000;
+  constexpr int64_t n_cols  = 2;
+  constexpr int n_labels    = 2;
+  constexpr float tolerance = 1e-4f;
+  constexpr std::array<int64_t, 3> chunks{n_rows, n_rows / 3, n_rows / 5};
+  constexpr std::array metrics{cuvs::distance::DistanceType::CosineExpanded,
+                               cuvs::distance::DistanceType::L2SqrtUnexpanded,
+                               cuvs::distance::DistanceType::L2Expanded,
+                               cuvs::distance::DistanceType::L1};
+
+  std::mt19937 rng(170);
+  std::uniform_real_distribution<float> centers(-1.0f, 1.0f);
+  std::normal_distribution<float> noise(0.0f, 1.5f);
+  std::array<std::array<float, n_cols>, n_labels> center{};
+  for (auto& c : center) {
+    for (auto& x : c) {
+      x = centers(rng);
+    }
+  }
+  std::vector<int64_t> order(n_rows);
+  for (int64_t i = 0; i < n_rows; ++i) {
+    order[i] = i;
+  }
+  std::shuffle(order.begin(), order.end(), rng);
+  std::vector<float> X(n_rows * n_cols);
+  std::vector<int> labels(n_rows);
+  for (int64_t row = 0; row < n_rows; ++row) {
+    auto label  = static_cast<int>(order[row] / (n_rows / n_labels));
+    labels[row] = label;
+    for (int64_t col = 0; col < n_cols; ++col) {
+      X[row * n_cols + col] = center[label][col] + noise(rng);
+    }
+  }
+
+  raft::resources default_handle;
+  raft::resources pool_handle;
+  raft::resource::set_cuda_stream_pool(pool_handle, std::make_shared<rmm::cuda_stream_pool>(4));
+  auto stream = raft::resource::get_cuda_stream(default_handle);
+
+  rmm::device_uvector<float> d_X(X.size(), stream);
+  rmm::device_uvector<int> d_labels(labels.size(), stream);
+  raft::update_device(d_X.data(), X.data(), X.size(), stream);
+  raft::update_device(d_labels.data(), labels.data(), labels.size(), stream);
+  raft::resource::sync_stream(default_handle);
+
+  auto X_view = raft::make_device_matrix_view<const float, int64_t>(d_X.data(), n_rows, n_cols);
+  auto labels_view = raft::make_device_vector_view<const int, int64_t>(d_labels.data(), n_rows);
+
+  for (auto metric : metrics) {
+    auto expected = cuvs::stats::silhouette_score(
+      default_handle, X_view, labels_view, std::nullopt, n_labels, metric);
+    for (auto const& handle :
+         {std::pair{"default", &default_handle}, std::pair{"pool", &pool_handle}}) {
+      for (auto chunk : chunks) {
+        SCOPED_TRACE(::testing::Message() << "handle=" << handle.first << " metric="
+                                          << static_cast<int>(metric) << " chunk=" << chunk);
+        auto actual = cuvs::stats::silhouette_score_batched(
+          *handle.second, X_view, labels_view, std::nullopt, n_labels, chunk, metric);
+        ASSERT_NEAR(actual, expected, tolerance);
+      }
+    }
   }
 }
 

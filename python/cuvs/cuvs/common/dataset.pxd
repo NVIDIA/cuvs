@@ -14,6 +14,7 @@ cdef extern from "cuvs/core/dataset.h" nogil:
     ctypedef enum cuvsDatasetLayout_t:
         CUVS_DATASET_LAYOUT_STANDARD
         CUVS_DATASET_LAYOUT_PADDED
+        CUVS_DATASET_LAYOUT_VPQ
 
     ctypedef enum cuvsDatasetMemType_t:
         CUVS_DATASET_MEM_TYPE_HOST
@@ -22,6 +23,10 @@ cdef extern from "cuvs/core/dataset.h" nogil:
     cdef struct cuvsDataset:
         pass
     ctypedef cuvsDataset* cuvsDataset_t
+
+    cdef struct cuvsCagraCompressionParams:
+        pass
+    ctypedef cuvsCagraCompressionParams* cuvsCagraCompressionParams_t
 
     cuvsError_t cuvsDatasetCreate(cuvsDataset_t* dataset)
 
@@ -37,6 +42,12 @@ cdef extern from "cuvs/core/dataset.h" nogil:
     cuvsError_t cuvsDatasetMakeStandardView(cuvsResources_t res,
                                             DLManagedTensor* dataset,
                                             cuvsDataset_t* standard_dataset)
+
+    cuvsError_t cuvsDatasetMakeVpq(
+        cuvsResources_t res,
+        cuvsCagraCompressionParams_t params,
+        cuvsDataset_t dataset,
+        cuvsDataset_t* vpq_dataset)
 
     cuvsError_t cuvsDatasetDestroy(cuvsDataset_t dataset)
 

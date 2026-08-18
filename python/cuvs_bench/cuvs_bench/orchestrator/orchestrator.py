@@ -148,9 +148,12 @@ class BenchmarkOrchestrator:
         Returns
         -------
         List[Union[BuildResult, SearchResult]]
-            List of result objects, one per benchmark run:
-            - sweep mode: One result per IndexConfig (Cartesian product of params)
-            - tune mode: One result per Optuna trial (n_trials total)
+            All measurements produced by the benchmark:
+            - sweep mode: build results plus the search results returned for
+              each benchmark configuration.
+            - tune mode: build and search results produced by each trial. A
+              successful build-and-search trial normally contributes two
+              objects.
 
             Each SearchResult contains: recall, search_time_ms,
             queries_per_second, success, metadata, etc.
@@ -251,7 +254,7 @@ class BenchmarkOrchestrator:
                     # Pass ALL indexes at once - ONE C++ command searches all
                     # Each index has its own search_params list
                     # Total benchmarks = sum(len(idx.search_params) for idx in indexes)
-                    search_result = backend.search(
+                    search_results = backend.search(
                         dataset=bench_dataset,
                         indexes=config.indexes,
                         k=count,
@@ -262,22 +265,17 @@ class BenchmarkOrchestrator:
                         dry_run=dry_run,
                     )
 
-                    # Compute recall for backends that return actual neighbors.
-                    # The C++ backend computes recall in the subprocess and returns
-                    # empty neighbors, so this is skipped for it.
-                    if _should_compute_recall(search_result):
-                        gt = bench_dataset.groundtruth_neighbors
-                        if gt is not None:
-                            search_result.recall = compute_recall(
-                                search_result.neighbors, gt, count
-                            )
-
-                    results.append(search_result)
-
-                    if not search_result.success:
-                        print(
-                            f"Search failed for {config.index_name}: {search_result.error_message}"
+                    for search_result in search_results:
+                        self._finalize_search_result(
+                            search_result, bench_dataset, count
                         )
+                        results.append(search_result)
+
+                        if not search_result.success:
+                            print(
+                                f"Search failed for {config.index_name}: "
+                                f"{search_result.error_message}"
+                            )
             finally:
                 backend.cleanup()
 
@@ -429,7 +427,7 @@ class BenchmarkOrchestrator:
 
             # Run single trial with these specific parameters
             # First trial (trial.number=0) overwrites, subsequent trials append
-            result = self._run_trial(
+            trial_results = self._run_trial(
                 algorithm=algorithm,
                 build_params=build_params,
                 search_params=search_params_dict,
@@ -445,12 +443,19 @@ class BenchmarkOrchestrator:
                 **loader_kwargs,
             )
 
-            # Store result for pareto plot
-            all_results.append(result)
+            # Retain every measurement for export. The last result is the
+            # search result used as the Optuna objective on successful trials.
+            all_results.extend(trial_results)
+            result = trial_results[-1]
 
             # Check if trial failed
             if not result.success:
                 raise optuna.TrialPruned()
+
+            if not isinstance(result, SearchResult):
+                raise RuntimeError(
+                    "Successful tune trial did not produce a search result"
+                )
 
             # Build metrics dict from SearchResult attributes
             # No fallbacks - if metrics are missing, let it fail loudly so we can fix the root cause
@@ -524,7 +529,7 @@ class BenchmarkOrchestrator:
         search_threads: Optional[int],
         append_results: bool = False,
         **loader_kwargs,
-    ) -> Union[BuildResult, SearchResult]:
+    ) -> List[Union[BuildResult, SearchResult]]:
         """
         Run a single benchmark trial with specific parameters.
 
@@ -557,12 +562,19 @@ class BenchmarkOrchestrator:
 
         # Should have exactly one config for single trial
         if not benchmark_configs:
-            return SearchResult(
-                success=False,
-                error_message="No config generated for trial",
-                metrics={},
-                search_params=[],
-            )
+            return [
+                SearchResult(
+                    neighbors=np.empty((0, count), dtype=np.int64),
+                    distances=np.empty((0, count), dtype=np.float32),
+                    search_time_ms=0.0,
+                    queries_per_second=0.0,
+                    recall=0.0,
+                    algorithm=algorithm,
+                    search_params=[],
+                    success=False,
+                    error_message="No config generated for trial",
+                )
+            ]
 
         config = benchmark_configs[0]
         # Pass append_results via config (backend-specific, not in base class)
@@ -571,22 +583,23 @@ class BenchmarkOrchestrator:
             "append_results": append_results,
         }
         backend = self.backend_class(backend_config)
-        result = None
         try:
             backend.initialize()
 
+            trial_results: List[Union[BuildResult, SearchResult]] = []
             if build:
-                result = backend.build(
+                build_result = backend.build(
                     dataset=bench_dataset,
                     indexes=config.indexes,
                     force=force,
                     dry_run=dry_run,
                 )
-                if not result.success:
-                    return result
+                trial_results.append(build_result)
+                if not build_result.success:
+                    return trial_results
 
             if search:
-                result = backend.search(
+                search_results = backend.search(
                     dataset=bench_dataset,
                     indexes=config.indexes,
                     k=count,
@@ -597,17 +610,31 @@ class BenchmarkOrchestrator:
                     dry_run=dry_run,
                 )
 
-                # Compute recall for backends that return actual neighbors.
-                if _should_compute_recall(result):
-                    gt = bench_dataset.groundtruth_neighbors
-                    if gt is not None:
-                        result.recall = compute_recall(
-                            result.neighbors, gt, count
-                        )
+                if len(search_results) != 1:
+                    raise RuntimeError(
+                        "Tune mode expected one search-parameter result"
+                    )
+                search_result = search_results[0]
+                self._finalize_search_result(
+                    search_result, bench_dataset, count
+                )
+                trial_results.append(search_result)
 
-            return result
+            return trial_results
         finally:
             backend.cleanup()
+
+    @staticmethod
+    def _finalize_search_result(
+        result: SearchResult, dataset: Dataset, k: int
+    ) -> None:
+        """Compute recall for backends that return neighbor arrays."""
+        if _should_compute_recall(result):
+            groundtruth = dataset.groundtruth_neighbors
+            if groundtruth is not None:
+                result.recall = compute_recall(
+                    result.neighbors, groundtruth, k
+                )
 
     def _create_dataset(self, dataset_config: DatasetConfig) -> Dataset:
         """
