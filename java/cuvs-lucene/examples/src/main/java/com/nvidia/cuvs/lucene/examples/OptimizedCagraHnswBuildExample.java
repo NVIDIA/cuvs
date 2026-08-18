@@ -209,8 +209,15 @@ public class OptimizedCagraHnswBuildExample {
       for (int p = 0; p < slices.size(); p++) {
         int[] slice = slices.get(p);
         log.info(
-            "Building segment " + (p + 1) + "/" + slices.size() + ": docs [" + slice[0] + ", "
-                + (slice[0] + slice[1]) + ")");
+            "Building segment "
+                + (p + 1)
+                + "/"
+                + slices.size()
+                + ": docs ["
+                + slice[0]
+                + ", "
+                + (slice[0] + slice[1])
+                + ")");
         buildSegment(dir, reader, scratch, slice[0], slice[1], p == 0, null);
       }
     }
@@ -244,7 +251,8 @@ public class OptimizedCagraHnswBuildExample {
     for (int p = 0; p < slices.size(); p++) {
       segDirs.add(Paths.get(indexDirPath + "_p" + p));
     }
-    // Start from fresh per-segment temp dirs, and always remove them afterwards (even on failure) so
+    // Start from fresh per-segment temp dirs, and always remove them afterwards (even on failure)
+    // so
     // a crashed build does not leave orphaned per-segment indexes behind.
     for (Path segDir : segDirs) {
       FileUtils.deleteQuietly(segDir.toFile());
@@ -304,7 +312,8 @@ public class OptimizedCagraHnswBuildExample {
 
     // Keep this slice in ONE segment: raise the doc-count flush threshold above the slice size and
     // disable RAM-based flushing so nothing flushes before commit, and forbid merges. This is what
-    // makes native flat buffering valid. Order matters: enable the doc-count trigger BEFORE disabling
+    // makes native flat buffering valid. Order matters: enable the doc-count trigger BEFORE
+    // disabling
     // the RAM trigger, since Lucene rejects a config where both are disabled at once.
     IndexWriterConfig config =
         new IndexWriterConfig()
@@ -314,9 +323,7 @@ public class OptimizedCagraHnswBuildExample {
             .setRAMBufferSizeMB(IndexWriterConfig.DISABLE_AUTO_FLUSH)
             .setMergePolicy(NoMergePolicy.INSTANCE)
             .setOpenMode(
-                createNew
-                    ? IndexWriterConfig.OpenMode.CREATE
-                    : IndexWriterConfig.OpenMode.APPEND);
+                createNew ? IndexWriterConfig.OpenMode.CREATE : IndexWriterConfig.OpenMode.APPEND);
 
     try (IndexWriter writer = new IndexWriter(dir, config)) {
       for (int i = 0; i < size; i++) {
@@ -421,7 +428,8 @@ public class OptimizedCagraHnswBuildExample {
     try (Directory dir = FSDirectory.open(indexDirPath);
         DirectoryReader reader = DirectoryReader.open(dir)) {
       IndexSearcher searcher = new IndexSearcher(reader);
-      TopDocs results = searcher.search(new KnnFloatVectorQuery(VECTOR_FIELD, queryVector, topK), topK);
+      TopDocs results =
+          searcher.search(new KnnFloatVectorQuery(VECTOR_FIELD, queryVector, topK), topK);
       log.info("Sample search returned " + results.scoreDocs.length + " hits:");
       for (int i = 0; i < results.scoreDocs.length; i++) {
         ScoreDoc sd = results.scoreDocs[i];

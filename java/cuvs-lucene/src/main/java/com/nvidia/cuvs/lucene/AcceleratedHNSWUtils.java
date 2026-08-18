@@ -243,8 +243,8 @@ public class AcceleratedHNSWUtils {
    * @return a 2D array of offsets
    * @throws IOException I/O Exceptions
    */
-  public static int[][] writeGraph(
-      GPUBuiltHnswGraph graph, IndexOutput vectorIndex, int numThreads) throws IOException {
+  public static int[][] writeGraph(GPUBuiltHnswGraph graph, IndexOutput vectorIndex, int numThreads)
+      throws IOException {
     // write vectors' neighbors on each level into the vectorIndex file
     int countOnLevel0 = graph.size();
     int numLevels = graph.numLevels();
@@ -252,8 +252,10 @@ public class AcceleratedHNSWUtils {
 
     // Level 0 holds all nodes and dominates serialization cost. Each node's delta/VInt block is
     // independent, so encode level 0 in parallel and concatenate the per-thread buffers serially in
-    // node order, in memory-bounded waves. Higher levels are tiny and stay serial. The on-disk bytes
-    // are identical to the fully-serial path (blocks in node order, offsets = per-node byte lengths).
+    // node order, in memory-bounded waves. Higher levels are tiny and stay serial. The on-disk
+    // bytes
+    // are identical to the fully-serial path (blocks in node order, offsets = per-node byte
+    // lengths).
     int[] level0Nodes = NodesIterator.getSortedNodes(graph.getNodesOnLevel(0));
     offsets[0] = new int[level0Nodes.length];
     if (numThreads > 1 && level0Nodes.length >= PARALLEL_MIN_NODES) {
@@ -363,7 +365,8 @@ public class AcceleratedHNSWUtils {
    * deltas) to {@code out}. Shared by the serial and parallel paths so encoding is identical.
    */
   private static void encodeNode(
-      NeighborArray neighbors, int[] scratch, DataOutput out, int countOnLevel0) throws IOException {
+      NeighborArray neighbors, int[] scratch, DataOutput out, int countOnLevel0)
+      throws IOException {
     int size = neighbors == null ? 0 : neighbors.size();
     int actualSize = 0;
     if (size > 0) {

@@ -236,7 +236,8 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
               QuantizationType.NONE,
               acceleratedHNSWParams.getWriterThreads());
       long vectorIndexOffset = hnswVectorIndex.getFilePointer();
-      int[][] graphLevelNodeOffsets = writeGraph(hnswGraph, hnswVectorIndex, acceleratedHNSWParams.getWriterThreads());
+      int[][] graphLevelNodeOffsets =
+          writeGraph(hnswGraph, hnswVectorIndex, acceleratedHNSWParams.getWriterThreads());
       long vectorIndexLength = hnswVectorIndex.getFilePointer() - vectorIndexOffset;
       writeMeta(
           hnswVectorIndex,
@@ -349,7 +350,8 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
       int dimensions = fieldInfo.getVectorDimension();
       GPUBuiltHnswGraph hnswGraph = createSingleVectorHnswGraph(size, dimensions);
       long vectorIndexOffset = hnswVectorIndex.getFilePointer();
-      int[][] graphLevelNodeOffsets = writeGraph(hnswGraph, hnswVectorIndex, acceleratedHNSWParams.getWriterThreads());
+      int[][] graphLevelNodeOffsets =
+          writeGraph(hnswGraph, hnswVectorIndex, acceleratedHNSWParams.getWriterThreads());
       long vectorIndexLength = hnswVectorIndex.getFilePointer() - vectorIndexOffset;
       writeMeta(
           hnswVectorIndex,

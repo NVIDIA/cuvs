@@ -178,7 +178,8 @@ public class FieldWriter extends KnnFieldVectorsWriter<Object> {
 
   @Override
   public long ramBytesUsed() {
-    // The native host matrix is off-heap and intentionally excluded from Lucene's heap RAM accounting.
+    // The native host matrix is off-heap and intentionally excluded from Lucene's heap RAM
+    // accounting.
     return SHALLOW_SIZE + (nativeBuffering ? 0 : flatFieldVectorsWriter.ramBytesUsed());
   }
 }

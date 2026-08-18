@@ -92,8 +92,7 @@ final class NativeFlatVectorsWriter implements Closeable {
 
   NativeFlatVectorsWriter(SegmentWriteState state) throws IOException {
     String metaFileName =
-        IndexFileNames.segmentFileName(
-            state.segmentInfo.name, state.segmentSuffix, META_EXTENSION);
+        IndexFileNames.segmentFileName(state.segmentInfo.name, state.segmentSuffix, META_EXTENSION);
     String vectorDataFileName =
         IndexFileNames.segmentFileName(
             state.segmentInfo.name, state.segmentSuffix, VECTOR_DATA_EXTENSION);
@@ -102,11 +101,7 @@ final class NativeFlatVectorsWriter implements Closeable {
       meta = state.directory.createOutput(metaFileName, state.context);
       vectorData = state.directory.createOutput(vectorDataFileName, state.context);
       CodecUtil.writeIndexHeader(
-          meta,
-          META_CODEC_NAME,
-          VERSION_CURRENT,
-          state.segmentInfo.getId(),
-          state.segmentSuffix);
+          meta, META_CODEC_NAME, VERSION_CURRENT, state.segmentInfo.getId(), state.segmentSuffix);
       CodecUtil.writeIndexHeader(
           vectorData,
           VECTOR_DATA_CODEC_NAME,

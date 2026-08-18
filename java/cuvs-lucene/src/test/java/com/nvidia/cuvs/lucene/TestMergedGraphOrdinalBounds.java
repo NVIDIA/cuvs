@@ -82,7 +82,8 @@ public class TestMergedGraphOrdinalBounds extends LuceneTestCase {
     try (Directory dir = newDirectory();
         IndexWriter writer = new IndexWriter(dir, config)) {
       int deletedFromSegment1 =
-          addSegmentWithInterspersedDeletions(writer, 0, segmentSize, dimension, deleteEveryNth, random);
+          addSegmentWithInterspersedDeletions(
+              writer, 0, segmentSize, dimension, deleteEveryNth, random);
       writer.commit(); // segment 1, alone
       int deletedFromSegment2 =
           addSegmentWithInterspersedDeletions(
@@ -98,7 +99,8 @@ public class TestMergedGraphOrdinalBounds extends LuceneTestCase {
       writer.commit();
 
       try (DirectoryReader reader = DirectoryReader.open(dir)) {
-        assertEquals("expected the forced merge to produce a single segment", 1, reader.leaves().size());
+        assertEquals(
+            "expected the forced merge to produce a single segment", 1, reader.leaves().size());
         LeafReader leaf = reader.leaves().get(0).reader();
 
         FloatVectorValues flatValues = leaf.getFloatVectorValues(FIELD);
@@ -133,11 +135,17 @@ public class TestMergedGraphOrdinalBounds extends LuceneTestCase {
       while (nodes.hasNext()) {
         int node = nodes.nextInt();
         assertTrue(
-            "node " + node + " at level " + level + " is itself out of bounds (live vectors: "
-                + liveVectorCount + ")",
+            "node "
+                + node
+                + " at level "
+                + level
+                + " is itself out of bounds (live vectors: "
+                + liveVectorCount
+                + ")",
             node >= 0 && node < liveVectorCount);
         graph.seek(level, node);
-        for (int neighbor = graph.nextNeighbor(); neighbor != NO_MORE_DOCS;
+        for (int neighbor = graph.nextNeighbor();
+            neighbor != NO_MORE_DOCS;
             neighbor = graph.nextNeighbor()) {
           assertTrue(
               "node "
@@ -171,12 +179,7 @@ public class TestMergedGraphOrdinalBounds extends LuceneTestCase {
    * @return the number of documents deleted from this segment
    */
   private static int addSegmentWithInterspersedDeletions(
-      IndexWriter writer,
-      int startId,
-      int count,
-      int dimension,
-      int deleteEveryNth,
-      Random random)
+      IndexWriter writer, int startId, int count, int dimension, int deleteEveryNth, Random random)
       throws Exception {
     float[][] dataset = generateDataset(random, count, dimension);
     for (int i = 0; i < count; i++) {

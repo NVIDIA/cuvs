@@ -90,8 +90,7 @@ public class GPUBuiltHnswGraph extends HnswGraph {
    * @param numThreads threads to use (1, or fewer than {@value #PARALLEL_MIN_NODES} nodes = serial)
    * @return the NeighborArray
    */
-  private static NeighborArray[] fillNeighborArray(
-      CuVSMatrix adjacency, int size, int numThreads) {
+  private static NeighborArray[] fillNeighborArray(CuVSMatrix adjacency, int size, int numThreads) {
     NeighborArray[] neighbors = new NeighborArray[size];
     if (numThreads <= 1 || size < PARALLEL_MIN_NODES) {
       fillNeighborRange(adjacency, neighbors, 0, size);

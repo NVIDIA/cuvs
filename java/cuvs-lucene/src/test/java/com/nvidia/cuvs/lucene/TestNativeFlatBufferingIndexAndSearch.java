@@ -144,7 +144,8 @@ public class TestNativeFlatBufferingIndexAndSearch extends LuceneTestCase {
 
     try (Directory dir = FSDirectory.open(indexDirPath);
         DirectoryReader reader = DirectoryReader.open(dir)) {
-      assertEquals("expected the deletions to land in the same single segment", 1, reader.leaves().size());
+      assertEquals(
+          "expected the deletions to land in the same single segment", 1, reader.leaves().size());
       assertTrue("expected some deleted docs", reader.numDeletedDocs() > 0);
 
       IndexSearcher searcher = new IndexSearcher(reader);
@@ -184,8 +185,7 @@ public class TestNativeFlatBufferingIndexAndSearch extends LuceneTestCase {
     try (Directory dir = FSDirectory.open(indexDirPath);
         DirectoryReader reader = DirectoryReader.open(dir)) {
       IndexSearcher searcher = new IndexSearcher(reader);
-      TopDocs results =
-          searcher.search(new KnnFloatVectorQuery(VECTOR_FIELD, dataset[0], 5), 5);
+      TopDocs results = searcher.search(new KnnFloatVectorQuery(VECTOR_FIELD, dataset[0], 5), 5);
       assertEquals(5, results.scoreDocs.length);
     }
   }
