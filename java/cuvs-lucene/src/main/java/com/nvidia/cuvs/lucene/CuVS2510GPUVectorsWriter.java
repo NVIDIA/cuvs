@@ -206,6 +206,14 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
           writeCagraIndex(cagraIndexOutputStream, cagraDataset);
         } catch (Throwable t) {
           // Fallback to brute force in a few cases, for now.
+          // Log it to make it more obvious that this is what is happening.
+          info(
+              infoStream,
+              COMPONENT,
+              "CAGRA build failed for field \""
+                  + fieldInfo.name
+                  + "\", falling back to a brute force index: "
+                  + t);
           Utils.handleThrowableWithIgnore(t, t.getMessage());
           indexType = IndexType.BRUTE_FORCE;
         }
@@ -248,10 +256,23 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
                 .withDataset(dataset)
                 .withIndexParams(params)
                 .build();
-        var deviceVectors = dataset.toDevice(getCuVSResourcesInstance());
-        var indexDataset = index.makePaddedDataset(deviceVectors)) {
-      index.updateDataset(indexDataset);
-      index.serialize(os);
+        var deviceVectors = dataset.toDevice(getCuVSResourcesInstance())) {
+      /*
+       * cuVS rejects makePaddedDataset for a device matrix whose rows already sit at the required
+       * stride, and asks for a view over that storage instead. Copying would be pointless there
+       * anyway, so pick the factory that matches the layout.
+       */
+      if (CagraIndex.isPaddedDataset(deviceVectors)) {
+        try (var indexDatasetView = index.makePaddedDatasetView(deviceVectors)) {
+          index.updateDataset(indexDatasetView);
+          index.serialize(os);
+        }
+      } else {
+        try (var indexDataset = index.makePaddedDataset(deviceVectors)) {
+          index.updateDataset(indexDataset);
+          index.serialize(os);
+        }
+      }
     }
   }
 
