@@ -612,7 +612,7 @@ jobs:
       release-catalog-config: >-
         {
           "release_catalog_key": "maven:cuvs-java",
-          "output_directory": "java/cuvs-java/target",
+          "artifact_directory": "java/cuvs-java/target",
           "artifacts": [{
             "path": "cuvs-java-*-x86_64-cuda*.jar",
             "package_identity_file": "cuvs-java.release-package-identity.json"
