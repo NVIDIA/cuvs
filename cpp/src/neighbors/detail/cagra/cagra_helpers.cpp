@@ -35,7 +35,8 @@ std::tuple<size_t, size_t, size_t, size_t> optimize_workspace_size(size_t n_rows
                                                                    size_t graph_degree,
                                                                    size_t intermediate_degree,
                                                                    size_t index_size,
-                                                                   bool mst_optimize)
+                                                                   bool mst_optimize,
+                                                                   bool device_resident_graphs)
 {
   RAFT_EXPECTS(graph_degree > 0, "graph_degree must be greater than 0");
   RAFT_EXPECTS(intermediate_degree >= graph_degree,
@@ -59,17 +60,25 @@ std::tuple<size_t, size_t, size_t, size_t> optimize_workspace_size(size_t n_rows
 
   // Prune stage memory
   // We neglect 8 bytes (both on host and device) for stats
-  size_t prune_dev_fixed = batch_size * intermediate_degree;      // detour count (uint8_t)
-  prune_dev_fixed += batch_size * sizeof(uint32_t);               // d_num_detour_edges
-  prune_dev_fixed += 2 * batch_size * graph_degree * index_size;  // d_output_graph(2*batch)
+  size_t prune_dev_fixed = batch_size * intermediate_degree;  // detour count (uint8_t)
+  prune_dev_fixed += batch_size * sizeof(uint32_t);           // d_num_detour_edges
 
-  size_t prune_dev = n_rows * intermediate_degree * index_size;  // d_input_graph
+  // Buffers that only exist to stage host-resident graphs to the device. When the caller already
+  // owns device graphs, batch_load_iterator passes them through and the kernels read and write
+  // them in place.
+  size_t prune_dev = 0;
+  if (!device_resident_graphs) {
+    prune_dev_fixed += 2 * batch_size * graph_degree * index_size;  // d_output_graph(2*batch)
+    prune_dev += n_rows * intermediate_degree * index_size;         // d_input_graph
+  }
   prune_dev += prune_dev_fixed;
 
   // Reverse graph stage memory
   size_t rev_dev = n_rows * graph_degree * index_size;  // d_rev_graph
   rev_dev += n_rows * sizeof(uint32_t);                 // d_rev_graph_count
-  rev_dev += n_rows * index_size;                       // d_dest_nodes
+  if (!device_resident_graphs) {
+    rev_dev += n_rows * index_size;  // d_dest_nodes
+  }
 
   // Memory for merging graphs (host only optional)
   size_t combine_host_fixed = graph_degree * sizeof(uint32_t);  // histogram
@@ -77,7 +86,10 @@ std::tuple<size_t, size_t, size_t, size_t> optimize_workspace_size(size_t n_rows
   combine_host += combine_host_fixed;
 
   // additional memory for combine stage on device (3 batches)
-  size_t combine_dev_fixed = 2 * batch_size * graph_degree * index_size;  // d_output_graph(2*batch)
+  size_t combine_dev_fixed = 0;
+  if (!device_resident_graphs) {
+    combine_dev_fixed += 2 * batch_size * graph_degree * index_size;  // d_output_graph(2*batch)
+  }
   if (mst_optimize) {
     combine_dev_fixed += 2 * batch_size * graph_degree * index_size;  // d_mst_graph(2*batch)
     combine_dev_fixed += 2 * batch_size * sizeof(uint32_t);  // d_mst_graph_num_edges(2*batch)

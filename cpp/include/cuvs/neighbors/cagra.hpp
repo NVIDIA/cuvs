@@ -4771,14 +4771,20 @@ namespace helpers {
  * @param[in] intermediate_graph_degree degree of the input graph for the optimization process
  * @param[in] index_size
  * @param[in] mst_optimize whether to use MST optimization
+ * @param[in] device_resident_graphs whether the input and output graphs are already device
+ *            resident. In that case `optimize` reads and writes them in place instead of staging
+ *            them through device buffers, so those staging allocations are left out of the
+ *            estimate.
  * @return tuple of [host_size, device_size, host_fixed_size, device_fixed_size] memory sizes in
  * bytes
  */
-std::tuple<size_t, size_t, size_t, size_t> optimize_workspace_size(size_t n_rows,
-                                                                   size_t graph_degree,
-                                                                   size_t intermediate_degree,
-                                                                   size_t index_size,
-                                                                   bool mst_optimize = false);
+std::tuple<size_t, size_t, size_t, size_t> optimize_workspace_size(
+  size_t n_rows,
+  size_t graph_degree,
+  size_t intermediate_degree,
+  size_t index_size,
+  bool mst_optimize           = false,
+  bool device_resident_graphs = false);
 
 /**
  * Calculate memory usage of CAGRA build.
