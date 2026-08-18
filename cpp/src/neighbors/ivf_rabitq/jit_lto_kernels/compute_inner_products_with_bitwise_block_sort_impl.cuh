@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -23,6 +23,7 @@ namespace cuvs::neighbors::ivf_rabitq::detail {
 // inner-product loop is dispatched at runtime through the
 // compute_bitwise_quantized_ip_for_vec JIT-LTO fragment, so this kernel is
 // also not templated on num_bits.
+template <bool Signed>
 __device__ void compute_inner_products_with_bitwise_block_sort_impl(
   const ComputeInnerProductsKernelParams params)
 {
@@ -53,11 +54,11 @@ __device__ void compute_inner_products_with_bitwise_block_sort_impl(
   float query_width = params.d_widths[query_idx];
 
   __shared__ int num_candidates;
-  float q_g_add   = params.d_centroid_distances[query_idx * params.num_centroids + cluster_idx];
+  float q_g_add   = params.d_g_add[query_idx * params.num_centroids + cluster_idx];
   float q_k1xsumq = params.d_G_k1xSumq[query_idx];
-  float q_g_error = sqrtf(q_g_add);
+  float q_g_error =
+    sqrtf(params.d_centroid_distances[query_idx * params.num_centroids + cluster_idx]);
   float threshold = params.d_threshold[query_idx];
-
   if (tid == 0) { num_candidates = 0; }
   __syncthreads();
 

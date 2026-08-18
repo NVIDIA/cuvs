@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -17,7 +17,9 @@
 #include <cuvs/selection/select_k.hpp>
 #include <raft/core/cublas_macros.hpp>
 #include <raft/core/device_mdspan.hpp>
+#include <raft/core/operators.hpp>
 #include <raft/core/resources.hpp>
+#include <raft/linalg/binary_op.cuh>
 #include <raft/linalg/detail/cublaslt_wrappers.hpp>
 #include <raft/linalg/norm.cuh>
 
@@ -36,13 +38,19 @@
 
 namespace cuvs::neighbors::ivf_rabitq::detail {
 
-IVFGPU::IVFGPU(raft::resources const& handle, size_t n, size_t dim, size_t k, size_t bits_per_dim)
+IVFGPU::IVFGPU(raft::resources const& handle,
+               size_t n,
+               size_t dim,
+               size_t k,
+               size_t bits_per_dim,
+               cuvs::distance::DistanceType metric)
   : handle_(handle),
     num_vectors(n),
     num_dimensions(dim),
     num_padded_dim(raft::round_up_safe<size_t>(dim, 64)),
     num_centroids(k),
     ex_bits(bits_per_dim - 1),
+    metric_(metric),
     initializer(nullptr),
     DQ(std::make_unique<DataQuantizerGPU>(handle_, dim, bits_per_dim - 1)),
     Rota(std::make_unique<RotatorGPU>(handle_, dim))
@@ -92,6 +100,14 @@ void IVFGPU::AllocateHostMemory()
   this->ids_host_ = raft::make_host_vector<PID, int64_t>(pids_size / sizeof(PID));
 }
 
+// Serialized-format version. The IVF-RaBitQ on-disk format is not backward compatible: bumping
+// this constant (or reading a pre-versioning index) is a hard error at load time.
+//
+// v2: InnerProduct indices store factors re-derived directly for −⟨o,q⟩ and no longer carry the
+//     per-vector ‖x‖² blob that the previous squared-L2 reconstruction needed. A v1 InnerProduct
+//     index would be silently misinterpreted by the current estimator, hence the bump.
+static constexpr std::uint32_t kSerializationVersion = 2;
+
 // load transposed data for short codes
 void IVFGPU::load_transposed(const char* filename)
 {
@@ -105,6 +121,16 @@ void IVFGPU::load_transposed(const char* filename)
                  filename);
   };
 
+  // Format version is the first field.
+  std::uint32_t version = 0;
+  read_exact(&version, sizeof(std::uint32_t));
+  RAFT_EXPECTS(version == kSerializationVersion,
+               "ivf_rabitq::deserialize: serialization version mismatch (got %u, expected %u) "
+               "in: %s",
+               version,
+               kSerializationVersion,
+               filename);
+
   // Load metadata.
   read_exact(&this->num_vectors, sizeof(size_t));
   read_exact(&this->num_dimensions, sizeof(size_t));
@@ -112,6 +138,16 @@ void IVFGPU::load_transposed(const char* filename)
   this->num_padded_dim = raft::round_up_safe<size_t>(this->num_dimensions, 64);
   read_exact(&this->num_centroids, sizeof(size_t));
   read_exact(&this->ex_bits, sizeof(size_t));
+
+  // Distance metric. The stored per-vector factors are metric-specific, so this selects how the
+  // estimator interprets them and must round-trip with the data.
+  read_exact(&this->metric_, sizeof(cuvs::distance::DistanceType));
+  RAFT_EXPECTS(cuvs::util::is_valid_distance_type(metric_) &&
+                 (metric_ == cuvs::distance::DistanceType::L2Expanded ||
+                  metric_ == cuvs::distance::DistanceType::InnerProduct),
+               "ivf_rabitq::deserialize: unsupported metric %d in: %s",
+               static_cast<int>(metric_),
+               filename);
 
   // Skip legacy batch_flag field for backward compatibility
   bool legacy_batch_flag;
@@ -256,7 +292,6 @@ void IVFGPU::load_transposed(const char* filename)
   read_into_device_host(
     ex_factor_.data_handle(), ex_factor_host_.data_handle(), GetExFactorBytes());
   read_into_device_host(ids_.data_handle(), ids_host_.data_handle(), GetPIDsBytes());
-
   // Initialize cluster metadata (host side) based on the loaded cluster sizes.
   init_clusters(cluster_sizes);
 
@@ -352,11 +387,16 @@ void IVFGPU::save(const char* filename) const
     RAFT_EXPECTS(static_cast<bool>(output), "write failed to: %s", filename);
   };
 
+  // Format version is the first field.
+  write_exact(&kSerializationVersion, sizeof(std::uint32_t));
+
   // Save meta data.
   write_exact(&num_vectors, sizeof(size_t));
   write_exact(&num_dimensions, sizeof(size_t));
   write_exact(&num_centroids, sizeof(size_t));
   write_exact(&ex_bits, sizeof(size_t));
+  // Distance metric (mirrors the read order in load_transposed).
+  write_exact(&metric_, sizeof(cuvs::distance::DistanceType));
   // Write legacy batch_flag=true for backward compatibility
   bool legacy_batch_flag = true;
   write_exact(&legacy_batch_flag, sizeof(bool));
@@ -852,7 +892,8 @@ void IVFGPU::construct_on_gpu_streaming(const float* host_data,
                                         cp.short_factor_batch(*this, 0),
                                         cp.long_code(*this, 0, DQ->long_code_length()),
                                         reinterpret_cast<float*>(cp.ex_factor(*this, 0)),
-                                        cur_rotated_c);
+                                        cur_rotated_c,
+                                        metric_);
 
       batch_offset += cluster_size;
     }
@@ -886,7 +927,8 @@ void IVFGPU::quantize_cluster(GPUClusterMeta& cp,
                          cp.short_factor_batch(*this, 0),
                          cp.long_code(*this, 0, DQ->long_code_length()),
                          reinterpret_cast<float*>(cp.ex_factor(*this, 0)),
-                         d_rotated_c);
+                         d_rotated_c,
+                         metric_);
 }
 
 // Optimized kernel to prepare keys and values from d_raft_idx
@@ -1059,23 +1101,26 @@ void IVFGPU::PrepareClusterSearchInputs(
   rmm::cuda_stream_view searcher_stream  = searcher.get_stream();
   const size_t batch_size                = queries.extent(0);
 
-  // Compute ||q - c||^2 = -2 * q . c + ||q||^2 + ||c||^2 into centroid_distances:
-  //  (1) query norms (squared L2, no sqrt - default fin_op on L2Norm returns sum of squares;
-  //      centroid norms were precomputed in compute_centroid_norms() and cached in centroid_norms_)
-  //  (2) outer_add writes (q_norm + c_norm) into centroid_distances, overwriting the prior
-  //      uninitialized contents of the freshly-allocated SearcherGPU scratch buffer
-  //  (3) matmul with beta=1 accumulates -2 * Q * C^T on top
+  // Compute query norms (squared L2, no sqrt - default fin_op on L2Norm returns sum of squares;
+  // centroid norms were precomputed in compute_centroid_norms() and cached in centroid_norms_).
   raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
     searcher_handle,
     queries,
     raft::make_device_vector_view<float, int64_t>(searcher.get_q_norms(), batch_size));
+
+  // Initialize centroid_distances with ||q||^2 + ||c||^2. For L2, GEMM accumulates
+  // -2 * Q * C^T into this buffer. For InnerProduct, GEMM writes -Q * C^T directly to g_add;
+  // a cheap elementwise pass then uses it to complete ||q-c||^2 without a second GEMM.
   cuvs::spatial::knn::detail::utils::outer_add(searcher.get_q_norms(),
                                                batch_size,
                                                centroid_norms_.data_handle(),
                                                num_centroids,
                                                searcher.get_centroid_distances(),
                                                searcher_stream);
-  const float alpha = -2.f, beta = 1.f;
+  const bool is_ip   = is_inner_product();
+  const float alpha  = is_ip ? -1.f : -2.f;
+  const float beta   = is_ip ? 0.f : 1.f;
+  float* gemm_output = is_ip ? searcher.get_g_add() : searcher.get_centroid_distances();
   raft::linalg::detail::matmul</* DevicePointerMode = */ false>(searcher_handle,
                                                                 /* trans_a = */ true,
                                                                 /* trans_b = */ false,
@@ -1088,14 +1133,37 @@ void IVFGPU::PrepareClusterSearchInputs(
                                                                 queries.data_handle(),
                                                                 num_padded_dim,
                                                                 &beta,
-                                                                searcher.get_centroid_distances(),
+                                                                gemm_output,
                                                                 num_centroids);
+
+  if (is_ip) {
+    // Complete ‖q−c‖² = (‖q‖² + ‖c‖²) + 2·(−⟨q,c⟩) in place: outer_add left the norm sum in
+    // centroid_distances and the GEMM wrote −⟨q,c⟩ to g_add, so one elementwise pass finishes
+    // the identity. g_add is left holding exactly −⟨q,c⟩ for the estimator and probe ranking.
+    // A raft operator rather than a lambda: nvcc rejects extended __device__ lambdas enclosed
+    // in a private member function.
+    raft::linalg::binaryOp(
+      searcher.get_centroid_distances(),
+      searcher.get_centroid_distances(),
+      searcher.get_g_add(),
+      batch_size * num_centroids,
+      raft::map_args_op<raft::add_op, raft::identity_op, raft::mul_const_op<float>>{
+        raft::add_op{}, raft::identity_op{}, raft::mul_const_op<float>{2.f}},
+      searcher_stream);
+  }
 
   // Step 4: select top-nprobe clusters per query
   auto d_raft_vals = raft::make_device_matrix<float, int64_t>(searcher_handle, batch_size, nprobe);
   auto d_raft_idx  = raft::make_device_matrix<int, int64_t>(searcher_handle, batch_size, nprobe);
-  auto in_view     = raft::make_device_matrix_view<const float, int64_t, raft::row_major>(
-    searcher.get_centroid_distances(), batch_size, num_centroids);
+
+  // Clusters are scored by ‖q−c‖² for L2 (minimized). For InnerProduct we instead pick the
+  // clusters maximizing ⟨q,c⟩, i.e. minimizing −⟨q,c⟩ (mirroring ivf_pq's select_clusters with
+  // alpha=-1). That same −⟨q,c⟩ is the estimator's query-side g_add term, so it is computed once
+  // into the searcher's persistent g_add buffer and reused by the search kernels, while
+  // centroid_distances carries ‖q−c‖², which supplies g_error = ‖q−c‖ for both metrics.
+  const float* select_in = is_ip ? searcher.get_g_add() : searcher.get_centroid_distances();
+  auto in_view           = raft::make_device_matrix_view<const float, int64_t, raft::row_major>(
+    select_in, batch_size, num_centroids);
   cuvs::selection::select_k(searcher_handle,
                             in_view,
                             std::nullopt,

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -40,15 +40,21 @@ struct ComputeInnerProductsKernelParams {
   const float* d_short_factors                 = nullptr;
   const float* d_G_k1xSumq                     = nullptr;
   const float* d_G_kbxSumq                     = nullptr;
-  const float* d_centroid_distances            = nullptr;
-  uint32_t topk                                = 0;
-  uint32_t num_queries                         = 0;
-  uint32_t nprobe                              = 0;
-  uint32_t num_pairs                           = 0;
-  uint32_t num_centroids                       = 0;
-  uint32_t D                                   = 0;
-  const float* d_threshold                     = nullptr;  // threshold for each query
-  uint32_t max_candidates_per_pair             = 0;        // max storage per pair, 1000 suggested
+  // ‖q−c‖² per (query, centroid). Always the squared distance to the centroid, for both metrics:
+  // it supplies the query-side error factor g_error = ‖q−c‖ used by the pruning bounds.
+  const float* d_centroid_distances = nullptr;
+  // The query-side additive term g_add of the RaBitQ estimator, per (query, centroid). For L2 this
+  // aliases d_centroid_distances (g_add = ‖q−c‖²); the two are kept separate because the
+  // InnerProduct estimator needs a different g_add while reusing the same g_error.
+  const float* d_g_add             = nullptr;
+  uint32_t topk                    = 0;
+  uint32_t num_queries             = 0;
+  uint32_t nprobe                  = 0;
+  uint32_t num_pairs               = 0;
+  uint32_t num_centroids           = 0;
+  uint32_t D                       = 0;
+  const float* d_threshold         = nullptr;  // threshold for each query
+  uint32_t max_candidates_per_pair = 0;        // max storage per pair, 1000 suggested
   uint32_t max_candidates_per_query =
     0;  // max number of vectors in probed clusters for any particular query
   uint32_t ex_bits            = 0;        // bits per dimension in ex codes

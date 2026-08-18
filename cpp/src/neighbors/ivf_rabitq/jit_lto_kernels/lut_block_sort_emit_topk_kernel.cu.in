@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -12,7 +12,8 @@
 
 namespace {
 
-constexpr bool with_ex = @with_ex_value@;
+constexpr bool with_ex   = @with_ex_value@;
+constexpr bool is_signed = @signed_value@;
 
 }  // namespace
 
@@ -52,7 +53,8 @@ __device__ void lut_block_sort_emit_topk(const ComputeInnerProductsKernelParams 
   const int vectors_per_iteration = num_threads;
 
   if constexpr (with_ex) {
-    float q_g_error = sqrtf(q_g_add);
+    float q_g_error =
+      sqrtf(params.d_centroid_distances[query_idx * params.num_centroids + cluster_idx]);
 
     // Shared memory layout after LUT: [cand_dists][cand_ips][cand_indices][queue_buffer]
     float* shared_candidate_dists = reinterpret_cast<float*>(shared_mem_raw + lut_bytes);
@@ -178,14 +180,14 @@ __device__ void lut_block_sort_emit_topk(const ComputeInnerProductsKernelParams 
                   (uint32_t*)(params.d_topk_pids + output_offset));
 
       if (final_num_candidates >= params.topk) {
-        update_threshold_atomicmin(params.d_topk_dists,
-                                   params.d_threshold,
-                                   query_idx,
-                                   params.topk,
-                                   params.nprobe,
-                                   probe_slot,
-                                   threshold,
-                                   tid);
+        update_threshold_atomicmin<is_signed>(params.d_topk_dists,
+                                              params.d_threshold,
+                                              query_idx,
+                                              params.topk,
+                                              params.nprobe,
+                                              probe_slot,
+                                              threshold,
+                                              tid);
       }
     }
   } else {
@@ -217,7 +219,6 @@ __device__ void lut_block_sort_emit_topk(const ComputeInnerProductsKernelParams 
                                                  short_code_length);
 
         final_1bit_dist = f_add + q_g_add + f_rescale * (ip + q_k1xsumq);
-
         if (final_1bit_dist < threshold) {
           is_candidate   = true;
           final_1bit_pid = params.d_pids[cluster_start_index + vec_idx];
@@ -270,14 +271,14 @@ __device__ void lut_block_sort_emit_topk(const ComputeInnerProductsKernelParams 
       }
 
       if (num_candidates >= params.topk) {
-        update_threshold_atomicmin(params.d_topk_dists,
-                                   params.d_threshold,
-                                   query_idx,
-                                   params.topk,
-                                   params.nprobe,
-                                   probe_slot,
-                                   threshold,
-                                   tid);
+        update_threshold_atomicmin<is_signed>(params.d_topk_dists,
+                                              params.d_threshold,
+                                              query_idx,
+                                              params.topk,
+                                              params.nprobe,
+                                              probe_slot,
+                                              threshold,
+                                              tid);
       }
     }
   }

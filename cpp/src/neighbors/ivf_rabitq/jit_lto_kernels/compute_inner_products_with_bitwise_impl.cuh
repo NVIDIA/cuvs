@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -44,7 +44,7 @@ __device__ void compute_inner_products_with_bitwise_impl(
   }
   __syncthreads();
 
-  float q_g_add = params.d_centroid_distances[query_idx * params.num_centroids + cluster_idx];
+  float q_g_add = params.d_g_add[query_idx * params.num_centroids + cluster_idx];
 
   bitwise_emit_distances(
     params, query_idx, cluster_idx, num_vectors_in_cluster, cluster_start_index, q_g_add);

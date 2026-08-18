@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -22,6 +22,8 @@
 #include <rmm/device_uvector.hpp>
 
 #include <thrust/fill.h>
+#include <thrust/functional.h>
+#include <thrust/transform.h>
 
 #include <cstdint>
 #include <cuda_runtime.h>
@@ -56,11 +58,16 @@ SearcherGPU::SearcherGPU(raft::resources const& handle,
   }
 }
 
-void SearcherGPU::AllocateSearcherSpace(size_t num_centroids, size_t num_queries)
+void SearcherGPU::AllocateSearcherSpace(size_t num_centroids,
+                                        size_t num_queries,
+                                        bool is_inner_product)
 {
   centroid_distances_ =
     raft::make_device_vector<float, int64_t>(handle_, num_queries * num_centroids);
   q_norms_ = raft::make_device_vector<float, int64_t>(handle_, num_queries);
+  if (is_inner_product) {
+    g_add_ = raft::make_device_vector<float, int64_t>(handle_, num_queries * num_centroids);
+  }
 };
 
 __global__ void precomputeAllLUTs(const float* d_query,      // Query vectors
@@ -223,6 +230,10 @@ void SearcherGPU::SearchClusterQueryPairs(
   kernelParams.d_G_k1xSumq             = d_G_k1xSumq;
   kernelParams.d_G_kbxSumq             = d_G_kbxSumq;
   kernelParams.d_centroid_distances    = get_centroid_distances();
+  // InnerProduct emits −⟨q,x⟩ (pseudo-distances), so it minimizes like L2 and is negated after
+  // select_k below. Its query-side additive term is −⟨q,c⟩ rather than ‖q−c‖².
+  const bool is_inner_product          = cur_ivf.is_inner_product();
+  kernelParams.d_g_add                 = is_inner_product ? get_g_add() : get_centroid_distances();
   kernelParams.topk                    = topk;
   kernelParams.num_queries             = num_queries;
   kernelParams.nprobe                  = nprobe;
@@ -244,10 +255,11 @@ void SearcherGPU::SearchClusterQueryPairs(
   if (cur_ivf.get_ex_bits() != 0) {
     size_t shared_mem_size =
       num_chunks * LUT_SIZE * sizeof(float) + candidate_storage + queue_buffer_smem_bytes;
-    auto jit_launcher = use_block_sort ? make_compute_inner_products_with_lut_block_sort_launcher(
-                                           cur_ivf.get_ex_bits(), /*with_ex=*/true)
-                                       : make_compute_inner_products_with_lut_launcher(
-                                           cur_ivf.get_ex_bits(), /*with_ex=*/true);
+    auto jit_launcher =
+      use_block_sort
+        ? make_compute_inner_products_with_lut_block_sort_launcher(
+            cur_ivf.get_ex_bits(), /*with_ex=*/true, is_inner_product)
+        : make_compute_inner_products_with_lut_launcher(cur_ivf.get_ex_bits(), /*with_ex=*/true);
     auto const& kernel_launcher = [&]() -> void {
       jit_launcher->dispatch<compute_inner_products_with_lut_func_t>(
         stream_, gridDim, blockDim, shared_mem_size, kernelParams);
@@ -261,7 +273,7 @@ void SearcherGPU::SearchClusterQueryPairs(
             (use_block_sort ? max_cluster_size * (sizeof(float) + sizeof(int)) : 0),
           (size_t)queue_buffer_smem_bytes);
     auto jit_launcher = use_block_sort ? make_compute_inner_products_with_lut_block_sort_launcher(
-                                           /*ex_bits=*/0, /*with_ex=*/false)
+                                           /*ex_bits=*/0, /*with_ex=*/false, is_inner_product)
                                        : make_compute_inner_products_with_lut_launcher(
                                            /*ex_bits=*/0, /*with_ex=*/false);
     auto const& kernel_launcher = [&]() -> void {
@@ -285,6 +297,15 @@ void SearcherGPU::SearchClusterQueryPairs(
     d_final_pids,
     /*select_min=*/true,
     /*sorted=*/false);
+
+  // Convert the pseudo-distances (−⟨q,x⟩) back to true inner products for the user-visible output.
+  if (is_inner_product) {
+    thrust::transform(thrust::cuda::par.on(stream_),
+                      d_final_dists.data_handle(),
+                      d_final_dists.data_handle() + d_final_dists.size(),
+                      d_final_dists.data_handle(),
+                      thrust::negate<float>());
+  }
 }
 
 }  // namespace cuvs::neighbors::ivf_rabitq::detail
