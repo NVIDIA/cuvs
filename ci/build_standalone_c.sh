@@ -102,4 +102,4 @@ ls -lh libcuvs_c.tar.gz
 jq -n \
       --arg version "${RAPIDS_PACKAGE_VERSION}" \
       '{ecosystem: "archive", name: "libcuvs-c", version: $version}' \
-      >libcuvs_c.release-package.json
+      >libcuvs_c.release-package-identity.json

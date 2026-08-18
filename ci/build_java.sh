@@ -63,7 +63,7 @@ if [[ "${EXITCODE}" -eq 0 ]]; then
   jq -n \
     --arg version "${JAVA_PACKAGE_VERSION}" \
     '{ecosystem: "maven", name: "com.nvidia.cuvs:cuvs-java", version: $version}' \
-    >java/cuvs-java/target/cuvs-java.release-package.json
+    >java/cuvs-java/target/cuvs-java.release-package-identity.json
 fi
 
 sccache --show-adv-stats

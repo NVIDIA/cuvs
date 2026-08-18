@@ -536,12 +536,12 @@ jobs:
       artifact-name: "libcuvs_c_${{ matrix.CUDA_VER }}_${{ matrix.ARCH }}.tar.gz"
       file_to_upload: |
         libcuvs_c.tar.gz
-        libcuvs_c.release-package.json
+        libcuvs_c.release-package-identity.json
       release-catalog-config: >-
         {
           "artifact_type": "custom",
           "release_catalog_key": "archive:libcuvs-c",
-          "package_file": "libcuvs_c.release-package.json",
+          "package_identity_file": "libcuvs_c.release-package-identity.json",
           "artifacts": [{"path": "libcuvs_c.tar.gz"}]
         }
       sha: ${{ inputs.sha }}
@@ -613,7 +613,7 @@ jobs:
           "artifact_type": "custom",
           "release_catalog_key": "maven:cuvs-java",
           "output_directory": "java/cuvs-java/target",
-          "package_file": "cuvs-java.release-package.json",
+          "package_identity_file": "cuvs-java.release-package-identity.json",
           "artifacts": [{"path": "cuvs-java-*-x86_64-cuda*.jar"}]
         }
   rust-build-matrix:
