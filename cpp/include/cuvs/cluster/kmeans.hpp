@@ -234,7 +234,7 @@ enum class kmeans_type { KMeans = 0, KMeansBalanced = 1 };
  * (`raft::resource::comms_initialized(handle)`), and on a single GPU otherwise.
  *
  * TODO: Evaluate replacing the extent type with int64_t. Reference issue:
- * https://github.com/rapidsai/cuvs/issues/1961
+ * https://github.com/nvidia/cuvs/issues/1961
  *
  * This overload supports out-of-core computation where the dataset resides
  * on the host. Data is processed in batches, streaming from host to
