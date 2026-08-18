@@ -168,6 +168,7 @@ class cuvs_cagra : public algo<T>, public algo_gpu {
     std::optional<cuvs::neighbors::vpq_params> compression = std::nullopt;
     size_t num_dataset_splits                              = 1;
     CagraMergeType merge_type                              = CagraMergeType::kPhysical;
+    cuvs::neighbors::cagra::merge_params merge_params;
   };
 
   cuvs_cagra(Metric metric, int dim, const build_param& param, int concurrent_searches = 1)
@@ -332,13 +333,14 @@ void cuvs_cagra<T, IdxT>::build(const T* dataset, size_t nrow)
 
       auto sub_index = index_type(handle_, params.metric);
       if (index_params_.merge_type == CagraMergeType::kPhysical) {
-        // Physical merge only needs the rows of every split; cagra::merge builds the graph.
+        // Fastener reuses the input graphs. Build every split so AUTO, FASTENER, and REBUILD all
+        // receive the same prepared indexes.
         if (dataset_is_on_host) {
-          sub_index.update_device_dataset_same_layout(
-            handle_, detail::make_padded_view<T>(handle_, sub_host, sub_dataset_buffer));
+          sub_index = cuvs::neighbors::cagra::build(
+            handle_, params, detail::make_padded_view<T>(handle_, sub_host, sub_dataset_buffer));
         } else {
-          sub_index.update_device_dataset_same_layout(
-            handle_, detail::make_padded_view<T>(handle_, sub_dev, sub_dataset_buffer));
+          sub_index = cuvs::neighbors::cagra::build(
+            handle_, params, detail::make_padded_view<T>(handle_, sub_dev, sub_dataset_buffer));
         }
       }
       if (index_params_.merge_type == CagraMergeType::kLogical) {
@@ -373,8 +375,13 @@ void cuvs_cagra<T, IdxT>::build(const T* dataset, size_t nrow)
       *dataset_                = raft::make_device_matrix<T, int64_t>(handle_, merged_rows, stride);
       auto merged_dataset_view = cuvs::neighbors::device_padded_dataset_view<T, int64_t>(
         raft::make_const_mdspan(dataset_->view()), static_cast<uint32_t>(dim_));
-      index_ = std::make_shared<index_type>(cuvs::neighbors::cagra::merge(
-        handle_, params, indices, merged_dataset_view, merge_row_filter));
+      index_ =
+        std::make_shared<index_type>(cuvs::neighbors::cagra::merge(handle_,
+                                                                   params,
+                                                                   indices,
+                                                                   merged_dataset_view,
+                                                                   index_params_.merge_params,
+                                                                   merge_row_filter));
       // The merged index holds all the rows now; drop the splits rather than keep a second copy
       // of the dataset on the device for the rest of the run.
       sub_indices_.clear();
