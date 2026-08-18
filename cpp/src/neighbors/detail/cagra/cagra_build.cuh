@@ -2230,7 +2230,7 @@ auto iterative_build_graph(raft::resources const& res,
   RAFT_LOG_DEBUG("# initial graph size = %lu", (uint64_t)initial_graph_size);
 
   // Allocate memory for search results.
-  constexpr uint64_t max_chunk_size = 8192;
+  constexpr uint64_t max_chunk_size = helpers::kIterativeBuildChunkSize;
   // +1 because the search may return the query node itself as a neighbor;
   // this is consistent with the per-iteration curr_topk = next_graph_degree + 1
   auto topk          = intermediate_degree + 1;
