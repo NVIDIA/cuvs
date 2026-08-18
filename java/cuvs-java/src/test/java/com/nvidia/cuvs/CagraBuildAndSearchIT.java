@@ -1006,6 +1006,259 @@ public class CagraBuildAndSearchIT extends CuVSTestCase {
     }
   }
 
+  /**
+   * Merges two indexes through a row filter and checks that the merged index holds exactly the rows
+   * whose bit was set, packed together in the order the inputs were given.
+   */
+  @Test
+  public void testFilteredMerge() throws Throwable {
+    float[][] vector1 = {
+      {0.0f, 0.0f},
+      {1.0f, 1.0f},
+      {2.0f, 2.0f}
+    };
+
+    float[][] vector2 = {
+      {10.0f, 10.0f},
+      {11.0f, 11.0f},
+      {12.0f, 12.0f}
+    };
+
+    // Bits 0 to 2 address vector1 and bits 3 to 5 address vector2. Drop the middle row of each,
+    // which leaves four rows that have to end up at positions 0 to 3 of the merged index.
+    BitSet rowFilter = new BitSet();
+    rowFilter.set(0, 6);
+    rowFilter.clear(1);
+    rowFilter.clear(4);
+
+    float[][] survivingRows = {
+      {0.0f, 0.0f},
+      {2.0f, 2.0f},
+      {10.0f, 10.0f},
+      {12.0f, 12.0f}
+    };
+    // A dropped vector is no longer in the index, so its nearest neighbour is two units away.
+    float[][] droppedRows = {
+      {1.0f, 1.0f},
+      {11.0f, 11.0f}
+    };
+
+    try (CuVSResources resources = CheckedCuVSResources.create()) {
+      CagraIndexParams indexParams =
+          new CagraIndexParams.Builder()
+              .withCagraGraphBuildAlgo(CagraGraphBuildAlgo.NN_DESCENT)
+              .withGraphDegree(1)
+              .withIntermediateGraphDegree(2)
+              .withNumWriterThreads(4)
+              .withMetric(CuvsDistanceType.L2Expanded)
+              .build();
+
+      CagraIndex index1 =
+          CagraIndex.newBuilder(resources)
+              .withDataset(vector1)
+              .withIndexParams(indexParams)
+              .build();
+      CagraIndex index2 =
+          CagraIndex.newBuilder(resources)
+              .withDataset(vector2)
+              .withIndexParams(indexParams)
+              .build();
+
+      // Host-built indexes are not mergeable. Dim=2 is not 16-byte aligned, so upload to device,
+      // allocate owning padded copies, and attach them before merge.
+      try (var device1 = CuVSMatrix.ofArray(vector1).toDevice(resources);
+          var device2 = CuVSMatrix.ofArray(vector2).toDevice(resources);
+          var padded1 = index1.makePaddedDataset(device1);
+          var padded2 = index2.makePaddedDataset(device2)) {
+        index1.updateDataset(padded1);
+        index2.updateDataset(padded2);
+
+        assertEquals("Input index sizes", 3, index1.size());
+        assertEquals("Input index sizes", 3, index2.size());
+
+        try (CagraIndex mergedIndex =
+            CagraIndex.merge(new CagraIndex[] {index1, index2}, null, rowFilter)) {
+          assertEquals(
+              "The merged index should hold one row per set bit",
+              rowFilter.cardinality(),
+              mergedIndex.size());
+
+          // Pin SINGLE_CTA; AUTO may pick MULTI_CTA, which drops neighbors on this tiny dataset.
+          CagraSearchParams searchParams =
+              new CagraSearchParams.Builder()
+                  .withAlgo(CagraSearchParams.SearchAlgo.SINGLE_CTA)
+                  .build();
+
+          try (var queryVectors = CuVSMatrix.ofArray(survivingRows)) {
+            CagraQuery query =
+                new CagraQuery.Builder(resources)
+                    .withTopK(1)
+                    .withSearchParams(searchParams)
+                    .withQueryVectors(queryVectors)
+                    .withMapping(SearchResults.IDENTITY_MAPPING)
+                    .build();
+
+            List<Map<Integer, Float>> results = mergedIndex.search(query).getResults();
+            assertEquals(survivingRows.length, results.size());
+            for (int row = 0; row < survivingRows.length; row++) {
+              Map<Integer, Float> hit = results.get(row);
+              assertEquals("Expected a single neighbour for row " + row, 1, hit.size());
+              int id = hit.keySet().iterator().next();
+              assertEquals("Surviving row " + row + " moved", row, id);
+              assertEquals(
+                  "Surviving row " + row + " is not an exact match", 0.0f, hit.get(id), 1e-5f);
+            }
+          }
+
+          try (var queryVectors = CuVSMatrix.ofArray(droppedRows)) {
+            CagraQuery query =
+                new CagraQuery.Builder(resources)
+                    .withTopK(1)
+                    .withSearchParams(searchParams)
+                    .withQueryVectors(queryVectors)
+                    .withMapping(SearchResults.IDENTITY_MAPPING)
+                    .build();
+
+            List<Map<Integer, Float>> results = mergedIndex.search(query).getResults();
+            assertEquals(droppedRows.length, results.size());
+            for (int row = 0; row < droppedRows.length; row++) {
+              Map<Integer, Float> hit = results.get(row);
+              assertEquals("Expected a single neighbour for dropped row " + row, 1, hit.size());
+              int id = hit.keySet().iterator().next();
+              assertEquals(
+                  "Dropped row " + row + " is still in the merged index", 2.0f, hit.get(id), 1e-5f);
+            }
+          }
+        }
+        index1.close();
+        index2.close();
+      }
+    }
+  }
+
+  /**
+   * A filter that selects rows beyond the ones the indexes hold is a caller mistake, not something
+   * to pass on to cuVS.
+   */
+  @Test
+  public void testFilteredMergeRejectsOversizedFilter() throws Throwable {
+    float[][] vectors = {
+      {0.0f, 0.0f},
+      {1.0f, 1.0f}
+    };
+
+    try (CuVSResources resources = CheckedCuVSResources.create()) {
+      CagraIndexParams indexParams =
+          new CagraIndexParams.Builder()
+              .withCagraGraphBuildAlgo(CagraGraphBuildAlgo.NN_DESCENT)
+              .withGraphDegree(1)
+              .withIntermediateGraphDegree(2)
+              .withMetric(CuvsDistanceType.L2Expanded)
+              .build();
+
+      try (CagraIndex index =
+          CagraIndex.newBuilder(resources)
+              .withDataset(vectors)
+              .withIndexParams(indexParams)
+              .build()) {
+        // The index holds two rows, so bit 2 is one row past the end of the merge.
+        BitSet rowFilter = new BitSet();
+        rowFilter.set(0, 3);
+
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> CagraIndex.merge(new CagraIndex[] {index}, null, rowFilter));
+      }
+    }
+  }
+
+  /**
+   * A merge that fails inside cuVS has to release the index it was building, and leave every input
+   * index untouched and still usable. Host-backed indexes are not mergeable, which fails the native
+   * call after the output index has been allocated - the one path where the handle used to be
+   * dropped on the floor. Repeating it is what would surface a release that goes too far, such as
+   * one freeing an input index or the same handle twice.
+   */
+  @Test
+  public void testFailedMergeLeavesTheInputsUsable() throws Throwable {
+    float[][] vector1 = {
+      {0.0f, 0.0f},
+      {1.0f, 1.0f},
+      {2.0f, 2.0f}
+    };
+
+    float[][] vector2 = {
+      {10.0f, 10.0f},
+      {11.0f, 11.0f},
+      {12.0f, 12.0f}
+    };
+
+    try (CuVSResources resources = CheckedCuVSResources.create()) {
+      CagraIndexParams indexParams =
+          new CagraIndexParams.Builder()
+              .withCagraGraphBuildAlgo(CagraGraphBuildAlgo.NN_DESCENT)
+              .withGraphDegree(1)
+              .withIntermediateGraphDegree(2)
+              .withMetric(CuvsDistanceType.L2Expanded)
+              .build();
+
+      try (CagraIndex index1 =
+              CagraIndex.newBuilder(resources)
+                  .withDataset(vector1)
+                  .withIndexParams(indexParams)
+                  .build();
+          CagraIndex index2 =
+              CagraIndex.newBuilder(resources)
+                  .withDataset(vector2)
+                  .withIndexParams(indexParams)
+                  .build()) {
+
+        // No device dataset is attached, so cuVS refuses to merge these.
+        for (int attempt = 0; attempt < 5; attempt++) {
+          assertThrows(
+              Throwable.class, () -> CagraIndex.merge(new CagraIndex[] {index1, index2}, null));
+        }
+
+        // The failures left the inputs alone: they still report their rows, and a merge that is
+        // set up correctly still succeeds afterwards.
+        assertEquals("index1 survived the failed merges", 3, index1.size());
+        assertEquals("index2 survived the failed merges", 3, index2.size());
+
+        try (var device1 = CuVSMatrix.ofArray(vector1).toDevice(resources);
+            var device2 = CuVSMatrix.ofArray(vector2).toDevice(resources);
+            var padded1 = index1.makePaddedDataset(device1);
+            var padded2 = index2.makePaddedDataset(device2)) {
+          index1.updateDataset(padded1);
+          index2.updateDataset(padded2);
+
+          try (CagraIndex mergedIndex = CagraIndex.merge(new CagraIndex[] {index1, index2}, null)) {
+            assertEquals("The merged index holds every row of both inputs", 6, mergedIndex.size());
+
+            try (var queryVectors = CuVSMatrix.ofArray(new float[][] {{0.0f, 0.0f}})) {
+              CagraQuery query =
+                  new CagraQuery.Builder(resources)
+                      .withTopK(1)
+                      .withSearchParams(
+                          new CagraSearchParams.Builder()
+                              .withAlgo(CagraSearchParams.SearchAlgo.SINGLE_CTA)
+                              .build())
+                      .withQueryVectors(queryVectors)
+                      .withMapping(SearchResults.IDENTITY_MAPPING)
+                      .build();
+
+              List<Map<Integer, Float>> results = mergedIndex.search(query).getResults();
+              assertEquals(1, results.size());
+              assertEquals(
+                  "The first row of the merge is the nearest neighbour of the first vector",
+                  0,
+                  (int) results.getFirst().keySet().iterator().next());
+            }
+          }
+        }
+      }
+    }
+  }
+
   // Commented out test for Logical merge strategy as it is not yet implemented in C yet
   @Test
   public void testMergeStrategies() throws Throwable {
