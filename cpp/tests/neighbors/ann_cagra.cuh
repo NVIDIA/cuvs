@@ -312,6 +312,8 @@ struct AnnCagraInputs {
   cuvs::neighbors::MergeStrategy merge_strategy =
     cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_PHYSICAL;
   cuvs::neighbors::cagra::internal_dtype smem_dtype = cuvs::neighbors::cagra::internal_dtype::F16;
+  /** When set, physical merge uses this overload instead of the default-params merge. */
+  std::optional<cagra::merge_params> physical_merge_params = std::nullopt;
 };
 
 inline ::std::ostream& operator<<(::std::ostream& os, const AnnCagraInputs& p)
@@ -1569,6 +1571,7 @@ class AnnCagraIndexMergeTest : public ::testing::TestWithParam<AnnCagraInputs> {
         std::vector<cagra::device_padded_index<DataT, IdxT>*> indices_to_merge{&index0, &index1};
 
         if (ps.merge_strategy == cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_PHYSICAL) {
+          // The merged index holds only a view, so merged_dataset must outlive it.
           auto const merged_rows =
             static_cast<int64_t>(index0.size()) + static_cast<int64_t>(index1.size());
           auto merged_matrix = raft::make_device_matrix<DataT, int64_t>(
@@ -1576,7 +1579,14 @@ class AnnCagraIndexMergeTest : public ::testing::TestWithParam<AnnCagraInputs> {
           auto merged_dataset = cuvs::neighbors::device_padded_dataset<DataT, int64_t>(
             std::move(merged_matrix), static_cast<uint32_t>(ps.dim));
           auto merged_idx =
-            cagra::merge(handle_, index_params, indices_to_merge, merged_dataset.as_dataset_view());
+            ps.physical_merge_params.has_value()
+              ? cagra::merge(handle_,
+                             index_params,
+                             indices_to_merge,
+                             merged_dataset.as_dataset_view(),
+                             *ps.physical_merge_params)
+              : cagra::merge(
+                  handle_, index_params, indices_to_merge, merged_dataset.as_dataset_view());
           cagra::search(handle_,
                         search_params,
                         merged_idx,

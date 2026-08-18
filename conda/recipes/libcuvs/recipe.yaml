@@ -227,6 +227,7 @@ outputs:
         content: |
           cmake --install cpp/build --component cuvs_static
           cmake --install cpp/build --component hnswlib
+          cmake --install cpp/build --component rtcx
     requirements:
       build:
         - cmake ${{ cmake_version }}
@@ -256,6 +257,7 @@ outputs:
         - libcurand
         - libcusolver
         - libcusparse
+        - zstd-static =1.5.7
       ignore_run_exports:
         by_name:
           - cuda-cudart
