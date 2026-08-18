@@ -1003,8 +1003,8 @@ void kmeans_fit(
         } else {
           compute_batch_norms(data_batch.data(), cur_batch_size);
         }
-        auto l2_const_view = raft::make_device_vector_view<const DataT, IndexT>(
-          L2NormBatch.data_handle(), cur_batch_size);
+        auto l2_norm_view =
+          raft::make_device_vector_view<DataT, IndexT>(L2NormBatch.data_handle(), cur_batch_size);
         auto min_distance_view = raft::make_device_vector_view<DataT, IndexT>(
           minClusterDistance.data_handle(), cur_batch_size);
         std::optional<raft::device_vector_view<const DataT, IndexT>> batch_sample_weight =
@@ -1018,7 +1018,7 @@ void kmeans_fit(
                      batch_data_view,
                      centroids_const,
                      min_distance_view,
-                     l2_const_view,
+                     l2_norm_view,
                      L2NormBuf_OR_DistBuf,
                      cuvs::distance::DistanceType::L2Expanded,
                      cur_batch_size,

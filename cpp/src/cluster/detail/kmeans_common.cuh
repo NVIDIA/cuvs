@@ -457,7 +457,7 @@ void cluster_cost(
   raft::device_matrix_view<const DataT, IndexT> X,
   raft::device_matrix_view<const DataT, IndexT> centroids,
   raft::device_vector_view<DataT, IndexT> min_cluster_distance,
-  raft::device_vector_view<const DataT, IndexT> l2_norm_x,
+  raft::device_vector_view<DataT, IndexT> l2_norm_x,
   rmm::device_uvector<DataT>& l2_norm_or_distance_buffer,
   cuvs::distance::DistanceType metric,
   int batch_samples,
