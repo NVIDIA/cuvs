@@ -101,6 +101,7 @@ services:
       - "${REMOTE_INDEX_BUILDER_BIND_ADDR:-0.0.0.0}:${REMOTE_INDEX_BUILDER_HOST_PORT:-1025}:1025"
     environment:
       <<: *aws-env
+      MAX_WORKERS: ${MAX_WORKERS:-1}
     healthcheck:
       test: ["CMD-SHELL", "python3 -c 'import socket; socket.create_connection((\"localhost\", 1025), 2).close()'"]
       interval: 5s

@@ -278,6 +278,7 @@ export S3_BUCKET=opensearch-cuvs-bench
 export AWS_DEFAULT_REGION=us-west-2
 export AWS_REGION="$AWS_DEFAULT_REGION"
 export REMOTE_INDEX_BUILDER_IMAGE=nvcr.io/r2kuatviomfd/internal-sandbox/opensearchproject-remote-vector-index-builder:api-latest
+export MAX_WORKERS=1  # remote builder workers (default: 1)
 docker login nvcr.io --username '$oauthtoken'
 docker compose -f docker-compose.multinode.yml --profile builder up -d
 ```
