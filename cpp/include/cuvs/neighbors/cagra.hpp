@@ -621,6 +621,8 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
       dataset_(dataset),
       source_indices_(std::move(other.source_indices_)),
       dataset_norms_(std::nullopt),
+      graph_fd_(std::move(other.graph_fd_)),
+      mapping_fd_(std::move(other.mapping_fd_)),
       n_rows_(other.n_rows_),
       dim_(other.dim_),
       graph_degree_(other.graph_degree_)
