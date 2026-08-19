@@ -19,7 +19,7 @@ using inst_device_padded_view_t   = cuvs::neighbors::device_padded_dataset_view<
 using inst_device_standard_view_t = cuvs::neighbors::device_standard_dataset_view<data_t, int64_t>;
 using inst_host_padded_view_t     = cuvs::neighbors::host_padded_dataset_view<data_t, int64_t>;
 using inst_host_standard_view_t   = cuvs::neighbors::host_standard_dataset_view<data_t, int64_t>;
-using inst_vpq_f16_view_t         = cuvs::neighbors::device_vpq_dataset_view<half, int64_t>;
+using inst_vpq_view_t             = cuvs::neighbors::device_vpq_dataset_view<half, int64_t>;
 }  // namespace
 
 namespace cuvs::neighbors::cagra {
@@ -89,7 +89,7 @@ CUVS_INST_CAGRA_UPDATE_DATASET(data_t,
                                index_t,
                                inst_device_padded_view_t,
                                inst_device_padded_view_t);
-CUVS_INST_CAGRA_UPDATE_DATASET(data_t, index_t, inst_device_padded_view_t, inst_vpq_f16_view_t);
+CUVS_INST_CAGRA_UPDATE_DATASET(data_t, index_t, inst_device_padded_view_t, inst_vpq_view_t);
 
 #undef CUVS_INST_CAGRA_UPDATE_DATASET
 
