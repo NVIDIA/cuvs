@@ -184,7 +184,7 @@ TEST_P(PqSerializationTest, RoundTrip)
 // Named for this suite rather than `inputs`: product_quantization.cu declares a variable of that
 // name in this same namespace, which would collide under a unity build.
 const std::vector<PqSerializationInputs> pq_serialization_inputs = {
-  // pq_len = dim / pq_dim of 2, 4 and 8: the three values CAGRA-Q accepts.
+  // pq_len = dim / pq_dim of 2, 4 and 8: the three values a CAGRA search accepts.
   {1000, 64, 8, 32, 0, 42ULL},
   {1000, 128, 8, 32, 0, 42ULL},
   {1000, 256, 8, 32, 0, 42ULL},

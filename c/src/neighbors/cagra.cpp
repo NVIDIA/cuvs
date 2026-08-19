@@ -1052,7 +1052,7 @@ void dispatch_serialized_dataset_kind(
       // A recognised file the C API has no index layout for, as opposed to an unreadable one.
       // cuvsDatasetLayout_t covers standard and padded only, and every C entry point dispatches
       // on that layout, so there is nothing here to hand a PQ-compressed index to yet.
-      RAFT_FAIL("File holds a PQ-compressed (CAGRA-Q) dataset, which the C API has no dataset "
+      RAFT_FAIL("File holds a PQ-compressed dataset, which the C API has no dataset "
                 "layout for; load it through the C++ API");
   }
 }

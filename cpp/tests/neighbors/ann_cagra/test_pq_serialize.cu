@@ -4,7 +4,7 @@
  */
 
 /*
- * Serializing a CAGRA index whose dataset is PQ-compressed (CAGRA-Q).
+ * Serializing a CAGRA index whose dataset is PQ-compressed.
  *
  * Such an index cannot be saved by the dtype-templated suites in ann_cagra.cuh: its rows are VPQ
  * codes rather than values of `DataT`, it only searches with `L2Expanded`, `pq_bits == 8` and
@@ -153,7 +153,7 @@ class CagraPqSerializeTest : public ::testing::Test {
       dataset_->data_handle(), std::min(n_queries, dataset_->extent(0)), dataset_->extent(1));
   }
 
-  /** A CAGRA-Q index viewing `compressed` and the graph of `graph_source`; both must outlive it. */
+  /** An index viewing `compressed` and the graph of `graph_source`; both must outlive it. */
   auto assemble(const pq_dataset_t& compressed,
                 const device_standard_index<float, uint32_t>& graph_source) -> vpq_f16_index<float>
   {

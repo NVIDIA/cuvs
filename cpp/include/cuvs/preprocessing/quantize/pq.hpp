@@ -349,9 +349,9 @@ inline constexpr int pq_serialization_version = 1;
 /**
  * @brief Write a VPQ dataset (both codebooks plus the encoded rows) to a stream.
  *
- * Lets compression be done once, offline, and reused: the encoded rows are what CAGRA-Q builds and
- * searches over, so a stored VPQ dataset removes the need to keep the dense vectors around or
- * re-quantize them on every run.
+ * Lets compression be done once, offline, and reused: a CAGRA graph over a compressed dataset
+ * builds and searches on the encoded rows, so storing them removes the need to keep the dense
+ * vectors around or to re-quantize them on every run.
  *
  * The file opens with the same preamble as `cagra::serialize` — a 4-byte NumPy dtype prefix then
  * `pq_serialization_version` — followed by a dataset kind tag and the codebook element type. A
@@ -373,7 +373,7 @@ inline constexpr int pq_serialization_version = 1;
  * auto vpq = cuvs::preprocessing::quantize::pq::make_vpq_dataset(res, vpq_params, rows);
  * cuvs::preprocessing::quantize::pq::serialize(res, vpq, "base.vpq");
  *
- * // Later, per run: load the compressed rows and build a CAGRA-Q graph over them.
+ * // Later, per run: load the compressed rows and build a CAGRA graph over them.
  * std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>> loaded;
  * cuvs::preprocessing::quantize::pq::deserialize(res, "base.vpq", &loaded);
  * auto index = cuvs::neighbors::cagra::build(res, index_params, loaded->as_dataset_view());
