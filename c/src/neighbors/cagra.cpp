@@ -670,7 +670,8 @@ void _from_args(cuvsResources_t res,
       auto dataset_view = cuvs::neighbors::make_device_padded_dataset_view(*res_ptr, mds);
       auto* raw         = new cuvs::neighbors::cagra::device_padded_index<T, uint32_t>(
         *res_ptr, metric);
-      raw->update_dataset(*res_ptr, dataset_view);
+      *raw =
+        cuvs::neighbors::cagra::update_dataset(*res_ptr, std::move(*raw), dataset_view);
       update_graph_from_dlpack(raw);
       wrap_CPP_index_in_lifetime_holder_and_bind_to_C_index<
         T,
@@ -680,7 +681,8 @@ void _from_args(cuvsResources_t res,
       auto dataset_view = cuvs::neighbors::make_device_standard_dataset_view(mds);
       auto* raw         = new cuvs::neighbors::cagra::device_standard_index<T, uint32_t>(
         *res_ptr, metric);
-      raw->update_dataset(*res_ptr, dataset_view);
+      *raw =
+        cuvs::neighbors::cagra::update_dataset(*res_ptr, std::move(*raw), dataset_view);
       update_graph_from_dlpack(raw);
       wrap_CPP_index_in_lifetime_holder_and_bind_to_C_index<
         T,
