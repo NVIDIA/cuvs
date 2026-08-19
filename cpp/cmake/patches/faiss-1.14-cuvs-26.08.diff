@@ -2,6 +2,13 @@ diff --git a/faiss/gpu/impl/BinaryCuvsCagra.cu b/faiss/gpu/impl/BinaryCuvsCagra.
 index b331fdc..c7b5733 100644
 --- a/faiss/gpu/impl/BinaryCuvsCagra.cu
 +++ b/faiss/gpu/impl/BinaryCuvsCagra.cu
+@@ -29,5 +29,6 @@
+ #include <cuvs/neighbors/cagra.hpp>
+ #include <raft/core/device_mdspan.hpp>
+ #include <raft/core/device_resources.hpp>
+ #include <raft/core/resource/thrust_policy.hpp>
+ #include <raft/linalg/map.cuh>
++#include <utility>
 @@ -58,7 +58,6 @@ BinaryCuvsCagra::BinaryCuvsCagra(
 
      index_params_.intermediate_graph_degree = intermediate_graph_degree;
@@ -68,7 +75,7 @@ index b331fdc..c7b5733 100644
      }
  }
 
-@@ -212,14 +221,20 @@ void BinaryCuvsCagra::search(
+@@ -212,14 +221,23 @@ void BinaryCuvsCagra::search(
 
      if (!store_dataset_) {
          if (getDeviceForAddress(storage_) >= 0) {
@@ -79,7 +86,8 @@ index b331fdc..c7b5733 100644
 -            cuvs_index->update_dataset(raft_handle, dataset);
 +            auto dataset_view =
 +                    cuvs::neighbors::make_device_padded_dataset_view(raft_handle, dataset);
-+            cuvs_index->update_dataset(raft_handle, dataset_view);
++            *cuvs_index = cuvs::neighbors::cagra::update_dataset(
++                    raft_handle, std::move(*cuvs_index), dataset_view);
          } else {
 -            auto dataset = raft::make_host_matrix_view<const uint8_t, int64_t>(
 +            auto host_dataset = raft::make_host_matrix_view<const uint8_t, int64_t>(
@@ -87,7 +95,9 @@ index b331fdc..c7b5733 100644
 -            cuvs_index->update_dataset(raft_handle, dataset);
 +            host_to_device_dataset_ =
 +                    cuvs::neighbors::make_device_padded_dataset(raft_handle, host_dataset);
-+            cuvs_index->update_dataset(raft_handle,
++            *cuvs_index = cuvs::neighbors::cagra::update_dataset(
++                    raft_handle,
++                    std::move(*cuvs_index),
 +                    host_to_device_dataset_->as_dataset_view());
          }
          store_dataset_ = true;
@@ -134,6 +144,12 @@ diff --git a/faiss/gpu/impl/CuvsCagra.cu b/faiss/gpu/impl/CuvsCagra.cu
 index 755817f..0eb03ae 100644
 --- a/faiss/gpu/impl/CuvsCagra.cu
 +++ b/faiss/gpu/impl/CuvsCagra.cu
+@@ -29,4 +29,5 @@
+ #include <cuvs/neighbors/cagra.hpp>
+ #include <raft/core/device_mdspan.hpp>
+ #include <raft/core/device_resources.hpp>
+ #include <raft/core/resource/thrust_policy.hpp>
++#include <utility>
 @@ -75,7 +75,6 @@ CuvsCagra<data_t>::CuvsCagra(
 
      index_params_.intermediate_graph_degree = intermediate_graph_degree;
@@ -200,7 +216,7 @@ index 755817f..0eb03ae 100644
      }
  }
 
-@@ -248,13 +257,19 @@ void CuvsCagra<data_t>::search(
+@@ -248,13 +257,22 @@ void CuvsCagra<data_t>::search(
 
      if (!store_dataset_) {
          if (getDeviceForAddress(storage_) >= 0) {
@@ -210,7 +226,8 @@ index 755817f..0eb03ae 100644
 -            cuvs_index->update_dataset(raft_handle, dataset);
 +            auto dataset_view =
 +                    cuvs::neighbors::make_device_padded_dataset_view(raft_handle, dataset);
-+            cuvs_index->update_dataset(raft_handle, dataset_view);
++            *cuvs_index = cuvs::neighbors::cagra::update_dataset(
++                    raft_handle, std::move(*cuvs_index), dataset_view);
          } else {
 -            auto dataset = raft::make_host_matrix_view<const data_t, int64_t>(
 +            auto host_dataset = raft::make_host_matrix_view<const data_t, int64_t>(
@@ -218,7 +235,9 @@ index 755817f..0eb03ae 100644
 -            cuvs_index->update_dataset(raft_handle, dataset);
 +            host_to_device_dataset_ =
 +                    cuvs::neighbors::make_device_padded_dataset(raft_handle, host_dataset);
-+            cuvs_index->update_dataset(raft_handle,
++            *cuvs_index = cuvs::neighbors::cagra::update_dataset(
++                    raft_handle,
++                    std::move(*cuvs_index),
 +                    host_to_device_dataset_->as_dataset_view());
          }
          store_dataset_ = true;
