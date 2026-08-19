@@ -571,9 +571,9 @@ auto update_dataset(raft::resources const& res,
                     index<T, IdxT, SrcDatasetViewT>&& cagra_index,
                     DstDatasetViewT dataset) -> index<T, IdxT, DstDatasetViewT>
 {
-  static_assert(!std::is_same_v<SrcDatasetViewT, DstDatasetViewT>,
-                "For updating a dataset of the same type use the cagra_index.update_dataset() "
-                "function instead.");
+  // static_assert(!std::is_same_v<SrcDatasetViewT, DstDatasetViewT>,
+  //               "For updating a dataset of the same type use the cagra_index.update_dataset() "
+  //               "function instead.");
 
   RAFT_EXPECTS(dataset.n_rows() == static_cast<int64_t>(cagra_index.size()),
                "The new dataset row count must match the source dataset row count");

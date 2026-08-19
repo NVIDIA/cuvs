@@ -480,7 +480,7 @@ auto merge_fastener(raft::resources const& handle,
   // Must move: the device_matrix_view overload only stores a view, which would dangle once
   // optimized_graph goes out of scope.
   merged_index.update_graph(handle, std::move(optimized_graph));
-  merged_index.update_device_dataset_same_layout(handle, merged_dataset);
+  merged_index.update_dataset(handle, merged_dataset);
   return merged_index;
 }
 
