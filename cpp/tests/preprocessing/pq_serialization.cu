@@ -26,9 +26,9 @@
 
 namespace cuvs::preprocessing::quantize::pq {
 
-using vpq_dataset_t = cuvs::neighbors::device_vpq_dataset<half, int64_t>;
+using pq_dataset_t = cuvs::neighbors::device_vpq_dataset<half, int64_t>;
 
-struct VpqSerializationInputs {
+struct PqSerializationInputs {
   int64_t n_rows;
   int64_t dim;
   uint32_t pq_bits;
@@ -37,7 +37,7 @@ struct VpqSerializationInputs {
   uint64_t seed;
 };
 
-std::ostream& operator<<(std::ostream& os, const VpqSerializationInputs& in)
+std::ostream& operator<<(std::ostream& os, const PqSerializationInputs& in)
 {
   return os << "n_rows:" << in.n_rows << " dim:" << in.dim << " pq_bits:" << in.pq_bits
             << " pq_dim:" << in.pq_dim << " vq_n_centers:" << in.vq_n_centers
@@ -68,10 +68,10 @@ void expect_same_bits(const raft::resources& res,
   EXPECT_EQ(0, std::memcmp(lhs.data(), rhs.data(), lhs.size() * sizeof(T))) << what;
 }
 
-class VpqSerializationTest : public ::testing::TestWithParam<VpqSerializationInputs> {
+class PqSerializationTest : public ::testing::TestWithParam<PqSerializationInputs> {
  public:
-  VpqSerializationTest()
-    : params_(::testing::TestWithParam<VpqSerializationInputs>::GetParam()),
+  PqSerializationTest()
+    : params_(::testing::TestWithParam<PqSerializationInputs>::GetParam()),
       dataset_(raft::make_device_matrix<float, int64_t>(res_, params_.n_rows, params_.dim))
   {
   }
@@ -94,7 +94,7 @@ class VpqSerializationTest : public ::testing::TestWithParam<VpqSerializationInp
     raft::resource::sync_stream(res_);
   }
 
-  auto compress() -> vpq_dataset_t
+  auto compress() -> pq_dataset_t
   {
     cuvs::neighbors::vpq_params vpq;
     vpq.pq_bits      = params_.pq_bits;
@@ -105,7 +105,7 @@ class VpqSerializationTest : public ::testing::TestWithParam<VpqSerializationInp
     return make_vpq_dataset(res_, vpq, raft::make_const_mdspan(dataset_.view()));
   }
 
-  void expect_equivalent(const vpq_dataset_t& expected, const vpq_dataset_t& actual)
+  void expect_equivalent(const pq_dataset_t& expected, const pq_dataset_t& actual)
   {
     ASSERT_EQ(expected.n_rows(), actual.n_rows());
     ASSERT_EQ(expected.dim(), actual.dim());
@@ -134,7 +134,7 @@ class VpqSerializationTest : public ::testing::TestWithParam<VpqSerializationInp
    * Decodes both datasets and compares the reconstructions, which checks that a kernel can consume
    * the deserialized extents and strides rather than only that the numbers match.
    */
-  void expect_same_decoded(const vpq_dataset_t& expected, const vpq_dataset_t& actual)
+  void expect_same_decoded(const pq_dataset_t& expected, const pq_dataset_t& actual)
   {
     if (expected.pq_bits() != 8) { return; }  // decode_vpq_dataset implements pq_bits == 8 only
     auto stream = raft::resource::get_cuda_stream(res_);
@@ -150,19 +150,19 @@ class VpqSerializationTest : public ::testing::TestWithParam<VpqSerializationInp
   }
 
   raft::resources res_;
-  VpqSerializationInputs params_;
+  PqSerializationInputs params_;
   raft::device_matrix<float, int64_t> dataset_;
 };
 
-TEST_P(VpqSerializationTest, RoundTrip)
+TEST_P(PqSerializationTest, RoundTrip)
 {
   auto original = compress();
 
   {
     SCOPED_TRACE("through a stream");
     std::stringstream stream;
-    serialize(res_, stream, original);
-    std::unique_ptr<vpq_dataset_t> restored;
+    serialize(res_, original, stream);
+    std::unique_ptr<pq_dataset_t> restored;
     deserialize(res_, stream, &restored);
     ASSERT_NE(restored, nullptr);
     expect_equivalent(original, *restored);
@@ -171,9 +171,9 @@ TEST_P(VpqSerializationTest, RoundTrip)
 
   {
     SCOPED_TRACE("through a file");
-    const std::string path = "cuvs_vpq_serialization_test.bin";
-    serialize(res_, path, original);
-    std::unique_ptr<vpq_dataset_t> restored;
+    const std::string path = "cuvs_pq_serialization_test.bin";
+    serialize(res_, original, path);
+    std::unique_ptr<pq_dataset_t> restored;
     deserialize(res_, path, &restored);
     std::remove(path.c_str());
     ASSERT_NE(restored, nullptr);
@@ -183,7 +183,7 @@ TEST_P(VpqSerializationTest, RoundTrip)
 
 // Named for this suite rather than `inputs`: product_quantization.cu declares a variable of that
 // name in this same namespace, which would collide under a unity build.
-const std::vector<VpqSerializationInputs> vpq_serialization_inputs = {
+const std::vector<PqSerializationInputs> pq_serialization_inputs = {
   // pq_len = dim / pq_dim of 2, 4 and 8: the three values CAGRA-Q accepts.
   {1000, 64, 8, 32, 0, 42ULL},
   {1000, 128, 8, 32, 0, 42ULL},
@@ -195,9 +195,9 @@ const std::vector<VpqSerializationInputs> vpq_serialization_inputs = {
   {500, 32, 4, 16, 0, 42ULL},
 };
 
-INSTANTIATE_TEST_CASE_P(VpqSerializationTests,
-                        VpqSerializationTest,
-                        ::testing::ValuesIn(vpq_serialization_inputs));
+INSTANTIATE_TEST_CASE_P(PqSerializationTests,
+                        PqSerializationTest,
+                        ::testing::ValuesIn(pq_serialization_inputs));
 
 /** Writes the preamble that `serialize` emits, so only the field under test differs. */
 static void write_preamble(const raft::resources& res, std::ostream& os, int version)
@@ -208,53 +208,53 @@ static void write_preamble(const raft::resources& res, std::ostream& os, int ver
   raft::serialize_scalar(res, os, version);
 }
 
-TEST(VpqSerialization, RejectsEmptyStream)
+TEST(PqSerialization, RejectsEmptyStream)
 {
   raft::resources res;
   std::stringstream stream;
-  std::unique_ptr<vpq_dataset_t> restored;
+  std::unique_ptr<pq_dataset_t> restored;
   EXPECT_THROW(deserialize(res, stream, &restored), raft::exception);
 }
 
-TEST(VpqSerialization, RejectsForeignDtypePrefix)
+TEST(PqSerialization, RejectsForeignDtypePrefix)
 {
   raft::resources res;
   std::stringstream stream;
   std::string dtype_string = raft::numpy_serializer::get_numpy_dtype<float>().to_string();
   dtype_string.resize(4);
   stream << dtype_string;
-  raft::serialize_scalar(res, stream, vpq_serialization_version);
+  raft::serialize_scalar(res, stream, pq_serialization_version);
 
-  std::unique_ptr<vpq_dataset_t> restored;
+  std::unique_ptr<pq_dataset_t> restored;
   EXPECT_THROW(deserialize(res, stream, &restored), raft::exception);
 }
 
-TEST(VpqSerialization, RejectsFutureVersion)
+TEST(PqSerialization, RejectsFutureVersion)
 {
   raft::resources res;
   std::stringstream stream;
-  write_preamble(res, stream, vpq_serialization_version + 1);
+  write_preamble(res, stream, pq_serialization_version + 1);
 
-  std::unique_ptr<vpq_dataset_t> restored;
+  std::unique_ptr<pq_dataset_t> restored;
   EXPECT_THROW(deserialize(res, stream, &restored), raft::exception);
 }
 
-TEST(VpqSerialization, RejectsTruncatedPayload)
+TEST(PqSerialization, RejectsTruncatedPayload)
 {
   raft::resources res;
   std::stringstream stream;
-  write_preamble(res, stream, vpq_serialization_version);
+  write_preamble(res, stream, pq_serialization_version);
   // A correct preamble followed by nothing: the payload reader must fail rather than return a
   // dataset built from whatever the scalars happened to deserialize to.
-  std::unique_ptr<vpq_dataset_t> restored;
+  std::unique_ptr<pq_dataset_t> restored;
   EXPECT_THROW(deserialize(res, stream, &restored), raft::exception);
 }
 
-TEST(VpqSerialization, RejectsNullOutParameter)
+TEST(PqSerialization, RejectsNullOutParameter)
 {
   raft::resources res;
   std::stringstream stream;
-  write_preamble(res, stream, vpq_serialization_version);
+  write_preamble(res, stream, pq_serialization_version);
   EXPECT_THROW(deserialize(res, stream, nullptr), raft::exception);
 }
 

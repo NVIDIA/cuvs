@@ -2276,8 +2276,13 @@ enum class serialized_dataset_kind : std::uint32_t {
   host_padded = 3,
   /** Host-resident dataset using its standard row layout. */
   host_standard = 4,
-  /** Device-resident VPQ-compressed dataset with f16 codebooks (CAGRA-Q). */
-  device_vpq_f16 = 5,
+  /**
+   * Device-resident PQ-compressed dataset (CAGRA-Q).
+   *
+   * One kind for any codebook element type: the payload records its own, so f16 and f32 codebooks
+   * are told apart by the blob rather than by a second enumerator.
+   */
+  device_pq = 5,
 };
 
 /** Current experimental CAGRA serialization format version. */
@@ -2300,7 +2305,7 @@ struct serialized_index_header {
  *
  * @code{.cpp}
  *   auto header = cagra::read_serialized_header(res, "index.bin");
- *   if (header.dataset_kind == cagra::serialized_dataset_kind::device_vpq_f16) {
+ *   if (header.dataset_kind == cagra::serialized_dataset_kind::device_pq) {
  *     cagra::vpq_f16_index<float> index{res};
  *     std::unique_ptr<cagra::owning_dataset_for_index_t<decltype(index)>> rows;
  *     cagra::deserialize(res, "index.bin", &index, &rows);
@@ -2332,7 +2337,7 @@ auto read_serialized_header(raft::resources const& res, std::istream& is)
 // instead. The serialized dataset kind selects the matching owning dataset type during
 // deserialization. To support a further kind, add matching overloads here and a corresponding
 // serialize_/deserialize_<kind> in detail/dataset_serialize.hpp (dense views use
-// serialize_cagra_dense_dataset, VPQ ones serialize_vpq_dataset).
+// serialize_cagra_dense_dataset, PQ-compressed ones serialize_pq_dataset).
 
 /**
  * Save the index to file.

@@ -12,7 +12,9 @@ namespace {
 using data_t                      = @data_type@;
 using inst_device_padded_view_t   = cuvs::neighbors::device_padded_dataset_view<data_t, int64_t>;
 using inst_device_standard_view_t = cuvs::neighbors::device_standard_dataset_view<data_t, int64_t>;
-using inst_vpq_f16_view_t         = cuvs::neighbors::device_vpq_dataset_view<half, int64_t>;
+// `vpq` rather than `pq`, to keep the same name as the identical alias in cagra_search_inst.cu.in
+// and as the dataset type it stands for. It changes when those do.
+using inst_vpq_f16_view_t = cuvs::neighbors::device_vpq_dataset_view<half, int64_t>;
 
 }  // namespace
 

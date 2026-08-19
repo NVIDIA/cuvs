@@ -17,7 +17,7 @@
  * after the graph alone can leave them in the file; that a caller can find out what a file holds
  * before naming the index type to load it into; and that a dense reader refuses the file rather
  * than misreading it. Fidelity of the dataset payload itself is covered by
- * preprocessing/vpq_serialization.cu.
+ * preprocessing/pq_serialization.cu.
  */
 
 #include <gtest/gtest.h>
@@ -42,7 +42,7 @@
 
 namespace cuvs::neighbors::cagra {
 
-using vpq_dataset_t = cuvs::neighbors::device_vpq_dataset<half, int64_t>;
+using pq_dataset_t = cuvs::neighbors::device_vpq_dataset<half, int64_t>;
 
 namespace {
 
@@ -51,7 +51,7 @@ constexpr uint32_t kGraphDegree = 32;
 
 auto compress(const raft::resources& res,
               raft::device_matrix_view<const float, int64_t> dataset,
-              uint32_t pq_dim) -> vpq_dataset_t
+              uint32_t pq_dim) -> pq_dataset_t
 {
   cuvs::neighbors::vpq_params params;
   params.pq_dim         = pq_dim;
@@ -115,7 +115,7 @@ auto self_recall_at_1(const std::vector<uint32_t>& ids) -> double
  * An index over compressed rows is serialized with those rows. The ownership split is the usual
  * one: the file yields an owning dataset, the index only views it.
  */
-class CagraVpqSerializeTest : public ::testing::Test {
+class CagraPqSerializeTest : public ::testing::Test {
  protected:
   void SetUp() override
   {
@@ -154,7 +154,7 @@ class CagraVpqSerializeTest : public ::testing::Test {
   }
 
   /** A CAGRA-Q index viewing `compressed` and the graph of `graph_source`; both must outlive it. */
-  auto assemble(const vpq_dataset_t& compressed,
+  auto assemble(const pq_dataset_t& compressed,
                 const device_standard_index<float, uint32_t>& graph_source) -> vpq_f16_index<float>
   {
     return vpq_f16_index<float>{res_,
@@ -171,7 +171,7 @@ class CagraVpqSerializeTest : public ::testing::Test {
   std::optional<raft::device_matrix<float, int64_t>> dataset_ = std::nullopt;
 };
 
-TEST_F(CagraVpqSerializeTest, RoundTripsThroughAFileWithItsDataset)
+TEST_F(CagraPqSerializeTest, RoundTripsThroughAFileWithItsDataset)
 {
   auto compressed   = compress(res_, dataset(), pq_dim);
   auto graph_source = build_graph_source(res_, dataset());
@@ -184,7 +184,7 @@ TEST_F(CagraVpqSerializeTest, RoundTripsThroughAFileWithItsDataset)
   cagra::serialize(res_, stored, idx);
 
   vpq_f16_index<float> restored{res_};
-  std::unique_ptr<vpq_dataset_t> owner;
+  std::unique_ptr<pq_dataset_t> owner;
   cagra::deserialize(res_, stored, &restored, &owner);
 
   ASSERT_NE(owner, nullptr);
@@ -210,7 +210,7 @@ TEST_F(CagraVpqSerializeTest, RoundTripsThroughAFileWithItsDataset)
   EXPECT_EQ(mismatches, 0u) << mismatches << " of " << before.size() << " neighbour ids changed";
 }
 
-TEST_F(CagraVpqSerializeTest, LoadsTheGraphAloneWhenNoOwnerIsAskedFor)
+TEST_F(CagraPqSerializeTest, LoadsTheGraphAloneWhenNoOwnerIsAskedFor)
 {
   auto compressed   = compress(res_, dataset(), pq_dim);
   auto graph_source = build_graph_source(res_, dataset());
@@ -242,7 +242,7 @@ TEST_F(CagraVpqSerializeTest, LoadsTheGraphAloneWhenNoOwnerIsAskedFor)
   EXPECT_EQ(mismatches, 0u) << mismatches << " of " << before.size() << " neighbour ids changed";
 }
 
-TEST_F(CagraVpqSerializeTest, SkipsWhicheverDatasetTheFileHappensToHold)
+TEST_F(CagraPqSerializeTest, SkipsWhicheverDatasetTheFileHappensToHold)
 {
   // The graph-only load asks nothing about the rows, so it also does not care that these are dense
   // floats rather than the compressed rows this index type would view.
@@ -257,7 +257,7 @@ TEST_F(CagraVpqSerializeTest, SkipsWhicheverDatasetTheFileHappensToHold)
   EXPECT_EQ(stored.peek(), std::char_traits<char>::eof());
 }
 
-TEST_F(CagraVpqSerializeTest, SerializesTheGraphAloneWhenAsked)
+TEST_F(CagraPqSerializeTest, SerializesTheGraphAloneWhenAsked)
 {
   auto compressed   = compress(res_, dataset(), pq_dim);
   auto graph_source = build_graph_source(res_, dataset());
@@ -267,7 +267,7 @@ TEST_F(CagraVpqSerializeTest, SerializesTheGraphAloneWhenAsked)
   cagra::serialize(res_, stored, idx, /* include_dataset */ false);
 
   vpq_f16_index<float> restored{res_};
-  std::unique_ptr<vpq_dataset_t> owner;
+  std::unique_ptr<pq_dataset_t> owner;
   cagra::deserialize(res_, stored, &restored, &owner);
 
   // Nothing to own, and a graph that only update_device_dataset_same_layout() makes searchable
@@ -277,7 +277,7 @@ TEST_F(CagraVpqSerializeTest, SerializesTheGraphAloneWhenAsked)
   EXPECT_EQ(restored.graph_degree(), idx.graph_degree());
 }
 
-TEST_F(CagraVpqSerializeTest, SaysWhatItHoldsBeforeItIsLoaded)
+TEST_F(CagraPqSerializeTest, SaysWhatItHoldsBeforeItIsLoaded)
 {
   auto compressed   = compress(res_, dataset(), pq_dim);
   auto graph_source = build_graph_source(res_, dataset());
@@ -290,7 +290,7 @@ TEST_F(CagraVpqSerializeTest, SaysWhatItHoldsBeforeItIsLoaded)
   // be able to ask what is in it before naming the type to load it into.
   auto header = cagra::read_serialized_header(res_, stored);
   EXPECT_EQ(header.dtype, CUDA_R_32F);
-  EXPECT_EQ(header.dataset_kind, serialized_dataset_kind::device_vpq_f16);
+  EXPECT_EQ(header.dataset_kind, serialized_dataset_kind::device_pq);
 
   // Asking rewinds, so the same stream still loads. The index type names the dataset type, which is
   // what owning_dataset_for_index_t is for.
@@ -314,7 +314,7 @@ TEST_F(CagraVpqSerializeTest, SaysWhatItHoldsBeforeItIsLoaded)
   EXPECT_EQ(graph_only_header.dtype, CUDA_R_32F);
 }
 
-TEST_F(CagraVpqSerializeTest, RejectsLoadingACompressedIndexAsDense)
+TEST_F(CagraPqSerializeTest, RejectsLoadingACompressedIndexAsDense)
 {
   auto compressed   = compress(res_, dataset(), pq_dim);
   auto graph_source = build_graph_source(res_, dataset());

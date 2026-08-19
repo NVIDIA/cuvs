@@ -344,7 +344,7 @@ template <typename SrcT>
 }
 
 /** Current VPQ dataset serialization format version. */
-inline constexpr int vpq_serialization_version = 1;
+inline constexpr int pq_serialization_version = 1;
 
 /**
  * @brief Write a VPQ dataset (both codebooks plus the encoded rows) to a stream.
@@ -354,7 +354,7 @@ inline constexpr int vpq_serialization_version = 1;
  * re-quantize them on every run.
  *
  * The file opens with the same preamble as `cagra::serialize` — a 4-byte NumPy dtype prefix then
- * `vpq_serialization_version` — followed by a dataset kind tag and the codebook element type. A
+ * `pq_serialization_version` — followed by a dataset kind tag and the codebook element type. A
  * file of the wrong kind, or one written by an older format, is rejected rather than misread. Bump
  * the version whenever the encoded row layout changes, since that layout is a library convention
  * and is not otherwise described by the file.
@@ -371,7 +371,7 @@ inline constexpr int vpq_serialization_version = 1;
  *
  * // Offline, once.
  * auto vpq = cuvs::preprocessing::quantize::pq::make_vpq_dataset(res, vpq_params, rows);
- * cuvs::preprocessing::quantize::pq::serialize(res, "base.vpq", vpq);
+ * cuvs::preprocessing::quantize::pq::serialize(res, vpq, "base.vpq");
  *
  * // Later, per run: load the compressed rows and build a CAGRA-Q graph over them.
  * std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>> loaded;
@@ -381,23 +381,23 @@ inline constexpr int vpq_serialization_version = 1;
  * @endcode
  *
  * @param[in] res raft resource
- * @param[in] os output stream, opened in binary mode
  * @param[in] dataset the VPQ dataset to write
+ * @param[out] os output stream, opened in binary mode
  */
 void serialize(raft::resources const& res,
-               std::ostream& os,
-               const cuvs::neighbors::device_vpq_dataset<half, int64_t>& dataset);
+               const cuvs::neighbors::device_vpq_dataset<half, int64_t>& dataset,
+               std::ostream& os);
 
 /**
  * @copydoc serialize
  *
  * @param[in] res raft resource
- * @param[in] filename path to write, truncated if it exists
  * @param[in] dataset the VPQ dataset to write
+ * @param[out] filename path to write, truncated if it exists
  */
 void serialize(raft::resources const& res,
-               const std::string& filename,
-               const cuvs::neighbors::device_vpq_dataset<half, int64_t>& dataset);
+               const cuvs::neighbors::device_vpq_dataset<half, int64_t>& dataset,
+               const std::string& filename);
 
 /**
  * @brief Read a VPQ dataset written by `serialize`.

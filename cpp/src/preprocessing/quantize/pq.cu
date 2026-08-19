@@ -84,8 +84,8 @@ CUVS_INST_VPQ_BUILD(uint8_t);
 #undef CUVS_INST_VPQ_BUILD
 
 void serialize(raft::resources const& res,
-               std::ostream& os,
-               const cuvs::neighbors::device_vpq_dataset<half, int64_t>& dataset)
+               const cuvs::neighbors::device_vpq_dataset<half, int64_t>& dataset,
+               std::ostream& os)
 {
   // Same file preamble as cagra::serialize. The nested blob carries only a kind tag and dtype,
   // matching serialize_cagra_dense_dataset, because a nested blob relies on its enclosing file for
@@ -93,17 +93,17 @@ void serialize(raft::resources const& res,
   std::string dtype_string = raft::numpy_serializer::get_numpy_dtype<half>().to_string();
   dtype_string.resize(4);
   os << dtype_string;
-  raft::serialize_scalar(res, os, vpq_serialization_version);
-  ::cuvs::neighbors::detail::serialize_vpq_dataset<half, int64_t>(res, os, dataset);
+  raft::serialize_scalar(res, os, pq_serialization_version);
+  ::cuvs::neighbors::detail::serialize_pq_dataset<half, int64_t>(res, dataset, os);
 }
 
 void serialize(raft::resources const& res,
-               const std::string& filename,
-               const cuvs::neighbors::device_vpq_dataset<half, int64_t>& dataset)
+               const cuvs::neighbors::device_vpq_dataset<half, int64_t>& dataset,
+               const std::string& filename)
 {
   std::ofstream os(filename, std::ios::out | std::ios::binary | std::ios::trunc);
   RAFT_EXPECTS(os.good(), "pq::serialize: cannot open %s for writing", filename.c_str());
-  serialize(res, os, dataset);
+  serialize(res, dataset, os);
 }
 
 void deserialize(raft::resources const& res,
@@ -116,11 +116,11 @@ void deserialize(raft::resources const& res,
   RAFT_EXPECTS(cuvs::util::validate_serialized_dtype<half>(dtype_string, sizeof(dtype_string)),
                "pq::deserialize: dtype prefix does not match a VPQ dataset with half codebooks");
   auto const version = raft::deserialize_scalar<int>(res, is);
-  RAFT_EXPECTS(version == vpq_serialization_version,
+  RAFT_EXPECTS(version == pq_serialization_version,
                "pq::deserialize: serialization version mismatch, expected %d, got %d",
-               vpq_serialization_version,
+               pq_serialization_version,
                version);
-  *out_dataset = ::cuvs::neighbors::detail::deserialize_vpq_dataset<half, int64_t>(res, is);
+  *out_dataset = ::cuvs::neighbors::detail::deserialize_pq_dataset<half, int64_t>(res, is);
 }
 
 void deserialize(raft::resources const& res,

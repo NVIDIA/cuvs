@@ -60,8 +60,10 @@ constexpr auto serialized_dataset_kind_for_view() -> cuvs::neighbors::cagra::ser
     return kind::host_padded;
   } else if constexpr (cuvs::neighbors::is_host_standard_dataset_view_v<DatasetViewT>) {
     return kind::host_standard;
-  } else if constexpr (cuvs::neighbors::is_device_vpq_f16_dataset_view_v<DatasetViewT>) {
-    return kind::device_vpq_f16;
+  } else if constexpr (cuvs::neighbors::is_device_vpq_dataset_view_v<DatasetViewT>) {
+    // Any codebook element type maps to the one kind, since the payload records which it is. Only
+    // f16 codebooks are written today, and the branches below say so.
+    return kind::device_pq;
   } else {
     static_assert(sizeof(DatasetViewT) == 0,
                   "serialized_dataset_kind_for_view: unsupported dataset view type");
@@ -71,7 +73,7 @@ constexpr auto serialized_dataset_kind_for_view() -> cuvs::neighbors::cagra::ser
 constexpr bool is_valid_serialized_dataset_kind(std::uint32_t raw)
 {
   using kind = cuvs::neighbors::cagra::serialized_dataset_kind;
-  return raw <= static_cast<std::uint32_t>(kind::device_vpq_f16);
+  return raw <= static_cast<std::uint32_t>(kind::device_pq);
 }
 
 /**
@@ -129,7 +131,7 @@ void serialize(raft::resources const& res,
       // The payload describes its own codebook type, which is `half` here regardless of T: the
       // dtype prefix written above is the type of the queries this index answers, not of its rows.
       // `dset()` is safe to call because a view over no rows left include_dataset false above.
-      neighbors::detail::serialize_vpq_dataset<half, int64_t>(res, os, index_.dataset().dset());
+      neighbors::detail::serialize_pq_dataset<half, int64_t>(res, index_.dataset().dset(), os);
     } else {
       // A further dataset type requires a new branch here and a corresponding deserialize branch.
       // Use static_assert to catch unsupported types at compile time.
@@ -431,7 +433,7 @@ void deserialize(
         dataset_owner =
           cuvs::neighbors::detail::deserialize_host_standard_dataset<T, int64_t>(res, is);
       } else if constexpr (cuvs::neighbors::is_device_vpq_f16_dataset_view_v<DatasetViewT>) {
-        dataset_owner = cuvs::neighbors::detail::deserialize_vpq_dataset<half, int64_t>(res, is);
+        dataset_owner = cuvs::neighbors::detail::deserialize_pq_dataset<half, int64_t>(res, is);
       } else {
         static_assert(sizeof(DatasetViewT) == 0,
                       "deserialize: dataset deserialization is not implemented for this view");

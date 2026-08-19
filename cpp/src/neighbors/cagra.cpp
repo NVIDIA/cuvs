@@ -122,7 +122,7 @@ auto read_header(raft::resources const& res, std::istream& is, const char* sourc
 
   // Read after the version check: an older or newer format need not put the kind here at all.
   auto const kind_raw = raft::deserialize_scalar<std::uint32_t>(res, is);
-  RAFT_EXPECTS(kind_raw <= static_cast<std::uint32_t>(serialized_dataset_kind::device_vpq_f16),
+  RAFT_EXPECTS(kind_raw <= static_cast<std::uint32_t>(serialized_dataset_kind::device_pq),
                "cagra::read_serialized_header: invalid serialized dataset kind %u in %s",
                kind_raw,
                source);
