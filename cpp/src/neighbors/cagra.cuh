@@ -306,7 +306,9 @@ auto build(raft::resources const& res, const index_params& params, DatasetViewT 
   } else if constexpr (cuvs::neighbors::is_dense_row_major_device_dataset_view_v<DatasetViewT>) {
     auto idx = cuvs::neighbors::cagra::detail::build_from_device_matrix<T, IdxT, DatasetViewT>(
       res, params, dataset);
-    if (params.attach_dataset_on_build) { idx.update_dataset(res, dataset); }
+    if (params.attach_dataset_on_build) {
+      idx = cuvs::neighbors::cagra::update_dataset(res, std::move(idx), dataset);
+    }
     return idx;
   } else {
     if (std::holds_alternative<graph_build_params::ace_params>(params.graph_build_params)) {
@@ -571,14 +573,12 @@ auto update_dataset(raft::resources const& res,
                     index<T, IdxT, SrcDatasetViewT>&& cagra_index,
                     DstDatasetViewT dataset) -> index<T, IdxT, DstDatasetViewT>
 {
-  // static_assert(!std::is_same_v<SrcDatasetViewT, DstDatasetViewT>,
-  //               "For updating a dataset of the same type use the cagra_index.update_dataset() "
-  //               "function instead.");
-
-  RAFT_EXPECTS(dataset.n_rows() == static_cast<int64_t>(cagra_index.size()),
-               "The new dataset row count must match the source dataset row count");
-  RAFT_EXPECTS(cagra_index.dim() == 0 || dataset.dim() == cagra_index.dim(),
-               "The new dataset dimension must match the source dataset dimension");
+  if constexpr (!std::is_same_v<SrcDatasetViewT, DstDatasetViewT>) {
+    RAFT_EXPECTS(dataset.n_rows() == static_cast<int64_t>(cagra_index.size()),
+                 "The new dataset row count must match the source dataset row count");
+    RAFT_EXPECTS(cagra_index.dim() == 0 || dataset.dim() == cagra_index.dim(),
+                 "The new dataset dimension must match the source dataset dimension");
+  }
 
   index<T, IdxT, DstDatasetViewT> new_index(res, std::move(cagra_index), dataset);
   return new_index;

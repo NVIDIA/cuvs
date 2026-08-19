@@ -196,8 +196,7 @@ struct index_params : cuvs::neighbors::index_params {
    * as the index is used. A device-backed index is ready to search immediately; a host-backed index
    * retains the dataset for operations such as serialization but is not searchable.
    *  - `false` means `build` only builds the graph and the caller is expected to attach a dataset
-   * separately via `cuvs::neighbors::cagra::index::update_dataset` before
-   * searching.
+   * separately via `cuvs::neighbors::cagra::update_dataset` before searching.
    *
    * Unlike the legacy behavior, no copy of the dataset is made: the index always stores a view.
    * Setting `attach_dataset_on_build = false` is useful when the caller needs to apply specific
@@ -215,7 +214,7 @@ struct index_params : cuvs::neighbors::index_params {
    *   auto index = cagra::build(res, index_params, dataset->as_dataset_view());
    *   // ASSERT(index.size() == 0);  // no dataset yet
    *   // Attach with a view (storage owned by `dataset`).
-   *   index.update_dataset(res, dataset->as_dataset_view());
+   *   index = cagra::update_dataset(res, std::move(index), dataset->as_dataset_view());
    *   cagra::search(res, search_params, index, queries, neighbors, distances);
    * @endcode
    */
@@ -619,24 +618,13 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
     : metric_(other.metric_),
       graph_(std::move(other.graph_)),
       graph_view_(other.graph_view_),
+      dataset_(dataset),
       source_indices_(std::move(other.source_indices_)),
+      dataset_norms_(std::nullopt),
       n_rows_(other.n_rows_),
       dim_(other.dim_),
       graph_degree_(other.graph_degree_)
   {
-    update_dataset(res, dataset);
-  }
-
-  /**
-   * Replace the dataset with a new `dataset_view`.
-   *
-   * The index stores a copy of the view handle only (not the vector storage). The caller must
-   * keep the underlying device data alive. Clears precomputed norms.
-   */
-  void update_dataset(raft::resources const& res, DatasetViewT dataset)
-  {
-    dataset_ = dataset;
-    dataset_norms_.reset();
     if constexpr (is_device_dataset_view_v<DatasetViewT>) {
       if (metric() == cuvs::distance::DistanceType::CosineExpanded) {
         if (dataset_.n_rows() > 0) { compute_dataset_norms_(res); }
@@ -4573,24 +4561,23 @@ auto convert_standard_to_padded_index(
   RAFT_EXPECTS(padded_dataset.n_rows() == standard_idx.size(),
                "Padded dataset row count must match the index size");
 
-  device_padded_index<T, IdxT> out(res, standard_idx.metric());
-  if (standard_idx.graph().extent(0) > 0) {
-    using GraphIndexType =
-      typename index<T, IdxT, cuvs::neighbors::device_standard_dataset_view<T, int64_t>>::
-        graph_index_type;
-    auto graph_host = raft::make_host_matrix<GraphIndexType, int64_t>(
-      standard_idx.graph().extent(0), standard_idx.graph().extent(1));
+  using GraphIndexType =
+    typename index<T, IdxT, cuvs::neighbors::device_standard_dataset_view<T, int64_t>>::
+      graph_index_type;
+  auto graph_host = raft::make_host_matrix<GraphIndexType, int64_t>(standard_idx.graph().extent(0),
+                                                                    standard_idx.graph().extent(1));
+  if (standard_idx.graph().size() > 0) {
     raft::copy(graph_host.data_handle(),
                standard_idx.graph().data_handle(),
                standard_idx.graph().size(),
                raft::resource::get_cuda_stream(res));
     raft::resource::sync_stream(res);
-    out.update_graph(res, raft::make_const_mdspan(graph_host.view()));
   }
+  device_padded_index<T, IdxT> out(
+    res, standard_idx.metric(), padded_dataset, raft::make_const_mdspan(graph_host.view()));
   if (standard_idx.source_indices().has_value()) {
     out.update_source_indices(res, standard_idx.source_indices().value());
   }
-  out.update_dataset(res, padded_dataset);
   return out;
 }
 
@@ -4673,6 +4660,27 @@ auto update_dataset(
 
 auto update_dataset(
   raft::resources const& res,
+  index<float, uint32_t, device_standard_dataset_view<float, int64_t>>&& cagra_index,
+  device_standard_dataset_view<float, int64_t> dataset)
+  -> index<float, uint32_t, device_standard_dataset_view<float, int64_t>>;
+auto update_dataset(
+  raft::resources const& res,
+  index<half, uint32_t, device_standard_dataset_view<half, int64_t>>&& cagra_index,
+  device_standard_dataset_view<half, int64_t> dataset)
+  -> index<half, uint32_t, device_standard_dataset_view<half, int64_t>>;
+auto update_dataset(
+  raft::resources const& res,
+  index<int8_t, uint32_t, device_standard_dataset_view<int8_t, int64_t>>&& cagra_index,
+  device_standard_dataset_view<int8_t, int64_t> dataset)
+  -> index<int8_t, uint32_t, device_standard_dataset_view<int8_t, int64_t>>;
+auto update_dataset(
+  raft::resources const& res,
+  index<uint8_t, uint32_t, device_standard_dataset_view<uint8_t, int64_t>>&& cagra_index,
+  device_standard_dataset_view<uint8_t, int64_t> dataset)
+  -> index<uint8_t, uint32_t, device_standard_dataset_view<uint8_t, int64_t>>;
+
+auto update_dataset(
+  raft::resources const& res,
   index<float, uint32_t, device_padded_dataset_view<float, int64_t>>&& cagra_index,
   device_padded_dataset_view<float, int64_t> dataset)
   -> index<float, uint32_t, device_padded_dataset_view<float, int64_t>>;
@@ -4690,6 +4698,26 @@ auto update_dataset(
   index<uint8_t, uint32_t, device_padded_dataset_view<uint8_t, int64_t>>&& cagra_index,
   device_padded_dataset_view<uint8_t, int64_t> dataset)
   -> index<uint8_t, uint32_t, device_padded_dataset_view<uint8_t, int64_t>>;
+
+auto update_dataset(
+  raft::resources const& res,
+  index<float, uint32_t, device_padded_dataset_view<float, int64_t>>&& cagra_index,
+  device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<float, uint32_t, device_vpq_dataset_view<half, int64_t>>;
+auto update_dataset(raft::resources const& res,
+                    index<half, uint32_t, device_padded_dataset_view<half, int64_t>>&& cagra_index,
+                    device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<half, uint32_t, device_vpq_dataset_view<half, int64_t>>;
+auto update_dataset(
+  raft::resources const& res,
+  index<int8_t, uint32_t, device_padded_dataset_view<int8_t, int64_t>>&& cagra_index,
+  device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<int8_t, uint32_t, device_vpq_dataset_view<half, int64_t>>;
+auto update_dataset(
+  raft::resources const& res,
+  index<uint8_t, uint32_t, device_padded_dataset_view<uint8_t, int64_t>>&& cagra_index,
+  device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<uint8_t, uint32_t, device_vpq_dataset_view<half, int64_t>>;
 
 }  // namespace cagra
 }  // namespace neighbors

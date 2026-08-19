@@ -76,7 +76,7 @@ void cagra_build_into_index(
     return;
   }
   index = cagra::build(res, params, padded);
-  index.update_dataset(res, padded);
+  index = cagra::update_dataset(res, std::move(index), padded);
 }
 
 struct test_cagra_sample_filter {
@@ -491,7 +491,9 @@ class AnnCagraTest : public ::testing::TestWithParam<AnnCagraInputs> {
         std::unique_ptr<cuvs::neighbors::device_padded_dataset<DataT, int64_t>> loaded_dataset;
         cagra::deserialize(handle_, index_file.filename, &index, &loaded_dataset);
 
-        if (!ps.include_serialized_dataset) { index.update_dataset(handle_, device_padded.view); }
+        if (!ps.include_serialized_dataset) {
+          index = cagra::update_dataset(handle_, std::move(index), device_padded.view);
+        }
 
         auto search_queries_view = raft::make_device_matrix_view<const DataT, int64_t>(
           search_queries.data(), ps.n_queries, ps.dim);
@@ -2134,7 +2136,8 @@ class AnnCagraMultiPartitionTest : public ::testing::TestWithParam<AnnCagraMpInp
       part_padded_.emplace_back(handle_, slice_view);
       auto const& padded = part_padded_.back().view;
       out.push_back(cagra::build(handle_, index_params, padded));
-      out.back().update_dataset(handle_, padded);
+      auto& part = out.back();
+      part       = cagra::update_dataset(handle_, std::move(part), padded);
     }
     return true;
   }

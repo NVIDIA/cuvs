@@ -233,7 +233,7 @@ void search_main(raft::resources const& res,
   if constexpr (cuvs::neighbors::is_empty_dataset_view_v<DatasetViewT>) {
     RAFT_FAIL(
       "Attempted to search without a dataset. Please call "
-      "index.update_dataset(...) first.");
+      "cagra::update_dataset(res, std::move(index), dataset) first.");
   } else if constexpr (cuvs::neighbors::is_device_vpq_f32_dataset_view_v<DatasetViewT>) {
     RAFT_FAIL("FP32 VPQ dataset support is coming soon");
   } else if constexpr (cuvs::neighbors::is_device_vpq_f16_dataset_view_v<DatasetViewT>) {

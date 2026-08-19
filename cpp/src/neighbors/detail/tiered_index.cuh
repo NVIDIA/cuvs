@@ -126,7 +126,8 @@ struct index_state {
   {
     auto index = std::forward<BuildFn>(build_fn)(res, tiered_params, dataset);
     if constexpr (std::is_same_v<UpstreamT, cuvs::neighbors::cagra::device_standard_index<float>>) {
-      index.update_dataset(res, cuvs::neighbors::make_device_standard_dataset_view(dataset));
+      index = cuvs::neighbors::cagra::update_dataset(
+        res, std::move(index), cuvs::neighbors::make_device_standard_dataset_view(dataset));
     }
     return std::make_shared<UpstreamT>(std::move(index));
   }
@@ -298,7 +299,8 @@ inline void update_cagra_ann_dataset_for_stride(
   cuvs::neighbors::cagra::device_standard_index<float>& ann_index,
   raft::device_matrix_view<const float, int64_t, raft::row_major> dataset)
 {
-  ann_index.update_dataset(res, cuvs::neighbors::make_device_standard_dataset_view(dataset));
+  ann_index = cuvs::neighbors::cagra::update_dataset(
+    res, std::move(ann_index), cuvs::neighbors::make_device_standard_dataset_view(dataset));
 }
 
 /**

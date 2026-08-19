@@ -944,7 +944,7 @@ def save(filename, Index index, bool include_dataset=True, resources=None):
         the dataset in the serialized index will use extra disk space, and
         might not be desired if you already have a copy of the dataset on
         disk. If this option is set to false, you will have to call
-        `index.update_dataset(dataset)` after loading the index.
+        `cagra.update_dataset(index, dataset)` after loading the index.
     {resources_docstring}
 
     Examples
