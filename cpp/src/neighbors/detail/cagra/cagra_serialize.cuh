@@ -615,14 +615,14 @@ void deserialize_impl(
     } else {
       *index_ = index_t(res, metric);
       if constexpr (raft::is_device_mdspan_v<decltype(graph.view())>) {
-        index_->update_graph(std::move(graph));
+        index_->update_graph(res, std::move(graph));
       } else {
         index_->update_graph(res, raft::make_const_mdspan(graph.view()));
       }
     }
 
     if constexpr (raft::is_device_mdspan_v<decltype(graph.view())>) {
-      if (dataset_owner) { index_->update_graph(std::move(graph)); }
+      if (dataset_owner) { index_->update_graph(res, std::move(graph)); }
       if (content_map & 0x2u) {
         auto source_indices = raft::make_device_vector<IdxT, int64_t>(res, n_rows);
         cuvs::util::detail::deserialize_mdspan(res, input, source_indices.view());

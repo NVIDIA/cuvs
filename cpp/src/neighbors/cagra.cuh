@@ -475,42 +475,6 @@ void extend(raft::resources const& handle,
 }
 
 template <class T, class IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
-void extend(raft::resources const& handle,
-            const cagra::extend_params& params,
-            cuvs::neighbors::device_standard_dataset_view<T, int64_t> extended_dataset,
-            int64_t new_start_row,
-            cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>& index)
-{
-  RAFT_FAIL(
-    "cagra::extend requires a padded extended dataset view. "
-    "Concatenate the original and additional vectors into a padded dataset and pass that view.");
-}
-
-template <class T, class IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
-void extend(raft::resources const& handle,
-            const cagra::extend_params& params,
-            cuvs::neighbors::host_padded_dataset_view<T, int64_t> extended_dataset,
-            int64_t new_start_row,
-            cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>& index)
-{
-  RAFT_FAIL(
-    "cagra::extend requires a device-padded extended dataset view. "
-    "Concatenate on the device (or copy the concatenated host matrix to device) before extend.");
-}
-
-template <class T, class IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
-void extend(raft::resources const& handle,
-            const cagra::extend_params& params,
-            cuvs::neighbors::host_standard_dataset_view<T, int64_t> extended_dataset,
-            int64_t new_start_row,
-            cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>& index)
-{
-  RAFT_FAIL(
-    "cagra::extend requires a device-padded extended dataset view. "
-    "Concatenate the original and additional vectors into a padded device dataset first.");
-}
-
-template <class T, class IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
 cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> merge(
   raft::resources const& handle,
   const cagra::index_params& params,
@@ -520,6 +484,19 @@ cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> merge(
 {
   return cagra::detail::merge<T, IdxT, DatasetViewT>(
     handle, params, indices, merged_dataset, row_filter);
+}
+
+template <class T, class IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
+cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> merge(
+  raft::resources const& handle,
+  const cagra::index_params& params,
+  std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*>& indices,
+  DatasetViewT merged_dataset,
+  const cagra::merge_params& merge_params,
+  const cuvs::neighbors::filtering::base_filter& row_filter)
+{
+  return cagra::detail::merge<T, IdxT, DatasetViewT>(
+    handle, params, indices, merged_dataset, merge_params, row_filter);
 }
 
 template <typename T, typename IdxT = uint32_t, typename OutputIdxT = uint32_t>
@@ -602,4 +579,12 @@ void search(
     const cuvs::neighbors::cagra::index_params& params,                                \
     std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*>& indices,       \
     DatasetViewT merged_dataset,                                                       \
+    cuvs::neighbors::filtering::base_filter const& row_filter);                        \
+  template CUVS_EXPORT cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>            \
+  cuvs::neighbors::cagra::merge<T, IdxT, DatasetViewT>(                                \
+    raft::resources const& handle,                                                     \
+    const cuvs::neighbors::cagra::index_params& params,                                \
+    std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*>& indices,       \
+    DatasetViewT merged_dataset,                                                       \
+    const cuvs::neighbors::cagra::merge_params& merge_params,                          \
     cuvs::neighbors::filtering::base_filter const& row_filter);

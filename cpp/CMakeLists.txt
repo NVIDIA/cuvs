@@ -191,6 +191,7 @@ if(NOT BUILD_CPU_ONLY)
   include(cmake/thirdparty/get_cutlass.cmake)
   include(${rapids-cmake-dir}/cpm/cuco.cmake)
   rapids_cpm_cuco()
+  include(cmake/thirdparty/get_rtcx.cmake)
 endif()
 
 if(BUILD_TESTS OR BUILD_C_TESTS)
@@ -353,7 +354,6 @@ if(NOT BUILD_CPU_ONLY)
   endif()
 
   # Generate interleaved scan kernel files at build time
-  include(cmake/modules/generate_jit_lto_kernels.cmake)
 
   add_library(jit_lto_kernel_usage_requirements INTERFACE)
   target_include_directories(
@@ -1364,11 +1364,6 @@ if(NOT BUILD_CPU_ONLY)
     src/core/omp_wrapper.cpp
     src/util/file_io.cpp
     src/util/host_memory.cpp
-    src/detail/jit_lto/AlgorithmLauncher.cpp
-    src/detail/jit_lto/AlgorithmPlanner.cpp
-    src/detail/jit_lto/FragmentEntry.cpp
-    src/detail/jit_lto/nvjitlink_checker.cpp
-    src/detail/jit_lto/NVRTCLTOFragmentCompiler.cpp
     src/distance/detail/kernels/gram_matrix.cu
     src/distance/detail/kernels/kernel_factory.cu
     src/distance/detail/kernels/kernel_matrices.cu
@@ -1390,6 +1385,7 @@ if(NOT BUILD_CPU_ONLY)
     ${cagra_extend_inst_files}
     src/neighbors/cagra_optimize.cu
     src/neighbors/detail/cagra/graph_shared.cu
+    src/neighbors/detail/cagra/cagra_merge_scaffold_shared.cu
     ${cagra_serialize_inst_files}
     ${cagra_merge_inst_files}
     ${iface_cagra_inst_files}
@@ -1495,6 +1491,7 @@ if(NOT BUILD_CPU_ONLY)
     PRIVATE cuvs::cuvs_cpp_headers
             cuco::cuco
             nvidia::cutlass::cutlass
+            rtcx::rtcx
             ${CUVS_CTK_MATH_DEPENDENCIES}
             $<TARGET_NAME_IF_EXISTS:OpenMP::OpenMP_CXX>
             $<TARGET_NAME_IF_EXISTS:hnswlib::hnswlib>
@@ -1579,6 +1576,7 @@ if(NOT BUILD_CPU_ONLY)
               $<COMPILE_ONLY:cuco::cuco>
               CUDA::nvJitLink
               CUDA::nvrtc
+              rtcx::rtcx
               $<BUILD_LOCAL_INTERFACE:kvikio::kvikio>
     )
 
@@ -1637,6 +1635,7 @@ SECTIONS
       PRIVATE $<TARGET_NAME_IF_EXISTS:OpenMP::OpenMP_CXX>
               CUDA::nvJitLink
               CUDA::nvrtc
+              rtcx::rtcx
               $<$<BOOL:${CUVS_NVTX}>:CUDA::nvtx3>
               $<COMPILE_ONLY:nvidia::cutlass::cutlass>
               $<COMPILE_ONLY:cuco::cuco>
