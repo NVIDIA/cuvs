@@ -56,51 +56,41 @@ The optional `pylucene` backend requires components that cuVS Bench does not ins
 - For GPU indexing or search, an NVIDIA GPU supported by cuVS plus matching CUDA and cuVS native libraries. The accelerated HNSW codec intentionally falls back to Lucene's CPU writer when cuVS is unavailable; the CAGRA codec requires cuVS GPU support.
 - JDK 22, including `javac`, and a custom PyLucene wrapper generated against Lucene 10.2.0. cuVS Bench compiles its small PyLucene codec adapter before starting the JVM. Apache does not publish PyLucene 10.2.0, and the official PyLucene 10.0.0 distribution is incompatible with the Lucene 10.2 APIs used here. The [PyLucene source-build instructions](https://lucene.apache.org/pylucene/install.html) describe the general build mechanics, but neither Apache nor cuVS currently provides a ready-to-use 10.2.0 wrapper.
 - [Maven 3.9.6 or newer](https://maven.apache.org/download.cgi) to build cuVS-Lucene.
-- The base `cuvs-java` JAR, standard `cuvs-lucene` JAR, and, for GPU execution, native libraries from the same cuVS version. The cuVS-Lucene PR declares cuVS Java 26.10.0.
+- The base `cuvs-java` JAR, standard `cuvs-lucene` JAR, and, for GPU execution, native libraries from the same cuVS version. The in-tree cuVS-Lucene module declares cuVS Java 26.10.0.
 
-cuVS-Lucene now lives in this repository under `java/cuvs-lucene`. [NVIDIA/cuvs-lucene#174](https://github.com/NVIDIA/cuvs-lucene/pull/174), which predates that move, contains the remaining PyLucene 10.2 compatibility changes and its Python end-to-end coverage. Its standalone branch does not include the newer HNSW heuristic delegation from [NVIDIA/cuvs-lucene#177](https://github.com/NVIDIA/cuvs-lucene/pull/177), which is already present in cuVS and is required for the `m` and `ef_construction` benchmark parameters. Until the PyLucene changes are ported and merged, use the validated source combination below; neither source by itself is sufficient.
+cuVS-Lucene now lives in this repository under `java/cuvs-lucene`. [NVIDIA/cuvs#2475](https://github.com/NVIDIA/cuvs/pull/2475) ports the PyLucene 10.2 compatibility changes and Python end-to-end coverage from the former [NVIDIA/cuvs-lucene#174](https://github.com/NVIDIA/cuvs-lucene/pull/174) into cuVS, alongside the HNSW heuristic delegation required for the `m` and `ef_construction` benchmark parameters. Until #2475 is merged, use the pinned revision below rather than a moving pull-request head.
 
-Build the dependencies in separate checkouts so this does not change your cuVS Bench working tree. While the cuVS-Lucene PR is under review, record the exact cuVS and PR revisions used for a reproducible environment and keep their cuVS Java versions aligned.
+Build the dependencies in a separate checkout so this does not change your cuVS Bench working tree. The pinned monorepo revision keeps cuVS Java, cuVS-Lucene, and the native libraries aligned while #2475 remains under review.
 
 ```bash
 git clone https://github.com/NVIDIA/cuvs.git cuvs-pylucene-deps
 cd cuvs-pylucene-deps
-git switch --detach be8ab314d044aee0f80fbe2c2277a893561288de
-./build.sh libcuvs java
+git fetch origin pull/2475/head
+git switch --detach 435c52ec9874b4cf1e12953ed3a417753df4c9c0
+./build.sh libcuvs java lucene
 cd ..
 ```
 
-If matching native cuVS libraries are already built and installed, `./build.sh java` is sufficient. The Java build installs the base and native-classifier JARs into the local Maven repository; see the [cuVS Java build guide](https://github.com/NVIDIA/cuvs/blob/main/java/README.md).
-
-```bash
-git clone https://github.com/NVIDIA/cuvs-lucene.git cuvs-lucene-pylucene
-cd cuvs-lucene-pylucene
-git fetch origin pull/174/head
-git switch --detach 6fe2c2824408a4ff2ac8f201df05308fd2404b76
-git -C ../cuvs-pylucene-deps show \
-    --relative=java/cuvs-lucene --format=email --binary \
-    65b4ae5f1ac5b5916d49709f6c16231df8d26188 \
-    -- java/cuvs-lucene | git apply
-mvn clean package -DskipTests
-```
+If matching native cuVS libraries are already built and installed, `./build.sh java lucene` is sufficient. The Java build installs the base and native-classifier JARs into the local Maven repository; see the [cuVS Java build guide](https://github.com/NVIDIA/cuvs/blob/main/java/README.md).
 
 After the build, the conventional JAR paths are:
 
 ```text
-~/.m2/repository/com/nvidia/cuvs/cuvs-java/<version>/cuvs-java-<version>.jar
-<cuvs-lucene-pylucene-checkout>/target/cuvs-lucene-<version>.jar
+~/.m2/repository/com/nvidia/cuvs/cuvs-java/26.10.0/cuvs-java-26.10.0.jar
+<cuvs-pylucene-deps-checkout>/java/cuvs-lucene/target/cuvs-lucene-26.10.0.jar
 ```
 
 Use the base `cuvs-java` JAR, not a native-classifier JAR. Use the standard cuVS-Lucene JAR, not its `-jar-with-dependencies`, sources, or Javadoc variants. Native-library paths must resolve `libcuvs.so`, `libcuvs_c.so`, their dependencies, and the CUDA runtime libraries from the matching cuVS build.
 
 Use a clean environment without another cuVS native installation on its library path; otherwise, the JVM can load the other `libcuvs_c.so` first and reject the Java/native version mismatch.
 
-The backend checks that `lucene.VERSION` is exactly `10.2.0` before starting the process-wide JVM. It also compiles its configured-codec adapter against the selected JAR, which fails early when the HNSW heuristic API is missing. Then validate the combined artifacts from the temporary cuVS-Lucene checkout. The upstream PyLucene suite is a pytest module; its Java test adapter is compiled into `target/test-classes` by the Maven build and is not part of the production JAR.
+The backend checks that `lucene.VERSION` is exactly `10.2.0` before starting the process-wide JVM. It also compiles its configured-codec adapter against the selected JAR, which fails early when the HNSW heuristic API is missing. Then validate the artifacts from the pinned cuVS checkout. The upstream PyLucene suite is a pytest module; its Java test adapter is compiled into `java/cuvs-lucene/target/test-classes` by the Maven build and is not part of the production JAR.
 
 ```bash
 python -m pip install pytest
 
-CUVS_NATIVE_BUILD="$(cd ../cuvs-pylucene-deps/cpp/build && pwd)"
+cd cuvs-pylucene-deps/java/cuvs-lucene
+CUVS_NATIVE_BUILD="$(cd ../../cpp/build && pwd)"
 export JAVA_LIBRARY_PATH="$CUVS_NATIVE_BUILD:$CUVS_NATIVE_BUILD/c:/usr/local/cuda/lib64"
 export LD_LIBRARY_PATH="$JAVA_LIBRARY_PATH${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 

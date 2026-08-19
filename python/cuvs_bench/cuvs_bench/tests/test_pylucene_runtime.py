@@ -351,7 +351,7 @@ def test_configured_codec_compile_error_identifies_required_cuvs_lucene_api(
 
     with pytest.raises(
         RuntimeError,
-        match="PyLucene 10.2 support.*HNSW heuristic delegation",
+        match="PyLucene 10.2 codec support.*HNSW heuristic API",
     ):
         pylucene_java._compile("/dependencies")
 

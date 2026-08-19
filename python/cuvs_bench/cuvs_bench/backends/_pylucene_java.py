@@ -122,9 +122,9 @@ def _compile(compile_classpath: str) -> Path:
         raise RuntimeError(
             "Could not compile the PyLucene codec adapter with JDK 22 javac. "
             "Verify that cuvs-java, PyLucene 10.2, and the thin cuvs-lucene "
-            "JAR are compatible. The cuvs-lucene JAR must include both the "
-            "PyLucene 10.2 support from NVIDIA/cuvs-lucene#174 and the "
-            "HNSW heuristic delegation now present in cuVS. "
+            "JAR are compatible. The cuvs-lucene JAR must include the "
+            "in-tree PyLucene 10.2 codec support and current HNSW heuristic "
+            "API. "
             f"javac output:\n{details}"
         )
 

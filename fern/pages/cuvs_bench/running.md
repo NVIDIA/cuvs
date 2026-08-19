@@ -91,8 +91,8 @@ Create `pylucene-backend.yaml` with absolute paths to the base `cuvs-java` JAR, 
 
 ```yaml
 backend: pylucene
-cuvs_java_jar: /home/user/.m2/repository/com/nvidia/cuvs/cuvs-java/VERSION/cuvs-java-VERSION.jar
-cuvs_lucene_jar: /absolute/path/to/cuvs-lucene-pylucene/target/cuvs-lucene-VERSION.jar
+cuvs_java_jar: /home/user/.m2/repository/com/nvidia/cuvs/cuvs-java/26.10.0/cuvs-java-26.10.0.jar
+cuvs_lucene_jar: /work/cuvs-pylucene-deps/java/cuvs-lucene/target/cuvs-lucene-26.10.0.jar
 java_library_path: /work/cuvs-pylucene-deps/cpp/build:/work/cuvs-pylucene-deps/cpp/build/c:/usr/local/cuda/lib64
 ```
 
@@ -142,7 +142,7 @@ The HNSW configuration maps benchmark parameters to cuVS-Lucene as follows:
 | `direct_single_segment` | Build | `false` | Boolean | Requests one direct segment, as described below. |
 | `num_candidates` | Search | `top_k` | Integer greater than or equal to `top_k` | Requests the candidate count passed to `KnnFloatVectorQuery`, capped at the index size; the backend returns `top_k` neighbors. |
 
-`m` and `ef_construction` are the HNSW-equivalent inputs used by cuVS-Lucene's `SAME_GRAPH_FOOTPRINT` heuristic; cuVS-Lucene derives its CAGRA build parameters from them. This requires a cuVS-Lucene build containing both the PyLucene 10.2 changes from NVIDIA/cuvs-lucene#174 and the HNSW heuristic delegation from NVIDIA/cuvs-lucene#177. The backend rejects an older JAR during its pre-JVM adapter compilation instead of silently building with unrelated defaults. `num_candidates` is Lucene's candidate budget, not a direct cuVS `ef_search` setting.
+`m` and `ef_construction` are the HNSW-equivalent inputs used by cuVS-Lucene's `SAME_GRAPH_FOOTPRINT` heuristic; cuVS-Lucene derives its CAGRA build parameters from them. This requires a cuVS-Lucene build containing both the PyLucene 10.2 compatibility changes and HNSW heuristic delegation provided together by [NVIDIA/cuvs#2475](https://github.com/NVIDIA/cuvs/pull/2475). The backend rejects an older JAR during its pre-JVM adapter compilation instead of silently building with unrelated defaults. `num_candidates` is Lucene's candidate budget, not a direct cuVS `ef_search` setting.
 
 Automatic tune mode samples `m` and `ef_construction` from 1 through 512 and `num_candidates` from `top_k` through 500. Explicit YAML sweeps may use larger candidate counts.
 
