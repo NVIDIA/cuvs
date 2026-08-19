@@ -471,8 +471,8 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
   /** Total length of the index (number of vectors). */
   [[nodiscard]] constexpr inline auto size() const noexcept -> IdxT
   {
+    if (dataset_fd_.has_value() || graph_fd_.has_value()) { return n_rows_; }
     auto data_rows = dataset_.n_rows();
-    if (dataset_fd_.has_value()) { return n_rows_; }
     return data_rows > 0 ? data_rows : graph_view_.extent(0);
   }
 
@@ -484,7 +484,14 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
   /** Graph degree */
   [[nodiscard]] constexpr inline auto graph_degree() const noexcept -> uint32_t
   {
-    return dataset_fd_.has_value() ? graph_degree_ : graph_view_.extent(1);
+    return graph_fd_.has_value() ? graph_degree_ : graph_view_.extent(1);
+  }
+
+  /** Number of rows represented by the graph. */
+  [[nodiscard]] constexpr inline auto graph_size() const noexcept -> IdxT
+  {
+    return graph_fd_.has_value() ? static_cast<IdxT>(n_rows_)
+                                 : static_cast<IdxT>(graph_view_.extent(0));
   }
 
   /** Non-owning dataset binding stored by the index. */

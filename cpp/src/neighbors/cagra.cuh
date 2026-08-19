@@ -5,15 +5,16 @@
 
 #pragma once
 
+#include "detail/ann_utils.cuh"
 #include "detail/cagra/add_nodes.cuh"
 #include "detail/cagra/cagra_build.cuh"
 #include "detail/cagra/cagra_merge.cuh"
 #include "detail/cagra/cagra_search.cuh"
 #include "detail/cagra/graph_core.cuh"
 
-#include "detail/ann_utils.cuh"
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/host_device_accessor.hpp>
+#include <raft/core/logger.hpp>
 #include <raft/core/mdspan.hpp>
 #include <raft/core/resources.hpp>
 #include <raft/linalg/norm.cuh>
@@ -22,12 +23,11 @@
 #include <cuvs/core/bitset.hpp>
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/cagra.hpp>
-
 #include <cuvs/neighbors/common.hpp>
+
 #include <rmm/cuda_stream_view.hpp>
 
 #include <algorithm>
-#include <memory>
 #include <optional>
 #include <type_traits>
 
@@ -573,11 +573,16 @@ auto update_dataset(raft::resources const& res,
                     index<T, IdxT, SrcDatasetViewT>&& cagra_index,
                     DstDatasetViewT dataset) -> index<T, IdxT, DstDatasetViewT>
 {
-  if constexpr (!std::is_same_v<SrcDatasetViewT, DstDatasetViewT>) {
-    RAFT_EXPECTS(dataset.n_rows() == static_cast<int64_t>(cagra_index.size()),
-                 "The new dataset row count must match the source dataset row count");
-    RAFT_EXPECTS(cagra_index.dim() == 0 || dataset.dim() == cagra_index.dim(),
-                 "The new dataset dimension must match the source dataset dimension");
+  auto const graph_rows = static_cast<int64_t>(cagra_index.graph_size());
+  if (dataset.n_rows() != graph_rows) {
+    RAFT_LOG_WARN("The new dataset row count (%ld) does not match the graph row count (%ld)",
+                  static_cast<long>(dataset.n_rows()),
+                  static_cast<long>(graph_rows));
+  }
+  if (dataset.dim() != cagra_index.dim()) {
+    RAFT_LOG_WARN("The new dataset dimension (%u) does not match the index dimension (%u)",
+                  static_cast<unsigned>(dataset.dim()),
+                  static_cast<unsigned>(cagra_index.dim()));
   }
 
   index<T, IdxT, DstDatasetViewT> new_index(res, std::move(cagra_index), dataset);

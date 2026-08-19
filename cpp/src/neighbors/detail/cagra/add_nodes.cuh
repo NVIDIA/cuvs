@@ -408,8 +408,8 @@ void extend_core(raft::resources const& handle,
     cuvs::neighbors::cagra::add_graph_nodes<T, IdxT>(
       handle, extended_strided, index, updated_graph.view(), params);
 
-    index = cuvs::neighbors::cagra::update_dataset(handle, std::move(index), extended_dataset);
     index.update_graph(handle, raft::make_const_mdspan(updated_graph.view()));
+    index = cuvs::neighbors::cagra::update_dataset(handle, std::move(index), extended_dataset);
   }
 }
 }  // namespace cuvs::neighbors::cagra
