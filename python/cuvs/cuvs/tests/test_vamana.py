@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 import numpy as np
@@ -40,7 +40,7 @@ def test_vamana_build_basic(dtype):
 @pytest.mark.skip(
     reason="Skipping host build test because of CUDA error "
     "in C++ API. Reference issue: "
-    "https://github.com/rapidsai/cuvs/issues/1380"
+    "https://github.com/nvidia/cuvs/issues/1380"
 )
 def test_vamana_build_basic_host(dtype):
     n_rows, n_cols = 512, 12

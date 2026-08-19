@@ -28,13 +28,13 @@
 #include <rmm/mr/cuda_memory_resource.hpp>
 #include <rmm/mr/pinned_host_memory_resource.hpp>
 
-#include <cuvs/detail/jit_lto/AlgorithmLauncher.hpp>
 #include <cuvs/distance/distance.hpp>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/logger.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resource/device_properties.hpp>
 #include <raft/core/resources.hpp>
+#include <rtcx/algorithm_launcher.hpp>
 
 #include <algorithm>
 #include <array>
@@ -481,7 +481,7 @@ struct alignas(kCacheLineBytes) launcher_jit_t {
   }
 };
 
-// JIT persistent runner - uses AlgorithmLauncher instead of kernel function pointer
+// JIT persistent runner - uses rtcx::algorithm_launcher instead of kernel function pointer
 template <typename DataT,
           typename IndexT,
           typename DistanceT,
@@ -494,7 +494,7 @@ struct alignas(kCacheLineBytes) persistent_runner_jit_t : public persistent_runn
   // Must match job_desc_t<job_desc_traits<...>> in kernel_def.hpp / persistent kernel.
   using job_desc_type = job_desc_t<job_desc_traits<DataT, IndexT, DistanceT>>;
 
-  std::shared_ptr<AlgorithmLauncher> launcher;
+  std::shared_ptr<rtcx::algorithm_launcher> launcher;
   uint32_t block_size;
   dataset_descriptor_host<DataT, IndexT, DistanceT> dd_host;
   rmm::device_uvector<worker_handle_t> worker_handles;
@@ -546,7 +546,7 @@ struct alignas(kCacheLineBytes) persistent_runner_jit_t : public persistent_runn
     const dataset_descriptor_host<DataT, IndexT, DistanceT>& dataset_desc,
     bool topk_by_bitonic_sort,
     bool bitonic_sort_and_merge_multi_warps,
-    SampleFilterT sample_filter) -> std::shared_ptr<AlgorithmLauncher>
+    SampleFilterT sample_filter) -> std::shared_ptr<rtcx::algorithm_launcher>
   {
     auto launcher = make_cagra_single_cta_jit_launcher<DataT,
                                                        IndexT,
@@ -678,7 +678,7 @@ struct alignas(kCacheLineBytes) persistent_runner_jit_t : public persistent_runn
 
     const IndexT* seed_ptr_arg            = nullptr;
     uint32_t* num_executed_iterations_arg = nullptr;
-    // Launch the persistent kernel via AlgorithmLauncher
+    // Launch the persistent kernel via rtcx::algorithm_launcher
     // The persistent kernel now takes the descriptor pointer directly
     launcher->dispatch_cooperative<
       single_cta_search::search_single_cta_p_kernel_func_t<DataT, IndexT, DistanceT, SourceIndexT>>(
@@ -856,7 +856,7 @@ void select_and_run(
       ->launch(topk_indices_ptr, topk_distances_ptr, queries_ptr, num_queries, topk);
     return;
   } else {
-    std::shared_ptr<AlgorithmLauncher> launcher =
+    std::shared_ptr<rtcx::algorithm_launcher> launcher =
       make_cagra_single_cta_jit_launcher<DataT,
                                          IndexT,
                                          DistanceT,
@@ -973,7 +973,7 @@ void select_and_run_multi_partition(
   bool topk_by_bitonic_sort               = config.topk_by_bitonic_sort;
   bool bitonic_sort_and_merge_multi_warps = config.bitonic_sort_and_merge_multi_warps;
 
-  std::shared_ptr<AlgorithmLauncher> launcher =
+  std::shared_ptr<rtcx::algorithm_launcher> launcher =
     make_cagra_single_cta_mp_jit_launcher<DataT,
                                           IndexT,
                                           DistanceT,

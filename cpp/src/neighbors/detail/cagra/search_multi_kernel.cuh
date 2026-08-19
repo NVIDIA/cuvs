@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -513,7 +513,7 @@ struct search
                       stream,
                       static_cast<IndexT>(this->dataset_size));
 
-    std::shared_ptr<AlgorithmLauncher> compute_distance_to_child_nodes_launcher =
+    std::shared_ptr<rtcx::algorithm_launcher> compute_distance_to_child_nodes_launcher =
       make_cagra_multi_kernel_jit_launcher<DATA_T,
                                            INDEX_T,
                                            DISTANCE_T,
@@ -611,7 +611,7 @@ struct search
                         result_buffer_allocation_size,
                         stream);
 
-      std::shared_ptr<AlgorithmLauncher> apply_filter_launcher =
+      std::shared_ptr<rtcx::algorithm_launcher> apply_filter_launcher =
         make_cagra_apply_filter_jit_launcher<DATA_T,
                                              INDEX_T,
                                              DISTANCE_T,
