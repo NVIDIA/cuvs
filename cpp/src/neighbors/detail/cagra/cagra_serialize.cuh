@@ -408,16 +408,11 @@ void deserialize(
   std::unique_ptr<owner_t> dataset_owner{};
   if (has_dataset) {
     if (out_dataset == nullptr) {
-      // Dropping the rows leaves a searchable index for a dense view, whose dataset can be
-      // reattached from the caller's own copy, but not for a VPQ one: the compressed rows exist
-      // nowhere else. Refuse rather than hand back an index that cannot answer a query, and skip
-      // the dense payload only when it is in fact dense.
-      if constexpr (cuvs::neighbors::is_vpq_dataset_view_v<DatasetViewT>) {
-        RAFT_FAIL(
-          "cagra::deserialize: a VPQ index cannot be loaded without its dataset; pass out_dataset");
-      } else {
-        cuvs::neighbors::detail::skip_dense_dataset<T, int64_t>(res, is);
-      }
+      // No out_dataset means the caller wants the graph alone. The dataset bytes still have to be
+      // stepped over to reach the source indices that follow them, and the payload starts with a
+      // tag naming its kind, so skipping it needs nothing from the caller. The index comes back
+      // with no rows, and cannot be searched until update_device_dataset_same_layout gives it some.
+      cuvs::neighbors::detail::skip_dataset<int64_t>(res, is);
     } else {
       auto const expected_kind = serialized_dataset_kind_for_view<DatasetViewT>();
       RAFT_EXPECTS(

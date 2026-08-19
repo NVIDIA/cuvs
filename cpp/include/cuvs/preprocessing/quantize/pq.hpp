@@ -282,6 +282,15 @@ namespace detail {
  * dense dataset is never staged on the device in full; they must be tightly packed. Empty sources
  * are rejected. The element type must be `float`, `half`, `int8_t` or `uint8_t`.
  *
+ * Only the input streams. The result is a single device allocation of `n_rows` encoded rows, so the
+ * compressed dataset has to fit in whatever the current device memory resource can serve, and there
+ * is no host-resident output to fall back on: nothing produces, searches or serializes the
+ * `host_vpq_dataset` type today. A row is `sizeof(uint32_t) + pq_dim * pq_bits / 8` bytes rounded
+ * up to a multiple of 4, so at `pq_bits = 8` and `pq_dim = 384` a hundred million rows come to
+ * about 39 GB, and a billion rows exceed any single device. Past that point the options are an
+ * oversubscribed (managed) memory resource, which is enough to encode and serialize but not to
+ * search, or sharding the rows and merging the search results.
+ *
  * Typical **CAGRA** usage: build the graph on dense vectors, then attach VPQ for search (metric
  * must remain `L2Expanded` for this path). Train VPQ from the same CAGRA-padded device layout you
  * used for graph build, keep the `device_vpq_dataset` alive, and call
@@ -349,6 +358,12 @@ inline constexpr int vpq_serialization_version = 1;
  * file of the wrong kind, or one written by an older format, is rejected rather than misread. Bump
  * the version whenever the encoded row layout changes, since that layout is a library convention
  * and is not otherwise described by the file.
+ *
+ * Writing copies the encoded rows to the host in one piece, as `raft::serialize_mdspan` does for
+ * any device matrix: it allocates a host buffer the size of those rows alongside the device copy
+ * it reads from, and frees it afterwards. The two codebooks go the same way and are small. Reading
+ * is the mirror image, host buffer first and then a copy to the device. So a file costs the encoded
+ * rows twice while it is being written or read, once on each side, and neither direction streams.
  *
  * @code{.cpp}
  * #include <cuvs/neighbors/cagra.hpp>
