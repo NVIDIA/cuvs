@@ -15,8 +15,11 @@
 #include <raft/core/copy.hpp>
 #include <raft/core/error.hpp>
 #include <raft/core/mdspan_types.hpp>
+#include <raft/core/numpy_serializer.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
+#include <raft/core/numpy_serializer.hpp>
 #include <raft/core/resources.hpp>
+#include <raft/core/serialize.hpp>
 
 #include "../core/exceptions.hpp"
 #include "../core/interop.hpp"
@@ -971,40 +974,47 @@ struct serialized_cagra_header {
   cuvs::neighbors::cagra::serialized_dataset_kind dataset_kind;
 };
 
-/**
- * What the file holds, in the terms the C entry points dispatch on.
- *
- * The reading is the C++ API's: `cagra::read_serialized_header` parses the same preamble, validates
- * the format version and the dataset kind, and leaves this with nothing to do but restate the
- * element type in DLPack terms.
- */
 static auto read_serialized_header(cuvsResources_t res, const char *filename)
     -> serialized_cagra_header {
   auto res_ptr = reinterpret_cast<raft::resources *>(res);
-  auto const header = cuvs::neighbors::cagra::read_serialized_header(
-      *res_ptr, std::string(filename));
-  DLDataType dtype{.code = 0, .bits = 0, .lanes = 1};
-  switch (header.dtype) {
-    case CUDA_R_32F:
-      dtype.code = kDLFloat;
-      dtype.bits = 32;
-      break;
-    case CUDA_R_16F:
-      dtype.code = kDLFloat;
-      dtype.bits = 16;
-      break;
-    case CUDA_R_8I:
-      dtype.code = kDLInt;
-      dtype.bits = 8;
-      break;
-    case CUDA_R_8U:
-      dtype.code = kDLUInt;
-      dtype.bits = 8;
-      break;
-    default:
-      RAFT_FAIL("Unsupported dtype in file %s", filename);
+  std::ifstream is(filename, std::ios::in | std::ios::binary);
+  if (!is) {
+    RAFT_FAIL("Cannot open file %s", filename);
   }
-  return {dtype, header.dataset_kind};
+
+  char dtype_string[4]{};
+  if (!is.read(dtype_string, sizeof(dtype_string))) {
+    RAFT_FAIL("Invalid or truncated index header in file %s", filename);
+  }
+
+  auto const dtype = raft::numpy_serializer::parse_descr(
+      std::string(dtype_string, sizeof(dtype_string)));
+  DLDataType output_dtype{
+      .code = 0, .bits = static_cast<uint8_t>(dtype.itemsize * 8), .lanes = 1};
+  if (dtype.kind == 'f' && dtype.itemsize == 4) {
+    output_dtype.code = kDLFloat;
+  } else if (dtype.kind == 'e' && dtype.itemsize == 2) {
+    output_dtype.code = kDLFloat;
+  } else if (dtype.kind == 'i' && dtype.itemsize == 1) {
+    output_dtype.code = kDLInt;
+  } else if (dtype.kind == 'u' && dtype.itemsize == 1) {
+    output_dtype.code = kDLUInt;
+  } else {
+    RAFT_FAIL("Unsupported dtype in file %s", filename);
+  }
+
+  auto const version = raft::deserialize_scalar<int>(*res_ptr, is);
+  auto const dataset_kind_raw =
+    raft::deserialize_scalar<std::uint32_t>(*res_ptr, is);
+  RAFT_EXPECTS(
+      version == cuvs::neighbors::cagra::cagra_serialization_version,
+      "serialization version mismatch, expected %d, got %d",
+      cuvs::neighbors::cagra::cagra_serialization_version, version);
+  using kind = cuvs::neighbors::cagra::serialized_dataset_kind;
+  RAFT_EXPECTS(dataset_kind_raw <= static_cast<std::uint32_t>(kind::host_standard),
+               "Invalid serialized dataset kind %u in file %s",
+               dataset_kind_raw, filename);
+  return {output_dtype, static_cast<kind>(dataset_kind_raw)};
 }
 
 template <typename Fn>
@@ -1048,12 +1058,10 @@ void dispatch_serialized_dataset_kind(
       fn.template operator()<
           cuvs::neighbors::device_padded_dataset_view<T, int64_t>>();
       break;
-    case serialized_kind::device_pq:
-      // A recognised file the C API has no index layout for, as opposed to an unreadable one.
-      // cuvsDatasetLayout_t covers standard and padded only, and every C entry point dispatches
-      // on that layout, so there is nothing here to hand a PQ-compressed index to yet.
-      RAFT_FAIL("File holds a PQ-compressed dataset, which the C API has no dataset "
-                "layout for; load it through the C++ API");
+    // Unreachable: read_serialized_header rejects this kind before the dispatch, since
+    // cuvsDatasetLayout_t has no PQ-compressed layout to hand back. Listed only because the switch
+    // is exhaustive and -Wswitch is an error. Delete it when the C API gains the layout.
+    case serialized_kind::device_pq: break;
   }
 }
 
