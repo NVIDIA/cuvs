@@ -1968,22 +1968,28 @@ void build_knn_graph(
 
 template <typename IdxT = uint32_t,
           typename g_accessor =
+            raft::host_device_accessor<cuda::std::default_accessor<IdxT>, raft::memory_type::host>,
+          typename n_accessor =
             raft::host_device_accessor<cuda::std::default_accessor<IdxT>, raft::memory_type::host>>
 void optimize(
   raft::resources const& res,
   raft::mdspan<IdxT, raft::matrix_extent<int64_t>, raft::row_major, g_accessor> knn_graph,
-  raft::host_matrix_view<IdxT, int64_t, raft::row_major> new_graph,
+  raft::mdspan<IdxT, raft::matrix_extent<int64_t>, raft::row_major, n_accessor> new_graph,
   const bool guarantee_connectivity = false)
 {
   using internal_IdxT = typename std::make_unsigned<IdxT>::type;
 
-  auto new_graph_internal = raft::make_host_matrix_view<internal_IdxT, int64_t>(
-    reinterpret_cast<internal_IdxT*>(new_graph.data_handle()),
-    new_graph.extent(0),
-    new_graph.extent(1));
-
   using g_accessor_internal =
-    raft::host_device_accessor<cuda::std::default_accessor<internal_IdxT>, raft::memory_type::host>;
+    raft::host_device_accessor<cuda::std::default_accessor<internal_IdxT>, g_accessor::mem_type>;
+  using n_accessor_internal =
+    raft::host_device_accessor<cuda::std::default_accessor<internal_IdxT>, n_accessor::mem_type>;
+
+  auto new_graph_internal =
+    raft::mdspan<internal_IdxT, raft::matrix_extent<int64_t>, raft::row_major, n_accessor_internal>(
+      reinterpret_cast<internal_IdxT*>(new_graph.data_handle()),
+      new_graph.extent(0),
+      new_graph.extent(1));
+
   auto knn_graph_internal =
     raft::mdspan<internal_IdxT, raft::matrix_extent<int64_t>, raft::row_major, g_accessor_internal>(
       reinterpret_cast<internal_IdxT*>(knn_graph.data_handle()),
