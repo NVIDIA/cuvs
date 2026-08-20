@@ -241,31 +241,43 @@ void connect_knn_graph(
       });
   }
 
+  // Store each connecting edge in both directions: raft::sparse::solver::mst
+  // requires a symmetric input CSR (the device-data variant of
+  // connect_knn_graph satisfies this via raft::sparse::linalg::symmetrize).
+  const size_t sym_nnz = 2 * new_nnz;
+  rmm::device_uvector<value_idx> sym_rows(sym_nnz, stream);
+  rmm::device_uvector<value_idx> sym_cols(sym_nnz, stream);
+  rmm::device_uvector<value_t> sym_vals(sym_nnz, stream);
+  raft::copy_async(sym_rows.data(), device_u_indices.data_handle(), new_nnz, stream);
+  raft::copy_async(sym_rows.data() + new_nnz, device_v_indices.data_handle(), new_nnz, stream);
+  raft::copy_async(sym_cols.data(), device_v_indices.data_handle(), new_nnz, stream);
+  raft::copy_async(sym_cols.data() + new_nnz, device_u_indices.data_handle(), new_nnz, stream);
+  raft::copy_async(sym_vals.data(), pairwise_dist_vec.data_handle(), new_nnz, stream);
+  raft::copy_async(sym_vals.data() + new_nnz, pairwise_dist_vec.data_handle(), new_nnz, stream);
+
   // sort in order of rows to run sorted_coo_to_csr
-  auto rows_begin = thrust::device_pointer_cast(device_u_indices.data_handle());
-  auto cols_begin = thrust::device_pointer_cast(device_v_indices.data_handle());
-  auto dist_begin = thrust::device_pointer_cast(pairwise_dist_vec.data_handle());
+  auto rows_begin = thrust::device_pointer_cast(sym_rows.data());
+  auto cols_begin = thrust::device_pointer_cast(sym_cols.data());
+  auto dist_begin = thrust::device_pointer_cast(sym_vals.data());
 
   auto zipped_begin = thrust::make_zip_iterator(cuda::std::make_tuple(cols_begin, dist_begin));
-  thrust::sort_by_key(rows_begin, rows_begin + new_nnz, zipped_begin);
+  thrust::sort_by_key(rows_begin, rows_begin + sym_nnz, zipped_begin);
 
   rmm::device_uvector<value_idx> indptr2(m + 1, stream);
-  raft::sparse::convert::sorted_coo_to_csr(
-    device_u_indices.data_handle(), new_nnz, indptr2.data(), m + 1, stream);
+  raft::sparse::convert::sorted_coo_to_csr(sym_rows.data(), sym_nnz, indptr2.data(), m + 1, stream);
 
   // On the second call, we hand the MST the original colors
   // and the new set of edges and let it restart the optimization process
-  auto new_mst = raft::sparse::solver::mst<value_idx, value_idx, value_t, double>(
-    handle,
-    indptr2.data(),
-    device_v_indices.data_handle(),
-    pairwise_dist_vec.data_handle(),
-    m,
-    new_nnz,
-    color,
-    stream,
-    false,
-    false);
+  auto new_mst = raft::sparse::solver::mst<value_idx, value_idx, value_t, double>(handle,
+                                                                                  indptr2.data(),
+                                                                                  sym_cols.data(),
+                                                                                  sym_vals.data(),
+                                                                                  m,
+                                                                                  sym_nnz,
+                                                                                  color,
+                                                                                  stream,
+                                                                                  false,
+                                                                                  false);
 
   merge_msts<value_idx, value_t>(msf, new_mst, stream);
 }
