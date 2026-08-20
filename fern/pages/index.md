@@ -6,11 +6,11 @@ NVIDIA cuVS is a GPU-accelerated library for vector search on the GPU. Vector se
 
 [cuvs_reference]: https://docs.rapids.ai/api/cuvs/stable/
 
-- [Example Notebooks](https://github.com/rapidsai/cuvs/tree/HEAD/notebooks): Example notebooks
-- [Code Examples](https://github.com/rapidsai/cuvs/tree/HEAD/examples): Self-contained code examples
+- [Example Notebooks](https://github.com/nvidia/cuvs/tree/HEAD/notebooks): Example notebooks
+- [Code Examples](https://github.com/nvidia/cuvs/tree/HEAD/examples): Self-contained code examples
 - [RAPIDS Community](https://rapids.ai/community.html): Get help, contribute, and collaborate.
-- [GitHub repository](https://github.com/rapidsai/cuvs): Download the NVIDIA cuVS source code.
-- [Issue tracker](https://github.com/rapidsai/cuvs/issues): Report issues or request features.
+- [GitHub repository](https://github.com/nvidia/cuvs): Download the NVIDIA cuVS source code.
+- [Issue tracker](https://github.com/nvidia/cuvs/issues): Report issues or request features.
 
 ## What is NVIDIA cuVS?
 
