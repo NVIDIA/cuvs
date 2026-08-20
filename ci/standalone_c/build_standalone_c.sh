@@ -1,47 +1,33 @@
 #!/bin/bash
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+#
+# Build script for the standalone C library. Expects to be run inside an
+# environment that already provides: dnf packages (patch, tar, unzip, wget),
+# ninja, cmake (e.g. Dockerfile.standalone).
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+
 TOOLSET_VERSION=14
-NINJA_VERSION=v1.13.1
 
 BUILD_C_LIB_TESTS="OFF"
-if [[ "${1:-}" == "--build-tests" ]]; then
+if [[ "${1:-}" == "--tarball-build-tests" ]]; then
   BUILD_C_LIB_TESTS="ON"
-fi
-
-dnf install -y \
-      patch \
-      tar \
-      unzip \
-      wget
-
-if ! command -V ninja >/dev/null 2>&1; then
-    case "$(uname -m)" in
-        x86_64)
-            wget --no-hsts -q -O /tmp/ninja-linux.zip "https://github.com/ninja-build/ninja/releases/download/${NINJA_VERSION}/ninja-linux.zip";
-            ;;
-        aarch64)
-            wget --no-hsts -q -O /tmp/ninja-linux.zip "https://github.com/ninja-build/ninja/releases/download/${NINJA_VERSION}/ninja-linux-aarch64.zip";
-            ;;
-        *)
-            echo "Unrecognized platform '$(uname -m)'" >&2
-            exit 1
-            ;;
-    esac
-    unzip -d /usr/bin /tmp/ninja-linux.zip
-    chmod +x /usr/bin/ninja
-    rm /tmp/ninja-linux.zip
 fi
 
 source rapids-install-sccache
 source rapids-configure-sccache
-source rapids-datetime-string
 
-rapids-pip-retry install cmake
-pyenv rehash
+# rapids-configure-sccache enables anonymous S3 access by default. CI forwards
+# temporary AWS credentials, and sccache rejects both modes at once.
+if [[ -n "${AWS_ACCESS_KEY_ID:-}" ]]; then
+  unset SCCACHE_S3_NO_CREDENTIALS
+fi
+
+source rapids-datetime-string
 
 rapids-print-env
 
@@ -97,5 +83,4 @@ rapids-pip-retry install git+https://github.com/rapidsai/spdx-license-builder.gi
 license-builder . --output-json c/build/install/licenses.json --output-txt c/build/install/LICENSE
 
 rapids-logger "Begin c tarball creation"
-tar czf libcuvs_c.tar.gz -C c/build/install/ .
-ls -lh libcuvs_c.tar.gz
+"${REPO_ROOT}/build.sh" tarball

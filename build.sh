@@ -19,7 +19,7 @@ ARGS=$*
 # scripts, and that this script resides in the repo dir!
 REPODIR=$(cd "$(dirname "$0")"; pwd)
 
-VALIDARGS="clean libcuvs python rust go java lucene docs tests bench-ann examples --uninstall  -v -g -n --allgpuarch --no-mg --mnmg-tests --no-cpu --cpu-only --no-shared-libs --no-nvtx --show_depr_warn --incl-cache-stats --time -h --run-java-tests"
+VALIDARGS="clean libcuvs python rust go java lucene docs tests bench-ann examples tarball --tarball-build-tests --uninstall  -v -g -n --allgpuarch --no-mg --mnmg-tests --no-cpu --cpu-only --no-shared-libs --no-nvtx --show_depr_warn --incl-cache-stats --time -h --run-java-tests"
 HELP="$0 [<target> ...] [<flag> ...] [--cmake-args=\"<args>\"] [--cache-tool=<tool>] [--limit-tests=<targets>] [--limit-bench-ann=<targets>] [--build-metrics=<filename>]
  where <target> is:
    clean            - remove all existing build artifacts and configuration (start over)
@@ -34,6 +34,7 @@ HELP="$0 [<target> ...] [<flag> ...] [--cmake-args=\"<args>\"] [--cache-tool=<to
    tests            - build the tests
    bench-ann        - build end-to-end ann benchmarks
    examples         - build the examples
+   tarball          - build the standalone C library tarball with Docker
 
  and <flag> is:
    -v                          - verbose build mode
@@ -57,6 +58,7 @@ HELP="$0 [<target> ...] [<flag> ...] [--cmake-args=\"<args>\"] [--cache-tool=<to
    --no-shared-libs            - build without shared libraries
    --show_depr_warn            - show cmake deprecation warnings
    --run-java-tests            - run Java tests after building
+   --tarball-build-tests       - include the C library tests in the standalone tarball
    --build-metrics             - filename for generating build metrics report for libcuvs
    --incl-cache-stats          - include cache statistics in build metrics report
    --cmake-args=\\\"<args>\\\" - pass arbitrary list of CMake configuration options (escape all quotes in argument)
@@ -588,4 +590,47 @@ if hasArg examples; then
     pushd "${REPODIR}"/examples
     ./build.sh
     popd
+fi
+
+################################################################################
+# Build the standalone C library tarball (if requested)
+
+if hasArg tarball; then
+    if [[ "${CUVS_TARBALL_IN_CONTAINER:-0}" == "1" ]]; then
+        CUVS_TARBALL_BUILD_OUTPUT_DIR="${CUVS_TARBALL_BUILD_OUTPUT_DIR:-${REPODIR}}"
+        tar czf "${CUVS_TARBALL_BUILD_OUTPUT_DIR}/libcuvs_c.tar.gz" -C "${REPODIR}/c/build/install" .
+        ls -lh "${CUVS_TARBALL_BUILD_OUTPUT_DIR}/libcuvs_c.tar.gz"
+    else
+        CUVS_TARBALL_CUDA_VERSION="${CUVS_TARBALL_CUDA_VERSION:-13.3.0}"
+        CUVS_TARBALL_PYTHON_VERSION="${CUVS_TARBALL_PYTHON_VERSION:-3.11}"
+        CUVS_TARBALL_BUILD_OUTPUT_DIR="${CUVS_TARBALL_BUILD_OUTPUT_DIR:-${REPODIR}/build}"
+        CUVS_TARBALL_IMAGE_NAME="${CUVS_TARBALL_IMAGE_NAME:-cuvs-standalone-c}"
+
+        BUILD_ARGS=()
+        read -ra EXTRA_TARBALL_DOCKER_ARGS <<< "${EXTRA_TARBALL_DOCKER_ARGS:-}"
+        if hasArg --tarball-build-tests; then
+            BUILD_ARGS+=(--tarball-build-tests)
+        fi
+
+        mkdir -p "${CUVS_TARBALL_BUILD_OUTPUT_DIR}"
+        BUILD_OUTPUT_DIR_ABS=$(realpath "${CUVS_TARBALL_BUILD_OUTPUT_DIR}")
+
+        echo "Building Docker image ${CUVS_TARBALL_IMAGE_NAME} (CUDA ${CUVS_TARBALL_CUDA_VERSION}, Python ${CUVS_TARBALL_PYTHON_VERSION})..."
+        docker build -f "${REPODIR}/Dockerfile.standalone" \
+            --build-arg CUDA_VERSION="${CUVS_TARBALL_CUDA_VERSION}" \
+            --build-arg PYTHON_VERSION="${CUVS_TARBALL_PYTHON_VERSION}" \
+            -t "${CUVS_TARBALL_IMAGE_NAME}" \
+            "${REPODIR}"
+
+        echo "Running standalone C build in container..."
+        docker run --rm \
+            -v "${REPODIR}:/workspace" \
+            -v "${BUILD_OUTPUT_DIR_ABS}:/build" \
+            "${EXTRA_TARBALL_DOCKER_ARGS[@]}" \
+            "${CUVS_TARBALL_IMAGE_NAME}" \
+            "${BUILD_ARGS[@]}"
+
+        cp -v "${BUILD_OUTPUT_DIR_ABS}/libcuvs_c.tar.gz" "${REPODIR}/libcuvs_c.tar.gz"
+        echo "Copied libcuvs_c.tar.gz to ${REPODIR}/libcuvs_c.tar.gz"
+    fi
 fi

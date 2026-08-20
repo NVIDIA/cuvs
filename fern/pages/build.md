@@ -41,6 +41,125 @@ conda activate cuvs
 
 You may prefer `mamba` over `conda` for faster environment solves. The `conda/environments` directory also contains language-specific environment YAML files for narrower development environments. Conda is not required, but if you do not use it, install all required build dependencies explicitly before running `build.sh`.
 
+## Build the Standalone C Library with Docker
+
+<Note>
+The standalone tarball is built with Docker so that it uses the supported toolchain versions and the build remains portable and reproducible across all supported installation platforms.
+</Note>
+
+Use the standalone Docker build when you want a `libcuvs_c.tar.gz` archive that you can unpack and use to build your own C or C++ binaries for deployment or integration.
+
+### Prerequisites
+
+- Docker with support for the target platform: x86_64 or aarch64.
+- At least 16 GB of memory and 20 GB of free disk space available to Docker.
+- NVIDIA Container Toolkit and a GPU if you want to run GPU-dependent steps. The image is based on CUDA and may require GPU support at runtime.
+
+### Use the Helper Script
+
+From the repository root, run:
+
+```bash
+./build.sh tarball
+```
+
+The script builds the Docker image, runs the build in a container, writes the tarball to `./build/libcuvs_c.tar.gz`, and copies it to `./libcuvs_c.tar.gz` for CI artifact upload and convenience.
+
+The helper accepts the following environment variables:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `CUVS_TARBALL_CUDA_VERSION` | `13.3.0` | Selects the CUDA version in the `rapidsai/ci-wheel` base image. |
+| `CUVS_TARBALL_PYTHON_VERSION` | `3.11` | Selects the Python version in the `rapidsai/ci-wheel` base image. |
+| `CUVS_TARBALL_BUILD_OUTPUT_DIR` | `./build` | Selects the host directory where the tarball is written. |
+| `CUVS_TARBALL_IMAGE_NAME` | `cuvs-standalone-c` | Sets the name of the locally built Docker image. |
+| `EXTRA_TARBALL_DOCKER_ARGS` | Empty | Passes additional arguments to `docker run`, such as environment-variable names. |
+
+To select CUDA and Python versions, set environment variables to exact versions from a valid [`rapidsai/ci-wheel` image tag](https://hub.docker.com/r/rapidsai/ci-wheel/tags). For example:
+
+```bash
+CUVS_TARBALL_CUDA_VERSION=12.9.2 CUVS_TARBALL_PYTHON_VERSION=3.11 ./build.sh tarball
+```
+
+To change the local Docker image name, set `CUVS_TARBALL_IMAGE_NAME`:
+
+```bash
+CUVS_TARBALL_IMAGE_NAME=cuvs-standalone-custom ./build.sh tarball
+```
+
+To pass additional environment variables from the host into the build container, list their names as Docker arguments:
+
+```bash
+EXTRA_TARBALL_DOCKER_ARGS="--env HTTP_PROXY --env HTTPS_PROXY" ./build.sh tarball
+```
+
+To write the tarball to another directory, set `CUVS_TARBALL_BUILD_OUTPUT_DIR`:
+
+```bash
+CUVS_TARBALL_BUILD_OUTPUT_DIR="${PWD}/dist" ./build.sh tarball
+```
+
+The tarball is written to `${PWD}/dist/libcuvs_c.tar.gz` and is also copied to the repository root.
+
+To build and install the C library tests in the archive, pass `--tarball-build-tests`:
+
+```bash
+./build.sh tarball --tarball-build-tests
+```
+
+### Tarball Contents
+
+The archive contains the headers, libraries, CMake configuration, and license information needed to compile and link C or C++ applications against the standalone NVIDIA cuVS libraries.
+
+### Build and Run the Docker Image Manually
+
+If you do not want to use the helper script, build the image directly from the repository root:
+
+```bash
+docker build -f Dockerfile.standalone -t cuvs-standalone-c .
+```
+
+This command builds from the published `rapidsai/ci-wheel` base image and tags the resulting local image as `cuvs-standalone-c`. The following `docker run` examples use that same local tag; Docker does not pull an image named `cuvs-standalone-c` from a registry.
+
+Run the build and mount the repository plus an output directory:
+
+```bash
+mkdir -p build
+docker run --rm \
+  -v "${PWD}:/workspace" \
+  -v "${PWD}/build:/build" \
+  cuvs-standalone-c
+```
+
+To select different CUDA and Python versions, pass build arguments:
+
+```bash
+docker build -f Dockerfile.standalone \
+  --build-arg CUDA_VERSION=12.9.2 \
+  --build-arg PYTHON_VERSION=3.11 \
+  -t cuvs-standalone-c .
+```
+
+Mount another host directory at `/build` to change the output location:
+
+```bash
+mkdir -p "${PWD}/dist"
+docker run --rm \
+  -v "${PWD}:/workspace" \
+  -v "${PWD}/dist:/build" \
+  cuvs-standalone-c
+```
+
+Pass `--tarball-build-tests` to include the C library tests:
+
+```bash
+mkdir -p build
+docker run --rm \
+  -v "${PWD}:/workspace" \
+  -v "${PWD}/build:/build" \
+  cuvs-standalone-c --tarball-build-tests
+```
+
 ## Documentation Preview
 
 The NVIDIA cuVS documentation is a Fern project in the repository's `fern` directory. Fern requires Node.js 22 or newer. If the docs fail with an error such as `SyntaxError: Unexpected token '.'`, check `node --version` and activate a newer Node.js runtime.
