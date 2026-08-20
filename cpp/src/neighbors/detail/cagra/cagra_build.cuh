@@ -972,6 +972,30 @@ bool ace_check_use_disk_mode(raft::resources const& res,
   return use_disk_mode;
 }
 
+// Resolve the ACE partition count while preserving 0 as the auto-selection sentinel.
+inline size_t ace_resolve_partition_count(size_t n_partitions)
+{
+  if (n_partitions == 0) { return 2; }
+  if (n_partitions == 1) {
+    RAFT_LOG_WARN(
+      "ACE: Requested 1 partition; adjusted to 2 before applying partitioning heuristics");
+    return 2;
+  }
+  return n_partitions;
+}
+
+// Validate the structural ACE partition-count invariants required by the labeler.
+inline void ace_validate_partition_count(size_t n_partitions,
+                                         size_t dataset_size,
+                                         bool adjusted_for_memory = false)
+{
+  RAFT_EXPECTS(n_partitions <= dataset_size,
+               adjusted_for_memory
+                 ? "ACE: configured memory limit is unsatisfiable because the requested partition "
+                   "count cannot exceed dataset size"
+                 : "ACE: number of partitions cannot exceed dataset size");
+}
+
 // Validate and adjust partitions for disk mode memory requirements
 template <typename T, typename IdxT>
 void ace_validate_disk_mode_partitions(raft::resources const& res,
@@ -1182,11 +1206,9 @@ auto build_ace(raft::resources const& res, const index_params& params, DatasetVi
                "ACE: Intermediate graph degree must be greater than 0");
   RAFT_EXPECTS(params.graph_degree > 0, "ACE: Graph degree must be greater than 0");
 
-  size_t n_partitions = npartitions;
-  if (n_partitions == 0) {
-    // Default: start with 2 partitions and increase if needed (minimum for ACE to make sense).
-    n_partitions = 2;
-  }
+  size_t n_partitions = ace_resolve_partition_count(npartitions);
+
+  ace_validate_partition_count(n_partitions, dataset_size);
 
   size_t min_required_per_partition = 1000;
   if (n_partitions > dataset_size / min_required_per_partition) {
@@ -1239,6 +1261,7 @@ auto build_ace(raft::resources const& res, const index_params& params, DatasetVi
                                                  graph_degree,
                                                  params.guarantee_connectivity,
                                                  mem);
+      ace_validate_partition_count(n_partitions, dataset_size, true);
     }
 
     // Preallocate space for files for better performance and fail early if not enough space.
