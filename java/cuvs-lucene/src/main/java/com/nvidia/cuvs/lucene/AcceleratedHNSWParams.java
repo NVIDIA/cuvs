@@ -59,13 +59,14 @@ public class AcceleratedHNSWParams {
   public static final int DEFAULT_MAX_CONN = 32;
   public static final int DEFAULT_BEAM_WIDTH = 32;
   public static final CagraGraphBuildAlgo DEFAULT_CAGRA_GRAPH_BUILD_ALGO =
-      CagraGraphBuildAlgo.NN_DESCENT;
+      CagraGraphBuildAlgo.AUTO_SELECT;
   public static final int DEFAULT_NUM_MERGE_WORKERS = 1;
   public static final Strategy DEFAULT_STRATEGY = Strategy.HEURISTIC;
   public static final CuvsDistanceType DEFAULT_CUVS_DISTANCE_TYPE = CuvsDistanceType.L2Expanded;
   public static final int DEFAULT_NN_DESCENT_NUM_ITERATIONS = 20;
   public static final HnswHeuristicType DEFAULT_HNSW_HEURISTIC_TYPE =
       HnswHeuristicType.SAME_GRAPH_FOOTPRINT;
+  public static final int DEFAULT_NUM_INPUT_VECTORS = 0;
 
   public static final Supplier<CuVSIvfPqParams> DEFAULT_IVF_PQ_PARAMS =
       () -> {
@@ -85,12 +86,14 @@ public class AcceleratedHNSWParams {
   private final int beamWidth;
   private final CagraGraphBuildAlgo cagraGraphBuildAlgo;
   private final CuVSIvfPqParams cuVSIvfPqParams;
+  private final boolean cuVSIvfPqParamsExplicit;
   private final int numMergeWorkers;
   private final ExecutorService mergeExec;
   private final Strategy strategy;
   private final CuvsDistanceType cuvsDistanceType;
   private final int nnDescentNumIterations;
   private final HnswHeuristicType hnswHeuristicType;
+  private final int numInputVectors;
 
   /**
    * Constructs an instance of {@link AcceleratedHNSWParams} with specific parameter values.
@@ -103,12 +106,16 @@ public class AcceleratedHNSWParams {
    * @param beamWidth The beam width parameter used when building HNSW index with the fallback mechanism.
    * @param cagraGraphBuildAlgo The CAGRA graph build algorithm to use [NN_DESCENT, IVF_PQ].
    * @param cuVSIvfPqParams An instance of CuVSIvfPqParams containing IVF_PQ specific parameters.
+   * @param cuVSIvfPqParamsExplicit whether cuVSIvfPqParams was set explicitly by the caller, as
+   *     opposed to defaulted; consulted under HEURISTIC with an explicit IVF_PQ override so a
+   *     caller-supplied value is honored instead of silently replaced by the auto-tuned one.
    * @param numMergeWorkers The number of merge workers to use with the fallback mechanism.
    * @param mergeExec The instance of {@link ExecutorService} to use with the fallback mechanism.
    * @param strategy either HEURISTIC [Default] that delegates the CAGRA build parameters to cuVS (derived from the HNSW-equivalent maxConn and beamWidth) or CUSTOM that uses the parameters passed through this class.
    * @param cuvsDistanceType the cuvsDistanceType. The default option is L2Expanded.
    * @param nnDescentNumIterations the number of Iterations to run if building with NN_DESCENT.
    * @param hnswHeuristicType the heuristic cuVS applies when deriving the CAGRA build parameters from maxConn and beamWidth under the HEURISTIC strategy.
+   * @param numInputVectors exact number of vectors to be indexed, used to pre-size the native flat buffer (0 = disabled).
    */
   private AcceleratedHNSWParams(
       int writerThreads,
@@ -119,12 +126,14 @@ public class AcceleratedHNSWParams {
       int beamWidth,
       CagraGraphBuildAlgo cagraGraphBuildAlgo,
       CuVSIvfPqParams cuVSIvfPqParams,
+      boolean cuVSIvfPqParamsExplicit,
       int numMergeWorkers,
       ExecutorService mergeExec,
       Strategy strategy,
       CuvsDistanceType cuvsDistanceType,
       int nnDescentNumIterations,
-      HnswHeuristicType hnswHeuristicType) {
+      HnswHeuristicType hnswHeuristicType,
+      int numInputVectors) {
     super();
     this.writerThreads = writerThreads;
     this.intermediateGraphDegree = intermediateGraphDegree;
@@ -134,12 +143,14 @@ public class AcceleratedHNSWParams {
     this.beamWidth = beamWidth;
     this.cagraGraphBuildAlgo = cagraGraphBuildAlgo;
     this.cuVSIvfPqParams = cuVSIvfPqParams;
+    this.cuVSIvfPqParamsExplicit = cuVSIvfPqParamsExplicit;
     this.numMergeWorkers = numMergeWorkers;
     this.mergeExec = mergeExec;
     this.strategy = strategy;
     this.cuvsDistanceType = cuvsDistanceType;
     this.nnDescentNumIterations = nnDescentNumIterations;
     this.hnswHeuristicType = hnswHeuristicType;
+    this.numInputVectors = numInputVectors;
   }
 
   /**
@@ -215,6 +226,16 @@ public class AcceleratedHNSWParams {
   }
 
   /**
+   * Whether {@link #getCuVSIvfPqParams()} was set explicitly via {@link
+   * Builder#withCuVSIvfPqParams(CuVSIvfPqParams)}, as opposed to defaulted.
+   *
+   * @return true if the caller explicitly set cuVSIvfPqParams
+   */
+  public boolean isCuVSIvfPqParamsExplicit() {
+    return cuVSIvfPqParamsExplicit;
+  }
+
+  /**
    * Get the number of merge workers set to be used in the fallback mechanism
    *
    * @return the number of merge workers
@@ -272,6 +293,17 @@ public class AcceleratedHNSWParams {
     return hnswHeuristicType;
   }
 
+  /**
+   * Get the number of input vectors used to pre-size the native flat buffer. A value of
+   * {@value DEFAULT_NUM_INPUT_VECTORS} means unset (the writer uses the default heap-buffered
+   * flat path).
+   *
+   * @return the number of vectors to be indexed, or 0 if unset
+   */
+  public int getNumInputVectors() {
+    return numInputVectors;
+  }
+
   @Override
   public String toString() {
     return "AcceleratedHNSWParams [writerThreads="
@@ -302,6 +334,8 @@ public class AcceleratedHNSWParams {
         + nnDescentNumIterations
         + ", hnswHeuristicType="
         + hnswHeuristicType
+        + ", numInputVectors="
+        + numInputVectors
         + "]";
   }
 
@@ -319,11 +353,13 @@ public class AcceleratedHNSWParams {
     private CagraGraphBuildAlgo cagraGraphBuildAlgo = DEFAULT_CAGRA_GRAPH_BUILD_ALGO;
     private int numMergeWorkers = DEFAULT_NUM_MERGE_WORKERS;
     private CuVSIvfPqParams cuVSIvfPqParams = null;
+    private boolean cuVSIvfPqParamsExplicit = false;
     private ExecutorService mergeExec = null;
     private Strategy strategy = DEFAULT_STRATEGY;
     private CuvsDistanceType cuvsDistanceType = DEFAULT_CUVS_DISTANCE_TYPE;
     private int nnDescentNumIterations = DEFAULT_NN_DESCENT_NUM_ITERATIONS;
     private HnswHeuristicType hnswHeuristicType = DEFAULT_HNSW_HEURISTIC_TYPE;
+    private int numInputVectors = DEFAULT_NUM_INPUT_VECTORS;
 
     /**
      * Set the number of cuVS writer threads while building the index
@@ -423,6 +459,7 @@ public class AcceleratedHNSWParams {
      */
     public Builder withCuVSIvfPqParams(CuVSIvfPqParams cuVSIvfPqParams) {
       this.cuVSIvfPqParams = cuVSIvfPqParams;
+      this.cuVSIvfPqParamsExplicit = true;
       return this;
     }
 
@@ -504,6 +541,23 @@ public class AcceleratedHNSWParams {
      */
     public Builder withHnswHeuristicType(HnswHeuristicType hnswHeuristicType) {
       this.hnswHeuristicType = hnswHeuristicType;
+      return this;
+    }
+
+    /**
+     * Set the exact number of vectors to be indexed, used to pre-allocate a single contiguous
+     * native flat buffer (avoiding the on-heap {@code List<float[]>} and the extra host-matrix
+     * copy). The native buffer is sized for exactly this many rows, so the value MUST equal the
+     * number of vectors actually added; the writer fails fast otherwise. Only supported for the
+     * unsorted single-segment CAGRA_HNSW build (no merges). Not yet supported for the
+     * binary/scalar quantized writers. A value of {@value DEFAULT_NUM_INPUT_VECTORS} (the
+     * default) disables it and uses the default heap-buffered flat path.
+     *
+     * @param numInputVectors the exact number of vectors to be indexed, or 0 to disable
+     * @return instance of {@link Builder}
+     */
+    public Builder withNumInputVectors(int numInputVectors) {
+      this.numInputVectors = numInputVectors;
       return this;
     }
 
@@ -591,6 +645,9 @@ public class AcceleratedHNSWParams {
                 + MAX_NN_DESCENT_NUM_ITERATIONS
                 + "]");
       }
+      if (numInputVectors < 0) {
+        throw new IllegalArgumentException("numInputVectors cannot be negative.");
+      }
     }
 
     /**
@@ -615,12 +672,14 @@ public class AcceleratedHNSWParams {
           beamWidth,
           cagraGraphBuildAlgo,
           cuVSIvfPqParams,
+          cuVSIvfPqParamsExplicit,
           numMergeWorkers,
           mergeExec,
           strategy,
           cuvsDistanceType,
           nnDescentNumIterations,
-          hnswHeuristicType);
+          hnswHeuristicType,
+          numInputVectors);
     }
   }
 }

@@ -74,7 +74,10 @@ public class Lucene99AcceleratedHNSWVectorsFormat extends KnnVectorsFormat {
    */
   @Override
   public KnnVectorsWriter fieldsWriter(SegmentWriteState state) throws IOException {
-    var flatWriter = FLAT_VECTORS_FORMAT.fieldsWriter(state);
+    // In hint mode the accelerated writer owns the flat .vec/.vemf files, so the Lucene flat writer
+    // must not be created (it would open the same outputs). The fallback path below still needs it.
+    boolean nativeMode = isSupported() && acceleratedHNSWParams.getNumInputVectors() > 0;
+    var flatWriter = nativeMode ? null : FLAT_VECTORS_FORMAT.fieldsWriter(state);
     if (isSupported()) {
       log.log(Level.FINE, "cuVS is supported so using the Lucene99AcceleratedHNSWVectorsWriter");
       return new Lucene99AcceleratedHNSWVectorsWriter(state, acceleratedHNSWParams, flatWriter);
