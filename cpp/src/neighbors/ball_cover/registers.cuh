@@ -579,6 +579,7 @@ RAFT_KERNEL block_rbc_kernel_eps_csr_pass(const value_t* X_reordered,
                                           distance_func dfunc,
                                           value_idx* adj_ia,
                                           value_idx* adj_ja,
+                                          value_t* dists,
                                           bool write_pass)
 {
   constexpr int num_warps = tpb / raft::WarpSize;
@@ -600,6 +601,7 @@ RAFT_KERNEL block_rbc_kernel_eps_csr_pass(const value_t* X_reordered,
     // we have no neighbors to fill for this query
     if (offset == adj_ia[query_id + 1]) return;
     adj_ja += offset;
+    if (dists != nullptr) { dists += offset; }
   }
 
   const value_t* x_ptr = X + (n_cols * query_id);
@@ -658,8 +660,11 @@ RAFT_KERNEL block_rbc_kernel_eps_csr_pass(const value_t* X_reordered,
             const uint32_t index   = R_1nn_cols[R_start_offset + i];
             const uint32_t row_pos = __popc(mask & lid_mask);
             adj_ja[row_pos]        = index;
+            if (dists != nullptr) { dists[row_pos] = dist; }
           }
-          adj_ja += __popc(mask);
+          const int offset = __popc(mask);
+          adj_ja += offset;
+          if (dists != nullptr) { dists += offset; }
         } else {
           column_index_offset += (in_range);
         }
@@ -681,8 +686,11 @@ RAFT_KERNEL block_rbc_kernel_eps_csr_pass(const value_t* X_reordered,
             const uint32_t index   = R_1nn_cols[R_start_offset + i0 + lid];
             const uint32_t row_pos = __popc(mask & lid_mask);
             adj_ja[row_pos]        = index;
+            if (dists != nullptr) { dists[row_pos] = dist; }
           }
-          adj_ja += __popc(mask);
+          const int offset = __popc(mask);
+          adj_ja += offset;
+          if (dists != nullptr) { dists += offset; }
         } else {
           column_index_offset += (in_range);
         }
@@ -718,6 +726,7 @@ RAFT_KERNEL __launch_bounds__(tpb)
                                    distance_func dfunc,
                                    value_idx* __restrict__ adj_ia,
                                    value_idx* __restrict__ adj_ja,
+                                   value_t* __restrict__ dists,
                                    bool write_pass,
                                    int dim)
 {
@@ -740,6 +749,7 @@ RAFT_KERNEL __launch_bounds__(tpb)
     // we have no neighbors to fill for this query
     if (offset == adj_ia[query_id + 1]) return;
     adj_ja += offset;
+    if (dists != nullptr) { dists += offset; }
   }
 
   const value_t* x_ptr = X + (dim * query_id);
@@ -803,8 +813,11 @@ RAFT_KERNEL __launch_bounds__(tpb)
             const uint32_t index   = R_1nn_cols[R_start_offset + i];
             const uint32_t row_pos = __popc(mask & lid_mask);
             adj_ja[row_pos]        = index;
+            if (dists != nullptr) { dists[row_pos] = dist; }
           }
-          adj_ja += __popc(mask);
+          const int offset = __popc(mask);
+          adj_ja += offset;
+          if (dists != nullptr) { dists += offset; }
         } else {
           column_index_offset += (in_range);
         }
@@ -826,8 +839,11 @@ RAFT_KERNEL __launch_bounds__(tpb)
             const uint32_t index   = R_1nn_cols[R_start_offset + i0 + lid];
             const uint32_t row_pos = __popc(mask & lid_mask);
             adj_ja[row_pos]        = index;
+            if (dists != nullptr) { dists[row_pos] = dist; }
           }
-          adj_ja += __popc(mask);
+          const int offset = __popc(mask);
+          adj_ja += offset;
+          if (dists != nullptr) { dists += offset; }
         } else {
           column_index_offset += (in_range);
         }
@@ -862,7 +878,8 @@ RAFT_KERNEL block_rbc_kernel_eps_max_k(const value_t* X_reordered,
                                        distance_func dfunc,
                                        value_idx* vd,
                                        int64_t max_k,
-                                       value_idx* tmp)
+                                       value_idx* tmp,
+                                       value_t* dists)
 {
   constexpr int num_warps = tpb / raft::WarpSize;
 
@@ -880,6 +897,7 @@ RAFT_KERNEL block_rbc_kernel_eps_max_k(const value_t* X_reordered,
 
   const value_t* x_ptr = X + (n_cols * query_id);
   tmp += query_id * max_k;
+  if (dists != nullptr) { dists += query_id * max_k; }
 
   // we omit the sqrt() in the inner distance compute
   const value_t eps2 = eps * eps;
@@ -936,6 +954,7 @@ RAFT_KERNEL block_rbc_kernel_eps_max_k(const value_t* X_reordered,
           if (row_pos < max_k) {
             auto index   = R_1nn_cols[R_start_offset + i];
             tmp[row_pos] = index;
+            if (dists != nullptr) { dists[row_pos] = dist; }
           }
         }
         column_count += __popc(mask);
@@ -958,6 +977,7 @@ RAFT_KERNEL block_rbc_kernel_eps_max_k(const value_t* X_reordered,
           if (row_pos < max_k) {
             auto index   = R_1nn_cols[R_start_offset + i0 + lid];
             tmp[row_pos] = index;
+            if (dists != nullptr) { dists[row_pos] = dist; }
           }
         }
         column_count += __popc(mask);
@@ -1313,7 +1333,8 @@ void rbc_eps_pass(raft::resources const& handle,
                   dist_func& dfunc,
                   value_idx* adj_ia,
                   value_idx* adj_ja,
-                  value_idx* vd)
+                  value_idx* vd,
+                  value_t* dists)
 {
   // if max_k == nullptr we are either pass 1 or pass 2
   if (max_k == nullptr) {
@@ -1340,6 +1361,7 @@ void rbc_eps_pass(raft::resources const& handle,
                                                         dfunc,
                                                         vd_ptr,
                                                         nullptr,
+                                                        nullptr,
                                                         false,
                                                         index.n);
       } else {
@@ -1362,6 +1384,7 @@ void rbc_eps_pass(raft::resources const& handle,
                                                         dfunc,
                                                         vd_ptr,
                                                         nullptr,
+                                                        nullptr,
                                                         false);
       }
 
@@ -1372,7 +1395,7 @@ void rbc_eps_pass(raft::resources const& handle,
                              (value_idx)0);
 
     } else {
-      // pass 2 -> fill in adj_ja
+      // pass 2 -> fill in adj_ja and dists (if provided)
       if (index.n == 2 || index.n == 3) {
         block_rbc_kernel_eps_csr_pass_xd<value_idx, value_t, 64>
           <<<raft::ceildiv<int64_t>(n_query_rows, 2),
@@ -1393,6 +1416,7 @@ void rbc_eps_pass(raft::resources const& handle,
                                                         dfunc,
                                                         adj_ia,
                                                         adj_ja,
+                                                        dists,
                                                         true,
                                                         index.n);
       } else {
@@ -1413,6 +1437,7 @@ void rbc_eps_pass(raft::resources const& handle,
             dfunc,
             adj_ia,
             adj_ja,
+            dists,
             true);
       }
     }
@@ -1440,7 +1465,8 @@ void rbc_eps_pass(raft::resources const& handle,
         dfunc,
         vd_ptr,
         max_k_in,
-        tmp.data());
+        tmp.data(),
+        dists);
 
     int64_t actual_max = thrust::reduce(raft::resource::get_thrust_policy(handle),
                                         vd_ptr,
