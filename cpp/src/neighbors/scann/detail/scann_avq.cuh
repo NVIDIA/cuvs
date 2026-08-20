@@ -633,7 +633,6 @@ void apply_avq(raft::resources const& res,
                         rescale_denom.view(),
                         cluster_offsets.view(),
                         dataset.extent(0));
-
   raft::resource::sync_stream(res);
 }
 }  // namespace cuvs::neighbors::experimental::scann::detail
