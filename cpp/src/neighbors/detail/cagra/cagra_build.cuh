@@ -1482,12 +1482,21 @@ auto build_ace(raft::resources const& res, const index_params& params, DatasetVi
                                                             reordered_header_size,
                                                             augmented_header_size,
                                                             sub_dataset_tight.data_handle());
-              read_end             = std::chrono::high_resolution_clock::now();
-              auto sub_dataset_dev = cuvs::neighbors::make_device_padded_dataset(
-                res, raft::make_const_mdspan(sub_dataset_tight.view()));
+              read_end              = std::chrono::high_resolution_clock::now();
+              auto sub_dataset_view = raft::make_const_mdspan(sub_dataset_tight.view());
+              std::unique_ptr<cuvs::neighbors::device_padded_dataset<T, int64_t>>
+                sub_dataset_padded;
+              auto sub_dataset_dev = [&]() {
+                if (cuvs::neighbors::matrix_row_width_matches_cagra_required(sub_dataset_view)) {
+                  return cuvs::neighbors::make_device_padded_dataset_view(res, sub_dataset_view);
+                }
+                sub_dataset_padded =
+                  cuvs::neighbors::make_device_padded_dataset(res, sub_dataset_view);
+                return sub_dataset_padded->as_dataset_view();
+              }();
               auto direct_index =
                 ::cuvs::neighbors::cagra::detail::build_from_device_matrix<T, IdxT>(
-                  res, sub_index_params, sub_dataset_dev->as_dataset_view());
+                  res, sub_index_params, sub_dataset_dev);
               used_device_read = true;
               return sub_index_t{std::in_place_type<device_sub_index_t>, std::move(direct_index)};
             } catch (const std::bad_alloc& e) {
