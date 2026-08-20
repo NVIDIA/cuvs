@@ -1063,6 +1063,10 @@ void dispatch_serialized_dataset_kind(
       fn.template operator()<
           cuvs::neighbors::device_padded_dataset_view<T, int64_t>>();
       break;
+    // Unreachable: read_serialized_header rejects this kind before the dispatch, since
+    // cuvsDatasetLayout_t has no PQ-compressed layout to hand back. Listed only because the switch
+    // is exhaustive and -Wswitch is an error. Delete it when the C API gains the layout.
+    case serialized_kind::device_pq: break;
   }
 }
 

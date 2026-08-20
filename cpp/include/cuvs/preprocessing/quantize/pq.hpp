@@ -14,6 +14,9 @@
 
 #include <cuda_runtime.h>
 #include <cuvs/core/export.hpp>
+#include <iosfwd>
+#include <memory>
+#include <string>
 #include <type_traits>
 #include <variant>
 
@@ -279,6 +282,15 @@ namespace detail {
  * dense dataset is never staged on the device in full; they must be tightly packed. Empty sources
  * are rejected. The element type must be `float`, `half`, `int8_t` or `uint8_t`.
  *
+ * Only the input streams. The result is a single device allocation of `n_rows` encoded rows, so the
+ * compressed dataset has to fit in whatever the current device memory resource can serve, and there
+ * is no host-resident output to fall back on: nothing produces, searches or serializes the
+ * `host_vpq_dataset` type today. A row is `sizeof(uint32_t) + pq_dim * pq_bits / 8` bytes rounded
+ * up to a multiple of 4, so at `pq_bits = 8` and `pq_dim = 384` a hundred million rows come to
+ * about 39 GB, and a billion rows exceed any single device. Past that point the options are an
+ * oversubscribed (managed) memory resource, which is enough to encode and serialize but not to
+ * search, or sharding the rows and merging the search results.
+ *
  * Typical **CAGRA** usage: build the graph on dense vectors, then attach VPQ for search (metric
  * must remain `L2Expanded` for this path). Train VPQ from the same CAGRA-padded device layout you
  * used for graph build, keep the `device_vpq_dataset` alive, and call
@@ -330,6 +342,88 @@ template <typename SrcT>
       res, params, src.data_handle(), raft::get_cuda_data_type<value_type>(), n_rows, dim, stride);
   }
 }
+
+/** Current VPQ dataset serialization format version. */
+inline constexpr int pq_serialization_version = 1;
+
+/**
+ * @brief Write a VPQ dataset (both codebooks plus the encoded rows) to a stream.
+ *
+ * Lets compression be done once, offline, and reused: a CAGRA graph over a compressed dataset
+ * builds and searches on the encoded rows, so storing them removes the need to keep the dense
+ * vectors around or to re-quantize them on every run.
+ *
+ * The file opens with the same preamble as `cagra::serialize` — a 4-byte NumPy dtype prefix then
+ * `pq_serialization_version` — followed by a dataset kind tag and the codebook element type. A
+ * file of the wrong kind, or one written by an older format, is rejected rather than misread. Bump
+ * the version whenever the encoded row layout changes, since that layout is a library convention
+ * and is not otherwise described by the file.
+ *
+ * Writing copies the encoded rows to the host in one piece, as `raft::serialize_mdspan` does for
+ * any device matrix: it allocates a host buffer the size of those rows alongside the device copy
+ * it reads from, and frees it afterwards. The two codebooks go the same way and are small. Reading
+ * is the mirror image, host buffer first and then a copy to the device. So a file costs the encoded
+ * rows twice while it is being written or read, once on each side, and neither direction streams.
+ *
+ * @code{.cpp}
+ * #include <cuvs/neighbors/cagra.hpp>
+ * #include <cuvs/preprocessing/quantize/pq.hpp>
+ *
+ * // Offline, once.
+ * auto vpq = cuvs::preprocessing::quantize::pq::make_vpq_dataset(res, vpq_params, rows);
+ * cuvs::preprocessing::quantize::pq::serialize(res, vpq, "base.vpq");
+ *
+ * // Later, per run: load the compressed rows and build a CAGRA graph over them.
+ * std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>> loaded;
+ * cuvs::preprocessing::quantize::pq::deserialize(res, "base.vpq", &loaded);
+ * auto index = cuvs::neighbors::cagra::build(res, index_params, loaded->as_dataset_view());
+ * // `loaded` must outlive `index`, which only holds a view of it.
+ * @endcode
+ *
+ * @param[in] res raft resource
+ * @param[in] dataset the VPQ dataset to write
+ * @param[out] os output stream, opened in binary mode
+ */
+void serialize(raft::resources const& res,
+               const cuvs::neighbors::device_vpq_dataset<half, int64_t>& dataset,
+               std::ostream& os);
+
+/**
+ * @copydoc serialize
+ *
+ * @param[in] res raft resource
+ * @param[in] dataset the VPQ dataset to write
+ * @param[out] filename path to write, truncated if it exists
+ */
+void serialize(raft::resources const& res,
+               const cuvs::neighbors::device_vpq_dataset<half, int64_t>& dataset,
+               const std::string& filename);
+
+/**
+ * @brief Read a VPQ dataset written by `serialize`.
+ *
+ * Returned through an out-parameter because the dataset owns device allocations and has no default
+ * constructor, matching how `cagra::deserialize` hands back its dataset. Throws if the blob was not
+ * written by `serialize` or holds codebooks of a different element type.
+ *
+ * @param[in] res raft resource
+ * @param[in] is input stream, opened in binary mode
+ * @param[out] out_dataset receives the loaded dataset; must not be null
+ */
+void deserialize(raft::resources const& res,
+                 std::istream& is,
+                 std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>* out_dataset);
+
+/**
+ * @copydoc deserialize
+ *
+ * @param[in] res raft resource
+ * @param[in] filename path to read
+ * @param[out] out_dataset receives the loaded dataset; must not be null
+ */
+void deserialize(raft::resources const& res,
+                 const std::string& filename,
+                 std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>* out_dataset);
 
 /** @} */  // end of group product
 

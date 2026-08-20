@@ -188,43 +188,68 @@ auto deserialize_dense_payload_metadata(raft::resources const& res, std::istream
   return {n_rows, dim, stride, elements};
 }
 
-template <typename DataT, typename IdxT>
-void skip_dense_payload(raft::resources const& res, std::istream& is)
+/** Advance past `count` bytes, by seeking where the stream allows it and by reading them off where
+ * it does not. */
+inline void skip_bytes(std::istream& is, std::size_t count, char const* context)
 {
-  auto const metadata = deserialize_dense_payload_metadata<DataT, IdxT>(res, is);
-  RAFT_EXPECTS(metadata.elements <= std::numeric_limits<std::size_t>::max() / sizeof(DataT),
-               "skip_dense_payload: byte count overflow");
-  auto remaining = metadata.elements * sizeof(DataT);
-
   using pos_type              = std::istream::pos_type;
   using off_type              = std::istream::off_type;
   auto* buffer                = is.rdbuf();
   auto const invalid_position = pos_type{off_type{-1}};
   auto const current          = buffer->pubseekoff(0, std::ios_base::cur, std::ios_base::in);
   if (current != invalid_position &&
-      remaining <= static_cast<std::size_t>(std::numeric_limits<off_type>::max())) {
+      count <= static_cast<std::size_t>(std::numeric_limits<off_type>::max())) {
     auto const end = buffer->pubseekoff(0, std::ios_base::end, std::ios_base::in);
     if (end != invalid_position) {
       auto const available = end - current;
-      RAFT_EXPECTS(available >= 0 && static_cast<std::size_t>(available) >= remaining,
-                   "skip_dense_payload: truncated payload");
+      RAFT_EXPECTS(available >= 0 && static_cast<std::size_t>(available) >= count,
+                   "%s: truncated payload",
+                   context);
       auto const next =
-        buffer->pubseekpos(current + static_cast<off_type>(remaining), std::ios_base::in);
-      RAFT_EXPECTS(next != invalid_position, "skip_dense_payload: failed to seek past payload");
+        buffer->pubseekpos(current + static_cast<off_type>(count), std::ios_base::in);
+      RAFT_EXPECTS(next != invalid_position, "%s: failed to seek past payload", context);
       return;
     }
     RAFT_EXPECTS(buffer->pubseekpos(current, std::ios_base::in) != invalid_position,
-                 "skip_dense_payload: failed to restore stream position");
+                 "%s: failed to restore stream position",
+                 context);
   }
 
   std::array<char, 64 * 1024> discard_buffer{};
-  while (remaining > 0) {
-    auto const chunk = std::min<std::size_t>(remaining, discard_buffer.size());
+  while (count > 0) {
+    auto const chunk = std::min<std::size_t>(count, discard_buffer.size());
     is.read(discard_buffer.data(), static_cast<std::streamsize>(chunk));
-    RAFT_EXPECTS(static_cast<std::size_t>(is.gcount()) == chunk,
-                 "skip_dense_payload: truncated payload");
-    remaining -= chunk;
+    RAFT_EXPECTS(static_cast<std::size_t>(is.gcount()) == chunk, "%s: truncated payload", context);
+    count -= chunk;
   }
+}
+
+/** Advance past one `raft::serialize_mdspan` payload, whose NumPy header states its own size. */
+inline void skip_serialized_mdspan(std::istream& is, char const* context)
+{
+  auto const header    = raft::numpy_serializer::read_header(is);
+  std::size_t elements = 1;
+  for (auto const extent : header.shape) {
+    auto const dimension = static_cast<std::size_t>(extent);
+    RAFT_EXPECTS(dimension == 0 || elements <= std::numeric_limits<std::size_t>::max() / dimension,
+                 "%s: element count overflow",
+                 context);
+    elements *= dimension;
+  }
+  auto const itemsize = static_cast<std::size_t>(header.dtype.itemsize);
+  RAFT_EXPECTS(itemsize == 0 || elements <= std::numeric_limits<std::size_t>::max() / itemsize,
+               "%s: byte count overflow",
+               context);
+  skip_bytes(is, elements * itemsize, context);
+}
+
+template <typename DataT, typename IdxT>
+void skip_dense_payload(raft::resources const& res, std::istream& is)
+{
+  auto const metadata = deserialize_dense_payload_metadata<DataT, IdxT>(res, is);
+  RAFT_EXPECTS(metadata.elements <= std::numeric_limits<std::size_t>::max() / sizeof(DataT),
+               "skip_dense_payload: byte count overflow");
+  skip_bytes(is, metadata.elements * sizeof(DataT), "skip_dense_payload");
 }
 
 template <typename DataT, typename IdxT, typename OwningDatasetT>
@@ -279,6 +304,40 @@ auto deserialize_host_dense(raft::resources const& res, std::istream& is)
   return std::make_unique<OwningDatasetT>(std::move(storage), metadata.dim);
 }
 
+/** VPQ codebooks are floating point; the encoded rows are always uint8 and carry no dtype. */
+template <typename DataT>
+constexpr auto pq_wire_dtype() -> cudaDataType_t
+{
+  static_assert(std::is_same_v<DataT, float> || std::is_same_v<DataT, half>,
+                "serialize_pq: codebook element type must be float or half");
+  return std::is_same_v<DataT, half> ? CUDA_R_16F : CUDA_R_32F;
+}
+
+/**
+ * Write the payload of a VPQ dataset: six scalars followed by the two codebooks and the encoded
+ * rows.
+ *
+ * Stays on `raft::serialize_mdspan` rather than the `write_dense_bytes` scheme used by the dense
+ * path above, because `deserialize_vpq` reads with `raft::deserialize_mdspan`, which expects the
+ * NumPy header that helper embeds per matrix. The scalar types must also match the reader exactly:
+ * `n_rows` is `IdxT` and the remaining five are `uint32_t`.
+ */
+template <typename DataT, typename IdxT>
+void serialize_pq(raft::resources const& res,
+                  device_vpq_dataset<DataT, IdxT> const& dataset,
+                  std::ostream& os)
+{
+  raft::serialize_scalar(res, os, dataset.n_rows());
+  raft::serialize_scalar(res, os, dataset.dim());
+  raft::serialize_scalar(res, os, dataset.vq_n_centers());
+  raft::serialize_scalar(res, os, dataset.pq_n_centers());
+  raft::serialize_scalar(res, os, dataset.pq_len());
+  raft::serialize_scalar(res, os, dataset.encoded_row_length());
+  raft::serialize_mdspan(res, os, raft::make_const_mdspan(dataset.vq_code_book.view()));
+  raft::serialize_mdspan(res, os, raft::make_const_mdspan(dataset.pq_code_book.view()));
+  raft::serialize_mdspan(res, os, raft::make_const_mdspan(dataset.data.view()));
+}
+
 template <typename DataT, typename IdxT>
 auto deserialize_vpq(raft::resources const& res, std::istream& is)
   -> std::unique_ptr<device_vpq_dataset<DataT, IdxT>>
@@ -303,6 +362,41 @@ auto deserialize_vpq(raft::resources const& res, std::istream& is)
 
   return std::make_unique<device_vpq_dataset<DataT, IdxT>>(
     std::move(vq_code_book), std::move(pq_code_book), std::move(data));
+}
+
+/**
+ * Write a self-describing VPQ dataset blob: tag + codebook dtype + payload.
+ *
+ * The tag and dtype are deliberately written here rather than inside `serialize_pq`, mirroring how
+ * `serialize_cagra_dense_dataset` wraps the dense payload, so that a reader can identify the blob
+ * before committing to a `DataT`.
+ */
+template <typename DataT, typename IdxT>
+void serialize_pq_dataset(raft::resources const& res,
+                          device_vpq_dataset<DataT, IdxT> const& dataset,
+                          std::ostream& os)
+{
+  raft::serialize_scalar(res, os, kSerializeVPQDataset);
+  raft::serialize_scalar(res, os, pq_wire_dtype<DataT>());
+  serialize_pq<DataT, IdxT>(res, dataset, os);
+}
+
+/** Read a blob written by `serialize_pq_dataset`, validating the tag and codebook dtype. */
+template <typename DataT, typename IdxT>
+auto deserialize_pq_dataset(raft::resources const& res, std::istream& is)
+  -> std::unique_ptr<device_vpq_dataset<DataT, IdxT>>
+{
+  const auto tag = raft::deserialize_scalar<dataset_instance_tag>(res, is);
+  RAFT_EXPECTS(tag == kSerializeVPQDataset,
+               "deserialize_pq_dataset: expected VPQ tag (%u), got %u",
+               static_cast<unsigned>(kSerializeVPQDataset),
+               static_cast<unsigned>(tag));
+  const auto dtype = raft::deserialize_scalar<cudaDataType_t>(res, is);
+  RAFT_EXPECTS(dtype == pq_wire_dtype<DataT>(),
+               "deserialize_pq_dataset: codebook dtype (%d) does not match expected (%d)",
+               static_cast<int>(dtype),
+               static_cast<int>(pq_wire_dtype<DataT>()));
+  return deserialize_vpq<DataT, IdxT>(res, is);
 }
 
 template <typename DataT, typename IdxT, typename OwningDatasetT>
@@ -336,23 +430,64 @@ auto deserialize_dense_dataset(raft::resources const& res, std::istream& is)
   }
 }
 
-template <typename DataT, typename IdxT>
-void skip_dense_dataset(raft::resources const& res, std::istream& is)
+/** Advance past the element dtype and strided payload that follow a dense dataset tag. */
+template <typename IdxT>
+void skip_dense_dtype_and_payload(raft::resources const& res, std::istream& is)
+{
+  const auto dtype = raft::deserialize_scalar<cudaDataType_t>(res, is);
+  switch (dtype) {
+    case CUDA_R_32F: return skip_dense_payload<float, IdxT>(res, is);
+    case CUDA_R_16F: return skip_dense_payload<half, IdxT>(res, is);
+    case CUDA_R_8I: return skip_dense_payload<int8_t, IdxT>(res, is);
+    case CUDA_R_8U: return skip_dense_payload<uint8_t, IdxT>(res, is);
+    default:
+      RAFT_FAIL("skip_dataset: unsupported dense element dtype (%d)", static_cast<int>(dtype));
+  }
+}
+
+/**
+ * Advance past the codebook dtype and payload that follow a VPQ dataset tag.
+ *
+ * The payload is the six scalars, then the two codebooks and the encoded rows. Their element types
+ * are not needed: each of the three matrices carries a NumPy header stating its own size.
+ */
+template <typename IdxT>
+void skip_pq_dtype_and_payload(raft::resources const& res, std::istream& is)
+{
+  const auto dtype = raft::deserialize_scalar<cudaDataType_t>(res, is);
+  RAFT_EXPECTS(dtype == CUDA_R_16F || dtype == CUDA_R_32F,
+               "skip_dataset: unsupported VPQ codebook dtype (%d)",
+               static_cast<int>(dtype));
+  static_cast<void>(raft::deserialize_scalar<IdxT>(res, is));      // n_rows
+  static_cast<void>(raft::deserialize_scalar<uint32_t>(res, is));  // dim
+  static_cast<void>(raft::deserialize_scalar<uint32_t>(res, is));  // vq_n_centers
+  static_cast<void>(raft::deserialize_scalar<uint32_t>(res, is));  // pq_n_centers
+  static_cast<void>(raft::deserialize_scalar<uint32_t>(res, is));  // pq_len
+  static_cast<void>(raft::deserialize_scalar<uint32_t>(res, is));  // encoded_row_length
+  skip_serialized_mdspan(is, "skip_dataset: VPQ vq_code_book");
+  skip_serialized_mdspan(is, "skip_dataset: VPQ pq_code_book");
+  skip_serialized_mdspan(is, "skip_dataset: VPQ encoded rows");
+}
+
+/**
+ * Advance past a dataset blob of any kind, leaving the stream on whatever follows it.
+ *
+ * How many bytes to skip is worked out from the tag and dtype the blob begins with, not from a type
+ * the caller names, so that dropping a dataset does not require knowing what it was. `IdxT` is the
+ * index type the blob was written with, which for a CAGRA index file is always int64_t.
+ */
+template <typename IdxT>
+void skip_dataset(raft::resources const& res, std::istream& is)
 {
   const auto tag = raft::deserialize_scalar<dataset_instance_tag>(res, is);
-  RAFT_EXPECTS(tag == kSerializeStridedDataset,
-               "skip_dense_dataset: expected strided tag, got %u",
-               static_cast<unsigned>(tag));
-  const auto dtype                        = raft::deserialize_scalar<cudaDataType_t>(res, is);
-  constexpr cudaDataType_t expected_dtype = std::is_same_v<DataT, float>    ? CUDA_R_32F
-                                            : std::is_same_v<DataT, half>   ? CUDA_R_16F
-                                            : std::is_same_v<DataT, int8_t> ? CUDA_R_8I
-                                                                            : CUDA_R_8U;
-  RAFT_EXPECTS(dtype == expected_dtype,
-               "skip_dense_dataset: serialized dtype (%d) does not match expected (%d)",
-               static_cast<int>(dtype),
-               static_cast<int>(expected_dtype));
-  skip_dense_payload<DataT, IdxT>(res, is);
+  switch (tag) {
+    case kSerializeEmptyDataset:
+      static_cast<void>(raft::deserialize_scalar<uint32_t>(res, is));  // suggested_dim
+      return;
+    case kSerializeStridedDataset: return skip_dense_dtype_and_payload<IdxT>(res, is);
+    case kSerializeVPQDataset: return skip_pq_dtype_and_payload<IdxT>(res, is);
+    default: RAFT_FAIL("skip_dataset: unknown dataset tag %u", static_cast<unsigned>(tag));
+  }
 }
 
 // Reads tag + dtype prefix, validates they match DataT, and returns the requested concrete
