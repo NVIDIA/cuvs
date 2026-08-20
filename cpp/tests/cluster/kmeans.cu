@@ -8,10 +8,12 @@
 
 #include <cuvs/cluster/kmeans.hpp>
 #include <raft/core/device_mdarray.hpp>
+#include <raft/core/error.hpp>
 #include <raft/core/host_mdarray.hpp>
 #include <raft/core/operators.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resources.hpp>
+#include <raft/linalg/norm.cuh>
 #include <raft/stats/adjusted_rand_index.cuh>
 #include <raft/util/cuda_utils.cuh>
 #include <raft/util/cudart_utils.hpp>
@@ -20,6 +22,7 @@
 
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <optional>
 #include <vector>
 
@@ -705,5 +708,60 @@ INSTANTIATE_TEST_CASE_P(KmeansFitBatchedTests,
 INSTANTIATE_TEST_CASE_P(KmeansFitBatchedTests,
                         KmeansFitBatchedTestD,
                         ::testing::ValuesIn(batched_inputsd2));
+
+TEST(KmeansClusterCostXNorm, Equivalence)
+{
+  using T      = float;
+  using IndexT = int;
+
+  raft::resources handle;
+  auto stream = raft::resource::get_cuda_stream(handle);
+
+  constexpr IndexT n_samples  = 500;
+  constexpr IndexT n_features = 32;
+  constexpr IndexT n_clusters = 5;
+
+  auto bi     = make_kmeans_blob_inputs<T>(handle, n_samples, n_features, n_clusters, false);
+  auto X_view = raft::make_const_mdspan(bi.d_X.view());
+
+  auto centroids = raft::make_device_matrix<T, IndexT>(handle, n_clusters, n_features);
+  raft::copy(centroids.data_handle(), bi.d_X.data_handle(), n_clusters * n_features, stream);
+  auto centroids_view = raft::make_const_mdspan(centroids.view());
+
+  auto cost_internal = raft::make_device_scalar<T>(handle, T{0});
+  cuvs::cluster::kmeans::cluster_cost(handle, X_view, centroids_view, cost_internal.view());
+
+  auto X_norm = raft::make_device_vector<T, IndexT>(handle, n_samples);
+  raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(handle, X_view, X_norm.view());
+
+  auto cost_supplied = raft::make_device_scalar<T>(handle, T{0});
+  cuvs::cluster::kmeans::cluster_cost(handle,
+                                      X_view,
+                                      centroids_view,
+                                      cost_supplied.view(),
+                                      std::nullopt,
+                                      std::make_optional(raft::make_const_mdspan(X_norm.view())));
+
+  T h_cost_internal = T{0};
+  T h_cost_supplied = T{0};
+  raft::copy(&h_cost_internal, cost_internal.data_handle(), 1, stream);
+  raft::copy(&h_cost_supplied, cost_supplied.data_handle(), 1, stream);
+  raft::resource::sync_stream(handle, stream);
+
+  ASSERT_TRUE(std::isfinite(h_cost_internal));
+  ASSERT_GT(h_cost_internal, T{0});
+  ASSERT_NEAR(h_cost_supplied, h_cost_internal, std::abs(h_cost_internal) * T(1e-5));
+
+  auto bad_X_norm = raft::make_device_vector<T, IndexT>(handle, n_samples - 1);
+  auto cost_bad   = raft::make_device_scalar<T>(handle, T{0});
+  EXPECT_THROW(cuvs::cluster::kmeans::cluster_cost(
+                 handle,
+                 X_view,
+                 centroids_view,
+                 cost_bad.view(),
+                 std::nullopt,
+                 std::make_optional(raft::make_const_mdspan(bad_X_norm.view()))),
+               raft::logic_error);
+}
 
 }  // namespace cuvs

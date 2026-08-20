@@ -933,7 +933,11 @@ void kmeans_fit(
       auto centroids_const = raft::make_device_matrix_view<const DataT, IndexT>(
         cur_centroids_ptr, n_clusters, n_features);
 
-      iter_inertia = DataT{0};
+      auto d_iter_inertia = raft::make_device_scalar<DataT>(handle, DataT{0});
+      auto d_batch_cost   = raft::make_device_scalar<DataT>(handle, DataT{0});
+      DataT* p_acc        = d_iter_inertia.data_handle();
+      DataT* p_batch      = d_batch_cost.data_handle();
+
       data_batches.reset();
       using wt_iter_t = cuvs::spatial::knn::detail::utils::batch_load_iterator_dyn<DataT>;
       std::optional<wt_iter_t> wt_it;
@@ -958,15 +962,33 @@ void kmeans_fit(
             cur_batch_weights(static_cast<IndexT>(data_batch.offset()), wt_data, cur_batch_size);
         }
 
-        DataT batch_cost = DataT{0};
-        cuvs::cluster::kmeans::cluster_cost(handle,
-                                            batch_data_view,
-                                            centroids_const,
-                                            raft::make_host_scalar_view(&batch_cost),
-                                            batch_sw);
+        std::optional<raft::device_vector_view<const DataT, IndexT>> batch_xnorm = std::nullopt;
+        if (need_compute_norms) {
+          if constexpr (data_on_device) {
+            batch_xnorm = raft::make_device_vector_view<const DataT, IndexT>(
+              L2NormBatch.data_handle() + data_batch.offset(), cur_batch_size);
+          } else if (norms_cached) {
+            raft::copy(L2NormBatch.data_handle(),
+                       h_norm_cache.data_handle() + data_batch.offset(),
+                       cur_batch_size,
+                       stream);
+            batch_xnorm = raft::make_device_vector_view<const DataT, IndexT>(
+              L2NormBatch.data_handle(), cur_batch_size);
+          }
+        }
 
-        iter_inertia += batch_cost;
+        cuvs::cluster::kmeans::cluster_cost(
+          handle, batch_data_view, centroids_const, d_batch_cost.view(), batch_sw, batch_xnorm);
+
+        raft::linalg::map_offset(handle,
+                                 raft::make_device_vector_view<DataT, int>(p_acc, 1),
+                                 [p_acc, p_batch] __device__(int) { return *p_acc + *p_batch; });
       }
+
+      raft::copy(handle,
+                 raft::make_host_scalar_view<DataT>(&iter_inertia),
+                 raft::make_const_mdspan(d_iter_inertia.view()));
+      raft::resource::sync_stream(handle);
     }
 
     if (iter_inertia < inertia[0]) {

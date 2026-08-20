@@ -331,6 +331,8 @@ void min_cluster_distance(raft::resources const& handle,
  * @param[in]  centroids      Cluster centroids [n_clusters x n_features]
  * @param[out] cost           Sum of squared distances to nearest centroid (device)
  * @param[in]  sample_weight  Optional per-sample weights [n_samples]
+ * @param[in]  X_norm         Optional precomputed squared L2 row norms of X (||x||^2) [n_samples].
+ *                            When provided, the internal norm computation is skipped.
  */
 template <typename DataT, typename IndexT>
 void cluster_cost(
@@ -338,7 +340,8 @@ void cluster_cost(
   raft::device_matrix_view<const DataT, IndexT> X,
   raft::device_matrix_view<const DataT, IndexT> centroids,
   raft::device_scalar_view<DataT> cost,
-  std::optional<raft::device_vector_view<const DataT, IndexT>> sample_weight = std::nullopt)
+  std::optional<raft::device_vector_view<const DataT, IndexT>> sample_weight = std::nullopt,
+  std::optional<raft::device_vector_view<const DataT, IndexT>> X_norm        = std::nullopt)
 {
   auto stream     = raft::resource::get_cuda_stream(handle);
   auto n_clusters = centroids.extent(0);
@@ -347,8 +350,18 @@ void cluster_cost(
 
   rmm::device_uvector<char> workspace(n_samples * sizeof(IndexT), stream);
 
-  auto x_norms = raft::make_device_vector<DataT>(handle, n_samples);
-  raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(handle, X, x_norms.view());
+  std::optional<raft::device_vector<DataT, IndexT>> x_norms_buf;
+  DataT* x_norms_ptr;
+  if (X_norm.has_value()) {
+    RAFT_EXPECTS(X_norm->extent(0) == n_samples, "X_norm size !=n_samples");
+    x_norms_ptr = const_cast<DataT*>(X_norm->data_handle());
+  } else {
+    x_norms_buf.emplace(raft::make_device_vector<DataT, IndexT>(handle, n_samples));
+    raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
+      handle, X, x_norms_buf->view());
+    x_norms_ptr = x_norms_buf->data_handle();
+  }
+  auto x_norms_view = raft::make_device_vector_view<DataT, IndexT>(x_norms_ptr, n_samples);
 
   auto min_cluster_distance = raft::make_device_vector<DataT>(handle, n_samples);
   rmm::device_uvector<DataT> l2_norm_or_distance_buffer(0, stream);
@@ -361,7 +374,7 @@ void cluster_cost(
     raft::make_device_matrix_view<DataT, IndexT>(
       const_cast<DataT*>(centroids.data_handle()), n_clusters, n_features),
     min_cluster_distance.view(),
-    x_norms.view(),
+    x_norms_view,
     l2_norm_or_distance_buffer,
     metric,
     n_samples,
@@ -380,31 +393,16 @@ void cluster_cost(
     handle, min_cluster_distance.view(), workspace, cost, raft::add_op{});
 }
 
-/**
- * @brief Compute (optionally weighted) cluster cost (inertia) — host-scalar output.
- *
- * Convenience wrapper that copies the result to host and synchronizes.
- *
- * @tparam DataT  float or double
- * @tparam IndexT Index type
- *
- * @param[in]  handle         The raft handle
- * @param[in]  X              Input data [n_samples x n_features]
- * @param[in]  centroids      Cluster centroids [n_clusters x n_features]
- * @param[out] cost           Sum of squared distances to nearest centroid (host)
- * @param[in]  sample_weight  Optional per-sample weights [n_samples]
- */
 template <typename DataT, typename IndexT>
-void cluster_cost(
-  raft::resources const& handle,
-  raft::device_matrix_view<const DataT, IndexT> X,
-  raft::device_matrix_view<const DataT, IndexT> centroids,
-  raft::host_scalar_view<DataT> cost,
-  std::optional<raft::device_vector_view<const DataT, IndexT>> sample_weight = std::nullopt)
+void cluster_cost_host(const raft::resources& handle,
+                       raft::device_matrix_view<const DataT, IndexT> X,
+                       raft::device_matrix_view<const DataT, IndexT> centroids,
+                       raft::host_scalar_view<DataT> cost,
+                       std::optional<raft::device_vector_view<const DataT, IndexT>> sample_weight)
 {
-  auto device_cost = raft::make_device_scalar<DataT>(handle, DataT(0));
-  cuvs::cluster::kmeans::cluster_cost(handle, X, centroids, device_cost.view(), sample_weight);
-  raft::copy(handle, cost, raft::make_const_mdspan(device_cost.view()));
+  auto d_cost = raft::make_device_scalar<DataT>(handle, DataT{0});
+  cluster_cost(handle, X, centroids, d_cost.view(), sample_weight, std::nullopt);
+  raft::copy(handle, cost, raft::make_const_mdspan(d_cost.view()));
   raft::resource::sync_stream(handle);
 }
 
