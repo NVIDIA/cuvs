@@ -92,7 +92,7 @@ void distribute_padded_dataset(
       res, idx, padded_dataset, [&](const raft::resources& dev_res, int rank, auto dataset) {     \
         const auto& in_if = idx.ann_interfaces_[rank];                                            \
         auto& out_if      = out.ann_interfaces_[rank];                                            \
-        auto padded_idx   = cuvs::neighbors::cagra::attach_dataset(                               \
+        auto padded_idx   = cuvs::neighbors::cagra::update_dataset(                               \
           dev_res, in_if.index_.value(), dataset->as_dataset_view());                           \
         out_if.cagra_owned_padded_dataset_ = std::move(dataset);                                  \
         out_if.cagra_owned_standard_dataset_.reset();                                             \

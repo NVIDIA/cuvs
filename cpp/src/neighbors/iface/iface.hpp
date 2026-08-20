@@ -10,6 +10,7 @@
 #include <cuvs/neighbors/ivf_flat.hpp>
 #include <cuvs/neighbors/ivf_pq.hpp>
 #include <fstream>
+#include <neighbors/detail/cagra/update_dataset.cuh>
 #include <raft/core/copy.cuh>
 #include <raft/core/device_resources.hpp>
 #include <raft/util/cudart_utils.hpp>
@@ -109,7 +110,7 @@ void build(const raft::resources& handle,
         auto host_idx = cuvs::neighbors::cagra::build(handle, cagra_params, host_padded);
         auto padded_r = cuvs::neighbors::make_device_padded_dataset(handle, index_dataset);
         auto device_idx =
-          cuvs::neighbors::cagra::attach_dataset(handle, host_idx, padded_r->as_dataset_view());
+          cuvs::neighbors::cagra::update_dataset(handle, host_idx, padded_r->as_dataset_view());
         interface.cagra_owned_padded_dataset_ = std::move(padded_r);
         interface.cagra_owned_standard_dataset_.reset();
         interface.index_.emplace(std::move(device_idx));

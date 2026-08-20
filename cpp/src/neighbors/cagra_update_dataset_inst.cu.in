@@ -1,0 +1,102 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <cuvs/core/cuda_fp16.hpp>
+#include <cuvs/neighbors/cagra.hpp>
+#include <neighbors/detail/cagra/update_dataset.cuh>
+
+namespace {
+
+using data_t                      = @data_type@;
+using index_t                     = @index_type@;
+using inst_device_padded_view_t   = cuvs::neighbors::device_padded_dataset_view<data_t, int64_t>;
+using inst_device_standard_view_t = cuvs::neighbors::device_standard_dataset_view<data_t, int64_t>;
+using inst_device_vpq_view_t      = cuvs::neighbors::device_vpq_dataset_view<half, int64_t>;
+
+}  // namespace
+
+namespace cuvs::neighbors::cagra {
+
+extern template void index<data_t, index_t, inst_device_padded_view_t>::compute_dataset_norms_(
+  raft::resources const&);
+extern template void index<data_t, index_t, inst_device_standard_view_t>::compute_dataset_norms_(
+  raft::resources const&);
+extern template void index<data_t, index_t, inst_device_vpq_view_t>::compute_dataset_norms_(
+  raft::resources const&);
+
+#define CUVS_CAGRA_DEFINE_UPDATE_DATASET_OVERLOADS(T)                                           \
+  auto update_dataset(raft::resources const& res,                                               \
+                      host_standard_index<T, index_t> const& idx,                               \
+                      cuvs::neighbors::device_padded_dataset_view<T, int64_t> const& dataset)   \
+    -> device_padded_index<T, index_t>                                                          \
+  {                                                                                             \
+    return detail::attach_dataset(res, idx, dataset);                                           \
+  }                                                                                             \
+  auto update_dataset(raft::resources const& res,                                               \
+                      host_padded_index<T, index_t> const& idx,                                 \
+                      cuvs::neighbors::device_padded_dataset_view<T, int64_t> const& dataset)   \
+    -> device_padded_index<T, index_t>                                                          \
+  {                                                                                             \
+    return detail::attach_dataset(res, idx, dataset);                                           \
+  }                                                                                             \
+  auto update_dataset(raft::resources const& res,                                               \
+                      device_standard_index<T, index_t> const& idx,                             \
+                      cuvs::neighbors::device_padded_dataset_view<T, int64_t> const& dataset)   \
+    -> device_padded_index<T, index_t>                                                          \
+  {                                                                                             \
+    return detail::attach_dataset(res, idx, dataset);                                           \
+  }                                                                                             \
+  auto update_dataset(raft::resources const& res,                                               \
+                      host_standard_index<T, index_t> const& idx,                               \
+                      cuvs::neighbors::device_vpq_dataset_view<half, int64_t> const& dataset)   \
+    -> vpq_f16_index<T, index_t>                                                                \
+  {                                                                                             \
+    return detail::attach_dataset(res, idx, dataset);                                           \
+  }                                                                                             \
+  auto update_dataset(raft::resources const& res,                                               \
+                      host_padded_index<T, index_t> const& idx,                                 \
+                      cuvs::neighbors::device_vpq_dataset_view<half, int64_t> const& dataset)   \
+    -> vpq_f16_index<T, index_t>                                                                \
+  {                                                                                             \
+    return detail::attach_dataset(res, idx, dataset);                                           \
+  }                                                                                             \
+  auto update_dataset(raft::resources const& res,                                               \
+                      device_standard_index<T, index_t> const& idx,                             \
+                      cuvs::neighbors::device_vpq_dataset_view<half, int64_t> const& dataset)   \
+    -> vpq_f16_index<T, index_t>                                                                \
+  {                                                                                             \
+    return detail::attach_dataset(res, idx, dataset);                                           \
+  }                                                                                             \
+  auto update_dataset(raft::resources const& res,                                               \
+                      device_padded_index<T, index_t> const& idx,                               \
+                      cuvs::neighbors::device_vpq_dataset_view<half, int64_t> const& dataset)   \
+    -> vpq_f16_index<T, index_t>                                                                \
+  {                                                                                             \
+    return detail::attach_dataset(res, idx, dataset);                                           \
+  }                                                                                             \
+  void update_dataset(raft::resources const& res,                                               \
+                      device_standard_index<T, index_t>& idx,                                   \
+                      cuvs::neighbors::device_standard_dataset_view<T, int64_t> const& dataset) \
+  {                                                                                             \
+    idx.update_device_dataset_same_layout(res, dataset);                                        \
+  }                                                                                             \
+  void update_dataset(raft::resources const& res,                                               \
+                      device_padded_index<T, index_t>& idx,                                     \
+                      cuvs::neighbors::device_padded_dataset_view<T, int64_t> const& dataset)   \
+  {                                                                                             \
+    idx.update_device_dataset_same_layout(res, dataset);                                        \
+  }                                                                                             \
+  void update_dataset(raft::resources const& res,                                               \
+                      vpq_f16_index<T, index_t>& idx,                                           \
+                      cuvs::neighbors::device_vpq_dataset_view<half, int64_t> const& dataset)   \
+  {                                                                                             \
+    idx.update_device_dataset_same_layout(res, dataset);                                        \
+  }
+
+CUVS_CAGRA_DEFINE_UPDATE_DATASET_OVERLOADS(data_t)
+
+#undef CUVS_CAGRA_DEFINE_UPDATE_DATASET_OVERLOADS
+
+}  // namespace cuvs::neighbors::cagra

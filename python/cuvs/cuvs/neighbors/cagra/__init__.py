@@ -6,6 +6,7 @@ from cuvs.common.dataset import Dataset
 
 from .cagra import (
     AceParams,
+    CompressionParams,
     ExtendParams,
     Index,
     IndexParams,
@@ -14,6 +15,7 @@ from .cagra import (
     extend,
     from_graph,
     load,
+    make_vpq_dataset,
     save,
     search,
     update_dataset,
@@ -21,6 +23,7 @@ from .cagra import (
 
 __all__ = [
     "AceParams",
+    "CompressionParams",
     "Dataset",
     "ExtendParams",
     "Index",
@@ -30,6 +33,7 @@ __all__ = [
     "extend",
     "from_graph",
     "load",
+    "make_vpq_dataset",
     "save",
     "search",
     "update_dataset",

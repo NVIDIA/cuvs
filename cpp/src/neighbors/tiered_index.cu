@@ -98,8 +98,8 @@ auto convert_standard_to_padded_index(
       padded_mds.data_handle(), ann_rows, static_cast<int64_t>(padded_mds.extent(1)));
     auto ann_padded_view =
       cuvs::neighbors::device_padded_dataset_view<float, int64_t>(ann_mds, padded_dataset.dim());
-    auto ann_padded_idx = cuvs::neighbors::cagra::convert_standard_to_padded_index(
-      res, *idx.state->ann_index, ann_padded_view);
+    auto ann_padded_idx =
+      cuvs::neighbors::cagra::update_dataset(res, *idx.state->ann_index, ann_padded_view);
     next_state->ann_index =
       std::make_shared<cuvs::neighbors::cagra::device_padded_index<float, uint32_t>>(
         std::move(ann_padded_idx));

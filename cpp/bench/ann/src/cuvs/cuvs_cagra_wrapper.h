@@ -407,11 +407,12 @@ void cuvs_cagra<T, IdxT>::compress_dataset(const T* dataset, size_t nrow)
                "cagra: compression_* (CAGRA-Q) requires the graph in memory; it cannot be combined "
                "with a disk-resident (ACE) graph.");
   auto rows = static_cast<int64_t>(nrow);
-  // make_vpq_dataset() reads the rows wherever they are: host-resident ones are subsampled and
-  // encoded in bounded batches instead of being staged on the device.
+  // make_device_vpq_dataset() reads the rows wherever they are: host-resident ones are subsampled
+  // and encoded in bounded batches instead of being staged on the device.
   auto src = raft::make_device_matrix_view<const T, int64_t, raft::row_major>(dataset, rows, dim_);
   vpq_dataset_ = std::make_shared<cuvs::neighbors::device_vpq_dataset<half, int64_t>>(
-    cuvs::preprocessing::quantize::pq::make_vpq_dataset(handle_, *index_params_.compression, src));
+    cuvs::preprocessing::quantize::pq::make_device_vpq_dataset(
+      handle_, *index_params_.compression, src));
   vpq_index_ = std::make_shared<cuvs::neighbors::cagra::vpq_f16_index<T, IdxT>>(
     handle_, parse_metric_type(metric_), vpq_dataset_->as_dataset_view(), index_->graph());
 

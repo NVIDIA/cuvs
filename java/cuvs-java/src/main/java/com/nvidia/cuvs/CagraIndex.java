@@ -23,8 +23,11 @@ import java.util.Objects;
  * @since 25.02
  */
 public interface CagraIndex extends AutoCloseable {
-  /** Caller-owned non-owning dataset view handle. */
-  abstract class DatasetView implements AutoCloseable {
+  /**
+   * Base class for the native dataset handles CAGRA hands back, whether they own their storage
+   * or merely view storage the caller owns.
+   */
+  abstract class DatasetHandle implements AutoCloseable {
     private AutoCloseable delegate;
     private long handleAddress;
 
@@ -37,7 +40,7 @@ public interface CagraIndex extends AutoCloseable {
     }
 
     /**
-     * Returns true when this view has a native handle.
+     * Returns true when this handle refers to native dataset storage.
      */
     public final boolean isPresent() {
       return delegate != null && handleAddress != 0;
@@ -60,8 +63,42 @@ public interface CagraIndex extends AutoCloseable {
     }
   }
 
+  /** Non-owning view of dataset storage the caller owns and must keep alive. */
+  abstract class DatasetView extends DatasetHandle {}
+
+  /**
+   * Dataset handle that owns its native storage and releases it on {@link #close()}.
+   */
+  abstract class OwningDataset extends DatasetHandle {
+    /**
+     * Internal wiring hook used by the Java wrapper implementation.
+     */
+    public final void setDelegate(AutoCloseable delegate) {
+      setDelegate(delegate, 0);
+    }
+  }
+
+  /**
+   * Owning storage holding vectors in a dense row-major layout, either padded to CAGRA's
+   * required row stride or standard. This is the storage a serialized index carries, so
+   * deserialization populates one of these.
+   */
+  abstract class DenseOwningDataset extends OwningDataset {}
+
+  /**
+   * A device-padded dataset, either owned ({@link PaddedDataset}) or viewed
+   * ({@link PaddedDatasetView}). Operations that only read padded storage accept either form.
+   */
+  interface PaddedDatasetHandle {
+    /** Returns true when this handle refers to native dataset storage. */
+    boolean isPresent();
+
+    /** Internal accessor for native handle address. */
+    long nativeHandleAddress();
+  }
+
   /** Caller-owned padded dataset view. */
-  final class PaddedDatasetView extends DatasetView {
+  final class PaddedDatasetView extends DatasetView implements PaddedDatasetHandle {
     public PaddedDatasetView() {}
   }
 
@@ -71,63 +108,24 @@ public interface CagraIndex extends AutoCloseable {
   }
 
   /**
-   * Caller-owned dataset handle populated by explicit deserialization or created by
-   * {@link #makePaddedDataset(CuVSMatrix)}.
-   */
-  abstract class DeserializeDataset implements AutoCloseable {
-    private AutoCloseable delegate;
-    private long handleAddress;
-
-    /**
-     * Internal wiring hook used by the Java wrapper implementation.
-     */
-    public final void setDelegate(AutoCloseable delegate) {
-      setDelegate(delegate, 0);
-    }
-
-    /**
-     * Internal wiring hook used by the Java wrapper implementation.
-     */
-    public final void setDelegate(AutoCloseable delegate, long handleAddress) {
-      this.delegate = delegate;
-      this.handleAddress = handleAddress;
-    }
-
-    /**
-     * Returns true when this handle owns native dataset storage.
-     */
-    public final boolean isPresent() {
-      return delegate != null && handleAddress != 0;
-    }
-
-    /**
-     * Internal accessor for native handle address.
-     */
-    public final long nativeHandleAddress() {
-      return handleAddress;
-    }
-
-    @Override
-    public void close() throws Exception {
-      if (delegate != null) {
-        delegate.close();
-        delegate = null;
-      }
-      handleAddress = 0;
-    }
-  }
-
-  /**
    * Owning padded dataset handle. Keep this alive for as long as any index using it remains in
    * use.
    */
-  final class PaddedDataset extends DeserializeDataset {
+  final class PaddedDataset extends DenseOwningDataset implements PaddedDatasetHandle {
     public PaddedDataset() {}
   }
 
   /** Owning standard dataset handle populated by deserialization. */
-  final class StandardDataset extends DeserializeDataset {
+  final class StandardDataset extends DenseOwningDataset {
     public StandardDataset() {}
+  }
+
+  /**
+   * Owning VPQ dataset handle for CAGRA-Q. Keep this alive for as long as any index using it
+   * remains in use.
+   */
+  final class VpqDataset extends OwningDataset {
+    public VpqDataset() {}
   }
 
   /**
@@ -164,17 +162,26 @@ public interface CagraIndex extends AutoCloseable {
   StandardDatasetView makeStandardDatasetView(CuVSMatrix dataset) throws Throwable;
 
   /**
-   * Update this index with a caller-provided padded device dataset view and leave it
-   * search-ready in padded-device layout. The caller retains ownership of the underlying
-   * padded storage and must keep it alive while this index uses it.
-   */
-  void updateDataset(PaddedDatasetView datasetView) throws Throwable;
-
-  /**
-   * Update this index with a caller-owned padded device dataset. The dataset must remain alive
+   * Update this index with a padded device dataset and leave it search-ready in padded-device
+   * layout. The caller retains ownership of the underlying padded storage and must keep it alive
    * while this index uses it.
    */
-  void updateDataset(PaddedDataset dataset) throws Throwable;
+  void updateDataset(PaddedDatasetHandle dataset) throws Throwable;
+
+  /**
+   * Update this index with a caller-owned device VPQ dataset (CAGRA-Q). Keep {@code vpqDataset}
+   * alive while this index uses it. Metric must remain L2Expanded.
+   */
+  void updateDataset(VpqDataset vpqDataset) throws Throwable;
+
+  /**
+   * Train an owning device VPQ dataset (CAGRA-Q) from a device-padded source.
+   *
+   * @param paddedDataset device-padded source dataset, owned or viewed
+   * @param compressionParams VPQ training parameters; may be {@code null} for defaults
+   */
+  VpqDataset makeVpqDataset(
+      PaddedDatasetHandle paddedDataset, CagraCompressionParams compressionParams) throws Throwable;
 
   /** Returns the CAGRA graph
    *
@@ -376,7 +383,7 @@ public interface CagraIndex extends AutoCloseable {
      * @param outDataset an empty {@link PaddedDataset} or {@link StandardDataset}
      * @return an instance of this Builder
      */
-    Builder from(InputStream inputStream, DeserializeDataset outDataset);
+    Builder from(InputStream inputStream, DenseOwningDataset outDataset);
 
     /**
      * Sets a CAGRA graph instance to re-create an index from a

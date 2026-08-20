@@ -48,6 +48,8 @@ cdef class Dataset:
         check_cuvs(cuvsDatasetGetLayout(self.dataset, &layout))
         if layout == CUVS_DATASET_LAYOUT_PADDED:
             return "padded"
+        if layout == CUVS_DATASET_LAYOUT_VPQ_F16:
+            return "vpq_f16"
         return "standard"
 
     @property
