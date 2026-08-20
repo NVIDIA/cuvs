@@ -89,6 +89,12 @@ cdef class KMeansParams:
         overhead as the number of times centroid adjustments are computed
         increases.
 
+        Host rows are staged through a device buffer of size
+        ``device_buffer_samples * n_features``. If the resources handle has a
+        CUDA stream pool with at least one stream, prefetch is enabled; that
+        doubles the batch memory footprint (and the weight-staging footprint
+        when sample weights are provided).
+
         Default: 0 (process all data at once).
     hierarchical : bool
         Whether to use hierarchical (balanced) kmeans or not
