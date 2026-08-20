@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -136,6 +136,19 @@ int main(int argc, char* argv[])
                                   max_fraction,
                                   iters,
                                   codebook_prefix);
+  } else if (dtype == "half" || dtype == "fp16") {
+    // Read in binary dataset file
+    auto dataset = read_bin_dataset<__half, int64_t>(dev_resources, data_fname, INT_MAX);
+
+    // Simple build example to create graph and write to a file
+    vamana_build_and_write<__half>(dev_resources,
+                                   raft::make_const_mdspan(dataset.view()),
+                                   out_fname,
+                                   degree,
+                                   max_visited,
+                                   max_fraction,
+                                   iters,
+                                   codebook_prefix);
   } else {
     usage();
   }
