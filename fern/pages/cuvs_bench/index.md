@@ -11,3 +11,4 @@ Use these guides to install cuVS Bench, run benchmark workloads, prepare dataset
 - [Usage](/user-guide/benchmarking-guide/cu-vs-bench-tool/usage): configure algorithms, run benchmarks, and inspect results.
 - [Datasets](/user-guide/benchmarking-guide/cu-vs-bench-tool/datasets): prepare benchmark datasets, ground truth, and dataset descriptors.
 - [Backends](/user-guide/benchmarking-guide/cu-vs-bench-tool/backends): understand and extend cuVS Bench backend integrations.
+- [PyLucene Backend](/user-guide/benchmarking-guide/cu-vs-bench-tool/pylucene-backend): prepare the PyLucene runtime and run cuVS-Lucene HNSW and CAGRA benchmarks.

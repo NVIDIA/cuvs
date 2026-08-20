@@ -49,6 +49,12 @@ Exact tags are listed on Docker Hub:
 
 **Note:** GPU containers use the CUDA toolkit inside the container. The host only needs a compatible driver, so CUDA 12 containers can run on systems with CUDA 13.x-capable drivers. GPU access also requires the NVIDIA Docker runtime from the [NVIDIA Container Toolkit](https://github.com/NVIDIA/nvidia-docker).
 
+## PyLucene backend prerequisites
+
+The optional `pylucene` backend requires runtime components that the standard cuVS Bench packages do not install automatically: JDK 22, a source-built PyLucene wrapper for Lucene 10.2.0, and version-matched cuVS Java, cuVS-Lucene, and native artifacts.
+
+See [PyLucene Backend](/user-guide/benchmarking-guide/cu-vs-bench-tool/pylucene-backend) for the pinned dependency build, validation procedure, runtime configuration, and benchmark workflows.
+
 ## Build from Source
 
 Build cuVS Bench from source when you need local benchmark executables that match a development checkout, include custom algorithm targets, or use dependencies that are not available in the pre-built packages.

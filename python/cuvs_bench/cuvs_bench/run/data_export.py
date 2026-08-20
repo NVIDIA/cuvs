@@ -10,6 +10,11 @@ from collections import defaultdict
 
 import pandas as pd
 
+from .._validation import (
+    format_artifact_identity,
+    validate_path_component,
+    validate_result_component,
+)
 from ..backends.base import BuildResult, SearchResult
 
 skip_build_cols = set(
@@ -53,8 +58,37 @@ metrics = {
 }
 
 
-def write_results_to_csv(results, dataset, dataset_path, count, batch_size):
+def validate_dataset_name(dataset):
+    """Validate a dataset name before using it as a path component."""
+    return validate_path_component(dataset, "benchmark dataset name")
+
+
+def _result_stem(algorithm, group, scope=None):
+    parts = [
+        validate_result_component(algorithm, "benchmark algorithm name"),
+        validate_result_component(group, "benchmark group name"),
+    ]
+    if scope is not None:
+        parts.append(
+            validate_result_component(scope, "benchmark result scope")
+        )
+    return ",".join(parts)
+
+
+def _series_name(algorithm, group, scope):
+    return format_artifact_identity(algorithm, group, scope)
+
+
+def write_results_to_csv(
+    results,
+    dataset,
+    dataset_path,
+    count,
+    batch_size,
+    search_requested=False,
+):
     """Write Python-backend results using the existing plotting CSV schema."""
+    validate_dataset_name(dataset)
     grouped = defaultdict(list)
     for result in results:
         group = result.metadata.get("group")
@@ -64,29 +98,43 @@ def write_results_to_csv(results, dataset, dataset_path, count, batch_size):
         ):
             continue
         method = "build" if isinstance(result, BuildResult) else "search"
-        grouped[(method, result.algorithm, group)].append(result)
+        scope = result.metadata.get("result_scope")
+        grouped[(method, result.algorithm, group, scope)].append(result)
 
-    for (method, algorithm, group), group_results in grouped.items():
+    for (method, algorithm, group, scope), group_results in grouped.items():
         if method == "build":
             _write_build_results(
-                group_results, algorithm, group, dataset, dataset_path
+                group_results,
+                algorithm,
+                group,
+                scope,
+                dataset,
+                dataset_path,
             )
         else:
             _write_search_results(
                 group_results,
                 algorithm,
                 group,
+                scope,
                 dataset,
                 dataset_path,
                 count,
                 batch_size,
             )
 
+    if search_requested:
+        _remove_search_artifacts_after_failed_builds(
+            grouped, dataset, dataset_path, count, batch_size
+        )
 
-def _write_build_results(results, algorithm, group, dataset, dataset_path):
+
+def _write_build_results(
+    results, algorithm, group, scope, dataset, dataset_path
+):
     output_dir = os.path.join(dataset_path, dataset, "result", "build")
     os.makedirs(output_dir, exist_ok=True)
-    algo_name = algorithm if group == "base" else f"{algorithm}_{group}"
+    algo_name = _series_name(algorithm, group, scope)
 
     rows = []
     for result in results:
@@ -98,14 +146,18 @@ def _write_build_results(results, algorithm, group, dataset, dataset_path):
                 **result.build_params,
                 **metadata,
                 "algo_name": algo_name,
-                "index_name": result.index_path,
+                "index_name": result.metadata.get(
+                    "index_name", result.index_path
+                ),
                 "time": result.build_time_seconds,
             }
         )
 
     columns = ["algo_name", "index_name", "time"]
     dataframe = pd.DataFrame(rows)
-    build_file = os.path.join(output_dir, f"{algorithm},{group}.csv")
+    build_file = os.path.join(
+        output_dir, f"{_result_stem(algorithm, group, scope)}.csv"
+    )
 
     complete_run = all(
         result.success and not result.metadata.get("skipped")
@@ -131,11 +183,18 @@ def _write_build_results(results, algorithm, group, dataset, dataset_path):
 
 
 def _write_search_results(
-    results, algorithm, group, dataset, dataset_path, count, batch_size
+    results,
+    algorithm,
+    group,
+    scope,
+    dataset,
+    dataset_path,
+    count,
+    batch_size,
 ):
     output_dir = os.path.join(dataset_path, dataset, "result", "search")
     os.makedirs(output_dir, exist_ok=True)
-    algo_name = algorithm if group == "base" else f"{algorithm}_{group}"
+    algo_name = _series_name(algorithm, group, scope)
 
     rows = []
     for result in results:
@@ -148,6 +207,7 @@ def _write_search_results(
         rows.append(
             {
                 **search_params,
+                **(result.latency_percentiles or {}),
                 **metadata,
                 "algo_name": algo_name,
                 "index_name": result.metadata["index_name"],
@@ -179,7 +239,7 @@ def _write_search_results(
         dataset,
         "result",
         "build",
-        f"{algorithm},{group}.csv",
+        f"{_result_stem(algorithm, group, scope)}.csv",
     )
     if os.path.exists(build_file):
         build = pd.read_csv(build_file).drop_duplicates(
@@ -194,7 +254,7 @@ def _write_search_results(
                 how="left",
             )
 
-    stem = f"{algorithm},{group},k{count},bs{batch_size}"
+    stem = f"{_result_stem(algorithm, group, scope)},k{count},bs{batch_size}"
     raw_file = os.path.join(output_dir, f"{stem},raw.csv")
     dataframe.to_csv(raw_file, index=False)
     frontier_file = os.path.join(output_dir, f"{stem}.json")
@@ -203,13 +263,33 @@ def _write_search_results(
 
 
 def _scalar_metadata(metadata):
-    reserved = {"group", "index_name", "latency_seconds"}
+    reserved = {"group", "index_name", "latency_seconds", "result_scope"}
     return {
         key: value
         for key, value in metadata.items()
         if key not in reserved
         and isinstance(value, (str, int, float, bool, type(None)))
     }
+
+
+def _remove_search_artifacts_after_failed_builds(
+    grouped, dataset, dataset_path, count, batch_size
+):
+    search_dir = os.path.join(dataset_path, dataset, "result", "search")
+    for (method, algorithm, group, scope), results in grouped.items():
+        if method != "build" or any(result.success for result in results):
+            continue
+        search_key = ("search", algorithm, group, scope)
+        if search_key in grouped:
+            continue
+        stem = (
+            f"{_result_stem(algorithm, group, scope)},k{count},bs{batch_size}"
+        )
+        for suffix in (",raw.csv", ",throughput.csv", ",latency.csv"):
+            try:
+                os.remove(os.path.join(search_dir, f"{stem}{suffix}"))
+            except FileNotFoundError:
+                pass
 
 
 def read_json_files(dataset, dataset_path, method):
@@ -231,6 +311,7 @@ def read_json_files(dataset, dataset_path, method):
         A tuple containing the file path, algorithm name, and the
         DataFrame of JSON content.
     """
+    validate_dataset_name(dataset)
     dir_path = os.path.join(dataset_path, dataset, "result", method)
     if not os.path.isdir(dir_path):
         return

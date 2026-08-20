@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -528,7 +528,9 @@ class TestDatasetLazyLoading:
         _write_test_bin(path, data)
 
         dataset = Dataset(name="test", base_file=path)
+        assert dataset.loaded_training_vectors is None
         np.testing.assert_array_equal(dataset.training_vectors, data)
+        np.testing.assert_array_equal(dataset.loaded_training_vectors, data)
 
     def test_lazy_load_query_vectors(self, tmp_path):
         """Test that query vectors are loaded from file on first access."""
@@ -614,7 +616,7 @@ class TestDatasetLazyLoading:
         _ = dataset.name
         _ = dataset.distance_metric
 
-        assert dataset._training_vectors.size == 0
+        assert dataset.loaded_training_vectors is None
 
     def test_dims_and_counts(self, tmp_path):
         """Test dims, n_base, and n_queries properties."""
