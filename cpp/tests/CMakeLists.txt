@@ -188,6 +188,14 @@ ConfigureTest(
 )
 
 ConfigureTest(
+  NAME CORE_ROARING_ALLOWLIST_TEST
+  PATH neighbors/roaring_allowlist.cu
+  ADDITIONAL_DEP cuco::cuco
+  GPUS 1
+  PERCENT 100
+)
+
+ConfigureTest(
   NAME NEIGHBORS_ANN_CAGRA_TEST_BUGS
   PATH neighbors/ann_cagra/bug_extreme_inputs_oob.cu
        neighbors/ann_cagra/bug_multi_cta_crash.cu

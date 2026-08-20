@@ -8,6 +8,7 @@
 #include "../ann_cagra.cuh"
 
 #include <cuvs/core/bitset.hpp>
+#include <cuvs/core/roaring_allowlist.hpp>
 #include <cuvs/neighbors/cagra.hpp>
 
 #include <raft/core/copy.cuh>
@@ -19,6 +20,8 @@
 #include <thrust/device_ptr.h>
 #include <thrust/sequence.h>
 
+#include <algorithm>
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -348,7 +351,8 @@ TEST_P(CagraUdfFilterTest, TenantContextHonorsQuerySpecificMetadata)
   std::vector<uint32_t> host_row_tenants(n_rows);
   std::vector<uint32_t> host_query_tenants(n_queries);
   for (int64_t i = 0; i < n_rows; ++i) {
-    host_row_tenants[static_cast<size_t>(i)] = static_cast<uint32_t>((i / 5) % 3);
+    // Equal tenant cardinalities let the same fixture exercise rectangular batched construction.
+    host_row_tenants[static_cast<size_t>(i)] = static_cast<uint32_t>(i % 3);
   }
   for (int64_t q = 0; q < n_queries; ++q) {
     host_query_tenants[static_cast<size_t>(q)] = static_cast<uint32_t>(q % 3);
@@ -378,6 +382,115 @@ TEST_P(CagraUdfFilterTest, TenantContextHonorsQuerySpecificMetadata)
       ASSERT_LT(source_id, static_cast<uint32_t>(n_rows));
       EXPECT_EQ(host_row_tenants[source_id], query_tenant);
     }
+  }
+
+  // Reuse this existing query-specific UDF test as the exact reference for every single-partition
+  // algorithm, including max_queries=2 chunking above.
+  std::vector<std::uint32_t> allowed_ids;
+  std::vector<std::int64_t> indptr{0};
+  for (std::int64_t q = 0; q < n_queries; ++q) {
+    auto query_tenant = host_query_tenants[static_cast<std::size_t>(q)];
+    for (std::int64_t row = 0; row < n_rows; ++row) {
+      if (host_row_tenants[static_cast<std::size_t>(row)] == query_tenant) {
+        allowed_ids.push_back(static_cast<std::uint32_t>(row));
+      }
+    }
+    indptr.push_back(static_cast<std::int64_t>(allowed_ids.size()));
+  }
+
+  auto const tenant_width = indptr[1] - indptr[0];
+  ASSERT_GT(tenant_width, 0);
+  for (std::int64_t query = 0; query < n_queries; ++query) {
+    ASSERT_EQ(indptr[static_cast<std::size_t>(query + 1)] - indptr[static_cast<std::size_t>(query)],
+              tenant_width);
+  }
+  auto tenant_allowlists = cuvs::core::roaring_allowlist::from_ids(
+    res,
+    n_rows,
+    raft::make_host_vector_view<const std::uint32_t, std::int64_t>(allowed_ids.data(),
+                                                                   allowed_ids.size()),
+    raft::make_host_vector_view<const std::int64_t, std::int64_t>(indptr.data(), indptr.size()));
+  std::vector<cuvs::core::roaring_allowlist_view> tenant_views;
+  tenant_views.reserve(n_queries);
+  for (std::int64_t query = 0; query < n_queries; ++query) {
+    tenant_views.push_back(tenant_allowlists.view(query));
+  }
+  cuvs::neighbors::filtering::roaring_filter roaring_filter(res, tenant_views);
+  auto roaring_result = search(roaring_filter, 2.0f / 3.0f);
+  expect_same_results(result, roaring_result);
+
+  // Keep edge-selectivity coverage in this existing fixture: one filter mixes empty, full,
+  // fewer-than-k, sparse, and dense query allowlists.
+  std::vector<std::vector<std::uint32_t>> mixed_rows(static_cast<std::size_t>(n_queries));
+  for (std::uint32_t row = 0; row < n_rows; ++row) {
+    mixed_rows[1].push_back(row);
+  }
+  mixed_rows[2] = {7};
+  mixed_rows[3] = {10, 11, 12};
+  for (std::uint32_t row = 0; row < n_rows; row += 8) {
+    mixed_rows[4].push_back(row);
+  }
+  for (std::uint32_t row = n_rows - 32; row < n_rows; ++row) {
+    mixed_rows[5].push_back(row);
+  }
+
+  std::vector<std::uint32_t> mixed_ids;
+  std::vector<std::int64_t> mixed_indptr{0};
+  for (auto const& row : mixed_rows) {
+    mixed_ids.insert(mixed_ids.end(), row.begin(), row.end());
+    mixed_indptr.push_back(static_cast<std::int64_t>(mixed_ids.size()));
+  }
+  auto mixed_allowlists = cuvs::core::roaring_allowlist::from_ids(
+    res,
+    n_rows,
+    raft::make_host_vector_view<const std::uint32_t, std::int64_t>(mixed_ids.data(),
+                                                                   mixed_ids.size()),
+    raft::make_host_vector_view<const std::int64_t, std::int64_t>(mixed_indptr.data(),
+                                                                  mixed_indptr.size()),
+    true);
+  std::vector<cuvs::core::roaring_allowlist_view> mixed_views;
+  mixed_views.reserve(mixed_rows.size());
+  for (std::size_t query = 0; query < mixed_rows.size(); ++query) {
+    mixed_views.push_back(mixed_allowlists.view(query));
+  }
+  cuvs::neighbors::filtering::roaring_filter mixed_filter(res, mixed_views);
+  auto mixed_result = search(mixed_filter);
+  for (std::int64_t query = 0; query < n_queries; ++query) {
+    auto const& allowed = mixed_rows[static_cast<std::size_t>(query)];
+    for (std::int64_t rank = 0; rank < k; ++rank) {
+      auto row       = mixed_result.neighbors[static_cast<std::size_t>(query * k + rank)];
+      auto valid_row = row < static_cast<std::uint32_t>(n_rows);
+      if (query == 0) { EXPECT_FALSE(valid_row); }
+      if (query == 1) { EXPECT_TRUE(valid_row); }
+      if (valid_row) { EXPECT_NE(std::find(allowed.begin(), allowed.end(), row), allowed.end()); }
+    }
+  }
+
+  if (GetParam() == cagra::search_algo::SINGLE_CTA) {
+    std::array<std::int64_t, 2> const one_empty{0, 0};
+    auto wrong_queries = cuvs::core::roaring_allowlist::from_ids(
+      res,
+      n_rows,
+      raft::make_host_vector_view<const std::uint32_t, std::int64_t>(nullptr, 0),
+      raft::make_host_vector_view<const std::int64_t, std::int64_t>(one_empty.data(),
+                                                                    one_empty.size()));
+    std::array wrong_query_views{wrong_queries.view(0)};
+    cuvs::neighbors::filtering::roaring_filter wrong_query_filter(res, wrong_query_views);
+    EXPECT_THROW(search(wrong_query_filter), raft::logic_error);
+
+    std::vector<std::int64_t> const all_empty(static_cast<std::size_t>(n_queries) + 1, 0);
+    auto wrong_columns = cuvs::core::roaring_allowlist::from_ids(
+      res,
+      n_rows + 1,
+      raft::make_host_vector_view<const std::uint32_t, std::int64_t>(nullptr, 0),
+      raft::make_host_vector_view<const std::int64_t, std::int64_t>(all_empty.data(),
+                                                                    all_empty.size()));
+    std::vector<cuvs::core::roaring_allowlist_view> wrong_column_views;
+    for (std::int64_t query = 0; query < n_queries; ++query) {
+      wrong_column_views.push_back(wrong_columns.view(query));
+    }
+    cuvs::neighbors::filtering::roaring_filter wrong_column_filter(res, wrong_column_views);
+    EXPECT_THROW(search(wrong_column_filter), raft::logic_error);
   }
 }
 
