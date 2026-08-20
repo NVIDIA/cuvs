@@ -69,10 +69,10 @@ template <typename IdxT>
 struct dataset;
 ```
 
-<a id="neighbors-vpq-dataset"></a>
-### neighbors::device_vpq_dataset
+<a id="neighbors-pq-dataset"></a>
+### neighbors::device_pq_dataset
 
-VPQ compressed dataset.
+PQ compressed dataset.
 
 The dataset is compressed using two level quantization
 
@@ -81,7 +81,7 @@ The dataset is compressed using two level quantization
 
 ```cpp
 template <typename MathT, typename IdxT>
-struct device_vpq_dataset : public dataset<IdxT> {
+struct device_pq_dataset : public dataset<IdxT> {
   raft::device_matrix<math_type, uint32_t, raft::row_major> vq_code_book;
   raft::device_matrix<math_type, uint32_t, raft::row_major> pq_code_book;
   raft::device_matrix<uint8_t, index_type, raft::row_major> data;

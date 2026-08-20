@@ -14,7 +14,7 @@
 
 namespace cuvs::neighbors::cagra::detail {
 
-inline auto select_supported_vpq_smem_dtype(const cagra::search_params& params)
+inline auto select_supported_pq_smem_dtype(const cagra::search_params& params)
   -> cuvs::neighbors::cagra::internal_dtype
 {
   if (params.smem_dtype == cuvs::neighbors::cagra::internal_dtype::E5M2 &&
@@ -34,7 +34,7 @@ template <cuvs::distance::DistanceType Metric,
           typename IndexT,
           typename DistanceT,
           cuvs::neighbors::cagra::internal_dtype SmemDType>
-struct vpq_descriptor_spec : public instance_spec<DataT, IndexT, DistanceT> {
+struct pq_descriptor_spec : public instance_spec<DataT, IndexT, DistanceT> {
   using base_type = instance_spec<DataT, IndexT, DistanceT>;
   using typename base_type::data_type;
   using typename base_type::distance_type;
@@ -43,14 +43,14 @@ struct vpq_descriptor_spec : public instance_spec<DataT, IndexT, DistanceT> {
 
   template <typename DatasetT>
   constexpr static inline auto accepts_dataset()
-    -> std::enable_if_t<is_vpq_dataset_v<DatasetT>, bool>
+    -> std::enable_if_t<is_pq_dataset_v<DatasetT>, bool>
   {
     return std::is_same_v<typename DatasetT::math_type, CodebookT>;
   }
 
   template <typename DatasetT>
   constexpr static inline auto accepts_dataset()
-    -> std::enable_if_t<!is_vpq_dataset_v<DatasetT>, bool>
+    -> std::enable_if_t<!is_pq_dataset_v<DatasetT>, bool>
   {
     return false;
   }
@@ -81,8 +81,8 @@ struct vpq_descriptor_spec : public instance_spec<DataT, IndexT, DistanceT> {
     // Match codebook params
     if (dataset.pq_bits() != PqBits) { return -1.0; }
     if (dataset.pq_len() != PqLen) { return -1.0; }
-    if (select_supported_vpq_smem_dtype(params) != SmemDType) { return -1.0; }
-    // Keep auto-selection on the tuned VPQ diagonal while allowing explicit team_size requests to
+    if (select_supported_pq_smem_dtype(params) != SmemDType) { return -1.0; }
+    // Keep auto-selection on the tuned PQ diagonal while allowing explicit team_size requests to
     // use the expanded team_size / dataset_block_dim grid.
     constexpr std::uint32_t auto_dataset_block_dim_per_team = PqLen == 8 ? 32 : 16;
     if (params.team_size == 0 && DatasetBlockDim != TeamSize * auto_dataset_block_dim_per_team) {

@@ -25,7 +25,7 @@ struct ProductQuantizationInputs {
   uint32_t pq_dim;                                    // PQ dimension
   cuvs::cluster::kmeans::kmeans_type pq_kmeans_type;  // PQ kmeans type
   uint32_t n_vq_centers;                              // Number of VQ centers
-  bool use_vq;                                        // Whether to use VQ
+  bool train_coarse;                                  // Whether to use VQ
   bool use_subspaces;                                 // Whether to use subspaces
   bool host_dataset;                                  // Whether to use host dataset
   uint64_t seed;                                      // Random seed
@@ -37,7 +37,7 @@ std::ostream& operator<<(std::ostream& os, const ProductQuantizationInputs<T>& i
   return os << "n_samples:" << inputs.n_samples << " n_features:" << inputs.n_features
             << " pq_bits:" << inputs.pq_bits << " pq_dim:" << inputs.pq_dim
             << " pq_kmeans_type:" << (int)inputs.pq_kmeans_type
-            << " n_vq_centers:" << inputs.n_vq_centers << " use_vq:" << inputs.use_vq
+            << " n_vq_centers:" << inputs.n_vq_centers << " train_coarse:" << inputs.train_coarse
             << " host_dataset:" << inputs.host_dataset << " seed:" << inputs.seed;
 }
 
@@ -172,7 +172,7 @@ class ProductQuantizationTest : public ::testing::TestWithParam<ProductQuantizat
     config_ = cuvs::preprocessing::quantize::pq::params(params_.pq_bits,
                                                         params_.pq_dim,
                                                         params_.use_subspaces,
-                                                        params_.use_vq,
+                                                        params_.train_coarse,
                                                         params_.n_vq_centers,
                                                         kmeans_params,
                                                         256,
@@ -194,7 +194,7 @@ class ProductQuantizationTest : public ::testing::TestWithParam<ProductQuantizat
       raft::make_device_matrix<uint8_t, int64_t>(handle, n_samples_, n_encoded_cols);
     auto d_vq_labels = raft::make_device_vector<uint32_t, int64_t>(handle, 0);
     std::optional<raft::device_vector_view<uint32_t, int64_t>> d_vq_labels_view = std::nullopt;
-    if (params_.use_vq) {
+    if (params_.train_coarse) {
       d_vq_labels      = raft::make_device_vector<uint32_t, int64_t>(handle, n_samples_);
       d_vq_labels_view = d_vq_labels.view();
     }
@@ -259,7 +259,7 @@ TEST(ProductQuantizationTestF, Parameters)
   int pq_bits        = 8;
   int pq_dim         = 0;
   bool use_subspaces = true;
-  bool use_vq        = false;
+  bool train_coarse  = false;
   int n_vq_centers   = 0;
   auto dataset_host  = raft::make_host_matrix<float, int64_t>(100, 64);
   // Test classical kmeans parameters
@@ -269,7 +269,7 @@ TEST(ProductQuantizationTestF, Parameters)
                                   .init       = cuvs::cluster::kmeans::params::InitMethod::Random,
                                   .max_iter   = 75});
   auto pq_params = cuvs::preprocessing::quantize::pq::params(
-    pq_bits, pq_dim, use_subspaces, use_vq, n_vq_centers, kmeans_params);
+    pq_bits, pq_dim, use_subspaces, train_coarse, n_vq_centers, kmeans_params);
   EXPECT_EQ(pq_params.pq_bits, pq_bits);
   EXPECT_EQ(std::get<cuvs::cluster::kmeans::params>(pq_params.kmeans_params).init,
             cuvs::cluster::kmeans::params::InitMethod::Random);
@@ -280,7 +280,7 @@ TEST(ProductQuantizationTestF, Parameters)
     pq_bits,
     pq_dim,
     use_subspaces,
-    use_vq,
+    train_coarse,
     n_vq_centers,
     kmeans_params_variant(cuvs::cluster::kmeans::balanced_params{.n_iters = 76}));
   EXPECT_EQ(std::get<cuvs::cluster::kmeans::balanced_params>(pq_params.kmeans_params).n_iters, 76);
@@ -290,7 +290,7 @@ TEST(ProductQuantizationTestF, Parameters)
     cuvs::preprocessing::quantize::pq::params(pq_bits,
                                               pq_dim,
                                               use_subspaces,
-                                              use_vq,
+                                              train_coarse,
                                               n_vq_centers,
                                               77,
                                               cuvs::cluster::kmeans::kmeans_type::KMeansBalanced);
@@ -312,7 +312,7 @@ TEST(ProductQuantizationTestF, Parameters)
                raft::logic_error);
 }
 
-TEST(ProductQuantizationTestF, MakeVpqDatasetFromHost)
+TEST(ProductQuantizationTestF, MakePqDatasetFromHost)
 {
   raft::resources handle;
   constexpr int64_t n_rows = 64;
@@ -322,17 +322,17 @@ TEST(ProductQuantizationTestF, MakeVpqDatasetFromHost)
     dataset.data_handle()[i] = static_cast<float>(i % 31) / 31.0f;
   }
 
-  cuvs::neighbors::vpq_params params{
+  cuvs::neighbors::pq_params params{
     .pq_bits = 4, .pq_dim = 4, .vq_n_centers = 1, .kmeans_n_iters = 2};
-  auto vpq = make_vpq_dataset(handle, params, raft::make_const_mdspan(dataset.view()));
+  auto pq = make_pq_dataset(handle, params, raft::make_const_mdspan(dataset.view()));
   raft::resource::sync_stream(handle);
 
-  EXPECT_EQ(vpq.n_rows(), n_rows);
-  EXPECT_EQ(vpq.dim(), dim);
-  EXPECT_NE(vpq.data.data_handle(), nullptr);
+  EXPECT_EQ(pq.n_rows(), n_rows);
+  EXPECT_EQ(pq.dim(), dim);
+  EXPECT_NE(pq.data.data_handle(), nullptr);
 }
 
-TEST(ProductQuantizationTestF, MakeVpqDatasetFromPaddedView)
+TEST(ProductQuantizationTestF, MakePqDatasetFromPaddedView)
 {
   raft::resources handle;
   constexpr int64_t n_rows = 64;
@@ -355,14 +355,14 @@ TEST(ProductQuantizationTestF, MakeVpqDatasetFromPaddedView)
     raft::make_device_matrix_view<const float, int64_t>(device_rows.data_handle(), n_rows, stride),
     dim);
 
-  cuvs::neighbors::vpq_params params{
+  cuvs::neighbors::pq_params params{
     .pq_bits = 4, .pq_dim = 4, .vq_n_centers = 1, .kmeans_n_iters = 2};
-  auto vpq = make_vpq_dataset(handle, params, padded);
+  auto pq = make_pq_dataset(handle, params, padded);
   raft::resource::sync_stream(handle);
 
-  EXPECT_EQ(vpq.n_rows(), n_rows);
-  EXPECT_EQ(vpq.dim(), dim);
-  EXPECT_NE(vpq.data.data_handle(), nullptr);
+  EXPECT_EQ(pq.n_rows(), n_rows);
+  EXPECT_EQ(pq.dim(), dim);
+  EXPECT_NE(pq.data.data_handle(), nullptr);
 }
 
 // Define test cases with different parameters

@@ -33,7 +33,7 @@ cuvsProductQuantizerCreate(&quantizer);
 params->pq_bits = 8;
 params->pq_dim = 16;
 params->use_subspaces = true;
-params->use_vq = false;
+params->train_coarse = false;
 
 cuvsProductQuantizerBuild(res, params, dataset, quantizer);
 
@@ -60,7 +60,7 @@ pq::params params;
 params.pq_bits = 8;
 params.pq_dim = 16;
 params.use_subspaces = true;
-params.use_vq = false;
+params.train_coarse = false;
 
 auto quantizer = pq::build(res, params, dataset);
 ```
@@ -84,7 +84,7 @@ quantizer = pq.build(params, dataset)
 
 ### Transforming data
 
-Transforming replaces each vector with its PQ code. If vector quantization is enabled with `use_vq=True`, the transform also returns one VQ label per row.
+Transforming replaces each vector with its PQ code. If vector quantization is enabled with `train_coarse=True`, the transform also returns one VQ label per row.
 
 <Tabs>
 <Tab title="C">
@@ -161,7 +161,7 @@ PQ divides each vector into smaller subvectors. For each subvector position, it 
 
 This turns a high-dimensional floating-point vector into a much shorter code. For example, if `pq_bits = 8` and `pq_dim = 16`, each vector is represented by 16 one-byte codes.
 
-PQ can also be combined with vector quantization. With `use_vq=True`, NVIDIA cuVS first assigns each vector to a coarse VQ centroid, then trains PQ on the residuals. This can improve reconstruction quality when the dataset has strong global structure, at the cost of extra labels and VQ codebook memory.
+PQ can also be combined with vector quantization. With `train_coarse=True`, NVIDIA cuVS first assigns each vector to a coarse VQ centroid, then trains PQ on the residuals. This can improve reconstruction quality when the dataset has strong global structure, at the cost of extra labels and VQ codebook memory.
 
 ## When to use Product Quantization
 
@@ -180,7 +180,7 @@ Avoid PQ when exact vector values are required. PQ is lossy, so increasing compr
 | `pq_bits` | `8` | Number of bits per PQ code. Higher values improve reconstruction quality but increase code size and codebook size. Valid standalone PQ values are `[4, 16]`. |
 | `pq_dim` | `0` | Number of PQ code dimensions, or subquantizers. `0` selects a heuristic. The input dimension currently needs to be compatible with `pq_dim`. |
 | `use_subspaces` | `true` | When true, trains a separate codebook for each subspace. When false, uses one shared codebook. |
-| `use_vq` | `false` | Enables a coarse vector quantizer before PQ. PQ is then trained on residuals. |
+| `train_coarse` | `false` | Enables a coarse vector quantizer before PQ. PQ is then trained on residuals. |
 | `vq_n_centers` | `0` | Number of VQ centroids. `0` selects a heuristic. `1` effectively disables VQ. |
 | `kmeans_n_iters` | `25` | Number of k-means iterations used during VQ and PQ codebook training. |
 | `pq_kmeans_type` | `kmeans_balanced` | K-Means variant used to train PQ codebooks. Balanced K-Means is the default. |
@@ -195,7 +195,7 @@ Choose `pq_dim` based on the desired code size and the input dimension. More PQ 
 
 Keep `use_subspaces=True` for most workloads. Separate subspace codebooks usually improve quality because each part of the vector gets its own codebook.
 
-Enable `use_vq` when a single global PQ codebook is not accurate enough and the data has meaningful coarse groups. VQ adds a coarse label and VQ codebook, so it improves quality at the cost of more metadata and training work.
+Enable `train_coarse` when a single global PQ codebook is not accurate enough and the data has meaningful coarse groups. VQ adds a coarse label and VQ codebook, so it improves quality at the cost of more metadata and training work.
 
 Increase `max_train_points_per_pq_code` or `kmeans_n_iters` when reconstruction quality is poor and build time is acceptable. Decrease them when build time is the main constraint.
 
@@ -310,7 +310,7 @@ $$
 
 ### VQ labels
 
-When `use_vq=True`, transform also stores one VQ label per row:
+When `train_coarse=True`, transform also stores one VQ label per row:
 
 $$
 \text{vq\_labels\_size}

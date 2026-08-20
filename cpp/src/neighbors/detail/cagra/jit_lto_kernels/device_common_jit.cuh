@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -17,7 +17,7 @@
 
 namespace cuvs::neighbors::cagra::detail::device {
 
-// Helper to check if DescriptorT has kPqBits (VPQ descriptor)
+// Helper to check if DescriptorT has kPqBits (PQ descriptor)
 template <typename T>
 struct has_kpq_bits {
   template <typename U>

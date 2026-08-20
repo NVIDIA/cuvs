@@ -6,7 +6,7 @@
 
 #include "../test_utils.cuh"
 #include "ann_utils.cuh"
-#include "vpq_utils.cuh"
+#include "pq_utils.cuh"
 #include <raft/core/resource/cuda_stream.hpp>
 
 #include "cagra_padded_build_helpers.cuh"

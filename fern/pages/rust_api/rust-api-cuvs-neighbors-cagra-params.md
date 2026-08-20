@@ -25,7 +25,7 @@ pub struct CompressionParams {
 }
 ```
 
-VPQ (Vector-Product Quantization) compression parameters.
+PQ (Vector-Product Quantization) compression parameters.
 
 Attach to [`IndexParams`] to enable compressed dataset storage.
 

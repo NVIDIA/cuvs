@@ -28,7 +28,7 @@ struct params {
   uint32_t pq_bits;
   uint32_t pq_dim;
   bool use_subspaces;
-  bool use_vq;
+  bool train_coarse;
   uint32_t vq_n_centers;
   kmeans_params_variant kmeans_params;
   uint32_t max_train_points_per_pq_code;
@@ -43,7 +43,7 @@ struct params {
 | `pq_bits` | `uint32_t` | The bit length of the vector element after compression by PQ.<br /><br />Possible value range: [4-16].<br /><br />Hint: the smaller the 'pq_bits', the smaller the index size and the faster the fit/transform time, but the lower the recall. |
 | `pq_dim` | `uint32_t` | The dimensionality of the vector after compression by PQ. When zero, dim / 4 is used as default.<br /><br />TODO: at the moment `dim` must be a multiple `pq_dim`. |
 | `use_subspaces` | `bool` | Whether to use subspaces for product quantization (PQ). When true, one PQ codebook is used for each subspace. Otherwise, a single PQ codebook is used. |
-| `use_vq` | `bool` | Whether to use Vector Quantization (KMeans) before product quantization (PQ). When true, VQ is used and PQ is trained on the residuals. |
+| `train_coarse` | `bool` | Whether to use Vector Quantization (KMeans) before product quantization (PQ). When true, VQ is used and PQ is trained on the residuals. |
 | `vq_n_centers` | `uint32_t` | Vector Quantization (VQ) codebook size - number of "coarse cluster centers". When zero, an optimal value is selected using a heuristic. (sqrt(n_rows)) |
 | `kmeans_params` | [`kmeans_params_variant`](/api-reference/cpp-api-preprocessing-quantize-pq#kmeans-params-variant) | K-means parameters for PQ codebook training.<br /><br />Set to cuvs::cluster::kmeans::balanced_params for balanced k-means (default), or cuvs::cluster::kmeans::params for regular k-means. The active variant type selects the algorithm; balanced k-means tends to be faster for PQ training where cluster sizes are approximately equal. Only L2Expanded metric is supported. The number of clusters is always set to 1 &lt;&lt; pq_bits. |
 | `max_train_points_per_pq_code` | `uint32_t` | The max number of data points to use per PQ code during PQ codebook training. Using more data points per PQ code may increase the quality of PQ codebook but may also increase the build time. We will use `pq_n_centers * max_train_points_per_pq_code` training points to train each PQ codebook. |
@@ -58,7 +58,7 @@ Simplified constructor that will build an appropriate kmeans params object.
 params(uint32_t pq_bits,
 uint32_t pq_dim,
 bool use_subspaces,
-bool use_vq,
+bool train_coarse,
 uint32_t vq_n_centers,
 uint32_t kmeans_n_iters,
 cuvs::cluster::kmeans::kmeans_type pq_kmeans_type =
@@ -74,7 +74,7 @@ uint32_t max_train_points_per_vq_cluster = 1024);
 | `pq_bits` |  | `uint32_t` |  |
 | `pq_dim` |  | `uint32_t` |  |
 | `use_subspaces` |  | `bool` |  |
-| `use_vq` |  | `bool` |  |
+| `train_coarse` |  | `bool` |  |
 | `vq_n_centers` |  | `uint32_t` |  |
 | `kmeans_n_iters` |  | `uint32_t` |  |
 | `pq_kmeans_type` |  | [`cuvs::cluster::kmeans::kmeans_type`](/api-reference/cpp-api-cluster-kmeans#cluster-kmeans-kmeans-type) | Default: `cuvs::cluster::kmeans::kmeans_type::KMeansBalanced`. |
@@ -88,13 +88,13 @@ uint32_t max_train_points_per_vq_cluster = 1024);
 <a id="preprocessing-quantize-pq-quantizer"></a>
 ### preprocessing::quantize::pq::quantizer
 
-Defines and stores VPQ codebooks upon training
+Defines and stores the codebooks produced by training (PQ, and a VQ codebook when `train_coarse` was set)
 
 ```cpp
 template <typename T>
 struct quantizer {
   params params_quantizer;
-  cuvs::neighbors::device_vpq_dataset<T, int64_t> vpq_codebooks;
+  cuvs::neighbors::device_pq_dataset<T, int64_t> pq_codebooks;
 };
 ```
 
@@ -103,7 +103,7 @@ struct quantizer {
 | Name | Type | Description |
 | --- | --- | --- |
 | `params_quantizer` | [`params`](/api-reference/cpp-api-preprocessing-quantize-pq#preprocessing-quantize-pq-params) | Parameters used to build this quantizer. |
-| `vpq_codebooks` | [`cuvs::neighbors::device_vpq_dataset<T, int64_t>`](/api-reference/cpp-api-neighbors-common#neighbors-vpq-dataset) | VPQ codebooks produced during training. |
+| `pq_codebooks` | [`cuvs::neighbors::device_pq_dataset<T, int64_t>`](/api-reference/cpp-api-neighbors-common#neighbors-pq-dataset) | Codebooks produced during training: the PQ codebook, and a VQ codebook if `train_coarse`. |
 
 <a id="preprocessing-quantize-pq-build"></a>
 ### preprocessing::quantize::pq::build

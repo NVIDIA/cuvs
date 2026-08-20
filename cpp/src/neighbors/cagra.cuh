@@ -37,7 +37,7 @@ template <typename T, typename IdxT, cuvs::neighbors::ann_dataset_view DatasetVi
 CUVS_EXPORT void index<T, IdxT, DatasetViewT>::compute_dataset_norms_(raft::resources const& res)
 {
   // raft::linalg::reduce wants row-major with leading dim = row pitch in elements.
-  // Skip norm precomputation for VPQ/empty/non-dense views; CosineExpanded with VPQ is handled
+  // Skip norm precomputation for PQ/empty/non-dense views; CosineExpanded with PQ is handled
   // (or rejected) on the search path.
   namespace nb    = cuvs::neighbors;
   bool skip_norms = false;
@@ -46,7 +46,7 @@ CUVS_EXPORT void index<T, IdxT, DatasetViewT>::compute_dataset_norms_(raft::reso
   if constexpr (nb::is_padded_dataset_view_v<DatasetViewT> ||
                 nb::is_standard_dataset_view_v<DatasetViewT>) {
     rm_dataset = dataset_.view();
-  } else if constexpr (nb::is_vpq_dataset_view_v<DatasetViewT>) {
+  } else if constexpr (nb::is_pq_dataset_view_v<DatasetViewT>) {
     skip_norms = true;
   }
 
@@ -279,7 +279,7 @@ void optimize(
 }
 
 /**
- * @brief Build the index from a `dataset_view` (device padded/standard, device VPQ, or host
+ * @brief Build the index from a `dataset_view` (device padded/standard, device PQ, or host
  * padded/standard).
  *
  * When `index_params.attach_dataset_on_build = true` (the default), a dense `dataset` view is
@@ -301,8 +301,8 @@ auto build(raft::resources const& res, const index_params& params, DatasetViewT 
 
   // Dense paths build the graph and optionally attach the input dataset view. Host indexes remain
   // non-searchable until attach_dataset(...) supplies a device-padded dataset.
-  if constexpr (cuvs::neighbors::is_device_vpq_dataset_view_v<DatasetViewT>) {
-    RAFT_FAIL("cagra::build: VPQ-compressed dataset cannot be used for dense graph construction.");
+  if constexpr (cuvs::neighbors::is_device_pq_dataset_view_v<DatasetViewT>) {
+    RAFT_FAIL("cagra::build: PQ-compressed dataset cannot be used for dense graph construction.");
   } else if constexpr (cuvs::neighbors::is_dense_row_major_device_dataset_view_v<DatasetViewT>) {
     auto idx = cuvs::neighbors::cagra::detail::build_from_device_matrix<T, IdxT, DatasetViewT>(
       res, params, dataset);

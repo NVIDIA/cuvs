@@ -2856,7 +2856,7 @@ pub struct cuvsProductQuantizerParams {
     pub pq_bits: u32,
     pub pq_dim: u32,
     pub use_subspaces: bool,
-    pub use_vq: bool,
+    pub train_coarse: bool,
     pub vq_n_centers: u32,
     pub kmeans_n_iters: u32,
     pub pq_kmeans_type: cuvsKMeansType,
@@ -2875,8 +2875,8 @@ const _: () = {
         [::std::mem::offset_of!(cuvsProductQuantizerParams, pq_dim) - 4usize];
     ["Offset of field: cuvsProductQuantizerParams::use_subspaces"]
         [::std::mem::offset_of!(cuvsProductQuantizerParams, use_subspaces) - 8usize];
-    ["Offset of field: cuvsProductQuantizerParams::use_vq"]
-        [::std::mem::offset_of!(cuvsProductQuantizerParams, use_vq) - 9usize];
+    ["Offset of field: cuvsProductQuantizerParams::train_coarse"]
+        [::std::mem::offset_of!(cuvsProductQuantizerParams, train_coarse) - 9usize];
     ["Offset of field: cuvsProductQuantizerParams::vq_n_centers"]
         [::std::mem::offset_of!(cuvsProductQuantizerParams, vq_n_centers) - 12usize];
     ["Offset of field: cuvsProductQuantizerParams::kmeans_n_iters"]
@@ -2993,9 +2993,9 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[must_use]
-    pub fn cuvsProductQuantizerGetUseVq(
+    pub fn cuvsProductQuantizerGetTrainCoarse(
         quantizer: cuvsProductQuantizer_t,
-        use_vq: *mut bool,
+        train_coarse: *mut bool,
     ) -> cuvsError_t;
 }
 #[repr(C)]

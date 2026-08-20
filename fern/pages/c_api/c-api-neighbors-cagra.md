@@ -41,7 +41,7 @@ enum cuvsCagraHnswHeuristicType;
 <a id="cuvscagracompressionparams"></a>
 ### cuvsCagraCompressionParams
 
-Parameters for VPQ compression.
+Parameters for PQ compression.
 
 ```c
 struct cuvsCagraCompressionParams {

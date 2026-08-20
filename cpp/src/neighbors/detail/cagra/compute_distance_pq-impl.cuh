@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include "compute_distance_vpq.hpp"
+#include "compute_distance_pq.hpp"
 #include "packed_type.hpp"
 
 #include <cuvs/distance/distance.hpp>
@@ -16,10 +16,10 @@
 namespace cuvs::neighbors::cagra::detail {
 
 template <uint32_t PQ_LEN, cuvs::neighbors::cagra::internal_dtype SmemDType, class Enable = void>
-struct vpq_smem_value_config;
+struct pq_smem_value_config;
 
 template <uint32_t PQ_LEN, cuvs::neighbors::cagra::internal_dtype SmemDType>
-struct vpq_smem_value_config<
+struct pq_smem_value_config<
   PQ_LEN,
   SmemDType,
   std::enable_if_t<PQ_LEN == 2 || SmemDType == cuvs::neighbors::cagra::internal_dtype::F16>> {
@@ -30,9 +30,9 @@ struct vpq_smem_value_config<
 };
 
 template <uint32_t PQ_LEN>
-struct vpq_smem_value_config<PQ_LEN,
-                             cuvs::neighbors::cagra::internal_dtype::E5M2,
-                             std::enable_if_t<PQ_LEN == 4 || PQ_LEN == 8>> {
+struct pq_smem_value_config<PQ_LEN,
+                            cuvs::neighbors::cagra::internal_dtype::E5M2,
+                            std::enable_if_t<PQ_LEN == 4 || PQ_LEN == 8>> {
   using smem_val_pack_t                         = device::fp8xN<PQ_LEN, 5>;
   using smem_val_t                              = typename smem_val_pack_t::unit_t;
   using smem_val_pack_uint_t                    = typename smem_val_pack_t::uint_t;
@@ -107,7 +107,7 @@ struct cagra_q_dataset_descriptor_t : public dataset_descriptor_base_t<DataT, In
     return args.extra_word1;
   }
 
-  using smem_val_config = vpq_smem_value_config<PQ_LEN, SmemDType>;
+  using smem_val_config = pq_smem_value_config<PQ_LEN, SmemDType>;
 
   static constexpr std::uint32_t kSMemCodeBookSizeInBytes =
     (1 << PQ_BITS) * PQ_LEN * utils::size_of<typename smem_val_config::smem_val_pack_uint_t>() /
@@ -157,13 +157,13 @@ template <cuvs::distance::DistanceType Metric,
           typename DistanceT,
           cuvs::neighbors::cagra::internal_dtype SmemDType>
 RAFT_KERNEL __launch_bounds__(1, 1)
-  vpq_dataset_descriptor_init_kernel(dataset_descriptor_base_t<DataT, IndexT, DistanceT>* out,
-                                     const std::uint8_t* encoded_dataset_ptr,
-                                     uint32_t encoded_dataset_dim,
-                                     const CodebookT* vq_code_book_ptr,
-                                     const CodebookT* pq_code_book_ptr,
-                                     IndexT size,
-                                     uint32_t dim)
+  pq_dataset_descriptor_init_kernel(dataset_descriptor_base_t<DataT, IndexT, DistanceT>* out,
+                                    const std::uint8_t* encoded_dataset_ptr,
+                                    uint32_t encoded_dataset_dim,
+                                    const CodebookT* vq_code_book_ptr,
+                                    const CodebookT* pq_code_book_ptr,
+                                    IndexT size,
+                                    uint32_t dim)
 {
   using desc_type = cagra_q_dataset_descriptor_t<TeamSize,
                                                  DatasetBlockDim,
@@ -190,22 +190,22 @@ template <cuvs::distance::DistanceType Metric,
           typename DistanceT,
           cuvs::neighbors::cagra::internal_dtype SmemDType>
 dataset_descriptor_host<DataT, IndexT, DistanceT>
-vpq_descriptor_spec<Metric,
-                    TeamSize,
-                    DatasetBlockDim,
-                    PqBits,
-                    PqLen,
-                    CodebookT,
-                    DataT,
-                    IndexT,
-                    DistanceT,
-                    SmemDType>::init_(const cagra::search_params& params,
-                                      const std::uint8_t* encoded_dataset_ptr,
-                                      uint32_t encoded_dataset_dim,
-                                      const CodebookT* vq_code_book_ptr,
-                                      const CodebookT* pq_code_book_ptr,
-                                      IndexT size,
-                                      uint32_t dim)
+pq_descriptor_spec<Metric,
+                   TeamSize,
+                   DatasetBlockDim,
+                   PqBits,
+                   PqLen,
+                   CodebookT,
+                   DataT,
+                   IndexT,
+                   DistanceT,
+                   SmemDType>::init_(const cagra::search_params& params,
+                                     const std::uint8_t* encoded_dataset_ptr,
+                                     uint32_t encoded_dataset_dim,
+                                     const CodebookT* vq_code_book_ptr,
+                                     const CodebookT* pq_code_book_ptr,
+                                     IndexT size,
+                                     uint32_t dim)
 {
   using desc_type = cagra_q_dataset_descriptor_t<TeamSize,
                                                  DatasetBlockDim,
@@ -223,27 +223,27 @@ vpq_descriptor_spec<Metric,
       encoded_dataset_ptr, encoded_dataset_dim, vq_code_book_ptr, pq_code_book_ptr, size, dim},
     [=](dataset_descriptor_base_t<DataT, IndexT, DistanceT>* dev_ptr,
         rmm::cuda_stream_view stream) {
-      vpq_dataset_descriptor_init_kernel<Metric,
-                                         TeamSize,
-                                         DatasetBlockDim,
-                                         PqBits,
-                                         PqLen,
-                                         CodebookT,
-                                         DataT,
-                                         IndexT,
-                                         DistanceT,
-                                         SmemDType><<<1, 1, 0, stream>>>(dev_ptr,
-                                                                         encoded_dataset_ptr,
-                                                                         encoded_dataset_dim,
-                                                                         vq_code_book_ptr,
-                                                                         pq_code_book_ptr,
-                                                                         size,
-                                                                         dim);
+      pq_dataset_descriptor_init_kernel<Metric,
+                                        TeamSize,
+                                        DatasetBlockDim,
+                                        PqBits,
+                                        PqLen,
+                                        CodebookT,
+                                        DataT,
+                                        IndexT,
+                                        DistanceT,
+                                        SmemDType><<<1, 1, 0, stream>>>(dev_ptr,
+                                                                        encoded_dataset_ptr,
+                                                                        encoded_dataset_dim,
+                                                                        vq_code_book_ptr,
+                                                                        pq_code_book_ptr,
+                                                                        size,
+                                                                        dim);
       RAFT_CUDA_TRY(cudaPeekAtLastError());
     },
     Metric,
     DatasetBlockDim,
-    true,        // is_vpq
+    true,        // is_pq
     PqBits,      // pq_bits
     PqLen,       // pq_len
     SmemDType};  // smem_dtype

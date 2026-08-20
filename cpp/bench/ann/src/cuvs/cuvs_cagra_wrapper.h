@@ -165,9 +165,9 @@ class cuvs_cagra : public algo<T>, public algo_gpu {
     using dataset_dependent_params = std::function<cuvs::neighbors::cagra::index_params(
       raft::matrix_extent<int64_t>, cuvs::distance::DistanceType)>;
     dataset_dependent_params cagra_params;
-    std::optional<cuvs::neighbors::vpq_params> compression = std::nullopt;
-    size_t num_dataset_splits                              = 1;
-    CagraMergeType merge_type                              = CagraMergeType::kPhysical;
+    std::optional<cuvs::neighbors::pq_params> compression = std::nullopt;
+    size_t num_dataset_splits                             = 1;
+    CagraMergeType merge_type                             = CagraMergeType::kPhysical;
     cuvs::neighbors::cagra::merge_params merge_params;
   };
 
@@ -233,7 +233,7 @@ class cuvs_cagra : public algo<T>, public algo_gpu {
   auto get_index() const -> const index_type* { return index_.get(); }
 
  private:
-  /** Train the VPQ codebooks and create the CAGRA-Q index sharing the graph of `index_`. */
+  /** Train the PQ codebooks and create the CAGRA-Q index sharing the graph of `index_`. */
   void compress_dataset(const T* dataset, size_t nrow);
 
   // handle_ must go first to make sure it dies last and all memory allocated in pool
@@ -267,8 +267,8 @@ class cuvs_cagra : public algo<T>, public algo_gpu {
   std::shared_ptr<std::vector<raft::device_matrix<T, int64_t, raft::row_major>>>
     sub_dataset_buffers_ =
       std::make_shared<std::vector<raft::device_matrix<T, int64_t, raft::row_major>>>();
-  std::shared_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>> vpq_dataset_;
-  std::shared_ptr<cuvs::neighbors::cagra::vpq_f16_index<T, IdxT>> vpq_index_;
+  std::shared_ptr<cuvs::neighbors::device_pq_dataset<half, int64_t>> pq_dataset_;
+  std::shared_ptr<cuvs::neighbors::cagra::pq_f16_index<T, IdxT>> pq_index_;
 
   inline rmm::device_async_resource_ref get_mr(AllocatorType mem_type)
   {
@@ -407,13 +407,13 @@ void cuvs_cagra<T, IdxT>::compress_dataset(const T* dataset, size_t nrow)
                "cagra: compression_* (CAGRA-Q) requires the graph in memory; it cannot be combined "
                "with a disk-resident (ACE) graph.");
   auto rows = static_cast<int64_t>(nrow);
-  // make_vpq_dataset() reads the rows wherever they are: host-resident ones are subsampled and
+  // make_pq_dataset() reads the rows wherever they are: host-resident ones are subsampled and
   // encoded in bounded batches instead of being staged on the device.
   auto src = raft::make_device_matrix_view<const T, int64_t, raft::row_major>(dataset, rows, dim_);
-  vpq_dataset_ = std::make_shared<cuvs::neighbors::device_vpq_dataset<half, int64_t>>(
-    cuvs::preprocessing::quantize::pq::make_vpq_dataset(handle_, *index_params_.compression, src));
-  vpq_index_ = std::make_shared<cuvs::neighbors::cagra::vpq_f16_index<T, IdxT>>(
-    handle_, parse_metric_type(metric_), vpq_dataset_->as_dataset_view(), index_->graph());
+  pq_dataset_ = std::make_shared<cuvs::neighbors::device_pq_dataset<half, int64_t>>(
+    cuvs::preprocessing::quantize::pq::make_pq_dataset(handle_, *index_params_.compression, src));
+  pq_index_ = std::make_shared<cuvs::neighbors::cagra::pq_f16_index<T, IdxT>>(
+    handle_, parse_metric_type(metric_), pq_dataset_->as_dataset_view(), index_->graph());
 
   // Search runs on the compressed rows and the graph, so release the dense copy of the dataset.
   cuvs::neighbors::device_padded_dataset_view<T, int64_t> empty_dv(
@@ -470,13 +470,13 @@ void cuvs_cagra<T, IdxT>::set_search_param(const search_param_base& param,
 
     // NB: update_graph() only stores a view in the index. We need to keep the graph object alive.
     index_->update_graph(handle_, make_const_mdspan(graph_->view()));
-    if (vpq_index_) { vpq_index_->update_graph(handle_, make_const_mdspan(graph_->view())); }
+    if (pq_index_) { pq_index_->update_graph(handle_, make_const_mdspan(graph_->view())); }
     // graph_ owns the graph now, so release the host index that used to own it.
     host_index_.reset();
     needs_dynamic_batcher_update = true;
   }
 
-  // CAGRA-Q searches the compressed rows in vpq_index_, so the dense dataset is never needed.
+  // CAGRA-Q searches the compressed rows in pq_index_, so the dense dataset is never needed.
   if (!index_params_.compression.has_value() &&
       (sp.dataset_mem != dataset_mem_ || need_dataset_update_)) {
     dataset_mem_ = sp.dataset_mem;
@@ -504,7 +504,7 @@ void cuvs_cagra<T, IdxT>::set_search_param(const search_param_base& param,
     needs_dynamic_batcher_update = true;
   }
 
-  if (index_params_.compression.has_value() && !vpq_index_) {
+  if (index_params_.compression.has_value() && !pq_index_) {
     // The codebooks are not part of the serialized index, so they have to be trained again after
     // load(). Unlike before, the reported build time therefore excludes the compression.
     compress_dataset(input_dataset_v_->data_handle(),
@@ -571,14 +571,14 @@ void cuvs_cagra<T, IdxT>::set_search_dataset(const T* dataset, size_t nrow)
     }
     need_dataset_update_ = false;
   } else {
-    bool is_vpq = index_params_.compression.has_value();
+    bool is_pq = index_params_.compression.has_value();
     // It can happen that we are re-using a previous algo object which already has
     // the dataset set. Check if we need update.
     if (static_cast<size_t>(input_dataset_v_->extent(0)) != nrow ||
         input_dataset_v_->data_handle() != dataset) {
       *input_dataset_v_ =
         raft::make_device_matrix_view<const T, int64_t>(dataset, nrow, this->dim_);
-      need_dataset_update_ = !is_vpq;  // ignore update if this is a VPQ dataset.
+      need_dataset_update_ = !is_pq;  // ignore update if this is a PQ dataset.
     }
   }
 }
@@ -655,9 +655,9 @@ void cuvs_cagra<T, IdxT>::search_base(
                                               queries_view,
                                               neighbors_view,
                                               distances_view);
-  } else if (vpq_index_) {
+  } else if (pq_index_) {
     cuvs::neighbors::cagra::search(
-      handle_, search_params_, *vpq_index_, queries_view, neighbors_view, distances_view, *filter_);
+      handle_, search_params_, *pq_index_, queries_view, neighbors_view, distances_view, *filter_);
   } else {
     if (index_params_.num_dataset_splits <= 1 ||
         index_params_.merge_type == CagraMergeType::kPhysical) {

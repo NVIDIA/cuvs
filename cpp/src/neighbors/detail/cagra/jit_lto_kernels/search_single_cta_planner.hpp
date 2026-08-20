@@ -28,7 +28,7 @@ struct CagraSingleCtaSearchPlanner
                               bool /*bitonic_sort_and_merge_multi_warps*/,
                               uint32_t /*team_size*/,
                               uint32_t /*dataset_block_dim*/,
-                              bool /*is_vpq*/,
+                              bool /*is_pq*/,
                               uint32_t /*pq_bits*/,
                               uint32_t /*pq_len*/,
                               bool persistent = false)
@@ -121,7 +121,7 @@ struct CagraSingleCtaMpSearchPlanner
                                 bool /*bitonic_sort_and_merge_multi_warps*/,
                                 uint32_t /*team_size*/,
                                 uint32_t /*dataset_block_dim*/,
-                                bool /*is_vpq*/,
+                                bool /*is_pq*/,
                                 uint32_t /*pq_bits*/,
                                 uint32_t /*pq_len*/)
     : CagraPlannerBase<DataTag, IndexTag, DistanceTag, QueryTag, CodebookTag, SampleFilterJitTag>(

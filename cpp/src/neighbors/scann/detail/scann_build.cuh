@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -145,7 +145,7 @@ index<T, IdxT> build(
   // Train PQ codebooks
   RAFT_LOG_DEBUG("Train PQ Codebooks\n");
 
-  // Limit PQ training rows to 100k. IVF-PQ/VPQ limit to 65k as recall
+  // Limit PQ training rows to 100k. IVF-PQ/PQ limit to 65k as recall
   // doesn't increase significantly. ScaNN configs in common benchmarks use 100k,
   // so staying consistent with that.
   constexpr int64_t kMaxPQTrainRows = 100000;
@@ -287,10 +287,10 @@ index<T, IdxT> build(
     raft::resource::sync_stream(res);
   }
 
-  // Codebooks from VPQ have the shape [subspace idx, subspace dim, code]
+  // Codebooks from PQ have the shape [subspace idx, subspace dim, code]
   // This converts the codebook into matrix format for easy interoperability
   // with open-source ScaNN search
-  auto full_codebook_view = pq_quantizer.vpq_codebooks.pq_code_book.view();
+  auto full_codebook_view = pq_quantizer.pq_codebooks.pq_code_book.view();
 
   raft::linalg::map_offset(
     res,

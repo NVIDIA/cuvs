@@ -26,7 +26,7 @@ float data type to the full range of the quantized int type.
 | `pq_codebook` | property |
 | `vq_codebook` | property |
 | `encoded_dim` | property |
-| `use_vq` | property |
+| `train_coarse` | property |
 
 ### pq_bits
 
@@ -64,10 +64,10 @@ def encoded_dim(self)
 
 Returns the encoded dimension of the quantized dataset
 
-### use_vq
+### train_coarse
 
 ```python
-def use_vq(self)
+def train_coarse(self)
 ```
 
 ## QuantizerParams
@@ -85,7 +85,7 @@ Parameters for product quantization
 | `pq_bits` | `int` | specifies the bit length of the vector element after compression by PQ<br />possible values: within [4, 16] |
 | `pq_dim` | `int` | specifies the dimensionality of the vector after compression by PQ |
 | `use_subspaces` | `bool` | specifies whether to use subspaces for product quantization (PQ). When true, one PQ codebook is used for each subspace. Otherwise, a single PQ codebook is used. |
-| `use_vq` | `bool` | specifies whether to use Vector Quantization (KMeans) before product quantization (PQ). |
+| `train_coarse` | `bool` | specifies whether to use Vector Quantization (KMeans) before product quantization (PQ). |
 | `vq_n_centers` | `int` | specifies the number of centers for the vector quantizer. When zero, an optimal value is selected using a heuristic. When one, only product quantization is used. |
 | `kmeans_n_iters` | `int` | specifies the number of iterations searching for kmeans centers |
 | `pq_kmeans_type` | `str` | specifies the type of kmeans algorithm to use for PQ training<br />possible values: "kmeans", "kmeans_balanced" |
@@ -95,7 +95,7 @@ Parameters for product quantization
 **Constructor**
 
 ```python
-def __init__(self, *, pq_bits=8, pq_dim=0, use_subspaces=True, use_vq=False, vq_n_centers=0, kmeans_n_iters=25, pq_kmeans_type="kmeans_balanced", max_train_points_per_pq_code=256, max_train_points_per_vq_cluster=1024)
+def __init__(self, *, pq_bits=8, pq_dim=0, use_subspaces=True, train_coarse=False, vq_n_centers=0, kmeans_n_iters=25, pq_kmeans_type="kmeans_balanced", max_train_points_per_pq_code=256, max_train_points_per_vq_cluster=1024)
 ```
 
 **Members**
@@ -109,7 +109,7 @@ def __init__(self, *, pq_bits=8, pq_dim=0, use_subspaces=True, use_vq=False, vq_
 | `pq_kmeans_type` | property |
 | `max_train_points_per_pq_code` | property |
 | `max_train_points_per_vq_cluster` | property |
-| `use_vq` | property |
+| `train_coarse` | property |
 | `use_subspaces` | property |
 
 ### pq_bits
@@ -154,10 +154,10 @@ def max_train_points_per_pq_code(self)
 def max_train_points_per_vq_cluster(self)
 ```
 
-### use_vq
+### train_coarse
 
 ```python
-def use_vq(self)
+def train_coarse(self)
 ```
 
 ### use_subspaces
@@ -283,7 +283,7 @@ Applies Product Quantization inverse transform to given codes
 >>> n_features = 64
 >>> dataset = cp.random.random_sample((n_samples, n_features),
 ...                                   dtype=cp.float32)
->>> params = pq.QuantizerParams(pq_bits=8, pq_dim=16, use_vq=True)
+>>> params = pq.QuantizerParams(pq_bits=8, pq_dim=16, train_coarse=True)
 >>> quantizer = pq.build(params, dataset)
 >>> transformed, vq_labels = pq.transform(quantizer, dataset)
 >>> reconstructed = pq.inverse_transform(quantizer, transformed, vq_labels=vq_labels)

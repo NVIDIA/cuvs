@@ -2054,7 +2054,7 @@ extern "C" cuvsError_t cuvsCagraMergeParamsDestroy(cuvsCagraMergeParams_t params
 extern "C" cuvsError_t cuvsCagraCompressionParamsCreate(cuvsCagraCompressionParams_t* params)
 {
   return cuvs::core::translate_exceptions([=] {
-    auto ps = cuvs::neighbors::vpq_params();
+    auto ps = cuvs::neighbors::pq_params();
     *params =
       new cuvsCagraCompressionParams{.pq_bits                     = ps.pq_bits,
                                      .pq_dim                      = ps.pq_dim,

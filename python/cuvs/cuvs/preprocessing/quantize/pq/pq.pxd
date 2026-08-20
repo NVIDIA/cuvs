@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # cython: language_level=3
@@ -18,7 +18,7 @@ cdef extern from "cuvs/preprocessing/quantize/pq.h" nogil:
         uint32_t pq_bits
         uint32_t pq_dim
         bool use_subspaces
-        bool use_vq
+        bool train_coarse
         uint32_t vq_n_centers
         uint32_t kmeans_n_iters
         cuvsKMeansType pq_kmeans_type
@@ -73,5 +73,5 @@ cdef extern from "cuvs/preprocessing/quantize/pq.h" nogil:
     cuvsError_t cuvsProductQuantizerGetEncodedDim(
         cuvsProductQuantizer_t quantizer, uint32_t* encoded_dim)
 
-    cuvsError_t cuvsProductQuantizerGetUseVq(
-        cuvsProductQuantizer_t quantizer, bool* use_vq)
+    cuvsError_t cuvsProductQuantizerGetTrainCoarse(
+        cuvsProductQuantizer_t quantizer, bool* train_coarse)

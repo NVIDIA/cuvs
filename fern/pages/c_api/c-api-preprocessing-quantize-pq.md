@@ -18,7 +18,7 @@ struct cuvsProductQuantizerParams {
   uint32_t pq_bits;
   uint32_t pq_dim;
   bool use_subspaces;
-  bool use_vq;
+  bool train_coarse;
   uint32_t vq_n_centers;
   uint32_t kmeans_n_iters;
   cuvsKMeansType pq_kmeans_type;
@@ -34,7 +34,7 @@ struct cuvsProductQuantizerParams {
 | `pq_bits` | `uint32_t` | The bit length of the vector element after compression by PQ.<br /><br />Possible values: within [4, 16].<br /><br />Hint: the smaller the 'pq_bits', the smaller the index size and the better the search performance, but the lower the recall. |
 | `pq_dim` | `uint32_t` | The dimensionality of the vector after compression by PQ. When zero, an optimal value is selected using a heuristic.<br /><br />TODO: at the moment `dim` must be a multiple `pq_dim`. |
 | `use_subspaces` | `bool` | Whether to use subspaces for product quantization (PQ). When true, one PQ codebook is used for each subspace. Otherwise, a single PQ codebook is used. |
-| `use_vq` | `bool` | Whether to use Vector Quantization (KMeans) before product quantization (PQ). When true, VQ is used before PQ. When false, only product quantization is used. |
+| `train_coarse` | `bool` | Whether to use Vector Quantization (KMeans) before product quantization (PQ). When true, VQ is used before PQ. When false, only product quantization is used. |
 | `vq_n_centers` | `uint32_t` | Vector Quantization (VQ) codebook size - number of "coarse cluster centers". When zero, an optimal value is selected using a heuristic. When one, only product quantization is used. |
 | `kmeans_n_iters` | `uint32_t` | The number of iterations searching for kmeans centers (both VQ & PQ phases). |
 | `pq_kmeans_type` | [`cuvsKMeansType`](/api-reference/c-api-cluster-kmeans#cuvskmeanstype) | The type of kmeans algorithm to use for PQ training. |
@@ -325,12 +325,12 @@ uint32_t* encoded_dim);
 [`cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)
 
 <a id="cuvsproductquantizergetusevq"></a>
-### cuvsProductQuantizerGetUseVq
+### cuvsProductQuantizerGetTrainCoarse
 
 Get whether VQ is used.
 
 ```c
-cuvsError_t cuvsProductQuantizerGetUseVq(cuvsProductQuantizer_t quantizer, bool* use_vq);
+cuvsError_t cuvsProductQuantizerGetTrainCoarse(cuvsProductQuantizer_t quantizer, bool* train_coarse);
 ```
 
 **Parameters**
@@ -338,7 +338,7 @@ cuvsError_t cuvsProductQuantizerGetUseVq(cuvsProductQuantizer_t quantizer, bool*
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `quantizer` | in | [`cuvsProductQuantizer_t`](/api-reference/c-api-preprocessing-quantize-pq#cuvsproductquantizer) | product quantizer |
-| `use_vq` | out | `bool*` | whether VQ is used |
+| `train_coarse` | out | `bool*` | whether VQ is used |
 
 **Returns**
 

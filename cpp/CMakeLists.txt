@@ -261,31 +261,31 @@ if(NOT BUILD_CPU_ONLY)
   )
 
   generate_inst_matrix(
-    cagra_compute_distance_vpq_inst_files
+    cagra_compute_distance_pq_inst_files
     MATRIX_JSON_FILE
-      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/detail/cagra/compute_distance_vpq_matrix.json"
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/detail/cagra/compute_distance_pq_matrix.json"
     INPUT_FILE
-      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/detail/cagra/compute_distance_vpq_inst.cu.in"
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/detail/cagra/compute_distance_pq_inst.cu.in"
     OUTPUT_FILE_FORMAT
-      "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/detail/cagra/compute_distance_vpq_inst_data_@data_abbrev@_index_@index_abbrev@_distance_@distance_abbrev@_codebook_@codebook_abbrev@_metric_@metric@_team_@team_size@_dim_@dim@_pq_bits_@pq_bits@_pq_len_@pq_len@_smem_@smem_abbrev@.cu"
+      "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/detail/cagra/compute_distance_pq_inst_data_@data_abbrev@_index_@index_abbrev@_distance_@distance_abbrev@_codebook_@codebook_abbrev@_metric_@metric@_team_@team_size@_dim_@dim@_pq_bits_@pq_bits@_pq_len_@pq_len@_smem_@smem_abbrev@.cu"
   )
   generate_string_matrix(
-    cagra_compute_distance_vpq_selector_template_params
+    cagra_compute_distance_pq_selector_template_params
     ITEM_FORMAT
-    "\nvpq_descriptor_spec<DistanceType::@metric@, @team_size@, @dim@, @pq_bits@, @pq_len@, @codebook_type@, @data_type@, @index_type@, @distance_type@, @smem_dtype@>"
+    "\npq_descriptor_spec<DistanceType::@metric@, @team_size@, @dim@, @pq_bits@, @pq_len@, @codebook_type@, @data_type@, @index_type@, @distance_type@, @smem_dtype@>"
     GLUE
     ","
     MATRIX_JSON_FILE
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/detail/cagra/compute_distance_vpq_matrix.json"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/detail/cagra/compute_distance_pq_matrix.json"
   )
   generate_string_matrix(
-    cagra_compute_distance_vpq_template_inst
+    cagra_compute_distance_pq_template_inst
     ITEM_FORMAT
-    "extern template struct vpq_descriptor_spec<DistanceType::@metric@, @team_size@, @dim@, @pq_bits@, @pq_len@, @codebook_type@, @data_type@, @index_type@, @distance_type@, @smem_dtype@>@semicolon@"
+    "extern template struct pq_descriptor_spec<DistanceType::@metric@, @team_size@, @dim@, @pq_bits@, @pq_len@, @codebook_type@, @data_type@, @index_type@, @distance_type@, @smem_dtype@>@semicolon@"
     GLUE
     "\n"
     MATRIX_JSON_FILE
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/detail/cagra/compute_distance_vpq_matrix.json"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/detail/cagra/compute_distance_pq_matrix.json"
   )
 
   generate_inst_matrix(
@@ -318,7 +318,7 @@ if(NOT BUILD_CPU_ONLY)
       ${cagra_search_inst_files}
       ${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/detail/cagra/compute_distance.cu
       ${cagra_compute_distance_standard_inst_files}
-      ${cagra_compute_distance_vpq_inst_files}
+      ${cagra_compute_distance_pq_inst_files}
       ${cagra_search_multi_cta_inst_files}
       ${cagra_search_single_cta_inst_files}
   )

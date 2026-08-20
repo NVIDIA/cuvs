@@ -81,7 +81,7 @@ enum cuvsCagraHnswHeuristicType {
    CUVS_CAGRA_HEURISTIC_SAME_GRAPH_FOOTPRINT = 1
 };
 
-/** Parameters for VPQ compression. */
+/** Parameters for PQ compression. */
 struct cuvsCagraCompressionParams {
   /**
    * The bit length of the vector element after compression by PQ.

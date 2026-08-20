@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -17,7 +17,7 @@ from cuvs.tests.ann_utils import calc_recall, generate_data
 @pytest.mark.parametrize("pq_bits", [7, 9])
 @pytest.mark.parametrize("inplace", [True, False])
 @pytest.mark.parametrize("pq_kmeans_type", ["kmeans", "kmeans_balanced"])
-@pytest.mark.parametrize("use_vq", [True, False])
+@pytest.mark.parametrize("train_coarse", [True, False])
 @pytest.mark.parametrize("use_subspaces", [True, False])
 @pytest.mark.parametrize("device_memory", [True, False])
 def test_product_quantizer(
@@ -26,7 +26,7 @@ def test_product_quantizer(
     pq_bits,
     inplace,
     pq_kmeans_type,
-    use_vq,
+    train_coarse,
     use_subspaces,
     device_memory,
 ):
@@ -40,7 +40,7 @@ def test_product_quantizer(
         pq_bits=pq_bits,
         pq_dim=pq_dim,
         use_subspaces=use_subspaces,
-        use_vq=use_vq,
+        train_coarse=train_coarse,
         vq_n_centers=vq_n_centers,
         pq_kmeans_type=pq_kmeans_type,
     )
@@ -56,10 +56,12 @@ def test_product_quantizer(
     )
     output_device = device_ndarray(output) if inplace else None
     vq_labels = (
-        np.zeros((n_rows,), dtype="uint32") if inplace and use_vq else None
+        np.zeros((n_rows,), dtype="uint32")
+        if inplace and train_coarse
+        else None
     )
     vq_labels_device = (
-        device_ndarray(vq_labels) if inplace and use_vq else None
+        device_ndarray(vq_labels) if inplace and train_coarse else None
     )
     if device_memory:
         transformed, vq_labels_device = pq.transform(
@@ -103,10 +105,10 @@ def test_extreme_cases():
     pq.transform(quantizer, dataset)
 
 
-@pytest.mark.parametrize("use_vq", [True, False])
+@pytest.mark.parametrize("train_coarse", [True, False])
 @pytest.mark.parametrize("use_subspaces", [True, False])
 @pytest.mark.parametrize("pq_dim", [64, 128])
-def test_recall(use_vq, use_subspaces, pq_dim):
+def test_recall(train_coarse, use_subspaces, pq_dim):
     n_samples = 5000
     n_queries = 150
     n_features = 256
@@ -120,7 +122,7 @@ def test_recall(use_vq, use_subspaces, pq_dim):
         pq_bits=pq_bits,
         pq_dim=pq_dim,
         use_subspaces=use_subspaces,
-        use_vq=use_vq,
+        train_coarse=train_coarse,
         pq_kmeans_type=pq_kmeans_type,
     )
     quantizer = pq.build(params, dataset)

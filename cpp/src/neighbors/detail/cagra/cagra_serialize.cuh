@@ -124,7 +124,7 @@ void serialize(raft::resources const& res,
     if constexpr (cuvs::neighbors::is_dense_row_major_dataset_view_v<DatasetViewT>) {
       neighbors::detail::serialize_cagra_dense_dataset<T, int64_t>(res, os, index_.dataset());
     } else {
-      // Future dataset types (e.g. VPQ) require a new branch here and a corresponding
+      // Future dataset types (e.g. PQ) require a new branch here and a corresponding
       // deserialize overload. Use static_assert to catch unsupported types at compile time.
       static_assert(
         sizeof(DatasetViewT) == 0,

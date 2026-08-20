@@ -410,7 +410,7 @@ struct search_params : cuvs::neighbors::search_params {
    */
   float filtering_rate = -1.0;
 
-  /** Data type of the query vector and codebook table on shared memory. Currently, only VPQ
+  /** Data type of the query vector and codebook table on shared memory. Currently, only PQ
    * supports FP8. **/
   internal_dtype smem_dtype = internal_dtype::F16;
 };
@@ -914,13 +914,13 @@ using device_standard_index =
 template <typename T, typename IdxT = uint32_t>
 using host_standard_index = index<T, IdxT, cuvs::neighbors::host_standard_dataset_view<T, int64_t>>;
 
-/** CAGRA index with a device-resident VPQ dataset (f16 codebook vectors). */
+/** CAGRA index with a device-resident PQ dataset (f16 codebook vectors). */
 template <typename T, typename IdxT = uint32_t>
-using vpq_f16_index = index<T, IdxT, cuvs::neighbors::device_vpq_dataset_view<half, int64_t>>;
+using pq_f16_index = index<T, IdxT, cuvs::neighbors::device_pq_dataset_view<half, int64_t>>;
 
-/** CAGRA index with a device-resident VPQ dataset (f32 codebook vectors). */
+/** CAGRA index with a device-resident PQ dataset (f32 codebook vectors). */
 template <typename T, typename IdxT = uint32_t>
-using vpq_f32_index = index<T, IdxT, cuvs::neighbors::device_vpq_dataset_view<float, int64_t>>;
+using pq_f32_index = index<T, IdxT, cuvs::neighbors::device_pq_dataset_view<float, int64_t>>;
 
 /** Index type returned by `cagra::build(res, params, dataset_view)`. */
 template <typename DatasetViewT>
@@ -940,8 +940,8 @@ using cagra_index_t = index<cuvs::neighbors::cagra_view_element_type_t<DatasetVi
 /**
  * @brief Build the index from a `dataset_view` (device padded/standard or host padded/standard).
  *
- * VPQ-compressed device views are rejected: dense graph construction requires uncompressed data.
- * Use a separate VPQ index workflow after building the graph from an uncompressed dataset.
+ * PQ-compressed device views are rejected: dense graph construction requires uncompressed data.
+ * Use a separate PQ index workflow after building the graph from an uncompressed dataset.
  *
  * When `index_params.attach_dataset_on_build = true` (the default), a dense `dataset` view is
  * stored in the returned index as a **non-owning view** — no copy is made. The caller must keep the
@@ -1164,7 +1164,7 @@ auto build(raft::resources const& res,
 // Previously a single template <T, IdxT, DatasetViewT> covered all index types; it has been
 // replaced with explicit overloads to maintain a stable non-template ABI. When a new index
 // type is added (e.g. a future host_padded_index extend), add a corresponding overload here.
-// Index types for which extend is not meaningful (e.g. VPQ — read-only compressed codes)
+// Index types for which extend is not meaningful (e.g. PQ — read-only compressed codes)
 // are intentionally omitted.
 
 /** @brief Add new vectors to a CAGRA index
@@ -1503,7 +1503,7 @@ void search(raft::resources const& res,
             const cuvs::neighbors::filtering::base_filter& sample_filter =
               cuvs::neighbors::filtering::none_sample_filter{});
 
-// vpq_f16_index overloads (uint32_t neighbor indices)
+// pq_f16_index overloads (uint32_t neighbor indices)
 /**
  * @brief Search ANN using the constructed index.
  *
@@ -1511,7 +1511,7 @@ void search(raft::resources const& res,
  *
  * @param[in] res raft resources
  * @param[in] params configure the search
- * @param[in] index pre-built vpq_f16_index (CAGRA-Q, VPQ f16-compressed dataset) with uint32_t
+ * @param[in] index pre-built pq_f16_index (CAGRA-Q, PQ f16-compressed dataset) with uint32_t
  * neighbor indices
  * @param[in] queries a device matrix view to a row-major matrix [n_queries, index.dim()]
  * @param[out] neighbors a device matrix view to the indices of the neighbors in the source dataset
@@ -1523,7 +1523,7 @@ void search(raft::resources const& res,
  */
 void search(raft::resources const& res,
             cuvs::neighbors::cagra::search_params const& params,
-            const cuvs::neighbors::cagra::vpq_f16_index<float, uint32_t>& index,
+            const cuvs::neighbors::cagra::pq_f16_index<float, uint32_t>& index,
             raft::device_matrix_view<const float, int64_t, raft::row_major> queries,
             raft::device_matrix_view<uint32_t, int64_t, raft::row_major> neighbors,
             raft::device_matrix_view<float, int64_t, raft::row_major> distances,
@@ -1537,7 +1537,7 @@ void search(raft::resources const& res,
  *
  * @param[in] res raft resources
  * @param[in] params configure the search
- * @param[in] index pre-built vpq_f16_index (CAGRA-Q, VPQ f16-compressed dataset) with uint32_t
+ * @param[in] index pre-built pq_f16_index (CAGRA-Q, PQ f16-compressed dataset) with uint32_t
  * neighbor indices
  * @param[in] queries a device matrix view to a row-major matrix [n_queries, index.dim()]
  * @param[out] neighbors a device matrix view to the indices of the neighbors in the source dataset
@@ -1549,7 +1549,7 @@ void search(raft::resources const& res,
  */
 void search(raft::resources const& res,
             cuvs::neighbors::cagra::search_params const& params,
-            const cuvs::neighbors::cagra::vpq_f16_index<half, uint32_t>& index,
+            const cuvs::neighbors::cagra::pq_f16_index<half, uint32_t>& index,
             raft::device_matrix_view<const half, int64_t, raft::row_major> queries,
             raft::device_matrix_view<uint32_t, int64_t, raft::row_major> neighbors,
             raft::device_matrix_view<float, int64_t, raft::row_major> distances,
@@ -1563,7 +1563,7 @@ void search(raft::resources const& res,
  *
  * @param[in] res raft resources
  * @param[in] params configure the search
- * @param[in] index pre-built vpq_f16_index (CAGRA-Q, VPQ f16-compressed dataset) with uint32_t
+ * @param[in] index pre-built pq_f16_index (CAGRA-Q, PQ f16-compressed dataset) with uint32_t
  * neighbor indices
  * @param[in] queries a device matrix view to a row-major matrix [n_queries, index.dim()]
  * @param[out] neighbors a device matrix view to the indices of the neighbors in the source dataset
@@ -1575,7 +1575,7 @@ void search(raft::resources const& res,
  */
 void search(raft::resources const& res,
             cuvs::neighbors::cagra::search_params const& params,
-            const cuvs::neighbors::cagra::vpq_f16_index<int8_t, uint32_t>& index,
+            const cuvs::neighbors::cagra::pq_f16_index<int8_t, uint32_t>& index,
             raft::device_matrix_view<const int8_t, int64_t, raft::row_major> queries,
             raft::device_matrix_view<uint32_t, int64_t, raft::row_major> neighbors,
             raft::device_matrix_view<float, int64_t, raft::row_major> distances,
@@ -1589,7 +1589,7 @@ void search(raft::resources const& res,
  *
  * @param[in] res raft resources
  * @param[in] params configure the search
- * @param[in] index pre-built vpq_f16_index (CAGRA-Q, VPQ f16-compressed dataset) with uint32_t
+ * @param[in] index pre-built pq_f16_index (CAGRA-Q, PQ f16-compressed dataset) with uint32_t
  * neighbor indices
  * @param[in] queries a device matrix view to a row-major matrix [n_queries, index.dim()]
  * @param[out] neighbors a device matrix view to the indices of the neighbors in the source dataset
@@ -1601,14 +1601,14 @@ void search(raft::resources const& res,
  */
 void search(raft::resources const& res,
             cuvs::neighbors::cagra::search_params const& params,
-            const cuvs::neighbors::cagra::vpq_f16_index<uint8_t, uint32_t>& index,
+            const cuvs::neighbors::cagra::pq_f16_index<uint8_t, uint32_t>& index,
             raft::device_matrix_view<const uint8_t, int64_t, raft::row_major> queries,
             raft::device_matrix_view<uint32_t, int64_t, raft::row_major> neighbors,
             raft::device_matrix_view<float, int64_t, raft::row_major> distances,
             const cuvs::neighbors::filtering::base_filter& sample_filter =
               cuvs::neighbors::filtering::none_sample_filter{});
 
-// vpq_f16_index overloads (int64_t neighbor indices)
+// pq_f16_index overloads (int64_t neighbor indices)
 /**
  * @brief Search ANN using the constructed index.
  *
@@ -1616,7 +1616,7 @@ void search(raft::resources const& res,
  *
  * @param[in] res raft resources
  * @param[in] params configure the search
- * @param[in] index pre-built vpq_f16_index (CAGRA-Q, VPQ f16-compressed dataset) with int64_t
+ * @param[in] index pre-built pq_f16_index (CAGRA-Q, PQ f16-compressed dataset) with int64_t
  * neighbor indices
  * @param[in] queries a device matrix view to a row-major matrix [n_queries, index.dim()]
  * @param[out] neighbors a device matrix view to the indices of the neighbors in the source dataset
@@ -1628,7 +1628,7 @@ void search(raft::resources const& res,
  */
 void search(raft::resources const& res,
             cuvs::neighbors::cagra::search_params const& params,
-            const cuvs::neighbors::cagra::vpq_f16_index<float, uint32_t>& index,
+            const cuvs::neighbors::cagra::pq_f16_index<float, uint32_t>& index,
             raft::device_matrix_view<const float, int64_t, raft::row_major> queries,
             raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
             raft::device_matrix_view<float, int64_t, raft::row_major> distances,
@@ -1642,7 +1642,7 @@ void search(raft::resources const& res,
  *
  * @param[in] res raft resources
  * @param[in] params configure the search
- * @param[in] index pre-built vpq_f16_index (CAGRA-Q, VPQ f16-compressed dataset) with int64_t
+ * @param[in] index pre-built pq_f16_index (CAGRA-Q, PQ f16-compressed dataset) with int64_t
  * neighbor indices
  * @param[in] queries a device matrix view to a row-major matrix [n_queries, index.dim()]
  * @param[out] neighbors a device matrix view to the indices of the neighbors in the source dataset
@@ -1654,7 +1654,7 @@ void search(raft::resources const& res,
  */
 void search(raft::resources const& res,
             cuvs::neighbors::cagra::search_params const& params,
-            const cuvs::neighbors::cagra::vpq_f16_index<half, uint32_t>& index,
+            const cuvs::neighbors::cagra::pq_f16_index<half, uint32_t>& index,
             raft::device_matrix_view<const half, int64_t, raft::row_major> queries,
             raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
             raft::device_matrix_view<float, int64_t, raft::row_major> distances,
@@ -1668,7 +1668,7 @@ void search(raft::resources const& res,
  *
  * @param[in] res raft resources
  * @param[in] params configure the search
- * @param[in] index pre-built vpq_f16_index (CAGRA-Q, VPQ f16-compressed dataset) with int64_t
+ * @param[in] index pre-built pq_f16_index (CAGRA-Q, PQ f16-compressed dataset) with int64_t
  * neighbor indices
  * @param[in] queries a device matrix view to a row-major matrix [n_queries, index.dim()]
  * @param[out] neighbors a device matrix view to the indices of the neighbors in the source dataset
@@ -1680,7 +1680,7 @@ void search(raft::resources const& res,
  */
 void search(raft::resources const& res,
             cuvs::neighbors::cagra::search_params const& params,
-            const cuvs::neighbors::cagra::vpq_f16_index<int8_t, uint32_t>& index,
+            const cuvs::neighbors::cagra::pq_f16_index<int8_t, uint32_t>& index,
             raft::device_matrix_view<const int8_t, int64_t, raft::row_major> queries,
             raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
             raft::device_matrix_view<float, int64_t, raft::row_major> distances,
@@ -1694,7 +1694,7 @@ void search(raft::resources const& res,
  *
  * @param[in] res raft resources
  * @param[in] params configure the search
- * @param[in] index pre-built vpq_f16_index (CAGRA-Q, VPQ f16-compressed dataset) with int64_t
+ * @param[in] index pre-built pq_f16_index (CAGRA-Q, PQ f16-compressed dataset) with int64_t
  * neighbor indices
  * @param[in] queries a device matrix view to a row-major matrix [n_queries, index.dim()]
  * @param[out] neighbors a device matrix view to the indices of the neighbors in the source dataset
@@ -1706,14 +1706,14 @@ void search(raft::resources const& res,
  */
 void search(raft::resources const& res,
             cuvs::neighbors::cagra::search_params const& params,
-            const cuvs::neighbors::cagra::vpq_f16_index<uint8_t, uint32_t>& index,
+            const cuvs::neighbors::cagra::pq_f16_index<uint8_t, uint32_t>& index,
             raft::device_matrix_view<const uint8_t, int64_t, raft::row_major> queries,
             raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
             raft::device_matrix_view<float, int64_t, raft::row_major> distances,
             const cuvs::neighbors::filtering::base_filter& sample_filter =
               cuvs::neighbors::filtering::none_sample_filter{});
 
-// vpq_f32_index overloads (uint32_t neighbor indices)
+// pq_f32_index overloads (uint32_t neighbor indices)
 /**
  * @brief Search ANN using the constructed index.
  *
@@ -1721,7 +1721,7 @@ void search(raft::resources const& res,
  *
  * @param[in] res raft resources
  * @param[in] params configure the search
- * @param[in] index pre-built vpq_f32_index (CAGRA-Q, VPQ f32-compressed dataset) with uint32_t
+ * @param[in] index pre-built pq_f32_index (CAGRA-Q, PQ f32-compressed dataset) with uint32_t
  * neighbor indices
  * @param[in] queries a device matrix view to a row-major matrix [n_queries, index.dim()]
  * @param[out] neighbors a device matrix view to the indices of the neighbors in the source dataset
@@ -1731,11 +1731,11 @@ void search(raft::resources const& res,
  * @param[in] sample_filter an optional device filter function object that greenlights samples
  * for a given query. (none_sample_filter for no filtering).
  *
- * @note FP32 VPQ search is declared for ABI stability but fails at runtime until implemented.
+ * @note FP32 PQ search is declared for ABI stability but fails at runtime until implemented.
  */
 void search(raft::resources const& res,
             cuvs::neighbors::cagra::search_params const& params,
-            const cuvs::neighbors::cagra::vpq_f32_index<float, uint32_t>& index,
+            const cuvs::neighbors::cagra::pq_f32_index<float, uint32_t>& index,
             raft::device_matrix_view<const float, int64_t, raft::row_major> queries,
             raft::device_matrix_view<uint32_t, int64_t, raft::row_major> neighbors,
             raft::device_matrix_view<float, int64_t, raft::row_major> distances,
@@ -1749,7 +1749,7 @@ void search(raft::resources const& res,
  *
  * @param[in] res raft resources
  * @param[in] params configure the search
- * @param[in] index pre-built vpq_f32_index (CAGRA-Q, VPQ f32-compressed dataset) with uint32_t
+ * @param[in] index pre-built pq_f32_index (CAGRA-Q, PQ f32-compressed dataset) with uint32_t
  * neighbor indices
  * @param[in] queries a device matrix view to a row-major matrix [n_queries, index.dim()]
  * @param[out] neighbors a device matrix view to the indices of the neighbors in the source dataset
@@ -1759,11 +1759,11 @@ void search(raft::resources const& res,
  * @param[in] sample_filter an optional device filter function object that greenlights samples
  * for a given query. (none_sample_filter for no filtering).
  *
- * @note FP32 VPQ search is declared for ABI stability but fails at runtime until implemented.
+ * @note FP32 PQ search is declared for ABI stability but fails at runtime until implemented.
  */
 void search(raft::resources const& res,
             cuvs::neighbors::cagra::search_params const& params,
-            const cuvs::neighbors::cagra::vpq_f32_index<half, uint32_t>& index,
+            const cuvs::neighbors::cagra::pq_f32_index<half, uint32_t>& index,
             raft::device_matrix_view<const half, int64_t, raft::row_major> queries,
             raft::device_matrix_view<uint32_t, int64_t, raft::row_major> neighbors,
             raft::device_matrix_view<float, int64_t, raft::row_major> distances,
@@ -1777,7 +1777,7 @@ void search(raft::resources const& res,
  *
  * @param[in] res raft resources
  * @param[in] params configure the search
- * @param[in] index pre-built vpq_f32_index (CAGRA-Q, VPQ f32-compressed dataset) with uint32_t
+ * @param[in] index pre-built pq_f32_index (CAGRA-Q, PQ f32-compressed dataset) with uint32_t
  * neighbor indices
  * @param[in] queries a device matrix view to a row-major matrix [n_queries, index.dim()]
  * @param[out] neighbors a device matrix view to the indices of the neighbors in the source dataset
@@ -1787,11 +1787,11 @@ void search(raft::resources const& res,
  * @param[in] sample_filter an optional device filter function object that greenlights samples
  * for a given query. (none_sample_filter for no filtering).
  *
- * @note FP32 VPQ search is declared for ABI stability but fails at runtime until implemented.
+ * @note FP32 PQ search is declared for ABI stability but fails at runtime until implemented.
  */
 void search(raft::resources const& res,
             cuvs::neighbors::cagra::search_params const& params,
-            const cuvs::neighbors::cagra::vpq_f32_index<int8_t, uint32_t>& index,
+            const cuvs::neighbors::cagra::pq_f32_index<int8_t, uint32_t>& index,
             raft::device_matrix_view<const int8_t, int64_t, raft::row_major> queries,
             raft::device_matrix_view<uint32_t, int64_t, raft::row_major> neighbors,
             raft::device_matrix_view<float, int64_t, raft::row_major> distances,
@@ -1805,7 +1805,7 @@ void search(raft::resources const& res,
  *
  * @param[in] res raft resources
  * @param[in] params configure the search
- * @param[in] index pre-built vpq_f32_index (CAGRA-Q, VPQ f32-compressed dataset) with uint32_t
+ * @param[in] index pre-built pq_f32_index (CAGRA-Q, PQ f32-compressed dataset) with uint32_t
  * neighbor indices
  * @param[in] queries a device matrix view to a row-major matrix [n_queries, index.dim()]
  * @param[out] neighbors a device matrix view to the indices of the neighbors in the source dataset
@@ -1815,18 +1815,18 @@ void search(raft::resources const& res,
  * @param[in] sample_filter an optional device filter function object that greenlights samples
  * for a given query. (none_sample_filter for no filtering).
  *
- * @note FP32 VPQ search is declared for ABI stability but fails at runtime until implemented.
+ * @note FP32 PQ search is declared for ABI stability but fails at runtime until implemented.
  */
 void search(raft::resources const& res,
             cuvs::neighbors::cagra::search_params const& params,
-            const cuvs::neighbors::cagra::vpq_f32_index<uint8_t, uint32_t>& index,
+            const cuvs::neighbors::cagra::pq_f32_index<uint8_t, uint32_t>& index,
             raft::device_matrix_view<const uint8_t, int64_t, raft::row_major> queries,
             raft::device_matrix_view<uint32_t, int64_t, raft::row_major> neighbors,
             raft::device_matrix_view<float, int64_t, raft::row_major> distances,
             const cuvs::neighbors::filtering::base_filter& sample_filter =
               cuvs::neighbors::filtering::none_sample_filter{});
 
-// vpq_f32_index overloads (int64_t neighbor indices)
+// pq_f32_index overloads (int64_t neighbor indices)
 /**
  * @brief Search ANN using the constructed index.
  *
@@ -1834,7 +1834,7 @@ void search(raft::resources const& res,
  *
  * @param[in] res raft resources
  * @param[in] params configure the search
- * @param[in] index pre-built vpq_f32_index (CAGRA-Q, VPQ f32-compressed dataset) with int64_t
+ * @param[in] index pre-built pq_f32_index (CAGRA-Q, PQ f32-compressed dataset) with int64_t
  * neighbor indices
  * @param[in] queries a device matrix view to a row-major matrix [n_queries, index.dim()]
  * @param[out] neighbors a device matrix view to the indices of the neighbors in the source dataset
@@ -1844,11 +1844,11 @@ void search(raft::resources const& res,
  * @param[in] sample_filter an optional device filter function object that greenlights samples
  * for a given query. (none_sample_filter for no filtering).
  *
- * @note FP32 VPQ search is declared for ABI stability but fails at runtime until implemented.
+ * @note FP32 PQ search is declared for ABI stability but fails at runtime until implemented.
  */
 void search(raft::resources const& res,
             cuvs::neighbors::cagra::search_params const& params,
-            const cuvs::neighbors::cagra::vpq_f32_index<float, uint32_t>& index,
+            const cuvs::neighbors::cagra::pq_f32_index<float, uint32_t>& index,
             raft::device_matrix_view<const float, int64_t, raft::row_major> queries,
             raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
             raft::device_matrix_view<float, int64_t, raft::row_major> distances,
@@ -1862,7 +1862,7 @@ void search(raft::resources const& res,
  *
  * @param[in] res raft resources
  * @param[in] params configure the search
- * @param[in] index pre-built vpq_f32_index (CAGRA-Q, VPQ f32-compressed dataset) with int64_t
+ * @param[in] index pre-built pq_f32_index (CAGRA-Q, PQ f32-compressed dataset) with int64_t
  * neighbor indices
  * @param[in] queries a device matrix view to a row-major matrix [n_queries, index.dim()]
  * @param[out] neighbors a device matrix view to the indices of the neighbors in the source dataset
@@ -1872,11 +1872,11 @@ void search(raft::resources const& res,
  * @param[in] sample_filter an optional device filter function object that greenlights samples
  * for a given query. (none_sample_filter for no filtering).
  *
- * @note FP32 VPQ search is declared for ABI stability but fails at runtime until implemented.
+ * @note FP32 PQ search is declared for ABI stability but fails at runtime until implemented.
  */
 void search(raft::resources const& res,
             cuvs::neighbors::cagra::search_params const& params,
-            const cuvs::neighbors::cagra::vpq_f32_index<half, uint32_t>& index,
+            const cuvs::neighbors::cagra::pq_f32_index<half, uint32_t>& index,
             raft::device_matrix_view<const half, int64_t, raft::row_major> queries,
             raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
             raft::device_matrix_view<float, int64_t, raft::row_major> distances,
@@ -1890,7 +1890,7 @@ void search(raft::resources const& res,
  *
  * @param[in] res raft resources
  * @param[in] params configure the search
- * @param[in] index pre-built vpq_f32_index (CAGRA-Q, VPQ f32-compressed dataset) with int64_t
+ * @param[in] index pre-built pq_f32_index (CAGRA-Q, PQ f32-compressed dataset) with int64_t
  * neighbor indices
  * @param[in] queries a device matrix view to a row-major matrix [n_queries, index.dim()]
  * @param[out] neighbors a device matrix view to the indices of the neighbors in the source dataset
@@ -1900,11 +1900,11 @@ void search(raft::resources const& res,
  * @param[in] sample_filter an optional device filter function object that greenlights samples
  * for a given query. (none_sample_filter for no filtering).
  *
- * @note FP32 VPQ search is declared for ABI stability but fails at runtime until implemented.
+ * @note FP32 PQ search is declared for ABI stability but fails at runtime until implemented.
  */
 void search(raft::resources const& res,
             cuvs::neighbors::cagra::search_params const& params,
-            const cuvs::neighbors::cagra::vpq_f32_index<int8_t, uint32_t>& index,
+            const cuvs::neighbors::cagra::pq_f32_index<int8_t, uint32_t>& index,
             raft::device_matrix_view<const int8_t, int64_t, raft::row_major> queries,
             raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
             raft::device_matrix_view<float, int64_t, raft::row_major> distances,
@@ -1918,7 +1918,7 @@ void search(raft::resources const& res,
  *
  * @param[in] res raft resources
  * @param[in] params configure the search
- * @param[in] index pre-built vpq_f32_index (CAGRA-Q, VPQ f32-compressed dataset) with int64_t
+ * @param[in] index pre-built pq_f32_index (CAGRA-Q, PQ f32-compressed dataset) with int64_t
  * neighbor indices
  * @param[in] queries a device matrix view to a row-major matrix [n_queries, index.dim()]
  * @param[out] neighbors a device matrix view to the indices of the neighbors in the source dataset
@@ -1928,11 +1928,11 @@ void search(raft::resources const& res,
  * @param[in] sample_filter an optional device filter function object that greenlights samples
  * for a given query. (none_sample_filter for no filtering).
  *
- * @note FP32 VPQ search is declared for ABI stability but fails at runtime until implemented.
+ * @note FP32 PQ search is declared for ABI stability but fails at runtime until implemented.
  */
 void search(raft::resources const& res,
             cuvs::neighbors::cagra::search_params const& params,
-            const cuvs::neighbors::cagra::vpq_f32_index<uint8_t, uint32_t>& index,
+            const cuvs::neighbors::cagra::pq_f32_index<uint8_t, uint32_t>& index,
             raft::device_matrix_view<const uint8_t, int64_t, raft::row_major> queries,
             raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
             raft::device_matrix_view<float, int64_t, raft::row_major> distances,
@@ -1956,7 +1956,7 @@ void search(raft::resources const& res,
  * behaviors are not guaranteed to be equivalent.
  *
  * @note All index partitions must use the same distance metric and graph degree; partition sizes
- * may differ. Compressed (VPQ) datasets are not currently supported in multi-partition search, so
+ * may differ. Compressed (PQ) datasets are not currently supported in multi-partition search, so
  * partitions must be built on in-memory strided datasets.
  *
  * @param[in]  res            raft resources
@@ -1995,7 +1995,7 @@ void search(
  * behaviors are not guaranteed to be equivalent.
  *
  * @note All index partitions must use the same distance metric and graph degree; partition sizes
- * may differ. Compressed (VPQ) datasets are not currently supported in multi-partition search, so
+ * may differ. Compressed (PQ) datasets are not currently supported in multi-partition search, so
  * partitions must be built on in-memory strided datasets.
  *
  * @param[in]  res            raft resources
@@ -2034,7 +2034,7 @@ void search(
  * behaviors are not guaranteed to be equivalent.
  *
  * @note All index partitions must use the same distance metric and graph degree; partition sizes
- * may differ. Compressed (VPQ) datasets are not currently supported in multi-partition search, so
+ * may differ. Compressed (PQ) datasets are not currently supported in multi-partition search, so
  * partitions must be built on in-memory strided datasets.
  *
  * @param[in]  res            raft resources
@@ -2073,7 +2073,7 @@ void search(
  * behaviors are not guaranteed to be equivalent.
  *
  * @note All index partitions must use the same distance metric and graph degree; partition sizes
- * may differ. Compressed (VPQ) datasets are not currently supported in multi-partition search, so
+ * may differ. Compressed (PQ) datasets are not currently supported in multi-partition search, so
  * partitions must be built on in-memory strided datasets.
  *
  * @param[in]  res            raft resources
@@ -2112,7 +2112,7 @@ void search(
  * behaviors are not guaranteed to be equivalent.
  *
  * @note All index partitions must use the same distance metric and graph degree; partition sizes
- * may differ. Compressed (VPQ) datasets are not currently supported in multi-partition search, so
+ * may differ. Compressed (PQ) datasets are not currently supported in multi-partition search, so
  * partitions must be built on in-memory strided datasets.
  *
  * @param[in]  res            raft resources
@@ -2151,7 +2151,7 @@ void search(
  * behaviors are not guaranteed to be equivalent.
  *
  * @note All index partitions must use the same distance metric and graph degree; partition sizes
- * may differ. Compressed (VPQ) datasets are not currently supported in multi-partition search, so
+ * may differ. Compressed (PQ) datasets are not currently supported in multi-partition search, so
  * partitions must be built on in-memory strided datasets.
  *
  * @param[in]  res            raft resources
@@ -2190,7 +2190,7 @@ void search(
  * behaviors are not guaranteed to be equivalent.
  *
  * @note All index partitions must use the same distance metric and graph degree; partition sizes
- * may differ. Compressed (VPQ) datasets are not currently supported in multi-partition search, so
+ * may differ. Compressed (PQ) datasets are not currently supported in multi-partition search, so
  * partitions must be built on in-memory strided datasets.
  *
  * @param[in]  res            raft resources
@@ -2229,7 +2229,7 @@ void search(
  * behaviors are not guaranteed to be equivalent.
  *
  * @note All index partitions must use the same distance metric and graph degree; partition sizes
- * may differ. Compressed (VPQ) datasets are not currently supported in multi-partition search, so
+ * may differ. Compressed (PQ) datasets are not currently supported in multi-partition search, so
  * partitions must be built on in-memory strided datasets.
  *
  * @param[in]  res            raft resources
@@ -2281,7 +2281,7 @@ inline constexpr int cagra_serialization_version = 6;
 
 // Serialize and deserialize are overloaded for device/host and padded/standard dense indexes.
 // They use the same strided dataset payload; the serialized dataset kind selects the matching
-// owning dataset type during deserialization. To support a new dataset kind (e.g. vpq_f16_index),
+// owning dataset type during deserialization. To support a new dataset kind (e.g. pq_f16_index),
 // add matching overloads here and a corresponding deserialize_<kind> in
 // detail/dataset_serialize.hpp (dense views use serialize_cagra_dense_dataset).
 

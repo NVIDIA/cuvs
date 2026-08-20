@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -50,7 +50,7 @@ struct cuvsProductQuantizerParams {
    * Whether to use Vector Quantization (KMeans) before product quantization (PQ).
    * When true, VQ is used before PQ. When false, only product quantization is used.
    */
-  bool use_vq;
+  bool train_coarse;
   /**
    * Vector Quantization (VQ) codebook size - number of "coarse cluster centers".
    * When zero, an optimal value is selected using a heuristic.
@@ -218,9 +218,9 @@ CUVS_EXPORT cuvsError_t cuvsProductQuantizerGetEncodedDim(cuvsProductQuantizer_t
  * @brief Get whether VQ is used.
  *
  * @param[in] quantizer product quantizer
- * @param[out] use_vq whether VQ is used
+ * @param[out] train_coarse whether VQ is used
  */
-CUVS_EXPORT cuvsError_t cuvsProductQuantizerGetUseVq(cuvsProductQuantizer_t quantizer, bool* use_vq);
+CUVS_EXPORT cuvsError_t cuvsProductQuantizerGetTrainCoarse(cuvsProductQuantizer_t quantizer, bool* train_coarse);
 /**
  * @}
  */

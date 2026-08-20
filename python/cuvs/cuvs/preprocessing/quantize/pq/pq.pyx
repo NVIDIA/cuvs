@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # cython: language_level=3
@@ -37,7 +37,7 @@ cdef class QuantizerParams:
         specifies whether to use subspaces for product quantization (PQ).
         When true, one PQ codebook is used for each subspace. Otherwise, a
         single PQ codebook is used.
-    use_vq: bool
+    train_coarse: bool
         specifies whether to use Vector Quantization (KMeans) before product
         quantization (PQ).
     vq_n_centers: int
@@ -66,7 +66,7 @@ cdef class QuantizerParams:
         check_cuvs(cuvsProductQuantizerParamsDestroy(self.params))
 
     def __init__(self, *, pq_bits=8, pq_dim=0, use_subspaces=True,
-                 use_vq=False, vq_n_centers=0, kmeans_n_iters=25,
+                 train_coarse=False, vq_n_centers=0, kmeans_n_iters=25,
                  pq_kmeans_type="kmeans_balanced",
                  max_train_points_per_pq_code=256,
                  max_train_points_per_vq_cluster=1024):
@@ -75,7 +75,7 @@ cdef class QuantizerParams:
         self.params.pq_bits = pq_bits
         self.params.pq_dim = pq_dim
         self.params.use_subspaces = use_subspaces
-        self.params.use_vq = use_vq
+        self.params.train_coarse = train_coarse
         self.params.vq_n_centers = vq_n_centers
         self.params.kmeans_n_iters = kmeans_n_iters
         pq_kmeans_type_c = PQ_KMEANS_TYPES[pq_kmeans_type]
@@ -112,8 +112,8 @@ cdef class QuantizerParams:
         return self.params.max_train_points_per_vq_cluster
 
     @property
-    def use_vq(self):
-        return self.params.use_vq
+    def train_coarse(self):
+        return self.params.train_coarse
 
     @property
     def use_subspaces(self):
@@ -184,10 +184,10 @@ cdef class Quantizer:
         return encoded_dim
 
     @property
-    def use_vq(self):
-        cdef bool use_vq
-        check_cuvs(cuvsProductQuantizerGetUseVq(self.quantizer, &use_vq))
-        return use_vq
+    def train_coarse(self):
+        cdef bool train_coarse
+        check_cuvs(cuvsProductQuantizerGetTrainCoarse(self.quantizer, &train_coarse))
+        return train_coarse
 
     def __repr__(self):
         return f"pq.Quantizer(pq_bits={self.pq_bits}, " \
@@ -294,7 +294,7 @@ def transform(Quantizer quantizer, dataset, codes_output=None, vq_labels=None, r
     cdef cydlpack.DLManagedTensor* codes_output_dlpack = \
         cydlpack.dlpack_c(codes_output_ai)
     cdef cydlpack.DLManagedTensor* vq_labels_dlpack = NULL
-    if quantizer.use_vq:
+    if quantizer.train_coarse:
         if vq_labels is None:
             vq_labels = device_ndarray.empty((dataset_ai.shape[0],), dtype="uint32")
         _check_input_array(vq_labels, [np.dtype("uint32")])
@@ -335,13 +335,13 @@ def inverse_transform(Quantizer quantizer, codes, output=None, vq_labels=None, r
     >>> n_features = 64
     >>> dataset = cp.random.random_sample((n_samples, n_features),
     ...                                   dtype=cp.float32)
-    >>> params = pq.QuantizerParams(pq_bits=8, pq_dim=16, use_vq=True)
+    >>> params = pq.QuantizerParams(pq_bits=8, pq_dim=16, train_coarse=True)
     >>> quantizer = pq.build(params, dataset)
     >>> transformed, vq_labels = pq.transform(quantizer, dataset)
     >>> reconstructed = pq.inverse_transform(quantizer, transformed, vq_labels=vq_labels)
     """
 
-    if quantizer.use_vq and vq_labels is None:
+    if quantizer.train_coarse and vq_labels is None:
         raise ValueError("vq_labels must be provided when VQ is used")
     codes_ai = wrap_array(codes)
 

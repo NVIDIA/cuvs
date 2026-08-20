@@ -2414,7 +2414,7 @@ auto build_from_host_matrix(raft::resources const& res,
 }
 
 /**
- * Build from a dense device `dataset_view` (padded or standard). VPQ views are rejected by
+ * Build from a dense device `dataset_view` (padded or standard). PQ views are rejected by
  * `cagra::build()` before this entry point is reached. Also used from ACE sub-builds and merge.
  * The returned index contains only the optimized graph; call
  * `index::update_device_dataset_same_layout` before search.

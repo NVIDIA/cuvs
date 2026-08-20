@@ -234,14 +234,14 @@ void search_main(raft::resources const& res,
     RAFT_FAIL(
       "Attempted to search without a dataset. Please call "
       "index.update_device_dataset_same_layout(...) first.");
-  } else if constexpr (cuvs::neighbors::is_device_vpq_f32_dataset_view_v<DatasetViewT>) {
-    RAFT_FAIL("FP32 VPQ dataset support is coming soon");
-  } else if constexpr (cuvs::neighbors::is_device_vpq_f16_dataset_view_v<DatasetViewT>) {
+  } else if constexpr (cuvs::neighbors::is_device_pq_f32_dataset_view_v<DatasetViewT>) {
+    RAFT_FAIL("FP32 PQ dataset support is coming soon");
+  } else if constexpr (cuvs::neighbors::is_device_pq_f16_dataset_view_v<DatasetViewT>) {
     auto const& vv = index.dataset();
     if (params.smem_dtype == cuvs::neighbors::cagra::internal_dtype::E5M2 &&
         raft::getComputeCapability().first < 9) {
       RAFT_LOG_WARN(
-        "CAGRA VPQ E5M2 smem_dtype requires native FP8 support on SM90+. Falling back to F16.");
+        "CAGRA PQ E5M2 smem_dtype requires native FP8 support on SM90+. Falling back to F16.");
       params.smem_dtype = cuvs::neighbors::cagra::internal_dtype::F16;
     }
     auto desc = dataset_descriptor_init_with_cache<T, graph_idx_type, DistanceT>(

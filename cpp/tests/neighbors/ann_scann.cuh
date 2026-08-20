@@ -169,7 +169,7 @@ class scann_test : public ::testing::TestWithParam<scann_inputs> {
     pq_params.pq_bits       = ps.index_params.pq_bits;
     pq_params.pq_dim        = num_subspaces;
     pq_params.use_subspaces = true;
-    pq_params.use_vq        = true;  // SCANN uses centroids separately
+    pq_params.train_coarse  = true;  // SCANN uses centroids separately
 
     auto pq_codebook_copy = raft::make_device_matrix<float, uint32_t, raft::row_major>(
       handle_, idx.pq_codebook().extent(0), idx.pq_codebook().extent(1));
@@ -186,7 +186,7 @@ class scann_test : public ::testing::TestWithParam<scann_inputs> {
 
     cuvs::preprocessing::quantize::pq::quantizer<float> quantizer{
       pq_params,
-      cuvs::neighbors::device_vpq_dataset<float, int64_t>{
+      cuvs::neighbors::device_pq_dataset<float, int64_t>{
         std::move(vq_codebook), std::move(pq_codebook_copy), std::move(empty_data)}};
 
     auto quantized_residuals_device =

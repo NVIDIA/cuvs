@@ -95,7 +95,7 @@ def get_handle(self)
 cdef class CompressionParams
 ```
 
-Parameters for VPQ Compression
+Parameters for PQ Compression
 
 **Parameters**
 

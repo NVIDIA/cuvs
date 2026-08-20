@@ -61,7 +61,7 @@ struct CagraPlannerBase : rtcx::algorithm_planner {
       });
   }
 
-  /// VPQ (`tag_codebook_half`): JIT matrix fixes `pq_bits=8`; only `pq_len` is selected at runtime.
+  /// PQ (`tag_codebook_half`): JIT matrix fixes `pq_bits=8`; only `pq_len` is selected at runtime.
   template <typename CB                                                  = CodebookTag,
             std::enable_if_t<std::is_same_v<CB, tag_codebook_half>, int> = 0>
   void add_setup_workspace_device_function(uint32_t team_size,
@@ -70,7 +70,7 @@ struct CagraPlannerBase : rtcx::algorithm_planner {
                                            cuvs::neighbors::cagra::internal_dtype smem_dtype)
   {
     if (pq_len != 2 && pq_len != 4 && pq_len != 8) {
-      RAFT_FAIL("CAGRA JIT VPQ setup_workspace expects pq_len in {2,4,8} (matrix uses pq_bits=8)");
+      RAFT_FAIL("CAGRA JIT PQ setup_workspace expects pq_len in {2,4,8} (matrix uses pq_bits=8)");
     }
     auto add =
       [&]<uint32_t TeamSz, uint32_t Dim, uint32_t PqBitsV, uint32_t PqLenV, typename SmemTag>() {
@@ -86,7 +86,7 @@ struct CagraPlannerBase : rtcx::algorithm_planner {
                                                                SmemTag>>();
       };
     auto dispatch_smem = [&]<typename SmemTag>() {
-      dispatch_cagra_vpq_team_dim(
+      dispatch_cagra_pq_team_dim(
         team_size,
         dataset_block_dim,
         pq_len,
@@ -124,7 +124,7 @@ struct CagraPlannerBase : rtcx::algorithm_planner {
       });
   }
 
-  /// VPQ: only the `compute_distance` fragment (no standard dist_op / normalization in this path).
+  /// PQ: only the `compute_distance` fragment (no standard dist_op / normalization in this path).
   template <typename CB                                                  = CodebookTag,
             std::enable_if_t<std::is_same_v<CB, tag_codebook_half>, int> = 0>
   void add_compute_distance_device_function(uint32_t team_size,
@@ -133,7 +133,7 @@ struct CagraPlannerBase : rtcx::algorithm_planner {
                                             cuvs::neighbors::cagra::internal_dtype smem_dtype)
   {
     if (pq_len != 2 && pq_len != 4 && pq_len != 8) {
-      RAFT_FAIL("CAGRA JIT VPQ compute_distance expects pq_len in {2,4,8} (matrix uses pq_bits=8)");
+      RAFT_FAIL("CAGRA JIT PQ compute_distance expects pq_len in {2,4,8} (matrix uses pq_bits=8)");
     }
     auto add =
       [&]<uint32_t TeamSz, uint32_t Dim, uint32_t PqBitsV, uint32_t PqLenV, typename SmemTag>() {
@@ -149,7 +149,7 @@ struct CagraPlannerBase : rtcx::algorithm_planner {
                                                                 SmemTag>>();
       };
     auto dispatch_smem = [&]<typename SmemTag>() {
-      dispatch_cagra_vpq_team_dim(
+      dispatch_cagra_pq_team_dim(
         team_size,
         dataset_block_dim,
         pq_len,
@@ -178,26 +178,24 @@ struct CagraPlannerBase : rtcx::algorithm_planner {
   }
 
   template <typename Lambda>
-  static void dispatch_cagra_vpq_team_dim(uint32_t team_size,
-                                          uint32_t dataset_block_dim,
-                                          uint32_t pq_len,
-                                          Lambda&& l)
+  static void dispatch_cagra_pq_team_dim(uint32_t team_size,
+                                         uint32_t dataset_block_dim,
+                                         uint32_t pq_len,
+                                         Lambda&& l)
   {
     switch (pq_len) {
       case 2:
-        dispatch_cagra_vpq_pq2_4_team_dim<2u>(
-          team_size, dataset_block_dim, std::forward<Lambda>(l));
+        dispatch_cagra_pq_pq2_4_team_dim<2u>(team_size, dataset_block_dim, std::forward<Lambda>(l));
         return;
       case 4:
-        dispatch_cagra_vpq_pq2_4_team_dim<4u>(
-          team_size, dataset_block_dim, std::forward<Lambda>(l));
+        dispatch_cagra_pq_pq2_4_team_dim<4u>(team_size, dataset_block_dim, std::forward<Lambda>(l));
         return;
       case 8:
-        dispatch_cagra_vpq_pq8_team_dim(team_size, dataset_block_dim, std::forward<Lambda>(l));
+        dispatch_cagra_pq_pq8_team_dim(team_size, dataset_block_dim, std::forward<Lambda>(l));
         return;
       default: break;
     }
-    RAFT_FAIL("CAGRA JIT VPQ expects pq_len in {2,4,8}; got %u", static_cast<unsigned>(pq_len));
+    RAFT_FAIL("CAGRA JIT PQ expects pq_len in {2,4,8}; got %u", static_cast<unsigned>(pq_len));
   }
 
   void add_dist_op_device_function(cuvs::distance::DistanceType metric)
@@ -309,9 +307,9 @@ struct CagraPlannerBase : rtcx::algorithm_planner {
   }
 
   template <uint32_t PqLenV, typename Lambda>
-  static void dispatch_cagra_vpq_pq2_4_team_dim(uint32_t team_size,
-                                                uint32_t dataset_block_dim,
-                                                Lambda&& l)
+  static void dispatch_cagra_pq_pq2_4_team_dim(uint32_t team_size,
+                                               uint32_t dataset_block_dim,
+                                               Lambda&& l)
   {
     switch (team_size) {
       case 8:
@@ -341,16 +339,16 @@ struct CagraPlannerBase : rtcx::algorithm_planner {
       default: break;
     }
     RAFT_FAIL(
-      "Unsupported VPQ pq_len=%u team_size / dataset_block_dim for CAGRA JIT: team=%u dim=%u",
+      "Unsupported PQ pq_len=%u team_size / dataset_block_dim for CAGRA JIT: team=%u dim=%u",
       static_cast<unsigned>(PqLenV),
       static_cast<unsigned>(team_size),
       static_cast<unsigned>(dataset_block_dim));
   }
 
   template <typename Lambda>
-  static void dispatch_cagra_vpq_pq8_team_dim(uint32_t team_size,
-                                              uint32_t dataset_block_dim,
-                                              Lambda&& l)
+  static void dispatch_cagra_pq_pq8_team_dim(uint32_t team_size,
+                                             uint32_t dataset_block_dim,
+                                             Lambda&& l)
   {
     switch (team_size) {
       case 4:
@@ -379,10 +377,9 @@ struct CagraPlannerBase : rtcx::algorithm_planner {
         break;
       default: break;
     }
-    RAFT_FAIL(
-      "Unsupported VPQ pq_len=8 team_size / dataset_block_dim for CAGRA JIT: team=%u dim=%u",
-      static_cast<unsigned>(team_size),
-      static_cast<unsigned>(dataset_block_dim));
+    RAFT_FAIL("Unsupported PQ pq_len=8 team_size / dataset_block_dim for CAGRA JIT: team=%u dim=%u",
+              static_cast<unsigned>(team_size),
+              static_cast<unsigned>(dataset_block_dim));
   }
 
   void add_sample_filter_device_function(

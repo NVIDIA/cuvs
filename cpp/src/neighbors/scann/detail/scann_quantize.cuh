@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -55,9 +55,9 @@ auto compute_residuals(raft::resources const& res,
 }
 
 /**
- * @brief Unpack VPQ codes into 1-byte per code
+ * @brief Unpack PQ codes into 1-byte per code
  *
- * VPQ gives codes in a "packed" form. In the case of 4 bit PQ, each byte stores
+ * PQ gives codes in a "packed" form. In the case of 4 bit PQ, each byte stores
  * codes for 2 subspaces in a packed form.
  *
  * This function unpacks the  subspace codes into one byte each. This is for
@@ -66,7 +66,7 @@ auto compute_residuals(raft::resources const& res,
  * @tparam IdxT
  * @param res raft resources
  * @param unpacked_codes_view matrix of unpacked codes, size  [n_rows, dim / pq_dim]
- * @param codes_view packed codes from vpq, size [n_rows, ceil((dim / pq_dim * pq_bits) / 8)]
+ * @param codes_view packed codes from pq, size [n_rows, ceil((dim / pq_dim * pq_bits) / 8)]
  * @param pq_bits number of bits used for PQ
  * @param num_subspaces the number of pq_subspaces (dim / pq_dim)
  */

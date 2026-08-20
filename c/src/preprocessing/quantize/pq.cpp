@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -63,7 +63,7 @@ void* _build(cuvsResources_t res,
 
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
   cuvs::preprocessing::quantize::pq::params quantizer_params(
-    params->pq_bits, params->pq_dim, params->use_subspaces, params->use_vq, params->vq_n_centers,
+    params->pq_bits, params->pq_dim, params->use_subspaces, params->train_coarse, params->vq_n_centers,
     params->kmeans_n_iters,  static_cast<cuvs::cluster::kmeans::kmeans_type>(params->pq_kmeans_type), params->max_train_points_per_pq_code,
      params->max_train_points_per_vq_cluster);
   cuvs::preprocessing::quantize::pq::quantizer<T>* ret = nullptr;
@@ -120,7 +120,7 @@ extern "C" cuvsError_t cuvsProductQuantizerParamsCreate(cuvsProductQuantizerPara
 {
   return cuvs::core::translate_exceptions([=] {
     *params = new cuvsProductQuantizerParams{
-      .pq_bits = 8, .pq_dim = 0, .use_subspaces = true, .use_vq = false, .vq_n_centers = 0,
+      .pq_bits = 8, .pq_dim = 0, .use_subspaces = true, .train_coarse = false, .vq_n_centers = 0,
       .kmeans_n_iters = 25, .pq_kmeans_type = CUVS_KMEANS_TYPE_KMEANS_BALANCED,
       .max_train_points_per_pq_code = 256, .max_train_points_per_vq_cluster = 1024}; });
 }
@@ -244,7 +244,7 @@ extern "C" cuvsError_t cuvsProductQuantizerGetPqCodebook(cuvsProductQuantizer_t 
       if (quantizer->dtype.code == kDLFloat && quantizer->dtype.bits == 32) {
         auto pq_mdspan =
           (reinterpret_cast<cuvs::preprocessing::quantize::pq::quantizer<float>*>(quant_addr))
-            ->vpq_codebooks.pq_code_book.view();
+            ->pq_codebooks.pq_code_book.view();
         cuvs::core::to_dlpack(pq_mdspan, pq_codebook);
       } else {
         RAFT_FAIL("Unsupported quantizer dtype: %d and bits: %d",
@@ -266,7 +266,7 @@ extern "C" cuvsError_t cuvsProductQuantizerGetVqCodebook(cuvsProductQuantizer_t 
       if (quantizer->dtype.code == kDLFloat && quantizer->dtype.bits == 32) {
         auto pq_mdspan =
           (reinterpret_cast<cuvs::preprocessing::quantize::pq::quantizer<float>*>(quant_addr))
-            ->vpq_codebooks.vq_code_book.view();
+            ->pq_codebooks.vq_code_book.view();
         cuvs::core::to_dlpack(pq_mdspan, vq_codebook);
       } else {
         RAFT_FAIL("Unsupported quantizer dtype: %d and bits: %d",
@@ -299,14 +299,14 @@ extern "C" cuvsError_t cuvsProductQuantizerGetEncodedDim(cuvsProductQuantizer_t 
   });
 }
 
-extern "C" cuvsError_t cuvsProductQuantizerGetUseVq(
-  cuvsProductQuantizer_t quantizer, bool* use_vq)
+extern "C" cuvsError_t cuvsProductQuantizerGetTrainCoarse(
+  cuvsProductQuantizer_t quantizer, bool* train_coarse)
 {
   return cuvs::core::translate_exceptions([=] {
     if (quantizer != nullptr) {
       auto quant_addr = quantizer->addr;
       if (quantizer->dtype.code == kDLFloat && quantizer->dtype.bits == 32) {
-        *use_vq = (reinterpret_cast<cuvs::preprocessing::quantize::pq::quantizer<float>*>(quant_addr))->params_quantizer.use_vq;
+        *train_coarse = (reinterpret_cast<cuvs::preprocessing::quantize::pq::quantizer<float>*>(quant_addr))->params_quantizer.train_coarse;
       } else {
         RAFT_FAIL("Unsupported quantizer dtype: %d and bits: %d",
                   quantizer->dtype.code,

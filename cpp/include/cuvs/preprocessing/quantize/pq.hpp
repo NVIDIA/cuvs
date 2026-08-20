@@ -41,7 +41,7 @@ struct params {
   params(uint32_t pq_bits,
          uint32_t pq_dim,
          bool use_subspaces,
-         bool use_vq,
+         bool train_coarse,
          uint32_t vq_n_centers,
          uint32_t kmeans_n_iters,
          cuvs::cluster::kmeans::kmeans_type pq_kmeans_type =
@@ -51,7 +51,7 @@ struct params {
     : pq_bits(pq_bits),
       pq_dim(pq_dim),
       use_subspaces(use_subspaces),
-      use_vq(use_vq),
+      train_coarse(train_coarse),
       vq_n_centers(vq_n_centers),
       kmeans_params(
         pq_kmeans_type == cuvs::cluster::kmeans::kmeans_type::KMeansBalanced
@@ -66,7 +66,7 @@ struct params {
   params(uint32_t pq_bits,
          uint32_t pq_dim,
          bool use_subspaces,
-         bool use_vq,
+         bool train_coarse,
          uint32_t vq_n_centers,
          kmeans_params_variant kmeans_params,
          uint32_t max_train_points_per_pq_code    = 256,
@@ -74,7 +74,7 @@ struct params {
     : pq_bits(pq_bits),
       pq_dim(pq_dim),
       use_subspaces(use_subspaces),
-      use_vq(use_vq),
+      train_coarse(train_coarse),
       vq_n_centers(vq_n_centers),
       kmeans_params(kmeans_params),
       max_train_points_per_pq_code(max_train_points_per_pq_code),
@@ -110,7 +110,7 @@ struct params {
    * Whether to use Vector Quantization (KMeans) before product quantization (PQ).
    * When true, VQ is used and PQ is trained on the residuals.
    */
-  bool use_vq = false;
+  bool train_coarse = false;
   /**
    * Vector Quantization (VQ) codebook size - number of "coarse cluster centers".
    * When zero, an optimal value is selected using a heuristic. (sqrt(n_rows))
@@ -140,7 +140,8 @@ struct params {
 };
 
 /**
- * @brief Defines and stores VPQ codebooks upon training
+ * @brief Defines and stores the codebooks produced by training (PQ, and a VQ codebook when
+ * `train_coarse` was set)
  *
  * @tparam T data element type
  *
@@ -149,8 +150,8 @@ template <typename T>
 struct quantizer {
   /** Parameters used to build this quantizer. */
   params params_quantizer;
-  /** VPQ codebooks produced during training. */
-  cuvs::neighbors::device_vpq_dataset<T, int64_t> vpq_codebooks;
+  /** Codebooks produced during training: the PQ codebook, and a VQ codebook if `train_coarse`. */
+  cuvs::neighbors::device_pq_dataset<T, int64_t> pq_codebooks;
 };
 
 /**
@@ -255,9 +256,9 @@ namespace detail {
 // default visibility, an instantiation cannot be exported from the shared library when one of its
 // template arguments (`half`, or any mdspan type) is itself hidden, because the visibility of an
 // instantiation is capped by that of its template arguments.
-[[nodiscard]] CUVS_EXPORT cuvs::neighbors::device_vpq_dataset<half, int64_t> vpq_train_from_rows(
+[[nodiscard]] CUVS_EXPORT cuvs::neighbors::device_pq_dataset<half, int64_t> pq_train_from_rows(
   raft::resources const& res,
-  cuvs::neighbors::vpq_params const& params,
+  cuvs::neighbors::pq_params const& params,
   void const* src_ptr,
   cudaDataType_t dtype,
   int64_t n_rows,
@@ -267,7 +268,7 @@ namespace detail {
 }  // namespace detail
 
 /**
- * @brief Train VPQ storage (codebooks + encoded rows) from a row-major mdspan/mdarray/dataset.
+ * @brief Train PQ storage (codebooks + encoded rows) from a row-major mdspan/mdarray/dataset.
  *
  * Accepts either a row-major mdspan with `value_type`, `extent`, `stride`, and `data_handle` (same
  * pattern as `cuvs::neighbors::make_device_padded_dataset`), or any cuVS dense dataset / dataset
@@ -279,9 +280,9 @@ namespace detail {
  * dense dataset is never staged on the device in full; they must be tightly packed. Empty sources
  * are rejected. The element type must be `float`, `half`, `int8_t` or `uint8_t`.
  *
- * Typical **CAGRA** usage: build the graph on dense vectors, then attach VPQ for search (metric
- * must remain `L2Expanded` for this path). Train VPQ from the same CAGRA-padded device layout you
- * used for graph build, keep the `device_vpq_dataset` alive, and call
+ * Typical **CAGRA** usage: build the graph on dense vectors, then attach PQ for search (metric
+ * must remain `L2Expanded` for this path). Train PQ from the same CAGRA-padded device layout you
+ * used for graph build, keep the `device_pq_dataset` alive, and call
  * `index::update_device_dataset_same_layout` with a non-owning view.
  *
  * @code{.cpp}
@@ -290,16 +291,16 @@ namespace detail {
  *
  * // `idx` is a `cagra::index<float, uint32_t>` with graph built on dense rows.
  * // `padded` is a `device_padded_dataset_view<float, int64_t>` view of those same rows.
- * cuvs::neighbors::vpq_params vpq_params{};
- * auto vpq = cuvs::preprocessing::quantize::pq::make_vpq_dataset(res, vpq_params, padded);
- * idx.update_device_dataset_same_layout(res, vpq.as_dataset_view());
+ * cuvs::neighbors::pq_params pq_params{};
+ * auto pq = cuvs::preprocessing::quantize::pq::make_pq_dataset(res, pq_params, padded);
+ * idx.update_device_dataset_same_layout(res, pq.as_dataset_view());
  * @endcode
  */
 template <typename SrcT>
-[[nodiscard]] auto make_vpq_dataset(raft::resources const& res,
-                                    cuvs::neighbors::vpq_params const& params,
-                                    SrcT const& src)
-  -> cuvs::neighbors::device_vpq_dataset<half, int64_t>
+[[nodiscard]] auto make_pq_dataset(raft::resources const& res,
+                                   cuvs::neighbors::pq_params const& params,
+                                   SrcT const& src)
+  -> cuvs::neighbors::device_pq_dataset<half, int64_t>
 {
   // A cuVS dataset keeps its logical width in `dim()` while `view()` spans the full row pitch.
   if constexpr (requires {
@@ -310,7 +311,7 @@ template <typename SrcT>
     auto const rows    = src.view();
     using value_type   = typename decltype(rows)::value_type;
     using extents_type = raft::matrix_extent<int64_t>;
-    return make_vpq_dataset(
+    return make_pq_dataset(
       res,
       params,
       raft::mdspan<const value_type, extents_type, raft::layout_stride>{
@@ -321,12 +322,12 @@ template <typename SrcT>
     using value_type = typename SrcT::value_type;
     static_assert(std::is_same_v<value_type, float> || std::is_same_v<value_type, half> ||
                     std::is_same_v<value_type, int8_t> || std::is_same_v<value_type, uint8_t>,
-                  "make_vpq_dataset: element type must be float, half, int8_t or uint8_t");
+                  "make_pq_dataset: element type must be float, half, int8_t or uint8_t");
     const int64_t n_rows = src.extent(0);
     const int64_t dim    = src.extent(1);
     const int64_t stride = src.stride(0) > 0 ? src.stride(0) : dim;
-    RAFT_EXPECTS(n_rows > 0, "make_vpq_dataset: dataset is empty");
-    return detail::vpq_train_from_rows(
+    RAFT_EXPECTS(n_rows > 0, "make_pq_dataset: dataset is empty");
+    return detail::pq_train_from_rows(
       res, params, src.data_handle(), raft::get_cuda_data_type<value_type>(), n_rows, dim, stride);
   }
 }

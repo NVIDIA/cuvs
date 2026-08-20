@@ -37,13 +37,13 @@ struct ace_params {
 
 ## CAGRA index build parameters
 
-<a id="neighbors-vpq-params"></a>
-### neighbors::vpq_params
+<a id="neighbors-pq-params"></a>
+### neighbors::pq_params
 
-Parameters for VPQ compression.
+Parameters for PQ compression.
 
 ```cpp
-struct vpq_params {
+struct pq_params {
   uint32_t pq_bits;
   uint32_t pq_dim;
   uint32_t vq_n_centers;
