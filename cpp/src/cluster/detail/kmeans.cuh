@@ -700,17 +700,7 @@ void kmeans_fit(
 
   rmm::device_uvector<char> batch_workspace(device_buffer_samples, stream);
 
-  auto batch_memory = raft::resource::get_workspace_resource_ref(handle);
-  if constexpr (!data_on_device) {
-    size_t batch_staging_bytes =
-      static_cast<size_t>(device_buffer_samples) * static_cast<size_t>(n_features) * sizeof(DataT);
-    if (weight_ptr != nullptr) {
-      batch_staging_bytes += static_cast<size_t>(device_buffer_samples) * sizeof(DataT);
-    }
-    if (batch_staging_bytes > raft::resource::get_workspace_free_bytes(handle)) {
-      batch_memory = raft::resource::get_large_workspace_resource_ref(handle);
-    }
-  }
+  auto batch_mr = raft::resource::get_workspace_resource_ref(handle);
 
   // Use the caller's stream pool for host-input staging. If no pool is configured, this falls
   // back to the main stream and disables cross-stream prefetching.
@@ -724,7 +714,7 @@ void kmeans_fit(
                                                                        n_features,
                                                                        device_buffer_samples,
                                                                        batch_copy_stream,
-                                                                       batch_memory,
+                                                                       batch_mr,
                                                                        enable_batch_prefetch);
   // Host-path weight batches: only materialized when weights are provided and
   // the data resides on host
@@ -738,7 +728,7 @@ void kmeans_fit(
                                                                            IndexT{1},
                                                                            device_buffer_samples,
                                                                            batch_copy_stream,
-                                                                           batch_memory,
+                                                                           batch_mr,
                                                                            enable_batch_prefetch);
     } else {
       raft::matrix::fill(handle, batch_weights_buf.view(), DataT{1});
