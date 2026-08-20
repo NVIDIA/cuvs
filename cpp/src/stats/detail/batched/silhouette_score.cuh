@@ -247,12 +247,15 @@ value_t silhouette_score(
 
   raft::resource::sync_stream_pool(handle);
 
-  // calculating row-wise minimum in b
+  // Keep the row-wise reduction output separate from b. The input is an
+  // n_rows x n_labels matrix, so writing an n_rows vector at b_ptr aliases
+  // matrix elements that may still be read by the reduction.
+  rmm::device_uvector<value_t> b_min(n_rows, stream);
   raft::linalg::reduce<raft::Apply::ALONG_ROWS>(
     handle,
     raft::make_device_matrix_view<const value_t, value_idx, raft::row_major>(
       b_ptr, n_rows, n_labels),
-    raft::make_device_vector_view<value_t, value_idx>(b_ptr, n_rows),
+    raft::make_device_vector_view<value_t, value_idx>(b_min.data(), n_rows),
     std::numeric_limits<value_t>::max(),
     false,
     raft::identity_op(),
@@ -265,7 +268,7 @@ value_t silhouette_score(
     cuvs::stats::detail::SilOp<value_t>(),
     raft::make_const_mdspan(raft::make_device_vector_view<const value_t, value_idx>(a_ptr, n_rows)),
     raft::make_const_mdspan(
-      raft::make_device_vector_view<const value_t, value_idx>(b_ptr, n_rows)));
+      raft::make_device_vector_view<const value_t, value_idx>(b_min.data(), n_rows)));
 
   auto sum = raft::make_device_vector<value_t, value_idx>(handle, 1);
   raft::linalg::reduce<raft::Apply::ALONG_COLUMNS>(

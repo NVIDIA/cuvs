@@ -3,7 +3,7 @@ package cuvs_test
 import (
 	"testing"
 
-	cuvs "github.com/rapidsai/cuvs/go"
+	cuvs "github.com/nvidia/cuvs/go"
 )
 
 func TestMemoryResource(t *testing.T) {
