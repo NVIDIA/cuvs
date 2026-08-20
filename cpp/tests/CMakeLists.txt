@@ -42,6 +42,7 @@ function(ConfigureTest)
     PRIVATE cuvs
             cuvs::cuvs
             raft::raft
+            rtcx::rtcx
             GTest::gtest
             GTest::gtest_main
             Threads::Threads
@@ -109,7 +110,7 @@ endfunction()
 ConfigureTest(
   NAME NEIGHBORS_TEST
   PATH neighbors/brute_force.cu neighbors/brute_force_prefiltered.cu neighbors/sparse_brute_force.cu
-       neighbors/refine.cu neighbors/distance_nn.cu
+       neighbors/refine.cu neighbors/distance_nn.cu neighbors/knn_merge_parts.cu
   GPUS 1
   PERCENT 100
 )
@@ -126,6 +127,7 @@ ConfigureTest(
   PATH cluster/kmeans.cu
        cluster/kmeans_balanced.cu
        cluster/kmeans_find_k.cu
+       cluster/gmm.cu
        cluster/kmeans_predict_batching.cu
        cluster/linkage.cu
        cluster/connect_knn.cu
@@ -213,6 +215,13 @@ ConfigureTest(
 ConfigureTest(
   NAME NEIGHBORS_ANN_CAGRA_HELPERS_TEST
   PATH neighbors/ann_cagra/test_optimize_uint32_t.cu neighbors/ann_cagra/test_batch_load_iterator.cu
+  GPUS 1
+  PERCENT 100
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_CAGRA_MERGE_TEST
+  PATH neighbors/ann_cagra/test_merge_fastener.cu
   GPUS 1
   PERCENT 100
 )
