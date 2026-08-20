@@ -7,6 +7,7 @@
 #include "ann_cagra.cuh"
 
 #include <cuvs/neighbors/hnsw.hpp>
+#include <cuvs/util/file_io.hpp>
 
 #include <rmm/mr/managed_memory_resource.hpp>
 
@@ -17,6 +18,7 @@
 #include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <string>
 
 #include <unistd.h>
@@ -166,6 +168,54 @@ void test_ace_workspace_failure_does_not_truncate_existing_artifact()
   EXPECT_FALSE(std::filesystem::exists(workspace.path() / "reordered_dataset.npy"));
   EXPECT_FALSE(std::filesystem::exists(workspace.path() / "augmented_dataset.npy"));
   EXPECT_FALSE(std::filesystem::exists(workspace.path() / "dataset_mapping.npy"));
+}
+
+void test_exclusive_numpy_create_failure_removes_partial_file()
+{
+  test_detail::ace_workspace_directory workspace;
+  const auto path = workspace.path() / "partial.npy";
+  const auto too_large =
+    static_cast<size_t>(std::numeric_limits<off_t>::max()) - static_cast<size_t>(4096);
+
+  EXPECT_THROW(cuvs::util::create_numpy_file<uint8_t>(path.string(), {too_large}, true),
+               raft::logic_error);
+
+  EXPECT_FALSE(std::filesystem::exists(path));
+}
+
+template <typename DataT>
+void test_hnsw_ace_build_does_not_truncate_existing_index()
+{
+  raft::resources resources;
+  auto dataset = test_detail::make_workspace_test_dataset<DataT>();
+  test_detail::ace_workspace_directory workspace;
+  const auto index_path                   = workspace.path() / "hnsw_index.bin";
+  constexpr const char* expected_contents = "preexisting-hnsw-index";
+
+  {
+    std::ofstream index_file(index_path, std::ios::binary);
+    ASSERT_TRUE(index_file.is_open());
+    index_file << expected_contents;
+  }
+
+  hnsw::index_params params;
+  params.M                   = 8;
+  params.ef_construction     = 50;
+  auto ace_params            = graph_build_params::ace_params();
+  ace_params.npartitions     = 2;
+  ace_params.ef_construction = 50;
+  ace_params.build_dir       = workspace.path().string();
+  ace_params.use_disk        = true;
+  params.graph_build_params  = ace_params;
+
+  EXPECT_THROW(hnsw::build(resources, params, raft::make_const_mdspan(dataset.view())),
+               raft::logic_error);
+
+  std::ifstream index_file(index_path, std::ios::binary);
+  std::string contents;
+  index_file >> contents;
+  EXPECT_EQ(contents, expected_contents);
+  EXPECT_TRUE(std::filesystem::exists(workspace.path() / "cagra_graph.npy"));
 }
 
 template <typename DistanceT, typename DataT, typename IdxT>

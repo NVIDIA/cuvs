@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -66,7 +66,11 @@ struct cuvsHnswAceParams {
   size_t npartitions;
   /**
    * Directory to store ACE build artifacts (e.g., KNN graph, optimized graph).
-   * Used when `use_disk` is true or when the graph does not fit in memory.
+   * Used when `use_disk` is true or when the graph does not fit in memory. The
+   * directory may already exist, but ACE's named artifacts and `hnsw_index.bin`
+   * must not already exist. Simultaneous builds must use different directories.
+   * On failure, ACE removes only its uncommitted CAGRA artifacts; a completed
+   * CAGRA stage is retained if creating the HNSW index fails.
    */
   const char* build_dir;
   /**
