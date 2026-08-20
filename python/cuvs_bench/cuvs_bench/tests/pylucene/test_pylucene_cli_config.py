@@ -27,7 +27,7 @@ from cuvs_bench.backends.pylucene import (
 from cuvs_bench.backends.registry import list_config_loaders
 from cuvs_bench.backends.search_spaces import get_search_space
 from cuvs_bench.orchestrator.orchestrator import BenchmarkOrchestrator
-from cuvs_bench.tests._pylucene_test_utils import (
+from cuvs_bench.tests.pylucene._pylucene_test_utils import (
     _CAGRA_CODEC,
     _HNSW_CODEC,
     _FakeRuntime,

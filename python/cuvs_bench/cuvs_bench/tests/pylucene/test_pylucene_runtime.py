@@ -16,7 +16,10 @@ import pytest
 import cuvs_bench.backends._pylucene_java as pylucene_java
 import cuvs_bench.backends.pylucene as pylucene_backend
 from cuvs_bench.backends.pylucene import _BuildCodec, _IndexTopology
-from cuvs_bench.tests._pylucene_test_utils import _CAGRA_CODEC, _HNSW_CODEC
+from cuvs_bench.tests.pylucene._pylucene_test_utils import (
+    _CAGRA_CODEC,
+    _HNSW_CODEC,
+)
 
 
 def _build_codec(

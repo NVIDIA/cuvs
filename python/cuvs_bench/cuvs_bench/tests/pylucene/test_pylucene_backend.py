@@ -15,7 +15,7 @@ import pytest
 
 import cuvs_bench.backends.pylucene as pylucene_backend
 from cuvs_bench.backends.pylucene import _SearchHit
-from cuvs_bench.tests._pylucene_test_utils import (
+from cuvs_bench.tests.pylucene._pylucene_test_utils import (
     _CAGRA_CODEC,
     _HNSW_CODEC,
     _FakeRuntime,

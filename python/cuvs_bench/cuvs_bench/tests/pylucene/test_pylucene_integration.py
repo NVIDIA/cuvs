@@ -68,8 +68,9 @@ _DEFAULT_HNSW_BUILD_PARAMETERS = {
     "direct_single_segment": False,
 }
 _CAGRA_BUILD_PARAMETERS = {"codec": _CAGRA_CODEC}
+_SOURCE_ROOT = Path(__file__).resolve().parents[3]
 _WRITER_SELECTION_SOURCE = (
-    Path(__file__).resolve().parents[2]
+    _SOURCE_ROOT
     / "tests"
     / "java"
     / "com"
@@ -1032,7 +1033,7 @@ def test_real_hnsw_codec_falls_back_to_cpu_in_fresh_process(
 ):
     """Prove production fallback when CUDA devices are hidden at startup."""
     environment = os.environ.copy()
-    source_root = str(Path(__file__).resolve().parents[2])
+    source_root = str(_SOURCE_ROOT)
     environment.update(
         {
             "CUDA_VISIBLE_DEVICES": "",
@@ -1206,7 +1207,7 @@ def test_cli_build_and_search_with_real_pylucene_runtime(
     )
 
     environment = os.environ.copy()
-    source_root = str(Path(__file__).resolve().parents[2])
+    source_root = str(_SOURCE_ROOT)
     environment["PYTHONPATH"] = os.pathsep.join(
         value
         for value in (source_root, environment.get("PYTHONPATH"))
