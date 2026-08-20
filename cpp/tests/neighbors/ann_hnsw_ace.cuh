@@ -188,6 +188,9 @@ void test_hnsw_ace_build_does_not_truncate_existing_index()
 {
   raft::resources resources;
   auto dataset = test_detail::make_workspace_test_dataset<DataT>();
+  for (size_t i = 0; i < dataset.size(); ++i) {
+    dataset.data_handle()[i] = static_cast<DataT>(i % 251);
+  }
   test_detail::ace_workspace_directory workspace;
   const auto index_path                   = workspace.path() / "hnsw_index.bin";
   constexpr const char* expected_contents = "preexisting-hnsw-index";
