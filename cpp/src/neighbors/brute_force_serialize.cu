@@ -1,8 +1,9 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "../util/kvikio_serialize.hpp"
 #include "../util/serialize_validation.hpp"
 
 #include <cuvs/neighbors/brute_force.hpp>
@@ -18,9 +19,9 @@ namespace cuvs::neighbors::brute_force {
 
 int constexpr serialization_version = 0;
 
-template <typename T, typename DistT>
+template <typename T, typename DistT, typename Output>
 void serialize(raft::resources const& handle,
-               std::ostream& os,
+               Output& os,
                const index<T, DistT>& index,
                bool include_dataset = true)
 {
@@ -37,10 +38,10 @@ void serialize(raft::resources const& handle,
   raft::serialize_scalar(handle, os, index.metric());
   raft::serialize_scalar(handle, os, index.metric_arg());
   raft::serialize_scalar(handle, os, include_dataset);
-  if (include_dataset) { raft::serialize_mdspan(handle, os, index.dataset()); }
+  if (include_dataset) { cuvs::util::detail::serialize_mdspan(handle, os, index.dataset()); }
   auto has_norms = index.has_norms();
   raft::serialize_scalar(handle, os, has_norms);
-  if (has_norms) { raft::serialize_mdspan(handle, os, index.norms()); }
+  if (has_norms) { cuvs::util::detail::serialize_mdspan(handle, os, index.norms()); }
   raft::resource::sync_stream(handle);
 }
 
@@ -49,9 +50,11 @@ void serialize(raft::resources const& handle,
                const index<half, float>& index,
                bool include_dataset)
 {
-  auto os = std::ofstream{filename, std::ios::out | std::ios::binary};
+  cuvs::util::kvikio_ofstream os(filename);
   RAFT_EXPECTS(os, "Cannot open file %s", filename.c_str());
   serialize<half, float>(handle, os, index, include_dataset);
+  os.close();
+  RAFT_EXPECTS(os, "Error writing output %s", filename.c_str());
 }
 
 void serialize(raft::resources const& handle,
@@ -59,9 +62,11 @@ void serialize(raft::resources const& handle,
                const index<float, float>& index,
                bool include_dataset)
 {
-  auto os = std::ofstream{filename, std::ios::out | std::ios::binary};
+  cuvs::util::kvikio_ofstream os(filename);
   RAFT_EXPECTS(os, "Cannot open file %s", filename.c_str());
   serialize<float, float>(handle, os, index, include_dataset);
+  os.close();
+  RAFT_EXPECTS(os, "Error writing output %s", filename.c_str());
 }
 
 void serialize(raft::resources const& handle,
@@ -80,9 +85,11 @@ void serialize(raft::resources const& handle,
   serialize<float, float>(handle, os, index, include_dataset);
 }
 
-template <typename T, typename DistT>
-auto deserialize(raft::resources const& handle, std::istream& is)
+template <typename T, typename DistT, typename Input>
+auto deserialize(raft::resources const& handle, Input& input)
 {
+  auto& is = cuvs::util::detail::input_stream(input);
+
   char dtype_string[4];
   RAFT_EXPECTS(is.read(dtype_string, 4), "brute_force::deserialize: failed to read dtype prefix");
   RAFT_EXPECTS(cuvs::util::validate_serialized_dtype<T>(dtype_string, sizeof(dtype_string)),
@@ -107,7 +114,7 @@ auto deserialize(raft::resources const& handle, std::istream& is)
                static_cast<int>(metric));
   auto metric_arg = raft::deserialize_scalar<DistT>(handle, is);
 
-  auto dataset_storage = raft::make_host_matrix<T>(std::int64_t{}, std::int64_t{});
+  auto dataset_storage = raft::make_device_matrix<T>(handle, std::int64_t{}, std::int64_t{});
   auto include_dataset = raft::deserialize_scalar<bool>(handle, is);
   if (include_dataset) {
     RAFT_EXPECTS(cuvs::util::is_mul_no_overflow(
@@ -117,27 +124,18 @@ auto deserialize(raft::resources const& handle, std::istream& is)
                  static_cast<long long>(rows),
                  static_cast<long long>(dim),
                  sizeof(T));
-    dataset_storage = raft::make_host_matrix<T>(rows, dim);
-    raft::deserialize_mdspan(handle, is, dataset_storage.view());
+    dataset_storage = raft::make_device_matrix<T>(handle, rows, dim);
+    cuvs::util::detail::deserialize_mdspan(handle, input, dataset_storage.view());
   }
 
-  auto has_norms     = raft::deserialize_scalar<bool>(handle, is);
-  auto norms_storage = has_norms ? std::optional{raft::make_host_vector<DistT, std::int64_t>(rows)}
-                                 : std::optional<raft::host_vector<DistT, std::int64_t>>{};
-  // TODO(wphicks): Use mdbuffer here when available
-  auto norms_storage_dev =
+  auto has_norms = raft::deserialize_scalar<bool>(handle, is);
+  auto norms_storage =
     has_norms ? std::optional{raft::make_device_vector<DistT, std::int64_t>(handle, rows)}
               : std::optional<raft::device_vector<DistT, std::int64_t>>{};
-  if (has_norms) {
-    raft::deserialize_mdspan(handle, is, norms_storage->view());
-    raft::copy(handle, norms_storage_dev->view(), norms_storage->view());
-  }
+  if (has_norms) { cuvs::util::detail::deserialize_mdspan(handle, input, norms_storage->view()); }
 
-  auto result = index<T, DistT>(handle,
-                                raft::make_const_mdspan(dataset_storage.view()),
-                                std::move(norms_storage_dev),
-                                metric,
-                                metric_arg);
+  auto result = index<T, DistT>(
+    handle, std::move(dataset_storage), std::move(norms_storage), metric, metric_arg);
   raft::resource::sync_stream(handle);
 
   return result;
@@ -147,20 +145,16 @@ void deserialize(raft::resources const& handle,
                  const std::string& filename,
                  cuvs::neighbors::brute_force::index<half, float>* index)
 {
-  auto is = std::ifstream{filename, std::ios::in | std::ios::binary};
-  RAFT_EXPECTS(is, "Cannot open file %s", filename.c_str());
-
-  *index = deserialize<half, float>(handle, is);
+  cuvs::util::kvikio_file_reader reader(filename);
+  *index = deserialize<half, float>(handle, reader);
 }
 
 void deserialize(raft::resources const& handle,
                  const std::string& filename,
                  cuvs::neighbors::brute_force::index<float, float>* index)
 {
-  auto is = std::ifstream{filename, std::ios::in | std::ios::binary};
-  RAFT_EXPECTS(is, "Cannot open file %s", filename.c_str());
-
-  *index = deserialize<float, float>(handle, is);
+  cuvs::util::kvikio_file_reader reader(filename);
+  *index = deserialize<float, float>(handle, reader);
 }
 
 void deserialize(raft::resources const& handle,

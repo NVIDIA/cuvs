@@ -41,6 +41,7 @@ EXCLUDE_ARGS=(
   --exclude "libcurand.so.*"
   --exclude "libcusolver.so.*"
   --exclude "libcusparse.so.*"
+  --exclude "libkvikio.so*"
   --exclude "libnccl.so.*"
   --exclude "libnvJitLink.so.*"
   --exclude "libnvrtc.so.*"
