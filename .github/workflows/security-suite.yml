@@ -29,7 +29,7 @@ jobs:
       contents: read
       id-token: write # OIDC -> Vault -> nvcr.io image pull
       security-events: write # publish redacted SARIF to code scanning
-    uses: NVIDIA/security-workflows/.github/workflows/security-suite.yml@711025b090f2aa728da576700750b195d1e816dc # v0.3.0
+    uses: NVIDIA/security-workflows/.github/workflows/security-suite.yml@c736f0454dc99764a66af6b906adfcdfbf621985 # v0.4.0
     with:
       enable-secret-scan: true
       enable-sast-scan: true
@@ -39,4 +39,4 @@ jobs:
       #   strict     — fail on any finding (verified or unverified)
       #   all        — warn only; never fail the job on findings
       secret-failure-policy: unverified
-      sast-languages: '["actions","java-kotlin","python","rust"]'
+      sast-languages: '["actions","c-cpp","java-kotlin","python","rust"]'
