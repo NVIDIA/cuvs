@@ -1,4 +1,4 @@
-# <div align="left"><img src="https://rapids.ai/assets/images/rapids_logo.png" width="90px"/>&nbsp;cuVS: Vector Search and Clustering on the GPU</div>
+# cuVS: Vector Search and Clustering on the GPU
 
 
 ## Contents
