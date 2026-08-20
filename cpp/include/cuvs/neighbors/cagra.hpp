@@ -32,8 +32,141 @@
 
 namespace CUVS_EXPORT cuvs {
 namespace neighbors {
+namespace cagra {
+
+/**
+ * @defgroup cagra_cpp_search_params CAGRA index search parameters
+ * @{
+ */
+
+enum class search_algo {
+  /** For large batch sizes. */
+  SINGLE_CTA = 0,
+  /** For small batch sizes. */
+  MULTI_CTA    = 1,
+  MULTI_KERNEL = 2,
+  AUTO         = 100
+};
+
+enum class hash_mode { HASH = 0, SMALL = 1, AUTO = 100 };
+
+enum class internal_dtype { F16 = 0, E5M2 = 1 };
+
+struct search_params : cuvs::neighbors::search_params {
+  /** Maximum number of queries to search at the same time (batch size). Auto select when 0.*/
+  size_t max_queries = 0;
+
+  /** Number of intermediate search results retained during the search.
+   *
+   *  This is the main knob to adjust trade off between accuracy and search speed.
+   *  Higher values improve the search accuracy.
+   */
+  size_t itopk_size = 64;
+
+  /** Upper limit of search iterations. Auto select when 0.*/
+  size_t max_iterations = 0;
+
+  // In the following we list additional search parameters for fine tuning.
+  // Reasonable default values are automatically chosen.
+
+  /** Which search implementation to use. */
+  search_algo algo = search_algo::AUTO;
+
+  /** Number of threads used to calculate a single distance. 4, 8, 16, or 32. */
+  size_t team_size = 0;
+
+  /** Number of graph nodes to select as the starting point for the search in each iteration. aka
+   * search width?*/
+  size_t search_width = 1;
+  /** Lower limit of search iterations. */
+  size_t min_iterations = 0;
+
+  /** Thread block size. 0, 64, 128, 256, 512, 1024. Auto selection when 0. */
+  size_t thread_block_size = 0;
+  /** Hashmap type. Auto selection when AUTO. */
+  hash_mode hashmap_mode = hash_mode::AUTO;
+  /** Lower limit of hashmap bit length. More than 8. */
+  size_t hashmap_min_bitlen = 0;
+  /** Upper limit of hashmap fill rate. More than 0.1, less than 0.9.*/
+  float hashmap_max_fill_rate = 0.5;
+
+  /** Number of iterations of initial random seed node selection. 1 or more. */
+  uint32_t num_random_samplings = 1;
+  /** Bit mask used for initial random seed node selection. */
+  uint64_t rand_xor_mask = 0x128394;
+
+  /** Whether to use the persistent version of the kernel (only SINGLE_CTA is supported a.t.m.) */
+  bool persistent = false;
+  /** Persistent kernel: time in seconds before the kernel stops if no requests received. */
+  float persistent_lifetime = 2;
+  /**
+   * Set the fraction of maximum grid size used by persistent kernel.
+   * Value 1.0 means the kernel grid size is maximum possible for the selected device.
+   * The value must be greater than 0.0 and not greater than 1.0.
+   *
+   * One may need to run other kernels alongside this persistent kernel. This parameter can
+   * be used to reduce the grid size of the persistent kernel to leave a few SMs idle.
+   * Note: running any other work on GPU alongside with the persistent kernel makes the setup
+   * fragile.
+   *   - Running another kernel in another thread usually works, but no progress guaranteed
+   *   - Any CUDA allocations block the context (this issue may be obscured by using pools)
+   *   - Memory copies to not-pinned host memory may block the context
+   *
+   * Even when we know there are no other kernels working at the same time, setting
+   * kDeviceUsage to 1.0 surprisingly sometimes hurts performance. Proceed with care.
+   * If you suspect this is an issue, you can reduce this number to ~0.9 without a significant
+   * impact on the throughput.
+   */
+  float persistent_device_usage = 1.0;
+
+  /**
+   * A parameter indicating the rate of nodes to be filtered-out, when filtering is used.
+   * The value must be equal to or greater than 0.0 and less than 1.0. Default value is
+   * negative, in which case the filtering rate is automatically calculated when possible.
+   * For `filtering::udf_filter`, CAGRA uses `udf_filter::filtering_rate` when this value is
+   * negative. If both values are negative, CAGRA assumes 0.0 because a UDF's selectivity cannot be
+   * inferred from the source string.
+   */
+  float filtering_rate = -1.0;
+
+  /** Data type of the query vector and codebook table on shared memory. Currently, only VPQ
+   * supports FP8. **/
+  internal_dtype smem_dtype = internal_dtype::F16;
+};
+
+/**
+ * @}
+ */
+
+}  // namespace cagra
+}  // namespace neighbors
+}  // namespace CUVS_EXPORT cuvs
+
+namespace CUVS_EXPORT cuvs {
+namespace neighbors {
 namespace graph_build_params {
-using iterative_search_params = cuvs::neighbors::search_params;
+/**
+ * Parameters for the iterative CAGRA graph build algorithm.
+ *
+ * Inherits from cagra::search_params so that all search tuning knobs
+ * (search_width, max_iterations, itopk_size, etc.) are available for
+ * controlling the search-and-optimize loop during graph construction.
+ * The defaults are tuned for the build loop (e.g. search_width=1,
+ * max_iterations=8) and may differ from the regular search defaults.
+ *
+ */
+struct iterative_search_params : cuvs::neighbors::cagra::search_params {
+  iterative_search_params()
+  {
+    this->search_width   = 1;
+    this->max_iterations = 8;
+    // itopk_size controls the search during the *growing* iterations of the build loop.
+    // 0 (default) means auto-select per iteration (max(graph_degree + 32, 128)); a nonzero
+    // value overrides it for the growing iterations. The final iteration always uses a fixed
+    // itopk tied to the output topk, regardless of this value.
+    this->itopk_size = 0;
+  }
+};
 
 /** Specialized parameters for ACE (Augmented Core Extraction) graph build */
 struct ace_params {
@@ -301,110 +434,6 @@ struct index_params : cuvs::neighbors::index_params {
     int ef_construction,
     hnsw_heuristic_type heuristic       = hnsw_heuristic_type::SIMILAR_SEARCH_PERFORMANCE,
     cuvs::distance::DistanceType metric = cuvs::distance::DistanceType::L2Expanded);
-};
-
-/**
- * @}
- */
-
-/**
- * @defgroup cagra_cpp_search_params CAGRA index search parameters
- * @{
- */
-
-enum class search_algo {
-  /** For large batch sizes. */
-  SINGLE_CTA = 0,
-  /** For small batch sizes. */
-  MULTI_CTA    = 1,
-  MULTI_KERNEL = 2,
-  AUTO         = 100
-};
-
-enum class hash_mode { HASH = 0, SMALL = 1, AUTO = 100 };
-
-enum class internal_dtype { F16 = 0, E5M2 = 1 };
-
-struct search_params : cuvs::neighbors::search_params {
-  /** Maximum number of queries to search at the same time (batch size). Auto select when 0.*/
-  size_t max_queries = 0;
-
-  /** Number of intermediate search results retained during the search.
-   *
-   *  This is the main knob to adjust trade off between accuracy and search speed.
-   *  Higher values improve the search accuracy.
-   */
-  size_t itopk_size = 64;
-
-  /** Upper limit of search iterations. Auto select when 0.*/
-  size_t max_iterations = 0;
-
-  // In the following we list additional search parameters for fine tuning.
-  // Reasonable default values are automatically chosen.
-
-  /** Which search implementation to use. */
-  search_algo algo = search_algo::AUTO;
-
-  /** Number of threads used to calculate a single distance. 4, 8, 16, or 32. */
-  size_t team_size = 0;
-
-  /** Number of graph nodes to select as the starting point for the search in each iteration. aka
-   * search width?*/
-  size_t search_width = 1;
-  /** Lower limit of search iterations. */
-  size_t min_iterations = 0;
-
-  /** Thread block size. 0, 64, 128, 256, 512, 1024. Auto selection when 0. */
-  size_t thread_block_size = 0;
-  /** Hashmap type. Auto selection when AUTO. */
-  hash_mode hashmap_mode = hash_mode::AUTO;
-  /** Lower limit of hashmap bit length. More than 8. */
-  size_t hashmap_min_bitlen = 0;
-  /** Upper limit of hashmap fill rate. More than 0.1, less than 0.9.*/
-  float hashmap_max_fill_rate = 0.5;
-
-  /** Number of iterations of initial random seed node selection. 1 or more. */
-  uint32_t num_random_samplings = 1;
-  /** Bit mask used for initial random seed node selection. */
-  uint64_t rand_xor_mask = 0x128394;
-
-  /** Whether to use the persistent version of the kernel (only SINGLE_CTA is supported a.t.m.) */
-  bool persistent = false;
-  /** Persistent kernel: time in seconds before the kernel stops if no requests received. */
-  float persistent_lifetime = 2;
-  /**
-   * Set the fraction of maximum grid size used by persistent kernel.
-   * Value 1.0 means the kernel grid size is maximum possible for the selected device.
-   * The value must be greater than 0.0 and not greater than 1.0.
-   *
-   * One may need to run other kernels alongside this persistent kernel. This parameter can
-   * be used to reduce the grid size of the persistent kernel to leave a few SMs idle.
-   * Note: running any other work on GPU alongside with the persistent kernel makes the setup
-   * fragile.
-   *   - Running another kernel in another thread usually works, but no progress guaranteed
-   *   - Any CUDA allocations block the context (this issue may be obscured by using pools)
-   *   - Memory copies to not-pinned host memory may block the context
-   *
-   * Even when we know there are no other kernels working at the same time, setting
-   * kDeviceUsage to 1.0 surprisingly sometimes hurts performance. Proceed with care.
-   * If you suspect this is an issue, you can reduce this number to ~0.9 without a significant
-   * impact on the throughput.
-   */
-  float persistent_device_usage = 1.0;
-
-  /**
-   * A parameter indicating the rate of nodes to be filtered-out, when filtering is used.
-   * The value must be equal to or greater than 0.0 and less than 1.0. Default value is
-   * negative, in which case the filtering rate is automatically calculated when possible.
-   * For `filtering::udf_filter`, CAGRA uses `udf_filter::filtering_rate` when this value is
-   * negative. If both values are negative, CAGRA assumes 0.0 because a UDF's selectivity cannot be
-   * inferred from the source string.
-   */
-  float filtering_rate = -1.0;
-
-  /** Data type of the query vector and codebook table on shared memory. Currently, only VPQ
-   * supports FP8. **/
-  internal_dtype smem_dtype = internal_dtype::F16;
 };
 
 /**
@@ -929,9 +958,12 @@ using vpq_f32_index = index<T, IdxT, cuvs::neighbors::device_vpq_dataset_view<fl
 
 /** Index type returned by `cagra::build(res, params, dataset_view)`. */
 template <typename DatasetViewT>
-using cagra_index_t = index<cuvs::neighbors::cagra_view_element_type_t<DatasetViewT>,
-                            uint32_t,
-                            cuvs::neighbors::dataset_view_type_t<DatasetViewT>>;
+using cagra_index_t = std::conditional_t<
+  cuvs::neighbors::is_device_vpq_f16_dataset_view_v<DatasetViewT>,
+  index<float, uint32_t, cuvs::neighbors::device_vpq_dataset_view<half, int64_t>>,
+  index<cuvs::neighbors::cagra_view_element_type_t<DatasetViewT>,
+        uint32_t,
+        cuvs::neighbors::dataset_view_type_t<DatasetViewT>>>;
 
 /**
  * @}
@@ -943,10 +975,11 @@ using cagra_index_t = index<cuvs::neighbors::cagra_view_element_type_t<DatasetVi
  */
 
 /**
- * @brief Build the index from a `dataset_view` (device padded/standard or host padded/standard).
+ * @brief Build the index from a `dataset_view`.
  *
- * VPQ-compressed device views are rejected: dense graph construction requires uncompressed data.
- * Use a separate VPQ index workflow after building the graph from an uncompressed dataset.
+ * Dense device/host views support the usual graph-build algorithms. A device VPQ view with FP16
+ * codebooks is built with iterative CAGRA search and must use L2Expanded, 8-bit PQ codes, and a
+ * supported PQ subvector length.
  *
  * When `index_params.attach_dataset_on_build = true` (the default), a dense `dataset` view is
  * stored in the returned index as a **non-owning view** — no copy is made. The caller must keep the
@@ -964,6 +997,27 @@ using cagra_index_t = index<cuvs::neighbors::cagra_view_element_type_t<DatasetVi
  */
 // Concrete non-template overloads for all supported build dataset view types.
 // This keeps the public header explicit and stable while implementation remains shared internally.
+/**
+ * @brief Build directly from a device VPQ dataset view with FP16 codebooks.
+ *
+ * A VPQ input can only use iterative CAGRA graph construction. When `graph_build_params` is
+ * `std::monostate`, iterative construction is selected automatically; explicitly selecting another
+ * graph builder is an error. The metric must be `L2Expanded`, PQ codes must be 8-bit, and the PQ
+ * subvector length must be 2, 4, or 8.
+ *
+ * The returned index accepts float queries and stores a non-owning copy of `dataset` when
+ * `attach_dataset_on_build` is true. The owning `device_vpq_dataset` must outlive the index.
+ *
+ * @param[in] res raft resources
+ * @param[in] params CAGRA index build parameters
+ * @param[in] dataset device VPQ dataset view
+ * @return built `index<float, uint32_t, device_vpq_dataset_view<half, int64_t>>`
+ */
+auto build(raft::resources const& res,
+           const cuvs::neighbors::cagra::index_params& params,
+           cuvs::neighbors::device_vpq_dataset_view<half, int64_t> const& dataset)
+  -> index<float, uint32_t, cuvs::neighbors::device_vpq_dataset_view<half, int64_t>>;
+
 /**
  * @brief Build from a device padded dataset view (`float`).
  * @param[in] res raft resources
@@ -2267,7 +2321,7 @@ void search(
  * @{
  */
 
-/** Dense dataset storage kind recorded in a serialized CAGRA index. */
+/** Dataset storage kind recorded in a serialized CAGRA index. */
 enum class serialized_dataset_kind : std::uint32_t {
   /** The serialized index does not contain a dataset payload. */
   none = 0,
@@ -2279,16 +2333,19 @@ enum class serialized_dataset_kind : std::uint32_t {
   host_padded = 3,
   /** Host-resident dataset using its standard row layout. */
   host_standard = 4,
+  /** Device-resident VPQ-compressed dataset with f16 codebooks (CAGRA-Q). */
+  device_vpq_f16 = 5,
 };
 
 /** Current experimental CAGRA serialization format version. */
 inline constexpr int cagra_serialization_version = 6;
 
-// Serialize and deserialize are overloaded for device/host and padded/standard dense indexes.
-// They use the same strided dataset payload; the serialized dataset kind selects the matching
-// owning dataset type during deserialization. To support a new dataset kind (e.g. vpq_f16_index),
-// add matching overloads here and a corresponding deserialize_<kind> in
-// detail/dataset_serialize.hpp (dense views use serialize_cagra_dense_dataset).
+// Serialize and deserialize are overloaded for device/host and padded/standard dense indexes,
+// which share the same strided dataset payload, and for vpq_f16_index, which writes a VPQ payload
+// instead. The serialized dataset kind selects the matching owning dataset type during
+// deserialization. To support a further kind, add matching overloads here and a corresponding
+// serialize_/deserialize_<kind> in detail/dataset_serialize.hpp (dense views use
+// serialize_cagra_dense_dataset, VPQ ones serialize_vpq_dataset).
 
 /**
  * Save the index to file.
@@ -2838,6 +2895,106 @@ void deserialize(raft::resources const& handle,
                  cuvs::neighbors::cagra::device_standard_index<uint8_t>* index,
                  std::unique_ptr<cuvs::neighbors::device_standard_dataset<uint8_t, int64_t>>*
                    out_dataset = nullptr);
+
+/* vpq_f16_index overloads (CAGRA-Q).
+ *
+ * The compressed rows travel with the index, so that a deserialized index can be searched without
+ * the dense dataset it was compressed from and without retraining the codebooks. As everywhere
+ * else, the index holds a view: `deserialize` returns the owning dataset through `out_dataset`,
+ * which the caller has to keep alive for as long as the index is used.
+ *
+ * Unlike the dense overloads, `out_dataset` is required. Nothing can be searched in a VPQ index
+ * whose rows were dropped, so there is no use for a graph-only load, and asking for one is an
+ * error rather than a silently unusable index. For the same reason `include_dataset = false`
+ * produces an index that only `update_dataset` can make searchable again.
+ */
+void serialize(raft::resources const& handle,
+               const std::string& filename,
+               const cuvs::neighbors::cagra::vpq_f16_index<float>& index,
+               bool include_dataset = true);
+
+void deserialize(
+  raft::resources const& handle,
+  const std::string& filename,
+  cuvs::neighbors::cagra::vpq_f16_index<float>* index,
+  std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>* out_dataset);
+
+void serialize(raft::resources const& handle,
+               std::ostream& os,
+               const cuvs::neighbors::cagra::vpq_f16_index<float>& index,
+               bool include_dataset = true);
+
+void deserialize(
+  raft::resources const& handle,
+  std::istream& is,
+  cuvs::neighbors::cagra::vpq_f16_index<float>* index,
+  std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>* out_dataset);
+
+void serialize(raft::resources const& handle,
+               const std::string& filename,
+               const cuvs::neighbors::cagra::vpq_f16_index<half>& index,
+               bool include_dataset = true);
+
+void deserialize(
+  raft::resources const& handle,
+  const std::string& filename,
+  cuvs::neighbors::cagra::vpq_f16_index<half>* index,
+  std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>* out_dataset);
+
+void serialize(raft::resources const& handle,
+               std::ostream& os,
+               const cuvs::neighbors::cagra::vpq_f16_index<half>& index,
+               bool include_dataset = true);
+
+void deserialize(
+  raft::resources const& handle,
+  std::istream& is,
+  cuvs::neighbors::cagra::vpq_f16_index<half>* index,
+  std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>* out_dataset);
+
+void serialize(raft::resources const& handle,
+               const std::string& filename,
+               const cuvs::neighbors::cagra::vpq_f16_index<int8_t>& index,
+               bool include_dataset = true);
+
+void deserialize(
+  raft::resources const& handle,
+  const std::string& filename,
+  cuvs::neighbors::cagra::vpq_f16_index<int8_t>* index,
+  std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>* out_dataset);
+
+void serialize(raft::resources const& handle,
+               std::ostream& os,
+               const cuvs::neighbors::cagra::vpq_f16_index<int8_t>& index,
+               bool include_dataset = true);
+
+void deserialize(
+  raft::resources const& handle,
+  std::istream& is,
+  cuvs::neighbors::cagra::vpq_f16_index<int8_t>* index,
+  std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>* out_dataset);
+
+void serialize(raft::resources const& handle,
+               const std::string& filename,
+               const cuvs::neighbors::cagra::vpq_f16_index<uint8_t>& index,
+               bool include_dataset = true);
+
+void deserialize(
+  raft::resources const& handle,
+  const std::string& filename,
+  cuvs::neighbors::cagra::vpq_f16_index<uint8_t>* index,
+  std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>* out_dataset);
+
+void serialize(raft::resources const& handle,
+               std::ostream& os,
+               const cuvs::neighbors::cagra::vpq_f16_index<uint8_t>& index,
+               bool include_dataset = true);
+
+void deserialize(
+  raft::resources const& handle,
+  std::istream& is,
+  cuvs::neighbors::cagra::vpq_f16_index<uint8_t>* index,
+  std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>* out_dataset);
 
 /** @copydoc serialize */
 void serialize(raft::resources const& handle,
@@ -4743,14 +4900,37 @@ namespace helpers {
  * @param[in] intermediate_graph_degree degree of the input graph for the optimization process
  * @param[in] index_size
  * @param[in] mst_optimize whether to use MST optimization
+ * @param[in] device_resident_graphs whether the input and output graphs are already device
+ *            resident. In that case `optimize` reads and writes them in place instead of staging
+ *            them through device buffers, so those staging allocations are left out of the
+ *            estimate.
  * @return tuple of [host_size, device_size, host_fixed_size, device_fixed_size] memory sizes in
  * bytes
  */
-std::tuple<size_t, size_t, size_t, size_t> optimize_workspace_size(size_t n_rows,
-                                                                   size_t graph_degree,
-                                                                   size_t intermediate_degree,
-                                                                   size_t index_size,
-                                                                   bool mst_optimize = false);
+std::tuple<size_t, size_t, size_t, size_t> optimize_workspace_size(
+  size_t n_rows,
+  size_t graph_degree,
+  size_t intermediate_degree,
+  size_t index_size,
+  bool mst_optimize           = false,
+  bool device_resident_graphs = false);
+
+/**
+ * Calculate the device memory footprint of a VPQ-compressed (CAGRA-Q) dataset.
+ *
+ * The footprint is the sum of the VQ codebook, the PQ codebook and the encoded rows. Parameters
+ * left at 0 are resolved with the same heuristics that `vpq_build` applies.
+ *
+ * @param[in] dataset shape of the uncompressed dataset
+ * @param[in] params VPQ compression parameters
+ * @param[in] codebook_element_size size in bytes of a codebook element (2 for the f16 codebooks
+ *            used by CAGRA-Q)
+ *
+ * @return compressed dataset size in bytes
+ */
+size_t vpq_dataset_size(raft::matrix_extent<int64_t> dataset,
+                        cuvs::neighbors::vpq_params params,
+                        size_t codebook_element_size = 2);
 
 /**
  * Calculate memory usage of CAGRA build.
@@ -4760,13 +4940,17 @@ std::tuple<size_t, size_t, size_t, size_t> optimize_workspace_size(size_t n_rows
  * @param[in] dtype element type of the dataset
  *            (e.g. `CUDA_R_32F`, `CUDA_R_16F`, `CUDA_R_8I`, `CUDA_R_8U`)
  * @param[in] cparams CAGRA index building parameters
+ * @param[in] compression when set, the build consumes a VPQ-compressed (CAGRA-Q) dataset with
+ *            these parameters rather than the dense dataset described by `dataset` and `dtype`
  *
  * @return pair of [host_size, device_size] memory sizes in bytes
  */
-std::pair<size_t, size_t> cagra_build_mem_usage(raft::resources const& res,
-                                                raft::matrix_extent<int64_t> dataset,
-                                                cudaDataType_t dtype,
-                                                cuvs::neighbors::cagra::index_params cparams);
+std::pair<size_t, size_t> cagra_build_mem_usage(
+  raft::resources const& res,
+  raft::matrix_extent<int64_t> dataset,
+  cudaDataType_t dtype,
+  cuvs::neighbors::cagra::index_params cparams,
+  std::optional<cuvs::neighbors::vpq_params> compression = std::nullopt);
 
 /**
  * @brief Optimize a KNN graph into a CAGRA graph.

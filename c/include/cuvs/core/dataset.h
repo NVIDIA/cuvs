@@ -20,7 +20,8 @@ extern "C" {
  */
 typedef enum {
   CUVS_DATASET_LAYOUT_STANDARD = 0,
-  CUVS_DATASET_LAYOUT_PADDED   = 1
+  CUVS_DATASET_LAYOUT_PADDED   = 1,
+  CUVS_DATASET_LAYOUT_VPQ = 2
 } cuvsDatasetLayout_t;
 
 /**
@@ -48,6 +49,9 @@ typedef struct {
 } cuvsDataset;
 typedef cuvsDataset* cuvsDataset_t;
 
+struct cuvsCagraCompressionParams;
+typedef struct cuvsCagraCompressionParams* cuvsCagraCompressionParams_t;
+
 /**
  * @brief Create an empty owning dataset handle.
  *
@@ -71,6 +75,14 @@ CUVS_EXPORT cuvsError_t cuvsDatasetMakePadded(cuvsResources_t res,
                                               DLManagedTensor* dataset,
                                               cuvsDatasetMemType_t target_mem_type,
                                               cuvsDataset_t* padded_dataset);
+
+/**
+ * @brief Compress a dense dataset into a device VPQ dataset.
+ */
+CUVS_EXPORT cuvsError_t cuvsDatasetMakeVpq(cuvsResources_t res,
+                                           cuvsCagraCompressionParams_t params,
+                                           cuvsDataset_t dataset,
+                                           cuvsDataset_t* vpq_dataset);
 
 /**
  * @brief Create a non-owning padded dataset view from a host- or device-resident tensor.
