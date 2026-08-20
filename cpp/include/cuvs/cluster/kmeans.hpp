@@ -150,7 +150,14 @@ struct params : base_params {
    *
    * In multi-GPU mode this is a per-rank batch size: each rank processes up
    * to this many local samples per batch, clamped to that rank's local sample
-   * count. This is is ignored by device-data overloads.
+   * count. This is ignored by device-data overloads.
+   *
+   * Host rows are staged through a device buffer of size
+   * `device_buffer_samples * n_features`. If the resources handle has a CUDA
+   * stream pool with at least one stream, prefetch is enabled; that
+   * doubles the batch memory footprint (and the weight-staging footprint
+   * when sample weights are provided).
+   *
    * Default: 0 (process all data at once).
    */
   int64_t device_buffer_samples = 0;
