@@ -301,13 +301,14 @@ public class LuceneProvider {
   }
 
   /**
-   * Retains the original, incorrectly typed JVM method descriptor.
+   * Retains the original JVM method descriptor for binary compatibility.
    *
-   * <p>The Lucene HNSW binary-quantized format is a {@link KnnVectorsFormat}, not a {@link
-   * FlatVectorsFormat}; the former implementation therefore always failed its cast. Use {@link
+   * <p>The legacy API declared {@link FlatVectorsFormat} as its return type, but Lucene's HNSW
+   * binary-quantized format extends {@link KnnVectorsFormat} directly. When construction returned
+   * the expected Lucene implementation, the legacy cast failed. Use {@link
    * #getLuceneHnswBinaryQuantizedKnnVectorsFormatInstance(int, int)}.
    *
-   * @deprecated The original return type cannot represent Lucene's HNSW format.
+   * @deprecated The legacy return type cannot represent Lucene's HNSW format.
    */
   @Deprecated(since = "26.10", forRemoval = false)
   public FlatVectorsFormat getLuceneHnswBinaryQuantizedVectorsFormatInstance(
@@ -354,13 +355,14 @@ public class LuceneProvider {
   }
 
   /**
-   * Retains the original, incorrectly typed JVM method descriptor.
+   * Retains the original JVM method descriptor for binary compatibility.
    *
-   * <p>The Lucene HNSW scalar-quantized format is a {@link KnnVectorsFormat}, not a {@link
-   * FlatVectorsFormat}; the former implementation therefore always failed its cast. Use {@link
+   * <p>The legacy API declared {@link FlatVectorsFormat} as its return type, but Lucene's HNSW
+   * scalar-quantized format extends {@link KnnVectorsFormat} directly. When construction returned
+   * the expected Lucene implementation, the legacy cast failed. Use {@link
    * #getLuceneHnswScalarQuantizedKnnVectorsFormatInstance(int, int)}.
    *
-   * @deprecated The original return type cannot represent Lucene's HNSW format.
+   * @deprecated The legacy return type cannot represent Lucene's HNSW format.
    */
   @Deprecated(since = "26.10", forRemoval = false)
   public FlatVectorsFormat getLuceneHnswScalarQuantizedVectorsFormatInstance(
