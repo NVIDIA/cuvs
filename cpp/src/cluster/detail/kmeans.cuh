@@ -707,6 +707,20 @@ void kmeans_fit(
   auto [batch_copy_stream, enable_batch_prefetch] =
     cuvs::spatial::knn::detail::utils::get_prefetch_stream(handle);
 
+  if constexpr (!data_on_device) {
+    size_t batch_staging_bytes =
+      static_cast<size_t>(device_buffer_samples) * static_cast<size_t>(n_features) * sizeof(DataT);
+    if (weight_ptr != nullptr) {
+      batch_staging_bytes += static_cast<size_t>(device_buffer_samples) * sizeof(DataT);
+    }
+    // Prefetch uses two staging buffers, so the workspace check must cover 2x the
+    // host-batch footprint (data and optional weights).
+    if (enable_batch_prefetch) { batch_staging_bytes *= 2; }
+    if (batch_staging_bytes > raft::resource::get_workspace_free_bytes(handle)) {
+      batch_mr = raft::resource::get_large_workspace_resource_ref(handle);
+    }
+  }
+
   auto data_batches =
     cuvs::spatial::knn::detail::utils::make_batch_load_iterator<DataT>(handle,
                                                                        X.data_handle(),
