@@ -249,7 +249,7 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
                 .withIndexParams(params)
                 .build();
         var deviceVectors = dataset.toDevice(getCuVSResourcesInstance());
-        var indexDataset = index.makePaddedDataset(deviceVectors)) {
+        var indexDataset = index.makePaddedDatasetView(deviceVectors)) {
       index.updateDataset(indexDataset);
       index.serialize(os);
     }

@@ -52,9 +52,9 @@ import org.apache.lucene.util.FixedBitSet;
  * single multi-partition search to cuVS, passing one Lucene segment per cuVS partition. cuVS
  * runs the per-partition CAGRA searches, applies distance post-processing, and performs the
  * cross-partition top-k merge internally; the returned arrays are mapped to Lucene doc IDs on
- * the host. The effective CAGRA algorithm (SINGLE_CTA or MULTI_KERNEL) is selected by cuVS
- * based on {@code searchAlgo} and {@code itopk_size}, with MULTI_KERNEL handling k beyond
- * SINGLE_CTA's per-partition cap.
+ * the host. For a multi-partition search, cuVS resolves {@code AUTO} to {@code SINGLE_CTA} or
+ * {@code MULTI_CTA} from the search parameters and query/partition topology; {@code MULTI_KERNEL}
+ * is not supported by the multi-partition API.
  *
  * <p>If the query has an explicit {@code filter}, or if any segment carries live-document deletes,
  * the acceptance mask (filter ∩ liveDocs) is packed into one {@link FilterBitsetHandle} per segment
@@ -161,11 +161,9 @@ public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
       gpuReaders.add(gpuReader);
     }
 
-    // Build one filter handle per segment encoding (filter ∩ that segment's liveDocs) whenever any
-    // filtering is required — either an explicit Lucene filter, or live-document deletes in at
-    // least
-    // one segment. Each segment's handle becomes that partition's filter; a segment with neither an
-    // explicit filter nor deletes gets a null entry (unfiltered for that partition).
+    // Build one filter handle per segment whenever an explicit filter or any segment deletion
+    // requires filtering. Each handle encodes (filter ∩ segment liveDocs); an unaffected segment
+    // gets a null entry and remains unfiltered for that partition.
     boolean hasExplicitFilter = (filter != null);
     boolean hasDeletes = false;
     for (LeafReaderContext ctx : leaves) {
@@ -387,9 +385,7 @@ public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
   private FilterBitsetHandle buildSegmentFilterHandle(
       Weight filterWeight, LeafReaderContext ctx, FloatVectorValues fvv) throws IOException {
     Bits liveDocs = ctx.reader().getLiveDocs();
-    // When filterWeight is null, accept all live documents (acceptDocs == liveDocs, which may
-    // itself
-    // be null to mean "all docs accepted" in this segment).
+    // Without an explicit filter, accept liveDocs directly; null means every document is live.
     Bits acceptDocs = (filterWeight != null) ? evalFilter(filterWeight, ctx, liveDocs) : liveDocs;
     Bits acceptedOrds = fvv.getAcceptOrds(acceptDocs);
     int numOrds = fvv.size();
@@ -481,10 +477,9 @@ public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
   /**
    * Builds a {@link Query} that matches exactly the given pre-scored documents.
    *
-   * <p>Partitions {@code scoreDocs} by segment (using {@link ScoreDoc#shardIndex} as the segment
-   * offset relative to {@link LeafReaderContext#docBase}), then returns a {@link Scorer} per
-   * segment that iterates those docs in ascending doc-ID order and replays their pre-computed
-   * scores.
+   * <p>Partitions {@code scoreDocs} by each global doc ID's membership in a leaf's {@link
+   * LeafReaderContext#docBase} range, then returns a {@link Scorer} per segment that iterates those
+   * docs in ascending doc-ID order and replays their pre-computed scores.
    */
   private static Query docAndScoreQuery(ScoreDoc[] scoreDocs) {
     return new Query() {

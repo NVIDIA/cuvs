@@ -81,7 +81,8 @@ public class Lucene99AcceleratedHNSWVectorsFormat extends KnnVectorsFormat {
     } else {
       log.log(
           Level.WARNING,
-          "GPU based indexing not supported, falling back to using the Lucene99HnswVectorsWriter");
+          "GPU based indexing not supported, falling back to using the"
+              + " Lucene99HnswVectorsWriter");
       try {
         return LUCENE_PROVIDER.getLuceneHnswVectorsWriterInstance(
             state,
