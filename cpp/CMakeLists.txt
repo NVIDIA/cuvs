@@ -1639,7 +1639,7 @@ SECTIONS
               $<$<BOOL:${CUVS_NVTX}>:CUDA::nvtx3>
               $<COMPILE_ONLY:nvidia::cutlass::cutlass>
               $<COMPILE_ONLY:cuco::cuco>
-              $<BUILD_LOCAL_INTERFACE:kvikio::kvikio>
+              kvikio::kvikio
     )
   endif()
 

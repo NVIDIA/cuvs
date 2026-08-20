@@ -78,6 +78,15 @@ std::vector<char> read_whole_file(const std::string& path)
   return std::vector<char>((std::istreambuf_iterator<char>(is)), std::istreambuf_iterator<char>());
 }
 
+void expect_stream_contents(std::istream& stream, const std::vector<char>& expected, size_t offset)
+{
+  ASSERT_LE(offset, expected.size());
+  std::vector<char> actual(expected.size() - offset);
+  stream.read(actual.data(), static_cast<std::streamsize>(actual.size()));
+  ASSERT_EQ(stream.gcount(), static_cast<std::streamsize>(actual.size()));
+  EXPECT_TRUE(std::equal(actual.begin(), actual.end(), expected.begin() + offset));
+}
+
 }  // namespace
 
 // create_numpy_file must produce a numpy-compatible header whose data body begins on a block
@@ -123,6 +132,102 @@ TEST(FileIO, HostReadWriteRoundTrip)
   read_large_file(fd, dst.data(), n * sizeof(float), header_size);
 
   EXPECT_EQ(src, dst);
+}
+
+// Descriptors constructed from raw file descriptors do not have a path that KvikIO can reopen.
+// Preserve the public bulk-I/O API for those callers through positioned POSIX I/O.
+TEST(FileIO, PathlessDescriptorReadWriteRoundTrip)
+{
+  scratch_dir scratch;
+  file_descriptor original(scratch.file("pathless.bin"), O_CREAT | O_RDWR | O_TRUNC, 0644);
+  const int dup_fd = ::dup(original.get());
+  ASSERT_NE(dup_fd, -1);
+  file_descriptor pathless_fd(dup_fd);
+  ASSERT_TRUE(pathless_fd.get_path().empty());
+
+  const std::vector<char> src = make_pattern(16391, 13);
+  const uint64_t offset       = 37;
+  write_large_file(pathless_fd, src.data(), src.size(), offset);
+
+  std::vector<char> dst(src.size());
+  read_large_file(pathless_fd, dst.data(), dst.size(), offset);
+  EXPECT_EQ(dst, src);
+}
+
+// Pathless descriptors cannot reopen the file through KvikIO, so device pointers must be rejected
+// before the POSIX pread/pwrite fallback runs.
+TEST(FileIO, PathlessDescriptorRejectsDeviceMemory)
+{
+  raft::resources res;
+  scratch_dir scratch;
+  file_descriptor original(scratch.file("pathless_device.bin"), O_CREAT | O_RDWR | O_TRUNC, 0644);
+  const int dup_fd = ::dup(original.get());
+  ASSERT_NE(dup_fd, -1);
+  file_descriptor pathless_fd(dup_fd);
+  ASSERT_TRUE(pathless_fd.get_path().empty());
+
+  auto device                   = raft::make_device_vector<char, int64_t>(res, 128);
+  auto expect_host_memory_error = [](auto&& op) {
+    try {
+      op();
+      FAIL() << "expected pathless POSIX I/O to reject device memory";
+    } catch (const raft::exception& e) {
+      EXPECT_NE(std::string(e.what()).find("host memory"), std::string::npos) << e.what();
+    }
+  };
+  expect_host_memory_error([&] { write_large_file(pathless_fd, device.data_handle(), 128, 0); });
+  expect_host_memory_error([&] { read_large_file(pathless_fd, device.data_handle(), 128, 0); });
+}
+
+// Moving a stream after a short read must retain bytes already buffered beyond the logical stream
+// position. The underlying descriptor has advanced to the end of that read-ahead buffer.
+TEST(FileIO, FdIstreamMovePreservesUnreadBuffer)
+{
+  scratch_dir scratch;
+  const std::string path       = scratch.file("move_stream.bin");
+  const std::vector<char> data = make_pattern(32771, 29);
+  {
+    std::ofstream output(path, std::ios::out | std::ios::binary);
+    ASSERT_TRUE(output.good());
+    output.write(data.data(), static_cast<std::streamsize>(data.size()));
+  }
+
+  constexpr size_t prefix_size = 37;
+  {
+    file_descriptor fd(path, O_RDONLY);
+    auto source = fd.make_istream();
+    std::vector<char> prefix(prefix_size);
+    source.read(prefix.data(), static_cast<std::streamsize>(prefix.size()));
+    ASSERT_EQ(source.gcount(), static_cast<std::streamsize>(prefix.size()));
+    EXPECT_TRUE(std::equal(prefix.begin(), prefix.end(), data.begin()));
+
+    fd_istream destination(std::move(source));
+    expect_stream_contents(destination, data, prefix_size);
+  }
+
+  {
+    file_descriptor fd(path, O_RDONLY);
+    auto source = fd.make_istream();
+    std::vector<char> prefix(prefix_size);
+    source.read(prefix.data(), static_cast<std::streamsize>(prefix.size()));
+    ASSERT_EQ(source.gcount(), static_cast<std::streamsize>(prefix.size()));
+
+    file_descriptor destination_fd(path, O_RDONLY);
+    auto destination = destination_fd.make_istream();
+    destination      = std::move(source);
+    expect_stream_contents(destination, data, prefix_size);
+  }
+
+  {
+    file_descriptor fd(path, O_RDONLY);
+    auto source = fd.make_istream();
+    std::vector<char> all(data.size());
+    source.read(all.data(), static_cast<std::streamsize>(all.size()));
+    ASSERT_EQ(source.gcount(), static_cast<std::streamsize>(all.size()));
+
+    fd_istream destination(std::move(source));
+    expect_stream_contents(destination, data, data.size());
+  }
 }
 
 // read_large_file must also fill device memory (kvikio uses GPUDirect Storage when available, and
@@ -369,11 +474,6 @@ TEST(FileIO, InvalidArguments)
   EXPECT_THROW(read_large_file(fd, nullptr, 8, header_size), raft::exception);
 
   EXPECT_NO_THROW(read_large_file(fd, buf, sizeof(buf), header_size));
-  const int dup_fd = ::dup(fd.get());
-  ASSERT_NE(dup_fd, -1);
-  file_descriptor pathless_fd(dup_fd);
-  EXPECT_THROW(read_large_file(pathless_fd, buf, sizeof(buf), header_size), raft::exception);
-  EXPECT_THROW(write_large_file(pathless_fd, buf, sizeof(buf), header_size), raft::exception);
 }
 
 TEST(FileIO, RejectsReplacedPathForBulkIO)

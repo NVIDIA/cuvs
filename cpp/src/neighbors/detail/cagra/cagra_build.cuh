@@ -1490,16 +1490,12 @@ auto build_ace(raft::resources const& res, const index_params& params, DatasetVi
                   res, sub_index_params, sub_dataset_dev->as_dataset_view());
               used_device_read = true;
               return sub_index_t{std::in_place_type<device_sub_index_t>, std::move(direct_index)};
-            } catch (const std::bad_alloc&) {
+            } catch (const std::bad_alloc& e) {
               RAFT_LOG_WARN(
-                "ACE: partition %lu did not fit in device memory for a direct (GDS) read; "
+                "ACE: partition %lu did not fit in device memory for a direct (GDS) read: %s; "
                            "falling back to a host read",
-                partition_id);
-            } catch (const raft::logic_error&) {
-              RAFT_LOG_WARN(
-                "ACE: device allocation failed for partition %lu direct read; falling back to a "
-                           "host read",
-                partition_id);
+                partition_id,
+                e.what());
             }
           }
 

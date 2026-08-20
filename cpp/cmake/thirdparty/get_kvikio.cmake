@@ -15,14 +15,15 @@ function(find_and_configure_kvikio)
 
   # ----------------------------------------------------------------------------
   # KvikIO provides the GPUDirect Storage (cuFile) and POSIX file I/O backends used by the CAGRA
-  # ACE disk-mode build. It is a private, build-time dependency: it is linked into libcuvs via
-  # $<BUILD_LOCAL_INTERFACE:kvikio::kvikio> and therefore is NOT part of cuvs' exported interface
-  # (no export set / find_dependency is generated). At runtime the conda 'libkvikio' package
-  # provides the shared library.
+  # ACE disk-mode build. Shared cuVS builds consume it privately, while installed static cuVS
+  # targets retain it as a link-only dependency. At runtime the conda 'libkvikio' package provides
+  # both the shared library and its CMake package configuration.
   # ----------------------------------------------------------------------------
   rapids_cpm_find(
     kvikio ${PKG_VERSION}
     GLOBAL_TARGETS kvikio::kvikio
+    BUILD_EXPORT_SET cuvs-static-exports
+    INSTALL_EXPORT_SET cuvs-static-exports
     CPM_ARGS
     EXCLUDE_FROM_ALL TRUE
     GIT_REPOSITORY https://github.com/${PKG_FORK}/kvikio.git

@@ -19,6 +19,8 @@
 namespace cuvs::util {
 namespace {
 
+constexpr size_t kPosixTransferSize = size_t{1} << 30;
+
 struct file_identity {
   dev_t device;
   ino_t inode;
@@ -77,6 +79,72 @@ void validate_kvikio_handles_match(const kvikio::FileHandle& expected,
   }
 }
 
+off_t checked_posix_offset(uint64_t file_offset, size_t buffer_offset)
+{
+  RAFT_EXPECTS(buffer_offset <= std::numeric_limits<uint64_t>::max() - file_offset,
+               "File offset overflow");
+  const uint64_t position = file_offset + buffer_offset;
+  RAFT_EXPECTS(position <= static_cast<uint64_t>(std::numeric_limits<off_t>::max()),
+               "File offset exceeds the POSIX offset range");
+  return static_cast<off_t>(position);
+}
+
+void read_large_file_posix(const file_descriptor& fd,
+                           void* dest_ptr,
+                           size_t total_bytes,
+                           uint64_t file_offset)
+{
+  auto* destination = static_cast<char*>(dest_ptr);
+  size_t bytes_read = 0;
+
+  while (bytes_read < total_bytes) {
+    const size_t chunk_size = std::min(kPosixTransferSize, total_bytes - bytes_read);
+    const off_t position    = checked_posix_offset(file_offset, bytes_read);
+    ssize_t result          = 0;
+    do {
+      result = ::pread(fd.get(), destination + bytes_read, chunk_size, position);
+    } while (result < 0 && errno == EINTR);
+
+    RAFT_EXPECTS(result >= 0,
+                 "Failed to read from file descriptor at offset %llu: %s",
+                 static_cast<unsigned long long>(position),
+                 std::strerror(errno));
+    RAFT_EXPECTS(result > 0,
+                 "Incomplete read from file descriptor: expected %zu bytes, got %zu",
+                 total_bytes,
+                 bytes_read);
+    bytes_read += static_cast<size_t>(result);
+  }
+}
+
+void write_large_file_posix(const file_descriptor& fd,
+                            const void* data_ptr,
+                            size_t total_bytes,
+                            uint64_t file_offset)
+{
+  const auto* source   = static_cast<const char*>(data_ptr);
+  size_t bytes_written = 0;
+
+  while (bytes_written < total_bytes) {
+    const size_t chunk_size = std::min(kPosixTransferSize, total_bytes - bytes_written);
+    const off_t position    = checked_posix_offset(file_offset, bytes_written);
+    ssize_t result          = 0;
+    do {
+      result = ::pwrite(fd.get(), source + bytes_written, chunk_size, position);
+    } while (result < 0 && errno == EINTR);
+
+    RAFT_EXPECTS(result >= 0,
+                 "Failed to write to file descriptor at offset %llu: %s",
+                 static_cast<unsigned long long>(position),
+                 std::strerror(errno));
+    RAFT_EXPECTS(result > 0,
+                 "Incomplete write to file descriptor: expected %zu bytes, wrote %zu",
+                 total_bytes,
+                 bytes_written);
+    bytes_written += static_cast<size_t>(result);
+  }
+}
+
 }  // namespace
 
 void read_large_file(const file_descriptor& fd,
@@ -88,7 +156,12 @@ void read_large_file(const file_descriptor& fd,
   RAFT_EXPECTS(dest_ptr != nullptr, "Destination pointer must not be nullptr");
   RAFT_EXPECTS(fd.is_valid(), "File descriptor must be valid");
   const std::string path = fd.get_path();
-  RAFT_EXPECTS(!path.empty(), "File descriptor must have an associated path for kvikio I/O");
+  if (path.empty()) {
+    RAFT_EXPECTS(!detail::is_kvikio_device_memory(dest_ptr),
+                 "Pathless POSIX I/O requires host memory");
+    read_large_file_posix(fd, dest_ptr, total_bytes, file_offset);
+    return;
+  }
 
   // kvikio selects GPUDirect Storage (cuFile) for device destinations on a GDS-capable system, and
   // the POSIX + threadpool backend (with O_DIRECT when available) otherwise. The destination may be
@@ -112,7 +185,12 @@ void write_large_file(const file_descriptor& fd,
   RAFT_EXPECTS(data_ptr != nullptr, "Data pointer must not be nullptr");
   RAFT_EXPECTS(fd.is_valid(), "File descriptor must be valid");
   const std::string path = fd.get_path();
-  RAFT_EXPECTS(!path.empty(), "File descriptor must have an associated path for kvikio I/O");
+  if (path.empty()) {
+    RAFT_EXPECTS(!detail::is_kvikio_device_memory(data_ptr),
+                 "Pathless POSIX I/O requires host memory");
+    write_large_file_posix(fd, data_ptr, total_bytes, file_offset);
+    return;
+  }
 
   // Open in read+write mode ("r+") so the existing numpy header and preallocation are preserved
   // (kvikio's "w" mode would truncate). The source may be host or device memory.

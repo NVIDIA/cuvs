@@ -112,22 +112,36 @@ class fd_streambuf : public std::streambuf {
   fd_streambuf(const fd_streambuf&)            = delete;
   fd_streambuf& operator=(const fd_streambuf&) = delete;
 
+  /**
+   * @brief Move-construct from @p other.
+   *
+   * Transfers ownership of the file descriptor and buffer state. The moved-from object is left in
+   * a valid empty state.
+   */
   fd_streambuf(fd_streambuf&& other) noexcept
-    : fd_(std::exchange(other.fd_, -1)),
+    : std::streambuf(std::move(other)),
+      fd_(std::exchange(other.fd_, -1)),
       buffer_(std::move(other.buffer_)),
       buffer_size_(std::exchange(other.buffer_size_, 0))
   {
-    setg(buffer_.get(), buffer_.get(), buffer_.get());
+    other.setg(nullptr, nullptr, nullptr);
   }
 
+  /**
+   * @brief Move-assign from @p other.
+   *
+   * Transfers ownership of the file descriptor and buffer state. The moved-from object is left in
+   * a valid empty state.
+   */
   fd_streambuf& operator=(fd_streambuf&& other) noexcept
   {
     if (this != &other) {
       close();
+      std::streambuf::operator=(std::move(other));
       fd_          = std::exchange(other.fd_, -1);
       buffer_      = std::move(other.buffer_);
       buffer_size_ = std::exchange(other.buffer_size_, 0);
-      setg(buffer_.get(), buffer_.get(), buffer_.get());
+      other.setg(nullptr, nullptr, nullptr);
     }
     return *this;
   }
@@ -382,13 +396,14 @@ std::pair<file_descriptor, size_t> create_numpy_file(const std::string& path,
 }
 
 /**
- * @brief Read a region of a file into @p dest_ptr through kvikio.
+ * @brief Read a region of a file into @p dest_ptr.
  *
- * Routed through kvikio::FileHandle, so it uses GPUDirect Storage (cuFile) when @p dest_ptr is
- * device memory on a GDS-capable system, and the POSIX + threadpool backend (with O_DIRECT when
- * available) otherwise. @p dest_ptr may be host or device memory.
+ * Path-backed descriptors are routed through kvikio::FileHandle, so they use GPUDirect Storage
+ * (cuFile) when @p dest_ptr is device memory on a GDS-capable system, and KvikIO's compatible I/O
+ * backend otherwise. Descriptors constructed from a raw file descriptor without a path retain the
+ * POSIX pread fallback and require host memory.
  *
- * @param fd          File descriptor identifying the file (its path is used to open the handle).
+ * @param fd          File descriptor identifying the file and, when available, its path.
  * @param dest_ptr    Destination buffer (host or device).
  * @param total_bytes Total bytes to read.
  * @param file_offset Starting offset in file.
@@ -399,13 +414,14 @@ void read_large_file(const file_descriptor& fd,
                      const uint64_t file_offset);
 
 /**
- * @brief Write @p data_ptr to a region of a (pre-created) file through kvikio.
+ * @brief Write @p data_ptr to a region of a pre-created file.
  *
  * Counterpart of ::read_large_file. The file must already exist (e.g. created by
  * ::create_numpy_file); the handle is opened in read+write mode so the existing header and
- * preallocation are preserved. @p data_ptr may be host or device memory.
+ * preallocation are preserved. Path-backed descriptors use KvikIO and may transfer host or device
+ * memory. Descriptors without a path retain the POSIX pwrite fallback and require host memory.
  *
- * @param fd          File descriptor identifying the file (its path is used to open the handle).
+ * @param fd          File descriptor identifying the file and, when available, its path.
  * @param data_ptr    Source data buffer (host or device).
  * @param total_bytes Total bytes to write.
  * @param file_offset Starting offset in file.
