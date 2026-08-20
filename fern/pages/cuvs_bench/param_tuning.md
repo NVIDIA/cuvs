@@ -210,6 +210,8 @@ Use FAISS IVF-PQ index on CPU
 
 ## HNSW
 
+The PyLucene accelerated HNSW path has backend-specific parameter mappings and runtime constraints. See [PyLucene Backend](/user-guide/benchmarking-guide/cu-vs-bench-tool/pylucene-backend#configure-hnsw-benchmarks) for its `m`, `ef_construction`, `direct_single_segment`, and `num_candidates` settings.
+
 ### cuvs_hnsw
 
 NVIDIA cuVS HNSW builds an HNSW index using the ACE (Augmented Core Extraction) algorithm, which enables GPU-accelerated HNSW index construction for datasets too large to fit in GPU memory.

@@ -224,7 +224,7 @@ get_registry().register("elasticsearch", ElasticsearchBackend)
 
 ## PyLucene Backend
 
-The built-in `pylucene` loader expands algorithm YAML groups into one Lucene index per selected codec. The backend initializes PyLucene's process-global JVM and resolves the production `Lucene101AcceleratedHNSWCodec` and `CuVS2510GPUSearchCodec` through Lucene's service-provider interface. The HNSW codec intentionally permits Lucene's CPU writer fallback when cuVS is unavailable; CAGRA builds and searches require GPU support, and cuVS Bench verifies that committed CAGRA indexes contain only the expected CAGRA vector data. See [Installation](/user-guide/benchmarking-guide/cu-vs-bench-tool/installation#pylucene-backend-prerequisites) and [Usage](/user-guide/benchmarking-guide/cu-vs-bench-tool/usage#running-the-pylucene-backend) for dependency, configuration, and runtime limits.
+The built-in `pylucene` loader expands algorithm YAML groups into one Lucene index per selected codec. The backend initializes PyLucene's process-global JVM and resolves the production `Lucene101AcceleratedHNSWCodec` and `CuVS2510GPUSearchCodec` through Lucene's service-provider interface. See [PyLucene Backend](/user-guide/benchmarking-guide/cu-vs-bench-tool/pylucene-backend) for codec behavior, dependency setup, configuration, benchmark parameters, and runtime limits.
 
 ## C++ Backend
 
