@@ -350,13 +350,17 @@ public class AcceleratedHNSWUtils {
           }
         }
       }
+      pool.shutdown();
     } catch (InterruptedException e) {
+      pool.shutdownNow();
       Thread.currentThread().interrupt();
       throw new IOException("Interrupted during parallel writeGraph", e);
     } catch (ExecutionException e) {
+      pool.shutdownNow();
       throw new IOException("Parallel writeGraph failed", e.getCause());
-    } finally {
-      pool.shutdown();
+    } catch (RuntimeException | IOException e) {
+      pool.shutdownNow();
+      throw e;
     }
   }
 
