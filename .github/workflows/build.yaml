@@ -24,9 +24,13 @@ on:
         required: true
         type: string
       build_type:
-        description: "build_type: one of [branch, nightly, pull-request]"
+        description: "build_type: one of [branch, nightly, pull-request, release-candidate]"
         type: string
         default: nightly
+      candidate_train_sha256:
+        description: "Canonical SHA-256 of the release train; required for release-candidate builds."
+        type: string
+        default: ""
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
@@ -55,6 +59,7 @@ jobs:
       node_type: cpu16
       script: ci/build_cpp.sh
       sha: ${{ inputs.sha }}
+      candidate-train-sha256: ${{ inputs.candidate_train_sha256 }}
 
   rocky8-clib-standalone-build-matrix:
     permissions:
@@ -99,6 +104,7 @@ jobs:
           }]
         }
       sha: ${{ inputs.sha }}
+      candidate-train-sha256: ${{ inputs.candidate_train_sha256 }}
   rust-build-matrix:
     needs: cpp-build
     permissions:
@@ -208,6 +214,7 @@ jobs:
           }]
         }
       sha: ${{ inputs.sha }}
+      candidate-train-sha256: ${{ inputs.candidate_train_sha256 }}
   python-build:
     needs: [build-details, cpp-build]
     permissions:
@@ -225,6 +232,7 @@ jobs:
       date: ${{ inputs.date }}
       script: ci/build_python.sh
       sha: ${{ inputs.sha }}
+      candidate-train-sha256: ${{ inputs.candidate_train_sha256 }}
       # Build a conda package for each CUDA x ARCH x minimum supported Python version
       matrix_filter: group_by({CUDA_VER, ARCH}) | map(min_by(.PY_VER | split(".") | map(tonumber)))
   upload-conda:
@@ -293,6 +301,7 @@ jobs:
       matrix_filter: group_by([.ARCH, (.CUDA_VER|split(".")|map(tonumber)|.[0])]) | map(max_by(.PY_VER|split(".")|map(tonumber)))
       package-name: libcuvs
       package-type: cpp
+      candidate-train-sha256: ${{ inputs.candidate_train_sha256 }}
   wheel-publish-libcuvs:
     needs: wheel-build-libcuvs
     permissions:
@@ -333,6 +342,7 @@ jobs:
       script: ci/build_wheel_cuvs.sh
       package-name: cuvs
       package-type: python
+      candidate-train-sha256: ${{ inputs.candidate_train_sha256 }}
       # Build a wheel for each CUDA x ARCH x minimum supported Python version
       matrix_filter: group_by({CUDA_VER, ARCH}) | map(min_by(.PY_VER | split(".") | map(tonumber)))
   wheel-publish-cuvs:
