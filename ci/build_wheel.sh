@@ -30,8 +30,12 @@ source rapids-init-pip
 export SCCACHE_S3_PREPROCESSOR_CACHE_KEY_PREFIX="${package_name}/${RAPIDS_CONDA_ARCH}/cuda${RAPIDS_CUDA_VERSION%%.*}/wheel/preprocessor-cache"
 export SCCACHE_S3_USE_PREPROCESSOR_CACHE_MODE=true
 
-RAPIDS_VERSION_SUFFIX=".post${RAPIDS_DATETIME_STRING}" \
+if [[ "${RAPIDS_RELEASE_CANDIDATE:-false}" == "true" ]]; then
   rapids-generate-version > ./VERSION
+else
+  RAPIDS_VERSION_SUFFIX=".post${RAPIDS_DATETIME_STRING}" \
+    rapids-generate-version > ./VERSION
+fi
 
 cd "${package_dir}"
 

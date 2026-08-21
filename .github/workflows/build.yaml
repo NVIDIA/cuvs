@@ -31,6 +31,10 @@ on:
         description: "Canonical SHA-256 of the release train; required for release-candidate builds."
         type: string
         default: ""
+      candidate_release_tag:
+        description: "Final source tag created locally for a release-candidate build."
+        type: string
+        default: "v26.10.00"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
@@ -60,6 +64,7 @@ jobs:
       script: ci/build_cpp.sh
       sha: ${{ inputs.sha }}
       candidate-train-sha256: ${{ inputs.candidate_train_sha256 }}
+      release-candidate-tag: ${{ inputs.candidate_release_tag }}
 
   rocky8-clib-standalone-build-matrix:
     permissions:
@@ -105,6 +110,7 @@ jobs:
         }
       sha: ${{ inputs.sha }}
       candidate-train-sha256: ${{ inputs.candidate_train_sha256 }}
+      release-candidate-tag: ${{ inputs.candidate_release_tag }}
   rust-build-matrix:
     needs: cpp-build
     permissions:
@@ -215,6 +221,7 @@ jobs:
         }
       sha: ${{ inputs.sha }}
       candidate-train-sha256: ${{ inputs.candidate_train_sha256 }}
+      release-candidate-tag: ${{ inputs.candidate_release_tag }}
   python-build:
     needs: [build-details, cpp-build]
     permissions:
@@ -233,6 +240,7 @@ jobs:
       script: ci/build_python.sh
       sha: ${{ inputs.sha }}
       candidate-train-sha256: ${{ inputs.candidate_train_sha256 }}
+      release-candidate-tag: ${{ inputs.candidate_release_tag }}
       # Build a conda package for each CUDA x ARCH x minimum supported Python version
       matrix_filter: group_by({CUDA_VER, ARCH}) | map(min_by(.PY_VER | split(".") | map(tonumber)))
   upload-conda:
@@ -302,6 +310,7 @@ jobs:
       package-name: libcuvs
       package-type: cpp
       candidate-train-sha256: ${{ inputs.candidate_train_sha256 }}
+      release-candidate-tag: ${{ inputs.candidate_release_tag }}
   wheel-publish-libcuvs:
     needs: wheel-build-libcuvs
     permissions:
@@ -343,6 +352,7 @@ jobs:
       package-name: cuvs
       package-type: python
       candidate-train-sha256: ${{ inputs.candidate_train_sha256 }}
+      release-candidate-tag: ${{ inputs.candidate_release_tag }}
       # Build a wheel for each CUDA x ARCH x minimum supported Python version
       matrix_filter: group_by({CUDA_VER, ARCH}) | map(min_by(.PY_VER | split(".") | map(tonumber)))
   wheel-publish-cuvs:
