@@ -18,7 +18,7 @@ rapids-logger "Generate Python testing dependencies"
 rapids-dependency-file-generator \
   --output conda \
   --file-key test_python \
-  --matrix "cuda=${RAPIDS_CUDA_VERSION%.*};arch=$(arch);py=${RAPIDS_PY_VERSION}" \
+  --matrix "cuda=${RAPIDS_CUDA_VERSION%.*};arch=$(arch);py=${RAPIDS_PY_VERSION};dependencies=${RAPIDS_DEPENDENCIES}" \
   --prepend-channel "${LIBRAFT_CHANNEL}" \
   --prepend-channel "${RAFT_CHANNEL}" \
   --prepend-channel "${CPP_CHANNEL}" \

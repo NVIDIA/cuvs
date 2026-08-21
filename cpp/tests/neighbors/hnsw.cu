@@ -1,12 +1,14 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2024, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #include "../test_utils.cuh"
 #include "ann_utils.cuh"
+#include "cagra_padded_build_helpers.cuh"
 
 #include <cstdint>
+#include <cuvs/neighbors/cagra.hpp>
 #include <cuvs/neighbors/hnsw.hpp>
 #include <raft/core/host_mdspan.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
@@ -19,6 +21,7 @@
 #include <cstddef>
 #include <iostream>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace cuvs::neighbors::hnsw {
@@ -39,7 +42,7 @@ inline ::std::ostream& operator<<(::std::ostream& os, const AnnHNSWInputs& p)
   os << "dataset shape=" << p.n_rows << "x" << p.dim << ", graph_degree=" << p.graph_degree
      << ", metric="
      << cuvs::neighbors::print_metric{static_cast<cuvs::distance::DistanceType>((int)p.metric)}
-     << ", ef=" << (p.ef) << std::endl;
+     << ", ef=" << (p.ef);
   return os;
 }
 
@@ -93,8 +96,10 @@ class AnnHNSWTest : public ::testing::TestWithParam<AnnHNSWInputs> {
 
       auto database_view = raft::make_device_matrix_view<const DataT, int64_t>(
         (const DataT*)database.data(), ps.n_rows, ps.dim);
+      cuvs::neighbors::test::padded_device_matrix_for_cagra<DataT> padded(handle_, database_view);
 
-      auto index = cuvs::neighbors::cagra::build(handle_, index_params, database_view);
+      auto index = cuvs::neighbors::cagra::build(handle_, index_params, padded.view);
+      index      = cuvs::neighbors::cagra::update_dataset(handle_, std::move(index), padded.view);
       raft::resource::sync_stream(handle_);
 
       cuvs::neighbors::hnsw::search_params search_params;

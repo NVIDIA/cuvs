@@ -1,13 +1,16 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 
 import json
 import os
 import traceback
+from collections import defaultdict
 
 import pandas as pd
+
+from ..backends.base import BuildResult, SearchResult
 
 skip_build_cols = set(
     [
@@ -50,6 +53,165 @@ metrics = {
 }
 
 
+def write_results_to_csv(results, dataset, dataset_path, count, batch_size):
+    """Write Python-backend results using the existing plotting CSV schema."""
+    grouped = defaultdict(list)
+    for result in results:
+        group = result.metadata.get("group")
+        index_name = result.metadata.get("index_name")
+        if group is None or (
+            isinstance(result, SearchResult) and index_name is None
+        ):
+            continue
+        method = "build" if isinstance(result, BuildResult) else "search"
+        grouped[(method, result.algorithm, group)].append(result)
+
+    for (method, algorithm, group), group_results in grouped.items():
+        if method == "build":
+            _write_build_results(
+                group_results, algorithm, group, dataset, dataset_path
+            )
+        else:
+            _write_search_results(
+                group_results,
+                algorithm,
+                group,
+                dataset,
+                dataset_path,
+                count,
+                batch_size,
+            )
+
+
+def _write_build_results(results, algorithm, group, dataset, dataset_path):
+    output_dir = os.path.join(dataset_path, dataset, "result", "build")
+    os.makedirs(output_dir, exist_ok=True)
+    algo_name = algorithm if group == "base" else f"{algorithm}_{group}"
+
+    rows = []
+    for result in results:
+        if not result.success or result.metadata.get("skipped"):
+            continue
+        metadata = _scalar_metadata(result.metadata)
+        rows.append(
+            {
+                **result.build_params,
+                **metadata,
+                "algo_name": algo_name,
+                "index_name": result.index_path,
+                "time": result.build_time_seconds,
+            }
+        )
+
+    columns = ["algo_name", "index_name", "time"]
+    dataframe = pd.DataFrame(rows)
+    build_file = os.path.join(output_dir, f"{algorithm},{group}.csv")
+
+    complete_run = all(
+        result.success and not result.metadata.get("skipped")
+        for result in results
+    )
+    if not complete_run and os.path.exists(build_file):
+        dataframe = pd.concat(
+            [pd.read_csv(build_file), dataframe],
+            ignore_index=True,
+            sort=False,
+        )
+
+    if dataframe.empty:
+        # Do not replace an existing measurement with a skipped or failed
+        # build, and do not create an empty result file.
+        return
+
+    dataframe = dataframe.drop_duplicates(subset=["index_name"], keep="last")
+    dataframe = dataframe[
+        columns + [name for name in dataframe if name not in columns]
+    ]
+    dataframe.to_csv(build_file, index=False)
+
+
+def _write_search_results(
+    results, algorithm, group, dataset, dataset_path, count, batch_size
+):
+    output_dir = os.path.join(dataset_path, dataset, "result", "search")
+    os.makedirs(output_dir, exist_ok=True)
+    algo_name = algorithm if group == "base" else f"{algorithm}_{group}"
+
+    rows = []
+    for result in results:
+        if not result.success:
+            continue
+        metadata = _scalar_metadata(result.metadata)
+        search_params = (
+            result.search_params[0] if len(result.search_params) == 1 else {}
+        )
+        rows.append(
+            {
+                **search_params,
+                **metadata,
+                "algo_name": algo_name,
+                "index_name": result.metadata["index_name"],
+                "recall": result.recall,
+                "throughput": result.queries_per_second,
+                "latency": result.metadata.get(
+                    "latency_seconds", result.search_time_ms / 1000.0
+                ),
+            }
+        )
+
+    columns = [
+        "algo_name",
+        "index_name",
+        "recall",
+        "throughput",
+        "latency",
+    ]
+    dataframe = pd.DataFrame(rows)
+    if dataframe.empty:
+        dataframe = pd.DataFrame(columns=columns)
+    else:
+        dataframe = dataframe[
+            columns + [name for name in dataframe if name not in columns]
+        ]
+
+    build_file = os.path.join(
+        dataset_path,
+        dataset,
+        "result",
+        "build",
+        f"{algorithm},{group}.csv",
+    )
+    if os.path.exists(build_file):
+        build = pd.read_csv(build_file).drop_duplicates(
+            subset=["index_name"], keep="last"
+        )
+        if "time" in build:
+            dataframe = dataframe.merge(
+                build[["index_name", "time"]].rename(
+                    columns={"time": "build time"}
+                ),
+                on="index_name",
+                how="left",
+            )
+
+    stem = f"{algorithm},{group},k{count},bs{batch_size}"
+    raw_file = os.path.join(output_dir, f"{stem},raw.csv")
+    dataframe.to_csv(raw_file, index=False)
+    frontier_file = os.path.join(output_dir, f"{stem}.json")
+    write_frontier(frontier_file, dataframe, "throughput")
+    write_frontier(frontier_file, dataframe, "latency")
+
+
+def _scalar_metadata(metadata):
+    reserved = {"group", "index_name", "latency_seconds"}
+    return {
+        key: value
+        for key, value in metadata.items()
+        if key not in reserved
+        and isinstance(value, (str, int, float, bool, type(None)))
+    }
+
+
 def read_json_files(dataset, dataset_path, method):
     """
     Yield file paths, algo names, and loaded JSON data as pandas DataFrames.
@@ -70,6 +232,8 @@ def read_json_files(dataset, dataset_path, method):
         DataFrame of JSON content.
     """
     dir_path = os.path.join(dataset_path, dataset, "result", method)
+    if not os.path.isdir(dir_path):
+        return
     for file in os.listdir(dir_path):
         if file.endswith(".json"):
             file_path = os.path.join(dir_path, file)

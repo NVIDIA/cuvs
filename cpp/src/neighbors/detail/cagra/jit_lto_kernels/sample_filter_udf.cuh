@@ -7,8 +7,8 @@
 
 #include "../cagra_filter_payload.hpp"
 
-#include <cuvs/detail/jit_lto/NVRTCLTOFragmentCompiler.hpp>
 #include <raft/core/error.hpp>
+#include <rtcx/nvrtc_lto_fragment_compiler.hpp>
 
 #include <cstdint>
 #include <memory>
@@ -66,7 +66,7 @@ __device__ bool sample_filter<source_index_t>(uint32_t query_id,
 }
 
 template <typename SourceIndexT, typename SampleFilterT>
-std::unique_ptr<UDFFatbinFragment> make_cagra_sample_filter_udf_fragment(
+std::unique_ptr<rtcx::udf_fatbin_fragment> make_cagra_sample_filter_udf_fragment(
   const SampleFilterT& sample_filter)
 {
   const auto* udf = get_cagra_udf_filter(sample_filter);
@@ -83,7 +83,7 @@ std::unique_ptr<UDFFatbinFragment> make_cagra_sample_filter_udf_fragment(
   key += udf->function_name;
   key += ":";
   key += code;
-  return nvrtc_compiler().compile(key, code);
+  return rtcx::nvrtc_compiler().compile(key, code);
 }
 
 }  // namespace cuvs::neighbors::cagra::detail

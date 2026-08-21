@@ -49,7 +49,7 @@ template <typename IdxT>
      << p.nprobe << ", " << p.nlist << ", "
      << cuvs::neighbors::print_metric{static_cast<cuvs::distance::DistanceType>((int)p.metric)}
      << ", " << p.adaptive_centers << "," << p.host_dataset << "," << p.kernel_copy_overlapping
-     << '}' << std::endl;
+     << '}';
   return os;
 }
 
@@ -547,7 +547,7 @@ const std::vector<AnnIvfFlatInputs<int64_t>> inputs = {
   {1000, 10000, 2050, 16, 40, 1024, cuvs::distance::DistanceType::InnerProduct, false},
   {1000, 10000, 2050, 16, 40, 1024, cuvs::distance::DistanceType::CosineExpanded, false},
   // TODO: Re-enable test after adjusting parameters for higher recall. See
-  // https://github.com/rapidsai/cuvs/issues/1091
+  // https://github.com/nvidia/cuvs/issues/1091
   // {1000, 10000, 2051, 16, 40, 1024, cuvs::distance::DistanceType::InnerProduct, true},
   {1000, 10000, 2051, 16, 40, 1024, cuvs::distance::DistanceType::CosineExpanded, true},
   {1000, 10000, 2052, 16, 40, 1024, cuvs::distance::DistanceType::InnerProduct, false},
