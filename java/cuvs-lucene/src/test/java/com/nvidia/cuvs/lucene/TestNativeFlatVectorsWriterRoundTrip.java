@@ -41,10 +41,9 @@ import org.junit.Test;
  * {@code .vec}/{@code .vemf} files back through the stock {@code Lucene99FlatVectorsReader},
  * asserting every vector round-trips byte-exact.
  *
- * <p>This is the check called for by {@link NativeFlatVectorsWriter}'s "on a Lucene upgrade"
- * class javadoc: {@link TestNativeFlatVectorsWriterFormatConstants} only catches a major-version
- * move, but this test is what actually confirms the hand-transcribed format is still readable by
- * Lucene's real reader, and should pass on every {@code lucene-core} version bump.
+ * <p>This is the check called for by {@link NativeFlatVectorsWriter}'s "on a Lucene upgrade" class
+ * javadoc: it confirms the hand-transcribed format is still readable by Lucene's real reader, and
+ * should pass on every {@code lucene-core} version bump.
  */
 @SuppressSysoutChecks(bugUrl = "")
 public class TestNativeFlatVectorsWriterRoundTrip extends LuceneTestCase {

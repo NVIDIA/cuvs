@@ -50,13 +50,10 @@ import org.apache.lucene.util.IOUtils;
  * CodecUtil.checkIndexHeader}) and file-extension-matches against, so they stay as transcribed here
  * for the life of the {@code Lucene99} codec.
  *
- * <p><b>On a {@code lucene-core} version bump (same major version):</b> run {@code
- * TestNativeFlatVectorsWriterRoundTrip} to confirm the stock reader on the new classpath still
- * accepts what this class writes; it builds a small index and asserts every vector round-trips
- * byte-exact through {@code Lucene99FlatVectorsReader}. {@code
- * TestNativeFlatVectorsWriterFormatConstants} additionally fails the build if the resolved {@code
- * lucene-core} major version moves past the one this class was verified against, since that's the
- * point at which {@code Lucene99} support could be dropped from {@code lucene-backward-codecs}.
+ * <p><b>On a {@code lucene-core} version bump:</b> run {@code TestNativeFlatVectorsWriterRoundTrip}
+ * to confirm the stock reader on the new classpath still accepts what this class writes; it builds
+ * a small index and asserts every vector round-trips byte-exact through {@code
+ * Lucene99FlatVectorsReader}.
  *
  * <p><b>Moving to a newer flat-vector format</b> (e.g. once {@code Lucene99} support is dropped
  * ahead of an 11.x major bump): diff the new format's writer against the one linked above and
@@ -64,8 +61,7 @@ import org.apache.lucene.util.IOUtils;
  * footer) here. This class writes directly from native memory to avoid the per-vector {@code
  * FloatVectorValues} indirection Lucene's own writer requires — that's the reason to keep
  * hand-porting the format rather than delegating to it. Then update the codec name/extension/version
- * constants below, the Lucene version and links in this javadoc, and {@code
- * PINNED_LUCENE_MAJOR_VERSION} in {@code TestNativeFlatVectorsWriterFormatConstants}.
+ * constants below and the Lucene version and links in this javadoc.
  */
 final class NativeFlatVectorsWriter implements Closeable {
 
