@@ -30,13 +30,10 @@ import org.apache.lucene.util.IOUtils;
  * {@link FieldWriter}) and never materialises the full dataset as a {@code List<float[]>} on the
  * Java heap, so the flat file is written here from that native matrix instead.
  *
- * <p><b>Ported code — version-pinned.</b> The dense float32 layout (format constants, header, meta
- * field order, and footer) is transcribed from Lucene <b>10.2.0</b>, which must stay equal to the
- * {@code lucene-core} version in {@code pom.xml}. This is enforced by
- * {@code TestNativeFlatVectorsWriterFormatConstants}, which fails the build if the resolved
- * {@code lucene-core} classpath version drifts from the pin below — update
- * {@code PINNED_LUCENE_VERSION} there together with this class on a verified upgrade. Sources (tag
- * {@code releases/lucene/10.2.0}):
+ * <p><b>Ported code — pinned to the {@code Lucene99} format.</b> The dense float32 layout (format
+ * constants, header, meta field order, and footer) is transcribed from {@code
+ * Lucene99FlatVectorsFormat}/{@code Lucene99FlatVectorsWriter} (tag {@code
+ * releases/lucene/10.2.0}):
  *
  * <ul>
  *   <li>{@code org.apache.lucene.codecs.lucene99.Lucene99FlatVectorsFormat} — format constants:
@@ -45,26 +42,30 @@ import org.apache.lucene.util.IOUtils;
  *       https://github.com/apache/lucene/blob/releases/lucene/10.2.0/lucene/core/src/java/org/apache/lucene/codecs/lucene99/Lucene99FlatVectorsWriter.java
  * </ul>
  *
- * <p><b>On a Lucene upgrade:</b> re-verify this class against the new version's two files above. The
- * constants are package-private in Lucene (hence re-declared here), and the file format is validated
- * on read via {@code CodecUtil.checkIndexHeader} (codec name + version range) plus the fixed meta
- * layout — so if the new version bumps {@code VERSION_CURRENT}, renames a codec, or changes the meta
- * field order, files written here will be silently incompatible and the stock
- * {@code Lucene99FlatVectorsReader} will reject or misread them. Concretely:
+ * <p>{@code Lucene99} is a frozen, versioned codec name: its constants and byte layout stay fixed
+ * for the life of the codec, and files written to it stay readable by the stock {@code
+ * Lucene99FlatVectorsReader} — via {@code lucene-backward-codecs} once a newer default codec ships
+ * — for the rest of the Lucene 10.x major version. The constants below (codec names, extensions,
+ * {@code VERSION_CURRENT}) are the fixed handshake the reader string-matches ({@code
+ * CodecUtil.checkIndexHeader}) and file-extension-matches against, so they stay as transcribed here
+ * for the life of the {@code Lucene99} codec.
  *
- * <ol>
- *   <li>Diff the new version's {@code Lucene99FlatVectorsFormat}/{@code Lucene99FlatVectorsWriter}
- *       sources against the ones linked above and mirror any changed constants and any change to
- *       the {@code writeField}/{@code writeMeta} byte sequence (header, meta field order, footer)
- *       here. This class writes directly from native memory to avoid the per-vector {@code
- *       FloatVectorValues} indirection Lucene's own writer requires — that's the reason to keep
- *       hand-porting the format rather than delegating to it.
- *   <li>Bump {@code PINNED_LUCENE_VERSION} in {@code TestNativeFlatVectorsWriterFormatConstants} to
- *       clear the tripwire.
- *   <li>Note: {@code TestNativeFlatVectorsWriterRoundTrip} positively verifies the result
- *       by building a small index with {@code numInputVectors} set and asserting every
- *       vector round-trips byte-exact through the stock {@code Lucene99FlatVectorsReader}.
- * </ol>
+ * <p><b>On a {@code lucene-core} version bump (same major version):</b> run {@code
+ * TestNativeFlatVectorsWriterRoundTrip} to confirm the stock reader on the new classpath still
+ * accepts what this class writes; it builds a small index and asserts every vector round-trips
+ * byte-exact through {@code Lucene99FlatVectorsReader}. {@code
+ * TestNativeFlatVectorsWriterFormatConstants} additionally fails the build if the resolved {@code
+ * lucene-core} major version moves past the one this class was verified against, since that's the
+ * point at which {@code Lucene99} support could be dropped from {@code lucene-backward-codecs}.
+ *
+ * <p><b>Moving to a newer flat-vector format</b> (e.g. once {@code Lucene99} support is dropped
+ * ahead of an 11.x major bump): diff the new format's writer against the one linked above and
+ * re-derive the {@code writeField}/{@code writeMeta} byte sequence (header, meta field order,
+ * footer) here. This class writes directly from native memory to avoid the per-vector {@code
+ * FloatVectorValues} indirection Lucene's own writer requires — that's the reason to keep
+ * hand-porting the format rather than delegating to it. Then update the codec name/extension/version
+ * constants below, the Lucene version and links in this javadoc, and {@code
+ * PINNED_LUCENE_MAJOR_VERSION} in {@code TestNativeFlatVectorsWriterFormatConstants}.
  */
 final class NativeFlatVectorsWriter implements Closeable {
 

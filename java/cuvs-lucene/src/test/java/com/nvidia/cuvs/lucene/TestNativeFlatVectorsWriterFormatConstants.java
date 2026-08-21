@@ -10,37 +10,41 @@ import org.apache.lucene.codecs.lucene99.Lucene99FlatVectorsFormat;
 import org.junit.Test;
 
 /**
- * Tripwire for {@link NativeFlatVectorsWriter}'s hand-transcribed Lucene 10.2.0 format.
+ * Coarse tripwire for {@link NativeFlatVectorsWriter}'s hand-transcribed {@code Lucene99} format.
  *
- * <p>{@link NativeFlatVectorsWriter}'s class javadoc says its dense float32 layout (format
- * constants, header, meta field order, footer) is transcribed from Lucene 10.2.0 and "must stay
- * equal to the lucene-core version in pom.xml." This asserts that invariant against the resolved
- * {@code lucene-core} jar actually on the classpath (its manifest {@code Specification-Version},
- * not a parse of {@code pom.xml}'s text), so a Lucene upgrade fails this test immediately rather
- * than silently writing {@code .vec}/{@code .vemf} files the stock
- * {@code Lucene99FlatVectorsReader} may no longer read correctly.
+ * <p>{@link NativeFlatVectorsWriter}'s class javadoc pins its dense float32 layout (format
+ * constants, header, meta field order, footer) to the frozen {@code Lucene99FlatVectorsFormat}
+ * codec, which stays byte-for-byte stable for the life of the codec. {@code Lucene99} support in
+ * {@code lucene-backward-codecs} is guaranteed for the current Lucene major version, so this test
+ * asserts that the resolved {@code lucene-core} major version (its manifest {@code
+ * Specification-Version}, not a parse of {@code pom.xml}'s text) still matches the major version
+ * this class was verified against — the signal to re-verify {@code Lucene99} readability on a
+ * major Lucene upgrade.
  *
- * <p>This intentionally fires on <em>any</em> version change, not just ones that actually alter
- * the format — per the class javadoc, every upgrade needs a manual re-verification pass against
- * the new version's {@code Lucene99FlatVectorsFormat}/{@code Lucene99FlatVectorsWriter} sources.
+ * <p>{@code TestNativeFlatVectorsWriterRoundTrip} is the positive verification that {@link
+ * NativeFlatVectorsWriter} still writes bytes the stock {@code Lucene99FlatVectorsReader} on the
+ * classpath can read; run it on every {@code lucene-core} version bump, major or not.
  */
 public class TestNativeFlatVectorsWriterFormatConstants {
 
-  private static final String PINNED_LUCENE_VERSION = "10.2.0";
+  private static final String PINNED_LUCENE_MAJOR_VERSION = "10";
 
   @Test
-  public void lucenePinMatchesResolvedClasspathVersion() {
+  public void lucenePinMatchesResolvedClasspathMajorVersion() {
     String resolved = Lucene99FlatVectorsFormat.class.getPackage().getSpecificationVersion();
+    String resolvedMajor = resolved.split("\\.", 2)[0];
     assertEquals(
         "lucene-core on the classpath is "
             + resolved
-            + ", but NativeFlatVectorsWriter is pinned to "
-            + PINNED_LUCENE_VERSION
-            + " (per its class javadoc). Re-verify NativeFlatVectorsWriter against the new"
-            + " version's Lucene99FlatVectorsFormat/Lucene99FlatVectorsWriter sources, update the"
-            + " mirrored constants and write sequence if needed, then bump PINNED_LUCENE_VERSION"
-            + " here.",
-        PINNED_LUCENE_VERSION,
-        resolved);
+            + ", a new major version from the one ("
+            + PINNED_LUCENE_MAJOR_VERSION
+            + ") NativeFlatVectorsWriter's Lucene99-format transcription was verified against (per"
+            + " its class javadoc). Run TestNativeFlatVectorsWriterRoundTrip to check whether"
+            + " Lucene99FlatVectorsReader on the new classpath still reads what"
+            + " NativeFlatVectorsWriter writes. If it does, bump PINNED_LUCENE_MAJOR_VERSION here."
+            + " If it doesn't, re-port NativeFlatVectorsWriter to the new default flat-vector"
+            + " format, then bump PINNED_LUCENE_MAJOR_VERSION.",
+        PINNED_LUCENE_MAJOR_VERSION,
+        resolvedMajor);
   }
 }
