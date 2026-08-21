@@ -1,5 +1,5 @@
 #!/bin/bash
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 set -euo pipefail
@@ -18,6 +18,8 @@ rapids-dependency-file-generator \
   --file-key "py_rapids_build_${package_name}" \
   --matrix "${matrix_selectors}" \
 | tee /tmp/requirements-build.txt
+
+source ./ci/use_wheels_from_prs.sh
 
 rapids-logger "Installing build requirements"
 rapids-pip-retry install \
