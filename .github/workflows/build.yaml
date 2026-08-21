@@ -92,10 +92,11 @@ jobs:
         libcuvs_c.release-package-identity.json
       release-catalog-config: >-
         {
+          "artifact_type": "custom",
           "release_catalog_key": "archive:libcuvs-c",
+          "package_identity_file": "libcuvs_c.release-package-identity.json",
           "artifacts": [{
-            "path": "libcuvs_c.tar.gz",
-            "package_identity_file": "libcuvs_c.release-package-identity.json"
+            "path": "libcuvs_c.tar.gz"
           }]
         }
       sha: ${{ inputs.sha }}
@@ -200,11 +201,12 @@ jobs:
       file_to_upload: "java/cuvs-java/target/"
       release-catalog-config: >-
         {
+          "artifact_type": "custom",
           "release_catalog_key": "maven:cuvs-java",
-          "artifact_directory": "java/cuvs-java/target",
+          "output_directory": "java/cuvs-java/target",
+          "package_identity_file": "cuvs-java.release-package-identity.json",
           "artifacts": [{
-            "path": "cuvs-java-*-x86_64-cuda*.jar",
-            "package_identity_file": "cuvs-java.release-package-identity.json"
+            "path": "cuvs-java-*-x86_64-cuda*.jar"
           }]
         }
       sha: ${{ inputs.sha }}
