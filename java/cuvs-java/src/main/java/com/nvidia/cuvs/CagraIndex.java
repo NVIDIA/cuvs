@@ -8,6 +8,7 @@ import com.nvidia.cuvs.spi.CuVSProvider;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Path;
+import java.util.BitSet;
 import java.util.Objects;
 
 /**
@@ -193,6 +194,13 @@ public interface CagraIndex extends AutoCloseable {
   long getGraphDegree();
 
   /**
+   * Returns the number of vectors in this index.
+   *
+   * @return the number of rows of the indexed dataset
+   */
+  long size();
+
+  /**
    * A method to persist a CAGRA index using an instance of {@link OutputStream}
    * for writing index bytes.
    *
@@ -310,7 +318,7 @@ public interface CagraIndex extends AutoCloseable {
    * @throws Throwable if an error occurs during the merge operation
    */
   static CagraIndex merge(CagraIndex[] indexes) throws Throwable {
-    return merge(indexes, null);
+    return merge(indexes, null, null);
   }
 
   /**
@@ -322,6 +330,28 @@ public interface CagraIndex extends AutoCloseable {
    * @throws Throwable if an error occurs during the merge operation
    */
   static CagraIndex merge(CagraIndex[] indexes, CagraIndexParams mergeParams) throws Throwable {
+    return merge(indexes, mergeParams, null);
+  }
+
+  /**
+   * Merges multiple CAGRA indexes into a single index, keeping only the rows selected by
+   * {@code rowFilter}.
+   *
+   * <p>The merge concatenates the input datasets in the order the indexes are given, so bit
+   * {@code i} of the filter refers to row {@code i} of that concatenation: bits {@code 0} to
+   * {@code indexes[0].size() - 1} address the first index, the bits that follow address the second,
+   * and so on. A <b>set</b> bit keeps the row; a clear bit drops it. The rows that survive keep
+   * their relative order and are packed together, so the merged index has one row per set bit.
+   *
+   * @param indexes Array of CAGRA indexes to merge
+   * @param mergeParams Parameters to control the merge operation, or null to use defaults
+   * @param rowFilter The rows to keep, or null to keep all of them
+   * @return A new merged CAGRA index
+   * @throws IllegalArgumentException if {@code rowFilter} has a bit set beyond the last row
+   * @throws Throwable if an error occurs during the merge operation
+   */
+  static CagraIndex merge(CagraIndex[] indexes, CagraIndexParams mergeParams, BitSet rowFilter)
+      throws Throwable {
     if (indexes == null || indexes.length == 0) {
       throw new IllegalArgumentException("At least one index must be provided for merging");
     }
@@ -333,7 +363,7 @@ public interface CagraIndex extends AutoCloseable {
       }
     }
 
-    return CuVSProvider.provider().mergeCagraIndexes(indexes, mergeParams);
+    return CuVSProvider.provider().mergeCagraIndexes(indexes, mergeParams, rowFilter);
   }
 
   /**
