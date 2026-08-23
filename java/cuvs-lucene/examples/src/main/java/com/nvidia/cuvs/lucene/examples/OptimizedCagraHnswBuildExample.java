@@ -67,7 +67,15 @@ import org.apache.lucene.store.FSDirectory;
  *       a native host matrix to exactly the segment's vector count, so vectors stream straight into
  *       the buffer the GPU build consumes instead of piling up as a {@code List<float[]>} on the JVM
  *       heap that must then be assembled. This removes the assembly copy and roughly halves peak host
- *       memory. It requires a <b>single-segment</b> build (no flush before commit, no merge).
+ *       memory. Use native buffering only when you can guarantee one unmerged, non-index-sorted
+ *       segment containing exactly {@code numInputVectors} non-quantized vectors per field — the
+ *       codec rejects a violation (quantized fields and index sorts at construction, a vector-count
+ *       mismatch during ingestion or at flush). Direct {@code IndexWriterConfig} control
+ *       (raised flush threshold, no merges, as this example does) is one way to guarantee that;
+ *       it's not the only one, but most standalone/batch indexing pipelines have it while platforms
+ *       like Solr and Elasticsearch, which manage their own {@code IndexWriter} lifecycle, generally
+ *       don't. Where the guarantee can't be made, leave {@code numInputVectors} unset to use the
+ *       heap-buffered path, at the cost of the extra assembly copy this optimization avoids.
  *   <li><b>Automatic graph-build algorithm.</b> {@code HEURISTIC} strategy defaults to
  *       {@code AUTO_SELECT}, letting cuVS pick the CAGRA build algorithm by dataset size (NN_DESCENT
  *       below ~5M vectors, IVF_PQ at or above) and auto-tune its parameters. NN_DESCENT generally
@@ -311,10 +319,13 @@ public class OptimizedCagraHnswBuildExample {
     Codec codec = codecFor(size);
 
     // Keep this slice in ONE segment: raise the doc-count flush threshold above the slice size and
-    // disable RAM-based flushing so nothing flushes before commit, and forbid merges. This is what
-    // makes native flat buffering valid. Order matters: enable the doc-count trigger BEFORE
-    // disabling
-    // the RAM trigger, since Lucene rejects a config where both are disabled at once.
+    // disable RAM-based flushing so nothing flushes before commit, and forbid merges (this config
+    // never sets an index sort either). This is how this example guarantees the invariant native
+    // flat buffering requires (see the class javadoc's "Native flat buffering" bullet: one
+    // unmerged,
+    // non-index-sorted segment with exactly numInputVectors vectors per field). Order matters:
+    // enable the doc-count trigger BEFORE disabling the RAM trigger, since Lucene rejects a config
+    // where both are disabled at once.
     IndexWriterConfig config =
         new IndexWriterConfig()
             .setCodec(codec)
