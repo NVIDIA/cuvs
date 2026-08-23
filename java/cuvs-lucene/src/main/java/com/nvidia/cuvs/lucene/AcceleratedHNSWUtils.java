@@ -256,18 +256,24 @@ public class AcceleratedHNSWUtils {
     // bytes
     // are identical to the fully-serial path (blocks in node order, offsets = per-node byte
     // lengths).
+    // graph.maxConn() scans every layer-0 adjacency row (O(graph size)); compute it once here
+    // rather than per level/per task below.
+    int maxConn = graph.maxConn();
+
     int[] level0Nodes = NodesIterator.getSortedNodes(graph.getNodesOnLevel(0));
     offsets[0] = new int[level0Nodes.length];
     if (numThreads > 1 && level0Nodes.length >= PARALLEL_MIN_NODES) {
-      writeLevel0Parallel(graph, vectorIndex, level0Nodes, offsets[0], countOnLevel0, numThreads);
+      writeLevel0Parallel(
+          graph, vectorIndex, level0Nodes, offsets[0], countOnLevel0, maxConn, numThreads);
     } else {
-      writeLevelSerial(graph, vectorIndex, 0, level0Nodes, offsets[0], countOnLevel0);
+      writeLevelSerial(graph, vectorIndex, 0, level0Nodes, offsets[0], countOnLevel0, maxConn);
     }
 
     for (int level = 1; level < numLevels; level++) {
       int[] sortedNodes = NodesIterator.getSortedNodes(graph.getNodesOnLevel(level));
       offsets[level] = new int[sortedNodes.length];
-      writeLevelSerial(graph, vectorIndex, level, sortedNodes, offsets[level], countOnLevel0);
+      writeLevelSerial(
+          graph, vectorIndex, level, sortedNodes, offsets[level], countOnLevel0, maxConn);
     }
     // Return offsets (information written while writing the meta info)
     return offsets;
@@ -286,9 +292,10 @@ public class AcceleratedHNSWUtils {
       int level,
       int[] sortedNodes,
       int[] offsets,
-      int countOnLevel0)
+      int countOnLevel0,
+      int maxConn)
       throws IOException {
-    int[] scratch = new int[graph.maxConn() * 2];
+    int[] scratch = new int[maxConn * 2];
     int idx = 0;
     for (int node : sortedNodes) {
       long start = out.getFilePointer();
@@ -308,6 +315,7 @@ public class AcceleratedHNSWUtils {
       int[] nodes,
       int[] offsets,
       int countOnLevel0,
+      int maxConn,
       int numThreads)
       throws IOException {
     ExecutorService pool = Executors.newFixedThreadPool(numThreads);
@@ -330,7 +338,7 @@ public class AcceleratedHNSWUtils {
               pool.submit(
                   () -> {
                     ByteBuffersDataOutput buffer = new ByteBuffersDataOutput();
-                    int[] scratch = new int[graph.maxConn() * 2];
+                    int[] scratch = new int[maxConn * 2];
                     for (int i = subStart; i < subEnd; i++) {
                       long before = buffer.size();
                       encodeNode(graph.getNeighbors(0, nodes[i]), scratch, buffer, countOnLevel0);
