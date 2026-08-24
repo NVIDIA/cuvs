@@ -110,8 +110,8 @@ fn build_ivf_pq_index(dataset: &ndarray::Array2<f32>) -> Result<Index> {
 package main
 
 import (
-	cuvs "github.com/rapidsai/cuvs/go"
-	"github.com/rapidsai/cuvs/go/ivf_pq"
+	cuvs "github.com/nvidia/cuvs/go"
+	"github.com/nvidia/cuvs/go/ivf_pq"
 )
 
 func buildIvfPqIndex(dataset cuvs.Tensor[float32]) (*ivf_pq.IvfPqIndex, error) {

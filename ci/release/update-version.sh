@@ -1,5 +1,5 @@
 #!/bin/bash
-# SPDX-FileCopyrightText: Copyright (c) 2020-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2020-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 ########################
 # CUVS Version Updater #
@@ -140,8 +140,9 @@ if [[ "${RUN_CONTEXT}" == "main" ]]; then
 elif [[ "${RUN_CONTEXT}" == "release" ]]; then
   # In release context, use release branch for documentation links (word boundaries to avoid partial matches)
   sed_runner "/rapidsai\\/cuvs/ s|\\bmain\\b|release/${NEXT_SHORT_TAG}|g" fern/pages/developer_guide.md
-  sed_runner "s|\\bmain\\b|release/${NEXT_SHORT_TAG}|g" README.md
-  # Only update the GitHub URL, not the main() function
+  # Only update GitHub URL paths, not code (e.g. fn main() in Rust examples)
+  sed_runner "s|/cuvs/blob/main/|/cuvs/blob/release/${NEXT_SHORT_TAG}/|g" README.md
+  sed_runner "s|/cuvs/tree/main/|/cuvs/tree/release/${NEXT_SHORT_TAG}/|g" README.md
   sed_runner "s|/cuvs/blob/\\bmain\\b/|/cuvs/blob/release/${NEXT_SHORT_TAG}/|g" python/cuvs_bench/cuvs_bench/plot/__main__.py
 fi
 
@@ -159,6 +160,7 @@ sed_runner "s/version = \".*\"/version = \"${NEXT_FULL_RUST_TAG}\"/g" rust/Cargo
 # .devcontainer files
 find .devcontainer/ -type f -name devcontainer.json -print0 | while IFS= read -r -d '' filename; do
     sed_runner "s@rapidsai/devcontainers:[0-9.]*@rapidsai/devcontainers:${NEXT_SHORT_TAG}@g" "${filename}"
+    sed_runner "s@ghcr.io/rapidsai/cuvs/devcontainer:[0-9.]*@ghcr.io/rapidsai/cuvs/devcontainer:${NEXT_SHORT_TAG}@g" "${filename}"
     sed_runner "s@rapidsai/devcontainers/features/ucx:[0-9.]*@rapidsai/devcontainers/features/ucx:${NEXT_SHORT_TAG_PEP440}@" "${filename}"
     sed_runner "s@rapidsai/devcontainers/features/cuda:[0-9.]*@rapidsai/devcontainers/features/cuda:${NEXT_SHORT_TAG_PEP440}@" "${filename}"
     sed_runner "s@rapidsai/devcontainers/features/rapids-build-utils:[0-9.]*@rapidsai/devcontainers/features/rapids-build-utils:${NEXT_SHORT_TAG_PEP440}@" "${filename}"
@@ -168,10 +170,17 @@ done
 # Update Java API version
 NEXT_FULL_JAVA_TAG="${NEXT_SHORT_TAG}.${PATCH_PEP440}"
 sed_runner "s/VERSION=\".*\"/VERSION=\"${NEXT_FULL_JAVA_TAG}\"/g" java/build.sh
-for FILE in java/*/pom.xml; do
+sed_runner "s/VERSION=\".*\"/VERSION=\"${NEXT_FULL_JAVA_TAG}\"/g" java/cuvs-lucene/build.sh
+for FILE in java/*/pom.xml java/cuvs-lucene/bench/pom.xml java/cuvs-lucene/examples/pom.xml; do
   sed_runner "/<!--CUVS_JAVA#VERSION_UPDATE_MARKER_START-->.*<!--CUVS_JAVA#VERSION_UPDATE_MARKER_END-->/s//<!--CUVS_JAVA#VERSION_UPDATE_MARKER_START--><version>${NEXT_FULL_JAVA_TAG}<\/version><!--CUVS_JAVA#VERSION_UPDATE_MARKER_END-->/g" "${FILE}"
 done
 
 sed_runner "s| CuVS [[:digit:]]\{2\}\.[[:digit:]]\{2\} | CuVS ${NEXT_SHORT_TAG} |g" java/README.md
 sed_runner "s|-[[:digit:]]\{2\}\.[[:digit:]]\{2\}\.[[:digit:]]\{1,2\}\.jar|-${NEXT_FULL_JAVA_TAG}\.jar|g" java/examples/README.md
 sed_runner "s|/[[:digit:]]\{2\}\.[[:digit:]]\{2\}\.[[:digit:]]\{1,2\}/|/${NEXT_FULL_JAVA_TAG}/|g" java/examples/README.md
+
+# This pattern is deliberately narrow: java/cuvs-lucene/README.md also links to a blog post whose
+# title contains a release number, and that reference must not be rewritten.
+sed_runner "s|<version>[[:digit:]]\{2\}\.[[:digit:]]\{2\}\.[[:digit:]]\{1,2\}</version>|<version>${NEXT_FULL_JAVA_TAG}</version>|g" java/cuvs-lucene/README.md
+
+sed_runner "s|target/examples-[\.0-9]*-jar|target/examples-${NEXT_FULL_JAVA_TAG}-jar|g" java/cuvs-lucene/examples/README.md

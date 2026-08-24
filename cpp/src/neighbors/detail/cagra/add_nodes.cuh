@@ -324,8 +324,8 @@ void add_graph_nodes(
 
     // add_node_core() uses CAGRA search internally, which requires a padded device dataset.
     // Keep this path allocation-free by requiring pre-padded chunk views.
-    auto pdv = cuvs::neighbors::make_device_padded_dataset_view(handle, dataset_view);
-    internal_index.update_device_dataset_same_layout(handle, pdv);
+    auto pdv       = cuvs::neighbors::make_device_padded_dataset_view(handle, dataset_view);
+    internal_index = cuvs::neighbors::cagra::update_dataset(handle, std::move(internal_index), pdv);
 
     // Note: The graph is copied to the device memory.
     internal_index.update_graph(handle, graph_view);
@@ -388,7 +388,7 @@ void extend_core(raft::resources const& handle,
   if constexpr (cuvs::neighbors::is_empty_dataset_view_v<std::decay_t<decltype(leaf)>>) {
     RAFT_FAIL(
       "cagra::extend only supports an index to which the dataset is attached. Please check if the "
-      "index has an empty dataset; attach one with update_device_dataset_same_layout before "
+      "index has an empty dataset; attach one with update_dataset before "
       "extend.");
   } else if constexpr (!cuvs::neighbors::is_padded_dataset_view_v<std::decay_t<decltype(leaf)>>) {
     RAFT_FAIL("cagra::extend only supports an uncompressed padded dataset index");
@@ -408,8 +408,8 @@ void extend_core(raft::resources const& handle,
     cuvs::neighbors::cagra::add_graph_nodes<T, IdxT>(
       handle, extended_strided, index, updated_graph.view(), params);
 
-    index.update_device_dataset_same_layout(handle, extended_dataset);
     index.update_graph(handle, raft::make_const_mdspan(updated_graph.view()));
+    index = cuvs::neighbors::cagra::update_dataset(handle, std::move(index), extended_dataset);
   }
 }
 }  // namespace cuvs::neighbors::cagra
