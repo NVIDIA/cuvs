@@ -5,15 +5,16 @@
 
 #pragma once
 
+#include "detail/ann_utils.cuh"
 #include "detail/cagra/add_nodes.cuh"
 #include "detail/cagra/cagra_build.cuh"
 #include "detail/cagra/cagra_merge.cuh"
 #include "detail/cagra/cagra_search.cuh"
 #include "detail/cagra/graph_core.cuh"
 
-#include "detail/ann_utils.cuh"
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/host_device_accessor.hpp>
+#include <raft/core/logger.hpp>
 #include <raft/core/mdspan.hpp>
 #include <raft/core/resources.hpp>
 #include <raft/linalg/norm.cuh>
@@ -22,12 +23,11 @@
 #include <cuvs/core/bitset.hpp>
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/cagra.hpp>
-
 #include <cuvs/neighbors/common.hpp>
+
 #include <rmm/cuda_stream_view.hpp>
 
 #include <algorithm>
-#include <memory>
 #include <optional>
 #include <type_traits>
 
@@ -286,8 +286,8 @@ void optimize(
  * stored in the returned index as a non-owning view — no copy is made. The caller must keep the
  * underlying storage alive for the lifetime of the index.
  *
- * Host-backed indexes cannot be searched; call `attach_dataset` with a device-padded dataset to get
- * a search-ready device index.
+ * Host-backed indexes cannot be searched; call the type-changing `update_dataset` with a
+ * device-padded dataset to get a search-ready device index.
  */
 template <typename DatasetViewT>
   requires(!cuvs::neighbors::is_empty_dataset_view_v<DatasetViewT> &&
@@ -300,13 +300,15 @@ auto build(raft::resources const& res, const index_params& params, DatasetViewT 
   using IdxT = uint32_t;
 
   // Dense paths build the graph and optionally attach the input dataset view. Host indexes remain
-  // non-searchable until attach_dataset(...) supplies a device-padded dataset.
+  // non-searchable until the type-changing update_dataset(...) supplies a device-padded dataset.
   if constexpr (cuvs::neighbors::is_device_vpq_dataset_view_v<DatasetViewT>) {
     RAFT_FAIL("cagra::build: VPQ-compressed dataset cannot be used for dense graph construction.");
   } else if constexpr (cuvs::neighbors::is_dense_row_major_device_dataset_view_v<DatasetViewT>) {
     auto idx = cuvs::neighbors::cagra::detail::build_from_device_matrix<T, IdxT, DatasetViewT>(
       res, params, dataset);
-    if (params.attach_dataset_on_build) { idx.update_device_dataset_same_layout(res, dataset); }
+    if (params.attach_dataset_on_build) {
+      idx = cuvs::neighbors::cagra::update_dataset(res, std::move(idx), dataset);
+    }
     return idx;
   } else {
     if (std::holds_alternative<graph_build_params::ace_params>(params.graph_build_params)) {
@@ -561,6 +563,30 @@ void search(
       partition_bitsets,
       bitset_filter_t{*rep});
   }
+}
+
+template <typename T,
+          typename IdxT,
+          ann_dataset_view SrcDatasetViewT,
+          ann_dataset_view DstDatasetViewT>
+auto update_dataset(raft::resources const& res,
+                    index<T, IdxT, SrcDatasetViewT>&& cagra_index,
+                    DstDatasetViewT dataset) -> index<T, IdxT, DstDatasetViewT>
+{
+  auto const graph_rows = static_cast<int64_t>(cagra_index.graph_size());
+  if (dataset.n_rows() != graph_rows) {
+    RAFT_LOG_WARN("The new dataset row count (%ld) does not match the graph row count (%ld)",
+                  static_cast<long>(dataset.n_rows()),
+                  static_cast<long>(graph_rows));
+  }
+  if (dataset.dim() != cagra_index.dim()) {
+    RAFT_LOG_WARN("The new dataset dimension (%u) does not match the index dimension (%u)",
+                  static_cast<unsigned>(dataset.dim()),
+                  static_cast<unsigned>(cagra_index.dim()));
+  }
+
+  index<T, IdxT, DstDatasetViewT> new_index(res, std::move(cagra_index), dataset);
+  return new_index;
 }
 
 /** @} */  // end group cagra
