@@ -97,9 +97,10 @@ repos:
         name: spotless-fmt
         entry: ci/checks/run_spotless.sh
         pass_filenames: false
-        files: ^java/cuvs-java/src/.*\.java$
+        files: ^java/(cuvs-java|cuvs-lucene)/([^/]+/)?src/.*\.java$
         exclude: .*/panama/.*
         language: script
+        verbose: true
       - id: clang-format-with-cmake-placeholders
         name: clang-format-with-cmake-placeholders
         entry: python3 ci/checks/clang_format_with_cmake_placeholders.py

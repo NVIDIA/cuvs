@@ -337,6 +337,23 @@ public interface CagraIndex extends AutoCloseable {
   }
 
   /**
+   * Reports whether the rows of {@code dataset} already sit at the row stride CAGRA requires, which
+   * is the row length in bytes rounded up to a 16 byte boundary.
+   *
+   * <p>Use it to pick between the two padded dataset factories: a matrix that is already padded has
+   * to go through {@link #makePaddedDatasetView(CuVSMatrix)}, because cuVS rejects a request to
+   * copy it into padded storage it already occupies, and one that is not has to go through
+   * {@link #makePaddedDataset(CuVSMatrix)}.
+   *
+   * @param dataset the matrix to inspect
+   * @return true when the rows are already padded the way CAGRA requires
+   */
+  static boolean isPaddedDataset(CuVSMatrix dataset) {
+    Objects.requireNonNull(dataset);
+    return CuVSProvider.provider().isCagraPaddedDataset(dataset);
+  }
+
+  /**
    * Builder helps configure and create an instance of {@link CagraIndex}.
    */
   interface Builder {
