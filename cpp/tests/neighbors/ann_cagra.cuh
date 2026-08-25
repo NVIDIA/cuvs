@@ -72,11 +72,11 @@ void cagra_build_into_index(
       *ace_host_dataset, static_cast<uint32_t>(ace_host_dataset->extent(1)));
     auto host_idx = cagra::build(res, params, host_view);
     // In-memory ACE returns graph-only; attach device padded storage for search.
-    index = cagra::attach_dataset(res, host_idx, padded);
+    index = cagra::update_dataset(res, std::move(host_idx), padded);
     return;
   }
   index = cagra::build(res, params, padded);
-  index.update_device_dataset_same_layout(res, padded);
+  index = cagra::update_dataset(res, std::move(index), padded);
 }
 
 struct test_cagra_sample_filter {
@@ -492,7 +492,7 @@ class AnnCagraTest : public ::testing::TestWithParam<AnnCagraInputs> {
         cagra::deserialize(handle_, index_file.filename, &index, &loaded_dataset);
 
         if (!ps.include_serialized_dataset) {
-          index.update_device_dataset_same_layout(handle_, device_padded.view);
+          index = cagra::update_dataset(handle_, std::move(index), device_padded.view);
         }
 
         auto search_queries_view = raft::make_device_matrix_view<const DataT, int64_t>(
@@ -2136,7 +2136,8 @@ class AnnCagraMultiPartitionTest : public ::testing::TestWithParam<AnnCagraMpInp
       part_padded_.emplace_back(handle_, slice_view);
       auto const& padded = part_padded_.back().view;
       out.push_back(cagra::build(handle_, index_params, padded));
-      out.back().update_device_dataset_same_layout(handle_, padded);
+      auto& part = out.back();
+      part       = cagra::update_dataset(handle_, std::move(part), padded);
     }
     return true;
   }

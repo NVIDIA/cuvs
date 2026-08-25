@@ -1156,7 +1156,7 @@ void run_fastener_merge_recall(size_t n_inputs, double min_recall)
     // must outlive every part.
     part_storage.emplace_back(res, slice);
     parts.emplace_back(cagra::build(res, build_params, part_storage.back().view));
-    parts.back().update_device_dataset_same_layout(res, part_storage.back().view);
+    parts.back() = cagra::update_dataset(res, std::move(parts.back()), part_storage.back().view);
   }
 
   std::vector<cagra::device_padded_index<DataT, uint32_t>*> inputs;

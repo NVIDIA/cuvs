@@ -20,6 +20,7 @@
 #include <chrono>
 #include <cstdint>
 #include <future>
+#include <utility>
 
 // A helper to split the dataset into chunks
 template <typename DeviceMatrixOrView>
@@ -116,7 +117,7 @@ void dynamic_batching_example(raft::resources const& res,
   std::cout << "Building CAGRA index (search graph)" << std::endl;
   auto padded     = cuvs::neighbors::make_device_padded_dataset_view(res, dataset);
   auto orig_index = cagra::build(res, orig_index_params, padded);
-  orig_index.update_device_dataset_same_layout(res, padded);
+  orig_index      = cagra::update_dataset(res, std::move(orig_index), padded);
 
   std::cout << "CAGRA index has " << orig_index.size() << " vectors" << std::endl;
   std::cout << "CAGRA graph has degree " << orig_index.graph_degree() << ", graph size ["
