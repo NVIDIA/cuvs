@@ -103,7 +103,9 @@ public class FieldWriter extends KnnFieldVectorsWriter<Object> {
                 + numInputVectors
                 + ") for field \""
                 + fieldInfo.name
-                + "\"");
+                + "\". This usually means more vectors arrived than the numInputVectors hint"
+                + " promised (e.g. a merge or a later flush cycle reused this config); see"
+                + " AcceleratedHNSWParams.Builder#withNumInputVectors.");
       }
       // hostMatrixBuilder.addVector validates the dimension and performs the native row copy.
       hostMatrixBuilder.addVector((float[]) vectorValue);

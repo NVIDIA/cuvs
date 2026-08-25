@@ -553,6 +553,15 @@ public class AcceleratedHNSWParams {
      * binary/scalar quantized writers. A value of {@value DEFAULT_NUM_INPUT_VECTORS} (the
      * default) disables it and uses the default heap-buffered flat path.
      *
+     * <p><b>Requires the caller to own {@code IndexWriterConfig}'s flush policy.</b> The exact-count
+     * guarantee above only holds if auto-flush is disabled — raise {@code setMaxBufferedDocs} above
+     * the batch size and set {@code setRAMBufferSizeMB(IndexWriterConfig.DISABLE_AUTO_FLUSH)} — and
+     * merges/index sorts stay off ({@code NoMergePolicy}, no index sort) for the life of the batch.
+     * A platform that triggers its own auto-flush based on RAM pressure or doc count (e.g. Solr,
+     * Elasticsearch) will hit the fail-fast check above under real load, even if a small test batch
+     * happened to fit under the default RAM buffer and never triggered it. Use the default
+     * heap-buffered path (leave this unset) unless the caller has that level of control.
+     *
      * @param numInputVectors the exact number of vectors to be indexed, or 0 to disable
      * @return instance of {@link Builder}
      */

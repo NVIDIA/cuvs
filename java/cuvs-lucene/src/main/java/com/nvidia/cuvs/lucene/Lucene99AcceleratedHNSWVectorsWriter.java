@@ -295,7 +295,11 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
               + count
               + ") for field \""
               + fieldData.fieldInfo().name
-              + "\"; the native host matrix is sized for the hint exactly");
+              + "\"; the native host matrix is sized for the hint exactly. This usually means"
+              + " IndexWriterConfig's auto-flush wasn't disabled (setMaxBufferedDocs /"
+              + " setRAMBufferSizeMB(DISABLE_AUTO_FLUSH)), so a flush landed before exactly"
+              + " numInputVectors vectors were added; see AcceleratedHNSWParams.Builder"
+              + "#withNumInputVectors.");
     }
     FieldInfo fieldInfo = fieldData.fieldInfo();
     try {
