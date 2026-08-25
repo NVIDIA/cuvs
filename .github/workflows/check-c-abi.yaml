@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout PR branch
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -62,7 +62,7 @@ jobs:
         run: |
           echo "⚠️ No baseline artifacts found, extracting from main branch..."
           echo "This is slower but ensures we always have a baseline for comparison."
-          git worktree add ../cuvs-main main
+          git worktree add ../cuvs-main origin/main
           mkdir -p baseline
           check-c-abi extract \
             --header-path ../cuvs-main/c/include \

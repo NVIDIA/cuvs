@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2024, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -32,7 +32,7 @@ template <typename T, typename IdxT>
 ::std::ostream& operator<<(::std::ostream& os, const AnnBruteForceInputs<IdxT>& p)
 {
   os << "{ " << p.num_queries << ", " << p.num_db_vecs << ", " << p.dim << ", " << p.k << ", "
-     << static_cast<int>(p.metric) << static_cast<T>(p.metric_arg) << '}' << std::endl;
+     << static_cast<int>(p.metric) << static_cast<T>(p.metric_arg) << '}';
   return os;
 }
 

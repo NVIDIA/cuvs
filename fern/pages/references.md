@@ -107,3 +107,18 @@ VecFlow studies filtered approximate nearest-neighbor search on GPUs. It is usef
   year    = {2025}
 }
 ```
+
+## GPU-Native Approximate Nearest Neighbor Search with IVF-RaBitQ: Fast Index Build and Search
+
+[Paper](https://arxiv.org/abs/2602.23999)
+
+IVF-RaBitQ is a GPU-native ANNS solution that integrates the cluster-based IVF method with RaBitQ quantization into an efficient GPU index build and search pipeline.
+
+```bibtex
+@article{shi2026ivfrabitq,
+  author  = {Shi, Jifan and Gao, Jianyang and Xia, James and Feh{\'e}r, Tam{\'a}s B{\'e}la and Long, Cheng},
+  title   = {GPU-Native Approximate Nearest Neighbor Search with IVF-RaBitQ: Fast Index Build and Search},
+  journal = {arXiv preprint arXiv:2602.23999},
+  year    = {2026}
+}
+```

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -50,8 +50,7 @@ struct AnnNNDescentBatchInputs {
 inline ::std::ostream& operator<<(::std::ostream& os, const AnnNNDescentInputs& p)
 {
   os << "dataset shape=" << p.n_rows << "x" << p.dim << ", graph_degree=" << p.graph_degree
-     << ", metric=" << static_cast<int>(p.metric) << (p.host_dataset ? ", host" : ", device")
-     << std::endl;
+     << ", metric=" << static_cast<int>(p.metric) << (p.host_dataset ? ", host" : ", device");
   return os;
 }
 
@@ -59,7 +58,7 @@ inline ::std::ostream& operator<<(::std::ostream& os, const AnnNNDescentBatchInp
 {
   os << "dataset shape=" << p.n_rows << "x" << p.dim << ", graph_degree=" << p.graph_degree
      << ", metric=" << static_cast<int>(p.metric) << (p.host_dataset ? ", host" : ", device")
-     << ", clusters=" << p.recall_cluster.second << std::endl;
+     << ", clusters=" << p.recall_cluster.second;
   return os;
 }
 

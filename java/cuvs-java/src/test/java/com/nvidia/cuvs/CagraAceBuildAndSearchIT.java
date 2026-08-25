@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs;
@@ -99,10 +99,14 @@ public class CagraAceBuildAndSearchIT extends CuVSTestCase {
 
       // Build the index with ACE
       try (CagraIndex index =
-          CagraIndex.newBuilder(resources)
-              .withDataset(dataset)
-              .withIndexParams(indexParams)
-              .build()) {
+              CagraIndex.newBuilder(resources)
+                  .withDataset(dataset)
+                  .withIndexParams(indexParams)
+                  .build();
+          var hostVectors = CuVSMatrix.ofArray(dataset);
+          var deviceVectors = hostVectors.toDevice(resources);
+          var indexDataset = index.makePaddedDataset(deviceVectors)) {
+        index.updateDataset(indexDataset);
 
         // Verify index was built
         assertNotNull("Index should not be null", index);
@@ -187,7 +191,10 @@ public class CagraAceBuildAndSearchIT extends CuVSTestCase {
         // Convert CAGRA index to HNSW using fromCagra
         // This automatically handles disk-based indices
         HnswIndexParams hnswIndexParams =
-            new HnswIndexParams.Builder().withVectorDimension(2).withHierarchy(HnswHierarchy.GPU).build();
+            new HnswIndexParams.Builder()
+                .withVectorDimension(2)
+                .withHierarchy(HnswHierarchy.GPU)
+                .build();
 
         try (var hnswIndexSerialized = HnswIndex.fromCagra(hnswIndexParams, index)) {
           var hnswIndexSerializedPath = buildDir.resolve("hnsw_index.bin");

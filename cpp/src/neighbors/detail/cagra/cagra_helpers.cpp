@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -84,7 +84,16 @@ std::tuple<size_t, size_t, size_t, size_t> optimize_workspace_size(size_t n_rows
   }
   size_t combine_dev = combine_dev_fixed;
 
-  size_t total_host       = mst_host + combine_host;
+  size_t debug_host_size = 0;
+  if (raft::default_logger().should_log(rapids_logger::level_enum::debug)) {
+    // cagra::detail::graph::optimize() allocates extra memory to calculate
+    // graph metrics when debug logging is enabled
+    debug_host_size = n_rows * graph_degree * sizeof(uint32_t)  // host_copy_output_graph
+                      + n_rows * sizeof(uint32_t)               // in_edge_count
+                      + graph_degree * sizeof(uint32_t);        // hist
+  }
+
+  size_t total_host       = mst_host + combine_host + debug_host_size;
   size_t total_host_fixed = mst_host_fixed + combine_host_fixed;
   size_t total_dev        = std::max(prune_dev, rev_dev + combine_dev);
   size_t total_dev_fixed  = std::max(prune_dev_fixed, combine_dev_fixed);
@@ -125,6 +134,10 @@ inline std::pair<size_t, size_t> ivf_pq_build_mem_usage(
                               params.build_params.n_lists));
   size_t kmeans_n_rows  = n_rows / kmeans_trainset_ratio;
   size_t kmeans_gpu_mem = kmeans_n_rows * dim * sizeof(float);
+  if (dtype != CUDA_R_32F) {
+    // kmeans trainset tmp allocation
+    kmeans_gpu_mem += kmeans_n_rows * dim * dtype_size;
+  }
 
   // For non-float input, ivf_pq::build first samples into a temporary trainset of type T
   if (!input_is_float) { kmeans_gpu_mem += kmeans_n_rows * dim * dtype_size; }
@@ -136,6 +149,11 @@ inline std::pair<size_t, size_t> ivf_pq_build_mem_usage(
     std::min<size_t>(kmeans_n_rows, kGatherBufferElems / std::max<size_t>(dim, 1));
   size_t kmeans_pinned_host = 2 * pinned_rows * dim * dtype_size;  // two staging double-buffers
   size_t kmeans_host_mem    = kmeans_indices_host + kmeans_pinned_host;
+
+  // Add graph to index on GPU
+  size_t create_index_gpu_mem = n_rows * graph_degree * sizeof(uint32_t);
+
+  // Note: We omit attached dataset size since we have a fallback path when its allocation fails
 
   // Search phase (build_knn_graph):
   constexpr size_t kWorkspaceRatio = 5;
@@ -155,7 +173,8 @@ inline std::pair<size_t, size_t> ivf_pq_build_mem_usage(
                                          + (sizeof(float) + sizeof(int64_t)) * top_k);  // refined_*
 
   // Phases run sequentially (train/extend -> search -> optimize)
-  size_t total_dev = std::max({kmeans_gpu_mem, search_phase_dev, gpu_workspace_size});
+  size_t total_dev =
+    std::max({kmeans_gpu_mem, search_phase_dev, gpu_workspace_size, create_index_gpu_mem});
 
   // The graph (and its optimize workspace) stays resident across phases
   size_t total_host =
