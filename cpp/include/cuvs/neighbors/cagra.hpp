@@ -356,8 +356,9 @@ struct search_params : cuvs::neighbors::search_params {
   /** Number of threads used to calculate a single distance. 4, 8, 16, or 32. */
   size_t team_size = 0;
 
-  /** Number of graph nodes to select as the starting point for the search in each iteration. aka
-   * search width?*/
+  /** Number of graph nodes to select as the starting point for the search in each iteration.
+   *  Auto select as ceil(itopk_size / graph_degree) when 0.
+   */
   size_t search_width = 1;
   /** Lower limit of search iterations. */
   size_t min_iterations = 0;

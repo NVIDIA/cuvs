@@ -198,6 +198,11 @@ struct search_plan_impl : public search_plan_impl_base {
 
   void adjust_search_params()
   {
+    if (search_width == 0) {
+      search_width = raft::ceildiv(itopk_size, static_cast<size_t>(graph_degree));
+      RAFT_LOG_DEBUG("# search_width is auto-selected as %lu.", search_width);
+    }
+
     uint32_t _max_iterations = max_iterations;
     if (max_iterations == 0) {
       if (algo == search_algo::MULTI_CTA) {
