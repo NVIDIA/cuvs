@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -1109,7 +1109,7 @@ inline auto enum_variety_cosine() -> test_cases_t
     if (y.min_recall.has_value()) {
       if (y.search_params.lut_dtype == CUDA_R_8U) {
         // TODO: Increase this recall threshold for 8 bit lut
-        // (https://github.com/rapidsai/cuvs/issues/390)
+        // (https://github.com/nvidia/cuvs/issues/390)
         y.min_recall = y.min_recall.value() * 0.70;
       } else {
         // In other cases it seems to perform a little bit better, still worse than L2

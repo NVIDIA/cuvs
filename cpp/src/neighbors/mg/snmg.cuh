@@ -359,25 +359,36 @@ void sharded_search_with_direct_merge(
                d_trans.view(),
                raft::make_host_vector_view<const searchIdxT>(h_trans.data(), index.num_ranks_));
 
+    // Results from each rank are packed using the current batch size. Use matching logical views
+    // so the final partial batch is merged with the same per-rank stride used above.
+    auto in_distances_batch = raft::make_device_matrix_view<float, int64_t, row_major>(
+      in_distances.data_handle(), index.num_ranks_ * n_rows_of_current_batch, n_neighbors);
+    auto in_neighbors_batch = raft::make_device_matrix_view<const searchIdxT, int64_t, row_major>(
+      in_neighbors.data_handle(), index.num_ranks_ * n_rows_of_current_batch, n_neighbors);
+    auto out_distances_batch = raft::make_device_matrix_view<float, int64_t, row_major>(
+      out_distances.data_handle(), n_rows_of_current_batch, n_neighbors);
+    auto out_neighbors_batch = raft::make_device_matrix_view<searchIdxT, int64_t, row_major>(
+      out_neighbors.data_handle(), n_rows_of_current_batch, n_neighbors);
+
     if (!select_min) {
       raft::linalg::map(root_handle_,
-                        in_distances.view(),
+                        in_distances_batch,
                         raft::mul_const_op<float>(-1),
-                        raft::make_const_mdspan(in_distances.view()));
+                        raft::make_const_mdspan(in_distances_batch));
     }
 
     knn_merge_parts(root_handle_,
-                    in_distances.view(),
-                    in_neighbors.view(),
-                    out_distances.view(),
-                    out_neighbors.view(),
+                    in_distances_batch,
+                    in_neighbors_batch,
+                    out_distances_batch,
+                    out_neighbors_batch,
                     d_trans.view());
 
     if (!select_min) {
       raft::linalg::map(root_handle_,
-                        out_distances.view(),
+                        out_distances_batch,
                         raft::mul_const_op<float>(-1),
-                        raft::make_const_mdspan(out_distances.view()));
+                        raft::make_const_mdspan(out_distances_batch));
     }
 
     raft::copy(
@@ -641,7 +652,7 @@ void search(const raft::resources& clique,
       cuvs::core::omp::check_threads(index.num_ranks_);
 // Each rank gets its own thread; that thread handles all batches for that rank sequentially.
 // This prevents concurrent access to the same GPU from multiple threads. (see
-// https://github.com/rapidsai/cuvs/issues/1720)
+// https://github.com/nvidia/cuvs/issues/1720)
 #pragma omp parallel for num_threads(index.num_ranks_)
       for (int rank = 0; rank < index.num_ranks_; rank++) {
         for (int64_t batch_idx = rank; batch_idx < n_batches; batch_idx += index.num_ranks_) {

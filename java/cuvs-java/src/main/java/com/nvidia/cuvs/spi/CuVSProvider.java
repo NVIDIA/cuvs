@@ -189,6 +189,25 @@ public interface CuVSProvider {
   }
 
   /**
+   * Reports whether the rows of {@code dataset} already sit at the row stride CAGRA requires, which
+   * is the row length in bytes rounded up to a 16 byte boundary.
+   *
+   * <p>This is the question that decides which of the two padded dataset factories a caller has to
+   * use: {@link CagraIndex#makePaddedDatasetView(CuVSMatrix)} for a device matrix that is already at
+   * that stride, and {@link CagraIndex#makePaddedDataset(CuVSMatrix)} for one that is not. Asking
+   * for the wrong one is an error rather than an inefficiency, and the stride of a matrix is not
+   * visible outside this library, so callers cannot answer it for themselves.
+   *
+   * @param dataset the matrix to inspect
+   * @return true when the rows are already padded the way CAGRA requires
+   * @throws UnsupportedOperationException if this provider cannot answer
+   */
+  default boolean isCagraPaddedDataset(CuVSMatrix dataset) {
+    throw new UnsupportedOperationException(
+        "Padded layout detection is not supported by " + getClass().getName());
+  }
+
+  /**
    * Creates a device-backed multi-partition filter handle from the pre-packed combined bitset.
    * Per-partition bit offsets are recomputed inside cuVS from the index sizes.
    *

@@ -21,6 +21,7 @@
 #include <cstddef>
 #include <iostream>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace cuvs::neighbors::hnsw {
@@ -98,7 +99,7 @@ class AnnHNSWTest : public ::testing::TestWithParam<AnnHNSWInputs> {
       cuvs::neighbors::test::padded_device_matrix_for_cagra<DataT> padded(handle_, database_view);
 
       auto index = cuvs::neighbors::cagra::build(handle_, index_params, padded.view);
-      index.update_device_dataset_same_layout(handle_, padded.view);
+      index      = cuvs::neighbors::cagra::update_dataset(handle_, std::move(index), padded.view);
       raft::resource::sync_stream(handle_);
 
       cuvs::neighbors::hnsw::search_params search_params;
