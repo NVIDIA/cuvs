@@ -223,6 +223,27 @@ struct cuvsCagraIndexParams {
 
 typedef struct cuvsCagraIndexParams* cuvsCagraIndexParams_t;
 
+/** Algorithm used to merge physical CAGRA indices. */
+enum cuvsCagraMergeAlgo {
+  CUVS_CAGRA_MERGE_AUTO     = 0,
+  CUVS_CAGRA_MERGE_FASTENER = 1,
+  CUVS_CAGRA_MERGE_REBUILD  = 2
+};
+
+/** Parameters controlling how physical CAGRA indices are merged. */
+struct cuvsCagraMergeParams {
+  enum cuvsCagraMergeAlgo algo;
+  uint32_t levels;
+  uint32_t root_fanout;
+  uint32_t lower_fanout;
+  double leader_fraction;
+  uint32_t max_leaders;
+  uint32_t leaf_size;
+  uint32_t leaf_degree;
+};
+
+typedef struct cuvsCagraMergeParams* cuvsCagraMergeParams_t;
+
 /**
  * @brief Allocate CAGRA Index params, and populate with default values
  *
@@ -238,6 +259,12 @@ CUVS_EXPORT cuvsError_t cuvsCagraIndexParamsCreate(cuvsCagraIndexParams_t* param
  * @return cuvsError_t
  */
 CUVS_EXPORT cuvsError_t cuvsCagraIndexParamsDestroy(cuvsCagraIndexParams_t params);
+
+/** Allocate CAGRA merge params and populate them with AUTO defaults. */
+CUVS_EXPORT cuvsError_t cuvsCagraMergeParamsCreate(cuvsCagraMergeParams_t* params);
+
+/** De-allocate CAGRA merge params. */
+CUVS_EXPORT cuvsError_t cuvsCagraMergeParamsDestroy(cuvsCagraMergeParams_t params);
 
 /**
  * @brief Allocate CAGRA Compression params, and populate with default values
@@ -967,7 +994,7 @@ CUVS_EXPORT cuvsError_t cuvsCagraIndexFromArgs(cuvsResources_t res,
  *
  * All input indices must have been built with the same data type (`index.dtype`) and
  * have the same dimensionality (`index.dims`). The merged index uses the output
- * parameters specified in `cuvsCagraIndexParams`.
+ * parameters specified in `cuvsCagraIndexParams`. The merge algorithm is selected automatically.
  *
  * Input indices must have:
  *  - `index.dtype.code` and `index.dtype.bits` matching across all indices.
@@ -1013,7 +1040,7 @@ CUVS_EXPORT cuvsError_t cuvsCagraIndexFromArgs(cuvsResources_t res,
  * @endcode
  *
  * @param[in] res cuvsResources_t opaque C handle
- * @param[in] params cuvsCagraIndexParams_t parameters controlling merge behavior
+ * @param[in] params cuvsCagraIndexParams_t parameters for the output index
  * @param[in] indices Array of input cuvsCagraIndex_t handles to merge
  * @param[in] num_indices Number of input indices
  * @param[in] filter Filter that can be used to filter out vectors from the merged index
@@ -1033,6 +1060,34 @@ CUVS_EXPORT cuvsError_t cuvsCagraMerge(cuvsResources_t res,
                            cuvsFilter filter,
                            cuvsDataset_t merged_dataset,
                            cuvsCagraIndex_t output_index);
+
+/**
+ * @brief Merge multiple CAGRA indices with explicit merge parameters.
+ *
+ * @param[in] res cuvsResources_t opaque C handle
+ * @param[in] params cuvsCagraIndexParams_t parameters for the output index
+ * @param[in] merge_params cuvsCagraMergeParams_t parameters controlling the merge algorithm, or
+ *                         NULL to use AUTO defaults
+ * @param[in] indices Array of input cuvsCagraIndex_t handles to merge
+ * @param[in] num_indices Number of input indices
+ * @param[in] filter Filter that can be used to filter out vectors from the merged index
+ * @param[out] merged_dataset Empty owning dataset handle. Merge first attempts to allocate and
+ *                            populate device storage with the same layout as the input indices. For
+ *                            an unfiltered merge, AUTO and REBUILD can fall back to host storage if
+ *                            device allocation fails; explicit FASTENER reports the allocation
+ *                            failure instead. Keep this dataset alive while using `output_index`.
+ *                            A host-backed output index must be updated with
+ *                            `cuvsCagraUpdateDataset` before device search.
+ * @param[out] output_index Output handle initialized with `cuvsCagraIndexCreate`
+ */
+CUVS_EXPORT cuvsError_t cuvsCagraMergeWithParams(cuvsResources_t res,
+                                                 cuvsCagraIndexParams_t params,
+                                                 cuvsCagraMergeParams_t merge_params,
+                                                 cuvsCagraIndex_t* indices,
+                                                 size_t num_indices,
+                                                 cuvsFilter filter,
+                                                 cuvsDataset_t merged_dataset,
+                                                 cuvsCagraIndex_t output_index);
 
 /**
  * @}

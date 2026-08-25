@@ -2,7 +2,7 @@
  * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
- * Reproducer for https://github.com/rapidsai/cuvs-lucene/issues/93
+ * Reproducer for https://github.com/nvidia/cuvs-lucene/issues/93
  *   cuvsCagraSearch returned 0 (Reason=cudaErrorInvalidValue:invalid argument)
  *
  * ROOT CAUSE:
@@ -75,7 +75,7 @@ TEST(Issue93Reproducer, ConcurrentSearchDifferentGraphDegrees)
 
     padded_builders.emplace_back(handle, raft::make_const_mdspan(database.view()));
     auto index = cagra::build(handle, ip, padded_builders.back().view);
-    index.update_device_dataset_same_layout(handle, padded_builders.back().view);
+    index      = cagra::update_dataset(handle, std::move(index), padded_builders.back().view);
     indices.push_back(std::move(index));
   }
   raft::resource::sync_stream(handle);
