@@ -402,7 +402,7 @@ class KmeansFitBatchedTest : public ::testing::TestWithParam<KmeansBatchedInputs
 
     auto d_sw = d_sw_view();
 
-    params.init = cuvs::cluster::kmeans::params::Array;
+    params.init     = cuvs::cluster::kmeans::params::Array;
     params.max_iter = 20;
 
     T ref_inertia  = 0;
