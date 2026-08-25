@@ -562,6 +562,14 @@ public class AcceleratedHNSWParams {
      * happened to fit under the default RAM buffer and never triggered it. Use the default
      * heap-buffered path (leave this unset) unless the caller has that level of control.
      *
+     * <p><b>Applies identically to every vector field.</b> This count is a single value shared by
+     * the whole segment, not set per field: if the segment has more than one vector field, each one
+     * is checked against the same {@code numInputVectors} independently, so every vector field must
+     * have a value on exactly this many documents. There is no support for a sparse/optional vector
+     * field alongside a fully-populated one, or for multiple vector fields with different
+     * cardinalities — every vector field must be populated on the same {@code numInputVectors}
+     * documents.
+     *
      * @param numInputVectors the exact number of vectors to be indexed, or 0 to disable
      * @return instance of {@link Builder}
      */
