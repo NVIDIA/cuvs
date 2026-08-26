@@ -76,11 +76,12 @@ import org.apache.lucene.store.FSDirectory;
  *       like Solr and Elasticsearch, which manage their own {@code IndexWriter} lifecycle, generally
  *       don't. Where the guarantee can't be made, leave {@code numInputVectors} unset to use the
  *       heap-buffered path, at the cost of the extra assembly copy this optimization avoids.
- *   <li><b>Automatic graph-build algorithm.</b> {@code HEURISTIC} strategy defaults to
- *       {@code AUTO_SELECT}, letting cuVS pick the CAGRA build algorithm by dataset size (NN_DESCENT
- *       below ~5M vectors, IVF_PQ at or above) and auto-tune its parameters. NN_DESCENT generally
- *       reaches higher recall but takes longer to build; IVF_PQ is faster but slightly lower recall.
- *       Force one explicitly via {@code withCagraGraphBuildAlgo} only under expert guidance.
+ *   <li><b>Automatic graph-build algorithm.</b> Under {@code HEURISTIC} strategy cuVS always picks
+ *       the CAGRA build algorithm by dataset size (NN_DESCENT below ~1M vectors, IVF_PQ at or above)
+ *       and auto-tunes its parameters; {@code cagraGraphBuildAlgo} is not consulted under
+ *       {@code HEURISTIC}. NN_DESCENT generally reaches higher recall but takes longer to build;
+ *       IVF_PQ is faster but slightly lower recall. To force one explicitly, switch to
+ *       {@code CUSTOM} strategy and set every parameter by hand — only under expert guidance.
  *   <li><b>Partitioned multi-segment build.</b> Because native flat buffering is single-segment, "K
  *       segments" means K independent single-segment builds over contiguous slices, combined at the
  *       end. This is a deliberate memory/throughput lever — see the assumptions below.

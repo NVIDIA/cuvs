@@ -196,6 +196,43 @@ public class TestCagraIndexParamsFactory extends LuceneTestCase {
   }
 
   /**
+   * {@code cagraGraphBuildAlgo} is only consulted under {@code CUSTOM}; an explicit override left
+   * on the builder while the strategy is {@code HEURISTIC} must not change the delegated-to-cuVS
+   * result. Requires the native cuVS library.
+   */
+  @Test
+  public void testHnswHeuristicIgnoresCagraGraphBuildAlgoOverride() {
+    assumeTrue("cuVS not supported", isSupported());
+
+    AcceleratedHNSWParams withoutOverride =
+        new AcceleratedHNSWParams.Builder()
+            .withStrategy(AcceleratedHNSWParams.Strategy.HEURISTIC)
+            .withMaxConn(16)
+            .withBeamWidth(100)
+            .build();
+    AcceleratedHNSWParams withOverride =
+        new AcceleratedHNSWParams.Builder()
+            .withStrategy(AcceleratedHNSWParams.Strategy.HEURISTIC)
+            .withCagraGraphBuildAlgo(CagraGraphBuildAlgo.NN_DESCENT)
+            .withMaxConn(16)
+            .withBeamWidth(100)
+            .build();
+
+    CagraIndexParams derivedWithoutOverride =
+        CagraIndexParamsFactory.create(withoutOverride, 10_000, 128);
+    CagraIndexParams derivedWithOverride =
+        CagraIndexParamsFactory.create(withOverride, 10_000, 128);
+
+    assertEquals(
+        derivedWithoutOverride.getCagraGraphBuildAlgo(),
+        derivedWithOverride.getCagraGraphBuildAlgo());
+    assertEquals(derivedWithoutOverride.getGraphDegree(), derivedWithOverride.getGraphDegree());
+    assertEquals(
+        derivedWithoutOverride.getIntermediateGraphDegree(),
+        derivedWithOverride.getIntermediateGraphDegree());
+  }
+
+  /**
    * The heuristic type must reach cuVS rather than being pinned to the default: under
    * SIMILAR_SEARCH_PERFORMANCE cuVS derives {@code graph_degree = 2 + maxConn * 2 / 3} instead of
    * SAME_GRAPH_FOOTPRINT's {@code 2 * maxConn}. Requires the native cuVS library.
@@ -254,10 +291,12 @@ public class TestCagraIndexParamsFactory extends LuceneTestCase {
             .withStrategy(AcceleratedHNSWParams.Strategy.HEURISTIC)
             .withGraphDegree(96)
             .withIntermediateGraphDegree(192)
+            .withCagraGraphBuildAlgo(CagraGraphBuildAlgo.NN_DESCENT)
             .build();
     // Retained verbatim on the instance; CagraIndexParamsFactory is what declines to apply them.
     assertEquals(96, hnswParams.getGraphdegree());
     assertEquals(192, hnswParams.getIntermediateGraphDegree());
+    assertEquals(CagraGraphBuildAlgo.NN_DESCENT, hnswParams.getCagraGraphBuildAlgo());
 
     GPUSearchParams gpuParams =
         new GPUSearchParams.Builder()
