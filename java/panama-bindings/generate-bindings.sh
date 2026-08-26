@@ -33,11 +33,19 @@ then
   echo "jextract downloaded to $(pwd)/jextract-22"
 fi
 
+OUTPUT_DIR="${REPODIR}/java/cuvs-java/src/main/java22"
+
+# jextract overwrites files but never removes them, so bindings for symbols that were
+# renamed or dropped from the headers would linger and still compile into the jar. Start
+# from an empty directory. Every file is rewritten on each run anyway, so this costs
+# nothing in build time.
+rm -rf "${OUTPUT_DIR:?}/${TARGET_PACKAGE//.//}"
+
 # Use Jextract utility to generate panama bindings
 jextract \
  --include-dir "${REPODIR}"/java/internal/build/bindings/include/ \
  --include-dir "${CUDA_INCLUDE_DIR}" \
- --output "${REPODIR}/java/cuvs-java/src/main/java22/" \
+ --output "${OUTPUT_DIR}/" \
  --target-package ${TARGET_PACKAGE} \
  --library cuvs_c \
  --library cudart \
