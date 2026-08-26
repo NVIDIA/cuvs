@@ -13,6 +13,8 @@
 
 #include <rmm/mr/pool_memory_resource.hpp>
 
+#include <utility>
+
 #include "common.cuh"
 
 void cagra_build_search_simple(raft::device_resources const& dev_resources,
@@ -34,7 +36,7 @@ void cagra_build_search_simple(raft::device_resources const& dev_resources,
   std::cout << "Building CAGRA index (search graph)" << std::endl;
   auto padded = cuvs::neighbors::make_device_padded_dataset_view(dev_resources, dataset);
   auto index  = cagra::build(dev_resources, index_params, padded);
-  index.update_device_dataset_same_layout(dev_resources, padded);
+  index       = cagra::update_dataset(dev_resources, std::move(index), padded);
 
   std::cout << "CAGRA index has " << index.size() << " vectors" << std::endl;
   std::cout << "CAGRA graph has degree " << index.graph_degree() << ", graph size ["
