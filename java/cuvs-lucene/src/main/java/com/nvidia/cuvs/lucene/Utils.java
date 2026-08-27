@@ -28,7 +28,10 @@ public class Utils {
   static final Logger log = Logger.getLogger(Utils.class.getName());
 
   /**
-   * A utility method that throws specific types of throwable objects based on types.
+   * A utility method that rethrows known throwable types without changing their identity.
+   *
+   * <p>In particular, {@link Error} instances must not be converted to a {@link
+   * RuntimeException}; callers rely on errors retaining their original type and stack trace.
    *
    * @param t the throwable object
    * @throws IOException
