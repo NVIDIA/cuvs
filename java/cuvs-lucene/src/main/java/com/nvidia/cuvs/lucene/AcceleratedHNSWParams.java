@@ -31,11 +31,9 @@ public class AcceleratedHNSWParams {
     CUSTOM
   }
 
-  /*
-   * TODO: Update boundaries for all parameters when a consensus is reached.
-   * Issue: https://github.com/rapidsai/cuvs-lucene/issues/99
-   */
+  /** Bounds for the public CAGRA and HNSW build parameters. */
   public static final int MIN_WRITER_THREADS = 1;
+
   public static final int MAX_WRITER_THREADS = 512;
   public static final int MIN_INT_GRAPH_DEG = 2;
   public static final int MAX_INT_GRAPH_DEG = 512;
