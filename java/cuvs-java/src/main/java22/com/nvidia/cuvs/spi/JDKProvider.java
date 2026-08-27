@@ -318,6 +318,11 @@ final class JDKProvider implements CuVSProvider {
   }
 
   @Override
+  public boolean isCagraPaddedDataset(CuVSMatrix dataset) {
+    return CagraIndexImpl.isPaddedDataset(dataset);
+  }
+
+  @Override
   public GPUInfoProvider gpuInfoProvider() {
     return new GPUInfoProviderImpl();
   }
