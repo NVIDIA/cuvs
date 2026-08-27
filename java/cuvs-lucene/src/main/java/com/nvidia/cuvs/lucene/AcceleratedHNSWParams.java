@@ -361,7 +361,7 @@ public class AcceleratedHNSWParams {
      * @return instance of {@link Builder}
      */
     public Builder withGraphDegree(int graphDegree) {
-      validateRange("graphdegree", graphDegree, MIN_GRAPH_DEG, MAX_GRAPH_DEG);
+      validateRange("graphDegree", graphDegree, MIN_GRAPH_DEG, MAX_GRAPH_DEG);
       this.graphdegree = graphDegree;
       return this;
     }
@@ -546,6 +546,10 @@ public class AcceleratedHNSWParams {
                 + ", "
                 + MAX_GRAPH_DEG
                 + "]");
+      }
+      if (graphdegree > intermediateGraphDegree) {
+        throw new IllegalArgumentException(
+            "graphDegree must not be greater than intermediateGraphDegree.");
       }
       if (hnswLayers < MIN_HNSW_LAYERS || hnswLayers > MAX_HNSW_LAYERS) {
         throw new IllegalArgumentException(

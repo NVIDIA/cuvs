@@ -76,14 +76,45 @@ public class TestAcceleratedHNSWParams extends LuceneTestCase {
       assertEquals(
           v,
           new AcceleratedHNSWParams.Builder()
+              .withGraphDegree(MIN_GRAPH_DEG)
               .withIntermediateGraphDegree(v)
               .build()
               .getIntermediateGraphDegree());
     }
     for (int v : new int[] {MIN_GRAPH_DEG, MAX_GRAPH_DEG}) {
       assertEquals(
-          v, new AcceleratedHNSWParams.Builder().withGraphDegree(v).build().getGraphdegree());
+          v,
+          new AcceleratedHNSWParams.Builder()
+              .withIntermediateGraphDegree(MAX_INT_GRAPH_DEG)
+              .withGraphDegree(v)
+              .build()
+              .getGraphdegree());
     }
+  }
+
+  @Test
+  public void testGraphDegreeMustNotExceedIntermediateGraphDegree() {
+    AcceleratedHNSWParams params =
+        new AcceleratedHNSWParams.Builder()
+            .withGraphDegree(DEFAULT_GRAPH_DEGREE)
+            .withIntermediateGraphDegree(DEFAULT_GRAPH_DEGREE)
+            .build();
+    assertEquals(params.getGraphdegree(), params.getIntermediateGraphDegree());
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new AcceleratedHNSWParams.Builder()
+                .withGraphDegree(DEFAULT_GRAPH_DEGREE + 1)
+                .withIntermediateGraphDegree(DEFAULT_GRAPH_DEGREE)
+                .build());
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new AcceleratedHNSWParams.Builder()
+                .withIntermediateGraphDegree(DEFAULT_GRAPH_DEGREE)
+                .withGraphDegree(DEFAULT_GRAPH_DEGREE + 1)
+                .build());
   }
 
   @Test
