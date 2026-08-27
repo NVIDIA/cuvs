@@ -71,6 +71,12 @@ import org.apache.lucene.util.FixedBitSet;
  */
 public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
 
+  /** Smallest supported CAGRA intermediate-result count. */
+  public static final int MIN_ITOPK = 1;
+
+  /** Smallest supported number of CAGRA search entry points. */
+  public static final int MIN_SEARCH_WIDTH = 1;
+
   private final int iTopK;
   private final int searchWidth;
   private final int threadBlockSize;
@@ -117,11 +123,21 @@ public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
       int maxIterations,
       CagraSearchParams.SearchAlgo searchAlgo) {
     super(field, target, k, filter);
+    validateSearchParameters(iTopK, searchWidth);
     this.iTopK = iTopK;
     this.searchWidth = searchWidth;
     this.threadBlockSize = threadBlockSize;
     this.maxIterations = maxIterations;
     this.searchAlgo = searchAlgo;
+  }
+
+  private static void validateSearchParameters(int iTopK, int searchWidth) {
+    if (iTopK < MIN_ITOPK) {
+      throw new IllegalArgumentException("iTopK must be at least " + MIN_ITOPK + ".");
+    }
+    if (searchWidth < MIN_SEARCH_WIDTH) {
+      throw new IllegalArgumentException("searchWidth must be at least " + MIN_SEARCH_WIDTH + ".");
+    }
   }
 
   // -------------------------------------------------------------------------

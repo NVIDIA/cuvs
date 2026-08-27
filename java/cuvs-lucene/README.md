@@ -79,6 +79,22 @@ than an individual Lucene codec. Async allocation is optional for correctness an
 GPU workloads with repeated device allocations, especially concurrent or multi-stream searches.
 Applications that do not opt in use the default RMM device-memory resource.
 
+### Parameter bounds
+
+The public Lucene API validates CAGRA parameters before passing them to the Java bindings:
+
+| Parameter | Valid range |
+| --- | --- |
+| GPU writer threads | 1–512 |
+| Intermediate graph degree | 2–512 |
+| Graph degree | 1–512 |
+| `GPUKnnFloatVectorQuery` `iTopK` | 1 or greater |
+| `GPUKnnFloatVectorQuery` `searchWidth` | 1 or greater |
+
+`iTopK` and `searchWidth` have no fixed Lucene-side upper bound: the supported maximum depends on
+the selected CAGRA algorithm and available GPU memory. The query always uses an effective `iTopK`
+that is at least the requested Lucene `k`.
+
 In a Maven project that includes the `cuvs-lucene` dependency shown above, create `src/main/java/com/nvidia/cuvs/lucene/examples/HelloCuvsLucene.java`:
 
 ```java
