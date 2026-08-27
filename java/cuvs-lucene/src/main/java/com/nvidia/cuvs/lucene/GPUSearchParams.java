@@ -283,7 +283,7 @@ public class GPUSearchParams {
      * @return instance of {@link Builder}
      */
     public Builder withGraphDegree(int graphDegree) {
-      validateRange("graphdegree", graphDegree, MIN_GRAPH_DEG, MAX_GRAPH_DEG);
+      validateRange("graphDegree", graphDegree, MIN_GRAPH_DEG, MAX_GRAPH_DEG);
       this.graphdegree = graphDegree;
       return this;
     }
@@ -420,6 +420,10 @@ public class GPUSearchParams {
                 + ", "
                 + MAX_GRAPH_DEG
                 + "]");
+      }
+      if (graphdegree > intermediateGraphDegree) {
+        throw new IllegalArgumentException(
+            "graphDegree must not be greater than intermediateGraphDegree.");
       }
       if (Objects.isNull(cagraGraphBuildAlgo)) {
         throw new IllegalArgumentException("cagraGraphBuildAlgo cannot be null.");
