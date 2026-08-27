@@ -131,6 +131,7 @@ public class TestSegmentMaxConnConsistency extends LuceneTestCase {
         new AcceleratedHNSWParams.Builder()
             .withStrategy(AcceleratedHNSWParams.Strategy.HEURISTIC)
             .withMaxConn(MAX_CONN)
+            .withIntermediateGraphDegree(256) // ignored under HEURISTIC
             .withGraphDegree(256) // ignored under HEURISTIC; must not leak into the metadata
             .build();
 
