@@ -1772,13 +1772,12 @@ void GNND<Data_t, Index_t>::build(Data_t* data,
       }
 
       // Unset every bit this row touched so the array is back to all-zero for the next row this
-      // thread processes. Safe to run over the full row rather than tracking exactly which
-      // entries were newly set: clearing an already-clear bit is a no-op, and a duplicate value
-      // that slipped through via the fallback above (only possible if a row exhausts its retry
-      // budget) shares its bit with wherever it was legitimately set earlier in this same row.
+      // thread processes. Since seen_bits is all-zero on entry to this row and thread-local, the
+      // only bits set anywhere are ones this row's own entries set, so the whole word covering
+      // idx can be zeroed outright rather than masking off just its one bit.
       for (size_t k = 0; k < build_config_.node_degree; k++) {
-        size_t idx = static_cast<size_t>(output_neighbor_list_ptr[k]);
-        seen_bits[idx >> 6] &= ~(uint64_t{1} << (idx & 63));
+        size_t idx          = static_cast<size_t>(output_neighbor_list_ptr[k]);
+        seen_bits[idx >> 6] = 0;
       }
     }
   }
