@@ -88,12 +88,16 @@ The public Lucene API validates CAGRA parameters before passing them to the Java
 | GPU writer threads | 1–512 |
 | Intermediate graph degree | 2–512 |
 | Graph degree | 1–512 |
-| `GPUKnnFloatVectorQuery` `iTopK` | 1 or greater |
-| `GPUKnnFloatVectorQuery` `searchWidth` | 1 or greater |
+| `GPUKnnFloatVectorQuery` `iTopK` | 1–2,147,483,647; at most 512 with `SINGLE_CTA` |
+| `GPUKnnFloatVectorQuery` `searchWidth` | 1–4,194,303 |
 
-`iTopK` and `searchWidth` have no fixed Lucene-side upper bound: the supported maximum depends on
-the selected CAGRA algorithm and available GPU memory. The query always uses an effective `iTopK`
-that is at least the requested Lucene `k`.
+These upper bounds are numeric-safety limits, not a guarantee that every value in the range is
+practical. The `iTopK` maximum is the largest value representable by the public Java API. CAGRA's
+`SINGLE_CTA` algorithm has a native `iTopK` limit of 512; other algorithms can accept larger values.
+The `searchWidth` maximum keeps CAGRA's result buffer within its unsigned 32-bit indexing limit at
+the maximum graph degree and aligned maximum `iTopK`. The query uses an effective `iTopK` equal to
+the greater of the configured value and the requested Lucene `k`. Available GPU memory, the chosen
+CAGRA algorithm, and the data set normally impose much lower practical limits.
 
 In a Maven project that includes the `cuvs-lucene` dependency shown above, create `src/main/java/com/nvidia/cuvs/lucene/examples/HelloCuvsLucene.java`:
 

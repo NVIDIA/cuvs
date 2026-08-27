@@ -74,8 +74,20 @@ public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
   /** Smallest supported CAGRA intermediate-result count. */
   public static final int MIN_ITOPK = 1;
 
+  /** Largest intermediate-result count representable by the public Java API. */
+  public static final int MAX_ITOPK = Integer.MAX_VALUE;
+
+  /** Largest intermediate-result count supported by CAGRA's SINGLE_CTA search algorithm. */
+  public static final int MAX_SINGLE_CTA_ITOPK = 512;
+
   /** Smallest supported number of CAGRA search entry points. */
   public static final int MIN_SEARCH_WIDTH = 1;
+
+  /**
+   * Largest search width that keeps CAGRA's result buffer within its unsigned 32-bit indexing
+   * limit at the maximum graph degree and aligned {@link #MAX_ITOPK}.
+   */
+  public static final int MAX_SEARCH_WIDTH = 4_194_303;
 
   private final int iTopK;
   private final int searchWidth;
@@ -123,7 +135,7 @@ public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
       int maxIterations,
       CagraSearchParams.SearchAlgo searchAlgo) {
     super(field, target, k, filter);
-    validateSearchParameters(iTopK, searchWidth);
+    validateSearchParameters(iTopK, searchWidth, k, searchAlgo);
     this.iTopK = iTopK;
     this.searchWidth = searchWidth;
     this.threadBlockSize = threadBlockSize;
@@ -131,12 +143,26 @@ public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
     this.searchAlgo = searchAlgo;
   }
 
-  private static void validateSearchParameters(int iTopK, int searchWidth) {
-    if (iTopK < MIN_ITOPK) {
-      throw new IllegalArgumentException("iTopK must be at least " + MIN_ITOPK + ".");
+  private static void validateSearchParameters(
+      int iTopK, int searchWidth, int k, CagraSearchParams.SearchAlgo searchAlgo) {
+    validateRange("iTopK", iTopK, MIN_ITOPK, MAX_ITOPK);
+    validateRange("searchWidth", searchWidth, MIN_SEARCH_WIDTH, MAX_SEARCH_WIDTH);
+    int effectiveITopK = Math.max(iTopK, k);
+    if (searchAlgo == CagraSearchParams.SearchAlgo.SINGLE_CTA
+        && effectiveITopK > MAX_SINGLE_CTA_ITOPK) {
+      throw new IllegalArgumentException(
+          "effective iTopK must not exceed "
+              + MAX_SINGLE_CTA_ITOPK
+              + " for SINGLE_CTA search, but was "
+              + effectiveITopK
+              + ".");
     }
-    if (searchWidth < MIN_SEARCH_WIDTH) {
-      throw new IllegalArgumentException("searchWidth must be at least " + MIN_SEARCH_WIDTH + ".");
+  }
+
+  private static void validateRange(String name, int value, int min, int max) {
+    if (value < min || value > max) {
+      throw new IllegalArgumentException(
+          name + " not in valid range. Valid range: [" + min + ", " + max + "]");
     }
   }
 
