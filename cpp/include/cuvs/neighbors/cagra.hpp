@@ -367,7 +367,7 @@ struct search_params : cuvs::neighbors::search_params {
   size_t thread_block_size = 0;
   /** Hashmap type. Auto selection when AUTO. */
   hash_mode hashmap_mode = hash_mode::AUTO;
-  /** Lower limit of hashmap bit length. More than 8. */
+  /** Lower limit of hashmap bit length. 0 selects the default; otherwise, 8 to 20. */
   size_t hashmap_min_bitlen = 0;
   /** Upper limit of hashmap fill rate. More than 0.1, less than 0.9.*/
   float hashmap_max_fill_rate = 0.5;
