@@ -30,12 +30,13 @@ void select_and_run(
   uint32_t topk,
   uint32_t num_itopk_candidates,
   uint32_t block_size,  //
-  uint32_t smem_size,
-  int64_t hash_bitlen,
+  uint32_t& smem_size,
+  int64_t& hash_bitlen,
   IndexT* hashmap_ptr,
-  size_t small_hash_bitlen,
-  size_t small_hash_reset_interval,
+  size_t& small_hash_bitlen,
+  size_t& small_hash_reset_interval,
   uint32_t num_seeds,
+  bool& small_hash_occupancy_tuned,
   SampleFilterT sample_filter,
   cudaStream_t stream);
 

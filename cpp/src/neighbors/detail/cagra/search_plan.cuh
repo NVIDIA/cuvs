@@ -10,7 +10,6 @@
 #include <cuvs/neighbors/common.hpp>
 #include <neighbors/detail/cagra/compute_distance-ext.cuh>
 #include <raft/core/resource/cuda_stream.hpp>
-#include <raft/core/resource/device_properties.hpp>
 // #include "topk_for_cagra/topk.h"
 
 #include <raft/core/device_mdspan.hpp>
@@ -298,17 +297,6 @@ struct search_plan_impl : public search_plan_impl_base {
       }
       RAFT_EXPECTS(hash_bitlen <= 25, "hash_bitlen cannot be largen than 25 (32M)");
     } else {
-      constexpr size_t kib = 1024;
-      const auto shared_mem_per_sm =
-        raft::resource::get_device_properties(res).sharedMemPerMultiprocessor;
-      unsigned default_min_bitlen = 8;
-      if (shared_mem_per_sm >= 196 * kib) {
-        default_min_bitlen = 11;
-      } else if (shared_mem_per_sm >= 128 * kib) {
-        default_min_bitlen = 10;
-      } else if (shared_mem_per_sm >= 64 * kib) {
-        default_min_bitlen = 9;
-      }
       while (hashmap_mode == hash_mode::AUTO || hashmap_mode == hash_mode::SMALL) {
         //
         // The small-hash reduces hash table size by initializing the hash table
@@ -318,7 +306,9 @@ struct search_plan_impl : public search_plan_impl_base {
         // visited per iteration.
         //
         const auto max_visited_nodes = itopk_size + (search_width * graph_degree * 1);
-        unsigned min_bitlen = hashmap_min_bitlen == 0 ? default_min_bitlen : hashmap_min_bitlen;
+        // The SINGLE_CTA launcher may increase this automatic floor up to 13 if doing so does
+        // not reduce occupancy.
+        unsigned min_bitlen          = hashmap_min_bitlen == 0 ? 8 : hashmap_min_bitlen;
         unsigned max_bitlen          = 13;  // 8K
         hash_bitlen                  = min_bitlen;
         while (max_visited_nodes > hashmap::get_size(hash_bitlen) * max_fill_rate) {
