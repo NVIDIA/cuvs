@@ -206,9 +206,14 @@ struct search_plan_impl : public search_plan_impl_base {
     uint32_t _max_iterations = max_iterations;
     if (max_iterations == 0) {
       if (algo == search_algo::MULTI_CTA) {
-        constexpr uint32_t mc_itopk_size   = 32;
-        constexpr uint32_t mc_search_width = 1;
-        _max_iterations                    = mc_itopk_size / mc_search_width;
+        constexpr size_t mc_itopk_size  = 32;
+        constexpr size_t search_quality = 3;
+        const size_t minimum_depth      = 8 * (search_quality - 1);
+        const auto effective_itopk_size = raft::ceildiv(itopk_size, mc_itopk_size) * mc_itopk_size;
+        const auto num_ctas = max(search_width, raft::ceildiv(effective_itopk_size, mc_itopk_size));
+
+        _max_iterations = minimum_depth + raft::ceildiv(mc_itopk_size - minimum_depth, num_ctas);
+        _max_iterations += raft::ceildiv(static_cast<size_t>(topk), mc_itopk_size) - 1;
       } else {
         _max_iterations = itopk_size / search_width;
       }
