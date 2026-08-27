@@ -288,7 +288,8 @@ public class AcceleratedHNSWParams {
   /**
    * Get the number of input vectors used to pre-size the native flat buffer. A value of
    * {@value DEFAULT_NUM_INPUT_VECTORS} means unset (the writer uses the default heap-buffered
-   * flat path).
+   * flat path). Not settable via the public {@link Builder} — only {@link CagraHnswBulkIndexWriter}
+   * sets this, on the internal, per-slice {@link AcceleratedHNSWParams} instance it builds itself.
    *
    * @return the number of vectors to be indexed, or 0 if unset
    */
@@ -540,35 +541,27 @@ public class AcceleratedHNSWParams {
     }
 
     /**
-     * Set the exact number of vectors to be indexed, used to pre-allocate a single contiguous
+     * Sets the exact number of vectors to be indexed, used to pre-allocate a single contiguous
      * native flat buffer (avoiding the on-heap {@code List<float[]>} and the extra host-matrix
      * copy). The native buffer is sized for exactly this many rows, so the value MUST equal the
      * number of vectors actually added; the writer fails fast otherwise. Only supported for the
      * unsorted single-segment CAGRA_HNSW build (no merges). Not yet supported for the
-     * binary/scalar quantized writers. A value of {@value DEFAULT_NUM_INPUT_VECTORS} (the
-     * default) disables it and uses the default heap-buffered flat path.
+     * binary/scalar quantized writers.
      *
-     * <p><b>Requires the caller to own {@code IndexWriterConfig}'s flush policy.</b> The exact-count
-     * guarantee above only holds if auto-flush is disabled — raise {@code setMaxBufferedDocs} above
-     * the batch size and set {@code setRAMBufferSizeMB(IndexWriterConfig.DISABLE_AUTO_FLUSH)} — and
-     * merges/index sorts stay off ({@code NoMergePolicy}, no index sort) for the life of the batch.
-     * A platform that triggers its own auto-flush based on RAM pressure or doc count (e.g. Solr,
-     * Elasticsearch) will hit the fail-fast check above under real load, even if a small test batch
-     * happened to fit under the default RAM buffer and never triggered it. Use the default
-     * heap-buffered path (leave this unset) unless the caller has that level of control.
-     *
-     * <p><b>Applies identically to every vector field.</b> This count is a single value shared by
-     * the whole segment, not set per field: if the segment has more than one vector field, each one
-     * is checked against the same {@code numInputVectors} independently, so every vector field must
-     * have a value on exactly this many documents. There is no support for a sparse/optional vector
-     * field alongside a fully-populated one, or for multiple vector fields with different
-     * cardinalities — every vector field must be populated on the same {@code numInputVectors}
-     * documents.
+     * <p><b>Not public API.</b> The guarantee above only holds if the caller fully owns {@code
+     * IndexWriterConfig}'s flush policy for the life of the batch — auto-flush disabled, no
+     * merges, no index sort — which most platforms embedding Lucene (Solr, Elasticsearch,
+     * OpenSearch) cannot promise, since they manage their own {@code IndexWriter} lifecycle. Rather
+     * than expose a knob a generic codec user could misconfigure and only find out at runtime, this
+     * is package-private and set only by {@link CagraHnswBulkIndexWriter}, which is the sole caller
+     * that constructs and owns the {@code IndexWriter} itself and can therefore guarantee the
+     * invariant. Use {@link CagraHnswBulkIndexWriter} for bulk building from local data; construct this
+     * codec directly (without this knob) for the general Lucene extension point.
      *
      * @param numInputVectors the exact number of vectors to be indexed, or 0 to disable
      * @return instance of {@link Builder}
      */
-    public Builder withNumInputVectors(int numInputVectors) {
+    Builder withNumInputVectors(int numInputVectors) {
       this.numInputVectors = numInputVectors;
       return this;
     }

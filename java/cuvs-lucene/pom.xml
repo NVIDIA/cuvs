@@ -125,6 +125,11 @@ SPDX-License-Identifier: Apache-2.0
     </dependency>
     <dependency>
         <groupId>org.apache.lucene</groupId>
+        <artifactId>lucene-misc</artifactId>
+        <version>10.2.0</version>
+    </dependency>
+    <dependency>
+        <groupId>org.apache.lucene</groupId>
         <artifactId>lucene-test-framework</artifactId>
         <version>10.2.0</version>
         <scope>test</scope>
