@@ -67,6 +67,26 @@ public class TestAcceleratedHNSWParams extends LuceneTestCase {
   }
 
   @Test
+  public void testAcceleratedHNSWParamsBuildParameterBoundaries() {
+    for (int v : new int[] {MIN_WRITER_THREADS, MAX_WRITER_THREADS}) {
+      assertEquals(
+          v, new AcceleratedHNSWParams.Builder().withWriterThreads(v).build().getWriterThreads());
+    }
+    for (int v : new int[] {MIN_INT_GRAPH_DEG, MAX_INT_GRAPH_DEG}) {
+      assertEquals(
+          v,
+          new AcceleratedHNSWParams.Builder()
+              .withIntermediateGraphDegree(v)
+              .build()
+              .getIntermediateGraphDegree());
+    }
+    for (int v : new int[] {MIN_GRAPH_DEG, MAX_GRAPH_DEG}) {
+      assertEquals(
+          v, new AcceleratedHNSWParams.Builder().withGraphDegree(v).build().getGraphdegree());
+    }
+  }
+
+  @Test
   public void testAcceleratedHNSWParamsInvalidBeamWidth() {
     for (int v :
         new int[] {
@@ -86,7 +106,7 @@ public class TestAcceleratedHNSWParams extends LuceneTestCase {
         }) {
       assertThrows(
           IllegalArgumentException.class,
-          () -> new AcceleratedHNSWParams.Builder().withGraphDegree(v).build());
+          () -> new AcceleratedHNSWParams.Builder().withGraphDegree(v));
     }
   }
 
@@ -111,7 +131,7 @@ public class TestAcceleratedHNSWParams extends LuceneTestCase {
         }) {
       assertThrows(
           IllegalArgumentException.class,
-          () -> new AcceleratedHNSWParams.Builder().withIntermediateGraphDegree(v).build());
+          () -> new AcceleratedHNSWParams.Builder().withIntermediateGraphDegree(v));
     }
   }
 
@@ -136,7 +156,7 @@ public class TestAcceleratedHNSWParams extends LuceneTestCase {
         }) {
       assertThrows(
           IllegalArgumentException.class,
-          () -> new AcceleratedHNSWParams.Builder().withWriterThreads(v).build());
+          () -> new AcceleratedHNSWParams.Builder().withWriterThreads(v));
     }
   }
 

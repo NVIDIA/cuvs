@@ -254,6 +254,7 @@ public class GPUSearchParams {
      * @return instance of {@link Builder}
      */
     public Builder withWriterThreads(int writerThreads) {
+      validateRange("writerThreads", writerThreads, MIN_WRITER_THREADS, MAX_WRITER_THREADS);
       this.writerThreads = writerThreads;
       return this;
     }
@@ -267,6 +268,8 @@ public class GPUSearchParams {
      * @return instance of {@link Builder}
      */
     public Builder withIntermediateGraphDegree(int intermediateGraphDegree) {
+      validateRange(
+          "intermediateGraphDegree", intermediateGraphDegree, MIN_INT_GRAPH_DEG, MAX_INT_GRAPH_DEG);
       this.intermediateGraphDegree = intermediateGraphDegree;
       return this;
     }
@@ -280,6 +283,7 @@ public class GPUSearchParams {
      * @return instance of {@link Builder}
      */
     public Builder withGraphDegree(int graphDegree) {
+      validateRange("graphdegree", graphDegree, MIN_GRAPH_DEG, MAX_GRAPH_DEG);
       this.graphdegree = graphDegree;
       return this;
     }
@@ -377,6 +381,13 @@ public class GPUSearchParams {
     public Builder withBuildQuality(int buildQuality) {
       this.buildQuality = buildQuality;
       return this;
+    }
+
+    private static void validateRange(String name, int value, int min, int max) {
+      if (value < min || value > max) {
+        throw new IllegalArgumentException(
+            name + " not in valid range. Valid range: [" + min + ", " + max + "]");
+      }
     }
 
     /**

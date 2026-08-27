@@ -53,14 +53,32 @@ public class TestGPUSearchParams extends LuceneTestCase {
   }
 
   @Test
+  public void testGPUSearchParamsBuildParameterBoundaries() {
+    for (int v : new int[] {MIN_WRITER_THREADS, MAX_WRITER_THREADS}) {
+      assertEquals(
+          v, new GPUSearchParams.Builder().withWriterThreads(v).build().getWriterThreads());
+    }
+    for (int v : new int[] {MIN_INT_GRAPH_DEG, MAX_INT_GRAPH_DEG}) {
+      assertEquals(
+          v,
+          new GPUSearchParams.Builder()
+              .withIntermediateGraphDegree(v)
+              .build()
+              .getIntermediateGraphDegree());
+    }
+    for (int v : new int[] {MIN_GRAPH_DEG, MAX_GRAPH_DEG}) {
+      assertEquals(v, new GPUSearchParams.Builder().withGraphDegree(v).build().getGraphdegree());
+    }
+  }
+
+  @Test
   public void testGPUSearchParamsInvalidGraphDegree() {
     for (int v :
         new int[] {
           random.nextInt(MIN_VALUE, MIN_GRAPH_DEG), random.nextInt(MAX_GRAPH_DEG + 1, MAX_VALUE)
         }) {
       assertThrows(
-          IllegalArgumentException.class,
-          () -> new GPUSearchParams.Builder().withGraphDegree(v).build());
+          IllegalArgumentException.class, () -> new GPUSearchParams.Builder().withGraphDegree(v));
     }
   }
 
@@ -73,7 +91,7 @@ public class TestGPUSearchParams extends LuceneTestCase {
         }) {
       assertThrows(
           IllegalArgumentException.class,
-          () -> new GPUSearchParams.Builder().withIntermediateGraphDegree(v).build());
+          () -> new GPUSearchParams.Builder().withIntermediateGraphDegree(v));
     }
   }
 
@@ -85,8 +103,7 @@ public class TestGPUSearchParams extends LuceneTestCase {
           random.nextInt(MAX_WRITER_THREADS + 1, MAX_VALUE)
         }) {
       assertThrows(
-          IllegalArgumentException.class,
-          () -> new GPUSearchParams.Builder().withWriterThreads(v).build());
+          IllegalArgumentException.class, () -> new GPUSearchParams.Builder().withWriterThreads(v));
     }
   }
 
