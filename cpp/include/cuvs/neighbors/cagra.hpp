@@ -128,10 +128,12 @@ using graph_build_params_t = std::variant<std::monostate,
  */
 enum class hnsw_heuristic_type : uint32_t {
   /**
-   * Create a graph that is very similar to an HNSW graph in
-   * terms of the number of nodes and search performance. Since HNSW produces a variable-degree
-   * graph (2M being the max graph degree) and CAGRA produces a fixed-degree graph, there's always a
-   * difference in the performance of the two.
+   * Create a graph that is very similar to an HNSW graph in terms of the number of nodes and
+   * search performance. Like HNSW, the resulting graph is variable-degree: this heuristic sets
+   * `index_params::variable_graph_degree_fraction` below 1.0.
+   * Unlike HNSW, the maximum degree of the graph is not fixed to `2*M`, but is decided according
+   * the internal logic (smaller than `2*M`). The edge selection criteria of the
+   * two algorithms also differ, so there's always a difference in the performance of the two.
    *
    * This function attempts to produce such a graph that the QPS and recall of the two graphs being
    * searched by HNSW are close for any search parameter combination. The CAGRA-produced graph tends
