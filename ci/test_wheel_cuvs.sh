@@ -22,7 +22,7 @@ rapids-pip-retry install \
     -v \
     --prefer-binary \
     --constraint "${PIP_CONSTRAINT}" \
-    "${LIBCUVS_WHEELHOUSE}"/libcugraph*.whl
+    "${LIBCUVS_WHEELHOUSE}"/libcuvs*.whl
 python -c "import libcuvs; assert (libraries := libcuvs.load_library()) and all(libraries)"
 deactivate
 
