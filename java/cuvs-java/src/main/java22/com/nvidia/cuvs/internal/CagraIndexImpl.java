@@ -92,7 +92,7 @@ public class CagraIndexImpl implements CagraIndex {
    * Used primarily for the merge operation.
    *
    * @param indexReference The reference to the existing index
-   * @param resources      The resources instance
+   * @param resources The resources instance
    */
   private CagraIndexImpl(IndexReference indexReference, CuVSResources resources) {
     this.resources = resources;
@@ -103,10 +103,10 @@ public class CagraIndexImpl implements CagraIndex {
   /**
    * Constructor for creating an index from a pre-build CAGRA graph
    *
-   * @param metric    the distance type used
-   * @param graph     a previously built CAGRA graph
-   * @param dataset   the dataset used for indexing
-   * @param resources an instance of {@link CuVSResources}
+   * @param metric      the distance type used
+   * @param graph       a previously built CAGRA graph
+   * @param dataset     the dataset used for indexing
+   * @param resources   an instance of {@link CuVSResources}
    */
   private CagraIndexImpl(
       CagraIndexParams.CuvsDistanceType metric,
@@ -221,14 +221,11 @@ public class CagraIndexImpl implements CagraIndex {
   private static MemorySegment createCagraIndex() {
     try (var localArena = Arena.ofConfined()) {
       MemorySegment indexPtrPtr = localArena.allocate(cuvsCagraIndex_t);
-      // cuvsCagraIndexCreate gets a pointer to a cuvsCagraIndex_t, which is defined
-      // as a pointer to
+      // cuvsCagraIndexCreate gets a pointer to a cuvsCagraIndex_t, which is defined as a pointer to
       // cuvsCagraIndex.
-      // It's basically an "out" parameter: the C functions will create the index and
-      // "return back"
+      // It's basically an "out" parameter: the C functions will create the index and "return back"
       // a pointer to it: (*index = new cuvsCagraIndex{};
-      // The "out parameter" pointer is needed only for the duration of the function
-      // invocation (it
+      // The "out parameter" pointer is needed only for the duration of the function invocation (it
       // could be a stack pointer, in C) so we allocate it from our localArena
       var returnValue = cuvsCagraIndexCreate(indexPtrPtr);
       checkCuVSError(returnValue, "cuvsCagraIndexCreate");
@@ -390,8 +387,7 @@ public class CagraIndexImpl implements CagraIndex {
                   prefilter);
           checkCuVSError(returnValue, "cuvsCagraSearch");
 
-          // TODO: we can avoid/defer this using CuVSDeviceMatrix for neighborsDP and
-          // distancesDP
+          // TODO: we can avoid/defer this using CuVSDeviceMatrix for neighborsDP and distancesDP
           // TODO: also, should we use cuvsMatrixCopy instead?
           Util.cudaMemcpyAsync(
               neighborsMemorySegment,
@@ -421,10 +417,7 @@ public class CagraIndexImpl implements CagraIndex {
     }
   }
 
-  /**
-   * Returns the underlying {@code cuvsCagraIndex_t} handle for native-side index
-   * passing.
-   */
+  /** Returns the underlying {@code cuvsCagraIndex_t} handle for native-side index passing. */
   public MemorySegment getIndexHandle() {
     return cagraIndexReference.getMemorySegment();
   }
@@ -808,8 +801,7 @@ public class CagraIndexImpl implements CagraIndex {
   }
 
   /**
-   * Allocates the native CagraIndexParams data structures and fills the
-   * configured index parameters in.
+   * Allocates the native CagraIndexParams data structures and fills the configured index parameters in.
    */
   private static CloseableHandle segmentFromIndexParams(CagraIndexParams params) {
     var handles = new ArrayList<CloseableHandle>();
@@ -1049,15 +1041,11 @@ public class CagraIndexImpl implements CagraIndex {
   }
 
   /**
-   * Fills {@code mergeFilter} in and returns the device allocation backing it,
-   * which the caller has
-   * to keep open until the merge returns. A null {@code rowFilter} produces a
-   * NO_FILTER and an
-   * empty allocation.
+   * Fills {@code mergeFilter} in and returns the device allocation backing it, which the caller has
+   * to keep open until the merge returns. A null {@code rowFilter} produces a NO_FILTER and an empty allocation.
    *
-   * <p> cuvs reads the bitset as a vector of 32 bit words covering
-   * {@code mergedRowCount} rows, and derives the row count of the merged index from
-   * the number of bits that are set, so the words have to cover every row rather
+   * <p> cuvs reads the bitset as a vector of 32 bit words covering {@code mergedRowCount} rows, and derives the row
+   * count of the merged index from the number of bits that are set, so the words have to cover every row rather
    * than stop at the last one that survives.
    */
   private static CloseableRMMAllocation allocateRowFilter(
@@ -1186,9 +1174,8 @@ public class CagraIndexImpl implements CagraIndex {
      * @param indexMemorySegment the MemorySegment instance to use for containing
      *                           index reference
      * @param dataset            the dataset used for indexing; the dataset lifetime
-     *                           matches the lifetime of the index, we need to keep
-     *                           a reference to it so we can close it when the index
-     *                           is closed.
+     *                           matches the lifetime of the index, we need to keep a reference
+     *                           to it so we can close it when the index is closed.
      *                           Can be null (e.g. from deserialization or merging)
      */
     private IndexReference(MemorySegment indexMemorySegment, CuVSMatrix dataset) {
