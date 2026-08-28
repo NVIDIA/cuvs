@@ -28,7 +28,9 @@
 
 #include <library_types.h>
 
+#include <cerrno>
 #include <cmath>
+#include <cstring>
 #include <exception>
 #include <fcntl.h>
 #include <filesystem>
@@ -43,6 +45,74 @@
 #include <unistd.h>
 
 namespace cuvs::neighbors::hnsw::detail {
+
+class exclusive_hnsw_output_file {
+ public:
+  explicit exclusive_hnsw_output_file(std::filesystem::path output_path)
+    : output_path_{std::move(output_path)}
+  {
+    std::string temporary_path = output_path_.string() + ".tmp.XXXXXX";
+    int fd                     = ::mkstemp(temporary_path.data());
+    RAFT_EXPECTS(fd != -1,
+                 "Cannot create temporary file for %s (errno: %d, %s)",
+                 output_path_.c_str(),
+                 errno,
+                 strerror(errno));
+    temporary_path_ = std::move(temporary_path);
+
+    if (::close(fd) != 0) {
+      const int error = errno;
+      cleanup();
+      RAFT_FAIL("Cannot close temporary file for %s (errno: %d, %s)",
+                output_path_.c_str(),
+                error,
+                strerror(error));
+    }
+
+    try {
+      stream_ = std::make_unique<cuvs::util::kvikio_ofstream>(temporary_path_);
+    } catch (...) {
+      cleanup();
+      throw;
+    }
+  }
+
+  exclusive_hnsw_output_file(const exclusive_hnsw_output_file&)            = delete;
+  exclusive_hnsw_output_file& operator=(const exclusive_hnsw_output_file&) = delete;
+
+  ~exclusive_hnsw_output_file()
+  {
+    stream_.reset();
+    cleanup();
+  }
+
+  std::ostream& stream() { return *stream_; }
+
+  void publish()
+  {
+    stream_->close();
+    RAFT_EXPECTS(*stream_, "Error writing output %s", output_path_.c_str());
+    stream_.reset();
+
+    if (::link(temporary_path_.c_str(), output_path_.c_str()) != 0) {
+      const int error = errno;
+      RAFT_FAIL("Cannot publish HNSW index %s (errno: %d, %s)",
+                output_path_.c_str(),
+                error,
+                strerror(error));
+    }
+  }
+
+ private:
+  void cleanup() noexcept
+  {
+    if (!temporary_path_.empty()) { (void)::unlink(temporary_path_.c_str()); }
+  }
+
+  std::filesystem::path output_path_;
+  std::string temporary_path_;
+  std::unique_ptr<cuvs::util::kvikio_ofstream> stream_;
+};
 
 template <typename T, typename CagraIndexT>
 inline constexpr bool is_cagra_hnsw_export_index_v =
@@ -1330,18 +1400,10 @@ std::unique_ptr<index<T>> from_cagra(
       index_directory.c_str());
     std::string index_filename =
       (std::filesystem::path(index_directory) / "hnsw_index.bin").string();
+    exclusive_hnsw_output_file output(index_filename);
 
-    // Route the disk-backed hnswlib output through kvikio (bypassing the page cache via O_DIRECT
-    // when supported) so all ACE disk I/O goes through kvikio. kvikio_ofstream is a std::ostream
-    // backed by a kvikio writer, so it plugs into the shared serializer below.
-    cuvs::util::kvikio_ofstream of(index_filename);
-
-    RAFT_EXPECTS(of, "Cannot open file %s", index_filename.c_str());
-
-    serialize_to_hnswlib_from_disk(res, of, params, cagra_index);
-
-    of.close();
-    RAFT_EXPECTS(of, "Error writing output %s", index_filename.c_str());
+    serialize_to_hnswlib_from_disk(res, output.stream(), params, cagra_index);
+    output.publish();
 
     // Create an empty HNSW index that holds the file descriptor
     auto hnsw_index =
@@ -1433,14 +1495,10 @@ std::unique_ptr<index<T>> from_cagra(
 
       std::string index_filename =
         (std::filesystem::path(index_directory) / "hnsw_index.bin").string();
+      exclusive_hnsw_output_file output(index_filename);
 
-      cuvs::util::kvikio_ofstream of(index_filename);
-      RAFT_EXPECTS(of, "Cannot open file %s", index_filename.c_str());
-
-      serialize_to_hnswlib_from_inmem(res, of, params, cagra_index, dataset);
-
-      of.close();
-      RAFT_EXPECTS(of, "Error writing output %s", index_filename.c_str());
+      serialize_to_hnswlib_from_inmem(res, output.stream(), params, cagra_index, dataset);
+      output.publish();
 
       // Create an empty HNSW index that holds the file descriptor
       auto hnsw_index =

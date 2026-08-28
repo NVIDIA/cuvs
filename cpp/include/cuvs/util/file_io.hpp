@@ -308,91 +308,102 @@ class kvikio_file_reader {
  * @tparam T Data type for the numpy array
  * @param path File path to create
  * @param shape Shape of the numpy array (e.g., {rows, cols} for 2D)
+ * @param exclusive Fail when the file already exists instead of truncating it.
+ *                  If creation succeeds but pre-allocation or header writing
+ *                  fails, remove the newly created file.
  * @return Pair of (file_descriptor, header_size) where header_size is the data offset in bytes
  */
 template <typename T>
 std::pair<file_descriptor, size_t> create_numpy_file(const std::string& path,
-                                                     const std::vector<size_t>& shape)
+                                                     const std::vector<size_t>& shape,
+                                                     bool exclusive = false)
 {
   // Open the file for the header write + preallocation. Bulk data is written via kvikio (which
   // opens its own descriptor, including an O_DIRECT one when supported).
-  file_descriptor fd(path, O_CREAT | O_RDWR | O_TRUNC, 0644);
+  const int flags = O_CREAT | O_RDWR | (exclusive ? O_EXCL : O_TRUNC);
+  file_descriptor fd(path, flags, 0644);
 
-  // Build header
-  const auto dtype                              = raft::numpy_serializer::get_numpy_dtype<T>();
-  const bool fortran_order                      = false;
-  const raft::numpy_serializer::header_t header = {dtype, fortran_order, shape};
+  try {
+    // Build header
+    const auto dtype                              = raft::numpy_serializer::get_numpy_dtype<T>();
+    const bool fortran_order                      = false;
+    const raft::numpy_serializer::header_t header = {dtype, fortran_order, shape};
 
-  std::stringstream ss;
-  raft::numpy_serializer::write_header(ss, header);
-  std::string header_str = ss.str();
+    std::stringstream ss;
+    raft::numpy_serializer::write_header(ss, header);
+    std::string header_str = ss.str();
 
-  RAFT_EXPECTS((kNumpyDataAlignment & (kNumpyDataAlignment - 1)) == 0,
-               "kNumpyDataAlignment must be a power of two");
+    RAFT_EXPECTS((kNumpyDataAlignment & (kNumpyDataAlignment - 1)) == 0,
+                 "kNumpyDataAlignment must be a power of two");
 
-  // Re-pad the numpy v1.0 header so the data body starts on a block boundary.
-  // Layout: [6 bytes magic][2 bytes version][2 bytes HEADER_LEN][dict padded to HEADER_LEN].
-  RAFT_EXPECTS(header_str.size() >= 10 && static_cast<unsigned char>(header_str[6]) == 0x01,
-               "Expected a numpy v1.0 header to align the data body");
-  std::string dict = header_str.substr(10);
-  while (!dict.empty() && (dict.back() == '\n' || dict.back() == ' ')) {
-    dict.pop_back();
-  }
-  const size_t min_total     = 10 + dict.size() + 1;  // +1 for the terminating newline
-  const size_t aligned_total = numpy_align_up(min_total);
-  const size_t header_len    = aligned_total - 10;
-  RAFT_EXPECTS(header_len <= 0xFFFF, "Aligned numpy v1.0 header is too large");
+    // Re-pad the numpy v1.0 header so the data body starts on a block boundary.
+    // Layout: [6 bytes magic][2 bytes version][2 bytes HEADER_LEN][dict padded to HEADER_LEN].
+    RAFT_EXPECTS(header_str.size() >= 10 && static_cast<unsigned char>(header_str[6]) == 0x01,
+                 "Expected a numpy v1.0 header to align the data body");
+    std::string dict = header_str.substr(10);
+    while (!dict.empty() && (dict.back() == '\n' || dict.back() == ' ')) {
+      dict.pop_back();
+    }
+    const size_t min_total     = 10 + dict.size() + 1;  // +1 for the terminating newline
+    const size_t aligned_total = numpy_align_up(min_total);
+    const size_t header_len    = aligned_total - 10;
+    RAFT_EXPECTS(header_len <= 0xFFFF, "Aligned numpy v1.0 header is too large");
 
-  std::string padded_dict = dict;
-  padded_dict.append(header_len - dict.size() - 1, ' ');
-  padded_dict.push_back('\n');
+    std::string padded_dict = dict;
+    padded_dict.append(header_len - dict.size() - 1, ' ');
+    padded_dict.push_back('\n');
 
-  std::string aligned_header = header_str.substr(0, 8);  // magic + version
-  aligned_header.push_back(static_cast<char>(header_len & 0xFF));
-  aligned_header.push_back(static_cast<char>((header_len >> 8) & 0xFF));
-  aligned_header.append(padded_dict);
-  header_str = std::move(aligned_header);
+    std::string aligned_header = header_str.substr(0, 8);  // magic + version
+    aligned_header.push_back(static_cast<char>(header_len & 0xFF));
+    aligned_header.push_back(static_cast<char>((header_len >> 8) & 0xFF));
+    aligned_header.append(padded_dict);
+    header_str = std::move(aligned_header);
 
-  const size_t header_size = header_str.size();
+    const size_t header_size = header_str.size();
 
-  // Calculate data size from shape
-  auto checked_mul = [](size_t lhs, size_t rhs) {
-    RAFT_EXPECTS(rhs == 0 || lhs <= std::numeric_limits<size_t>::max() / rhs,
+    // Calculate data size from shape
+    auto checked_mul = [](size_t lhs, size_t rhs) {
+      RAFT_EXPECTS(rhs == 0 || lhs <= std::numeric_limits<size_t>::max() / rhs,
+                   "Numpy file size calculation overflowed");
+      return lhs * rhs;
+    };
+    size_t data_bytes = sizeof(T);
+    for (auto dim : shape) {
+      data_bytes = checked_mul(data_bytes, dim);
+    }
+
+    // The trailing block must stay within the allocation for O_DIRECT read-modify-write.
+    const size_t padded_data_bytes = numpy_align_up(data_bytes);
+    RAFT_EXPECTS(header_size <= std::numeric_limits<size_t>::max() - padded_data_bytes,
                  "Numpy file size calculation overflowed");
-    return lhs * rhs;
-  };
-  size_t data_bytes = sizeof(T);
-  for (auto dim : shape) {
-    data_bytes = checked_mul(data_bytes, dim);
-  }
+    const size_t alloc_bytes   = header_size + padded_data_bytes;
+    const int fallocate_status = posix_fallocate(fd.get(), 0, alloc_bytes);
+    if (fallocate_status != 0) {
+      RAFT_FAIL(
+        "Failed to pre-allocate space for file %s: %s", path.c_str(), strerror(fallocate_status));
+    }
 
-  // Pre-allocate file space. The data region is rounded up to a block boundary so read-modify-write
-  // of the trailing block during an O_DIRECT write stays within the allocated file.
-  const size_t padded_data_bytes = numpy_align_up(data_bytes);
-  RAFT_EXPECTS(header_size <= std::numeric_limits<size_t>::max() - padded_data_bytes,
-               "Numpy file size calculation overflowed");
-  const size_t alloc_bytes   = header_size + padded_data_bytes;
-  const int fallocate_status = posix_fallocate(fd.get(), 0, alloc_bytes);
-  if (fallocate_status != 0) {
-    RAFT_FAIL(
-      "Failed to pre-allocate space for file %s: %s", path.c_str(), strerror(fallocate_status));
-  }
+    // Write the small numpy header with retry and short-write handling.
+    const char* hp      = header_str.data();
+    size_t hremaining   = header_size;
+    off_t header_offset = 0;
+    while (hremaining > 0) {
+      const size_t chunk    = std::min(hremaining, static_cast<size_t>(SSIZE_MAX));
+      const ssize_t written = ::pwrite(fd.get(), hp, chunk, header_offset);
+      if (written < 0 && errno == EINTR) { continue; }
+      RAFT_EXPECTS(
+        written > 0, "Failed to write numpy header to %s: %s", path.c_str(), strerror(errno));
+      hp += written;
+      header_offset += written;
+      hremaining -= static_cast<size_t>(written);
+    }
 
-  // Write the small numpy header (one-time, buffered).
-  const char* hp    = header_str.data();
-  size_t hremaining = header_size;
-  off_t hoff        = 0;
-  while (hremaining > 0) {
-    const size_t chunk = std::min(hremaining, static_cast<size_t>(SSIZE_MAX));
-    const ssize_t w    = ::pwrite(fd.get(), hp, chunk, hoff);
-    if (w < 0 && errno == EINTR) { continue; }
-    RAFT_EXPECTS(w > 0, "Failed to write numpy header to %s: %s", path.c_str(), strerror(errno));
-    hp += w;
-    hoff += w;
-    hremaining -= static_cast<size_t>(w);
+    return {std::move(fd), header_size};
+  } catch (...) {
+    fd.close();
+    if (exclusive) { (void)::unlink(path.c_str()); }
+    throw;
   }
-
-  return {std::move(fd), header_size};
 }
 
 /**
