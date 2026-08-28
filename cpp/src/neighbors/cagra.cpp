@@ -61,7 +61,7 @@ cagra::index_params index_params::from_hnsw_params(raft::matrix_extent<int64_t> 
     default:
       params.graph_degree                   = M;
       params.intermediate_graph_degree      = M + M * ef_construction / 256;
-      params.variable_graph_degree_fraction = 0.7;
+      params.variable_graph_degree_fraction = 1.0;
       break;
   }
   params.graph_build_params =
