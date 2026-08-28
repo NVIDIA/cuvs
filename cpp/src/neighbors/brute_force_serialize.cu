@@ -51,7 +51,6 @@ void serialize(raft::resources const& handle,
                bool include_dataset)
 {
   cuvs::util::kvikio_ofstream os(filename);
-  RAFT_EXPECTS(os, "Cannot open file %s", filename.c_str());
   serialize<half, float>(handle, os, index, include_dataset);
   os.close();
   RAFT_EXPECTS(os, "Error writing output %s", filename.c_str());
@@ -63,7 +62,6 @@ void serialize(raft::resources const& handle,
                bool include_dataset)
 {
   cuvs::util::kvikio_ofstream os(filename);
-  RAFT_EXPECTS(os, "Cannot open file %s", filename.c_str());
   serialize<float, float>(handle, os, index, include_dataset);
   os.close();
   RAFT_EXPECTS(os, "Error writing output %s", filename.c_str());

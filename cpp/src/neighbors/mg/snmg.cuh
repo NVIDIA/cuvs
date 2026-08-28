@@ -784,7 +784,6 @@ void serialize(const raft::resources& clique,
                const std::string& filename)
 {
   cuvs::util::kvikio_ofstream of(filename);
-  if (!of) { RAFT_FAIL("Cannot open file %s", filename.c_str()); }
 
   std::string dtype_string = raft::numpy_serializer::get_numpy_dtype<T>().to_string();
   dtype_string.resize(4);

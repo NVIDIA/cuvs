@@ -36,7 +36,6 @@ void serialize_matrix(
   raft::mdspan<const T, raft::matrix_extent<IdxT>, raft::row_major, Accessor> mat)
 {
   cuvs::util::kvikio_ofstream mat_of(file_path.string());
-  RAFT_EXPECTS(mat_of, "Cannot open file %s", file_path.string().c_str());
 
   cuvs::util::detail::serialize_mdspan(res, mat_of, mat);
 
@@ -73,7 +72,6 @@ void save_labels(raft::resources const& res,
     });
 
   cuvs::util::kvikio_ofstream labels_of(labels_path.string());
-  RAFT_EXPECTS(labels_of, "Cannot open file %s", labels_path.string().c_str());
 
   cuvs::util::detail::serialize_device_mdspan(res, labels_of, combined_labels.view());
 
@@ -106,7 +104,6 @@ void serialize(raft::resources const& res,
 
   const auto metadata_path = scann_path / "cuvs_metadata.bin";
   cuvs::util::kvikio_ofstream metadata_of(metadata_path.string());
-  RAFT_EXPECTS(metadata_of, "Cannot open file %s", metadata_path.string().c_str());
 
   raft::serialize_scalar(res, metadata_of, kSerializationVersion);
   raft::serialize_scalar(res, metadata_of, index_.dim());

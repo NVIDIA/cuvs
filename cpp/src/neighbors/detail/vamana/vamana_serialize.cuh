@@ -43,7 +43,6 @@ void serialize_dataset_view(raft::resources const& res,
                static_cast<long long>(dim));
 
   cuvs::util::kvikio_ofstream dataset_of(dataset_base_file);
-  if (!dataset_of) { RAFT_FAIL("Cannot open file %s", dataset_base_file.c_str()); }
   int const size = static_cast<int>(n_rows);
   int const cols = static_cast<int>(dim);
   dataset_of.write((char*)&size, sizeof(int));
@@ -334,7 +333,6 @@ void serialize(raft::resources const& res,
     // Write graph to disk index file with file name suffix according to DiskANN build_disk_index
     const std::string index_file_name = file_name + "_disk.index";
     cuvs::util::kvikio_ofstream index_of(index_file_name);
-    RAFT_EXPECTS(index_of, "Cannot open file %s", index_file_name.c_str());
 
     serialize_sector_aligned<T, IdxT>(
       res, h_graph, index_.data(), static_cast<uint64_t>(index_.medoid()), index_of);
@@ -370,7 +368,6 @@ void serialize(raft::resources const& res,
   }
 
   cuvs::util::kvikio_ofstream index_of(file_name);
-  RAFT_EXPECTS(index_of, "Cannot open file %s", file_name.c_str());
   index_of.write((char*)&index_size, sizeof(uint64_t));
   index_of.write((char*)&max_degree, sizeof(uint32_t));
   index_of.write((char*)&start, sizeof(uint32_t));

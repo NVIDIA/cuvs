@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <exception>
 #include <limits>
 #include <sys/stat.h>
 #include <vector>
@@ -260,12 +261,13 @@ void kvikio_file_reader::read_device(void* data, size_t size) { impl_->read_devi
 // kvikio at an increasing file offset. The trailing partial buffer is written on sync()/close().
 class kvikio_ofstream::sbuf : public std::streambuf {
  public:
-  sbuf(const std::string& path, size_t cap)
-    : path_(path), handle_(path, "w"), buffer_(std::max<size_t>(cap, kNumpyDataAlignment))
-  {
+  sbuf::sbuf(const std::string& path, size_t cap)
+  try : path_(path), handle_(path, "w"), buffer_(std::max<size_t>(cap, kNumpyDataAlignment)) {
     RAFT_EXPECTS(buffer_.size() <= static_cast<size_t>(std::numeric_limits<int>::max()),
                  "kvikio_ofstream buffer size must fit in std::streambuf::pbump");
     setp(buffer_.data(), buffer_.data() + buffer_.size());
+  } catch (const std::exception& e) {
+    RAFT_FAIL("Cannot open file %s for writing: %s", path.c_str(), e.what());
   }
 
   ~sbuf() override

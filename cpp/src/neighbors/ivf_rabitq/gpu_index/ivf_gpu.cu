@@ -346,7 +346,6 @@ void IVFGPU::save(const char* filename) const
   RAFT_EXPECTS(num_centroids > 0, "IVF index has not been constructed");
 
   cuvs::util::kvikio_ofstream output(filename);
-  RAFT_EXPECTS(output, "failed to open file for saving: %s", filename);
 
   auto write_exact = [&](const void* ptr, size_t n_bytes) {
     output.write(reinterpret_cast<const char*>(ptr), n_bytes);

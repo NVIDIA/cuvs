@@ -103,7 +103,6 @@ void serialize(raft::resources const& handle_,
                const index<IdxT>& index)
 {
   cuvs::util::kvikio_ofstream of(filename);
-  if (!of) { RAFT_FAIL("Cannot open file %s", filename.c_str()); }
 
   detail::serialize(handle_, of, index);
 

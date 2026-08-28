@@ -288,6 +288,21 @@ TEST(FileIO, KvikioOfstreamRoundTrip)
   EXPECT_EQ(got, data);
 }
 
+TEST(FileIO, KvikioOfstreamOpenFailureIncludesPath)
+{
+  scratch_dir scratch;
+  const std::string path = scratch.file("missing/stream.bin");
+
+  try {
+    kvikio_ofstream os(path);
+    FAIL() << "expected opening a file in a missing directory to fail";
+  } catch (const raft::exception& e) {
+    const std::string message = e.what();
+    EXPECT_NE(message.find("Cannot open file"), std::string::npos) << message;
+    EXPECT_NE(message.find(path), std::string::npos) << message;
+  }
+}
+
 // Verify the std::ostream substitution used by serializers, including formatted and unformatted
 // sequential output and current-position queries.
 TEST(FileIO, KvikioOfstreamSequentialOstreamInterface)

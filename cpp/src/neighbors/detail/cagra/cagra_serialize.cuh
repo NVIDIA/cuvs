@@ -159,7 +159,6 @@ void serialize(raft::resources const& res,
                "cuvs::neighbors::hnsw::from_cagra() and load it into memory via "
                "cuvs::neighbors::hnsw::deserialize() before serialization.");
   cuvs::util::kvikio_ofstream of(filename);
-  if (!of) { RAFT_FAIL("Cannot open file %s", filename.c_str()); }
 
   detail::serialize(res, of, index_, include_dataset);
 
@@ -496,7 +495,6 @@ void serialize_to_hnswlib(
                  dim);
 
   cuvs::util::kvikio_ofstream of(filename);
-  if (!of) { RAFT_FAIL("Cannot open file %s", filename.c_str()); }
 
   write_hnswlib_header<T, IdxT>(of, index_, dim);
   if constexpr (is_device_cagra_hnsw_serialize_index_v<T, IdxT, CagraIndexT>) {
