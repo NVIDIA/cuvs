@@ -84,9 +84,8 @@ public class TestNativeFlatBufferingGuardRails extends LuceneTestCase {
     int dimension = 32;
     float[][] dataset = generateDataset(random, actuallyIndexed, dimension);
 
-    AcceleratedHNSWParams params =
-        new AcceleratedHNSWParams.Builder().withNumInputVectors(declaredNumInputVectors).build();
-    Codec codec = new Lucene101AcceleratedHNSWCodec(params);
+    AcceleratedHNSWParams params = new AcceleratedHNSWParams.Builder().build();
+    Codec codec = new Lucene101AcceleratedHNSWCodec(params, declaredNumInputVectors);
     IndexWriterConfig config =
         new IndexWriterConfig()
             .setCodec(codec)
@@ -117,9 +116,8 @@ public class TestNativeFlatBufferingGuardRails extends LuceneTestCase {
     int dimension = 32;
     float[][] dataset = generateDataset(random, numDocs, dimension);
 
-    AcceleratedHNSWParams params =
-        new AcceleratedHNSWParams.Builder().withNumInputVectors(numDocs).build();
-    Codec codec = new Lucene101AcceleratedHNSWCodec(params);
+    AcceleratedHNSWParams params = new AcceleratedHNSWParams.Builder().build();
+    Codec codec = new Lucene101AcceleratedHNSWCodec(params, numDocs);
     Sort indexSort = new Sort(new SortField("sort_key", SortField.Type.LONG));
     IndexWriterConfig config =
         new IndexWriterConfig()
@@ -162,9 +160,8 @@ public class TestNativeFlatBufferingGuardRails extends LuceneTestCase {
     int segmentSize = 40;
     int dimension = 32;
 
-    AcceleratedHNSWParams params =
-        new AcceleratedHNSWParams.Builder().withNumInputVectors(segmentSize).build();
-    Codec codec = new Lucene101AcceleratedHNSWCodec(params);
+    AcceleratedHNSWParams params = new AcceleratedHNSWParams.Builder().build();
+    Codec codec = new Lucene101AcceleratedHNSWCodec(params, segmentSize);
     IndexWriterConfig config =
         new IndexWriterConfig()
             .setCodec(codec)

@@ -87,9 +87,8 @@ public class TestNativeFlatVectorsWriterRoundTrip extends LuceneTestCase {
     int dimension = 32;
     float[][] dataset = generateDataset(random, numDocs, dimension);
 
-    AcceleratedHNSWParams params =
-        new AcceleratedHNSWParams.Builder().withNumInputVectors(numDocs).build();
-    Codec codec = new Lucene101AcceleratedHNSWCodec(params);
+    AcceleratedHNSWParams params = new AcceleratedHNSWParams.Builder().build();
+    Codec codec = new Lucene101AcceleratedHNSWCodec(params, numDocs);
 
     // Force everything into a single unsorted, unmerged flush: native flat buffering requires
     // numInputVectors to equal the exact number of vectors landing in that one flush.
@@ -154,9 +153,8 @@ public class TestNativeFlatVectorsWriterRoundTrip extends LuceneTestCase {
     float[][] datasetA = generateDataset(random, numDocs, dimensionA);
     float[][] datasetB = generateDataset(random, numDocs, dimensionB);
 
-    AcceleratedHNSWParams params =
-        new AcceleratedHNSWParams.Builder().withNumInputVectors(numDocs).build();
-    Codec codec = new Lucene101AcceleratedHNSWCodec(params);
+    AcceleratedHNSWParams params = new AcceleratedHNSWParams.Builder().build();
+    Codec codec = new Lucene101AcceleratedHNSWCodec(params, numDocs);
 
     IndexWriterConfig config =
         new IndexWriterConfig()
@@ -197,9 +195,8 @@ public class TestNativeFlatVectorsWriterRoundTrip extends LuceneTestCase {
     Set<Integer> docsWithVector = randomDocSubset(numDocs, numDocsWithVector);
     float[][] dataset = generateDataset(random, numDocsWithVector, dimension);
 
-    AcceleratedHNSWParams params =
-        new AcceleratedHNSWParams.Builder().withNumInputVectors(numDocsWithVector).build();
-    Codec codec = new Lucene101AcceleratedHNSWCodec(params);
+    AcceleratedHNSWParams params = new AcceleratedHNSWParams.Builder().build();
+    Codec codec = new Lucene101AcceleratedHNSWCodec(params, numDocsWithVector);
 
     IndexWriterConfig config =
         new IndexWriterConfig()

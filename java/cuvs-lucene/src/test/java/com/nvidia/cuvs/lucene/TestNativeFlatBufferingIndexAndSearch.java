@@ -113,9 +113,8 @@ public class TestNativeFlatBufferingIndexAndSearch extends LuceneTestCase {
     int dimension = 32;
     float[][] dataset = generateDataset(random, numDocs, dimension);
 
-    AcceleratedHNSWParams params =
-        new AcceleratedHNSWParams.Builder().withNumInputVectors(numDocs).build();
-    Codec codec = new Lucene101AcceleratedHNSWCodec(params);
+    AcceleratedHNSWParams params = new AcceleratedHNSWParams.Builder().build();
+    Codec codec = new Lucene101AcceleratedHNSWCodec(params, numDocs);
     IndexWriterConfig config =
         new IndexWriterConfig()
             .setCodec(codec)
@@ -177,7 +176,6 @@ public class TestNativeFlatBufferingIndexAndSearch extends LuceneTestCase {
             .withCagraGraphBuildAlgo(CagraGraphBuildAlgo.NN_DESCENT)
             .withIntermediateGraphDegree(128)
             .withGraphDegree(oddGraphDegree)
-            .withNumInputVectors(numDocs)
             .build();
 
     buildNativeFlatBufferedIndex(numDocs, dimension, dataset, params);
@@ -193,16 +191,13 @@ public class TestNativeFlatBufferingIndexAndSearch extends LuceneTestCase {
   private void buildNativeFlatBufferedIndex(int numDocs, int dimension, float[][] dataset)
       throws Exception {
     buildNativeFlatBufferedIndex(
-        numDocs,
-        dimension,
-        dataset,
-        new AcceleratedHNSWParams.Builder().withNumInputVectors(numDocs).build());
+        numDocs, dimension, dataset, new AcceleratedHNSWParams.Builder().build());
   }
 
   private void buildNativeFlatBufferedIndex(
       int numDocs, int dimension, float[][] dataset, AcceleratedHNSWParams params)
       throws Exception {
-    Codec codec = new Lucene101AcceleratedHNSWCodec(params);
+    Codec codec = new Lucene101AcceleratedHNSWCodec(params, numDocs);
     IndexWriterConfig config =
         new IndexWriterConfig()
             .setCodec(codec)

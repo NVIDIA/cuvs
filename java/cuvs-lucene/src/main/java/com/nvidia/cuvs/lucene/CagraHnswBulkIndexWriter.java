@@ -113,9 +113,7 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
     ensureRMMEnabled();
     this.exactVectorCount = exactVectorCount;
 
-    Codec codec =
-        new Lucene101AcceleratedHNSWCodec(
-            sizedForSlice(config.graphBuildParams(), exactVectorCount));
+    Codec codec = new Lucene101AcceleratedHNSWCodec(config.graphBuildParams(), exactVectorCount);
     IndexWriterConfig ownedConf =
         new IndexWriterConfig(conf.getAnalyzer())
             .setSimilarity(conf.getSimilarity())
@@ -419,27 +417,6 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
     }
   }
 
-  /** Copies every knob from {@code template} except {@code numInputVectors}, set to {@code size}. */
-  private static AcceleratedHNSWParams sizedForSlice(AcceleratedHNSWParams template, int size) {
-    return new AcceleratedHNSWParams.Builder()
-        .withWriterThreads(template.getWriterThreads())
-        .withIntermediateGraphDegree(template.getIntermediateGraphDegree())
-        .withGraphDegree(template.getGraphdegree())
-        .withHNSWLayer(template.getHnswLayers())
-        .withMaxConn(template.getMaxConn())
-        .withBeamWidth(template.getBeamWidth())
-        .withCagraGraphBuildAlgo(template.getCagraGraphBuildAlgo())
-        .withCuVSIvfPqParams(template.getCuVSIvfPqParams())
-        .withNumMergeWorkers(template.getNumMergeWorkers())
-        .withMergeExecutorService(template.getMergeExec())
-        .withStrategy(template.getStrategy())
-        .withCuvsDistanceType(template.getCuvsDistanceType())
-        .withNNDescentNumIterations(template.getNNDescentNumIterations())
-        .withHnswHeuristicType(template.getHnswHeuristicType())
-        .withNumInputVectors(size)
-        .build();
-  }
-
   /**
    * Combines the per-segment indexes into {@code targetDir} by hardlinking their files (same
    * filesystem) rather than copying the vector data. {@link HardlinkCopyDirectoryWrapper} falls
@@ -602,11 +579,7 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
         return this;
       }
 
-      /**
-       * Sets the CAGRA/HNSW graph-build parameters; required. {@link
-       * AcceleratedHNSWParams#getNumInputVectors()} on the supplied instance is ignored — this
-       * class sizes the native flat buffer to each slice/instance itself.
-       */
+      /** Sets the CAGRA/HNSW graph-build parameters; required. */
       public Builder graphBuild(AcceleratedHNSWParams graphBuildParams) {
         this.graphBuildParams = Objects.requireNonNull(graphBuildParams, "graphBuildParams");
         return this;

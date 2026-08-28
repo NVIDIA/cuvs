@@ -66,7 +66,6 @@ public class AcceleratedHNSWParams {
   public static final int DEFAULT_NN_DESCENT_NUM_ITERATIONS = 20;
   public static final HnswHeuristicType DEFAULT_HNSW_HEURISTIC_TYPE =
       HnswHeuristicType.SAME_GRAPH_FOOTPRINT;
-  public static final int DEFAULT_NUM_INPUT_VECTORS = 0;
 
   public static final Supplier<CuVSIvfPqParams> DEFAULT_IVF_PQ_PARAMS =
       () -> {
@@ -92,7 +91,6 @@ public class AcceleratedHNSWParams {
   private final CuvsDistanceType cuvsDistanceType;
   private final int nnDescentNumIterations;
   private final HnswHeuristicType hnswHeuristicType;
-  private final int numInputVectors;
 
   /**
    * Constructs an instance of {@link AcceleratedHNSWParams} with specific parameter values.
@@ -116,7 +114,6 @@ public class AcceleratedHNSWParams {
    * @param nnDescentNumIterations the number of Iterations to run if building with NN_DESCENT.
    *     Only consulted under the {@link Strategy#CUSTOM} strategy.
    * @param hnswHeuristicType the heuristic cuVS applies when deriving the CAGRA build parameters from maxConn and beamWidth under the HEURISTIC strategy.
-   * @param numInputVectors exact number of vectors to be indexed, used to pre-size the native flat buffer (0 = disabled).
    */
   private AcceleratedHNSWParams(
       int writerThreads,
@@ -132,8 +129,7 @@ public class AcceleratedHNSWParams {
       Strategy strategy,
       CuvsDistanceType cuvsDistanceType,
       int nnDescentNumIterations,
-      HnswHeuristicType hnswHeuristicType,
-      int numInputVectors) {
+      HnswHeuristicType hnswHeuristicType) {
     super();
     this.writerThreads = writerThreads;
     this.intermediateGraphDegree = intermediateGraphDegree;
@@ -149,7 +145,6 @@ public class AcceleratedHNSWParams {
     this.cuvsDistanceType = cuvsDistanceType;
     this.nnDescentNumIterations = nnDescentNumIterations;
     this.hnswHeuristicType = hnswHeuristicType;
-    this.numInputVectors = numInputVectors;
   }
 
   /**
@@ -285,18 +280,6 @@ public class AcceleratedHNSWParams {
     return hnswHeuristicType;
   }
 
-  /**
-   * Get the number of input vectors used to pre-size the native flat buffer. A value of
-   * {@value DEFAULT_NUM_INPUT_VECTORS} means unset (the writer uses the default heap-buffered
-   * flat path). Not settable via the public {@link Builder} — only {@link CagraHnswBulkIndexWriter}
-   * sets this, on the internal, per-slice {@link AcceleratedHNSWParams} instance it builds itself.
-   *
-   * @return the number of vectors to be indexed, or 0 if unset
-   */
-  public int getNumInputVectors() {
-    return numInputVectors;
-  }
-
   @Override
   public String toString() {
     return "AcceleratedHNSWParams [writerThreads="
@@ -327,8 +310,6 @@ public class AcceleratedHNSWParams {
         + nnDescentNumIterations
         + ", hnswHeuristicType="
         + hnswHeuristicType
-        + ", numInputVectors="
-        + numInputVectors
         + "]";
   }
 
@@ -351,7 +332,6 @@ public class AcceleratedHNSWParams {
     private CuvsDistanceType cuvsDistanceType = DEFAULT_CUVS_DISTANCE_TYPE;
     private int nnDescentNumIterations = DEFAULT_NN_DESCENT_NUM_ITERATIONS;
     private HnswHeuristicType hnswHeuristicType = DEFAULT_HNSW_HEURISTIC_TYPE;
-    private int numInputVectors = DEFAULT_NUM_INPUT_VECTORS;
 
     /**
      * Set the number of cuVS writer threads while building the index
@@ -541,32 +521,6 @@ public class AcceleratedHNSWParams {
     }
 
     /**
-     * Sets the exact number of vectors to be indexed, used to pre-allocate a single contiguous
-     * native flat buffer (avoiding the on-heap {@code List<float[]>} and the extra host-matrix
-     * copy). The native buffer is sized for exactly this many rows, so the value MUST equal the
-     * number of vectors actually added; the writer fails fast otherwise. Only supported for the
-     * unsorted single-segment CAGRA_HNSW build (no merges). Not yet supported for the
-     * binary/scalar quantized writers.
-     *
-     * <p><b>Not public API.</b> The guarantee above only holds if the caller fully owns {@code
-     * IndexWriterConfig}'s flush policy for the life of the batch — auto-flush disabled, no
-     * merges, no index sort — which most platforms embedding Lucene (Solr, Elasticsearch,
-     * OpenSearch) cannot promise, since they manage their own {@code IndexWriter} lifecycle. Rather
-     * than expose a knob a generic codec user could misconfigure and only find out at runtime, this
-     * is package-private and set only by {@link CagraHnswBulkIndexWriter}, which is the sole caller
-     * that constructs and owns the {@code IndexWriter} itself and can therefore guarantee the
-     * invariant. Use {@link CagraHnswBulkIndexWriter} for bulk building from local data; construct this
-     * codec directly (without this knob) for the general Lucene extension point.
-     *
-     * @param numInputVectors the exact number of vectors to be indexed, or 0 to disable
-     * @return instance of {@link Builder}
-     */
-    Builder withNumInputVectors(int numInputVectors) {
-      this.numInputVectors = numInputVectors;
-      return this;
-    }
-
-    /**
      * Validates the input parameters.
      *
      * @throws IllegalArgumentException
@@ -650,9 +604,6 @@ public class AcceleratedHNSWParams {
                 + MAX_NN_DESCENT_NUM_ITERATIONS
                 + "]");
       }
-      if (numInputVectors < 0) {
-        throw new IllegalArgumentException("numInputVectors cannot be negative.");
-      }
     }
 
     /**
@@ -682,8 +633,7 @@ public class AcceleratedHNSWParams {
           strategy,
           cuvsDistanceType,
           nnDescentNumIterations,
-          hnswHeuristicType,
-          numInputVectors);
+          hnswHeuristicType);
     }
   }
 }
