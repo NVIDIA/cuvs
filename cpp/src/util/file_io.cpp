@@ -261,7 +261,7 @@ void kvikio_file_reader::read_device(void* data, size_t size) { impl_->read_devi
 // kvikio at an increasing file offset. The trailing partial buffer is written on sync()/close().
 class kvikio_ofstream::sbuf : public std::streambuf {
  public:
-  sbuf::sbuf(const std::string& path, size_t cap)
+  sbuf(const std::string& path, size_t cap)
   try : path_(path), handle_(path, "w"), buffer_(std::max<size_t>(cap, kNumpyDataAlignment)) {
     RAFT_EXPECTS(buffer_.size() <= static_cast<size_t>(std::numeric_limits<int>::max()),
                  "kvikio_ofstream buffer size must fit in std::streambuf::pbump");
