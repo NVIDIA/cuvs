@@ -4,7 +4,6 @@
  */
 package com.nvidia.cuvs.lucene;
 
-import com.nvidia.cuvs.spi.CuVSProvider;
 import java.io.Closeable;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -17,7 +16,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.Semaphore;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Stream;
 import org.apache.lucene.codecs.Codec;
 import org.apache.lucene.document.Document;
@@ -68,7 +66,6 @@ import org.apache.lucene.store.FSDirectory;
 public final class CagraHnswBulkIndexWriter implements Closeable {
 
   private static final int DEFAULT_CHUNK_SIZE_MB = 32;
-  private static final AtomicBoolean RMM_ENABLED = new AtomicBoolean(false);
 
   private final IndexWriter writer;
   private final int exactVectorCount;
@@ -110,7 +107,6 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
               + " buffering requires an unsorted single-segment build); leave"
               + " IndexWriterConfig.indexSort unset");
     }
-    ensureRMMEnabled();
     this.exactVectorCount = exactVectorCount;
 
     Codec codec = new Lucene101AcceleratedHNSWCodec(config.graphBuildParams(), exactVectorCount);
@@ -270,12 +266,6 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
       try (FbinVectorSource source = new FbinVectorSource(fbinPath, chunkSizeMB)) {
         buildSequential(source, config, callback, slices);
       }
-    }
-  }
-
-  private static void ensureRMMEnabled() {
-    if (RMM_ENABLED.compareAndSet(false, true)) {
-      CuVSProvider.provider().enableRMMAsyncMemory();
     }
   }
 

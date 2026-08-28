@@ -8,6 +8,7 @@ import com.nvidia.cuvs.CagraIndexParams.CuvsDistanceType;
 import com.nvidia.cuvs.lucene.AcceleratedHNSWParams;
 import com.nvidia.cuvs.lucene.CagraHnswBulkIndexWriter;
 import com.nvidia.cuvs.lucene.FbinVectorSource;
+import com.nvidia.cuvs.spi.CuVSProvider;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -70,6 +71,10 @@ public class OptimizedCagraHnswBuildExample {
   private static final String VECTOR_FIELD = "vector_field";
 
   public static void main(String[] args) throws Exception {
+    // It is recommended to enable RMM allocation mode at application start, before constructing
+    // any CagraHnswBulkIndexWriter, to avoid device-wide sync from the default allocator.
+    CuVSProvider.provider().enableRMMAsyncMemory();
+
     int chunkSizeMB = args.length >= 2 ? Integer.parseInt(args[1]) : 32;
     int numSegments = args.length >= 3 ? Math.max(1, Integer.parseInt(args[2])) : 1;
     boolean overlap = args.length >= 4 && Boolean.parseBoolean(args[3]);

@@ -8,6 +8,7 @@ import static com.nvidia.cuvs.lucene.TestUtils.generateDataset;
 import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.isSupported;
 import static org.apache.lucene.index.VectorSimilarityFunction.EUCLIDEAN;
 
+import com.nvidia.cuvs.spi.CuVSProvider;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -32,6 +33,7 @@ import org.apache.lucene.tests.util.LuceneTestCase;
 import org.apache.lucene.tests.util.LuceneTestCase.SuppressSysoutChecks;
 import org.junit.After;
 import org.junit.Before;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 /**
@@ -54,6 +56,17 @@ public class TestCagraHnswBulkIndexWriter extends LuceneTestCase {
   private Random random;
   private Path indexDirPath;
   private Path fbinPath;
+
+  @BeforeClass
+  public static void beforeClass() {
+    // It is recommended to enable RMM allocation mode at application start, before constructing
+    // any CagraHnswBulkIndexWriter, to avoid device-wide sync from the default allocator.
+    try {
+      CuVSProvider.provider().enableRMMAsyncMemory();
+    } catch (UnsupportedOperationException unsupported) {
+      assumeTrue("cuVS not supported: " + unsupported.getMessage(), false);
+    }
+  }
 
   @Before
   public void beforeTest() {
