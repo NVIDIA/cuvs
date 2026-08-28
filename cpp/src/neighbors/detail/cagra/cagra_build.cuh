@@ -830,7 +830,7 @@ void ace_reorder_and_store_dataset(
 }
 
 // ACE: Load partition dataset and augmented dataset from disk
-template <typename T, typename IdxT>
+template <typename T, typename IdxT, typename Accessor>
 void ace_load_partition_dataset_from_disk(
   size_t partition_id,
   size_t dataset_dim,
@@ -841,12 +841,13 @@ void ace_load_partition_dataset_from_disk(
   const cuvs::util::file_descriptor& augmented_fd,
   size_t reordered_header_size,
   size_t augmented_header_size,
-  T* sub_dataset_ptr)
+  raft::mdspan<T, raft::matrix_extent<int64_t>, raft::row_major, Accessor> sub_dataset)
 {
   RAFT_LOG_DEBUG("ACE: Loading partition %lu dataset from disk", partition_id);
 
   const std::string reordered_path = reordered_fd.get_path();
   const std::string augmented_path = augmented_fd.get_path();
+  T* sub_dataset_ptr               = sub_dataset.data_handle();
   RAFT_EXPECTS(sub_dataset_ptr != nullptr, "ACE: sub-dataset destination must not be null");
   RAFT_EXPECTS(reordered_fd.is_valid() && !reordered_path.empty(),
                "ACE: reordered dataset file descriptor is not valid");
@@ -861,6 +862,16 @@ void ace_load_partition_dataset_from_disk(
 
   size_t core_size      = partition_histogram(partition_id, 0);
   size_t augmented_size = partition_histogram(partition_id, 1);
+  size_t total_size     = core_size + augmented_size;
+
+  RAFT_EXPECTS(static_cast<size_t>(sub_dataset.extent(0)) == total_size,
+               "ACE: sub-dataset rows (%zu) must match partition size (%zu)",
+               static_cast<size_t>(sub_dataset.extent(0)),
+               total_size);
+  RAFT_EXPECTS(static_cast<size_t>(sub_dataset.extent(1)) == dataset_dim,
+               "ACE: sub-dataset columns (%zu) must match dataset dimensions (%zu)",
+               static_cast<size_t>(sub_dataset.extent(1)),
+               dataset_dim);
 
   RAFT_LOG_DEBUG("ACE: Partition %lu: %lu core + %lu augmented = %lu total vectors",
                  partition_id,
@@ -1590,7 +1601,7 @@ auto build_ace(raft::resources const& res, const index_params& params, DatasetVi
                                                             augmented_fd,
                                                             reordered_header_size,
                                                             augmented_header_size,
-                                                            sub_dataset_tight.data_handle());
+                                                            sub_dataset_tight.view());
               read_end              = std::chrono::high_resolution_clock::now();
               auto sub_dataset_view = raft::make_const_mdspan(sub_dataset_tight.view());
               std::unique_ptr<cuvs::neighbors::device_padded_dataset<T, int64_t>>
@@ -1627,7 +1638,7 @@ auto build_ace(raft::resources const& res, const index_params& params, DatasetVi
                                                         augmented_fd,
                                                         reordered_header_size,
                                                         augmented_header_size,
-                                                        sub_dataset.data_handle());
+                                                        sub_dataset.view());
           read_end              = std::chrono::high_resolution_clock::now();
           auto sub_dataset_view = cuvs::neighbors::make_host_standard_dataset_view(
             raft::make_const_mdspan(sub_dataset.view()));
