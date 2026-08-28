@@ -18,10 +18,11 @@
 #include <raft/core/resource/device_memory_resource.hpp>
 #include <raft/util/cudart_utils.hpp>
 
+#include <rmm/cuda_stream_pool.hpp>
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_uvector.hpp>
+#include <rmm/mr/cuda_async_managed_memory_resource.hpp>
 #include <rmm/mr/failure_callback_resource_adaptor.hpp>
-#include <rmm/mr/managed_memory_resource.hpp>
 #include <rmm/mr/per_device_resource.hpp>
 #include <rmm/mr/pool_memory_resource.hpp>
 #include <rmm/resource_ref.hpp>
@@ -30,6 +31,13 @@
 #include <type_traits>
 
 namespace cuvs::bench {
+
+/** Create streams that do not implicitly synchronize with the default stream. */
+inline auto make_non_blocking_stream_pool(size_t n_streams)
+  -> std::shared_ptr<rmm::cuda_stream_pool>
+{
+  return std::make_shared<rmm::cuda_stream_pool>(n_streams, rmm::cuda_stream::flags::non_blocking);
+}
 
 inline auto parse_metric_type(cuvs::bench::Metric metric) -> cuvs::distance::DistanceType
 {
@@ -67,7 +75,7 @@ inline auto rmm_oom_callback(std::size_t bytes, void*) -> bool
  */
 class shared_raft_resources {
  public:
-  using large_mr_type = rmm::mr::managed_memory_resource;
+  using large_mr_type = rmm::mr::cuda_async_managed_memory_resource;
 
   shared_raft_resources()
   try : large_mr_() {
