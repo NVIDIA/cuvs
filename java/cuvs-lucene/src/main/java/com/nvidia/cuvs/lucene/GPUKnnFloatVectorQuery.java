@@ -74,7 +74,18 @@ public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
   /** Smallest supported CAGRA intermediate-result count. */
   public static final int MIN_ITOPK = 1;
 
-  /** Largest intermediate-result count representable by the public Java API. */
+  /**
+   * Largest intermediate-result count representable by the public Java API.
+   *
+   * <p>This is a representational limit only, not a guarantee that every value up to this bound
+   * is supported for every search. Native CAGRA sizes internal traversal hash tables from a
+   * combination of itopk_size, search_width, max_iterations, and (for MULTI_CTA, which a normal
+   * one-query {@code AUTO} search resolves to) the graph degree and dataset size — none of which
+   * are all known at query-construction time. Combinations that exceed native CAGRA's hash-table
+   * capacity are rejected by native CAGRA itself with a clear exception (see {@link
+   * Utils#handleThrowable}); this class does not attempt to replicate that dataset- and
+   * algorithm-dependent sizing logic.
+   */
   public static final int MAX_ITOPK = Integer.MAX_VALUE;
 
   /** Largest intermediate-result count supported by CAGRA's SINGLE_CTA search algorithm. */
@@ -86,6 +97,12 @@ public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
   /**
    * Largest search width that keeps CAGRA's result buffer within its unsigned 32-bit indexing
    * limit at the maximum graph degree and aligned {@link #MAX_ITOPK}.
+   *
+   * <p>This bound alone does not guarantee a given (iTopK, searchWidth) pair is supported: as
+   * with {@link #MAX_ITOPK}, native CAGRA may still reject a combination that exceeds its
+   * traversal hash table's capacity (e.g. the MULTI_CTA path used by a normal one-query {@code
+   * AUTO} search), since that capacity also depends on max_iterations, graph degree, and dataset
+   * size, which are not known here.
    */
   public static final int MAX_SEARCH_WIDTH = 4_194_303;
 
@@ -147,7 +164,26 @@ public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
       int iTopK, int searchWidth, int k, CagraSearchParams.SearchAlgo searchAlgo) {
     validateRange("iTopK", iTopK, MIN_ITOPK, MAX_ITOPK);
     validateRange("searchWidth", searchWidth, MIN_SEARCH_WIDTH, MAX_SEARCH_WIDTH);
-    int effectiveITopK = Math.max(iTopK, k);
+    // This is a lower bound on the effective iTopK actually sent to native CAGRA: the filtered
+    // per-segment fallback path (see CuVS2510GPUVectorsReader) can raise topK further based on
+    // filter cardinality, so a later, authoritative check is required at that point too — see
+    // validateSingleCtaItopk below.
+    validateSingleCtaItopk(Math.max(iTopK, k), searchAlgo);
+  }
+
+  /**
+   * Validates that {@code effectiveITopK} — the itopk_size value actually about to be sent to
+   * native CAGRA — does not exceed the SINGLE_CTA algorithm's limit.
+   *
+   * <p>Callers that can further increase itopk_size after construction (e.g. the filtered
+   * per-segment fallback path, which raises topK based on filter cardinality) must call this
+   * again with the final, post-adjustment value immediately before building {@link
+   * CagraSearchParams}.
+   *
+   * @param effectiveITopK the itopk_size value about to be sent to native CAGRA
+   * @param searchAlgo the CAGRA search algorithm the query will run under
+   */
+  static void validateSingleCtaItopk(int effectiveITopK, CagraSearchParams.SearchAlgo searchAlgo) {
     if (searchAlgo == CagraSearchParams.SearchAlgo.SINGLE_CTA
         && effectiveITopK > MAX_SINGLE_CTA_ITOPK) {
       throw new IllegalArgumentException(

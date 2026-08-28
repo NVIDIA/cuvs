@@ -79,9 +79,10 @@ public class TestGPUSearchParams extends LuceneTestCase {
   }
 
   @Test
-  public void testGraphDegreeMustNotExceedIntermediateGraphDegree() {
+  public void testGraphDegreeMustNotExceedIntermediateGraphDegreeUnderCustomStrategy() {
     GPUSearchParams params =
         new GPUSearchParams.Builder()
+            .withStrategy(GPUSearchParams.Strategy.CUSTOM)
             .withGraphDegree(DEFAULT_GRAPH_DEGREE)
             .withIntermediateGraphDegree(DEFAULT_GRAPH_DEGREE)
             .build();
@@ -91,6 +92,7 @@ public class TestGPUSearchParams extends LuceneTestCase {
         IllegalArgumentException.class,
         () ->
             new GPUSearchParams.Builder()
+                .withStrategy(GPUSearchParams.Strategy.CUSTOM)
                 .withGraphDegree(DEFAULT_GRAPH_DEGREE + 1)
                 .withIntermediateGraphDegree(DEFAULT_GRAPH_DEGREE)
                 .build());
@@ -98,9 +100,25 @@ public class TestGPUSearchParams extends LuceneTestCase {
         IllegalArgumentException.class,
         () ->
             new GPUSearchParams.Builder()
+                .withStrategy(GPUSearchParams.Strategy.CUSTOM)
                 .withIntermediateGraphDegree(DEFAULT_GRAPH_DEGREE)
                 .withGraphDegree(DEFAULT_GRAPH_DEGREE + 1)
                 .build());
+  }
+
+  @Test
+  public void testGraphDegreeRelationshipNotEnforcedUnderHeuristicStrategy() {
+    // Under HEURISTIC, the intermediate degree is derived from the graph degree and the
+    // configured value is ignored, so a configured graphDegree > intermediateGraphDegree must not
+    // fail to build.
+    GPUSearchParams params =
+        new GPUSearchParams.Builder()
+            .withStrategy(GPUSearchParams.Strategy.HEURISTIC)
+            .withGraphDegree(DEFAULT_GRAPH_DEGREE + 1)
+            .withIntermediateGraphDegree(DEFAULT_GRAPH_DEGREE)
+            .build();
+    assertEquals(DEFAULT_GRAPH_DEGREE + 1, params.getGraphdegree());
+    assertEquals(DEFAULT_GRAPH_DEGREE, params.getIntermediateGraphDegree());
   }
 
   @Test

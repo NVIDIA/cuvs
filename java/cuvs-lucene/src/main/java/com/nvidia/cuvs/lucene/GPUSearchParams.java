@@ -421,7 +421,7 @@ public class GPUSearchParams {
                 + MAX_GRAPH_DEG
                 + "]");
       }
-      if (graphdegree > intermediateGraphDegree) {
+      if (strategy == Strategy.CUSTOM && graphdegree > intermediateGraphDegree) {
         throw new IllegalArgumentException(
             "graphDegree must not be greater than intermediateGraphDegree.");
       }
