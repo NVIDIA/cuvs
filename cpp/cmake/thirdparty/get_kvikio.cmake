@@ -30,9 +30,11 @@ function(find_and_configure_kvikio)
     GIT_TAG ${PKG_PINNED_TAG}
     GIT_SHALLOW TRUE
     SOURCE_SUBDIR cpp
-    # Force KvikIO checkout to get public headers.
-    PATCH_COMMAND ""
-    OPTIONS "KvikIO_BUILD_EXAMPLES OFF" "KvikIO_REMOTE_SUPPORT OFF"
+    OPTIONS
+      "KvikIO_BUILD_BENCHMARKS OFF"
+      "KvikIO_BUILD_EXAMPLES OFF"
+      "KvikIO_BUILD_NSYS_PLUGIN OFF"
+      "KvikIO_REMOTE_SUPPORT OFF"
   )
 endfunction()
 
