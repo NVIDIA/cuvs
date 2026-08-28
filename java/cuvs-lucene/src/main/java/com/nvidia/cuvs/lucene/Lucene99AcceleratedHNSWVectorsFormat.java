@@ -91,8 +91,7 @@ public class Lucene99AcceleratedHNSWVectorsFormat extends KnnVectorsFormat {
             acceleratedHNSWParams.getNumMergeWorkers(),
             new TaskExecutor(acceleratedHNSWParams.getMergeExec()));
       } catch (Exception e) {
-        Utils.handleThrowable(e);
-        throw new AssertionError("handleThrowable always throws"); // unreachable
+        throw Utils.handleThrowable(e);
       }
     }
   }
@@ -106,8 +105,7 @@ public class Lucene99AcceleratedHNSWVectorsFormat extends KnnVectorsFormat {
       return LUCENE_PROVIDER.getLuceneHnswVectorsReaderInstance(
           state, FLAT_VECTORS_FORMAT.fieldsReader(state));
     } catch (Exception e) {
-      Utils.handleThrowable(e);
-      throw new AssertionError("handleThrowable always throws"); // unreachable
+      throw Utils.handleThrowable(e);
     }
   }
 

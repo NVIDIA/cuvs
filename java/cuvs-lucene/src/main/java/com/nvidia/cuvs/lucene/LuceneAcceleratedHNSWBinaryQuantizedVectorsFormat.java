@@ -89,8 +89,7 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat extends KnnVector
                 acceleratedHNSWParams.getMaxConn(), acceleratedHNSWParams.getBeamWidth());
         return fallbackFormat.fieldsWriter(state);
       } catch (Exception e) {
-        Utils.handleThrowable(e);
-        throw new AssertionError("handleThrowable always throws"); // unreachable
+        throw Utils.handleThrowable(e);
       }
     }
   }
@@ -104,8 +103,7 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat extends KnnVector
       return LUCENE99_PROVIDER.getLuceneHnswVectorsReaderInstance(
           state, FLAT_VECTORS_FORMAT.fieldsReader(state));
     } catch (Exception e) {
-      Utils.handleThrowable(e);
-      throw new AssertionError("handleThrowable always throws"); // unreachable
+      throw Utils.handleThrowable(e);
     }
   }
 

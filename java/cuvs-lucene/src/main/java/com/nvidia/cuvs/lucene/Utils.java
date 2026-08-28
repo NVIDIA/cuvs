@@ -33,10 +33,15 @@ public class Utils {
    * <p>In particular, {@link Error} instances must not be converted to a {@link
    * RuntimeException}; callers rely on errors retaining their original type and stack trace.
    *
+   * <p>This method never returns normally; its return type exists solely so callers can write
+   * {@code throw handleThrowable(t);}, letting the compiler verify that the enclosing statement
+   * always completes abruptly.
+   *
    * @param t the throwable object
+   * @return never returns; always throws
    * @throws IOException
    */
-  static void handleThrowable(Throwable t) throws IOException {
+  static RuntimeException handleThrowable(Throwable t) throws IOException {
     switch (t) {
       case IOException ioe -> throw ioe;
       case Error error -> throw error;
