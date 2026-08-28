@@ -96,7 +96,8 @@ void expect_multi_partition_search_throws(
     part_padded.emplace_back(handle, view);
     auto const& padded = part_padded.back().view;
     part_indices.push_back(cagra::build(handle, index_params, padded));
-    part_indices.back().update_device_dataset_same_layout(handle, padded);
+    auto& part_index = part_indices.back();
+    part_index       = cagra::update_dataset(handle, std::move(part_index), padded);
   }
   std::vector<const cagra::index<float, std::uint32_t>*> index_ptrs;
   for (auto& idx : part_indices) {

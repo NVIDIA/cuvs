@@ -100,6 +100,7 @@ repos:
         files: ^java/(cuvs-java|cuvs-lucene)/([^/]+/)?src/.*\.java$
         exclude: .*/panama/.*
         language: script
+        verbose: true
       - id: clang-format-with-cmake-placeholders
         name: clang-format-with-cmake-placeholders
         entry: python3 ci/checks/clang_format_with_cmake_placeholders.py

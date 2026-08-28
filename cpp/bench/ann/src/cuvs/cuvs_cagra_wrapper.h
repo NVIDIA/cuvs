@@ -418,8 +418,8 @@ void cuvs_cagra<T, IdxT>::compress_dataset(const T* dataset, size_t nrow)
   // Search runs on the compressed rows and the graph, so release the dense copy of the dataset.
   cuvs::neighbors::device_padded_dataset_view<T, int64_t> empty_dv(
     raft::make_device_matrix_view(static_cast<T const*>(nullptr), 0, this->dim_), this->dim_);
-  index_->update_device_dataset_same_layout(handle_, empty_dv);
-  *dataset_            = raft::make_device_matrix<T, int64_t>(handle_, 0, 0);
+  *index_   = cuvs::neighbors::cagra::update_dataset(handle_, std::move(*index_), empty_dv);
+  *dataset_ = raft::make_device_matrix<T, int64_t>(handle_, 0, 0);
   need_dataset_update_ = false;
 }
 
@@ -485,7 +485,7 @@ void cuvs_cagra<T, IdxT>::set_search_param(const search_param_base& param,
     *dataset_ = raft::make_device_matrix<T, int64_t>(handle_, 0, 0);
     cuvs::neighbors::device_padded_dataset_view<T, int64_t> empty_dv(
       raft::make_device_matrix_view(static_cast<T const*>(nullptr), 0, this->dim_), this->dim_);
-    index_->update_device_dataset_same_layout(handle_, empty_dv);
+    *index_ = cuvs::neighbors::cagra::update_dataset(handle_, std::move(*index_), empty_dv);
 
     // Allocate space using the correct memory resource.
     RAFT_LOG_DEBUG("moving dataset to new memory space: %s",
@@ -498,7 +498,7 @@ void cuvs_cagra<T, IdxT>::set_search_param(const search_param_base& param,
       raft::make_device_matrix_view(
         dataset_->data_handle(), dataset_->extent(0), dataset_->extent(1)),
       this->dim_);
-    index_->update_device_dataset_same_layout(handle_, dv);
+    *index_ = cuvs::neighbors::cagra::update_dataset(handle_, std::move(*index_), dv);
 
     need_dataset_update_         = false;
     needs_dynamic_batcher_update = true;
@@ -562,11 +562,15 @@ void cuvs_cagra<T, IdxT>::set_search_dataset(const T* dataset, size_t nrow)
       auto& sub_dataset_buffer = (*sub_dataset_buffers_)[i];
       sub_dataset_buffer       = raft::make_device_matrix<T, int64_t>(handle_, 0, 0);
       if (dataset_is_on_host) {
-        sub_index->update_device_dataset_same_layout(
-          handle_, detail::make_padded_view<T>(handle_, sub_host, sub_dataset_buffer));
+        *sub_index = cuvs::neighbors::cagra::update_dataset(
+          handle_,
+          std::move(*sub_index),
+          detail::make_padded_view<T>(handle_, sub_host, sub_dataset_buffer));
       } else {
-        sub_index->update_device_dataset_same_layout(
-          handle_, detail::make_padded_view<T>(handle_, sub_dev, sub_dataset_buffer));
+        *sub_index = cuvs::neighbors::cagra::update_dataset(
+          handle_,
+          std::move(*sub_index),
+          detail::make_padded_view<T>(handle_, sub_dev, sub_dataset_buffer));
       }
     }
     need_dataset_update_ = false;
