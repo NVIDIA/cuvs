@@ -77,14 +77,19 @@ public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
   /**
    * Largest intermediate-result count representable by the public Java API.
    *
-   * <p>This is a representational limit only, not a guarantee that every value up to this bound
-   * is supported for every search. Native CAGRA sizes internal traversal hash tables from a
-   * combination of itopk_size, search_width, max_iterations, and (for MULTI_CTA, which a normal
-   * one-query {@code AUTO} search resolves to) the graph degree and dataset size — none of which
-   * are all known at query-construction time. Combinations that exceed native CAGRA's hash-table
-   * capacity are rejected by native CAGRA itself with a clear exception (see {@link
-   * Utils#handleThrowable}); this class does not attempt to replicate that dataset- and
-   * algorithm-dependent sizing logic.
+   * <p>This is a representational limit only. It is emphatically not a supported maximum: values
+   * anywhere near it are rejected by native CAGRA in practice. Native CAGRA sizes internal
+   * traversal hash tables from a combination of itopk_size, search_width, max_iterations, and
+   * (for MULTI_CTA, which a normal one-query {@code AUTO} search resolves to) the graph degree
+   * and dataset size, none of which are all known at query-construction time, so this class does
+   * not attempt to replicate that sizing logic.
+   *
+   * <p>Moderately oversized combinations are rejected by native CAGRA with a clear exception (see
+   * {@link Utils#handleThrowable}). Very large values are not: above roughly 1e9, native CAGRA's
+   * hash-table sizing loop fails to terminate and the search hangs instead of returning an error.
+   * See <a href="https://github.com/NVIDIA/cuvs/issues/2523">#2523</a>. Callers should treat
+   * itopk_size as bounded by what their algorithm and dataset actually support, not by this
+   * constant.
    */
   public static final int MAX_ITOPK = Integer.MAX_VALUE;
 
