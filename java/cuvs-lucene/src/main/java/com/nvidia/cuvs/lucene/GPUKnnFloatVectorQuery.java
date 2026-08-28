@@ -63,9 +63,10 @@ import org.apache.lucene.util.FixedBitSet;
  * upload is cached inside the handle itself across threads.
  *
  * <p>Falls back to the standard per-segment Lucene path when the optimized path cannot be
- * applied: mixed segment types, a missing CAGRA index for the field on any segment, or segments
- * whose built CAGRA graphs differ in degree (a single multi-partition request requires a uniform
- * graph degree, and a small segment can have its degree truncated at build time).
+ * applied: a single segment (which preserves Lucene's exact search for selective filters), mixed
+ * segment types, a missing CAGRA index for the field on any segment, or segments whose built CAGRA
+ * graphs differ in degree (a single multi-partition request requires a uniform graph degree, and a
+ * small segment can have its degree truncated at build time).
  *
  * @since 25.10
  */
@@ -134,6 +135,9 @@ public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
     List<LeafReaderContext> leaves = reader.leaves();
     if (leaves.isEmpty()) {
       return new MatchNoDocsQuery();
+    }
+    if (leaves.size() == 1) {
+      return super.rewrite(indexSearcher);
     }
 
     // Collect a CuVS2510GPUVectorsReader for every segment; fall back if any segment lacks one,
