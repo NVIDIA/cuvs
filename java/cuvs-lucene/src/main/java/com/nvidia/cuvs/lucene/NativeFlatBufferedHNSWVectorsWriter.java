@@ -165,8 +165,39 @@ final class NativeFlatBufferedHNSWVectorsWriter extends KnnVectorsWriter {
   @Override
   public void close() throws IOException {
     printInfoStream(infoStream, COMPONENT, "Closing resources");
-    IOUtils.close(graphOutput, nativeFlat);
-    closeCuVSResourcesInstance();
+    try {
+      releaseAllNativeBuffers();
+    } finally {
+      IOUtils.close(graphOutput, nativeFlat);
+      closeCuVSResourcesInstance();
+    }
+  }
+
+  /**
+   * Releases every field's native host matrix. {@link #writeFieldNative} already releases a
+   * field's buffer once its write succeeds, but that is not a reliable place to guarantee cleanup:
+   * a count mismatch throws before that field's buffer is ever touched, and any field failing
+   * aborts {@link #flush}'s loop before later fields are even reached. This is the guaranteed
+   * backstop, run unconditionally on close regardless of how flush exited.
+   * {@link NativeFieldWriter#releaseNativeBuffer} is idempotent, so re-releasing an
+   * already-released field here is a safe no-op.
+   */
+  private void releaseAllNativeBuffers() {
+    RuntimeException firstFailure = null;
+    for (var field : fields) {
+      try {
+        field.releaseNativeBuffer();
+      } catch (RuntimeException e) {
+        if (firstFailure == null) {
+          firstFailure = e;
+        } else {
+          firstFailure.addSuppressed(e);
+        }
+      }
+    }
+    if (firstFailure != null) {
+      throw firstFailure;
+    }
   }
 
   /**

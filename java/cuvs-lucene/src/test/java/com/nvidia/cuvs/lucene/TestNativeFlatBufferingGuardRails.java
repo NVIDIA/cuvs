@@ -36,9 +36,10 @@ import org.junit.Before;
 import org.junit.Test;
 
 /**
- * Negative-path coverage for the three guard rails in {@code Lucene99AcceleratedHNSWVectorsWriter}
- * around {@code AcceleratedHNSWParams.numInputVectors} (native flat buffering): a count mismatch,
- * an index-sorted segment, and a merge attempt. None of these had test coverage before.
+ * Negative-path coverage for the guard rails in {@code NativeFlatBufferedHNSWVectorsWriter} around
+ * {@code numInputVectors} (native flat buffering): a count mismatch, an index-sorted segment, a
+ * merge attempt, and that a count mismatch on one field doesn't leave another field's native
+ * buffer unreleased on close.
  *
  * <p>Positive-path coverage (does a natively-buffered index actually search correctly, tolerate
  * deletions, etc.) lives separately in {@link TestNativeFlatBufferingIndexAndSearch}.
@@ -106,6 +107,56 @@ public class TestNativeFlatBufferingGuardRails extends LuceneTestCase {
       assertTrue(
           "unexpected message: " + thrown.getMessage(),
           thrown.getMessage().contains("numInputVectors"));
+    }
+  }
+
+  /**
+   * When one field's native buffer fails the count-mismatch guard, {@code flush}'s per-field loop
+   * throws immediately -- a later field, even if it was populated correctly, is never reached by
+   * {@code writeFieldNative} and so never gets its native buffer released there. Confirms {@code
+   * NativeFlatBufferedHNSWVectorsWriter#close} still releases every field's buffer as a backstop
+   * regardless of what flush reached, by asserting close does not throw even though the second
+   * field's buffer was never touched during the failed flush.
+   */
+  @Test
+  public void testCloseAfterCountMismatchReleasesEveryFieldsBuffer() throws Exception {
+    int declaredNumInputVectors = 50;
+    int dimension = 16;
+    // fieldA is added to documents first, so it is flush()'s first (and only-attempted) field;
+    // fieldB is added second and, unlike fieldA, is fully and correctly filled on every document.
+    String fieldA = "vector_field_a";
+    String fieldB = "vector_field_b";
+    float[][] datasetA = generateDataset(random, declaredNumInputVectors - 1, dimension);
+    float[][] datasetB = generateDataset(random, declaredNumInputVectors, dimension);
+
+    AcceleratedHNSWParams params = new AcceleratedHNSWParams.Builder().build();
+    Codec codec = new Lucene101AcceleratedHNSWCodec(params, declaredNumInputVectors);
+    IndexWriterConfig config =
+        new IndexWriterConfig()
+            .setCodec(codec)
+            .setUseCompoundFile(false)
+            .setMaxBufferedDocs(declaredNumInputVectors + 1)
+            .setRAMBufferSizeMB(IndexWriterConfig.DISABLE_AUTO_FLUSH)
+            .setMergePolicy(NoMergePolicy.INSTANCE);
+
+    try (Directory dir = FSDirectory.open(indexDirPath);
+        IndexWriter writer = new IndexWriter(dir, config)) {
+      for (int i = 0; i < declaredNumInputVectors; i++) {
+        Document document = new Document();
+        document.add(new StringField(ID_FIELD, Integer.toString(i), Field.Store.YES));
+        // Skip fieldA on the last doc so it ends up one short of declaredNumInputVectors.
+        if (i < declaredNumInputVectors - 1) {
+          document.add(new KnnFloatVectorField(fieldA, datasetA[i], EUCLIDEAN));
+        }
+        document.add(new KnnFloatVectorField(fieldB, datasetB[i], EUCLIDEAN));
+        writer.addDocument(document);
+      }
+      IllegalStateException thrown = expectThrows(IllegalStateException.class, writer::commit);
+      assertTrue(
+          "unexpected message: " + thrown.getMessage(),
+          thrown.getMessage().contains("numInputVectors"));
+      // The try-with-resources close() below must not throw even though fieldB's fully-populated
+      // native buffer was never reached by the aborted flush() loop.
     }
   }
 

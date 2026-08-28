@@ -99,7 +99,12 @@ final class NativeFieldWriter extends KnnFieldVectorsWriter<Object> {
     return count;
   }
 
-  /** Closes the native host matrix. Safe to call multiple times. */
+  /**
+   * Closes the native host matrix. Safe to call multiple times, including on a field whose
+   * buffer was never fully populated (e.g. after a count-mismatch or other flush failure): {@code
+   * build()} just returns the pre-allocated matrix regardless of how many rows were written, and
+   * {@code close()} on that matrix is itself idempotent.
+   */
   void releaseNativeBuffer() {
     getHostMatrix().close();
     builtMatrix = null;
