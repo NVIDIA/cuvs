@@ -465,7 +465,7 @@ void brute_force_knn_impl(
                  k,
                  rowMajorIndex,
                  rowMajorQuery,
-                 stream,
+                 stream.get(),
                  metric,
                  input_norms ? (*input_norms)[i] : nullptr,
                  search_norms);
