@@ -404,7 +404,8 @@ __global__ void kern_merge_graph(
     check_num_protected_edges(0) = 0u;
     return;
   }
-  // Variable-degree path always needs to write the -1 padding (and write-back natural_degree),
+  // Variable-degree path always needs to write the `kInvalidNeighbor` padding (and write-back
+  // natural_degree),
   // so we cannot early-return like the constant-degree path does when there is no room to insert.
   if constexpr (!VariableDegree) {
     if (num_protected_edges == output_graph_degree) { return; }
@@ -439,11 +440,13 @@ __global__ void kern_merge_graph(
         lane_id, smem_sorted_output_graph + num_protected_edges, num_shift);
       if (lane_id == 0) { smem_sorted_output_graph[num_protected_edges] = rev_graph_value; }
       __syncwarp();
-      // A new rev-graph edge has been inserted at position `num_protected_edges`, growing the
-      // node's effective degree up to (but not beyond) the full output_graph_degree. In the
-      // constant-degree path effective_degree already equals output_graph_degree, so this is a
-      // no-op and needs no VariableDegree guard.
-      if (effective_degree < output_graph_degree) { effective_degree++; }
+      // The rev-graph edge has been placed at position `num_protected_edges`, growing the node's
+      // effective degree up to (but not beyond) the full output_graph_degree. The degree only
+      // grows if the edge was not a neighbor already: for `pos < effective_degree` the edge is
+      // merely promoted within the live prefix, and counting it would pull an already-cut entry
+      // back into the neighbor list. In the constant-degree path effective_degree already equals
+      // output_graph_degree, so this is a no-op and needs no VariableDegree guard.
+      if (effective_degree < output_graph_degree && pos >= effective_degree) { effective_degree++; }
     }
   }
 
@@ -1680,9 +1683,6 @@ void optimize(
   const bool use_gpu_for_mst_optimization     = true,
   const double variable_graph_degree_fraction = 1.0)
 {
-  RAFT_LOG_DEBUG(
-    "# Pruning kNN graph (size=%lu, degree=%lu)\n", knn_graph.extent(0), knn_graph.extent(1));
-
   // TODO(achirkin): come up with a reasonable API to initialize a non-empty stream pool.
   // raft::resource::set_cuda_stream_pool below modifies the resource, so it cannot be const.
   // The optimize() is a heavy function, so copying the resource and creating a private stream pool
@@ -1704,6 +1704,9 @@ void optimize(
                "Each input array is expected to have the same number of rows");
   RAFT_EXPECTS(new_graph.extent(1) <= knn_graph.extent(1),
                "output graph cannot have more columns than input graph");
+  RAFT_EXPECTS(variable_graph_degree_fraction > 0.0 && variable_graph_degree_fraction <= 1.0,
+               "variable_graph_degree_fraction must be in (0, 1], but is %f",
+               variable_graph_degree_fraction);
   // const uint64_t input_graph_degree  = knn_graph.extent(1);
   const uint64_t knn_graph_degree     = knn_graph.extent(1);
   const uint64_t output_graph_degree  = new_graph.extent(1);
@@ -1717,6 +1720,8 @@ void optimize(
                   graph_size,
                   knn_graph_degree,
                   target_pruned_degree);
+  } else {
+    RAFT_LOG_DEBUG("# Pruning kNN graph (size=%lu, degree=%lu)", graph_size, knn_graph_degree);
   }
 
   raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> fun_scope(
