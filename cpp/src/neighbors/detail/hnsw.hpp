@@ -334,7 +334,7 @@ from_cagra(raft::resources const& res,
     auto* data            = (uint32_t*)(ll_i + 1);
     for (size_t j = 0; j < static_cast<size_t>(host_graph_view.extent(1)); ++j) {
       auto neighbor_id = host_graph(i, j);
-      if (neighbor_id == static_cast<uint32_t>(-1)) { break; }
+      if (neighbor_id == cuvs::neighbors::cagra::kInvalidNeighbor<uint32_t>) { break; }
       auto neighbor_internal_id = appr_algo->label_lookup_.find(neighbor_id)->second;
       data[actual_count]        = neighbor_internal_id;
       actual_count++;
