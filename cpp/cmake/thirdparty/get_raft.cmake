@@ -6,8 +6,8 @@
 
 # Use RAPIDS_VERSION_MAJOR_MINOR from rapids_config.cmake
 set(RAFT_VERSION "${RAPIDS_VERSION_MAJOR_MINOR}")
-set(RAFT_FORK "rapidsai")
-set(RAFT_PINNED_TAG "${rapids-cmake-checkout-tag}")
+set(RAFT_FORK "achirkin")
+set(RAFT_PINNED_TAG "enh-launch-kernel-extended")
 set(LIBRAFT_LOGGING_LEVEL "INFO"
     CACHE STRING "Choose the RAFT logging level compiled into cuVS."
 )
