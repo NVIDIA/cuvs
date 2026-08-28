@@ -10,7 +10,6 @@ import static org.apache.lucene.index.VectorEncoding.FLOAT32;
 import static org.apache.lucene.util.RamUsageEstimator.shallowSizeOfInstance;
 
 import com.nvidia.cuvs.CuVSHostMatrix;
-import com.nvidia.cuvs.lucene.AcceleratedHNSWUtils.QuantizationType;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -25,8 +24,8 @@ import org.apache.lucene.util.InfoStream;
 
 /**
  * Native-flat-buffered {@link KnnVectorsWriter}, streaming vectors directly into a native host
- * matrix (see {@link FieldWriter}) rather than a heap {@code List<float[]>}, and writing the flat
- * {@code .vec}/{@code .vemf} files itself via {@link NativeFlatVectorsWriter} instead of
+ * matrix (see {@link NativeFieldWriter}) rather than a heap {@code List<float[]>}, and writing the
+ * flat {@code .vec}/{@code .vemf} files itself via {@link NativeFlatVectorsWriter} instead of
  * delegating to Lucene's {@link org.apache.lucene.codecs.hnsw.FlatVectorsWriter}.
  *
  * <p>This writer supports only the unsorted, single-segment flush path: merges and index-sorted
@@ -44,7 +43,7 @@ final class NativeFlatBufferedHNSWVectorsWriter extends KnnVectorsWriter {
   private static final String COMPONENT = "NativeFlatBufferedHNSWVectorsWriter";
 
   private final int numInputVectors;
-  private final List<FieldWriter> fields = new ArrayList<>();
+  private final List<NativeFieldWriter> fields = new ArrayList<>();
   private final InfoStream infoStream;
   private NativeFlatVectorsWriter nativeFlat;
   private AcceleratedHnswGraphOutput graphOutput;
@@ -88,9 +87,9 @@ final class NativeFlatBufferedHNSWVectorsWriter extends KnnVectorsWriter {
     if (encoding != FLOAT32) {
       throw new IllegalArgumentException("Expected float32, got:" + encoding);
     }
-    // Buffer directly into a native host matrix; return the FieldWriter itself so Lucene routes
+    // Buffer directly into a native host matrix; return the field writer itself so Lucene routes
     // addValue() here rather than to a (nonexistent) Lucene flat field writer.
-    var cuvsFieldWriter = new FieldWriter(QuantizationType.NONE, fieldInfo, null, numInputVectors);
+    var cuvsFieldWriter = new NativeFieldWriter(fieldInfo, numInputVectors);
     fields.add(cuvsFieldWriter);
     return cuvsFieldWriter;
   }
@@ -111,7 +110,7 @@ final class NativeFlatBufferedHNSWVectorsWriter extends KnnVectorsWriter {
     }
   }
 
-  private void writeFieldNative(FieldWriter fieldData, int maxDoc) throws IOException {
+  private void writeFieldNative(NativeFieldWriter fieldData, int maxDoc) throws IOException {
     int count = fieldData.getNativeVectorCount();
     if (count != numInputVectors) {
       throw new IllegalStateException(

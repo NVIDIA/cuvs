@@ -27,8 +27,8 @@ import org.apache.lucene.util.IOUtils;
  *
  * <p>This is the hint-path counterpart to delegating to Lucene's {@code FlatVectorsWriter}: the
  * accelerated writer streams vectors into a {@link CuVSHostMatrix} during indexing (see
- * {@link FieldWriter}) and never materialises the full dataset as a {@code List<float[]>} on the
- * Java heap, so the flat file is written here from that native matrix instead.
+ * {@link NativeFieldWriter}) and never materialises the full dataset as a {@code List<float[]>}
+ * on the Java heap, so the flat file is written here from that native matrix instead.
  *
  * <p><b>Ported code — pinned to the {@code Lucene99} format.</b> The dense float32 layout (format
  * constants, header, meta field order, and footer) is transcribed from {@code

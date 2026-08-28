@@ -102,8 +102,8 @@ public class TestNativeFlatBufferingIndexAndSearch extends LuceneTestCase {
 
   /**
    * Deletion is orthogonal to native flat buffering: {@code IndexWriter.deleteDocuments} only
-   * updates Lucene's liveDocs bitset at search time -- it never touches {@code FieldWriter} or the
-   * native host matrix, so it cannot trip (and isn't meant to be caught by) the count-mismatch
+   * updates Lucene's liveDocs bitset at search time -- it never touches {@code NativeFieldWriter}
+   * or the native host matrix, so it cannot trip (and isn't meant to be caught by) the count-mismatch
    * guard rail tested in {@link TestNativeFlatBufferingGuardRails}. This test instead confirms that
    * deletions applied after a natively-buffered flush are still honored correctly at search time.
    */
@@ -131,7 +131,7 @@ public class TestNativeFlatBufferingIndexAndSearch extends LuceneTestCase {
         document.add(new KnnFloatVectorField(VECTOR_FIELD, dataset[i], EUCLIDEAN));
         writer.addDocument(document);
       }
-      writer.commit(); // single natively-buffered flush: FieldWriter's count matches numDocs
+      writer.commit(); // single natively-buffered flush: NativeFieldWriter's count matches numDocs
 
       // Delete every 3rd doc. No new vectors are added, so this does not trigger another flush of
       // the vector field and cannot interact with the numInputVectors hint.
