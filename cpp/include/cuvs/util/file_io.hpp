@@ -74,6 +74,12 @@ class fd_streambuf : public std::streambuf {
 
     int whence = SEEK_SET;
     if (dir == std::ios_base::cur) {
+      if (off == 0) {
+        // Pure tellg(): report position without discarding buffered readahead.
+        off_t position = ::lseek(fd_, 0, SEEK_CUR);
+        if (position == static_cast<off_t>(-1)) { return pos_type(off_type(-1)); }
+        return pos_type(position - static_cast<off_t>(egptr() - gptr()));
+      }
       whence = SEEK_CUR;
       // read() advances the descriptor past the buffered bytes. Account for unread bytes so
       // tellg()/seekg() operate on the stream's logical position.
