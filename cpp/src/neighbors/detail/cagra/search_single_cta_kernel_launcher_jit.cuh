@@ -929,8 +929,7 @@ void select_and_run(
                             query_id_offset,
                             dev_desc,
                             static_cast<IndexT>(graph.extent(0)),
-                            filter_payload,
-                            10003 /* PROBE single_cta select_and_run */);
+                            filter_payload);
       },
       kernel.handle);
   }
@@ -1031,8 +1030,7 @@ void select_and_run_multi_partition(
                           hash_bitlen_u32,
                           small_hash_bitlen_u32,
                           small_hash_reset_interval_u32,
-                          query_id_offset,
-                          10004 /* PROBE single_cta select_and_run_multi_partition */);
+                          query_id_offset);
     },
     kernel.handle);
 }

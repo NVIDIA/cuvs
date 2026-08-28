@@ -144,8 +144,7 @@ void select_and_run(const dataset_descriptor_host<DataT, IndexT, DistanceT>& dat
                           num_executed_iterations,
                           static_cast<IndexT>(graph.extent(0)),
                           query_id_offset,
-                          filter_payload,
-                          10001 /* PROBE multi_cta select_and_run */);
+                          filter_payload);
     },
     kernel.handle);
 }
@@ -245,8 +244,7 @@ void select_and_run_mp(const dataset_descriptor_host<DataT, IndexT, DistanceT>& 
                           itopk_size_u32,
                           min_iterations_u32,
                           max_iterations_u32,
-                          query_id_offset,
-                          10002 /* PROBE multi_cta select_and_run_mp */);
+                          query_id_offset);
     },
     kernel.handle);
 }
