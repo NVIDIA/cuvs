@@ -93,9 +93,10 @@ public class TestAcceleratedHNSWParams extends LuceneTestCase {
   }
 
   @Test
-  public void testGraphDegreeMustNotExceedIntermediateGraphDegree() {
+  public void testGraphDegreeMustNotExceedIntermediateGraphDegreeUnderCustomStrategy() {
     AcceleratedHNSWParams params =
         new AcceleratedHNSWParams.Builder()
+            .withStrategy(AcceleratedHNSWParams.Strategy.CUSTOM)
             .withGraphDegree(DEFAULT_GRAPH_DEGREE)
             .withIntermediateGraphDegree(DEFAULT_GRAPH_DEGREE)
             .build();
@@ -105,6 +106,7 @@ public class TestAcceleratedHNSWParams extends LuceneTestCase {
         IllegalArgumentException.class,
         () ->
             new AcceleratedHNSWParams.Builder()
+                .withStrategy(AcceleratedHNSWParams.Strategy.CUSTOM)
                 .withGraphDegree(DEFAULT_GRAPH_DEGREE + 1)
                 .withIntermediateGraphDegree(DEFAULT_GRAPH_DEGREE)
                 .build());
@@ -112,9 +114,24 @@ public class TestAcceleratedHNSWParams extends LuceneTestCase {
         IllegalArgumentException.class,
         () ->
             new AcceleratedHNSWParams.Builder()
+                .withStrategy(AcceleratedHNSWParams.Strategy.CUSTOM)
                 .withIntermediateGraphDegree(DEFAULT_GRAPH_DEGREE)
                 .withGraphDegree(DEFAULT_GRAPH_DEGREE + 1)
                 .build());
+  }
+
+  @Test
+  public void testGraphDegreeRelationshipNotEnforcedUnderHeuristicStrategy() {
+    // Under HEURISTIC, both degrees are derived from maxConn/beamWidth and the configured values
+    // are ignored, so a configured graphDegree > intermediateGraphDegree must not fail to build.
+    AcceleratedHNSWParams params =
+        new AcceleratedHNSWParams.Builder()
+            .withStrategy(AcceleratedHNSWParams.Strategy.HEURISTIC)
+            .withGraphDegree(DEFAULT_GRAPH_DEGREE + 1)
+            .withIntermediateGraphDegree(DEFAULT_GRAPH_DEGREE)
+            .build();
+    assertEquals(DEFAULT_GRAPH_DEGREE + 1, params.getGraphdegree());
+    assertEquals(DEFAULT_GRAPH_DEGREE, params.getIntermediateGraphDegree());
   }
 
   @Test

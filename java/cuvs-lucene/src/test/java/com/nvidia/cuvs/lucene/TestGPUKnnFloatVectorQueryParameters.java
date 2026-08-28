@@ -30,8 +30,20 @@ public class TestGPUKnnFloatVectorQueryParameters extends LuceneTestCase {
                 "vector", TARGET, 1, null, 1, GPUKnnFloatVectorQuery.MAX_SEARCH_WIDTH + 1));
   }
 
+  /**
+   * Verifies only that the Java-level range checks in {@link
+   * GPUKnnFloatVectorQuery#MIN_ITOPK}/{@link GPUKnnFloatVectorQuery#MAX_ITOPK} and {@link
+   * GPUKnnFloatVectorQuery#MIN_SEARCH_WIDTH}/{@link GPUKnnFloatVectorQuery#MAX_SEARCH_WIDTH}
+   * accept their own boundary values at construction time.
+   *
+   * <p>This does NOT prove these values are supported by native CAGRA: constructing a {@link
+   * GPUKnnFloatVectorQuery} never builds a native search plan, and (as documented on {@link
+   * GPUKnnFloatVectorQuery#MAX_ITOPK}) native CAGRA sizes internal traversal hash tables from
+   * itopk_size, search_width, max_iterations, graph degree, and dataset size — values this test
+   * does not exercise. A combination that passes this test can still be rejected by native CAGRA.
+   */
   @Test
-  public void testAcceptsUniversalSearchParameterBoundaries() {
+  public void testAcceptsJavaLevelSearchParameterBoundaries() {
     new GPUKnnFloatVectorQuery(
         "vector",
         TARGET,
