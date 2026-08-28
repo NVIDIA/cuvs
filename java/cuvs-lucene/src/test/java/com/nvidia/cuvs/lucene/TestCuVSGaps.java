@@ -146,8 +146,10 @@ public class TestCuVSGaps extends LuceneTestCase {
   public void testVectorSearchWithFilterAndAlternatingDocuments() throws IOException {
     assumeTrue("cuVS not supported", isSupported());
 
-    // Use the first vector (from document 0) as query
-    float[] queryVector = dataset[0];
+    // Use the vector from the only document accepted by the filter. CAGRA is approximate, so an
+    // unrelated query vector can legitimately miss a single highly selective filtered candidate
+    // depending on the randomized dataset.
+    float[] queryVector = dataset[8];
     int topK = random.nextInt(5, TOP_K_LIMIT);
 
     // Create a filter that only matches documents with ID less than 10
