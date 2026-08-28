@@ -1704,8 +1704,8 @@ void optimize(
                "Each input array is expected to have the same number of rows");
   RAFT_EXPECTS(new_graph.extent(1) <= knn_graph.extent(1),
                "output graph cannot have more columns than input graph");
-  RAFT_EXPECTS(variable_graph_degree_fraction > 0.0 && variable_graph_degree_fraction <= 1.0,
-               "variable_graph_degree_fraction must be in (0, 1], but is %f",
+  RAFT_EXPECTS(variable_graph_degree_fraction >= 0.0 && variable_graph_degree_fraction <= 1.0,
+               "variable_graph_degree_fraction must be in [0, 1], but is %f",
                variable_graph_degree_fraction);
   // const uint64_t input_graph_degree  = knn_graph.extent(1);
   const uint64_t knn_graph_degree     = knn_graph.extent(1);
@@ -1716,10 +1716,10 @@ void optimize(
   const bool variable_graph_degree = (target_pruned_degree < output_graph_degree);
 
   if (variable_graph_degree) {
-    RAFT_LOG_INFO("# Pruning kNN graph (size=%lu, degree=%lu, target_pruned_degree=%lu)",
-                  graph_size,
-                  knn_graph_degree,
-                  target_pruned_degree);
+    RAFT_LOG_DEBUG("# Pruning kNN graph (size=%lu, degree=%lu, target_pruned_degree=%lu)",
+                   graph_size,
+                   knn_graph_degree,
+                   target_pruned_degree);
   } else {
     RAFT_LOG_DEBUG("# Pruning kNN graph (size=%lu, degree=%lu)", graph_size, knn_graph_degree);
   }
