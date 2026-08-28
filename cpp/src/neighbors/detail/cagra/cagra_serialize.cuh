@@ -277,16 +277,15 @@ void serialize_to_hnswlib(
   size_t bytes_written = 0;
   float GiB            = 1 << 30;
   for (std::size_t i = 0; i < index_.size(); i++) {
+    IdxT* graph_row   = &host_graph(i, 0);
     int actual_degree = static_cast<int>(index_.graph_degree());
     for (int j = 0; j < actual_degree; j++) {
-      if (host_graph(i, j) == static_cast<IdxT>(-1)) {
+      if (graph_row[j] == kInvalidNeighbor<IdxT>) {
         actual_degree = j;
         break;
       }
     }
     os.write(reinterpret_cast<char*>(&actual_degree), sizeof(int));
-
-    IdxT* graph_row = &host_graph(i, 0);
     os.write(reinterpret_cast<char*>(graph_row), sizeof(IdxT) * index_.graph_degree());
 
     const T* data_row = &host_dataset_view(i, 0);
