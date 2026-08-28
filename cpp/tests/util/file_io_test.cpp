@@ -18,6 +18,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -228,6 +229,33 @@ TEST(FileIO, FdIstreamMovePreservesUnreadBuffer)
     fd_istream destination(std::move(source));
     expect_stream_contents(destination, data, data.size());
   }
+}
+
+// tellg() reports the logical position inside the read-ahead buffer without rewinding the shared
+// POSIX file description or forcing the next read to refill that buffer.
+TEST(FileIO, FdIstreamTellgPreservesUnreadBuffer)
+{
+  scratch_dir scratch;
+  const std::string path       = scratch.file("tellg_stream.bin");
+  const std::vector<char> data = make_pattern(32771, 41);
+  {
+    std::ofstream output(path, std::ios::out | std::ios::binary);
+    ASSERT_TRUE(output.good());
+    output.write(data.data(), static_cast<std::streamsize>(data.size()));
+  }
+
+  file_descriptor fd(path, O_RDONLY);
+  auto stream = fd.make_istream();
+  std::array<char, 37> prefix{};
+  stream.read(prefix.data(), static_cast<std::streamsize>(prefix.size()));
+  ASSERT_EQ(stream.gcount(), static_cast<std::streamsize>(prefix.size()));
+
+  const off_t physical_position = ::lseek(fd.get(), 0, SEEK_CUR);
+  ASSERT_GT(physical_position, static_cast<off_t>(prefix.size()));
+  EXPECT_EQ(stream.tellg(), std::streampos(static_cast<std::streamoff>(prefix.size())));
+  EXPECT_EQ(::lseek(fd.get(), 0, SEEK_CUR), physical_position);
+  EXPECT_EQ(stream.peek(), std::char_traits<char>::to_int_type(data[prefix.size()]));
+  EXPECT_EQ(::lseek(fd.get(), 0, SEEK_CUR), physical_position);
 }
 
 // read_large_file must also fill device memory (kvikio uses GPUDirect Storage when available, and

@@ -191,6 +191,25 @@ struct dense_payload_metadata {
   std::size_t elements;
 };
 
+class device_deserialize_event {
+ public:
+  device_deserialize_event()
+  {
+    RAFT_CUDA_TRY(cudaEventCreateWithFlags(&event_, cudaEventDisableTiming));
+  }
+
+  ~device_deserialize_event() { RAFT_CUDA_TRY_NO_THROW(cudaEventDestroy(event_)); }
+
+  device_deserialize_event(const device_deserialize_event&)            = delete;
+  device_deserialize_event& operator=(const device_deserialize_event&) = delete;
+
+  void record(cudaStream_t stream) { RAFT_CUDA_TRY(cudaEventRecord(event_, stream)); }
+  void wait() { RAFT_CUDA_TRY(cudaEventSynchronize(event_)); }
+
+ private:
+  cudaEvent_t event_{};
+};
+
 template <typename DataT, typename IdxT>
 auto deserialize_dense_payload_metadata(raft::resources const& res, std::istream& is)
   -> dense_payload_metadata<IdxT>
@@ -324,19 +343,52 @@ auto deserialize_device_dense(raft::resources const& res, cuvs::util::kvikio_fil
     auto const batch_rows = static_cast<IdxT>(std::min<std::size_t>(
       static_cast<std::size_t>(metadata.n_rows),
       std::max<std::size_t>(1, cuvs::util::detail::kDeviceSerializationBatchBytes / row_bytes)));
-    auto packed           = raft::make_device_matrix<DataT, IdxT>(res, batch_rows, metadata.dim);
-    raft::resource::sync_stream(res);
-    for (IdxT first_row = 0; first_row < metadata.n_rows; first_row += batch_rows) {
-      auto const rows = std::min<IdxT>(batch_rows, metadata.n_rows - first_row);
-      reader.read_device(packed.data_handle(), static_cast<std::size_t>(rows) * row_bytes);
-      raft::copy_matrix(storage.data_handle() + first_row * metadata.stride,
+    auto packed0          = raft::make_device_matrix<DataT, IdxT>(res, batch_rows, metadata.dim);
+    if (batch_rows == metadata.n_rows) {
+      raft::resource::sync_stream(res);
+      reader.read_device(packed0.data_handle(), metadata.elements * sizeof(DataT));
+      raft::copy_matrix(storage.data_handle(),
                         metadata.stride,
-                        packed.data_handle(),
+                        packed0.data_handle(),
                         metadata.dim,
                         metadata.dim,
-                        rows,
+                        metadata.n_rows,
                         stream);
       raft::resource::sync_stream(res);
+      return std::make_unique<OwningDatasetT>(std::move(storage), metadata.dim);
+    }
+
+    auto packed1 = raft::make_device_matrix<DataT, IdxT>(res, batch_rows, metadata.dim);
+    raft::resource::sync_stream(res);
+
+    // KvikIO reads block the host but run outside the RAFT stream. Alternate buffers so the next
+    // read can overlap the previous batch's device-to-device scatter.
+    std::array<DataT*, 2> packed_buffers{packed0.data_handle(), packed1.data_handle()};
+    std::array<device_deserialize_event, 2> copy_complete;
+    std::array<bool, 2> copy_in_flight{};
+    std::size_t batch_index = 0;
+    try {
+      for (IdxT first_row = 0; first_row < metadata.n_rows;
+           first_row += batch_rows, ++batch_index) {
+        const std::size_t slot = batch_index % packed_buffers.size();
+        if (copy_in_flight[slot]) { copy_complete[slot].wait(); }
+
+        auto const rows = std::min<IdxT>(batch_rows, metadata.n_rows - first_row);
+        reader.read_device(packed_buffers[slot], static_cast<std::size_t>(rows) * row_bytes);
+        raft::copy_matrix(storage.data_handle() + first_row * metadata.stride,
+                          metadata.stride,
+                          packed_buffers[slot],
+                          metadata.dim,
+                          metadata.dim,
+                          rows,
+                          stream);
+        copy_complete[slot].record(stream);
+        copy_in_flight[slot] = true;
+      }
+      raft::resource::sync_stream(res);
+    } catch (...) {
+      RAFT_CUDA_TRY_NO_THROW(cudaStreamSynchronize(stream));
+      throw;
     }
   }
   return std::make_unique<OwningDatasetT>(std::move(storage), metadata.dim);
