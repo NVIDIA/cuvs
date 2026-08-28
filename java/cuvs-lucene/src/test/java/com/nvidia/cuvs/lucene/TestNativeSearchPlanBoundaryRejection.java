@@ -40,11 +40,12 @@ import org.junit.Test;
  * dataset size -- so this test does not need to reproduce native CAGRA's {@code max_iterations}
  * auto-derivation to reliably trigger the rejection.
  *
- * <p>This class does not cover an oversized {@link GPUKnnFloatVectorQuery#MAX_ITOPK} the same
- * way: empirically, {@code iTopK = Integer.MAX_VALUE} does not fail fast like an oversized {@code
- * searchWidth} does -- it hangs inside the native call indefinitely instead of returning an
- * error, which would make a test asserting on it unsafe to run in CI (no bounded timeout reliably
- * recovers a thread stuck in native code). That hang is itself worth separate investigation.
+ * <p>This class deliberately does not cover an oversized {@link GPUKnnFloatVectorQuery#MAX_ITOPK}
+ * the same way. Above roughly 1e9, native CAGRA's hash-table sizing loop fails to terminate and
+ * the search hangs rather than returning an error, so a test asserting on it would not be safe to
+ * run in CI (no bounded timeout reliably recovers a thread stuck in native code). That is tracked
+ * as a native bug in <a href="https://github.com/NVIDIA/cuvs/issues/2523">#2523</a>; the clean
+ * rejection exercised here is the behaviour for the range below that threshold.
  */
 @SuppressSysoutChecks(bugUrl = "")
 public class TestNativeSearchPlanBoundaryRejection extends LuceneTestCase {
