@@ -55,7 +55,8 @@ public class CagraBuildAndSearchIT extends CuVSTestCase {
   private static void runConcurrently(
       boolean usePooledMemory, int nThreads, Function<Integer, Runnable> runnableSupplier)
       throws ExecutionException, InterruptedException, TimeoutException {
-    try (ExecutorService parallelExecutor = Executors.newFixedThreadPool(nThreads)) {
+    ExecutorService parallelExecutor = Executors.newFixedThreadPool(nThreads);
+    try {
       if (usePooledMemory) {
         CuVSProvider.provider().enableRMMPooledMemory(10, 60);
       }
@@ -64,22 +65,22 @@ public class CagraBuildAndSearchIT extends CuVSTestCase {
         futures[j] = CompletableFuture.runAsync(runnableSupplier.apply(j), parallelExecutor);
       }
 
-      CompletableFuture.allOf(futures)
-          .exceptionally(
-              t -> {
-                log.error("Exception while executing runnable", t);
-                fail("Exception while executing runnable: " + unwrap(t));
-                return null;
-              })
-          .get(2000, TimeUnit.SECONDS);
-
-      parallelExecutor.shutdown();
-      assertTrue(
-          "Timeout waiting for parallelExecutor to finish",
-          parallelExecutor.awaitTermination(10, TimeUnit.SECONDS));
+      try {
+        CompletableFuture.allOf(futures).get(2000, TimeUnit.SECONDS);
+      } catch (ExecutionException e) {
+        log.error("Exception while executing runnable", e);
+        fail("Exception while executing runnable: " + unwrap(e));
+      }
     } finally {
-      if (usePooledMemory) {
-        CuVSProvider.provider().resetRMMPooledMemory();
+      try {
+        parallelExecutor.shutdown();
+        assertTrue(
+            "Timeout waiting for parallelExecutor to finish",
+            parallelExecutor.awaitTermination(60, TimeUnit.SECONDS));
+      } finally {
+        if (usePooledMemory) {
+          CuVSProvider.provider().resetRMMPooledMemory();
+        }
       }
     }
   }
