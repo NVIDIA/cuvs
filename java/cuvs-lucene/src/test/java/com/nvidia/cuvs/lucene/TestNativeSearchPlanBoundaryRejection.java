@@ -39,6 +39,12 @@ import org.junit.Test;
  * even at the smallest possible multiplier (32), regardless of {@code iTopK}, graph degree, or
  * dataset size -- so this test does not need to reproduce native CAGRA's {@code max_iterations}
  * auto-derivation to reliably trigger the rejection.
+ *
+ * <p>This class does not cover an oversized {@link GPUKnnFloatVectorQuery#MAX_ITOPK} the same
+ * way: empirically, {@code iTopK = Integer.MAX_VALUE} does not fail fast like an oversized {@code
+ * searchWidth} does -- it hangs inside the native call indefinitely instead of returning an
+ * error, which would make a test asserting on it unsafe to run in CI (no bounded timeout reliably
+ * recovers a thread stuck in native code). That hang is itself worth separate investigation.
  */
 @SuppressSysoutChecks(bugUrl = "")
 public class TestNativeSearchPlanBoundaryRejection extends LuceneTestCase {
@@ -84,8 +90,9 @@ public class TestNativeSearchPlanBoundaryRejection extends LuceneTestCase {
         assertTrue(searcher.search(validQuery, k).scoreDocs.length > 0);
 
         // Within this class's own Java-level range (searchWidth <= MAX_SEARCH_WIDTH), but far
-        // beyond what native CAGRA's traversal hash table can represent for MULTI_CTA. This must
-        // be rejected by native CAGRA when the search plan is actually built -- not silently
+        // beyond what native CAGRA's traversal hash table can represent for MULTI_CTA -- which a
+        // normal one-query AUTO search (used here, not an explicit MULTI_CTA) resolves to. This
+        // must be rejected by native CAGRA when the search plan is actually built -- not silently
         // accepted or left to corrupt/misbehave.
         GPUKnnFloatVectorQuery oversizedQuery =
             new GPUKnnFloatVectorQuery(
@@ -97,8 +104,13 @@ public class TestNativeSearchPlanBoundaryRejection extends LuceneTestCase {
                 GPUKnnFloatVectorQuery.MAX_SEARCH_WIDTH,
                 0,
                 0,
-                CagraSearchParams.SearchAlgo.MULTI_CTA);
-        expectThrows(RuntimeException.class, () -> searcher.search(oversizedQuery, k));
+                CagraSearchParams.SearchAlgo.AUTO);
+        RuntimeException e =
+            expectThrows(RuntimeException.class, () -> searcher.search(oversizedQuery, k));
+        // Assert on the specific native failure (the hash-table bit-length cap) rather than any
+        // RuntimeException, so an unrelated native/CUDA failure cannot make this test pass.
+        assertTrue(e.getMessage(), e.getMessage().contains("hash_bitlen"));
+        assertTrue(e.getMessage(), e.getMessage().contains("25"));
       }
     }
   }

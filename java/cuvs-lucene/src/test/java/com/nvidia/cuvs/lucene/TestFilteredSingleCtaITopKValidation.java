@@ -105,8 +105,13 @@ public class TestFilteredSingleCtaITopKValidation extends LuceneTestCase {
 
         // On the 1000-vector segment, topK becomes min(k + 10, filterCardinality) = min(513, 1000)
         // = 513, so the effective iTopK sent to native CAGRA is max(512, 513) = 513, exceeding the
-        // SINGLE_CTA limit of 512.
-        expectThrows(IllegalArgumentException.class, () -> searcher.search(query, k));
+        // SINGLE_CTA limit of 512. Assert the specific message (not just the exception type) to
+        // confirm this post-filter re-validation fired, rather than some unrelated argument check.
+        IllegalArgumentException e =
+            expectThrows(IllegalArgumentException.class, () -> searcher.search(query, k));
+        assertTrue(e.getMessage(), e.getMessage().contains("SINGLE_CTA"));
+        assertTrue(e.getMessage(), e.getMessage().contains("512"));
+        assertTrue(e.getMessage(), e.getMessage().contains("513"));
       }
     }
   }

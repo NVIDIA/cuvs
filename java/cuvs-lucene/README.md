@@ -81,9 +81,12 @@ Applications that do not opt in use the default RMM device-memory resource.
 
 ### Parameter bounds
 
-The public Lucene API rejects out-of-range CAGRA parameters at construction time before passing
-them to the Java bindings. The table below lists what is enforced in Java; it is **not** a claim
-that every value in these ranges is supported by native CAGRA — see the caveats that follow.
+The public Lucene API rejects out-of-range CAGRA parameters in Java before they reach native CAGRA.
+Most of these checks run at construction time; the `SINGLE_CTA` `iTopK` limit is additionally
+re-checked at search time against the effective value actually sent to native CAGRA, since a filter
+can raise it after construction (see below). The table below lists what is enforced in Java; it is
+**not** a claim that every value in these ranges is supported by native CAGRA — see the caveats
+that follow.
 
 | Parameter | Java-level range enforced |
 | --- | --- |
@@ -95,10 +98,11 @@ that every value in these ranges is supported by native CAGRA — see the caveat
 
 `graphDegree` must not exceed `intermediateGraphDegree` under the `CUSTOM` strategy. Under
 `HEURISTIC`, the configured `graphDegree`/`intermediateGraphDegree` pair is not what CAGRA
-actually builds with, so this relationship is not enforced on the (ignored) configured values:
-for `AcceleratedHNSWParams`, both degrees are derived from `maxConn`/`beamWidth`; for
-`GPUSearchParams`, the configured `graphDegree` is passed into the dataset-size heuristic and the
-remaining build parameters (including the intermediate degree) are derived from it.
+actually builds with, so this relationship is not enforced on the configured pair: for
+`AcceleratedHNSWParams`, both degrees are derived from `maxConn`/`beamWidth` and the configured
+pair is ignored entirely; for `GPUSearchParams`, the configured `graphDegree` is passed into the
+dataset-size heuristic as an input (it is not ignored), while `intermediateGraphDegree` is ignored
+and the rest of the build parameters are derived from the heuristic's output.
 
 **Only the lower bound of 1 and the `SINGLE_CTA` `iTopK` maximum of 512 are genuine native
 limits.** `MAX_ITOPK` (`Integer.MAX_VALUE`) is simply the largest value representable by the
