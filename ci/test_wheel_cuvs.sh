@@ -1,5 +1,5 @@
 #!/bin/bash
-# SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 set -euo pipefail
@@ -14,6 +14,17 @@ CUVS_WHEELHOUSE=$(rapids-download-from-github "$(rapids-artifact-name wheel_pyth
 
 # generate constraints (possibly pinning to oldest support versions of dependencies)
 rapids-generate-pip-constraints test_python "${PIP_CONSTRAINT}"
+
+python -m venv libcuvs-env
+. libcuvs-env/bin/activate
+
+rapids-pip-retry install \
+    -v \
+    --prefer-binary \
+    --constraint "${PIP_CONSTRAINT}" \
+    "${LIBCUVS_WHEELHOUSE}"/libcuvs*.whl
+python -c "import libcuvs; assert (libraries := libcuvs.load_library()) and all(libraries)"
+deactivate
 
 # notes:
 #
