@@ -22,8 +22,8 @@ import java.util.concurrent.BlockingQueue;
  * the next one, so the disk read overlaps with the caller's per-vector work. {@link #get(int,
  * float[])} unpacks directly into a caller-supplied array (no per-vector allocation).
  *
- * <p><b>Forward-only, single-consumer.</b> {@code get} must be called with non-decreasing indices
- * from a single thread, relative to the window this instance was constructed over — index 0 is
+ * <p><b>Forward-only, single-consumer.</b> {@code get} must be called with strictly increasing
+ * indices from a single thread, relative to the window this instance was constructed over — index 0 is
  * the first vector in that window, not necessarily the first vector in the file. To read only a
  * slice of a larger file (e.g. one segment of a partitioned build), construct with a {@code
  * [firstVector, count)} range so each instance streams just its own portion of the file.
