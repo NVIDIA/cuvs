@@ -279,6 +279,40 @@ auto deserialize_host_dense(raft::resources const& res, std::istream& is)
   return std::make_unique<OwningDatasetT>(std::move(storage), metadata.dim);
 }
 
+/** VPQ codebooks are floating point; the encoded rows are always uint8 and carry no dtype. */
+template <typename DataT>
+constexpr auto vpq_wire_dtype() -> cudaDataType_t
+{
+  static_assert(std::is_same_v<DataT, float> || std::is_same_v<DataT, half>,
+                "serialize_vpq: codebook element type must be float or half");
+  return std::is_same_v<DataT, half> ? CUDA_R_16F : CUDA_R_32F;
+}
+
+/**
+ * Write the payload of a VPQ dataset: six scalars followed by the two codebooks and the encoded
+ * rows.
+ *
+ * Stays on `raft::serialize_mdspan` rather than the `write_dense_bytes` scheme used by the dense
+ * path above, because `deserialize_vpq` reads with `raft::deserialize_mdspan`, which expects the
+ * NumPy header that helper embeds per matrix. The scalar types must also match the reader exactly:
+ * `n_rows` is `IdxT` and the remaining five are `uint32_t`.
+ */
+template <typename DataT, typename IdxT>
+void serialize_vpq(raft::resources const& res,
+                   std::ostream& os,
+                   device_vpq_dataset<DataT, IdxT> const& dataset)
+{
+  raft::serialize_scalar(res, os, dataset.n_rows());
+  raft::serialize_scalar(res, os, dataset.dim());
+  raft::serialize_scalar(res, os, dataset.vq_n_centers());
+  raft::serialize_scalar(res, os, dataset.pq_n_centers());
+  raft::serialize_scalar(res, os, dataset.pq_len());
+  raft::serialize_scalar(res, os, dataset.encoded_row_length());
+  raft::serialize_mdspan(res, os, raft::make_const_mdspan(dataset.vq_code_book.view()));
+  raft::serialize_mdspan(res, os, raft::make_const_mdspan(dataset.pq_code_book.view()));
+  raft::serialize_mdspan(res, os, raft::make_const_mdspan(dataset.data.view()));
+}
+
 template <typename DataT, typename IdxT>
 auto deserialize_vpq(raft::resources const& res, std::istream& is)
   -> std::unique_ptr<device_vpq_dataset<DataT, IdxT>>
@@ -303,6 +337,41 @@ auto deserialize_vpq(raft::resources const& res, std::istream& is)
 
   return std::make_unique<device_vpq_dataset<DataT, IdxT>>(
     std::move(vq_code_book), std::move(pq_code_book), std::move(data));
+}
+
+/**
+ * Write a self-describing VPQ dataset blob: tag + codebook dtype + payload.
+ *
+ * The tag and dtype are deliberately written here rather than inside `serialize_vpq`, mirroring how
+ * `serialize_cagra_dense_dataset` wraps the dense payload, so that a reader can identify the blob
+ * before committing to a `DataT`.
+ */
+template <typename DataT, typename IdxT>
+void serialize_vpq_dataset(raft::resources const& res,
+                           std::ostream& os,
+                           device_vpq_dataset<DataT, IdxT> const& dataset)
+{
+  raft::serialize_scalar(res, os, kSerializeVPQDataset);
+  raft::serialize_scalar(res, os, vpq_wire_dtype<DataT>());
+  serialize_vpq<DataT, IdxT>(res, os, dataset);
+}
+
+/** Read a blob written by `serialize_vpq_dataset`, validating the tag and codebook dtype. */
+template <typename DataT, typename IdxT>
+auto deserialize_vpq_dataset(raft::resources const& res, std::istream& is)
+  -> std::unique_ptr<device_vpq_dataset<DataT, IdxT>>
+{
+  const auto tag = raft::deserialize_scalar<dataset_instance_tag>(res, is);
+  RAFT_EXPECTS(tag == kSerializeVPQDataset,
+               "deserialize_vpq_dataset: expected VPQ tag (%u), got %u",
+               static_cast<unsigned>(kSerializeVPQDataset),
+               static_cast<unsigned>(tag));
+  const auto dtype = raft::deserialize_scalar<cudaDataType_t>(res, is);
+  RAFT_EXPECTS(dtype == vpq_wire_dtype<DataT>(),
+               "deserialize_vpq_dataset: codebook dtype (%d) does not match expected (%d)",
+               static_cast<int>(dtype),
+               static_cast<int>(vpq_wire_dtype<DataT>()));
+  return deserialize_vpq<DataT, IdxT>(res, is);
 }
 
 template <typename DataT, typename IdxT, typename OwningDatasetT>

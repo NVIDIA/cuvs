@@ -296,13 +296,43 @@ template <typename DatasetViewT>
 auto build(raft::resources const& res, const index_params& params, DatasetViewT const& dataset)
   -> cuvs::neighbors::cagra::cagra_index_t<DatasetViewT>
 {
-  using T    = cuvs::neighbors::cagra_view_element_type_t<DatasetViewT>;
-  using IdxT = uint32_t;
+  using index_type = cuvs::neighbors::cagra::cagra_index_t<DatasetViewT>;
+  using T          = typename index_type::value_type;
+  using IdxT       = uint32_t;
 
   // Dense paths build the graph and optionally attach the input dataset view. Host indexes remain
   // non-searchable until the type-changing update_dataset(...) supplies a device-padded dataset.
   if constexpr (cuvs::neighbors::is_device_vpq_dataset_view_v<DatasetViewT>) {
-    RAFT_FAIL("cagra::build: VPQ-compressed dataset cannot be used for dense graph construction.");
+    auto effective_params = params;
+    if (std::holds_alternative<std::monostate>(effective_params.graph_build_params)) {
+      effective_params.graph_build_params = graph_build_params::iterative_search_params{};
+    }
+
+    RAFT_EXPECTS(std::holds_alternative<graph_build_params::iterative_search_params>(
+                   effective_params.graph_build_params),
+                 "cagra::build: a VPQ dataset requires iterative_search_params graph construction");
+    RAFT_EXPECTS(effective_params.metric == cuvs::distance::DistanceType::L2Expanded,
+                 "cagra::build: a VPQ dataset supports only L2Expanded distance");
+    RAFT_EXPECTS(dataset.n_rows() > 0, "cagra::build: VPQ dataset must not be empty");
+    RAFT_EXPECTS(dataset.dset().pq_bits() == 8,
+                 "cagra::build: VPQ dataset requires pq_bits == 8, got %u",
+                 dataset.dset().pq_bits());
+    auto const pq_len = dataset.dset().pq_len();
+    RAFT_EXPECTS(pq_len == 2 || pq_len == 4 || pq_len == 8,
+                 "cagra::build: VPQ dataset requires pq_len in {2, 4, 8}, got %u",
+                 pq_len);
+
+    detail::check_graph_degree<T, IdxT>(effective_params.intermediate_graph_degree,
+                                        effective_params.graph_degree,
+                                        static_cast<size_t>(dataset.n_rows()));
+    auto cagra_graph = detail::iterative_build_graph<T, IdxT>(res, effective_params, dataset);
+
+    index_type idx(res, effective_params.metric);
+    idx.update_graph(res, raft::make_const_mdspan(cagra_graph.view()));
+    if (effective_params.attach_dataset_on_build) {
+      idx.update_device_dataset_same_layout(res, dataset);
+    }
+    return idx;
   } else if constexpr (cuvs::neighbors::is_dense_row_major_device_dataset_view_v<DatasetViewT>) {
     auto idx = cuvs::neighbors::cagra::detail::build_from_device_matrix<T, IdxT, DatasetViewT>(
       res, params, dataset);

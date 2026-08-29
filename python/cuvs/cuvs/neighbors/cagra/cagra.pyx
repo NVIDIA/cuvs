@@ -477,6 +477,9 @@ def build(IndexParams index_params, dataset, resources=None):
         Supported dtype [float, half, int8, uint8]
         **Note:** For ACE build algorithm, the dataset MUST be in host memory.
         Use NumPy arrays or call .get() on CuPy arrays before passing.
+        A ``Dataset`` with ``layout == "vpq"`` builds an iterative CAGRA-Q
+        index and requires ``metric="sqeuclidean"`` plus
+        ``build_algo="iterative_cagra_search"``.
     {resources_docstring}
 
     Returns
@@ -530,7 +533,10 @@ def build(IndexParams index_params, dataset, resources=None):
                 dl_data_type_to_numpy(idx.index.dtype)).name
             idx._dataset_source = dataset_obj
 
-            if not is_ace_build:
+            if dataset_obj.layout == "vpq":
+                _keep_dataset_alive(idx, dataset_obj)
+                idx._dataset_source = None
+            elif not is_ace_build:
                 if (dataset_obj.layout == "padded" and
                         dataset_obj.memory_type == "device" and
                         dataset_obj.is_owning):
