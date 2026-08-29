@@ -166,27 +166,31 @@ public interface CuVSProvider {
       throws UnsupportedOperationException;
 
   /**
-   * Merges multiple CAGRA indexes into a single index.
+   * Merges multiple CAGRA indexes into a single index, using a caller-owned pre-concatenated
+   * padded dataset.
+   *
+   * <p>See {@link CagraIndex#merge(CagraIndex[], CagraIndex.PaddedDataset, long[])} for the full
+   * {@code mergedDatasetHandleAddress}/{@code offsets} contract; this SPI method takes the raw
+   * native handle address so implementations don't need to depend on the concrete dataset
+   * wrapper type.
    *
    * @param indexes Array of CAGRA indexes to merge
-   * @return A new merged CAGRA index
-   * @throws Throwable if an error occurs during the merge operation
-   */
-  CagraIndex mergeCagraIndexes(CagraIndex[] indexes) throws Throwable;
-
-  /**
-   * Merges multiple CAGRA indexes into a single index with the specified merge parameters.
-   *
-   * @param indexes Array of CAGRA indexes to merge
+   * @param mergedDatasetHandleAddress native handle address of the caller-owned padded dataset
+   *                                   (or padded dataset view) holding the concatenation of every
+   *                                   input index's rows, in {@code indexes} order
+   * @param offsets Per-index starting row within the merged dataset. Array of {@code
+   *                indexes.length + 1} entries; the last entry must equal the merged dataset's
+   *                row count
    * @param mergeParams Parameters to control the merge operation, or null to use defaults
    * @return A new merged CAGRA index
    * @throws Throwable if an error occurs during the merge operation
    */
-  default CagraIndex mergeCagraIndexes(CagraIndex[] indexes, CagraIndexParams mergeParams)
-      throws Throwable {
-    // Default implementation falls back to the method without parameters
-    return mergeCagraIndexes(indexes);
-  }
+  CagraIndex mergeCagraIndexes(
+      CagraIndex[] indexes,
+      long mergedDatasetHandleAddress,
+      long[] offsets,
+      CagraIndexParams mergeParams)
+      throws Throwable;
 
   /**
    * Reports whether the rows of {@code dataset} already sit at the row stride CAGRA requires, which

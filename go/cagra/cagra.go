@@ -128,6 +128,28 @@ func (view *PaddedDatasetView) datasetHandle() C.cuvsDataset_t {
 	return view.view
 }
 
+// PaddedDatasetCloser is a PaddedDatasetHandle that owns resources needing Close.
+type PaddedDatasetCloser interface {
+	PaddedDatasetHandle
+	Close() error
+}
+
+// MakePaddedDatasetAuto builds a PaddedDatasetCloser from a tensor, choosing the
+// non-owning MakePaddedDatasetView when the tensor's row stride is already
+// CAGRA-padded (MakePaddedDataset rejects already-aligned sources), and the
+// owning MakePaddedDataset otherwise. Mirrors the branch BuildIndex uses.
+func MakePaddedDatasetAuto[T any](Resources cuvs.Resource, dataset *cuvs.Tensor[T]) (PaddedDatasetCloser, error) {
+	if dataset == nil || dataset.C_tensor == nil {
+		return nil, errors.New("dataset is nil")
+	}
+	datasetTensor := (*C.DLManagedTensor)(unsafe.Pointer(dataset.C_tensor))
+	var zero T
+	if isCagraPaddedTensor(datasetTensor, int(unsafe.Sizeof(zero))) {
+		return MakePaddedDatasetView(Resources, dataset)
+	}
+	return MakePaddedDataset(Resources, dataset)
+}
+
 // Destroys an owning padded dataset handle.
 func (dataset *PaddedDataset) Close() error {
 	if dataset == nil || dataset.dataset == nil {
@@ -292,6 +314,168 @@ func ExtendIndex(Resources cuvs.Resource, params *ExtendParams, extended_dataset
 	if err != nil {
 		return err
 	}
+	return nil
+}
+
+// buildAllowListFilter builds a cuvsFilter (and its backing bitset tensor, when
+// allowList is non-nil) suitable for passing to a filtered C call. The caller
+// must keep the returned tensor alive (and Close it) for the duration of the
+// call, since the filter's addr points into it.
+func buildAllowListFilter(Resources cuvs.Resource, allowList []uint32) (C.cuvsFilter, *cuvs.Tensor[uint32], error) {
+	if allowList == nil {
+		return C.cuvsFilter{
+			_type: C.NO_FILTER,
+			addr:  C.uintptr_t(0),
+		}, nil, nil
+	}
+
+	bitset := createBitset(allowList)
+	allowListTensor, err := cuvs.NewVector[uint32](bitset)
+	if err != nil {
+		return C.cuvsFilter{}, nil, err
+	}
+	if _, err := allowListTensor.ToDevice(&Resources); err != nil {
+		allowListTensor.Close()
+		return C.cuvsFilter{}, nil, err
+	}
+
+	filter := C.cuvsFilter{
+		_type: C.BITSET,
+		addr:  C.uintptr_t(uintptr(unsafe.Pointer(allowListTensor.C_tensor))),
+	}
+	return filter, &allowListTensor, nil
+}
+
+// MergedDatasetOffsets computes, for each input index (in order), the row at
+// which its (post-filter) rows must start within a caller-built merged dataset
+// buffer, for use with MergeIndex/MergeIndexWithParams. The returned slice has
+// len(indices)+1 entries; the last entry is the total merged row count.
+//
+// For an unfiltered merge (allowList == nil) this is just the cumulative sum
+// of each index's row count, and calling this function is unnecessary. For a
+// filtered merge, this must be called to determine how many rows survive the
+// filter for each index.
+func MergedDatasetOffsets(Resources cuvs.Resource, indices []*CagraIndex, allowList []uint32) ([]int64, error) {
+	if len(indices) == 0 {
+		return nil, errors.New("indices must not be empty")
+	}
+
+	filter, filterTensor, err := buildAllowListFilter(Resources, allowList)
+	if err != nil {
+		return nil, err
+	}
+	if filterTensor != nil {
+		defer filterTensor.Close()
+	}
+
+	cIndices := make([]C.cuvsCagraIndex_t, len(indices))
+	for i, idx := range indices {
+		cIndices[i] = idx.index
+	}
+
+	cOffsets := make([]C.int64_t, len(indices)+1)
+
+	err = cuvs.CheckCuvs(cuvs.CuvsError(C.cuvsCagraMergedDatasetOffsets(
+		C.cuvsResources_t(Resources.Resource),
+		&cIndices[0],
+		C.size_t(len(indices)),
+		filter,
+		&cOffsets[0],
+	)))
+	if err != nil {
+		return nil, err
+	}
+
+	offsets := make([]int64, len(cOffsets))
+	for i, v := range cOffsets {
+		offsets[i] = int64(v)
+	}
+	return offsets, nil
+}
+
+// MergeIndex merges multiple CAGRA indices into output using AUTO merge
+// parameters.
+//
+// # Arguments
+//
+// * `Resources` - Resources to use
+// * `params` - Parameters for the output index
+// * `indices` - Input indices to merge, in the order they were concatenated into mergedDataset
+// * `mergedDataset` - Caller-owned padded dataset already containing the concatenation (and,
+//   if allowList is set, already-filtered rows) of every input index's dataset, in `indices` order
+// * `offsets` - Per-index starting row within mergedDataset; len(indices)+1 entries, as returned
+//   by MergedDatasetOffsets (or the trivial cumulative sizes, if allowList is nil)
+// * `allowList` - Row filter already applied by the caller while building mergedDataset, or nil
+// * `index` - Output CagraIndex, must be created with CreateIndex before use
+func MergeIndex(Resources cuvs.Resource, params *IndexParams, indices []*CagraIndex, mergedDataset PaddedDatasetHandle, offsets []int64, allowList []uint32, index *CagraIndex) error {
+	return mergeIndex(Resources, params, nil, indices, mergedDataset, offsets, allowList, index)
+}
+
+// MergeIndexWithParams merges multiple CAGRA indices into output, using
+// explicit mergeParams to control the merge algorithm. See MergeIndex for the
+// remaining arguments.
+func MergeIndexWithParams(Resources cuvs.Resource, params *IndexParams, mergeParams *MergeParams, indices []*CagraIndex, mergedDataset PaddedDatasetHandle, offsets []int64, allowList []uint32, index *CagraIndex) error {
+	return mergeIndex(Resources, params, mergeParams, indices, mergedDataset, offsets, allowList, index)
+}
+
+func mergeIndex(Resources cuvs.Resource, params *IndexParams, mergeParams *MergeParams, indices []*CagraIndex, mergedDataset PaddedDatasetHandle, offsets []int64, allowList []uint32, index *CagraIndex) error {
+	if len(indices) == 0 {
+		return errors.New("indices must not be empty")
+	}
+	if mergedDataset == nil || mergedDataset.datasetHandle() == nil {
+		return errors.New("mergedDataset is nil")
+	}
+	if len(offsets) != len(indices)+1 {
+		return errors.New("offsets must have len(indices)+1 entries")
+	}
+
+	filter, filterTensor, err := buildAllowListFilter(Resources, allowList)
+	if err != nil {
+		return err
+	}
+	if filterTensor != nil {
+		defer filterTensor.Close()
+	}
+
+	cIndices := make([]C.cuvsCagraIndex_t, len(indices))
+	for i, idx := range indices {
+		cIndices[i] = idx.index
+	}
+
+	cOffsets := make([]C.int64_t, len(offsets))
+	for i, v := range offsets {
+		cOffsets[i] = C.int64_t(v)
+	}
+
+	if mergeParams == nil {
+		err = cuvs.CheckCuvs(cuvs.CuvsError(C.cuvsCagraMerge(
+			C.cuvsResources_t(Resources.Resource),
+			params.params,
+			&cIndices[0],
+			C.size_t(len(indices)),
+			filter,
+			mergedDataset.datasetHandle(),
+			&cOffsets[0],
+			index.index,
+		)))
+	} else {
+		err = cuvs.CheckCuvs(cuvs.CuvsError(C.cuvsCagraMergeWithParams(
+			C.cuvsResources_t(Resources.Resource),
+			params.params,
+			mergeParams.params,
+			&cIndices[0],
+			C.size_t(len(indices)),
+			filter,
+			mergedDataset.datasetHandle(),
+			&cOffsets[0],
+			index.index,
+		)))
+	}
+	if err != nil {
+		return err
+	}
+
+	index.trained = true
 	return nil
 }
 

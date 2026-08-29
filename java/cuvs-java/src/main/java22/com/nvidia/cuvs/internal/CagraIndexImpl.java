@@ -923,23 +923,29 @@ public class CagraIndexImpl implements CagraIndex {
   }
 
   /**
-   * Merges multiple CAGRA indexes into a single index.
+   * Merges multiple CAGRA indexes into a single index, using a caller-owned pre-concatenated
+   * padded dataset.
+   *
+   * <p>The dataset stays owned by the caller: this method never allocates or copies dataset rows,
+   * it only merges the graphs and binds the returned index to the native dataset handle at {@code
+   * mergedDatasetHandleAddress}. Keep the underlying dataset alive while the returned index is in
+   * use.
    *
    * @param indexes Array of CAGRA indexes to merge
-   * @return A new merged CAGRA index
-   */
-  public static CagraIndex merge(CagraIndex[] indexes) {
-    return merge(indexes, null);
-  }
-
-  /**
-   * Merges multiple CAGRA indexes into a single index with specified merge parameters.
-   *
-   * @param indexes Array of CAGRA indexes to merge
+   * @param mergedDatasetHandleAddress native handle address of the caller-owned padded dataset (or
+   *                                   padded dataset view) holding the concatenation of every
+   *                                   input index's rows, in {@code indexes} order
+   * @param offsets Per-index starting row within the merged dataset. Array of {@code
+   *                indexes.length + 1} entries; the last entry must equal the merged dataset's row
+   *                count
    * @param mergeParams Parameters to control the merge operation, or null to use defaults
    * @return A new merged CAGRA index
    */
-  public static CagraIndex merge(CagraIndex[] indexes, CagraIndexParams mergeParams) {
+  public static CagraIndex merge(
+      CagraIndex[] indexes,
+      long mergedDatasetHandleAddress,
+      long[] offsets,
+      CagraIndexParams mergeParams) {
     CuVSResources resources = indexes[0].getCuVSResources();
     var mergedIndex = createCagraIndex();
 
@@ -961,30 +967,22 @@ public class CagraIndexImpl implements CagraIndex {
         cuvsFilter.type(mergeFilter, 0); // NO_FILTER
         cuvsFilter.addr(mergeFilter, 0);
 
-        MemorySegment mergedDatasetPtr = localArena.allocate(cuvsDataset_t);
-        checkCuVSError(cuvsDatasetCreate(mergedDatasetPtr), "cuvsDatasetCreate");
-        MemorySegment mergedDataset = mergedDatasetPtr.get(cuvsDataset_t, 0);
-        AutoCloseable datasetOwner = new DatasetCloseDelegate(mergedDataset);
-        try {
-          checkCuVSError(
-              cuvsCagraMerge(
-                  cuvsRes,
-                  nativeMergeParams.handle(),
-                  indexesSegment,
-                  indexes.length,
-                  mergeFilter,
-                  mergedDataset,
-                  mergedIndex),
-              "cuvsCagraMerge");
-          return new CagraIndexImpl(new IndexReference(mergedIndex, null, datasetOwner), resources);
-        } catch (Throwable e) {
-          try {
-            datasetOwner.close();
-          } catch (Exception closeError) {
-            e.addSuppressed(closeError);
-          }
-          throw e;
-        }
+        MemorySegment mergedDataset = MemorySegment.ofAddress(mergedDatasetHandleAddress);
+        MemorySegment offsetsSegment = buildMemorySegment(localArena, offsets);
+
+        checkCuVSError(
+            cuvsCagraMerge(
+                cuvsRes,
+                nativeMergeParams.handle(),
+                indexesSegment,
+                indexes.length,
+                mergeFilter,
+                mergedDataset,
+                offsetsSegment,
+                mergedIndex),
+            "cuvsCagraMerge");
+        // mergedDataset is caller-owned; the returned index does not take ownership of it.
+        return new CagraIndexImpl(new IndexReference(mergedIndex, null, null), resources);
       }
     }
   }

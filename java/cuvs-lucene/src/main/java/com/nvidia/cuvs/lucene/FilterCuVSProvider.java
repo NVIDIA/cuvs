@@ -81,8 +81,13 @@ class FilterCuVSProvider implements CuVSProvider {
   }
 
   @Override
-  public CagraIndex mergeCagraIndexes(CagraIndex[] arg0) throws Throwable {
-    return delegate.mergeCagraIndexes(arg0);
+  public CagraIndex mergeCagraIndexes(
+      CagraIndex[] indexes,
+      long mergedDatasetHandleAddress,
+      long[] offsets,
+      CagraIndexParams mergeParams)
+      throws Throwable {
+    return delegate.mergeCagraIndexes(indexes, mergedDatasetHandleAddress, offsets, mergeParams);
   }
 
   @Override

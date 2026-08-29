@@ -395,6 +395,13 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
    *
    * This is currently (and intentionally) marked as unused and will be plugged in later.
    *
+   * <p>The native {@code CagraIndex.merge} contract requires the caller to hand it a single
+   * pre-concatenated dataset (in {@code cagraIndexes} order) plus the per-index row offsets
+   * within that dataset; the merge call itself never reads or copies vectors. We therefore have to
+   * walk each source reader's own (unmerged, un-filtered) vectors for this field, in the same
+   * order we collect its {@link CagraIndex}, to build both the concatenated dataset and the
+   * matching offsets array.
+   *
    * @param fieldInfo instance of the FieldInfo
    * @param mergeState instance of the MergeState
    * @throws IOException I/O Exceptions
@@ -403,6 +410,9 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
   private void mergeCagraIndexes(FieldInfo fieldInfo, MergeState mergeState) throws IOException {
     try {
       List<CagraIndex> cagraIndexes = new ArrayList<>();
+      List<float[]> mergedVectors = new ArrayList<>();
+      List<Long> offsets = new ArrayList<>();
+      offsets.add(0L);
       // We need this count so that the merged segment's meta information has the vector count.
       int totalVectorCount = 0;
       for (int i = 0; i < mergeState.knnVectorsReaders.length; i++) {
@@ -411,10 +421,19 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
         if (knnReader != null) {
           if (knnReader instanceof CuVS2510GPUVectorsReader cvr) {
             if (cvr != null) {
-              totalVectorCount += cvr.getFieldEntries().get(fieldInfo.number).count();
               CagraIndex cagraIndex = getCagraIndexFromReader(cvr, fieldInfo.name);
               if (cagraIndex != null) {
                 cagraIndexes.add(cagraIndex);
+                int count = cvr.getFieldEntries().get(fieldInfo.number).count();
+                totalVectorCount += count;
+                // Append this reader's own vectors for the field, in the same order the native
+                // index stores them, so the concatenated dataset lines up with `cagraIndexes`.
+                FloatVectorValues values = knnReader.getFloatVectorValues(fieldInfo.name);
+                KnnVectorValues.DocIndexIterator iter = values.iterator();
+                for (int docV = iter.nextDoc(); docV != NO_MORE_DOCS; docV = iter.nextDoc()) {
+                  mergedVectors.add(values.vectorValue(iter.index()).clone());
+                }
+                offsets.add((long) mergedVectors.size());
               }
             }
           } else {
@@ -425,9 +444,27 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
         }
       }
       assert cagraIndexes.size() > 1;
-      CagraIndex mergedIndex =
-          CagraIndex.merge(cagraIndexes.toArray(new CagraIndex[cagraIndexes.size()]));
-      writeMergedCagraIndex(fieldInfo, mergedIndex, totalVectorCount);
+      long[] offsetsArray = offsets.stream().mapToLong(Long::longValue).toArray();
+      CuVSMatrix mergedMatrix =
+          Utils.createFloatMatrix(
+              mergedVectors, fieldInfo.getVectorDimension(), getCuVSResourcesInstance());
+      CagraIndex[] indexesArray = cagraIndexes.toArray(new CagraIndex[cagraIndexes.size()]);
+      CagraIndex mergedIndex;
+      try (var deviceVectors = mergedMatrix.toDevice(getCuVSResourcesInstance())) {
+        // cuVS rejects makePaddedDataset for a device matrix whose rows already sit at the
+        // required stride, and asks for a view over that storage instead (see writeCagraIndex).
+        if (CagraIndex.isPaddedDataset(deviceVectors)) {
+          try (var mergedDatasetView = cagraIndexes.get(0).makePaddedDatasetView(deviceVectors)) {
+            mergedIndex = CagraIndex.merge(indexesArray, mergedDatasetView, offsetsArray);
+            writeMergedCagraIndex(fieldInfo, mergedIndex, totalVectorCount);
+          }
+        } else {
+          try (var mergedDataset = cagraIndexes.get(0).makePaddedDataset(deviceVectors)) {
+            mergedIndex = CagraIndex.merge(indexesArray, mergedDataset, offsetsArray);
+            writeMergedCagraIndex(fieldInfo, mergedIndex, totalVectorCount);
+          }
+        }
+      }
       info(
           infoStream,
           COMPONENT,

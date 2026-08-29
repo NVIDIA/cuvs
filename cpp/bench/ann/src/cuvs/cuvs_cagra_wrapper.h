@@ -366,20 +366,28 @@ void cuvs_cagra<T, IdxT>::build(const T* dataset, size_t nrow)
       }
 
       cuvs::neighbors::filtering::none_sample_filter merge_row_filter;
-      int64_t merged_rows = 0;
+      std::vector<int64_t> offsets;
+      offsets.reserve(indices.size() + 1);
+      offsets.push_back(0);
       for (auto* index : indices) {
-        merged_rows += static_cast<int64_t>(index->size());
+        offsets.push_back(offsets.back() + static_cast<int64_t>(index->size()));
       }
-      auto const stride = static_cast<int64_t>(
-        cuvs::neighbors::cagra_required_row_width<T>(static_cast<uint32_t>(dim_)));
-      *dataset_                = raft::make_device_matrix<T, int64_t>(handle_, merged_rows, stride);
-      auto merged_dataset_view = cuvs::neighbors::device_padded_dataset_view<T, int64_t>(
-        raft::make_const_mdspan(dataset_->view()), static_cast<uint32_t>(dim_));
+
+      // Each sub_index was built from a contiguous row-range slice of the single, original
+      // `dataset` buffer (see the split loop above), so the concatenation of the splits in
+      // `indices` order is exactly the original, unsplit `dataset`. Reuse the same padded-view
+      // helper the no-split branch above uses (branching on `dataset_is_on_host` the same way) to
+      // build `merged_dataset_view` directly from `dataset`, instead of letting `merge()`
+      // allocate an empty buffer and copy into it internally.
+      auto merged_dataset_view =
+        dataset_is_on_host ? detail::make_padded_view<T>(handle_, dataset_view_host, *dataset_)
+                           : detail::make_padded_view<T>(handle_, dataset_view_device, *dataset_);
       index_ =
         std::make_shared<index_type>(cuvs::neighbors::cagra::merge(handle_,
                                                                    params,
                                                                    indices,
                                                                    merged_dataset_view,
+                                                                   offsets,
                                                                    index_params_.merge_params,
                                                                    merge_row_filter));
       // The merged index holds all the rows now; drop the splits rather than keep a second copy

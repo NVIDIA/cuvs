@@ -950,15 +950,29 @@ public class CagraBuildAndSearchIT extends CuVSTestCase {
       // Host-built indexes are not mergeable. Dim=2 is not 16-byte aligned, so upload to device,
       // allocate owning padded copies, and attach them before merge. Keep them alive until the
       // inputs are closed.
+      //
+      // The native merge contract now requires the caller to hand in the already-concatenated
+      // (vector1 || vector2) dataset plus each index's starting row within it.
+      float[][] mergedVectors = {
+        {0.0f, 0.0f},
+        {1.0f, 1.0f},
+        {10.0f, 10.0f},
+        {11.0f, 11.0f}
+      };
+      long[] mergeOffsets = {0L, vector1.length, vector1.length + (long) vector2.length};
+
       try (var device1 = CuVSMatrix.ofArray(vector1).toDevice(resources);
           var device2 = CuVSMatrix.ofArray(vector2).toDevice(resources);
           var padded1 = index1.makePaddedDataset(device1);
-          var padded2 = index2.makePaddedDataset(device2)) {
+          var padded2 = index2.makePaddedDataset(device2);
+          var mergedDevice = CuVSMatrix.ofArray(mergedVectors).toDevice(resources);
+          var mergedDataset = index1.makePaddedDataset(mergedDevice)) {
         index1.updateDataset(padded1);
         index2.updateDataset(padded2);
 
         log.trace("Merging indexes...");
-        CagraIndex mergedIndex = CagraIndex.merge(new CagraIndex[] {index1, index2});
+        CagraIndex mergedIndex =
+            CagraIndex.merge(new CagraIndex[] {index1, index2}, mergedDataset, mergeOffsets);
         log.trace("Merge completed successfully");
 
         // Pin SINGLE_CTA; AUTO may pick MULTI_CTA, which drops neighbors on this tiny dataset.
@@ -1068,16 +1082,33 @@ public class CagraBuildAndSearchIT extends CuVSTestCase {
       // Host-built indexes are not mergeable. Dim=2 is not 16-byte aligned, so upload to device,
       // allocate owning padded copies, and attach them before merge. Keep them alive until the
       // inputs are closed.
+      //
+      // The native merge contract now requires the caller to hand in the already-concatenated
+      // (vector1 || vector2) dataset plus each index's starting row within it.
+      float[][] mergedVectors = {
+        {0.0f, 0.0f},
+        {1.0f, 1.0f},
+        {10.0f, 10.0f},
+        {11.0f, 11.0f}
+      };
+      long[] mergeOffsets = {0L, vector1.length, vector1.length + (long) vector2.length};
+
       try (var device1 = CuVSMatrix.ofArray(vector1).toDevice(resources);
           var device2 = CuVSMatrix.ofArray(vector2).toDevice(resources);
           var padded1 = index1.makePaddedDataset(device1);
-          var padded2 = index2.makePaddedDataset(device2)) {
+          var padded2 = index2.makePaddedDataset(device2);
+          var mergedDevice = CuVSMatrix.ofArray(mergedVectors).toDevice(resources);
+          var mergedDataset = index1.makePaddedDataset(mergedDevice)) {
         index1.updateDataset(padded1);
         index2.updateDataset(padded2);
 
         log.trace("Merging indexes with PHYSICAL strategy...");
         try (CagraIndex physicalMergedIndex =
-            CagraIndex.merge(new CagraIndex[] {index1, index2}, outputIndexParams)) {
+            CagraIndex.merge(
+                new CagraIndex[] {index1, index2},
+                mergedDataset,
+                mergeOffsets,
+                outputIndexParams)) {
           log.trace("Physical merge completed successfully");
 
           // Pin SINGLE_CTA; AUTO may pick MULTI_CTA, which drops neighbors on this tiny dataset.

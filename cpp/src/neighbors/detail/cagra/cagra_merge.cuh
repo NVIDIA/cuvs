@@ -29,6 +29,7 @@
 
 #include <rmm/resource_ref.hpp>
 
+#include <algorithm>
 #include <limits>
 #include <memory>
 #include <new>
@@ -38,41 +39,97 @@
 
 namespace cuvs::neighbors::cagra::detail {
 
+/** Per-index write offsets into a merged dataset buffer, length `indices.size() + 1`, with the
+ *  last entry equal to the final row count. Entry `i` is the row at which caller-concatenated data
+ *  for `indices[i]` must start. For `row_filter = none_sample_filter`, offsets are just the
+ *  cumulative sizes of `indices` -- callers can compute those directly and do not need this
+ *  function. For a bitset `row_filter`, the per-index surviving row counts are not derivable from
+ *  public APIs alone, so this function walks the filter's sorted surviving-row list (via
+ *  `bitset_view::to_csr`) and locates each index's boundary in it. */
 template <class T, class IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
-int64_t merged_dataset_size(
+std::vector<int64_t> merged_dataset_offsets(
   raft::resources const& handle,
   std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*> const& indices,
   cuvs::neighbors::filtering::base_filter const& row_filter)
 {
-  int64_t merged_rows = 0;
+  std::vector<int64_t> unfiltered_offsets;
+  unfiltered_offsets.reserve(indices.size() + 1);
+  unfiltered_offsets.push_back(0);
   for (auto* index : indices) {
     RAFT_EXPECTS(index != nullptr,
                  "Null pointer detected in 'indices'. Ensure all elements are valid before usage.");
-    merged_rows += static_cast<int64_t>(index->size());
+    unfiltered_offsets.push_back(unfiltered_offsets.back() + static_cast<int64_t>(index->size()));
   }
-  if (row_filter.get_filter_type() == cuvs::neighbors::filtering::FilterType::Bitset) {
-    auto const& actual_filter =
-      dynamic_cast<const cuvs::neighbors::filtering::bitset_filter<uint32_t, int64_t>&>(row_filter);
-    return actual_filter.view().count(handle);
+
+  if (row_filter.get_filter_type() == cuvs::neighbors::filtering::FilterType::None) {
+    return unfiltered_offsets;
   }
-  RAFT_EXPECTS(row_filter.get_filter_type() == cuvs::neighbors::filtering::FilterType::None,
-               "Only none and bitset filters are supported inside cagra::merge");
-  return merged_rows;
+  RAFT_EXPECTS(row_filter.get_filter_type() == cuvs::neighbors::filtering::FilterType::Bitset,
+               "Only none and bitset filters are supported by cagra::merged_dataset_offsets");
+
+  auto const& actual_filter =
+    dynamic_cast<const cuvs::neighbors::filtering::bitset_filter<uint32_t, int64_t>&>(row_filter);
+  int64_t const final_rows = actual_filter.view().count(handle);
+
+  auto surviving_rows = raft::make_device_csr_matrix<uint32_t, int64_t, int64_t, int64_t>(
+    handle, 1, static_cast<std::size_t>(unfiltered_offsets.back()));
+  surviving_rows.initialize_sparsity(final_rows);
+  actual_filter.view().to_csr(handle, surviving_rows);
+  auto const csr_indices = surviving_rows.structure_view().get_indices();
+
+  std::vector<int64_t> surviving_rows_host(csr_indices.size());
+  raft::copy(surviving_rows_host.data(),
+             csr_indices.data(),
+             csr_indices.size(),
+             raft::resource::get_cuda_stream(handle));
+  raft::resource::sync_stream(handle);
+
+  std::vector<int64_t> filtered_offsets;
+  filtered_offsets.reserve(unfiltered_offsets.size());
+  for (int64_t boundary : unfiltered_offsets) {
+    filtered_offsets.push_back(static_cast<int64_t>(
+      std::lower_bound(surviving_rows_host.begin(), surviving_rows_host.end(), boundary) -
+      surviving_rows_host.begin()));
+  }
+  return filtered_offsets;
 }
 
+/** Validate that `offsets` is a well-formed length-`indices.size() + 1` boundary vector ending at
+ *  `final_rows`: starts at 0, non-decreasing, and the caller-supplied row counts stay in range. */
+inline void validate_merge_offsets(std::vector<int64_t> const& offsets,
+                                   std::size_t num_indices,
+                                   int64_t final_rows)
+{
+  RAFT_EXPECTS(offsets.size() == num_indices + 1,
+               "offsets must have indices.size() + 1 (%zu) entries, got %zu",
+               num_indices + 1,
+               offsets.size());
+  RAFT_EXPECTS(offsets.front() == 0, "offsets[0] must be 0");
+  for (std::size_t i = 0; i + 1 < offsets.size(); ++i) {
+    RAFT_EXPECTS(offsets[i] <= offsets[i + 1], "offsets must be non-decreasing");
+  }
+  RAFT_EXPECTS(offsets.back() == final_rows,
+               "offsets.back() (%ld) must equal merged_dataset's row count (%ld)",
+               long(offsets.back()),
+               long(final_rows));
+}
+
+/** Build a fresh CAGRA graph over a caller-populated, already-concatenated (and, if applicable,
+ *  already-filtered) merged dataset. The caller owns `merged_dataset`; this only merges the graph
+ *  and rebinds a view of it, mirroring the `extend()` contract. */
 template <class T, class IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
 cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> merge_rebuild(
   raft::resources const& handle,
   const cagra::index_params& params,
   std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*>& indices,
   DatasetViewT merged_dataset,
+  std::vector<int64_t> const& offsets,
   const cuvs::neighbors::filtering::base_filter& row_filter)
 {
   using cagra_index_t = cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>;
 
-  int64_t merged_rows = 0;
-  uint32_t dim        = 0;
-  int64_t stride      = -1;
+  uint32_t dim   = 0;
+  int64_t stride = -1;
 
   RAFT_EXPECTS(row_filter.get_filter_type() != cuvs::neighbors::filtering::FilterType::Bitmap,
                "Bitmap filter isn't supported inside cagra::merge");
@@ -98,21 +155,12 @@ cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> merge_rebuild(
         RAFT_EXPECTS(stride == static_cast<int64_t>(dataset.stride()),
                      "Row stride of datasets in indices must be equal.");
       }
-      merged_rows += static_cast<int64_t>(index->size());
     } else {
       RAFT_FAIL("cagra::merge only supports an uncompressed dense device dataset index");
     }
   }
 
-  bool const bitset_filtered =
-    row_filter.get_filter_type() == cuvs::neighbors::filtering::FilterType::Bitset;
-  int64_t const final_rows =
-    merged_dataset_size<T, IdxT, DatasetViewT>(handle, indices, row_filter);
-
-  RAFT_EXPECTS(merged_dataset.n_rows() == final_rows,
-               "merged_dataset rows (%ld) must equal the final merged row count (%ld)",
-               long(merged_dataset.n_rows()),
-               long(final_rows));
+  validate_merge_offsets(offsets, indices.size(), static_cast<int64_t>(merged_dataset.n_rows()));
   RAFT_EXPECTS(merged_dataset.dim() == dim,
                "merged_dataset dimension (%u) must equal the input dimension (%u)",
                unsigned(merged_dataset.dim()),
@@ -122,84 +170,9 @@ cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> merge_rebuild(
                unsigned(merged_dataset.stride()),
                long(stride));
 
-  auto output_const_view = merged_dataset.view();
-  auto output_view       = raft::make_device_matrix_view<T, int64_t>(
-    const_cast<T*>(output_const_view.data_handle()), final_rows, stride);
-
-  auto merge_dataset = [&](T* dst, std::size_t dst_ld) {
-    IdxT row_offset = 0;
-    for (cagra_index_t* index : indices) {
-      const T* src_ptr   = nullptr;
-      std::size_t n_rows = 0;
-      auto const& v      = index->dataset();
-      if constexpr (cuvs::neighbors::is_dense_row_major_dataset_view_v<std::decay_t<decltype(v)>>) {
-        src_ptr = v.view().data_handle();
-        n_rows  = static_cast<std::size_t>(v.n_rows());
-      } else {
-        RAFT_FAIL("cagra::merge: unexpected dataset type while copying rows");
-      }
-      raft::copy_matrix(dst + static_cast<std::size_t>(row_offset) * dst_ld,
-                        dst_ld,
-                        src_ptr,
-                        static_cast<std::size_t>(stride),
-                        static_cast<std::size_t>(dim),
-                        n_rows,
-                        raft::resource::get_cuda_stream(handle));
-
-      row_offset += IdxT(index->dataset().n_rows());
-    }
-  };
-
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle);
-
-  if (bitset_filtered) {
-    auto staging = raft::make_device_mdarray<T, int64_t>(
-      handle,
-      raft::resource::get_large_workspace_resource_ref(handle),
-      raft::make_extents<int64_t>(merged_rows, stride));
-    RAFT_CUDA_TRY(cudaMemsetAsync(
-      staging.data_handle(), 0, static_cast<std::size_t>(staging.size()) * sizeof(T), stream));
-    merge_dataset(staging.data_handle(), static_cast<std::size_t>(stride));
-
-    auto actual_filter =
-      dynamic_cast<const cuvs::neighbors::filtering::bitset_filter<uint32_t, int64_t>&>(row_filter);
-
-    auto indices_csr = raft::make_device_csr_matrix<uint32_t, int64_t, int64_t, int64_t>(
-      handle, 1, static_cast<std::size_t>(merged_rows));
-    indices_csr.initialize_sparsity(final_rows);
-
-    actual_filter.view().to_csr(handle, indices_csr);
-
-    auto csr_indices  = indices_csr.structure_view().get_indices();
-    auto indices_view = raft::make_device_vector_view<const int64_t, int64_t>(
-      csr_indices.data(), static_cast<int64_t>(csr_indices.size()));
-
-    RAFT_CUDA_TRY(cudaMemsetAsync(
-      output_view.data_handle(),
-      0,
-      static_cast<std::size_t>(final_rows) * static_cast<std::size_t>(stride) * sizeof(T),
-      stream));
-
-    raft::matrix::copy_rows(
-      handle, raft::make_const_mdspan(staging.view()), output_view, indices_view);
-
-    auto index = ::cuvs::neighbors::cagra::detail::build_from_device_matrix<T, IdxT, DatasetViewT>(
-      handle, params, merged_dataset);
-    index = ::cuvs::neighbors::cagra::update_dataset(handle, std::move(index), merged_dataset);
-    RAFT_LOG_DEBUG("cagra merge: using device memory for merged dataset");
-    return index;
-  }
-
-  RAFT_CUDA_TRY(cudaMemsetAsync(
-    output_view.data_handle(),
-    0,
-    static_cast<std::size_t>(final_rows) * static_cast<std::size_t>(stride) * sizeof(T),
-    stream));
-  merge_dataset(output_view.data_handle(), static_cast<std::size_t>(stride));
   auto index = ::cuvs::neighbors::cagra::detail::build_from_device_matrix<T, IdxT, DatasetViewT>(
     handle, params, merged_dataset);
   index = ::cuvs::neighbors::cagra::update_dataset(handle, std::move(index), merged_dataset);
-  RAFT_LOG_DEBUG("cagra merge: using device memory for merged dataset");
   return index;
 }
 
@@ -219,6 +192,7 @@ auto preflight_fastener(
   cagra::index_params const& params,
   cagra::merge_params const& merge_params,
   std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*> const& indices,
+  std::vector<int64_t> const& offsets,
   cuvs::neighbors::filtering::base_filter const& row_filter) -> fastener_preflight_result
 {
   fastener_preflight_result result;
@@ -326,6 +300,14 @@ auto preflight_fastener(
     result.offsets.push_back(static_cast<int64_t>(rows));
   }
 
+  // Fastener never applies a row filter (rejected above), so the caller-supplied offsets must be
+  // exactly the unfiltered per-index cumulative sizes computed above -- merge_dataset_offsets()
+  // returns this same vector for an unfiltered merge, so a caller who used it will always match.
+  if (offsets != result.offsets) {
+    return reject(
+      "offsets must equal the cumulative unfiltered row counts of each input index for Fastener");
+  }
+
   if (result.dim <= 0 || result.dim > std::numeric_limits<int>::max()) {
     return reject("dataset dimension must be positive and fit cuBLAS int dimensions");
   }
@@ -366,30 +348,10 @@ auto preflight_fastener(
   return result;
 }
 
-/** Copy every input dataset into its row range of the caller-supplied merged dataset. Both sides
- *  carry a row pitch: the inputs share one stride (enforced by preflight) and the destination uses
- *  the merged dataset's own stride. */
-template <typename T, typename IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
-void copy_input_datasets(
-  raft::resources const& handle,
-  std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*> const& indices,
-  std::vector<int64_t> const& offsets,
-  int64_t dim,
-  int64_t destination_stride,
-  T* destination)
-{
-  for (std::size_t i = 0; i < indices.size(); ++i) {
-    auto const& source = indices[i]->dataset();
-    raft::copy_matrix(destination + offsets[i] * destination_stride,
-                      static_cast<std::size_t>(destination_stride),
-                      source.view().data_handle(),
-                      static_cast<std::size_t>(source.stride()),
-                      static_cast<std::size_t>(dim),
-                      static_cast<std::size_t>(source.n_rows()),
-                      raft::resource::get_cuda_stream(handle));
-  }
-}
-
+/** Build a merged CAGRA graph via Fastener over a caller-populated, already-concatenated merged
+ *  dataset (Fastener never applies a row filter, so `merged_dataset` always holds the full,
+ *  unfiltered concatenation of every input in `indices` order). The caller owns `merged_dataset`;
+ *  this only merges the graph and rebinds a view of it. */
 template <typename T, typename IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
 auto merge_fastener(raft::resources const& handle,
                     cagra::index_params const& params,
@@ -410,22 +372,6 @@ auto merge_fastener(raft::resources const& handle,
                long(preflight.dim));
 
   auto const output_const_view = merged_dataset.view();
-  auto* destination            = const_cast<T*>(output_const_view.data_handle());
-  {
-    raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> scope("cagra::merge/consolidate");
-    // The copy below overwrites columns [0, dim), while the sorter computes L2 over [0, stride).
-    // Zero the remaining padded columns; when stride == dim, there are none to initialize.
-    if (stride > preflight.dim) {
-      RAFT_CUDA_TRY(cudaMemset2DAsync(destination + preflight.dim,
-                                      static_cast<std::size_t>(stride) * sizeof(T),
-                                      0,
-                                      static_cast<std::size_t>(stride - preflight.dim) * sizeof(T),
-                                      static_cast<std::size_t>(preflight.rows),
-                                      raft::resource::get_cuda_stream(handle)));
-    }
-    copy_input_datasets<T, IdxT, DatasetViewT>(
-      handle, indices, preflight.offsets, preflight.dim, stride, destination);
-  }
   // The scaffold and the sorter read the consolidated rows with this pitch; dim stays logical.
   auto dataset_view = raft::make_device_matrix_view<const T, int64_t, raft::row_major>(
     output_const_view.data_handle(), preflight.rows, stride);
@@ -490,6 +436,7 @@ auto merge(raft::resources const& handle,
            cagra::index_params const& params,
            std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*>& indices,
            DatasetViewT merged_dataset,
+           std::vector<int64_t> const& offsets,
            cagra::merge_params const& merge_params,
            cuvs::neighbors::filtering::base_filter const& row_filter)
   -> cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>
@@ -503,15 +450,15 @@ auto merge(raft::resources const& handle,
                "Unknown cagra::merge algorithm");
   if (merge_params.algo == cagra::merge_algo::REBUILD) {
     return merge_rebuild<T, IdxT, DatasetViewT>(
-      handle, params, indices, merged_dataset, row_filter);
+      handle, params, indices, merged_dataset, offsets, row_filter);
   }
 
-  auto preflight =
-    preflight_fastener<T, IdxT, DatasetViewT>(handle, params, merge_params, indices, row_filter);
+  auto preflight = preflight_fastener<T, IdxT, DatasetViewT>(
+    handle, params, merge_params, indices, offsets, row_filter);
   if (!preflight.eligible) {
     if (merge_params.algo == cagra::merge_algo::AUTO) {
       return merge_rebuild<T, IdxT, DatasetViewT>(
-        handle, params, indices, merged_dataset, row_filter);
+        handle, params, indices, merged_dataset, offsets, row_filter);
     }
     RAFT_FAIL("FASTENER cagra::merge is unsupported: %s", preflight.reason.c_str());
   }
@@ -529,7 +476,7 @@ auto merge(raft::resources const& handle,
       RAFT_LOG_WARN("Fastener cagra::merge could not allocate (%s); falling back to rebuild",
                     failure.what());
       return merge_rebuild<T, IdxT, DatasetViewT>(
-        handle, params, indices, merged_dataset, row_filter);
+        handle, params, indices, merged_dataset, offsets, row_filter);
     }
   }
 
@@ -543,13 +490,14 @@ auto merge(raft::resources const& handle,
            cagra::index_params const& params,
            std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*>& indices,
            DatasetViewT merged_dataset,
+           std::vector<int64_t> const& offsets,
            cuvs::neighbors::filtering::base_filter const& row_filter)
   -> cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>
 {
   // Fully qualified: an unqualified call also finds cuvs::neighbors::cagra::merge via ADL on the
   // index arguments, which is ambiguous with this overload.
   return cuvs::neighbors::cagra::detail::merge<T, IdxT, DatasetViewT>(
-    handle, params, indices, merged_dataset, cagra::merge_params{}, row_filter);
+    handle, params, indices, merged_dataset, offsets, cagra::merge_params{}, row_filter);
 }
 
 }  // namespace cuvs::neighbors::cagra::detail

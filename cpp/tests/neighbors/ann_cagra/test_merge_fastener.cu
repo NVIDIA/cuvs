@@ -95,6 +95,35 @@ auto make_merged_storage(raft::resources const& res, int64_t rows, int64_t dim) 
   return padded_storage<T>{std::move(matrix), view};
 }
 
+/** Fill `dest` (from `make_merged_storage`) with the concatenation of `indices`' dataset rows, in
+ *  order -- what cagra::merge() used to do internally for an unfiltered merge. Returns the
+ *  per-index offsets merge() now requires. */
+template <typename T>
+auto populate_merged_storage(raft::resources const& res,
+                             std::vector<cagra::device_padded_index<T, uint32_t>*> const& indices,
+                             padded_storage<T>& dest) -> std::vector<int64_t>
+{
+  auto stream               = raft::resource::get_cuda_stream(res);
+  int64_t const dest_stride = static_cast<int64_t>(dest.view.stride());
+  std::vector<int64_t> offsets{0};
+  for (auto* index : indices) {
+    auto src             = index->dataset();
+    int64_t const rows   = src.n_rows();
+    int64_t const dim    = static_cast<int64_t>(src.dim());
+    int64_t const stride = static_cast<int64_t>(src.stride());
+    raft::copy_matrix(dest.matrix.data_handle() + offsets.back() * dest_stride,
+                      static_cast<std::size_t>(dest_stride),
+                      src.view().data_handle(),
+                      static_cast<std::size_t>(stride),
+                      static_cast<std::size_t>(dim),
+                      static_cast<std::size_t>(rows),
+                      stream);
+    offsets.push_back(offsets.back() + rows);
+  }
+  raft::resource::sync_stream(res);
+  return offsets;
+}
+
 template <typename T>
 auto make_dataset(raft::resources const& res,
                   int64_t rows,
@@ -284,12 +313,12 @@ void run_explicit_fastener(cuvs::distance::DistanceType metric)
   fastener.leaf_degree = 4;
   std::vector<cagra::device_padded_index<T, uint32_t>*> indices{&index0, &index1};
 
-  auto merged_storage = make_merged_storage<T>(res, rows * 2, dim);
-  RAFT_CUDA_TRY(cudaMemsetAsync(merged_storage.matrix.data_handle(),
-                                0xff,
-                                merged_storage.matrix.size() * sizeof(T),
-                                raft::resource::get_cuda_stream(res)));
-  auto merged = merge(res, params, indices, merged_storage.view, fastener);
+  // merge() only rebuilds the graph now; the caller must populate the merged dataset buffer.
+  // `expected` is already the concatenation of index0's and index1's rows, so build the padded
+  // merged buffer directly from it.
+  auto merged_storage = make_padded<T>(res, raft::make_const_mdspan(expected.view()));
+  std::vector<int64_t> offsets{0, rows, rows * 2};
+  auto merged = merge(res, params, indices, merged_storage.view, offsets, fastener);
   expect_valid_graph(merged, rows * 2, degree);
   expect_dataset_order(res, merged, raft::make_const_mdspan(expected.view()));
   expect_zero_padding(res, merged);
@@ -745,7 +774,8 @@ TEST(CagraMergeFastener, IdenticalInputsAlignedToLeafSizeStayConnected)
 
   std::vector<cagra::device_padded_index<float, uint32_t>*> indices{&index0, &index1};
   auto merged_storage = make_merged_storage<float>(res, rows, dim);
-  auto merged         = merge(res, params, indices, merged_storage.view, fastener);
+  auto offsets        = populate_merged_storage<float>(res, indices, merged_storage);
+  auto merged         = merge(res, params, indices, merged_storage.view, offsets, fastener);
   expect_valid_graph(merged, rows, degree);
   EXPECT_EQ(count_connected_components(merged), 1)
     << "the inputs were merged without any edge connecting them";
@@ -802,8 +832,9 @@ TEST(CagraMergeFastener, LeafGemmLimitsRejectOversizedWorkspaceDimensions)
   fastener.leaf_size = leaf_size;
   std::vector<index<int8_t, uint32_t>*> indices{&index0, &index1};
 
+  std::vector<int64_t> offsets{0, rows, rows * 2};
   auto result = detail::preflight_fastener(
-    res, params, fastener, indices, cuvs::neighbors::filtering::none_sample_filter{});
+    res, params, fastener, indices, offsets, cuvs::neighbors::filtering::none_sample_filter{});
   EXPECT_FALSE(result.eligible);
   EXPECT_EQ(result.reason, "dataset dimension exceeds the leaf GEMM workspace limit");
   EXPECT_EQ(index0.dataset().n_rows(), rows);
@@ -877,20 +908,27 @@ TEST(CagraMergeFastener, AssignmentGemmLimitsRejectDimensionsThatFitALeaf)
   fastener.leader_fraction = worst_case.leader_fraction;
   fastener.max_leaders     = worst_case.max_leaders;
   fastener.leaf_size       = worst_case.leaf_size;
-  auto result              = detail::preflight_fastener(
-    res, params, fastener, indices, cuvs::neighbors::filtering::none_sample_filter{});
+  std::vector<int64_t> preflight_offsets{0, rows_per_input, rows_per_input * 2};
+  auto result = detail::preflight_fastener(res,
+                                           params,
+                                           fastener,
+                                           indices,
+                                           preflight_offsets,
+                                           cuvs::neighbors::filtering::none_sample_filter{});
   EXPECT_FALSE(result.eligible);
   EXPECT_EQ(result.reason, "dataset dimension exceeds the assignment GEMM workspace limit");
 
   // Explicit Fastener surfaces the rejection; AUTO takes the rebuild path and still produces an
   // index. Reaching rebuild at all is the regression this test guards.
   auto fastener_storage = make_merged_storage<int8_t>(res, merged_rows, dim);
-  EXPECT_ANY_THROW(merge(res, params, indices, fastener_storage.view, fastener));
+  auto fastener_offsets = populate_merged_storage<int8_t>(res, indices, fastener_storage);
+  EXPECT_ANY_THROW(merge(res, params, indices, fastener_storage.view, fastener_offsets, fastener));
 
   auto automatic      = fastener;
   automatic.algo      = merge_algo::AUTO;
   auto merged_storage = make_merged_storage<int8_t>(res, merged_rows, dim);
-  auto merged         = merge(res, params, indices, merged_storage.view, automatic);
+  auto merged_offsets = populate_merged_storage<int8_t>(res, indices, merged_storage);
+  auto merged         = merge(res, params, indices, merged_storage.view, merged_offsets, automatic);
   EXPECT_EQ(merged.size(), merged_rows);
 
   EXPECT_EQ(index0.dataset().n_rows(), rows_per_input);
@@ -935,8 +973,9 @@ TEST(CagraMergeFastener, PreflightRejectsCandidateDegreeAboveSortLimit)
     merge_params fastener;
     fastener.algo = merge_algo::FASTENER;
     std::vector<cagra::device_padded_index<float, uint32_t>*> indices{&index0, &index1};
+    std::vector<int64_t> offsets{0, rows, rows * 2};
     return detail::preflight_fastener(
-      res, params, fastener, indices, cuvs::neighbors::filtering::none_sample_filter{});
+      res, params, fastener, indices, offsets, cuvs::neighbors::filtering::none_sample_filter{});
   };
 
   // Exactly at the limit stays eligible; one degree past it is rejected for that specific reason.
@@ -997,7 +1036,8 @@ TEST(CagraMergeFastener, BatchesWithinConfiguredWorkspace)
   std::vector<cagra::device_padded_index<float, uint32_t>*> indices{&index0, &index1};
 
   auto merged_storage = make_merged_storage<float>(res, rows * 2, dim);
-  auto merged         = merge(res, params, indices, merged_storage.view, fastener);
+  auto offsets        = populate_merged_storage<float>(res, indices, merged_storage);
+  auto merged         = merge(res, params, indices, merged_storage.view, offsets, fastener);
   expect_valid_graph(merged, rows * 2, degree);
   EXPECT_EQ(raft::resource::get_workspace_used_bytes(res), 0);
 }
@@ -1053,8 +1093,11 @@ TEST(CagraMergeFastener, MixedDatasetOwnershipPreservesInputs)
   fastener.leaf_degree = 4;
   std::vector<cagra::device_padded_index<float, uint32_t>*> indices{&index0, &index1};
 
-  auto merged_storage = make_merged_storage<float>(res, rows * 2, dim);
-  auto merged         = merge(res, params, indices, merged_storage.view, fastener);
+  // `expected` is already the concatenation of index0's and index1's rows; build the padded
+  // merged buffer directly from it instead of letting merge() copy it internally.
+  auto merged_storage = make_padded<float>(res, raft::make_const_mdspan(expected.view()));
+  std::vector<int64_t> offsets{0, rows, rows * 2};
+  auto merged = merge(res, params, indices, merged_storage.view, offsets, fastener);
   expect_valid_graph(merged, rows * 2, degree);
   expect_dataset_order(res, merged, raft::make_const_mdspan(expected.view()));
   EXPECT_EQ(merged.dataset().n_rows(), rows * 2);
@@ -1164,9 +1207,17 @@ void run_fastener_merge_recall(size_t n_inputs, double min_recall)
     inputs.push_back(&part);
   }
   merge_params fastener;
-  fastener.algo       = merge_algo::FASTENER;
-  auto merged_storage = make_merged_storage<DataT>(res, rows, dim);
-  auto merged         = merge(res, build_params, inputs, merged_storage.view, fastener);
+  fastener.algo = merge_algo::FASTENER;
+
+  // Each part was built from a contiguous slice of `data`, so the concatenation of the parts in
+  // `inputs` order is exactly `data` itself; build the merged buffer directly from it.
+  cuvs::neighbors::test::padded_device_matrix_for_cagra<DataT> merged_storage(
+    res, raft::make_const_mdspan(data.view()));
+  std::vector<int64_t> offsets{0};
+  for (auto& part : parts) {
+    offsets.push_back(offsets.back() + static_cast<int64_t>(part.size()));
+  }
+  auto merged = merge(res, build_params, inputs, merged_storage.view, offsets, fastener);
   ASSERT_EQ(merged.size(), rows);
 
   auto found_indices   = raft::make_device_matrix<uint32_t, int64_t>(res, n_query, k);
@@ -1276,7 +1327,8 @@ TEST(CagraMergeFastener, MixedDegreesAndThreeLevelUint8OptionsProduceExactDegree
   std::vector<cagra::device_padded_index<uint8_t, uint32_t>*> indices{&index0, &index1};
 
   auto merged_storage = make_merged_storage<uint8_t>(res, rows * 2, dim);
-  auto merged         = merge(res, params, indices, merged_storage.view, fastener);
+  auto offsets        = populate_merged_storage<uint8_t>(res, indices, merged_storage);
+  auto merged         = merge(res, params, indices, merged_storage.view, offsets, fastener);
   expect_valid_graph(merged, rows * 2, 8);
 }
 
@@ -1380,7 +1432,8 @@ TEST(CagraMergeFastener, MergeSupportsOutputDegreeBelowInputDegree)
   std::vector<cagra::device_padded_index<float, uint32_t>*> indices{&index0, &index1};
 
   auto merged_storage = make_merged_storage<float>(res, rows * 2, dim);
-  auto merged         = merge(res, params, indices, merged_storage.view, fastener);
+  auto offsets        = populate_merged_storage<float>(res, indices, merged_storage);
+  auto merged         = merge(res, params, indices, merged_storage.view, offsets, fastener);
   expect_valid_graph(merged, rows * 2, params.graph_degree);
 }
 
@@ -1457,9 +1510,10 @@ TEST(CagraMergeFastener, InvalidManywayOptionsFailPreflightWithoutMutation)
     value.lower_fanout = 32;
   });
 
+  std::vector<int64_t> offsets{0, rows, rows * 2};
   for (auto const& candidate : invalid) {
     auto result = detail::preflight_fastener(
-      res, params, candidate, indices, cuvs::neighbors::filtering::none_sample_filter{});
+      res, params, candidate, indices, offsets, cuvs::neighbors::filtering::none_sample_filter{});
     EXPECT_FALSE(result.eligible) << result.reason;
   }
   EXPECT_EQ(owned.indices[0].dataset().n_rows(), rows);
@@ -1490,10 +1544,11 @@ TEST(CagraMergeFastener, DispatchRejectsOrFallsBackBeforeMutation)
     auto throwaway_storage = make_merged_storage<float>(res, rows * 2, dim);
     std::vector<cagra::device_padded_index<float, uint32_t>*> indices{&owned.indices[0],
                                                                       &owned.indices[1]};
+    auto offsets = populate_merged_storage<float>(res, indices, throwaway_storage);
     merge_params unsupported;
     unsupported.algo      = merge_algo::FASTENER;
     unsupported.leaf_size = 512;
-    EXPECT_ANY_THROW(merge(res, params, indices, throwaway_storage.view, unsupported));
+    EXPECT_ANY_THROW(merge(res, params, indices, throwaway_storage.view, offsets, unsupported));
     EXPECT_EQ(owned.indices[0].dataset().n_rows(), rows);
     EXPECT_EQ(owned.indices[1].dataset().n_rows(), rows);
   }
@@ -1505,10 +1560,12 @@ TEST(CagraMergeFastener, DispatchRejectsOrFallsBackBeforeMutation)
     auto throwaway_storage = make_merged_storage<float>(res, rows * 2, dim);
     std::vector<cagra::device_padded_index<float, uint32_t>*> indices{&owned.indices[0],
                                                                       &owned.indices[1]};
+    auto offsets = populate_merged_storage<float>(res, indices, throwaway_storage);
     merge_params fastener;
     fastener.algo      = merge_algo::FASTENER;
     fastener.leaf_size = 64;
-    EXPECT_ANY_THROW(merge(res, inner_product_params, indices, throwaway_storage.view, fastener));
+    EXPECT_ANY_THROW(
+      merge(res, inner_product_params, indices, throwaway_storage.view, offsets, fastener));
     EXPECT_EQ(owned.indices[0].dataset().n_rows(), rows);
     EXPECT_EQ(owned.indices[1].dataset().n_rows(), rows);
   }
@@ -1517,10 +1574,11 @@ TEST(CagraMergeFastener, DispatchRejectsOrFallsBackBeforeMutation)
     auto throwaway_storage = make_merged_storage<float>(res, rows * 2, dim);
     std::vector<cagra::device_padded_index<float, uint32_t>*> indices{&owned.indices[0],
                                                                       &owned.indices[1]};
+    auto offsets = populate_merged_storage<float>(res, indices, throwaway_storage);
     merge_params automatic;
     automatic.algo      = merge_algo::AUTO;
     automatic.leaf_size = 512;
-    auto merged         = merge(res, params, indices, throwaway_storage.view, automatic);
+    auto merged         = merge(res, params, indices, throwaway_storage.view, offsets, automatic);
     EXPECT_EQ(merged.size(), rows * 2);
     EXPECT_EQ(owned.indices[0].dataset().n_rows(), rows);
     EXPECT_EQ(owned.indices[1].dataset().n_rows(), rows);
@@ -1532,7 +1590,8 @@ TEST(CagraMergeFastener, DispatchRejectsOrFallsBackBeforeMutation)
                                                                       &owned.indices[1]};
     merge_params rebuild{merge_algo::REBUILD};
     auto merged_storage = make_merged_storage<float>(res, rows * 2, dim);
-    auto merged         = merge(res, params, indices, merged_storage.view, rebuild);
+    auto offsets        = populate_merged_storage<float>(res, indices, merged_storage);
+    auto merged         = merge(res, params, indices, merged_storage.view, offsets, rebuild);
     EXPECT_EQ(merged.size(), rows * 2);
     EXPECT_EQ(owned.indices[0].dataset().n_rows(), rows);
     EXPECT_EQ(owned.indices[1].dataset().n_rows(), rows);

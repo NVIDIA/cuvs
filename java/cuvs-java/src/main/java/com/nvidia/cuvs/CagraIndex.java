@@ -305,25 +305,123 @@ public interface CagraIndex extends AutoCloseable {
   /**
    * Merges multiple CAGRA indexes into a single index using default merge parameters.
    *
+   * <p>The caller is responsible for concatenating every input index's dataset (in {@code
+   * indexes} order) into a single caller-owned padded dataset before calling this, and for
+   * providing {@code offsets}: entry {@code i} is the row at which {@code indexes[i]}'s rows
+   * start in {@code mergedDataset}, and the last entry ({@code offsets[indexes.length]}) must
+   * equal {@code mergedDataset}'s total row count. For example, with no filtering, {@code
+   * offsets} is simply the cumulative row counts of {@code indexes} in order. This mirrors the
+   * caller-owned-buffer contract used by {@link #updateDataset(PaddedDataset)}. Keep {@code
+   * mergedDataset} alive for as long as the returned index remains in use.
+   *
    * @param indexes Array of CAGRA indexes to merge
+   * @param mergedDataset Caller-owned padded dataset holding the concatenation of every input
+   *                      index's rows, in {@code indexes} order
+   * @param offsets Per-index starting row within {@code mergedDataset}. Array of {@code
+   *                indexes.length + 1} entries; the last entry must equal {@code mergedDataset}'s
+   *                row count
    * @return A new merged CAGRA index
    * @throws Throwable if an error occurs during the merge operation
    */
-  static CagraIndex merge(CagraIndex[] indexes) throws Throwable {
-    return merge(indexes, null);
+  static CagraIndex merge(CagraIndex[] indexes, PaddedDataset mergedDataset, long[] offsets)
+      throws Throwable {
+    return merge(indexes, mergedDataset, offsets, null);
   }
 
   /**
    * Merges multiple CAGRA indexes into a single index with the specified merge parameters.
    *
+   * <p>See {@link #merge(CagraIndex[], PaddedDataset, long[])} for the {@code mergedDataset}/
+   * {@code offsets} contract.
+   *
    * @param indexes Array of CAGRA indexes to merge
+   * @param mergedDataset Caller-owned padded dataset holding the concatenation of every input
+   *                      index's rows, in {@code indexes} order
+   * @param offsets Per-index starting row within {@code mergedDataset}. Array of {@code
+   *                indexes.length + 1} entries; the last entry must equal {@code mergedDataset}'s
+   *                row count
    * @param mergeParams Parameters to control the merge operation, or null to use defaults
    * @return A new merged CAGRA index
    * @throws Throwable if an error occurs during the merge operation
    */
-  static CagraIndex merge(CagraIndex[] indexes, CagraIndexParams mergeParams) throws Throwable {
+  static CagraIndex merge(
+      CagraIndex[] indexes,
+      PaddedDataset mergedDataset,
+      long[] offsets,
+      CagraIndexParams mergeParams)
+      throws Throwable {
+    validateMergeArgs(indexes, offsets);
+    Objects.requireNonNull(mergedDataset);
+    if (!mergedDataset.isPresent()) {
+      throw new IllegalArgumentException("mergedDataset is uninitialized");
+    }
+    return CuVSProvider.provider()
+        .mergeCagraIndexes(indexes, mergedDataset.nativeHandleAddress(), offsets, mergeParams);
+  }
+
+  /**
+   * Merges multiple CAGRA indexes into a single index using default merge parameters, from a
+   * caller-owned padded dataset view over a buffer that is already padded to CAGRA's required
+   * row stride.
+   *
+   * <p>See {@link #merge(CagraIndex[], PaddedDataset, long[])} for the {@code mergedDataset}/
+   * {@code offsets} contract.
+   *
+   * @param indexes Array of CAGRA indexes to merge
+   * @param mergedDataset Caller-owned padded dataset view holding the concatenation of every
+   *                      input index's rows, in {@code indexes} order
+   * @param offsets Per-index starting row within {@code mergedDataset}. Array of {@code
+   *                indexes.length + 1} entries; the last entry must equal {@code mergedDataset}'s
+   *                row count
+   * @return A new merged CAGRA index
+   * @throws Throwable if an error occurs during the merge operation
+   */
+  static CagraIndex merge(CagraIndex[] indexes, PaddedDatasetView mergedDataset, long[] offsets)
+      throws Throwable {
+    return merge(indexes, mergedDataset, offsets, null);
+  }
+
+  /**
+   * Merges multiple CAGRA indexes into a single index with the specified merge parameters, from a
+   * caller-owned padded dataset view over a buffer that is already padded to CAGRA's required
+   * row stride.
+   *
+   * <p>See {@link #merge(CagraIndex[], PaddedDataset, long[])} for the {@code mergedDataset}/
+   * {@code offsets} contract.
+   *
+   * @param indexes Array of CAGRA indexes to merge
+   * @param mergedDataset Caller-owned padded dataset view holding the concatenation of every
+   *                      input index's rows, in {@code indexes} order
+   * @param offsets Per-index starting row within {@code mergedDataset}. Array of {@code
+   *                indexes.length + 1} entries; the last entry must equal {@code mergedDataset}'s
+   *                row count
+   * @param mergeParams Parameters to control the merge operation, or null to use defaults
+   * @return A new merged CAGRA index
+   * @throws Throwable if an error occurs during the merge operation
+   */
+  static CagraIndex merge(
+      CagraIndex[] indexes,
+      PaddedDatasetView mergedDataset,
+      long[] offsets,
+      CagraIndexParams mergeParams)
+      throws Throwable {
+    validateMergeArgs(indexes, offsets);
+    Objects.requireNonNull(mergedDataset);
+    if (!mergedDataset.isPresent()) {
+      throw new IllegalArgumentException("mergedDataset is uninitialized");
+    }
+    return CuVSProvider.provider()
+        .mergeCagraIndexes(indexes, mergedDataset.nativeHandleAddress(), offsets, mergeParams);
+  }
+
+  private static void validateMergeArgs(CagraIndex[] indexes, long[] offsets) {
     if (indexes == null || indexes.length == 0) {
       throw new IllegalArgumentException("At least one index must be provided for merging");
+    }
+    Objects.requireNonNull(offsets);
+    if (offsets.length != indexes.length + 1) {
+      throw new IllegalArgumentException(
+          "offsets must have indexes.length + 1 entries, got " + offsets.length);
     }
 
     CuVSResources resources = indexes[0].getCuVSResources();
@@ -332,8 +430,6 @@ public interface CagraIndex extends AutoCloseable {
         throw new IllegalArgumentException("All indexes must use the same CuVSResources instance");
       }
     }
-
-    return CuVSProvider.provider().mergeCagraIndexes(indexes, mergeParams);
   }
 
   /**
