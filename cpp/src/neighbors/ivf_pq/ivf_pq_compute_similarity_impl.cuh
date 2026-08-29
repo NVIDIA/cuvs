@@ -14,6 +14,7 @@
 #include "ivf_pq_fp_8bit.cuh"
 #include <cuvs/distance/distance.hpp>  // cuvs::distance::DistanceType
 #include <cuvs/neighbors/common.hpp>
+#include <util/jit_kernel_compat.hpp>
 #include <cuvs/neighbors/ivf_pq.hpp>               // codebook_gen
 #include <raft/matrix/detail/select_warpsort.cuh>  // matrix::detail::select::warpsort::warp_sort_distributed
 #include <raft/util/cuda_rt_essentials.hpp>  // RAFT_CUDA_TRY
@@ -255,8 +256,10 @@ struct occupancy_t {
                      cudaKernel_t kernel,
                      const cudaDeviceProp& dev_props)
   {
-    RAFT_CUDA_TRY(
-      cudaOccupancyMaxActiveBlocksPerMultiprocessor(&blocks_per_sm, kernel, n_threads, smem));
+    // Not `cudaOccupancyMaxActiveBlocksPerMultiprocessor`: it only accepts a `cudaKernel_t` on
+    // CUDA 12.8+.
+    RAFT_CUDA_TRY(cuvs::util::kernel_max_active_blocks_per_multiprocessor(
+      &blocks_per_sm, kernel, n_threads, smem));
     occupancy = double(blocks_per_sm * n_threads) / double(dev_props.maxThreadsPerMultiProcessor);
     shmem_use = double(shmem_unit::roundUp(smem) * blocks_per_sm) /
                 double(dev_props.sharedMemPerMultiprocessor);
@@ -483,12 +486,12 @@ auto compute_similarity_select(const cudaDeviceProp& dev_props,
     // usage and occupancy.
     const int max_carveout =
       estimate_carveout(preferred_shmem_carveout, smem_size_f(raft::WarpSize), dev_props);
-    RAFT_CUDA_TRY(
-      cudaFuncSetAttribute(kernel, cudaFuncAttributePreferredSharedMemoryCarveout, max_carveout));
+    RAFT_CUDA_TRY(cuvs::util::kernel_set_attribute(
+      kernel, cudaFuncAttributePreferredSharedMemoryCarveout, max_carveout));
 
     // Get the theoretical maximum possible number of threads per block
     cudaFuncAttributes kernel_attrs;
-    RAFT_CUDA_TRY(cudaFuncGetAttributes(&kernel_attrs, kernel));
+    RAFT_CUDA_TRY(cuvs::util::kernel_get_attributes(&kernel_attrs, kernel));
     uint32_t n_threads =
       raft::round_down_safe<uint32_t>(kernel_attrs.maxThreadsPerBlock, n_threads_gty);
 
@@ -496,13 +499,14 @@ auto compute_similarity_select(const cudaDeviceProp& dev_props,
     size_t smem_size = smem_size_f(n_threads);
 
     // Make sure the kernel can get enough shmem.
-    cudaError_t cuda_status =
-      cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem_size);
+    cudaError_t cuda_status = cuvs::util::kernel_set_attribute(
+      kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, static_cast<int>(smem_size));
     if (cuda_status != cudaSuccess) {
-      RAFT_EXPECTS(
-        cuda_status == cudaGetLastError(),
-        "Tried to reset the expected cuda error code, but it didn't match the expectation");
-      // Failed to request enough shmem for the kernel. Skip the candidate.
+      // Failed to request enough shmem for the kernel. Skip the candidate, after clearing the
+      // error so that it is not mistaken for a failure of the next CUDA call. (The driver-API
+      // path of kernel_set_attribute does not set the runtime's sticky error at all, so the
+      // status has to be inspected directly rather than through cudaGetLastError.)
+      cudaGetLastError();
       continue;
     }
 
@@ -578,8 +582,8 @@ auto compute_similarity_select(const cudaDeviceProp& dev_props,
         // a rather conservative bar; most likely, the kernel gets more shared memory than this,
         // and the occupancy doesn't get hurt.
         auto carveout = std::min<int>(max_carveout, std::ceil(100.0 * cur.shmem_use));
-        RAFT_CUDA_TRY(
-          cudaFuncSetAttribute(kernel, cudaFuncAttributePreferredSharedMemoryCarveout, carveout));
+        RAFT_CUDA_TRY(cuvs::util::kernel_set_attribute(
+          kernel, cudaFuncAttributePreferredSharedMemoryCarveout, carveout));
         if (cur.occupancy >= kTargetOccupancy) { break; }
       } else if (selected_perf.occupancy > 0.0) {
         // If we found a reasonable candidate on a previous iteration, and this one is not better,

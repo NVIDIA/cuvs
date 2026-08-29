@@ -6,11 +6,13 @@
 #ifdef CUVS_DISTANCE_PAIRWISE_USE_JIT
 #include "pairwise_matrix/jit_lto_kernels/device_functions.cuh"
 #endif
+#include <util/jit_kernel_compat.hpp>  // kernel_max_active_blocks_per_multiprocessor
 #include <raft/linalg/contractions.cuh>       // raft::linalg::Contractions_NT
 #include <raft/util/cuda_dev_essentials.cuh>  // ceildiv
 #include <raft/util/cuda_rt_essentials.hpp>   // RAFT_CUDA_TRY
 
-#include <cstddef>  // size_t
+#include <cstddef>      // size_t
+#include <type_traits>  // std::is_same_v
 
 namespace cuvs {
 namespace distance {
@@ -310,8 +312,14 @@ dim3 launchConfigGenerator(IdxT m, IdxT n, std::size_t sMemSize, T func)
   int numBlocksPerSm = 0;
   dim3 grid;
 
-  RAFT_CUDA_TRY(
-    cudaOccupancyMaxActiveBlocksPerMultiprocessor(&numBlocksPerSm, func, P::Nthreads, sMemSize));
+  if constexpr (std::is_same_v<T, cudaKernel_t>) {
+    // A JIT-LTO kernel handle: the runtime occupancy API only accepts one on CUDA 12.8+.
+    RAFT_CUDA_TRY(cuvs::util::kernel_max_active_blocks_per_multiprocessor(
+      &numBlocksPerSm, func, P::Nthreads, sMemSize));
+  } else {
+    RAFT_CUDA_TRY(
+      cudaOccupancyMaxActiveBlocksPerMultiprocessor(&numBlocksPerSm, func, P::Nthreads, sMemSize));
+  }
   std::size_t minGridSize = numSMs * numBlocksPerSm;
   std::size_t yChunks     = raft::ceildiv<int>(m, P::Mblk);
   std::size_t xChunks     = raft::ceildiv<int>(n, P::Nblk);

@@ -13,6 +13,7 @@
 #include "detail/jit_lto_kernels/scan_planner.hpp"
 #include <cuvs/detail/jit_lto/common_fragments.hpp>
 #include <cuvs/detail/jit_lto/ivf_sq/scan_fragments.hpp>
+#include <util/jit_kernel_compat.hpp>
 #include <cuvs/neighbors/common.hpp>
 #include <cuvs/neighbors/ivf_sq.hpp>
 
@@ -110,7 +111,9 @@ inline uint32_t configure_grid_dim_x(
   int num_sms;
   RAFT_CUDA_TRY(cudaDeviceGetAttribute(&num_sms, cudaDevAttrMultiProcessorCount, dev_id));
   int num_blocks_per_sm = 0;
-  RAFT_CUDA_TRY(cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+  // Not `cudaOccupancyMaxActiveBlocksPerMultiprocessor`: it only accepts a `cudaKernel_t` on
+  // CUDA 12.8+.
+  RAFT_CUDA_TRY(cuvs::util::kernel_max_active_blocks_per_multiprocessor(
     &num_blocks_per_sm, kernel, block_size, smem_size));
 
   size_t min_grid_size = size_t(num_sms) * num_blocks_per_sm;
@@ -205,10 +208,11 @@ void launch_kernel(const index<CodeT>& idx,
   {
     int dev_id;
     RAFT_CUDA_TRY(cudaGetDevice(&dev_id));
-    RAFT_CUDA_TRY(cudaKernelSetAttributeForDevice(kernel_launcher->get_kernel(),
-                                                  cudaFuncAttributeMaxDynamicSharedMemorySize,
-                                                  static_cast<int>(smem),
-                                                  dev_id));
+    // Not `cudaKernelSetAttributeForDevice`: that API does not exist before CUDA 12.8.
+    RAFT_CUDA_TRY(cuvs::util::kernel_set_attribute(kernel_launcher->get_kernel(),
+                                                   cudaFuncAttributeMaxDynamicSharedMemorySize,
+                                                   static_cast<int>(smem),
+                                                   dev_id));
   }
 
   constexpr uint32_t kMaxGridY = 65535;

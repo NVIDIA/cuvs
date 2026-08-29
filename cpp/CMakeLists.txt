@@ -1532,6 +1532,19 @@ if(NOT BUILD_CPU_ONLY)
                                  ${CUVS_CUSPARSE_DEPENDENCY} ${CUVS_CURAND_DEPENDENCY}
   )
 
+  # Before CUDA 12.8 the runtime rejects a cudaKernel_t where a kernel entry point is expected, and
+  # cudaKernelSetAttributeForDevice does not exist at all, so the JIT-LTO kernel handles are queried
+  # and configured through the equivalent driver-API entry points instead (see
+  # src/util/jit_kernel_compat.hpp). That needs the driver stub at link time.
+  set(CUVS_CUDA_DRIVER_DEPENDENCY "")
+  if(CUDAToolkit_VERSION VERSION_LESS 12.8)
+    set(CUVS_CUDA_DRIVER_DEPENDENCY CUDA::cuda_driver)
+    message(
+      STATUS
+        "cuVS: CUDA ${CUDAToolkit_VERSION} does not accept kernel handles in the runtime API; using the driver API for JIT-LTO kernel attributes"
+    )
+  endif()
+
   if(NOT cuvs_compile_mode STREQUAL "static_only")
     add_library(cuvs SHARED $<TARGET_OBJECTS:cuvs_objs>)
     add_library(cuvs::cuvs ALIAS cuvs)
@@ -1571,6 +1584,7 @@ if(NOT BUILD_CPU_ONLY)
              $<$<BOOL:${CUVS_NVTX}>:CUDA::nvtx3>
       PRIVATE $<TARGET_NAME_IF_EXISTS:OpenMP::OpenMP_CXX> $<COMPILE_ONLY:nvidia::cutlass::cutlass>
               $<COMPILE_ONLY:cuco::cuco> CUDA::nvJitLink CUDA::nvrtc rtcx::rtcx
+              ${CUVS_CUDA_DRIVER_DEPENDENCY}
     )
 
     # ensure CUDA symbols aren't relocated to the middle of the debug build binaries
@@ -1629,6 +1643,7 @@ SECTIONS
               CUDA::nvJitLink
               CUDA::nvrtc
               rtcx::rtcx
+              ${CUVS_CUDA_DRIVER_DEPENDENCY}
               $<$<BOOL:${CUVS_NVTX}>:CUDA::nvtx3>
               $<COMPILE_ONLY:nvidia::cutlass::cutlass>
               $<COMPILE_ONLY:cuco::cuco>

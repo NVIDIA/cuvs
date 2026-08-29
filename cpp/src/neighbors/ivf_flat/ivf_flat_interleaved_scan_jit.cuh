@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <cuvs/detail/jit_lto/common_fragments.hpp>
 #include <cuvs/detail/jit_lto/ivf_flat/interleaved_scan_fragments.hpp>
+#include <util/jit_kernel_compat.hpp>
 #include <cuvs/neighbors/common.hpp>
 #include <cuvs/neighbors/ivf_flat.hpp>
 #include <optional>
@@ -117,7 +118,9 @@ inline uint32_t configure_launch_x(uint32_t numQueries,
   int num_sms;
   RAFT_CUDA_TRY(cudaDeviceGetAttribute(&num_sms, cudaDevAttrMultiProcessorCount, dev_id));
   int num_blocks_per_sm = 0;
-  RAFT_CUDA_TRY(cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+  // Not `cudaOccupancyMaxActiveBlocksPerMultiprocessor`: it only accepts a `cudaKernel_t` on
+  // CUDA 12.8+.
+  RAFT_CUDA_TRY(cuvs::util::kernel_max_active_blocks_per_multiprocessor(
     &num_blocks_per_sm, func, kThreadsPerBlock, sMemSize));
 
   size_t min_grid_size = num_sms * num_blocks_per_sm;
