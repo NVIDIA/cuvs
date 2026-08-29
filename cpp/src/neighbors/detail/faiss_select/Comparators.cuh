@@ -26,9 +26,18 @@ struct Comparator {
 
 template <>
 struct Comparator<half> {
+  // `__hlt` / `__hgt` are FP16 ALU instructions and require sm_53. Older targets (sm_50) can only
+  // store halves, so the comparison is done after widening to fp32 -- which is exact, since every
+  // finite fp16 value is representable in fp32.
+#if !defined(__CUDA_ARCH__) || (__CUDA_ARCH__ >= 530)
   __device__ static inline bool lt(half a, half b) { return __hlt(a, b); }
 
   __device__ static inline bool gt(half a, half b) { return __hgt(a, b); }
+#else
+  __device__ static inline bool lt(half a, half b) { return __half2float(a) < __half2float(b); }
+
+  __device__ static inline bool gt(half a, half b) { return __half2float(a) > __half2float(b); }
+#endif
 };
 
 }  // namespace cuvs::neighbors::detail::faiss_select

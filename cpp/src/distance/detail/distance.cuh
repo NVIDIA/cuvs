@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include <util/half_compat.cuh>  // cuvs::util::sqrt_op
+
 #include "distance_ops/all_ops.cuh"
 #include "pairwise_matrix/dispatch.cuh"
 #include <cuvs/distance/distance.hpp>
@@ -357,12 +359,12 @@ void distance_impl(raft::resources const& handle,
     raft::linalg::map(
       handle,
       raft::make_device_vector_view<DataT, IdxT>((DataT*)x, m * k),
-      raft::sqrt_op{},
+      cuvs::util::sqrt_op{},
       raft::make_const_mdspan(raft::make_device_vector_view<const DataT, IdxT>(x, m * k)));
     raft::linalg::map(
       handle,
       raft::make_device_vector_view<DataT, IdxT>((DataT*)y, n * k),
-      raft::sqrt_op{},
+      cuvs::util::sqrt_op{},
       raft::make_const_mdspan(raft::make_device_vector_view<const DataT, IdxT>(y, n * k)));
   } else {
     // Arrays overlap: sqrt the union of both arrays exactly once
@@ -373,7 +375,7 @@ void distance_impl(raft::resources const& handle,
     raft::linalg::map(
       handle,
       raft::make_device_vector_view<DataT, IdxT>((DataT*)start, union_size),
-      raft::sqrt_op{},
+      cuvs::util::sqrt_op{},
       raft::make_const_mdspan(raft::make_device_vector_view<const DataT, IdxT>(start, union_size)));
   }
 

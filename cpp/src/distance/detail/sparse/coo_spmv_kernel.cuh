@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include "../../../util/arch_compat.cuh"  // cuvs::util::arch_compat::match_any_sync
+
 #include <raft/core/detail/macros.hpp>
 #include <raft/util/cuda_dev_essentials.cuh>
 
@@ -184,7 +186,9 @@ RAFT_KERNEL balanced_coo_generalized_spmv_kernel(strategy_t strategy,
     if (__any_sync(0xffffffff, diff_rows)) {
       // grab the threads currently participating in loops.
       // because any other threads should have returned already.
-      unsigned int peer_group = __match_any_sync(0xffffffff, cur_row_b);
+      // `__match_any_sync` is an sm_70 instruction; on older targets this expands to a
+      // warp-uniform ballot-based emulation (see util/arch_compat.cuh).
+      unsigned int peer_group = cuvs::util::arch_compat::match_any_sync(0xffffffff, cur_row_b);
       bool is_leader          = get_lowest_peer(peer_group) == lane_id;
       value_t v               = warp_red.HeadSegmentedReduce(c, is_leader, accum_func);
 

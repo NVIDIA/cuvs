@@ -10,6 +10,7 @@
 #include "cutlass_base.cuh"
 #include "helper_structs.cuh"
 #include "simt_kernel.cuh"
+#include <cuvs/detail/arch_config.hpp>   // CUVS_CUTLASS_ENABLED
 #include <raft/core/kvp.hpp>             // raft::KeyValuePair
 #include <raft/core/operators.hpp>       // raft::identity_op
 #include <raft/linalg/contractions.cuh>  // Policy
@@ -66,6 +67,7 @@ void fusedCosineNN(OutT* min,
                                       decltype(distance_op),
                                       decltype(fin_op)>;
 
+#if CUVS_CUTLASS_ENABLED
   // Get pointer to fp32 SIMT kernel to determine the runtime architecture of the
   // current system. Other methods to determine the architecture (that do not
   // require a pointer) can be error prone. See:
@@ -109,7 +111,11 @@ void fusedCosineNN(OutT* min,
                                          redOp,
                                          pairRedOp,
                                          stream);
-  } else {
+    return;
+  }
+#endif
+
+  {
     // If device less than SM_80, use fp32 SIMT kernel.
     constexpr size_t shmemSize = P::SmemSize + ((P::Mblk + P::Nblk) * sizeof(DataT));
     dim3 grid                  = launchConfigGenerator<P>(m, n, shmemSize, kernel);

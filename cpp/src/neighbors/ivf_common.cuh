@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include <util/half_compat.cuh>  // cuvs::util::sqrt_op
+
 #include <cuvs/distance/distance.hpp>
 #include <raft/core/copy.cuh>
 #include <raft/core/device_mdspan.hpp>
@@ -208,16 +210,16 @@ void postprocess_distances(const raft::resources& res,
         raft::linalg::map(res,
                           out_view,
                           raft::compose_op{raft::mul_const_op<ScoreOutT>{scaling_factor},
-                                           raft::sqrt_op{},
+                                           cuvs::util::sqrt_op{},
                                            raft::cast_op<ScoreOutT>{}},
                           raft::make_const_mdspan(in_view));
       } else if (needs_cast) {
         raft::linalg::map(res,
                           out_view,
-                          raft::compose_op{raft::sqrt_op{}, raft::cast_op<ScoreOutT>{}},
+                          raft::compose_op{cuvs::util::sqrt_op{}, raft::cast_op<ScoreOutT>{}},
                           raft::make_const_mdspan(in_view));
       } else {
-        raft::linalg::map(res, out_view, raft::sqrt_op{}, raft::make_const_mdspan(in_view));
+        raft::linalg::map(res, out_view, cuvs::util::sqrt_op{}, raft::make_const_mdspan(in_view));
       }
     } break;
     case distance::DistanceType::CosineExpanded:

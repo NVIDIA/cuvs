@@ -111,6 +111,7 @@ inline void balanced_coo_pairwise_generalized_spmv(
     dense_smem_strategy<value_idx, value_t, threads_per_block> strategy(config_);
     strategy.dispatch(out_dists, coo_rows_b, product_func, accum_func, write_func, chunk_size);
   } else {
+    hash_strategy<value_idx, value_t, threads_per_block>::assert_supported();
     hash_strategy<value_idx, value_t, threads_per_block> strategy(config_);
     strategy.dispatch(out_dists, coo_rows_b, product_func, accum_func, write_func, chunk_size);
   }
@@ -194,6 +195,7 @@ inline void balanced_coo_pairwise_generalized_spmv_rev(
     dense_smem_strategy<value_idx, value_t, threads_per_block> strategy(config_);
     strategy.dispatch_rev(out_dists, coo_rows_a, product_func, accum_func, write_func, chunk_size);
   } else {
+    hash_strategy<value_idx, value_t, threads_per_block>::assert_supported();
     hash_strategy<value_idx, value_t, threads_per_block> strategy(config_);
     strategy.dispatch_rev(out_dists, coo_rows_a, product_func, accum_func, write_func, chunk_size);
   }

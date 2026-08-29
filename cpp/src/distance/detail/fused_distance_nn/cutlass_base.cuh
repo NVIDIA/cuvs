@@ -5,6 +5,15 @@
 
 #pragma once
 
+#include <cuvs/detail/arch_config.hpp>  // CUVS_CUTLASS_ENABLED
+
+// The CUTLASS-backed fused distance-NN kernel is only ever dispatched to on sm_80+, but it cannot
+// even be *compiled* for pre-Volta targets: `cuda::binary_semaphore` hard-errors below sm_70 and
+// the reduced-vector output iterator relies on `cg::binary_partition`. When the build targets an
+// older architecture the whole file collapses to nothing and the callers fall back to the SIMT
+// kernel in `simt_kernel.cuh` (which is itself only compiled for `__CUDA_ARCH__ < 800`).
+#if CUVS_CUTLASS_ENABLED
+
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wstrict-aliasing"
 #pragma GCC diagnostic ignored "-Wtautological-compare"
@@ -164,3 +173,5 @@ void cutlassFusedDistanceNN(const DataT* x,
 };  // namespace cuvs
 
 #pragma GCC diagnostic pop
+
+#endif  // CUVS_CUTLASS_ENABLED

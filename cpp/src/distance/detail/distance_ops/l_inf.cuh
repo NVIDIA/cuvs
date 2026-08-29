@@ -39,8 +39,13 @@ struct l_inf_distance_op {
 
   DI void core(AccT& acc, DataT& x, DataT& y) const
   {
-    const auto diff = raft::abs(x - y);
-    acc             = raft::max(acc, diff);
+    // Widen to the accumulator type before doing any arithmetic. `__hsub` / `__habs` are FP16 ALU
+    // instructions that need sm_53, and `raft::abs(__half)` static_asserts below that. The other
+    // element-wise ops (l1, lp_unexp, jensen_shannon, kl_divergence) already do this; the
+    // accumulation happens in `AccT` regardless, so the only change is that the subtraction is
+    // now performed at accumulator precision.
+    const auto diff = raft::abs(raft::to_float(x) - raft::to_float(y));
+    acc             = raft::max(acc, static_cast<AccT>(diff));
   };
 
   template <typename Policy>

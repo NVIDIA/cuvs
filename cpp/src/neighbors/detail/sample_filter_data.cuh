@@ -5,6 +5,10 @@
 
 #pragma once
 
+// Must precede <cuco/bloom_filter.cuh>: it reaches libcu++'s block-scoped barrier, whose
+// __arrive_sm70 body calls __match_any_sync unconditionally, which CUDA only declares for sm_70+.
+#include <util/warp_intrinsic_compat.cuh>
+
 #include <cuco/bloom_filter.cuh>
 
 #include <cstddef>

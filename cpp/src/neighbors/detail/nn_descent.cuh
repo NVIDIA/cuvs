@@ -614,7 +614,13 @@ __launch_bounds__(BLOCK_SIZE)
                          cuvs::distance::DistanceType metric,
                          DistEpilogue_t dist_epilogue)
 {
-#if (__CUDA_ARCH__ >= 700)
+// This kernel is pure SIMT: shared memory, `__shfl_*_sync` / `__ballot_sync`, `bfe.u32`,
+// integer `atomicCAS`/`atomicExch` and `__threadfence()`. None of that needs Volta, and the
+// static shared-memory footprint stays below the 48 KiB per-block limit for every supported
+// dtype (fp32/fp16: ~35.5 KiB, int8/uint8: ~34 KiB). The previous sm_70 floor was inherited
+// from the neighbouring WMMA kernel and is not a real requirement, so it is lowered to sm_50
+// to give pre-Volta devices a working NN-descent path.
+#if (__CUDA_ARCH__ >= 500)
   __shared__ int s_list[MAX_NUM_BI_SAMPLES * 2];
 
   constexpr int APAD           = dtype_traits<Data_t>::APAD;
@@ -1447,6 +1453,12 @@ void GNND<Data_t, Index_t>::local_join(cudaStream_t stream, DistEpilogue_t dist_
   bool use_simt = (std::is_same_v<input_t, float> && !use_fp16_dist) ||
                   build_config_.metric == cuvs::distance::DistanceType::L1;
 
+  // The WMMA variant needs tensor cores (sm_70+). The SIMT variant is dtype-generic -- it widens
+  // whatever is in shared memory to fp32 via `dtype_traits<Data_t>::to_float` -- so on pre-Volta
+  // devices we can always fall back to it instead of failing the whole build.
+  static const bool wmma_available = raft::getComputeCapability().first >= 7;
+  if (!wmma_available) { use_simt = true; }
+
   auto launch_kernel = [&](auto* typed_ptr) {
     if (use_simt) {
       local_join_kernel_simt<<<nrow_, BLOCK_SIZE, 0, stream>>>(graph_.h_graph_new.data_handle(),
@@ -1654,20 +1666,21 @@ void GNND<Data_t, Index_t>::build(Data_t* data,
                       d_list_sizes_old_.data_handle(),
                       stream);
 
-    // Tensor operations from `mma.h` are guarded with archicteture
-    // __CUDA_ARCH__ >= 700. Since RAFT supports compilation for ARCH 600,
-    // we need to ensure that `local_join_kernel` (which uses tensor) operations
-    // is not only not compiled, but also a runtime error is presented to the user
+    // The tensor-core (`mma.h`) local-join kernel is guarded with __CUDA_ARCH__ >= 700 and is
+    // simply absent on older devices; `local_join` detects that and falls back to the SIMT
+    // kernel, which is compiled from sm_50 upwards. We only need to reject devices below that.
     auto kernel       = compute_l2_norms_kernel<input_t>;
     void* kernel_ptr  = reinterpret_cast<void*>(kernel);
     auto runtime_arch = raft::util::arch::kernel_virtual_arch(kernel_ptr);
-    auto wmma_range =
-      raft::util::arch::SM_range(raft::util::arch::SM_70(), raft::util::arch::SM_future());
+    // `SM_min` is RAFT's lowest supported architecture (sm_35), which is below the sm_50 floor of
+    // the SIMT kernel; anything cuVS can be built for at all satisfies this.
+    auto simt_range =
+      raft::util::arch::SM_range(raft::util::arch::SM_min(), raft::util::arch::SM_future());
 
-    if (wmma_range.contains(runtime_arch)) {
+    if (simt_range.contains(runtime_arch)) {
       local_join(stream, dist_epilogue);
     } else {
-      THROW("NN_DESCENT cannot be run for __CUDA_ARCH__ < 700");
+      THROW("NN_DESCENT cannot be run for __CUDA_ARCH__ < 500");
     }
 
     update_and_sample_thread.join();

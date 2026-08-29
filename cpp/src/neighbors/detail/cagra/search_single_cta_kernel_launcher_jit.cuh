@@ -20,6 +20,7 @@
 #include "search_single_cta_kernel_launcher_common.cuh"
 #include "shared_launcher_jit.hpp"  // For shared JIT helper functions
 
+#include <util/jit_kernel_compat.hpp>
 #include <raft/util/integer_utils.hpp>
 #include <raft/util/pow2_utils.cuh>
 
@@ -765,7 +766,9 @@ struct alignas(kCacheLineBytes) persistent_runner_jit_t : public persistent_runn
   {
     int ctas_per_sm            = 1;
     cudaKernel_t kernel_handle = launcher->get_kernel();
-    RAFT_CUDA_TRY(cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+    // Not `cudaOccupancyMaxActiveBlocksPerMultiprocessor`: it only accepts a `cudaKernel_t` on
+    // CUDA 12.8+.
+    RAFT_CUDA_TRY(cuvs::util::kernel_max_active_blocks_per_multiprocessor(
       &ctas_per_sm, kernel_handle, block_size, smem_size));
     int num_sm    = raft::getMultiProcessorCount();
     auto n_blocks = static_cast<uint32_t>(persistent_device_usage * (ctas_per_sm * num_sm));

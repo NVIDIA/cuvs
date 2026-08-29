@@ -3,6 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+// Must precede CUB/RAFT headers: CUB's histogram agent uses atomicAdd(double*), which CUDA
+// does not declare for device passes below sm_60.
+#include <util/atomic_compat.cuh>
+
 #include <cuvs/stats/silhouette_score.hpp>
 
 #include "./detail/batched/silhouette_score.cuh"

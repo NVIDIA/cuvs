@@ -9,6 +9,7 @@
 #include <cuda_runtime.h>
 #include <mutex>
 #include <raft/core/error.hpp>
+#include <util/jit_kernel_compat.hpp>
 
 namespace cuvs::neighbors::detail {
 
@@ -81,7 +82,8 @@ void safely_launch_kernel_with_smem_size(std::uint32_t smem_size,
       need_update   = true;
     }
     if (need_update) {
-      auto launch_status = cudaFuncSetAttribute(
+      // Not `cudaFuncSetAttribute`: it only accepts a `cudaKernel_t` on CUDA 12.8+.
+      auto launch_status = cuvs::util::kernel_set_attribute(
         cuda_kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, cur_smem_size);
       RAFT_EXPECTS(launch_status == cudaSuccess,
                    "Failed to set max dynamic shared memory size to %u bytes",

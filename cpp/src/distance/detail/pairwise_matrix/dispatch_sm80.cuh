@@ -4,6 +4,10 @@
  */
 #pragma once
 
+#include <cuvs/detail/arch_config.hpp>  // CUVS_CUTLASS_ENABLED
+
+#if CUVS_CUTLASS_ENABLED
+
 #include "../pairwise_distance_cutlass_base.cuh"  // cutlassDistanceKernel
 #include "dispatch_layout.cuh"                    // dispatch_layout
 
@@ -56,3 +60,5 @@ void pairwise_matrix_sm80_dispatch(OpT distance_op,
 }
 
 };  // namespace cuvs::distance::detail
+
+#endif  // CUVS_CUTLASS_ENABLED
