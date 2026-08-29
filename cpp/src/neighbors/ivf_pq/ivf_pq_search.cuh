@@ -44,6 +44,7 @@
 #include <cub/device/device_radix_sort.cuh>
 #include <cuda_fp16.h>
 
+#include <atomic>
 #include <optional>
 
 namespace cuvs::neighbors::ivf_pq::detail {
@@ -874,6 +875,37 @@ inline auto get_centers(const raft::resources& res, const index<IdxT>& index)
   if constexpr (std::is_same_v<T, int8_t>) { return index.centers_int8(res); }
 }
 
+/**
+ * @brief The coarse-search GEMM element type the current device can actually run.
+ *
+ * `coarse_search_dtype` is a performance knob: the cluster-probing GEMM can be done in fp32, fp16
+ * or int8. cuBLAS has no kernels for the reduced-precision variants on older hardware -- fp16
+ * arithmetic requires sm_53 and int8 (dp4a) requires sm_61 -- and `cublasLtMatmulAlgoGetHeuristic`
+ * reports `CUBLAS_STATUS_NOT_SUPPORTED` rather than falling back. Since fp32 computes the same
+ * quantity at higher precision, widen instead of failing; the only cost is bandwidth and speed,
+ * which is why it is reported once.
+ */
+inline auto supported_coarse_search_dtype(cudaDataType_t requested) -> cudaDataType_t
+{
+  if (requested == CUDA_R_32F) { return requested; }
+  const auto cc            = raft::getComputeCapability();
+  const int cc_times_10    = cc.first * 10 + cc.second;
+  const int required_cc_10 = requested == CUDA_R_8I ? 61 : 53;
+  if (cc_times_10 >= required_cc_10) { return requested; }
+  static std::atomic<bool> reported{false};
+  if (!reported.exchange(true)) {
+    RAFT_LOG_WARN(
+      "ivf_pq::search: coarse_search_dtype %s requires compute capability %d.%d, but this device is "
+      "%d.%d; using CUDA_R_32F instead (same result, more precision, lower throughput).",
+      requested == CUDA_R_8I ? "CUDA_R_8I" : "CUDA_R_16F",
+      required_cc_10 / 10,
+      required_cc_10 % 10,
+      cc.first,
+      cc.second);
+  }
+  return CUDA_R_32F;
+}
+
 /** See cuvs::spatial::knn::ivf_pq::search docs */
 template <typename T,
           typename IdxT,
@@ -922,14 +954,19 @@ inline void search(raft::resources const& handle,
     default: RAFT_FAIL("all pointers must be accessible from the device.");
   }
 
+  // Everything below uses `params_eff`, whose coarse-search GEMM type has been narrowed down to
+  // what this device supports.
+  search_params params_eff       = params;
+  params_eff.coarse_search_dtype = supported_coarse_search_dtype(params_eff.coarse_search_dtype);
+
   auto stream = raft::resource::get_cuda_stream(handle);
 
   auto dim = index.dim();
   // int8_t coarse search uses more padding than others.
-  auto dim_ext  = params.coarse_search_dtype == CUDA_R_8I
+  auto dim_ext  = params_eff.coarse_search_dtype == CUDA_R_8I
                     ? get_centers<int8_t, IdxT>(handle, index).extent(1)
                     : index.dim_ext();
-  auto n_probes = std::min<uint32_t>(params.n_probes, index.n_lists());
+  auto n_probes = std::min<uint32_t>(params_eff.n_probes, index.n_lists());
 
   uint32_t max_samples = 0;
   {
@@ -944,7 +981,7 @@ inline void search(raft::resources const& handle,
   // Maximum number of query vectors to search at the same time.
   // Number of queries in the outer loop, which includes query transform and coarse search.
   const auto max_bs_outer = get_max_coarse_batch_size(
-    handle, params, n_probes, index.n_lists(), n_queries, dim_ext, index.rot_dim());
+    handle, params_eff, n_probes, index.n_lists(), n_queries, dim_ext, index.rot_dim());
   // Number of queries in the inner loop, which includes the fine search;
   // This is usually smaller than the outer loop when the non-fused kernel has to keep intermediate
   // results in the device memory.
@@ -953,13 +990,13 @@ inline void search(raft::resources const& handle,
   using some_query_t = std::
     variant<rmm::device_uvector<float>, rmm::device_uvector<half>, rmm::device_uvector<int8_t>>;
   some_query_t gemm_queries(
-    params.coarse_search_dtype == CUDA_R_32F
+    params_eff.coarse_search_dtype == CUDA_R_32F
       ? std::move(some_query_t{
           std::in_place_type_t<rmm::device_uvector<float>>{}, max_bs_outer * dim_ext, stream, mr})
-    : params.coarse_search_dtype == CUDA_R_16F
+    : params_eff.coarse_search_dtype == CUDA_R_16F
       ? std::move(some_query_t{
           std::in_place_type_t<rmm::device_uvector<half>>{}, max_bs_outer * dim_ext, stream, mr})
-    : params.coarse_search_dtype == CUDA_R_8I
+    : params_eff.coarse_search_dtype == CUDA_R_8I
       ? std::move(some_query_t{
           std::in_place_type_t<rmm::device_uvector<int8_t>>{}, max_bs_outer * dim_ext, stream, mr})
       : throw raft::logic_error("Unsupported coarse_search_dtype (only CUDA_R_32F, "
@@ -967,7 +1004,7 @@ inline void search(raft::resources const& handle,
   rmm::device_uvector<float> rot_queries(max_bs_outer * index.rot_dim(), stream, mr);
   rmm::device_uvector<uint32_t> clusters_to_probe(max_bs_outer * n_probes, stream, mr);
 
-  auto search_instance = ivfpq_search<IdxT, IvfSampleFilterT>::fun(params, index.metric());
+  auto search_instance = ivfpq_search<IdxT, IvfSampleFilterT>::fun(params_eff, index.metric());
 
   for (uint32_t offset_q = 0; offset_q < n_queries; offset_q += max_bs_outer) {
     uint32_t queries_batch = min(max_bs_outer, n_queries - offset_q);
@@ -1041,7 +1078,7 @@ inline void search(raft::resources const& handle,
                       neighbors + uint64_t(k) * (offset_q + offset_b),
                       distances + uint64_t(k) * (offset_q + offset_b),
                       utils::config<T>::kDivisor / utils::config<float>::kDivisor,
-                      params.preferred_shmem_carveout,
+                      params_eff.preferred_shmem_carveout,
                       sample_filter);
     }
   }

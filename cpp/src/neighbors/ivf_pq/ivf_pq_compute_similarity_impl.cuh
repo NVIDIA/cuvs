@@ -75,6 +75,23 @@ constexpr inline auto estimate_carveout(double shmem_fraction,
   return (size_t(100 * s * m * shmem_fraction) - (m - 1) * r) / (s * (m + r));
 }
 
+/**
+ * @brief Set the preferred shared-memory carveout, where the device has one.
+ *
+ * The shmem/L1 split is only configurable from Volta onwards; on older hardware the partition is
+ * fixed and `cudaFuncAttributePreferredSharedMemoryCarveout` is not a valid attribute, so the hint
+ * is simply dropped. It is a hint in any case -- the driver is free to ignore it -- so nothing else
+ * has to change.
+ */
+inline auto set_carveout_if_supported(cudaKernel_t kernel,
+                                      int carveout,
+                                      const cudaDeviceProp& dev_props) -> cudaError_t
+{
+  if (dev_props.major < 7) { return cudaSuccess; }
+  return cuvs::util::kernel_set_attribute(
+    kernel, cudaFuncAttributePreferredSharedMemoryCarveout, carveout);
+}
+
 template <typename OutT>
 auto get_out_type_tag()
 {
@@ -486,8 +503,7 @@ auto compute_similarity_select(const cudaDeviceProp& dev_props,
     // usage and occupancy.
     const int max_carveout =
       estimate_carveout(preferred_shmem_carveout, smem_size_f(raft::WarpSize), dev_props);
-    RAFT_CUDA_TRY(cuvs::util::kernel_set_attribute(
-      kernel, cudaFuncAttributePreferredSharedMemoryCarveout, max_carveout));
+    RAFT_CUDA_TRY(set_carveout_if_supported(kernel, max_carveout, dev_props));
 
     // Get the theoretical maximum possible number of threads per block
     cudaFuncAttributes kernel_attrs;
@@ -582,8 +598,7 @@ auto compute_similarity_select(const cudaDeviceProp& dev_props,
         // a rather conservative bar; most likely, the kernel gets more shared memory than this,
         // and the occupancy doesn't get hurt.
         auto carveout = std::min<int>(max_carveout, std::ceil(100.0 * cur.shmem_use));
-        RAFT_CUDA_TRY(cuvs::util::kernel_set_attribute(
-          kernel, cudaFuncAttributePreferredSharedMemoryCarveout, carveout));
+        RAFT_CUDA_TRY(set_carveout_if_supported(kernel, carveout, dev_props));
         if (cur.occupancy >= kTargetOccupancy) { break; }
       } else if (selected_perf.occupancy > 0.0) {
         // If we found a reasonable candidate on a previous iteration, and this one is not better,
