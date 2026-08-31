@@ -29,7 +29,7 @@ RAFT_KERNEL polynomial_kernel_nopad(
 {
   for (size_t tid = threadIdx.x + blockIdx.x * blockDim.x; tid < len;
        tid += blockDim.x * gridDim.x) {
-    inout[tid] = pow(gain * inout[tid] + offset, exponent);
+    inout[tid] = pow(gain * inout[tid] + offset, (math_t)exponent);
   }
 }
 
@@ -51,7 +51,7 @@ RAFT_KERNEL polynomial_kernel(
        tidy += blockDim.y * gridDim.y)
     for (size_t tidx = threadIdx.x + blockIdx.x * blockDim.x; tidx < rows;
          tidx += blockDim.x * gridDim.x) {
-      inout[tidx + tidy * ld] = pow(gain * inout[tidx + tidy * ld] + offset, exponent);
+      inout[tidx + tidy * ld] = pow(gain * inout[tidx + tidy * ld] + offset, (math_t)exponent);
     }
 }
 
@@ -118,7 +118,7 @@ RAFT_KERNEL rbf_kernel_expanded(
     for (size_t tidx = threadIdx.x + blockIdx.x * blockDim.x; tidx < rows;
          tidx += blockDim.x * gridDim.x) {
       inout[tidx + tidy * ld] =
-        exp(-1.0 * gain * (norm_x[tidx] + norm_y_val - inout[tidx + tidy * ld] * 2));
+        exp(-gain * (norm_x[tidx] + norm_y_val - inout[tidx + tidy * ld] * 2));
     }
   }
 }
