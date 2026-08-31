@@ -53,7 +53,7 @@ inline ::std::ostream& operator<<(::std::ostream& os, const AllNeighborsInputs& 
      << ", metric=" << static_cast<int>(std::get<1>(p.build_algo_metric_recall))
      << ", clusters=" << std::get<0>(p.cluster_nearestcluster)
      << ", overlap_factor=" << std::get<1>(p.cluster_nearestcluster)
-     << ", output_on_host=" << p.output_on_host << std::endl;
+     << ", output_on_host=" << p.output_on_host;
   return os;
 }
 
