@@ -148,7 +148,8 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
    * IndexWriter}, only one flush is ever valid for this instance, so folding it into {@code
    * close()} removes any way to trigger it early with fewer than {@code exactVectorCount} vectors
    * added. Throws {@link IllegalStateException} if {@link #addDocument} was called fewer times
-   * than {@code exactVectorCount} promised.
+   * than {@code exactVectorCount} promised, discarding the buffered documents rather than
+   * flushing an under-filled segment.
    */
   @Override
   public void close() throws IOException {
@@ -157,13 +158,40 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
     }
     closed = true;
     if (documentsAdded != exactVectorCount) {
-      writer.close(); // release resources before reporting the mismatch
-      throw new IllegalStateException(
-          "expected " + exactVectorCount + " documents, got " + documentsAdded);
+      IllegalStateException mismatch =
+          new IllegalStateException(
+              "expected " + exactVectorCount + " documents, got " + documentsAdded);
+      // The native host matrix is preallocated for exactly exactVectorCount rows, so an
+      // under-filled buffer can only be discarded, never flushed. rollback() discards it and
+      // closes the IndexWriter, and is also what frees that preallocated memory: it aborts the
+      // indexing chain, which closes the vectors writer. Leaving without it leaks the buffer,
+      // which lives in a shared Arena and is never reclaimed by the GC.
+      try {
+        writer.rollback();
+      } catch (Throwable t) {
+        mismatch.addSuppressed(t);
+      }
+      throw mismatch;
     }
     try (writer) {
       writer.commit();
     }
+  }
+
+  /**
+   * Discards everything added so far without producing a segment: no GPU build runs, nothing is
+   * committed, and the preallocated native buffer is released (see {@link #close()} for why that
+   * release is what matters). Unlike {@link #close()} this does not care how many documents were
+   * added, so it is the cleanup to use on a failure path -- a partially filled buffer is not
+   * worth building, and reporting its count would only bury the failure that caused it.
+   * Idempotent, and a no-op once {@link #close()} has run.
+   */
+  void abort() throws IOException {
+    if (closed) {
+      return;
+    }
+    closed = true;
+    writer.rollback();
   }
 
   /**
@@ -402,8 +430,17 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
       } else {
         writer.close();
       }
-    } finally {
-      writer.close(); // no-op if already closed above; ensures cleanup on exception too
+    } catch (Throwable t) {
+      // Cleanup must not become the reported failure. abort() discards the partially filled
+      // buffer rather than trying to build it, and anything it throws on the way out is attached
+      // to the original exception instead of replacing it. If the close() above is what failed,
+      // this is a no-op -- that writer has already released itself.
+      try {
+        writer.abort();
+      } catch (Throwable cleanupFailure) {
+        t.addSuppressed(cleanupFailure);
+      }
+      throw t;
     }
   }
 

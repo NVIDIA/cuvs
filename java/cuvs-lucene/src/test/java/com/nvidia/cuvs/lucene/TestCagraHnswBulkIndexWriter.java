@@ -268,8 +268,29 @@ public class TestCagraHnswBulkIndexWriter extends LuceneTestCase {
         writer.close();
         fail("expected IllegalStateException: fewer documents added than exactVectorCount");
       } catch (IllegalStateException expected) {
-        // expected
+        // Specifically this class's mismatch error, not the underlying native writer's own count
+        // check: close() must roll the buffered documents back, not flush them.
+        assertEquals("expected 10 documents, got 1", expected.getMessage());
       }
+      // The rollback left nothing committed, so there is no segment to open.
+      assertFalse(DirectoryReader.indexExists(dir));
+    }
+  }
+
+  @Test
+  public void testSourceFailureMidBuildIsNotMaskedByCleanup() throws Exception {
+    int dimension = 8;
+    float[][] dataset = generateDataset(random, 200, dimension);
+    // Fails halfway through, so the writer is cleaned up holding 100 of the 200 promised vectors.
+    VectorSource failing = new FailingVectorSource(dataset, 100);
+
+    try {
+      CagraHnswBulkIndexWriter.build(failing, configFor(dimension, 1, false));
+      fail("expected the source's IOException to propagate");
+    } catch (IOException expected) {
+      // The cleanup path must not report the count mismatch it necessarily sees instead of the
+      // failure that caused it.
+      assertEquals("source failed at 100", expected.getMessage());
     }
   }
 
@@ -358,6 +379,40 @@ public class TestCagraHnswBulkIndexWriter extends LuceneTestCase {
       // id=0 within topK for a graph this small, across all segments the query fans out over.
       assertTrue(
           "expected id=0 (the query vector itself) within topK results", sawQueryVectorItself);
+    }
+  }
+
+  /** An {@link InMemoryVectorSource} that throws once a given row is reached. */
+  private static final class FailingVectorSource implements VectorSource {
+    private final InMemoryVectorSource delegate;
+    private final int failAt;
+
+    FailingVectorSource(float[][] dataset, int failAt) {
+      this.delegate = new InMemoryVectorSource(dataset);
+      this.failAt = failAt;
+    }
+
+    @Override
+    public int dimensions() {
+      return delegate.dimensions();
+    }
+
+    @Override
+    public int size() {
+      return delegate.size();
+    }
+
+    @Override
+    public void get(int index, float[] dst) throws IOException {
+      if (index >= failAt) {
+        throw new IOException("source failed at " + failAt);
+      }
+      delegate.get(index, dst);
+    }
+
+    @Override
+    public void close() {
+      delegate.close();
     }
   }
 
