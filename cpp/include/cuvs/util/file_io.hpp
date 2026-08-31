@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -180,47 +180,58 @@ class file_descriptor {
  * @tparam T Data type for the numpy array
  * @param path File path to create
  * @param shape Shape of the numpy array (e.g., {rows, cols} for 2D)
+ * @param exclusive Fail when the file already exists instead of truncating it.
+ *                  If creation succeeds but pre-allocation or header writing
+ *                  fails, remove the newly created file.
  * @return Pair of (file_descriptor, header_size)
  */
 template <typename T>
 std::pair<file_descriptor, size_t> create_numpy_file(const std::string& path,
-                                                     const std::vector<size_t>& shape)
+                                                     const std::vector<size_t>& shape,
+                                                     bool exclusive = false)
 {
   // Open file
-  file_descriptor fd(path, O_CREAT | O_RDWR | O_TRUNC, 0644);
+  const int flags = O_CREAT | O_RDWR | (exclusive ? O_EXCL : O_TRUNC);
+  file_descriptor fd(path, flags, 0644);
 
-  // Build header
-  const auto dtype                              = raft::numpy_serializer::get_numpy_dtype<T>();
-  const bool fortran_order                      = false;
-  const raft::numpy_serializer::header_t header = {dtype, fortran_order, shape};
+  try {
+    // Build header
+    const auto dtype                              = raft::numpy_serializer::get_numpy_dtype<T>();
+    const bool fortran_order                      = false;
+    const raft::numpy_serializer::header_t header = {dtype, fortran_order, shape};
 
-  std::stringstream ss;
-  raft::numpy_serializer::write_header(ss, header);
-  std::string header_str = ss.str();
-  size_t header_size     = header_str.size();
+    std::stringstream ss;
+    raft::numpy_serializer::write_header(ss, header);
+    std::string header_str = ss.str();
+    size_t header_size     = header_str.size();
 
-  // Calculate data size from shape
-  size_t data_bytes = sizeof(T);
-  for (auto dim : shape) {
-    data_bytes *= dim;
+    // Calculate data size from shape
+    size_t data_bytes = sizeof(T);
+    for (auto dim : shape) {
+      data_bytes *= dim;
+    }
+
+    // Pre-allocate file space
+    if (posix_fallocate(fd.get(), 0, header_size + data_bytes) != 0) {
+      RAFT_FAIL("Failed to pre-allocate space for file: %s", path.c_str());
+    }
+
+    // Seek to beginning and write header
+    if (lseek(fd.get(), 0, SEEK_SET) == -1) {
+      RAFT_FAIL("Failed to seek to beginning of file: %s", path.c_str());
+    }
+
+    ssize_t written = write(fd.get(), header_str.data(), header_str.size());
+    if (written < 0 || static_cast<size_t>(written) != header_str.size()) {
+      RAFT_FAIL("Failed to write numpy header to file: %s", path.c_str());
+    }
+
+    return {std::move(fd), header_size};
+  } catch (...) {
+    fd.close();
+    if (exclusive) { (void)::unlink(path.c_str()); }
+    throw;
   }
-
-  // Pre-allocate file space
-  if (posix_fallocate(fd.get(), 0, header_size + data_bytes) != 0) {
-    RAFT_FAIL("Failed to pre-allocate space for file: %s", path.c_str());
-  }
-
-  // Seek to beginning and write header
-  if (lseek(fd.get(), 0, SEEK_SET) == -1) {
-    RAFT_FAIL("Failed to seek to beginning of file: %s", path.c_str());
-  }
-
-  ssize_t written = write(fd.get(), header_str.data(), header_str.size());
-  if (written < 0 || static_cast<size_t>(written) != header_str.size()) {
-    RAFT_FAIL("Failed to write numpy header to file: %s", path.c_str());
-  }
-
-  return {std::move(fd), header_size};
 }
 
 /**
