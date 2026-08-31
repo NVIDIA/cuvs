@@ -6,7 +6,6 @@
 
 #include <cuvs/neighbors/cagra.hpp>
 
-#include "cagra_build.cuh"
 #include "cagra_merge_scaffold.cuh"
 #include "graph_core.cuh"
 
@@ -150,6 +149,15 @@ cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> merge_rebuild(
     }
   };
 
+  auto build_merged_index = [&] {
+    auto build_params                    = params;
+    build_params.attach_dataset_on_build = false;
+    auto index = ::cuvs::neighbors::cagra::build(handle, build_params, merged_dataset);
+    index      = ::cuvs::neighbors::cagra::update_dataset(handle, std::move(index), merged_dataset);
+    RAFT_LOG_DEBUG("cagra merge: using device memory for merged dataset");
+    return index;
+  };
+
   cudaStream_t stream = raft::resource::get_cuda_stream(handle);
 
   if (bitset_filtered) {
@@ -183,11 +191,7 @@ cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> merge_rebuild(
     raft::matrix::copy_rows(
       handle, raft::make_const_mdspan(staging.view()), output_view, indices_view);
 
-    auto index = ::cuvs::neighbors::cagra::detail::build_from_device_matrix<T, IdxT, DatasetViewT>(
-      handle, params, merged_dataset);
-    index = ::cuvs::neighbors::cagra::update_dataset(handle, std::move(index), merged_dataset);
-    RAFT_LOG_DEBUG("cagra merge: using device memory for merged dataset");
-    return index;
+    return build_merged_index();
   }
 
   RAFT_CUDA_TRY(cudaMemsetAsync(
@@ -196,11 +200,7 @@ cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> merge_rebuild(
     static_cast<std::size_t>(final_rows) * static_cast<std::size_t>(stride) * sizeof(T),
     stream));
   merge_dataset(output_view.data_handle(), static_cast<std::size_t>(stride));
-  auto index = ::cuvs::neighbors::cagra::detail::build_from_device_matrix<T, IdxT, DatasetViewT>(
-    handle, params, merged_dataset);
-  index = ::cuvs::neighbors::cagra::update_dataset(handle, std::move(index), merged_dataset);
-  RAFT_LOG_DEBUG("cagra merge: using device memory for merged dataset");
-  return index;
+  return build_merged_index();
 }
 
 struct fastener_preflight_result {
