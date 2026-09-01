@@ -64,6 +64,33 @@ auto parse_build_param(const nlohmann::json& conf) ->
     if (ace_conf.contains("use_disk")) { ace_params.use_disk = ace_conf.at("use_disk"); }
     hnsw_params.graph_build_params = ace_params;
   }
+
+  // GPU_LAYERED_ON_DISK always needs disk-backed ACE settings before hnsw::build.
+  if (hnsw_params.hierarchy == cuvs::neighbors::hnsw::HnswHierarchy::GPU_LAYERED_ON_DISK) {
+    auto ace_params = std::holds_alternative<cuvs::neighbors::hnsw::graph_build_params::ace_params>(
+                        hnsw_params.graph_build_params)
+                        ? std::get<cuvs::neighbors::hnsw::graph_build_params::ace_params>(
+                            hnsw_params.graph_build_params)
+                        : cuvs::neighbors::hnsw::graph_build_params::ace_params();
+    if (!ace_conf.contains("use_disk")) { ace_params.use_disk = true; }
+    const auto use_disk_conf =
+      ace_conf.contains("use_disk") ? ace_conf.at("use_disk").dump() : std::string{"unset"};
+    const auto build_dir_conf =
+      ace_conf.contains("build_dir") ? ace_conf.at("build_dir").dump() : std::string{"unset"};
+    RAFT_EXPECTS(ace_params.use_disk,
+                 "GPU_LAYERED_ON_DISK requires ACE disk mode (ace_params.use_disk = true); "
+                 "got ace_use_disk=%s",
+                 use_disk_conf.c_str());
+    RAFT_EXPECTS(!ace_params.build_dir.empty(),
+                 "GPU_LAYERED_ON_DISK requires ace_params.build_dir to be set; "
+                 "got ace_build_dir=%s",
+                 build_dir_conf.c_str());
+    RAFT_EXPECTS(!hnsw_params.dataset_path.empty(),
+                 "GPU_LAYERED_ON_DISK requires dataset_path or a configured dataset base_file; "
+                 "got dataset_path='%s'",
+                 hnsw_params.dataset_path.c_str());
+    hnsw_params.graph_build_params = ace_params;
+  }
   return param;
 }
 
