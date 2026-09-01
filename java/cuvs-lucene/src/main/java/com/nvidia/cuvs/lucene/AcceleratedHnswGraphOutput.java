@@ -115,53 +115,56 @@ final class AcceleratedHnswGraphOutput implements Closeable {
    * never double-materialised on the Java heap.
    */
   void writeField(FieldInfo fieldInfo, CuVSMatrix dataset) throws IOException {
-    int size = (int) dataset.size();
-    if (size == 0) {
-      writeEmpty(fieldInfo, hnswMeta);
-      return;
-    }
-    if (size < 2) {
-      float[] buf = new float[fieldInfo.getVectorDimension()];
-      dataset.getRow(0).toArray(buf);
-      writeSingleVectorGraph(fieldInfo, List.of(buf));
-      return;
-    }
-    try {
-      CagraIndexParams params =
-          CagraIndexParamsFactory.create(acceleratedHNSWParams, dataset.size(), dataset.columns());
-      try (CagraIndex cagraIndex =
-          CagraIndex.newBuilder(getCuVSResourcesInstance())
-              .withDataset(dataset)
-              .withIndexParams(params)
-              .build()) {
-        CuVSMatrix adjacencyListMatrix = cagraIndex.getGraph();
-        int dimensions = fieldInfo.getVectorDimension();
-        GPUBuiltHnswGraph hnswGraph =
-            createMultiLayerHnswGraph(
-                fieldInfo,
-                dimensions,
-                adjacencyListMatrix,
-                dataset,
-                acceleratedHNSWParams.getHnswLayers(),
-                params,
-                QuantizationType.NONE,
-                acceleratedHNSWParams.getWriterThreads());
-        long vectorIndexOffset = hnswVectorIndex.getFilePointer();
-        int[][] graphLevelNodeOffsets =
-            writeGraph(hnswGraph, hnswVectorIndex, acceleratedHNSWParams.getWriterThreads());
-        long vectorIndexLength = hnswVectorIndex.getFilePointer() - vectorIndexOffset;
-        writeMeta(
-            hnswVectorIndex,
-            hnswMeta,
-            fieldInfo,
-            vectorIndexOffset,
-            vectorIndexLength,
-            size,
-            hnswGraph,
-            graphLevelNodeOffsets);
+    try (dataset) {
+      int size = (int) dataset.size();
+      if (size == 0) {
+        writeEmpty(fieldInfo, hnswMeta);
+        return;
       }
-    } catch (Throwable t) {
-      Utils.handleThrowable(t);
+      if (size < 2) {
+        float[] buf = new float[fieldInfo.getVectorDimension()];
+        dataset.getRow(0).toArray(buf);
+        writeSingleVectorGraph(fieldInfo, List.of(buf));
+        return;
+      }
+      try {
+        CagraIndexParams params =
+            CagraIndexParamsFactory.create(
+                acceleratedHNSWParams, dataset.size(), dataset.columns());
+        try (CagraIndex cagraIndex =
+            CagraIndex.newBuilder(getCuVSResourcesInstance())
+                .withDataset(dataset)
+                .withIndexParams(params)
+                .build()) {
+          CuVSMatrix adjacencyListMatrix = cagraIndex.getGraph();
+          int dimensions = fieldInfo.getVectorDimension();
+          GPUBuiltHnswGraph hnswGraph =
+              createMultiLayerHnswGraph(
+                  fieldInfo,
+                  dimensions,
+                  adjacencyListMatrix,
+                  dataset,
+                  acceleratedHNSWParams.getHnswLayers(),
+                  params,
+                  QuantizationType.NONE,
+                  acceleratedHNSWParams.getWriterThreads());
+          long vectorIndexOffset = hnswVectorIndex.getFilePointer();
+          int[][] graphLevelNodeOffsets =
+              writeGraph(hnswGraph, hnswVectorIndex, acceleratedHNSWParams.getWriterThreads());
+          long vectorIndexLength = hnswVectorIndex.getFilePointer() - vectorIndexOffset;
+          writeMeta(
+              hnswVectorIndex,
+              hnswMeta,
+              fieldInfo,
+              vectorIndexOffset,
+              vectorIndexLength,
+              size,
+              hnswGraph,
+              graphLevelNodeOffsets);
+        }
+      } catch (Throwable t) {
+        Utils.handleThrowable(t);
+      }
     }
   }
 
