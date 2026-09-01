@@ -212,6 +212,7 @@ void mnmg_fit(
   auto clustering_cost       = raft::make_device_vector<DataT, IndexT>(dev_res, 1);
   auto batch_clustering_cost = raft::make_device_vector<DataT, IndexT>(dev_res, 1);
   auto sqrd_norm_error_dev   = raft::make_device_scalar<DataT>(dev_res, DataT{0});
+  auto batch_cost            = raft::make_device_scalar<DataT>(dev_res, DataT{0});
   IndexT alloc_batch_size    = device_buffer_samples;
   auto batch_weights         = raft::make_device_vector<DataT, IndexT>(dev_res, alloc_batch_size);
   auto minClusterAndDistance =
@@ -467,7 +468,8 @@ void mnmg_fit(
             centroid_sums.view(),
             weight_per_cluster.view(),
             raft::make_device_scalar_view(clustering_cost.data_handle()),
-            batch_workspace);
+            batch_workspace,
+            batch_cost.view());
         }
       }
       norms_cached = true;
