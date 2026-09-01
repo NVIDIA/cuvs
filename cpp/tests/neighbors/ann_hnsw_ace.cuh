@@ -9,7 +9,7 @@
 #include <cuvs/neighbors/hnsw.hpp>
 #include <cuvs/util/file_io.hpp>
 
-#include "../../src/neighbors/detail/hnsw.hpp"
+#include "../../src/neighbors/detail/hnsw_layered_format.hpp"
 
 #include <rmm/mr/managed_memory_resource.hpp>
 
@@ -627,7 +627,7 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
                                     std::ios::in | std::ios::out | std::ios::binary);
       const uint32_t bad_version = 999;
       bad_version_file.seekp(static_cast<std::streamoff>(
-        offsetof(cuvs::neighbors::hnsw::detail::layered_hnsw_file_header, version)));
+        cuvs::neighbors::hnsw::detail::layered_hnsw_file_header_version_offset));
       bad_version_file.write(reinterpret_cast<const char*>(&bad_version), sizeof(bad_version));
     }
     hnsw::index<DataT>* bad_version_index = nullptr;
