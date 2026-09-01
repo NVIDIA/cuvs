@@ -36,6 +36,10 @@ namespace graph_build_params = cuvs::neighbors::graph_build_params;
  * @brief Hierarchy for HNSW index when converting from CAGRA index
  *
  * NOTE: When the value is `NONE`, the HNSW index is built as a base-layer-only index.
+ * When the value is `CPU`, a full index is built with a CPU-constructed hierarchy.
+ * When the value is `GPU_LAYERED_ON_DISK`, a GPU-built hierarchy is stored as layered
+ * on-disk topology. `deserialize` reattaches vectors from `index_params.dataset_path`,
+ * which must be set for that path.
  */
 enum class HnswHierarchy {
   NONE,                // base-layer-only index
@@ -466,6 +470,9 @@ std::unique_ptr<index<int8_t>> build(
  * the format is not compatible with the original hnswlib.
  *       2. `CPU`: The returned index is mutable and can be extended with additional vectors. The
  * serialized index is also compatible with the original hnswlib library.
+ *       3. `GPU_LAYERED_ON_DISK`: The GPU-built hierarchy is stored as layered on-disk topology
+ * (graph links only). The returned index refers to that artifact. Reloading it with `deserialize`
+ * requires `index_params.dataset_path` so vectors can be reconstructed from the local dataset.
  *
  * @param[in] res raft resources
  * @param[in] params hnsw index parameters
@@ -502,6 +509,9 @@ std::unique_ptr<index<float>> from_cagra(
  * the format is not compatible with the original hnswlib.
  *       2. `CPU`: The returned index is mutable and can be extended with additional vectors. The
  * serialized index is also compatible with the original hnswlib library.
+ *       3. `GPU_LAYERED_ON_DISK`: The GPU-built hierarchy is stored as layered on-disk topology
+ * (graph links only). The returned index refers to that artifact. Reloading it with `deserialize`
+ * requires `index_params.dataset_path` so vectors can be reconstructed from the local dataset.
  *
  * @param[in] res raft resources
  * @param[in] params hnsw index parameters
@@ -538,6 +548,9 @@ std::unique_ptr<index<half>> from_cagra(
  * the format is not compatible with the original hnswlib.
  *       2. `CPU`: The returned index is mutable and can be extended with additional vectors. The
  * serialized index is also compatible with the original hnswlib library.
+ *       3. `GPU_LAYERED_ON_DISK`: The GPU-built hierarchy is stored as layered on-disk topology
+ * (graph links only). The returned index refers to that artifact. Reloading it with `deserialize`
+ * requires `index_params.dataset_path` so vectors can be reconstructed from the local dataset.
  *
  * @param[in] res raft resources
  * @param[in] params hnsw index parameters
@@ -574,6 +587,9 @@ std::unique_ptr<index<uint8_t>> from_cagra(
  * the format is not compatible with the original hnswlib.
  *       2. `CPU`: The returned index is mutable and can be extended with additional vectors. The
  * serialized index is also compatible with the original hnswlib library.
+ *       3. `GPU_LAYERED_ON_DISK`: The GPU-built hierarchy is stored as layered on-disk topology
+ * (graph links only). The returned index refers to that artifact. Reloading it with `deserialize`
+ * requires `index_params.dataset_path` so vectors can be reconstructed from the local dataset.
  *
  * @param[in] res raft resources
  * @param[in] params hnsw index parameters
@@ -874,6 +890,8 @@ struct search_params : cuvs::neighbors::search_params {
  * @brief Search HNSW index constructed from a CAGRA index
  * NOTE: The HNSW index can only be searched by the hnswlib wrapper in cuVS when the hierarchy is
  * `NONE`, as the format is not compatible with the original hnswlib.
+ * When hierarchy is `GPU_LAYERED_ON_DISK`, search uses the in-memory index reconstructed from the
+ * layered on-disk topology; `deserialize` requires `index_params.dataset_path` for that path.
  *
  * @param[in] res raft resources
  * @param[in] params configure the search
@@ -918,6 +936,8 @@ void search(raft::resources const& res,
  * @brief Search HNSW index constructed from a CAGRA index
  * NOTE: The HNSW index can only be searched by the hnswlib wrapper in cuVS when the hierarchy is
  * `NONE`, as the format is not compatible with the original hnswlib.
+ * When hierarchy is `GPU_LAYERED_ON_DISK`, search uses the in-memory index reconstructed from the
+ * layered on-disk topology; `deserialize` requires `index_params.dataset_path` for that path.
  *
  * @param[in] res raft resources
  * @param[in] params configure the search
@@ -962,6 +982,8 @@ void search(raft::resources const& res,
  * @brief Search HNSWindex constructed from a CAGRA index
  * NOTE: The HNSW index can only be searched by the hnswlib wrapper in cuVS when the hierarchy is
  * `NONE`, as the format is not compatible with the original hnswlib.
+ * When hierarchy is `GPU_LAYERED_ON_DISK`, search uses the in-memory index reconstructed from the
+ * layered on-disk topology; `deserialize` requires `index_params.dataset_path` for that path.
  *
  * @param[in] res raft resources
  * @param[in] params configure the search
@@ -1006,6 +1028,8 @@ void search(raft::resources const& res,
  * @brief Search HNSW index constructed from a CAGRA index
  * NOTE: The HNSW index can only be searched by the hnswlib wrapper in cuVS when the hierarchy is
  * `NONE`, as the format is not compatible with the original hnswlib.
+ * When hierarchy is `GPU_LAYERED_ON_DISK`, search uses the in-memory index reconstructed from the
+ * layered on-disk topology; `deserialize` requires `index_params.dataset_path` for that path.
  *
  * @param[in] res raft resources
  * @param[in] params configure the search
@@ -1061,6 +1085,8 @@ void search(raft::resources const& res,
  * hnswlib wrapper in cuVS, as the serialization format is not compatible with the original hnswlib.
  * However, when hierarchy is `CPU`, the saved hnswlib index is compatible with the original hnswlib
  * library.
+ * When hierarchy is `GPU_LAYERED_ON_DISK`, the saved artifact stores layered graph topology only.
+ * Loading it with `deserialize` requires `index_params.dataset_path`.
  *
  * @param[in] res raft resources
  * @param[in] filename path to the file to save the serialized CAGRA index
@@ -1090,6 +1116,8 @@ void serialize(raft::resources const& res, const std::string& filename, const in
  * hnswlib wrapper in cuVS, as the serialization format is not compatible with the original hnswlib.
  * However, when hierarchy is `CPU`, the saved hnswlib index is compatible with the original hnswlib
  * library.
+ * When hierarchy is `GPU_LAYERED_ON_DISK`, the saved artifact stores layered graph topology only.
+ * Loading it with `deserialize` requires `index_params.dataset_path`.
  *
  * @param[in] res raft resources
  * @param[in] filename path to the file to save the serialized CAGRA index
@@ -1119,6 +1147,8 @@ void serialize(raft::resources const& res, const std::string& filename, const in
  * hnswlib wrapper in cuVS, as the serialization format is not compatible with the original hnswlib.
  * However, when hierarchy is `CPU`, the saved hnswlib index is compatible with the original hnswlib
  * library.
+ * When hierarchy is `GPU_LAYERED_ON_DISK`, the saved artifact stores layered graph topology only.
+ * Loading it with `deserialize` requires `index_params.dataset_path`.
  *
  * @param[in] res raft resources
  * @param[in] filename path to the file to save the serialized CAGRA index
@@ -1148,6 +1178,8 @@ void serialize(raft::resources const& res, const std::string& filename, const in
  * hnswlib wrapper in cuVS, as the serialization format is not compatible with the original hnswlib.
  * However, when hierarchy is `CPU`, the saved hnswlib index is compatible with the original hnswlib
  * library.
+ * When hierarchy is `GPU_LAYERED_ON_DISK`, the saved artifact stores layered graph topology only.
+ * Loading it with `deserialize` requires `index_params.dataset_path`.
  *
  * @param[in] res raft resources
  * @param[in] filename path to the file to save the serialized CAGRA index
@@ -1177,6 +1209,8 @@ void serialize(raft::resources const& res, const std::string& filename, const in
  * hnswlib wrapper in cuVS, as the serialization format is not compatible with the original hnswlib.
  * However, when hierarchy is `CPU`, the saved hnswlib index is compatible with the original hnswlib
  * library.
+ * When hierarchy is `GPU_LAYERED_ON_DISK`, the saved artifact stores layered graph topology only.
+ * Loading it with `deserialize` requires `index_params.dataset_path`.
  *
  * @param[in] res raft resources
  * @param[in] params hnsw index parameters
@@ -1220,6 +1254,8 @@ void deserialize(raft::resources const& res,
  * hnswlib wrapper in cuVS, as the serialization format is not compatible with the original hnswlib.
  * However, when hierarchy is `CPU`, the saved hnswlib index is compatible with the original hnswlib
  * library.
+ * When hierarchy is `GPU_LAYERED_ON_DISK`, the saved artifact stores layered graph topology only.
+ * Loading it with `deserialize` requires `index_params.dataset_path`.
  *
  * @param[in] res raft resources
  * @param[in] params hnsw index parameters
@@ -1263,6 +1299,8 @@ void deserialize(raft::resources const& res,
  * hnswlib wrapper in cuVS, as the serialization format is not compatible with the original hnswlib.
  * However, when hierarchy is `CPU`, the saved hnswlib index is compatible with the original hnswlib
  * library.
+ * When hierarchy is `GPU_LAYERED_ON_DISK`, the saved artifact stores layered graph topology only.
+ * Loading it with `deserialize` requires `index_params.dataset_path`.
  *
  * @param[in] res raft resources
  * @param[in] params hnsw index parameters
@@ -1306,6 +1344,8 @@ void deserialize(raft::resources const& res,
  * hnswlib wrapper in cuVS, as the serialization format is not compatible with the original hnswlib.
  * However, when hierarchy is `CPU`, the saved hnswlib index is compatible with the original hnswlib
  * library.
+ * When hierarchy is `GPU_LAYERED_ON_DISK`, the saved artifact stores layered graph topology only.
+ * Loading it with `deserialize` requires `index_params.dataset_path`.
  *
  * @param[in] res raft resources
  * @param[in] params hnsw index parameters

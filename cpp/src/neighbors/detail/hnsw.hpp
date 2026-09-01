@@ -58,9 +58,10 @@
 
 namespace cuvs::neighbors::hnsw::detail {
 
-class exclusive_hnsw_output_file {
+// Writes to a sibling temp path and publishes with link(2) only after the write succeeds.
+class exclusive_hnsw_temp_file {
  public:
-  explicit exclusive_hnsw_output_file(std::filesystem::path output_path)
+  explicit exclusive_hnsw_temp_file(std::filesystem::path output_path)
     : output_path_{std::move(output_path)}
   {
     std::string temporary_path = output_path_.string() + ".tmp.XXXXXX";
@@ -80,32 +81,18 @@ class exclusive_hnsw_output_file {
                 error,
                 strerror(error));
     }
-
-    try {
-      stream_ = std::make_unique<cuvs::util::kvikio_ofstream>(temporary_path_);
-    } catch (...) {
-      cleanup();
-      throw;
-    }
   }
 
-  exclusive_hnsw_output_file(const exclusive_hnsw_output_file&)            = delete;
-  exclusive_hnsw_output_file& operator=(const exclusive_hnsw_output_file&) = delete;
+  exclusive_hnsw_temp_file(const exclusive_hnsw_temp_file&)            = delete;
+  exclusive_hnsw_temp_file& operator=(const exclusive_hnsw_temp_file&) = delete;
 
-  ~exclusive_hnsw_output_file()
-  {
-    stream_.reset();
-    cleanup();
-  }
+  ~exclusive_hnsw_temp_file() { cleanup(); }
 
-  std::ostream& stream() { return *stream_; }
+  [[nodiscard]] const std::filesystem::path& output_path() const { return output_path_; }
+  [[nodiscard]] const std::string& temporary_path() const { return temporary_path_; }
 
   void publish()
   {
-    stream_->close();
-    RAFT_EXPECTS(*stream_, "Error writing output %s", output_path_.c_str());
-    stream_.reset();
-
     if (::link(temporary_path_.c_str(), output_path_.c_str()) != 0) {
       const int error = errno;
       RAFT_FAIL("Cannot publish HNSW index %s (errno: %d, %s)",
@@ -123,6 +110,33 @@ class exclusive_hnsw_output_file {
 
   std::filesystem::path output_path_;
   std::string temporary_path_;
+};
+
+class exclusive_hnsw_output_file {
+ public:
+  explicit exclusive_hnsw_output_file(std::filesystem::path output_path)
+    : temp_{std::move(output_path)}
+  {
+    stream_ = std::make_unique<cuvs::util::kvikio_ofstream>(temp_.temporary_path());
+  }
+
+  exclusive_hnsw_output_file(const exclusive_hnsw_output_file&)            = delete;
+  exclusive_hnsw_output_file& operator=(const exclusive_hnsw_output_file&) = delete;
+
+  ~exclusive_hnsw_output_file() { stream_.reset(); }
+
+  std::ostream& stream() { return *stream_; }
+
+  void publish()
+  {
+    stream_->close();
+    RAFT_EXPECTS(*stream_, "Error writing output %s", temp_.output_path().c_str());
+    stream_.reset();
+    temp_.publish();
+  }
+
+ private:
+  exclusive_hnsw_temp_file temp_;
   std::unique_ptr<cuvs::util::kvikio_ofstream> stream_;
 };
 
@@ -1183,7 +1197,8 @@ auto serialize_to_layered_hnswlib_from_disk(
   const auto upper_links_offset = upper_nodes_offset + metadata.upper_nodes_bytes;
   const auto final_file_size    = upper_links_offset + metadata.upper_links_bytes;
 
-  cuvs::util::file_descriptor artifact_fd(artifact_file.string(), O_CREAT | O_RDWR | O_TRUNC, 0644);
+  exclusive_hnsw_temp_file output(artifact_file);
+  cuvs::util::file_descriptor artifact_fd(output.temporary_path(), O_RDWR);
   const auto fallocate_result = posix_fallocate(artifact_fd.get(), 0, final_file_size);
   RAFT_EXPECTS(fallocate_result == 0,
                "Failed to pre-allocate layered HNSW artifact %s: %s",
@@ -1325,6 +1340,8 @@ auto serialize_to_layered_hnswlib_from_disk(
                 total_elapsed_ms,
                 to_gib(final_file_size),
                 throughput_gib_per_s(final_file_size, total_elapsed_ms));
+  artifact_fd.close();
+  output.publish();
   return artifact_file.string();
 }
 
