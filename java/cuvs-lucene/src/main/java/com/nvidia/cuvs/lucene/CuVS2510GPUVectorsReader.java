@@ -447,8 +447,9 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
       }
       topK = Math.min(knnCollector.k() + 10, mask[0].cardinality());
       // numDocs must be the total vector count so cuVS sizes the prefilter to cover every ordinal.
-      // A selective BitSet may end before the vector count, which would leave trailing ordinals
-      // outside the filter and therefore accepted by default.
+      // BitSet.length() is (highest set bit + 1), which under a selective filter is smaller than
+      // the
+      // vector count, leaving the trailing ordinals outside the filter and thus default-accepted.
       maskLength = acceptedOrds.length();
     }
 

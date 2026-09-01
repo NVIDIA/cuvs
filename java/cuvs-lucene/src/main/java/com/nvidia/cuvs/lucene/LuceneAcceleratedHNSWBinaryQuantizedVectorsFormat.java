@@ -8,6 +8,8 @@ import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.isSupporte
 
 import com.nvidia.cuvs.LibraryException;
 import java.io.IOException;
+import java.lang.reflect.InvocationTargetException;
+import java.util.concurrent.Callable;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.apache.lucene.codecs.KnnVectorsFormat;
@@ -27,53 +29,80 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat extends KnnVector
   private static final Logger log =
       Logger.getLogger(LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat.class.getName());
   private static final int MAX_DIMENSIONS = 4096;
-  private static final LuceneProvider LUCENE_99_PROVIDER =
-      getLuceneProvider(LuceneProvider.LUCENE_99_FORMAT_VERSION);
   private static volatile FlatVectorsFormat cachedFlatVectorsFormat;
 
   private final AcceleratedHNSWParams acceleratedHNSWParams;
   private volatile KnnVectorsFormat cachedFallbackFormat;
 
-  private static LuceneProvider getLuceneProvider(String version) {
+  private static LuceneProvider getLucene99Provider() throws IOException {
     try {
-      return LuceneProvider.getInstance(version);
-    } catch (Exception e) {
-      throw new UnsupportedOperationException(
-          "Lucene" + version + " vector formats are not available in this runtime", e);
+      return LuceneProvider.getInstance(LuceneProvider.LUCENE_99_FORMAT_VERSION);
+    } catch (ClassNotFoundException e) {
+      throw new IOException("Lucene99 vector formats are not available in this runtime", e);
     }
   }
 
-  private static FlatVectorsFormat getOrCreateFlatVectorsFormat() {
+  private static RuntimeException handleConstructionFailure(String formatName, Throwable failure)
+      throws IOException {
+    if (failure instanceof IOException
+        || failure instanceof RuntimeException
+        || failure instanceof Error) {
+      return Utils.handleThrowable(failure);
+    }
+    return new IllegalStateException("Unable to construct " + formatName, failure);
+  }
+
+  static <T> T constructLucene102Format(String formatName, Callable<T> constructor)
+      throws IOException {
+    try {
+      return constructor.call();
+    } catch (ClassNotFoundException e) {
+      throw new UnsupportedOperationException(
+          formatName + " is not available in this Lucene runtime", e);
+    } catch (InvocationTargetException e) {
+      throw handleConstructionFailure(formatName, e.getTargetException());
+    } catch (ReflectiveOperationException e) {
+      throw new IllegalStateException("Unable to construct " + formatName, e);
+    } catch (IOException | RuntimeException | Error e) {
+      throw Utils.handleThrowable(e);
+    } catch (Exception e) {
+      throw new IllegalStateException("Unable to construct " + formatName, e);
+    }
+  }
+
+  private static FlatVectorsFormat getOrCreateFlatVectorsFormat() throws IOException {
     FlatVectorsFormat format = cachedFlatVectorsFormat;
     if (format == null) {
       synchronized (LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat.class) {
         format = cachedFlatVectorsFormat;
         if (format == null) {
-          try {
-            format =
-                getLuceneProvider(LuceneProvider.LUCENE_102_BINARY_FORMAT_VERSION)
-                    .getLuceneBinaryQuantizedVectorsFormatInstance();
-            cachedFlatVectorsFormat = format;
-          } catch (Exception e) {
-            throw new UnsupportedOperationException(
-                "Binary quantized vectors require Lucene102 vector formats", e);
-          }
+          format =
+              constructLucene102Format(
+                  "Lucene102BinaryQuantizedVectorsFormat",
+                  () ->
+                      LuceneProvider.getInstance(LuceneProvider.LUCENE_102_BINARY_FORMAT_VERSION)
+                          .getLuceneBinaryQuantizedVectorsFormatInstance());
+          cachedFlatVectorsFormat = format;
         }
       }
     }
     return format;
   }
 
-  private KnnVectorsFormat getOrCreateFallbackFormat() throws Exception {
+  private KnnVectorsFormat getOrCreateFallbackFormat() throws IOException {
     KnnVectorsFormat format = cachedFallbackFormat;
     if (format == null) {
       synchronized (this) {
         format = cachedFallbackFormat;
         if (format == null) {
           format =
-              getLuceneProvider(LuceneProvider.LUCENE_102_BINARY_FORMAT_VERSION)
-                  .getLuceneHnswBinaryQuantizedKnnVectorsFormatInstance(
-                      acceleratedHNSWParams.getMaxConn(), acceleratedHNSWParams.getBeamWidth());
+              constructLucene102Format(
+                  "Lucene102HnswBinaryQuantizedVectorsFormat",
+                  () ->
+                      LuceneProvider.getInstance(LuceneProvider.LUCENE_102_BINARY_FORMAT_VERSION)
+                          .getLuceneHnswBinaryQuantizedKnnVectorsFormatInstance(
+                              acceleratedHNSWParams.getMaxConn(),
+                              acceleratedHNSWParams.getBeamWidth()));
           cachedFallbackFormat = format;
         }
       }
@@ -114,16 +143,12 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat extends KnnVector
       return new LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter(
           state, acceleratedHNSWParams, flatWriter);
     } else {
-      try {
-        // Fallback to Lucene's Lucene102HnswBinaryQuantizedVectorsFormat format
-        log.log(
-            Level.WARNING,
-            "GPU based indexing not supported, falling back to using the"
-                + " Lucene102HnswBinaryQuantizedVectorsFormat");
-        return getOrCreateFallbackFormat().fieldsWriter(state);
-      } catch (Exception e) {
-        throw Utils.handleThrowable(e);
-      }
+      // Fallback to Lucene's Lucene102HnswBinaryQuantizedVectorsFormat format
+      log.log(
+          Level.WARNING,
+          "GPU based indexing not supported, falling back to using the"
+              + " Lucene102HnswBinaryQuantizedVectorsFormat");
+      return getOrCreateFallbackFormat().fieldsWriter(state);
     }
   }
 
@@ -133,8 +158,9 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat extends KnnVector
   @Override
   public KnnVectorsReader fieldsReader(SegmentReadState state) throws IOException {
     try {
-      return LUCENE_99_PROVIDER.getLuceneHnswVectorsReaderInstance(
-          state, getOrCreateFlatVectorsFormat().fieldsReader(state));
+      return getLucene99Provider()
+          .getLuceneHnswVectorsReaderInstance(
+              state, getOrCreateFlatVectorsFormat().fieldsReader(state));
     } catch (Exception e) {
       throw Utils.handleThrowable(e);
     }

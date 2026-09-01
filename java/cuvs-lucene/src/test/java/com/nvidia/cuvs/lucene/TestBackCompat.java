@@ -127,6 +127,11 @@ public class TestBackCompat {
     runColdStartProbe("scalar-constructor");
   }
 
+  @Test
+  public void testBinaryFormatConstructionIsLazy() throws Exception {
+    runColdStartProbe("binary-constructor");
+  }
+
   private static void runColdStartProbe(String mode) throws Exception {
     String javaExecutable =
         Path.of(System.getProperty("java.home"), "bin", "java").toAbsolutePath().toString();

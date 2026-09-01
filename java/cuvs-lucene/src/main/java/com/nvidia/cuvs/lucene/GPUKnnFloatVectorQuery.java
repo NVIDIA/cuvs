@@ -161,9 +161,11 @@ public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
       gpuReaders.add(gpuReader);
     }
 
-    // Build one filter handle per segment whenever an explicit filter or any segment deletion
-    // requires filtering. Each handle encodes (filter ∩ segment liveDocs); an unaffected segment
-    // gets a null entry and remains unfiltered for that partition.
+    // Build one filter handle per segment encoding (filter ∩ that segment's liveDocs) whenever any
+    // filtering is required — either an explicit Lucene filter, or live-document deletes in at
+    // least
+    // one segment. Each segment's handle becomes that partition's filter; a segment with neither an
+    // explicit filter nor deletes gets a null entry (unfiltered for that partition).
     boolean hasExplicitFilter = (filter != null);
     boolean hasDeletes = false;
     for (LeafReaderContext ctx : leaves) {
@@ -385,7 +387,9 @@ public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
   private FilterBitsetHandle buildSegmentFilterHandle(
       Weight filterWeight, LeafReaderContext ctx, FloatVectorValues fvv) throws IOException {
     Bits liveDocs = ctx.reader().getLiveDocs();
-    // Without an explicit filter, accept liveDocs directly; null means every document is live.
+    // When filterWeight is null, accept all live documents (acceptDocs == liveDocs, which may
+    // itself
+    // be null to mean "all docs accepted" in this segment).
     Bits acceptDocs = (filterWeight != null) ? evalFilter(filterWeight, ctx, liveDocs) : liveDocs;
     Bits acceptedOrds = fvv.getAcceptOrds(acceptDocs);
     int numOrds = fvv.size();

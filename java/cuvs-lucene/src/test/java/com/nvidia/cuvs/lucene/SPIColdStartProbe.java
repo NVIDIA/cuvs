@@ -35,6 +35,7 @@ public final class SPIColdStartProbe {
       case "codec" -> probeCodecs();
       case "knn" -> probeVectorFormats();
       case "scalar-constructor" -> probeScalarConstructor();
+      case "binary-constructor" -> probeBinaryConstructor();
       default -> throw new IllegalArgumentException("Unknown probe mode: " + args[0]);
     }
   }
@@ -57,6 +58,15 @@ public final class SPIColdStartProbe {
 
   private static void probeScalarConstructor() {
     new LuceneAcceleratedHNSWScalarQuantizedVectorsFormat();
+    requireProviderCacheEmpty("Scalar");
+  }
+
+  private static void probeBinaryConstructor() {
+    new LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat();
+    requireProviderCacheEmpty("Binary");
+  }
+
+  private static void requireProviderCacheEmpty(String formatName) {
     try {
       java.lang.reflect.Field instancesField = LuceneProvider.class.getDeclaredField("INSTANCES");
       instancesField.setAccessible(true);
@@ -65,7 +75,9 @@ public final class SPIColdStartProbe {
           (java.util.Map<String, LuceneProvider>) instancesField.get(null);
       if (!instances.isEmpty()) {
         throw new AssertionError(
-            "Scalar format construction initialized Lucene providers: " + instances.keySet());
+            formatName
+                + " format construction initialized Lucene providers: "
+                + instances.keySet());
       }
     } catch (ReflectiveOperationException e) {
       throw new AssertionError("Unable to inspect Lucene provider cache", e);
