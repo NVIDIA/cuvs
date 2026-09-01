@@ -5,7 +5,7 @@
 #pragma once
 
 #include "../../core/nvtx.hpp"
-#include "../../neighbors/detail/ann_utils.cuh"
+#include "kmeans_batch_loader.cuh"
 #include "kmeans_common.cuh"
 
 #include <cuvs/cluster/kmeans.hpp>
@@ -24,6 +24,8 @@
 #include <raft/core/pinned_mdarray.hpp>
 #include <raft/core/pinned_mdspan.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
+#include <raft/core/resource/cuda_stream_pool.hpp>
+#include <raft/core/resource/device_memory_resource.hpp>
 #include <raft/core/resource/thrust_policy.hpp>
 #include <raft/core/resources.hpp>
 #include <raft/linalg/map.cuh>
@@ -39,6 +41,7 @@
 #include <raft/util/cuda_utils.cuh>
 #include <raft/util/cudart_utils.hpp>
 
+#include <rmm/cuda_stream.hpp>
 #include <rmm/device_scalar.hpp>
 #include <rmm/device_uvector.hpp>
 
@@ -686,25 +689,57 @@ void kmeans_fit(
 
   auto minClusterAndDistance = raft::make_device_vector<raft::KeyValuePair<IndexT, DataT>, IndexT>(
     handle, device_buffer_samples);
-  auto L2NormBatch       = raft::make_device_vector<DataT, IndexT>(handle, device_buffer_samples);
+  auto minClusterDistance = raft::make_device_vector<DataT, IndexT>(handle, device_buffer_samples);
+  const IndexT l2_norm_size = data_on_device ? n_samples : device_buffer_samples;
+  auto L2NormBatch          = raft::make_device_vector<DataT, IndexT>(handle, l2_norm_size);
   auto batch_weights_buf = raft::make_device_vector<DataT, IndexT>(handle, device_buffer_samples);
   rmm::device_uvector<DataT> L2NormBuf_OR_DistBuf(0, stream);
 
   auto centroid_sums      = raft::make_device_matrix<DataT, IndexT>(handle, n_clusters, n_features);
   auto weight_per_cluster = raft::make_device_vector<DataT, IndexT>(handle, n_clusters);
   auto clustering_cost    = raft::make_device_scalar<DataT>(handle, DataT{0});
+  auto batch_inertia      = raft::make_device_scalar<DataT>(handle, DataT{0});
+  auto batch_cost         = raft::make_device_scalar<DataT>(handle, DataT{0});
+  auto h_inertia          = raft::make_pinned_scalar<DataT>(handle, DataT{0});
 
   rmm::device_uvector<char> batch_workspace(device_buffer_samples, stream);
 
-  auto data_batches = cuvs::spatial::knn::detail::utils::make_batch_load_iterator<DataT>(
-    handle, X.data_handle(), n_samples, n_features, device_buffer_samples, stream);
+  auto batch_mr          = data_on_device ? raft::resource::get_workspace_resource_ref(handle)
+                                          : raft::resource::get_large_workspace_resource_ref(handle);
+  auto batch_copy_stream = raft::resource::get_cuda_stream(handle);
+  std::optional<rmm::cuda_stream> owned_batch_copy_stream;
+  if constexpr (!data_on_device) {
+    // Host KMeans must pipeline even when a minimal caller (including the Python binding) did not
+    // install a RAFT stream pool. Keep the stream owner before the iterators so their destructors
+    // drain all event dependencies before the stream itself is destroyed.
+    if (handle.has_resource_factory(raft::resource::resource_type::CUDA_STREAM_POOL) &&
+        raft::resource::get_stream_pool_size(handle) >= 1) {
+      batch_copy_stream = raft::resource::get_stream_from_stream_pool(handle);
+    } else {
+      owned_batch_copy_stream.emplace(rmm::cuda_stream::flags::non_blocking);
+      batch_copy_stream = owned_batch_copy_stream->view();
+    }
+  }
+
+  kmeans_batch_loader<DataT, IndexT, data_on_device> data_batches(handle,
+                                                                  X.data_handle(),
+                                                                  n_samples,
+                                                                  n_features,
+                                                                  device_buffer_samples,
+                                                                  batch_copy_stream,
+                                                                  batch_mr);
   // Host-path weight batches: only materialized when weights are provided and
   // the data resides on host
-  std::optional<cuvs::spatial::knn::detail::utils::batch_load_iterator_dyn<DataT>> weight_batches;
+  std::optional<kmeans_batch_loader<DataT, IndexT, false>> weight_batches;
   if constexpr (!data_on_device) {
     if (weight_ptr != nullptr) {
-      weight_batches = cuvs::spatial::knn::detail::utils::make_batch_load_iterator<DataT>(
-        handle, weight_ptr, n_samples, IndexT{1}, device_buffer_samples, stream);
+      weight_batches.emplace(handle,
+                             weight_ptr,
+                             n_samples,
+                             IndexT{1},
+                             device_buffer_samples,
+                             batch_copy_stream,
+                             batch_mr);
     } else {
       raft::matrix::fill(handle, batch_weights_buf.view(), DataT{1});
     }
@@ -767,10 +802,6 @@ void kmeans_fit(
 
   bool need_compute_norms = metric == cuvs::distance::DistanceType::L2Expanded ||
                             metric == cuvs::distance::DistanceType::L2SqrtExpanded;
-  auto h_norm_cache = raft::make_pinned_vector<DataT, IndexT>(
-    handle, (need_compute_norms && !data_on_device) ? n_samples : 0);
-  bool norms_cached = false;
-
   auto compute_batch_norms = [&](const DataT* batch_ptr, IndexT batch_size) {
     auto batch_view =
       raft::make_device_matrix_view<const DataT, IndexT>(batch_ptr, batch_size, n_features);
@@ -835,48 +866,41 @@ void kmeans_fit(
       auto new_centroids_view =
         raft::make_device_matrix_view<DataT, IndexT>(new_centroids_ptr, n_clusters, n_features);
 
-      data_batches.reset();
-      using wt_iter_t = cuvs::spatial::knn::detail::utils::batch_load_iterator_dyn<DataT>;
-      std::optional<wt_iter_t> wt_it;
-      if (weight_batches.has_value()) {
-        weight_batches->reset();
-        wt_it = weight_batches->begin();
-      }
-      for (const auto& data_batch : data_batches) {
+      data_batches.prime();
+      if (weight_batches.has_value()) { weight_batches->prime(); }
+      for (std::size_t batch_pos = 0; batch_pos < data_batches.num_batches(); ++batch_pos) {
+        const auto data_batch = data_batches.load(batch_pos);
         IndexT cur_batch_size = static_cast<IndexT>(data_batch.size());
-        const DataT* wt_data  = nullptr;
-        if (wt_it.has_value()) {
-          wt_data = (**wt_it).data();
-          ++(*wt_it);
-        }
+        const DataT* wt_data =
+          weight_batches.has_value() ? weight_batches->load(batch_pos).data() : nullptr;
 
         auto batch_data_view = raft::make_device_matrix_view<const DataT, IndexT>(
           data_batch.data(), cur_batch_size, n_features);
         auto batch_weights_view =
           cur_batch_weights(static_cast<IndexT>(data_batch.offset()), wt_data, cur_batch_size);
-
         auto minCAD_view = raft::make_device_vector_view<raft::KeyValuePair<IndexT, DataT>, IndexT>(
           minClusterAndDistance.data_handle(), cur_batch_size);
 
         if constexpr (!data_on_device) {
-          if (need_compute_norms) {
-            if (!norms_cached) {
-              compute_batch_norms(data_batch.data(), cur_batch_size);
-              raft::copy(h_norm_cache.data_handle() + data_batch.offset(),
-                         L2NormBatch.data_handle(),
-                         cur_batch_size,
-                         stream);
-            } else {
-              raft::copy(L2NormBatch.data_handle(),
-                         h_norm_cache.data_handle() + data_batch.offset(),
-                         cur_batch_size,
-                         stream);
-            }
-          }
+          if (need_compute_norms) { compute_batch_norms(data_batch.data(), cur_batch_size); }
+        }
+        // Submit the bandwidth-bound row norm before the next bulk H2D, then submit the remaining
+        // assignment work while that copy is in flight. This keeps the copy call timely without
+        // letting it get ahead of (and starve) the norm kernel.
+        const bool is_last_batch =
+          data_batch.offset() + data_batch.size() == static_cast<size_t>(n_samples);
+        if (is_last_batch) {
+          data_batches.prime();
+          if (weight_batches.has_value()) { weight_batches->prime(); }
+        } else {
+          data_batches.prefetch(batch_pos + 1);
+          if (weight_batches.has_value()) { weight_batches->prefetch(batch_pos + 1); }
         }
 
+        const auto l2_norm_offset =
+          data_on_device ? static_cast<IndexT>(data_batch.offset()) : IndexT{0};
         auto l2_const_view = raft::make_device_vector_view<const DataT, IndexT>(
-          L2NormBatch.data_handle(), cur_batch_size);
+          L2NormBatch.data_handle() + l2_norm_offset, cur_batch_size);
 
         process_batch<DataT, IndexT>(handle,
                                      batch_data_view,
@@ -892,9 +916,9 @@ void kmeans_fit(
                                      centroid_sums.view(),
                                      weight_per_cluster.view(),
                                      clustering_cost.view(),
-                                     batch_workspace);
+                                     batch_workspace,
+                                     batch_cost.view());
       }
-      if (need_compute_norms) { norms_cached = true; }
 
       finalize_centroids<DataT, IndexT>(handle,
                                         raft::make_const_mdspan(centroid_sums.view()),
@@ -927,46 +951,68 @@ void kmeans_fit(
       raft::copy(handle,
                  raft::make_pinned_scalar_view(h_done_flag.data_handle()),
                  raft::make_device_scalar_view<const int>(d_done_flag.data_handle()));
+      // Batch 0 was queued before last-batch compute. Retire that slot only after convergence is
+      // submitted, then queue batch 1 so neither transfer delays these latency-critical kernels.
+      data_batches.prime_second_batch();
+      if (weight_batches.has_value()) { weight_batches->prime_second_batch(); }
     }
 
     {
       auto centroids_const = raft::make_device_matrix_view<const DataT, IndexT>(
         cur_centroids_ptr, n_clusters, n_features);
 
-      iter_inertia = DataT{0};
-      data_batches.reset();
-      using wt_iter_t = cuvs::spatial::knn::detail::utils::batch_load_iterator_dyn<DataT>;
-      std::optional<wt_iter_t> wt_it;
-      if (weight_batches.has_value()) {
-        weight_batches->reset();
-        wt_it = weight_batches->begin();
-      }
-      for (const auto& data_batch : data_batches) {
+      raft::matrix::fill(handle, clustering_cost.view(), DataT{0});
+      data_batches.prime();
+      if (weight_batches.has_value()) { weight_batches->prime(); }
+      for (std::size_t batch_pos = 0; batch_pos < data_batches.num_batches(); ++batch_pos) {
+        const auto data_batch = data_batches.load(batch_pos);
         IndexT cur_batch_size = static_cast<IndexT>(data_batch.size());
-        const DataT* wt_data  = nullptr;
-        if (wt_it.has_value()) {
-          wt_data = (**wt_it).data();
-          ++(*wt_it);
-        }
+        const DataT* wt_data =
+          weight_batches.has_value() ? weight_batches->load(batch_pos).data() : nullptr;
 
         auto batch_data_view = raft::make_device_matrix_view<const DataT, IndexT>(
           data_batch.data(), cur_batch_size, n_features);
-
         std::optional<raft::device_vector_view<const DataT, IndexT>> batch_sw = std::nullopt;
         if (weight_ptr != nullptr) {
           batch_sw =
             cur_batch_weights(static_cast<IndexT>(data_batch.offset()), wt_data, cur_batch_size);
         }
+        compute_batch_norms(data_batch.data(), cur_batch_size);
+        const bool is_last_batch =
+          data_batch.offset() + data_batch.size() == static_cast<size_t>(n_samples);
+        if (!is_last_batch) {
+          data_batches.prefetch(batch_pos + 1);
+          if (weight_batches.has_value()) { weight_batches->prefetch(batch_pos + 1); }
+        }
 
-        DataT batch_cost = DataT{0};
-        cuvs::cluster::kmeans::cluster_cost(handle,
-                                            batch_data_view,
-                                            centroids_const,
-                                            raft::make_host_scalar_view(&batch_cost),
-                                            batch_sw);
+        auto l2_norm_view =
+          raft::make_device_vector_view<DataT, IndexT>(L2NormBatch.data_handle(), cur_batch_size);
+        auto min_distance_view = raft::make_device_vector_view<DataT, IndexT>(
+          minClusterDistance.data_handle(), cur_batch_size);
 
-        iter_inertia += batch_cost;
+        cluster_cost<DataT, IndexT>(handle,
+                                    batch_data_view,
+                                    centroids_const,
+                                    min_distance_view,
+                                    l2_norm_view,
+                                    L2NormBuf_OR_DistBuf,
+                                    cuvs::distance::DistanceType::L2Expanded,
+                                    iter_params.batch_samples,
+                                    iter_params.batch_centroids,
+                                    ws,
+                                    batch_inertia.view(),
+                                    batch_sw);
+        raft::linalg::add(clustering_cost.data_handle(),
+                          clustering_cost.data_handle(),
+                          batch_inertia.data_handle(),
+                          1,
+                          stream);
       }
+      raft::copy(handle,
+                 raft::make_pinned_scalar_view(h_inertia.data_handle()),
+                 raft::make_device_scalar_view<const DataT>(clustering_cost.data_handle()));
+      raft::resource::sync_stream(handle);
+      iter_inertia = *h_inertia.data_handle();
     }
 
     if (iter_inertia < inertia[0]) {
