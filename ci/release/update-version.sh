@@ -110,6 +110,7 @@ DEPENDENCIES=(
   cuvs-bench
   libcuvs
   libcuvs-tests
+  libkvikio
   libraft
   librmm
   pylibraft
