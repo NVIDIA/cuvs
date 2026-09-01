@@ -296,6 +296,18 @@ ConfigureTest(
 
 if(BUILD_CAGRA_HNSWLIB)
   ConfigureTest(
+    NAME NEIGHBORS_HNSW_EXTERNAL_IO_TEST
+    PATH neighbors/hnsw_external_io.cu
+    GPUS 1
+    PERCENT 100
+  )
+  target_link_libraries(NEIGHBORS_HNSW_EXTERNAL_IO_TEST PRIVATE hnswlib::hnswlib kvikio::kvikio)
+  target_compile_definitions(NEIGHBORS_HNSW_EXTERNAL_IO_TEST PUBLIC CUVS_BUILD_CAGRA_HNSWLIB)
+  target_compile_options(
+    NEIGHBORS_HNSW_EXTERNAL_IO_TEST PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--diag-suppress=68>
+  )
+
+  ConfigureTest(
     NAME NEIGHBORS_HNSW_TEST
     PATH neighbors/hnsw.cu
     GPUS 1
