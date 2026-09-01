@@ -28,7 +28,7 @@ Apache does not publish PyLucene 10.2.0, and the official PyLucene 10.0.0 distri
 
 ### Build matched cuVS dependencies
 
-cuVS-Lucene lives in this repository under `java/cuvs-lucene`. [NVIDIA/cuvs#2475](https://github.com/NVIDIA/cuvs/pull/2475) ports the PyLucene 10.2 compatibility changes and Python end-to-end coverage from the former [NVIDIA/cuvs-lucene#174](https://github.com/NVIDIA/cuvs-lucene/pull/174) into cuVS, alongside the HNSW heuristic delegation required for the `m` and `ef_construction` benchmark parameters. Until #2475 is merged, use the pinned revision below rather than a moving pull-request head.
+cuVS-Lucene lives in this repository under `java/cuvs-lucene`. [NVIDIA/cuvs#2475](https://github.com/NVIDIA/cuvs/pull/2475) supplies the Lucene 10.2 compatibility and codec changes required by this backend, including HNSW heuristic delegation for the `m` and `ef_construction` benchmark parameters. This PR owns the Bench backend and its PyLucene end-to-end tests. Until #2475 is merged, use the pinned revision below rather than a moving pull-request head.
 
 Build the dependencies in a separate checkout so this does not change your cuVS Bench working tree. The pinned monorepo revision keeps cuVS Java, cuVS-Lucene, and the native libraries aligned.
 
@@ -36,7 +36,7 @@ Build the dependencies in a separate checkout so this does not change your cuVS 
 git clone https://github.com/NVIDIA/cuvs.git cuvs-pylucene-deps
 cd cuvs-pylucene-deps
 git fetch origin pull/2475/head
-git switch --detach 435c52ec9874b4cf1e12953ed3a417753df4c9c0
+git switch --detach d6fcab0946837d7d3997cec4ed18189d3faa12e6
 ./build.sh libcuvs java lucene
 cd ..
 ```
@@ -58,18 +58,37 @@ Use a clean environment without another cuVS native installation on its library 
 
 The backend checks that `lucene.VERSION` is exactly `10.2.0` before starting the process-wide JVM. It also compiles its configured-codec adapter against the selected JAR, which fails early when the HNSW heuristic API is missing.
 
-Validate the pinned cuVS artifacts with the upstream PyLucene suite. Its Java test adapter is compiled into `java/cuvs-lucene/target/test-classes` by the Maven build and is not part of the production JAR.
+Validate the pinned cuVS artifacts with the opt-in Bench PyLucene suite. Pytest owns the scenarios, assertions, parameterization, and reporting under `cuvs_bench/tests/pylucene`. Test-only Java adapters live under `python/cuvs_bench/tests/java`; the shared session fixture compiles all of them with `javac` into one temporary classes directory before the process-wide JVM starts. They are excluded from the cuVS Bench wheel and the production cuVS-Lucene JAR.
 
 ```bash
 python -m pip install pytest
 
-cd cuvs-pylucene-deps/java/cuvs-lucene
-CUVS_NATIVE_BUILD="$(cd ../../cpp/build && pwd)"
+CUVS_DEPS_ROOT="$(cd cuvs-pylucene-deps && pwd)"
+CUVS_NATIVE_BUILD="$CUVS_DEPS_ROOT/cpp/build"
 export JAVA_LIBRARY_PATH="$CUVS_NATIVE_BUILD:$CUVS_NATIVE_BUILD/c:/usr/local/cuda/lib64"
 export LD_LIBRARY_PATH="$JAVA_LIBRARY_PATH${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export CUVS_LUCENE_CUVS_JAVA_JAR="$HOME/.m2/repository/com/nvidia/cuvs/cuvs-java/26.10.0/cuvs-java-26.10.0.jar"
+export CUVS_LUCENE_JAR="$CUVS_DEPS_ROOT/java/cuvs-lucene/target/cuvs-lucene-26.10.0.jar"
+export CUVS_BENCH_PYLUCENE_INTEGRATION=1
 
-python -m pytest -q -s src/test/python/test_pylucene_end_to_end.py
+cd <cuvs-bench-checkout>/python/cuvs_bench
+
+# Non-extended live suite, including one case for each execution path.
+python -m pytest -q -s cuvs_bench/tests/pylucene \
+    -m "pylucene and not pylucene_extended"
+
+# Full GPU E2E suite, including the extended execution-path matrix.
+python -m pytest -q -s cuvs_bench/tests/pylucene -m pylucene
 ```
+
+Run the codec-path matrix directly with:
+
+```bash
+python -m pytest -q -s \
+    cuvs_bench/tests/pylucene/test_pylucene_execution_paths.py
+```
+
+The matrix distinguishes CPU HNSW, GPU/CAGRA-built HNSW, and GPU CAGRA search. Extended cases cover segment and force-merge layouts, one- and three-layer HNSW, CAGRA `searchWidth` values 16 and 32, deletion, filtering, deterministic brute-force recall, duplicate-hit checks, and rank-one self matches. `searchWidth` is the cuVS CAGRA query setting exercised through a test-only codec bridge; it is not the backend's HNSW `num_candidates` setting or cuVS Bench `--batch-size`.
 
 ### Install cuVS Bench
 
