@@ -33,8 +33,7 @@ public final class PyLuceneWriterSelectionCodec extends FilterCodec {
   }
 
   private static Codec configuredCodec() throws Exception {
-    return (Codec)
-        Class.forName(CONFIGURED_CODEC_CLASS).getConstructor().newInstance();
+    return (Codec) Class.forName(CONFIGURED_CODEC_CLASS).getConstructor().newInstance();
   }
 
   @Override

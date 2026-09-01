@@ -6,7 +6,6 @@
 """Opt-in integration coverage for the PyLucene benchmark backend."""
 
 import csv
-import importlib
 import json
 import os
 import re
@@ -33,9 +32,17 @@ from cuvs_bench.backends.pylucene import (
     _HNSW_PROVENANCE_FILE,
     _PyLuceneRuntime,
     _restore_java_property,
-    _validate_pylucene_version,
 )
 from cuvs_bench.orchestrator.config_loaders import IndexConfig
+from cuvs_bench.tests.pylucene._pylucene_execution_path_utils import (
+    HNSW_GRAPH_VERIFYING_QUERY_CLASS,
+    _new_hnsw_graph_verifying_query,
+    initialize_pylucene_context,
+)
+from cuvs_bench.tests.pylucene._pylucene_live_test_config import (
+    PYLUCENE_TEST_CLASSES_ENV,
+    PYTHON_PACKAGE_ROOT,
+)
 
 pytestmark = [
     pytest.mark.pylucene,
@@ -44,9 +51,6 @@ pytestmark = [
     ),
 ]
 
-_OPT_IN_ENV = "CUVS_BENCH_PYLUCENE_INTEGRATION"
-_CUVS_JAVA_JAR_ENV = "CUVS_LUCENE_CUVS_JAVA_JAR"
-_CUVS_LUCENE_JAR_ENV = "CUVS_LUCENE_JAR"
 _CAGRA_CODEC = "CuVS2510GPUSearchCodec"
 _HNSW_CODEC = "Lucene101AcceleratedHNSWCodec"
 _HNSW_WRITER_POLICY = "gpu-with-cpu-fallback"
@@ -68,19 +72,13 @@ _DEFAULT_HNSW_BUILD_PARAMETERS = {
     "direct_single_segment": False,
 }
 _CAGRA_BUILD_PARAMETERS = {"codec": _CAGRA_CODEC}
-_SOURCE_ROOT = Path(__file__).resolve().parents[3]
-_WRITER_SELECTION_SOURCE = (
-    _SOURCE_ROOT
-    / "tests"
-    / "java"
-    / "com"
-    / "nvidia"
-    / "cuvs"
-    / "bench"
-    / "PyLuceneWriterSelectionCodec.java"
-)
 _CPU_FALLBACK_PROBE = Path(__file__).with_name(
     "pylucene_cpu_fallback_probe.py"
+)
+_GRAPH_CLAMP_WARNING_FRAGMENTS = (
+    "Intermediate graph degree cannot be larger",
+    "cannot be larger than intermediate graph degree",
+    "for nn-descent needs to match cagra intermediate graph degree",
 )
 
 
@@ -90,12 +88,6 @@ class _DatasetCase:
     query_ids: np.ndarray
     squared_distances: np.ndarray
     k: int
-
-
-@dataclass(frozen=True)
-class _RuntimeFixture:
-    backend_config: dict[str, str]
-    writer_selection_classes: Path
 
 
 @dataclass(frozen=True)
@@ -116,17 +108,6 @@ def _write_test_bin(path: Path, data: np.ndarray) -> None:
     with path.open("wb") as file:
         write_bin_header(file, data.shape[0], data.shape[1])
         np.ascontiguousarray(data).tofile(file)
-
-
-def _required_jar(env_name: str) -> Path:
-    configured = os.environ.get(env_name)
-    if not configured:
-        pytest.fail(f"{env_name} must point to the required runtime jar")
-
-    jar = Path(configured).expanduser()
-    if not jar.is_file():
-        pytest.fail(f"{env_name} does not point to an existing file: {jar}")
-    return jar.resolve()
 
 
 def _single_search_result(results):
@@ -205,50 +186,6 @@ def _search_copied_index(baseline, index, dataset=None):
         backend.cleanup()
 
 
-def _compile_writer_selection_codec(
-    output_dir: Path,
-    cuvs_java_jar: Path,
-    cuvs_lucene_jar: Path,
-    pylucene_classpath: str,
-) -> None:
-    environment_javac = Path(sys.prefix) / "lib" / "jvm" / "bin" / "javac"
-    javac = shutil.which("javac")
-    if javac is None and environment_javac.is_file():
-        javac = str(environment_javac)
-    if javac is None:
-        pytest.fail("javac is required for the PyLucene integration tests")
-    if not _WRITER_SELECTION_SOURCE.is_file():
-        pytest.fail(
-            "PyLucene writer-selection test source is missing: "
-            f"{_WRITER_SELECTION_SOURCE}"
-        )
-
-    output_dir.mkdir(parents=True, exist_ok=True)
-    compile_classpath = os.pathsep.join(
-        (str(cuvs_java_jar), str(cuvs_lucene_jar), pylucene_classpath)
-    )
-    completed = subprocess.run(
-        [
-            javac,
-            "--release",
-            "22",
-            "-classpath",
-            compile_classpath,
-            "-d",
-            str(output_dir),
-            str(_WRITER_SELECTION_SOURCE),
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if completed.returncode != 0:
-        pytest.fail(
-            "Could not compile the PyLucene writer-selection test codec:\n"
-            f"stdout:\n{completed.stdout}\nstderr:\n{completed.stderr}"
-        )
-
-
 def _assert_cagra_verification(
     metadata, expected_vector_count, expected_dimensions
 ):
@@ -324,49 +261,6 @@ def _assert_hnsw_verification(
         "segment_count": metadata["segment_count"],
         "commit_file_count": 1,
     }
-
-
-@pytest.fixture(scope="module")
-def pylucene_runtime_config(tmp_path_factory):
-    """Resolve the explicitly configured PyLucene/cuVS runtime."""
-    if os.environ.get(_OPT_IN_ENV) != "1":
-        pytest.skip(f"set {_OPT_IN_ENV}=1 to run PyLucene integration tests")
-
-    cuvs_java_jar = _required_jar(_CUVS_JAVA_JAR_ENV)
-    cuvs_lucene_jar = _required_jar(_CUVS_LUCENE_JAR_ENV)
-
-    java_library_path = os.environ.get("JAVA_LIBRARY_PATH") or os.environ.get(
-        "LD_LIBRARY_PATH"
-    )
-    if not java_library_path:
-        pytest.fail(
-            "JAVA_LIBRARY_PATH or LD_LIBRARY_PATH must provide the native "
-            "cuVS runtime libraries"
-        )
-
-    try:
-        lucene = importlib.import_module("lucene")
-    except ImportError as exc:
-        pytest.fail(f"PyLucene is not importable: {exc}")
-    _validate_pylucene_version(lucene)
-
-    test_classes = tmp_path_factory.mktemp("pylucene-java-test-classes")
-    _compile_writer_selection_codec(
-        test_classes,
-        cuvs_java_jar,
-        cuvs_lucene_jar,
-        lucene.CLASSPATH,
-    )
-    lucene.CLASSPATH = os.pathsep.join((str(test_classes), lucene.CLASSPATH))
-
-    return _RuntimeFixture(
-        backend_config={
-            "cuvs_java_jar": str(cuvs_java_jar),
-            "cuvs_lucene_jar": str(cuvs_lucene_jar),
-            "java_library_path": java_library_path,
-        },
-        writer_selection_classes=test_classes,
-    )
 
 
 @pytest.fixture(scope="module")
@@ -801,6 +695,9 @@ def _build_and_force_merge(runtime, index_path, vectors, writer_config):
 
         reader = runtime.DirectoryReader.open(writer)
         initial_segment_count = int(reader.leaves().size())
+        initial_segment_document_counts = tuple(
+            int(leaf.reader().maxDoc()) for leaf in reader.leaves()
+        )
         reader.close()
         reader = None
 
@@ -808,6 +705,9 @@ def _build_and_force_merge(runtime, index_path, vectors, writer_config):
         writer.commit()
         reader = runtime.DirectoryReader.open(writer)
         final_segment_count = int(reader.leaves().size())
+        final_segment_document_counts = tuple(
+            int(leaf.reader().maxDoc()) for leaf in reader.leaves()
+        )
     finally:
         try:
             if reader is not None:
@@ -818,7 +718,55 @@ def _build_and_force_merge(runtime, index_path, vectors, writer_config):
                     writer.close()
             finally:
                 directory.close()
-    return initial_segment_count, final_segment_count
+    return (
+        initial_segment_count,
+        initial_segment_document_counts,
+        final_segment_count,
+        final_segment_document_counts,
+    )
+
+
+def _assert_no_graph_clamp_warnings(captured_output):
+    normalized_output = captured_output.lower()
+    for fragment in _GRAPH_CLAMP_WARNING_FRAGMENTS:
+        assert fragment.lower() not in normalized_output, captured_output
+
+
+def _assert_persisted_hnsw_m_and_traversal(
+    context,
+    index_path,
+    target,
+    *,
+    expected_document_id,
+    expected_m,
+    top_k,
+):
+    runtime = context.runtime
+    directory = runtime.FSDirectory.open(runtime.Paths.get(str(index_path)))
+    reader = None
+    try:
+        reader = runtime.DirectoryReader.open(directory)
+        searcher = runtime.IndexSearcher(reader)
+        query = _new_hnsw_graph_verifying_query(
+            context,
+            tuple(float(value) for value in target),
+            top_k,
+            expected_m,
+        )
+        hits = searcher.search(query, top_k).scoreDocs
+        assert str(query.getClass().getName()) == (
+            HNSW_GRAPH_VERIFYING_QUERY_CLASS
+        )
+        assert len(hits) == top_k
+        stored_id = searcher.storedFields().document(hits[0].doc).get("id")
+        assert stored_id is not None
+        assert int(stored_id) == expected_document_id
+    finally:
+        try:
+            if reader is not None:
+                reader.close()
+        finally:
+            directory.close()
 
 
 def _assert_default_merge_scheduler(writer_config):
@@ -847,24 +795,29 @@ def _committed_segment_compound_flags(runtime, index_path):
 
 
 def test_configured_hnsw_codec_selects_gpu_writer(
-    tmp_path, pylucene_runtime_config
+    tmp_path, pylucene_runtime_config, capfd
 ):
-    """Exercise configured GPU writer selection during default-scheduler merges."""
-    runtime = _PyLuceneRuntime.create(pylucene_runtime_config.backend_config)
+    """Exercise public HNSW M/efConstruction through GPU flushes and merge."""
+    context = initialize_pylucene_context(
+        pylucene_runtime_config.backend_config, (_HNSW_CODEC,)
+    )
+    runtime = context.runtime
     runtime.attach_current_thread()
     m = 16
-    ef_construction = 48
+    ef_construction = 64
     java_codec = _configured_writer_selection_codec(
         runtime, m, ef_construction
     )
     assert str(java_codec) == (
         "PyLuceneWriterSelectionCodec("
-        "PyLuceneConfiguredHnswCodec(m=16, efConstruction=48))"
+        "PyLuceneConfiguredHnswCodec(m=16, efConstruction=64))"
     )
     index_path = tmp_path / "hnsw-writer-selection-index"
     index_path.mkdir()
     vectors = (
-        np.random.default_rng(1907).standard_normal((6, 32)).astype(np.float32)
+        np.random.default_rng(1907)
+        .standard_normal((1024, 32))
+        .astype(np.float32)
     )
     default_config = runtime.IndexWriterConfig()
     writer_config = runtime._new_index_writer_config(
@@ -887,25 +840,41 @@ def test_configured_hnsw_codec_selects_gpu_writer(
         writer_config.getMergePolicy().getNoCFSRatio()
     ) == pytest.approx(float(default_config.getMergePolicy().getNoCFSRatio()))
     _assert_default_merge_scheduler(writer_config)
-    writer_config.setMaxBufferedDocs(2)
+    writer_config.setMaxBufferedDocs(256)
 
-    initial_segments, final_segments = _build_and_force_merge(
-        runtime, index_path, vectors, writer_config
-    )
-    assert initial_segments >= 2
+    capfd.readouterr()
+    (
+        initial_segments,
+        initial_segment_document_counts,
+        final_segments,
+        final_segment_document_counts,
+    ) = _build_and_force_merge(runtime, index_path, vectors, writer_config)
+    captured = capfd.readouterr()
+    _assert_no_graph_clamp_warnings(captured.out + captured.err)
+    assert initial_segments == 4
+    assert initial_segment_document_counts == (256, 256, 256, 256)
     assert final_segments == 1
+    assert final_segment_document_counts == (vectors.shape[0],)
 
     writer_class, writer_calls = _writer_diagnostics(java_codec)
     assert writer_class == _GPU_HNSW_WRITER
-    assert writer_calls >= 4
+    assert writer_calls >= 5
     search = runtime.search_index(
         index_path,
         vectors[[3]],
         k=2,
         batch_size=1,
-        num_candidates=2,
+        num_candidates=64,
     )
     assert search.hits[0][0].document_id == 3
+    _assert_persisted_hnsw_m_and_traversal(
+        context,
+        index_path,
+        vectors[3],
+        expected_document_id=3,
+        expected_m=m,
+        top_k=16,
+    )
 
 
 def test_configured_hnsw_codecs_retain_sequential_parameters(
@@ -979,7 +948,7 @@ def test_configured_hnsw_direct_single_segment_and_num_candidates(
 
 
 def test_real_cagra_codec_merges_without_compound_files(
-    tmp_path, pylucene_runtime_config, integration_dataset_case
+    tmp_path, pylucene_runtime_config, integration_dataset_case, capfd
 ):
     """Exercise CAGRA flush and merge layout through production configuration."""
     runtime = _PyLuceneRuntime.create(pylucene_runtime_config.backend_config)
@@ -999,13 +968,21 @@ def test_real_cagra_codec_merges_without_compound_files(
     assert not bool(writer_config.getUseCompoundFile())
     assert float(writer_config.getMergePolicy().getNoCFSRatio()) == 0.0
     _assert_default_merge_scheduler(writer_config)
-    writer_config.setMaxBufferedDocs(128)
+    writer_config.setMaxBufferedDocs(256)
 
-    initial_segments, final_segments = _build_and_force_merge(
-        runtime, index_path, vectors, writer_config
-    )
-    assert initial_segments >= 2
+    capfd.readouterr()
+    (
+        initial_segments,
+        initial_segment_document_counts,
+        final_segments,
+        final_segment_document_counts,
+    ) = _build_and_force_merge(runtime, index_path, vectors, writer_config)
+    captured = capfd.readouterr()
+    _assert_no_graph_clamp_warnings(captured.out + captured.err)
+    assert initial_segments == 2
+    assert initial_segment_document_counts == (256, 256)
     assert final_segments == 1
+    assert final_segment_document_counts == (vectors.shape[0],)
     assert _committed_segment_compound_flags(runtime, index_path) == [False]
 
     suffixes = {path.suffix for path in index_path.iterdir()}
@@ -1033,7 +1010,7 @@ def test_real_hnsw_codec_falls_back_to_cpu_in_fresh_process(
 ):
     """Prove production fallback when CUDA devices are hidden at startup."""
     environment = os.environ.copy()
-    source_root = str(_SOURCE_ROOT)
+    source_root = str(PYTHON_PACKAGE_ROOT)
     environment.update(
         {
             "CUDA_VISIBLE_DEVICES": "",
@@ -1046,8 +1023,8 @@ def test_real_hnsw_codec_falls_back_to_cpu_in_fresh_process(
             "JAVA_LIBRARY_PATH": pylucene_runtime_config.backend_config[
                 "java_library_path"
             ],
-            "PYLUCENE_WRITER_SELECTION_CLASSES": str(
-                pylucene_runtime_config.writer_selection_classes
+            PYLUCENE_TEST_CLASSES_ENV: str(
+                pylucene_runtime_config.test_classes
             ),
             "PYTHONPATH": os.pathsep.join(
                 value
@@ -1207,7 +1184,7 @@ def test_cli_build_and_search_with_real_pylucene_runtime(
     )
 
     environment = os.environ.copy()
-    source_root = str(_SOURCE_ROOT)
+    source_root = str(PYTHON_PACKAGE_ROOT)
     environment["PYTHONPATH"] = os.pathsep.join(
         value
         for value in (source_root, environment.get("PYTHONPATH"))

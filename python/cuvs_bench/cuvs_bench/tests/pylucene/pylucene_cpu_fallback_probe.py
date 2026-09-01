@@ -22,6 +22,9 @@ from cuvs_bench.backends.pylucene import (
     _PyLuceneRuntime,
     _validate_pylucene_version,
 )
+from cuvs_bench.tests.pylucene._pylucene_live_test_config import (
+    PYLUCENE_TEST_CLASSES_ENV,
+)
 
 _CPU_HNSW_WRITER = (
     "org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsWriter"
@@ -49,7 +52,7 @@ def _writer_diagnostics(java_codec):
 def main():
     _validate_pylucene_version(lucene)
     lucene.CLASSPATH = os.pathsep.join(
-        (os.environ["PYLUCENE_WRITER_SELECTION_CLASSES"], lucene.CLASSPATH)
+        (os.environ[PYLUCENE_TEST_CLASSES_ENV], lucene.CLASSPATH)
     )
     runtime = _PyLuceneRuntime.create(
         {
