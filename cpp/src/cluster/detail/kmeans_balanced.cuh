@@ -681,10 +681,12 @@ auto adjust_centers(const raft::resources& handle,
   rmm::device_uvector<IdxT> donor_clusters(n_pairs, stream, device_memory);
   constexpr uint32_t kBlockDimY = 4;
   const dim3 block_dim(raft::WarpSize, kBlockDimY, 1);
-  rmm::device_scalar<IdxT> update_count(0, stream, device_memory);
+  rmm::device_scalar<IdxT> update_count(stream, device_memory);
+  update_count.set_value_to_zero_async(stream);
 
   if (donor_selection == cuvs::cluster::kmeans::balanced_donor_selection::Random) {
-    rmm::device_scalar<IdxT> search_count(0, stream, device_memory);
+    rmm::device_scalar<IdxT> search_count(stream, device_memory);
+    search_count.set_value_to_zero_async(stream);
     const dim3 grid_dim(raft::ceildiv(n_clusters, static_cast<IdxT>(kBlockDimY)), 1, 1);
     adjust_centers_random_donor_kernel<kBlockDimY>
       <<<grid_dim, block_dim, 0, stream>>>(centers,
