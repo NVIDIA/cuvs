@@ -18,10 +18,10 @@
 #include "search_plan.cuh"          // For search_params
 #include "set_value_batch.cuh"      // For set_value_batch
 #include "shared_launcher_jit.hpp"  // For shared JIT helper functions
-#include <cuvs/detail/jit_lto/AlgorithmLauncher.hpp>
 #include <cuvs/distance/distance.hpp>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/logger.hpp>
+#include <rtcx/algorithm_launcher.hpp>
 
 #include <cstddef>
 #include <cuda_runtime.h>
@@ -60,7 +60,7 @@ void select_and_run(const dataset_descriptor_host<DataT, IndexT, DistanceT>& dat
   const auto filter_payload      = extract_cagra_sample_filter<SourceIndexT>(sample_filter, stream);
   const uint32_t query_id_offset = filter_payload.query_id_offset;
 
-  std::shared_ptr<AlgorithmLauncher> launcher =
+  std::shared_ptr<rtcx::algorithm_launcher> launcher =
     make_cagra_multi_cta_jit_launcher<DataT,
                                       IndexT,
                                       DistanceT,
@@ -185,7 +185,7 @@ void select_and_run_mp(const dataset_descriptor_host<DataT, IndexT, DistanceT>& 
   // The per-partition bitset views live in the partition descriptors (filled in cagra_search.cuh).
   const uint32_t query_id_offset = cagra_filter_query_id_offset(sample_filter);
 
-  std::shared_ptr<AlgorithmLauncher> launcher =
+  std::shared_ptr<rtcx::algorithm_launcher> launcher =
     make_cagra_multi_cta_mp_jit_launcher<DataT,
                                          IndexT,
                                          DistanceT,

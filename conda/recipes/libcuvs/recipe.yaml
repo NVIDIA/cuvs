@@ -75,6 +75,7 @@ cache:
       - libnvjitlink-dev
       - librmm =${{ minor_version }}
       - libraft-headers =${{ minor_version }}
+      - libkvikio =${{ minor_version }}
       - nccl ${{ nccl_version }}
       - cuda-version =${{ cuda_version }}
       - cuda-cudart-dev
@@ -174,6 +175,7 @@ outputs:
         - ${{ pin_subpackage("libcuvs-headers", exact=True) }}
         - librmm =${{ minor_version }}
         - libraft-headers =${{ minor_version }}
+        - libkvikio =${{ minor_version }}
         - nccl ${{ nccl_version }}
         - cuda-version =${{ cuda_version }}
         - cuda-cudart-dev
@@ -189,6 +191,7 @@ outputs:
         - ${{ pin_subpackage("libcuvs-headers", exact=True) }}
         - libraft-headers =${{ minor_version }}
         - librmm =${{ minor_version }}
+        - libkvikio =${{ minor_version }}
         - cuda-nvrtc
         - nccl
         - libcublas
@@ -227,6 +230,7 @@ outputs:
         content: |
           cmake --install cpp/build --component cuvs_static
           cmake --install cpp/build --component hnswlib
+          cmake --install cpp/build --component rtcx
     requirements:
       build:
         - cmake ${{ cmake_version }}
@@ -235,6 +239,7 @@ outputs:
         - ${{ pin_subpackage("libcuvs-headers", exact=True) }}
         - librmm =${{ minor_version }}
         - libraft-headers =${{ minor_version }}
+        - libkvikio =${{ minor_version }}
         - nccl ${{ nccl_version }}
         - cuda-version =${{ cuda_version }}
         - cuda-cudart-dev
@@ -250,12 +255,14 @@ outputs:
         - ${{ pin_subpackage("libcuvs-headers", exact=True) }}
         - libraft-headers =${{ minor_version }}
         - librmm =${{ minor_version }}
+        - libkvikio =${{ minor_version }}
         - cuda-nvrtc
         - nccl
         - libcublas
         - libcurand
         - libcusolver
         - libcusparse
+        - zstd-static =1.5.7
       ignore_run_exports:
         by_name:
           - cuda-cudart

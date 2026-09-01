@@ -264,6 +264,19 @@ public class CagraIndexImpl implements CagraIndex {
   }
 
   /**
+   * True when the matrix row width matches CAGRA's required padded width for its logical column
+   * count and element type. The stride lives on the internal matrix type, so this is the only place
+   * that can answer the question; {@link com.nvidia.cuvs.CagraIndex#isPaddedDataset} routes here
+   * through the provider.
+   */
+  public static boolean isPaddedDataset(CuVSMatrix dataset) {
+    if (!(dataset instanceof CuVSMatrixInternal datasetInternal)) {
+      throw new IllegalArgumentException("dataset must be a CuVSMatrixInternal matrix");
+    }
+    return isCagraPaddedLayout(datasetInternal);
+  }
+
+  /**
    * True when the matrix row width matches CAGRA's required padded width for its
    * logical column count and element type.
    */

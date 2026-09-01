@@ -149,15 +149,12 @@ void extend(raft::resources const& res,
   if (storage->num_rows_allocated != idx->state->storage->num_rows_allocated) {
     // CAGRA could be holding on to a non-owning view of the previous dataset in the ann_index,
     // which is problematic since the underlying ownership of the dataset could be freed here
-    // call cagra::index::update_device_dataset_same_layout on it to update the ann_index to point
-    // to the
-    // new dataset
+    // call cagra::update_dataset on it to update the ann_index to point to the new dataset
     if (next_state->ann_index) {
       auto dataset = raft::make_device_matrix_view<const float, int64_t>(
         storage->dataset.data(), next_state->ann_rows(), storage->dim);
 
-      // Block 'search' calls during the update_device_dataset_same_layout call to ensure that this
-      // doesn't cause issues in a multithreaded environment
+      // Block 'search' calls during update_dataset to avoid issues in a multithreaded environment
       std::unique_lock<std::shared_mutex> lock(idx->ann_mutex);
       detail::update_cagra_ann_dataset_for_stride(res, *next_state->ann_index, dataset);
     }
