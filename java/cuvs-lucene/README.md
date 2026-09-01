@@ -26,10 +26,10 @@ Four codecs are currently provided:
 ### Prerequisites
 
 - A machine with an NVIDIA GPU
-- [CUDA 12.2+](https://developer.nvidia.com/cuda-toolkit-archive)
+- [CUDA 12.0+](https://developer.nvidia.com/cuda-toolkit-archive)
 - [JDK 22](https://jdk.java.net/archive/)
 - [Maven 3.9.6+](https://maven.apache.org/download.cgi)
-- A matching version of the [cuVS libraries](https://docs.rapids.ai/api/cuvs/stable/build/#build-from-source). For Maven usage, install the cuVS tarball and add it to your system library load path. See the cuVS [tarball install instructions](https://docs.nvidia.com/cuvs/installation/c#tarball).
+- A matching version of the [cuVS libraries](https://docs.rapids.ai/api/cuvs/stable/build/#build-from-source). For Maven usage, install the cuVS tarball and add it to your system library load path. See the cuVS [tarball install instructions](https://docs.rapids.ai/api/cuvs/stable/build/#download-extract).
 
 ### Maven
 
@@ -56,13 +56,13 @@ The resulting artifacts are written to `target/`.
 
 To run the tests, add `--run-java-tests` to any of the commands above. Be sure to set (manually, if needed)
 your `LD_LIBRARY_PATH` to include the directory with the appropriate (matching) version of `libcuvs.so`, as
-described in the cuVS [tarball install instructions](https://docs.nvidia.com/cuvs/installation/c#tarball).
+described in the cuVS [tarball install instructions](https://docs.rapids.ai/api/cuvs/stable/build/#download-extract).
 
 ## Getting Started
 
 The example below plugs the GPU-accelerated HNSW codec into a standard Lucene `IndexWriter`. Once the codec is set on the `IndexWriterConfig`, indexing proceeds exactly as it would with the default Lucene codec, and search uses the stock `KnnFloatVectorQuery`.
 
-Before running it, make sure cuVS is installed and available on your system library load path. The cuVS [tarball install instructions](https://docs.nvidia.com/cuvs/installation/c#tarball) show how to set this up.
+Before running it, make sure cuVS is installed and available on your system library load path. The cuVS [tarball install instructions](https://docs.rapids.ai/api/cuvs/stable/build/#download-extract) show how to set this up.
 
 ### RMM async allocation for GPU search
 
@@ -119,70 +119,14 @@ public class HelloCuvsLucene {
 }
 ```
 
-The artifacts are built in the `target/` directory.
+The artifacts would be built and available in the target / folder.
 
-Run the example with:
+### Running Tests
 
 ```sh
 mvn -q compile org.codehaus.mojo:exec-maven-plugin:3.5.1:java \
   -Dexec.mainClass=com.nvidia.cuvs.lucene.examples.HelloCuvsLucene
 ```
-
-### Using with PyLucene
-
-The complete codec set requires PyLucene generated against Lucene 10.2.0. The
-official PyLucene 10.0.0 distribution is not a compatible full-feature runtime:
-in particular, GPU search uses Lucene 10.2 APIs and binary quantization uses
-Lucene102 vector formats.
-
-Apache does not publish a PyLucene 10.2.0 release. Linux development and
-testing therefore require a custom PyLucene wrapper build generated against
-the Lucene 10.2.0 sources. Prepare and activate that matching external
-environment before using PyLucene or running pytest; Maven can build the jar
-independently and does not produce the PyLucene runtime.
-
-Build the standard thin `cuvs-lucene` jar:
-
-```sh
-mvn clean package -DskipTests
-```
-
-Add that jar and the matching base `cuvs-java` jar to the classpath passed to
-`lucene.initVM(...)`. PyLucene can then load the codec through Lucene's service
-provider lookup:
-
-```python
-from org.apache.lucene.codecs import Codec
-
-codec = Codec.forName("Lucene101AcceleratedHNSWCodec")
-```
-
-Use the returned codec with `IndexWriterConfig.setCodec(codec)`. Initialize the
-JVM only after the custom 10.2 environment and every application jar are on its
-classpath; PyLucene cannot replace that classpath after `lucene.initVM(...)`.
-
-### Running Tests
-
-Run the Java tests with `mvn clean test`. Once the custom PyLucene 10.2
-environment is activated and the cuVS classpath and native-library environment
-are available, run the full parametrized CPU/GPU end-to-end suite directly
-with pytest:
-
-```sh
-python3 -m pytest -q -s src/test/python/test_pylucene_end_to_end.py
-```
-
-The cases live in `src/test/python/test_pylucene_end_to_end.py`; reusable
-runtime helpers are in `pylucene_test_support.py`, and the Java test bridge is
-compiled to `target/test-classes`. Set `CUVS_LUCENE_JAR`,
-`CUVS_LUCENE_CUVS_JAVA_JAR`, or `CUVS_LUCENE_PYLUCENE_TEST_CLASSES` only when
-their standard Maven locations are not appropriate. The helper verifies that
-PyLucene's Lucene version exactly matches the `lucene-core` version in this
-checkout's POM before starting the JVM, so a mismatched wrapper fails with an
-actionable error instead of a later linkage failure.
-
-The pytest IDs identify CPU HNSW, CAGRA-built HNSW, and CAGRA-search cases;
-use pytest's `-k` option for a focused run.
 
 For more examples, including one that indexes and searches entirely on the GPU using `CuVS2510GPUSearchCodec`, please refer to the [`examples/`](examples) directory.
 
