@@ -48,7 +48,7 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsFormat extends KnnVector
             format = getLuceneProvider().getLuceneScalarQuantizedVectorsFormatInstance();
             cachedFlatVectorsFormat = format;
           } catch (Exception e) {
-            throw new IOException("Unable to initialize the scalar quantized flat format", e);
+            throw Utils.handleThrowable(e);
           }
         }
       }
@@ -69,7 +69,7 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsFormat extends KnnVector
                         acceleratedHNSWParams.getMaxConn(), acceleratedHNSWParams.getBeamWidth());
             cachedFallbackFormat = format;
           } catch (Exception e) {
-            throw new IOException("Unable to initialize the scalar quantized fallback format", e);
+            throw Utils.handleThrowable(e);
           }
         }
       }
@@ -104,11 +104,15 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsFormat extends KnnVector
       return new LuceneAcceleratedHNSWScalarQuantizedVectorsWriter(
           state, acceleratedHNSWParams, flatWriter);
     } else {
-      // Fallback to Lucene's Lucene99HnswScalarQuantizedVectorsFormat
-      log.warning(
-          "GPU based indexing not supported, falling back to using the"
-              + " Lucene99HnswScalarQuantizedVectorsFormat");
-      return getOrCreateFallbackFormat().fieldsWriter(state);
+      try {
+        // Fallback to Lucene's Lucene99HnswScalarQuantizedVectorsFormat
+        log.warning(
+            "GPU based indexing not supported, falling back to using the"
+                + " Lucene99HnswScalarQuantizedVectorsFormat");
+        return getOrCreateFallbackFormat().fieldsWriter(state);
+      } catch (Exception e) {
+        throw Utils.handleThrowable(e);
+      }
     }
   }
 
@@ -122,7 +126,7 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsFormat extends KnnVector
           .getLuceneHnswVectorsReaderInstance(
               state, getOrCreateFlatVectorsFormat().fieldsReader(state));
     } catch (Exception e) {
-      throw new IOException("Unable to initialize the scalar quantized vectors reader", e);
+      throw Utils.handleThrowable(e);
     }
   }
 

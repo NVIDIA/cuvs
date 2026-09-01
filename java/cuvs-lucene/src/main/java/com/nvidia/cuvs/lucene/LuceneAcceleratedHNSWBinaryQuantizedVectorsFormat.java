@@ -122,7 +122,7 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat extends KnnVector
                 + " Lucene102HnswBinaryQuantizedVectorsFormat");
         return getOrCreateFallbackFormat().fieldsWriter(state);
       } catch (Exception e) {
-        throw new IOException("Unable to initialize the binary quantized fallback writer", e);
+        throw Utils.handleThrowable(e);
       }
     }
   }
@@ -136,7 +136,7 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat extends KnnVector
       return LUCENE_99_PROVIDER.getLuceneHnswVectorsReaderInstance(
           state, getOrCreateFlatVectorsFormat().fieldsReader(state));
     } catch (Exception e) {
-      throw new IOException("Unable to initialize the binary quantized vectors reader", e);
+      throw Utils.handleThrowable(e);
     }
   }
 

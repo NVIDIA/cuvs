@@ -86,6 +86,11 @@ class FilterCuVSProvider implements CuVSProvider {
   }
 
   @Override
+  public boolean isCagraPaddedDataset(CuVSMatrix arg0) {
+    return delegate.isCagraPaddedDataset(arg0);
+  }
+
+  @Override
   public GPUInfoProvider gpuInfoProvider() {
     return delegate.gpuInfoProvider();
   }
