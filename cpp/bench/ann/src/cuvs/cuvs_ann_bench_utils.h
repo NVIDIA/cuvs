@@ -15,6 +15,7 @@
 #include <raft/core/host_mdspan.hpp>
 #include <raft/core/logger.hpp>
 #include <raft/core/operators.hpp>
+#include <raft/core/resource/cuda_stream_pool.hpp>
 #include <raft/core/resource/device_memory_resource.hpp>
 #include <raft/util/cudart_utils.hpp>
 
@@ -31,13 +32,6 @@
 #include <type_traits>
 
 namespace cuvs::bench {
-
-/** Create streams that do not implicitly synchronize with the default stream. */
-inline auto make_non_blocking_stream_pool(size_t n_streams)
-  -> std::shared_ptr<rmm::cuda_stream_pool>
-{
-  return std::make_shared<rmm::cuda_stream_pool>(n_streams, rmm::cuda_stream::flags::non_blocking);
-}
 
 inline auto parse_metric_type(cuvs::bench::Metric metric) -> cuvs::distance::DistanceType
 {
@@ -140,6 +134,8 @@ class configured_raft_resources {
   /** Default constructor creates all resources anew. */
   configured_raft_resources() : configured_raft_resources{std::make_shared<shared_raft_resources>()}
   {
+    raft::resource::set_cuda_stream_pool(
+      *res_, std::make_shared<rmm::cuda_stream_pool>(1, rmm::cuda_stream::flags::non_blocking));
   }
 
   configured_raft_resources(configured_raft_resources&&);

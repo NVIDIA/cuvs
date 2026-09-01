@@ -83,8 +83,6 @@ class cuvs_ivf_sq : public algo<T>, public algo_gpu {
 template <typename T>
 void cuvs_ivf_sq<T>::build(const T* dataset, size_t nrow)
 {
-  size_t n_streams = 1;
-  raft::resource::set_cuda_stream_pool(handle_, make_non_blocking_stream_pool(n_streams));
   index_ = std::make_shared<cuvs::neighbors::ivf_sq::index<uint8_t>>(
     std::move(cuvs::neighbors::ivf_sq::build(
       handle_,
