@@ -20,7 +20,7 @@ public class CuVSResourcesIT extends CuVSTestCase {
 
   @Before
   public void setup() {
-    assumeTrue("not supported on " + System.getProperty("os.name"), isLinuxAmd64());
+    assumeTrue("not supported on " + System.getProperty("os.name"), isLinuxSupportedArch());
   }
 
   @Test

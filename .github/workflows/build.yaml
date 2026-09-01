@@ -163,7 +163,6 @@ jobs:
     with:
       build_type: pull-request
       matrix_name: conda-cpp-build
-      matrix_filter: map(select(.ARCH == "amd64"))
   java-build:
     needs: java-build-matrix
     permissions:
@@ -182,15 +181,17 @@ jobs:
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
       branch: ${{ inputs.branch }}
-      arch: "amd64"
+      arch: "${{ matrix.ARCH }}"
       date: ${{ inputs.date }}
       container_image: "rapidsai/ci-conda:26.10-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
       script: "ci/build_java.sh"
-      artifact-name: "cuvs-java-cuda${{ matrix.CUDA_VER }}"
+      # amd64 is the official published artifact; keep its name unqualified and only suffix other arches so they don't collide with it.
+      artifact-name: "cuvs-java-cuda${{ matrix.CUDA_VER }}${{ matrix.ARCH != 'amd64' && format('-{0}', matrix.ARCH) || '' }}"
       file_to_upload: "java/cuvs-java/target/"
       sha: ${{ inputs.sha }}
   lucene-build:
-    # Depends on the Java job for the cuvs-java artifact that cuvs-lucene builds against.
+    # Depends on the Java job for the cuvs-java artifact that cuvs-lucene builds against, and
+    # reuses its matrix so the two always agree on the set of CUDA versions and arches to test on.
     needs: [java-build-matrix, java-build]
     permissions:
       actions: read
@@ -208,11 +209,16 @@ jobs:
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
       branch: ${{ inputs.branch }}
-      arch: "amd64"
+      arch: "${{ matrix.ARCH }}"
       date: ${{ inputs.date }}
       container_image: "rapidsai/ci-conda:26.10-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
+      # Always installs the amd64-built (official) cuvs-java jar, even when this job itself runs on
+      # a non-amd64 runner. cuvs-lucene depends on the plain jar, which bundles no native code, so
+      # running its tests on arm64 against the amd64-built jar doubles as a cross-arch check that the
+      # jextract-generated Panama bindings baked into that jar work unmodified on arm64 hardware.
       script: "ci/build_lucene.sh cuvs-java-cuda${{ matrix.CUDA_VER }}"
-      artifact-name: "cuvs-lucene-cuda${{ matrix.CUDA_VER }}"
+      # amd64 is the official published artifact; keep its name unqualified and only suffix other arches so they don't collide with it.
+      artifact-name: "cuvs-lucene-cuda${{ matrix.CUDA_VER }}${{ matrix.ARCH != 'amd64' && format('-{0}', matrix.ARCH) || '' }}"
       file_to_upload: "java/cuvs-lucene/target/"
       sha: ${{ inputs.sha }}
   python-build:
