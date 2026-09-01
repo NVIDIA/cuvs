@@ -129,37 +129,37 @@ final class AcceleratedHnswGraphOutput implements Closeable {
     try {
       CagraIndexParams params =
           CagraIndexParamsFactory.create(acceleratedHNSWParams, dataset.size(), dataset.columns());
-      CagraIndex cagraIndex =
+      try (CagraIndex cagraIndex =
           CagraIndex.newBuilder(getCuVSResourcesInstance())
               .withDataset(dataset)
               .withIndexParams(params)
-              .build();
-      CuVSMatrix adjacencyListMatrix = cagraIndex.getGraph();
-      int dimensions = fieldInfo.getVectorDimension();
-      GPUBuiltHnswGraph hnswGraph =
-          createMultiLayerHnswGraph(
-              fieldInfo,
-              dimensions,
-              adjacencyListMatrix,
-              dataset,
-              acceleratedHNSWParams.getHnswLayers(),
-              params,
-              QuantizationType.NONE,
-              acceleratedHNSWParams.getWriterThreads());
-      long vectorIndexOffset = hnswVectorIndex.getFilePointer();
-      int[][] graphLevelNodeOffsets =
-          writeGraph(hnswGraph, hnswVectorIndex, acceleratedHNSWParams.getWriterThreads());
-      long vectorIndexLength = hnswVectorIndex.getFilePointer() - vectorIndexOffset;
-      writeMeta(
-          hnswVectorIndex,
-          hnswMeta,
-          fieldInfo,
-          vectorIndexOffset,
-          vectorIndexLength,
-          size,
-          hnswGraph,
-          graphLevelNodeOffsets);
-      cagraIndex.close();
+              .build()) {
+        CuVSMatrix adjacencyListMatrix = cagraIndex.getGraph();
+        int dimensions = fieldInfo.getVectorDimension();
+        GPUBuiltHnswGraph hnswGraph =
+            createMultiLayerHnswGraph(
+                fieldInfo,
+                dimensions,
+                adjacencyListMatrix,
+                dataset,
+                acceleratedHNSWParams.getHnswLayers(),
+                params,
+                QuantizationType.NONE,
+                acceleratedHNSWParams.getWriterThreads());
+        long vectorIndexOffset = hnswVectorIndex.getFilePointer();
+        int[][] graphLevelNodeOffsets =
+            writeGraph(hnswGraph, hnswVectorIndex, acceleratedHNSWParams.getWriterThreads());
+        long vectorIndexLength = hnswVectorIndex.getFilePointer() - vectorIndexOffset;
+        writeMeta(
+            hnswVectorIndex,
+            hnswMeta,
+            fieldInfo,
+            vectorIndexOffset,
+            vectorIndexLength,
+            size,
+            hnswGraph,
+            graphLevelNodeOffsets);
+      }
     } catch (Throwable t) {
       Utils.handleThrowable(t);
     }
