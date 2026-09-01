@@ -75,6 +75,7 @@ cache:
       - libnvjitlink-dev
       - librmm =${{ minor_version }}
       - libraft-headers =${{ minor_version }}
+      - libkvikio =${{ minor_version }}
       - nccl ${{ nccl_version }}
       - cuda-version =${{ cuda_version }}
       - cuda-cudart-dev
@@ -174,6 +175,7 @@ outputs:
         - ${{ pin_subpackage("libcuvs-headers", exact=True) }}
         - librmm =${{ minor_version }}
         - libraft-headers =${{ minor_version }}
+        - libkvikio =${{ minor_version }}
         - nccl ${{ nccl_version }}
         - cuda-version =${{ cuda_version }}
         - cuda-cudart-dev
@@ -189,6 +191,7 @@ outputs:
         - ${{ pin_subpackage("libcuvs-headers", exact=True) }}
         - libraft-headers =${{ minor_version }}
         - librmm =${{ minor_version }}
+        - libkvikio =${{ minor_version }}
         - cuda-nvrtc
         - nccl
         - libcublas
@@ -236,6 +239,7 @@ outputs:
         - ${{ pin_subpackage("libcuvs-headers", exact=True) }}
         - librmm =${{ minor_version }}
         - libraft-headers =${{ minor_version }}
+        - libkvikio =${{ minor_version }}
         - nccl ${{ nccl_version }}
         - cuda-version =${{ cuda_version }}
         - cuda-cudart-dev
@@ -251,6 +255,7 @@ outputs:
         - ${{ pin_subpackage("libcuvs-headers", exact=True) }}
         - libraft-headers =${{ minor_version }}
         - librmm =${{ minor_version }}
+        - libkvikio =${{ minor_version }}
         - cuda-nvrtc
         - nccl
         - libcublas
