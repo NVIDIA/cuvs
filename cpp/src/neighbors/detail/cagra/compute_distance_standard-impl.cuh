@@ -131,23 +131,23 @@ standard_descriptor_spec<Metric, TeamSize, DatasetBlockDim, DataT, IndexT, Dista
   RAFT_EXPECTS(Metric != cuvs::distance::DistanceType::CosineExpanded || dataset_norms != nullptr,
                "Dataset norms must be provided for CosineExpanded metric");
 
-  return host_type{desc_type{ptr, size, dim, ld, dataset_norms},
-                   [=](dataset_descriptor_base_t<DataT, IndexT, DistanceT>* dev_ptr,
-                       rmm::cuda_stream_view stream) {
-                     standard_dataset_descriptor_init_kernel<Metric,
-                                                             TeamSize,
-                                                             DatasetBlockDim,
-                                                             DataT,
-                                                             IndexT,
-                                                             DistanceT>
-                       <<<1, 1, 0, stream>>>(dev_ptr, ptr, size, dim, ld, dataset_norms);
-                     RAFT_CUDA_TRY(cudaPeekAtLastError());
-                   },
-                   Metric,
-                   DatasetBlockDim,
-                   false,  // is_vpq
-                   0,      // pq_bits
-                   0};     // pq_len
+  return host_type{
+    desc_type{ptr, size, dim, ld, dataset_norms},
+    [=](dataset_descriptor_base_t<DataT, IndexT, DistanceT>* dev_ptr, cuda::stream_ref stream) {
+      standard_dataset_descriptor_init_kernel<Metric,
+                                              TeamSize,
+                                              DatasetBlockDim,
+                                              DataT,
+                                              IndexT,
+                                              DistanceT>
+        <<<1, 1, 0, stream.get()>>>(dev_ptr, ptr, size, dim, ld, dataset_norms);
+      RAFT_CUDA_TRY(cudaPeekAtLastError());
+    },
+    Metric,
+    DatasetBlockDim,
+    false,  // is_vpq
+    0,      // pq_bits
+    0};     // pq_len
 }
 
 }  // namespace cuvs::neighbors::cagra::detail

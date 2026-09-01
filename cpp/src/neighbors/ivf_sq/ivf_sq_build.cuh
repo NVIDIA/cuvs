@@ -342,9 +342,9 @@ void extend_inplace(raft::resources const& handle,
                                             new_labels.data_handle(),
                                             n_rows,
                                             1,
-                                            stream);
+                                            stream.get());
   raft::linalg::add(
-    list_sizes_ptr, list_sizes_ptr, old_list_sizes_dev.data_handle(), n_lists, stream);
+    list_sizes_ptr, list_sizes_ptr, old_list_sizes_dev.data_handle(), n_lists, stream.get());
 
   std::vector<uint32_t> new_list_sizes(n_lists);
   std::vector<uint32_t> old_list_sizes(n_lists);
@@ -385,18 +385,18 @@ void extend_inplace(raft::resources const& handle,
       const dim3 block_dim(kEncodeBlockSize);
       const dim3 grid_dim(raft::ceildiv<int64_t>(bs, int64_t(kEncodeWarpsPerBlk)));
       encode_and_fill_kernel<kEncodeBlockSize, T>
-        <<<grid_dim, block_dim, 0, stream>>>(new_labels.data_handle() + batch.offset(),
-                                             batch.data(),
-                                             index->centers().data_handle(),
-                                             idx_batch->data(),
-                                             index->data_ptrs().data_handle(),
-                                             index->inds_ptrs().data_handle(),
-                                             list_sizes_ptr,
-                                             index->sq_vmin().data_handle(),
-                                             index->sq_delta().data_handle(),
-                                             bs,
-                                             dim,
-                                             batch.offset());
+        <<<grid_dim, block_dim, 0, stream.get()>>>(new_labels.data_handle() + batch.offset(),
+                                                   batch.data(),
+                                                   index->centers().data_handle(),
+                                                   idx_batch->data(),
+                                                   index->data_ptrs().data_handle(),
+                                                   index->inds_ptrs().data_handle(),
+                                                   list_sizes_ptr,
+                                                   index->sq_vmin().data_handle(),
+                                                   index->sq_delta().data_handle(),
+                                                   bs,
+                                                   dim,
+                                                   batch.offset());
       RAFT_CUDA_TRY(cudaPeekAtLastError());
     }
 
@@ -419,11 +419,14 @@ void extend_inplace(raft::resources const& handle,
                                                         index->centers().data_handle(),
                                                         dim,
                                                         n_lists,
-                                                        stream,
+                                                        stream.get(),
                                                         raft::sqrt_op{});
     } else {
-      raft::linalg::rowNorm<raft::linalg::L2Norm, true>(
-        index->center_norms()->data_handle(), index->centers().data_handle(), dim, n_lists, stream);
+      raft::linalg::rowNorm<raft::linalg::L2Norm, true>(index->center_norms()->data_handle(),
+                                                        index->centers().data_handle(),
+                                                        dim,
+                                                        n_lists,
+                                                        stream.get());
     }
   };
 
@@ -492,11 +495,11 @@ inline auto build(
 
       constexpr int kResidualBlockSize = 256;
       compute_residuals_inplace_kernel<T>
-        <<<n_rows_train, kResidualBlockSize, 0, stream>>>(trainset.data_handle(),
-                                                          idx.centers().data_handle(),
-                                                          train_labels.data_handle(),
-                                                          n_rows_train,
-                                                          dim);
+        <<<n_rows_train, kResidualBlockSize, 0, stream.get()>>>(trainset.data_handle(),
+                                                                idx.centers().data_handle(),
+                                                                train_labels.data_handle(),
+                                                                n_rows_train,
+                                                                dim);
       RAFT_CUDA_TRY(cudaPeekAtLastError());
     }
 
@@ -510,7 +513,7 @@ inline auto build(
 
       constexpr int kMinMaxBlockSize = 256;
       launch_fused_column_minmax<kMinMaxBlockSize, T>(
-        residuals.data_handle(), vmin_ptr, vmax_ptr, n_rows_train, dim, stream);
+        residuals.data_handle(), vmin_ptr, vmax_ptr, n_rows_train, dim, stream.get());
       RAFT_CUDA_TRY(cudaPeekAtLastError());
 
       // Expand the observed range by a small margin to reduce clipping on unseen data,

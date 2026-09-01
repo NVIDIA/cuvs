@@ -122,8 +122,8 @@ class configured_raft_resources {
    */
   explicit configured_raft_resources(const std::shared_ptr<shared_raft_resources>& shared_res)
     : shared_res_{shared_res},
-      res_{std::make_unique<raft::device_resources>(
-        rmm::cuda_stream_view(get_stream_from_global_pool()))}
+      res_{
+        std::make_unique<raft::device_resources>(cuda::stream_ref(get_stream_from_global_pool()))}
   {
     raft::resource::set_large_workspace_resource(
       *res_, raft::mr::device_resource{shared_res_->get_large_memory_resource()});

@@ -127,7 +127,7 @@ class RefineHelper {
  public:
   RefineInputs<IdxT> p;
   const raft::resources& handle_;
-  rmm::cuda_stream_view stream_;
+  cuda::stream_ref stream_;
 
   raft::device_matrix<DataT, IdxT, raft::row_major> dataset;
   raft::device_matrix<DataT, IdxT, raft::row_major> queries;

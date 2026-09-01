@@ -76,7 +76,7 @@ void build_mr_linkage(
         handle, all_neighbors_p, X, inds.view(), dists.view(), core_dists, alpha);
 
       // allocate memory after all neighbors build
-      mr_coo.emplace(stream, min_samples * m * 2);
+      mr_coo.emplace(stream.get(), min_samples * m * 2);
       // self-loops get max distance
       auto coo_rows = raft::make_device_vector<value_idx, value_idx>(handle, min_samples * m);
       raft::linalg::map_offset(handle, coo_rows.view(), raft::div_const_op<value_idx>(min_samples));
@@ -92,7 +92,7 @@ void build_mr_linkage(
     }  // scope to drop inds and dists matrices early
     auto mr_indptr = raft::make_device_vector<value_idx, value_idx>(handle, m + 1);
     raft::sparse::convert::sorted_coo_to_csr(
-      mr_coo.value().rows(), mr_coo.value().nnz, mr_indptr.data_handle(), m + 1, stream);
+      mr_coo.value().rows(), mr_coo.value().nnz, mr_indptr.data_handle(), m + 1, stream.get());
 
     auto rows_view    = raft::make_device_vector_view<const value_idx, nnz_t>(mr_coo.value().rows(),
                                                                            mr_coo.value().nnz);

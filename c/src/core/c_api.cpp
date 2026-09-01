@@ -136,7 +136,7 @@ extern "C" cuvsError_t cuvsStreamSet(cuvsResources_t res, cudaStream_t stream)
 {
   return cuvs::core::translate_exceptions([=] {
     auto res_ptr = reinterpret_cast<raft::resources*>(res);
-    raft::resource::set_cuda_stream(*res_ptr, static_cast<rmm::cuda_stream_view>(stream));
+    raft::resource::set_cuda_stream(*res_ptr, static_cast<cuda::stream_ref>(stream));
   });
 }
 
@@ -144,7 +144,7 @@ extern "C" cuvsError_t cuvsStreamGet(cuvsResources_t res, cudaStream_t* stream)
 {
   return cuvs::core::translate_exceptions([=] {
     auto res_ptr = reinterpret_cast<raft::resources*>(res);
-    *stream      = raft::resource::get_cuda_stream(*res_ptr);
+    *stream      = raft::resource::get_cuda_stream(*res_ptr).get();
   });
 }
 

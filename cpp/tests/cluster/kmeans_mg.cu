@@ -198,10 +198,10 @@ class KmeansSNMGTest : public ::testing::TestWithParam<KmeansSNMGInputs<T>> {
       raft::make_host_scalar_view(&pred_inertia_sg));
 
     ari_vs_ref_ = raft::stats::adjusted_rand_index(
-      d_labels_ref.data(), d_labels_snmg.data(), n_samples, sg_stream);
+      d_labels_ref.data(), d_labels_snmg.data(), n_samples, sg_stream.get());
 
     ari_vs_sg_ = raft::stats::adjusted_rand_index(
-      d_labels_sg.data(), d_labels_snmg.data(), n_samples, sg_stream);
+      d_labels_sg.data(), d_labels_snmg.data(), n_samples, sg_stream.get());
 
     snmg_inertia_ = snmg_inertia;
     sg_inertia_   = sg_inertia;

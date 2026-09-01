@@ -59,8 +59,8 @@ class ConnectComponentsTest
 
     params = ::testing::TestWithParam<ConnectComponentsInputs<value_t, value_idx>>::GetParam();
 
-    raft::sparse::COO<value_t, value_idx> out_edges(stream);
-    raft::sparse::COO<value_t, value_idx> out_edges_batched(stream);
+    raft::sparse::COO<value_t, value_idx> out_edges(stream.get());
+    raft::sparse::COO<value_t, value_idx> out_edges_batched(stream.get());
 
     rmm::device_uvector<value_t> data(params.n_row * params.n_col, stream);
 
@@ -72,7 +72,7 @@ class ConnectComponentsTest
     /**
      * 1. Construct knn graph
      */
-    raft::sparse::COO<value_t, value_idx> knn_graph_coo(stream);
+    raft::sparse::COO<value_t, value_idx> knn_graph_coo(stream.get());
 
     auto data_view = raft::make_device_matrix_view<value_t, value_idx, raft::row_major>(
       data.data(), params.n_row, params.n_col);
@@ -80,7 +80,7 @@ class ConnectComponentsTest
       handle, data_view, cuvs::distance::DistanceType::L2SqrtExpanded, knn_graph_coo, params.c);
 
     raft::sparse::convert::sorted_coo_to_csr(
-      knn_graph_coo.rows(), knn_graph_coo.nnz, indptr.data(), params.n_row + 1, stream);
+      knn_graph_coo.rows(), knn_graph_coo.nnz, indptr.data(), params.n_row + 1, stream.get());
 
     /**
      * 2. Construct MST, sorted by weights
@@ -95,7 +95,7 @@ class ConnectComponentsTest
                                                                        params.n_row,
                                                                        knn_graph_coo.nnz,
                                                                        colors.data(),
-                                                                       stream,
+                                                                       stream.get(),
                                                                        false,
                                                                        true);
 
@@ -140,7 +140,7 @@ class ConnectComponentsTest
     rmm::device_uvector<value_idx> indptr2(params.n_row + 1, stream);
 
     raft::sparse::convert::sorted_coo_to_csr(
-      out_edges.rows(), out_edges.nnz, indptr2.data(), params.n_row + 1, stream);
+      out_edges.rows(), out_edges.nnz, indptr2.data(), params.n_row + 1, stream.get());
 
     auto output_mst = raft::sparse::solver::mst<value_idx, value_idx, value_t>(handle,
                                                                                indptr2.data(),
@@ -149,7 +149,7 @@ class ConnectComponentsTest
                                                                                params.n_row,
                                                                                out_edges.nnz,
                                                                                colors.data(),
-                                                                               stream,
+                                                                               stream.get(),
                                                                                false,
                                                                                false);
 
@@ -394,9 +394,9 @@ class ConnectComponentsEdgesTest
       ConnectComponentsMutualReachabilityInputs<value_t, value_idx>>::GetParam();
 
     raft::sparse::COO<value_t, value_idx> out_edges_unbatched(
-      raft::resource::get_cuda_stream(handle));
+      raft::resource::get_cuda_stream(handle).get());
     raft::sparse::COO<value_t, value_idx> out_edges_batched(
-      raft::resource::get_cuda_stream(handle));
+      raft::resource::get_cuda_stream(handle).get());
 
     rmm::device_uvector<value_t> data(params.n_row * params.n_col,
                                       raft::resource::get_cuda_stream(handle));

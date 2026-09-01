@@ -248,7 +248,7 @@ void make_rotation_matrix(raft::resources const& handle,
     rmm::device_uvector<float> buf(inplace ? 0 : n * n, stream);
     float* mat = inplace ? rotation_matrix : buf.data();
     raft::random::normal(handle, rng, mat, n * n, 0.0f, 1.0f);
-    raft::linalg::detail::qrGetQ_inplace(handle, mat, n, n, stream);
+    raft::linalg::detail::qrGetQ_inplace(handle, mat, n, n, stream.get());
     if (!inplace) { raft::copy_matrix(rotation_matrix, n_cols, mat, n, n_cols, n_rows, stream); }
   } else {
     uint32_t stride = n + 1;
@@ -375,7 +375,7 @@ void rotate_padded_centers(
                      &beta,
                      rotated_centers.data_handle(),
                      rot_dim,  // ldc (leading dim of output)
-                     stream);
+                     stream.get());
 }
 
 void resize_list(raft::resources const& res,

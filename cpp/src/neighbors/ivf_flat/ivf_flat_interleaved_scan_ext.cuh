@@ -35,7 +35,7 @@ void ivfflat_interleaved_scan(const index<T, IdxT>& index,
                               uint32_t* neighbors,
                               float* distances,
                               uint32_t& grid_dim_x,
-                              rmm::cuda_stream_view stream,
+                              cuda::stream_ref stream,
                               const std::optional<std::string>& metric_udf) RAFT_EXPLICIT;
 
 #define CUVS_INST_IVF_FLAT_INTERLEAVED_SCAN(T, IdxT, SampleFilterT)                        \
@@ -58,7 +58,7 @@ void ivfflat_interleaved_scan(const index<T, IdxT>& index,
                                           uint32_t* neighbors,                             \
                                           float* distances,                                \
                                           uint32_t& grid_dim_x,                            \
-                                          rmm::cuda_stream_view stream,                    \
+                                          cuda::stream_ref stream,                         \
                                           const std::optional<std::string>& metric_udf);
 
 CUVS_INST_IVF_FLAT_INTERLEAVED_SCAN(float, int64_t, cuvs::neighbors::filtering::none_sample_filter);

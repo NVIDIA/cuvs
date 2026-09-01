@@ -221,8 +221,7 @@ vpq_descriptor_spec<Metric,
   return host_type{
     desc_type{
       encoded_dataset_ptr, encoded_dataset_dim, vq_code_book_ptr, pq_code_book_ptr, size, dim},
-    [=](dataset_descriptor_base_t<DataT, IndexT, DistanceT>* dev_ptr,
-        rmm::cuda_stream_view stream) {
+    [=](dataset_descriptor_base_t<DataT, IndexT, DistanceT>* dev_ptr, cuda::stream_ref stream) {
       vpq_dataset_descriptor_init_kernel<Metric,
                                          TeamSize,
                                          DatasetBlockDim,
@@ -232,13 +231,13 @@ vpq_descriptor_spec<Metric,
                                          DataT,
                                          IndexT,
                                          DistanceT,
-                                         SmemDType><<<1, 1, 0, stream>>>(dev_ptr,
-                                                                         encoded_dataset_ptr,
-                                                                         encoded_dataset_dim,
-                                                                         vq_code_book_ptr,
-                                                                         pq_code_book_ptr,
-                                                                         size,
-                                                                         dim);
+                                         SmemDType><<<1, 1, 0, stream.get()>>>(dev_ptr,
+                                                                               encoded_dataset_ptr,
+                                                                               encoded_dataset_dim,
+                                                                               vq_code_book_ptr,
+                                                                               pq_code_book_ptr,
+                                                                               size,
+                                                                               dim);
       RAFT_CUDA_TRY(cudaPeekAtLastError());
     },
     Metric,

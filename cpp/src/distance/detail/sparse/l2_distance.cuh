@@ -237,7 +237,7 @@ class l2_expanded_distances_t : public distances_t<value_t> {
                                       config_->a_nrows,
                                       search_coo_rows.data(),
                                       config_->a_nnz,
-                                      raft::resource::get_cuda_stream(config_->handle));
+                                      raft::resource::get_cuda_stream(config_->handle).get());
 
     compute_l2(out_dists,
                search_coo_rows.data(),
@@ -248,7 +248,7 @@ class l2_expanded_distances_t : public distances_t<value_t> {
                config_->b_nnz,
                config_->a_nrows,
                config_->b_nrows,
-               raft::resource::get_cuda_stream(config_->handle),
+               raft::resource::get_cuda_stream(config_->handle).get(),
                [] __device__ __host__(value_t dot, value_t q_norm, value_t r_norm) {
                  return -2 * dot + q_norm + r_norm;
                });
@@ -312,7 +312,7 @@ class correlation_expanded_distances_t : public distances_t<value_t> {
                                       config_->a_nrows,
                                       search_coo_rows.data(),
                                       config_->a_nnz,
-                                      raft::resource::get_cuda_stream(config_->handle));
+                                      raft::resource::get_cuda_stream(config_->handle).get());
 
     compute_corr(out_dists,
                  search_coo_rows.data(),
@@ -324,7 +324,7 @@ class correlation_expanded_distances_t : public distances_t<value_t> {
                  config_->a_nrows,
                  config_->b_nrows,
                  config_->b_ncols,
-                 raft::resource::get_cuda_stream(config_->handle));
+                 raft::resource::get_cuda_stream(config_->handle).get());
   }
 
   ~correlation_expanded_distances_t() = default;
@@ -361,7 +361,7 @@ class cosine_expanded_distances_t : public distances_t<value_t> {
                                       config_->a_nrows,
                                       search_coo_rows.data(),
                                       config_->a_nnz,
-                                      raft::resource::get_cuda_stream(config_->handle));
+                                      raft::resource::get_cuda_stream(config_->handle).get());
 
     compute_l2(out_dists,
                search_coo_rows.data(),
@@ -372,7 +372,7 @@ class cosine_expanded_distances_t : public distances_t<value_t> {
                config_->b_nnz,
                config_->a_nrows,
                config_->b_nrows,
-               raft::resource::get_cuda_stream(config_->handle),
+               raft::resource::get_cuda_stream(config_->handle).get(),
                [] __device__ __host__(value_t dot, value_t q_norm, value_t r_norm) {
                  value_t norms = raft::sqrt(q_norm) * raft::sqrt(r_norm);
                  // deal with potential for 0 in denominator by forcing 0/1 instead
@@ -418,7 +418,7 @@ class hellinger_expanded_distances_t : public distances_t<value_t> {
                                       config_->b_nrows,
                                       coo_rows.data(),
                                       config_->b_nnz,
-                                      raft::resource::get_cuda_stream(config_->handle));
+                                      raft::resource::get_cuda_stream(config_->handle).get());
 
     balanced_coo_pairwise_generalized_spmv<value_idx, value_t>(
       out_dists,

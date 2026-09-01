@@ -17,7 +17,7 @@ namespace cuvs::neighbors::ivf_pq::detail {
 
 template void cuvs::neighbors::ivf_pq::detail::compute_similarity_run<out_t, lut_t>(
   cuvs::neighbors::ivf_pq::detail::selected<out_t, lut_t> s,
-  rmm::cuda_stream_view stream,
+  cuda::stream_ref stream,
   uint32_t dim,
   uint32_t n_probes,
   uint32_t pq_dim,

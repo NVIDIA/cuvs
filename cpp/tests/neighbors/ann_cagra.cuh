@@ -214,7 +214,7 @@ void GenerateRoundingErrorFreeDataset(
     handle, rng, reinterpret_cast<int_type*>(ptr), size, -resolution, resolution - 1);
 
   GenerateRoundingErrorFreeDataset_kernel<T>
-    <<<grid_size, block_size, 0, cuda_stream>>>(ptr, size, resolution);
+    <<<grid_size, block_size, 0, cuda_stream.get()>>>(ptr, size, resolution);
 }
 
 template <class DataT>
@@ -255,7 +255,7 @@ void InitDataset(const raft::resources& handle,
                                        dim,
                                        size,
                                        0.f,
-                                       raft::resource::get_cuda_stream(handle),
+                                       raft::resource::get_cuda_stream(handle).get(),
                                        false,
                                        raft::sq_op(),
                                        raft::add_op(),
@@ -567,7 +567,7 @@ class AnnCagraTest : public ::testing::TestWithParam<AnnCagraInputs> {
 
  private:
   raft::resources handle_;
-  rmm::cuda_stream_view stream_;
+  cuda::stream_ref stream_;
   AnnCagraInputs ps;
   rmm::device_uvector<DataT> database;
   rmm::device_uvector<DataT> search_queries;
@@ -772,7 +772,7 @@ class AnnCagraAddNodesTest : public ::testing::TestWithParam<AnnCagraInputs> {
 
  private:
   raft::resources handle_;
-  rmm::cuda_stream_view stream_;
+  cuda::stream_ref stream_;
   AnnCagraInputs ps;
   rmm::device_uvector<DataT> database;
   rmm::device_uvector<DataT> search_queries;
@@ -840,7 +840,7 @@ class AnnCagraFilterTest : public ::testing::TestWithParam<AnnCagraInputs> {
                               indices_naive_dev.data(),
                               IdxT(test_cagra_sample_filter::offset),
                               queries_size,
-                              stream_);
+                              stream_.get());
       raft::update_host(distances_naive.data(), distances_naive_dev.data(), queries_size, stream_);
       raft::update_host(indices_naive.data(), indices_naive_dev.data(), queries_size, stream_);
       raft::resource::sync_stream(handle_);
@@ -1153,7 +1153,7 @@ class AnnCagraFilterTest : public ::testing::TestWithParam<AnnCagraInputs> {
 
  private:
   raft::resources handle_;
-  rmm::cuda_stream_view stream_;
+  cuda::stream_ref stream_;
   AnnCagraInputs ps;
   rmm::device_uvector<DataT> database;
   rmm::device_uvector<DataT> search_queries;
@@ -1248,7 +1248,7 @@ class AnnCagraIndexFilteredMergeTest : public ::testing::TestWithParam<AnnCagraI
                               indices_naive_dev.data(),
                               IdxT(test_cagra_sample_filter::offset),
                               queries_size,
-                              stream_);
+                              stream_.get());
 
       raft::update_host(distances_naive.data(), distances_naive_dev.data(), queries_size, stream_);
       raft::update_host(indices_naive.data(), indices_naive_dev.data(), queries_size, stream_);
@@ -1402,7 +1402,7 @@ class AnnCagraIndexFilteredMergeTest : public ::testing::TestWithParam<AnnCagraI
 
  private:
   raft::resources handle_;
-  rmm::cuda_stream_view stream_;
+  cuda::stream_ref stream_;
   AnnCagraInputs ps;
   rmm::device_uvector<DataT> database;
   rmm::device_uvector<DataT> search_queries;
@@ -1650,7 +1650,7 @@ class AnnCagraIndexMergeTest : public ::testing::TestWithParam<AnnCagraInputs> {
 
  private:
   raft::resources handle_;
-  rmm::cuda_stream_view stream_;
+  cuda::stream_ref stream_;
   AnnCagraInputs ps;
   rmm::device_uvector<DataT> database;
   rmm::device_uvector<DataT> search_queries;
@@ -2384,7 +2384,7 @@ class AnnCagraMultiPartitionTest : public ::testing::TestWithParam<AnnCagraMpInp
                               indices_naive_dev.data(),
                               static_cast<IdxT>(filter_offset),
                               out_size,
-                              stream_);
+                              stream_.get());
       raft::update_host(distances_naive.data(), distances_naive_dev.data(), out_size, stream_);
       raft::update_host(indices_naive.data(), indices_naive_dev.data(), out_size, stream_);
       raft::resource::sync_stream(handle_);
@@ -2420,7 +2420,7 @@ class AnnCagraMultiPartitionTest : public ::testing::TestWithParam<AnnCagraMpInp
 
  private:
   raft::resources handle_;
-  rmm::cuda_stream_view stream_;
+  cuda::stream_ref stream_;
   AnnCagraMpInputs ps;
   rmm::device_uvector<DataT> database;
   rmm::device_uvector<DataT> search_queries;

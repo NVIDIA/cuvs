@@ -159,7 +159,7 @@ void search_impl(raft::resources const& handle,
                      &beta,
                      distance_buffer_dev.data(),
                      index.n_lists(),
-                     stream);
+                     stream.get());
 
   if (effective_metric == cuvs::distance::DistanceType::CosineExpanded) {
     auto n_lists                      = index.n_lists();

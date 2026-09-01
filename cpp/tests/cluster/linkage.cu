@@ -199,7 +199,7 @@ class LinkageTest : public ::testing::TestWithParam<LinkageInputs<T, IdxT>> {
 
     raft::resource::sync_stream(handle, stream);
 
-    score = compute_rand_index(labels.data(), labels_ref.data(), params.n_row, stream);
+    score = compute_rand_index(labels.data(), labels_ref.data(), params.n_row, stream.get());
   }
 
   void SetUp() override { basicTest(); }

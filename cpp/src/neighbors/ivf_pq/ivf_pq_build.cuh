@@ -101,7 +101,7 @@ void select_residuals(raft::resources const& handle,
   // need to know it, any strictly positive number would work.
   thrust::transform_iterator<utils::mapping<float>, const T*, thrust::use_default, float>
     mapping_itr(dataset, utils::mapping<float>{});
-  raft::matrix::gather(mapping_itr, (IdxT)dim, n_rows, row_ids, n_rows, tmp.data(), stream);
+  raft::matrix::gather(mapping_itr, (IdxT)dim, n_rows, row_ids, n_rows, tmp.data(), stream.get());
 
   raft::matrix::linewise_op<raft::Apply::ALONG_ROWS>(
     handle,
@@ -126,7 +126,7 @@ void select_residuals(raft::resources const& handle,
                      &beta,
                      residuals,
                      rot_dim,
-                     stream);
+                     stream.get());
 }
 
 /**
@@ -202,7 +202,7 @@ void flat_compute_residuals(
                      &beta,
                      residuals,
                      rot_dim,
-                     stream);
+                     stream.get());
 }
 
 template <uint32_t BlockDim, typename IdxT>
@@ -235,7 +235,7 @@ auto calculate_offsets_and_indices(IdxT n_rows,
                                    const uint32_t* cluster_sizes,
                                    IdxT* cluster_offsets,
                                    IdxT* data_indices,
-                                   rmm::cuda_stream_view stream) -> uint32_t
+                                   cuda::stream_ref stream) -> uint32_t
 {
   auto exec_policy = rmm::exec_policy(stream);
   // Calculate the offsets
@@ -246,7 +246,7 @@ auto calculate_offsets_and_indices(IdxT n_rows,
   raft::update_host(&cumsum, cluster_offsets + n_lists, 1, stream);
   uint32_t max_cluster_size =
     *thrust::max_element(exec_policy, cluster_sizes, cluster_sizes + n_lists);
-  stream.synchronize();
+  stream.sync();
   RAFT_EXPECTS(cumsum == n_rows, "cluster sizes do not add up.");
   RAFT_LOG_DEBUG("Max cluster size %d", max_cluster_size);
   rmm::device_uvector<IdxT> data_offsets_buf(n_lists, stream);
@@ -255,7 +255,7 @@ auto calculate_offsets_and_indices(IdxT n_rows,
   constexpr uint32_t n_threads = 128;  // NOLINT
   const IdxT n_blocks          = raft::div_rounding_up_unsafe(n_rows, n_threads);
   fill_indices_kernel<n_threads>
-    <<<n_blocks, n_threads, 0, stream>>>(n_rows, data_indices, data_offsets, labels);
+    <<<n_blocks, n_threads, 0, stream.get()>>>(n_rows, data_indices, data_offsets, labels);
   return max_cluster_size;
 }
 
@@ -379,7 +379,7 @@ void train_per_subset(raft::resources const& handle,
                        &beta,
                        sub_trainset.data(),
                        impl->pq_len(),
-                       stream);
+                       stream.get());
 
     // train PQ codebook for this subspace
     auto sub_trainset_view = raft::make_device_matrix_view<const float, internal_extents_t>(
@@ -441,7 +441,7 @@ void train_per_cluster(raft::resources const& handle,
                                            labels,
                                            n_rows,
                                            1,
-                                           stream);
+                                           stream.get());
 
   auto cluster_offsets      = offsets_buf.data();
   auto indices              = indices_buf.data();
@@ -630,13 +630,14 @@ void reconstruct_list_data(raft::resources const& res,
       default: RAFT_FAIL("Invalid pq_bits (%u), the value must be within [4, 8]", pq_bits);
     }
   }(index.pq_bits());
-  kernel<<<blocks, threads, 0, raft::resource::get_cuda_stream(res)>>>(tmp.view(),
-                                                                       typed_list->data.view(),
-                                                                       index.pq_centers(),
-                                                                       index.centers_rot(),
-                                                                       index.codebook_kind(),
-                                                                       label,
-                                                                       offset_or_indices);
+  kernel<<<blocks, threads, 0, raft::resource::get_cuda_stream(res).get()>>>(
+    tmp.view(),
+    typed_list->data.view(),
+    index.pq_centers(),
+    index.centers_rot(),
+    index.codebook_kind(),
+    label,
+    offset_or_indices);
   RAFT_CUDA_TRY(cudaPeekAtLastError());
 
   float* out_float_ptr = nullptr;
@@ -666,7 +667,7 @@ void reconstruct_list_data(raft::resources const& res,
                      &beta,
                      out_float_ptr,
                      index.dim(),
-                     raft::resource::get_cuda_stream(res));
+                     raft::resource::get_cuda_stream(res).get());
   // Transform the data to the original type, if necessary
   if constexpr (!std::is_same_v<T, float>) {
     raft::linalg::map(
@@ -757,7 +758,7 @@ void encode_list_data(raft::resources const& res,
         default: RAFT_FAIL("Invalid pq_bits (%u), the value must be within [4, 8]", pq_bits);
       }
     }(index->pq_bits());
-    kernel<<<blocks, threads, 0, raft::resource::get_cuda_stream(res)>>>(
+    kernel<<<blocks, threads, 0, raft::resource::get_cuda_stream(res).get()>>>(
       index->lists()[label]->data_ptr(),
       new_vectors_residual.view(),
       index->pq_centers(),
@@ -777,7 +778,7 @@ void encode_list_data(raft::resources const& res,
       }
     }(index->pq_bits());
     auto typed_list = std::static_pointer_cast<list_data_interleaved<IdxT>>(index->lists()[label]);
-    kernel<<<blocks, threads, 0, raft::resource::get_cuda_stream(res)>>>(
+    kernel<<<blocks, threads, 0, raft::resource::get_cuda_stream(res).get()>>>(
       typed_list->data.view(),
       new_vectors_residual.view(),
       index->pq_centers(),
@@ -1162,7 +1163,7 @@ void extend(raft::resources const& handle,
                                          new_data_labels.data(),
                                          n_rows,
                                          1,
-                                         stream);
+                                         stream.get());
   raft::linalg::add(
     handle,
     raft::make_device_vector_view<const uint32_t>(list_sizes, n_clusters),

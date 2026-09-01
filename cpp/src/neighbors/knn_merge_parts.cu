@@ -28,7 +28,7 @@ void _knn_merge_parts(raft::resources const& res,
                           rows,
                           parts,
                           k,
-                          raft::resource::get_cuda_stream(res),
+                          raft::resource::get_cuda_stream(res).get(),
                           translations.data_handle());
 }
 }  // namespace

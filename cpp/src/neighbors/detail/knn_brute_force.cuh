@@ -426,7 +426,7 @@ void brute_force_knn_impl(
   rmm::device_uvector<value_t> search_row_major(0, userStream);
   if (!rowMajorQuery) {
     search_row_major.resize(n * D, userStream);
-    raft::linalg::transpose(handle, search, search_row_major.data(), n, D, userStream);
+    raft::linalg::transpose(handle, search, search_row_major.data(), n, D, userStream.get());
     search = search_row_major.data();
   }
 
@@ -490,7 +490,7 @@ void brute_force_knn_impl(
                  "Haversine distance requires 2 dimensions "
                  "(latitude / longitude).");
 
-          haversine_knn(out_i_ptr, out_d_ptr, input[i], search_items, sizes[i], n, k, stream);
+          haversine_knn(out_i_ptr, out_d_ptr, input[i], search_items, sizes[i], n, k, stream.get());
           break;
         default:
           // Create a new handle with the current stream from the stream pool
@@ -501,7 +501,7 @@ void brute_force_knn_impl(
           if (!rowMajorIndex) {
             index = index_row_major.data() + total_rows_processed * D;
             total_rows_processed += sizes[i];
-            raft::linalg::transpose(handle, input[i], index, sizes[i], D, stream);
+            raft::linalg::transpose(handle, input[i], index, sizes[i], D, stream.get());
           }
 
           tiled_brute_force_knn<value_t, IdxType>(stream_pool_handle,
@@ -872,7 +872,7 @@ void brute_force_search_filtered(
                                         compressed_csr_view.get_n_rows(),
                                         rows.data(),
                                         compressed_csr_view.get_nnz(),
-                                        stream);
+                                        stream.get());
       cuvs::neighbors::detail::epilogue_on_csr(
         res,
         csr.get_elements().data(),

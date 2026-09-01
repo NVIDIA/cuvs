@@ -366,7 +366,7 @@ void GramMatrixBase<math_t>::linear(raft::resources const& handle,
                        &beta,
                        out.data_handle(),
                        ld_out,
-                       raft::resource::get_cuda_stream(handle));
+                       raft::resource::get_cuda_stream(handle).get());
   } else {
     // #TODO: Use mdspan-based API when stride-capable
     // https://github.com/rapidsai/raft/issues/875
@@ -384,7 +384,7 @@ void GramMatrixBase<math_t>::linear(raft::resources const& handle,
                        &beta,
                        out.data_handle(),
                        ld_out,
-                       raft::resource::get_cuda_stream(handle));
+                       raft::resource::get_cuda_stream(handle).get());
   }
 }
 

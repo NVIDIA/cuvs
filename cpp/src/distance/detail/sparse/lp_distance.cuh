@@ -47,7 +47,7 @@ void unexpanded_lp_distances(value_t* out_dists,
                                     config_->b_nrows,
                                     coo_rows.data(),
                                     config_->b_nnz,
-                                    raft::resource::get_cuda_stream(config_->handle));
+                                    raft::resource::get_cuda_stream(config_->handle).get());
 
   balanced_coo_pairwise_generalized_spmv<value_idx, value_t>(
     out_dists, *config_, coo_rows.data(), product_func, accum_func, write_func);
@@ -56,7 +56,7 @@ void unexpanded_lp_distances(value_t* out_dists,
                                     config_->a_nrows,
                                     coo_rows.data(),
                                     config_->a_nnz,
-                                    raft::resource::get_cuda_stream(config_->handle));
+                                    raft::resource::get_cuda_stream(config_->handle).get());
 
   balanced_coo_pairwise_generalized_spmv_rev<value_idx, value_t>(
     out_dists, *config_, coo_rows.data(), product_func, accum_func, write_func);
@@ -292,7 +292,7 @@ class kl_divergence_unexpanded_distances_t : public distances_t<value_t> {
                                       config_->b_nrows,
                                       coo_rows.data(),
                                       config_->b_nnz,
-                                      raft::resource::get_cuda_stream(config_->handle));
+                                      raft::resource::get_cuda_stream(config_->handle).get());
 
     balanced_coo_pairwise_generalized_spmv<value_idx, value_t>(
       out_dists,

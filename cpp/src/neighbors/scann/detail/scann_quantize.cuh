@@ -289,7 +289,7 @@ void quantize_bfloat16_noise_shaped(raft::resources const& res,
                                     raft::device_matrix_view<int16_t, IdxT> bf16_dataset,
                                     float noise_shaping_threshold)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(res);
+  cudaStream_t stream = raft::resource::get_cuda_stream(res).get();
 
   IdxT n_rows = dataset.extent(0);
   auto norms  = raft::make_device_vector<float, IdxT>(res, n_rows);
@@ -375,7 +375,7 @@ auto sample_training_residuals(
                                dataset,
                                raft::make_const_mdspan(train_indices.view()),
                                trainset.view(),
-                               raft::resource::get_cuda_stream(res));
+                               raft::resource::get_cuda_stream(res).get());
 
   // Considering labels as a single column matrix for use in gather
   auto labels_view =

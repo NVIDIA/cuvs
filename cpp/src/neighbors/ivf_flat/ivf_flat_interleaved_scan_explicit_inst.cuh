@@ -36,7 +36,7 @@
                                           uint32_t* neighbors,                             \
                                           float* distances,                                \
                                           uint32_t& grid_dim_x,                            \
-                                          rmm::cuda_stream_view stream,                    \
+                                          cuda::stream_ref stream,                         \
                                           const std::optional<std::string>& metric_udf);
 
 #define COMMA ,

@@ -501,7 +501,7 @@ void data_transformation_batch_opt(const float* d_data,
   int blockSize           = D < 256 ? 128 : 256;
   size_t totalPadElements = (num_points + 1) * D;
   int gridPadSize         = (totalPadElements + blockSize - 1) / blockSize;
-  gatherAndPadKernel<<<gridPadSize, blockSize, 0, stream>>>(
+  gatherAndPadKernel<<<gridPadSize, blockSize, 0, stream.get()>>>(
     d_data, d_IDs, d_centroid, d_X_and_C_pad, num_points, DIM, D);
   RAFT_CUDA_TRY(cudaPeekAtLastError());
 
@@ -526,13 +526,14 @@ void data_transformation_batch_opt(const float* d_data,
   size_t sharedMemSize = FusedBlockSize * sizeof(float);
 
   subtract_normalize_binarize_Kernel<FusedBlockSize>
-    <<<gridDim, blockDim, sharedMemSize, stream>>>(d_XP,         // Input: Rotated data
-                                                   d_CP,         // Input: Rotated centroid
-                                                   d_XP_output,  // Output 1: Final residuals
-                                                   d_XP_norm,    // Output 2: Normalized residuals
-                                                   d_bin_XP,     // Output 3: Binarized data
-                                                   num_points,
-                                                   D);
+    <<<gridDim, blockDim, sharedMemSize, stream.get()>>>(
+      d_XP,         // Input: Rotated data
+      d_CP,         // Input: Rotated centroid
+      d_XP_output,  // Output 1: Final residuals
+      d_XP_norm,    // Output 2: Normalized residuals
+      d_bin_XP,     // Output 3: Binarized data
+      num_points,
+      D);
   RAFT_CUDA_TRY(cudaPeekAtLastError());
 }
 
@@ -552,7 +553,7 @@ void rabitq_codes_and_factors_fused(const float* d_rotated_c,
   dim3 grid(num_points);
   dim3 block(threads_per_block);
 
-  pack_and_compute_factors_kernel<<<grid, block, 0, stream>>>(
+  pack_and_compute_factors_kernel<<<grid, block, 0, stream.get()>>>(
     d_rotated_c,
     d_bin_XP,
     d_XP,
@@ -592,17 +593,17 @@ void exrabitq_codes_and_factors_fused(const int* d_bin_XP,
                            BlockSize * sizeof(float);  // s_partials for reduction
 
   exrabitq_fused_kernel_batch<BlockSize>
-    <<<gridDim, blockDim, shared_mem_size, stream>>>(d_bin_XP,
-                                                     d_XP_norm,
-                                                     d_XP,
-                                                     d_centroid,
-                                                     num_points,
-                                                     D,
-                                                     EX_BITS,
-                                                     const_scaling_factor,
-                                                     1.9f,  // kConstEpsilon
-                                                     d_long_code,
-                                                     d_ex_factor);
+    <<<gridDim, blockDim, shared_mem_size, stream.get()>>>(d_bin_XP,
+                                                           d_XP_norm,
+                                                           d_XP,
+                                                           d_centroid,
+                                                           num_points,
+                                                           D,
+                                                           EX_BITS,
+                                                           const_scaling_factor,
+                                                           1.9f,  // kConstEpsilon
+                                                           d_long_code,
+                                                           d_ex_factor);
   RAFT_CUDA_TRY(cudaPeekAtLastError());
   raft::resource::sync_stream(handle);
 }
@@ -694,7 +695,7 @@ void data_transformation_batch_opt_contiguous(const float* d_contiguous_data,
   int blockSize           = D < 256 ? 128 : 256;
   size_t totalPadElements = (num_points + 1) * D;
   int gridPadSize         = (totalPadElements + blockSize - 1) / blockSize;
-  gatherAndPadKernel<<<gridPadSize, blockSize, 0, stream>>>(
+  gatherAndPadKernel<<<gridPadSize, blockSize, 0, stream.get()>>>(
     d_contiguous_data, nullptr, d_centroid, d_X_and_C_pad, num_points, DIM, D);
   RAFT_CUDA_TRY(cudaPeekAtLastError());
 
@@ -719,13 +720,14 @@ void data_transformation_batch_opt_contiguous(const float* d_contiguous_data,
   size_t sharedMemSize = FusedBlockSize * sizeof(float);
 
   subtract_normalize_binarize_Kernel<FusedBlockSize>
-    <<<gridDim, blockDim, sharedMemSize, stream>>>(d_XP,         // Input: Rotated data
-                                                   d_CP,         // Input: Rotated centroid
-                                                   d_XP_output,  // Output 1: Final residuals
-                                                   d_XP_norm,    // Output 2: Normalized residuals
-                                                   d_bin_XP,     // Output 3: Binarized data
-                                                   num_points,
-                                                   D);
+    <<<gridDim, blockDim, sharedMemSize, stream.get()>>>(
+      d_XP,         // Input: Rotated data
+      d_CP,         // Input: Rotated centroid
+      d_XP_output,  // Output 1: Final residuals
+      d_XP_norm,    // Output 2: Normalized residuals
+      d_bin_XP,     // Output 3: Binarized data
+      num_points,
+      D);
   RAFT_CUDA_TRY(cudaPeekAtLastError());
 }
 
@@ -1256,16 +1258,16 @@ void exrabitq_codes_and_factors_fused_ori(const int* d_bin_XP,
   }
 
   exrabitq_fused_kernel_batch_ori<BlockSize>
-    <<<gridDim, blockDim, shared_mem_size, stream>>>(d_bin_XP,
-                                                     d_XP_norm,
-                                                     d_XP,
-                                                     d_centroid,
-                                                     num_points,
-                                                     D,
-                                                     EX_BITS,
-                                                     1.9f,  // kConstEpsilon
-                                                     d_long_code,
-                                                     d_ex_factor);
+    <<<gridDim, blockDim, shared_mem_size, stream.get()>>>(d_bin_XP,
+                                                           d_XP_norm,
+                                                           d_XP,
+                                                           d_centroid,
+                                                           num_points,
+                                                           D,
+                                                           EX_BITS,
+                                                           1.9f,  // kConstEpsilon
+                                                           d_long_code,
+                                                           d_ex_factor);
   RAFT_CUDA_TRY(cudaPeekAtLastError());
   raft::resource::sync_stream(handle);
 }
@@ -1342,7 +1344,7 @@ float DataQuantizerGPU::get_const_scaling_factors_fully_gpu(size_t dim, size_t e
   unsigned long long seed     = time(nullptr);
   auto kernel_fn              = fully_fused_kernel;  // decay to function pointer for std::atomic
   auto const& kernel_launcher = [&]() {
-    kernel_fn<<<kConstNum, block_size, shared_mem_size, stream_>>>(
+    kernel_fn<<<kConstNum, block_size, shared_mem_size, stream_.get()>>>(
       d_factors.data(), kConstNum, dim, ex_bits, seed);
   };
   cudaKernel_t cuda_kernel;
@@ -1354,7 +1356,7 @@ float DataQuantizerGPU::get_const_scaling_factors_fully_gpu(size_t dim, size_t e
   // Use CUB for reduction - handles any size optimally
   size_t temp_storage_bytes = 0;
   cub::DeviceReduce::Sum(
-    nullptr, temp_storage_bytes, d_factors.data(), d_sum.data(), kConstNum, stream_);
+    nullptr, temp_storage_bytes, d_factors.data(), d_sum.data(), kConstNum, stream_.get());
 
   {
     rmm::device_buffer d_temp_storage(temp_storage_bytes, stream_);
@@ -1363,7 +1365,7 @@ float DataQuantizerGPU::get_const_scaling_factors_fully_gpu(size_t dim, size_t e
                            d_factors.data(),
                            d_sum.data(),
                            kConstNum,
-                           stream_);
+                           stream_.get());
   }
   RAFT_CUDA_TRY(cudaGetLastError());
 

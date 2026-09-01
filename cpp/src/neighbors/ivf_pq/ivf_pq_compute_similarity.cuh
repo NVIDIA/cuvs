@@ -14,7 +14,7 @@
 #include <cuvs/neighbors/common.hpp>
 #include <cuvs/neighbors/ivf_pq.hpp>    // cuvs::neighbors::ivf_pq::codebook_gen
 #include <raft/core/detail/macros.hpp>  // RAFT_WEAK_FUNCTION
-#include <rmm/cuda_stream_view.hpp>     // rmm::cuda_stream_view
+#include <rmm/cuda_stream_view.hpp>     // cuda::stream_ref
 
 #include <cuda_fp16.h>  // __half
 
@@ -28,7 +28,7 @@ auto RAFT_WEAK_FUNCTION is_local_topk_feasible(uint32_t k, uint32_t n_probes, ui
 
 template <typename OutT, typename LutT>
 void compute_similarity_run(selected<OutT, LutT> s,
-                            rmm::cuda_stream_view stream,
+                            cuda::stream_ref stream,
                             uint32_t dim,
                             uint32_t n_probes,
                             uint32_t pq_dim,
@@ -138,7 +138,7 @@ auto compute_similarity_select(const cudaDeviceProp& dev_props,
                                                                                             \
   extern template void cuvs::neighbors::ivf_pq::detail::compute_similarity_run<OutT, LutT>( \
     cuvs::neighbors::ivf_pq::detail::selected<OutT, LutT> s,                                \
-    rmm::cuda_stream_view stream,                                                           \
+    cuda::stream_ref stream,                                                                \
     uint32_t dim,                                                                           \
     uint32_t n_probes,                                                                      \
     uint32_t pq_dim,                                                                        \

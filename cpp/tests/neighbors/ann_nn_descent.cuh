@@ -181,7 +181,7 @@ class AnnNNDescentTest : public ::testing::TestWithParam<AnnNNDescentInputs> {
 
  private:
   raft::resources handle_;
-  rmm::cuda_stream_view stream_;
+  cuda::stream_ref stream_;
   AnnNNDescentInputs ps;
   rmm::device_uvector<DataT> database;
 };
@@ -339,7 +339,7 @@ class AnnNNDescentDistEpiTest : public ::testing::TestWithParam<AnnNNDescentInpu
 
  private:
   raft::resources handle_;
-  rmm::cuda_stream_view stream_;
+  cuda::stream_ref stream_;
   AnnNNDescentInputs ps;
   rmm::device_uvector<DataT> database;
 };
@@ -457,7 +457,7 @@ class AnnNNDescentBatchTest : public ::testing::TestWithParam<AnnNNDescentBatchI
 
  private:
   raft::resources handle_;
-  rmm::cuda_stream_view stream_;
+  cuda::stream_ref stream_;
   AnnNNDescentBatchInputs ps;
   rmm::device_uvector<DataT> database;
 };

@@ -282,7 +282,7 @@ class scann_test : public ::testing::TestWithParam<scann_inputs> {
 
  private:
   raft::resources handle_;
-  rmm::cuda_stream_view stream_;
+  cuda::stream_ref stream_;
   scann_inputs ps;                      // NOLINT
   rmm::device_uvector<DataT> database;  // NOLINT
 };

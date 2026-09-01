@@ -312,7 +312,7 @@ void perform_1nn(raft::resources const& handle,
   raft::matrix::gather(handle, X_mutable_view, sort_plan_const_view, (value_idx)col_batch_size);
 
   // Get the number of unique components from the array of colors
-  value_idx n_components = get_n_components(colors, n_rows, stream);
+  value_idx n_components = get_n_components(colors, n_rows, stream.get());
 
   // colors_group_idxs is an array containing the *end* indices of each color
   // component in colors. That is, the value of colors_group_idxs[j] indicates
@@ -320,7 +320,7 @@ void perform_1nn(raft::resources const& handle,
   // the color components.
   auto colors_group_idxs = raft::make_device_vector<value_idx, value_idx>(handle, n_components + 1);
   raft::sparse::convert::sorted_coo_to_csr(
-    colors, n_rows, colors_group_idxs.data_handle(), n_components + 1, stream);
+    colors, n_rows, colors_group_idxs.data_handle(), n_components + 1, stream.get());
 
   auto group_idxs_view = raft::make_device_vector_view<const value_idx, value_idx>(
     colors_group_idxs.data_handle() + 1, n_components);
@@ -562,7 +562,7 @@ void cross_component_nn(
   // Normalize colors so they are drawn from a monotonically increasing set
   constexpr bool zero_based = true;
   raft::label::make_monotonic(
-    colors.data(), const_cast<value_idx*>(orig_colors), n_rows, stream, zero_based);
+    colors.data(), const_cast<value_idx*>(orig_colors), n_rows, stream.get(), zero_based);
 
   /**
    * First compute 1-nn for all colors where the color of each data point
@@ -597,7 +597,7 @@ void cross_component_nn(
   // Compute mask of duplicates
   rmm::device_uvector<value_idx> out_index(n_rows + 1, stream);
   raft::sparse::op::compute_duplicates_mask(
-    out_index.data(), colors.data(), nn_colors.data(), n_rows, stream);
+    out_index.data(), colors.data(), nn_colors.data(), n_rows, stream.get());
 
   thrust::exclusive_scan(raft::resource::get_thrust_policy(handle),
                          out_index.data(),
@@ -614,11 +614,11 @@ void cross_component_nn(
 
   size++;
 
-  raft::sparse::COO<value_t, value_idx, nnz_t> min_edges(stream);
-  min_edges.allocate(size, n_rows, n_rows, true, stream);
+  raft::sparse::COO<value_t, value_idx, nnz_t> min_edges(stream.get());
+  min_edges.allocate(size, n_rows, n_rows, true, stream.get());
 
   min_components_by_color(
-    min_edges, out_index.data(), src_indices.data(), temp_inds_dists.data(), n_rows, stream);
+    min_edges, out_index.data(), src_indices.data(), temp_inds_dists.data(), n_rows, stream.get());
 
   /**
    * Symmetrize resulting edge list

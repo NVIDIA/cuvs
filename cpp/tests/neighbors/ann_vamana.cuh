@@ -162,7 +162,7 @@ class AnnVamanaTest : public ::testing::TestWithParam<AnnVamanaInputs> {
       index = vamana::build(handle_, index_params, database_view);
     };
 
-    CheckGraph<DataT, IdxT>(&index, ps, stream_);
+    CheckGraph<DataT, IdxT>(&index, ps, stream_.get());
 
     tmp_index_file index_file;
     vamana::serialize(handle_, index_file.filename, index);
@@ -274,7 +274,7 @@ class AnnVamanaTest : public ::testing::TestWithParam<AnnVamanaInputs> {
 
  private:
   raft::resources handle_;
-  rmm::cuda_stream_view stream_;
+  cuda::stream_ref stream_;
   AnnVamanaInputs ps;
   rmm::device_uvector<DataT> database;
   rmm::device_uvector<DataT> search_queries;

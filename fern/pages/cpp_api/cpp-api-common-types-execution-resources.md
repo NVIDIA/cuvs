@@ -25,7 +25,7 @@ _Source header: `raft/core/resource/cuda_stream.hpp`_
 Returns the CUDA stream associated with a resources object.
 
 ```cpp
-rmm::cuda_stream_view get_cuda_stream(raft::resources const& res);
+cuda::stream_ref get_cuda_stream(raft::resources const& res);
 ```
 
 **Parameters**
@@ -36,7 +36,7 @@ rmm::cuda_stream_view get_cuda_stream(raft::resources const& res);
 
 **Returns**
 
-`rmm::cuda_stream_view`
+`cuda::stream_ref`
 
 <a id="raft-resource-sync-stream"></a>
 #### raft::resource::sync_stream
@@ -47,7 +47,7 @@ Synchronizes the CUDA stream associated with a resources object.
 
 ```cpp
 void sync_stream(raft::resources const& res);
-void sync_stream(raft::resources const& res, rmm::cuda_stream_view stream);
+void sync_stream(raft::resources const& res, cuda::stream_ref stream);
 ```
 
 **Parameters**
@@ -55,7 +55,7 @@ void sync_stream(raft::resources const& res, rmm::cuda_stream_view stream);
 | Name | Type | Description |
 | --- | --- | --- |
 | `res` | `raft::resources const&` | Resources object to synchronize. |
-| `stream` | `rmm::cuda_stream_view` | Optional stream to synchronize instead of the main stream. |
+| `stream` | `cuda::stream_ref` | Optional stream to synchronize instead of the main stream. |
 
 **Returns**
 
@@ -92,7 +92,7 @@ _Source header: `raft/core/resource/cuda_stream_pool.hpp`_
 Returns a stream from the configured stream pool.
 
 ```cpp
-rmm::cuda_stream_view get_stream_from_stream_pool(raft::resources const& res);
+cuda::stream_ref get_stream_from_stream_pool(raft::resources const& res);
 ```
 
 **Parameters**
@@ -103,7 +103,7 @@ rmm::cuda_stream_view get_stream_from_stream_pool(raft::resources const& res);
 
 **Returns**
 
-`rmm::cuda_stream_view`
+`cuda::stream_ref`
 
 <a id="raft-resource-sync-stream-pool"></a>
 #### raft::resource::sync_stream_pool
@@ -210,7 +210,7 @@ Constructs a single-GPU resources object.
 
 ```cpp
 device_resources(
-  rmm::cuda_stream_view stream_view = rmm::cuda_stream_per_thread,
+  cuda::stream_ref stream_view = rmm::cuda_stream_per_thread,
   std::shared_ptr<rmm::cuda_stream_pool> stream_pool = nullptr,
   std::shared_ptr<rmm::mr::device_memory_resource> workspace_resource = nullptr,
   std::optional<std::size_t> allocation_limit = std::nullopt);
@@ -220,7 +220,7 @@ device_resources(
 
 | Name | Type | Description |
 | --- | --- | --- |
-| `stream_view` | `rmm::cuda_stream_view` | Default CUDA stream used by algorithms. |
+| `stream_view` | `cuda::stream_ref` | Default CUDA stream used by algorithms. |
 | `stream_pool` | `std::shared_ptr<rmm::cuda_stream_pool>` | Optional CUDA stream pool. |
 | `workspace_resource` | `std::shared_ptr<rmm::mr::device_memory_resource>` | Optional workspace memory resource. |
 | `allocation_limit` | `std::optional<std::size_t>` | Optional temporary workspace allocation limit in bytes. |
@@ -232,14 +232,14 @@ Synchronizes either the main stream or a specific CUDA stream.
 
 ```cpp
 void sync_stream() const;
-void sync_stream(rmm::cuda_stream_view stream) const;
+void sync_stream(cuda::stream_ref stream) const;
 ```
 
 **Parameters**
 
 | Name | Type | Description |
 | --- | --- | --- |
-| `stream` | `rmm::cuda_stream_view` | Stream to synchronize. Omit to synchronize the main stream. |
+| `stream` | `cuda::stream_ref` | Stream to synchronize. Omit to synchronize the main stream. |
 
 **Returns**
 
@@ -251,12 +251,12 @@ void sync_stream(rmm::cuda_stream_view stream) const;
 Returns the main CUDA stream associated with the resources object.
 
 ```cpp
-rmm::cuda_stream_view get_stream() const;
+cuda::stream_ref get_stream() const;
 ```
 
 **Returns**
 
-`rmm::cuda_stream_view`
+`cuda::stream_ref`
 
 <a id="raft-device-resources-is-stream-pool-initialized"></a>
 #### raft::device_resources::is_stream_pool_initialized
@@ -290,8 +290,8 @@ rmm::cuda_stream_pool const& get_stream_pool() const;
 Returns a stream from the configured CUDA stream pool.
 
 ```cpp
-rmm::cuda_stream_view get_stream_from_stream_pool() const;
-rmm::cuda_stream_view get_stream_from_stream_pool(std::size_t stream_idx) const;
+cuda::stream_ref get_stream_from_stream_pool() const;
+cuda::stream_ref get_stream_from_stream_pool(std::size_t stream_idx) const;
 ```
 
 **Parameters**
@@ -302,7 +302,7 @@ rmm::cuda_stream_view get_stream_from_stream_pool(std::size_t stream_idx) const;
 
 **Returns**
 
-`rmm::cuda_stream_view`
+`cuda::stream_ref`
 
 <a id="raft-device-resources-get-next-usable-stream"></a>
 #### raft::device_resources::get_next_usable_stream
@@ -310,8 +310,8 @@ rmm::cuda_stream_view get_stream_from_stream_pool(std::size_t stream_idx) const;
 Returns a stream from the pool when one exists; otherwise returns the main stream.
 
 ```cpp
-rmm::cuda_stream_view get_next_usable_stream() const;
-rmm::cuda_stream_view get_next_usable_stream(std::size_t stream_idx) const;
+cuda::stream_ref get_next_usable_stream() const;
+cuda::stream_ref get_next_usable_stream(std::size_t stream_idx) const;
 ```
 
 **Parameters**
@@ -322,7 +322,7 @@ rmm::cuda_stream_view get_next_usable_stream(std::size_t stream_idx) const;
 
 **Returns**
 
-`rmm::cuda_stream_view`
+`cuda::stream_ref`
 
 <a id="raft-device-resources-sync-stream-pool"></a>
 #### raft::device_resources::sync_stream_pool

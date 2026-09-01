@@ -280,7 +280,7 @@ void extract_flattened_clusters(raft::resources const& handle,
     rmm::device_uvector<value_idx> levels(n_vertices, stream);
 
     value_idx n_blocks = raft::ceildiv(n_vertices, (value_idx)tpb);
-    write_levels_kernel<<<n_blocks, tpb, 0, stream>>>(children, levels.data(), n_vertices);
+    write_levels_kernel<<<n_blocks, tpb, 0, stream.get()>>>(children, levels.data(), n_vertices);
     /**
      * Step 1: Find label roots:
      *
@@ -323,7 +323,7 @@ void extract_flattened_clusters(raft::resources const& handle,
      */
     value_idx cut_level = (n_edges / 2) - (n_clusters - 1);
 
-    inherit_labels<<<n_blocks, tpb, 0, stream>>>(
+    inherit_labels<<<n_blocks, tpb, 0, stream.get()>>>(
       children, levels.data(), n_leaves, tmp_labels.data(), cut_level, n_vertices);
 
     // copy tmp labels to actual labels

@@ -88,7 +88,7 @@ class GramMatrixTest : public ::testing::TestWithParam<GramMatrixInputs> {
     size = get_offset(params.n1 - 1, params.n2 - 1, params.ld_out, params.is_row_major) + 1;
 
     gram.resize(size, stream);
-    RAFT_CUDA_TRY(cudaMemsetAsync(gram.data(), 0, gram.size() * sizeof(math_t), stream));
+    RAFT_CUDA_TRY(cudaMemsetAsync(gram.data(), 0, gram.size() * sizeof(math_t), stream.get()));
     gram_host.resize(gram.size());
     std::fill(gram_host.begin(), gram_host.end(), 0);
 
@@ -137,11 +137,14 @@ class GramMatrixTest : public ::testing::TestWithParam<GramMatrixInputs> {
                           params.ld_out,
                           params.is_row_major,
                           params.kernel,
-                          stream,
+                          stream.get(),
                           handle);
 
-    ASSERT_TRUE(cuvs::devArrMatchHost(
-      gram_host.data(), gram.data(), gram.size(), cuvs::CompareApprox<math_t>(1e-6f), stream));
+    ASSERT_TRUE(cuvs::devArrMatchHost(gram_host.data(),
+                                      gram.data(),
+                                      gram.size(),
+                                      cuvs::CompareApprox<math_t>(1e-6f),
+                                      stream.get()));
   }
 
   GramMatrixInputs params;

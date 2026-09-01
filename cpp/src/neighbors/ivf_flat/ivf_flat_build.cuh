@@ -261,7 +261,7 @@ void extend(raft::resources const& handle,
                                            new_labels.data_handle(),
                                            n_rows,
                                            1,
-                                           stream);
+                                           stream.get());
     raft::linalg::add(handle,
                       raft::make_device_vector_view<const uint32_t, IdxT>(list_sizes_ptr, n_lists),
                       raft::make_device_vector_view<const uint32_t, IdxT>(
@@ -315,16 +315,16 @@ void extend(raft::resources const& handle,
     const dim3 block_dim(256);
     const dim3 grid_dim(raft::ceildiv<IdxT>(batch.size(), block_dim.x));
     build_index_kernel<T, IdxT, LabelT>
-      <<<grid_dim, block_dim, 0, stream>>>(new_labels.data_handle() + batch.offset(),
-                                           batch_data_view.data_handle(),
-                                           idx_batch->data(),
-                                           index->data_ptrs().data_handle(),
-                                           index->inds_ptrs().data_handle(),
-                                           list_sizes_ptr,
-                                           batch.size(),
-                                           dim,
-                                           index->veclen(),
-                                           batch.offset());
+      <<<grid_dim, block_dim, 0, stream.get()>>>(new_labels.data_handle() + batch.offset(),
+                                                 batch_data_view.data_handle(),
+                                                 idx_batch->data(),
+                                                 index->data_ptrs().data_handle(),
+                                                 index->inds_ptrs().data_handle(),
+                                                 list_sizes_ptr,
+                                                 batch.size(),
+                                                 dim,
+                                                 index->veclen(),
+                                                 batch.offset());
     vec_batches.prefetch_next_batch();
     // User needs to make sure kernel finishes its work before we overwrite batch in the next
     // iteration if different streams are used for kernel and copy.
@@ -501,15 +501,15 @@ inline void fill_refinement_index(raft::resources const& handle,
   const dim3 block_dim(256);
   const dim3 grid_dim(raft::ceildiv<IdxT>(n_queries * n_candidates, block_dim.x));
   build_index_kernel<T, IdxT, LabelT, CandidateIdxT, true>
-    <<<grid_dim, block_dim, 0, stream>>>(new_labels.data(),
-                                         dataset,
-                                         candidate_idx,
-                                         refinement_index->data_ptrs().data_handle(),
-                                         refinement_index->inds_ptrs().data_handle(),
-                                         list_sizes_ptr,
-                                         n_queries * n_candidates,
-                                         refinement_index->dim(),
-                                         refinement_index->veclen());
+    <<<grid_dim, block_dim, 0, stream.get()>>>(new_labels.data(),
+                                               dataset,
+                                               candidate_idx,
+                                               refinement_index->data_ptrs().data_handle(),
+                                               refinement_index->inds_ptrs().data_handle(),
+                                               list_sizes_ptr,
+                                               n_queries * n_candidates,
+                                               refinement_index->dim(),
+                                               refinement_index->veclen());
   RAFT_CUDA_TRY(cudaPeekAtLastError());
 }
 

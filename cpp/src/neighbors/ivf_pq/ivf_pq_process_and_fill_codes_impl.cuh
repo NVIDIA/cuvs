@@ -95,16 +95,17 @@ void launch_process_and_fill_codes_kernel(
     }
   }(index.pq_bits());
 
-  kernel<<<blocks, threads, 0, raft::resource::get_cuda_stream(handle)>>>(new_vectors_residual,
-                                                                          src_offset_or_indices,
-                                                                          new_labels,
-                                                                          index.list_sizes(),
-                                                                          index.inds_ptrs(),
-                                                                          index.data_ptrs(),
-                                                                          index.pq_centers(),
-                                                                          index.codebook_kind(),
-                                                                          index.codes_layout(),
-                                                                          bytes_per_vector);
+  kernel<<<blocks, threads, 0, raft::resource::get_cuda_stream(handle).get()>>>(
+    new_vectors_residual,
+    src_offset_or_indices,
+    new_labels,
+    index.list_sizes(),
+    index.inds_ptrs(),
+    index.data_ptrs(),
+    index.pq_centers(),
+    index.codebook_kind(),
+    index.codes_layout(),
+    bytes_per_vector);
 
   RAFT_CUDA_TRY(cudaPeekAtLastError());
 }

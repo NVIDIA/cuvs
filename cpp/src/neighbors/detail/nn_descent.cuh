@@ -1513,7 +1513,7 @@ void GNND<Data_t, Index_t>::build(Data_t* data,
       "Data type needs to be int8 or uint8 for NN Descent to run with BitwiseHamming distance.");
   }
 
-  cudaStream_t stream = raft::resource::get_cuda_stream(res);
+  cudaStream_t stream = raft::resource::get_cuda_stream(res).get();
   nrow_               = nrow;
   graph_.nrow         = nrow;
   graph_.bloom_filter.set_nrow(nrow);

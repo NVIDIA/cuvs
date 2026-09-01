@@ -86,7 +86,7 @@ class RefineTest : public ::testing::TestWithParam<RefineInputs<IdxT>> {
 
  public:
   raft::resources handle_;
-  rmm::cuda_stream_view stream_;
+  cuda::stream_ref stream_;
   RefineHelper<DataT, DistanceT, IdxT> data;
 };
 

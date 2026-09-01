@@ -67,7 +67,7 @@ class SpectralClusteringTest : public ::testing::TestWithParam<SpectralClusterin
                                          n_samples,
                                          n_features,
                                          params.n_clusters,
-                                         stream,
+                                         stream.get(),
                                          true,
                                          nullptr,
                                          nullptr,
@@ -132,15 +132,15 @@ class SpectralClusteringTest : public ::testing::TestWithParam<SpectralClusterin
 
     raft::resource::sync_stream(handle, stream);
 
-    score =
-      raft::stats::adjusted_rand_index(d_labels_ref.data(), d_labels.data(), n_samples, stream);
+    score = raft::stats::adjusted_rand_index(
+      d_labels_ref.data(), d_labels.data(), n_samples, stream.get());
 
     if (score < 0.8) {
       std::stringstream ss;
-      ss << "Expected: " << raft::arr2Str(d_labels_ref.data(), 25, "d_labels_ref", stream);
+      ss << "Expected: " << raft::arr2Str(d_labels_ref.data(), 25, "d_labels_ref", stream.get());
       std::cout << (ss.str().c_str()) << '\n';
       ss.str(std::string());
-      ss << "Actual: " << raft::arr2Str(d_labels.data(), 25, "d_labels", stream);
+      ss << "Actual: " << raft::arr2Str(d_labels.data(), 25, "d_labels", stream.get());
       std::cout << (ss.str().c_str()) << '\n';
       std::cout << "Score = " << score << '\n';
     }

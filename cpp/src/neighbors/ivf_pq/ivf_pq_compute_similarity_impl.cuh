@@ -21,7 +21,7 @@
 #include <raft/util/pow2_utils.cuh>          // raft::Pow2
 #include <raft/util/vectorized.cuh>          // raft::TxN_t
 
-#include <rmm/cuda_stream_view.hpp>  // rmm::cuda_stream_view
+#include <rmm/cuda_stream_view.hpp>  // cuda::stream_ref
 
 namespace cuvs::neighbors::ivf_pq::detail {
 
@@ -265,7 +265,7 @@ struct occupancy_t {
 
 template <typename OutT, typename LutT>
 void compute_similarity_run(selected<OutT, LutT> s,
-                            rmm::cuda_stream_view stream,
+                            cuda::stream_ref stream,
                             uint32_t dim,
                             uint32_t n_probes,
                             uint32_t pq_dim,
@@ -290,7 +290,7 @@ void compute_similarity_run(selected<OutT, LutT> s,
                             OutT* _out_scores,
                             uint32_t* _out_indices)
 {
-  s.launcher->template dispatch<compute_similarity_func_t<OutT, LutT>>(stream,
+  s.launcher->template dispatch<compute_similarity_func_t<OutT, LutT>>(stream.get(),
                                                                        s.grid_dim,
                                                                        s.block_dim,
                                                                        s.smem_size,

@@ -54,7 +54,7 @@ TEST(AnnIVFSQTest, ExtendInPlaceUpdatesListSizeWithinCapacity)
   auto* base_list = index.lists()[0].get();
 
   auto indices = raft::make_device_vector<int64_t, int64_t>(handle, grow_rows);
-  raft::linalg::range(indices.data_handle(), base_rows, rows, stream);
+  raft::linalg::range(indices.data_handle(), base_rows, rows, stream.get());
 
   auto grow_data_view = raft::make_device_matrix_view<const float, int64_t>(
     data.data_handle() + base_rows * dim, grow_rows, dim);

@@ -273,7 +273,8 @@ void masked_l2_nn_impl(raft::resources const& handle,
     dim3 grid(raft::ceildiv<int>(m, P::Nthreads));
     dim3 block(P::Nthreads);
 
-    initKernel<DataT, OutT, IdxT, ReduceOpT><<<grid, block, 0, stream>>>(out, m, maxVal, redOp);
+    initKernel<DataT, OutT, IdxT, ReduceOpT>
+      <<<grid, block, 0, stream.get()>>>(out, m, maxVal, redOp);
     RAFT_CUDA_TRY(cudaGetLastError());
   }
 
@@ -293,24 +294,24 @@ void masked_l2_nn_impl(raft::resources const& handle,
   dim3 block(P::Nthreads);
   dim3 grid = launchConfigGenerator<P>(m, n, smemSize, kernel);
 
-  kernel<<<grid, block, smemSize, stream>>>(out,
-                                            x,
-                                            y,
-                                            xn,
-                                            yn,
-                                            ws_adj64.data(),
-                                            group_idxs,
-                                            num_groups,
-                                            m,
-                                            n,
-                                            k,
-                                            sqrt,
-                                            maxVal,
-                                            ws_fused_nn.data(),
-                                            redOp,
-                                            pairRedOp,
-                                            core_lambda,
-                                            fin_op);
+  kernel<<<grid, block, smemSize, stream.get()>>>(out,
+                                                  x,
+                                                  y,
+                                                  xn,
+                                                  yn,
+                                                  ws_adj64.data(),
+                                                  group_idxs,
+                                                  num_groups,
+                                                  m,
+                                                  n,
+                                                  k,
+                                                  sqrt,
+                                                  maxVal,
+                                                  ws_fused_nn.data(),
+                                                  redOp,
+                                                  pairRedOp,
+                                                  core_lambda,
+                                                  fin_op);
 
   RAFT_CUDA_TRY(cudaGetLastError());
 }

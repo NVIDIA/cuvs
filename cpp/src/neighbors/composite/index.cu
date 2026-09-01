@@ -84,7 +84,7 @@ void composite_index<T, IdxT, OutputIdxT>::search(
                               temp_neighbors[i].data(),
                               offset,
                               temp_neighbors[i].size(),
-                              stream);
+                              stream.get());
     }
 
     raft::copy_matrix(

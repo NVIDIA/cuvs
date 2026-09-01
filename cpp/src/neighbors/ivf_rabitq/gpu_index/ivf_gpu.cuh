@@ -342,7 +342,7 @@ class IVFGPU {
   void AllocateHostMemory();
 
   raft::resources const& handle_;  // reusable resource handle
-  rmm::cuda_stream_view stream_ =
+  cuda::stream_ref stream_ =
     raft::resource::get_cuda_stream(handle_);  // CUDA stream obtained from handle_
 
   // Device pointers for each data array.

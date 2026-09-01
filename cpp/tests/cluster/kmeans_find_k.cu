@@ -35,7 +35,7 @@ template <typename T>
 class KmeansFindKTest : public ::testing::TestWithParam<KmeansFindKInputs<T>> {
  protected:
   KmeansFindKTest()
-    : stream(raft::resource::get_cuda_stream(handle)), best_k(raft::make_host_scalar<int>(0))
+    : stream(raft::resource::get_cuda_stream(handle).get()), best_k(raft::make_host_scalar<int>(0))
   {
   }
 

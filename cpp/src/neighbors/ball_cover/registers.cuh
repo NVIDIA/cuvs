@@ -1005,7 +1005,7 @@ void rbc_low_dim_pass_one(raft::resources const& handle,
 {
   if (k <= 32)
     block_rbc_kernel_registers<value_idx, value_t, 32, 2, 128>
-      <<<n_query_rows, 128, 0, raft::resource::get_cuda_stream(handle)>>>(
+      <<<n_query_rows, 128, 0, raft::resource::get_cuda_stream(handle).get()>>>(
         index.get_X_reordered().data_handle(),
         query,
         index.n,
@@ -1024,7 +1024,7 @@ void rbc_low_dim_pass_one(raft::resources const& handle,
 
   else if (k <= 64)
     block_rbc_kernel_registers<value_idx, value_t, 64, 3, 128>
-      <<<n_query_rows, 128, 0, raft::resource::get_cuda_stream(handle)>>>(
+      <<<n_query_rows, 128, 0, raft::resource::get_cuda_stream(handle).get()>>>(
         index.get_X_reordered().data_handle(),
         query,
         index.n,
@@ -1042,7 +1042,7 @@ void rbc_low_dim_pass_one(raft::resources const& handle,
         weight);
   else if (k <= 128)
     block_rbc_kernel_registers<value_idx, value_t, 128, 3, 128>
-      <<<n_query_rows, 128, 0, raft::resource::get_cuda_stream(handle)>>>(
+      <<<n_query_rows, 128, 0, raft::resource::get_cuda_stream(handle).get()>>>(
         index.get_X_reordered().data_handle(),
         query,
         index.n,
@@ -1061,7 +1061,7 @@ void rbc_low_dim_pass_one(raft::resources const& handle,
 
   else if (k <= 256)
     block_rbc_kernel_registers<value_idx, value_t, 256, 4, 128>
-      <<<n_query_rows, 128, 0, raft::resource::get_cuda_stream(handle)>>>(
+      <<<n_query_rows, 128, 0, raft::resource::get_cuda_stream(handle).get()>>>(
         index.get_X_reordered().data_handle(),
         query,
         index.n,
@@ -1080,7 +1080,7 @@ void rbc_low_dim_pass_one(raft::resources const& handle,
 
   else if (k <= 512)
     block_rbc_kernel_registers<value_idx, value_t, 512, 8, 64>
-      <<<n_query_rows, 64, 0, raft::resource::get_cuda_stream(handle)>>>(
+      <<<n_query_rows, 64, 0, raft::resource::get_cuda_stream(handle).get()>>>(
         index.get_X_reordered().data_handle(),
         query,
         index.n,
@@ -1099,7 +1099,7 @@ void rbc_low_dim_pass_one(raft::resources const& handle,
 
   else if (k <= 1024)
     block_rbc_kernel_registers<value_idx, value_t, 1024, 8, 64>
-      <<<n_query_rows, 64, 0, raft::resource::get_cuda_stream(handle)>>>(
+      <<<n_query_rows, 64, 0, raft::resource::get_cuda_stream(handle).get()>>>(
         index.get_X_reordered().data_handle(),
         query,
         index.n,
@@ -1142,22 +1142,22 @@ void rbc_low_dim_pass_two(raft::resources const& handle,
     <<<n_query_rows,
        128,
        bitset_size * sizeof(std::uint32_t),
-       raft::resource::get_cuda_stream(handle)>>>(query,
-                                                  index.n,
-                                                  R_knn_inds,
-                                                  R_knn_dists,
-                                                  index.get_R_radius().data_handle(),
-                                                  index.get_R().data_handle(),
-                                                  index.n_landmarks,
-                                                  bitset_size,
-                                                  k,
-                                                  index.metric,
-                                                  bitset.data(),
-                                                  weight);
+       raft::resource::get_cuda_stream(handle).get()>>>(query,
+                                                        index.n,
+                                                        R_knn_inds,
+                                                        R_knn_dists,
+                                                        index.get_R_radius().data_handle(),
+                                                        index.get_R().data_handle(),
+                                                        index.n_landmarks,
+                                                        bitset_size,
+                                                        k,
+                                                        index.metric,
+                                                        bitset.data(),
+                                                        weight);
 
   if (k <= 32)
     compute_final_dists_registers<value_idx, value_t, std::uint32_t, std::uint32_t, 32, 2, 128>
-      <<<n_query_rows, 128, 0, raft::resource::get_cuda_stream(handle)>>>(
+      <<<n_query_rows, 128, 0, raft::resource::get_cuda_stream(handle).get()>>>(
         index.get_X_reordered().data_handle(),
         query,
         index.n,
@@ -1174,7 +1174,7 @@ void rbc_low_dim_pass_two(raft::resources const& handle,
         index.metric);
   else if (k <= 64)
     compute_final_dists_registers<value_idx, value_t, std::uint32_t, std::uint32_t, 64, 3, 128>
-      <<<n_query_rows, 128, 0, raft::resource::get_cuda_stream(handle)>>>(
+      <<<n_query_rows, 128, 0, raft::resource::get_cuda_stream(handle).get()>>>(
         index.get_X_reordered().data_handle(),
         query,
         index.n,
@@ -1191,7 +1191,7 @@ void rbc_low_dim_pass_two(raft::resources const& handle,
         index.metric);
   else if (k <= 128)
     compute_final_dists_registers<value_idx, value_t, std::uint32_t, std::uint32_t, 128, 3, 128>
-      <<<n_query_rows, 128, 0, raft::resource::get_cuda_stream(handle)>>>(
+      <<<n_query_rows, 128, 0, raft::resource::get_cuda_stream(handle).get()>>>(
         index.get_X_reordered().data_handle(),
         query,
         index.n,
@@ -1208,7 +1208,7 @@ void rbc_low_dim_pass_two(raft::resources const& handle,
         index.metric);
   else if (k <= 256)
     compute_final_dists_registers<value_idx, value_t, std::uint32_t, std::uint32_t, 256, 4, 128>
-      <<<n_query_rows, 128, 0, raft::resource::get_cuda_stream(handle)>>>(
+      <<<n_query_rows, 128, 0, raft::resource::get_cuda_stream(handle).get()>>>(
         index.get_X_reordered().data_handle(),
         query,
         index.n,
@@ -1225,7 +1225,7 @@ void rbc_low_dim_pass_two(raft::resources const& handle,
         index.metric);
   else if (k <= 512)
     compute_final_dists_registers<value_idx, value_t, std::uint32_t, std::uint32_t, 512, 8, 64>
-      <<<n_query_rows, 64, 0, raft::resource::get_cuda_stream(handle)>>>(
+      <<<n_query_rows, 64, 0, raft::resource::get_cuda_stream(handle).get()>>>(
         index.get_X_reordered().data_handle(),
         query,
         index.n,
@@ -1242,7 +1242,7 @@ void rbc_low_dim_pass_two(raft::resources const& handle,
         index.metric);
   else if (k <= 1024)
     compute_final_dists_registers<value_idx, value_t, std::uint32_t, std::uint32_t, 1024, 8, 64>
-      <<<n_query_rows, 64, 0, raft::resource::get_cuda_stream(handle)>>>(
+      <<<n_query_rows, 64, 0, raft::resource::get_cuda_stream(handle).get()>>>(
         index.get_X_reordered().data_handle(),
         query,
         index.n,
@@ -1271,7 +1271,7 @@ void rbc_eps_pass(raft::resources const& handle,
                   value_idx* vd)
 {
   block_rbc_kernel_eps_dense<value_idx, value_t, 64>
-    <<<n_query_rows, 64, 0, raft::resource::get_cuda_stream(handle)>>>(
+    <<<n_query_rows, 64, 0, raft::resource::get_cuda_stream(handle).get()>>>(
       index.get_X_reordered().data_handle(),
       query,
       n_query_rows,
@@ -1296,7 +1296,7 @@ void rbc_eps_pass(raft::resources const& handle,
                                   &sum,
                                   sizeof(value_idx),
                                   cudaMemcpyHostToDevice,
-                                  raft::resource::get_cuda_stream(handle)));
+                                  raft::resource::get_cuda_stream(handle).get()));
   }
 
   raft::resource::sync_stream(handle);
@@ -1325,44 +1325,44 @@ void rbc_eps_pass(raft::resources const& handle,
           <<<raft::ceildiv<int64_t>(n_query_rows, 2),
              64,
              0,
-             raft::resource::get_cuda_stream(handle)>>>(index.get_X_reordered().data_handle(),
-                                                        query,
-                                                        n_query_rows,
-                                                        index.n,
-                                                        R,
-                                                        index.m,
-                                                        eps,
-                                                        index.n_landmarks,
-                                                        index.get_R_indptr().data_handle(),
-                                                        index.get_R_1nn_cols().data_handle(),
-                                                        index.get_R_1nn_dists().data_handle(),
-                                                        index.get_R_radius().data_handle(),
-                                                        dfunc,
-                                                        vd_ptr,
-                                                        nullptr,
-                                                        false,
-                                                        index.n);
+             raft::resource::get_cuda_stream(handle).get()>>>(index.get_X_reordered().data_handle(),
+                                                              query,
+                                                              n_query_rows,
+                                                              index.n,
+                                                              R,
+                                                              index.m,
+                                                              eps,
+                                                              index.n_landmarks,
+                                                              index.get_R_indptr().data_handle(),
+                                                              index.get_R_1nn_cols().data_handle(),
+                                                              index.get_R_1nn_dists().data_handle(),
+                                                              index.get_R_radius().data_handle(),
+                                                              dfunc,
+                                                              vd_ptr,
+                                                              nullptr,
+                                                              false,
+                                                              index.n);
       } else {
         block_rbc_kernel_eps_csr_pass<value_idx, value_t, 64>
           <<<raft::ceildiv<int64_t>(n_query_rows, 2),
              64,
              0,
-             raft::resource::get_cuda_stream(handle)>>>(index.get_X_reordered().data_handle(),
-                                                        query,
-                                                        n_query_rows,
-                                                        index.n,
-                                                        R,
-                                                        index.m,
-                                                        eps,
-                                                        index.n_landmarks,
-                                                        index.get_R_indptr().data_handle(),
-                                                        index.get_R_1nn_cols().data_handle(),
-                                                        index.get_R_1nn_dists().data_handle(),
-                                                        index.get_R_radius().data_handle(),
-                                                        dfunc,
-                                                        vd_ptr,
-                                                        nullptr,
-                                                        false);
+             raft::resource::get_cuda_stream(handle).get()>>>(index.get_X_reordered().data_handle(),
+                                                              query,
+                                                              n_query_rows,
+                                                              index.n,
+                                                              R,
+                                                              index.m,
+                                                              eps,
+                                                              index.n_landmarks,
+                                                              index.get_R_indptr().data_handle(),
+                                                              index.get_R_1nn_cols().data_handle(),
+                                                              index.get_R_1nn_dists().data_handle(),
+                                                              index.get_R_radius().data_handle(),
+                                                              dfunc,
+                                                              vd_ptr,
+                                                              nullptr,
+                                                              false);
       }
 
       thrust::exclusive_scan(raft::resource::get_thrust_policy(handle),
@@ -1378,7 +1378,29 @@ void rbc_eps_pass(raft::resources const& handle,
           <<<raft::ceildiv<int64_t>(n_query_rows, 2),
              64,
              0,
-             raft::resource::get_cuda_stream(handle)>>>(index.get_X_reordered().data_handle(),
+             raft::resource::get_cuda_stream(handle).get()>>>(index.get_X_reordered().data_handle(),
+                                                              query,
+                                                              n_query_rows,
+                                                              index.n,
+                                                              R,
+                                                              index.m,
+                                                              eps,
+                                                              index.n_landmarks,
+                                                              index.get_R_indptr().data_handle(),
+                                                              index.get_R_1nn_cols().data_handle(),
+                                                              index.get_R_1nn_dists().data_handle(),
+                                                              index.get_R_radius().data_handle(),
+                                                              dfunc,
+                                                              adj_ia,
+                                                              adj_ja,
+                                                              true,
+                                                              index.n);
+      } else {
+        block_rbc_kernel_eps_csr_pass<value_idx, value_t, 64>
+          <<<raft::ceildiv<int64_t>(n_query_rows, 2),
+             64,
+             0,
+             resource::get_cuda_stream(handle).get()>>>(index.get_X_reordered().data_handle(),
                                                         query,
                                                         n_query_rows,
                                                         index.n,
@@ -1393,27 +1415,7 @@ void rbc_eps_pass(raft::resources const& handle,
                                                         dfunc,
                                                         adj_ia,
                                                         adj_ja,
-                                                        true,
-                                                        index.n);
-      } else {
-        block_rbc_kernel_eps_csr_pass<value_idx, value_t, 64>
-          <<<raft::ceildiv<int64_t>(n_query_rows, 2), 64, 0, resource::get_cuda_stream(handle)>>>(
-            index.get_X_reordered().data_handle(),
-            query,
-            n_query_rows,
-            index.n,
-            R,
-            index.m,
-            eps,
-            index.n_landmarks,
-            index.get_R_indptr().data_handle(),
-            index.get_R_1nn_cols().data_handle(),
-            index.get_R_1nn_dists().data_handle(),
-            index.get_R_radius().data_handle(),
-            dfunc,
-            adj_ia,
-            adj_ja,
-            true);
+                                                        true);
       }
     }
   } else {
@@ -1424,23 +1426,25 @@ void rbc_eps_pass(raft::resources const& handle,
                                        raft::resource::get_cuda_stream(handle));
 
     block_rbc_kernel_eps_max_k<value_idx, value_t, 64>
-      <<<raft::ceildiv<int64_t>(n_query_rows, 2), 64, 0, raft::resource::get_cuda_stream(handle)>>>(
-        index.get_X_reordered().data_handle(),
-        query,
-        n_query_rows,
-        index.n,
-        R,
-        index.m,
-        eps,
-        index.n_landmarks,
-        index.get_R_indptr().data_handle(),
-        index.get_R_1nn_cols().data_handle(),
-        index.get_R_1nn_dists().data_handle(),
-        index.get_R_radius().data_handle(),
-        dfunc,
-        vd_ptr,
-        max_k_in,
-        tmp.data());
+      <<<raft::ceildiv<int64_t>(n_query_rows, 2),
+         64,
+         0,
+         raft::resource::get_cuda_stream(handle).get()>>>(index.get_X_reordered().data_handle(),
+                                                          query,
+                                                          n_query_rows,
+                                                          index.n,
+                                                          R,
+                                                          index.m,
+                                                          eps,
+                                                          index.n_landmarks,
+                                                          index.get_R_indptr().data_handle(),
+                                                          index.get_R_1nn_cols().data_handle(),
+                                                          index.get_R_1nn_dists().data_handle(),
+                                                          index.get_R_radius().data_handle(),
+                                                          dfunc,
+                                                          vd_ptr,
+                                                          max_k_in,
+                                                          tmp.data());
 
     int64_t actual_max = thrust::reduce(raft::resource::get_thrust_policy(handle),
                                         vd_ptr,
@@ -1465,7 +1469,7 @@ void rbc_eps_pass(raft::resources const& handle,
                            (value_idx)0);
 
     block_rbc_kernel_eps_max_k_copy<value_idx, 32>
-      <<<n_query_rows, 32, 0, raft::resource::get_cuda_stream(handle)>>>(
+      <<<n_query_rows, 32, 0, raft::resource::get_cuda_stream(handle).get()>>>(
         max_k_in, adj_ia, tmp.data(), adj_ja);
 
     // return 'new' max-k
@@ -1478,7 +1482,7 @@ void rbc_eps_pass(raft::resources const& handle,
                                   adj_ia + n_query_rows,
                                   sizeof(value_idx),
                                   cudaMemcpyDeviceToDevice,
-                                  raft::resource::get_cuda_stream(handle)));
+                                  raft::resource::get_cuda_stream(handle).get()));
   }
 
   raft::resource::sync_stream(handle);

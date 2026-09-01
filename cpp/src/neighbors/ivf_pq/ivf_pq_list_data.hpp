@@ -18,7 +18,7 @@ void unpack_list_data(raft::device_matrix_view<uint8_t, uint32_t, raft::row_majo
                                           raft::row_major> list_data,
                       std::variant<uint32_t, const uint32_t*> offset_or_indices,
                       uint32_t pq_bits,
-                      rmm::cuda_stream_view stream);
+                      cuda::stream_ref stream);
 
 void pack_list_data(raft::device_mdspan<uint8_t,
                                         list_spec_interleaved<uint32_t, uint32_t>::list_extents,
@@ -26,7 +26,7 @@ void pack_list_data(raft::device_mdspan<uint8_t,
                     raft::device_matrix_view<const uint8_t, uint32_t, raft::row_major> codes,
                     std::variant<uint32_t, const uint32_t*> offset_or_indices,
                     uint32_t pq_bits,
-                    rmm::cuda_stream_view stream);
+                    cuda::stream_ref stream);
 
 /** Unpack the list data; see the public interface for the api and usage. */
 template <typename IdxT>

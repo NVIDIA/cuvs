@@ -151,7 +151,7 @@ void launch_kernel(const index<T, IdxT>& index,
                    uint32_t* neighbors,
                    float* distances,
                    uint32_t& grid_dim_x,
-                   rmm::cuda_stream_view stream,
+                   cuda::stream_ref stream,
                    const std::optional<std::string>& metric_udf)
 {
   RAFT_EXPECTS(Veclen == index.veclen(),
@@ -218,7 +218,7 @@ void launch_kernel(const index<T, IdxT>& index,
       n_probes,
       smem_size);
     kernel_launcher->dispatch<interleaved_scan_func_t<T, IdxT>>(
-      stream,
+      stream.get(),
       grid_dim,
       block_dim,
       smem_size,
@@ -435,7 +435,7 @@ void ivfflat_interleaved_scan(const index<T, IdxT>& index,
                               uint32_t* neighbors,
                               float* distances,
                               uint32_t& grid_dim_x,
-                              rmm::cuda_stream_view stream,
+                              cuda::stream_ref stream,
                               const std::optional<std::string>& metric_udf)
 {
   const uint32_t n_probes_clamped = std::min(n_probes, index.n_lists());

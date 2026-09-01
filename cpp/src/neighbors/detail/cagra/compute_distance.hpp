@@ -211,9 +211,8 @@ struct dataset_descriptor_host {
   // Codebook type is determined by DataT for VPQ (always half for now)
 
   struct state {
-    using ready_t = std::tuple<dev_descriptor_t*, rmm::cuda_stream_view>;
-    using init_f =
-      std::tuple<std::function<void(dev_descriptor_t*, rmm::cuda_stream_view)>, size_t>;
+    using ready_t = std::tuple<dev_descriptor_t*, cuda::stream_ref>;
+    using init_f  = std::tuple<std::function<void(dev_descriptor_t*, cuda::stream_ref)>, size_t>;
 
     std::mutex mutex;
     std::atomic<bool> ready;  // Not sure if std::holds_alternative is thread-safe
@@ -230,31 +229,33 @@ struct dataset_descriptor_host {
     {
       if (std::holds_alternative<ready_t>(value)) {
         auto& [ptr, stream] = std::get<ready_t>(value);
-        RAFT_CUDA_TRY_NO_THROW(cudaFreeAsync(ptr, stream));
+        RAFT_CUDA_TRY_NO_THROW(cudaFreeAsync(ptr, stream.get()));
       }
       RAFT_CUDA_TRY_NO_THROW(cudaEventDestroy(ready_event));
     }
 
-    void eval(rmm::cuda_stream_view stream)
+    void eval(cuda::stream_ref stream)
     {
       std::lock_guard<std::mutex> lock(mutex);
       if (std::holds_alternative<init_f>(value)) {
         auto& [fun, size]     = std::get<init_f>(value);
         dev_descriptor_t* ptr = nullptr;
-        RAFT_CUDA_TRY(cudaMallocAsync(&ptr, size, stream));
+        RAFT_CUDA_TRY(cudaMallocAsync(&ptr, size, stream.get()));
         fun(ptr, stream);
-        RAFT_CUDA_TRY(cudaEventRecord(ready_event, stream));
+        RAFT_CUDA_TRY(cudaEventRecord(ready_event, stream.get()));
         value = std::make_tuple(ptr, stream);
         ready.store(true, std::memory_order_release);
       }
     }
 
-    auto get(rmm::cuda_stream_view stream) -> dev_descriptor_t*
+    auto get(cuda::stream_ref stream) -> dev_descriptor_t*
     {
       if (!ready.load(std::memory_order_acquire)) { eval(stream); }
       // value is immutable at this point.
       auto& [ptr, ready_stream] = std::get<ready_t>(value);
-      if (ready_stream != stream) { RAFT_CUDA_TRY(cudaStreamWaitEvent(stream, ready_event, 0)); }
+      if (ready_stream != stream.get()) {
+        RAFT_CUDA_TRY(cudaStreamWaitEvent(stream.get(), ready_event, 0));
+      }
       return ptr;
     }
   };
@@ -286,12 +287,12 @@ struct dataset_descriptor_host {
   /**
    * Return the device pointer, possibly evaluating it in the given thread.
    */
-  [[nodiscard]] auto dev_ptr(rmm::cuda_stream_view stream) const -> const dev_descriptor_t*
+  [[nodiscard]] auto dev_ptr(cuda::stream_ref stream) const -> const dev_descriptor_t*
   {
     return value_->get(stream);
   }
 
-  [[nodiscard]] auto dev_ptr(rmm::cuda_stream_view stream) -> dev_descriptor_t*
+  [[nodiscard]] auto dev_ptr(cuda::stream_ref stream) -> dev_descriptor_t*
   {
     return value_->get(stream);
   }

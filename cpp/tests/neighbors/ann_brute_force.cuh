@@ -101,7 +101,7 @@ class AnnBruteForceTest : public ::testing::TestWithParam<AnnBruteForceInputs<Id
                                                       ps.num_queries,
                                                       ps.k,
                                                       0.001f,
-                                                      stream_,
+                                                      stream_.get(),
                                                       true));
 
       tmp_index_file index_file;
@@ -124,7 +124,7 @@ class AnnBruteForceTest : public ::testing::TestWithParam<AnnBruteForceInputs<Id
                                                       ps.num_queries,
                                                       ps.k,
                                                       0.001f,
-                                                      stream_,
+                                                      stream_.get(),
                                                       true));
     }
   }
@@ -158,7 +158,7 @@ class AnnBruteForceTest : public ::testing::TestWithParam<AnnBruteForceInputs<Id
 
  private:
   raft::resources handle_;
-  rmm::cuda_stream_view stream_;
+  cuda::stream_ref stream_;
   AnnBruteForceInputs<IdxT> ps;
   rmm::device_uvector<DataT> database;
   rmm::device_uvector<DataT> search_queries;
