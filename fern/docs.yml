@@ -327,6 +327,8 @@ navigation:
             path: "./pages/cpp_api/cpp-api-cluster-gmm.md"
           - page: "Cluster Kmeans"
             path: "./pages/cpp_api/cpp-api-cluster-kmeans.md"
+          - page: "Cluster Soar"
+            path: "./pages/cpp_api/cpp-api-cluster-soar.md"
           - page: "Cluster Spectral"
             path: "./pages/cpp_api/cpp-api-cluster-spectral.md"
           - section: "Common Types"

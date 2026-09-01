@@ -1358,6 +1358,7 @@ if(NOT BUILD_CPU_ONLY)
     src/cluster/kmeans_transform_double.cu
     src/cluster/kmeans_transform_float.cu
     src/cluster/single_linkage_float.cu
+    src/cluster/soar.cu
     src/cluster/spectral.cu
     src/core/bitset.cu
     src/core/bloom_filter.cu

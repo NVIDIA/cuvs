@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -24,10 +24,10 @@
 #include <raft/matrix/slice.cuh>
 #include <raft/random/rng.cuh>
 
+#include "../../../cluster/detail/soar.cuh"
 #include "scann_avq.cuh"
 #include "scann_common.cuh"
 #include "scann_quantize.cuh"
-#include "scann_soar.cuh"
 
 namespace cuvs::neighbors::experimental::scann::detail {
 using namespace cuvs::spatial::knn::detail;  // NOLINT
@@ -197,13 +197,14 @@ index<T, IdxT> build(
 
     // Compute SOAR labels.
     // We compute SOAR labels in this loop to eliminate one HtoD copy of the full dataset.
-    compute_soar_labels<T, uint32_t>(res,
-                                     batch_view,
-                                     raft::make_const_mdspan(avq_residuals.view()),
-                                     centroids_view,
-                                     batch_labels_view,
-                                     batch_soar_labels_view,
-                                     params.soar_lambda);
+    cuvs::cluster::soar::detail::compute_soar_labels<T, uint32_t>(
+      res,
+      batch_view,
+      raft::make_const_mdspan(avq_residuals.view()),
+      raft::make_const_mdspan(centroids_view),
+      batch_labels_view,
+      batch_soar_labels_view,
+      params.soar_lambda);
 
     // Compute and quantize residuals using the public PQ API
     int64_t codes_dim = cuvs::preprocessing::quantize::pq::get_quantized_dim(pq_build_params);
