@@ -37,14 +37,15 @@ class kmeans_batch {
   template <typename, typename, bool>
   friend class kmeans_batch_loader;
 
-  kmeans_batch(DataT const* data, std::size_t size, std::size_t offset)
-    : data_(data), size_(size), offset_(offset)
+  kmeans_batch(DataT const* data, std::size_t size, std::size_t offset, int slot)
+    : data_(data), size_(size), offset_(offset), slot_(slot)
   {
   }
 
   DataT const* data_  = nullptr;
   std::size_t size_   = 0;
   std::size_t offset_ = 0;
+  int slot_           = 0;
 };
 
 /**
@@ -76,16 +77,16 @@ class kmeans_batch_loader<DataT, IndexT, true> {
   }
 
   [[nodiscard]] auto num_batches() const noexcept -> std::size_t { return n_batches_; }
-  void prime() noexcept {}
   void prefetch(std::size_t) noexcept {}
-  void prime_second_batch() noexcept {}
+  void recycle(kmeans_batch<DataT> const&, std::size_t) noexcept {}
+  void release(kmeans_batch<DataT> const&) noexcept {}
 
-  [[nodiscard]] auto load(std::size_t pos) const -> kmeans_batch<DataT>
+  [[nodiscard]] auto acquire(std::size_t pos) const -> kmeans_batch<DataT>
   {
     RAFT_EXPECTS(pos < n_batches_, "KMeans batch position is out of range");
     const auto offset = pos * batch_size_;
     const auto size   = std::min(batch_size_, n_rows_ - offset);
-    return {source_ + offset * row_width_, size, offset};
+    return {source_ + offset * row_width_, size, offset, 0};
   }
 
  private:
@@ -120,10 +121,10 @@ class kmeans_batch_loader<DataT, IndexT, false> {
     if (n_rows_ == 0 || source_ == nullptr) { return; }
 
     buffer_0_.resize(row_width_ * batch_size_, copy_stream_);
-    current_ptr_ = buffer_0_.data();
+    buffer_ptrs_[0] = buffer_0_.data();
     if (n_batches_ > 1) {
       buffer_1_.resize(row_width_ * batch_size_, copy_stream_);
-      prefetch_ptr_ = buffer_1_.data();
+      buffer_ptrs_[1] = buffer_1_.data();
     }
   }
 
@@ -145,75 +146,65 @@ class kmeans_batch_loader<DataT, IndexT, false> {
 
   [[nodiscard]] auto num_batches() const noexcept -> std::size_t { return n_batches_; }
 
-  /** Stage batch zero unless it is already active or staged by the previous pass. */
-  void prime()
-  {
-    if (n_batches_ <= 1) { return; }
-    const bool batch_zero_active = current_pos_.has_value() && *current_pos_ == 0;
-    const bool batch_zero_staged = prefetch_pos_.has_value() && *prefetch_pos_ == 0;
-    if (!batch_zero_active && !batch_zero_staged) { prefetch(0); }
-  }
-
-  /** Stage a future batch into the slot not currently consumed by KMeans. */
+  /** Stage a batch into an available slot; do nothing when both slots are occupied. */
   void prefetch(std::size_t pos)
   {
-    if (n_batches_ <= 1 || pos >= n_batches_ || source_ == nullptr) { return; }
-    if (prefetch_pos_.has_value() && *prefetch_pos_ == pos) { return; }
+    RAFT_EXPECTS(pos < n_batches_, "KMeans batch position is out of range");
+    if (source_ == nullptr) { return; }
 
-    const int prefetch_slot = 1 - current_slot_;
-    if (kernel_done_[prefetch_slot] != nullptr) {
-      RAFT_CUDA_TRY(cudaStreamWaitEvent(copy_stream_, kernel_done_[prefetch_slot], 0));
+    for (int slot = 0; slot < num_slots(); ++slot) {
+      if (states_[slot] == slot_state::empty || states_[slot] == slot_state::reusable) {
+        stage(slot, pos);
+        return;
+      }
     }
-
-    queue_h2d(prefetch_ptr_, pos);
-    prefetch_pos_            = pos;
-    h2d_done_[prefetch_slot] = make_event();
-    RAFT_CUDA_TRY(cudaEventRecord(h2d_done_[prefetch_slot], copy_stream_));
   }
 
-  /**
-   * Activate cyclic batch zero after pass-boundary kernels have been submitted, then stage batch
-   * one into the slot retired by the previous pass's last batch.
-   */
-  void prime_second_batch()
-  {
-    prime();
-    if (n_batches_ < 2) { return; }
-    (void)load(0);
-    prefetch(1);
-  }
-
-  /** Make a staged batch visible to kernels on the main stream. */
-  [[nodiscard]] auto load(std::size_t pos) -> kmeans_batch<DataT>
+  /** Make a prefetched batch visible to kernels on the main stream. */
+  [[nodiscard]] auto acquire(std::size_t pos) -> kmeans_batch<DataT>
   {
     RAFT_EXPECTS(pos < n_batches_, "KMeans batch position is out of range");
-    if (!current_pos_.has_value() || *current_pos_ != pos) {
-      if (prefetch_pos_.has_value() && *prefetch_pos_ == pos) {
-        const int retired_slot = current_slot_;
-        std::swap(current_ptr_, prefetch_ptr_);
-        current_slot_ = 1 - current_slot_;
-        prefetch_pos_.reset();
+    for (int slot = 0; slot < num_slots(); ++slot) {
+      if (states_[slot] == slot_state::staged && positions_[slot] == pos) {
+        RAFT_CUDA_TRY(cudaStreamWaitEvent(raft::resource::get_cuda_stream(*res_), ready_[slot], 0));
+        states_[slot] = slot_state::acquired;
 
-        kernel_done_[retired_slot] = make_event();
-        RAFT_CUDA_TRY(
-          cudaEventRecord(kernel_done_[retired_slot], raft::resource::get_cuda_stream(*res_)));
-        RAFT_CUDA_TRY(
-          cudaStreamWaitEvent(raft::resource::get_cuda_stream(*res_), h2d_done_[current_slot_], 0));
-      } else {
-        // A one-batch input has nothing to overlap. Stage it once, then reuse it for every pass.
-        RAFT_EXPECTS(n_batches_ == 1, "KMeans attempted to load a batch that was not prefetched");
-        queue_h2d(current_ptr_, pos);
-        copy_stream_.synchronize();
+        const auto offset = pos * batch_size_;
+        const auto size   = std::min(batch_size_, n_rows_ - offset);
+        return {buffer_ptrs_[slot], size, offset, slot};
       }
-      current_pos_ = pos;
+    }
+    RAFT_FAIL("KMeans attempted to acquire a batch that was not prefetched");
+  }
+
+  /** Record completion of a batch, then refill the same slot with a future batch. */
+  void recycle(kmeans_batch<DataT> const& batch, std::size_t next_pos)
+  {
+    RAFT_EXPECTS(next_pos < n_batches_, "KMeans batch position is out of range");
+    const int slot = validate_acquired(batch);
+
+    // No transfer is needed when the requested future batch is already resident.
+    if (positions_[slot] == next_pos) {
+      states_[slot] = slot_state::staged;
+      return;
     }
 
-    const auto offset = pos * batch_size_;
-    const auto size   = std::min(batch_size_, n_rows_ - offset);
-    return {current_ptr_, size, offset};
+    mark_reusable(slot);
+    stage(slot, next_pos);
+  }
+
+  /** Record completion without scheduling another transfer into the slot. */
+  void release(kmeans_batch<DataT> const& batch)
+  {
+    const int slot = validate_acquired(batch);
+    mark_reusable(slot);
   }
 
  private:
+  enum class slot_state { empty, staged, acquired, reusable };
+
+  [[nodiscard]] auto num_slots() const noexcept -> int { return n_batches_ > 1 ? 2 : 1; }
+
   [[nodiscard]] auto make_event() -> cudaEvent_t
   {
     cudaEvent_t event = nullptr;
@@ -225,6 +216,40 @@ class kmeans_batch_loader<DataT, IndexT, false> {
       throw;
     }
     return event;
+  }
+
+  void stage(int slot, std::size_t pos)
+  {
+    RAFT_EXPECTS(states_[slot] == slot_state::empty || states_[slot] == slot_state::reusable,
+                 "KMeans attempted to overwrite an active batch buffer");
+    if (states_[slot] == slot_state::reusable) {
+      RAFT_CUDA_TRY(cudaStreamWaitEvent(copy_stream_, reusable_[slot], 0));
+    }
+    queue_h2d(buffer_ptrs_[slot], pos);
+    positions_[slot] = pos;
+    if (ready_[slot] == nullptr) { ready_[slot] = make_event(); }
+    // cudaStreamWaitEvent captures the latest record at the time the wait is submitted, so this
+    // per-slot event can be reused after acquire() has enqueued that wait.
+    RAFT_CUDA_TRY(cudaEventRecord(ready_[slot], copy_stream_));
+    states_[slot] = slot_state::staged;
+  }
+
+  void mark_reusable(int slot)
+  {
+    if (reusable_[slot] == nullptr) { reusable_[slot] = make_event(); }
+    // The copy stream consumes this generation's record before the event is recorded again.
+    RAFT_CUDA_TRY(cudaEventRecord(reusable_[slot], raft::resource::get_cuda_stream(*res_)));
+    states_[slot] = slot_state::reusable;
+  }
+
+  [[nodiscard]] auto validate_acquired(kmeans_batch<DataT> const& batch) const -> int
+  {
+    const int slot = batch.slot_;
+    RAFT_EXPECTS(slot >= 0 && slot < num_slots() && states_[slot] == slot_state::acquired &&
+                   positions_[slot] == batch.offset() / batch_size_ &&
+                   buffer_ptrs_[slot] == batch.data(),
+                 "KMeans attempted to release a batch that is not active");
+    return slot;
   }
 
   void queue_h2d(DataT* dst, std::size_t pos)
@@ -245,13 +270,11 @@ class kmeans_batch_loader<DataT, IndexT, false> {
   rmm::cuda_stream_view copy_stream_;
   rmm::device_uvector<DataT> buffer_0_;
   rmm::device_uvector<DataT> buffer_1_;
-  DataT* current_ptr_  = nullptr;
-  DataT* prefetch_ptr_ = nullptr;
-  int current_slot_    = 0;
-  std::optional<std::size_t> current_pos_;
-  std::optional<std::size_t> prefetch_pos_;
-  cudaEvent_t h2d_done_[2]    = {nullptr, nullptr};
-  cudaEvent_t kernel_done_[2] = {nullptr, nullptr};
+  DataT* buffer_ptrs_[2] = {nullptr, nullptr};
+  std::optional<std::size_t> positions_[2];
+  slot_state states_[2]    = {slot_state::empty, slot_state::empty};
+  cudaEvent_t ready_[2]    = {nullptr, nullptr};
+  cudaEvent_t reusable_[2] = {nullptr, nullptr};
   std::vector<cudaEvent_t> events_;
 };
 

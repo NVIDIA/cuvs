@@ -736,24 +736,26 @@ TEST(KmeansBatchLoaderTest, CyclicFourPasses)
   auto device_readback =
     raft::make_device_vector<int64_t, int64_t>(handle, n_passes * n_rows * n_cols);
 
-  loader.prime();
+  if (loader.num_batches() > 0) { loader.prefetch(0); }
   for (int pass = 0; pass < n_passes; ++pass) {
     for (std::size_t pos = 0; pos < loader.num_batches(); ++pos) {
-      const auto batch = loader.load(pos);
-      const bool last  = pos + 1 == loader.num_batches();
-      if (last && pass + 1 < n_passes) {
-        loader.prime();
-      } else if (!last) {
-        loader.prefetch(pos + 1);
-      }
-
+      const auto batch = loader.acquire(pos);
       const auto output_offset =
         (static_cast<std::size_t>(pass) * n_rows + batch.offset()) * n_cols;
       raft::copy(device_readback.data_handle() + output_offset,
                  batch.data(),
                  batch.size() * n_cols,
                  raft::resource::get_cuda_stream(handle));
-      if (last && pass + 1 < n_passes) { loader.prime_second_batch(); }
+
+      if (pos + 1 < loader.num_batches() || pass + 1 < n_passes) {
+        loader.prefetch((pos + 1) % loader.num_batches());
+      }
+      const bool needs_future_batch = pos + 2 < loader.num_batches() || pass + 1 < n_passes;
+      if (needs_future_batch) {
+        loader.recycle(batch, (pos + 2) % loader.num_batches());
+      } else {
+        loader.release(batch);
+      }
     }
   }
 
