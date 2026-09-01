@@ -155,9 +155,10 @@ public abstract class CuVSTestCase {
     assertEquals(sortedExpected, sortedActual);
   }
 
-  protected static boolean isLinuxAmd64() {
+  protected static boolean isLinuxSupportedArch() {
     String name = System.getProperty("os.name");
-    return (name.startsWith("Linux")) && System.getProperty("os.arch").equals("amd64");
+    String arch = System.getProperty("os.arch");
+    return (name.startsWith("Linux")) && (arch.equals("amd64") || arch.equals("aarch64"));
   }
 
   protected static int[][] createIntMatrix() {
