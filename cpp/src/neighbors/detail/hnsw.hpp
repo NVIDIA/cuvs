@@ -33,6 +33,7 @@
 #include <cerrno>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
 #include <cstdlib>
 #include <cstring>
 #include <exception>
@@ -700,6 +701,8 @@ struct layered_hnsw_file_header {
 };
 static_assert(sizeof(layered_hnsw_file_header) == 192,
               "layered_hnsw_file_header must keep a fixed 192-byte on-disk layout");
+inline constexpr size_t layered_hnsw_file_header_version_offset =
+  offsetof(layered_hnsw_file_header, version);
 
 struct layered_hnsw_layer_descriptor {
   uint64_t level;

@@ -9,11 +9,14 @@
 #include <cuvs/neighbors/hnsw.hpp>
 #include <cuvs/util/file_io.hpp>
 
+#include "../../src/neighbors/detail/hnsw.hpp"
+
 #include <rmm/mr/managed_memory_resource.hpp>
 
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <ctime>
@@ -619,12 +622,12 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
       (std::filesystem::path(temp_dir) / "bad_layered" / "bad_version.cuvs").string();
     std::filesystem::copy_file(
       copied_artifact, bad_version_artifact, std::filesystem::copy_options::overwrite_existing);
-    constexpr std::streamoff layered_header_version_offset = 32;
     {
       std::fstream bad_version_file(bad_version_artifact,
                                     std::ios::in | std::ios::out | std::ios::binary);
       const uint32_t bad_version = 999;
-      bad_version_file.seekp(layered_header_version_offset);
+      bad_version_file.seekp(static_cast<std::streamoff>(
+        offsetof(cuvs::neighbors::hnsw::detail::layered_hnsw_file_header, version)));
       bad_version_file.write(reinterpret_cast<const char*>(&bad_version), sizeof(bad_version));
     }
     hnsw::index<DataT>* bad_version_index = nullptr;
