@@ -10,12 +10,13 @@ import com.nvidia.cuvs.CuVSDeviceMatrix;
 import com.nvidia.cuvs.CuVSHostMatrix;
 import com.nvidia.cuvs.CuVSMatrix;
 import com.nvidia.cuvs.RowView;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
+import org.apache.lucene.search.TaskExecutor;
 import org.apache.lucene.util.hnsw.HnswGraph;
 import org.apache.lucene.util.hnsw.NeighborArray;
 
@@ -51,7 +52,8 @@ public class GPUBuiltHnswGraph extends HnswGraph {
       int dimensions,
       List<int[]> layerNodes,
       List<CuVSMatrix> layerAdjacencies,
-      int numThreads) {
+      int numThreads)
+      throws IOException {
 
     this.size = size;
     this.dimensions = dimensions;
@@ -90,7 +92,8 @@ public class GPUBuiltHnswGraph extends HnswGraph {
    * @param numThreads threads to use (1, or fewer than {@value #PARALLEL_MIN_NODES} nodes = serial)
    * @return the NeighborArray
    */
-  private static NeighborArray[] fillNeighborArray(CuVSMatrix adjacency, int size, int numThreads) {
+  private static NeighborArray[] fillNeighborArray(CuVSMatrix adjacency, int size, int numThreads)
+      throws IOException {
     NeighborArray[] neighbors = new NeighborArray[size];
     if (numThreads <= 1 || size < PARALLEL_MIN_NODES) {
       fillNeighborRange(adjacency, neighbors, 0, size);
@@ -118,27 +121,24 @@ public class GPUBuiltHnswGraph extends HnswGraph {
    * source} must be a host matrix (stateless {@code getRow}).
    */
   private static void fillNeighborArrayParallel(
-      CuVSMatrix source, NeighborArray[] neighbors, int size, int numThreads) {
-    ExecutorService pool = Executors.newFixedThreadPool(numThreads);
+      CuVSMatrix source, NeighborArray[] neighbors, int size, int numThreads) throws IOException {
+    ExecutorService pool = Executors.newFixedThreadPool(Math.max(1, numThreads - 1));
     try {
       int perThread = (size + numThreads - 1) / numThreads;
-      List<Future<?>> futures = new ArrayList<>(numThreads);
+      List<Callable<Void>> tasks = new ArrayList<>(numThreads);
       for (int t = 0; t < numThreads; t++) {
         final int start = t * perThread;
         final int end = Math.min(start + perThread, size);
         if (start >= end) {
           break;
         }
-        futures.add(pool.submit(() -> fillNeighborRange(source, neighbors, start, end)));
+        tasks.add(
+            () -> {
+              fillNeighborRange(source, neighbors, start, end);
+              return null;
+            });
       }
-      for (Future<?> f : futures) {
-        f.get();
-      }
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-      throw new RuntimeException("Interrupted during parallel HNSW conversion", e);
-    } catch (ExecutionException e) {
-      throw new RuntimeException("Failed during parallel HNSW conversion", e.getCause());
+      new TaskExecutor(pool).invokeAll(tasks);
     } finally {
       pool.shutdown();
     }

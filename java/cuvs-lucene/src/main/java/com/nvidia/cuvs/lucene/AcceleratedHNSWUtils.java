@@ -19,12 +19,12 @@ import java.util.List;
 import java.util.Random;
 import java.util.SortedSet;
 import java.util.TreeSet;
-import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 import org.apache.lucene.index.FieldInfo;
 import org.apache.lucene.index.VectorSimilarityFunction;
+import org.apache.lucene.search.TaskExecutor;
 import org.apache.lucene.store.ByteBuffersDataOutput;
 import org.apache.lucene.store.DataOutput;
 import org.apache.lucene.store.IndexOutput;
@@ -318,15 +318,20 @@ public class AcceleratedHNSWUtils {
       int maxConn,
       int numThreads)
       throws IOException {
-    ExecutorService pool = Executors.newFixedThreadPool(numThreads);
+    // invokeAll joins every task before it returns, including tasks still running when a sibling
+    // fails, so `buffers` is never concatenated while a worker might still be writing into it.
+    // It also runs one share of each wave on the calling thread instead of parking it, so the
+    // pool only has to cover the other ranges.
+    ExecutorService pool = Executors.newFixedThreadPool(Math.max(1, numThreads - 1));
     try {
+      TaskExecutor executor = new TaskExecutor(pool);
       int n = nodes.length;
       for (int waveStart = 0; waveStart < n; waveStart += WAVE_NODES) {
         int waveEnd = Math.min(waveStart + WAVE_NODES, n);
         int perThread = (waveEnd - waveStart + numThreads - 1) / numThreads;
 
         ByteBuffersDataOutput[] buffers = new ByteBuffersDataOutput[numThreads];
-        List<Future<?>> futures = new ArrayList<>(numThreads);
+        List<Callable<Void>> tasks = new ArrayList<>(numThreads);
         for (int t = 0; t < numThreads; t++) {
           final int subStart = waveStart + t * perThread;
           final int subEnd = Math.min(subStart + perThread, waveEnd);
@@ -334,23 +339,20 @@ public class AcceleratedHNSWUtils {
           if (subStart >= subEnd) {
             continue;
           }
-          futures.add(
-              pool.submit(
-                  () -> {
-                    ByteBuffersDataOutput buffer = new ByteBuffersDataOutput();
-                    int[] scratch = new int[maxConn * 2];
-                    for (int i = subStart; i < subEnd; i++) {
-                      long before = buffer.size();
-                      encodeNode(graph.getNeighbors(0, nodes[i]), scratch, buffer, countOnLevel0);
-                      offsets[i] = Math.toIntExact(buffer.size() - before);
-                    }
-                    buffers[slot] = buffer;
-                    return null;
-                  }));
+          tasks.add(
+              () -> {
+                ByteBuffersDataOutput buffer = new ByteBuffersDataOutput();
+                int[] scratch = new int[maxConn * 2];
+                for (int i = subStart; i < subEnd; i++) {
+                  long before = buffer.size();
+                  encodeNode(graph.getNeighbors(0, nodes[i]), scratch, buffer, countOnLevel0);
+                  offsets[i] = Math.toIntExact(buffer.size() - before);
+                }
+                buffers[slot] = buffer;
+                return null;
+              });
         }
-        for (Future<?> f : futures) {
-          f.get();
-        }
+        executor.invokeAll(tasks);
         // Concatenate in thread order (== node order), preserving the serial byte layout.
         for (ByteBuffersDataOutput buffer : buffers) {
           if (buffer != null) {
@@ -358,17 +360,8 @@ public class AcceleratedHNSWUtils {
           }
         }
       }
+    } finally {
       pool.shutdown();
-    } catch (InterruptedException e) {
-      pool.shutdownNow();
-      Thread.currentThread().interrupt();
-      throw new IOException("Interrupted during parallel writeGraph", e);
-    } catch (ExecutionException e) {
-      pool.shutdownNow();
-      throw new IOException("Parallel writeGraph failed", e.getCause());
-    } catch (RuntimeException | IOException e) {
-      pool.shutdownNow();
-      throw e;
     }
   }
 

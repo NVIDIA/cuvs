@@ -8,6 +8,7 @@ import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.isSupporte
 import static org.apache.lucene.search.DocIdSetIterator.NO_MORE_DOCS;
 
 import com.nvidia.cuvs.CuVSMatrix;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -94,7 +95,8 @@ public class TestWriterThreadsGraphEquivalence extends LuceneTestCase {
     }
   }
 
-  private static GPUBuiltHnswGraph newSingleLayerGraph(CuVSMatrix layer0Adjacency, int numThreads) {
+  private static GPUBuiltHnswGraph newSingleLayerGraph(CuVSMatrix layer0Adjacency, int numThreads)
+      throws IOException {
     // A single layer (layer 0 only): the constructor never consults layerNodes in that case, so
     // the placeholder null entry mirrors the convention used elsewhere for "layer 0 needs no node
     // list" without actually being read.
