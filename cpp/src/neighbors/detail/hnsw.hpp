@@ -14,6 +14,8 @@
 #include <cuvs/util/file_io.hpp>
 #include <cuvs/util/host_memory.hpp>
 
+#include <kvikio/file_handle.hpp>
+
 #include <raft/core/copy.cuh>
 #include <raft/core/host_mdspan.hpp>
 #include <raft/core/logger.hpp>
@@ -29,6 +31,7 @@
 #include <cerrno>
 #include <cmath>
 #include <cstring>
+#include <exception>
 #include <fcntl.h>
 #include <filesystem>
 #include <fstream>
@@ -66,10 +69,11 @@ class exclusive_hnsw_output_file {
                 strerror(error));
     }
 
-    stream_.open(temporary_path_, std::ios::out | std::ios::binary | std::ios::trunc);
-    if (!stream_) {
+    try {
+      stream_ = std::make_unique<cuvs::util::kvikio_ofstream>(temporary_path_);
+    } catch (...) {
       cleanup();
-      RAFT_FAIL("Cannot open temporary file for %s", output_path_.c_str());
+      throw;
     }
   }
 
@@ -78,16 +82,17 @@ class exclusive_hnsw_output_file {
 
   ~exclusive_hnsw_output_file()
   {
-    stream_.close();
+    stream_.reset();
     cleanup();
   }
 
-  std::ostream& stream() { return stream_; }
+  std::ostream& stream() { return *stream_; }
 
   void publish()
   {
-    stream_.close();
-    RAFT_EXPECTS(stream_, "Error writing output %s", output_path_.c_str());
+    stream_->close();
+    RAFT_EXPECTS(*stream_, "Error writing output %s", output_path_.c_str());
+    stream_.reset();
 
     if (::link(temporary_path_.c_str(), output_path_.c_str()) != 0) {
       const int error = errno;
@@ -106,7 +111,7 @@ class exclusive_hnsw_output_file {
 
   std::filesystem::path output_path_;
   std::string temporary_path_;
-  std::ofstream stream_;
+  std::unique_ptr<cuvs::util::kvikio_ofstream> stream_;
 };
 
 template <typename T, typename CagraIndexT>
@@ -813,9 +818,12 @@ void serialize_to_hnswlib_from_disk(raft::resources const& res,
   RAFT_EXPECTS(!dataset_path.empty(), "Unable to get path from dataset file descriptor");
   RAFT_EXPECTS(!mapping_path.empty(), "Unable to get path from mapping file descriptor");
 
-  int graph_fd   = graph_fd_opt->get();
-  int dataset_fd = dataset_fd_opt->get();
-  int label_fd   = mapping_fd_opt->get();
+  // Open kvikio handles for the disk-backed artifacts. Reads here target host buffers (the hnswlib
+  // layout is assembled on the CPU), so kvikio uses its POSIX + threadpool backend, with O_DIRECT
+  // when available; it handles any alignment internally.
+  kvikio::FileHandle graph_kv(graph_path, "r");
+  kvikio::FileHandle dataset_kv(dataset_path, "r");
+  kvikio::FileHandle label_kv(mapping_path, "r");
 
   // Read headers from files to get dimensions
   size_t graph_header_size = 0;
@@ -904,44 +912,59 @@ void serialize_to_hnswlib_from_disk(raft::resources const& res,
                         raft::host_matrix_view<IdxT, int64_t, raft::row_major> graph_buf,
                         raft::host_matrix_view<T, int64_t, raft::row_major> dataset_buf,
                         raft::host_vector_view<uint32_t, int64_t> label_buf) {
-    const size_t graph_bytes   = rows_to_read * graph_degree_int * sizeof(IdxT);
-    const size_t dataset_bytes = rows_to_read * dim * sizeof(T);
-    const size_t label_bytes   = rows_to_read * sizeof(uint32_t);
+    RAFT_EXPECTS(start_row >= 0 && rows_to_read >= 0,
+                 "Batch start row and row count must be non-negative");
+    const size_t row          = static_cast<size_t>(start_row);
+    const size_t rows         = static_cast<size_t>(rows_to_read);
+    const size_t graph_degree = static_cast<size_t>(graph_degree_int);
+    const size_t dim_size     = static_cast<size_t>(dim);
 
-    const off_t graph_offset   = graph_header_size + start_row * graph_degree_int * sizeof(IdxT);
-    const off_t dataset_offset = dataset_header_size + start_row * dim * sizeof(T);
-    const off_t label_offset   = label_header_size + start_row * sizeof(uint32_t);
+    const size_t graph_bytes   = rows * graph_degree * sizeof(IdxT);
+    const size_t dataset_bytes = rows * dim_size * sizeof(T);
+    const size_t label_bytes   = rows * sizeof(uint32_t);
+
+    const size_t graph_offset   = graph_header_size + row * graph_degree * sizeof(IdxT);
+    const size_t dataset_offset = dataset_header_size + row * dim_size * sizeof(T);
+    const size_t label_offset   = label_header_size + row * sizeof(uint32_t);
 
     RAFT_LOG_DEBUG("Reading batch: row=%ld, rows=%ld", start_row, rows_to_read);
 
-#pragma omp parallel sections num_threads(3)
-    {
-#pragma omp section
-      {
-        ssize_t bytes_read = pread(graph_fd, graph_buf.data_handle(), graph_bytes, graph_offset);
-        RAFT_EXPECTS(bytes_read == static_cast<ssize_t>(graph_bytes),
-                     "Failed to read graph data: expected %zu, got %zd",
-                     graph_bytes,
-                     bytes_read);
+    // Issue the three reads concurrently through kvikio (its threadpool parallelizes each), then
+    // wait for all to complete.
+    auto graph_future = graph_kv.pread(graph_buf.data_handle(), graph_bytes, graph_offset);
+    auto dataset_future =
+      dataset_kv.pread(dataset_buf.data_handle(), dataset_bytes, dataset_offset);
+    auto label_future = label_kv.pread(label_buf.data_handle(), label_bytes, label_offset);
+
+    // Drain all three futures before propagating any failure.
+    std::exception_ptr read_error;
+    auto drain = [&read_error](auto& fut) -> size_t {
+      try {
+        return fut.get();
+      } catch (...) {
+        if (!read_error) { read_error = std::current_exception(); }
+        return 0;
       }
-#pragma omp section
-      {
-        ssize_t bytes_read =
-          pread(dataset_fd, dataset_buf.data_handle(), dataset_bytes, dataset_offset);
-        RAFT_EXPECTS(bytes_read == static_cast<ssize_t>(dataset_bytes),
-                     "Failed to read dataset data: expected %zu, got %zd",
-                     dataset_bytes,
-                     bytes_read);
-      }
-#pragma omp section
-      {
-        ssize_t bytes_read = pread(label_fd, label_buf.data_handle(), label_bytes, label_offset);
-        RAFT_EXPECTS(bytes_read == static_cast<ssize_t>(label_bytes),
-                     "Failed to read label data: expected %zu, got %zd",
-                     label_bytes,
-                     bytes_read);
-      }
-    }
+    };
+    const size_t graph_read   = drain(graph_future);
+    const size_t dataset_read = drain(dataset_future);
+    const size_t label_read   = drain(label_future);
+    if (read_error) { std::rethrow_exception(read_error); }
+    RAFT_EXPECTS(graph_read == graph_bytes,
+                 "Short graph read at row %ld: expected %zu, got %zu",
+                 start_row,
+                 graph_bytes,
+                 graph_read);
+    RAFT_EXPECTS(dataset_read == dataset_bytes,
+                 "Short dataset read at row %ld: expected %zu, got %zu",
+                 start_row,
+                 dataset_bytes,
+                 dataset_read);
+    RAFT_EXPECTS(label_read == label_bytes,
+                 "Short label read at row %ld: expected %zu, got %zu",
+                 start_row,
+                 label_bytes,
+                 label_read);
   };
 
   serialize_to_hnswlib_batched<T, IdxT>(
@@ -1321,8 +1344,19 @@ inline std::pair<size_t, size_t> get_available_memory(
 {
   size_t available_host_memory = cuvs::util::get_free_host_memory();
   if (max_host_memory_gb.has_value() && max_host_memory_gb.value() > 0) {
-    available_host_memory = static_cast<size_t>(max_host_memory_gb.value() * (1ULL << 30));
-    RAFT_LOG_INFO("ACE: Using overridden host memory limit: %.2f GiB", max_host_memory_gb.value());
+    const auto configured_host_memory =
+      static_cast<size_t>(max_host_memory_gb.value() * (1ULL << 30));
+    if (available_host_memory < configured_host_memory) {
+      RAFT_LOG_WARN(
+        "ACE: Actual host memory (%.2f GiB) is less than configured limit (%.2f GiB). Using "
+        "actual host memory.",
+        static_cast<double>(available_host_memory) / (1ULL << 30),
+        max_host_memory_gb.value());
+    } else {
+      available_host_memory = configured_host_memory;
+      RAFT_LOG_INFO("ACE: Using overridden host memory limit: %.2f GiB",
+                    max_host_memory_gb.value());
+    }
   }
   // Note: We use total device memory rather than free memory because RMM pools
   // and other allocators may report artificially low free memory. The assumption
