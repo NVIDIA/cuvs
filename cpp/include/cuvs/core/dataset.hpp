@@ -15,6 +15,7 @@
 #include <raft/core/mdspan.hpp>
 #include <raft/util/integer_utils.hpp>
 
+#include <atomic>
 #include <concepts>
 #include <memory>
 #include <type_traits>
@@ -78,6 +79,28 @@ struct dataset {
   [[nodiscard]] auto dim() const noexcept -> uint32_t
   {
     return spec_type::get_dim(*data_, dict_ref());
+  }
+
+  /*
+   * Check if the caller is the only owner of the data.
+   * This is useful to determine if the data can be modified in place without copying.
+   */
+  [[nodiscard]] auto is_data_unique() const noexcept -> bool
+  {
+    /*
+    The count cannot grow behind our back: only copying a `dataset` increments it and `data_` never
+    escapes the class, so no weak_ptr can resurrect a reference. Hence, if it reads one, the sole
+    reference is the one we hold and no other thread has anything to copy from. The converse does
+    not hold - a concurrent release may not be visible yet - but that only costs the optimization.
+
+    The fence must follow the load: releasing a copy decrements with release ordering, yet
+    `use_count()` reads relaxed and shared_ptr pairs the decrement with an acquire only once the
+    counter reaches zero. Without the fence we could miss the writes of a copy that another thread
+    has already destroyed.
+    */
+    if (data_.use_count() != 1) { return false; }
+    std::atomic_thread_fence(std::memory_order_acquire);
+    return true;
   }
 
   /*

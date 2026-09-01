@@ -9,11 +9,17 @@
 #include <raft/core/device_csr_matrix.hpp>
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/host_mdarray.hpp>
+#include <raft/core/math.hpp>
+#include <raft/core/operators.hpp>
 #include <raft/core/resources.hpp>
+#include <raft/linalg/map.cuh>
+#include <raft/linalg/matrix_vector_op.cuh>
+#include <raft/stats/meanvar.cuh>
 
 #include <cstdint>
 #include <iostream>
 #include <memory>
+#include <utility>
 #include <variant>
 
 /** The interface every spec provides, regardless of how the data is stored. */
@@ -21,6 +27,40 @@ template <typename DatasetT>
 void print_dataset(const char* name, const DatasetT& dataset)
 {
   std::cout << name << ": n_rows = " << dataset.n_rows() << ", dim = " << dataset.dim() << '\n';
+}
+
+/**
+ * A transformation that takes its input by value and hands back the result. Written this way, it
+ * can skip the second buffer whenever the caller passes its only copy of the dataset:
+ * `d = normalize(res, std::move(d))` allocates only the column statistics.
+ */
+template <typename T, typename IdxT>
+auto normalize(const raft::resources& res, cuvs::device_contiguous_dataset<T, IdxT> data)
+  -> cuvs::device_contiguous_dataset<T, IdxT>
+{
+  auto in   = data.data_const_view();
+  auto mean = raft::make_device_vector<T, int64_t>(res, in.extent(1));
+  auto var  = raft::make_device_vector<T, int64_t>(res, in.extent(1));
+  // Both statistics come out of a single sweep over the data.
+  raft::stats::meanvar(res, in, mean.view(), var.view(), false);
+  auto mean_view = raft::make_const_mdspan(mean.view());
+  auto var_view  = raft::make_const_mdspan(var.view());
+  // The linewise op broadcasts the per-column statistics for us; a constant column stays at zero.
+  auto standardize = [] __device__(T x, T mean, T var) -> T {
+    return var > T{0} ? (x - mean) / raft::sqrt(var) : T{0};
+  };
+
+  if (data.is_data_unique()) {
+    // No other copy can observe the buffer, so the transform may write over its own input.
+    raft::linalg::matrix_vector_op<raft::Apply::ALONG_ROWS>(
+      res, in, mean_view, var_view, data.data_view(), standardize);
+    return data;
+  }
+  cuvs::device_contiguous_dataset<T, IdxT> out{
+    raft::make_device_matrix<T, int64_t>(res, in.extent(0), in.extent(1))};
+  raft::linalg::matrix_vector_op<raft::Apply::ALONG_ROWS>(
+    res, in, mean_view, var_view, out.data_view(), standardize);
+  return out;
 }
 
 /* The dictionary slot is free for the datasets that have no dictionary. */
@@ -60,6 +100,19 @@ int main()
   cuvs::device_contiguous_dataset<float, uint32_t> device_dataset{
     raft::make_device_matrix<float, int64_t>(res, n_rows, dim)};
   print_dataset("device contiguous", device_dataset);
+
+  // Moving the dataset in leaves `normalize` as its only owner, so the data is scaled in-place.
+  raft::linalg::map_offset(res, device_dataset.data_view(), raft::cast_op<float>{});
+  const auto* original_data = device_dataset.data_const_view().data_handle();
+  device_dataset            = normalize(res, std::move(device_dataset));
+  std::cout << "  reused the input buffer: " << std::boolalpha
+            << (device_dataset.data_const_view().data_handle() == original_data) << '\n';
+
+  // Passing a copy keeps a second owner alive, so the same call has to allocate its output.
+  auto shared_dataset = device_dataset;
+  auto rescaled       = normalize(res, shared_dataset);
+  std::cout << "  reused the input buffer: "
+            << (rescaled.data_const_view().data_handle() == original_data) << '\n';
 
   // The same dataset over a padded layout: the spec, not the dataset, selects the layout.
   using padded_dataset_type = cuvs::device_padded_dataset<float, uint32_t>;
