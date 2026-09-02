@@ -194,7 +194,7 @@ For more code examples of the Rust APIs, including a drop-in project templates, 
 
 ## Contributing
 
-If you are interested in contributing to the cuVS library, please read our [Contributing guidelines](docs/source/contributing.md). Refer to the [Developer Guide](docs/source/developer_guide.md) for details on the developer guidelines, workflows, and principles.
+If you are interested in contributing to the cuVS library, please read our [Contributing guidelines](https://docs.nvidia.com/cuvs/developer-guide/contributing). Refer to the [Developer Guide](https://docs.nvidia.com/cuvs/developer-guide) for details on the developer guidelines, workflows, and principles.
 
 ## References
 
