@@ -134,8 +134,7 @@ class configured_raft_resources {
   /** Default constructor creates all resources anew. */
   configured_raft_resources() : configured_raft_resources{std::make_shared<shared_raft_resources>()}
   {
-    raft::resource::set_cuda_stream_pool(
-      *res_, std::make_shared<rmm::cuda_stream_pool>(1, rmm::cuda_stream::flags::non_blocking));
+    raft::resource::set_cuda_stream_pool(*res_, std::make_shared<rmm::cuda_stream_pool>(1));
   }
 
   configured_raft_resources(configured_raft_resources&&);

@@ -679,8 +679,7 @@ void cuvs_cagra<T, IdxT>::search_base(
         raft::resources composite_handle(handle_);
         size_t n_streams = cagra_indices.size();
         raft::resource::set_cuda_stream_pool(composite_handle,
-                                             std::make_shared<rmm::cuda_stream_pool>(
-                                               n_streams, rmm::cuda_stream::flags::non_blocking));
+                                             std::make_shared<rmm::cuda_stream_pool>(n_streams));
 
         cuvs::neighbors::composite::composite_index<T, IdxT, algo_base::index_type> composite(
           cagra_indices);

@@ -144,30 +144,6 @@ struct cuda_timer {
   }
 };
 
-#ifndef BUILD_CPU_ONLY
-// ATM, rmm::stream does not support passing in flags; hence this helper type.
-struct non_blocking_stream {
-  non_blocking_stream() { cudaStreamCreateWithFlags(&stream_, cudaStreamNonBlocking); }
-  ~non_blocking_stream() noexcept
-  {
-    if (stream_ != nullptr) { cudaStreamDestroy(stream_); }
-  }
-  non_blocking_stream(non_blocking_stream const&) = delete;
-  non_blocking_stream(non_blocking_stream&& other) noexcept { std::swap(stream_, other.stream_); }
-  auto operator=(non_blocking_stream const&) -> non_blocking_stream& = delete;
-  auto operator=(non_blocking_stream&&) -> non_blocking_stream&      = delete;
-  [[nodiscard]] auto view() const noexcept -> cudaStream_t { return stream_; }
-
- private:
-  cudaStream_t stream_{nullptr};
-};
-
-namespace detail {
-inline std::vector<non_blocking_stream> global_stream_pool(0);
-inline std::mutex gsp_mutex;
-}  // namespace detail
-#endif
-
 /**
  * Get a stream associated with the current benchmark thread.
  *
