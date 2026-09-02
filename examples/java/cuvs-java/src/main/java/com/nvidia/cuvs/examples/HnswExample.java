@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs.examples;
@@ -14,6 +14,7 @@ import com.nvidia.cuvs.CuVSIvfPqSearchParams;
 import com.nvidia.cuvs.CuVSResources;
 import com.nvidia.cuvs.HnswIndex;
 import com.nvidia.cuvs.HnswIndexParams;
+import com.nvidia.cuvs.HnswIndexParams.HnswHierarchy;
 import com.nvidia.cuvs.HnswQuery;
 import com.nvidia.cuvs.HnswSearchParams;
 import com.nvidia.cuvs.SearchResults;
@@ -79,8 +80,12 @@ public class HnswExample {
       String hnswIndexFileName = UUID.randomUUID().toString() + ".hnsw";
       index.serializeToHNSW(new FileOutputStream(hnswIndexFileName));
 
+      // Use NONE hierarchy since serializeToHNSW creates a base-layer-only index
       HnswIndexParams hnswIndexParams =
-          new HnswIndexParams.Builder().withVectorDimension(2).build();
+          new HnswIndexParams.Builder()
+              .withVectorDimension(2)
+              .withHierarchy(HnswHierarchy.NONE)
+              .build();
       InputStream inputStreamHNSW = new FileInputStream(hnswIndexFileName);
       File hnswIndexFile = new File(hnswIndexFileName);
 
@@ -93,7 +98,7 @@ public class HnswExample {
       HnswSearchParams hnswSearchParams = new HnswSearchParams.Builder().build();
 
       HnswQuery hnswQuery =
-          new HnswQuery.Builder()
+          new HnswQuery.Builder(resources)
               .withQueryVectors(queries)
               .withSearchParams(hnswSearchParams)
               .withTopK(3)
@@ -108,8 +113,8 @@ public class HnswExample {
       if (hnswIndexFile.exists()) {
         hnswIndexFile.delete();
       }
-      index.destroyIndex();
-      hnswIndex.destroyIndex();
+      index.close();
+      hnswIndex.close();
     }
   }
 }
