@@ -35,8 +35,6 @@
 #include <raft/util/cudart_utils.hpp>
 #include <raft/util/pow2_utils.cuh>
 
-#include <rmm/cuda_stream_view.hpp>
-
 #include <cstdint>
 
 namespace cuvs::neighbors::ivf_flat {

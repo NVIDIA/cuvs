@@ -25,7 +25,7 @@
 #include <raft/util/cuda_rt_essentials.hpp>  // RAFT_CUDA_TRY
 #include <raft/util/pow2_utils.cuh>
 
-#include <rmm/cuda_stream_view.hpp>
+#include <cuda/stream>
 
 namespace cuvs::neighbors::ivf_flat::detail {
 static constexpr int kThreadsPerBlock = 128;

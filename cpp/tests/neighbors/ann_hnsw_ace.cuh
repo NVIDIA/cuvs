@@ -9,6 +9,7 @@
 #include <cuvs/neighbors/hnsw.hpp>
 #include <cuvs/util/file_io.hpp>
 
+#include <cuda/stream>
 #include <rmm/mr/managed_memory_resource.hpp>
 
 #include <algorithm>

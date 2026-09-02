@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -11,6 +11,7 @@
 
 #include "../defines.hpp"
 #include "rotator_gpu.cuh"
+#include <cuda/stream>
 #include <raft/util/integer_utils.hpp>
 
 #include <raft/core/resource/cuda_stream.hpp>

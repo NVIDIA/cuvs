@@ -12,6 +12,7 @@
 #include "../utils/reductions.cuh"
 #include "ivf_gpu.cuh"
 #include "searcher_gpu.cuh"
+#include <cuda/stream>
 #include <cuvs/util/file_io.hpp>
 #include <raft/util/integer_utils.hpp>
 

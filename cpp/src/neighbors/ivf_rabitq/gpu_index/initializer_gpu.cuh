@@ -13,6 +13,7 @@
 
 #include <cuvs/util/file_io.hpp>
 
+#include <cuda/stream>
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/error.hpp>
 #include <raft/core/resource/cuda_stream.hpp>

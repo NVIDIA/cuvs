@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cuda/stream>
 #include <raft/core/resource/cuda_stream_pool.hpp>
 #include <raft/linalg/add.cuh>
 #include <raft/matrix/gather.cuh>

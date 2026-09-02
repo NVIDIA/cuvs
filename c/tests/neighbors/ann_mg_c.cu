@@ -1,10 +1,11 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #include <cuda.h>
 #include <gtest/gtest.h>
+#include <cuda/stream>
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/handle.hpp>
 #include <raft/random/rng.cuh>
@@ -158,12 +159,12 @@ class MgCTest : public ::testing::TestWithParam<mg_test_params> {
 
  protected:
   mg_test_params params;
-  rmm::device_uvector<float> index_data{0, rmm::cuda_stream_default};
-  rmm::device_uvector<float> query_data{0, rmm::cuda_stream_default};
-  rmm::device_uvector<int64_t> neighbors_data{0, rmm::cuda_stream_default};
-  rmm::device_uvector<float> distances_data{0, rmm::cuda_stream_default};
-  rmm::device_uvector<int64_t> ref_neighbors_data{0, rmm::cuda_stream_default};
-  rmm::device_uvector<float> ref_distances_data{0, rmm::cuda_stream_default};
+  rmm::device_uvector<float> index_data{0, cuda::stream_ref{cudaStream_t{cudaStreamDefault}}};
+  rmm::device_uvector<float> query_data{0, cuda::stream_ref{cudaStream_t{cudaStreamDefault}}};
+  rmm::device_uvector<int64_t> neighbors_data{0, cuda::stream_ref{cudaStream_t{cudaStreamDefault}}};
+  rmm::device_uvector<float> distances_data{0, cuda::stream_ref{cudaStream_t{cudaStreamDefault}}};
+  rmm::device_uvector<int64_t> ref_neighbors_data{0, cuda::stream_ref{cudaStream_t{cudaStreamDefault}}};
+  rmm::device_uvector<float> ref_distances_data{0, cuda::stream_ref{cudaStream_t{cudaStreamDefault}}};
 
   // Host memory for multi-GPU tests
   std::vector<float> index_data_host;

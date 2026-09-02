@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -9,6 +9,7 @@
 #include "../../src/distance/fused_distance_nn.cuh"
 #include "../../src/distance/unfused_distance_nn.cuh"
 
+#include <cuda/stream>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/linalg/norm.cuh>
 #include <raft/linalg/unary_op.cuh>

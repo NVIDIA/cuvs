@@ -34,8 +34,6 @@
 
 #include <cub/block/block_reduce.cuh>
 
-#include <rmm/cuda_stream_view.hpp>
-
 #include <algorithm>
 #include <cstdint>
 #include <limits>

@@ -11,6 +11,7 @@
 
 #include <cuvs/neighbors/brute_force.hpp>
 
+#include <cuda/stream>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/device_resources.hpp>
 

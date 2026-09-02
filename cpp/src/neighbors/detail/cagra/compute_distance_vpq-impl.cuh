@@ -8,6 +8,7 @@
 #include "compute_distance_vpq.hpp"
 #include "packed_type.hpp"
 
+#include <cuda/stream>
 #include <cuvs/distance/distance.hpp>
 #include <raft/util/pow2_utils.cuh>
 

@@ -9,6 +9,7 @@
 #include "hashmap.hpp"
 #include "utils.hpp"
 
+#include <cuda/stream>
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/cagra.hpp>
 #include <cuvs/neighbors/common.hpp>

@@ -362,7 +362,7 @@ cudaStreamDestroy(stream);
 
 ```cpp
 #include <raft/core/device_resources.hpp>
-#include <rmm/cuda_stream_view.hpp>
+#include <cuda/stream>
 
 #include <cuda_runtime_api.h>
 

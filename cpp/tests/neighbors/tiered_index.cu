@@ -7,6 +7,7 @@
 #include "ann_utils.cuh"
 
 #include <cstdint>
+#include <cuda/stream>
 #include <cuvs/neighbors/tiered_index.hpp>
 #include <raft/core/host_mdspan.hpp>
 #include <raft/core/resource/cuda_stream.hpp>

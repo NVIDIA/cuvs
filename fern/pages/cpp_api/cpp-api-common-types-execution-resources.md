@@ -210,7 +210,7 @@ Constructs a single-GPU resources object.
 
 ```cpp
 device_resources(
-  cuda::stream_ref stream_view = rmm::cuda_stream_per_thread,
+  cuda::stream_ref stream_view = cuda::stream_ref{cudaStreamPerThread},
   std::shared_ptr<rmm::cuda_stream_pool> stream_pool = nullptr,
   std::shared_ptr<rmm::mr::device_memory_resource> workspace_resource = nullptr,
   std::optional<std::size_t> allocation_limit = std::nullopt);

@@ -10,6 +10,7 @@
 #include "ann_utils.cuh"
 #include "naive_knn.cuh"
 #include <cstddef>
+#include <cuda/stream>
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/all_neighbors.hpp>
 #include <cuvs/neighbors/brute_force.hpp>

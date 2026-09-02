@@ -8,6 +8,7 @@
 #include "ann_utils.cuh"
 #include "naive_knn.cuh"
 
+#include <cuda/stream>
 #include <cuvs/neighbors/ivf_sq.hpp>
 #include <raft/core/bitset.cuh>
 #include <raft/linalg/add.cuh>

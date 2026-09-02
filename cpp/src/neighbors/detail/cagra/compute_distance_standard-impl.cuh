@@ -1,11 +1,12 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
 
 #include "compute_distance_standard.hpp"
 
+#include <cuda/stream>
 #include <cuvs/distance/distance.hpp>
 #include <raft/util/pow2_utils.cuh>
 

@@ -33,7 +33,6 @@
 #include <raft/util/device_atomics.cuh>
 #include <raft/util/integer_utils.hpp>
 
-#include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_scalar.hpp>
 #include <rmm/mr/managed_memory_resource.hpp>
 #include <rmm/resource_ref.hpp>

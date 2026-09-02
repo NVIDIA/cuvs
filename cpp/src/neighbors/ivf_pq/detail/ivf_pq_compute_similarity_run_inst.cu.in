@@ -1,8 +1,9 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <cuda/stream>
 #include <neighbors/ivf_pq/ivf_pq_compute_similarity_impl.cuh>
 #include <neighbors/ivf_pq/ivf_pq_fp_8bit.cuh>
 

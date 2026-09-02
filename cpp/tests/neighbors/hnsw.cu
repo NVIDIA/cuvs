@@ -8,6 +8,7 @@
 #include "cagra_padded_build_helpers.cuh"
 
 #include <cstdint>
+#include <cuda/stream>
 #include <cuvs/neighbors/cagra.hpp>
 #include <cuvs/neighbors/hnsw.hpp>
 #include <raft/core/host_mdspan.hpp>
