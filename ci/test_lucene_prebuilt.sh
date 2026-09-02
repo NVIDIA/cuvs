@@ -95,17 +95,20 @@ rm -rf java/cuvs-lucene/target
 mkdir -p java/cuvs-lucene/target
 cp -a "${CUVS_LUCENE_DIR}/." java/cuvs-lucene/target/
 
+# Guarantee the compiler plugin's staleness check always sees these as up to date,
+# regardless of how the checkout and artifact-download timestamps happen to compare.
+find java/cuvs-lucene/target/classes java/cuvs-lucene/target/test-classes -type f -exec touch {} +
+
 EXITCODE=0
 trap "EXITCODE=1" ERR
 set +e
 
 rapids-logger "Run cuvs-lucene tests against the amd64-built classes"
 
-# Invoking the surefire plugin's goal directly (instead of through the "test" lifecycle
-# phase) runs only that goal -- it does not trigger compile/test-compile first, so this
-# executes the already-compiled amd64 test classes as-is.
+# The "test" phase is cheap here since the compiler plugin skips recompilation once the
+# touch above marks target/ as current.
 pushd java/cuvs-lucene
-mvn --batch-mode surefire:test
+mvn --batch-mode test
 popd
 
 rapids-logger "Test script exiting with value: $EXITCODE"

@@ -66,17 +66,26 @@ rm -rf java/cuvs-java/target
 mkdir -p java/cuvs-java/target
 cp -a "${CUVS_JAVA_DIR}/." java/cuvs-java/target/
 
+# Guarantee the compiler plugin's staleness check always sees these as up to date,
+# regardless of how the checkout and artifact-download timestamps happen to compare --
+# otherwise a "source newer than class" mismatch triggers a real recompile, which would
+# fail here since the jextract-generated Panama binding sources are gitignored and were
+# never generated on this host.
+find java/cuvs-java/target/classes java/cuvs-java/target/test-classes -type f -exec touch {} +
+
 EXITCODE=0
 trap "EXITCODE=1" ERR
 set +e
 
 rapids-logger "Run cuvs-java IT tests against the amd64-built classes"
 
-# Invoking the failsafe plugin's goals directly (instead of through the "integration-test"
-# lifecycle phase) runs only those goals -- it does not trigger compile/test-compile first,
-# so this executes the already-compiled amd64 test classes as-is.
+# cuvs-java is a multi-release JAR (JDKProvider and the jextract-generated bindings live
+# under target/classes/META-INF/versions/22), and that layout is only resolvable on the
+# module path through an actual packaged JAR, not a bare target/classes directory. The
+# "verify" phase repackages the JAR (fast -- no recompilation, since the classes are
+# already up to date) before running the IT tests, so it sees the right layout.
 pushd java/cuvs-java
-mvn --batch-mode failsafe:integration-test failsafe:verify
+mvn --batch-mode verify
 popd
 
 rapids-logger "Test script exiting with value: $EXITCODE"
