@@ -39,7 +39,7 @@ jobs:
     with:
       build_type: pull-request
       matrix-filter: map(select(.ARCH == "amd64"))
-      script: RAPIDS_USE_PUBLISHED_LIBCUVS=true ci/build_java.sh
+      script: env RAPIDS_USE_PUBLISHED_LIBCUVS=true ci/build_java.sh
       file-to-upload: java/cuvs-java/target/
       artifact-name-prefix: cuvs_java
       container-image-repository: rapidsai/ci-conda
@@ -58,7 +58,7 @@ jobs:
     with:
       build_type: pull-request
       matrix-filter: map(select(.ARCH == "amd64"))
-      script: RAPIDS_USE_PUBLISHED_LIBCUVS=true ci/build_lucene.sh
+      script: env RAPIDS_USE_PUBLISHED_LIBCUVS=true ci/build_lucene.sh
       file-to-upload: java/cuvs-lucene/target/
       artifact-name-prefix: cuvs_lucene
       container-image-repository: rapidsai/ci-conda
