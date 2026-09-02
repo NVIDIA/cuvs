@@ -418,12 +418,12 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
     // A brute force index cannot be produced by the merge API; it would have to be rebuilt from the
     // vectors on the host anyway, which is what the vector based merge already does.
     if (gpuSearchParams.getIndexType() != IndexType.CAGRA) {
-      reportNotMergeable(fieldInfo, "the index type is " + gpuSearchParams.getIndexType());
+      logNotMergeable(fieldInfo, "the index type is " + gpuSearchParams.getIndexType());
       return null;
     }
     // A sorted merge interleaves the segments' rows instead of concatenating them.
     if (mergeState.needsIndexSort) {
-      reportNotMergeable(fieldInfo, "the merge has to sort the documents");
+      logNotMergeable(fieldInfo, "the merge has to sort the documents");
       return null;
     }
     List<CuVS2510GPUVectorsReader> readers = new ArrayList<>();
@@ -449,19 +449,18 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
         continue;
       }
       if (!(knnReader instanceof CuVS2510GPUVectorsReader cuvsReader)) {
-        reportNotMergeable(fieldInfo, "a segment is read by a " + knnReader.getClass().getName());
+        logNotMergeable(fieldInfo, "a segment is read by a " + knnReader.getClass().getName());
         return null;
       }
       CuVS2510GPUVectorsReader.FieldEntry fieldEntry = cuvsReader.getFieldEntry(fieldInfo.name);
       // A segment too small for CAGRA, or one whose CAGRA build failed, holds a brute force index
       // instead and has nothing to contribute to the merge.
       if (fieldEntry == null || fieldEntry.cagraIndexLength() == 0) {
-        reportNotMergeable(
-            fieldInfo, "a segment of " + values.size() + " vectors has no CAGRA index");
+        logNotMergeable(fieldInfo, "a segment of " + values.size() + " vectors has no CAGRA index");
         return null;
       }
       if (fieldEntry.count() != values.size()) {
-        reportNotMergeable(
+        logNotMergeable(
             fieldInfo,
             "a segment holds "
                 + fieldEntry.count()
@@ -489,13 +488,13 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
     // Merging a single index is only worth it when the filter has rows to drop; without one the
     // merge would just copy the index it was given.
     if (readers.isEmpty() || (readers.size() == 1 && filtered == false)) {
-      reportNotMergeable(fieldInfo, "there is nothing to merge, " + readers.size() + " segments");
+      logNotMergeable(fieldInfo, "there is nothing to merge, " + readers.size() + " segments");
       return null;
     }
     // The merged index has to be one CAGRA can build, and cuVS refuses a filter that keeps no rows
     // at all.
     if (survivingCount < MIN_CAGRA_INDEX_SIZE) {
-      reportNotMergeable(
+      logNotMergeable(
           fieldInfo, "only " + survivingCount + " vectors survive the deletions of the merge");
       return null;
     }
@@ -530,7 +529,7 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
    * Reports why this field cannot go through the cuVS merge API and has to fall back to the vector
    * based merge.
    */
-  private void reportNotMergeable(FieldInfo fieldInfo, String reason) {
+  private void logNotMergeable(FieldInfo fieldInfo, String reason) {
     info(
         infoStream,
         COMPONENT,
