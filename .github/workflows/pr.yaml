@@ -26,7 +26,10 @@ jobs:
       - rocky8-clib-tests
       - conda-java-build-and-tests-matrix
       - conda-java-build-and-tests
+      - conda-java-tests-other-arch-matrix
+      - conda-java-tests-other-arch
       - conda-lucene-build-and-tests
+      - conda-lucene-tests-other-arch
       - rust-build-matrix
       - rust-build
       - go-build-matrix
@@ -589,6 +592,7 @@ jobs:
     with:
       build_type: pull-request
       matrix_name: conda-cpp-build
+      matrix_filter: map(select(.ARCH == "amd64"))
   conda-java-build-and-tests:
     needs: conda-java-build-and-tests-matrix
     permissions:
@@ -607,15 +611,47 @@ jobs:
     with:
       build_type: pull-request
       node_type: "gpu-l4-latest-1"
-      arch: "${{ matrix.ARCH }}"
+      arch: "amd64"
       container_image: "rapidsai/ci-conda:26.10-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
       script: "ci/test_java.sh"
-      # amd64 is the official published artifact; keep its name unqualified and only suffix other arches so they don't collide with it.
-      artifact-name: "cuvs-java-cuda${{ matrix.CUDA_VER }}${{ matrix.ARCH != 'amd64' && format('-{0}', matrix.ARCH) || '' }}"
+      artifact-name: "cuvs-java-cuda${{ matrix.CUDA_VER }}"
       file_to_upload: "java/cuvs-java/target/"
+  conda-java-tests-other-arch-matrix:
+    # All architectures the C++ core builds for, except amd64.
+    needs: [conda-cpp-build, changed-files]
+    permissions:
+      contents: read
+    uses: rapidsai/shared-workflows/.github/workflows/compute-matrix.yaml@main
+    if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_java || fromJSON(needs.changed-files.outputs.changed_file_groups).test_cpp
+    with:
+      build_type: pull-request
+      matrix_name: conda-cpp-build
+      matrix_filter: map(select(.ARCH != "amd64"))
+  conda-java-tests-other-arch:
+    # Verifies that the amd64-built cuvs-java jar (jextract-generated Panama bindings and
+    # all) also works correctly on every non-amd64 architecture, by running its own IT test
+    # suite against the amd64-built classes without recompiling -- see ci/test_java_prebuilt.sh.
+    needs: [conda-java-tests-other-arch-matrix, conda-java-build-and-tests]
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+      pull-requests: read
+    secrets: inherit # zizmor: ignore[secrets-inherit]
+    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@main
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.conda-java-tests-other-arch-matrix.outputs.matrix) }}
+    with:
+      build_type: pull-request
+      node_type: "gpu-l4-latest-1"
+      arch: "${{ matrix.ARCH }}"
+      container_image: "rapidsai/ci-conda:26.10-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
+      script: "ci/test_java_prebuilt.sh ${{ matrix.ARCH }} cuvs-java-cuda${{ matrix.CUDA_VER }}"
   conda-lucene-build-and-tests:
     # Depends on the Java job for the cuvs-java artifact that cuvs-lucene builds against, and
-    # reuses its matrix so the two always agree on the set of CUDA versions and arches to test on.
+    # reuses its matrix so the two always agree on the set of CUDA versions.
     needs: [conda-java-build-and-tests-matrix, conda-java-build-and-tests]
     permissions:
       actions: read
@@ -633,16 +669,34 @@ jobs:
     with:
       build_type: pull-request
       node_type: "gpu-l4-latest-1"
+      arch: "amd64"
+      container_image: "rapidsai/ci-conda:26.10-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
+      script: "ci/test_lucene.sh cuvs-java-cuda${{ matrix.CUDA_VER }}"
+      artifact-name: "cuvs-lucene-cuda${{ matrix.CUDA_VER }}"
+      file_to_upload: "java/cuvs-lucene/target/"
+  conda-lucene-tests-other-arch:
+    # Verifies that cuvs-lucene, built against the amd64-built cuvs-java jar, also works
+    # correctly on every non-amd64 architecture, by running its test suite against the
+    # amd64-built classes without recompiling -- see ci/test_lucene_prebuilt.sh. Reuses
+    # conda-java-tests-other-arch-matrix so the two always agree on which architectures to test.
+    needs: [conda-java-tests-other-arch-matrix, conda-java-build-and-tests, conda-lucene-build-and-tests]
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+      pull-requests: read
+    secrets: inherit # zizmor: ignore[secrets-inherit]
+    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@main
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.conda-java-tests-other-arch-matrix.outputs.matrix) }}
+    with:
+      build_type: pull-request
+      node_type: "gpu-l4-latest-1"
       arch: "${{ matrix.ARCH }}"
       container_image: "rapidsai/ci-conda:26.10-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
-      # Always installs the amd64-built (official) cuvs-java jar, even when this job itself runs on
-      # a non-amd64 runner. cuvs-lucene depends on the plain jar, which bundles no native code, so
-      # running its tests on arm64 against the amd64-built jar doubles as a cross-arch check that the
-      # jextract-generated Panama bindings baked into that jar work unmodified on arm64 hardware.
-      script: "ci/test_lucene.sh cuvs-java-cuda${{ matrix.CUDA_VER }}"
-      # amd64 is the official published artifact; keep its name unqualified and only suffix other arches so they don't collide with it.
-      artifact-name: "cuvs-lucene-cuda${{ matrix.CUDA_VER }}${{ matrix.ARCH != 'amd64' && format('-{0}', matrix.ARCH) || '' }}"
-      file_to_upload: "java/cuvs-lucene/target/"
+      script: "ci/test_lucene_prebuilt.sh ${{ matrix.ARCH }} cuvs-java-cuda${{ matrix.CUDA_VER }} cuvs-lucene-cuda${{ matrix.CUDA_VER }}"
   rust-build-matrix:
     needs: [conda-cpp-build, changed-files]
     permissions:
