@@ -18,9 +18,13 @@ for arg in "$@"; do
   esac
 done
 
-if [ -z "${CUVS_JAVA_ARTIFACT}" ]; then
-  echo "Error: name of the cuvs-java artifact is missing" >&2
-  exit 1
+if [[ -z "${CUVS_JAVA_ARTIFACT}" ]]; then
+  case "$(arch)" in
+    x86_64) ARTIFACT_ARCH=amd64 ;;
+    aarch64) ARTIFACT_ARCH=arm64 ;;
+    *) echo "Unsupported architecture: $(arch)" >&2; exit 1 ;;
+  esac
+  CUVS_JAVA_ARTIFACT="cuvs_java_${ARTIFACT_ARCH}_cu${RAPIDS_CUDA_VERSION%%.*}"
 fi
 
 if [ -e "/opt/conda/etc/profile.d/conda.sh" ]; then
@@ -31,7 +35,11 @@ rapids-logger "Configuring conda strict channel priority"
 conda config --set channel_priority strict
 
 rapids-logger "Downloading artifacts from previous jobs"
-CPP_CHANNEL=$(rapids-download-from-github "$(rapids-artifact-name conda_cpp libcuvs cuvs --cuda "$RAPIDS_CUDA_VERSION")")
+CPP_CHANNEL_ARGS=()
+if [[ "${RAPIDS_USE_PUBLISHED_LIBCUVS:-false}" != "true" ]]; then
+  CPP_CHANNEL=$(rapids-download-from-github "$(rapids-artifact-name conda_cpp libcuvs cuvs --cuda "$RAPIDS_CUDA_VERSION")")
+  CPP_CHANNEL_ARGS=(--prepend-channel "${CPP_CHANNEL}")
+fi
 CUVS_JAVA_DIR=$(rapids-download-from-github "${CUVS_JAVA_ARTIFACT}")
 
 rapids-logger "Generate Java testing dependencies"
@@ -41,7 +49,7 @@ ENV_YAML_DIR="$(mktemp -d)"
 rapids-dependency-file-generator \
   --output conda \
   --file-key java \
-  --prepend-channel "${CPP_CHANNEL}" \
+  "${CPP_CHANNEL_ARGS[@]}" \
   --matrix "cuda=${RAPIDS_CUDA_VERSION%.*};arch=$(arch)" | tee "${ENV_YAML_DIR}/env.yaml"
 
 rapids-mamba-retry env create --yes -f "${ENV_YAML_DIR}/env.yaml" -n java

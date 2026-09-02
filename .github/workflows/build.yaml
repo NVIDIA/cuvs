@@ -155,43 +155,31 @@ jobs:
       node_type: "gpu-l4-latest-1"
       script: "ci/build_go.sh"
       sha: ${{ inputs.sha }}
-  java-build-matrix:
+  java-build:
     needs: cpp-build
     permissions:
-      contents: read
-    uses: rapidsai/shared-workflows/.github/workflows/compute-matrix.yaml@main
-    with:
-      build_type: pull-request
-      matrix_name: conda-cpp-build
-      matrix_filter: map(select(.ARCH == "amd64"))
-  java-build:
-    needs: java-build-matrix
-    permissions:
       actions: read
       contents: read
       id-token: write
       packages: read
       pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
-    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@main
-    # Artifacts are not published from these jobs, so it's safe to run for multiple CUDA versions.
-    # If these jobs start producing artifacts, the names will have to differentiate between CUDA versions.
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.java-build-matrix.outputs.matrix) }}
+    uses: rapidsai/shared-workflows/.github/workflows/maven-build.yaml@1fc50a1789a34a4e7b67ae23af71fc041067a1af
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
       branch: ${{ inputs.branch }}
-      arch: "amd64"
       date: ${{ inputs.date }}
-      container_image: "rapidsai/ci-conda:26.10-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
-      script: "ci/build_java.sh"
-      artifact-name: "cuvs-java-cuda${{ matrix.CUDA_VER }}"
-      file_to_upload: "java/cuvs-java/target/"
       sha: ${{ inputs.sha }}
+      matrix-build-type: pull-request
+      matrix-filter: map(select(.ARCH == "amd64"))
+      script: ci/build_java.sh
+      file-to-upload: java/cuvs-java/target/
+      artifact-name-prefix: cuvs_java
+      container-image-repository: rapidsai/ci-conda
+      container-image-version: '26.10'
   lucene-build:
     # Depends on the Java job for the cuvs-java artifact that cuvs-lucene builds against.
-    needs: [java-build-matrix, java-build]
+    needs: java-build
     permissions:
       actions: read
       contents: read
@@ -199,22 +187,19 @@ jobs:
       packages: read
       pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
-    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@main
-    # Artifacts are not published from these jobs, so it's safe to run for multiple CUDA versions.
-    # If these jobs start producing artifacts, the names will have to differentiate between CUDA versions.
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.java-build-matrix.outputs.matrix) }}
+    uses: rapidsai/shared-workflows/.github/workflows/maven-build.yaml@1fc50a1789a34a4e7b67ae23af71fc041067a1af
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
       branch: ${{ inputs.branch }}
-      arch: "amd64"
       date: ${{ inputs.date }}
-      container_image: "rapidsai/ci-conda:26.10-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
-      script: "ci/build_lucene.sh cuvs-java-cuda${{ matrix.CUDA_VER }}"
-      artifact-name: "cuvs-lucene-cuda${{ matrix.CUDA_VER }}"
-      file_to_upload: "java/cuvs-lucene/target/"
       sha: ${{ inputs.sha }}
+      matrix-build-type: pull-request
+      matrix-filter: map(select(.ARCH == "amd64"))
+      script: ci/build_lucene.sh
+      file-to-upload: java/cuvs-lucene/target/
+      artifact-name-prefix: cuvs_lucene
+      container-image-repository: rapidsai/ci-conda
+      container-image-version: '26.10'
   python-build:
     needs: [build-details, cpp-build]
     permissions:
