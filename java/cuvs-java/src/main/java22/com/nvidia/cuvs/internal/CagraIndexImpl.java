@@ -941,7 +941,10 @@ public class CagraIndexImpl implements CagraIndex {
    *
    * @param indexes     Array of CAGRA indexes to merge
    * @param mergeParams Parameters to control the merge operation, or null to use defaults
-   * @param rowFilter   The rows to keep, or null to keep all of them
+   * @param rowFilter   The rows to keep, or null to keep all of them. A BitSet shorter than the
+   *                    total row count is valid: the rows beyond its logical length are treated as
+   *                    clear (dropped). See {@link CagraIndex#merge(CagraIndex[], CagraIndexParams,
+   *                    BitSet)} for full semantics.
    * @return A new merged CAGRA index
    */
   public static CagraIndex merge(

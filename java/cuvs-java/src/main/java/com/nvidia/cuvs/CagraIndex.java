@@ -345,9 +345,12 @@ public interface CagraIndex extends AutoCloseable {
    *
    * @param indexes Array of CAGRA indexes to merge
    * @param mergeParams Parameters to control the merge operation, or null to use defaults
-   * @param rowFilter The rows to keep, or null to keep all of them
+   * @param rowFilter The rows to keep, or null to keep all of them. A BitSet shorter than the total
+   *     row count is valid: the rows beyond its logical length are treated as clear (dropped). A bit
+   *     set at a position at or beyond the total row count throws {@link IllegalArgumentException}.
    * @return A new merged CAGRA index
-   * @throws IllegalArgumentException if {@code rowFilter} has a bit set beyond the last row
+   * @throws IllegalArgumentException if {@code rowFilter} has a bit set beyond the last row, or if
+   *     it is non-null but keeps no rows at all
    * @throws Throwable if an error occurs during the merge operation
    */
   static CagraIndex merge(CagraIndex[] indexes, CagraIndexParams mergeParams, BitSet rowFilter)
