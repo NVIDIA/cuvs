@@ -51,6 +51,25 @@ repos:
         args: ["-fallback-style=none", "-style=file", "-i"]
   - repo: local
     hooks:
+      - id: fern-api-reference
+        name: fern-api-reference
+        description: 'Regenerate the Fern API reference pages from the sources'
+        entry: python3 fern/scripts/generate_api_reference.py --quiet
+        language: system
+        pass_filenames: false
+        require_serial: true
+        files: |
+          (?x)
+            ^c/include/.*[.](h|hpp)$|
+            ^cpp/include/.*[.](h|hpp|cuh)$|
+            ^python/cuvs/cuvs/.*[.](py|pyx|pxd)$|
+            ^java/cuvs-java/src/main/.*[.]java$|
+            ^rust/cuvs/src/.*[.]rs$|
+            ^go/.*[.]go$|
+            ^fern/scripts/generate_api_reference[.]py$|
+            ^fern/pages/(c|cpp|python|java|rust|go)_api/.*[.]md$|
+            ^fern/pages/api_reference[.]md$|
+            ^fern/docs[.]yml$
       - id: no-deprecationwarning
         name: no-deprecationwarning
         description: 'Enforce that DeprecationWarning is not introduced (use FutureWarning instead)'
