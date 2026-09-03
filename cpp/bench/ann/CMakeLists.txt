@@ -1,6 +1,6 @@
 # =============================================================================
 # cmake-format: off
-# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 # cmake-format: on
 # =============================================================================
@@ -231,6 +231,55 @@ function(ConfigureAnnBench)
   add_dependencies(CUVS_ANN_BENCH_ALL ${BENCH_NAME})
 endfunction()
 
+function(ConfigureNVBench)
+  set(oneValueArgs NAME)
+  set(multiValueArgs PATH LINKS CXXFLAGS INCLUDES)
+
+  cmake_parse_arguments(ConfigureNVBench "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
+
+  set(BENCH_NAME ${ConfigureNVBench_NAME}_NVBENCH)
+  add_executable(${BENCH_NAME} ${ConfigureNVBench_PATH})
+  target_link_libraries(
+    ${BENCH_NAME}
+    PRIVATE ${ConfigureNVBench_LINKS} nvbench::main CUDA::cudart_static
+            $<TARGET_NAME_IF_EXISTS:OpenMP::OpenMP_CXX> $<TARGET_NAME_IF_EXISTS:conda_env>
+  )
+
+  set_target_properties(
+    ${BENCH_NAME}
+    PROPERTIES CXX_STANDARD 20
+               CXX_STANDARD_REQUIRED ON
+               CUDA_STANDARD 20
+               CUDA_STANDARD_REQUIRED ON
+               POSITION_INDEPENDENT_CODE ON
+               BUILD_RPATH "\$ORIGIN"
+               INSTALL_RPATH "\$ORIGIN"
+  )
+
+  set(NVBENCH_CXX_FLAGS ${CUVS_CXX_FLAGS} ${ConfigureNVBench_CXXFLAGS})
+  target_compile_options(
+    ${BENCH_NAME}
+    PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${NVBENCH_CXX_FLAGS}>"
+            "$<$<COMPILE_LANGUAGE:CUDA>:${CUVS_CUDA_FLAGS}>"
+            "$<$<AND:$<COMPILE_LANGUAGE:CUDA>,$<CONFIG:Debug>>:${CUVS_DEBUG_CUDA_FLAGS}>"
+  )
+
+  target_include_directories(
+    ${BENCH_NAME}
+    PUBLIC "$<BUILD_INTERFACE:${CUVS_SOURCE_DIR}/include>"
+           "$<BUILD_INTERFACE:${CUVS_SOURCE_DIR}/../c/include>"
+    PRIVATE ${ConfigureNVBench_INCLUDES}
+  )
+
+  install(
+    TARGETS ${BENCH_NAME}
+    COMPONENT ann_bench
+    DESTINATION bin/ann
+  )
+
+  add_dependencies(CUVS_ANN_BENCH_ALL ${BENCH_NAME})
+endfunction()
+
 # ##################################################################################################
 # * Configure benchmark targets -------------------------------------------------------------
 
@@ -272,7 +321,8 @@ if(CUVS_ANN_BENCH_USE_CUVS_BRUTE_FORCE)
 endif()
 
 if(CUVS_KNN_BENCH_USE_CUVS_BRUTE_FORCE)
-  ConfigureAnnBench(
+  include(cmake/thirdparty/get_nvbench)
+  ConfigureNVBench(
     NAME CUVS_KNN_BRUTE_FORCE PATH
     $<$<BOOL:${CUVS_KNN_BENCH_USE_CUVS_BRUTE_FORCE}>:src/cuvs/cuvs_brute_force_knn.cu> LINKS cuvs
   )
