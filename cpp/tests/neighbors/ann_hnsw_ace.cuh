@@ -500,7 +500,6 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
     hnsw_params.output_format   = hnsw::HnswOutputFormat::CUVS_LAYERED_TOPOLOGY;
     hnsw_params.M               = 32;
     hnsw_params.ef_construction = ps.ef_construction;
-    hnsw_params.dataset_path    = dataset_file;
 
     auto ace_params                = graph_build_params::ace_params();
     ace_params.npartitions         = ps.npartitions;
@@ -549,7 +548,7 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
                  std::exception);
 
     hnsw::index<DataT>* deserialized_index = nullptr;
-    hnsw::deserialize(handle_, hnsw_params, artifact_path, ps.dim, ps.metric, &deserialized_index);
+    hnsw::deserialize(handle_, artifact_path, dataset_file, &deserialized_index);
     ASSERT_NE(deserialized_index, nullptr);
     std::unique_ptr<hnsw::index<DataT>> deserialized_guard(deserialized_index);
     EXPECT_EQ(deserialized_guard->hierarchy(), hnsw::HnswHierarchy::GPU);
@@ -591,7 +590,7 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
     EXPECT_EQ(copied_file_count, 1);
 
     hnsw::index<DataT>* copied_index = nullptr;
-    hnsw::deserialize(handle_, hnsw_params, copied_artifact, ps.dim, ps.metric, &copied_index);
+    hnsw::deserialize(handle_, copied_artifact, dataset_file, &copied_index);
     ASSERT_NE(copied_index, nullptr);
     std::unique_ptr<hnsw::index<DataT>> copied_guard(copied_index);
 
@@ -625,9 +624,8 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
       bad_file.write(bad_bytes.data(), bad_bytes.size());
     }
     hnsw::index<DataT>* bad_index = nullptr;
-    EXPECT_THROW(
-      hnsw::deserialize(handle_, hnsw_params, bad_artifact, ps.dim, ps.metric, &bad_index),
-      std::exception);
+    EXPECT_THROW(hnsw::deserialize(handle_, bad_artifact, dataset_file, &bad_index),
+                 std::exception);
 
     const auto bad_version_artifact =
       (std::filesystem::path(temp_dir) / "bad_layered" / "bad_version.cuvs").string();
@@ -642,20 +640,11 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
       bad_version_file.write(reinterpret_cast<const char*>(&bad_version), sizeof(bad_version));
     }
     hnsw::index<DataT>* bad_version_index = nullptr;
-    EXPECT_THROW(
-      hnsw::deserialize(
-        handle_, hnsw_params, bad_version_artifact, ps.dim, ps.metric, &bad_version_index),
-      std::exception);
+    EXPECT_THROW(hnsw::deserialize(handle_, bad_version_artifact, dataset_file, &bad_version_index),
+                 std::exception);
 
-    auto missing_dataset_params = hnsw_params;
-    missing_dataset_params.dataset_path.clear();
     hnsw::index<DataT>* missing_dataset_index = nullptr;
-    EXPECT_THROW(hnsw::deserialize(handle_,
-                                   missing_dataset_params,
-                                   copied_artifact,
-                                   ps.dim,
-                                   ps.metric,
-                                   &missing_dataset_index),
+    EXPECT_THROW(hnsw::deserialize(handle_, copied_artifact, "", &missing_dataset_index),
                  std::exception);
 
     const auto truncated_artifact =
@@ -664,8 +653,7 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
       copied_artifact, truncated_artifact, std::filesystem::copy_options::overwrite_existing);
     std::filesystem::resize_file(truncated_artifact, 128);
     hnsw::index<DataT>* truncated_index = nullptr;
-    EXPECT_THROW(hnsw::deserialize(
-                   handle_, hnsw_params, truncated_artifact, ps.dim, ps.metric, &truncated_index),
+    EXPECT_THROW(hnsw::deserialize(handle_, truncated_artifact, dataset_file, &truncated_index),
                  std::exception);
 
     const auto wrong_dataset_file =
@@ -676,12 +664,9 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
                                  database_host.data_handle(),
                                  static_cast<size_t>(ps.n_rows - 1) * ps.dim * sizeof(DataT),
                                  wrong_dataset_header_size);
-    auto wrong_dataset_params               = hnsw_params;
-    wrong_dataset_params.dataset_path       = wrong_dataset_file;
     hnsw::index<DataT>* wrong_dataset_index = nullptr;
     EXPECT_THROW(
-      hnsw::deserialize(
-        handle_, wrong_dataset_params, copied_artifact, ps.dim, ps.metric, &wrong_dataset_index),
+      hnsw::deserialize(handle_, copied_artifact, wrong_dataset_file, &wrong_dataset_index),
       std::exception);
   }
 

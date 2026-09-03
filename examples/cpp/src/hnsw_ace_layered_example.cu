@@ -15,20 +15,22 @@
 //
 // 1. Optionally quantize the dataset and queries to int8.
 // 2. Build a single-file layered HNSW artifact with ACE using hnsw::build.
-// 3. Deserialize the layered HNSW artifact using hnsw::deserialize.
+// 3. Deserialize the layered topology and local dataset using the two-filename hnsw::deserialize
+//    overload.
 // 4. Search the in-memory HNSW index.
 //
 // Layered-on-disk layout:
 //
 //   index_dir/hnsw_index.cuvs
-//     fixed header + metadata JSON
+//     fixed header + layer descriptors
 //     levels: uint8 [N], max HNSW level for each original row id
 //     base nodes + base links: uint32 node ids with hnswlib-ready link rows
 //     upper nodes + upper links: hnswlib-ready upper-layer topology
 //
-// The transferred index artifact is topology-only. The dataset is loaded locally during
-// deserialization from hnsw::index_params::dataset_path. The loader supports .npy and ANN benchmark
-// *.bin datasets; this example writes a local dataset .npy only to make the demo self-contained.
+// The transferred index artifact is topology-only. The dataset filename is passed separately to
+// deserialize. The loader supports row-major .npy files and type-specific ANN benchmark binary
+// files (.fbin, .f16bin/.fp16.fbin, .u8bin, and .i8bin). This example writes a local .npy dataset
+// only to make the demo self-contained.
 //
 // Layer 0 node IDs and neighbor IDs are original dataset row IDs. Upper layers are generated with
 // the same level/order/KNN logic as serialize_to_hnswlib_from_disk, then stored as hnswlib-ready
@@ -102,8 +104,7 @@ quantized_pair<int8_t> quantize_dataset(raft::device_resources const& dev_resour
   return {std::move(dataset_i8), std::move(queries_i8)};
 }
 
-auto make_hnsw_ace_params(const std::string& build_dir, const std::string& dataset_path)
-  -> cuvs::neighbors::hnsw::index_params
+auto make_hnsw_ace_params(const std::string& build_dir) -> cuvs::neighbors::hnsw::index_params
 {
   using namespace cuvs::neighbors;
 
@@ -112,7 +113,6 @@ auto make_hnsw_ace_params(const std::string& build_dir, const std::string& datas
   hnsw_params.hierarchy       = hnsw::HnswHierarchy::GPU;
   hnsw_params.output_format   = hnsw::HnswOutputFormat::CUVS_LAYERED_TOPOLOGY;
   hnsw_params.M               = 32;
-  hnsw_params.dataset_path    = dataset_path;  // Override this path on the search server.
   hnsw_params.ef_construction = 120;
 
   auto ace_params                = hnsw::graph_build_params::ace_params();
@@ -142,17 +142,14 @@ auto hnsw_build(raft::device_resources const& dev_resources,
 
 template <typename T>
 auto hnsw_deserialize(raft::device_resources const& dev_resources,
-                      const cuvs::neighbors::hnsw::index_params& hnsw_params,
                       const std::string& artifact_path,
-                      int64_t dim) -> std::unique_ptr<cuvs::neighbors::hnsw::index<T>>
+                      const std::string& dataset_path)
+  -> std::unique_ptr<cuvs::neighbors::hnsw::index<T>>
 {
   using namespace cuvs::neighbors;
 
   hnsw::index<T>* deserialized_index = nullptr;
-  // Set params.dataset_path to the local dataset path to load the dataset from disk.
-  // hnsw_params.dataset_path = "/tmp/dataset.npy";
-  hnsw::deserialize(
-    dev_resources, hnsw_params, artifact_path, dim, hnsw_params.metric, &deserialized_index);
+  hnsw::deserialize(dev_resources, artifact_path, dataset_path, &deserialized_index);
   return std::unique_ptr<hnsw::index<T>>(deserialized_index);
 }
 
@@ -250,26 +247,26 @@ int main()
   auto queries_i8_view = raft::make_host_matrix_view<const int8_t, int64_t, raft::row_major>(
     q.queries.data_handle(), n_queries, n_dim);
   auto dataset_path = write_local_dataset(dataset_i8_view, std::string{kBuildDir} + "/dataset.npy");
-  auto hnsw_params  = make_hnsw_ace_params(kBuildDir, dataset_path);
+  auto hnsw_params  = make_hnsw_ace_params(kBuildDir);
 
   std::cout << "[stage 2] Build layered HNSW index with ACE" << std::endl;
   auto artifact_path = hnsw_build<int8_t>(dev_resources, hnsw_params, dataset_i8_view);
 
   std::cout << "[stage 3] Deserialize layered HNSW index" << std::endl;
-  auto hnsw_index = hnsw_deserialize<int8_t>(dev_resources, hnsw_params, artifact_path, n_dim);
+  auto hnsw_index = hnsw_deserialize<int8_t>(dev_resources, artifact_path, dataset_path);
 
   std::cout << "[stage 4] Search HNSW index" << std::endl;
   hnsw_search<int8_t>(dev_resources, *hnsw_index, queries_i8_view);
 #else
   auto dataset_path =
     write_local_dataset(dataset_host_view, std::string{kBuildDir} + "/dataset.npy");
-  auto hnsw_params = make_hnsw_ace_params(kBuildDir, dataset_path);
+  auto hnsw_params = make_hnsw_ace_params(kBuildDir);
 
   std::cout << "[stage 2] Build layered HNSW index with ACE" << std::endl;
   auto artifact_path = hnsw_build<float>(dev_resources, hnsw_params, dataset_host_view);
 
   std::cout << "[stage 3] Deserialize layered HNSW index" << std::endl;
-  auto hnsw_index = hnsw_deserialize<float>(dev_resources, hnsw_params, artifact_path, n_dim);
+  auto hnsw_index = hnsw_deserialize<float>(dev_resources, artifact_path, dataset_path);
 
   std::cout << "[stage 4] Search HNSW index" << std::endl;
   hnsw_search<float>(dev_resources, *hnsw_index, queries_host_view);

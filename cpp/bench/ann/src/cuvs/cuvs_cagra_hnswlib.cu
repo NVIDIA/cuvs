@@ -48,10 +48,10 @@ auto parse_build_param(const nlohmann::json& conf) ->
     hnsw_params.ef_construction = conf.at("ef_construction");
   }
   if (conf.contains("dataset_path")) {
-    hnsw_params.dataset_path = conf.at("dataset_path");
+    param.dataset_path = conf.at("dataset_path");
   } else if (hnsw_params.output_format ==
              cuvs::neighbors::hnsw::HnswOutputFormat::CUVS_LAYERED_TOPOLOGY) {
-    hnsw_params.dataset_path = configuration::singleton().get_dataset_conf().base_file;
+    param.dataset_path = configuration::singleton().get_dataset_conf().base_file;
   }
   if (conf.contains("num_threads")) { hnsw_params.num_threads = conf.at("num_threads"); }
 
@@ -94,10 +94,10 @@ auto parse_build_param(const nlohmann::json& conf) ->
                  "CUVS_LAYERED_TOPOLOGY requires ace_params.build_dir to be set; "
                  "got ace_build_dir=%s",
                  build_dir_conf.c_str());
-    RAFT_EXPECTS(!hnsw_params.dataset_path.empty(),
+    RAFT_EXPECTS(!param.dataset_path.empty(),
                  "CUVS_LAYERED_TOPOLOGY requires dataset_path or a configured dataset base_file; "
                  "got dataset_path='%s'",
-                 hnsw_params.dataset_path.c_str());
+                 param.dataset_path.c_str());
     hnsw_params.graph_build_params = ace_params;
   }
   return param;

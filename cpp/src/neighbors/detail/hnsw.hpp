@@ -319,8 +319,8 @@ struct index_impl : index<T> {
 
     try {
       RAFT_EXPECTS(this->output_format() != HnswOutputFormat::CUVS_LAYERED_TOPOLOGY,
-                   "Layered HNSW indexes must be loaded with hnsw::deserialize so a local dataset "
-                   "can be provided through index_params.dataset_path.");
+                   "Layered HNSW indexes must be loaded with the two-filename hnsw::deserialize "
+                   "overload so a local dataset can be provided.");
       appr_alg_ = std::make_unique<hnswlib::HierarchicalNSW<typename hnsw_dist_t<T>::type>>(
         space_.get(), filepath);
       if (this->hierarchy() == HnswHierarchy::NONE) { appr_alg_->base_layer_only = true; }
@@ -2485,10 +2485,8 @@ void serialize(raft::resources const& res, const std::string& filename, const in
 
 template <typename T>
 auto deserialize_layered_hnswlib(raft::resources const& res,
-                                 const index_params& params,
                                  const std::string& artifact_path,
-                                 int dim,
-                                 cuvs::distance::DistanceType metric) -> std::unique_ptr<index<T>>
+                                 const std::string& dataset_path) -> std::unique_ptr<index<T>>
 {
   common::nvtx::range<common::nvtx::domain::cuvs> fun_scope("hnsw::deserialize_layered");
   const auto total_start_time    = std::chrono::steady_clock::now();
@@ -2506,10 +2504,16 @@ auto deserialize_layered_hnswlib(raft::resources const& res,
                "Layered HNSW artifact dtype (%s) does not match requested dtype (%s)",
                layered_dtype_name(static_cast<layered_hnsw_dtype>(header.dtype)),
                layered_dtype_name(layered_dtype_code<T>()));
-  RAFT_EXPECTS(header.metric == static_cast<uint32_t>(metric),
-               "Layered HNSW artifact metric (%s) does not match requested metric (%s)",
-               metric_name(static_cast<cuvs::distance::DistanceType>(header.metric)),
-               metric_name(metric));
+  const auto metric = static_cast<cuvs::distance::DistanceType>(header.metric);
+  RAFT_EXPECTS(metric == cuvs::distance::DistanceType::L2Expanded ||
+                 metric == cuvs::distance::DistanceType::InnerProduct,
+               "Layered HNSW artifact contains unsupported metric code %u",
+               header.metric);
+  RAFT_EXPECTS(header.dim <= static_cast<uint64_t>(std::numeric_limits<int>::max()),
+               "Layered HNSW artifact dimension (%zu) exceeds supported maximum (%d)",
+               static_cast<size_t>(header.dim),
+               std::numeric_limits<int>::max());
+  const auto dim = static_cast<int>(header.dim);
 
   const auto artifact_size      = static_cast<size_t>(std::filesystem::file_size(artifact_path));
   const auto descriptors_offset = sizeof(layered_hnsw_file_header);
@@ -2545,17 +2549,12 @@ auto deserialize_layered_hnswlib(raft::resources const& res,
                "Layered HNSW enterpoint node (%d) outside valid range [0, %zu)",
                metadata.enterpoint_node,
                metadata.n_rows);
-  RAFT_EXPECTS(static_cast<size_t>(dim) == metadata.dim,
-               "Layered HNSW artifact dim (%zu) does not match requested dim (%d)",
-               metadata.dim,
-               dim);
   RAFT_EXPECTS(metadata.layers.size() == static_cast<size_t>(metadata.maxlevel),
                "Layered HNSW artifact has %zu upper layers, expected %d",
                metadata.layers.size(),
                metadata.maxlevel);
 
-  RAFT_EXPECTS(!params.dataset_path.empty(),
-               "Layered HNSW deserialization requires index_params.dataset_path");
+  RAFT_EXPECTS(!dataset_path.empty(), "Layered HNSW deserialization requires a dataset filename");
 
   const auto payload_offset =
     align_up(descriptors_offset + descriptors_bytes, layered_hnsw_alignment);
@@ -2576,7 +2575,7 @@ auto deserialize_layered_hnswlib(raft::resources const& res,
                 to_gib(artifact_size));
 
   const auto dataset_open_start_time = std::chrono::steady_clock::now();
-  auto dataset_file                  = open_layered_dataset_file<T>(params.dataset_path);
+  auto dataset_file                  = open_layered_dataset_file<T>(dataset_path);
   const auto dataset_open_elapsed_ms = elapsed_ms_since(dataset_open_start_time);
 
   RAFT_EXPECTS(dataset_file.shape.size() == 2 && dataset_file.shape[0] == metadata.n_rows &&
@@ -2587,8 +2586,8 @@ auto deserialize_layered_hnswlib(raft::resources const& res,
                metadata.dim,
                dataset_file.shape.size() > 0 ? dataset_file.shape[0] : 0,
                dataset_file.shape.size() > 1 ? dataset_file.shape[1] : 0,
-               params.dataset_path.c_str());
-  validate_npy_file<T>(dataset_file, params.dataset_path, "Layered HNSW dataset");
+               dataset_path.c_str());
+  validate_npy_file<T>(dataset_file, dataset_path, "Layered HNSW dataset");
   RAFT_EXPECTS(metadata.levels_bytes == metadata.n_rows * sizeof(uint8_t),
                "Layered HNSW levels section size mismatch");
   RAFT_EXPECTS(metadata.base_nodes_bytes == metadata.n_rows * sizeof(uint32_t),
@@ -2607,7 +2606,7 @@ auto deserialize_layered_hnswlib(raft::resources const& res,
 
   RAFT_LOG_INFO("Layered HNSW load: dataset header validated in %ld ms (%s)",
                 dataset_open_elapsed_ms,
-                params.dataset_path.c_str());
+                dataset_path.c_str());
 
   const auto dataset_total_bytes = metadata.n_rows * metadata.dim * sizeof(T);
   const auto deserialize_progress_total_bytes =
@@ -2647,7 +2646,7 @@ auto deserialize_layered_hnswlib(raft::resources const& res,
 
   const auto allocation_start_time = std::chrono::steady_clock::now();
   auto hnsw_index                  = std::make_unique<index_impl<T>>(
-    dim, metric, params.hierarchy, HnswOutputFormat::CUVS_LAYERED_TOPOLOGY);
+    dim, metric, HnswHierarchy::GPU, HnswOutputFormat::CUVS_LAYERED_TOPOLOGY);
   auto appr_algo = std::make_unique<hnswlib::HierarchicalNSW<typename hnsw_dist_t<T>::type>>(
     hnsw_index->get_space(), metadata.n_rows, metadata.M, metadata.ef_construction);
   appr_algo->cur_element_count = metadata.n_rows;
@@ -2866,11 +2865,9 @@ void deserialize(raft::resources const& res,
                  index<T>** idx)
 {
   validate_output_format(params);
-  if (params.output_format == HnswOutputFormat::CUVS_LAYERED_TOPOLOGY) {
-    auto hnsw_index = deserialize_layered_hnswlib<T>(res, params, filename, dim, metric);
-    *idx            = hnsw_index.release();
-    return;
-  }
+  RAFT_EXPECTS(params.output_format == HnswOutputFormat::HNSWLIB,
+               "CUVS_LAYERED_TOPOLOGY must be loaded with the two-filename hnsw::deserialize "
+               "overload");
 
   try {
     auto hnsw_index = std::make_unique<index_impl<T>>(dim, metric, params.hierarchy);
@@ -2886,6 +2883,16 @@ void deserialize(raft::resources const& res,
       "Consider using a machine with more memory or reducing the dataset size.",
       filename.c_str());
   }
+}
+
+template <typename T>
+void deserialize(raft::resources const& res,
+                 const std::string& topology_filename,
+                 const std::string& dataset_filename,
+                 index<T>** idx)
+{
+  auto hnsw_index = deserialize_layered_hnswlib<T>(res, topology_filename, dataset_filename);
+  *idx            = hnsw_index.release();
 }
 
 /**

@@ -11,6 +11,7 @@
 #include <chrono>
 #include <filesystem>
 #include <memory>
+#include <string>
 
 namespace cuvs::bench {
 
@@ -45,6 +46,7 @@ class cuvs_cagra_hnswlib : public algo<T>, public algo_gpu {
     using cagra_wrapper_params = typename cuvs_cagra<T, IdxT>::build_param;
     cagra_wrapper_params cagra_build_params;
     cuvs::neighbors::hnsw::index_params hnsw_index_params;
+    std::string dataset_path;
   };
 
   struct search_param : public search_param_base {
@@ -148,12 +150,17 @@ template <typename T, typename IdxT>
 void cuvs_cagra_hnswlib<T, IdxT>::load(const std::string& file)
 {
   cuvs::neighbors::hnsw::index<T>* idx = nullptr;
-  cuvs::neighbors::hnsw::deserialize(handle_,
-                                     build_param_.hnsw_index_params,
-                                     file,
-                                     this->dim_,
-                                     parse_metric_type(this->metric_),
-                                     &idx);
+  if (build_param_.hnsw_index_params.output_format ==
+      cuvs::neighbors::hnsw::HnswOutputFormat::CUVS_LAYERED_TOPOLOGY) {
+    cuvs::neighbors::hnsw::deserialize(handle_, file, build_param_.dataset_path, &idx);
+  } else {
+    cuvs::neighbors::hnsw::deserialize(handle_,
+                                       build_param_.hnsw_index_params,
+                                       file,
+                                       this->dim_,
+                                       parse_metric_type(this->metric_),
+                                       &idx);
+  }
   hnsw_index_ = std::shared_ptr<cuvs::neighbors::hnsw::index<T>>(idx);
 }
 
