@@ -370,8 +370,12 @@ if(NOT BUILD_CPU_ONLY)
     jit_lto_kernel_usage_requirements INTERFACE rmm::rmm raft::raft CCCL::CCCL cuco::cuco
   )
 
+  enable_language(ASM)
   block(PROPAGATE jit_lto_files)
   set(jit_lto_files)
+  rtcx_jit_lto_embed_begin(
+    cuvs_jit_lto_fragments OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated_kernels/jit_lto"
+  )
   set(CMAKE_CUDA_ARCHITECTURES ${JIT_LTO_TARGET_ARCHITECTURE})
   set(neighbors_ns "cuvs::neighbors::detail")
   generate_jit_lto_kernels(
@@ -1151,6 +1155,7 @@ if(NOT BUILD_CPU_ONLY)
       "${CMAKE_CURRENT_BINARY_DIR}/generated_kernels/distance/pairwise_matrix/compute_distance_epilog_rbf"
     KERNEL_LINK_LIBRARIES jit_lto_kernel_usage_requirements
   )
+  rtcx_jit_lto_embed_finalize(cuvs_jit_lto_fragments SOURCE_LIST jit_lto_files)
   endblock()
 
   # Note that this matrix contains an `arch_includes` placeholder, since we don't currently have a
