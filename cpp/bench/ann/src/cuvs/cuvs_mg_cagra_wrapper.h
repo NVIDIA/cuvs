@@ -78,7 +78,7 @@ class cuvs_mg_cagra : public algo<T>, public algo_gpu {
   build_param index_params_;
   cuvs::neighbors::mg_search_params<cagra::search_params> search_params_;
   std::shared_ptr<
-    cuvs::neighbors::mg_index<cuvs::neighbors::cagra::device_standard_index<T, IdxT>, T, IdxT>>
+    cuvs::neighbors::mg_index<cuvs::neighbors::cagra::device_padded_index<T, IdxT>, T, IdxT>>
     index_;
 };
 
@@ -93,10 +93,13 @@ void cuvs_mg_cagra<T, IdxT>::build(const T* dataset, size_t nrow)
 
   auto dataset_mds =
     raft::make_host_matrix_view<const T, int64_t, raft::row_major>(dataset, nrow, dim_);
-  auto dataset_view = cuvs::neighbors::make_host_standard_dataset_view(dataset_mds);
-  auto idx          = cuvs::neighbors::cagra::build(clique_, build_params, dataset_view);
-  index_            = std::make_shared<
-               cuvs::neighbors::mg_index<cuvs::neighbors::cagra::device_standard_index<T, IdxT>, T, IdxT>>(
+  // The row alignment of the host view is irrelevant: every per-rank device shard is padded
+  // individually during the multi-GPU build.
+  cuvs::neighbors::host_padded_dataset_view<T, int64_t> dataset_view(dataset_mds,
+                                                                     static_cast<uint32_t>(dim_));
+  auto idx = cuvs::neighbors::cagra::build(clique_, build_params, dataset_view);
+  index_   = std::make_shared<
+      cuvs::neighbors::mg_index<cuvs::neighbors::cagra::device_padded_index<T, IdxT>, T, IdxT>>(
     std::move(idx));
 }
 
@@ -129,7 +132,7 @@ template <typename T, typename IdxT>
 void cuvs_mg_cagra<T, IdxT>::load(const std::string& file)
 {
   index_ = std::make_shared<
-    cuvs::neighbors::mg_index<cuvs::neighbors::cagra::device_standard_index<T, IdxT>, T, IdxT>>(
+    cuvs::neighbors::mg_index<cuvs::neighbors::cagra::device_padded_index<T, IdxT>, T, IdxT>>(
     clique_, index_params_.mode);
   cuvs::neighbors::cagra::deserialize<T, IdxT>(clique_, file, index_.get());
 }

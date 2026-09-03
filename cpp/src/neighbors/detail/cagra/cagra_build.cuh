@@ -5,6 +5,7 @@
 #pragma once
 
 #include "../../../core/nvtx.hpp"
+#include "../../../util/kvikio_io.hpp"
 #include "../../ivf_pq/ivf_pq_fp16_overflow.cuh"
 #include "graph_core.cuh"
 #include <cuvs/preprocessing/quantize/pq.hpp>
@@ -20,6 +21,7 @@
 #include <raft/core/mdspan.hpp>
 #include <raft/core/numpy_serializer.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
+#include <raft/util/cuda_rt_essentials.hpp>
 #include <raft/util/integer_utils.hpp>
 
 #include <cuvs/cluster/kmeans.hpp>
@@ -31,19 +33,26 @@
 #include <cuvs/util/file_io.hpp>
 #include <cuvs/util/host_memory.hpp>
 
+#include <kvikio/file_handle.hpp>
+
 // TODO: This shouldn't be calling spatial/knn APIs
 #include "../ann_utils.cuh"
 
 #include <rmm/resource_ref.hpp>
 
+#include <array>
+#include <cerrno>
 #include <chrono>
 #include <cstdio>
+#include <cstring>
+#include <exception>
 #include <filesystem>
 #include <omp.h>
 #include <optional>
 #include <type_traits>
 #include <unordered_set>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include <sys/mman.h>
@@ -54,6 +63,94 @@ namespace cuvs::neighbors::cagra::detail {
 // Helpers to convert bytes to MiB and GiB
 constexpr double to_mib(size_t bytes) { return static_cast<double>(bytes) / (1 << 20); }
 constexpr double to_gib(size_t bytes) { return static_cast<double>(bytes) / (1 << 30); }
+
+class ace_disk_workspace {
+ public:
+  enum class artifact : size_t {
+    reordered_dataset,
+    augmented_dataset,
+    dataset_mapping,
+    cagra_graph,
+  };
+
+  explicit ace_disk_workspace(std::string build_dir)
+    : build_dir_(std::move(build_dir)),
+      artifacts_{build_dir_ / "reordered_dataset.npy",
+                 build_dir_ / "augmented_dataset.npy",
+                 build_dir_ / "dataset_mapping.npy",
+                 build_dir_ / "cagra_graph.npy"}
+  {
+  }
+
+  void initialize()
+  {
+    if (mkdir(build_dir_.c_str(), 0755) == 0) {
+      directory_created_by_this_build_ = true;
+      return;
+    }
+
+    if (errno != EEXIST) {
+      RAFT_FAIL("Failed to create ACE build directory: %s (errno: %d, %s)",
+                build_dir_.c_str(),
+                errno,
+                strerror(errno));
+    }
+
+    std::error_code error;
+    const bool is_directory = std::filesystem::is_directory(build_dir_, error);
+    RAFT_EXPECTS(!error,
+                 "Failed to inspect ACE build directory: %s (%s)",
+                 build_dir_.c_str(),
+                 error.message().c_str());
+    RAFT_EXPECTS(is_directory, "ACE build path is not a directory: %s", build_dir_.c_str());
+  }
+
+  [[nodiscard]] std::string artifact_path(artifact which) const
+  {
+    return artifacts_[static_cast<size_t>(which)].string();
+  }
+
+  void mark_artifact_created(artifact which) noexcept
+  {
+    artifacts_created_[static_cast<size_t>(which)] = true;
+  }
+
+  void commit() noexcept { committed_ = true; }
+
+  void cleanup() noexcept
+  {
+    if (committed_) { return; }
+
+    for (size_t i = artifacts_.size(); i > 0; --i) {
+      if (!artifacts_created_[i - 1]) { continue; }
+
+      std::error_code error;
+      std::filesystem::remove(artifacts_[i - 1], error);
+      if (error) {
+        RAFT_LOG_WARN("ACE: Failed to remove build artifact %s: %s",
+                      artifacts_[i - 1].c_str(),
+                      error.message().c_str());
+      }
+    }
+
+    if (directory_created_by_this_build_) {
+      std::error_code error;
+      std::filesystem::remove(build_dir_, error);
+      if (error) {
+        RAFT_LOG_WARN("ACE: Failed to remove empty build directory %s: %s",
+                      build_dir_.c_str(),
+                      error.message().c_str());
+      }
+    }
+  }
+
+ private:
+  std::filesystem::path build_dir_;
+  std::array<std::filesystem::path, 4> artifacts_;
+  std::array<bool, 4> artifacts_created_{};
+  bool directory_created_by_this_build_ = false;
+  bool committed_                       = false;
+};
 
 template <typename T, typename IdxT>
 void check_graph_degree(size_t& intermediate_degree, size_t& graph_degree, size_t dataset_size)
@@ -80,16 +177,21 @@ template <typename T, typename IdxT>
 void ace_get_partition_labels(
   raft::resources const& res,
   raft::host_matrix_view<const T, int64_t, raft::row_major> dataset,
+  size_t dataset_dim,
   raft::host_matrix_view<IdxT, int64_t, raft::row_major> partition_labels,
   raft::host_matrix_view<IdxT, int64_t, raft::row_major> partition_histogram,
   size_t min_partition_size,
   double sampling_rate = 0.01)
 {
   size_t dataset_size = dataset.extent(0);
-  size_t dataset_dim  = dataset.extent(1);
   size_t labels_size  = partition_labels.extent(0);
   size_t labels_dim   = partition_labels.extent(1);
   RAFT_EXPECTS(dataset_size == labels_size, "Dataset size must match partition labels extent");
+  RAFT_EXPECTS(dataset_dim > 0, "Dataset dimension must be greater than 0");
+  RAFT_EXPECTS(static_cast<size_t>(dataset.extent(1)) >= dataset_dim,
+               "Dataset row extent (%zu) must be >= logical dimension (%zu)",
+               static_cast<size_t>(dataset.extent(1)),
+               dataset_dim);
   size_t n_partitions = partition_histogram.extent(0);
   RAFT_EXPECTS(labels_dim == 2, "Labels must have 2 columns");
   RAFT_EXPECTS(partition_histogram.extent(1) == 2, "Partition histogram must have 2 columns");
@@ -97,7 +199,7 @@ void ace_get_partition_labels(
 
   // Sampling vectors from dataset. Uses float conversion on host instead of
   // raft::matrix::sample_rows to minimize GPU memory usage.
-  // TODO(julianmi): Switch to sample_rows when https://github.com/rapidsai/cuvs/issues/1461 is
+  // TODO(julianmi): Switch to sample_rows when https://github.com/nvidia/cuvs/issues/1461 is
   // addressed.
   size_t n_samples         = dataset_size * sampling_rate;
   const size_t min_samples = 100 * n_partitions;
@@ -429,35 +531,82 @@ void ace_adjust_sub_graph_ids(
   }
 }
 
-// ACE: Adjust ids in sub search graph in place for disk version
-template <typename IdxT>
+// ACE: Adjust IDs into global reordered IDs on the device for the disk version.
+template <typename GraphIdxT, typename IdxT>
+__global__ void ace_adjust_sub_graph_ids_disk_kernel(const GraphIdxT* sub_search_graph,
+                                                     IdxT* adjusted_search_graph,
+                                                     size_t graph_edges,
+                                                     size_t core_sub_dataset_size,
+                                                     IdxT core_partition_offset,
+                                                     const IdxT* augmented_reordered_ids)
+{
+  const size_t edge_id = static_cast<size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  if (edge_id >= graph_edges) { return; }
+
+  const GraphIdxT neighbor = sub_search_graph[edge_id];
+  if (static_cast<size_t>(neighbor) < core_sub_dataset_size) {
+    adjusted_search_graph[edge_id] = static_cast<IdxT>(neighbor) + core_partition_offset;
+  } else {
+    adjusted_search_graph[edge_id] =
+      augmented_reordered_ids[static_cast<size_t>(neighbor) - core_sub_dataset_size];
+  }
+}
+
+template <typename IdxT, typename GraphIdxT>
 void ace_adjust_sub_graph_ids_disk(
+  raft::resources const& res,
   size_t core_sub_dataset_size,
   size_t augmented_sub_dataset_size,
   size_t graph_degree,
   size_t partition_id,
-  raft::host_matrix_view<IdxT, int64_t, raft::row_major> sub_search_graph,
+  raft::device_matrix_view<const GraphIdxT, int64_t, raft::row_major> sub_search_graph,
+  raft::device_matrix_view<IdxT, int64_t, raft::row_major> adjusted_search_graph,
   raft::host_vector_view<IdxT, int64_t, raft::row_major> core_partition_offsets,
   raft::host_vector_view<IdxT, int64_t, raft::row_major> augmented_partition_offsets,
   raft::host_vector_view<IdxT, int64_t, raft::row_major> augmented_backward_mapping,
   raft::host_vector_view<IdxT, int64_t, raft::row_major> core_forward_mapping)
 {
+  RAFT_EXPECTS(static_cast<size_t>(sub_search_graph.extent(0)) >= core_sub_dataset_size,
+               "ACE: source graph has fewer rows than the core partition");
+  RAFT_EXPECTS(static_cast<size_t>(sub_search_graph.extent(1)) == graph_degree,
+               "ACE: source graph degree does not match the requested graph degree");
+  RAFT_EXPECTS(static_cast<size_t>(adjusted_search_graph.extent(0)) == core_sub_dataset_size &&
+                 static_cast<size_t>(adjusted_search_graph.extent(1)) == graph_degree,
+               "ACE: adjusted graph shape does not match the core partition");
+
+  const size_t augmented_offset = augmented_partition_offsets(partition_id);
+  RAFT_EXPECTS(augmented_offset + augmented_sub_dataset_size <=
+                 static_cast<size_t>(augmented_backward_mapping.extent(0)),
+               "ACE: augmented partition exceeds the backward mapping");
+
+  auto augmented_reordered_ids = raft::make_host_vector<IdxT, int64_t>(augmented_sub_dataset_size);
 #pragma omp parallel for
-  for (size_t i = 0; i < core_sub_dataset_size; i++) {
-    for (size_t k = 0; k < graph_degree; k++) {
-      size_t j = sub_search_graph(i, k);
-      if (j < core_sub_dataset_size) {
-        // core partition neighbor: local → core reordered
-        sub_search_graph(i, k) = j + core_partition_offsets(partition_id);
-      } else {
-        // Augmented partition neighbor: local → augmented reordered→ original → core reordered
-        size_t j_augmented = j - core_sub_dataset_size;
-        size_t j_original =
-          augmented_backward_mapping(j_augmented + augmented_partition_offsets(partition_id));
-        sub_search_graph(i, k) = core_forward_mapping(j_original);
-      }
-    }
+  for (size_t i = 0; i < augmented_sub_dataset_size; i++) {
+    const size_t original_id   = augmented_backward_mapping(augmented_offset + i);
+    augmented_reordered_ids(i) = core_forward_mapping(original_id);
   }
+
+  auto augmented_reordered_ids_dev =
+    raft::make_device_vector<IdxT, int64_t>(res, augmented_sub_dataset_size);
+  raft::copy(res, augmented_reordered_ids_dev.view(), augmented_reordered_ids.view());
+
+  const size_t graph_edges = core_sub_dataset_size * graph_degree;
+  if (graph_edges == 0) { return; }
+
+  constexpr uint32_t block_size = 256;
+  const dim3 grid_size(raft::ceildiv(graph_edges, static_cast<size_t>(block_size)));
+  ace_adjust_sub_graph_ids_disk_kernel<<<grid_size,
+                                         block_size,
+                                         0,
+                                         raft::resource::get_cuda_stream(res)>>>(
+    sub_search_graph.data_handle(),
+    adjusted_search_graph.data_handle(),
+    graph_edges,
+    core_sub_dataset_size,
+    core_partition_offsets(partition_id),
+    augmented_reordered_ids_dev.data_handle());
+  RAFT_CUDA_TRY(cudaPeekAtLastError());
+  raft::resource::sync_stream(res);
 }
 
 // ACE: Reorder dataset based on partition assignments and store to disk
@@ -468,6 +617,7 @@ void ace_reorder_and_store_dataset(
   raft::resources const& res,
   const std::string& build_dir,
   raft::host_matrix_view<const T, int64_t, row_major> dataset,
+  size_t dataset_dim,
   raft::host_matrix_view<IdxT, int64_t, raft::row_major> partition_labels,
   raft::host_matrix_view<IdxT, int64_t, raft::row_major> partition_histogram,
   raft::host_vector_view<IdxT, int64_t, raft::row_major> core_backward_mapping,
@@ -483,8 +633,12 @@ void ace_reorder_and_store_dataset(
   auto start = std::chrono::high_resolution_clock::now();
 
   size_t dataset_size = dataset.extent(0);
-  size_t dataset_dim  = dataset.extent(1);
   size_t n_partitions = partition_histogram.extent(0);
+  RAFT_EXPECTS(dataset_dim > 0, "Dataset dimension must be greater than 0");
+  RAFT_EXPECTS(static_cast<size_t>(dataset.extent(1)) >= dataset_dim,
+               "Dataset row extent (%zu) must be >= logical dimension (%zu)",
+               static_cast<size_t>(dataset.extent(1)),
+               dataset_dim);
 
   RAFT_LOG_DEBUG(
     "ACE: Reordering and storing dataset to disk (%lu vectors, %lu dimensions, %lu partitions)",
@@ -676,129 +830,124 @@ void ace_reorder_and_store_dataset(
 }
 
 // ACE: Load partition dataset and augmented dataset from disk
-template <typename T, typename IdxT>
+template <typename T, typename IdxT, typename Accessor>
 void ace_load_partition_dataset_from_disk(
-  raft::resources const& res,
-  const std::string& build_dir,
   size_t partition_id,
   size_t dataset_dim,
   raft::host_matrix_view<IdxT, int64_t, raft::row_major> partition_histogram,
   raft::host_vector_view<IdxT, int64_t, raft::row_major> core_partition_offsets,
   raft::host_vector_view<IdxT, int64_t, raft::row_major> augmented_partition_offsets,
-  raft::host_matrix_view<T, int64_t, raft::row_major> sub_dataset)
+  const cuvs::util::file_descriptor& reordered_fd,
+  const cuvs::util::file_descriptor& augmented_fd,
+  size_t reordered_header_size,
+  size_t augmented_header_size,
+  raft::mdspan<T, raft::matrix_extent<int64_t>, raft::row_major, Accessor> sub_dataset)
 {
-  size_t n_partitions = partition_histogram.extent(0);
-
   RAFT_LOG_DEBUG("ACE: Loading partition %lu dataset from disk", partition_id);
 
-  size_t core_size            = partition_histogram(partition_id, 0);
-  size_t augmented_size       = partition_histogram(partition_id, 1);
-  size_t total_partition_size = core_size + augmented_size;
+  const std::string reordered_path = reordered_fd.get_path();
+  const std::string augmented_path = augmented_fd.get_path();
+  T* sub_dataset_ptr               = sub_dataset.data_handle();
+  RAFT_EXPECTS(sub_dataset_ptr != nullptr, "ACE: sub-dataset destination must not be null");
+  RAFT_EXPECTS(reordered_fd.is_valid() && !reordered_path.empty(),
+               "ACE: reordered dataset file descriptor is not valid");
+  RAFT_EXPECTS(augmented_fd.is_valid() && !augmented_path.empty(),
+               "ACE: augmented dataset file descriptor is not valid");
+  RAFT_EXPECTS(partition_id < static_cast<size_t>(partition_histogram.extent(0)),
+               "ACE: partition id is out of range");
+  RAFT_EXPECTS(partition_id < static_cast<size_t>(core_partition_offsets.extent(0)),
+               "ACE: core partition offset is out of range");
+  RAFT_EXPECTS(partition_id < static_cast<size_t>(augmented_partition_offsets.extent(0)),
+               "ACE: augmented partition offset is out of range");
+
+  size_t core_size      = partition_histogram(partition_id, 0);
+  size_t augmented_size = partition_histogram(partition_id, 1);
+  size_t total_size     = core_size + augmented_size;
+
+  RAFT_EXPECTS(static_cast<size_t>(sub_dataset.extent(0)) == total_size,
+               "ACE: sub-dataset rows (%zu) must match partition size (%zu)",
+               static_cast<size_t>(sub_dataset.extent(0)),
+               total_size);
+  RAFT_EXPECTS(static_cast<size_t>(sub_dataset.extent(1)) == dataset_dim,
+               "ACE: sub-dataset columns (%zu) must match dataset dimensions (%zu)",
+               static_cast<size_t>(sub_dataset.extent(1)),
+               dataset_dim);
 
   RAFT_LOG_DEBUG("ACE: Partition %lu: %lu core + %lu augmented = %lu total vectors",
                  partition_id,
                  core_size,
                  augmented_size,
-                 total_partition_size);
-
-  RAFT_EXPECTS(static_cast<size_t>(sub_dataset.extent(0)) == total_partition_size,
-               "sub_dataset rows (%lu) must match total partition size (%lu)",
-               sub_dataset.extent(0),
-               total_partition_size);
-  RAFT_EXPECTS(static_cast<size_t>(sub_dataset.extent(1)) == dataset_dim,
-               "sub_dataset columns (%lu) must match dataset dimensions (%lu)",
-               sub_dataset.extent(1),
-               dataset_dim);
+                 core_size + augmented_size);
 
   const size_t vector_size = dataset_dim * sizeof(T);
-
-  const std::string reordered_dataset_path = build_dir + "/reordered_dataset.npy";
-  const std::string augmented_dataset_path = build_dir + "/augmented_dataset.npy";
-
-  if (!std::filesystem::exists(reordered_dataset_path)) {
-    RAFT_FAIL("ACE: Required file does not exist: %s", reordered_dataset_path.c_str());
-  }
-  if (!std::filesystem::exists(augmented_dataset_path)) {
-    RAFT_FAIL("ACE: Required file does not exist: %s", augmented_dataset_path.c_str());
-  }
-
-  size_t core_header_size      = 0;
-  size_t augmented_header_size = 0;
-  size_t core_file_offset      = 0;
-  size_t augmented_file_offset = 0;
-  {
-    std::ifstream is(reordered_dataset_path, std::ios::in | std::ios::binary);
-    if (!is) { RAFT_FAIL("Cannot open file %s", reordered_dataset_path.c_str()); }
-    auto start_pos = is.tellg();
-    raft::numpy_serializer::read_header(is);
-    core_header_size = static_cast<size_t>(is.tellg() - start_pos);
-  }
-  {
-    std::ifstream is(augmented_dataset_path, std::ios::in | std::ios::binary);
-    if (!is) { RAFT_FAIL("Cannot open file %s", augmented_dataset_path.c_str()); }
-    auto start_pos = is.tellg();
-    raft::numpy_serializer::read_header(is);
-    augmented_header_size = static_cast<size_t>(is.tellg() - start_pos);
-  }
-
-  for (size_t p = 0; p < partition_id; p++) {
-    core_file_offset += partition_histogram(p, 0);
-    augmented_file_offset += partition_histogram(p, 1);
-  }
-
-  core_file_offset *= vector_size;
-  augmented_file_offset *= vector_size;
-
-  core_file_offset += core_header_size;
-  augmented_file_offset += augmented_header_size;
+  const size_t core_file_offset =
+    reordered_header_size + static_cast<size_t>(core_partition_offsets(partition_id)) * vector_size;
+  const size_t augmented_file_offset =
+    augmented_header_size +
+    static_cast<size_t>(augmented_partition_offsets(partition_id)) * vector_size;
 
   RAFT_LOG_DEBUG("ACE: Core file offset: %lu bytes, Augmented file offset: %lu bytes",
                  core_file_offset,
                  augmented_file_offset);
 
-  // Read core and augmented data in parallel
-  std::exception_ptr core_exception      = nullptr;
-  std::exception_ptr augmented_exception = nullptr;
+  const size_t core_bytes      = core_size * vector_size;
+  const size_t augmented_bytes = augmented_size * vector_size;
+  T* augmented_dest            = sub_dataset_ptr + (core_size * dataset_dim);
 
-#pragma omp parallel sections
-  {
-#pragma omp section
-    {
-      try {
-        if (core_size > 0) {
-          RAFT_LOG_DEBUG(
-            "ACE: Reading %lu core vectors from offset %lu", core_size, core_file_offset);
-          cuvs::util::file_descriptor reordered_fd(reordered_dataset_path, O_RDONLY);
-          const size_t core_bytes = core_size * vector_size;
-          cuvs::util::read_large_file(
-            reordered_fd, sub_dataset.data_handle(), core_bytes, core_file_offset);
-        }
-      } catch (...) {
-        core_exception = std::current_exception();
-      }
+  auto expect_complete_read = [partition_id](const char* name, size_t expected, size_t actual) {
+    RAFT_EXPECTS(actual == expected,
+                 "ACE: Short %s read for partition %lu: expected %zu bytes, got %zu",
+                 name,
+                 partition_id,
+                 expected,
+                 actual);
+  };
+
+  if (core_bytes > 0 && augmented_bytes > 0) {
+    RAFT_LOG_DEBUG("ACE: Reading %lu core vectors from offset %lu", core_size, core_file_offset);
+    RAFT_LOG_DEBUG(
+      "ACE: Reading %lu augmented vectors from offset %lu", augmented_size, augmented_file_offset);
+    auto reordered_handle =
+      cuvs::util::detail::open_kvikio_file_for_ace_io(reordered_path, "r", sub_dataset_ptr);
+    auto augmented_handle =
+      cuvs::util::detail::open_kvikio_file_for_ace_io(augmented_path, "r", augmented_dest);
+    auto core_future = reordered_handle.pread(sub_dataset_ptr, core_bytes, core_file_offset);
+    auto augmented_future =
+      augmented_handle.pread(augmented_dest, augmented_bytes, augmented_file_offset);
+    std::exception_ptr read_exception = nullptr;
+    size_t core_read                  = 0;
+    size_t augmented_read             = 0;
+    try {
+      core_read = core_future.get();
+    } catch (...) {
+      read_exception = std::current_exception();
     }
-#pragma omp section
-    {
-      try {
-        if (augmented_size > 0) {
-          RAFT_LOG_DEBUG("ACE: Reading %lu augmented vectors from offset %lu",
-                         augmented_size,
-                         augmented_file_offset);
-          cuvs::util::file_descriptor augmented_fd(augmented_dataset_path, O_RDONLY);
-          const size_t augmented_bytes = augmented_size * vector_size;
-          T* augmented_dest            = sub_dataset.data_handle() + (core_size * dataset_dim);
-          cuvs::util::read_large_file(
-            augmented_fd, augmented_dest, augmented_bytes, augmented_file_offset);
-        }
-      } catch (...) {
-        augmented_exception = std::current_exception();
-      }
+    try {
+      augmented_read = augmented_future.get();
+    } catch (...) {
+      if (!read_exception) { read_exception = std::current_exception(); }
     }
+    if (read_exception) { std::rethrow_exception(read_exception); }
+    expect_complete_read("core", core_bytes, core_read);
+    expect_complete_read("augmented", augmented_bytes, augmented_read);
+  } else if (core_bytes > 0) {
+    RAFT_LOG_DEBUG("ACE: Reading %lu core vectors from offset %lu", core_size, core_file_offset);
+    auto reordered_handle =
+      cuvs::util::detail::open_kvikio_file_for_ace_io(reordered_path, "r", sub_dataset_ptr);
+    expect_complete_read(
+      "core",
+      core_bytes,
+      reordered_handle.pread(sub_dataset_ptr, core_bytes, core_file_offset).get());
+  } else if (augmented_bytes > 0) {
+    RAFT_LOG_DEBUG(
+      "ACE: Reading %lu augmented vectors from offset %lu", augmented_size, augmented_file_offset);
+    auto augmented_handle =
+      cuvs::util::detail::open_kvikio_file_for_ace_io(augmented_path, "r", augmented_dest);
+    expect_complete_read(
+      "augmented",
+      augmented_bytes,
+      augmented_handle.pread(augmented_dest, augmented_bytes, augmented_file_offset).get());
   }
-
-  // Check for exceptions from parallel sections
-  if (core_exception) { std::rethrow_exception(core_exception); }
-  if (augmented_exception) { std::rethrow_exception(augmented_exception); }
 }
 
 // Memory requirements for ACE operation
@@ -826,7 +975,7 @@ constexpr double vector_expansion_factor = 2.0;
 template <typename T, typename IdxT>
 bool ace_check_use_disk_mode(raft::resources const& res,
                              bool use_disk,
-                             std::string& build_dir,
+                             const std::string& build_dir,
                              size_t dataset_size,
                              size_t dataset_dim,
                              size_t n_partitions,
@@ -837,13 +986,35 @@ bool ace_check_use_disk_mode(raft::resources const& res,
                              bool guarantee_connectivity,
                              ace_memory_requirements& mem)
 {
+  const auto host_memory = cuvs::util::get_host_memory_info();
+  RAFT_EXPECTS(host_memory.available > 0,
+               "ACE: No host memory is available within the current system or cgroup limit");
+  if (host_memory.cgroup_limit.has_value() && host_memory.cgroup_current.has_value() &&
+      host_memory.cgroup_reclaimable_file.has_value() &&
+      host_memory.cgroup_working_set.has_value()) {
+    const size_t cgroup_headroom = *host_memory.cgroup_working_set < *host_memory.cgroup_limit
+                                     ? *host_memory.cgroup_limit - *host_memory.cgroup_working_set
+                                     : 0;
+    RAFT_LOG_INFO(
+      "ACE: Cgroup host memory limit: %.2f GiB, current: %.2f GiB, reclaimable file cache: %.2f "
+      "GiB, working set: %.2f GiB, headroom: %.2f GiB; system available: %.2f GiB, effective "
+      "available: %.2f GiB",
+      to_gib(*host_memory.cgroup_limit),
+      to_gib(*host_memory.cgroup_current),
+      to_gib(*host_memory.cgroup_reclaimable_file),
+      to_gib(*host_memory.cgroup_working_set),
+      to_gib(cgroup_headroom),
+      to_gib(host_memory.system_available),
+      to_gib(host_memory.available));
+  }
+
   // Use overridden memory limits if provided (> 0), otherwise query actual system memory
   if (max_host_memory_gb.has_value() && max_host_memory_gb.value() > 0) {
-    auto actual_available_host_memory = cuvs::util::get_free_host_memory();
+    auto actual_available_host_memory = host_memory.available;
     auto configured_host_memory = static_cast<size_t>(max_host_memory_gb.value() * (1ULL << 30));
     if (actual_available_host_memory < configured_host_memory) {
       RAFT_LOG_WARN(
-        "ACE: Actual host memory (%zu GiB) is less than configured limit (%zu GiB). "
+        "ACE: Actual host memory (%.2f GiB) is less than configured limit (%.2f GiB). "
         "Using actual host memory.",
         to_gib(actual_available_host_memory),
         to_gib(configured_host_memory));
@@ -854,7 +1025,7 @@ bool ace_check_use_disk_mode(raft::resources const& res,
       mem.available_host_memory = configured_host_memory;
     }
   } else {
-    mem.available_host_memory = cuvs::util::get_free_host_memory();
+    mem.available_host_memory = host_memory.available;
   }
   size_t sub_partition_size =
     static_cast<size_t>(imbalance_factor * vector_expansion_factor *
@@ -924,19 +1095,7 @@ bool ace_check_use_disk_mode(raft::resources const& res,
                 to_gib(mem.available_gpu_memory));
 
   bool use_disk_mode = use_disk || host_memory_limited || gpu_memory_limited;
-  if (use_disk_mode) {
-    bool valid_build_dir = !build_dir.empty();
-    valid_build_dir &= build_dir.length() <= 255;
-    valid_build_dir &= build_dir.find('\0') == std::string::npos;
-    valid_build_dir &= build_dir.find("//") == std::string::npos;
-    if (!valid_build_dir) {
-      RAFT_LOG_WARN("ACE: Invalid build_dir path, resetting to default: /tmp/ace_build");
-      build_dir = "/tmp/ace_build";
-    }
-    if (mkdir(build_dir.c_str(), 0755) != 0 && errno != EEXIST) {
-      RAFT_EXPECTS(false, "Failed to create ACE build directory: %s", build_dir.c_str());
-    }
-  }
+  if (use_disk_mode) { RAFT_EXPECTS(!build_dir.empty(), "ACE build directory must not be empty"); }
 
   if (host_memory_limited && gpu_memory_limited) {
     RAFT_LOG_INFO(
@@ -960,6 +1119,30 @@ bool ace_check_use_disk_mode(raft::resources const& res,
   }
 
   return use_disk_mode;
+}
+
+// Resolve the ACE partition count while preserving 0 as the auto-selection sentinel.
+inline size_t ace_resolve_partition_count(size_t n_partitions)
+{
+  if (n_partitions == 0) { return 2; }
+  if (n_partitions == 1) {
+    RAFT_LOG_WARN(
+      "ACE: Requested 1 partition; adjusted to 2 before applying partitioning heuristics");
+    return 2;
+  }
+  return n_partitions;
+}
+
+// Validate the structural ACE partition-count invariants required by the labeler.
+inline void ace_validate_partition_count(size_t n_partitions,
+                                         size_t dataset_size,
+                                         bool adjusted_for_memory = false)
+{
+  RAFT_EXPECTS(n_partitions <= dataset_size,
+               adjusted_for_memory
+                 ? "ACE: configured memory limit is unsatisfiable because the requested partition "
+                   "count cannot exceed dataset size"
+                 : "ACE: number of partitions cannot exceed dataset size");
 }
 
 // Validate and adjust partitions for disk mode memory requirements
@@ -1120,6 +1303,13 @@ auto build_from_device_matrix(raft::resources const& res,
                               DatasetViewT const& device_dataset)
   -> cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>;
 
+template <typename T, typename IdxT, typename DatasetViewT>
+  requires cuvs::neighbors::is_host_dataset_view_v<DatasetViewT>
+auto build_from_host_matrix(raft::resources const& res,
+                            const index_params& params,
+                            DatasetViewT const& dataset)
+  -> cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>;
+
 // Build CAGRA index using ACE (Augmented Core Extraction) partitioning
 // ACE enables building indexes for datasets too large to fit in GPU memory by:
 // 1. Partitioning the dataset using balanced k-means in core (non-overlapping) and augmented
@@ -1131,9 +1321,7 @@ auto build_from_device_matrix(raft::resources const& res,
 // The returned index is not usable for search. Use the created files for search instead.
 template <typename T, typename IdxT, typename DatasetViewT>
   requires cuvs::neighbors::is_host_dataset_view_v<DatasetViewT>
-auto build_ace(raft::resources const& res,
-               const index_params& params,
-               raft::host_matrix_view<const T, int64_t, row_major> dataset)
+auto build_ace(raft::resources const& res, const index_params& params, DatasetViewT const& dataset)
   -> cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>
 {
   // Extract ACE parameters from graph_build_params
@@ -1153,8 +1341,9 @@ auto build_ace(raft::resources const& res,
     params.graph_degree,
     npartitions);
 
-  size_t dataset_size = dataset.extent(0);
-  size_t dataset_dim  = dataset.extent(1);
+  auto dataset_view   = dataset.view();
+  size_t dataset_size = dataset.n_rows();
+  size_t dataset_dim  = dataset.dim();
 
   RAFT_EXPECTS(dataset_size > 0, "ACE: Dataset must not be empty");
   if (dataset_size < 1000) {
@@ -1166,11 +1355,9 @@ auto build_ace(raft::resources const& res,
                "ACE: Intermediate graph degree must be greater than 0");
   RAFT_EXPECTS(params.graph_degree > 0, "ACE: Graph degree must be greater than 0");
 
-  size_t n_partitions = npartitions;
-  if (n_partitions == 0) {
-    // Default: start with 2 partitions and increase if needed (minimum for ACE to make sense).
-    n_partitions = 2;
-  }
+  size_t n_partitions = ace_resolve_partition_count(npartitions);
+
+  ace_validate_partition_count(n_partitions, dataset_size);
 
   size_t min_required_per_partition = 1000;
   if (n_partitions > dataset_size / min_required_per_partition) {
@@ -1192,8 +1379,7 @@ auto build_ace(raft::resources const& res,
   size_t intermediate_degree = params.intermediate_graph_degree;
   size_t graph_degree        = params.graph_degree;
 
-  // Track whether to clean up build directory on failure
-  bool cleanup_on_failure = false;
+  ace_disk_workspace workspace(build_dir);
 
   try {
     check_graph_degree<T, IdxT>(intermediate_degree, graph_degree, dataset_size);
@@ -1223,6 +1409,7 @@ auto build_ace(raft::resources const& res,
                                                  graph_degree,
                                                  params.guarantee_connectivity,
                                                  mem);
+      ace_validate_partition_count(n_partitions, dataset_size, true);
     }
 
     // Preallocate space for files for better performance and fail early if not enough space.
@@ -1236,24 +1423,32 @@ auto build_ace(raft::resources const& res,
     size_t graph_header_size     = 0;
 
     if (use_disk_mode) {
-      if (mkdir(build_dir.c_str(), 0755) != 0 && errno != EEXIST) {
-        RAFT_EXPECTS(false, "Failed to create ACE build directory: %s", build_dir.c_str());
-      }
-      // Mark for cleanup if we fail after creating the directory
-      cleanup_on_failure = true;
+      workspace.initialize();
 
       // Create numpy files with pre-allocated space
       std::tie(reordered_fd, reordered_header_size) = cuvs::util::create_numpy_file<T>(
-        build_dir + "/reordered_dataset.npy", {dataset_size, dataset_dim});
+        workspace.artifact_path(ace_disk_workspace::artifact::reordered_dataset),
+        {dataset_size, dataset_dim},
+        true);
+      workspace.mark_artifact_created(ace_disk_workspace::artifact::reordered_dataset);
 
       std::tie(augmented_fd, augmented_header_size) = cuvs::util::create_numpy_file<T>(
-        build_dir + "/augmented_dataset.npy", {dataset_size, dataset_dim});
+        workspace.artifact_path(ace_disk_workspace::artifact::augmented_dataset),
+        {dataset_size, dataset_dim},
+        true);
+      workspace.mark_artifact_created(ace_disk_workspace::artifact::augmented_dataset);
 
-      std::tie(mapping_fd, mapping_header_size) =
-        cuvs::util::create_numpy_file<IdxT>(build_dir + "/dataset_mapping.npy", {dataset_size});
+      std::tie(mapping_fd, mapping_header_size) = cuvs::util::create_numpy_file<IdxT>(
+        workspace.artifact_path(ace_disk_workspace::artifact::dataset_mapping),
+        {dataset_size},
+        true);
+      workspace.mark_artifact_created(ace_disk_workspace::artifact::dataset_mapping);
 
       std::tie(graph_fd, graph_header_size) = cuvs::util::create_numpy_file<IdxT>(
-        build_dir + "/cagra_graph.npy", {dataset_size, graph_degree});
+        workspace.artifact_path(ace_disk_workspace::artifact::cagra_graph),
+        {dataset_size, graph_degree},
+        true);
+      workspace.mark_artifact_created(ace_disk_workspace::artifact::cagra_graph);
 
       RAFT_LOG_DEBUG(
         "ACE: Wrote numpy headers (reordered: %zu, augmented: %zu, mapping: %zu, graph: %zu bytes)",
@@ -1274,8 +1469,12 @@ auto build_ace(raft::resources const& res,
     // Determine minimum partition size for stable KNN graph construction
     size_t min_partition_size = std::max<size_t>(1000ULL, dataset_size / n_partitions * 0.1);
 
-    ace_get_partition_labels<T, IdxT>(
-      res, dataset, partition_labels.view(), partition_histogram.view(), min_partition_size);
+    ace_get_partition_labels<T, IdxT>(res,
+                                      dataset_view,
+                                      dataset_dim,
+                                      partition_labels.view(),
+                                      partition_histogram.view(),
+                                      min_partition_size);
 
     ace_check_partition_sizes<IdxT>(dataset_size,
                                     n_partitions,
@@ -1323,7 +1522,8 @@ auto build_ace(raft::resources const& res,
     if (use_disk_mode) {
       ace_reorder_and_store_dataset<T, IdxT>(res,
                                              build_dir,
-                                             dataset,
+                                             dataset_view,
+                                             dataset_dim,
                                              partition_labels.view(),
                                              partition_histogram.view(),
                                              core_backward_mapping.view(),
@@ -1364,35 +1564,6 @@ auto build_ace(raft::resources const& res,
                      core_sub_dataset_size,
                      augmented_sub_dataset_size);
 
-      auto sub_dataset = raft::make_host_matrix<T, int64_t>(sub_dataset_size, dataset_dim);
-
-      if (use_disk_mode) {
-        // Load partition dataset from disk files
-        ace_load_partition_dataset_from_disk<T, IdxT>(res,
-                                                      build_dir,
-                                                      partition_id,
-                                                      dataset_dim,
-                                                      partition_histogram.view(),
-                                                      core_partition_offsets.view(),
-                                                      augmented_partition_offsets.view(),
-                                                      sub_dataset.view());
-      } else {
-        // Gather partition dataset from memory
-        ace_gather_partition_dataset<T, IdxT>(core_sub_dataset_size,
-                                              augmented_sub_dataset_size,
-                                              dataset_dim,
-                                              partition_id,
-                                              dataset,
-                                              core_backward_mapping.view(),
-                                              augmented_backward_mapping.view(),
-                                              core_partition_offsets.view(),
-                                              augmented_partition_offsets.view(),
-                                              sub_dataset.view());
-      }
-      auto read_end = std::chrono::high_resolution_clock::now();
-      auto read_elapsed =
-        std::chrono::duration_cast<std::chrono::milliseconds>(read_end - start).count();
-
       // Create index for this partition
       auto sub_index_params = cuvs::neighbors::cagra::index_params::from_dataset(
         raft::make_extents<int64_t>(sub_dataset_size, dataset_dim),
@@ -1402,39 +1573,146 @@ auto build_ace(raft::resources const& res,
       sub_index_params.attach_dataset_on_build = false;
       sub_index_params.guarantee_connectivity  = params.guarantee_connectivity;
 
-      // Copy host partition to device with padding; build_from_device_matrix accepts
-      // device_padded_dataset_view.
-      auto sub_dataset_dev = cuvs::neighbors::make_device_padded_dataset(
-        res, raft::make_const_mdspan(sub_dataset.view()));
-      auto sub_index = ::cuvs::neighbors::cagra::detail::build_from_device_matrix<T, IdxT>(
-        res, sub_index_params, sub_dataset_dev->as_dataset_view());
+      auto read_end             = start;
+      bool used_device_read     = false;
+      const size_t sub_ds_bytes = sub_dataset_size * dataset_dim * sizeof(T);
+      using device_sub_index_t  = cuvs::neighbors::cagra::device_padded_index<T, IdxT>;
+      using host_sub_index_t    = cuvs::neighbors::cagra::host_standard_index<T, IdxT>;
+      using sub_index_t         = std::variant<device_sub_index_t, host_sub_index_t>;
+      auto sub_index            = [&]() -> sub_index_t {
+        if (use_disk_mode) {
+          const size_t current_free_gpu = rmm::available_device_memory().first;
+          const size_t configured_gpu =
+            ace_params.max_gpu_memory_gb > 0
+                         ? static_cast<size_t>(ace_params.max_gpu_memory_gb * (1ULL << 30))
+                         : current_free_gpu;
+          const size_t free_gpu_bytes = std::min(current_free_gpu, configured_gpu);
+          if (sub_ds_bytes < static_cast<size_t>(0.4 * free_gpu_bytes)) {
+            try {
+              auto sub_dataset_tight =
+                raft::make_device_matrix<T, int64_t>(res, sub_dataset_size, dataset_dim);
+              raft::resource::sync_stream(res);
+              ace_load_partition_dataset_from_disk<T, IdxT>(partition_id,
+                                                            dataset_dim,
+                                                            partition_histogram.view(),
+                                                            core_partition_offsets.view(),
+                                                            augmented_partition_offsets.view(),
+                                                            reordered_fd,
+                                                            augmented_fd,
+                                                            reordered_header_size,
+                                                            augmented_header_size,
+                                                            sub_dataset_tight.view());
+              read_end              = std::chrono::high_resolution_clock::now();
+              auto sub_dataset_view = raft::make_const_mdspan(sub_dataset_tight.view());
+              std::unique_ptr<cuvs::neighbors::device_padded_dataset<T, int64_t>>
+                sub_dataset_padded;
+              auto sub_dataset_dev = [&]() {
+                if (cuvs::neighbors::matrix_row_width_matches_cagra_required(sub_dataset_view)) {
+                  return cuvs::neighbors::make_device_padded_dataset_view(res, sub_dataset_view);
+                }
+                sub_dataset_padded =
+                  cuvs::neighbors::make_device_padded_dataset(res, sub_dataset_view);
+                return sub_dataset_padded->as_dataset_view();
+              }();
+              auto direct_index =
+                ::cuvs::neighbors::cagra::detail::build_from_device_matrix<T, IdxT>(
+                  res, sub_index_params, sub_dataset_dev);
+              used_device_read = true;
+              return sub_index_t{std::in_place_type<device_sub_index_t>, std::move(direct_index)};
+            } catch (const std::bad_alloc& e) {
+              RAFT_LOG_WARN(
+                "ACE: partition %lu did not fit in device memory for a direct (GDS) read: %s; "
+                           "falling back to a host read",
+                partition_id,
+                e.what());
+            }
+          }
 
+          auto sub_dataset = raft::make_host_matrix<T, int64_t>(sub_dataset_size, dataset_dim);
+          ace_load_partition_dataset_from_disk<T, IdxT>(partition_id,
+                                                        dataset_dim,
+                                                        partition_histogram.view(),
+                                                        core_partition_offsets.view(),
+                                                        augmented_partition_offsets.view(),
+                                                        reordered_fd,
+                                                        augmented_fd,
+                                                        reordered_header_size,
+                                                        augmented_header_size,
+                                                        sub_dataset.view());
+          read_end              = std::chrono::high_resolution_clock::now();
+          auto sub_dataset_view = cuvs::neighbors::make_host_standard_dataset_view(
+            raft::make_const_mdspan(sub_dataset.view()));
+          auto host_index =
+            ::cuvs::neighbors::cagra::build(res, sub_index_params, sub_dataset_view);
+          static_assert(std::is_same_v<decltype(host_index), host_sub_index_t>);
+          return sub_index_t{std::in_place_type<host_sub_index_t>, std::move(host_index)};
+        }
+
+        auto sub_dataset = raft::make_host_matrix<T, int64_t>(sub_dataset_size, dataset_dim);
+        ace_gather_partition_dataset<T, IdxT>(core_sub_dataset_size,
+                                              augmented_sub_dataset_size,
+                                              dataset_dim,
+                                              partition_id,
+                                              dataset_view,
+                                              core_backward_mapping.view(),
+                                              augmented_backward_mapping.view(),
+                                              core_partition_offsets.view(),
+                                              augmented_partition_offsets.view(),
+                                              sub_dataset.view());
+        read_end              = std::chrono::high_resolution_clock::now();
+        auto sub_dataset_view = cuvs::neighbors::make_host_standard_dataset_view(
+          raft::make_const_mdspan(sub_dataset.view()));
+        auto host_index = ::cuvs::neighbors::cagra::build(res, sub_index_params, sub_dataset_view);
+        static_assert(std::is_same_v<decltype(host_index), host_sub_index_t>);
+        return sub_index_t{std::in_place_type<host_sub_index_t>, std::move(host_index)};
+      }();
+      auto sub_graph = std::visit([](auto const& index) { return index.graph(); }, sub_index);
+      if (used_device_read) {
+        RAFT_LOG_DEBUG("ACE: partition %lu read directly into device memory (GDS path)",
+                       partition_id);
+      }
+      auto read_elapsed =
+        std::chrono::duration_cast<std::chrono::milliseconds>(read_end - start).count();
       auto optimize_end = std::chrono::high_resolution_clock::now();
       auto optimize_elapsed =
         std::chrono::duration_cast<std::chrono::milliseconds>(optimize_end - read_end).count();
 
-      // Copy graph edges for core members of this partition
-      auto sub_search_graph =
-        raft::make_host_matrix<IdxT, int64_t>(core_sub_dataset_size, graph_degree);
-      cudaStream_t stream = raft::resource::get_cuda_stream(res);
-      raft::copy(
-        res,
-        raft::make_host_vector_view(sub_search_graph.data_handle(), sub_search_graph.size()),
-        raft::make_device_vector_view(sub_index.graph().data_handle(), sub_search_graph.size()));
-      raft::resource::sync_stream(res, stream);
-
+      auto adjust_end          = optimize_end;
+      auto write_elapsed       = 0L;
+      const size_t graph_bytes = core_sub_dataset_size * graph_degree * sizeof(IdxT);
       if (use_disk_mode) {
-        // Adjust IDs in sub_search_graph in place for disk storage
-        ace_adjust_sub_graph_ids_disk<IdxT>(core_sub_dataset_size,
+        auto adjusted_search_graph =
+          raft::make_device_matrix<IdxT, int64_t>(res, core_sub_dataset_size, graph_degree);
+        ace_adjust_sub_graph_ids_disk<IdxT>(res,
+                                            core_sub_dataset_size,
                                             augmented_sub_dataset_size,
                                             graph_degree,
                                             partition_id,
-                                            sub_search_graph.view(),
+                                            sub_graph,
+                                            adjusted_search_graph.view(),
                                             core_partition_offsets.view(),
                                             augmented_partition_offsets.view(),
                                             augmented_backward_mapping.view(),
                                             core_forward_mapping.view());
+        adjust_end = std::chrono::high_resolution_clock::now();
+
+        const size_t graph_offset =
+          static_cast<size_t>(core_partition_offsets(partition_id)) * graph_degree * sizeof(IdxT) +
+          graph_header_size;
+        cuvs::util::write_large_file(
+          graph_fd, adjusted_search_graph.data_handle(), graph_bytes, graph_offset);
+        auto write_end = std::chrono::high_resolution_clock::now();
+        write_elapsed =
+          std::chrono::duration_cast<std::chrono::milliseconds>(write_end - adjust_end).count();
       } else {
+        auto sub_search_graph =
+          raft::make_host_matrix<IdxT, int64_t>(core_sub_dataset_size, graph_degree);
+        raft::copy(
+          res,
+          raft::make_host_vector_view(sub_search_graph.data_handle(), sub_search_graph.size()),
+          raft::make_device_vector_view(sub_graph.data_handle(), sub_search_graph.size()));
+        raft::resource::sync_stream(res);
+
         // Adjust IDs in sub_search_graph and save to search_graph
         ace_adjust_sub_graph_ids<IdxT>(core_sub_dataset_size,
                                        augmented_sub_dataset_size,
@@ -1446,33 +1724,20 @@ auto build_ace(raft::resources const& res,
                                        augmented_partition_offsets.view(),
                                        core_backward_mapping.view(),
                                        augmented_backward_mapping.view());
+        adjust_end = std::chrono::high_resolution_clock::now();
       }
 
-      auto adjust_end = std::chrono::high_resolution_clock::now();
       auto adjust_elapsed =
         std::chrono::duration_cast<std::chrono::milliseconds>(adjust_end - optimize_end).count();
 
-      if (use_disk_mode) {
-        const size_t graph_offset =
-          static_cast<size_t>(core_partition_offsets(partition_id)) * graph_degree * sizeof(IdxT) +
-          graph_header_size;
-        const size_t graph_bytes = core_sub_dataset_size * graph_degree * sizeof(IdxT);
-        cuvs::util::write_large_file(
-          graph_fd, sub_search_graph.data_handle(), graph_bytes, graph_offset);
-      }
-
-      auto end = std::chrono::high_resolution_clock::now();
-      auto write_elapsed =
-        std::chrono::duration_cast<std::chrono::milliseconds>(end - adjust_end).count();
+      auto end        = std::chrono::high_resolution_clock::now();
       auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
       double read_throughput =
         read_elapsed > 0
           ? to_mib(sub_dataset_size * dataset_dim * sizeof(T)) / (read_elapsed / 1000.0)
           : 0.0;
       double write_throughput =
-        write_elapsed > 0
-          ? to_mib(core_sub_dataset_size * dataset_dim * sizeof(T)) / (write_elapsed / 1000.0)
-          : 0.0;
+        write_elapsed > 0 ? to_mib(graph_bytes) / (write_elapsed / 1000.0) : 0.0;
       RAFT_LOG_INFO(
         "ACE: Partition %4lu (%8lu + %8lu) completed in %6ld ms: read %6ld ms (%7.1f MiB/s), "
         "optimize %6ld ms, adjust %6ld ms, write %6ld ms (%7.1f MiB/s)",
@@ -1509,7 +1774,12 @@ auto build_ace(raft::resources const& res,
     auto index_creation_start = std::chrono::high_resolution_clock::now();
     cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> idx(res, params.metric);
     if (!use_disk_mode) {
-      idx.update_graph(res, raft::make_const_mdspan(search_graph.view()));
+      if (params.attach_dataset_on_build) {
+        idx = cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>(
+          res, params.metric, dataset, raft::make_const_mdspan(search_graph.view()));
+      } else {
+        idx.update_graph(res, raft::make_const_mdspan(search_graph.view()));
+      }
     } else {
       idx.update_dataset(res, std::move(reordered_fd));
       idx.update_graph(res, std::move(graph_fd));
@@ -1535,20 +1805,14 @@ auto build_ace(raft::resources const& res,
       std::chrono::duration_cast<std::chrono::milliseconds>(total_end - total_start).count();
     RAFT_LOG_INFO("ACE: Partitioned CAGRA build completed in %ld ms total", total_elapsed);
 
+    workspace.commit();
     return std::move(idx);
   } catch (const std::exception& e) {
-    // Clean up build directory on failure if we created it
     RAFT_LOG_ERROR("ACE: Build failed with exception: %s", e.what());
-    if (cleanup_on_failure && !build_dir.empty()) {
-      RAFT_LOG_INFO("ACE: Cleaning up build directory: %s", build_dir.c_str());
-      try {
-        std::filesystem::remove_all(build_dir);
-        RAFT_LOG_INFO("ACE: Successfully removed build directory");
-      } catch (const std::exception& cleanup_error) {
-        RAFT_LOG_WARN("ACE: Failed to clean up build directory: %s", cleanup_error.what());
-      }
-    }
-    // Re-throw the original exception
+    workspace.cleanup();
+    throw;
+  } catch (...) {
+    workspace.cleanup();
     throw;
   }
 }
@@ -2390,7 +2654,7 @@ auto build_from_host_matrix(raft::resources const& res,
  * Build from a dense device `dataset_view` (padded or standard). VPQ views are rejected by
  * `cagra::build()` before this entry point is reached. Also used from ACE sub-builds and merge.
  * The returned index contains only the optimized graph; call
- * `index::update_device_dataset_same_layout` before search.
+ * `cagra::update_dataset` before search.
  */
 template <typename T, typename IdxT, typename DatasetViewT>
   requires cuvs::neighbors::is_dense_row_major_device_dataset_view_v<DatasetViewT>

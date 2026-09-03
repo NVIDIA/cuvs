@@ -1642,7 +1642,7 @@ constexpr static IdxT kInvalidRecord =
  * @tparam IdxT The index type for source indices
  * @tparam SizeT The size type
  *
- * TODO: Make this struct internal (tracking issue: https://github.com/rapidsai/cuvs/issues/1726)
+ * TODO: Make this struct internal (tracking issue: https://github.com/nvidia/cuvs/issues/1726)
  */
 template <typename ValueT, typename IdxT, typename SizeT = uint32_t>
 struct list_base {
@@ -1768,6 +1768,13 @@ enable_if_valid_list_t<ListT> serialize_list(
   const typename ListT::spec_type& store_spec,
   std::optional<typename ListT::size_type> size_override = std::nullopt);
 
+/**
+ * Deserialize a list from an arbitrary input stream.
+ *
+ * This compatibility path stages list data through host memory because a std::istream does not
+ * expose a portable file path or descriptor. Index filename overloads use KvikIO and transfer list
+ * payloads directly to device memory when GDS is available.
+ */
 template <typename ListT>
 enable_if_valid_list_t<ListT> deserialize_list(const raft::resources& handle,
                                                std::istream& is,

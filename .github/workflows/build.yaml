@@ -29,13 +29,16 @@ on:
         default: nightly
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}-${{ inputs.build_type || 'branch' }}
   cancel-in-progress: true
 
 permissions: {}
 
 jobs:
+  build-details:
+    uses: rapidsai/shared-workflows/.github/workflows/compute-build-details.yaml@main
   cpp-build:
+    needs: [build-details]
     permissions:
       actions: read
       contents: read
@@ -46,6 +49,7 @@ jobs:
     uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-build.yaml@main
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
+      build-datetime: ${{ needs.build-details.outputs.build-datetime }}
       branch: ${{ inputs.branch }}
       date: ${{ inputs.date }}
       node_type: cpu16
@@ -60,7 +64,7 @@ jobs:
       build_type: pull-request
       matrix_name: conda-cpp-build
   rocky8-clib-standalone-build:
-    needs: rocky8-clib-standalone-build-matrix
+    needs: [build-details, rocky8-clib-standalone-build-matrix]
     permissions:
       actions: read
       contents: read
@@ -74,6 +78,7 @@ jobs:
       matrix: ${{ fromJSON(needs.rocky8-clib-standalone-build-matrix.outputs.matrix) }}
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
+      build-datetime: ${{ needs.build-details.outputs.build-datetime }}
       branch: ${{ inputs.branch }}
       arch: "${{matrix.ARCH}}"
       date: ${{ inputs.date }}
@@ -184,8 +189,34 @@ jobs:
       artifact-name: "cuvs-java-cuda${{ matrix.CUDA_VER }}"
       file_to_upload: "java/cuvs-java/target/"
       sha: ${{ inputs.sha }}
+  lucene-build:
+    # Depends on the Java job for the cuvs-java artifact that cuvs-lucene builds against.
+    needs: [java-build-matrix, java-build]
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+      pull-requests: read
+    secrets: inherit # zizmor: ignore[secrets-inherit]
+    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@main
+    # Artifacts are not published from these jobs, so it's safe to run for multiple CUDA versions.
+    # If these jobs start producing artifacts, the names will have to differentiate between CUDA versions.
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.java-build-matrix.outputs.matrix) }}
+    with:
+      build_type: ${{ inputs.build_type || 'branch' }}
+      branch: ${{ inputs.branch }}
+      arch: "amd64"
+      date: ${{ inputs.date }}
+      container_image: "rapidsai/ci-conda:26.10-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
+      script: "ci/build_lucene.sh cuvs-java-cuda${{ matrix.CUDA_VER }}"
+      artifact-name: "cuvs-lucene-cuda${{ matrix.CUDA_VER }}"
+      file_to_upload: "java/cuvs-lucene/target/"
+      sha: ${{ inputs.sha }}
   python-build:
-    needs: [cpp-build]
+    needs: [build-details, cpp-build]
     permissions:
       actions: read
       contents: read
@@ -196,6 +227,7 @@ jobs:
     uses: rapidsai/shared-workflows/.github/workflows/conda-python-build.yaml@main
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
+      build-datetime: ${{ needs.build-details.outputs.build-datetime }}
       branch: ${{ inputs.branch }}
       date: ${{ inputs.date }}
       script: ci/build_python.sh
@@ -247,6 +279,7 @@ jobs:
       script: "ci/build_docs.sh"
       sha: ${{ inputs.sha }}
   wheel-build-libcuvs:
+    needs: [build-details]
     permissions:
       actions: read
       contents: read
@@ -257,6 +290,7 @@ jobs:
     uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@main
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
+      build-datetime: ${{ needs.build-details.outputs.build-datetime }}
       branch: ${{ inputs.branch }}
       sha: ${{ inputs.sha }}
       date: ${{ inputs.date }}
@@ -287,7 +321,7 @@ jobs:
       package-type: cpp
       publish-wheel-search-key: cuvs_wheel_cpp_libcuvs
   wheel-build-cuvs:
-    needs: wheel-build-libcuvs
+    needs: [build-details, wheel-build-libcuvs]
     permissions:
       actions: read
       contents: read
@@ -298,6 +332,7 @@ jobs:
     uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@main
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
+      build-datetime: ${{ needs.build-details.outputs.build-datetime }}
       branch: ${{ inputs.branch }}
       sha: ${{ inputs.sha }}
       date: ${{ inputs.date }}

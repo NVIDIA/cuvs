@@ -28,7 +28,7 @@ fi
 cmake -B ./internal/build -S ./internal
 cmake --build ./internal/build
 
-# Generate Panama FFM API bindings and update (if any of them changed)
+# Regenerate the Panama FFM API bindings from the current C headers
 ./panama-bindings/generate-bindings.sh
 
 function hasArg {

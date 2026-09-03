@@ -7,7 +7,7 @@ context:
   minor_version: ${{ (version | split("."))[:2] | join(".") }}
   cuda_version: ${{ (env.get("RAPIDS_CUDA_VERSION") | split("."))[:2] | join(".") }}
   cuda_major: '${{ (env.get("RAPIDS_CUDA_VERSION") | split("."))[0] }}'
-  date_string: '${{ env.get("RAPIDS_DATE_STRING") }}'
+  datetime_string: '${{ env.get("RAPIDS_DATETIME_STRING") }}'
   head_rev: '${{ git.head_rev(".")[:8] }}'
   linux64: ${{ linux and x86_64 }}
 
@@ -75,6 +75,7 @@ cache:
       - libnvjitlink-dev
       - librmm =${{ minor_version }}
       - libraft-headers =${{ minor_version }}
+      - libkvikio =${{ minor_version }}
       - nccl ${{ nccl_version }}
       - cuda-version =${{ cuda_version }}
       - cuda-cudart-dev
@@ -97,7 +98,7 @@ outputs:
       name: libcuvs-headers
       version: ${{ version }}
     build:
-      string: cuda${{ cuda_major }}_${{ date_string }}_${{ head_rev }}
+      string: cuda${{ cuda_major }}_${{ datetime_string }}_${{ head_rev }}
       dynamic_linking:
         overlinking_behavior: "error"
       prefix_detection:
@@ -155,7 +156,7 @@ outputs:
       name: libcuvs
       version: ${{ version }}
     build:
-      string: cuda${{ cuda_major }}_${{ date_string }}_${{ head_rev }}
+      string: cuda${{ cuda_major }}_${{ datetime_string }}_${{ head_rev }}
       dynamic_linking:
         overlinking_behavior: "error"
       prefix_detection:
@@ -174,6 +175,7 @@ outputs:
         - ${{ pin_subpackage("libcuvs-headers", exact=True) }}
         - librmm =${{ minor_version }}
         - libraft-headers =${{ minor_version }}
+        - libkvikio =${{ minor_version }}
         - nccl ${{ nccl_version }}
         - cuda-version =${{ cuda_version }}
         - cuda-cudart-dev
@@ -189,6 +191,7 @@ outputs:
         - ${{ pin_subpackage("libcuvs-headers", exact=True) }}
         - libraft-headers =${{ minor_version }}
         - librmm =${{ minor_version }}
+        - libkvikio =${{ minor_version }}
         - cuda-nvrtc
         - nccl
         - libcublas
@@ -218,7 +221,7 @@ outputs:
       name: libcuvs-static
       version: ${{ version }}
     build:
-      string: cuda${{ cuda_major }}_${{ date_string }}_${{ head_rev }}
+      string: cuda${{ cuda_major }}_${{ datetime_string }}_${{ head_rev }}
       dynamic_linking:
         overlinking_behavior: "error"
       prefix_detection:
@@ -227,6 +230,7 @@ outputs:
         content: |
           cmake --install cpp/build --component cuvs_static
           cmake --install cpp/build --component hnswlib
+          cmake --install cpp/build --component rtcx
     requirements:
       build:
         - cmake ${{ cmake_version }}
@@ -235,6 +239,7 @@ outputs:
         - ${{ pin_subpackage("libcuvs-headers", exact=True) }}
         - librmm =${{ minor_version }}
         - libraft-headers =${{ minor_version }}
+        - libkvikio =${{ minor_version }}
         - nccl ${{ nccl_version }}
         - cuda-version =${{ cuda_version }}
         - cuda-cudart-dev
@@ -250,12 +255,14 @@ outputs:
         - ${{ pin_subpackage("libcuvs-headers", exact=True) }}
         - libraft-headers =${{ minor_version }}
         - librmm =${{ minor_version }}
+        - libkvikio =${{ minor_version }}
         - cuda-nvrtc
         - nccl
         - libcublas
         - libcurand
         - libcusolver
         - libcusparse
+        - zstd-static =1.5.7
       ignore_run_exports:
         by_name:
           - cuda-cudart
@@ -280,7 +287,7 @@ outputs:
       version: ${{ version }}
     build:
       script: cmake --install cpp/build --component testing
-      string: cuda${{ cuda_major }}_${{ date_string }}_${{ head_rev }}
+      string: cuda${{ cuda_major }}_${{ datetime_string }}_${{ head_rev }}
       dynamic_linking:
         overlinking_behavior: "error"
       prefix_detection:
@@ -336,7 +343,7 @@ outputs:
       name: libcuvs-examples
       version: ${{ version }}
     build:
-      string: cuda${{ cuda_major }}_${{ date_string }}_${{ head_rev }}
+      string: cuda${{ cuda_major }}_${{ datetime_string }}_${{ head_rev }}
       dynamic_linking:
         overlinking_behavior: "error"
       prefix_detection:
@@ -448,7 +455,7 @@ outputs:
             # component associated with it. Probably a better way to do this.
             cp cpp/build/_deps/diskann-build/src/libdiskann.so $PREFIX/lib/
           fi
-      string: cuda${{ cuda_major }}_${{ date_string }}_${{ head_rev }}
+      string: cuda${{ cuda_major }}_${{ datetime_string }}_${{ head_rev }}
       dynamic_linking:
         overlinking_behavior: "error"
       prefix_detection:

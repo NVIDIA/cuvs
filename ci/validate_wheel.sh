@@ -21,7 +21,7 @@ PYDISTCHECK_ARGS=(
 if [[ "${package_dir}" == "python/libcuvs" ]]; then
     if [[ "${RAPIDS_CUDA_MAJOR}" == "12" ]]; then
         PYDISTCHECK_ARGS+=(
-            --max-allowed-size-compressed '355Mi'
+            --max-allowed-size-compressed '360Mi'
         )
     else
         PYDISTCHECK_ARGS+=(
@@ -35,10 +35,20 @@ fi
 
 pydistcheck \
     "${PYDISTCHECK_ARGS[@]}" \
-    "$(echo "${wheel_dir_relative_path}"/*.whl)"
+    "${wheel_dir_relative_path}"/*.whl
 
 rapids-logger "validate packages with 'twine'"
 
 twine check \
     --strict \
-    "$(echo "${wheel_dir_relative_path}"/*.whl)"
+    "${wheel_dir_relative_path}"/*.whl
+
+rapids-logger "validate packages with 'abi3audit'"
+
+# 'abi3audit' fails on wheels with DSOs that lack an ABI tag (e.g. 'lib*' wheels).
+# Filtering by '*abi*' avoids those.
+find \
+    "${wheel_dir_relative_path}" \
+    -type f \
+    -name '*abi*' \
+    -exec abi3audit --strict --summary --verbose '{}' \+
