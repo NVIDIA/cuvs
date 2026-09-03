@@ -13,11 +13,10 @@
 //
 // This example demonstrates how to build a layered HNSW index with ACE:
 //
-// 1. Optionally quantize the dataset and queries to int8.
-// 2. Build a single-file layered HNSW artifact with ACE using hnsw::build.
-// 3. Deserialize the layered topology and local dataset using the two-filename hnsw::deserialize
-//    overload.
-// 4. Search the in-memory HNSW index.
+// 1. Optionally quantize the dataset to int8 for graph construction.
+// 2. Build a single-file layered HNSW topology artifact with ACE using hnsw::build.
+// 3. Attach the original float dataset using the two-filename hnsw::deserialize overload.
+// 4. Search the in-memory float HNSW index with the original float queries.
 //
 // Layered-on-disk layout:
 //
@@ -43,7 +42,6 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
-#include <utility>
 
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/device_resources.hpp>
@@ -77,15 +75,9 @@ std::string write_local_dataset(raft::host_matrix_view<const T, int64_t> dataset
   return path;
 }
 
-template <typename T>
-struct quantized_pair {
-  raft::host_matrix<T, int64_t> dataset;
-  raft::host_matrix<T, int64_t> queries;
-};
-
-quantized_pair<int8_t> quantize_dataset(raft::device_resources const& dev_resources,
-                                        raft::host_matrix_view<const float, int64_t> dataset_float,
-                                        raft::host_matrix_view<const float, int64_t> queries_float)
+auto quantize_dataset(raft::device_resources const& dev_resources,
+                      raft::host_matrix_view<const float, int64_t> dataset_float)
+  -> raft::host_matrix<int8_t, int64_t>
 {
   std::cout << "  quantize_dataset: training scalar quantizer (float -> int8)" << std::endl;
   cuvs::preprocessing::quantize::scalar::params qp;
@@ -95,13 +87,7 @@ quantized_pair<int8_t> quantize_dataset(raft::device_resources const& dev_resour
     raft::make_host_matrix<int8_t, int64_t>(dataset_float.extent(0), dataset_float.extent(1));
   cuvs::preprocessing::quantize::scalar::transform(
     dev_resources, quantizer, dataset_float, dataset_i8.view());
-
-  auto queries_i8 =
-    raft::make_host_matrix<int8_t, int64_t>(queries_float.extent(0), queries_float.extent(1));
-  cuvs::preprocessing::quantize::scalar::transform(
-    dev_resources, quantizer, queries_float, queries_i8.view());
-
-  return {std::move(dataset_i8), std::move(queries_i8)};
+  return dataset_i8;
 }
 
 auto make_hnsw_ace_params(const std::string& build_dir) -> cuvs::neighbors::hnsw::index_params
@@ -241,22 +227,21 @@ int main()
   std::filesystem::create_directories(kBuildDir);
 
 #if HNSW_ACE_LAYERED_USE_QUANTIZATION
-  auto q               = quantize_dataset(dev_resources, dataset_host_view, queries_host_view);
+  auto dataset_i8      = quantize_dataset(dev_resources, dataset_host_view);
   auto dataset_i8_view = raft::make_host_matrix_view<const int8_t, int64_t, raft::row_major>(
-    q.dataset.data_handle(), n_samples, n_dim);
-  auto queries_i8_view = raft::make_host_matrix_view<const int8_t, int64_t, raft::row_major>(
-    q.queries.data_handle(), n_queries, n_dim);
-  auto dataset_path = write_local_dataset(dataset_i8_view, std::string{kBuildDir} + "/dataset.npy");
-  auto hnsw_params  = make_hnsw_ace_params(kBuildDir);
+    dataset_i8.data_handle(), n_samples, n_dim);
+  auto dataset_path =
+    write_local_dataset(dataset_host_view, std::string{kBuildDir} + "/dataset.npy");
+  auto hnsw_params = make_hnsw_ace_params(kBuildDir);
 
-  std::cout << "[stage 2] Build layered HNSW index with ACE" << std::endl;
+  std::cout << "[stage 2] Build layered HNSW topology from int8 data with ACE" << std::endl;
   auto artifact_path = hnsw_build<int8_t>(dev_resources, hnsw_params, dataset_i8_view);
 
-  std::cout << "[stage 3] Deserialize layered HNSW index" << std::endl;
-  auto hnsw_index = hnsw_deserialize<int8_t>(dev_resources, artifact_path, dataset_path);
+  std::cout << "[stage 3] Attach original float dataset" << std::endl;
+  auto hnsw_index = hnsw_deserialize<float>(dev_resources, artifact_path, dataset_path);
 
-  std::cout << "[stage 4] Search HNSW index" << std::endl;
-  hnsw_search<int8_t>(dev_resources, *hnsw_index, queries_i8_view);
+  std::cout << "[stage 4] Search float HNSW index" << std::endl;
+  hnsw_search<float>(dev_resources, *hnsw_index, queries_host_view);
 #else
   auto dataset_path =
     write_local_dataset(dataset_host_view, std::string{kBuildDir} + "/dataset.npy");

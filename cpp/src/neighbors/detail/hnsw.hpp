@@ -702,14 +702,14 @@ constexpr auto layered_dtype_code() -> layered_hnsw_dtype
   }
 }
 
-inline auto layered_dtype_name(layered_hnsw_dtype dtype) -> const char*
+inline auto is_supported_layered_dtype(layered_hnsw_dtype dtype) -> bool
 {
   switch (dtype) {
-    case layered_hnsw_dtype::float32: return "float32";
-    case layered_hnsw_dtype::float16: return "float16";
-    case layered_hnsw_dtype::uint8: return "uint8";
-    case layered_hnsw_dtype::int8: return "int8";
-    default: return "unknown";
+    case layered_hnsw_dtype::float32:
+    case layered_hnsw_dtype::float16:
+    case layered_hnsw_dtype::uint8:
+    case layered_hnsw_dtype::int8: return true;
+    default: return false;
   }
 }
 
@@ -729,7 +729,7 @@ auto make_layered_hnsw_header(const layered_hnsw_file_metadata& metadata,
   layered_hnsw_file_header header{};
   std::strncpy(header.magic, layered_hnsw_magic, sizeof(header.magic) - 1);
   header.version              = layered_hnsw_version;
-  header.dtype                = static_cast<uint32_t>(layered_dtype_code<T>());
+  header.construction_dtype   = static_cast<uint32_t>(layered_dtype_code<T>());
   header.metric               = static_cast<uint32_t>(metric);
   header.num_layers           = static_cast<uint32_t>(metadata.layers.size());
   header.n_rows               = metadata.n_rows;
@@ -2500,10 +2500,10 @@ auto deserialize_layered_hnswlib(raft::resources const& res,
   RAFT_EXPECTS(header.version == layered_hnsw_version,
                "Unsupported layered HNSW artifact version %u",
                header.version);
-  RAFT_EXPECTS(header.dtype == static_cast<uint32_t>(layered_dtype_code<T>()),
-               "Layered HNSW artifact dtype (%s) does not match requested dtype (%s)",
-               layered_dtype_name(static_cast<layered_hnsw_dtype>(header.dtype)),
-               layered_dtype_name(layered_dtype_code<T>()));
+  const auto construction_dtype = static_cast<layered_hnsw_dtype>(header.construction_dtype);
+  RAFT_EXPECTS(is_supported_layered_dtype(construction_dtype),
+               "Layered HNSW artifact contains unsupported construction dtype code %u",
+               header.construction_dtype);
   const auto metric = static_cast<cuvs::distance::DistanceType>(header.metric);
   RAFT_EXPECTS(metric == cuvs::distance::DistanceType::L2Expanded ||
                  metric == cuvs::distance::DistanceType::InnerProduct,

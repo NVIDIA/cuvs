@@ -26,6 +26,7 @@
 #include <limits>
 #include <memory>
 #include <string>
+#include <type_traits>
 
 #include <unistd.h>
 
@@ -578,6 +579,54 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
                                                  ps.min_recall))
       << "Layered HNSW deserialize and search failed recall check";
 
+    if constexpr (std::is_same_v<DataT, int8_t>) {
+      auto database_float = raft::make_host_matrix<float, int64_t>(ps.n_rows, ps.dim);
+      auto queries_float  = raft::make_host_matrix<float, int64_t>(ps.n_queries, ps.dim);
+      std::transform(database_host.data_handle(),
+                     database_host.data_handle() + ps.n_rows * ps.dim,
+                     database_float.data_handle(),
+                     [](int8_t value) { return static_cast<float>(value); });
+      std::transform(queries_host.data_handle(),
+                     queries_host.data_handle() + ps.n_queries * ps.dim,
+                     queries_float.data_handle(),
+                     [](int8_t value) { return static_cast<float>(value); });
+
+      const auto float_dataset_file =
+        (std::filesystem::path(temp_dir) / "dataset_float.npy").string();
+      auto [float_dataset_fd, float_dataset_header_size] = cuvs::util::create_numpy_file<float>(
+        float_dataset_file, {static_cast<size_t>(ps.n_rows), static_cast<size_t>(ps.dim)});
+      cuvs::util::write_large_file(float_dataset_fd,
+                                   database_float.data_handle(),
+                                   static_cast<size_t>(ps.n_rows) * ps.dim * sizeof(float),
+                                   float_dataset_header_size);
+
+      hnsw::index<float>* mixed_precision_index = nullptr;
+      hnsw::deserialize(handle_, artifact_path, float_dataset_file, &mixed_precision_index);
+      ASSERT_NE(mixed_precision_index, nullptr);
+      std::unique_ptr<hnsw::index<float>> mixed_precision_guard(mixed_precision_index);
+
+      hnsw::search(handle_,
+                   search_params,
+                   *mixed_precision_guard,
+                   queries_float.view(),
+                   indexes_hnsw_host.view(),
+                   distances_hnsw_host.view());
+
+      for (size_t i = 0; i < queries_size; i++) {
+        indexes_hnsw_converted[i] = static_cast<IdxT>(indexes_hnsw_host.data_handle()[i]);
+        distances_hnsw[i]         = distances_hnsw_host.data_handle()[i];
+      }
+      EXPECT_TRUE(cuvs::neighbors::eval_neighbours(indexes_naive,
+                                                   indexes_hnsw_converted,
+                                                   distances_naive,
+                                                   distances_hnsw,
+                                                   ps.n_queries,
+                                                   ps.k,
+                                                   0.003,
+                                                   ps.min_recall))
+        << "Layered HNSW int8 topology with float vectors failed recall check";
+    }
+
     const auto copied_artifact =
       (std::filesystem::path(temp_dir) / "copied_layered" / "hnsw_index.cuvs").string();
     hnsw::serialize(handle_, copied_artifact, *hnsw_index);
@@ -641,6 +690,22 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
     }
     hnsw::index<DataT>* bad_version_index = nullptr;
     EXPECT_THROW(hnsw::deserialize(handle_, bad_version_artifact, dataset_file, &bad_version_index),
+                 std::exception);
+
+    const auto bad_dtype_artifact =
+      (std::filesystem::path(temp_dir) / "bad_layered" / "bad_construction_dtype.cuvs").string();
+    std::filesystem::copy_file(
+      copied_artifact, bad_dtype_artifact, std::filesystem::copy_options::overwrite_existing);
+    {
+      std::fstream bad_dtype_file(bad_dtype_artifact,
+                                  std::ios::in | std::ios::out | std::ios::binary);
+      const uint32_t bad_dtype = 999;
+      bad_dtype_file.seekp(static_cast<std::streamoff>(
+        cuvs::neighbors::hnsw::detail::layered_hnsw_file_header_construction_dtype_offset));
+      bad_dtype_file.write(reinterpret_cast<const char*>(&bad_dtype), sizeof(bad_dtype));
+    }
+    hnsw::index<DataT>* bad_dtype_index = nullptr;
+    EXPECT_THROW(hnsw::deserialize(handle_, bad_dtype_artifact, dataset_file, &bad_dtype_index),
                  std::exception);
 
     hnsw::index<DataT>* missing_dataset_index = nullptr;

@@ -41,7 +41,8 @@ struct layered_hnsw_file_header {
   uint64_t upper_links_bytes;
   double mult;
   uint32_t version;
-  uint32_t dtype;
+  // Element type used to construct the graph. Attached vectors may use a different type.
+  uint32_t construction_dtype;
   uint32_t metric;
   uint32_t num_layers;
   int32_t maxlevel;
@@ -53,6 +54,8 @@ static_assert(sizeof(layered_hnsw_file_header) == 192,
               "layered_hnsw_file_header must keep a fixed 192-byte on-disk layout");
 inline constexpr size_t layered_hnsw_file_header_version_offset =
   offsetof(layered_hnsw_file_header, version);
+inline constexpr size_t layered_hnsw_file_header_construction_dtype_offset =
+  offsetof(layered_hnsw_file_header, construction_dtype);
 
 struct layered_hnsw_layer_descriptor {
   uint64_t level;

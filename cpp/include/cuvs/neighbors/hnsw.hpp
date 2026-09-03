@@ -1408,10 +1408,11 @@ void deserialize(raft::resources const& res,
  * @brief Deserialize a layered HNSW topology and attach its dataset
  *
  * The topology artifact supplies the index dimensions, metric, and construction metadata. The
- * dataset must have the same element type and shape recorded in the artifact. The loader accepts
+ * attached dataset must have the recorded shape, but its element type may differ from the type used
+ * to construct the graph. The output pointer selects the attached dataset type. The loader accepts
  * row-major `.npy` files and ANN benchmark binary files with a `[uint32 rows, uint32 cols]` header.
- * Binary extensions must match the index type: `.fbin` for `float`, `.f16bin` or `.fp16.fbin` for
- * `half`, `.u8bin` for `uint8_t`, and `.i8bin` for `int8_t`.
+ * Binary extensions must match the output index type: `.fbin` for `float`, `.f16bin` or
+ * `.fp16.fbin` for `half`, `.u8bin` for `uint8_t`, and `.i8bin` for `int8_t`.
  *
  * @param[in] res raft resources
  * @param[in] topology_filename path to the layered HNSW topology artifact
