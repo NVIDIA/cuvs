@@ -79,6 +79,55 @@ than an individual Lucene codec. Async allocation is optional for correctness an
 GPU workloads with repeated device allocations, especially concurrent or multi-stream searches.
 Applications that do not opt in use the default RMM device-memory resource.
 
+### Parameter bounds
+
+The public Lucene API rejects out-of-range CAGRA parameters in Java before they reach native CAGRA.
+Most of these checks run at construction time; the `SINGLE_CTA` `iTopK` limit is additionally
+re-checked at search time against the effective value actually sent to native CAGRA, since a filter
+can raise it after construction (see below). The table below lists what is enforced in Java; it is
+**not** a claim that every value in these ranges is supported by native CAGRA — see the caveats
+that follow.
+
+| Parameter | Java-level range enforced |
+| --- | --- |
+| GPU writer threads | 1–512 |
+| Intermediate graph degree | 2–512 |
+| Graph degree | 1–512 |
+| `GPUKnnFloatVectorQuery` `iTopK` | minimum 1; at most 512 with `SINGLE_CTA` |
+| `GPUKnnFloatVectorQuery` `searchWidth` | minimum 1; 4,194,303 numeric-safety ceiling |
+
+`graphDegree` must not exceed `intermediateGraphDegree` under the `CUSTOM` strategy. Under
+`HEURISTIC`, the configured `graphDegree`/`intermediateGraphDegree` pair is not what CAGRA
+actually builds with, so this relationship is not enforced on the configured pair: for
+`AcceleratedHNSWParams`, both degrees are derived from `maxConn`/`beamWidth` and the configured
+pair is ignored entirely; for `GPUSearchParams`, the configured `graphDegree` is passed into the
+dataset-size heuristic as an input (it is not ignored), while `intermediateGraphDegree` is ignored
+and the rest of the build parameters are derived from the heuristic's output.
+
+**Only the lower bound of 1 and the `SINGLE_CTA` `iTopK` maximum of 512 are genuine native
+limits.** `MAX_ITOPK` (`Integer.MAX_VALUE`) is simply the largest value representable by the
+public Java API, and `MAX_SEARCH_WIDTH` (4,194,303) only keeps CAGRA's result buffer within its
+unsigned 32-bit indexing limit. Neither is a promise that native CAGRA supports every value up
+to that ceiling, and in practice values anywhere near `MAX_ITOPK` are not usable. The true upper
+limit for a given search depends on the resolved CAGRA algorithm, `max_iterations`, graph degree,
+filtering, and available GPU memory. In particular, `MULTI_CTA` (which a normal one-query `AUTO`
+search resolves to) sizes an internal traversal hash table from `search_width`, `iTopK`,
+`max_iterations`, and the graph degree. This API does not replicate that calculation, since
+`max_iterations` is itself auto-derived from the graph degree and dataset size, values not known
+at query-construction time, so out-of-range combinations are caught by native CAGRA at search
+time rather than here.
+
+Note that native CAGRA only reports some of those combinations cleanly. Moderately oversized
+values raise a clear exception, but above roughly `iTopK` 1e9 the native hash-table sizing loop
+fails to terminate and the search hangs instead of returning an error
+([#2523](https://github.com/NVIDIA/cuvs/issues/2523)). Treat these constants as representational
+ceilings only, and size `iTopK`/`searchWidth` to what the workload actually needs.
+
+The query uses an effective `iTopK` equal to the greater of the configured value and the requested
+Lucene `k`; for `SINGLE_CTA`, this effective value is re-validated against the 512 limit again once
+the filtered per-segment search path finishes adjusting it, since a restrictive filter can raise it
+past what was checked at query construction time.
+
 In a Maven project that includes the `cuvs-lucene` dependency shown above, create `src/main/java/com/nvidia/cuvs/lucene/examples/HelloCuvsLucene.java`:
 
 ```java

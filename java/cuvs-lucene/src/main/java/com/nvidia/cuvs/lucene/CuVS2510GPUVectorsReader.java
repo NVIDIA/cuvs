@@ -459,9 +459,14 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
         CagraSearchParams searchParams;
         if (knnCollector instanceof GPUPerLeafCuVSKnnCollector) {
           GPUPerLeafCuVSKnnCollector collector = (GPUPerLeafCuVSKnnCollector) knnCollector;
+          int effectiveITopK = Math.max(collector.getiTopK(), topK);
+          // topK may have been raised above the value validated at query construction time (see
+          // GPUKnnFloatVectorQuery.validateSearchParameters), e.g. by the filter-cardinality bump
+          // above. Re-validate against the final value actually sent to native CAGRA.
+          GPUKnnFloatVectorQuery.validateSingleCtaItopk(effectiveITopK, collector.getSearchAlgo());
           searchParams =
               new CagraSearchParams.Builder()
-                  .withItopkSize(Math.max(collector.getiTopK(), topK))
+                  .withItopkSize(effectiveITopK)
                   .withSearchWidth(collector.getSearchWidth())
                   .withThreadBlockSize(collector.getThreadBlockSize())
                   .withMaxIterations(collector.getMaxIterations())
