@@ -46,7 +46,7 @@ void compute(raft::resources const& handle,
                                            y.extent(0),
                                            x.extent(1),
                                            eps,
-                                           raft::resource::get_cuda_stream(handle));
+                                           raft::resource::get_cuda_stream(handle).get());
 }
 
 // Explicit template instantiations

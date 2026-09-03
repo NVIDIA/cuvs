@@ -41,7 +41,7 @@ class SpectralEmbeddingTest : public ::testing::TestWithParam<SpectralEmbeddingI
  public:
   SpectralEmbeddingTest()
     : params_(::testing::TestWithParam<SpectralEmbeddingInputs<T>>::GetParam()),
-      stream(raft::resource::get_cuda_stream(handle)),
+      stream(raft::resource::get_cuda_stream(handle).get()),
       input_(raft::make_device_matrix<T, int, raft::row_major>(
         handle, params_.n_samples, params_.n_features)),
       labels_(raft::make_device_vector<int, int, raft::row_major>(handle, params_.n_samples)),

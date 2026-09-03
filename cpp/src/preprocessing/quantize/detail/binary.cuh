@@ -193,7 +193,7 @@ auto train(raft::resources const& res,
                       dataset_dim,
                       dataset_dim,
                       dataset_size,
-                      raft::resource::get_cuda_stream(res));
+                      raft::resource::get_cuda_stream(res).get());
     }
   } else if (params.threshold ==
              cuvs::preprocessing::quantize::binary::bit_threshold::sampling_median) {
@@ -352,7 +352,7 @@ void transform(raft::resources const& res,
                raft::device_matrix_view<const T, int64_t> dataset,
                raft::device_matrix_view<QuantI, int64_t> out)
 {
-  cudaStream_t stream            = raft::resource::get_cuda_stream(res);
+  cudaStream_t stream            = raft::resource::get_cuda_stream(res).get();
   const uint32_t bits_per_pack   = sizeof(QuantI) * 8;
   const uint32_t dataset_dim     = dataset.extent(1);
   const uint32_t out_dim         = out.extent(1);

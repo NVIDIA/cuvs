@@ -52,7 +52,7 @@ class KNNTest : public ::testing::TestWithParam<KNNInputs<T>> {
  public:
   KNNTest()
     : params_(::testing::TestWithParam<KNNInputs<T>>::GetParam()),
-      stream(raft::resource::get_cuda_stream(handle)),
+      stream(raft::resource::get_cuda_stream(handle).get()),
       actual_labels_(0, stream),
       expected_labels_(0, stream),
       input_(0, stream),
@@ -215,7 +215,7 @@ template <typename T, typename DistT = T>
 class RandomBruteForceKNNTest : public ::testing::TestWithParam<RandomKNNInputs> {
  public:
   RandomBruteForceKNNTest()
-    : stream_(raft::resource::get_cuda_stream(handle_)),
+    : stream_(raft::resource::get_cuda_stream(handle_).get()),
       params_(::testing::TestWithParam<RandomKNNInputs>::GetParam()),
       database(params_.num_db_vecs * params_.dim, stream_),
       search_queries(params_.num_queries * params_.dim, stream_),

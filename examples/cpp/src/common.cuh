@@ -45,7 +45,7 @@ void print_results(raft::device_resources const& dev_resources,
   auto neighbors_host = raft::make_host_matrix<IdxT, int64_t>(neighbors.extent(0), topk);
   auto distances_host = raft::make_host_matrix<float, int64_t>(distances.extent(0), topk);
 
-  cudaStream_t stream = raft::resource::get_cuda_stream(dev_resources);
+  cudaStream_t stream = raft::resource::get_cuda_stream(dev_resources).get();
 
   raft::copy(neighbors_host.data_handle(), neighbors.data_handle(), neighbors.size(), stream);
   raft::copy(distances_host.data_handle(), distances.data_handle(), distances.size(), stream);

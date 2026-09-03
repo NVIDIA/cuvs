@@ -27,7 +27,7 @@ void minClusterAndDistanceCompute(
   int batch_centroids,
   rmm::device_uvector<char>& workspace)
 {
-  cudaStream_t stream           = raft::resource::get_cuda_stream(handle);
+  cudaStream_t stream           = raft::resource::get_cuda_stream(handle).get();
   auto n_samples                = X.extent(0);
   auto n_features               = X.extent(1);
   auto n_clusters               = centroids.extent(0);
@@ -242,7 +242,7 @@ void minClusterDistanceCompute(raft::resources const& handle,
                                int batch_centroids,
                                rmm::device_uvector<char>& workspace)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle);
+  cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
   auto n_samples      = X.extent(0);
   auto n_features     = X.extent(1);
   auto n_clusters     = centroids.extent(0);

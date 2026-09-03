@@ -43,7 +43,7 @@ class ip_distances_t : public distances_t<value_t> {
                                       config_->b_nrows,
                                       coo_rows_b.data(),
                                       config_->b_nnz,
-                                      raft::resource::get_cuda_stream(config_->handle));
+                                      raft::resource::get_cuda_stream(config_->handle).get());
   }
 
   /**

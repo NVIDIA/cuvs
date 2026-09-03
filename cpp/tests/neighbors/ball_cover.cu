@@ -166,14 +166,14 @@ class BallCoverKNNQueryTest : public ::testing::TestWithParam<BallCoverInputs<va
                                                  params.n_rows,
                                                  params.n_cols,
                                                  n_centers,
-                                                 raft::resource::get_cuda_stream(handle));
+                                                 raft::resource::get_cuda_stream(handle).get());
 
     raft::random::make_blobs<value_t, value_idx>(X2.data(),
                                                  Y2.data(),
                                                  params.n_query,
                                                  params.n_cols,
                                                  n_centers,
-                                                 raft::resource::get_cuda_stream(handle));
+                                                 raft::resource::get_cuda_stream(handle).get());
 
     rmm::device_uvector<value_idx> d_ref_I(params.n_query * k,
                                            raft::resource::get_cuda_stream(handle));
@@ -182,9 +182,12 @@ class BallCoverKNNQueryTest : public ::testing::TestWithParam<BallCoverInputs<va
 
     if (metric == cuvs::distance::DistanceType::Haversine) {
       raft::linalg::unaryOp(
-        X.data(), X.data(), X.size(), ToRadians(), raft::resource::get_cuda_stream(handle));
-      raft::linalg::unaryOp(
-        X2.data(), X2.data(), X2.size(), ToRadians(), raft::resource::get_cuda_stream(handle));
+        X.data(), X.data(), X.size(), ToRadians(), raft::resource::get_cuda_stream(handle).get());
+      raft::linalg::unaryOp(X2.data(),
+                            X2.data(),
+                            X2.size(),
+                            ToRadians(),
+                            raft::resource::get_cuda_stream(handle).get());
     }
 
     compute_bfknn(handle,
@@ -240,7 +243,7 @@ class BallCoverKNNQueryTest : public ::testing::TestWithParam<BallCoverInputs<va
                                   params.n_query,
                                   k,
                                   discrepancies.data(),
-                                  raft::resource::get_cuda_stream(handle));
+                                  raft::resource::get_cuda_stream(handle).get());
 
     ASSERT_TRUE(res == 0);
   }
@@ -276,7 +279,7 @@ class BallCoverAllKNNTest : public ::testing::TestWithParam<BallCoverInputs<valu
                                                  params.n_rows,
                                                  params.n_cols,
                                                  n_centers,
-                                                 raft::resource::get_cuda_stream(handle));
+                                                 raft::resource::get_cuda_stream(handle).get());
 
     rmm::device_uvector<value_idx> d_ref_I(params.n_rows * k,
                                            raft::resource::get_cuda_stream(handle));
@@ -288,7 +291,7 @@ class BallCoverAllKNNTest : public ::testing::TestWithParam<BallCoverInputs<valu
 
     if (metric == cuvs::distance::DistanceType::Haversine) {
       raft::linalg::unaryOp(
-        X.data(), X.data(), X.size(), ToRadians(), raft::resource::get_cuda_stream(handle));
+        X.data(), X.data(), X.size(), ToRadians(), raft::resource::get_cuda_stream(handle).get());
     }
 
     compute_bfknn(handle,
@@ -338,7 +341,7 @@ class BallCoverAllKNNTest : public ::testing::TestWithParam<BallCoverInputs<valu
                                        params.n_rows,
                                        k,
                                        discrepancies.data(),
-                                       raft::resource::get_cuda_stream(handle));
+                                       raft::resource::get_cuda_stream(handle).get());
 
     // TODO: There seem to be discrepancies here only when
     // the entire test suite is executed.

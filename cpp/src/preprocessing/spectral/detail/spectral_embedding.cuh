@@ -194,7 +194,7 @@ void create_connectivity_graph(
     sym_coo1_matrix.structure_view().get_rows().data(),
     sym_coo1_matrix.structure_view().get_cols().data(),
     sym_coo1_matrix.get_elements().data(),
-    stream);
+    stream.get());
 
   raft::sparse::op::coo_remove_scalar<128, float, int, NNZType>(
     handle,

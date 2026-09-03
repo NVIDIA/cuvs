@@ -17,8 +17,6 @@
 #include <raft/core/mdspan_types.hpp>
 #include <raft/core/resources.hpp>
 
-#include <rmm/cuda_stream_view.hpp>
-
 #include <cstdint>
 #include <fstream>
 

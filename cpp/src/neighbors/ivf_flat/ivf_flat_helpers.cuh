@@ -99,7 +99,7 @@ void pack_list_data(
   dim3 blocks(raft::div_rounding_up_safe<uint32_t>(n_rows, kBlockSize), 1, 1);
   dim3 threads(kBlockSize, 1, 1);
   auto stream = raft::resource::get_cuda_stream(res);
-  pack_interleaved_list_kernel<<<blocks, threads, 0, stream>>>(
+  pack_interleaved_list_kernel<<<blocks, threads, 0, stream.get()>>>(
     codes.data_handle(), list_data.data_handle(), n_rows, dim, veclen, offset_or_indices);
   RAFT_CUDA_TRY(cudaPeekAtLastError());
 }
@@ -120,7 +120,7 @@ void unpack_list_data(
   dim3 blocks(raft::div_rounding_up_safe<uint32_t>(n_rows, kBlockSize), 1, 1);
   dim3 threads(kBlockSize, 1, 1);
   auto stream = raft::resource::get_cuda_stream(res);
-  unpack_interleaved_list_kernel<<<blocks, threads, 0, stream>>>(
+  unpack_interleaved_list_kernel<<<blocks, threads, 0, stream.get()>>>(
     list_data.data_handle(), codes.data_handle(), n_rows, dim, veclen, offset_or_indices);
   RAFT_CUDA_TRY(cudaPeekAtLastError());
 }

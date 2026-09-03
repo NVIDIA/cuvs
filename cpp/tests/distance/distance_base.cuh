@@ -503,7 +503,7 @@ class DistanceTest : public ::testing::TestWithParam<DistanceInputs<DataType, Ou
  public:
   DistanceTest()
     : params(::testing::TestWithParam<DistanceInputs<OutputType>>::GetParam()),
-      stream(raft::resource::get_cuda_stream(handle)),
+      stream(raft::resource::get_cuda_stream(handle).get()),
       x(params.m * params.k, stream),
       y(params.n * params.k, stream),
       dist_ref(params.m * params.n, stream),
@@ -599,7 +599,7 @@ class DistanceTestSameBuffer
   using dev_vector = rmm::device_uvector<OutputType>;
   DistanceTestSameBuffer()
     : params(::testing::TestWithParam<DistanceInputs<OutputType>>::GetParam()),
-      stream(raft::resource::get_cuda_stream(handle)),
+      stream(raft::resource::get_cuda_stream(handle).get()),
       x(params.m * params.k, stream),
       dist_ref({dev_vector(params.m * params.m, stream), dev_vector(params.m * params.m, stream)}),
       dist({dev_vector(params.m * params.m, stream), dev_vector(params.m * params.m, stream)}),

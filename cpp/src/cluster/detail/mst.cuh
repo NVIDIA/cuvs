@@ -76,7 +76,7 @@ void connect_knn_graph(
 {
   auto stream = raft::resource::get_cuda_stream(handle);
 
-  raft::sparse::COO<value_t, value_idx> connected_edges(stream);
+  raft::sparse::COO<value_t, value_idx> connected_edges(stream.get());
 
   // default row and column batch sizes are chosen for computing cross component nearest neighbors.
   // Reference: PR #1445
@@ -95,7 +95,7 @@ void connect_knn_graph(
 
   rmm::device_uvector<value_idx> indptr2(m + 1, stream);
   raft::sparse::convert::sorted_coo_to_csr(
-    connected_edges.rows(), connected_edges.nnz, indptr2.data(), m + 1, stream);
+    connected_edges.rows(), connected_edges.nnz, indptr2.data(), m + 1, stream.get());
 
   // On the second call, we hand the MST the original colors
   // and the new set of edges and let it restart the optimization process
@@ -107,11 +107,11 @@ void connect_knn_graph(
                                                                      m,
                                                                      connected_edges.nnz,
                                                                      color,
-                                                                     stream,
+                                                                     stream.get(),
                                                                      false,
                                                                      false);
 
-  merge_msts<value_idx, value_t>(msf, new_mst, stream);
+  merge_msts<value_idx, value_t>(msf, new_mst, stream.get());
 }
 
 /**
@@ -147,10 +147,10 @@ void connect_knn_graph(
     "FixConnectivitiesRedOp");
 
   auto stream      = raft::resource::get_cuda_stream(handle);
-  int n_components = get_n_components(color, m, stream);
+  int n_components = get_n_components(color, m, stream.get());
 
   rmm::device_uvector<value_idx> d_color_remapped(m, stream);
-  raft::label::make_monotonic(d_color_remapped.data(), color, m, stream, true);
+  raft::label::make_monotonic(d_color_remapped.data(), color, m, stream.get(), true);
 
   std::vector<value_idx> h_color(m);
   raft::copy(handle,
@@ -251,7 +251,7 @@ void connect_knn_graph(
 
   rmm::device_uvector<value_idx> indptr2(m + 1, stream);
   raft::sparse::convert::sorted_coo_to_csr(
-    device_u_indices.data_handle(), new_nnz, indptr2.data(), m + 1, stream);
+    device_u_indices.data_handle(), new_nnz, indptr2.data(), m + 1, stream.get());
 
   // On the second call, we hand the MST the original colors
   // and the new set of edges and let it restart the optimization process
@@ -263,11 +263,11 @@ void connect_knn_graph(
     m,
     new_nnz,
     color,
-    stream,
+    stream.get(),
     false,
     false);
 
-  merge_msts<value_idx, value_t>(msf, new_mst, stream);
+  merge_msts<value_idx, value_t>(msf, new_mst, stream.get());
 }
 
 /**
@@ -317,10 +317,10 @@ void build_sorted_mst(
 
   // We want to have MST initialize colors on first call.
   auto mst_coo = raft::sparse::solver::mst<value_idx, value_idx, value_t, double>(
-    handle, indptr, indices, pw_dists, (value_idx)m, nnz, color, stream, false, true);
+    handle, indptr, indices, pw_dists, (value_idx)m, nnz, color, stream.get(), false, true);
 
   int iters        = 1;
-  int n_components = cuvs::sparse::neighbors::get_n_components(color, m, stream);
+  int n_components = cuvs::sparse::neighbors::get_n_components(color, m, stream.get());
 
   bool data_on_device = raft::memory_type_from_pointer(X) != raft::memory_type::host;
 
@@ -348,7 +348,7 @@ void build_sorted_mst(
 
     iters++;
 
-    n_components = cuvs::sparse::neighbors::get_n_components(color, m, stream);
+    n_components = cuvs::sparse::neighbors::get_n_components(color, m, stream.get());
   }
 
   /**
@@ -372,11 +372,11 @@ void build_sorted_mst(
                max_iter);
 
   raft::sparse::op::coo_sort_by_weight(
-    mst_coo.src.data(), mst_coo.dst.data(), mst_coo.weights.data(), mst_coo.n_edges, stream);
+    mst_coo.src.data(), mst_coo.dst.data(), mst_coo.weights.data(), mst_coo.n_edges, stream.get());
 
-  raft::copy_async(mst_src, mst_coo.src.data(), mst_coo.n_edges, stream);
-  raft::copy_async(mst_dst, mst_coo.dst.data(), mst_coo.n_edges, stream);
-  raft::copy_async(mst_weight, mst_coo.weights.data(), mst_coo.n_edges, stream);
+  raft::copy_async(mst_src, mst_coo.src.data(), mst_coo.n_edges, stream.get());
+  raft::copy_async(mst_dst, mst_coo.dst.data(), mst_coo.n_edges, stream.get());
+  raft::copy_async(mst_weight, mst_coo.weights.data(), mst_coo.n_edges, stream.get());
 }
 
 };  // namespace  cuvs::cluster::agglomerative::detail

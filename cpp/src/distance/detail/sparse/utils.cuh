@@ -114,7 +114,7 @@ void faster_dot_on_csr(raft::resources const& handle,
     dim3 blocks(block_x, block_y, 1);
 
     faster_dot_on_csr_kernel<value_idx, value_t, dot_t>
-      <<<blocks, tpb, smem_size, stream>>>(dot, indptr, cols, A, B, nnz, n_rows, dim);
+      <<<blocks, tpb, smem_size, stream.get()>>>(dot, indptr, cols, A, B, nnz, n_rows, dim);
 
   } else if (dim < 256) {
     constexpr int tpb = 128;
@@ -126,7 +126,7 @@ void faster_dot_on_csr(raft::resources const& handle,
     dim3 blocks(block_x, block_y, 1);
 
     faster_dot_on_csr_kernel<value_idx, value_t, dot_t>
-      <<<blocks, tpb, smem_size, stream>>>(dot, indptr, cols, A, B, nnz, n_rows, dim);
+      <<<blocks, tpb, smem_size, stream.get()>>>(dot, indptr, cols, A, B, nnz, n_rows, dim);
   } else if (dim < 512) {
     constexpr int tpb = 256;
     cudaOccupancyMaxActiveBlocksPerMultiprocessor(
@@ -137,7 +137,7 @@ void faster_dot_on_csr(raft::resources const& handle,
     dim3 blocks(block_x, block_y, 1);
 
     faster_dot_on_csr_kernel<value_idx, value_t, dot_t>
-      <<<blocks, tpb, smem_size, stream>>>(dot, indptr, cols, A, B, nnz, n_rows, dim);
+      <<<blocks, tpb, smem_size, stream.get()>>>(dot, indptr, cols, A, B, nnz, n_rows, dim);
   } else {
     constexpr int tpb = 512;
     cudaOccupancyMaxActiveBlocksPerMultiprocessor(
@@ -148,7 +148,7 @@ void faster_dot_on_csr(raft::resources const& handle,
     dim3 blocks(block_x, block_y, 1);
 
     faster_dot_on_csr_kernel<value_idx, value_t, dot_t>
-      <<<blocks, tpb, smem_size, stream>>>(dot, indptr, cols, A, B, nnz, n_rows, dim);
+      <<<blocks, tpb, smem_size, stream.get()>>>(dot, indptr, cols, A, B, nnz, n_rows, dim);
   }
 
   RAFT_CUDA_TRY(cudaPeekAtLastError());

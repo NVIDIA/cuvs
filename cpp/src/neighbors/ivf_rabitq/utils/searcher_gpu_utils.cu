@@ -40,8 +40,10 @@ void get_max_probed_cluster_size_and_vectors_count(
   auto d_max_probed_cluster_size_ptr = d_max_probed_cluster_size.data_handle();
   auto d_probed_vectors_count_ptr    = d_probed_vectors_count.data_handle();
   if (get_max_probed_vectors_count) {
-    RAFT_CUDA_TRY(cudaMemsetAsync(
-      d_probed_vectors_count_ptr, 0, num_queries * sizeof(size_t), stream));  // Initialize to 0
+    RAFT_CUDA_TRY(cudaMemsetAsync(d_probed_vectors_count_ptr,
+                                  0,
+                                  num_queries * sizeof(size_t),
+                                  stream.get()));  // Initialize to 0
   }
 
   auto count = thrust::make_counting_iterator<int64_t>(0);

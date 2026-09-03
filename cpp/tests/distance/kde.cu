@@ -204,7 +204,7 @@ void run_kde_golden(const double* query_data,
                          metric_arg);
 
   ASSERT_TRUE(cuvs::devArrMatchHost(
-    h_expected.data(), d_output.data(), n_query, cuvs::CompareApprox<T>(tolerance), stream));
+    h_expected.data(), d_output.data(), n_query, cuvs::CompareApprox<T>(tolerance), stream.get()));
 }
 
 // ============================================================================
@@ -275,7 +275,7 @@ void run_kde_multipass(const double* expected, bool weighted, T tolerance)
                          T(2.0));
 
   ASSERT_TRUE(cuvs::devArrMatchHost(
-    h_expected.data(), d_output.data(), nq, cuvs::CompareApprox<T>(tolerance), stream));
+    h_expected.data(), d_output.data(), nq, cuvs::CompareApprox<T>(tolerance), stream.get()));
 }
 
 // ============================================================================
@@ -331,7 +331,7 @@ void run_kde_highd(int nt, int dim, const double* expected, T tolerance)
                          T(2.0));
 
   ASSERT_TRUE(cuvs::devArrMatchHost(
-    h_expected.data(), d_output.data(), nq, cuvs::CompareApprox<T>(tolerance), stream));
+    h_expected.data(), d_output.data(), nq, cuvs::CompareApprox<T>(tolerance), stream.get()));
 }
 
 }  // namespace

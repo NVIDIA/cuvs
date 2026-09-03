@@ -338,7 +338,8 @@ void launch_initialize_root_memberships(raft::resources const& res,
   initialize_root_memberships_kernel<<<blocks,
                                        THREADS_PER_BLOCK,
                                        0,
-                                       raft::resource::get_cuda_stream(res)>>>(memberships, rows);
+                                       raft::resource::get_cuda_stream(res).get()>>>(memberships,
+                                                                                     rows);
   RAFT_CUDA_TRY(cudaGetLastError());
 }
 
@@ -352,7 +353,7 @@ void launch_carry_completed_parents(raft::resources const& res,
   carry_completed_parents_kernel<<<span_count,
                                    THREADS_PER_BLOCK,
                                    0,
-                                   raft::resource::get_cuda_stream(res)>>>(
+                                   raft::resource::get_cuda_stream(res).get()>>>(
     input, spans, output, output_keys);
   RAFT_CUDA_TRY(cudaGetLastError());
 }
@@ -371,7 +372,7 @@ void launch_materialize_tile_distances(raft::resources const& res,
   materialize_tile_distances_kernel<<<blocks,
                                       THREADS_PER_BLOCK,
                                       0,
-                                      raft::resource::get_cuda_stream(res)>>>(
+                                      raft::resource::get_cuda_stream(res).get()>>>(
     dots, batch_size, tile_rows, padded_leaders, norms, leader_ids, input_memberships, tiles);
   RAFT_CUDA_TRY(cudaGetLastError());
 }
@@ -391,15 +392,15 @@ void launch_emit_tile_assignments(raft::resources const& res,
   emit_tile_assignments_kernel<<<blocks,
                                  THREADS_PER_BLOCK,
                                  0,
-                                 raft::resource::get_cuda_stream(res)>>>(selected_leaders,
-                                                                         batch_size,
-                                                                         tile_rows,
-                                                                         fanout,
-                                                                         occurrence_stride,
-                                                                         input_memberships,
-                                                                         tiles,
-                                                                         output_keys,
-                                                                         output_memberships);
+                                 raft::resource::get_cuda_stream(res).get()>>>(selected_leaders,
+                                                                               batch_size,
+                                                                               tile_rows,
+                                                                               fanout,
+                                                                               occurrence_stride,
+                                                                               input_memberships,
+                                                                               tiles,
+                                                                               output_keys,
+                                                                               output_memberships);
   RAFT_CUDA_TRY(cudaGetLastError());
 }
 
@@ -461,7 +462,7 @@ void launch_initialize_self_scaffold(raft::resources const& res,
   initialize_self_scaffold_kernel<<<blocks,
                                     THREADS_PER_BLOCK,
                                     0,
-                                    raft::resource::get_cuda_stream(res)>>>(
+                                    raft::resource::get_cuda_stream(res).get()>>>(
     graph, rows, graph_degree, scaffold_offset, scaffold_degree);
   RAFT_CUDA_TRY(cudaGetLastError());
 }
@@ -484,19 +485,19 @@ void launch_leaf_gram_knn(raft::resources const& res,
   leaf_gram_knn_kernel<<<static_cast<int>(leaf_count),
                          leaf_size,
                          0,
-                         raft::resource::get_cuda_stream(res)>>>(gram,
-                                                                 memberships,
-                                                                 origins,
-                                                                 leaf_starts,
-                                                                 leaf_counts,
-                                                                 leaf_strides,
-                                                                 leaf_offset,
-                                                                 leaf_count,
-                                                                 leaf_size,
-                                                                 leaf_degree,
-                                                                 graph_degree,
-                                                                 scaffold_offset,
-                                                                 graph);
+                         raft::resource::get_cuda_stream(res).get()>>>(gram,
+                                                                       memberships,
+                                                                       origins,
+                                                                       leaf_starts,
+                                                                       leaf_counts,
+                                                                       leaf_strides,
+                                                                       leaf_offset,
+                                                                       leaf_count,
+                                                                       leaf_size,
+                                                                       leaf_degree,
+                                                                       graph_degree,
+                                                                       scaffold_offset,
+                                                                       graph);
   RAFT_CUDA_TRY(cudaGetLastError());
 }
 
@@ -504,7 +505,10 @@ void launch_initialize_origins(
   raft::resources const& res, uint32_t* origins, int64_t start, int64_t rows, uint32_t origin)
 {
   auto blocks = static_cast<int>(raft::div_rounding_up_safe<int64_t>(rows, THREADS_PER_BLOCK));
-  initialize_origins_kernel<<<blocks, THREADS_PER_BLOCK, 0, raft::resource::get_cuda_stream(res)>>>(
+  initialize_origins_kernel<<<blocks,
+                              THREADS_PER_BLOCK,
+                              0,
+                              raft::resource::get_cuda_stream(res).get()>>>(
     origins, start, rows, origin);
   RAFT_CUDA_TRY(cudaGetLastError());
 }
@@ -523,7 +527,7 @@ void launch_copy_partition_graph(raft::resources const& res,
   copy_partition_graph_kernel<<<blocks,
                                 THREADS_PER_BLOCK,
                                 0,
-                                raft::resource::get_cuda_stream(res)>>>(
+                                raft::resource::get_cuda_stream(res).get()>>>(
     source, source_rows, source_degree, destination, destination_degree, base_degree, offset);
   RAFT_CUDA_TRY(cudaGetLastError());
 }
@@ -540,7 +544,7 @@ void launch_deduplicate_graph_prefix(raft::resources const& res,
   deduplicate_graph_prefix_kernel<<<blocks,
                                     THREADS_PER_BLOCK,
                                     0,
-                                    raft::resource::get_cuda_stream(res)>>>(
+                                    raft::resource::get_cuda_stream(res).get()>>>(
     input, rows, input_degree, output, output_degree);
   RAFT_CUDA_TRY(cudaGetLastError());
 }

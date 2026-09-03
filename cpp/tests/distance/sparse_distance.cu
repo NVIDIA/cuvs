@@ -80,7 +80,7 @@ class SparseDistanceTest
 
     cuvs::distance::pairwise_distance(handle, x, x, out, params.metric, params.metric_arg);
 
-    RAFT_CUDA_TRY(cudaStreamSynchronize(resource::get_cuda_stream(handle)));
+    RAFT_CUDA_TRY(cudaStreamSynchronize(resource::get_cuda_stream(handle).get()));
   }
 
   void compare()

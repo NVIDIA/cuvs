@@ -14,7 +14,6 @@
 #include <raft/core/resource/stream_view.hpp>
 #include <raft/core/resources.hpp>
 #include <raft/util/integer_utils.hpp>
-#include <rmm/cuda_stream_view.hpp>
 
 #include <cuvs/core/export.hpp>
 #include <optional>

@@ -131,7 +131,7 @@ void construct_landmark_1nn(raft::resources const& handle,
                                            index.m,
                                            index.get_R_indptr().data_handle(),
                                            index.n_landmarks + 1,
-                                           raft::resource::get_cuda_stream(handle));
+                                           raft::resource::get_cuda_stream(handle).get());
 
   // reorder X to allow aligned access
   raft::matrix::copy_rows<value_t, value_idx>(

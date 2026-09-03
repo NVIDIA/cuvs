@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -16,6 +16,7 @@
 #include "searcher_gpu.cuh"
 #include "searcher_gpu_common.cuh"
 
+#include <cuda/stream>
 #include <cuvs/selection/select_k.hpp>
 #include <raft/matrix/detail/select_warpsort.cuh>
 
@@ -115,13 +116,14 @@ void launchPrecomputeLUTs(const float* d_query,
                           float* d_lut_for_queries,
                           size_t num_queries,
                           size_t D,
-                          rmm::cuda_stream_view stream)
+                          cuda::stream_ref stream)
 {
   // Launch precompute kernel
   dim3 gridDim(num_queries, 1, 1);
   dim3 blockDim(256, 1, 1);  // Can tune this
 
-  precomputeAllLUTs<<<gridDim, blockDim, 0, stream>>>(d_query, d_lut_for_queries, num_queries, D);
+  precomputeAllLUTs<<<gridDim, blockDim, 0, stream.get()>>>(
+    d_query, d_lut_for_queries, num_queries, D);
   RAFT_CUDA_TRY(cudaPeekAtLastError());
 }
 
@@ -141,7 +143,7 @@ void SearcherGPU::SearchClusterQueryPairs(
   // First allocate space for LUT
   size_t lut_size = num_queries * (D / BITS_PER_CHUNK) * LUT_SIZE * sizeof(float);
   rmm::device_uvector<float> d_lut_for_queries(lut_size / sizeof(float), stream_);
-  thrust::fill(thrust::cuda::par.on(stream_),
+  thrust::fill(thrust::cuda::par.on(stream_.get()),
                d_lut_for_queries.data(),
                d_lut_for_queries.data() + d_lut_for_queries.size(),
                -std::numeric_limits<float>::infinity());
@@ -182,20 +184,20 @@ void SearcherGPU::SearchClusterQueryPairs(
   auto d_topk_pids  = raft::make_device_matrix<uint32_t, int64_t>(handle_, num_queries, n_cols);
 
   // initialize distances
-  thrust::fill(thrust::cuda::par.on(stream_),
+  thrust::fill(thrust::cuda::par.on(stream_.get()),
                d_topk_dists.data_handle(),
                d_topk_dists.data_handle() + d_topk_dists.size(),
                std::numeric_limits<float>::infinity());
 
   rmm::device_uvector<int> d_query_write_counters(num_queries, stream_);
-  thrust::fill(thrust::cuda::par.on(stream_),
+  thrust::fill(thrust::cuda::par.on(stream_.get()),
                d_query_write_counters.data(),
                d_query_write_counters.data() + num_queries,
                0);
 
   rmm::device_uvector<float> d_topk_threshold_batch(use_block_sort ? num_queries : 0, stream_);
   if (use_block_sort) {
-    thrust::fill(thrust::cuda::par.on(stream_),
+    thrust::fill(thrust::cuda::par.on(stream_.get()),
                  d_topk_threshold_batch.data(),
                  d_topk_threshold_batch.data() + num_queries,
                  std::numeric_limits<float>::infinity());
@@ -250,7 +252,7 @@ void SearcherGPU::SearchClusterQueryPairs(
                                            cur_ivf.get_ex_bits(), /*with_ex=*/true);
     auto const& kernel_launcher = [&]() -> void {
       jit_launcher->dispatch<compute_inner_products_with_lut_func_t>(
-        stream_, gridDim, blockDim, shared_mem_size, kernelParams);
+        stream_.get(), gridDim, blockDim, shared_mem_size, kernelParams);
     };
     cuvs::neighbors::detail::safely_launch_kernel_with_smem_size<
       compute_inner_products_with_lut_func_t>(
@@ -266,7 +268,7 @@ void SearcherGPU::SearchClusterQueryPairs(
                                            /*ex_bits=*/0, /*with_ex=*/false);
     auto const& kernel_launcher = [&]() -> void {
       jit_launcher->dispatch<compute_inner_products_with_lut_func_t>(
-        stream_, gridDim, blockDim, shared_mem_size, kernelParams);
+        stream_.get(), gridDim, blockDim, shared_mem_size, kernelParams);
     };
     cuvs::neighbors::detail::safely_launch_kernel_with_smem_size<
       compute_inner_products_with_lut_func_t>(

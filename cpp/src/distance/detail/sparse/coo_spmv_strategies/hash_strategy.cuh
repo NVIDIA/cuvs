@@ -101,7 +101,7 @@ class hash_strategy : public coo_spmv_strategy<value_idx, value_t, tpb> {
                     this->config.a_nrows,
                     mask_indptr,
                     n_rows_divided,
-                    raft::resource::get_cuda_stream(this->config.handle));
+                    raft::resource::get_cuda_stream(this->config.handle).get());
 
     auto less_rows = std::get<0>(n_rows_divided);
     if (less_rows > 0) {
@@ -127,21 +127,23 @@ class hash_strategy : public coo_spmv_strategy<value_idx, value_t, tpb> {
         more_rows + 1, raft::resource::get_cuda_stream(this->config.handle));
       rmm::device_uvector<value_idx> chunk_indices(
         0, raft::resource::get_cuda_stream(this->config.handle));
-      chunked_mask_row_it<value_idx>::init(this->config.a_indptr,
-                                           mask_indptr.data() + less_rows,
-                                           more_rows,
-                                           capacity_threshold * map_size,
-                                           n_chunks_per_row,
-                                           chunk_indices,
-                                           raft::resource::get_cuda_stream(this->config.handle));
+      chunked_mask_row_it<value_idx>::init(
+        this->config.a_indptr,
+        mask_indptr.data() + less_rows,
+        more_rows,
+        capacity_threshold * map_size,
+        n_chunks_per_row,
+        chunk_indices,
+        raft::resource::get_cuda_stream(this->config.handle).get());
 
-      chunked_mask_row_it<value_idx> more(this->config.a_indptr,
-                                          more_rows,
-                                          mask_indptr.data() + less_rows,
-                                          capacity_threshold * map_size,
-                                          n_chunks_per_row.data(),
-                                          chunk_indices.data(),
-                                          raft::resource::get_cuda_stream(this->config.handle));
+      chunked_mask_row_it<value_idx> more(
+        this->config.a_indptr,
+        more_rows,
+        mask_indptr.data() + less_rows,
+        capacity_threshold * map_size,
+        n_chunks_per_row.data(),
+        chunk_indices.data(),
+        raft::resource::get_cuda_stream(this->config.handle).get());
 
       auto n_more_blocks = more.total_row_blocks * n_blocks_per_row;
       this->_dispatch_base(*this,
@@ -175,7 +177,7 @@ class hash_strategy : public coo_spmv_strategy<value_idx, value_t, tpb> {
                     this->config.b_nrows,
                     mask_indptr,
                     n_rows_divided,
-                    raft::resource::get_cuda_stream(this->config.handle));
+                    raft::resource::get_cuda_stream(this->config.handle).get());
 
     auto less_rows = std::get<0>(n_rows_divided);
     if (less_rows > 0) {
@@ -201,21 +203,23 @@ class hash_strategy : public coo_spmv_strategy<value_idx, value_t, tpb> {
         more_rows + 1, raft::resource::get_cuda_stream(this->config.handle));
       rmm::device_uvector<value_idx> chunk_indices(
         0, raft::resource::get_cuda_stream(this->config.handle));
-      chunked_mask_row_it<value_idx>::init(this->config.b_indptr,
-                                           mask_indptr.data() + less_rows,
-                                           more_rows,
-                                           capacity_threshold * map_size,
-                                           n_chunks_per_row,
-                                           chunk_indices,
-                                           raft::resource::get_cuda_stream(this->config.handle));
+      chunked_mask_row_it<value_idx>::init(
+        this->config.b_indptr,
+        mask_indptr.data() + less_rows,
+        more_rows,
+        capacity_threshold * map_size,
+        n_chunks_per_row,
+        chunk_indices,
+        raft::resource::get_cuda_stream(this->config.handle).get());
 
-      chunked_mask_row_it<value_idx> more(this->config.b_indptr,
-                                          more_rows,
-                                          mask_indptr.data() + less_rows,
-                                          capacity_threshold * map_size,
-                                          n_chunks_per_row.data(),
-                                          chunk_indices.data(),
-                                          raft::resource::get_cuda_stream(this->config.handle));
+      chunked_mask_row_it<value_idx> more(
+        this->config.b_indptr,
+        more_rows,
+        mask_indptr.data() + less_rows,
+        capacity_threshold * map_size,
+        n_chunks_per_row.data(),
+        chunk_indices.data(),
+        raft::resource::get_cuda_stream(this->config.handle).get());
 
       auto n_more_blocks = more.total_row_blocks * n_blocks_per_row;
       this->_dispatch_base_rev(*this,

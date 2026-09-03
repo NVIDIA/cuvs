@@ -86,7 +86,7 @@ class SparseKNNTest : public ::testing::TestWithParam<SparseKNNInputs<value_idx,
       raft::make_device_matrix_view<value_idx, int64_t>(out_indices.data(), n_rows, k),
       raft::make_device_matrix_view<value_t, int64_t>(out_dists.data(), n_rows, k));
 
-    RAFT_CUDA_TRY(cudaStreamSynchronize(resource::get_cuda_stream(handle)));
+    RAFT_CUDA_TRY(cudaStreamSynchronize(resource::get_cuda_stream(handle).get()));
   }
 
   void compare()
