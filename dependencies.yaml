@@ -640,6 +640,7 @@ dependencies:
         packages:
           - click
           - cuvs==26.10.*,>=0.0.0a0
+          - h5py>=3.8.0
           - pandas
           - pyyaml
           - requests

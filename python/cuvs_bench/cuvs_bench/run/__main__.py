@@ -14,9 +14,39 @@ import yaml
 from .data_export import (
     convert_json_to_csv_build,
     convert_json_to_csv_search,
+    validate_dataset_name,
     write_results_to_csv,
 )
+from ..backends.base import SearchResult
 from ..orchestrator import BenchmarkOrchestrator
+
+
+def _run_failed(results, mode, *, allow_empty=False):
+    if not results:
+        return not allow_empty
+    if mode == "sweep":
+        return any(not result.success for result in results)
+    return not any(
+        isinstance(result, SearchResult) and result.success
+        for result in results
+    )
+
+
+def _raise_for_failed_run(results, mode, *, allow_empty=False):
+    if not _run_failed(results, mode, allow_empty=allow_empty):
+        return
+
+    failures = [result for result in results if not result.success]
+    if failures:
+        details = "; ".join(
+            f"{result.algorithm}: {result.error_message or 'benchmark failed'}"
+            for result in failures
+        )
+    elif results:
+        details = f"{mode} mode produced no successful search result"
+    else:
+        details = f"{mode} mode produced no benchmark results"
+    raise click.ClickException(details)
 
 
 @click.command()
@@ -257,6 +287,11 @@ def main(
         and any backend-specific connection parameters (host, port, etc.).
 
     """
+    try:
+        validate_dataset_name(dataset)
+    except ValueError as exc:
+        raise click.BadParameter(str(exc), param_hint="--dataset") from exc
+
     if data_export:
         click.echo(
             "Warning: --data-export is deprecated because benchmark runs now "
@@ -312,6 +347,10 @@ def main(
     )
 
     if dry_run:
+        # Native dry runs print planned commands without result objects.
+        _raise_for_failed_run(
+            results, mode, allow_empty=backend_type == "cpp_gbench"
+        )
         return
 
     if backend_type == "cpp_gbench":
@@ -320,7 +359,16 @@ def main(
         if search:
             convert_json_to_csv_search(dataset, dataset_path)
     else:
-        write_results_to_csv(results, dataset, dataset_path, count, batch_size)
+        write_results_to_csv(
+            results,
+            dataset,
+            dataset_path,
+            count,
+            batch_size,
+            search_requested=search,
+        )
+
+    _raise_for_failed_run(results, mode)
 
 
 if __name__ == "__main__":

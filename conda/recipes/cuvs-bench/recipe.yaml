@@ -63,7 +63,12 @@ requirements:
 tests:
   - package_contents:
       files:
+        - site-packages/cuvs_bench/backends/_java/PyLuceneConfiguredHnswCodec.java
+        - site-packages/cuvs_bench/config/algos/pylucene_cuvs_cagra.yaml
+        - site-packages/cuvs_bench/config/algos/pylucene_cuvs_hnsw.yaml
         - site-packages/cuvs_bench/config/datasets/datasets.yaml
+  - script:
+      - python -c "import importlib.metadata as metadata; paths = {path.as_posix() for path in (metadata.files('cuvs-bench') or ())}; required = {'cuvs_bench/backends/_java/PyLuceneConfiguredHnswCodec.java', 'cuvs_bench/config/algos/pylucene_cuvs_cagra.yaml', 'cuvs_bench/config/algos/pylucene_cuvs_hnsw.yaml'}; missing = required - paths; forbidden = sorted(path for path in paths if '/tests/java/' in '/' + path or 'PyLuceneTestSupport' in path or path.endswith('.class')); assert not missing, f'missing cuvs-bench package resources: {sorted(missing)}'; assert not forbidden, f'forbidden cuvs-bench package payload: {forbidden}'"
   - python:
       imports:
         - cuvs_bench

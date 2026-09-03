@@ -2,8 +2,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# pre-commit hook wrapper that runs 'spotless:apply' to format the Java sources of every Maven
-# project under java/.
+# pre-commit hook wrapper that runs 'spotless:apply' for the Java sources owned by the Maven
+# projects under java/ and the Java adapters owned by cuvs-bench.
 #
 # Most cuvs contributors do not work on the Java client and do not have Maven installed. For them,
 # running 'pre-commit run --all-files' matches every Java source file in the repo regardless of
@@ -15,11 +15,15 @@ set -euo pipefail
 
 # Keep these in sync with the spotless-fmt hook's 'files'/'exclude' entries in
 # .pre-commit-config.yaml.
-JAVA_SRC_PATTERN='^java/(cuvs-java|cuvs-lucene)/([^/]+/)?src/.*\.java$'
+JAVA_SRC_PATTERN='^(java/(cuvs-java|cuvs-lucene)/([^/]+/)?src/.*|python/cuvs_bench/(cuvs_bench/backends/_java|tests/java)/.*)\.java$'
 JAVA_SRC_EXCLUDE='.*/panama/.*'
 
 java_sources_modified() {
-  git status --porcelain --untracked-files=all -- java/cuvs-java java/cuvs-lucene |
+  git status --porcelain --untracked-files=all -- \
+    java/cuvs-java \
+    java/cuvs-lucene \
+    python/cuvs_bench/cuvs_bench/backends/_java \
+    python/cuvs_bench/tests/java |
     cut -c4- |
     grep -Ev "${JAVA_SRC_EXCLUDE}" |
     grep -Eq "${JAVA_SRC_PATTERN}"
@@ -43,6 +47,7 @@ POMS=(
   java/cuvs-lucene/pom.xml
   java/cuvs-lucene/bench/pom.xml
   java/cuvs-lucene/examples/pom.xml
+  python/cuvs_bench/java-format-pom.xml
 )
 
 for pom in "${POMS[@]}"; do

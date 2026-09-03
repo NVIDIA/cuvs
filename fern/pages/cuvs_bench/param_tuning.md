@@ -210,6 +210,8 @@ Use FAISS IVF-PQ index on CPU
 
 ## HNSW
 
+The PyLucene accelerated HNSW path has backend-specific parameter mappings and runtime constraints. See [PyLucene Backend](/user-guide/benchmarking-guide/cu-vs-bench-tool/pylucene-backend#configure-hnsw-benchmarks) for its `m`, `ef_construction`, `direct_single_segment`, and `num_candidates` settings.
+
 ### cuvs_hnsw
 
 NVIDIA cuVS HNSW constructs a CAGRA graph on the GPU and converts it to an HNSW index for CPU-based search. The build process uses in-memory CAGRA if the estimated memory requirements fit within available host and GPU memory. If not, it falls back to ACE (Augmented Core Extraction), which enables construction for larger datasets by partitioning them. Explicitly setting ACE parameters also triggers the ACE build path. The ACE-specific parameters listed below are relevant only when ACE is being used.

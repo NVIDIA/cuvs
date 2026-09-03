@@ -159,6 +159,22 @@ ALGORITHM_SEARCH_SPACES: Dict[str, Dict[str, Dict[str, Any]]] = {
         },
     },
     # =========================================================================
+    # PyLucene/cuVS HNSW
+    # =========================================================================
+    "pylucene_cuvs_hnsw": {
+        "build": {
+            "m": {"type": "int", "min": 1, "max": 512},
+            "ef_construction": {"type": "int", "min": 1, "max": 512},
+        },
+        "search": {
+            "num_candidates": {
+                "type": "int",
+                "min": "top_k",
+                "max": 500,
+            },
+        },
+    },
+    # =========================================================================
     # Elasticsearch GPU HNSW (hnsw, int8_hnsw, int4_hnsw, bbq_hnsw)
     # Per ES-GPU-API-REFERENCE.md: index_options (m, ef_construction),
     # knn (num_candidates)
