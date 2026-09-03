@@ -7,6 +7,10 @@
 #include "ann_types.hpp"
 #include "cuda_stub.hpp"  // cuda-related utils
 
+#ifndef BUILD_CPU_ONLY
+#include <rmm/cuda_stream.hpp>
+#endif
+
 #if __has_include(<nvtx3/nvToolsExt.h>)
 #define ANN_BENCH_NVTX3_HEADERS_FOUND
 #include <nvtx3/nvToolsExt.h>
@@ -144,6 +148,13 @@ struct cuda_timer {
   }
 };
 
+#ifndef BUILD_CPU_ONLY
+namespace detail {
+inline std::vector<rmm::cuda_stream> global_stream_pool(0);
+inline std::mutex gsp_mutex;
+}  // namespace detail
+#endif
+
 /**
  * Get a stream associated with the current benchmark thread.
  *
@@ -156,7 +167,9 @@ inline auto get_stream_from_global_pool() -> cudaStream_t
 #ifndef BUILD_CPU_ONLY
   std::lock_guard guard(detail::gsp_mutex);
   if (static_cast<int>(detail::global_stream_pool.size()) < benchmark_n_threads) {
-    detail::global_stream_pool.resize(benchmark_n_threads);
+    while (static_cast<int>(detail::global_stream_pool.size()) < benchmark_n_threads) {
+      detail::global_stream_pool.emplace_back(rmm::cuda_stream::flags::non_blocking);
+    }
   }
   return detail::global_stream_pool[benchmark_thread_id].view();
 #else
