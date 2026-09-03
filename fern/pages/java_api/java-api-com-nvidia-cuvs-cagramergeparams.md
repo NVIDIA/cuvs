@@ -12,23 +12,6 @@ public class CagraMergeParams
 
 ## Public Members
 
-### CagraMergeParams
-
-```java
-private CagraMergeParams(CagraIndexParams outputIndexParams, MergeStrategy strategy)
-```
-
-Constructs a CagraMergeParams with the given output index parameters and merge strategy.
-
-**Parameters**
-
-| Name | Description |
-| --- | --- |
-| `outputIndexParams` | Index parameters for the output index |
-| `strategy` | Merge strategy to use |
-
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraMergeParams.java:17`_
-
 ### getOutputIndexParams
 
 ```java
