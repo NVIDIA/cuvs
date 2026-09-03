@@ -12,9 +12,7 @@
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/device_resources.hpp>
 #include <raft/core/logger.hpp>
-#include <raft/core/resource/cuda_stream.hpp>
 #include <raft/util/cudart_utils.hpp>
-#include <rmm/cuda_stream_pool.hpp>
 
 #include <cassert>
 #include <memory>

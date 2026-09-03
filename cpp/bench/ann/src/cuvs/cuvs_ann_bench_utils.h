@@ -129,12 +129,12 @@ class configured_raft_resources {
   {
     raft::resource::set_large_workspace_resource(
       *res_, raft::mr::device_resource{shared_res_->get_large_memory_resource()});
+    raft::resource::set_cuda_stream_pool(*res_, std::make_shared<rmm::cuda_stream_pool>(1));
   }
 
   /** Default constructor creates all resources anew. */
   configured_raft_resources() : configured_raft_resources{std::make_shared<shared_raft_resources>()}
   {
-    raft::resource::set_cuda_stream_pool(*res_, std::make_shared<rmm::cuda_stream_pool>(1));
   }
 
   configured_raft_resources(configured_raft_resources&&);

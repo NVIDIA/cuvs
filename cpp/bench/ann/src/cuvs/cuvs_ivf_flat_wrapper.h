@@ -15,7 +15,6 @@
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/linalg/unary_op.cuh>
 #include <raft/util/cudart_utils.hpp>
-#include <rmm/cuda_stream_pool.hpp>
 
 #include <cassert>
 #include <fstream>
