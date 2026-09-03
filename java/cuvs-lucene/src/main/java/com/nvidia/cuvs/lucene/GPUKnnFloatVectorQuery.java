@@ -52,9 +52,9 @@ import org.apache.lucene.util.FixedBitSet;
  * single multi-partition search to cuVS, passing one Lucene segment per cuVS partition. cuVS
  * runs the per-partition CAGRA searches, applies distance post-processing, and performs the
  * cross-partition top-k merge internally; the returned arrays are mapped to Lucene doc IDs on
- * the host. The effective CAGRA algorithm (SINGLE_CTA or MULTI_KERNEL) is selected by cuVS
- * based on {@code searchAlgo} and {@code itopk_size}, with MULTI_KERNEL handling k beyond
- * SINGLE_CTA's per-partition cap.
+ * the host. For a multi-partition search, cuVS resolves {@code AUTO} to {@code SINGLE_CTA} or
+ * {@code MULTI_CTA} from the search parameters and query/partition topology; {@code MULTI_KERNEL}
+ * is not supported by the multi-partition API.
  *
  * <p>If the query has an explicit {@code filter}, or if any segment carries live-document deletes,
  * the acceptance mask (filter ∩ liveDocs) is packed into one {@link FilterBitsetHandle} per segment
@@ -481,10 +481,9 @@ public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
   /**
    * Builds a {@link Query} that matches exactly the given pre-scored documents.
    *
-   * <p>Partitions {@code scoreDocs} by segment (using {@link ScoreDoc#shardIndex} as the segment
-   * offset relative to {@link LeafReaderContext#docBase}), then returns a {@link Scorer} per
-   * segment that iterates those docs in ascending doc-ID order and replays their pre-computed
-   * scores.
+   * <p>Partitions {@code scoreDocs} by each global doc ID's membership in a leaf's {@link
+   * LeafReaderContext#docBase} range, then returns a {@link Scorer} per segment that iterates those
+   * docs in ascending doc-ID order and replays their pre-computed scores.
    */
   private static Query docAndScoreQuery(ScoreDoc[] scoreDocs) {
     return new Query() {
