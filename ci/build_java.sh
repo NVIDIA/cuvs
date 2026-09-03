@@ -26,7 +26,11 @@ rapids-logger "Configuring conda strict channel priority"
 conda config --set channel_priority strict
 
 rapids-logger "Downloading artifacts from previous jobs"
-CPP_CHANNEL=$(rapids-download-from-github "$(rapids-artifact-name conda_cpp libcuvs cuvs --cuda "$RAPIDS_CUDA_VERSION")")
+CPP_CHANNEL_ARGS=()
+if [[ "${RAPIDS_USE_PUBLISHED_LIBCUVS:-false}" != "true" ]]; then
+  CPP_CHANNEL=$(rapids-download-from-github "$(rapids-artifact-name conda_cpp libcuvs cuvs --cuda "$RAPIDS_CUDA_VERSION")")
+  CPP_CHANNEL_ARGS=(--prepend-channel "${CPP_CHANNEL}")
+fi
 
 rapids-logger "Generate Java testing dependencies"
 
@@ -35,7 +39,7 @@ ENV_YAML_DIR="$(mktemp -d)"
 rapids-dependency-file-generator \
   --output conda \
   --file-key java \
-  --prepend-channel "${CPP_CHANNEL}" \
+  "${CPP_CHANNEL_ARGS[@]}" \
   --matrix "cuda=${RAPIDS_CUDA_VERSION%.*};arch=$(arch)" | tee "${ENV_YAML_DIR}/env.yaml"
 
 rapids-mamba-retry env create --yes -f "${ENV_YAML_DIR}/env.yaml" -n java
