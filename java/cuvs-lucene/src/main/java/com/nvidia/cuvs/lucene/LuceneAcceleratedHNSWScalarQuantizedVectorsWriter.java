@@ -181,8 +181,7 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends KnnVector
       }
 
       // Create CuVSMatrix with BYTE data type (unsigned bytes)
-      CuVSMatrix dataset =
-          Utils.createByteMatrix(unsignedVectors, dimensions, getCuVSResourcesInstance());
+      CuVSMatrix dataset = Utils.createByteMatrix(unsignedVectors, dimensions);
 
       if (dataset.size() < 2) {
         writeSingleVectorGraph(fieldInfo, unsignedVectors);
@@ -204,10 +203,9 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends KnnVector
       GPUBuiltHnswGraph hnswGraph =
           createMultiLayerHnswGraph(
               fieldInfo,
-              size,
               dimensions,
               adjacencyListMatrix,
-              unsignedVectors,
+              dataset,
               acceleratedHNSWParams.getHnswLayers(),
               params,
               QuantizationType.SCALAR);
