@@ -1,0 +1,42 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+name: security suite
+
+on:
+  push:
+    branches:
+      - "main"
+      - "release/*"
+  workflow_call:
+  workflow_dispatch:
+
+concurrency:
+  group: security-suite-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  security-suite:
+    # Pulse needs nv-gha-runners + Vault/nvcr vars; skip on forks.
+    if: github.repository == 'NVIDIA/cuvs'
+    # The caller must grant every permission the reusable workflow declares, including
+    # scans this repo does not enable — GitHub validates the grant before evaluating
+    # each scan's condition.
+    permissions:
+      actions: read
+      contents: read
+      id-token: write # OIDC -> Vault -> nvcr.io image pull
+      security-events: write # publish redacted SARIF to code scanning
+    uses: NVIDIA/security-workflows/.github/workflows/security-suite.yml@c736f0454dc99764a66af6b906adfcdfbf621985 # v0.4.0
+    with:
+      enable-secret-scan: true
+      enable-sast-scan: true
+      secret-runs-on: linux-amd64-cpu4
+      # Set the policy explicitly so enforcement can't drift with upstream defaults.
+      #   unverified — fail on verified/live secrets; warn on unverified  [default]
+      #   strict     — fail on any finding (verified or unverified)
+      #   all        — warn only; never fail the job on findings
+      secret-failure-policy: unverified
+      sast-languages: '["actions","c-cpp","java-kotlin","python","rust"]'

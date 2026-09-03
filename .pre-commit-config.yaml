@@ -2,6 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 repos:
+  # Runs first so a leaked credential blocks the commit before any formatter runs.
+  - repo: https://github.com/NVIDIA/security-workflows
+    rev: v0.3.0
+    hooks:
+      - id: secret-scan-trufflehog
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
