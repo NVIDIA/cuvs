@@ -275,10 +275,11 @@ void perform_rbc_eps_nn_query(raft::resources const& handle,
                               dist_func dfunc,
                               value_idx* adj_ia,
                               value_idx* adj_ja,
-                              value_idx* vd)
+                              value_idx* vd,
+                              value_t* dists)
 {
   rbc_eps_pass<value_idx, value_t>(
-    handle, index, query, n_query_pts, eps, max_k, landmarks, dfunc, adj_ia, adj_ja, vd);
+    handle, index, query, n_query_pts, eps, max_k, landmarks, dfunc, adj_ia, adj_ja, vd, dists);
 
   raft::resource::sync_stream(handle);
 }
@@ -515,6 +516,7 @@ void rbc_eps_nn_query(raft::resources const& handle,
                       value_idx* adj_ia,
                       value_idx* adj_ja,
                       value_idx* vd,
+                      value_t* dists,
                       distance_func dfunc)
 {
   ASSERT(index.is_index_trained(), "index must be previously trained");
@@ -530,7 +532,8 @@ void rbc_eps_nn_query(raft::resources const& handle,
                            dfunc,
                            adj_ia,
                            adj_ja,
-                           vd);
+                           vd,
+                           dists);
 }
 
 };  // namespace cuvs::neighbors::ball_cover::detail
