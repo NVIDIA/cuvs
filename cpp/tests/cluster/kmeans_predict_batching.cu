@@ -136,8 +136,13 @@ TEST(KMeansPredict, BatchParametersPreserveResultsAndReduceUnfusedAllocations)
   // predict selects fused or unfused 1-NN according to the architecture heuristic. The batching
   // parameters only affect the unfused path, so every GPU checks the results while allocation
   // reductions are required only when this problem shape dispatches to unfused 1-NN.
-  const bool uses_unfused_path =
-    !detail::use_fused<float, int, int>(handle, test_n_samples, test_n_clusters, test_n_features);
+  const auto fused_path =
+    detail::use_fused<float, int, int>(handle,
+                                       test_n_samples,
+                                       test_n_clusters,
+                                       test_n_features,
+                                       cuvs::distance::DistanceType::L2Expanded);
+  const bool uses_unfused_path = !detail::uses_fused_distance_nn(fused_path);
 
   for (std::size_t i = 1; i < batch_configs.size(); ++i) {
     auto config      = batch_configs[i];

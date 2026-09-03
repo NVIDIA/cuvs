@@ -5,8 +5,10 @@
 #pragma once
 
 #include "../../distance/distance.cuh"
+#include "../../distance/fused_distance_nn.cuh"
 #include <cstdint>
 #include <cuvs/cluster/kmeans.hpp>
+#include <cuvs/detail/jit_lto/tileir_compat.hpp>
 #include <cuvs/distance/distance.hpp>
 
 #include <raft/core/copy.cuh>
@@ -57,29 +59,101 @@
 
 namespace cuvs::cluster::kmeans::detail {
 
+template <typename MathT>
+inline constexpr bool is_cutile_fused_data_type_v =
+  std::is_same_v<MathT, float> || std::is_same_v<MathT, half>;
+
+using FusedDistancePath = cuvs::distance::detail::Fused1nnBackend;
+
+/** Native result representation selected by fused 1-NN. */
+enum class Fused1nnOutputLayout : std::uint8_t {
+  /** Separate index and distance arrays (cuTile). */
+  Soa,
+  /** Native key/value-pair array (CUTLASS/SIMT and the unfused reducer). */
+  Kvp,
+};
+
+/** Norm representation required by the resolved fused-1NN implementation. */
+enum class Fused1nnNormPolicy : std::uint8_t {
+  Default,
+  Tf32,
+};
+
 /**
- * @brief Returns true if the fused distance NN implementation should be used.
+ *  Resolved fused-1NN storage and execution requirements.
  *
- * On Ampere (SM <= 8.x) always use fused.
- * On Hopper (SM 9.x) use fused when m or n >= 4096.
- * On Blackwell (SM >= 10.x) use unfused.
+ * KMeans uses the result layout and byte counts to reuse its existing raw buffers. The fused
+ * implementation owns execution of the resolved path.
+ */
+template <typename IndexT>
+struct Fused1nnRequirements {
+  FusedDistancePath path{};
+  Fused1nnOutputLayout output_layout{};
+  Fused1nnNormPolicy norm_policy{};
+  size_t result_bytes{};
+  size_t result_alignment{};
+  size_t distance_offset{};
+  size_t workspace_bytes{};
+  size_t workspace_alignment{};
+  IndexT sample_tile{};
+  IndexT centroid_tile{};
+};
+
+inline constexpr bool uses_fused_distance_nn(FusedDistancePath path)
+{
+  return path != FusedDistancePath::Unfused;
+}
+
+/**
+ * @brief Select the pre-cuTile assignment path.
+ *
+ * This is also the fallback after a pointer-aware cuTile launch probe fails.
+ */
+template <typename IdxT>
+constexpr FusedDistancePath use_legacy_fused(int cc_major,
+                                             IdxT m,
+                                             IdxT n,
+                                             cuvs::distance::DistanceType metric)
+{
+  return cuvs::distance::detail::fused_1nn_legacy_backend(cc_major, m, n, metric);
+}
+
+template <typename IdxT>
+FusedDistancePath use_legacy_fused(const raft::resources& handle,
+                                   IdxT m,
+                                   IdxT n,
+                                   cuvs::distance::DistanceType metric)
+{
+  const auto prop = raft::resource::get_device_properties(handle);
+  return cuvs::distance::detail::fused_1nn_legacy_backend(prop.major, m, n, metric);
+}
+
+/**
+ * @brief Selects the fused-distance assignment path for KMeans.
+ *
+ * With CUDA 13, float/half use cuTile whenever the build and device support it. CUDA 12 and a
+ * failed CUDA 13 cuTile probe use the historical CUTLASS/unfused heuristic.
  */
 template <typename MathT, typename IdxT, typename LabelT>
-bool use_fused(const raft::resources& handle, IdxT m, IdxT n, IdxT k)
+FusedDistancePath use_fused(
+  const raft::resources& handle, IdxT m, IdxT n, IdxT k, cuvs::distance::DistanceType metric)
 {
-  cudaDeviceProp prop;
-  prop = raft::resource::get_device_properties(handle);
-  if (prop.major <= 8) {
-    // Use fused for Ampere or before
-    return true;
-  } else if (prop.major == 9 && (m >= 4096 || n >= 4096)) {
-    // On Hopper if m, n are bigger than 4096, use fused
-    return true;
-  } else if (prop.major >= 10) {
-    // On Blackwell onwards, use unfused
-    return false;
+  (void)k;
+
+#if CUDART_VERSION >= 13000
+  if constexpr (is_cutile_fused_data_type_v<MathT>) {
+    if constexpr (cuvs::detail::jit_lto::library_built_with_cutile()) {
+      const bool dimensions_fit_i32 = n <= static_cast<IdxT>(std::numeric_limits<int>::max()) &&
+                                      k <= static_cast<IdxT>(std::numeric_limits<int>::max());
+      if (dimensions_fit_i32 &&
+          cuvs::detail::jit_lto::cutile_launch_available_on_current_device()) {
+        return FusedDistancePath::Cutile;
+      }
+    }
   }
-  return false;
+#endif
+
+  return use_legacy_fused(handle, m, n, metric);
 }
 
 template <typename DataT, typename IndexT>
@@ -207,6 +281,38 @@ IndexT getCentroidsBatchSize(int batch_centroids, IndexT n_local_clusters)
   return (minVal == 0) ? n_local_clusters : minVal;
 }
 
+template <typename InputIteratorT, typename OutputT, typename ReductionOpT, typename IndexT>
+void computeClusterCostFromIterator(raft::resources const& handle,
+                                    InputIteratorT input,
+                                    IndexT n,
+                                    rmm::device_uvector<char>& workspace,
+                                    raft::device_scalar_view<OutputT> clusterCost,
+                                    ReductionOpT reduction_op)
+{
+  cudaStream_t stream = raft::resource::get_cuda_stream(handle);
+
+  size_t temp_storage_bytes = 0;
+  RAFT_CUDA_TRY(cub::DeviceReduce::Reduce(nullptr,
+                                          temp_storage_bytes,
+                                          input,
+                                          clusterCost.data_handle(),
+                                          n,
+                                          reduction_op,
+                                          OutputT(),
+                                          stream));
+
+  workspace.resize(temp_storage_bytes, stream);
+
+  RAFT_CUDA_TRY(cub::DeviceReduce::Reduce(workspace.data(),
+                                          temp_storage_bytes,
+                                          input,
+                                          clusterCost.data_handle(),
+                                          n,
+                                          reduction_op,
+                                          OutputT(),
+                                          stream));
+}
+
 template <typename InputT,
           typename OutputT,
           typename MainOpT,
@@ -219,30 +325,9 @@ void computeClusterCost(raft::resources const& handle,
                         MainOpT main_op,
                         ReductionOpT reduction_op)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle);
-
-  cuda::transform_iterator itr(minClusterDistance.data_handle(), main_op);
-
-  size_t temp_storage_bytes = 0;
-  RAFT_CUDA_TRY(cub::DeviceReduce::Reduce(nullptr,
-                                          temp_storage_bytes,
-                                          itr,
-                                          clusterCost.data_handle(),
-                                          minClusterDistance.size(),
-                                          reduction_op,
-                                          OutputT(),
-                                          stream));
-
-  workspace.resize(temp_storage_bytes, stream);
-
-  RAFT_CUDA_TRY(cub::DeviceReduce::Reduce(workspace.data(),
-                                          temp_storage_bytes,
-                                          itr,
-                                          clusterCost.data_handle(),
-                                          minClusterDistance.size(),
-                                          reduction_op,
-                                          OutputT(),
-                                          stream));
+  cuda::transform_iterator input(minClusterDistance.data_handle(), main_op);
+  computeClusterCostFromIterator(
+    handle, input, minClusterDistance.size(), workspace, clusterCost, reduction_op);
 }
 
 template <typename DataT, typename IndexT>
@@ -339,8 +424,19 @@ void pairwise_distance_kmeans(raft::resources const& handle,
                              DataT,
                              raft::layout_c_contiguous,
                              IndexT>(handle, X, centroids, pairwiseDistance);
+  } else if (metric == cuvs::distance::DistanceType::L2Unexpanded) {
+    if constexpr (std::is_same_v<IndexT, int>) {
+      cuvs::distance::distance<cuvs::distance::DistanceType::L2Unexpanded,
+                               DataT,
+                               DataT,
+                               DataT,
+                               raft::layout_c_contiguous,
+                               IndexT>(handle, X, centroids, pairwiseDistance);
+    } else {
+      RAFT_FAIL("L2Unexpanded KMeans distance requires int32-indexed batches");
+    }
   } else {
-    RAFT_FAIL("kmeans requires L2Expanded or L2SqrtExpanded distance, have %i",
+    RAFT_FAIL("kmeans requires L2Expanded, L2SqrtExpanded, or L2Unexpanded distance, have %i",
               static_cast<int>(metric));
   }
 }
@@ -378,34 +474,60 @@ void shuffleAndGather(raft::resources const& handle,
                        stream);
 }
 
-// Calculates a <key, value> pair for every sample in input 'X' where key is an
-// index to an sample in 'centroids' (index of the nearest centroid) and 'value'
-// is the distance between the sample and the 'centroid[key]'
+// Calculates nearest centroid index and distance for every sample in input 'X'.
 template <typename DataT, typename IndexT>
-void minClusterAndDistanceCompute(
+Fused1nnRequirements<IndexT> get_fused_1nn_requirements(
   raft::resources const& handle,
   raft::device_matrix_view<const DataT, IndexT> X,
   raft::device_matrix_view<const DataT, IndexT> centroids,
-  raft::device_vector_view<raft::KeyValuePair<IndexT, DataT>, IndexT> minClusterAndDistance,
+  cuvs::distance::DistanceType metric,
+  int batch_samples   = 0,
+  int batch_centroids = 0);
+
+template <typename DataT, typename IndexT>
+void minClusterAndDistanceCompute(raft::resources const& handle,
+                                  raft::device_matrix_view<const DataT, IndexT> X,
+                                  raft::device_matrix_view<const DataT, IndexT> centroids,
+                                  raft::device_vector_view<IndexT, IndexT> nearest_idx,
+                                  raft::device_vector_view<DataT, IndexT> nearest_dist,
+                                  raft::device_vector_view<const DataT, IndexT> L2NormX,
+                                  rmm::device_uvector<DataT>& L2NormBuf_OR_DistBuf,
+                                  cuvs::distance::DistanceType metric,
+                                  int batch_samples,
+                                  int batch_centroids,
+                                  rmm::device_uvector<char>& workspace,
+                                  const Fused1nnRequirements<IndexT>& requirements,
+                                  const DataT* cutile_x_norm = nullptr);
+
+template <typename DataT, typename IndexT>
+void minClusterAndDistanceComputeKvp(
+  raft::resources const& handle,
+  raft::device_matrix_view<const DataT, IndexT> X,
+  raft::device_matrix_view<const DataT, IndexT> centroids,
+  raft::device_vector_view<raft::KeyValuePair<IndexT, DataT>, IndexT> nearest,
   raft::device_vector_view<const DataT, IndexT> L2NormX,
   rmm::device_uvector<DataT>& L2NormBuf_OR_DistBuf,
   cuvs::distance::DistanceType metric,
   int batch_samples,
   int batch_centroids,
-  rmm::device_uvector<char>& workspace);
+  rmm::device_uvector<char>& workspace,
+  const Fused1nnRequirements<IndexT>& requirements);
 
-#define EXTERN_TEMPLATE_MIN_CLUSTER_AND_DISTANCE(DataT, IndexT)                                \
-  extern template void minClusterAndDistanceCompute<DataT, IndexT>(                            \
-    raft::resources const& handle,                                                             \
-    raft::device_matrix_view<const DataT, IndexT> X,                                           \
-    raft::device_matrix_view<const DataT, IndexT> centroids,                                   \
-    raft::device_vector_view<raft::KeyValuePair<IndexT, DataT>, IndexT> minClusterAndDistance, \
-    raft::device_vector_view<const DataT, IndexT> L2NormX,                                     \
-    rmm::device_uvector<DataT>& L2NormBuf_OR_DistBuf,                                          \
-    cuvs::distance::DistanceType metric,                                                       \
-    int batch_samples,                                                                         \
-    int batch_centroids,                                                                       \
-    rmm::device_uvector<char>& workspace);
+#define EXTERN_TEMPLATE_MIN_CLUSTER_AND_DISTANCE(DataT, IndexT)     \
+  extern template void minClusterAndDistanceCompute<DataT, IndexT>( \
+    raft::resources const& handle,                                  \
+    raft::device_matrix_view<const DataT, IndexT> X,                \
+    raft::device_matrix_view<const DataT, IndexT> centroids,        \
+    raft::device_vector_view<IndexT, IndexT> nearest_idx,           \
+    raft::device_vector_view<DataT, IndexT> nearest_dist,           \
+    raft::device_vector_view<const DataT, IndexT> L2NormX,          \
+    rmm::device_uvector<DataT>& L2NormBuf_OR_DistBuf,               \
+    cuvs::distance::DistanceType metric,                            \
+    int batch_samples,                                              \
+    int batch_centroids,                                            \
+    rmm::device_uvector<char>& workspace,                           \
+    const Fused1nnRequirements<IndexT>& requirements,               \
+    const DataT* cutile_x_norm);
 
 EXTERN_TEMPLATE_MIN_CLUSTER_AND_DISTANCE(float, int64_t)
 EXTERN_TEMPLATE_MIN_CLUSTER_AND_DISTANCE(float, int)
@@ -413,6 +535,14 @@ EXTERN_TEMPLATE_MIN_CLUSTER_AND_DISTANCE(double, int64_t)
 EXTERN_TEMPLATE_MIN_CLUSTER_AND_DISTANCE(double, int)
 
 #undef EXTERN_TEMPLATE_MIN_CLUSTER_AND_DISTANCE
+
+template <typename IndexT>
+void computeCutileRowNorms(raft::resources const& handle,
+                           const float* matrix,
+                           float* norms,
+                           IndexT n_rows,
+                           IndexT n_cols,
+                           bool take_sqrt);
 
 template <typename DataT, typename IndexT>
 void minClusterDistanceCompute(raft::resources const& handle,
@@ -457,45 +587,56 @@ void countSamplesInCluster(raft::resources const& handle,
 {
   cudaStream_t stream = raft::resource::get_cuda_stream(handle);
   auto n_samples      = X.extent(0);
-  auto n_features     = X.extent(1);
   auto n_clusters     = centroids.extent(0);
 
-  // stores (key, value) pair corresponding to each sample where
-  //   - key is the index of nearest cluster
-  //   - value is the distance to the nearest cluster
-  auto minClusterAndDistance =
-    raft::make_device_vector<raft::KeyValuePair<IndexT, DataT>, IndexT>(handle, n_samples);
-
-  // temporary buffer to store distance matrix, destructor releases the resource
   rmm::device_uvector<DataT> L2NormBuf_OR_DistBuf(0, stream);
+  auto centroids_const    = raft::make_const_mdspan(centroids);
+  const auto requirements = get_fused_1nn_requirements(
+    handle, X, centroids_const, params.metric, params.batch_samples, params.batch_centroids);
 
-  // computes minClusterAndDistance[0:n_samples) where  minClusterAndDistance[i]
-  // is a <key, value> pair where
-  //   'key' is index to an sample in 'centroids' (index of the nearest
-  //   centroid) and 'value' is the distance between the sample 'X[i]' and the
-  //   'centroid[key]'
-  cuvs::cluster::kmeans::detail::minClusterAndDistanceCompute(
-    handle,
-    X,
-    (raft::device_matrix_view<const DataT, IndexT>)centroids,
-    minClusterAndDistance.view(),
-    L2NormX,
-    L2NormBuf_OR_DistBuf,
-    params.metric,
-    params.batch_samples,
-    params.batch_centroids,
-    workspace);
+  auto count_labels = [&](auto labels) {
+    countLabels(handle,
+                labels,
+                sampleCountInCluster.data_handle(),
+                static_cast<IndexT>(n_samples),
+                static_cast<IndexT>(n_clusters),
+                workspace);
+  };
 
-  cuda::transform_iterator itr(minClusterAndDistance.data_handle(),
-                               cuvs::cluster::kmeans::detail::KeyValueIndexOp<IndexT, DataT>{});
-
-  // count # of samples in each cluster
-  countLabels(handle,
-              itr,
-              sampleCountInCluster.data_handle(),
-              (IndexT)n_samples,
-              (IndexT)n_clusters,
-              workspace);
+  if (requirements.output_layout == Fused1nnOutputLayout::Soa) {
+    auto nearest_idx  = raft::make_device_vector<IndexT, IndexT>(handle, n_samples);
+    auto nearest_dist = raft::make_device_vector<DataT, IndexT>(handle, n_samples);
+    minClusterAndDistanceCompute(handle,
+                                 X,
+                                 centroids_const,
+                                 nearest_idx.view(),
+                                 nearest_dist.view(),
+                                 L2NormX,
+                                 L2NormBuf_OR_DistBuf,
+                                 params.metric,
+                                 params.batch_samples,
+                                 params.batch_centroids,
+                                 workspace,
+                                 requirements);
+    count_labels(nearest_idx.data_handle());
+  } else {
+    using KvpT   = raft::KeyValuePair<IndexT, DataT>;
+    auto nearest = raft::make_device_vector<KvpT, IndexT>(handle, n_samples);
+    minClusterAndDistanceComputeKvp(handle,
+                                    X,
+                                    centroids_const,
+                                    nearest.view(),
+                                    L2NormX,
+                                    L2NormBuf_OR_DistBuf,
+                                    params.metric,
+                                    params.batch_samples,
+                                    params.batch_centroids,
+                                    workspace,
+                                    requirements);
+    auto labels =
+      thrust::make_transform_iterator(nearest.data_handle(), KeyValueIndexOp<IndexT, DataT>{});
+    count_labels(labels);
+  }
 }
 
 /**
@@ -676,7 +817,7 @@ __device__ void check_convergence(raft::device_scalar_view<const DataT> clusteri
  * @param[in]     batch_samples_param  Batch-samples param forwarded to minClusterAndDistanceCompute
  * @param[in]     batch_centroids_param Batch-centroids param forwarded to
  *                                      minClusterAndDistanceCompute
- * @param[inout]  minClusterAndDistance Work buffer [batch_size]
+ * @param[inout]  assignment_storage Native SoA or KVP assignment storage for one batch
  * @param[in]     L2NormBatch          Precomputed data norms [batch_size]
  * @param[inout]  L2NormBuf_OR_DistBuf Resizable scratch
  * @param[inout]  workspace            Resizable scratch
@@ -685,66 +826,103 @@ __device__ void check_convergence(raft::device_scalar_view<const DataT> clusteri
  * @param[inout]  clustering_cost      Running cost scalar (device) (added into)
  */
 template <typename DataT, typename IndexT>
-void process_batch(
-  raft::resources const& handle,
-  raft::device_matrix_view<const DataT, IndexT> batch_data,
-  raft::device_vector_view<const DataT, IndexT> batch_weights,
-  raft::device_matrix_view<const DataT, IndexT> centroids,
-  cuvs::distance::DistanceType metric,
-  int batch_samples_param,
-  int batch_centroids_param,
-  raft::device_vector_view<raft::KeyValuePair<IndexT, DataT>, IndexT> minClusterAndDistance,
-  raft::device_vector_view<const DataT, IndexT> L2NormBatch,
-  rmm::device_uvector<DataT>& L2NormBuf_OR_DistBuf,
-  rmm::device_uvector<char>& workspace,
-  raft::device_matrix_view<DataT, IndexT> centroid_sums,
-  raft::device_vector_view<DataT, IndexT> weight_per_cluster,
-  raft::device_scalar_view<DataT> clustering_cost,
-  rmm::device_uvector<char>& batch_workspace)
+void process_batch(raft::resources const& handle,
+                   raft::device_matrix_view<const DataT, IndexT> batch_data,
+                   raft::device_vector_view<const DataT, IndexT> batch_weights,
+                   raft::device_matrix_view<const DataT, IndexT> centroids,
+                   cuvs::distance::DistanceType metric,
+                   int batch_samples_param,
+                   int batch_centroids_param,
+                   rmm::device_uvector<char>& assignment_storage,
+                   raft::device_vector_view<const DataT, IndexT> L2NormBatch,
+                   rmm::device_uvector<DataT>& L2NormBuf_OR_DistBuf,
+                   rmm::device_uvector<char>& workspace,
+                   raft::device_matrix_view<DataT, IndexT> centroid_sums,
+                   raft::device_vector_view<DataT, IndexT> weight_per_cluster,
+                   raft::device_scalar_view<DataT> clustering_cost,
+                   rmm::device_uvector<char>& batch_workspace)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle);
-
-  minClusterAndDistanceCompute<DataT, IndexT>(handle,
-                                              batch_data,
-                                              centroids,
-                                              minClusterAndDistance,
-                                              L2NormBatch,
-                                              L2NormBuf_OR_DistBuf,
-                                              metric,
-                                              batch_samples_param,
-                                              batch_centroids_param,
-                                              workspace);
-
-  KeyValueIndexOp<IndexT, DataT> conversion_op;
-  thrust::transform_iterator<KeyValueIndexOp<IndexT, DataT>,
-                             const raft::KeyValuePair<IndexT, DataT>*>
-    labels_itr(minClusterAndDistance.data_handle(), conversion_op);
-
-  compute_centroid_adjustments(handle,
-                               batch_data,
-                               batch_weights,
-                               labels_itr,
-                               static_cast<IndexT>(centroid_sums.extent(0)),
-                               centroid_sums,
-                               weight_per_cluster,
-                               batch_workspace,
-                               /*reset_sums=*/false);
-
-  raft::linalg::map(
-    handle,
-    minClusterAndDistance,
-    [=] __device__(const raft::KeyValuePair<IndexT, DataT> kvp, DataT wt) {
-      raft::KeyValuePair<IndexT, DataT> res;
-      res.value = kvp.value * wt;
-      res.key   = kvp.key;
-      return res;
-    },
-    raft::make_const_mdspan(minClusterAndDistance),
-    batch_weights);
-
+  cudaStream_t stream     = raft::resource::get_cuda_stream(handle);
+  const auto n_samples    = batch_data.extent(0);
+  const auto requirements = get_fused_1nn_requirements(
+    handle, batch_data, centroids, metric, batch_samples_param, batch_centroids_param);
   auto batch_cost = raft::make_device_scalar<DataT>(handle, DataT{0});
-  computeClusterCost(
-    handle, minClusterAndDistance, workspace, batch_cost.view(), raft::value_op{}, raft::add_op{});
+
+  if (requirements.output_layout == Fused1nnOutputLayout::Soa) {
+    const auto dist_offset = requirements.distance_offset;
+    if (assignment_storage.size() < requirements.result_bytes) {
+      assignment_storage.resize(requirements.result_bytes, stream);
+    }
+    auto* nearest_idx      = reinterpret_cast<IndexT*>(assignment_storage.data());
+    auto* nearest_dist     = reinterpret_cast<DataT*>(assignment_storage.data() + dist_offset);
+    auto nearest_idx_view  = raft::make_device_vector_view<IndexT, IndexT>(nearest_idx, n_samples);
+    auto nearest_dist_view = raft::make_device_vector_view<DataT, IndexT>(nearest_dist, n_samples);
+    minClusterAndDistanceCompute<DataT, IndexT>(handle,
+                                                batch_data,
+                                                centroids,
+                                                nearest_idx_view,
+                                                nearest_dist_view,
+                                                L2NormBatch,
+                                                L2NormBuf_OR_DistBuf,
+                                                metric,
+                                                batch_samples_param,
+                                                batch_centroids_param,
+                                                workspace,
+                                                requirements);
+    compute_centroid_adjustments(handle,
+                                 batch_data,
+                                 batch_weights,
+                                 nearest_idx,
+                                 static_cast<IndexT>(centroid_sums.extent(0)),
+                                 centroid_sums,
+                                 weight_per_cluster,
+                                 batch_workspace,
+                                 /*reset_sums=*/false);
+    auto* weights = batch_weights.data_handle();
+    cuda::counting_iterator indices(IndexT{0});
+    cuda::transform_iterator weighted_dist(indices,
+                                           [nearest_dist, weights] __device__(IndexT i) -> DataT {
+                                             return nearest_dist[i] * weights[i];
+                                           });
+    computeClusterCostFromIterator(
+      handle, weighted_dist, n_samples, workspace, batch_cost.view(), raft::add_op{});
+  } else {
+    using KvpT = raft::KeyValuePair<IndexT, DataT>;
+    if (assignment_storage.size() < requirements.result_bytes) {
+      assignment_storage.resize(requirements.result_bytes, stream);
+    }
+    auto* nearest     = reinterpret_cast<KvpT*>(assignment_storage.data());
+    auto nearest_view = raft::make_device_vector_view<KvpT, IndexT>(nearest, n_samples);
+    minClusterAndDistanceComputeKvp(handle,
+                                    batch_data,
+                                    centroids,
+                                    nearest_view,
+                                    L2NormBatch,
+                                    L2NormBuf_OR_DistBuf,
+                                    metric,
+                                    batch_samples_param,
+                                    batch_centroids_param,
+                                    workspace,
+                                    requirements);
+    auto labels = thrust::make_transform_iterator(nearest, KeyValueIndexOp<IndexT, DataT>{});
+    compute_centroid_adjustments(handle,
+                                 batch_data,
+                                 batch_weights,
+                                 labels,
+                                 static_cast<IndexT>(centroid_sums.extent(0)),
+                                 centroid_sums,
+                                 weight_per_cluster,
+                                 batch_workspace,
+                                 /*reset_sums=*/false);
+    auto* weights = batch_weights.data_handle();
+    cuda::counting_iterator indices(IndexT{0});
+    cuda::transform_iterator weighted_dist(
+      indices,
+      [nearest, weights] __device__(IndexT i) -> DataT { return nearest[i].value * weights[i]; });
+    computeClusterCostFromIterator(
+      handle, weighted_dist, n_samples, workspace, batch_cost.view(), raft::add_op{});
+  }
+
   raft::linalg::add(clustering_cost.data_handle(),
                     clustering_cost.data_handle(),
                     batch_cost.data_handle(),

@@ -1,11 +1,11 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
 
-#include "../distance_ops/cosine.cuh"     // ops::l2_exp_distance_op
+#include "../distance_ops/cosine.cuh"     // ops::cosine_distance_op
 #include "../pairwise_distance_base.cuh"  // PairwiseDistances
 #include "cutlass_base.cuh"
 #include "helper_structs.cuh"

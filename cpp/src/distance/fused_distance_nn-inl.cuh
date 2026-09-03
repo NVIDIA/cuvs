@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -10,14 +10,18 @@
 
 #include "detail/fused_distance_nn.cuh"
 #include "fused_distance_nn_helpers.cuh"
+#include "top_1_nn.cuh"
+#include "unfused_distance_nn.cuh"
 #include <raft/core/resources.hpp>
 #include <raft/linalg/contractions.cuh>
+#include <raft/linalg/map.cuh>
 #include <raft/util/cuda_utils.cuh>
 
 #include <cub/util_type.cuh>
 
 #include <stdint.h>
 
+#include <algorithm>
 #include <limits>
 #include <type_traits>
 
@@ -289,6 +293,54 @@ void fusedDistanceNNMinReduce(OutT* min,
                               float metric_arg,
                               cudaStream_t stream)
 {
+  if constexpr (std::is_same_v<OutT, raft::KeyValuePair<IdxT, DataT>>) {
+    detail::Top1nnTuning tuning{};
+    top_1_nn<DataT, IdxT>(nullptr,
+                          nullptr,
+                          x,
+                          y,
+                          xn,
+                          yn,
+                          m,
+                          n,
+                          k,
+                          tuning,
+                          workspace,
+                          0,
+                          sqrt,
+                          initOutBuffer,
+                          isRowMajor,
+                          metric,
+                          metric_arg,
+                          detail::Fused1nnBackend::Cutlass,
+                          min,
+                          stream);
+    return;
+  } else if constexpr (std::is_same_v<OutT, DataT>) {
+    detail::Top1nnTuning tuning{};
+    top_1_nn<DataT, IdxT>(nullptr,
+                          min,
+                          x,
+                          y,
+                          xn,
+                          yn,
+                          m,
+                          n,
+                          k,
+                          tuning,
+                          workspace,
+                          0,
+                          sqrt,
+                          initOutBuffer,
+                          isRowMajor,
+                          metric,
+                          metric_arg,
+                          detail::Fused1nnBackend::Cutlass,
+                          nullptr,
+                          stream);
+    return;
+  }
+
   MinAndDistanceReduceOp<IdxT, DataT> redOp;
   KVPMinReduce<IdxT, DataT> pairRedOp;
 
@@ -309,6 +361,234 @@ void fusedDistanceNNMinReduce(OutT* min,
                                      metric,
                                      metric_arg,
                                      stream);
+}
+
+template <typename DataT, typename IdxT, typename NormT>
+void top_1_nn(raft::resources const& handle,
+              IdxT* nearest_idx,
+              DataT* nearest_dist,
+              const DataT* x,
+              const DataT* y,
+              const NormT* xn,
+              const NormT* yn,
+              IdxT m,
+              IdxT n,
+              IdxT k,
+              const detail::Top1nnTuning& tuning,
+              void* workspace,
+              std::size_t workspace_bytes,
+              bool sqrt,
+              bool init_out_buffer,
+              bool is_row_major,
+              cuvs::distance::DistanceType metric,
+              float metric_arg,
+              detail::Fused1nnBackend backend,
+              raft::KeyValuePair<IdxT, DataT>* cutlass_kvp_output,
+              cudaStream_t stream)
+{
+  RAFT_EXPECTS(is_row_major, "fusedDistanceNN only supports row-major inputs");
+  RAFT_EXPECTS(backend != detail::Fused1nnBackend::Auto,
+               "top_1_nn requires AUTO to be resolved before dispatch");
+  if (backend == detail::Fused1nnBackend::Cutile) {
+    RAFT_EXPECTS(cutlass_kvp_output == nullptr,
+                 "cuTile top_1_nn requires its native separate output arrays");
+    if constexpr (detail::is_fused_1nn_cutile_data_v<DataT> &&
+                  std::is_same_v<NormT, detail::fused_1nn_cutile_norm_t<DataT>>) {
+      if constexpr (std::is_same_v<IdxT, int64_t>) {
+        const auto required_workspace_bytes =
+          sizeof(int) * detail::fused_1nn_cutile_index_workspace_rows<DataT>(m);
+        RAFT_EXPECTS(workspace != nullptr && workspace_bytes >= required_workspace_bytes,
+                     "cuTile top_1_nn workspace is too small for int64 output batching");
+      }
+      const bool launched = detail::try_fused_1nn_tile<DataT, IdxT>(
+        nearest_idx, nearest_dist, x, y, xn, yn, m, n, k, metric, sqrt, workspace, stream);
+      RAFT_EXPECTS(launched,
+                   "Requested cuTile fused 1-NN backend is unavailable for this input/device");
+      return;
+    } else {
+      RAFT_FAIL("Requested cuTile fused 1-NN backend does not support these data/norm types");
+    }
+  }
+  RAFT_EXPECTS(detail::can_launch_fused_1nn_backend(backend, x, y, m, n, k, metric),
+               "Requested fused 1-NN backend is unavailable for this input");
+  RAFT_EXPECTS(metric != cuvs::distance::DistanceType::InnerProduct,
+               "Only cuTile top_1_nn supports InnerProduct (as a maximum reduction)");
+  RAFT_EXPECTS(nearest_idx == nullptr && nearest_dist == nullptr,
+               "CUTLASS and unfused top_1_nn require their native KVP output buffer");
+  constexpr bool matching_norm_type = std::is_same_v<NormT, DataT>;
+  RAFT_EXPECTS(matching_norm_type, "CUTLASS and unfused top_1_nn require matching norm types");
+  if constexpr (matching_norm_type) {
+    if (backend == detail::Fused1nnBackend::Unfused) {
+      RAFT_EXPECTS(cutlass_kvp_output != nullptr,
+                   "Unfused top_1_nn requires its native KVP output buffer");
+      RAFT_EXPECTS(tuning.unfused.row_tile > 0 && tuning.unfused.candidate_tile > 0,
+                   "Unfused top_1_nn tile dimensions must be positive");
+
+      const auto max_row_tile       = static_cast<std::size_t>(m);
+      const auto max_candidate_tile = static_cast<std::size_t>(n);
+      const auto row_tile = static_cast<IdxT>(std::min(tuning.unfused.row_tile, max_row_tile));
+      const auto candidate_tile =
+        static_cast<IdxT>(std::min(tuning.unfused.candidate_tile, max_candidate_tile));
+      const auto distance_workspace_bytes = static_cast<std::size_t>(row_tile) *
+                                            static_cast<std::size_t>(candidate_tile) *
+                                            sizeof(DataT);
+      const auto candidate_min_offset =
+        raft::alignTo(distance_workspace_bytes, alignof(raft::KeyValuePair<IdxT, DataT>));
+      const auto candidate_min_bytes =
+        candidate_tile < n
+          ? static_cast<std::size_t>(row_tile) * sizeof(raft::KeyValuePair<IdxT, DataT>)
+          : std::size_t{0};
+      const auto required_workspace_bytes = candidate_min_offset + candidate_min_bytes;
+      RAFT_EXPECTS(workspace != nullptr && workspace_bytes >= required_workspace_bytes,
+                   "Unfused top_1_nn workspace is smaller than its configured tile");
+
+      using KeyValueT = raft::KeyValuePair<IdxT, DataT>;
+      auto* candidate_min =
+        candidate_tile < n
+          ? reinterpret_cast<KeyValueT*>(static_cast<std::byte*>(workspace) + candidate_min_offset)
+          : nullptr;
+      for (IdxT row_offset = 0; row_offset < m; row_offset += row_tile) {
+        const auto rows = std::min(row_tile, static_cast<IdxT>(m - row_offset));
+        auto output =
+          raft::make_device_vector_view<KeyValueT, IdxT>(cutlass_kvp_output + row_offset, rows);
+        for (IdxT candidate_offset = 0; candidate_offset < n; candidate_offset += candidate_tile) {
+          const auto candidates = std::min(candidate_tile, static_cast<IdxT>(n - candidate_offset));
+          auto* tile_output     = candidate_offset == 0 ? output.data_handle() : candidate_min;
+          unfusedDistanceNNMinReduce<DataT, DataT, KeyValueT, IdxT>(
+            handle,
+            tile_output,
+            x + row_offset * k,
+            y + candidate_offset * k,
+            xn + row_offset,
+            yn + candidate_offset,
+            rows,
+            candidates,
+            k,
+            workspace,
+            sqrt,
+            candidate_offset != 0 || init_out_buffer,
+            is_row_major,
+            metric,
+            metric_arg,
+            stream);
+          if (candidate_offset != 0) {
+            auto candidate_output =
+              raft::make_device_vector_view<const KeyValueT, IdxT>(candidate_min, rows);
+            raft::linalg::map(
+              handle,
+              output,
+              [candidate_offset] __device__(KeyValueT current, KeyValueT candidate) {
+                candidate.key += candidate_offset;
+                return candidate.value < current.value ? candidate : current;
+              },
+              raft::make_const_mdspan(output),
+              candidate_output);
+          }
+        }
+      }
+      return;
+    }
+    RAFT_EXPECTS(backend == detail::Fused1nnBackend::Cutlass, "Unknown fused 1-NN backend");
+    RAFT_EXPECTS(cutlass_kvp_output != nullptr,
+                 "CUTLASS fused 1-NN requires its native KVP output buffer");
+    RAFT_EXPECTS(
+      workspace != nullptr && workspace_bytes >= sizeof(int) * static_cast<std::size_t>(m),
+      "CUTLASS top_1_nn workspace is too small");
+    MinAndDistanceReduceOp<IdxT, DataT> red_op;
+    KVPMinReduce<IdxT, DataT> pair_red_op;
+    fusedDistanceNN<DataT, raft::KeyValuePair<IdxT, DataT>, IdxT>(cutlass_kvp_output,
+                                                                  x,
+                                                                  y,
+                                                                  xn,
+                                                                  yn,
+                                                                  m,
+                                                                  n,
+                                                                  k,
+                                                                  workspace,
+                                                                  red_op,
+                                                                  pair_red_op,
+                                                                  sqrt,
+                                                                  init_out_buffer,
+                                                                  is_row_major,
+                                                                  metric,
+                                                                  metric_arg,
+                                                                  stream);
+  }
+}
+
+template <typename DataT, typename IdxT, typename NormT>
+void top_1_nn(IdxT* nearest_idx,
+              DataT* nearest_dist,
+              const DataT* x,
+              const DataT* y,
+              const NormT* xn,
+              const NormT* yn,
+              IdxT m,
+              IdxT n,
+              IdxT k,
+              const detail::Top1nnTuning&,
+              void* workspace,
+              std::size_t,
+              bool sqrt,
+              bool init_out_buffer,
+              bool is_row_major,
+              cuvs::distance::DistanceType metric,
+              float metric_arg,
+              detail::Fused1nnBackend backend,
+              raft::KeyValuePair<IdxT, DataT>* cutlass_kvp_output,
+              cudaStream_t stream)
+{
+  RAFT_EXPECTS(backend == detail::Fused1nnBackend::Cutlass,
+               "The no-handle top_1_nn compatibility path supports CUTLASS only");
+  RAFT_EXPECTS(is_row_major, "fusedDistanceNN only supports row-major inputs");
+  RAFT_EXPECTS(detail::can_launch_fused_1nn_backend(backend, x, y, m, n, k, metric),
+               "Requested CUTLASS fused 1-NN backend is unavailable for this input");
+  constexpr bool matching_norm_type = std::is_same_v<NormT, DataT>;
+  RAFT_EXPECTS(matching_norm_type, "CUTLASS top_1_nn requires matching norm types");
+
+  if constexpr (std::is_same_v<NormT, DataT>) {
+    MinAndDistanceReduceOp<IdxT, DataT> red_op;
+    KVPMinReduce<IdxT, DataT> pair_red_op;
+    if (cutlass_kvp_output != nullptr) {
+      fusedDistanceNN<DataT, raft::KeyValuePair<IdxT, DataT>, IdxT>(cutlass_kvp_output,
+                                                                    x,
+                                                                    y,
+                                                                    xn,
+                                                                    yn,
+                                                                    m,
+                                                                    n,
+                                                                    k,
+                                                                    workspace,
+                                                                    red_op,
+                                                                    pair_red_op,
+                                                                    sqrt,
+                                                                    init_out_buffer,
+                                                                    is_row_major,
+                                                                    metric,
+                                                                    metric_arg,
+                                                                    stream);
+      return;
+    }
+    RAFT_EXPECTS(nearest_idx == nullptr && nearest_dist != nullptr,
+                 "CUTLASS scalar top_1_nn requires a distance output and no index output");
+    fusedDistanceNN<DataT, DataT, IdxT>(nearest_dist,
+                                        x,
+                                        y,
+                                        xn,
+                                        yn,
+                                        m,
+                                        n,
+                                        k,
+                                        workspace,
+                                        red_op,
+                                        pair_red_op,
+                                        sqrt,
+                                        init_out_buffer,
+                                        is_row_major,
+                                        metric,
+                                        metric_arg,
+                                        stream);
+  }
 }
 
 /** @} */

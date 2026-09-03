@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -73,6 +73,28 @@ RAFT_KERNEL ref_nn_kernel(
   IdxT tid = threadIdx.x + blockIdx.x * IdxT(blockDim.x);
 
   for (IdxT m = tid; m < M; m += (blockDim.x * gridDim.x)) {
+    if (metric == DistanceType::InnerProduct) {
+      IdxT max_index = N + 1;
+      AccT max_score = min_val<AccT>();
+      for (IdxT n = 0; n < N; n++) {
+        AccT score = AccT(0.0);
+        for (IdxT k = 0; k < K; k++) {
+          score += AccT(A[m * K + k]) * AccT(B[n * K + k]);
+        }
+        if (score > max_score) {
+          max_score = score;
+          max_index = n;
+        }
+      }
+      if constexpr (std::is_fundamental<OutT>::value) {
+        out[m] = max_score;
+      } else {
+        out[m].key   = max_index;
+        out[m].value = max_score;
+      }
+      continue;
+    }
+
     IdxT min_index = N + 1;
     AccT min_dist  = max_val<AccT>();
 
@@ -204,6 +226,30 @@ void vector_compare(
 
     diff = std::abs(a_val - b_val);
     summary.update(diff, i, a_val, b_val, missed);
+  }
+}
+
+template <typename AccT, typename IdxT>
+void vector_compare_soa(raft::resources const& handle,
+                        const raft::KeyValuePair<IdxT, AccT>* ref,
+                        const IdxT* indices,
+                        const AccT* distances,
+                        IdxT n,
+                        ComparisonSummary& summary)
+{
+  auto ref_h  = raft::make_host_vector<raft::KeyValuePair<IdxT, AccT>, IdxT>(n);
+  auto idx_h  = raft::make_host_vector<IdxT, IdxT>(n);
+  auto dist_h = raft::make_host_vector<AccT, IdxT>(n);
+  auto stream = raft::resource::get_cuda_stream(handle);
+  raft::copy(ref_h.data_handle(), ref, n, stream);
+  raft::copy(idx_h.data_handle(), indices, n, stream);
+  raft::copy(dist_h.data_handle(), distances, n, stream);
+  raft::resource::sync_stream(handle, stream);
+  summary.init();
+  for (IdxT i = 0; i < n; ++i) {
+    const auto a = static_cast<double>(ref_h(i).value);
+    const auto b = static_cast<double>(dist_h(i));
+    summary.update(std::abs(a - b), i, a, b, ref_h(i).key != idx_h(i));
   }
 }
 

@@ -214,8 +214,7 @@ void mnmg_fit(
   auto sqrd_norm_error_dev   = raft::make_device_scalar<DataT>(dev_res, DataT{0});
   IndexT alloc_batch_size    = device_buffer_samples;
   auto batch_weights         = raft::make_device_vector<DataT, IndexT>(dev_res, alloc_batch_size);
-  auto minClusterAndDistance =
-    raft::make_device_vector<raft::KeyValuePair<IndexT, DataT>, IndexT>(dev_res, alloc_batch_size);
+  rmm::device_uvector<char> assignment_storage(0, stream);
   auto L2NormBatch =
     raft::make_device_vector<DataT, IndexT>(dev_res, data_on_device ? IndexT{0} : alloc_batch_size);
   rmm::device_uvector<DataT> L2NormBuf_OR_DistBuf(0, stream);
@@ -448,10 +447,6 @@ void mnmg_fit(
             L2NormBatch_const = raft::make_const_mdspan(norm_slice);
           }
 
-          auto minClusterAndDistance_view =
-            raft::make_device_vector_view<raft::KeyValuePair<IndexT, DataT>, IndexT>(
-              minClusterAndDistance.data_handle(), current_batch_size);
-
           cuvs::cluster::kmeans::detail::process_batch<DataT, IndexT>(
             dev_res,
             batch_data_view,
@@ -460,7 +455,7 @@ void mnmg_fit(
             metric,
             params.batch_samples,
             params.batch_centroids,
-            minClusterAndDistance_view,
+            assignment_storage,
             L2NormBatch_const,
             L2NormBuf_OR_DistBuf,
             workspace,
@@ -555,7 +550,8 @@ void mnmg_fit(
           batch_data_view,
           rank_centroids_const,
           raft::make_device_scalar_view(batch_clustering_cost.data_handle()),
-          batch_sw);
+          batch_sw,
+          cuvs::distance::DistanceType::L2Unexpanded);
 
         raft::linalg::add(dev_res,
                           raft::make_const_mdspan(clustering_cost.view()),

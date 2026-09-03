@@ -44,6 +44,7 @@ float kInitCentroids[kNClusters][kNFeatures] = {
 
 float kExpectedCentroids[kNClusters * kNFeatures] = {1.5f, 1.5f, 10.5f, 10.5f};
 int32_t kExpectedLabels[kNSamples]                = {0, 0, 0, 0, 1, 1, 1, 1};
+int64_t kExpectedLabels64[kNSamples]              = {0, 0, 0, 0, 1, 1, 1, 1};
 
 // 8 points, each at squared distance 0.5 from its cluster mean -> 4.0.
 constexpr double kExpectedInertia = 4.0;
@@ -56,6 +57,7 @@ void test_fit_predict()
   rmm::device_uvector<float> dataset_d(kNSamples * kNFeatures, stream);
   rmm::device_uvector<float> centroids_d(kNClusters * kNFeatures, stream);
   rmm::device_uvector<int32_t> labels_d(kNSamples, stream);
+  rmm::device_uvector<int64_t> labels64_d(kNSamples, stream);
 
   raft::copy(dataset_d.data(),
              reinterpret_cast<float const*>(kDataset),
@@ -90,6 +92,9 @@ void test_fit_predict()
   DLManagedTensor labels_t{};
   cuvs::core::to_dlpack(
     raft::make_device_vector_view<int32_t, int64_t>(labels_d.data(), kNSamples), &labels_t);
+  DLManagedTensor labels64_t{};
+  cuvs::core::to_dlpack(
+    raft::make_device_vector_view<int64_t, int64_t>(labels64_d.data(), kNSamples), &labels64_t);
 
   double inertia         = -1.0;
   int n_iter             = -1;
@@ -101,6 +106,9 @@ void test_fit_predict()
   ASSERT_EQ(cuvsKMeansPredict(
               res, params, &dataset_t, NULL, &centroids_t, &labels_t, false, &predict_inertia),
             CUVS_SUCCESS);
+  ASSERT_EQ(cuvsKMeansPredict(
+              res, params, &dataset_t, NULL, &centroids_t, &labels64_t, false, &predict_inertia),
+            CUVS_SUCCESS);
   ASSERT_EQ(cuvsKMeansClusterCost(res, &dataset_t, &centroids_t, &cluster_cost), CUVS_SUCCESS);
 
   ASSERT_TRUE(cuvs::devArrMatchHost(kExpectedCentroids,
@@ -109,12 +117,15 @@ void test_fit_predict()
                                     cuvs::CompareApprox<float>(1e-4f)));
   ASSERT_TRUE(cuvs::devArrMatchHost(
     kExpectedLabels, labels_d.data(), kNSamples, cuvs::Compare<int32_t>()));
+  ASSERT_TRUE(cuvs::devArrMatchHost(
+    kExpectedLabels64, labels64_d.data(), kNSamples, cuvs::Compare<int64_t>()));
 
   EXPECT_GT(n_iter, 0);
   EXPECT_NEAR(inertia, kExpectedInertia, 1e-4);
   EXPECT_NEAR(predict_inertia, kExpectedInertia, 1e-4);
   EXPECT_NEAR(cluster_cost, kExpectedInertia, 1e-4);
 
+  labels64_t.deleter(&labels64_t);
   labels_t.deleter(&labels_t);
   centroids_t.deleter(&centroids_t);
   dataset_t.deleter(&dataset_t);

@@ -14,9 +14,13 @@
 #include <raft/core/operators.hpp>
 #include <raft/core/resource/comms.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
+#include <raft/linalg/add.cuh>
 #include <raft/linalg/norm.cuh>
 
+#include <algorithm>
+#include <limits>
 #include <optional>
+#include <type_traits>
 
 namespace cuvs::cluster::kmeans {
 
@@ -61,6 +65,7 @@ using KeyValueIndexOp = cuvs::cluster::kmeans::detail::KeyValueIndexOp<IndexT, D
  *
  * @tparam DataT the type of data used for weights, distances.
  * @tparam IndexT the type of data used for indexing.
+ * @tparam LabelT the output label type.
  * @param[in]     handle        The raft handle.
  * @param[in]     params        Parameters for KMeans model.
  * @param[in]     X             Training instances to cluster. The data must
@@ -155,31 +160,35 @@ EXTERN_TEMPLATE_FIT(float, int64_t)
  * @param[out]    inertia          Sum of squared distances of samples to
  *                                 their closest cluster center.
  */
-template <typename DataT, typename IndexT>
+template <typename DataT, typename IndexT, typename LabelT>
 void predict(raft::resources const& handle,
              const kmeans::params& params,
              raft::device_matrix_view<const DataT, IndexT> X,
              std::optional<raft::device_vector_view<const DataT, IndexT>> sample_weight,
              raft::device_matrix_view<const DataT, IndexT> centroids,
-             raft::device_vector_view<IndexT, IndexT> labels,
+             raft::device_vector_view<LabelT, IndexT> labels,
              bool normalize_weight,
              raft::host_scalar_view<DataT> inertia);
 
-#define EXTERN_TEMPLATE_PREDICT(DataT, IndexT)                                  \
-  extern template void predict<DataT, IndexT>(                                  \
+#define EXTERN_TEMPLATE_PREDICT(DataT, IndexT, LabelT)                          \
+  extern template void predict<DataT, IndexT, LabelT>(                          \
     raft::resources const& handle,                                              \
     const kmeans::params& params,                                               \
     raft::device_matrix_view<const DataT, IndexT> X,                            \
     std::optional<raft::device_vector_view<const DataT, IndexT>> sample_weight, \
     raft::device_matrix_view<const DataT, IndexT> centroids,                    \
-    raft::device_vector_view<IndexT, IndexT> labels,                            \
+    raft::device_vector_view<LabelT, IndexT> labels,                            \
     bool normalize_weight,                                                      \
     raft::host_scalar_view<DataT> inertia);
 
-EXTERN_TEMPLATE_PREDICT(double, int)
-EXTERN_TEMPLATE_PREDICT(double, int64_t)
-EXTERN_TEMPLATE_PREDICT(float, int)
-EXTERN_TEMPLATE_PREDICT(float, int64_t)
+EXTERN_TEMPLATE_PREDICT(double, int, int)
+EXTERN_TEMPLATE_PREDICT(double, int, int64_t)
+EXTERN_TEMPLATE_PREDICT(double, int64_t, int)
+EXTERN_TEMPLATE_PREDICT(double, int64_t, int64_t)
+EXTERN_TEMPLATE_PREDICT(float, int, int)
+EXTERN_TEMPLATE_PREDICT(float, int, int64_t)
+EXTERN_TEMPLATE_PREDICT(float, int64_t, int)
+EXTERN_TEMPLATE_PREDICT(float, int64_t, int64_t)
 
 #undef EXTERN_TEMPLATE_PREDICT
 
@@ -331,6 +340,7 @@ void min_cluster_distance(raft::resources const& handle,
  * @param[in]  centroids      Cluster centroids [n_clusters x n_features]
  * @param[out] cost           Sum of squared distances to nearest centroid (device)
  * @param[in]  sample_weight  Optional per-sample weights [n_samples]
+ * @param[in]  metric         Squared-L2 implementation used to evaluate inertia
  */
 template <typename DataT, typename IndexT>
 void cluster_cost(
@@ -338,22 +348,62 @@ void cluster_cost(
   raft::device_matrix_view<const DataT, IndexT> X,
   raft::device_matrix_view<const DataT, IndexT> centroids,
   raft::device_scalar_view<DataT> cost,
-  std::optional<raft::device_vector_view<const DataT, IndexT>> sample_weight = std::nullopt)
+  std::optional<raft::device_vector_view<const DataT, IndexT>> sample_weight = std::nullopt,
+  cuvs::distance::DistanceType metric = cuvs::distance::DistanceType::L2Unexpanded)
 {
   auto stream     = raft::resource::get_cuda_stream(handle);
   auto n_clusters = centroids.extent(0);
   auto n_samples  = X.extent(0);
   auto n_features = X.extent(1);
 
+  RAFT_EXPECTS(metric == cuvs::distance::DistanceType::L2Expanded ||
+                 metric == cuvs::distance::DistanceType::L2Unexpanded,
+               "cluster_cost requires a squared-L2 distance metric");
+
+  if constexpr (std::is_same_v<IndexT, int64_t>) {
+    if (metric == cuvs::distance::DistanceType::L2Unexpanded) {
+      constexpr IndexT max_i32 = std::numeric_limits<int>::max();
+      RAFT_EXPECTS(n_clusters > 0 && n_clusters <= max_i32 && n_features <= max_i32,
+                   "stable cluster_cost requires n_clusters and n_features to fit in int32");
+
+      raft::matrix::fill(handle, cost, DataT{0});
+      auto batch_cost    = raft::make_device_scalar<DataT>(handle, DataT{0});
+      auto centroids_i32 = raft::make_device_matrix_view<const DataT, int>(
+        centroids.data_handle(), static_cast<int>(n_clusters), static_cast<int>(n_features));
+      // The i32 path indexes both X[batch_rows, n_features] and its distance workspace
+      // [batch_rows, n_clusters].
+      const IndexT max_batch_rows = max_i32 / std::max(n_clusters, n_features);
+
+      for (IndexT offset = 0; offset < n_samples; offset += max_batch_rows) {
+        const int batch_rows = static_cast<int>(std::min(max_batch_rows, n_samples - offset));
+        auto X_i32           = raft::make_device_matrix_view<const DataT, int>(
+          X.data_handle() + offset * n_features, batch_rows, static_cast<int>(n_features));
+
+        std::optional<raft::device_vector_view<const DataT, int>> batch_weights = std::nullopt;
+        if (sample_weight.has_value()) {
+          batch_weights = raft::make_device_vector_view<const DataT, int>(
+            sample_weight->data_handle() + offset, batch_rows);
+        }
+
+        raft::matrix::fill(handle, batch_cost.view(), DataT{0});
+        cluster_cost<DataT, int>(
+          handle, X_i32, centroids_i32, batch_cost.view(), batch_weights, metric);
+        raft::linalg::add(
+          cost.data_handle(), cost.data_handle(), batch_cost.data_handle(), 1, stream);
+      }
+      return;
+    }
+  }
+
   rmm::device_uvector<char> workspace(n_samples * sizeof(IndexT), stream);
 
   auto x_norms = raft::make_device_vector<DataT>(handle, n_samples);
-  raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(handle, X, x_norms.view());
+  if (metric == cuvs::distance::DistanceType::L2Expanded) {
+    raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(handle, X, x_norms.view());
+  }
 
   auto min_cluster_distance = raft::make_device_vector<DataT>(handle, n_samples);
   rmm::device_uvector<DataT> l2_norm_or_distance_buffer(0, stream);
-
-  auto metric = cuvs::distance::DistanceType::L2Expanded;
 
   cuvs::cluster::kmeans::min_cluster_distance<DataT, IndexT>(
     handle,
@@ -435,22 +485,23 @@ void cluster_cost(
  *
  */
 template <typename DataT, typename IndexT>
-void min_cluster_and_distance(
-  raft::resources const& handle,
-  raft::device_matrix_view<const DataT, IndexT> X,
-  raft::device_matrix_view<const DataT, IndexT> centroids,
-  raft::device_vector_view<raft::KeyValuePair<IndexT, DataT>, IndexT> minClusterAndDistance,
-  raft::device_vector_view<DataT, IndexT> L2NormX,
-  rmm::device_uvector<DataT>& L2NormBuf_OR_DistBuf,
-  cuvs::distance::DistanceType metric,
-  int batch_samples,
-  int batch_centroids,
-  rmm::device_uvector<char>& workspace)
+void min_cluster_and_distance(raft::resources const& handle,
+                              raft::device_matrix_view<const DataT, IndexT> X,
+                              raft::device_matrix_view<const DataT, IndexT> centroids,
+                              raft::device_vector_view<IndexT, IndexT> nearest_idx,
+                              raft::device_vector_view<DataT, IndexT> nearest_dist,
+                              raft::device_vector_view<const DataT, IndexT> L2NormX,
+                              rmm::device_uvector<DataT>& L2NormBuf_OR_DistBuf,
+                              cuvs::distance::DistanceType metric,
+                              int batch_samples,
+                              int batch_centroids,
+                              rmm::device_uvector<char>& workspace)
 {
   cuvs::cluster::kmeans::detail::minClusterAndDistanceCompute<DataT, IndexT>(handle,
                                                                              X,
                                                                              centroids,
-                                                                             minClusterAndDistance,
+                                                                             nearest_idx,
+                                                                             nearest_dist,
                                                                              L2NormX,
                                                                              L2NormBuf_OR_DistBuf,
                                                                              metric,
