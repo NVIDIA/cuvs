@@ -598,7 +598,7 @@ void ace_adjust_sub_graph_ids_disk(
   ace_adjust_sub_graph_ids_disk_kernel<<<grid_size,
                                          block_size,
                                          0,
-                                         raft::resource::get_cuda_stream(res)>>>(
+                                         raft::resource::get_cuda_stream(res).get()>>>(
     sub_search_graph.data_handle(),
     adjusted_search_graph.data_handle(),
     graph_edges,
