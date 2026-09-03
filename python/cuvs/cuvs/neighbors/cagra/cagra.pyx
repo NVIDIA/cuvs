@@ -56,6 +56,83 @@ from cuvs.neighbors import ivf_pq
 from cuvs.neighbors.filters import no_filter
 
 
+cdef class CompressionParams:
+    """
+    Parameters for PQ compression (CAGRA-Q).
+
+    Train a PQ dataset with :func:`make_pq_dataset`, then attach it with
+    :func:`update_dataset`. Metric must remain ``sqeuclidean`` / L2Expanded.
+
+    Parameters
+    ----------
+    pq_bits: int
+        The bit length of the vector element after compression by PQ.
+        Possible values: [4, 5, 6, 7, 8]. The smaller the 'pq_bits', the
+        smaller the index size and the better the search performance, but
+        the lower the recall.
+    pq_dim: int
+        The dimensionality of the vector after compression by PQ. When zero,
+        an optimal value is selected using a heuristic.
+    vq_n_centers: int
+        Vector Quantization (VQ) codebook size - number of "coarse cluster
+        centers". When zero, an optimal value is selected using a heuristic.
+    kmeans_n_iters: int
+        The number of iterations searching for kmeans centers (both VQ & PQ
+        phases).
+    vq_kmeans_trainset_fraction: float
+        The fraction of data to use during iterative kmeans building (VQ
+        phase). When zero, an optimal value is selected using a heuristic.
+    pq_kmeans_trainset_fraction: float
+        The fraction of data to use during iterative kmeans building (PQ
+        phase). When zero, an optimal value is selected using a heuristic.
+    """
+    cdef cuvsCagraCompressionParams * params
+
+    def __cinit__(self):
+        check_cuvs(cuvsCagraCompressionParamsCreate(&self.params))
+
+    def __dealloc__(self):
+        check_cuvs(cuvsCagraCompressionParamsDestroy(self.params))
+
+    def __init__(self, *,
+                 pq_bits=8,
+                 pq_dim=0,
+                 vq_n_centers=0,
+                 kmeans_n_iters=25,
+                 vq_kmeans_trainset_fraction=0.0,
+                 pq_kmeans_trainset_fraction=0.0):
+        self.params.pq_bits = pq_bits
+        self.params.pq_dim = pq_dim
+        self.params.vq_n_centers = vq_n_centers
+        self.params.kmeans_n_iters = kmeans_n_iters
+        self.params.vq_kmeans_trainset_fraction = vq_kmeans_trainset_fraction
+        self.params.pq_kmeans_trainset_fraction = pq_kmeans_trainset_fraction
+
+    @property
+    def pq_bits(self):
+        return self.params.pq_bits
+
+    @property
+    def pq_dim(self):
+        return self.params.pq_dim
+
+    @property
+    def vq_n_centers(self):
+        return self.params.vq_n_centers
+
+    @property
+    def kmeans_n_iters(self):
+        return self.params.kmeans_n_iters
+
+    @property
+    def vq_kmeans_trainset_fraction(self):
+        return self.params.vq_kmeans_trainset_fraction
+
+    @property
+    def pq_kmeans_trainset_fraction(self):
+        return self.params.pq_kmeans_trainset_fraction
+
+
 cdef class AceParams:
     """
     Parameters for ACE (Augmented Core Extraction) graph building algorithm.
@@ -582,27 +659,28 @@ def build(IndexParams index_params, dataset, resources=None):
 
 
 @auto_sync_resources
-def update_dataset(Index index, padded_dataset, resources=None):
+def update_dataset(Index index, dataset, resources=None):
     """
-    Update any CAGRA index layout with a padded dataset.
+    Update/attach a CAGRA index with a device-padded or device PQ dataset.
 
-    Accepts a ``Dataset`` or array. The index becomes search-ready in padded layout.
+    Accepts a ``Dataset`` (padded or ``pq_f16``) or array (promoted to padded).
+    The index becomes search-ready in the matching layout.
     """
     if not index.trained:
         raise ValueError("Index needs to be built before attaching dataset.")
 
     cdef Dataset dataset_obj
     source_array = None
-    if isinstance(padded_dataset, Dataset):
-        dataset_obj = padded_dataset
+    if isinstance(dataset, Dataset):
+        dataset_obj = dataset
     else:
-        source_array = padded_dataset
-        dataset_obj = make_device_padded_dataset(padded_dataset, resources=resources)
+        source_array = dataset
+        dataset_obj = make_device_padded_dataset(dataset, resources=resources)
+
+    if dataset_obj.layout not in ("padded", "pq_f16"):
+        raise TypeError("dataset must have padded or pq_f16 layout")
 
     cdef cuvsDataset_t dataset_handle = _cagra_dataset_handle(dataset_obj)
-    if dataset_obj.layout != "padded":
-        raise TypeError("padded_dataset must have padded layout")
-
     cdef cuvsResources_t res = <cuvsResources_t>resources.get_c_obj()
     with cuda_interruptible():
         check_cuvs(cuvsCagraUpdateDataset(
@@ -612,6 +690,55 @@ def update_dataset(Index index, padded_dataset, resources=None):
         ))
     _keep_dataset_alive(index, dataset_obj, source_array)
     return index
+
+
+@auto_sync_resources
+def make_pq_dataset(padded_dataset, compression_params=None, resources=None):
+    """
+    Train an owning device PQ dataset (CAGRA-Q) from a device-padded dataset.
+
+    Parameters
+    ----------
+    padded_dataset : Dataset or array
+        Device-padded source used to train PQ. Arrays are converted via
+        :func:`cuvs.common.dataset.make_device_padded_dataset`.
+    compression_params : CompressionParams, optional
+        PQ training parameters. Defaults are used when omitted.
+    {resources_docstring}
+
+    Returns
+    -------
+    Dataset
+        Owning PQ dataset handle. Keep it alive while any index uses it.
+    """
+    cdef Dataset dataset_obj
+    if isinstance(padded_dataset, Dataset):
+        dataset_obj = padded_dataset
+    else:
+        dataset_obj = make_device_padded_dataset(padded_dataset, resources=resources)
+
+    if dataset_obj.layout != "padded" or dataset_obj.memory_type != "device":
+        raise TypeError("padded_dataset must be a device-padded Dataset")
+
+    cdef CompressionParams params_obj = None
+    cdef cuvsCagraCompressionParams_t params_ptr = NULL
+    if compression_params is not None:
+        if not isinstance(compression_params, CompressionParams):
+            raise TypeError("compression_params must be a CompressionParams")
+        params_obj = compression_params
+        params_ptr = params_obj.params
+
+    cdef Dataset pq = Dataset()
+    cdef cuvsResources_t res = <cuvsResources_t>resources.get_c_obj()
+    cdef cuvsDataset_t source_handle = _cagra_dataset_handle(dataset_obj)
+    with cuda_interruptible():
+        check_cuvs(cuvsDatasetMakePq(
+            res,
+            source_handle,
+            params_ptr,
+            &pq.dataset
+        ))
+    return pq
 
 
 def build_index(IndexParams index_params, dataset, resources=None):

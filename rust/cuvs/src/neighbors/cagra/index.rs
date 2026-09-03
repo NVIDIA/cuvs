@@ -101,15 +101,15 @@ impl<'d> Index<'d> {
         Ok(handle)
     }
 
-    /// Attach a device-padded dataset and return a search-ready index borrowing it.
+    /// Attach a device-padded or device PQ dataset and return a search-ready index borrowing it.
     pub fn update_dataset<'a, D>(self, res: &Resources, dataset: &'a D) -> Result<Index<'a>>
     where
         D: CuvsDataset + ?Sized,
     {
         let kind = dataset.dataset_kind()?;
-        if kind != DatasetKind::DevicePadded {
+        if kind != DatasetKind::DevicePadded && kind != DatasetKind::DevicePqF16 {
             return Err(CagraError::Validation(format!(
-                "CAGRA dataset update requires a device-padded view, got {:?}",
+                "CAGRA dataset update requires a device-padded or device PQ_F16 view, got {:?}",
                 kind
             )));
         }
@@ -275,15 +275,15 @@ impl<D> DeserializedIndex<D> {
         serialize_to_hnswlib_impl(&self.handle, res, filename.as_ref())
     }
 
-    /// Replace the deserialized storage with a caller-owned device-padded view.
+    /// Replace the deserialized storage with a caller-owned device-padded or PQ view.
     pub fn update_dataset<'a, T>(self, res: &Resources, dataset: &'a T) -> Result<Index<'a>>
     where
         T: CuvsDataset + ?Sized,
     {
         let kind = dataset.dataset_kind()?;
-        if kind != DatasetKind::DevicePadded {
+        if kind != DatasetKind::DevicePadded && kind != DatasetKind::DevicePqF16 {
             return Err(CagraError::Validation(format!(
-                "CAGRA dataset update requires a device-padded view, got {:?}",
+                "CAGRA dataset update requires a device-padded or device PQ_F16 view, got {:?}",
                 kind
             )));
         }
@@ -481,6 +481,35 @@ mod tests {
     fn test_cagra_index() {
         let build_params = IndexParams::builder().build().unwrap();
         test_cagra(build_params);
+    }
+
+    /// CAGRA-Q smoke: dense build → make_pq_dataset → update_dataset → search.
+    #[test]
+    fn test_cagra_pq_build_update_search() {
+        use crate::neighbors::cagra::{CompressionParams, make_pq_dataset};
+
+        const N_ROWS: usize = 256;
+        const N_COLS: usize = 32;
+        const N_QUERIES: usize = 4;
+        const K: usize = 1;
+
+        let res = Resources::new().unwrap();
+        let dataset =
+            ndarray::Array::<f32, _>::random((N_ROWS, N_COLS), Uniform::new(0., 1.0).unwrap());
+        let dataset_device = DeviceTensor::from_host(&res, &dataset).unwrap();
+        let index = Index::build(&res, &IndexParams::builder().build().unwrap(), &dataset_device)
+            .expect("failed to build dense cagra index");
+
+        // dim=32 float already matches CAGRA padded row width → padded view.
+        let padded = DatasetView::new(&res, &dataset_device).unwrap();
+        assert_eq!(padded.dataset_kind().unwrap(), DatasetKind::DevicePadded);
+
+        let compression = CompressionParams::new().unwrap().set_pq_bits(8).set_pq_dim(8);
+        let pq = make_pq_dataset(&res, &padded, Some(&compression)).expect("make_pq_dataset");
+        assert_eq!(pq.dataset_kind().unwrap(), DatasetKind::DevicePqF16);
+
+        let index = index.update_dataset(&res, &pq).expect("update_dataset with PQ");
+        search_and_verify_self_neighbors(&res, &index, &dataset, N_QUERIES, K);
     }
 
     #[test]

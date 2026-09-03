@@ -153,4 +153,58 @@ TEST(AnnCagraMultiPartition, MixedGraphDegreeRejected)
                                        cagra::search_params{});
 }
 
+// CAGRA-Q smoke test: build the graph on dense rows, train PQ storage from the same padded rows,
+// update the index to PQ storage, then search.
+TEST(AnnCagraPq, BuildUpdatePqSearch)
+{
+  raft::resources handle;
+  auto stream = raft::resource::get_cuda_stream(handle);
+
+  constexpr int n_rows = 256, dim = 32, n_queries = 4, k = 1;
+
+  auto dataset = raft::make_device_matrix<float, int64_t>(handle, n_rows, dim);
+  raft::random::RngState r(1234ULL);
+  InitDataset(
+    handle, dataset.data_handle(), n_rows, dim, cuvs::distance::DistanceType::L2Expanded, r);
+  raft::resource::sync_stream(handle);
+
+  cuvs::neighbors::test::padded_device_matrix_for_cagra<float> padded(
+    handle, raft::make_const_mdspan(dataset.view()));
+
+  cagra::index_params index_params;
+  index_params.metric = cuvs::distance::DistanceType::L2Expanded;
+  auto dense_index    = cagra::build(handle, index_params, padded.view);
+
+  cuvs::neighbors::vpq_params pq_params{.pq_bits = 8, .pq_dim = 8};
+  auto pq =
+    cuvs::preprocessing::quantize::pq::make_device_pq_dataset(handle, pq_params, padded.view);
+  raft::resource::sync_stream(handle);
+
+  EXPECT_EQ(pq.n_rows(), n_rows);
+  EXPECT_EQ(pq.dim(), dim);
+
+  auto pq_index = cagra::update_dataset(handle, std::move(dense_index), pq.as_dataset_view());
+
+  auto queries = raft::make_device_matrix<float, int64_t>(handle, n_queries, dim);
+  raft::copy(queries.data_handle(), dataset.data_handle(), queries.size(), stream);
+
+  auto neighbors = raft::make_device_matrix<uint32_t, int64_t>(handle, n_queries, k);
+  auto distances = raft::make_device_matrix<float, int64_t>(handle, n_queries, k);
+  cagra::search(handle,
+                cagra::search_params{},
+                pq_index,
+                raft::make_const_mdspan(queries.view()),
+                neighbors.view(),
+                distances.view());
+
+  auto neighbors_h = raft::make_host_matrix<uint32_t, int64_t>(n_queries, k);
+  raft::copy(neighbors_h.data_handle(), neighbors.data_handle(), neighbors.size(), stream);
+  raft::resource::sync_stream(handle);
+
+  // Queries are exact dataset rows, so the top hit must be the row itself.
+  for (int i = 0; i < n_queries; i++) {
+    EXPECT_EQ(neighbors_h(i, 0), static_cast<uint32_t>(i));
+  }
+}
+
 }  // namespace cuvs::neighbors::cagra

@@ -226,6 +226,35 @@ def test_cagra_build_from_dataset_handle(
     assert distances.shape == (n_queries, k)
 
 
+def test_cagra_pq_build_update_search():
+    """CAGRA-Q smoke: dense build → make_pq_dataset → update_dataset → search."""
+    n_rows, n_cols, n_queries, k = 256, 32, 4, 1
+    dataset = generate_data((n_rows, n_cols), np.float32)
+    dataset_device = device_ndarray(dataset)
+
+    index = cagra.build(
+        cagra.IndexParams(metric="sqeuclidean"),
+        dataset_device,
+    )
+    compression = cagra.CompressionParams(pq_bits=8, pq_dim=8)
+    pq = cagra.make_pq_dataset(dataset_device, compression_params=compression)
+    assert pq.layout == "pq_f16"
+    assert pq.is_owning is True
+
+    index = cagra.update_dataset(index, pq)
+
+    queries_device = device_ndarray(dataset[:n_queries])
+    distances, neighbors = cagra.search(
+        cagra.SearchParams(),
+        index,
+        queries_device,
+        k,
+    )
+    neighbors_h = neighbors.copy_to_host()
+    for i in range(n_queries):
+        assert neighbors_h[i, 0] == i
+
+
 @pytest.mark.parametrize("sparsity", [0.2, 0.5, 0.7, 1.0])
 def test_filtered_cagra(sparsity):
     run_filtered_search_test(cagra, sparsity)

@@ -14,6 +14,7 @@ cdef extern from "cuvs/core/dataset.h" nogil:
     ctypedef enum cuvsDatasetLayout_t:
         CUVS_DATASET_LAYOUT_STANDARD
         CUVS_DATASET_LAYOUT_PADDED
+        CUVS_DATASET_LAYOUT_PQ_F16
 
     ctypedef enum cuvsDatasetMemType_t:
         CUVS_DATASET_MEM_TYPE_HOST

@@ -25,6 +25,8 @@ pub enum DatasetKind {
     HostPadded,
     /// Host-resident rows with a standard, unpadded width.
     HostStandard,
+    /// Device-resident PQ (f16 codebook) dataset for CAGRA-Q search.
+    DevicePqF16,
 }
 
 impl DatasetKind {
@@ -48,6 +50,16 @@ impl DatasetKind {
                 ffi::cuvsDatasetMemType_t::CUVS_DATASET_MEM_TYPE_HOST,
                 ffi::cuvsDatasetLayout_t::CUVS_DATASET_LAYOUT_STANDARD,
             ) => Self::HostStandard,
+            (
+                ffi::cuvsDatasetMemType_t::CUVS_DATASET_MEM_TYPE_DEVICE,
+                ffi::cuvsDatasetLayout_t::CUVS_DATASET_LAYOUT_PQ_F16,
+            ) => Self::DevicePqF16,
+            (mem, layout) => {
+                return Err(CagraError::Validation(format!(
+                    "unsupported dataset mem_type/layout pair: {:?}/{:?}",
+                    mem, layout
+                )));
+            }
         })
     }
 }
@@ -210,6 +222,57 @@ impl private::Sealed for PaddedDataset {
 }
 
 impl CuvsDataset for PaddedDataset {}
+
+/// Owning device PQ dataset (f16 codebooks) for CAGRA-Q search.
+///
+/// Prefer [`crate::neighbors::cagra::make_pq_dataset`] which accepts
+/// [`crate::neighbors::cagra::CompressionParams`]. Keep this owner alive while
+/// any index uses it.
+#[derive(Debug)]
+pub struct PqDataset {
+    handle: ffi::cuvsDataset_t,
+}
+
+impl PqDataset {
+    /// Train PQ storage from a device-padded dataset.
+    ///
+    /// `params` may be null to use library defaults.
+    pub(crate) fn train_raw(
+        res: &Resources,
+        source: &impl CuvsDataset,
+        params: ffi::cuvsCagraCompressionParams_t,
+    ) -> Result<Self> {
+        let kind = source.dataset_kind()?;
+        if kind != DatasetKind::DevicePadded {
+            return Err(CagraError::Validation(format!(
+                "PQ training requires a device-padded dataset, got {:?}",
+                kind
+            )));
+        }
+        unsafe {
+            let handle = init_handle(|out| {
+                ffi::cuvsDatasetMakePq(res.handle(), source.raw_dataset_handle(), params, out)
+            })?;
+            Ok(Self { handle })
+        }
+    }
+}
+
+impl Drop for PqDataset {
+    fn drop(&mut self) {
+        if let Err(e) = check_cuvs(unsafe { ffi::cuvsDatasetDestroy(self.handle) }) {
+            report_drop_failure("pq dataset", &e);
+        }
+    }
+}
+
+impl private::Sealed for PqDataset {
+    fn raw_dataset_handle(&self) -> ffi::cuvsDataset_t {
+        self.handle
+    }
+}
+
+impl CuvsDataset for PqDataset {}
 
 /// Owning dataset storage returned by CAGRA deserialization.
 ///
