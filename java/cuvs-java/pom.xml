@@ -283,6 +283,40 @@ SPDX-License-Identifier: Apache-2.0
 
     <profiles>
         <profile>
+            <!--
+                Activated via -Dskip.compile. Disables the default-compile, compile-java-22,
+                and default-testCompile executions, so no compilation happens for this build.
+            -->
+            <id>skip-compile</id>
+            <activation>
+                <property>
+                    <name>skip.compile</name>
+                </property>
+            </activation>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-compiler-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>default-compile</id>
+                                <phase>none</phase>
+                            </execution>
+                            <execution>
+                                <id>compile-java-22</id>
+                                <phase>none</phase>
+                            </execution>
+                            <execution>
+                                <id>default-testCompile</id>
+                                <phase>none</phase>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <profile>
             <id>x86_64-cuda12</id>
             <activation>
                 <os>
