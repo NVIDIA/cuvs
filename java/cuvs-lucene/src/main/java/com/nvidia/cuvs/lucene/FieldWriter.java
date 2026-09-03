@@ -23,6 +23,7 @@ public class FieldWriter extends KnnFieldVectorsWriter<Object> {
       RamUsageEstimator.shallowSizeOfInstance(FieldWriter.class);
 
   private final FieldInfo fieldInfo;
+  private final int dimension;
   private final FlatFieldVectorsWriter<float[]> flatFieldVectorsWriter;
   private int lastDocID = -1;
   private QuantizationType quantizationType;
@@ -34,6 +35,7 @@ public class FieldWriter extends KnnFieldVectorsWriter<Object> {
       FlatFieldVectorsWriter<?> flatFieldVectorsWriter) {
     this.quantizationType = quantizationType;
     this.fieldInfo = fieldInfo;
+    this.dimension = fieldInfo.getVectorDimension();
     this.flatFieldVectorsWriter = (FlatFieldVectorsWriter<float[]>) flatFieldVectorsWriter;
   }
 
@@ -69,6 +71,10 @@ public class FieldWriter extends KnnFieldVectorsWriter<Object> {
 
   DocsWithFieldSet getDocsWithFieldSet() {
     return flatFieldVectorsWriter.getDocsWithFieldSet();
+  }
+
+  int dimension() {
+    return dimension;
   }
 
   @Override

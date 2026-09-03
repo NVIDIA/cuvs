@@ -59,7 +59,7 @@ public class AcceleratedHNSWParams {
   public static final int DEFAULT_MAX_CONN = 32;
   public static final int DEFAULT_BEAM_WIDTH = 32;
   public static final CagraGraphBuildAlgo DEFAULT_CAGRA_GRAPH_BUILD_ALGO =
-      CagraGraphBuildAlgo.NN_DESCENT;
+      CagraGraphBuildAlgo.AUTO_SELECT;
   public static final int DEFAULT_NUM_MERGE_WORKERS = 1;
   public static final Strategy DEFAULT_STRATEGY = Strategy.HEURISTIC;
   public static final CuvsDistanceType DEFAULT_CUVS_DISTANCE_TYPE = CuvsDistanceType.L2Expanded;
@@ -97,17 +97,22 @@ public class AcceleratedHNSWParams {
    *
    * @param writerThreads Number of cuVS writer threads to use.
    * @param intermediateGraphDegree The intermediate graph degree while building the CAGRA index.
-   * @param graphdegree The graph degree to use while building the CAGRA index.
+   *     Only consulted under the {@link Strategy#CUSTOM} strategy.
+   * @param graphdegree The graph degree to use while building the CAGRA index. Only consulted
+   *     under the {@link Strategy#CUSTOM} strategy.
    * @param hnswLayers The number of HNSW layers to build in the HNSW index.
    * @param maxConn The max connection parameter used when building HNSW index with the fallback mechanism.
    * @param beamWidth The beam width parameter used when building HNSW index with the fallback mechanism.
-   * @param cagraGraphBuildAlgo The CAGRA graph build algorithm to use [NN_DESCENT, IVF_PQ].
+   * @param cagraGraphBuildAlgo The CAGRA graph build algorithm to use [NN_DESCENT, IVF_PQ]. Only
+   *     consulted under the {@link Strategy#CUSTOM} strategy.
    * @param cuVSIvfPqParams An instance of CuVSIvfPqParams containing IVF_PQ specific parameters.
+   *     Only consulted under the {@link Strategy#CUSTOM} strategy.
    * @param numMergeWorkers The number of merge workers to use with the fallback mechanism.
    * @param mergeExec The instance of {@link ExecutorService} to use with the fallback mechanism.
    * @param strategy either HEURISTIC [Default] that delegates the CAGRA build parameters to cuVS (derived from the HNSW-equivalent maxConn and beamWidth) or CUSTOM that uses the parameters passed through this class.
    * @param cuvsDistanceType the cuvsDistanceType. The default option is L2Expanded.
    * @param nnDescentNumIterations the number of Iterations to run if building with NN_DESCENT.
+   *     Only consulted under the {@link Strategy#CUSTOM} strategy.
    * @param hnswHeuristicType the heuristic cuVS applies when deriving the CAGRA build parameters from maxConn and beamWidth under the HEURISTIC strategy.
    */
   private AcceleratedHNSWParams(
@@ -152,7 +157,7 @@ public class AcceleratedHNSWParams {
   }
 
   /**
-   * Get the intermediate graph degree
+   * Get the intermediate graph degree. Only consulted under the {@link Strategy#CUSTOM} strategy.
    *
    * @return the graph degree parameter
    */
@@ -161,7 +166,7 @@ public class AcceleratedHNSWParams {
   }
 
   /**
-   * Get the graph degree
+   * Get the graph degree. Only consulted under the {@link Strategy#CUSTOM} strategy.
    *
    * @return the graph degree parameter
    */
@@ -197,7 +202,8 @@ public class AcceleratedHNSWParams {
   }
 
   /**
-   * Get the CAGRA graph build algorithm
+   * Get the CAGRA graph build algorithm. Only consulted under the {@link Strategy#CUSTOM}
+   * strategy; under {@link Strategy#HEURISTIC} the algorithm is chosen by cuVS.
    *
    * @return the CAGRA graph build algorithm
    */
@@ -206,7 +212,8 @@ public class AcceleratedHNSWParams {
   }
 
   /**
-   * Get the instance of {@link CuVSIvfPqParams}
+   * Get the instance of {@link CuVSIvfPqParams}. Only consulted under the {@link
+   * Strategy#CUSTOM} strategy.
    *
    * @return the instance of {@link CuVSIvfPqParams}
    */
@@ -254,7 +261,8 @@ public class AcceleratedHNSWParams {
   }
 
   /**
-   * get the number of Iterations to run if building with NN_DESCENT
+   * get the number of Iterations to run if building with NN_DESCENT. Only consulted under the
+   * {@link Strategy#CUSTOM} strategy.
    *
    * @return the number of iterations for NN_DESCENT
    */
@@ -339,7 +347,8 @@ public class AcceleratedHNSWParams {
     }
 
     /**
-     * Set the intermediate graph degree to use while building CAGRA index
+     * Set the intermediate graph degree to use while building CAGRA index. Only consulted under
+     * the {@link Strategy#CUSTOM} strategy.
      * Valid range - Minimum: {@value MIN_INT_GRAPH_DEG}, Maximum: {@value MAX_INT_GRAPH_DEG}
      * Default value - {@value DEFAULT_INT_GRAPH_DEGREE}
      *
@@ -352,7 +361,8 @@ public class AcceleratedHNSWParams {
     }
 
     /**
-     * Set the graph degree to use while building CAGRA index
+     * Set the graph degree to use while building CAGRA index. Only consulted under the {@link
+     * Strategy#CUSTOM} strategy.
      * Valid range - Minimum: {@value MIN_GRAPH_DEG}, Maximum: {@value MAX_GRAPH_DEG}
      * Default value - {@value DEFAULT_GRAPH_DEGREE}
      *
@@ -404,8 +414,9 @@ public class AcceleratedHNSWParams {
     }
 
     /**
-     * Set the CAGRA graph build algorithm to use
-     * Default value - NN_DESCENT
+     * Set the CAGRA graph build algorithm to use. Only consulted under the {@link
+     * Strategy#CUSTOM} strategy; under {@link Strategy#HEURISTIC} the algorithm is chosen by cuVS.
+     * Default value - AUTO_SELECT
      *
      * @param cagraGraphBuildAlgo
      * @return instance of {@link Builder}
@@ -416,7 +427,8 @@ public class AcceleratedHNSWParams {
     }
 
     /**
-     * Set the instance of {@link CuVSIvfPqParams}
+     * Set the instance of {@link CuVSIvfPqParams}. Only consulted under the {@link
+     * Strategy#CUSTOM} strategy.
      *
      * @param cuVSIvfPqParams
      * @return instance of {@link Builder}
@@ -479,7 +491,8 @@ public class AcceleratedHNSWParams {
     }
 
     /**
-     * Set the number of Iterations to run if building with NN_DESCENT
+     * Set the number of Iterations to run if building with NN_DESCENT. Only consulted under the
+     * {@link Strategy#CUSTOM} strategy.
      *
      * Valid range - Minimum: {@value MIN_NN_DESCENT_NUM_ITERATIONS}, Maximum: {@value MAX_NN_DESCENT_NUM_ITERATIONS}
      * Default value - {@value DEFAULT_NN_DESCENT_NUM_ITERATIONS}

@@ -15,11 +15,11 @@ set -euo pipefail
 
 # Keep these in sync with the spotless-fmt hook's 'files'/'exclude' entries in
 # .pre-commit-config.yaml.
-JAVA_SRC_PATTERN='^java/(cuvs-java|cuvs-lucene)/([^/]+/)?src/.*\.java$'
+JAVA_SRC_PATTERN='^(java/(cuvs-java|cuvs-lucene)/([^/]+/)?|examples/java/)src/.*\.java$'
 JAVA_SRC_EXCLUDE='.*/panama/.*'
 
 java_sources_modified() {
-  git status --porcelain --untracked-files=all -- java/cuvs-java java/cuvs-lucene |
+  git status --porcelain --untracked-files=all -- java/cuvs-java java/cuvs-lucene examples/java |
     cut -c4- |
     grep -Ev "${JAVA_SRC_EXCLUDE}" |
     grep -Eq "${JAVA_SRC_PATTERN}"
@@ -42,7 +42,7 @@ POMS=(
   java/cuvs-java/pom.xml
   java/cuvs-lucene/pom.xml
   java/cuvs-lucene/bench/pom.xml
-  java/cuvs-lucene/examples/pom.xml
+  examples/java/pom.xml
 )
 
 for pom in "${POMS[@]}"; do

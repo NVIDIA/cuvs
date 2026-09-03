@@ -246,6 +246,13 @@ public interface CuVSProvider {
    * {@link CuVSDeviceMatrix}) to use pooled memory.
    * This operation has a global effect, and will affect all resources on the current device.
    *
+   * <p>Ownership: this and the other {@code enableRMM*}/{@code resetRMMPooledMemory} methods are
+   * not called automatically by any cuVS/cuvs-lucene class. Because the effect is global to the
+   * current device, it is application code's responsibility to call one of them, if desired, once
+   * during startup/initialization — before any GPU resource is created — rather than have an
+   * individual class call it lazily on first use, which cannot be made race-free against
+   * concurrent construction of that class from multiple threads.
+   *
    * @param initialPoolSizePercent The initial pool size, in percentage of the total GPU memory
    * @param maxPoolSizePercent The maximum pool size, in percentage of the total GPU memory
    */
@@ -255,6 +262,8 @@ public interface CuVSProvider {
    * Switch RMM allocations (used internally by various cuVS algorithms and by the default implementation of
    * {@link CuVSDeviceMatrix}) to use pooled memory.
    * This operation has a global effect, and will affect all resources on the current device.
+   *
+   * <p>Ownership: see {@link #enableRMMPooledMemory}.
    *
    * @param initialPoolSizePercent The initial pool size, in percentage of the total GPU memory
    * @param maxPoolSizePercent The maximum pool size, in percentage of the total GPU memory
@@ -268,10 +277,16 @@ public interface CuVSProvider {
    * on deallocation. This is especially beneficial when multiple CAGRA searches run concurrently
    * on separate CUDA streams, because internal workspace allocations no longer serialize kernel
    * launches. This operation has a global effect and will affect all resources on the current device.
+   *
+   * <p>Ownership: see {@link #enableRMMPooledMemory}.
    */
   void enableRMMAsyncMemory();
 
-  /** Disables pooled memory on the current device, reverting back to the default setting.  */
+  /**
+   * Disables pooled memory on the current device, reverting back to the default setting.
+   *
+   * <p>Ownership: see {@link #enableRMMPooledMemory}.
+   */
   void resetRMMPooledMemory();
 
   /** Retrieves the system-wide provider. */

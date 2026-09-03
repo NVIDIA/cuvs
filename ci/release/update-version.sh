@@ -172,7 +172,7 @@ done
 NEXT_FULL_JAVA_TAG="${NEXT_SHORT_TAG}.${PATCH_PEP440}"
 sed_runner "s/VERSION=\".*\"/VERSION=\"${NEXT_FULL_JAVA_TAG}\"/g" java/build.sh
 sed_runner "s/VERSION=\".*\"/VERSION=\"${NEXT_FULL_JAVA_TAG}\"/g" java/cuvs-lucene/build.sh
-for FILE in java/*/pom.xml java/cuvs-lucene/bench/pom.xml java/cuvs-lucene/examples/pom.xml; do
+for FILE in java/*/pom.xml java/cuvs-lucene/bench/pom.xml examples/java/pom.xml; do
   sed_runner "/<!--CUVS_JAVA#VERSION_UPDATE_MARKER_START-->.*<!--CUVS_JAVA#VERSION_UPDATE_MARKER_END-->/s//<!--CUVS_JAVA#VERSION_UPDATE_MARKER_START--><version>${NEXT_FULL_JAVA_TAG}<\/version><!--CUVS_JAVA#VERSION_UPDATE_MARKER_END-->/g" "${FILE}"
 done
 
@@ -184,4 +184,4 @@ sed_runner "s|/[[:digit:]]\{2\}\.[[:digit:]]\{2\}\.[[:digit:]]\{1,2\}/|/${NEXT_F
 # title contains a release number, and that reference must not be rewritten.
 sed_runner "s|<version>[[:digit:]]\{2\}\.[[:digit:]]\{2\}\.[[:digit:]]\{1,2\}</version>|<version>${NEXT_FULL_JAVA_TAG}</version>|g" java/cuvs-lucene/README.md
 
-sed_runner "s|target/examples-[\.0-9]*-jar|target/examples-${NEXT_FULL_JAVA_TAG}-jar|g" java/cuvs-lucene/examples/README.md
+sed_runner "s|target/examples-[\.0-9]*-jar|target/examples-${NEXT_FULL_JAVA_TAG}-jar|g" examples/java/README.md

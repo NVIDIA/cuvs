@@ -6,10 +6,17 @@ package com.nvidia.cuvs.lucene;
 
 import static org.apache.lucene.search.DocIdSetIterator.NO_MORE_DOCS;
 
+import com.nvidia.cuvs.CuVSDeviceMatrix;
+import com.nvidia.cuvs.CuVSHostMatrix;
 import com.nvidia.cuvs.CuVSMatrix;
 import com.nvidia.cuvs.RowView;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import org.apache.lucene.search.TaskExecutor;
 import org.apache.lucene.util.hnsw.HnswGraph;
 import org.apache.lucene.util.hnsw.NeighborArray;
 
@@ -38,9 +45,15 @@ public class GPUBuiltHnswGraph extends HnswGraph {
    * @param dimensions the vector dimension
    * @param layerNodes the nodes on the layer
    * @param layerAdjacencies adjacency list
+   * @param numThreads threads to use for materializing the adjacency (1 = serial)
    */
   public GPUBuiltHnswGraph(
-      int size, int dimensions, List<int[]> layerNodes, List<CuVSMatrix> layerAdjacencies) {
+      int size,
+      int dimensions,
+      List<int[]> layerNodes,
+      List<CuVSMatrix> layerAdjacencies,
+      int numThreads)
+      throws IOException {
 
     this.size = size;
     this.dimensions = dimensions;
@@ -50,38 +63,102 @@ public class GPUBuiltHnswGraph extends HnswGraph {
 
     // Process Layer 0 (base layer with all nodes)
     CuVSMatrix layer0Adjacency = layerAdjacencies.get(0);
-    this.layer0Neighbors = fillNeighborArray(layer0Adjacency, size);
+    this.layer0Neighbors = fillNeighborArray(layer0Adjacency, size, numThreads);
 
     // Process higher layers (1 to numLevels-1)
     for (int level = 1; level < numLevels; level++) {
       int[] nodes = layerNodes.get(level);
       CuVSMatrix adjacency = layerAdjacencies.get(level);
       this.layerNodes.add(nodes);
-      this.layerNeighbors.add(fillNeighborArray(adjacency, nodes.length));
+      this.layerNeighbors.add(fillNeighborArray(adjacency, nodes.length, numThreads));
+    }
+  }
+
+  /** Node count below which parallel materialization is not worth the thread overhead. */
+  private static final int PARALLEL_MIN_NODES = 1 << 16;
+
+  /**
+   * Materializes the adjacency matrix into on-heap {@link NeighborArray}s, one per node.
+   *
+   * <p>The serial path reads the adjacency directly (a device matrix's {@code getRow} is safe
+   * single-threaded). The parallel path cannot: the CAGRA layer-0 adjacency is a device matrix whose
+   * {@code getRow} uses a shared, stateful buffered reader that is not safe for concurrent access, so
+   * it is pulled to host once (a single bulk device-&gt;host copy) before materializing disjoint node
+   * ranges concurrently. Host matrices (the upper layers, built via {@link CuVSMatrix#ofArray}) are
+   * read directly in both paths.
+   *
+   * @param adjacency instance of adjacency CuVSMatrix
+   * @param size the number of nodes
+   * @param numThreads threads to use (1, or fewer than {@value #PARALLEL_MIN_NODES} nodes = serial)
+   * @return the NeighborArray
+   */
+  private static NeighborArray[] fillNeighborArray(CuVSMatrix adjacency, int size, int numThreads)
+      throws IOException {
+    NeighborArray[] neighbors = new NeighborArray[size];
+    if (numThreads <= 1 || size < PARALLEL_MIN_NODES) {
+      fillNeighborRange(adjacency, neighbors, 0, size);
+      return neighbors;
+    }
+    CuVSMatrix source = adjacency;
+    CuVSHostMatrix hostCopy = null;
+    if (adjacency instanceof CuVSDeviceMatrix deviceAdjacency) {
+      hostCopy = deviceAdjacency.toHost();
+      source = hostCopy;
+    }
+    try {
+      fillNeighborArrayParallel(source, neighbors, size, numThreads);
+      return neighbors;
+    } finally {
+      if (hostCopy != null) {
+        hostCopy.close();
+      }
     }
   }
 
   /**
-   * Fills the neighbor array using the adjacency matrix.
-   *
-   * @param adjacency instance of adjacency CuVSMatrix
-   * @param size the number of nodes
-   * @return the NeighborArray
+   * Materializes disjoint node ranges concurrently. Each thread writes its own slots of {@code
+   * neighbors} and its own {@link NeighborArray} instances, so no synchronization is needed; {@code
+   * source} must be a host matrix (stateless {@code getRow}).
    */
-  private NeighborArray[] fillNeighborArray(CuVSMatrix adjacency, int size) {
-    NeighborArray[] neighbors = new NeighborArray[size];
-    for (int i = 0; i < size; i++) {
-      RowView rv = adjacency.getRow(i);
-      if (rv != null && rv.size() > 0) {
-        neighbors[i] = new NeighborArray((int) rv.size(), true);
-        for (int j = 0; j < rv.size(); j++) {
-          neighbors[i].addInOrder(rv.getAsInt(j), 1.0f - (j * 0.001f));
+  private static void fillNeighborArrayParallel(
+      CuVSMatrix source, NeighborArray[] neighbors, int size, int numThreads) throws IOException {
+    ExecutorService pool = Executors.newFixedThreadPool(Math.max(1, numThreads - 1));
+    try {
+      int perThread = (size + numThreads - 1) / numThreads;
+      List<Callable<Void>> tasks = new ArrayList<>(numThreads);
+      for (int t = 0; t < numThreads; t++) {
+        final int start = t * perThread;
+        final int end = Math.min(start + perThread, size);
+        if (start >= end) {
+          break;
         }
+        tasks.add(
+            () -> {
+              fillNeighborRange(source, neighbors, start, end);
+              return null;
+            });
+      }
+      new TaskExecutor(pool).invokeAll(tasks);
+    } finally {
+      pool.shutdown();
+    }
+  }
+
+  /** Fills {@code neighbors[start, end)} from the adjacency rows. */
+  private static void fillNeighborRange(
+      CuVSMatrix source, NeighborArray[] neighbors, int start, int end) {
+    for (int i = start; i < end; i++) {
+      RowView rv = source.getRow(i);
+      if (rv != null && rv.size() > 0) {
+        NeighborArray na = new NeighborArray((int) rv.size(), true);
+        for (int j = 0; j < rv.size(); j++) {
+          na.addInOrder(rv.getAsInt(j), 1.0f - (j * 0.001f));
+        }
+        neighbors[i] = na;
       } else {
         neighbors[i] = new NeighborArray(0, true);
       }
     }
-    return neighbors;
   }
 
   /**
