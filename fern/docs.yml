@@ -390,6 +390,8 @@ navigation:
             path: "./pages/cpp_api/cpp-api-neighbors-tiered-index.md"
           - page: "Neighbors Vamana"
             path: "./pages/cpp_api/cpp-api-neighbors-vamana.md"
+          - page: "Preprocessing Quantize Bbq"
+            path: "./pages/cpp_api/cpp-api-preprocessing-quantize-bbq.md"
           - page: "Preprocessing Quantize Binary"
             path: "./pages/cpp_api/cpp-api-preprocessing-quantize-binary.md"
           - page: "Preprocessing PCA"
