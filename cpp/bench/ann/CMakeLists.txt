@@ -181,6 +181,7 @@ function(ConfigureAnnBench)
             sqlite3
             Threads::Threads
             $<$<BOOL:${GPU_BUILD}>:CUDA::cudart_static>
+            $<$<BOOL:${GPU_BUILD}>:rmm::rmm>
             $<TARGET_NAME_IF_EXISTS:OpenMP::OpenMP_CXX>
             $<TARGET_NAME_IF_EXISTS:conda_env>
   )
