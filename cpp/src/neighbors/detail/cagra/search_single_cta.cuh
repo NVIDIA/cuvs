@@ -88,6 +88,8 @@ struct search
   using base_type::num_seeds;
 
   uint32_t num_itopk_candidates;
+  // JIT occupancy tuning is plan-wide; preserve its result across query chunks.
+  bool small_hash_occupancy_tuned = false;
 
   /** Number of elements in a hashmap covering @p n_queries queries across @p n_segments segments.
    */
@@ -320,6 +322,7 @@ struct search
                    small_hash_bitlen,
                    small_hash_reset_interval,
                    num_seeds,
+                   small_hash_occupancy_tuned,
                    sample_filter,
                    stream);
   }

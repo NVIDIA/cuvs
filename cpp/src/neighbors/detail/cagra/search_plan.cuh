@@ -198,12 +198,22 @@ struct search_plan_impl : public search_plan_impl_base {
 
   void adjust_search_params()
   {
+    if (search_width == 0) {
+      search_width = raft::ceildiv(itopk_size, static_cast<size_t>(graph_degree));
+      RAFT_LOG_DEBUG("# search_width is auto-selected as %lu.", search_width);
+    }
+
     uint32_t _max_iterations = max_iterations;
     if (max_iterations == 0) {
       if (algo == search_algo::MULTI_CTA) {
-        constexpr uint32_t mc_itopk_size   = 32;
-        constexpr uint32_t mc_search_width = 1;
-        _max_iterations                    = mc_itopk_size / mc_search_width;
+        constexpr size_t mc_itopk_size  = 32;
+        constexpr size_t search_quality = 3;
+        const size_t minimum_depth      = 8 * (search_quality - 1);
+        const auto effective_itopk_size = raft::ceildiv(itopk_size, mc_itopk_size) * mc_itopk_size;
+        const auto num_ctas = max(search_width, raft::ceildiv(effective_itopk_size, mc_itopk_size));
+
+        _max_iterations = minimum_depth + raft::ceildiv(mc_itopk_size - minimum_depth, num_ctas);
+        _max_iterations += raft::ceildiv(static_cast<size_t>(topk), mc_itopk_size) - 1;
       } else {
         _max_iterations = itopk_size / search_width;
       }
@@ -296,10 +306,11 @@ struct search_plan_impl : public search_plan_impl_base {
         // visited per iteration.
         //
         const auto max_visited_nodes = itopk_size + (search_width * graph_degree * 1);
-        unsigned min_bitlen          = 8;   // 256
+        // The SINGLE_CTA launcher may increase this automatic floor up to 13 if doing so does
+        // not reduce occupancy.
+        unsigned min_bitlen          = hashmap_min_bitlen == 0 ? 8 : hashmap_min_bitlen;
         unsigned max_bitlen          = 13;  // 8K
-        if (min_bitlen < hashmap_min_bitlen) { min_bitlen = hashmap_min_bitlen; }
-        hash_bitlen = min_bitlen;
+        hash_bitlen                  = min_bitlen;
         while (max_visited_nodes > hashmap::get_size(hash_bitlen) * max_fill_rate) {
           hash_bitlen += 1;
         }
