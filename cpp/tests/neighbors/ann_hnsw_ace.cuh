@@ -496,7 +496,8 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
 
     hnsw::index_params hnsw_params;
     hnsw_params.metric          = ps.metric;
-    hnsw_params.hierarchy       = hnsw::HnswHierarchy::GPU_LAYERED_ON_DISK;
+    hnsw_params.hierarchy       = hnsw::HnswHierarchy::GPU;
+    hnsw_params.output_format   = hnsw::HnswOutputFormat::CUVS_LAYERED_TOPOLOGY;
     hnsw_params.M               = 32;
     hnsw_params.ef_construction = ps.ef_construction;
     hnsw_params.dataset_path    = dataset_file;
@@ -509,9 +510,17 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
     ace_params.max_gpu_memory_gb   = ps.max_gpu_memory_gb;
     hnsw_params.graph_build_params = ace_params;
 
+    auto invalid_params      = hnsw_params;
+    invalid_params.hierarchy = hnsw::HnswHierarchy::CPU;
+    EXPECT_THROW(
+      hnsw::build(handle_, invalid_params, raft::make_const_mdspan(database_host.view())),
+      std::exception);
+
     auto hnsw_index =
       hnsw::build(handle_, hnsw_params, raft::make_const_mdspan(database_host.view()));
     ASSERT_NE(hnsw_index, nullptr);
+    EXPECT_EQ(hnsw_index->hierarchy(), hnsw::HnswHierarchy::GPU);
+    EXPECT_EQ(hnsw_index->output_format(), hnsw::HnswOutputFormat::CUVS_LAYERED_TOPOLOGY);
 
     const auto artifact_path = hnsw_index->file_path();
     ASSERT_FALSE(artifact_path.empty());
@@ -543,6 +552,8 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
     hnsw::deserialize(handle_, hnsw_params, artifact_path, ps.dim, ps.metric, &deserialized_index);
     ASSERT_NE(deserialized_index, nullptr);
     std::unique_ptr<hnsw::index<DataT>> deserialized_guard(deserialized_index);
+    EXPECT_EQ(deserialized_guard->hierarchy(), hnsw::HnswHierarchy::GPU);
+    EXPECT_EQ(deserialized_guard->output_format(), hnsw::HnswOutputFormat::CUVS_LAYERED_TOPOLOGY);
 
     hnsw::search(handle_,
                  search_params,

@@ -28,20 +28,29 @@ auto parse_build_param(const nlohmann::json& conf) ->
       hnsw_params.hierarchy = cuvs::neighbors::hnsw::HnswHierarchy::CPU;
     } else if (conf.at("hierarchy") == "gpu") {
       hnsw_params.hierarchy = cuvs::neighbors::hnsw::HnswHierarchy::GPU;
-    } else if (conf.at("hierarchy") == "gpu_layered_on_disk") {
-      hnsw_params.hierarchy = cuvs::neighbors::hnsw::HnswHierarchy::GPU_LAYERED_ON_DISK;
     } else {
       THROW("Invalid value for hierarchy: %s", conf.at("hierarchy").get<std::string>().c_str());
     }
   } else {
     hnsw_params.hierarchy = cuvs::neighbors::hnsw::HnswHierarchy::GPU;
   }
+  if (conf.contains("output_format")) {
+    if (conf.at("output_format") == "hnswlib") {
+      hnsw_params.output_format = cuvs::neighbors::hnsw::HnswOutputFormat::HNSWLIB;
+    } else if (conf.at("output_format") == "cuvs_layered_topology") {
+      hnsw_params.output_format = cuvs::neighbors::hnsw::HnswOutputFormat::CUVS_LAYERED_TOPOLOGY;
+    } else {
+      THROW("Invalid value for output_format: %s",
+            conf.at("output_format").get<std::string>().c_str());
+    }
+  }
   if (conf.contains("ef_construction")) {
     hnsw_params.ef_construction = conf.at("ef_construction");
   }
   if (conf.contains("dataset_path")) {
     hnsw_params.dataset_path = conf.at("dataset_path");
-  } else if (hnsw_params.hierarchy == cuvs::neighbors::hnsw::HnswHierarchy::GPU_LAYERED_ON_DISK) {
+  } else if (hnsw_params.output_format ==
+             cuvs::neighbors::hnsw::HnswOutputFormat::CUVS_LAYERED_TOPOLOGY) {
     hnsw_params.dataset_path = configuration::singleton().get_dataset_conf().base_file;
   }
   if (conf.contains("num_threads")) { hnsw_params.num_threads = conf.at("num_threads"); }
@@ -50,7 +59,7 @@ auto parse_build_param(const nlohmann::json& conf) ->
   ::parse_build_param<T, IdxT>(conf, cagra_params);
   if (conf.contains("M")) { hnsw_params.M = conf.at("M"); }
 
-  // ACE / GPU_LAYERED_ON_DISK builds can be fine-tuned from the benchmark config. The library
+  // ACE / layered-topology builds can be fine-tuned from the benchmark config. The library
   // auto-selects the build algorithm from `M` and `ef_construction`; here we only forward the
   // explicit ACE overrides (if any) onto the new hnsw index params.
   auto ace_conf = collect_conf_with_prefix(conf, "ace_");
@@ -65,8 +74,8 @@ auto parse_build_param(const nlohmann::json& conf) ->
     hnsw_params.graph_build_params = ace_params;
   }
 
-  // GPU_LAYERED_ON_DISK always needs disk-backed ACE settings before hnsw::build.
-  if (hnsw_params.hierarchy == cuvs::neighbors::hnsw::HnswHierarchy::GPU_LAYERED_ON_DISK) {
+  // CUVS_LAYERED_TOPOLOGY always needs disk-backed ACE settings before hnsw::build.
+  if (hnsw_params.output_format == cuvs::neighbors::hnsw::HnswOutputFormat::CUVS_LAYERED_TOPOLOGY) {
     auto ace_params = std::holds_alternative<cuvs::neighbors::hnsw::graph_build_params::ace_params>(
                         hnsw_params.graph_build_params)
                         ? std::get<cuvs::neighbors::hnsw::graph_build_params::ace_params>(
@@ -78,15 +87,15 @@ auto parse_build_param(const nlohmann::json& conf) ->
     const auto build_dir_conf =
       ace_conf.contains("build_dir") ? ace_conf.at("build_dir").dump() : std::string{"unset"};
     RAFT_EXPECTS(ace_params.use_disk,
-                 "GPU_LAYERED_ON_DISK requires ACE disk mode (ace_params.use_disk = true); "
+                 "CUVS_LAYERED_TOPOLOGY requires ACE disk mode (ace_params.use_disk = true); "
                  "got ace_use_disk=%s",
                  use_disk_conf.c_str());
     RAFT_EXPECTS(!ace_params.build_dir.empty(),
-                 "GPU_LAYERED_ON_DISK requires ace_params.build_dir to be set; "
+                 "CUVS_LAYERED_TOPOLOGY requires ace_params.build_dir to be set; "
                  "got ace_build_dir=%s",
                  build_dir_conf.c_str());
     RAFT_EXPECTS(!hnsw_params.dataset_path.empty(),
-                 "GPU_LAYERED_ON_DISK requires dataset_path or a configured dataset base_file; "
+                 "CUVS_LAYERED_TOPOLOGY requires dataset_path or a configured dataset base_file; "
                  "got dataset_path='%s'",
                  hnsw_params.dataset_path.c_str());
     hnsw_params.graph_build_params = ace_params;

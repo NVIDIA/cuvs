@@ -7,9 +7,9 @@
 // algorithm, which partitions the dataset. The resulting HNSW index is too large to fit in memory
 // as well. Thus, the index needs to be transferred to a search server with enough memory.
 //
-// HNSWHierarchy::GPU_LAYERED_ON_DISK is a special hierarchy that builds a layered HNSW index on
-// disk. It emits one topology-only artifact, hnsw_index.cuvs. The dataset remains separate and does
-// not need to be transferred to the search server, which typically has the dataset locally.
+// HnswOutputFormat::CUVS_LAYERED_TOPOLOGY builds a GPU hierarchy as a layered HNSW index on disk.
+// It emits one topology-only artifact, hnsw_index.cuvs. The dataset remains separate and does not
+// need to be transferred to the search server, which typically has the dataset locally.
 //
 // This example demonstrates how to build a layered HNSW index with ACE:
 //
@@ -109,7 +109,8 @@ auto make_hnsw_ace_params(const std::string& build_dir, const std::string& datas
 
   hnsw::index_params hnsw_params;
   hnsw_params.metric          = cuvs::distance::DistanceType::L2Expanded;
-  hnsw_params.hierarchy       = hnsw::HnswHierarchy::GPU_LAYERED_ON_DISK;
+  hnsw_params.hierarchy       = hnsw::HnswHierarchy::GPU;
+  hnsw_params.output_format   = hnsw::HnswOutputFormat::CUVS_LAYERED_TOPOLOGY;
   hnsw_params.M               = 32;
   hnsw_params.dataset_path    = dataset_path;  // Override this path on the search server.
   hnsw_params.ef_construction = 120;

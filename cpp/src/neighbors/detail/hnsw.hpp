@@ -223,9 +223,13 @@ struct index_impl : index<T> {
    * @param[in] dim dimensions of the training dataset
    * @param[in] metric distance metric to search. Supported metrics ("L2Expanded", "InnerProduct")
    * @param[in] hierarchy hierarchy used for upper HNSW layers
+   * @param[in] output_format output artifact format
    */
-  index_impl(int dim, cuvs::distance::DistanceType metric, HnswHierarchy hierarchy)
-    : index<T>{dim, metric, hierarchy}
+  index_impl(int dim,
+             cuvs::distance::DistanceType metric,
+             HnswHierarchy hierarchy,
+             HnswOutputFormat output_format = HnswOutputFormat::HNSWLIB)
+    : index<T>{dim, metric, hierarchy, output_format}
   {
     if (metric == cuvs::distance::DistanceType::InnerProduct) {
       space_ = std::make_unique<hnswlib::InnerProductSpace<T, typename hnsw_dist_t<T>::type>>(dim);
@@ -314,7 +318,7 @@ struct index_impl : index<T> {
     RAFT_LOG_INFO("Loading HNSW index from disk: %s", filepath.c_str());
 
     try {
-      RAFT_EXPECTS(this->hierarchy() != HnswHierarchy::GPU_LAYERED_ON_DISK,
+      RAFT_EXPECTS(this->output_format() != HnswOutputFormat::CUVS_LAYERED_TOPOLOGY,
                    "Layered HNSW indexes must be loaded with hnsw::deserialize so a local dataset "
                    "can be provided through index_params.dataset_path.");
       appr_alg_ = std::make_unique<hnswlib::HierarchicalNSW<typename hnsw_dist_t<T>::type>>(
@@ -2171,6 +2175,18 @@ inline std::pair<size_t, size_t> get_available_memory(
   return std::make_pair(available_host_memory, available_device_memory);
 }
 
+inline void validate_output_format(const index_params& params)
+{
+  switch (params.output_format) {
+    case HnswOutputFormat::HNSWLIB: return;
+    case HnswOutputFormat::CUVS_LAYERED_TOPOLOGY:
+      RAFT_EXPECTS(params.hierarchy == HnswHierarchy::GPU,
+                   "CUVS_LAYERED_TOPOLOGY requires HnswHierarchy::GPU");
+      return;
+  }
+  RAFT_FAIL("Unsupported HNSW output format");
+}
+
 template <typename T, typename CagraIndexT>
   requires is_cagra_hnsw_export_index_v<T, CagraIndexT>
 std::unique_ptr<index<T>> from_cagra(
@@ -2179,6 +2195,8 @@ std::unique_ptr<index<T>> from_cagra(
   CagraIndexT const& cagra_index,
   std::optional<raft::host_matrix_view<const T, int64_t, raft::row_major>> dataset)
 {
+  validate_output_format(params);
+
   if constexpr (is_host_cagra_hnsw_export_index_v<T, CagraIndexT>) {
     if (!cagra_index.dataset_fd().has_value() && !dataset.has_value()) {
       RAFT_FAIL("hnsw::from_cagra requires dataset for host CAGRA index");
@@ -2200,14 +2218,14 @@ std::unique_ptr<index<T>> from_cagra(
       std::filesystem::exists(index_directory) && std::filesystem::is_directory(index_directory),
       "Directory '%s' does not exist",
       index_directory.c_str());
-    if (params.hierarchy == HnswHierarchy::GPU_LAYERED_ON_DISK) {
+    if (params.output_format == HnswOutputFormat::CUVS_LAYERED_TOPOLOGY) {
       RAFT_EXPECTS(dataset.has_value(),
                    "Layered HNSW serialization requires the original-order dataset.");
       auto artifact_path =
         serialize_to_layered_hnswlib_from_disk(res, params, cagra_index, dataset.value());
 
-      auto hnsw_index =
-        std::make_unique<index_impl<T>>(cagra_index.dim(), cagra_index.metric(), params.hierarchy);
+      auto hnsw_index = std::make_unique<index_impl<T>>(
+        cagra_index.dim(), cagra_index.metric(), params.hierarchy, params.output_format);
       hnsw_index->set_file_descriptor(cuvs::util::file_descriptor(artifact_path, O_RDONLY));
       return hnsw_index;
     }
@@ -2220,8 +2238,8 @@ std::unique_ptr<index<T>> from_cagra(
     output.publish();
 
     // Create an empty HNSW index that holds the file descriptor
-    auto hnsw_index =
-      std::make_unique<index_impl<T>>(cagra_index.dim(), cagra_index.metric(), params.hierarchy);
+    auto hnsw_index = std::make_unique<index_impl<T>>(
+      cagra_index.dim(), cagra_index.metric(), params.hierarchy, params.output_format);
 
     // Open file descriptor for the HNSW index file and transfer ownership to the index
     hnsw_index->set_file_descriptor(cuvs::util::file_descriptor(index_filename, O_RDONLY));
@@ -2231,11 +2249,14 @@ std::unique_ptr<index<T>> from_cagra(
     return hnsw_index;
   }
 
+  RAFT_EXPECTS(params.output_format == HnswOutputFormat::HNSWLIB,
+               "CUVS_LAYERED_TOPOLOGY requires disk-backed ACE build artifacts");
+
   // In-memory CAGRA index: the resulting HNSW index might still not fit in host memory.
   // Estimate its host footprint and, if it does not fit, spill it to disk via
   // serialize_to_hnswlib_from_inmem instead of constructing it in RAM (NONE/GPU only;
-  // the CPU hierarchy is not supported by the batched serializer, and GPU_LAYERED_ON_DISK
-  // is only produced from disk-backed ACE artifacts handled above).
+  // the CPU hierarchy is not supported by the batched serializer, and layered topology is only
+  // produced from disk-backed ACE artifacts handled above).
   if (params.hierarchy == HnswHierarchy::NONE || params.hierarchy == HnswHierarchy::GPU) {
     int64_t n_rows       = dataset.has_value() ? dataset->extent(0) : cagra_index.size();
     int64_t dim          = dataset.has_value() ? dataset->extent(1) : cagra_index.dim();
@@ -2332,8 +2353,6 @@ std::unique_ptr<index<T>> from_cagra(
     return from_cagra<T, HnswHierarchy::CPU>(res, params, cagra_index, dataset);
   } else if (params.hierarchy == HnswHierarchy::GPU) {
     return from_cagra<T, HnswHierarchy::GPU>(res, params, cagra_index, dataset);
-  } else if (params.hierarchy == HnswHierarchy::GPU_LAYERED_ON_DISK) {
-    RAFT_FAIL("GPU_LAYERED_ON_DISK requires disk-backed ACE build artifacts.");
   } else {
     RAFT_FAIL("Unsupported hierarchy type");
   }
@@ -2444,7 +2463,7 @@ void serialize(raft::resources const& res, const std::string& filename, const in
                  "Disk-based index file does not exist: %s",
                  source_path.c_str());
 
-    if (idx_impl->hierarchy() == HnswHierarchy::GPU_LAYERED_ON_DISK) {
+    if (idx_impl->output_format() == HnswOutputFormat::CUVS_LAYERED_TOPOLOGY) {
       copy_file_overwrite(source_path, filename);
       RAFT_LOG_INFO(
         "Copied layered HNSW index from %s to %s", source_path.c_str(), filename.c_str());
@@ -2627,7 +2646,8 @@ auto deserialize_layered_hnswlib(raft::resources const& res,
                 static_cast<double>(metadata.levels_bytes) / (1024.0 * 1024.0));
 
   const auto allocation_start_time = std::chrono::steady_clock::now();
-  auto hnsw_index                  = std::make_unique<index_impl<T>>(dim, metric, params.hierarchy);
+  auto hnsw_index                  = std::make_unique<index_impl<T>>(
+    dim, metric, params.hierarchy, HnswOutputFormat::CUVS_LAYERED_TOPOLOGY);
   auto appr_algo = std::make_unique<hnswlib::HierarchicalNSW<typename hnsw_dist_t<T>::type>>(
     hnsw_index->get_space(), metadata.n_rows, metadata.M, metadata.ef_construction);
   appr_algo->cur_element_count = metadata.n_rows;
@@ -2845,7 +2865,8 @@ void deserialize(raft::resources const& res,
                  cuvs::distance::DistanceType metric,
                  index<T>** idx)
 {
-  if (params.hierarchy == HnswHierarchy::GPU_LAYERED_ON_DISK) {
+  validate_output_format(params);
+  if (params.output_format == HnswOutputFormat::CUVS_LAYERED_TOPOLOGY) {
     auto hnsw_index = deserialize_layered_hnswlib<T>(res, params, filename, dim, metric);
     *idx            = hnsw_index.release();
     return;
@@ -2882,18 +2903,20 @@ std::unique_ptr<index<T>> build(raft::resources const& res,
                                 raft::host_matrix_view<const T, int64_t, raft::row_major> dataset)
 {
   common::nvtx::range<common::nvtx::domain::cuvs> fun_scope("hnsw::build<ACE>");
+  validate_output_format(params);
 
-  // GPU_LAYERED_ON_DISK materializes the layered index from disk-backed ACE artifacts, so it
-  // requires ACE disk mode with a build directory. Validate up front; this also forces the
-  // CAGRA build below onto the ACE disk path (use_ace becomes true because ACE params are set).
-  if (params.hierarchy == HnswHierarchy::GPU_LAYERED_ON_DISK) {
+  // CUVS_LAYERED_TOPOLOGY materializes the layered index from disk-backed ACE artifacts, so it
+  // requires a GPU hierarchy and ACE disk mode with a build directory. Validate up front; this
+  // also forces the CAGRA build below onto the ACE disk path (use_ace becomes true because ACE
+  // params are set).
+  if (params.output_format == HnswOutputFormat::CUVS_LAYERED_TOPOLOGY) {
     RAFT_EXPECTS(std::holds_alternative<graph_build_params::ace_params>(params.graph_build_params),
-                 "GPU_LAYERED_ON_DISK requires ACE parameters to be configured");
+                 "CUVS_LAYERED_TOPOLOGY requires ACE parameters to be configured");
     const auto& ace = std::get<graph_build_params::ace_params>(params.graph_build_params);
     RAFT_EXPECTS(ace.use_disk,
-                 "GPU_LAYERED_ON_DISK requires ACE disk mode (ace_params.use_disk = true)");
+                 "CUVS_LAYERED_TOPOLOGY requires ACE disk mode (ace_params.use_disk = true)");
     RAFT_EXPECTS(!ace.build_dir.empty(),
-                 "GPU_LAYERED_ON_DISK requires ace_params.build_dir to be set");
+                 "CUVS_LAYERED_TOPOLOGY requires ace_params.build_dir to be set");
   }
 
   cuvs::neighbors::cagra::index_params cagra_params =

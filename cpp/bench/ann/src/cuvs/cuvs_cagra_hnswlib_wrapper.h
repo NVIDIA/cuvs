@@ -120,8 +120,8 @@ void cuvs_cagra_hnswlib<T, IdxT>::set_search_param(const search_param_base& para
 template <typename T, typename IdxT>
 void cuvs_cagra_hnswlib<T, IdxT>::save(const std::string& file) const
 {
-  if (build_param_.hnsw_index_params.hierarchy ==
-      cuvs::neighbors::hnsw::HnswHierarchy::GPU_LAYERED_ON_DISK) {
+  if (build_param_.hnsw_index_params.output_format ==
+      cuvs::neighbors::hnsw::HnswOutputFormat::CUVS_LAYERED_TOPOLOGY) {
     const auto src_artifact = std::filesystem::path(hnsw_index_->file_path());
     RAFT_EXPECTS(!src_artifact.empty(), "Layered HNSW artifact path is not available.");
     RAFT_EXPECTS(std::filesystem::exists(src_artifact),
