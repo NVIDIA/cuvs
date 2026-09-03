@@ -10,12 +10,12 @@ from libcpp cimport bool as cbool
 
 cimport cuvs.common.cydlpack
 from cuvs.common cimport cydlpack
-from cuvs.common.c_api cimport cuvsError_t, cuvsResources_t
+from cuvs.common.c_api cimport cuvsResources_t
 
 from pylibraft.common.cai_wrapper import wrap_array
 from pylibraft.common.interruptible import cuda_interruptible
 
-from cuvs.common.exceptions import check_cuvs, get_last_error_text
+from cuvs.common.exceptions import check_cuvs
 from cuvs.common.resources import auto_sync_resources
 
 
@@ -70,20 +70,10 @@ cdef Dataset make_device_padded_dataset_handle(
         cuvsResources_t res,
         cydlpack.DLManagedTensor* dataset_dlpack):
     cdef Dataset padded = Dataset()
-    cdef cuvsError_t status = cuvsDatasetMakePadded(
+    check_cuvs(cuvsDatasetMakePadded(
         res,
         dataset_dlpack,
         CUVS_DATASET_MEM_TYPE_DEVICE,
-        &padded.dataset
-    )
-    if status == cuvsError_t.CUVS_SUCCESS:
-        return padded
-    err = get_last_error_text() or ""
-    if "stride is already correct" not in err:
-        check_cuvs(status)
-    check_cuvs(cuvsDatasetMakePaddedView(
-        res,
-        dataset_dlpack,
         &padded.dataset
     ))
     return padded
@@ -104,12 +94,12 @@ def make_device_padded_dataset(dataset, resources=None):
     """
     Create a device-padded ``Dataset`` from a host or device array.
 
-    The input must be a row-major 2-D matrix. Host arrays are always copied into
-    newly allocated device-padded storage (``is_owning`` is ``True``). Device
-    arrays are copied when their row stride does not already match the
-    required padded width; if the stride is already correct, a non-owning
-    padded view of the input is returned and the caller must keep ``dataset``
-    alive for as long as the ``Dataset`` is used.
+    The input must be a row-major 2-D matrix. Its contents are always copied
+    into newly allocated, owning device-padded storage (``is_owning`` is
+    always ``True``), regardless of whether the input's row stride already
+    satisfies the padding requirement. The returned ``Dataset`` does not
+    keep a reference to ``dataset``; it is independent of it once this
+    function returns.
 
     Parameters
     ----------
@@ -121,8 +111,7 @@ def make_device_padded_dataset(dataset, resources=None):
     Returns
     -------
     dataset : Dataset
-        A device-resident padded dataset handle. Check ``is_owning`` to see
-        whether the handle owns its storage or is a view of ``dataset``.
+        An owning, device-resident padded dataset handle.
 
     Examples
     --------
@@ -143,6 +132,4 @@ def make_device_padded_dataset(dataset, resources=None):
     cdef Dataset padded
     with cuda_interruptible():
         padded = make_device_padded_dataset_handle(res, dataset_dlpack)
-    if not padded.is_owning:
-        padded._source = dataset
     return padded

@@ -5,6 +5,7 @@
 
 #include <cuvs/core/c_api.h>
 #include <cuvs/core/dataset.h>
+#include <cuvs/neighbors/common.hpp>
 #include <dlpack/dlpack.h>
 
 #include <cuda_runtime.h>
@@ -35,6 +36,25 @@ struct MatrixTensor {
     tensor.dl_tensor.strides            = nullptr;
   }
 };
+
+/**
+ * The C API's `cuvsDataset::addr` (a public struct field, see `cuvs/core/dataset.h`) points at
+ * the concrete C++ dataset object backing the handle. These helpers reach into it the same way
+ * `c/src/neighbors/cagra.cpp` itself does (see `with_dataset_view()`), so tests can verify the
+ * stride/ownership/aliasing behavior that isn't observable through the narrower
+ * `cuvsDatasetGet*()` accessors alone.
+ */
+template <typename T>
+auto device_padded_owner(cuvsDataset_t dataset)
+{
+  return reinterpret_cast<cuvs::neighbors::device_padded_dataset<T, int64_t>*>(dataset->addr);
+}
+
+template <typename T>
+auto device_padded_view(cuvsDataset_t dataset)
+{
+  return reinterpret_cast<cuvs::neighbors::device_padded_dataset_view<T, int64_t>*>(dataset->addr);
+}
 
 }  // namespace
 
@@ -90,7 +110,11 @@ TEST(DatasetC, MakePaddedFromDeviceUnalignedOwnsCopy)
   ASSERT_EQ(cuvsResourcesDestroy(res), CUVS_SUCCESS);
 }
 
-TEST(DatasetC, MakePaddedFromDeviceAlignedFailsUseView)
+// Regression test for https://github.com/NVIDIA/cuvs/issues/2482: a device tensor whose row
+// stride already satisfies CAGRA's padding requirement (dim=32 floats = 128 bytes, already
+// 16-byte aligned) must still succeed and return an owning, independent copy -- matching
+// cuvsDatasetMakePadded()'s documented contract -- instead of being rejected.
+TEST(DatasetC, MakePaddedFromDeviceAlignedOwnsCopy)
 {
   cuvsResources_t res;
   ASSERT_EQ(cuvsResourcesCreate(&res), CUVS_SUCCESS);
@@ -104,15 +128,54 @@ TEST(DatasetC, MakePaddedFromDeviceAlignedFailsUseView)
   raft::copy(device.data(), host.data(), host.size(), stream);
 
   MatrixTensor matrix(device.data(), n_rows, n_cols, kDLCUDA, 32);
-  cuvsDataset_t padded;
-  EXPECT_EQ(
+  cuvsDataset_t padded = nullptr;
+  ASSERT_EQ(
     cuvsDatasetMakePadded(res, &matrix.tensor, CUVS_DATASET_MEM_TYPE_DEVICE, &padded),
-    CUVS_ERROR);
-  EXPECT_EQ(padded, nullptr);
+    CUVS_SUCCESS);
+  ASSERT_NE(padded, nullptr);
 
-  cuvsDataset_t view;
+  bool is_owning = false;
+  ASSERT_EQ(cuvsDatasetGetIsOwning(padded, &is_owning), CUVS_SUCCESS);
+  EXPECT_TRUE(is_owning) << "cuvsDatasetMakePadded() must always return an owning dataset";
+
+  auto* owner = device_padded_owner<float>(padded);
+  uint32_t const required_stride =
+    cuvs::neighbors::cagra_required_row_width<float>(static_cast<uint32_t>(n_cols));
+  EXPECT_EQ(owner->stride(), required_stride);
+  EXPECT_NE(owner->data_handle(), device.data())
+    << "expected an independent copy, not an alias of the source buffer";
+
+  ASSERT_EQ(cuvsDatasetDestroy(padded), CUVS_SUCCESS);
+  ASSERT_EQ(cuvsResourcesDestroy(res), CUVS_SUCCESS);
+}
+
+// No-regression check: cuvsDatasetMakePaddedView() on the same already-aligned device tensor
+// must still behave exactly as before (non-owning, zero-copy alias of the source buffer). The
+// fix for #2482 only changes cuvsDatasetMakePadded()'s behavior.
+TEST(DatasetC, MakePaddedViewFromDeviceAlignedIsNonOwningAlias)
+{
+  cuvsResources_t res;
+  ASSERT_EQ(cuvsResourcesCreate(&res), CUVS_SUCCESS);
+  cudaStream_t stream;
+  ASSERT_EQ(cuvsStreamGet(res, &stream), CUVS_SUCCESS);
+
+  constexpr int64_t n_rows = 64;
+  constexpr int64_t n_cols = 32;
+  std::vector<float> host(n_rows * n_cols, 3.0f);
+  rmm::device_uvector<float> device(host.size(), stream);
+  raft::copy(device.data(), host.data(), host.size(), stream);
+
+  MatrixTensor matrix(device.data(), n_rows, n_cols, kDLCUDA, 32);
+  cuvsDataset_t view = nullptr;
   ASSERT_EQ(cuvsDatasetMakePaddedView(res, &matrix.tensor, &view), CUVS_SUCCESS);
   ASSERT_NE(view, nullptr);
+
+  bool is_owning = true;
+  ASSERT_EQ(cuvsDatasetGetIsOwning(view, &is_owning), CUVS_SUCCESS);
+  EXPECT_FALSE(is_owning);
+
+  auto* view_obj = device_padded_view<float>(view);
+  EXPECT_EQ(view_obj->view().data_handle(), device.data()) << "expected a true alias, not a copy";
 
   ASSERT_EQ(cuvsDatasetDestroy(view), CUVS_SUCCESS);
   ASSERT_EQ(cuvsResourcesDestroy(res), CUVS_SUCCESS);
