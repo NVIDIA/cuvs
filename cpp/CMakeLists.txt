@@ -189,6 +189,7 @@ if(NOT BUILD_CPU_ONLY)
   include(cmake/thirdparty/get_raft.cmake)
   include(cmake/thirdparty/get_kvikio.cmake)
   include(cmake/thirdparty/get_cutlass.cmake)
+  rapids_cpm_package_override("${CMAKE_CURRENT_SOURCE_DIR}/cmake/patches/cuco_override.json")
   include(${rapids-cmake-dir}/cpm/cuco.cmake)
   rapids_cpm_cuco()
   include(cmake/thirdparty/get_rtcx.cmake)
@@ -1361,6 +1362,8 @@ if(NOT BUILD_CPU_ONLY)
     src/cluster/spectral.cu
     src/core/bitset.cu
     src/core/bloom_filter.cu
+    src/core/roaring_allowlist.cu
+    src/neighbors/roaring_filter.cu
     src/core/omp_wrapper.cpp
     src/util/file_io.cpp
     src/util/host_memory.cpp

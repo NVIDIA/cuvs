@@ -8,6 +8,7 @@
 #include "../ann_cagra.cuh"
 
 #include <cuvs/core/bitset.hpp>
+#include <cuvs/core/roaring_allowlist.hpp>
 #include <cuvs/neighbors/cagra.hpp>
 
 #include <raft/core/copy.cuh>
@@ -19,6 +20,8 @@
 #include <thrust/device_ptr.h>
 #include <thrust/sequence.h>
 
+#include <algorithm>
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -348,7 +351,8 @@ TEST_P(CagraUdfFilterTest, TenantContextHonorsQuerySpecificMetadata)
   std::vector<uint32_t> host_row_tenants(n_rows);
   std::vector<uint32_t> host_query_tenants(n_queries);
   for (int64_t i = 0; i < n_rows; ++i) {
-    host_row_tenants[static_cast<size_t>(i)] = static_cast<uint32_t>((i / 5) % 3);
+    // Equal tenant cardinalities make the query-specific reference comparison deterministic.
+    host_row_tenants[static_cast<size_t>(i)] = static_cast<uint32_t>(i % 3);
   }
   for (int64_t q = 0; q < n_queries; ++q) {
     host_query_tenants[static_cast<size_t>(q)] = static_cast<uint32_t>(q % 3);
@@ -378,6 +382,51 @@ TEST_P(CagraUdfFilterTest, TenantContextHonorsQuerySpecificMetadata)
       ASSERT_LT(source_id, static_cast<uint32_t>(n_rows));
       EXPECT_EQ(host_row_tenants[source_id], query_tenant);
     }
+  }
+
+  // Build independent reusable owners and map one view to each query. Compare Roaring against this
+  // existing query-specific UDF result for every single-partition CAGRA algorithm. max_queries=2
+  // above also verifies query-offset propagation through internal chunking.
+  std::vector<cuvs::core::roaring_allowlist> tenant_allowlists;
+  tenant_allowlists.reserve(n_queries);
+  for (std::int64_t query = 0; query < n_queries; ++query) {
+    std::vector<std::uint32_t> allowed_ids;
+    auto const query_tenant = host_query_tenants[static_cast<std::size_t>(query)];
+    for (std::int64_t row = 0; row < n_rows; ++row) {
+      if (host_row_tenants[static_cast<std::size_t>(row)] == query_tenant) {
+        allowed_ids.push_back(static_cast<std::uint32_t>(row));
+      }
+    }
+    tenant_allowlists.push_back(cuvs::core::roaring_allowlist::from_ids(
+      res,
+      n_rows,
+      raft::make_host_vector_view<const std::uint32_t, std::int64_t>(allowed_ids.data(),
+                                                                     allowed_ids.size()),
+      true));
+  }
+
+  std::vector<cuvs::core::roaring_allowlist_view> tenant_views;
+  tenant_views.reserve(n_queries);
+  for (auto const& allowlist : tenant_allowlists) {
+    tenant_views.push_back(allowlist.view());
+  }
+  cuvs::neighbors::filtering::roaring_filter roaring_filter(res, tenant_views);
+  auto roaring_result = search(roaring_filter, 2.0f / 3.0f);
+  expect_same_results(result, roaring_result);
+
+  if (GetParam() == cagra::search_algo::SINGLE_CTA) {
+    auto wrong_queries = cuvs::core::roaring_allowlist::from_ids(
+      res, n_rows, raft::make_host_vector_view<const std::uint32_t, std::int64_t>(nullptr, 0));
+    std::array wrong_query_views{wrong_queries.view()};
+    cuvs::neighbors::filtering::roaring_filter wrong_query_filter(res, wrong_query_views);
+    EXPECT_THROW(search(wrong_query_filter), raft::logic_error);
+
+    auto wrong_columns = cuvs::core::roaring_allowlist::from_ids(
+      res, n_rows + 1, raft::make_host_vector_view<const std::uint32_t, std::int64_t>(nullptr, 0));
+    std::vector<cuvs::core::roaring_allowlist_view> wrong_column_views(
+      static_cast<std::size_t>(n_queries), wrong_columns.view());
+    cuvs::neighbors::filtering::roaring_filter wrong_column_filter(res, wrong_column_views);
+    EXPECT_THROW(search(wrong_column_filter), raft::logic_error);
   }
 }
 

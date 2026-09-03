@@ -21,6 +21,7 @@
 #include <raft/linalg/reduce.cuh>
 
 #include <cuvs/core/bitset.hpp>
+#include <cuvs/core/roaring_allowlist.hpp>
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/cagra.hpp>
 #include <cuvs/neighbors/common.hpp>
@@ -439,6 +440,25 @@ void search(raft::resources const& res,
     }
     auto sample_filter_copy = sample_filter;
     return search_with_filtering<T, IdxT, decltype(sample_filter_copy), OutputIdxT>(
+      res, params_copy, idx, queries, neighbors, distances, sample_filter_copy);
+  } catch (const std::bad_cast&) {
+  }
+
+  try {
+    auto& sample_filter =
+      dynamic_cast<const cuvs::neighbors::filtering::roaring_filter&>(sample_filter_ref);
+    RAFT_EXPECTS(sample_filter.valid(), "roaring_filter must be initialized before search.");
+    RAFT_EXPECTS(sample_filter.num_queries() == static_cast<std::size_t>(queries.extent(0)),
+                 "Roaring filter query rows must equal the number of search queries.");
+    RAFT_EXPECTS(sample_filter.dataset_rows() == static_cast<std::size_t>(idx.dataset().n_rows()),
+                 "Roaring filter dataset_rows must equal the number of rows in the index.");
+
+    search_params params_copy = params;
+    if (params.filtering_rate < 0.0f) {
+      params_copy.filtering_rate = sample_filter.filtering_rate();
+    }
+    auto sample_filter_copy = sample_filter;
+    return search_with_filtering<T, IdxT, decltype(sample_filter_copy), OutputIdxT, DatasetViewT>(
       res, params_copy, idx, queries, neighbors, distances, sample_filter_copy);
   } catch (const std::bad_cast&) {
   }

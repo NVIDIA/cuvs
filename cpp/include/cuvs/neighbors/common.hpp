@@ -33,6 +33,7 @@
 #include <cstring>
 #include <memory>
 #include <numeric>
+#include <span>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -43,7 +44,9 @@
 namespace CUVS_EXPORT cuvs {
 namespace core {
 class bloom_filter;
-}
+class roaring_allowlist_view;
+class roaring_allowlist;
+}  // namespace core
 namespace neighbors {
 /**
  * @addtogroup cagra_cpp_index_params
@@ -1346,7 +1349,7 @@ namespace filtering {
  * @{
  */
 
-enum class FilterType : int { None = 0, Bitmap = 1, Bitset = 2, Bloom = 3, UDF = 100 };
+enum class FilterType : int { None = 0, Bitmap = 1, Bitset = 2, Bloom = 3, Roaring = 4, UDF = 100 };
 
 struct base_filter {
   ~base_filter()                             = default;
@@ -1499,6 +1502,87 @@ struct bloom_filter : public base_filter {
   }
 
   FilterType get_filter_type() const override { return FilterType::Bloom; }
+};
+
+/**
+ * @brief Reusable per-query mapping to immutable exact Roaring allowlists.
+ *
+ * Entry @c q selects view @c q. CAGRA retains candidate dataset row @c r when the selected
+ * allowlist contains @c r. Construction copies only already initialized device-reference pointers
+ * and empty flags into the filter payload; encoded bytes are neither copied nor parsed. Search
+ * therefore performs no Roaring allocation, initialization, synchronization, or preprocessing.
+ *
+ * @code{.cpp}
+ * auto first = cuvs::core::roaring_allowlist::from_ids(
+ *   res, dataset_rows,
+ *   raft::make_host_vector_view<const std::uint32_t, std::int64_t>(first_ids.data(),
+ *                                                                    first_ids.size()));
+ * auto second = cuvs::core::roaring_allowlist::from_ids(
+ *   res, dataset_rows,
+ *   raft::make_host_vector_view<const std::uint32_t, std::int64_t>(second_ids.data(),
+ *                                                                    second_ids.size()));
+ * std::array views{first.view(), second.view()};
+ * auto filter = cuvs::neighbors::filtering::roaring_filter(res, views);
+ * @endcode
+ *
+ * Owners and views can be reused across filters and queries. This filter owns its mapping tables
+ * and device payload, but not the referenced owners, which must outlive the filter and all searches
+ * using it. Copies are cheap shared handles required by CAGRA query-offset wrappers.
+ *
+ * @see cuvs::core::roaring_allowlist
+ * @see https://github.com/RoaringBitmap/RoaringFormatSpec
+ */
+struct roaring_filter : public base_filter {
+ private:
+  struct impl;
+
+ public:
+  /** @brief Construct an invalid handle. It cannot be passed to CAGRA search. */
+  roaring_filter() = default;
+
+  /**
+   * @brief Materialize the query-to-allowlist device pointer table.
+   *
+   * @p allowlists must be nonempty, every view must be valid, and every view must have the same
+   * `dataset_rows()`. Query count is inferred from the span length.
+   */
+  explicit roaring_filter(raft::resources const& res,
+                          std::span<const cuvs::core::roaring_allowlist_view> allowlists);
+
+  [[nodiscard]] bool valid() const noexcept;
+  [[nodiscard]] std::size_t num_queries() const noexcept;
+  [[nodiscard]] std::size_t dataset_rows() const noexcept;
+  [[nodiscard]] std::size_t cardinality(std::size_t query_id) const;
+  [[nodiscard]] bool empty(std::size_t query_id) const;
+
+  /**
+   * @brief Maximum rejected fraction among all query allowlists.
+   *
+   * CAGRA uses this precomputed value when `search_params::filtering_rate` is unset.
+   */
+  [[nodiscard]] float filtering_rate() const noexcept;
+
+  /** @brief Device bytes owned by this mapping, excluding the referenced allowlists. */
+  [[nodiscard]] std::size_t size_bytes() const noexcept;
+
+  /**
+   * @brief Replace one query's allowlist pointer outside the search path.
+   *
+   * The replacement must have the same `dataset_rows()`. The method copies one pointer and one
+   * empty flag to the device and synchronizes @p res before returning. Do not call it concurrently
+   * with a search, and keep the replacement owner alive for all subsequent searches.
+   */
+  void set_allowlist(raft::resources const& res,
+                     std::size_t query_id,
+                     cuvs::core::roaring_allowlist_view replacement);
+
+  /** @brief Internal device payload already prepared for the linked CAGRA predicate. */
+  [[nodiscard]] void* device_payload() const noexcept;
+
+  FilterType get_filter_type() const override { return FilterType::Roaring; }
+
+ private:
+  std::shared_ptr<impl> impl_;
 };
 
 /**
