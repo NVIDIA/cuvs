@@ -259,7 +259,7 @@ ConfigureTest(
 ConfigureTest(
   NAME NEIGHBORS_ANN_VAMANA_TEST
   PATH neighbors/ann_vamana/test_float_uint32_t.cu neighbors/ann_vamana/test_int8_t_uint32_t.cu
-       neighbors/ann_vamana/test_uint8_t_uint32_t.cu
+       neighbors/ann_vamana/test_uint8_t_uint32_t.cu neighbors/ann_vamana/test_half_uint32_t.cu
   GPUS 1
   PERCENT 100
   FETCH_CODEBOOKS
@@ -431,6 +431,13 @@ ConfigureTest(
 ConfigureTest(
   NAME STATS_TEST
   PATH stats/trustworthiness.cu stats/silhouette_score.cu
+  GPUS 1
+  PERCENT 100
+)
+
+ConfigureTest(
+  NAME UTIL_TEST
+  PATH util/file_io_test.cpp util/host_memory_test.cpp
   GPUS 1
   PERCENT 100
 )
