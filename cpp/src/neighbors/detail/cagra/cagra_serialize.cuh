@@ -325,10 +325,19 @@ void write_hnswlib_rows_host(
     raft::resource::sync_stream(res);
 
     for (size_t batch_row = 0; batch_row < rows; ++batch_row) {
-      auto const row = first_row + batch_row;
-      os.write(reinterpret_cast<char const*>(&graph_degree_int), sizeof(int));
-      os.write(reinterpret_cast<char const*>(&graph_buffer(batch_row, 0)),
-               graph_degree * sizeof(IdxT));
+      auto const row        = first_row + batch_row;
+      IdxT const* graph_row = &graph_buffer(batch_row, 0);
+      // Variable-degree graphs pad unused neighbor slots with kInvalidNeighbor; the per-node
+      // hnswlib link-list size is the number of valid neighbors before the first sentinel.
+      int actual_degree = graph_degree_int;
+      for (int j = 0; j < graph_degree_int; j++) {
+        if (graph_row[j] == kInvalidNeighbor<IdxT>) {
+          actual_degree = j;
+          break;
+        }
+      }
+      os.write(reinterpret_cast<char const*>(&actual_degree), sizeof(int));
+      os.write(reinterpret_cast<char const*>(graph_row), graph_degree * sizeof(IdxT));
       T const* data_row =
         dataset_is_device ? &dataset_buffer(batch_row, 0) : dataset_data + row * dataset_stride;
       os.write(reinterpret_cast<char const*>(data_row), dim * sizeof(T));
@@ -369,16 +378,29 @@ __global__ void pack_hnswlib_rows(uint8_t* output,
 
   auto const row   = first_row + batch_row;
   auto* row_output = output + batch_row * row_size;
-  if (lane == 0) {
-    write_unaligned_value(row_output, static_cast<int>(graph_degree));
-    auto const label_offset = sizeof(int) + graph_degree * sizeof(IdxT) + dim * sizeof(T);
-    write_unaligned_value(row_output + label_offset, row);
-  }
 
   auto const graph_offset = sizeof(int);
+  uint32_t first_invalid  = graph_degree;
   for (size_t col = lane; col < graph_degree; col += warpSize) {
+    auto const neighbor = graph[row * static_cast<size_t>(graph_degree) + col];
+    if (neighbor == kInvalidNeighbor<GraphT>) {
+      first_invalid = min(first_invalid, static_cast<uint32_t>(col));
+    }
     write_unaligned_value(row_output + graph_offset + col * sizeof(IdxT),
-                          static_cast<IdxT>(graph[row * static_cast<size_t>(graph_degree) + col]));
+                          static_cast<IdxT>(neighbor));
+  }
+  // `batch_row` is warp-uniform, so the early-out above never diverges within a warp and every
+  // lane reaches this reduction.
+  for (int offset = warpSize / 2; offset > 0; offset /= 2) {
+    first_invalid = min(first_invalid, __shfl_xor_sync(0xffffffffu, first_invalid, offset));
+  }
+
+  if (lane == 0) {
+    // Variable-degree graphs pad unused neighbor slots with kInvalidNeighbor; the per-node
+    // hnswlib link-list size is the number of valid neighbors before the first sentinel.
+    write_unaligned_value(row_output, static_cast<int>(first_invalid));
+    auto const label_offset = sizeof(int) + graph_degree * sizeof(IdxT) + dim * sizeof(T);
+    write_unaligned_value(row_output + label_offset, row);
   }
 
   auto const dataset_offset = graph_offset + graph_degree * sizeof(IdxT);
