@@ -73,7 +73,7 @@ set +e
 rapids-logger "Run cuvs-java IT tests against the amd64-built classes"
 
 # -Dskip.compile activates the pom's "skip-compile" profile, which disables all
-# compilation for this run, forcing test to use amd64-compiled jar instead of 
+# compilation for this run, forcing test to use amd64-compiled jar instead of
 # local code.
 pushd java/cuvs-java
 mvn --batch-mode verify -Dskip.compile=true
