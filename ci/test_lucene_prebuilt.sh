@@ -95,20 +95,17 @@ rm -rf java/cuvs-lucene/target
 mkdir -p java/cuvs-lucene/target
 cp -a "${CUVS_LUCENE_DIR}/." java/cuvs-lucene/target/
 
-# Guarantee the compiler plugin's staleness check always sees these as up to date,
-# regardless of how the checkout and artifact-download timestamps happen to compare.
-find java/cuvs-lucene/target/classes java/cuvs-lucene/target/test-classes -type f -exec touch {} +
-
 EXITCODE=0
 trap "EXITCODE=1" ERR
 set +e
 
 rapids-logger "Run cuvs-lucene tests against the amd64-built classes"
 
-# The "test" phase is cheap here since the compiler plugin skips recompilation once the
-# touch above marks target/ as current.
+# -Dskip.compile activates the pom's "skip-compile" profile, which disables all
+# compilation for this run, forcing test to use amd64-compiled jar instead of 
+# local code.
 pushd java/cuvs-lucene
-mvn --batch-mode test
+mvn --batch-mode test -Dskip.compile=true
 popd
 
 rapids-logger "Test script exiting with value: $EXITCODE"
