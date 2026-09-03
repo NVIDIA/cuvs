@@ -25,22 +25,6 @@ L2 (Euclidean) distance metric
 
 _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/TieredIndexParams.java:20`_
 
-### TieredIndexParams
-
-```java
-private TieredIndexParams(Builder builder)
-```
-
-Private constructor used by the Builder.
-
-**Parameters**
-
-| Name | Description |
-| --- | --- |
-| `builder` | The Builder instance containing the configuration |
-
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/TieredIndexParams.java:35`_
-
 ### getMetric
 
 ```java

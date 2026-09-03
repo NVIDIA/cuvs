@@ -14,7 +14,7 @@ _Source header: `cuvs/cluster/mg_kmeans.h`_
 Find clusters with single-node multi-GPU k-means using host data.
 
 ```c
-CUVS_EXPORT cuvsError_t cuvsMultiGpuKMeansFit(cuvsResources_t res,
+cuvsError_t cuvsMultiGpuKMeansFit(cuvsResources_t res,
 cuvsKMeansParams_t params,
 DLManagedTensor* X,
 DLManagedTensor* sample_weight,
@@ -39,4 +39,4 @@ X, sample_weight, and centroids must be host-accessible, row-major, C-contiguous
 
 **Returns**
 
-[`CUVS_EXPORT cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)
+[`cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)
