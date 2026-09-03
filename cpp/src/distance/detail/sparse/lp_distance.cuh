@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -266,7 +266,7 @@ class jensen_shannon_unexpanded_distances_t : public distances_t<value_t> {
     raft::linalg::map(
       config_->handle,
       raft::make_device_vector_view<value_t, int64_t>(out_dists, n),
-      [=] __device__(value_t input) { return raft::sqrt(0.5 * input); },
+      [=] __device__(value_t input) { return raft::sqrt(value_t(0.5) * input); },
       raft::make_const_mdspan(raft::make_device_vector_view<const value_t, int64_t>(out_dists, n)));
   }
 
