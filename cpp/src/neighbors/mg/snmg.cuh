@@ -24,6 +24,7 @@
 #include <cuvs/neighbors/ivf_flat.hpp>
 #include <cuvs/neighbors/ivf_pq.hpp>
 #include <cuvs/neighbors/knn_merge_parts.hpp>
+#include <cuvs/util/file_io.hpp>
 
 #include <fstream>
 
@@ -359,25 +360,36 @@ void sharded_search_with_direct_merge(
                d_trans.view(),
                raft::make_host_vector_view<const searchIdxT>(h_trans.data(), index.num_ranks_));
 
+    // Results from each rank are packed using the current batch size. Use matching logical views
+    // so the final partial batch is merged with the same per-rank stride used above.
+    auto in_distances_batch = raft::make_device_matrix_view<float, int64_t, row_major>(
+      in_distances.data_handle(), index.num_ranks_ * n_rows_of_current_batch, n_neighbors);
+    auto in_neighbors_batch = raft::make_device_matrix_view<const searchIdxT, int64_t, row_major>(
+      in_neighbors.data_handle(), index.num_ranks_ * n_rows_of_current_batch, n_neighbors);
+    auto out_distances_batch = raft::make_device_matrix_view<float, int64_t, row_major>(
+      out_distances.data_handle(), n_rows_of_current_batch, n_neighbors);
+    auto out_neighbors_batch = raft::make_device_matrix_view<searchIdxT, int64_t, row_major>(
+      out_neighbors.data_handle(), n_rows_of_current_batch, n_neighbors);
+
     if (!select_min) {
       raft::linalg::map(root_handle_,
-                        in_distances.view(),
+                        in_distances_batch,
                         raft::mul_const_op<float>(-1),
-                        raft::make_const_mdspan(in_distances.view()));
+                        raft::make_const_mdspan(in_distances_batch));
     }
 
     knn_merge_parts(root_handle_,
-                    in_distances.view(),
-                    in_neighbors.view(),
-                    out_distances.view(),
-                    out_neighbors.view(),
+                    in_distances_batch,
+                    in_neighbors_batch,
+                    out_distances_batch,
+                    out_neighbors_batch,
                     d_trans.view());
 
     if (!select_min) {
       raft::linalg::map(root_handle_,
-                        out_distances.view(),
+                        out_distances_batch,
                         raft::mul_const_op<float>(-1),
-                        raft::make_const_mdspan(out_distances.view()));
+                        raft::make_const_mdspan(out_distances_batch));
     }
 
     raft::copy(
@@ -771,8 +783,7 @@ void serialize(const raft::resources& clique,
                const mg_index<AnnIndexType, T, IdxT>& index,
                const std::string& filename)
 {
-  std::ofstream of(filename, std::ios::out | std::ios::binary);
-  if (!of) { RAFT_FAIL("Cannot open file %s", filename.c_str()); }
+  cuvs::util::kvikio_ofstream of(filename);
 
   std::string dtype_string = raft::numpy_serializer::get_numpy_dtype<T>().to_string();
   dtype_string.resize(4);

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -9,12 +9,12 @@
 #include "detail/jit_lto_kernels/interleaved_scan_planner.hpp"
 #include "detail/jit_lto_kernels/kernel_def.hpp"
 #include <cstdint>
-#include <cuvs/detail/jit_lto/NVRTCLTOFragmentCompiler.hpp>
 #include <cuvs/detail/jit_lto/common_fragments.hpp>
 #include <cuvs/detail/jit_lto/ivf_flat/interleaved_scan_fragments.hpp>
 #include <cuvs/neighbors/common.hpp>
 #include <cuvs/neighbors/ivf_flat.hpp>
 #include <optional>
+#include <rtcx/nvrtc_lto_fragment_compiler.hpp>
 #include <string>
 #include <type_traits>
 
@@ -169,7 +169,7 @@ void launch_kernel(const index<T, IdxT>& index,
     std::string metric_udf_code = metric_udf.value();
     metric_udf_code +=
       experimental::udf::instantiate_udf(type_name<T>(), type_name<AccT>(), Veclen);
-    auto udf_fragment = nvrtc_compiler().compile(metric_udf_code, metric_udf_code);
+    auto udf_fragment = rtcx::nvrtc_compiler().compile(metric_udf_code, metric_udf_code);
     kernel_planner.add_metric_udf_fragment(std::move(udf_fragment));
   } else {
     kernel_planner.add_metric_device_function<DataTag, AccTag, MetricTag, Veclen>();

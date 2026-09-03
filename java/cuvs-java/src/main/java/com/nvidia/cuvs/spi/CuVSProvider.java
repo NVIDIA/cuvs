@@ -150,10 +150,10 @@ public interface CuVSProvider {
   HnswIndex hnswIndexFromCagra(HnswIndexParams hnswParams, CagraIndex cagraIndex) throws Throwable;
 
   /**
-   * Builds an HNSW index using the ACE (Augmented Core Extraction) algorithm.
+   * Builds an HNSW index from HNSW parameters using GPU graph construction.
    *
    * @param resources The CuVS resources
-   * @param hnswParams Parameters for the HNSW index with ACE configuration
+   * @param hnswParams Parameters for the HNSW index
    * @param dataset The dataset to build the index from
    * @return A new HNSW index ready for search
    * @throws Throwable if an error occurs during building
@@ -186,6 +186,25 @@ public interface CuVSProvider {
       throws Throwable {
     // Default implementation falls back to the method without parameters
     return mergeCagraIndexes(indexes);
+  }
+
+  /**
+   * Reports whether the rows of {@code dataset} already sit at the row stride CAGRA requires, which
+   * is the row length in bytes rounded up to a 16 byte boundary.
+   *
+   * <p>This is the question that decides which of the two padded dataset factories a caller has to
+   * use: {@link CagraIndex#makePaddedDatasetView(CuVSMatrix)} for a device matrix that is already at
+   * that stride, and {@link CagraIndex#makePaddedDataset(CuVSMatrix)} for one that is not. Asking
+   * for the wrong one is an error rather than an inefficiency, and the stride of a matrix is not
+   * visible outside this library, so callers cannot answer it for themselves.
+   *
+   * @param dataset the matrix to inspect
+   * @return true when the rows are already padded the way CAGRA requires
+   * @throws UnsupportedOperationException if this provider cannot answer
+   */
+  default boolean isCagraPaddedDataset(CuVSMatrix dataset) {
+    throw new UnsupportedOperationException(
+        "Padded layout detection is not supported by " + getClass().getName());
   }
 
   /**
