@@ -825,8 +825,9 @@ void brute_force_search_filtered(
                                               raft::identity_op(),
                                               filter_type);
   } else {
+    // masked_matmul fills the CSR structure from the mask itself, so it is left uninitialized
+    // here; converting first would only run the same conversion twice.
     auto csr = raft::make_device_csr_matrix<DistanceT, IdxT>(res, n_queries, n_dataset, nnz_h);
-    std::visit([&](const auto& actual_view) { actual_view.to_csr(res, csr); }, *filter_view);
 
     // create filter csr view
     auto compressed_csr_view = csr.structure_view();
