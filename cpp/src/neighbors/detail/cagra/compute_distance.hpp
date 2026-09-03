@@ -13,6 +13,7 @@
 #include <cuvs/neighbors/cagra.hpp>
 #include <cuvs/neighbors/common.hpp>
 #include <raft/core/logger.hpp>
+#include <util/stream_alloc_compat.hpp>  // malloc_async_compat
 #include <raft/core/operators.hpp>
 
 // TODO: This shouldn't be invoking spatial/knn
@@ -230,7 +231,7 @@ struct dataset_descriptor_host {
     {
       if (std::holds_alternative<ready_t>(value)) {
         auto& [ptr, stream] = std::get<ready_t>(value);
-        RAFT_CUDA_TRY_NO_THROW(cudaFreeAsync(ptr, stream));
+        RAFT_CUDA_TRY_NO_THROW(cuvs::util::free_async_compat(ptr, stream));
       }
       RAFT_CUDA_TRY_NO_THROW(cudaEventDestroy(ready_event));
     }
@@ -241,7 +242,8 @@ struct dataset_descriptor_host {
       if (std::holds_alternative<init_f>(value)) {
         auto& [fun, size]     = std::get<init_f>(value);
         dev_descriptor_t* ptr = nullptr;
-        RAFT_CUDA_TRY(cudaMallocAsync(&ptr, size, stream));
+        RAFT_CUDA_TRY(
+          cuvs::util::malloc_async_compat(reinterpret_cast<void**>(&ptr), size, stream));
         fun(ptr, stream);
         RAFT_CUDA_TRY(cudaEventRecord(ready_event, stream));
         value = std::make_tuple(ptr, stream);
