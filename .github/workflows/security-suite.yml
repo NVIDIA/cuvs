@@ -8,11 +8,11 @@ on:
     branches:
       - "main"
       - "release/*"
-      - "pull-request/[0-9]+"
+  workflow_call:
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: security-suite-${{ github.ref }}
   cancel-in-progress: true
 
 permissions: {}
