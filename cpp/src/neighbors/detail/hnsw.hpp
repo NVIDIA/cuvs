@@ -499,14 +499,42 @@ void all_neighbors_graph(raft::resources const& res,
   }
 }
 
+/** Host-side plan that groups dataset rows by their maximum HNSW level.
+ *
+ * `row_ids_by_level[position]` maps a level-grouped position to the original dataset row ID. Rows
+ * whose maximum level is 0 come first, followed by rows whose maximum level is 1, and so on. Within
+ * each level, rows retain their original order. `position_by_row_id[row_id]` is the inverse
+ * mapping. `levels[row_id]` stores the maximum level assigned to that original row. The large
+ * row-sized arrays use RAFT host vectors so resource dry-run includes them in host-memory
+ * estimates.
+ */
 struct hnsw_level_plan {
   size_t n_rows = 0;
   std::vector<size_t> hist;
-  // Bucket-end offsets after order construction. Level L starts at offsets[L - 1].
+  // Bucket-end offsets after row ordering. Level L starts at offsets[L - 1].
   std::vector<size_t> offsets;
-  std::vector<size_t> order;
-  std::vector<size_t> order_bw;
-  std::vector<uint8_t> levels;
+  raft::host_vector<size_t, int64_t> row_ids_by_level;
+  raft::host_vector<size_t, int64_t> position_by_row_id;
+  raft::host_vector<uint8_t, int64_t> levels;
+
+  explicit hnsw_level_plan(raft::resources const& res)
+    : row_ids_by_level{raft::make_host_vector<size_t, int64_t>(res, 0)},
+      position_by_row_id{raft::make_host_vector<size_t, int64_t>(res, 0)},
+      levels{raft::make_host_vector<uint8_t, int64_t>(res, 0)}
+  {
+  }
+
+  hnsw_level_plan(raft::resources const& res,
+                  size_t n_rows,
+                  raft::host_vector<uint8_t, int64_t>&& levels,
+                  bool build_position_by_row_id)
+    : n_rows{n_rows},
+      row_ids_by_level{raft::make_host_vector<size_t, int64_t>(res, n_rows)},
+      position_by_row_id{raft::make_host_vector<size_t, int64_t>(
+        res, build_position_by_row_id ? n_rows : size_t{0})},
+      levels{std::move(levels)}
+  {
+  }
 
   [[nodiscard]] auto max_level() const -> int
   {
@@ -560,21 +588,21 @@ inline auto progress_step_10(size_t completed, size_t total) -> size_t
   return completed >= total ? 100 : (percent / 10) * 10;
 }
 
-inline auto make_hnsw_level_plan_from_levels(size_t n_rows,
-                                             std::vector<uint8_t>&& levels,
-                                             bool build_reverse_order,
+inline auto make_hnsw_level_plan_from_levels(raft::resources const& res,
+                                             size_t n_rows,
+                                             raft::host_vector<uint8_t, int64_t>&& levels,
+                                             bool build_position_by_row_id,
                                              const char* log_prefix = nullptr) -> hnsw_level_plan
 {
-  hnsw_level_plan plan;
-  plan.n_rows = n_rows;
-  plan.levels = std::move(levels);
   RAFT_EXPECTS(n_rows > 0, "HNSW hierarchy requires at least one row");
-  RAFT_EXPECTS(plan.levels.size() == n_rows,
+  RAFT_EXPECTS(levels.size() == n_rows,
                "HNSW level count (%zu) must match row count (%zu)",
-               plan.levels.size(),
+               levels.size(),
                n_rows);
+  hnsw_level_plan plan{res, n_rows, std::move(levels), build_position_by_row_id};
 
-  for (auto level : plan.levels) {
+  for (size_t i = 0; i < n_rows; ++i) {
+    const auto level = plan.levels(i);
     while (static_cast<size_t>(level) >= plan.hist.size()) {
       plan.hist.push_back(0);
     }
@@ -589,31 +617,31 @@ inline auto make_hnsw_level_plan_from_levels(size_t n_rows,
     }
   }
 
-  plan.order.resize(n_rows);
-  if (build_reverse_order) { plan.order_bw.resize(n_rows); }
   for (size_t i = 0; i < n_rows; ++i) {
-    const auto level = static_cast<size_t>(plan.levels[i]);
-    if (build_reverse_order) { plan.order_bw[i] = plan.offsets[level]; }
-    plan.order[plan.offsets[level]++] = i;
+    const auto level = static_cast<size_t>(plan.levels(i));
+    if (build_position_by_row_id) { plan.position_by_row_id(i) = plan.offsets[level]; }
+    plan.row_ids_by_level(plan.offsets[level]++) = i;
   }
 
   return plan;
 }
 
 template <typename HnswAlgo>
-auto make_random_hnsw_level_plan(size_t n_rows, HnswAlgo& appr_algo, const char* log_prefix)
-  -> hnsw_level_plan
+auto make_random_hnsw_level_plan(raft::resources const& res,
+                                 size_t n_rows,
+                                 HnswAlgo& appr_algo,
+                                 const char* log_prefix) -> hnsw_level_plan
 {
-  std::vector<uint8_t> levels(n_rows);
+  auto levels = raft::make_host_vector<uint8_t, int64_t>(res, n_rows);
   for (int64_t i = 0; i < static_cast<int64_t>(n_rows); ++i) {
     const auto pt_level = appr_algo.getRandomLevel(appr_algo.mult_);
     RAFT_EXPECTS(pt_level <= std::numeric_limits<uint8_t>::max(),
                  "HNSW serialization only supports levels up to %u",
                  static_cast<unsigned int>(std::numeric_limits<uint8_t>::max()));
-    levels[i] = static_cast<uint8_t>(pt_level);
+    levels(i) = static_cast<uint8_t>(pt_level);
   }
 
-  return make_hnsw_level_plan_from_levels(n_rows, std::move(levels), true, log_prefix);
+  return make_hnsw_level_plan_from_levels(res, n_rows, std::move(levels), true, log_prefix);
 }
 
 template <typename T, typename IdxT, typename Callback>
@@ -1085,7 +1113,7 @@ auto serialize_to_layered_hnswlib_from_disk(
 
   RAFT_LOG_INFO("Layered HNSW artifact: generating hierarchy levels");
   const auto hierarchy_start_time = std::chrono::steady_clock::now();
-  auto hierarchy                  = make_random_hnsw_level_plan(n_rows, *appr_algo, nullptr);
+  auto hierarchy                  = make_random_hnsw_level_plan(res, n_rows, *appr_algo, nullptr);
   const auto hierarchy_elapsed_ms = elapsed_ms_since(hierarchy_start_time);
   RAFT_LOG_INFO(
     "Layered HNSW artifact: hierarchy levels generated in %ld ms (max_level=%d promoted=%zu)",
@@ -1094,15 +1122,16 @@ auto serialize_to_layered_hnswlib_from_disk(
     hierarchy.promoted_count());
 
   layered_hnsw_file_metadata metadata;
-  metadata.n_rows               = n_rows;
-  metadata.dim                  = dim;
-  metadata.M                    = appr_algo->M_;
-  metadata.maxM                 = appr_algo->maxM_;
-  metadata.maxM0                = appr_algo->maxM0_;
-  metadata.ef_construction      = appr_algo->ef_construction_;
-  metadata.mult                 = appr_algo->mult_;
-  metadata.maxlevel             = hierarchy.max_level();
-  metadata.enterpoint_node      = static_cast<int>(hierarchy.order.back());
+  metadata.n_rows          = n_rows;
+  metadata.dim             = dim;
+  metadata.M               = appr_algo->M_;
+  metadata.maxM            = appr_algo->maxM_;
+  metadata.maxM0           = appr_algo->maxM0_;
+  metadata.ef_construction = appr_algo->ef_construction_;
+  metadata.mult            = appr_algo->mult_;
+  metadata.maxlevel        = hierarchy.max_level();
+  metadata.enterpoint_node =
+    static_cast<int>(hierarchy.row_ids_by_level(hierarchy.row_ids_by_level.size() - 1));
   metadata.base_degree          = static_cast<size_t>(graph_degree_int);
   metadata.levels_bytes         = n_rows * sizeof(uint8_t);
   metadata.base_nodes_bytes     = n_rows * sizeof(IdxT);
@@ -1161,7 +1190,7 @@ auto serialize_to_layered_hnswlib_from_disk(
 
   const auto levels_start_time = std::chrono::steady_clock::now();
   cuvs::util::write_large_file(
-    artifact_fd, hierarchy.levels.data(), metadata.levels_bytes, levels_offset);
+    artifact_fd, hierarchy.levels.data_handle(), metadata.levels_bytes, levels_offset);
   const auto levels_elapsed_ms = elapsed_ms_since(levels_start_time);
   RAFT_LOG_INFO("Layered HNSW artifact: levels section written in %ld ms (%.2f GiB, %.2f GiB/s)",
                 levels_elapsed_ms,
@@ -1192,8 +1221,8 @@ auto serialize_to_layered_hnswlib_from_disk(
       raft::make_host_matrix<T, int64_t>(static_cast<int64_t>(hierarchy.promoted_count()), dim);
 #pragma omp parallel for
     for (int64_t i = 0; i < static_cast<int64_t>(n_rows); i++) {
-      if (hierarchy.levels[i] > 0) {
-        const auto query_row = hierarchy.order_bw[i] - hierarchy.hist[0];
+      if (hierarchy.levels(i) > 0) {
+        const auto query_row = hierarchy.position_by_row_id(i) - hierarchy.hist[0];
         auto* dst            = host_query_set.data_handle() + query_row * dim;
         std::copy(&dataset(i, 0), &dataset(i, 0) + dim, dst);
       }
@@ -1239,7 +1268,7 @@ auto serialize_to_layered_hnswlib_from_disk(
           for (int64_t batch_idx = 0; batch_idx < static_cast<int64_t>(current_batch_size);
                ++batch_idx) {
             const auto row         = batch_start + static_cast<size_t>(batch_idx);
-            node_buffer[batch_idx] = static_cast<IdxT>(hierarchy.order[start_idx + row]);
+            node_buffer[batch_idx] = static_cast<IdxT>(hierarchy.row_ids_by_level(start_idx + row));
             auto* link_row         = link_buffer.data() + batch_idx * metadata.upper_link_row_bytes;
             hnswlib::linklistsizeint list_count =
               static_cast<hnswlib::linklistsizeint>(layer.degree);
@@ -1248,7 +1277,7 @@ auto serialize_to_layered_hnswlib_from_disk(
             if (layer.degree > 0) {
               auto* src = host_neighbors.data_handle() + row * layer.degree;
               for (size_t j = 0; j < layer.degree; ++j) {
-                dst[j] = static_cast<IdxT>(hierarchy.order[src[j] + start_idx]);
+                dst[j] = static_cast<IdxT>(hierarchy.row_ids_by_level(src[j] + start_idx));
               }
             }
           }
@@ -1351,19 +1380,20 @@ void serialize_to_hnswlib_batched(raft::resources const& res,
 
   bool create_hierarchy = params.hierarchy != HnswHierarchy::NONE;
 
-  hnsw_level_plan hierarchy;
+  hnsw_level_plan hierarchy{res};
   if (create_hierarchy) {
     RAFT_LOG_INFO("Sort points by levels");
-    hierarchy = make_random_hnsw_level_plan(n_rows, *appr_algo, "Level ");
+    hierarchy = make_random_hnsw_level_plan(res, n_rows, *appr_algo, "Level ");
   }
-  const auto& hist     = hierarchy.hist;
-  const auto& order    = hierarchy.order;
-  const auto& order_bw = hierarchy.order_bw;
-  const auto& levels   = hierarchy.levels;
-  const auto& offsets  = hierarchy.offsets;
+  const auto& hist               = hierarchy.hist;
+  const auto& row_ids_by_level   = hierarchy.row_ids_by_level;
+  const auto& position_by_row_id = hierarchy.position_by_row_id;
+  const auto& levels             = hierarchy.levels;
+  const auto& offsets            = hierarchy.offsets;
 
   // set last point of the highest level as the entry point
-  appr_algo->enterpoint_node_ = create_hierarchy ? order.back() : n_rows / 2;
+  appr_algo->enterpoint_node_ = create_hierarchy ? row_ids_by_level(row_ids_by_level.size() - 1)
+                                                 : static_cast<size_t>(n_rows / 2);
   appr_algo->maxlevel_        = create_hierarchy ? hierarchy.max_level() : 1;
 
   // write header information
@@ -1456,11 +1486,11 @@ void serialize_to_hnswlib_batched(raft::resources const& res,
       const T* data_row = &dataset_buffer(batch_idx, 0);
       os.write(reinterpret_cast<const char*>(data_row), sizeof(T) * dim);
 
-      if (create_hierarchy && levels[i] > 0) {
-        // position in query: order_bw[i]-hist[0]
+      if (create_hierarchy && levels(i) > 0) {
+        // position in query: position_by_row_id[i]-hist[0]
         std::copy(data_row,
                   data_row + dim,
-                  reinterpret_cast<char*>(&host_query_set(order_bw[i] - hist[0], 0)));
+                  reinterpret_cast<char*>(&host_query_set(position_by_row_id(i) - hist[0], 0)));
       }
 
       // assign original label
@@ -1523,7 +1553,7 @@ void serialize_to_hnswlib_batched(raft::resources const& res,
   start_clock   = std::chrono::system_clock::now();
 
   for (int64_t i = 0; i < n_rows; i++) {
-    size_t cur_level = create_hierarchy ? levels[i] : 0;
+    size_t cur_level = create_hierarchy ? levels(i) : 0;
     unsigned int linkListSize =
       create_hierarchy && cur_level > 0 ? appr_algo->size_links_per_element_ * cur_level : 0;
     os.write(reinterpret_cast<char*>(&linkListSize), sizeof(int));
@@ -1531,13 +1561,13 @@ void serialize_to_hnswlib_batched(raft::resources const& res,
     if (linkListSize) {
       for (size_t pt_level = 1; pt_level <= cur_level; pt_level++) {
         auto neighbor_view = host_neighbors[pt_level - 1].view();
-        auto my_row        = order_bw[i] - offsets[pt_level - 1];
+        auto my_row        = position_by_row_id(i) - offsets[pt_level - 1];
 
         IdxT* neighbors     = &neighbor_view(my_row, 0);
         unsigned int extent = neighbor_view.extent(1);
         os.write(reinterpret_cast<char*>(&extent), sizeof(int));
         for (unsigned int j = 0; j < extent; j++) {
-          const IdxT converted = order[neighbors[j] + offsets[pt_level - 1]];
+          const IdxT converted = row_ids_by_level(neighbors[j] + offsets[pt_level - 1]);
           os.write(reinterpret_cast<const char*>(&converted), sizeof(IdxT));
         }
         auto remainder = appr_algo->M_ - neighbor_view.extent(1);
