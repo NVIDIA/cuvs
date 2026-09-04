@@ -9,6 +9,7 @@
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resources.hpp>
 #include <raft/util/cuda_utils.cuh>
+#include <raft/util/cudart_utils.hpp>
 #include <raft/util/integer_utils.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
@@ -332,9 +333,10 @@ class kmeans_batch_loader<DataT, IndexT, false> {
   void queue_h2d(DataT* dst, std::size_t pos)
   {
     auto const& batch = batches_[pos];
-    const auto bytes  = batch.size * row_width_ * sizeof(DataT);
-    RAFT_CUDA_TRY(cudaMemcpyAsync(
-      dst, batch.source + batch.offset * row_width_, bytes, cudaMemcpyHostToDevice, copy_stream_));
+    raft::copy(dst,
+               batch.source + batch.offset * row_width_,
+               batch.size * row_width_,
+               copy_stream_);
   }
 
   raft::resources const* res_ = nullptr;
