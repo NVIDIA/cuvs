@@ -119,7 +119,7 @@ jobs:
       arch: "amd64"
       date: ${{ inputs.date }}
       container_image: "rapidsai/ci-conda:26.10-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
-      node_type: "gpu-l4-latest-1"
+      node_type: "gpu-rtxpro6000-latest-1"
       script: "ci/build_rust.sh"
       sha: ${{ inputs.sha }}
   go-build-matrix:
@@ -152,7 +152,7 @@ jobs:
       arch: "amd64"
       date: ${{ inputs.date }}
       container_image: "rapidsai/ci-conda:26.10-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
-      node_type: "gpu-l4-latest-1"
+      node_type: "gpu-rtxpro6000-latest-1"
       script: "ci/build_go.sh"
       sha: ${{ inputs.sha }}
   java-build-matrix:

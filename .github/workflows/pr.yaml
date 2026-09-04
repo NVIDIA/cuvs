@@ -589,7 +589,7 @@ jobs:
       matrix: ${{ fromJSON(needs.rocky8-clib-tests-matrix.outputs.matrix) }}
     with:
       build_type: pull-request
-      node_type: "gpu-l4-latest-1"
+      node_type: ${{ matrix.ARCH == 'amd64' && 'gpu-rtxpro6000-latest-1' || 'gpu-l4-latest-1' }}
       arch: "${{matrix.arch}}"
       date: ${{ inputs.date }}_c
       container_image: "rapidsai/ci-wheel:26.10-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
@@ -622,7 +622,7 @@ jobs:
       matrix: ${{ fromJSON(needs.conda-java-build-and-tests-matrix.outputs.matrix) }}
     with:
       build_type: pull-request
-      node_type: "gpu-l4-latest-1"
+      node_type: "gpu-rtxpro6000-latest-1"
       arch: "amd64"
       container_image: "rapidsai/ci-conda:26.10-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
       script: "ci/test_java.sh"
@@ -647,7 +647,7 @@ jobs:
       matrix: ${{ fromJSON(needs.conda-java-build-and-tests-matrix.outputs.matrix) }}
     with:
       build_type: pull-request
-      node_type: "gpu-l4-latest-1"
+      node_type: "gpu-rtxpro6000-latest-1"
       arch: "amd64"
       container_image: "rapidsai/ci-conda:26.10-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
       script: "ci/test_lucene.sh cuvs-java-cuda${{ matrix.CUDA_VER }}"
@@ -680,7 +680,7 @@ jobs:
       matrix: ${{ fromJSON(needs.rust-build-matrix.outputs.matrix) }}
     with:
       build_type: pull-request
-      node_type: "gpu-l4-latest-1"
+      node_type: "gpu-rtxpro6000-latest-1"
       arch: "amd64"
       container_image: "rapidsai/ci-conda:26.10-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
       script: "ci/build_rust.sh"
@@ -711,7 +711,7 @@ jobs:
       matrix: ${{ fromJSON(needs.go-build-matrix.outputs.matrix) }}
     with:
       build_type: pull-request
-      node_type: "gpu-l4-latest-1"
+      node_type: "gpu-rtxpro6000-latest-1"
       arch: "amd64"
       container_image: "rapidsai/ci-conda:26.10-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
       script: "ci/build_go.sh"
