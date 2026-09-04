@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -12,9 +12,7 @@
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/device_resources.hpp>
 #include <raft/core/logger.hpp>
-#include <raft/core/resource/cuda_stream.hpp>
 #include <raft/util/cudart_utils.hpp>
-#include <rmm/cuda_stream_pool.hpp>
 
 #include <cassert>
 #include <memory>
@@ -83,8 +81,6 @@ class cuvs_ivf_sq : public algo<T>, public algo_gpu {
 template <typename T>
 void cuvs_ivf_sq<T>::build(const T* dataset, size_t nrow)
 {
-  size_t n_streams = 1;
-  raft::resource::set_cuda_stream_pool(handle_, std::make_shared<rmm::cuda_stream_pool>(n_streams));
   index_ = std::make_shared<cuvs::neighbors::ivf_sq::index<uint8_t>>(
     std::move(cuvs::neighbors::ivf_sq::build(
       handle_,

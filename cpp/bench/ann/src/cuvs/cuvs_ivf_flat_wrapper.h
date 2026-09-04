@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2024, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -15,7 +15,6 @@
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/linalg/unary_op.cuh>
 #include <raft/util/cudart_utils.hpp>
-#include <rmm/cuda_stream_pool.hpp>
 
 #include <cassert>
 #include <fstream>
@@ -88,9 +87,6 @@ class cuvs_ivf_flat : public algo<T>, public algo_gpu {
 template <typename T, typename IdxT>
 void cuvs_ivf_flat<T, IdxT>::build(const T* dataset, size_t nrow)
 {
-  // Create a CUDA stream pool with 1 stream (besides main stream) for kernel/copy overlapping.
-  size_t n_streams = 1;
-  raft::resource::set_cuda_stream_pool(handle_, std::make_shared<rmm::cuda_stream_pool>(n_streams));
   index_ = std::make_shared<cuvs::neighbors::ivf_flat::index<T, IdxT>>(
     std::move(cuvs::neighbors::ivf_flat::build(
       handle_,
