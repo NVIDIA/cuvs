@@ -15,6 +15,7 @@ jobs:
       - changed-files
       - checks
       - check-c-abi
+      - security-suite
       - conda-cpp-build
       - conda-cpp-tests
       - conda-cpp-checks
@@ -104,6 +105,7 @@ jobs:
           - '!.github/workflows/check-c-abi.yaml'
           - '!.github/workflows/labeler.yml'
           - '!.github/workflows/publish-rust.yaml'
+          - '!.github/workflows/security-suite.yml'
           - '!.github/workflows/store-c-abi-baseline.yaml'
           - '!.github/workflows/test.yaml'
           - '!.github/workflows/trigger-breaking-change-alert.yaml'
@@ -136,6 +138,7 @@ jobs:
           - '!.github/workflows/check-c-abi.yaml'
           - '!.github/workflows/labeler.yml'
           - '!.github/workflows/publish-rust.yaml'
+          - '!.github/workflows/security-suite.yml'
           - '!.github/workflows/store-c-abi-baseline.yaml'
           - '!.github/workflows/test.yaml'
           - '!.github/workflows/trigger-breaking-change-alert.yaml'
@@ -186,6 +189,7 @@ jobs:
           - '!.github/workflows/check-c-abi.yaml'
           - '!.github/workflows/labeler.yml'
           - '!.github/workflows/publish-rust.yaml'
+          - '!.github/workflows/security-suite.yml'
           - '!.github/workflows/store-c-abi-baseline.yaml'
           - '!.github/workflows/test.yaml'
           - '!.github/workflows/trigger-breaking-change-alert.yaml'
@@ -238,6 +242,7 @@ jobs:
           - '!.github/workflows/check-c-abi.yaml'
           - '!.github/workflows/labeler.yml'
           - '!.github/workflows/publish-rust.yaml'
+          - '!.github/workflows/security-suite.yml'
           - '!.github/workflows/store-c-abi-baseline.yaml'
           - '!.github/workflows/test.yaml'
           - '!.github/workflows/trigger-breaking-change-alert.yaml'
@@ -289,6 +294,7 @@ jobs:
           - '!.github/workflows/check-c-abi.yaml'
           - '!.github/workflows/labeler.yml'
           - '!.github/workflows/publish-rust.yaml'
+          - '!.github/workflows/security-suite.yml'
           - '!.github/workflows/store-c-abi-baseline.yaml'
           - '!.github/workflows/test.yaml'
           - '!.github/workflows/trigger-breaking-change-alert.yaml'
@@ -345,6 +351,7 @@ jobs:
           - '!.github/workflows/check-c-abi.yaml'
           - '!.github/workflows/labeler.yml'
           - '!.github/workflows/publish-rust.yaml'
+          - '!.github/workflows/security-suite.yml'
           - '!.github/workflows/store-c-abi-baseline.yaml'
           - '!.github/workflows/test.yaml'
           - '!.github/workflows/trigger-breaking-change-alert.yaml'
@@ -396,6 +403,7 @@ jobs:
           - '!.github/workflows/check-c-abi.yaml'
           - '!.github/workflows/labeler.yml'
           - '!.github/workflows/publish-rust.yaml'
+          - '!.github/workflows/security-suite.yml'
           - '!.github/workflows/store-c-abi-baseline.yaml'
           - '!.github/workflows/test.yaml'
           - '!.github/workflows/trigger-breaking-change-alert.yaml'
@@ -448,6 +456,13 @@ jobs:
       issues: write
       pull-requests: read
     uses: ./.github/workflows/check-c-abi.yaml
+  security-suite:
+    permissions:
+      actions: read
+      contents: read
+      id-token: write # OIDC -> Vault -> nvcr.io image pull
+      security-events: write # publish redacted SARIF to code scanning
+    uses: ./.github/workflows/security-suite.yml
   conda-cpp-build:
     needs: [build-details, checks]
     permissions:
