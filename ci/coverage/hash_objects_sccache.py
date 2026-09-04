@@ -9,6 +9,16 @@
 # line ("Hash key: ..."), not a stable CLI contract -- see the rationale
 # doc for why, and for the upstream ask that would remove this dependency.
 #
+# --update matters more here than in build_mapping.py: ninja only invokes
+# the compiler (and therefore sccache) for objects it actually rebuilds,
+# so an incremental build's trace log is silently INCOMPLETE for anything
+# already up to date -- it contains no line at all for those objects, not
+# a stale one. Without --update, re-running this after an incremental
+# build would silently drop every untouched object from the map. Objects
+# not rebuilt this run keep their previously-recorded hash, which is
+# still correct by construction: if ninja didn't rebuild it, nothing about
+# its inputs changed.
+#
 # Usage:
 #   sccache --stop-server
 #   SCCACHE_SERVER_LOG=sccache::compiler::compiler=trace \
@@ -69,6 +79,12 @@ def main() -> None:
     parser.add_argument("--sccache-log", required=True, help="sccache trace log (SCCACHE_ERROR_LOG)")
     parser.add_argument("--build-dir", required=True, help="Coverage-preset CMake build directory")
     parser.add_argument("--output", default="object_hashes.json")
+    parser.add_argument(
+        "--update",
+        action="store_true",
+        help="Merge into an existing --output instead of overwriting it. Required for "
+        "correctness after any incremental (non-clean) build -- see module docstring.",
+    )
     args = parser.parse_args()
 
     log_path = Path(args.sccache_log)
@@ -79,19 +95,26 @@ def main() -> None:
     hashes = parse_log(log_path)
     obj_to_src = load_object_to_source(build_dir)
 
+    output_path = Path(args.output)
     objects = {}
+    if args.update and output_path.exists():
+        objects = json.loads(output_path.read_text()).get("objects", {})
+
+    new_count = 0
     unmatched = 0
     for obj, h in hashes.items():
         src = obj_to_src.get(obj)
         if src is None:
             unmatched += 1
+        if obj not in objects:
+            new_count += 1
         objects[obj] = {"hash": h, "source": src}
 
-    Path(args.output).write_text(json.dumps({"objects": objects}, indent=2))
-    print(f"{len(objects)} objects parsed from {log_path}", flush=True)
+    output_path.write_text(json.dumps({"objects": objects}, indent=2))
+    print(f"{len(hashes)} object(s) parsed from {log_path} ({new_count} new/updated)", flush=True)
     if unmatched:
         print(f"WARNING: {unmatched} object(s) had no compile_commands.json match", flush=True)
-    print(f"written to {args.output}", flush=True)
+    print(f"{len(objects)} object(s) total written to {args.output}", flush=True)
 
 
 if __name__ == "__main__":

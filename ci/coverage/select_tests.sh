@@ -18,6 +18,12 @@
 #   --base-ref REF      Git ref to diff against; uses `git diff` for local runs
 #   --mapping PATH      func2tests.json produced by collect_and_map.sh
 #                       (default: <repo>/func2tests.json)
+#   --object-hashes PATH    Baseline object_hashes.json (PoC, §2.2). Enables
+#                           non-source-change classification when paired with
+#                           --external-hashes; requires a fresh sccache trace
+#                           log already at <ctest-dir>/sccache.log from the
+#                           PR's own coverage-preset build.
+#   --external-hashes PATH  Baseline external_artifact_hashes.json (PoC, §2.3)
 #   --ctest-dir PATH    Directory from which to run ctest -N
 #                       (default: cpp/build/coverage if it exists, otherwise
 #                        $CONDA_PREFIX/bin/gtests/libcuvs)
@@ -51,6 +57,8 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PR_NUMBER=""
 BASE_REF=""
 MAPPING="$REPO_ROOT/func2tests.json"
+OBJECT_HASHES=""
+EXTERNAL_HASHES=""
 CTEST_DIR=""
 CTEST_BIN=""
 REFRESH_TEST_LIST=0
@@ -66,6 +74,8 @@ while [[ $# -gt 0 ]]; do
     --pr-number)   PR_NUMBER="$2";   shift 2 ;;
     --base-ref)    BASE_REF="$2";    shift 2 ;;
     --mapping)     MAPPING="$2";     shift 2 ;;
+    --object-hashes)      OBJECT_HASHES="$2";   shift 2 ;;
+    --external-hashes)    EXTERNAL_HASHES="$2"; shift 2 ;;
     --ctest-dir)   CTEST_DIR="$2";   shift 2 ;;
     --ctest-bin)          CTEST_BIN="$2"; shift 2 ;;
     --refresh-test-list)  REFRESH_TEST_LIST=1; shift ;;
@@ -101,9 +111,10 @@ mkdir -p "$WORK_DIR"
 trap 'rm -rf "$WORK_DIR"' EXIT
 
 CHANGED_FILES="$WORK_DIR/changed_files.txt"
+NON_SOURCE_CHANGED="$WORK_DIR/non_source_changed.txt"
 CTAGS_JSONL="$WORK_DIR/changed_functions.jsonl"
 
-# ── Step 1: Get changed source files ─────────────────────────────────────────
+# ── Step 1: Get changed files ─────────────────────────────────────────────────
 echo "==> Getting changed files ..."
 if [[ -n "$PR_NUMBER" ]]; then
   gh pr diff "$PR_NUMBER" --name-only > "$WORK_DIR/all_changed.txt"
@@ -117,8 +128,9 @@ else
   } | sort -u > "$WORK_DIR/all_changed.txt"
 fi
 
-# Filter to C/C++/CUDA source files
+# Filter to C/C++/CUDA source files; everything else is classified in Step 2b.
 grep -E '\.(c|cc|cpp|cu|cuh|hpp|h)$' "$WORK_DIR/all_changed.txt" > "$CHANGED_FILES" || true
+grep -vE '\.(c|cc|cpp|cu|cuh|hpp|h)$' "$WORK_DIR/all_changed.txt" > "$NON_SOURCE_CHANGED" || true
 
 N_ALL=$(wc -l < "$WORK_DIR/all_changed.txt")
 N_SRC=$(wc -l < "$CHANGED_FILES")
@@ -165,31 +177,121 @@ if [[ -s "$CHANGED_FILES" ]]; then
   fi
 fi
 
+# ── Step 2b: Classify non-source changes (§2.2-2.4, §3.4 — PoC) ──────────────
+# Every non-source changed file gets an explicit classification instead of
+# being silently dropped. Forced-full-suite and "can't classify, fail safe"
+# both take priority over the object-hash diff itself.
+FORCE_FULL_SUITE=0
+AFFECTED_FILES=""
+NEW_FILES=""
+
+if [[ -s "$NON_SOURCE_CHANGED" ]]; then
+  echo "==> Classifying non-source changes ..."
+
+  # Selector-tooling changes: a modified selector can't validate itself.
+  if grep -qE '^ci/coverage/|^cpp/CMakePresets\.json$' "$NON_SOURCE_CHANGED"; then
+    echo "  Selector tooling changed — forcing full suite."
+    FORCE_FULL_SUITE=1
+  elif [[ -z "$OBJECT_HASHES" || -z "$EXTERNAL_HASHES" ]]; then
+    echo "  Non-source change(s) present but no --object-hashes/--external-hashes" >&2
+    echo "  baseline provided — cannot classify; forcing full suite (fail safe, not" >&2
+    echo "  an empty selection)." >&2
+    FORCE_FULL_SUITE=1
+  elif [[ ! -f "$CTEST_DIR/sccache.log" ]]; then
+    echo "  Non-source change(s) present but no sccache trace log at" >&2
+    echo "  $CTEST_DIR/sccache.log (expected from the PR's own coverage-preset" >&2
+    echo "  build) — cannot classify; forcing full suite (fail safe)." >&2
+    FORCE_FULL_SUITE=1
+  else
+    PR_OBJECT_HASHES="$WORK_DIR/pr_object_hashes.json"
+    PR_EXTERNAL_HASHES="$WORK_DIR/pr_external_artifact_hashes.json"
+
+    python3 "$SCRIPT_DIR/hash_objects_sccache.py" \
+      --sccache-log "$CTEST_DIR/sccache.log" \
+      --build-dir   "$CTEST_DIR" \
+      --output      "$PR_OBJECT_HASHES"
+
+    shopt -s nullglob
+    BINARIES=("$CTEST_DIR"/gtests/*)
+    shopt -u nullglob
+    if [[ ${#BINARIES[@]} -gt 0 ]]; then
+      python3 "$SCRIPT_DIR/hash_external_artifacts.py" \
+        --build-dir "$CTEST_DIR" \
+        --output    "$PR_EXTERNAL_HASHES" \
+        "${BINARIES[@]}"
+    else
+      echo "{}" > "$PR_EXTERNAL_HASHES"
+    fi
+
+    python3 "$SCRIPT_DIR/classify_changes.py" \
+      --baseline-objects  "$OBJECT_HASHES"        \
+      --pr-objects        "$PR_OBJECT_HASHES"      \
+      --baseline-external "$EXTERNAL_HASHES"       \
+      --pr-external       "$PR_EXTERNAL_HASHES"    \
+      --new-files-out      "$WORK_DIR/new_source_files.txt" \
+      --affected-files-out "$WORK_DIR/affected_files.txt"   \
+      --result-out         "$WORK_DIR/classification_result.txt"
+
+    RESULT=$(cat "$WORK_DIR/classification_result.txt")
+    if [[ "$RESULT" == "FULL_SUITE" ]]; then
+      echo "  External dependency artifact changed — forcing full suite."
+      FORCE_FULL_SUITE=1
+    else
+      AFFECTED_FILES="$WORK_DIR/affected_files.txt"
+      NEW_FILES="$WORK_DIR/new_source_files.txt"
+    fi
+  fi
+fi
+
 # ── Step 3: Select tests ──────────────────────────────────────────────────────
 echo "==> Selecting tests ..."
 
-BASE_TESTS_ARG=""
-[[ -f "$BASE_TESTS" ]] && BASE_TESTS_ARG="--base-tests $BASE_TESTS"
+if [[ "$FORCE_FULL_SUITE" -eq 1 ]]; then
+  CTEST_BIN_ARG=""
+  [[ -n "$CTEST_BIN" ]] && CTEST_BIN_ARG="--ctest-bin $CTEST_BIN"
+  REFRESH_TEST_LIST_ARG=""
+  [[ "$REFRESH_TEST_LIST" -eq 1 ]] && REFRESH_TEST_LIST_ARG="--refresh-test-list"
 
-CTAGS_ARG=""
-[[ -f "$CTAGS_JSONL" ]] && CTAGS_ARG="--ctags-jsonl $CTAGS_JSONL"
+  python3 "$SCRIPT_DIR/select_tests.py" \
+    --force-full-suite \
+    --changed-files /dev/null \
+    --ctest-dir "$CTEST_DIR" \
+    --selected-output  "$SELECTED_OUT"  \
+    --remaining-output "$REMAINING_OUT" \
+    $CTEST_BIN_ARG \
+    $REFRESH_TEST_LIST_ARG
+else
+  BASE_TESTS_ARG=""
+  [[ -f "$BASE_TESTS" ]] && BASE_TESTS_ARG="--base-tests $BASE_TESTS"
 
-CTEST_BIN_ARG=""
-[[ -n "$CTEST_BIN" ]] && CTEST_BIN_ARG="--ctest-bin $CTEST_BIN"
+  CTAGS_ARG=""
+  [[ -f "$CTAGS_JSONL" ]] && CTAGS_ARG="--ctags-jsonl $CTAGS_JSONL"
 
-REFRESH_TEST_LIST_ARG=""
-[[ "$REFRESH_TEST_LIST" -eq 1 ]] && REFRESH_TEST_LIST_ARG="--refresh-test-list"
+  CTEST_BIN_ARG=""
+  [[ -n "$CTEST_BIN" ]] && CTEST_BIN_ARG="--ctest-bin $CTEST_BIN"
 
-python3 "$SCRIPT_DIR/select_tests.py" \
-  --mapping       "$MAPPING"        \
-  --changed-files "$CHANGED_FILES"  \
-  --ctest-dir     "$CTEST_DIR"      \
-  --selected-output  "$SELECTED_OUT"  \
-  --remaining-output "$REMAINING_OUT" \
-  $BASE_TESTS_ARG \
-  $CTAGS_ARG \
-  $CTEST_BIN_ARG \
-  $REFRESH_TEST_LIST_ARG
+  REFRESH_TEST_LIST_ARG=""
+  [[ "$REFRESH_TEST_LIST" -eq 1 ]] && REFRESH_TEST_LIST_ARG="--refresh-test-list"
+
+  AFFECTED_FILES_ARG=""
+  [[ -n "$AFFECTED_FILES" ]] && AFFECTED_FILES_ARG="--affected-files $AFFECTED_FILES"
+
+  NEW_FILES_ARG=""
+  [[ -n "$NEW_FILES" ]] && NEW_FILES_ARG="--new-files $NEW_FILES"
+
+  python3 "$SCRIPT_DIR/select_tests.py" \
+    --mapping       "$MAPPING"        \
+    --changed-files "$CHANGED_FILES"  \
+    --ctest-dir     "$CTEST_DIR"      \
+    --selected-output  "$SELECTED_OUT"  \
+    --remaining-output "$REMAINING_OUT" \
+    $BASE_TESTS_ARG \
+    $CTAGS_ARG \
+    $CTEST_BIN_ARG \
+    $REFRESH_TEST_LIST_ARG \
+    $AFFECTED_FILES_ARG \
+    $NEW_FILES_ARG
+fi
 
 echo "==> Done."
 echo "    Pass 1: ${CTEST_BIN:-ctest} --tests-from-file $SELECTED_OUT"

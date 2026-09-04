@@ -239,7 +239,51 @@ def main() -> None:
         default="remaining_tests.txt",
         help="Output file for remaining tests",
     )
+    parser.add_argument(
+        "--force-full-suite",
+        action="store_true",
+        help="Skip classification entirely and select every registered test "
+        "(§3.4 forced-full-suite branch -- selector-tooling changes or an "
+        "external-dependency artifact change). All other selection flags "
+        "are ignored when set.",
+    )
+    parser.add_argument(
+        "--affected-files",
+        default=None,
+        help="Extra changed-file paths from object-hash classification (§2.2-2.4, "
+        "PoC) -- unioned with --changed-files for ctags/file-level lookup",
+    )
+    parser.add_argument(
+        "--new-files",
+        default=None,
+        help="Genuinely new source files from object-hash classification (§2.4, "
+        "PoC). Presence of this file (even empty) promotes every currently "
+        "unmapped registered test into Pass 1 -- see the ODR argument, §3.4.",
+    )
     args = parser.parse_args()
+
+    # Registered tests are needed for --force-full-suite too, so query first
+    # and let force-full-suite short-circuit before touching the mapping.
+    ctest_dir = Path(args.ctest_dir)
+    print(f"Querying registered tests from {ctest_dir} ...", flush=True)
+    try:
+        registered = list_gtest_case_tests(ctest_dir, args.ctest_bin, args.refresh_test_list)
+    except subprocess.CalledProcessError as e:
+        sys.exit(f"ERROR: ctest -N failed: {e}")
+    registered_set = set(registered)
+
+    if args.force_full_suite:
+        selected_sorted = sorted(registered_set)
+        Path(args.selected_output).write_text(
+            "\n".join(selected_sorted) + "\n" if selected_sorted else ""
+        )
+        Path(args.remaining_output).write_text("")
+        print(
+            f"Forced full suite: {len(selected_sorted):>5} tests → {args.selected_output} "
+            f"(remaining_tests.txt empty)",
+            flush=True,
+        )
+        return
 
     mapping_path = Path(args.mapping)
     if not mapping_path.exists():
@@ -258,6 +302,19 @@ def main() -> None:
     changed_files = [
         l.strip() for l in changed_files_path.read_text().splitlines() if l.strip()
     ]
+
+    # Object-hash-classified files (§2.4, PoC) are treated exactly like
+    # changed source files for file-level lookup purposes -- they typically
+    # have no ctags entries of their own (a CMakeLists.txt/dependency
+    # change doesn't touch these files directly), so they flow straight
+    # into the file-level fallback below.
+    if args.affected_files:
+        affected_path = Path(args.affected_files)
+        if affected_path.exists():
+            affected = [l.strip() for l in affected_path.read_text().splitlines() if l.strip()]
+            if affected:
+                print(f"  {len(affected)} file(s) affected via object-hash diff (§2.4)", flush=True)
+            changed_files = list(dict.fromkeys(changed_files + affected))
 
     selected: set[str] = set()
     # Tracks which changed files had at least one function-level hit.
@@ -307,15 +364,29 @@ def main() -> None:
             ]
             selected.update(base_tests)
 
-    # 4. Intersect with live registered tests to guard against stale mapping entries
-    ctest_dir = Path(args.ctest_dir)
-    print(f"Querying registered tests from {ctest_dir} ...", flush=True)
-    try:
-        registered = list_gtest_case_tests(ctest_dir, args.ctest_bin, args.refresh_test_list)
-    except subprocess.CalledProcessError as e:
-        sys.exit(f"ERROR: ctest -N failed: {e}")
+    # 4. New source files (§2.4/§3.4, PoC): a file that didn't exist before
+    # this PR can't have affected any pre-existing test's coverage (the ODR
+    # argument), so its own new/modified tests -- visible as CTest entries
+    # not present anywhere in func2tests.json -- are safe to promote into
+    # Pass 1 rather than waiting on Pass 2. This doesn't try to correlate
+    # which specific new test came from which new object; any registered
+    # test absent from the mapping entirely is treated as new/unmapped.
+    if args.new_files is not None:
+        mapped_tests: set[str] = set()
+        for tests in func_map.values():
+            mapped_tests.update(tests)
+        for tests in file_map.values():
+            mapped_tests.update(tests)
+        unmapped = registered_set - mapped_tests
+        if unmapped:
+            print(
+                f"  {len(unmapped)} registered test(s) absent from the mapping entirely "
+                f"— promoting to Pass 1 (new-file ODR argument)",
+                flush=True,
+            )
+        selected.update(unmapped)
 
-    registered_set = set(registered)
+    # 5. Intersect with live registered tests to guard against stale mapping entries
     stale = selected - registered_set
     if stale:
         print(
