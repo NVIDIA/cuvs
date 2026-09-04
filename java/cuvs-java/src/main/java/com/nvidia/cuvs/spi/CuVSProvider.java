@@ -136,6 +136,18 @@ public interface CuVSProvider {
   CagraIndex.Builder newCagraIndexBuilder(CuVSResources cuVSResources)
       throws UnsupportedOperationException;
 
+  /**
+   * Creates a new VamanaIndex Builder.
+   * <p>
+   * This is a {@code default} method rather than an abstract one so that
+   * providers written against an earlier version of this interface keep
+   * compiling.
+   */
+  default VamanaIndex.Builder newVamanaIndexBuilder(CuVSResources cuVSResources)
+      throws UnsupportedOperationException {
+    throw new UnsupportedOperationException("This provider does not support Vamana indexes");
+  }
+
   /** Creates a new HnswIndex Builder. */
   HnswIndex.Builder newHnswIndexBuilder(CuVSResources cuVSResources)
       throws UnsupportedOperationException;

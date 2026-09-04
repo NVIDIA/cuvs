@@ -265,6 +265,11 @@ final class JDKProvider implements CuVSProvider {
   }
 
   @Override
+  public VamanaIndex.Builder newVamanaIndexBuilder(CuVSResources cuVSResources) {
+    return VamanaIndexImpl.newBuilder(Objects.requireNonNull(cuVSResources));
+  }
+
+  @Override
   public FilterBitsetHandle newFilterBitsetHandle(long[] combinedLongs) {
     return new FilterBitsetHandleImpl(combinedLongs);
   }
