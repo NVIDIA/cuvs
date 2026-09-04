@@ -83,6 +83,8 @@ regex = "(?P<value>.*)"
 build-backend = "scikit_build_core.build"
 requires = [
     "cmake>=4.0",
+    "cuda-tile",
+    "cuda-toolkit[tileiras]==13.*",
     "libkvikio==26.10.*,>=0.0.0a0",
     "libraft==26.10.*,>=0.0.0a0",
     "librmm==26.10.*,>=0.0.0a0",
