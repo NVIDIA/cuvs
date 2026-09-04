@@ -38,7 +38,6 @@
 #include <raft/random/rng.cuh>
 #include <raft/util/cudart_utils.hpp>
 
-#include <rmm/cuda_stream.hpp>
 #include <rmm/device_scalar.hpp>
 #include <rmm/device_uvector.hpp>
 
@@ -355,14 +354,10 @@ void mnmg_fit(
   auto batch_mr          = data_on_device ? raft::resource::get_workspace_resource_ref(dev_res)
                                           : raft::resource::get_large_workspace_resource_ref(dev_res);
   auto batch_copy_stream = stream;
-  std::optional<rmm::cuda_stream> owned_batch_copy_stream;
   if constexpr (!data_on_device) {
     if (dev_res.has_resource_factory(raft::resource::resource_type::CUDA_STREAM_POOL) &&
         raft::resource::get_stream_pool_size(dev_res) >= 1) {
       batch_copy_stream = raft::resource::get_stream_from_stream_pool(dev_res);
-    } else {
-      owned_batch_copy_stream.emplace(rmm::cuda_stream::flags::non_blocking);
-      batch_copy_stream = owned_batch_copy_stream->view();
     }
   }
 

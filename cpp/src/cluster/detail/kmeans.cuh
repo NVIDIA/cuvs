@@ -41,7 +41,6 @@
 #include <raft/util/cuda_utils.cuh>
 #include <raft/util/cudart_utils.hpp>
 
-#include <rmm/cuda_stream.hpp>
 #include <rmm/device_scalar.hpp>
 #include <rmm/device_uvector.hpp>
 
@@ -706,17 +705,10 @@ void kmeans_fit(
   auto batch_mr          = data_on_device ? raft::resource::get_workspace_resource_ref(handle)
                                           : raft::resource::get_large_workspace_resource_ref(handle);
   auto batch_copy_stream = raft::resource::get_cuda_stream(handle);
-  std::optional<rmm::cuda_stream> owned_batch_copy_stream;
   if constexpr (!data_on_device) {
-    // Host KMeans must pipeline even when a minimal caller (including the Python binding) did not
-    // install a RAFT stream pool. Keep the stream owner before the iterators so their destructors
-    // drain all event dependencies before the stream itself is destroyed.
     if (handle.has_resource_factory(raft::resource::resource_type::CUDA_STREAM_POOL) &&
         raft::resource::get_stream_pool_size(handle) >= 1) {
       batch_copy_stream = raft::resource::get_stream_from_stream_pool(handle);
-    } else {
-      owned_batch_copy_stream.emplace(rmm::cuda_stream::flags::non_blocking);
-      batch_copy_stream = owned_batch_copy_stream->view();
     }
   }
 
