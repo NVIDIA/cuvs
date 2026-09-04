@@ -10,7 +10,16 @@ REPODIR=$(cd "$(dirname "$0")"; cd ../../ ; pwd)
 CURDIR=$(cd "$(dirname "$0")"; pwd)
 TARGET_PACKAGE="com.nvidia.cuvs.internal.panama"
 
-TARGET_DIR="targets/x86_64-linux/include"
+ARCH=$(uname -m)
+case "${ARCH}" in
+  x86_64) CUDA_TARGET_ARCH="x86_64-linux" ;;
+  aarch64) CUDA_TARGET_ARCH="sbsa-linux" ;;
+  *)
+    echo "Unsupported architecture for CUDA include directory lookup: ${ARCH}"
+    exit 1
+    ;;
+esac
+TARGET_DIR="targets/${CUDA_TARGET_ARCH}/include"
 if [ -n "${CONDA_PREFIX:-}" ] && [ -d "${CONDA_PREFIX}/${TARGET_DIR}" ]; then
   CUDA_INCLUDE_DIR="${CONDA_PREFIX}/${TARGET_DIR}"
 elif [ -d "/usr/local/cuda/${TARGET_DIR}" ]; then
@@ -25,7 +34,15 @@ export PATH
 
 if [[ $(command -v jextract) == "" ]];
 then
-  JEXTRACT_FILENAME="openjdk-22-jextract+6-47_linux-x64_bin.tar.gz"
+  case "${ARCH}" in
+    x86_64) JEXTRACT_ARCH="linux-x64" ;;
+    aarch64) JEXTRACT_ARCH="linux-aarch64" ;;
+    *)
+      echo "Unsupported architecture for jextract download: ${ARCH}"
+      exit 1
+      ;;
+  esac
+  JEXTRACT_FILENAME="openjdk-22-jextract+6-47_${JEXTRACT_ARCH}_bin.tar.gz"
   JEXTRACT_DOWNLOAD_URL="https://download.java.net/java/early_access/jextract/22/6/${JEXTRACT_FILENAME}"
   echo "jextract doesn't exist. Downloading it from $JEXTRACT_DOWNLOAD_URL.";
   wget -c $JEXTRACT_DOWNLOAD_URL

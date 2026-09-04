@@ -190,7 +190,8 @@ jobs:
       file_to_upload: "java/cuvs-java/target/"
       sha: ${{ inputs.sha }}
   lucene-build:
-    # Depends on the Java job for the cuvs-java artifact that cuvs-lucene builds against.
+    # Depends on the Java job for the cuvs-java artifact that cuvs-lucene builds against, and
+    # reuses its matrix so the two always agree on the set of CUDA versions.
     needs: [java-build-matrix, java-build]
     permissions:
       actions: read
