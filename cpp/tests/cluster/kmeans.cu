@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "../../src/cluster/detail/kmeans_batch_loader.cuh"
 #include "../test_utils.cuh"
 #include "kmeans_test_blobs.cuh"
 
@@ -11,11 +12,13 @@
 #include <raft/core/host_mdarray.hpp>
 #include <raft/core/operators.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
+#include <raft/core/resource/device_memory_resource.hpp>
 #include <raft/core/resources.hpp>
 #include <raft/stats/adjusted_rand_index.cuh>
 #include <raft/util/cuda_utils.cuh>
 #include <raft/util/cudart_utils.hpp>
 
+#include <rmm/cuda_stream.hpp>
 #include <rmm/device_uvector.hpp>
 
 #include <gtest/gtest.h>
@@ -705,5 +708,68 @@ INSTANTIATE_TEST_CASE_P(KmeansFitBatchedTests,
 INSTANTIATE_TEST_CASE_P(KmeansFitBatchedTests,
                         KmeansFitBatchedTestD,
                         ::testing::ValuesIn(batched_inputsd2));
+
+TEST(KmeansBatchLoaderTest, CyclicFourPasses)
+{
+  constexpr int64_t n_rows     = 257;
+  constexpr int64_t n_cols     = 17;
+  constexpr int64_t batch_size = 64;
+  constexpr int n_passes       = 4;
+
+  raft::resources handle;
+  rmm::cuda_stream copy_stream(rmm::cuda_stream::flags::non_blocking);
+  std::vector<int64_t> host_data(n_rows * n_cols);
+  for (int64_t row = 0; row < n_rows; ++row) {
+    for (int64_t col = 0; col < n_cols; ++col) {
+      host_data[row * n_cols + col] = row * n_cols + col;
+    }
+  }
+
+  cluster::kmeans::detail::kmeans_batch_loader<int64_t, int64_t, false> loader(
+    handle,
+    host_data.data(),
+    n_rows,
+    n_cols,
+    batch_size,
+    copy_stream,
+    raft::resource::get_workspace_resource_ref(handle));
+  auto device_readback =
+    raft::make_device_vector<int64_t, int64_t>(handle, n_passes * n_rows * n_cols);
+
+  if (loader.num_batches() > 0) { loader.prefetch(0); }
+  for (int pass = 0; pass < n_passes; ++pass) {
+    for (std::size_t pos = 0; pos < loader.num_batches(); ++pos) {
+      const auto batch = loader.acquire(pos);
+      const auto output_offset =
+        (static_cast<std::size_t>(pass) * n_rows + batch.offset()) * n_cols;
+      raft::copy(device_readback.data_handle() + output_offset,
+                 batch.data(),
+                 batch.size() * n_cols,
+                 raft::resource::get_cuda_stream(handle));
+
+      if (pos + 1 < loader.num_batches() || pass + 1 < n_passes) {
+        loader.prefetch((pos + 1) % loader.num_batches());
+      }
+      const bool needs_future_batch = pos + 2 < loader.num_batches() || pass + 1 < n_passes;
+      if (needs_future_batch) {
+        loader.recycle(batch, (pos + 2) % loader.num_batches());
+      } else {
+        loader.release(batch);
+      }
+    }
+  }
+
+  std::vector<int64_t> readback(device_readback.size());
+  raft::copy(readback.data(),
+             device_readback.data_handle(),
+             device_readback.size(),
+             raft::resource::get_cuda_stream(handle));
+  raft::resource::sync_stream(handle);
+  for (int pass = 0; pass < n_passes; ++pass) {
+    for (std::size_t i = 0; i < host_data.size(); ++i) {
+      EXPECT_EQ(readback[static_cast<std::size_t>(pass) * host_data.size() + i], host_data[i]);
+    }
+  }
+}
 
 }  // namespace cuvs
