@@ -4,12 +4,12 @@ This maven project contains basic examples that showcase how `cuvs-lucene` can b
 
 ## Prerequisites
 
-- The [`cuvs-lucene` prerequisites](../README.md#prerequisites)
+- The [`cuvs-lucene` prerequisites](../../../java/cuvs-lucene/README.md#prerequisites)
 
 ## Steps
 
 First build `cuvs-lucene` and install it into your local Maven repository, as described in
-[Building from source](../README.md#building-from-source). From the cuVS repository root:
+[Building from source](../../../java/cuvs-lucene/README.md#building-from-source). From the cuVS repository root:
 
 ```sh
 ./build.sh libcuvs java lucene
@@ -18,7 +18,7 @@ First build `cuvs-lucene` and install it into your local Maven repository, as de
 Then return to this directory:
 
 ```sh
-cd java/cuvs-lucene/examples
+cd examples/java/cuvs-lucene
 ```
 
 To run Accelerated HNSW example do:
