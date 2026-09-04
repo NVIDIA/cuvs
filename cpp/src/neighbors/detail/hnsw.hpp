@@ -1273,10 +1273,9 @@ std::unique_ptr<index<T>> from_cagra(
     return hnsw_index;
   }
 
-  // In-memory CAGRA index: the resulting HNSW index might still not fit in host memory.
-  // Estimate its host footprint and, if it does not fit, spill it to disk via
-  // serialize_to_hnswlib_from_inmem instead of constructing it in RAM (NONE/GPU only;
-  // the CPU hierarchy is not supported by the batched serializer).
+  // In-memory CAGRA index: honor explicit ACE disk mode, or spill if the resulting HNSW index
+  // would not fit in host memory. serialize_to_hnswlib_from_inmem avoids constructing the full
+  // index in RAM (NONE/GPU only; the CPU hierarchy is not supported by the batched serializer).
   if (params.hierarchy != HnswHierarchy::CPU) {
     int64_t n_rows       = dataset.has_value() ? dataset->extent(0) : cagra_index.size();
     int64_t dim          = dataset.has_value() ? dataset->extent(1) : cagra_index.dim();
@@ -1291,12 +1290,14 @@ std::unique_ptr<index<T>> from_cagra(
                                                         params.hierarchy,
                                                         params.ef_construction);
 
-    // Honor an explicit host-memory limit from ACE params (if configured), mirroring
-    // hnsw::build. This also makes the spill branch deterministically testable.
+    // Honor explicit disk mode and any host-memory limit from ACE params, mirroring hnsw::build.
+    // The memory limit also makes the spill branch deterministically testable.
+    const auto* ace_params =
+      std::get_if<graph_build_params::ace_params>(&params.graph_build_params);
+    const bool disk_requested                = ace_params != nullptr && ace_params->use_disk;
     std::optional<double> max_host_memory_gb = std::nullopt;
-    if (std::holds_alternative<graph_build_params::ace_params>(params.graph_build_params)) {
-      const auto& ace = std::get<graph_build_params::ace_params>(params.graph_build_params);
-      if (ace.max_host_memory_gb > 0) { max_host_memory_gb = ace.max_host_memory_gb; }
+    if (ace_params != nullptr && ace_params->max_host_memory_gb > 0) {
+      max_host_memory_gb = ace_params->max_host_memory_gb;
     }
     size_t available_host = get_available_memory(max_host_memory_gb).first;
     if (max_host_memory_gb.has_value()) {
@@ -1320,14 +1321,17 @@ std::unique_ptr<index<T>> from_cagra(
       required_host / 1e9,
       available_host / 1e9);
 
-    if (required_host >= available_host) {
-      RAFT_LOG_INFO("Not enough host memory for in-memory HNSW. Spilling HNSW index to disk.");
+    if (disk_requested || required_host >= available_host) {
+      if (disk_requested) {
+        RAFT_LOG_INFO("ACE disk mode requested. Writing HNSW index to disk.");
+      } else {
+        RAFT_LOG_INFO("Not enough host memory for in-memory HNSW. Spilling HNSW index to disk.");
+      }
 
       // Use the ACE build_dir if configured, otherwise fallback to system temp
       std::string index_directory;
-      if (std::holds_alternative<graph_build_params::ace_params>(params.graph_build_params)) {
-        const auto& ace = std::get<graph_build_params::ace_params>(params.graph_build_params);
-        if (!ace.build_dir.empty()) { index_directory = ace.build_dir; }
+      if (ace_params != nullptr && !ace_params->build_dir.empty()) {
+        index_directory = ace_params->build_dir;
       }
       if (index_directory.empty()) {
         std::random_device rd;

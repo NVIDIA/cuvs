@@ -10,6 +10,7 @@ import pytest
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import normalize
 
+from cuvs.common.exceptions import CuvsException
 from cuvs.neighbors import hnsw
 from cuvs.tests.ann_utils import calc_recall, generate_data
 
@@ -241,7 +242,7 @@ def test_hnsw_ace_tiny_memory_limit_fails_before_staging():
             ace_params=ace_params,
         )
 
-        with pytest.raises(RuntimeError, match="cap|memory|peak"):
+        with pytest.raises(CuvsException, match="cap|memory|peak"):
             hnsw.build(index_params, dataset)
 
         assert not os.path.exists(os.path.join(temp_dir, "hnsw_index.bin"))
