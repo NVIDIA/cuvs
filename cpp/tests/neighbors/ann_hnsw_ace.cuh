@@ -218,7 +218,7 @@ void test_hnsw_ace_build_does_not_truncate_existing_index()
   std::string contents;
   index_file >> contents;
   EXPECT_EQ(contents, expected_contents);
-  EXPECT_TRUE(std::filesystem::exists(workspace.path() / "cagra_graph.npy"));
+  EXPECT_FALSE(std::filesystem::exists(workspace.path() / "cagra_graph.npy"));
 }
 
 template <typename DistanceT, typename DataT, typename IdxT>
@@ -293,6 +293,16 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
         hnsw::build(handle_, hnsw_params, raft::make_const_mdspan(database_host.view()));
 
       ASSERT_NE(hnsw_index, nullptr);
+      EXPECT_EQ(hnsw_index->file_path(),
+                (std::filesystem::path(temp_dir) / "hnsw_index.bin").string());
+      EXPECT_TRUE(std::filesystem::exists(hnsw_index->file_path()));
+      EXPECT_FALSE(std::filesystem::exists(std::filesystem::path(temp_dir) / "cagra_graph.npy"));
+      EXPECT_FALSE(
+        std::filesystem::exists(std::filesystem::path(temp_dir) / "reordered_dataset.npy"));
+      EXPECT_FALSE(
+        std::filesystem::exists(std::filesystem::path(temp_dir) / "augmented_dataset.npy"));
+      EXPECT_FALSE(
+        std::filesystem::exists(std::filesystem::path(temp_dir) / "dataset_mapping.npy"));
 
       // Prepare queries on host
       auto queries_host = raft::make_host_matrix<DataT, int64_t>(ps.n_queries, ps.dim);
@@ -306,35 +316,6 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
       hnsw::search_params search_params;
       search_params.ef          = std::max(ps.ef_construction, ps.k * 2);
       search_params.num_threads = 1;
-
-      if (!ps.use_disk) {
-        hnsw::search(handle_,
-                     search_params,
-                     *hnsw_index,
-                     queries_host.view(),
-                     indexes_hnsw_host.view(),
-                     distances_hnsw_host.view());
-        for (size_t i = 0; i < queries_size; i++) {
-          indexes_hnsw[i]   = indexes_hnsw_host.data_handle()[i];
-          distances_hnsw[i] = distances_hnsw_host.data_handle()[i];
-        }
-
-        // Convert indexes for comparison
-        std::vector<IdxT> indexes_hnsw_converted(queries_size);
-        for (size_t i = 0; i < queries_size; i++) {
-          indexes_hnsw_converted[i] = static_cast<IdxT>(indexes_hnsw[i]);
-        }
-
-        EXPECT_TRUE(cuvs::neighbors::eval_neighbours(indexes_naive,
-                                                     indexes_hnsw_converted,
-                                                     distances_naive,
-                                                     distances_hnsw,
-                                                     ps.n_queries,
-                                                     ps.k,
-                                                     0.003,
-                                                     ps.min_recall))
-          << "HNSW ACE build and search failed recall check";
-      }
 
       tmp_index_file index_file;
       hnsw::serialize(handle_, index_file.filename, *hnsw_index);
@@ -385,7 +366,8 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
 
   void testHnswAceMemoryLimitFallback()
   {
-    // This test verifies that setting tiny memory limits forces disk mode automatically
+    // A positive memory cap is a hard planner limit. A cap below the minimum partition peak must
+    // fail before any staging artifact is created.
     // Create temporary directory for ACE build
     std::string temp_dir = std::string("/tmp/cuvs_hnsw_ace_memlimit_test_") +
                            std::to_string(std::time(nullptr)) + "_" +
@@ -404,32 +386,21 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
       hnsw_params.hierarchy = hnsw::HnswHierarchy::GPU;
       hnsw_params.M         = 32;
 
-      // Configure ACE parameters with tiny memory limits to force disk mode
       auto ace_params            = graph_build_params::ace_params();
       ace_params.npartitions     = ps.npartitions;
       ace_params.ef_construction = ps.ef_construction;
       ace_params.build_dir       = temp_dir;
-      ace_params.use_disk        = false;  // Not explicitly requesting disk mode
+      ace_params.use_disk        = false;
 
-      // Selected host memory limit should enforce disk mode
       ace_params.max_host_memory_gb  = 0.001;
       ace_params.max_gpu_memory_gb   = 3.0;
       hnsw_params.graph_build_params = ace_params;
 
-      // Build HNSW index using ACE - should automatically fall back to disk mode
-      auto hnsw_index =
-        hnsw::build(handle_, hnsw_params, raft::make_const_mdspan(database_host.view()));
-
-      ASSERT_NE(hnsw_index, nullptr);
-
-      // Verify that disk mode was triggered by checking for the expected files
-      std::string graph_file     = temp_dir + "/cagra_graph.npy";
-      std::string reordered_file = temp_dir + "/reordered_dataset.npy";
-
-      EXPECT_TRUE(std::filesystem::exists(graph_file))
-        << "Graph file should exist when memory limit triggers disk mode fallback";
-      EXPECT_TRUE(std::filesystem::exists(reordered_file))
-        << "Reordered dataset file should exist when memory limit triggers disk mode fallback";
+      EXPECT_THROW(hnsw::build(handle_, hnsw_params, raft::make_const_mdspan(database_host.view())),
+                   raft::logic_error);
+      EXPECT_FALSE(std::filesystem::exists(temp_dir + "/hnsw_index.bin"));
+      EXPECT_FALSE(std::filesystem::exists(temp_dir + "/cagra_graph.npy"));
+      EXPECT_FALSE(std::filesystem::exists(temp_dir + "/reordered_dataset.npy"));
     }
 
     // Clean up temporary directory
@@ -684,22 +655,21 @@ inline std::vector<AnnHnswAceInputs> generate_hnsw_ace_inputs()
   );
 }
 
-// Inputs specifically for testing memory limit fallback to disk mode
+// Inputs for a host/GPU cap below the minimum planned partition peak.
 inline std::vector<AnnHnswAceInputs> generate_hnsw_ace_memory_fallback_inputs()
 {
   return {
-    // Test with L2 metric
     {10,     // n_queries
      5000,   // n_rows
      64,     // dim
      10,     // k
      2,      // npartitions
      100,    // ef_construction
-     false,  // use_disk (not explicitly set, should be triggered by memory limit)
+     false,  // use_disk (unused: the cap fails the planner before staging)
      cuvs::distance::DistanceType::L2Expanded,
-     0.0,    // min_recall (not checked in fallback test)
-     0.001,  // max_host_memory_gb (tiny limit to force disk mode)
-     0.001}  // max_gpu_memory_gb (tiny limit to force disk mode)
+     0.0,    // min_recall (not checked)
+     0.001,  // max_host_memory_gb (below the minimum planned partition peak)
+     0.001}  // max_gpu_memory_gb
   };
 }
 
