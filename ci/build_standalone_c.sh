@@ -41,6 +41,12 @@ source rapids-configure-sccache
 source rapids-datetime-string
 
 rapids-pip-retry install cmake
+
+RAPIDS_CUDA_MAJOR="${RAPIDS_CUDA_VERSION%%.*}"
+if [[ "${RAPIDS_CUDA_MAJOR}" == "13" ]]; then
+  rapids-pip-retry install cuda-tile "cuda-toolkit[tileiras]==${RAPIDS_CUDA_VERSION%.*}.*"
+fi
+
 pyenv rehash
 
 rapids-print-env
