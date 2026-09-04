@@ -4,6 +4,7 @@
  */
 package com.nvidia.cuvs.lucene;
 
+import static com.nvidia.cuvs.lucene.TestUtils.assertVectorsKeepTheirDocuments;
 import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.isSupported;
 import static org.apache.lucene.index.VectorSimilarityFunction.EUCLIDEAN;
 
@@ -14,7 +15,6 @@ import org.apache.lucene.document.Field;
 import org.apache.lucene.document.KnnFloatVectorField;
 import org.apache.lucene.document.StringField;
 import org.apache.lucene.index.DirectoryReader;
-import org.apache.lucene.index.FloatVectorValues;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
@@ -44,12 +44,12 @@ public class TestCuVSVectorsFormat extends BaseKnnVectorsFormatTestCase {
     try (Directory dir = newDirectory();
         IndexWriter w = new IndexWriter(dir, newIndexWriterConfig())) {
       Document doc1 = new Document();
-      doc1.add(new StringField("id", "0", Field.Store.NO));
+      doc1.add(new StringField("id", "0", Field.Store.YES));
       doc1.add(new KnnFloatVectorField("f", f[0], EUCLIDEAN));
       w.addDocument(doc1);
       w.commit();
       Document doc2 = new Document();
-      doc2.add(new StringField("id", "1", Field.Store.NO));
+      doc2.add(new StringField("id", "1", Field.Store.YES));
       doc2.add(new KnnFloatVectorField("f", f[1], EUCLIDEAN));
       w.addDocument(doc2);
       w.flush();
@@ -69,11 +69,7 @@ public class TestCuVSVectorsFormat extends BaseKnnVectorsFormatTestCase {
       // verify merged content
       try (DirectoryReader reader = DirectoryReader.open(w)) {
         LeafReader r = getOnlyLeafReader(reader);
-        FloatVectorValues values = r.getFloatVectorValues("f");
-        assertNotNull(values);
-        assertEquals(2, values.size());
-        assertArrayEquals(f[0], values.vectorValue(0), 0.0f);
-        assertArrayEquals(f[1], values.vectorValue(1), 0.0f);
+        assertVectorsKeepTheirDocuments(r, "f", f);
       }
     }
   }
@@ -85,12 +81,12 @@ public class TestCuVSVectorsFormat extends BaseKnnVectorsFormatTestCase {
     try (Directory dir = newDirectory();
         IndexWriter w = new IndexWriter(dir, newIndexWriterConfig())) {
       Document doc1 = new Document();
-      doc1.add(new StringField("id", "0", Field.Store.NO));
+      doc1.add(new StringField("id", "0", Field.Store.YES));
       doc1.add(new KnnFloatVectorField("f1", f1[0], EUCLIDEAN));
       doc1.add(new KnnFloatVectorField("f2", f2[0], EUCLIDEAN));
       w.addDocument(doc1);
       Document doc2 = new Document();
-      doc2.add(new StringField("id", "1", Field.Store.NO));
+      doc2.add(new StringField("id", "1", Field.Store.YES));
       doc2.add(new KnnFloatVectorField("f1", f1[1], EUCLIDEAN));
       doc2.add(new KnnFloatVectorField("f2", f2[1], EUCLIDEAN));
       w.addDocument(doc2);
@@ -98,17 +94,8 @@ public class TestCuVSVectorsFormat extends BaseKnnVectorsFormatTestCase {
 
       try (DirectoryReader reader = DirectoryReader.open(w)) {
         LeafReader r = getOnlyLeafReader(reader);
-        FloatVectorValues values = r.getFloatVectorValues("f1");
-        assertNotNull(values);
-        assertEquals(2, values.size());
-        assertArrayEquals(f1[0], values.vectorValue(0), 0.0f);
-        assertArrayEquals(f1[1], values.vectorValue(1), 0.0f);
-
-        values = r.getFloatVectorValues("f2");
-        assertNotNull(values);
-        assertEquals(2, values.size());
-        assertArrayEquals(f2[0], values.vectorValue(0), 0.0f);
-        assertArrayEquals(f2[1], values.vectorValue(1), 0.0f);
+        assertVectorsKeepTheirDocuments(r, "f1", f1);
+        assertVectorsKeepTheirDocuments(r, "f2", f2);
 
         // opportunistically check boundary condition - search with a 0 topK
         var topDocs = r.searchNearestVectors("f1", randomVector(384), 0, null, 10);
