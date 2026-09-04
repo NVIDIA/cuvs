@@ -101,13 +101,13 @@ void search_main_core(
   std::unique_ptr<cuvs::neighbors::device_padded_dataset<DataT, int64_t>> queries_padded_own;
   if (cuvs::neighbors::matrix_row_width_matches_cagra_required(queries)) {
     auto v           = cuvs::neighbors::make_device_padded_dataset_view(res, queries);
-    queries_buf      = v.view().data_handle();
-    query_row_stride = v.stride();
+    queries_buf      = v.data_view().data_handle();
+    query_row_stride = v.data_view().stride();
   } else {
     queries_padded_own = cuvs::neighbors::make_device_padded_dataset(res, queries);
     auto v             = queries_padded_own->as_dataset_view();
-    queries_buf        = v.view().data_handle();
-    query_row_stride   = v.stride();
+    queries_buf        = v.data_view().data_handle();
+    query_row_stride   = v.data_view().stride();
   }
   const bool can_batch_n_queries = (query_row_stride == query_dim);
 
@@ -245,7 +245,7 @@ void search_main(raft::resources const& res,
       params.smem_dtype = cuvs::neighbors::cagra::internal_dtype::F16;
     }
     auto desc = dataset_descriptor_init_with_cache<T, graph_idx_type, DistanceT>(
-      res, params, vv.dset(), index.metric(), nullptr);
+      res, params, vv, index.metric(), nullptr);
     search_main_core<T, graph_idx_type, DistanceT, CagraSampleFilterT, IdxT, OutputIdxT>(
       res,
       params,

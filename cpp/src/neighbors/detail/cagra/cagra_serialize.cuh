@@ -293,8 +293,8 @@ void write_hnswlib_rows_host(
                  "CAGRA dataset rows (%zu) do not match index size (%zu)",
                  static_cast<size_t>(dataset_view.n_rows()),
                  n_rows);
-    dataset_data      = dataset_view.view().data_handle();
-    dataset_stride    = dataset_view.stride();
+    dataset_data      = dataset_view.data_view().data_handle();
+    dataset_stride    = dataset_view.data_view().stride();
     dataset_is_device = is_device_cagra_hnsw_serialize_index_v<T, IdxT, CagraIndexT>;
   }
 
@@ -427,16 +427,16 @@ void write_hnswlib_rows_device(raft::resources const& res,
   for (size_t first_row = 0; first_row < n_rows; first_row += batch_rows) {
     auto const rows   = std::min(batch_rows, n_rows - first_row);
     auto const blocks = (rows + warps_per_block - 1) / warps_per_block;
-    pack_hnswlib_rows<T, IdxT>
-      <<<static_cast<unsigned int>(blocks), block_size, 0, stream>>>(output.data_handle(),
-                                                                     row_size,
-                                                                     graph.data_handle(),
-                                                                     dataset.view().data_handle(),
-                                                                     first_row,
-                                                                     rows,
-                                                                     graph_degree,
-                                                                     dim,
-                                                                     dataset.stride());
+    pack_hnswlib_rows<T, IdxT><<<static_cast<unsigned int>(blocks), block_size, 0, stream>>>(
+      output.data_handle(),
+      row_size,
+      graph.data_handle(),
+      dataset.data_view().data_handle(),
+      first_row,
+      rows,
+      graph_degree,
+      dim,
+      dataset.data_view().stride());
     RAFT_CUDA_TRY(cudaPeekAtLastError());
     raft::resource::sync_stream(res);
 

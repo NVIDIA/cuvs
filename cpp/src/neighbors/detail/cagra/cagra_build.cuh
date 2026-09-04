@@ -1341,7 +1341,7 @@ auto build_ace(raft::resources const& res, const index_params& params, DatasetVi
     params.graph_degree,
     npartitions);
 
-  auto dataset_view   = dataset.view();
+  auto dataset_view   = dataset.data_view();
   size_t dataset_size = dataset.n_rows();
   size_t dataset_dim  = dataset.dim();
 
@@ -2290,7 +2290,7 @@ auto ensure_device_padded_for_iterative_search(
   if constexpr (cuvs::neighbors::is_device_padded_dataset_view_v<DatasetViewT>) {
     return dataset;
   } else {
-    padded_own = cuvs::neighbors::make_device_padded_dataset(res, dataset.view());
+    padded_own = cuvs::neighbors::make_device_padded_dataset(res, dataset.data_view());
     return padded_own->as_dataset_view();
   }
 }
@@ -2315,7 +2315,7 @@ auto iterative_build_graph(raft::resources const& res,
   std::unique_ptr<cuvs::neighbors::device_padded_dataset<T, int64_t>> padded_own;
   auto search_dataset = ensure_device_padded_for_iterative_search<T>(res, dataset, padded_own);
 
-  auto dev_dataset     = search_dataset.view();
+  auto dev_dataset     = search_dataset.data_view();
   uint32_t logical_dim = search_dataset.dim();
 
   // Determine initial graph size.
@@ -2636,7 +2636,7 @@ auto build_from_host_matrix(raft::resources const& res,
                                                            static_cast<int64_t>(n_rows),
                                                            intermediate_degree,
                                                            graph_degree,
-                                                           dataset.view());
+                                                           dataset.data_view());
   }();
 
   RAFT_LOG_TRACE("Graph optimized, creating index");
@@ -2688,7 +2688,7 @@ auto build_from_device_matrix(raft::resources const& res,
                                                            device_dataset.n_rows(),
                                                            intermediate_degree,
                                                            graph_degree,
-                                                           device_dataset.view());
+                                                           device_dataset.data_view());
   }();
 
   RAFT_LOG_TRACE("Graph optimized, creating index");

@@ -41,16 +41,20 @@ struct vpq_descriptor_spec : public instance_spec<DataT, IndexT, DistanceT> {
   using typename base_type::host_type;
   using typename base_type::index_type;
 
+  // `DatasetT` here is the non-owning dataset_view (not the owning dataset) -- callers pass the
+  // view directly rather than reaching back through a `.dset()`-style owner pointer, so
+  // classification and the codebook element type are read off the view via its own dictionary
+  // state (`is_vpq_dataset_view_v`, `DatasetT::value_type`), not an owning-only trait/typedef.
   template <typename DatasetT>
   constexpr static inline auto accepts_dataset()
-    -> std::enable_if_t<is_vpq_dataset_v<DatasetT>, bool>
+    -> std::enable_if_t<cuvs::neighbors::is_vpq_dataset_view_v<DatasetT>, bool>
   {
-    return std::is_same_v<typename DatasetT::math_type, CodebookT>;
+    return std::is_same_v<typename DatasetT::value_type, CodebookT>;
   }
 
   template <typename DatasetT>
   constexpr static inline auto accepts_dataset()
-    -> std::enable_if_t<!is_vpq_dataset_v<DatasetT>, bool>
+    -> std::enable_if_t<!cuvs::neighbors::is_vpq_dataset_view_v<DatasetT>, bool>
   {
     return false;
   }
@@ -61,11 +65,13 @@ struct vpq_descriptor_spec : public instance_spec<DataT, IndexT, DistanceT> {
                    cuvs::distance::DistanceType metric,
                    const DistanceT* dataset_norms = nullptr) -> host_type
   {
+    auto const data_view = dataset.data_view();
+    auto const dict_view = dataset.dictionary_view();
     return init_(params,
-                 dataset.data.data_handle(),
-                 dataset.encoded_row_length(),
-                 dataset.vq_code_book.data_handle(),
-                 dataset.pq_code_book.data_handle(),
+                 data_view.data_handle(),
+                 static_cast<uint32_t>(data_view.extent(1)),
+                 dict_view.vq_code_book.data_handle(),
+                 dict_view.pq_code_book.data_handle(),
                  IndexT(dataset.n_rows()),
                  dataset.dim());
   }
@@ -79,8 +85,9 @@ struct vpq_descriptor_spec : public instance_spec<DataT, IndexT, DistanceT> {
     if (params.team_size != 0 && TeamSize != params.team_size) { return -1.0; }
     if (cuvs::distance::DistanceType::L2Expanded != metric) { return -1.0; }
     // Match codebook params
-    if (dataset.pq_bits() != PqBits) { return -1.0; }
-    if (dataset.pq_len() != PqLen) { return -1.0; }
+    auto const dict_view = dataset.dictionary_view();
+    if (dict_view.pq_bits() != PqBits) { return -1.0; }
+    if (dict_view.pq_len() != PqLen) { return -1.0; }
     if (select_supported_vpq_smem_dtype(params) != SmemDType) { return -1.0; }
     // Keep auto-selection on the tuned VPQ diagonal while allowing explicit team_size requests to
     // use the expanded team_size / dataset_block_dim grid.

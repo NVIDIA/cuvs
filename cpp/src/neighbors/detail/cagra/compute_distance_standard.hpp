@@ -28,7 +28,7 @@ struct standard_descriptor_spec : public instance_spec<DataT, IndexT, DistanceT>
   template <typename DatasetT>
   constexpr static inline bool accepts_dataset()
   {
-    return is_padded_dataset_v<DatasetT>;
+    return cuvs::neighbors::is_padded_dataset_view_v<DatasetT>;
   }
 
   template <typename DatasetT>
@@ -37,11 +37,12 @@ struct standard_descriptor_spec : public instance_spec<DataT, IndexT, DistanceT>
                    cuvs::distance::DistanceType metric,
                    const DistanceT* dataset_norms = nullptr) -> host_type
   {
+    auto const data_view = dataset.data_view();
     return init_(params,
-                 dataset.view().data_handle(),
+                 data_view.data_handle(),
                  IndexT(dataset.n_rows()),
                  dataset.dim(),
-                 dataset.stride(),
+                 data_view.stride(),
                  dataset_norms);
   }
 

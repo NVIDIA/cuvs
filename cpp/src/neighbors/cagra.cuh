@@ -45,7 +45,7 @@ CUVS_EXPORT void index<T, IdxT, DatasetViewT>::compute_dataset_norms_(raft::reso
 
   if constexpr (nb::is_padded_dataset_view_v<DatasetViewT> ||
                 nb::is_standard_dataset_view_v<DatasetViewT>) {
-    rm_dataset = dataset_.view();
+    rm_dataset = dataset_.data_view().view();
   } else if constexpr (nb::is_vpq_dataset_view_v<DatasetViewT>) {
     skip_norms = true;
   }

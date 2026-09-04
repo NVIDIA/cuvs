@@ -59,7 +59,7 @@ auto build(raft::resources const& res,
   -> tiered_index::index<cagra::device_padded_index<float, uint32_t>>
 {
   auto state = detail::build<cagra::device_padded_index<float, uint32_t>>(
-    res, params, cagra_build_for_tiered_padded, dataset.view());
+    res, params, cagra_build_for_tiered_padded, dataset.data_view());
   return cuvs::neighbors::tiered_index::index<cagra::device_padded_index<float, uint32_t>>(state);
 }
 
@@ -92,7 +92,7 @@ auto convert_standard_to_padded_index(
   next_state->ann_index.reset();
 
   if (idx.state->ann_index) {
-    auto padded_mds = padded_dataset.view();
+    auto padded_mds = padded_dataset.data_view();
     auto ann_rows   = static_cast<int64_t>(idx.state->ann_rows());
     auto ann_mds    = raft::make_device_matrix_view<const float, int64_t>(
       padded_mds.data_handle(), ann_rows, static_cast<int64_t>(padded_mds.extent(1)));
