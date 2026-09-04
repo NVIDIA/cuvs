@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <cuvs/core/export.hpp>
 #include <memory>
+#include <string>
 #include <type_traits>
 #include <variant>
 
@@ -35,16 +36,37 @@ namespace graph_build_params = cuvs::neighbors::graph_build_params;
  * @brief Hierarchy for HNSW index when converting from CAGRA index
  *
  * NOTE: When the value is `NONE`, the HNSW index is built as a base-layer-only index.
+ * When the value is `CPU`, a full index is built with a CPU-constructed hierarchy.
+ * When the value is `GPU`, a full index is built with a GPU-constructed hierarchy.
  */
-enum class HnswHierarchy {
-  NONE,  // base-layer-only index
-  CPU,   // full index with CPU-built hierarchy
-  GPU    // full index with GPU-built hierarchy
+enum class HnswHierarchy { NONE, CPU, GPU };
+
+/**
+ * @brief Output artifact format for an HNSW index
+ *
+ * `HNSWLIB` produces the standard hnswlib index format. `CUVS_LAYERED_TOPOLOGY` stores graph
+ * topology separately from vectors. The current implementation requires `HnswHierarchy::GPU` and
+ * disk-backed ACE. Load a layered topology with the two-filename `deserialize` overload, which
+ * reads the vectors from a separate local dataset.
+ */
+enum class HnswOutputFormat {
+  HNSWLIB,
+  CUVS_LAYERED_TOPOLOGY,
 };
 
+/**
+ * @code{.cpp}
+ * hnsw::index_params params;
+ * params.hierarchy = hnsw::HnswHierarchy::GPU;
+ * params.output_format = hnsw::HnswOutputFormat::CUVS_LAYERED_TOPOLOGY;
+ * @endcode
+ */
 struct index_params : cuvs::neighbors::index_params {
   /** Hierarchy build type for HNSW index when converting from CAGRA index */
   HnswHierarchy hierarchy = HnswHierarchy::GPU;
+  /** Output artifact format. Layered topology currently requires a GPU hierarchy and disk-backed
+   * ACE. */
+  HnswOutputFormat output_format = HnswOutputFormat::HNSWLIB;
   /** Size of the candidate list during hierarchy construction when hierarchy is `CPU`*/
   int ef_construction = 200;
   /** Number of host threads to use to construct hierarchy when hierarchy is `CPU` or `GPU`.
@@ -81,9 +103,9 @@ struct index_params : cuvs::neighbors::index_params {
    * @endcode
    *
    * When ACE writes to disk, `build_dir` may already exist, but ACE's named CAGRA
-   * artifacts and `hnsw_index.bin` must not already exist. Simultaneous builds
-   * must use different directories. The HNSW output is published only after it
-   * is fully serialized; however, the complete build is not transactional: if
+   * artifacts and the selected HNSW output (`hnsw_index.bin` or `hnsw_index.cuvs`) must not already
+   * exist. Simultaneous builds must use different directories. The HNSW output is published only
+   * after it is fully serialized; however, the complete build is not transactional: if
    * HNSW conversion fails after CAGRA succeeds, the completed CAGRA artifacts
    * remain in the directory.
    */
@@ -145,9 +167,13 @@ struct index : cuvs::neighbors::index {
    * @param[in] dim dimensions of the training dataset
    * @param[in] metric distance metric to search. Supported metrics ("L2Expanded", "InnerProduct")
    * @param[in] hierarchy hierarchy used for upper HNSW layers
+   * @param[in] output_format output artifact format
    */
-  index(int dim, cuvs::distance::DistanceType metric, HnswHierarchy hierarchy = HnswHierarchy::NONE)
-    : dim_{dim}, metric_{metric}, hierarchy_{hierarchy}
+  index(int dim,
+        cuvs::distance::DistanceType metric,
+        HnswHierarchy hierarchy        = HnswHierarchy::NONE,
+        HnswOutputFormat output_format = HnswOutputFormat::HNSWLIB)
+    : dim_{dim}, metric_{metric}, hierarchy_{hierarchy}, output_format_{output_format}
   {
   }
 
@@ -164,6 +190,8 @@ struct index : cuvs::neighbors::index {
 
   auto hierarchy() const -> HnswHierarchy { return hierarchy_; }
 
+  auto output_format() const -> HnswOutputFormat { return output_format_; }
+
   /**
   @brief Set ef for search
   */
@@ -178,6 +206,7 @@ struct index : cuvs::neighbors::index {
   int dim_;
   cuvs::distance::DistanceType metric_;
   HnswHierarchy hierarchy_;
+  HnswOutputFormat output_format_;
 };
 
 /**
@@ -454,6 +483,10 @@ std::unique_ptr<index<int8_t>> build(
  * the format is not compatible with the original hnswlib.
  *       2. `CPU`: The returned index is mutable and can be extended with additional vectors. The
  * serialized index is also compatible with the original hnswlib library.
+ *       3. `GPU`: The hierarchy is constructed on the GPU.
+ * When `output_format` is `CUVS_LAYERED_TOPOLOGY`, the GPU-built hierarchy is stored as layered
+ * topology (graph links only). Reload it with the two-filename `deserialize` overload so vectors
+ * can be reconstructed from the local dataset.
  *
  * @param[in] res raft resources
  * @param[in] params hnsw index parameters
@@ -490,6 +523,10 @@ std::unique_ptr<index<float>> from_cagra(
  * the format is not compatible with the original hnswlib.
  *       2. `CPU`: The returned index is mutable and can be extended with additional vectors. The
  * serialized index is also compatible with the original hnswlib library.
+ *       3. `GPU`: The hierarchy is constructed on the GPU.
+ * When `output_format` is `CUVS_LAYERED_TOPOLOGY`, the GPU-built hierarchy is stored as layered
+ * topology (graph links only). Reload it with the two-filename `deserialize` overload so vectors
+ * can be reconstructed from the local dataset.
  *
  * @param[in] res raft resources
  * @param[in] params hnsw index parameters
@@ -526,6 +563,10 @@ std::unique_ptr<index<half>> from_cagra(
  * the format is not compatible with the original hnswlib.
  *       2. `CPU`: The returned index is mutable and can be extended with additional vectors. The
  * serialized index is also compatible with the original hnswlib library.
+ *       3. `GPU`: The hierarchy is constructed on the GPU.
+ * When `output_format` is `CUVS_LAYERED_TOPOLOGY`, the GPU-built hierarchy is stored as layered
+ * topology (graph links only). Reload it with the two-filename `deserialize` overload so vectors
+ * can be reconstructed from the local dataset.
  *
  * @param[in] res raft resources
  * @param[in] params hnsw index parameters
@@ -562,6 +603,10 @@ std::unique_ptr<index<uint8_t>> from_cagra(
  * the format is not compatible with the original hnswlib.
  *       2. `CPU`: The returned index is mutable and can be extended with additional vectors. The
  * serialized index is also compatible with the original hnswlib library.
+ *       3. `GPU`: The hierarchy is constructed on the GPU.
+ * When `output_format` is `CUVS_LAYERED_TOPOLOGY`, the GPU-built hierarchy is stored as layered
+ * topology (graph links only). Reload it with the two-filename `deserialize` overload so vectors
+ * can be reconstructed from the local dataset.
  *
  * @param[in] res raft resources
  * @param[in] params hnsw index parameters
@@ -862,10 +907,12 @@ struct search_params : cuvs::neighbors::search_params {
  * @brief Search HNSW index constructed from a CAGRA index
  * NOTE: The HNSW index can only be searched by the hnswlib wrapper in cuVS when the hierarchy is
  * `NONE`, as the format is not compatible with the original hnswlib.
+ * When `output_format` is `CUVS_LAYERED_TOPOLOGY`, search uses the in-memory index reconstructed
+ * from the layered topology produced by the two-filename `deserialize` overload.
  *
  * @param[in] res raft resources
  * @param[in] params configure the search
- * @param[in] idx cagra index
+ * @param[in] idx HNSW index
  * @param[in] queries a host matrix view to a row-major matrix [n_queries, index->dim()]
  * @param[out] neighbors a host matrix view to the indices of the neighbors in the source dataset
  * [n_queries, k]
@@ -906,10 +953,12 @@ void search(raft::resources const& res,
  * @brief Search HNSW index constructed from a CAGRA index
  * NOTE: The HNSW index can only be searched by the hnswlib wrapper in cuVS when the hierarchy is
  * `NONE`, as the format is not compatible with the original hnswlib.
+ * When `output_format` is `CUVS_LAYERED_TOPOLOGY`, search uses the in-memory index reconstructed
+ * from the layered topology produced by the two-filename `deserialize` overload.
  *
  * @param[in] res raft resources
  * @param[in] params configure the search
- * @param[in] idx cagra index
+ * @param[in] idx HNSW index
  * @param[in] queries a host matrix view to a row-major matrix [n_queries, index->dim()]
  * @param[out] neighbors a host matrix view to the indices of the neighbors in the source dataset
  * [n_queries, k]
@@ -950,10 +999,12 @@ void search(raft::resources const& res,
  * @brief Search HNSWindex constructed from a CAGRA index
  * NOTE: The HNSW index can only be searched by the hnswlib wrapper in cuVS when the hierarchy is
  * `NONE`, as the format is not compatible with the original hnswlib.
+ * When `output_format` is `CUVS_LAYERED_TOPOLOGY`, search uses the in-memory index reconstructed
+ * from the layered topology produced by the two-filename `deserialize` overload.
  *
  * @param[in] res raft resources
  * @param[in] params configure the search
- * @param[in] idx cagra index
+ * @param[in] idx HNSW index
  * @param[in] queries a host matrix view to a row-major matrix [n_queries, index->dim()]
  * @param[out] neighbors a host matrix view to the indices of the neighbors in the source dataset
  * [n_queries, k]
@@ -994,10 +1045,12 @@ void search(raft::resources const& res,
  * @brief Search HNSW index constructed from a CAGRA index
  * NOTE: The HNSW index can only be searched by the hnswlib wrapper in cuVS when the hierarchy is
  * `NONE`, as the format is not compatible with the original hnswlib.
+ * When `output_format` is `CUVS_LAYERED_TOPOLOGY`, search uses the in-memory index reconstructed
+ * from the layered topology produced by the two-filename `deserialize` overload.
  *
  * @param[in] res raft resources
  * @param[in] params configure the search
- * @param[in] idx cagra index
+ * @param[in] idx HNSW index
  * @param[in] queries a host matrix view to a row-major matrix [n_queries, index->dim()]
  * @param[out] neighbors a host matrix view to the indices of the neighbors in the source dataset
  * [n_queries, k]
@@ -1039,7 +1092,7 @@ void search(raft::resources const& res,
  */
 
 /**
- * @defgroup hnsw_cpp_index_serialize Deserialize CAGRA index as hnswlib index
+ * @defgroup hnsw_cpp_index_serialize Serialize and deserialize HNSW indexes
  * @{
  */
 
@@ -1049,10 +1102,13 @@ void search(raft::resources const& res,
  * hnswlib wrapper in cuVS, as the serialization format is not compatible with the original hnswlib.
  * However, when hierarchy is `CPU`, the saved hnswlib index is compatible with the original hnswlib
  * library.
+ * When `output_format` is `CUVS_LAYERED_TOPOLOGY`, the saved artifact stores layered graph topology
+ * only.
+ * Load it with the two-filename `deserialize` overload and a local dataset.
  *
  * @param[in] res raft resources
- * @param[in] filename path to the file to save the serialized CAGRA index
- * @param[in] idx cagra index
+ * @param[in] filename path to the serialized HNSW output
+ * @param[in] idx HNSW index
  *
  * Usage example:
  * @code{.cpp}
@@ -1067,7 +1123,7 @@ void search(raft::resources const& res,
  *   hnsw::index_params hnsw_params;
  *   auto hnsw_index = hnsw::from_cagra(res, hnsw_params, index);
  *   // Save the index
- *   hnsw::serialize(res, "index.bin", index);
+ *   hnsw::serialize(res, "index.bin", *hnsw_index);
  * @endcode
  */
 void serialize(raft::resources const& res, const std::string& filename, const index<float>& idx);
@@ -1078,10 +1134,13 @@ void serialize(raft::resources const& res, const std::string& filename, const in
  * hnswlib wrapper in cuVS, as the serialization format is not compatible with the original hnswlib.
  * However, when hierarchy is `CPU`, the saved hnswlib index is compatible with the original hnswlib
  * library.
+ * When `output_format` is `CUVS_LAYERED_TOPOLOGY`, the saved artifact stores layered graph topology
+ * only.
+ * Load it with the two-filename `deserialize` overload and a local dataset.
  *
  * @param[in] res raft resources
- * @param[in] filename path to the file to save the serialized CAGRA index
- * @param[in] idx cagra index
+ * @param[in] filename path to the serialized HNSW output
+ * @param[in] idx HNSW index
  *
  * Usage example:
  * @code{.cpp}
@@ -1096,7 +1155,7 @@ void serialize(raft::resources const& res, const std::string& filename, const in
  *   hnsw::index_params hnsw_params;
  *   auto hnsw_index = hnsw::from_cagra(res, hnsw_params, index);
  *   // Save the index
- *   hnsw::serialize(res, "index.bin", index);
+ *   hnsw::serialize(res, "index.bin", *hnsw_index);
  * @endcode
  */
 void serialize(raft::resources const& res, const std::string& filename, const index<half>& idx);
@@ -1107,10 +1166,13 @@ void serialize(raft::resources const& res, const std::string& filename, const in
  * hnswlib wrapper in cuVS, as the serialization format is not compatible with the original hnswlib.
  * However, when hierarchy is `CPU`, the saved hnswlib index is compatible with the original hnswlib
  * library.
+ * When `output_format` is `CUVS_LAYERED_TOPOLOGY`, the saved artifact stores layered graph topology
+ * only.
+ * Load it with the two-filename `deserialize` overload and a local dataset.
  *
  * @param[in] res raft resources
- * @param[in] filename path to the file to save the serialized CAGRA index
- * @param[in] idx cagra index
+ * @param[in] filename path to the serialized HNSW output
+ * @param[in] idx HNSW index
  *
  * Usage example:
  * @code{.cpp}
@@ -1125,7 +1187,7 @@ void serialize(raft::resources const& res, const std::string& filename, const in
  *   hnsw::index_params hnsw_params;
  *   auto hnsw_index = hnsw::from_cagra(res, hnsw_params, index);
  *   // Save the index
- *   hnsw::serialize(res, "index.bin", index);
+ *   hnsw::serialize(res, "index.bin", *hnsw_index);
  * @endcode
  */
 void serialize(raft::resources const& res, const std::string& filename, const index<uint8_t>& idx);
@@ -1136,10 +1198,13 @@ void serialize(raft::resources const& res, const std::string& filename, const in
  * hnswlib wrapper in cuVS, as the serialization format is not compatible with the original hnswlib.
  * However, when hierarchy is `CPU`, the saved hnswlib index is compatible with the original hnswlib
  * library.
+ * When `output_format` is `CUVS_LAYERED_TOPOLOGY`, the saved artifact stores layered graph topology
+ * only.
+ * Load it with the two-filename `deserialize` overload and a local dataset.
  *
  * @param[in] res raft resources
- * @param[in] filename path to the file to save the serialized CAGRA index
- * @param[in] idx cagra index
+ * @param[in] filename path to the serialized HNSW output
+ * @param[in] idx HNSW index
  *
  * Usage example:
  * @code{.cpp}
@@ -1154,21 +1219,22 @@ void serialize(raft::resources const& res, const std::string& filename, const in
  *   hnsw::index_params hnsw_params;
  *   auto hnsw_index = hnsw::from_cagra(res, hnsw_params, index);
  *   // Save the index
- *   hnsw::serialize(res, "index.bin", index);
+ *   hnsw::serialize(res, "index.bin", *hnsw_index);
  * @endcode
  */
 void serialize(raft::resources const& res, const std::string& filename, const index<int8_t>& idx);
 
 /**
- * @brief De-serialize a CAGRA index saved to a file as an hnswlib index
+ * @brief Deserialize an HNSWLIB index
  * NOTE: When hierarchy is `NONE`, the saved hnswlib index is immutable and can only be read by the
  * hnswlib wrapper in cuVS, as the serialization format is not compatible with the original hnswlib.
  * However, when hierarchy is `CPU`, the saved hnswlib index is compatible with the original hnswlib
  * library.
+ * This overload loads `HNSWLIB` artifacts. Use the two-filename overload for layered topology.
  *
  * @param[in] res raft resources
  * @param[in] params hnsw index parameters
- * @param[in] filename path to the file containing the serialized CAGRA index
+ * @param[in] filename path to the HNSWLIB artifact
  * @param[in] dim dimensions of the training dataset
  * @param[in] metric distance metric to search. Supported metrics ("L2Expanded", "InnerProduct")
  * @param[out] index hnsw index
@@ -1186,13 +1252,14 @@ void serialize(raft::resources const& res, const std::string& filename, const in
  *  hnsw::index_params hnsw_params;
  *  auto hnsw_index = hnsw::from_cagra(res, hnsw_params, index);
  *  // save HNSW index to a file
- *  hnsw::serialize(res, "index.bin", hnsw_index);
- *  // De-serialize the HNSW index
- *  index<float>* hnsw_index = nullptr;
- *  hnsw::deserialize(res, hnsw_params, "index.bin", index->dim(), index->metric(), &hnsw_index);
+ *  hnsw::serialize(res, "index.bin", *hnsw_index);
+ *  // Deserialize the HNSW index
+ *  hnsw::index<float>* loaded_hnsw_index = nullptr;
+ *  hnsw::deserialize(
+ *    res, hnsw_params, "index.bin", index->dim(), index->metric(), &loaded_hnsw_index);
  *
  *   // Delete index after use
- *   delete hnsw_index;
+ *   delete loaded_hnsw_index;
  * @endcode
  */
 void deserialize(raft::resources const& res,
@@ -1203,15 +1270,16 @@ void deserialize(raft::resources const& res,
                  index<float>** index);
 
 /**
- * @brief De-serialize a CAGRA index saved to a file as an hnswlib index
+ * @brief Deserialize an HNSWLIB index
  * NOTE: When hierarchy is `NONE`, the saved hnswlib index is immutable and can only be read by the
  * hnswlib wrapper in cuVS, as the serialization format is not compatible with the original hnswlib.
  * However, when hierarchy is `CPU`, the saved hnswlib index is compatible with the original hnswlib
  * library.
+ * This overload loads `HNSWLIB` artifacts. Use the two-filename overload for layered topology.
  *
  * @param[in] res raft resources
  * @param[in] params hnsw index parameters
- * @param[in] filename path to the file containing the serialized CAGRA index
+ * @param[in] filename path to the HNSWLIB artifact
  * @param[in] dim dimensions of the training dataset
  * @param[in] metric distance metric to search. Supported metrics ("L2Expanded", "InnerProduct")
  * @param[out] index hnsw index
@@ -1229,13 +1297,14 @@ void deserialize(raft::resources const& res,
  *  hnsw::index_params hnsw_params;
  *  auto hnsw_index = hnsw::from_cagra(res, hnsw_params, index);
  *  // save HNSW index to a file
- *  hnsw::serialize(res, "index.bin", hnsw_index);
- *  // De-serialize the HNSW index
- *  index<half>* hnsw_index = nullptr;
- *  hnsw::deserialize(res, hnsw_params, "index.bin", index->dim(), index->metric(), &hnsw_index);
+ *  hnsw::serialize(res, "index.bin", *hnsw_index);
+ *  // Deserialize the HNSW index
+ *  hnsw::index<half>* loaded_hnsw_index = nullptr;
+ *  hnsw::deserialize(
+ *    res, hnsw_params, "index.bin", index->dim(), index->metric(), &loaded_hnsw_index);
  *
  *   // Delete index after use
- *   delete hnsw_index;
+ *   delete loaded_hnsw_index;
  * @endcode
  */
 void deserialize(raft::resources const& res,
@@ -1246,15 +1315,16 @@ void deserialize(raft::resources const& res,
                  index<half>** index);
 
 /**
- * @brief De-serialize a CAGRA index saved to a file as an hnswlib index
+ * @brief Deserialize an HNSWLIB index
  * NOTE: When hierarchy is `NONE`, the saved hnswlib index is immutable and can only be read by the
  * hnswlib wrapper in cuVS, as the serialization format is not compatible with the original hnswlib.
  * However, when hierarchy is `CPU`, the saved hnswlib index is compatible with the original hnswlib
  * library.
+ * This overload loads `HNSWLIB` artifacts. Use the two-filename overload for layered topology.
  *
  * @param[in] res raft resources
  * @param[in] params hnsw index parameters
- * @param[in] filename path to the file containing the serialized CAGRA index
+ * @param[in] filename path to the HNSWLIB artifact
  * @param[in] dim dimensions of the training dataset
  * @param[in] metric distance metric to search. Supported metrics ("L2Expanded", "InnerProduct")
  * @param[out] index hnsw index
@@ -1272,13 +1342,14 @@ void deserialize(raft::resources const& res,
  *  hnsw::index_params hnsw_params;
  *  auto hnsw_index = hnsw::from_cagra(res, hnsw_params, index);
  *  // save HNSW index to a file
- *  hnsw::serialize(res, "index.bin", hnsw_index);
- *  // De-serialize the HNSW index
- *  index<uint8_t>* hnsw_index = nullptr;
- *  hnsw::deserialize(res, hnsw_params, "index.bin", index->dim(), index->metric(), &hnsw_index);
+ *  hnsw::serialize(res, "index.bin", *hnsw_index);
+ *  // Deserialize the HNSW index
+ *  hnsw::index<uint8_t>* loaded_hnsw_index = nullptr;
+ *  hnsw::deserialize(
+ *    res, hnsw_params, "index.bin", index->dim(), index->metric(), &loaded_hnsw_index);
  *
  *   // Delete index after use
- *   delete hnsw_index;
+ *   delete loaded_hnsw_index;
  * @endcode
  */
 void deserialize(raft::resources const& res,
@@ -1289,15 +1360,16 @@ void deserialize(raft::resources const& res,
                  index<uint8_t>** index);
 
 /**
- * @brief De-serialize a CAGRA index saved to a file as an hnswlib index
+ * @brief Deserialize an HNSWLIB index
  * NOTE: When hierarchy is `NONE`, the saved hnswlib index is immutable and can only be read by the
  * hnswlib wrapper in cuVS, as the serialization format is not compatible with the original hnswlib.
  * However, when hierarchy is `CPU`, the saved hnswlib index is compatible with the original hnswlib
  * library.
+ * This overload loads `HNSWLIB` artifacts. Use the two-filename overload for layered topology.
  *
  * @param[in] res raft resources
  * @param[in] params hnsw index parameters
- * @param[in] filename path to the file containing the serialized CAGRA index
+ * @param[in] filename path to the HNSWLIB artifact
  * @param[in] dim dimensions of the training dataset
  * @param[in] metric distance metric to search. Supported metrics ("L2Expanded", "InnerProduct")
  * @param[out] index hnsw index
@@ -1315,13 +1387,14 @@ void deserialize(raft::resources const& res,
  *  hnsw::index_params hnsw_params;
  *  auto hnsw_index = hnsw::from_cagra(res, hnsw_params, index);
  *  // save HNSW index to a file
- *  hnsw::serialize(res, "index.bin", hnsw_index);
- *  // De-serialize the HNSW index
- *  index<int8_t>* hnsw_index = nullptr;
- *  hnsw::deserialize(res, hnsw_params, "index.bin", index->dim(), index->metric(), &hnsw_index);
+ *  hnsw::serialize(res, "index.bin", *hnsw_index);
+ *  // Deserialize the HNSW index
+ *  hnsw::index<int8_t>* loaded_hnsw_index = nullptr;
+ *  hnsw::deserialize(
+ *    res, hnsw_params, "index.bin", index->dim(), index->metric(), &loaded_hnsw_index);
  *
  *   // Delete index after use
- *   delete hnsw_index;
+ *   delete loaded_hnsw_index;
  * @endcode
  */
 void deserialize(raft::resources const& res,
@@ -1329,6 +1402,53 @@ void deserialize(raft::resources const& res,
                  const std::string& filename,
                  int dim,
                  cuvs::distance::DistanceType metric,
+                 index<int8_t>** index);
+
+/**
+ * @brief Deserialize a layered HNSW topology and attach its dataset
+ *
+ * The topology artifact supplies the index dimensions, metric, and construction metadata. The
+ * attached dataset must have the recorded shape, but its element type may differ from the type used
+ * to construct the graph. The output pointer selects the attached dataset type. The loader accepts
+ * row-major `.npy` files and ANN benchmark binary files with a `[uint32 rows, uint32 cols]` header.
+ * Binary extensions must match the output index type: `.fbin` for `float`, `.f16bin` or
+ * `.fp16.fbin` for `half`, `.u8bin` for `uint8_t`, and `.i8bin` for `int8_t`.
+ *
+ * @param[in] res raft resources
+ * @param[in] topology_filename path to the layered HNSW topology artifact
+ * @param[in] dataset_filename path to the local dataset
+ * @param[out] index reconstructed HNSW index
+ *
+ * Usage example:
+ * @code{.cpp}
+ *   using namespace cuvs::neighbors;
+ *   hnsw::index<float>* index = nullptr;
+ *   hnsw::deserialize(res, "hnsw_index.cuvs", "dataset.fbin", &index);
+ *   // ... search index ...
+ *   delete index;
+ * @endcode
+ */
+void deserialize(raft::resources const& res,
+                 const std::string& topology_filename,
+                 const std::string& dataset_filename,
+                 index<float>** index);
+
+/** @overload */
+void deserialize(raft::resources const& res,
+                 const std::string& topology_filename,
+                 const std::string& dataset_filename,
+                 index<half>** index);
+
+/** @overload */
+void deserialize(raft::resources const& res,
+                 const std::string& topology_filename,
+                 const std::string& dataset_filename,
+                 index<uint8_t>** index);
+
+/** @overload */
+void deserialize(raft::resources const& res,
+                 const std::string& topology_filename,
+                 const std::string& dataset_filename,
                  index<int8_t>** index);
 
 /**

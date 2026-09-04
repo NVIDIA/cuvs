@@ -113,7 +113,7 @@ void serialize(raft::resources const& res,
   auto const dataset_kind = include_dataset ? serialized_dataset_kind_for_view<DatasetViewT>()
                                             : cuvs::neighbors::cagra::serialized_dataset_kind::none;
 
-  std::string dtype_string = raft::numpy_serializer::get_numpy_dtype<T>().to_string();
+  std::string dtype_string = cuvs::util::detail::numpy_dtype_string<T>();
   dtype_string.resize(4);
   os << dtype_string;
 

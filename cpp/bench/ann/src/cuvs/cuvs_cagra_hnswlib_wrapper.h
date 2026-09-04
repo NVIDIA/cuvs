@@ -9,9 +9,33 @@
 #include <raft/core/logger.hpp>
 
 #include <chrono>
+#include <filesystem>
 #include <memory>
+#include <string>
 
 namespace cuvs::bench {
+
+inline void move_file_overwrite(const std::filesystem::path& src, const std::filesystem::path& dst)
+{
+  std::error_code ec;
+  if (src == dst ||
+      (std::filesystem::exists(dst, ec) && std::filesystem::equivalent(src, dst, ec))) {
+    return;
+  }
+  if (!dst.parent_path().empty()) { std::filesystem::create_directories(dst.parent_path()); }
+  if (std::filesystem::exists(dst, ec)) { std::filesystem::remove(dst, ec); }
+
+  std::filesystem::rename(src, dst, ec);
+  if (ec) {
+    // Rename fails across filesystems. Fall back to copy followed by removal of the source.
+    ec.clear();
+    std::filesystem::copy_file(src, dst, std::filesystem::copy_options::overwrite_existing, ec);
+    const auto src_str = src.string();
+    const auto dst_str = dst.string();
+    RAFT_EXPECTS(!ec, "Failed to move '%s' to '%s'.", src_str.c_str(), dst_str.c_str());
+    std::filesystem::remove(src, ec);
+  }
+}
 
 template <typename T, typename IdxT>
 class cuvs_cagra_hnswlib : public algo<T>, public algo_gpu {
@@ -22,6 +46,7 @@ class cuvs_cagra_hnswlib : public algo<T>, public algo_gpu {
     using cagra_wrapper_params = typename cuvs_cagra<T, IdxT>::build_param;
     cagra_wrapper_params cagra_build_params;
     cuvs::neighbors::hnsw::index_params hnsw_index_params;
+    std::string dataset_path;
   };
 
   struct search_param : public search_param_base {
@@ -97,18 +122,25 @@ void cuvs_cagra_hnswlib<T, IdxT>::set_search_param(const search_param_base& para
 template <typename T, typename IdxT>
 void cuvs_cagra_hnswlib<T, IdxT>::save(const std::string& file) const
 {
+  if (build_param_.hnsw_index_params.output_format ==
+      cuvs::neighbors::hnsw::HnswOutputFormat::CUVS_LAYERED_TOPOLOGY) {
+    const auto src_artifact = std::filesystem::path(hnsw_index_->file_path());
+    RAFT_EXPECTS(!src_artifact.empty(), "Layered HNSW artifact path is not available.");
+    RAFT_EXPECTS(std::filesystem::exists(src_artifact),
+                 "Layered HNSW artifact '%s' does not exist.",
+                 src_artifact.c_str());
+
+    move_file_overwrite(src_artifact, std::filesystem::path(file));
+    return;
+  }
+
   if (cagra_ace_build_) {
     std::string index_filename = hnsw_index_->file_path();
     RAFT_EXPECTS(!index_filename.empty(), "HNSW index file path is not available.");
     RAFT_EXPECTS(std::filesystem::exists(index_filename),
                  "Index file '%s' does not exist.",
                  index_filename.c_str());
-    if (std::filesystem::exists(file)) { std::filesystem::remove(file); }
-    // might fail when using 2 different filesystems
-    std::error_code ec;
-    std::filesystem::rename(index_filename, file, ec);
-    RAFT_EXPECTS(
-      !ec, "Failed to rename index file '%s' to '%s'.", index_filename.c_str(), file.c_str());
+    move_file_overwrite(std::filesystem::path(index_filename), std::filesystem::path(file));
   } else {
     cuvs::neighbors::hnsw::serialize(handle_, file, *(hnsw_index_.get()));
   }
@@ -118,12 +150,17 @@ template <typename T, typename IdxT>
 void cuvs_cagra_hnswlib<T, IdxT>::load(const std::string& file)
 {
   cuvs::neighbors::hnsw::index<T>* idx = nullptr;
-  cuvs::neighbors::hnsw::deserialize(handle_,
-                                     build_param_.hnsw_index_params,
-                                     file,
-                                     this->dim_,
-                                     parse_metric_type(this->metric_),
-                                     &idx);
+  if (build_param_.hnsw_index_params.output_format ==
+      cuvs::neighbors::hnsw::HnswOutputFormat::CUVS_LAYERED_TOPOLOGY) {
+    cuvs::neighbors::hnsw::deserialize(handle_, file, build_param_.dataset_path, &idx);
+  } else {
+    cuvs::neighbors::hnsw::deserialize(handle_,
+                                       build_param_.hnsw_index_params,
+                                       file,
+                                       this->dim_,
+                                       parse_metric_type(this->metric_),
+                                       &idx);
+  }
   hnsw_index_ = std::shared_ptr<cuvs::neighbors::hnsw::index<T>>(idx);
 }
 
