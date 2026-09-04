@@ -2696,8 +2696,7 @@ auto deserialize_layered_hnswlib(raft::resources const& res,
     to_gib(metadata.n_rows * appr_algo->size_data_per_element_),
     to_gib(metadata.upper_nodes_count * metadata.upper_link_row_bytes));
 
-  auto num_threads =
-    params.num_threads == 0 ? cuvs::core::omp::get_max_threads() : params.num_threads;
+  [[maybe_unused]] const auto num_threads = cuvs::core::omp::get_max_threads();
 
   const size_t target_batch_bytes = 64 * 1024 * 1024;
   const size_t dataset_row_bytes  = metadata.dim * sizeof(T);
