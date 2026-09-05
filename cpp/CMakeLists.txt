@@ -1174,8 +1174,47 @@ if(NOT BUILD_CPU_ONLY)
   if(NOT DEFINED CUVS_CUTILE_ENABLED)
     set(CUVS_CUTILE_ENABLED 0)
   endif()
-  target_compile_definitions(cuvs_cpp_headers INTERFACE CUVS_CUTILE_ENABLED=${CUVS_CUTILE_ENABLED})
 
+  set(fused_1nn_cutile_dir
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/distance/detail/fused_distance_nn/cutile"
+  )
+  set(cutile_fused_1nn_generated_dir
+      "${CMAKE_CURRENT_BINARY_DIR}/generated_kernels/distance/fused_1nn/cutile"
+  )
+  set(cutile_fused_1nn_tiles "${cutile_fused_1nn_generated_dir}/fused_1nn_cutile_tiles.hpp")
+  generate_cutile_kernels(
+    cutile_fused_1nn_files
+    KERNEL_DIR "${fused_1nn_cutile_dir}"
+    KERNEL_BASENAME "fused_1nn"
+    KERNEL_PYTHON "fused_1nn_kernel.py"
+    EXPORT_SCRIPT "export_fused_1nn.py"
+    OUTPUT_DIRECTORY "${cutile_fused_1nn_generated_dir}"
+    MATRIX_JSON_FILE "${fused_1nn_cutile_dir}/fused_1nn_cutile_matrix.json"
+    FRAGMENT_TAG_FORMAT_CUBIN
+      "cuvs::distance::detail::fragment_tag_fused_1nn_cubin<cuvs::neighbors::detail::tag_@data_abbrev@, cuvs::neighbors::detail::tag_index_@index_abbrev@, cuvs::distance::detail::cutile_tile_config<@tile_m@, @tile_n@, @tile_k@>, cuvs::distance::detail::@abi_tag@, cuvs::detail::jit_lto::@arch_tag@>"
+    FRAGMENT_TAG_FORMAT_TILEIR
+      "cuvs::distance::detail::fragment_tag_fused_1nn_tileir<cuvs::neighbors::detail::tag_@data_abbrev@, cuvs::neighbors::detail::tag_index_@index_abbrev@, cuvs::distance::detail::cutile_tile_config<@tile_m@, @tile_n@, @tile_k@>, cuvs::distance::detail::@abi_tag@>"
+    FRAGMENT_TAG_HEADER_FILES
+      "<cuvs/detail/jit_lto/fused_distance_nn/fused_1nn_fragments.hpp>"
+      "<cuvs/detail/jit_lto/cutile_arch_tags.hpp>" "<cuvs/detail/jit_lto/common_fragments.hpp>"
+  )
+  if(CUVS_CUTILE_ENABLED)
+    cuvs_find_build_python(cutile_tile_metadata_python)
+    add_custom_command(
+      OUTPUT "${cutile_fused_1nn_tiles}"
+      COMMAND
+        "${cutile_tile_metadata_python}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules/generate_cutile_tile_metadata.py" --matrix
+        "${fused_1nn_cutile_dir}/fused_1nn_cutile_matrix.json" --output "${cutile_fused_1nn_tiles}"
+        --namespace "cuvs::distance::detail" --include
+        "<cuvs/detail/jit_lto/fused_distance_nn/fused_1nn_fragments.hpp>" --alias-prefix
+        fused_1nn_matrix_tile
+      DEPENDS "${fused_1nn_cutile_dir}/fused_1nn_cutile_matrix.json"
+              "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules/generate_cutile_tile_metadata.py"
+      VERBATIM
+    )
+    list(APPEND cutile_fused_1nn_files "${cutile_fused_1nn_tiles}")
+  endif()
   # Note that this matrix contains an `arch_includes` placeholder, since we don't currently have a
   # way to do an item-wise transform on a list after computing the matrix product and before
   # configuring the file
@@ -1393,6 +1432,7 @@ if(NOT BUILD_CPU_ONLY)
     src/distance/detail/kernels/kernel_matrices.cu
     ${pairwise_matrix_dispatch_inst_files}
     src/distance/distance.cu
+    src/distance/top_1_nn.cu
     src/distance/kde.cu
     src/distance/pairwise_distance.cu
     src/distance/sparse_distance.cu
@@ -1486,8 +1526,15 @@ if(NOT BUILD_CPU_ONLY)
     src/stats/trustworthiness_score.cu
     ${CUVS_MG_ALGOS}
     ${jit_lto_files}
-    ${cutile_smoke_files}
   )
+
+  if(CUVS_CUTILE_ENABLED)
+    target_sources(
+      cuvs_objs
+      PRIVATE ${cutile_fused_1nn_files}
+              src/distance/detail/fused_distance_nn/cutile/fused_1nn_tile.cu ${cutile_smoke_files}
+    )
+  endif()
 
   set_target_properties(
     cuvs_objs
@@ -1509,8 +1556,10 @@ if(NOT BUILD_CPU_ONLY)
 
   target_compile_definitions(
     cuvs_objs
-    PRIVATE $<$<BOOL:${BUILD_CAGRA_HNSWLIB}>:CUVS_BUILD_CAGRA_HNSWLIB>
-            $<$<BOOL:${BUILD_MG_ALGOS}>:CUVS_BUILD_MG_ALGOS> $<$<BOOL:${CUVS_NVTX}>:NVTX_ENABLED>
+    PRIVATE CUVS_CUTILE_ENABLED=${CUVS_CUTILE_ENABLED}
+            $<$<BOOL:${BUILD_CAGRA_HNSWLIB}>:CUVS_BUILD_CAGRA_HNSWLIB>
+            $<$<BOOL:${BUILD_MG_ALGOS}>:CUVS_BUILD_MG_ALGOS>
+            $<$<BOOL:${CUVS_NVTX}>:NVTX_ENABLED>
   )
 
   target_link_libraries(
@@ -1531,7 +1580,7 @@ if(NOT BUILD_CPU_ONLY)
            "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../c/include>"
     INTERFACE "$<INSTALL_INTERFACE:include>"
     PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_CURRENT_BINARY_DIR}/src"
-            "${cutile_smoke_generated_dir}"
+            "${cutile_fused_1nn_generated_dir}" "${cutile_smoke_generated_dir}"
   )
 
   # Endian detection
