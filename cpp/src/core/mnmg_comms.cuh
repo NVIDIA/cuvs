@@ -59,7 +59,7 @@ class mnmg_comms {
     : dev_res_(dev_res),
       use_nccl_(use_nccl),
       nccl_comm_(nccl_comm),
-      stream_(raft::resource::get_cuda_stream(dev_res_))
+      stream_(raft::resource::get_cuda_stream(dev_res_).get())
   {
   }
 

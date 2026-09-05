@@ -102,7 +102,7 @@ void SearcherGPU::SearchClusterQueryPairsSharedMemOpt(
 
   // Initialize with -infinity (convert to FP16)
   lut_dtype neg_inf_fp16 = __float2half(-std::numeric_limits<float>::infinity());
-  thrust::fill(thrust::cuda::par.on(stream_),
+  thrust::fill(thrust::cuda::par.on(stream_.get()),
                d_lut_for_queries.data(),
                d_lut_for_queries.data() + lut_elements,
                neg_inf_fp16);
@@ -112,7 +112,7 @@ void SearcherGPU::SearchClusterQueryPairsSharedMemOpt(
                             d_lut_for_queries.data(),
                             num_queries,
                             cur_ivf.get_num_padded_dim(),
-                            stream_);
+                            stream_.get());
 
   // check if the inner products kernel should use block sort to keep a top-k priority queue vs.
   // outputting distances from all vectors in probed clusters
@@ -148,20 +148,20 @@ void SearcherGPU::SearchClusterQueryPairsSharedMemOpt(
   auto d_topk_pids  = raft::make_device_matrix<uint32_t, int64_t>(handle_, num_queries, n_cols);
 
   // initialize distances
-  thrust::fill(thrust::cuda::par.on(stream_),
+  thrust::fill(thrust::cuda::par.on(stream_.get()),
                d_topk_dists.data_handle(),
                d_topk_dists.data_handle() + d_topk_dists.size(),
                std::numeric_limits<float>::infinity());
 
   rmm::device_uvector<int> d_query_write_counters(num_queries, stream_);
-  thrust::fill(thrust::cuda::par.on(stream_),
+  thrust::fill(thrust::cuda::par.on(stream_.get()),
                d_query_write_counters.data(),
                d_query_write_counters.data() + num_queries,
                0);
 
   rmm::device_uvector<float> d_topk_threshold_batch(use_block_sort ? num_queries : 0, stream_);
   if (use_block_sort) {
-    thrust::fill(thrust::cuda::par.on(stream_),
+    thrust::fill(thrust::cuda::par.on(stream_.get()),
                  d_topk_threshold_batch.data(),
                  d_topk_threshold_batch.data() + num_queries,
                  std::numeric_limits<float>::infinity());
@@ -221,7 +221,7 @@ void SearcherGPU::SearchClusterQueryPairsSharedMemOpt(
                               cur_ivf.get_ex_bits(), /*with_ex=*/true);
     auto const& kernel_launcher = [&]() -> void {
       jit_launcher->dispatch<compute_inner_products_with_lut_func_t>(
-        stream_, gridDim, blockDim, shared_mem_size, kernelParams);
+        stream_.get(), gridDim, blockDim, shared_mem_size, kernelParams);
     };
     cuvs::neighbors::detail::safely_launch_kernel_with_smem_size<
       compute_inner_products_with_lut_func_t>(
@@ -240,7 +240,7 @@ void SearcherGPU::SearchClusterQueryPairsSharedMemOpt(
                               /*ex_bits=*/0, /*with_ex=*/false);
     auto const& kernel_launcher = [&]() -> void {
       jit_launcher->dispatch<compute_inner_products_with_lut_func_t>(
-        stream_, gridDim, blockDim, shared_mem_size, kernelParams);
+        stream_.get(), gridDim, blockDim, shared_mem_size, kernelParams);
     };
     cuvs::neighbors::detail::safely_launch_kernel_with_smem_size<
       compute_inner_products_with_lut_func_t>(

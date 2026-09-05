@@ -154,7 +154,7 @@ class PrefilteredBruteForceOnBitmapTest
   : public ::testing::TestWithParam<PrefilteredBruteForceInputs<index_t>> {
  public:
   PrefilteredBruteForceOnBitmapTest()
-    : stream(raft::resource::get_cuda_stream(handle)),
+    : stream(raft::resource::get_cuda_stream(handle).get()),
       params(::testing::TestWithParam<PrefilteredBruteForceInputs<index_t>>::GetParam()),
       filter_d(0, stream),
       dataset_d(0, stream),
@@ -545,7 +545,7 @@ class PrefilteredBruteForceOnBitsetTest
   : public ::testing::TestWithParam<PrefilteredBruteForceInputs<index_t>> {
  public:
   PrefilteredBruteForceOnBitsetTest()
-    : stream(raft::resource::get_cuda_stream(handle)),
+    : stream(raft::resource::get_cuda_stream(handle).get()),
       params(::testing::TestWithParam<PrefilteredBruteForceInputs<index_t>>::GetParam()),
       filter_d(0, stream),
       dataset_d(0, stream),

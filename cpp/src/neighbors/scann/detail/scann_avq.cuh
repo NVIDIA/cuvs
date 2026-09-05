@@ -57,7 +57,7 @@ void compute_cluster_offsets(raft::resources const& dev_resources,
                              raft::device_vector_view<LabelT, int64_t> cluster_sizes,
                              int64_t& max_cluster_size)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(dev_resources);
+  cudaStream_t stream = raft::resource::get_cuda_stream(dev_resources).get();
   rmm::device_async_resource_ref device_memory =
     raft::resource::get_workspace_resource_ref(dev_resources);
 
@@ -136,7 +136,7 @@ void sum_reduce_vector(raft::resources const& dev_resources,
                        raft::device_vector_view<T, int64_t> v,
                        raft::device_scalar_view<T> s)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(dev_resources);
+  cudaStream_t stream = raft::resource::get_cuda_stream(dev_resources).get();
   rmm::device_async_resource_ref device_memory =
     raft::resource::get_workspace_resource_ref(dev_resources);
 
@@ -163,7 +163,7 @@ void cholesky_solver(raft::resources const& dev_resources,
                      raft::device_vector_view<T, int64_t> b,
                      raft::device_vector_view<T, int64_t> x)
 {
-  cudaStream_t stream          = raft::resource::get_cuda_stream(dev_resources);
+  cudaStream_t stream          = raft::resource::get_cuda_stream(dev_resources).get();
   cusolverDnHandle_t cusolverH = raft::resource::get_cusolver_dn_handle(dev_resources);
   rmm::device_async_resource_ref device_memory =
     raft::resource::get_workspace_resource_ref(dev_resources);
@@ -280,7 +280,7 @@ void compute_avq_centroid(raft::resources const& dev_resources,
 
   raft::linalg::detail::cublas_device_pointer_mode<true> pm(cublas_handle);
 
-  RAFT_CUBLAS_TRY(cublasSetStream(cublas_handle, raft::resource::get_cuda_stream(dev_resources)));
+  RAFT_CUBLAS_TRY(cublasSetStream(cublas_handle, raft::resource::get_cuda_stream(dev_resources).get()));
 
   RAFT_CUBLAS_TRY(cublasSgemm(cublas_handle,
                               cublasOperation_t::CUBLAS_OP_T,
@@ -581,7 +581,7 @@ void apply_avq(raft::resources const& res,
 {
   // Compute clusters
 
-  cudaStream_t stream  = raft::resource::get_cuda_stream(res);
+  cudaStream_t stream  = raft::resource::get_cuda_stream(res).get();
   auto cluster_offsets = raft::make_device_vector<uint32_t, int64_t>(res, centroids_view.extent(0));
   auto clusters        = raft::make_device_vector<uint32_t, int64_t>(res, dataset.extent(0));
   int64_t max_cluster_size = 0;

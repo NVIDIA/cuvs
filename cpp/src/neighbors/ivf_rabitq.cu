@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -192,7 +192,7 @@ void search(raft::resources const& handle,
             raft::device_matrix_view<IdxT, IdxT, raft::row_major> neighbors,
             raft::device_matrix_view<float, IdxT, raft::row_major> distances)
 {
-  auto stream = raft::resource::get_cuda_stream(handle).value();
+  auto stream = raft::resource::get_cuda_stream(handle).get();
 
   size_t NQ = queries.extent(0);
   size_t k  = neighbors.extent(1);

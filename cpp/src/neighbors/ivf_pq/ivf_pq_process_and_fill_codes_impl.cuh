@@ -95,7 +95,7 @@ void launch_process_and_fill_codes_kernel(
     }
   }(index.pq_bits());
 
-  kernel<<<blocks, threads, 0, raft::resource::get_cuda_stream(handle)>>>(new_vectors_residual,
+  kernel<<<blocks, threads, 0, raft::resource::get_cuda_stream(handle).get()>>>(new_vectors_residual,
                                                                           src_offset_or_indices,
                                                                           new_labels,
                                                                           index.list_sizes(),

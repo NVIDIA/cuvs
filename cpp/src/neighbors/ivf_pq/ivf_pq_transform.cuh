@@ -90,7 +90,7 @@ void transform_batch(raft::resources const& res,
     }
   }(index.pq_bits());
 
-  kernel<<<blocks, threads, 0, raft::resource::get_cuda_stream(res)>>>(dataset_residuals.view(),
+  kernel<<<blocks, threads, 0, raft::resource::get_cuda_stream(res).get()>>>(dataset_residuals.view(),
                                                                        output_labels,
                                                                        output_dataset,
                                                                        index.pq_centers(),

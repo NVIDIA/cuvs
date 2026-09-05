@@ -356,7 +356,7 @@ void SearcherGPU::SearchClusterQueryPairsQuantizeQuery(
       const int grid_size  = num_queries;
       size_t shared_mem    = D * sizeof(float) + block_size * sizeof(float);
       exrabitq_quantize_query<block_size>
-        <<<grid_size, block_size, shared_mem, stream_>>>(queries.data_handle(),
+        <<<grid_size, block_size, shared_mem, stream_.get()>>>(queries.data_handle(),
                                                          num_queries,
                                                          D,
                                                          num_bits,
@@ -369,7 +369,7 @@ void SearcherGPU::SearchClusterQueryPairsQuantizeQuery(
       // Step 1: Find min/max for each query
       const int block_size = 256;
       const int grid_size  = num_queries;
-      findQueryRanges<<<grid_size, block_size, 0, stream_>>>(queries.data_handle(),
+      findQueryRanges<<<grid_size, block_size, 0, stream_.get()>>>(queries.data_handle(),
                                                              d_query_ranges.data_handle(),
                                                              num_queries,
                                                              cur_ivf.get_num_padded_dim());
@@ -377,7 +377,7 @@ void SearcherGPU::SearchClusterQueryPairsQuantizeQuery(
 
       // Step 2: Quantize queries to int8_t with BQ=8
       if (use_4bit) {
-        quantizeQueriesToInt4<<<grid_size, block_size, 0, stream_>>>(
+        quantizeQueriesToInt4<<<grid_size, block_size, 0, stream_.get()>>>(
           queries.data_handle(),
           d_query_ranges.data_handle(),
           d_quantized_queries.data_handle(),
@@ -386,7 +386,7 @@ void SearcherGPU::SearchClusterQueryPairsQuantizeQuery(
           cur_ivf.get_num_padded_dim());
         RAFT_CUDA_TRY(cudaPeekAtLastError());
       } else {
-        quantizeQueriesToInt8<<<grid_size, block_size, 0, stream_>>>(
+        quantizeQueriesToInt8<<<grid_size, block_size, 0, stream_.get()>>>(
           queries.data_handle(),
           d_query_ranges.data_handle(),
           d_quantized_queries.data_handle(),
@@ -404,14 +404,14 @@ void SearcherGPU::SearchClusterQueryPairsQuantizeQuery(
     const int grid_size  = (num_queries * num_bits * num_words + block_size - 1) / block_size;
 
     if (use_4bit) {
-      packInt4QueryBitPlanes<<<grid_size, block_size, 0, stream_>>>(
+      packInt4QueryBitPlanes<<<grid_size, block_size, 0, stream_.get()>>>(
         d_quantized_queries.data_handle(),
         d_packed_queries.data_handle(),
         num_queries,
         cur_ivf.get_num_padded_dim());
       RAFT_CUDA_TRY(cudaPeekAtLastError());
     } else {
-      packInt8QueryBitPlanes<<<grid_size, block_size, 0, stream_>>>(
+      packInt8QueryBitPlanes<<<grid_size, block_size, 0, stream_.get()>>>(
         d_quantized_queries.data_handle(),
         d_packed_queries.data_handle(),
         num_queries,
@@ -450,18 +450,18 @@ void SearcherGPU::SearchClusterQueryPairsQuantizeQuery(
   auto d_topk_pids  = raft::make_device_matrix<uint32_t, int64_t>(handle_, num_queries, n_cols);
 
   // initialize distances
-  thrust::fill(thrust::cuda::par.on(stream_),
+  thrust::fill(thrust::cuda::par.on(stream_.get()),
                d_topk_dists.data_handle(),
                d_topk_dists.data_handle() + d_topk_dists.size(),
                std::numeric_limits<float>::infinity());
 
-  thrust::fill(thrust::cuda::par.on(stream_),
+  thrust::fill(thrust::cuda::par.on(stream_.get()),
                d_query_write_counters.data_handle(),
                d_query_write_counters.data_handle() + num_queries,
                0);
 
   if (use_block_sort) {
-    thrust::fill(thrust::cuda::par.on(stream_),
+    thrust::fill(thrust::cuda::par.on(stream_.get()),
                  d_topk_threshold_batch.data_handle(),
                  d_topk_threshold_batch.data_handle() + num_queries,
                  std::numeric_limits<float>::infinity());
@@ -526,7 +526,7 @@ void SearcherGPU::SearchClusterQueryPairsQuantizeQuery(
                                          cur_ivf.get_ex_bits(), with_ex);
   auto const& kernel_launcher = [&]() -> void {
     jit_launcher->dispatch<compute_inner_products_with_lut_func_t>(
-      stream_, gridDim, blockDim, shared_mem_size, kernelParams);
+      stream_.get(), gridDim, blockDim, shared_mem_size, kernelParams);
   };
   cuvs::neighbors::detail::safely_launch_kernel_with_smem_size<
     compute_inner_products_with_lut_func_t>(

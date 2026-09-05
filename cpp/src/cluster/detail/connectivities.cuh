@@ -61,7 +61,7 @@ struct distance_graph_impl<Linkage::KNN_GRAPH, value_idx, value_t> {
     auto thrust_policy = raft::resource::get_thrust_policy(handle);
 
     // Need to symmetrize knn into undirected graph
-    raft::sparse::COO<value_t, value_idx> knn_graph_coo(stream);
+    raft::sparse::COO<value_t, value_idx> knn_graph_coo(stream.get());
 
     auto X_view = raft::make_device_matrix_view<const value_t, value_idx, raft::row_major>(X, m, n);
     cuvs::neighbors::detail::knn_graph<value_idx, value_t, size_t>(
@@ -92,7 +92,7 @@ struct distance_graph_impl<Linkage::KNN_GRAPH, value_idx, value_t> {
       raft::make_const_mdspan(vals_in_view));
 
     raft::sparse::convert::sorted_coo_to_csr(
-      knn_graph_coo.rows(), knn_graph_coo.nnz, indptr.data(), m + 1, stream);
+      knn_graph_coo.rows(), knn_graph_coo.nnz, indptr.data(), m + 1, stream.get());
 
     // TODO: Wouldn't need to copy here if we could compute knn
     // graph directly on the device uvectors
@@ -140,7 +140,7 @@ void pairwise_distances(const raft::resources& handle,
   value_idx nnz = m * m;
 
   value_idx blocks = raft::ceildiv(nnz, (value_idx)256);
-  fill_indices2<value_idx><<<blocks, 256, 0, stream>>>(indices, m, nnz);
+  fill_indices2<value_idx><<<blocks, 256, 0, stream.get()>>>(indices, m, nnz);
 
   raft::linalg::map_offset(handle,
                            raft::make_device_vector_view<value_idx, value_idx>(indptr, m),

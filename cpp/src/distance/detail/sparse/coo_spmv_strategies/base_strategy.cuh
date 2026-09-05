@@ -56,7 +56,7 @@ class coo_spmv_strategy {
                                          cudaFuncCachePreferShared));
 
     balanced_coo_generalized_spmv_kernel<strategy_t, indptr_it, value_idx, value_t, false, tpb>
-      <<<n_blocks, tpb, smem, raft::resource::get_cuda_stream(config.handle)>>>(strategy,
+      <<<n_blocks, tpb, smem, raft::resource::get_cuda_stream(config.handle).get()>>>(strategy,
                                                                                 a_indptr,
                                                                                 config.a_indices,
                                                                                 config.a_data,
@@ -106,7 +106,7 @@ class coo_spmv_strategy {
                                          cudaFuncCachePreferShared));
 
     balanced_coo_generalized_spmv_kernel<strategy_t, indptr_it, value_idx, value_t, true, tpb>
-      <<<n_blocks, tpb, smem, raft::resource::get_cuda_stream(config.handle)>>>(strategy,
+      <<<n_blocks, tpb, smem, raft::resource::get_cuda_stream(config.handle).get()>>>(strategy,
                                                                                 b_indptr,
                                                                                 config.b_indices,
                                                                                 config.b_data,

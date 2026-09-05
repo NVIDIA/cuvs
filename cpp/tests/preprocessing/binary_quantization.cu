@@ -42,7 +42,7 @@ class BinaryQuantizationTest : public ::testing::TestWithParam<BinaryQuantizatio
  public:
   BinaryQuantizationTest()
     : params_(::testing::TestWithParam<BinaryQuantizationInputs<T>>::GetParam()),
-      stream(raft::resource::get_cuda_stream(handle)),
+      stream(raft::resource::get_cuda_stream(handle).get()),
       input_(0, stream)
   {
   }

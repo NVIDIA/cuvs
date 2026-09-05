@@ -488,7 +488,7 @@ void process_and_fill_codes(
     }
     dim3 blocks(
       raft::div_rounding_up_safe<ix_t>(dataset_view.extent(0), kBlockSize / threads_per_vec), 1, 1);
-    kernel<<<blocks, threads, sharedMemorySize, stream>>>(codes_view,
+    kernel<<<blocks, threads, sharedMemorySize, stream.get()>>>(codes_view,
                                                           dataset_view,
                                                           pq_centers,
                                                           vq_centers,
@@ -891,7 +891,7 @@ void process_and_fill_codes_subspaces(
     }
     dim3 blocks(
       raft::div_rounding_up_safe<ix_t>(dataset_view.extent(0), kBlockSize / threads_per_vec), 1, 1);
-    kernel<<<blocks, threads, shared_memory_size, stream>>>(codes_view,
+    kernel<<<blocks, threads, shared_memory_size, stream.get()>>>(codes_view,
                                                             dataset_view,
                                                             pq_centers,
                                                             vq_centers,

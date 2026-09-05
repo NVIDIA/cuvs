@@ -47,11 +47,11 @@ index<CodeT>::index(raft::resources const& res,
   auto stream = raft::resource::get_cuda_stream(res);
   std::memset(accum_sorted_sizes_.data_handle(), 0, accum_sorted_sizes_.size() * sizeof(int64_t));
   RAFT_CUDA_TRY(
-    cudaMemsetAsync(list_sizes_.data_handle(), 0, list_sizes_.size() * sizeof(uint32_t), stream));
+    cudaMemsetAsync(list_sizes_.data_handle(), 0, list_sizes_.size() * sizeof(uint32_t), stream.get()));
   RAFT_CUDA_TRY(
-    cudaMemsetAsync(data_ptrs_.data_handle(), 0, data_ptrs_.size() * sizeof(CodeT*), stream));
+    cudaMemsetAsync(data_ptrs_.data_handle(), 0, data_ptrs_.size() * sizeof(CodeT*), stream.get()));
   RAFT_CUDA_TRY(
-    cudaMemsetAsync(inds_ptrs_.data_handle(), 0, inds_ptrs_.size() * sizeof(int64_t*), stream));
+    cudaMemsetAsync(inds_ptrs_.data_handle(), 0, inds_ptrs_.size() * sizeof(int64_t*), stream.get()));
 }
 
 template <typename CodeT>

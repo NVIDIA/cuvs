@@ -140,7 +140,7 @@ standard_descriptor_spec<Metric, TeamSize, DatasetBlockDim, DataT, IndexT, Dista
                                                              DataT,
                                                              IndexT,
                                                              DistanceT>
-                       <<<1, 1, 0, stream>>>(dev_ptr, ptr, size, dim, ld, dataset_norms);
+                       <<<1, 1, 0, stream.get()>>>(dev_ptr, ptr, size, dim, ld, dataset_norms);
                      RAFT_CUDA_TRY(cudaPeekAtLastError());
                    },
                    Metric,

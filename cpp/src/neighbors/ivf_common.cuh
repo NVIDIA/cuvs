@@ -158,7 +158,7 @@ void postprocess_neighbors(IdxT* neighbors_out,                // [n_queries, to
   constexpr int kPNThreads = 256;
   const int pn_blocks      = raft::div_rounding_up_unsafe<size_t>(n_queries * topk, kPNThreads);
   postprocess_neighbors_kernel<kPNThreads, IdxT>
-    <<<pn_blocks, kPNThreads, 0, stream>>>(neighbors_out,
+    <<<pn_blocks, kPNThreads, 0, stream.get()>>>(neighbors_out,
                                            neighbors_in,
                                            db_indices,
                                            clusters_to_probe,

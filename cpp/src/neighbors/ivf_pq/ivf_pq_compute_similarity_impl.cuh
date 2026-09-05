@@ -290,7 +290,7 @@ void compute_similarity_run(selected<OutT, LutT> s,
                             OutT* _out_scores,
                             uint32_t* _out_indices)
 {
-  s.launcher->template dispatch<compute_similarity_func_t<OutT, LutT>>(stream,
+  s.launcher->template dispatch<compute_similarity_func_t<OutT, LutT>>(stream.get(),
                                                                        s.grid_dim,
                                                                        s.block_dim,
                                                                        s.smem_size,

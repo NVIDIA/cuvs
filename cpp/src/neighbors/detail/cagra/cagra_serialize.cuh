@@ -428,7 +428,7 @@ void write_hnswlib_rows_device(raft::resources const& res,
     auto const rows   = std::min(batch_rows, n_rows - first_row);
     auto const blocks = (rows + warps_per_block - 1) / warps_per_block;
     pack_hnswlib_rows<T, IdxT>
-      <<<static_cast<unsigned int>(blocks), block_size, 0, stream>>>(output.data_handle(),
+      <<<static_cast<unsigned int>(blocks), block_size, 0, stream.get()>>>(output.data_handle(),
                                                                      row_size,
                                                                      graph.data_handle(),
                                                                      dataset.view().data_handle(),

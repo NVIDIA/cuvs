@@ -107,7 +107,7 @@ void _get_distances(cuvsResources_t res, cuvsNNDescentIndex_t index, DLManagedTe
                     src->data_handle(),
                     dst.extent(0) * dst.extent(1) * sizeof(float),
                     cudaMemcpyDefault,
-                    raft::resource::get_cuda_stream(*res_ptr));
+                    raft::resource::get_cuda_stream(*res_ptr).get());
 
   } else {
     RAFT_FAIL("Unsupported nn-descent index dtype: %d and bits: %d", dtype.code, dtype.bits);

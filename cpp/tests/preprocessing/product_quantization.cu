@@ -93,7 +93,7 @@ class ProductQuantizationTest : public ::testing::TestWithParam<ProductQuantizat
  public:
   ProductQuantizationTest()
     : params_(::testing::TestWithParam<ProductQuantizationInputs<T>>::GetParam()),
-      stream(raft::resource::get_cuda_stream(handle)),
+      stream(raft::resource::get_cuda_stream(handle).get()),
       dataset_(raft::make_device_matrix<T, int64_t, raft::row_major>(
         handle, params_.n_samples, params_.n_features)),
       dataset_host_(

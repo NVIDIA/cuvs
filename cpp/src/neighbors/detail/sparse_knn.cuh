@@ -174,7 +174,7 @@ class sparse_knn_t {
                                                         raft::resource::get_cuda_stream(handle));
 
       value_idx n_query_batch_nnz = query_batcher.get_batch_csr_indptr_nnz(
-        query_batch_indptr.data(), raft::resource::get_cuda_stream(handle));
+        query_batch_indptr.data(), raft::resource::get_cuda_stream(handle).get());
 
       rmm::device_uvector<value_idx> query_batch_indices(n_query_batch_nnz,
                                                          raft::resource::get_cuda_stream(handle));
@@ -183,7 +183,7 @@ class sparse_knn_t {
 
       query_batcher.get_batch_csr_indices_data(query_batch_indices.data(),
                                                query_batch_data.data(),
-                                               raft::resource::get_cuda_stream(handle));
+                                               raft::resource::get_cuda_stream(handle).get());
 
       // A 3-partition temporary merge space to scale the batching. 2 parts for subsequent
       // batches and 1 space for the results of the merge, which get copied back to the top
@@ -216,13 +216,13 @@ class sparse_knn_t {
         rmm::device_uvector<value_t> idx_batch_data(0, raft::resource::get_cuda_stream(handle));
 
         value_idx idx_batch_nnz = idx_batcher.get_batch_csr_indptr_nnz(
-          idx_batch_indptr.data(), raft::resource::get_cuda_stream(handle));
+          idx_batch_indptr.data(), raft::resource::get_cuda_stream(handle).get());
 
         idx_batch_indices.resize(idx_batch_nnz, raft::resource::get_cuda_stream(handle));
         idx_batch_data.resize(idx_batch_nnz, raft::resource::get_cuda_stream(handle));
 
         idx_batcher.get_batch_csr_indices_data(
-          idx_batch_indices.data(), idx_batch_data.data(), raft::resource::get_cuda_stream(handle));
+          idx_batch_indices.data(), idx_batch_data.data(), raft::resource::get_cuda_stream(handle).get());
 
         /**
          * Compute distances
@@ -254,7 +254,7 @@ class sparse_knn_t {
         value_idx batch_rows = query_batcher.batch_rows(), batch_cols = idx_batcher.batch_rows();
 
         iota_fill(
-          batch_indices.data(), batch_rows, batch_cols, raft::resource::get_cuda_stream(handle));
+          batch_indices.data(), batch_rows, batch_cols, raft::resource::get_cuda_stream(handle).get());
 
         /**
          * Perform k-selection on batch & merge with other k-selections

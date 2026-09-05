@@ -55,13 +55,13 @@ class EpsNeighTest : public ::testing::TestWithParam<EpsInputs<T, IdxT>> {
     batchSize = param.n_row / param.n_batches;
     adj.resize(param.n_row * batchSize, stream);
     vd.resize(batchSize + 1, stream);
-    RAFT_CUDA_TRY(cudaMemsetAsync(vd.data(), 0, vd.size() * sizeof(IdxT), stream));
+    RAFT_CUDA_TRY(cudaMemsetAsync(vd.data(), 0, vd.size() * sizeof(IdxT), stream.get()));
     raft::random::make_blobs<T, IdxT>(data.data(),
                                       labels.data(),
                                       param.n_row,
                                       param.n_col,
                                       param.n_centers,
-                                      stream,
+                                      stream.get(),
                                       true,
                                       nullptr,
                                       nullptr,
@@ -450,11 +450,11 @@ TEST(EpsNeighborhood, LargeNDimension)
   raft::matrix::fill(handle, adj_expected.view(), true);
   auto stream = raft::resource::get_cuda_stream(handle);
   ASSERT_TRUE(cuvs::devArrMatch(
-    adj_expected.data_handle(), adj.data_handle(), m * n, cuvs::Compare<bool>(), stream));
+    adj_expected.data_handle(), adj.data_handle(), m * n, cuvs::Compare<bool>(), stream.get()));
 
   int64_t expected_vd0 = n;
   ASSERT_TRUE(
-    cuvs::devArrMatch(&expected_vd0, vd.data_handle(), 1, cuvs::Compare<int64_t>(), stream));
+    cuvs::devArrMatch(&expected_vd0, vd.data_handle(), 1, cuvs::Compare<int64_t>(), stream.get()));
 }
 
 };  // namespace cuvs::neighbors::epsilon_neighborhood

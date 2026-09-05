@@ -769,7 +769,7 @@ void merge_graph_gpu(
     auto mst_graph_num_edges_view = (*d_mst_graph_num_edges).view();
     auto output_view              = (*d_output_graph).view();
     kern_merge_graph<IdxT, num_warps>
-      <<<blocks_merge, threads_merge, merge_smem_size, raft::resource::get_cuda_stream(res)>>>(
+      <<<blocks_merge, threads_merge, merge_smem_size, raft::resource::get_cuda_stream(res).get()>>>(
         output_view,
         d_rev_graph,
         d_rev_graph_count,
@@ -828,7 +828,7 @@ void make_reverse_graph_gpu(
     dim3 threads(256, 1, 1);
     dim3 blocks(1024, 1, 1);
     for (uint64_t k = 0; k < output_graph_degree; k++) {
-      kern_make_rev_graph_k<<<blocks, threads, 0, raft::resource::get_cuda_stream(res)>>>(
+      kern_make_rev_graph_k<<<blocks, threads, 0, raft::resource::get_cuda_stream(res).get()>>>(
         output_graph, d_rev_graph, d_rev_graph_count, k);
     }
   } else {
@@ -843,7 +843,7 @@ void make_reverse_graph_gpu(
 
       dim3 threads(256, 1, 1);
       dim3 blocks(1024, 1, 1);
-      kern_make_rev_graph_k<<<blocks, threads, 0, raft::resource::get_cuda_stream(res)>>>(
+      kern_make_rev_graph_k<<<blocks, threads, 0, raft::resource::get_cuda_stream(res).get()>>>(
         d_dest_nodes.view(), d_rev_graph, d_rev_graph_count, 0);
       raft::resource::sync_stream(res);
       RAFT_LOG_DEBUG("# Making reverse graph on GPUs: %lu / %u    \r", k, output_graph_degree);
@@ -1175,7 +1175,7 @@ void mst_optimization(
                                         1 * sizeof(IdxT),  // width
                                         graph_size,
                                         cudaMemcpyDeviceToHost,
-                                        raft::resource::get_cuda_stream(res)));
+                                        raft::resource::get_cuda_stream(res).get()));
         raft::resource::sync_stream(res);
 
         // FIXME: use submdspan and raft::copy once supported
@@ -1199,7 +1199,7 @@ void mst_optimization(
       constexpr uint64_t n_threads = 256;
       const dim3 threads(n_threads, 1, 1);
       const dim3 blocks(raft::ceildiv<uint64_t>(graph_size, n_threads), 1, 1);
-      kern_mst_opt_update_graph<<<blocks, threads, 0, raft::resource::get_cuda_stream(res)>>>(
+      kern_mst_opt_update_graph<<<blocks, threads, 0, raft::resource::get_cuda_stream(res).get()>>>(
         d_mst_graph_ptr,
         d_candidate_edges_ptr,
         d_outgoing_num_edges_ptr,
@@ -1245,7 +1245,7 @@ void mst_optimization(
         constexpr uint64_t n_threads = 256;
         const dim3 threads(n_threads, 1, 1);
         const dim3 blocks((graph_size + n_threads - 1) / n_threads, 1, 1);
-        kern_mst_opt_labeling<<<blocks, threads, 0, raft::resource::get_cuda_stream(res)>>>(
+        kern_mst_opt_labeling<<<blocks, threads, 0, raft::resource::get_cuda_stream(res).get()>>>(
           d_label_ptr, d_mst_graph_ptr, graph_size, mst_graph_degree, d_stats_ptr);
 
         raft::copy(res,
@@ -1279,7 +1279,7 @@ void mst_optimization(
       constexpr uint64_t n_threads = 256;
       const dim3 threads(n_threads, 1, 1);
       const dim3 blocks(raft::ceildiv<uint64_t>(graph_size, n_threads), 1, 1);
-      kern_mst_opt_cluster_size<<<blocks, threads, 0, raft::resource::get_cuda_stream(res)>>>(
+      kern_mst_opt_cluster_size<<<blocks, threads, 0, raft::resource::get_cuda_stream(res).get()>>>(
         d_cluster_size_ptr, d_label_ptr, graph_size, d_stats_ptr);
 
       raft::copy(res,
@@ -1320,7 +1320,7 @@ void mst_optimization(
       constexpr uint64_t n_threads = 256;
       const dim3 threads(n_threads, 1, 1);
       const dim3 blocks((graph_size + n_threads - 1) / n_threads, 1, 1);
-      kern_mst_opt_postprocessing<<<blocks, threads, 0, raft::resource::get_cuda_stream(res)>>>(
+      kern_mst_opt_postprocessing<<<blocks, threads, 0, raft::resource::get_cuda_stream(res).get()>>>(
         d_outgoing_num_edges_ptr,
         d_incoming_num_edges_ptr,
         d_outgoing_max_edges_ptr,
@@ -1497,7 +1497,7 @@ void prune_graph_gpu(
   for (uint32_t i_batch = 0; i_batch < num_batch; i_batch++) {
     auto output_view = (*d_output_graph).view();
     kern_fused_prune<IdxT, num_warps>
-      <<<blocks_prune, threads_prune, prune_smem_size, raft::resource::get_cuda_stream(res)>>>(
+      <<<blocks_prune, threads_prune, prune_smem_size, raft::resource::get_cuda_stream(res).get()>>>(
         input_view,
         output_view,
         batch_size,

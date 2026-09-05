@@ -68,7 +68,7 @@ struct lightweight_uvector {
     }
     auto copy_size = std::min(size_, new_size);
     if (copy_size > 0) {
-      cudaMemcpyAsync(new_ptr, ptr_, copy_size * sizeof(T), cudaMemcpyDefault, s);
+      cudaMemcpyAsync(new_ptr, ptr_, copy_size * sizeof(T), cudaMemcpyDefault, s.get());
     }
     if (size_ > 0) { r.deallocate(s, ptr_, size_ * sizeof(T), kAlign); }
     ptr_  = new_ptr;

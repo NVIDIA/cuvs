@@ -914,7 +914,7 @@ class batch_runner {
       kernel_progress_counters_.data_handle(),
       0,
       sizeof(*kernel_progress_counters_.data_handle()) * kernel_progress_counters_.size(),
-      raft::resource::get_cuda_stream(res_)));
+      raft::resource::get_cuda_stream(res_).get()));
     // Make sure to initialize the atomic values in the batch_state structs.
     for (uint32_t i = 0; i < n_queues_; i++) {
       auto seq_id = batch_queue_.push();
@@ -1026,7 +1026,7 @@ class batch_runner {
         rem_time_us_ref.store(static_cast<int32_t>(params.dispatch_timeout_ms * 1000),
                               cuda::std::memory_order_relaxed);
         // run the gather kernel before submitting the data to reduce the latency
-        gather_inputs<T, IdxT><<<max_batch_size_, 32, 0, stream>>>(
+        gather_inputs<T, IdxT><<<max_batch_size_, 32, 0, stream.get()>>>(
           slice_3d(batch_id, queries_),
           request_ptrs,
           &rem_time_us_ref,
@@ -1075,13 +1075,13 @@ class batch_runner {
         // next_batch_token);
         auto bs = dim3(128, 8, 1);
         scatter_outputs<T, IdxT>
-          <<<1, bs, 0, stream>>>(request_ptrs,
+          <<<1, bs, 0, stream.get()>>>(request_ptrs,
                                  batch_neighbors,
                                  batch_distances,
                                  kernel_progress_counters_.data_handle() + batch_id,
                                  &next_token_ref,
                                  batch_queue::make_seq_batch_id(next_seq_id, batch_id));
-        RAFT_CUDA_TRY(cudaEventRecord(completion_events_[batch_id].value(), stream));
+        RAFT_CUDA_TRY(cudaEventRecord(completion_events_[batch_id].value(), stream.get()));
         dispatch_sequence_id_ref.store(seq_id.value, cuda::std::memory_order_release);
         dispatch_sequence_id_ref.notify_all();
 
@@ -1094,7 +1094,7 @@ class batch_runner {
           dispatched_id_observed = dispatch_sequence_id_ref.load(cuda::std::memory_order_acquire);
         }
         // Now we can safely record the event
-        RAFT_CUDA_TRY(cudaStreamWaitEvent(stream, completion_events_[batch_id].value()));
+        RAFT_CUDA_TRY(cudaStreamWaitEvent(stream.get(), completion_events_[batch_id].value()));
       }
 
       n_queries -= queries_committed;

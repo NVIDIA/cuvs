@@ -89,7 +89,7 @@ inline void unpack_contiguous_list_data_impl(
       default: RAFT_FAIL("Invalid pq_bits (%u), the value must be within [4, 8]", pq_bits);
     }
   }();
-  kernel<<<blocks, threads, 0, stream>>>(codes, list_data, n_rows, pq_dim, offset_or_indices);
+  kernel<<<blocks, threads, 0, stream.get()>>>(codes, list_data, n_rows, pq_dim, offset_or_indices);
   RAFT_CUDA_TRY(cudaPeekAtLastError());
 }
 
@@ -171,7 +171,7 @@ inline void pack_contiguous_list_data_impl(
       default: RAFT_FAIL("Invalid pq_bits (%u), the value must be within [4, 8]", pq_bits);
     }
   }();
-  kernel<<<blocks, threads, 0, stream>>>(list_data, codes, n_rows, pq_dim, offset_or_indices);
+  kernel<<<blocks, threads, 0, stream.get()>>>(list_data, codes, n_rows, pq_dim, offset_or_indices);
   RAFT_CUDA_TRY(cudaPeekAtLastError());
 }
 }  // namespace cuvs::neighbors::ivf_pq::detail

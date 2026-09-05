@@ -270,14 +270,14 @@ class KmeansTest : public ::testing::TestWithParam<KmeansInputs<T>> {
     raft::resource::sync_stream(handle, stream);
 
     score = raft::stats::adjusted_rand_index(
-      d_labels_ref.data(), d_labels.data(), n_samples, raft::resource::get_cuda_stream(handle));
+      d_labels_ref.data(), d_labels.data(), n_samples, raft::resource::get_cuda_stream(handle).get());
 
     if (score < 1.0) {
       std::stringstream ss;
-      ss << "Expected: " << raft::arr2Str(d_labels_ref.data(), 25, "d_labels_ref", stream);
+      ss << "Expected: " << raft::arr2Str(d_labels_ref.data(), 25, "d_labels_ref", stream.get());
       std::cout << (ss.str().c_str()) << '\n';
       ss.str(std::string());
-      ss << "Actual: " << raft::arr2Str(d_labels.data(), 25, "d_labels", stream);
+      ss << "Actual: " << raft::arr2Str(d_labels.data(), 25, "d_labels", stream.get());
       std::cout << (ss.str().c_str()) << '\n';
       std::cout << "Score = " << score << '\n';
     }
@@ -443,7 +443,7 @@ class KmeansFitBatchedTest : public ::testing::TestWithParam<KmeansBatchedInputs
                                   params.n_clusters,
                                   n_features,
                                   CompareApprox<T>(T(1e-2)),
-                                  stream);
+                                  stream.get());
 
     T ref_pred_inertia = 0;
     cuvs::cluster::kmeans::predict(handle,
@@ -470,14 +470,14 @@ class KmeansFitBatchedTest : public ::testing::TestWithParam<KmeansBatchedInputs
     score = raft::stats::adjusted_rand_index(d_labels_ref->data_handle(),
                                              d_labels->data_handle(),
                                              n_samples,
-                                             raft::resource::get_cuda_stream(handle));
+                                             raft::resource::get_cuda_stream(handle).get());
 
     if (score < 0.99) {
       std::stringstream ss;
-      ss << "Expected: " << raft::arr2Str(d_labels_ref->data_handle(), 25, "d_labels_ref", stream);
+      ss << "Expected: " << raft::arr2Str(d_labels_ref->data_handle(), 25, "d_labels_ref", stream.get());
       std::cout << (ss.str().c_str()) << '\n';
       ss.str(std::string());
-      ss << "Actual: " << raft::arr2Str(d_labels->data_handle(), 25, "d_labels", stream);
+      ss << "Actual: " << raft::arr2Str(d_labels->data_handle(), 25, "d_labels", stream.get());
       std::cout << (ss.str().c_str()) << '\n';
       std::cout << "Score = " << score << '\n';
     }

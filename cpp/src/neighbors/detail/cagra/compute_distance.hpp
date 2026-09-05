@@ -230,7 +230,7 @@ struct dataset_descriptor_host {
     {
       if (std::holds_alternative<ready_t>(value)) {
         auto& [ptr, stream] = std::get<ready_t>(value);
-        RAFT_CUDA_TRY_NO_THROW(cudaFreeAsync(ptr, stream));
+        RAFT_CUDA_TRY_NO_THROW(cudaFreeAsync(ptr, stream.get()));
       }
       RAFT_CUDA_TRY_NO_THROW(cudaEventDestroy(ready_event));
     }
@@ -241,9 +241,9 @@ struct dataset_descriptor_host {
       if (std::holds_alternative<init_f>(value)) {
         auto& [fun, size]     = std::get<init_f>(value);
         dev_descriptor_t* ptr = nullptr;
-        RAFT_CUDA_TRY(cudaMallocAsync(&ptr, size, stream));
+        RAFT_CUDA_TRY(cudaMallocAsync(&ptr, size, stream.get()));
         fun(ptr, stream);
-        RAFT_CUDA_TRY(cudaEventRecord(ready_event, stream));
+        RAFT_CUDA_TRY(cudaEventRecord(ready_event, stream.get()));
         value = std::make_tuple(ptr, stream);
         ready.store(true, std::memory_order_release);
       }
@@ -254,7 +254,7 @@ struct dataset_descriptor_host {
       if (!ready.load(std::memory_order_acquire)) { eval(stream); }
       // value is immutable at this point.
       auto& [ptr, ready_stream] = std::get<ready_t>(value);
-      if (ready_stream != stream) { RAFT_CUDA_TRY(cudaStreamWaitEvent(stream, ready_event, 0)); }
+      if (ready_stream != stream) { RAFT_CUDA_TRY(cudaStreamWaitEvent(stream.get(), ready_event, 0)); }
       return ptr;
     }
   };

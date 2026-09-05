@@ -70,7 +70,7 @@ void calc_chunk_indices::configured::operator()(const uint32_t* cluster_sizes,
 
   void* args[] =  // NOLINT
     {&n_probes, &cluster_sizes, &clusters_to_probe, &chunk_indices, &n_samples};
-  RAFT_CUDA_TRY(cudaLaunchKernel(kernel, grid_dim, block_dim, args, 0, stream));
+  RAFT_CUDA_TRY(cudaLaunchKernel(kernel, grid_dim, block_dim, args, 0, stream.get()));
 }
 
 // Helper function to sort cluster sizes using CUB, extracted from template to avoid
@@ -85,10 +85,10 @@ void sort_cluster_sizes_descending(uint32_t* input,
   int end_bit               = sizeof(uint32_t) * 8;
   size_t cub_workspace_size = 0;
   cub::DeviceRadixSort::SortKeysDescending(
-    nullptr, cub_workspace_size, input, output, n_lists, begin_bit, end_bit, stream);
+    nullptr, cub_workspace_size, input, output, n_lists, begin_bit, end_bit, stream.get());
   rmm::device_buffer cub_workspace(cub_workspace_size, stream, tmp_res);
   cub::DeviceRadixSort::SortKeysDescending(
-    cub_workspace.data(), cub_workspace_size, input, output, n_lists, begin_bit, end_bit, stream);
+    cub_workspace.data(), cub_workspace_size, input, output, n_lists, begin_bit, end_bit, stream.get());
 }
 
 }  // namespace cuvs::neighbors::ivf::detail

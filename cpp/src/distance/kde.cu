@@ -558,7 +558,7 @@ void kde(raft::resources const& handle,
   const T* weights_ptr = weights.has_value() ? weights->data_handle() : nullptr;
   T* output_ptr        = output.data_handle();
 
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle);
+  cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
   T log_norm          = std::log(sum_weights) + norm_factor<T>(kernel, bandwidth, d);
 
   // Cap feature tile to the actual dimension to avoid wasted shared memory

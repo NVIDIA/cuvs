@@ -1327,7 +1327,7 @@ from_cagra(raft::resources const& res,
                                     degree * sizeof(uint32_t),
                                     n_rows,
                                     cudaMemcpyDefault,
-                                    raft::resource::get_cuda_stream(res)));
+                                    raft::resource::get_cuda_stream(res).get()));
 #pragma omp parallel for num_threads(num_threads)
     for (int64_t i = 0; i < n_rows; i++) {
       appr_algo->setListCount(appr_algo->get_linklist0(i), degree);

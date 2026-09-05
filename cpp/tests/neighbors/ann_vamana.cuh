@@ -168,7 +168,7 @@ class AnnVamanaTest : public ::testing::TestWithParam<AnnVamanaInputs> {
       index = vamana::build(handle_, index_params, database_view);
     };
 
-    CheckGraph<DataT, IdxT>(&index, ps, stream_);
+    CheckGraph<DataT, IdxT>(&index, ps, stream_.get());
 
     tmp_index_file index_file;
     vamana::serialize(handle_, index_file.filename, index);

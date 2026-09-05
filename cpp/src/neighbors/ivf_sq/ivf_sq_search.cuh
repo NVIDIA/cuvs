@@ -247,7 +247,7 @@ void launch_kernel(const index<CodeT>& idx,
     const float* sq_vmin            = idx.sq_vmin().data_handle();
     const float* sq_delta           = idx.sq_delta().data_handle();
 
-    kernel_launcher->dispatch<ivf_sq_scan_func_t<int64_t>>(stream,
+    kernel_launcher->dispatch<ivf_sq_scan_func_t<int64_t>>(stream.get(),
                                                            grid,
                                                            block,
                                                            smem,
@@ -390,7 +390,7 @@ void search_impl(raft::resources const& handle,
     converted_queries_ptr = const_cast<float*>(queries);
   } else {
     raft::linalg::unaryOp(
-      converted_queries_ptr, queries, n_queries * dim, utils::mapping<float>{}, stream);
+      converted_queries_ptr, queries, n_queries * dim, utils::mapping<float>{}, stream.get());
   }
 
   auto distance_buffer_dev_view = raft::make_device_matrix_view<float, int64_t>(
@@ -412,7 +412,7 @@ void search_impl(raft::resources const& handle,
                                                         converted_queries_ptr,
                                                         static_cast<int64_t>(dim),
                                                         static_cast<int64_t>(n_queries),
-                                                        stream);
+                                                        stream.get());
       utils::outer_add(query_norm_dev->data_handle(),
                        (int64_t)n_queries,
                        index.center_norms()->data_handle(),
@@ -426,7 +426,7 @@ void search_impl(raft::resources const& handle,
                                                         converted_queries_ptr,
                                                         static_cast<int64_t>(dim),
                                                         static_cast<int64_t>(n_queries),
-                                                        stream,
+                                                        stream.get(),
                                                         raft::sqrt_op{});
       alpha = -1.0f;
       beta  = 0.0f;
@@ -454,7 +454,7 @@ void search_impl(raft::resources const& handle,
                      &beta,
                      distance_buffer_dev.data(),
                      index.n_lists(),
-                     stream);
+                     stream.get());
 
   if (index.metric() == cuvs::distance::DistanceType::CosineExpanded) {
     auto n_lists_local          = index.n_lists();

@@ -178,7 +178,7 @@ struct Inputs {
     // Initialize adj, group_idxs.
     dim3 block(32, 32);
     dim3 grid(10, 10);
-    init_adj<<<grid, block, 0, raft::resource::get_cuda_stream(handle)>>>(
+    init_adj<<<grid, block, 0, raft::resource::get_cuda_stream(handle).get()>>>(
       p.pattern, p.n, adj.view(), group_idxs.view());
     RAFT_CUDA_TRY(cudaGetLastError());
   }
@@ -200,14 +200,14 @@ auto reference(const raft::handle_t& handle, const Inputs<DataT>& inp, const Par
   // Initialize workspace
   auto stream = raft::resource::get_cuda_stream(handle);
   rmm::device_uvector<char> workspace(p.m * sizeof(int), stream);
-  RAFT_CUDA_TRY(cudaMemsetAsync(workspace.data(), 0, sizeof(int) * m, stream));
+  RAFT_CUDA_TRY(cudaMemsetAsync(workspace.data(), 0, sizeof(int) * m, stream.get()));
 
   // Initialize output
   auto out  = raft::make_device_vector<OutT, int>(handle, m);
   auto blks = raft::ceildiv(m, 256);
   cuvs::distance::MinAndDistanceReduceOp<int, DataT> op;
   cuvs::distance::detail::initKernel<DataT, raft::KeyValuePair<int, DataT>, int>
-    <<<blks, 256, 0, stream>>>(out.data_handle(), m, std::numeric_limits<DataT>::max(), op);
+    <<<blks, 256, 0, stream.get()>>>(out.data_handle(), m, std::numeric_limits<DataT>::max(), op);
   RAFT_CUDA_TRY(cudaGetLastError());
 
   // Launch reference kernel
@@ -215,7 +215,7 @@ auto reference(const raft::handle_t& handle, const Inputs<DataT>& inp, const Par
   static const dim3 TPB(32, nwarps, 1);
   dim3 nblks(1, 200, 1);
   referenceKernel<DataT, decltype(op), nwarps>
-    <<<nblks, TPB, 0, stream>>>(out.data_handle(),
+    <<<nblks, TPB, 0, stream.get()>>>(out.data_handle(),
                                 inp.x.data_handle(),
                                 inp.y.data_handle(),
                                 inp.adj.data_handle(),
@@ -369,7 +369,7 @@ TEST_P(MaskedL2NNTest, ReferenceCheckFloat)
                           out_fast.data_handle(),
                           p.m,
                           CompareApproxAbsKVP<DataT>(p.tolerance),
-                          raft::resource::get_cuda_stream(handle)));
+                          raft::resource::get_cuda_stream(handle).get()));
 }
 
 // This test checks whether running the masked_l2_nn twice returns the same
@@ -392,7 +392,7 @@ TEST_P(MaskedL2NNTest, DeterminismCheck)
                           out2.data_handle(),
                           p.m,
                           CompareApproxAbsKVP<DataT>(p.tolerance),
-                          raft::resource::get_cuda_stream(handle)));
+                          raft::resource::get_cuda_stream(handle).get()));
 }
 
 TEST_P(MaskedL2NNTest, ReferenceCheckDouble)
@@ -413,7 +413,7 @@ TEST_P(MaskedL2NNTest, ReferenceCheckDouble)
                           out_fast.data_handle(),
                           p.m,
                           CompareApproxAbsKVP<DataT>(p.tolerance),
-                          raft::resource::get_cuda_stream(handle)));
+                          raft::resource::get_cuda_stream(handle).get()));
 }
 
 INSTANTIATE_TEST_CASE_P(MaskedL2NNTests, MaskedL2NNTest, ::testing::ValuesIn(gen_params()));

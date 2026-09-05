@@ -47,7 +47,7 @@ void epilogue_on_csr(raft::resources const& handle,
 
   int blocks = raft::ceildiv<size_t>((size_t)nnz, tpb);
   if (metric == cuvs::distance::DistanceType::L2Expanded) {
-    epilogue_on_csr_kernel<<<blocks, tpb, 0, stream>>>(
+    epilogue_on_csr_kernel<<<blocks, tpb, 0, stream.get()>>>(
       compressed_C,
       rows,
       cols,
@@ -62,7 +62,7 @@ void epilogue_on_csr(raft::resources const& handle,
         }
       });
   } else if (metric == cuvs::distance::DistanceType::L2SqrtExpanded) {
-    epilogue_on_csr_kernel<<<blocks, tpb, 0, stream>>>(
+    epilogue_on_csr_kernel<<<blocks, tpb, 0, stream.get()>>>(
       compressed_C,
       rows,
       cols,
@@ -77,7 +77,7 @@ void epilogue_on_csr(raft::resources const& handle,
         }
       });
   } else if (metric == cuvs::distance::DistanceType::CosineExpanded) {
-    epilogue_on_csr_kernel<<<blocks, tpb, 0, stream>>>(
+    epilogue_on_csr_kernel<<<blocks, tpb, 0, stream.get()>>>(
       compressed_C,
       rows,
       cols,

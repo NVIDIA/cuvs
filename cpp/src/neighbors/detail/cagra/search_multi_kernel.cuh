@@ -415,7 +415,7 @@ struct search
                               workspace,
                               sort,
                               hints,
-                              stream);
+                              stream.get());
     }
 
     if (ldIK > numElements) {
@@ -423,7 +423,7 @@ struct search
         input_keys_storage.resize(sizeBatch * numElements, stream);
       }
       batched_memcpy(
-        input_keys_storage.data(), numElements, inputKeys, ldIK, numElements, sizeBatch, stream);
+        input_keys_storage.data(), numElements, inputKeys, ldIK, numElements, sizeBatch, stream.get());
       inputKeys = input_keys_storage.data();
     }
 
@@ -433,7 +433,7 @@ struct search
       }
 
       batched_memcpy(
-        input_values_storage.data(), numElements, inputVals, ldIV, numElements, sizeBatch, stream);
+        input_values_storage.data(), numElements, inputVals, ldIV, numElements, sizeBatch, stream.get());
       inputVals = input_values_storage.data();
     }
 
@@ -457,11 +457,11 @@ struct search
       sort);
 
     if (ldOK > topK) {
-      batched_memcpy(outputKeys, ldOK, output_keys_storage.data(), topK, topK, sizeBatch, stream);
+      batched_memcpy(outputKeys, ldOK, output_keys_storage.data(), topK, topK, sizeBatch, stream.get());
     }
 
     if (ldOV > topK) {
-      batched_memcpy(outputVals, ldOV, output_values_storage.data(), topK, topK, sizeBatch, stream);
+      batched_memcpy(outputVals, ldOV, output_values_storage.data(), topK, topK, sizeBatch, stream.get());
     }
   }
 
@@ -479,7 +479,7 @@ struct search
     SAMPLE_FILTER_T sample_filter)
   {
     // Init hashmap
-    cudaStream_t stream      = raft::resource::get_cuda_stream(res);
+    cudaStream_t stream      = raft::resource::get_cuda_stream(res).get();
     const uint32_t hash_size = hashmap::get_size(hash_bitlen);
     set_value_batch(
       hashmap.data(), hash_size, utils::get_max_value<INDEX_T>(), hash_size, num_queries, stream);
