@@ -70,6 +70,11 @@ cache:
       - cuda-version =${{ cuda_version }}
       - cmake ${{ cmake_version }}
       - ninja
+      - python
+      - if: cuda_major == "13"
+        then:
+          - cutile-python
+          - cuda-tileiras
       - ${{ stdlib("c") }}
     host:
       - libnvjitlink-dev
@@ -397,6 +402,11 @@ outputs:
         - cuda-version =${{ cuda_version }}
         - cmake ${{ cmake_version }}
         - ninja
+        - python
+        - if: cuda_major == "13"
+          then:
+            - cutile-python
+            - cuda-tileiras
         - ${{ stdlib("c") }}
       host:
         - ${{ pin_subpackage("libcuvs-headers", exact=True) }}

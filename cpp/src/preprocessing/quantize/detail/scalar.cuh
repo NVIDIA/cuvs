@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -7,14 +7,17 @@
 
 #include <cuvs/preprocessing/quantize/scalar.hpp>
 #include <raft/core/copy.cuh>
+#include <raft/core/device_mdarray.hpp>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/host_mdspan.hpp>
 #include <raft/core/operators.hpp>
+#include <raft/core/resource/dry_run_flag.hpp>
 #include <raft/linalg/map.cuh>
 #include <raft/matrix/sample_rows.cuh>
 #include <raft/random/rng.cuh>
-#include <thrust/execution_policy.h>
-#include <thrust/sort.h>
+#include <raft/util/cudart_utils.hpp>
+
+#include <cub/device/device_merge_sort.cuh>
 
 namespace cuvs::preprocessing::quantize::detail {
 
@@ -29,6 +32,11 @@ _RAFT_HOST_DEVICE bool fp_lt(const half& a, const half& b)
 {
   return static_cast<float>(a) < static_cast<float>(b);
 }
+
+template <class T>
+struct fp_lt_op {
+  _RAFT_HOST_DEVICE bool operator()(const T& a, const T& b) const { return fp_lt(a, b); }
+};
 
 template <typename T, typename QuantI, typename TempT = double>
 struct quantize_op {
@@ -85,16 +93,31 @@ std::tuple<T, T> quantile_min_max(
   auto subset = raft::matrix::sample_rows(res, rng, dataset, (IdxT)n_sample_rows);
 
   // quantile / sort element-wise and pick for now
-  size_t subset_size = n_sample_rows * dim;
-  thrust::sort(raft::resource::get_thrust_policy(res),
-               subset.data_handle(),
-               subset.data_handle() + subset_size);
+  auto subset_size = static_cast<int64_t>(n_sample_rows * dim);
+
+  // Sort through CUB rather than thrust so that the sort workspace is queried and allocated
+  // explicitly: thrust::sort takes its temporary storage from the thrust policy, which the
+  // dry-run tracker would not see once the sort itself is skipped.
+  size_t sort_ws_bytes = 0;
+  RAFT_CUDA_TRY(cub::DeviceMergeSort::SortKeys(
+    nullptr, sort_ws_bytes, subset.data_handle(), subset_size, fp_lt_op<T>{}, stream));
+  auto sort_ws = raft::make_device_vector<char, int64_t>(res, sort_ws_bytes);
+  if (!raft::resource::get_dry_run_flag(res)) {
+    RAFT_CUDA_TRY(cub::DeviceMergeSort::SortKeys(sort_ws.data_handle(),
+                                                 sort_ws_bytes,
+                                                 subset.data_handle(),
+                                                 subset_size,
+                                                 fp_lt_op<T>{},
+                                                 stream));
+  }
 
   double half_quantile_pos = (0.5 + 0.5 * quantile) * subset_size;
   int pos_max              = std::ceil(half_quantile_pos) - 1;
   int pos_min              = subset_size - pos_max - 1;
 
-  T minmax_h[2];
+  // The copies below do not run in dry-run mode, so these placeholders are what the caller
+  // receives; they keep quantize_op's scale and offset finite.
+  T minmax_h[2] = {T(0), T(1)};
   raft::copy(res,
              raft::make_host_scalar_view(&minmax_h[0]),
              raft::make_device_scalar_view(subset.data_handle() + pos_min));
@@ -162,6 +185,9 @@ void transform(raft::resources const& res,
   auto main_op      = quantize_op<T, QuantI>(quantizer.min_, quantizer.max_);
   size_t n_elements = dataset.extent(0) * dataset.extent(1);
 
+  // In dry-run mode the views may be unbacked or alias the shared probe buffer.
+  if (raft::resource::get_dry_run_flag(res)) { return; }
+
 #pragma omp parallel for
   for (size_t i = 0; i < n_elements; ++i) {
     out.data_handle()[i] = main_op(dataset.data_handle()[i]);
@@ -190,6 +216,9 @@ void inverse_transform(raft::resources const& res,
 {
   auto main_op      = quantize_op<T, QuantI>(quantizer.min_, quantizer.max_);
   size_t n_elements = dataset.extent(0) * dataset.extent(1);
+
+  // In dry-run mode the views may be unbacked or alias the shared probe buffer.
+  if (raft::resource::get_dry_run_flag(res)) { return; }
 
 #pragma omp parallel for
   for (size_t i = 0; i < n_elements; ++i) {
