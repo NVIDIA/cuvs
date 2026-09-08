@@ -229,8 +229,8 @@ size_t search_plan_mem_usage(cuvs::neighbors::cagra::search_params params,
   // (_cuann_find_topk_bufferSize).
   constexpr size_t kTopkThreads   = 1024;
   constexpr size_t kTopkStateBits = 8;
-  dev += raft::div_rounding_up_safe(
-           raft::div_rounding_up_safe(num_intermediate, kTopkThreads), kTopkStateBits) *
+  dev += raft::div_rounding_up_safe(raft::div_rounding_up_safe(num_intermediate, kTopkThreads),
+                                    kTopkStateBits) *
          kTopkThreads * max_queries;
   return dev;
 }
@@ -354,10 +354,12 @@ inline std::pair<size_t, size_t> iterative_build_mem_usage(
   bool guarantee_connectivity,
   std::optional<cuvs::neighbors::vpq_params> compression)
 {
-  // Mirrors detail::iterative_build_graph and detail::search_and_optimize. The build grows the
-  // graph by repeatedly searching the graph it has so far and optimizing the result; every
-  // allocation peaks on the final iteration, where the query set, the kNN graph and the output
-  // graph all span the whole dataset.
+  // Mirrors detail::iterative_build_graph and detail::search_and_optimize. The kNN graph is
+  // allocated at full size from the large workspace before the first iteration (N can be large).
+  // The owned search graph is an ordinary device allocation that grows each iteration; the
+  // previous graph is released after search, before the (often larger) output graph is allocated.
+  // Peak usage is still the last iteration, where that graph, the kNN buffer, the query set, and
+  // either the search plan or the optimize workspace are live together.
   constexpr size_t kIndexSize = sizeof(uint32_t);  // IdxT
 
   const size_t n_rows     = dataset.extent(0);
@@ -388,11 +390,9 @@ inline std::pair<size_t, size_t> iterative_build_mem_usage(
   size_t results_dev = chunk * topk * kIndexSize;  // dev_neighbors
   results_dev += chunk * topk * sizeof(float);     // dev_distances
 
-  // The graph produced by the previous iteration is still alive while the current search fills the
-  // kNN graph, and the kNN graph is still alive while optimize writes the output graph. So one
-  // full-size graph and one full-size kNN graph always coexist. search_and_optimize releases the
-  // previous graph before allocating the output graph, so a third full-size buffer never appears.
-  const size_t graph_dev = n_rows * graph_degree * kIndexSize;  // dev_graph / dev_output_graph
+  // Peak graph memory is the last iteration: one N × graph_degree owned graph plus the preallocated
+  // N × (intermediate_degree+1) kNN buffer. Prev and the new graph never coexist.
+  const size_t graph_dev = n_rows * graph_degree * kIndexSize;  // owned search / output graph
   const size_t knn_dev   = n_rows * topk * kIndexSize;          // dev_knn_graph
 
   // The final iteration searches a graph_degree graph, requests topk neighbors and derives its
@@ -412,8 +412,7 @@ inline std::pair<size_t, size_t> iterative_build_mem_usage(
 
   // Searching and optimizing run sequentially within an iteration, so the search plan and the
   // optimize workspace never coexist and are combined with max() rather than summed. The query
-  // scratch is not part of that: search_and_optimize holds it at function scope, so it is still
-  // alive while optimize runs.
+  // scratch is allocated for the whole loop, so it is still alive while optimize runs.
   //
   // Two transients are left out. The dataset copy made by make_device_padded_dataset briefly
   // coexists with its source, and cagra::search re-pads a query chunk when its rows are not
