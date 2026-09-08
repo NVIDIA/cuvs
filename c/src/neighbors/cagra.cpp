@@ -404,7 +404,7 @@ static void bind_vpq_owner_to_dataset(std::unique_ptr<device_vpq_owner_t> owner,
   out->dtype.bits   = 32;
   out->dtype.lanes  = 1;
   out->mem_type     = CUVS_DATASET_MEM_TYPE_DEVICE;
-  out->layout       = CUVS_DATASET_LAYOUT_VPQ;
+  out->layout       = CUVS_DATASET_LAYOUT_PQ;
   out->is_owning    = true;
   *output           = out;
 }
@@ -1817,7 +1817,7 @@ extern "C" cuvsError_t cuvsCagraBuild(cuvsResources_t res,
     index->addr  = 0;
     index->dtype = dtype;
 
-    if (dataset->layout == CUVS_DATASET_LAYOUT_VPQ) {
+    if (dataset->layout == CUVS_DATASET_LAYOUT_PQ) {
       RAFT_EXPECTS(dataset->mem_type == CUVS_DATASET_MEM_TYPE_DEVICE,
                    "cuvsCagraBuild: VPQ dataset must be device-resident");
       RAFT_EXPECTS(dtype.code == kDLFloat && dtype.bits == 32,
