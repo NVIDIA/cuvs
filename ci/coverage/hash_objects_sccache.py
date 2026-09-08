@@ -59,14 +59,18 @@ def parse_log(log_path: Path) -> dict[str, str]:
     return objects
 
 
-def load_object_to_source(build_dir: Path, cpp_root: Path) -> dict[str, str]:
+def load_object_to_source(build_dir: Path, repo_root: Path) -> dict[str, str]:
     """Source paths are normalized to match func2tests.json's convention
-    exactly (collect_coverage.py: "cpp/" + path relative to <repo_root>/cpp)
-    -- required for affected_files/new_files to correlate with
-    func2tests.json's file-level mapping in select_tests.py. A generated
-    file under cpp/build/coverage/... normalizes to
-    "cpp/build/coverage/...", same as func2tests.json already does for
-    generated-file coverage entries.
+    exactly (collect_coverage.py: path relative to <repo_root>) -- required
+    for affected_files/new_files to correlate with func2tests.json's
+    file-level mapping in select_tests.py. A generated file under
+    cpp/build/coverage/... normalizes to "cpp/build/coverage/...", same as
+    func2tests.json already does for generated-file coverage entries.
+    Relative to the repo root, not repo_root/"cpp": cuVS's C API library and
+    its tests (../c, pulled into the cpp/ build via add_subdirectory) live
+    in a sibling top-level directory, not under cpp/ -- normalizing against
+    the repo root instead of hardcoding a "cpp" prefix covers both source
+    trees uniformly.
     """
     cc_path = build_dir / "compile_commands.json"
     entries = json.loads(cc_path.read_text())
@@ -77,9 +81,9 @@ def load_object_to_source(build_dir: Path, cpp_root: Path) -> dict[str, str]:
             continue
         out_rel = str(Path(out).resolve().relative_to(build_dir.resolve()))
         try:
-            src_rel = str(Path("cpp") / Path(e["file"]).resolve().relative_to(cpp_root))
+            src_rel = str(Path(e["file"]).resolve().relative_to(repo_root))
         except ValueError:
-            src_rel = None  # source lives outside cpp/ entirely -- no correlation possible
+            src_rel = None  # source lives outside the repo entirely -- no correlation possible
         mapping[out_rel] = src_rel
     return mapping
 
@@ -115,15 +119,14 @@ def main() -> None:
     else:
         # Coverage build dir is always <repo_root>/cpp/build/<preset>.
         repo_root = build_dir.parent.parent.parent
-    cpp_root = repo_root / "cpp"
-    if not cpp_root.is_dir():
+    if not (repo_root / "cpp").is_dir():
         sys.exit(
             f"ERROR: could not locate cpp/ under detected repo root {repo_root} "
             f"(from --build-dir {build_dir}); pass --repo-root explicitly"
         )
 
     hashes = parse_log(log_path)
-    obj_to_src = load_object_to_source(build_dir, cpp_root)
+    obj_to_src = load_object_to_source(build_dir, repo_root)
 
     output_path = Path(args.output)
     objects = {}

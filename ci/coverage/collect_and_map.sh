@@ -122,11 +122,14 @@ if [[ $SKIP_HASHING -eq 0 ]]; then
 
     echo "==> Hashing external artifacts ..."
     shopt -s nullglob
-    BINARIES=("$BUILD_DIR"/gtests/*)
+    # cpp/'s own tests land in $BUILD_DIR/gtests; the C API library and its
+    # tests (../c, pulled in via add_subdirectory) build into $BUILD_DIR/c,
+    # so its test binaries land in $BUILD_DIR/c/gtests -- a separate glob.
+    BINARIES=("$BUILD_DIR"/gtests/* "$BUILD_DIR"/c/gtests/*)
     shopt -u nullglob
     if [[ ${#BINARIES[@]} -eq 0 ]]; then
-      echo "==> WARNING: no test binaries found under $BUILD_DIR/gtests — skipping" >&2
-      echo "    external-artifact hashing." >&2
+      echo "==> WARNING: no test binaries found under $BUILD_DIR/gtests or" >&2
+      echo "    $BUILD_DIR/c/gtests — skipping external-artifact hashing." >&2
     else
       python3 "$SCRIPT_DIR/hash_external_artifacts.py" \
         --build-dir "$BUILD_DIR" \

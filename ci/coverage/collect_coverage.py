@@ -162,7 +162,7 @@ def load_ctest_index(build_dir: Path) -> list[dict]:
 
 def _process_gcda(args: tuple[Path, Path | None, Path | None]) -> list[dict]:
     """Run gcov --json-format --stdout on one gcda file; return parsed file entries."""
-    gcda, prefix_dir, cpp_root = args
+    gcda, prefix_dir, source_root = args
 
     if prefix_dir is not None:
         # gcov's -o searches DIR for both the .gcno and the .gcda; a .gcda
@@ -182,10 +182,10 @@ def _process_gcda(args: tuple[Path, Path | None, Path | None]) -> list[dict]:
     else:
         gcov_cmd = ["gcov", "--json-format", "--stdout", "--demangled-names", str(gcda)]
 
-    if cpp_root is not None:
+    if source_root is not None:
         # -r/-s: drop absolute-path (system header) entries from gcov's own
         # output
-        gcov_cmd += ["-r", "-s", str(cpp_root)]
+        gcov_cmd += ["-r", "-s", str(source_root)]
 
     result = subprocess.run(gcov_cmd, capture_output=True, text=True)
     try:
@@ -223,22 +223,29 @@ def capture_coverage_gcov(
         return
 
     covered: dict[str, set[str]] = {}
-    cpp_root = repo_root / "cpp" if repo_root else None
+    # repo_root, not repo_root/"cpp": cuVS's C API library and its tests
+    # (../c, pulled in via add_subdirectory from cpp/CMakeLists.txt) live in
+    # a sibling top-level directory to cpp/, not under it. Normalizing
+    # relative to the repo root instead of hardcoding a "cpp" prefix covers
+    # both source trees uniformly -- relative_to(repo_root) already yields
+    # "cpp/..." for cpp/ files and "c/..." for c/ files, with no special
+    # casing needed.
+    source_root = repo_root if repo_root else None
 
-    work_args = [(gcda, prefix_dir, cpp_root) for gcda in gcda_files]
+    work_args = [(gcda, prefix_dir, source_root) for gcda in gcda_files]
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
         for file_entries in executor.map(_process_gcda, work_args):
             for file_data in file_entries:
                 src = file_data.get("file", "")
-                if cpp_root:
+                if source_root:
                     try:
-                        rel = Path(src).resolve().relative_to(cpp_root)
-                        src_key = str(Path("cpp") / rel)
+                        src_key = str(Path(src).resolve().relative_to(source_root))
                     except ValueError:
                         continue
-                elif "cuvs/cpp" in src:
-                    src_key = src[src.index("cuvs/cpp"):]
+                elif "cuvs/cpp/" in src or "cuvs/c/" in src:
+                    marker = "cuvs/cpp/" if "cuvs/cpp/" in src else "cuvs/c/"
+                    src_key = src[src.index(marker) + len("cuvs/"):]
                 else:
                     continue
 

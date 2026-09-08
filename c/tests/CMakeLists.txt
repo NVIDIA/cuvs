@@ -21,6 +21,8 @@ include(GNUInstallDirs)
 include(${rapids-cmake-dir}/cpm/gtest.cmake)
 rapids_cpm_gtest(BUILD_STATIC)
 
+include(GoogleTest)
+
 function(ConfigureTest)
 
   set(options)
@@ -71,6 +73,21 @@ function(ConfigureTest)
     GPUS ${_CUVS_TEST_GPUS}
     PERCENT ${_CUVS_TEST_PERCENT}
     INSTALL_COMPONENT_SET testing
+  )
+
+  # One CTest test per GTest case, used by coverage collection and PR
+  # selection -- mirrors cpp/tests/CMakeLists.txt's ConfigureTest() exactly.
+  # Without this, C API tests are only ever registered as coarse
+  # per-executable tests (rapids_test_add above), invisible to
+  # `ctest -L gtest_case` and therefore absent from both
+  # selected_tests.txt and remaining_tests.txt -- silently dropped from
+  # CI entirely once Pass 1/Pass 2 replaces the unfiltered full run.
+  gtest_discover_tests(
+    ${TEST_NAME}
+    TEST_PREFIX       "${TEST_NAME}."
+    DISCOVERY_MODE    PRE_TEST
+    DISCOVERY_TIMEOUT 600
+    PROPERTIES LABELS "gtest_case"
   )
 endfunction()
 

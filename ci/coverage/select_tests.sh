@@ -307,7 +307,10 @@ if [[ -s "$NON_SOURCE_CHANGED" ]]; then
       --output      "$PR_OBJECT_HASHES"
 
     shopt -s nullglob
-    BINARIES=("$CTEST_DIR"/gtests/*)
+    # cpp/'s own tests land in $CTEST_DIR/gtests; the C API library and its
+    # tests (../c, pulled in via add_subdirectory) build into $CTEST_DIR/c,
+    # so its test binaries land in $CTEST_DIR/c/gtests -- a separate glob.
+    BINARIES=("$CTEST_DIR"/gtests/* "$CTEST_DIR"/c/gtests/*)
     shopt -u nullglob
     if [[ ${#BINARIES[@]} -gt 0 ]]; then
       python3 "$SCRIPT_DIR/hash_external_artifacts.py" \
