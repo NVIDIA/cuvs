@@ -91,10 +91,10 @@ cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> merge_rebuild(
         "before merge.");
       if (dim == 0) {
         dim    = index->dim();
-        stride = static_cast<int64_t>(dataset.stride());
+        stride = static_cast<int64_t>(dataset.data_view().stride());
       } else {
         RAFT_EXPECTS(dim == index->dim(), "Dimension of datasets in indices must be equal.");
-        RAFT_EXPECTS(stride == static_cast<int64_t>(dataset.stride()),
+        RAFT_EXPECTS(stride == static_cast<int64_t>(dataset.data_view().stride()),
                      "Row stride of datasets in indices must be equal.");
       }
       merged_rows += static_cast<int64_t>(index->size());
@@ -116,12 +116,12 @@ cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> merge_rebuild(
                "merged_dataset dimension (%u) must equal the input dimension (%u)",
                unsigned(merged_dataset.dim()),
                unsigned(dim));
-  RAFT_EXPECTS(merged_dataset.stride() == stride,
+  RAFT_EXPECTS(merged_dataset.data_view().stride() == stride,
                "merged_dataset stride (%u) must equal the input stride (%ld)",
-               unsigned(merged_dataset.stride()),
+               unsigned(merged_dataset.data_view().stride()),
                long(stride));
 
-  auto output_const_view = merged_dataset.view();
+  auto output_const_view = merged_dataset.data_view();
   auto output_view       = raft::make_device_matrix_view<T, int64_t>(
     const_cast<T*>(output_const_view.data_handle()), final_rows, stride);
 
@@ -132,7 +132,7 @@ cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> merge_rebuild(
       std::size_t n_rows = 0;
       auto const& v      = index->dataset();
       if constexpr (cuvs::neighbors::is_dense_row_major_dataset_view_v<std::decay_t<decltype(v)>>) {
-        src_ptr = v.view().data_handle();
+        src_ptr = v.data_view().data_handle();
         n_rows  = static_cast<std::size_t>(v.n_rows());
       } else {
         RAFT_FAIL("cagra::merge: unexpected dataset type while copying rows");
@@ -300,14 +300,14 @@ auto preflight_fastener(
     }
     if (result.offsets.size() == 1) {
       result.dim    = static_cast<int64_t>(index->dim());
-      result.stride = static_cast<int64_t>(dataset.stride());
+      result.stride = static_cast<int64_t>(dataset.data_view().stride());
     } else {
       if (result.dim != static_cast<int64_t>(index->dim())) {
         return reject("all input dimensions must match");
       }
       // The merged dataset has a single row pitch, so mixed input strides cannot be consolidated
       // without re-padding each input separately.
-      if (result.stride != static_cast<int64_t>(dataset.stride())) {
+      if (result.stride != static_cast<int64_t>(dataset.data_view().stride())) {
         return reject("all input row strides must match");
       }
     }
@@ -382,8 +382,8 @@ void copy_input_datasets(
     auto const& source = indices[i]->dataset();
     raft::copy_matrix(destination + offsets[i] * destination_stride,
                       static_cast<std::size_t>(destination_stride),
-                      source.view().data_handle(),
-                      static_cast<std::size_t>(source.stride()),
+                      source.data_view().data_handle(),
+                      static_cast<std::size_t>(source.data_view().stride()),
                       static_cast<std::size_t>(dim),
                       static_cast<std::size_t>(source.n_rows()),
                       raft::resource::get_cuda_stream(handle));
@@ -399,7 +399,7 @@ auto merge_fastener(raft::resources const& handle,
                     fastener_preflight_result const& preflight)
   -> cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>
 {
-  auto const stride = static_cast<int64_t>(merged_dataset.stride());
+  auto const stride = static_cast<int64_t>(merged_dataset.data_view().stride());
   RAFT_EXPECTS(merged_dataset.n_rows() == preflight.rows,
                "merged_dataset rows (%ld) must equal the merged row count (%ld)",
                long(merged_dataset.n_rows()),
@@ -409,7 +409,7 @@ auto merge_fastener(raft::resources const& handle,
                unsigned(merged_dataset.dim()),
                long(preflight.dim));
 
-  auto const output_const_view = merged_dataset.view();
+  auto const output_const_view = merged_dataset.data_view();
   auto* destination            = const_cast<T*>(output_const_view.data_handle());
   {
     raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> scope("cagra::merge/consolidate");

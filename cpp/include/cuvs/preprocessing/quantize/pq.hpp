@@ -302,13 +302,13 @@ template <typename SrcT>
                                     SrcT const& src)
   -> cuvs::neighbors::device_vpq_dataset<half, int64_t>
 {
-  // A cuVS dataset keeps its logical width in `dim()` while `view()` spans the full row pitch.
+  // A cuVS dataset keeps its logical width in `dim()` while `data_view()` spans the full row
+  // pitch.
   if constexpr (requires {
-                  src.view();
+                  src.data_view();
                   src.dim();
-                  src.stride();
                 }) {
-    auto const rows    = src.view();
+    auto const rows    = src.data_view();
     using value_type   = typename decltype(rows)::value_type;
     using extents_type = raft::matrix_extent<int64_t>;
     return make_vpq_dataset(
@@ -317,7 +317,7 @@ template <typename SrcT>
       raft::mdspan<const value_type, extents_type, raft::layout_stride>{
         rows.data_handle(),
         raft::make_strided_layout(extents_type{rows.extent(0), int64_t{src.dim()}},
-                                  cuda::std::array<int64_t, 2>{int64_t{src.stride()}, 1})});
+                                  cuda::std::array<int64_t, 2>{int64_t{rows.stride()}, 1})});
   } else {
     using value_type = typename SrcT::value_type;
     static_assert(std::is_same_v<value_type, float> || std::is_same_v<value_type, half> ||

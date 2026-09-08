@@ -144,7 +144,7 @@ static void merge_indices_for_layout(
       cuvs::neighbors::cagra::detail::merged_dataset_size<T, uint32_t, DatasetViewT>(
         *res_ptr, index_ptrs, row_filter);
     auto const dim    = static_cast<uint32_t>(index_ptrs.front()->dim());
-    auto const stride = static_cast<int64_t>(index_ptrs.front()->dataset().stride());
+    auto const stride = static_cast<int64_t>(index_ptrs.front()->dataset().data_view().stride());
 
     try {
       auto matrix = raft::make_device_matrix<T, int64_t>(*res_ptr, final_row_count, stride);
@@ -192,8 +192,8 @@ static void merge_indices_for_layout(
       auto const& input = index->dataset();
       raft::copy_matrix(matrix.data_handle() + row_offset * static_cast<std::size_t>(stride),
                         static_cast<std::size_t>(stride),
-                        input.view().data_handle(),
-                        static_cast<std::size_t>(input.stride()),
+                        input.data_view().data_handle(),
+                        static_cast<std::size_t>(input.data_view().stride()),
                         static_cast<std::size_t>(dim),
                         static_cast<std::size_t>(input.n_rows()),
                         stream);
@@ -1159,7 +1159,7 @@ void get_dataset_view(cuvsCagraIndex_t index, DLManagedTensor* dataset)
     box,
     "cuvsCagraIndexGetDataset: null index handle",
     "cuvsCagraIndexGetDataset: host indices are allowed",
-    [&](auto& idx) { cuvs::core::to_dlpack(idx.dataset().view(), dataset); });
+    [&](auto& idx) { cuvs::core::to_dlpack(idx.dataset().data_view(), dataset); });
 }
 
 template <typename T, typename IdxT>

@@ -329,7 +329,7 @@ TEST(ProductQuantizationTestF, MakeVpqDatasetFromHost)
 
   EXPECT_EQ(vpq.n_rows(), n_rows);
   EXPECT_EQ(vpq.dim(), dim);
-  EXPECT_NE(vpq.data.data_handle(), nullptr);
+  EXPECT_NE(vpq.data_view().data_handle(), nullptr);
 }
 
 TEST(ProductQuantizationTestF, MakeVpqDatasetFromPaddedView)
@@ -362,7 +362,7 @@ TEST(ProductQuantizationTestF, MakeVpqDatasetFromPaddedView)
 
   EXPECT_EQ(vpq.n_rows(), n_rows);
   EXPECT_EQ(vpq.dim(), dim);
-  EXPECT_NE(vpq.data.data_handle(), nullptr);
+  EXPECT_NE(vpq.data_view().data_handle(), nullptr);
 }
 
 // Define test cases with different parameters

@@ -85,13 +85,14 @@ template <typename DataT, typename IdxT, typename ViewT>
   requires cuvs::neighbors::is_dense_row_major_dataset_view_v<ViewT>
 void serialize(const raft::resources& res, std::ostream& os, ViewT const& dataset)
 {
-  auto n_rows = dataset.n_rows();
-  auto dim    = dataset.dim();
-  auto stride = dataset.stride();
+  auto n_rows    = dataset.n_rows();
+  auto dim       = dataset.dim();
+  auto data_view = dataset.data_view();
+  auto stride    = data_view.stride();
   raft::serialize_scalar(res, os, n_rows);
   raft::serialize_scalar(res, os, dim);
   raft::serialize_scalar(res, os, stride);
-  auto src            = dataset.view();
+  auto src            = data_view;
   auto const elements = dense_matrix_elements<DataT>(n_rows, dim, "serialize_dense_dataset");
   raft::numpy_serializer::write_header(os,
                                        {raft::numpy_serializer::get_numpy_dtype<DataT>(),
@@ -434,8 +435,9 @@ auto deserialize_vpq(raft::resources const& res, std::istream& is)
   raft::deserialize_mdspan(res, is, pq_code_book.view());
   raft::deserialize_mdspan(res, is, data.view());
 
-  return std::make_unique<device_vpq_dataset<DataT, IdxT>>(
-    std::move(vq_code_book), std::move(pq_code_book), std::move(data));
+  using owning_t = device_vpq_dataset<DataT, IdxT>;
+  typename owning_t::dictionary_type dictionary{std::move(vq_code_book), std::move(pq_code_book)};
+  return std::make_unique<owning_t>(std::move(data), std::move(dictionary));
 }
 
 template <typename DataT, typename IdxT, typename OwningDatasetT, typename Input>

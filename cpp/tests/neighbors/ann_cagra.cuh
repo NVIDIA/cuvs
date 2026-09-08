@@ -1329,7 +1329,7 @@ class AnnCagraIndexFilteredMergeTest : public ::testing::TestWithParam<AnnCagraI
         auto merged_matrix = raft::make_device_matrix<DataT, int64_t>(
           handle_,
           ps.n_rows - static_cast<int64_t>(test_cagra_sample_filter::offset),
-          static_cast<int64_t>(index0.dataset().stride()));
+          static_cast<int64_t>(index0.dataset().data_view().stride()));
         auto merged_dataset = cuvs::neighbors::device_padded_dataset<DataT, int64_t>(
           std::move(merged_matrix), static_cast<uint32_t>(ps.dim));
         auto merge_idx = cuvs::neighbors::cagra::merge(
@@ -1575,7 +1575,7 @@ class AnnCagraIndexMergeTest : public ::testing::TestWithParam<AnnCagraInputs> {
           auto const merged_rows =
             static_cast<int64_t>(index0.size()) + static_cast<int64_t>(index1.size());
           auto merged_matrix = raft::make_device_matrix<DataT, int64_t>(
-            handle_, merged_rows, static_cast<int64_t>(index0.dataset().stride()));
+            handle_, merged_rows, static_cast<int64_t>(index0.dataset().data_view().stride()));
           auto merged_dataset = cuvs::neighbors::device_padded_dataset<DataT, int64_t>(
             std::move(merged_matrix), static_cast<uint32_t>(ps.dim));
           auto merged_idx =

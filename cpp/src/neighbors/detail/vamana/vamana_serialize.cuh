@@ -95,7 +95,7 @@ void serialize_dataset(raft::resources const& res,
 {
   if (dataset == nullptr) { return; }
   try {
-    serialize_dataset_view<T>(res, dataset->view(), dataset_base_file);
+    serialize_dataset_view<T>(res, dataset->data_view(), dataset_base_file);
   } catch (std::bad_alloc& e) {
     RAFT_LOG_INFO("Failed to serialize dataset");
   } catch (raft::logic_error& e) {
@@ -172,8 +172,8 @@ void serialize_sector_aligned(
   auto h_data = raft::make_host_matrix<T, int64_t>(npts, ndims);
   raft::copy_matrix(h_data.data_handle(),
                     ndims,
-                    dataset.view().data_handle(),
-                    dataset.stride(),
+                    dataset.data_view().data_handle(),
+                    dataset.data_view().stride(),
                     ndims,
                     npts,
                     raft::resource::get_cuda_stream(res));

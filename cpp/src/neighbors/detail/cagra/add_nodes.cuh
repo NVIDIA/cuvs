@@ -363,7 +363,7 @@ void extend_core(raft::resources const& handle,
                "cuvs::neighbors::hnsw::deserialize() before calling extend().");
 
   const std::size_t initial_dataset_size = index.size();
-  const auto extended_view               = extended_dataset.view();
+  const auto extended_view               = extended_dataset.data_view();
   const std::size_t new_dataset_size     = static_cast<std::size_t>(extended_view.extent(0));
   const std::size_t degree               = index.graph_degree();
   const std::size_t dim                  = index.dim();

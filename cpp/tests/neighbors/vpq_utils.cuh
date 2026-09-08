@@ -50,7 +50,9 @@ void decode_vpq_dataset(raft::device_matrix_view<data_t, int64_t> decoded_datase
                         cudaStream_t cuda_stream)
 {
   const auto dataset_size = decoded_dataset.extent(0);
-  RAFT_EXPECTS(vpq_dataset.data.extent(0) == dataset_size, "Dataset sizes mismatch");
+  auto const dict_view    = vpq_dataset.dictionary_view();
+  auto const data_view    = vpq_dataset.data_view();
+  RAFT_EXPECTS(data_view.extent(0) == dataset_size, "Dataset sizes mismatch");
   RAFT_EXPECTS(vpq_dataset.pq_bits() == 8,
                "decode_vpq_dataset currently only supports pq_bits == 8 (got %u)",
                vpq_dataset.pq_bits());
@@ -63,14 +65,14 @@ void decode_vpq_dataset(raft::device_matrix_view<data_t, int64_t> decoded_datase
   decode_vpq_dataset_kernel<data_t, math_t>
     <<<grid_size, block_size, 0, cuda_stream>>>(decoded_dataset.data_handle(),
                                                 decoded_dataset.stride(0),
-                                                vpq_dataset.vq_code_book.data_handle(),
-                                                vpq_dataset.vq_code_book.stride(0),
-                                                vpq_dataset.pq_code_book.data_handle(),
+                                                dict_view.vq_code_book.data_handle(),
+                                                dict_view.vq_code_book.stride(0),
+                                                dict_view.pq_code_book.data_handle(),
                                                 vpq_dataset.pq_len(),
                                                 1u << vpq_dataset.pq_bits(),
                                                 vpq_dataset.dim(),
                                                 dataset_size,
-                                                vpq_dataset.data.data_handle(),
-                                                vpq_dataset.data.stride(0));
+                                                data_view.data_handle(),
+                                                data_view.stride(0));
 }
 }  // namespace cuvs::neighbors

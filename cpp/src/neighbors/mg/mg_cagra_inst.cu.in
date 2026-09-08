@@ -14,7 +14,7 @@ void distribute_padded_dataset(
   cuvs::neighbors::device_padded_dataset_view<T, int64_t> const& padded_dataset,
   RankUpdate&& rank_update)
 {
-  auto padded_mds                 = padded_dataset.view();
+  auto padded_mds                 = padded_dataset.data_view();
   auto stride                     = padded_mds.extent(1);
   const raft::resources& root_res = raft::resource::set_current_device_to_root_rank(res);
   auto padded_host =
@@ -61,7 +61,7 @@ void distribute_padded_dataset(
       res,                                                                                        \
       index,                                                                                      \
       static_cast<const cuvs::neighbors::index_params*>(&index_params),                           \
-      index_dataset.view());                                                                      \
+      index_dataset.data_view());                                                                 \
     return index;                                                                                 \
   }                                                                                               \
                                                                                                   \
@@ -76,7 +76,7 @@ void distribute_padded_dataset(
       res,                                                                                        \
       index,                                                                                      \
       static_cast<const cuvs::neighbors::index_params*>(&index_params),                           \
-      index_dataset.view());                                                                      \
+      index_dataset.data_view());                                                                 \
     return index;                                                                                 \
   }                                                                                               \
                                                                                                   \
@@ -122,7 +122,7 @@ void distribute_padded_dataset(
               cuvs::neighbors::host_padded_dataset_view<T, int64_t> new_vectors,                  \
               std::optional<raft::host_vector_view<const IdxT, int64_t>> new_indices)             \
   {                                                                                               \
-    cuvs::neighbors::snmg::detail::extend(res, index, new_vectors.view(), new_indices);           \
+    cuvs::neighbors::snmg::detail::extend(res, index, new_vectors.data_view(), new_indices);      \
   }                                                                                               \
                                                                                                   \
   void extend(const raft::resources& res,                                                         \
@@ -130,7 +130,7 @@ void distribute_padded_dataset(
               cuvs::neighbors::host_standard_dataset_view<T, int64_t> new_vectors,                \
               std::optional<raft::host_vector_view<const IdxT, int64_t>> new_indices)             \
   {                                                                                               \
-    cuvs::neighbors::snmg::detail::extend(res, index, new_vectors.view(), new_indices);           \
+    cuvs::neighbors::snmg::detail::extend(res, index, new_vectors.data_view(), new_indices);      \
   }                                                                                               \
                                                                                                   \
   void search(                                                                                    \
