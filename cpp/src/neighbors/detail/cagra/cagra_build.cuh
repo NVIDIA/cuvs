@@ -2432,8 +2432,6 @@ auto iterative_build_graph(raft::resources const& res,
                 iter_params.search_width,
                 iter_params.max_iterations);
 
-  auto cagra_graph = raft::make_host_matrix<IdxT, int64_t>(0, 0);
-
   // Iteratively improve the graph by repeatedly running CAGRA search and optimize. Dense inputs are
   // padded on device; VPQ inputs are searched directly and reconstructed per query batch.
   RAFT_LOG_INFO("Iteratively creating/improving graph index using CAGRA's search() and optimize()");
@@ -2480,7 +2478,6 @@ auto iterative_build_graph(raft::resources const& res,
   auto dev_distances = raft::make_device_matrix<float, int64_t>(res, chunk_i64, topk_i64);
   auto dev_knn_graph = raft::make_device_mdarray<IdxT, int64_t>(
     res, large_mr, raft::make_extents<int64_t>(n_rows_i64, topk_i64));
-  auto dev_graph = raft::make_device_matrix<IdxT, int64_t>(res, 0, 0);
 
   auto const query_stride_i64 = static_cast<int64_t>(
     cuvs::neighbors::cagra_required_row_width<T>(static_cast<uint32_t>(logical_dim)));
@@ -2513,8 +2510,9 @@ auto iterative_build_graph(raft::resources const& res,
                (size_t)iter_params.itopk_size,
                (size_t)(graph_degree / 2 + 1));
 
-  // Create an initial graph. The initial graph created here is not suitable for
-  // searching, but connectivity is guaranteed.
+  // Create an initial graph and copy it to the device. It is not suitable for
+  // searching, but connectivity is guaranteed. Every iteration, including the first,
+  // then searches this device graph.
   auto offset = raft::make_host_vector<IdxT, int64_t>(small_graph_degree);
   for (uint64_t j = 0; j < small_graph_degree; j++) {
     if (j == 0) {
@@ -2526,16 +2524,23 @@ auto iterative_build_graph(raft::resources const& res,
     if (offset(j) < ofst) { offset(j) = ofst; }
     RAFT_LOG_DEBUG("# offset(%lu) = %lu", (uint64_t)j, (uint64_t)offset(j));
   }
-  cagra_graph = raft::make_host_matrix<IdxT, int64_t>(initial_graph_size, small_graph_degree);
+  auto initial_graph =
+    raft::make_host_matrix<IdxT, int64_t>(initial_graph_size, small_graph_degree);
   for (uint64_t i = 0; i < initial_graph_size; i++) {
     for (uint64_t j = 0; j < small_graph_degree; j++) {
-      cagra_graph(i, j) = (i + offset(j)) % initial_graph_size;
+      initial_graph(i, j) = (i + offset(j)) % initial_graph_size;
     }
   }
+  auto stream = raft::resource::get_cuda_stream(res);
+  auto dev_graph =
+    raft::make_device_matrix<IdxT, int64_t>(res, initial_graph.extent(0), initial_graph.extent(1));
+  raft::copy(dev_graph.data_handle(),
+             initial_graph.data_handle(),
+             initial_graph.extent(0) * initial_graph.extent(1),
+             stream);
 
-  bool flag_last        = false;
-  auto curr_graph_size  = initial_graph_size;
-  bool use_device_graph = false;
+  bool flag_last       = false;
+  auto curr_graph_size = initial_graph_size;
 
   auto knn_prefix = [&](int64_t rows, int64_t degree) {
     return raft::make_device_matrix_view<IdxT, int64_t>(dev_knn_graph.data_handle(), rows, degree);
@@ -2570,9 +2575,9 @@ auto iterative_build_graph(raft::resources const& res,
 
     RAFT_LOG_DEBUG(
       "# graph_size = %lu (%.3lf), graph_degree = %lu, query_size = %lu, itopk = %lu, topk = %lu",
-      (uint64_t)cagra_graph.extent(0),
-      (double)cagra_graph.extent(0) / final_graph_size,
-      (uint64_t)cagra_graph.extent(1),
+      (uint64_t)dev_graph.extent(0),
+      (double)dev_graph.extent(0) / final_graph_size,
+      (uint64_t)dev_graph.extent(1),
       (uint64_t)curr_query_size,
       (uint64_t)curr_itopk_size,
       (uint64_t)curr_topk);
@@ -2589,11 +2594,7 @@ auto iterative_build_graph(raft::resources const& res,
     if (vpq_dataset != nullptr) {
       auto idx = cuvs::neighbors::cagra::vpq_f16_index<T, IdxT>(res, params.metric);
       idx.update_device_dataset_same_layout(res, vpq_dataset->as_dataset_view());
-      if (use_device_graph) {
-        idx.update_graph(res, raft::make_const_mdspan(dev_graph.view()));
-      } else {
-        idx.update_graph(res, raft::make_const_mdspan(cagra_graph.view()));
-      }
+      idx.update_graph(res, raft::make_const_mdspan(dev_graph.view()));
 
       auto empty_query_view =
         raft::make_device_matrix_view<const T, int64_t>(static_cast<const T*>(nullptr), 0, 0);
@@ -2618,11 +2619,7 @@ auto iterative_build_graph(raft::resources const& res,
                                                                          logical_dim);
       auto idx = cuvs::neighbors::cagra::device_padded_index<T, IdxT>(res, params.metric);
       idx.update_device_dataset_same_layout(res, sub_padded);
-      if (use_device_graph) {
-        idx.update_graph(res, raft::make_const_mdspan(dev_graph.view()));
-      } else {
-        idx.update_graph(res, raft::make_const_mdspan(cagra_graph.view()));
-      }
+      idx.update_graph(res, raft::make_const_mdspan(dev_graph.view()));
 
       auto dev_query_view = raft::make_device_matrix_view<const T, int64_t>(
         dev_dataset.data_handle(), static_cast<int64_t>(curr_query_size), dev_dataset.extent(1));
@@ -2642,7 +2639,6 @@ auto iterative_build_graph(raft::resources const& res,
         dim_i64,
         flag_last && params.guarantee_connectivity);
     }
-    use_device_graph = true;
 
     auto end = std::chrono::high_resolution_clock::now();
     [[maybe_unused]] auto elapsed_ms =
@@ -2655,9 +2651,8 @@ auto iterative_build_graph(raft::resources const& res,
     curr_graph_size      = next_graph_size;
   }
 
-  auto stream = raft::resource::get_cuda_stream(res);
-
-  cagra_graph = raft::make_host_matrix<IdxT, int64_t>(dev_graph.extent(0), dev_graph.extent(1));
+  auto cagra_graph =
+    raft::make_host_matrix<IdxT, int64_t>(dev_graph.extent(0), dev_graph.extent(1));
   raft::copy(cagra_graph.data_handle(),
              dev_graph.data_handle(),
              dev_graph.extent(0) * dev_graph.extent(1),
