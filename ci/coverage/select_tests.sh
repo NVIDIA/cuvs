@@ -17,13 +17,29 @@
 #   --pr-number N       GitHub PR number; uses `gh pr diff` to get changed files
 #   --base-ref REF      Git ref to diff against; uses `git diff` for local runs
 #   --mapping PATH      func2tests.json produced by collect_and_map.sh
-#                       (default: <repo>/func2tests.json)
+#                       (default: <repo>/func2tests.json). If passed explicitly,
+#                       PATH must exist -- this errors immediately, it does not
+#                       silently defer to a later failure.
 #   --object-hashes PATH    Baseline object_hashes.json (PoC, §2.2). Enables
 #                           non-source-change classification when paired with
 #                           --external-hashes; requires a fresh sccache trace
 #                           log already at <ctest-dir>/sccache.log from the
-#                           PR's own coverage-preset build.
-#   --external-hashes PATH  Baseline external_artifact_hashes.json (PoC, §2.3)
+#                           PR's own coverage-preset build. If passed
+#                           explicitly, PATH must exist -- errors immediately.
+#   --external-hashes PATH  Baseline external_artifact_hashes.json (PoC, §2.3).
+#                           If passed explicitly, PATH must exist -- errors
+#                           immediately.
+#   --mapping-dir DIR   Convenience for local use: scans DIR for
+#                       func2tests.json/object_hashes.json/external_artifact_hashes.json
+#                       and enables whichever of --mapping/--object-hashes/
+#                       --external-hashes have a matching file present, without
+#                       having to name all three individually. Unlike the
+#                       explicit flags above, a missing file under DIR is NOT
+#                       an error -- that feature is just left disabled, and
+#                       what got enabled/disabled is always printed. An
+#                       explicit --mapping/--object-hashes/--external-hashes
+#                       always takes precedence over what --mapping-dir would
+#                       have picked for that same file.
 #   --ctest-dir PATH    Directory from which to run ctest -N
 #                       (default: cpp/build/coverage if it exists, otherwise
 #                        $CONDA_PREFIX/bin/gtests/libcuvs)
@@ -57,8 +73,12 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PR_NUMBER=""
 BASE_REF=""
 MAPPING="$REPO_ROOT/func2tests.json"
+MAPPING_SET=0
 OBJECT_HASHES=""
+OBJECT_HASHES_SET=0
 EXTERNAL_HASHES=""
+EXTERNAL_HASHES_SET=0
+MAPPING_DIR=""
 CTEST_DIR=""
 CTEST_BIN=""
 REFRESH_TEST_LIST=0
@@ -73,9 +93,10 @@ while [[ $# -gt 0 ]]; do
   case $1 in
     --pr-number)   PR_NUMBER="$2";   shift 2 ;;
     --base-ref)    BASE_REF="$2";    shift 2 ;;
-    --mapping)     MAPPING="$2";     shift 2 ;;
-    --object-hashes)      OBJECT_HASHES="$2";   shift 2 ;;
-    --external-hashes)    EXTERNAL_HASHES="$2"; shift 2 ;;
+    --mapping)     MAPPING="$2";     MAPPING_SET=1;        shift 2 ;;
+    --object-hashes)      OBJECT_HASHES="$2";   OBJECT_HASHES_SET=1;   shift 2 ;;
+    --external-hashes)    EXTERNAL_HASHES="$2"; EXTERNAL_HASHES_SET=1; shift 2 ;;
+    --mapping-dir) MAPPING_DIR="$2"; shift 2 ;;
     --ctest-dir)   CTEST_DIR="$2";   shift 2 ;;
     --ctest-bin)          CTEST_BIN="$2"; shift 2 ;;
     --refresh-test-list)  REFRESH_TEST_LIST=1; shift ;;
@@ -92,6 +113,80 @@ done
 
 if [[ -z "$PR_NUMBER" && -z "$BASE_REF" ]]; then
   echo "ERROR: one of --pr-number or --base-ref is required" >&2
+  exit 1
+fi
+
+# ── --mapping-dir: convenience resolution of the three baseline files ────────
+# Only fills in a flag that wasn't already explicitly passed; a missing file
+# under --mapping-dir just leaves that feature disabled (not an error) --
+# unlike explicit --mapping/--object-hashes/--external-hashes, validated below.
+if [[ -n "$MAPPING_DIR" ]]; then
+  echo "==> --mapping-dir $MAPPING_DIR:"
+
+  if [[ "$MAPPING_SET" -eq 0 ]]; then
+    if [[ -f "$MAPPING_DIR/func2tests.json" ]]; then
+      MAPPING="$MAPPING_DIR/func2tests.json"
+      MAPPING_SET=1
+    else
+      echo "    func2tests.json: not found"
+    fi
+  fi
+
+  HAVE_OBJECT_HASHES=0
+  if [[ "$OBJECT_HASHES_SET" -eq 0 ]]; then
+    if [[ -f "$MAPPING_DIR/object_hashes.json" ]]; then
+      OBJECT_HASHES="$MAPPING_DIR/object_hashes.json"
+      OBJECT_HASHES_SET=1
+      HAVE_OBJECT_HASHES=1
+    else
+      echo "    object_hashes.json: not found"
+    fi
+  else
+    HAVE_OBJECT_HASHES=1
+  fi
+
+  HAVE_EXTERNAL_HASHES=0
+  if [[ "$EXTERNAL_HASHES_SET" -eq 0 ]]; then
+    if [[ -f "$MAPPING_DIR/external_artifact_hashes.json" ]]; then
+      EXTERNAL_HASHES="$MAPPING_DIR/external_artifact_hashes.json"
+      EXTERNAL_HASHES_SET=1
+      HAVE_EXTERNAL_HASHES=1
+    else
+      echo "    external_artifact_hashes.json: not found"
+    fi
+  else
+    HAVE_EXTERNAL_HASHES=1
+  fi
+
+  # Summary -- the one place that states what's actually enabled.
+  if [[ "$MAPPING_SET" -eq 1 ]]; then
+    echo "    func2tests.json found — ctags/gcov function-file selection enabled"
+  else
+    echo "    ctags/gcov function-file selection NOT enabled (no func2tests.json)"
+  fi
+  if [[ "$HAVE_OBJECT_HASHES" -eq 1 && "$HAVE_EXTERNAL_HASHES" -eq 1 ]]; then
+    echo "    object_hashes.json + external_artifact_hashes.json found — object-hash classification enabled"
+  elif [[ "$HAVE_OBJECT_HASHES" -eq 1 || "$HAVE_EXTERNAL_HASHES" -eq 1 ]]; then
+    echo "    object-hash classification NOT enabled (both files are required; only one was found)"
+  else
+    echo "    object-hash classification NOT enabled (neither file found)"
+  fi
+fi
+
+# ── Explicit --mapping/--object-hashes/--external-hashes must exist ─────────
+# Unlike --mapping-dir, using one of these directly is a statement that the
+# file should be there -- fail fast and clearly rather than deferring to
+# whatever downstream script happens to touch the path first.
+if [[ "$MAPPING_SET" -eq 1 && ! -f "$MAPPING" ]]; then
+  echo "ERROR: --mapping file not found: $MAPPING" >&2
+  exit 1
+fi
+if [[ "$OBJECT_HASHES_SET" -eq 1 && ! -f "$OBJECT_HASHES" ]]; then
+  echo "ERROR: --object-hashes file not found: $OBJECT_HASHES" >&2
+  exit 1
+fi
+if [[ "$EXTERNAL_HASHES_SET" -eq 1 && ! -f "$EXTERNAL_HASHES" ]]; then
+  echo "ERROR: --external-hashes file not found: $EXTERNAL_HASHES" >&2
   exit 1
 fi
 
