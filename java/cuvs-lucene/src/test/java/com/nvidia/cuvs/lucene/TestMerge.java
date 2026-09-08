@@ -14,8 +14,13 @@ import com.nvidia.cuvs.lucene.CuVS2510GPUVectorsWriter.IndexType;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.apache.lucene.document.Document;
@@ -43,6 +48,7 @@ import org.apache.lucene.store.Directory;
 import org.apache.lucene.tests.util.LuceneTestCase;
 import org.apache.lucene.tests.util.LuceneTestCase.SuppressSysoutChecks;
 import org.apache.lucene.util.BytesRef;
+import org.apache.lucene.util.InfoStream;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.BeforeClass;
@@ -1225,6 +1231,308 @@ public class TestMerge extends LuceneTestCase {
       }
 
       log.log(Level.FINE, "Large scale merge verification completed successfully");
+    }
+  }
+
+  /**
+   * Tests that a plain CAGRA merge goes through the cuVS merge API, and that the rows of the
+   * merged index still line up with the merged segment's vector ordinals.
+   *
+   * <p>The merge API concatenates the input data sets, so a mismatch between that concatenation
+   * and the order Lucene writes the flat vectors in would make every search result point at the
+   * wrong document. The check catches that: for every hit, the score the reader reports has to
+   * agree with the distance between the query and the vector of the document that was returned.
+   **/
+  @Test
+  public void testNativeCagraMergeKeepsOrdinalsAligned() throws IOException {
+    RecordingInfoStream infoStream = new RecordingInfoStream();
+    Map<Integer, float[]> vectorsById = new HashMap<>();
+
+    indexSegments(infoStream, vectorsById, 4 + random().nextInt(3), 0, null);
+
+    try (DirectoryReader reader = DirectoryReader.open(directory)) {
+      assertEquals("Should have exactly one segment after merge", 1, reader.leaves().size());
+      assertTrue(
+          "The cuVS merge API should have been used, messages: " + infoStream.messages(),
+          infoStream.nativeMergeUsed());
+      assertSearchHitsMatchTheirVectors(reader, vectorsById);
+    }
+  }
+
+  /**
+   * Tests that a segment the merge API produced can be merged again, which exercises the round
+   * trip of the merged index through serialization and back onto the device.
+   **/
+  @Test
+  public void testNativeCagraMergeOfAMergedSegment() throws IOException {
+    Map<Integer, float[]> vectorsById = new HashMap<>();
+
+    indexSegments(new RecordingInfoStream(), vectorsById, 2 + random().nextInt(2), 0, null);
+    // Merges the segment the first round produced together with the new ones. The second round
+    // records on its own InfoStream, so the assertion below is about that merge alone.
+    RecordingInfoStream infoStream = new RecordingInfoStream();
+    indexSegments(infoStream, vectorsById, 2 + random().nextInt(2), 100_000, null);
+
+    try (DirectoryReader reader = DirectoryReader.open(directory)) {
+      assertEquals("Should have exactly one segment after merge", 1, reader.leaves().size());
+      assertTrue(
+          "The cuVS merge API should have been used, messages: " + infoStream.messages(),
+          infoStream.nativeMergeUsed());
+      assertSearchHitsMatchTheirVectors(reader, vectorsById);
+    }
+  }
+
+  /**
+   * Tests that segments with deletions still go through the cuVS merge API, with the deleted rows
+   * left out by the row filter, and that the surviving rows stay lined up with the merged segment's
+   * vector ordinals.
+   **/
+  @Test
+  public void testNativeCagraMergeWithDeletions() throws IOException {
+    RecordingInfoStream infoStream = new RecordingInfoStream();
+    Map<Integer, float[]> vectorsById = new HashMap<>();
+
+    // Delete from every segment, so that no segment of the merge is deletion free.
+    List<Integer> deletedIds =
+        indexSegments(
+            infoStream, vectorsById, 4 + random().nextInt(3), 0, deleteSomeOfEachSegment());
+    assertFalse("Test setup should have deleted documents", deletedIds.isEmpty());
+    deletedIds.forEach(vectorsById::remove);
+
+    try (DirectoryReader reader = DirectoryReader.open(directory)) {
+      assertEquals("Should have exactly one segment after merge", 1, reader.leaves().size());
+      assertTrue(
+          "The cuVS merge API should have been used, messages: " + infoStream.messages(),
+          infoStream.nativeMergeUsed());
+      assertNoDeletedDocuments(reader, deletedIds);
+      assertSearchHitsMatchTheirVectors(reader, vectorsById);
+    }
+  }
+
+  /**
+   * Tests that a segment whose documents are all deleted is left out of the merge entirely. Its
+   * rows contribute nothing to the merged vectors, so passing its index to the merge API would only
+   * upload rows the filter drops again.
+   **/
+  @Test
+  public void testNativeCagraMergeWithAFullyDeletedSegment() throws IOException {
+    RecordingInfoStream infoStream = new RecordingInfoStream();
+    Map<Integer, float[]> vectorsById = new HashMap<>();
+
+    List<Integer> deletedIds =
+        indexSegments(
+            infoStream, vectorsById, 3 + random().nextInt(3), 0, deleteWholeFirstSegment());
+    assertFalse("Test setup should have deleted documents", deletedIds.isEmpty());
+    deletedIds.forEach(vectorsById::remove);
+
+    try (DirectoryReader reader = DirectoryReader.open(directory)) {
+      assertEquals("Should have exactly one segment after merge", 1, reader.leaves().size());
+      assertTrue(
+          "The cuVS merge API should have been used, messages: " + infoStream.messages(),
+          infoStream.nativeMergeUsed());
+      assertNoDeletedDocuments(reader, deletedIds);
+      assertSearchHitsMatchTheirVectors(reader, vectorsById);
+    }
+  }
+
+  /**
+   * Tests that expunging the deletions of a single segment goes through the merge API too. There is
+   * no second index to concatenate, but the filter still has rows to drop, which is cheaper than
+   * rebuilding the index from the vectors on the host.
+   **/
+  @Test
+  public void testNativeCagraMergeOfASingleSegmentWithDeletions() throws IOException {
+    RecordingInfoStream infoStream = new RecordingInfoStream();
+    Map<Integer, float[]> vectorsById = new HashMap<>();
+
+    List<Integer> deletedIds =
+        indexSegments(infoStream, vectorsById, 1, 0, deleteSomeOfEachSegment());
+    assertFalse("Test setup should have deleted documents", deletedIds.isEmpty());
+    deletedIds.forEach(vectorsById::remove);
+
+    try (DirectoryReader reader = DirectoryReader.open(directory)) {
+      assertEquals("Should have exactly one segment after merge", 1, reader.leaves().size());
+      assertTrue(
+          "The cuVS merge API should have been used, messages: " + infoStream.messages(),
+          infoStream.nativeMergeUsed());
+      assertNoDeletedDocuments(reader, deletedIds);
+      assertSearchHitsMatchTheirVectors(reader, vectorsById);
+    }
+  }
+
+  /** Deletes a few of the documents of every segment. */
+  private Deletions deleteSomeOfEachSegment() {
+    return (segment, docIds) -> {
+      List<Integer> deleted = new ArrayList<>();
+      for (int i = 0; i < 1 + random().nextInt(3); i++) {
+        deleted.add(docIds.get(random().nextInt(docIds.size())));
+      }
+      return deleted;
+    };
+  }
+
+  /** Deletes every document of the first segment and nothing else. */
+  private Deletions deleteWholeFirstSegment() {
+    return (segment, docIds) -> segment == 0 ? docIds : List.of();
+  }
+
+  /** Asserts that none of the given ids is still searchable. */
+  private void assertNoDeletedDocuments(DirectoryReader reader, List<Integer> deletedIds)
+      throws IOException {
+    IndexSearcher searcher = new IndexSearcher(reader);
+    for (int deletedId : deletedIds) {
+      assertEquals(
+          "Deleted document " + deletedId + " should be gone",
+          0,
+          searcher.count(new TermQuery(new Term("id", String.valueOf(deletedId)))));
+    }
+  }
+
+  /** Chooses which of the documents a segment holds to delete before the merge. */
+  @FunctionalInterface
+  private interface Deletions {
+    /**
+     * @param segment the index of the segment, counting from the first one this round indexed
+     * @param docIds the ids of the documents the segment holds
+     * @return the ids to delete, which may repeat and may be empty
+     */
+    List<Integer> forSegment(int segment, List<Integer> docIds);
+  }
+
+  /**
+   * Indexes one segment per commit with a CAGRA only configuration, numbering the documents from
+   * {@code firstDocId}, then force merges the whole directory into a single segment. Records every
+   * indexed vector by document id, and, when {@code deletions} is not null, deletes the documents
+   * it selects from each segment before the merge.
+   *
+   * @return the ids of the documents that were deleted, without repetitions
+   **/
+  private List<Integer> indexSegments(
+      RecordingInfoStream infoStream,
+      Map<Integer, float[]> vectorsById,
+      int segmentCount,
+      int firstDocId,
+      Deletions deletions)
+      throws IOException {
+    // Enough documents per segment for cuVS to build a CAGRA index rather than fall back to brute
+    // force, which would disqualify the segment from the merge API.
+    int docsPerSegment = 64 + random().nextInt(64);
+
+    GPUSearchParams params =
+        new GPUSearchParams.Builder()
+            .withCagraGraphBuildAlgo(cagraGraphBuildAlgo)
+            .withIndexType(IndexType.CAGRA)
+            .build();
+
+    IndexWriterConfig config =
+        new IndexWriterConfig()
+            .setCodec(alwaysKnnVectorsFormat(new CuVS2510GPUVectorsFormat(params)))
+            .setInfoStream(infoStream)
+            // Flush on commit only, so that each commit produces exactly one segment.
+            .setMaxBufferedDocs(segmentCount * docsPerSegment + 1)
+            .setRAMBufferSizeMB(IndexWriterConfig.DISABLE_AUTO_FLUSH);
+
+    List<List<Integer>> docIdsPerSegment = new ArrayList<>();
+    Set<Integer> deletedIds = new LinkedHashSet<>();
+
+    try (IndexWriter writer = new IndexWriter(directory, config)) {
+      for (int segment = 0; segment < segmentCount; segment++) {
+        List<Integer> docIds = new ArrayList<>();
+        for (int i = 0; i < docsPerSegment; i++) {
+          int docId = firstDocId + segment * docsPerSegment + i;
+          float[] vector = generateRandomVector(vectorDimension, random());
+          Document doc = new Document();
+          doc.add(new StringField("id", String.valueOf(docId), Field.Store.YES));
+          doc.add(new KnnFloatVectorField("vector", vector, VectorSimilarityFunction.EUCLIDEAN));
+          writer.addDocument(doc);
+          vectorsById.put(docId, vector);
+          docIds.add(docId);
+        }
+        docIdsPerSegment.add(docIds);
+        // One commit per segment; the default merge policy leaves this few segments alone until
+        // the force merge below, so the merge sees every segment at once.
+        writer.commit();
+      }
+
+      if (deletions != null) {
+        for (int segment = 0; segment < segmentCount; segment++) {
+          for (int deletedId : deletions.forSegment(segment, docIdsPerSegment.get(segment))) {
+            writer.deleteDocuments(new Term("id", String.valueOf(deletedId)));
+            deletedIds.add(deletedId);
+          }
+        }
+        writer.commit();
+      }
+
+      writer.forceMerge(1);
+    }
+    return List.copyOf(deletedIds);
+  }
+
+  /**
+   * Runs a few searches and verifies that the score of every hit matches the distance between the
+   * query and the vector that was indexed for the document that was returned.
+   **/
+  private void assertSearchHitsMatchTheirVectors(
+      DirectoryReader reader, Map<Integer, float[]> vectorsById) throws IOException {
+    // A merged index holding the wrong number of rows would still answer searches, so check the
+    // count the merge recorded rather than infer it from the hits.
+    assertEquals(
+        "Merged segment holds the wrong number of vectors",
+        vectorsById.size(),
+        reader.leaves().get(0).reader().getFloatVectorValues("vector").size());
+    IndexSearcher searcher = new IndexSearcher(reader);
+    for (int query = 0; query < 5; query++) {
+      float[] queryVector = generateRandomVector(vectorDimension, random());
+      int k = 1 + random().nextInt(16);
+      TopDocs topDocs = searcher.search(new KnnFloatVectorQuery("vector", queryVector, k), k);
+      assertTrue("Should find results after merge", topDocs.scoreDocs.length > 0);
+      for (ScoreDoc scoreDoc : topDocs.scoreDocs) {
+        int docId = Integer.parseInt(searcher.storedFields().document(scoreDoc.doc).get("id"));
+        float[] vector = vectorsById.get(docId);
+        assertNotNull("Hit on an unknown or deleted document: " + docId, vector);
+        // The index is built with the default L2Expanded metric, and the reader turns the squared
+        // euclidean distance cuVS returns into a score of 1 / (1 + distance).
+        float squaredDistance = 0.0f;
+        for (int i = 0; i < vector.length; i++) {
+          float difference = queryVector[i] - vector[i];
+          squaredDistance += difference * difference;
+        }
+        assertEquals(
+            "Score of document " + docId + " does not match its vector",
+            1.0f / (1.0f + squaredDistance),
+            scoreDoc.score,
+            1e-3f);
+      }
+    }
+  }
+
+  /** An InfoStream that keeps the messages, so that a test can tell which merge path ran. */
+  private static class RecordingInfoStream extends InfoStream {
+
+    private final List<String> messages = Collections.synchronizedList(new ArrayList<>());
+
+    @Override
+    public void message(String component, String message) {
+      messages.add(component + ": " + message);
+    }
+
+    @Override
+    public boolean isEnabled(String component) {
+      return true;
+    }
+
+    @Override
+    public void close() {}
+
+    List<String> messages() {
+      synchronized (messages) {
+        return List.copyOf(messages);
+      }
+    }
+
+    boolean nativeMergeUsed() {
+      return messages().stream().anyMatch(message -> message.contains("using the cuVS merge API"));
     }
   }
 

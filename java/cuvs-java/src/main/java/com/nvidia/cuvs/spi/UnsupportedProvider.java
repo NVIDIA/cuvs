@@ -8,6 +8,7 @@ import com.nvidia.cuvs.*;
 import java.lang.invoke.MethodHandle;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.BitSet;
 import java.util.List;
 import java.util.logging.Level;
 
@@ -81,12 +82,13 @@ final class UnsupportedProvider implements CuVSProvider {
   }
 
   @Override
-  public CagraIndex mergeCagraIndexes(CagraIndex[] indexes) {
+  public boolean isCagraPaddedDataset(CuVSMatrix dataset) {
     throw new UnsupportedOperationException(reasons);
   }
 
   @Override
-  public boolean isCagraPaddedDataset(CuVSMatrix dataset) {
+  public CagraIndex mergeCagraIndexes(
+      CagraIndex[] indexes, CagraIndexParams mergeParams, BitSet rowFilter) {
     throw new UnsupportedOperationException(reasons);
   }
 

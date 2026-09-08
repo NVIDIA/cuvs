@@ -1,11 +1,25 @@
 # =============================================================================
 # cmake-format: off
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 # cmake-format: on
 # =============================================================================
 
 include_guard(GLOBAL)
+
+function(cuvs_find_build_python output_var)
+  # cuTile is a build dependency. In conda builds, it is installed in BUILD_PREFIX while CMake's
+  # default search can resolve the host interpreter from PREFIX instead. Use the build prefix so
+  # configure-time matrix expansion and build-time kernel exports see the cuTile package.
+  if(DEFINED ENV{BUILD_PREFIX})
+    set(Python_ROOT "$ENV{BUILD_PREFIX}")
+  endif()
+  find_package(Python REQUIRED COMPONENTS Interpreter)
+  set(${output_var}
+      "${Python_EXECUTABLE}"
+      PARENT_SCOPE
+  )
+endfunction()
 
 function(compute_matrix_product output_var)
   set(options)
@@ -14,19 +28,21 @@ function(compute_matrix_product output_var)
 
   cmake_parse_arguments(_JIT_LTO "${options}" "${one_value}" "${multi_value}" ${ARGN})
 
-  find_package(Python3 REQUIRED COMPONENTS Interpreter)
+  cuvs_find_build_python(_matrix_python_executable)
 
   if(_JIT_LTO_MATRIX_JSON_FILE)
     execute_process(
-      COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/compute_matrix_product.py"
-              "${_JIT_LTO_MATRIX_JSON_FILE}" #
+      COMMAND
+        "${_matrix_python_executable}"
+        "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/compute_matrix_product.py"
+        "${_JIT_LTO_MATRIX_JSON_FILE}"
       OUTPUT_VARIABLE output COMMAND_ERROR_IS_FATAL ANY
     )
   else()
     execute_process(
       COMMAND "${CMAKE_COMMAND}" -E echo "${_JIT_LTO_MATRIX_JSON_STRING}"
-      COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/compute_matrix_product.py"
-              -
+      COMMAND "${_matrix_python_executable}"
+              "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/compute_matrix_product.py" -
       OUTPUT_VARIABLE output COMMAND_ERROR_IS_FATAL ANY
     )
   endif()
