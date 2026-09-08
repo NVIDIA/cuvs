@@ -604,6 +604,18 @@ public class CagraIndexImpl implements CagraIndex {
     }
   }
 
+  @Override
+  public long size() {
+    checkNotDestroyed();
+    try (var localArena = Arena.ofConfined()) {
+      MemorySegment size = localArena.allocate(int64_t);
+      checkCuVSError(
+          cuvsCagraIndexGetSize(cagraIndexReference.getMemorySegment(), size),
+          "cuvsCagraIndexGetSize");
+      return size.get(int64_t, 0);
+    }
+  }
+
   private IndexReference fromGraph(
       CagraIndexParams.CuvsDistanceType metric,
       CuVSMatrixInternal graph,
@@ -923,69 +935,153 @@ public class CagraIndexImpl implements CagraIndex {
   }
 
   /**
-   * Merges multiple CAGRA indexes into a single index.
+   * Merges multiple CAGRA indexes into a single index, keeping only the rows selected by
+   * {@code rowFilter}. See {@link CagraIndex#merge(CagraIndex[], CagraIndexParams, BitSet)} for the
+   * meaning of the filter.
    *
-   * @param indexes Array of CAGRA indexes to merge
-   * @return A new merged CAGRA index
-   */
-  public static CagraIndex merge(CagraIndex[] indexes) {
-    return merge(indexes, null);
-  }
-
-  /**
-   * Merges multiple CAGRA indexes into a single index with specified merge parameters.
-   *
-   * @param indexes Array of CAGRA indexes to merge
+   * @param indexes     Array of CAGRA indexes to merge
    * @param mergeParams Parameters to control the merge operation, or null to use defaults
+   * @param rowFilter   The rows to keep, or null to keep all of them. A BitSet shorter than the
+   *                    total row count is valid: the rows beyond its logical length are treated as
+   *                    clear (dropped). See {@link CagraIndex#merge(CagraIndex[], CagraIndexParams,
+   *                    BitSet)} for full semantics.
    * @return A new merged CAGRA index
    */
-  public static CagraIndex merge(CagraIndex[] indexes, CagraIndexParams mergeParams) {
+  public static CagraIndex merge(
+      CagraIndex[] indexes, CagraIndexParams mergeParams, BitSet rowFilter) {
+    if (indexes == null || indexes.length == 0) {
+      throw new IllegalArgumentException("At least one index must be provided for merging");
+    }
     CuVSResources resources = indexes[0].getCuVSResources();
-    var mergedIndex = createCagraIndex();
+    for (int i = 1; i < indexes.length; i++) {
+      if (!resources.equals(indexes[i].getCuVSResources())) {
+        throw new IllegalArgumentException("All indexes must use the same CuVSResources instance");
+      }
+    }
 
     try (var localArena = Arena.ofConfined()) {
       MemorySegment indexesSegment =
           localArena.allocate(indexes.length * ValueLayout.ADDRESS.byteSize());
 
+      long mergedRowCount = 0;
       for (int i = 0; i < indexes.length; i++) {
         CagraIndexImpl indexImpl = (CagraIndexImpl) indexes[i];
         indexesSegment.setAtIndex(
             ValueLayout.ADDRESS, i, indexImpl.cagraIndexReference.getMemorySegment());
+        if (rowFilter != null) {
+          mergedRowCount += indexImpl.size();
+        }
+      }
+      if (rowFilter != null) {
+        if (rowFilter.length() > mergedRowCount) {
+          throw new IllegalArgumentException(
+              "rowFilter selects row "
+                  + (rowFilter.length() - 1)
+                  + " but the indexes only hold "
+                  + mergedRowCount
+                  + " rows");
+        }
+        if (rowFilter.isEmpty()) {
+          throw new IllegalArgumentException("rowFilter keeps no rows, there is nothing to merge");
+        }
       }
 
+      var mergedIndex = createCagraIndex();
+      CagraIndexImpl merged = null;
       try (var nativeMergeParams = segmentFromIndexParams(mergeParams);
           var resourcesAccessor = resources.access()) {
         var cuvsRes = resourcesAccessor.handle();
 
+        // The words the merge filter points at have to outlive the merge call, so the
+        // allocation is held open around it rather than inside the helper that fills
+        // the filter in.
         MemorySegment mergeFilter = cuvsFilter.allocate(localArena);
-        cuvsFilter.type(mergeFilter, 0); // NO_FILTER
-        cuvsFilter.addr(mergeFilter, 0);
-
-        MemorySegment mergedDatasetPtr = localArena.allocate(cuvsDataset_t);
-        checkCuVSError(cuvsDatasetCreate(mergedDatasetPtr), "cuvsDatasetCreate");
-        MemorySegment mergedDataset = mergedDatasetPtr.get(cuvsDataset_t, 0);
-        AutoCloseable datasetOwner = new DatasetCloseDelegate(mergedDataset);
-        try {
-          checkCuVSError(
-              cuvsCagraMerge(
-                  cuvsRes,
-                  nativeMergeParams.handle(),
-                  indexesSegment,
-                  indexes.length,
-                  mergeFilter,
-                  mergedDataset,
-                  mergedIndex),
-              "cuvsCagraMerge");
-          return new CagraIndexImpl(new IndexReference(mergedIndex, null, datasetOwner), resources);
-        } catch (Throwable e) {
+        try (@SuppressWarnings("unused")
+            var filterWords =
+                allocateRowFilter(cuvsRes, localArena, mergeFilter, rowFilter, mergedRowCount)) {
+          MemorySegment mergedDatasetPtr = localArena.allocate(cuvsDataset_t);
+          checkCuVSError(cuvsDatasetCreate(mergedDatasetPtr), "cuvsDatasetCreate");
+          MemorySegment mergedDataset = mergedDatasetPtr.get(cuvsDataset_t, 0);
+          AutoCloseable datasetOwner = new DatasetCloseDelegate(mergedDataset);
           try {
-            datasetOwner.close();
-          } catch (Exception closeError) {
-            e.addSuppressed(closeError);
+            checkCuVSError(
+                cuvsCagraMerge(
+                    cuvsRes,
+                    nativeMergeParams.handle(),
+                    indexesSegment,
+                    indexes.length,
+                    mergeFilter,
+                    mergedDataset,
+                    mergedIndex),
+                "cuvsCagraMerge");
+            merged =
+                new CagraIndexImpl(new IndexReference(mergedIndex, null, datasetOwner), resources);
+            return merged;
+          } catch (Throwable e) {
+            try {
+              datasetOwner.close();
+            } catch (Exception closeError) {
+              e.addSuppressed(closeError);
+            }
+            throw e;
           }
-          throw e;
         }
+      } catch (Throwable t) {
+        try {
+          if (merged != null) {
+            // The merged index owns the dataset by now, so close it rather than only destroying
+            // the handle.
+            merged.close();
+          } else {
+            checkCuVSError(cuvsCagraIndexDestroy(mergedIndex), "cuvsCagraIndexDestroy");
+          }
+        } catch (Throwable cleanupError) {
+          t.addSuppressed(cleanupError);
+        }
+        throw t;
       }
+    }
+  }
+
+  /**
+   * Fills {@code mergeFilter} in and returns the device allocation backing it, which the caller has
+   * to keep open until the merge returns. A null {@code rowFilter} produces a NO_FILTER and an empty allocation.
+   *
+   * <p> cuvs reads the bitset as a vector of 32 bit words covering {@code mergedRowCount} rows, and derives the row
+   * count of the merged index from the number of bits that are set, so the words have to cover every row rather
+   * than stop at the last one that survives.
+   */
+  private static CloseableRMMAllocation allocateRowFilter(
+      long cuvsRes, Arena arena, MemorySegment mergeFilter, BitSet rowFilter, long mergedRowCount) {
+    if (rowFilter == null) {
+      cuvsFilter.type(mergeFilter, NO_FILTER());
+      cuvsFilter.addr(mergeFilter, 0);
+      return CloseableRMMAllocation.EMPTY;
+    }
+
+    long words = (mergedRowCount + 31) / 32;
+    long bytes = C_INT_BYTE_SIZE * words;
+    MemorySegment hostWords =
+        buildMemorySegment(arena, rowFilter.toLongArray(), (mergedRowCount + 63) / 64);
+
+    var deviceWords = allocateRMMSegment(cuvsRes, bytes);
+    try {
+      Util.cudaMemcpyAsync(
+          deviceWords.handle(), hostWords, bytes, HOST_TO_DEVICE, Util.getStream(cuvsRes));
+      checkCuVSError(cuvsStreamSync(cuvsRes), "cuvsStreamSync");
+
+      MemorySegment filterTensor =
+          prepareTensor(arena, deviceWords.handle(), new long[] {words}, kDLUInt(), 32, kDLCUDA());
+      cuvsFilter.type(mergeFilter, BITSET());
+      cuvsFilter.addr(mergeFilter, filterTensor.address());
+      return deviceWords;
+    } catch (Throwable t) {
+      try {
+        deviceWords.close();
+      } catch (Exception closeError) {
+        t.addSuppressed(closeError);
+      }
+      throw t;
     }
   }
 

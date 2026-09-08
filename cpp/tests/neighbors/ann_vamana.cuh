@@ -21,6 +21,7 @@
 #include <raft/core/host_mdspan.hpp>
 #include <raft/core/logger.hpp>
 #include <raft/linalg/add.cuh>
+#include <raft/linalg/map.cuh>
 #include <raft/random/rng.cuh>
 #include <raft/util/itertools.hpp>
 
@@ -45,6 +46,11 @@ struct edge_op {
   {
     return in == raft::upper_bound<Type>() ? Type(0) : in;
   }
+};
+
+// Cast fp32 -> fp16 so the half tests can reuse the fp32 data-generation path.
+struct cast_to_half_op {
+  __device__ half operator()(float x) const { return __float2half(x); }
 };
 
 struct AnnVamanaInputs {
@@ -256,6 +262,25 @@ class AnnVamanaTest : public ::testing::TestWithParam<AnnVamanaInputs> {
       raft::random::normal(handle_, r, database.data(), ps.n_rows * ps.dim, DataT(0.1), DataT(2.0));
       raft::random::normal(
         handle_, r, search_queries.data(), ps.n_queries * ps.dim, DataT(0.1), DataT(2.0));
+    } else if constexpr (std::is_same_v<DataT, half>) {
+      // raft::random::normal requires std::is_floating_point (excludes half), so generate
+      // the data as fp32 using the same distribution as the float path and cast to fp16.
+      rmm::device_uvector<float> database_f32(ps.n_rows * ps.dim, stream_);
+      rmm::device_uvector<float> queries_f32(ps.n_queries * ps.dim, stream_);
+      raft::random::normal(handle_, r, database_f32.data(), ps.n_rows * ps.dim, 0.1f, 2.0f);
+      raft::random::normal(handle_, r, queries_f32.data(), ps.n_queries * ps.dim, 0.1f, 2.0f);
+      raft::linalg::map(
+        handle_,
+        raft::make_device_vector_view<half, int64_t>(database.data(), (int64_t)ps.n_rows * ps.dim),
+        cast_to_half_op{},
+        raft::make_device_vector_view<const float, int64_t>(database_f32.data(),
+                                                            (int64_t)ps.n_rows * ps.dim));
+      raft::linalg::map(handle_,
+                        raft::make_device_vector_view<half, int64_t>(
+                          search_queries.data(), (int64_t)ps.n_queries * ps.dim),
+                        cast_to_half_op{},
+                        raft::make_device_vector_view<const float, int64_t>(
+                          queries_f32.data(), (int64_t)ps.n_queries * ps.dim));
     } else {
       raft::random::uniformInt(
         handle_, r, database.data(), ps.n_rows * ps.dim, DataT(1), DataT(20));

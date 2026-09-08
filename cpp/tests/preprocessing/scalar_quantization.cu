@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -92,19 +92,49 @@ class QuantizationTest : public ::testing::TestWithParam<QuantizationInputs<T>> 
 
     size_t print_size = std::min(input_.size(), 20ul);
 
+    // `train` samples this many rows into a device buffer that stays alive for the whole call, so
+    // whatever else it allocates, the peak cannot be below the subsample. Mirrors the sizing in
+    // quantile_min_max, integer division included.
+    constexpr size_t max_num_samples = 1000000;
+    size_t n_sample_rows =
+      std::min<size_t>(max_num_samples / static_cast<size_t>(cols_), static_cast<size_t>(rows_));
+    size_t min_train_alloc = n_sample_rows * static_cast<size_t>(cols_) * sizeof(T);
+
     // train quantizer_1 on device
-    auto quantizer_1 =
-      cuvs::preprocessing::quantize::scalar::train(handle, params_.quantization_params, dataset);
+    // `train` sizes its allocations from the dataset extents and the queried sort workspace, so
+    // the prediction is exact once the sort workspace dominates the peak. On very small inputs it
+    // is not: the peak then falls inside raft::matrix::sample_rows, where skipping the gather
+    // keeps the index buffer alive across the peak, and the dry run reports 8 bytes per sampled
+    // row more than the real run. Hence the upper-bound check rather than an exact match.
+    cuvs::preprocessing::quantize::scalar::quantizer<T> quantizer_1;
+    cuvs::execute_with_dry_run_check(
+      handle,
+      [&](raft::resources const& h) {
+        quantizer_1 =
+          cuvs::preprocessing::quantize::scalar::train(h, params_.quantization_params, dataset);
+      },
+      cuvs::alloc_behavior::DATA_DRIVEN,
+      min_train_alloc);
     std::cerr << "Q1: min = " << (double)quantizer_1.min_ << ", max = " << (double)quantizer_1.max_
               << std::endl;
 
     {
       auto quantized_input_h = raft::make_host_matrix<QuantI, int64_t>(rows_, cols_);
       auto quantized_input_d = raft::make_device_matrix<QuantI, int64_t>(handle, rows_, cols_);
-      cuvs::preprocessing::quantize::scalar::transform(
-        handle, quantizer_1, dataset, quantized_input_d.view());
-      cuvs::preprocessing::quantize::scalar::transform(
-        handle, quantizer_1, dataset_h, quantized_input_h.view());
+      cuvs::execute_with_dry_run_check(
+        handle,
+        [&](raft::resources const& h) {
+          cuvs::preprocessing::quantize::scalar::transform(
+            h, quantizer_1, dataset, quantized_input_d.view());
+        },
+        cuvs::alloc_behavior::NO_ALLOCATIONS);
+      cuvs::execute_with_dry_run_check(
+        handle,
+        [&](raft::resources const& h) {
+          cuvs::preprocessing::quantize::scalar::transform(
+            h, quantizer_1, dataset_h, quantized_input_h.view());
+        },
+        cuvs::alloc_behavior::NO_ALLOCATIONS);
 
       {
         raft::print_device_vector("Input array: ", input_.data(), print_size, std::cerr);
@@ -130,14 +160,24 @@ class QuantizationTest : public ::testing::TestWithParam<QuantizationInputs<T>> 
       auto quantized_input_h_const_view = raft::make_host_matrix_view<const QuantI, int64_t>(
         quantized_input_h.data_handle(), rows_, cols_);
       auto re_transformed_input_h = raft::make_host_matrix<T, int64_t>(rows_, cols_);
-      cuvs::preprocessing::quantize::scalar::inverse_transform(
-        handle, quantizer_1, quantized_input_h_const_view, re_transformed_input_h.view());
+      cuvs::execute_with_dry_run_check(
+        handle,
+        [&](raft::resources const& h) {
+          cuvs::preprocessing::quantize::scalar::inverse_transform(
+            h, quantizer_1, quantized_input_h_const_view, re_transformed_input_h.view());
+        },
+        cuvs::alloc_behavior::NO_ALLOCATIONS);
 
       auto quantized_input_d_const_view = raft::make_device_matrix_view<const QuantI, int64_t>(
         quantized_input_d.data_handle(), rows_, cols_);
       auto re_transformed_input_d = raft::make_device_matrix<T, int64_t>(handle, rows_, cols_);
-      cuvs::preprocessing::quantize::scalar::inverse_transform(
-        handle, quantizer_1, quantized_input_d_const_view, re_transformed_input_d.view());
+      cuvs::execute_with_dry_run_check(
+        handle,
+        [&](raft::resources const& h) {
+          cuvs::preprocessing::quantize::scalar::inverse_transform(
+            h, quantizer_1, quantized_input_d_const_view, re_transformed_input_d.view());
+        },
+        cuvs::alloc_behavior::NO_ALLOCATIONS);
       raft::print_device_vector(
         "re-transformed array: ", re_transformed_input_d.data_handle(), print_size, std::cerr);
 
@@ -154,8 +194,15 @@ class QuantizationTest : public ::testing::TestWithParam<QuantizationInputs<T>> 
     }
 
     // train quantizer_2 on host
-    auto quantizer_2 =
-      cuvs::preprocessing::quantize::scalar::train(handle, params_.quantization_params, dataset_h);
+    cuvs::preprocessing::quantize::scalar::quantizer<T> quantizer_2;
+    cuvs::execute_with_dry_run_check(
+      handle,
+      [&](raft::resources const& h) {
+        quantizer_2 =
+          cuvs::preprocessing::quantize::scalar::train(h, params_.quantization_params, dataset_h);
+      },
+      cuvs::alloc_behavior::DATA_DRIVEN,
+      min_train_alloc);
     std::cerr << "Q2: min = " << (double)quantizer_2.min_ << ", max = " << (double)quantizer_2.max_
               << std::endl;
 
