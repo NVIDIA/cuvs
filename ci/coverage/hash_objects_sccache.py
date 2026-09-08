@@ -59,7 +59,15 @@ def parse_log(log_path: Path) -> dict[str, str]:
     return objects
 
 
-def load_object_to_source(build_dir: Path) -> dict[str, str]:
+def load_object_to_source(build_dir: Path, cpp_root: Path) -> dict[str, str]:
+    """Source paths are normalized to match func2tests.json's convention
+    exactly (collect_coverage.py: "cpp/" + path relative to <repo_root>/cpp)
+    -- required for affected_files/new_files to correlate with
+    func2tests.json's file-level mapping in select_tests.py. A generated
+    file under cpp/build/coverage/... normalizes to
+    "cpp/build/coverage/...", same as func2tests.json already does for
+    generated-file coverage entries.
+    """
     cc_path = build_dir / "compile_commands.json"
     entries = json.loads(cc_path.read_text())
     mapping = {}
@@ -68,7 +76,11 @@ def load_object_to_source(build_dir: Path) -> dict[str, str]:
         if not out:
             continue
         out_rel = str(Path(out).resolve().relative_to(build_dir.resolve()))
-        mapping[out_rel] = e["file"]
+        try:
+            src_rel = str(Path("cpp") / Path(e["file"]).resolve().relative_to(cpp_root))
+        except ValueError:
+            src_rel = None  # source lives outside cpp/ entirely -- no correlation possible
+        mapping[out_rel] = src_rel
     return mapping
 
 
@@ -78,6 +90,12 @@ def main() -> None:
     )
     parser.add_argument("--sccache-log", required=True, help="sccache trace log (SCCACHE_ERROR_LOG)")
     parser.add_argument("--build-dir", required=True, help="Coverage-preset CMake build directory")
+    parser.add_argument(
+        "--repo-root",
+        default=None,
+        help="Repository root, for normalizing source paths to match func2tests.json's "
+        "convention (default: auto-detect from --build-dir, assumes <repo-root>/cpp/build/...)",
+    )
     parser.add_argument("--output", default="object_hashes.json")
     parser.add_argument(
         "--update",
@@ -88,12 +106,24 @@ def main() -> None:
     args = parser.parse_args()
 
     log_path = Path(args.sccache_log)
-    build_dir = Path(args.build_dir)
+    build_dir = Path(args.build_dir).resolve()
     if not log_path.exists():
         sys.exit(f"ERROR: sccache log not found: {log_path}")
 
+    if args.repo_root:
+        repo_root = Path(args.repo_root).resolve()
+    else:
+        # Coverage build dir is always <repo_root>/cpp/build/<preset>.
+        repo_root = build_dir.parent.parent.parent
+    cpp_root = repo_root / "cpp"
+    if not cpp_root.is_dir():
+        sys.exit(
+            f"ERROR: could not locate cpp/ under detected repo root {repo_root} "
+            f"(from --build-dir {build_dir}); pass --repo-root explicitly"
+        )
+
     hashes = parse_log(log_path)
-    obj_to_src = load_object_to_source(build_dir)
+    obj_to_src = load_object_to_source(build_dir, cpp_root)
 
     output_path = Path(args.output)
     objects = {}
