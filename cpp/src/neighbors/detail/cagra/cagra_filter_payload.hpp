@@ -10,6 +10,7 @@
 
 #include <cuvs/core/bloom_filter.hpp>
 #include <raft/core/error.hpp>
+#include <util/stream_alloc_compat.hpp>  // malloc_async_compat
 
 #include <cuda_runtime_api.h>
 
@@ -53,7 +54,7 @@ struct cagra_device_payload_owner {
     ~state() noexcept
     {
       if (device_payload != nullptr) {
-        RAFT_CUDA_TRY_NO_THROW(cudaFreeAsync(device_payload, stream));
+        RAFT_CUDA_TRY_NO_THROW(cuvs::util::free_async_compat(device_payload, stream));
       }
       if (ready_event != nullptr) { RAFT_CUDA_TRY_NO_THROW(cudaEventDestroy(ready_event)); }
     }
@@ -63,7 +64,7 @@ struct cagra_device_payload_owner {
       std::lock_guard<std::mutex> lock(mutex);
       if (device_payload == nullptr) {
         RAFT_CUDA_TRY(cudaGetDevice(&device));
-        RAFT_CUDA_TRY(cudaMallocAsync(
+        RAFT_CUDA_TRY(cuvs::util::malloc_async_compat(
           reinterpret_cast<void**>(&device_payload), sizeof(PayloadT), cuda_stream));
         RAFT_CUDA_TRY(cudaMemcpyAsync(
           device_payload, &host_payload, sizeof(PayloadT), cudaMemcpyHostToDevice, cuda_stream));
