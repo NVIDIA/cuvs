@@ -373,17 +373,17 @@ inline std::pair<size_t, size_t> iterative_build_mem_usage(
   // to CAGRA's row alignment.
   size_t dataset_dev;
   size_t query_scratch;
+  const size_t query_stride =
+    cuvs::neighbors::cagra_required_row_width(static_cast<uint32_t>(dim), dtype_size);
   if (compression.has_value()) {
     dataset_dev = vpq_dataset_size(dataset, compression.value());
-    // Queries are reconstructed from the codes one chunk at a time rather than materialized for
-    // the whole dataset.
-    query_scratch = chunk * dim * dtype_size;
+    // Queries are reconstructed from the codes one chunk at a time, already CAGRA-padded, rather
+    // than materialized for the whole dataset. search_main consumes that padded layout directly.
+    query_scratch = chunk * query_stride * dtype_size;
   } else {
-    const size_t stride =
-      cuvs::neighbors::cagra_required_row_width(static_cast<uint32_t>(dim), dtype_size);
-    dataset_dev = n_rows * stride * dtype_size;
-    // Padded rows are depadded into a per-chunk scratch buffer before being used as queries.
-    query_scratch = stride == dim ? 0 : chunk * dim * dtype_size;
+    dataset_dev = n_rows * query_stride * dtype_size;
+    // Padded dataset rows are passed to search_main as-is; no per-chunk depad scratch.
+    query_scratch = 0;
   }
 
   // Search results for one chunk, live for the whole loop.
@@ -411,13 +411,13 @@ inline std::pair<size_t, size_t> iterative_build_mem_usage(
                             /* device_resident_graphs = */ true);
 
   // Searching and optimizing run sequentially within an iteration, so the search plan and the
-  // optimize workspace never coexist and are combined with max() rather than summed. The query
+  // optimize workspace never coexist and are combined with max() rather than summed. VPQ query
   // scratch is allocated for the whole loop, so it is still alive while optimize runs.
   //
-  // Two transients are left out. The dataset copy made by make_device_padded_dataset briefly
-  // coexists with its source, and cagra::search re-pads a query chunk when its rows are not
-  // CAGRA-aligned; both are caller-owned or chunk-sized, and counting them would inflate the
-  // estimate enough to push callers to an out-of-core build unnecessarily.
+  // One transient is left out: the dataset copy made by make_device_padded_dataset briefly
+  // coexists with its source. Counting it would inflate the estimate enough to push callers to an
+  // out-of-core build unnecessarily. Query chunks are already CAGRA-padded, so search_main does
+  // not re-pad them.
   size_t total_dev = dataset_dev + results_dev + graph_dev + knn_dev + query_scratch +
                      std::max(search_dev, gpu_workspace_size);
 

@@ -6,6 +6,7 @@
 
 #include "../../../core/nvtx.hpp"
 #include "../../ivf_pq/ivf_pq_fp16_overflow.cuh"
+#include "cagra_search.cuh"
 #include "graph_core.cuh"
 
 #include <raft/core/copy.cuh>
@@ -19,6 +20,7 @@
 #include <raft/core/mdspan.hpp>
 #include <raft/core/numpy_serializer.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
+#include <raft/util/cudart_utils.hpp>
 #include <raft/util/integer_utils.hpp>
 
 #include <cuvs/cluster/kmeans.hpp>
@@ -2002,6 +2004,7 @@ __global__ void kern_reconstruct_vpq_queries(const uint8_t* encoded_data,
                                              uint32_t pq_len,
                                              uint64_t offset,
                                              uint32_t batch_size,
+                                             uint32_t output_ld,
                                              T* output)
 {
   const uint64_t batch_idx = blockIdx.x;
@@ -2017,7 +2020,7 @@ __global__ void kern_reconstruct_vpq_queries(const uint8_t* encoded_data,
     uint32_t k = d % pq_len;
     float val  = static_cast<float>(vq_centroid_ptr[d]) +
                 static_cast<float>(pq_codebook[static_cast<uint32_t>(pq_codes[j]) * pq_len + k]);
-    output[batch_idx * dim + d] = static_cast<T>(val);
+    output[batch_idx * output_ld + d] = static_cast<T>(val);
   }
 }
 
@@ -2028,9 +2031,14 @@ void reconstruct_vpq_queries(raft::resources const& res,
                              uint32_t batch_size,
                              raft::device_matrix_view<T, int64_t> output)
 {
-  const uint32_t dim     = vpq_dset.dim();
-  const uint32_t pq_len  = vpq_dset.pq_len();
-  const uint32_t threads = std::min(dim, 256u);
+  const uint32_t dim       = vpq_dset.dim();
+  const uint32_t pq_len    = vpq_dset.pq_len();
+  const uint32_t output_ld = static_cast<uint32_t>(output.extent(1));
+  const uint32_t threads   = std::min(dim, 256u);
+  RAFT_EXPECTS(output_ld >= dim,
+               "VPQ query reconstruct output row width (%u) must be >= logical dim (%u)",
+               output_ld,
+               dim);
 
   kern_reconstruct_vpq_queries<T, MathT>
     <<<batch_size, threads, 0, raft::resource::get_cuda_stream(res)>>>(
@@ -2042,6 +2050,7 @@ void reconstruct_vpq_queries(raft::resources const& res,
       pq_len,
       offset,
       batch_size,
+      output_ld,
       output.data_handle());
 }
 
@@ -2054,10 +2063,12 @@ void reconstruct_vpq_queries(raft::resources const& res,
 //
 // Query source:
 //   - `vpq_queries == nullptr`: queries are read directly from `dev_query_view` (uncompressed
-//     build; the view is a slice of the resident device dataset).
+//     build; the view is a slice of the resident padded device dataset, including CAGRA row
+//     padding). `cagra::detail::search_main` accepts that padded row width so search does not
+//     depad/re-pad the chunk.
 //   - `vpq_queries != nullptr`: `dev_query_view` is ignored and each chunk of queries is
-//     reconstructed on the fly from the VPQ codes into `reconstructed_batch_queries`, so we never
-//     materialize the whole (up to N x dim) reconstructed dataset.
+//     reconstructed on the fly from the VPQ codes into `reconstructed_batch_queries` with CAGRA
+//     row padding, so we never materialize the whole (up to N x stride) reconstructed dataset.
 template <typename T, typename IdxT, typename DatasetViewT>
 auto search_and_optimize(raft::resources const& res,
                          const cuvs::neighbors::cagra::search_params& search_params,
@@ -2086,12 +2097,13 @@ auto search_and_optimize(raft::resources const& res,
     auto batch_dev_distances_view = raft::make_device_matrix_view<float, int64_t>(
       dev_distances.data_handle(), batch_size, curr_topk);
 
-    cuvs::neighbors::cagra::search(res,
-                                   search_params,
-                                   idx,
-                                   batch_query_view,
-                                   batch_dev_neighbors_view,
-                                   batch_dev_distances_view);
+    cuvs::neighbors::cagra::detail::search_main(res,
+                                                search_params,
+                                                idx,
+                                                batch_query_view,
+                                                batch_dev_neighbors_view,
+                                                batch_dev_distances_view,
+                                                cuvs::neighbors::filtering::none_sample_filter{});
 
     raft::copy(knn_graph.data_handle() + offset * curr_topk,
                batch_dev_neighbors_view.data_handle(),
@@ -2101,7 +2113,12 @@ auto search_and_optimize(raft::resources const& res,
 
   if (vpq_queries != nullptr) {
     // Reconstruct-and-search one chunk at a time: reconstruct source rows [offset, offset+bs) into
-    // the scratch, then search that chunk.
+    // the CAGRA-padded scratch, then search that chunk without a second pad copy.
+    const int64_t query_ld = reconstructed_batch_queries.extent(1);
+    RAFT_EXPECTS(query_ld >= query_dim,
+                 "VPQ query scratch row width (%ld) must be >= logical dim (%ld)",
+                 static_cast<long>(query_ld),
+                 static_cast<long>(query_dim));
     for (int64_t offset = 0; offset < curr_query_size;
          offset += static_cast<int64_t>(max_chunk_size)) {
       const int64_t batch_size =
@@ -2112,9 +2129,9 @@ auto search_and_optimize(raft::resources const& res,
         static_cast<uint64_t>(offset),
         static_cast<uint32_t>(batch_size),
         raft::make_device_matrix_view<T, int64_t>(
-          reconstructed_batch_queries.data_handle(), batch_size, query_dim));
+          reconstructed_batch_queries.data_handle(), batch_size, query_ld));
       auto batch_query_view = raft::make_device_matrix_view<const T, int64_t>(
-        reconstructed_batch_queries.data_handle(), batch_size, query_dim);
+        reconstructed_batch_queries.data_handle(), batch_size, query_ld);
       run_batch(offset, batch_size, batch_query_view);
     }
   } else {
@@ -2128,21 +2145,8 @@ auto search_and_optimize(raft::resources const& res,
       stream,
       raft::resource::get_workspace_resource_ref(res));
     for (const auto& batch : query_batch) {
-      raft::device_matrix_view<const T, int64_t> batch_query_view;
-      if (source_row_width != query_dim) {
-        raft::copy_matrix(reconstructed_batch_queries.data_handle(),
-                          query_dim,
-                          batch.data(),
-                          source_row_width,
-                          query_dim,
-                          batch.size(),
-                          stream);
-        batch_query_view = raft::make_device_matrix_view<const T, int64_t>(
-          reconstructed_batch_queries.data_handle(), static_cast<int64_t>(batch.size()), query_dim);
-      } else {
-        batch_query_view = raft::make_device_matrix_view<const T, int64_t>(
-          batch.data(), static_cast<int64_t>(batch.size()), query_dim);
-      }
+      auto batch_query_view = raft::make_device_matrix_view<const T, int64_t>(
+        batch.data(), static_cast<int64_t>(batch.size()), source_row_width);
       run_batch(
         static_cast<int64_t>(batch.offset()), static_cast<int64_t>(batch.size()), batch_query_view);
     }
@@ -2241,10 +2245,19 @@ auto iterative_build_graph(raft::resources const& res,
     res, large_mr, raft::make_extents<int64_t>(n_rows_i64, topk_i64));
   auto dev_graph = raft::make_device_matrix<IdxT, int64_t>(res, 0, 0);
 
-  bool const need_query_scratch = vpq_dataset != nullptr || dev_dataset.extent(1) != dim_i64;
+  auto const query_stride_i64 = static_cast<int64_t>(
+    cuvs::neighbors::cagra_required_row_width<T>(static_cast<uint32_t>(logical_dim)));
   auto reconstructed_batch_queries =
-    need_query_scratch ? raft::make_device_matrix<T, int64_t>(res, chunk_i64, dim_i64)
-                       : raft::make_device_matrix<T, int64_t>(res, 0, 0);
+    vpq_dataset != nullptr ? raft::make_device_matrix<T, int64_t>(res, chunk_i64, query_stride_i64)
+                           : raft::make_device_matrix<T, int64_t>(res, 0, 0);
+  if (vpq_dataset != nullptr) {
+    // Padding columns must be zero: search_main cosine post-process reduces over the full row
+    // width, and reconstruct only writes the logical dim.
+    RAFT_CUDA_TRY(cudaMemsetAsync(reconstructed_batch_queries.data_handle(),
+                                  0,
+                                  reconstructed_batch_queries.size() * sizeof(T),
+                                  raft::resource::get_cuda_stream(res)));
+  }
 
   // Determine graph degree and number of search results while increasing
   // graph size.
