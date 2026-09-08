@@ -65,6 +65,7 @@ files:
       - cuda_version
       - depends_on_cupy
       - py_version
+      - rapids_build_setuptools
       - test_python_common
       - test_py_cuvs
       - depends_on_libcuvs

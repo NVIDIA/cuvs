@@ -235,6 +235,41 @@ def _fake_configured_codec_runtime(diagnostics, initial_properties=None):
     return runtime, properties, property_snapshots, class_names, codec
 
 
+def _write_artifact_jars(
+    tmp_path,
+    java_name="cuvs-java.jar",
+    lucene_name="cuvs-lucene.jar",
+    *,
+    extra_java_entries=(),
+    extra_lucene_entries=(),
+    lucene_service_overrides=None,
+):
+    lucene_service_overrides = lucene_service_overrides or {}
+    cuvs_java = tmp_path / java_name
+    with zipfile.ZipFile(cuvs_java, "w") as archive:
+        for entry in pylucene_backend._CUVS_JAVA_REQUIRED_CLASSES:
+            archive.writestr(entry, b"base cuvs-java bytecode")
+        for entry, contents in extra_java_entries:
+            archive.writestr(entry, contents)
+
+    cuvs_lucene = tmp_path / lucene_name
+    with zipfile.ZipFile(cuvs_lucene, "w") as archive:
+        for entry in pylucene_backend._CUVS_LUCENE_REQUIRED_CLASSES:
+            archive.writestr(entry, b"cuvs-lucene bytecode")
+        for (
+            descriptor,
+            providers,
+        ) in pylucene_backend._CUVS_LUCENE_REQUIRED_SERVICES.items():
+            contents = lucene_service_overrides.get(
+                descriptor, "\n".join(sorted(providers))
+            )
+            archive.writestr(descriptor, contents)
+        for entry, contents in extra_lucene_entries:
+            archive.writestr(entry, contents)
+
+    return cuvs_java, cuvs_lucene
+
+
 def _fake_index_writer_runtime(error_at=None, directory_close_error=None):
     writer = _FakeIndexWriter(error_at=error_at)
     directory = SimpleNamespace(closed=False)
@@ -288,10 +323,7 @@ def _reset_jvm_tracking(monkeypatch):
 def test_initialize_pylucene_uses_verified_classpath_and_vmargs(
     tmp_path, monkeypatch
 ):
-    cuvs_java = tmp_path / "cuvs-java.jar"
-    cuvs_lucene = tmp_path / "cuvs-lucene.jar"
-    cuvs_java.touch()
-    cuvs_lucene.touch()
+    cuvs_java, cuvs_lucene = _write_artifact_jars(tmp_path)
     fake_lucene = _FakeLuceneModule()
     monkeypatch.setattr(
         pylucene_backend.importlib,
@@ -407,10 +439,7 @@ def test_initialize_pylucene_uses_environment_runtime_config(
     tmp_path,
     monkeypatch,
 ):
-    cuvs_java = tmp_path / "cuvs-java.jar"
-    cuvs_lucene = tmp_path / "cuvs-lucene.jar"
-    cuvs_java.touch()
-    cuvs_lucene.touch()
+    cuvs_java, cuvs_lucene = _write_artifact_jars(tmp_path)
     fake_lucene = _FakeLuceneModule()
     monkeypatch.setattr(
         pylucene_backend.importlib,
@@ -443,14 +472,16 @@ def test_initialize_pylucene_uses_environment_runtime_config(
 def test_initialize_pylucene_rejects_fat_cuvs_lucene_jar_before_init(
     tmp_path, monkeypatch
 ):
-    cuvs_java = tmp_path / "cuvs-java.jar"
-    cuvs_lucene = tmp_path / "cuvs-lucene-jar-with-dependencies.jar"
-    cuvs_java.touch()
-    with zipfile.ZipFile(cuvs_lucene, "w") as archive:
-        archive.writestr(
-            pylucene_backend._LUCENE_CORE_CLASS,
-            b"bundled Lucene bytecode",
-        )
+    cuvs_java, cuvs_lucene = _write_artifact_jars(
+        tmp_path,
+        lucene_name="cuvs-lucene-jar-with-dependencies.jar",
+        extra_lucene_entries=(
+            (
+                pylucene_backend._LUCENE_CORE_CLASS,
+                b"bundled Lucene bytecode",
+            ),
+        ),
+    )
     fake_lucene = _FakeLuceneModule()
     monkeypatch.setattr(
         pylucene_backend.importlib,
@@ -469,13 +500,121 @@ def test_initialize_pylucene_rejects_fat_cuvs_lucene_jar_before_init(
     assert fake_lucene.init_calls == []
 
 
+def test_initialize_pylucene_rejects_non_jar_artifact_before_init(
+    tmp_path, monkeypatch
+):
+    cuvs_java, cuvs_lucene = _write_artifact_jars(tmp_path)
+    cuvs_java.write_text("not a JAR archive")
+    fake_lucene = _FakeLuceneModule()
+    monkeypatch.setattr(
+        pylucene_backend.importlib,
+        "import_module",
+        lambda _name: fake_lucene,
+    )
+
+    with pytest.raises(RuntimeError, match="not a readable JAR archive"):
+        pylucene_backend._initialize_pylucene(
+            {
+                "cuvs_java_jar": cuvs_java,
+                "cuvs_lucene_jar": cuvs_lucene,
+            }
+        )
+
+    assert fake_lucene.init_calls == []
+
+
+def test_initialize_pylucene_rejects_cuvs_java_without_required_classes_before_init(
+    tmp_path, monkeypatch
+):
+    cuvs_java, cuvs_lucene = _write_artifact_jars(tmp_path)
+    with zipfile.ZipFile(cuvs_java, "w") as archive:
+        archive.writestr(
+            "META-INF/versions/22/com/nvidia/cuvs/internal/Native.class",
+            b"unrelated bytecode",
+        )
+    fake_lucene = _FakeLuceneModule()
+    monkeypatch.setattr(
+        pylucene_backend.importlib,
+        "import_module",
+        lambda _name: fake_lucene,
+    )
+
+    with pytest.raises(
+        RuntimeError, match="cuvs_java_jar is not the required artifact"
+    ):
+        pylucene_backend._initialize_pylucene(
+            {
+                "cuvs_java_jar": cuvs_java,
+                "cuvs_lucene_jar": cuvs_lucene,
+            }
+        )
+
+    assert fake_lucene.init_calls == []
+
+
+def test_initialize_pylucene_rejects_native_classifier_jar_before_init(
+    tmp_path, monkeypatch
+):
+    cuvs_java, cuvs_lucene = _write_artifact_jars(
+        tmp_path,
+        java_name="cuvs-java-x86_64-cuda12.jar",
+        extra_java_entries=(
+            ("amd64/Linux/libcuvs.so", b"embedded native library"),
+            ("amd64/Linux/libcuvs_c.so", b"embedded native library"),
+        ),
+    )
+    fake_lucene = _FakeLuceneModule()
+    monkeypatch.setattr(
+        pylucene_backend.importlib,
+        "import_module",
+        lambda _name: fake_lucene,
+    )
+
+    with pytest.raises(
+        RuntimeError, match="base cuvs-java JAR, not a native-classifier"
+    ):
+        pylucene_backend._initialize_pylucene(
+            {
+                "cuvs_java_jar": cuvs_java,
+                "cuvs_lucene_jar": cuvs_lucene,
+            }
+        )
+
+    assert fake_lucene.init_calls == []
+
+
+def test_initialize_pylucene_requires_cuvs_lucene_spi_providers_before_init(
+    tmp_path, monkeypatch
+):
+    codec_service = "META-INF/services/org.apache.lucene.codecs.Codec"
+    cuvs_java, cuvs_lucene = _write_artifact_jars(
+        tmp_path,
+        lucene_service_overrides={
+            codec_service: "com.nvidia.cuvs.lucene.CuVS2510GPUSearchCodec"
+        },
+    )
+    fake_lucene = _FakeLuceneModule()
+    monkeypatch.setattr(
+        pylucene_backend.importlib,
+        "import_module",
+        lambda _name: fake_lucene,
+    )
+
+    with pytest.raises(RuntimeError, match="does not advertise.*SPI"):
+        pylucene_backend._initialize_pylucene(
+            {
+                "cuvs_java_jar": cuvs_java,
+                "cuvs_lucene_jar": cuvs_lucene,
+            }
+        )
+
+    assert fake_lucene.init_calls == []
+
+
 def test_initialize_pylucene_rejects_externally_started_jvm(
     tmp_path, monkeypatch
 ):
-    cuvs_java = tmp_path / "cuvs-java.jar"
-    cuvs_lucene = tmp_path / "cuvs-lucene.jar"
-    cuvs_java.touch()
-    cuvs_lucene.touch()
+    cuvs_java, cuvs_lucene = _write_artifact_jars(tmp_path)
     fake_lucene = _FakeLuceneModule()
     fake_lucene.environment = _FakeVMEnvironment()
     monkeypatch.setattr(
@@ -496,11 +635,12 @@ def test_initialize_pylucene_rejects_externally_started_jvm(
 def test_initialize_pylucene_rejects_different_jars_after_start(
     tmp_path, monkeypatch
 ):
-    first_java = tmp_path / "first-java.jar"
-    first_lucene = tmp_path / "first-lucene.jar"
-    second_java = tmp_path / "second-java.jar"
-    for path in (first_java, first_lucene, second_java):
-        path.touch()
+    first_java, first_lucene = _write_artifact_jars(
+        tmp_path, "first-java.jar", "first-lucene.jar"
+    )
+    second_java, _ = _write_artifact_jars(
+        tmp_path, "second-java.jar", "unused-lucene.jar"
+    )
     fake_lucene = _FakeLuceneModule()
     monkeypatch.setattr(
         pylucene_backend.importlib,
@@ -527,10 +667,7 @@ def test_initialize_pylucene_rejects_different_jars_after_start(
 def test_initialize_pylucene_rejects_different_vmargs_after_start(
     tmp_path, monkeypatch
 ):
-    cuvs_java = tmp_path / "cuvs-java.jar"
-    cuvs_lucene = tmp_path / "cuvs-lucene.jar"
-    cuvs_java.touch()
-    cuvs_lucene.touch()
+    cuvs_java, cuvs_lucene = _write_artifact_jars(tmp_path)
     fake_lucene = _FakeLuceneModule()
     monkeypatch.setattr(
         pylucene_backend.importlib,
@@ -665,10 +802,7 @@ def test_resolve_configured_hnsw_codec_rejects_diagnostic_mismatch_and_restores_
 def test_initialize_pylucene_rejects_invalid_jvm_args(
     jvm_args, tmp_path, monkeypatch
 ):
-    cuvs_java = tmp_path / "cuvs-java.jar"
-    cuvs_lucene = tmp_path / "cuvs-lucene.jar"
-    cuvs_java.touch()
-    cuvs_lucene.touch()
+    cuvs_java, cuvs_lucene = _write_artifact_jars(tmp_path)
     monkeypatch.setattr(
         pylucene_backend.importlib,
         "import_module",

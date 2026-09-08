@@ -34,9 +34,12 @@ from cuvs_bench.tests.pylucene._pylucene_execution_path_utils import (
     run_index_scenario,
     segment_document_id_ranges,
 )
+from cuvs_bench.tests.pylucene._pylucene_output_assertions import (
+    assert_no_cuvs_graph_clamp_warnings,
+)
 
 # Python 3.14 reports one deprecation per JCC-generated PyLucene builtin type.
-# This narrow third-party filter keeps native/cuVS warnings fully visible.
+# Native/JVM output is captured and checked separately for every case below.
 pytestmark = [
     pytest.mark.pylucene,
     pytest.mark.filterwarnings(
@@ -884,34 +887,44 @@ def _print_result(
 
 
 def _run_and_verify(
-    case: EndToEndCase, context: PyLuceneContext
+    case: EndToEndCase,
+    context: PyLuceneContext,
+    capfd: pytest.CaptureFixture[str],
 ) -> tuple[IndexRun, tuple[float, ...]]:
+    capfd.readouterr()
     result = run_index_scenario(case.scenario, context)
     _assert_index_files_and_segments(case, result)
     _assert_index_metadata(case, result)
     _assert_execution_path(case, result)
     _assert_graph_configuration(case, result)
     recalls = _assert_search_results(case, result)
-    _print_result(case, result, recalls)
+    captured = capfd.readouterr()
+    assert_no_cuvs_graph_clamp_warnings(captured.out + captured.err)
+    with capfd.disabled():
+        _print_result(case, result, recalls)
     return result, recalls
 
 
 @pytest.mark.parametrize("case", _case_parameters(SEGMENT_CASES))
 def test_search_with_configured_segment_count(
-    pylucene_context: PyLuceneContext, case: EndToEndCase
+    pylucene_context: PyLuceneContext,
+    case: EndToEndCase,
+    capfd: pytest.CaptureFixture[str],
 ) -> None:
     """Exercise each execution path across configured segment topologies."""
-    result, _ = _run_and_verify(case, pylucene_context)
+    result, _ = _run_and_verify(case, pylucene_context, capfd)
     assert not result.document_ids_without_vectors
     assert not result.deleted_document_ids
 
 
 @pytest.mark.parametrize("case", _case_parameters(SINGLE_LIVE_DOCUMENT_CASES))
 def test_cagra_search_with_single_live_document(
-    pylucene_context: PyLuceneContext, case: EndToEndCase
+    pylucene_context: PyLuceneContext,
+    case: EndToEndCase,
+    capfd: pytest.CaptureFixture[str],
 ) -> None:
     """Search a warning-free CAGRA index after deleting all but one document."""
-    result, _ = _run_and_verify(case, pylucene_context)
+    result, _ = _run_and_verify(case, pylucene_context, capfd)
     assert result.live_document_count == 1
     assert len(result.searchable_vector_document_ids) == 1
     assert len(result.deleted_document_ids) == result.max_document_count - 1
@@ -923,37 +936,45 @@ def test_cagra_search_with_single_live_document(
 
 @pytest.mark.parametrize("case", _case_parameters(FORCE_MERGE_CASES))
 def test_search_after_force_merge(
-    pylucene_context: PyLuceneContext, case: EndToEndCase
+    pylucene_context: PyLuceneContext,
+    case: EndToEndCase,
+    capfd: pytest.CaptureFixture[str],
 ) -> None:
     """Verify CPU and GPU search paths after representative force merges."""
-    result, _ = _run_and_verify(case, pylucene_context)
+    result, _ = _run_and_verify(case, pylucene_context, capfd)
     assert not result.document_ids_without_vectors
     assert not result.deleted_document_ids
 
 
 @pytest.mark.parametrize("case", _case_parameters(HNSW_LAYER_CASES))
 def test_cagra_built_hnsw_has_expected_layer_count(
-    pylucene_context: PyLuceneContext, case: EndToEndCase
+    pylucene_context: PyLuceneContext,
+    case: EndToEndCase,
+    capfd: pytest.CaptureFixture[str],
 ) -> None:
     """Verify CAGRA-built HNSW persists the requested three layers."""
-    result, _ = _run_and_verify(case, pylucene_context)
+    result, _ = _run_and_verify(case, pylucene_context, capfd)
     assert set(result.hnsw_layer_counts) == {case.expected_hnsw_layers}
 
 
 @pytest.mark.parametrize("case", _case_parameters(CAGRA_SEARCH_WIDTH_CASES))
 def test_cagra_search_with_configured_search_width(
-    pylucene_context: PyLuceneContext, case: EndToEndCase
+    pylucene_context: PyLuceneContext,
+    case: EndToEndCase,
+    capfd: pytest.CaptureFixture[str],
 ) -> None:
     """Exercise GPU CAGRA search widths 1, 16, and 32."""
-    _run_and_verify(case, pylucene_context)
+    _run_and_verify(case, pylucene_context, capfd)
 
 
 @pytest.mark.parametrize("case", _case_parameters(DELETED_DOCUMENT_CASES))
 def test_deleted_documents_are_not_searchable(
-    pylucene_context: PyLuceneContext, case: EndToEndCase
+    pylucene_context: PyLuceneContext,
+    case: EndToEndCase,
+    capfd: pytest.CaptureFixture[str],
 ) -> None:
     """Verify GPU CAGRA search never returns a deleted vector document."""
-    result, _ = _run_and_verify(case, pylucene_context)
+    result, _ = _run_and_verify(case, pylucene_context, capfd)
     assert len(result.deleted_document_ids) == 1
     assert not result.document_ids_without_vectors
     assert any(
@@ -964,10 +985,12 @@ def test_deleted_documents_are_not_searchable(
 
 @pytest.mark.parametrize("case", _case_parameters(DOCUMENT_FILTER_CASES))
 def test_vector_search_honors_selective_document_filter(
-    pylucene_context: PyLuceneContext, case: EndToEndCase
+    pylucene_context: PyLuceneContext,
+    case: EndToEndCase,
+    capfd: pytest.CaptureFixture[str],
 ) -> None:
     """Compare exact-filter HNSW and filtered CAGRA results with brute force."""
-    result, _ = _run_and_verify(case, pylucene_context)
+    result, _ = _run_and_verify(case, pylucene_context, capfd)
     observation = result.filtered_query_observation
     assert observation is not None
 

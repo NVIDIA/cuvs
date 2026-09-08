@@ -36,7 +36,7 @@ Build the dependencies in a separate checkout so this does not change your cuVS 
 git clone https://github.com/NVIDIA/cuvs.git cuvs-pylucene-deps
 cd cuvs-pylucene-deps
 git fetch origin pull/2475/head
-git switch --detach d6fcab0946837d7d3997cec4ed18189d3faa12e6
+git switch --detach 450deaceca84bf186d5cda280765cfcb3af6421d
 ./build.sh libcuvs java lucene
 cd ..
 ```
@@ -56,9 +56,9 @@ Use a clean environment without another cuVS native installation on its library 
 
 ### Validate the dependency build
 
-The backend checks that `lucene.VERSION` is exactly `10.2.0` before starting the process-wide JVM. It also compiles its configured-codec adapter against the selected JAR, which fails early when the HNSW heuristic API is missing.
+Before starting the process-wide JVM, the backend checks that `lucene.VERSION` is exactly `10.2.0`, verifies that the configured base `cuvs-java` and thin `cuvs-lucene` JARs contain the required classes and Lucene SPI providers, rejects a native-classifier cuVS-Java JAR, and rejects a cuVS-Lucene JAR that bundles Lucene classes. It also compiles its configured-codec adapter against the selected JARs, which fails early when the HNSW heuristic API is missing.
 
-Validate the pinned cuVS artifacts with the opt-in Bench PyLucene suite. Pytest owns the scenarios, assertions, parameterization, and reporting under `cuvs_bench/tests/pylucene`. Test-only Java adapters live under `python/cuvs_bench/tests/java`; the shared session fixture compiles all of them with `javac` into one temporary classes directory before the process-wide JVM starts. They are excluded from the cuVS Bench wheel and the production cuVS-Lucene JAR.
+Validate the pinned cuVS artifacts with the opt-in Bench PyLucene suite. Pytest owns the scenarios, assertions, parameterization, and reporting under `cuvs_bench/tests/pylucene`. Test-only Java adapters live under `tests/java` (repository path `python/cuvs_bench/tests/java`); the shared session fixture compiles all of them with `javac` into one temporary classes directory before the process-wide JVM starts. They are excluded from the cuVS Bench wheel and the production cuVS-Lucene JAR.
 
 ```bash
 python -m pip install pytest
@@ -204,6 +204,8 @@ python -m cuvs_bench.run \
 When `direct_single_segment` is true, the backend disables ordinary RAM-triggered flushes and merging, buffers the requested vectors for one flush, and fails unless the committed index has exactly one segment. Lucene's per-indexing-thread hard RAM limit remains in force: 1945 MiB by default and less than 2048 MiB through the public API. If that limit forces an earlier flush, the build fails instead of merging the segments.
 
 `direct_single_segment` does not call Lucene `forceMerge`. The cuVS Bench `--force` option requests a rebuild; it does not control Lucene's segment merging. A larger JVM heap does not disable the per-thread hard limit.
+
+The current `--force` implementation removes an existing index at the configured path before it constructs and verifies the replacement. If that forced build fails, the partial replacement is removed and the previous index is no longer available; rerun the build to recreate it.
 
 New HNSW and CAGRA builds atomically write commit-bound provenance manifests named `.cuvs-bench-pylucene-hnsw.json` and `.cuvs-bench-pylucene-cagra.json`, respectively. Reuse and search fail if the applicable manifest is missing, malformed, stale, or names different build parameters, writer policy, or compound-file policy. Indexes created outside this backend without the applicable manifest must be rebuilt with `--force`.
 

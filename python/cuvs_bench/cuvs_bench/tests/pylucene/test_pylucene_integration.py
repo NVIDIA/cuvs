@@ -43,6 +43,9 @@ from cuvs_bench.tests.pylucene._pylucene_live_test_config import (
     PYLUCENE_TEST_CLASSES_ENV,
     PYTHON_PACKAGE_ROOT,
 )
+from cuvs_bench.tests.pylucene._pylucene_output_assertions import (
+    assert_no_cuvs_graph_clamp_warnings,
+)
 
 pytestmark = [
     pytest.mark.pylucene,
@@ -74,11 +77,6 @@ _DEFAULT_HNSW_BUILD_PARAMETERS = {
 _CAGRA_BUILD_PARAMETERS = {"codec": _CAGRA_CODEC}
 _CPU_FALLBACK_PROBE = Path(__file__).with_name(
     "pylucene_cpu_fallback_probe.py"
-)
-_GRAPH_CLAMP_WARNING_FRAGMENTS = (
-    "Intermediate graph degree cannot be larger",
-    "cannot be larger than intermediate graph degree",
-    "for nn-descent needs to match cagra intermediate graph degree",
 )
 
 
@@ -726,12 +724,6 @@ def _build_and_force_merge(runtime, index_path, vectors, writer_config):
     )
 
 
-def _assert_no_graph_clamp_warnings(captured_output):
-    normalized_output = captured_output.lower()
-    for fragment in _GRAPH_CLAMP_WARNING_FRAGMENTS:
-        assert fragment.lower() not in normalized_output, captured_output
-
-
 def _assert_persisted_hnsw_m_and_traversal(
     context,
     index_path,
@@ -850,7 +842,7 @@ def test_configured_hnsw_codec_selects_gpu_writer(
         final_segment_document_counts,
     ) = _build_and_force_merge(runtime, index_path, vectors, writer_config)
     captured = capfd.readouterr()
-    _assert_no_graph_clamp_warnings(captured.out + captured.err)
+    assert_no_cuvs_graph_clamp_warnings(captured.out + captured.err)
     assert initial_segments == 4
     assert initial_segment_document_counts == (256, 256, 256, 256)
     assert final_segments == 1
@@ -978,7 +970,7 @@ def test_real_cagra_codec_merges_without_compound_files(
         final_segment_document_counts,
     ) = _build_and_force_merge(runtime, index_path, vectors, writer_config)
     captured = capfd.readouterr()
-    _assert_no_graph_clamp_warnings(captured.out + captured.err)
+    assert_no_cuvs_graph_clamp_warnings(captured.out + captured.err)
     assert initial_segments == 2
     assert initial_segment_document_counts == (256, 256)
     assert final_segments == 1

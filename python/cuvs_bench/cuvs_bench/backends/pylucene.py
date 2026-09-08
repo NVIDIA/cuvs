@@ -104,6 +104,33 @@ _PROVENANCE_KEYS = frozenset(
 )
 _SHA256_HEX_DIGITS = frozenset("0123456789abcdef")
 _LUCENE_CORE_CLASS = "org/apache/lucene/index/IndexWriter.class"
+_CUVS_JAVA_REQUIRED_CLASSES = frozenset(
+    {
+        "com/nvidia/cuvs/CagraIndex.class",
+        "com/nvidia/cuvs/CuVSResources.class",
+    }
+)
+_CUVS_JAVA_NATIVE_LIBRARY_NAMES = frozenset({"libcuvs.so", "libcuvs_c.so"})
+_CUVS_LUCENE_REQUIRED_CLASSES = frozenset(
+    {
+        "com/nvidia/cuvs/lucene/CuVS2510GPUSearchCodec.class",
+        "com/nvidia/cuvs/lucene/Lucene101AcceleratedHNSWCodec.class",
+    }
+)
+_CUVS_LUCENE_REQUIRED_SERVICES = {
+    "META-INF/services/org.apache.lucene.codecs.Codec": frozenset(
+        {
+            "com.nvidia.cuvs.lucene.CuVS2510GPUSearchCodec",
+            "com.nvidia.cuvs.lucene.Lucene101AcceleratedHNSWCodec",
+        }
+    ),
+    "META-INF/services/org.apache.lucene.codecs.KnnVectorsFormat": frozenset(
+        {
+            "com.nvidia.cuvs.lucene.CuVS2510GPUVectorsFormat",
+            "com.nvidia.cuvs.lucene.Lucene99AcceleratedHNSWVectorsFormat",
+        }
+    ),
+}
 
 _JVM_INIT_LOCK = threading.Lock()
 _CONFIGURED_CODEC_LOCK = threading.Lock()
@@ -193,22 +220,97 @@ def _configured_jar(
     return path
 
 
-def _reject_bundled_lucene_classes(cuvs_lucene_jar: Path) -> None:
-    """Reject fat cuVS-Lucene jars before they can poison the process JVM."""
-    if not zipfile.is_zipfile(cuvs_lucene_jar):
-        return
+def _read_jar_entries(
+    jar_path: Path, config_key: str
+) -> tuple[set[str], dict[str, bytes]]:
+    try:
+        with zipfile.ZipFile(jar_path) as archive:
+            entries = set(archive.namelist())
+            service_contents = {
+                name: archive.read(name)
+                for name in _CUVS_LUCENE_REQUIRED_SERVICES
+                if name in entries
+            }
+    except (OSError, zipfile.BadZipFile) as exc:
+        raise RuntimeError(
+            f"{config_key} is not a readable JAR archive: {jar_path}"
+        ) from exc
+    return entries, service_contents
 
-    with zipfile.ZipFile(cuvs_lucene_jar) as archive:
-        try:
-            archive.getinfo(_LUCENE_CORE_CLASS)
-        except KeyError:
-            return
 
-    raise RuntimeError(
-        "cuvs_lucene_jar bundles Lucene classes and is incompatible with "
-        "PyLucene's process-wide JVM. Use the standard thin cuvs-lucene JAR, "
-        "not a '-jar-with-dependencies' artifact."
+def _require_jar_entries(
+    entries: set[str], required: frozenset[str], config_key: str
+) -> None:
+    missing = sorted(required - entries)
+    if missing:
+        raise RuntimeError(
+            f"{config_key} is not the required artifact; missing JAR "
+            f"entries: {', '.join(missing)}"
+        )
+
+
+def _service_providers(contents: bytes, descriptor: str) -> set[str]:
+    try:
+        text = contents.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise RuntimeError(
+            f"cuvs_lucene_jar has a non-UTF-8 service descriptor: {descriptor}"
+        ) from exc
+    return {
+        provider
+        for line in text.splitlines()
+        if (provider := line.partition("#")[0].strip())
+    }
+
+
+def _validate_configured_artifacts(
+    cuvs_java_jar: Path, cuvs_lucene_jar: Path
+) -> None:
+    """Validate JAR roles before PyLucene's process-wide JVM is started."""
+    java_entries, _ = _read_jar_entries(cuvs_java_jar, "cuvs_java_jar")
+    _require_jar_entries(
+        java_entries, _CUVS_JAVA_REQUIRED_CLASSES, "cuvs_java_jar"
     )
+    embedded_native_libraries = sorted(
+        entry
+        for entry in java_entries
+        if entry.rpartition("/")[2] in _CUVS_JAVA_NATIVE_LIBRARY_NAMES
+    )
+    if embedded_native_libraries:
+        raise RuntimeError(
+            "cuvs_java_jar embeds native cuVS libraries. Use the base "
+            "cuvs-java JAR, not a native-classifier artifact. Found JAR "
+            f"entries: {', '.join(embedded_native_libraries)}"
+        )
+
+    lucene_entries, service_contents = _read_jar_entries(
+        cuvs_lucene_jar, "cuvs_lucene_jar"
+    )
+    if _LUCENE_CORE_CLASS in lucene_entries:
+        raise RuntimeError(
+            "cuvs_lucene_jar bundles Lucene classes and is incompatible with "
+            "PyLucene's process-wide JVM. Use the standard thin cuvs-lucene "
+            "JAR, not a '-jar-with-dependencies' artifact."
+        )
+    _require_jar_entries(
+        lucene_entries,
+        _CUVS_LUCENE_REQUIRED_CLASSES
+        | frozenset(_CUVS_LUCENE_REQUIRED_SERVICES),
+        "cuvs_lucene_jar",
+    )
+    for (
+        descriptor,
+        required_providers,
+    ) in _CUVS_LUCENE_REQUIRED_SERVICES.items():
+        providers = _service_providers(
+            service_contents[descriptor], descriptor
+        )
+        missing = sorted(required_providers - providers)
+        if missing:
+            raise RuntimeError(
+                "cuvs_lucene_jar does not advertise the required Lucene SPI "
+                f"providers in {descriptor}: {', '.join(missing)}"
+            )
 
 
 def _load_pylucene() -> Any:
@@ -240,7 +342,7 @@ def _pylucene_classpath(config: Dict[str, Any], lucene: Any) -> str:
     cuvs_lucene_jar = _configured_jar(
         config, "cuvs_lucene_jar", "CUVS_LUCENE_JAR"
     )
-    _reject_bundled_lucene_classes(cuvs_lucene_jar)
+    _validate_configured_artifacts(cuvs_java_jar, cuvs_lucene_jar)
     adapter_classes = configured_codec_classes_path(
         cuvs_java_jar,
         cuvs_lucene_jar,

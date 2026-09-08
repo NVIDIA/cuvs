@@ -222,6 +222,12 @@ get_registry().register("elasticsearch", ElasticsearchBackend)
 | `BenchmarkBackend` | Abstract class whose `build(...)` method returns `BuildResult` and whose `search(...)` method returns `List[SearchResult]`. Register with `BackendRegistry.register(name, backend_class)`. |
 | `BackendRegistry` | Singleton registry returned by `get_registry()`. It maps backend type names to backend classes. |
 
+### Python-backend result identity
+
+Python backends identify exported results by algorithm, configuration group, and an optional `result_scope`. Build CSV filenames use `algorithm,group[,result_scope].csv`; search filenames add the requested `k`, batch size, and result suffix. The optional scope keeps results for distinct dataset subsets or equivalent run partitions in separate files.
+
+The CSV `algo_name` is an injective display identity: a base-group result is `algorithm`, a non-base group is `algorithm[group=group]`, and a scope adds `[scope=result_scope]`. Algorithm, group, and scope values may contain only letters, digits, underscores, periods, and hyphens so they remain safe, unambiguous result components.
+
 ## PyLucene Backend
 
 The built-in `pylucene` loader expands algorithm YAML groups into one Lucene index per selected codec. The backend initializes PyLucene's process-global JVM and resolves the production `Lucene101AcceleratedHNSWCodec` and `CuVS2510GPUSearchCodec` through Lucene's service-provider interface. See [PyLucene Backend](/user-guide/benchmarking-guide/cu-vs-bench-tool/pylucene-backend) for codec behavior, dependency setup, configuration, benchmark parameters, and runtime limits.
