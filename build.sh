@@ -74,9 +74,19 @@ LIBCUVS_BUILD_DIR=${LIBCUVS_BUILD_DIR:=${REPODIR}/cpp/build}
 FERN_DOCS_DIR=${REPODIR}/fern
 PYTHON_BUILD_DIR=${REPODIR}/python/cuvs/_skbuild
 RUST_BUILD_DIR=${REPODIR}/rust/target
+JAVA_INTERNAL_BUILD_DIR=${REPODIR}/java/internal/build
 JAVA_BUILD_DIR=${REPODIR}/java/cuvs-java/target
+JAVA_PANAMA_DIR=${REPODIR}/java/cuvs-java/src/main/java22/com/nvidia/cuvs/internal/panama
 LUCENE_BUILD_DIR=${REPODIR}/java/cuvs-lucene/target
-BUILD_DIRS="${LIBCUVS_BUILD_DIR} ${PYTHON_BUILD_DIR} ${RUST_BUILD_DIR} ${JAVA_BUILD_DIR} ${LUCENE_BUILD_DIR}"
+BUILD_DIRS=(
+    "${LIBCUVS_BUILD_DIR}"
+    "${PYTHON_BUILD_DIR}"
+    "${RUST_BUILD_DIR}"
+    "${JAVA_INTERNAL_BUILD_DIR}"
+    "${JAVA_BUILD_DIR}"
+    "${JAVA_PANAMA_DIR}"
+    "${LUCENE_BUILD_DIR}"
+)
 
 # Set defaults for vars modified by flags to this script
 CMAKE_LOG_LEVEL=""
@@ -388,7 +398,7 @@ if (( CLEAN == 1 )); then
     # contents should be removed but the mounted dirs will remain.
     # The find removes all contents but leaves the dirs, the rmdir
     # attempts to remove the dirs but can fail safely.
-    for bd in ${BUILD_DIRS}; do
+    for bd in "${BUILD_DIRS[@]}"; do
       if [ -d "${bd}" ]; then
           find "${bd}" -mindepth 1 -delete
           rmdir "${bd}" || true

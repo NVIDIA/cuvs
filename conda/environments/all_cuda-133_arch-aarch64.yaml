@@ -15,8 +15,10 @@ dependencies:
 - cuda-nvrtc-dev
 - cuda-nvtx-dev
 - cuda-profiler-api
+- cuda-tileiras
 - cuda-version=13.3
 - cupy>=14.0.1,!=14.1.0
+- cutile-python
 - cxx-compiler
 - cython>=3.2.2
 - dlpack>=0.8,<1.0
@@ -26,6 +28,7 @@ dependencies:
 - libcurand-dev
 - libcusolver-dev
 - libcusparse-dev
+- libkvikio==26.10.*,>=0.0.0a0
 - libnvjitlink-dev
 - libopenblas<=0.3.30
 - librmm==26.10.*,>=0.0.0a0

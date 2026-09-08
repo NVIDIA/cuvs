@@ -26,6 +26,7 @@ import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.List;
 import java.util.Objects;
 import org.apache.lucene.codecs.CodecUtil;
@@ -34,9 +35,9 @@ import org.apache.lucene.codecs.KnnVectorsReader;
 import org.apache.lucene.codecs.KnnVectorsWriter;
 import org.apache.lucene.codecs.hnsw.FlatFieldVectorsWriter;
 import org.apache.lucene.codecs.hnsw.FlatVectorsWriter;
+import org.apache.lucene.codecs.perfield.PerFieldKnnVectorsFormat;
 import org.apache.lucene.index.DocsWithFieldSet;
 import org.apache.lucene.index.FieldInfo;
-import org.apache.lucene.index.FieldInfos;
 import org.apache.lucene.index.FloatVectorValues;
 import org.apache.lucene.index.IndexFileNames;
 import org.apache.lucene.index.KnnVectorValues;
@@ -45,8 +46,8 @@ import org.apache.lucene.index.SegmentWriteState;
 import org.apache.lucene.index.Sorter;
 import org.apache.lucene.index.Sorter.DocMap;
 import org.apache.lucene.index.VectorSimilarityFunction;
-import org.apache.lucene.internal.hppc.IntObjectHashMap;
 import org.apache.lucene.store.IndexOutput;
+import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.IOUtils;
 import org.apache.lucene.util.InfoStream;
 
@@ -391,92 +392,260 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
   }
 
   /**
-   * Uses the cuVS API to merge CAGRA indexes.
+   * The inputs the cuVS merge API needs for one field: the CAGRA indexes to concatenate, and the
+   * rows of that concatenation that survive the merge.
    *
-   * This is currently (and intentionally) marked as unused and will be plugged in later.
+   * @param readers the readers holding a CAGRA index for the field, in merge order
+   * @param rowFilter the rows of the concatenated data sets to keep, or {@code null} to keep all of
+   *     them
+   * @param mergedVectorCount the number of vectors the merged index will hold
+   */
+  private record CagraMergeInputs(
+      List<CuVS2510GPUVectorsReader> readers, BitSet rowFilter, int mergedVectorCount) {}
+
+  /**
+   * Collects the CAGRA indexes that can be handed to the cuVS merge API for this field, together
+   * with the filter that keeps the merged rows lined up with the merged flat vectors.
    *
    * @param fieldInfo instance of the FieldInfo
    * @param mergeState instance of the MergeState
+   * @return the inputs for the merge, or {@code null} when the cuVS merge API cannot be used for
+   *     this field
    * @throws IOException I/O Exceptions
    */
-  @SuppressWarnings("unused")
-  private void mergeCagraIndexes(FieldInfo fieldInfo, MergeState mergeState) throws IOException {
+  private CagraMergeInputs cagraMergeInputs(FieldInfo fieldInfo, MergeState mergeState)
+      throws IOException {
+    // A brute force index cannot be produced by the merge API; it would have to be rebuilt from the
+    // vectors on the host anyway, which is what the vector based merge already does.
+    if (gpuSearchParams.getIndexType() != IndexType.CAGRA) {
+      logNotMergeable(fieldInfo, "the index type is " + gpuSearchParams.getIndexType());
+      return null;
+    }
+    // A sorted merge interleaves the segments' rows instead of concatenating them.
+    if (mergeState.needsIndexSort) {
+      logNotMergeable(fieldInfo, "the merge has to sort the documents");
+      return null;
+    }
+    List<CuVS2510GPUVectorsReader> readers = new ArrayList<>();
+    BitSet rowFilter = new BitSet();
+    // Rows of the concatenation the merge API sees, and the ones of those that survive.
+    int rowCount = 0;
+    int survivingCount = 0;
+    for (int i = 0; i < mergeState.knnVectorsReaders.length; i++) {
+      if (KnnVectorsWriter.MergedVectorValues.hasVectorValues(
+              mergeState.fieldInfos[i], fieldInfo.name)
+          == false) {
+        continue;
+      }
+      KnnVectorsReader knnReader = mergeState.knnVectorsReaders[i];
+      if (knnReader instanceof PerFieldKnnVectorsFormat.FieldsReader fieldsReader) {
+        knnReader = fieldsReader.getFieldReader(fieldInfo.name);
+      }
+      if (knnReader == null) {
+        continue;
+      }
+      FloatVectorValues values = knnReader.getFloatVectorValues(fieldInfo.name);
+      if (values == null || values.size() == 0) {
+        continue;
+      }
+      if (!(knnReader instanceof CuVS2510GPUVectorsReader cuvsReader)) {
+        logNotMergeable(fieldInfo, "a segment is read by a " + knnReader.getClass().getName());
+        return null;
+      }
+      CuVS2510GPUVectorsReader.FieldEntry fieldEntry = cuvsReader.getFieldEntry(fieldInfo.name);
+      // A segment too small for CAGRA, or one whose CAGRA build failed, holds a brute force index
+      // instead and has nothing to contribute to the merge.
+      if (fieldEntry == null || fieldEntry.cagraIndexLength() == 0) {
+        logNotMergeable(fieldInfo, "a segment of " + values.size() + " vectors has no CAGRA index");
+        return null;
+      }
+      if (fieldEntry.count() != values.size()) {
+        logNotMergeable(
+            fieldInfo,
+            "a segment holds "
+                + fieldEntry.count()
+                + " indexed vectors but "
+                + values.size()
+                + " flat vectors");
+        return null;
+      }
+      BitSet liveRows =
+          liveRows(values, fieldEntry.count(), mergeState.liveDocs[i], mergeState.docMaps[i]);
+      int liveCount = liveRows.cardinality();
+      // A segment whose vectors are all deleted contributes nothing to the merged flat vectors
+      // either, so leave it out rather than upload an index only to drop every row of it.
+      if (liveCount == 0) {
+        continue;
+      }
+      for (int ord = liveRows.nextSetBit(0); ord >= 0; ord = liveRows.nextSetBit(ord + 1)) {
+        rowFilter.set(rowCount + ord);
+      }
+      rowCount += fieldEntry.count();
+      survivingCount += liveCount;
+      readers.add(cuvsReader);
+    }
+    boolean filtered = survivingCount != rowCount;
+    // Merging a single index is only worth it when the filter has rows to drop; without one the
+    // merge would just copy the index it was given.
+    if (readers.isEmpty() || (readers.size() == 1 && filtered == false)) {
+      logNotMergeable(fieldInfo, "there is nothing to merge, " + readers.size() + " segments");
+      return null;
+    }
+    // The merged index has to be one CAGRA can build, and cuVS refuses a filter that keeps no rows
+    // at all.
+    if (survivingCount < MIN_CAGRA_INDEX_SIZE) {
+      logNotMergeable(
+          fieldInfo, "only " + survivingCount + " vectors survive the deletions of the merge");
+      return null;
+    }
+    // Without deletions every row is kept, and passing no filter lets cuVS skip the gather.
+    return new CagraMergeInputs(readers, filtered ? rowFilter : null, survivingCount);
+  }
+
+  /**
+   * Returns the ordinals of {@code values} whose document survives the merge.
+   *
+   * <p>A cuVS row id is a vector ordinal rather than a document id, so the deletions have to be
+   * translated through {@link KnnVectorValues#ordToDoc}. The test applied to each document is the
+   * one {@code DocIDMerger} applies while producing the merged vectors: a document is dropped when
+   * the merge maps it to {@code -1}.
+   */
+  private static BitSet liveRows(
+      FloatVectorValues values, int count, Bits liveDocs, MergeState.DocMap docMap) {
+    BitSet liveRows = new BitSet(count);
+    if (liveDocs == null) {
+      liveRows.set(0, count);
+      return liveRows;
+    }
+    for (int ord = 0; ord < count; ord++) {
+      if (docMap.get(values.ordToDoc(ord)) != -1) {
+        liveRows.set(ord);
+      }
+    }
+    return liveRows;
+  }
+
+  /**
+   * Reports why this field cannot go through the cuVS merge API and has to fall back to the vector
+   * based merge.
+   */
+  private void logNotMergeable(FieldInfo fieldInfo, String reason) {
+    info(
+        infoStream,
+        COMPONENT,
+        "Skipping the cuVS merge API for field \"" + fieldInfo.name + "\": " + reason);
+  }
+
+  /**
+   * Uses the cuVS API to merge the segments' CAGRA indexes on the device, which avoids copying
+   * every vector back to the host and re-uploading it.
+   *
+   * @param fieldInfo instance of the FieldInfo
+   * @param mergeState instance of the MergeState
+   * @return true if the field was written, false if the caller has to fall back to the vector
+   *     based merge
+   * @throws IOException I/O Exceptions
+   */
+  private boolean mergeCagraIndexes(FieldInfo fieldInfo, MergeState mergeState) throws IOException {
+    CagraMergeInputs inputs = cagraMergeInputs(fieldInfo, mergeState);
+    if (inputs == null) {
+      return false;
+    }
+    long cagraIndexOffset = cuvsIndex.getFilePointer();
+    long cagraIndexLength;
     try {
-      List<CagraIndex> cagraIndexes = new ArrayList<>();
-      // We need this count so that the merged segment's meta information has the vector count.
-      int totalVectorCount = 0;
-      for (int i = 0; i < mergeState.knnVectorsReaders.length; i++) {
-        KnnVectorsReader knnReader = mergeState.knnVectorsReaders[i];
-        // Access the CAGRA index for this field from the reader
-        if (knnReader != null) {
-          if (knnReader instanceof CuVS2510GPUVectorsReader cvr) {
-            if (cvr != null) {
-              totalVectorCount += cvr.getFieldEntries().get(fieldInfo.number).count();
-              CagraIndex cagraIndex = getCagraIndexFromReader(cvr, fieldInfo.name);
-              if (cagraIndex != null) {
-                cagraIndexes.add(cagraIndex);
-              }
-            }
+      writeMergedIndexBytes(fieldInfo, inputs);
+      cagraIndexLength = cuvsIndex.getFilePointer() - cagraIndexOffset;
+    } catch (Throwable t) {
+      if (t instanceof Error error) {
+        throw error;
+      }
+      // The merge API needs every input data set on the device at once, so it can run out of
+      // device memory where the vector based merge would not. Nothing is committed until the meta
+      // entry below is written, and that is what makes the bytes reachable, so falling back here
+      // only leaves them unreferenced.
+      info(
+          infoStream,
+          COMPONENT,
+          "cuVS merge API failed for field \""
+              + fieldInfo.name
+              + "\", falling back to a vector based merge: "
+              + t);
+      return false;
+    }
+    // The field is committed by this call. Anything that fails from here is a real I/O failure
+    // rather than something a rebuild could fix, so it propagates: a fallback now would append a
+    // second meta entry for the same field and leave the segment unreadable.
+    writeMeta(
+        fieldInfo,
+        inputs.mergedVectorCount(),
+        cagraIndexOffset,
+        cagraIndexLength,
+        cuvsIndex.getFilePointer(),
+        0L);
+    info(
+        infoStream,
+        COMPONENT,
+        "Successfully merged "
+            + inputs.readers().size()
+            + " CAGRA indexes for field \""
+            + fieldInfo.name
+            + "\" using the cuVS merge API");
+    return true;
+  }
+
+  /**
+   * Merges the field's CAGRA indexes and appends the merged index to the cuVS index output,
+   * releasing every index it opened before returning. Writes no meta entry, so a failure leaves
+   * nothing but unreferenced bytes behind.
+   *
+   * @param fieldInfo instance of the FieldInfo
+   * @param inputs the indexes to merge and the rows to keep
+   * @throws Throwable if the merge, the serialization, or releasing an index fails
+   */
+  private void writeMergedIndexBytes(FieldInfo fieldInfo, CagraMergeInputs inputs)
+      throws Throwable {
+    List<CagraIndex> indexes = new ArrayList<>(inputs.readers().size());
+    try {
+      for (CuVS2510GPUVectorsReader reader : inputs.readers()) {
+        indexes.add(reader.openCagraIndexForMerge(fieldInfo.name));
+      }
+      // Derive the output parameters the same way a build over the merged data set would, so the
+      // merged graph degree matches the one a flush of that size produces.
+      CagraIndexParams mergeParams =
+          CagraIndexParamsFactory.create(
+              gpuSearchParams, inputs.mergedVectorCount(), fieldInfo.getVectorDimension());
+      try (CagraIndex mergedIndex =
+          CagraIndex.merge(
+              indexes.toArray(new CagraIndex[indexes.size()]), mergeParams, inputs.rowFilter())) {
+        Path tmpFile =
+            Files.createTempFile(getCuVSResourcesInstance().tempDirectory(), "mergedindex", "cag");
+        try {
+          mergedIndex.serialize(new IndexOutputOutputStream(cuvsIndex), tmpFile);
+        } finally {
+          // cuVS removes the file once it has read it back, but not when serializing failed.
+          Files.deleteIfExists(tmpFile);
+        }
+      }
+    } finally {
+      // Every index is released even if one of them fails, and the first failure carries the rest
+      // so that none of them is lost. IOUtils cannot do this here: CagraIndex.close() throws
+      // Exception rather than IOException, so it is not a Closeable.
+      Exception failure = null;
+      for (CagraIndex index : indexes) {
+        try {
+          index.close();
+        } catch (Exception e) {
+          if (failure == null) {
+            failure = e;
           } else {
-            // This should never happen
-            throw new RuntimeException(
-                "Reader is not of CuVSVectorsReader type. Instead it is: " + knnReader.getClass());
+            failure.addSuppressed(e);
           }
         }
       }
-      assert cagraIndexes.size() > 1;
-      CagraIndex mergedIndex =
-          CagraIndex.merge(cagraIndexes.toArray(new CagraIndex[cagraIndexes.size()]));
-      writeMergedCagraIndex(fieldInfo, mergedIndex, totalVectorCount);
-      info(
-          infoStream,
-          COMPONENT,
-          "Successfully merged " + cagraIndexes.size() + " CAGRA indexes using native merge API");
-    } catch (Throwable t) {
-      Utils.handleThrowable(t);
-    }
-  }
-
-  /**
-   * Extracts the CAGRA index for a specific field from a CuVSVectorsReader.
-   */
-  private CagraIndex getCagraIndexFromReader(CuVS2510GPUVectorsReader reader, String fieldName) {
-    try {
-      IntObjectHashMap<GPUIndex> cuvsIndices = reader.getCuvsIndexes();
-      FieldInfos fieldInfos = reader.getFieldInfos();
-      FieldInfo fieldInfo = fieldInfos.fieldInfo(fieldName);
-      if (fieldInfo != null) {
-        GPUIndex cuvsIndex = cuvsIndices.get(fieldInfo.number);
-        if (cuvsIndex != null) {
-          return cuvsIndex.getCagraIndex();
-        }
+      if (failure != null) {
+        throw failure;
       }
-    } catch (Exception e) {
-      info(
-          infoStream,
-          COMPONENT,
-          "Failed to extract CAGRA index for field " + fieldName + ": " + e.getMessage());
-      throw e;
-    }
-    return null;
-  }
-
-  /**
-   * Writes a pre-built merged CAGRA index to the output.
-   */
-  private void writeMergedCagraIndex(FieldInfo fieldInfo, CagraIndex mergedIndex, int vectorCount)
-      throws IOException {
-    try {
-      long cagraIndexOffset = cuvsIndex.getFilePointer();
-      var cagraIndexOutputStream = new IndexOutputOutputStream(cuvsIndex);
-      Path tmpFile =
-          Files.createTempFile(getCuVSResourcesInstance().tempDirectory(), "mergedindex", "cag");
-      mergedIndex.serialize(cagraIndexOutputStream, tmpFile);
-      long cagraIndexLength = cuvsIndex.getFilePointer() - cagraIndexOffset;
-      writeMeta(fieldInfo, vectorCount, cagraIndexOffset, cagraIndexLength, 0L, 0L);
-      mergedIndex.close();
-    } catch (Throwable t) {
-      Utils.handleThrowable(t);
     }
   }
 
@@ -517,7 +686,9 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
   @Override
   public void mergeOneField(FieldInfo fieldInfo, MergeState mergeState) throws IOException {
     flatVectorsWriter.mergeOneField(fieldInfo, mergeState);
-    vectorBasedMerge(fieldInfo, mergeState);
+    if (mergeCagraIndexes(fieldInfo, mergeState) == false) {
+      vectorBasedMerge(fieldInfo, mergeState);
+    }
   }
 
   /**

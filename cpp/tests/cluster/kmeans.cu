@@ -656,7 +656,7 @@ const std::vector<KmeansBatchedInputs<float>> batched_inputsf2 = {
   {1000, 64, 5, 0.0001f, false, 500},
   {1000, 100, 20, 0.0001f, true, 30},
   {1000, 10, 20, 0.0001f, false, 30},
-  {10000, 16, 10, 0.0001f, true, 1000},
+  {10000, 16, 10, 0.00001f, true, 1000},
   {10000, 96, 10, 0.0001f, false, 10000},
 };
 

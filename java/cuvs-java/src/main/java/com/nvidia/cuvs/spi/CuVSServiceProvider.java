@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs.spi;
@@ -34,9 +34,12 @@ public abstract class CuVSServiceProvider {
     }
 
     static CuVSProvider builtinProvider() {
-      var supportedJavaRuntime = Runtime.version().feature() > 21;
-      var supportedOs = System.getProperty("os.name").startsWith("Linux");
-      var supportedArchitecture = System.getProperty("os.arch").equals("amd64");
+      var javaRuntimeVersion = Runtime.version().feature();
+      var osName = System.getProperty("os.name");
+      var osArch = System.getProperty("os.arch");
+      var supportedJavaRuntime = javaRuntimeVersion > 21;
+      var supportedOs = osName.startsWith("Linux");
+      var supportedArchitecture = osArch.equals("amd64");
       if (supportedJavaRuntime && supportedOs && supportedArchitecture) {
         try {
           var cls = Class.forName("com.nvidia.cuvs.spi.JDKProvider");
@@ -52,13 +55,15 @@ public abstract class CuVSServiceProvider {
       }
       List<String> unsupportedReasons = new ArrayList<>();
       if (!supportedJavaRuntime) {
-        unsupportedReasons.add("cuvs-java requires Java Runtime version 22 or greater");
+        unsupportedReasons.add(
+            "cuvs-java requires Java Runtime version 22 or greater, but found "
+                + javaRuntimeVersion);
       }
       if (!supportedOs) {
-        unsupportedReasons.add("cuvs-java supports only Linux");
+        unsupportedReasons.add("cuvs-java supports only Linux, but os.name is " + osName);
       }
       if (!supportedArchitecture) {
-        unsupportedReasons.add("cuvs-java supports only x86");
+        unsupportedReasons.add("cuvs-java supports only x86-64 (amd64), but os.arch is " + osArch);
       }
 
       return new UnsupportedProvider(String.join("; ", unsupportedReasons));

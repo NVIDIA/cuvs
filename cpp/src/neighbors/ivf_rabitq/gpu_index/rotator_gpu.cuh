@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -10,6 +10,8 @@
 #pragma once
 
 #include "../defines.hpp"
+
+#include <cuvs/util/file_io.hpp>
 
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/mdspan_types.hpp>
@@ -59,7 +61,7 @@ class RotatorGPU {
    * The function copies the rotation matrix from device memory, transposes it from column-major to
    * row-major, and writes it to the file.
    */
-  void save(raft::resources const& handle, std::ofstream& output) const;
+  void save(raft::resources const& handle, cuvs::util::kvikio_ofstream& output) const;
 
   // Rotate matrix A and store the result in RAND_A.
   // A and RAND_A are device pointers representing matrices of size N x D.

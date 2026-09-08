@@ -55,7 +55,7 @@ struct cuvsHnswAceParams {
 | Name | Type | Description |
 | --- | --- | --- |
 | `npartitions` | `size_t` | Number of partitions for ACE partitioned build.<br /><br />When set to 0 (default), the number of partitions is automatically derived based on available host and GPU memory to maximize partition size while ensuring the build fits in memory.<br /><br />Small values might improve recall but potentially degrade performance and increase memory usage. The partition size is on average 2 * (n_rows / npartitions) * dim * sizeof(T). 2 is because of the core and augmented vectors. Please account for imbalance in the partition sizes (up to 3x in our tests).<br /><br />If the specified number of partitions results in partitions that exceed available memory, the value will be automatically increased to fit memory constraints and a warning will be issued. |
-| `build_dir` | `const char*` | Directory to store ACE build artifacts (e.g., KNN graph, optimized graph). Used when `use_disk` is true or when the graph does not fit in memory. |
+| `build_dir` | `const char*` | Directory to store ACE build artifacts (e.g., KNN graph, optimized graph). Used when `use_disk` is true or when the graph does not fit in memory. The directory may already exist, but ACE's named artifacts and `hnsw_index.bin` must not already exist. Simultaneous builds must use different directories. On failure, ACE removes only its uncommitted CAGRA artifacts; a completed CAGRA stage is retained if creating the HNSW index fails. |
 | `use_disk` | `bool` | Whether to use disk-based storage for ACE build. When true, enables disk-based operations for memory-efficient graph construction. |
 | `max_host_memory_gb` | `double` | Maximum host memory to use for ACE build in GiB. When set to 0 (default), uses available host memory. Useful for testing or when running alongside other memory-intensive processes. |
 | `max_gpu_memory_gb` | `double` | Maximum GPU memory to use for ACE build in GiB. When set to 0 (default), uses available GPU memory. Useful for testing or when running alongside other memory-intensive processes. |
@@ -282,12 +282,12 @@ cuvsHnswIndex_t hnsw_index);
 
 [`cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)
 
-## Build HNSW index using ACE algorithm
+## Build an HNSW index
 
 <a id="cuvshnswbuild"></a>
 ### cuvsHnswBuild
 
-Build an HNSW index using ACE (Augmented Core Extraction) algorithm.
+Build an HNSW index from HNSW parameters.
 
 ```c
 cuvsError_t cuvsHnswBuild(cuvsResources_t res,
@@ -296,11 +296,7 @@ DLManagedTensor* dataset,
 cuvsHnswIndex_t index);
 ```
 
-ACE enables building HNSW indexes for datasets too large to fit in GPU memory by:
-
-1. Partitioning the dataset using balanced k-means into core and augmented partitions
-2. Building sub-indexes for each partition independently
-3. Concatenating sub-graphs into a final unified index
+The graph is built on the GPU and converted to an HNSW index that can be searched on the CPU. The graph build algorithm is selected automatically unless explicit ACE parameters are provided.
 
 NOTE: This function requires CUDA to be available at runtime.
 
@@ -309,7 +305,7 @@ NOTE: This function requires CUDA to be available at runtime.
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | [`cuvsResources_t`](/api-reference/c-api-core-c-api#cuvsresources-t) | cuvsResources_t opaque C handle |
-| `params` | in | `cuvsHnswIndexParams_t` | cuvsHnswIndexParams_t with ACE parameters configured |
+| `params` | in | `cuvsHnswIndexParams_t` | cuvsHnswIndexParams_t with HNSW build parameters |
 | `dataset` | in | `DLManagedTensor*` | DLManagedTensor* host dataset to build index from |
 | `index` | out | [`cuvsHnswIndex_t`](/api-reference/c-api-neighbors-hnsw#cuvshnswindex) | cuvsHnswIndex_t to return the built HNSW index |
 

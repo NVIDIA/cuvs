@@ -79,6 +79,13 @@ struct index_params : cuvs::neighbors::index_params {
    * ace.use_disk = true;
    * ace.build_dir = "/tmp/hnsw_ace_build";
    * @endcode
+   *
+   * When ACE writes to disk, `build_dir` may already exist, but ACE's named CAGRA
+   * artifacts and `hnsw_index.bin` must not already exist. Simultaneous builds
+   * must use different directories. The HNSW output is published only after it
+   * is fully serialized; however, the complete build is not transactional: if
+   * HNSW conversion fails after CAGRA succeeds, the completed CAGRA artifacts
+   * remain in the directory.
    */
   std::variant<std::monostate, graph_build_params::ace_params> graph_build_params;
 };

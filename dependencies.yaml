@@ -13,10 +13,12 @@ files:
       - checks
       - clang
       - cuda
+      - cutile_python
       - cuda_version
       - depends_on_cuda_python
       - depends_on_cupy
       - depends_on_librmm
+      - depends_on_libkvikio
       - depends_on_pylibraft
       - depends_on_nccl
       - docs
@@ -40,6 +42,7 @@ files:
       - build_py_cuvs
       - clang
       - cuda
+      - cutile_python
       - cuda_version
       - depends_on_cuda_python
       - depends_on_cupy
@@ -77,6 +80,7 @@ files:
     includes:
       - clang
       - cuda
+      - cutile_python
       - cuda_version
       - depends_on_cupy
       - docs
@@ -138,8 +142,10 @@ files:
       table: tool.rapids-build-backend
       key: requires
     includes:
+      - cutile_python
       - depends_on_libraft
       - depends_on_librmm
+      - depends_on_libkvikio
       - depends_on_nccl
       - rapids_build
   py_run_libcuvs:
@@ -151,7 +157,9 @@ files:
       - cuda_wheels
       - depends_on_libraft
       - depends_on_librmm
+      - depends_on_libkvikio
       - depends_on_nccl
+      - run_py_libcuvs
   py_build_cuvs:
     output: pyproject
     pyproject_dir: python/cuvs
@@ -421,6 +429,48 @@ dependencies:
           - libcusolver-dev
           - libcusparse-dev
           - libnvjitlink-dev
+  cutile_python:
+    specific:
+      - output_types: conda
+        matrices:
+          - matrix:
+              cuda: "12.*"
+            packages:
+          - matrix:
+              cuda: "13.3"
+            packages:
+              - cutile-python
+              - cuda-tileiras
+          - matrix:
+              cuda: "13.*"
+            packages:
+              - cutile-python
+              - cuda-tileiras
+          - matrix:
+            packages:
+              - cutile-python
+              - cuda-tileiras
+      - output_types: [requirements, pyproject]
+        matrices:
+          - matrix:
+              cuda: "12.*"
+            packages:
+          - matrix:
+              cuda: "13.3"
+            packages:
+              - cuda-tile
+              - cuda-toolkit[tileiras]==13.3.*
+          - matrix:
+              cuda: "13.*"
+            packages:
+              - &cutile_python_cu13 cuda-tile
+              - &cutile_toolkit_cu13 cuda-toolkit[tileiras]==13.*
+          # if no matching matrix selectors passed, list the CUDA 13 requirement
+          # (as a source of documentation in the generated pyproject.toml)
+          - matrix:
+            packages:
+              - *cutile_python_cu13
+              - *cutile_toolkit_cu13
   cuda_wheels:
     specific:
       # cuVS needs 'nvJitLink>={whatever-cuvs-was-built-against}' at runtime, and mixing
@@ -560,6 +610,11 @@ dependencies:
       - output_types: [conda, requirements, pyproject]
         packages:
           - &numpy numpy>=2.0,<3.0
+  run_py_libcuvs:
+    common:
+      - output_types: [requirements, pyproject]
+        packages:
+          - cuda-pathfinder
   test_python_common:
     common:
       - output_types: [conda, requirements, pyproject]
@@ -753,6 +808,29 @@ dependencies:
             packages:
               - librmm-cu13==26.10.*,>=0.0.0a0
           - {matrix: null, packages: [*librmm_unsuffixed]}
+  depends_on_libkvikio:
+    common:
+      - output_types: conda
+        packages:
+          - &libkvikio_unsuffixed libkvikio==26.10.*,>=0.0.0a0
+      - output_types: requirements
+        packages:
+          # pip recognizes the index as a global option for the requirements.txt file
+          - --extra-index-url=https://pypi.anaconda.org/rapidsai-wheels-nightly/simple
+    specific:
+      - output_types: [requirements, pyproject]
+        matrices:
+          - matrix:
+              cuda: "12.*"
+              cuda_suffixed: "true"
+            packages:
+              - libkvikio-cu12==26.10.*,>=0.0.0a0
+          - matrix:
+              cuda: "13.*"
+              cuda_suffixed: "true"
+            packages:
+              - libkvikio-cu13==26.10.*,>=0.0.0a0
+          - {matrix: null, packages: [*libkvikio_unsuffixed]}
   depends_on_pylibraft:
     common:
       - output_types: conda

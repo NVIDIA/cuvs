@@ -146,7 +146,7 @@ int* n_iter);
 
 Initial centroids are chosen with k-means++ algorithm. Empty clusters are reinitialized by choosing new centroids with k-means++ algorithm.
 
-X may reside on either host (CPU) or device (GPU) memory. When X is on the host the data is streamed to the GPU in batches controlled by params-&gt;device_buffer_samples.
+X may reside on either host (CPU) or device (GPU) memory. When X is on the host the data is buffered to the GPU in batches controlled by params-&gt;device_buffer_samples.
 
 **Parameters**
 

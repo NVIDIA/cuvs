@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -44,14 +44,10 @@ void RotatorGPU::load(raft::resources const& handle, std::ifstream& input)
   raft::resource::sync_stream(handle);
 }
 
-void RotatorGPU::save(raft::resources const& handle, std::ofstream& output) const
+void RotatorGPU::save(raft::resources const& handle, cuvs::util::kvikio_ofstream& output) const
 {
-  auto stream   = raft::resource::get_cuda_stream(handle);
-  auto host_buf = raft::make_host_vector<float, int64_t>(D * D);
-  raft::copy(host_buf.data_handle(), rotation_matrix_.data_handle(), D * D, stream);
   raft::resource::sync_stream(handle);
-  output.write(reinterpret_cast<char*>(host_buf.data_handle()),
-               static_cast<std::streamsize>(sizeof(float) * D * D));
+  output.write_device(rotation_matrix_.data_handle(), sizeof(float) * D * D);
   RAFT_EXPECTS(static_cast<bool>(output), "failed to write rotator matrix");
 }
 

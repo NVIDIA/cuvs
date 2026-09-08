@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -44,6 +44,22 @@ index<T, DistT>::index(raft::resources const& res,
   if (norms_) { norms_view_ = raft::make_const_mdspan(norms_.value().view()); }
   update_dataset(res, dataset);
   raft::resource::sync_stream(res);
+}
+
+template <typename T, typename DistT>
+index<T, DistT>::index(raft::resources const&,
+                       raft::device_matrix<T, int64_t, raft::row_major>&& dataset,
+                       std::optional<raft::device_vector<DistT, int64_t>>&& norms,
+                       cuvs::distance::DistanceType metric,
+                       DistT metric_arg)
+  : cuvs::neighbors::index(),
+    metric_(metric),
+    dataset_(std::move(dataset)),
+    norms_(std::move(norms)),
+    metric_arg_(metric_arg)
+{
+  dataset_view_ = raft::make_const_mdspan(dataset_.view());
+  if (norms_) { norms_view_ = raft::make_const_mdspan(norms_->view()); }
 }
 
 template <typename T, typename DistT>

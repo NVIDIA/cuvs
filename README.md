@@ -143,7 +143,7 @@ cuvsCagraIndexParamsDestroy(index_params);
 cuvsResourcesDestroy(res);
 ```
 
-For more code examples of the C APIs, including drop-in Cmake project templates, please refer to the [C examples](https://github.com/nvidia/cuvs/tree/main/examples/c)
+For more code examples of the C APIs, including drop-in Cmake project templates, please refer to the [C examples](https://github.com/nvidia/cuvs/tree/release/26.10/examples/c)
 
 ### Rust API
 
@@ -190,7 +190,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-For more code examples of the Rust APIs, including a drop-in project templates, please refer to the [Rust examples](https://github.com/nvidia/cuvs/tree/main/examples/rust).
+For more code examples of the Rust APIs, including a drop-in project templates, please refer to the [Rust examples](https://github.com/nvidia/cuvs/tree/release/26.10/examples/rust).
 
 ## Contributing
 

@@ -212,7 +212,7 @@ Use FAISS IVF-PQ index on CPU
 
 ### cuvs_hnsw
 
-NVIDIA cuVS HNSW builds an HNSW index using the ACE (Augmented Core Extraction) algorithm, which enables GPU-accelerated HNSW index construction for datasets too large to fit in GPU memory.
+NVIDIA cuVS HNSW constructs a CAGRA graph on the GPU and converts it to an HNSW index for CPU-based search. The build process uses in-memory CAGRA if the estimated memory requirements fit within available host and GPU memory. If not, it falls back to ACE (Augmented Core Extraction), which enables construction for larger datasets by partitioning them. Explicitly setting ACE parameters also triggers the ACE build path. The ACE-specific parameters listed below are relevant only when ACE is being used.
 
 | Parameter | Type | Required | Data Type | Default | Description |
 | --- | --- | --- | --- | --- | --- |

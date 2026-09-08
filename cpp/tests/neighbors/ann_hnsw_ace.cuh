@@ -7,11 +7,21 @@
 #include "ann_cagra.cuh"
 
 #include <cuvs/neighbors/hnsw.hpp>
+#include <cuvs/util/file_io.hpp>
 
 #include <rmm/mr/managed_memory_resource.hpp>
 
+#include <algorithm>
+#include <atomic>
+#include <cstdint>
 #include <cstdio>
+#include <ctime>
 #include <filesystem>
+#include <fstream>
+#include <limits>
+#include <string>
+
+#include <unistd.h>
 
 namespace cuvs::neighbors::hnsw {
 
@@ -45,6 +55,170 @@ inline ::std::ostream& operator<<(::std::ostream& os, const AnnHnswAceInputs& p)
   if (p.max_gpu_memory_gb > 0) { os << ", max_gpu_memory_gb=" << p.max_gpu_memory_gb; }
   os << "}";
   return os;
+}
+
+namespace test_detail {
+
+class ace_workspace_directory {
+ public:
+  ace_workspace_directory()
+    : path_{std::filesystem::temp_directory_path() /
+            ("cuvs_ace_workspace_" + std::to_string(getpid()) + "_" +
+             std::to_string(std::time(nullptr)) + "_" +
+             std::to_string(reinterpret_cast<std::uintptr_t>(this)) + "_" +
+             std::to_string(counter_++))}
+  {
+    std::filesystem::create_directories(path_);
+  }
+
+  ~ace_workspace_directory()
+  {
+    std::error_code error;
+    std::filesystem::remove_all(path_, error);
+  }
+
+  [[nodiscard]] const std::filesystem::path& path() const { return path_; }
+
+ private:
+  std::filesystem::path path_;
+  static inline std::atomic<uint64_t> counter_{0};
+};
+
+template <typename DataT>
+void build_ace_with_workspace(raft::resources const& resources,
+                              raft::host_matrix_view<const DataT, int64_t, raft::row_major> dataset,
+                              const std::filesystem::path& workspace)
+{
+  cagra::index_params params;
+  params.intermediate_graph_degree = 32;
+  params.graph_degree              = 16;
+
+  auto ace_params            = cagra::graph_build_params::ace_params();
+  ace_params.npartitions     = 2;
+  ace_params.ef_construction = 50;
+  ace_params.build_dir       = workspace.string();
+  ace_params.use_disk        = true;
+  params.graph_build_params  = ace_params;
+
+  auto dataset_view           = cuvs::neighbors::make_host_standard_dataset_view(dataset);
+  [[maybe_unused]] auto index = cagra::build(resources, params, dataset_view);
+}
+
+template <typename DataT>
+raft::host_matrix<DataT, int64_t> make_workspace_test_dataset()
+{
+  auto dataset = raft::make_host_matrix<DataT, int64_t>(1000, 8);
+  std::fill_n(dataset.data_handle(), dataset.size(), DataT{});
+  return dataset;
+}
+
+}  // namespace test_detail
+
+template <typename DataT>
+void test_ace_workspace_failure_preserves_caller_directory()
+{
+  raft::resources resources;
+  auto dataset = test_detail::make_workspace_test_dataset<DataT>();
+  test_detail::ace_workspace_directory workspace;
+  const auto sentinel          = workspace.path() / "sentinel.txt";
+  const auto existing_artifact = workspace.path() / "reordered_dataset.npy";
+
+  {
+    std::ofstream sentinel_file(sentinel);
+    ASSERT_TRUE(sentinel_file.is_open());
+    sentinel_file << "keep me";
+  }
+  ASSERT_TRUE(std::filesystem::create_directory(existing_artifact));
+
+  EXPECT_THROW(test_detail::build_ace_with_workspace(
+                 resources, raft::make_const_mdspan(dataset.view()), workspace.path()),
+               raft::logic_error);
+
+  EXPECT_TRUE(std::filesystem::is_directory(workspace.path()));
+  EXPECT_TRUE(std::filesystem::is_directory(existing_artifact));
+  std::ifstream sentinel_file(sentinel);
+  std::string sentinel_contents;
+  std::getline(sentinel_file, sentinel_contents);
+  EXPECT_EQ(sentinel_contents, "keep me");
+}
+
+template <typename DataT>
+void test_ace_workspace_failure_does_not_truncate_existing_artifact()
+{
+  raft::resources resources;
+  auto dataset = test_detail::make_workspace_test_dataset<DataT>();
+  test_detail::ace_workspace_directory workspace;
+  const auto existing_graph               = workspace.path() / "cagra_graph.npy";
+  constexpr const char* expected_contents = "preexisting-graph-contents";
+
+  {
+    std::ofstream graph_file(existing_graph, std::ios::binary);
+    ASSERT_TRUE(graph_file.is_open());
+    graph_file << expected_contents;
+  }
+
+  EXPECT_THROW(test_detail::build_ace_with_workspace(
+                 resources, raft::make_const_mdspan(dataset.view()), workspace.path()),
+               raft::logic_error);
+
+  std::ifstream graph_file(existing_graph, std::ios::binary);
+  std::string graph_contents;
+  graph_file >> graph_contents;
+  EXPECT_EQ(graph_contents, expected_contents);
+  EXPECT_FALSE(std::filesystem::exists(workspace.path() / "reordered_dataset.npy"));
+  EXPECT_FALSE(std::filesystem::exists(workspace.path() / "augmented_dataset.npy"));
+  EXPECT_FALSE(std::filesystem::exists(workspace.path() / "dataset_mapping.npy"));
+}
+
+void test_exclusive_numpy_create_failure_removes_partial_file()
+{
+  test_detail::ace_workspace_directory workspace;
+  const auto path = workspace.path() / "partial.npy";
+  const auto too_large =
+    static_cast<size_t>(std::numeric_limits<off_t>::max()) - static_cast<size_t>(4096);
+
+  EXPECT_THROW(cuvs::util::create_numpy_file<uint8_t>(path.string(), {too_large}, true),
+               raft::logic_error);
+
+  EXPECT_FALSE(std::filesystem::exists(path));
+}
+
+template <typename DataT>
+void test_hnsw_ace_build_does_not_truncate_existing_index()
+{
+  raft::resources resources;
+  auto dataset = test_detail::make_workspace_test_dataset<DataT>();
+  for (size_t i = 0; i < dataset.size(); ++i) {
+    dataset.data_handle()[i] = static_cast<DataT>(i % 251);
+  }
+  test_detail::ace_workspace_directory workspace;
+  const auto index_path                   = workspace.path() / "hnsw_index.bin";
+  constexpr const char* expected_contents = "preexisting-hnsw-index";
+
+  {
+    std::ofstream index_file(index_path, std::ios::binary);
+    ASSERT_TRUE(index_file.is_open());
+    index_file << expected_contents;
+  }
+
+  hnsw::index_params params;
+  params.M                   = 8;
+  params.ef_construction     = 50;
+  auto ace_params            = graph_build_params::ace_params();
+  ace_params.npartitions     = 2;
+  ace_params.ef_construction = 50;
+  ace_params.build_dir       = workspace.path().string();
+  ace_params.use_disk        = true;
+  params.graph_build_params  = ace_params;
+
+  EXPECT_THROW(hnsw::build(resources, params, raft::make_const_mdspan(dataset.view())),
+               raft::logic_error);
+
+  std::ifstream index_file(index_path, std::ios::binary);
+  std::string contents;
+  index_file >> contents;
+  EXPECT_EQ(contents, expected_contents);
+  EXPECT_TRUE(std::filesystem::exists(workspace.path() / "cagra_graph.npy"));
 }
 
 template <typename DistanceT, typename DataT, typename IdxT>
@@ -262,6 +436,31 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
     std::filesystem::remove_all(temp_dir);
   }
 
+  void testHnswAceRejectsTooManyPartitions()
+  {
+    auto database_host = raft::make_host_matrix<DataT, int64_t>(ps.n_rows, ps.dim);
+    raft::copy(database_host.data_handle(), database_dev.data(), ps.n_rows * ps.dim, stream_);
+    raft::resource::sync_stream(handle_);
+
+    hnsw::index_params hnsw_params;
+    hnsw_params.metric          = ps.metric;
+    hnsw_params.hierarchy       = hnsw::HnswHierarchy::GPU;
+    hnsw_params.M               = 32;
+    hnsw_params.ef_construction = ps.ef_construction;
+
+    auto ace_params                = graph_build_params::ace_params();
+    ace_params.npartitions         = static_cast<size_t>(ps.n_rows) + 1;
+    hnsw_params.graph_build_params = ace_params;
+
+    try {
+      [[maybe_unused]] auto hnsw_index =
+        hnsw::build(handle_, hnsw_params, raft::make_const_mdspan(database_host.view()));
+      FAIL() << "ACE accepted more partitions than dataset rows";
+    } catch (const std::exception& e) {
+      EXPECT_NE(std::string(e.what()).find("cannot exceed dataset size"), std::string::npos);
+    }
+  }
+
   // Verify the in-memory CAGRA -> HNSW conversion spills to disk when the resulting HNSW
   // index would not fit in (an artificially constrained) host memory. This exercises
   // serialize_to_hnswlib_from_inmem and the batched serializer core, covering:
@@ -474,7 +673,7 @@ inline std::vector<AnnHnswAceInputs> generate_hnsw_ace_inputs()
     {5000},         // n_rows
     {64, 128},      // dim
     {10},           // k
-    {2, 4},         // npartitions
+    {0, 1, 2, 4},   // npartitions (auto, adjusted, and explicit)
     {100},          // ef_construction
     {false, true},  // use_disk (test both modes)
     {cuvs::distance::DistanceType::L2Expanded,
@@ -504,6 +703,19 @@ inline std::vector<AnnHnswAceInputs> generate_hnsw_ace_memory_fallback_inputs()
   };
 }
 
+inline std::vector<AnnHnswAceInputs> generate_hnsw_ace_invalid_partition_inputs()
+{
+  return {{10,
+           5000,
+           64,
+           10,
+           0,  // Set to n_rows + 1 by testHnswAceRejectsTooManyPartitions.
+           100,
+           false,
+           cuvs::distance::DistanceType::L2Expanded,
+           0.0}};
+}
+
 // Inputs for testing the in-memory CAGRA -> HNSW disk-spill conversion path.
 inline std::vector<AnnHnswAceInputs> generate_hnsw_inmem_spill_inputs()
 {
@@ -526,6 +738,8 @@ inline std::vector<AnnHnswAceInputs> generate_hnsw_inmem_spill_inputs()
 const std::vector<AnnHnswAceInputs> hnsw_ace_inputs = generate_hnsw_ace_inputs();
 const std::vector<AnnHnswAceInputs> hnsw_ace_memory_fallback_inputs =
   generate_hnsw_ace_memory_fallback_inputs();
+const std::vector<AnnHnswAceInputs> hnsw_ace_invalid_partition_inputs =
+  generate_hnsw_ace_invalid_partition_inputs();
 const std::vector<AnnHnswAceInputs> hnsw_inmem_spill_inputs = generate_hnsw_inmem_spill_inputs();
 
 }  // namespace cuvs::neighbors::hnsw

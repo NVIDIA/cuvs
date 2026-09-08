@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs;
@@ -9,6 +9,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import com.carrotsearch.randomizedtesting.RandomizedContext;
+import com.carrotsearch.randomizedtesting.annotations.ThreadLeakLingering;
 import java.lang.invoke.MethodHandles;
 import java.util.ArrayList;
 import java.util.BitSet;
@@ -19,6 +20,18 @@ import java.util.TreeMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * Base class for the cuVS integration tests.
+ *
+ * <p>The lingering is not cosmetic. A {@link java.util.concurrent.ThreadPoolExecutor} reaches
+ * TERMINATED as soon as its worker count drops to zero, which happens in {@code getTask()} before
+ * the workers have finished {@code processWorkerExit()}, so {@code awaitTermination()} returns
+ * while the worker threads are still alive. {@code ThreadLeakLingering} defaults to no wait at
+ * all, which leaves the leak check sampling straight into that window and reporting threads that
+ * are in the middle of dying. Waiting a few seconds for them costs nothing when there is no leak,
+ * and a real one still fails the test.
+ */
+@ThreadLeakLingering(linger = 5000)
 public abstract class CuVSTestCase {
   protected Random random;
   private static final Logger log = LoggerFactory.getLogger(MethodHandles.lookup().lookupClass());
