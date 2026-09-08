@@ -5,9 +5,11 @@
 package com.nvidia.cuvs.lucene;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import java.nio.charset.StandardCharsets;
@@ -18,121 +20,247 @@ import org.apache.lucene.codecs.Codec;
 import org.apache.lucene.codecs.KnnVectorsFormat;
 import org.apache.lucene.codecs.hnsw.FlatVectorsFormat;
 import org.junit.Test;
+import org.junit.function.ThrowingRunnable;
 
 /**
- * Tests the backward compatibility mechanism.
+ * Verifies Lucene format-version adaptation, retained legacy entry points, and cold-start SPI
+ * behavior.
  *
  * @since 25.12
  */
 public class TestBackCompat {
 
   @Test
-  public void testFallback() throws Exception {
-    // Lucene99Codec exists in the org.apache.lucene.backward_codecs.lucene99
-    Codec c = LuceneProvider.getCodec("99");
-    assertEquals(c.getName(), "Lucene99");
+  public void testLucene99CodecLoadsFromBackwardCodecs() throws Exception {
+    Codec codec = LuceneProvider.getCodec(LuceneProvider.LUCENE_99_FORMAT_VERSION);
+
+    assertEquals("Lucene99", codec.getName());
+    assertEquals(
+        "org.apache.lucene.backward_codecs.lucene99.Lucene99Codec", codec.getClass().getName());
   }
 
   @Test(expected = ClassNotFoundException.class)
-  public void testNonexistentCodec() throws Exception {
+  public void testMissingCodecVersionThrowsClassNotFoundException() throws Exception {
     LuceneProvider.getCodec("0");
   }
 
   @Test
-  public void testExistingComponents() throws Exception {
+  public void testLucene99ProviderLoadsRequiredHnswComponents() throws Exception {
     LuceneProvider provider = LuceneProvider.getInstance(LuceneProvider.LUCENE_99_FORMAT_VERSION);
+
     assertTrue(provider.getLuceneFlatVectorsFormatInstance(null) instanceof FlatVectorsFormat);
-    assertEquals(provider.getStaticIntParam("VERSION_CURRENT"), 0);
-    assertNotEquals(provider.getSimilarityFunctions().size(), 0);
+    assertEquals(0, provider.getStaticIntParam("VERSION_CURRENT"));
+    assertFalse(provider.getSimilarityFunctions().isEmpty());
   }
 
   @Test
-  public void testProviderCachesSupportedVersion() throws Exception {
+  public void testProviderCachesEachFormatVersionSeparately() throws Exception {
     LuceneProvider lucene99Provider =
         LuceneProvider.getInstance(LuceneProvider.LUCENE_99_FORMAT_VERSION);
+    LuceneProvider lucene102Provider =
+        LuceneProvider.getInstance(LuceneProvider.LUCENE_102_BINARY_FORMAT_VERSION);
+
     assertSame(
         lucene99Provider, LuceneProvider.getInstance(LuceneProvider.LUCENE_99_FORMAT_VERSION));
+    assertSame(
+        lucene102Provider,
+        LuceneProvider.getInstance(LuceneProvider.LUCENE_102_BINARY_FORMAT_VERSION));
+    assertNotSame(lucene99Provider, lucene102Provider);
   }
 
   @Test
-  @SuppressWarnings("deprecation")
-  public void testProviderSupportsLucene102BinaryFormats() throws Exception {
-    LuceneProvider lucene102BinaryFormatProvider =
+  public void testLucene102ProviderConstructsFlatBinaryQuantizedFormat() throws Exception {
+    LuceneProvider provider =
         LuceneProvider.getInstance(LuceneProvider.LUCENE_102_BINARY_FORMAT_VERSION);
-    assertNotNull(lucene102BinaryFormatProvider.getLuceneBinaryQuantizedVectorsFormatInstance());
-    assertNotNull(lucene102BinaryFormatProvider.getluceneBinaryQuantizedVectorsFormatInstance());
-    assertNotNull(
-        lucene102BinaryFormatProvider.getLuceneHnswBinaryQuantizedKnnVectorsFormatInstance(
-            16, 100));
+
+    assertNotNull(provider.getLuceneBinaryQuantizedVectorsFormatInstance());
   }
 
   @Test
-  public void testProviderSupportsLucene99ScalarFormats() throws Exception {
-    LuceneProvider lucene99Provider =
-        LuceneProvider.getInstance(LuceneProvider.LUCENE_99_FORMAT_VERSION);
-    assertNotNull(lucene99Provider.getLuceneScalarQuantizedVectorsFormatInstance());
-    KnnVectorsFormat hnswScalarFormat =
-        lucene99Provider.getLuceneHnswScalarQuantizedKnnVectorsFormatInstance(16, 100);
-    assertTrue(hnswScalarFormat.toString().contains("maxConn=16, beamWidth=100"));
-  }
-
-  @Test(expected = UnsupportedOperationException.class)
   @SuppressWarnings("deprecation")
-  public void testLegacyHnswBinaryFormatDescriptorIsRetained() throws Exception {
-    LuceneProvider.getInstance(LuceneProvider.LUCENE_102_BINARY_FORMAT_VERSION)
-        .getLuceneHnswBinaryQuantizedVectorsFormatInstance(16, 100);
-  }
+  public void testLegacyMisspelledBinaryFormatFactoryRetainsDescriptorAndDelegates()
+      throws Exception {
+    LuceneProvider provider =
+        LuceneProvider.getInstance(LuceneProvider.LUCENE_102_BINARY_FORMAT_VERSION);
+    FlatVectorsFormat canonicalFormat = provider.getLuceneBinaryQuantizedVectorsFormatInstance();
 
-  @Test(expected = UnsupportedOperationException.class)
-  @SuppressWarnings("deprecation")
-  public void testLegacyHnswScalarFormatDescriptorIsRetained() throws Exception {
-    LuceneProvider.getInstance(LuceneProvider.LUCENE_99_FORMAT_VERSION)
-        .getLuceneHnswScalarQuantizedVectorsFormatInstance(100, 16);
+    assertEquals(
+        FlatVectorsFormat.class,
+        LuceneProvider.class
+            .getMethod("getluceneBinaryQuantizedVectorsFormatInstance")
+            .getReturnType());
+    assertEquals(
+        canonicalFormat.getClass(),
+        provider.getluceneBinaryQuantizedVectorsFormatInstance().getClass());
   }
 
   @Test
-  public void testLucene101DelegateCodec() throws Exception {
+  public void testLucene102ProviderPreservesBinaryHnswParameterOrder() throws Exception {
+    LuceneProvider provider =
+        LuceneProvider.getInstance(LuceneProvider.LUCENE_102_BINARY_FORMAT_VERSION);
+
+    KnnVectorsFormat format =
+        provider.getLuceneHnswBinaryQuantizedKnnVectorsFormatInstance(16, 100);
+
+    assertTrue(
+        "Unexpected binary HNSW parameters: " + format,
+        format.toString().contains("maxConn=16, beamWidth=100"));
+  }
+
+  @Test
+  public void testLucene99ProviderConstructsFlatScalarQuantizedFormat() throws Exception {
+    LuceneProvider provider = LuceneProvider.getInstance(LuceneProvider.LUCENE_99_FORMAT_VERSION);
+
+    assertNotNull(provider.getLuceneScalarQuantizedVectorsFormatInstance());
+  }
+
+  @Test
+  public void testLucene99ProviderPreservesScalarHnswParameterOrder() throws Exception {
+    LuceneProvider provider = LuceneProvider.getInstance(LuceneProvider.LUCENE_99_FORMAT_VERSION);
+
+    KnnVectorsFormat format =
+        provider.getLuceneHnswScalarQuantizedKnnVectorsFormatInstance(16, 100);
+
+    assertTrue(
+        "Unexpected scalar HNSW parameters: " + format,
+        format.toString().contains("maxConn=16, beamWidth=100"));
+  }
+
+  @Test
+  @SuppressWarnings("deprecation")
+  public void testLucene99ProviderRejectsBinaryQuantizedCapabilities() throws Exception {
+    LuceneProvider provider = LuceneProvider.getInstance(LuceneProvider.LUCENE_99_FORMAT_VERSION);
+
+    assertCapabilityIsUnavailable(
+        "Lucene binary-quantized vectors",
+        LuceneProvider.LUCENE_99_FORMAT_VERSION,
+        LuceneProvider.LUCENE_102_BINARY_FORMAT_VERSION,
+        provider::getLuceneBinaryQuantizedVectorsFormatInstance);
+    assertCapabilityIsUnavailable(
+        "Lucene binary-quantized vectors",
+        LuceneProvider.LUCENE_99_FORMAT_VERSION,
+        LuceneProvider.LUCENE_102_BINARY_FORMAT_VERSION,
+        provider::getluceneBinaryQuantizedVectorsFormatInstance);
+    assertCapabilityIsUnavailable(
+        "Lucene HNSW binary-quantized vectors",
+        LuceneProvider.LUCENE_99_FORMAT_VERSION,
+        LuceneProvider.LUCENE_102_BINARY_FORMAT_VERSION,
+        () -> provider.getLuceneHnswBinaryQuantizedKnnVectorsFormatInstance(16, 100));
+  }
+
+  @Test
+  public void testLucene102ProviderRejectsGeneralAndScalarCapabilities() throws Exception {
+    LuceneProvider provider =
+        LuceneProvider.getInstance(LuceneProvider.LUCENE_102_BINARY_FORMAT_VERSION);
+
+    assertCapabilityIsUnavailable(
+        "Lucene flat vectors",
+        LuceneProvider.LUCENE_102_BINARY_FORMAT_VERSION,
+        LuceneProvider.LUCENE_99_FORMAT_VERSION,
+        () -> provider.getLuceneFlatVectorsFormatInstance(null));
+    assertCapabilityIsUnavailable(
+        "Lucene HNSW vectors reader",
+        LuceneProvider.LUCENE_102_BINARY_FORMAT_VERSION,
+        LuceneProvider.LUCENE_99_FORMAT_VERSION,
+        () -> provider.getLuceneHnswVectorsReaderInstance(null, null));
+    assertCapabilityIsUnavailable(
+        "Lucene HNSW vectors writer",
+        LuceneProvider.LUCENE_102_BINARY_FORMAT_VERSION,
+        LuceneProvider.LUCENE_99_FORMAT_VERSION,
+        () -> provider.getLuceneHnswVectorsWriterInstance(null, 16, 100, null, 1, null));
+    assertCapabilityIsUnavailable(
+        "Lucene HNSW vectors",
+        LuceneProvider.LUCENE_102_BINARY_FORMAT_VERSION,
+        LuceneProvider.LUCENE_99_FORMAT_VERSION,
+        () -> provider.getStaticIntParam("VERSION_CURRENT"));
+    assertCapabilityIsUnavailable(
+        "Lucene HNSW vectors reader",
+        LuceneProvider.LUCENE_102_BINARY_FORMAT_VERSION,
+        LuceneProvider.LUCENE_99_FORMAT_VERSION,
+        provider::getSimilarityFunctions);
+    assertCapabilityIsUnavailable(
+        "Lucene scalar-quantized vectors",
+        LuceneProvider.LUCENE_102_BINARY_FORMAT_VERSION,
+        LuceneProvider.LUCENE_99_FORMAT_VERSION,
+        provider::getLuceneScalarQuantizedVectorsFormatInstance);
+    assertCapabilityIsUnavailable(
+        "Lucene HNSW scalar-quantized vectors",
+        LuceneProvider.LUCENE_102_BINARY_FORMAT_VERSION,
+        LuceneProvider.LUCENE_99_FORMAT_VERSION,
+        () -> provider.getLuceneHnswScalarQuantizedKnnVectorsFormatInstance(16, 100));
+  }
+
+  @Test
+  @SuppressWarnings("deprecation")
+  public void testLegacyHnswBinaryDescriptorIsRetainedWithActionableFailure() throws Exception {
+    assertEquals(
+        FlatVectorsFormat.class,
+        LuceneProvider.class
+            .getMethod("getLuceneHnswBinaryQuantizedVectorsFormatInstance", int.class, int.class)
+            .getReturnType());
+
+    UnsupportedOperationException thrown =
+        assertThrows(
+            UnsupportedOperationException.class,
+            () ->
+                LuceneProvider.getInstance(LuceneProvider.LUCENE_102_BINARY_FORMAT_VERSION)
+                    .getLuceneHnswBinaryQuantizedVectorsFormatInstance(16, 100));
+
+    assertTrue(
+        thrown.getMessage().contains("getLuceneHnswBinaryQuantizedKnnVectorsFormatInstance"));
+  }
+
+  @Test
+  @SuppressWarnings("deprecation")
+  public void testLegacyHnswScalarDescriptorIsRetainedWithActionableFailure() throws Exception {
+    assertEquals(
+        FlatVectorsFormat.class,
+        LuceneProvider.class
+            .getMethod("getLuceneHnswScalarQuantizedVectorsFormatInstance", int.class, int.class)
+            .getReturnType());
+
+    UnsupportedOperationException thrown =
+        assertThrows(
+            UnsupportedOperationException.class,
+            () ->
+                LuceneProvider.getInstance(LuceneProvider.LUCENE_99_FORMAT_VERSION)
+                    .getLuceneHnswScalarQuantizedVectorsFormatInstance(100, 16));
+
+    assertTrue(
+        thrown.getMessage().contains("getLuceneHnswScalarQuantizedKnnVectorsFormatInstance"));
+  }
+
+  @Test
+  public void testLucene101CodecResolvesAsCurrentDelegate() throws Exception {
     Codec delegate = LuceneProvider.getCodec("101");
+
     assertEquals("Lucene101", delegate.getName());
     assertEquals(
         "org.apache.lucene.codecs.lucene101.Lucene101Codec", delegate.getClass().getName());
   }
 
   @Test
-  public void testServiceLoadedCodecsCanBeInstantiated() {
-    String[] codecNames = {
-      "Lucene101AcceleratedHNSWCodec",
-      "CuVS2510GPUSearchCodec",
-      "Lucene101AcceleratedHNSWBinaryQuantizedCodec",
-      "Lucene101AcceleratedHNSWScalarQuantizedCodec"
-    };
-    for (String codecName : codecNames) {
-      assertTrue(Codec.availableCodecs().contains(codecName));
-      assertEquals(codecName, Codec.forName(codecName).getName());
-    }
+  public void testCodecSpiResolvesExpectedCuvsProvidersInFreshJvm() throws Exception {
+    assertColdStartProbeSucceeds(SPIColdStartProbe.CODEC_SPI_DISCOVERY_MODE);
   }
 
   @Test
-  public void testCodecSPIColdStart() throws Exception {
-    runColdStartProbe("codec");
+  public void testKnnVectorsFormatSpiResolvesExpectedCuvsProvidersInFreshJvm() throws Exception {
+    assertColdStartProbeSucceeds(SPIColdStartProbe.VECTOR_FORMAT_SPI_DISCOVERY_MODE);
   }
 
   @Test
-  public void testKnnVectorsFormatSPIColdStart() throws Exception {
-    runColdStartProbe("knn");
+  public void testScalarFormatConstructorDoesNotPopulateProviderCache() throws Exception {
+    assertColdStartProbeSucceeds(SPIColdStartProbe.SCALAR_CONSTRUCTOR_MODE);
   }
 
   @Test
-  public void testScalarFormatConstructionIsLazy() throws Exception {
-    runColdStartProbe("scalar-constructor");
+  public void testBinaryFormatConstructorDoesNotPopulateProviderCache() throws Exception {
+    assertColdStartProbeSucceeds(SPIColdStartProbe.BINARY_CONSTRUCTOR_MODE);
   }
 
-  @Test
-  public void testBinaryFormatConstructionIsLazy() throws Exception {
-    runColdStartProbe("binary-constructor");
-  }
-
-  private static void runColdStartProbe(String mode) throws Exception {
+  /** Runs the probe in a new JVM because Lucene SPI registries and provider caches are static. */
+  private static void assertColdStartProbeSucceeds(String mode) throws Exception {
     String javaExecutable =
         Path.of(System.getProperty("java.home"), "bin", "java").toAbsolutePath().toString();
     String testClassPath =
@@ -164,5 +292,19 @@ public class TestBackCompat {
     } finally {
       Files.deleteIfExists(outputFile);
     }
+  }
+
+  private static void assertCapabilityIsUnavailable(
+      String capability,
+      String providerVersion,
+      String requiredVersion,
+      ThrowingRunnable operation) {
+    UnsupportedOperationException thrown =
+        assertThrows(UnsupportedOperationException.class, operation);
+
+    assertTrue(thrown.getMessage().contains(capability));
+    assertTrue(thrown.getMessage().contains("version " + providerVersion));
+    assertTrue(
+        thrown.getMessage().contains("LuceneProvider.getInstance(\"" + requiredVersion + "\")"));
   }
 }

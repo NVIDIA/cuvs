@@ -4,6 +4,7 @@
  */
 package com.nvidia.cuvs.lucene;
 
+import java.io.IOException;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.lang.reflect.Constructor;
@@ -88,6 +89,7 @@ public class LuceneProvider {
 
   private static MethodHandles.Lookup lookup = MethodHandles.lookup();
 
+  private final String version;
   private Class<?> flatVectorsFormat;
   private Class<?> hnswVectorsFormat;
   private Class<?> hnswVectorsReader;
@@ -108,6 +110,7 @@ public class LuceneProvider {
   }
 
   private LuceneProvider(String version) throws ClassNotFoundException {
+    this.version = version;
     // TODO: Find a better way if possible, but as a separate initiative.
     if (LUCENE_102_BINARY_FORMAT_VERSION.equals(version)) {
       binaryQuantizedVectorsFormat =
@@ -174,6 +177,35 @@ public class LuceneProvider {
     }
   }
 
+  private Class<?> requireCapability(
+      Class<?> implementation, String capability, String requiredVersion) {
+    if (implementation == null) {
+      throw new UnsupportedOperationException(
+          capability
+              + " is unavailable from LuceneProvider version "
+              + version
+              + "; use LuceneProvider.getInstance(\""
+              + requiredVersion
+              + "\")");
+    }
+    return implementation;
+  }
+
+  static Object invokeConstructor(
+      String componentName, Constructor<?> constructor, Object... arguments) throws Exception {
+    try {
+      return constructor.newInstance(arguments);
+    } catch (InvocationTargetException e) {
+      Throwable target = e.getTargetException();
+      if (target instanceof IOException
+          || target instanceof RuntimeException
+          || target instanceof Error) {
+        throw Utils.handleThrowable(target);
+      }
+      throw new IllegalStateException("Unable to initialize " + componentName, target);
+    }
+  }
+
   public static Codec getCodec(String version)
       throws ClassNotFoundException,
           NoSuchMethodException,
@@ -190,10 +222,11 @@ public class LuceneProvider {
 
   public FlatVectorsFormat getLuceneFlatVectorsFormatInstance(FlatVectorsScorer scorer)
       throws Exception {
+    Class<?> implementation =
+        requireCapability(flatVectorsFormat, "Lucene flat vectors", LUCENE_99_FORMAT_VERSION);
     try {
-      Constructor<?> luceneFlatVectorsFormatConstructor =
-          flatVectorsFormat.getConstructor(FlatVectorsScorer.class);
-      return (FlatVectorsFormat) luceneFlatVectorsFormatConstructor.newInstance(scorer);
+      Constructor<?> constructor = implementation.getConstructor(FlatVectorsScorer.class);
+      return (FlatVectorsFormat) invokeConstructor("LuceneFlatVectorsFormat", constructor, scorer);
     } catch (Exception e) {
       log.log(Level.SEVERE, "Unable to initialize LuceneFlatVectorsFormat: " + e.getMessage());
       throw e;
@@ -202,10 +235,14 @@ public class LuceneProvider {
 
   public KnnVectorsReader getLuceneHnswVectorsReaderInstance(
       SegmentReadState state, FlatVectorsReader reader) throws Exception {
+    Class<?> implementation =
+        requireCapability(
+            hnswVectorsReader, "Lucene HNSW vectors reader", LUCENE_99_FORMAT_VERSION);
     try {
-      Constructor<?> luceneHnswVectorsReaderConstructor =
-          hnswVectorsReader.getConstructor(SegmentReadState.class, FlatVectorsReader.class);
-      return (KnnVectorsReader) luceneHnswVectorsReaderConstructor.newInstance(state, reader);
+      Constructor<?> constructor =
+          implementation.getConstructor(SegmentReadState.class, FlatVectorsReader.class);
+      return (KnnVectorsReader)
+          invokeConstructor("LuceneHnswVectorsReader", constructor, state, reader);
     } catch (Exception e) {
       log.log(Level.SEVERE, "Unable to initialize LuceneHnswVectorsReader: " + e.getMessage());
       throw e;
@@ -220,9 +257,12 @@ public class LuceneProvider {
       int numMergeWorkers,
       TaskExecutor executor)
       throws Exception {
+    Class<?> implementation =
+        requireCapability(
+            hnswVectorsWriter, "Lucene HNSW vectors writer", LUCENE_99_FORMAT_VERSION);
     try {
-      Constructor<?> luceneHnswVectorsWriterConstructor =
-          hnswVectorsWriter.getConstructor(
+      Constructor<?> constructor =
+          implementation.getConstructor(
               SegmentWriteState.class,
               Integer.TYPE,
               Integer.TYPE,
@@ -230,8 +270,15 @@ public class LuceneProvider {
               Integer.TYPE,
               TaskExecutor.class);
       return (KnnVectorsWriter)
-          luceneHnswVectorsWriterConstructor.newInstance(
-              state, maxConn, beamWidth, writer, numMergeWorkers, executor);
+          invokeConstructor(
+              "LuceneHnswVectorsWriter",
+              constructor,
+              state,
+              maxConn,
+              beamWidth,
+              writer,
+              numMergeWorkers,
+              executor);
     } catch (Exception e) {
       log.log(Level.SEVERE, "Unable to initialize LuceneHnswVectorsWriter: " + e.getMessage());
       throw e;
@@ -239,8 +286,10 @@ public class LuceneProvider {
   }
 
   public int getStaticIntParam(String param) throws ReflectiveOperationException {
+    Class<?> implementation =
+        requireCapability(hnswVectorsFormat, "Lucene HNSW vectors", LUCENE_99_FORMAT_VERSION);
     try {
-      VarHandle varHandle = lookup.findStaticVarHandle(hnswVectorsFormat, param, Integer.TYPE);
+      VarHandle varHandle = lookup.findStaticVarHandle(implementation, param, Integer.TYPE);
       return (int) varHandle.get();
     } catch (NoSuchFieldException | IllegalAccessException e) {
       log.log(Level.SEVERE, "Unable to get " + param + ": " + e.getMessage());
@@ -250,9 +299,12 @@ public class LuceneProvider {
 
   public List<VectorSimilarityFunction> getSimilarityFunctions()
       throws ReflectiveOperationException {
+    Class<?> implementation =
+        requireCapability(
+            hnswVectorsReader, "Lucene HNSW vectors reader", LUCENE_99_FORMAT_VERSION);
     try {
       VarHandle varHandle =
-          lookup.findStaticVarHandle(hnswVectorsReader, "SIMILARITY_FUNCTIONS", List.class);
+          lookup.findStaticVarHandle(implementation, "SIMILARITY_FUNCTIONS", List.class);
       return (List<VectorSimilarityFunction>) varHandle.get();
     } catch (NoSuchFieldException | IllegalAccessException e) {
       log.log(Level.SEVERE, "Unable to get SIMILARITY_FUNCTIONS: " + e.getMessage());
@@ -262,10 +314,15 @@ public class LuceneProvider {
 
   /** Returns the Lucene 10.2 flat binary-quantized vectors format. */
   public FlatVectorsFormat getLuceneBinaryQuantizedVectorsFormatInstance() throws Exception {
+    Class<?> implementation =
+        requireCapability(
+            binaryQuantizedVectorsFormat,
+            "Lucene binary-quantized vectors",
+            LUCENE_102_BINARY_FORMAT_VERSION);
     try {
-      Constructor<?> luceneBinaryQuantizedVectorsFormatConstructor =
-          binaryQuantizedVectorsFormat.getConstructor();
-      return (FlatVectorsFormat) luceneBinaryQuantizedVectorsFormatConstructor.newInstance();
+      Constructor<?> constructor = implementation.getConstructor();
+      return (FlatVectorsFormat)
+          invokeConstructor("LuceneBinaryQuantizedVectorsFormat", constructor);
     } catch (Exception e) {
       log.log(
           Level.SEVERE,
@@ -287,11 +344,16 @@ public class LuceneProvider {
   /** Returns the Lucene 10.2 HNSW binary-quantized vectors format. */
   public KnnVectorsFormat getLuceneHnswBinaryQuantizedKnnVectorsFormatInstance(
       int maxConn, int beamWidth) throws Exception {
+    Class<?> implementation =
+        requireCapability(
+            hnswBinaryQuantizedVectorsFormat,
+            "Lucene HNSW binary-quantized vectors",
+            LUCENE_102_BINARY_FORMAT_VERSION);
     try {
-      Constructor<?> luceneHnswBinaryQuantizedVectorsFormatConstructor =
-          hnswBinaryQuantizedVectorsFormat.getConstructor(int.class, int.class);
+      Constructor<?> constructor = implementation.getConstructor(int.class, int.class);
       return (KnnVectorsFormat)
-          luceneHnswBinaryQuantizedVectorsFormatConstructor.newInstance(maxConn, beamWidth);
+          invokeConstructor(
+              "LuceneHnswBinaryQuantizedVectorsFormat", constructor, maxConn, beamWidth);
     } catch (Exception e) {
       log.log(
           Level.SEVERE,
@@ -319,10 +381,15 @@ public class LuceneProvider {
   }
 
   public FlatVectorsFormat getLuceneScalarQuantizedVectorsFormatInstance() throws Exception {
+    Class<?> implementation =
+        requireCapability(
+            scalarQuantizedVectorsFormat,
+            "Lucene scalar-quantized vectors",
+            LUCENE_99_FORMAT_VERSION);
     try {
-      Constructor<?> luceneScalarQuantizedVectorsFormatConstructor =
-          scalarQuantizedVectorsFormat.getConstructor();
-      return (FlatVectorsFormat) luceneScalarQuantizedVectorsFormatConstructor.newInstance();
+      Constructor<?> constructor = implementation.getConstructor();
+      return (FlatVectorsFormat)
+          invokeConstructor("LuceneScalarQuantizedVectorsFormat", constructor);
     } catch (Exception e) {
       log.log(
           Level.SEVERE,
@@ -341,11 +408,16 @@ public class LuceneProvider {
    */
   public KnnVectorsFormat getLuceneHnswScalarQuantizedKnnVectorsFormatInstance(
       int maxConn, int beamWidth) throws Exception {
+    Class<?> implementation =
+        requireCapability(
+            hnswScalarQuantizedVectorsFormat,
+            "Lucene HNSW scalar-quantized vectors",
+            LUCENE_99_FORMAT_VERSION);
     try {
-      Constructor<?> luceneHnswScalarQuantizedVectorsFormatConstructor =
-          hnswScalarQuantizedVectorsFormat.getConstructor(Integer.TYPE, Integer.TYPE);
+      Constructor<?> constructor = implementation.getConstructor(Integer.TYPE, Integer.TYPE);
       return (KnnVectorsFormat)
-          luceneHnswScalarQuantizedVectorsFormatConstructor.newInstance(maxConn, beamWidth);
+          invokeConstructor(
+              "LuceneHnswScalarQuantizedVectorsFormat", constructor, maxConn, beamWidth);
     } catch (Exception e) {
       log.log(
           Level.SEVERE,

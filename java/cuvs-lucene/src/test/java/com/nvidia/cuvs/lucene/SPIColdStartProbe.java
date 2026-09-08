@@ -4,12 +4,25 @@
  */
 package com.nvidia.cuvs.lucene;
 
+import java.lang.reflect.Field;
+import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 import org.apache.lucene.codecs.Codec;
 import org.apache.lucene.codecs.KnnVectorsFormat;
 
-/** Exercises Lucene SPI discovery before another test can initialize its static holders. */
+/**
+ * Subprocess entry point for assertions that require fresh process-local class state.
+ *
+ * <p>Constructor probes inspect, rather than clear, the provider cache so eager initialization
+ * cannot be hidden.
+ */
 public final class SPIColdStartProbe {
+
+  static final String CODEC_SPI_DISCOVERY_MODE = "codec";
+  static final String VECTOR_FORMAT_SPI_DISCOVERY_MODE = "knn";
+  static final String SCALAR_CONSTRUCTOR_MODE = "scalar-constructor";
+  static final String BINARY_CONSTRUCTOR_MODE = "binary-constructor";
 
   private static final Set<String> CODEC_NAMES =
       Set.of(
@@ -32,47 +45,47 @@ public final class SPIColdStartProbe {
       throw new IllegalArgumentException("Expected one probe mode");
     }
     switch (args[0]) {
-      case "codec" -> probeCodecs();
-      case "knn" -> probeVectorFormats();
-      case "scalar-constructor" -> probeScalarConstructor();
-      case "binary-constructor" -> probeBinaryConstructor();
+      case CODEC_SPI_DISCOVERY_MODE -> assertExpectedCuvsCodecsResolve();
+      case VECTOR_FORMAT_SPI_DISCOVERY_MODE -> assertExpectedCuvsVectorFormatsResolve();
+      case SCALAR_CONSTRUCTOR_MODE -> assertScalarConstructorLeavesProviderCacheEmpty();
+      case BINARY_CONSTRUCTOR_MODE -> assertBinaryConstructorLeavesProviderCacheEmpty();
       default -> throw new IllegalArgumentException("Unknown probe mode: " + args[0]);
     }
   }
 
-  private static void probeCodecs() {
+  private static void assertExpectedCuvsCodecsResolve() {
     Set<String> available = Codec.availableCodecs();
-    requireAll("codecs", available, CODEC_NAMES);
+    assertAllAvailable("codecs", available, CODEC_NAMES);
     for (String name : CODEC_NAMES) {
-      requireName(name, Codec.forName(name).getName());
+      assertResolvedNameEquals(name, Codec.forName(name).getName());
     }
   }
 
-  private static void probeVectorFormats() {
+  private static void assertExpectedCuvsVectorFormatsResolve() {
     Set<String> available = KnnVectorsFormat.availableKnnVectorsFormats();
-    requireAll("vector formats", available, VECTOR_FORMAT_NAMES);
+    assertAllAvailable("vector formats", available, VECTOR_FORMAT_NAMES);
     for (String name : VECTOR_FORMAT_NAMES) {
-      requireName(name, KnnVectorsFormat.forName(name).getName());
+      assertResolvedNameEquals(name, KnnVectorsFormat.forName(name).getName());
     }
   }
 
-  private static void probeScalarConstructor() {
+  private static void assertScalarConstructorLeavesProviderCacheEmpty() {
     new LuceneAcceleratedHNSWScalarQuantizedVectorsFormat();
-    requireProviderCacheEmpty("Scalar");
+    assertProviderCacheIsEmptyAfterConstruction("Scalar");
   }
 
-  private static void probeBinaryConstructor() {
+  private static void assertBinaryConstructorLeavesProviderCacheEmpty() {
     new LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat();
-    requireProviderCacheEmpty("Binary");
+    assertProviderCacheIsEmptyAfterConstruction("Binary");
   }
 
-  private static void requireProviderCacheEmpty(String formatName) {
+  private static void assertProviderCacheIsEmptyAfterConstruction(String formatName) {
     try {
-      java.lang.reflect.Field instancesField = LuceneProvider.class.getDeclaredField("INSTANCES");
+      Field instancesField = LuceneProvider.class.getDeclaredField("INSTANCES");
       instancesField.setAccessible(true);
       @SuppressWarnings("unchecked")
-      java.util.Map<String, LuceneProvider> instances =
-          (java.util.Map<String, LuceneProvider>) instancesField.get(null);
+      Map<String, LuceneProvider> instances =
+          (Map<String, LuceneProvider>) instancesField.get(null);
       if (!instances.isEmpty()) {
         throw new AssertionError(
             formatName
@@ -84,20 +97,25 @@ public final class SPIColdStartProbe {
     }
   }
 
-  private static void requireAll(String kind, Set<String> available, Set<String> expected) {
+  private static void assertAllAvailable(String kind, Set<String> available, Set<String> expected) {
     if (!available.containsAll(expected)) {
       throw new AssertionError(
-          "Missing " + kind + ": " + difference(expected, available) + "; available=" + available);
+          "Missing "
+              + kind
+              + ": "
+              + findMissingNames(expected, available)
+              + "; available="
+              + available);
     }
   }
 
-  private static Set<String> difference(Set<String> expected, Set<String> available) {
-    java.util.HashSet<String> missing = new java.util.HashSet<>(expected);
+  private static Set<String> findMissingNames(Set<String> expected, Set<String> available) {
+    HashSet<String> missing = new HashSet<>(expected);
     missing.removeAll(available);
     return missing;
   }
 
-  private static void requireName(String expected, String actual) {
+  private static void assertResolvedNameEquals(String expected, String actual) {
     if (!expected.equals(actual)) {
       throw new AssertionError("Expected " + expected + " but resolved " + actual);
     }
