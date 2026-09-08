@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
+import argparse
 import ast
 import re
 import shutil
@@ -130,6 +131,15 @@ CPP_COMPOUND_RE = re.compile(
     r"^\s*(?:typedef\s+)?(?:struct|class|enum(?:\s+class)?)\b"
 )
 API_DECORATOR_RE = re.compile(r"\bCUVS_EXPORT\b\s*")
+
+# Suppressed by ``--quiet`` so the pre-commit hook reports only its verdict.
+VERBOSE = True
+
+# Populated while generating pages, consumed by ``update_api_navigation``.
+# A slug cannot round-trip a Java type name (the package prefix and the
+# internal capitalization are both lost), so record the real name instead of
+# letting ``api_route_title`` title-case the slug.
+API_NAV_TITLE_OVERRIDES: dict[tuple[str, str], str] = {}
 
 
 @dataclass
@@ -413,7 +423,17 @@ class DoxygenHeaderIndex:
             entry.name = "::".join([*qualifiers, entry.name])
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    global VERBOSE
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="only report errors; do not list every generated page",
+    )
+    VERBOSE = not parser.parse_args(argv).quiet
+
     remove_old_api_pages()
     native_index = DoxygenHeaderIndex.build(NATIVE_HEADER_DIRS)
     native_pages_by_api = {
@@ -2964,6 +2984,7 @@ def generate_java_api_pages() -> None:
     write_page(out_dir / "index.md", index_lines)
 
     for klass in classes:
+        API_NAV_TITLE_OVERRIDES[("java_api", java_slug(klass))] = klass.name
         lines = [
             *api_frontmatter(api_page_route("java_api", java_slug(klass))),
             f"# {klass.name}",
@@ -3071,6 +3092,11 @@ def parse_java_members(text: str, class_name: str) -> list[JavaMember]:
         if re.search(r"\b(class|interface|enum|record)\b", signature):
             continue
         if re.search(r"\b(if|for|while|switch|catch)\s*\(", signature):
+            continue
+        # The pages advertise "Public Members"; drop explicitly private ones.
+        # Package-private and interface members are left alone because an
+        # interface method with no modifier is implicitly public.
+        if re.match(r"\s*private\b", signature):
             continue
         name_match = re.search(r"([A-Za-z_]\w*)\s*\(", signature)
         if not name_match:
@@ -5652,6 +5678,7 @@ def update_api_navigation() -> None:
 
     lines = [
         '  - section: "API Reference"',
+        '    path: "./pages/api_reference.md"',
         "    contents:",
     ]
     for title, directory, _, _, _ in API_NAV_SECTIONS:
@@ -5694,7 +5721,8 @@ def update_api_navigation() -> None:
     docs_yml.write_text(
         text[:start] + replacement + text[end:], encoding="utf-8"
     )
-    print("Updated fern/docs.yml API Reference navigation")
+    if VERBOSE:
+        print("Updated fern/docs.yml API Reference navigation")
 
 
 def read_api_index_slugs(index_path: Path) -> list[str]:
@@ -5723,6 +5751,9 @@ def api_frontmatter(route: str) -> list[str]:
 
 
 def api_nav_page_title(directory: str, slug: str) -> str:
+    override = API_NAV_TITLE_OVERRIDES.get((directory, slug))
+    if override is not None:
+        return override
     return api_route_title(slug)
 
 
@@ -5760,6 +5791,7 @@ def api_route_title(slug: str) -> str:
         "nn": "NN",
         "pca": "PCA",
         "pq": "PQ",
+        "rabitq": "RaBitQ",
         "sq": "SQ",
         "vq": "VQ",
     }
@@ -5978,7 +6010,8 @@ def write_page(path: Path, lines: list[str]) -> None:
     path.write_text(
         "\n".join(trim_blank_lines(lines)).rstrip() + "\n", encoding="utf-8"
     )
-    print(f"Wrote {path.relative_to(REPO_DIR)}")
+    if VERBOSE:
+        print(f"Wrote {path.relative_to(REPO_DIR)}")
 
 
 def validate_generated_api_markdown() -> None:

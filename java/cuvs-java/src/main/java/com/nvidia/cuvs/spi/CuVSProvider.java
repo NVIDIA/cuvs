@@ -9,6 +9,7 @@ import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodType;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.BitSet;
 import java.util.List;
 
 /**
@@ -166,29 +167,6 @@ public interface CuVSProvider {
       throws UnsupportedOperationException;
 
   /**
-   * Merges multiple CAGRA indexes into a single index.
-   *
-   * @param indexes Array of CAGRA indexes to merge
-   * @return A new merged CAGRA index
-   * @throws Throwable if an error occurs during the merge operation
-   */
-  CagraIndex mergeCagraIndexes(CagraIndex[] indexes) throws Throwable;
-
-  /**
-   * Merges multiple CAGRA indexes into a single index with the specified merge parameters.
-   *
-   * @param indexes Array of CAGRA indexes to merge
-   * @param mergeParams Parameters to control the merge operation, or null to use defaults
-   * @return A new merged CAGRA index
-   * @throws Throwable if an error occurs during the merge operation
-   */
-  default CagraIndex mergeCagraIndexes(CagraIndex[] indexes, CagraIndexParams mergeParams)
-      throws Throwable {
-    // Default implementation falls back to the method without parameters
-    return mergeCagraIndexes(indexes);
-  }
-
-  /**
    * Reports whether the rows of {@code dataset} already sit at the row stride CAGRA requires, which
    * is the row length in bytes rounded up to a 16 byte boundary.
    *
@@ -206,6 +184,20 @@ public interface CuVSProvider {
     throw new UnsupportedOperationException(
         "Padded layout detection is not supported by " + getClass().getName());
   }
+
+  /**
+   * Merges multiple CAGRA indexes into a single index, keeping only the rows selected by
+   * {@code rowFilter}. See {@link CagraIndex#merge(CagraIndex[], CagraIndexParams, BitSet)} for the
+   * meaning of the filter.
+   *
+   * @param indexes Array of CAGRA indexes to merge
+   * @param mergeParams Parameters to control the merge operation, or null to use defaults
+   * @param rowFilter The rows to keep, or null to keep all of them
+   * @return A new merged CAGRA index
+   * @throws Throwable if an error occurs during the merge operation
+   */
+  CagraIndex mergeCagraIndexes(CagraIndex[] indexes, CagraIndexParams mergeParams, BitSet rowFilter)
+      throws Throwable;
 
   /**
    * Creates a device-backed multi-partition filter handle from the pre-packed combined bitset.

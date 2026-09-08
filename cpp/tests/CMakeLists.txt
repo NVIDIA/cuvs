@@ -137,6 +137,23 @@ ConfigureTest(
 )
 
 ConfigureTest(
+  NAME CUTILE_SMOKE_TEST
+  PATH detail/jit_lto/cutile_smoke.cu
+  GPUS 1
+  PERCENT 100
+)
+if(CUVS_CUTILE_ENABLED)
+  # These are intentionally library-private implementation symbols. Build the smoke executable with
+  # the generated fragment registrations and planner implementation so it can exercise them without
+  # exporting the cuTile internals from libcuvs.
+  target_sources(
+    CUTILE_SMOKE_TEST PRIVATE ${cutile_smoke_files}
+                              "${CUVS_SOURCE_DIR}/src/detail/jit_lto/TileAlgorithmPlanner.cpp"
+  )
+  target_include_directories(CUTILE_SMOKE_TEST PRIVATE "${cutile_smoke_generated_dir}")
+endif()
+
+ConfigureTest(
   NAME NEIGHBORS_ANN_IVF_FLAT_UDF_TEST
   PATH neighbors/ann_ivf_flat/test_udf.cu
   GPUS 1

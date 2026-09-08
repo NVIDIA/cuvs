@@ -1153,6 +1153,29 @@ if(NOT BUILD_CPU_ONLY)
   )
   endblock()
 
+  include(cmake/modules/generate_cutile_kernels.cmake)
+  set(cutile_smoke_dir "${CMAKE_CURRENT_SOURCE_DIR}/src/detail/jit_lto/cutile_smoke")
+  set(cutile_smoke_generated_dir
+      "${CMAKE_CURRENT_BINARY_DIR}/generated_kernels/detail/jit_lto/cutile_smoke"
+  )
+  generate_cutile_kernels(
+    cutile_smoke_files
+    KERNEL_DIR "${cutile_smoke_dir}"
+    KERNEL_BASENAME "cutile_smoke"
+    KERNEL_PYTHON "smoke_kernel.py"
+    EXPORT_SCRIPT "export_smoke.py"
+    OUTPUT_DIRECTORY "${cutile_smoke_generated_dir}"
+    MATRIX_JSON_FILE "${cutile_smoke_dir}/cutile_smoke_matrix.json"
+    FRAGMENT_TAG_FORMAT_CUBIN
+      "cuvs::detail::jit_lto::fragment_tag_cutile_smoke_add_cubin<cuvs::detail::jit_lto::@arch_tag@>"
+    FRAGMENT_TAG_HEADER_FILES "<cuvs/detail/jit_lto/cutile_arch_tags.hpp>"
+                              "<cuvs/detail/jit_lto/cutile_smoke_fragments.hpp>"
+  )
+  if(NOT DEFINED CUVS_CUTILE_ENABLED)
+    set(CUVS_CUTILE_ENABLED 0)
+  endif()
+  target_compile_definitions(cuvs_cpp_headers INTERFACE CUVS_CUTILE_ENABLED=${CUVS_CUTILE_ENABLED})
+
   # Note that this matrix contains an `arch_includes` placeholder, since we don't currently have a
   # way to do an item-wise transform on a list after computing the matrix product and before
   # configuring the file
@@ -1364,6 +1387,7 @@ if(NOT BUILD_CPU_ONLY)
     src/core/omp_wrapper.cpp
     src/util/file_io.cpp
     src/util/host_memory.cpp
+    src/detail/jit_lto/TileAlgorithmPlanner.cpp
     src/distance/detail/kernels/gram_matrix.cu
     src/distance/detail/kernels/kernel_factory.cu
     src/distance/detail/kernels/kernel_matrices.cu
@@ -1462,6 +1486,7 @@ if(NOT BUILD_CPU_ONLY)
     src/stats/trustworthiness_score.cu
     ${CUVS_MG_ALGOS}
     ${jit_lto_files}
+    ${cutile_smoke_files}
   )
 
   set_target_properties(
@@ -1506,6 +1531,7 @@ if(NOT BUILD_CPU_ONLY)
            "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../c/include>"
     INTERFACE "$<INSTALL_INTERFACE:include>"
     PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_CURRENT_BINARY_DIR}/src"
+            "${cutile_smoke_generated_dir}"
   )
 
   # Endian detection
