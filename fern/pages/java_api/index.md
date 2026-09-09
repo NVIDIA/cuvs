@@ -18,6 +18,8 @@ These pages are generated from the Java source files in `java/cuvs-java/src/main
 - [LibraryException](/api-reference/java-api-com-nvidia-cuvs-libraryexception)
 - [RowView](/api-reference/java-api-com-nvidia-cuvs-rowview)
 - [SynchronizedCuVSResources](/api-reference/java-api-com-nvidia-cuvs-synchronizedcuvsresources)
+- [VamanaIndex](/api-reference/java-api-com-nvidia-cuvs-vamanaindex)
+- [VamanaIndexParams](/api-reference/java-api-com-nvidia-cuvs-vamanaindexparams)
 
 ## Nearest Neighbors
 

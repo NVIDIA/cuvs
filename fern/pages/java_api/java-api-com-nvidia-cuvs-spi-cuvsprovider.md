@@ -211,6 +211,20 @@ Creates a new CagraIndex Builder.
 
 _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:135`_
 
+### newVamanaIndexBuilder
+
+```java
+default VamanaIndex.Builder newVamanaIndexBuilder(CuVSResources cuVSResources) throws UnsupportedOperationException
+```
+
+Creates a new VamanaIndex Builder.
+
+This is a `default` method rather than an abstract one so that
+providers written against an earlier version of this interface keep
+compiling.
+
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:145`_
+
 ### newHnswIndexBuilder
 
 ```java
@@ -219,7 +233,7 @@ HnswIndex.Builder newHnswIndexBuilder(CuVSResources cuVSResources) throws Unsupp
 
 Creates a new HnswIndex Builder.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:139`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:151`_
 
 ### hnswIndexFromCagra
 
@@ -246,7 +260,7 @@ A new HNSW index
 | --- | --- |
 | `Throwable` | if an error occurs during conversion |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:150`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:162`_
 
 ### hnswIndexBuild
 
@@ -274,7 +288,7 @@ A new HNSW index ready for search
 | --- | --- |
 | `Throwable` | if an error occurs during building |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:161`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:173`_
 
 ### newTieredIndexBuilder
 
@@ -284,7 +298,7 @@ TieredIndex.Builder newTieredIndexBuilder(CuVSResources cuVSResources) throws Un
 
 Creates a new TieredIndex Builder.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:165`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:177`_
 
 ### isCagraPaddedDataset
 
@@ -317,7 +331,7 @@ true when the rows are already padded the way CAGRA requires
 | --- | --- |
 | `UnsupportedOperationException` | if this provider cannot answer |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:182`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:194`_
 
 ### mergeCagraIndexes
 
@@ -347,7 +361,7 @@ A new merged CAGRA index
 | --- | --- |
 | `Throwable` | if an error occurs during the merge operation |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:198`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:210`_
 
 ### newFilterBitsetHandle
 
@@ -364,7 +378,7 @@ Per-partition bit offsets are recomputed inside cuVS from the index sizes.
 | --- | --- |
 | `combinedLongs` | packed bitset words for a single partition |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:207`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:219`_
 
 ### searchCagraMultiPartition
 
@@ -390,7 +404,7 @@ Searches multiple CAGRA index partitions for the global top-k nearest neighbors 
 | --- | --- |
 | `Throwable` | if an error occurs during the search |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:220`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:232`_
 
 ### gpuInfoProvider
 
@@ -400,7 +414,7 @@ GPUInfoProvider gpuInfoProvider()
 
 Returns a `GPUInfoProvider` to query the system for GPU related information
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:229`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:241`_
 
 ### enableRMMPooledMemory
 
@@ -426,7 +440,7 @@ concurrent construction of that class from multiple threads.
 | `initialPoolSizePercent` | The initial pool size, in percentage of the total GPU memory |
 | `maxPoolSizePercent` | The maximum pool size, in percentage of the total GPU memory |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:250`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:262`_
 
 ### enableRMMManagedPooledMemory
 
@@ -447,7 +461,7 @@ Ownership: see `#enableRMMPooledMemory`.
 | `initialPoolSizePercent` | The initial pool size, in percentage of the total GPU memory |
 | `maxPoolSizePercent` | The maximum pool size, in percentage of the total GPU memory |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:262`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:274`_
 
 ### enableRMMAsyncMemory
 
@@ -464,7 +478,7 @@ launches. This operation has a global effect and will affect all resources on th
 
 Ownership: see `#enableRMMPooledMemory`.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:274`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:286`_
 
 ### resetRMMPooledMemory
 
@@ -476,7 +490,7 @@ Disables pooled memory on the current device, reverting back to the default sett
 
 Ownership: see `#enableRMMPooledMemory`.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:281`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:293`_
 
 ### provider
 
@@ -486,7 +500,7 @@ static CuVSProvider provider()
 
 Retrieves the system-wide provider.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:284`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:296`_
 
 ### cagraIndexParamsFromHnswParams
 
@@ -516,7 +530,7 @@ may be shifted along the curve right or left. See the heuristics descriptions fo
 
 A new CAGRA index parameters object
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:304`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:316`_
 
 ### cagraIndexParamsFromDataset
 
@@ -540,6 +554,6 @@ Create CAGRA index parameters heuristically tuned for a dataset.
 
 A new CAGRA index parameters object
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:322`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:334`_
 
 _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:18`_
