@@ -19,8 +19,6 @@
 
 #include <cuvs/neighbors/common.hpp>
 
-#include <rmm/cuda_stream_view.hpp>
-
 namespace cuvs::neighbors::vamana {
 
 /**

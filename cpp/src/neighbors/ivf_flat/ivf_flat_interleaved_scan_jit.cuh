@@ -218,7 +218,7 @@ void launch_kernel(const index<T, IdxT>& index,
       n_probes,
       smem_size);
     kernel_launcher->dispatch<interleaved_scan_func_t<T, IdxT>>(
-      stream,
+      stream.get(),
       grid_dim,
       block_dim,
       smem_size,
