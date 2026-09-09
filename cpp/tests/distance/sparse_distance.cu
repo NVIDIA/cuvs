@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2018-2024, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2018-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -80,7 +80,7 @@ class SparseDistanceTest
 
     cuvs::distance::pairwise_distance(handle, x, x, out, params.metric, params.metric_arg);
 
-    RAFT_CUDA_TRY(cudaStreamSynchronize(resource::get_cuda_stream(handle)));
+    RAFT_CUDA_TRY(cudaStreamSynchronize(resource::get_cuda_stream(handle).get()));
   }
 
   void compare()

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -108,7 +108,7 @@ TEST(IvfSqC, BuildSearch)
 
   cuvsResources_t res;
   cuvsResourcesCreate(&res);
-  cuvsStreamSet(res, stream);
+  cuvsStreamSet(res, stream.get());
 
   run_ivf_sq(res,
              n_rows,
