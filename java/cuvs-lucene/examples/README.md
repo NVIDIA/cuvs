@@ -24,11 +24,11 @@ cd java/cuvs-lucene/examples
 To run Accelerated HNSW example do:
 
 ```sh
-mvn clean install && java -Djava.util.logging.config.file=src/main/resources/logging.properties -cp target/examples-26.10.0-jar-with-merged-services.jar com.nvidia.cuvs.lucene.examples.AcceleratedHnswExample
+mvn clean install && java -Djava.util.logging.config.file=src/main/resources/logging.properties -cp target/examples-26.12.0-jar-with-merged-services.jar com.nvidia.cuvs.lucene.examples.AcceleratedHnswExample
 ```
 
 To run the Index and Search on GPU example do:
 
 ```sh
-mvn clean install && java -Djava.util.logging.config.file=src/main/resources/logging.properties -cp target/examples-26.10.0-jar-with-merged-services.jar com.nvidia.cuvs.lucene.examples.IndexAndSearchonGPUExample
+mvn clean install && java -Djava.util.logging.config.file=src/main/resources/logging.properties -cp target/examples-26.12.0-jar-with-merged-services.jar com.nvidia.cuvs.lucene.examples.IndexAndSearchonGPUExample
 ```

@@ -9,7 +9,7 @@ SPDX-License-Identifier: Apache-2.0
   <groupId>com.nvidia.cuvs.lucene</groupId>
   <artifactId>cuvs-lucene</artifactId>
   <!-- NOTE: The version automatically gets updated when ci/release/update-version.sh is invoked. -->
-  <!--CUVS_JAVA#VERSION_UPDATE_MARKER_START--><version>26.10.0</version><!--CUVS_JAVA#VERSION_UPDATE_MARKER_END-->
+  <!--CUVS_JAVA#VERSION_UPDATE_MARKER_START--><version>26.12.0</version><!--CUVS_JAVA#VERSION_UPDATE_MARKER_END-->
   <name>cuvs-lucene</name>
   <packaging>jar</packaging>
 
@@ -138,7 +138,7 @@ SPDX-License-Identifier: Apache-2.0
     <dependency>
       <groupId>com.nvidia.cuvs</groupId>
       <artifactId>cuvs-java</artifactId>
-      <!--CUVS_JAVA#VERSION_UPDATE_MARKER_START--><version>26.10.0</version><!--CUVS_JAVA#VERSION_UPDATE_MARKER_END-->
+      <!--CUVS_JAVA#VERSION_UPDATE_MARKER_START--><version>26.12.0</version><!--CUVS_JAVA#VERSION_UPDATE_MARKER_END-->
     </dependency>
   </dependencies>
 
@@ -194,6 +194,9 @@ SPDX-License-Identifier: Apache-2.0
           <systemPropertyVariables>
             <java.util.logging.config.file>${project.basedir}/src/main/resources/logging.properties</java.util.logging.config.file>
           </systemPropertyVariables>
+          <environmentVariables>
+            <CUFILE_LOGFILE_PATH>${project.build.directory}/cufile.log</CUFILE_LOGFILE_PATH>
+          </environmentVariables>
         </configuration>
       </plugin>
       <plugin>

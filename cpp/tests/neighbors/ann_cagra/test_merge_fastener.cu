@@ -70,7 +70,7 @@ auto make_padded(raft::resources const& res, raft::host_matrix_view<const T, int
   auto matrix =
     raft::make_device_matrix<T, int64_t>(res, src.extent(0), static_cast<int64_t>(stride));
   RAFT_CUDA_TRY(cudaMemsetAsync(
-    matrix.data_handle(), 0, static_cast<size_t>(matrix.size()) * sizeof(T), stream));
+    matrix.data_handle(), 0, static_cast<size_t>(matrix.size()) * sizeof(T), stream.get()));
   raft::copy_matrix(matrix.data_handle(),
                     static_cast<size_t>(stride),
                     src.data_handle(),
@@ -288,7 +288,7 @@ void run_explicit_fastener(cuvs::distance::DistanceType metric)
   RAFT_CUDA_TRY(cudaMemsetAsync(merged_storage.matrix.data_handle(),
                                 0xff,
                                 merged_storage.matrix.size() * sizeof(T),
-                                raft::resource::get_cuda_stream(res)));
+                                raft::resource::get_cuda_stream(res).get()));
   auto merged = merge(res, params, indices, merged_storage.view, fastener);
   expect_valid_graph(merged, rows * 2, degree);
   expect_dataset_order(res, merged, raft::make_const_mdspan(expected.view()));
@@ -366,7 +366,7 @@ TEST(CagraMergeFastener, SplitManywayCarriesSmallParentsAndSupportsRepeatedLevel
   raft::copy(dataset.data_handle(), host_dataset.data_handle(), dataset.size(), stream);
 
   split_context context(res, rows, dim);
-  manyway_l2_norms_kernel<<<static_cast<int>((rows + 3) / 4), 128, 0, stream>>>(
+  manyway_l2_norms_kernel<<<static_cast<int>((rows + 3) / 4), 128, 0, stream.get()>>>(
     dataset.data_handle(), rows, dim, dim, context.norms.data_handle());
   RAFT_CUDA_TRY(cudaGetLastError());
 
@@ -452,7 +452,7 @@ TEST(CagraMergeFastener, InitializesUnwrittenScaffoldSlotsWithSelf)
   auto graph = raft::make_device_matrix<uint32_t, int64_t>(res, rows, candidate_degree);
 
   RAFT_CUDA_TRY(
-    cudaMemsetAsync(graph.data_handle(), 0xff, graph.size() * sizeof(uint32_t), stream));
+    cudaMemsetAsync(graph.data_handle(), 0xff, graph.size() * sizeof(uint32_t), stream.get()));
   launch_initialize_self_scaffold(
     res, graph.data_handle(), rows, candidate_degree, scaffold_offset, scaffold_degree);
 
@@ -608,7 +608,7 @@ TEST(CagraMergeFastener, MembershipsRemainAscendingWithinEachPartition)
   raft::copy(dataset.data_handle(), host_dataset.data_handle(), dataset.size(), stream);
 
   split_context context(res, rows, dim);
-  manyway_l2_norms_kernel<<<static_cast<int>((rows + 3) / 4), 128, 0, stream>>>(
+  manyway_l2_norms_kernel<<<static_cast<int>((rows + 3) / 4), 128, 0, stream.get()>>>(
     dataset.data_handle(), rows, dim, dim, context.norms.data_handle());
   RAFT_CUDA_TRY(cudaGetLastError());
 

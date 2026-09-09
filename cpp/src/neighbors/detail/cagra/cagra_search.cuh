@@ -434,7 +434,7 @@ void search_multi_partition(
   auto plan_desc = dataset_descriptor_init_with_cache<T, graph_idx_type, DistanceT>(
     res, params, indices[0]->dataset(), metric, dataset_norms_ptr0);
 
-  cudaStream_t stream = raft::resource::get_cuda_stream(res);
+  cudaStream_t stream = raft::resource::get_cuda_stream(res).get();
 
   // Cap the per-launch query count. num_queries maps to grid.y in the multi-partition kernels,
   // which is bounded by maxGridSize[1]; chunking also bounds the intermediate workspaces, which

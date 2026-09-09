@@ -183,7 +183,7 @@ index<T, IdxT> build(
   const index_params& params,
   raft::mdspan<const T, raft::matrix_extent<IdxT>, raft::row_major, Accessor> dataset)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(res);
+  cudaStream_t stream = raft::resource::get_cuda_stream(res).get();
   IdxT dim            = dataset.extent(1);
 
   RAFT_LOG_DEBUG("Creating empty index");
@@ -231,7 +231,7 @@ index<T, IdxT> build(
             centers_view,
             raft::make_const_mdspan(labels_view),
             params.partitioning_eta,
-            copy_stream);
+            copy_stream.get());
 
   if (params.n_coarse_clusters > 0) {
     raft::device_matrix_view<float, int64_t> coarse_centers   = idx.coarse_centers();
