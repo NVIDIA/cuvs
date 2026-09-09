@@ -10,6 +10,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
@@ -20,6 +21,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.junit.Test;
 
@@ -64,6 +66,16 @@ public class ThinJarContentsIT {
     }
   }
 
+  @Test
+  public void testPackagedThinJarProvidersResolveThroughLuceneSpiInFreshJvm() throws Exception {
+    Path thinJar = requireConfiguredThinJar();
+    String packagedClasspath = requirePackagedTestClasspath(thinJar);
+
+    SPIColdStartProbe.assertSucceeds(SPIColdStartProbe.CODEC_SPI_DISCOVERY_MODE, packagedClasspath);
+    SPIColdStartProbe.assertSucceeds(
+        SPIColdStartProbe.VECTOR_FORMAT_SPI_DISCOVERY_MODE, packagedClasspath);
+  }
+
   private static Path requireConfiguredThinJar() {
     String configuredJar = System.getProperty(THIN_JAR_PROPERTY);
     assertNotNull("Missing system property " + THIN_JAR_PROPERTY, configuredJar);
@@ -77,6 +89,28 @@ public class ThinJarContentsIT {
         .filter(entry -> !entry.isDirectory())
         .map(JarEntry::getName)
         .collect(Collectors.toUnmodifiableSet());
+  }
+
+  private static String requirePackagedTestClasspath(Path thinJar) {
+    Path mainClasses = thinJar.getParent().resolve("classes").toAbsolutePath().normalize();
+    Path packagedJar = thinJar.toAbsolutePath().normalize();
+    String currentClasspath =
+        System.getProperty("surefire.test.class.path", System.getProperty("java.class.path"));
+    List<Path> classpathEntries =
+        Pattern.compile(Pattern.quote(File.pathSeparator))
+            .splitAsStream(currentClasspath)
+            .map(Path::of)
+            .map(Path::toAbsolutePath)
+            .map(Path::normalize)
+            .toList();
+
+    assertTrue(
+        "Failsafe classpath does not contain the packaged thin JAR: " + packagedJar,
+        classpathEntries.contains(packagedJar));
+    assertFalse(
+        "Failsafe classpath contains compiled main classes instead of only the packaged JAR",
+        classpathEntries.contains(mainClasses));
+    return currentClasspath;
   }
 
   private static void assertExactLuceneServices(JarFile jar, Set<String> entries)

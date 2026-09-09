@@ -111,7 +111,9 @@ public class LuceneProvider {
 
   private LuceneProvider(String version) throws ClassNotFoundException {
     this.version = version;
-    // TODO: Find a better way if possible, but as a separate initiative.
+    // The binary-quantized classes used here belong to the lucene102 family; the general HNSW and
+    // scalar-quantized classes used here belong to lucene99. These providers therefore expose
+    // intentionally disjoint capabilities.
     if (LUCENE_102_BINARY_FORMAT_VERSION.equals(version)) {
       binaryQuantizedVectorsFormat =
           loadClass(
@@ -336,7 +338,7 @@ public class LuceneProvider {
    *
    * @deprecated Use {@link #getLuceneBinaryQuantizedVectorsFormatInstance()}.
    */
-  @Deprecated(since = "26.10", forRemoval = false)
+  @Deprecated(since = "26.12", forRemoval = false)
   public FlatVectorsFormat getluceneBinaryQuantizedVectorsFormatInstance() throws Exception {
     return getLuceneBinaryQuantizedVectorsFormatInstance();
   }
@@ -372,7 +374,7 @@ public class LuceneProvider {
    *
    * @deprecated The legacy return type cannot represent Lucene's HNSW format.
    */
-  @Deprecated(since = "26.10", forRemoval = false)
+  @Deprecated(since = "26.12", forRemoval = false)
   public FlatVectorsFormat getLuceneHnswBinaryQuantizedVectorsFormatInstance(
       int maxConn, int beamWidth) throws Exception {
     throw new UnsupportedOperationException(
@@ -436,7 +438,7 @@ public class LuceneProvider {
    *
    * @deprecated The legacy return type cannot represent Lucene's HNSW format.
    */
-  @Deprecated(since = "26.10", forRemoval = false)
+  @Deprecated(since = "26.12", forRemoval = false)
   public FlatVectorsFormat getLuceneHnswScalarQuantizedVectorsFormatInstance(
       int beamWidth, int maxConn) throws Exception {
     throw new UnsupportedOperationException(

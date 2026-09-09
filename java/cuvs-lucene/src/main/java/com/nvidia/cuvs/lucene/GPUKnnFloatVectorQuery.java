@@ -46,7 +46,7 @@ import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.FixedBitSet;
 
 /**
- * Extends {@link KnnFloatVectorQuery} for GPU-only search.
+ * Extends {@link KnnFloatVectorQuery} with an optimized cuVS multi-partition search path.
  *
  * <p>When all index segments use {@link CuVS2510GPUVectorsReader}, {@link #rewrite} delegates a
  * single multi-partition search to cuVS, passing one Lucene segment per cuVS partition. cuVS
@@ -63,9 +63,10 @@ import org.apache.lucene.util.FixedBitSet;
  * upload is cached inside the handle itself across threads.
  *
  * <p>Falls back to the standard per-segment Lucene path when the optimized path cannot be
- * applied: mixed segment types, a missing CAGRA index for the field on any segment, or segments
- * whose built CAGRA graphs differ in degree (a single multi-partition request requires a uniform
- * graph degree, and a small segment can have its degree truncated at build time).
+ * applied: an explicit {@code MULTI_KERNEL} algorithm, mixed segment types, a missing CAGRA index
+ * for the field on any segment, or segments whose built CAGRA graphs differ in degree (a single
+ * multi-partition request requires a uniform graph degree, and a small segment can have its degree
+ * truncated at build time).
  *
  * @since 25.10
  */
@@ -130,6 +131,12 @@ public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
 
   @Override
   public Query rewrite(IndexSearcher indexSearcher) throws IOException {
+    // The multi-partition API excludes MULTI_KERNEL. Route it through Lucene's standard
+    // per-segment handling, where supported CAGRA readers can apply that algorithm.
+    if (searchAlgo == CagraSearchParams.SearchAlgo.MULTI_KERNEL) {
+      return super.rewrite(indexSearcher);
+    }
+
     IndexReader reader = indexSearcher.getIndexReader();
     List<LeafReaderContext> leaves = reader.leaves();
     if (leaves.isEmpty()) {
@@ -262,7 +269,7 @@ public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
   }
 
   // -------------------------------------------------------------------------
-  // Per-segment fallback path (used when k > 1024 or not all GPU segments)
+  // Per-segment fallback path (used for MULTI_KERNEL or when optimized routing is unavailable)
   // -------------------------------------------------------------------------
 
   @Override

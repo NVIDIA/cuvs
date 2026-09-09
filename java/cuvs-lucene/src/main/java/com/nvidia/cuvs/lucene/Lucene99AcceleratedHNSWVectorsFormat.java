@@ -6,7 +6,6 @@ package com.nvidia.cuvs.lucene;
 
 import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.isSupported;
 
-import com.nvidia.cuvs.LibraryException;
 import java.io.IOException;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -28,7 +27,7 @@ public class Lucene99AcceleratedHNSWVectorsFormat extends KnnVectorsFormat {
 
   private static final Logger log =
       Logger.getLogger(Lucene99AcceleratedHNSWVectorsFormat.class.getName());
-  private static final FlatVectorsFormat FLAT_VECTORS_FORMAT;
+  private static volatile FlatVectorsFormat cachedFlatVectorsFormat;
   private static final int MAX_DIMENSIONS = 4096;
   private final AcceleratedHNSWParams acceleratedHNSWParams;
 
@@ -36,23 +35,38 @@ public class Lucene99AcceleratedHNSWVectorsFormat extends KnnVectorsFormat {
   static final String HNSW_META_CODEC_EXT = "vem";
   static final String HNSW_INDEX_CODEC_NAME = "Lucene99HnswVectorsFormatIndex";
   static final String HNSW_INDEX_EXT = "vex";
-  static final LuceneProvider LUCENE_PROVIDER;
 
-  static {
+  private static LuceneProvider getLucene99Provider() throws IOException {
     try {
-      LUCENE_PROVIDER = LuceneProvider.getInstance("99");
-      FLAT_VECTORS_FORMAT =
-          LUCENE_PROVIDER.getLuceneFlatVectorsFormatInstance(DefaultFlatVectorScorer.INSTANCE);
-    } catch (Exception e) {
-      throw new ExceptionInInitializerError(e.getMessage());
+      return LuceneProvider.getInstance(LuceneProvider.LUCENE_99_FORMAT_VERSION);
+    } catch (ClassNotFoundException e) {
+      throw new IOException("Lucene99 vector formats are not available in this runtime", e);
     }
+  }
+
+  private static FlatVectorsFormat getOrCreateFlatVectorsFormat() throws IOException {
+    FlatVectorsFormat format = cachedFlatVectorsFormat;
+    if (format == null) {
+      synchronized (Lucene99AcceleratedHNSWVectorsFormat.class) {
+        format = cachedFlatVectorsFormat;
+        if (format == null) {
+          try {
+            format =
+                getLucene99Provider()
+                    .getLuceneFlatVectorsFormatInstance(DefaultFlatVectorScorer.INSTANCE);
+            cachedFlatVectorsFormat = format;
+          } catch (Exception e) {
+            throw Utils.handleThrowable(e);
+          }
+        }
+      }
+    }
+    return format;
   }
 
   /**
    * Initializes {@link Lucene99AcceleratedHNSWVectorsFormat} with an instance
    * of {@link AcceleratedHNSWParams} with default parameter values.
-   *
-   * @throws LibraryException if the native library fails to load
    */
   public Lucene99AcceleratedHNSWVectorsFormat() {
     this(new AcceleratedHNSWParams.Builder().build());
@@ -74,7 +88,7 @@ public class Lucene99AcceleratedHNSWVectorsFormat extends KnnVectorsFormat {
    */
   @Override
   public KnnVectorsWriter fieldsWriter(SegmentWriteState state) throws IOException {
-    var flatWriter = FLAT_VECTORS_FORMAT.fieldsWriter(state);
+    var flatWriter = getOrCreateFlatVectorsFormat().fieldsWriter(state);
     if (isSupported()) {
       log.log(Level.FINE, "cuVS is supported so using the Lucene99AcceleratedHNSWVectorsWriter");
       return new Lucene99AcceleratedHNSWVectorsWriter(state, acceleratedHNSWParams, flatWriter);
@@ -83,13 +97,14 @@ public class Lucene99AcceleratedHNSWVectorsFormat extends KnnVectorsFormat {
           Level.WARNING,
           "GPU based indexing not supported, falling back to using the Lucene99HnswVectorsWriter");
       try {
-        return LUCENE_PROVIDER.getLuceneHnswVectorsWriterInstance(
-            state,
-            acceleratedHNSWParams.getMaxConn(),
-            acceleratedHNSWParams.getBeamWidth(),
-            flatWriter,
-            acceleratedHNSWParams.getNumMergeWorkers(),
-            new TaskExecutor(acceleratedHNSWParams.getMergeExec()));
+        return getLucene99Provider()
+            .getLuceneHnswVectorsWriterInstance(
+                state,
+                acceleratedHNSWParams.getMaxConn(),
+                acceleratedHNSWParams.getBeamWidth(),
+                flatWriter,
+                acceleratedHNSWParams.getNumMergeWorkers(),
+                new TaskExecutor(acceleratedHNSWParams.getMergeExec()));
       } catch (Exception e) {
         throw Utils.handleThrowable(e);
       }
@@ -102,8 +117,9 @@ public class Lucene99AcceleratedHNSWVectorsFormat extends KnnVectorsFormat {
   @Override
   public KnnVectorsReader fieldsReader(SegmentReadState state) throws IOException {
     try {
-      return LUCENE_PROVIDER.getLuceneHnswVectorsReaderInstance(
-          state, FLAT_VECTORS_FORMAT.fieldsReader(state));
+      return getLucene99Provider()
+          .getLuceneHnswVectorsReaderInstance(
+              state, getOrCreateFlatVectorsFormat().fieldsReader(state));
     } catch (Exception e) {
       throw Utils.handleThrowable(e);
     }

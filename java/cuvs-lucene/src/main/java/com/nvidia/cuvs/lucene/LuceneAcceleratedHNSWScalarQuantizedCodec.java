@@ -12,7 +12,7 @@ import org.apache.lucene.codecs.FilterCodec;
 import org.apache.lucene.codecs.KnnVectorsFormat;
 
 /**
- * CuVS based codec for GPU based vector search
+ * cuVS-accelerated HNSW construction, with Lucene CPU fallback, and Lucene CPU HNSW search.
  *
  * @since 26.02
  */

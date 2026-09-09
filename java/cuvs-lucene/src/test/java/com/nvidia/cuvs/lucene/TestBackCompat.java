@@ -12,19 +12,15 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.concurrent.TimeUnit;
 import org.apache.lucene.codecs.Codec;
 import org.apache.lucene.codecs.KnnVectorsFormat;
+import org.apache.lucene.codecs.hnsw.DefaultFlatVectorScorer;
 import org.apache.lucene.codecs.hnsw.FlatVectorsFormat;
 import org.junit.Test;
 import org.junit.function.ThrowingRunnable;
 
 /**
- * Verifies Lucene format-version adaptation, retained legacy entry points, and cold-start SPI
- * behavior.
+ * Verifies Lucene format-version adaptation and retained legacy entry points.
  *
  * @since 25.12
  */
@@ -48,7 +44,9 @@ public class TestBackCompat {
   public void testLucene99ProviderLoadsRequiredHnswComponents() throws Exception {
     LuceneProvider provider = LuceneProvider.getInstance(LuceneProvider.LUCENE_99_FORMAT_VERSION);
 
-    assertTrue(provider.getLuceneFlatVectorsFormatInstance(null) instanceof FlatVectorsFormat);
+    assertTrue(
+        provider.getLuceneFlatVectorsFormatInstance(DefaultFlatVectorScorer.INSTANCE)
+            instanceof FlatVectorsFormat);
     assertEquals(0, provider.getStaticIntParam("VERSION_CURRENT"));
     assertFalse(provider.getSimilarityFunctions().isEmpty());
   }
@@ -237,61 +235,6 @@ public class TestBackCompat {
     assertEquals("Lucene101", delegate.getName());
     assertEquals(
         "org.apache.lucene.codecs.lucene101.Lucene101Codec", delegate.getClass().getName());
-  }
-
-  @Test
-  public void testCodecSpiResolvesExpectedCuvsProvidersInFreshJvm() throws Exception {
-    assertColdStartProbeSucceeds(SPIColdStartProbe.CODEC_SPI_DISCOVERY_MODE);
-  }
-
-  @Test
-  public void testKnnVectorsFormatSpiResolvesExpectedCuvsProvidersInFreshJvm() throws Exception {
-    assertColdStartProbeSucceeds(SPIColdStartProbe.VECTOR_FORMAT_SPI_DISCOVERY_MODE);
-  }
-
-  @Test
-  public void testScalarFormatConstructorDoesNotPopulateProviderCache() throws Exception {
-    assertColdStartProbeSucceeds(SPIColdStartProbe.SCALAR_CONSTRUCTOR_MODE);
-  }
-
-  @Test
-  public void testBinaryFormatConstructorDoesNotPopulateProviderCache() throws Exception {
-    assertColdStartProbeSucceeds(SPIColdStartProbe.BINARY_CONSTRUCTOR_MODE);
-  }
-
-  /** Runs the probe in a new JVM because Lucene SPI registries and provider caches are static. */
-  private static void assertColdStartProbeSucceeds(String mode) throws Exception {
-    String javaExecutable =
-        Path.of(System.getProperty("java.home"), "bin", "java").toAbsolutePath().toString();
-    String testClassPath =
-        System.getProperty("surefire.test.class.path", System.getProperty("java.class.path"));
-    Path outputFile = Files.createTempFile("cuvs-lucene-spi-" + mode + "-", ".log");
-    try {
-      Process process =
-          new ProcessBuilder(
-                  javaExecutable,
-                  "--add-modules=jdk.incubator.vector",
-                  "--enable-native-access=ALL-UNNAMED",
-                  "-cp",
-                  testClassPath,
-                  SPIColdStartProbe.class.getName(),
-                  mode)
-              .redirectErrorStream(true)
-              .redirectOutput(outputFile.toFile())
-              .start();
-
-      boolean completed = process.waitFor(30, TimeUnit.SECONDS);
-      if (!completed) {
-        process.destroyForcibly();
-        process.waitFor(5, TimeUnit.SECONDS);
-        throw new AssertionError("Timed out waiting for " + mode + " SPI cold-start probe");
-      }
-
-      String output = Files.readString(outputFile, StandardCharsets.UTF_8);
-      assertEquals("Cold-start probe output:\n" + output, 0, process.exitValue());
-    } finally {
-      Files.deleteIfExists(outputFile);
-    }
   }
 
   private static void assertCapabilityIsUnavailable(

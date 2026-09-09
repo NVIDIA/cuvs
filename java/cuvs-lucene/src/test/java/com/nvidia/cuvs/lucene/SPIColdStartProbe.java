@@ -5,9 +5,13 @@
 package com.nvidia.cuvs.lucene;
 
 import java.lang.reflect.Field;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import org.apache.lucene.codecs.Codec;
 import org.apache.lucene.codecs.KnnVectorsFormat;
 
@@ -23,6 +27,11 @@ public final class SPIColdStartProbe {
   static final String VECTOR_FORMAT_SPI_DISCOVERY_MODE = "knn";
   static final String SCALAR_CONSTRUCTOR_MODE = "scalar-constructor";
   static final String BINARY_CONSTRUCTOR_MODE = "binary-constructor";
+  static final String HNSW_CONSTRUCTOR_MODE = "hnsw-constructor";
+  static final String CAGRA_CONSTRUCTOR_MODE = "cagra-constructor";
+
+  private static final long PROBE_TIMEOUT_SECONDS = 30;
+  private static final long TERMINATION_TIMEOUT_SECONDS = 5;
 
   private static final Set<String> CODEC_NAMES =
       Set.of(
@@ -49,7 +58,66 @@ public final class SPIColdStartProbe {
       case VECTOR_FORMAT_SPI_DISCOVERY_MODE -> assertExpectedCuvsVectorFormatsResolve();
       case SCALAR_CONSTRUCTOR_MODE -> assertScalarConstructorLeavesProviderCacheEmpty();
       case BINARY_CONSTRUCTOR_MODE -> assertBinaryConstructorLeavesProviderCacheEmpty();
+      case HNSW_CONSTRUCTOR_MODE -> assertHnswConstructorLeavesProviderCacheEmpty();
+      case CAGRA_CONSTRUCTOR_MODE -> assertCagraConstructorLeavesProviderCacheEmpty();
       default -> throw new IllegalArgumentException("Unknown probe mode: " + args[0]);
+    }
+  }
+
+  /** Runs one probe in a fresh JVM using the current test classpath. */
+  static void assertSucceeds(String mode) throws Exception {
+    String classPath =
+        System.getProperty("surefire.test.class.path", System.getProperty("java.class.path"));
+    assertSucceeds(mode, classPath);
+  }
+
+  /** Runs one probe in a fresh JVM using an explicitly supplied classpath. */
+  static void assertSucceeds(String mode, String classPath) throws Exception {
+    String javaExecutable =
+        Path.of(System.getProperty("java.home"), "bin", "java").toAbsolutePath().toString();
+    Path outputFile = Files.createTempFile("cuvs-lucene-spi-" + mode + "-", ".log");
+    Process process = null;
+    try {
+      process =
+          new ProcessBuilder(
+                  javaExecutable,
+                  "--add-modules=jdk.incubator.vector",
+                  "--enable-native-access=ALL-UNNAMED",
+                  "-cp",
+                  classPath,
+                  SPIColdStartProbe.class.getName(),
+                  mode)
+              .redirectErrorStream(true)
+              .redirectOutput(outputFile.toFile())
+              .start();
+
+      boolean completed = process.waitFor(PROBE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+      if (!completed) {
+        process.destroyForcibly();
+        boolean terminated = process.waitFor(TERMINATION_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        String output = Files.readString(outputFile, StandardCharsets.UTF_8);
+        throw new AssertionError(
+            "Timed out waiting for "
+                + mode
+                + " SPI cold-start probe; terminated="
+                + terminated
+                + "; output:\n"
+                + output);
+      }
+
+      String output = Files.readString(outputFile, StandardCharsets.UTF_8);
+      if (process.exitValue() != 0) {
+        throw new AssertionError(
+            mode + " SPI cold-start probe exited " + process.exitValue() + "; output:\n" + output);
+      }
+    } catch (InterruptedException interrupted) {
+      Thread.currentThread().interrupt();
+      throw interrupted;
+    } finally {
+      if (process != null && process.isAlive()) {
+        process.destroyForcibly();
+      }
+      Files.deleteIfExists(outputFile);
     }
   }
 
@@ -77,6 +145,16 @@ public final class SPIColdStartProbe {
   private static void assertBinaryConstructorLeavesProviderCacheEmpty() {
     new LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat();
     assertProviderCacheIsEmptyAfterConstruction("Binary");
+  }
+
+  private static void assertHnswConstructorLeavesProviderCacheEmpty() {
+    new Lucene99AcceleratedHNSWVectorsFormat();
+    assertProviderCacheIsEmptyAfterConstruction("HNSW");
+  }
+
+  private static void assertCagraConstructorLeavesProviderCacheEmpty() {
+    new CuVS2510GPUVectorsFormat();
+    assertProviderCacheIsEmptyAfterConstruction("CAGRA");
   }
 
   private static void assertProviderCacheIsEmptyAfterConstruction(String formatName) {
