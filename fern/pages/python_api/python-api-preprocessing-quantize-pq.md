@@ -166,6 +166,20 @@ def use_vq(self)
 def use_subspaces(self)
 ```
 
+## VpqParams
+
+```python
+cdef class VpqParams
+```
+
+Parameters for creating a CAGRA-Q VPQ dataset.
+
+**Constructor**
+
+```python
+def __init__(self, *, pq_bits=8, pq_dim=0, vq_n_centers=0, kmeans_n_iters=25, vq_kmeans_trainset_fraction=0.0, pq_kmeans_trainset_fraction=0.0)
+```
+
 ## build
 
 `@auto_sync_resources`
@@ -288,3 +302,13 @@ Applies Product Quantization inverse transform to given codes
 >>> transformed, vq_labels = pq.transform(quantizer, dataset)
 >>> reconstructed = pq.inverse_transform(quantizer, transformed, vq_labels=vq_labels)
 ```
+
+## make_vpq_dataset
+
+`@auto_sync_resources`
+
+```python
+def make_vpq_dataset(VpqParams params, dataset, resources=None)
+```
+
+Create an owning device VPQ dataset for iterative CAGRA-Q.

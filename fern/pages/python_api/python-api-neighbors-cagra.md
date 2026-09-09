@@ -424,7 +424,7 @@ The following distance metrics are supported:
 | Name | Type | Description |
 | --- | --- | --- |
 | `index_params` | `IndexParams object` |  |
-| `dataset` | `CUDA array interface compliant matrix shape (n_samples, dim), or Dataset` | Supported dtype [float, half, int8, uint8] **Note:** For ACE build algorithm, the dataset MUST be in host memory. Use NumPy arrays or call .get() on CuPy arrays before passing. |
+| `dataset` | `CUDA array interface compliant matrix shape (n_samples, dim), or Dataset` | Supported dtype [float, half, int8, uint8] **Note:** For ACE build algorithm, the dataset MUST be in host memory. Use NumPy arrays or call .get() on CuPy arrays before passing. A ``Dataset`` with ``layout == "vpq"`` builds an iterative CAGRA-Q index and requires ``metric="sqeuclidean"`` plus ``build_algo="iterative_cagra_search"``. |
 | `resources` | `cuvs.common.Resources, optional` |  |
 
 **Returns**

@@ -6,34 +6,30 @@ slug: api-reference/cpp-api-neighbors-cagra
 
 _Source header: `cuvs/neighbors/cagra.hpp`_
 
-## Types
+## CAGRA index search parameters
 
-<a id="neighbors-graph-build-params-ace-params"></a>
-### neighbors::graph_build_params::ace_params
+<a id="neighbors-cagra-search-algo"></a>
+### neighbors::cagra::search_algo
 
-Specialized parameters for ACE (Augmented Core Extraction) graph build
+CAGRA index search parameters
 
 ```cpp
-struct ace_params {
-  size_t npartitions;
-  size_t ef_construction;
-  std::string build_dir;
-  bool use_disk;
-  double max_host_memory_gb;
-  double max_gpu_memory_gb;
+enum class search_algo {
+  SINGLE_CTA = 0,
+  MULTI_CTA = 1,
+  MULTI_KERNEL = 2,
+  AUTO = 100
 };
 ```
 
-**Fields**
+**Values**
 
-| Name | Type | Description |
-| --- | --- | --- |
-| `npartitions` | `size_t` | Number of partitions for ACE (Augmented Core Extraction) partitioned build.<br /><br />When set to 0 (default), the number of partitions is automatically derived based on available host and GPU memory to maximize partition size while ensuring the build fits in memory.<br /><br />Small values might improve recall but potentially degrade performance and increase memory usage. Partitions should not be too small to prevent issues in KNN graph construction. The partition size is on average 2 * (n_rows / npartitions) * dim * sizeof(T). 2 is because of the core and augmented vectors. Please account for imbalance in the partition sizes (up to 3x in our tests).<br /><br />If the specified number of partitions results in partitions that exceed available memory, the value will be automatically increased to fit memory constraints and a warning will be issued. |
-| `ef_construction` | `size_t` | The index quality for the ACE build.<br /><br />Bigger values increase the index quality. At some point, increasing this will no longer improve the quality. |
-| `build_dir` | `std::string` | Directory to store ACE build artifacts (e.g., KNN graph, optimized graph).<br /><br />Used when `use_disk` is true or when the graph does not fit in host and GPU memory. This should be the fastest disk in the system and hold enough space for twice the dataset, final graph, and label mapping. The directory may already exist, but ACE's named artifacts must not already exist. Simultaneous builds must use different directories. On failure, ACE removes only artifacts it created and never deletes unrelated directory contents. |
-| `use_disk` | `bool` | Whether to use disk-based storage for ACE build.<br /><br />When true, enables disk-based operations for memory-efficient graph construction. |
-| `max_host_memory_gb` | `double` | Maximum host memory to use for ACE build in GiB.<br /><br />When set to 0 (default), uses available host memory. When set to a positive value, limits host memory usage to the specified amount. Useful for testing or when running alongside other memory-intensive processes. |
-| `max_gpu_memory_gb` | `double` | Maximum GPU memory to use for ACE build in GiB.<br /><br />When set to 0 (default), uses available GPU memory. When set to a positive value, limits GPU memory usage to the specified amount. Useful for testing or when running alongside other memory-intensive processes. |
+| Name | Value |
+| --- | --- |
+| `SINGLE_CTA` | `0` |
+| `MULTI_CTA` | `1` |
+| `MULTI_KERNEL` | `2` |
+| `AUTO` | `100` |
 
 ## CAGRA index build parameters
 
@@ -186,30 +182,45 @@ Usage example:
 
 `static cagra::index_params`
 
-## CAGRA index search parameters
+## Types
 
-<a id="neighbors-cagra-search-algo"></a>
-### neighbors::cagra::search_algo
+<a id="neighbors-graph-build-params-iterative-search-params"></a>
+### neighbors::graph_build_params::iterative_search_params
 
-CAGRA index search parameters
+Parameters for the iterative CAGRA graph build algorithm.
+
+Inherits from cagra::search_params so that all search tuning knobs (search_width, max_iterations, itopk_size, etc.) are available for controlling the search-and-optimize loop during graph construction. The defaults are tuned for the build loop (e.g. search_width=1, max_iterations=8) and may differ from the regular search defaults.
 
 ```cpp
-enum class search_algo {
-  SINGLE_CTA = 0,
-  MULTI_CTA = 1,
-  MULTI_KERNEL = 2,
-  AUTO = 100
+struct iterative_search_params;
+```
+
+<a id="neighbors-graph-build-params-ace-params"></a>
+### neighbors::graph_build_params::ace_params
+
+Specialized parameters for ACE (Augmented Core Extraction) graph build
+
+```cpp
+struct ace_params {
+  size_t npartitions;
+  size_t ef_construction;
+  std::string build_dir;
+  bool use_disk;
+  double max_host_memory_gb;
+  double max_gpu_memory_gb;
 };
 ```
 
-**Values**
+**Fields**
 
-| Name | Value |
-| --- | --- |
-| `SINGLE_CTA` | `0` |
-| `MULTI_CTA` | `1` |
-| `MULTI_KERNEL` | `2` |
-| `AUTO` | `100` |
+| Name | Type | Description |
+| --- | --- | --- |
+| `npartitions` | `size_t` | Number of partitions for ACE (Augmented Core Extraction) partitioned build.<br /><br />When set to 0 (default), the number of partitions is automatically derived based on available host and GPU memory to maximize partition size while ensuring the build fits in memory.<br /><br />Small values might improve recall but potentially degrade performance and increase memory usage. Partitions should not be too small to prevent issues in KNN graph construction. The partition size is on average 2 * (n_rows / npartitions) * dim * sizeof(T). 2 is because of the core and augmented vectors. Please account for imbalance in the partition sizes (up to 3x in our tests).<br /><br />If the specified number of partitions results in partitions that exceed available memory, the value will be automatically increased to fit memory constraints and a warning will be issued. |
+| `ef_construction` | `size_t` | The index quality for the ACE build.<br /><br />Bigger values increase the index quality. At some point, increasing this will no longer improve the quality. |
+| `build_dir` | `std::string` | Directory to store ACE build artifacts (e.g., KNN graph, optimized graph).<br /><br />Used when `use_disk` is true or when the graph does not fit in host and GPU memory. This should be the fastest disk in the system and hold enough space for twice the dataset, final graph, and label mapping. The directory may already exist, but ACE's named artifacts must not already exist. Simultaneous builds must use different directories. On failure, ACE removes only artifacts it created and never deletes unrelated directory contents. |
+| `use_disk` | `bool` | Whether to use disk-based storage for ACE build.<br /><br />When true, enables disk-based operations for memory-efficient graph construction. |
+| `max_host_memory_gb` | `double` | Maximum host memory to use for ACE build in GiB.<br /><br />When set to 0 (default), uses available host memory. When set to a positive value, limits host memory usage to the specified amount. Useful for testing or when running alongside other memory-intensive processes. |
+| `max_gpu_memory_gb` | `double` | Maximum GPU memory to use for ACE build in GiB.<br /><br />When set to 0 (default), uses available GPU memory. When set to a positive value, limits GPU memory usage to the specified amount. Useful for testing or when running alongside other memory-intensive processes. |
 
 ## CAGRA index extend parameters
 
@@ -659,6 +670,33 @@ This method configures the index to use a disk-based dataset mapping. The mappin
 
 <a id="neighbors-cagra-build"></a>
 ### neighbors::cagra::build
+
+Build directly from a device VPQ dataset view with FP16 codebooks.
+
+```cpp
+auto build(raft::resources const& res,
+const cuvs::neighbors::cagra::index_params& params,
+cuvs::neighbors::device_vpq_dataset_view<half, int64_t> const& dataset)
+-> index<float, uint32_t, cuvs::neighbors::device_vpq_dataset_view<half, int64_t>>;
+```
+
+A VPQ input can only use iterative CAGRA graph construction. When `graph_build_params` is `std::monostate`, iterative construction is selected automatically; explicitly selecting another graph builder is an error. The metric must be `L2Expanded`, PQ codes must be 8-bit, and the PQ subvector length must be 2, 4, or 8.
+
+The returned index accepts float queries and stores a non-owning copy of `dataset` when `attach_dataset_on_build` is true. The owning `device_vpq_dataset` must outlive the index.
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `res` | in | `raft::resources const&` | raft resources |
+| `params` | in | `const cuvs::neighbors::cagra::index_params&` | CAGRA index build parameters |
+| `dataset` | in | `cuvs::neighbors::device_vpq_dataset_view<half, int64_t> const&` | device VPQ dataset view |
+
+**Returns**
+
+[`index<float, uint32_t, cuvs::neighbors::device_vpq_dataset_view<half, int64_t>>`](/api-reference/cpp-api-neighbors-cagra#neighbors-cagra-index)
+
+**Additional overload:** `neighbors::cagra::build`
 
 Build from a device padded dataset view (`float`).
 
@@ -1177,7 +1215,7 @@ cuvs::neighbors::cagra::device_padded_index<uint8_t, uint32_t>& idx);
 <a id="neighbors-cagra-serialized-dataset-kind"></a>
 ### neighbors::cagra::serialized_dataset_kind
 
-Dense dataset storage kind recorded in a serialized CAGRA index.
+Dataset storage kind recorded in a serialized CAGRA index.
 
 ```cpp
 enum class serialized_dataset_kind : std::uint32_t {
@@ -1185,7 +1223,8 @@ enum class serialized_dataset_kind : std::uint32_t {
   device_padded = 1,
   device_standard = 2,
   host_padded = 3,
-  host_standard = 4
+  host_standard = 4,
+  device_vpq_f16 = 5
 };
 ```
 
@@ -1198,6 +1237,7 @@ enum class serialized_dataset_kind : std::uint32_t {
 | `device_standard` | `2` |
 | `host_padded` | `3` |
 | `host_standard` | `4` |
+| `device_vpq_f16` | `5` |
 
 <a id="neighbors-cagra-serialize"></a>
 ### neighbors::cagra::serialize
