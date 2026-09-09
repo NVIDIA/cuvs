@@ -14,28 +14,6 @@ Supplemental compression parameters to build CAGRA Index.
 
 ## Public Members
 
-### CagraCompressionParams
-
-```java
-private CagraCompressionParams( int pqBits, int pqDim, int vqNCenters, int kmeansNIters, double vqKmeansTrainsetFraction, double pqKmeansTrainsetFraction)
-```
-
-Constructs an instance of CagraCompressionParams with passed search
-parameters.
-
-**Parameters**
-
-| Name | Description |
-| --- | --- |
-| `pqBits` | the bit length of the vector element after compression by PQ |
-| `pqDim` | the dimensionality of the vector after compression by PQ |
-| `vqNCenters` | the vector quantization (VQ) codebook size - number of “coarse cluster centers” |
-| `kmeansNIters` | the number of iterations searching for kmeans centers (both VQ and PQ phases) |
-| `vqKmeansTrainsetFraction` | the fraction of data to use during iterative kmeans building (VQ phase) |
-| `pqKmeansTrainsetFraction` | the fraction of data to use during iterative kmeans building (PQ phase) |
-
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraCompressionParams.java:37`_
-
 ### getPqBits
 
 ```java

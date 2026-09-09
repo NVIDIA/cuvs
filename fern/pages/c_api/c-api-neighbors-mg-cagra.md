@@ -218,6 +218,34 @@ cuvsMultiGpuCagraIndex_t index);
 
 [`cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)
 
+## Multi-GPU CAGRA index dataset update
+
+<a id="cuvsmultigpucagraupdatedataset"></a>
+### cuvsMultiGpuCagraUpdateDataset
+
+Update a Multi-GPU CAGRA index with a device-padded dataset.
+
+```c
+cuvsError_t cuvsMultiGpuCagraUpdateDataset(
+cuvsResources_t res,
+cuvsDataset_t device_padded_dataset,
+cuvsMultiGpuCagraIndex_t index);
+```
+
+Standard indexes are converted to device-padded indexes. Existing device-padded indexes are updated in place with the same layout.
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `res` | in | [`cuvsResources_t`](/api-reference/c-api-core-c-api#cuvsresources-t) | cuvsResources_t opaque C handle |
+| `device_padded_dataset` | in | `cuvsDataset_t` | caller-owned device-padded dataset view |
+| `index` | in,out | [`cuvsMultiGpuCagraIndex_t`](/api-reference/c-api-neighbors-mg-cagra#cuvsmultigpucagraindex) | Multi-GPU CAGRA index |
+
+**Returns**
+
+[`cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)
+
 ## Multi-GPU CAGRA index search
 
 <a id="cuvsmultigpucagrasearch"></a>

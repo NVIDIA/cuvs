@@ -295,7 +295,7 @@ Construct an hnswlib index from a CAGRA index NOTE: When `hnsw::index_params.hie
 std::unique_ptr<index<float>> from_cagra(
 raft::resources const& res,
 const index_params& params,
-const cuvs::neighbors::cagra::index<float, uint32_t>& cagra_index,
+const cuvs::neighbors::cagra::device_padded_index<float, uint32_t>& cagra_index,
 std::optional<raft::host_matrix_view<const float, int64_t, raft::row_major>> dataset =
 std::nullopt);
 ```
@@ -308,7 +308,7 @@ Usage example:
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resources |
 | `params` | in | `const index_params&` | hnsw index parameters |
-| `cagra_index` | in | [`const cuvs::neighbors::cagra::index<float, uint32_t>&`](/api-reference/cpp-api-neighbors-cagra#neighbors-cagra-index) | cagra index |
+| `cagra_index` | in | `const cuvs::neighbors::cagra::device_padded_index<float, uint32_t>&` | cagra index |
 | `dataset` | in | `std::optional<raft::host_matrix_view<const float, int64_t, raft::row_major>>` | optional dataset to avoid extra memory copy when hierarchy is `CPU`<br /><br />Default: `std::nullopt`. |
 
 **Returns**
@@ -326,7 +326,7 @@ Construct an hnswlib index from a CAGRA index NOTE: When `hnsw::index_params.hie
 std::unique_ptr<index<half>> from_cagra(
 raft::resources const& res,
 const index_params& params,
-const cuvs::neighbors::cagra::index<half, uint32_t>& cagra_index,
+const cuvs::neighbors::cagra::device_padded_index<half, uint32_t>& cagra_index,
 std::optional<raft::host_matrix_view<const half, int64_t, raft::row_major>> dataset =
 std::nullopt);
 ```
@@ -339,7 +339,7 @@ Usage example:
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resources |
 | `params` | in | `const index_params&` | hnsw index parameters |
-| `cagra_index` | in | [`const cuvs::neighbors::cagra::index<half, uint32_t>&`](/api-reference/cpp-api-neighbors-cagra#neighbors-cagra-index) | cagra index |
+| `cagra_index` | in | `const cuvs::neighbors::cagra::device_padded_index<half, uint32_t>&` | cagra index |
 | `dataset` | in | `std::optional<raft::host_matrix_view<const half, int64_t, raft::row_major>>` | optional dataset to avoid extra memory copy when hierarchy is `CPU`<br /><br />Default: `std::nullopt`. |
 
 **Returns**
@@ -357,7 +357,7 @@ Construct an hnswlib index from a CAGRA index NOTE: When `hnsw::index_params.hie
 std::unique_ptr<index<uint8_t>> from_cagra(
 raft::resources const& res,
 const index_params& params,
-const cuvs::neighbors::cagra::index<uint8_t, uint32_t>& cagra_index,
+const cuvs::neighbors::cagra::device_padded_index<uint8_t, uint32_t>& cagra_index,
 std::optional<raft::host_matrix_view<const uint8_t, int64_t, raft::row_major>> dataset =
 std::nullopt);
 ```
@@ -370,7 +370,7 @@ Usage example:
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resources |
 | `params` | in | `const index_params&` | hnsw index parameters |
-| `cagra_index` | in | [`const cuvs::neighbors::cagra::index<uint8_t, uint32_t>&`](/api-reference/cpp-api-neighbors-cagra#neighbors-cagra-index) | cagra index |
+| `cagra_index` | in | `const cuvs::neighbors::cagra::device_padded_index<uint8_t, uint32_t>&` | cagra index |
 | `dataset` | in | `std::optional<raft::host_matrix_view<const uint8_t, int64_t, raft::row_major>>` | optional dataset to avoid extra memory copy when hierarchy is `CPU`<br /><br />Default: `std::nullopt`. |
 
 **Returns**
@@ -388,7 +388,7 @@ Construct an hnswlib index from a CAGRA index NOTE: When `hnsw::index_params.hie
 std::unique_ptr<index<int8_t>> from_cagra(
 raft::resources const& res,
 const index_params& params,
-const cuvs::neighbors::cagra::index<int8_t, uint32_t>& cagra_index,
+const cuvs::neighbors::cagra::device_padded_index<int8_t, uint32_t>& cagra_index,
 std::optional<raft::host_matrix_view<const int8_t, int64_t, raft::row_major>> dataset =
 std::nullopt);
 ```
@@ -401,12 +401,92 @@ Usage example:
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resources |
 | `params` | in | `const index_params&` | hnsw index parameters |
-| `cagra_index` | in | [`const cuvs::neighbors::cagra::index<int8_t, uint32_t>&`](/api-reference/cpp-api-neighbors-cagra#neighbors-cagra-index) | cagra index |
+| `cagra_index` | in | `const cuvs::neighbors::cagra::device_padded_index<int8_t, uint32_t>&` | cagra index |
 | `dataset` | in | `std::optional<raft::host_matrix_view<const int8_t, int64_t, raft::row_major>>` | optional dataset to avoid extra memory copy when hierarchy is `CPU`<br /><br />Default: `std::nullopt`. |
 
 **Returns**
 
 [`std::unique_ptr<index<int8_t>>`](/api-reference/cpp-api-neighbors-hnsw#neighbors-hnsw-index)
+
+**Additional overload:** `neighbors::hnsw::from_cagra`
+
+Construct an hnswlib index from a device-standard CAGRA index.
+
+```cpp
+std::unique_ptr<index<float>> from_cagra(
+raft::resources const& res,
+const index_params& params,
+const cuvs::neighbors::cagra::device_standard_index<float, uint32_t>& cagra_index,
+std::optional<raft::host_matrix_view<const float, int64_t, raft::row_major>> dataset =
+std::nullopt);
+```
+
+When the index has an attached device dataset view, `dataset` may be omitted. Otherwise pass a host matrix with the vectors (same contract as `device_padded_index`).
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `res` |  | `raft::resources const&` |  |
+| `params` |  | `const index_params&` |  |
+| `cagra_index` |  | `const cuvs::neighbors::cagra::device_standard_index<float, uint32_t>&` |  |
+| `dataset` |  | `std::optional<raft::host_matrix_view<const float, int64_t, raft::row_major>>` | Default: `std::nullopt`. |
+
+**Returns**
+
+[`std::unique_ptr<index<float>>`](/api-reference/cpp-api-neighbors-hnsw#neighbors-hnsw-index)
+
+**Additional overload:** `neighbors::hnsw::from_cagra`
+
+Construct an hnswlib index from a host-built CAGRA index. Requires `dataset` for in-memory indices — host builds do not store vectors in the index.
+
+```cpp
+std::unique_ptr<index<float>> from_cagra(
+raft::resources const& res,
+const index_params& params,
+const cuvs::neighbors::cagra::host_padded_index<float, uint32_t>& cagra_index,
+std::optional<raft::host_matrix_view<const float, int64_t, raft::row_major>> dataset =
+std::nullopt);
+```
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `res` |  | `raft::resources const&` |  |
+| `params` |  | `const index_params&` |  |
+| `cagra_index` |  | `const cuvs::neighbors::cagra::host_padded_index<float, uint32_t>&` |  |
+| `dataset` |  | `std::optional<raft::host_matrix_view<const float, int64_t, raft::row_major>>` | Default: `std::nullopt`. |
+
+**Returns**
+
+[`std::unique_ptr<index<float>>`](/api-reference/cpp-api-neighbors-hnsw#neighbors-hnsw-index)
+
+**Additional overload:** `neighbors::hnsw::from_cagra`
+
+Construct an hnswlib index from a host-built CAGRA index (standard dataset layout). Requires `dataset` for in-memory indices — host builds do not store vectors in the index.
+
+```cpp
+std::unique_ptr<index<float>> from_cagra(
+raft::resources const& res,
+const index_params& params,
+const cuvs::neighbors::cagra::host_standard_index<float, uint32_t>& cagra_index,
+std::optional<raft::host_matrix_view<const float, int64_t, raft::row_major>> dataset =
+std::nullopt);
+```
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `res` |  | `raft::resources const&` |  |
+| `params` |  | `const index_params&` |  |
+| `cagra_index` |  | `const cuvs::neighbors::cagra::host_standard_index<float, uint32_t>&` |  |
+| `dataset` |  | `std::optional<raft::host_matrix_view<const float, int64_t, raft::row_major>>` | Default: `std::nullopt`. |
+
+**Returns**
+
+[`std::unique_ptr<index<float>>`](/api-reference/cpp-api-neighbors-hnsw#neighbors-hnsw-index)
 
 ## Extend HNSW index with additional vectors
 
