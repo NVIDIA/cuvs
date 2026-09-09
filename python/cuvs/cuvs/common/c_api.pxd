@@ -6,6 +6,7 @@
 
 
 from cuda.bindings.cyruntime cimport cudaStream_t
+from libc.stddef cimport size_t
 from libc.stdint cimport int64_t, uintptr_t
 
 from cuvs.common.cydlpack cimport DLManagedTensor
@@ -35,6 +36,8 @@ cdef extern from "cuvs/core/c_api.h":
     cuvsError_t cuvsMultiGpuResourcesDestroy(cuvsResources_t res)
     cuvsError_t cuvsMultiGpuResourcesSetMemoryPool(cuvsResources_t res,
                                                    int percent_of_free_memory)
+    cuvsError_t cuvsMultiGpuResourcesSetStreamPool(cuvsResources_t res,
+                                                   size_t num_streams)
 
     cuvsError_t cuvsMatrixCopy(cuvsResources_t res, DLManagedTensor * src,
                                DLManagedTensor * dst)
