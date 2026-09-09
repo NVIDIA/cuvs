@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -43,7 +43,7 @@ template <typename T>
 class ConnectKNNTest : public ::testing::TestWithParam<ConnectKNNInputs> {
  public:
   ConnectKNNTest()
-    : stream(handle.get_stream()),
+    : stream(handle.get_stream().get()),
       ps(::testing::TestWithParam<ConnectKNNInputs>::GetParam()),
       database(0, stream)
   {

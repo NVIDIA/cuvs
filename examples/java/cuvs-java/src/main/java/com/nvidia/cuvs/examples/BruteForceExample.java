@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs.examples;
@@ -41,7 +41,7 @@ public class BruteForceExample {
 
       // Create a query object with the query vectors
       BruteForceQuery cuvsQuery =
-          new BruteForceQuery.Builder().withTopK(3).withQueryVectors(queries).build();
+          new BruteForceQuery.Builder(resources).withTopK(3).withQueryVectors(queries).build();
 
       // Set index parameters
       BruteForceIndexParams indexParams = new BruteForceIndexParams.Builder().build();
@@ -75,8 +75,8 @@ public class BruteForceExample {
       log.info(results.getResults().toString());
 
       // Cleanup
-      index.destroyIndex();
-      loadedIndex.destroyIndex();
+      index.close();
+      loadedIndex.close();
 
       if (indexFile.exists()) {
         indexFile.delete();

@@ -967,7 +967,7 @@ def write_cpp_common_types_page(out_dir: Path) -> None:
         "Constructs a single-GPU resources object.",
         (
             "device_resources(\n"
-            "  rmm::cuda_stream_view stream_view = rmm::cuda_stream_per_thread,\n"
+            "  rmm::cuda_stream_view stream_view = cuda::stream_ref{cudaStreamPerThread},\n"
             "  std::shared_ptr<rmm::cuda_stream_pool> stream_pool = nullptr,\n"
             "  std::shared_ptr<rmm::mr::device_memory_resource> workspace_resource = nullptr,\n"
             "  std::optional<std::size_t> allocation_limit = std::nullopt);"
