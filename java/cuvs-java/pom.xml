@@ -183,6 +183,9 @@ SPDX-License-Identifier: Apache-2.0
                 <configuration>
                     <forkCount>1</forkCount>
                     <argLine>--enable-native-access=com.nvidia.cuvs</argLine>
+                    <environmentVariables>
+                        <CUFILE_LOGFILE_PATH>${project.build.directory}/cufile.log</CUFILE_LOGFILE_PATH>
+                    </environmentVariables>
                 </configuration>
                 <executions>
                     <execution>

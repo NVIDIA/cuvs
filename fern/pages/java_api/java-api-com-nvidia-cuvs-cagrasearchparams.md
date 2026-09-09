@@ -85,34 +85,6 @@ AUTO_HASH
 
 _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraSearchParams.java:74`_
 
-### CagraSearchParams
-
-```java
-private CagraSearchParams( int maxQueries, int iTopKSize, int maxIterations, SearchAlgo searchAlgo, int teamSize, int searchWidth, int minIterations, int threadBlockSize, HashMapMode hashmapMode, int hashmapMinBitlen, float hashmapMaxFillRate, int numRandomSamplings, long randXORMask)
-```
-
-Constructs an instance of CagraSearchParams with passed search parameters.
-
-**Parameters**
-
-| Name | Description |
-| --- | --- |
-| `maxQueries` | the maximum number of queries to search at the same time (batch size) |
-| `iTopKSize` | the number of intermediate search results retained during the search |
-| `maxIterations` | the upper limit of search iterations |
-| `searchAlgo` | the search implementation is configured |
-| `teamSize` | the number of threads used to calculate a single distance |
-| `searchWidth` | the number of graph nodes to select as the starting point for the search in each iteration |
-| `minIterations` | the lower limit of search iterations |
-| `threadBlockSize` | the thread block size |
-| `hashmapMode` | the hash map type configured |
-| `hashmapMinBitlen` | the lower limit of hash map bit length |
-| `hashmapMaxFillRate` | the upper limit of hash map fill rate |
-| `numRandomSamplings` | the number of iterations of initial random seed node selection |
-| `randXORMask` | the bit mask used for initial random seed node selection |
-
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraSearchParams.java:109`_
-
 ### getMaxQueries
 
 ```java

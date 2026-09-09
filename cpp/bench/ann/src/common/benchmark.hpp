@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -360,55 +360,56 @@ void bench_search(::benchmark::State& state,
     std::size_t match_count = 0;
     std::size_t total_count = 0;
 
-    // We go through the groundtruth with same stride as the benchmark loop.
-    size_t out_offset   = 0;
-    size_t batch_offset = (state.thread_index() * n_queries) % query_set_size;
-    // Avoid CPU oversubscription when parallelizing recall calculation loop
-    int num_recall_calculation_worker_threads =
-      std::thread::hardware_concurrency() / benchmark_n_threads - 1;  // -1 for the main thread
-    // ensure non-negative number of workers (possible if hardware_concurrency()
-    // does not return an expected value) by clamping to 0
-    if (num_recall_calculation_worker_threads < 0) { num_recall_calculation_worker_threads = 0; }
-    while (out_offset < rows) {
-      std::vector<std::thread> recall_calculation_workers;
-      recall_calculation_workers.reserve(num_recall_calculation_worker_threads);
-      std::vector<std::size_t> local_match_count(num_recall_calculation_worker_threads + 1);
-      std::vector<std::size_t> local_total_count(num_recall_calculation_worker_threads + 1);
-      int chunk_size =
-        n_queries / (num_recall_calculation_worker_threads + 1);  // +1 for the main thread
-      int remainder           = n_queries % (num_recall_calculation_worker_threads + 1);
-      auto recall_calculation = [&](int start, int end, int tid) -> void {
-        for (int i = start; i < end; ++i) {
-          size_t i_orig_idx = batch_offset + i;
-          size_t i_out_idx  = out_offset + i;
-          if (i_out_idx < rows) {
-            auto* candidates       = neighbors_host + i_out_idx * k;
-            auto [matching, total] = gt_maps->count_matches(i_orig_idx, candidates, k);
-            local_match_count[tid] += matching;
-            local_total_count[tid] += total;
-          }
-        }
-      };
-      // launch worker threads
-      int start = 0;
-      for (int tid = 0; tid < num_recall_calculation_worker_threads; tid++) {
-        int end = start + chunk_size;
-        if (tid < remainder) { ++end; }
-        recall_calculation_workers.emplace_back(recall_calculation, start, end, tid);
-        start = end;
-      }
-      // main thread works on last chunk
-      recall_calculation(start, n_queries, num_recall_calculation_worker_threads);
-      // join all worker threads
-      for (auto& worker : recall_calculation_workers) {
-        worker.join();
-      }
-      match_count += std::accumulate(local_match_count.begin(), local_match_count.end(), 0);
-      total_count += std::accumulate(local_total_count.begin(), local_total_count.end(), 0);
+    // Map result-buffer row -> original query index using the same stride as the
+    // timed search loop. Parallelize once over all `rows` (not once per search
+    // batch): when n_queries==1 the old per-batch spawn/join dominated wall time.
+    const size_t start_batch_offset = (state.thread_index() * n_queries) % query_set_size;
+    auto orig_query_idx             = [&](size_t i_out_idx) -> size_t {
+      const size_t batch_num  = i_out_idx / n_queries;
+      const size_t i_in_batch = i_out_idx % n_queries;
+      const size_t batch_offset =
+        (start_batch_offset + batch_num * queries_stride) % query_set_size;
+      return batch_offset + i_in_batch;
+    };
 
-      out_offset += n_queries;
-      batch_offset = (batch_offset + queries_stride) % query_set_size;
+    // Avoid CPU oversubscription when parallelizing recall calculation
+    int num_workers =
+      static_cast<int>(std::thread::hardware_concurrency()) / benchmark_n_threads;  // includes main
+    if (num_workers < 1) { num_workers = 1; }
+    // No benefit from more workers than rows
+    num_workers                  = std::min(num_workers, std::max(1, static_cast<int>(rows)));
+    const int num_helper_threads = num_workers - 1;
+
+    std::vector<std::thread> recall_workers;
+    recall_workers.reserve(num_helper_threads);
+    std::vector<std::size_t> local_match_count(num_workers, 0);
+    std::vector<std::size_t> local_total_count(num_workers, 0);
+
+    auto recall_range = [&](size_t start, size_t end, int tid) {
+      for (size_t i_out_idx = start; i_out_idx < end; ++i_out_idx) {
+        auto* candidates       = neighbors_host + i_out_idx * k;
+        auto [matching, total] = gt_maps->count_matches(orig_query_idx(i_out_idx), candidates, k);
+        local_match_count[tid] += matching;
+        local_total_count[tid] += total;
+      }
+    };
+
+    const size_t chunk_size = rows / static_cast<size_t>(num_workers);
+    const size_t remainder  = rows % static_cast<size_t>(num_workers);
+    size_t start            = 0;
+    for (int tid = 0; tid < num_helper_threads; ++tid) {
+      size_t end = start + chunk_size + (static_cast<size_t>(tid) < remainder ? 1 : 0);
+      recall_workers.emplace_back(recall_range, start, end, tid);
+      start = end;
     }
+    // main thread works on last chunk
+    recall_range(start, rows, num_helper_threads);
+    for (auto& worker : recall_workers) {
+      worker.join();
+    }
+    match_count = std::accumulate(local_match_count.begin(), local_match_count.end(), size_t{0});
+    total_count = std::accumulate(local_total_count.begin(), local_total_count.end(), size_t{0});
+
     double actual_recall = static_cast<double>(match_count) / static_cast<double>(total_count);
     /* NOTE: recall in the throughput mode & filtering
 

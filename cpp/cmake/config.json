@@ -20,6 +20,43 @@
           "MATRIX_JSON_STRING": "?"
         }
       },
+      "cuvs_find_build_python": {
+        "pargs": {
+          "nargs": 1
+        }
+      },
+      "process_cutile_matrix_entry": {
+        "pargs": {
+          "nargs": 1
+        },
+        "kwargs": {
+          "KERNEL_DIR": 1,
+          "KERNEL_BASENAME": 1,
+          "KERNEL_PYTHON": 1,
+          "EXPORT_SCRIPT": 1,
+          "OUTPUT_DIRECTORY": 1,
+          "FRAGMENT_TAG_FORMAT_CUBIN": 1,
+          "FRAGMENT_TAG_FORMAT_TILEIR": "?",
+          "FRAGMENT_TAG_HEADER_FILES": "*",
+          "MATRIX_JSON_ENTRY": 1
+        }
+      },
+      "generate_cutile_kernels": {
+        "pargs": {
+          "nargs": 1
+        },
+        "kwargs": {
+          "KERNEL_DIR": 1,
+          "KERNEL_BASENAME": 1,
+          "KERNEL_PYTHON": 1,
+          "EXPORT_SCRIPT": 1,
+          "OUTPUT_DIRECTORY": 1,
+          "MATRIX_JSON_FILE": 1,
+          "FRAGMENT_TAG_FORMAT_CUBIN": 1,
+          "FRAGMENT_TAG_FORMAT_TILEIR": "?",
+          "FRAGMENT_TAG_HEADER_FILES": "*"
+        }
+      },
       "add_jit_lto_kernel": {
         "pargs": {
           "nargs": 1

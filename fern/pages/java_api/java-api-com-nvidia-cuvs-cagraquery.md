@@ -19,29 +19,6 @@ between threads can lead to memory allocation errors or JVM crashes.
 
 ## Public Members
 
-### CagraQuery
-
-```java
-private CagraQuery( CagraSearchParams cagraSearchParameters, CuVSMatrix queryVectors, LongToIntFunction mapping, int topK, BitSet prefilter, int numDocs, CuVSResources resources)
-```
-
-Constructs an instance of `CagraQuery` using cagraSearchParameters,
-preFilter, queryVectors, mapping, and topK.
-
-**Parameters**
-
-| Name | Description |
-| --- | --- |
-| `cagraSearchParameters` | an instance of `CagraSearchParams` holding the search parameters |
-| `queryVectors` | 2D float query vector array |
-| `mapping` | a function mapping ordinals (neighbor IDs) to custom user IDs |
-| `topK` | the top k results to return |
-| `prefilter` | A single BitSet to use as filter while searching the CAGRA index |
-| `numDocs` | Total number of dataset vectors; used to align the prefilter correctly |
-| `resources` | CuVSResources instance to use for this query |
-
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraQuery.java:43`_
-
 ### getCagraSearchParameters
 
 ```java

@@ -36,26 +36,6 @@ public float getRefinementRate()
 
 _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CuVSIvfPqParams.java:45`_
 
-### Builder
-
-```java
-private CuVSIvfPqIndexParams cuVSIvfPqIndexParams = new CuVSIvfPqIndexParams.Builder().build()
-```
-
-CuVS IVF_PQ index parameters
-
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CuVSIvfPqParams.java:66`_
-
-### Builder
-
-```java
-private CuVSIvfPqSearchParams cuVSIvfPqSearchParams = new CuVSIvfPqSearchParams.Builder().build()
-```
-
-CuVS IVF_PQ search parameters
-
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CuVSIvfPqParams.java:69`_
-
 ### withCuVSIvfPqIndexParams
 
 ```java
