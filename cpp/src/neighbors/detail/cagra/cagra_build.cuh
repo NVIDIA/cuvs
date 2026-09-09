@@ -2605,8 +2605,8 @@ auto iterative_build_graph(raft::resources const& res,
                                       next_graph_degree,
                                       max_chunk_size,
                                       flag_last && params.guarantee_connectivity,
-                                      reconstructed_batch_queries->view(),
-                                      vpq_dataset);
+                                      std::optional{reconstructed_batch_queries->view()},
+                                      std::optional{vpq_dataset});
     } else {
       auto dev_dataset_view = raft::make_device_matrix_view<const T, int64_t>(
         dev_dataset.data_handle(), static_cast<int64_t>(curr_graph_size), dev_dataset.extent(1));
