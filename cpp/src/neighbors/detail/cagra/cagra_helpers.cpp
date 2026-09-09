@@ -414,10 +414,8 @@ inline std::pair<size_t, size_t> iterative_build_mem_usage(
   // optimize workspace never coexist and are combined with max() rather than summed. VPQ query
   // scratch is allocated for the whole loop, so it is still alive while optimize runs.
   //
-  // One transient is left out: the dataset copy made by make_device_padded_dataset briefly
-  // coexists with its source. Counting it would inflate the estimate enough to push callers to an
-  // out-of-core build unnecessarily. Query chunks are already CAGRA-padded, so search_main does
-  // not re-pad them.
+  // The caller's dataset is searched in place (already VPQ or CAGRA-padded on device). Query
+  // chunks are already CAGRA-padded, so search_main does not re-pad them.
   size_t total_dev = dataset_dev + results_dev + graph_dev + knn_dev + query_scratch +
                      std::max(search_dev, gpu_workspace_size);
 

@@ -2398,26 +2398,8 @@ auto search_and_optimize(raft::resources const& res,
   return output_graph;
 }
 
-/** Upload and/or pad `dataset` to a device-resident CAGRA-aligned view for iterative internal
- * search. */
-template <typename T, typename DatasetViewT>
-  requires cuvs::neighbors::is_dense_row_major_dataset_view_v<DatasetViewT>
-auto ensure_device_padded_for_iterative_search(
-  raft::resources const& res,
-  DatasetViewT const& dataset,
-  std::unique_ptr<cuvs::neighbors::device_padded_dataset<T, int64_t>>& padded_own)
-  -> cuvs::neighbors::device_padded_dataset_view<T, int64_t>
-{
-  if constexpr (cuvs::neighbors::is_device_padded_dataset_view_v<DatasetViewT>) {
-    return dataset;
-  } else {
-    padded_own = cuvs::neighbors::make_device_padded_dataset(res, dataset.view());
-    return padded_own->as_dataset_view();
-  }
-}
-
 template <typename T, typename IdxT = uint32_t, typename DatasetViewT>
-  requires(cuvs::neighbors::is_dense_row_major_dataset_view_v<DatasetViewT> ||
+  requires(cuvs::neighbors::is_dense_row_major_device_dataset_view_v<DatasetViewT> ||
            cuvs::neighbors::is_device_vpq_f16_dataset_view_v<DatasetViewT>)
 auto iterative_build_graph(raft::resources const& res,
                            const index_params& params,
@@ -2432,11 +2414,11 @@ auto iterative_build_graph(raft::resources const& res,
                 iter_params.search_width,
                 iter_params.max_iterations);
 
-  // Iteratively improve the graph by repeatedly running CAGRA search and optimize. Dense inputs are
-  // padded on device; VPQ inputs are searched directly and reconstructed per query batch.
+  // Iteratively improve the graph by repeatedly running CAGRA search and optimize. Dense inputs
+  // are searched in-place (CAGRA-aligned device storage; no copy of the caller's rows). VPQ
+  // inputs are searched directly and reconstructed per query batch.
   RAFT_LOG_INFO("Iteratively creating/improving graph index using CAGRA's search() and optimize()");
 
-  std::unique_ptr<cuvs::neighbors::device_padded_dataset<T, int64_t>> padded_own;
   auto dev_dataset =
     raft::make_device_matrix_view<const T, int64_t>(static_cast<const T*>(nullptr), 0, 0);
   uint32_t logical_dim = dataset.dim();
@@ -2447,10 +2429,17 @@ auto iterative_build_graph(raft::resources const& res,
     final_graph_size = static_cast<uint64_t>(dataset.n_rows());
     vpq_dataset      = &dataset.dset();
   } else {
-    auto search_dataset = ensure_device_padded_for_iterative_search<T>(res, dataset, padded_own);
-    dev_dataset         = search_dataset.view();
-    logical_dim         = search_dataset.dim();
-    final_graph_size    = static_cast<uint64_t>(search_dataset.n_rows());
+    auto const required_stride = cuvs::neighbors::cagra_required_row_width<T>(dataset.dim());
+    RAFT_EXPECTS(dataset.stride() == required_stride,
+                 "iterative CAGRA build requires a CAGRA-aligned device dataset "
+                 "(stride %u, required %u). Pass a device_padded_dataset_view, or a "
+                 "device_standard_dataset_view whose row width already matches "
+                 "cagra_required_row_width.",
+                 dataset.stride(),
+                 required_stride);
+    dev_dataset      = dataset.view();
+    logical_dim      = dataset.dim();
+    final_graph_size = static_cast<uint64_t>(dataset.n_rows());
   }
 
   // Determine initial graph size.
@@ -2774,9 +2763,10 @@ auto build_cagra_host_graph_from_knn_params(raft::resources const& res,
 
 /**
  * Build from a host row-major matrix without uploading the full dataset early when IVF-PQ graph
- * construction can consume host batches directly. The iterative path uploads and pads inside
- * `iterative_build_graph`. When requested, the returned index retains the input host dataset as a
- * non-owning view; it still requires a device dataset before search.
+ * construction can consume host batches directly. Iterative CAGRA search needs the rows on device
+ * in CAGRA-padded layout and does not copy them here; pass a device dataset to `cagra::build`
+ * instead. When requested, the returned index retains the input host dataset as a non-owning view;
+ * it still requires a device dataset before search.
  */
 template <typename T, typename IdxT = uint32_t, typename DatasetViewT>
   requires cuvs::neighbors::is_host_dataset_view_v<DatasetViewT>
@@ -2804,7 +2794,11 @@ auto build_from_host_matrix(raft::resources const& res,
   auto cagra_graph = [&]() -> raft::host_matrix<IdxT, int64_t> {
     if (std::holds_alternative<cagra::graph_build_params::iterative_search_params>(
           knn_build_params)) {
-      return iterative_build_graph<T, IdxT>(res, params, dataset);
+      RAFT_FAIL(
+        "iterative CAGRA build requires a device-resident CAGRA-padded dataset; "
+        "pass a device_padded_dataset_view (or an already-aligned "
+        "device_standard_dataset_view). Host datasets can use IVF-PQ or NN-descent "
+        "graph construction.");
     }
     return build_cagra_host_graph_from_knn_params<T, IdxT>(res,
                                                            params,
