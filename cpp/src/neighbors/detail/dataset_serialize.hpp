@@ -175,8 +175,8 @@ void serialize_cagra_dense_dataset(const raft::resources& res,
 }
 
 template <typename IdxT>
-auto deserialize_empty(raft::resources const& res,
-                       std::istream& is) -> std::unique_ptr<device_empty_dataset<IdxT>>
+auto deserialize_empty(raft::resources const& res, std::istream& is)
+  -> std::unique_ptr<device_empty_dataset<IdxT>>
 {
   auto suggested_dim = raft::deserialize_scalar<uint32_t>(res, is);
   return std::make_unique<device_empty_dataset<IdxT>>(suggested_dim);
@@ -211,8 +211,8 @@ class device_deserialize_event {
 };
 
 template <typename DataT, typename IdxT>
-auto deserialize_dense_payload_metadata(raft::resources const& res,
-                                        std::istream& is) -> dense_payload_metadata<IdxT>
+auto deserialize_dense_payload_metadata(raft::resources const& res, std::istream& is)
+  -> dense_payload_metadata<IdxT>
 {
   auto n_rows = raft::deserialize_scalar<IdxT>(res, is);
   auto dim    = raft::deserialize_scalar<uint32_t>(res, is);
@@ -281,8 +281,8 @@ void skip_dense_payload(raft::resources const& res, std::istream& is)
 }
 
 template <typename DataT, typename IdxT, typename OwningDatasetT>
-auto deserialize_device_dense(raft::resources const& res,
-                              std::istream& is) -> std::unique_ptr<OwningDatasetT>
+auto deserialize_device_dense(raft::resources const& res, std::istream& is)
+  -> std::unique_ptr<OwningDatasetT>
 {
   auto const metadata = deserialize_dense_payload_metadata<DataT, IdxT>(res, is);
   auto staging        = raft::make_host_matrix<DataT, IdxT>(metadata.n_rows, metadata.dim);
@@ -395,8 +395,8 @@ auto deserialize_device_dense(raft::resources const& res, cuvs::util::kvikio_fil
 }
 
 template <typename DataT, typename IdxT, typename OwningDatasetT>
-auto deserialize_host_dense(raft::resources const& res,
-                            std::istream& is) -> std::unique_ptr<OwningDatasetT>
+auto deserialize_host_dense(raft::resources const& res, std::istream& is)
+  -> std::unique_ptr<OwningDatasetT>
 {
   auto const metadata = deserialize_dense_payload_metadata<DataT, IdxT>(res, is);
   auto storage        = raft::make_host_matrix<DataT, IdxT>(metadata.n_rows, metadata.stride);
@@ -447,8 +447,8 @@ void serialize_vpq(raft::resources const& res,
 }
 
 template <typename DataT, typename IdxT>
-auto deserialize_vpq(raft::resources const& res,
-                     std::istream& is) -> std::unique_ptr<device_vpq_dataset<DataT, IdxT>>
+auto deserialize_vpq(raft::resources const& res, std::istream& is)
+  -> std::unique_ptr<device_vpq_dataset<DataT, IdxT>>
 {
   auto n_rows             = raft::deserialize_scalar<IdxT>(res, is);
   auto dim                = raft::deserialize_scalar<uint32_t>(res, is);
@@ -491,8 +491,8 @@ void serialize_vpq_dataset(raft::resources const& res,
 
 /** Read a blob written by `serialize_vpq_dataset`, validating the tag and codebook dtype. */
 template <typename DataT, typename IdxT>
-auto deserialize_vpq_dataset(raft::resources const& res,
-                             std::istream& is) -> std::unique_ptr<device_vpq_dataset<DataT, IdxT>>
+auto deserialize_vpq_dataset(raft::resources const& res, std::istream& is)
+  -> std::unique_ptr<device_vpq_dataset<DataT, IdxT>>
 {
   const auto tag = raft::deserialize_scalar<dataset_instance_tag>(res, is);
   RAFT_EXPECTS(tag == kSerializeVPQDataset,
@@ -508,8 +508,8 @@ auto deserialize_vpq_dataset(raft::resources const& res,
 }
 
 template <typename DataT, typename IdxT, typename OwningDatasetT, typename Input>
-auto deserialize_dense_dataset(raft::resources const& res,
-                               Input& input) -> std::unique_ptr<OwningDatasetT>
+auto deserialize_dense_dataset(raft::resources const& res, Input& input)
+  -> std::unique_ptr<OwningDatasetT>
 {
   auto& is       = cuvs::util::detail::input_stream(input);
   const auto tag = raft::deserialize_scalar<dataset_instance_tag>(res, is);
@@ -563,8 +563,8 @@ void skip_dense_dataset(raft::resources const& res, std::istream& is)
 // deserialize_dataset here rather than extending this one — overload dispatch replaces the old
 // type-erased variant routing.
 template <typename DataT, typename IdxT, typename Input>
-auto deserialize_padded_dataset(raft::resources const& res,
-                                Input& input) -> std::unique_ptr<device_padded_dataset<DataT, IdxT>>
+auto deserialize_padded_dataset(raft::resources const& res, Input& input)
+  -> std::unique_ptr<device_padded_dataset<DataT, IdxT>>
 {
   return deserialize_dense_dataset<DataT, IdxT, device_padded_dataset<DataT, IdxT>>(res, input);
 }

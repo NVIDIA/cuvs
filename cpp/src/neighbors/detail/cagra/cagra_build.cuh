@@ -1322,9 +1322,8 @@ auto build_from_host_matrix(raft::resources const& res,
 // The returned index is not usable for search. Use the created files for search instead.
 template <typename T, typename IdxT, typename DatasetViewT>
   requires cuvs::neighbors::is_host_dataset_view_v<DatasetViewT>
-auto build_ace(raft::resources const& res,
-               const index_params& params,
-               DatasetViewT const& dataset) -> cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>
+auto build_ace(raft::resources const& res, const index_params& params, DatasetViewT const& dataset)
+  -> cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>
 {
   // Extract ACE parameters from graph_build_params
   RAFT_EXPECTS(
@@ -2587,9 +2586,7 @@ auto iterative_build_graph(raft::resources const& res,
     // keep those views alive for the duration of the search.
     if (vpq_dataset.n_rows() > 0) {
       auto idx = cuvs::neighbors::cagra::update_dataset(
-        res,
-        cuvs::neighbors::cagra::vpq_f16_index<T, IdxT>(res, params.metric),
-        vpq_dataset);
+        res, cuvs::neighbors::cagra::vpq_f16_index<T, IdxT>(res, params.metric), vpq_dataset);
       idx.update_graph(res, raft::make_const_mdspan(dev_graph.view()));
 
       auto empty_query_view =

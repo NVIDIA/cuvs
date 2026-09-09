@@ -2916,88 +2916,80 @@ void serialize(raft::resources const& handle,
                const cuvs::neighbors::cagra::vpq_f16_index<float>& index,
                bool include_dataset = true);
 
-void deserialize(
-  raft::resources const& handle,
-  const std::string& filename,
-  cuvs::neighbors::cagra::vpq_f16_index<float>* index,
-  std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>* out_dataset);
+void deserialize(raft::resources const& handle,
+                 const std::string& filename,
+                 cuvs::neighbors::cagra::vpq_f16_index<float>* index,
+                 std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>* out_dataset);
 
 void serialize(raft::resources const& handle,
                std::ostream& os,
                const cuvs::neighbors::cagra::vpq_f16_index<float>& index,
                bool include_dataset = true);
 
-void deserialize(
-  raft::resources const& handle,
-  std::istream& is,
-  cuvs::neighbors::cagra::vpq_f16_index<float>* index,
-  std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>* out_dataset);
+void deserialize(raft::resources const& handle,
+                 std::istream& is,
+                 cuvs::neighbors::cagra::vpq_f16_index<float>* index,
+                 std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>* out_dataset);
 
 void serialize(raft::resources const& handle,
                const std::string& filename,
                const cuvs::neighbors::cagra::vpq_f16_index<half>& index,
                bool include_dataset = true);
 
-void deserialize(
-  raft::resources const& handle,
-  const std::string& filename,
-  cuvs::neighbors::cagra::vpq_f16_index<half>* index,
-  std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>* out_dataset);
+void deserialize(raft::resources const& handle,
+                 const std::string& filename,
+                 cuvs::neighbors::cagra::vpq_f16_index<half>* index,
+                 std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>* out_dataset);
 
 void serialize(raft::resources const& handle,
                std::ostream& os,
                const cuvs::neighbors::cagra::vpq_f16_index<half>& index,
                bool include_dataset = true);
 
-void deserialize(
-  raft::resources const& handle,
-  std::istream& is,
-  cuvs::neighbors::cagra::vpq_f16_index<half>* index,
-  std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>* out_dataset);
+void deserialize(raft::resources const& handle,
+                 std::istream& is,
+                 cuvs::neighbors::cagra::vpq_f16_index<half>* index,
+                 std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>* out_dataset);
 
 void serialize(raft::resources const& handle,
                const std::string& filename,
                const cuvs::neighbors::cagra::vpq_f16_index<int8_t>& index,
                bool include_dataset = true);
 
-void deserialize(
-  raft::resources const& handle,
-  const std::string& filename,
-  cuvs::neighbors::cagra::vpq_f16_index<int8_t>* index,
-  std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>* out_dataset);
+void deserialize(raft::resources const& handle,
+                 const std::string& filename,
+                 cuvs::neighbors::cagra::vpq_f16_index<int8_t>* index,
+                 std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>* out_dataset);
 
 void serialize(raft::resources const& handle,
                std::ostream& os,
                const cuvs::neighbors::cagra::vpq_f16_index<int8_t>& index,
                bool include_dataset = true);
 
-void deserialize(
-  raft::resources const& handle,
-  std::istream& is,
-  cuvs::neighbors::cagra::vpq_f16_index<int8_t>* index,
-  std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>* out_dataset);
+void deserialize(raft::resources const& handle,
+                 std::istream& is,
+                 cuvs::neighbors::cagra::vpq_f16_index<int8_t>* index,
+                 std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>* out_dataset);
 
 void serialize(raft::resources const& handle,
                const std::string& filename,
                const cuvs::neighbors::cagra::vpq_f16_index<uint8_t>& index,
                bool include_dataset = true);
 
-void deserialize(
-  raft::resources const& handle,
-  const std::string& filename,
-  cuvs::neighbors::cagra::vpq_f16_index<uint8_t>* index,
-  std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>* out_dataset);
+void deserialize(raft::resources const& handle,
+                 const std::string& filename,
+                 cuvs::neighbors::cagra::vpq_f16_index<uint8_t>* index,
+                 std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>* out_dataset);
 
 void serialize(raft::resources const& handle,
                std::ostream& os,
                const cuvs::neighbors::cagra::vpq_f16_index<uint8_t>& index,
                bool include_dataset = true);
 
-void deserialize(
-  raft::resources const& handle,
-  std::istream& is,
-  cuvs::neighbors::cagra::vpq_f16_index<uint8_t>* index,
-  std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>* out_dataset);
+void deserialize(raft::resources const& handle,
+                 std::istream& is,
+                 cuvs::neighbors::cagra::vpq_f16_index<uint8_t>* index,
+                 std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>* out_dataset);
 
 /** @copydoc serialize */
 void serialize(raft::resources const& handle,

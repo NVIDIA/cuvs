@@ -130,16 +130,16 @@ class CagraQCompressedTestBase : public ::testing::Test {
     dataset_.emplace(raft::make_device_matrix<float, int64_t>(res_, n_rows, dim));
     auto labels = raft::make_device_vector<int64_t, int64_t>(res_, n_rows);
     raft::random::make_blobs<float, int64_t, raft::row_major>(res_,
-                                                             dataset_->view(),
-                                                             labels.view(),
-                                                             5,             // clusters
-                                                             std::nullopt,  // random centers
-                                                             std::nullopt,  // scalar std
-                                                             1.0F,          // cluster std
-                                                             true,          // shuffle
-                                                             -10.0F,        // center box min
-                                                             10.0F,         // center box max
-                                                             1234ULL);
+                                                              dataset_->view(),
+                                                              labels.view(),
+                                                              5,             // clusters
+                                                              std::nullopt,  // random centers
+                                                              std::nullopt,  // scalar std
+                                                              1.0F,          // cluster std
+                                                              true,          // shuffle
+                                                              -10.0F,        // center box min
+                                                              10.0F,         // center box max
+                                                              1234ULL);
     raft::resource::sync_stream(res_);
   }
 
