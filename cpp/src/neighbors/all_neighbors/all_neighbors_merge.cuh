@@ -197,7 +197,7 @@ void merge_subgraphs(raft::resources const& res,
   {
     if (num_elems <= 128) {
       merge_subgraphs_kernel<IdxT, 32, 4, SweepAll>
-        <<<num_data_in_cluster, 32, sharedMemSize, raft::resource::get_cuda_stream(res)>>>(
+        <<<num_data_in_cluster, 32, sharedMemSize, raft::resource::get_cuda_stream(res).get()>>>(
           inverted_indices_d,
           k,
           num_data_in_cluster,
@@ -208,7 +208,7 @@ void merge_subgraphs(raft::resources const& res,
           select_min);
     } else if (num_elems <= 512) {
       merge_subgraphs_kernel<IdxT, 128, 4, SweepAll>
-        <<<num_data_in_cluster, 128, sharedMemSize, raft::resource::get_cuda_stream(res)>>>(
+        <<<num_data_in_cluster, 128, sharedMemSize, raft::resource::get_cuda_stream(res).get()>>>(
           inverted_indices_d,
           k,
           num_data_in_cluster,
@@ -219,7 +219,7 @@ void merge_subgraphs(raft::resources const& res,
           select_min);
     } else if (num_elems <= 1024) {
       merge_subgraphs_kernel<IdxT, 128, 8, SweepAll>
-        <<<num_data_in_cluster, 128, sharedMemSize, raft::resource::get_cuda_stream(res)>>>(
+        <<<num_data_in_cluster, 128, sharedMemSize, raft::resource::get_cuda_stream(res).get()>>>(
           inverted_indices_d,
           k,
           num_data_in_cluster,
@@ -230,7 +230,7 @@ void merge_subgraphs(raft::resources const& res,
           select_min);
     } else if (num_elems <= 2048) {
       merge_subgraphs_kernel<IdxT, 256, 8, SweepAll>
-        <<<num_data_in_cluster, 256, sharedMemSize, raft::resource::get_cuda_stream(res)>>>(
+        <<<num_data_in_cluster, 256, sharedMemSize, raft::resource::get_cuda_stream(res).get()>>>(
           inverted_indices_d,
           k,
           num_data_in_cluster,

@@ -37,7 +37,7 @@ class QuantizationTest : public ::testing::TestWithParam<QuantizationInputs<T>> 
  public:
   QuantizationTest()
     : params_(::testing::TestWithParam<QuantizationInputs<T>>::GetParam()),
-      stream(raft::resource::get_cuda_stream(handle)),
+      stream(raft::resource::get_cuda_stream(handle).get()),
       input_(0, stream)
   {
   }

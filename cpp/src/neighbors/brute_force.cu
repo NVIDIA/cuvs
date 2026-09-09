@@ -119,7 +119,7 @@ index<T, DistT>::index(raft::resources const& res,
                           dataset_.data_handle(),
                           dataset_view.extent(0),
                           dataset_view.extent(1),
-                          raft::resource::get_cuda_stream(res));
+                          raft::resource::get_cuda_stream(res).get());
   dataset_view_ = raft::make_const_mdspan(dataset_.view());
 }
 
@@ -149,7 +149,7 @@ index<T, DistT>::index(raft::resources const& res,
                           dataset_.data_handle(),
                           dataset_view.extent(0),
                           dataset_view.extent(1),
-                          raft::resource::get_cuda_stream(res));
+                          raft::resource::get_cuda_stream(res).get());
   dataset_view_ = raft::make_const_mdspan(dataset_.view());
 }
 

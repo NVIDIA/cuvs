@@ -93,7 +93,7 @@ void run_merge(bool select_min,
                                  n_queries,
                                  k,
                                  0.0f,
-                                 stream,
+                                 stream.get(),
                                  true));
 }
 
