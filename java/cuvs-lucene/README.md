@@ -54,9 +54,19 @@ Maven repository, do `./build.sh lucene` in the top level directory or just do `
 
 The resulting artifacts are written to `target/`.
 
-To run the tests, add `--run-java-tests` to any of the commands above. Be sure to set (manually, if needed)
-your `LD_LIBRARY_PATH` to include the directory with the appropriate (matching) version of `libcuvs.so`, as
-described in the cuVS [tarball install instructions](https://docs.rapids.ai/api/cuvs/stable/build/#download-extract).
+To run the Java tests from the top-level directory, pass `--run-java-tests` when building the `lucene` target:
+
+```bash
+./build.sh lucene --run-java-tests
+```
+
+If the native and Java prerequisites also need to be built, use `./build.sh libcuvs java lucene --run-java-tests`.
+
+Ensure `LD_LIBRARY_PATH` includes the directory containing the matching version of `libcuvs.so`, as
+described in the [cuVS tarball install instructions](https://docs.rapids.ai/api/cuvs/stable/build/#download-extract).
+
+The test-enabled build runs `mvn clean verify`: Surefire discovers the `Test*` classes, and
+Failsafe runs post-package `*IT` classes such as `ThinJarContentsIT`.
 
 ## Getting Started
 
@@ -121,7 +131,7 @@ public class HelloCuvsLucene {
 
 The artifacts would be built and available in the target / folder.
 
-### Running Tests
+### Running the example
 
 ```sh
 mvn -q compile org.codehaus.mojo:exec-maven-plugin:3.5.1:java \
