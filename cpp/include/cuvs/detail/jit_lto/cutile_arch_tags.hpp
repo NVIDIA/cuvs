@@ -39,6 +39,19 @@ struct cutile_arch_12_0 {
   static constexpr int cc_minor = 0;
 };
 
+/**
+ * GB10 (DGX Spark, compute capability 12.1) does not accept the base sm_120
+ * cubin as forward-compatible SASS -- cudaLibraryGetKernel rejects it with
+ * cudaErrorNoKernelImageForDevice despite same-major/lower-minor. This exact
+ * cc_major.cc_minor target is required. See NVIDIA/cutile-python#105 for why
+ * this isn't sm_121a (cuTile's tileiras doesn't support family-conditional
+ * targets yet).
+ */
+struct cutile_arch_12_1 {
+  static constexpr int cc_major = 12;
+  static constexpr int cc_minor = 1;
+};
+
 inline bool is_embedded_cubin_arch(int cc_major, int cc_minor)
 {
   if (cc_minor < 0) { return false; }
