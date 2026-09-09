@@ -2296,16 +2296,17 @@ void reconstruct_vpq_queries(raft::resources const& res,
 // Runs CAGRA search for `knn_graph.extent(0)` queries against `idx` in chunks of `max_chunk_size`,
 // stacks the results into `knn_graph`, and optimizes them into a newly allocated output graph.
 //
-// `knn_graph` and `reconstructed_batch_queries` are allocated by the caller. The previous-iteration
+// `knn_graph` is allocated by the caller. VPQ builds additionally provide a reconstruction
+// buffer and the compressed query rows. The previous-iteration
 // graph is passed in so it can be released after search and before the (often larger) output graph
 // is allocated, so the two owned graphs never coexist.
 //
 // Query source:
-//   - default-constructed `vpq_queries`: queries are read directly from `dev_query_view`
+//   - omitted VPQ arguments: queries are read directly from `dev_query_view`
 //     (uncompressed build; the view is a slice of the resident padded device dataset, including
 //     CAGRA row padding). `cagra::detail::search_main` accepts that padded row width so search
 //     does not depad/re-pad the chunk.
-//   - a bound VPQ view: `dev_query_view` is ignored and each chunk of queries is reconstructed
+//   - VPQ arguments present: `dev_query_view` is ignored and each chunk of queries is reconstructed
 //     on the fly from the VPQ codes into `reconstructed_batch_queries` with CAGRA row padding,
 //     so we never materialize the whole (up to N x stride) reconstructed dataset.
 template <typename T, typename IdxT, typename DatasetViewT>
@@ -2318,16 +2319,19 @@ auto search_and_optimize(
   raft::device_matrix_view<float, int64_t> dev_distances,
   raft::device_matrix<IdxT, int64_t> prev_graph,
   raft::device_matrix_view<IdxT, int64_t> knn_graph,
-  raft::device_matrix_view<T, int64_t> reconstructed_batch_queries,
-  cuvs::neighbors::device_vpq_dataset_view<half, int64_t> const& vpq_queries,
   size_t next_graph_degree,
   uint64_t max_chunk_size,
-  int64_t query_dim,
-  bool guarantee_connectivity) -> raft::device_matrix<IdxT, int64_t>
+  bool guarantee_connectivity,
+  std::optional<raft::device_matrix_view<T, int64_t>> reconstructed_batch_queries    = std::nullopt,
+  std::optional<cuvs::neighbors::device_vpq_dataset_view<half, int64_t>> vpq_queries = std::nullopt)
+  -> raft::device_matrix<IdxT, int64_t>
 {
   auto stream                = raft::resource::get_cuda_stream(res);
   auto const curr_query_size = knn_graph.extent(0);
   auto const curr_topk       = knn_graph.extent(1);
+
+  RAFT_EXPECTS(reconstructed_batch_queries.has_value() == vpq_queries.has_value(),
+               "VPQ queries and their reconstruction buffer must be provided together");
 
   auto run_batch = [&](int64_t offset,
                        int64_t batch_size,
@@ -2351,10 +2355,12 @@ auto search_and_optimize(
                stream);
   };
 
-  if (vpq_queries.n_rows() > 0) {
+  if (vpq_queries.has_value()) {
+    auto const query_dim = static_cast<int64_t>(idx.dim());
+
     // Reconstruct-and-search one chunk at a time: reconstruct source rows [offset, offset+bs) into
     // the CAGRA-padded scratch, then search that chunk without a second pad copy.
-    const int64_t query_ld = reconstructed_batch_queries.extent(1);
+    const int64_t query_ld = reconstructed_batch_queries->extent(1);
     RAFT_EXPECTS(query_ld >= query_dim,
                  "VPQ query scratch row width (%ld) must be >= logical dim (%ld)",
                  static_cast<long>(query_ld),
@@ -2365,13 +2371,13 @@ auto search_and_optimize(
         std::min<int64_t>(static_cast<int64_t>(max_chunk_size), curr_query_size - offset);
       reconstruct_vpq_queries<T, half, int64_t>(
         res,
-        vpq_queries,
+        *vpq_queries,
         static_cast<uint64_t>(offset),
         static_cast<uint32_t>(batch_size),
         raft::make_device_matrix_view<T, int64_t>(
-          reconstructed_batch_queries.data_handle(), batch_size, query_ld));
+          reconstructed_batch_queries->data_handle(), batch_size, query_ld));
       auto batch_query_view = raft::make_device_matrix_view<const T, int64_t>(
-        reconstructed_batch_queries.data_handle(), batch_size, query_ld);
+        reconstructed_batch_queries->data_handle(), batch_size, query_ld);
       run_batch(offset, batch_size, batch_query_view);
     }
   } else {
@@ -2463,7 +2469,6 @@ auto iterative_build_graph(raft::resources const& res,
   auto large_mr         = raft::resource::get_large_workspace_resource_ref(res);
   auto const n_rows_i64 = static_cast<int64_t>(final_graph_size);
   auto const topk_i64   = static_cast<int64_t>(topk);
-  auto const dim_i64    = static_cast<int64_t>(logical_dim);
   auto const chunk_i64  = static_cast<int64_t>(max_chunk_size);
 
   auto dev_neighbors = raft::make_device_matrix<IdxT, int64_t>(res, chunk_i64, topk_i64);
@@ -2471,15 +2476,15 @@ auto iterative_build_graph(raft::resources const& res,
   auto dev_knn_graph = raft::make_device_mdarray<IdxT, int64_t>(
     res, large_mr, raft::make_extents<int64_t>(n_rows_i64, topk_i64));
 
-  auto const query_stride_i64 = static_cast<int64_t>(
-    cuvs::neighbors::cagra_required_row_width<T>(static_cast<uint32_t>(logical_dim)));
-  auto reconstructed_batch_queries =
-    vpq_dataset.n_rows() > 0 ? raft::make_device_matrix<T, int64_t>(res, chunk_i64, query_stride_i64)
-                             : raft::make_device_matrix<T, int64_t>(res, 0, 0);
+  std::optional<raft::device_matrix<T, int64_t>> reconstructed_batch_queries;
   if (vpq_dataset.n_rows() > 0) {
+    auto const query_stride_i64 = static_cast<int64_t>(
+      cuvs::neighbors::cagra_required_row_width<T>(static_cast<uint32_t>(logical_dim)));
+    reconstructed_batch_queries.emplace(
+      raft::make_device_matrix<T, int64_t>(res, chunk_i64, query_stride_i64));
     // Padding columns must be zero: search_main cosine post-process reduces over the full row
     // width, and reconstruct only writes the logical dim.
-    raft::matrix::fill(res, reconstructed_batch_queries.view(), T(0));
+    raft::matrix::fill(res, reconstructed_batch_queries->view(), T(0));
   }
 
   // Determine graph degree and number of search results while increasing
@@ -2597,12 +2602,11 @@ auto iterative_build_graph(raft::resources const& res,
                                       dev_distances.view(),
                                       std::move(dev_graph),
                                       knn_view,
-                                      reconstructed_batch_queries.view(),
-                                      vpq_dataset,
                                       next_graph_degree,
                                       max_chunk_size,
-                                      dim_i64,
-                                      flag_last && params.guarantee_connectivity);
+                                      flag_last && params.guarantee_connectivity,
+                                      reconstructed_batch_queries->view(),
+                                      vpq_dataset);
     } else {
       auto dev_dataset_view = raft::make_device_matrix_view<const T, int64_t>(
         dev_dataset.data_handle(), static_cast<int64_t>(curr_graph_size), dev_dataset.extent(1));
@@ -2614,21 +2618,17 @@ auto iterative_build_graph(raft::resources const& res,
 
       auto dev_query_view = raft::make_device_matrix_view<const T, int64_t>(
         dev_dataset.data_handle(), static_cast<int64_t>(curr_query_size), dev_dataset.extent(1));
-      dev_graph = search_and_optimize(
-        res,
-        search_params,
-        idx,
-        dev_query_view,
-        dev_neighbors.view(),
-        dev_distances.view(),
-        std::move(dev_graph),
-        knn_view,
-        reconstructed_batch_queries.view(),
-        cuvs::neighbors::device_vpq_dataset_view<half, int64_t>{},
-        next_graph_degree,
-        max_chunk_size,
-        dim_i64,
-        flag_last && params.guarantee_connectivity);
+      dev_graph = search_and_optimize(res,
+                                      search_params,
+                                      idx,
+                                      dev_query_view,
+                                      dev_neighbors.view(),
+                                      dev_distances.view(),
+                                      std::move(dev_graph),
+                                      knn_view,
+                                      next_graph_degree,
+                                      max_chunk_size,
+                                      flag_last && params.guarantee_connectivity);
     }
 
     auto end = std::chrono::high_resolution_clock::now();
