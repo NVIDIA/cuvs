@@ -14,5 +14,6 @@ For task-focused examples and usage guidance, see the [API Guide](/user-guide/ap
 - [C++ API Documentation](/api-reference/cpp-api-documentation): inspect the core NVIDIA cuVS C++ APIs, including common RAFT types used in public headers.
 - [Python API Documentation](/api-reference/python-api-documentation): inspect Python modules, classes, functions, and parameters.
 - [Java API Documentation](/api-reference/java-api-documentation): inspect Java classes, resources, matrices, indexes, and query APIs.
+- [Lucene API Documentation](/api-reference/lucene-api-documentation): inspect the Apache Lucene codecs that offload vector index build and search to the GPU.
 - [Rust API Documentation](/api-reference/rust-api-documentation): inspect Rust modules, structs, and wrappers around NVIDIA cuVS APIs.
 - [Go API Documentation](/api-reference/go-api-documentation): inspect Go packages for supported NVIDIA cuVS APIs.
