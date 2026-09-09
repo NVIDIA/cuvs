@@ -151,7 +151,7 @@ void launch_sort_knn_graph_impl(raft::resources const& res,
   constexpr uint32_t block_size = 256;
   auto const warps              = block_size / raft::WarpSize;
   auto const blocks             = (dataset_size + warps - 1) / warps;
-  kernel<<<blocks, block_size, 0, raft::resource::get_cuda_stream(res)>>>(
+  kernel<<<blocks, block_size, 0, raft::resource::get_cuda_stream(res).get()>>>(
     dataset, dataset_dim, knn_graph, dataset_size, graph_degree, metric);
   RAFT_CUDA_TRY(cudaGetLastError());
 }
