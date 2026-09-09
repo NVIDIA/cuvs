@@ -53,7 +53,7 @@ Exact tags are listed on Docker Hub:
 
 The optional `pylucene` backend requires runtime components that the standard cuVS Bench packages do not install automatically: JDK 22, a source-built PyLucene wrapper for Lucene 10.2.0, and version-matched cuVS Java, cuVS-Lucene, and native artifacts.
 
-See [PyLucene Backend](/user-guide/benchmarking-guide/cu-vs-bench-tool/pylucene-backend) for the pinned dependency build, validation procedure, runtime configuration, and benchmark workflows.
+See [PyLucene Backend](/user-guide/benchmarking-guide/cu-vs-bench-tool/pylucene-backend) for the matching dependency build, validation procedure, runtime configuration, and benchmark workflows.
 
 ## Build from Source
 

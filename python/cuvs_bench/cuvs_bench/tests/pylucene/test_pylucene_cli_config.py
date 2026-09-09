@@ -15,6 +15,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
+from click import ClickException
 from click.testing import CliRunner
 
 import cuvs_bench.backends.pylucene as pylucene_backend
@@ -117,15 +118,19 @@ def _prepare_cli_dataset(dataset_path: Path) -> None:
 
 
 def _pylucene_cli_args(
-    backend_config: Path,
     config_dir: Path,
     dataset_path: Path,
     *,
+    backend_config: Path | None = None,
     dry_run: bool = False,
 ) -> list[str]:
+    backend_args = (
+        ["--backend", "pylucene"]
+        if backend_config is None
+        else ["--backend-config", str(backend_config)]
+    )
     args = [
-        "--backend-config",
-        str(backend_config),
+        *backend_args,
         "--dataset-configuration",
         str(config_dir / "datasets" / "datasets.yaml"),
         "--configuration",
@@ -212,11 +217,64 @@ def test_import_does_not_load_pylucene():
     )
 
 
-def test_cli_backend_config_supports_pylucene_dry_run(config_dir, tmp_path):
-    from cuvs_bench.run.__main__ import main as run_main
+def test_backend_flag_allows_advanced_config_without_backend_field(tmp_path):
+    from cuvs_bench.run.__main__ import _load_backend_options
 
     backend_config = tmp_path / "backend.yaml"
-    backend_config.write_text("backend: pylucene\n")
+    backend_config.write_text("java_library_path: /native\n")
+
+    backend, options = _load_backend_options("pylucene", backend_config)
+
+    assert backend == "pylucene"
+    assert options == {"java_library_path": "/native"}
+
+
+def test_backend_flag_rejects_conflicting_config_backend(tmp_path):
+    from cuvs_bench.run.__main__ import _load_backend_options
+
+    backend_config = tmp_path / "backend.yaml"
+    backend_config.write_text("backend: cpp_gbench\n")
+
+    with pytest.raises(
+        ClickException,
+        match="--backend selects 'pylucene'.*selects 'cpp_gbench'",
+    ):
+        _load_backend_options("pylucene", backend_config)
+
+
+@pytest.mark.parametrize("configured_backend", ["''", "false"])
+def test_backend_config_rejects_empty_or_non_string_backend(
+    tmp_path, configured_backend
+):
+    from cuvs_bench.run.__main__ import _load_backend_options
+
+    backend_config = tmp_path / "backend.yaml"
+    backend_config.write_text(f"backend: {configured_backend}\n")
+
+    with pytest.raises(ClickException, match="backend.*non-empty string"):
+        _load_backend_options(None, backend_config)
+
+
+def test_backend_specific_default_does_not_rewrite_explicit_algorithm():
+    from cuvs_bench.run.__main__ import _backend_default_algorithm
+
+    assert (
+        _backend_default_algorithm(
+            "pylucene", "cuvs_cagra", was_defaulted=False
+        )
+        == "cuvs_cagra"
+    )
+    assert (
+        _backend_default_algorithm(
+            "pylucene", "cuvs_cagra", was_defaulted=True
+        )
+        == "pylucene_cuvs_cagra"
+    )
+
+
+def test_cli_backend_flag_supports_pylucene_dry_run(config_dir, tmp_path):
+    from cuvs_bench.run.__main__ import main as run_main
+
     dataset_path = tmp_path / "runtime-datasets"
     result_path = dataset_path / "test-dataset" / "result"
     assert not result_path.exists()
@@ -224,7 +282,6 @@ def test_cli_backend_config_supports_pylucene_dry_run(config_dir, tmp_path):
     result = CliRunner().invoke(
         run_main,
         _pylucene_cli_args(
-            backend_config,
             config_dir,
             dataset_path,
             dry_run=True,
@@ -237,13 +294,44 @@ def test_cli_backend_config_supports_pylucene_dry_run(config_dir, tmp_path):
     assert not result_path.exists()
 
 
+def test_cli_backend_flag_selects_bundled_pylucene_default(
+    config_dir, tmp_path
+):
+    from cuvs_bench.run.__main__ import main as run_main
+
+    result = CliRunner().invoke(
+        run_main,
+        [
+            "--backend",
+            "pylucene",
+            "--dataset-configuration",
+            str(config_dir / "datasets" / "datasets.yaml"),
+            "--dataset",
+            "test-dataset",
+            "--dataset-path",
+            str(tmp_path / "runtime-datasets"),
+            "--groups",
+            "base",
+            "--batch-size",
+            "2",
+            "-k",
+            "1",
+            "-m",
+            "latency",
+            "--dry-run",
+        ],
+        input="\n",
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "pylucene_cuvs_cagra" in result.output
+
+
 def test_cli_build_search_persists_metrics_and_build_join(
     config_dir, tmp_path, monkeypatch
 ):
     from cuvs_bench.run.__main__ import main as run_main
 
-    backend_config = tmp_path / "backend.yaml"
-    backend_config.write_text("backend: pylucene\n")
     dataset_path = tmp_path / "runtime-datasets"
     _prepare_cli_dataset(dataset_path)
     result_path = dataset_path / "test-dataset" / "result"
@@ -263,7 +351,7 @@ def test_cli_build_search_persists_metrics_and_build_join(
 
     result = CliRunner().invoke(
         run_main,
-        _pylucene_cli_args(backend_config, config_dir, dataset_path),
+        _pylucene_cli_args(config_dir, dataset_path),
     )
 
     assert result.exit_code == 0, result.output
@@ -303,8 +391,6 @@ def test_cli_returns_nonzero_without_persisting_failed_measurement(
 ):
     from cuvs_bench.run.__main__ import main as run_main
 
-    backend_config = tmp_path / "backend.yaml"
-    backend_config.write_text("backend: pylucene\n")
     dataset_path = tmp_path / "runtime-datasets"
     _prepare_cli_dataset(dataset_path)
     runtime = _FakeRuntime()
@@ -317,7 +403,7 @@ def test_cli_returns_nonzero_without_persisting_failed_measurement(
 
     result = CliRunner().invoke(
         run_main,
-        _pylucene_cli_args(backend_config, config_dir, dataset_path),
+        _pylucene_cli_args(config_dir, dataset_path),
     )
 
     assert result.exit_code != 0
@@ -475,7 +561,7 @@ def test_pylucene_tune_space_uses_runtime_top_k_for_candidates():
         "num_candidates": {
             "type": "int",
             "min": "top_k",
-            "max": 500,
+            "max": 2500,
         }
     }
 
@@ -514,29 +600,47 @@ def test_pylucene_tune_resolves_candidate_minimum_from_top_k(monkeypatch):
         algorithms="pylucene_cuvs_hnsw",
     )
 
-    assert suggested_ranges["num_candidates"] == (150, 500, False)
+    assert suggested_ranges["num_candidates"] == (150, 2500, False)
     assert trial_arguments["search_params"] == {"num_candidates": 150}
     assert results[0].search_params == [{"num_candidates": 150}]
 
 
-def test_pylucene_tune_rejects_top_k_above_candidate_ceiling(monkeypatch):
-    _install_single_trial_optuna(monkeypatch)
+def test_pylucene_tune_supports_large_top_k_and_candidate_budget(monkeypatch):
+    suggested_ranges = _install_single_trial_optuna(monkeypatch)
     orchestrator = BenchmarkOrchestrator.__new__(BenchmarkOrchestrator)
+    trial_arguments = {}
 
-    with pytest.raises(ValueError, match="minimum 501 exceeds maximum 500"):
-        orchestrator._run_tune(
-            constraints={"recall": "maximize"},
-            n_trials=1,
-            build=True,
-            search=True,
-            force=False,
-            dry_run=False,
-            count=501,
-            batch_size=1,
-            search_mode="latency",
-            search_threads=1,
-            algorithms="pylucene_cuvs_hnsw",
-        )
+    def run_trial(**kwargs):
+        trial_arguments.update(kwargs)
+        return [
+            SearchResult(
+                neighbors=np.empty((0, 0), dtype=np.int64),
+                distances=np.empty((0, 0), dtype=np.float32),
+                search_time_ms=1.0,
+                queries_per_second=1.0,
+                recall=1.0,
+                algorithm="pylucene_cuvs_hnsw",
+                search_params=[kwargs["search_params"]],
+            )
+        ]
+
+    orchestrator._run_trial = run_trial
+    orchestrator._run_tune(
+        constraints={"recall": "maximize"},
+        n_trials=1,
+        build=True,
+        search=True,
+        force=False,
+        dry_run=False,
+        count=2000,
+        batch_size=1,
+        search_mode="latency",
+        search_threads=1,
+        algorithms="pylucene_cuvs_hnsw",
+    )
+
+    assert suggested_ranges["num_candidates"] == (2000, 2500, False)
+    assert trial_arguments["search_params"] == {"num_candidates": 2000}
 
 
 @pytest.mark.parametrize(
@@ -813,35 +917,6 @@ def test_config_loader_honors_algorithm_and_group_filters(config_dir):
     )
     assert len(configs) == 1
     assert configs[0].index_name == _hnsw_index_name("pylucene_test", "test")
-
-
-def test_algorithm_config_discovery_is_deterministic(tmp_path):
-    config_path = tmp_path / "config"
-    bundled_algorithms = config_path / "algos"
-    bundled_algorithms.mkdir(parents=True)
-    bundled_zeta = bundled_algorithms / "zeta.yaml"
-    bundled_alpha = bundled_algorithms / "alpha.yml"
-    bundled_zeta.touch()
-    bundled_alpha.touch()
-    (bundled_algorithms / "ignored.txt").touch()
-
-    custom_algorithms = tmp_path / "custom"
-    custom_algorithms.mkdir()
-    custom_zeta = custom_algorithms / "zeta.yml"
-    custom_alpha = custom_algorithms / "alpha.yaml"
-    custom_zeta.touch()
-    custom_alpha.touch()
-
-    files = PyLuceneConfigLoader(
-        config_path=config_path
-    ).gather_algorithm_configs(config_path, str(custom_algorithms))
-
-    assert files == [
-        str(bundled_alpha),
-        str(bundled_zeta),
-        str(custom_alpha),
-        str(custom_zeta),
-    ]
 
 
 def test_duplicate_algorithm_config_uses_last_definition_and_position(

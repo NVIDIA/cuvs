@@ -47,6 +47,10 @@ from ._pylucene_java import (
     M_PROPERTY,
     configured_codec_classes_path,
 )
+from ._pylucene_runtime_config import (
+    _maven_artifact_version,
+    resolve_pylucene_runtime_config,
+)
 from .base import BenchmarkBackend, BuildResult, Dataset, SearchResult
 
 _ID_FIELD = "id"
@@ -57,6 +61,14 @@ _REQUIRED_PYLUCENE_VERSION = "10.2.0"
 _HNSW_CODEC = "Lucene101AcceleratedHNSWCodec"
 _CAGRA_CODEC = "CuVS2510GPUSearchCodec"
 _SUPPORTED_CODECS = frozenset({_HNSW_CODEC, _CAGRA_CODEC})
+_CAGRA_UNAVAILABLE_ERROR = (
+    "UnsupportedOperationException: cuVS is not supported"
+)
+_CAGRA_UNAVAILABLE_HINT = (
+    "GPU CAGRA requires a usable cuVS Java provider; check the documented "
+    "platform, JDK, GPU/CUDA, and native-library prerequisites. A preceding "
+    "JVM warning may contain the underlying initialization failure"
+)
 _HNSW_BUILD_KEYS = frozenset(
     {"codec", "m", "ef_construction", "direct_single_segment"}
 )
@@ -66,6 +78,9 @@ _DEFAULT_M = 32
 _DEFAULT_EF_CONSTRUCTION = 32
 _MIN_HNSW_BUILD_PARAMETER = 1
 _MAX_HNSW_BUILD_PARAMETER = 512
+# CuVS2510GPUVectorsReader sends larger stock-query collectors to a
+# brute-force index, which the benchmark's verified CAGRA-only index omits.
+_MAX_CAGRA_PER_LEAF_COLLECTOR_K = 1024
 _EXPECTED_WRITER_POLICY = {
     _HNSW_CODEC: "gpu-with-cpu-fallback",
     _CAGRA_CODEC: "gpu-cagra",
@@ -103,18 +118,28 @@ _PROVENANCE_KEYS = frozenset(
     }
 )
 _SHA256_HEX_DIGITS = frozenset("0123456789abcdef")
-_LUCENE_CORE_CLASS = "org/apache/lucene/index/IndexWriter.class"
+_LUCENE_CLASS_PREFIX = "org/apache/lucene/"
+_CUVS_JAVA_MAVEN_DESCRIPTOR = (
+    "META-INF/maven/com.nvidia.cuvs/cuvs-java/pom.properties"
+)
+_CUVS_JAVA_MANIFEST = "META-INF/MANIFEST.MF"
+_CUVS_LUCENE_MAVEN_DESCRIPTOR = (
+    "META-INF/maven/com.nvidia.cuvs.lucene/cuvs-lucene/pom.properties"
+)
 _CUVS_JAVA_REQUIRED_CLASSES = frozenset(
     {
         "com/nvidia/cuvs/CagraIndex.class",
         "com/nvidia/cuvs/CuVSResources.class",
+        "META-INF/versions/22/com/nvidia/cuvs/spi/JDKProvider.class",
     }
 )
 _CUVS_JAVA_NATIVE_LIBRARY_NAMES = frozenset({"libcuvs.so", "libcuvs_c.so"})
 _CUVS_LUCENE_REQUIRED_CLASSES = frozenset(
     {
+        "com/nvidia/cuvs/lucene/CuVS2510GPUVectorsFormat.class",
         "com/nvidia/cuvs/lucene/CuVS2510GPUSearchCodec.class",
         "com/nvidia/cuvs/lucene/Lucene101AcceleratedHNSWCodec.class",
+        "com/nvidia/cuvs/lucene/Lucene99AcceleratedHNSWVectorsFormat.class",
     }
 )
 _CUVS_LUCENE_REQUIRED_SERVICES = {
@@ -197,6 +222,12 @@ def _exception_summary(error: Exception) -> str:
     return "; ".join(details)
 
 
+def _with_cagra_provider_hint(error_message: str, codec: Any) -> str:
+    if codec == _CAGRA_CODEC and _CAGRA_UNAVAILABLE_ERROR in error_message:
+        return f"{error_message}; {_CAGRA_UNAVAILABLE_HINT}"
+    return error_message
+
+
 def _restore_java_property(system: Any, name: str, previous: Any) -> None:
     if previous is None:
         system.clearProperty(name)
@@ -223,19 +254,24 @@ def _configured_jar(
 def _read_jar_entries(
     jar_path: Path, config_key: str
 ) -> tuple[set[str], dict[str, bytes]]:
+    inspected_entries = frozenset(_CUVS_LUCENE_REQUIRED_SERVICES) | {
+        _CUVS_JAVA_MANIFEST,
+        _CUVS_JAVA_MAVEN_DESCRIPTOR,
+        _CUVS_LUCENE_MAVEN_DESCRIPTOR,
+    }
     try:
         with zipfile.ZipFile(jar_path) as archive:
             entries = set(archive.namelist())
-            service_contents = {
+            selected_contents = {
                 name: archive.read(name)
-                for name in _CUVS_LUCENE_REQUIRED_SERVICES
+                for name in inspected_entries
                 if name in entries
             }
     except (OSError, zipfile.BadZipFile) as exc:
         raise RuntimeError(
             f"{config_key} is not a readable JAR archive: {jar_path}"
         ) from exc
-    return entries, service_contents
+    return entries, selected_contents
 
 
 def _require_jar_entries(
@@ -246,6 +282,49 @@ def _require_jar_entries(
         raise RuntimeError(
             f"{config_key} is not the required artifact; missing JAR "
             f"entries: {', '.join(missing)}"
+        )
+
+
+def _reject_bundled_lucene_classes(entries: set[str], config_key: str) -> None:
+    bundled_classes = sorted(
+        entry
+        for entry in entries
+        if entry.endswith(".class")
+        and (
+            entry.startswith(_LUCENE_CLASS_PREFIX)
+            or f"/{_LUCENE_CLASS_PREFIX}" in entry
+        )
+    )
+    if bundled_classes:
+        raise RuntimeError(
+            f"{config_key} bundles Lucene classes and is incompatible with "
+            "PyLucene's process-wide JVM. Use the standard dependency-thin "
+            f"artifact. First bundled class: {bundled_classes[0]}"
+        )
+
+
+def _require_multi_release_java_jar(contents: dict[str, bytes]) -> None:
+    try:
+        text = contents[_CUVS_JAVA_MANIFEST].decode("utf-8")
+    except KeyError as exc:
+        raise RuntimeError(
+            "cuvs_java_jar is missing its JAR manifest. Use the standard "
+            "Maven-built artifact, which declares Multi-Release: true."
+        ) from exc
+    except UnicodeDecodeError as exc:
+        raise RuntimeError(
+            "cuvs_java_jar has a non-UTF-8 JAR manifest"
+        ) from exc
+
+    attributes = {}
+    for line in text.splitlines():
+        key, separator, value = line.partition(":")
+        if separator:
+            attributes[key.strip().casefold()] = value.strip().casefold()
+    if attributes.get("multi-release") != "true":
+        raise RuntimeError(
+            "cuvs_java_jar must declare Multi-Release: true so its JDK 22 "
+            "provider classes are visible"
         )
 
 
@@ -263,13 +342,103 @@ def _service_providers(contents: bytes, descriptor: str) -> set[str]:
     }
 
 
+@dataclass(frozen=True)
+class _MavenCoordinates:
+    group_id: str
+    artifact_id: str
+    version: str
+
+
+def _read_maven_coordinates(
+    contents: dict[str, bytes], descriptor: str, config_key: str
+) -> _MavenCoordinates:
+    try:
+        text = contents[descriptor].decode("utf-8")
+    except KeyError as exc:
+        raise RuntimeError(
+            f"{config_key} is missing Maven coordinates at {descriptor}. "
+            "Use the standard Maven-built artifact."
+        ) from exc
+    except UnicodeDecodeError as exc:
+        raise RuntimeError(
+            f"{config_key} has invalid Maven coordinates at {descriptor}"
+        ) from exc
+
+    properties = {}
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith(("#", "!")):
+            continue
+        key, separator, value = stripped.partition("=")
+        if separator:
+            properties[key.strip()] = value.strip()
+
+    missing = {"groupId", "artifactId", "version"} - properties.keys()
+    if missing:
+        raise RuntimeError(
+            f"{config_key} has incomplete Maven coordinates at {descriptor}; "
+            f"missing: {', '.join(sorted(missing))}"
+        )
+    return _MavenCoordinates(
+        group_id=properties["groupId"],
+        artifact_id=properties["artifactId"],
+        version=properties["version"],
+    )
+
+
+def _require_artifact_identity(
+    coordinates: _MavenCoordinates,
+    *,
+    config_key: str,
+    expected_group_id: str,
+    expected_artifact_id: str,
+) -> None:
+    expected = f"{expected_group_id}:{expected_artifact_id}"
+    actual = f"{coordinates.group_id}:{coordinates.artifact_id}"
+    if actual != expected:
+        raise RuntimeError(
+            f"{config_key} has Maven coordinates {actual}, expected {expected}"
+        )
+
+
+def _validate_artifact_versions(
+    java_coordinates: _MavenCoordinates,
+    lucene_coordinates: _MavenCoordinates,
+) -> None:
+    benchmark_version = _maven_artifact_version()
+    if java_coordinates.version != lucene_coordinates.version:
+        raise RuntimeError(
+            "PyLucene requires cuvs-java and cuvs-lucene from the same "
+            "release, but their Maven versions differ: "
+            f"{java_coordinates.version} != {lucene_coordinates.version}"
+        )
+    if java_coordinates.version != benchmark_version:
+        raise RuntimeError(
+            "PyLucene Java artifacts must match this cuVS Bench release: "
+            f"expected {benchmark_version}, found {java_coordinates.version}"
+        )
+
+
 def _validate_configured_artifacts(
     cuvs_java_jar: Path, cuvs_lucene_jar: Path
 ) -> None:
     """Validate JAR roles before PyLucene's process-wide JVM is started."""
-    java_entries, _ = _read_jar_entries(cuvs_java_jar, "cuvs_java_jar")
+    java_entries, java_contents = _read_jar_entries(
+        cuvs_java_jar, "cuvs_java_jar"
+    )
     _require_jar_entries(
         java_entries, _CUVS_JAVA_REQUIRED_CLASSES, "cuvs_java_jar"
+    )
+    _require_multi_release_java_jar(java_contents)
+    _reject_bundled_lucene_classes(java_entries, "cuvs_java_jar")
+    java_coordinates = _read_maven_coordinates(
+        java_contents, _CUVS_JAVA_MAVEN_DESCRIPTOR, "cuvs_java_jar"
+    )
+    _require_artifact_identity(
+        java_coordinates,
+        config_key="cuvs_java_jar",
+        expected_group_id="com.nvidia.cuvs",
+        expected_artifact_id="cuvs-java",
     )
     embedded_native_libraries = sorted(
         entry
@@ -286,18 +455,25 @@ def _validate_configured_artifacts(
     lucene_entries, service_contents = _read_jar_entries(
         cuvs_lucene_jar, "cuvs_lucene_jar"
     )
-    if _LUCENE_CORE_CLASS in lucene_entries:
-        raise RuntimeError(
-            "cuvs_lucene_jar bundles Lucene classes and is incompatible with "
-            "PyLucene's process-wide JVM. Use the standard thin cuvs-lucene "
-            "JAR, not a '-jar-with-dependencies' artifact."
-        )
+    _reject_bundled_lucene_classes(lucene_entries, "cuvs_lucene_jar")
     _require_jar_entries(
         lucene_entries,
         _CUVS_LUCENE_REQUIRED_CLASSES
         | frozenset(_CUVS_LUCENE_REQUIRED_SERVICES),
         "cuvs_lucene_jar",
     )
+    lucene_coordinates = _read_maven_coordinates(
+        service_contents,
+        _CUVS_LUCENE_MAVEN_DESCRIPTOR,
+        "cuvs_lucene_jar",
+    )
+    _require_artifact_identity(
+        lucene_coordinates,
+        config_key="cuvs_lucene_jar",
+        expected_group_id="com.nvidia.cuvs.lucene",
+        expected_artifact_id="cuvs-lucene",
+    )
+    _validate_artifact_versions(java_coordinates, lucene_coordinates)
     for (
         descriptor,
         required_providers,
@@ -434,14 +610,15 @@ def _initialize_pylucene(config: Dict[str, Any]) -> Any:
     """Initialize PyLucene once and attach the current Python thread."""
     lucene = _load_pylucene()
     _validate_pylucene_version(lucene)
-    classpath = _pylucene_classpath(config, lucene)
-    vmargs = _pylucene_vmargs(config)
+    runtime_config = resolve_pylucene_runtime_config(config)
+    classpath = _pylucene_classpath(runtime_config, lucene)
+    vmargs = _pylucene_vmargs(runtime_config)
     _attach_pylucene_jvm(lucene, classpath, vmargs)
     return lucene
 
 
-def _score_to_squared_euclidean(score: float) -> float:
-    """Convert Lucene's Euclidean score to squared Euclidean distance."""
+def _lucene_euclidean_score_to_squared_distance(score: float) -> float:
+    """Invert Lucene's score = 1 / (1 + squared_distance)."""
     if score <= 0.0:
         return float("inf")
     return max(0.0, (1.0 / score) - 1.0)
@@ -1376,7 +1553,9 @@ def _convert_query_hits(
             seen_document_ids=seen_document_ids,
         )
         neighbors.append(hit.document_id)
-        distances.append(_score_to_squared_euclidean(hit.score))
+        distances.append(
+            _lucene_euclidean_score_to_squared_distance(hit.score)
+        )
     return neighbors, distances
 
 
@@ -2669,7 +2848,8 @@ class PyLuceneConfigLoader(ConfigLoader):
             if matched_config is None:
                 continue
             algorithm, groups = matched_config
-            # Later files are explicit overrides and determine output order.
+            # A later same-named definition replaces the earlier one;
+            # reinsertion preserves deterministic discovery order.
             algorithm_configs.pop(algorithm, None)
             algorithm_configs[algorithm] = groups
         return algorithm_configs
@@ -3281,7 +3461,9 @@ class PyLuceneBackend(BenchmarkBackend):
             cleanup_error = self._cleanup_partial_index(
                 index_path, created_for_build
             )
-            error_message = _exception_summary(exc)
+            error_message = _with_cagra_provider_hint(
+                _exception_summary(exc), build_parameters.get("codec")
+            )
             if cleanup_error is not None:
                 error_message += (
                     "; failed to remove partial index: "
@@ -3312,6 +3494,7 @@ class PyLuceneBackend(BenchmarkBackend):
         mode: str,
         search_threads: Optional[Union[int, str]],
     ) -> List[_SearchPlan]:
+        """Validate one request and expand its search-parameter sweep."""
         build_parameters = _normalize_build_params(
             index_config.build_param, self.config
         )
@@ -3331,11 +3514,13 @@ class PyLuceneBackend(BenchmarkBackend):
         search_parameters = _normalize_search_params(
             index_config.search_params or [{}], codec_name=codec_name, k=k
         )
-        if codec_name == _CAGRA_CODEC and k > 1024:
+        if codec_name == _CAGRA_CODEC and k > _MAX_CAGRA_PER_LEAF_COLLECTOR_K:
             raise ValueError(
-                "CuVS2510GPUSearchCodec benchmarks support k <= 1024 "
-                "to avoid cuVS-Lucene search paths that can use GPU "
-                "brute-force search above that limit"
+                "CuVS2510GPUSearchCodec benchmarks require "
+                f"k <= {_MAX_CAGRA_PER_LEAF_COLLECTOR_K}; the stock "
+                "KnnFloatVectorQuery creates per-leaf collectors, and "
+                "cuVS-Lucene routes larger collectors to GPU brute-force "
+                "search that is absent from CAGRA-only benchmark indexes"
             )
         return [
             _SearchPlan(

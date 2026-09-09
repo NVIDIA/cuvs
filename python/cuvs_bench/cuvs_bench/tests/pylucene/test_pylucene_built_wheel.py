@@ -14,6 +14,7 @@ from pathlib import Path
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[5]
 _REQUIRED_WHEEL_ENTRIES = {
+    "cuvs_bench/VERSION",
     "cuvs_bench/backends/_java/PyLuceneConfiguredHnswCodec.java",
     "cuvs_bench/config/algos/pylucene_cuvs_cagra.yaml",
     "cuvs_bench/config/algos/pylucene_cuvs_hnsw.yaml",

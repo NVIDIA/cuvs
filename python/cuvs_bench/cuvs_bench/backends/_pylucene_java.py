@@ -149,6 +149,7 @@ def _find_javac() -> str:
     if javac is not None:
         return javac
     raise RuntimeError(
-        "Configurable PyLucene HNSW builds require JDK 22 javac. Set "
+        "The PyLucene backend requires JDK 22 javac to compile its codec "
+        "adapter. Set "
         "JAVA_HOME to a JDK 22 installation or put its javac on PATH."
     )

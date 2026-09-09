@@ -89,6 +89,14 @@ class _DatasetCase:
 
 
 @dataclass(frozen=True)
+class _ForceMergeTopology:
+    initial_segment_count: int
+    initial_segment_document_counts: tuple[int, ...]
+    final_segment_count: int
+    final_segment_document_counts: tuple[int, ...]
+
+
+@dataclass(frozen=True)
 class _BaselineIndex:
     algo: str
     codec: str
@@ -101,11 +109,196 @@ class _BaselineIndex:
     runtime_config: dict[str, str]
 
 
+@dataclass(frozen=True)
+class _CliDatasetFiles:
+    name: str
+    root: Path
+    directory: Path
+    descriptor: Path
+    top_k: int
+
+
 def _write_test_bin(path: Path, data: np.ndarray) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("wb") as file:
         write_bin_header(file, data.shape[0], data.shape[1])
         np.ascontiguousarray(data).tofile(file)
+
+
+def _create_deterministic_dataset_case(name: str, seed: int) -> _DatasetCase:
+    """Create vectors whose selected queries have an exact distance oracle."""
+    rng = np.random.default_rng(seed)
+    training_vectors = rng.standard_normal((512, 32)).astype(np.float32)
+    query_ids = np.asarray([0, 137, 259, 511], dtype=np.int64)
+    query_vectors = training_vectors[query_ids].copy()
+    top_k = 5
+    squared_distances = np.sum(
+        (query_vectors[:, np.newaxis, :] - training_vectors[np.newaxis, :, :])
+        ** 2,
+        axis=2,
+    )
+    groundtruth_neighbors = np.argsort(squared_distances, axis=1)[:, :top_k]
+    groundtruth_distances = np.take_along_axis(
+        squared_distances, groundtruth_neighbors, axis=1
+    )
+    return _DatasetCase(
+        dataset=Dataset(
+            name=name,
+            training_vectors=training_vectors,
+            query_vectors=query_vectors,
+            groundtruth_neighbors=groundtruth_neighbors.astype(np.int32),
+            groundtruth_distances=groundtruth_distances.astype(np.float32),
+            distance_metric="euclidean",
+        ),
+        query_ids=query_ids,
+        squared_distances=squared_distances,
+        k=top_k,
+    )
+
+
+def _prepare_cli_integration_dataset(tmp_path: Path) -> _CliDatasetFiles:
+    """Write deterministic vectors and their brute-force Euclidean oracle."""
+    dataset_name = "pylucene-cli-integration"
+    case = _create_deterministic_dataset_case(dataset_name, seed=174)
+    dataset = case.dataset
+    dataset_root = tmp_path / "datasets"
+    dataset_directory = dataset_root / dataset_name
+    _write_test_bin(dataset_directory / "base.fbin", dataset.training_vectors)
+    _write_test_bin(dataset_directory / "query.fbin", dataset.query_vectors)
+    _write_test_bin(
+        dataset_directory / "groundtruth.neighbors.ibin",
+        dataset.groundtruth_neighbors,
+    )
+    _write_test_bin(
+        dataset_directory / "groundtruth.distances.fbin",
+        dataset.groundtruth_distances,
+    )
+
+    descriptor = tmp_path / "datasets.yaml"
+    descriptor.write_text(
+        json.dumps(
+            [
+                {
+                    "name": dataset_name,
+                    "base_file": f"{dataset_name}/base.fbin",
+                    "query_file": f"{dataset_name}/query.fbin",
+                    "groundtruth_neighbors_file": (
+                        f"{dataset_name}/groundtruth.neighbors.ibin"
+                    ),
+                    "groundtruth_distances_file": (
+                        f"{dataset_name}/groundtruth.distances.fbin"
+                    ),
+                    "distance": "euclidean",
+                    "dims": dataset.training_vectors.shape[1],
+                }
+            ]
+        )
+    )
+    return _CliDatasetFiles(
+        name=dataset_name,
+        root=dataset_root,
+        directory=dataset_directory,
+        descriptor=descriptor,
+        top_k=case.k,
+    )
+
+
+def _write_cli_hnsw_sweep_configs(
+    tmp_path: Path,
+    top_k: int,
+) -> Path:
+    algorithm_config = tmp_path / "pylucene-hnsw-sweep.yaml"
+    algorithm_config.write_text(
+        json.dumps(
+            {
+                "name": "pylucene_cuvs_hnsw",
+                "groups": {
+                    "test": {
+                        "build": {
+                            "codec": [_HNSW_CODEC],
+                            "m": [16, 24],
+                            "ef_construction": [32],
+                            "direct_single_segment": [False],
+                        },
+                        "search": {"num_candidates": [top_k, 11]},
+                    }
+                },
+            }
+        )
+    )
+    return algorithm_config
+
+
+def _expected_cli_hnsw_index_names() -> set[str]:
+    return {
+        (
+            f"pylucene_cuvs_hnsw[group=test][codec={_HNSW_CODEC}]"
+            f"[m={m}][ef_construction=32][direct_single_segment=false]"
+        )
+        for m in (16, 24)
+    }
+
+
+def _assert_cli_hnsw_index_artifacts(
+    dataset_directory: Path, index_names: set[str]
+) -> None:
+    for index_name in index_names:
+        index_path = dataset_directory / "index" / index_name
+        assert any(index_path.glob("segments_*"))
+        assert (index_path / _HNSW_PROVENANCE_FILE).is_file()
+
+
+def _read_csv_rows(path: Path) -> list[dict[str, str]]:
+    with path.open(newline="") as file:
+        return list(csv.DictReader(file))
+
+
+def _assert_cli_hnsw_build_results(
+    result_path: Path, index_names: set[str]
+) -> None:
+    build_csv = result_path / "build" / "pylucene_cuvs_hnsw,test.csv"
+    build_rows = _read_csv_rows(build_csv)
+
+    assert len(build_rows) == 2
+    assert {row["index_name"] for row in build_rows} == index_names
+    assert {int(row["m"]) for row in build_rows} == {16, 24}
+    for build_row in build_rows:
+        assert float(build_row["time"]) > 0
+        assert build_row["codec"] == _HNSW_CODEC
+        assert build_row["writer_policy"] == _HNSW_WRITER_POLICY
+        assert build_row["compound_file_policy"] == "lucene-default"
+
+
+def _assert_cli_hnsw_search_results(
+    result_path: Path, index_names: set[str], top_k: int
+) -> None:
+    search_stem = f"pylucene_cuvs_hnsw,test,k{top_k},bs2"
+    raw_csv = result_path / "search" / f"{search_stem},raw.csv"
+    search_rows = _read_csv_rows(raw_csv)
+
+    assert len(search_rows) == 4
+    assert {row["index_name"] for row in search_rows} == index_names
+    assert {int(row["num_candidates"]) for row in search_rows} == {top_k, 11}
+    assert {
+        (int(row["m"]), int(row["num_candidates"])) for row in search_rows
+    } == {
+        (16, top_k),
+        (16, 11),
+        (24, top_k),
+        (24, 11),
+    }
+    for search_row in search_rows:
+        assert float(search_row["recall"]) >= 0.75
+        assert float(search_row["throughput"]) > 0
+        assert float(search_row["latency"]) > 0
+        assert float(search_row["build time"]) > 0
+        assert float(search_row["p50"]) > 0
+        assert float(search_row["p95"]) > 0
+        assert float(search_row["p99"]) > 0
+        assert search_row["codec"] == _HNSW_CODEC
+        assert search_row["compound_file_policy"] == "lucene-default"
+    assert (result_path / "search" / f"{search_stem},latency.csv").is_file()
+    assert (result_path / "search" / f"{search_stem},throughput.csv").is_file()
 
 
 def _single_search_result(results):
@@ -263,33 +456,8 @@ def _assert_hnsw_verification(
 
 @pytest.fixture(scope="module")
 def integration_dataset_case():
-    rng = np.random.default_rng(1907)
-    training_vectors = rng.standard_normal((512, 32)).astype(np.float32)
-    query_ids = np.asarray([0, 137, 259, 511], dtype=np.int64)
-    query_vectors = training_vectors[query_ids].copy()
-    k = 5
-
-    squared_distances = np.sum(
-        (query_vectors[:, np.newaxis, :] - training_vectors[np.newaxis, :, :])
-        ** 2,
-        axis=2,
-    )
-    groundtruth_neighbors = np.argsort(squared_distances, axis=1)[:, :k]
-    groundtruth_distances = np.take_along_axis(
-        squared_distances, groundtruth_neighbors, axis=1
-    )
-    return _DatasetCase(
-        dataset=Dataset(
-            name="pylucene-integration",
-            training_vectors=training_vectors,
-            query_vectors=query_vectors,
-            groundtruth_neighbors=groundtruth_neighbors.astype(np.int32),
-            groundtruth_distances=groundtruth_distances.astype(np.float32),
-            distance_metric="euclidean",
-        ),
-        query_ids=query_ids,
-        squared_distances=squared_distances,
-        k=k,
+    return _create_deterministic_dataset_case(
+        "pylucene-integration", seed=1907
     )
 
 
@@ -402,12 +570,10 @@ def _assert_build_contract(baseline):
         assert (baseline.index_path / _HNSW_PROVENANCE_FILE).is_file()
 
 
-def _assert_search_contract(baseline, result):
+def _assert_ann_result_quality(baseline, result):
     case = baseline.dataset_case
     dataset = case.dataset
     query_vectors = dataset.query_vectors
-    training_vectors = dataset.training_vectors
-    assert result.success, result.error_message
     assert result.neighbors.shape == (query_vectors.shape[0], case.k)
     assert result.distances.shape == (query_vectors.shape[0], case.k)
     np.testing.assert_array_equal(result.neighbors[:, 0], case.query_ids)
@@ -423,9 +589,20 @@ def _assert_search_contract(baseline, result):
         result.distances, returned_distances, rtol=1e-5, atol=1e-5
     )
     assert np.all(np.diff(result.distances, axis=1) >= -1e-6)
+
+
+def _assert_benchmark_measurements(result):
     assert result.search_time_ms > 0
     assert result.metadata["latency_seconds"] > 0
     assert result.queries_per_second > 0
+    assert result.metadata["num_batches"] == 2
+    assert result.metadata["mode"] == "latency"
+    assert set(result.latency_percentiles) == {"p50", "p95", "p99"}
+
+
+def _assert_search_provenance(baseline, result):
+    case = baseline.dataset_case
+    training_vectors = case.dataset.training_vectors
     assert result.metadata["codec"] == baseline.codec
     assert result.metadata["segment_count"] >= 1
     assert result.metadata["pylucene_version"] != "unknown"
@@ -433,9 +610,6 @@ def _assert_search_contract(baseline, result):
         result.metadata["compound_file_policy"]
         == _COMPOUND_FILE_POLICY[baseline.codec]
     )
-    assert result.metadata["num_batches"] == 2
-    assert result.metadata["mode"] == "latency"
-    assert set(result.latency_percentiles) == {"p50", "p95", "p99"}
     if baseline.codec == _CAGRA_CODEC:
         assert result.search_params == [{}]
         _assert_cagra_provenance(
@@ -459,6 +633,13 @@ def _assert_search_contract(baseline, result):
             training_vectors.shape[1],
             baseline.build_parameters,
         )
+
+
+def _assert_search_contract(baseline, result):
+    assert result.success, result.error_message
+    _assert_ann_result_quality(baseline, result)
+    _assert_benchmark_measurements(result)
+    _assert_search_provenance(baseline, result)
 
 
 def test_build_hnsw_with_real_pylucene_runtime(hnsw_baseline):
@@ -716,11 +897,20 @@ def _build_and_force_merge(runtime, index_path, vectors, writer_config):
                     writer.close()
             finally:
                 directory.close()
-    return (
-        initial_segment_count,
-        initial_segment_document_counts,
-        final_segment_count,
-        final_segment_document_counts,
+    return _ForceMergeTopology(
+        initial_segment_count=initial_segment_count,
+        initial_segment_document_counts=initial_segment_document_counts,
+        final_segment_count=final_segment_count,
+        final_segment_document_counts=final_segment_document_counts,
+    )
+
+
+def _expected_flush_segment_document_counts(
+    document_count: int, documents_per_flush: int
+) -> tuple[int, ...]:
+    return tuple(
+        min(documents_per_flush, document_count - segment_start)
+        for segment_start in range(0, document_count, documents_per_flush)
     )
 
 
@@ -832,25 +1022,29 @@ def test_configured_hnsw_codec_selects_gpu_writer(
         writer_config.getMergePolicy().getNoCFSRatio()
     ) == pytest.approx(float(default_config.getMergePolicy().getNoCFSRatio()))
     _assert_default_merge_scheduler(writer_config)
-    writer_config.setMaxBufferedDocs(256)
+    documents_per_flush = 256
+    writer_config.setMaxBufferedDocs(documents_per_flush)
 
     capfd.readouterr()
-    (
-        initial_segments,
-        initial_segment_document_counts,
-        final_segments,
-        final_segment_document_counts,
-    ) = _build_and_force_merge(runtime, index_path, vectors, writer_config)
+    topology = _build_and_force_merge(
+        runtime, index_path, vectors, writer_config
+    )
     captured = capfd.readouterr()
     assert_no_cuvs_graph_clamp_warnings(captured.out + captured.err)
-    assert initial_segments == 4
-    assert initial_segment_document_counts == (256, 256, 256, 256)
-    assert final_segments == 1
-    assert final_segment_document_counts == (vectors.shape[0],)
+    expected_flush_segments = _expected_flush_segment_document_counts(
+        vectors.shape[0], documents_per_flush
+    )
+    assert topology.initial_segment_count == len(expected_flush_segments)
+    assert topology.initial_segment_document_counts == expected_flush_segments
+    assert topology.final_segment_count == 1
+    assert topology.final_segment_document_counts == (vectors.shape[0],)
 
     writer_class, writer_calls = _writer_diagnostics(java_codec)
     assert writer_class == _GPU_HNSW_WRITER
-    assert writer_calls >= 5
+    minimum_writer_calls = (
+        topology.initial_segment_count + topology.final_segment_count
+    )
+    assert writer_calls >= minimum_writer_calls
     search = runtime.search_index(
         index_path,
         vectors[[3]],
@@ -960,21 +1154,22 @@ def test_real_cagra_codec_merges_without_compound_files(
     assert not bool(writer_config.getUseCompoundFile())
     assert float(writer_config.getMergePolicy().getNoCFSRatio()) == 0.0
     _assert_default_merge_scheduler(writer_config)
-    writer_config.setMaxBufferedDocs(256)
+    documents_per_flush = 256
+    writer_config.setMaxBufferedDocs(documents_per_flush)
 
     capfd.readouterr()
-    (
-        initial_segments,
-        initial_segment_document_counts,
-        final_segments,
-        final_segment_document_counts,
-    ) = _build_and_force_merge(runtime, index_path, vectors, writer_config)
+    topology = _build_and_force_merge(
+        runtime, index_path, vectors, writer_config
+    )
     captured = capfd.readouterr()
     assert_no_cuvs_graph_clamp_warnings(captured.out + captured.err)
-    assert initial_segments == 2
-    assert initial_segment_document_counts == (256, 256)
-    assert final_segments == 1
-    assert final_segment_document_counts == (vectors.shape[0],)
+    expected_flush_segments = _expected_flush_segment_document_counts(
+        vectors.shape[0], documents_per_flush
+    )
+    assert topology.initial_segment_count == len(expected_flush_segments)
+    assert topology.initial_segment_document_counts == expected_flush_segments
+    assert topology.final_segment_count == 1
+    assert topology.final_segment_document_counts == (vectors.shape[0],)
     assert _committed_segment_compound_flags(runtime, index_path) == [False]
 
     suffixes = {path.suffix for path in index_path.iterdir()}
@@ -1012,9 +1207,6 @@ def test_real_hnsw_codec_falls_back_to_cpu_in_fresh_process(
             "CUVS_LUCENE_JAR": pylucene_runtime_config.backend_config[
                 "cuvs_lucene_jar"
             ],
-            "JAVA_LIBRARY_PATH": pylucene_runtime_config.backend_config[
-                "java_library_path"
-            ],
             PYLUCENE_TEST_CLASSES_ENV: str(
                 pylucene_runtime_config.test_classes
             ),
@@ -1025,6 +1217,10 @@ def test_real_hnsw_codec_falls_back_to_cpu_in_fresh_process(
             ),
         }
     )
+    if java_library_path := pylucene_runtime_config.backend_config.get(
+        "java_library_path"
+    ):
+        environment["JAVA_LIBRARY_PATH"] = java_library_path
     completed = subprocess.run(
         [sys.executable, str(_CPU_FALLBACK_PROBE)],
         env=environment,
@@ -1093,87 +1289,12 @@ def test_real_verifier_rejects_cagra_brute_force_fallback(
         backend.cleanup()
 
 
-def test_cli_build_and_search_with_real_pylucene_runtime(
+def test_cli_runs_real_pylucene_hnsw_build_and_search_sweep(
     tmp_path, pylucene_runtime_config
 ):
-    """Exercise a build/search parameter sweep in a fresh PyLucene process."""
-    rng = np.random.default_rng(174)
-    training_vectors = rng.standard_normal((512, 32)).astype(np.float32)
-    query_ids = np.asarray([0, 137, 259, 511], dtype=np.int64)
-    query_vectors = training_vectors[query_ids].copy()
-    k = 5
-    squared_distances = np.sum(
-        (query_vectors[:, np.newaxis, :] - training_vectors[np.newaxis, :, :])
-        ** 2,
-        axis=2,
-    )
-    groundtruth_neighbors = np.argsort(squared_distances, axis=1)[:, :k]
-    groundtruth_distances = np.take_along_axis(
-        squared_distances, groundtruth_neighbors, axis=1
-    )
-
-    dataset_name = "pylucene-cli-integration"
-    dataset_path = tmp_path / "datasets"
-    dataset_dir = dataset_path / dataset_name
-    _write_test_bin(dataset_dir / "base.fbin", training_vectors)
-    _write_test_bin(dataset_dir / "query.fbin", query_vectors)
-    _write_test_bin(
-        dataset_dir / "groundtruth.neighbors.ibin",
-        groundtruth_neighbors.astype(np.int32),
-    )
-    _write_test_bin(
-        dataset_dir / "groundtruth.distances.fbin",
-        groundtruth_distances.astype(np.float32),
-    )
-
-    dataset_config = tmp_path / "datasets.yaml"
-    dataset_config.write_text(
-        json.dumps(
-            [
-                {
-                    "name": dataset_name,
-                    "base_file": f"{dataset_name}/base.fbin",
-                    "query_file": f"{dataset_name}/query.fbin",
-                    "groundtruth_neighbors_file": (
-                        f"{dataset_name}/groundtruth.neighbors.ibin"
-                    ),
-                    "groundtruth_distances_file": (
-                        f"{dataset_name}/groundtruth.distances.fbin"
-                    ),
-                    "distance": "euclidean",
-                    "dims": training_vectors.shape[1],
-                }
-            ]
-        )
-    )
-    backend_config = tmp_path / "pylucene-backend.yaml"
-    backend_config.write_text(
-        json.dumps(
-            {
-                "backend": "pylucene",
-                **pylucene_runtime_config.backend_config,
-            }
-        )
-    )
-    algorithm_config = tmp_path / "pylucene-hnsw-sweep.yaml"
-    algorithm_config.write_text(
-        json.dumps(
-            {
-                "name": "pylucene_cuvs_hnsw",
-                "groups": {
-                    "test": {
-                        "build": {
-                            "codec": [_HNSW_CODEC],
-                            "m": [16, 24],
-                            "ef_construction": [32],
-                            "direct_single_segment": [False],
-                        },
-                        "search": {"num_candidates": [k, 11]},
-                    }
-                },
-            }
-        )
-    )
+    """Run the real backend from its flag without a runtime config file."""
+    dataset = _prepare_cli_integration_dataset(tmp_path)
+    algorithm_config = _write_cli_hnsw_sweep_configs(tmp_path, dataset.top_k)
 
     environment = os.environ.copy()
     source_root = str(PYTHON_PACKAGE_ROOT)
@@ -1187,16 +1308,16 @@ def test_cli_build_and_search_with_real_pylucene_runtime(
             sys.executable,
             "-m",
             "cuvs_bench.run",
-            "--backend-config",
-            str(backend_config),
+            "--backend",
+            "pylucene",
             "--dataset-configuration",
-            str(dataset_config),
+            str(dataset.descriptor),
             "--configuration",
             str(algorithm_config),
             "--dataset",
-            dataset_name,
+            dataset.name,
             "--dataset-path",
-            str(dataset_path),
+            str(dataset.root),
             "--algorithms",
             "pylucene_cuvs_hnsw",
             "--groups",
@@ -1204,7 +1325,7 @@ def test_cli_build_and_search_with_real_pylucene_runtime(
             "--batch-size",
             "2",
             "-k",
-            str(k),
+            str(dataset.top_k),
             "-m",
             "latency",
             "--build",
@@ -1221,57 +1342,10 @@ def test_cli_build_and_search_with_real_pylucene_runtime(
     assert completed.returncode == 0, (
         f"stdout:\n{completed.stdout}\nstderr:\n{completed.stderr}"
     )
+    assert_no_cuvs_graph_clamp_warnings(completed.stdout + completed.stderr)
 
-    codec = _HNSW_CODEC
-    index_names = {
-        (
-            f"pylucene_cuvs_hnsw[group=test][codec={codec}]"
-            f"[m={m}][ef_construction=32][direct_single_segment=false]"
-        )
-        for m in (16, 24)
-    }
-    for index_name in index_names:
-        index_path = dataset_dir / "index" / index_name
-        assert any(index_path.glob("segments_*"))
-        assert (index_path / _HNSW_PROVENANCE_FILE).is_file()
-
-    result_path = dataset_dir / "result"
-    build_csv = result_path / "build" / "pylucene_cuvs_hnsw,test.csv"
-    search_stem = f"pylucene_cuvs_hnsw,test,k{k},bs2"
-    with build_csv.open(newline="") as file:
-        build_rows = list(csv.DictReader(file))
-    assert len(build_rows) == 2
-    assert {row["index_name"] for row in build_rows} == index_names
-    assert {int(row["m"]) for row in build_rows} == {16, 24}
-    for build_row in build_rows:
-        assert float(build_row["time"]) > 0
-        assert build_row["codec"] == codec
-        assert build_row["writer_policy"] == _HNSW_WRITER_POLICY
-        assert build_row["compound_file_policy"] == "lucene-default"
-
-    raw_csv = result_path / "search" / f"{search_stem},raw.csv"
-    with raw_csv.open(newline="") as file:
-        csv_rows = list(csv.DictReader(file))
-    assert len(csv_rows) == 4
-    assert {row["index_name"] for row in csv_rows} == index_names
-    assert {int(row["num_candidates"]) for row in csv_rows} == {k, 11}
-    assert {
-        (int(row["m"]), int(row["num_candidates"])) for row in csv_rows
-    } == {
-        (16, k),
-        (16, 11),
-        (24, k),
-        (24, 11),
-    }
-    for csv_row in csv_rows:
-        assert float(csv_row["recall"]) >= 0.75
-        assert float(csv_row["throughput"]) > 0
-        assert float(csv_row["latency"]) > 0
-        assert float(csv_row["build time"]) > 0
-        assert float(csv_row["p50"]) > 0
-        assert float(csv_row["p95"]) > 0
-        assert float(csv_row["p99"]) > 0
-        assert csv_row["codec"] == codec
-        assert csv_row["compound_file_policy"] == "lucene-default"
-    assert (result_path / "search" / f"{search_stem},latency.csv").is_file()
-    assert (result_path / "search" / f"{search_stem},throughput.csv").is_file()
+    index_names = _expected_cli_hnsw_index_names()
+    result_path = dataset.directory / "result"
+    _assert_cli_hnsw_index_artifacts(dataset.directory, index_names)
+    _assert_cli_hnsw_build_results(result_path, index_names)
+    _assert_cli_hnsw_search_results(result_path, index_names, dataset.top_k)

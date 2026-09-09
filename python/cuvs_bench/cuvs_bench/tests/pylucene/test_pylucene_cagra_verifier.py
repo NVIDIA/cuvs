@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass, replace
 from types import SimpleNamespace
 
 import pytest
@@ -34,6 +35,63 @@ class _FakeChecksumInput(_FakeCagraMetadataInput):
 
     def close(self):
         self.closed = True
+
+
+_FLOAT32_ENCODING_ORDINAL = 1
+_EUCLIDEAN_SIMILARITY_ORDINAL = 0
+
+
+@dataclass(frozen=True)
+class _PersistedCagraFieldRecord:
+    """Test-owned description of one v0 CAGRA metadata field record."""
+
+    field_number: int = 1
+    encoding_ordinal: int = _FLOAT32_ENCODING_ORDINAL
+    similarity_ordinal: int = _EUCLIDEAN_SIMILARITY_ORDINAL
+    dimensions: int = 32
+    vector_count: int = 4
+    cagra_offset: int = 57
+    cagra_length: int = 1000
+    brute_force_offset: int | None = None
+    brute_force_length: int = 0
+
+    @property
+    def resolved_brute_force_offset(self) -> int:
+        if self.brute_force_offset is not None:
+            return self.brute_force_offset
+        return self.cagra_offset + self.cagra_length
+
+
+_VALID_CAGRA_FIELD = _PersistedCagraFieldRecord()
+
+
+def _cagra_metadata_input(
+    *fields: _PersistedCagraFieldRecord, checksummed: bool = False
+) -> _FakeCagraMetadataInput:
+    """Encode test records without calling the production metadata decoder."""
+    integers = []
+    variable_longs = []
+    for field in fields:
+        integers.extend(
+            [
+                field.field_number,
+                field.encoding_ordinal,
+                field.similarity_ordinal,
+                field.dimensions,
+                field.vector_count,
+            ]
+        )
+        variable_longs.extend(
+            [
+                field.cagra_offset,
+                field.cagra_length,
+                field.resolved_brute_force_offset,
+                field.brute_force_length,
+            ]
+        )
+    integers.append(-1)
+    input_type = _FakeChecksumInput if checksummed else _FakeCagraMetadataInput
+    return input_type(integers, variable_longs)
 
 
 class _FakeIndexInput:
@@ -98,7 +156,15 @@ class _FakeFieldInfos:
         return iter(self._field_infos.values())
 
 
-def _fake_cagra_index_verifier(
+@dataclass
+class _CagraVerifierHarness:
+    verifier: pylucene_backend._CagraIndexVerifier
+    data_input: _FakeIndexInput
+    directory: SimpleNamespace
+    segment_info: SimpleNamespace
+
+
+def _cagra_verifier_harness(
     metadata_input,
     *,
     metadata_files=("_0.vemc",),
@@ -184,17 +250,19 @@ def _fake_cagra_index_verifier(
         fs_directory=SimpleNamespace(open=lambda _path: directory),
         io_context=SimpleNamespace(READONCE=object()),
     )
-    verifier._test_data_input = data_input
-    verifier._test_directory = directory
-    verifier._test_segment_info = segment_info
-    return verifier
+    return _CagraVerifierHarness(
+        verifier=verifier,
+        data_input=data_input,
+        directory=directory,
+        segment_info=segment_info,
+    )
 
 
-def _cagra_data_context(verifier, index_path):
+def _cagra_data_context(harness, index_path):
     return pylucene_backend._CagraDataFileContext(
         index_path=index_path,
-        directory=verifier._test_directory,
-        segment_info=verifier._test_segment_info,
+        directory=harness.directory,
+        segment_info=harness.segment_info,
         suffix="",
         metadata_file="_0.vemc",
     )
@@ -219,21 +287,14 @@ def test_cagra_segment_suffix_rejects_unrelated_metadata_file():
 
 
 def test_read_cagra_fields_accepts_only_persisted_cagra_data():
-    metadata_input = _FakeCagraMetadataInput(
-        integers=[
-            1,
-            1,
-            0,
-            32,
-            4,
-            2,
-            1,
-            0,
-            32,
-            0,
-            -1,
-        ],
-        variable_longs=[57, 1000, 1057, 0, 0, 0, 0, 0],
+    metadata_input = _cagra_metadata_input(
+        _VALID_CAGRA_FIELD,
+        _PersistedCagraFieldRecord(
+            field_number=2,
+            vector_count=0,
+            cagra_offset=0,
+            cagra_length=0,
+        ),
     )
 
     assert pylucene_backend._CagraIndexVerifier._read_cagra_fields(
@@ -259,14 +320,12 @@ def test_read_cagra_fields_accepts_only_persisted_cagra_data():
 def test_read_cagra_fields_rejects_non_cagra_only_data(
     cagra_length, brute_force_length, error
 ):
-    metadata_input = _FakeCagraMetadataInput(
-        integers=[1, 1, 0, 32, 4, -1],
-        variable_longs=[
-            57,
-            cagra_length,
-            57 + cagra_length,
-            brute_force_length,
-        ],
+    metadata_input = _cagra_metadata_input(
+        replace(
+            _VALID_CAGRA_FIELD,
+            cagra_length=cagra_length,
+            brute_force_length=brute_force_length,
+        )
     )
 
     with pytest.raises(RuntimeError, match=error):
@@ -276,9 +335,8 @@ def test_read_cagra_fields_rejects_non_cagra_only_data(
 
 
 def test_read_cagra_fields_rejects_data_for_empty_field():
-    metadata_input = _FakeCagraMetadataInput(
-        integers=[1, 1, 0, 32, 0, -1],
-        variable_longs=[57, 1, 58, 0],
+    metadata_input = _cagra_metadata_input(
+        replace(_VALID_CAGRA_FIELD, vector_count=0, cagra_length=1)
     )
 
     with pytest.raises(RuntimeError, match="empty field"):
@@ -299,9 +357,13 @@ def test_read_cagra_fields_rejects_data_for_empty_field():
 def test_read_cagra_fields_rejects_unsupported_vector_semantics(
     encoding, similarity, dimensions, error
 ):
-    metadata_input = _FakeCagraMetadataInput(
-        integers=[1, encoding, similarity, dimensions, 4, -1],
-        variable_longs=[57, 1000, 1057, 0],
+    metadata_input = _cagra_metadata_input(
+        replace(
+            _VALID_CAGRA_FIELD,
+            encoding_ordinal=encoding,
+            similarity_ordinal=similarity,
+            dimensions=dimensions,
+        )
     )
 
     with pytest.raises(RuntimeError, match=error):
@@ -313,16 +375,13 @@ def test_read_cagra_fields_rejects_unsupported_vector_semantics(
 def test_verify_cagra_index_validates_header_footer_and_expected_count(
     tmp_path,
 ):
-    metadata_input = _FakeChecksumInput(
-        integers=[1, 1, 0, 32, 4, -1],
-        variable_longs=[57, 1000, 1057, 0],
+    metadata_input = _cagra_metadata_input(
+        _VALID_CAGRA_FIELD, checksummed=True
     )
     codec_util = _FakeCodecUtil()
-    verifier = _fake_cagra_index_verifier(
-        metadata_input, codec_util=codec_util
-    )
+    harness = _cagra_verifier_harness(metadata_input, codec_util=codec_util)
 
-    verification = verifier.verify_index(
+    verification = harness.verifier.verify_index(
         tmp_path, expected_vector_count=4, expected_dimensions=32
     )
 
@@ -343,7 +402,7 @@ def test_verify_cagra_index_validates_header_footer_and_expected_count(
             "",
         ),
         (
-            verifier._test_data_input,
+            harness.data_input,
             "Lucene102CuVSVectorsFormatIndex",
             0,
             0,
@@ -352,9 +411,9 @@ def test_verify_cagra_index_validates_header_footer_and_expected_count(
         ),
     ]
     assert codec_util.footer_calls == [metadata_input]
-    assert codec_util.checksum_calls == [verifier._test_data_input]
+    assert codec_util.checksum_calls == [harness.data_input]
     assert metadata_input.closed is True
-    assert verifier._test_data_input.closed is True
+    assert harness.data_input.closed is True
 
 
 def test_verify_cagra_index_traverses_segments_and_closes_each_input(
@@ -362,23 +421,20 @@ def test_verify_cagra_index_traverses_segments_and_closes_each_input(
 ):
     events = []
     metadata_inputs = {
-        name: _FakeChecksumInput(
-            integers=[1, 1, 0, 32, 4, -1],
-            variable_longs=[57, 1000, 1057, 0],
-        )
+        name: _cagra_metadata_input(_VALID_CAGRA_FIELD, checksummed=True)
         for name in ("_0.vemc", "_1.vemc")
     }
     data_inputs = {name: _FakeIndexInput() for name in ("_0.vcag", "_1.vcag")}
-    verifier = _fake_cagra_index_verifier(metadata_inputs["_0.vemc"])
+    harness = _cagra_verifier_harness(metadata_inputs["_0.vemc"])
 
     def segment(name):
         field_info = SimpleNamespace(
             number=1,
             getName=lambda: "vector",
             getVectorDimension=lambda: 32,
-            getVectorEncoding=lambda: verifier.VectorEncoding.FLOAT32,
+            getVectorEncoding=lambda: harness.verifier.VectorEncoding.FLOAT32,
             getVectorSimilarityFunction=(
-                lambda: verifier.VectorSimilarityFunction.EUCLIDEAN
+                lambda: harness.verifier.VectorSimilarityFunction.EUCLIDEAN
             ),
         )
         field_infos_format = SimpleNamespace(
@@ -424,15 +480,15 @@ def test_verify_cagra_index_traverses_segments_and_closes_each_input(
         data_input.close = close_data
         return data_input
 
-    verifier.SegmentInfos.readLatestCommit = lambda _directory: [
+    harness.verifier.SegmentInfos.readLatestCommit = lambda _directory: [
         segment("_0"),
         segment("_1"),
     ]
-    verifier._test_directory.openChecksumInput = open_metadata
-    verifier._test_directory.openInput = open_data
-    verifier._test_directory.close = lambda: events.append("close directory")
+    harness.directory.openChecksumInput = open_metadata
+    harness.directory.openInput = open_data
+    harness.directory.close = lambda: events.append("close directory")
 
-    verification = verifier.verify_index(tmp_path)
+    verification = harness.verifier.verify_index(tmp_path)
 
     assert verification == pylucene_backend._CagraIndexVerification(
         segment_count=2,
@@ -457,64 +513,62 @@ def test_verify_cagra_index_traverses_segments_and_closes_each_input(
 
 @pytest.mark.parametrize("error_at", ["header", "footer"])
 def test_verify_cagra_index_fails_closed_on_invalid_format(error_at, tmp_path):
-    metadata_input = _FakeChecksumInput(
-        integers=[1, 1, 0, 32, 4, -1],
-        variable_longs=[57, 1000, 1057, 0],
+    metadata_input = _cagra_metadata_input(
+        _VALID_CAGRA_FIELD, checksummed=True
     )
-    verifier = _fake_cagra_index_verifier(
+    harness = _cagra_verifier_harness(
         metadata_input, codec_util=_FakeCodecUtil(error_at=error_at)
     )
 
     with pytest.raises(RuntimeError, match="metadata format v0"):
-        verifier.verify_index(tmp_path)
+        harness.verifier.verify_index(tmp_path)
 
     assert metadata_input.closed is True
 
 
 def test_verify_cagra_index_rejects_missing_segment_metadata(tmp_path):
-    verifier = _fake_cagra_index_verifier(
+    harness = _cagra_verifier_harness(
         _FakeChecksumInput([], []), metadata_files=()
     )
 
     with pytest.raises(RuntimeError, match="no .vemc metadata"):
-        verifier.verify_index(tmp_path)
+        harness.verifier.verify_index(tmp_path)
 
 
 def test_verify_cagra_index_rejects_only_empty_fields(tmp_path):
-    verifier = _fake_cagra_index_verifier(
-        _FakeChecksumInput(
-            integers=[1, 1, 0, 32, 0, -1],
-            variable_longs=[0, 0, 0, 0],
+    harness = _cagra_verifier_harness(
+        _cagra_metadata_input(
+            replace(
+                _VALID_CAGRA_FIELD,
+                vector_count=0,
+                cagra_offset=0,
+                cagra_length=0,
+            ),
+            checksummed=True,
         ),
         data_payload_length=0,
     )
 
     with pytest.raises(RuntimeError, match="without matching CAGRA metadata"):
-        verifier.verify_index(tmp_path)
+        harness.verifier.verify_index(tmp_path)
 
 
 def test_verify_cagra_index_rejects_vector_count_mismatch(tmp_path):
-    verifier = _fake_cagra_index_verifier(
-        _FakeChecksumInput(
-            integers=[1, 1, 0, 32, 4, -1],
-            variable_longs=[57, 1000, 1057, 0],
-        )
+    harness = _cagra_verifier_harness(
+        _cagra_metadata_input(_VALID_CAGRA_FIELD, checksummed=True)
     )
 
     with pytest.raises(RuntimeError, match="4 vectors; expected 5"):
-        verifier.verify_index(tmp_path, expected_vector_count=5)
+        harness.verifier.verify_index(tmp_path, expected_vector_count=5)
 
 
 def test_verify_cagra_index_rejects_dimension_mismatch(tmp_path):
-    verifier = _fake_cagra_index_verifier(
-        _FakeChecksumInput(
-            integers=[1, 1, 0, 32, 4, -1],
-            variable_longs=[57, 1000, 1057, 0],
-        )
+    harness = _cagra_verifier_harness(
+        _cagra_metadata_input(_VALID_CAGRA_FIELD, checksummed=True)
     )
 
     with pytest.raises(RuntimeError, match="32 dimensions; expected 16"):
-        verifier.verify_index(tmp_path, expected_dimensions=16)
+        harness.verifier.verify_index(tmp_path, expected_dimensions=16)
 
 
 @pytest.mark.parametrize(
@@ -528,90 +582,76 @@ def test_verify_cagra_index_rejects_dimension_mismatch(tmp_path):
 def test_verify_cagra_index_rejects_committed_deletions(
     tmp_path, runtime_kwargs, expected_counts
 ):
-    verifier = _fake_cagra_index_verifier(
-        _FakeChecksumInput(
-            integers=[1, 1, 0, 32, 4, -1],
-            variable_longs=[57, 1000, 1057, 0],
-        ),
+    harness = _cagra_verifier_harness(
+        _cagra_metadata_input(_VALID_CAGRA_FIELD, checksummed=True),
         **runtime_kwargs,
     )
 
     with pytest.raises(RuntimeError, match=expected_counts):
-        verifier.verify_index(tmp_path)
+        harness.verifier.verify_index(tmp_path)
 
 
 def test_verify_cagra_index_rejects_segment_document_count_mismatch(tmp_path):
-    verifier = _fake_cagra_index_verifier(
-        _FakeChecksumInput(
-            integers=[1, 1, 0, 32, 4, -1],
-            variable_longs=[57, 1000, 1057, 0],
-        ),
+    harness = _cagra_verifier_harness(
+        _cagra_metadata_input(_VALID_CAGRA_FIELD, checksummed=True),
         max_documents=5,
     )
 
     with pytest.raises(RuntimeError, match="4 vectors for 5 documents"):
-        verifier.verify_index(tmp_path)
+        harness.verifier.verify_index(tmp_path)
 
 
 def test_verify_cagra_index_rejects_unaccounted_vector_field(tmp_path):
-    verifier = _fake_cagra_index_verifier(
-        _FakeChecksumInput(
-            integers=[1, 1, 0, 32, 4, -1],
-            variable_longs=[57, 1000, 1057, 0],
-        ),
+    harness = _cagra_verifier_harness(
+        _cagra_metadata_input(_VALID_CAGRA_FIELD, checksummed=True),
         extra_vector_field=True,
     )
 
     with pytest.raises(RuntimeError, match=r"metadata=\[1\], Lucene=\[1, 2\]"):
-        verifier.verify_index(tmp_path)
+        harness.verifier.verify_index(tmp_path)
 
 
 def test_verify_cagra_index_rejects_duplicate_field_across_metadata_files(
     tmp_path,
 ):
     metadata_inputs = {
-        name: _FakeChecksumInput(
-            integers=[1, 1, 0, 32, 4, -1],
-            variable_longs=[57, 1000, 1057, 0],
-        )
+        name: _cagra_metadata_input(_VALID_CAGRA_FIELD, checksummed=True)
         for name in ("_0.vemc", "_0_CuVS_0.vemc")
     }
-    verifier = _fake_cagra_index_verifier(
+    harness = _cagra_verifier_harness(
         metadata_inputs["_0.vemc"],
         metadata_files=tuple(metadata_inputs),
     )
-    verifier._test_directory.openChecksumInput = metadata_inputs.__getitem__
-    verifier._test_directory.openInput = (
+    harness.directory.openChecksumInput = metadata_inputs.__getitem__
+    harness.directory.openInput = (
         lambda _file_name, _context: _FakeIndexInput()
     )
 
     with pytest.raises(RuntimeError, match="duplicate field 1"):
-        verifier.verify_index(tmp_path)
+        harness.verifier.verify_index(tmp_path)
 
 
 def test_verify_cagra_index_rejects_inconsistent_dimensions_across_segments(
     tmp_path,
 ):
     metadata_inputs = {
-        "_0.vemc": _FakeChecksumInput(
-            integers=[1, 1, 0, 32, 4, -1],
-            variable_longs=[57, 1000, 1057, 0],
-        ),
-        "_1.vemc": _FakeChecksumInput(
-            integers=[1, 1, 0, 16, 4, -1],
-            variable_longs=[57, 1000, 1057, 0],
+        "_0.vemc": _cagra_metadata_input(_VALID_CAGRA_FIELD, checksummed=True),
+        "_1.vemc": _cagra_metadata_input(
+            replace(_VALID_CAGRA_FIELD, dimensions=16), checksummed=True
         ),
     }
-    verifier = _fake_cagra_index_verifier(metadata_inputs["_0.vemc"])
+    harness = _cagra_verifier_harness(metadata_inputs["_0.vemc"])
 
     def segment(name, dimensions):
         field_info = SimpleNamespace(
             number=1,
             getName=lambda: "vector",
             getVectorDimension=lambda: dimensions,
-            getVectorEncoding=lambda: verifier.VectorEncoding.FLOAT32,
+            getVectorEncoding=(
+                lambda: harness.verifier.VectorEncoding.FLOAT32
+            ),
             getVectorSimilarityFunction=(
-                lambda: verifier.VectorSimilarityFunction.EUCLIDEAN
+                lambda: harness.verifier.VectorSimilarityFunction.EUCLIDEAN
             ),
         )
         field_infos = _FakeFieldInfos([field_info])
@@ -635,14 +675,16 @@ def test_verify_cagra_index_rejects_inconsistent_dimensions_across_segments(
         )
 
     segments = [segment("_0", 32), segment("_1", 16)]
-    verifier.SegmentInfos.readLatestCommit = lambda _directory: segments
-    verifier._test_directory.openChecksumInput = metadata_inputs.__getitem__
-    verifier._test_directory.openInput = (
+    harness.verifier.SegmentInfos.readLatestCommit = (
+        lambda _directory: segments
+    )
+    harness.directory.openChecksumInput = metadata_inputs.__getitem__
+    harness.directory.openInput = (
         lambda _file_name, _context: _FakeIndexInput()
     )
 
     with pytest.raises(RuntimeError, match=r"dimensions: \[16, 32\]"):
-        verifier.verify_index(tmp_path)
+        harness.verifier.verify_index(tmp_path)
 
 
 @pytest.mark.parametrize(
@@ -657,44 +699,35 @@ def test_verify_cagra_index_rejects_inconsistent_dimensions_across_segments(
 def test_verify_cagra_index_rejects_foreign_or_inconsistent_index(
     tmp_path, runtime_kwargs, error
 ):
-    verifier = _fake_cagra_index_verifier(
-        _FakeChecksumInput(
-            integers=[1, 1, 0, 32, 4, -1],
-            variable_longs=[57, 1000, 1057, 0],
-        ),
+    harness = _cagra_verifier_harness(
+        _cagra_metadata_input(_VALID_CAGRA_FIELD, checksummed=True),
         **runtime_kwargs,
     )
 
     with pytest.raises(RuntimeError, match=error):
-        verifier.verify_index(tmp_path)
+        harness.verifier.verify_index(tmp_path)
 
 
 def test_verify_cagra_index_rejects_corrupt_data_file(tmp_path):
-    verifier = _fake_cagra_index_verifier(
-        _FakeChecksumInput(
-            integers=[1, 1, 0, 32, 4, -1],
-            variable_longs=[57, 1000, 1057, 0],
-        ),
+    harness = _cagra_verifier_harness(
+        _cagra_metadata_input(_VALID_CAGRA_FIELD, checksummed=True),
         codec_util=_FakeCodecUtil(error_at="data-checksum"),
     )
 
     with pytest.raises(RuntimeError, match="invalid data checksum"):
-        verifier.verify_index(tmp_path)
+        harness.verifier.verify_index(tmp_path)
 
-    assert verifier._test_data_input.closed is True
+    assert harness.data_input.closed is True
 
 
 def test_verify_cagra_index_rejects_missing_data_file(tmp_path):
-    verifier = _fake_cagra_index_verifier(
-        _FakeChecksumInput(
-            integers=[1, 1, 0, 32, 4, -1],
-            variable_longs=[57, 1000, 1057, 0],
-        ),
+    harness = _cagra_verifier_harness(
+        _cagra_metadata_input(_VALID_CAGRA_FIELD, checksummed=True),
         data_error=FileNotFoundError("_0.vcag"),
     )
 
     with pytest.raises(RuntimeError, match="cannot read '_0.vcag'"):
-        verifier.verify_index(tmp_path)
+        harness.verifier.verify_index(tmp_path)
 
 
 def test_file_signature_exposes_named_stat_fields(tmp_path):
@@ -718,7 +751,7 @@ def test_cagra_data_checksum_is_cached_for_unchanged_file(
     tmp_path, monkeypatch
 ):
     codec_util = _FakeCodecUtil()
-    verifier = _fake_cagra_index_verifier(
+    harness = _cagra_verifier_harness(
         _FakeChecksumInput([], []), codec_util=codec_util
     )
     (tmp_path / "_0.vcag").write_bytes(b"data")
@@ -739,22 +772,32 @@ def test_cagra_data_checksum_is_cached_for_unchanged_file(
             cagra_length=1000,
         )
     ]
-    context = _cagra_data_context(verifier, tmp_path)
+    context = _cagra_data_context(harness, tmp_path)
 
     for _ in range(2):
-        verifier._verify_cagra_data_file(context, fields)
+        harness.verifier._verify_cagra_data_file(context, fields)
 
-    assert codec_util.checksum_calls == [verifier._test_data_input]
-    assert codec_util.retrieved_checksum_calls == [verifier._test_data_input]
+    assert codec_util.checksum_calls == [harness.data_input]
+    assert codec_util.retrieved_checksum_calls == [harness.data_input]
 
 
-def test_cagra_data_checksum_cache_invalidates_on_size_change(tmp_path):
+def test_cagra_data_checksum_cache_invalidates_on_size_change(
+    tmp_path, monkeypatch
+):
     codec_util = _FakeCodecUtil()
-    verifier = _fake_cagra_index_verifier(
+    harness = _cagra_verifier_harness(
         _FakeChecksumInput([], []), codec_util=codec_util
     )
     data_path = tmp_path / "_0.vcag"
     data_path.write_bytes(b"data")
+    data_ctime_ns = data_path.stat().st_ctime_ns
+    monkeypatch.setattr(
+        pylucene_backend.time,
+        "time_ns",
+        lambda: (
+            data_ctime_ns + pylucene_backend._CAGRA_CACHE_MIN_FILE_AGE_NS + 1
+        ),
+    )
     fields = [
         pylucene_backend._CagraFieldMetadata(
             field_number=1,
@@ -764,28 +807,37 @@ def test_cagra_data_checksum_cache_invalidates_on_size_change(tmp_path):
             cagra_length=1000,
         )
     ]
-    context = _cagra_data_context(verifier, tmp_path)
+    context = _cagra_data_context(harness, tmp_path)
 
-    verifier._verify_cagra_data_file(context, fields)
+    harness.verifier._verify_cagra_data_file(context, fields)
+    harness.verifier._verify_cagra_data_file(context, fields)
     data_path.write_bytes(b"changed-size")
-    verifier._verify_cagra_data_file(context, fields)
+    harness.verifier._verify_cagra_data_file(context, fields)
 
     assert codec_util.checksum_calls == [
-        verifier._test_data_input,
-        verifier._test_data_input,
+        harness.data_input,
+        harness.data_input,
     ]
-    assert codec_util.retrieved_checksum_calls == []
+    assert codec_util.retrieved_checksum_calls == [harness.data_input]
 
 
 def test_cagra_data_checksum_cache_invalidates_same_size_restored_mtime(
-    tmp_path,
+    tmp_path, monkeypatch
 ):
     codec_util = _FakeCodecUtil()
-    verifier = _fake_cagra_index_verifier(
+    harness = _cagra_verifier_harness(
         _FakeChecksumInput([], []), codec_util=codec_util
     )
     data_path = tmp_path / "_0.vcag"
     data_path.write_bytes(b"data")
+    data_ctime_ns = data_path.stat().st_ctime_ns
+    monkeypatch.setattr(
+        pylucene_backend.time,
+        "time_ns",
+        lambda: (
+            data_ctime_ns + pylucene_backend._CAGRA_CACHE_MIN_FILE_AGE_NS + 1
+        ),
+    )
     fields = [
         pylucene_backend._CagraFieldMetadata(
             field_number=1,
@@ -795,9 +847,10 @@ def test_cagra_data_checksum_cache_invalidates_same_size_restored_mtime(
             cagra_length=1000,
         )
     ]
-    context = _cagra_data_context(verifier, tmp_path)
+    context = _cagra_data_context(harness, tmp_path)
 
-    verifier._verify_cagra_data_file(context, fields)
+    harness.verifier._verify_cagra_data_file(context, fields)
+    harness.verifier._verify_cagra_data_file(context, fields)
     original_stat = data_path.stat()
     data_path.write_bytes(b"evil")
     os.utime(
@@ -805,11 +858,20 @@ def test_cagra_data_checksum_cache_invalidates_same_size_restored_mtime(
         ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns),
     )
     assert data_path.stat().st_mtime_ns == original_stat.st_mtime_ns
+    changed_signature = replace(
+        pylucene_backend._file_signature(data_path),
+        changed_at_ns=original_stat.st_ctime_ns + 1,
+    )
+    monkeypatch.setattr(
+        pylucene_backend,
+        "_file_signature",
+        lambda _path: changed_signature,
+    )
 
-    verifier._verify_cagra_data_file(context, fields)
+    harness.verifier._verify_cagra_data_file(context, fields)
 
     assert codec_util.checksum_calls == [
-        verifier._test_data_input,
-        verifier._test_data_input,
+        harness.data_input,
+        harness.data_input,
     ]
-    assert codec_util.retrieved_checksum_calls == []
+    assert codec_util.retrieved_checksum_calls == [harness.data_input]

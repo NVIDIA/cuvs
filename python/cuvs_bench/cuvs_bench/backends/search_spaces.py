@@ -170,7 +170,7 @@ ALGORITHM_SEARCH_SPACES: Dict[str, Dict[str, Dict[str, Any]]] = {
             "num_candidates": {
                 "type": "int",
                 "min": "top_k",
-                "max": 500,
+                "max": 2500,
             },
         },
     },

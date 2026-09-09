@@ -681,6 +681,35 @@ class TestConfigLoaderMethods:
         ):
             loader.get_dataset_configuration("nonexistent", datasets)
 
+    def test_algorithm_config_discovery_is_deterministic(self, tmp_path):
+        """List bundled files before custom files, sorting each directory."""
+        config_path = tmp_path / "config"
+        bundled_algorithms = config_path / "algos"
+        bundled_algorithms.mkdir(parents=True)
+        bundled_zeta = bundled_algorithms / "zeta.yaml"
+        bundled_alpha = bundled_algorithms / "alpha.yml"
+        bundled_zeta.touch()
+        bundled_alpha.touch()
+        (bundled_algorithms / "ignored.txt").touch()
+
+        custom_algorithms = tmp_path / "custom"
+        custom_algorithms.mkdir()
+        custom_zeta = custom_algorithms / "zeta.yml"
+        custom_alpha = custom_algorithms / "alpha.yaml"
+        custom_zeta.touch()
+        custom_alpha.touch()
+
+        files = CppGBenchConfigLoader(
+            config_path=config_path
+        ).gather_algorithm_configs(config_path, str(custom_algorithms))
+
+        assert files == [
+            str(bundled_alpha),
+            str(bundled_zeta),
+            str(custom_alpha),
+            str(custom_zeta),
+        ]
+
 
 class TestExpandParamGrid:
     """Tests for expand_param_grid."""

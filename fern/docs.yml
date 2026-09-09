@@ -222,6 +222,7 @@ navigation:
               - page: "Backends"
                 path: "./pages/cuvs_bench/pluggable_backend.md"
               - page: "PyLucene Backend"
+                slug: "pylucene-backend"
                 path: "./pages/cuvs_bench/pylucene_backend.md"
               - page: "cuVS Bench Parameter Tuning Guide"
                 hidden: true

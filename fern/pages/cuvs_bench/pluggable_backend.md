@@ -11,6 +11,12 @@ cuVS Bench uses two pieces for each backend:
 
 Both pieces are registered under the same backend type name. The default backend type is `cpp_gbench`, which runs the C++ Google Benchmark executables.
 
+Select another registered backend from the command line with `--backend`. Use `--backend-config` instead when a backend needs advanced YAML options; a simultaneous `--backend` value must agree with the file's optional `backend` field.
+
+```bash
+python -m cuvs_bench.run --backend pylucene <benchmark-options>
+```
+
 ```python
 from cuvs_bench.orchestrator import BenchmarkOrchestrator
 

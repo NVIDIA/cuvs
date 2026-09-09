@@ -360,7 +360,8 @@ class ConfigLoader(ABC):
         Returns
         -------
         list
-            A list of paths to the algorithm configuration files.
+            Bundled paths followed by custom paths, with each directory
+            ordered by filename.
         """
         algos_conf_fs = sorted(os.listdir(os.path.join(config_path, "algos")))
         algos_conf_fs = [

@@ -32,12 +32,18 @@ def _only_search_result(results):
     return results[0]
 
 
+class JavaError(RuntimeError):
+    """Stand-in for JCC's Python wrapper around a Java exception."""
+
+
 @pytest.mark.parametrize(
     ("score", "distance"),
     [(1.0, 0.0), (0.5, 1.0), (0.2, 4.0), (0.0, np.inf)],
 )
-def test_score_to_squared_euclidean(score, distance):
-    assert pylucene_backend._score_to_squared_euclidean(
+def test_lucene_euclidean_score_is_inverted_to_squared_distance(
+    score, distance
+):
+    assert pylucene_backend._lucene_euclidean_score_to_squared_distance(
         score
     ) == pytest.approx(distance)
 
@@ -606,6 +612,53 @@ def test_build_removes_partial_index_after_runtime_failure(tmp_path):
     assert not index_path.exists()
 
 
+def test_cagra_provider_failure_reports_runtime_prerequisites(tmp_path):
+    runtime = _FakeRuntime()
+    runtime.build_error = JavaError(
+        "java.lang.UnsupportedOperationException: cuVS is not supported"
+    )
+
+    result = _backend(runtime, codec=_CAGRA_CODEC).build(
+        _dataset(),
+        [_index(tmp_path / "index", codec=_CAGRA_CODEC)],
+        force=True,
+    )
+
+    assert not result.success
+    assert pylucene_backend._CAGRA_UNAVAILABLE_ERROR in result.error_message
+    assert pylucene_backend._CAGRA_UNAVAILABLE_HINT in result.error_message
+
+
+@pytest.mark.parametrize(
+    ("codec", "error"),
+    [
+        (
+            _HNSW_CODEC,
+            JavaError(
+                "java.lang.UnsupportedOperationException: "
+                "cuVS is not supported"
+            ),
+        ),
+        (_CAGRA_CODEC, RuntimeError("Java build failed")),
+    ],
+    ids=["hnsw-provider-error", "unrelated-cagra-error"],
+)
+def test_other_build_failures_do_not_report_cagra_runtime_prerequisites(
+    tmp_path, codec, error
+):
+    runtime = _FakeRuntime()
+    runtime.build_error = error
+
+    result = _backend(runtime, codec=codec).build(
+        _dataset(),
+        [_index(tmp_path / "index", codec=codec)],
+        force=True,
+    )
+
+    assert not result.success
+    assert pylucene_backend._CAGRA_UNAVAILABLE_HINT not in result.error_message
+
+
 def test_build_removes_index_when_direct_segment_topology_is_not_one(
     tmp_path,
 ):
@@ -712,6 +765,44 @@ def test_search_dry_run_does_not_initialize_pylucene(tmp_path):
     assert backend._runtime is None
     assert result.neighbors.shape == (0, 3)
     assert result.search_params == [{"num_candidates": 3}]
+
+
+def test_cagra_search_plan_accepts_maximum_per_leaf_collector_k(tmp_path):
+    backend = _backend(codec=_CAGRA_CODEC)
+
+    result = _only_search_result(
+        backend.search(
+            _dataset(),
+            [_index(tmp_path / "index", codec=_CAGRA_CODEC)],
+            k=1024,
+            dry_run=True,
+        )
+    )
+
+    assert result.success
+    assert backend._runtime is None
+    assert result.neighbors.shape == (0, 1024)
+
+
+def test_hnsw_search_plan_accepts_top_k_2000_with_2500_candidates(tmp_path):
+    result = _only_search_result(
+        _backend().search(
+            _dataset(),
+            [
+                _index(
+                    tmp_path / "index",
+                    search_params=[{"num_candidates": 2500}],
+                )
+            ],
+            k=2000,
+            dry_run=True,
+        )
+    )
+
+    assert result.success
+    assert result.neighbors.shape == (0, 2000)
+    assert result.search_params == [{"num_candidates": 2500}]
+    assert result.metadata["num_candidates"] == 2500
 
 
 def test_search_dry_run_returns_one_result_per_candidate_setting(tmp_path):
@@ -1073,14 +1164,6 @@ def test_search_rejects_invalid_cagra_provenance_before_runtime(
             "latency",
             "Unsupported PyLucene search parameter",
         ),
-        (
-            _index(Path("/tmp/index"), codec=_CAGRA_CODEC),
-            1025,
-            10000,
-            None,
-            "latency",
-            "GPU brute-force",
-        ),
     ],
 )
 def test_search_rejects_unsupported_options(
@@ -1100,6 +1183,20 @@ def test_search_rejects_unsupported_options(
 
     assert not result.success
     assert error in result.error_message
+
+
+def test_cagra_search_plan_rejects_per_leaf_collector_above_1024(tmp_path):
+    result = _only_search_result(
+        _backend(codec=_CAGRA_CODEC).search(
+            _dataset(),
+            [_index(tmp_path / "index", codec=_CAGRA_CODEC)],
+            k=1025,
+            dry_run=True,
+        )
+    )
+
+    assert not result.success
+    assert "GPU brute-force" in result.error_message
 
 
 @pytest.mark.parametrize(

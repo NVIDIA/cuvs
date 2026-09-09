@@ -1,11 +1,13 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+"""Test-only JVM adapters and helpers for PyLucene execution-path cases."""
+
 from __future__ import annotations
 
 import struct
 import tempfile
-from contextlib import ExitStack, contextmanager
+from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import Enum
 from functools import lru_cache
@@ -55,6 +57,11 @@ QUERY_PROPERTIES = {
 }
 
 _FLOAT32 = struct.Struct("!f")
+_GOLDEN_RATIO_32 = 2_654_435_761
+_LCG_MULTIPLIER = 1_664_525
+_LCG_INCREMENT = 1_013_904_223
+_UINT32_MAX = 4_294_967_295
+_MERGE_FACTOR_THAT_SUPPRESSES_INCIDENTAL_MERGES = 1_000
 
 
 @dataclass(frozen=True)
@@ -64,9 +71,9 @@ class IndexScenario:
     document_count: int
     dimensions: int
     top_k: int
+    num_candidates: int | None = None
     segment_count: int = 1
     force_merge_segment_count: int = 0
-    disable_automatic_merges: bool = True
     document_ids_without_vectors: frozenset[int] = frozenset()
     document_ids_to_delete: frozenset[int] = frozenset()
     additional_query_document_ids: tuple[int, ...] = ()
@@ -143,11 +150,18 @@ class PyLuceneContext:
 def deterministic_float32_vector(
     document_id: int, dimensions: int
 ) -> tuple[float, ...]:
-    value = ((document_id + 1) * 2654435761) & 0xFFFFFFFF
+    """Generate stable, distinct float32 vectors without random test state.
+
+    The golden-ratio seed disperses adjacent document IDs. A conventional
+    32-bit linear congruential generator then produces each component.
+    """
+    value = ((document_id + 1) * _GOLDEN_RATIO_32) & _UINT32_MAX
     vector = []
     for dimension in range(dimensions):
-        value = (1664525 * value + 1013904223 + dimension * 17) & 0xFFFFFFFF
-        component = (value / 4294967295.0) * 2.0 - 1.0
+        value = (
+            _LCG_MULTIPLIER * value + _LCG_INCREMENT + dimension * 17
+        ) & _UINT32_MAX
+        component = (value / _UINT32_MAX) * 2.0 - 1.0
         vector.append(_FLOAT32.unpack(_FLOAT32.pack(component))[0])
     return tuple(vector)
 
@@ -375,6 +389,19 @@ def _validate_document_ids(scenario: IndexScenario) -> None:
         )
 
 
+def _validate_search_parameters(scenario: IndexScenario) -> None:
+    if scenario.num_candidates is None:
+        return
+    if not scenario.expected_hnsw_m:
+        raise ValueError(
+            f"{scenario.name}: num_candidates applies only to HNSW search"
+        )
+    if scenario.num_candidates < scenario.top_k:
+        raise ValueError(
+            f"{scenario.name}: num_candidates must be at least top_k"
+        )
+
+
 def _representative_query_document_ids(
     scenario: IndexScenario, searchable_vector_document_ids: tuple[int, ...]
 ) -> tuple[int, ...]:
@@ -391,13 +418,11 @@ def _representative_query_document_ids(
 
 
 def _query_document_state(
-    query_document_id: int,
-    document_ids_without_vectors: frozenset[int],
-    deleted_document_ids: frozenset[int],
+    query_document_id: int, scenario: IndexScenario
 ) -> QueryDocumentState:
-    if query_document_id in document_ids_without_vectors:
+    if query_document_id in scenario.document_ids_without_vectors:
         return QueryDocumentState.WITHOUT_VECTOR
-    if query_document_id in deleted_document_ids:
+    if query_document_id in scenario.document_ids_to_delete:
         return QueryDocumentState.DELETED
     return QueryDocumentState.SEARCHABLE
 
@@ -456,7 +481,9 @@ def _new_writer_config(codec: Any, suppress_merges: bool) -> Any:
         config.setMergePolicy(NoMergePolicy.INSTANCE)
     else:
         merge_policy = LogDocMergePolicy()
-        merge_policy.setMergeFactor(1000)
+        merge_policy.setMergeFactor(
+            _MERGE_FACTOR_THAT_SUPPRESSES_INCIDENTAL_MERGES
+        )
         config.setMergePolicy(merge_policy)
     return config
 
@@ -509,8 +536,6 @@ def _write_index_and_apply_deletions(
     codec: Any,
     scenario: IndexScenario,
     context: PyLuceneContext,
-    document_ids_without_vectors: frozenset[int],
-    document_ids_to_delete: frozenset[int],
 ) -> None:
     from org.apache.lucene.document import (
         Document,
@@ -524,9 +549,7 @@ def _write_index_and_apply_deletions(
         VectorSimilarityFunction,
     )
 
-    writer_config = _new_writer_config(
-        codec, suppress_merges=scenario.disable_automatic_merges
-    )
+    writer_config = _new_writer_config(codec, suppress_merges=True)
     writer = IndexWriter(directory, writer_config)
     try:
         segment_end_document_ids = _segment_end_document_ids(scenario)
@@ -535,7 +558,7 @@ def _write_index_and_apply_deletions(
             document.add(
                 StringField(ID_FIELD, f"doc-{document_id}", Field.Store.YES)
             )
-            if document_id not in document_ids_without_vectors:
+            if document_id not in scenario.document_ids_without_vectors:
                 vector = deterministic_float32_vector(
                     document_id, scenario.dimensions
                 )
@@ -563,9 +586,9 @@ def _write_index_and_apply_deletions(
             if document_id in segment_end_document_ids:
                 writer.commit()
 
-        for document_id in document_ids_to_delete:
+        for document_id in scenario.document_ids_to_delete:
             writer.deleteDocuments(Term(ID_FIELD, f"doc-{document_id}"))
-        if document_ids_to_delete:
+        if scenario.document_ids_to_delete:
             writer.commit()
     finally:
         writer.close()
@@ -617,7 +640,7 @@ def _new_vector_query(
         return _new_hnsw_graph_verifying_query(
             context,
             target,
-            top_k,
+            scenario.num_candidates or top_k,
             scenario.expected_hnsw_m,
             filter_field,
             filter_value,
@@ -667,52 +690,156 @@ def _run_filtered_query(
     )
 
 
+def _searchable_vector_document_ids(
+    scenario: IndexScenario,
+) -> tuple[int, ...]:
+    searchable_document_ids = tuple(
+        document_id
+        for document_id in range(scenario.document_count)
+        if document_id not in scenario.document_ids_without_vectors
+        and document_id not in scenario.document_ids_to_delete
+    )
+    if not searchable_document_ids:
+        raise RuntimeError(
+            f"{scenario.name}: no searchable vectors are available"
+        )
+    return searchable_document_ids
+
+
+def _filter_accepted_searchable_document_ids(
+    scenario: IndexScenario,
+    searchable_document_ids: tuple[int, ...],
+) -> tuple[int, ...]:
+    accepted_document_ids = tuple(
+        document_id
+        for document_id in searchable_document_ids
+        if document_id in scenario.document_ids_accepted_by_filter
+    )
+    if (
+        scenario.filter_query_document_id is not None
+        and not accepted_document_ids
+    ):
+        raise RuntimeError(
+            f"{scenario.name}: filter accepts no searchable vectors"
+        )
+    return accepted_document_ids
+
+
+def _run_representative_queries(
+    searcher: Any,
+    stored_fields: Any,
+    scenario: IndexScenario,
+    context: PyLuceneContext,
+    searchable_document_ids: tuple[int, ...],
+) -> tuple[QueryObservation, ...]:
+    top_k = min(scenario.top_k, len(searchable_document_ids))
+    representative_document_ids = _representative_query_document_ids(
+        scenario, searchable_document_ids
+    )
+    query_document_ids = tuple(
+        dict.fromkeys(
+            representative_document_ids
+            + scenario.additional_query_document_ids
+        )
+    )
+
+    observations = []
+    for query_document_id in query_document_ids:
+        query = _new_vector_query(scenario, context, query_document_id, top_k)
+        hits = searcher.search(query, top_k).scoreDocs
+        observations.append(
+            QueryObservation(
+                query_document_id=query_document_id,
+                hit_ids=_hit_ids(stored_fields, hits),
+                query_class=str(query.getClass().getName()),
+                query_document_state=_query_document_state(
+                    query_document_id, scenario
+                ),
+            )
+        )
+    return tuple(observations)
+
+
+def _read_index_run(
+    directory: Any,
+    codec: Any,
+    scenario: IndexScenario,
+    context: PyLuceneContext,
+    index_files: tuple[str, ...],
+    pre_merge_segment_count: int,
+    searchable_document_ids: tuple[int, ...],
+    filter_accepted_document_ids: tuple[int, ...],
+) -> IndexRun:
+    from org.apache.lucene.index import DirectoryReader
+    from org.apache.lucene.search import IndexSearcher
+
+    reader = DirectoryReader.open(directory)
+    try:
+        vector_reader_metadata = _vector_reader_observations(reader)
+        searcher = IndexSearcher(reader)
+        stored_fields = searcher.storedFields()
+        query_observations = _run_representative_queries(
+            searcher,
+            stored_fields,
+            scenario,
+            context,
+            searchable_document_ids,
+        )
+        filtered_query_observation = (
+            _run_filtered_query(
+                searcher,
+                stored_fields,
+                context,
+                scenario,
+                scenario.filter_query_document_id,
+                len(filter_accepted_document_ids),
+            )
+            if scenario.filter_query_document_id is not None
+            else None
+        )
+
+        return IndexRun(
+            index_files=index_files,
+            pre_merge_segment_count=pre_merge_segment_count,
+            segment_count=sum(1 for _ in reader.leaves()),
+            live_document_count=reader.numDocs(),
+            max_document_count=reader.maxDoc(),
+            vector_count=vector_reader_metadata.vector_count,
+            vector_dimensions=vector_reader_metadata.dimensions,
+            vector_reader_classes=vector_reader_metadata.reader_classes,
+            hnsw_layer_counts=vector_reader_metadata.hnsw_layer_counts,
+            searchable_vector_document_ids=searchable_document_ids,
+            document_ids_without_vectors=(
+                scenario.document_ids_without_vectors
+            ),
+            deleted_document_ids=scenario.document_ids_to_delete,
+            query_observations=query_observations,
+            filtered_query_observation=filtered_query_observation,
+            writer_telemetry=_writer_telemetry(codec),
+        )
+    finally:
+        reader.close()
+
+
 def run_index_scenario(
     scenario: IndexScenario, context: PyLuceneContext
 ) -> IndexRun:
     context.runtime.attach_current_thread()
 
     from java.nio.file import Paths
-    from org.apache.lucene.index import DirectoryReader
-    from org.apache.lucene.search import IndexSearcher
     from org.apache.lucene.store import FSDirectory
 
-    codec = _codec_for_scenario(scenario, context)
     _validate_document_ids(scenario)
-    document_ids_without_vectors = scenario.document_ids_without_vectors
-    document_ids_to_delete = scenario.document_ids_to_delete
-    searchable_vector_document_ids = tuple(
-        document_id
-        for document_id in range(scenario.document_count)
-        if document_id not in document_ids_without_vectors
-        and document_id not in document_ids_to_delete
-    )
-    if not searchable_vector_document_ids:
-        raise RuntimeError(
-            f"{scenario.name}: no searchable vectors are available"
-        )
-    filter_accepted_searchable_document_ids = tuple(
-        document_id
-        for document_id in searchable_vector_document_ids
-        if document_id in scenario.document_ids_accepted_by_filter
-    )
-    if (
-        scenario.filter_query_document_id is not None
-        and not filter_accepted_searchable_document_ids
-    ):
-        raise RuntimeError(
-            f"{scenario.name}: filter accepts no searchable vectors"
-        )
-    representative_query_document_ids = _representative_query_document_ids(
-        scenario, searchable_vector_document_ids
+    _validate_search_parameters(scenario)
+    codec = _codec_for_scenario(scenario, context)
+    searchable_document_ids = _searchable_vector_document_ids(scenario)
+    filter_accepted_document_ids = _filter_accepted_searchable_document_ids(
+        scenario, searchable_document_ids
     )
 
-    with ExitStack() as stack:
-        index_path = stack.enter_context(
-            tempfile.TemporaryDirectory(
-                prefix=f"cuvs-lucene-pylucene-{scenario.name}-"
-            )
-        )
+    with tempfile.TemporaryDirectory(
+        prefix=f"cuvs-lucene-pylucene-{scenario.name}-"
+    ) as index_path:
         directory = FSDirectory.open(Paths.get(index_path))
         try:
             _write_index_and_apply_deletions(
@@ -720,84 +847,23 @@ def run_index_scenario(
                 codec,
                 scenario,
                 context,
-                document_ids_without_vectors,
-                document_ids_to_delete,
             )
-
             pre_merge_segment_count = _segment_count(directory)
             _force_merge_if_requested(
                 directory, codec, scenario.force_merge_segment_count
             )
-
             index_files = tuple(
                 sorted(path.name for path in Path(index_path).iterdir())
             )
-            reader = DirectoryReader.open(directory)
-            try:
-                vector_reader_metadata = _vector_reader_observations(reader)
-                searcher = IndexSearcher(reader)
-                stored_fields = searcher.storedFields()
-                top_k = min(
-                    scenario.top_k, len(searchable_vector_document_ids)
-                )
-                observations = []
-                query_document_ids = tuple(
-                    dict.fromkeys(
-                        representative_query_document_ids
-                        + scenario.additional_query_document_ids
-                    )
-                )
-                for query_document_id in query_document_ids:
-                    query = _new_vector_query(
-                        scenario, context, query_document_id, top_k
-                    )
-                    hits = searcher.search(query, top_k).scoreDocs
-                    observations.append(
-                        QueryObservation(
-                            query_document_id=query_document_id,
-                            hit_ids=_hit_ids(stored_fields, hits),
-                            query_class=str(query.getClass().getName()),
-                            query_document_state=_query_document_state(
-                                query_document_id,
-                                document_ids_without_vectors,
-                                document_ids_to_delete,
-                            ),
-                        )
-                    )
-
-                filtered_query_observation = (
-                    _run_filtered_query(
-                        searcher,
-                        stored_fields,
-                        context,
-                        scenario,
-                        scenario.filter_query_document_id,
-                        len(filter_accepted_searchable_document_ids),
-                    )
-                    if scenario.filter_query_document_id is not None
-                    else None
-                )
-
-                result = IndexRun(
-                    index_files=index_files,
-                    pre_merge_segment_count=pre_merge_segment_count,
-                    segment_count=sum(1 for _ in reader.leaves()),
-                    live_document_count=reader.numDocs(),
-                    max_document_count=reader.maxDoc(),
-                    vector_count=vector_reader_metadata.vector_count,
-                    vector_dimensions=vector_reader_metadata.dimensions,
-                    vector_reader_classes=vector_reader_metadata.reader_classes,
-                    hnsw_layer_counts=vector_reader_metadata.hnsw_layer_counts,
-                    searchable_vector_document_ids=searchable_vector_document_ids,
-                    document_ids_without_vectors=document_ids_without_vectors,
-                    deleted_document_ids=document_ids_to_delete,
-                    query_observations=tuple(observations),
-                    filtered_query_observation=filtered_query_observation,
-                    writer_telemetry=_writer_telemetry(codec),
-                )
-            finally:
-                reader.close()
+            return _read_index_run(
+                directory,
+                codec,
+                scenario,
+                context,
+                index_files,
+                pre_merge_segment_count,
+                searchable_document_ids,
+                filter_accepted_document_ids,
+            )
         finally:
             directory.close()
-
-    return result

@@ -69,7 +69,7 @@ elastic = "cuvs_bench.backends.elasticsearch:register"
 [tool.pytest.ini_options]
 markers = [
     "opensearch: tests that require a live OpenSearch node (run with '-m opensearch')",
-    "pylucene: real PyLucene/JVM/cuVS tests (set CUVS_BENCH_PYLUCENE_INTEGRATION=1 and run with '-m pylucene')",
+    "pylucene: real PyLucene/JVM/cuVS tests (run with --run-pylucene)",
     "pylucene_extended: extended PyLucene codec-path, topology, merge, deletion, filter, and searchWidth coverage",
 ]
 

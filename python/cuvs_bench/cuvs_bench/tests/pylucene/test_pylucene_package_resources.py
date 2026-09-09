@@ -23,7 +23,7 @@ def _resource_files(root, relative=PurePosixPath()):
             yield child_relative
 
 
-def test_pylucene_production_resources_are_packaged():
+def test_pylucene_production_resources_are_available_from_package():
     package_root = files("cuvs_bench")
 
     for relative in _REQUIRED_PYLUCENE_RESOURCES:

@@ -10,6 +10,7 @@ from typing import Optional
 
 import click
 import yaml
+from click.core import ParameterSource
 
 from .data_export import (
     convert_json_to_csv_build,
@@ -19,6 +20,11 @@ from .data_export import (
 )
 from ..backends.base import SearchResult
 from ..orchestrator import BenchmarkOrchestrator
+
+_DEFAULT_BACKEND = "cpp_gbench"
+_DEFAULT_ALGORITHM = "cuvs_cagra"
+_PYLUCENE_BACKEND = "pylucene"
+_PYLUCENE_DEFAULT_ALGORITHM = "pylucene_cuvs_cagra"
 
 
 def _run_failed(results, mode, *, allow_empty=False):
@@ -47,6 +53,57 @@ def _raise_for_failed_run(results, mode, *, allow_empty=False):
     else:
         details = f"{mode} mode produced no benchmark results"
     raise click.ClickException(details)
+
+
+def _load_backend_options(backend, backend_config):
+    """Resolve the backend flag and optional advanced configuration file."""
+    backend_kwargs = {}
+    configured_backend = None
+    if backend_config is not None:
+        with open(backend_config, "r", encoding="utf-8") as file:
+            config = yaml.safe_load(file)
+        if not isinstance(config, dict):
+            raise click.BadParameter(
+                "must parse to a mapping", param_hint="--backend-config"
+            )
+        configured_backend = config.pop("backend", None)
+        backend_kwargs = config
+
+    if backend is not None and (not isinstance(backend, str) or not backend):
+        raise click.BadParameter("must name a backend", param_hint="--backend")
+    if configured_backend is not None and (
+        not isinstance(configured_backend, str) or not configured_backend
+    ):
+        raise click.BadParameter(
+            "'backend' must be a non-empty string",
+            param_hint="--backend-config",
+        )
+    if backend and configured_backend and backend != configured_backend:
+        raise click.UsageError(
+            f"--backend selects {backend!r}, but --backend-config selects "
+            f"{configured_backend!r}"
+        )
+    backend_type = (
+        backend
+        if backend is not None
+        else configured_backend or _DEFAULT_BACKEND
+    )
+    if (
+        backend_config is not None
+        and backend is None
+        and configured_backend is None
+    ):
+        raise click.BadParameter(
+            "must include a 'backend' field when --backend is omitted",
+            param_hint="--backend-config",
+        )
+    return backend_type, backend_kwargs
+
+
+def _backend_default_algorithm(backend_type, algorithms, *, was_defaulted):
+    if backend_type == _PYLUCENE_BACKEND and was_defaulted:
+        return _PYLUCENE_DEFAULT_ALGORITHM
+    return algorithms
 
 
 @click.command()
@@ -204,12 +261,16 @@ def _raise_for_failed_run(results, mode, *, allow_empty=False):
     help="Number of Optuna trials for tune mode (default: 100).",
 )
 @click.option(
+    "--backend",
+    default=None,
+    help="Backend to run. Defaults to 'cpp_gbench'; use 'pylucene' for "
+    "the local cuVS-Lucene backend.",
+)
+@click.option(
     "--backend-config",
     default=None,
-    help="Path to YAML configuration file for non-C++ backends. "
-    "The file must contain a 'backend' field specifying the backend "
-    "type (e.g., 'opensearch', 'elastic'). All other fields are "
-    "passed as backend-specific parameters.",
+    help="Optional YAML overrides for a non-C++ backend. Include a "
+    "'backend' field unless --backend supplies it.",
 )
 def main(
     subset_size: Optional[int],
@@ -233,6 +294,7 @@ def main(
     mode: str,
     constraints: Optional[str],
     n_trials: Optional[int],
+    backend: Optional[str],
     backend_config: Optional[str],
 ) -> None:
     """
@@ -280,11 +342,12 @@ def main(
         Tune mode constraints as JSON string.
     n_trials : Optional[int]
         Number of Optuna trials for tune mode.
+    backend : Optional[str]
+        Backend type. Defaults to ``cpp_gbench``; ``pylucene`` selects the
+        local cuVS-Lucene integration and discovers its installed runtime.
     backend_config : Optional[str]
-        Path to YAML config for non-C++ backends. If not provided,
-        defaults to the C++ Google Benchmark backend. The YAML file
-        must contain a 'backend' field (e.g., 'opensearch', 'elastic')
-        and any backend-specific connection parameters (host, port, etc.).
+        Optional YAML overrides for non-C++ backends. Its ``backend`` field
+        may select the backend when ``--backend`` is omitted.
 
     """
     try:
@@ -306,20 +369,21 @@ def main(
     if not build and not search:
         build = search = True
 
-    backend_type = "cpp_gbench"
-    backend_kwargs = {}
-    if backend_config:
-        with open(backend_config, "r") as f:
-            cfg = yaml.safe_load(f)
-        if not isinstance(cfg, dict):
-            raise ValueError(
-                f"--backend-config must parse to a mapping, "
-                f"got {type(cfg).__name__}"
-            )
-        if "backend" not in cfg:
-            raise ValueError("--backend-config must include a 'backend' field")
-        backend_type = cfg.pop("backend")
-        backend_kwargs = cfg
+    backend_type, backend_kwargs = _load_backend_options(
+        backend, backend_config
+    )
+    algorithms = _backend_default_algorithm(
+        backend_type,
+        algorithms,
+        was_defaulted=(
+            click.get_current_context().get_parameter_source("algorithms")
+            in {
+                ParameterSource.DEFAULT,
+                ParameterSource.PROMPT,
+            }
+            and algorithms == _DEFAULT_ALGORITHM
+        ),
+    )
 
     orchestrator = BenchmarkOrchestrator(backend_type=backend_type)
     results = orchestrator.run_benchmark(

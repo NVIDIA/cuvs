@@ -4,8 +4,9 @@
 """PyLucene end-to-end coverage for CPU HNSW and GPU cuVS search paths.
 
 The parametrized cases cover segment and force-merge topologies, CAGRA search
-widths, persisted HNSW layer counts, deletions, filters, and brute-force recall.
-GPU-required cases assert that cuVS ran and did not silently fall back to the CPU path.
+widths, persisted HNSW layer counts, deletions, filters, and brute-force
+recall. GPU-required cases assert that cuVS ran without silently falling back
+to the CPU path.
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ from cuvs_bench.tests.pylucene._pylucene_execution_path_utils import (
     CAGRA_TEST_QUERY_CLASS,
     CAGRA_VECTOR_READER_CLASS,
     CPU_HNSW_TEST_CODEC_CLASS,
+    FilteredQueryObservation,
     HNSW_GRAPH_VERIFYING_EXACT_QUERY_CLASS,
     HNSW_GRAPH_VERIFYING_QUERY_CLASS,
     IndexRun,
@@ -47,7 +49,8 @@ pytestmark = [
     ),
 ]
 
-# TODO(https://github.com/NVIDIA/cuvs/issues/2407): Add multithreaded concurrency coverage.
+# TODO(https://github.com/NVIDIA/cuvs/issues/2407): Add multithreaded
+# concurrency coverage.
 
 HNSW_CODEC = "Lucene101AcceleratedHNSWCodec"
 CAGRA_CODEC = "CuVS2510GPUSearchCodec"
@@ -80,6 +83,12 @@ MIN_VECTORS_FOR_THREE_HNSW_LAYERS = (
     MIN_VECTORS_PER_CAGRA_BUILD * CAGRA_HNSW_M**2
 )
 DEFAULT_MIN_RECALL = 0.75
+SELECTIVE_FILTER_FRACTION_DENOMINATOR = 4
+DEFAULT_CAGRA_I_TOP_K = 64
+PRODUCTION_CAGRA_TOP_K_LIMIT = 1024
+LARGE_RESULT_SET_DOCUMENT_COUNT = 4096
+LARGE_RESULT_SET_TOP_K = 2000
+LARGE_HNSW_RESULT_SET_NUM_CANDIDATES = 2500
 
 
 class ExecutionPath(Enum):
@@ -121,6 +130,7 @@ EXACT_FILTER_PATH_LABELS = {
 
 class DocumentSetup(Enum):
     ALL_SEARCHABLE = "all-searchable"
+    ONE_WITHOUT_VECTOR = "one-without-vector"
     ONE_DELETED = "one-deleted"
     SINGLE_LIVE = "single-live"
 
@@ -154,6 +164,7 @@ class EndToEndCase:
     expected_index_file_suffixes: tuple[str, ...]
     expected_hnsw_layers: int = 0
     min_recall: float = DEFAULT_MIN_RECALL
+    is_smoke: bool = False
 
 
 def _positive_int_env(name: str, default: int) -> int:
@@ -197,6 +208,11 @@ def _document_configuration(
     document_count: int, setup: DocumentSetup
 ) -> DocumentConfiguration:
     middle_document_id = document_count // 2
+    if setup is DocumentSetup.ONE_WITHOUT_VECTOR:
+        return DocumentConfiguration(
+            document_ids_without_vectors=frozenset({middle_document_id}),
+            additional_query_document_ids=(middle_document_id,),
+        )
     if setup is DocumentSetup.SINGLE_LIVE:
         deleted_document_ids = frozenset(
             document_id
@@ -218,7 +234,15 @@ def _document_configuration(
 def _minimum_document_count_for_selective_filter(
     segment_count: int, top_k: int
 ) -> int:
-    return segment_count * 4 * (top_k + 1)
+    """Leave more than ``top_k`` accepted documents in every segment.
+
+    The approximate-search configuration accepts the final quarter of each
+    segment. Lucene can choose exact scoring up front when a segment has at
+    most ``top_k`` accepted documents, so those cases need at least
+    ``top_k + 1`` in that quarter. Exact-search cases deliberately retain
+    exactly ``top_k`` documents from the same adequately sized segments.
+    """
+    return segment_count * SELECTIVE_FILTER_FRACTION_DENOMINATOR * (top_k + 1)
 
 
 def _selective_document_filter_configuration(
@@ -237,7 +261,11 @@ def _selective_document_filter_configuration(
         accepted_document_count = (
             top_k
             if use_lucene_exact_search
-            else max(top_k + 1, len(segment_document_ids) // 4)
+            else max(
+                top_k + 1,
+                len(segment_document_ids)
+                // SELECTIVE_FILTER_FRACTION_DENOMINATOR,
+            )
         )
         first_accepted_document_id = (
             segment_document_ids.stop - accepted_document_count
@@ -271,7 +299,7 @@ def _minimum_document_count(
     else:
         required_document_count = segment_count * MIN_VECTORS_PER_CAGRA_BUILD
 
-    if document_setup is DocumentSetup.ONE_DELETED:
+    if document_setup is not DocumentSetup.ALL_SEARCHABLE:
         required_document_count = max(required_document_count, 2)
     return required_document_count
 
@@ -283,6 +311,7 @@ def _cpu_hnsw_case(
     force_merge_segment_count: int = 0,
     document_setup: DocumentSetup = DocumentSetup.ALL_SEARCHABLE,
     selective_filter: bool = False,
+    is_smoke: bool = False,
 ) -> EndToEndCase:
     settings = _suite_settings()
     minimum_document_count = _minimum_document_count(
@@ -335,6 +364,7 @@ def _cpu_hnsw_case(
         execution_path=ExecutionPath.CPU_HNSW,
         expected_index_file_suffixes=(".vex", ".vem"),
         min_recall=settings.minimum_recall,
+        is_smoke=is_smoke,
     )
 
 
@@ -346,8 +376,15 @@ def _cagra_built_hnsw_case(
     force_merge_segment_count: int = 0,
     document_setup: DocumentSetup = DocumentSetup.ALL_SEARCHABLE,
     selective_filter: bool = False,
+    is_smoke: bool = False,
+    document_count: int | None = None,
+    top_k: int | None = None,
+    num_candidates: int | None = None,
 ) -> EndToEndCase:
     settings = _suite_settings()
+    if hnsw_layers not in {1, 3}:
+        raise ValueError(f"HNSW layers must be 1 or 3, got {hnsw_layers}")
+    case_top_k = settings.top_k if top_k is None else top_k
     minimum_document_count = _minimum_document_count(
         ExecutionPath.GPU_CAGRA_BUILT_HNSW,
         segment_count,
@@ -358,18 +395,23 @@ def _cagra_built_hnsw_case(
         minimum_document_count = max(
             minimum_document_count,
             _minimum_document_count_for_selective_filter(
-                segment_count, settings.top_k
+                segment_count, case_top_k
             ),
         )
-    document_count = max(
-        settings.requested_document_count, minimum_document_count
+    requested_document_count = (
+        settings.requested_document_count
+        if document_count is None
+        else document_count
     )
-    documents = _document_configuration(document_count, document_setup)
+    case_document_count = max(
+        requested_document_count, minimum_document_count, case_top_k
+    )
+    documents = _document_configuration(case_document_count, document_setup)
     document_filter = (
         _selective_document_filter_configuration(
-            document_count,
+            case_document_count,
             segment_count,
-            settings.top_k,
+            case_top_k,
             use_lucene_exact_search=True,
         )
         if selective_filter
@@ -384,9 +426,10 @@ def _cagra_built_hnsw_case(
         name=selector,
         codec_name=HNSW_CODEC,
         codec_factory_class=codec_factory_class,
-        document_count=document_count,
+        document_count=case_document_count,
         dimensions=settings.dimensions,
-        top_k=settings.top_k,
+        top_k=case_top_k,
+        num_candidates=num_candidates,
         segment_count=segment_count,
         force_merge_segment_count=force_merge_segment_count,
         document_ids_without_vectors=documents.document_ids_without_vectors,
@@ -404,6 +447,7 @@ def _cagra_built_hnsw_case(
         expected_index_file_suffixes=(".vex", ".vem"),
         expected_hnsw_layers=hnsw_layers,
         min_recall=settings.minimum_recall,
+        is_smoke=is_smoke,
     )
 
 
@@ -415,12 +459,12 @@ def _cagra_search_case(
     document_setup: DocumentSetup = DocumentSetup.ALL_SEARCHABLE,
     search_width: int = 1,
     selective_filter: bool = False,
+    is_smoke: bool = False,
+    document_count: int | None = None,
+    top_k: int | None = None,
 ) -> EndToEndCase:
     settings = _suite_settings()
-    if settings.top_k > 1024:
-        raise ValueError(
-            "GPU CAGRA search cases require CUVS_BENCH_PYLUCENE_TOPK <= 1024"
-        )
+    case_top_k = settings.top_k if top_k is None else top_k
     minimum_document_count = _minimum_document_count(
         ExecutionPath.GPU_CAGRA_SEARCH,
         segment_count,
@@ -431,16 +475,21 @@ def _cagra_search_case(
         minimum_document_count = max(
             minimum_document_count,
             _minimum_document_count_for_selective_filter(
-                segment_count, settings.top_k
+                segment_count, case_top_k
             ),
         )
-    document_count = max(
-        settings.requested_document_count, minimum_document_count
+    requested_document_count = (
+        settings.requested_document_count
+        if document_count is None
+        else document_count
     )
-    documents = _document_configuration(document_count, document_setup)
+    case_document_count = max(
+        requested_document_count, minimum_document_count, case_top_k
+    )
+    documents = _document_configuration(case_document_count, document_setup)
     document_filter = (
         _selective_document_filter_configuration(
-            document_count, segment_count, settings.top_k
+            case_document_count, segment_count, case_top_k
         )
         if selective_filter
         else DocumentFilterConfiguration()
@@ -449,9 +498,9 @@ def _cagra_search_case(
         name=selector,
         codec_name=CAGRA_CODEC,
         codec_factory_class=CAGRA_TEST_CODEC_CLASS,
-        document_count=document_count,
+        document_count=case_document_count,
         dimensions=settings.dimensions,
-        top_k=settings.top_k,
+        top_k=case_top_k,
         segment_count=segment_count,
         force_merge_segment_count=force_merge_segment_count,
         document_ids_without_vectors=documents.document_ids_without_vectors,
@@ -461,7 +510,7 @@ def _cagra_search_case(
         filter_query_document_id=document_filter.query_document_id,
         use_cagra_search_query=True,
         search_width=search_width,
-        i_top_k=max(64, settings.top_k),
+        i_top_k=max(DEFAULT_CAGRA_I_TOP_K, case_top_k),
     )
     return EndToEndCase(
         selector=selector,
@@ -469,12 +518,14 @@ def _cagra_search_case(
         execution_path=ExecutionPath.GPU_CAGRA_SEARCH,
         expected_index_file_suffixes=(".vcag", ".vemc"),
         min_recall=settings.minimum_recall,
+        is_smoke=is_smoke,
     )
 
 
 SEGMENT_CASES = (
     _cpu_hnsw_case(
         "cpu-hnsw-1-segment",
+        is_smoke=True,
     ),
     _cpu_hnsw_case(
         "cpu-hnsw-10-segments",
@@ -482,6 +533,7 @@ SEGMENT_CASES = (
     ),
     _cagra_built_hnsw_case(
         "gpu-cagra-built-hnsw-1-segment",
+        is_smoke=True,
     ),
     _cagra_built_hnsw_case(
         "gpu-cagra-built-hnsw-10-segments",
@@ -543,6 +595,7 @@ HNSW_LAYER_CASES = (
 CAGRA_SEARCH_WIDTH_CASES = (
     _cagra_search_case(
         "gpu-cagra-search-1-segment",
+        is_smoke=True,
     ),
     _cagra_search_case(
         "gpu-cagra-search-width-16",
@@ -554,10 +607,26 @@ CAGRA_SEARCH_WIDTH_CASES = (
     ),
 )
 
+LARGE_HNSW_RESULT_SET_CASES = (
+    _cagra_built_hnsw_case(
+        "gpu-cagra-built-hnsw-top-k-2000-candidates-2500",
+        document_count=LARGE_RESULT_SET_DOCUMENT_COUNT,
+        top_k=LARGE_RESULT_SET_TOP_K,
+        num_candidates=LARGE_HNSW_RESULT_SET_NUM_CANDIDATES,
+    ),
+)
+
 DELETED_DOCUMENT_CASES = (
     _cagra_search_case(
         "gpu-cagra-search-deleted-documents",
         document_setup=DocumentSetup.ONE_DELETED,
+    ),
+)
+
+VECTORLESS_DOCUMENT_CASES = (
+    _cagra_search_case(
+        "gpu-cagra-search-vectorless-document",
+        document_setup=DocumentSetup.ONE_WITHOUT_VECTOR,
     ),
 )
 
@@ -579,23 +648,53 @@ DOCUMENT_FILTER_CASES = (
 
 
 def _case_parameter(case: EndToEndCase) -> object:
-    smoke_cases = {
-        "cpu-hnsw-1-segment",
-        "gpu-cagra-built-hnsw-1-segment",
-        "gpu-cagra-search-1-segment",
-    }
-    marks = (
-        ()
-        if case.selector in smoke_cases
-        else (pytest.mark.pylucene_extended,)
-    )
-    return pytest.param(case, id=case.selector, marks=marks)
+    marks = [] if case.is_smoke else [pytest.mark.pylucene_extended]
+    if (
+        case.execution_path is ExecutionPath.GPU_CAGRA_SEARCH
+        and case.scenario.top_k > PRODUCTION_CAGRA_TOP_K_LIMIT
+    ):
+        marks.append(
+            pytest.mark.skip(
+                reason=(
+                    "direct CAGRA benchmarks use stock per-leaf collectors "
+                    f"and require top_k <= {PRODUCTION_CAGRA_TOP_K_LIMIT}"
+                )
+            )
+        )
+    return pytest.param(case, id=case.selector, marks=tuple(marks))
 
 
 def _case_parameters(
     cases: tuple[EndToEndCase, ...],
 ) -> tuple[object, ...]:
     return tuple(_case_parameter(case) for case in cases)
+
+
+def test_cagra_built_hnsw_case_rejects_unsupported_layer_count() -> None:
+    with pytest.raises(ValueError, match="HNSW layers must be 1 or 3"):
+        _cagra_built_hnsw_case("invalid-layer-count", hnsw_layers=2)
+
+
+def test_large_environment_top_k_skips_only_direct_cagra_cases(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "CUVS_BENCH_PYLUCENE_TOPK",
+        str(PRODUCTION_CAGRA_TOP_K_LIMIT + 1),
+    )
+
+    cagra_parameter = _case_parameter(_cagra_search_case("direct-cagra"))
+    hnsw_parameter = _case_parameter(
+        _cagra_built_hnsw_case("cagra-built-hnsw")
+    )
+
+    assert [mark.name for mark in cagra_parameter.marks] == [
+        "pylucene_extended",
+        "skip",
+    ]
+    assert [mark.name for mark in hnsw_parameter.marks] == [
+        "pylucene_extended"
+    ]
 
 
 @pytest.fixture(scope="session")
@@ -841,6 +940,102 @@ def _assert_search_results(
     return tuple(recalls)
 
 
+def _accepted_filter_document_ids(
+    case: EndToEndCase, result: IndexRun
+) -> tuple[int, ...]:
+    return tuple(
+        document_id
+        for document_id in result.searchable_vector_document_ids
+        if document_id in case.scenario.document_ids_accepted_by_filter
+    )
+
+
+def _assert_filter_selectivity_boundary(
+    case: EndToEndCase, accepted_document_ids: tuple[int, ...]
+) -> tuple[int, ...]:
+    accepted_document_id_set = set(accepted_document_ids)
+    accepted_counts_by_segment = tuple(
+        sum(
+            document_id in accepted_document_id_set
+            for document_id in segment_document_ids
+        )
+        for segment_document_ids in segment_document_id_ranges(
+            case.scenario.document_count,
+            case.scenario.segment_count,
+        )
+    )
+
+    if case.scenario.use_exact_hnsw_filter_query:
+        assert set(accepted_counts_by_segment) == {case.scenario.top_k}, (
+            f"{case.selector}: every segment must retain exactly topK="
+            f"{case.scenario.top_k} accepted vectors to select Lucene exact "
+            f"scoring; acceptedPerSegment={accepted_counts_by_segment}"
+        )
+    else:
+        assert min(accepted_counts_by_segment) > case.scenario.top_k, (
+            f"{case.selector}: every segment must retain more than topK="
+            f"{case.scenario.top_k} accepted vectors; "
+            f"acceptedPerSegment={accepted_counts_by_segment}"
+        )
+    return accepted_counts_by_segment
+
+
+def _assert_filtered_hits_are_valid(
+    case: EndToEndCase,
+    observation: FilteredQueryObservation,
+    accepted_document_ids: tuple[int, ...],
+) -> None:
+    accepted_hit_ids = {
+        f"doc-{document_id}" for document_id in accepted_document_ids
+    }
+    rejected_hit_ids = tuple(
+        hit_id
+        for hit_id in observation.hit_ids
+        if hit_id not in accepted_hit_ids
+    )
+    assert not rejected_hit_ids, (
+        f"{case.selector}: filter-rejected documents were returned: "
+        f"{rejected_hit_ids}"
+    )
+
+    expected_hit_count = min(
+        case.scenario.top_k,
+        len(accepted_document_ids),
+    )
+    assert len(observation.hit_ids) == expected_hit_count, (
+        f"{case.selector}: expected {expected_hit_count} filtered hits, "
+        f"got {observation.hit_ids}"
+    )
+    assert len(observation.hit_ids) == len(set(observation.hit_ids)), (
+        f"{case.selector}: duplicate filtered hits returned: "
+        f"{observation.hit_ids}"
+    )
+
+
+def _assert_filtered_recall(
+    case: EndToEndCase,
+    result: IndexRun,
+    observation: FilteredQueryObservation,
+    query_document_id: int,
+    accepted_document_ids: tuple[int, ...],
+) -> float:
+    expected_neighbors = _brute_force_neighbor_ids(
+        case,
+        result,
+        query_document_id,
+        accepted_document_ids,
+    )
+    recall = len(set(observation.hit_ids) & set(expected_neighbors)) / len(
+        expected_neighbors
+    )
+    assert recall >= case.min_recall, (
+        f"{case.selector}: filtered query doc-{query_document_id} recall "
+        f"{recall:.3f} is below floor {case.min_recall:.3f}; "
+        f"expected={expected_neighbors}, actual={observation.hit_ids}"
+    )
+    return recall
+
+
 def _execution_path_label(case: EndToEndCase) -> str:
     return (
         EXACT_FILTER_PATH_LABELS[case.execution_path]
@@ -876,9 +1071,14 @@ def _print_result(
         details.append(f"deletedDocuments={len(result.deleted_document_ids)}")
     if case.execution_path is ExecutionPath.GPU_CAGRA_SEARCH:
         details.append(f"searchWidth={case.scenario.search_width}")
+        details.append(f"iTopK={case.scenario.i_top_k}")
     else:
         details.append(f"hnswLayers={sorted(set(result.hnsw_layer_counts))}")
         details.append(f"hnswM={case.scenario.expected_hnsw_m}")
+        details.append(
+            "numCandidates="
+            f"{case.scenario.num_candidates or case.scenario.top_k}"
+        )
 
     print(
         f"PASS [{_execution_path_label(case)}] {report_label}: "
@@ -967,6 +1167,20 @@ def test_cagra_search_with_configured_search_width(
     _run_and_verify(case, pylucene_context, capfd)
 
 
+@pytest.mark.parametrize("case", _case_parameters(LARGE_HNSW_RESULT_SET_CASES))
+def test_cagra_built_hnsw_search_returns_two_thousand_neighbors(
+    pylucene_context: PyLuceneContext,
+    case: EndToEndCase,
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    """Exercise a large-result HNSW search over a CAGRA-built graph."""
+    result, _ = _run_and_verify(case, pylucene_context, capfd)
+    assert all(
+        len(observation.hit_ids) == LARGE_RESULT_SET_TOP_K
+        for observation in result.query_observations
+    )
+
+
 @pytest.mark.parametrize("case", _case_parameters(DELETED_DOCUMENT_CASES))
 def test_deleted_documents_are_not_searchable(
     pylucene_context: PyLuceneContext,
@@ -983,6 +1197,22 @@ def test_deleted_documents_are_not_searchable(
     )
 
 
+@pytest.mark.parametrize("case", _case_parameters(VECTORLESS_DOCUMENT_CASES))
+def test_documents_without_vectors_are_not_searchable(
+    pylucene_context: PyLuceneContext,
+    case: EndToEndCase,
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    """Verify CAGRA search ignores a live document without a vector."""
+    result, _ = _run_and_verify(case, pylucene_context, capfd)
+    assert len(result.document_ids_without_vectors) == 1
+    assert not result.deleted_document_ids
+    assert any(
+        observation.query_document_state is QueryDocumentState.WITHOUT_VECTOR
+        for observation in result.query_observations
+    )
+
+
 @pytest.mark.parametrize("case", _case_parameters(DOCUMENT_FILTER_CASES))
 def test_vector_search_honors_selective_document_filter(
     pylucene_context: PyLuceneContext,
@@ -994,82 +1224,25 @@ def test_vector_search_honors_selective_document_filter(
     observation = result.filtered_query_observation
     assert observation is not None
 
-    accepted_document_ids = tuple(
-        document_id
-        for document_id in result.searchable_vector_document_ids
-        if document_id in case.scenario.document_ids_accepted_by_filter
-    )
-    accepted_document_id_set = set(accepted_document_ids)
-    accepted_hit_ids = {
-        f"doc-{document_id}" for document_id in accepted_document_ids
-    }
-    accepted_counts_by_segment = tuple(
-        sum(
-            document_id in accepted_document_id_set
-            for document_id in segment_document_ids
-        )
-        for segment_document_ids in segment_document_id_ranges(
-            case.scenario.document_count,
-            case.scenario.segment_count,
-        )
-    )
     query_document_id = case.scenario.filter_query_document_id
     assert query_document_id is not None
-    queried_document = f"doc-{query_document_id}"
-
     assert observation.query_document_id == query_document_id
     assert query_document_id not in (
         case.scenario.document_ids_accepted_by_filter
     )
-    assert queried_document not in observation.hit_ids
-    if case.scenario.use_exact_hnsw_filter_query:
-        assert set(accepted_counts_by_segment) == {case.scenario.top_k}, (
-            f"{case.selector}: every segment must retain exactly topK="
-            f"{case.scenario.top_k} accepted vectors to select Lucene exact "
-            f"scoring; acceptedPerSegment={accepted_counts_by_segment}"
-        )
-    else:
-        assert min(accepted_counts_by_segment) > case.scenario.top_k, (
-            f"{case.selector}: every segment must retain more than topK="
-            f"{case.scenario.top_k} accepted vectors; "
-            f"acceptedPerSegment={accepted_counts_by_segment}"
-        )
+    assert f"doc-{query_document_id}" not in observation.hit_ids
 
-    rejected_hit_ids = tuple(
-        hit_id
-        for hit_id in observation.hit_ids
-        if hit_id not in accepted_hit_ids
+    accepted_document_ids = _accepted_filter_document_ids(case, result)
+    accepted_counts_by_segment = _assert_filter_selectivity_boundary(
+        case, accepted_document_ids
     )
-    assert not rejected_hit_ids, (
-        f"{case.selector}: filter-rejected documents were returned: "
-        f"{rejected_hit_ids}"
-    )
-    expected_hit_count = min(
-        case.scenario.top_k,
-        len(accepted_document_ids),
-    )
-    assert len(observation.hit_ids) == expected_hit_count, (
-        f"{case.selector}: expected {expected_hit_count} filtered hits, "
-        f"got {observation.hit_ids}"
-    )
-    assert len(observation.hit_ids) == len(set(observation.hit_ids)), (
-        f"{case.selector}: duplicate filtered hits returned: "
-        f"{observation.hit_ids}"
-    )
-
-    expected_neighbors = _brute_force_neighbor_ids(
+    _assert_filtered_hits_are_valid(case, observation, accepted_document_ids)
+    recall = _assert_filtered_recall(
         case,
         result,
+        observation,
         query_document_id,
         accepted_document_ids,
-    )
-    recall = len(set(observation.hit_ids) & set(expected_neighbors)) / len(
-        expected_neighbors
-    )
-    assert recall >= case.min_recall, (
-        f"{case.selector}: filtered query {queried_document} recall "
-        f"{recall:.3f} is below floor {case.min_recall:.3f}; "
-        f"expected={expected_neighbors}, actual={observation.hit_ids}"
     )
     print(
         f"FILTER [{_execution_path_label(case)}] {case.selector}: "

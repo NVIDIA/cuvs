@@ -16,28 +16,15 @@ from types import ModuleType
 
 import pytest
 
+from cuvs_bench.backends._pylucene_runtime_config import (
+    resolve_pylucene_runtime_config,
+)
+
 OPT_IN_ENV = "CUVS_BENCH_PYLUCENE_INTEGRATION"
-CUVS_JAVA_JAR_ENV = "CUVS_LUCENE_CUVS_JAVA_JAR"
-CUVS_LUCENE_JAR_ENV = "CUVS_LUCENE_JAR"
 PYLUCENE_TEST_CLASSES_ENV = "PYLUCENE_TEST_CLASSES"
 
 PYTHON_PACKAGE_ROOT = Path(__file__).resolve().parents[3]
 JAVA_TEST_SOURCE_ROOT = PYTHON_PACKAGE_ROOT / "tests" / "java"
-
-_EXPECTED_NESTED_CLASSES = {
-    "PyLuceneTestSupport.java": (
-        "CagraBuiltHnswBaseLayerCodec",
-        "CagraBuiltHnswThreeLayerCodec",
-        "CagraSearchCodec",
-        "CagraSearchQuery",
-        "CpuHnswCodec",
-        "DiagnosticKnnVectorsFormat",
-        "HnswGraphVerifyingExactQuery",
-        "HnswGraphVerifyingQuery",
-        "QueryProperties",
-    ),
-    "PyLuceneWriterSelectionCodec.java": ("WriterSelectionFormat",),
-}
 
 
 @dataclass(frozen=True)
@@ -48,41 +35,24 @@ class PyLuceneRuntimeFixture:
     test_classes: Path
 
 
-def _required_jar(env_name: str) -> Path:
-    configured = os.environ.get(env_name)
-    if not configured:
-        pytest.fail(f"{env_name} must point to the required runtime jar")
-
-    jar = Path(configured).expanduser()
-    if not jar.is_file():
-        pytest.fail(f"{env_name} does not point to an existing file: {jar}")
-    return jar.resolve()
-
-
 def _find_javac() -> str:
     javac = shutil.which("javac")
     environment_javac = Path(sys.prefix) / "lib" / "jvm" / "bin" / "javac"
     if javac is None and environment_javac.is_file():
         javac = str(environment_javac)
     if javac is None:
-        pytest.fail("javac is required for the PyLucene integration tests")
+        pytest.fail(
+            "JDK 22 javac is required for the PyLucene integration tests; "
+            "activate the JDK environment or add its bin directory to PATH"
+        )
     return javac
 
 
 def _expected_class_files(java_sources: tuple[Path, ...]) -> tuple[Path, ...]:
-    expected = []
-    for source in java_sources:
-        relative_class = source.relative_to(JAVA_TEST_SOURCE_ROOT).with_suffix(
-            ".class"
-        )
-        expected.append(relative_class)
-        for nested_class in _EXPECTED_NESTED_CLASSES.get(source.name, ()):
-            expected.append(
-                relative_class.with_name(
-                    f"{relative_class.stem}${nested_class}.class"
-                )
-            )
-    return tuple(expected)
+    return tuple(
+        source.relative_to(JAVA_TEST_SOURCE_ROOT).with_suffix(".class")
+        for source in java_sources
+    )
 
 
 def compile_test_java_sources(
@@ -103,21 +73,28 @@ def compile_test_java_sources(
     compile_classpath = os.pathsep.join(
         (str(cuvs_java_jar), str(cuvs_lucene_jar), pylucene_classpath)
     )
-    completed = subprocess.run(
-        [
-            _find_javac(),
-            "--release",
-            "22",
-            "-classpath",
-            compile_classpath,
-            "-d",
-            str(output_dir),
-            *(str(source) for source in java_sources),
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    javac = _find_javac()
+    try:
+        completed = subprocess.run(
+            [
+                javac,
+                "--release",
+                "22",
+                "-classpath",
+                compile_classpath,
+                "-d",
+                str(output_dir),
+                *(str(source) for source in java_sources),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as error:
+        pytest.fail(
+            "Could not execute JDK 22 javac for the PyLucene integration "
+            f"tests ({javac}): {error}"
+        )
     if completed.returncode != 0:
         pytest.fail(
             "Could not compile the PyLucene Java test adapters:\n"
@@ -156,21 +133,20 @@ def _load_uninitialized_pylucene() -> ModuleType:
 
 def configure_pylucene_runtime(
     tmp_path_factory: pytest.TempPathFactory,
+    *,
+    run_requested: bool = False,
 ) -> PyLuceneRuntimeFixture:
     """Resolve inputs and prepare the sole live-test JVM classpath."""
-    if os.environ.get(OPT_IN_ENV) != "1":
-        pytest.skip(f"set {OPT_IN_ENV}=1 to run PyLucene integration tests")
+    if not run_requested and os.environ.get(OPT_IN_ENV) != "1":
+        pytest.skip("pass --run-pylucene to run PyLucene integration tests")
 
-    cuvs_java_jar = _required_jar(CUVS_JAVA_JAR_ENV)
-    cuvs_lucene_jar = _required_jar(CUVS_LUCENE_JAR_ENV)
-    java_library_path = os.environ.get("JAVA_LIBRARY_PATH") or os.environ.get(
-        "LD_LIBRARY_PATH"
-    )
-    if not java_library_path:
-        pytest.fail(
-            "JAVA_LIBRARY_PATH or LD_LIBRARY_PATH must provide the native "
-            "cuVS runtime libraries"
-        )
+    try:
+        backend_config = resolve_pylucene_runtime_config()
+    except (OSError, RuntimeError, TypeError, ValueError) as error:
+        pytest.fail(f"Could not configure the PyLucene runtime: {error}")
+
+    cuvs_java_jar = Path(backend_config["cuvs_java_jar"])
+    cuvs_lucene_jar = Path(backend_config["cuvs_lucene_jar"])
 
     lucene = _load_uninitialized_pylucene()
     test_classes = tmp_path_factory.mktemp("pylucene-java-test-classes")
@@ -191,10 +167,6 @@ def configure_pylucene_runtime(
     )
 
     return PyLuceneRuntimeFixture(
-        backend_config={
-            "cuvs_java_jar": str(cuvs_java_jar),
-            "cuvs_lucene_jar": str(cuvs_lucene_jar),
-            "java_library_path": java_library_path,
-        },
+        backend_config=backend_config,
         test_classes=test_classes,
     )

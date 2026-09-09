@@ -54,13 +54,16 @@ def main():
     lucene.CLASSPATH = os.pathsep.join(
         (os.environ[PYLUCENE_TEST_CLASSES_ENV], lucene.CLASSPATH)
     )
-    runtime = _PyLuceneRuntime.create(
-        {
-            "cuvs_java_jar": os.environ["CUVS_LUCENE_CUVS_JAVA_JAR"],
-            "cuvs_lucene_jar": os.environ["CUVS_LUCENE_JAR"],
-            "java_library_path": os.environ["JAVA_LIBRARY_PATH"],
-        }
+    runtime_config = {
+        "cuvs_java_jar": os.environ["CUVS_LUCENE_CUVS_JAVA_JAR"],
+        "cuvs_lucene_jar": os.environ["CUVS_LUCENE_JAR"],
+    }
+    java_library_path = os.environ.get("JAVA_LIBRARY_PATH") or os.environ.get(
+        "LD_LIBRARY_PATH"
     )
+    if java_library_path:
+        runtime_config["java_library_path"] = java_library_path
+    runtime = _PyLuceneRuntime.create(runtime_config)
     runtime.System.setProperty(M_PROPERTY, "16")
     runtime.System.setProperty(EF_CONSTRUCTION_PROPERTY, "48")
     reflected_codec = runtime.Class.forName(

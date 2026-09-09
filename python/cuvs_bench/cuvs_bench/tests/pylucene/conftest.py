@@ -15,7 +15,11 @@ from cuvs_bench.tests.pylucene._pylucene_live_test_config import (
 
 @pytest.fixture(scope="session")
 def pylucene_runtime_config(
+    request: pytest.FixtureRequest,
     tmp_path_factory: pytest.TempPathFactory,
 ) -> PyLuceneRuntimeFixture:
     """Prepare the process-global JVM classpath before any live test runs."""
-    return configure_pylucene_runtime(tmp_path_factory)
+    return configure_pylucene_runtime(
+        tmp_path_factory,
+        run_requested=request.config.getoption("--run-pylucene"),
+    )
