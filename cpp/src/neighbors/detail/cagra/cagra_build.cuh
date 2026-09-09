@@ -22,6 +22,7 @@
 #include <raft/core/mdspan.hpp>
 #include <raft/core/numpy_serializer.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
+#include <raft/matrix/init.cuh>
 #include <raft/util/cuda_rt_essentials.hpp>
 #include <raft/util/integer_utils.hpp>
 
@@ -2478,10 +2479,7 @@ auto iterative_build_graph(raft::resources const& res,
   if (vpq_dataset.n_rows() > 0) {
     // Padding columns must be zero: search_main cosine post-process reduces over the full row
     // width, and reconstruct only writes the logical dim.
-    RAFT_CUDA_TRY(cudaMemsetAsync(reconstructed_batch_queries.data_handle(),
-                                  0,
-                                  reconstructed_batch_queries.size() * sizeof(T),
-                                  raft::resource::get_cuda_stream(res)));
+    raft::matrix::fill(res, reconstructed_batch_queries.view(), T(0));
   }
 
   // Determine graph degree and number of search results while increasing
