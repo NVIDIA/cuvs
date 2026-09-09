@@ -2581,8 +2581,10 @@ auto iterative_build_graph(raft::resources const& res,
     // Each index holds non-owning dataset and graph views. The local dataset owner and `dev_graph`
     // keep those views alive for the duration of the search.
     if (vpq_dataset != nullptr) {
-      auto idx = cuvs::neighbors::cagra::vpq_f16_index<T, IdxT>(res, params.metric);
-      idx.update_device_dataset_same_layout(res, vpq_dataset->as_dataset_view());
+      auto idx = cuvs::neighbors::cagra::update_dataset(
+        res,
+        cuvs::neighbors::cagra::vpq_f16_index<T, IdxT>(res, params.metric),
+        vpq_dataset->as_dataset_view());
       idx.update_graph(res, raft::make_const_mdspan(dev_graph.view()));
 
       auto empty_query_view =
@@ -2606,8 +2608,8 @@ auto iterative_build_graph(raft::resources const& res,
         dev_dataset.data_handle(), static_cast<int64_t>(curr_graph_size), dev_dataset.extent(1));
       cuvs::neighbors::device_padded_dataset_view<T, int64_t> sub_padded(dev_dataset_view,
                                                                          logical_dim);
-      auto idx = cuvs::neighbors::cagra::device_padded_index<T, IdxT>(res, params.metric);
-      idx.update_device_dataset_same_layout(res, sub_padded);
+      auto idx = cuvs::neighbors::cagra::update_dataset(
+        res, cuvs::neighbors::cagra::device_padded_index<T, IdxT>(res, params.metric), sub_padded);
       idx.update_graph(res, raft::make_const_mdspan(dev_graph.view()));
 
       auto dev_query_view = raft::make_device_matrix_view<const T, int64_t>(

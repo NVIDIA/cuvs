@@ -330,7 +330,7 @@ auto build(raft::resources const& res, const index_params& params, DatasetViewT 
     index_type idx(res, effective_params.metric);
     idx.update_graph(res, raft::make_const_mdspan(cagra_graph.view()));
     if (effective_params.attach_dataset_on_build) {
-      idx.update_device_dataset_same_layout(res, dataset);
+      idx = cuvs::neighbors::cagra::update_dataset(res, std::move(idx), dataset);
     }
     return idx;
   } else if constexpr (cuvs::neighbors::is_dense_row_major_device_dataset_view_v<DatasetViewT>) {

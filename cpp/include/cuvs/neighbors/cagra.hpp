@@ -4888,6 +4888,19 @@ auto update_dataset(
   device_vpq_dataset_view<half, int64_t> dataset)
   -> index<uint8_t, uint32_t, device_vpq_dataset_view<half, int64_t>>;
 
+auto update_dataset(raft::resources const& res,
+                    vpq_f16_index<float>&& cagra_index,
+                    device_vpq_dataset_view<half, int64_t> dataset) -> vpq_f16_index<float>;
+auto update_dataset(raft::resources const& res,
+                    vpq_f16_index<half>&& cagra_index,
+                    device_vpq_dataset_view<half, int64_t> dataset) -> vpq_f16_index<half>;
+auto update_dataset(raft::resources const& res,
+                    vpq_f16_index<int8_t>&& cagra_index,
+                    device_vpq_dataset_view<half, int64_t> dataset) -> vpq_f16_index<int8_t>;
+auto update_dataset(raft::resources const& res,
+                    vpq_f16_index<uint8_t>&& cagra_index,
+                    device_vpq_dataset_view<half, int64_t> dataset) -> vpq_f16_index<uint8_t>;
+
 }  // namespace cagra
 }  // namespace neighbors
 }  // namespace CUVS_EXPORT cuvs

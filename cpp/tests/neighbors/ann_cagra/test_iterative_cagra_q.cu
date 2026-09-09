@@ -274,13 +274,7 @@ TEST_F(CagraQSerializeTest, RoundTripsThroughAFileWithItsDataset)
   EXPECT_EQ(restored.metric(), idx.metric());
 
   // Same graph over the same rows, so the results are identical rather than merely comparable.
-  auto after = neighbor_ids(res_, restored, queries(500));
-  ASSERT_EQ(after.size(), before.size());
-  size_t mismatches = 0;
-  for (size_t i = 0; i < before.size(); i++) {
-    mismatches += static_cast<size_t>(after[i] != before[i]);
-  }
-  EXPECT_EQ(mismatches, 0u) << mismatches << " of " << before.size() << " neighbour ids changed";
+  EXPECT_EQ(neighbor_ids(res_, restored, queries(500)), before);
 }
 
 TEST_F(CagraQSerializeTest, RefusesToLoadWithoutItsDataset)
