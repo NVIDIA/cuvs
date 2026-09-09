@@ -211,6 +211,16 @@ CUVS_EXPORT cuvsError_t cuvsMultiGpuResourcesDestroy(cuvsResources_t res);
  * @return cuvsError_t
  */
 CUVS_EXPORT cuvsError_t cuvsMultiGpuResourcesSetMemoryPool(cuvsResources_t res, int percent_of_free_memory);
+
+/**
+ * @brief Set a CUDA stream pool on all devices managed by the multi-GPU resources
+ *
+ * @param[in] res cuvsResources_t opaque C handle for multi-GPU resources
+ * @param[in] num_streams Number of CUDA streams in each device's pool
+ * @return cuvsError_t
+ */
+CUVS_EXPORT cuvsError_t cuvsMultiGpuResourcesSetStreamPool(cuvsResources_t res,
+                                                           size_t num_streams);
 /** @} */
 
 /**
