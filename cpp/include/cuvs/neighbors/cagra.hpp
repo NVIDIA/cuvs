@@ -4916,37 +4916,14 @@ namespace helpers {
  * @param[in] intermediate_graph_degree degree of the input graph for the optimization process
  * @param[in] index_size
  * @param[in] mst_optimize whether to use MST optimization
- * @param[in] device_resident_graphs whether the input and output graphs are already device
- *            resident. In that case `optimize` reads and writes them in place instead of staging
- *            them through device buffers, so those staging allocations are left out of the
- *            estimate.
  * @return tuple of [host_size, device_size, host_fixed_size, device_fixed_size] memory sizes in
  * bytes
  */
-std::tuple<size_t, size_t, size_t, size_t> optimize_workspace_size(
-  size_t n_rows,
-  size_t graph_degree,
-  size_t intermediate_degree,
-  size_t index_size,
-  bool mst_optimize           = false,
-  bool device_resident_graphs = false);
-
-/**
- * Calculate the device memory footprint of a VPQ-compressed (CAGRA-Q) dataset.
- *
- * The footprint is the sum of the VQ codebook, the PQ codebook and the encoded rows. Parameters
- * left at 0 are resolved with the same heuristics that `vpq_build` applies.
- *
- * @param[in] dataset shape of the uncompressed dataset
- * @param[in] params VPQ compression parameters
- * @param[in] codebook_element_size size in bytes of a codebook element (2 for the f16 codebooks
- *            used by CAGRA-Q)
- *
- * @return compressed dataset size in bytes
- */
-size_t vpq_dataset_size(raft::matrix_extent<int64_t> dataset,
-                        cuvs::neighbors::vpq_params params,
-                        size_t codebook_element_size = 2);
+std::tuple<size_t, size_t, size_t, size_t> optimize_workspace_size(size_t n_rows,
+                                                                   size_t graph_degree,
+                                                                   size_t intermediate_degree,
+                                                                   size_t index_size,
+                                                                   bool mst_optimize = false);
 
 /**
  * Calculate memory usage of CAGRA build.
@@ -4956,17 +4933,13 @@ size_t vpq_dataset_size(raft::matrix_extent<int64_t> dataset,
  * @param[in] dtype element type of the dataset
  *            (e.g. `CUDA_R_32F`, `CUDA_R_16F`, `CUDA_R_8I`, `CUDA_R_8U`)
  * @param[in] cparams CAGRA index building parameters
- * @param[in] compression when set, the build consumes a VPQ-compressed (CAGRA-Q) dataset with
- *            these parameters rather than the dense dataset described by `dataset` and `dtype`
  *
  * @return pair of [host_size, device_size] memory sizes in bytes
  */
-std::pair<size_t, size_t> cagra_build_mem_usage(
-  raft::resources const& res,
-  raft::matrix_extent<int64_t> dataset,
-  cudaDataType_t dtype,
-  cuvs::neighbors::cagra::index_params cparams,
-  std::optional<cuvs::neighbors::vpq_params> compression = std::nullopt);
+std::pair<size_t, size_t> cagra_build_mem_usage(raft::resources const& res,
+                                                raft::matrix_extent<int64_t> dataset,
+                                                cudaDataType_t dtype,
+                                                cuvs::neighbors::cagra::index_params cparams);
 
 /**
  * @brief Optimize a KNN graph into a CAGRA graph.
