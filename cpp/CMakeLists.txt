@@ -187,6 +187,7 @@ if(NOT BUILD_CPU_ONLY)
   include(${rapids-cmake-dir}/cpm/cccl.cmake)
   rapids_cpm_cccl()
   include(cmake/thirdparty/get_raft.cmake)
+  include(cmake/thirdparty/get_kvikio.cmake)
   include(cmake/thirdparty/get_cutlass.cmake)
   include(${rapids-cmake-dir}/cpm/cuco.cmake)
   rapids_cpm_cuco()
@@ -1152,6 +1153,29 @@ if(NOT BUILD_CPU_ONLY)
   )
   endblock()
 
+  include(cmake/modules/generate_cutile_kernels.cmake)
+  set(cutile_smoke_dir "${CMAKE_CURRENT_SOURCE_DIR}/src/detail/jit_lto/cutile_smoke")
+  set(cutile_smoke_generated_dir
+      "${CMAKE_CURRENT_BINARY_DIR}/generated_kernels/detail/jit_lto/cutile_smoke"
+  )
+  generate_cutile_kernels(
+    cutile_smoke_files
+    KERNEL_DIR "${cutile_smoke_dir}"
+    KERNEL_BASENAME "cutile_smoke"
+    KERNEL_PYTHON "smoke_kernel.py"
+    EXPORT_SCRIPT "export_smoke.py"
+    OUTPUT_DIRECTORY "${cutile_smoke_generated_dir}"
+    MATRIX_JSON_FILE "${cutile_smoke_dir}/cutile_smoke_matrix.json"
+    FRAGMENT_TAG_FORMAT_CUBIN
+      "cuvs::detail::jit_lto::fragment_tag_cutile_smoke_add_cubin<cuvs::detail::jit_lto::@arch_tag@>"
+    FRAGMENT_TAG_HEADER_FILES "<cuvs/detail/jit_lto/cutile_arch_tags.hpp>"
+                              "<cuvs/detail/jit_lto/cutile_smoke_fragments.hpp>"
+  )
+  if(NOT DEFINED CUVS_CUTILE_ENABLED)
+    set(CUVS_CUTILE_ENABLED 0)
+  endif()
+  target_compile_definitions(cuvs_cpp_headers INTERFACE CUVS_CUTILE_ENABLED=${CUVS_CUTILE_ENABLED})
+
   # Note that this matrix contains an `arch_includes` placeholder, since we don't currently have a
   # way to do an item-wise transform on a list after computing the matrix product and before
   # configuring the file
@@ -1363,6 +1387,7 @@ if(NOT BUILD_CPU_ONLY)
     src/core/omp_wrapper.cpp
     src/util/file_io.cpp
     src/util/host_memory.cpp
+    src/detail/jit_lto/TileAlgorithmPlanner.cpp
     src/distance/detail/kernels/gram_matrix.cu
     src/distance/detail/kernels/kernel_factory.cu
     src/distance/detail/kernels/kernel_matrices.cu
@@ -1443,10 +1468,12 @@ if(NOT BUILD_CPU_ONLY)
     src/neighbors/tiered_index.cu
     src/neighbors/sparse_brute_force.cu
     src/neighbors/vamana_build_float.cu
+    src/neighbors/vamana_build_half.cu
     src/neighbors/vamana_build_uint8.cu
     src/neighbors/vamana_build_int8.cu
     src/neighbors/vamana_codebooks_float.cu
     src/neighbors/vamana_serialize_float.cu
+    src/neighbors/vamana_serialize_half.cu
     src/neighbors/vamana_serialize_uint8.cu
     src/neighbors/vamana_serialize_int8.cu
     src/preprocessing/quantize/scalar.cu
@@ -1459,6 +1486,7 @@ if(NOT BUILD_CPU_ONLY)
     src/stats/trustworthiness_score.cu
     ${CUVS_MG_ALGOS}
     ${jit_lto_files}
+    ${cutile_smoke_files}
   )
 
   set_target_properties(
@@ -1494,6 +1522,7 @@ if(NOT BUILD_CPU_ONLY)
             ${CUVS_CTK_MATH_DEPENDENCIES}
             $<TARGET_NAME_IF_EXISTS:OpenMP::OpenMP_CXX>
             $<TARGET_NAME_IF_EXISTS:hnswlib::hnswlib>
+            kvikio::kvikio
   )
 
   target_include_directories(
@@ -1502,6 +1531,7 @@ if(NOT BUILD_CPU_ONLY)
            "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../c/include>"
     INTERFACE "$<INSTALL_INTERFACE:include>"
     PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_CURRENT_BINARY_DIR}/src"
+            "${cutile_smoke_generated_dir}"
   )
 
   # Endian detection
@@ -1569,8 +1599,13 @@ if(NOT BUILD_CPU_ONLY)
              $<BUILD_LOCAL_INTERFACE:$<TARGET_NAME_IF_EXISTS:NCCL::NCCL>>
              $<BUILD_LOCAL_INTERFACE:$<TARGET_NAME_IF_EXISTS:hnswlib::hnswlib>>
              $<$<BOOL:${CUVS_NVTX}>:CUDA::nvtx3>
-      PRIVATE $<TARGET_NAME_IF_EXISTS:OpenMP::OpenMP_CXX> $<COMPILE_ONLY:nvidia::cutlass::cutlass>
-              $<COMPILE_ONLY:cuco::cuco> CUDA::nvJitLink CUDA::nvrtc rtcx::rtcx
+      PRIVATE $<TARGET_NAME_IF_EXISTS:OpenMP::OpenMP_CXX>
+              $<COMPILE_ONLY:nvidia::cutlass::cutlass>
+              $<COMPILE_ONLY:cuco::cuco>
+              CUDA::nvJitLink
+              CUDA::nvrtc
+              rtcx::rtcx
+              $<BUILD_LOCAL_INTERFACE:kvikio::kvikio>
     )
 
     # ensure CUDA symbols aren't relocated to the middle of the debug build binaries
@@ -1632,6 +1667,7 @@ SECTIONS
               $<$<BOOL:${CUVS_NVTX}>:CUDA::nvtx3>
               $<COMPILE_ONLY:nvidia::cutlass::cutlass>
               $<COMPILE_ONLY:cuco::cuco>
+              kvikio::kvikio
     )
   endif()
 
@@ -1671,6 +1707,24 @@ target_compile_definitions(cuvs::cuvs INTERFACE $<$<BOOL:${CUVS_NVTX}>:NVTX_ENAB
   rapids_cmake_install_lib_dir(lib_dir)
   include(GNUInstallDirs)
   include(CPack)
+
+  # The standalone C artifact links libcuvs_static into libcuvs_c, so private shared dependencies of
+  # the static archive must be bundled explicitly. Keep this component out of normal cuVS installs,
+  # where package managers provide the KvikIO runtime dependency.
+  if(TARGET kvikio::kvikio)
+    get_target_property(_cuvs_kvikio_aliased_target kvikio::kvikio ALIASED_TARGET)
+    if(_cuvs_kvikio_aliased_target)
+      set(_cuvs_standalone_kvikio_target "${_cuvs_kvikio_aliased_target}")
+    else()
+      set(_cuvs_standalone_kvikio_target kvikio::kvikio)
+    endif()
+    install(
+      FILES "$<TARGET_FILE:${_cuvs_standalone_kvikio_target}>"
+      DESTINATION ${lib_dir}
+      COMPONENT cuvs_standalone_runtime
+      EXCLUDE_FROM_ALL
+    )
+  endif()
 
   set(target_names cuvs cuvs_static cuvs_cpp_headers cuvs_c)
   set(component_names cuvs_shared cuvs_static cuvs_cpp_headers c_api)

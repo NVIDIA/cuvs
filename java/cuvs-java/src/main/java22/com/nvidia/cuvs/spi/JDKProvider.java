@@ -26,6 +26,7 @@ import java.lang.invoke.MethodType;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.BitSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -302,24 +303,14 @@ final class JDKProvider implements CuVSProvider {
   }
 
   @Override
-  public CagraIndex mergeCagraIndexes(CagraIndex[] indexes) {
-    if (indexes == null || indexes.length == 0) {
-      throw new IllegalArgumentException("At least one index must be provided for merging");
-    }
-    return CagraIndexImpl.merge(indexes);
-  }
-
-  @Override
-  public CagraIndex mergeCagraIndexes(CagraIndex[] indexes, CagraIndexParams mergeParams) {
-    if (indexes == null || indexes.length == 0) {
-      throw new IllegalArgumentException("At least one index must be provided for merging");
-    }
-    return CagraIndexImpl.merge(indexes, mergeParams);
-  }
-
-  @Override
   public boolean isCagraPaddedDataset(CuVSMatrix dataset) {
     return CagraIndexImpl.isPaddedDataset(dataset);
+  }
+
+  @Override
+  public CagraIndex mergeCagraIndexes(
+      CagraIndex[] indexes, CagraIndexParams mergeParams, BitSet rowFilter) {
+    return CagraIndexImpl.merge(indexes, mergeParams, rowFilter);
   }
 
   @Override
