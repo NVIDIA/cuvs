@@ -3,7 +3,7 @@
 
 from .pq import (
     Quantizer, QuantizerParams, VpqParams, build, inverse_transform,
-    make_vpq_dataset, transform,
+    make_device_pq_dataset, transform,
 )
 
 __all__ = [
@@ -13,5 +13,5 @@ __all__ = [
     "build",
     "transform",
     "inverse_transform",
-    "make_vpq_dataset",
+    "make_device_pq_dataset",
 ]

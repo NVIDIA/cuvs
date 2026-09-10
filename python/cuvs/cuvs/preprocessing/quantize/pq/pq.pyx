@@ -417,7 +417,7 @@ def inverse_transform(Quantizer quantizer, codes, output=None, vq_labels=None, r
 
 
 @auto_sync_resources
-def make_vpq_dataset(VpqParams params, dataset, resources=None):
+def make_device_pq_dataset(VpqParams params, dataset, resources=None):
     """Create an owning device VPQ dataset for iterative CAGRA-Q."""
     cdef Dataset dense
     cdef Dataset vpq = Dataset()

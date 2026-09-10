@@ -303,12 +303,12 @@ Applies Product Quantization inverse transform to given codes
 >>> reconstructed = pq.inverse_transform(quantizer, transformed, vq_labels=vq_labels)
 ```
 
-## make_vpq_dataset
+## make_device_pq_dataset
 
 `@auto_sync_resources`
 
 ```python
-def make_vpq_dataset(VpqParams params, dataset, resources=None)
+def make_device_pq_dataset(VpqParams params, dataset, resources=None)
 ```
 
 Create an owning device VPQ dataset for iterative CAGRA-Q.
