@@ -81,7 +81,7 @@ std::tuple<T, T> quantile_min_max(
   constexpr size_t max_num_samples = 1000000;
   constexpr int seed               = 137;
 
-  cudaStream_t stream = raft::resource::get_cuda_stream(res);
+  cudaStream_t stream = raft::resource::get_cuda_stream(res).get();
 
   // select subsample
   raft::random::RngState rng(seed);
@@ -168,7 +168,7 @@ void transform(raft::resources const& res,
                raft::device_matrix_view<const T, int64_t> dataset,
                raft::device_matrix_view<QuantI, int64_t> out)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(res);
+  cudaStream_t stream = raft::resource::get_cuda_stream(res).get();
 
   raft::linalg::map(res,
                     out,
@@ -200,7 +200,7 @@ void inverse_transform(raft::resources const& res,
                        raft::device_matrix_view<const QuantI, int64_t> dataset,
                        raft::device_matrix_view<T, int64_t> out)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(res);
+  cudaStream_t stream = raft::resource::get_cuda_stream(res).get();
 
   raft::linalg::map(res,
                     out,
