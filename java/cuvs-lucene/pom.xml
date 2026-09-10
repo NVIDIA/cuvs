@@ -125,6 +125,11 @@ SPDX-License-Identifier: Apache-2.0
     </dependency>
     <dependency>
         <groupId>org.apache.lucene</groupId>
+        <artifactId>lucene-misc</artifactId>
+        <version>10.2.0</version>
+    </dependency>
+    <dependency>
+        <groupId>org.apache.lucene</groupId>
         <artifactId>lucene-test-framework</artifactId>
         <version>10.2.0</version>
         <scope>test</scope>
@@ -194,6 +199,9 @@ SPDX-License-Identifier: Apache-2.0
           <systemPropertyVariables>
             <java.util.logging.config.file>${project.basedir}/src/main/resources/logging.properties</java.util.logging.config.file>
           </systemPropertyVariables>
+          <environmentVariables>
+            <CUFILE_LOGFILE_PATH>${project.build.directory}/cufile.log</CUFILE_LOGFILE_PATH>
+          </environmentVariables>
         </configuration>
       </plugin>
       <plugin>

@@ -4,9 +4,42 @@
  */
 package com.nvidia.cuvs.lucene;
 
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.channels.FileChannel;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.Random;
 
 public class TestUtils {
+
+  /** Writes {@code dataset} as an uncompressed {@code .fbin} file (little-endian float32 rows). */
+  public static void writeFbin(Path path, float[][] dataset) throws IOException {
+    int numVectors = dataset.length;
+    int dimension = numVectors == 0 ? 0 : dataset[0].length;
+    ByteBuffer buf =
+        ByteBuffer.allocate(8 + numVectors * dimension * Float.BYTES)
+            .order(ByteOrder.LITTLE_ENDIAN);
+    buf.putInt(numVectors);
+    buf.putInt(dimension);
+    for (float[] vector : dataset) {
+      for (float v : vector) {
+        buf.putFloat(v);
+      }
+    }
+    buf.flip();
+    try (FileChannel ch =
+        FileChannel.open(
+            path,
+            StandardOpenOption.CREATE,
+            StandardOpenOption.WRITE,
+            StandardOpenOption.TRUNCATE_EXISTING)) {
+      while (buf.hasRemaining()) {
+        ch.write(buf);
+      }
+    }
+  }
 
   public static float[][] generateDataset(Random random, int size, int dimensions) {
     float[][] dataset = new float[size][dimensions];

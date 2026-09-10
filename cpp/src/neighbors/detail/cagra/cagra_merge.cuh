@@ -158,7 +158,7 @@ cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> merge_rebuild(
     return index;
   };
 
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle);
+  cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
 
   if (bitset_filtered) {
     auto staging = raft::make_device_mdarray<T, int64_t>(
@@ -421,7 +421,7 @@ auto merge_fastener(raft::resources const& handle,
                                       0,
                                       static_cast<std::size_t>(stride - preflight.dim) * sizeof(T),
                                       static_cast<std::size_t>(preflight.rows),
-                                      raft::resource::get_cuda_stream(handle)));
+                                      raft::resource::get_cuda_stream(handle).get()));
     }
     copy_input_datasets<T, IdxT, DatasetViewT>(
       handle, indices, preflight.offsets, preflight.dim, stride, destination);

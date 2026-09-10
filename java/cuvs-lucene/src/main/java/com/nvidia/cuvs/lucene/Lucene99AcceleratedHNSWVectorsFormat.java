@@ -31,6 +31,7 @@ public class Lucene99AcceleratedHNSWVectorsFormat extends KnnVectorsFormat {
   private static final FlatVectorsFormat FLAT_VECTORS_FORMAT;
   private static final int MAX_DIMENSIONS = 4096;
   private final AcceleratedHNSWParams acceleratedHNSWParams;
+  private final int numInputVectors;
 
   static final String HNSW_META_CODEC_NAME = "Lucene99HnswVectorsFormatMeta";
   static final String HNSW_META_CODEC_EXT = "vem";
@@ -65,8 +66,25 @@ public class Lucene99AcceleratedHNSWVectorsFormat extends KnnVectorsFormat {
    * @param acceleratedHNSWParams An instance of {@link AcceleratedHNSWParams}
    */
   public Lucene99AcceleratedHNSWVectorsFormat(AcceleratedHNSWParams acceleratedHNSWParams) {
+    this(acceleratedHNSWParams, 0);
+  }
+
+  /**
+   * Initializes {@link Lucene99AcceleratedHNSWVectorsFormat} for the native flat-buffered build
+   * path (see {@link NativeFlatBufferedHNSWVectorsWriter}). Package-private: only {@link
+   * CagraHnswBulkIndexWriter} (via {@link Lucene101AcceleratedHNSWCodec}) can guarantee the
+   * invariants that native flat buffering requires, so this overload is not part of the public
+   * API.
+   *
+   * @param acceleratedHNSWParams An instance of {@link AcceleratedHNSWParams}
+   * @param numInputVectors the exact number of vectors to be indexed, used to pre-size the native
+   *     flat buffer (0 = disabled, the default heap-buffered path)
+   */
+  Lucene99AcceleratedHNSWVectorsFormat(
+      AcceleratedHNSWParams acceleratedHNSWParams, int numInputVectors) {
     super("Lucene99AcceleratedHNSWVectorsFormat");
     this.acceleratedHNSWParams = acceleratedHNSWParams;
+    this.numInputVectors = numInputVectors;
   }
 
   /**
@@ -74,14 +92,23 @@ public class Lucene99AcceleratedHNSWVectorsFormat extends KnnVectorsFormat {
    */
   @Override
   public KnnVectorsWriter fieldsWriter(SegmentWriteState state) throws IOException {
-    var flatWriter = FLAT_VECTORS_FORMAT.fieldsWriter(state);
+    boolean nativeMode = isSupported() && numInputVectors > 0;
     if (isSupported()) {
+      if (nativeMode) {
+        log.log(Level.FINE, "cuVS is supported so using the NativeFlatBufferedHNSWVectorsWriter");
+        // In hint mode the accelerated writer owns the flat .vec/.vemf files, so the Lucene flat
+        // writer must not be created (it would open the same outputs).
+        return new NativeFlatBufferedHNSWVectorsWriter(
+            state, acceleratedHNSWParams, numInputVectors);
+      }
       log.log(Level.FINE, "cuVS is supported so using the Lucene99AcceleratedHNSWVectorsWriter");
+      var flatWriter = FLAT_VECTORS_FORMAT.fieldsWriter(state);
       return new Lucene99AcceleratedHNSWVectorsWriter(state, acceleratedHNSWParams, flatWriter);
     } else {
       log.log(
           Level.WARNING,
           "GPU based indexing not supported, falling back to using the Lucene99HnswVectorsWriter");
+      var flatWriter = FLAT_VECTORS_FORMAT.fieldsWriter(state);
       try {
         return LUCENE_PROVIDER.getLuceneHnswVectorsWriterInstance(
             state,

@@ -76,4 +76,4 @@ This process-wide setting is independent of any host-side filter cache and is di
 
 ## Examples
 
-A few starter examples of CAGRA, HNSW, and Bruteforce indexing and searching are provided in the `examples` directory.
+A few starter examples of CAGRA, HNSW, and Bruteforce indexing and searching are provided in the [`examples/`](../examples/java/cuvs-java) directory.

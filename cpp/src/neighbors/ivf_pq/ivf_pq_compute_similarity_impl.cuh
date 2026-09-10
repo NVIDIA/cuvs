@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -290,7 +290,7 @@ void compute_similarity_run(selected<OutT, LutT> s,
                             OutT* _out_scores,
                             uint32_t* _out_indices)
 {
-  s.launcher->template dispatch<compute_similarity_func_t<OutT, LutT>>(stream,
+  s.launcher->template dispatch<compute_similarity_func_t<OutT, LutT>>(stream.get(),
                                                                        s.grid_dim,
                                                                        s.block_dim,
                                                                        s.smem_size,
@@ -317,7 +317,7 @@ void compute_similarity_run(selected<OutT, LutT> s,
                                                                        lut_scores,
                                                                        _out_scores,
                                                                        _out_indices);
-  RAFT_CHECK_CUDA(stream);
+  RAFT_CHECK_CUDA(stream.get());
 }
 
 /**
