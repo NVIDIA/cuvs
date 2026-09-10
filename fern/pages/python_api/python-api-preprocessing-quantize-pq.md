@@ -166,13 +166,13 @@ def use_vq(self)
 def use_subspaces(self)
 ```
 
-## VpqParams
+## PQDatasetParams
 
 ```python
-cdef class VpqParams
+cdef class PQDatasetParams
 ```
 
-Parameters for creating a CAGRA-Q VPQ dataset.
+Parameters for creating a PQ dataset.
 
 **Constructor**
 

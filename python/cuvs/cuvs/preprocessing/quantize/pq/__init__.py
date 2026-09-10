@@ -2,13 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from .pq import (
-    Quantizer, QuantizerParams, VpqParams, build, inverse_transform, transform,
+    PQDatasetParams, Quantizer, QuantizerParams, build, inverse_transform, transform,
 )
 
 __all__ = [
     "Quantizer",
     "QuantizerParams",
-    "VpqParams",
+    "PQDatasetParams",
     "build",
     "transform",
     "inverse_transform",

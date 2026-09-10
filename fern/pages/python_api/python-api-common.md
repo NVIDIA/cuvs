@@ -298,4 +298,4 @@ alive for as long as the ``Dataset`` is used.
 def make_device_pq_dataset(params, dataset, resources=None)
 ```
 
-Create an owning device PQ dataset for iterative CAGRA-Q.
+Create an owning device PQ dataset.

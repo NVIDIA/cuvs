@@ -28,8 +28,8 @@ PQ_KMEANS_TYPES = {
 PQ_KMEANS_NAMES = {v: k for k, v in PQ_KMEANS_TYPES.items()}
 
 
-cdef class VpqParams:
-    """Parameters for creating a CAGRA-Q VPQ dataset."""
+cdef class PQDatasetParams:
+    """Parameters for creating a PQ dataset."""
 
     cdef cuvsCagraCompressionParams* params
 

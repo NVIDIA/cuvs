@@ -153,7 +153,7 @@ def make_device_padded_dataset(dataset, resources=None):
 
 @auto_sync_resources
 def make_device_pq_dataset(params, dataset, resources=None):
-    """Create an owning device PQ dataset for iterative CAGRA-Q."""
+    """Create an owning device PQ dataset."""
     cdef Dataset dense
     cdef Dataset pq = Dataset()
     cdef cuvsResources_t res = <cuvsResources_t>resources.get_c_obj()
