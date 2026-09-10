@@ -7,12 +7,6 @@
 import numpy as np
 
 from cuvs.common cimport cydlpack
-from cuvs.common.dataset cimport (
-    CUVS_DATASET_MEM_TYPE_DEVICE,
-    Dataset,
-    cuvsDatasetMakePQ,
-    cuvsDatasetMakeStandardView,
-)
 from cuvs.neighbors.cagra.cagra cimport (
     cuvsCagraCompressionParams,
     cuvsCagraCompressionParamsCreate,
@@ -46,6 +40,9 @@ cdef class VpqParams:
     def __dealloc__(self):
         if self.params != NULL:
             cuvsCagraCompressionParamsDestroy(self.params)
+
+    def _get_c_obj(self):
+        return <uintptr_t>self.params
 
     def __init__(self, *, pq_bits=8, pq_dim=0, vq_n_centers=0,
                  kmeans_n_iters=25, vq_kmeans_trainset_fraction=0.0,
@@ -414,33 +411,3 @@ def inverse_transform(Quantizer quantizer, codes, output=None, vq_labels=None, r
                                                     vq_labels_dlpack))
 
     return output
-
-
-@auto_sync_resources
-def make_device_pq_dataset(VpqParams params, dataset, resources=None):
-    """Create an owning device VPQ dataset for iterative CAGRA-Q."""
-    cdef Dataset dense
-    cdef Dataset vpq = Dataset()
-    cdef cuvsResources_t res = <cuvsResources_t>resources.get_c_obj()
-    cdef cydlpack.DLManagedTensor* dataset_dlpack = NULL
-
-    if isinstance(dataset, Dataset):
-        dense = dataset
-    else:
-        dataset_ai = wrap_array(dataset)
-        _check_input_array(
-            dataset_ai,
-            [np.dtype("float32"), np.dtype("float16"),
-             np.dtype("int8"), np.dtype("uint8")])
-        dataset_dlpack = cydlpack.dlpack_c(dataset_ai)
-        dense = Dataset()
-        check_cuvs(cuvsDatasetMakeStandardView(
-            res, dataset_dlpack, &dense.dataset))
-
-    check_cuvs(cuvsDatasetMakePQ(
-        res,
-        params.params,
-        dense.dataset,
-        CUVS_DATASET_MEM_TYPE_DEVICE,
-        &vpq.dataset))
-    return vpq
