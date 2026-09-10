@@ -121,7 +121,13 @@ struct search_plan_impl_base : public search_params {
       }
     } else if (algo == search_algo::AUTO) {
       const size_t num_sm = raft::getMultiProcessorCount();
-      if (itopk_size <= 512 && search_params::max_queries >= num_sm * 2lu) {
+      // SINGLE_CTA computes max_iterations as itopk_size / search_width.
+      // When search_width > 1, this results in significantly fewer iterations
+      // compared to MULTI_CTA (which uses its own internal mc_search_width=1).
+      // This causes recall degradation when AUTO switches to SINGLE_CTA at
+      // large batch sizes. Only select SINGLE_CTA when search_width <= 1 to
+      // ensure consistent recall across batch sizes. (See #1187)
+      if (itopk_size <= 512 && search_width <= 1 && search_params::max_queries >= num_sm * 2lu) {
         algo = search_algo::SINGLE_CTA;
         RAFT_LOG_DEBUG("Auto strategy: selecting single-cta");
       } else {
