@@ -429,7 +429,8 @@ dependencies:
           - libcusolver-dev
           - libcusparse-dev
           - libnvjitlink-dev
-  # NOTE: 'tileiras' is needed too, but in CI that's provided by a system-installed CTK.
+  # NOTE: 'tileiras' is needed too, but in CI that's provided by a system-installed CTK, so
+  #              we do not use the [tileiras] extra recommended at https://pypi.org/project/cuda-tile/
   cutile_python:
     specific:
       - output_types: conda
