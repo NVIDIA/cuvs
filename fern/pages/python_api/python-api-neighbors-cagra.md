@@ -549,7 +549,7 @@ subject to change.
 | --- | --- | --- |
 | `filename` | `string` | Name of the file. |
 | `index` | `Index` | Trained CAGRA index. |
-| `include_dataset` | `bool` | Whether or not to write out the dataset along with the index. Including the dataset in the serialized index will use extra disk space, and might not be desired if you already have a copy of the dataset on disk. If this option is set to false, you will have to call `index.update_dataset(dataset)` after loading the index. |
+| `include_dataset` | `bool` | Whether or not to write out the dataset along with the index. Including the dataset in the serialized index will use extra disk space, and might not be desired if you already have a copy of the dataset on disk. If this option is set to false, you will have to call `cagra.update_dataset(index, dataset)` after loading the index. PQ indexes currently require this option to be false. |
 | `resources` | `cuvs.common.Resources, optional` |  |
 
 **Examples**
@@ -628,9 +628,9 @@ Find the k nearest neighbors for each query.
 `@auto_sync_resources`
 
 ```python
-def update_dataset(Index index, padded_dataset, resources=None)
+def update_dataset(Index index, dataset, resources=None)
 ```
 
-Update any CAGRA index layout with a padded dataset.
+Update a CAGRA index with a device-padded or device-PQ dataset.
 
-Accepts a ``Dataset`` or array. The index becomes search-ready in padded layout.
+Arrays are converted to device-padded datasets. A PQ ``Dataset`` is attached directly.

@@ -588,26 +588,26 @@ def build(IndexParams index_params, dataset, resources=None):
 
 
 @auto_sync_resources
-def update_dataset(Index index, padded_dataset, resources=None):
+def update_dataset(Index index, dataset, resources=None):
     """
-    Update any CAGRA index layout with a padded dataset.
+    Update a CAGRA index with a device-padded or device-PQ dataset.
 
-    Accepts a ``Dataset`` or array. The index becomes search-ready in padded layout.
+    Arrays are converted to device-padded datasets. A PQ ``Dataset`` is attached directly.
     """
     if not index.trained:
         raise ValueError("Index needs to be built before attaching dataset.")
 
     cdef Dataset dataset_obj
     source_array = None
-    if isinstance(padded_dataset, Dataset):
-        dataset_obj = padded_dataset
+    if isinstance(dataset, Dataset):
+        dataset_obj = dataset
     else:
-        source_array = padded_dataset
-        dataset_obj = make_device_padded_dataset(padded_dataset, resources=resources)
+        source_array = dataset
+        dataset_obj = make_device_padded_dataset(dataset, resources=resources)
 
     cdef cuvsDataset_t dataset_handle = _cagra_dataset_handle(dataset_obj)
-    if dataset_obj.layout != "padded":
-        raise TypeError("padded_dataset must have padded layout")
+    if dataset_obj.layout not in ("padded", "vpq"):
+        raise TypeError("dataset must have padded or PQ layout")
 
     cdef cuvsResources_t res = <cuvsResources_t>resources.get_c_obj()
     with cuda_interruptible():
@@ -953,7 +953,8 @@ def save(filename, Index index, bool include_dataset=True, resources=None):
         the dataset in the serialized index will use extra disk space, and
         might not be desired if you already have a copy of the dataset on
         disk. If this option is set to false, you will have to call
-        `index.update_dataset(dataset)` after loading the index.
+        `cagra.update_dataset(index, dataset)` after loading the index. PQ
+        indexes currently require this option to be false.
     {resources_docstring}
 
     Examples
