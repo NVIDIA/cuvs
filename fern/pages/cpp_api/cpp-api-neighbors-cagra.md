@@ -1225,8 +1225,7 @@ enum class serialized_dataset_kind : std::uint32_t {
   device_padded = 1,
   device_standard = 2,
   host_padded = 3,
-  host_standard = 4,
-  device_vpq_f16 = 5
+  host_standard = 4
 };
 ```
 
@@ -1239,7 +1238,6 @@ enum class serialized_dataset_kind : std::uint32_t {
 | `device_standard` | `2` |
 | `host_padded` | `3` |
 | `host_standard` | `4` |
-| `device_vpq_f16` | `5` |
 
 <a id="neighbors-cagra-serialize"></a>
 ### neighbors::cagra::serialize

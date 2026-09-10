@@ -2333,20 +2333,15 @@ enum class serialized_dataset_kind : std::uint32_t {
   host_padded = 3,
   /** Host-resident dataset using its standard row layout. */
   host_standard = 4,
-  /** Device-resident VPQ-compressed dataset with f16 codebooks (CAGRA-Q). */
-  device_vpq_f16 = 5,
 };
 
 /** Current experimental CAGRA serialization format version. */
 inline constexpr int cagra_serialization_version = 6;
 
-// Serialize and deserialize are overloaded for device/host and padded/standard dense indexes,
-// which share the same strided dataset payload, and for an FP16-codebook device_pq_index, which
-// writes a VPQ payload
-// instead. The serialized dataset kind selects the matching owning dataset type during
-// deserialization. To support a further kind, add matching overloads here and a corresponding
-// serialize_/deserialize_<kind> in detail/dataset_serialize.hpp (dense views use
-// serialize_cagra_dense_dataset, VPQ ones serialize_vpq_dataset).
+// Serialize and deserialize are overloaded for device/host and padded/standard dense indexes.
+// They use the same strided dataset payload; the serialized dataset kind selects the matching
+// owning dataset type during deserialization. To support a new dataset kind, add matching
+// overloads here and a corresponding deserialize_<kind> in detail/dataset_serialize.hpp.
 
 /**
  * Save the index to file.
@@ -2897,97 +2892,74 @@ void deserialize(raft::resources const& handle,
                  std::unique_ptr<cuvs::neighbors::device_standard_dataset<uint8_t, int64_t>>*
                    out_dataset = nullptr);
 
-/* FP16-codebook device_pq_index overloads (CAGRA-Q).
+/* FP16-codebook device_pq_index graph-only overloads (CAGRA-Q).
  *
- * The compressed rows travel with the index, so that a deserialized index can be searched without
- * the dense dataset it was compressed from and without retraining the codebooks. As everywhere
- * else, the index holds a view: `deserialize` returns the owning dataset through `out_dataset`,
- * which the caller has to keep alive for as long as the index is used.
- *
- * Unlike the dense overloads, `out_dataset` is required. Nothing can be searched in a VPQ index
- * whose rows were dropped, so there is no use for a graph-only load, and asking for one is an
- * error rather than a silently unusable index. For the same reason `include_dataset = false`
- * produces an index that only `update_dataset` can make searchable again.
+ * These overloads persist the graph and index metadata, but not the attached PQ dataset. Attach a
+ * compatible dataset with `update_dataset` after deserialization before searching.
  */
 void serialize(raft::resources const& handle,
                const std::string& filename,
-               const cuvs::neighbors::cagra::device_pq_index<float>& index,
-               bool include_dataset = true);
+               const cuvs::neighbors::cagra::device_pq_index<float>& index);
 
 void deserialize(raft::resources const& handle,
                  const std::string& filename,
-                 cuvs::neighbors::cagra::device_pq_index<float>* index,
-                 std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>* out_dataset);
+                 cuvs::neighbors::cagra::device_pq_index<float>* index);
 
 void serialize(raft::resources const& handle,
                std::ostream& os,
-               const cuvs::neighbors::cagra::device_pq_index<float>& index,
-               bool include_dataset = true);
+               const cuvs::neighbors::cagra::device_pq_index<float>& index);
 
 void deserialize(raft::resources const& handle,
                  std::istream& is,
-                 cuvs::neighbors::cagra::device_pq_index<float>* index,
-                 std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>* out_dataset);
+                 cuvs::neighbors::cagra::device_pq_index<float>* index);
 
 void serialize(raft::resources const& handle,
                const std::string& filename,
-               const cuvs::neighbors::cagra::device_pq_index<half>& index,
-               bool include_dataset = true);
+               const cuvs::neighbors::cagra::device_pq_index<half>& index);
 
 void deserialize(raft::resources const& handle,
                  const std::string& filename,
-                 cuvs::neighbors::cagra::device_pq_index<half>* index,
-                 std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>* out_dataset);
+                 cuvs::neighbors::cagra::device_pq_index<half>* index);
 
 void serialize(raft::resources const& handle,
                std::ostream& os,
-               const cuvs::neighbors::cagra::device_pq_index<half>& index,
-               bool include_dataset = true);
+               const cuvs::neighbors::cagra::device_pq_index<half>& index);
 
 void deserialize(raft::resources const& handle,
                  std::istream& is,
-                 cuvs::neighbors::cagra::device_pq_index<half>* index,
-                 std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>* out_dataset);
+                 cuvs::neighbors::cagra::device_pq_index<half>* index);
 
 void serialize(raft::resources const& handle,
                const std::string& filename,
-               const cuvs::neighbors::cagra::device_pq_index<int8_t>& index,
-               bool include_dataset = true);
+               const cuvs::neighbors::cagra::device_pq_index<int8_t>& index);
 
 void deserialize(raft::resources const& handle,
                  const std::string& filename,
-                 cuvs::neighbors::cagra::device_pq_index<int8_t>* index,
-                 std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>* out_dataset);
+                 cuvs::neighbors::cagra::device_pq_index<int8_t>* index);
 
 void serialize(raft::resources const& handle,
                std::ostream& os,
-               const cuvs::neighbors::cagra::device_pq_index<int8_t>& index,
-               bool include_dataset = true);
+               const cuvs::neighbors::cagra::device_pq_index<int8_t>& index);
 
 void deserialize(raft::resources const& handle,
                  std::istream& is,
-                 cuvs::neighbors::cagra::device_pq_index<int8_t>* index,
-                 std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>* out_dataset);
+                 cuvs::neighbors::cagra::device_pq_index<int8_t>* index);
 
 void serialize(raft::resources const& handle,
                const std::string& filename,
-               const cuvs::neighbors::cagra::device_pq_index<uint8_t>& index,
-               bool include_dataset = true);
+               const cuvs::neighbors::cagra::device_pq_index<uint8_t>& index);
 
 void deserialize(raft::resources const& handle,
                  const std::string& filename,
-                 cuvs::neighbors::cagra::device_pq_index<uint8_t>* index,
-                 std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>* out_dataset);
+                 cuvs::neighbors::cagra::device_pq_index<uint8_t>* index);
 
 void serialize(raft::resources const& handle,
                std::ostream& os,
-               const cuvs::neighbors::cagra::device_pq_index<uint8_t>& index,
-               bool include_dataset = true);
+               const cuvs::neighbors::cagra::device_pq_index<uint8_t>& index);
 
 void deserialize(raft::resources const& handle,
                  std::istream& is,
-                 cuvs::neighbors::cagra::device_pq_index<uint8_t>* index,
-                 std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>* out_dataset);
+                 cuvs::neighbors::cagra::device_pq_index<uint8_t>* index);
 
 /** @copydoc serialize */
 void serialize(raft::resources const& handle,
