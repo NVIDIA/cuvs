@@ -157,7 +157,7 @@ namespace cuvs::neighbors::cagra {
                                                                                                   \
   void serialize(raft::resources const& handle,                                                   \
                  const std::string& filename,                                                     \
-                 const cuvs::neighbors::cagra::vpq_f16_index<DTYPE, uint32_t>& index,             \
+                 const cuvs::neighbors::cagra::device_pq_index<DTYPE, uint32_t, half>& index,     \
                  bool include_dataset)                                                            \
   {                                                                                               \
     cuvs::neighbors::cagra::detail::serialize<DTYPE, uint32_t>(                                   \
@@ -167,7 +167,7 @@ namespace cuvs::neighbors::cagra {
   void deserialize(                                                                               \
     raft::resources const& handle,                                                                \
     const std::string& filename,                                                                  \
-    cuvs::neighbors::cagra::vpq_f16_index<DTYPE, uint32_t>* index,                                \
+    cuvs::neighbors::cagra::device_pq_index<DTYPE, uint32_t, half>* index,                        \
     std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>* out_dataset)             \
   {                                                                                               \
     cuvs::neighbors::cagra::detail::deserialize<DTYPE, uint32_t>(                                 \
@@ -176,7 +176,7 @@ namespace cuvs::neighbors::cagra {
                                                                                                   \
   void serialize(raft::resources const& handle,                                                   \
                  std::ostream& os,                                                                \
-                 const cuvs::neighbors::cagra::vpq_f16_index<DTYPE, uint32_t>& index,             \
+                 const cuvs::neighbors::cagra::device_pq_index<DTYPE, uint32_t, half>& index,     \
                  bool include_dataset)                                                            \
   {                                                                                               \
     cuvs::neighbors::cagra::detail::serialize<DTYPE, uint32_t>(                                   \
@@ -186,7 +186,7 @@ namespace cuvs::neighbors::cagra {
   void deserialize(                                                                               \
     raft::resources const& handle,                                                                \
     std::istream& is,                                                                             \
-    cuvs::neighbors::cagra::vpq_f16_index<DTYPE, uint32_t>* index,                                \
+    cuvs::neighbors::cagra::device_pq_index<DTYPE, uint32_t, half>* index,                        \
     std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>* out_dataset)             \
   {                                                                                               \
     cuvs::neighbors::cagra::detail::deserialize<DTYPE, uint32_t>(handle, is, index, out_dataset); \

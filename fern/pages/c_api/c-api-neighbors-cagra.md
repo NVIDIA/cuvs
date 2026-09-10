@@ -825,7 +825,7 @@ The memory space and layout `dataset` was constructed with select the C++ build 
 
 Note that a dataset residing in host memory produces a host-backed index, which must be made search-ready with `cuvsCagraUpdateDataset` (using a device-padded dataset) before calling `cuvsCagraSearch`.
 
-A `CUVS_DATASET_LAYOUT_PQ` dataset created by `cuvsDatasetMakeVpq` builds an iterative CAGRA-Q index. VPQ input requires `L2Expanded` and `ITERATIVE_CAGRA_SEARCH` (or `AUTO_SELECT`), and the VPQ dataset must outlive the index because the index stores a non-owning view.
+A `CUVS_DATASET_LAYOUT_PQ` dataset created by `cuvsDatasetMakePQ` builds an iterative CAGRA-Q index. VPQ input requires `L2Expanded` and `ITERATIVE_CAGRA_SEARCH` (or `AUTO_SELECT`), and the VPQ dataset must outlive the index because the index stores a non-owning view.
 
 **Parameters**
 

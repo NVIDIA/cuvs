@@ -8,9 +8,10 @@ import numpy as np
 
 from cuvs.common cimport cydlpack
 from cuvs.common.dataset cimport (
+    CUVS_DATASET_MEM_TYPE_DEVICE,
     Dataset,
+    cuvsDatasetMakePQ,
     cuvsDatasetMakeStandardView,
-    cuvsDatasetMakeVpq,
 )
 from cuvs.neighbors.cagra.cagra cimport (
     cuvsCagraCompressionParams,
@@ -436,6 +437,10 @@ def make_vpq_dataset(VpqParams params, dataset, resources=None):
         check_cuvs(cuvsDatasetMakeStandardView(
             res, dataset_dlpack, &dense.dataset))
 
-    check_cuvs(cuvsDatasetMakeVpq(
-        res, params.params, dense.dataset, &vpq.dataset))
+    check_cuvs(cuvsDatasetMakePQ(
+        res,
+        params.params,
+        dense.dataset,
+        CUVS_DATASET_MEM_TYPE_DEVICE,
+        &vpq.dataset))
     return vpq

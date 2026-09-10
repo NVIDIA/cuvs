@@ -78,11 +78,14 @@ CUVS_EXPORT cuvsError_t cuvsDatasetMakePadded(cuvsResources_t res,
 
 /**
  * @brief Compress a dense dataset into a device VPQ dataset.
+ *
+ * Only device output is currently supported.
  */
-CUVS_EXPORT cuvsError_t cuvsDatasetMakeVpq(cuvsResources_t res,
-                                           cuvsCagraCompressionParams_t params,
-                                           cuvsDataset_t dataset,
-                                           cuvsDataset_t* vpq_dataset);
+CUVS_EXPORT cuvsError_t cuvsDatasetMakePQ(cuvsResources_t res,
+                                          cuvsCagraCompressionParams_t params,
+                                          cuvsDataset_t dataset,
+                                          cuvsDatasetMemType_t target_mem_type,
+                                          cuvsDataset_t* pq_dataset);
 
 /**
  * @brief Create a non-owning padded dataset view from a host- or device-resident tensor.

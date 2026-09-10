@@ -423,14 +423,14 @@ static auto make_cpp_vpq_params(cuvsCagraCompressionParams const& params)
 }
 
 template <typename T>
-static auto make_vpq_from_dense_dataset(raft::resources* res_ptr,
-                                        cuvsCagraCompressionParams const& params,
-                                        cuvsDataset_t dataset)
+static auto make_device_pq_dataset(raft::resources* res_ptr,
+                                   cuvsCagraCompressionParams const& params,
+                                   cuvsDataset_t dataset)
   -> std::unique_ptr<device_vpq_owner_t>
 {
   RAFT_EXPECTS(dataset->layout == CUVS_DATASET_LAYOUT_STANDARD ||
                  dataset->layout == CUVS_DATASET_LAYOUT_PADDED,
-               "cuvsDatasetMakeVpq: source dataset must have STANDARD or PADDED layout");
+               "cuvsDatasetMakePQ: source dataset must have STANDARD or PADDED layout");
   auto cpp_params = make_cpp_vpq_params(params);
   std::unique_ptr<device_vpq_owner_t> owner;
   auto make = [&](auto const& view) {
@@ -456,7 +456,7 @@ static auto make_vpq_from_dense_dataset(raft::resources* res_ptr,
                         cuvs::neighbors::host_standard_dataset_view<T, int64_t>>(dataset, make);
     }
   } else {
-    RAFT_FAIL("cuvsDatasetMakeVpq: invalid source dataset memory type");
+    RAFT_FAIL("cuvsDatasetMakePQ: invalid source dataset memory type");
   }
   return owner;
 }
@@ -639,18 +639,12 @@ static void update_dataset(raft::resources* res_ptr,
       "cuvsCagraUpdateDataset: null index handle",
       "cuvsCagraUpdateDataset: host index layout is allowed for this operation",
       [&](auto& idx) {
-        using index_dataset_view_t = std::remove_cvref_t<decltype(idx.dataset())>;
-        if constexpr (cuvs::neighbors::is_vpq_dataset_view_v<index_dataset_view_t>) {
-          RAFT_FAIL("cuvsCagraUpdateDataset: replacing a VPQ dataset is not supported");
-        } else {
-          auto padded_idx =
-            cuvs::neighbors::cagra::update_dataset(*res_ptr, std::move(idx), padded_view);
-          auto* holder =
-            new cuvs_cagra_c_api_index_lifetime_holder<T, view_t>{std::move(padded_idx)};
-          destroy_sg_cagra_c_api_box(index->addr);
-          index->addr = 0;
-          bind_index_lifetime_holder_to_C_index<T, view_t>(index, index->dtype, holder);
-        }
+        auto padded_idx =
+          cuvs::neighbors::cagra::update_dataset(*res_ptr, std::move(idx), padded_view);
+        auto* holder = new cuvs_cagra_c_api_index_lifetime_holder<T, view_t>{std::move(padded_idx)};
+        destroy_sg_cagra_c_api_box(index->addr);
+        index->addr = 0;
+        bind_index_lifetime_holder_to_C_index<T, view_t>(index, index->dtype, holder);
       });
   });
 }
@@ -1656,33 +1650,36 @@ extern "C" cuvsError_t cuvsDatasetMakeStandardView(cuvsResources_t res,
   });
 }
 
-extern "C" cuvsError_t cuvsDatasetMakeVpq(cuvsResources_t res,
-                                          cuvsCagraCompressionParams_t params,
-                                          cuvsDataset_t dataset,
-                                          cuvsDataset_t* vpq_dataset)
+extern "C" cuvsError_t cuvsDatasetMakePQ(cuvsResources_t res,
+                                         cuvsCagraCompressionParams_t params,
+                                         cuvsDataset_t dataset,
+                                         cuvsDatasetMemType_t target_mem_type,
+                                         cuvsDataset_t* pq_dataset)
 {
   return cuvs::core::translate_exceptions([=] {
-    RAFT_EXPECTS(params != nullptr, "cuvsDatasetMakeVpq: null compression params");
+    RAFT_EXPECTS(params != nullptr, "cuvsDatasetMakePQ: null compression params");
     RAFT_EXPECTS(dataset != nullptr && dataset->addr != 0,
-                 "cuvsDatasetMakeVpq: null source dataset");
-    RAFT_EXPECTS(vpq_dataset != nullptr, "cuvsDatasetMakeVpq: null output dataset");
-    *vpq_dataset = nullptr;
+                 "cuvsDatasetMakePQ: null source dataset");
+    RAFT_EXPECTS(pq_dataset != nullptr, "cuvsDatasetMakePQ: null output dataset");
+    *pq_dataset = nullptr;
+    RAFT_EXPECTS(target_mem_type == CUVS_DATASET_MEM_TYPE_DEVICE,
+                 "cuvsDatasetMakePQ currently supports only device output");
     auto* res_ptr = reinterpret_cast<raft::resources*>(res);
     std::unique_ptr<device_vpq_owner_t> owner;
     if (dataset->dtype.code == kDLFloat && dataset->dtype.bits == 32) {
-      owner = make_vpq_from_dense_dataset<float>(res_ptr, *params, dataset);
+      owner = make_device_pq_dataset<float>(res_ptr, *params, dataset);
     } else if (dataset->dtype.code == kDLFloat && dataset->dtype.bits == 16) {
-      owner = make_vpq_from_dense_dataset<half>(res_ptr, *params, dataset);
+      owner = make_device_pq_dataset<half>(res_ptr, *params, dataset);
     } else if (dataset->dtype.code == kDLInt && dataset->dtype.bits == 8) {
-      owner = make_vpq_from_dense_dataset<int8_t>(res_ptr, *params, dataset);
+      owner = make_device_pq_dataset<int8_t>(res_ptr, *params, dataset);
     } else if (dataset->dtype.code == kDLUInt && dataset->dtype.bits == 8) {
-      owner = make_vpq_from_dense_dataset<uint8_t>(res_ptr, *params, dataset);
+      owner = make_device_pq_dataset<uint8_t>(res_ptr, *params, dataset);
     } else {
-      RAFT_FAIL("cuvsDatasetMakeVpq: unsupported source dtype: code=%d, bits=%d",
+      RAFT_FAIL("cuvsDatasetMakePQ: unsupported source dtype: code=%d, bits=%d",
                 dataset->dtype.code,
                 dataset->dtype.bits);
     }
-    bind_vpq_owner_to_dataset(std::move(owner), vpq_dataset);
+    bind_vpq_owner_to_dataset(std::move(owner), pq_dataset);
   });
 }
 

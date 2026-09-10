@@ -2586,7 +2586,9 @@ auto iterative_build_graph(raft::resources const& res,
     // keep those views alive for the duration of the search.
     if (vpq_dataset.n_rows() > 0) {
       auto idx = cuvs::neighbors::cagra::update_dataset(
-        res, cuvs::neighbors::cagra::vpq_f16_index<T, IdxT>(res, params.metric), vpq_dataset);
+        res,
+        cuvs::neighbors::cagra::device_pq_index<T, IdxT, half>(res, params.metric),
+        vpq_dataset);
       idx.update_graph(res, raft::make_const_mdspan(dev_graph.view()));
 
       auto empty_query_view =

@@ -268,7 +268,7 @@ class cuvs_cagra : public algo<T>, public algo_gpu {
     sub_dataset_buffers_ =
       std::make_shared<std::vector<raft::device_matrix<T, int64_t, raft::row_major>>>();
   std::shared_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>> vpq_dataset_;
-  std::shared_ptr<cuvs::neighbors::cagra::vpq_f16_index<T, IdxT>> vpq_index_;
+  std::shared_ptr<cuvs::neighbors::cagra::device_pq_index<T, IdxT, half>> vpq_index_;
 
   inline rmm::device_async_resource_ref get_mr(AllocatorType mem_type)
   {
@@ -412,7 +412,7 @@ void cuvs_cagra<T, IdxT>::compress_dataset(const T* dataset, size_t nrow)
   auto src = raft::make_device_matrix_view<const T, int64_t, raft::row_major>(dataset, rows, dim_);
   vpq_dataset_ = std::make_shared<cuvs::neighbors::device_vpq_dataset<half, int64_t>>(
     cuvs::preprocessing::quantize::pq::make_vpq_dataset(handle_, *index_params_.compression, src));
-  vpq_index_ = std::make_shared<cuvs::neighbors::cagra::vpq_f16_index<T, IdxT>>(
+  vpq_index_ = std::make_shared<cuvs::neighbors::cagra::device_pq_index<T, IdxT, half>>(
     handle_, parse_metric_type(metric_), vpq_dataset_->as_dataset_view(), index_->graph());
 
   // Search runs on the compressed rows and the graph, so release the dense copy of the dataset.

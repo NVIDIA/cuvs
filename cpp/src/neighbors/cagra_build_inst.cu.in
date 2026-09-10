@@ -58,10 +58,8 @@ CUVS_DEFINE_CAGRA_BUILD_OVERLOAD(inst_host_standard_view_t,
                                  cuvs::neighbors::cagra::host_standard_index<data_t, uint32_t>);
 
 #if @emit_vpq_build@
-CUVS_DEFINE_CAGRA_BUILD_OVERLOAD(
-  inst_vpq_view_t,
-  cuvs::neighbors::cagra::
-    index<float, uint32_t, cuvs::neighbors::device_vpq_dataset_view<half, int64_t>>);
+CUVS_DEFINE_CAGRA_BUILD_OVERLOAD(inst_vpq_view_t,
+                                 cuvs::neighbors::cagra::device_pq_index<float, uint32_t, half>);
 #endif
 
 #undef CUVS_DEFINE_CAGRA_BUILD_OVERLOAD
@@ -97,6 +95,7 @@ CUVS_INST_CAGRA_UPDATE_DATASET(data_t,
                                inst_device_padded_view_t,
                                inst_device_padded_view_t);
 CUVS_INST_CAGRA_UPDATE_DATASET(data_t, index_t, inst_device_padded_view_t, inst_vpq_view_t);
+CUVS_INST_CAGRA_UPDATE_DATASET(data_t, index_t, inst_vpq_view_t, inst_device_padded_view_t);
 CUVS_INST_CAGRA_UPDATE_DATASET(data_t, index_t, inst_vpq_view_t, inst_vpq_view_t);
 
 #undef CUVS_INST_CAGRA_UPDATE_DATASET

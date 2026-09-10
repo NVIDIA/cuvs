@@ -43,11 +43,12 @@ cdef extern from "cuvs/core/dataset.h" nogil:
                                             DLManagedTensor* dataset,
                                             cuvsDataset_t* standard_dataset)
 
-    cuvsError_t cuvsDatasetMakeVpq(
+    cuvsError_t cuvsDatasetMakePQ(
         cuvsResources_t res,
         cuvsCagraCompressionParams_t params,
         cuvsDataset_t dataset,
-        cuvsDataset_t* vpq_dataset)
+        cuvsDatasetMemType_t target_mem_type,
+        cuvsDataset_t* pq_dataset)
 
     cuvsError_t cuvsDatasetDestroy(cuvsDataset_t dataset)
 
