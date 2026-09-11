@@ -586,13 +586,12 @@ jobs:
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
-          role-duration-seconds: 43200
+          role-duration-seconds: 10800
       - name: Setup sccache-dist
         uses: rapidsai/shared-actions/setup-sccache-dist@main
         with:
-          log-file: ${{ env.RAPIDS_ARTIFACTS_DIR }}/sccache.log
           request-timeout: 7140
-      - name: Build and test standalone C tarball
+      - name: Build standalone C tarball
         env:
           CUVS_TARBALL_CUDA_VERSION: ${{ matrix.CUDA_VER }}
           CUVS_TARBALL_PYTHON_VERSION: ${{ matrix.PY_VER }}

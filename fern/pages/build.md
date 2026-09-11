@@ -93,7 +93,8 @@ To write the tarball to another directory, set `CUVS_TARBALL_BUILD_OUTPUT_DIR`:
 ```console
 $ CUVS_TARBALL_BUILD_OUTPUT_DIR="${PWD}/dist" ./build.sh tarball
 $ find . -name 'libcuvs_c.tar.gz'
-
+./dist/libcuvs_c.tar.gz
+./libcuvs_c.tar.gz
 ```
 
 To build and install the C library tests in the archive, pass `--tarball-build-tests`:
@@ -139,7 +140,7 @@ mkdir -p "${PWD}/dist"
 docker run --rm \
   -v "${PWD}:/workspace" \
   -v "${PWD}/dist:/build" \
-  cuvs-standalone-c
+  cuvs-standalone-c:local
 ```
 
 Pass `--tarball-build-tests` to include the C library tests:
@@ -149,7 +150,7 @@ mkdir -p build
 docker run --rm \
   -v "${PWD}:/workspace" \
   -v "${PWD}/build:/build" \
-  cuvs-standalone-c --tarball-build-tests
+  cuvs-standalone-c:local --tarball-build-tests
 ```
 
 ## Documentation Preview

@@ -647,11 +647,11 @@ if hasArg tarball; then
             --rm \
             -v "${REPODIR}:/workspace:rw" \
             -v "${BUILD_OUTPUT_DIR_ABS}:/build:rw" \
-            "${DOCKER_ENV_VARS[@]}" \
             --env CI="${CI:-false}" \
             --env PARALLEL_LEVEL="${PARALLEL_LEVEL}" \
             --env RAPIDS_BUILD_TYPE="${RAPIDS_BUILD_TYPE:-}" \
             --env-file <(env | grep -E '^AWS_(ACCESS_KEY_ID|SECRET_ACCESS_KEY|SESSION_TOKEN)=') \
+            --env-file <(env | grep -E '^SCCACHE_.*=') \
             "${CUVS_TARBALL_IMAGE_NAME}" \
             "${DOCKER_ENTRYPOINT_ARGS[@]}"
 
