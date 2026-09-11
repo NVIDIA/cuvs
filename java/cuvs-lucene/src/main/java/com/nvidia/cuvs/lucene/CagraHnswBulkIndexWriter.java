@@ -7,12 +7,14 @@ package com.nvidia.cuvs.lucene;
 import com.nvidia.cuvs.CagraIndexParams.CuvsDistanceType;
 import java.io.Closeable;
 import java.io.IOException;
+import java.io.InterruptedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -40,11 +42,11 @@ import org.apache.lucene.store.FSDirectory;
  *
  * <p>This is <b>not</b> a general-purpose Lucene extension point: an instance owns a single
  * {@link IndexWriter} and its {@link IndexWriterConfig} so that the invariants the underlying GPU
- * writer requires (single unmerged segment, no index sort, exact vector count) are guaranteed by
- * this class rather than left to a caller to get right. If you need a general Lucene codec that
- * any indexing pipeline (including ones that don't control their own {@code IndexWriter}
- * lifecycle, e.g. Solr or Elasticsearch) can register, use {@link Lucene101AcceleratedHNSWCodec}
- * directly instead.
+ * writer requires (one controlled flush per segment, no index sort or merges, exact vector count)
+ * are guaranteed by this class rather than left to a caller to get right. If you need a general
+ * Lucene codec that any indexing pipeline (including ones that don't control their own {@code
+ * IndexWriter} lifecycle, e.g. Solr or Elasticsearch) can register, use {@link
+ * Lucene101AcceleratedHNSWCodec} directly instead.
  *
  * <p><b>Two ways to use this class:</b>
  *
@@ -52,11 +54,11 @@ import org.apache.lucene.store.FSDirectory;
  *   <li><b>Manual, single segment:</b> construct an instance directly, call {@link #addDocument}
  *       per document exactly like a plain {@link IndexWriter}, then {@link #close}. You own the
  *       loop and the {@link Document} you build (any fields, not just the vector).
- *   <li><b>One-shot, one or many segments:</b> {@link #indexFbin} / {@link #build(VectorSource,
- *       Config)} own the loop for you — they read vectors from a {@code .fbin} file or {@link
- *       VectorSource}, optionally split into {@code numSegments} partitions (sequential or
- *       overlapped), and combine the result. Since they build each row's {@link Document}
- *       internally, an optional {@link FieldCallback} lets you add extra fields to it.
+ *   <li><b>One-shot, one or many segments:</b> {@link #indexFbin}, {@link #indexMappedFbin}, {@link
+ *       #indexImmutableFbin}, and {@link #build(VectorSource, Config)} own the loop for you. They
+ *       optionally split the input into {@code numSegments} partitions, build one independent
+ *       graph per partition, and combine them without merging. Since they build each row's {@link
+ *       Document} internally, an optional {@link FieldCallback} lets you add extra fields to it.
  * </ul>
  *
  * <p><b>Scope: CAGRA_HNSW (GPU build, CPU search) only.</b> This class builds indexes for {@link
@@ -93,7 +95,7 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
    * <p>{@code config.targetDirectory()}, {@code config.numSegments()}, {@code
    * config.overlapped()}, and {@code config.pipelineDepth()} are not consulted here — {@code
    * directory} is passed explicitly, and this constructor always builds exactly one segment. Those
-   * fields only matter to {@link #indexFbin} / {@link #build(VectorSource, Config)}.
+   * fields only matter to the one-shot build methods.
    */
   public CagraHnswBulkIndexWriter(
       Directory directory, IndexWriterConfig conf, Config config, int exactVectorCount)
@@ -119,7 +121,7 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
     if (conf.getIndexSort() != null) {
       throw new IllegalArgumentException(
           "CagraHnswBulkIndexWriter does not support an index-sorted segment (native flat"
-              + " buffering requires an unsorted single-segment build); leave"
+              + " buffering requires an unsorted segment build); leave"
               + " IndexWriterConfig.indexSort unset");
     }
     this.config = config;
@@ -272,11 +274,12 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
   }
 
   /**
-   * Callback invoked once per row by {@link #indexFbin} / {@link #build(VectorSource, Config,
-   * FieldCallback)}, right after the id and vector fields have been added to {@code document} and
-   * right before it is added to the index — lets the caller attach additional fields (metadata)
-   * per vector. Not used by the manual, direct-instance API, where the caller already builds the
-   * whole {@link Document} themselves.
+   * Callback invoked once per row by the one-shot build methods, right after the id and vector
+   * fields have been added to {@code document} and right before it is added to the index. This lets
+   * the caller attach additional fields (metadata) per vector. Overlapped builds may invoke the
+   * callback concurrently, so callback implementations must be thread-safe. Not used by the
+   * manual, direct-instance API, where the caller already builds the whole {@link Document}
+   * themselves.
    */
   @FunctionalInterface
   public interface FieldCallback {
@@ -385,11 +388,36 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
       throws Exception {
     Objects.requireNonNull(fbinPath, "fbinPath");
     Objects.requireNonNull(config, "config");
-    requireSingleSegmentMappedBuild(config);
+    requireMappedBuildTarget(config);
+    if (config.numSegments() > 1) {
+      FbinFileMetadata metadata = FbinFileMetadata.read(fbinPath);
+      validateMappedShape(metadata.rows(), metadata.dimensions(), config);
+      List<int[]> slices = sliceEvenly(metadata.rows(), config.numSegments());
+      buildBorrowedSegments(
+          config,
+          slices,
+          (segmentDirectory, firstRow, rowCount, gpuPermit) -> {
+            try (MappedFbinDataset mapped = MappedFbinDataset.map(fbinPath, firstRow, rowCount)) {
+              buildBorrowedSegment(
+                  segmentDirectory,
+                  config,
+                  callback,
+                  BulkIndexingContext.mapped(mapped.dataset(), config.metrics()),
+                  firstRow,
+                  gpuPermit);
+            }
+          },
+          null,
+          null);
+      return;
+    }
     try (MappedFbinDataset mapped = MappedFbinDataset.map(fbinPath)) {
       validateMappedShape(mapped.rows(), mapped.dimensions(), config);
-      buildBorrowed(
-          config, callback, BulkIndexingContext.mapped(mapped.dataset(), config.metrics()));
+      buildBorrowedSegment(
+          config.targetDirectory(),
+          config,
+          callback,
+          BulkIndexingContext.mapped(mapped.dataset(), config.metrics()));
     }
   }
 
@@ -415,24 +443,45 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
     Objects.requireNonNull(source, "source");
     Objects.requireNonNull(config, "config");
     Objects.requireNonNull(options, "options");
-    requireSingleSegmentMappedBuild(config);
+    requireMappedBuildTarget(config);
     FbinFileMetadata metadata = FbinFileMetadata.read(source.path());
     int rows = metadata.rows();
     int dimensions = metadata.dimensions();
     validateMappedShape(rows, dimensions, config);
+    if (config.numSegments() > 1) {
+      List<int[]> slices = sliceEvenly(rows, config.numSegments());
+      ExternalFbinOptions trustedOptions =
+          new ExternalFbinOptions(ExternalFbinBuildValidation.TRUSTED_IMMUTABLE, 0L);
+      buildBorrowedSegments(
+          config,
+          slices,
+          (segmentDirectory, firstRow, rowCount, gpuPermit) -> {
+            try (ImmutableExternalFbinDataset dataset = source.map(firstRow, rowCount)) {
+              buildBorrowedSegment(
+                  segmentDirectory,
+                  config,
+                  callback,
+                  BulkIndexingContext.external(dataset, trustedOptions, config.metrics()),
+                  firstRow,
+                  gpuPermit);
+            }
+          },
+          source.reference(0, rows),
+          options);
+      return;
+    }
     try (ImmutableExternalFbinDataset dataset = source.map(0, rows)) {
-      buildBorrowed(
-          config, callback, BulkIndexingContext.external(dataset, options, config.metrics()));
+      buildBorrowedSegment(
+          config.targetDirectory(),
+          config,
+          callback,
+          BulkIndexingContext.external(dataset, options, config.metrics()));
     }
   }
 
-  private static void requireSingleSegmentMappedBuild(Config config) {
+  private static void requireMappedBuildTarget(Config config) {
     if (config.targetDirectory() == null) {
       throw new IllegalArgumentException("targetDirectory is required for a one-shot bulk build");
-    }
-    if (config.numSegments() != 1 || config.overlapped()) {
-      throw new IllegalArgumentException(
-          "Mapped FBIN bulk builds currently require segments(1, false)");
     }
   }
 
@@ -448,18 +497,41 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
     }
   }
 
-  private static void buildBorrowed(
-      Config config, FieldCallback callback, BulkIndexingContext context) throws Exception {
+  private static void buildBorrowedSegment(
+      Path targetDirectory, Config config, FieldCallback callback, BulkIndexingContext context)
+      throws Exception {
+    buildBorrowedSegment(targetDirectory, config, callback, context, 0, null);
+  }
+
+  private static void buildBorrowedSegment(
+      Path targetDirectory,
+      Config config,
+      FieldCallback callback,
+      BulkIndexingContext context,
+      int idStart,
+      Semaphore gpuPermit)
+      throws Exception {
     long ingestStartedAt = CagraHnswBuildMetrics.start();
-    try (Directory directory = FSDirectory.open(config.targetDirectory())) {
+    try (Directory directory = FSDirectory.open(targetDirectory)) {
       IndexWriterConfig writerConfig =
           new IndexWriterConfig().setOpenMode(IndexWriterConfig.OpenMode.CREATE);
       CagraHnswBulkIndexWriter writer =
           new CagraHnswBulkIndexWriter(directory, writerConfig, config, context);
       try {
-        addBorrowedDocuments(writer, config, callback, context.exactVectorCount());
+        addBorrowedDocuments(writer, config, callback, idStart, context.exactVectorCount());
         config.metrics().stop("borrowed document ingest [CPU]", ingestStartedAt);
-        writer.close();
+        boolean permitAcquired = false;
+        try {
+          if (gpuPermit != null) {
+            gpuPermit.acquire();
+            permitAcquired = true;
+          }
+          writer.close();
+        } finally {
+          if (permitAcquired) {
+            gpuPermit.release();
+          }
+        }
       } catch (Throwable failure) {
         try {
           writer.abort();
@@ -472,7 +544,11 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
   }
 
   private static void addBorrowedDocuments(
-      CagraHnswBulkIndexWriter writer, Config config, FieldCallback callback, int count)
+      CagraHnswBulkIndexWriter writer,
+      Config config,
+      FieldCallback callback,
+      int idStart,
+      int count)
       throws IOException {
     float[] placeholder = new float[config.dimensions()];
     if (callback == null) {
@@ -485,7 +561,8 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
         document.add(idField);
       }
       document.add(new KnnFloatVectorField(config.fieldName(), placeholder, config.similarity()));
-      for (int id = 0; id < count; id++) {
+      for (int localId = 0; localId < count; localId++) {
+        int id = Math.addExact(idStart, localId);
         if (idField != null) {
           idField.setStringValue(Integer.toString(id));
         }
@@ -494,7 +571,8 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
       return;
     }
 
-    for (int id = 0; id < count; id++) {
+    for (int localId = 0; localId < count; localId++) {
+      int id = Math.addExact(idStart, localId);
       Document document = new Document();
       if (config.idFieldName() != null) {
         document.add(new StringField(config.idFieldName(), Integer.toString(id), Field.Store.YES));
@@ -503,6 +581,122 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
       callback.addFields(document, id);
       writer.addDocument(document);
     }
+  }
+
+  @FunctionalInterface
+  private interface BorrowedSegmentBuilder {
+    void build(Path segmentDirectory, int firstRow, int rowCount, Semaphore gpuPermit)
+        throws Exception;
+  }
+
+  private static void buildBorrowedSegments(
+      Config config,
+      List<int[]> slices,
+      BorrowedSegmentBuilder segmentBuilder,
+      ExternalFbinReference validationReference,
+      ExternalFbinOptions validationOptions)
+      throws Exception {
+    Path target = config.targetDirectory().toAbsolutePath();
+    Path parent = target.getParent();
+    Files.createDirectories(parent);
+    Path temporaryRoot =
+        Files.createTempDirectory(parent, target.getFileName().toString() + ".bulk-");
+    List<Path> segmentDirectories = new ArrayList<>(slices.size());
+    for (int segment = 0; segment < slices.size(); segment++) {
+      segmentDirectories.add(temporaryRoot.resolve("segment-" + segment));
+    }
+
+    try {
+      if (validationReference == null
+          || validationOptions.validation() == ExternalFbinBuildValidation.TRUSTED_IMMUTABLE) {
+        executeBorrowedSegmentBuilds(config, slices, segmentDirectories, segmentBuilder);
+      } else {
+        long overlapStartedAt = CagraHnswBuildMetrics.start();
+        try {
+          ExternalFbinScanCoordinator coordinator =
+              ExternalFbinScanCoordinator.start(
+                  validationReference,
+                  validationOptions.validation(),
+                  validationOptions.scanHeadStartBytes(),
+                  config.metrics());
+          coordinator.runAfterHeadStart(
+              () ->
+                  executeBorrowedSegmentBuilds(config, slices, segmentDirectories, segmentBuilder));
+        } finally {
+          config.metrics().stop("external reference overlap wall [GPU+DISK]", overlapStartedAt);
+        }
+      }
+
+      long combineStartedAt = CagraHnswBuildMetrics.start();
+      try {
+        combineByHardlink(target, segmentDirectories);
+      } finally {
+        config.metrics().stop("segment combine [DISK]", combineStartedAt);
+      }
+    } finally {
+      deleteRecursivelyQuietly(temporaryRoot);
+    }
+  }
+
+  private static void executeBorrowedSegmentBuilds(
+      Config config,
+      List<int[]> slices,
+      List<Path> segmentDirectories,
+      BorrowedSegmentBuilder segmentBuilder)
+      throws Exception {
+    if (!config.overlapped()) {
+      for (int segment = 0; segment < slices.size(); segment++) {
+        int[] slice = slices.get(segment);
+        segmentBuilder.build(segmentDirectories.get(segment), slice[0], slice[1], null);
+      }
+      return;
+    }
+
+    int depth = Math.min(slices.size(), config.pipelineDepth());
+    Semaphore gpuPermit = new Semaphore(1);
+    ExecutorService pool = Executors.newFixedThreadPool(depth);
+    List<Future<?>> futures = new ArrayList<>(slices.size());
+    try {
+      for (int segment = 0; segment < slices.size(); segment++) {
+        int[] slice = slices.get(segment);
+        Path segmentDirectory = segmentDirectories.get(segment);
+        futures.add(
+            pool.submit(
+                () -> {
+                  segmentBuilder.build(segmentDirectory, slice[0], slice[1], gpuPermit);
+                  return null;
+                }));
+      }
+      for (Future<?> future : futures) {
+        try {
+          future.get();
+        } catch (InterruptedException interrupted) {
+          Thread.currentThread().interrupt();
+          InterruptedIOException failure =
+              new InterruptedIOException("Interrupted while awaiting a bulk segment build");
+          failure.initCause(interrupted);
+          throw failure;
+        } catch (ExecutionException failure) {
+          rethrowSegmentFailure(failure.getCause());
+        }
+      }
+    } finally {
+      for (Future<?> future : futures) {
+        future.cancel(true);
+      }
+      pool.shutdownNow();
+      pool.close();
+    }
+  }
+
+  private static void rethrowSegmentFailure(Throwable failure) throws Exception {
+    if (failure instanceof Exception exception) {
+      throw exception;
+    }
+    if (failure instanceof Error error) {
+      throw error;
+    }
+    throw new RuntimeException("Unexpected segment-build failure", failure);
   }
 
   /**
@@ -665,10 +859,22 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
         sources[i] = FSDirectory.open(segDirs.get(i));
       }
       IndexWriterConfig iwc =
-          new IndexWriterConfig().setMergePolicy(NoMergePolicy.INSTANCE); // keep segments separate
-      try (Directory target = new HardlinkCopyDirectoryWrapper(FSDirectory.open(targetDir));
-          IndexWriter combiner = new IndexWriter(target, iwc)) {
-        combiner.addIndexes(sources);
+          new IndexWriterConfig()
+              .setMergePolicy(NoMergePolicy.INSTANCE)
+              .setOpenMode(IndexWriterConfig.OpenMode.CREATE); // keep only imported segments
+      try (Directory target = new HardlinkCopyDirectoryWrapper(FSDirectory.open(targetDir))) {
+        IndexWriter combiner = new IndexWriter(target, iwc);
+        try {
+          combiner.addIndexes(sources);
+          combiner.close();
+        } catch (Throwable failure) {
+          try {
+            combiner.rollback();
+          } catch (Throwable cleanupFailure) {
+            failure.addSuppressed(cleanupFailure);
+          }
+          throw Utils.handleThrowable(failure);
+        }
       }
     } finally {
       for (Directory s : sources) {
@@ -761,22 +967,22 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
       return graphBuildParams;
     }
 
-    /** Only consulted by {@link #indexFbin} / {@link #build(VectorSource, Config)}. */
+    /** Only consulted by the one-shot build methods. */
     public Path targetDirectory() {
       return targetDirectory;
     }
 
-    /** Only consulted by {@link #indexFbin} / {@link #build(VectorSource, Config)}. */
+    /** Only consulted by the one-shot build methods. */
     public int numSegments() {
       return numSegments;
     }
 
-    /** Only consulted by {@link #indexFbin}. */
+    /** Only consulted by one-shot methods that can open independent input slices. */
     public boolean overlapped() {
       return overlapped;
     }
 
-    /** Only consulted by {@link #indexFbin}. */
+    /** Only consulted by one-shot methods that can open independent input slices. */
     public int pipelineDepth() {
       return pipelineDepth;
     }
@@ -839,11 +1045,10 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
        * segment. Peak host memory scales as {@code 1/numSegments}; the GPU build itself is always
        * serialized across slices regardless of this setting. Default 1 (single segment).
        *
-       * @param overlapped when {@code numSegments > 1} and building via {@link #indexFbin},
-       *     builds up to {@link #pipelineDepth} slices concurrently (ingest of one overlapping the
-       *     GPU commit of another) instead of strictly sequentially. Ignored by {@link
-       *     #build(VectorSource, Config)}, which always builds sequentially — see that method's
-       *     Javadoc.
+       * @param overlapped when {@code numSegments > 1}, builds up to {@link #pipelineDepth} slices
+       *     concurrently instead of strictly sequentially. Supported by the FBIN entry points and
+       *     ignored by {@link #build(VectorSource, Config)}, whose caller-owned source is
+       *     single-consumer.
        */
       public Builder segments(int numSegments, boolean overlapped) {
         if (numSegments < 1) {

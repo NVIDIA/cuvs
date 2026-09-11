@@ -209,6 +209,8 @@ final class AcceleratedHnswGraphOutput implements Closeable {
   }
 
   private void recordEffectiveParams(CagraIndexParams params) {
+    metrics.addCounter(
+        "effective cagra algorithm/" + params.getCagraGraphBuildAlgo() + " segments", 1L);
     metrics.setGauge("effective graph degree", params.getGraphDegree());
     metrics.setGauge("effective intermediate graph degree", params.getIntermediateGraphDegree());
     metrics.setGauge("effective writer threads", params.getNumWriterThreads());

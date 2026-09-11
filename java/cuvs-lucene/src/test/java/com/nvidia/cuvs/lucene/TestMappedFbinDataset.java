@@ -33,6 +33,33 @@ public class TestMappedFbinDataset extends LuceneTestCase {
   }
 
   @Test
+  public void testMapsContiguousRowSlice() throws Exception {
+    Path file = createTempDir().resolve("vectors.fbin");
+    writeFbin(file, 4, 3, new float[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12});
+
+    try (MappedFbinDataset mapped = MappedFbinDataset.map(file, 1, 2)) {
+      assertEquals(2, mapped.rows());
+      assertEquals(3, mapped.dimensions());
+      float[] first = new float[3];
+      float[] last = new float[3];
+      mapped.dataset().matrix().getRow(0).toArray(first);
+      mapped.dataset().matrix().getRow(1).toArray(last);
+      assertArrayEquals(new float[] {4, 5, 6}, first, 0.0f);
+      assertArrayEquals(new float[] {7, 8, 9}, last, 0.0f);
+    }
+  }
+
+  @Test
+  public void testRejectsInvalidRowSlice() throws Exception {
+    Path file = createTempDir().resolve("vectors.fbin");
+    writeFbin(file, 2, 3, new float[] {1, 2, 3, 4, 5, 6});
+
+    assertThrows(IllegalArgumentException.class, () -> MappedFbinDataset.map(file, -1, 1));
+    assertThrows(IllegalArgumentException.class, () -> MappedFbinDataset.map(file, 0, 0));
+    assertThrows(IllegalArgumentException.class, () -> MappedFbinDataset.map(file, 1, 2));
+  }
+
+  @Test
   public void testRejectsTrailingOrTruncatedPayload() throws Exception {
     Path trailing = createTempDir().resolve("trailing.fbin");
     writeFbin(trailing, 1, 2, new float[] {1, 2, 3});

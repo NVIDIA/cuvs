@@ -18,11 +18,11 @@ import java.util.Objects;
  * writing has completed. A shared scope is required because the accelerated writer may read the
  * dataset concurrently while serializing Lucene's flat-vector file.
  *
- * <p>This is an expert-only input for the unsorted, single-segment native-buffering path. Row
- * {@code i} must correspond exactly to Lucene vector ordinal and document ID {@code i}; gaps,
- * reordered documents, and multiple vector fields are rejected by the writer. The caller is also
- * responsible for ensuring that every raw vector component is finite; unlike ordinary Lucene field
- * ingestion, this path deliberately does not scan the payload one float at a time.
+ * <p>This is an expert-only input for one unsorted native-buffered segment. Row {@code i} must
+ * correspond exactly to vector ordinal and segment-local document ID {@code i}; gaps, reordered
+ * documents, and multiple vector fields are rejected by the writer. The caller is also responsible
+ * for ensuring that every raw vector component is finite; unlike ordinary Lucene field ingestion,
+ * this path deliberately does not scan the payload one float at a time.
  */
 public final class ExternalFloat32Dataset {
 

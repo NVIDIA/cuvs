@@ -159,18 +159,21 @@ The streaming/native-buffered mode has three entry shapes:
   overlapped multi-segment pipeline in which host ingest can overlap a serialized GPU build.
   `FieldCallback` can add non-vector fields in either one-shot form.
 
-Both mapped modes currently require `segments(1, false)`. They also require exactly one dense
-`FLOAT32` vector field, one vector per document, and row `i` to correspond to Lucene document and
-vector ordinal `i`.
+Both mapped modes support one or more contiguous, independently built segments. With overlap
+disabled, slices are built sequentially; with overlap enabled, host-side preparation can run in a
+bounded pipeline while GPU commits remain serialized. The slices are published together without a
+Lucene vector merge. They require exactly one dense `FLOAT32` vector field, one vector per document,
+and preserve each source row's absolute ID across segment-local document ordinals.
 
 ### Ownership and sharing
 
 All bulk forms own their internal `IndexWriter`, disable index sorting, automatic flushes, compound
 files, and merges, and commit only after the promised vector count has been written. Closing a
 manual writer with too few vectors rolls it back; adding too many vectors is rejected. A failed
-segment is rolled back. A sequential multi-segment build can already have committed earlier
-segments when a later segment fails, so callers must treat and replace that target as a failed
-build.
+segment is rolled back. Multi-segment mapped builds use temporary per-slice indexes and do not
+publish the final target until every slice succeeds. Streaming sequential builds append directly,
+so they can already have committed earlier segments when a later segment fails; callers must treat
+and replace that target as a failed build.
 
 The generic, streaming, and mapped self-contained results can be moved by copying the Lucene index
 directory. The immutable external-FBIN result must be shipped as two artifacts: the Lucene index
@@ -226,7 +229,9 @@ larger than the referenced payload.
 
 Opening an external-FBIN index verifies the descriptor checksum, field metadata, registered path,
 header, range, and file length, but does not hash the full file. Lucene's `checkIntegrity()` hashes
-the complete external FBIN and compares it with the persisted SHA-256.
+the complete external FBIN and compares it with the persisted SHA-256. Because integrity checking
+is a per-segment Lucene API, a K-segment external index currently hashes that shared FBIN K times;
+this cost does not occur during normal reader opening or search.
 
 ### Metrics
 
@@ -240,10 +245,13 @@ Metric keys use three namespaces:
   graph build, graph conversion and output, mapped flat output, external scan/overlap, and bulk
   writer commit/close stages. The commit wall includes the flush and its nested GPU/output work;
   nested stage durations must not be added to it.
-- `counter/<name>` reports values such as logical adjacency bytes, mapped flat chunks, and external
-  scan progress at CAGRA start and end.
+- `counter/<name>` reports values such as logical adjacency bytes, mapped flat chunks, the number
+  of segments using each effective CAGRA algorithm, and external scan progress at CAGRA start and
+  end.
 - `gauge/<name>` records effective graph-build parameters, including graph degrees, writer threads,
-  NN-descent iterations, and IVF-PQ dimensions, lists, probes, and k-means iterations when used.
+  NN-descent iterations, and IVF-PQ dimensions, lists, probes, and k-means iterations when used. If
+  independent segments resolve different heuristic values, the scalar key is replaced by explicit
+  `gauge/<name>/min` and `gauge/<name>/max` keys.
 
 ### Why these controls are bulk-only
 

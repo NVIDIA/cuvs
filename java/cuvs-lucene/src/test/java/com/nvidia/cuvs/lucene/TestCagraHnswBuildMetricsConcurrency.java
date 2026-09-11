@@ -25,18 +25,14 @@ public class TestCagraHnswBuildMetricsConcurrency extends LuceneTestCase {
   }
 
   @Test
-  public void testGaugeRejectsConflictingValues() {
+  public void testGaugeReportsRangeForDifferentSegmentValues() {
     CagraHnswBuildMetrics metrics = new CagraHnswBuildMetrics();
     metrics.setGauge("effective graph degree", 32L);
+    metrics.setGauge("effective graph degree", 56L);
 
-    IllegalStateException failure =
-        expectThrows(
-            IllegalStateException.class, () -> metrics.setGauge("effective graph degree", 56L));
-
-    assertTrue(failure.getMessage(), failure.getMessage().contains("effective graph degree"));
-    assertTrue(failure.getMessage(), failure.getMessage().contains("32"));
-    assertTrue(failure.getMessage(), failure.getMessage().contains("56"));
-    assertEquals(32L, metrics.snapshot().get("gauge/effective graph degree").longValue());
+    assertNull(metrics.snapshot().get("gauge/effective graph degree"));
+    assertEquals(32L, metrics.snapshot().get("gauge/effective graph degree/min").longValue());
+    assertEquals(56L, metrics.snapshot().get("gauge/effective graph degree/max").longValue());
   }
 
   @Test

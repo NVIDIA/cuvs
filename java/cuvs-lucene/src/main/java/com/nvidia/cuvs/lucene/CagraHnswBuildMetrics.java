@@ -15,7 +15,7 @@ public final class CagraHnswBuildMetrics {
 
   private final Map<String, StageMeasurement> stages = new ConcurrentHashMap<>();
   private final Map<String, LongAdder> counters = new ConcurrentHashMap<>();
-  private final Map<String, Long> gauges = new ConcurrentHashMap<>();
+  private final Map<String, GaugeRange> gauges = new ConcurrentHashMap<>();
 
   static long start() {
     return System.nanoTime();
@@ -45,14 +45,15 @@ public final class CagraHnswBuildMetrics {
     counters.computeIfAbsent(name, ignored -> new LongAdder()).add(value);
   }
 
-  /** Records a configuration value that must remain identical across every segment in a build. */
+  /** Records an effective configuration value, retaining its range across independent segments. */
   void setGauge(String name, long value) {
     Objects.requireNonNull(name, "name");
-    Long existing = gauges.putIfAbsent(name, value);
-    if (existing != null && existing.longValue() != value) {
-      throw new IllegalStateException(
-          "Gauge \"" + name + "\" changed from " + existing + " to " + value);
-    }
+    gauges.compute(
+        name,
+        (ignored, current) ->
+            current == null
+                ? new GaugeRange(value, value)
+                : new GaugeRange(Math.min(current.min(), value), Math.max(current.max(), value)));
   }
 
   /** Returns a stable machine-readable copy; later measurements do not mutate it. */
@@ -75,7 +76,16 @@ public final class CagraHnswBuildMetrics {
         .forEach(name -> result.put("counter/" + name, counters.get(name).sum()));
     gauges.keySet().stream()
         .sorted()
-        .forEach(name -> result.put("gauge/" + name, gauges.get(name)));
+        .forEach(
+            name -> {
+              GaugeRange range = gauges.get(name);
+              if (range.min() == range.max()) {
+                result.put("gauge/" + name, range.min());
+              } else {
+                result.put("gauge/" + name + "/min", range.min());
+                result.put("gauge/" + name + "/max", range.max());
+              }
+            });
     return Map.copyOf(result);
   }
 
@@ -89,4 +99,6 @@ public final class CagraHnswBuildMetrics {
       return new StageMeasurement(nanos + additionalNanos, count + 1L, bytes + additionalBytes);
     }
   }
+
+  private record GaugeRange(long min, long max) {}
 }
