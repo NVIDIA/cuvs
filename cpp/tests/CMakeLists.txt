@@ -217,7 +217,7 @@ ConfigureTest(
 
 ConfigureTest(
   NAME NEIGHBORS_ANN_CAGRA_FLOAT_UINT32_TEST
-  PATH neighbors/ann_cagra/test_float_uint32_t.cu
+  PATH neighbors/ann_cagra/test_float_uint32_t.cu neighbors/ann_cagra/test_iterative_cagra_q.cu
   GPUS 1
   PERCENT 100
 )

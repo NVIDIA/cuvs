@@ -6,6 +6,7 @@
 
 import numpy as np
 
+from libc.stdint cimport uintptr_t
 from libcpp cimport bool as cbool
 
 cimport cuvs.common.cydlpack
@@ -46,6 +47,8 @@ cdef class Dataset:
         if self.dataset == NULL:
             return None
         check_cuvs(cuvsDatasetGetLayout(self.dataset, &layout))
+        if layout == CUVS_DATASET_LAYOUT_PQ:
+            return "vpq"
         if layout == CUVS_DATASET_LAYOUT_PADDED:
             return "padded"
         return "standard"
@@ -146,3 +149,32 @@ def make_device_padded_dataset(dataset, resources=None):
     if not padded.is_owning:
         padded._source = dataset
     return padded
+
+
+@auto_sync_resources
+def make_device_pq_dataset(params, dataset, resources=None):
+    """Create an owning device PQ dataset."""
+    cdef Dataset dense
+    cdef Dataset pq = Dataset()
+    cdef cuvsResources_t res = <cuvsResources_t>resources.get_c_obj()
+    cdef cydlpack.DLManagedTensor* dataset_dlpack = NULL
+    cdef cuvsCagraCompressionParams_t c_params = \
+        <cuvsCagraCompressionParams_t><uintptr_t>params._get_c_obj()
+
+    if isinstance(dataset, Dataset):
+        dense = dataset
+    else:
+        dataset_ai = wrap_array(dataset)
+        _check_dataset_array(dataset_ai)
+        dataset_dlpack = cydlpack.dlpack_c(dataset_ai)
+        dense = Dataset()
+        check_cuvs(cuvsDatasetMakeStandardView(
+            res, dataset_dlpack, &dense.dataset))
+
+    check_cuvs(cuvsDatasetMakePQ(
+        res,
+        c_params,
+        dense.dataset,
+        CUVS_DATASET_MEM_TYPE_DEVICE,
+        &pq.dataset))
+    return pq

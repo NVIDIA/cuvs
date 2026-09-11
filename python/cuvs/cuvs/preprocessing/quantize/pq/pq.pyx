@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # cython: language_level=3
@@ -7,6 +7,11 @@
 import numpy as np
 
 from cuvs.common cimport cydlpack
+from cuvs.neighbors.cagra.cagra cimport (
+    cuvsCagraCompressionParams,
+    cuvsCagraCompressionParamsCreate,
+    cuvsCagraCompressionParamsDestroy,
+)
 
 from pylibraft.common import auto_convert_output, device_ndarray
 from pylibraft.common.cai_wrapper import wrap_array
@@ -21,6 +26,35 @@ PQ_KMEANS_TYPES = {
     "kmeans_balanced" : cuvsKMeansType.CUVS_KMEANS_TYPE_KMEANS_BALANCED}
 
 PQ_KMEANS_NAMES = {v: k for k, v in PQ_KMEANS_TYPES.items()}
+
+
+cdef class PQDatasetParams:
+    """Parameters for creating a PQ dataset."""
+
+    cdef cuvsCagraCompressionParams* params
+
+    def __cinit__(self):
+        self.params = NULL
+        check_cuvs(cuvsCagraCompressionParamsCreate(&self.params))
+
+    def __dealloc__(self):
+        if self.params != NULL:
+            cuvsCagraCompressionParamsDestroy(self.params)
+
+    def _get_c_obj(self):
+        return <uintptr_t>self.params
+
+    def __init__(self, *, pq_bits=8, pq_dim=0, vq_n_centers=0,
+                 kmeans_n_iters=25, vq_kmeans_trainset_fraction=0.0,
+                 pq_kmeans_trainset_fraction=0.0):
+        self.params.pq_bits = pq_bits
+        self.params.pq_dim = pq_dim
+        self.params.vq_n_centers = vq_n_centers
+        self.params.kmeans_n_iters = kmeans_n_iters
+        self.params.vq_kmeans_trainset_fraction = \
+            vq_kmeans_trainset_fraction
+        self.params.pq_kmeans_trainset_fraction = \
+            pq_kmeans_trainset_fraction
 
 cdef class QuantizerParams:
     """

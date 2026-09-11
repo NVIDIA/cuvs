@@ -51,6 +51,7 @@ extern "C" __global__ __launch_bounds__(1024, 1) void search_single_cta_p(
   const std::uint32_t small_hash_reset_interval,
   const std::uint32_t query_id_offset,
   const dataset_desc_base* dataset_desc,
+  const index_t graph_size,
   cagra_sample_filter_t filter_payload)
 {
   search_single_cta_p_impl<k_topk_by_bitonic_sort,
@@ -81,6 +82,7 @@ extern "C" __global__ __launch_bounds__(1024, 1) void search_single_cta_p(
                                            small_hash_reset_interval,
                                            query_id_offset,
                                            dataset_desc,
+                                           graph_size,
                                            filter_payload);
 }
 

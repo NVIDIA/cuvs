@@ -279,21 +279,18 @@ namespace detail {
  * dense dataset is never staged on the device in full; they must be tightly packed. Empty sources
  * are rejected. The element type must be `float`, `half`, `int8_t` or `uint8_t`.
  *
- * Typical **CAGRA** usage: build the graph on dense vectors, then attach VPQ for search (metric
- * must remain `L2Expanded` for this path). Train VPQ from the same CAGRA-padded device layout you
- * used for graph build, keep the `device_vpq_dataset` alive, and call
- * `cagra::update_dataset` with a non-owning view.
+ * Typical **CAGRA-Q** usage: compress the source rows, then build the graph directly from the VPQ
+ * dataset (the metric must be `L2Expanded`). Keep the `device_vpq_dataset` alive because the index
+ * holds a non-owning view of it.
  *
  * @code{.cpp}
  * #include <cuvs/neighbors/cagra.hpp>
  * #include <cuvs/preprocessing/quantize/pq.hpp>
  *
- * // `idx` is a `cagra::index<float, uint32_t>` with graph built on dense rows.
- * // `padded` is a `device_padded_dataset_view<float, int64_t>` view of those same rows.
+ * // `padded` is a `device_padded_dataset_view<float, int64_t>` over the source rows.
  * cuvs::neighbors::vpq_params vpq_params{};
  * auto vpq = cuvs::preprocessing::quantize::pq::make_vpq_dataset(res, vpq_params, padded);
- * auto vpq_idx =
- *   cuvs::neighbors::cagra::update_dataset(res, std::move(idx), vpq.as_dataset_view());
+ * auto idx = cuvs::neighbors::cagra::build(res, cagra_params, vpq.as_dataset_view());
  * @endcode
  */
 template <typename SrcT>
