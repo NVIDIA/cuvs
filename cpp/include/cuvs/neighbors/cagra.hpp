@@ -994,6 +994,10 @@ using cagra_index_t =
  *
  * Note: disk-based ACE builds (`ace_params::use_disk = true`) always set a file-descriptor
  * dataset internally (also host-typed); `attach_dataset_on_build` is ignored there too.
+ *
+ * Note: Iterative graph construction requires device-resident input. Dense datasets must be a
+ * device-padded dataset view. Iterative CAGRA-Q accepts a device-resident VPQ dataset.
+ * Host datasets are not supported by iterative construction.
  */
 // Concrete non-template overloads for all supported build dataset view types.
 // This keeps the public header explicit and stable while implementation remains shared internally.
