@@ -68,11 +68,11 @@ repos:
             ^c/include/.*[.](h|hpp)$|
             ^cpp/include/.*[.](h|hpp|cuh)$|
             ^python/cuvs/cuvs/.*[.](py|pyx|pxd)$|
-            ^java/cuvs-java/src/main/.*[.]java$|
+            ^java/cuvs-(java|lucene)/src/main/.*[.]java$|
             ^rust/cuvs/src/.*[.]rs$|
             ^go/.*[.]go$|
             ^fern/scripts/generate_api_reference[.]py$|
-            ^fern/pages/(c|cpp|python|java|rust|go)_api/.*[.]md$|
+            ^fern/pages/(c|cpp|python|java|lucene|rust|go)_api/.*[.]md$|
             ^fern/pages/api_reference[.]md$|
             ^fern/docs[.]yml$
       - id: no-deprecationwarning
