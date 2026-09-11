@@ -429,6 +429,8 @@ dependencies:
           - libcusolver-dev
           - libcusparse-dev
           - libnvjitlink-dev
+  # NOTE: 'tileiras' is needed too, but in CI that's provided by a system-installed CTK, so
+  #       we do not use the [tileiras] extra recommended at https://pypi.org/project/cuda-tile/
   cutile_python:
     specific:
       - output_types: conda
@@ -436,16 +438,6 @@ dependencies:
           - matrix:
               cuda: "12.*"
             packages:
-          - matrix:
-              cuda: "13.3"
-            packages:
-              - cutile-python
-              - cuda-tileiras
-          - matrix:
-              cuda: "13.*"
-            packages:
-              - cutile-python
-              - cuda-tileiras
           - matrix:
             packages:
               - cutile-python
@@ -456,21 +448,14 @@ dependencies:
               cuda: "12.*"
             packages:
           - matrix:
-              cuda: "13.3"
-            packages:
-              - cuda-tile
-              - cuda-toolkit[tileiras]==13.3.*
-          - matrix:
               cuda: "13.*"
             packages:
               - &cutile_python_cu13 cuda-tile
-              - &cutile_toolkit_cu13 cuda-toolkit[tileiras]==13.*
           # if no matching matrix selectors passed, list the CUDA 13 requirement
           # (as a source of documentation in the generated pyproject.toml)
           - matrix:
             packages:
               - *cutile_python_cu13
-              - *cutile_toolkit_cu13
   cuda_wheels:
     specific:
       # cuVS needs 'nvJitLink>={whatever-cuvs-was-built-against}' at runtime, and mixing
