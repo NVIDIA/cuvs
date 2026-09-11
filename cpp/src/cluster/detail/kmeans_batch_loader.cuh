@@ -120,6 +120,7 @@ class kmeans_batch_loader<DataT, IndexT, true> {
   }
 
   [[nodiscard]] auto num_batches() const noexcept -> std::size_t { return batches_.size(); }
+  void start() noexcept {}
   void prefetch(std::size_t) noexcept {}
   void recycle(kmeans_batch<DataT> const&, std::size_t) noexcept {}
   void release(kmeans_batch<DataT> const&) noexcept {}
@@ -205,16 +206,22 @@ class kmeans_batch_loader<DataT, IndexT, false> {
 
   ~kmeans_batch_loader() noexcept
   {
-    if (!batches_.empty()) {
-      RAFT_CUDA_TRY_NO_THROW(cudaStreamSynchronize(raft::resource::get_cuda_stream(*res_)));
-    }
-    RAFT_CUDA_TRY_NO_THROW(cudaStreamSynchronize(copy_stream_));
+    if (!batches_.empty()) { raft::resource::sync_stream(*res_); }
+    raft::resource::sync_stream(*res_, copy_stream_);
     for (auto event : events_) {
       if (event != nullptr) { RAFT_CUDA_TRY_NO_THROW(cudaEventDestroy(event)); }
     }
   }
 
   [[nodiscard]] auto num_batches() const noexcept -> std::size_t { return batches_.size(); }
+
+  /** Start the pipeline by staging its first batch. */
+  void start()
+  {
+    if (started_) { return; }
+    if (!batches_.empty()) { prefetch(0); }
+    started_ = true;
+  }
 
   /** Stage a batch into an available slot; do nothing when both slots are occupied. */
   void prefetch(std::size_t pos)
@@ -333,10 +340,8 @@ class kmeans_batch_loader<DataT, IndexT, false> {
   void queue_h2d(DataT* dst, std::size_t pos)
   {
     auto const& batch = batches_[pos];
-    raft::copy(dst,
-               batch.source + batch.offset * row_width_,
-               batch.size * row_width_,
-               copy_stream_);
+    raft::copy(
+      dst, batch.source + batch.offset * row_width_, batch.size * row_width_, copy_stream_);
   }
 
   raft::resources const* res_ = nullptr;
@@ -348,6 +353,7 @@ class kmeans_batch_loader<DataT, IndexT, false> {
   rmm::device_uvector<DataT> buffer_1_;
   DataT* buffer_ptrs_[2] = {nullptr, nullptr};
   std::optional<std::size_t> positions_[2];
+  bool started_            = false;
   slot_state states_[2]    = {slot_state::empty, slot_state::empty};
   cudaEvent_t ready_[2]    = {nullptr, nullptr};
   cudaEvent_t reusable_[2] = {nullptr, nullptr};

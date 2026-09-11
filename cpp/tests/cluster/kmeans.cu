@@ -736,7 +736,9 @@ TEST(KmeansBatchLoaderTest, CyclicFourPasses)
   auto device_readback =
     raft::make_device_vector<int64_t, int64_t>(handle, n_passes * n_rows * n_cols);
 
-  if (loader.num_batches() > 0) { loader.prefetch(0); }
+  loader.start();
+  // Starting an active pipeline is a no-op.
+  loader.start();
   for (int pass = 0; pass < n_passes; ++pass) {
     for (std::size_t pos = 0; pos < loader.num_batches(); ++pos) {
       const auto batch = loader.acquire(pos);
