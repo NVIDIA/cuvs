@@ -1013,21 +1013,21 @@ const std::vector<PrefilteredBruteForceInputs<index_t>> selectk_inputs = {
   {1024, 8192, 5, 1, 0.1, cuvs::distance::DistanceType::L2SqrtExpanded},
   {1024, 8192, 8, 1, 0.1, cuvs::distance::DistanceType::CosineExpanded},
 
-  {1024, 8192, 34, 16, 0.04, cuvs::distance::DistanceType::L2Expanded},
-  {1024, 8192, 35, 16, 0.05, cuvs::distance::DistanceType::L2Expanded},
-  {1024, 8192, 36, 16, 0.035, cuvs::distance::DistanceType::L2Expanded},
+  {1024, 8192, 2050, 16, 0.04, cuvs::distance::DistanceType::L2Expanded},
+  {1024, 8192, 2051, 16, 0.05, cuvs::distance::DistanceType::L2Expanded},
+  {1024, 8192, 2052, 16, 0.035, cuvs::distance::DistanceType::L2Expanded},
 
-  {1024, 8192, 34, 16, 0.04, cuvs::distance::DistanceType::InnerProduct},
-  {1024, 8192, 35, 16, 0.05, cuvs::distance::DistanceType::InnerProduct},
-  {1024, 8192, 36, 16, 0.035, cuvs::distance::DistanceType::InnerProduct},
+  {1024, 8192, 2050, 16, 0.04, cuvs::distance::DistanceType::InnerProduct},
+  {1024, 8192, 2051, 16, 0.05, cuvs::distance::DistanceType::InnerProduct},
+  {1024, 8192, 2052, 16, 0.035, cuvs::distance::DistanceType::InnerProduct},
 
-  {1024, 8192, 34, 16, 0.04, cuvs::distance::DistanceType::L2SqrtExpanded},
-  {1024, 8192, 35, 16, 0.05, cuvs::distance::DistanceType::L2SqrtExpanded},
-  {1024, 8192, 36, 16, 0.035, cuvs::distance::DistanceType::L2SqrtExpanded},
+  {1024, 8192, 2050, 16, 0.04, cuvs::distance::DistanceType::L2SqrtExpanded},
+  {1024, 8192, 2051, 16, 0.05, cuvs::distance::DistanceType::L2SqrtExpanded},
+  {1024, 8192, 2052, 16, 0.035, cuvs::distance::DistanceType::L2SqrtExpanded},
 
-  {1024, 8192, 34, 16, 0.04, cuvs::distance::DistanceType::CosineExpanded},
-  {1024, 8192, 35, 16, 0.05, cuvs::distance::DistanceType::CosineExpanded},
-  {1024, 8192, 36, 16, 0.035, cuvs::distance::DistanceType::CosineExpanded},
+  {1024, 8192, 2050, 16, 0.04, cuvs::distance::DistanceType::CosineExpanded},
+  {1024, 8192, 2051, 16, 0.05, cuvs::distance::DistanceType::CosineExpanded},
+  {1024, 8192, 2052, 16, 0.035, cuvs::distance::DistanceType::CosineExpanded},
 
   {1024, 8192, 1, 16, 0.5, cuvs::distance::DistanceType::L2Expanded},
   {1024, 8192, 2, 16, 0.2, cuvs::distance::DistanceType::L2Expanded},
