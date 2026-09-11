@@ -649,6 +649,7 @@ if hasArg tarball; then
             -v "${BUILD_OUTPUT_DIR_ABS}:/build:rw" \
             "${DOCKER_ENV_VARS[@]}" \
             --env CI="${CI:-false}" \
+            --env PARALLEL_LEVEL="${PARALLEL_LEVEL}" \
             --env RAPIDS_BUILD_TYPE="${RAPIDS_BUILD_TYPE:-}" \
             --env-file <(env | grep -E '^AWS_(ACCESS_KEY_ID|SECRET_ACCESS_KEY|SESSION_TOKEN)=') \
             "${CUVS_TARBALL_IMAGE_NAME}" \

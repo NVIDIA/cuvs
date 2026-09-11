@@ -73,15 +73,18 @@ The helper accepts the following environment variables:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `CUVS_TARBALL_CUDA_VERSION` | `13.3.0` | Selects the CUDA version in the `rapidsai/ci-wheel` base image. |
-| `CUVS_TARBALL_PYTHON_VERSION` | `3.14` | Selects the Python version in the `rapidsai/ci-wheel` base image. |
-| `CUVS_TARBALL_BUILD_OUTPUT_DIR` | `./build` | Selects the host directory where the tarball is written. |
+| `CUVS_TARBALL_CUDA_VERSION` | `13.3.0` | CUDA version for the `rapidsai/ci-wheel` base image. |
+| `CUVS_TARBALL_PYTHON_VERSION` | `3.14` | Python version for the `rapidsai/ci-wheel` base image. |
+| `CUVS_TARBALL_BUILD_OUTPUT_DIR` | `./build` | Host directory where the tarball is written. |
 
-To select CUDA and Python versions, set environment variables to exact versions from a valid [`rapidsai/ci-wheel` image tag](https://hub.docker.com/r/rapidsai/ci-wheel/tags). For example:
+CUDA and Python versions should match an existing `rapidsai/ci-wheel` tag.
+See https://hub.docker.com/r/rapidsai/ci-wheel/tags
+
+For example:
 
 ```bash
-CUVS_TARBALL_CUDA_VERSION=12.9.2 \
-CUVS_TARBALL_PYTHON_VERSION=3.11 \
+CUVS_TARBALL_CUDA_VERSION=13.3.0 \
+CUVS_TARBALL_PYTHON_VERSION=3.14 \
   ./build.sh tarball
 ```
 
@@ -108,28 +111,25 @@ The archive contains the headers, libraries, CMake configuration, and license in
 If you do not want to use the helper script, build the image directly from the repository root:
 
 ```bash
-docker build -f Dockerfile.standalone -t cuvs-standalone-c .
+docker build \
+  -f Dockerfile.standalone \
+  --build-arg CUDA_VERSION="13.3.0" \
+  --build-arg PYTHON_VERSION="3.14" \
+  --build-arg RAPIDS_VERSION="$(head -1 ./VERSION | cut -d. -f1,2 )" \
+  -t cuvs-standalone-c:local \
+  .
 ```
 
-This command builds from the published `rapidsai/ci-wheel` base image and tags the resulting local image as `cuvs-standalone-c`. The following `docker run` examples use that same local tag; Docker does not pull an image named `cuvs-standalone-c` from a registry.
+This command builds a local image and tags it as `cuvs-standalone-c:local`.
 
-Run the build and mount the repository plus an output directory:
+Run the build in a container using that image and mount the repository plus an output directory:
 
 ```bash
 mkdir -p build
 docker run --rm \
   -v "${PWD}:/workspace" \
   -v "${PWD}/build:/build" \
-  cuvs-standalone-c
-```
-
-To select different CUDA and Python versions, pass build arguments:
-
-```bash
-docker build -f Dockerfile.standalone \
-  --build-arg CUDA_VERSION=12.9.2 \
-  --build-arg PYTHON_VERSION=3.11 \
-  -t cuvs-standalone-c .
+  cuvs-standalone-c:local
 ```
 
 Mount another host directory at `/build` to change the output location:
