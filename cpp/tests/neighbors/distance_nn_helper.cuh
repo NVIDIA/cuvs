@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -48,6 +48,16 @@ __device__ AccT l2_distance(const DataT* v1, const DataT* v2, IdxT K)
 }
 
 template <typename DataT, typename AccT, typename OutT, typename IdxT>
+__device__ AccT inner_product(const DataT* v1, const DataT* v2, IdxT K)
+{
+  AccT result = AccT(0.0);
+  for (IdxT k = 0; k < K; k++) {
+    result += AccT(v1[k]) * AccT(v2[k]);
+  }
+  return result;
+}
+
+template <typename DataT, typename AccT, typename OutT, typename IdxT>
 __device__ AccT cosine_distance(const DataT* v1, const DataT* v2, IdxT K)
 {
   AccT v1_norm = AccT(0.0);
@@ -75,6 +85,7 @@ RAFT_KERNEL ref_nn_kernel(
   for (IdxT m = tid; m < M; m += (blockDim.x * gridDim.x)) {
     IdxT min_index = N + 1;
     AccT min_dist  = max_val<AccT>();
+    AccT min_score = max_val<AccT>();
 
     for (IdxT n = 0; n < N; n++) {
       AccT dist;
@@ -82,8 +93,12 @@ RAFT_KERNEL ref_nn_kernel(
         dist = l2_distance<DataT, AccT, OutT, IdxT>(&A[m * K], &B[n * K], K);
       } else if (metric == DistanceType::CosineExpanded) {
         dist = cosine_distance<DataT, AccT, OutT, IdxT>(&A[m * K], &B[n * K], K);
+      } else {
+        dist = inner_product<DataT, AccT, OutT, IdxT>(&A[m * K], &B[n * K], K);
       }
-      if (dist < min_dist) {
+      const auto score = metric == DistanceType::InnerProduct ? -dist : dist;
+      if (score < min_score) {
+        min_score = score;
         min_dist  = dist;
         min_index = n;
       }
@@ -97,7 +112,7 @@ RAFT_KERNEL ref_nn_kernel(
       static_assert(std::is_same<OutT, raft::KeyValuePair<IdxT, AccT>>::value,
                     "OutT is not raft::KeyValuePair<> type");
       out[m].key = IdxT(min_index);
-      if (sqrt) {
+      if (sqrt && metric != DistanceType::InnerProduct) {
         out[m].value = raft::sqrt(AccT(min_dist));
       } else {
         out[m].value = AccT(min_dist);
@@ -107,21 +122,71 @@ RAFT_KERNEL ref_nn_kernel(
 }
 
 template <typename DataT, typename AccT, typename OutT, typename IdxT>
-void ref_nn(OutT* out,
+void ref_nn(raft::resources const& handle,
+            OutT* out,
             const DataT* A,
             const DataT* B,
             IdxT m,
             IdxT n,
             IdxT k,
             bool sqrt,
-            DistanceType metric,
-            cudaStream_t stream)
+            DistanceType metric)
 {
+  const auto stream = raft::resource::get_cuda_stream(handle);
   ref_nn_kernel<DataT, AccT, OutT, IdxT>
     <<<(m + 127) / 128, 128, 0, stream>>>(out, A, B, m, n, k, sqrt, metric);
 
   RAFT_CUDA_TRY(cudaGetLastError());
   return;
+}
+
+template <typename DataT, typename AccT, typename IdxT>
+RAFT_KERNEL ref_nn_selected_kernel(AccT* out,
+                                   const IdxT* selected_indices,
+                                   const DataT* A,
+                                   const DataT* B,
+                                   IdxT M,
+                                   IdxT N,
+                                   IdxT K,
+                                   bool sqrt,
+                                   DistanceType metric)
+{
+  IdxT tid = threadIdx.x + blockIdx.x * IdxT(blockDim.x);
+  for (IdxT m = tid; m < M; m += blockDim.x * gridDim.x) {
+    const auto n = selected_indices[m];
+    if (n < 0 || n >= N) {
+      out[m] = max_val<AccT>();
+      continue;
+    }
+
+    AccT dist;
+    if (metric == DistanceType::L2SqrtExpanded || metric == DistanceType::L2Expanded) {
+      dist = l2_distance<DataT, AccT, AccT, IdxT>(&A[m * K], &B[n * K], K);
+    } else if (metric == DistanceType::CosineExpanded) {
+      dist = cosine_distance<DataT, AccT, AccT, IdxT>(&A[m * K], &B[n * K], K);
+    } else {
+      dist = inner_product<DataT, AccT, AccT, IdxT>(&A[m * K], &B[n * K], K);
+    }
+    out[m] = sqrt && metric != DistanceType::InnerProduct ? raft::sqrt(dist) : dist;
+  }
+}
+
+template <typename DataT, typename AccT, typename IdxT>
+void ref_nn_selected(raft::resources const& handle,
+                     AccT* out,
+                     const IdxT* selected_indices,
+                     const DataT* A,
+                     const DataT* B,
+                     IdxT m,
+                     IdxT n,
+                     IdxT k,
+                     bool sqrt,
+                     DistanceType metric)
+{
+  const auto stream = raft::resource::get_cuda_stream(handle);
+  ref_nn_selected_kernel<DataT, AccT, IdxT>
+    <<<(m + 127) / 128, 128, 0, stream>>>(out, selected_indices, A, B, m, n, k, sqrt, metric);
+  RAFT_CUDA_TRY(cudaGetLastError());
 }
 
 // Structure to track comparison failures

@@ -15,7 +15,7 @@
 #include <cuda_runtime.h>
 
 #include <cuvs/detail/jit_lto/CutileFragmentEntry.hpp>
-#include <cuvs/detail/jit_lto/tileir_compat.hpp>
+#include <cuvs/detail/jit_lto/cutile_compat.hpp>
 
 #include <raft/util/cuda_rt_essentials.hpp>
 #include <rtcx/algorithm_launcher.hpp>
@@ -27,39 +27,32 @@ struct CutileModuleImage {
   size_t size;
 };
 
-/**
- * Selects the newest compatible cubin in the device's compute-capability major family.
- *
- * CUDA cubins are forward compatible across minor revisions within a major family, so an SM 8.9
- * device can load SM 8.6 SASS and an SM 12.1 device can load SM 12.0 SASS.
- */
+/** Selects an exact architecture-specific cubin, with SM86 accepted only for SM89. */
 inline const CubinFragmentEntry* find_compatible_cubin_fragment(
   int cc_major,
   int cc_minor,
   const std::vector<std::unique_ptr<CubinFragmentEntry>>& cubin_fragments)
 {
-  const CubinFragmentEntry* best = nullptr;
+  const CubinFragmentEntry* sm86_fallback = nullptr;
   for (const auto& fragment : cubin_fragments) {
-    if (fragment->get_cc_major() != cc_major || fragment->get_cc_minor() > cc_minor) { continue; }
-    if (best == nullptr || fragment->get_cc_minor() > best->get_cc_minor()) {
-      best = fragment.get();
+    if (fragment->get_cc_major() == cc_major && fragment->get_cc_minor() == cc_minor) {
+      return fragment.get();
+    }
+    if (fragment->get_cc_major() == 8 && fragment->get_cc_minor() == 6) {
+      sm86_fallback = fragment.get();
     }
   }
-  return best;
+  return can_use_sm86_compat_cubin(cc_major, cc_minor) ? sm86_fallback : nullptr;
 }
 
-/** Selects compatible prebuilt SASS for the device, or TileIR when the driver can JIT it. */
+/** Selects compatible prebuilt SASS for the device. */
 inline std::optional<CutileModuleImage> resolve_cutile_module_image(
   const CutileRuntimeCapabilities& capabilities,
-  const std::vector<std::unique_ptr<CubinFragmentEntry>>& cubin_fragments,
-  const TileIrBytecodeFragmentEntry* tileir_fragment)
+  const std::vector<std::unique_ptr<CubinFragmentEntry>>& cubin_fragments)
 {
   if (const auto* fragment = find_compatible_cubin_fragment(
         capabilities.cc_major, capabilities.cc_minor, cubin_fragments)) {
     return CutileModuleImage{fragment->get_data(), fragment->get_length()};
-  }
-  if (tileir_fragment != nullptr && tileir_fallback_available(capabilities.driver_version)) {
-    return CutileModuleImage{tileir_fragment->get_data(), tileir_fragment->get_length()};
   }
   return std::nullopt;
 }

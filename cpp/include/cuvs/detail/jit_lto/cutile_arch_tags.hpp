@@ -41,8 +41,8 @@ struct cutile_arch_12_0 {
 
 inline bool is_embedded_cubin_arch(int cc_major, int cc_minor)
 {
-  if (cc_minor < 0) { return false; }
-  return cc_major == 8 || cc_major == 9 || cc_major == 10 || cc_major == 12;
+  return (cc_major == 8 && (cc_minor == 0 || cc_minor == 6)) || (cc_major == 9 && cc_minor == 0) ||
+         (cc_major == 10 && cc_minor == 0) || (cc_major == 12 && cc_minor == 0);
 }
 
 #else
@@ -50,5 +50,11 @@ inline bool is_embedded_cubin_arch(int cc_major, int cc_minor)
 inline bool is_embedded_cubin_arch(int, int) { return false; }
 
 #endif
+
+/** SM89 is binary compatible with the embedded SM86 SASS. */
+inline constexpr bool can_use_sm86_compat_cubin(int cc_major, int cc_minor)
+{
+  return cc_major == 8 && cc_minor == 9;
+}
 
 }  // namespace cuvs::detail::jit_lto

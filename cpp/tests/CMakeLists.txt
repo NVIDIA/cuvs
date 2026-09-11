@@ -114,6 +114,7 @@ ConfigureTest(
   GPUS 1
   PERCENT 100
 )
+target_compile_definitions(NEIGHBORS_TEST PRIVATE CUVS_CUTILE_ENABLED=${CUVS_CUTILE_ENABLED})
 
 ConfigureTest(
   NAME NEIGHBORS_TIERED_INDEX_TEST
@@ -142,6 +143,7 @@ ConfigureTest(
   GPUS 1
   PERCENT 100
 )
+target_compile_definitions(CUTILE_SMOKE_TEST PRIVATE CUVS_CUTILE_ENABLED=${CUVS_CUTILE_ENABLED})
 if(CUVS_CUTILE_ENABLED)
   # These are intentionally library-private implementation symbols. Build the smoke executable with
   # the generated fragment registrations and planner implementation so it can exercise them without

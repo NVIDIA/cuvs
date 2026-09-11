@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -11,6 +11,7 @@
 #include <cub/block/block_reduce.cuh>
 
 #include <raft/core/resource/cublas_handle.hpp>
+#include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resources.hpp>
 
 namespace cuvs {
@@ -81,10 +82,9 @@ __global__ void reduce_min_kernel(OutT* out,
       // GEMM round-off can produce slightly negative expanded distances; clamp to zero.
       dist = (dist > AccT(0)) ? dist : AccT(0);
     } else if constexpr (metric == DistanceType::CosineExpanded) {
-      // Guard against zero-norm vectors to avoid inf/NaN from division by zero.
-      AccT denom = x_norm_row * y_norm[col];
-      denom      = (denom > AccT(0)) ? denom : AccT(1);
-      dist       = AccT(1.0) - (z[row * n + col] / denom);
+      // Cosine distance involving any zero-norm vector is defined as 1.
+      const AccT denom = x_norm_row * y_norm[col];
+      dist             = denom > AccT(0) ? AccT(1.0) - (z[row * n + col] / denom) : AccT(1.0);
     }
     if (dist < thread_min.value) {
       thread_min.value = dist;
@@ -131,6 +131,7 @@ __global__ void reduce_min_kernel(OutT* out,
  * @tparam IdxT    Index type
  * @tparam metric  Distance metric type (L2Expanded, L2SqrtExpanded, or CosineExpanded)
  *
+ * @param[in]  handle        RAFT resources containing the caller-provided CUDA stream
  * @param[out] out           Output array containing minimum distances (and optionally indices)
  *                           per row. Length = `m`. (on device)
  * @param[in]  z             GEMM output matrix (x * y^T). Dim = `m x n`. (on device)
@@ -138,22 +139,22 @@ __global__ void reduce_min_kernel(OutT* out,
  * @param[in]  y_norm        Norms of rows in y. Length = `n`. (on device)
  * @param[in]  m             Number of rows in x (and output)
  * @param[in]  n             Number of rows in y (columns to reduce over)
- * @param[in]  stream        CUDA stream for kernel launch
  * @param[in]  is_sqrt       Whether to apply square root to the final distance
  * @param[in]  initOutBuffer Whether to initialize the output buffer or merge with existing values
  */
 template <typename DataT, typename AccT, typename OutT, typename IdxT, DistanceType metric>
-void reduce_min(OutT* out,
+void reduce_min(raft::resources const& handle,
+                OutT* out,
                 const AccT* z,
                 const AccT* x_norm,
                 const AccT* y_norm,
                 IdxT m,
                 IdxT n,
-                cudaStream_t stream,
                 bool is_sqrt,
                 bool initOutBuffer)
 {
-  const int TPB = 128;
+  const auto stream = raft::resource::get_cuda_stream(handle);
+  const int TPB     = 128;
 
   int blocks = m;
   reduce_min_kernel<DataT, AccT, OutT, IdxT, TPB, metric>
@@ -170,9 +171,9 @@ void pairwise_distance_gemm(raft::resources const& handle,
                             IdxT N,
                             IdxT K,
                             const AccT* x_norm,
-                            const AccT* y_norm,
-                            cudaStream_t stream)
+                            const AccT* y_norm)
 {
+  const auto stream = raft::resource::get_cuda_stream(handle);
   cudaDataType_t xyType, zType;
   cublasComputeType_t computeType;
 
@@ -253,6 +254,7 @@ void pairwise_distance_gemm(raft::resources const& handle,
  *                    distances or store only the min distances.
  * @tparam IdxT       indexing arithmetic type
  *
+ * @param[in]  handle        RAFT resources containing the caller-provided CUDA stream
  * @param[out] min           will contain the reduced output (Length = `m`)
  *                           (on device)
  * @param[in]  x             first matrix. Row major. Dim = `m x k`.
@@ -271,7 +273,6 @@ void pairwise_distance_gemm(raft::resources const& handle,
  * @param[in]  isRowMajor    whether the input/output is row or column major.
  * @param[in]  metric        Distance metric to be used (supports L2, cosine)
  * @param[in]  metric_arg    power argument for distances like Minkowski (not supported for now)
- * @param[in]  stream        cuda stream
  */
 template <typename DataT, typename AccT, typename OutT, typename IdxT>
 void unfusedDistanceNNMinReduce(raft::resources const& handle,
@@ -288,14 +289,12 @@ void unfusedDistanceNNMinReduce(raft::resources const& handle,
                                 bool initOutBuffer,
                                 bool isRowMajor,
                                 DistanceType metric,
-                                float metric_arg,
-                                cudaStream_t stream)
+                                float metric_arg)
 {
   ASSERT(isRowMajor, "unfusedDistanceNN only supports row major inputs");
 
   ASSERT(m > 0 && n > 0 && k > 0, "unfusedDistanceNN requires non-zero m, n, and k");
-  pairwise_distance_gemm<DataT, AccT, OutT, IdxT>(
-    handle, (AccT*)workspace, x, y, m, n, k, xn, yn, stream);
+  pairwise_distance_gemm<DataT, AccT, OutT, IdxT>(handle, (AccT*)workspace, x, y, m, n, k, xn, yn);
 
   ASSERT((metric == DistanceType::CosineExpanded) || (metric == DistanceType::L2Expanded) ||
            (metric == DistanceType::L2SqrtExpanded),
@@ -303,13 +302,13 @@ void unfusedDistanceNNMinReduce(raft::resources const& handle,
 
   if (metric == DistanceType::L2Expanded) {
     reduce_min<DataT, AccT, OutT, IdxT, DistanceType::L2Expanded>(
-      min, (AccT*)workspace, xn, yn, m, n, stream, is_sqrt, initOutBuffer);
+      handle, min, (AccT*)workspace, xn, yn, m, n, is_sqrt, initOutBuffer);
   } else if (metric == DistanceType::L2SqrtExpanded) {
     reduce_min<DataT, AccT, OutT, IdxT, DistanceType::L2SqrtExpanded>(
-      min, (AccT*)workspace, xn, yn, m, n, stream, is_sqrt, initOutBuffer);
+      handle, min, (AccT*)workspace, xn, yn, m, n, is_sqrt, initOutBuffer);
   } else if (metric == DistanceType::CosineExpanded) {
     reduce_min<DataT, AccT, OutT, IdxT, DistanceType::CosineExpanded>(
-      min, (AccT*)workspace, xn, yn, m, n, stream, is_sqrt, initOutBuffer);
+      handle, min, (AccT*)workspace, xn, yn, m, n, is_sqrt, initOutBuffer);
   }
 }
 

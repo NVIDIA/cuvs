@@ -36,7 +36,6 @@
           "EXPORT_SCRIPT": 1,
           "OUTPUT_DIRECTORY": 1,
           "FRAGMENT_TAG_FORMAT_CUBIN": 1,
-          "FRAGMENT_TAG_FORMAT_TILEIR": "?",
           "FRAGMENT_TAG_HEADER_FILES": "*",
           "MATRIX_JSON_ENTRY": 1
         }
@@ -53,7 +52,6 @@
           "OUTPUT_DIRECTORY": 1,
           "MATRIX_JSON_FILE": 1,
           "FRAGMENT_TAG_FORMAT_CUBIN": 1,
-          "FRAGMENT_TAG_FORMAT_TILEIR": "?",
           "FRAGMENT_TAG_HEADER_FILES": "*"
         }
       },

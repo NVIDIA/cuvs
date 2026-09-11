@@ -29,7 +29,7 @@ struct TileLauncherCache {
   std::unordered_set<std::string> unavailable_launchers;
 };
 
-/** Loads prebuilt cubins or TileIR bytecode directly through the CUDA library API. */
+/** Loads compatible prebuilt cubins directly through the CUDA library API. */
 struct TileAlgorithmPlanner {
   TileAlgorithmPlanner(std::string entrypoint, TileLauncherCache& launcher_cache)
     : entrypoint_(std::move(entrypoint)), launcher_cache_(launcher_cache)
@@ -49,18 +49,11 @@ struct TileAlgorithmPlanner {
     cubin_fragments_.push_back(std::make_unique<StaticCubinFragmentEntry<FragmentTag>>());
   }
 
-  template <typename FragmentTag>
-  void add_static_tileir_fragment()
-  {
-    tileir_fragment_ = std::make_unique<StaticTileIrBytecodeFragmentEntry<FragmentTag>>();
-  }
-
-  /** Tile geometry from the cubin or TileIR fragment that would load on this device. */
+  /** Tile geometry from the cubin that would load on this device. */
   CutileTileConfig tile_config() const;
 
  protected:
   std::vector<std::unique_ptr<CubinFragmentEntry>> cubin_fragments_;
-  std::unique_ptr<TileIrBytecodeFragmentEntry> tileir_fragment_;
 
  private:
   std::string get_planner_key(const CutileRuntimeCapabilities* capabilities) const;
