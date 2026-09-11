@@ -60,6 +60,10 @@ Use the standalone Docker build when you want a `libcuvs_c.tar.gz` archive that 
 From the repository root, run:
 
 ```bash
+# (optional) clean old build directories
+rm -rf ./{build,c/build/,cpp/build}
+
+# build
 ./build.sh tarball
 ```
 

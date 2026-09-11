@@ -555,7 +555,6 @@ jobs:
       build_type: pull-request
       script: ci/test_python.sh
   rocky8-clib-standalone-build-matrix:
-    needs: checks
     permissions:
       contents: read
     uses: rapidsai/shared-workflows/.github/workflows/compute-matrix.yaml@release/26.10
