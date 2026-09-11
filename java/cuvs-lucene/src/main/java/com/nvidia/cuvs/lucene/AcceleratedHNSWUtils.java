@@ -64,19 +64,29 @@ public class AcceleratedHNSWUtils {
     // Create adjacency list for single node with no neighbors
     int[][] singleNodeAdjacency = new int[][] {{-1}}; // -1 indicates no neighbors
 
-    // Create CuVSMatrix from the adjacency list
-    CuVSMatrix adjacencyMatrix = CuVSMatrix.ofArray(singleNodeAdjacency);
+    return createSingleVectorHnswGraph(size, dimensions, CuVSMatrix.ofArray(singleNodeAdjacency));
+  }
 
-    // Create layer data for single-level graph
-    List<int[]> layerNodes = new ArrayList<>();
-    List<CuVSMatrix> layerAdjacencies = new ArrayList<>();
+  /**
+   * Creates the single-vector graph from, and takes ownership of, {@code adjacencyMatrix}.
+   *
+   * <p>{@link GPUBuiltHnswGraph}'s constructor synchronously materializes every adjacency row into
+   * heap-backed neighbor arrays, so the matrix can be closed before the graph is returned.
+   */
+  static GPUBuiltHnswGraph createSingleVectorHnswGraph(
+      int size, int dimensions, CuVSMatrix adjacencyMatrix) throws Throwable {
+    try (adjacencyMatrix) {
+      // Create layer data for single-level graph
+      List<int[]> layerNodes = new ArrayList<>();
+      List<CuVSMatrix> layerAdjacencies = new ArrayList<>();
 
-    // Layer 0: contains all nodes (just the single node)
-    layerNodes.add(null); // Layer 0 contains all nodes, so we don't need to store node list
-    layerAdjacencies.add(adjacencyMatrix);
+      // Layer 0: contains all nodes (just the single node)
+      layerNodes.add(null); // Layer 0 contains all nodes, so we don't need to store node list
+      layerAdjacencies.add(adjacencyMatrix);
 
-    // Create the single-layer graph
-    return new GPUBuiltHnswGraph(size, dimensions, layerNodes, layerAdjacencies, 1);
+      // Create the single-layer graph
+      return new GPUBuiltHnswGraph(size, dimensions, layerNodes, layerAdjacencies, 1);
+    }
   }
 
   /**

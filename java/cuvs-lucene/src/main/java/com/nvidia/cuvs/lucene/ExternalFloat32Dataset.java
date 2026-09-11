@@ -24,7 +24,7 @@ import java.util.Objects;
  * for ensuring that every raw vector component is finite; unlike ordinary Lucene field ingestion,
  * this path deliberately does not scan the payload one float at a time.
  */
-public final class ExternalFloat32Dataset {
+final class ExternalFloat32Dataset {
 
   private final MemorySegment memorySegment;
   private final CuVSHostMatrix matrix;
@@ -42,7 +42,7 @@ public final class ExternalFloat32Dataset {
   /**
    * Wraps a contiguous native-memory region containing row-major float32 values without copying.
    */
-  public static ExternalFloat32Dataset fromMemorySegment(
+  static ExternalFloat32Dataset fromMemorySegment(
       MemorySegment memorySegment, int rows, int dimensions) {
     Objects.requireNonNull(memorySegment, "memorySegment");
     if (rows <= 0) {
@@ -115,19 +115,19 @@ public final class ExternalFloat32Dataset {
     return new ExternalFloat32Dataset(memorySegment, hostMatrix, rows, dimensions);
   }
 
-  public MemorySegment memorySegment() {
+  MemorySegment memorySegment() {
     return memorySegment;
   }
 
-  public CuVSHostMatrix matrix() {
+  CuVSHostMatrix matrix() {
     return matrix;
   }
 
-  public int rows() {
+  int rows() {
     return rows;
   }
 
-  public int dimensions() {
+  int dimensions() {
     return dimensions;
   }
 

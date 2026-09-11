@@ -10,7 +10,13 @@ import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.LongAdder;
 
-/** Per-build, thread-safe measurements for the bulk CAGRA-to-HNSW pipeline. */
+/**
+ * Thread-safe cumulative measurements for the bulk CAGRA-to-HNSW pipeline.
+ *
+ * <p>An instance is never reset automatically. Reusing it, or a bulk-writer configuration that
+ * contains it, intentionally aggregates every invocation into the same snapshot. Supply a fresh
+ * instance for each logical build when per-build measurements are required.
+ */
 public final class CagraHnswBuildMetrics {
 
   private final Map<String, StageMeasurement> stages = new ConcurrentHashMap<>();
@@ -45,7 +51,7 @@ public final class CagraHnswBuildMetrics {
     counters.computeIfAbsent(name, ignored -> new LongAdder()).add(value);
   }
 
-  /** Records an effective configuration value, retaining its range across independent segments. */
+  /** Records a gauge value, retaining its range across independent segments or invocations. */
   void setGauge(String name, long value) {
     Objects.requireNonNull(name, "name");
     gauges.compute(

@@ -15,7 +15,9 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 import org.apache.lucene.codecs.Codec;
 import org.apache.lucene.codecs.CodecUtil;
 import org.apache.lucene.index.CorruptIndexException;
@@ -25,6 +27,7 @@ import org.apache.lucene.index.FieldInfo;
 import org.apache.lucene.index.FieldInfos;
 import org.apache.lucene.index.FloatVectorValues;
 import org.apache.lucene.index.IndexFileNames;
+import org.apache.lucene.index.IndexFormatTooNewException;
 import org.apache.lucene.index.IndexOptions;
 import org.apache.lucene.index.SegmentInfo;
 import org.apache.lucene.index.SegmentReadState;
@@ -35,6 +38,7 @@ import org.apache.lucene.store.IOContext;
 import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.store.IndexOutput;
 import org.apache.lucene.tests.util.LuceneTestCase;
+import org.apache.lucene.util.IOUtils;
 import org.apache.lucene.util.InfoStream;
 import org.apache.lucene.util.StringHelper;
 import org.apache.lucene.util.Version;
@@ -104,6 +108,140 @@ public class TestExternalFbinFlatVectorsReader extends LuceneTestCase {
     }
   }
 
+  public void testIndependentlyEncodedVersionZeroDescriptorIsReadable() throws Exception {
+    float[][] vectors = {{1.0f, 2.0f}, {3.0f, 4.0f}, {5.0f, 6.0f}};
+    Path fbin = writeFbin(createTempDir().resolve("literal-v0.fbin"), vectors);
+
+    try (Directory indexDirectory = newDirectory();
+        ExternalFbinFileRegistry.Registration registration =
+            ExternalFbinFileRegistry.register(fbin, sha256(fbin))) {
+      ExternalFbinReference reference = registration.reference(1, 2);
+      SegmentFixture fixture = newFixture(indexDirectory, reference.rows(), reference.dimensions());
+      writeLiteralDescriptor(fixture, new LiteralDescriptor(reference));
+
+      try (ExternalFbinFlatVectorsReader reader =
+          new ExternalFbinFlatVectorsReader(fixture.readState())) {
+        FloatVectorValues values = reader.getFloatVectorValues("vector");
+        assertEquals(2, values.size());
+        assertArrayEquals(vectors[1], values.vectorValue(0), 0.0f);
+        assertArrayEquals(vectors[2], values.vectorValue(1), 0.0f);
+        reader.checkIntegrity();
+      }
+    }
+  }
+
+  public void testWrongRegisteredShapeFailsWithContextualCheckedException() throws Exception {
+    float[][] expectedVectors = {{1.0f, 2.0f}, {3.0f, 4.0f}, {5.0f, 6.0f}};
+    Path root = createTempDir();
+    Path expectedFbin = writeFbin(root.resolve("expected.fbin"), expectedVectors);
+    String expectedDigest = sha256(expectedFbin);
+    ExternalFbinReference reference;
+    try (ExternalFbinFileRegistry.Registration registration =
+        ExternalFbinFileRegistry.register(expectedFbin, expectedDigest)) {
+      reference = registration.reference(1, 2);
+    }
+    Path wrongFbin = writeFbin(root.resolve("wrong.fbin"), new float[][] {{7.0f, 8.0f}});
+
+    try (Directory indexDirectory = newDirectory();
+        ExternalFbinFileRegistry.Registration ignored =
+            ExternalFbinFileRegistry.register(wrongFbin, expectedDigest)) {
+      SegmentFixture fixture = newFixture(indexDirectory, reference.rows(), reference.dimensions());
+      writeLiteralDescriptor(fixture, new LiteralDescriptor(reference));
+
+      IOException failure =
+          expectThrows(
+              IOException.class, () -> new ExternalFbinFlatVectorsReader(fixture.readState()));
+      assertTrue(
+          failure.getMessage(), failure.getMessage().contains(wrongFbin.toRealPath().toString()));
+      assertTrue(failure.getMessage(), failure.getMessage().contains(reference.contentId()));
+      assertTrue(failure.getCause() instanceof IllegalArgumentException);
+    }
+  }
+
+  public void testWrongRegisteredOverflowingHeaderFailsWithContextualCheckedException()
+      throws Exception {
+    float[][] expectedVectors = {{1.0f, 2.0f}, {3.0f, 4.0f}, {5.0f, 6.0f}};
+    Path root = createTempDir();
+    Path expectedFbin = writeFbin(root.resolve("expected.fbin"), expectedVectors);
+    String expectedDigest = sha256(expectedFbin);
+    ExternalFbinReference reference;
+    try (ExternalFbinFileRegistry.Registration registration =
+        ExternalFbinFileRegistry.register(expectedFbin, expectedDigest)) {
+      reference = registration.reference(1, 2);
+    }
+    Path wrongFbin = root.resolve("overflow.fbin");
+    writeFbinHeader(wrongFbin, Integer.MAX_VALUE, Integer.MAX_VALUE);
+
+    try (Directory indexDirectory = newDirectory();
+        ExternalFbinFileRegistry.Registration ignored =
+            ExternalFbinFileRegistry.register(wrongFbin, expectedDigest)) {
+      SegmentFixture fixture = newFixture(indexDirectory, reference.rows(), reference.dimensions());
+      writeLiteralDescriptor(fixture, new LiteralDescriptor(reference));
+
+      IOException failure =
+          expectThrows(
+              IOException.class, () -> new ExternalFbinFlatVectorsReader(fixture.readState()));
+      assertTrue(
+          failure.getMessage(), failure.getMessage().contains(wrongFbin.toRealPath().toString()));
+      assertTrue(failure.getMessage(), failure.getMessage().contains(reference.contentId()));
+      assertTrue(failure.getCause() instanceof ArithmeticException);
+    }
+  }
+
+  public void testIndependentlyEncodedSemanticDescriptorFailures() throws Exception {
+    float[][] vectors = {{1.0f, 2.0f}, {3.0f, 4.0f}, {5.0f, 6.0f}};
+    Path fbin = writeFbin(createTempDir().resolve("semantic-errors.fbin"), vectors);
+
+    try (ExternalFbinFileRegistry.Registration registration =
+        ExternalFbinFileRegistry.register(fbin, sha256(fbin))) {
+      ExternalFbinReference reference = registration.reference(1, 2);
+      List<DescriptorMutation> mutations =
+          List.of(
+              new DescriptorMutation(
+                  "invalid encoding", descriptor -> descriptor.encodingName = "NOT_AN_ENCODING"),
+              new DescriptorMutation("unknown field", descriptor -> descriptor.fieldNumber = 7),
+              new DescriptorMutation(
+                  "invalid range", descriptor -> descriptor.payloadLength = Long.BYTES),
+              new DescriptorMutation("inconsistent rows", descriptor -> descriptor.fileRows += 1),
+              new DescriptorMutation("extra field", descriptor -> descriptor.sentinel = 0),
+              new DescriptorMutation(
+                  "trailing payload", descriptor -> descriptor.trailingByte = true));
+
+      for (DescriptorMutation mutation : mutations) {
+        try (Directory indexDirectory = newDirectory()) {
+          SegmentFixture fixture =
+              newFixture(indexDirectory, reference.rows(), reference.dimensions());
+          LiteralDescriptor descriptor = new LiteralDescriptor(reference);
+          mutation.mutation().accept(descriptor);
+          writeLiteralDescriptor(fixture, descriptor);
+          expectThrows(
+              CorruptIndexException.class,
+              mutation.name(),
+              () -> new ExternalFbinFlatVectorsReader(fixture.readState()));
+        }
+      }
+    }
+  }
+
+  public void testIndependentlyEncodedFutureDescriptorVersionIsRejected() throws Exception {
+    float[][] vectors = {{1.0f, 2.0f}, {3.0f, 4.0f}, {5.0f, 6.0f}};
+    Path fbin = writeFbin(createTempDir().resolve("future-version.fbin"), vectors);
+
+    try (Directory indexDirectory = newDirectory();
+        ExternalFbinFileRegistry.Registration registration =
+            ExternalFbinFileRegistry.register(fbin, sha256(fbin))) {
+      ExternalFbinReference reference = registration.reference(1, 2);
+      SegmentFixture fixture = newFixture(indexDirectory, reference.rows(), reference.dimensions());
+      LiteralDescriptor descriptor = new LiteralDescriptor(reference);
+      descriptor.version = 1;
+      writeLiteralDescriptor(fixture, descriptor);
+
+      expectThrows(
+          IndexFormatTooNewException.class,
+          () -> new ExternalFbinFlatVectorsReader(fixture.readState()));
+    }
+  }
+
   public void testDimensionBoundariesWithSlicedRowsAcrossMmapChunks() throws Exception {
     for (int dimensions : GENERALIZATION_DIMENSIONS) {
       float[][] vectors = createVectors(5, dimensions);
@@ -128,6 +266,66 @@ public class TestExternalFbinFlatVectorsReader extends LuceneTestCase {
           assertTrue(scorer.score(0) < scorer.score(1));
           reader.checkIntegrity();
         }
+      }
+    }
+  }
+
+  public void testSharedMappingOwnerSurvivesStaggeredReaderClose() throws Exception {
+    int dimensions = 64;
+    float[][] vectors = createVectors(6, dimensions);
+    Path fbin = writeFbin(createTempDir().resolve("shared-mapping.fbin"), vectors);
+
+    try (Directory firstIndex = newDirectory();
+        Directory secondIndex = newDirectory();
+        ExternalFbinFileRegistry.Registration registration =
+            ExternalFbinFileRegistry.register(fbin, sha256(fbin))) {
+      ExternalFbinReference firstReference = registration.reference(0, 3);
+      ExternalFbinReference secondReference = registration.reference(3, 3);
+      SegmentFixture firstFixture = writeDescriptor(firstIndex, firstReference);
+      SegmentFixture secondFixture = writeDescriptor(secondIndex, secondReference);
+      ExternalFbinFlatVectorsReader first = null;
+      ExternalFbinFlatVectorsReader second = null;
+      try {
+        first = new ExternalFbinFlatVectorsReader(firstFixture.readState(), FORCED_MMAP_CHUNK_SIZE);
+        second =
+            new ExternalFbinFlatVectorsReader(secondFixture.readState(), FORCED_MMAP_CHUNK_SIZE);
+        assertEquals(
+            1,
+            ExternalFbinMappedInputCache.activeOwnerCountForTests(
+                fbin, firstReference, FORCED_MMAP_CHUNK_SIZE));
+        assertEquals(
+            2,
+            ExternalFbinMappedInputCache.activeLeaseCountForTests(
+                fbin, firstReference, FORCED_MMAP_CHUNK_SIZE));
+        assertArrayEquals(vectors[0], first.getFloatVectorValues("vector").vectorValue(0), 0.0f);
+        assertArrayEquals(vectors[5], second.getFloatVectorValues("vector").vectorValue(2), 0.0f);
+        first.checkIntegrity();
+
+        first.close();
+        first = null;
+        assertEquals(
+            1,
+            ExternalFbinMappedInputCache.activeOwnerCountForTests(
+                fbin, secondReference, FORCED_MMAP_CHUNK_SIZE));
+        assertEquals(
+            1,
+            ExternalFbinMappedInputCache.activeLeaseCountForTests(
+                fbin, secondReference, FORCED_MMAP_CHUNK_SIZE));
+        assertArrayEquals(vectors[5], second.getFloatVectorValues("vector").vectorValue(2), 0.0f);
+        second.checkIntegrity();
+
+        second.close();
+        second = null;
+        assertEquals(
+            0,
+            ExternalFbinMappedInputCache.activeOwnerCountForTests(
+                fbin, secondReference, FORCED_MMAP_CHUNK_SIZE));
+        assertEquals(
+            0,
+            ExternalFbinMappedInputCache.activeLeaseCountForTests(
+                fbin, secondReference, FORCED_MMAP_CHUNK_SIZE));
+      } finally {
+        IOUtils.closeWhileHandlingException(first, second);
       }
     }
   }
@@ -334,6 +532,16 @@ public class TestExternalFbinFlatVectorsReader extends LuceneTestCase {
 
   private static SegmentFixture writeDescriptor(
       Directory directory, ExternalFbinReference reference) throws Exception {
+    SegmentFixture fixture = newFixture(directory, reference.rows(), reference.dimensions());
+    try (ExternalFbinReferenceWriter writer =
+        new ExternalFbinReferenceWriter(fixture.writeState())) {
+      writer.writeField(fixture.writeState().fieldInfos.fieldInfo("vector"), reference);
+      writer.finish();
+    }
+    return fixture;
+  }
+
+  private static SegmentFixture newFixture(Directory directory, int rows, int dimensions) {
     FieldInfo fieldInfo =
         new FieldInfo(
             "vector",
@@ -349,7 +557,7 @@ public class TestExternalFbinFlatVectorsReader extends LuceneTestCase {
             0,
             0,
             0,
-            reference.dimensions(),
+            dimensions,
             VectorEncoding.FLOAT32,
             EUCLIDEAN,
             false,
@@ -361,7 +569,7 @@ public class TestExternalFbinFlatVectorsReader extends LuceneTestCase {
             Version.LATEST,
             Version.LATEST,
             "_0",
-            reference.rows(),
+            rows,
             false,
             false,
             Codec.getDefault(),
@@ -369,18 +577,45 @@ public class TestExternalFbinFlatVectorsReader extends LuceneTestCase {
             StringHelper.randomId(),
             Map.of(),
             null);
-    segmentInfo.putAttribute(
-        ExternalFbinReferenceWriter.segmentAttribute(""),
-        ExternalFbinReferenceWriter.SEGMENT_ATTRIBUTE_VALUE);
+    segmentInfo.putAttribute("cuvs.external_fbin.", "1");
     SegmentWriteState writeState =
         new SegmentWriteState(
             InfoStream.NO_OUTPUT, directory, segmentInfo, fieldInfos, null, IOContext.DEFAULT);
-    try (ExternalFbinReferenceWriter writer = new ExternalFbinReferenceWriter(writeState)) {
-      writer.writeField(fieldInfo, reference);
-      writer.finish();
-    }
     return new SegmentFixture(
-        new SegmentReadState(directory, segmentInfo, fieldInfos, IOContext.DEFAULT));
+        writeState, new SegmentReadState(directory, segmentInfo, fieldInfos, IOContext.DEFAULT));
+  }
+
+  /** Writes the version-zero wire layout without calling the production descriptor writer. */
+  private static void writeLiteralDescriptor(SegmentFixture fixture, LiteralDescriptor descriptor)
+      throws IOException {
+    SegmentWriteState state = fixture.writeState();
+    String fileName =
+        IndexFileNames.segmentFileName(state.segmentInfo.name, state.segmentSuffix, "vefr");
+    try (IndexOutput output = state.directory.createOutput(fileName, state.context)) {
+      CodecUtil.writeIndexHeader(
+          output,
+          "CuVSExternalFbinReference",
+          descriptor.version,
+          state.segmentInfo.getId(),
+          state.segmentSuffix);
+      output.writeInt(descriptor.fieldNumber);
+      output.writeString(descriptor.fieldName);
+      output.writeString(descriptor.encodingName);
+      output.writeString(descriptor.similarityName);
+      output.writeVInt(descriptor.dimensions);
+      output.writeInt(descriptor.rows);
+      output.writeInt(descriptor.fileRows);
+      output.writeLong(descriptor.firstRow);
+      output.writeLong(descriptor.fileLength);
+      output.writeLong(descriptor.payloadOffset);
+      output.writeLong(descriptor.payloadLength);
+      output.writeBytes(descriptor.sha256, descriptor.sha256.length);
+      output.writeInt(descriptor.sentinel);
+      if (descriptor.trailingByte) {
+        output.writeByte((byte) 0x5a);
+      }
+      CodecUtil.writeFooter(output);
+    }
   }
 
   private static void corruptDescriptorPayload(Directory directory, SegmentReadState state)
@@ -427,6 +662,19 @@ public class TestExternalFbinFlatVectorsReader extends LuceneTestCase {
       }
     }
     return file;
+  }
+
+  private static void writeFbinHeader(Path file, int rows, int dimensions) throws IOException {
+    ByteBuffer header =
+        ByteBuffer.allocate((int) ExternalFbinReference.HEADER_BYTES)
+            .order(ByteOrder.LITTLE_ENDIAN)
+            .putInt(rows)
+            .putInt(dimensions);
+    header.flip();
+    try (FileChannel channel =
+        FileChannel.open(file, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)) {
+      writeFully(channel, header, 0L);
+    }
   }
 
   private static void writeSparseFbin(
@@ -510,7 +758,41 @@ public class TestExternalFbinFlatVectorsReader extends LuceneTestCase {
     return HexFormat.of().formatHex(digest.digest());
   }
 
-  private record SegmentFixture(SegmentReadState readState) {}
+  private static final class LiteralDescriptor {
+    private int version = 0;
+    private int fieldNumber = 0;
+    private String fieldName = "vector";
+    private String encodingName = "FLOAT32";
+    private String similarityName = "EUCLIDEAN";
+    private int dimensions;
+    private int rows;
+    private int fileRows;
+    private long firstRow;
+    private long fileLength;
+    private long payloadOffset;
+    private long payloadLength;
+    private byte[] sha256;
+    private int sentinel = -1;
+    private boolean trailingByte;
+
+    private LiteralDescriptor(ExternalFbinReference reference) {
+      dimensions = reference.dimensions();
+      rows = reference.rows();
+      fileRows =
+          Math.toIntExact(
+              (reference.fileLength() - ExternalFbinReference.HEADER_BYTES)
+                  / ((long) dimensions * Float.BYTES));
+      firstRow = reference.firstRow();
+      fileLength = reference.fileLength();
+      payloadOffset = reference.payloadOffset();
+      payloadLength = reference.payloadLength();
+      sha256 = reference.sha256();
+    }
+  }
+
+  private record DescriptorMutation(String name, Consumer<LiteralDescriptor> mutation) {}
+
+  private record SegmentFixture(SegmentWriteState writeState, SegmentReadState readState) {}
 
   private record SparseRow(long offset, float[] values) {}
 }

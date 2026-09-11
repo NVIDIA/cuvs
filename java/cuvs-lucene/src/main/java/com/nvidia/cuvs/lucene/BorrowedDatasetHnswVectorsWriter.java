@@ -5,8 +5,9 @@
 package com.nvidia.cuvs.lucene;
 
 import static com.nvidia.cuvs.lucene.AcceleratedHNSWUtils.printInfoStream;
-import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.closeCuVSResourcesInstance;
+import static com.nvidia.cuvs.lucene.NativeFlatBufferedHNSWVectorsWriter.closeOutputsAndResources;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -55,7 +56,8 @@ final class BorrowedDatasetHnswVectorsWriter extends KnnVectorsWriter {
       graphOutput = newGraphOutput;
       vectorOutput = newVectorOutput;
       if (!success) {
-        IOUtils.closeWhileHandlingException(newVectorOutput, newGraphOutput);
+        Closeable resourceCloser = ThreadLocalCuVSResourcesProvider::closeCuVSResourcesInstance;
+        IOUtils.closeWhileHandlingException(newVectorOutput, newGraphOutput, resourceCloser);
       }
     }
     printInfoStream(infoStream, getClass().getSimpleName(), "borrowed FBIN writer initialized");
@@ -126,11 +128,7 @@ final class BorrowedDatasetHnswVectorsWriter extends KnnVectorsWriter {
   @Override
   public void close() throws IOException {
     printInfoStream(infoStream, getClass().getSimpleName(), "closing resources");
-    try {
-      IOUtils.close(vectorOutput, graphOutput);
-    } finally {
-      closeCuVSResourcesInstance();
-    }
+    closeOutputsAndResources(vectorOutput, graphOutput);
   }
 
   @Override

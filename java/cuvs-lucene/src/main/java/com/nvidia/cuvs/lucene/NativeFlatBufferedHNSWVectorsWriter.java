@@ -5,7 +5,6 @@
 package com.nvidia.cuvs.lucene;
 
 import static com.nvidia.cuvs.lucene.AcceleratedHNSWUtils.printInfoStream;
-import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.closeCuVSResourcesInstance;
 import static org.apache.lucene.index.VectorEncoding.FLOAT32;
 import static org.apache.lucene.util.RamUsageEstimator.shallowSizeOfInstance;
 
@@ -183,10 +182,8 @@ final class NativeFlatBufferedHNSWVectorsWriter extends KnnVectorsWriter {
   }
 
   static void closeOutputsAndResources(Closeable... outputs) throws IOException {
-    try {
+    try (Closeable resourceCloser = ThreadLocalCuVSResourcesProvider::closeCuVSResourcesInstance) {
       IOUtils.close(outputs);
-    } finally {
-      closeCuVSResourcesInstance();
     }
   }
 

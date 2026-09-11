@@ -24,9 +24,19 @@ final class ExternalFbinIO {
 
   static Path validateAndResolve(ExternalFbinReference reference) throws IOException {
     Path path = ExternalFbinFileRegistry.resolve(reference);
-    ExternalFbinReference actual =
-        ExternalFbinReference.fromFile(
-            path, reference.sha256Hex(), Math.toIntExact(reference.firstRow()), reference.rows());
+    final ExternalFbinReference actual;
+    try {
+      actual =
+          ExternalFbinReference.fromFile(
+              path, reference.sha256Hex(), Math.toIntExact(reference.firstRow()), reference.rows());
+    } catch (IllegalArgumentException | ArithmeticException incompatibleFile) {
+      throw new IOException(
+          "Registered external FBIN "
+              + path
+              + " is incompatible with persisted reference "
+              + reference.contentId(),
+          incompatibleFile);
+    }
     if (!actual.equals(reference)) {
       throw new IOException(
           "Registered FBIN metadata does not match persisted reference for "

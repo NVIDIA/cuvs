@@ -20,7 +20,7 @@ import java.nio.file.StandardOpenOption;
  * persisting a reference to another. Closing it releases both the cuVS matrix wrapper and mapping;
  * callers must keep it open until the index writer has finished.
  */
-public final class ImmutableExternalFbinDataset implements AutoCloseable {
+final class ImmutableExternalFbinDataset implements AutoCloseable {
 
   private final ExternalFbinReference reference;
   private final Arena arena;
@@ -70,16 +70,16 @@ public final class ImmutableExternalFbinDataset implements AutoCloseable {
     return dataset;
   }
 
-  public ExternalFbinReference reference() {
+  ExternalFbinReference reference() {
     ensureOpen();
     return reference;
   }
 
-  public int rows() {
+  int rows() {
     return reference.rows();
   }
 
-  public int dimensions() {
+  int dimensions() {
     return reference.dimensions();
   }
 

@@ -6,11 +6,11 @@ package com.nvidia.cuvs.lucene;
 
 import java.io.IOException;
 import java.io.InterruptedIOException;
-import java.util.concurrent.CancellationException;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import org.apache.lucene.index.DocsWithFieldSet;
 import org.apache.lucene.index.FieldInfo;
 import org.apache.lucene.index.SegmentWriteState;
@@ -36,64 +36,129 @@ final class MappedSelfContainedOutput implements BorrowedDatasetOutput {
       AcceleratedHnswGraphOutput graphOutput)
       throws IOException {
     long overlapStartedAt = CagraHnswBuildMetrics.start();
-    try (ExecutorService executor =
-        Executors.newSingleThreadExecutor(
-            task -> Thread.ofPlatform().name("cuvs-mapped-flat-writer").unstarted(task))) {
-      Future<?> flatWrite =
-          executor.submit(
-              () -> {
-                long startedAt = CagraHnswBuildMetrics.start();
-                flatOutput.writeField(
-                    field, dataset.matrix(), dataset.memorySegment(), maxDoc, docsWithField);
-                metrics.stop(
-                    "mapped flat-write worker [DISK]",
-                    startedAt,
-                    dataset.memorySegment().byteSize());
-                return null;
-              });
-
-      Throwable failure = null;
-      try {
-        graphOutput.writeBorrowedField(field, dataset.matrix());
-      } catch (Throwable graphFailure) {
-        failure = graphFailure;
-      }
-      failure = combine(failure, await(flatWrite));
-      if (failure != null) {
-        throw Utils.handleThrowable(failure);
-      }
+    try {
+      runOverlapped(
+          () -> {
+            long startedAt = CagraHnswBuildMetrics.start();
+            flatOutput.writeField(
+                field, dataset.matrix(), dataset.memorySegment(), maxDoc, docsWithField);
+            metrics.stop(
+                "mapped flat-write worker [DISK]", startedAt, dataset.memorySegment().byteSize());
+          },
+          () -> graphOutput.writeBorrowedField(field, dataset.matrix()));
     } finally {
       metrics.stop("mapped flush overlap wall [GPU+DISK]", overlapStartedAt);
     }
   }
 
-  private static Throwable await(Future<?> future) {
-    boolean interrupted = false;
+  /**
+   * Runs the flat-vector write on its worker while the caller builds the graph. Package visibility
+   * keeps the failure and cancellation protocol independently testable without native resources.
+   */
+  static void runOverlapped(OverlapTask flatWrite, OverlapTask graphWrite) throws IOException {
+    ExecutorService executor =
+        Executors.newSingleThreadExecutor(
+            task -> Thread.ofPlatform().name("cuvs-mapped-flat-writer").unstarted(task));
+    AtomicReference<Throwable> flatFailure = new AtomicReference<>();
+    Future<?> flatFuture = null;
     Throwable failure = null;
-    while (true) {
-      try {
-        future.get();
-        break;
-      } catch (InterruptedException e) {
+    boolean interrupted = false;
+
+    try {
+      flatFuture =
+          executor.submit(
+              () -> {
+                try {
+                  flatWrite.run();
+                } catch (Throwable thrown) {
+                  // A cancelled Future can report completion before its running task has stopped
+                  // and no longer exposes an exception thrown after cancellation. Retain the
+                  // worker's actual failure until executor termination establishes visibility.
+                  flatFailure.compareAndSet(null, thrown);
+                }
+              });
+
+      if (Thread.interrupted()) {
         interrupted = true;
-      } catch (ExecutionException e) {
-        failure = e.getCause();
-        break;
-      } catch (CancellationException e) {
-        failure = e;
-        break;
+        failure = interruption("Interrupted before mapped graph output", null);
+      } else {
+        try {
+          graphWrite.run();
+        } catch (InterruptedException graphInterruption) {
+          interrupted = true;
+          failure =
+              interruption("Interrupted while writing mapped graph output", graphInterruption);
+        } catch (Throwable graphFailure) {
+          failure = graphFailure;
+        }
+      }
+
+      if (Thread.interrupted()) {
+        interrupted = true;
+        failure =
+            combine(failure, interruption("Interrupted while writing mapped graph output", null));
+      }
+    } catch (Throwable orchestrationFailure) {
+      failure = combine(failure, orchestrationFailure);
+    } finally {
+      if (failure != null || interrupted) {
+        if (flatFuture != null) {
+          flatFuture.cancel(true);
+        }
+        executor.shutdownNow();
+      } else {
+        executor.shutdown();
+      }
+
+      // Future.cancel(true) only changes Future state; it does not prove the task honored the
+      // interrupt. Keep all borrowed mappings and outputs alive until the worker has really exited.
+      while (executor.isTerminated() == false) {
+        try {
+          executor.awaitTermination(1L, TimeUnit.DAYS);
+        } catch (InterruptedException awaitInterruption) {
+          interrupted = true;
+          failure =
+              combine(
+                  failure,
+                  interruption(
+                      "Interrupted while awaiting mapped flat-vector output", awaitInterruption));
+          if (flatFuture != null) {
+            flatFuture.cancel(true);
+          }
+          executor.shutdownNow();
+        }
+      }
+
+      // Cover an interrupt arriving after the final await returned without clearing it early.
+      if (Thread.interrupted()) {
+        interrupted = true;
+        failure =
+            combine(
+                failure,
+                interruption("Interrupted while awaiting mapped flat-vector output", null));
+      }
+      failure = combine(failure, flatFailure.get());
+      if (interrupted) {
+        Thread.currentThread().interrupt();
       }
     }
-    if (interrupted) {
-      Thread.currentThread().interrupt();
-      InterruptedIOException interruption =
-          new InterruptedIOException("Interrupted while awaiting mapped flat-vector output");
-      if (failure != null) {
-        interruption.addSuppressed(failure);
-      }
-      return interruption;
+
+    if (failure != null) {
+      throw Utils.handleThrowable(failure);
     }
-    return failure;
+  }
+
+  private static InterruptedIOException interruption(String message, Throwable cause) {
+    InterruptedIOException interruption = new InterruptedIOException(message);
+    if (cause != null) {
+      interruption.initCause(cause);
+    }
+    return interruption;
+  }
+
+  @FunctionalInterface
+  interface OverlapTask {
+    void run() throws Throwable;
   }
 
   private static Throwable combine(Throwable primary, Throwable additional) {

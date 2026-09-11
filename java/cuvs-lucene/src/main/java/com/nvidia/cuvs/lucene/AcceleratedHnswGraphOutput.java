@@ -137,91 +137,108 @@ final class AcceleratedHnswGraphOutput implements Closeable {
       throws IOException {
     long graphOutputStart = CagraHnswBuildMetrics.start();
     try {
-      int size = (int) dataset.size();
-      if (size == 0) {
-        writeEmpty(fieldInfo, hnswMeta);
-        return;
-      }
-      if (size < 2) {
-        float[] buf = new float[fieldInfo.getVectorDimension()];
-        dataset.getRow(0).toArray(buf);
-        writeSingleVectorGraph(fieldInfo, List.of(buf));
-        return;
-      }
-      try {
-        CagraIndexParams params =
-            CagraIndexParamsFactory.create(
-                acceleratedHNSWParams, dataset.size(), dataset.columns());
-        recordEffectiveParams(params);
-        long adjacencyBytes =
-            Math.multiplyExact(
-                Math.multiplyExact((long) size, params.getGraphDegree()), Integer.BYTES);
-        metrics.addCounter("logical cagra adjacency bytes", adjacencyBytes);
-        long stageStart = CagraHnswBuildMetrics.start();
-        try (CagraIndex cagraIndex =
-            CagraIndex.newBuilder(getCuVSResourcesInstance())
-                .withDataset(dataset)
-                .withIndexParams(params)
-                .build()) {
-          metrics.stop("cagra-build [GPU]", stageStart);
-          stageStart = CagraHnswBuildMetrics.start();
-          CuVSMatrix adjacencyListMatrix = cagraIndex.getGraph();
-          metrics.stop("graph-view [GPU]", stageStart);
-          int dimensions = fieldInfo.getVectorDimension();
-          stageStart = CagraHnswBuildMetrics.start();
-          GPUBuiltHnswGraph hnswGraph =
-              createMultiLayerHnswGraph(
-                  fieldInfo,
-                  dimensions,
-                  adjacencyListMatrix,
-                  dataset,
-                  acceleratedHNSWParams.getHnswLayers(),
-                  params,
-                  QuantizationType.NONE,
-                  acceleratedHNSWParams.getWriterThreads(),
-                  acceleratedHNSWParams.getHnswLayerSeed());
-          metrics.stop("hnsw-convert [PCIe+CPU]", stageStart, adjacencyBytes);
-          long vectorIndexOffset = hnswVectorIndex.getFilePointer();
-          stageStart = CagraHnswBuildMetrics.start();
-          int[][] graphLevelNodeOffsets =
-              writeGraph(hnswGraph, hnswVectorIndex, acceleratedHNSWParams.getWriterThreads());
-          long vectorIndexLength = hnswVectorIndex.getFilePointer() - vectorIndexOffset;
-          metrics.stop("write-graph [CPU+DISK]", stageStart, vectorIndexLength);
-          writeMeta(
-              hnswVectorIndex,
-              hnswMeta,
-              fieldInfo,
-              vectorIndexOffset,
-              vectorIndexLength,
-              size,
-              hnswGraph,
-              graphLevelNodeOffsets);
-        }
-      } catch (Throwable t) {
-        Utils.handleThrowable(t);
+      if (closeDataset) {
+        withOwnedDataset(dataset, () -> writeUnownedField(fieldInfo, dataset));
+      } else {
+        writeUnownedField(fieldInfo, dataset);
       }
     } finally {
       metrics.stop("graph-output wall [CPU+GPU+DISK]", graphOutputStart);
-      if (closeDataset) {
-        dataset.close();
-      }
     }
   }
 
-  private void recordEffectiveParams(CagraIndexParams params) {
+  static void withOwnedDataset(CuVSMatrix dataset, IOAction action) throws IOException {
+    try (dataset) {
+      action.run();
+    }
+  }
+
+  @FunctionalInterface
+  interface IOAction {
+    void run() throws IOException;
+  }
+
+  private void writeUnownedField(FieldInfo fieldInfo, CuVSMatrix dataset) throws IOException {
+    int size = (int) dataset.size();
+    if (size == 0) {
+      writeEmpty(fieldInfo, hnswMeta);
+      return;
+    }
+    if (size < 2) {
+      float[] buf = new float[fieldInfo.getVectorDimension()];
+      dataset.getRow(0).toArray(buf);
+      writeSingleVectorGraph(fieldInfo, List.of(buf));
+      return;
+    }
+    try {
+      CagraIndexParams params =
+          CagraIndexParamsFactory.create(acceleratedHNSWParams, dataset.size(), dataset.columns());
+      recordSelectedParams(params);
+      long stageStart = CagraHnswBuildMetrics.start();
+      try (CagraIndex cagraIndex =
+          CagraIndex.newBuilder(getCuVSResourcesInstance())
+              .withDataset(dataset)
+              .withIndexParams(params)
+              .build()) {
+        metrics.stop("base cagra-build [GPU]", stageStart);
+        stageStart = CagraHnswBuildMetrics.start();
+        CuVSMatrix adjacencyListMatrix = cagraIndex.getGraph();
+        metrics.stop("base graph-view [GPU]", stageStart);
+        long adjacencyBytes =
+            Math.multiplyExact(
+                Math.multiplyExact(adjacencyListMatrix.size(), adjacencyListMatrix.columns()),
+                Integer.BYTES);
+        metrics.setGauge("effective graph degree", adjacencyListMatrix.columns());
+        metrics.addCounter("actual cagra adjacency bytes", adjacencyBytes);
+        int dimensions = fieldInfo.getVectorDimension();
+        stageStart = CagraHnswBuildMetrics.start();
+        GPUBuiltHnswGraph hnswGraph =
+            createMultiLayerHnswGraph(
+                fieldInfo,
+                dimensions,
+                adjacencyListMatrix,
+                dataset,
+                acceleratedHNSWParams.getHnswLayers(),
+                params,
+                QuantizationType.NONE,
+                acceleratedHNSWParams.getWriterThreads(),
+                acceleratedHNSWParams.getHnswLayerSeed());
+        // Upper HNSW layers build additional CAGRA graphs inside this conversion stage.
+        metrics.stop("hnsw-convert [GPU+PCIe+CPU]", stageStart, adjacencyBytes);
+        long vectorIndexOffset = hnswVectorIndex.getFilePointer();
+        stageStart = CagraHnswBuildMetrics.start();
+        int[][] graphLevelNodeOffsets =
+            writeGraph(hnswGraph, hnswVectorIndex, acceleratedHNSWParams.getWriterThreads());
+        long vectorIndexLength = hnswVectorIndex.getFilePointer() - vectorIndexOffset;
+        metrics.stop("write-graph [CPU+DISK]", stageStart, vectorIndexLength);
+        writeMeta(
+            hnswVectorIndex,
+            hnswMeta,
+            fieldInfo,
+            vectorIndexOffset,
+            vectorIndexLength,
+            size,
+            hnswGraph,
+            graphLevelNodeOffsets);
+      }
+    } catch (Throwable t) {
+      Utils.handleThrowable(t);
+    }
+  }
+
+  private void recordSelectedParams(CagraIndexParams params) {
     metrics.addCounter(
-        "effective cagra algorithm/" + params.getCagraGraphBuildAlgo() + " segments", 1L);
-    metrics.setGauge("effective graph degree", params.getGraphDegree());
-    metrics.setGauge("effective intermediate graph degree", params.getIntermediateGraphDegree());
-    metrics.setGauge("effective writer threads", params.getNumWriterThreads());
-    metrics.setGauge("effective nn-descent iterations", params.getNNDescentNumIterations());
+        "selected cagra algorithm/" + params.getCagraGraphBuildAlgo() + " segments", 1L);
+    metrics.setGauge("selected graph degree", params.getGraphDegree());
+    metrics.setGauge("selected intermediate graph degree", params.getIntermediateGraphDegree());
+    metrics.setGauge("selected writer threads", params.getNumWriterThreads());
+    metrics.setGauge("selected nn-descent iterations", params.getNNDescentNumIterations());
     if (params.getCagraGraphBuildAlgo() == CagraIndexParams.CagraGraphBuildAlgo.IVF_PQ) {
       var ivf = params.getCuVSIvfPqParams();
-      metrics.setGauge("effective ivf-pq dimensions", ivf.getIndexParams().getPqDim());
-      metrics.setGauge("effective ivf-pq lists", ivf.getIndexParams().getnLists());
-      metrics.setGauge("effective ivf-pq probes", ivf.getSearchParams().getnProbes());
-      metrics.setGauge(
-          "effective ivf-pq kmeans iterations", ivf.getIndexParams().getKmeansNIters());
+      metrics.setGauge("selected ivf-pq dimensions", ivf.getIndexParams().getPqDim());
+      metrics.setGauge("selected ivf-pq lists", ivf.getIndexParams().getnLists());
+      metrics.setGauge("selected ivf-pq probes", ivf.getSearchParams().getnProbes());
+      metrics.setGauge("selected ivf-pq kmeans iterations", ivf.getIndexParams().getKmeansNIters());
     }
   }
 

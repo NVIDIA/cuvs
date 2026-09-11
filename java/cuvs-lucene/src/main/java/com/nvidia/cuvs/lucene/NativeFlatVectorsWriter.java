@@ -8,6 +8,7 @@ package com.nvidia.cuvs.lucene;
 import com.nvidia.cuvs.CuVSHostMatrix;
 import java.io.Closeable;
 import java.io.IOException;
+import java.io.InterruptedIOException;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.ByteOrder;
@@ -174,16 +175,37 @@ final class NativeFlatVectorsWriter implements Closeable {
   static void copyRawFloat32Vectors(
       MemorySegment source, long byteCount, DataOutput output, CagraHnswBuildMetrics metrics)
       throws IOException {
+    copyRawFloat32Vectors(source, byteCount, output, metrics, RAW_CHUNK_BYTES);
+  }
+
+  // The explicit chunk size makes cooperative cancellation deterministic in CPU-only tests.
+  static void copyRawFloat32Vectors(
+      MemorySegment source,
+      long byteCount,
+      DataOutput output,
+      CagraHnswBuildMetrics metrics,
+      int chunkBytes)
+      throws IOException {
     if (byteCount < 0L || byteCount > source.byteSize()) {
       throw new IllegalArgumentException("Invalid raw float32 byte count: " + byteCount);
     }
-    byte[] chunk = new byte[(int) Math.min(RAW_CHUNK_BYTES, Math.max(1L, byteCount))];
+    if (chunkBytes <= 0) {
+      throw new IllegalArgumentException("Raw float32 chunk size must be positive");
+    }
+    byte[] chunk = new byte[(int) Math.min(chunkBytes, Math.max(1L, byteCount))];
     MemorySegment chunkSegment = MemorySegment.ofArray(chunk);
     long offset = 0L;
     long stagingCopyNanos = 0L;
     long outputWriteNanos = 0L;
     long chunks = 0L;
     while (offset < byteCount) {
+      if (Thread.currentThread().isInterrupted()) {
+        throw new InterruptedIOException(
+            "Interrupted while copying mapped flat-vector data at byte "
+                + offset
+                + " of "
+                + byteCount);
+      }
       int length = (int) Math.min(chunk.length, byteCount - offset);
       long startedAt = CagraHnswBuildMetrics.start();
       MemorySegment.copy(source, offset, chunkSegment, 0L, length);

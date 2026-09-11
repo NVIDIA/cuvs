@@ -53,6 +53,21 @@ public class TestBulkExternalFbinApiSurface extends LuceneTestCase {
   }
 
   @Test
+  public void testBorrowedDatasetImplementationTypesAreNotPublicApi() {
+    assertFalse(isPublic(ExternalFloat32Dataset.class.getModifiers()));
+    assertFalse(isPublic(ImmutableExternalFbinDataset.class.getModifiers()));
+    assertFalse(isPublic(ExternalFbinReference.class.getModifiers()));
+    assertThrows(
+        NoSuchMethodException.class,
+        () ->
+            ExternalFbinFileRegistry.Registration.class.getMethod(
+                "reference", int.class, int.class));
+    assertThrows(
+        NoSuchMethodException.class,
+        () -> ExternalFbinFileRegistry.Registration.class.getMethod("map", int.class, int.class));
+  }
+
+  @Test
   public void testExternalOptionsValidateHeadStart() {
     assertThrows(
         IllegalArgumentException.class,

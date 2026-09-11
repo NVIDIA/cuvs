@@ -4,11 +4,11 @@
  */
 package com.nvidia.cuvs.lucene;
 
-import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.isSupported;
+import static com.nvidia.cuvs.lucene.CuVSTestSupport.enableRmmOrSkip;
+import static com.nvidia.cuvs.lucene.CuVSTestSupport.requireCuvsOrSkip;
 import static org.apache.lucene.index.VectorSimilarityFunction.MAXIMUM_INNER_PRODUCT;
 
 import com.nvidia.cuvs.CagraIndexParams.CuvsDistanceType;
-import com.nvidia.cuvs.spi.CuVSProvider;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
@@ -57,16 +57,12 @@ public class TestBulkFbinMultiSegmentStorage extends LuceneTestCase {
 
   @BeforeClass
   public static void beforeClass() {
-    try {
-      CuVSProvider.provider().enableRMMAsyncMemory();
-    } catch (UnsupportedOperationException unsupported) {
-      assumeTrue("cuVS not supported: " + unsupported.getMessage(), false);
-    }
+    enableRmmOrSkip();
   }
 
   @Before
   public void requireCuvs() {
-    assumeTrue("cuVS not supported", isSupported());
+    requireCuvsOrSkip();
   }
 
   @After
@@ -140,7 +136,36 @@ public class TestBulkFbinMultiSegmentStorage extends LuceneTestCase {
     assertEquals(1L, snapshot.get("stage/external fbin SHA-256 [DISK+CPU]/count").longValue());
     assertEquals(
         Files.size(fbin), snapshot.get("stage/external fbin SHA-256 [DISK+CPU]/bytes").longValue());
-    assertEquals(SEGMENTS, snapshot.get("stage/cagra-build [GPU]/count").longValue());
+    assertEquals(SEGMENTS, snapshot.get("stage/base cagra-build [GPU]/count").longValue());
+  }
+
+  @Test
+  public void testExternalIndexAndFbinCanRelocateAfterBuildLeaseCloses() throws Exception {
+    Path root = createTempDir("external-relocation");
+    float[][] vectors = createVectors();
+    Path originalFbin = writeFbin(root, vectors);
+    Path originalIndex = root.resolve("index-a");
+    String digest = sha256(originalFbin);
+
+    try (ExternalFbinFileRegistry.Registration registration =
+        ExternalFbinFileRegistry.register(originalFbin, digest)) {
+      CagraHnswBulkIndexWriter.indexImmutableFbin(
+          registration,
+          config(originalIndex, new CagraHnswBuildMetrics()),
+          ExternalFbinOptions.verifySha256(),
+          (document, id) -> document.add(new StoredField(CALLBACK_ID_FIELD, id)));
+    }
+
+    Path relocatedRoot = Files.createDirectory(root.resolve("relocated"));
+    Path relocatedFbin = Files.move(originalFbin, relocatedRoot.resolve("vectors.fbin"));
+    Path relocatedIndex = Files.move(originalIndex, relocatedRoot.resolve("index-b"));
+    assertFalse(Files.exists(originalFbin));
+    assertFalse(Files.exists(originalIndex));
+
+    try (ExternalFbinFileRegistry.Registration relocatedLease =
+        ExternalFbinFileRegistry.register(relocatedFbin, digest)) {
+      assertIndex(relocatedIndex, vectors);
+    }
   }
 
   @Test
@@ -173,7 +198,7 @@ public class TestBulkFbinMultiSegmentStorage extends LuceneTestCase {
     assertEquals(
         Files.size(fbin) - ExternalFbinReference.HEADER_BYTES,
         snapshot.get("stage/external fbin prefetch [DISK]/bytes").longValue());
-    assertEquals(SEGMENTS, snapshot.get("stage/cagra-build [GPU]/count").longValue());
+    assertEquals(SEGMENTS, snapshot.get("stage/base cagra-build [GPU]/count").longValue());
   }
 
   @Test

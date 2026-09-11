@@ -23,7 +23,7 @@ import java.util.Objects;
  * process must register an allowlisted local path for this content identity through {@link
  * ExternalFbinFileRegistry} before opening an index that references it.
  */
-public final class ExternalFbinReference {
+final class ExternalFbinReference {
 
   static final long HEADER_BYTES = 2L * Integer.BYTES;
   static final int SHA256_BYTES = 32;
@@ -79,8 +79,8 @@ public final class ExternalFbinReference {
    * <p>This method does not hash the file. {@code sha256Hex} must be a previously established digest
    * of the complete FBIN file.
    */
-  public static ExternalFbinReference fromFile(
-      Path path, String sha256Hex, int firstRow, int rowCount) throws IOException {
+  static ExternalFbinReference fromFile(Path path, String sha256Hex, int firstRow, int rowCount)
+      throws IOException {
     Objects.requireNonNull(path, "path");
     if (firstRow < 0 || rowCount <= 0) {
       throw new IllegalArgumentException("firstRow must be non-negative and rowCount positive");
@@ -187,39 +187,39 @@ public final class ExternalFbinReference {
     }
   }
 
-  public String contentId() {
+  String contentId() {
     return contentId(sha256);
   }
 
-  public String sha256Hex() {
+  String sha256Hex() {
     return HEX.formatHex(sha256);
   }
 
-  public byte[] sha256() {
+  byte[] sha256() {
     return sha256.clone();
   }
 
-  public long fileLength() {
+  long fileLength() {
     return fileLength;
   }
 
-  public long payloadOffset() {
+  long payloadOffset() {
     return payloadOffset;
   }
 
-  public long payloadLength() {
+  long payloadLength() {
     return payloadLength;
   }
 
-  public int rows() {
+  int rows() {
     return rows;
   }
 
-  public int dimensions() {
+  int dimensions() {
     return dimensions;
   }
 
-  public long firstRow() {
+  long firstRow() {
     return (payloadOffset - HEADER_BYTES) / ((long) dimensions * Float.BYTES);
   }
 

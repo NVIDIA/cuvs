@@ -4,6 +4,7 @@
  */
 package com.nvidia.cuvs.lucene;
 
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -13,6 +14,18 @@ import org.apache.lucene.tests.util.LuceneTestCase;
 import org.junit.Test;
 
 public class TestCagraHnswBuildMetricsConcurrency extends LuceneTestCase {
+
+  @Test
+  public void testAccumulatorReuseIsExplicitlyCumulative() {
+    CagraHnswBuildMetrics metrics = new CagraHnswBuildMetrics();
+    metrics.record("stage", 10L, 20L);
+    Map<String, Number> firstBuild = metrics.snapshot();
+    metrics.record("stage", 30L, 40L);
+
+    assertEquals(1L, firstBuild.get("stage/stage/count").longValue());
+    assertEquals(2L, metrics.snapshot().get("stage/stage/count").longValue());
+    assertEquals(60L, metrics.snapshot().get("stage/stage/bytes").longValue());
+  }
 
   @Test
   public void testGaugeAllowsRepeatedIdenticalValues() {
@@ -39,11 +52,11 @@ public class TestCagraHnswBuildMetricsConcurrency extends LuceneTestCase {
   public void testCounterRemainsAdditive() {
     CagraHnswBuildMetrics metrics = new CagraHnswBuildMetrics();
 
-    metrics.addCounter("logical cagra adjacency bytes", 4_096L);
-    metrics.addCounter("logical cagra adjacency bytes", 8_192L);
+    metrics.addCounter("actual cagra adjacency bytes", 4_096L);
+    metrics.addCounter("actual cagra adjacency bytes", 8_192L);
 
     assertEquals(
-        12_288L, metrics.snapshot().get("counter/logical cagra adjacency bytes").longValue());
+        12_288L, metrics.snapshot().get("counter/actual cagra adjacency bytes").longValue());
   }
 
   @Test

@@ -118,6 +118,14 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
     if (exactVectorCount <= 0) {
       throw new IllegalArgumentException("exactVectorCount must be > 0, got " + exactVectorCount);
     }
+    if (exactVectorCount > IndexWriter.MAX_DOCS) {
+      throw new IllegalArgumentException(
+          "exactVectorCount "
+              + exactVectorCount
+              + " exceeds Lucene's index-wide document limit "
+              + IndexWriter.MAX_DOCS
+              + "; reduce the input size");
+    }
     if (conf.getIndexSort() != null) {
       throw new IllegalArgumentException(
           "CagraHnswBulkIndexWriter does not support an index-sorted segment (native flat"
@@ -128,17 +136,24 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
     this.exactVectorCount = exactVectorCount;
 
     Codec codec = new Lucene101AcceleratedHNSWCodec(config.graphBuildParams(), bulkContext);
-    IndexWriterConfig ownedConf =
-        new IndexWriterConfig(conf.getAnalyzer())
-            .setSimilarity(conf.getSimilarity())
-            .setInfoStream(conf.getInfoStream())
-            .setCodec(codec)
-            .setUseCompoundFile(false)
-            .setMaxBufferedDocs(Math.max(2, exactVectorCount + 1))
-            .setRAMBufferSizeMB(IndexWriterConfig.DISABLE_AUTO_FLUSH)
-            .setMergePolicy(NoMergePolicy.INSTANCE)
-            .setOpenMode(conf.getOpenMode());
+    IndexWriterConfig ownedConf = ownedIndexWriterConfig(conf, codec, exactVectorCount);
     this.writer = new IndexWriter(directory, ownedConf);
+  }
+
+  static IndexWriterConfig ownedIndexWriterConfig(
+      IndexWriterConfig conf, Codec codec, int exactVectorCount) {
+    return new IndexWriterConfig(conf.getAnalyzer())
+        .setSimilarity(conf.getSimilarity())
+        .setInfoStream(conf.getInfoStream())
+        .setCodec(codec)
+        .setUseCompoundFile(false)
+        .setMaxBufferedDocs(Math.addExact(exactVectorCount, 1))
+        .setRAMBufferSizeMB(IndexWriterConfig.DISABLE_AUTO_FLUSH)
+        .setMergePolicy(NoMergePolicy.INSTANCE)
+        // close() below is the only publication point. If its explicit commit fails,
+        // IndexWriter.close() must not retry and publish a commit while reporting failure.
+        .setCommitOnClose(false)
+        .setOpenMode(conf.getOpenMode());
   }
 
   /**
@@ -304,6 +319,7 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
       throws Exception {
     Objects.requireNonNull(source, "source");
     Objects.requireNonNull(config, "config");
+    requireOneShotTarget(config);
     if (config.overlapped()) {
       throw new IllegalArgumentException(
           "Config.overlapped() is not supported by build(VectorSource, Config): a VectorSource is"
@@ -325,7 +341,9 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
   /**
    * Convenience entry point: builds an index directly from a {@code .fbin} file ({@code
    * [num_vectors int32][dim int32]} header, then contiguous little-endian float32 rows), using
-   * {@link FbinVectorSource} with {@link #DEFAULT_CHUNK_SIZE_MB}-sized prefetched chunks.
+   * {@link FbinVectorSource} with {@link #DEFAULT_CHUNK_SIZE_MB}-sized prefetched chunks. The
+   * caller must not mutate, replace, move, or delete the resolved source until this synchronous
+   * build returns.
    */
   public static void indexFbin(Path fbinPath, Config config) throws Exception {
     indexFbin(fbinPath, config, null, DEFAULT_CHUNK_SIZE_MB);
@@ -353,7 +371,9 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
       Path fbinPath, Config config, FieldCallback callback, int chunkSizeMB) throws Exception {
     Objects.requireNonNull(fbinPath, "fbinPath");
     Objects.requireNonNull(config, "config");
-    FbinFileMetadata metadata = FbinFileMetadata.read(fbinPath);
+    requireOneShotTarget(config);
+    Path sourcePath = resolveSourcePath(fbinPath, config);
+    FbinFileMetadata metadata = FbinFileMetadata.read(sourcePath);
     int total = metadata.rows();
     int dim = metadata.dimensions();
     if (dim != config.dimensions()) {
@@ -366,9 +386,23 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
     }
     List<int[]> slices = sliceEvenly(total, config.numSegments());
     if (config.overlapped() && slices.size() > 1) {
-      buildOverlapped(fbinPath, config, callback, chunkSizeMB, slices, dim);
+      buildPartitionedSegments(
+          config,
+          slices,
+          (segmentDirectory, firstRow, rowCount, gpuPermit) -> {
+            float[] scratch = new float[dim];
+            try (FbinVectorSource source =
+                    new FbinVectorSource(sourcePath, firstRow, rowCount, chunkSizeMB);
+                Directory directory = FSDirectory.open(segmentDirectory)) {
+              buildSegment(
+                  directory, source, scratch, config, callback, 0, firstRow, rowCount, true,
+                  gpuPermit);
+            }
+          },
+          null,
+          null);
     } else {
-      try (FbinVectorSource source = new FbinVectorSource(fbinPath, chunkSizeMB)) {
+      try (FbinVectorSource source = new FbinVectorSource(sourcePath, chunkSizeMB)) {
         buildSequential(source, config, callback, slices);
       }
     }
@@ -378,6 +412,8 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
    * Builds a normal, self-contained Lucene index while CAGRA and the flat-vector writer consume a
    * shared read-only mapping of {@code fbinPath}. This avoids decoding and copying every row during
    * document ingest while preserving a conventional {@code .vec} file in the finished index.
+   * The caller must not write, truncate, replace, move, or delete the resolved source file from
+   * method entry until this synchronous build returns.
    */
   public static void indexMappedFbin(Path fbinPath, Config config) throws Exception {
     indexMappedFbin(fbinPath, config, null);
@@ -388,16 +424,17 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
       throws Exception {
     Objects.requireNonNull(fbinPath, "fbinPath");
     Objects.requireNonNull(config, "config");
-    requireMappedBuildTarget(config);
+    requireOneShotTarget(config);
+    Path sourcePath = resolveSourcePath(fbinPath, config);
+    FbinFileMetadata metadata = FbinFileMetadata.read(sourcePath);
+    validateMappedShape(metadata.rows(), metadata.dimensions(), config);
+    List<int[]> slices = sliceEvenly(metadata.rows(), config.numSegments());
     if (config.numSegments() > 1) {
-      FbinFileMetadata metadata = FbinFileMetadata.read(fbinPath);
-      validateMappedShape(metadata.rows(), metadata.dimensions(), config);
-      List<int[]> slices = sliceEvenly(metadata.rows(), config.numSegments());
-      buildBorrowedSegments(
+      buildPartitionedSegments(
           config,
           slices,
           (segmentDirectory, firstRow, rowCount, gpuPermit) -> {
-            try (MappedFbinDataset mapped = MappedFbinDataset.map(fbinPath, firstRow, rowCount)) {
+            try (MappedFbinDataset mapped = MappedFbinDataset.map(sourcePath, firstRow, rowCount)) {
               buildBorrowedSegment(
                   segmentDirectory,
                   config,
@@ -411,7 +448,7 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
           null);
       return;
     }
-    try (MappedFbinDataset mapped = MappedFbinDataset.map(fbinPath)) {
+    try (MappedFbinDataset mapped = MappedFbinDataset.map(sourcePath)) {
       validateMappedShape(mapped.rows(), mapped.dimensions(), config);
       buildBorrowedSegment(
           config.targetDirectory(),
@@ -423,8 +460,9 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
 
   /**
    * Builds a non-self-contained Lucene index whose exact-vector scoring reads from the immutable
-   * FBIN represented by {@code source}. The caller must retain {@code source} through every reader
-   * lifetime and replicate the referenced FBIN together with the Lucene directory.
+   * FBIN represented by {@code source}. The supplied lease must remain open for this build. It may
+   * then be closed, but at least one registration for the same content ID must span every reader
+   * lifetime. Deployments must replicate the referenced FBIN together with the Lucene directory.
    */
   public static void indexImmutableFbin(
       ExternalFbinFileRegistry.Registration source, Config config, ExternalFbinOptions options)
@@ -443,16 +481,17 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
     Objects.requireNonNull(source, "source");
     Objects.requireNonNull(config, "config");
     Objects.requireNonNull(options, "options");
-    requireMappedBuildTarget(config);
-    FbinFileMetadata metadata = FbinFileMetadata.read(source.path());
+    requireOneShotTarget(config);
+    Path sourcePath = resolveSourcePath(source.path(), config);
+    FbinFileMetadata metadata = FbinFileMetadata.read(sourcePath);
     int rows = metadata.rows();
     int dimensions = metadata.dimensions();
     validateMappedShape(rows, dimensions, config);
+    List<int[]> slices = sliceEvenly(rows, config.numSegments());
     if (config.numSegments() > 1) {
-      List<int[]> slices = sliceEvenly(rows, config.numSegments());
       ExternalFbinOptions trustedOptions =
           new ExternalFbinOptions(ExternalFbinBuildValidation.TRUSTED_IMMUTABLE, 0L);
-      buildBorrowedSegments(
+      buildPartitionedSegments(
           config,
           slices,
           (segmentDirectory, firstRow, rowCount, gpuPermit) -> {
@@ -479,10 +518,24 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
     }
   }
 
-  private static void requireMappedBuildTarget(Config config) {
+  private static void requireOneShotTarget(Config config) {
     if (config.targetDirectory() == null) {
       throw new IllegalArgumentException("targetDirectory is required for a one-shot bulk build");
     }
+  }
+
+  private static Path resolveSourcePath(Path source, Config config) throws IOException {
+    Path realSource = source.toRealPath();
+    Path target = config.targetDirectory();
+    boolean samePath = realSource.equals(target);
+    if (!samePath && Files.exists(target)) {
+      samePath = Files.isSameFile(realSource, target);
+    }
+    if (samePath) {
+      throw new IllegalArgumentException(
+          "Bulk index target directory must not be the source FBIN: " + realSource);
+    }
+    return realSource;
   }
 
   private static void validateMappedShape(int rows, int dimensions, Config config) {
@@ -589,7 +642,7 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
         throws Exception;
   }
 
-  private static void buildBorrowedSegments(
+  private static void buildPartitionedSegments(
       Config config,
       List<int[]> slices,
       BorrowedSegmentBuilder segmentBuilder,
@@ -609,7 +662,7 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
     try {
       if (validationReference == null
           || validationOptions.validation() == ExternalFbinBuildValidation.TRUSTED_IMMUTABLE) {
-        executeBorrowedSegmentBuilds(config, slices, segmentDirectories, segmentBuilder);
+        executeSegmentBuilds(config, slices, segmentDirectories, segmentBuilder);
       } else {
         long overlapStartedAt = CagraHnswBuildMetrics.start();
         try {
@@ -620,8 +673,7 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
                   validationOptions.scanHeadStartBytes(),
                   config.metrics());
           coordinator.runAfterHeadStart(
-              () ->
-                  executeBorrowedSegmentBuilds(config, slices, segmentDirectories, segmentBuilder));
+              () -> executeSegmentBuilds(config, slices, segmentDirectories, segmentBuilder));
         } finally {
           config.metrics().stop("external reference overlap wall [GPU+DISK]", overlapStartedAt);
         }
@@ -638,7 +690,7 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
     }
   }
 
-  private static void executeBorrowedSegmentBuilds(
+  private static void executeSegmentBuilds(
       Config config,
       List<int[]> slices,
       List<Path> segmentDirectories,
@@ -713,71 +765,6 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
         int[] slice = slices.get(p);
         buildSegment(
             dir, source, scratch, config, callback, slice[0], slice[0], slice[1], p == 0, null);
-      }
-    }
-  }
-
-  /**
-   * Overlapped partitioned build: a bounded pool builds up to {@code config.pipelineDepth()}
-   * segments at once, each with its OWN {@link FbinVectorSource} over just its slice, so a
-   * segment's ingest overlaps a prior segment's GPU commit. The GPU build itself is serialized on
-   * a single permit. The finished per-segment indexes are combined into {@code
-   * config.targetDirectory()} by hardlinking their files (no bulk copy of the vector data).
-   */
-  private static void buildOverlapped(
-      Path fbinPath,
-      Config config,
-      FieldCallback callback,
-      int chunkSizeMB,
-      List<int[]> slices,
-      int dim)
-      throws Exception {
-    Path targetDir = config.targetDirectory();
-    int depth = Math.min(slices.size(), config.pipelineDepth());
-    List<Path> segDirs = new ArrayList<>();
-    for (int p = 0; p < slices.size(); p++) {
-      segDirs.add(targetDir.resolveSibling(targetDir.getFileName() + "_p" + p));
-    }
-    for (Path segDir : segDirs) {
-      deleteRecursivelyQuietly(segDir);
-    }
-    try {
-      Semaphore gpuPermit = new Semaphore(1); // serialize the GPU CAGRA build across segments
-      ExecutorService pool = Executors.newFixedThreadPool(depth);
-      List<Future<?>> futures = new ArrayList<>();
-      for (int p = 0; p < slices.size(); p++) {
-        int[] slice = slices.get(p);
-        Path segDir = segDirs.get(p);
-        futures.add(
-            pool.submit(
-                () -> {
-                  float[] scratch = new float[dim];
-                  try (FbinVectorSource source =
-                          new FbinVectorSource(fbinPath, slice[0], slice[1], chunkSizeMB);
-                      Directory d = FSDirectory.open(segDir)) {
-                    // createNew=true: each segment is a fresh single-segment index in its own
-                    // dir; sourceStart=0 since this source is already windowed to the slice.
-                    buildSegment(
-                        d, source, scratch, config, callback, 0, slice[0], slice[1], true,
-                        gpuPermit);
-                  }
-                  return null;
-                }));
-      }
-      pool.shutdown();
-      try {
-        for (Future<?> f : futures) {
-          f.get(); // propagate any build failure
-        }
-      } catch (Exception e) {
-        throw new IOException("Overlapped bulk index build failed", e);
-      } finally {
-        pool.shutdownNow();
-      }
-      combineByHardlink(targetDir, segDirs);
-    } finally {
-      for (Path segDir : segDirs) {
-        deleteRecursivelyQuietly(segDir);
       }
     }
   }
@@ -886,16 +873,31 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
   }
 
   /** Splits {@code total} into {@code k} contiguous [start, size] slices, spreading the remainder. */
-  private static List<int[]> sliceEvenly(int total, int k) {
-    List<int[]> slices = new ArrayList<>();
+  static List<int[]> sliceEvenly(int total, int k) {
+    if (total <= 0) {
+      throw new IllegalArgumentException("Bulk vector count must be > 0, got " + total);
+    }
+    if (total > IndexWriter.MAX_DOCS) {
+      throw new IllegalArgumentException(
+          "Bulk vector count "
+              + total
+              + " exceeds Lucene's index-wide document limit "
+              + IndexWriter.MAX_DOCS
+              + "; reduce the input size");
+    }
+    if (k <= 0) {
+      throw new IllegalArgumentException("numSegments must be > 0, got " + k);
+    }
+    if (k > total) {
+      throw new IllegalArgumentException(
+          "numSegments " + k + " exceeds bulk vector count " + total);
+    }
+    List<int[]> slices = new ArrayList<>(k);
     int base = total / k;
     int rem = total % k;
     int start = 0;
     for (int p = 0; p < k; p++) {
       int size = base + (p < rem ? 1 : 0); // spread the remainder over the first slices
-      if (size <= 0) {
-        continue;
-      }
       slices.add(new int[] {start, size});
       start += size;
     }
@@ -921,7 +923,10 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
     }
   }
 
-  /** Immutable configuration for {@link CagraHnswBulkIndexWriter}. */
+  /**
+   * Configuration for {@link CagraHnswBulkIndexWriter}. Scalar settings are immutable; the
+   * referenced {@link CagraHnswBuildMetrics} is a caller-owned cumulative accumulator.
+   */
   public static final class Config {
     private final String fieldName;
     private final int dimensions;
@@ -967,7 +972,10 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
       return graphBuildParams;
     }
 
-    /** Only consulted by the one-shot build methods. */
+    /**
+     * Absolute normalized path exclusively owned and recreated by the one-shot build methods; not
+     * consulted by the direct single-segment constructor.
+     */
     public Path targetDirectory() {
       return targetDirectory;
     }
@@ -987,7 +995,10 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
       return pipelineDepth;
     }
 
-    /** Per-build metrics accumulator shared by all segments in this configuration. */
+    /**
+     * Cumulative metrics accumulator shared by all segments and every invocation that reuses this
+     * configuration. Use a fresh configuration or accumulator for per-build measurements.
+     */
     public CagraHnswBuildMetrics metrics() {
       return metrics;
     }
@@ -1034,20 +1045,26 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
         return this;
       }
 
-      /** Sets the directory the final index is written to; required for {@link #indexFbin}/{@link #build}. */
+      /**
+       * Sets the exclusively owned directory that a one-shot method recreates as the final index.
+       * The stored path is absolute and normalized. This is path normalization, not a cross-process
+       * ownership lock; callers must prevent concurrent use of the same target.
+       */
       public Builder targetDirectory(Path targetDirectory) {
-        this.targetDirectory = Objects.requireNonNull(targetDirectory, "targetDirectory");
+        this.targetDirectory =
+            Objects.requireNonNull(targetDirectory, "targetDirectory").toAbsolutePath().normalize();
         return this;
       }
 
       /**
        * Splits the build into {@code numSegments} contiguous slices, each a single native-flat
-       * segment. Peak host memory scales as {@code 1/numSegments}; the GPU build itself is always
-       * serialized across slices regardless of this setting. Default 1 (single segment).
+       * segment. The requested count is exact and must not exceed the source row count. Peak host
+       * memory scales as {@code 1/numSegments}; the GPU build itself is always serialized across
+       * slices regardless of this setting. Default 1 (single segment).
        *
        * @param overlapped when {@code numSegments > 1}, builds up to {@link #pipelineDepth} slices
-       *     concurrently instead of strictly sequentially. Supported by the FBIN entry points and
-       *     ignored by {@link #build(VectorSource, Config)}, whose caller-owned source is
+       *     concurrently instead of strictly sequentially. Supported by the FBIN entry points;
+       *     {@link #build(VectorSource, Config)} rejects overlap because its caller-owned source is
        *     single-consumer.
        */
       public Builder segments(int numSegments, boolean overlapped) {
@@ -1068,7 +1085,10 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
         return this;
       }
 
-      /** Supplies a caller-owned metrics accumulator for this build. */
+      /**
+       * Supplies a caller-owned cumulative metrics accumulator. Reusing the resulting
+       * configuration aggregates subsequent invocations into the same accumulator.
+       */
       public Builder metrics(CagraHnswBuildMetrics metrics) {
         this.metrics = Objects.requireNonNull(metrics, "metrics");
         return this;

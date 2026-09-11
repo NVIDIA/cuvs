@@ -13,12 +13,13 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * Process-local allowlist that resolves content-addressed external FBIN references.
+ * JVM/classloader-local allowlist that resolves content-addressed external FBIN references.
  *
  * <p>Lucene recreates codecs through no-argument SPI constructors, so writer-time configuration is
- * not available when a process later opens an index. Every indexing or search process must register
- * the immutable local file for each referenced content ID before opening the index. Registrations
- * are reference counted and should remain alive for at least the complete reader lifetime.
+ * not available when a process later opens an index. Every indexing or search application must
+ * register the immutable local file for each referenced content ID through the same defining
+ * cuvs-lucene classloader before opening the index. Registrations are reference counted; at least
+ * one matching registration must remain alive for every dependent reader's complete lifetime.
  *
  * <p>Registration validates the path and content-ID syntax but deliberately does not hash the file.
  * Use {@link ExternalFbinBuildValidation#VERIFY_SHA256} while building, or run Lucene integrity
@@ -31,7 +32,10 @@ public final class ExternalFbinFileRegistry {
 
   private ExternalFbinFileRegistry() {}
 
-  /** Registers an allowlisted local file for a complete-file SHA-256 content identity. */
+  /**
+   * Registers an allowlisted local file for a complete-file SHA-256 content identity. The path is
+   * resolved once to its absolute real path, which is returned by {@link Registration#path()}.
+   */
   public static Registration register(Path path, String sha256Hex) throws IOException {
     Objects.requireNonNull(path, "path");
     byte[] digest = ExternalFbinReference.parseSha256(sha256Hex);
@@ -65,9 +69,9 @@ public final class ExternalFbinFileRegistry {
       Entry entry = ENTRIES.get(reference.contentId());
       if (entry == null) {
         throw new IOException(
-            "No allowlisted external FBIN is registered for "
+            "No allowlisted external FBIN is registered in this cuvs-lucene classloader for "
                 + reference.contentId()
-                + ". Register it with ExternalFbinFileRegistry before opening the index.");
+                + ". Register it through the same defining classloader before opening the index.");
       }
       return entry.path;
     }
@@ -89,7 +93,11 @@ public final class ExternalFbinFileRegistry {
     }
   }
 
-  /** A scoped registry lease. Closing the final lease removes the path from the allowlist. */
+  /**
+   * A scoped registry lease. Closing the final lease removes the path from this classloader's
+   * allowlist. The registry does not own the file, and every reader that depends on its content ID
+   * must be closed before the final matching lease is closed.
+   */
   public static final class Registration implements Closeable {
 
     private final Path path;
@@ -102,8 +110,7 @@ public final class ExternalFbinFileRegistry {
     }
 
     /** Creates a path-independent reference to a contiguous row range in the registered FBIN. */
-    public synchronized ExternalFbinReference reference(int firstRow, int rowCount)
-        throws IOException {
+    synchronized ExternalFbinReference reference(int firstRow, int rowCount) throws IOException {
       ensureOpen();
       return ExternalFbinReference.fromFile(path, contentId, firstRow, rowCount);
     }
@@ -111,8 +118,7 @@ public final class ExternalFbinFileRegistry {
     /**
      * Maps a registered row range and couples its native build dataset to the persisted reference.
      */
-    public synchronized ImmutableExternalFbinDataset map(int firstRow, int rowCount)
-        throws IOException {
+    synchronized ImmutableExternalFbinDataset map(int firstRow, int rowCount) throws IOException {
       ensureOpen();
       return ImmutableExternalFbinDataset.map(
           ExternalFbinReference.fromFile(path, contentId, firstRow, rowCount));
@@ -128,6 +134,7 @@ public final class ExternalFbinFileRegistry {
       return contentId;
     }
 
+    /** Returns the absolute real path captured when this registration was created. */
     public Path path() {
       return path;
     }

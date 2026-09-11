@@ -7,7 +7,6 @@ package com.nvidia.cuvs.lucene;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-import java.nio.file.Path;
 import org.apache.lucene.codecs.CodecUtil;
 import org.apache.lucene.codecs.hnsw.DefaultFlatVectorScorer;
 import org.apache.lucene.codecs.hnsw.FlatVectorsReader;
@@ -21,7 +20,6 @@ import org.apache.lucene.index.SegmentReadState;
 import org.apache.lucene.index.VectorEncoding;
 import org.apache.lucene.index.VectorSimilarityFunction;
 import org.apache.lucene.store.ChecksumIndexInput;
-import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.IOContext;
 import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.store.MMapDirectory;
@@ -38,8 +36,7 @@ final class ExternalFbinFlatVectorsReader extends FlatVectorsReader {
 
   private final FieldInfo fieldInfo;
   private final ExternalFbinReference reference;
-  private final Directory externalDirectory;
-  private final IndexInput sourceInput;
+  private final ExternalFbinMappedInputCache.Lease sourceLease;
   private final IndexInput payloadInput;
 
   ExternalFbinFlatVectorsReader(SegmentReadState state) throws IOException {
@@ -52,19 +49,15 @@ final class ExternalFbinFlatVectorsReader extends FlatVectorsReader {
     fieldInfo = descriptor.fieldInfo();
     reference = descriptor.reference();
 
-    Path sourcePath = ExternalFbinIO.validateAndResolve(reference);
-    Directory newDirectory = null;
-    IndexInput newSource = null;
+    var sourcePath = ExternalFbinIO.validateAndResolve(reference);
+    ExternalFbinMappedInputCache.Lease newSourceLease = null;
     IndexInput newPayload = null;
     boolean success = false;
     try {
-      Path parent = sourcePath.getParent();
-      if (parent == null) {
-        throw new IOException("External FBIN path has no parent directory: " + sourcePath);
-      }
-      newDirectory = new MMapDirectory(parent, maxMmapChunkSize);
       IOContext context = state.context.withReadAdvice(ReadAdvice.RANDOM);
-      newSource = newDirectory.openInput(sourcePath.getFileName().toString(), context);
+      newSourceLease =
+          ExternalFbinMappedInputCache.acquire(sourcePath, reference, maxMmapChunkSize, context);
+      IndexInput newSource = newSourceLease.sourceInput();
       validateOpenedSource(newSource, reference);
       newPayload =
           newSource.slice(
@@ -75,11 +68,10 @@ final class ExternalFbinFlatVectorsReader extends FlatVectorsReader {
       success = true;
     } finally {
       if (!success) {
-        IOUtils.closeWhileHandlingException(newPayload, newSource, newDirectory);
+        IOUtils.closeWhileHandlingException(newPayload, newSourceLease);
       }
     }
-    externalDirectory = newDirectory;
-    sourceInput = newSource;
+    sourceLease = newSourceLease;
     payloadInput = newPayload;
   }
 
@@ -276,6 +268,7 @@ final class ExternalFbinFlatVectorsReader extends FlatVectorsReader {
 
   @Override
   public void checkIntegrity() throws IOException {
+    IndexInput sourceInput = sourceLease.sourceInput();
     IndexInput clone = sourceInput.clone();
     // Lucene IndexInput clones are non-owning. Multi-chunk MemorySegmentIndexInput clones share
     // the owner's segment array, so closing a clone would invalidate the live reader.
@@ -305,7 +298,7 @@ final class ExternalFbinFlatVectorsReader extends FlatVectorsReader {
 
   @Override
   public void close() throws IOException {
-    IOUtils.close(payloadInput, sourceInput, externalDirectory);
+    IOUtils.close(payloadInput, sourceLease);
   }
 
   private record Descriptor(FieldInfo fieldInfo, ExternalFbinReference reference) {}

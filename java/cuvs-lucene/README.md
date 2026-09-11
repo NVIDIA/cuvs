@@ -17,7 +17,12 @@ This is a project for using [cuVS](https://github.com/rapidsai/cuvs), NVIDIA's G
 
 Four codecs are currently provided:
 
-- `Lucene101AcceleratedHNSWCodec` — GPU-accelerated HNSW build with CPU HNSW search. The on-disk format is standard Lucene HNSW, so indexes built on the GPU can be read by any stock Lucene 10.x reader.
+- `Lucene101AcceleratedHNSWCodec` — GPU-accelerated HNSW build with CPU HNSW search.
+  Self-contained builds write standard Lucene HNSW and flat-vector data, so their indexes can be
+  read by a stock Lucene 10.x reader. Indexes built with the opt-in [immutable external-FBIN bulk
+  mode](#ownership-and-sharing) are not self-contained or readable by stock Lucene alone; they
+  require cuvs-lucene and a live registration lease for the exact FBIN throughout every reader
+  lifetime.
   - `LuceneAcceleratedHNSWScalarQuantizedCodec` — scalar-quantized vectors for a smaller index footprint.
   - `LuceneAcceleratedHNSWBinaryQuantizedCodec` — binary-quantized vectors for an even smaller index footprint.
 - `CuVS2510GPUSearchCodec` — GPU-accelerated HNSW build and GPU search
@@ -161,9 +166,11 @@ The streaming/native-buffered mode has three entry shapes:
 
 Both mapped modes support one or more contiguous, independently built segments. With overlap
 disabled, slices are built sequentially; with overlap enabled, host-side preparation can run in a
-bounded pipeline while GPU commits remain serialized. The slices are published together without a
-Lucene vector merge. They require exactly one dense `FLOAT32` vector field, one vector per document,
-and preserve each source row's absolute ID across segment-local document ordinals.
+bounded pipeline while each per-segment commit/close region (including its GPU work) remains
+serialized. The slices are published together without a Lucene vector merge. They require exactly
+one dense `FLOAT32` vector field, one vector per document, and preserve each source row's absolute
+ID across segment-local document ordinals. The configured segment count is exact and cannot exceed
+the source row count.
 
 ### Ownership and sharing
 
@@ -174,6 +181,14 @@ segment is rolled back. Multi-segment mapped builds use temporary per-slice inde
 publish the final target until every slice succeeds. Streaming sequential builds append directly,
 so they can already have committed earlier segments when a later segment fails; callers must treat
 and replace that target as a failed build.
+
+Every one-shot build exclusively owns and recreates its configured target as the final Lucene index
+directory. The target is stored as an absolute normalized path, and each file-backed source is
+resolved once to its absolute real path before work begins. These path rules do not provide a
+cross-process lock: the application must prevent concurrent use of the target. A mapped source must
+remain unchanged at that resolved identity for the whole synchronous build—do not write, truncate,
+replace, move, or delete it until the method returns. The read-only mapping prevents writes through
+this API but cannot stop another process from mutating the file.
 
 The generic, streaming, and mapped self-contained results can be moved by copying the Lucene index
 directory. The immutable external-FBIN result must be shipped as two artifacts: the Lucene index
@@ -190,13 +205,75 @@ try (ExternalFbinFileRegistry.Registration lease =
 }
 ```
 
-Registrations are process-local and reference counted. Keep at least one lease open for the entire
-lifetime of every reader using that content ID. Do not modify, replace, relocate, or delete the
-registered FBIN while a build or reader is alive. An index directory copied without its FBIN, or a
-process that has not registered the local FBIN, cannot be opened. Registering a different path for
-the same content ID while an existing registration is live is rejected. External-FBIN indexes also
-require a cuvs-lucene runtime that understands their external-vector descriptor; they are not
-readable by a stock Lucene runtime alone.
+Registrations are local to the defining cuvs-lucene classloader (normally the application
+classloader) and reference counted. Keep at least one lease open for the entire lifetime of every
+reader using that content ID; it need not be the same lease used for the build. Do not modify,
+replace, relocate, or delete the registered FBIN while a build or reader is alive. An index
+directory copied without its FBIN, or an application/classloader that has not registered the local
+FBIN, cannot be opened. Registering a different path for the same content ID while an existing
+registration is live is rejected. External-FBIN indexes also require a cuvs-lucene runtime that
+understands their external-vector descriptor; they are not readable by a stock Lucene runtime
+alone.
+
+### Build and deploy examples
+
+A mapped build is self-contained after the synchronous call succeeds, so its source may then be
+removed. The source must remain immutable until that point:
+
+```java
+Path sourceFbin = Path.of("vectors.fbin");
+Path indexPath = Path.of("index-mapped");
+AcceleratedHNSWParams graph = new AcceleratedHNSWParams.Builder().build();
+CagraHnswBulkIndexWriter.Config mapped =
+    CagraHnswBulkIndexWriter.Config.builder()
+        .field("vector", 768, VectorSimilarityFunction.EUCLIDEAN)
+        .graphBuild(graph)
+        .targetDirectory(indexPath)
+        .segments(1, false)
+        .build();
+
+CagraHnswBulkIndexWriter.indexMappedFbin(sourceFbin, mapped);
+Files.delete(sourceFbin); // safe only after a successful return
+try (Directory directory = FSDirectory.open(indexPath);
+    DirectoryReader reader = DirectoryReader.open(directory)) {
+  // Search the self-contained index.
+}
+```
+
+An external build and every later reader need a live registration, but they may use different
+leases and local paths. Deploy or relocate both artifacts only after all current readers and leases
+are closed:
+
+```java
+Path buildFbin = Path.of("vectors.fbin");
+Path buildIndex = Path.of("index-external");
+String sha256Hex = establishedCompleteFileSha256;
+CagraHnswBulkIndexWriter.Config external =
+    CagraHnswBulkIndexWriter.Config.builder()
+        .field("vector", 768, VectorSimilarityFunction.EUCLIDEAN)
+        .graphBuild(new AcceleratedHNSWParams.Builder().build())
+        .targetDirectory(buildIndex)
+        .segments(4, true)
+        .build();
+
+try (ExternalFbinFileRegistry.Registration buildLease =
+    ExternalFbinFileRegistry.register(buildFbin, sha256Hex)) {
+  CagraHnswBulkIndexWriter.indexImmutableFbin(
+      buildLease,
+      external,
+      new ExternalFbinOptions(ExternalFbinBuildValidation.VERIFY_SHA256, 0L));
+}
+
+// Copy/move buildIndex and buildFbin together after closing their users.
+Path deployedIndex = Path.of("/srv/search/index");
+Path deployedFbin = Path.of("/srv/search/data/vectors.fbin");
+try (ExternalFbinFileRegistry.Registration readerLease =
+        ExternalFbinFileRegistry.register(deployedFbin, sha256Hex);
+    Directory directory = FSDirectory.open(deployedIndex);
+    DirectoryReader reader = DirectoryReader.open(directory)) {
+  // Search, and optionally call reader.leaves().getFirst().reader().checkIntegrity().
+}
+```
 
 ### Validation
 
@@ -235,22 +312,26 @@ this cost does not occur during normal reader opening or search.
 
 ### Metrics
 
-Supply one `CagraHnswBuildMetrics` per build through `Config.Builder.metrics`. After the build,
-`snapshot()` returns a stable `Map<String, Number>`, and `appendTo(target, prefix)` adds that
-snapshot to a benchmark result map.
+`CagraHnswBuildMetrics` is a caller-owned, thread-safe cumulative accumulator. Supply a fresh
+instance through `Config.Builder.metrics` for each logical build when per-build measurements are
+required. Reusing either the accumulator or its `Config`, including for a retry, intentionally
+aggregates later measurements into the same snapshot. `snapshot()` returns a stable
+`Map<String, Number>`, and `appendTo(target, prefix)` adds that snapshot to a benchmark result map.
 
 Metric keys use three namespaces:
 
 - `stage/<name>/seconds`, `stage/<name>/count`, and optional `stage/<name>/bytes` report aggregated
   graph build, graph conversion and output, mapped flat output, external scan/overlap, and bulk
-  writer commit/close stages. The commit wall includes the flush and its nested GPU/output work;
-  nested stage durations must not be added to it.
-- `counter/<name>` reports values such as logical adjacency bytes, mapped flat chunks, the number
-  of segments using each effective CAGRA algorithm, and external scan progress at CAGRA start and
-  end.
-- `gauge/<name>` records effective graph-build parameters, including graph degrees, writer threads,
-  NN-descent iterations, and IVF-PQ dimensions, lists, probes, and k-means iterations when used. If
-  independent segments resolve different heuristic values, the scalar key is replaced by explicit
+  writer commit/close stages. `base cagra-build [GPU]` covers only the base graph; upper-layer
+  CAGRA builds are included in `hnsw-convert [GPU+PCIe+CPU]`. The commit wall includes the flush
+  and its nested GPU/output work, so nested stage durations must not be added to it.
+- `counter/<name>` reports values such as actual base-graph adjacency bytes, mapped flat chunks,
+  the number of segments using each selected CAGRA algorithm, and external scan progress at CAGRA
+  start and end.
+- `gauge/<name>` records selected graph-build inputs, including graph degrees, writer threads,
+  NN-descent iterations, and IVF-PQ dimensions, lists, probes, and k-means iterations when used.
+  The separately reported `effective graph degree` comes from the returned base graph itself. If
+  independent segments record different values, the scalar key is replaced by explicit
   `gauge/<name>/min` and `gauge/<name>/max` keys.
 
 ### Why these controls are bulk-only

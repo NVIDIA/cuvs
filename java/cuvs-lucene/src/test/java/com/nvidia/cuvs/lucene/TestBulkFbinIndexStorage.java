@@ -4,11 +4,11 @@
  */
 package com.nvidia.cuvs.lucene;
 
-import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.isSupported;
+import static com.nvidia.cuvs.lucene.CuVSTestSupport.enableRmmOrSkip;
+import static com.nvidia.cuvs.lucene.CuVSTestSupport.requireCuvsOrSkip;
 import static org.apache.lucene.index.VectorSimilarityFunction.MAXIMUM_INNER_PRODUCT;
 
 import com.nvidia.cuvs.CagraIndexParams.CuvsDistanceType;
-import com.nvidia.cuvs.spi.CuVSProvider;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
@@ -46,16 +46,12 @@ public class TestBulkFbinIndexStorage extends LuceneTestCase {
 
   @BeforeClass
   public static void beforeClass() {
-    try {
-      CuVSProvider.provider().enableRMMAsyncMemory();
-    } catch (UnsupportedOperationException unsupported) {
-      assumeTrue("cuVS not supported: " + unsupported.getMessage(), false);
-    }
+    enableRmmOrSkip();
   }
 
   @Before
   public void requireCuvs() {
-    assumeTrue("cuVS not supported", isSupported());
+    requireCuvsOrSkip();
   }
 
   @After
