@@ -155,7 +155,8 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends KnnVector
       int dimensions = fieldInfo.getVectorDimension();
       int bytesPerVector = (dimensions + 7) / 8;
 
-      CuVSMatrix dataset = Utils.createByteMatrix(vectors, bytesPerVector);
+      CuVSMatrix dataset =
+          Utils.createByteMatrix(vectors, bytesPerVector, getCuVSResourcesInstance());
 
       if (dataset.size() < 2) {
         writeSingleVectorGraph(fieldInfo, vectors);
@@ -178,18 +179,17 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends KnnVector
       GPUBuiltHnswGraph hnswGraph =
           createMultiLayerHnswGraph(
               fieldInfo,
+              size,
               dimensions,
               adjacencyListMatrix,
-              dataset,
+              vectors,
               acceleratedHNSWParams.getHnswLayers(),
               params,
-              QuantizationType.BINARY,
-              acceleratedHNSWParams.getWriterThreads());
+              QuantizationType.BINARY);
 
       long vectorIndexOffset = hnswVectorIndex.getFilePointer();
       // Write the graph to the vector index
-      int[][] graphLevelNodeOffsets =
-          writeGraph(hnswGraph, hnswVectorIndex, acceleratedHNSWParams.getWriterThreads());
+      int[][] graphLevelNodeOffsets = writeGraph(hnswGraph, hnswVectorIndex);
       long vectorIndexLength = hnswVectorIndex.getFilePointer() - vectorIndexOffset;
 
       // Write metadata
@@ -277,8 +277,7 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends KnnVector
       long vectorIndexOffset = hnswVectorIndex.getFilePointer();
 
       // Write the graph to the vector index
-      int[][] graphLevelNodeOffsets =
-          writeGraph(hnswGraph, hnswVectorIndex, acceleratedHNSWParams.getWriterThreads());
+      int[][] graphLevelNodeOffsets = writeGraph(hnswGraph, hnswVectorIndex);
 
       long vectorIndexLength = hnswVectorIndex.getFilePointer() - vectorIndexOffset;
 
