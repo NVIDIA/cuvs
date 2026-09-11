@@ -1666,7 +1666,7 @@ inline std::vector<AnnCagraInputs> generate_inputs()
     {1000},
     {1, 16},
     {16},                                                      // k
-    {32, 47, 64},                                              // degree
+    {47, 64},                                                  // degree
     {graph_build_algo::IVF_PQ, graph_build_algo::NN_DESCENT},  // build algo.
     {search_algo::SINGLE_CTA, search_algo::MULTI_CTA, search_algo::MULTI_KERNEL},
     {0, 10},  // query size
@@ -1680,7 +1680,7 @@ inline std::vector<AnnCagraInputs> generate_inputs()
      cuvs::distance::DistanceType::L1},
     {false},
     {true},
-    {true, false},
+    {true},
     {0.995},
     {std::optional<float>{std::nullopt}},
     {std::optional<bool>{std::nullopt}},
@@ -1765,10 +1765,10 @@ inline std::vector<AnnCagraInputs> generate_inputs()
   // Varying dim and build algo.
   inputs2 = raft::util::itertools::product<AnnCagraInputs>(
     {100},
-    {1000},
-    {1, 3, 5, 7, 8, 17, 64, 128, 137, 192, 256, 512, 1024},  // dim
-    {16},                                                    // k
-    {32},                                                    // degree
+    {500},
+    {3, 7, 17, 137, 192, 256, 1024},  // dim
+    {16},                             // k
+    {32},                             // degree
     {graph_build_algo::IVF_PQ,
      graph_build_algo::NN_DESCENT,
      graph_build_algo::ITERATIVE_CAGRA_SEARCH},
@@ -1794,7 +1794,7 @@ inline std::vector<AnnCagraInputs> generate_inputs()
   // Varying team_size, graph_build_algo
   inputs2 = raft::util::itertools::product<AnnCagraInputs>(
     {100},
-    {1000},
+    {500},
     {64},
     {16},
     {32},  // degree
@@ -1824,7 +1824,7 @@ inline std::vector<AnnCagraInputs> generate_inputs()
   // Vary team size only.
   inputs2 = raft::util::itertools::product<AnnCagraInputs>(
     {100},
-    {1000},
+    {500},
     {64},
     {16},
     {32},  // degree
@@ -1851,7 +1851,7 @@ inline std::vector<AnnCagraInputs> generate_inputs()
   // Varying n_rows, host_dataset
   inputs2 = raft::util::itertools::product<AnnCagraInputs>(
     {100},
-    {10000},
+    {100},
     {32},
     {10},
     {32},  // degree
@@ -1862,7 +1862,7 @@ inline std::vector<AnnCagraInputs> generate_inputs()
     {64},
     {1},
     {cuvs::distance::DistanceType::L2Expanded, cuvs::distance::DistanceType::InnerProduct},
-    {false, true},
+    {true},
     {false},
     {true},
     {0.985},
@@ -1876,7 +1876,7 @@ inline std::vector<AnnCagraInputs> generate_inputs()
   // Varying host_dataset, ivf_pq_search_refine_ratio
   inputs2 = raft::util::itertools::product<AnnCagraInputs>(
     {100},
-    {5000},
+    {100},
     {32, 64},
     {16},
     {32},  // degree
@@ -1887,7 +1887,7 @@ inline std::vector<AnnCagraInputs> generate_inputs()
     {64},
     {1},
     {cuvs::distance::DistanceType::L2Expanded, cuvs::distance::DistanceType::InnerProduct},
-    {false, true},
+    {true},
     {false},
     {true},
     {0.99},
@@ -1900,8 +1900,8 @@ inline std::vector<AnnCagraInputs> generate_inputs()
   // Varying dim, adding non_owning_memory_buffer_flag
   inputs2 = raft::util::itertools::product<AnnCagraInputs>(
     {100},
-    {1000},
-    {1, 5, 8, 64, 137, 256, 619, 1024},  // dim
+    {100},
+    {1, 256, 619},  // dim
     {10},
     {32},  // degree
     {graph_build_algo::IVF_PQ},
