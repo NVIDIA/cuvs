@@ -49,6 +49,7 @@ import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.store.ReadAdvice;
 import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.IOUtils;
+import org.apache.lucene.util.VectorUtil;
 import org.apache.lucene.util.hnsw.IntToIntFunction;
 
 /**
@@ -446,8 +447,19 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
    * @return an instance of the FloatToFloatFunction
    */
   private static FloatToFloatFunction getScoreNormalizationFunc(VectorSimilarityFunction sim) {
-    // TODO: check for different similarities
-    return score -> (1f / (1f + score));
+    return cuvsValue -> toLuceneScore(sim, cuvsValue);
+  }
+
+  /** Convert a public cuVS search value into the score contract used by Lucene's collectors. */
+  static float toLuceneScore(VectorSimilarityFunction sim, float cuvsValue) {
+    return switch (sim) {
+      case EUCLIDEAN -> 1.0f / (1.0f + cuvsValue);
+      // Public cuVS InnerProduct results contain the natural dot product.
+      case DOT_PRODUCT -> Math.max((1.0f + cuvsValue) / 2.0f, 0.0f);
+      // cuVS CosineExpanded reports 1-cos(a,b), while Lucene scales cosine to [0, 1].
+      case COSINE -> Math.max(1.0f - cuvsValue / 2.0f, 0.0f);
+      case MAXIMUM_INNER_PRODUCT -> VectorUtil.scaleMaxInnerProductScore(cuvsValue);
+    };
   }
 
   /**

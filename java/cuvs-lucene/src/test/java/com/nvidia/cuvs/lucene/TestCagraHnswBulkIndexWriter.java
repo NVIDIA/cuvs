@@ -8,11 +8,13 @@ import static com.nvidia.cuvs.lucene.TestUtils.generateDataset;
 import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.isSupported;
 import static org.apache.lucene.index.VectorSimilarityFunction.EUCLIDEAN;
 
+import com.nvidia.cuvs.CagraIndexParams.CuvsDistanceType;
 import com.nvidia.cuvs.spi.CuVSProvider;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Map;
 import java.util.Random;
 import java.util.UUID;
 import org.apache.commons.io.FileUtils;
@@ -96,9 +98,13 @@ public class TestCagraHnswBulkIndexWriter extends LuceneTestCase {
     float[][] dataset = generateDataset(random, numDocs, dimension);
     TestUtils.writeFbin(fbinPath, dataset);
 
-    CagraHnswBulkIndexWriter.indexFbin(fbinPath, configFor(dimension, 1, false));
+    CagraHnswBulkIndexWriter.Config config = configFor(dimension, 1, false);
+    CagraHnswBulkIndexWriter.indexFbin(fbinPath, config);
 
     assertSearchable(numDocs, dataset, /* expectedSegments= */ 1);
+    Map<String, Number> metrics = config.metrics().snapshot();
+    assertEquals(1L, metrics.get("stage/bulk writer commit wall [CPU+GPU+DISK]/count"));
+    assertEquals(1L, metrics.get("stage/bulk writer close [DISK]/count"));
   }
 
   @Test
@@ -345,6 +351,24 @@ public class TestCagraHnswBulkIndexWriter extends LuceneTestCase {
         // expected
       }
     }
+  }
+
+  @Test
+  public void testConfigRejectsGraphMetricThatDisagreesWithField() {
+    AcceleratedHNSWParams innerProductGraph =
+        new AcceleratedHNSWParams.Builder()
+            .withCuvsDistanceType(CuvsDistanceType.InnerProduct)
+            .build();
+
+    IllegalArgumentException failure =
+        expectThrows(
+            IllegalArgumentException.class,
+            () ->
+                CagraHnswBulkIndexWriter.Config.builder()
+                    .field(VECTOR_FIELD, 8, EUCLIDEAN)
+                    .graphBuild(innerProductGraph)
+                    .build());
+    assertTrue(failure.getMessage().contains("does not match"));
   }
 
   private CagraHnswBulkIndexWriter.Config configFor(

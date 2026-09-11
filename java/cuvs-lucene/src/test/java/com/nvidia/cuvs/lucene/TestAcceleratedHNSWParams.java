@@ -10,6 +10,7 @@ import static com.nvidia.cuvs.lucene.AcceleratedHNSWParams.DEFAULT_CAGRA_GRAPH_B
 import static com.nvidia.cuvs.lucene.AcceleratedHNSWParams.DEFAULT_CUVS_DISTANCE_TYPE;
 import static com.nvidia.cuvs.lucene.AcceleratedHNSWParams.DEFAULT_GRAPH_DEGREE;
 import static com.nvidia.cuvs.lucene.AcceleratedHNSWParams.DEFAULT_HNSW_LAYERS;
+import static com.nvidia.cuvs.lucene.AcceleratedHNSWParams.DEFAULT_HNSW_LAYER_SEED;
 import static com.nvidia.cuvs.lucene.AcceleratedHNSWParams.DEFAULT_INT_GRAPH_DEGREE;
 import static com.nvidia.cuvs.lucene.AcceleratedHNSWParams.DEFAULT_MAX_CONN;
 import static com.nvidia.cuvs.lucene.AcceleratedHNSWParams.DEFAULT_NN_DESCENT_NUM_ITERATIONS;
@@ -64,6 +65,15 @@ public class TestAcceleratedHNSWParams extends LuceneTestCase {
     assertEquals(DEFAULT_STRATEGY, params.getStrategy());
     assertEquals(DEFAULT_CUVS_DISTANCE_TYPE, params.getCuvsDistanceType());
     assertEquals(DEFAULT_NN_DESCENT_NUM_ITERATIONS, params.getNNDescentNumIterations());
+    assertEquals(DEFAULT_HNSW_LAYER_SEED, params.getHnswLayerSeed());
+  }
+
+  @Test
+  public void testAcceleratedHNSWLayerSeed() {
+    AcceleratedHNSWParams params =
+        new AcceleratedHNSWParams.Builder().withHnswLayerSeed(-123456789L).build();
+
+    assertEquals(-123456789L, params.getHnswLayerSeed());
   }
 
   @Test

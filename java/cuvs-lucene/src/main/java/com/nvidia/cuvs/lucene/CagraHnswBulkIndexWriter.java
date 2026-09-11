@@ -4,6 +4,7 @@
  */
 package com.nvidia.cuvs.lucene;
 
+import com.nvidia.cuvs.CagraIndexParams.CuvsDistanceType;
 import java.io.Closeable;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -26,6 +27,7 @@ import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.IndexableField;
 import org.apache.lucene.index.NoMergePolicy;
+import org.apache.lucene.index.VectorEncoding;
 import org.apache.lucene.index.VectorSimilarityFunction;
 import org.apache.lucene.misc.store.HardlinkCopyDirectoryWrapper;
 import org.apache.lucene.store.Directory;
@@ -68,6 +70,7 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
   private static final int DEFAULT_CHUNK_SIZE_MB = 32;
 
   private final IndexWriter writer;
+  private final Config config;
   private final int exactVectorCount;
   private int documentsAdded;
   private boolean closed;
@@ -95,9 +98,21 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
   public CagraHnswBulkIndexWriter(
       Directory directory, IndexWriterConfig conf, Config config, int exactVectorCount)
       throws Exception {
+    this(
+        directory,
+        conf,
+        config,
+        BulkIndexingContext.nativeBuffered(exactVectorCount, config.metrics()));
+  }
+
+  private CagraHnswBulkIndexWriter(
+      Directory directory, IndexWriterConfig conf, Config config, BulkIndexingContext bulkContext)
+      throws Exception {
     Objects.requireNonNull(directory, "directory");
     Objects.requireNonNull(conf, "conf");
     Objects.requireNonNull(config, "config");
+    Objects.requireNonNull(bulkContext, "bulkContext");
+    int exactVectorCount = bulkContext.exactVectorCount();
     if (exactVectorCount <= 0) {
       throw new IllegalArgumentException("exactVectorCount must be > 0, got " + exactVectorCount);
     }
@@ -107,9 +122,10 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
               + " buffering requires an unsorted single-segment build); leave"
               + " IndexWriterConfig.indexSort unset");
     }
+    this.config = config;
     this.exactVectorCount = exactVectorCount;
 
-    Codec codec = new Lucene101AcceleratedHNSWCodec(config.graphBuildParams(), exactVectorCount);
+    Codec codec = new Lucene101AcceleratedHNSWCodec(config.graphBuildParams(), bulkContext);
     IndexWriterConfig ownedConf =
         new IndexWriterConfig(conf.getAnalyzer())
             .setSimilarity(conf.getSimilarity())
@@ -124,10 +140,10 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
   }
 
   /**
-   * Adds one document, exactly like {@link IndexWriter#addDocument}. {@code doc} may contain any
-   * fields — the vector field (matching {@link Config#fieldName()}) is routed into the native
-   * flat buffer automatically by the underlying codec, the same way any {@link
-   * KnnFloatVectorField} is for any Lucene codec; every other field is indexed normally.
+   * Adds one document, exactly like {@link IndexWriter#addDocument}. {@code doc} must contain
+   * exactly one vector field whose name, dimension, and similarity match {@code config}; that field
+   * is routed into the native flat buffer automatically by the underlying codec. Any number of
+   * non-vector fields may also be present and are indexed normally.
    */
   public long addDocument(Iterable<? extends IndexableField> doc) throws IOException {
     if (closed) {
@@ -137,9 +153,56 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
       throw new IllegalStateException(
           "addDocument called more than exactVectorCount (" + exactVectorCount + ") times");
     }
-    long seqNo = writer.addDocument(doc);
+    List<IndexableField> fields = validateAndSnapshotDocument(doc);
+    long seqNo = writer.addDocument(fields);
     documentsAdded++;
     return seqNo;
+  }
+
+  private List<IndexableField> validateAndSnapshotDocument(
+      Iterable<? extends IndexableField> document) {
+    Objects.requireNonNull(document, "doc");
+    List<IndexableField> fields = new ArrayList<>();
+    int vectorFields = 0;
+    for (IndexableField field : document) {
+      fields.add(field);
+      var fieldType = field.fieldType();
+      if (fieldType.vectorDimension() == 0) {
+        continue;
+      }
+      vectorFields++;
+      if (!field.name().equals(config.fieldName())) {
+        throw new IllegalArgumentException(
+            "Vector field name \""
+                + field.name()
+                + "\" does not match configured field \""
+                + config.fieldName()
+                + "\"");
+      }
+      if (fieldType.vectorDimension() != config.dimensions()) {
+        throw new IllegalArgumentException(
+            "Vector field dimension "
+                + fieldType.vectorDimension()
+                + " does not match configured dimension "
+                + config.dimensions());
+      }
+      if (fieldType.vectorEncoding() != VectorEncoding.FLOAT32) {
+        throw new IllegalArgumentException("CAGRA/HNSW bulk indexing requires FLOAT32 vectors");
+      }
+      if (fieldType.vectorSimilarityFunction() != config.similarity()) {
+        throw new IllegalArgumentException(
+            "Vector field similarity "
+                + fieldType.vectorSimilarityFunction()
+                + " does not match configured similarity "
+                + config.similarity());
+      }
+    }
+    if (vectorFields != 1) {
+      throw new IllegalArgumentException(
+          "Each bulk-indexed document must contain exactly one vector field; found "
+              + vectorFields);
+    }
+    return fields;
   }
 
   /**
@@ -173,8 +236,22 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
       }
       throw mismatch;
     }
-    try (writer) {
-      writer.commit();
+    try (Closeable writerCloser = this::closeUnderlyingWriter) {
+      long commitStartedAt = CagraHnswBuildMetrics.start();
+      try {
+        writer.commit();
+      } finally {
+        config.metrics().stop("bulk writer commit wall [CPU+GPU+DISK]", commitStartedAt);
+      }
+    }
+  }
+
+  private void closeUnderlyingWriter() throws IOException {
+    long closeStartedAt = CagraHnswBuildMetrics.start();
+    try {
+      writer.close();
+    } finally {
+      config.metrics().stop("bulk writer close [DISK]", closeStartedAt);
     }
   }
 
@@ -273,12 +350,9 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
       Path fbinPath, Config config, FieldCallback callback, int chunkSizeMB) throws Exception {
     Objects.requireNonNull(fbinPath, "fbinPath");
     Objects.requireNonNull(config, "config");
-    int total;
-    int dim;
-    try (FbinVectorSource probe = new FbinVectorSource(fbinPath, 1)) {
-      total = probe.size();
-      dim = probe.dimensions();
-    }
+    FbinFileMetadata metadata = FbinFileMetadata.read(fbinPath);
+    int total = metadata.rows();
+    int dim = metadata.dimensions();
     if (dim != config.dimensions()) {
       throw new IllegalArgumentException(
           "fbinPath dimension ("
@@ -294,6 +368,140 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
       try (FbinVectorSource source = new FbinVectorSource(fbinPath, chunkSizeMB)) {
         buildSequential(source, config, callback, slices);
       }
+    }
+  }
+
+  /**
+   * Builds a normal, self-contained Lucene index while CAGRA and the flat-vector writer consume a
+   * shared read-only mapping of {@code fbinPath}. This avoids decoding and copying every row during
+   * document ingest while preserving a conventional {@code .vec} file in the finished index.
+   */
+  public static void indexMappedFbin(Path fbinPath, Config config) throws Exception {
+    indexMappedFbin(fbinPath, config, null);
+  }
+
+  /** As {@link #indexMappedFbin(Path, Config)}, with a callback for non-vector fields. */
+  public static void indexMappedFbin(Path fbinPath, Config config, FieldCallback callback)
+      throws Exception {
+    Objects.requireNonNull(fbinPath, "fbinPath");
+    Objects.requireNonNull(config, "config");
+    requireSingleSegmentMappedBuild(config);
+    try (MappedFbinDataset mapped = MappedFbinDataset.map(fbinPath)) {
+      validateMappedShape(mapped.rows(), mapped.dimensions(), config);
+      buildBorrowed(
+          config, callback, BulkIndexingContext.mapped(mapped.dataset(), config.metrics()));
+    }
+  }
+
+  /**
+   * Builds a non-self-contained Lucene index whose exact-vector scoring reads from the immutable
+   * FBIN represented by {@code source}. The caller must retain {@code source} through every reader
+   * lifetime and replicate the referenced FBIN together with the Lucene directory.
+   */
+  public static void indexImmutableFbin(
+      ExternalFbinFileRegistry.Registration source, Config config, ExternalFbinOptions options)
+      throws Exception {
+    indexImmutableFbin(source, config, options, null);
+  }
+
+  /** As {@link #indexImmutableFbin(ExternalFbinFileRegistry.Registration, Config,
+   * ExternalFbinOptions)}, with a callback for non-vector fields. */
+  public static void indexImmutableFbin(
+      ExternalFbinFileRegistry.Registration source,
+      Config config,
+      ExternalFbinOptions options,
+      FieldCallback callback)
+      throws Exception {
+    Objects.requireNonNull(source, "source");
+    Objects.requireNonNull(config, "config");
+    Objects.requireNonNull(options, "options");
+    requireSingleSegmentMappedBuild(config);
+    FbinFileMetadata metadata = FbinFileMetadata.read(source.path());
+    int rows = metadata.rows();
+    int dimensions = metadata.dimensions();
+    validateMappedShape(rows, dimensions, config);
+    try (ImmutableExternalFbinDataset dataset = source.map(0, rows)) {
+      buildBorrowed(
+          config, callback, BulkIndexingContext.external(dataset, options, config.metrics()));
+    }
+  }
+
+  private static void requireSingleSegmentMappedBuild(Config config) {
+    if (config.targetDirectory() == null) {
+      throw new IllegalArgumentException("targetDirectory is required for a one-shot bulk build");
+    }
+    if (config.numSegments() != 1 || config.overlapped()) {
+      throw new IllegalArgumentException(
+          "Mapped FBIN bulk builds currently require segments(1, false)");
+    }
+  }
+
+  private static void validateMappedShape(int rows, int dimensions, Config config) {
+    if (rows <= 0 || dimensions != config.dimensions()) {
+      throw new IllegalArgumentException(
+          "FBIN shape "
+              + rows
+              + " x "
+              + dimensions
+              + " does not match configured dimension "
+              + config.dimensions());
+    }
+  }
+
+  private static void buildBorrowed(
+      Config config, FieldCallback callback, BulkIndexingContext context) throws Exception {
+    long ingestStartedAt = CagraHnswBuildMetrics.start();
+    try (Directory directory = FSDirectory.open(config.targetDirectory())) {
+      IndexWriterConfig writerConfig =
+          new IndexWriterConfig().setOpenMode(IndexWriterConfig.OpenMode.CREATE);
+      CagraHnswBulkIndexWriter writer =
+          new CagraHnswBulkIndexWriter(directory, writerConfig, config, context);
+      try {
+        addBorrowedDocuments(writer, config, callback, context.exactVectorCount());
+        config.metrics().stop("borrowed document ingest [CPU]", ingestStartedAt);
+        writer.close();
+      } catch (Throwable failure) {
+        try {
+          writer.abort();
+        } catch (Throwable cleanupFailure) {
+          failure.addSuppressed(cleanupFailure);
+        }
+        throw failure;
+      }
+    }
+  }
+
+  private static void addBorrowedDocuments(
+      CagraHnswBulkIndexWriter writer, Config config, FieldCallback callback, int count)
+      throws IOException {
+    float[] placeholder = new float[config.dimensions()];
+    if (callback == null) {
+      Document document = new Document();
+      StringField idField =
+          config.idFieldName() == null
+              ? null
+              : new StringField(config.idFieldName(), "0", Field.Store.YES);
+      if (idField != null) {
+        document.add(idField);
+      }
+      document.add(new KnnFloatVectorField(config.fieldName(), placeholder, config.similarity()));
+      for (int id = 0; id < count; id++) {
+        if (idField != null) {
+          idField.setStringValue(Integer.toString(id));
+        }
+        writer.addDocument(document);
+      }
+      return;
+    }
+
+    for (int id = 0; id < count; id++) {
+      Document document = new Document();
+      if (config.idFieldName() != null) {
+        document.add(new StringField(config.idFieldName(), Integer.toString(id), Field.Store.YES));
+      }
+      document.add(new KnnFloatVectorField(config.fieldName(), placeholder, config.similarity()));
+      callback.addFields(document, id);
+      writer.addDocument(document);
     }
   }
 
@@ -518,6 +726,7 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
     private final int numSegments;
     private final boolean overlapped;
     private final int pipelineDepth;
+    private final CagraHnswBuildMetrics metrics;
 
     private Config(Builder b) {
       this.fieldName = b.fieldName;
@@ -529,6 +738,7 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
       this.numSegments = b.numSegments;
       this.overlapped = b.overlapped;
       this.pipelineDepth = b.pipelineDepth;
+      this.metrics = b.metrics;
     }
 
     public String fieldName() {
@@ -571,6 +781,11 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
       return pipelineDepth;
     }
 
+    /** Per-build metrics accumulator shared by all segments in this configuration. */
+    public CagraHnswBuildMetrics metrics() {
+      return metrics;
+    }
+
     public static Builder builder() {
       return new Builder();
     }
@@ -586,6 +801,7 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
       private int numSegments = 1;
       private boolean overlapped = false;
       private int pipelineDepth = 2;
+      private CagraHnswBuildMetrics metrics = new CagraHnswBuildMetrics();
 
       /** Sets the vector field name and dimensionality; required. */
       public Builder field(String fieldName, int dimensions, VectorSimilarityFunction similarity) {
@@ -647,12 +863,34 @@ public final class CagraHnswBulkIndexWriter implements Closeable {
         return this;
       }
 
+      /** Supplies a caller-owned metrics accumulator for this build. */
+      public Builder metrics(CagraHnswBuildMetrics metrics) {
+        this.metrics = Objects.requireNonNull(metrics, "metrics");
+        return this;
+      }
+
       public Config build() {
         if (dimensions <= 0) {
           throw new IllegalStateException(
               "field(...) must be called with a positive dimension count");
         }
         Objects.requireNonNull(graphBuildParams, "graphBuild(...) must be called");
+        CuvsDistanceType expectedMetric =
+            switch (similarity) {
+              case EUCLIDEAN -> CuvsDistanceType.L2Expanded;
+              case DOT_PRODUCT, MAXIMUM_INNER_PRODUCT -> CuvsDistanceType.InnerProduct;
+              case COSINE -> CuvsDistanceType.CosineExpanded;
+            };
+        if (graphBuildParams.getCuvsDistanceType() != expectedMetric) {
+          throw new IllegalArgumentException(
+              "Graph metric "
+                  + graphBuildParams.getCuvsDistanceType()
+                  + " does not match field similarity "
+                  + similarity
+                  + " (expected "
+                  + expectedMetric
+                  + ")");
+        }
         return new Config(this);
       }
     }

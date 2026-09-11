@@ -12,6 +12,7 @@ import com.nvidia.cuvs.CuVSMatrix;
 import com.nvidia.cuvs.RowView;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
@@ -189,14 +190,18 @@ public class GPUBuiltHnswGraph extends HnswGraph {
       int[] nodes = layerNodes.get(level - 1);
       NeighborArray[] neighbors = layerNeighbors.get(level - 1);
 
-      // Find the index of this node in the layer
-      for (int i = 0; i < nodes.length; i++) {
-        if (nodes[i] == node) {
-          return neighbors[i];
-        }
+      int ordinal = findUpperLayerOrdinal(nodes, node);
+      if (ordinal >= 0) {
+        return neighbors[ordinal];
       }
     }
     return null;
+  }
+
+  /** Returns the ordinal of {@code node} in the sorted upper-layer IDs, or {@code -1}. */
+  static int findUpperLayerOrdinal(int[] sortedNodeIds, int node) {
+    int ordinal = Arrays.binarySearch(sortedNodeIds, node);
+    return ordinal >= 0 ? ordinal : -1;
   }
 
   // Implementation of abstract methods from HnswGraph
