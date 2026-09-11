@@ -123,6 +123,25 @@ CUVS_EXPORT cuvsError_t cuvsResourcesCreateWithMemoryTracking(cuvsResources_t* r
 CUVS_EXPORT cuvsError_t cuvsResourcesDestroy(cuvsResources_t res);
 
 /**
+ * @brief Set a memory pool on the device used by these resources
+ *
+ * @param[in] res cuvsResources_t opaque C handle
+ * @param[in] percent_of_free_memory Percentage of free device memory to allocate for the pool
+ * @return cuvsError_t
+ */
+CUVS_EXPORT cuvsError_t cuvsResourcesSetMemoryPool(cuvsResources_t res,
+                                                   int percent_of_free_memory);
+
+/**
+ * @brief Set a CUDA stream pool on these resources
+ *
+ * @param[in] res cuvsResources_t opaque C handle
+ * @param[in] num_streams Number of non-blocking CUDA streams in the pool
+ * @return cuvsError_t
+ */
+CUVS_EXPORT cuvsError_t cuvsResourcesSetStreamPool(cuvsResources_t res, size_t num_streams);
+
+/**
  * @brief Set cudaStream_t on cuvsResources_t to queue CUDA kernels on APIs
  *        that accept a cuvsResources_t handle
  *

@@ -213,12 +213,12 @@ void mnmg_fit(
   auto rank_centroids = use_nccl ? rank_centroids_arr.view() : centroids;
   auto new_centroids  = raft::make_device_matrix<DataT, IndexT>(dev_res, n_clusters, n_features);
   auto centroid_sums  = raft::make_device_matrix<DataT, IndexT>(dev_res, n_clusters, n_features);
-  auto weight_per_cluster  = raft::make_device_vector<DataT, IndexT>(dev_res, n_clusters);
-  auto clustering_cost     = raft::make_device_vector<DataT, IndexT>(dev_res, 1);
-  auto batch_inertia       = raft::make_device_scalar<DataT>(dev_res, DataT{0});
-  auto sqrd_norm_error_dev = raft::make_device_scalar<DataT>(dev_res, DataT{0});
-  auto batch_cost          = raft::make_device_scalar<DataT>(dev_res, DataT{0});
-  IndexT alloc_batch_size  = device_buffer_samples;
+  auto weight_per_cluster    = raft::make_device_vector<DataT, IndexT>(dev_res, n_clusters);
+  auto clustering_cost       = raft::make_device_vector<DataT, IndexT>(dev_res, 1);
+  auto batch_clustering_cost = raft::make_device_vector<DataT, IndexT>(dev_res, 1);
+  auto batch_cost            = raft::make_device_scalar<DataT>(dev_res, DataT{0});
+  auto sqrd_norm_error_dev   = raft::make_device_scalar<DataT>(dev_res, DataT{0});
+  IndexT alloc_batch_size    = device_buffer_samples;
   auto batch_weights       = raft::make_device_vector<DataT, IndexT>(dev_res, alloc_batch_size);
   auto minClusterAndDistance =
     raft::make_device_vector<raft::KeyValuePair<IndexT, DataT>, IndexT>(dev_res, alloc_batch_size);
@@ -378,13 +378,6 @@ void mnmg_fit(
     if (weight_batches.has_value()) { weight_batches->prefetch(batch_pos); }
   };
 
-  bool input_pipeline_started = false;
-  auto start_input_pipeline   = [&] {
-    if (input_pipeline_started) { return; }
-    if (data_batches.num_batches() > 0) { prefetch_batch(0); }
-    input_pipeline_started = true;
-  };
-
   auto compute_batch_norms = [&](DataT const* batch_data, IndexT batch_size) {
     auto batch_view =
       raft::make_device_matrix_view<const DataT, IndexT>(batch_data, batch_size, n_features);
@@ -464,7 +457,8 @@ void mnmg_fit(
       raft::matrix::fill(dev_res, weight_per_cluster.view(), DataT{0});
       raft::matrix::fill(dev_res, clustering_cost.view(), DataT{0});
 
-      start_input_pipeline();
+      data_batches.start();
+      if (weight_batches.has_value()) { weight_batches->start(); }
       for (std::size_t batch_pos = 0; batch_pos < data_batches.num_batches(); ++batch_pos) {
         const auto data_batch = data_batches.acquire(batch_pos);
         std::optional<batch_t> weight_batch;
@@ -583,7 +577,8 @@ void mnmg_fit(
 
     raft::matrix::fill(dev_res, clustering_cost.view(), DataT{0});
 
-    start_input_pipeline();
+    data_batches.start();
+    if (weight_batches.has_value()) { weight_batches->start(); }
     for (std::size_t batch_pos = 0; batch_pos < data_batches.num_batches(); ++batch_pos) {
       const auto data_batch = data_batches.acquire(batch_pos);
       std::optional<batch_t> weight_batch;
@@ -602,56 +597,22 @@ void mnmg_fit(
           prepare_batch_weights(part_idx, batch_offset, staged_weights, current_batch_size);
       }
 
-      raft::device_vector_view<const DataT, IndexT> l2_norm_view;
-      if constexpr (data_on_device) {
-        auto norm_slice = raft::make_device_vector_view<DataT, IndexT>(
-          d_norms.data_handle() + part_offsets[part_idx] + batch_offset, current_batch_size);
-        if (!norms_cached) {
-          raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
-            dev_res, batch_data_view, norm_slice);
-        }
-        l2_norm_view = raft::make_const_mdspan(norm_slice);
-      } else {
-        compute_batch_norms(data_batch.data(), current_batch_size);
-        l2_norm_view = raft::make_device_vector_view<const DataT, IndexT>(L2NormBatch.data_handle(),
-                                                                          current_batch_size);
-      }
-
       if (batch_pos + 1 < data_batches.num_batches() || seed_iter + 1 < n_init) {
         prefetch_batch((batch_pos + 1) % data_batches.num_batches());
       }
 
-      auto min_cad_view = raft::make_device_vector_view<raft::KeyValuePair<IndexT, DataT>, IndexT>(
-        minClusterAndDistance.data_handle(), current_batch_size);
-      cuvs::cluster::kmeans::detail::minClusterAndDistanceCompute<DataT, IndexT>(
+      raft::matrix::fill(dev_res, batch_clustering_cost.view(), DataT{0});
+      cuvs::cluster::kmeans::cluster_cost(
         dev_res,
         batch_data_view,
         rank_centroids_const,
-        min_cad_view,
-        l2_norm_view,
-        L2NormBuf_OR_DistBuf,
-        cuvs::distance::DistanceType::L2Expanded,
-        iter_params.batch_samples,
-        iter_params.batch_centroids,
-        workspace);
-      if (batch_sw.has_value()) {
-        raft::linalg::map(
-          dev_res,
-          min_cad_view,
-          [] __device__(raft::KeyValuePair<IndexT, DataT> pair, DataT weight) {
-            pair.value *= weight;
-            return pair;
-          },
-          raft::make_const_mdspan(min_cad_view),
-          batch_sw.value());
-      }
-      cuvs::cluster::kmeans::detail::computeClusterCost(
-        dev_res, min_cad_view, workspace, batch_inertia.view(), raft::value_op{}, raft::add_op{});
-      raft::linalg::add(clustering_cost.data_handle(),
-                        clustering_cost.data_handle(),
-                        batch_inertia.data_handle(),
-                        1,
-                        stream);
+        raft::make_device_scalar_view(batch_clustering_cost.data_handle()),
+        batch_sw);
+
+      raft::linalg::add(dev_res,
+                        raft::make_const_mdspan(clustering_cost.view()),
+                        raft::make_const_mdspan(batch_clustering_cost.view()),
+                        clustering_cost.view());
 
       const bool needs_future_batch =
         batch_pos + 2 < data_batches.num_batches() || seed_iter + 1 < n_init;
