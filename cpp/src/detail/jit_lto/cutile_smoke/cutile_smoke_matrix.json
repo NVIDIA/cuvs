@@ -10,7 +10,8 @@
       {"output_format": "cubin", "register": "cubin", "gpu_code": "sm_86", "arch_tag": "cutile_arch_8_6", "artifact_basename": "@gpu_code@", "artifact_ext": "cubin"},
       {"output_format": "cubin", "register": "cubin", "gpu_code": "sm_90", "arch_tag": "cutile_arch_9_0", "artifact_basename": "@gpu_code@", "artifact_ext": "cubin"},
       {"output_format": "cubin", "register": "cubin", "gpu_code": "sm_100", "arch_tag": "cutile_arch_10_0", "artifact_basename": "@gpu_code@", "artifact_ext": "cubin"},
-      {"output_format": "cubin", "register": "cubin", "gpu_code": "sm_120", "arch_tag": "cutile_arch_12_0", "artifact_basename": "@gpu_code@", "artifact_ext": "cubin"}
+      {"output_format": "cubin", "register": "cubin", "gpu_code": "sm_120", "arch_tag": "cutile_arch_12_0", "artifact_basename": "@gpu_code@", "artifact_ext": "cubin"},
+      {"output_format": "cubin", "register": "cubin", "gpu_code": "sm_121", "arch_tag": "cutile_arch_12_1", "artifact_basename": "@gpu_code@", "artifact_ext": "cubin"}
     ]
   }
 ]
