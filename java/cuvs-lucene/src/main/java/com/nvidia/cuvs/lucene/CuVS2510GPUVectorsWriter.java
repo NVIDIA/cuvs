@@ -615,16 +615,41 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
       CagraIndexParams mergeParams =
           CagraIndexParamsFactory.create(
               gpuSearchParams, inputs.mergedVectorCount(), fieldInfo.getVectorDimension());
-      try (CagraIndex mergedIndex =
-          CagraIndex.merge(
-              indexes.toArray(new CagraIndex[indexes.size()]), mergeParams, inputs.rowFilter())) {
-        Path tmpFile =
-            Files.createTempFile(getCuVSResourcesInstance().tempDirectory(), "mergedindex", "cag");
-        try {
-          mergedIndex.serialize(new IndexOutputOutputStream(cuvsIndex), tmpFile);
-        } finally {
-          // cuVS removes the file once it has read it back, but not when serializing failed.
-          Files.deleteIfExists(tmpFile);
+      // The merge API no longer concatenates or filters: gather the surviving rows here, in
+      // inputs.readers() order, and tell it where each index's rows start in that buffer.
+      List<float[]> rows = new ArrayList<>(inputs.mergedVectorCount());
+      long[] offsets = new long[indexes.size() + 1];
+      int concatRow = 0;
+      int reader = 0;
+      for (CuVS2510GPUVectorsReader r : inputs.readers()) {
+        FloatVectorValues values = r.getFloatVectorValues(fieldInfo.name);
+        for (int ord = 0; ord < values.size(); ord++) {
+          // rowFilter bits address the unfiltered concatenation, offsets the gathered one.
+          if (inputs.rowFilter() == null || inputs.rowFilter().get(concatRow + ord)) {
+            rows.add(values.vectorValue(ord).clone());
+          }
+        }
+        concatRow += values.size();
+        offsets[++reader] = rows.size();
+      }
+      CuVSMatrix mergedMatrix = Utils.createFloatMatrix(rows, fieldInfo.getVectorDimension());
+      CagraIndex[] indexesArray = indexes.toArray(new CagraIndex[indexes.size()]);
+      try (var deviceVectors = mergedMatrix.toDevice(getCuVSResourcesInstance())) {
+        // cuVS rejects makePaddedDataset for a device matrix whose rows already sit at the
+        // required stride, and asks for a view over that storage instead (see writeCagraIndex).
+        // The merged data set stays ours, so it has to outlive the index that views it.
+        if (CagraIndex.isPaddedDataset(deviceVectors)) {
+          try (var mergedDataset = indexes.get(0).makePaddedDatasetView(deviceVectors);
+              CagraIndex mergedIndex =
+                  CagraIndex.merge(indexesArray, mergedDataset, offsets, mergeParams)) {
+            writeIndexBytes(mergedIndex);
+          }
+        } else {
+          try (var mergedDataset = indexes.get(0).makePaddedDataset(deviceVectors);
+              CagraIndex mergedIndex =
+                  CagraIndex.merge(indexesArray, mergedDataset, offsets, mergeParams)) {
+            writeIndexBytes(mergedIndex);
+          }
         }
       }
     } finally {
@@ -646,6 +671,20 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
       if (failure != null) {
         throw failure;
       }
+    }
+  }
+
+  /**
+   * Appends {@code index}'s serialized bytes to the cuVS index output.
+   */
+  private void writeIndexBytes(CagraIndex index) throws Throwable {
+    Path tmpFile =
+        Files.createTempFile(getCuVSResourcesInstance().tempDirectory(), "mergedindex", "cag");
+    try {
+      index.serialize(new IndexOutputOutputStream(cuvsIndex), tmpFile);
+    } finally {
+      // cuVS removes the file once it has read it back, but not when serializing failed.
+      Files.deleteIfExists(tmpFile);
     }
   }
 

@@ -17,6 +17,8 @@
 #include <cuvs/neighbors/cagra.hpp>
 #include <cuvs/neighbors/composite/index.hpp>
 #include <cuvs/preprocessing/quantize/pq.hpp>
+#include <raft/core/bitset.cuh>
+#include <raft/core/device_csr_matrix.hpp>
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/device_resources.hpp>
@@ -29,6 +31,7 @@
 #include <raft/linalg/norm.cuh>
 #include <raft/linalg/normalize.cuh>
 #include <raft/linalg/reduce.cuh>
+#include <raft/matrix/copy.cuh>
 #include <raft/random/rng.cuh>
 #include <raft/util/itertools.hpp>
 
@@ -1326,14 +1329,37 @@ class AnnCagraIndexFilteredMergeTest : public ::testing::TestWithParam<AnnCagraI
         indices.push_back(&index0);
         indices.push_back(&index1);
 
-        auto merged_matrix = raft::make_device_matrix<DataT, int64_t>(
+        auto offsets =
+          cuvs::neighbors::cagra::merged_dataset_offsets(handle_, indices, bitset_filter_obj);
+        int64_t const merged_rows = offsets.back();
+
+        // `merge()` no longer gathers the filtered rows itself: do what it used to do internally
+        // -- find the sorted list of rows the bitset keeps (via `to_csr`, same as
+        // `merged_dataset_offsets()`) and gather them from `database`. `index0`/`index1` were built
+        // from contiguous halves of `database` (see `database0_view`/`database1_view` above), so
+        // `database` in its original row order is exactly the unfiltered concatenation of
+        // `index0`'s and `index1`'s rows, in `indices` order.
+        auto surviving_rows_csr = raft::make_device_csr_matrix<uint32_t, int64_t, int64_t, int64_t>(
+          handle_, 1, static_cast<std::size_t>(ps.n_rows));
+        surviving_rows_csr.initialize_sparsity(merged_rows);
+        bitset_filter_obj.view().to_csr(handle_, surviving_rows_csr);
+        auto surviving_row_indices = surviving_rows_csr.structure_view().get_indices();
+
+        auto database_view = raft::make_device_matrix_view<const DataT, int64_t>(
+          (const DataT*)database.data(), ps.n_rows, ps.dim);
+        auto gathered_matrix =
+          raft::make_device_matrix<DataT, int64_t>(handle_, merged_rows, ps.dim);
+        raft::matrix::copy_rows<DataT, int64_t>(
           handle_,
-          ps.n_rows - static_cast<int64_t>(test_cagra_sample_filter::offset),
-          static_cast<int64_t>(index0.dataset().stride()));
-        auto merged_dataset = cuvs::neighbors::device_padded_dataset<DataT, int64_t>(
-          std::move(merged_matrix), static_cast<uint32_t>(ps.dim));
+          database_view,
+          gathered_matrix.view(),
+          raft::make_device_vector_view<const int64_t, int64_t>(surviving_row_indices.data(),
+                                                                merged_rows));
+
+        cuvs::neighbors::test::padded_device_matrix_for_cagra<DataT> merged_dataset(
+          handle_, raft::make_const_mdspan(gathered_matrix.view()));
         auto merge_idx = cuvs::neighbors::cagra::merge(
-          handle_, index_params, indices, merged_dataset.as_dataset_view(), bitset_filter_obj);
+          handle_, index_params, indices, merged_dataset.view, offsets, bitset_filter_obj);
 
         auto search_queries_view = raft::make_device_matrix_view<const DataT, int64_t>(
           search_queries.data(), ps.n_queries, ps.dim);
@@ -1572,21 +1598,26 @@ class AnnCagraIndexMergeTest : public ::testing::TestWithParam<AnnCagraInputs> {
 
         if (ps.merge_strategy == cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_PHYSICAL) {
           // The merged index holds only a view, so merged_dataset must outlive it.
-          auto const merged_rows =
-            static_cast<int64_t>(index0.size()) + static_cast<int64_t>(index1.size());
-          auto merged_matrix = raft::make_device_matrix<DataT, int64_t>(
-            handle_, merged_rows, static_cast<int64_t>(index0.dataset().stride()));
-          auto merged_dataset = cuvs::neighbors::device_padded_dataset<DataT, int64_t>(
-            std::move(merged_matrix), static_cast<uint32_t>(ps.dim));
+          std::vector<int64_t> offsets{
+            0,
+            static_cast<int64_t>(index0.size()),
+            static_cast<int64_t>(index0.size()) + static_cast<int64_t>(index1.size())};
+          // index0/index1 were built from contiguous halves of `database` (database0_view /
+          // database1_view above), so `database` in its original row order is exactly the
+          // concatenation of index0's and index1's rows, in indices_to_merge order.
+          auto database_view = raft::make_device_matrix_view<const DataT, int64_t>(
+            (const DataT*)database.data(), ps.n_rows, ps.dim);
+          cuvs::neighbors::test::padded_device_matrix_for_cagra<DataT> merged_dataset(
+            handle_, database_view);
           auto merged_idx =
             ps.physical_merge_params.has_value()
               ? cagra::merge(handle_,
                              index_params,
                              indices_to_merge,
-                             merged_dataset.as_dataset_view(),
+                             merged_dataset.view,
+                             offsets,
                              *ps.physical_merge_params)
-              : cagra::merge(
-                  handle_, index_params, indices_to_merge, merged_dataset.as_dataset_view());
+              : cagra::merge(handle_, index_params, indices_to_merge, merged_dataset.view, offsets);
           cagra::search(handle_,
                         search_params,
                         merged_idx,
