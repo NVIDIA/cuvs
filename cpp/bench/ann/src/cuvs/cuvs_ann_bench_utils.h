@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -15,9 +15,11 @@
 #include <raft/core/host_mdspan.hpp>
 #include <raft/core/logger.hpp>
 #include <raft/core/operators.hpp>
+#include <raft/core/resource/cuda_stream_pool.hpp>
 #include <raft/core/resource/device_memory_resource.hpp>
 #include <raft/util/cudart_utils.hpp>
 
+#include <rmm/cuda_stream_pool.hpp>
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_uvector.hpp>
 #include <rmm/mr/failure_callback_resource_adaptor.hpp>
@@ -127,6 +129,7 @@ class configured_raft_resources {
   {
     raft::resource::set_large_workspace_resource(
       *res_, raft::mr::device_resource{shared_res_->get_large_memory_resource()});
+    raft::resource::set_cuda_stream_pool(*res_, std::make_shared<rmm::cuda_stream_pool>(1));
   }
 
   /** Default constructor creates all resources anew. */

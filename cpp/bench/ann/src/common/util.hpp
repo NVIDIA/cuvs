@@ -1,11 +1,15 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
 
 #include "ann_types.hpp"
 #include "cuda_stub.hpp"  // cuda-related utils
+
+#ifndef BUILD_CPU_ONLY
+#include <rmm/cuda_stream.hpp>
+#endif
 
 #if __has_include(<nvtx3/nvToolsExt.h>)
 #define ANN_BENCH_NVTX3_HEADERS_FOUND
@@ -145,25 +149,8 @@ struct cuda_timer {
 };
 
 #ifndef BUILD_CPU_ONLY
-// ATM, rmm::stream does not support passing in flags; hence this helper type.
-struct non_blocking_stream {
-  non_blocking_stream() { cudaStreamCreateWithFlags(&stream_, cudaStreamNonBlocking); }
-  ~non_blocking_stream() noexcept
-  {
-    if (stream_ != nullptr) { cudaStreamDestroy(stream_); }
-  }
-  non_blocking_stream(non_blocking_stream const&) = delete;
-  non_blocking_stream(non_blocking_stream&& other) noexcept { std::swap(stream_, other.stream_); }
-  auto operator=(non_blocking_stream const&) -> non_blocking_stream& = delete;
-  auto operator=(non_blocking_stream&&) -> non_blocking_stream&      = delete;
-  [[nodiscard]] auto view() const noexcept -> cudaStream_t { return stream_; }
-
- private:
-  cudaStream_t stream_{nullptr};
-};
-
 namespace detail {
-inline std::vector<non_blocking_stream> global_stream_pool(0);
+inline std::vector<rmm::cuda_stream> global_stream_pool(0);
 inline std::mutex gsp_mutex;
 }  // namespace detail
 #endif
@@ -180,7 +167,9 @@ inline auto get_stream_from_global_pool() -> cudaStream_t
 #ifndef BUILD_CPU_ONLY
   std::lock_guard guard(detail::gsp_mutex);
   if (static_cast<int>(detail::global_stream_pool.size()) < benchmark_n_threads) {
-    detail::global_stream_pool.resize(benchmark_n_threads);
+    while (static_cast<int>(detail::global_stream_pool.size()) < benchmark_n_threads) {
+      detail::global_stream_pool.emplace_back(rmm::cuda_stream::flags::non_blocking);
+    }
   }
   return detail::global_stream_pool[benchmark_thread_id].view();
 #else
