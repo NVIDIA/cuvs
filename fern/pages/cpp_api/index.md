@@ -7,6 +7,7 @@ These pages are generated from the documented public headers in the cuVS source 
 - [Agglomerative](/api-reference/cpp-api-cluster-agglomerative)
 - [Gmm](/api-reference/cpp-api-cluster-gmm)
 - [K-Means](/api-reference/cpp-api-cluster-kmeans)
+- [Soar](/api-reference/cpp-api-cluster-soar)
 - [Spectral](/api-reference/cpp-api-cluster-spectral)
 
 ## Common
