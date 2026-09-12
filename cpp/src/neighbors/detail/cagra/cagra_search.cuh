@@ -234,8 +234,6 @@ void search_main(raft::resources const& res,
     RAFT_FAIL(
       "Attempted to search without a dataset. Please call "
       "cagra::update_dataset(res, std::move(index), dataset) first.");
-  } else if constexpr (cuvs::neighbors::is_device_vpq_f32_dataset_view_v<DatasetViewT>) {
-    RAFT_FAIL("FP32 VPQ dataset support is coming soon");
   } else if constexpr (cuvs::neighbors::is_device_vpq_f16_dataset_view_v<DatasetViewT>) {
     auto const& vv = index.dataset();
     if (params.smem_dtype == cuvs::neighbors::cagra::internal_dtype::E5M2 &&
