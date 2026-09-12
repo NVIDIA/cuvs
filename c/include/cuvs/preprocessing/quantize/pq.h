@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -7,6 +7,8 @@
 
 #include <cuvs/cluster/kmeans.h>
 #include <cuvs/core/c_api.h>
+#include <cuvs/core/dataset.h>
+#include <cuvs/neighbors/cagra.h>
 #include <dlpack/dlpack.h>
 #include <stdint.h>
 
@@ -221,6 +223,24 @@ CUVS_EXPORT cuvsError_t cuvsProductQuantizerGetEncodedDim(cuvsProductQuantizer_t
  * @param[out] use_vq whether VQ is used
  */
 CUVS_EXPORT cuvsError_t cuvsProductQuantizerGetUseVq(cuvsProductQuantizer_t quantizer, bool* use_vq);
+
+/**
+ * @brief Train an owning device PQ dataset from a device-padded source.
+ *
+ * Used for CAGRA-Q: build a dense CAGRA index, train PQ with this factory, then attach via
+ * `cuvsCagraUpdateDataset`. Caller owns the returned dataset and must keep it alive while any
+ * index uses it. Metric for subsequent search must remain `L2Expanded`.
+ *
+ * @param[in] res cuvs resources
+ * @param[in] source_dataset device-padded dataset (owning or view)
+ * @param[in] params PQ compression params; NULL selects defaults
+ * @param[out] pq_dataset newly allocated owning PQ dataset handle
+ * @return cuvsError_t
+ */
+CUVS_EXPORT cuvsError_t cuvsDatasetMakePq(cuvsResources_t res,
+                                          cuvsDataset_t source_dataset,
+                                          cuvsCagraCompressionParams_t params,
+                                          cuvsDataset_t* pq_dataset);
 /**
  * @}
  */
