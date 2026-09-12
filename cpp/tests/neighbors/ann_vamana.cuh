@@ -7,6 +7,7 @@
 
 #include "../test_utils.cuh"
 #include "ann_utils.cuh"
+#include <cuda/stream>
 #include <raft/core/resource/cuda_stream.hpp>
 
 #include "cagra_padded_build_helpers.cuh"
@@ -299,7 +300,7 @@ class AnnVamanaTest : public ::testing::TestWithParam<AnnVamanaInputs> {
 
  private:
   raft::resources handle_;
-  rmm::cuda_stream_view stream_;
+  cuda::stream_ref stream_;
   AnnVamanaInputs ps;
   rmm::device_uvector<DataT> database;
   rmm::device_uvector<DataT> search_queries;

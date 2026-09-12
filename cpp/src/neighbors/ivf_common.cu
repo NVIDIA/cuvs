@@ -5,6 +5,7 @@
 
 #include "ivf_common.cuh"
 
+#include <cuda/stream>
 #include <raft/util/cudart_utils.hpp>
 #include <raft/util/pow2_utils.cuh>
 
@@ -53,7 +54,7 @@ void calc_chunk_indices::configured::operator()(const uint32_t* cluster_sizes,
                                                 const uint32_t* clusters_to_probe,
                                                 uint32_t* chunk_indices,
                                                 uint32_t* n_samples,
-                                                rmm::cuda_stream_view stream)
+                                                cuda::stream_ref stream)
 {
   void* kernel = nullptr;
   switch (block_dim.x) {
@@ -78,7 +79,7 @@ void calc_chunk_indices::configured::operator()(const uint32_t* cluster_sizes,
 void sort_cluster_sizes_descending(uint32_t* input,
                                    uint32_t* output,
                                    uint32_t n_lists,
-                                   rmm::cuda_stream_view stream,
+                                   cuda::stream_ref stream,
                                    rmm::device_async_resource_ref tmp_res)
 {
   int begin_bit             = 0;

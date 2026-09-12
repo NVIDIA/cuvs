@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cuda/stream>
 #include <raft/core/resource/cuda_stream_pool.hpp>
 #include <raft/linalg/add.cuh>
 #include <raft/matrix/gather.cuh>
@@ -282,7 +283,7 @@ class scann_test : public ::testing::TestWithParam<scann_inputs> {
 
  private:
   raft::resources handle_;
-  rmm::cuda_stream_view stream_;
+  cuda::stream_ref stream_;
   scann_inputs ps;                      // NOLINT
   rmm::device_uvector<DataT> database;  // NOLINT
 };

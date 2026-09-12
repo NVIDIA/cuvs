@@ -50,7 +50,7 @@
 #include <raft/util/pow2_utils.cuh>
 #include <raft/util/vectorized.cuh>
 
-#include <rmm/cuda_stream_view.hpp>
+#include <cuda/stream>
 #include <rmm/device_uvector.hpp>
 #include <rmm/mr/managed_memory_resource.hpp>
 
@@ -235,7 +235,7 @@ auto calculate_offsets_and_indices(IdxT n_rows,
                                    const uint32_t* cluster_sizes,
                                    IdxT* cluster_offsets,
                                    IdxT* data_indices,
-                                   rmm::cuda_stream_view stream) -> uint32_t
+                                   cuda::stream_ref stream) -> uint32_t
 {
   auto exec_policy = rmm::exec_policy(stream);
   // Calculate the offsets

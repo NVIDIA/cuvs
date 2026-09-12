@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -17,7 +17,6 @@
 #include <raft/core/resource/stream_view.hpp>
 #include <raft/core/resources.hpp>
 #include <raft/util/integer_utils.hpp>
-#include <rmm/cuda_stream_view.hpp>
 
 #include <cmath>
 #include <cuvs/core/export.hpp>

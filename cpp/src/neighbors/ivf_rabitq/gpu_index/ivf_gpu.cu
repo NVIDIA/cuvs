@@ -12,6 +12,7 @@
 #include "../utils/reductions.cuh"
 #include "ivf_gpu.cuh"
 #include "searcher_gpu.cuh"
+#include <cuda/stream>
 #include <cuvs/util/file_io.hpp>
 #include <raft/util/integer_utils.hpp>
 
@@ -1037,7 +1038,7 @@ void IVFGPU::PrepareClusterSearchInputs(
   raft::device_vector<float, int64_t>& d_G_kbxSumq)
 {
   raft::resources const& searcher_handle = searcher.get_handle();
-  rmm::cuda_stream_view searcher_stream  = searcher.get_stream();
+  cuda::stream_ref searcher_stream       = searcher.get_stream();
   const size_t batch_size                = queries.extent(0);
 
   // Compute ||q - c||^2 = -2 * q . c + ||q||^2 + ||c||^2 into centroid_distances:
