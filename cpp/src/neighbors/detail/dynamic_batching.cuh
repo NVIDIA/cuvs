@@ -843,6 +843,16 @@ RAFT_KERNEL scatter_outputs(
  * The search function must be thread-safe. We only have to pay attention to the `mutable` members
  * though, because the function is marked const.
  */
+inline auto validate_sample_filter(cuvs::neighbors::filtering::base_filter const* sample_filter)
+  -> cuvs::neighbors::filtering::base_filter const*
+{
+  RAFT_EXPECTS(
+    sample_filter == nullptr ||
+      sample_filter->get_filter_type() != cuvs::neighbors::filtering::FilterType::Roaring,
+    "dynamic_batching does not support roaring_filter; use direct cagra::search instead.");
+  return sample_filter;
+}
+
 template <typename T, typename IdxT>
 class batch_runner {
  public:
@@ -860,7 +870,10 @@ class batch_runner {
                upstream_search_type_const<Upstream, T, IdxT>* upstream_search,
                const cuvs::neighbors::filtering::base_filter* sample_filter)
     : res_{res},
-      upstream_search_{[&upstream_index, upstream_search, upstream_params, sample_filter](
+      upstream_search_{[&upstream_index,
+                        upstream_search,
+                        upstream_params,
+                        sample_filter = validate_sample_filter(sample_filter)](
                          raft::resources const& res,
                          raft::device_matrix_view<const T, int64_t, raft::row_major> queries,
                          raft::device_matrix_view<IdxT, int64_t, raft::row_major> neighbors,

@@ -103,6 +103,8 @@ struct sample_filter_jit_tag {
         return cuvs::neighbors::detail::tag_filter_none{};
       } else if constexpr (is_bloom_filter<U>::value) {
         return cuvs::neighbors::detail::tag_filter_bloom_filter{};
+      } else if constexpr (is_roaring_filter<U>::value) {
+        return cuvs::neighbors::detail::tag_filter_roaring{};
       } else if constexpr (is_udf_filter<U>::value) {
         return cuvs::neighbors::detail::tag_filter_udf{};
       } else if constexpr (requires { std::declval<U>().filter; }) {
@@ -114,6 +116,8 @@ struct sample_filter_jit_tag {
           return cuvs::neighbors::detail::tag_filter_bitset{};
         } else if constexpr (is_bloom_filter<std::decay_t<InnerFilter>>::value) {
           return cuvs::neighbors::detail::tag_filter_bloom_filter{};
+        } else if constexpr (is_roaring_filter<std::decay_t<InnerFilter>>::value) {
+          return cuvs::neighbors::detail::tag_filter_roaring{};
         } else if constexpr (is_udf_filter<std::decay_t<InnerFilter>>::value) {
           return cuvs::neighbors::detail::tag_filter_udf{};
         } else {

@@ -183,6 +183,10 @@ struct index_state {
               raft::device_matrix_view<value_type, int64_t, raft::row_major> distances,
               const cuvs::neighbors::filtering::base_filter& sample_filter)
   {
+    RAFT_EXPECTS(
+      sample_filter.get_filter_type() != cuvs::neighbors::filtering::FilterType::Roaring,
+      "tiered_index::search does not support roaring_filter; use direct cagra::search instead.");
+
     // if we only have ANN vectors, search those and return immendiately
     if (bfknn_rows() == 0) {
       search_fn(res, search_params, *ann_index, queries, neighbors, distances, sample_filter);

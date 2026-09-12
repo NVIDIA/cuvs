@@ -189,7 +189,8 @@ void compact(raft::resources const& res,
  * @param[out] distances a device matrix view to the distances to the selected neighbors [n_queries,
  * k]
  * @param[in] sample_filter an optional device filter function object that greenlights samples
- * for a given query. (none_sample_filter for no filtering)
+ * for a given query. (none_sample_filter for no filtering). Roaring filters are not supported
+ * because tiered partitions use different dataset-row domains.
  */
 void search(raft::resources const& res,
             const cagra::search_params& search_params,
