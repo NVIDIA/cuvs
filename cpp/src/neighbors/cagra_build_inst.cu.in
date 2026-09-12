@@ -40,6 +40,22 @@ void build_knn_graph(raft::resources const& handle,
   cuvs::neighbors::cagra::build_knn_graph<data_t, index_t>(handle, dataset, knn_graph, params);
 }
 
+void build_knn_graph(raft::resources const& res,
+                     raft::host_matrix_view<const data_t, int64_t, raft::row_major> dataset,
+                     raft::host_matrix_view<index_t, int64_t, raft::row_major> knn_graph,
+                     graph_build_params::brute_force_params params)
+{
+  detail::build_knn_graph(res, dataset, knn_graph, params);
+}
+
+void build_knn_graph(raft::resources const& res,
+                     raft::device_matrix_view<const data_t, int64_t, raft::row_major> dataset,
+                     raft::host_matrix_view<index_t, int64_t, raft::row_major> knn_graph,
+                     graph_build_params::brute_force_params params)
+{
+  detail::build_knn_graph(res, dataset, knn_graph, params);
+}
+
 #define CUVS_DEFINE_CAGRA_BUILD_OVERLOAD(DatasetViewT, ...)                   \
   auto build(raft::resources const& res,                                      \
              const cuvs::neighbors::cagra::index_params& params,              \
