@@ -33,6 +33,7 @@ jobs:
       - go-build-matrix
       - go-build
       - docs-build
+      - docs-build-matrix
       - wheel-build-libcuvs
       - wheel-build-cuvs
       - wheel-tests-cuvs
@@ -162,6 +163,8 @@ jobs:
           - '!ci/test_wheel_cuvs.sh'
           - '!ci/validate_wheel.sh'
           - '!docs/**'
+          - '!examples/go/**'
+          - '!examples/java/**'
           - '!fern/**'
           - '!go/**'
           - '!img/**'
@@ -214,7 +217,15 @@ jobs:
           - '!conda/recipes/cuvs-bench/**'
           - '!conda/recipes/cuvs-bench-cpu/**'
           - '!docs/**'
-          - '!examples/**'
+          - '!examples/.clang-format'
+          - '!examples/.clang-tidy'
+          - '!examples/.clangd'
+          - '!examples/README.md'
+          - '!examples/build.sh'
+          - '!examples/c/**'
+          - '!examples/cmake/**'
+          - '!examples/cpp/**'
+          - '!examples/go/**'
           - '!fern/**'
           - '!go/**'
           - '!img/**'
@@ -268,6 +279,7 @@ jobs:
           - '!README.md'
           - '!SECURITY.md'
           - '!docs/**'
+          - '!examples/**'
           - '!fern/**'
           - '!go/**'
           - '!img/**'
@@ -325,6 +337,7 @@ jobs:
           - '!cpp/.clang-tidy'
           - '!cpp/doxygen/**'
           - '!docs/**'
+          - '!examples/**'
           - '!fern/**'
           - '!java/**'
           - '!go/**'
@@ -377,6 +390,7 @@ jobs:
           - '!ci/test_wheel_cuvs.sh'
           - '!ci/validate_wheel.sh'
           - '!docs/**'
+          - '!examples/**'
           - '!fern/**'
           - '!go/**'
           - '!img/**'
@@ -430,6 +444,15 @@ jobs:
           - '!ci/test_wheel_cuvs.sh'
           - '!ci/validate_wheel.sh'
           - '!docs/**'
+          - '!examples/.clang-format'
+          - '!examples/.clang-tidy'
+          - '!examples/.clangd'
+          - '!examples/README.md'
+          - '!examples/build.sh'
+          - '!examples/c/**'
+          - '!examples/cmake/**'
+          - '!examples/cpp/**'
+          - '!examples/java/**'
           - '!fern/**'
           - '!img/**'
           - '!java/**'
@@ -715,7 +738,15 @@ jobs:
       arch: "amd64"
       container_image: "rapidsai/ci-conda:26.12-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
       script: "ci/build_go.sh"
+  docs-build-matrix:
+    permissions:
+      contents: read
+    uses: rapidsai/shared-workflows/.github/workflows/compute-matrix.yaml@main
+    with:
+      build_type: pull-request
+      matrix_name: docs-build
   docs-build:
+    needs: [docs-build-matrix]
     permissions:
       actions: read
       contents: read
@@ -724,11 +755,15 @@ jobs:
       pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
     uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@main
+    if: fromJSON(needs.changed-files.outputs.changed_file_groups).build_docs
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.docs-build-matrix.outputs.matrix) }}
     with:
       build_type: pull-request
-      node_type: "gpu-l4-latest-1"
-      arch: "amd64"
-      container_image: "rapidsai/ci-conda:26.12-latest"
+      node_type: "gpu-${{ matrix.GPU }}-${{ matrix.DRIVER }}-1"
+      arch: "${{ matrix.arch }}"
+      container_image: "rapidsai/ci-conda:26.12-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
       script: "ci/build_docs.sh"
   wheel-build-libcuvs:
     needs: [build-details, checks]
