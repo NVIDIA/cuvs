@@ -235,8 +235,8 @@ void search(raft::resources const& res,
 {
   std::shared_lock<std::shared_mutex> lock(index.ann_mutex);
   if (!index.state->ann_index) {
-    index.state->search(
-      res, search_params, cagra::search, queries, neighbors, distances, sample_filter);
+    // The state returns brute-force results before invoking the upstream search function.
+    index.state->search(res, search_params, nullptr, queries, neighbors, distances, sample_filter);
     return;
   }
 
