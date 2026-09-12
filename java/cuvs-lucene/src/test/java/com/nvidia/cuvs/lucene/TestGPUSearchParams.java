@@ -53,14 +53,82 @@ public class TestGPUSearchParams extends LuceneTestCase {
   }
 
   @Test
+  public void testGPUSearchParamsBuildParameterBoundaries() {
+    for (int v : new int[] {MIN_WRITER_THREADS, MAX_WRITER_THREADS}) {
+      assertEquals(
+          v, new GPUSearchParams.Builder().withWriterThreads(v).build().getWriterThreads());
+    }
+    for (int v : new int[] {MIN_INT_GRAPH_DEG, MAX_INT_GRAPH_DEG}) {
+      assertEquals(
+          v,
+          new GPUSearchParams.Builder()
+              .withGraphDegree(MIN_GRAPH_DEG)
+              .withIntermediateGraphDegree(v)
+              .build()
+              .getIntermediateGraphDegree());
+    }
+    for (int v : new int[] {MIN_GRAPH_DEG, MAX_GRAPH_DEG}) {
+      assertEquals(
+          v,
+          new GPUSearchParams.Builder()
+              .withIntermediateGraphDegree(MAX_INT_GRAPH_DEG)
+              .withGraphDegree(v)
+              .build()
+              .getGraphdegree());
+    }
+  }
+
+  @Test
+  public void testGraphDegreeMustNotExceedIntermediateGraphDegreeUnderCustomStrategy() {
+    GPUSearchParams params =
+        new GPUSearchParams.Builder()
+            .withStrategy(GPUSearchParams.Strategy.CUSTOM)
+            .withGraphDegree(DEFAULT_GRAPH_DEGREE)
+            .withIntermediateGraphDegree(DEFAULT_GRAPH_DEGREE)
+            .build();
+    assertEquals(params.getGraphdegree(), params.getIntermediateGraphDegree());
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new GPUSearchParams.Builder()
+                .withStrategy(GPUSearchParams.Strategy.CUSTOM)
+                .withGraphDegree(DEFAULT_GRAPH_DEGREE + 1)
+                .withIntermediateGraphDegree(DEFAULT_GRAPH_DEGREE)
+                .build());
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new GPUSearchParams.Builder()
+                .withStrategy(GPUSearchParams.Strategy.CUSTOM)
+                .withIntermediateGraphDegree(DEFAULT_GRAPH_DEGREE)
+                .withGraphDegree(DEFAULT_GRAPH_DEGREE + 1)
+                .build());
+  }
+
+  @Test
+  public void testGraphDegreeRelationshipNotEnforcedUnderHeuristicStrategy() {
+    // Under HEURISTIC, the intermediate degree is derived from the graph degree and the
+    // configured value is ignored, so a configured graphDegree > intermediateGraphDegree must not
+    // fail to build.
+    GPUSearchParams params =
+        new GPUSearchParams.Builder()
+            .withStrategy(GPUSearchParams.Strategy.HEURISTIC)
+            .withGraphDegree(DEFAULT_GRAPH_DEGREE + 1)
+            .withIntermediateGraphDegree(DEFAULT_GRAPH_DEGREE)
+            .build();
+    assertEquals(DEFAULT_GRAPH_DEGREE + 1, params.getGraphdegree());
+    assertEquals(DEFAULT_GRAPH_DEGREE, params.getIntermediateGraphDegree());
+  }
+
+  @Test
   public void testGPUSearchParamsInvalidGraphDegree() {
     for (int v :
         new int[] {
           random.nextInt(MIN_VALUE, MIN_GRAPH_DEG), random.nextInt(MAX_GRAPH_DEG + 1, MAX_VALUE)
         }) {
       assertThrows(
-          IllegalArgumentException.class,
-          () -> new GPUSearchParams.Builder().withGraphDegree(v).build());
+          IllegalArgumentException.class, () -> new GPUSearchParams.Builder().withGraphDegree(v));
     }
   }
 
@@ -73,7 +141,7 @@ public class TestGPUSearchParams extends LuceneTestCase {
         }) {
       assertThrows(
           IllegalArgumentException.class,
-          () -> new GPUSearchParams.Builder().withIntermediateGraphDegree(v).build());
+          () -> new GPUSearchParams.Builder().withIntermediateGraphDegree(v));
     }
   }
 
@@ -85,8 +153,7 @@ public class TestGPUSearchParams extends LuceneTestCase {
           random.nextInt(MAX_WRITER_THREADS + 1, MAX_VALUE)
         }) {
       assertThrows(
-          IllegalArgumentException.class,
-          () -> new GPUSearchParams.Builder().withWriterThreads(v).build());
+          IllegalArgumentException.class, () -> new GPUSearchParams.Builder().withWriterThreads(v));
     }
   }
 
