@@ -268,10 +268,13 @@ void _mg_search(cuvsResources_t res,
   auto neighbors_mds = cuvs::core::from_dlpack<neighbors_mdspan_type>(neighbors_tensor);
   auto distances_mds = cuvs::core::from_dlpack<distances_mdspan_type>(distances_tensor);
 
-  with_mg_index_by_layout<T>(box, "cuvsMultiGpuCagraSearch: null index handle", [&](auto* mg_index_ptr) {
-    cuvs::neighbors::cagra::search(
-      *res_ptr, *mg_index_ptr, mg_search_params, queries_mds, neighbors_mds, distances_mds);
-  });
+  RAFT_EXPECTS(box->layout == mg_cagra_dataset_layout::device_padded,
+               "cuvsMultiGpuCagraSearch: CAGRA search requires padded device datasets");
+  using padded_ann_t = cuvs::neighbors::cagra::device_padded_index<T, uint32_t>;
+  auto* mg_index_ptr =
+    reinterpret_cast<mg_cagra_index_t<T, padded_ann_t>*>(box->index_ptr);
+  cuvs::neighbors::cagra::search(
+    *res_ptr, *mg_index_ptr, mg_search_params, queries_mds, neighbors_mds, distances_mds);
 }
 
 template <typename T>

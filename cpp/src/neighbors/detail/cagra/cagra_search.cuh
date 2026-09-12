@@ -234,8 +234,6 @@ void search_main(raft::resources const& res,
     RAFT_FAIL(
       "Attempted to search without a dataset. Please call "
       "cagra::update_dataset(res, std::move(index), dataset) first.");
-  } else if constexpr (cuvs::neighbors::is_device_vpq_f32_dataset_view_v<DatasetViewT>) {
-    RAFT_FAIL("FP32 VPQ dataset support is coming soon");
   } else if constexpr (cuvs::neighbors::is_device_vpq_f16_dataset_view_v<DatasetViewT>) {
     auto const& vv = index.dataset();
     if (params.smem_dtype == cuvs::neighbors::cagra::internal_dtype::E5M2 &&
@@ -256,10 +254,6 @@ void search_main(raft::resources const& res,
       neighbors,
       distances,
       sample_filter);
-  } else if constexpr (cuvs::neighbors::is_device_standard_dataset_view_v<DatasetViewT>) {
-    RAFT_FAIL(
-      "CAGRA search requires a padded device dataset. Build from a standard dataset view, then "
-      "call cagra::update_dataset(res, std::move(index), padded_view) before search.");
   } else if constexpr (cuvs::neighbors::is_device_padded_dataset_view_v<DatasetViewT>) {
     run_strided_like(index.dataset());
   } else if constexpr (cuvs::neighbors::is_host_dataset_view_v<DatasetViewT>) {

@@ -185,6 +185,7 @@ struct index_state {
   {
     // if we only have ANN vectors, search those and return immendiately
     if (bfknn_rows() == 0) {
+      RAFT_EXPECTS(search_fn != nullptr, "An upstream search function is required for ANN search");
       search_fn(res, search_params, *ann_index, queries, neighbors, distances, sample_filter);
       return;
     }
@@ -223,6 +224,7 @@ struct index_state {
     auto temp_neighbors = raft::make_device_matrix<int64_t, int64_t>(res, 2 * n_queries, k);
 
     // search the ann index
+    RAFT_EXPECTS(search_fn != nullptr, "An upstream search function is required for ANN search");
     search_fn(
       res,
       search_params,

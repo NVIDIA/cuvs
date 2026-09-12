@@ -926,10 +926,6 @@ using host_standard_index = index<T, IdxT, cuvs::neighbors::host_standard_datase
 template <typename T, typename IdxT = uint32_t>
 using vpq_f16_index = index<T, IdxT, cuvs::neighbors::device_vpq_dataset_view<half, int64_t>>;
 
-/** CAGRA index with a device-resident VPQ dataset (f32 codebook vectors). */
-template <typename T, typename IdxT = uint32_t>
-using vpq_f32_index = index<T, IdxT, cuvs::neighbors::device_vpq_dataset_view<float, int64_t>>;
-
 /** Index type returned by `cagra::build(res, params, dataset_view)`. */
 template <typename DatasetViewT>
 using cagra_index_t = index<cuvs::neighbors::cagra_view_element_type_t<DatasetViewT>,
@@ -1443,74 +1439,6 @@ void search(raft::resources const& res,
             const cuvs::neighbors::filtering::base_filter& sample_filter =
               cuvs::neighbors::filtering::none_sample_filter{});
 
-// device_standard_index overloads (uint32_t neighbor indices)
-void search(raft::resources const& res,
-            cuvs::neighbors::cagra::search_params const& params,
-            const cuvs::neighbors::cagra::device_standard_index<float, uint32_t>& index,
-            raft::device_matrix_view<const float, int64_t, raft::row_major> queries,
-            raft::device_matrix_view<uint32_t, int64_t, raft::row_major> neighbors,
-            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
-            const cuvs::neighbors::filtering::base_filter& sample_filter =
-              cuvs::neighbors::filtering::none_sample_filter{});
-void search(raft::resources const& res,
-            cuvs::neighbors::cagra::search_params const& params,
-            const cuvs::neighbors::cagra::device_standard_index<half, uint32_t>& index,
-            raft::device_matrix_view<const half, int64_t, raft::row_major> queries,
-            raft::device_matrix_view<uint32_t, int64_t, raft::row_major> neighbors,
-            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
-            const cuvs::neighbors::filtering::base_filter& sample_filter =
-              cuvs::neighbors::filtering::none_sample_filter{});
-void search(raft::resources const& res,
-            cuvs::neighbors::cagra::search_params const& params,
-            const cuvs::neighbors::cagra::device_standard_index<int8_t, uint32_t>& index,
-            raft::device_matrix_view<const int8_t, int64_t, raft::row_major> queries,
-            raft::device_matrix_view<uint32_t, int64_t, raft::row_major> neighbors,
-            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
-            const cuvs::neighbors::filtering::base_filter& sample_filter =
-              cuvs::neighbors::filtering::none_sample_filter{});
-void search(raft::resources const& res,
-            cuvs::neighbors::cagra::search_params const& params,
-            const cuvs::neighbors::cagra::device_standard_index<uint8_t, uint32_t>& index,
-            raft::device_matrix_view<const uint8_t, int64_t, raft::row_major> queries,
-            raft::device_matrix_view<uint32_t, int64_t, raft::row_major> neighbors,
-            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
-            const cuvs::neighbors::filtering::base_filter& sample_filter =
-              cuvs::neighbors::filtering::none_sample_filter{});
-
-// device_standard_index overloads (int64_t neighbor indices)
-void search(raft::resources const& res,
-            cuvs::neighbors::cagra::search_params const& params,
-            const cuvs::neighbors::cagra::device_standard_index<float, uint32_t>& index,
-            raft::device_matrix_view<const float, int64_t, raft::row_major> queries,
-            raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
-            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
-            const cuvs::neighbors::filtering::base_filter& sample_filter =
-              cuvs::neighbors::filtering::none_sample_filter{});
-void search(raft::resources const& res,
-            cuvs::neighbors::cagra::search_params const& params,
-            const cuvs::neighbors::cagra::device_standard_index<half, uint32_t>& index,
-            raft::device_matrix_view<const half, int64_t, raft::row_major> queries,
-            raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
-            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
-            const cuvs::neighbors::filtering::base_filter& sample_filter =
-              cuvs::neighbors::filtering::none_sample_filter{});
-void search(raft::resources const& res,
-            cuvs::neighbors::cagra::search_params const& params,
-            const cuvs::neighbors::cagra::device_standard_index<int8_t, uint32_t>& index,
-            raft::device_matrix_view<const int8_t, int64_t, raft::row_major> queries,
-            raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
-            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
-            const cuvs::neighbors::filtering::base_filter& sample_filter =
-              cuvs::neighbors::filtering::none_sample_filter{});
-void search(raft::resources const& res,
-            cuvs::neighbors::cagra::search_params const& params,
-            const cuvs::neighbors::cagra::device_standard_index<uint8_t, uint32_t>& index,
-            raft::device_matrix_view<const uint8_t, int64_t, raft::row_major> queries,
-            raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
-            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
-            const cuvs::neighbors::filtering::base_filter& sample_filter =
-              cuvs::neighbors::filtering::none_sample_filter{});
-
 // vpq_f16_index overloads (uint32_t neighbor indices)
 /**
  * @brief Search ANN using the constructed index.
@@ -1715,232 +1643,6 @@ void search(raft::resources const& res,
 void search(raft::resources const& res,
             cuvs::neighbors::cagra::search_params const& params,
             const cuvs::neighbors::cagra::vpq_f16_index<uint8_t, uint32_t>& index,
-            raft::device_matrix_view<const uint8_t, int64_t, raft::row_major> queries,
-            raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
-            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
-            const cuvs::neighbors::filtering::base_filter& sample_filter =
-              cuvs::neighbors::filtering::none_sample_filter{});
-
-// vpq_f32_index overloads (uint32_t neighbor indices)
-/**
- * @brief Search ANN using the constructed index.
- *
- * See the [cagra::build](#cagra::build) documentation for a usage example.
- *
- * @param[in] res raft resources
- * @param[in] params configure the search
- * @param[in] index pre-built vpq_f32_index (CAGRA-Q, VPQ f32-compressed dataset) with uint32_t
- * neighbor indices
- * @param[in] queries a device matrix view to a row-major matrix [n_queries, index.dim()]
- * @param[out] neighbors a device matrix view to the indices of the neighbors in the source dataset
- * [n_queries, k]
- * @param[out] distances a device matrix view to the distances to the selected neighbors [n_queries,
- * k]
- * @param[in] sample_filter an optional device filter function object that greenlights samples
- * for a given query. (none_sample_filter for no filtering).
- *
- * @note FP32 VPQ search is declared for ABI stability but fails at runtime until implemented.
- */
-void search(raft::resources const& res,
-            cuvs::neighbors::cagra::search_params const& params,
-            const cuvs::neighbors::cagra::vpq_f32_index<float, uint32_t>& index,
-            raft::device_matrix_view<const float, int64_t, raft::row_major> queries,
-            raft::device_matrix_view<uint32_t, int64_t, raft::row_major> neighbors,
-            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
-            const cuvs::neighbors::filtering::base_filter& sample_filter =
-              cuvs::neighbors::filtering::none_sample_filter{});
-
-/**
- * @brief Search ANN using the constructed index.
- *
- * See the [cagra::build](#cagra::build) documentation for a usage example.
- *
- * @param[in] res raft resources
- * @param[in] params configure the search
- * @param[in] index pre-built vpq_f32_index (CAGRA-Q, VPQ f32-compressed dataset) with uint32_t
- * neighbor indices
- * @param[in] queries a device matrix view to a row-major matrix [n_queries, index.dim()]
- * @param[out] neighbors a device matrix view to the indices of the neighbors in the source dataset
- * [n_queries, k]
- * @param[out] distances a device matrix view to the distances to the selected neighbors [n_queries,
- * k]
- * @param[in] sample_filter an optional device filter function object that greenlights samples
- * for a given query. (none_sample_filter for no filtering).
- *
- * @note FP32 VPQ search is declared for ABI stability but fails at runtime until implemented.
- */
-void search(raft::resources const& res,
-            cuvs::neighbors::cagra::search_params const& params,
-            const cuvs::neighbors::cagra::vpq_f32_index<half, uint32_t>& index,
-            raft::device_matrix_view<const half, int64_t, raft::row_major> queries,
-            raft::device_matrix_view<uint32_t, int64_t, raft::row_major> neighbors,
-            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
-            const cuvs::neighbors::filtering::base_filter& sample_filter =
-              cuvs::neighbors::filtering::none_sample_filter{});
-
-/**
- * @brief Search ANN using the constructed index.
- *
- * See the [cagra::build](#cagra::build) documentation for a usage example.
- *
- * @param[in] res raft resources
- * @param[in] params configure the search
- * @param[in] index pre-built vpq_f32_index (CAGRA-Q, VPQ f32-compressed dataset) with uint32_t
- * neighbor indices
- * @param[in] queries a device matrix view to a row-major matrix [n_queries, index.dim()]
- * @param[out] neighbors a device matrix view to the indices of the neighbors in the source dataset
- * [n_queries, k]
- * @param[out] distances a device matrix view to the distances to the selected neighbors [n_queries,
- * k]
- * @param[in] sample_filter an optional device filter function object that greenlights samples
- * for a given query. (none_sample_filter for no filtering).
- *
- * @note FP32 VPQ search is declared for ABI stability but fails at runtime until implemented.
- */
-void search(raft::resources const& res,
-            cuvs::neighbors::cagra::search_params const& params,
-            const cuvs::neighbors::cagra::vpq_f32_index<int8_t, uint32_t>& index,
-            raft::device_matrix_view<const int8_t, int64_t, raft::row_major> queries,
-            raft::device_matrix_view<uint32_t, int64_t, raft::row_major> neighbors,
-            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
-            const cuvs::neighbors::filtering::base_filter& sample_filter =
-              cuvs::neighbors::filtering::none_sample_filter{});
-
-/**
- * @brief Search ANN using the constructed index.
- *
- * See the [cagra::build](#cagra::build) documentation for a usage example.
- *
- * @param[in] res raft resources
- * @param[in] params configure the search
- * @param[in] index pre-built vpq_f32_index (CAGRA-Q, VPQ f32-compressed dataset) with uint32_t
- * neighbor indices
- * @param[in] queries a device matrix view to a row-major matrix [n_queries, index.dim()]
- * @param[out] neighbors a device matrix view to the indices of the neighbors in the source dataset
- * [n_queries, k]
- * @param[out] distances a device matrix view to the distances to the selected neighbors [n_queries,
- * k]
- * @param[in] sample_filter an optional device filter function object that greenlights samples
- * for a given query. (none_sample_filter for no filtering).
- *
- * @note FP32 VPQ search is declared for ABI stability but fails at runtime until implemented.
- */
-void search(raft::resources const& res,
-            cuvs::neighbors::cagra::search_params const& params,
-            const cuvs::neighbors::cagra::vpq_f32_index<uint8_t, uint32_t>& index,
-            raft::device_matrix_view<const uint8_t, int64_t, raft::row_major> queries,
-            raft::device_matrix_view<uint32_t, int64_t, raft::row_major> neighbors,
-            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
-            const cuvs::neighbors::filtering::base_filter& sample_filter =
-              cuvs::neighbors::filtering::none_sample_filter{});
-
-// vpq_f32_index overloads (int64_t neighbor indices)
-/**
- * @brief Search ANN using the constructed index.
- *
- * See the [cagra::build](#cagra::build) documentation for a usage example.
- *
- * @param[in] res raft resources
- * @param[in] params configure the search
- * @param[in] index pre-built vpq_f32_index (CAGRA-Q, VPQ f32-compressed dataset) with int64_t
- * neighbor indices
- * @param[in] queries a device matrix view to a row-major matrix [n_queries, index.dim()]
- * @param[out] neighbors a device matrix view to the indices of the neighbors in the source dataset
- * [n_queries, k]
- * @param[out] distances a device matrix view to the distances to the selected neighbors [n_queries,
- * k]
- * @param[in] sample_filter an optional device filter function object that greenlights samples
- * for a given query. (none_sample_filter for no filtering).
- *
- * @note FP32 VPQ search is declared for ABI stability but fails at runtime until implemented.
- */
-void search(raft::resources const& res,
-            cuvs::neighbors::cagra::search_params const& params,
-            const cuvs::neighbors::cagra::vpq_f32_index<float, uint32_t>& index,
-            raft::device_matrix_view<const float, int64_t, raft::row_major> queries,
-            raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
-            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
-            const cuvs::neighbors::filtering::base_filter& sample_filter =
-              cuvs::neighbors::filtering::none_sample_filter{});
-
-/**
- * @brief Search ANN using the constructed index.
- *
- * See the [cagra::build](#cagra::build) documentation for a usage example.
- *
- * @param[in] res raft resources
- * @param[in] params configure the search
- * @param[in] index pre-built vpq_f32_index (CAGRA-Q, VPQ f32-compressed dataset) with int64_t
- * neighbor indices
- * @param[in] queries a device matrix view to a row-major matrix [n_queries, index.dim()]
- * @param[out] neighbors a device matrix view to the indices of the neighbors in the source dataset
- * [n_queries, k]
- * @param[out] distances a device matrix view to the distances to the selected neighbors [n_queries,
- * k]
- * @param[in] sample_filter an optional device filter function object that greenlights samples
- * for a given query. (none_sample_filter for no filtering).
- *
- * @note FP32 VPQ search is declared for ABI stability but fails at runtime until implemented.
- */
-void search(raft::resources const& res,
-            cuvs::neighbors::cagra::search_params const& params,
-            const cuvs::neighbors::cagra::vpq_f32_index<half, uint32_t>& index,
-            raft::device_matrix_view<const half, int64_t, raft::row_major> queries,
-            raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
-            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
-            const cuvs::neighbors::filtering::base_filter& sample_filter =
-              cuvs::neighbors::filtering::none_sample_filter{});
-
-/**
- * @brief Search ANN using the constructed index.
- *
- * See the [cagra::build](#cagra::build) documentation for a usage example.
- *
- * @param[in] res raft resources
- * @param[in] params configure the search
- * @param[in] index pre-built vpq_f32_index (CAGRA-Q, VPQ f32-compressed dataset) with int64_t
- * neighbor indices
- * @param[in] queries a device matrix view to a row-major matrix [n_queries, index.dim()]
- * @param[out] neighbors a device matrix view to the indices of the neighbors in the source dataset
- * [n_queries, k]
- * @param[out] distances a device matrix view to the distances to the selected neighbors [n_queries,
- * k]
- * @param[in] sample_filter an optional device filter function object that greenlights samples
- * for a given query. (none_sample_filter for no filtering).
- *
- * @note FP32 VPQ search is declared for ABI stability but fails at runtime until implemented.
- */
-void search(raft::resources const& res,
-            cuvs::neighbors::cagra::search_params const& params,
-            const cuvs::neighbors::cagra::vpq_f32_index<int8_t, uint32_t>& index,
-            raft::device_matrix_view<const int8_t, int64_t, raft::row_major> queries,
-            raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
-            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
-            const cuvs::neighbors::filtering::base_filter& sample_filter =
-              cuvs::neighbors::filtering::none_sample_filter{});
-
-/**
- * @brief Search ANN using the constructed index.
- *
- * See the [cagra::build](#cagra::build) documentation for a usage example.
- *
- * @param[in] res raft resources
- * @param[in] params configure the search
- * @param[in] index pre-built vpq_f32_index (CAGRA-Q, VPQ f32-compressed dataset) with int64_t
- * neighbor indices
- * @param[in] queries a device matrix view to a row-major matrix [n_queries, index.dim()]
- * @param[out] neighbors a device matrix view to the indices of the neighbors in the source dataset
- * [n_queries, k]
- * @param[out] distances a device matrix view to the distances to the selected neighbors [n_queries,
- * k]
- * @param[in] sample_filter an optional device filter function object that greenlights samples
- * for a given query. (none_sample_filter for no filtering).
- *
- * @note FP32 VPQ search is declared for ABI stability but fails at runtime until implemented.
- */
-void search(raft::resources const& res,
-            cuvs::neighbors::cagra::search_params const& params,
-            const cuvs::neighbors::cagra::vpq_f32_index<uint8_t, uint32_t>& index,
             raft::device_matrix_view<const uint8_t, int64_t, raft::row_major> queries,
             raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
             raft::device_matrix_view<float, int64_t, raft::row_major> distances,
@@ -3872,16 +3574,6 @@ void search(
   raft::host_matrix_view<int64_t, int64_t, row_major> neighbors,
   raft::host_matrix_view<float, int64_t, row_major> distances);
 
-/** @copydoc search */
-void search(
-  const raft::resources& clique,
-  const cuvs::neighbors::mg_index<cagra::device_standard_index<float, uint32_t>, float, uint32_t>&
-    index,
-  const cuvs::neighbors::mg_search_params<cagra::search_params>& search_params,
-  raft::host_matrix_view<const float, int64_t, row_major> queries,
-  raft::host_matrix_view<int64_t, int64_t, row_major> neighbors,
-  raft::host_matrix_view<float, int64_t, row_major> distances);
-
 /// \ingroup mg_cpp_index_search
 /**
  * @brief Searches a multi-GPU index
@@ -3907,16 +3599,6 @@ void search(
 void search(
   const raft::resources& clique,
   const cuvs::neighbors::mg_index<cagra::device_padded_index<half, uint32_t>, half, uint32_t>&
-    index,
-  const cuvs::neighbors::mg_search_params<cagra::search_params>& search_params,
-  raft::host_matrix_view<const half, int64_t, row_major> queries,
-  raft::host_matrix_view<int64_t, int64_t, row_major> neighbors,
-  raft::host_matrix_view<float, int64_t, row_major> distances);
-
-/** @copydoc search */
-void search(
-  const raft::resources& clique,
-  const cuvs::neighbors::mg_index<cagra::device_standard_index<half, uint32_t>, half, uint32_t>&
     index,
   const cuvs::neighbors::mg_search_params<cagra::search_params>& search_params,
   raft::host_matrix_view<const half, int64_t, row_major> queries,
@@ -3954,16 +3636,6 @@ void search(
   raft::host_matrix_view<int64_t, int64_t, row_major> neighbors,
   raft::host_matrix_view<float, int64_t, row_major> distances);
 
-/** @copydoc search */
-void search(
-  const raft::resources& clique,
-  const cuvs::neighbors::mg_index<cagra::device_standard_index<int8_t, uint32_t>, int8_t, uint32_t>&
-    index,
-  const cuvs::neighbors::mg_search_params<cagra::search_params>& search_params,
-  raft::host_matrix_view<const int8_t, int64_t, row_major> queries,
-  raft::host_matrix_view<int64_t, int64_t, row_major> neighbors,
-  raft::host_matrix_view<float, int64_t, row_major> distances);
-
 /// \ingroup mg_cpp_index_search
 /**
  * @brief Searches a multi-GPU index
@@ -3994,15 +3666,6 @@ void search(
   raft::host_matrix_view<const uint8_t, int64_t, row_major> queries,
   raft::host_matrix_view<int64_t, int64_t, row_major> neighbors,
   raft::host_matrix_view<float, int64_t, row_major> distances);
-
-/** @copydoc search */
-void search(const raft::resources& clique,
-            const cuvs::neighbors::
-              mg_index<cagra::device_standard_index<uint8_t, uint32_t>, uint8_t, uint32_t>& index,
-            const cuvs::neighbors::mg_search_params<cagra::search_params>& search_params,
-            raft::host_matrix_view<const uint8_t, int64_t, row_major> queries,
-            raft::host_matrix_view<int64_t, int64_t, row_major> neighbors,
-            raft::host_matrix_view<float, int64_t, row_major> distances);
 
 /// \ingroup mg_cpp_index_search
 /**
@@ -4035,16 +3698,6 @@ void search(
   raft::host_matrix_view<uint32_t, int64_t, row_major> neighbors,
   raft::host_matrix_view<float, int64_t, row_major> distances);
 
-/** @copydoc search */
-void search(
-  const raft::resources& clique,
-  const cuvs::neighbors::mg_index<cagra::device_standard_index<float, uint32_t>, float, uint32_t>&
-    index,
-  const cuvs::neighbors::mg_search_params<cagra::search_params>& search_params,
-  raft::host_matrix_view<const float, int64_t, row_major> queries,
-  raft::host_matrix_view<uint32_t, int64_t, row_major> neighbors,
-  raft::host_matrix_view<float, int64_t, row_major> distances);
-
 /// \ingroup mg_cpp_index_search
 /**
  * @brief Searches a multi-GPU index
@@ -4070,16 +3723,6 @@ void search(
 void search(
   const raft::resources& clique,
   const cuvs::neighbors::mg_index<cagra::device_padded_index<half, uint32_t>, half, uint32_t>&
-    index,
-  const cuvs::neighbors::mg_search_params<cagra::search_params>& search_params,
-  raft::host_matrix_view<const half, int64_t, row_major> queries,
-  raft::host_matrix_view<uint32_t, int64_t, row_major> neighbors,
-  raft::host_matrix_view<float, int64_t, row_major> distances);
-
-/** @copydoc search */
-void search(
-  const raft::resources& clique,
-  const cuvs::neighbors::mg_index<cagra::device_standard_index<half, uint32_t>, half, uint32_t>&
     index,
   const cuvs::neighbors::mg_search_params<cagra::search_params>& search_params,
   raft::host_matrix_view<const half, int64_t, row_major> queries,
@@ -4117,16 +3760,6 @@ void search(
   raft::host_matrix_view<uint32_t, int64_t, row_major> neighbors,
   raft::host_matrix_view<float, int64_t, row_major> distances);
 
-/** @copydoc search */
-void search(
-  const raft::resources& clique,
-  const cuvs::neighbors::mg_index<cagra::device_standard_index<int8_t, uint32_t>, int8_t, uint32_t>&
-    index,
-  const cuvs::neighbors::mg_search_params<cagra::search_params>& search_params,
-  raft::host_matrix_view<const int8_t, int64_t, row_major> queries,
-  raft::host_matrix_view<uint32_t, int64_t, row_major> neighbors,
-  raft::host_matrix_view<float, int64_t, row_major> distances);
-
 /// \ingroup mg_cpp_index_search
 /**
  * @brief Searches a multi-GPU index
@@ -4157,15 +3790,6 @@ void search(
   raft::host_matrix_view<const uint8_t, int64_t, row_major> queries,
   raft::host_matrix_view<uint32_t, int64_t, row_major> neighbors,
   raft::host_matrix_view<float, int64_t, row_major> distances);
-
-/** @copydoc search */
-void search(const raft::resources& clique,
-            const cuvs::neighbors::
-              mg_index<cagra::device_standard_index<uint8_t, uint32_t>, uint8_t, uint32_t>& index,
-            const cuvs::neighbors::mg_search_params<cagra::search_params>& search_params,
-            raft::host_matrix_view<const uint8_t, int64_t, row_major> queries,
-            raft::host_matrix_view<uint32_t, int64_t, row_major> neighbors,
-            raft::host_matrix_view<float, int64_t, row_major> distances);
 
 /// \defgroup mg_cpp_serialize ANN MG index serialization
 

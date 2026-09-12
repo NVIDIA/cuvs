@@ -758,6 +758,7 @@ void _search(cuvsResources_t res,
     "cuvsCagraSearch: host index must be converted to device first via "
     "cuvsCagraUpdateDataset with a device padded dataset view",
     [&](auto& idx) {
+      using dataset_view_t = std::remove_cvref_t<decltype(idx.dataset())>;
       auto search_params = cuvs::neighbors::cagra::search_params();
       convert_c_search_params(params, &search_params);
 
@@ -768,8 +769,12 @@ void _search(cuvsResources_t res,
       auto neighbors_mds          = cuvs::core::from_dlpack<neighbors_mdspan_type>(neighbors_tensor);
       auto distances_mds          = cuvs::core::from_dlpack<distances_mdspan_type>(distances_tensor);
       if (filter.type == NO_FILTER) {
-        cuvs::neighbors::cagra::search(
-          *res_ptr, search_params, idx, queries_mds, neighbors_mds, distances_mds);
+        if constexpr (cuvs::neighbors::is_device_standard_dataset_view_v<dataset_view_t>) {
+          RAFT_FAIL("cuvsCagraSearch: CAGRA search requires a padded device dataset");
+        } else {
+          cuvs::neighbors::cagra::search(
+            *res_ptr, search_params, idx, queries_mds, neighbors_mds, distances_mds);
+        }
       } else if (filter.type == BITSET) {
         using filter_mdspan_type = raft::device_vector_view<std::uint32_t, int64_t, raft::row_major>;
         auto removed_indices_tensor = reinterpret_cast<DLManagedTensor*>(filter.addr);
@@ -777,13 +782,17 @@ void _search(cuvsResources_t res,
         cuvs::core::bitset_view<std::uint32_t, int64_t> removed_indices_bitset(
           removed_indices, idx.dataset().n_rows());
         auto bitset_filter_obj = cuvs::neighbors::filtering::bitset_filter(removed_indices_bitset);
-        cuvs::neighbors::cagra::search(*res_ptr,
-                                       search_params,
-                                       idx,
-                                       queries_mds,
-                                       neighbors_mds,
-                                       distances_mds,
-                                       bitset_filter_obj);
+        if constexpr (cuvs::neighbors::is_device_standard_dataset_view_v<dataset_view_t>) {
+          RAFT_FAIL("cuvsCagraSearch: CAGRA search requires a padded device dataset");
+        } else {
+          cuvs::neighbors::cagra::search(*res_ptr,
+                                         search_params,
+                                         idx,
+                                         queries_mds,
+                                         neighbors_mds,
+                                         distances_mds,
+                                         bitset_filter_obj);
+        }
       } else {
         RAFT_FAIL("Unsupported filter type: BITMAP");
       }
