@@ -108,9 +108,11 @@ __global__ void exrabitq_quantize_query(
     out_ptr[j] = static_cast<int8_t>(code_val);
   }
 
-  // only thread 0 in the block needs the results, so simply use blockReduceSum
-  ip_resi_xucb = blockReduceSum(ip_resi_xucb);
-  xu_sq        = blockReduceSum(xu_sq);
+  // only thread 0 needs the results; fuse both reductions into one race-free pass
+  float reduce_buf[2] = {ip_resi_xucb, xu_sq};
+  blockReduceSumN<2>(reduce_buf);
+  ip_resi_xucb = reduce_buf[0];
+  xu_sq        = reduce_buf[1];
 
   // Thread 0 computes and writes the final factors
   if (tid == 0) {
