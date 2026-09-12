@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -360,9 +360,10 @@ class ConfigLoader(ABC):
         Returns
         -------
         list
-            A list of paths to the algorithm configuration files.
+            Bundled paths followed by custom paths, with each directory
+            ordered by filename.
         """
-        algos_conf_fs = os.listdir(os.path.join(config_path, "algos"))
+        algos_conf_fs = sorted(os.listdir(os.path.join(config_path, "algos")))
         algos_conf_fs = [
             os.path.join(config_path, "algos", f)
             for f in algos_conf_fs
@@ -373,7 +374,7 @@ class ConfigLoader(ABC):
             if os.path.isdir(algorithm_configuration):
                 algos_conf_fs += [
                     os.path.join(algorithm_configuration, f)
-                    for f in os.listdir(algorithm_configuration)
+                    for f in sorted(os.listdir(algorithm_configuration))
                     if f.endswith((".yaml", ".yml"))
                 ]
             elif os.path.isfile(algorithm_configuration):

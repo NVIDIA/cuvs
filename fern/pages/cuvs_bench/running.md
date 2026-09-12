@@ -64,6 +64,7 @@ Create a custom YAML file with a `base` group to override the default benchmark 
 | HNSWLIB | `hnswlib` |
 | DiskANN | `diskann_memory`, `diskann_ssd` |
 | NVIDIA cuVS | `cuvs_brute_force`, `cuvs_cagra`, `cuvs_ivf_flat`, `cuvs_ivf_pq`, `cuvs_cagra_hnswlib`, `cuvs_vamana` |
+| PyLucene/cuVS | `pylucene_cuvs_hnsw`, `pylucene_cuvs_cagra` |
 
 ### Multi-GPU algorithms
 
@@ -74,6 +75,10 @@ cuVS Bench includes single-node multi-GPU versions of IVF-Flat, IVF-PQ, and CAGR
 | IVF-Flat | `cuvs_mg_ivf_flat` |
 | IVF-PQ | `cuvs_mg_ivf_pq` |
 | CAGRA | `cuvs_mg_cagra` |
+
+## Running the PyLucene backend
+
+PyLucene uses an embedded JVM and external cuVS-Lucene artifacts rather than the default `cpp_gbench` executables. See [PyLucene Backend](/user-guide/benchmarking-guide/cu-vs-bench-tool/pylucene-backend) for its dependency setup, backend configuration, parameter semantics, and benchmark workflows.
 
 ## Smaller-scale benchmarks (&lt;1M to 10M vectors)
 
@@ -192,7 +197,9 @@ Containers can also run in detached mode.
 
 ## Evaluating results
 
-Build benchmarks report:
+The tables below describe fields emitted by the default C++ Google Benchmark backend. Other backends report the fields that apply to their execution model, so not every field is present for every backend.
+
+C++ build benchmarks report:
 
 | Name | Description |
 | --- | --- |
@@ -203,7 +210,7 @@ Build benchmarks report:
 | GPU | GPU time spent building. |
 | index_size | Number of vectors used to train the index. |
 
-Search benchmarks report:
+C++ search benchmarks report:
 
 | Name | Description |
 | --- | --- |

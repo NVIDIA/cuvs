@@ -112,6 +112,13 @@ class Dataset:
             )
         return self._training_vectors
 
+    @property
+    def loaded_training_vectors(self) -> Optional[np.ndarray]:
+        """Training vectors already in memory, without loading ``base_file``."""
+        if self._training_vectors.size == 0:
+            return None
+        return self._training_vectors
+
     @training_vectors.setter
     def training_vectors(self, value: Optional[np.ndarray]) -> None:
         """Set training vectors directly."""
