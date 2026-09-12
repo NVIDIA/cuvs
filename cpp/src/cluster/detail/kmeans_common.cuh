@@ -62,7 +62,8 @@ namespace cuvs::cluster::kmeans::detail {
  *
  * On Ampere (SM <= 8.x) always use fused.
  * On Hopper (SM 9.x) use fused when m or n >= 4096.
- * On Blackwell (SM >= 10.x) use unfused.
+ * On datacenter Blackwell (SM 10.x) use unfused.
+ * On consumer Blackwell (SM 12.x) use fused only for small k.
  */
 template <typename MathT, typename IdxT, typename LabelT>
 bool use_fused(const raft::resources& handle, IdxT m, IdxT n, IdxT k)
@@ -75,8 +76,16 @@ bool use_fused(const raft::resources& handle, IdxT m, IdxT n, IdxT k)
   } else if (prop.major == 9 && (m >= 4096 || n >= 4096)) {
     // On Hopper if m, n are bigger than 4096, use fused
     return true;
+  } else if (prop.major == 12) {
+    // Consumer Blackwell (sm_120/sm_121) is a different machine from sm_100:
+    // 100 KB of shared memory per SM and no tcgen05. Here the fused kernel still
+    // wins for small k, where the unfused path's m x n distance matrix costs more
+    // traffic than the GEMM costs arithmetic. Measured crossover is k ~= 16-20,
+    // except at small n where the unfused reduction is already cheap and fused
+    // only pays off for the smallest k.
+    return k <= 16 && (n >= 512 || k <= 8);
   } else if (prop.major >= 10) {
-    // On Blackwell onwards, use unfused
+    // On datacenter Blackwell, use unfused
     return false;
   }
   return false;
