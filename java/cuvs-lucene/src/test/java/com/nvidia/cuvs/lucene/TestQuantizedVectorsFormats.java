@@ -26,6 +26,7 @@ import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.VectorEncoding;
+import org.apache.lucene.search.AcceptDocs;
 import org.apache.lucene.store.ByteBuffersDirectory;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.tests.index.BaseKnnVectorsFormatTestCase;
@@ -63,6 +64,11 @@ public class TestQuantizedVectorsFormats extends BaseKnnVectorsFormatTestCase {
   protected Codec getCodec() {
     log.log(Level.FINE, "Running tests for: " + knnVectorsFormat.getName());
     return TestUtil.alwaysKnnVectorsFormat(knnVectorsFormat);
+  }
+
+  @Override
+  protected boolean supportsFloatVectorFallback() {
+    return false;
   }
 
   public void testMergeTwoSegsWithASingleDocPerSeg() throws Exception {
@@ -174,7 +180,8 @@ public class TestQuantizedVectorsFormats extends BaseKnnVectorsFormatTestCase {
         assertEquals(R, values.size());
 
         float[] queryVector = randomVector(D);
-        var topDocs = r.searchNearestVectors(F, queryVector, 2, null, 10);
+        AcceptDocs acceptAll = AcceptDocs.fromLiveDocs(null, r.maxDoc());
+        var topDocs = r.searchNearestVectors(F, queryVector, 2, acceptAll, 10);
         assertTrue("Should return at least one result", topDocs.scoreDocs.length > 0);
         assertTrue("Scores should be non-negative", topDocs.scoreDocs[0].score >= 0);
       }

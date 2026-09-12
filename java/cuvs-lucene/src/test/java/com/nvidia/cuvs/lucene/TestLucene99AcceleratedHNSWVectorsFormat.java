@@ -19,6 +19,7 @@ import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.VectorEncoding;
+import org.apache.lucene.search.AcceptDocs;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.tests.index.BaseKnnVectorsFormatTestCase;
 import org.apache.lucene.tests.util.LuceneTestCase.SuppressSysoutChecks;
@@ -37,6 +38,11 @@ public class TestLucene99AcceleratedHNSWVectorsFormat extends BaseKnnVectorsForm
   @Override
   protected Codec getCodec() {
     return TestUtil.alwaysKnnVectorsFormat(new Lucene99AcceleratedHNSWVectorsFormat());
+  }
+
+  @Override
+  protected boolean supportsFloatVectorFallback() {
+    return false;
   }
 
   public void testMergeTwoSegsWithASingleDocPerSeg() throws Exception {
@@ -111,7 +117,9 @@ public class TestLucene99AcceleratedHNSWVectorsFormat extends BaseKnnVectorsForm
         assertArrayEquals(f2[1], values.vectorValue(1), 0.0f);
 
         // opportunistically check boundary condition - search with a 0 topK
-        var topDocs = r.searchNearestVectors("f1", randomVector(384), 0, null, 10);
+        var topDocs =
+            r.searchNearestVectors(
+                "f1", randomVector(384), 0, AcceptDocs.fromLiveDocs(null, r.maxDoc()), 10);
         assertEquals(0, topDocs.scoreDocs.length);
         assertEquals(0, topDocs.totalHits.value());
       }

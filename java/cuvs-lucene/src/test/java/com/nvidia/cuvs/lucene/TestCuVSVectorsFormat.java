@@ -7,6 +7,7 @@ package com.nvidia.cuvs.lucene;
 import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.isSupported;
 import static org.apache.lucene.index.VectorSimilarityFunction.EUCLIDEAN;
 
+import java.io.IOException;
 import java.util.List;
 import org.apache.lucene.codecs.Codec;
 import org.apache.lucene.document.Document;
@@ -19,6 +20,7 @@ import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.VectorEncoding;
+import org.apache.lucene.search.AcceptDocs;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.tests.index.BaseKnnVectorsFormatTestCase;
 import org.apache.lucene.tests.util.LuceneTestCase.SuppressSysoutChecks;
@@ -37,6 +39,16 @@ public class TestCuVSVectorsFormat extends BaseKnnVectorsFormatTestCase {
   @Override
   protected Codec getCodec() {
     return TestUtil.alwaysKnnVectorsFormat(new CuVS2510GPUVectorsFormat());
+  }
+
+  @Override
+  protected boolean supportsFloatVectorFallback() {
+    return false;
+  }
+
+  @Override
+  protected void assertOffHeapByteSize(LeafReader r, String fieldName) throws IOException {
+    // Off-heap size checks assume Lucene's CPU reader; skip for the GPU format.
   }
 
   public void testMergeTwoSegsWithASingleDocPerSeg() throws Exception {
@@ -111,7 +123,9 @@ public class TestCuVSVectorsFormat extends BaseKnnVectorsFormatTestCase {
         assertArrayEquals(f2[1], values.vectorValue(1), 0.0f);
 
         // opportunistically check boundary condition - search with a 0 topK
-        var topDocs = r.searchNearestVectors("f1", randomVector(384), 0, null, 10);
+        var topDocs =
+            r.searchNearestVectors(
+                "f1", randomVector(384), 0, AcceptDocs.fromLiveDocs(null, r.maxDoc()), 10);
         assertEquals(0, topDocs.scoreDocs.length);
         assertEquals(0, topDocs.totalHits.value());
       }

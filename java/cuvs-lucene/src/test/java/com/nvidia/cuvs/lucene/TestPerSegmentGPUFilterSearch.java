@@ -15,6 +15,7 @@ import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.LeafReader;
+import org.apache.lucene.search.AcceptDocs;
 import org.apache.lucene.search.ScoreDoc;
 import org.apache.lucene.search.TopKnnCollector;
 import org.apache.lucene.store.ByteBuffersDirectory;
@@ -77,7 +78,8 @@ public class TestPerSegmentGPUFilterSearch extends LuceneTestCase {
           }
           for (float[] q : queries) {
             TopKnnCollector collector = new TopKnnCollector(topK, Integer.MAX_VALUE);
-            leaf.searchNearestVectors(VECTOR_FIELD, q, collector, acceptDocs);
+            leaf.searchNearestVectors(
+                VECTOR_FIELD, q, collector, AcceptDocs.fromLiveDocs(acceptDocs, leaf.maxDoc()));
             for (ScoreDoc hit : collector.topDocs().scoreDocs) {
               assertTrue(
                   "per-segment search returned doc " + hit.doc + " outside filter category " + c,
