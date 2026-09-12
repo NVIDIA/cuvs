@@ -11,6 +11,7 @@ from cuvs.common.c_api cimport (
     cuvsMultiGpuResourcesCreateWithDeviceIds,
     cuvsMultiGpuResourcesDestroy,
     cuvsMultiGpuResourcesSetMemoryPool,
+    cuvsMultiGpuResourcesSetStreamPool,
     cuvsResources_t,
     cuvsStreamSet,
     cuvsStreamSync,
@@ -107,6 +108,20 @@ cdef class MultiGpuResources:
         """
         check_cuvs(cuvsMultiGpuResourcesSetMemoryPool(
             self.c_obj, percent_of_free_memory))
+
+    def set_stream_pool(self, num_streams=1):
+        """
+        Set a CUDA stream pool on all devices managed by these resources.
+
+        Parameters
+        ----------
+        num_streams : int, default=1
+            Number of non-blocking CUDA streams in each device's pool.
+        """
+        if num_streams <= 0:
+            raise ValueError("num_streams must be greater than zero")
+        check_cuvs(cuvsMultiGpuResourcesSetStreamPool(
+            self.c_obj, num_streams))
 
     def get_c_obj(self):
         """

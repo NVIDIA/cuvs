@@ -683,6 +683,7 @@ __device__ void check_convergence(raft::device_scalar_view<const DataT> clusteri
  * @param[inout]  centroid_sums        Running weighted sums [n_clusters x n_features] (added into)
  * @param[inout]  weight_per_cluster   Running weight counts [n_clusters] (added into)
  * @param[inout]  clustering_cost      Running cost scalar (device) (added into)
+ * @param[out]    batch_cost           Reusable scratch scalar for this batch's cost
  */
 template <typename DataT, typename IndexT>
 void process_batch(
@@ -700,7 +701,8 @@ void process_batch(
   raft::device_matrix_view<DataT, IndexT> centroid_sums,
   raft::device_vector_view<DataT, IndexT> weight_per_cluster,
   raft::device_scalar_view<DataT> clustering_cost,
-  rmm::device_uvector<char>& batch_workspace)
+  rmm::device_uvector<char>& batch_workspace,
+  raft::device_scalar_view<DataT> batch_cost)
 {
   cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
 
@@ -742,9 +744,8 @@ void process_batch(
     raft::make_const_mdspan(minClusterAndDistance),
     batch_weights);
 
-  auto batch_cost = raft::make_device_scalar<DataT>(handle, DataT{0});
   computeClusterCost(
-    handle, minClusterAndDistance, workspace, batch_cost.view(), raft::value_op{}, raft::add_op{});
+    handle, minClusterAndDistance, workspace, batch_cost, raft::value_op{}, raft::add_op{});
   raft::linalg::add(clustering_cost.data_handle(),
                     clustering_cost.data_handle(),
                     batch_cost.data_handle(),
