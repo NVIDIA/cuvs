@@ -59,8 +59,11 @@ CUVS_EXPORT cuvsError_t cuvsDatasetCreate(cuvsDataset_t* dataset);
 /**
  * @brief Create an owning padded dataset in the requested memory space.
  *
- * The source tensor may reside in host- or device-accessible memory. Its contents are copied into
- * newly allocated padded storage in `target_mem_type`.
+ * The source tensor may reside in host- or device-accessible memory. Its contents are always
+ * copied into newly allocated padded storage in `target_mem_type` and the returned handle always
+ * owns that storage (`cuvsDatasetGetIsOwning()` reports `true`), even if the source tensor's row
+ * stride already satisfies the padding requirement. Use `cuvsDatasetMakePaddedView()` instead to
+ * avoid the copy when a non-owning view of already-correctly-strided storage will do.
  *
  * @param[in] res cuVS resources
  * @param[in] dataset source tensor

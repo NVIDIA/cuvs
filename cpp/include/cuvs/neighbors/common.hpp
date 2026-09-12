@@ -1144,7 +1144,8 @@ auto make_device_dense_row_major_dataset_from_src(raft::resources const& res,
                                                   SrcT const& src,
                                                   uint32_t logical_dim,
                                                   uint32_t target_stride,
-                                                  char const* view_factory_name)
+                                                  char const* view_factory_name,
+                                                  bool force_copy = false)
   -> std::unique_ptr<DatasetT>
 {
   uint32_t const src_stride = mdspan_row_stride_elements(src);
@@ -1158,7 +1159,7 @@ auto make_device_dense_row_major_dataset_from_src(raft::resources const& res,
   RAFT_CUDA_TRY(cudaPointerGetAttributes(&ptr_attrs, src.data_handle()));
   bool const device_src =
     (ptr_attrs.type == cudaMemoryTypeDevice) || (ptr_attrs.type == cudaMemoryTypeManaged);
-  if (device_src && src_stride == target_stride) {
+  if (!force_copy && device_src && src_stride == target_stride) {
     RAFT_EXPECTS(false,
                  "source is device and stride is already correct. "
                  "Use %s() to get a view instead.",
@@ -1184,7 +1185,8 @@ auto make_host_dense_row_major_dataset_from_src(raft::resources const& res,
                                                 SrcT const& src,
                                                 uint32_t logical_dim,
                                                 uint32_t target_stride,
-                                                char const* view_factory_name)
+                                                char const* view_factory_name,
+                                                bool force_copy = false)
   -> std::unique_ptr<DatasetT>
 {
   uint32_t const src_stride = mdspan_row_stride_elements(src);
@@ -1193,7 +1195,7 @@ auto make_host_dense_row_major_dataset_from_src(raft::resources const& res,
                "logical dim (%u) must not exceed row stride (%u).",
                static_cast<unsigned>(logical_dim),
                static_cast<unsigned>(target_stride));
-  if (!device_src && src_stride == target_stride) {
+  if (!force_copy && !device_src && src_stride == target_stride) {
     RAFT_EXPECTS(false,
                  "source stride is already correct. Use %s() to get a view instead.",
                  view_factory_name);
@@ -1235,10 +1237,21 @@ auto make_device_padded_dataset_view(const raft::resources& res,
     device_padded_dataset_view<value_type, index_type>>(src, static_cast<uint32_t>(src.extent(1)));
 }
 
+/**
+ * @brief Create an owning device-padded copy of `src`.
+ *
+ * By default (`force_copy = false`), this rejects a device-resident `src` whose row stride
+ * already matches the required padded width: `make_device_padded_dataset_view()` should be used
+ * instead in that case to avoid a redundant device-to-device copy. Callers that must always get
+ * back independent, owning storage regardless of `src`'s existing layout (for example, the
+ * `cuvsDatasetMakePadded()` C API, which documents an unconditional copy) should pass
+ * `force_copy = true`.
+ */
 template <typename SrcT>
 auto make_device_padded_dataset(const raft::resources& res,
                                 SrcT const& src,
-                                uint32_t align_bytes = 16)
+                                uint32_t align_bytes = 16,
+                                bool force_copy      = false)
   -> std::unique_ptr<device_padded_dataset<typename SrcT::value_type, typename SrcT::index_type>>
 {
   using value_type               = typename SrcT::value_type;
@@ -1248,7 +1261,8 @@ auto make_device_padded_dataset(const raft::resources& res,
   return detail::make_device_dense_row_major_dataset_from_src<
     device_padded_dataset<value_type, index_type>,
     value_type,
-    index_type>(res, src, logical_dim, required_stride, "make_device_padded_dataset_view");
+    index_type>(
+    res, src, logical_dim, required_stride, "make_device_padded_dataset_view", force_copy);
 }
 
 template <typename SrcT>
@@ -1269,10 +1283,20 @@ auto make_host_padded_dataset_view(SrcT const& src, uint32_t align_bytes = 16)
     host_padded_dataset_view<value_type, index_type>>(src, static_cast<uint32_t>(src.extent(1)));
 }
 
+/**
+ * @brief Create an owning host-padded copy of `src`.
+ *
+ * By default (`force_copy = false`), this rejects a host-resident `src` whose row stride already
+ * matches the required padded width: `make_host_padded_dataset_view()` should be used instead in
+ * that case to avoid a redundant copy. Callers that must always get back independent, owning
+ * storage regardless of `src`'s existing layout (for example, the `cuvsDatasetMakePadded()` C
+ * API, which documents an unconditional copy) should pass `force_copy = true`.
+ */
 template <typename SrcT>
 auto make_host_padded_dataset(const raft::resources& res,
                               SrcT const& src,
-                              uint32_t align_bytes = 16)
+                              uint32_t align_bytes = 16,
+                              bool force_copy      = false)
   -> std::unique_ptr<host_padded_dataset<typename SrcT::value_type, typename SrcT::index_type>>
 {
   using value_type               = typename SrcT::value_type;
@@ -1282,7 +1306,8 @@ auto make_host_padded_dataset(const raft::resources& res,
   return detail::make_host_dense_row_major_dataset_from_src<
     host_padded_dataset<value_type, index_type>,
     value_type,
-    index_type>(res, src, logical_dim, required_stride, "make_host_padded_dataset_view");
+    index_type>(
+    res, src, logical_dim, required_stride, "make_host_padded_dataset_view", force_copy);
 }
 
 template <typename SrcT>

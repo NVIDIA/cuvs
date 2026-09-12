@@ -382,14 +382,20 @@ static void make_device_padded_dataset(raft::resources* res_ptr,
   auto dataset = dataset_tensor->dl_tensor;
   using owner_type = cuvs::neighbors::device_padded_dataset<T, int64_t>;
   std::unique_ptr<owner_type> owner;
+  // cuvsDatasetMakePadded() documents an owning copy unconditionally, so force the copy even if
+  // `src` is device-resident and already padded to the required stride (see
+  // make_device_padded_dataset()'s docs: skipping the copy there is only safe for callers able to
+  // track a borrow back to the source, which the C API's owning cuvsDataset handle cannot do).
   if (cuvs::core::is_dlpack_device_compatible(dataset)) {
     using mdspan_type = raft::device_matrix_view<T const, int64_t, raft::row_major>;
     auto mds          = cuvs::core::from_dlpack<mdspan_type>(dataset_tensor);
-    owner             = cuvs::neighbors::make_device_padded_dataset(*res_ptr, mds);
+    owner             = cuvs::neighbors::make_device_padded_dataset(
+      *res_ptr, mds, /*align_bytes=*/16, /*force_copy=*/true);
   } else if (cuvs::core::is_dlpack_host_compatible(dataset)) {
     using mdspan_type = raft::host_matrix_view<T const, int64_t, raft::row_major>;
     auto mds          = cuvs::core::from_dlpack<mdspan_type>(dataset_tensor);
-    owner             = cuvs::neighbors::make_device_padded_dataset(*res_ptr, mds);
+    owner             = cuvs::neighbors::make_device_padded_dataset(
+      *res_ptr, mds, /*align_bytes=*/16, /*force_copy=*/true);
   } else {
     RAFT_FAIL("cuvsDatasetMakePadded: unsupported source tensor memory type");
   }
@@ -411,14 +417,18 @@ static void make_host_padded_dataset(raft::resources* res_ptr,
   auto dataset = dataset_tensor->dl_tensor;
   using owner_type = cuvs::neighbors::host_padded_dataset<T, int64_t>;
   std::unique_ptr<owner_type> owner;
+  // See the matching comment in make_device_padded_dataset() above: cuvsDatasetMakePadded() always
+  // copies, even when `src` is host-resident and already padded to the required stride.
   if (cuvs::core::is_dlpack_host_compatible(dataset)) {
     using mdspan_type = raft::host_matrix_view<T const, int64_t, raft::row_major>;
     auto mds          = cuvs::core::from_dlpack<mdspan_type>(dataset_tensor);
-    owner             = cuvs::neighbors::make_host_padded_dataset(*res_ptr, mds);
+    owner             = cuvs::neighbors::make_host_padded_dataset(
+      *res_ptr, mds, /*align_bytes=*/16, /*force_copy=*/true);
   } else if (cuvs::core::is_dlpack_device_compatible(dataset)) {
     using mdspan_type = raft::device_matrix_view<T const, int64_t, raft::row_major>;
     auto mds          = cuvs::core::from_dlpack<mdspan_type>(dataset_tensor);
-    owner             = cuvs::neighbors::make_host_padded_dataset(*res_ptr, mds);
+    owner             = cuvs::neighbors::make_host_padded_dataset(
+      *res_ptr, mds, /*align_bytes=*/16, /*force_copy=*/true);
   } else {
     RAFT_FAIL("cuvsDatasetMakePadded: unsupported source tensor memory type");
   }

@@ -31,19 +31,23 @@ def test_make_device_padded_dataset(dtype, n_cols, from_host):
     assert ds.layout == "padded"
     assert ds.memory_type == "device"
     assert ds.dtype is not None
-    if from_host:
-        assert ds.is_owning is True
-    else:
-        assert ds.is_owning in (True, False)
+    # cuvsDatasetMakePadded() always copies into newly allocated, owning
+    # storage, regardless of source residency or whether its row stride
+    # already satisfies the padding requirement. See issue #2482.
+    assert ds.is_owning is True
 
 
-def test_make_device_padded_dataset_device_aligned_is_view():
+def test_make_device_padded_dataset_device_aligned_is_owning():
+    # dim=32 float32 rows are already 16-byte aligned (no padding needed), but
+    # cuvsDatasetMakePadded() must still return an independent, owning copy
+    # rather than rejecting the input or silently returning a view. See
+    # issue #2482.
     data = generate_data((64, 32), np.float32)
     source = device_ndarray(data)
     ds = make_device_padded_dataset(source)
     assert ds.layout == "padded"
     assert ds.memory_type == "device"
-    assert ds.is_owning is False
+    assert ds.is_owning is True
 
 
 def test_make_device_padded_dataset_device_unaligned_is_owning():
