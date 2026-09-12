@@ -61,34 +61,54 @@ jobs:
       contents: read
     uses: rapidsai/shared-workflows/.github/workflows/compute-matrix.yaml@release/26.10
     with:
-      build_type: pull-request
+      build_type: ${{ inputs.build_type || 'branch' }}
       matrix_name: conda-cpp-build
   rocky8-clib-standalone-build:
-    needs: [build-details, rocky8-clib-standalone-build-matrix]
+    needs: [rocky8-clib-standalone-build-matrix]
+    runs-on: linux-${{ matrix.ARCH }}-cpu16
+    env:
+      RAPIDS_BUILD_TYPE: ${{ inputs.build_type || 'branch' }}
     permissions:
       actions: read
       contents: read
       id-token: write
       packages: read
       pull-requests: read
-    secrets: inherit # zizmor: ignore[secrets-inherit]
-    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@release/26.10
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.rocky8-clib-standalone-build-matrix.outputs.matrix) }}
-    with:
-      build_type: ${{ inputs.build_type || 'branch' }}
-      build-datetime: ${{ needs.build-details.outputs.build-datetime }}
-      branch: ${{ inputs.branch }}
-      arch: "${{matrix.ARCH}}"
-      date: ${{ inputs.date }}
-      container_image: "rapidsai/ci-wheel:26.10-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
-      node_type: "cpu16"
-      requires_license_builder: true
-      script: "ci/build_standalone_c.sh"
-      artifact-name: "libcuvs_c_${{ matrix.CUDA_VER }}_${{ matrix.ARCH }}.tar.gz"
-      file_to_upload: "libcuvs_c.tar.gz"
-      sha: ${{ inputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Standardize repository information
+        uses: rapidsai/shared-actions/rapids-github-info@main
+        with:
+          branch: ${{ inputs.branch }}
+          date: ${{ inputs.date }}
+          sha: ${{ inputs.sha }}
+      - uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-duration-seconds: 10800
+      - name: Setup sccache-dist
+        uses: rapidsai/shared-actions/setup-sccache-dist@main
+        with:
+          request-timeout: 7140
+      - name: Build standalone C tarball
+        env:
+          CUVS_TARBALL_CUDA_VERSION: ${{ matrix.CUDA_VER }}
+          CUVS_TARBALL_PYTHON_VERSION: ${{ matrix.PY_VER }}
+        run: |
+          ./build.sh tarball --tarball-build-tests
+      - name: Upload artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: libcuvs_c_${{ matrix.CUDA_VER }}_${{ matrix.ARCH }}.tar.gz
+          path: libcuvs_c.tar.gz
   rust-build-matrix:
     needs: cpp-build
     permissions:
@@ -128,7 +148,7 @@ jobs:
       contents: read
     uses: rapidsai/shared-workflows/.github/workflows/compute-matrix.yaml@release/26.10
     with:
-      build_type: pull-request
+      build_type: ${{ inputs.build_type || 'branch' }}
       matrix_name: conda-cpp-build
       matrix_filter: map(select(.ARCH == "amd64"))
   go-build:
@@ -161,7 +181,7 @@ jobs:
       contents: read
     uses: rapidsai/shared-workflows/.github/workflows/compute-matrix.yaml@release/26.10
     with:
-      build_type: pull-request
+      build_type: ${{ inputs.build_type || 'branch' }}
       matrix_name: conda-cpp-build
       matrix_filter: map(select(.ARCH == "amd64"))
   java-build:

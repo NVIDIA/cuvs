@@ -1,5 +1,5 @@
 #!/bin/bash
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 set -euo pipefail
@@ -7,6 +7,7 @@ set -euo pipefail
 rapids-pip-retry install cmake
 pyenv rehash
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_PREFIX="${PWD}/libcuvs_c_install"
 mkdir -p "${INSTALL_PREFIX}"
 
@@ -24,6 +25,25 @@ DOWNLOAD_LOCATION=$(rapids-download-from-github "${payload_name}")
 # Extract the artifact to a staging directory
 tar -xf "${DOWNLOAD_LOCATION}/${pkg_name}" -C "${INSTALL_PREFIX}"
 
+rapids-logger "Validate C API shared library"
+C_API_LIBRARY=""
+for C_API_LIBRARY_DIR in "${INSTALL_PREFIX}/lib" "${INSTALL_PREFIX}/lib64"; do
+  if [[ -f "${C_API_LIBRARY_DIR}/libcuvs_c.so" ]]; then
+    C_API_LIBRARY="${C_API_LIBRARY_DIR}/libcuvs_c.so"
+    break
+  fi
+done
+
+if [[ -z "${C_API_LIBRARY}" ]]; then
+  echo "Error: C API shared library not found under ${INSTALL_PREFIX}/lib or ${INSTALL_PREFIX}/lib64" >&2
+  exit 1
+fi
+
+C_API_SMOKE_TEST="${INSTALL_PREFIX}/bin/cuvs_c_dlsym_smoke"
+"${CC:-cc}" -std=c11 -Wall -Wextra -Werror \
+  "${SCRIPT_DIR}/standalone_c/dlsym_smoke.c" -ldl -o "${C_API_SMOKE_TEST}"
+LD_LIBRARY_PATH="$(dirname "${C_API_LIBRARY}"):${LD_LIBRARY_PATH:-}" \
+  "${C_API_SMOKE_TEST}" "${C_API_LIBRARY}"
 
 rapids-logger "Run C API tests"
 ls -l "${INSTALL_PREFIX}"
