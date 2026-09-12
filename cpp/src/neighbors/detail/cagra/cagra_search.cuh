@@ -254,10 +254,6 @@ void search_main(raft::resources const& res,
       neighbors,
       distances,
       sample_filter);
-  } else if constexpr (cuvs::neighbors::is_device_standard_dataset_view_v<DatasetViewT>) {
-    RAFT_FAIL(
-      "CAGRA search requires a padded device dataset. Build from a standard dataset view, then "
-      "call cagra::update_dataset(res, std::move(index), padded_view) before search.");
   } else if constexpr (cuvs::neighbors::is_device_padded_dataset_view_v<DatasetViewT>) {
     run_strided_like(index.dataset());
   } else if constexpr (cuvs::neighbors::is_host_dataset_view_v<DatasetViewT>) {

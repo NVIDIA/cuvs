@@ -180,15 +180,16 @@ void search(const raft::resources& handle,
                                     queries,
                                     neighbors,
                                     distances);
-  } else if constexpr (std::is_same<AnnIndexType, cagra::device_padded_index<T, uint32_t>>::value ||
-                       std::is_same<AnnIndexType,
-                                    cagra::device_standard_index<T, uint32_t>>::value) {
+  } else if constexpr (std::is_same<AnnIndexType, cagra::device_padded_index<T, uint32_t>>::value) {
     cuvs::neighbors::cagra::search(handle,
                                    *reinterpret_cast<const cagra::search_params*>(search_params),
                                    interface.index_.value(),
                                    queries,
                                    neighbors,
                                    distances);
+  } else if constexpr (std::is_same<AnnIndexType,
+                                    cagra::device_standard_index<T, uint32_t>>::value) {
+    RAFT_FAIL("CAGRA search requires a padded device dataset");
   }
   // resource::sync_stream(handle);
 }
