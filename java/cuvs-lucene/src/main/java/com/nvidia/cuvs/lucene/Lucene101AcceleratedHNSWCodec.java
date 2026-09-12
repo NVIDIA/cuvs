@@ -70,8 +70,16 @@ public class Lucene101AcceleratedHNSWCodec extends FilterCodec {
    */
   Lucene101AcceleratedHNSWCodec(AcceleratedHNSWParams acceleratedHNSWParams, int numInputVectors)
       throws Exception {
+    this(
+        acceleratedHNSWParams,
+        BulkIndexingContext.nativeBuffered(numInputVectors, new CagraHnswBuildMetrics()));
+  }
+
+  /** Bulk-only constructor carrying storage state that generic codec callers cannot configure. */
+  Lucene101AcceleratedHNSWCodec(
+      AcceleratedHNSWParams acceleratedHNSWParams, BulkIndexingContext context) throws Exception {
     this(NAME, LuceneProvider.getCodec("101"));
-    initializeFormat(acceleratedHNSWParams, numInputVectors);
+    initializeFormat(acceleratedHNSWParams, context);
   }
 
   /**
@@ -79,7 +87,7 @@ public class Lucene101AcceleratedHNSWCodec extends FilterCodec {
    * with an instance of {@link AcceleratedHNSWParams} with default parameter values.
    */
   private void initializeFormatDefaultValues() {
-    initializeFormat(new AcceleratedHNSWParams.Builder().build(), 0);
+    initializeFormat(new AcceleratedHNSWParams.Builder().build(), null);
   }
 
   /**
@@ -90,8 +98,17 @@ public class Lucene101AcceleratedHNSWCodec extends FilterCodec {
    *     flat buffer (0 = disabled, the default heap-buffered path)
    */
   private void initializeFormat(AcceleratedHNSWParams acceleratedHNSWParams, int numInputVectors) {
+    initializeFormat(
+        acceleratedHNSWParams,
+        numInputVectors == 0
+            ? null
+            : BulkIndexingContext.nativeBuffered(numInputVectors, new CagraHnswBuildMetrics()));
+  }
+
+  private void initializeFormat(
+      AcceleratedHNSWParams acceleratedHNSWParams, BulkIndexingContext context) {
     try {
-      format = new Lucene99AcceleratedHNSWVectorsFormat(acceleratedHNSWParams, numInputVectors);
+      format = new Lucene99AcceleratedHNSWVectorsFormat(acceleratedHNSWParams, context);
       setKnnFormat(format);
     } catch (LibraryException ex) {
       log.log(

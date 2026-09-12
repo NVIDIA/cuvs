@@ -154,9 +154,6 @@ public class TestCagraToHnswSerializationAndSearchWithFallbackWriter extends Luc
               "Id: " + id + " expected but not found", expectedIds.contains(Integer.valueOf(id)));
         }
         assertTrue("TopK results not returned", results.scoreDocs.length == topK);
-
-      } catch (Exception e) {
-        e.printStackTrace();
       }
     }
   }

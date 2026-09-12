@@ -184,7 +184,8 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends KnnVector
               acceleratedHNSWParams.getHnswLayers(),
               params,
               QuantizationType.BINARY,
-              acceleratedHNSWParams.getWriterThreads());
+              acceleratedHNSWParams.getWriterThreads(),
+              acceleratedHNSWParams.getHnswLayerSeed());
 
       long vectorIndexOffset = hnswVectorIndex.getFilePointer();
       // Write the graph to the vector index

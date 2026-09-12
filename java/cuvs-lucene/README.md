@@ -7,8 +7,9 @@ This is a project for using [cuVS](https://github.com/rapidsai/cuvs), NVIDIA's G
 1. [What is cuvs-lucene?](#what-is-cuvs-lucene)
 2. [Installing cuvs-lucene](#installing-cuvs-lucene)
 3. [Getting Started](#getting-started)
-4. [Contributing](#contributing)
-5. [References](#references)
+4. [CAGRA/HNSW bulk indexing](#cagrahnsw-bulk-indexing)
+5. [Contributing](#contributing)
+6. [References](#references)
 
 ## What is cuvs-lucene?
 
@@ -16,7 +17,12 @@ This is a project for using [cuVS](https://github.com/rapidsai/cuvs), NVIDIA's G
 
 Four codecs are currently provided:
 
-- `Lucene101AcceleratedHNSWCodec` — GPU-accelerated HNSW build with CPU HNSW search. The on-disk format is standard Lucene HNSW, so indexes built on the GPU can be read by any stock Lucene 10.x reader.
+- `Lucene101AcceleratedHNSWCodec` — GPU-accelerated HNSW build with CPU HNSW search.
+  Self-contained builds write standard Lucene HNSW and flat-vector data, so their indexes can be
+  read by a stock Lucene 10.x reader. Indexes built with the opt-in [immutable external-FBIN bulk
+  mode](#ownership-and-sharing) are not self-contained or readable by stock Lucene alone; they
+  require cuvs-lucene and a live registration lease for the exact FBIN throughout every reader
+  lifetime.
   - `LuceneAcceleratedHNSWScalarQuantizedCodec` — scalar-quantized vectors for a smaller index footprint.
   - `LuceneAcceleratedHNSWBinaryQuantizedCodec` — binary-quantized vectors for an even smaller index footprint.
 - `CuVS2510GPUSearchCodec` — GPU-accelerated HNSW build and GPU search
@@ -129,6 +135,215 @@ mvn -q compile org.codehaus.mojo:exec-maven-plugin:3.5.1:java \
 ```
 
 For more examples, including one that indexes and searches entirely on the GPU using `CuVS2510GPUSearchCodec`, please refer to the [`examples/`](../../examples/java/cuvs-lucene) directory.
+
+## CAGRA/HNSW bulk indexing
+
+`CagraHnswBulkIndexWriter` is an opt-in API for controlled, offline creation of
+`Lucene101AcceleratedHNSWCodec` indexes. It owns the `IndexWriter` configuration and flush
+lifecycle needed by native buffering. It supports GPU CAGRA graph construction followed by CPU
+HNSW search; it does not build `CuVS2510GPUSearchCodec` indexes and, unlike the generic codec,
+requires cuVS GPU support instead of falling back to CPU indexing.
+
+### Ingestion modes
+
+| Mode | Public entry point | Vector handling | Finished index |
+| --- | --- | --- | --- |
+| Generic Lucene codec | Configure `Lucene101AcceleratedHNSWCodec` on an application-owned `IndexWriter` | Normal Lucene document ingestion and lifecycle | Self-contained; normal Lucene flush, sort, and merge behavior |
+| Streaming/native-buffered bulk | Construct `CagraHnswBulkIndexWriter` directly, call `build(VectorSource, Config)`, or call `indexFbin(Path, Config)` | Copies each vector into an exactly sized native host matrix before that segment's GPU build | Self-contained; the source can be removed after a successful build |
+| Mapped, self-contained bulk | `indexMappedFbin(Path, Config)` | CAGRA and the flat-vector writer share a read-only mapping, avoiding per-row decode and ingest copies; the flat vectors are still written into the index | Self-contained; the FBIN can be removed after a successful build |
+| Immutable external-FBIN bulk | Register the FBIN, then call `indexImmutableFbin(Registration, Config, ExternalFbinOptions)` | CAGRA reads the mapping and the index stores a content-addressed descriptor instead of duplicating the flat-vector payload | Not self-contained; exact scoring reads the registered FBIN |
+
+The streaming/native-buffered mode has three entry shapes:
+
+- The direct constructor is the manual, single-segment form. The caller creates every document,
+  promises the exact document count, and calls `addDocument` exactly that many times.
+- `build(VectorSource, Config)` owns document creation for a caller-owned, forward-only source. It
+  can build multiple segments sequentially, but does not close the source and does not support the
+  overlapped pipeline.
+- `indexFbin(Path, Config)` owns the FBIN reader. It supports sequential segment builds and an
+  overlapped multi-segment pipeline in which host ingest can overlap a serialized GPU build.
+  `FieldCallback` can add non-vector fields in either one-shot form.
+
+Both mapped modes support one or more contiguous, independently built segments. With overlap
+disabled, slices are built sequentially; with overlap enabled, host-side preparation can run in a
+bounded pipeline while each per-segment commit/close region (including its GPU work) remains
+serialized. The slices are published together without a Lucene vector merge. They require exactly
+one dense `FLOAT32` vector field, one vector per document, and preserve each source row's absolute
+ID across segment-local document ordinals. The configured segment count is exact and cannot exceed
+the source row count.
+
+### Ownership and sharing
+
+All bulk forms own their internal `IndexWriter`, disable index sorting, automatic flushes, compound
+files, and merges, and commit only after the promised vector count has been written. Closing a
+manual writer with too few vectors rolls it back; adding too many vectors is rejected. A failed
+segment is rolled back. Multi-segment mapped builds use temporary per-slice indexes and do not
+publish the final target until every slice succeeds. Streaming sequential builds append directly,
+so they can already have committed earlier segments when a later segment fails; callers must treat
+and replace that target as a failed build.
+
+Every one-shot build exclusively owns and recreates its configured target as the final Lucene index
+directory. The target is stored as an absolute normalized path, and each file-backed source is
+resolved once to its absolute real path before work begins. These path rules do not provide a
+cross-process lock: the application must prevent concurrent use of the target. A mapped source must
+remain unchanged at that resolved identity for the whole synchronous build—do not write, truncate,
+replace, move, or delete it until the method returns. The read-only mapping prevents writes through
+this API but cannot stop another process from mutating the file.
+
+The generic, streaming, and mapped self-contained results can be moved by copying the Lucene index
+directory. The immutable external-FBIN result must be shipped as two artifacts: the Lucene index
+directory and the exact FBIN identified by the descriptor's complete-file SHA-256. The descriptor
+does not persist a host path, so another process or node may place the FBIN at a different local
+path. Before opening the index, that process must register the path and digest:
+
+```java
+try (ExternalFbinFileRegistry.Registration lease =
+        ExternalFbinFileRegistry.register(localFbin, sha256Hex);
+    Directory directory = FSDirectory.open(indexPath);
+    DirectoryReader reader = DirectoryReader.open(directory)) {
+  // Search while both the reader and registration lease are open.
+}
+```
+
+Registrations are local to the defining cuvs-lucene classloader (normally the application
+classloader) and reference counted. Keep at least one lease open for the entire lifetime of every
+reader using that content ID; it need not be the same lease used for the build. Do not modify,
+replace, relocate, or delete the registered FBIN while a build or reader is alive. An index
+directory copied without its FBIN, or an application/classloader that has not registered the local
+FBIN, cannot be opened. Registering a different path for the same content ID while an existing
+registration is live is rejected. External-FBIN indexes also require a cuvs-lucene runtime that
+understands their external-vector descriptor; they are not readable by a stock Lucene runtime
+alone.
+
+### Build and deploy examples
+
+A mapped build is self-contained after the synchronous call succeeds, so its source may then be
+removed. The source must remain immutable until that point:
+
+```java
+Path sourceFbin = Path.of("vectors.fbin");
+Path indexPath = Path.of("index-mapped");
+AcceleratedHNSWParams graph = new AcceleratedHNSWParams.Builder().build();
+CagraHnswBulkIndexWriter.Config mapped =
+    CagraHnswBulkIndexWriter.Config.builder()
+        .field("vector", 768, VectorSimilarityFunction.EUCLIDEAN)
+        .graphBuild(graph)
+        .targetDirectory(indexPath)
+        .segments(1, false)
+        .build();
+
+CagraHnswBulkIndexWriter.indexMappedFbin(sourceFbin, mapped);
+Files.delete(sourceFbin); // safe only after a successful return
+try (Directory directory = FSDirectory.open(indexPath);
+    DirectoryReader reader = DirectoryReader.open(directory)) {
+  // Search the self-contained index.
+}
+```
+
+An external build and every later reader need a live registration, but they may use different
+leases and local paths. Deploy or relocate both artifacts only after all current readers and leases
+are closed:
+
+```java
+Path buildFbin = Path.of("vectors.fbin");
+Path buildIndex = Path.of("index-external");
+String sha256Hex = establishedCompleteFileSha256;
+CagraHnswBulkIndexWriter.Config external =
+    CagraHnswBulkIndexWriter.Config.builder()
+        .field("vector", 768, VectorSimilarityFunction.EUCLIDEAN)
+        .graphBuild(new AcceleratedHNSWParams.Builder().build())
+        .targetDirectory(buildIndex)
+        .segments(4, true)
+        .build();
+
+try (ExternalFbinFileRegistry.Registration buildLease =
+    ExternalFbinFileRegistry.register(buildFbin, sha256Hex)) {
+  CagraHnswBulkIndexWriter.indexImmutableFbin(
+      buildLease,
+      external,
+      new ExternalFbinOptions(ExternalFbinBuildValidation.VERIFY_SHA256, 0L));
+}
+
+// Copy/move buildIndex and buildFbin together after closing their users.
+Path deployedIndex = Path.of("/srv/search/index");
+Path deployedFbin = Path.of("/srv/search/data/vectors.fbin");
+try (ExternalFbinFileRegistry.Registration readerLease =
+        ExternalFbinFileRegistry.register(deployedFbin, sha256Hex);
+    Directory directory = FSDirectory.open(deployedIndex);
+    DirectoryReader reader = DirectoryReader.open(directory)) {
+  // Search, and optionally call reader.leaves().getFirst().reader().checkIntegrity().
+}
+```
+
+### Validation
+
+Every FBIN path is structurally checked for a positive shape and an exact
+`8 + rows * dimensions * 4` byte length. `Config` also rejects a mismatch between the Lucene
+similarity and the cuVS graph metric:
+
+- `EUCLIDEAN` requires `L2Expanded`.
+- `DOT_PRODUCT` and `MAXIMUM_INNER_PRODUCT` require `InnerProduct`.
+- `COSINE` requires `CosineExpanded`.
+
+The manual bulk form additionally validates that every document has exactly one vector field with
+the configured name, dimension, `FLOAT32` encoding, and similarity. Borrowed mapped data is not
+scanned component by component, so the caller must ensure that every source float is finite.
+
+Immutable external-FBIN builds require the caller to supply a previously established SHA-256 for
+the complete file. `ExternalFbinFileRegistry.register` validates and allowlists the real path, but
+does not compute the digest. `ExternalFbinBuildValidation` controls the build-time scan:
+
+| Validation | Build-time behavior |
+| --- | --- |
+| `TRUSTED_IMMUTABLE` | Checks the registration, reference metadata, header, range, and file length; does not scan the payload or verify the digest. Use only with storage that already enforces the content identity. |
+| `PREFETCH` | Sequentially scans the referenced payload as read-ahead while graph construction runs; trusts the supplied digest. |
+| `VERIFY_SHA256` | Hashes the complete FBIN and compares it with the supplied digest while graph construction runs. A mismatch prevents the commit. |
+
+`ExternalFbinOptions.scanHeadStartBytes()` can delay graph construction until a requested amount of
+the selected payload has been scanned. It is a scheduling control, not a reduction in validation:
+the selected scan still completes before commit. It must be zero for `TRUSTED_IMMUTABLE` and no
+larger than the referenced payload.
+
+Opening an external-FBIN index verifies the descriptor checksum, field metadata, registered path,
+header, range, and file length, but does not hash the full file. Lucene's `checkIntegrity()` hashes
+the complete external FBIN and compares it with the persisted SHA-256. Because integrity checking
+is a per-segment Lucene API, a K-segment external index currently hashes that shared FBIN K times;
+this cost does not occur during normal reader opening or search.
+
+### Metrics
+
+`CagraHnswBuildMetrics` is a caller-owned, thread-safe cumulative accumulator. Supply a fresh
+instance through `Config.Builder.metrics` for each logical build when per-build measurements are
+required. Reusing either the accumulator or its `Config`, including for a retry, intentionally
+aggregates later measurements into the same snapshot. `snapshot()` returns a stable
+`Map<String, Number>`, and `appendTo(target, prefix)` adds that snapshot to a benchmark result map.
+
+Metric keys use three namespaces:
+
+- `stage/<name>/seconds`, `stage/<name>/count`, and optional `stage/<name>/bytes` report aggregated
+  graph build, graph conversion and output, mapped flat output, external scan/overlap, and bulk
+  writer commit/close stages. `base cagra-build [GPU]` covers only the base graph; upper-layer
+  CAGRA builds are included in `hnsw-convert [GPU+PCIe+CPU]`. The commit wall includes the flush
+  and its nested GPU/output work, so nested stage durations must not be added to it.
+- `counter/<name>` reports values such as actual base-graph adjacency bytes, mapped flat chunks,
+  the number of segments using each selected CAGRA algorithm, and external scan progress at CAGRA
+  start and end.
+- `gauge/<name>` records selected graph-build inputs, including graph degrees, writer threads,
+  NN-descent iterations, and IVF-PQ dimensions, lists, probes, and k-means iterations when used.
+  The separately reported `effective graph degree` comes from the returned base graph itself. If
+  independent segments record different values, the scalar key is replaced by explicit
+  `gauge/<name>/min` and `gauge/<name>/max` keys.
+
+### Why these controls are bulk-only
+
+Native buffering and borrowed FBIN storage depend on guarantees that a general Lucene codec cannot
+make: one controlled flush, an exact dense vector count and order, no index sort, no merge during
+the build, and an external file whose immutability and reader lifetime are managed by the
+application. `CagraHnswBulkIndexWriter` owns those conditions. Storage and external-file controls
+therefore remain on the bulk API (`Config`, `ExternalFbinOptions`, and
+`ExternalFbinFileRegistry`) rather than `AcceleratedHNSWParams` or public codec constructors. The
+generic codec remains suitable for application-owned Lucene, Solr, Elasticsearch, and OpenSearch
+indexing lifecycles without adding an external-file contract they cannot enforce.
 
 ## Contributing
 

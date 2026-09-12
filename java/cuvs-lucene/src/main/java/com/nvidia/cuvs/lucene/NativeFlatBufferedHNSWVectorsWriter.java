@@ -5,11 +5,11 @@
 package com.nvidia.cuvs.lucene;
 
 import static com.nvidia.cuvs.lucene.AcceleratedHNSWUtils.printInfoStream;
-import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.closeCuVSResourcesInstance;
 import static org.apache.lucene.index.VectorEncoding.FLOAT32;
 import static org.apache.lucene.util.RamUsageEstimator.shallowSizeOfInstance;
 
 import com.nvidia.cuvs.CuVSHostMatrix;
+import java.io.Closeable;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -52,6 +52,15 @@ final class NativeFlatBufferedHNSWVectorsWriter extends KnnVectorsWriter {
   NativeFlatBufferedHNSWVectorsWriter(
       SegmentWriteState state, AcceleratedHNSWParams acceleratedHNSWParams, int numInputVectors)
       throws IOException {
+    this(state, acceleratedHNSWParams, numInputVectors, new CagraHnswBuildMetrics());
+  }
+
+  NativeFlatBufferedHNSWVectorsWriter(
+      SegmentWriteState state,
+      AcceleratedHNSWParams acceleratedHNSWParams,
+      int numInputVectors,
+      CagraHnswBuildMetrics metrics)
+      throws IOException {
     super();
     if (numInputVectors <= 0) {
       throw new IllegalArgumentException("numInputVectors must be > 0, got " + numInputVectors);
@@ -67,8 +76,8 @@ final class NativeFlatBufferedHNSWVectorsWriter extends KnnVectorsWriter {
     try {
       // In hint mode we own the flat files; the Lucene flat writer must be absent to avoid opening
       // the same .vec/.vemf outputs.
-      nativeFlat = new NativeFlatVectorsWriter(state);
-      graphOutput = new AcceleratedHnswGraphOutput(state, acceleratedHNSWParams);
+      nativeFlat = new NativeFlatVectorsWriter(state, metrics);
+      graphOutput = new AcceleratedHnswGraphOutput(state, acceleratedHNSWParams, metrics);
       success = true;
       printInfoStream(infoStream, COMPONENT, "NativeFlatBufferedHNSWVectorsWriter is initialized");
     } finally {
@@ -168,8 +177,13 @@ final class NativeFlatBufferedHNSWVectorsWriter extends KnnVectorsWriter {
     try {
       releaseAllNativeBuffers();
     } finally {
-      IOUtils.close(graphOutput, nativeFlat);
-      closeCuVSResourcesInstance();
+      closeOutputsAndResources(graphOutput, nativeFlat);
+    }
+  }
+
+  static void closeOutputsAndResources(Closeable... outputs) throws IOException {
+    try (Closeable resourceCloser = ThreadLocalCuVSResourcesProvider::closeCuVSResourcesInstance) {
+      IOUtils.close(outputs);
     }
   }
 
