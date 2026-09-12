@@ -343,7 +343,6 @@ void cluster_cost(
   auto stream     = raft::resource::get_cuda_stream(handle);
   auto n_clusters = centroids.extent(0);
   auto n_samples  = X.extent(0);
-  auto n_features = X.extent(1);
 
   rmm::device_uvector<char> workspace(n_samples * sizeof(IndexT), stream);
 
@@ -353,31 +352,18 @@ void cluster_cost(
   auto min_cluster_distance = raft::make_device_vector<DataT>(handle, n_samples);
   rmm::device_uvector<DataT> l2_norm_or_distance_buffer(0, stream);
 
-  auto metric = cuvs::distance::DistanceType::L2Expanded;
-
-  cuvs::cluster::kmeans::min_cluster_distance<DataT, IndexT>(
-    handle,
-    X,
-    raft::make_device_matrix_view<DataT, IndexT>(
-      const_cast<DataT*>(centroids.data_handle()), n_clusters, n_features),
-    min_cluster_distance.view(),
-    x_norms.view(),
-    l2_norm_or_distance_buffer,
-    metric,
-    n_samples,
-    n_clusters,
-    workspace);
-
-  if (sample_weight.has_value()) {
-    raft::linalg::map(handle,
-                      min_cluster_distance.view(),
-                      raft::mul_op{},
-                      raft::make_const_mdspan(min_cluster_distance.view()),
-                      sample_weight.value());
-  }
-
-  cuvs::cluster::kmeans::cluster_cost(
-    handle, min_cluster_distance.view(), workspace, cost, raft::add_op{});
+  cuvs::cluster::kmeans::detail::cluster_cost(handle,
+                                              X,
+                                              centroids,
+                                              min_cluster_distance.view(),
+                                              x_norms.view(),
+                                              l2_norm_or_distance_buffer,
+                                              cuvs::distance::DistanceType::L2Expanded,
+                                              n_samples,
+                                              n_clusters,
+                                              workspace,
+                                              cost,
+                                              sample_weight);
 }
 
 /**
