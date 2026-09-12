@@ -515,6 +515,9 @@ void parse_search_param(const nlohmann::json& conf,
   if (conf.contains("thread_block_size")) {
     param.p.thread_block_size = conf.at("thread_block_size");
   }
+  if (conf.contains("hashmap_min_bitlen")) {
+    param.p.hashmap_min_bitlen = conf.at("hashmap_min_bitlen");
+  }
   if (conf.contains("algo")) {
     if (conf.at("algo") == "single_cta") {
       param.p.algo = cuvs::neighbors::cagra::search_algo::SINGLE_CTA;
