@@ -1,6 +1,6 @@
 #=============================================================================
 # cmake-format: off
-# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 # cmake-format: on
 #=============================================================================
@@ -10,11 +10,12 @@ function(find_and_configure_nlohmann_json)
     cmake_parse_arguments(PKG "${options}" "${oneValueArgs}"
             "${multiValueArgs}" ${ARGN} )
 
-    rapids_cpm_find(nlohmann_json ${PKG_VERSION}
+    include("${CMAKE_CURRENT_FUNCTION_LIST_DIR}/rapids_cpm_project_package_info.cmake")
+    cuvs_cpm_project_package_info(nlohmann_json FIND_VAR find_args CPM_VAR cpm_args)
+
+    rapids_cpm_find(nlohmann_json ${PKG_VERSION} ${find_args}
             GLOBAL_TARGETS      nlohmann_json::nlohmann_json
-            CPM_ARGS
-            GIT_REPOSITORY         https://github.com/${PKG_FORK}/json.git
-            GIT_TAG                ${PKG_PINNED_TAG}
+            CPM_ARGS ${cpm_args}
             EXCLUDE_FROM_ALL       ${PKG_EXCLUDE_FROM_ALL}
             )
 

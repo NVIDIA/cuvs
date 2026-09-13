@@ -37,19 +37,19 @@ function(find_and_configure_raft)
         string(APPEND RAFT_COMPONENTS " distributed")
     endif()
 
+    include("${CMAKE_CURRENT_FUNCTION_LIST_DIR}/rapids_cpm_project_package_info.cmake")
+    cuvs_cpm_project_package_info(raft FIND_VAR find_args CPM_VAR cpm_args)
+
     #-----------------------------------------------------
     # Invoke CPM find_package()
     #-----------------------------------------------------
-    rapids_cpm_find(raft ${PKG_VERSION}
+    rapids_cpm_find(raft ${PKG_VERSION} ${find_args}
             GLOBAL_TARGETS      raft::raft
             BUILD_EXPORT_SET    cuvs-exports
             INSTALL_EXPORT_SET  cuvs-exports
             COMPONENTS          ${RAFT_COMPONENTS}
-            CPM_ARGS
+            CPM_ARGS ${cpm_args}
               EXCLUDE_FROM_ALL TRUE
-              GIT_REPOSITORY        https://github.com/${PKG_FORK}/raft.git
-              GIT_TAG               ${PKG_PINNED_TAG}
-              SOURCE_SUBDIR         cpp
               OPTIONS
               "BUILD_TESTS OFF"
               "BUILD_PRIMS_BENCH OFF"

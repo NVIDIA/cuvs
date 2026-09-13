@@ -1,6 +1,6 @@
 # =============================================================================
 # cmake-format: off
-# SPDX-FileCopyrightText: Copyright (c) 2023-2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 # cmake-format: on
 
@@ -19,18 +19,17 @@ function(find_and_configure_cuvs)
     if(PKG_BUILD_CUVS_C_LIBRARY)
         string(APPEND CUVS_COMPONENTS " c_api")
     endif()
+    include("${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../../../cpp/cmake/thirdparty/rapids_cpm_project_package_info.cmake")
+    cuvs_cpm_project_package_info(cuvs FIND_VAR find_args CPM_VAR cpm_args)
     #-----------------------------------------------------
     # Invoke CPM find_package()
     #-----------------------------------------------------
-    rapids_cpm_find(cuvs ${PKG_VERSION}
+    rapids_cpm_find(cuvs ${PKG_VERSION} ${find_args}
             GLOBAL_TARGETS      cuvs::cuvs
             BUILD_EXPORT_SET    cuvs-examples-exports
             INSTALL_EXPORT_SET  cuvs-examples-exports
             COMPONENTS ${CUVS_COMPONENTS}
-            CPM_ARGS
-            GIT_REPOSITORY https://github.com/${PKG_FORK}/cuvs.git
-            GIT_TAG        ${PKG_PINNED_TAG}
-            SOURCE_SUBDIR  cpp
+            CPM_ARGS ${cpm_args}
             OPTIONS
             "BUILD_C_LIBRARY ${PKG_BUILD_CUVS_C_LIBRARY}"
             "BUILD_TESTS OFF"

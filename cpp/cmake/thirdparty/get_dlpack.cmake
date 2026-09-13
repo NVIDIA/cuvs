@@ -10,12 +10,12 @@ function(find_and_configure_dlpack VERSION)
 
   include(${rapids-cmake-dir}/find/generate_module.cmake)
   rapids_find_generate_module(DLPACK HEADER_NAMES dlpack.h)
+  include("${CMAKE_CURRENT_FUNCTION_LIST_DIR}/rapids_cpm_project_package_info.cmake")
+  cuvs_cpm_project_package_info(dlpack FIND_VAR find_args CPM_VAR cpm_args)
 
   rapids_cpm_find(
-    dlpack ${VERSION}
-    GIT_REPOSITORY https://github.com/dmlc/dlpack.git
-    GIT_TAG v${VERSION}
-    GIT_SHALLOW TRUE
+    dlpack ${VERSION} ${find_args}
+    CPM_ARGS ${cpm_args}
     DOWNLOAD_ONLY TRUE
     OPTIONS "BUILD_MOCK OFF"
   )

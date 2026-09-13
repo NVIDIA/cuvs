@@ -16,15 +16,14 @@ function(find_and_configure_rtcx VERSION)
   include("${rapids-cmake-dir}/cmake/default_install_component.cmake")
   rapids_cmake_default_install_component(DEFAULT_USE_PROJECT_NAME)
 
+  include("${CMAKE_CURRENT_FUNCTION_LIST_DIR}/rapids_cpm_project_package_info.cmake")
+  cuvs_cpm_project_package_info(rtcx FIND_VAR find_args CPM_VAR cpm_args)
   rapids_cpm_find(
-    rtcx ${VERSION}
+    rtcx ${VERSION} ${find_args}
     GLOBAL_TARGETS rtcx::rtcx
     BUILD_EXPORT_SET    cuvs-static-exports
     INSTALL_EXPORT_SET  cuvs-static-exports
-    CPM_ARGS
-    GIT_REPOSITORY https://github.com/rapidsai/librtcx
-    GIT_TAG a9f63f8cdd4b0b41a2d88a9f705576a61b4222ec
-    GIT_SHALLOW FALSE
+    CPM_ARGS ${cpm_args}
   )
 
   # When CPM fetches from source (add_subdirectory), generate_jit_lto_kernels.cmake is not

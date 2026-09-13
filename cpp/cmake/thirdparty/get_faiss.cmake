@@ -1,6 +1,6 @@
 #=============================================================================
 # cmake-format: off
-# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 # cmake-format: on
 #=============================================================================
@@ -45,12 +45,9 @@ function(find_and_configure_faiss)
   endif()
 
 
-  rapids_cpm_find(faiss ${version} ${build_patch_only}
+  rapids_cpm_find(faiss ${version} ${find_args}
     GLOBAL_TARGETS faiss faiss_avx2 faiss_sve faiss_gpu_objs faiss::faiss faiss::faiss_avx2 faiss::faiss_sve
-    CPM_ARGS
-    GIT_REPOSITORY ${repository}
-    GIT_TAG ${tag}
-    GIT_SHALLOW ${shallow} ${patch_command}
+    CPM_ARGS ${cpm_args}
     EXCLUDE_FROM_ALL ${exclude}
     OPTIONS
     "FAISS_ENABLE_GPU ${PKG_ENABLE_GPU}"

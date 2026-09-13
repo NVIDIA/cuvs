@@ -19,17 +19,15 @@ function(find_and_configure_kvikio)
   # link-only dependency. At runtime package managers provide both the shared library and its CMake
   # package configuration.
   # ----------------------------------------------------------------------------
+  include("${CMAKE_CURRENT_FUNCTION_LIST_DIR}/rapids_cpm_project_package_info.cmake")
+  cuvs_cpm_project_package_info(kvikio FIND_VAR find_args CPM_VAR cpm_args)
   rapids_cpm_find(
-    kvikio ${PKG_VERSION}
+    kvikio ${PKG_VERSION} ${find_args}
     GLOBAL_TARGETS kvikio::kvikio
     BUILD_EXPORT_SET cuvs-exports
     INSTALL_EXPORT_SET cuvs-exports
-    CPM_ARGS
+    CPM_ARGS ${cpm_args}
     EXCLUDE_FROM_ALL TRUE
-    GIT_REPOSITORY https://github.com/${PKG_FORK}/kvikio.git
-    GIT_TAG ${PKG_PINNED_TAG}
-    GIT_SHALLOW TRUE
-    SOURCE_SUBDIR cpp
     OPTIONS
       "KvikIO_BUILD_BENCHMARKS OFF"
       "KvikIO_BUILD_EXAMPLES OFF"

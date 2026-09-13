@@ -75,6 +75,11 @@ files:
     includes:
       - checks
       - py_version
+  test_cmake:
+    output: none
+    includes:
+      - py_version
+      - rapids_build
   docs:
     output: none
     includes:

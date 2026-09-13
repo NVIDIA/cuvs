@@ -1,0 +1,10 @@
+{
+  "packages": {
+    "dlpack": {
+      "version": "9.9.9",
+      "git_url": "https://github.com/dmlc/dlpack.git",
+      "git_tag": "365b823cedb281cd0240ca601aba9b78771f91a3",
+      "git_shallow": true
+    }
+  }
+}

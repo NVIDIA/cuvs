@@ -1,5 +1,5 @@
 #!/bin/bash
-# SPDX-FileCopyrightText: Copyright (c) 2020-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2020-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 set -euo pipefail
@@ -30,3 +30,8 @@ wget -O ${RAPIDS_CMAKE_FORMAT_FILE} "${FORMAT_FILE_URL}"
 
 # Run pre-commit checks
 pre-commit run --all-files --show-diff-on-failure
+
+# Keep third-party source pins in the central CPM catalog so parent projects can override them.
+cpp/scripts/check-cpm-source-metadata.sh \
+  cpp/cmake/thirdparty/get_*.cmake \
+  examples/cmake/thirdparty/get_*.cmake

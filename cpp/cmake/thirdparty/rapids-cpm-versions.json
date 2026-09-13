@@ -1,0 +1,55 @@
+{
+  "packages": {
+    "cuvs": {
+      "version": "${RAPIDS_VERSION_MAJOR_MINOR}.00",
+      "git_url": "https://github.com/rapidsai/cuvs.git",
+      "git_tag": "23d4e42fb171f2a00af6b7bec6a217e8b9f9f897",
+      "git_tag_alias": "${rapids-cmake-checkout-tag}",
+      "git_shallow": true,
+      "source_subdir": "cpp"
+    },
+    "dlpack": {
+      "version": "0.8",
+      "git_url": "https://github.com/dmlc/dlpack.git",
+      "git_tag": "365b823cedb281cd0240ca601aba9b78771f91a3",
+      "git_tag_alias": "v0.8",
+      "git_shallow": true
+    },
+    "glog": {
+      "version": "0.6.0",
+      "git_url": "https://github.com/google/glog.git",
+      "git_tag": "b33e3bad4c46c8a6345525fd822af355e5ef9446",
+      "git_tag_alias": "v0.6.0",
+      "git_shallow": true
+    },
+    "nlohmann_json": {
+      "version": "3.12.0",
+      "git_url": "https://github.com/nlohmann/json.git",
+      "git_tag": "55f93686c01528224f448c19128836e7df245f72",
+      "git_tag_alias": "v3.12.0",
+      "git_shallow": true
+    },
+    "raft": {
+      "version": "${RAPIDS_VERSION_MAJOR_MINOR}.00",
+      "git_url": "https://github.com/rapidsai/raft.git",
+      "git_tag": "fb3def0f439f7b206b9c8938e11c7d5e5ae1a6bc",
+      "git_tag_alias": "${rapids-cmake-checkout-tag}",
+      "git_shallow": true,
+      "source_subdir": "cpp"
+    },
+    "kvikio": {
+      "version": "${RAPIDS_VERSION_MAJOR_MINOR}.00",
+      "git_url": "https://github.com/rapidsai/kvikio.git",
+      "git_tag": "e4cb3cab779fcdc3341e0ef446d28a31f2a96d8a",
+      "git_tag_alias": "${rapids-cmake-checkout-tag}",
+      "git_shallow": true,
+      "source_subdir": "cpp"
+    },
+    "rtcx": {
+      "version": "0.1",
+      "git_url": "https://github.com/rapidsai/librtcx",
+      "git_tag": "a9f63f8cdd4b0b41a2d88a9f705576a61b4222ec",
+      "git_shallow": false
+    }
+  }
+}
