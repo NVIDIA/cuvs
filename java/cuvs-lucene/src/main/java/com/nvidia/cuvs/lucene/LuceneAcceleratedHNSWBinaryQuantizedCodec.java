@@ -12,7 +12,7 @@ import org.apache.lucene.codecs.FilterCodec;
 import org.apache.lucene.codecs.KnnVectorsFormat;
 
 /**
- * CuVS based codec for GPU based vector search
+ * cuVS-accelerated HNSW construction, with Lucene CPU fallback, and Lucene CPU HNSW search.
  *
  * @since 26.02
  */
@@ -35,7 +35,7 @@ public class LuceneAcceleratedHNSWBinaryQuantizedCodec extends FilterCodec {
 
   public LuceneAcceleratedHNSWBinaryQuantizedCodec(AcceleratedHNSWParams acceleratedHNSWParams)
       throws Exception {
-    this(NAME, LuceneProvider.getCodec("101"));
+    super(NAME, LuceneProvider.getCodec("101"));
     initializeFormat(acceleratedHNSWParams);
   }
 

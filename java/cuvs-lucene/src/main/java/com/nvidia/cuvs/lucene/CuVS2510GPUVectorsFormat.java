@@ -6,7 +6,6 @@ package com.nvidia.cuvs.lucene;
 
 import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.assertIsSupported;
 
-import com.nvidia.cuvs.LibraryException;
 import java.io.IOException;
 import org.apache.lucene.codecs.KnnVectorsFormat;
 import org.apache.lucene.codecs.KnnVectorsReader;
@@ -25,8 +24,7 @@ import org.apache.lucene.index.SegmentWriteState;
 public class CuVS2510GPUVectorsFormat extends KnnVectorsFormat {
 
   private static final int MAX_DIMENSIONS = 4096;
-  private static final LuceneProvider LUCENE_PROVIDER;
-  private static final FlatVectorsFormat FLAT_VECTORS_FORMAT;
+  private static volatile FlatVectorsFormat cachedFlatVectorsFormat;
 
   public static final String CUVS_META_CODEC_NAME = "Lucene102CuVSVectorsFormatMeta";
   public static final String CUVS_META_CODEC_EXT = "vemc";
@@ -38,20 +36,36 @@ public class CuVS2510GPUVectorsFormat extends KnnVectorsFormat {
   private final GPUSearchParams gpuSearchParams;
   private final FilterBitsetCache filterBitsetCache;
 
-  static {
+  private static LuceneProvider getLucene99Provider() throws IOException {
     try {
-      LUCENE_PROVIDER = LuceneProvider.getInstance("99");
-      FLAT_VECTORS_FORMAT =
-          LUCENE_PROVIDER.getLuceneFlatVectorsFormatInstance(DefaultFlatVectorScorer.INSTANCE);
-    } catch (Exception e) {
-      throw new ExceptionInInitializerError(e.getMessage());
+      return LuceneProvider.getInstance(LuceneProvider.LUCENE_99_FORMAT_VERSION);
+    } catch (ClassNotFoundException e) {
+      throw new IOException("Lucene99 vector formats are not available in this runtime", e);
     }
+  }
+
+  private static FlatVectorsFormat getOrCreateFlatVectorsFormat() throws IOException {
+    FlatVectorsFormat format = cachedFlatVectorsFormat;
+    if (format == null) {
+      synchronized (CuVS2510GPUVectorsFormat.class) {
+        format = cachedFlatVectorsFormat;
+        if (format == null) {
+          try {
+            format =
+                getLucene99Provider()
+                    .getLuceneFlatVectorsFormatInstance(DefaultFlatVectorScorer.INSTANCE);
+            cachedFlatVectorsFormat = format;
+          } catch (Exception e) {
+            throw Utils.handleThrowable(e);
+          }
+        }
+      }
+    }
+    return format;
   }
 
   /**
    * Initializes the {@link CuVS2510GPUVectorsFormat} with default parameter values.
-   *
-   * @throws LibraryException if the native library fails to load
    */
   public CuVS2510GPUVectorsFormat() {
     this(new GPUSearchParams.Builder().build(), FilterBitsetCacheConfig.DEFAULT);
@@ -61,7 +75,6 @@ public class CuVS2510GPUVectorsFormat extends KnnVectorsFormat {
    * Initializes the {@link CuVS2510GPUVectorsFormat} with an instance of {@link GPUSearchParams}.
    *
    * @param gpuSearchParams An instance of {@link GPUSearchParams}
-   * @throws LibraryException if the native library fails to load
    */
   public CuVS2510GPUVectorsFormat(GPUSearchParams gpuSearchParams) {
     this(gpuSearchParams, FilterBitsetCacheConfig.DEFAULT);
@@ -72,7 +85,6 @@ public class CuVS2510GPUVectorsFormat extends KnnVectorsFormat {
    *
    * @param gpuSearchParams GPU index and search parameters
    * @param filterCacheConfig filter-bitset-cache configuration
-   * @throws LibraryException if the native library fails to load
    */
   public CuVS2510GPUVectorsFormat(
       GPUSearchParams gpuSearchParams, FilterBitsetCacheConfig filterCacheConfig) {
@@ -82,12 +94,12 @@ public class CuVS2510GPUVectorsFormat extends KnnVectorsFormat {
   }
 
   /**
-   * Returns a KnnVectorsReader instance to write the vectors to the index.
+   * Returns a KnnVectorsWriter instance to write the vectors to the index.
    */
   @Override
   public KnnVectorsWriter fieldsWriter(SegmentWriteState state) throws IOException {
     assertIsSupported();
-    var flatWriter = FLAT_VECTORS_FORMAT.fieldsWriter(state);
+    var flatWriter = getOrCreateFlatVectorsFormat().fieldsWriter(state);
     return new CuVS2510GPUVectorsWriter(state, gpuSearchParams, flatWriter);
   }
 
@@ -98,7 +110,7 @@ public class CuVS2510GPUVectorsFormat extends KnnVectorsFormat {
   public KnnVectorsReader fieldsReader(SegmentReadState state) throws IOException {
     assertIsSupported();
     return new CuVS2510GPUVectorsReader(
-        state, FLAT_VECTORS_FORMAT.fieldsReader(state), filterBitsetCache);
+        state, getOrCreateFlatVectorsFormat().fieldsReader(state), filterBitsetCache);
   }
 
   /**
