@@ -52,7 +52,7 @@ class cuvs_ivf_sq : public algo<T>, public algo_gpu {
 
   [[nodiscard]] auto get_sync_stream() const noexcept -> cudaStream_t override
   {
-    return handle_.get_sync_stream();
+    return handle_.get_sync_stream().get();
   }
 
   [[nodiscard]] auto get_preference() const -> algo_property override

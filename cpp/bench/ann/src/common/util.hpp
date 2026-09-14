@@ -171,7 +171,7 @@ inline auto get_stream_from_global_pool() -> cudaStream_t
       detail::global_stream_pool.emplace_back(rmm::cuda_stream::flags::non_blocking);
     }
   }
-  return detail::global_stream_pool[benchmark_thread_id].view();
+  return detail::global_stream_pool[benchmark_thread_id].value();
 #else
   return nullptr;
 #endif
