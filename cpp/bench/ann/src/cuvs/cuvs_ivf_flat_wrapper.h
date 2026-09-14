@@ -57,7 +57,7 @@ class cuvs_ivf_flat : public algo<T>, public algo_gpu {
 
   [[nodiscard]] auto get_sync_stream() const noexcept -> cudaStream_t override
   {
-    return handle_.get_sync_stream();
+    return handle_.get_sync_stream().get();
   }
 
   // to enable dataset access from GPU memory

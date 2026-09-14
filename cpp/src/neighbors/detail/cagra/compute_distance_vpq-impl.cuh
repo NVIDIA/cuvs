@@ -8,6 +8,7 @@
 #include "compute_distance_vpq.hpp"
 #include "packed_type.hpp"
 
+#include <cuda/stream>
 #include <cuvs/distance/distance.hpp>
 #include <raft/util/pow2_utils.cuh>
 
@@ -221,8 +222,7 @@ vpq_descriptor_spec<Metric,
   return host_type{
     desc_type{
       encoded_dataset_ptr, encoded_dataset_dim, vq_code_book_ptr, pq_code_book_ptr, size, dim},
-    [=](dataset_descriptor_base_t<DataT, IndexT, DistanceT>* dev_ptr,
-        rmm::cuda_stream_view stream) {
+    [=](dataset_descriptor_base_t<DataT, IndexT, DistanceT>* dev_ptr, cuda::stream_ref stream) {
       vpq_dataset_descriptor_init_kernel<Metric,
                                          TeamSize,
                                          DatasetBlockDim,

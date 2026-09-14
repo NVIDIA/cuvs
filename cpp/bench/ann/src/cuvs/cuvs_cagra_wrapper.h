@@ -205,7 +205,7 @@ class cuvs_cagra : public algo<T>, public algo_gpu {
 
   [[nodiscard]] auto get_sync_stream() const noexcept -> cudaStream_t override
   {
-    return handle_.get_sync_stream();
+    return handle_.get_sync_stream().get();
   }
 
   [[nodiscard]] auto uses_stream() const noexcept -> bool override
