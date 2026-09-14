@@ -40,13 +40,14 @@ import org.apache.lucene.index.SegmentReadState;
 import org.apache.lucene.index.VectorEncoding;
 import org.apache.lucene.index.VectorSimilarityFunction;
 import org.apache.lucene.internal.hppc.IntObjectHashMap;
+import org.apache.lucene.search.AcceptDocs;
+import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.search.KnnCollector;
 import org.apache.lucene.store.ChecksumIndexInput;
 import org.apache.lucene.store.DataInput;
 import org.apache.lucene.store.IOContext;
 import org.apache.lucene.store.IOContext.Context;
 import org.apache.lucene.store.IndexInput;
-import org.apache.lucene.store.ReadAdvice;
 import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.IOUtils;
 import org.apache.lucene.util.hnsw.IntToIntFunction;
@@ -127,8 +128,7 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
       } finally {
         CodecUtil.checkFooter(meta, priorException);
       }
-      var ioContext = state.context.withReadAdvice(ReadAdvice.SEQUENTIAL);
-      cuvsIndexInput = openCuVSInput(state, versionMeta, ioContext);
+      cuvsIndexInput = openCuVSInput(state, versionMeta, state.context);
       /*
        * Only load indexes on the GPU when this reader is opening for searches.
        * Do not load indexes on the GPU when this reader is opening during merge calls.
@@ -450,11 +450,59 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
     return score -> (1f / (1f + score));
   }
 
+  /** Maps AcceptDocs to vector ordinals. bits() may be null in Lucene 10.4. */
+  private static Bits computeAcceptedOrds(FloatVectorValues rawValues, AcceptDocs acceptDocs)
+      throws IOException {
+    if (acceptDocs == null) {
+      return null;
+    }
+    Bits live = acceptDocs.bits();
+    if (live != null) {
+      Bits mapped = rawValues.getAcceptOrds(live);
+      if (mapped != null) {
+        return mapped;
+      }
+    }
+    final Bits docAccept;
+    if (live != null) {
+      docAccept = live;
+    } else {
+      BitSet docBits = new BitSet();
+      DocIdSetIterator disi = acceptDocs.iterator();
+      for (int doc = disi.nextDoc(); doc != DocIdSetIterator.NO_MORE_DOCS; doc = disi.nextDoc()) {
+        docBits.set(doc);
+      }
+      docAccept =
+          new Bits() {
+            @Override
+            public boolean get(int docId) {
+              return docBits.get(docId);
+            }
+
+            @Override
+            public int length() {
+              return docBits.length();
+            }
+          };
+    }
+    return new Bits() {
+      @Override
+      public boolean get(int ord) {
+        return docAccept.get(rawValues.ordToDoc(ord));
+      }
+
+      @Override
+      public int length() {
+        return rawValues.size();
+      }
+    };
+  }
+
   /**
    * Returns the k nearest neighbor documents using cuVS's CAGRA or brute force algorithm for this field, to the given vector.
    */
   @Override
-  public void search(String field, float[] target, KnnCollector knnCollector, Bits acceptDocs)
+  public void search(String field, float[] target, KnnCollector knnCollector, AcceptDocs acceptDocs)
       throws IOException {
     var fieldEntry = getFieldEntry(field, VectorEncoding.FLOAT32);
     if (fieldEntry.count() == 0 || knnCollector.k() == 0) {
@@ -468,12 +516,13 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
     }
 
     final FloatVectorValues rawValues = flatVectorsReader.getFloatVectorValues(field);
-    final Bits acceptedOrds = rawValues.getAcceptOrds(acceptDocs);
+    final Bits acceptedOrds = computeAcceptedOrds(rawValues, acceptDocs);
     BitSet[] mask = null;
     int maskLength = 0;
     int topK = knnCollector.k();
 
     if (acceptDocs != null) {
+      assert acceptedOrds != null;
       mask = new BitSet[1]; // As there is only one query "target"
       mask[0] = new BitSet(acceptedOrds.length());
       /*
@@ -597,7 +646,7 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
    * This is not supported.
    */
   @Override
-  public void search(String field, byte[] target, KnnCollector knnCollector, Bits acceptDocs)
+  public void search(String field, byte[] target, KnnCollector knnCollector, AcceptDocs acceptDocs)
       throws IOException {
     throw new UnsupportedOperationException("Byte vectors are not currently supported");
   }

@@ -110,28 +110,27 @@ SPDX-License-Identifier: Apache-2.0
     <dependency>
         <groupId>org.apache.lucene</groupId>
         <artifactId>lucene-core</artifactId>
-        <version>10.2.0</version>
+        <version>10.4.0</version>
     </dependency>
     <dependency>
         <groupId>org.apache.lucene</groupId>
         <artifactId>lucene-codecs</artifactId>
-        <version>10.2.0</version>
+        <version>10.4.0</version>
         <scope>test</scope>
     </dependency>
     <dependency>
         <groupId>org.apache.lucene</groupId>
         <artifactId>lucene-backward-codecs</artifactId>
-        <version>10.2.0</version>
+        <version>10.4.0</version>
     </dependency>
     <dependency>
         <groupId>org.apache.lucene</groupId>
-        <artifactId>lucene-misc</artifactId>
-        <version>10.2.0</version>
+        <version>10.4.0</version>
     </dependency>
     <dependency>
         <groupId>org.apache.lucene</groupId>
         <artifactId>lucene-test-framework</artifactId>
-        <version>10.2.0</version>
+        <version>10.4.0</version>
         <scope>test</scope>
     </dependency>
     <dependency>

@@ -30,7 +30,7 @@ public class Lucene101AcceleratedHNSWCodec extends FilterCodec {
    * @throws Exception
    */
   public Lucene101AcceleratedHNSWCodec() throws Exception {
-    this(NAME, LuceneProvider.getCodec("101"));
+    this(NAME, LuceneProvider.getCodec("104"));
   }
 
   /**
@@ -52,7 +52,7 @@ public class Lucene101AcceleratedHNSWCodec extends FilterCodec {
    */
   public Lucene101AcceleratedHNSWCodec(AcceleratedHNSWParams acceleratedHNSWParams)
       throws Exception {
-    this(NAME, LuceneProvider.getCodec("101"));
+    this(NAME, LuceneProvider.getCodec("104"));
     initializeFormat(acceleratedHNSWParams, 0);
   }
 
@@ -70,7 +70,7 @@ public class Lucene101AcceleratedHNSWCodec extends FilterCodec {
    */
   Lucene101AcceleratedHNSWCodec(AcceleratedHNSWParams acceleratedHNSWParams, int numInputVectors)
       throws Exception {
-    this(NAME, LuceneProvider.getCodec("101"));
+    this(NAME, LuceneProvider.getCodec("104"));
     initializeFormat(acceleratedHNSWParams, numInputVectors);
   }
 

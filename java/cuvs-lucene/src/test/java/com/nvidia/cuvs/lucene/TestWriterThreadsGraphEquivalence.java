@@ -21,7 +21,6 @@ import org.apache.lucene.store.IndexOutput;
 import org.apache.lucene.tests.util.LuceneTestCase;
 import org.apache.lucene.tests.util.LuceneTestCase.SuppressSysoutChecks;
 import org.apache.lucene.util.hnsw.HnswGraph;
-import org.apache.lucene.util.hnsw.HnswGraph.NodesIterator;
 import org.junit.Test;
 
 /**
@@ -112,7 +111,7 @@ public class TestWriterThreadsGraphEquivalence extends LuceneTestCase {
   private static void assertGraphsEqual(HnswGraph a, HnswGraph b) throws Exception {
     assertEquals(a.numLevels(), b.numLevels());
     for (int level = 0; level < a.numLevels(); level++) {
-      int[] nodes = NodesIterator.getSortedNodes(a.getNodesOnLevel(level));
+      int[] nodes = sortedNodes(a.getNodesOnLevel(level));
       for (int node : nodes) {
         assertArrayEquals(
             "node " + node + " at level " + level + " has different neighbors",
@@ -120,6 +119,14 @@ public class TestWriterThreadsGraphEquivalence extends LuceneTestCase {
             arcsOf(b, level, node));
       }
     }
+  }
+
+  private static int[] sortedNodes(HnswGraph.NodesIterator nodesOnLevel) {
+    int[] nodes = new int[nodesOnLevel.size()];
+    int consumed = nodesOnLevel.consume(nodes);
+    assertEquals(nodesOnLevel.size(), consumed);
+    Arrays.sort(nodes);
+    return nodes;
   }
 
   private static int[] arcsOf(HnswGraph graph, int level, int node) throws Exception {

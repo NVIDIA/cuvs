@@ -235,6 +235,14 @@ public class AcceleratedHNSWUtils {
     return CuVSMatrix.ofArray(remappedAdjacency);
   }
 
+  private static int[] getSortedNodes(NodesIterator nodesOnLevel) {
+    int[] nodes = new int[nodesOnLevel.size()];
+    int consumed = nodesOnLevel.consume(nodes);
+    assert consumed == nodesOnLevel.size();
+    Arrays.sort(nodes);
+    return nodes;
+  }
+
   /**
    * Returns a 2D array of offsets (information written while writing the meta info)
    *
@@ -260,7 +268,7 @@ public class AcceleratedHNSWUtils {
     // rather than per level/per task below.
     int maxConn = graph.maxConn();
 
-    int[] level0Nodes = NodesIterator.getSortedNodes(graph.getNodesOnLevel(0));
+    int[] level0Nodes = getSortedNodes(graph.getNodesOnLevel(0));
     offsets[0] = new int[level0Nodes.length];
     if (numThreads > 1 && level0Nodes.length >= PARALLEL_MIN_NODES) {
       writeLevel0Parallel(
@@ -270,7 +278,7 @@ public class AcceleratedHNSWUtils {
     }
 
     for (int level = 1; level < numLevels; level++) {
-      int[] sortedNodes = NodesIterator.getSortedNodes(graph.getNodesOnLevel(level));
+      int[] sortedNodes = getSortedNodes(graph.getNodesOnLevel(level));
       offsets[level] = new int[sortedNodes.length];
       writeLevelSerial(
           graph, vectorIndex, level, sortedNodes, offsets[level], countOnLevel0, maxConn);
@@ -366,8 +374,9 @@ public class AcceleratedHNSWUtils {
   }
 
   /**
-   * Sorts, delta-encodes and de-duplicates a node's neighbors and writes the block (VInt size + VInt
-   * deltas) to {@code out}. Shared by the serial and parallel paths so encoding is identical.
+   * Sorts, delta-encodes and de-duplicates a node's neighbors and writes the block (VInt size +
+   * GroupVInts deltas) to {@code out}. Shared by the serial and parallel paths so encoding is
+   * identical.
    */
   private static void encodeNode(
       NeighborArray neighbors, int[] scratch, DataOutput out, int countOnLevel0)
@@ -388,9 +397,7 @@ public class AcceleratedHNSWUtils {
       }
     }
     out.writeVInt(actualSize);
-    for (int i = 0; i < actualSize; i++) {
-      out.writeVInt(scratch[i]);
-    }
+    out.writeGroupVInts(scratch, actualSize);
   }
 
   /**

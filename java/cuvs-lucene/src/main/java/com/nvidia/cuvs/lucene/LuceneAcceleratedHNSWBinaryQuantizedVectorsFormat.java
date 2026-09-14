@@ -27,8 +27,7 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat extends KnnVector
 
   private static final Logger log =
       Logger.getLogger(LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat.class.getName());
-  private static final LuceneProvider LUCENE102_PROVIDER;
-  private static final LuceneProvider LUCENE99_PROVIDER;
+  private static final LuceneProvider LUCENE_PROVIDER;
   private static final FlatVectorsFormat FLAT_VECTORS_FORMAT;
   private static final int MAX_DIMENSIONS = 4096;
 
@@ -36,10 +35,9 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat extends KnnVector
 
   static {
     try {
-      LUCENE99_PROVIDER = LuceneProvider.getInstance("99");
-      LUCENE102_PROVIDER = LuceneProvider.getInstance("102");
+      LUCENE_PROVIDER = LuceneProvider.getInstance("104");
       FLAT_VECTORS_FORMAT =
-          LUCENE102_PROVIDER.getLuceneFlatVectorsFormatInstance(DefaultFlatVectorScorer.INSTANCE);
+          LUCENE_PROVIDER.getLuceneFlatVectorsFormatInstance(DefaultFlatVectorScorer.INSTANCE);
     } catch (Exception e) {
       throw new ExceptionInInitializerError(e.getMessage());
     }
@@ -79,13 +77,13 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat extends KnnVector
           state, acceleratedHNSWParams, flatWriter);
     } else {
       try {
-        // Fallback to Lucene's Lucene102HnswBinaryQuantizedVectorsFormat format
+        // Fallback to Lucene's Lucene102HnswBinaryQuantizedVectorsFormat
         log.log(
             Level.WARNING,
             "GPU based indexing not supported, falling back to using the"
                 + " Lucene102HnswBinaryQuantizedVectorsFormat");
         KnnVectorsFormat fallbackFormat =
-            LUCENE102_PROVIDER.getLuceneHnswBinaryQuantizedVectorsFormatInstance(
+            LUCENE_PROVIDER.getLuceneHnswBinaryQuantizedVectorsFormatInstance(
                 acceleratedHNSWParams.getMaxConn(), acceleratedHNSWParams.getBeamWidth());
         return fallbackFormat.fieldsWriter(state);
       } catch (Exception e) {
@@ -100,7 +98,7 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat extends KnnVector
   @Override
   public KnnVectorsReader fieldsReader(SegmentReadState state) throws IOException {
     try {
-      return LUCENE99_PROVIDER.getLuceneHnswVectorsReaderInstance(
+      return LUCENE_PROVIDER.getLuceneHnswVectorsReaderInstance(
           state, FLAT_VECTORS_FORMAT.fieldsReader(state));
     } catch (Exception e) {
       throw Utils.handleThrowable(e);

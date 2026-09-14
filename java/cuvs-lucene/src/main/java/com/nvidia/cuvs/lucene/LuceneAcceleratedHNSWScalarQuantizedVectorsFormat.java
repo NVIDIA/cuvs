@@ -33,7 +33,7 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsFormat extends KnnVector
 
   static {
     try {
-      LUCENE_PROVIDER = LuceneProvider.getInstance("99");
+      LUCENE_PROVIDER = LuceneProvider.getInstance("104");
       FLAT_VECTORS_FORMAT = LUCENE_PROVIDER.getLuceneScalarQuantizedVectorsFormatInstance();
     } catch (Exception e) {
       throw new ExceptionInInitializerError(e.getMessage());
@@ -72,10 +72,10 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsFormat extends KnnVector
           state, acceleratedHNSWParams, flatWriter);
     } else {
       try {
-        // Fallback to Lucene's Lucene99HnswScalarQuantizedVectorsFormat
+        // Fallback to Lucene's Lucene104HnswScalarQuantizedVectorsFormat
         log.warning(
             "GPU based indexing not supported, falling back to using the"
-                + " Lucene99HnswScalarQuantizedVectorsFormat");
+                + " Lucene104HnswScalarQuantizedVectorsFormat");
         KnnVectorsFormat fallbackFormat =
             LUCENE_PROVIDER.getLuceneHnswScalarQuantizedVectorsFormatInstance(
                 acceleratedHNSWParams.getBeamWidth(), acceleratedHNSWParams.getMaxConn());
