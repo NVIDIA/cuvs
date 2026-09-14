@@ -1020,7 +1020,7 @@ using cagra_index_t =
 auto build(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
            cuvs::neighbors::device_vpq_dataset_view<half, int64_t> const& dataset)
-  -> device_pq_index<float>;
+  -> cuvs::neighbors::cagra::device_pq_index<float, uint32_t, half>;
 
 /**
  * @brief Build from a device padded dataset view (`float`).
