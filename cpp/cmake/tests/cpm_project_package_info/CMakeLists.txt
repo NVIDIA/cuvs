@@ -24,12 +24,18 @@ set(EXPECTED_DLPACK_VERSION
 include("${CUVS_REPOSITORY_DIR}/cmake/rapids_config.cmake")
 include("${rapids-cmake-dir}/cpm/init.cmake")
 rapids_cpm_init()
-include("${CUVS_REPOSITORY_DIR}/cpp/cmake/thirdparty/rapids_cpm_project_package_info.cmake")
+# cmake-lint: disable=C0111
+function(assert_project_package_version package_name expected_version)
+  include("${CUVS_REPOSITORY_DIR}/cpp/cmake/thirdparty/rapids_cpm_project_package_info.cmake")
+  cuvs_cpm_project_package_info(${package_name} VERSION_VAR resolved_version)
+  if(NOT resolved_version STREQUAL expected_version)
+    message(
+      FATAL_ERROR "Expected ${package_name} version ${expected_version}, got ${resolved_version}"
+    )
+  endif()
+endfunction()
 
-cuvs_cpm_project_package_info(dlpack VERSION_VAR resolved_dlpack_version)
-if(NOT resolved_dlpack_version STREQUAL EXPECTED_DLPACK_VERSION)
-  message(
-    FATAL_ERROR
-      "Expected DLPack version ${EXPECTED_DLPACK_VERSION}, got ${resolved_dlpack_version}"
-  )
-endif()
+# Resolve packages from separate function scopes to verify that the catalog path remains available
+# after the helper's global include guard suppresses subsequent includes.
+assert_project_package_version(dlpack "${EXPECTED_DLPACK_VERSION}")
+assert_project_package_version(kvikio "${RAPIDS_VERSION_MAJOR_MINOR}.00")
