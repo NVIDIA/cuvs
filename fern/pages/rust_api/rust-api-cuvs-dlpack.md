@@ -84,7 +84,7 @@ T::dl_dtype(),
 }
 ```
 
-_Source: `rust/cuvs/src/dlpack.rs:79`_
+_Source: `rust/cuvs/src/dlpack.rs:89`_
 
 ## AsDlTensorMut
 
@@ -100,7 +100,7 @@ In addition to the [`DLTensorView::from_raw_parts`] invariants, writable
 adapters must guarantee exclusive access to the data region. The `&mut self`
 receiver makes the compiler enforce that exclusivity for the borrow.
 
-_Source: `rust/cuvs/src/dlpack.rs:88`_
+_Source: `rust/cuvs/src/dlpack.rs:98`_
 
 ## DType
 
@@ -112,7 +112,7 @@ pub trait DType {
 
 Maps a Rust element type to a DLPack [`DLDataType`].
 
-_Source: `rust/cuvs/src/dlpack.rs:93`_
+_Source: `rust/cuvs/src/dlpack.rs:103`_
 
 ## DLPackError
 
@@ -126,7 +126,7 @@ pub enum DLPackError {
 
 Error when converting an external tensor to a DLPack view.
 
-_Source: `rust/cuvs/src/dlpack.rs:121`_
+_Source: `rust/cuvs/src/dlpack.rs:131`_
 
 ## DLTensorView
 
@@ -143,12 +143,12 @@ A non-owning, read-only DLPack tensor view.
 
 | Name | Source |
 | --- | --- |
-| `from_raw_parts` | `rust/cuvs/src/dlpack.rs:176` |
-| `ndim` | `rust/cuvs/src/dlpack.rs:226` |
-| `shape` | `rust/cuvs/src/dlpack.rs:231` |
-| `strides` | `rust/cuvs/src/dlpack.rs:236` |
-| `dtype` | `rust/cuvs/src/dlpack.rs:241` |
-| `device` | `rust/cuvs/src/dlpack.rs:246` |
+| `from_raw_parts` | `rust/cuvs/src/dlpack.rs:186` |
+| `ndim` | `rust/cuvs/src/dlpack.rs:236` |
+| `shape` | `rust/cuvs/src/dlpack.rs:241` |
+| `strides` | `rust/cuvs/src/dlpack.rs:246` |
+| `dtype` | `rust/cuvs/src/dlpack.rs:251` |
+| `device` | `rust/cuvs/src/dlpack.rs:256` |
 
 ### from_raw_parts
 
@@ -174,7 +174,7 @@ The caller must guarantee that:
 `shape`/`strides` pointers) only for the duration of the FFI call and
 does not retain it afterward — cuVS upholds this.
 
-_Source: `rust/cuvs/src/dlpack.rs:176`_
+_Source: `rust/cuvs/src/dlpack.rs:186`_
 
 ### ndim
 
@@ -184,7 +184,7 @@ pub fn ndim(&self) -> usize
 
 Number of dimensions.
 
-_Source: `rust/cuvs/src/dlpack.rs:226`_
+_Source: `rust/cuvs/src/dlpack.rs:236`_
 
 ### shape
 
@@ -194,7 +194,7 @@ pub fn shape(&self) -> &[i64]
 
 Shape of the tensor.
 
-_Source: `rust/cuvs/src/dlpack.rs:231`_
+_Source: `rust/cuvs/src/dlpack.rs:241`_
 
 ### strides
 
@@ -204,7 +204,7 @@ pub fn strides(&self) -> Option<&[i64]>
 
 Strides, if non-contiguous. `None` means row-major contiguous.
 
-_Source: `rust/cuvs/src/dlpack.rs:236`_
+_Source: `rust/cuvs/src/dlpack.rs:246`_
 
 ### dtype
 
@@ -214,7 +214,7 @@ pub fn dtype(&self) -> ffi::DLDataType
 
 Element data type.
 
-_Source: `rust/cuvs/src/dlpack.rs:241`_
+_Source: `rust/cuvs/src/dlpack.rs:251`_
 
 ### device
 
@@ -224,9 +224,9 @@ pub fn device(&self) -> ffi::DLDevice
 
 Device where the data resides.
 
-_Source: `rust/cuvs/src/dlpack.rs:246`_
+_Source: `rust/cuvs/src/dlpack.rs:256`_
 
-_Source: `rust/cuvs/src/dlpack.rs:155`_
+_Source: `rust/cuvs/src/dlpack.rs:165`_
 
 ## DLTensorViewMut
 
@@ -243,7 +243,7 @@ A non-owning, writable DLPack tensor view.
 
 | Name | Source |
 | --- | --- |
-| `from_raw_parts` | `rust/cuvs/src/dlpack.rs:274` |
+| `from_raw_parts` | `rust/cuvs/src/dlpack.rs:284` |
 
 ### from_raw_parts
 
@@ -264,6 +264,6 @@ Construct a writable DLPack view from raw tensor metadata.
 In addition to the [`DLTensorView::from_raw_parts`] invariants, the
 caller must guarantee the storage is exclusively writable for `'a`.
 
-_Source: `rust/cuvs/src/dlpack.rs:274`_
+_Source: `rust/cuvs/src/dlpack.rs:284`_
 
-_Source: `rust/cuvs/src/dlpack.rs:262`_
+_Source: `rust/cuvs/src/dlpack.rs:272`_

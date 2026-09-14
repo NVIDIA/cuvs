@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -90,11 +90,12 @@ void transform_batch(raft::resources const& res,
     }
   }(index.pq_bits());
 
-  kernel<<<blocks, threads, 0, raft::resource::get_cuda_stream(res)>>>(dataset_residuals.view(),
-                                                                       output_labels,
-                                                                       output_dataset,
-                                                                       index.pq_centers(),
-                                                                       index.codebook_kind());
+  kernel<<<blocks, threads, 0, raft::resource::get_cuda_stream(res).get()>>>(
+    dataset_residuals.view(),
+    output_labels,
+    output_dataset,
+    index.pq_centers(),
+    index.codebook_kind());
 }
 
 template <typename T, typename IdxT>

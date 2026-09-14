@@ -53,7 +53,25 @@ public class Lucene101AcceleratedHNSWCodec extends FilterCodec {
   public Lucene101AcceleratedHNSWCodec(AcceleratedHNSWParams acceleratedHNSWParams)
       throws Exception {
     this(NAME, LuceneProvider.getCodec("101"));
-    initializeFormat(acceleratedHNSWParams);
+    initializeFormat(acceleratedHNSWParams, 0);
+  }
+
+  /**
+   * Constructor for {@link Lucene101AcceleratedHNSWCodec} used for the native flat-buffered build
+   * path (see {@link NativeFlatBufferedHNSWVectorsWriter}). Package-private: only {@link
+   * CagraHnswBulkIndexWriter} can guarantee the invariants (single unmerged segment, no index
+   * sort, exact vector count) that native flat buffering requires, so this overload is not part
+   * of the public API.
+   *
+   * @param acceleratedHNSWParams instance of {@link AcceleratedHNSWParams}
+   * @param numInputVectors the exact number of vectors to be indexed, used to pre-size the native
+   *     flat buffer
+   * @throws Exception exception
+   */
+  Lucene101AcceleratedHNSWCodec(AcceleratedHNSWParams acceleratedHNSWParams, int numInputVectors)
+      throws Exception {
+    this(NAME, LuceneProvider.getCodec("101"));
+    initializeFormat(acceleratedHNSWParams, numInputVectors);
   }
 
   /**
@@ -61,17 +79,19 @@ public class Lucene101AcceleratedHNSWCodec extends FilterCodec {
    * with an instance of {@link AcceleratedHNSWParams} with default parameter values.
    */
   private void initializeFormatDefaultValues() {
-    initializeFormat(new AcceleratedHNSWParams.Builder().build());
+    initializeFormat(new AcceleratedHNSWParams.Builder().build(), 0);
   }
 
   /**
    * Initialize an instance of {@link Lucene99AcceleratedHNSWVectorsFormat}.
    *
    * @param acceleratedHNSWParams instance of {@link AcceleratedHNSWParams} to use
+   * @param numInputVectors the exact number of vectors to be indexed, used to pre-size the native
+   *     flat buffer (0 = disabled, the default heap-buffered path)
    */
-  private void initializeFormat(AcceleratedHNSWParams acceleratedHNSWParams) {
+  private void initializeFormat(AcceleratedHNSWParams acceleratedHNSWParams, int numInputVectors) {
     try {
-      format = new Lucene99AcceleratedHNSWVectorsFormat(acceleratedHNSWParams);
+      format = new Lucene99AcceleratedHNSWVectorsFormat(acceleratedHNSWParams, numInputVectors);
       setKnnFormat(format);
     } catch (LibraryException ex) {
       log.log(

@@ -116,7 +116,8 @@ rmm::device_uvector<value_idx> get_cluster_counts(raft::resources const& handle,
 
   rmm::device_uvector<char> workspace(1, stream);
 
-  cuvs::stats::detail::countLabels(y, cluster_counts.data(), n_rows, n_labels, workspace, stream);
+  cuvs::stats::detail::countLabels(
+    y, cluster_counts.data(), n_rows, n_labels, workspace, stream.get());
 
   return cluster_counts;
 }
@@ -206,7 +207,7 @@ value_t silhouette_score(
   dim3 block_size(std::min(n_rows, 32), std::min(n_labels, 32));
   dim3 grid_size(raft::ceildiv(n_rows, (value_idx)block_size.x),
                  raft::ceildiv(n_labels, (label_idx)block_size.y));
-  detail::fill_b_kernel<<<grid_size, block_size, 0, stream>>>(
+  detail::fill_b_kernel<<<grid_size, block_size, 0, stream.get()>>>(
     b_ptr, y, n_rows, n_labels, cluster_counts.data());
 
   raft::resource::wait_stream_pool_on_stream(handle);
@@ -241,7 +242,7 @@ value_t silhouette_score(
                           distances.data(),
                           n_left_rows,
                           n_right_rows,
-                          chunk_stream);
+                          chunk_stream.get());
     }
   }
 

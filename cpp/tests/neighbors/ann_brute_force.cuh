@@ -101,7 +101,7 @@ class AnnBruteForceTest : public ::testing::TestWithParam<AnnBruteForceInputs<Id
                                                       ps.num_queries,
                                                       ps.k,
                                                       0.001f,
-                                                      stream_,
+                                                      stream_.get(),
                                                       true));
 
       tmp_index_file index_file;
@@ -124,7 +124,7 @@ class AnnBruteForceTest : public ::testing::TestWithParam<AnnBruteForceInputs<Id
                                                       ps.num_queries,
                                                       ps.k,
                                                       0.001f,
-                                                      stream_,
+                                                      stream_.get(),
                                                       true));
     }
   }

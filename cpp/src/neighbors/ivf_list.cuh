@@ -22,6 +22,7 @@
 #include <raft/matrix/init.cuh>
 #include <raft/util/integer_utils.hpp>
 
+#include "../util/kvikio_serialize.hpp"
 #include "ivf_common.cuh"
 
 #include <atomic>
@@ -111,6 +112,23 @@ enable_if_valid_list_t<ListT> serialize_list(const raft::resources& handle,
                                              const typename ListT::spec_type& store_spec,
                                              std::optional<typename ListT::size_type> size_override)
 {
+  if (auto* kvikio_stream = dynamic_cast<cuvs::util::kvikio_ofstream*>(&os);
+      kvikio_stream != nullptr) {
+    using size_type = typename ListT::size_type;
+    const auto size = size_override.value_or(ld.size.load());
+    raft::serialize_scalar(handle, *kvikio_stream, size);
+    if (size == 0) { return; }
+
+    const auto data_extents = store_spec.make_list_extents(size);
+    const auto data_view =
+      raft::make_mdspan<const typename ListT::value_type, size_type, raft::row_major, false, true>(
+        ld.data.data_handle(), data_extents);
+    const auto indices_view = raft::make_device_vector_view(ld.indices.data_handle(), size);
+    cuvs::util::detail::serialize_device_mdspan(handle, *kvikio_stream, data_view);
+    cuvs::util::detail::serialize_device_mdspan(handle, *kvikio_stream, indices_view);
+    return;
+  }
+
   using size_type = typename ListT::size_type;
   auto size       = size_override.value_or(ld.size.load());
   raft::serialize_scalar(handle, os, size);
@@ -153,6 +171,9 @@ enable_if_valid_list_t<ListT> deserialize_list(const raft::resources& handle,
                                                const typename ListT::spec_type& store_spec,
                                                const typename ListT::spec_type& device_spec)
 {
+  // Public stream deserializers accept arbitrary streams, which need not be backed by a file that
+  // KvikIO can reopen. Keep this host-staged path for those callers; filename overloads use the
+  // KvikIO reader overload below.
   using size_type = typename ListT::size_type;
   auto size       = raft::deserialize_scalar<size_type>(handle, is);
   if (size == 0) { return ld.reset(); }
@@ -173,5 +194,30 @@ enable_if_valid_list_t<ListT> deserialize_list(const raft::resources& handle,
              raft::make_host_vector_view(inds_array.data_handle(), size));
   // Make sure the data is copied from host to device before the host arrays get out of the scope.
   raft::resource::sync_stream(handle);
+}
+
+template <typename ListT>
+enable_if_valid_list_t<ListT> deserialize_list(const raft::resources& handle,
+                                               cuvs::util::kvikio_file_reader& reader,
+                                               std::shared_ptr<ListT>& ld,
+                                               const typename ListT::spec_type& store_spec,
+                                               const typename ListT::spec_type& device_spec)
+{
+  // Path-backed deserialization reaches this overload and reads list payloads directly into device
+  // memory through GDS when available (with KvikIO's compatible I/O fallback otherwise).
+  using size_type = typename ListT::size_type;
+  auto& is        = reader.stream();
+  const auto size = raft::deserialize_scalar<size_type>(handle, is);
+  if (size == 0) { return ld.reset(); }
+
+  std::make_shared<ListT>(handle, device_spec, size).swap(ld);
+
+  const auto data_extents = store_spec.make_list_extents(size);
+  auto data_view =
+    raft::make_mdspan<typename ListT::value_type, size_type, raft::row_major, false, true>(
+      ld->data.data_handle(), data_extents);
+  auto indices_view = raft::make_device_vector_view(ld->indices.data_handle(), size);
+  cuvs::util::detail::deserialize_device_mdspan(handle, reader, data_view);
+  cuvs::util::detail::deserialize_device_mdspan(handle, reader, indices_view);
 }
 }  // namespace cuvs::neighbors::ivf

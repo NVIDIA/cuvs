@@ -41,6 +41,12 @@ source rapids-configure-sccache
 source rapids-datetime-string
 
 rapids-pip-retry install cmake
+
+RAPIDS_CUDA_MAJOR="${RAPIDS_CUDA_VERSION%%.*}"
+if [[ "${RAPIDS_CUDA_MAJOR}" == "13" ]]; then
+  rapids-pip-retry install cuda-tile "cuda-toolkit[tileiras]==${RAPIDS_CUDA_VERSION%.*}.*"
+fi
+
 pyenv rehash
 
 rapids-print-env
@@ -85,6 +91,16 @@ sccache --stop-server >/dev/null 2>&1 || true
 
 rapids-logger "Begin c install"
 cmake --install c/build --prefix c/build/install
+
+# libcuvs_c contains libcuvs_static, whose ACE implementation uses the private KvikIO shared
+# library. Bundle that runtime library without adding KvikIO headers or CMake metadata to the
+# standalone C artifact.
+if ! cmake --install cpp/build \
+      --prefix c/build/install \
+      --component cuvs_standalone_runtime; then
+  echo "Error: failed to install component 'cuvs_standalone_runtime' from cpp/build" >&2
+  exit 1
+fi
 
 # need to install the tests
 if [ "${BUILD_C_LIB_TESTS}" != "OFF" ]; then

@@ -174,7 +174,7 @@ class AnnIVFSQTest : public ::testing::TestWithParam<AnnIvfSqInputs<IdxT>> {
                               indices_naive_dev.data(),
                               IdxT(test_ivf_sample_filter::offset),
                               queries_size,
-                              stream_);
+                              stream_.get());
       raft::update_host(distances_naive.data(), distances_naive_dev.data(), queries_size, stream_);
       raft::update_host(indices_naive.data(), indices_naive_dev.data(), queries_size, stream_);
       raft::resource::sync_stream(handle_);
