@@ -22,9 +22,17 @@ fi
 source rapids-install-sccache
 source rapids-configure-sccache
 
+# Standalone builds must resolve Python dependencies through the internal proxy.
+# An inherited extra index could re-enable direct PyPI access, so disable it here.
+PIP_INDEX_URL="https://artifactory.nvidia.com/artifactory/api/pypi/pypi-remote/simple"
+export PIP_INDEX_URL
+unset PIP_EXTRA_INDEX_URL
+
+RAPIDS_BRANCH="$(<"${REPO_ROOT}/RAPIDS_BRANCH")"
+
 PIP_PACKAGES=(
   'cmake>=4.0'
-  'git+https://github.com/rapidsai/spdx-license-builder.git'
+  "git+https://gitlab-master.nvidia.com/RAPIDS/spdx-license-builder.git@${RAPIDS_BRANCH}"
   'ninja>=1.13'
 )
 
