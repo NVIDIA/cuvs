@@ -2411,7 +2411,7 @@ template <typename T, typename IdxT = uint32_t, typename DatasetViewT>
            cuvs::neighbors::is_device_vpq_f16_dataset_view_v<DatasetViewT>)
 auto iterative_build_graph(raft::resources const& res,
                            const index_params& params,
-                           DatasetViewT const& dataset) -> raft::host_matrix<IdxT, int64_t>
+                           DatasetViewT const& dataset) -> raft::device_matrix<IdxT, int64_t>
 {
   size_t intermediate_degree = params.intermediate_graph_degree;
   size_t graph_degree        = params.graph_degree;
@@ -2641,15 +2641,7 @@ auto iterative_build_graph(raft::resources const& res,
     curr_graph_size      = next_graph_size;
   }
 
-  auto cagra_graph =
-    raft::make_host_matrix<IdxT, int64_t>(dev_graph.extent(0), dev_graph.extent(1));
-  raft::copy(cagra_graph.data_handle(),
-             dev_graph.data_handle(),
-             dev_graph.extent(0) * dev_graph.extent(1),
-             stream);
-  raft::resource::sync_stream(res);
-
-  return cagra_graph;
+  return dev_graph;
 }
 
 template <typename IdxT>
@@ -2848,24 +2840,23 @@ auto build_from_device_matrix(raft::resources const& res,
     res, params, dataset_extents, intermediate_degree);
   validate_cagra_knn_graph_build_constraints<T>(params, knn_build_params);
 
-  auto cagra_graph = [&]() -> raft::host_matrix<IdxT, int64_t> {
-    if (std::holds_alternative<cagra::graph_build_params::iterative_search_params>(
-          knn_build_params)) {
-      return iterative_build_graph<T, IdxT>(res, params, device_dataset);
-    }
-    return build_cagra_host_graph_from_knn_params<T, IdxT>(res,
-                                                           params,
-                                                           knn_build_params,
-                                                           device_dataset.n_rows(),
-                                                           intermediate_degree,
-                                                           graph_degree,
-                                                           device_dataset.view());
-  }();
+  cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> idx(res, params.metric);
+  if (std::holds_alternative<cagra::graph_build_params::iterative_search_params>(
+        knn_build_params)) {
+    auto cagra_graph = iterative_build_graph<T, IdxT>(res, params, device_dataset);
+    idx.update_graph(res, std::move(cagra_graph));
+  } else {
+    auto cagra_graph = build_cagra_host_graph_from_knn_params<T, IdxT>(res,
+                                                                       params,
+                                                                       knn_build_params,
+                                                                       device_dataset.n_rows(),
+                                                                       intermediate_degree,
+                                                                       graph_degree,
+                                                                       device_dataset.view());
+    idx.update_graph(res, raft::make_const_mdspan(cagra_graph.view()));
+  }
 
   RAFT_LOG_TRACE("Graph optimized, creating index");
-
-  cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> idx(res, params.metric);
-  idx.update_graph(res, raft::make_const_mdspan(cagra_graph.view()));
   return idx;
 }
 }  // namespace cuvs::neighbors::cagra::detail

@@ -326,7 +326,7 @@ auto build(raft::resources const& res, const index_params& params, DatasetViewT 
     auto cagra_graph = detail::iterative_build_graph<T, IdxT>(res, effective_params, dataset);
 
     index_type idx(res, effective_params.metric);
-    idx.update_graph(res, raft::make_const_mdspan(cagra_graph.view()));
+    idx.update_graph(res, std::move(cagra_graph));
     if (effective_params.attach_dataset_on_build) {
       idx = cuvs::neighbors::cagra::update_dataset(res, std::move(idx), dataset);
     }
