@@ -120,7 +120,6 @@ void transform(raft::resources const& res,
 
   // The cluster centers in the index are stored padded, which is not acceptable by
   // the kmeans_balanced::predict. Thus, we need the restructuring raft::copy.
-  auto stream           = raft::resource::get_cuda_stream(res);
   const auto n_clusters = index.n_lists();
 
   auto cluster_centers =

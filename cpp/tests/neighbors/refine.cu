@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -14,7 +14,7 @@
 #include <raft/core/resources.hpp>
 #include <raft/util/itertools.hpp>
 
-#include <rmm/cuda_stream_view.hpp>
+#include <cuda/stream>
 
 #include <gtest/gtest.h>
 
@@ -86,7 +86,7 @@ class RefineTest : public ::testing::TestWithParam<RefineInputs<IdxT>> {
 
  public:
   raft::resources handle_;
-  rmm::cuda_stream_view stream_;
+  cuda::stream_ref stream_;
   RefineHelper<DataT, DistanceT, IdxT> data;
 };
 

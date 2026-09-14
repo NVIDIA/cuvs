@@ -848,9 +848,9 @@ def write_cpp_common_types_page(out_dir: Path) -> None:
         "raft-resource-get-cuda-stream",
         "raft::resource::get_cuda_stream",
         "Returns the CUDA stream associated with a resources object.",
-        "rmm::cuda_stream_view get_cuda_stream(raft::resources const& res);",
+        "cuda::stream_ref get_cuda_stream(raft::resources const& res);",
         [("res", "raft::resources const&", "Resources object to query.")],
-        "rmm::cuda_stream_view",
+        "cuda::stream_ref",
         nested=True,
     )
     add_symbol(
@@ -860,7 +860,7 @@ def write_cpp_common_types_page(out_dir: Path) -> None:
         "Synchronizes the CUDA stream associated with a resources object.",
         (
             "void sync_stream(raft::resources const& res);\n"
-            "void sync_stream(raft::resources const& res, rmm::cuda_stream_view stream);"
+            "void sync_stream(raft::resources const& res, cuda::stream_ref stream);"
         ),
         [
             (
@@ -870,7 +870,7 @@ def write_cpp_common_types_page(out_dir: Path) -> None:
             ),
             (
                 "stream",
-                "rmm::cuda_stream_view",
+                "cuda::stream_ref",
                 "Optional stream to synchronize instead of the main stream.",
             ),
         ],
@@ -909,9 +909,9 @@ def write_cpp_common_types_page(out_dir: Path) -> None:
         "raft-resource-get-stream-from-stream-pool",
         "raft::resource::get_stream_from_stream_pool",
         "Returns a stream from the configured stream pool.",
-        "rmm::cuda_stream_view get_stream_from_stream_pool(raft::resources const& res);",
+        "cuda::stream_ref get_stream_from_stream_pool(raft::resources const& res);",
         [("res", "raft::resources const&", "Resources object to query.")],
-        "rmm::cuda_stream_view",
+        "cuda::stream_ref",
         nested=True,
     )
     add_symbol(
@@ -995,7 +995,7 @@ def write_cpp_common_types_page(out_dir: Path) -> None:
         "Constructs a single-GPU resources object.",
         (
             "device_resources(\n"
-            "  rmm::cuda_stream_view stream_view = cuda::stream_ref{cudaStreamPerThread},\n"
+            "  cuda::stream_ref stream_view = cuda::stream_ref{cudaStreamPerThread},\n"
             "  std::shared_ptr<rmm::cuda_stream_pool> stream_pool = nullptr,\n"
             "  std::shared_ptr<rmm::mr::device_memory_resource> workspace_resource = nullptr,\n"
             "  std::optional<std::size_t> allocation_limit = std::nullopt);"
@@ -1003,7 +1003,7 @@ def write_cpp_common_types_page(out_dir: Path) -> None:
         [
             (
                 "stream_view",
-                "rmm::cuda_stream_view",
+                "cuda::stream_ref",
                 "Default CUDA stream used by algorithms.",
             ),
             (
@@ -1030,12 +1030,12 @@ def write_cpp_common_types_page(out_dir: Path) -> None:
         "Synchronizes either the main stream or a specific CUDA stream.",
         (
             "void sync_stream() const;\n"
-            "void sync_stream(rmm::cuda_stream_view stream) const;"
+            "void sync_stream(cuda::stream_ref stream) const;"
         ),
         [
             (
                 "stream",
-                "rmm::cuda_stream_view",
+                "cuda::stream_ref",
                 "Stream to synchronize. Omit to synchronize the main stream.",
             )
         ],
@@ -1046,8 +1046,8 @@ def write_cpp_common_types_page(out_dir: Path) -> None:
         "raft-device-resources-get-stream",
         "raft::device_resources::get_stream",
         "Returns the main CUDA stream associated with the resources object.",
-        "rmm::cuda_stream_view get_stream() const;",
-        returns="rmm::cuda_stream_view",
+        "cuda::stream_ref get_stream() const;",
+        returns="cuda::stream_ref",
     )
     add_symbol(
         lines,
@@ -1071,8 +1071,8 @@ def write_cpp_common_types_page(out_dir: Path) -> None:
         "raft::device_resources::get_stream_from_stream_pool",
         "Returns a stream from the configured CUDA stream pool.",
         (
-            "rmm::cuda_stream_view get_stream_from_stream_pool() const;\n"
-            "rmm::cuda_stream_view get_stream_from_stream_pool(std::size_t stream_idx) const;"
+            "cuda::stream_ref get_stream_from_stream_pool() const;\n"
+            "cuda::stream_ref get_stream_from_stream_pool(std::size_t stream_idx) const;"
         ),
         [
             (
@@ -1081,7 +1081,7 @@ def write_cpp_common_types_page(out_dir: Path) -> None:
                 "Optional index of the stream in the stream pool.",
             )
         ],
-        "rmm::cuda_stream_view",
+        "cuda::stream_ref",
     )
     add_symbol(
         lines,
@@ -1092,8 +1092,8 @@ def write_cpp_common_types_page(out_dir: Path) -> None:
             "the main stream."
         ),
         (
-            "rmm::cuda_stream_view get_next_usable_stream() const;\n"
-            "rmm::cuda_stream_view get_next_usable_stream(std::size_t stream_idx) const;"
+            "cuda::stream_ref get_next_usable_stream() const;\n"
+            "cuda::stream_ref get_next_usable_stream(std::size_t stream_idx) const;"
         ),
         [
             (
@@ -1102,7 +1102,7 @@ def write_cpp_common_types_page(out_dir: Path) -> None:
                 "Optional stream pool index to use when a stream pool is configured.",
             )
         ],
-        "rmm::cuda_stream_view",
+        "cuda::stream_ref",
     )
     add_symbol(
         lines,
@@ -2133,7 +2133,7 @@ def write_cpp_common_types_page(out_dir: Path) -> None:
         (
             "template <typename OutputIterator, typename InputIterator, typename SizeType>\n"
             "void copy(OutputIterator dst, InputIterator src, SizeType n,\n"
-            "          rmm::cuda_stream_view stream);"
+            "          cuda::stream_ref stream);"
         ),
         [
             ("dst", "OutputIterator", "Destination pointer or iterator."),
@@ -2141,7 +2141,7 @@ def write_cpp_common_types_page(out_dir: Path) -> None:
             ("n", "SizeType", "Number of elements to copy."),
             (
                 "stream",
-                "rmm::cuda_stream_view",
+                "cuda::stream_ref",
                 "CUDA stream used for the copy.",
             ),
         ],
@@ -2152,13 +2152,13 @@ def write_cpp_common_types_page(out_dir: Path) -> None:
         "raft-copy-matrix",
         "raft::copy_matrix",
         "Copies a dense matrix between compatible matrix views.",
-        "template <typename OutputView, typename InputView>\nvoid copy_matrix(OutputView dst, InputView src, rmm::cuda_stream_view stream);",
+        "template <typename OutputView, typename InputView>\nvoid copy_matrix(OutputView dst, InputView src, cuda::stream_ref stream);",
         [
             ("dst", "OutputView", "Destination matrix view."),
             ("src", "InputView", "Source matrix view."),
             (
                 "stream",
-                "rmm::cuda_stream_view",
+                "cuda::stream_ref",
                 "CUDA stream used for the copy.",
             ),
         ],
@@ -2172,7 +2172,7 @@ def write_cpp_common_types_page(out_dir: Path) -> None:
         (
             "template <typename DevicePointer, typename HostPointer, typename SizeType>\n"
             "void update_device(DevicePointer dst, HostPointer src, SizeType n,\n"
-            "                   rmm::cuda_stream_view stream);"
+            "                   cuda::stream_ref stream);"
         ),
         [
             ("dst", "DevicePointer", "Destination device pointer."),
@@ -2180,7 +2180,7 @@ def write_cpp_common_types_page(out_dir: Path) -> None:
             ("n", "SizeType", "Number of elements to copy."),
             (
                 "stream",
-                "rmm::cuda_stream_view",
+                "cuda::stream_ref",
                 "CUDA stream used for the copy.",
             ),
         ],
@@ -2194,7 +2194,7 @@ def write_cpp_common_types_page(out_dir: Path) -> None:
         (
             "template <typename HostPointer, typename DevicePointer, typename SizeType>\n"
             "void update_host(HostPointer dst, DevicePointer src, SizeType n,\n"
-            "                 rmm::cuda_stream_view stream);"
+            "                 cuda::stream_ref stream);"
         ),
         [
             ("dst", "HostPointer", "Destination host pointer."),
@@ -2202,7 +2202,7 @@ def write_cpp_common_types_page(out_dir: Path) -> None:
             ("n", "SizeType", "Number of elements to copy."),
             (
                 "stream",
-                "rmm::cuda_stream_view",
+                "cuda::stream_ref",
                 "CUDA stream used for the copy.",
             ),
         ],
