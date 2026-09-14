@@ -33,7 +33,6 @@
 #include <raft/util/device_atomics.cuh>
 #include <raft/util/integer_utils.hpp>
 
-#include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_scalar.hpp>
 #include <rmm/mr/managed_memory_resource.hpp>
 #include <rmm/resource_ref.hpp>
@@ -142,7 +141,7 @@ inline std::enable_if_t<std::is_floating_point_v<MathT>> predict_core(
                          &beta,
                          distances.data(),
                          n_clusters,
-                         stream);
+                         stream.get());
 
       auto distances_const_view = raft::make_device_matrix_view<const MathT, IdxT, raft::row_major>(
         distances.data(), n_rows, n_clusters);
@@ -286,13 +285,29 @@ void calc_centers_and_sizes(const raft::resources& handle,
 
   // Apply mapping only when the data and math types are different.
   if constexpr (std::is_same_v<T, MathT>) {
-    raft::linalg::reduce_rows_by_key(
-      dataset, dim, labels, nullptr, n_rows, dim, n_clusters, centers, stream, reset_counters);
+    raft::linalg::reduce_rows_by_key(dataset,
+                                     dim,
+                                     labels,
+                                     nullptr,
+                                     n_rows,
+                                     dim,
+                                     n_clusters,
+                                     centers,
+                                     stream.get(),
+                                     reset_counters);
   } else {
     // todo(lsugy): use iterator from KV output of fusedL2NN
     thrust::transform_iterator<MappingOpT, const T*> mapping_itr(dataset, mapping_op);
-    raft::linalg::reduce_rows_by_key(
-      mapping_itr, dim, labels, nullptr, n_rows, dim, n_clusters, centers, stream, reset_counters);
+    raft::linalg::reduce_rows_by_key(mapping_itr,
+                                     dim,
+                                     labels,
+                                     nullptr,
+                                     n_rows,
+                                     dim,
+                                     n_clusters,
+                                     centers,
+                                     stream.get(),
+                                     reset_counters);
   }
 
   // Compute weight of each cluster
@@ -689,38 +704,39 @@ auto adjust_centers(const raft::resources& handle,
     search_count.set_value_to_zero_async(stream);
     const dim3 grid_dim(raft::ceildiv(n_clusters, static_cast<IdxT>(kBlockDimY)), 1, 1);
     adjust_centers_random_donor_kernel<kBlockDimY>
-      <<<grid_dim, block_dim, 0, stream>>>(centers,
-                                           n_clusters,
-                                           dim,
-                                           dataset,
-                                           n_rows,
-                                           labels,
-                                           cluster_sizes,
-                                           lower_threshold,
-                                           static_cast<IdxT>(n_rows / n_clusters),
-                                           centroid_offset,
-                                           ofst,
-                                           search_count.data(),
-                                           update_count.data(),
-                                           mapping_op);
+      <<<grid_dim, block_dim, 0, stream.get()>>>(centers,
+                                                 n_clusters,
+                                                 dim,
+                                                 dataset,
+                                                 n_rows,
+                                                 labels,
+                                                 cluster_sizes,
+                                                 lower_threshold,
+                                                 static_cast<IdxT>(n_rows / n_clusters),
+                                                 centroid_offset,
+                                                 ofst,
+                                                 search_count.data(),
+                                                 update_count.data(),
+                                                 mapping_op);
     return update_count.value(stream) > 0;  // NB: rmm scalar performs the sync
   }
 
   raft::update_device(receiver_clusters.data(), host_receiver_clusters.data(), n_pairs, stream);
   raft::update_device(donor_clusters.data(), host_donor_clusters.data(), n_pairs, stream);
   const dim3 grid_dim(raft::ceildiv(n_pairs, static_cast<IdxT>(kBlockDimY)), 1, 1);
-  adjust_centers_kernel<kBlockDimY><<<grid_dim, block_dim, 0, stream>>>(centers,
-                                                                        n_pairs,
-                                                                        dim,
-                                                                        dataset,
-                                                                        n_rows,
-                                                                        labels,
-                                                                        receiver_clusters.data(),
-                                                                        donor_clusters.data(),
-                                                                        centroid_offset,
-                                                                        ofst,
-                                                                        update_count.data(),
-                                                                        mapping_op);
+  adjust_centers_kernel<kBlockDimY>
+    <<<grid_dim, block_dim, 0, stream.get()>>>(centers,
+                                               n_pairs,
+                                               dim,
+                                               dataset,
+                                               n_rows,
+                                               labels,
+                                               receiver_clusters.data(),
+                                               donor_clusters.data(),
+                                               centroid_offset,
+                                               ofst,
+                                               update_count.data(),
+                                               mapping_op);
   auto n_updates = update_count.value(stream);  // NB: rmm scalar performs the sync
   RAFT_EXPECTS(n_updates == n_pairs, "Balanced k-means failed to update all adjusted centers");
   return n_updates > 0;
@@ -1068,7 +1084,7 @@ auto build_fine_clusters(const raft::resources& handle,
     }
 
     thrust::transform_iterator<MappingOpT, const T*> mapping_itr(dataset_mptr, mapping_op);
-    raft::matrix::gather(mapping_itr, dim, n_rows, mc_trainset_ids, k, mc_trainset, stream);
+    raft::matrix::gather(mapping_itr, dim, n_rows, mc_trainset_ids, k, mc_trainset, stream.get());
     if (params.metric == cuvs::distance::DistanceType::L2Expanded ||
         params.metric == cuvs::distance::DistanceType::L2SqrtExpanded ||
         params.metric == cuvs::distance::DistanceType::CosineExpanded) {

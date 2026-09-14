@@ -195,7 +195,7 @@ void ace_get_partition_labels(
   size_t n_partitions = partition_histogram.extent(0);
   RAFT_EXPECTS(labels_dim == 2, "Labels must have 2 columns");
   RAFT_EXPECTS(partition_histogram.extent(1) == 2, "Partition histogram must have 2 columns");
-  cudaStream_t stream = raft::resource::get_cuda_stream(res);
+  cudaStream_t stream = raft::resource::get_cuda_stream(res).get();
 
   // Sampling vectors from dataset. Uses float conversion on host instead of
   // raft::matrix::sample_rows to minimize GPU memory usage.
@@ -598,7 +598,7 @@ void ace_adjust_sub_graph_ids_disk(
   ace_adjust_sub_graph_ids_disk_kernel<<<grid_size,
                                          block_size,
                                          0,
-                                         raft::resource::get_cuda_stream(res)>>>(
+                                         raft::resource::get_cuda_stream(res).get()>>>(
     sub_search_graph.data_handle(),
     adjusted_search_graph.data_handle(),
     graph_edges,

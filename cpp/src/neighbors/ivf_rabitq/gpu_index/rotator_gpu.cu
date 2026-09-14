@@ -28,7 +28,7 @@ RotatorGPU::RotatorGPU(raft::resources const& handle, uint32_t dim)
   raft::random::RngState rng(7ULL);
   raft::random::normal(handle, rng, rotation_matrix_.data_handle(), D * D, 0.0f, 1.0f);
   raft::linalg::detail::qrGetQ_inplace(
-    handle, rotation_matrix_.data_handle(), D, D, raft::resource::get_cuda_stream(handle));
+    handle, rotation_matrix_.data_handle(), D, D, raft::resource::get_cuda_stream(handle).get());
 }
 
 size_t RotatorGPU::size() const { return D; }

@@ -47,7 +47,7 @@ void add_node_core(
                                              idx.graph().data_handle(),
                                              old_size * degree,
                                              1,
-                                             raft::resource::get_cuda_stream(handle));
+                                             raft::resource::get_cuda_stream(handle).get());
 
   auto host_num_incoming_edges = raft::make_host_vector<int, std::uint64_t>(new_size);
   raft::copy(handle, host_num_incoming_edges.view(), dev_num_incoming_edges.view());

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -49,7 +49,7 @@ void fit_predict(raft::resources const& handle,
                           embedding_row_major.data_handle(),
                           n_samples,
                           config.n_components,
-                          raft::resource::get_cuda_stream(handle));
+                          raft::resource::get_cuda_stream(handle).get());
 
   cuvs::cluster::kmeans::fit_predict(handle,
                                      kmeans_config,

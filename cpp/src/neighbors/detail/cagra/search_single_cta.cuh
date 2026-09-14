@@ -240,7 +240,7 @@ struct search
     uint32_t topk,
     SampleFilterT sample_filter)
   {
-    cudaStream_t stream = raft::resource::get_cuda_stream(res);
+    cudaStream_t stream = raft::resource::get_cuda_stream(res).get();
 
     // Allocate global hashmap when small-hash is disabled via the workspace pool
     // (no cudaMallocAsync/cudaFreeAsync after pool warmup).
@@ -289,7 +289,7 @@ struct search
     uint32_t topk,
     SAMPLE_FILTER_T sample_filter)
   {
-    cudaStream_t stream                 = raft::resource::get_cuda_stream(res);
+    cudaStream_t stream                 = raft::resource::get_cuda_stream(res).get();
     constexpr uintptr_t kOutputIndexTag = raft::Pow2<sizeof(OutputIndexT)>::Log2;
     const auto result_indices_uintptr   = reinterpret_cast<uintptr_t>(result_indices_ptr);
     static_assert(kOutputIndexTag <= 3, "OutputIndexT can't be more than 8 bytes");

@@ -13,6 +13,7 @@ files:
       - checks
       - clang
       - cuda
+      - cutile_python
       - cuda_version
       - depends_on_cuda_python
       - depends_on_cupy
@@ -41,6 +42,7 @@ files:
       - build_py_cuvs
       - clang
       - cuda
+      - cutile_python
       - cuda_version
       - depends_on_cuda_python
       - depends_on_cupy
@@ -78,6 +80,7 @@ files:
     includes:
       - clang
       - cuda
+      - cutile_python
       - cuda_version
       - depends_on_cupy
       - docs
@@ -139,6 +142,7 @@ files:
       table: tool.rapids-build-backend
       key: requires
     includes:
+      - cutile_python
       - depends_on_libraft
       - depends_on_librmm
       - depends_on_libkvikio
@@ -425,6 +429,48 @@ dependencies:
           - libcusolver-dev
           - libcusparse-dev
           - libnvjitlink-dev
+  cutile_python:
+    specific:
+      - output_types: conda
+        matrices:
+          - matrix:
+              cuda: "12.*"
+            packages:
+          - matrix:
+              cuda: "13.3"
+            packages:
+              - cutile-python
+              - cuda-tileiras
+          - matrix:
+              cuda: "13.*"
+            packages:
+              - cutile-python
+              - cuda-tileiras
+          - matrix:
+            packages:
+              - cutile-python
+              - cuda-tileiras
+      - output_types: [requirements, pyproject]
+        matrices:
+          - matrix:
+              cuda: "12.*"
+            packages:
+          - matrix:
+              cuda: "13.3"
+            packages:
+              - cuda-tile
+              - cuda-toolkit[tileiras]==13.3.*
+          - matrix:
+              cuda: "13.*"
+            packages:
+              - &cutile_python_cu13 cuda-tile
+              - &cutile_toolkit_cu13 cuda-toolkit[tileiras]==13.*
+          # if no matching matrix selectors passed, list the CUDA 13 requirement
+          # (as a source of documentation in the generated pyproject.toml)
+          - matrix:
+            packages:
+              - *cutile_python_cu13
+              - *cutile_toolkit_cu13
   cuda_wheels:
     specific:
       # cuVS needs 'nvJitLink>={whatever-cuvs-was-built-against}' at runtime, and mixing
@@ -639,7 +685,7 @@ dependencies:
       - output_types: [conda, pyproject, requirements]
         packages:
           - click
-          - cuvs==26.10.*,>=0.0.0a0
+          - cuvs==26.12.*,>=0.0.0a0
           - pandas
           - pyyaml
           - requests
@@ -682,17 +728,17 @@ dependencies:
     common:
       - output_types: conda
         packages:
-          - cuvs==26.10.*,>=0.0.0a0
+          - cuvs==26.12.*,>=0.0.0a0
   depends_on_cuvs_bench:
     common:
       - output_types: conda
         packages:
-          - cuvs-bench==26.10.*,>=0.0.0a0
+          - cuvs-bench==26.12.*,>=0.0.0a0
   depends_on_libcuvs:
     common:
       - output_types: conda
         packages:
-          - &libcuvs_unsuffixed libcuvs==26.10.*,>=0.0.0a0
+          - &libcuvs_unsuffixed libcuvs==26.12.*,>=0.0.0a0
       - output_types: requirements
         packages:
           # pip recognizes the index as a global option for the requirements.txt file
@@ -704,23 +750,23 @@ dependencies:
               cuda: "12.*"
               cuda_suffixed: "true"
             packages:
-              - libcuvs-cu12==26.10.*,>=0.0.0a0
+              - libcuvs-cu12==26.12.*,>=0.0.0a0
           - matrix:
               cuda: "13.*"
               cuda_suffixed: "true"
             packages:
-              - libcuvs-cu13==26.10.*,>=0.0.0a0
+              - libcuvs-cu13==26.12.*,>=0.0.0a0
           - {matrix: null, packages: [*libcuvs_unsuffixed]}
   depends_on_libcuvs_tests:
     common:
       - output_types: conda
         packages:
-          - libcuvs-tests==26.10.*,>=0.0.0a0
+          - libcuvs-tests==26.12.*,>=0.0.0a0
   depends_on_libraft:
     common:
       - output_types: conda
         packages:
-          - &libraft_unsuffixed libraft==26.10.*,>=0.0.0a0
+          - &libraft_unsuffixed libraft==26.12.*,>=0.0.0a0
       - output_types: requirements
         packages:
           # pip recognizes the index as a global option for the requirements.txt file
@@ -732,18 +778,18 @@ dependencies:
               cuda: "12.*"
               cuda_suffixed: "true"
             packages:
-              - libraft-cu12==26.10.*,>=0.0.0a0
+              - libraft-cu12==26.12.*,>=0.0.0a0
           - matrix:
               cuda: "13.*"
               cuda_suffixed: "true"
             packages:
-              - libraft-cu13==26.10.*,>=0.0.0a0
+              - libraft-cu13==26.12.*,>=0.0.0a0
           - {matrix: null, packages: [*libraft_unsuffixed]}
   depends_on_librmm:
     common:
       - output_types: conda
         packages:
-          - &librmm_unsuffixed librmm==26.10.*,>=0.0.0a0
+          - &librmm_unsuffixed librmm==26.12.*,>=0.0.0a0
       - output_types: requirements
         packages:
           # pip recognizes the index as a global option for the requirements.txt file
@@ -755,18 +801,18 @@ dependencies:
               cuda: "12.*"
               cuda_suffixed: "true"
             packages:
-              - librmm-cu12==26.10.*,>=0.0.0a0
+              - librmm-cu12==26.12.*,>=0.0.0a0
           - matrix:
               cuda: "13.*"
               cuda_suffixed: "true"
             packages:
-              - librmm-cu13==26.10.*,>=0.0.0a0
+              - librmm-cu13==26.12.*,>=0.0.0a0
           - {matrix: null, packages: [*librmm_unsuffixed]}
   depends_on_libkvikio:
     common:
       - output_types: conda
         packages:
-          - &libkvikio_unsuffixed libkvikio==26.10.*,>=0.0.0a0
+          - &libkvikio_unsuffixed libkvikio==26.12.*,>=0.0.0a0
       - output_types: requirements
         packages:
           # pip recognizes the index as a global option for the requirements.txt file
@@ -778,18 +824,18 @@ dependencies:
               cuda: "12.*"
               cuda_suffixed: "true"
             packages:
-              - libkvikio-cu12==26.10.*,>=0.0.0a0
+              - libkvikio-cu12==26.12.*,>=0.0.0a0
           - matrix:
               cuda: "13.*"
               cuda_suffixed: "true"
             packages:
-              - libkvikio-cu13==26.10.*,>=0.0.0a0
+              - libkvikio-cu13==26.12.*,>=0.0.0a0
           - {matrix: null, packages: [*libkvikio_unsuffixed]}
   depends_on_pylibraft:
     common:
       - output_types: conda
         packages:
-          - &pylibraft_unsuffixed pylibraft==26.10.*,>=0.0.0a0
+          - &pylibraft_unsuffixed pylibraft==26.12.*,>=0.0.0a0
       - output_types: requirements
         packages:
           # pip recognizes the index as a global option for the requirements.txt file
@@ -801,12 +847,12 @@ dependencies:
               cuda: "12.*"
               cuda_suffixed: "true"
             packages:
-              - pylibraft-cu12==26.10.*,>=0.0.0a0
+              - pylibraft-cu12==26.12.*,>=0.0.0a0
           - matrix:
               cuda: "13.*"
               cuda_suffixed: "true"
             packages:
-              - pylibraft-cu13==26.10.*,>=0.0.0a0
+              - pylibraft-cu13==26.12.*,>=0.0.0a0
           - {matrix: null, packages: [*pylibraft_unsuffixed]}
   depends_on_nccl:
     common:

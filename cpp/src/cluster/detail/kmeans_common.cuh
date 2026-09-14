@@ -125,7 +125,7 @@ void countLabels(raft::resources const& handle,
                  IndexT n_clusters,
                  rmm::device_uvector<char>& workspace)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle);
+  cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
 
   // CUB::DeviceHistogram requires a signed index type
   typedef typename std::make_signed_t<IndexT> CubIndexT;
@@ -177,7 +177,7 @@ void weightSum(
 
   if constexpr (raft::is_device_mdspan_v<decltype(weight)>) {
     raft::linalg::mapThenSumReduce(
-      d_wt_sum.data_handle(), n_samples, raft::identity_op{}, stream, weight.data_handle());
+      d_wt_sum.data_handle(), n_samples, raft::identity_op{}, stream.get(), weight.data_handle());
     if (check_positive) {
       raft::copy(&wt_sum_h, d_wt_sum.data_handle(), 1, stream);
       raft::resource::sync_stream(handle);
@@ -219,7 +219,7 @@ void computeClusterCost(raft::resources const& handle,
                         MainOpT main_op,
                         ReductionOpT reduction_op)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle);
+  cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
 
   cuda::transform_iterator itr(minClusterDistance.data_handle(), main_op);
 
@@ -254,7 +254,7 @@ void sampleCentroids(raft::resources const& handle,
                      rmm::device_uvector<DataT>& inRankCp,
                      rmm::device_uvector<char>& workspace)
 {
-  cudaStream_t stream  = raft::resource::get_cuda_stream(handle);
+  cudaStream_t stream  = raft::resource::get_cuda_stream(handle).get();
   auto n_local_samples = X.extent(0);
   auto n_features      = X.extent(1);
 
@@ -354,7 +354,7 @@ void shuffleAndGather(raft::resources const& handle,
                       uint32_t n_samples_to_gather,
                       uint64_t seed)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle);
+  cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
   auto n_samples      = in.extent(0);
   auto n_features     = in.extent(1);
 
@@ -455,7 +455,7 @@ void countSamplesInCluster(raft::resources const& handle,
                            rmm::device_uvector<char>& workspace,
                            raft::device_vector_view<DataT, IndexT> sampleCountInCluster)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle);
+  cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
   auto n_samples      = X.extent(0);
   auto n_features     = X.extent(1);
   auto n_clusters     = centroids.extent(0);
@@ -534,7 +534,7 @@ void compute_centroid_adjustments(
   rmm::device_uvector<char>& workspace,
   bool reset_sums = true)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle);
+  cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
   auto n_samples      = X.extent(0);
 
   workspace.resize(n_samples, stream);
@@ -582,7 +582,7 @@ void finalize_centroids(raft::resources const& handle,
                         raft::device_matrix_view<const DataT, IndexT> old_centroids,
                         raft::device_matrix_view<DataT, IndexT> new_centroids)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle);
+  cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
 
   raft::linalg::matrix_vector_op<raft::Apply::ALONG_COLUMNS>(handle,
                                                              raft::make_const_mdspan(centroid_sums),
@@ -617,7 +617,7 @@ void compute_centroid_shift(raft::resources const& handle,
                             raft::device_matrix_view<const DataT, IndexT> new_centroids,
                             raft::device_scalar_view<DataT> sqrd_norm_out)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle);
+  cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
   raft::linalg::mapThenSumReduce(sqrd_norm_out.data_handle(),
                                  old_centroids.size(),
                                  raft::sqdiff_op{},
@@ -702,7 +702,7 @@ void process_batch(
   raft::device_scalar_view<DataT> clustering_cost,
   rmm::device_uvector<char>& batch_workspace)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle);
+  cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
 
   minClusterAndDistanceCompute<DataT, IndexT>(handle,
                                               batch_data,

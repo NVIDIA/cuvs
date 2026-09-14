@@ -344,7 +344,7 @@ class ivf_pq_test : public ::testing::TestWithParam<ivf_pq_inputs> {
                          rec_list->indices.data_handle() + n_skip,
                          IdxT{n_take},
                          orig_data.data_handle(),
-                         stream_);
+                         stream_.get());
 
     compare_vectors_l2(handle_, rec_data.view(), orig_data.view(), label, compression_ratio, 0.06);
   }
@@ -772,7 +772,7 @@ class ivf_pq_filter_test : public ::testing::TestWithParam<ivf_pq_inputs> {
                             indices_naive_dev.data(),
                             IdxT(test_ivf_sample_filter::offset),
                             queries_size,
-                            stream_);
+                            stream_.get());
     distances_ref.resize(queries_size);
     raft::update_host(distances_ref.data(), distances_naive_dev.data(), queries_size, stream_);
     indices_ref.resize(queries_size);

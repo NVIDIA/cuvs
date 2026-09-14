@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -11,7 +11,6 @@
 #include <raft/util/cuda_utils.cuh>
 
 #include <raft/core/resource/cuda_stream.hpp>
-#include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_uvector.hpp>
 #include <rmm/mr/per_device_resource.hpp>
 #include <rmm/resource_ref.hpp>
@@ -121,7 +120,7 @@ void naive_knn(raft::resources const& handle,
     size_t batch_size = std::min(max_batch_size, n_inputs - offset);
     dim3 grid_dim(raft::ceildiv<size_t>(batch_size, block_dim.x), grid_y, 1);
 
-    naive_distance_kernel<EvalT, DataT, IdxT><<<grid_dim, block_dim, 0, stream>>>(
+    naive_distance_kernel<EvalT, DataT, IdxT><<<grid_dim, block_dim, 0, stream.get()>>>(
       dist.data(), x + offset * dim, y, batch_size, input_len, dim, type);
 
     raft::matrix::detail::select_k<EvalT, IdxT>(handle,
@@ -134,7 +133,7 @@ void naive_knn(raft::resources const& handle,
                                                 indices_topk + offset * k,
                                                 cuvs::distance::is_min_close(type));
   }
-  RAFT_CUDA_TRY(cudaStreamSynchronize(stream));
+  RAFT_CUDA_TRY(cudaStreamSynchronize(stream.get()));
 }
 
 }  // namespace cuvs::neighbors

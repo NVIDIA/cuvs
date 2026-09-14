@@ -27,6 +27,16 @@ project(
   VERSION "${RAPIDS_VERSION}"
   LANGUAGES ${lang_list}
 )
+
+# Find CMake packages provided by installed wheels.
+find_package(Python COMPONENTS Interpreter)
+if(Python_FOUND)
+  include(${rapids-cmake-dir}/cython-core/find_prefix_paths.cmake)
+  rapids_cython_find_prefix_paths("${Python_EXECUTABLE}" wheel_prefix_paths)
+  set_property(GLOBAL PROPERTY FIND_LIBRARY_USE_LIB64_PATHS TRUE)
+  list(PREPEND CMAKE_PREFIX_PATH ${wheel_prefix_paths})
+endif()
+
 set(CMAKE_INSTALL_MESSAGE LAZY)
 
 # Disable C++20 module scanning (not using modules, just C++20 features)
@@ -1153,6 +1163,29 @@ if(NOT BUILD_CPU_ONLY)
   )
   endblock()
 
+  include(cmake/modules/generate_cutile_kernels.cmake)
+  set(cutile_smoke_dir "${CMAKE_CURRENT_SOURCE_DIR}/src/detail/jit_lto/cutile_smoke")
+  set(cutile_smoke_generated_dir
+      "${CMAKE_CURRENT_BINARY_DIR}/generated_kernels/detail/jit_lto/cutile_smoke"
+  )
+  generate_cutile_kernels(
+    cutile_smoke_files
+    KERNEL_DIR "${cutile_smoke_dir}"
+    KERNEL_BASENAME "cutile_smoke"
+    KERNEL_PYTHON "smoke_kernel.py"
+    EXPORT_SCRIPT "export_smoke.py"
+    OUTPUT_DIRECTORY "${cutile_smoke_generated_dir}"
+    MATRIX_JSON_FILE "${cutile_smoke_dir}/cutile_smoke_matrix.json"
+    FRAGMENT_TAG_FORMAT_CUBIN
+      "cuvs::detail::jit_lto::fragment_tag_cutile_smoke_add_cubin<cuvs::detail::jit_lto::@arch_tag@>"
+    FRAGMENT_TAG_HEADER_FILES "<cuvs/detail/jit_lto/cutile_arch_tags.hpp>"
+                              "<cuvs/detail/jit_lto/cutile_smoke_fragments.hpp>"
+  )
+  if(NOT DEFINED CUVS_CUTILE_ENABLED)
+    set(CUVS_CUTILE_ENABLED 0)
+  endif()
+  target_compile_definitions(cuvs_cpp_headers INTERFACE CUVS_CUTILE_ENABLED=${CUVS_CUTILE_ENABLED})
+
   # Note that this matrix contains an `arch_includes` placeholder, since we don't currently have a
   # way to do an item-wise transform on a list after computing the matrix product and before
   # configuring the file
@@ -1364,6 +1397,7 @@ if(NOT BUILD_CPU_ONLY)
     src/core/omp_wrapper.cpp
     src/util/file_io.cpp
     src/util/host_memory.cpp
+    src/detail/jit_lto/TileAlgorithmPlanner.cpp
     src/distance/detail/kernels/gram_matrix.cu
     src/distance/detail/kernels/kernel_factory.cu
     src/distance/detail/kernels/kernel_matrices.cu
@@ -1462,6 +1496,7 @@ if(NOT BUILD_CPU_ONLY)
     src/stats/trustworthiness_score.cu
     ${CUVS_MG_ALGOS}
     ${jit_lto_files}
+    ${cutile_smoke_files}
   )
 
   set_target_properties(
@@ -1506,6 +1541,7 @@ if(NOT BUILD_CPU_ONLY)
            "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../c/include>"
     INTERFACE "$<INSTALL_INTERFACE:include>"
     PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_CURRENT_BINARY_DIR}/src"
+            "${cutile_smoke_generated_dir}"
   )
 
   # Endian detection
@@ -1573,13 +1609,9 @@ if(NOT BUILD_CPU_ONLY)
              $<BUILD_LOCAL_INTERFACE:$<TARGET_NAME_IF_EXISTS:NCCL::NCCL>>
              $<BUILD_LOCAL_INTERFACE:$<TARGET_NAME_IF_EXISTS:hnswlib::hnswlib>>
              $<$<BOOL:${CUVS_NVTX}>:CUDA::nvtx3>
-      PRIVATE $<TARGET_NAME_IF_EXISTS:OpenMP::OpenMP_CXX>
-              $<COMPILE_ONLY:nvidia::cutlass::cutlass>
-              $<COMPILE_ONLY:cuco::cuco>
-              CUDA::nvJitLink
-              CUDA::nvrtc
-              rtcx::rtcx
-              $<BUILD_LOCAL_INTERFACE:kvikio::kvikio>
+      PRIVATE $<TARGET_NAME_IF_EXISTS:OpenMP::OpenMP_CXX> $<COMPILE_ONLY:nvidia::cutlass::cutlass>
+              $<COMPILE_ONLY:cuco::cuco> CUDA::nvJitLink CUDA::nvrtc rtcx::rtcx kvikio::kvikio
+      INTERFACE $<LINK_ONLY:kvikio::kvikio>
     )
 
     # ensure CUDA symbols aren't relocated to the middle of the debug build binaries

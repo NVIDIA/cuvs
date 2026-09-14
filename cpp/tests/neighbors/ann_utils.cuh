@@ -14,7 +14,6 @@
 #include <raft/util/cuda_utils.cuh>
 #include <raft/util/cudart_utils.hpp>
 
-#include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_uvector.hpp>
 
 #include "naive_knn.cuh"
@@ -340,7 +339,7 @@ auto eval_distances(raft::resources const& handle,
     dim3 grid_dim(raft::ceildiv<size_t>(n_rows, block_dim.x), grid_y, 1);
 
     naive_distance_kernel<DistT, T, IdxT>
-      <<<grid_dim, block_dim, 0, raft::resource::get_cuda_stream(handle)>>>(
+      <<<grid_dim, block_dim, 0, raft::resource::get_cuda_stream(handle).get()>>>(
         naive_dist.data_handle(), queries + i * n_cols, y.data_handle(), 1, k, n_cols, metric);
 
     if (!devArrMatch(distances + i * k,

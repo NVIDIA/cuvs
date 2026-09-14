@@ -98,9 +98,9 @@ jobs:
       branch: ${{ inputs.branch }}
       date: ${{ inputs.date }}
       sha: ${{ inputs.sha }}
-      node_type: "gpu-l4-latest-1"
+      node_type: "gpu-rtxpro6000-latest-1"
       arch: "amd64"
-      container_image: "rapidsai/ci-conda:26.10-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
+      container_image: "rapidsai/ci-conda:26.12-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
       script: "ci/test_java.sh"
       artifact-name: "cuvs-java-cuda${{ matrix.CUDA_VER }}"
       file_to_upload: "java/cuvs-java/target/"
@@ -126,9 +126,9 @@ jobs:
       branch: ${{ inputs.branch }}
       date: ${{ inputs.date }}
       sha: ${{ inputs.sha }}
-      node_type: "gpu-l4-latest-1"
+      node_type: "gpu-rtxpro6000-latest-1"
       arch: "amd64"
-      container_image: "rapidsai/ci-conda:26.10-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
+      container_image: "rapidsai/ci-conda:26.12-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
       script: "ci/test_lucene.sh cuvs-java-cuda${{ matrix.CUDA_VER }}"
       artifact-name: "cuvs-lucene-cuda${{ matrix.CUDA_VER }}"
       file_to_upload: "java/cuvs-lucene/target/"
