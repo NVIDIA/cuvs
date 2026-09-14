@@ -51,3 +51,9 @@ mvn clean verify "${MAVEN_VERIFY_ARGS[@]}" -P "$BUILD_PROFILE" \
   && mvn install:install-file -Dfile=./target/cuvs-java-$VERSION.jar -DgroupId=$GROUP_ID -DartifactId=cuvs-java -Dversion=$VERSION -Dpackaging=jar \
   && mvn install:install-file -Dfile=./target/cuvs-java-$VERSION-"$BUILD_PROFILE".jar -DgroupId=$GROUP_ID -DartifactId=cuvs-java -Dversion=$VERSION -Dclassifier="$BUILD_PROFILE" -Dpackaging=jar \
   && cp pom.xml ./target/
+
+# Build the cuvs-java examples against the jar just installed above, to catch drift between the
+# examples and the cuvs-java API.
+if hasArg --build-java-examples; then
+  mvn -f ../../examples/java/cuvs-java/pom.xml package
+fi

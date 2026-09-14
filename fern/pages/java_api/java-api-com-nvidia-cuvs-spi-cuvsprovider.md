@@ -412,6 +412,13 @@ Switch RMM allocations (used internally by various cuVS algorithms and by the de
 `CuVSDeviceMatrix`) to use pooled memory.
 This operation has a global effect, and will affect all resources on the current device.
 
+Ownership: this and the other `enableRMM*`/`resetRMMPooledMemory` methods are
+not called automatically by any cuVS/cuvs-lucene class. Because the effect is global to the
+current device, it is application code's responsibility to call one of them, if desired, once
+during startup/initialization — before any GPU resource is created — rather than have an
+individual class call it lazily on first use, which cannot be made race-free against
+concurrent construction of that class from multiple threads.
+
 **Parameters**
 
 | Name | Description |
@@ -419,7 +426,7 @@ This operation has a global effect, and will affect all resources on the current
 | `initialPoolSizePercent` | The initial pool size, in percentage of the total GPU memory |
 | `maxPoolSizePercent` | The maximum pool size, in percentage of the total GPU memory |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:243`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:250`_
 
 ### enableRMMManagedPooledMemory
 
@@ -431,6 +438,8 @@ Switch RMM allocations (used internally by various cuVS algorithms and by the de
 `CuVSDeviceMatrix`) to use pooled memory.
 This operation has a global effect, and will affect all resources on the current device.
 
+Ownership: see `#enableRMMPooledMemory`.
+
 **Parameters**
 
 | Name | Description |
@@ -438,7 +447,7 @@ This operation has a global effect, and will affect all resources on the current
 | `initialPoolSizePercent` | The initial pool size, in percentage of the total GPU memory |
 | `maxPoolSizePercent` | The maximum pool size, in percentage of the total GPU memory |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:253`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:262`_
 
 ### enableRMMAsyncMemory
 
@@ -453,7 +462,9 @@ on deallocation. This is especially beneficial when multiple CAGRA searches run 
 on separate CUDA streams, because internal workspace allocations no longer serialize kernel
 launches. This operation has a global effect and will affect all resources on the current device.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:263`_
+Ownership: see `#enableRMMPooledMemory`.
+
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:274`_
 
 ### resetRMMPooledMemory
 
@@ -463,7 +474,9 @@ void resetRMMPooledMemory()
 
 Disables pooled memory on the current device, reverting back to the default setting.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:266`_
+Ownership: see `#enableRMMPooledMemory`.
+
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:281`_
 
 ### provider
 
@@ -473,7 +486,7 @@ static CuVSProvider provider()
 
 Retrieves the system-wide provider.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:269`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:284`_
 
 ### cagraIndexParamsFromHnswParams
 
@@ -503,7 +516,7 @@ may be shifted along the curve right or left. See the heuristics descriptions fo
 
 A new CAGRA index parameters object
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:289`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:304`_
 
 ### cagraIndexParamsFromDataset
 
@@ -527,6 +540,6 @@ Create CAGRA index parameters heuristically tuned for a dataset.
 
 A new CAGRA index parameters object
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:307`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:322`_
 
 _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:18`_

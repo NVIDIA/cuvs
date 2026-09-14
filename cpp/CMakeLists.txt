@@ -27,6 +27,16 @@ project(
   VERSION "${RAPIDS_VERSION}"
   LANGUAGES ${lang_list}
 )
+
+# Find CMake packages provided by installed wheels.
+find_package(Python COMPONENTS Interpreter)
+if(Python_FOUND)
+  include(${rapids-cmake-dir}/cython-core/find_prefix_paths.cmake)
+  rapids_cython_find_prefix_paths("${Python_EXECUTABLE}" wheel_prefix_paths)
+  set_property(GLOBAL PROPERTY FIND_LIBRARY_USE_LIB64_PATHS TRUE)
+  list(PREPEND CMAKE_PREFIX_PATH ${wheel_prefix_paths})
+endif()
+
 set(CMAKE_INSTALL_MESSAGE LAZY)
 
 # Disable C++20 module scanning (not using modules, just C++20 features)
@@ -1599,13 +1609,9 @@ if(NOT BUILD_CPU_ONLY)
              $<BUILD_LOCAL_INTERFACE:$<TARGET_NAME_IF_EXISTS:NCCL::NCCL>>
              $<BUILD_LOCAL_INTERFACE:$<TARGET_NAME_IF_EXISTS:hnswlib::hnswlib>>
              $<$<BOOL:${CUVS_NVTX}>:CUDA::nvtx3>
-      PRIVATE $<TARGET_NAME_IF_EXISTS:OpenMP::OpenMP_CXX>
-              $<COMPILE_ONLY:nvidia::cutlass::cutlass>
-              $<COMPILE_ONLY:cuco::cuco>
-              CUDA::nvJitLink
-              CUDA::nvrtc
-              rtcx::rtcx
-              $<BUILD_LOCAL_INTERFACE:kvikio::kvikio>
+      PRIVATE $<TARGET_NAME_IF_EXISTS:OpenMP::OpenMP_CXX> $<COMPILE_ONLY:nvidia::cutlass::cutlass>
+              $<COMPILE_ONLY:cuco::cuco> CUDA::nvJitLink CUDA::nvrtc rtcx::rtcx kvikio::kvikio
+      INTERFACE $<LINK_ONLY:kvikio::kvikio>
     )
 
     # ensure CUDA symbols aren't relocated to the middle of the debug build binaries

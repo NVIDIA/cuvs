@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs.examples;
@@ -10,6 +10,7 @@ import com.nvidia.cuvs.CagraIndexParams.CagraGraphBuildAlgo;
 import com.nvidia.cuvs.CagraIndexParams.CuvsDistanceType;
 import com.nvidia.cuvs.CagraQuery;
 import com.nvidia.cuvs.CagraSearchParams;
+import com.nvidia.cuvs.CuVSMatrix;
 import com.nvidia.cuvs.CuVSResources;
 import com.nvidia.cuvs.SearchResults;
 import java.io.File;
@@ -66,33 +67,45 @@ public class CagraExample {
       CagraIndex loadedIndex = CagraIndex.newBuilder(resources).from(inputStream).build();
 
       // Configure search parameters
-      CagraSearchParams searchParams = new CagraSearchParams.Builder(resources).build();
+      CagraSearchParams searchParams = new CagraSearchParams.Builder().build();
 
-      // Create a query object with the query vectors
-      CagraQuery cuvsQuery =
-          new CagraQuery.Builder()
-              .withTopK(3)
-              .withSearchParams(searchParams)
-              .withQueryVectors(queries)
-              .build();
+      // A host-built index and a graph-only deserialized index both leave the index without the
+      // device-padded vectors CAGRA search needs, so give each index its own padded copy.
+      try (CuVSMatrix queryVectors = CuVSMatrix.ofArray(queries);
+          CuVSMatrix hostVectors = CuVSMatrix.ofArray(vectors);
+          CuVSMatrix deviceVectors = hostVectors.toDevice(resources);
+          var indexDataset = index.makePaddedDataset(deviceVectors);
+          var loadedDataset = loadedIndex.makePaddedDataset(deviceVectors)) {
+        index.updateDataset(indexDataset);
+        loadedIndex.updateDataset(loadedDataset);
 
-      // Perform the search
-      SearchResults results = index.search(cuvsQuery);
+        // Create a query object with the query vectors
+        CagraQuery cuvsQuery =
+            new CagraQuery.Builder(resources)
+                .withTopK(3)
+                .withSearchParams(searchParams)
+                .withQueryVectors(queryVectors)
+                .build();
 
-      // Check results
-      log.info(results.getResults().toString());
+        // Perform the search
+        SearchResults results = index.search(cuvsQuery);
 
-      // Search from deserialized index
-      results = loadedIndex.search(cuvsQuery);
+        // Check results
+        log.info(results.getResults().toString());
 
-      // Check results
-      log.info(results.getResults().toString());
+        // Search from deserialized index
+        results = loadedIndex.search(cuvsQuery);
+
+        // Check results
+        log.info(results.getResults().toString());
+      }
 
       // Cleanup
       if (indexFile.exists()) {
         indexFile.delete();
       }
-      index.destroyIndex();
+      index.close();
+      loadedIndex.close();
     }
   }
 }

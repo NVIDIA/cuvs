@@ -128,7 +128,7 @@ mvn -q compile org.codehaus.mojo:exec-maven-plugin:3.5.1:java \
   -Dexec.mainClass=com.nvidia.cuvs.lucene.examples.HelloCuvsLucene
 ```
 
-For more examples, including one that indexes and searches entirely on the GPU using `CuVS2510GPUSearchCodec`, please refer to the [`examples/`](examples) directory.
+For more examples, including one that indexes and searches entirely on the GPU using `CuVS2510GPUSearchCodec`, please refer to the [`examples/`](../../examples/java/cuvs-lucene) directory.
 
 ## Contributing
 
