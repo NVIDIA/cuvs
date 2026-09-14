@@ -56,6 +56,7 @@ public class AcceleratedHNSWParams {
   public static final int DEFAULT_INT_GRAPH_DEGREE = 128;
   public static final int DEFAULT_GRAPH_DEGREE = 64;
   public static final int DEFAULT_HNSW_LAYERS = 1;
+  public static final long DEFAULT_HNSW_LAYER_SEED = 44L;
   public static final int DEFAULT_MAX_CONN = 32;
   public static final int DEFAULT_BEAM_WIDTH = 32;
   public static final CagraGraphBuildAlgo DEFAULT_CAGRA_GRAPH_BUILD_ALGO =
@@ -81,6 +82,7 @@ public class AcceleratedHNSWParams {
   private final int intermediateGraphDegree;
   private final int graphdegree;
   private final int hnswLayers;
+  private final long hnswLayerSeed;
   private final int maxConn;
   private final int beamWidth;
   private final CagraGraphBuildAlgo cagraGraphBuildAlgo;
@@ -101,6 +103,7 @@ public class AcceleratedHNSWParams {
    * @param graphdegree The graph degree to use while building the CAGRA index. Only consulted
    *     under the {@link Strategy#CUSTOM} strategy.
    * @param hnswLayers The number of HNSW layers to build in the HNSW index.
+   * @param hnswLayerSeed The deterministic seed used to sample HNSW upper-layer nodes.
    * @param maxConn The max connection parameter used when building HNSW index with the fallback mechanism.
    * @param beamWidth The beam width parameter used when building HNSW index with the fallback mechanism.
    * @param cagraGraphBuildAlgo The CAGRA graph build algorithm to use [NN_DESCENT, IVF_PQ]. Only
@@ -120,6 +123,7 @@ public class AcceleratedHNSWParams {
       int intermediateGraphDegree,
       int graphdegree,
       int hnswLayers,
+      long hnswLayerSeed,
       int maxConn,
       int beamWidth,
       CagraGraphBuildAlgo cagraGraphBuildAlgo,
@@ -135,6 +139,7 @@ public class AcceleratedHNSWParams {
     this.intermediateGraphDegree = intermediateGraphDegree;
     this.graphdegree = graphdegree;
     this.hnswLayers = hnswLayers;
+    this.hnswLayerSeed = hnswLayerSeed;
     this.maxConn = maxConn;
     this.beamWidth = beamWidth;
     this.cagraGraphBuildAlgo = cagraGraphBuildAlgo;
@@ -181,6 +186,11 @@ public class AcceleratedHNSWParams {
    */
   public int getHnswLayers() {
     return hnswLayers;
+  }
+
+  /** Returns the deterministic seed used to sample nodes for HNSW upper layers. */
+  public long getHnswLayerSeed() {
+    return hnswLayerSeed;
   }
 
   /**
@@ -290,6 +300,8 @@ public class AcceleratedHNSWParams {
         + graphdegree
         + ", hnswLayers="
         + hnswLayers
+        + ", hnswLayerSeed="
+        + hnswLayerSeed
         + ", maxConn="
         + maxConn
         + ", beamWidth="
@@ -322,6 +334,7 @@ public class AcceleratedHNSWParams {
     private int intermediateGraphDegree = DEFAULT_INT_GRAPH_DEGREE;
     private int graphdegree = DEFAULT_GRAPH_DEGREE;
     private int hnswLayers = DEFAULT_HNSW_LAYERS;
+    private long hnswLayerSeed = DEFAULT_HNSW_LAYER_SEED;
     private int maxConn = DEFAULT_MAX_CONN;
     private int beamWidth = DEFAULT_BEAM_WIDTH;
     private CagraGraphBuildAlgo cagraGraphBuildAlgo = DEFAULT_CAGRA_GRAPH_BUILD_ALGO;
@@ -384,6 +397,12 @@ public class AcceleratedHNSWParams {
      */
     public Builder withHNSWLayer(int hnswLayers) {
       this.hnswLayers = hnswLayers;
+      return this;
+    }
+
+    /** Sets the deterministic seed used to sample nested HNSW upper-layer nodes. */
+    public Builder withHnswLayerSeed(long hnswLayerSeed) {
+      this.hnswLayerSeed = hnswLayerSeed;
       return this;
     }
 
@@ -624,6 +643,7 @@ public class AcceleratedHNSWParams {
           intermediateGraphDegree,
           graphdegree,
           hnswLayers,
+          hnswLayerSeed,
           maxConn,
           beamWidth,
           cagraGraphBuildAlgo,

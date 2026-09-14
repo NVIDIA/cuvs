@@ -209,7 +209,8 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends KnnVector
               acceleratedHNSWParams.getHnswLayers(),
               params,
               QuantizationType.SCALAR,
-              acceleratedHNSWParams.getWriterThreads());
+              acceleratedHNSWParams.getWriterThreads(),
+              acceleratedHNSWParams.getHnswLayerSeed());
 
       long vectorIndexOffset = hnswVectorIndex.getFilePointer();
 

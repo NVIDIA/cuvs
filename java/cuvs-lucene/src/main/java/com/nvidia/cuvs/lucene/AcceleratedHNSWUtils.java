@@ -5,6 +5,7 @@
 
 package com.nvidia.cuvs.lucene;
 
+import static com.nvidia.cuvs.lucene.AcceleratedHNSWParams.DEFAULT_HNSW_LAYER_SEED;
 import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.getCuVSResourcesInstance;
 import static com.nvidia.cuvs.lucene.Utils.createByteMatrixFromArray;
 
@@ -63,19 +64,29 @@ public class AcceleratedHNSWUtils {
     // Create adjacency list for single node with no neighbors
     int[][] singleNodeAdjacency = new int[][] {{-1}}; // -1 indicates no neighbors
 
-    // Create CuVSMatrix from the adjacency list
-    CuVSMatrix adjacencyMatrix = CuVSMatrix.ofArray(singleNodeAdjacency);
+    return createSingleVectorHnswGraph(size, dimensions, CuVSMatrix.ofArray(singleNodeAdjacency));
+  }
 
-    // Create layer data for single-level graph
-    List<int[]> layerNodes = new ArrayList<>();
-    List<CuVSMatrix> layerAdjacencies = new ArrayList<>();
+  /**
+   * Creates the single-vector graph from, and takes ownership of, {@code adjacencyMatrix}.
+   *
+   * <p>{@link GPUBuiltHnswGraph}'s constructor synchronously materializes every adjacency row into
+   * heap-backed neighbor arrays, so the matrix can be closed before the graph is returned.
+   */
+  static GPUBuiltHnswGraph createSingleVectorHnswGraph(
+      int size, int dimensions, CuVSMatrix adjacencyMatrix) throws Throwable {
+    try (adjacencyMatrix) {
+      // Create layer data for single-level graph
+      List<int[]> layerNodes = new ArrayList<>();
+      List<CuVSMatrix> layerAdjacencies = new ArrayList<>();
 
-    // Layer 0: contains all nodes (just the single node)
-    layerNodes.add(null); // Layer 0 contains all nodes, so we don't need to store node list
-    layerAdjacencies.add(adjacencyMatrix);
+      // Layer 0: contains all nodes (just the single node)
+      layerNodes.add(null); // Layer 0 contains all nodes, so we don't need to store node list
+      layerAdjacencies.add(adjacencyMatrix);
 
-    // Create the single-layer graph
-    return new GPUBuiltHnswGraph(size, dimensions, layerNodes, layerAdjacencies, 1);
+      // Create the single-layer graph
+      return new GPUBuiltHnswGraph(size, dimensions, layerNodes, layerAdjacencies, 1);
+    }
   }
 
   /**
@@ -101,9 +112,32 @@ public class AcceleratedHNSWUtils {
       QuantizationType quantization,
       int numThreads)
       throws Throwable {
+    return createMultiLayerHnswGraph(
+        fieldInfo,
+        dimensions,
+        adjacencyListMatrix,
+        vectorDataset,
+        hnswLayers,
+        params,
+        quantization,
+        numThreads,
+        DEFAULT_HNSW_LAYER_SEED);
+  }
+
+  static GPUBuiltHnswGraph createMultiLayerHnswGraph(
+      FieldInfo fieldInfo,
+      int dimensions,
+      CuVSMatrix adjacencyListMatrix,
+      CuVSMatrix vectorDataset,
+      int hnswLayers,
+      CagraIndexParams params,
+      QuantizationType quantization,
+      int numThreads,
+      long hnswLayerSeed)
+      throws Throwable {
 
     int size = (int) vectorDataset.size();
-    int M = Math.ceilDiv((int) adjacencyListMatrix.columns(), 2);
+    int m = hnswM(adjacencyListMatrix.columns());
 
     // Store all layers data
     List<int[]> layerNodes = new ArrayList<>();
@@ -113,70 +147,94 @@ public class AcceleratedHNSWUtils {
     layerNodes.add(null); // Layer 0 contains all nodes, so we don't need to store node list
     layerAdjacencies.add(adjacencyListMatrix);
 
-    int currentLayerSize = size;
-    int layerIndex = 1;
-    Random random = new Random();
+    List<int[]> selectedLayers = selectUpperLayerNodes(size, hnswLayers, m, hnswLayerSeed);
+    try (OwnedMatrices ownedUpperAdjacencies = new OwnedMatrices()) {
+      for (int[] selectedNodes : selectedLayers) {
+        layerNodes.add(selectedNodes);
 
-    while (layerIndex < hnswLayers && currentLayerSize > 1) {
-      // Calculate size for next layer (1/M of current layer)
-      int nextLayerSize = Math.max(2, currentLayerSize / M);
-      // Select nodes for this layer
-      SortedSet<Integer> selectedNodesSet = new TreeSet<>();
-
-      if (layerIndex == 1) {
-        // Select from all nodes (Layer 0)
-        while (selectedNodesSet.size() < nextLayerSize) {
-          selectedNodesSet.add(random.nextInt(size));
+        CuVSMatrix upperAdjacency;
+        if (quantization == QuantizationType.NONE) {
+          // Read only the sampled rows from the native matrix, without a full-dataset heap copy.
+          float[][] selectedVectors = new float[selectedNodes.length][dimensions];
+          for (int i = 0; i < selectedNodes.length; i++) {
+            vectorDataset.getRow(selectedNodes[i]).toArray(selectedVectors[i]);
+          }
+          upperAdjacency =
+              buildCagraGraphForSubset(
+                  selectedVectors, selectedNodes, 0, params, dimensions, quantization);
+        } else {
+          // Binary packs 8 dims/byte; scalar uses one byte per dimension.
+          int bytesPerVector = (int) vectorDataset.columns();
+          byte[][] selectedVectors = new byte[selectedNodes.length][bytesPerVector];
+          for (int i = 0; i < selectedNodes.length; i++) {
+            vectorDataset.getRow(selectedNodes[i]).toArray(selectedVectors[i]);
+          }
+          upperAdjacency =
+              buildCagraGraphForSubset(
+                  selectedVectors, selectedNodes, bytesPerVector, params, dimensions, quantization);
         }
-      } else {
-        // Select from previous layer nodes
-        int[] prevLayerNodes = layerNodes.get(layerNodes.size() - 1);
-        while (selectedNodesSet.size() < nextLayerSize) {
-          selectedNodesSet.add(prevLayerNodes[random.nextInt(prevLayerNodes.length)]);
-        }
+        layerAdjacencies.add(ownedUpperAdjacencies.add(upperAdjacency));
       }
 
-      // Convert to sorted array
-      int[] selectedNodes =
-          selectedNodesSet.stream().mapToInt(Integer::intValue).sorted().toArray();
+      return new GPUBuiltHnswGraph(size, dimensions, layerNodes, layerAdjacencies, numThreads);
+    }
+  }
 
-      layerNodes.add(selectedNodes);
+  static int hnswM(long graphDegree) {
+    return Math.toIntExact(Math.max(1L, Math.ceilDiv(graphDegree, 2L)));
+  }
 
-      if (quantization == QuantizationType.NONE) {
-        // Read only the sampled rows from the native matrix — no full-dataset heap copy
-        float[][] selectedVectors = new float[nextLayerSize][dimensions];
-        for (int i = 0; i < nextLayerSize; i++) {
-          vectorDataset.getRow(selectedNodes[i]).toArray(selectedVectors[i]);
-        }
-
-        // Build CAGRA graph for this layer
-        layerAdjacencies.add(
-            buildCagraGraphForSubset(
-                selectedVectors, selectedNodes, 0, params, dimensions, quantization));
-      } else {
-        // Byte width comes from the matrix itself: binary packs 8 dims/byte, scalar is 1 byte/dim.
-        int bytesPerVector = (int) vectorDataset.columns();
-        byte[][] selectedVectors = new byte[nextLayerSize][bytesPerVector];
-        for (int i = 0; i < nextLayerSize; i++) {
-          vectorDataset.getRow(selectedNodes[i]).toArray(selectedVectors[i]);
-        }
-
-        // Build CAGRA graph for this layer
-        layerAdjacencies.add(
-            buildCagraGraphForSubset(
-                selectedVectors, selectedNodes, bytesPerVector, params, dimensions, quantization));
-      }
-
-      // Update for next iteration
-      currentLayerSize = nextLayerSize;
-      layerIndex++;
-
-      // Use different seed for each layer
-      random = new Random(new Random().nextLong());
+  static List<int[]> selectUpperLayerNodes(int size, int hnswLayers, int m, long hnswLayerSeed) {
+    List<int[]> selectedLayers = new ArrayList<>();
+    if (hnswLayers <= 1 || m <= 1 || size <= m) {
+      return selectedLayers;
     }
 
-    // Create the multi-layer graph with all layers
-    return new GPUBuiltHnswGraph(size, dimensions, layerNodes, layerAdjacencies, numThreads);
+    Random random = new Random(hnswLayerSeed);
+    int currentLayerSize = size;
+    int[] previousLayerNodes = null;
+    while (selectedLayers.size() + 1 < hnswLayers && currentLayerSize > m) {
+      int nextLayerSize = Math.ceilDiv(currentLayerSize, m);
+      SortedSet<Integer> selectedNodesSet = new TreeSet<>();
+      while (selectedNodesSet.size() < nextLayerSize) {
+        int sampledIndex = random.nextInt(currentLayerSize);
+        selectedNodesSet.add(
+            previousLayerNodes == null ? sampledIndex : previousLayerNodes[sampledIndex]);
+      }
+      int[] selectedNodes = selectedNodesSet.stream().mapToInt(Integer::intValue).toArray();
+      selectedLayers.add(selectedNodes);
+      previousLayerNodes = selectedNodes;
+      currentLayerSize = nextLayerSize;
+    }
+    return selectedLayers;
+  }
+
+  private static final class OwnedMatrices implements AutoCloseable {
+    private final List<CuVSMatrix> matrices = new ArrayList<>();
+
+    CuVSMatrix add(CuVSMatrix matrix) {
+      matrices.add(matrix);
+      return matrix;
+    }
+
+    @Override
+    public void close() {
+      RuntimeException failure = null;
+      for (int i = matrices.size() - 1; i >= 0; i--) {
+        try {
+          matrices.get(i).close();
+        } catch (RuntimeException e) {
+          if (failure == null) {
+            failure = e;
+          } else {
+            failure.addSuppressed(e);
+          }
+        }
+      }
+      if (failure != null) {
+        throw failure;
+      }
+    }
   }
 
   /**
@@ -191,48 +249,34 @@ public class AcceleratedHNSWUtils {
       QuantizationType quantization)
       throws Throwable {
 
-    CuVSMatrix subsetDataset;
+    try (CuVSMatrix subsetDataset =
+            quantization == QuantizationType.BINARY
+                ? createByteMatrixFromArray((byte[][]) vectors, bytesPerVector)
+                : quantization == QuantizationType.SCALAR
+                    ? createByteMatrixFromArray((byte[][]) vectors, dimensions)
+                    : CuVSMatrix.ofArray((float[][]) vectors);
+        CagraIndex subsetIndex =
+            CagraIndex.newBuilder(getCuVSResourcesInstance())
+                .withDataset(subsetDataset)
+                .withIndexParams(params)
+                .build()) {
+      CuVSMatrix cagraGraph = subsetIndex.getGraph();
+      int numNodes = Math.toIntExact(cagraGraph.size());
+      int degree = Math.toIntExact(cagraGraph.columns());
+      int[][] remappedAdjacency = new int[numNodes][degree];
 
-    if (quantization == QuantizationType.BINARY) {
-      subsetDataset = createByteMatrixFromArray((byte[][]) vectors, bytesPerVector);
-    } else if (quantization == QuantizationType.SCALAR) {
-      subsetDataset = createByteMatrixFromArray((byte[][]) vectors, dimensions);
-    } else {
-      subsetDataset = CuVSMatrix.ofArray((float[][]) vectors);
-    }
-
-    // Build CAGRA index for the subset
-    CagraIndex subsetIndex =
-        CagraIndex.newBuilder(getCuVSResourcesInstance())
-            .withDataset(subsetDataset)
-            .withIndexParams(params)
-            .build();
-
-    // Get adjacency list from subset CAGRA index
-    CuVSMatrix cagraGraph = subsetIndex.getGraph();
-
-    long numNodes = cagraGraph.size();
-    long degree = cagraGraph.columns();
-
-    // Create a re-mapped adjacency list
-    int[][] remappedAdjacency = new int[(int) numNodes][(int) degree];
-
-    for (int i = 0; i < numNodes; i++) {
-      RowView rv = cagraGraph.getRow(i);
-      for (int j = 0; j < degree && j < rv.size(); j++) {
-        int subsetIndex1 = rv.getAsInt(j);
-        // Map subset index to original node ID
-        if (subsetIndex1 >= 0 && subsetIndex1 < selectedNodes.length) {
-          remappedAdjacency[i][j] = selectedNodes[subsetIndex1];
-        } else {
-          // Invalid index, use self-reference
-          remappedAdjacency[i][j] = selectedNodes[i];
+      for (int i = 0; i < numNodes; i++) {
+        RowView rv = cagraGraph.getRow(i);
+        for (int j = 0; j < degree && j < rv.size(); j++) {
+          int subsetNeighbor = rv.getAsInt(j);
+          remappedAdjacency[i][j] =
+              subsetNeighbor >= 0 && subsetNeighbor < selectedNodes.length
+                  ? selectedNodes[subsetNeighbor]
+                  : selectedNodes[i];
         }
       }
+      return CuVSMatrix.ofArray(remappedAdjacency);
     }
-
-    subsetIndex.close();
-    return CuVSMatrix.ofArray(remappedAdjacency);
   }
 
   /**

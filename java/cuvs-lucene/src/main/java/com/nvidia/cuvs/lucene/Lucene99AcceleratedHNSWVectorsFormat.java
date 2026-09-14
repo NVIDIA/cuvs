@@ -15,9 +15,11 @@ import org.apache.lucene.codecs.KnnVectorsReader;
 import org.apache.lucene.codecs.KnnVectorsWriter;
 import org.apache.lucene.codecs.hnsw.DefaultFlatVectorScorer;
 import org.apache.lucene.codecs.hnsw.FlatVectorsFormat;
+import org.apache.lucene.codecs.hnsw.FlatVectorsReader;
 import org.apache.lucene.index.SegmentReadState;
 import org.apache.lucene.index.SegmentWriteState;
 import org.apache.lucene.search.TaskExecutor;
+import org.apache.lucene.util.IOUtils;
 
 /**
  * cuVS based KnnVectorsFormat for indexing on GPU and searching on the CPU.
@@ -31,7 +33,7 @@ public class Lucene99AcceleratedHNSWVectorsFormat extends KnnVectorsFormat {
   private static final FlatVectorsFormat FLAT_VECTORS_FORMAT;
   private static final int MAX_DIMENSIONS = 4096;
   private final AcceleratedHNSWParams acceleratedHNSWParams;
-  private final int numInputVectors;
+  private final BulkIndexingContext bulkContext;
 
   static final String HNSW_META_CODEC_NAME = "Lucene99HnswVectorsFormatMeta";
   static final String HNSW_META_CODEC_EXT = "vem";
@@ -82,9 +84,18 @@ public class Lucene99AcceleratedHNSWVectorsFormat extends KnnVectorsFormat {
    */
   Lucene99AcceleratedHNSWVectorsFormat(
       AcceleratedHNSWParams acceleratedHNSWParams, int numInputVectors) {
+    this(
+        acceleratedHNSWParams,
+        numInputVectors == 0
+            ? null
+            : BulkIndexingContext.nativeBuffered(numInputVectors, new CagraHnswBuildMetrics()));
+  }
+
+  Lucene99AcceleratedHNSWVectorsFormat(
+      AcceleratedHNSWParams acceleratedHNSWParams, BulkIndexingContext bulkContext) {
     super("Lucene99AcceleratedHNSWVectorsFormat");
     this.acceleratedHNSWParams = acceleratedHNSWParams;
-    this.numInputVectors = numInputVectors;
+    this.bulkContext = bulkContext;
   }
 
   /**
@@ -92,14 +103,21 @@ public class Lucene99AcceleratedHNSWVectorsFormat extends KnnVectorsFormat {
    */
   @Override
   public KnnVectorsWriter fieldsWriter(SegmentWriteState state) throws IOException {
-    boolean nativeMode = isSupported() && numInputVectors > 0;
-    if (isSupported()) {
-      if (nativeMode) {
+    boolean supported = isSupported();
+    if (bulkContext != null && !supported) {
+      throw new IllegalStateException("CAGRA/HNSW bulk indexing requires cuVS GPU support");
+    }
+    if (supported) {
+      if (bulkContext != null) {
+        if (bulkContext.storage() != BulkIndexingContext.Storage.NATIVE_BUFFERED) {
+          log.log(Level.FINE, "cuVS is supported so using the borrowed FBIN bulk writer");
+          return new BorrowedDatasetHnswVectorsWriter(state, acceleratedHNSWParams, bulkContext);
+        }
         log.log(Level.FINE, "cuVS is supported so using the NativeFlatBufferedHNSWVectorsWriter");
         // In hint mode the accelerated writer owns the flat .vec/.vemf files, so the Lucene flat
         // writer must not be created (it would open the same outputs).
         return new NativeFlatBufferedHNSWVectorsWriter(
-            state, acceleratedHNSWParams, numInputVectors);
+            state, acceleratedHNSWParams, bulkContext.exactVectorCount(), bulkContext.metrics());
       }
       log.log(Level.FINE, "cuVS is supported so using the Lucene99AcceleratedHNSWVectorsWriter");
       var flatWriter = FLAT_VECTORS_FORMAT.fieldsWriter(state);
@@ -128,10 +146,15 @@ public class Lucene99AcceleratedHNSWVectorsFormat extends KnnVectorsFormat {
    */
   @Override
   public KnnVectorsReader fieldsReader(SegmentReadState state) throws IOException {
+    FlatVectorsReader flatReader = null;
     try {
-      return LUCENE_PROVIDER.getLuceneHnswVectorsReaderInstance(
-          state, FLAT_VECTORS_FORMAT.fieldsReader(state));
+      flatReader =
+          ExternalFbinFlatVectorsReader.hasExternalMarker(state)
+              ? new ExternalFbinFlatVectorsReader(state)
+              : FLAT_VECTORS_FORMAT.fieldsReader(state);
+      return LUCENE_PROVIDER.getLuceneHnswVectorsReaderInstance(state, flatReader);
     } catch (Exception e) {
+      IOUtils.closeWhileHandlingException(flatReader);
       throw Utils.handleThrowable(e);
     }
   }
