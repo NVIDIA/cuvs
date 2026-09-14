@@ -53,7 +53,7 @@ inline ::std::ostream& operator<<(::std::ostream& os, const AllNeighborsInputs& 
      << ", metric=" << static_cast<int>(std::get<1>(p.build_algo_metric_recall))
      << ", clusters=" << std::get<0>(p.cluster_nearestcluster)
      << ", overlap_factor=" << std::get<1>(p.cluster_nearestcluster)
-     << ", output_on_host=" << p.output_on_host << std::endl;
+     << ", output_on_host=" << p.output_on_host;
   return os;
 }
 
@@ -279,12 +279,26 @@ const std::vector<AllNeighborsInputs> inputsSingle =
     {5000, 7151},                 // n_rows
     {64, 137},                    // dim
     {16, 23},                     // graph_degree
-    {false, true},                // data on host
+    {false},                      // data on host
+    {false},                      // mutual_reach
+    {false}                       // output on host
+  );
+
+const std::vector<AllNeighborsInputs> inputsSingleDataTransfer =
+  raft::util::itertools::product<AllNeighborsInputs>(
+    {std::make_tuple(BRUTE_FORCE, cuvs::distance::DistanceType::L2Expanded, 0.9),
+     std::make_tuple(IVF_PQ, cuvs::distance::DistanceType::L2Expanded, 0.9),
+     std::make_tuple(NN_DESCENT, cuvs::distance::DistanceType::InnerProduct, 0.8)},
+    {std::make_tuple(1lu, 2lu)},  // min_recall, n_clusters, overlap_factor
+    {5000},                       // n_rows
+    {137},                        // dim
+    {23},                         // graph_degree
+    {true},                       // data on host
     {false},                      // mutual_reach
     {false, true}                 // output on host
   );
 
-const std::vector<AllNeighborsInputs> inputsBatch =
+const std::vector<AllNeighborsInputs> inputsBatchLow =
   raft::util::itertools::product<AllNeighborsInputs>(
     {std::make_tuple(BRUTE_FORCE, cuvs::distance::DistanceType::L2Expanded, 0.9),
      std::make_tuple(BRUTE_FORCE, cuvs::distance::DistanceType::L2SqrtExpanded, 0.9),
@@ -295,17 +309,53 @@ const std::vector<AllNeighborsInputs> inputsBatch =
      std::make_tuple(NN_DESCENT, cuvs::distance::DistanceType::L2SqrtExpanded, 0.9),
      std::make_tuple(NN_DESCENT, cuvs::distance::DistanceType::CosineExpanded, 0.9),
      std::make_tuple(NN_DESCENT, cuvs::distance::DistanceType::InnerProduct, 0.9)},
-    {
-      std::make_tuple(4lu, 2lu),
-      std::make_tuple(7lu, 2lu),
-      std::make_tuple(10lu, 2lu),
-    },             // min_recall, n_clusters, overlap_factor
-    {5000, 7151},  // n_rows
-    {64, 137},     // dim
-    {16, 23},      // graph_degree
-    {true},        // data on host
-    {false},       // mutual_reach
-    {false, true}  // output on host
+    {std::make_tuple(4lu, 2lu)},  // min_recall, n_clusters, overlap_factor
+    {5000},                       // n_rows
+    {64, 137},                    // dim
+    {16, 23},                     // graph_degree
+    {true},                       // data on host
+    {false},                      // mutual_reach
+    {true}                        // output on host
+  );
+
+const std::vector<AllNeighborsInputs> inputsBatchMed =
+  raft::util::itertools::product<AllNeighborsInputs>(
+    {std::make_tuple(BRUTE_FORCE, cuvs::distance::DistanceType::L2Expanded, 0.9),
+     std::make_tuple(BRUTE_FORCE, cuvs::distance::DistanceType::L2SqrtExpanded, 0.9),
+     std::make_tuple(BRUTE_FORCE, cuvs::distance::DistanceType::CosineExpanded, 0.9),
+     std::make_tuple(BRUTE_FORCE, cuvs::distance::DistanceType::InnerProduct, 0.9),
+     std::make_tuple(IVF_PQ, cuvs::distance::DistanceType::L2Expanded, 0.9),
+     std::make_tuple(NN_DESCENT, cuvs::distance::DistanceType::L2Expanded, 0.9),
+     std::make_tuple(NN_DESCENT, cuvs::distance::DistanceType::L2SqrtExpanded, 0.9),
+     std::make_tuple(NN_DESCENT, cuvs::distance::DistanceType::CosineExpanded, 0.9),
+     std::make_tuple(NN_DESCENT, cuvs::distance::DistanceType::InnerProduct, 0.9)},
+    {std::make_tuple(7lu, 2lu)},  // min_recall, n_clusters, overlap_factor
+    {7151},                       // n_rows
+    {137},                        // dim
+    {23},                         // graph_degree
+    {true},                       // data on host
+    {false},                      // mutual_reach
+    {false}                       // output on host
+  );
+
+const std::vector<AllNeighborsInputs> inputsBatchHigh =
+  raft::util::itertools::product<AllNeighborsInputs>(
+    {std::make_tuple(BRUTE_FORCE, cuvs::distance::DistanceType::L2Expanded, 0.9),
+     std::make_tuple(BRUTE_FORCE, cuvs::distance::DistanceType::L2SqrtExpanded, 0.9),
+     std::make_tuple(BRUTE_FORCE, cuvs::distance::DistanceType::CosineExpanded, 0.9),
+     std::make_tuple(BRUTE_FORCE, cuvs::distance::DistanceType::InnerProduct, 0.9),
+     std::make_tuple(IVF_PQ, cuvs::distance::DistanceType::L2Expanded, 0.9),
+     std::make_tuple(NN_DESCENT, cuvs::distance::DistanceType::L2Expanded, 0.9),
+     std::make_tuple(NN_DESCENT, cuvs::distance::DistanceType::L2SqrtExpanded, 0.9),
+     std::make_tuple(NN_DESCENT, cuvs::distance::DistanceType::CosineExpanded, 0.9),
+     std::make_tuple(NN_DESCENT, cuvs::distance::DistanceType::InnerProduct, 0.9)},
+    {std::make_tuple(10lu, 2lu)},  // min_recall, n_clusters, overlap_factor
+    {5000},                        // n_rows
+    {64},                          // dim
+    {16},                          // graph_degree
+    {true},                        // data on host
+    {false},                       // mutual_reach
+    {false}                        // output on host
   );
 
 const std::vector<AllNeighborsInputs> mutualReachSingle =
@@ -320,12 +370,11 @@ const std::vector<AllNeighborsInputs> mutualReachSingle =
     {5000, 7151},                 // n_rows
     {64, 137},                    // dim
     {16, 23},                     // graph_degree
-    {false, true},                // data on host
+    {false},                      // data on host
     {true},                       // mutual_reach
-    {false, true}                 // output on host
+    {false}                       // output on host
   );
-
-const std::vector<AllNeighborsInputs> mutualReachBatch =
+const std::vector<AllNeighborsInputs> mutualReachSingleDataTransfer =
   raft::util::itertools::product<AllNeighborsInputs>(
     {std::make_tuple(BRUTE_FORCE, cuvs::distance::DistanceType::L2Expanded, 0.9),
      std::make_tuple(BRUTE_FORCE, cuvs::distance::DistanceType::L2SqrtExpanded, 0.9),
@@ -333,17 +382,62 @@ const std::vector<AllNeighborsInputs> mutualReachBatch =
      std::make_tuple(NN_DESCENT, cuvs::distance::DistanceType::L2Expanded, 0.9),
      std::make_tuple(NN_DESCENT, cuvs::distance::DistanceType::L2SqrtExpanded, 0.9),
      std::make_tuple(NN_DESCENT, cuvs::distance::DistanceType::CosineExpanded, 0.9)},
-    {
-      std::make_tuple(4lu, 2lu),
-      std::make_tuple(7lu, 2lu),
-      std::make_tuple(10lu, 2lu),
-    },             // n_clusters, overlap_factor
-    {5000, 7151},  // n_rows
-    {64, 137},     // dim
-    {16, 23},      // graph_degree
-    {true},        // data on host
-    {true},        // mutual_reach
-    {false, true}  // output on host
+    {std::make_tuple(1lu, 2lu)},  // n_clusters, overlap_factor
+    {5000},                       // n_rows
+    {137},                        // dim
+    {23},                         // graph_degree
+    {true},                       // data on host
+    {true},                       // mutual_reach
+    {false, true}                 // output on host
+  );
+
+const std::vector<AllNeighborsInputs> mutualReachBatchLow =
+  raft::util::itertools::product<AllNeighborsInputs>(
+    {std::make_tuple(BRUTE_FORCE, cuvs::distance::DistanceType::L2Expanded, 0.9),
+     std::make_tuple(BRUTE_FORCE, cuvs::distance::DistanceType::L2SqrtExpanded, 0.9),
+     std::make_tuple(BRUTE_FORCE, cuvs::distance::DistanceType::CosineExpanded, 0.9),
+     std::make_tuple(NN_DESCENT, cuvs::distance::DistanceType::L2Expanded, 0.9),
+     std::make_tuple(NN_DESCENT, cuvs::distance::DistanceType::L2SqrtExpanded, 0.9),
+     std::make_tuple(NN_DESCENT, cuvs::distance::DistanceType::CosineExpanded, 0.9)},
+    {std::make_tuple(4lu, 2lu)},  // n_clusters, overlap_factor
+    {5000},                       // n_rows
+    {64, 137},                    // dim
+    {16, 23},                     // graph_degree
+    {true},                       // data on host
+    {true},                       // mutual_reach
+    {true}                        // output on host
+  );
+const std::vector<AllNeighborsInputs> mutualReachBatchMed =
+  raft::util::itertools::product<AllNeighborsInputs>(
+    {std::make_tuple(BRUTE_FORCE, cuvs::distance::DistanceType::L2Expanded, 0.9),
+     std::make_tuple(BRUTE_FORCE, cuvs::distance::DistanceType::L2SqrtExpanded, 0.9),
+     std::make_tuple(BRUTE_FORCE, cuvs::distance::DistanceType::CosineExpanded, 0.9),
+     std::make_tuple(NN_DESCENT, cuvs::distance::DistanceType::L2Expanded, 0.9),
+     std::make_tuple(NN_DESCENT, cuvs::distance::DistanceType::L2SqrtExpanded, 0.9),
+     std::make_tuple(NN_DESCENT, cuvs::distance::DistanceType::CosineExpanded, 0.9)},
+    {std::make_tuple(7lu, 2lu)},  // n_clusters, overlap_factor
+    {5000},                       // n_rows
+    {137},                        // dim
+    {16},                         // graph_degree
+    {true},                       // data on host
+    {true},                       // mutual_reach
+    {false}                       // output on host
+  );
+const std::vector<AllNeighborsInputs> mutualReachBatchHigh =
+  raft::util::itertools::product<AllNeighborsInputs>(
+    {std::make_tuple(BRUTE_FORCE, cuvs::distance::DistanceType::L2Expanded, 0.9),
+     std::make_tuple(BRUTE_FORCE, cuvs::distance::DistanceType::L2SqrtExpanded, 0.9),
+     std::make_tuple(BRUTE_FORCE, cuvs::distance::DistanceType::CosineExpanded, 0.9),
+     std::make_tuple(NN_DESCENT, cuvs::distance::DistanceType::L2Expanded, 0.9),
+     std::make_tuple(NN_DESCENT, cuvs::distance::DistanceType::L2SqrtExpanded, 0.9),
+     std::make_tuple(NN_DESCENT, cuvs::distance::DistanceType::CosineExpanded, 0.9)},
+    {std::make_tuple(10lu, 2lu)},  // n_clusters, overlap_factor
+    {7151},                        // n_rows
+    {64},                          // dim
+    {23},                          // graph_degree
+    {true},                        // data on host
+    {true},                        // mutual_reach
+    {false}                        // output on host
   );
 
 }  // namespace cuvs::neighbors::all_neighbors
