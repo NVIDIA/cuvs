@@ -39,7 +39,7 @@ public abstract class CuVSServiceProvider {
       var osArch = System.getProperty("os.arch");
       var supportedJavaRuntime = javaRuntimeVersion > 21;
       var supportedOs = osName.startsWith("Linux");
-      var supportedArchitecture = osArch.equals("amd64");
+      var supportedArchitecture = osArch.equals("amd64") || osArch.equals("aarch64");
       if (supportedJavaRuntime && supportedOs && supportedArchitecture) {
         try {
           var cls = Class.forName("com.nvidia.cuvs.spi.JDKProvider");
@@ -63,7 +63,8 @@ public abstract class CuVSServiceProvider {
         unsupportedReasons.add("cuvs-java supports only Linux, but os.name is " + osName);
       }
       if (!supportedArchitecture) {
-        unsupportedReasons.add("cuvs-java supports only x86-64 (amd64), but os.arch is " + osArch);
+        unsupportedReasons.add(
+            "cuvs-java supports only x86-64 (amd64) and arm64 (aarch64), but os.arch is " + osArch);
       }
 
       return new UnsupportedProvider(String.join("; ", unsupportedReasons));
