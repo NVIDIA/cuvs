@@ -30,8 +30,13 @@ struct CutileModuleImage {
 /**
  * Selects the newest compatible cubin in the device's compute-capability major family.
  *
- * CUDA cubins are forward compatible across minor revisions within a major family, so an SM 8.9
- * device can load SM 8.6 SASS and an SM 12.1 device can load SM 12.0 SASS.
+ * CUDA cubins are *usually* forward compatible across minor revisions within a major family (an
+ * SM 8.9 device can load SM 8.6 SASS), but this isn't guaranteed for every family: an SM 12.1
+ * (GB10) device rejects SM 12.0 SASS with cudaErrorNoKernelImageForDevice at
+ * cudaLibraryGetKernel, despite matching this function's same-major/lower-minor rule. Prefer
+ * registering an exact-match fragment for a given device's cc_major.cc_minor over relying on this
+ * fallback -- see cutile_arch_12_1 in cutile_arch_tags.hpp for the concrete case that motivated
+ * this note.
  */
 inline const CubinFragmentEntry* find_compatible_cubin_fragment(
   int cc_major,
