@@ -19,6 +19,7 @@ dist/
 python/**/**/*.cpp
 python/cuvs/record.txt
 log
+infrequent_licenses/
 .ipynb_checkpoints
 .DS_Store
 dask-worker-space/
@@ -29,6 +30,7 @@ temporary_*.json
 rust/target/
 rust/Cargo.lock
 rmm_log.txt
+*.tar.gz
 
 ## example notebooks
 notebooks/simplewiki-2020-11-01-nq-distilbert-base-v1.pt
