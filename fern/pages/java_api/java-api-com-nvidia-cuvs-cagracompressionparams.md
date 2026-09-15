@@ -10,7 +10,8 @@ _Java package: `com.nvidia.cuvs`_
 public class CagraCompressionParams
 ```
 
-Supplemental compression parameters to build CAGRA Index.
+Supplemental compression parameters for CAGRA-Q PQ training via
+CagraCompressionParams).
 
 ## Public Members
 
@@ -26,7 +27,7 @@ Gets the bit length of the vector element after compression by PQ.
 
 the bit length of the vector element after compression by PQ.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraCompressionParams.java:57`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraCompressionParams.java:58`_
 
 ### getPqDim
 
@@ -40,7 +41,7 @@ Gets the dimensionality of the vector after compression by PQ.
 
 the dimensionality of the vector after compression by PQ.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraCompressionParams.java:66`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraCompressionParams.java:67`_
 
 ### getVqNCenters
 
@@ -55,7 +56,7 @@ centers”.
 
 the vector quantization (VQ) codebook size - number of “coarse cluster centers”.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraCompressionParams.java:77`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraCompressionParams.java:78`_
 
 ### getKmeansNIters
 
@@ -70,7 +71,7 @@ phases).
 
 the number of iterations searching for kmeans centers (both VQ and PQ phases).
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraCompressionParams.java:88`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraCompressionParams.java:89`_
 
 ### getVqKmeansTrainsetFraction
 
@@ -84,7 +85,7 @@ Gets the fraction of data to use during iterative kmeans building (VQ phase).
 
 the fraction of data to use during iterative kmeans building (VQ phase).
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraCompressionParams.java:98`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraCompressionParams.java:99`_
 
 ### getPqKmeansTrainsetFraction
 
@@ -98,7 +99,7 @@ Gets the fraction of data to use during iterative kmeans building (PQ phase).
 
 the fraction of data to use during iterative kmeans building (PQ phase).
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraCompressionParams.java:108`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraCompressionParams.java:109`_
 
 ### withPqBits
 
@@ -122,7 +123,7 @@ the recall.
 
 an instance of Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraCompressionParams.java:153`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraCompressionParams.java:154`_
 
 ### withPqDim
 
@@ -144,7 +145,7 @@ When zero, an optimal value is selected using a heuristic.
 
 an instance of Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraCompressionParams.java:166`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraCompressionParams.java:167`_
 
 ### withVqNCenters
 
@@ -167,7 +168,7 @@ When zero, an optimal value is selected using a heuristic.
 
 an instance of Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraCompressionParams.java:180`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraCompressionParams.java:181`_
 
 ### withKmeansNIters
 
@@ -188,7 +189,7 @@ phases).
 
 an instance of Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraCompressionParams.java:192`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraCompressionParams.java:193`_
 
 ### withVqKmeansTrainsetFraction
 
@@ -210,7 +211,7 @@ When zero, an optimal value is selected using a heuristic.
 
 an instance of Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraCompressionParams.java:205`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraCompressionParams.java:206`_
 
 ### withPqKmeansTrainsetFraction
 
@@ -232,7 +233,7 @@ When zero, an optimal value is selected using a heuristic.
 
 an instance of Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraCompressionParams.java:218`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraCompressionParams.java:219`_
 
 ### build
 
@@ -246,6 +247,6 @@ Builds an instance of `CagraCompressionParams`.
 
 an instance of `CagraCompressionParams`
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraCompressionParams.java:228`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraCompressionParams.java:229`_
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraCompressionParams.java:12`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraCompressionParams.java:13`_

@@ -61,6 +61,100 @@ _Source: `rust/cuvs/src/neighbors/cagra/params.rs:59`_
 
 _Source: `rust/cuvs/src/neighbors/cagra/params.rs:49`_
 
+## CompressionParams
+
+```rust
+pub struct CompressionParams {
+    /* private fields */
+}
+```
+
+Parameters for VPQ compression used by CAGRA-Q.
+
+**Methods**
+
+| Name | Source |
+| --- | --- |
+| `new` | `rust/cuvs/src/neighbors/cagra/params.rs:225` |
+| `set_pq_bits` | `rust/cuvs/src/neighbors/cagra/params.rs:236` |
+| `set_pq_dim` | `rust/cuvs/src/neighbors/cagra/params.rs:244` |
+| `set_vq_n_centers` | `rust/cuvs/src/neighbors/cagra/params.rs:252` |
+| `set_kmeans_n_iters` | `rust/cuvs/src/neighbors/cagra/params.rs:260` |
+| `set_vq_kmeans_trainset_fraction` | `rust/cuvs/src/neighbors/cagra/params.rs:268` |
+| `set_pq_kmeans_trainset_fraction` | `rust/cuvs/src/neighbors/cagra/params.rs:276` |
+
+### new
+
+```rust
+pub fn new() -> Result<Self, CagraError>
+```
+
+Allocate compression params with library defaults.
+
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:225`_
+
+### set_pq_bits
+
+```rust
+pub fn set_pq_bits(self, pq_bits: u32) -> Self
+```
+
+Bit length of each PQ code element. Valid values: 4..=8.
+
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:236`_
+
+### set_pq_dim
+
+```rust
+pub fn set_pq_dim(self, pq_dim: u32) -> Self
+```
+
+Dimensionality after PQ compression (`0` = heuristic).
+
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:244`_
+
+### set_vq_n_centers
+
+```rust
+pub fn set_vq_n_centers(self, vq_n_centers: u32) -> Self
+```
+
+VQ codebook size (`0` = heuristic).
+
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:252`_
+
+### set_kmeans_n_iters
+
+```rust
+pub fn set_kmeans_n_iters(self, kmeans_n_iters: u32) -> Self
+```
+
+KMeans iterations for VQ and PQ phases.
+
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:260`_
+
+### set_vq_kmeans_trainset_fraction
+
+```rust
+pub fn set_vq_kmeans_trainset_fraction(self, fraction: f64) -> Self
+```
+
+Fraction of data used for VQ kmeans (`0` = heuristic).
+
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:268`_
+
+### set_pq_kmeans_trainset_fraction
+
+```rust
+pub fn set_pq_kmeans_trainset_fraction(self, fraction: f64) -> Self
+```
+
+Fraction of data used for PQ kmeans (`0` = heuristic).
+
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:276`_
+
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:219`_
+
 ## SearchParams
 
 ```rust
@@ -81,7 +175,7 @@ let params = SearchParams::builder().itopk_size(128).build()?;
 
 | Name | Source |
 | --- | --- |
-| `new` | `rust/cuvs/src/neighbors/cagra/params.rs:233` |
+| `new` | `rust/cuvs/src/neighbors/cagra/params.rs:315` |
 
 ### new
 
@@ -108,9 +202,9 @@ persistent_device_usage: Option<f32>,
 ) -> Result<Self, CagraError>
 ```
 
-_Source: `rust/cuvs/src/neighbors/cagra/params.rs:233`_
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:315`_
 
-_Source: `rust/cuvs/src/neighbors/cagra/params.rs:225`_
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:307`_
 
 ## impl IndexParamsBuilder
 

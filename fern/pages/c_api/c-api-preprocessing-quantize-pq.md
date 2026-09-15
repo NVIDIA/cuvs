@@ -343,3 +343,30 @@ cuvsError_t cuvsProductQuantizerGetUseVq(cuvsProductQuantizer_t quantizer, bool*
 **Returns**
 
 [`cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)
+
+<a id="cuvsdatasetmakepq"></a>
+### cuvsDatasetMakePq
+
+Train an owning device PQ dataset from a device-padded source.
+
+```c
+cuvsError_t cuvsDatasetMakePq(cuvsResources_t res,
+cuvsDataset_t source_dataset,
+cuvsCagraCompressionParams_t params,
+cuvsDataset_t* pq_dataset);
+```
+
+Used for CAGRA-Q: build a dense CAGRA index, train PQ with this factory, then attach via `cuvsCagraUpdateDataset`. Caller owns the returned dataset and must keep it alive while any index uses it. Metric for subsequent search must remain `L2Expanded`.
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `res` | in | [`cuvsResources_t`](/api-reference/c-api-core-c-api#cuvsresources-t) | cuvs resources |
+| `source_dataset` | in | `cuvsDataset_t` | device-padded dataset (owning or view) |
+| `params` | in | [`cuvsCagraCompressionParams_t`](/api-reference/c-api-neighbors-cagra#cuvscagracompressionparams) | PQ compression params; NULL selects defaults |
+| `pq_dataset` | out | `cuvsDataset_t*` | newly allocated owning PQ dataset handle |
+
+**Returns**
+
+[`cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)

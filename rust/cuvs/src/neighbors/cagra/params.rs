@@ -212,6 +212,88 @@ impl Drop for IndexParams {
 }
 
 // ---------------------------------------------------------------------------
+// CompressionParams (CAGRA-Q / VPQ training)
+// ---------------------------------------------------------------------------
+
+/// Parameters for VPQ compression used by CAGRA-Q.
+pub struct CompressionParams {
+    handle: ffi::cuvsCagraCompressionParams_t,
+}
+
+impl CompressionParams {
+    /// Allocate compression params with library defaults.
+    pub fn new() -> Result<Self, CagraError> {
+        let mut handle: ffi::cuvsCagraCompressionParams_t = ptr::null_mut();
+        check_cuvs(unsafe { ffi::cuvsCagraCompressionParamsCreate(&mut handle) })?;
+        Ok(Self { handle })
+    }
+
+    pub(crate) fn as_ptr(&self) -> ffi::cuvsCagraCompressionParams_t {
+        self.handle
+    }
+
+    /// Bit length of each PQ code element. Valid values: 4..=8.
+    pub fn set_pq_bits(self, pq_bits: u32) -> Self {
+        unsafe {
+            (*self.handle).pq_bits = pq_bits;
+        }
+        self
+    }
+
+    /// Dimensionality after PQ compression (`0` = heuristic).
+    pub fn set_pq_dim(self, pq_dim: u32) -> Self {
+        unsafe {
+            (*self.handle).pq_dim = pq_dim;
+        }
+        self
+    }
+
+    /// VQ codebook size (`0` = heuristic).
+    pub fn set_vq_n_centers(self, vq_n_centers: u32) -> Self {
+        unsafe {
+            (*self.handle).vq_n_centers = vq_n_centers;
+        }
+        self
+    }
+
+    /// KMeans iterations for VQ and PQ phases.
+    pub fn set_kmeans_n_iters(self, kmeans_n_iters: u32) -> Self {
+        unsafe {
+            (*self.handle).kmeans_n_iters = kmeans_n_iters;
+        }
+        self
+    }
+
+    /// Fraction of data used for VQ kmeans (`0` = heuristic).
+    pub fn set_vq_kmeans_trainset_fraction(self, fraction: f64) -> Self {
+        unsafe {
+            (*self.handle).vq_kmeans_trainset_fraction = fraction;
+        }
+        self
+    }
+
+    /// Fraction of data used for PQ kmeans (`0` = heuristic).
+    pub fn set_pq_kmeans_trainset_fraction(self, fraction: f64) -> Self {
+        unsafe {
+            (*self.handle).pq_kmeans_trainset_fraction = fraction;
+        }
+        self
+    }
+}
+
+impl fmt::Debug for CompressionParams {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("CompressionParams").field(unsafe { &*self.handle }).finish()
+    }
+}
+
+impl Drop for CompressionParams {
+    fn drop(&mut self) {
+        let _ = unsafe { ffi::cuvsCagraCompressionParamsDestroy(self.handle) };
+    }
+}
+
+// ---------------------------------------------------------------------------
 // SearchParams
 // ---------------------------------------------------------------------------
 

@@ -610,21 +610,25 @@ CUVS_EXPORT cuvsError_t cuvsCagraIndexGetDataset(cuvsCagraIndex_t index, DLManag
 CUVS_EXPORT cuvsError_t cuvsCagraIndexGetGraph(cuvsCagraIndex_t index, DLManagedTensor* graph);
 
 /**
- * @brief Update a CAGRA index with a device-padded dataset.
+ * @brief Update a CAGRA index with a device dataset (padded or PQ).
  *
- * This is the centralized dataset update operation for C callers. If \p index
- * is already device-padded, its dataset view is replaced in place. Otherwise,
- * the index is converted and its opaque handle is rebound to a search-ready
- * device-padded index. Caller retains ownership of
- * \p device_padded_dataset and must keep it alive while \p index uses it.
+ * This is the centralized dataset update/attach operation for C callers.
  *
- * @param[in] res             cuvsResources_t opaque C handle
- * @param[in] device_padded_dataset owning or non-owning device-padded dataset handle
- * @param[inout] index        CAGRA index handle
+ * - Device-padded dataset: if \p index is already device-padded, its dataset view is replaced in
+ *   place (same index object); otherwise the index is converted via attach and rebound.
+ * - Device PQ dataset (from `cuvsDatasetMakePq`): if \p index is already PQ-typed, its
+ *   dataset view is replaced in place; otherwise the graph is copied into a new PQ-typed index
+ *   (CAGRA-Q). Search requires metric `L2Expanded`. The PQ handle must be owning.
+ *
+ * Caller retains ownership of \p dataset and must keep it alive while \p index uses it.
+ *
+ * @param[in] res      cuvsResources_t opaque C handle
+ * @param[in] dataset  device-padded or owning device PQ dataset handle
+ * @param[inout] index CAGRA index handle
  * @return cuvsError_t
  */
 CUVS_EXPORT cuvsError_t cuvsCagraUpdateDataset(cuvsResources_t res,
-                                               cuvsDataset_t device_padded_dataset,
+                                               cuvsDataset_t dataset,
                                                cuvsCagraIndex_t index);
 
 /**
