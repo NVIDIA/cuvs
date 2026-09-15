@@ -106,6 +106,12 @@ struct cuvsKMeansParams {
   /**
    * Number of samples to process per GPU batch for the batched (host-data) API.
    * When set to 0, defaults to n_samples (process all at once).
+   *
+   * Host rows are staged through a device buffer of size
+   * `device_buffer_samples * n_features`. If the resources handle has a CUDA
+   * stream pool with at least one stream, prefetch is enabled; that
+   * doubles the batch memory footprint (and the weight-staging footprint
+   * when sample weights are provided).
    */
   int64_t device_buffer_samples;
 
