@@ -36,8 +36,18 @@ public class VamanaBuildAndSerializeIT extends CuVSTestCase {
 
   @Before
   public void setup() {
-    assumeTrue("not supported on " + System.getProperty("os.name"), isLinuxSupportedArch());
+    assumeTrue("not supported on " + System.getProperty("os.arch"), isVamanaSupportedArch());
     initializeRandom();
+  }
+
+  /**
+   * Vamana build is amd64-only for now. On arm64 {@code cuvsVamanaBuild} fails with an illegal
+   * memory access inside {@code batched_insert_vamana}, which leaves the CUDA context unusable for
+   * every later test in the same JVM. That is a native defect rather than a binding one, so these
+   * tests stay off arm64 until it is fixed.
+   */
+  private static boolean isVamanaSupportedArch() {
+    return isLinuxSupportedArch() && System.getProperty("os.arch").equals("amd64");
   }
 
   private static float[][] randomFloatDataset() {
