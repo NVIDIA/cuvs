@@ -582,7 +582,6 @@ void apply_avq(raft::resources const& res,
 {
   // Compute clusters
 
-  cudaStream_t stream  = raft::resource::get_cuda_stream(res).get();
   auto cluster_offsets = raft::make_device_vector<uint32_t, int64_t>(res, centroids_view.extent(0));
   auto clusters        = raft::make_device_vector<uint32_t, int64_t>(res, dataset.extent(0));
   int64_t max_cluster_size = 0;
