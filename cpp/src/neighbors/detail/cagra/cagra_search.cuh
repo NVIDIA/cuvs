@@ -281,7 +281,6 @@ void search_main(raft::resources const& res,
                            cuvs::spatial::knn::detail::utils::config<DistanceT>::kDivisor;
 
   if (index.metric() == cuvs::distance::DistanceType::CosineExpanded) {
-    auto stream      = raft::resource::get_cuda_stream(res);
     auto query_norms = raft::make_device_vector<DistanceT, int64_t>(res, queries.extent(0));
 
     // first scale the queries and then compute norms
