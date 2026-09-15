@@ -155,8 +155,7 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends KnnVector
       int dimensions = fieldInfo.getVectorDimension();
       int bytesPerVector = (dimensions + 7) / 8;
 
-      CuVSMatrix dataset =
-          Utils.createByteMatrix(vectors, bytesPerVector, getCuVSResourcesInstance());
+      CuVSMatrix dataset = Utils.createByteMatrix(vectors, bytesPerVector);
 
       if (dataset.size() < 2) {
         writeSingleVectorGraph(fieldInfo, vectors);
@@ -179,10 +178,9 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends KnnVector
       GPUBuiltHnswGraph hnswGraph =
           createMultiLayerHnswGraph(
               fieldInfo,
-              size,
               dimensions,
               adjacencyListMatrix,
-              vectors,
+              dataset,
               acceleratedHNSWParams.getHnswLayers(),
               params,
               QuantizationType.BINARY);
