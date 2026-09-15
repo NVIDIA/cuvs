@@ -45,3 +45,5 @@ These pages are generated from the Java source files in `java/cuvs-java/src/main
 - [TieredIndex](/api-reference/java-api-com-nvidia-cuvs-tieredindex)
 - [TieredIndexParams](/api-reference/java-api-com-nvidia-cuvs-tieredindexparams)
 - [TieredIndexQuery](/api-reference/java-api-com-nvidia-cuvs-tieredindexquery)
+- [VamanaIndex](/api-reference/java-api-com-nvidia-cuvs-vamanaindex)
+- [VamanaIndexParams](/api-reference/java-api-com-nvidia-cuvs-vamanaindexparams)

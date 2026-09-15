@@ -3037,6 +3037,7 @@ def java_api_group(klass: JavaClass) -> str:
             "hnsw",
             "ivf",
             "tiered",
+            "vamana",
             "searchresults",
             "aceparams",
         )
