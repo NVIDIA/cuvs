@@ -7,6 +7,7 @@
 
 #include "detail/ann_utils.cuh"
 #include "detail/cagra/add_nodes.cuh"
+#include "detail/cagra/cagra_ace.cuh"
 #include "detail/cagra/cagra_build.cuh"
 #include "detail/cagra/cagra_merge.cuh"
 #include "detail/cagra/cagra_search.cuh"
@@ -189,6 +190,16 @@ void build_knn_graph(
   detail::build_knn_graph<DataT, IdxT>(res, dataset, knn_graph, build_params);
 }
 
+template <typename DataT, typename IdxT, typename Accessor>
+void build_knn_graph(
+  raft::resources const& res,
+  raft::mdspan<const DataT, raft::matrix_extent<int64_t>, raft::row_major, Accessor> dataset,
+  raft::host_matrix_view<IdxT, int64_t, raft::row_major> knn_graph,
+  graph_build_params::brute_force_params params)
+{
+  detail::build_knn_graph(res, dataset, knn_graph, params);
+}
+
 /**
  * @brief Sort a KNN graph index.
  * Preprocessing step for `cagra::optimize`: If a KNN graph is not built using
@@ -302,6 +313,10 @@ auto build(raft::resources const& res, const index_params& params, DatasetViewT 
   if constexpr (cuvs::neighbors::is_device_vpq_dataset_view_v<DatasetViewT>) {
     RAFT_FAIL("cagra::build: VPQ-compressed dataset cannot be used for dense graph construction.");
   } else if constexpr (cuvs::neighbors::is_dense_row_major_device_dataset_view_v<DatasetViewT>) {
+    RAFT_EXPECTS(
+      !std::holds_alternative<graph_build_params::ace_params>(params.graph_build_params),
+      "cagra::build: ACE requires a dataset in host memory; device-resident datasets are not "
+      "supported. Pass a host dataset view when using ace_params.");
     auto idx = cuvs::neighbors::cagra::detail::build_from_device_matrix<T, IdxT, DatasetViewT>(
       res, params, dataset);
     if (params.attach_dataset_on_build) {
