@@ -31,11 +31,9 @@ public class AcceleratedHNSWParams {
     CUSTOM
   }
 
-  /*
-   * TODO: Update boundaries for all parameters when a consensus is reached.
-   * Issue: https://github.com/rapidsai/cuvs-lucene/issues/99
-   */
+  /** Bounds for the public CAGRA and HNSW build parameters. */
   public static final int MIN_WRITER_THREADS = 1;
+
   public static final int MAX_WRITER_THREADS = 512;
   public static final int MIN_INT_GRAPH_DEG = 2;
   public static final int MAX_INT_GRAPH_DEG = 512;
@@ -334,6 +332,7 @@ public class AcceleratedHNSWParams {
      * @return instance of {@link Builder}
      */
     public Builder withWriterThreads(int writerThreads) {
+      validateRange("writerThreads", writerThreads, MIN_WRITER_THREADS, MAX_WRITER_THREADS);
       this.writerThreads = writerThreads;
       return this;
     }
@@ -347,6 +346,8 @@ public class AcceleratedHNSWParams {
      * @return instance of {@link Builder}
      */
     public Builder withIntermediateGraphDegree(int intermediateGraphDegree) {
+      validateRange(
+          "intermediateGraphDegree", intermediateGraphDegree, MIN_INT_GRAPH_DEG, MAX_INT_GRAPH_DEG);
       this.intermediateGraphDegree = intermediateGraphDegree;
       return this;
     }
@@ -360,6 +361,7 @@ public class AcceleratedHNSWParams {
      * @return instance of {@link Builder}
      */
     public Builder withGraphDegree(int graphDegree) {
+      validateRange("graphDegree", graphDegree, MIN_GRAPH_DEG, MAX_GRAPH_DEG);
       this.graphdegree = graphDegree;
       return this;
     }
@@ -507,6 +509,13 @@ public class AcceleratedHNSWParams {
       return this;
     }
 
+    private static void validateRange(String name, int value, int min, int max) {
+      if (value < min || value > max) {
+        throw new IllegalArgumentException(
+            name + " not in valid range. Valid range: [" + min + ", " + max + "]");
+      }
+    }
+
     /**
      * Validates the input parameters.
      *
@@ -537,6 +546,10 @@ public class AcceleratedHNSWParams {
                 + ", "
                 + MAX_GRAPH_DEG
                 + "]");
+      }
+      if (strategy == Strategy.CUSTOM && graphdegree > intermediateGraphDegree) {
+        throw new IllegalArgumentException(
+            "graphDegree must not be greater than intermediateGraphDegree.");
       }
       if (hnswLayers < MIN_HNSW_LAYERS || hnswLayers > MAX_HNSW_LAYERS) {
         throw new IllegalArgumentException(
