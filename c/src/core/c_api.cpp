@@ -200,17 +200,9 @@ extern "C" cuvsError_t cuvsMultiGpuResourcesSetStreamPool(cuvsResources_t res,
                                                           size_t num_streams)
 {
   return cuvs::core::translate_exceptions([=] {
-    RAFT_EXPECTS(num_streams > 0, "num_streams must be greater than zero");
     auto res_ptr = reinterpret_cast<raft::device_resources_snmg*>(res);
     RAFT_EXPECTS(res_ptr != nullptr, "res must not be NULL");
-
-    auto& device_resources = raft::resource::get_multi_gpu_resource(*res_ptr);
-    for (auto& device_resource : device_resources) {
-      rmm::cuda_set_device_raii device_guard{
-        rmm::cuda_device_id{raft::resource::get_device_id(device_resource)}};
-      raft::resource::set_cuda_stream_pool(
-        device_resource, std::make_shared<rmm::cuda_stream_pool>(num_streams));
-    }
+    res_ptr->set_stream_pool(num_streams);
   });
 }
 

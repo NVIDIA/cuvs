@@ -12,9 +12,10 @@
 #include <raft/util/cudart_utils.hpp>
 #include <raft/util/integer_utils.hpp>
 
-#include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_uvector.hpp>
 #include <rmm/resource_ref.hpp>
+
+#include <cuda/stream>
 
 #include <cuda_runtime_api.h>
 
@@ -94,7 +95,7 @@ class kmeans_batch_loader<DataT, IndexT, true> {
                       IndexT n_rows,
                       IndexT row_width,
                       IndexT batch_size,
-                      rmm::cuda_stream_view copy_stream,
+                      cuda::stream_ref copy_stream,
                       rmm::device_async_resource_ref mr)
     : kmeans_batch_loader(res,
                           std::vector<kmeans_input_partition<DataT, IndexT>>{{source, n_rows}},
@@ -109,7 +110,7 @@ class kmeans_batch_loader<DataT, IndexT, true> {
                       std::vector<kmeans_input_partition<DataT, IndexT>> const& partitions,
                       IndexT row_width,
                       IndexT batch_size,
-                      rmm::cuda_stream_view,
+                      cuda::stream_ref,
                       rmm::device_async_resource_ref)
     : row_width_(static_cast<std::size_t>(row_width)),
       batch_size_(std::max<std::size_t>(static_cast<std::size_t>(batch_size), 1))
@@ -158,7 +159,7 @@ class kmeans_batch_loader<DataT, IndexT, false> {
                       IndexT n_rows,
                       IndexT row_width,
                       IndexT batch_size,
-                      rmm::cuda_stream_view copy_stream,
+                      cuda::stream_ref copy_stream,
                       rmm::device_async_resource_ref mr)
     : kmeans_batch_loader(res,
                           std::vector<kmeans_input_partition<DataT, IndexT>>{{source, n_rows}},
@@ -173,7 +174,7 @@ class kmeans_batch_loader<DataT, IndexT, false> {
                       std::vector<kmeans_input_partition<DataT, IndexT>> const& partitions,
                       IndexT row_width,
                       IndexT batch_size,
-                      rmm::cuda_stream_view copy_stream,
+                      cuda::stream_ref copy_stream,
                       rmm::device_async_resource_ref mr)
     : res_(&res),
       row_width_(static_cast<std::size_t>(row_width)),
@@ -242,7 +243,8 @@ class kmeans_batch_loader<DataT, IndexT, false> {
     RAFT_EXPECTS(pos < batches_.size(), "KMeans batch position is out of range");
     for (int slot = 0; slot < num_slots(); ++slot) {
       if (states_[slot] == slot_state::staged && positions_[slot] == pos) {
-        RAFT_CUDA_TRY(cudaStreamWaitEvent(raft::resource::get_cuda_stream(*res_), ready_[slot], 0));
+        RAFT_CUDA_TRY(
+          cudaStreamWaitEvent(raft::resource::get_cuda_stream(*res_).get(), ready_[slot], 0));
         states_[slot] = slot_state::acquired;
 
         auto const& batch = batches_[pos];
@@ -309,14 +311,14 @@ class kmeans_batch_loader<DataT, IndexT, false> {
     RAFT_EXPECTS(states_[slot] == slot_state::empty || states_[slot] == slot_state::reusable,
                  "KMeans attempted to overwrite an active batch buffer");
     if (states_[slot] == slot_state::reusable) {
-      RAFT_CUDA_TRY(cudaStreamWaitEvent(copy_stream_, reusable_[slot], 0));
+      RAFT_CUDA_TRY(cudaStreamWaitEvent(copy_stream_.get(), reusable_[slot], 0));
     }
     queue_h2d(buffer_ptrs_[slot], pos);
     positions_[slot] = pos;
     if (ready_[slot] == nullptr) { ready_[slot] = make_event(); }
     // cudaStreamWaitEvent captures the latest record at the time the wait is submitted, so this
     // per-slot event can be reused after acquire() has enqueued that wait.
-    RAFT_CUDA_TRY(cudaEventRecord(ready_[slot], copy_stream_));
+    RAFT_CUDA_TRY(cudaEventRecord(ready_[slot], copy_stream_.get()));
     states_[slot] = slot_state::staged;
   }
 
@@ -324,7 +326,7 @@ class kmeans_batch_loader<DataT, IndexT, false> {
   {
     if (reusable_[slot] == nullptr) { reusable_[slot] = make_event(); }
     // The copy stream consumes this generation's record before the event is recorded again.
-    RAFT_CUDA_TRY(cudaEventRecord(reusable_[slot], raft::resource::get_cuda_stream(*res_)));
+    RAFT_CUDA_TRY(cudaEventRecord(reusable_[slot], raft::resource::get_cuda_stream(*res_).get()));
     states_[slot] = slot_state::reusable;
   }
 
@@ -348,7 +350,7 @@ class kmeans_batch_loader<DataT, IndexT, false> {
   std::size_t row_width_      = 0;
   std::size_t batch_size_     = 0;
   std::vector<kmeans_batch_descriptor<DataT>> batches_;
-  rmm::cuda_stream_view copy_stream_;
+  cuda::stream_ref copy_stream_;
   rmm::device_uvector<DataT> buffer_0_;
   rmm::device_uvector<DataT> buffer_1_;
   DataT* buffer_ptrs_[2] = {nullptr, nullptr};

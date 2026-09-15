@@ -41,6 +41,8 @@
 #include <rmm/device_scalar.hpp>
 #include <rmm/device_uvector.hpp>
 
+#include <cuda/stream>
+
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -219,7 +221,7 @@ void mnmg_fit(
   auto batch_cost            = raft::make_device_scalar<DataT>(dev_res, DataT{0});
   auto sqrd_norm_error_dev   = raft::make_device_scalar<DataT>(dev_res, DataT{0});
   IndexT alloc_batch_size    = device_buffer_samples;
-  auto batch_weights       = raft::make_device_vector<DataT, IndexT>(dev_res, alloc_batch_size);
+  auto batch_weights         = raft::make_device_vector<DataT, IndexT>(dev_res, alloc_batch_size);
   auto minClusterAndDistance =
     raft::make_device_vector<raft::KeyValuePair<IndexT, DataT>, IndexT>(dev_res, alloc_batch_size);
   auto L2NormBatch =
@@ -353,7 +355,7 @@ void mnmg_fit(
 
   auto batch_mr          = data_on_device ? raft::resource::get_workspace_resource_ref(dev_res)
                                           : raft::resource::get_large_workspace_resource_ref(dev_res);
-  auto batch_copy_stream = stream;
+  auto batch_copy_stream = cuda::stream_ref{stream};
   if constexpr (!data_on_device) {
     if (dev_res.has_resource_factory(raft::resource::resource_type::CUDA_STREAM_POOL) &&
         raft::resource::get_stream_pool_size(dev_res) >= 1) {
