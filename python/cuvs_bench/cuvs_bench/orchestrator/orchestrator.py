@@ -10,7 +10,7 @@ This module provides the BenchmarkOrchestrator class that coordinates
 benchmark runs across different backends using the registry pattern.
 """
 
-from typing import List, Optional, Union
+from typing import Any, List, Mapping, Optional, Union
 
 import numpy as np
 
@@ -27,6 +27,17 @@ from .config_loaders import DatasetConfig
 def _should_compute_recall(result: SearchResult) -> bool:
     """Return True when orchestrator should derive recall from neighbors."""
     return result.success and result.neighbors.size > 0
+
+
+def _resolve_tune_bound(
+    bound: Any, bound_values: Optional[Mapping[str, Any]]
+) -> Any:
+    """Resolve a symbolic tune bound from the current trial context."""
+    if not isinstance(bound, str):
+        return bound
+    if bound_values is None or bound not in bound_values:
+        raise ValueError(f"Unable to resolve symbolic tune bound {bound!r}")
+    return bound_values[bound]
 
 
 class BenchmarkOrchestrator:
@@ -389,18 +400,23 @@ class BenchmarkOrchestrator:
         all_results: List[Union[BuildResult, SearchResult]] = []
 
         def suggest_params(
-            trial, param_space: dict, build_params: dict = None
+            trial,
+            param_space: dict,
+            bound_values: Optional[Mapping[str, Any]] = None,
         ) -> dict:
             """Suggest parameters from search space using Optuna trial."""
             params = {}
             for param, spec in param_space.items():
                 if spec["type"] == "int":
-                    max_val = spec["max"]
-                    # Handle dynamic constraints (e.g., nprobe <= nlist)
-                    if isinstance(max_val, str) and build_params:
-                        max_val = build_params.get(max_val, 1000)
+                    min_val = _resolve_tune_bound(spec["min"], bound_values)
+                    max_val = _resolve_tune_bound(spec["max"], bound_values)
+                    if min_val > max_val:
+                        raise ValueError(
+                            f"Invalid tune range for {param!r}: minimum "
+                            f"{min_val} exceeds maximum {max_val}"
+                        )
                     params[param] = trial.suggest_int(
-                        param, spec["min"], max_val, log=spec.get("log", False)
+                        param, min_val, max_val, log=spec.get("log", False)
                     )
                 elif spec["type"] == "float":
                     params[param] = trial.suggest_float(
@@ -421,8 +437,9 @@ class BenchmarkOrchestrator:
             build_params = suggest_params(trial, search_space.get("build", {}))
 
             # Suggest search parameters (may depend on build params)
+            search_bound_values = {**build_params, "top_k": count}
             search_params_dict = suggest_params(
-                trial, search_space.get("search", {}), build_params
+                trial, search_space.get("search", {}), search_bound_values
             )
 
             # Run single trial with these specific parameters

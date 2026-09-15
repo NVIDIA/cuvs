@@ -5,6 +5,15 @@
 """Pytest configuration for cuvs_bench tests."""
 
 
+def pytest_addoption(parser):
+    """Expose one explicit switch for the live PyLucene suite."""
+    parser.getgroup("pylucene").addoption(
+        "--run-pylucene",
+        action="store_true",
+        help="run the live PyLucene/cuVS-Lucene CPU and GPU tests",
+    )
+
+
 def pytest_configure(config):
     """Register elastic plugin when elasticsearch is available.
 
