@@ -2279,7 +2279,7 @@ void reconstruct_vpq_queries(raft::resources const& res,
                dim);
 
   kern_reconstruct_vpq_queries<T, MathT>
-    <<<batch_size, threads, 0, raft::resource::get_cuda_stream(res)>>>(
+    <<<batch_size, threads, 0, raft::resource::get_cuda_stream(res).get()>>>(
       vpq_dset.data.data_handle(),
       vpq_dset.encoded_row_length(),
       vpq_dset.vq_code_book.data_handle(),
@@ -2370,12 +2370,11 @@ auto search_and_optimize(
         std::min<int64_t>(static_cast<int64_t>(max_chunk_size), curr_query_size - offset);
       auto batch_query_view = raft::make_device_matrix_view<const T, int64_t>(
         reconstructed_batch_queries->data_handle(), batch_size, query_ld);
-      reconstruct_vpq_queries<T, half, int64_t>(
-        res,
-        *vpq_queries,
-        static_cast<uint64_t>(offset),
-        static_cast<uint32_t>(batch_size),
-        batch_query_view);
+      reconstruct_vpq_queries<T, half, int64_t>(res,
+                                                *vpq_queries,
+                                                static_cast<uint64_t>(offset),
+                                                static_cast<uint32_t>(batch_size),
+                                                batch_query_view);
       run_batch(offset, batch_size, batch_query_view);
     }
   } else {
