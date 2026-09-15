@@ -2509,3 +2509,32 @@ struct merge_params {
 | `max_leaders` | `uint32_t` |  |
 | `leaf_size` | `uint32_t` |  |
 | `leaf_degree` | `uint32_t` |  |
+
+<a id="neighbors-cagra-merged-dataset-offsets"></a>
+### neighbors::cagra::merged_dataset_offsets
+
+Compute per-index write offsets for a merged dataset buffer.
+
+```cpp
+template <typename T, typename IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
+auto merged_dataset_offsets(
+raft::resources const& res,
+std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*> const& indices,
+const cuvs::neighbors::filtering::base_filter& row_filter) -> std::vector<int64_t>;
+```
+
+`merge()` requires the caller to have already concatenated every input index's dataset (in `indices` order, applying `row_filter` if any) into a single buffer and to know each index's starting row within it. For `row_filter = none_sample_filter\{\}`, those offsets are just the cumulative sizes of `indices` and the caller does not need this function. For a bitset `row_filter`, the number of surviving rows per index cannot be derived from any other public API, so use this to compute them before allocating and populating the merged buffer.
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `res` | in | `raft::resources const&` | RAFT resources. |
+| `indices` | in | [`std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*> const&`](/api-reference/cpp-api-neighbors-cagra#neighbors-cagra-index) | CAGRA indices that will be passed to `merge()`. |
+| `row_filter` | in | `const cuvs::neighbors::filtering::base_filter&` | Row filter that will be passed to `merge()`. Only `none_sample_filter` and `bitset_filter` are supported. |
+
+**Returns**
+
+`std::vector<int64_t>`
+
+A vector of `indices.size() + 1` offsets: entry `i` is the row at which `indices[i]`'s surviving rows must start in the merged buffer, and the last entry is the total row count of the merged buffer.

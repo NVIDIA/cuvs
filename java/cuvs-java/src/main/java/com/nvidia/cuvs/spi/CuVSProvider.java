@@ -9,7 +9,6 @@ import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodType;
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.BitSet;
 import java.util.List;
 
 /**
@@ -167,6 +166,33 @@ public interface CuVSProvider {
       throws UnsupportedOperationException;
 
   /**
+   * Merges multiple CAGRA indexes into a single index, using a caller-owned pre-concatenated
+   * padded dataset.
+   *
+   * <p>See {@link CagraIndex#merge(CagraIndex[], CagraIndex.PaddedDataset, long[])} for the full
+   * {@code mergedDatasetHandleAddress}/{@code offsets} contract; this SPI method takes the raw
+   * native handle address so implementations don't need to depend on the concrete dataset
+   * wrapper type.
+   *
+   * @param indexes Array of CAGRA indexes to merge
+   * @param mergedDatasetHandleAddress native handle address of the caller-owned padded dataset
+   *                                   (or padded dataset view) holding the concatenation of every
+   *                                   input index's rows, in {@code indexes} order
+   * @param offsets Per-index starting row within the merged dataset. Array of {@code
+   *                indexes.length + 1} entries; the last entry must equal the merged dataset's
+   *                row count
+   * @param mergeParams Parameters to control the merge operation, or null to use defaults
+   * @return A new merged CAGRA index
+   * @throws Throwable if an error occurs during the merge operation
+   */
+  CagraIndex mergeCagraIndexes(
+      CagraIndex[] indexes,
+      long mergedDatasetHandleAddress,
+      long[] offsets,
+      CagraIndexParams mergeParams)
+      throws Throwable;
+
+  /**
    * Reports whether the rows of {@code dataset} already sit at the row stride CAGRA requires, which
    * is the row length in bytes rounded up to a 16 byte boundary.
    *
@@ -184,20 +210,6 @@ public interface CuVSProvider {
     throw new UnsupportedOperationException(
         "Padded layout detection is not supported by " + getClass().getName());
   }
-
-  /**
-   * Merges multiple CAGRA indexes into a single index, keeping only the rows selected by
-   * {@code rowFilter}. See {@link CagraIndex#merge(CagraIndex[], CagraIndexParams, BitSet)} for the
-   * meaning of the filter.
-   *
-   * @param indexes Array of CAGRA indexes to merge
-   * @param mergeParams Parameters to control the merge operation, or null to use defaults
-   * @param rowFilter The rows to keep, or null to keep all of them
-   * @return A new merged CAGRA index
-   * @throws Throwable if an error occurs during the merge operation
-   */
-  CagraIndex mergeCagraIndexes(CagraIndex[] indexes, CagraIndexParams mergeParams, BitSet rowFilter)
-      throws Throwable;
 
   /**
    * Creates a device-backed multi-partition filter handle from the pre-packed combined bitset.

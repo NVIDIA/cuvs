@@ -1152,3 +1152,267 @@ def extend(ExtendParams params, Index index, extended_dataset, new_start_row,
 
     _keep_dataset_alive(index, dataset_obj, source_array)
     return index
+
+
+cdef class MergeParams:
+    """ Supplemental parameters controlling how physical CAGRA indices are
+    merged.
+
+    Parameters
+    ----------
+    algo : str, default = "auto"
+        String denoting the merge algorithm to use. Valid values for
+        algo: ["auto", "fastener", "rebuild"], where
+
+            - auto will automatically select the merge algorithm
+            - fastener will stitch the input graphs together
+            - rebuild will build the output graph from scratch
+    levels : int, default = 0
+    root_fanout : int, default = 0
+    lower_fanout : int, default = 0
+    leader_fraction : float, default = 0
+    max_leaders : int, default = 0
+    leaf_size : int, default = 0
+    leaf_degree : int, default = 0
+    """
+
+    cdef cuvsCagraMergeParams* params
+
+    def __cinit__(self):
+        check_cuvs(cuvsCagraMergeParamsCreate(&self.params))
+
+    def __dealloc__(self):
+        if self.params != NULL:
+            check_cuvs(cuvsCagraMergeParamsDestroy(self.params))
+
+    def __init__(self, *,
+                 algo="auto",
+                 levels=None,
+                 root_fanout=None,
+                 lower_fanout=None,
+                 leader_fraction=None,
+                 max_leaders=None,
+                 leaf_size=None,
+                 leaf_degree=None):
+        if algo == "auto":
+            self.params.algo = cuvsCagraMergeAlgo.CUVS_CAGRA_MERGE_AUTO
+        elif algo == "fastener":
+            self.params.algo = cuvsCagraMergeAlgo.CUVS_CAGRA_MERGE_FASTENER
+        elif algo == "rebuild":
+            self.params.algo = cuvsCagraMergeAlgo.CUVS_CAGRA_MERGE_REBUILD
+        else:
+            raise ValueError(f"Unknown algo '{algo}'")
+
+        if levels is not None:
+            self.params.levels = levels
+        if root_fanout is not None:
+            self.params.root_fanout = root_fanout
+        if lower_fanout is not None:
+            self.params.lower_fanout = lower_fanout
+        if leader_fraction is not None:
+            self.params.leader_fraction = leader_fraction
+        if max_leaders is not None:
+            self.params.max_leaders = max_leaders
+        if leaf_size is not None:
+            self.params.leaf_size = leaf_size
+        if leaf_degree is not None:
+            self.params.leaf_degree = leaf_degree
+
+    def get_handle(self):
+        return <size_t> self.params
+
+    @property
+    def algo(self):
+        algo = self.params.algo
+        if algo == cuvsCagraMergeAlgo.CUVS_CAGRA_MERGE_AUTO:
+            return "auto"
+        elif algo == cuvsCagraMergeAlgo.CUVS_CAGRA_MERGE_FASTENER:
+            return "fastener"
+        elif algo == cuvsCagraMergeAlgo.CUVS_CAGRA_MERGE_REBUILD:
+            return "rebuild"
+
+    @property
+    def levels(self):
+        return self.params.levels
+
+    @property
+    def root_fanout(self):
+        return self.params.root_fanout
+
+    @property
+    def lower_fanout(self):
+        return self.params.lower_fanout
+
+    @property
+    def leader_fraction(self):
+        return self.params.leader_fraction
+
+    @property
+    def max_leaders(self):
+        return self.params.max_leaders
+
+    @property
+    def leaf_size(self):
+        return self.params.leaf_size
+
+    @property
+    def leaf_degree(self):
+        return self.params.leaf_degree
+
+
+cdef cuvsCagraIndex_t* _index_array(indices) except NULL:
+    """ Allocate and fill a C array of cuvsCagraIndex_t handles from a
+    Python sequence of `Index` objects. Caller must `free()` the result. """
+    cdef size_t n = len(indices)
+    cdef cuvsCagraIndex_t* arr = <cuvsCagraIndex_t*>malloc(
+        n * sizeof(cuvsCagraIndex_t))
+    if arr == NULL:
+        raise MemoryError("Could not allocate index array")
+    cdef Index idx
+    cdef size_t i
+    for i in range(n):
+        idx = indices[i]
+        if not idx.trained:
+            free(arr)
+            raise ValueError("All input indices must be trained/built")
+        arr[i] = idx.index
+    return arr
+
+
+@auto_sync_resources
+def merged_dataset_offsets(indices, filter=None, resources=None):
+    """
+    Compute the per-index starting row offsets required by ``merge``.
+
+    Only needed when merging with a bitset ``filter``. For an unfiltered
+    merge, the offsets are simply the cumulative row counts of ``indices``
+    and this function is not required.
+
+    Parameters
+    ----------
+    indices : list[Index]
+        Input CAGRA indices that will be passed to ``merge``.
+    filter : Optional cuvs.neighbors.filters.Prefilter
+        Filter that will be passed to ``merge``. Only bitset filters (or no
+        filter) are supported. (default None)
+    {resources_docstring}
+
+    Returns
+    -------
+    offsets : numpy.ndarray of dtype int64, shape (len(indices) + 1,)
+    """
+    if filter is None:
+        filter = no_filter()
+
+    cdef size_t num_indices = len(indices)
+    cdef cuvsCagraIndex_t* c_indices = _index_array(indices)
+    cdef cuvsResources_t res = <cuvsResources_t>resources.get_c_obj()
+
+    offsets = np.empty(num_indices + 1, dtype=np.int64)
+    cdef int64_t[::1] offsets_view = offsets
+
+    try:
+        with cuda_interruptible():
+            check_cuvs(cuvsCagraMergedDatasetOffsets(
+                res,
+                c_indices,
+                num_indices,
+                filter.prefilter,
+                &offsets_view[0]))
+    finally:
+        free(c_indices)
+
+    return offsets
+
+
+@auto_sync_resources
+def merge(IndexParams params, indices, merged_dataset, offsets,
+          merge_params=None, filter=None, resources=None):
+    """
+    Merge multiple CAGRA indices into a single CAGRA index.
+
+    The caller owns dataset concatenation. Build a single padded
+    ``merged_dataset`` containing the concatenation, in ``indices`` order,
+    of every input index's dataset (with ``filter`` already applied, if
+    any). ``offsets`` gives the row at which each input index's (post
+    filter) rows begin in ``merged_dataset``; see
+    ``merged_dataset_offsets`` for the bitset-filtered case. For an
+    unfiltered merge, ``offsets`` is just the cumulative row counts of
+    ``indices``.
+
+    This function only merges the graph and rebinds the output index to
+    ``merged_dataset``; keep that dataset alive for the resulting index's
+    lifetime.
+
+    Parameters
+    ----------
+    params : IndexParams object
+        Parameters for the output (merged) index.
+    indices : list[Index]
+        Input CAGRA indices to merge.
+    merged_dataset : Dataset or array
+        Padded dataset already containing the concatenated (and, if
+        ``filter`` is set, already-filtered) rows of every input index.
+    offsets : array-like of int64, shape (len(indices) + 1,)
+        Per-index starting row within ``merged_dataset``. The last entry
+        must equal ``merged_dataset``'s row count.
+    merge_params : MergeParams, optional
+        Parameters controlling the merge algorithm. Defaults to AUTO.
+    filter : Optional cuvs.neighbors.filters.Prefilter
+        Filter already applied by the caller while building
+        ``merged_dataset``. (default None)
+    {resources_docstring}
+
+    Returns
+    -------
+    index: cuvs.cagra.Index
+    """
+    cdef Dataset dataset_obj
+    source_array = None
+    if isinstance(merged_dataset, Dataset):
+        dataset_obj = merged_dataset
+    else:
+        source_array = merged_dataset
+        dataset_obj = make_device_padded_dataset(merged_dataset, resources=resources)
+
+    cdef cuvsDataset_t merged_handle = _cagra_dataset_handle(dataset_obj)
+    if dataset_obj.layout != "padded":
+        raise TypeError("merged_dataset must have padded layout")
+
+    if filter is None:
+        filter = no_filter()
+
+    cdef size_t num_indices = len(indices)
+    offsets_arr = np.ascontiguousarray(offsets, dtype=np.int64)
+    if offsets_arr.shape[0] != num_indices + 1:
+        raise ValueError(
+            "offsets must have len(indices) + 1 entries")
+    cdef int64_t[::1] offsets_view = offsets_arr
+
+    cdef cuvsCagraIndex_t* c_indices = _index_array(indices)
+    cdef Index out_idx = Index()
+    cdef cuvsResources_t res = <cuvsResources_t>resources.get_c_obj()
+    cdef cuvsCagraMergeParams_t merge_params_ptr = NULL
+    if merge_params is not None:
+        merge_params_ptr = (<MergeParams>merge_params).params
+
+    try:
+        with cuda_interruptible():
+            check_cuvs(cuvsCagraMergeWithParams(
+                res,
+                params.params,
+                merge_params_ptr,
+                c_indices,
+                num_indices,
+                filter.prefilter,
+                merged_handle,
+                &offsets_view[0],
+                out_idx.index))
+    finally:
+        free(c_indices)
+
+    out_idx.trained = True
+    out_idx.active_index_type = np.dtype(
+        dl_data_type_to_numpy(out_idx.index.dtype)).name
+    _keep_dataset_alive(out_idx, dataset_obj, source_array)
+    return out_idx

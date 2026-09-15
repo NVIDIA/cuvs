@@ -187,6 +187,51 @@ cdef extern from "cuvs/neighbors/cagra.h" nogil:
                                 int64_t new_start_row,
                                 cuvsCagraIndex_t index)
 
+    ctypedef enum cuvsCagraMergeAlgo:
+        CUVS_CAGRA_MERGE_AUTO
+        CUVS_CAGRA_MERGE_FASTENER
+        CUVS_CAGRA_MERGE_REBUILD
+
+    ctypedef struct cuvsCagraMergeParams:
+        cuvsCagraMergeAlgo algo
+        uint32_t levels
+        uint32_t root_fanout
+        uint32_t lower_fanout
+        double leader_fraction
+        uint32_t max_leaders
+        uint32_t leaf_size
+        uint32_t leaf_degree
+
+    ctypedef cuvsCagraMergeParams* cuvsCagraMergeParams_t
+
+    cuvsError_t cuvsCagraMergeParamsCreate(cuvsCagraMergeParams_t* params)
+    cuvsError_t cuvsCagraMergeParamsDestroy(cuvsCagraMergeParams_t params)
+
+    cuvsError_t cuvsCagraMergedDatasetOffsets(cuvsResources_t res,
+                                              cuvsCagraIndex_t* indices,
+                                              size_t num_indices,
+                                              cuvsFilter filter,
+                                              int64_t* offsets)
+
+    cuvsError_t cuvsCagraMerge(cuvsResources_t res,
+                               cuvsCagraIndexParams_t params,
+                               cuvsCagraIndex_t* indices,
+                               size_t num_indices,
+                               cuvsFilter filter,
+                               cuvsDataset_t merged_dataset,
+                               const int64_t* offsets,
+                               cuvsCagraIndex_t output_index)
+
+    cuvsError_t cuvsCagraMergeWithParams(cuvsResources_t res,
+                                         cuvsCagraIndexParams_t params,
+                                         cuvsCagraMergeParams_t merge_params,
+                                         cuvsCagraIndex_t* indices,
+                                         size_t num_indices,
+                                         cuvsFilter filter,
+                                         cuvsDataset_t merged_dataset,
+                                         const int64_t* offsets,
+                                         cuvsCagraIndex_t output_index)
+
 
 cdef class Index:
     """

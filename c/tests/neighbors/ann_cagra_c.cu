@@ -291,12 +291,27 @@ TEST(CagraC, DatasetContractFailures)
   ASSERT_EQ(cuvsCagraBuild(res, build_params, host_standard_view, host_index_2), CUVS_SUCCESS);
   cuvsCagraIndex_t merge_out;
   ASSERT_EQ(cuvsCagraIndexCreate(&merge_out), CUVS_SUCCESS);
+  // Non-empty so the rejection below is actually the host-index-layout check, not a bounce off an
+  // empty merged_dataset handle.
+  rmm::device_uvector<float> host_merge_dummy_d(16, stream);
+  DLManagedTensor host_merge_dummy_tensor       = device_tensor;
+  host_merge_dummy_tensor.dl_tensor.data        = host_merge_dummy_d.data();
+  int64_t host_merge_dummy_shape[2]             = {8, 2};
+  host_merge_dummy_tensor.dl_tensor.shape       = host_merge_dummy_shape;
   cuvsDataset_t merged_dataset;
-  ASSERT_EQ(cuvsDatasetCreate(&merged_dataset), CUVS_SUCCESS);
+  ASSERT_EQ(cuvsDatasetMakeStandardView(res, &host_merge_dummy_tensor, &merged_dataset),
+            CUVS_SUCCESS);
   cuvsCagraIndex_t host_indices[2] = {host_index, host_index_2};
-  EXPECT_EQ(
-    cuvsCagraMerge(res, build_params, host_indices, 2, filter, merged_dataset, merge_out),
-    CUVS_ERROR);
+  int64_t host_merge_offsets[3]    = {0, 4, 8};
+  EXPECT_EQ(cuvsCagraMerge(res,
+                           build_params,
+                           host_indices,
+                           2,
+                           filter,
+                           merged_dataset,
+                           host_merge_offsets,
+                           merge_out),
+            CUVS_ERROR);
 
   ASSERT_EQ(cuvsCagraExtendParamsDestroy(extend_params), CUVS_SUCCESS);
   ASSERT_EQ(cuvsCagraSearchParamsDestroy(search_params), CUVS_SUCCESS);
@@ -864,26 +879,9 @@ TEST(CagraC, BuildMergeSearch)
   filter.addr = 0;
 
   cuvsCagraIndex_t index_array[2] = {index_main, index_add};
-  cuvsDataset_t merged_dataset;
-  ASSERT_EQ(cuvsDatasetCreate(&merged_dataset), CUVS_SUCCESS);
-  cuvsCagraMergeParams_t merge_params;
-  ASSERT_EQ(cuvsCagraMergeParamsCreate(&merge_params), CUVS_SUCCESS);
-  EXPECT_EQ(merge_params->algo, CUVS_CAGRA_MERGE_AUTO);
-  merge_params->algo = CUVS_CAGRA_MERGE_REBUILD;
-  ASSERT_EQ(cuvsCagraMergeWithParams(
-              res, build_params, merge_params, index_array, 2, filter, merged_dataset, index_merged),
-            CUVS_SUCCESS);
-  {
-    cuvsDatasetMemType_t mem_type{};
-    cuvsDatasetLayout_t layout{};
-    ASSERT_EQ(cuvsDatasetGetMemType(merged_dataset, &mem_type), CUVS_SUCCESS);
-    ASSERT_EQ(cuvsDatasetGetLayout(merged_dataset, &layout), CUVS_SUCCESS);
-    EXPECT_EQ(layout, CUVS_DATASET_LAYOUT_STANDARD);
-    EXPECT_EQ(mem_type, CUVS_DATASET_MEM_TYPE_DEVICE);
-  }
 
-  // Merge of standard-layout device inputs yields a standard index. Under the explicit C API
-  // contract, attach a padded dataset before calling search.
+  // The caller concatenates every input index's dataset itself (main || additional) and passes
+  // that pre-populated buffer plus per-index offsets -- merge() only merges the graph.
   rmm::device_uvector<float> merged_d(14, stream);
   raft::copy(merged_d.data(), main_d.data(), main_d.size(), stream);
   raft::copy(merged_d.data() + main_d.size(), additional_d.data(), additional_d.size(), stream);
@@ -900,6 +898,35 @@ TEST(CagraC, BuildMergeSearch)
   merged_dataset_tensor.dl_tensor.shape              = merged_shape;
   merged_dataset_tensor.dl_tensor.strides            = nullptr;
 
+  cuvsDataset_t merged_dataset;
+  ASSERT_EQ(cuvsDatasetMakeStandardView(res, &merged_dataset_tensor, &merged_dataset),
+            CUVS_SUCCESS);
+  int64_t merge_offsets[3] = {0, 4, 7};
+  cuvsCagraMergeParams_t merge_params;
+  ASSERT_EQ(cuvsCagraMergeParamsCreate(&merge_params), CUVS_SUCCESS);
+  EXPECT_EQ(merge_params->algo, CUVS_CAGRA_MERGE_AUTO);
+  merge_params->algo = CUVS_CAGRA_MERGE_REBUILD;
+  ASSERT_EQ(cuvsCagraMergeWithParams(res,
+                                     build_params,
+                                     merge_params,
+                                     index_array,
+                                     2,
+                                     filter,
+                                     merged_dataset,
+                                     merge_offsets,
+                                     index_merged),
+            CUVS_SUCCESS);
+  {
+    cuvsDatasetMemType_t mem_type{};
+    cuvsDatasetLayout_t layout{};
+    ASSERT_EQ(cuvsDatasetGetMemType(merged_dataset, &mem_type), CUVS_SUCCESS);
+    ASSERT_EQ(cuvsDatasetGetLayout(merged_dataset, &layout), CUVS_SUCCESS);
+    EXPECT_EQ(layout, CUVS_DATASET_LAYOUT_STANDARD);
+    EXPECT_EQ(mem_type, CUVS_DATASET_MEM_TYPE_DEVICE);
+  }
+
+  // Merge of standard-layout device inputs yields a standard index. Under the explicit C API
+  // contract, attach a padded dataset before calling search.
   cuvsDataset_t padded_dataset_owner;
   ASSERT_EQ(cuvsDatasetMakePadded(
               res, &merged_dataset_tensor, CUVS_DATASET_MEM_TYPE_DEVICE, &padded_dataset_owner),
