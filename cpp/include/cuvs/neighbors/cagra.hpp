@@ -351,8 +351,9 @@ struct search_params : cuvs::neighbors::search_params {
   /** Number of threads used to calculate a single distance. 4, 8, 16, or 32. */
   size_t team_size = 0;
 
-  /** Number of graph nodes to select as the starting point for the search in each iteration. aka
-   * search width?*/
+  /** Number of graph nodes to select as the starting point for the search in each iteration.
+   *  Auto select as ceil(itopk_size / graph_degree) when 0.
+   */
   size_t search_width = 1;
   /** Lower limit of search iterations. */
   size_t min_iterations = 0;
@@ -361,7 +362,7 @@ struct search_params : cuvs::neighbors::search_params {
   size_t thread_block_size = 0;
   /** Hashmap type. Auto selection when AUTO. */
   hash_mode hashmap_mode = hash_mode::AUTO;
-  /** Lower limit of hashmap bit length. More than 8. */
+  /** Lower limit of hashmap bit length. 0 selects the default; otherwise, 8 to 20. */
   size_t hashmap_min_bitlen = 0;
   /** Upper limit of hashmap fill rate. More than 0.1, less than 0.9.*/
   float hashmap_max_fill_rate = 0.5;
