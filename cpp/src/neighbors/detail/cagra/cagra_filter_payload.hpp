@@ -147,6 +147,12 @@ template <>
 struct is_bloom_filter<::cuvs::neighbors::filtering::bloom_filter> : std::true_type {};
 
 template <typename T>
+struct is_roaring_filter : std::false_type {};
+
+template <>
+struct is_roaring_filter<::cuvs::neighbors::filtering::roaring_filter> : std::true_type {};
+
+template <typename T>
 struct is_udf_filter : std::false_type {};
 
 template <>
@@ -198,6 +204,8 @@ void fill_cagra_sample_filter(cagra_sample_filter<SourceIndexT>& out,
     out.filter_data = get_cagra_device_payload(make_cagra_bloom_filter_storage(filter), stream);
   } else if constexpr (is_udf_filter<DecayedFilter>::value) {
     out.filter_data = filter.filter_data;
+  } else if constexpr (is_roaring_filter<DecayedFilter>::value) {
+    out.filter_data = filter.device_payload();
   }
 }
 
@@ -211,6 +219,8 @@ std::uint64_t cagra_filter_payload_hash(const FilterT& filter)
     return cagra_payload_hash(make_cagra_bloom_filter_storage(filter));
   } else if constexpr (requires { filter.filter; }) {
     return cagra_filter_payload_hash<SourceIndexT>(filter.filter);
+  } else if constexpr (is_roaring_filter<DecayedFilter>::value) {
+    return cagra_payload_hash(filter.device_payload());
   } else {
     return 0;
   }
@@ -222,6 +232,8 @@ void* cagra_filter_data_ptr(const FilterT& filter)
   using DecayedFilter = std::decay_t<FilterT>;
   if constexpr (is_bloom_filter<DecayedFilter>::value || is_udf_filter<DecayedFilter>::value) {
     return filter.filter_data;
+  } else if constexpr (is_roaring_filter<DecayedFilter>::value) {
+    return filter.device_payload();
   } else if constexpr (requires { filter.filter; }) {
     return cagra_filter_data_ptr(filter.filter);
   } else {
