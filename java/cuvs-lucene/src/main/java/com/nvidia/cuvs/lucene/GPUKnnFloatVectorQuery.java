@@ -14,6 +14,7 @@ import com.nvidia.cuvs.CuVSResources;
 import com.nvidia.cuvs.FilterBitsetHandle;
 import com.nvidia.cuvs.MultiPartitionCagraSearch;
 import com.nvidia.cuvs.MultiPartitionSearchResults;
+import com.nvidia.cuvs.lucene.FilterBitsetCache.CachedFilterBitset;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -66,6 +67,15 @@ import org.apache.lucene.util.FixedBitSet;
  * applied: mixed segment types, a missing CAGRA index for the field on any segment, or segments
  * whose built CAGRA graphs differ in degree (a single multi-partition request requires a uniform
  * graph degree, and a small segment can have its degree truncated at build time).
+ *
+ * <p>It also falls back whenever an explicit {@code filter} is selective enough that Lucene would
+ * answer the query exactly. {@link org.apache.lucene.search.KnnFloatVectorQuery} guarantees that a
+ * filter leaving no more than {@code k} candidates in a segment is served by an exact scan rather
+ * than by the approximate index, and that a segment yielding fewer than {@code k} approximate hits
+ * while holding more than {@code k} candidates is re-run exactly. An approximate CAGRA search can
+ * miss such candidates, so both cases are routed back to Lucene's per-leaf path, which applies
+ * those rules per segment and still runs this query's GPU {@link #approximateSearch} wherever an
+ * approximate search is allowed.
  *
  * @since 25.10
  */
@@ -178,10 +188,27 @@ public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
     CuVSResources resources = getCuVSResourcesInstance();
     List<CagraIndex> cagraIndices = new ArrayList<>(leaves.size());
 
-    List<FilterBitsetHandle> filterHandles = null;
+    List<CachedFilterBitset> filterBitsets = null;
     try {
       if (hasExplicitFilter || hasDeletes) {
-        filterHandles = buildPerSegmentFilterHandles(indexSearcher, leaves, gpuReaders);
+        filterBitsets = buildPerSegmentFilterBitsets(indexSearcher, leaves, gpuReaders);
+      }
+
+      // Lucene answers a query exactly when the filter leaves no more than k candidates in a
+      // segment (AbstractKnnVectorQuery.getLeafResults), which an approximate CAGRA search cannot
+      // guarantee. Hand the whole query back to Lucene's per-leaf path in that case: it runs exact
+      // search on the selective segments and this query's GPU approximateSearch on the others.
+      // A segment whose filter accepts nothing contributes no results on either path, so it does
+      // not force the fallback.
+      long totalCardinality = 0;
+      if (hasExplicitFilter) {
+        for (CachedFilterBitset cached : filterBitsets) {
+          if (cached == null) continue;
+          totalCardinality += cached.cardinality();
+          if (cached.cardinality() > 0 && cached.cardinality() <= k) {
+            return super.rewrite(indexSearcher);
+          }
+        }
       }
 
       float[] target = getTargetCopy();
@@ -200,6 +227,14 @@ public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
           CuVSMatrix.deviceBuilder(resources, 1, target.length, CuVSMatrix.DataType.FLOAT);
       vectorBuilder.addVector(target);
 
+      List<FilterBitsetHandle> filterHandles = null;
+      if (filterBitsets != null) {
+        filterHandles = new ArrayList<>(filterBitsets.size());
+        for (CachedFilterBitset cached : filterBitsets) {
+          filterHandles.add(cached == null ? null : cached.handle());
+        }
+      }
+
       ScoreDoc[] scoreDocs;
       try (CuVSMatrix queryVector = vectorBuilder.build()) {
         for (int i = 0; i < leaves.size(); i++) {
@@ -215,6 +250,14 @@ public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
 
         MultiPartitionSearchResults results =
             MultiPartitionCagraSearch.search(resources, cagraIndices, cagraQuery, k, filterHandles);
+
+        // Lucene also re-runs a leaf exactly when the approximate search returns fewer than k hits
+        // while more than k candidates pass the filter. Every segment reaching this point holds
+        // either no candidates or more than k of them, so k hits must exist once the filtered
+        // corpus holds at least k; a short result means the approximate search missed them.
+        if (hasExplicitFilter && totalCardinality >= k && results.count() < k) {
+          return super.rewrite(indexSearcher);
+        }
 
         if (results.count() == 0) {
           return new MatchNoDocsQuery();
@@ -253,9 +296,9 @@ public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
       // Release this query's reference on each per-segment handle. A cached handle is kept alive by
       // the cache's own reference until eviction; an uncacheable handle holds only this reference
       // and is freed here.
-      if (filterHandles != null) {
-        for (FilterBitsetHandle handle : filterHandles) {
-          if (handle != null) handle.decRef();
+      if (filterBitsets != null) {
+        for (CachedFilterBitset cached : filterBitsets) {
+          if (cached != null) cached.handle().decRef();
         }
       }
     }
@@ -284,19 +327,19 @@ public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
   // -------------------------------------------------------------------------
 
   /**
-   * Returns one {@link FilterBitsetHandle} per segment (in {@code leaves} order) encoding ({@link
-   * #filter} ∩ that segment's liveDocs), pulling each from {@link FilterBitsetCache} when the
-   * reader state is unchanged. A segment with neither an explicit filter nor deletes gets a {@code
-   * null} entry (unfiltered for that partition).
+   * Returns one {@link CachedFilterBitset} per segment (in {@code leaves} order) encoding ({@link
+   * #filter} ∩ that segment's liveDocs) together with the number of ordinals it accepts, pulling
+   * each from {@link FilterBitsetCache} when the reader state is unchanged. A segment with neither
+   * an explicit filter nor deletes gets a {@code null} entry (unfiltered for that partition).
    *
    * <p>The cache key uses the single segment's per-reader key (not just the core key), so liveDocs
    * changes — which happen when a reader is reopened after deletes — invalidate that segment's
    * cached bitset, and an index update only affects the changed segments' entries.
    *
-   * <p>Each non-null handle carries a reference the caller must release with {@link
+   * <p>Each non-null entry's handle carries a reference the caller must release with {@link
    * FilterBitsetHandle#decRef()} once the search completes.
    */
-  private List<FilterBitsetHandle> buildPerSegmentFilterHandles(
+  private List<CachedFilterBitset> buildPerSegmentFilterBitsets(
       IndexSearcher indexSearcher,
       List<LeafReaderContext> leaves,
       List<CuVS2510GPUVectorsReader> gpuReaders)
@@ -340,11 +383,11 @@ public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
       entry.getKey().onSearchWorkingSet(entry.getValue());
     }
 
-    List<FilterBitsetHandle> handles = new ArrayList<>(n);
+    List<CachedFilterBitset> bitsets = new ArrayList<>(n);
     try {
       for (int i = 0; i < n; i++) {
         if (!needsFilter[i]) {
-          handles.add(null);
+          bitsets.add(null);
           continue;
         }
         LeafReaderContext ctx = leaves.get(i);
@@ -354,25 +397,25 @@ public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
         var helper = cache.isEnabled() ? ctx.reader().getReaderCacheHelper() : null;
         if (helper == null) {
           // This reader can't be cached; build an uncached handle owned outright by the caller.
-          handles.add(buildSegmentFilterHandle(sharedFilterWeight, ctx, fvv));
+          bitsets.add(buildSegmentFilterBitset(sharedFilterWeight, ctx, fvv));
         } else {
           // Evict entries when this segment reader closes (merge/reopen), not just on LRU.
           cache.ensureCloseListener(helper);
-          handles.add(
+          bitsets.add(
               cache.acquire(
                   filter,
                   helper.getKey(),
                   field,
                   entryBytes[i],
-                  () -> buildSegmentFilterHandle(sharedFilterWeight, ctx, fvv)));
+                  () -> buildSegmentFilterBitset(sharedFilterWeight, ctx, fvv)));
         }
       }
-      return handles;
+      return bitsets;
     } catch (IOException | RuntimeException | Error e) {
       // The caller cannot release a partially constructed list, so release every acquired handle
       // here before propagating the failure.
-      for (FilterBitsetHandle handle : handles) {
-        if (handle != null) handle.decRef();
+      for (CachedFilterBitset cached : bitsets) {
+        if (cached != null) cached.handle().decRef();
       }
       throw e;
     }
@@ -380,11 +423,12 @@ public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
 
   /**
    * Evaluates {@code filterWeight} (when non-null) in {@code ctx}, intersects with liveDocs, and
-   * packs the accepted ordinals of this one segment into a new {@link FilterBitsetHandle}. When
-   * {@code filterWeight} is {@code null}, the handle encodes liveDocs alone — the path taken for a
-   * segment with deletes but no explicit Lucene filter.
+   * packs the accepted ordinals of this one segment into a new {@link FilterBitsetHandle}, paired
+   * with the number of ordinals accepted. When {@code filterWeight} is {@code null}, the handle
+   * encodes liveDocs alone — the path taken for a segment with deletes but no explicit Lucene
+   * filter.
    */
-  private FilterBitsetHandle buildSegmentFilterHandle(
+  private CachedFilterBitset buildSegmentFilterBitset(
       Weight filterWeight, LeafReaderContext ctx, FloatVectorValues fvv) throws IOException {
     Bits liveDocs = ctx.reader().getLiveDocs();
     // When filterWeight is null, accept all live documents (acceptDocs == liveDocs, which may
@@ -394,8 +438,8 @@ public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
     Bits acceptedOrds = fvv.getAcceptOrds(acceptDocs);
     int numOrds = fvv.size();
     long[] segLongs = new long[(int) (((long) numOrds + 63) / 64)];
-    packOrdsToLongs(acceptedOrds, numOrds, segLongs, 0);
-    return FilterBitsetHandle.create(segLongs);
+    int cardinality = packOrdsToLongs(acceptedOrds, numOrds, segLongs, 0);
+    return new CachedFilterBitset(FilterBitsetHandle.create(segLongs), cardinality);
   }
 
   /**
@@ -438,8 +482,10 @@ public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
   /**
    * Packs {@code numOrds} ordinal bits from {@code bits} into {@code dest} starting at long index
    * {@code destLongOffset}. {@code bits == null} means all ordinals accepted (Lucene convention).
+   *
+   * @return the number of ordinals accepted, i.e. the bits set
    */
-  private static void packOrdsToLongs(Bits bits, int numOrds, long[] dest, int destLongOffset) {
+  private static int packOrdsToLongs(Bits bits, int numOrds, long[] dest, int destLongOffset) {
     if (bits == null) {
       // All ordinals accepted: fill with all-ones, masking the last partial word.
       int numLongs = (numOrds + 63) / 64;
@@ -448,13 +494,16 @@ public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
       if (tail != 0) {
         dest[destLongOffset + numLongs - 1] = (1L << tail) - 1L;
       }
-      return;
+      return numOrds;
     }
+    int cardinality = 0;
     for (int i = 0; i < numOrds; i++) {
       if (bits.get(i)) {
         dest[destLongOffset + i / 64] |= (1L << (i % 64));
+        cardinality++;
       }
     }
+    return cardinality;
   }
 
   // -------------------------------------------------------------------------
