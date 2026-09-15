@@ -45,8 +45,6 @@ namespace detail {
 template <typename T, typename IdxT>
 auto clone(const raft::resources& res, const index<T, IdxT>& source) -> index<T, IdxT>
 {
-  auto stream = raft::resource::get_cuda_stream(res);
-
   // Allocate the new index
   index<T, IdxT> target(res,
                         source.metric(),

@@ -16,6 +16,7 @@
 #include "searcher_gpu.cuh"
 #include "searcher_gpu_common.cuh"
 
+#include <cuda/stream>
 #include <cuvs/selection/select_k.hpp>
 #include <raft/matrix/detail/select_warpsort.cuh>
 
@@ -115,7 +116,7 @@ void launchPrecomputeLUTs(const float* d_query,
                           float* d_lut_for_queries,
                           size_t num_queries,
                           size_t D,
-                          rmm::cuda_stream_view stream)
+                          cuda::stream_ref stream)
 {
   // Launch precompute kernel
   dim3 gridDim(num_queries, 1, 1);

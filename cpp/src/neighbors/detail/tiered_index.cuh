@@ -257,7 +257,6 @@ struct index_state {
     }
 
     // merge results from ann_index/bfknn together, translating the bfknn ids
-    auto stream                  = raft::resource::get_cuda_stream(res);
     int64_t host_translations[2] = {0, static_cast<int64_t>(ann_rows())};
     auto device_translations     = raft::make_device_vector<int64_t>(res, 2);
     raft::copy(

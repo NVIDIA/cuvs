@@ -23,7 +23,7 @@ public class BruteForceAndSearchIT extends CuVSTestCase {
 
   @Before
   public void setup() {
-    assumeTrue("not supported on " + System.getProperty("os.name"), isLinuxAmd64());
+    assumeTrue("not supported on " + System.getProperty("os.name"), isLinuxSupportedArch());
     CuVSProvider.provider().enableRMMPooledMemory(10, 60);
   }
 

@@ -898,7 +898,6 @@ void build_clusters(const raft::resources& handle,
                     rmm::device_async_resource_ref device_memory,
                     const MathT* dataset_norm = nullptr)
 {
-  auto stream = raft::resource::get_cuda_stream(handle);
   // "randomly" initialize labels
   auto labels_view = raft::make_device_vector_view<LabelT, IdxT>(cluster_labels, n_rows);
   raft::linalg::map_offset(
