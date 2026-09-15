@@ -254,6 +254,12 @@ void search_main(raft::resources const& res,
       neighbors,
       distances,
       sample_filter);
+  } else if constexpr (cuvs::neighbors::is_device_standard_dataset_view_v<DatasetViewT>) {
+    RAFT_EXPECTS(
+      cuvs::neighbors::matrix_row_width_matches_cagra_required(index.dataset().view()),
+      "CAGRA search requires each dataset row to have the CAGRA-aligned stride. Create a padded "
+      "dataset with make_device_padded_dataset() and attach it with cagra::update_dataset().");
+    run_strided_like(index.dataset());
   } else if constexpr (cuvs::neighbors::is_device_padded_dataset_view_v<DatasetViewT>) {
     run_strided_like(index.dataset());
   } else if constexpr (cuvs::neighbors::is_host_dataset_view_v<DatasetViewT>) {
