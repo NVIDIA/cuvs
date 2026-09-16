@@ -25,13 +25,13 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsFormat extends KnnVector
   private static final Logger log =
       Logger.getLogger(LuceneAcceleratedHNSWScalarQuantizedVectorsFormat.class.getName());
   private static volatile FlatVectorsFormat cachedFlatVectorsFormat;
-  private static final int MAX_DIMENSIONS = 4096;
+  private static final int GPU_MAX_DIMENSIONS = 4096;
 
   private final AcceleratedHNSWParams acceleratedHNSWParams;
 
   private static LuceneProvider getLuceneProvider() throws IOException {
     try {
-      return LuceneProvider.getInstance("99");
+      return LuceneProvider.getInstance(LuceneProvider.LUCENE_99_FORMAT_VERSION);
     } catch (ClassNotFoundException e) {
       throw new IOException("Lucene99 vector formats are not available in this runtime", e);
     }
@@ -78,8 +78,8 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsFormat extends KnnVector
    */
   @Override
   public KnnVectorsWriter fieldsWriter(SegmentWriteState state) throws IOException {
-    var flatWriter = getOrCreateFlatVectorsFormat().fieldsWriter(state);
     if (isSupported()) {
+      var flatWriter = getOrCreateFlatVectorsFormat().fieldsWriter(state);
       log.info("cuVS is supported so using the Lucene99AcceleratedHNSWQuantizedVectorsWriter");
       return new LuceneAcceleratedHNSWScalarQuantizedVectorsWriter(
           state, acceleratedHNSWParams, flatWriter);
@@ -91,8 +91,8 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsFormat extends KnnVector
                 + " Lucene99HnswScalarQuantizedVectorsFormat");
         KnnVectorsFormat fallbackFormat =
             getLuceneProvider()
-                .getLuceneHnswScalarQuantizedVectorsFormatInstance(
-                    acceleratedHNSWParams.getBeamWidth(), acceleratedHNSWParams.getMaxConn());
+                .getLuceneHnswScalarQuantizedKnnVectorsFormatInstance(
+                    acceleratedHNSWParams.getMaxConn(), acceleratedHNSWParams.getBeamWidth());
         return fallbackFormat.fieldsWriter(state);
       } catch (Exception e) {
         throw Utils.handleThrowable(e);
@@ -116,9 +116,14 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsFormat extends KnnVector
 
   /**
    * Returns the maximum number of vector dimensions supported by this Codec for the given field name.
+   *
+   * <p>Returns 4096 when cuVS is supported for the current thread. Otherwise, returns {@link
+   * KnnVectorsFormat#DEFAULT_MAX_DIMENSIONS}, which is 1024 in the targeted Lucene version, for the
+   * CPU fallback.
    */
   @Override
   public int getMaxDimensions(String fieldName) {
-    return MAX_DIMENSIONS;
+    // The accelerated writer supports wider vectors than Lucene's CPU fallback formats.
+    return isSupported() ? GPU_MAX_DIMENSIONS : KnnVectorsFormat.DEFAULT_MAX_DIMENSIONS;
   }
 }

@@ -68,6 +68,9 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAccelerate
 
 Returns the maximum number of vector dimensions supported by this Codec for the given field name.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWScalarQuantizedVectorsFormat.java:119`_
+Returns 4096 when cuVS is supported for the current thread. Otherwise, returns `KnnVectorsFormat#DEFAULT_MAX_DIMENSIONS`, which is 1024 in the targeted Lucene version, for the
+CPU fallback.
+
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWScalarQuantizedVectorsFormat.java:123`_
 
 _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWScalarQuantizedVectorsFormat.java:23`_

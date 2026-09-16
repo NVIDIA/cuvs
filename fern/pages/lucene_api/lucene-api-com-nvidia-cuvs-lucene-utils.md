@@ -22,8 +22,7 @@ static RuntimeException handleThrowable(Throwable t) throws IOException
 
 A utility method that rethrows known throwable types without changing their identity.
 
-In particular, `Error` instances must not be converted to a \{@link
-RuntimeException\}; callers rely on errors retaining their original type and stack trace.
+In particular, `Error` instances must not be converted to a `RuntimeException`; callers rely on errors retaining their original type and stack trace.
 
 This method never returns normally; its return type exists solely so callers can write
 `throw handleThrowable(t);`, letting the compiler verify that the enclosing statement

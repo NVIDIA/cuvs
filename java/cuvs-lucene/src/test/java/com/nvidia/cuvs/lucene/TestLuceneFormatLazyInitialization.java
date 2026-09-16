@@ -15,6 +15,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -279,10 +280,12 @@ public class TestLuceneFormatLazyInitialization {
     }
 
     private static void assertLuceneProviderIsUninitialized() throws Exception {
-      Field instance = LuceneProvider.class.getDeclaredField("instance");
-      instance.setAccessible(true);
-      if (instance.get(null) != null) {
-        throw new AssertionError("Vector-format construction initialized LuceneProvider");
+      Field instances = LuceneProvider.class.getDeclaredField("INSTANCES");
+      instances.setAccessible(true);
+      Map<?, ?> providers = (Map<?, ?>) instances.get(null);
+      if (!providers.isEmpty()) {
+        throw new AssertionError(
+            "Vector-format construction initialized LuceneProvider versions " + providers.keySet());
       }
     }
 

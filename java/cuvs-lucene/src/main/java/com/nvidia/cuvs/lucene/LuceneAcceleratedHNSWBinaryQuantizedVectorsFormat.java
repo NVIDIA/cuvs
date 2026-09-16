@@ -14,6 +14,8 @@ import org.apache.lucene.codecs.KnnVectorsReader;
 import org.apache.lucene.codecs.KnnVectorsWriter;
 import org.apache.lucene.codecs.hnsw.DefaultFlatVectorScorer;
 import org.apache.lucene.codecs.hnsw.FlatVectorsFormat;
+import org.apache.lucene.index.CorruptIndexException;
+import org.apache.lucene.index.SegmentInfo;
 import org.apache.lucene.index.SegmentReadState;
 import org.apache.lucene.index.SegmentWriteState;
 
@@ -27,13 +29,17 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat extends KnnVector
   private static final Logger log =
       Logger.getLogger(LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat.class.getName());
   private static volatile FlatVectorsFormat cachedFlatVectorsFormat;
-  private static final int MAX_DIMENSIONS = 4096;
+  private static final int GPU_MAX_DIMENSIONS = 4096;
+
+  static final String FLAT_LAYOUT_ATTRIBUTE_KEY =
+      "com.nvidia.cuvs.lucene.binary_quantized_flat_layout";
+  static final String LUCENE_102_BINARY_FLAT_LAYOUT = "lucene102-binary-v1";
 
   private final AcceleratedHNSWParams acceleratedHNSWParams;
 
   private static LuceneProvider getLucene99Provider() throws IOException {
     try {
-      return LuceneProvider.getInstance("99");
+      return LuceneProvider.getInstance(LuceneProvider.LUCENE_99_FORMAT_VERSION);
     } catch (ClassNotFoundException e) {
       throw new IOException("Lucene99 vector formats are not available in this runtime", e);
     }
@@ -41,7 +47,7 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat extends KnnVector
 
   private static LuceneProvider getLucene102Provider() throws IOException {
     try {
-      return LuceneProvider.getInstance("102");
+      return LuceneProvider.getInstance(LuceneProvider.LUCENE_102_BINARY_FORMAT_VERSION);
     } catch (ClassNotFoundException e) {
       throw new IOException("Lucene102 vector formats are not available in this runtime", e);
     }
@@ -92,8 +98,8 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat extends KnnVector
    */
   @Override
   public KnnVectorsWriter fieldsWriter(SegmentWriteState state) throws IOException {
-    var flatWriter = getOrCreateFlatVectorsFormat().fieldsWriter(state);
     if (isSupported()) {
+      var flatWriter = getOrCreateFlatVectorsFormat().fieldsWriter(state);
       log.log(
           Level.FINE,
           "cuVS is supported so using the Lucene99AcceleratedHNSWBinaryQuantizedVectorsWriter");
@@ -106,9 +112,10 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat extends KnnVector
             Level.WARNING,
             "GPU based indexing not supported, falling back to using the"
                 + " Lucene102HnswBinaryQuantizedVectorsFormat");
+        markLucene102BinaryLayout(state.segmentInfo);
         KnnVectorsFormat fallbackFormat =
             getLucene102Provider()
-                .getLuceneHnswBinaryQuantizedVectorsFormatInstance(
+                .getLuceneHnswBinaryQuantizedKnnVectorsFormatInstance(
                     acceleratedHNSWParams.getMaxConn(), acceleratedHNSWParams.getBeamWidth());
         return fallbackFormat.fieldsWriter(state);
       } catch (Exception e) {
@@ -123,6 +130,13 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat extends KnnVector
   @Override
   public KnnVectorsReader fieldsReader(SegmentReadState state) throws IOException {
     try {
+      if (usesLucene102BinaryLayout(state)) {
+        KnnVectorsFormat fallbackFormat =
+            getLucene102Provider()
+                .getLuceneHnswBinaryQuantizedKnnVectorsFormatInstance(
+                    acceleratedHNSWParams.getMaxConn(), acceleratedHNSWParams.getBeamWidth());
+        return fallbackFormat.fieldsReader(state);
+      }
       return getLucene99Provider()
           .getLuceneHnswVectorsReaderInstance(
               state, getOrCreateFlatVectorsFormat().fieldsReader(state));
@@ -131,11 +145,45 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat extends KnnVector
     }
   }
 
+  static void markLucene102BinaryLayout(SegmentInfo segmentInfo) {
+    String current = segmentInfo.getAttribute(FLAT_LAYOUT_ATTRIBUTE_KEY);
+    if (current == null) {
+      segmentInfo.putAttribute(FLAT_LAYOUT_ATTRIBUTE_KEY, LUCENE_102_BINARY_FLAT_LAYOUT);
+    } else if (LUCENE_102_BINARY_FLAT_LAYOUT.equals(current) == false) {
+      throw new IllegalStateException(
+          "Segment "
+              + segmentInfo.name
+              + " already declares an incompatible binary flat-vector layout: "
+              + current);
+    }
+  }
+
+  private static boolean usesLucene102BinaryLayout(SegmentReadState state) throws IOException {
+    String layout = state.segmentInfo.getAttribute(FLAT_LAYOUT_ATTRIBUTE_KEY);
+    if (layout == null) {
+      return false;
+    }
+    if (LUCENE_102_BINARY_FLAT_LAYOUT.equals(layout)) {
+      return true;
+    }
+    throw new CorruptIndexException(
+        "Unsupported binary flat-vector layout marker: "
+            + layout
+            + "; attribute="
+            + FLAT_LAYOUT_ATTRIBUTE_KEY,
+        state.segmentInfo.name);
+  }
+
   /**
    * Returns the maximum number of vector dimensions supported by this codec for the given field name.
+   *
+   * <p>Returns 4096 when cuVS is supported for the current thread. Otherwise, returns {@link
+   * KnnVectorsFormat#DEFAULT_MAX_DIMENSIONS}, which is 1024 in the targeted Lucene version, for the
+   * CPU fallback.
    */
   @Override
   public int getMaxDimensions(String fieldName) {
-    return MAX_DIMENSIONS;
+    // The accelerated writer supports wider vectors than Lucene's CPU fallback formats.
+    return isSupported() ? GPU_MAX_DIMENSIONS : KnnVectorsFormat.DEFAULT_MAX_DIMENSIONS;
   }
 }
