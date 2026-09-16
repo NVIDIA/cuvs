@@ -89,7 +89,7 @@ requirements:
         - libboost-devel=1.87
         - mkl-devel=2023
   run:
-    - click
+    - click>=8.0
     - glog ${{ glog_version }}
     - h5py ${{ h5py_version }}
     - matplotlib-base>=3.9
@@ -112,16 +112,26 @@ requirements:
 
 
 tests:
+  - package_contents:
+      files:
+        - site-packages/cuvs_bench/config/algos/lucene_cpu_hnsw.yaml
+        - site-packages/cuvs_bench/config/algos/lucene_cuvs_cagra.yaml
   - python:
       imports:
         - cuvs_bench
         - cuvs_bench.generate_groundtruth
         - cuvs_bench.get_dataset
+        - cuvs_bench.backends.lucene
         - cuvs_bench.plot
         - cuvs_bench.run
         - cuvs_bench.split_groundtruth
       python_version: ${{ py_runtime_latest }}.*
       pip_check: false
+  - script:
+      content: |
+        python -c "from importlib.metadata import entry_points; assert any(item.name == 'lucene' for item in entry_points(group='cuvs_bench.backends'))"
+        python -c "from importlib.metadata import entry_points; assert any(item.name == 'lucene' for item in entry_points(group='cuvs_bench.config_loaders'))"
+        python -c "from cuvs_bench.orchestrator import BenchmarkOrchestrator; assert BenchmarkOrchestrator('lucene').backend_type == 'lucene'"
 
 about:
   homepage: ${{ load_from_file("python/cuvs_bench/pyproject.toml").project.urls.Homepage }}

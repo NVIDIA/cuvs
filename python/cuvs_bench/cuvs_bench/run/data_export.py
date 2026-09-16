@@ -57,6 +57,8 @@ def write_results_to_csv(results, dataset, dataset_path, count, batch_size):
     """Write Python-backend results using the existing plotting CSV schema."""
     grouped = defaultdict(list)
     for result in results:
+        if result.metadata.get("dry_run"):
+            continue
         group = result.metadata.get("group")
         index_name = result.metadata.get("index_name")
         if group is None or (
@@ -84,13 +86,15 @@ def write_results_to_csv(results, dataset, dataset_path, count, batch_size):
 
 
 def _write_build_results(results, algorithm, group, dataset, dataset_path):
-    output_dir = os.path.join(dataset_path, dataset, "result", "build")
-    os.makedirs(output_dir, exist_ok=True)
     algo_name = algorithm if group == "base" else f"{algorithm}_{group}"
 
     rows = []
     for result in results:
-        if not result.success or result.metadata.get("skipped"):
+        if (
+            not result.success
+            or result.metadata.get("skipped")
+            or result.metadata.get("dry_run")
+        ):
             continue
         metadata = _scalar_metadata(result.metadata)
         rows.append(
@@ -98,11 +102,19 @@ def _write_build_results(results, algorithm, group, dataset, dataset_path):
                 **result.build_params,
                 **metadata,
                 "algo_name": algo_name,
-                "index_name": result.index_path,
+                "index_name": result.metadata.get(
+                    "index_name", result.index_path
+                ),
                 "time": result.build_time_seconds,
             }
         )
 
+    if not rows:
+        # A failed, skipped, or dry run must not replace prior measurements.
+        return
+
+    output_dir = os.path.join(dataset_path, dataset, "result", "build")
+    os.makedirs(output_dir, exist_ok=True)
     columns = ["algo_name", "index_name", "time"]
     dataframe = pd.DataFrame(rows)
     build_file = os.path.join(output_dir, f"{algorithm},{group}.csv")
@@ -110,6 +122,7 @@ def _write_build_results(results, algorithm, group, dataset, dataset_path):
     complete_run = all(
         result.success and not result.metadata.get("skipped")
         for result in results
+        if not result.metadata.get("dry_run")
     )
     if not complete_run and os.path.exists(build_file):
         dataframe = pd.concat(
@@ -117,11 +130,6 @@ def _write_build_results(results, algorithm, group, dataset, dataset_path):
             ignore_index=True,
             sort=False,
         )
-
-    if dataframe.empty:
-        # Do not replace an existing measurement with a skipped or failed
-        # build, and do not create an empty result file.
-        return
 
     dataframe = dataframe.drop_duplicates(subset=["index_name"], keep="last")
     dataframe = dataframe[
@@ -133,13 +141,11 @@ def _write_build_results(results, algorithm, group, dataset, dataset_path):
 def _write_search_results(
     results, algorithm, group, dataset, dataset_path, count, batch_size
 ):
-    output_dir = os.path.join(dataset_path, dataset, "result", "search")
-    os.makedirs(output_dir, exist_ok=True)
     algo_name = algorithm if group == "base" else f"{algorithm}_{group}"
 
     rows = []
     for result in results:
-        if not result.success:
+        if not result.success or result.metadata.get("dry_run"):
             continue
         metadata = _scalar_metadata(result.metadata)
         search_params = (
@@ -159,6 +165,12 @@ def _write_search_results(
             }
         )
 
+    if not rows:
+        # Preserve prior evidence when every attempted search failed or was dry.
+        return
+
+    output_dir = os.path.join(dataset_path, dataset, "result", "search")
+    os.makedirs(output_dir, exist_ok=True)
     columns = [
         "algo_name",
         "index_name",
@@ -167,12 +179,9 @@ def _write_search_results(
         "latency",
     ]
     dataframe = pd.DataFrame(rows)
-    if dataframe.empty:
-        dataframe = pd.DataFrame(columns=columns)
-    else:
-        dataframe = dataframe[
-            columns + [name for name in dataframe if name not in columns]
-        ]
+    dataframe = dataframe[
+        columns + [name for name in dataframe if name not in columns]
+    ]
 
     build_file = os.path.join(
         dataset_path,

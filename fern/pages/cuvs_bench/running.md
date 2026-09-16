@@ -63,6 +63,7 @@ Create a custom YAML file with a `base` group to override the default benchmark 
 | GGNN | `ggnn` |
 | HNSWLIB | `hnswlib` |
 | DiskANN | `diskann_memory`, `diskann_ssd` |
+| Lucene (`--backend lucene`) | `lucene_cpu_hnsw`, `lucene_cuvs_cagra` |
 | NVIDIA cuVS | `cuvs_brute_force`, `cuvs_cagra`, `cuvs_ivf_flat`, `cuvs_ivf_pq`, `cuvs_cagra_hnswlib`, `cuvs_vamana` |
 
 ### Multi-GPU algorithms
