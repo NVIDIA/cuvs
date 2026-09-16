@@ -1,0 +1,16 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#pragma once
+
+// clang-format off
+@CUTILE_TILE_METADATA_INCLUDE@
+
+namespace @CUTILE_TILE_METADATA_NAMESPACE@ {
+
+@CUTILE_TILE_METADATA_ALIASES@
+
+}  // namespace
+// clang-format on
