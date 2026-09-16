@@ -76,8 +76,7 @@ void cluster_cost(
   std::optional<raft::device_vector_view<const DataT, IndexT>> sample_weight = std::nullopt)
 {
   auto n_samples = static_cast<IndexT>(X.extent(0));
-  auto norms =
-    raft::make_device_vector_view<DataT, IndexT>(scratch.norms.data_handle(), n_samples);
+  auto norms = raft::make_device_vector_view<DataT, IndexT>(scratch.norms.data_handle(), n_samples);
   auto distances =
     raft::make_device_vector_view<DataT, IndexT>(scratch.distances.data_handle(), n_samples);
 
@@ -85,9 +84,8 @@ void cluster_cost(
   minClusterDistanceCompute<DataT, IndexT>(
     handle,
     X,
-    raft::make_device_matrix_view<DataT, IndexT>(const_cast<DataT*>(centroids.data_handle()),
-                                                  centroids.extent(0),
-                                                  centroids.extent(1)),
+    raft::make_device_matrix_view<DataT, IndexT>(
+      const_cast<DataT*>(centroids.data_handle()), centroids.extent(0), centroids.extent(1)),
     distances,
     norms,
     scratch.distance_buffer,
@@ -97,11 +95,8 @@ void cluster_cost(
     scratch.workspace);
 
   if (sample_weight.has_value()) {
-    raft::linalg::map(handle,
-                      distances,
-                      raft::mul_op{},
-                      raft::make_const_mdspan(distances),
-                      sample_weight.value());
+    raft::linalg::map(
+      handle, distances, raft::mul_op{}, raft::make_const_mdspan(distances), sample_weight.value());
   }
   computeClusterCost(
     handle, distances, scratch.workspace, cost, raft::identity_op{}, raft::add_op{});

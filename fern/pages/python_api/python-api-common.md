@@ -77,6 +77,8 @@ Tracking memory allocations to a CSV file:
 | Name | Kind |
 | --- | --- |
 | `sync` | method |
+| `set_memory_pool` | method |
+| `set_stream_pool` | method |
 | `get_c_obj` | method |
 
 ### sync
@@ -84,6 +86,34 @@ Tracking memory allocations to a CSV file:
 ```python
 def sync(self)
 ```
+
+### set_memory_pool
+
+```python
+def set_memory_pool(self, percent_of_free_memory)
+```
+
+Set a memory pool on the device used by these resources.
+
+**Parameters**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `percent_of_free_memory` | `int` | Percentage of free device memory to allocate for the pool. |
+
+### set_stream_pool
+
+```python
+def set_stream_pool(self, num_streams=1)
+```
+
+Set a CUDA stream pool on these resources.
+
+**Parameters**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `num_streams` | `int, default=1` | Number of non-blocking CUDA streams in the pool. |
 
 ### get_c_obj
 
@@ -152,6 +182,7 @@ Using specific device IDs:
 | --- | --- |
 | `sync` | method |
 | `set_memory_pool` | method |
+| `set_stream_pool` | method |
 | `get_c_obj` | method |
 
 ### sync
@@ -181,6 +212,20 @@ Set a memory pool on all devices managed by these resources.
 >>> handle = MultiGpuResources()
 >>> handle.set_memory_pool(80)  # Use 80% of free memory
 ```
+
+### set_stream_pool
+
+```python
+def set_stream_pool(self, num_streams=1)
+```
+
+Set a CUDA stream pool on all devices managed by these resources.
+
+**Parameters**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `num_streams` | `int, default=1` | Number of non-blocking CUDA streams in each device's pool. |
 
 ### get_c_obj
 
