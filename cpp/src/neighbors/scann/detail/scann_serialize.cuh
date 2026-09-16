@@ -43,23 +43,6 @@ void serialize_matrix(
   RAFT_EXPECTS(mat_of, "Error writing output %s", file_path.string().c_str());
 }
 
-// Helper for serializing device/host vector to a given file
-template <typename T,
-          typename IdxT,
-          typename Accessor =
-            raft::host_device_accessor<cuda::std::default_accessor<T>, raft::memory_type::host>>
-void serialize_vector(
-  raft::resources const& res,
-  std::filesystem::path file_path,
-  raft::mdspan<const T, raft::vector_extent<IdxT>, raft::row_major, Accessor> mat)
-{
-  auto mat_of = open_file(file_path);
-
-  raft::serialize_mdspan(res, mat_of, mat);
-
-  mat_of.close();
-}
-
 // ScaNN stores primary and soar cluster assignments interleaved in a single vector.
 // When the primary and soar assignment are equal, the soar assignment should be -1
 // This is a helper for combining the primary and soar assignments into this format

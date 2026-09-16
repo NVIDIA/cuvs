@@ -139,7 +139,7 @@ void predict_kmeans(
   raft::device_vector_view<uint32_t, IdxT> labels,
   size_t batch_size,
   bool enable_prefetch,
-  cudaStream_t copy_stream)
+  cuda::stream_ref copy_stream)
 {
   cuvs::cluster::kmeans::balanced_params kmeans_params;
 
