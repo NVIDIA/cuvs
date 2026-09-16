@@ -217,18 +217,19 @@ void mnmg_fit(
   auto centroid_sums  = raft::make_device_matrix<DataT, IndexT>(dev_res, n_clusters, n_features);
   auto weight_per_cluster    = raft::make_device_vector<DataT, IndexT>(dev_res, n_clusters);
   auto clustering_cost       = raft::make_device_vector<DataT, IndexT>(dev_res, 1);
-  auto batch_clustering_cost = raft::make_device_vector<DataT, IndexT>(dev_res, 1);
   auto batch_cost            = raft::make_device_scalar<DataT>(dev_res, DataT{0});
   auto sqrd_norm_error_dev   = raft::make_device_scalar<DataT>(dev_res, DataT{0});
   IndexT alloc_batch_size    = device_buffer_samples;
   auto batch_weights         = raft::make_device_vector<DataT, IndexT>(dev_res, alloc_batch_size);
   auto minClusterAndDistance =
     raft::make_device_vector<raft::KeyValuePair<IndexT, DataT>, IndexT>(dev_res, alloc_batch_size);
-  auto L2NormBatch =
-    raft::make_device_vector<DataT, IndexT>(dev_res, data_on_device ? IndexT{0} : alloc_batch_size);
+  auto minClusterDistance = raft::make_device_vector<DataT, IndexT>(dev_res, alloc_batch_size);
+  auto L2NormBatch = raft::make_device_vector<DataT, IndexT>(dev_res, alloc_batch_size);
   rmm::device_uvector<DataT> L2NormBuf_OR_DistBuf(0, stream);
   rmm::device_uvector<char> workspace(0, stream);
   rmm::device_uvector<char> batch_workspace(0, stream);
+  cuvs::cluster::kmeans::detail::cluster_cost_workspace<DataT, IndexT> final_cost_workspace{
+    L2NormBatch.view(), minClusterDistance.view(), L2NormBuf_OR_DistBuf, workspace};
 
   auto d_weight_scale = raft::make_device_scalar<DataT>(dev_res, DataT{1});
   if (sample_weights) {
@@ -603,18 +604,17 @@ void mnmg_fit(
         prefetch_batch((batch_pos + 1) % data_batches.num_batches());
       }
 
-      raft::matrix::fill(dev_res, batch_clustering_cost.view(), DataT{0});
-      cuvs::cluster::kmeans::cluster_cost(
-        dev_res,
-        batch_data_view,
-        rank_centroids_const,
-        raft::make_device_scalar_view(batch_clustering_cost.data_handle()),
-        batch_sw);
-
-      raft::linalg::add(dev_res,
-                        raft::make_const_mdspan(clustering_cost.view()),
-                        raft::make_const_mdspan(batch_clustering_cost.view()),
-                        clustering_cost.view());
+      cuvs::cluster::kmeans::detail::cluster_cost(dev_res,
+                                                  batch_data_view,
+                                                  rank_centroids_const,
+                                                  batch_cost.view(),
+                                                  final_cost_workspace,
+                                                  batch_sw);
+      raft::linalg::add(clustering_cost.data_handle(),
+                        clustering_cost.data_handle(),
+                        batch_cost.data_handle(),
+                        1,
+                        stream);
 
       const bool needs_future_batch =
         batch_pos + 2 < data_batches.num_batches() || seed_iter + 1 < n_init;
