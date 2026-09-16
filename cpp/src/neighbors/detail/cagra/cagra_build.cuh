@@ -2368,7 +2368,7 @@ auto search_and_optimize(
          offset += static_cast<int64_t>(max_chunk_size)) {
       const int64_t batch_size =
         std::min<int64_t>(static_cast<int64_t>(max_chunk_size), curr_query_size - offset);
-      auto batch_query_view = raft::make_device_matrix_view<const T, int64_t>(
+      auto batch_query_view = raft::make_device_matrix_view<T, int64_t>(
         reconstructed_batch_queries->data_handle(), batch_size, query_ld);
       reconstruct_vpq_queries<T, half, int64_t>(res,
                                                 *vpq_queries,
