@@ -5,6 +5,7 @@
 
 #pragma once
 #include "ivf_pq_codepacking.cuh"
+#include <cuda/stream>
 #include <cuvs/neighbors/ivf_pq.hpp>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/util/cuda_dev_essentials.cuh>
@@ -68,7 +69,7 @@ inline void unpack_list_data_impl(
                       raft::row_major> list_data,
   std::variant<uint32_t, const uint32_t*> offset_or_indices,
   uint32_t pq_bits,
-  rmm::cuda_stream_view stream)
+  cuda::stream_ref stream)
 {
   auto n_rows = codes.extent(0);
   if (n_rows == 0) { return; }
@@ -143,7 +144,7 @@ inline void pack_list_data_impl(
   raft::device_matrix_view<const uint8_t, uint32_t, raft::row_major> codes,
   std::variant<uint32_t, const uint32_t*> offset_or_indices,
   uint32_t pq_bits,
-  rmm::cuda_stream_view stream)
+  cuda::stream_ref stream)
 {
   auto n_rows = codes.extent(0);
   if (n_rows == 0) { return; }

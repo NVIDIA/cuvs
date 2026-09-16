@@ -9,6 +9,7 @@
 #include <cuvs/neighbors/hnsw.hpp>
 #include <cuvs/util/file_io.hpp>
 
+#include <cuda/stream>
 #include <rmm/mr/managed_memory_resource.hpp>
 
 #include <algorithm>
@@ -660,7 +661,7 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
 
  private:
   raft::resources handle_;
-  rmm::cuda_stream_view stream_;
+  cuda::stream_ref stream_;
   AnnHnswAceInputs ps;
   rmm::device_uvector<DataT> database_dev;
   rmm::device_uvector<DataT> search_queries;

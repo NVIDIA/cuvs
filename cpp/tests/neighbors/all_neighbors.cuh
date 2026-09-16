@@ -10,6 +10,7 @@
 #include "ann_utils.cuh"
 #include "naive_knn.cuh"
 #include <cstddef>
+#include <cuda/stream>
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/all_neighbors.hpp>
 #include <cuvs/neighbors/brute_force.hpp>
@@ -259,7 +260,7 @@ class AllNeighborsTest : public ::testing::TestWithParam<AllNeighborsInputs> {
 
  private:
   raft::device_resources_snmg handle_;
-  rmm::cuda_stream_view stream_;
+  cuda::stream_ref stream_;
   AllNeighborsInputs ps;
   rmm::device_uvector<DataT> database;
 };

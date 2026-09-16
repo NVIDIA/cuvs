@@ -18,7 +18,7 @@
 #include <raft/util/cudart_utils.hpp>
 #include <raft/util/integer_utils.hpp>
 
-#include <rmm/cuda_stream_view.hpp>
+#include <cuda/stream>
 #include <rmm/device_scalar.hpp>
 #include <rmm/device_uvector.hpp>
 #include <rmm/resource_ref.hpp>
@@ -224,7 +224,7 @@ HDI constexpr auto mapping<int8_t>::operator()(const float& x) const -> int8_t
  * @param[in] n_bytes
  */
 template <typename T, typename IdxT>
-inline void memzero(T* ptr, IdxT n_elems, rmm::cuda_stream_view stream)
+inline void memzero(T* ptr, IdxT n_elems, cuda::stream_ref stream)
 {
   switch (check_pointer_residency(ptr)) {
     case pointer_residency::host_and_device:
@@ -298,7 +298,7 @@ void block_copy(const IdxT* in_offsets,
                 const T* in_data,
                 T* out_data,
                 IdxT n_mult,
-                rmm::cuda_stream_view stream)
+                cuda::stream_ref stream)
 {
   IdxT in_size;
   update_host(&in_size, in_offsets + n_blocks, 1, stream);
@@ -325,7 +325,7 @@ void block_copy(const IdxT* in_offsets,
  * @param stream
  */
 template <typename T, typename IdxT>
-void outer_add(const T* a, IdxT len_a, const T* b, IdxT len_b, T* c, rmm::cuda_stream_view stream)
+void outer_add(const T* a, IdxT len_a, const T* b, IdxT len_b, T* c, cuda::stream_ref stream)
 {
   dim3 threads(128, 1, 1);
   dim3 blocks(raft::ceildiv<IdxT>(len_a * len_b, threads.x), 1, 1);
@@ -370,7 +370,7 @@ void copy_selected(IdxT n_rows,
                    IdxT ld_src,
                    T* dst,
                    IdxT ld_dst,
-                   rmm::cuda_stream_view stream)
+                   cuda::stream_ref stream)
 {
   switch (check_pointer_residency(src, dst, row_ids)) {
     case pointer_residency::host_and_device:
@@ -403,8 +403,7 @@ void copy_selected(IdxT n_rows,
  * the main stream itself is returned with `false`, and the caller should treat prefetch as a
  * no-op (no overlap is possible on a single stream).
  */
-inline auto get_prefetch_stream(raft::resources const& res)
-  -> std::pair<rmm::cuda_stream_view, bool>
+inline auto get_prefetch_stream(raft::resources const& res) -> std::pair<cuda::stream_ref, bool>
 {
   if (res.has_resource_factory(raft::resource::resource_type::CUDA_STREAM_POOL) &&
       raft::resource::get_stream_pool_size(res) >= 1) {
@@ -600,7 +599,7 @@ struct batch_load_iterator {
     batch(raft::resources const& res,
           MdspanT input_view,
           size_type batch_size,
-          rmm::cuda_stream_view copy_stream,
+          cuda::stream_ref copy_stream,
           rmm::device_async_resource_ref mr,
           bool prefetch,
           bool initialize,
@@ -806,7 +805,7 @@ struct batch_load_iterator {
                                     copy_stream_.get()));
     }
 
-    rmm::cuda_stream_view copy_stream_;
+    cuda::stream_ref copy_stream_;
     raft::resources const* res_;
     MdspanT input_view_;
     element_type* source_;
@@ -860,7 +859,7 @@ struct batch_load_iterator {
   batch_load_iterator(raft::resources const& res,
                       MdspanT input_view,
                       size_type batch_size,
-                      rmm::cuda_stream_view copy_stream,
+                      cuda::stream_ref copy_stream,
                       rmm::device_async_resource_ref mr,
                       bool prefetch       = false,
                       bool initialize     = true,
@@ -876,7 +875,7 @@ struct batch_load_iterator {
   batch_load_iterator(raft::resources const& res,
                       MdspanT input_view,
                       size_type batch_size,
-                      rmm::cuda_stream_view copy_stream,
+                      cuda::stream_ref copy_stream,
                       bool prefetch       = false,
                       bool initialize     = true,
                       bool host_writeback = false)
@@ -1025,7 +1024,7 @@ class batch_load_iterator_dyn {
                           IdxT n_rows,
                           IdxT row_width,
                           size_type batch_size,
-                          rmm::cuda_stream_view copy_stream,
+                          cuda::stream_ref copy_stream,
                           rmm::device_async_resource_ref mr,
                           bool prefetch       = false,
                           bool initialize     = true,
@@ -1050,7 +1049,7 @@ class batch_load_iterator_dyn {
                           IdxT n_rows,
                           IdxT row_width,
                           size_type batch_size,
-                          rmm::cuda_stream_view copy_stream,
+                          cuda::stream_ref copy_stream,
                           bool prefetch       = false,
                           bool initialize     = true,
                           bool host_writeback = false)
@@ -1156,7 +1155,7 @@ class batch_load_iterator_dyn {
                         IdxT n_rows,
                         IdxT row_width,
                         size_type batch_size,
-                        rmm::cuda_stream_view copy_stream,
+                        cuda::stream_ref copy_stream,
                         rmm::device_async_resource_ref mr,
                         bool prefetch,
                         bool initialize,
@@ -1219,7 +1218,7 @@ auto make_batch_load_iterator(raft::resources const& res,
                               detail::type_identity_t<IdxT> n_rows,
                               detail::type_identity_t<IdxT> row_width,
                               size_t batch_size,
-                              rmm::cuda_stream_view copy_stream,
+                              cuda::stream_ref copy_stream,
                               rmm::device_async_resource_ref mr,
                               bool prefetch       = false,
                               bool initialize     = true,
@@ -1244,7 +1243,7 @@ auto make_batch_load_iterator(raft::resources const& res,
                               detail::type_identity_t<IdxT> n_rows,
                               detail::type_identity_t<IdxT> row_width,
                               size_t batch_size,
-                              rmm::cuda_stream_view copy_stream,
+                              cuda::stream_ref copy_stream,
                               bool prefetch       = false,
                               bool initialize     = true,
                               bool host_writeback = false) -> batch_load_iterator_dyn<T, IdxT>
