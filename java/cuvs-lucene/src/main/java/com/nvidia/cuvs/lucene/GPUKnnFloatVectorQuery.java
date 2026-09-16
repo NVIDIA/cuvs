@@ -46,15 +46,14 @@ import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.FixedBitSet;
 
 /**
- * Extends {@link KnnFloatVectorQuery} for GPU-only search.
+ * Extends {@link KnnFloatVectorQuery} with an optimized cuVS multi-partition search path.
  *
  * <p>When all index segments use {@link CuVS2510GPUVectorsReader}, {@link #rewrite} delegates a
  * single multi-partition search to cuVS, passing one Lucene segment per cuVS partition. cuVS
  * runs the per-partition CAGRA searches, applies distance post-processing, and performs the
  * cross-partition top-k merge internally; the returned arrays are mapped to Lucene doc IDs on
- * the host. The effective CAGRA algorithm (SINGLE_CTA or MULTI_KERNEL) is selected by cuVS
- * based on {@code searchAlgo} and {@code itopk_size}, with MULTI_KERNEL handling k beyond
- * SINGLE_CTA's per-partition cap.
+ * the host. For a multi-partition search, cuVS resolves {@code AUTO} to a supported algorithm;
+ * {@code MULTI_KERNEL} is not supported by the multi-partition API.
  *
  * <p>If the query has an explicit {@code filter}, or if any segment carries live-document deletes,
  * the acceptance mask (filter ∩ liveDocs) is packed into one {@link FilterBitsetHandle} per segment
@@ -62,10 +61,13 @@ import org.apache.lucene.util.FixedBitSet;
  * (filter, single-segment reader key, field) triple via {@link FilterBitsetCache}; the device
  * upload is cached inside the handle itself across threads.
  *
- * <p>Falls back to the standard per-segment Lucene path when the optimized path cannot be
- * applied: mixed segment types, a missing CAGRA index for the field on any segment, or segments
- * whose built CAGRA graphs differ in degree (a single multi-partition request requires a uniform
- * graph degree, and a small segment can have its degree truncated at build time).
+ * <p>Uses Lucene's per-segment rewrite path when the optimized path cannot be applied: an explicit
+ * {@code MULTI_KERNEL} algorithm, mixed segment types, a missing CAGRA index for the field on any
+ * segment, or segments whose built CAGRA graphs differ in degree (a single multi-partition request
+ * requires a uniform graph degree, and a small segment can have its degree truncated at build
+ * time). For explicit {@code MULTI_KERNEL}, CAGRA-backed leaves continue to execute per-segment GPU
+ * CAGRA when Lucene selects approximate search and the query meets CAGRA's top-k limit; only the
+ * cross-segment orchestration moves to Lucene.
  *
  * @since 25.10
  */
@@ -130,6 +132,11 @@ public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
 
   @Override
   public Query rewrite(IndexSearcher indexSearcher) throws IOException {
+    // MULTI_KERNEL is supported by per-segment CAGRA search, not by the multi-partition API.
+    if (searchAlgo == CagraSearchParams.SearchAlgo.MULTI_KERNEL) {
+      return super.rewrite(indexSearcher);
+    }
+
     IndexReader reader = indexSearcher.getIndexReader();
     List<LeafReaderContext> leaves = reader.leaves();
     if (leaves.isEmpty()) {
@@ -262,7 +269,7 @@ public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
   }
 
   // -------------------------------------------------------------------------
-  // Per-segment fallback path (used when k > 1024 or not all GPU segments)
+  // Per-segment fallback path (used for MULTI_KERNEL or when optimized routing is unavailable)
   // -------------------------------------------------------------------------
 
   @Override
