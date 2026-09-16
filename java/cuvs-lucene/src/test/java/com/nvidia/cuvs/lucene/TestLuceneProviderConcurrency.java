@@ -83,6 +83,7 @@ public class TestLuceneProviderConcurrency {
     int requestCount = 128;
     CountDownLatch start = new CountDownLatch(1);
     ExecutorService executor = Executors.newFixedThreadPool(16);
+    Throwable primaryFailure = null;
     try {
       List<Future<ProviderResult>> futures = new ArrayList<>(requestCount);
       for (int request = 0; request < requestCount; request++) {
@@ -115,9 +116,27 @@ public class TestLuceneProviderConcurrency {
       }
       lucene99.getLuceneFlatVectorsFormatInstance(DefaultFlatVectorScorer.INSTANCE);
       lucene102.getLuceneBinaryQuantizedVectorsFormatInstance();
+    } catch (Exception | Error failure) {
+      primaryFailure = failure;
+      throw failure;
     } finally {
       executor.shutdownNow();
-      executor.awaitTermination(5, TimeUnit.SECONDS);
+      try {
+        if (!executor.awaitTermination(TERMINATION_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+          AssertionError terminationFailure =
+              new AssertionError("LuceneProvider concurrency workers did not terminate");
+          if (primaryFailure == null) {
+            throw terminationFailure;
+          }
+          primaryFailure.addSuppressed(terminationFailure);
+        }
+      } catch (InterruptedException interrupted) {
+        Thread.currentThread().interrupt();
+        if (primaryFailure == null) {
+          throw interrupted;
+        }
+        primaryFailure.addSuppressed(interrupted);
+      }
     }
   }
 
