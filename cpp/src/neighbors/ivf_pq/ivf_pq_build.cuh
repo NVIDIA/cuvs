@@ -50,7 +50,7 @@
 #include <raft/util/pow2_utils.cuh>
 #include <raft/util/vectorized.cuh>
 
-#include <rmm/cuda_stream_view.hpp>
+#include <cuda/stream>
 #include <rmm/device_uvector.hpp>
 #include <rmm/mr/managed_memory_resource.hpp>
 
@@ -235,7 +235,7 @@ auto calculate_offsets_and_indices(IdxT n_rows,
                                    const uint32_t* cluster_sizes,
                                    IdxT* cluster_offsets,
                                    IdxT* data_indices,
-                                   rmm::cuda_stream_view stream) -> uint32_t
+                                   cuda::stream_ref stream) -> uint32_t
 {
   auto exec_policy = rmm::exec_policy(stream);
   // Calculate the offsets
@@ -304,7 +304,6 @@ void transpose_pq_centers(const raft::resources& handle,
                           owning_impl<IdxT>* impl,
                           const float* pq_centers_source)
 {
-  auto stream  = raft::resource::get_cuda_stream(handle);
   auto extents = impl->pq_centers().extents();
   static_assert(extents.rank() == 3);
   auto extents_source =
@@ -962,8 +961,6 @@ void erase_list(raft::resources const& res, index<IdxT>* index, uint32_t label)
 template <typename IdxT>
 auto clone(const raft::resources& res, const index<IdxT>& source) -> index<IdxT>
 {
-  auto stream = raft::resource::get_cuda_stream(res);
-
   // Create owning_impl directly to get mutable access for copying
   auto impl = std::make_unique<owning_impl<IdxT>>(res,
                                                   source.metric(),
