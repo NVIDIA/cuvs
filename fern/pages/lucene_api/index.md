@@ -25,6 +25,7 @@ These pages are generated from the Java source files in `java/cuvs-lucene/src/ma
 - [GPUBuiltHnswGraph](/api-reference/lucene-api-com-nvidia-cuvs-lucene-gpubuilthnswgraph)
 - [GPUKnnFloatVectorQuery](/api-reference/lucene-api-com-nvidia-cuvs-lucene-gpuknnfloatvectorquery)
 - [Lucene101AcceleratedHNSWCodec](/api-reference/lucene-api-com-nvidia-cuvs-lucene-lucene101acceleratedhnswcodec)
+- [Lucene101ConfiguredHNSWCodec](/api-reference/lucene-api-com-nvidia-cuvs-lucene-lucene101configuredhnswcodec)
 - [Lucene99AcceleratedHNSWVectorsFormat](/api-reference/lucene-api-com-nvidia-cuvs-lucene-lucene99acceleratedhnswvectorsformat)
 - [Lucene99AcceleratedHNSWVectorsWriter](/api-reference/lucene-api-com-nvidia-cuvs-lucene-lucene99acceleratedhnswvectorswriter)
 - [LuceneAcceleratedHNSWBinaryQuantizedCodec](/api-reference/lucene-api-com-nvidia-cuvs-lucene-luceneacceleratedhnswbinaryquantizedcodec)
