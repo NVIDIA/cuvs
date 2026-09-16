@@ -15,6 +15,7 @@ import org.apache.lucene.codecs.KnnVectorsWriter;
 import org.apache.lucene.codecs.hnsw.DefaultFlatVectorScorer;
 import org.apache.lucene.codecs.hnsw.FlatVectorsFormat;
 import org.apache.lucene.index.CorruptIndexException;
+import org.apache.lucene.index.IndexFileNames;
 import org.apache.lucene.index.SegmentInfo;
 import org.apache.lucene.index.SegmentReadState;
 import org.apache.lucene.index.SegmentWriteState;
@@ -28,8 +29,11 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat extends KnnVector
 
   private static final Logger log =
       Logger.getLogger(LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat.class.getName());
-  private static volatile FlatVectorsFormat cachedFlatVectorsFormat;
+  private static volatile FlatVectorsFormat cachedLegacyFlatVectorsFormat;
+  private static volatile FlatVectorsFormat cachedBinaryFlatVectorsFormat;
   private static final int GPU_MAX_DIMENSIONS = 4096;
+  private static final String LUCENE_102_BINARY_META_EXTENSION = "vemb";
+  private static final String LUCENE_102_BINARY_DATA_EXTENSION = "veb";
 
   static final String FLAT_LAYOUT_ATTRIBUTE_KEY =
       "com.nvidia.cuvs.lucene.binary_quantized_flat_layout";
@@ -53,19 +57,35 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat extends KnnVector
     }
   }
 
-  private static FlatVectorsFormat getOrCreateFlatVectorsFormat() throws IOException {
-    FlatVectorsFormat format = cachedFlatVectorsFormat;
+  private static FlatVectorsFormat getOrCreateLegacyFlatVectorsFormat() throws IOException {
+    FlatVectorsFormat format = cachedLegacyFlatVectorsFormat;
     if (format == null) {
       synchronized (LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat.class) {
-        format = cachedFlatVectorsFormat;
+        format = cachedLegacyFlatVectorsFormat;
         if (format == null) {
           try {
-            // Keep the released Lucene99 flat-vector layout. Changing it requires an explicit
-            // persisted-format migration so existing segments remain readable.
             format =
                 getLucene99Provider()
                     .getLuceneFlatVectorsFormatInstance(DefaultFlatVectorScorer.INSTANCE);
-            cachedFlatVectorsFormat = format;
+            cachedLegacyFlatVectorsFormat = format;
+          } catch (Exception e) {
+            throw Utils.handleThrowable(e);
+          }
+        }
+      }
+    }
+    return format;
+  }
+
+  private static FlatVectorsFormat getOrCreateBinaryFlatVectorsFormat() throws IOException {
+    FlatVectorsFormat format = cachedBinaryFlatVectorsFormat;
+    if (format == null) {
+      synchronized (LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat.class) {
+        format = cachedBinaryFlatVectorsFormat;
+        if (format == null) {
+          try {
+            format = getLucene102Provider().getLuceneBinaryQuantizedVectorsFormatInstance();
+            cachedBinaryFlatVectorsFormat = format;
           } catch (Exception e) {
             throw Utils.handleThrowable(e);
           }
@@ -99,7 +119,8 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat extends KnnVector
   @Override
   public KnnVectorsWriter fieldsWriter(SegmentWriteState state) throws IOException {
     if (isSupported()) {
-      var flatWriter = getOrCreateFlatVectorsFormat().fieldsWriter(state);
+      markLucene102BinaryLayout(state.segmentInfo);
+      var flatWriter = getOrCreateBinaryFlatVectorsFormat().fieldsWriter(state);
       log.log(
           Level.FINE,
           "cuVS is supported so using the Lucene99AcceleratedHNSWBinaryQuantizedVectorsWriter");
@@ -139,7 +160,7 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat extends KnnVector
       }
       return getLucene99Provider()
           .getLuceneHnswVectorsReaderInstance(
-              state, getOrCreateFlatVectorsFormat().fieldsReader(state));
+              state, getOrCreateLegacyFlatVectorsFormat().fieldsReader(state));
     } catch (Exception e) {
       throw Utils.handleThrowable(e);
     }
@@ -160,17 +181,57 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat extends KnnVector
 
   private static boolean usesLucene102BinaryLayout(SegmentReadState state) throws IOException {
     String layout = state.segmentInfo.getAttribute(FLAT_LAYOUT_ATTRIBUTE_KEY);
+    String[] segmentFiles = state.directory.listAll();
+    boolean hasBinaryMetadata =
+        hasSegmentFile(state, segmentFiles, LUCENE_102_BINARY_META_EXTENSION);
+    boolean hasBinaryData = hasSegmentFile(state, segmentFiles, LUCENE_102_BINARY_DATA_EXTENSION);
+
+    if (hasBinaryMetadata != hasBinaryData) {
+      throw corruptLayout(
+          state,
+          "Lucene102 binary flat-vector files are incomplete: metadata="
+              + hasBinaryMetadata
+              + ", data="
+              + hasBinaryData);
+    }
     if (layout == null) {
+      if (hasBinaryMetadata) {
+        throw corruptLayout(
+            state,
+            "Lucene102 binary flat-vector files are present without the required layout marker");
+      }
       return false;
     }
-    if (LUCENE_102_BINARY_FLAT_LAYOUT.equals(layout)) {
-      return true;
+    if (LUCENE_102_BINARY_FLAT_LAYOUT.equals(layout) == false) {
+      throw corruptLayout(state, "Unsupported binary flat-vector layout marker: " + layout);
     }
-    throw new CorruptIndexException(
-        "Unsupported binary flat-vector layout marker: "
-            + layout
+    if (hasBinaryMetadata == false) {
+      throw corruptLayout(
+          state,
+          "The layout marker declares Lucene102 binary flat vectors, but their files are absent");
+    }
+    return true;
+  }
+
+  private static boolean hasSegmentFile(
+      SegmentReadState state, String[] segmentFiles, String extension) {
+    String expected =
+        IndexFileNames.segmentFileName(state.segmentInfo.name, state.segmentSuffix, extension);
+    for (String file : segmentFiles) {
+      if (expected.equals(file)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static CorruptIndexException corruptLayout(SegmentReadState state, String message) {
+    return new CorruptIndexException(
+        message
             + "; attribute="
-            + FLAT_LAYOUT_ATTRIBUTE_KEY,
+            + FLAT_LAYOUT_ATTRIBUTE_KEY
+            + ", segmentSuffix="
+            + state.segmentSuffix,
         state.segmentInfo.name);
   }
 

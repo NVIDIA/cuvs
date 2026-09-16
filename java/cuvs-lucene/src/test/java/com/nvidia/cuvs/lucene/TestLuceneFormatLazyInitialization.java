@@ -59,7 +59,7 @@ public class TestLuceneFormatLazyInitialization {
   }
 
   @Test
-  public void testBinaryFormatRetainsReleasedLucene99FlatStorage() throws Exception {
+  public void testBinaryFormatKeepsLegacyAndBinaryFlatStorageSeparate() throws Exception {
     assertFreshJvmProbeSucceeds(FreshJvmProbe.BINARY_STORAGE_MODE);
   }
 
@@ -156,7 +156,7 @@ public class TestLuceneFormatLazyInitialization {
         case VECTOR_FORMAT_SPI_MODE -> assertVectorFormatSpiDiscoveryIsLazy();
         case CONSTRUCTION_MODE -> assertConstructionIsLazy();
         case FAILURE_CAUSE_MODE -> assertLazyFailureRetainsCause();
-        case BINARY_STORAGE_MODE -> assertBinaryFormatUsesLucene99FlatStorage();
+        case BINARY_STORAGE_MODE -> assertBinaryFormatUsesExpectedFlatStorage();
         case CONCURRENT_INITIALIZATION_MODE -> assertConcurrentInitializationSharesCache();
         default -> throw new IllegalArgumentException("Unknown probe mode: " + args[0]);
       }
@@ -210,13 +210,22 @@ public class TestLuceneFormatLazyInitialization {
       }
     }
 
-    private static void assertBinaryFormatUsesLucene99FlatStorage() throws Exception {
-      FlatVectorsFormat flatFormat =
-          invokeFlatFormatFactory(LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat.class);
-
+    private static void assertBinaryFormatUsesExpectedFlatStorage() throws Exception {
+      FlatVectorsFormat legacyFlatFormat =
+          invokeFlatFormatFactory(
+              LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat.class,
+              "getOrCreateLegacyFlatVectorsFormat");
       assertEquals(
           "org.apache.lucene.codecs.lucene99.Lucene99FlatVectorsFormat",
-          flatFormat.getClass().getName());
+          legacyFlatFormat.getClass().getName());
+
+      FlatVectorsFormat binaryFlatFormat =
+          invokeFlatFormatFactory(
+              LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat.class,
+              "getOrCreateBinaryFlatVectorsFormat");
+      assertEquals(
+          "org.apache.lucene.codecs.lucene102.Lucene102BinaryQuantizedVectorsFormat",
+          binaryFlatFormat.getClass().getName());
     }
 
     private static void assertConcurrentInitializationSharesCache() throws Exception {
@@ -263,7 +272,12 @@ public class TestLuceneFormatLazyInitialization {
 
     private static FlatVectorsFormat invokeFlatFormatFactory(Class<?> formatClass)
         throws Exception {
-      Method factory = formatClass.getDeclaredMethod("getOrCreateFlatVectorsFormat");
+      return invokeFlatFormatFactory(formatClass, "getOrCreateFlatVectorsFormat");
+    }
+
+    private static FlatVectorsFormat invokeFlatFormatFactory(
+        Class<?> formatClass, String methodName) throws Exception {
+      Method factory = formatClass.getDeclaredMethod(methodName);
       factory.setAccessible(true);
       try {
         return (FlatVectorsFormat) factory.invoke(null);
