@@ -18,6 +18,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -147,7 +148,7 @@ int main()
   std::cout << "Building CAGRA index" << std::endl;
   auto padded = cuvs::neighbors::make_device_padded_dataset_view(res, dataset.view());
   auto index  = cuvs::neighbors::cagra::build(res, index_params, padded);
-  index.update_device_dataset_same_layout(res, padded);
+  index       = cuvs::neighbors::cagra::update_dataset(res, std::move(index), padded);
 
   std::vector<uint32_t> row_tenant_ids(n_rows);
   std::vector<int64_t> row_timestamps(n_rows);

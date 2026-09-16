@@ -2,6 +2,8 @@
 
 NVIDIA cuVS is a GPU-accelerated library for vector search on the GPU. Vector search includes nearest neighbors, vector compression and clustering. It provides both core building blocks for constructing new algorithms and end-to-end algorithms that can be used directly or through a growing list of [integrations](/getting-started/integrations).
 
+<img alt="NVIDIA cuVS accelerates preprocessing, nearest-neighbor search, and clustering on the GPU." src="/assets/images/cuvs-overview.png" />
+
 ## Useful Resources
 
 [cuvs_reference]: https://docs.rapids.ai/api/cuvs/stable/

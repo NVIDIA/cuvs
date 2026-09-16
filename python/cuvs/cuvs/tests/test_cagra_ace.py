@@ -4,6 +4,7 @@
 
 import os
 import tempfile
+from pathlib import Path
 
 import cupy as cp
 import numpy as np
@@ -13,6 +14,7 @@ from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import normalize
 
 from cuvs.common import make_device_padded_dataset
+from cuvs.common.exceptions import CuvsException
 from cuvs.neighbors import cagra, hnsw
 from cuvs.tests.ann_utils import (
     calc_recall,
@@ -158,6 +160,57 @@ def run_cagra_ace_build_search_test(
             assert recall > 0.7
 
 
+def _build_ace_with_disk_workspace(dataset, build_dir):
+    ace_params = cagra.AceParams(
+        npartitions=2,
+        ef_construction=50,
+        build_dir=str(build_dir),
+        use_disk=True,
+    )
+    build_params = cagra.IndexParams(
+        intermediate_graph_degree=32,
+        graph_degree=16,
+        build_algo="ace",
+        ace_params=ace_params,
+    )
+    cagra.build(build_params, dataset)
+
+
+def test_cagra_ace_workspace_failure_preserves_caller_directory():
+    """ACE failures must not delete unrelated contents in an existing workspace."""
+    dataset = np.zeros((1000, 8), dtype=np.float32)
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        workspace = Path(temp_dir)
+        sentinel = workspace / "sentinel.txt"
+        sentinel.write_text("keep me")
+        preexisting_artifact = workspace / "reordered_dataset.npy"
+        preexisting_artifact.mkdir()
+
+        with pytest.raises(CuvsException):
+            _build_ace_with_disk_workspace(dataset, workspace)
+
+        assert workspace.is_dir()
+        assert sentinel.read_text() == "keep me"
+        assert preexisting_artifact.is_dir()
+
+
+def test_cagra_ace_workspace_failure_does_not_truncate_existing_artifact():
+    """ACE must fail safely when a named artifact is already present."""
+    dataset = np.zeros((1000, 8), dtype=np.float32)
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        workspace = Path(temp_dir)
+        existing_graph = workspace / "cagra_graph.npy"
+        expected_contents = b"preexisting graph contents"
+        existing_graph.write_bytes(expected_contents)
+
+        with pytest.raises(CuvsException):
+            _build_ace_with_disk_workspace(dataset, workspace)
+
+        assert existing_graph.read_bytes() == expected_contents
+
+
 @pytest.mark.parametrize("dtype", [np.float32, np.float16, np.int8, np.uint8])
 @pytest.mark.parametrize("metric", ["sqeuclidean", "inner_product"])
 @pytest.mark.parametrize("use_disk", [False, True])
@@ -170,13 +223,32 @@ def test_cagra_ace_dtypes_and_metrics(dtype, metric, use_disk):
     )
 
 
-@pytest.mark.parametrize("npartitions", [2, 3, 8])
+@pytest.mark.parametrize("npartitions", [0, 1, 2, 3, 8])
 def test_cagra_ace_partitions(npartitions):
     """Test ACE with different partition sizes (disk mode only)."""
     run_cagra_ace_build_search_test(
         use_disk=True,
         npartitions=npartitions,
     )
+
+
+@pytest.mark.parametrize(
+    ("npartitions", "message"),
+    [
+        (33, "cannot exceed dataset size"),
+    ],
+)
+def test_cagra_ace_rejects_invalid_partition_count(npartitions, message):
+    """ACE rejects partition counts that would make partition labeling invalid."""
+    dataset = np.zeros((32, 8), dtype=np.float32)
+    ace_params = cagra.AceParams(npartitions=npartitions, use_disk=False)
+    build_params = cagra.IndexParams(
+        build_algo="ace",
+        ace_params=ace_params,
+    )
+
+    with pytest.raises(Exception, match=message):
+        cagra.build(build_params, dataset)
 
 
 @pytest.mark.parametrize("ef_construction", [50, 100, 200])

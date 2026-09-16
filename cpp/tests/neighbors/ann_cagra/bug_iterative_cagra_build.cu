@@ -14,6 +14,7 @@
 
 #include <cstdint>
 #include <type_traits>
+#include <utility>
 
 namespace cuvs::neighbors::cagra {
 
@@ -38,7 +39,7 @@ class CagraIterativeBuildBugTest : public ::testing::Test {
     cuvs::neighbors::test::padded_device_matrix_for_cagra<data_type> padded(
       res, raft::make_const_mdspan(dataset->view()));
     auto cagra_index = cagra::build(res, index_params, padded.view);
-    cagra_index.update_device_dataset_same_layout(res, padded.view);
+    cagra_index      = cagra::update_dataset(res, std::move(cagra_index), padded.view);
     raft::resource::sync_stream(res);
 
     // Verify the index was built successfully

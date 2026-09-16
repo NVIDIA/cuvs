@@ -328,7 +328,7 @@ auto reconstruct_vectors(
     }
   }(pq_bits);
   dim3 blocks(raft::div_rounding_up_safe<IdxT>(n_rows, kBlockSize / threads_per_vec), 1, 1);
-  kernel<<<blocks, threads, 0, stream>>>(
+  kernel<<<blocks, threads, 0, stream.get()>>>(
     codes, out_vectors, pq_centers, vq_centers, vq_labels, pq_bits, use_subspaces);
   RAFT_CUDA_TRY(cudaPeekAtLastError());
 

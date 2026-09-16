@@ -9,6 +9,7 @@ import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodType;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.BitSet;
 import java.util.List;
 
 /**
@@ -150,10 +151,10 @@ public interface CuVSProvider {
   HnswIndex hnswIndexFromCagra(HnswIndexParams hnswParams, CagraIndex cagraIndex) throws Throwable;
 
   /**
-   * Builds an HNSW index using the ACE (Augmented Core Extraction) algorithm.
+   * Builds an HNSW index from HNSW parameters using GPU graph construction.
    *
    * @param resources The CuVS resources
-   * @param hnswParams Parameters for the HNSW index with ACE configuration
+   * @param hnswParams Parameters for the HNSW index
    * @param dataset The dataset to build the index from
    * @return A new HNSW index ready for search
    * @throws Throwable if an error occurs during building
@@ -166,27 +167,37 @@ public interface CuVSProvider {
       throws UnsupportedOperationException;
 
   /**
-   * Merges multiple CAGRA indexes into a single index.
+   * Reports whether the rows of {@code dataset} already sit at the row stride CAGRA requires, which
+   * is the row length in bytes rounded up to a 16 byte boundary.
    *
-   * @param indexes Array of CAGRA indexes to merge
-   * @return A new merged CAGRA index
-   * @throws Throwable if an error occurs during the merge operation
+   * <p>This is the question that decides which of the two padded dataset factories a caller has to
+   * use: {@link CagraIndex#makePaddedDatasetView(CuVSMatrix)} for a device matrix that is already at
+   * that stride, and {@link CagraIndex#makePaddedDataset(CuVSMatrix)} for one that is not. Asking
+   * for the wrong one is an error rather than an inefficiency, and the stride of a matrix is not
+   * visible outside this library, so callers cannot answer it for themselves.
+   *
+   * @param dataset the matrix to inspect
+   * @return true when the rows are already padded the way CAGRA requires
+   * @throws UnsupportedOperationException if this provider cannot answer
    */
-  CagraIndex mergeCagraIndexes(CagraIndex[] indexes) throws Throwable;
+  default boolean isCagraPaddedDataset(CuVSMatrix dataset) {
+    throw new UnsupportedOperationException(
+        "Padded layout detection is not supported by " + getClass().getName());
+  }
 
   /**
-   * Merges multiple CAGRA indexes into a single index with the specified merge parameters.
+   * Merges multiple CAGRA indexes into a single index, keeping only the rows selected by
+   * {@code rowFilter}. See {@link CagraIndex#merge(CagraIndex[], CagraIndexParams, BitSet)} for the
+   * meaning of the filter.
    *
    * @param indexes Array of CAGRA indexes to merge
    * @param mergeParams Parameters to control the merge operation, or null to use defaults
+   * @param rowFilter The rows to keep, or null to keep all of them
    * @return A new merged CAGRA index
    * @throws Throwable if an error occurs during the merge operation
    */
-  default CagraIndex mergeCagraIndexes(CagraIndex[] indexes, CagraIndexParams mergeParams)
-      throws Throwable {
-    // Default implementation falls back to the method without parameters
-    return mergeCagraIndexes(indexes);
-  }
+  CagraIndex mergeCagraIndexes(CagraIndex[] indexes, CagraIndexParams mergeParams, BitSet rowFilter)
+      throws Throwable;
 
   /**
    * Creates a device-backed multi-partition filter handle from the pre-packed combined bitset.

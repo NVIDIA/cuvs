@@ -24,7 +24,7 @@ for each partition independently.
 | --- | --- | --- |
 | `npartitions` | `int, default = 0` | Number of partitions for ACE partitioned build. When set to 0 (default), the number of partitions is automatically derived based on available host and GPU memory to maximize partition size while ensuring the build fits in memory.<br /><br />Small values might improve recall but potentially degrade performance and increase memory usage. Partitions should not be too small to prevent issues in KNN graph construction. The partition size is on average 2 * (n_rows / npartitions) * dim * sizeof(T). 2 is because of the core and augmented vectors. Please account for imbalance in the partition sizes (up to 3x in our tests).<br /><br />If the specified number of partitions results in partitions that exceed available memory, the value will be automatically increased to fit memory constraints and a warning will be issued. |
 | `ef_construction` | `int, default = 120` | The index quality for the ACE build. Bigger values increase the index quality. At some point, increasing this will no longer improve the quality. |
-| `build_dir` | `str, default = "/tmp/ace_build"` | Directory to store ACE build artifacts (e.g., KNN graph, optimized graph). Used when `use_disk` is true or when the graph does not fit in host and GPU memory. This should be the fastest disk in the system and hold enough space for twice the dataset, final graph, and label mapping. |
+| `build_dir` | `str, default = "/tmp/ace_build"` | Directory to store ACE build artifacts (e.g., KNN graph, optimized graph). Used when `use_disk` is true or when the graph does not fit in host and GPU memory. This should be the fastest disk in the system and hold enough space for twice the dataset, final graph, and label mapping. The directory may already exist, but ACE's named artifacts must not already exist. Simultaneous builds must use different directories. On failure, ACE removes only artifacts it created and never deletes unrelated directory contents. |
 | `use_disk` | `bool, default = False` | Whether to use disk-based storage for ACE build. When true, enables disk-based operations for memory-efficient graph construction. |
 | `max_host_memory_gb` | `float, default = 0` | Maximum host memory to use for ACE build in GiB. When set to 0 (default), uses available host memory. Useful for testing or when running alongside other memory-intensive processes. |
 | `max_gpu_memory_gb` | `float, default = 0` | Maximum GPU memory to use for ACE build in GiB. When set to 0 (default), uses available GPU memory. Useful for testing or when running alongside other memory-intensive processes. |
@@ -81,85 +81,6 @@ def max_host_memory_gb(self)
 
 ```python
 def max_gpu_memory_gb(self)
-```
-
-### get_handle
-
-```python
-def get_handle(self)
-```
-
-## CompressionParams
-
-```python
-cdef class CompressionParams
-```
-
-Parameters for VPQ Compression
-
-**Parameters**
-
-| Name | Type | Description |
-| --- | --- | --- |
-| `pq_bits` | `int` | The bit length of the vector element after compression by PQ.<br />Possible values: [4, 5, 6, 7, 8]. The smaller the 'pq_bits', the smaller the index size and the better the search performance, but the lower the recall. |
-| `pq_dim` | `int` | The dimensionality of the vector after compression by PQ. When zero, an optimal value is selected using a heuristic. |
-| `vq_n_centers` | `int` | Vector Quantization (VQ) codebook size - number of "coarse cluster centers". When zero, an optimal value is selected using a heuristic. |
-| `kmeans_n_iters` | `int` | The number of iterations searching for kmeans centers (both VQ & PQ phases). |
-| `vq_kmeans_trainset_fraction` | `float` | The fraction of data to use during iterative kmeans building (VQ phase). When zero, an optimal value is selected using a heuristic. |
-| `pq_kmeans_trainset_fraction` | `float` | The fraction of data to use during iterative kmeans building (PQ phase). When zero, an optimal value is selected using a heuristic. |
-
-**Constructor**
-
-```python
-def __init__(self, *, pq_bits=8, pq_dim=0, vq_n_centers=0, kmeans_n_iters=25, vq_kmeans_trainset_fraction=0.0, pq_kmeans_trainset_fraction=0.0)
-```
-
-**Members**
-
-| Name | Kind |
-| --- | --- |
-| `pq_bits` | property |
-| `pq_dim` | property |
-| `vq_n_centers` | property |
-| `kmeans_n_iters` | property |
-| `vq_kmeans_trainset_fraction` | property |
-| `pq_kmeans_trainset_fraction` | property |
-| `get_handle` | method |
-
-### pq_bits
-
-```python
-def pq_bits(self)
-```
-
-### pq_dim
-
-```python
-def pq_dim(self)
-```
-
-### vq_n_centers
-
-```python
-def vq_n_centers(self)
-```
-
-### kmeans_n_iters
-
-```python
-def kmeans_n_iters(self)
-```
-
-### vq_kmeans_trainset_fraction
-
-```python
-def vq_kmeans_trainset_fraction(self)
-```
-
-### pq_kmeans_trainset_fraction
-
-```python
-def pq_kmeans_trainset_fraction(self)
 ```
 
 ### get_handle
@@ -269,7 +190,6 @@ Parameters to build index for CAGRA nearest neighbor search
 | `intermediate_graph_degree` | `int, default = 128` |  |
 | `graph_degree` | `int, default = 64` |  |
 | `build_algo` | `str, default = "ivf_pq"` | string denoting the graph building algorithm to use.<br />Valid values for algo: ["ivf_pq", "nn_descent", "iterative_cagra_search", "ace"], where<br /><br />- ivf_pq will use the IVF-PQ algorithm for building the knn graph<br />- nn_descent (experimental) will use the NN-Descent algorithm for building the knn graph. It is expected to be generally faster than ivf_pq.<br />- iterative_cagra_search will iteratively build the knn graph using CAGRA's search() and optimize()<br />- ace will use ACE (Augmented Core Extraction) for building indices for datasets too large to fit in GPU memory |
-| `compression` | `CompressionParams, optional` | If compression is desired should be a CompressionParams object. If None compression will be disabled. |
 | `ivf_pq_build_params` | `cuvs.neighbors.ivf_pq.IndexParams, optional` | Parameters for IVF-PQ algorithm. If provided, it will be used for building the graph. |
 | `ivf_pq_search_params` | `cuvs.neighbors.ivf_pq.SearchParams, optional` | Parameters for IVF-PQ search. If provided, it will be used for searching the graph. |
 | `ace_params` | `AceParams, optional` | Parameters for ACE algorithm. If provided, it will be used for building the graph with ACE partitioning. |
@@ -278,7 +198,7 @@ Parameters to build index for CAGRA nearest neighbor search
 **Constructor**
 
 ```python
-def __init__(self, *, metric="sqeuclidean", intermediate_graph_degree=128, graph_degree=64, build_algo="ivf_pq", nn_descent_niter=20, compression=None, ivf_pq_build_params: ivf_pq.IndexParams = None, ivf_pq_search_params: ivf_pq.SearchParams = None, ace_params: AceParams = None, refinement_rate: float = 1.0)
+def __init__(self, *, metric="sqeuclidean", intermediate_graph_degree=128, graph_degree=64, build_algo="ivf_pq", nn_descent_niter=20, ivf_pq_build_params: ivf_pq.IndexParams = None, ivf_pq_search_params: ivf_pq.SearchParams = None, ace_params: AceParams = None, refinement_rate: float = 1.0)
 ```
 
 **Members**
@@ -504,7 +424,7 @@ The following distance metrics are supported:
 | Name | Type | Description |
 | --- | --- | --- |
 | `index_params` | `IndexParams object` |  |
-| `dataset` | `CUDA array interface compliant matrix shape (n_samples, dim)` | Supported dtype [float, half, int8, uint8] **Note:** For ACE build algorithm, the dataset MUST be in host memory. Use NumPy arrays or call .get() on CuPy arrays before passing. |
+| `dataset` | `CUDA array interface compliant matrix shape (n_samples, dim), or Dataset` | Supported dtype [float, half, int8, uint8] **Note:** For ACE build algorithm, the dataset MUST be in host memory. Use NumPy arrays or call .get() on CuPy arrays before passing. |
 | `resources` | `cuvs.common.Resources, optional` |  |
 
 **Returns**
@@ -543,14 +463,14 @@ The following distance metrics are supported:
 def extend(ExtendParams params, Index index, extended_dataset, new_start_row, resources=None)
 ```
 
-Extend a CAGRA index with additional vectors.
+Extend a CAGRA index with additional vectors
 
 The caller owns dataset concatenation. Build a single padded device
-dataset of shape `(n_old + n_new, dim)` with the original vectors in
-rows `[0, new_start_row)` and the additional vectors in rows
-`[new_start_row, n_rows)`. `new_start_row` must equal the current index
-size. This function only extends the graph and rebinds the index to
-`extended_dataset`; keep that view alive for the index lifetime.
+dataset of shape ``(n_old + n_new, dim)`` with the original vectors in
+rows ``[0, new_start_row)`` and the additional vectors in rows
+``[new_start_row, n_rows)``. ``new_start_row`` must equal the current
+index size. This function only extends the graph and rebinds the index
+to ``extended_dataset``; keep that dataset alive for the index lifetime.
 
 **Parameters**
 
@@ -558,8 +478,8 @@ size. This function only extends the graph and rebinds the index to
 | --- | --- | --- |
 | `params` | `ExtendParams object` |  |
 | `index` | `Index` | Existing cagra index to extend |
-| `extended_dataset` | `PaddedDatasetView` | Caller-owned padded view already containing old \|\| new |
-| `new_start_row` | `int` | Row index where the additional vectors begin |
+| `extended_dataset` | `Dataset or array` | Padded dataset already containing old \|\| new rows. |
+| `new_start_row` | `int` | Row index where the additional vectors begin (must equal ``index`` size). |
 | `resources` | `cuvs.common.Resources, optional` |  |
 
 ## from_graph
@@ -592,10 +512,10 @@ Construct a cagra index from an existing graph and dataset
 `@auto_sync_resources`
 
 ```python
-def load(filename, resources=None)
+def load(index, filename, out_dataset=None, resources=None)
 ```
 
-Loads index from file.
+Deserialize CAGRA index into an existing index handle.
 
 Saving / loading the index is experimental. The serialization format is
 subject to change, therefore loading an index saved with a previous
@@ -605,14 +525,10 @@ version of cuvs is not guaranteed to work.
 
 | Name | Type | Description |
 | --- | --- | --- |
+| `index` | `Index` | Pre-created index object to populate. |
 | `filename` | `string` | Name of the file. |
+| `out_dataset` | `Dataset, optional` | Empty dataset populated when the file includes dataset storage. If omitted, only the graph is retained. |
 | `resources` | `cuvs.common.Resources, optional` |  |
-
-**Returns**
-
-| Name | Type | Description |
-| --- | --- | --- |
-| `index` | `Index` |  |
 
 ## save
 
@@ -649,7 +565,9 @@ subject to change.
 >>> index = cagra.build(cagra.IndexParams(), dataset)
 >>> # Serialize and deserialize the cagra index built
 >>> cagra.save("my_index.bin", index)
->>> index_loaded = cagra.load("my_index.bin")
+>>> index_loaded = cagra.Index()
+>>> out_dataset = cagra.Dataset()
+>>> cagra.load(index_loaded, "my_index.bin", out_dataset=out_dataset)
 ```
 
 ## search
@@ -704,3 +622,15 @@ Find the k nearest neighbors for each query.
 >>> neighbors = cp.asarray(neighbors)
 >>> distances = cp.asarray(distances)
 ```
+
+## update_dataset
+
+`@auto_sync_resources`
+
+```python
+def update_dataset(Index index, padded_dataset, resources=None)
+```
+
+Update any CAGRA index layout with a padded dataset.
+
+Accepts a ``Dataset`` or array. The index becomes search-ready in padded layout.

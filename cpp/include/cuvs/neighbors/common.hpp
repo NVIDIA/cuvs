@@ -1168,7 +1168,7 @@ auto make_device_dense_row_major_dataset_from_src(raft::resources const& res,
   RAFT_CUDA_TRY(cudaMemsetAsync(out_array.data_handle(),
                                 0,
                                 out_array.size() * sizeof(ValueT),
-                                raft::resource::get_cuda_stream(res)));
+                                raft::resource::get_cuda_stream(res).get()));
   raft::copy_matrix(out_array.data_handle(),
                     target_stride,
                     src.data_handle(),
@@ -1768,6 +1768,13 @@ enable_if_valid_list_t<ListT> serialize_list(
   const typename ListT::spec_type& store_spec,
   std::optional<typename ListT::size_type> size_override = std::nullopt);
 
+/**
+ * Deserialize a list from an arbitrary input stream.
+ *
+ * This compatibility path stages list data through host memory because a std::istream does not
+ * expose a portable file path or descriptor. Index filename overloads use KvikIO and transfer list
+ * payloads directly to device memory when GDS is available.
+ */
 template <typename ListT>
 enable_if_valid_list_t<ListT> deserialize_list(const raft::resources& handle,
                                                std::istream& is,

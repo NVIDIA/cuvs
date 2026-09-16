@@ -91,12 +91,16 @@ Compute PCA (fit only).
 Computes the principal components, explained variances, singular
 values, and column means from the input data.
 
+The input layout (C-contiguous / row-major or F-contiguous / col-major)
+is preserved natively; no internal copy/transpose is performed. Output
+arrays use the same layout as the input.
+
 **Parameters**
 
 | Name | Type | Description |
 | --- | --- | --- |
 | `params` | `Params` | PCA parameters. ``params.copy`` should be True if you intend to reuse *X* after this call. |
-| `X` | `device array-like, shape (n_samples, n_features), float32` | Input data (will be converted to col-major device memory). |
+| `X` | `device array-like, shape (n_samples, n_features), float32` | Input data. Must be contiguous in either C- or F-order. |
 | `resources` | `cuvs.common.Resources, optional` |  |
 
 **Returns**
@@ -104,7 +108,7 @@ values, and column means from the input data.
 FitOutput
 Named tuple with fields: ``components``, ``explained_var``,
 ``explained_var_ratio``, ``singular_vals``, ``mu``,
-``noise_vars``.
+``noise_vars``. ``components`` matches the layout of *X*.
 
 **Examples**
 
@@ -128,12 +132,15 @@ def fit_transform(Params params, X, resources=None)
 
 Compute PCA and transform the input data in a single operation.
 
+The input layout (C- or F-contiguous) is preserved natively; output
+arrays use the same layout.
+
 **Parameters**
 
 | Name | Type | Description |
 | --- | --- | --- |
 | `params` | `Params` | PCA parameters. |
-| `X` | `device array-like, shape (n_samples, n_features), float32` | Input data (will be converted to col-major device memory). |
+| `X` | `device array-like, shape (n_samples, n_features), float32` | Input data. Must be contiguous in either C- or F-order. |
 | `resources` | `cuvs.common.Resources, optional` |  |
 
 **Returns**
@@ -141,7 +148,8 @@ Compute PCA and transform the input data in a single operation.
 FitTransformOutput
 Named tuple with fields: ``trans_input``, ``components``,
 ``explained_var``, ``explained_var_ratio``, ``singular_vals``,
-``mu``, ``noise_vars``.
+``mu``, ``noise_vars``. ``trans_input`` and ``components`` match
+the layout of *X*.
 
 **Examples**
 
@@ -166,6 +174,9 @@ def inverse_transform(Params params, trans_input, components, singular_vals, mu,
 
 Transform data from the PCA eigenspace back to the original space.
 
+The layout (C- or F-contiguous) of ``trans_input`` is preserved;
+``components`` and ``output`` are aligned to that layout.
+
 **Parameters**
 
 | Name | Type | Description |
@@ -175,7 +186,7 @@ Transform data from the PCA eigenspace back to the original space.
 | `components` | `device array-like, shape (n_components, n_features)` | Principal components from a prior fit. |
 | `singular_vals` | `device array-like, shape (n_components,)` | Singular values from a prior fit. |
 | `mu` | `device array-like, shape (n_features,)` | Column means from a prior fit. |
-| `output` | `optional device array, shape (n_samples, n_features)` | Pre-allocated output buffer (col-major, float32). |
+| `output` | `optional device array, shape (n_samples, n_features)` | Pre-allocated output buffer (float32). Layout is matched to ``trans_input``. |
 | `resources` | `cuvs.common.Resources, optional` |  |
 
 **Returns**
@@ -209,7 +220,9 @@ def transform(Params params, X, components, singular_vals, mu, trans_input=None,
 Transform data into the PCA eigenspace.
 
 Uses previously computed principal components from fit or
-fit_transform.
+fit_transform. The input layout (C- or F-contiguous) of *X*
+determines the layout used internally; ``components`` and
+``trans_input`` are aligned to that layout.
 
 **Parameters**
 
@@ -220,7 +233,7 @@ fit_transform.
 | `components` | `device array-like, shape (n_components, n_features)` | Principal components from a prior fit. |
 | `singular_vals` | `device array-like, shape (n_components,)` | Singular values from a prior fit. |
 | `mu` | `device array-like, shape (n_features,)` | Column means from a prior fit. |
-| `trans_input` | `optional device array, shape (n_samples, n_components)` | Pre-allocated output buffer (col-major, float32). |
+| `trans_input` | `optional device array, shape (n_samples, n_components)` | Pre-allocated output buffer (float32). Layout is matched to *X*. |
 | `resources` | `cuvs.common.Resources, optional` |  |
 
 **Returns**

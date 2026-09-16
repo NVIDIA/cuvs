@@ -233,7 +233,7 @@ void search_main(raft::resources const& res,
   if constexpr (cuvs::neighbors::is_empty_dataset_view_v<DatasetViewT>) {
     RAFT_FAIL(
       "Attempted to search without a dataset. Please call "
-      "index.update_device_dataset_same_layout(...) first.");
+      "cagra::update_dataset(res, std::move(index), dataset) first.");
   } else if constexpr (cuvs::neighbors::is_device_vpq_f32_dataset_view_v<DatasetViewT>) {
     RAFT_FAIL("FP32 VPQ dataset support is coming soon");
   } else if constexpr (cuvs::neighbors::is_device_vpq_f16_dataset_view_v<DatasetViewT>) {
@@ -259,14 +259,13 @@ void search_main(raft::resources const& res,
   } else if constexpr (cuvs::neighbors::is_device_standard_dataset_view_v<DatasetViewT>) {
     RAFT_FAIL(
       "CAGRA search requires a padded device dataset. Build from a standard dataset view, then "
-      "call "
-      "cagra::attach_dataset(res, index, padded_view) before search.");
+      "call cagra::update_dataset(res, std::move(index), padded_view) before search.");
   } else if constexpr (cuvs::neighbors::is_device_padded_dataset_view_v<DatasetViewT>) {
     run_strided_like(index.dataset());
   } else if constexpr (cuvs::neighbors::is_host_dataset_view_v<DatasetViewT>) {
     static_assert(sizeof(DatasetViewT) == 0,
                   "search requires a device-resident dataset. "
-                  "Call cagra::attach_dataset(res, index, padded_view) "
+                  "Call cagra::update_dataset(res, std::move(index), padded_view) "
                   "to convert/attach into a search-ready device padded index before searching.");
   } else {
     static_assert(sizeof(DatasetViewT) == 0, "search: unsupported dataset view type");
@@ -282,7 +281,6 @@ void search_main(raft::resources const& res,
                            cuvs::spatial::knn::detail::utils::config<DistanceT>::kDivisor;
 
   if (index.metric() == cuvs::distance::DistanceType::CosineExpanded) {
-    auto stream      = raft::resource::get_cuda_stream(res);
     auto query_norms = raft::make_device_vector<DistanceT, int64_t>(res, queries.extent(0));
 
     // first scale the queries and then compute norms
@@ -435,7 +433,7 @@ void search_multi_partition(
   auto plan_desc = dataset_descriptor_init_with_cache<T, graph_idx_type, DistanceT>(
     res, params, indices[0]->dataset(), metric, dataset_norms_ptr0);
 
-  cudaStream_t stream = raft::resource::get_cuda_stream(res);
+  cudaStream_t stream = raft::resource::get_cuda_stream(res).get();
 
   // Cap the per-launch query count. num_queries maps to grid.y in the multi-partition kernels,
   // which is bounded by maxGridSize[1]; chunking also bounds the intermediate workspaces, which

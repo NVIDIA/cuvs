@@ -488,14 +488,15 @@ void process_and_fill_codes(
     }
     dim3 blocks(
       raft::div_rounding_up_safe<ix_t>(dataset_view.extent(0), kBlockSize / threads_per_vec), 1, 1);
-    kernel<<<blocks, threads, sharedMemorySize, stream>>>(codes_view,
-                                                          dataset_view,
-                                                          pq_centers,
-                                                          vq_centers,
-                                                          raft::make_const_mdspan(labels_view),
-                                                          rows_in_shared_memory,
-                                                          pq_bits,
-                                                          inline_vq_labels);
+    kernel<<<blocks, threads, sharedMemorySize, stream.get()>>>(
+      codes_view,
+      dataset_view,
+      pq_centers,
+      vq_centers,
+      raft::make_const_mdspan(labels_view),
+      rows_in_shared_memory,
+      pq_bits,
+      inline_vq_labels);
     RAFT_CUDA_TRY(cudaPeekAtLastError());
   };
   auto batch_labels = raft::make_device_vector<label_t, IdxT>(res, 0);
@@ -891,13 +892,14 @@ void process_and_fill_codes_subspaces(
     }
     dim3 blocks(
       raft::div_rounding_up_safe<ix_t>(dataset_view.extent(0), kBlockSize / threads_per_vec), 1, 1);
-    kernel<<<blocks, threads, shared_memory_size, stream>>>(codes_view,
-                                                            dataset_view,
-                                                            pq_centers,
-                                                            vq_centers,
-                                                            raft::make_const_mdspan(labels_view),
-                                                            pq_bits,
-                                                            shared_memory_size > 0);
+    kernel<<<blocks, threads, shared_memory_size, stream.get()>>>(
+      codes_view,
+      dataset_view,
+      pq_centers,
+      vq_centers,
+      raft::make_const_mdspan(labels_view),
+      pq_bits,
+      shared_memory_size > 0);
     RAFT_CUDA_TRY(cudaPeekAtLastError());
   };
   if (!need_batching && !need_copy_to_device) {

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -9,6 +9,7 @@
 #include "../../src/distance/fused_distance_nn.cuh"
 #include "../../src/distance/unfused_distance_nn.cuh"
 
+#include <cuda/stream>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/linalg/norm.cuh>
 #include <raft/linalg/unary_op.cuh>
@@ -65,9 +66,9 @@ class NNTest : public ::testing::TestWithParam<NNInputs<IdxT>> {
   {
     raft::random::RngState rng{params_.rng_seed};
     if constexpr (std::is_same_v<DataT, int8_t>) {
-      fill_int8<<<1000, 256, 0, stream>>>(x.data_handle(), m * k, 0);
+      fill_int8<<<1000, 256, 0, stream.get()>>>(x.data_handle(), m * k, 0);
       RAFT_CUDA_TRY(cudaGetLastError());
-      fill_int8<<<1000, 256, 0, stream>>>(y.data_handle(), n * k, m * k);
+      fill_int8<<<1000, 256, 0, stream.get()>>>(y.data_handle(), n * k, m * k);
       RAFT_CUDA_TRY(cudaGetLastError());
     } else {
       raft::random::uniform(handle, rng, x.data_handle(), m * k, DataT(-1.0), DataT(1.0));
@@ -76,14 +77,16 @@ class NNTest : public ::testing::TestWithParam<NNInputs<IdxT>> {
 
     // Pre-compute norms
     raft::linalg::rowNorm<raft::linalg::L2Norm, true>(
-      x_norm.data_handle(), x.data_handle(), k, m, stream);
+      x_norm.data_handle(), x.data_handle(), k, m, stream.get());
     raft::linalg::rowNorm<raft::linalg::L2Norm, true>(
-      y_norm.data_handle(), y.data_handle(), k, n, stream);
+      y_norm.data_handle(), y.data_handle(), k, n, stream.get());
 
     // CosineExpanded expects ||x|| not ||x||^2
     if (metric == DistanceType::CosineExpanded) {
-      raft::linalg::unaryOp(x_norm.data_handle(), x_norm.data_handle(), m, raft::sqrt_op{}, stream);
-      raft::linalg::unaryOp(y_norm.data_handle(), y_norm.data_handle(), n, raft::sqrt_op{}, stream);
+      raft::linalg::unaryOp(
+        x_norm.data_handle(), x_norm.data_handle(), m, raft::sqrt_op{}, stream.get());
+      raft::linalg::unaryOp(
+        y_norm.data_handle(), y_norm.data_handle(), n, raft::sqrt_op{}, stream.get());
     }
 
     if constexpr (impl == ImplType::fused) {
@@ -110,7 +113,7 @@ class NNTest : public ::testing::TestWithParam<NNInputs<IdxT>> {
       raft::make_device_vector<char, IdxT>(handle, workspace_size);
 
     ref_nn<DataT, AccT, OutT, IdxT>(
-      ref_out.data_handle(), x.data_handle(), y.data_handle(), m, n, k, sqrt, metric, stream);
+      ref_out.data_handle(), x.data_handle(), y.data_handle(), m, n, k, sqrt, metric, stream.get());
 
     if constexpr (impl == ImplType::fused) {
       if constexpr (std::is_same_v<DataT, float>) {
@@ -128,7 +131,7 @@ class NNTest : public ::testing::TestWithParam<NNInputs<IdxT>> {
                                                                     true,
                                                                     metric,
                                                                     0.0,
-                                                                    stream);
+                                                                    stream.get());
       } else {
         static_assert(sizeof(DataT) == 0,
                       "fusedDistanceNNMinReduce is not implemented for datatype other than float");
@@ -150,7 +153,7 @@ class NNTest : public ::testing::TestWithParam<NNInputs<IdxT>> {
         true,
         metric,
         0.0,
-        stream);
+        stream.get());
     }
   }
 
@@ -162,7 +165,7 @@ class NNTest : public ::testing::TestWithParam<NNInputs<IdxT>> {
 
  private:
   raft::resources handle;
-  rmm::cuda_stream_view stream;
+  cuda::stream_ref stream;
   NNInputs<IdxT> params_;
   ComparisonSummary summary;
   IdxT m;

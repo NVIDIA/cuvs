@@ -28,7 +28,7 @@ public class HnswBuildAndSearchIT extends CuVSTestCase {
 
   @Before
   public void setup() {
-    assumeTrue("not supported on " + System.getProperty("os.name"), isLinuxAmd64());
+    assumeTrue("not supported on " + System.getProperty("os.name"), isLinuxSupportedArch());
   }
 
   // Sample data and query
@@ -125,6 +125,38 @@ public class HnswBuildAndSearchIT extends CuVSTestCase {
                 .build();
         indexAndQueryOnce(resources, hnswQuery, expectedResults);
       }
+    }
+  }
+
+  @Test
+  public void testBuildWithoutAce() throws Throwable {
+    List<Map<Integer, Float>> expectedResults =
+        Arrays.asList(
+            Map.of(3, 0.038782578f),
+            Map.of(0, 0.12472608f),
+            Map.of(3, 0.047766715f),
+            Map.of(1, 0.15224178f));
+
+    HnswIndexParams indexParams =
+        new HnswIndexParams.Builder()
+            .withHierarchy(HnswHierarchy.GPU)
+            .withM(2)
+            .withEfConstruction(100)
+            .withMetric(HnswIndexParams.CuvsDistanceType.L2Expanded)
+            .withVectorDimension(2)
+            .build();
+
+    try (CuVSResources resources = CheckedCuVSResources.create();
+        CuVSMatrix datasetMatrix = CuVSMatrix.ofArray(dataset);
+        HnswIndex index = HnswIndex.build(resources, indexParams, datasetMatrix)) {
+      HnswQuery query =
+          new HnswQuery.Builder(resources)
+              .withQueryVectors(queries)
+              .withSearchParams(new HnswSearchParams.Builder().withEF(100).build())
+              .withTopK(1)
+              .build();
+
+      checkResults(expectedResults, index.search(query).getResults());
     }
   }
 

@@ -134,15 +134,18 @@ Graph degree
 <a id="neighbors-vamana-index-data"></a>
 ### neighbors::vamana::index::data
 
-Dataset [size, dim]
+Non-owning dataset view stored by the index (full-precision vectors may live in
 
 ```cpp
-[[nodiscard]] inline auto data() const noexcept -> const cuvs::neighbors::dataset<int64_t>&;
+[[nodiscard]] inline auto data() const noexcept
+-> const cuvs::neighbors::device_padded_dataset_view<T, int64_t>&;
 ```
+
+`full_precision_storage_`).
 
 **Returns**
 
-[`const cuvs::neighbors::dataset<int64_t>&`](/api-reference/cpp-api-neighbors-common#neighbors-dataset)
+`const cuvs::neighbors::device_padded_dataset_view<T, int64_t>&`
 
 <a id="neighbors-vamana-index-quantized-data"></a>
 ### neighbors::vamana::index::quantized_data

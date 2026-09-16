@@ -101,7 +101,7 @@ class PcaTest : public ::testing::TestWithParam<PcaInputs<T>> {
  public:
   PcaTest()
     : params_(::testing::TestWithParam<PcaInputs<T>>::GetParam()),
-      stream(raft::resource::get_cuda_stream(handle)),
+      stream(raft::resource::get_cuda_stream(handle).get()),
       explained_vars(params_.n_col, stream),
       explained_vars_ref(params_.n_col, stream),
       components(params_.n_col * params_.n_col, stream),
@@ -209,31 +209,31 @@ class PcaTest : public ::testing::TestWithParam<PcaInputs<T>> {
                             explained_vars_ref.data(),
                             params_.n_col,
                             cuvs::CompareApprox<T>(params_.tolerance),
-                            s));
+                            s.get()));
 
     ASSERT_TRUE(devArrMatch(components.data(),
                             components_ref.data(),
                             (params_.n_col * params_.n_col),
                             cuvs::CompareApprox<T>(params_.tolerance),
-                            s));
+                            s.get()));
 
     ASSERT_TRUE(devArrMatch(trans_data.data(),
                             trans_data_ref.data(),
                             (params_.n_row * params_.n_col),
                             cuvs::CompareApprox<T>(params_.tolerance),
-                            s));
+                            s.get()));
 
     ASSERT_TRUE(devArrMatch(data.data(),
                             data_back.data(),
                             (params_.n_row * params_.n_col),
                             cuvs::CompareApprox<T>(params_.tolerance),
-                            s));
+                            s.get()));
 
     ASSERT_TRUE(devArrMatch(data2.data(),
                             data2_back.data(),
                             (params_.n_row2 * params_.n_col2),
                             cuvs::CompareApprox<T>(params_.tolerance),
-                            s));
+                            s.get()));
 
     EXPECT_GT(max_recon_err, T(1e-5)) << "Error should be non-zero when n_components < n_cols";
     EXPECT_LT(max_recon_err, T(2.0)) << "Reconstruction error should be bounded";
@@ -269,7 +269,7 @@ class PcaRowMajorTest : public ::testing::TestWithParam<PcaInputs<T>> {
  public:
   PcaRowMajorTest()
     : params_(::testing::TestWithParam<PcaInputs<T>>::GetParam()),
-      stream(raft::resource::get_cuda_stream(handle))
+      stream(raft::resource::get_cuda_stream(handle).get())
   {
   }
 

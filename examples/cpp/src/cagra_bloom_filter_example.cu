@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -72,7 +73,7 @@ int main()
   auto padded =
     cuvs::neighbors::make_device_padded_dataset_view(res, raft::make_const_mdspan(dataset.view()));
   auto index = cuvs::neighbors::cagra::build(res, index_params, padded);
-  index.update_device_dataset_same_layout(res, padded);
+  index      = cuvs::neighbors::cagra::update_dataset(res, std::move(index), padded);
 
   // Build one global bloom filter over the index: bulk-insert every valid row id once.
   std::vector<key_type> valid_ids_host;
