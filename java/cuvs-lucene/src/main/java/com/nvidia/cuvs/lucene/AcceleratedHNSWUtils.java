@@ -19,8 +19,14 @@ import java.util.List;
 import java.util.Random;
 import java.util.SortedSet;
 import java.util.TreeSet;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import org.apache.lucene.index.FieldInfo;
 import org.apache.lucene.index.VectorSimilarityFunction;
+import org.apache.lucene.search.TaskExecutor;
+import org.apache.lucene.store.ByteBuffersDataOutput;
+import org.apache.lucene.store.DataOutput;
 import org.apache.lucene.store.IndexOutput;
 import org.apache.lucene.util.InfoStream;
 import org.apache.lucene.util.hnsw.HnswGraph;
@@ -222,56 +228,167 @@ public class AcceleratedHNSWUtils {
    * @return a 2D array of offsets
    * @throws IOException I/O Exceptions
    */
-  public static int[][] writeGraph(GPUBuiltHnswGraph graph, IndexOutput vectorIndex)
+  public static int[][] writeGraph(GPUBuiltHnswGraph graph, IndexOutput vectorIndex, int numThreads)
       throws IOException {
-    // write vectors' neighbors on each level into the vectorIndex file
     int countOnLevel0 = graph.size();
-    int[][] offsets = new int[graph.numLevels()][];
-    int[] scratch = new int[graph.maxConn() * 2];
-    for (int level = 0; level < graph.numLevels(); level++) {
+    int numLevels = graph.numLevels();
+    int[][] offsets = new int[numLevels][];
+
+    // Level 0 holds all nodes and dominates serialization cost. Each node's delta/VInt block is
+    // independent, so encode level 0 in parallel and concatenate the per-thread buffers serially in
+    // node order, in memory-bounded waves. Higher levels are tiny and stay serial. The on-disk
+    // bytes
+    // are identical to the fully-serial path (blocks in node order, offsets = per-node byte
+    // lengths).
+    // graph.maxConn() scans every layer-0 adjacency row (O(graph size)); compute it once here
+    // rather than per level/per task below.
+    int maxConn = graph.maxConn();
+
+    int[] level0Nodes = NodesIterator.getSortedNodes(graph.getNodesOnLevel(0));
+    offsets[0] = new int[level0Nodes.length];
+    if (numThreads > 1 && level0Nodes.length >= PARALLEL_MIN_NODES) {
+      writeLevel0Parallel(
+          graph, vectorIndex, level0Nodes, offsets[0], countOnLevel0, maxConn, numThreads);
+    } else {
+      writeLevelSerial(graph, vectorIndex, 0, level0Nodes, offsets[0], countOnLevel0, maxConn);
+    }
+
+    for (int level = 1; level < numLevels; level++) {
       int[] sortedNodes = NodesIterator.getSortedNodes(graph.getNodesOnLevel(level));
       offsets[level] = new int[sortedNodes.length];
-      int nodeOffsetId = 0;
+      writeLevelSerial(
+          graph, vectorIndex, level, sortedNodes, offsets[level], countOnLevel0, maxConn);
+    }
+    return offsets;
+  }
 
-      for (int node : sortedNodes) {
-        // Get node neighbors
-        NeighborArray neighbors = graph.getNeighbors(level, node);
-        // Get the size of the neighbor array
-        int size = neighbors.size();
-        // Write size in VInt as the neighbors list is typically small
-        long offsetStart = vectorIndex.getFilePointer();
-        // Get neighbors
-        int[] nnodes = neighbors.nodes();
-        // Sort them
-        Arrays.sort(nnodes, 0, size);
-        // Now that we have sorted, do delta encoding to minimize the required bits to store the
-        // information
-        int actualSize = 0;
-        if (size > 0) {
-          scratch[0] = nnodes[0];
-          actualSize = 1;
-        }
-        // De-duplication
-        for (int i = 1; i < size; i++) {
-          assert nnodes[i] < countOnLevel0 : "node too large: " + nnodes[i] + ">=" + countOnLevel0;
-          // Sorting step helps here
-          if (nnodes[i - 1] == nnodes[i]) {
+  /** Node count below which parallel level-0 serialization is not worth the overhead. */
+  static final int PARALLEL_MIN_NODES = 1 << 16;
+
+  /** Maximum encoded payload held by one parallel wave before it is copied to the index output. */
+  static final long MAX_PARALLEL_ENCODE_BYTES = 64L << 20;
+
+  /** Maximum bytes written by one node: one VInt count and {@code maxConn} VInt deltas. */
+  private static final int MAX_VINT_BYTES = 5;
+
+  /** Serially encodes a level's nodes into {@code out}, recording per-node byte lengths. */
+  private static void writeLevelSerial(
+      GPUBuiltHnswGraph graph,
+      IndexOutput out,
+      int level,
+      int[] sortedNodes,
+      int[] offsets,
+      int countOnLevel0,
+      int maxConn)
+      throws IOException {
+    int[] scratch = new int[maxConn * 2];
+    int idx = 0;
+    for (int node : sortedNodes) {
+      long start = out.getFilePointer();
+      encodeNode(graph.getNeighbors(level, node), scratch, out, countOnLevel0);
+      offsets[idx++] = Math.toIntExact(out.getFilePointer() - start);
+    }
+  }
+
+  /**
+   * Encodes level 0 in parallel: within memory-bounded waves, threads encode contiguous node
+   * sub-ranges into per-thread buffers, which are then concatenated to {@code out} in node order
+   * (identical layout to the serial path).
+   */
+  private static void writeLevel0Parallel(
+      GPUBuiltHnswGraph graph,
+      IndexOutput out,
+      int[] nodes,
+      int[] offsets,
+      int countOnLevel0,
+      int maxConn,
+      int numThreads)
+      throws IOException {
+    // invokeAll joins every task before it returns, including tasks still running when a sibling
+    // fails, so `buffers` is never concatenated while a worker might still be writing into it.
+    // It also runs one share of each wave on the calling thread instead of parking it, so the
+    // pool only has to cover the other ranges.
+    ExecutorService pool = Executors.newFixedThreadPool(Math.max(1, numThreads - 1));
+    try {
+      TaskExecutor executor = new TaskExecutor(pool);
+      int n = nodes.length;
+      int waveNodes = nodesPerSerializationWave(maxConn);
+      for (int waveStart = 0; waveStart < n; ) {
+        int waveEnd = (int) Math.min(n, (long) waveStart + waveNodes);
+        int perThread = (waveEnd - waveStart + numThreads - 1) / numThreads;
+
+        ByteBuffersDataOutput[] buffers = new ByteBuffersDataOutput[numThreads];
+        List<Callable<Void>> tasks = new ArrayList<>(numThreads);
+        for (int t = 0; t < numThreads; t++) {
+          final int subStart = waveStart + t * perThread;
+          final int subEnd = Math.min(subStart + perThread, waveEnd);
+          final int slot = t;
+          if (subStart >= subEnd) {
             continue;
           }
-          scratch[actualSize++] = nnodes[i] - nnodes[i - 1];
+          tasks.add(
+              () -> {
+                ByteBuffersDataOutput buffer = new ByteBuffersDataOutput();
+                int[] scratch = new int[maxConn * 2];
+                for (int i = subStart; i < subEnd; i++) {
+                  long before = buffer.size();
+                  encodeNode(graph.getNeighbors(0, nodes[i]), scratch, buffer, countOnLevel0);
+                  offsets[i] = Math.toIntExact(buffer.size() - before);
+                }
+                buffers[slot] = buffer;
+                return null;
+              });
         }
-        // Write the size after duplicates are removed
-        vectorIndex.writeVInt(actualSize);
-        // Write de-duplicated neighbors
-        for (int i = 0; i < actualSize; i++) {
-          vectorIndex.writeVInt(scratch[i]);
+        executor.invokeAll(tasks);
+        // Concatenate in thread order (== node order), preserving the serial byte layout.
+        for (ByteBuffersDataOutput buffer : buffers) {
+          if (buffer != null) {
+            buffer.copyTo(out);
+          }
         }
-        offsets[level][nodeOffsetId++] =
-            Math.toIntExact(vectorIndex.getFilePointer() - offsetStart);
+        waveStart = waveEnd;
+      }
+    } finally {
+      pool.shutdown();
+    }
+  }
+
+  /**
+   * Sizes serialization waves from an upper bound on encoded bytes rather than only node count, so
+   * increasing graph degree cannot create an unbounded transient heap allocation.
+   */
+  static int nodesPerSerializationWave(int maxConn) {
+    long maxBytesPerNode = (Math.max(0L, maxConn) + 1L) * MAX_VINT_BYTES;
+    return (int)
+        Math.max(1L, Math.min(Integer.MAX_VALUE, MAX_PARALLEL_ENCODE_BYTES / maxBytesPerNode));
+  }
+
+  /**
+   * Sorts, delta-encodes and de-duplicates a node's neighbors and writes the block (VInt size + VInt
+   * deltas) to {@code out}. Shared by the serial and parallel paths so encoding is identical.
+   */
+  private static void encodeNode(
+      NeighborArray neighbors, int[] scratch, DataOutput out, int countOnLevel0)
+      throws IOException {
+    int size = neighbors == null ? 0 : neighbors.size();
+    int actualSize = 0;
+    if (size > 0) {
+      int[] nnodes = neighbors.nodes();
+      Arrays.sort(nnodes, 0, size);
+      scratch[0] = nnodes[0];
+      actualSize = 1;
+      for (int i = 1; i < size; i++) {
+        assert nnodes[i] < countOnLevel0 : "node too large: " + nnodes[i] + ">=" + countOnLevel0;
+        if (nnodes[i - 1] == nnodes[i]) {
+          continue;
+        }
+        scratch[actualSize++] = nnodes[i] - nnodes[i - 1];
       }
     }
-    // Return offsets (information written while writing the meta info)
-    return offsets;
+    out.writeVInt(actualSize);
+    for (int i = 0; i < actualSize; i++) {
+      out.writeVInt(scratch[i]);
+    }
   }
 
   /**
