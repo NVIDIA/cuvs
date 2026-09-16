@@ -181,6 +181,7 @@ function(ConfigureAnnBench)
             sqlite3
             Threads::Threads
             $<$<BOOL:${GPU_BUILD}>:CUDA::cudart_static>
+            $<$<BOOL:${GPU_BUILD}>:rmm::rmm>
             $<TARGET_NAME_IF_EXISTS:OpenMP::OpenMP_CXX>
             $<TARGET_NAME_IF_EXISTS:conda_env>
   )
@@ -476,8 +477,8 @@ if(CUVS_ANN_BENCH_SINGLE_EXE)
   target_include_directories(ANN_BENCH PRIVATE ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
 
   target_link_libraries(
-    ANN_BENCH PRIVATE raft::raft nlohmann_json::nlohmann_json sqlite3 benchmark::benchmark dl
-                      $<$<TARGET_EXISTS:CUDA::nvtx3>:CUDA::nvtx3>
+    ANN_BENCH PRIVATE $<TARGET_NAME_IF_EXISTS:raft::raft> nlohmann_json::nlohmann_json sqlite3
+                      benchmark::benchmark dl $<$<TARGET_EXISTS:CUDA::nvtx3>:CUDA::nvtx3>
   )
   set_target_properties(
     ANN_BENCH

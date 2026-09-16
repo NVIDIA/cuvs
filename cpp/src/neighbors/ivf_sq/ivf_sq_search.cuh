@@ -16,6 +16,7 @@
 #include <cuvs/neighbors/common.hpp>
 #include <cuvs/neighbors/ivf_sq.hpp>
 
+#include <cuda/stream>
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/selection/select_k.hpp>
 #include <raft/core/device_mdarray.hpp>
@@ -149,7 +150,7 @@ void launch_kernel(const index<CodeT>& idx,
                    float* out_distances,
                    uint32_t* out_indices,
                    uint32_t& grid_dim_x,
-                   rmm::cuda_stream_view stream,
+                   cuda::stream_ref stream,
                    IvfSampleFilterT sample_filter)
 {
   static_assert(std::is_same_v<CodeT, uint8_t>, "IVF-SQ JIT-LTO scan only supports CodeT=uint8_t");
@@ -291,7 +292,7 @@ void ivf_sq_scan(raft::resources const& handle,
                  uint32_t* out_indices,
                  IvfSampleFilterT sample_filter,
                  uint32_t& grid_dim_x,
-                 rmm::cuda_stream_view stream)
+                 cuda::stream_ref stream)
 {
   // Determine the fused top-k capacity (0 = disabled / fallback to materialization)
   int capacity = is_local_topk_feasible(k) ? raft::bound_by_power_of_two(int(k)) : 0;

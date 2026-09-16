@@ -47,7 +47,7 @@ void search_benchmark(nvbench::state& state, nvbench::type_list<T>)
 
   raft::resources handle;
   auto const stream = raft::resource::get_cuda_stream(handle);
-  state.set_cuda_stream(nvbench::make_cuda_stream_view(stream));
+  state.set_cuda_stream(nvbench::make_cuda_stream_view(stream.get()));
 
   rmm::device_uvector<T> database(num_db_vecs * dim, stream);
   rmm::device_uvector<T> queries(num_queries * dim, stream);
