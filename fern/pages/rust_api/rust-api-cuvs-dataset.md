@@ -30,7 +30,7 @@ pub trait Sealed {
 }
 ```
 
-_Source: `rust/cuvs/src/dataset.rs:56`_
+_Source: `rust/cuvs/src/dataset.rs:68`_
 
 ## CuvsDataset
 
@@ -44,7 +44,7 @@ A Rust wrapper accepted by native cuVS dataset operations.
 
 This trait is sealed; dataset handles can only be created by this crate.
 
-_Source: `rust/cuvs/src/dataset.rs:64`_
+_Source: `rust/cuvs/src/dataset.rs:76`_
 
 ## DatasetView
 
@@ -65,7 +65,7 @@ it never copies vector storage.
 
 | Name | Source |
 | --- | --- |
-| `new` | `rust/cuvs/src/dataset.rs:123` |
+| `new` | `rust/cuvs/src/dataset.rs:135` |
 
 ### new
 
@@ -78,9 +78,9 @@ T: AsDlTensor + ?Sized,
 Borrow a tensor as the host/device and padded/standard view matching its
 DLPack shape/strides (CAGRA row-width rule).
 
-_Source: `rust/cuvs/src/dataset.rs:123`_
+_Source: `rust/cuvs/src/dataset.rs:135`_
 
-_Source: `rust/cuvs/src/dataset.rs:115`_
+_Source: `rust/cuvs/src/dataset.rs:127`_
 
 ## PaddedDataset
 
@@ -101,7 +101,7 @@ layout is already suitable.
 
 | Name | Source |
 | --- | --- |
-| `new` | `rust/cuvs/src/dataset.rs:172` |
+| `new` | `rust/cuvs/src/dataset.rs:184` |
 
 ### new
 
@@ -113,9 +113,26 @@ T: AsDlTensor + ?Sized,
 
 Copy a tensor into freshly allocated, CAGRA-padded storage.
 
-_Source: `rust/cuvs/src/dataset.rs:172`_
+_Source: `rust/cuvs/src/dataset.rs:184`_
 
-_Source: `rust/cuvs/src/dataset.rs:166`_
+_Source: `rust/cuvs/src/dataset.rs:178`_
+
+## PqDataset
+
+```rust
+#[derive(Debug)]
+pub struct PqDataset {
+    /* private fields */
+}
+```
+
+Owning device PQ dataset for CAGRA-Q search.
+
+Prefer [`crate::neighbors::cagra::make_pq_dataset`] which accepts
+[`crate::neighbors::cagra::ProductQuantizerParams`]. Keep this owner alive while
+any index uses it.
+
+_Source: `rust/cuvs/src/dataset.rs:232`_
 
 ## Dataset
 
@@ -132,4 +149,4 @@ The allocation preserves the serialized host/device residency and
 standard/padded row layout. CAGRA keeps only a non-owning view, so this
 owner must remain alive while the deserialized index uses it.
 
-_Source: `rust/cuvs/src/dataset.rs:220`_
+_Source: `rust/cuvs/src/dataset.rs:283`_

@@ -492,6 +492,8 @@ navigation:
             path: "./pages/java_api/java-api-com-nvidia-cuvs-gpuinfoprovider.md"
           - page: "LibraryException"
             path: "./pages/java_api/java-api-com-nvidia-cuvs-libraryexception.md"
+          - page: "ProductQuantizerParams"
+            path: "./pages/java_api/java-api-com-nvidia-cuvs-productquantizerparams.md"
           - page: "RowView"
             path: "./pages/java_api/java-api-com-nvidia-cuvs-rowview.md"
           - page: "SynchronizedCuVSResources"

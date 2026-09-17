@@ -780,22 +780,27 @@ Note that the DLManagedTensor graph returned will have an associated 'deleter' f
 <a id="cuvscagraupdatedataset"></a>
 ### cuvsCagraUpdateDataset
 
-Update a CAGRA index with a device-padded dataset.
+Update a CAGRA index with a device dataset (padded or PQ).
 
 ```c
 cuvsError_t cuvsCagraUpdateDataset(cuvsResources_t res,
-cuvsDataset_t device_padded_dataset,
+cuvsDataset_t dataset,
 cuvsCagraIndex_t index);
 ```
 
-This is the centralized dataset update operation for C callers. If `index` is already device-padded, its dataset view is replaced in place. Otherwise, the index is converted and its opaque handle is rebound to a search-ready device-padded index. Caller retains ownership of
+This is the centralized dataset update/attach operation for C callers.
+
+- Device-padded dataset: if `index` is already device-padded, its dataset view is replaced in place (same index object); otherwise the index is converted via attach and rebound.
+- Device PQ dataset (from `cuvsDatasetMakePq`): if `index` is already PQ-typed, its dataset view is replaced in place; otherwise the graph is copied into a new PQ-typed index (CAGRA-Q). Search requires metric `L2Expanded`. The PQ handle must be owning.
+
+Caller retains ownership of `dataset` and must keep it alive while `index` uses it.
 
 **Parameters**
 
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | [`cuvsResources_t`](/api-reference/c-api-core-c-api#cuvsresources-t) | cuvsResources_t opaque C handle |
-| `device_padded_dataset` | in | `cuvsDataset_t` | owning or non-owning device-padded dataset handle |
+| `dataset` | in | `cuvsDataset_t` | device-padded or owning device PQ dataset handle |
 | `index` | inout | [`cuvsCagraIndex_t`](/api-reference/c-api-neighbors-cagra#cuvscagraindex) | CAGRA index handle |
 
 **Returns**

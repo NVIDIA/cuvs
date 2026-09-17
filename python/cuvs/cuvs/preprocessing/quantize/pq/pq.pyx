@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # cython: language_level=3
@@ -56,8 +56,6 @@ cdef class QuantizerParams:
     max_train_points_per_vq_cluster: int
         specifies the max number of data points to use per VQ cluster.
     """
-
-    cdef cuvsProductQuantizerParams * params
 
     def __cinit__(self):
         check_cuvs(cuvsProductQuantizerParamsCreate(&self.params))

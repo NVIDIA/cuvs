@@ -89,6 +89,81 @@ def max_gpu_memory_gb(self)
 def get_handle(self)
 ```
 
+## CompressionParams
+
+```python
+cdef class CompressionParams
+```
+
+Parameters for PQ compression (CAGRA-Q).
+
+Train a PQ dataset with make_pq_dataset, then attach it with
+update_dataset. Metric must remain ``sqeuclidean`` / L2Expanded.
+
+**Parameters**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `pq_bits` | `int` | The bit length of the vector element after compression by PQ.<br />Possible values: [4, 5, 6, 7, 8]. The smaller the 'pq_bits', the smaller the index size and the better the search performance, but the lower the recall. |
+| `pq_dim` | `int` | The dimensionality of the vector after compression by PQ. When zero, an optimal value is selected using a heuristic. |
+| `vq_n_centers` | `int` | Vector Quantization (VQ) codebook size - number of "coarse cluster centers". When zero, an optimal value is selected using a heuristic. |
+| `kmeans_n_iters` | `int` | The number of iterations searching for kmeans centers (both VQ & PQ phases). |
+| `vq_kmeans_trainset_fraction` | `float` | The fraction of data to use during iterative kmeans building (VQ phase). When zero, an optimal value is selected using a heuristic. |
+| `pq_kmeans_trainset_fraction` | `float` | The fraction of data to use during iterative kmeans building (PQ phase). When zero, an optimal value is selected using a heuristic. |
+
+**Constructor**
+
+```python
+def __init__(self, *, pq_bits=8, pq_dim=0, vq_n_centers=0, kmeans_n_iters=25, vq_kmeans_trainset_fraction=0.0, pq_kmeans_trainset_fraction=0.0)
+```
+
+**Members**
+
+| Name | Kind |
+| --- | --- |
+| `pq_bits` | property |
+| `pq_dim` | property |
+| `vq_n_centers` | property |
+| `kmeans_n_iters` | property |
+| `vq_kmeans_trainset_fraction` | property |
+| `pq_kmeans_trainset_fraction` | property |
+
+### pq_bits
+
+```python
+def pq_bits(self)
+```
+
+### pq_dim
+
+```python
+def pq_dim(self)
+```
+
+### vq_n_centers
+
+```python
+def vq_n_centers(self)
+```
+
+### kmeans_n_iters
+
+```python
+def kmeans_n_iters(self)
+```
+
+### vq_kmeans_trainset_fraction
+
+```python
+def vq_kmeans_trainset_fraction(self)
+```
+
+### pq_kmeans_trainset_fraction
+
+```python
+def pq_kmeans_trainset_fraction(self)
+```
+
 ## ExtendParams
 
 ```python
@@ -530,6 +605,29 @@ version of cuvs is not guaranteed to work.
 | `out_dataset` | `Dataset, optional` | Empty dataset populated when the file includes dataset storage. If omitted, only the graph is retained. |
 | `resources` | `cuvs.common.Resources, optional` |  |
 
+## make_pq_dataset
+
+`@auto_sync_resources`
+
+```python
+def make_pq_dataset(padded_dataset, quantizer_params=None, resources=None)
+```
+
+Train an owning device PQ dataset (CAGRA-Q) from a device-padded dataset.
+
+**Parameters**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `padded_dataset` | `Dataset or array` | Device-padded source used to train PQ. Arrays are converted via cuvs.common.dataset.make_device_padded_dataset. |
+| `quantizer_params` | `cuvs.preprocessing.quantize.pq.QuantizerParams, optional` | PQ training parameters. Defaults are used when omitted. |
+| `resources` | `cuvs.common.Resources, optional` |  |
+
+**Returns**
+
+Dataset
+Owning PQ dataset handle. Keep it alive while any index uses it.
+
 ## save
 
 `@auto_sync_resources`
@@ -628,9 +726,10 @@ Find the k nearest neighbors for each query.
 `@auto_sync_resources`
 
 ```python
-def update_dataset(Index index, padded_dataset, resources=None)
+def update_dataset(Index index, dataset, resources=None)
 ```
 
-Update any CAGRA index layout with a padded dataset.
+Update/attach a CAGRA index with a device-padded or device PQ dataset.
 
-Accepts a ``Dataset`` or array. The index becomes search-ready in padded layout.
+Accepts a ``Dataset`` (padded or ``pq``) or array (promoted to padded).
+The index becomes search-ready in the matching layout.

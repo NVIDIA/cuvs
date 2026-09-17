@@ -212,6 +212,154 @@ impl Drop for IndexParams {
 }
 
 // ---------------------------------------------------------------------------
+// CompressionParams (CAGRA-Q / VPQ training)
+// ---------------------------------------------------------------------------
+
+/// Parameters for VPQ compression used by CAGRA-Q.
+pub struct CompressionParams {
+    handle: ffi::cuvsCagraCompressionParams_t,
+}
+
+impl CompressionParams {
+    /// Allocate compression params with library defaults.
+    pub fn new() -> Result<Self, CagraError> {
+        let mut handle: ffi::cuvsCagraCompressionParams_t = ptr::null_mut();
+        check_cuvs(unsafe { ffi::cuvsCagraCompressionParamsCreate(&mut handle) })?;
+        Ok(Self { handle })
+    }
+
+    /// Bit length of each PQ code element. Valid values: 4..=8.
+    pub fn set_pq_bits(self, pq_bits: u32) -> Self {
+        unsafe {
+            (*self.handle).pq_bits = pq_bits;
+        }
+        self
+    }
+
+    /// Dimensionality after PQ compression (`0` = heuristic).
+    pub fn set_pq_dim(self, pq_dim: u32) -> Self {
+        unsafe {
+            (*self.handle).pq_dim = pq_dim;
+        }
+        self
+    }
+
+    /// VQ codebook size (`0` = heuristic).
+    pub fn set_vq_n_centers(self, vq_n_centers: u32) -> Self {
+        unsafe {
+            (*self.handle).vq_n_centers = vq_n_centers;
+        }
+        self
+    }
+
+    /// KMeans iterations for VQ and PQ phases.
+    pub fn set_kmeans_n_iters(self, kmeans_n_iters: u32) -> Self {
+        unsafe {
+            (*self.handle).kmeans_n_iters = kmeans_n_iters;
+        }
+        self
+    }
+
+    /// Fraction of data used for VQ kmeans (`0` = heuristic).
+    pub fn set_vq_kmeans_trainset_fraction(self, fraction: f64) -> Self {
+        unsafe {
+            (*self.handle).vq_kmeans_trainset_fraction = fraction;
+        }
+        self
+    }
+
+    /// Fraction of data used for PQ kmeans (`0` = heuristic).
+    pub fn set_pq_kmeans_trainset_fraction(self, fraction: f64) -> Self {
+        unsafe {
+            (*self.handle).pq_kmeans_trainset_fraction = fraction;
+        }
+        self
+    }
+}
+
+impl fmt::Debug for CompressionParams {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("CompressionParams").field(unsafe { &*self.handle }).finish()
+    }
+}
+
+impl Drop for CompressionParams {
+    fn drop(&mut self) {
+        let _ = unsafe { ffi::cuvsCagraCompressionParamsDestroy(self.handle) };
+    }
+}
+
+/// Product quantizer training parameters used to create PQ datasets.
+pub struct ProductQuantizerParams {
+    handle: ffi::cuvsProductQuantizerParams_t,
+}
+
+impl ProductQuantizerParams {
+    /// Allocate product quantizer params with library defaults.
+    pub fn new() -> Result<Self, CagraError> {
+        let mut handle: ffi::cuvsProductQuantizerParams_t = ptr::null_mut();
+        check_cuvs(unsafe { ffi::cuvsProductQuantizerParamsCreate(&mut handle) })?;
+        Ok(Self { handle })
+    }
+
+    pub(crate) fn as_ptr(&self) -> ffi::cuvsProductQuantizerParams_t {
+        self.handle
+    }
+
+    pub fn set_pq_bits(self, value: u32) -> Self {
+        unsafe { (*self.handle).pq_bits = value };
+        self
+    }
+
+    pub fn set_pq_dim(self, value: u32) -> Self {
+        unsafe { (*self.handle).pq_dim = value };
+        self
+    }
+
+    pub fn set_use_subspaces(self, value: bool) -> Self {
+        unsafe { (*self.handle).use_subspaces = value };
+        self
+    }
+
+    pub fn set_use_vq(self, value: bool) -> Self {
+        unsafe { (*self.handle).use_vq = value };
+        self
+    }
+
+    pub fn set_vq_n_centers(self, value: u32) -> Self {
+        unsafe { (*self.handle).vq_n_centers = value };
+        self
+    }
+
+    pub fn set_kmeans_n_iters(self, value: u32) -> Self {
+        unsafe { (*self.handle).kmeans_n_iters = value };
+        self
+    }
+
+    pub fn set_max_train_points_per_pq_code(self, value: u32) -> Self {
+        unsafe { (*self.handle).max_train_points_per_pq_code = value };
+        self
+    }
+
+    pub fn set_max_train_points_per_vq_cluster(self, value: u32) -> Self {
+        unsafe { (*self.handle).max_train_points_per_vq_cluster = value };
+        self
+    }
+}
+
+impl fmt::Debug for ProductQuantizerParams {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("ProductQuantizerParams").field(unsafe { &*self.handle }).finish()
+    }
+}
+
+impl Drop for ProductQuantizerParams {
+    fn drop(&mut self) {
+        let _ = unsafe { ffi::cuvsProductQuantizerParamsDestroy(self.handle) };
+    }
+}
+
+// ---------------------------------------------------------------------------
 // SearchParams
 // ---------------------------------------------------------------------------
 

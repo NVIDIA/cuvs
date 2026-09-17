@@ -16,6 +16,7 @@ These pages are generated from the Java source files in `java/cuvs-java/src/main
 - [GPUInfo](/api-reference/java-api-com-nvidia-cuvs-gpuinfo)
 - [GPUInfoProvider](/api-reference/java-api-com-nvidia-cuvs-gpuinfoprovider)
 - [LibraryException](/api-reference/java-api-com-nvidia-cuvs-libraryexception)
+- [ProductQuantizerParams](/api-reference/java-api-com-nvidia-cuvs-productquantizerparams)
 - [RowView](/api-reference/java-api-com-nvidia-cuvs-rowview)
 - [SynchronizedCuVSResources](/api-reference/java-api-com-nvidia-cuvs-synchronizedcuvsresources)
 
