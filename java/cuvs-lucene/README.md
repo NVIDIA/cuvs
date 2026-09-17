@@ -12,24 +12,22 @@ This is a project for using [cuVS](https://github.com/rapidsai/cuvs), NVIDIA's G
 
 ## What is cuvs-lucene?
 
-`cuvs-lucene` provides a pluggable [KnnVectorsFormat](https://lucene.apache.org/core/10_2_0/core/org/apache/lucene/codecs/KnnVectorsFormat.html) that uses cuVS to offload vector index build — and optionally search — to NVIDIA GPUs. Because it plugs in through a standard Lucene codec, existing Lucene applications can take advantage of GPU acceleration with minimal code changes and gracefully fall back to the default CPU codec when no GPU is present.
+`cuvs-lucene` provides a pluggable [KnnVectorsFormat](https://lucene.apache.org/core/10_2_0/core/org/apache/lucene/codecs/KnnVectorsFormat.html) that uses cuVS to offload vector index build — and optionally search — to NVIDIA GPUs. The accelerated-HNSW codecs can fall back to Lucene's CPU HNSW writer when cuVS is unavailable; the GPU-search codec requires cuVS. The current build targets Lucene 10.2.0.
 
 Four codecs are currently provided:
 
-- `Lucene101AcceleratedHNSWCodec` — GPU-accelerated HNSW build with CPU HNSW search. The on-disk format is standard Lucene HNSW, so indexes built on the GPU can be read by any stock Lucene 10.x reader.
+- `Lucene101AcceleratedHNSWCodec` — GPU-accelerated HNSW build with CPU HNSW search. Its vector data uses Lucene's standard HNSW format and stock HNSW reader; applications still need a compatible `cuvs-lucene` codec provider to resolve the segment codec.
   - `LuceneAcceleratedHNSWScalarQuantizedCodec` — scalar-quantized vectors for a smaller index footprint.
   - `LuceneAcceleratedHNSWBinaryQuantizedCodec` — binary-quantized vectors for an even smaller index footprint.
-- `CuVS2510GPUSearchCodec` — GPU-accelerated HNSW build and GPU search
+- `CuVS2510GPUSearchCodec` — GPU indexing and search. It builds CAGRA by default; it can be configured to persist a GPU brute-force index, and single-vector segments or failed CAGRA builds fall back to brute force.
 
 ## Installing cuvs-lucene
 
 ### Prerequisites
 
-- A machine with an NVIDIA GPU
-- [CUDA 12.0+](https://developer.nvidia.com/cuda-toolkit-archive)
 - [JDK 22](https://jdk.java.net/archive/)
 - [Maven 3.9.6+](https://maven.apache.org/download.cgi)
-- A matching version of the [cuVS libraries](https://docs.rapids.ai/api/cuvs/stable/build/#build-from-source). For Maven usage, install the cuVS tarball and add it to your system library load path. See the cuVS [tarball install instructions](https://docs.rapids.ai/api/cuvs/stable/build/#download-extract).
+- GPU indexing, GPU search, and GPU tests require an NVIDIA GPU, a supported CUDA runtime, and matching cuVS native libraries. Install the native libraries through a supported method, such as conda or a cuVS tarball, and add their directory to your system library load path. See the [cuVS Java installation instructions](https://docs.nvidia.com/cuvs/installation/java) and [native installation details](https://docs.nvidia.com/cuvs/installation/c).
 
 ### Maven
 
@@ -54,15 +52,26 @@ Maven repository, do `./build.sh lucene` in the top level directory or just do `
 
 The resulting artifacts are written to `target/`.
 
-To run the tests, add `--run-java-tests` to any of the commands above. Be sure to set (manually, if needed)
-your `LD_LIBRARY_PATH` to include the directory with the appropriate (matching) version of `libcuvs.so`, as
-described in the cuVS [tarball install instructions](https://docs.rapids.ai/api/cuvs/stable/build/#download-extract).
+To run the Java tests from the top-level directory, pass `--run-java-tests` when building the `lucene` target:
+
+```bash
+./build.sh lucene --run-java-tests
+```
+
+If the native and Java prerequisites also need to be built, use `./build.sh libcuvs java lucene --run-java-tests`.
+
+Ensure `LD_LIBRARY_PATH` includes the directory containing the matching cuVS native libraries,
+including `libcuvs_c.so` and its dependencies such as `libcuvs.so`, as described in the
+[cuVS Java installation instructions](https://docs.nvidia.com/cuvs/installation/java).
+
+The test-enabled build runs `mvn clean verify`: Surefire discovers the `Test*` classes, and
+Failsafe runs post-package `*IT` classes such as `ThinJarContentsIT`.
 
 ## Getting Started
 
 The example below plugs the GPU-accelerated HNSW codec into a standard Lucene `IndexWriter`. Once the codec is set on the `IndexWriterConfig`, indexing proceeds exactly as it would with the default Lucene codec, and search uses the stock `KnnFloatVectorQuery`.
 
-Before running it, make sure cuVS is installed and available on your system library load path. The cuVS [tarball install instructions](https://docs.rapids.ai/api/cuvs/stable/build/#download-extract) show how to set this up.
+Before running it, make sure cuVS is installed and available on your system library load path. The [cuVS Java installation instructions](https://docs.nvidia.com/cuvs/installation/java) show how to set this up.
 
 ### RMM async allocation for GPU search
 
@@ -121,7 +130,7 @@ public class HelloCuvsLucene {
 
 The artifacts would be built and available in the target / folder.
 
-### Running Tests
+### Running the example
 
 ```sh
 mvn -q compile org.codehaus.mojo:exec-maven-plugin:3.5.1:java \

@@ -147,8 +147,7 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUSearchParams.
 public int getBuildQuality()
 ```
 
-Get the build quality handed to cuVS' build heuristic. Only consulted under the \{@link
-Strategy#HEURISTIC\} strategy.
+Get the build quality handed to cuVS' build heuristic. Only consulted under the `Strategy#HEURISTIC` strategy.
 
 **Returns**
 
