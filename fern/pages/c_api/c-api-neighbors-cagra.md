@@ -38,33 +38,6 @@ Define how cuvsCagraIndexParamsFromHnswParams should construct a graph to constr
 enum cuvsCagraHnswHeuristicType;
 ```
 
-<a id="cuvscagracompressionparams"></a>
-### cuvsCagraCompressionParams
-
-Parameters for VPQ compression.
-
-```c
-struct cuvsCagraCompressionParams {
-  uint32_t pq_bits;
-  uint32_t pq_dim;
-  uint32_t vq_n_centers;
-  uint32_t kmeans_n_iters;
-  double vq_kmeans_trainset_fraction;
-  double pq_kmeans_trainset_fraction;
-};
-```
-
-**Fields**
-
-| Name | Type | Description |
-| --- | --- | --- |
-| `pq_bits` | `uint32_t` | The bit length of the vector element after compression by PQ.<br /><br />Possible values: [4, 5, 6, 7, 8].<br /><br />Hint: the smaller the 'pq_bits', the smaller the index size and the better the search performance, but the lower the recall. |
-| `pq_dim` | `uint32_t` | The dimensionality of the vector after compression by PQ. When zero, an optimal value is selected using a heuristic.<br /><br />TODO: at the moment `dim` must be a multiple `pq_dim`. |
-| `vq_n_centers` | `uint32_t` | Vector Quantization (VQ) codebook size - number of "coarse cluster centers". When zero, an optimal value is selected using a heuristic. |
-| `kmeans_n_iters` | `uint32_t` | The number of iterations searching for kmeans centers (both VQ & PQ phases). |
-| `vq_kmeans_trainset_fraction` | `double` | The fraction of data to use during iterative kmeans building (VQ phase). When zero, an optimal value is selected using a heuristic. |
-| `pq_kmeans_trainset_fraction` | `double` | The fraction of data to use during iterative kmeans building (PQ phase). When zero, an optimal value is selected using a heuristic. |
-
 <a id="cuvsaceparams"></a>
 ### cuvsAceParams
 
@@ -254,17 +227,19 @@ cuvsError_t cuvsCagraMergeParamsDestroy(cuvsCagraMergeParams_t params);
 <a id="cuvscagracompressionparamscreate"></a>
 ### cuvsCagraCompressionParamsCreate
 
-Allocate CAGRA Compression params, and populate with default values
+Allocate CAGRA Compression params, and populate with default values.
 
 ```c
 cuvsError_t cuvsCagraCompressionParamsCreate(cuvsCagraCompressionParams_t* params);
 ```
 
+Deprecated: Use `cuvsPQDatasetParamsCreate`. This compatibility API is planned for removal in the 27.02 ABI-breaking release.
+
 **Parameters**
 
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
-| `params` | in | [`cuvsCagraCompressionParams_t*`](/api-reference/c-api-neighbors-cagra#cuvscagracompressionparams) | cuvsCagraCompressionParams_t to allocate |
+| `params` | in | [`cuvsCagraCompressionParams_t*`](/api-reference/c-api-core-dataset#cuvscagracompressionparams) | cuvsCagraCompressionParams_t to allocate |
 
 **Returns**
 
@@ -273,17 +248,19 @@ cuvsError_t cuvsCagraCompressionParamsCreate(cuvsCagraCompressionParams_t* param
 <a id="cuvscagracompressionparamsdestroy"></a>
 ### cuvsCagraCompressionParamsDestroy
 
-De-allocate CAGRA Compression params
+De-allocate CAGRA Compression params.
 
 ```c
 cuvsError_t cuvsCagraCompressionParamsDestroy(cuvsCagraCompressionParams_t params);
 ```
 
+Deprecated: Use `cuvsPQDatasetParamsDestroy`. This compatibility API is planned for removal in the 27.02 ABI-breaking release.
+
 **Parameters**
 
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
-| `params` | in | [`cuvsCagraCompressionParams_t`](/api-reference/c-api-neighbors-cagra#cuvscagracompressionparams) |  |
+| `params` | in | [`cuvsCagraCompressionParams_t`](/api-reference/c-api-core-dataset#cuvscagracompressionparams) |  |
 
 **Returns**
 

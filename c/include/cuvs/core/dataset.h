@@ -49,8 +49,61 @@ typedef struct {
 } cuvsDataset;
 typedef cuvsDataset* cuvsDataset_t;
 
-struct cuvsCagraCompressionParams;
+/**
+ *  Parameters for PQ dataset compression.
+ *
+ * The `cuvsCagraCompressionParams` tag is retained for source and ABI compatibility and is planned
+ * for removal in the 27.02 ABI-breaking release. Use `cuvsPQDatasetParams` in new code.
+ */
+typedef struct cuvsCagraCompressionParams {
+  /**
+   * The bit length of the vector element after compression by PQ.
+   *
+   * Possible values: [4, 5, 6, 7, 8].
+   *
+   * Hint: the smaller the `pq_bits`, the smaller the index size and the better the search
+   * performance, but the lower the recall.
+   */
+  uint32_t pq_bits;
+  /**
+   * The dimensionality of the vector after compression by PQ.
+   * When zero, an optimal value is selected using a heuristic.
+   *
+   * TODO: at the moment `dim` must be a multiple `pq_dim`.
+   */
+  uint32_t pq_dim;
+  /**
+   * Vector Quantization (VQ) codebook size - number of "coarse cluster centers".
+   * When zero, an optimal value is selected using a heuristic.
+   */
+  uint32_t vq_n_centers;
+  /** The number of iterations searching for kmeans centers (both VQ & PQ phases). */
+  uint32_t kmeans_n_iters;
+  /**
+   * The fraction of data to use during iterative kmeans building (VQ phase).
+   * When zero, an optimal value is selected using a heuristic.
+   */
+  double vq_kmeans_trainset_fraction;
+  /**
+   * The fraction of data to use during iterative kmeans building (PQ phase).
+   * When zero, an optimal value is selected using a heuristic.
+   */
+  double pq_kmeans_trainset_fraction;
+} cuvsPQDatasetParams;
+typedef cuvsPQDatasetParams* cuvsPQDatasetParams_t;
+
+/**
+ * @brief Compatibility name for PQ dataset parameters; planned for removal in the 27.02 ABI-breaking release.
+ *
+ * Use `cuvsPQDatasetParams_t` in new code.
+ */
 typedef struct cuvsCagraCompressionParams* cuvsCagraCompressionParams_t;
+
+/** Allocate generic PQ dataset parameters with default values. */
+CUVS_EXPORT cuvsError_t cuvsPQDatasetParamsCreate(cuvsPQDatasetParams_t* params);
+
+/** De-allocate generic PQ dataset parameters. */
+CUVS_EXPORT cuvsError_t cuvsPQDatasetParamsDestroy(cuvsPQDatasetParams_t params);
 
 /**
  * @brief Create an empty owning dataset handle.
@@ -77,12 +130,12 @@ CUVS_EXPORT cuvsError_t cuvsDatasetMakePadded(cuvsResources_t res,
                                               cuvsDataset_t* padded_dataset);
 
 /**
- * @brief Compress a dense dataset into a device VPQ dataset.
+ * @brief Compress a dense dataset into a device PQ dataset.
  *
  * Only device output is currently supported.
  */
 CUVS_EXPORT cuvsError_t cuvsDatasetMakePQ(cuvsResources_t res,
-                                          cuvsCagraCompressionParams_t params,
+                                          cuvsPQDatasetParams_t params,
                                           cuvsDataset_t dataset,
                                           cuvsDatasetMemType_t target_mem_type,
                                           cuvsDataset_t* pq_dataset);

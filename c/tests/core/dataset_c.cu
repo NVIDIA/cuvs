@@ -46,6 +46,15 @@ TEST(DatasetC, CreateDestroy)
   ASSERT_EQ(cuvsDatasetDestroy(dataset), CUVS_SUCCESS);
 }
 
+TEST(DatasetC, PQDatasetParamsCreateDestroy)
+{
+  cuvsPQDatasetParams_t params;
+  ASSERT_EQ(cuvsPQDatasetParamsCreate(&params), CUVS_SUCCESS);
+  ASSERT_NE(params, nullptr);
+  EXPECT_EQ(params->pq_bits, 8);
+  ASSERT_EQ(cuvsPQDatasetParamsDestroy(params), CUVS_SUCCESS);
+}
+
 TEST(DatasetC, MakePaddedFromHost)
 {
   cuvsResources_t res;

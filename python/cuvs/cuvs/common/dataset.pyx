@@ -157,16 +157,7 @@ def make_device_pq_dataset(params, dataset, resources=None):
     cdef Dataset pq = Dataset()
     cdef cuvsResources_t res = <cuvsResources_t>resources.get_c_obj()
     cdef cydlpack.DLManagedTensor* dataset_dlpack = NULL
-    cdef cuvsCagraCompressionParams c_params
-
-    c_params.pq_bits = params.pq_bits
-    c_params.pq_dim = params.pq_dim
-    c_params.vq_n_centers = params.vq_n_centers
-    c_params.kmeans_n_iters = params.kmeans_n_iters
-    c_params.vq_kmeans_trainset_fraction = \
-        params.vq_kmeans_trainset_fraction
-    c_params.pq_kmeans_trainset_fraction = \
-        params.pq_kmeans_trainset_fraction
+    cdef cuvsPQDatasetParams_t c_params = NULL
 
     if isinstance(dataset, Dataset):
         dense = dataset
@@ -178,10 +169,23 @@ def make_device_pq_dataset(params, dataset, resources=None):
         check_cuvs(cuvsDatasetMakeStandardView(
             res, dataset_dlpack, &dense.dataset))
 
-    check_cuvs(cuvsDatasetMakePQ(
-        res,
-        &c_params,
-        dense.dataset,
-        CUVS_DATASET_MEM_TYPE_DEVICE,
-        &pq.dataset))
+    check_cuvs(cuvsPQDatasetParamsCreate(&c_params))
+    try:
+        c_params.pq_bits = params.pq_bits
+        c_params.pq_dim = params.pq_dim
+        c_params.vq_n_centers = params.vq_n_centers
+        c_params.kmeans_n_iters = params.kmeans_n_iters
+        c_params.vq_kmeans_trainset_fraction = \
+            params.vq_kmeans_trainset_fraction
+        c_params.pq_kmeans_trainset_fraction = \
+            params.pq_kmeans_trainset_fraction
+
+        check_cuvs(cuvsDatasetMakePQ(
+            res,
+            c_params,
+            dense.dataset,
+            CUVS_DATASET_MEM_TYPE_DEVICE,
+            &pq.dataset))
+    finally:
+        check_cuvs(cuvsPQDatasetParamsDestroy(c_params))
     return pq

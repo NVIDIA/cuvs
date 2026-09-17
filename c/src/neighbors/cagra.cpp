@@ -409,7 +409,7 @@ static void bind_vpq_owner_to_dataset(std::unique_ptr<device_vpq_owner_t> owner,
   *output           = out;
 }
 
-static auto make_cpp_vpq_params(cuvsCagraCompressionParams const& params)
+static auto make_cpp_vpq_params(cuvsPQDatasetParams const& params)
   -> cuvs::neighbors::vpq_params
 {
   auto out                            = cuvs::neighbors::vpq_params{};
@@ -424,7 +424,7 @@ static auto make_cpp_vpq_params(cuvsCagraCompressionParams const& params)
 
 template <typename T>
 static auto make_device_pq_dataset(raft::resources* res_ptr,
-                                   cuvsCagraCompressionParams const& params,
+                                   cuvsPQDatasetParams const& params,
                                    cuvsDataset_t dataset)
   -> std::unique_ptr<device_vpq_owner_t>
 {
@@ -1655,7 +1655,7 @@ extern "C" cuvsError_t cuvsDatasetMakeStandardView(cuvsResources_t res,
 }
 
 extern "C" cuvsError_t cuvsDatasetMakePQ(cuvsResources_t res,
-                                         cuvsCagraCompressionParams_t params,
+                                         cuvsPQDatasetParams_t params,
                                          cuvsDataset_t dataset,
                                          cuvsDatasetMemType_t target_mem_type,
                                          cuvsDataset_t* pq_dataset)
@@ -2150,6 +2150,16 @@ extern "C" cuvsError_t cuvsCagraCompressionParamsCreate(cuvsCagraCompressionPara
 extern "C" cuvsError_t cuvsCagraCompressionParamsDestroy(cuvsCagraCompressionParams_t params)
 {
   return cuvs::core::translate_exceptions([=] { delete params; });
+}
+
+extern "C" cuvsError_t cuvsPQDatasetParamsCreate(cuvsPQDatasetParams_t* params)
+{
+  return cuvsCagraCompressionParamsCreate(params);
+}
+
+extern "C" cuvsError_t cuvsPQDatasetParamsDestroy(cuvsPQDatasetParams_t params)
+{
+  return cuvsCagraCompressionParamsDestroy(params);
 }
 
 extern "C" cuvsError_t cuvsAceParamsCreate(cuvsAceParams_t* params)
