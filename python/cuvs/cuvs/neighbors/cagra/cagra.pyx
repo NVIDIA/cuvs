@@ -477,7 +477,7 @@ def build(IndexParams index_params, dataset, resources=None):
         Supported dtype [float, half, int8, uint8]
         **Note:** For ACE build algorithm, the dataset MUST be in host memory.
         Use NumPy arrays or call .get() on CuPy arrays before passing.
-        A ``Dataset`` with ``layout == "vpq"`` builds an iterative CAGRA-Q
+        A ``Dataset`` with ``layout == "pq"`` builds an iterative CAGRA-Q
         index and requires ``metric="sqeuclidean"`` plus
         ``build_algo="iterative_cagra_search"``.
     {resources_docstring}
@@ -533,7 +533,7 @@ def build(IndexParams index_params, dataset, resources=None):
                 dl_data_type_to_numpy(idx.index.dtype)).name
             idx._dataset_source = dataset_obj
 
-            if dataset_obj.layout == "vpq":
+            if dataset_obj.layout == "pq":
                 _keep_dataset_alive(idx, dataset_obj)
                 idx._dataset_source = None
             elif not is_ace_build:
@@ -606,7 +606,7 @@ def update_dataset(Index index, dataset, resources=None):
         dataset_obj = make_device_padded_dataset(dataset, resources=resources)
 
     cdef cuvsDataset_t dataset_handle = _cagra_dataset_handle(dataset_obj)
-    if dataset_obj.layout not in ("padded", "vpq"):
+    if dataset_obj.layout not in ("padded", "pq"):
         raise TypeError("dataset must have padded or PQ layout")
 
     cdef cuvsResources_t res = <cuvsResources_t>resources.get_c_obj()

@@ -4,13 +4,26 @@
 #
 # cython: language_level=3
 
+from libc.stdint cimport uint32_t
 from libcpp cimport bool
 
 from cuvs.common.c_api cimport cuvsError_t, cuvsResources_t
 from cuvs.common.cydlpack cimport DLDataType, DLManagedTensor
 
 
+cdef extern from "cuvs/neighbors/cagra.h" nogil:
+    ctypedef struct cuvsCagraCompressionParams:
+        uint32_t pq_bits
+        uint32_t pq_dim
+        uint32_t vq_n_centers
+        uint32_t kmeans_n_iters
+        double vq_kmeans_trainset_fraction
+        double pq_kmeans_trainset_fraction
+
+
 cdef extern from "cuvs/core/dataset.h" nogil:
+    ctypedef cuvsCagraCompressionParams* cuvsCagraCompressionParams_t
+
     ctypedef enum cuvsDatasetLayout_t:
         CUVS_DATASET_LAYOUT_STANDARD
         CUVS_DATASET_LAYOUT_PADDED
@@ -23,10 +36,6 @@ cdef extern from "cuvs/core/dataset.h" nogil:
     cdef struct cuvsDataset:
         pass
     ctypedef cuvsDataset* cuvsDataset_t
-
-    cdef struct cuvsCagraCompressionParams:
-        pass
-    ctypedef cuvsCagraCompressionParams* cuvsCagraCompressionParams_t
 
     cuvsError_t cuvsDatasetCreate(cuvsDataset_t* dataset)
 
