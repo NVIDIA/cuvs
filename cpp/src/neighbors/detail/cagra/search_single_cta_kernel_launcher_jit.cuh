@@ -798,12 +798,13 @@ void select_and_run(
   uint32_t topk,
   uint32_t num_itopk_candidates,
   uint32_t block_size,  //
-  uint32_t smem_size,
-  int64_t hash_bitlen,
+  uint32_t& smem_size,
+  int64_t& hash_bitlen,
   IndexT* hashmap_ptr,
-  size_t small_hash_bitlen,
-  size_t small_hash_reset_interval,
+  size_t& small_hash_bitlen,
+  size_t& small_hash_reset_interval,
   uint32_t num_seeds,
+  bool& small_hash_occupancy_tuned,
   SampleFilterT sample_filter,
   cudaStream_t stream)
 {
@@ -868,6 +869,42 @@ void select_and_run(
         false /* persistent */,
         make_cagra_sample_filter_udf_fragment<SourceIndexT>(sample_filter));
     if (!launcher) { RAFT_FAIL("Failed to get JIT launcher for CAGRA search kernel"); }
+
+    if (!small_hash_occupancy_tuned && ps.hashmap_min_bitlen == 0 && small_hash_bitlen != 0) {
+      // Grow the per-CTA small hash only while the concrete JIT kernel retains its occupancy.
+      auto kernel = launcher->get_kernel();
+      RAFT_CUDA_TRY(
+        cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem_size));
+      int blocks_per_sm = 0;
+      RAFT_CUDA_TRY(cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+        &blocks_per_sm, kernel, block_size, smem_size));
+
+      constexpr size_t max_small_hash_bitlen = 13;
+      for (size_t candidate_bitlen = small_hash_bitlen + 1;
+           candidate_bitlen <= max_small_hash_bitlen;
+           ++candidate_bitlen) {
+        const auto candidate_smem_size =
+          smem_size + sizeof(IndexT) * (hashmap::get_size(candidate_bitlen) -
+                                        hashmap::get_size(small_hash_bitlen));
+        RAFT_CUDA_TRY(cudaFuncSetAttribute(
+          kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, candidate_smem_size));
+        int candidate_blocks_per_sm = 0;
+        RAFT_CUDA_TRY(cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+          &candidate_blocks_per_sm, kernel, block_size, candidate_smem_size));
+        if (candidate_blocks_per_sm < blocks_per_sm) { break; }
+
+        small_hash_bitlen         = candidate_bitlen;
+        hash_bitlen               = candidate_bitlen;
+        smem_size                 = candidate_smem_size;
+        blocks_per_sm             = candidate_blocks_per_sm;
+      }
+      // A larger hash allows less frequent resets while preserving the fill-rate limit.
+      const auto usable_hash_slots =
+        static_cast<size_t>(hashmap::get_size(small_hash_bitlen) * ps.hashmap_max_fill_rate);
+      small_hash_reset_interval =
+        std::max<size_t>(1, (usable_hash_slots - ps.itopk_size) / num_itopk_candidates - 1);
+      small_hash_occupancy_tuned = true;
+    }
 
     // Get the device descriptor pointer - dev_ptr() initializes it if needed
     const auto* dev_desc = dataset_desc.dev_ptr(stream);

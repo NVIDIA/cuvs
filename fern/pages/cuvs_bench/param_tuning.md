@@ -89,7 +89,7 @@ CAGRA uses a graph-based index, which creates an intermediate, approximate kNN g
 | `use_disk` | `build` | N | Boolean | `false` | Whether to use disk-based storage for ACE build. When true, forces ACE to use disk-based storage even if the graph fits in host and GPU memory. When false, ACE will use in-memory storage if the graph fits in host and GPU memory and disk-based storage otherwise. |
 | `query_memory_type` | `search` | N | [`device`, `host`, `mmap`] | `device` | Where should the queries reside? |
 | `itopk` | `search` | N | Positive integer >0 | 64 | Number of intermediate search results retained during the search. Higher values improve search accuracy at the cost of speed |
-| `search_width` | `search` | N | Positive integer >0 | 1 | Number of graph nodes to select as the starting point for the search in each iteration. |
+| `search_width` | `search` | N | Non-negative integer | 1 | Number of graph nodes to select as the starting point for the search in each iteration. A value of 0 selects `ceil(itopk_size / graph_degree)`. |
 | `max_iterations` | `search` | N | Positive integer >=0 | 0 | Upper limit of search iterations. Auto select when 0 |
 | `algo` | `search` | N | [`auto`, `single_cta`, `multi_cta`, `multi_kernel`] | `auto` | Algorithm to use for search. It's usually best to leave this to `auto`. |
 | `persistent` | `search` | N | Boolean | `false` | Enables the persistent CAGRA search kernel for high-throughput search with many concurrent client threads. Persistent search currently requires `single_cta`; `auto` selects it when persistent mode is enabled. |
