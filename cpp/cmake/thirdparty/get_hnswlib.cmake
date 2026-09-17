@@ -1,6 +1,6 @@
 #=============================================================================
 # cmake-format: off
-# SPDX-FileCopyrightText: Copyright (c) 2023-2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 # cmake-format: on
 #=============================================================================
@@ -8,6 +8,11 @@
 function(find_and_configure_hnswlib)
   message(STATUS "Finding or building hnswlib")
   set(oneValueArgs)
+
+  # hnswlib 0.7.0 declares compatibility with CMake 2.6, which CMake 4 no longer supports.
+  if(CMAKE_VERSION VERSION_GREATER_EQUAL 4.0 AND NOT DEFINED CMAKE_POLICY_VERSION_MINIMUM)
+    set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+  endif()
 
   include(${rapids-cmake-dir}/cpm/package_override.cmake)
   set(patch_dir "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../patches")
@@ -32,11 +37,13 @@ function(find_and_configure_hnswlib)
   rapids_cpm_display_patch_status(hnswlib)
 
   if(NOT TARGET hnswlib::hnswlib)
-    add_library(hnswlib INTERFACE )
+    if(NOT TARGET hnswlib)
+      add_library(hnswlib INTERFACE)
+    endif()
     add_library(hnswlib::hnswlib ALIAS hnswlib)
-    target_include_directories(hnswlib INTERFACE
-     "$<BUILD_INTERFACE:${hnswlib_SOURCE_DIR}>"
-     "$<INSTALL_INTERFACE:include>")
+    set_target_properties(hnswlib PROPERTIES
+      INTERFACE_INCLUDE_DIRECTORIES
+        "$<BUILD_INTERFACE:${hnswlib_SOURCE_DIR}>;$<INSTALL_INTERFACE:include>")
   endif()
 
   if(hnswlib_ADDED)
