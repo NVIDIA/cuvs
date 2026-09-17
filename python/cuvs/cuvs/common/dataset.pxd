@@ -11,14 +11,18 @@ from cuvs.common.c_api cimport cuvsError_t, cuvsResources_t
 from cuvs.common.cydlpack cimport DLDataType, DLManagedTensor
 
 
-cdef extern from "cuvs/core/dataset.h" nogil:
-    ctypedef struct cuvsPqParams:
+cdef extern from "cuvs/neighbors/cagra.h" nogil:
+    ctypedef struct cuvsCagraCompressionParams:
         uint32_t pq_bits
         uint32_t pq_dim
         uint32_t vq_n_centers
         uint32_t kmeans_n_iters
         double vq_kmeans_trainset_fraction
         double pq_kmeans_trainset_fraction
+
+
+cdef extern from "cuvs/core/dataset.h" nogil:
+    ctypedef cuvsCagraCompressionParams cuvsPqParams
     ctypedef cuvsPqParams* cuvsPqParams_t
 
     cuvsError_t cuvsPqParamsCreate(

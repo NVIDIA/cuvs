@@ -5,6 +5,7 @@
 
 #include <cuvs/core/c_api.h>
 #include <cuvs/core/dataset.h>
+#include <cuvs/neighbors/cagra.h>
 #include <dlpack/dlpack.h>
 
 #include <cuda_runtime.h>
