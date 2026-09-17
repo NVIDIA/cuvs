@@ -8,6 +8,7 @@
 #include "ann_utils.cuh"
 #include "naive_knn.cuh"
 
+#include <cuda/stream>
 #include <cuvs/neighbors/ivf_sq.hpp>
 #include <raft/core/bitset.cuh>
 #include <raft/linalg/add.cuh>
@@ -373,7 +374,7 @@ class AnnIVFSQTest : public ::testing::TestWithParam<AnnIvfSqInputs<IdxT>> {
   }
 
   raft::resources handle_;
-  rmm::cuda_stream_view stream_;
+  cuda::stream_ref stream_;
   AnnIvfSqInputs<IdxT> ps;
   rmm::device_uvector<DataT> database;
   rmm::device_uvector<DataT> search_queries;

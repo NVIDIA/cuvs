@@ -362,14 +362,14 @@ cudaStreamDestroy(stream);
 
 ```cpp
 #include <raft/core/device_resources.hpp>
-#include <rmm/cuda_stream_view.hpp>
+#include <cuda/stream>
 
 #include <cuda_runtime_api.h>
 
 cudaStream_t stream;
 cudaStreamCreate(&stream);
 
-raft::device_resources resources{rmm::cuda_stream_view{stream}};
+raft::device_resources resources{cuda::stream_ref{stream}};
 
 // cuVS C++ calls using resources are enqueued on stream.
 

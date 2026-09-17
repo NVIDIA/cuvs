@@ -109,9 +109,6 @@ function(_cutile_make_python_args output_var)
       --gpu-code
       "${gpu_code}"
   )
-  if(DEFINED bytecode_version AND NOT "${bytecode_version}" STREQUAL "")
-    list(APPEND _python_args --bytecode-version "${bytecode_version}")
-  endif()
   if(DEFINED matrix_layout AND NOT "${matrix_layout}" STREQUAL "")
     list(APPEND _python_args --matrix-layout "${matrix_layout}")
   endif()
@@ -127,7 +124,7 @@ endfunction()
 function(process_cutile_matrix_entry source_list_var)
   set(options)
   set(one_value KERNEL_DIR KERNEL_BASENAME KERNEL_PYTHON EXPORT_SCRIPT OUTPUT_DIRECTORY
-                FRAGMENT_TAG_FORMAT_CUBIN FRAGMENT_TAG_FORMAT_TILEIR MATRIX_JSON_ENTRY
+                FRAGMENT_TAG_FORMAT_CUBIN MATRIX_JSON_ENTRY
   )
   set(multi_value FRAGMENT_TAG_HEADER_FILES)
   cmake_parse_arguments(_CUTILE "${options}" "${one_value}" "${multi_value}" ${ARGN})
@@ -138,19 +135,12 @@ function(process_cutile_matrix_entry source_list_var)
 
   populate_matrix_variables("${_CUTILE_MATRIX_JSON_ENTRY}")
 
-  if(register STREQUAL "cubin")
-    string(CONFIGURE "${_CUTILE_FRAGMENT_TAG_FORMAT_CUBIN}" fragment_tag @ONLY)
-    set(bin2c_symbol embedded_cubin)
-    set(fragment_entry_type "cuvs::detail::jit_lto::StaticCubinFragmentEntry<fragment_tag>")
-  elseif(register STREQUAL "tileir")
-    string(CONFIGURE "${_CUTILE_FRAGMENT_TAG_FORMAT_TILEIR}" fragment_tag @ONLY)
-    set(bin2c_symbol embedded_tileir)
-    set(fragment_entry_type
-        "cuvs::detail::jit_lto::StaticTileIrBytecodeFragmentEntry<fragment_tag>"
-    )
-  else()
+  if(NOT register STREQUAL "cubin")
     message(FATAL_ERROR "Unknown cuTile register kind '${register}'")
   endif()
+  string(CONFIGURE "${_CUTILE_FRAGMENT_TAG_FORMAT_CUBIN}" fragment_tag @ONLY)
+  set(bin2c_symbol embedded_cubin)
+  set(fragment_entry_type "cuvs::detail::jit_lto::StaticCubinFragmentEntry<fragment_tag>")
 
   _cutile_fragment_tag_header_files(fragment_tag_header_files ${_CUTILE_FRAGMENT_TAG_HEADER_FILES})
 
@@ -214,7 +204,7 @@ endfunction()
 function(generate_cutile_kernels source_list_var)
   set(options)
   set(one_value KERNEL_DIR KERNEL_BASENAME KERNEL_PYTHON EXPORT_SCRIPT OUTPUT_DIRECTORY
-                MATRIX_JSON_FILE FRAGMENT_TAG_FORMAT_CUBIN FRAGMENT_TAG_FORMAT_TILEIR
+                MATRIX_JSON_FILE FRAGMENT_TAG_FORMAT_CUBIN
   )
   set(multi_value FRAGMENT_TAG_HEADER_FILES)
   cmake_parse_arguments(_CUTILE "${options}" "${one_value}" "${multi_value}" ${ARGN})
@@ -259,7 +249,6 @@ function(generate_cutile_kernels source_list_var)
       EXPORT_SCRIPT "${_CUTILE_EXPORT_SCRIPT}"
       OUTPUT_DIRECTORY "${_CUTILE_OUTPUT_DIRECTORY}"
       FRAGMENT_TAG_FORMAT_CUBIN "${_CUTILE_FRAGMENT_TAG_FORMAT_CUBIN}"
-      FRAGMENT_TAG_FORMAT_TILEIR "${_CUTILE_FRAGMENT_TAG_FORMAT_TILEIR}"
       FRAGMENT_TAG_HEADER_FILES ${_CUTILE_FRAGMENT_TAG_HEADER_FILES}
       MATRIX_JSON_ENTRY "${matrix_json_entry}"
     )
