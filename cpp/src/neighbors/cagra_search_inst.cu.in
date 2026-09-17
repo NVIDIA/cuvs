@@ -12,8 +12,8 @@ namespace {
 using data_t                      = @data_type@;
 using inst_device_padded_view_t   = cuvs::neighbors::device_padded_dataset_view<data_t, int64_t>;
 using inst_device_standard_view_t = cuvs::neighbors::device_standard_dataset_view<data_t, int64_t>;
-using inst_vpq_f16_view_t         = cuvs::neighbors::device_vpq_dataset_view<half, int64_t>;
-using inst_vpq_f32_view_t         = cuvs::neighbors::device_vpq_dataset_view<float, int64_t>;
+using inst_pq_f16_view_t          = cuvs::neighbors::device_pq_dataset_view<half, int64_t>;
+using inst_pq_f32_view_t          = cuvs::neighbors::device_pq_dataset_view<float, int64_t>;
 using inst_empty_view_t           = cuvs::neighbors::device_empty_dataset_view<int64_t>;
 
 }  // namespace
@@ -36,8 +36,8 @@ namespace cuvs::neighbors::cagra {
 #define CUVS_INST_CAGRA_SEARCH_ALL_VIEWS(T, OutputIdxT)                         \
   CUVS_INST_CAGRA_SEARCH(T, uint32_t, inst_device_padded_view_t, OutputIdxT);   \
   CUVS_INST_CAGRA_SEARCH(T, uint32_t, inst_device_standard_view_t, OutputIdxT); \
-  CUVS_INST_CAGRA_SEARCH(T, uint32_t, inst_vpq_f16_view_t, OutputIdxT);         \
-  CUVS_INST_CAGRA_SEARCH(T, uint32_t, inst_vpq_f32_view_t, OutputIdxT);         \
+  CUVS_INST_CAGRA_SEARCH(T, uint32_t, inst_pq_f16_view_t, OutputIdxT);          \
+  CUVS_INST_CAGRA_SEARCH(T, uint32_t, inst_pq_f32_view_t, OutputIdxT);          \
   CUVS_INST_CAGRA_SEARCH(T, uint32_t, inst_empty_view_t, OutputIdxT)
 
 CUVS_INST_CAGRA_SEARCH_ALL_VIEWS(data_t, uint32_t);
@@ -53,9 +53,9 @@ template CUVS_EXPORT __attribute__((externally_visible)) void
 index<data_t, uint32_t, inst_device_standard_view_t>::compute_dataset_norms_(
   raft::resources const& res);
 template CUVS_EXPORT __attribute__((externally_visible)) void
-index<data_t, uint32_t, inst_vpq_f16_view_t>::compute_dataset_norms_(raft::resources const& res);
+index<data_t, uint32_t, inst_pq_f16_view_t>::compute_dataset_norms_(raft::resources const& res);
 template CUVS_EXPORT __attribute__((externally_visible)) void
-index<data_t, uint32_t, inst_vpq_f32_view_t>::compute_dataset_norms_(raft::resources const& res);
+index<data_t, uint32_t, inst_pq_f32_view_t>::compute_dataset_norms_(raft::resources const& res);
 template CUVS_EXPORT __attribute__((externally_visible)) void
 index<data_t, uint32_t, inst_empty_view_t>::compute_dataset_norms_(raft::resources const& res);
 

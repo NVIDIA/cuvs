@@ -81,6 +81,48 @@ enum cuvsCagraHnswHeuristicType {
    CUVS_CAGRA_HEURISTIC_SAME_GRAPH_FOOTPRINT = 1
 };
 
+/**
+ * Parameters for PQ dataset compression.
+ *
+ * The `cuvsCagraCompressionParams` name is retained for ABI compatibility and is planned for
+ * removal in the 27.02 ABI-breaking release. Use `cuvsPqParams` in new code.
+ */
+struct cuvsCagraCompressionParams {
+  /**
+   * The bit length of the vector element after compression by PQ.
+   *
+   * Possible values: [4, 5, 6, 7, 8].
+   *
+   * Hint: the smaller the `pq_bits`, the smaller the index size and the better the search
+   * performance, but the lower the recall.
+   */
+  uint32_t pq_bits;
+  /**
+   * The dimensionality of the vector after compression by PQ.
+   * When zero, an optimal value is selected using a heuristic.
+   *
+   * TODO: at the moment `dim` must be a multiple `pq_dim`.
+   */
+  uint32_t pq_dim;
+  /**
+   * Vector Quantization (VQ) codebook size - number of "coarse cluster centers".
+   * When zero, an optimal value is selected using a heuristic.
+   */
+  uint32_t vq_n_centers;
+  /** The number of iterations searching for kmeans centers (both VQ & PQ phases). */
+  uint32_t kmeans_n_iters;
+  /**
+   * The fraction of data to use during iterative kmeans building (VQ phase).
+   * When zero, an optimal value is selected using a heuristic.
+   */
+  double vq_kmeans_trainset_fraction;
+  /**
+   * The fraction of data to use during iterative kmeans building (PQ phase).
+   * When zero, an optimal value is selected using a heuristic.
+   */
+  double pq_kmeans_trainset_fraction;
+};
+
 struct cuvsIvfPqParams {
   cuvsIvfPqIndexParams_t ivf_pq_build_params;
   cuvsIvfPqSearchParams_t ivf_pq_search_params;
@@ -233,7 +275,7 @@ CUVS_EXPORT cuvsError_t cuvsCagraMergeParamsDestroy(cuvsCagraMergeParams_t param
 /**
  * @brief Allocate CAGRA Compression params, and populate with default values.
  *
- * Deprecated: Use `cuvsPQDatasetParamsCreate`. This compatibility API is planned for removal in
+ * Deprecated: Use `cuvsPqParamsCreate`. This compatibility API is planned for removal in
  * the 27.02 ABI-breaking release.
  *
  * @param[in] params cuvsCagraCompressionParams_t to allocate
@@ -244,7 +286,7 @@ CUVS_EXPORT cuvsError_t cuvsCagraCompressionParamsCreate(cuvsCagraCompressionPar
 /**
  * @brief De-allocate CAGRA Compression params.
  *
- * Deprecated: Use `cuvsPQDatasetParamsDestroy`. This compatibility API is planned for removal in
+ * Deprecated: Use `cuvsPqParamsDestroy`. This compatibility API is planned for removal in
  * the 27.02 ABI-breaking release.
  *
  * @param[in] params
@@ -652,8 +694,8 @@ CUVS_EXPORT cuvsError_t cuvsCagraUpdateDataset(cuvsResources_t res,
  * @endcode
  *
  * A `CUVS_DATASET_LAYOUT_PQ` dataset created by `cuvsDatasetMakePQ` builds an iterative CAGRA-Q
- * index. VPQ input requires `L2Expanded` and `ITERATIVE_CAGRA_SEARCH` (or `AUTO_SELECT`), and the
- * VPQ dataset must outlive the index because the index stores a non-owning view.
+ * index. PQ input requires `L2Expanded` and `ITERATIVE_CAGRA_SEARCH` (or `AUTO_SELECT`), and the
+ * PQ dataset must outlive the index because the index stores a non-owning view.
  *
  * @param[in] res cuvsResources_t opaque C handle
  * @param[in] params cuvsCagraIndexParams_t used to build CAGRA index

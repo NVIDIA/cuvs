@@ -6,7 +6,7 @@
 /*
  * Iterative CAGRA-Q: building a CAGRA graph directly from a PQ-compressed dataset.
  *
- * This path takes a `device_vpq_dataset_view` instead of dense rows, so the caller owns
+ * This path takes a `device_pq_dataset_view` instead of dense rows, so the caller owns
  * compression and the inner searches of the iterative build run against the compressed data.
  * It only accepts `L2Expanded`, `pq_bits == 8` and `pq_len` in {2, 4, 8}, so it does not fit
  * the dtype-templated suites in ann_cagra.cuh and lives in its own file.
@@ -37,21 +37,21 @@
 
 namespace cuvs::neighbors::cagra {
 
-using vpq_dataset_t = cuvs::neighbors::device_vpq_dataset<half, int64_t>;
+using pq_dataset_t = cuvs::neighbors::device_pq_dataset<half, int64_t>;
 
 namespace {
 
 auto compress(const raft::resources& res,
               raft::device_matrix_view<const float, int64_t> dataset,
               uint32_t pq_dim,
-              uint32_t pq_bits = 8) -> vpq_dataset_t
+              uint32_t pq_bits = 8) -> pq_dataset_t
 {
-  cuvs::neighbors::vpq_params params;
+  cuvs::neighbors::pq_params params;
   params.pq_dim         = pq_dim;
   params.pq_bits        = pq_bits;
   params.vq_n_centers   = 32;
   params.kmeans_n_iters = 5;  // Codebooks need to be well defined here, not optimal.
-  return cuvs::preprocessing::quantize::pq::make_vpq_dataset(res, params, dataset);
+  return cuvs::preprocessing::quantize::pq::make_pq_dataset(res, params, dataset);
 }
 
 auto iterative_params(uint32_t graph_degree = 32) -> index_params
@@ -243,7 +243,7 @@ TEST_F(CagraQSerializeTest, RoundTripsGraphAndReattachesDataset)
   EXPECT_EQ(neighbor_ids(res_, restored, queries(500)), before);
 }
 
-/** The constraints the VPQ build overload documents, each of which must be rejected loudly. */
+/** The constraints the PQ build overload documents, each of which must be rejected loudly. */
 class CagraQContractTest : public CagraQCompressedTestBase {
  protected:
   void SetUp() override { make_dataset(n_rows, dim); }
@@ -287,13 +287,13 @@ TEST_F(CagraQContractTest, RejectsPqLenOutsideSupportedSet)
 
 TEST_F(CagraQContractTest, RejectsEmptyDataset)
 {
-  // Hand-built rather than compressed, since make_vpq_dataset rejects an empty input of its own
+  // Hand-built rather than compressed, since make_pq_dataset rejects an empty input of its own
   // accord. Every other constraint is satisfied so that only the emptiness can trip.
   const auto width  = static_cast<uint32_t>(dim);
   auto vq_code_book = raft::make_device_matrix<half, uint32_t, raft::row_major>(res_, 1, width);
   auto pq_code_book = raft::make_device_matrix<half, uint32_t, raft::row_major>(res_, 256, 2);
   auto codes = raft::make_device_matrix<uint8_t, int64_t, raft::row_major>(res_, 0, 4 + dim / 2);
-  vpq_dataset_t empty{std::move(vq_code_book), std::move(pq_code_book), std::move(codes)};
+  pq_dataset_t empty{std::move(vq_code_book), std::move(pq_code_book), std::move(codes)};
   ASSERT_EQ(empty.n_rows(), 0);
 
   EXPECT_THROW(cagra::build(res_, iterative_params(), empty.as_dataset_view()), raft::exception);

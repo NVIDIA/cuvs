@@ -24,7 +24,7 @@ struct CagraMultiKernelSearchPlanner
   static inline rtcx::launcher_jit_cache launcher_jit_cache{};
 
   /// Kernels that only need `sample_filter` + one linked TU (e.g. `apply_filter_kernel`): no
-  /// `setup_workspace` / `compute_distance` fragments. Metric / team / VPQ are unused.
+  /// `setup_workspace` / `compute_distance` fragments. Metric / team / PQ are unused.
   explicit CagraMultiKernelSearchPlanner(const std::string& kernel_name)
     : CagraPlannerBase<DataTag, IndexTag, DistanceTag, QueryTag, CodebookTag, SampleFilterJitTag>(
         kernel_name, launcher_jit_cache)
@@ -35,7 +35,7 @@ struct CagraMultiKernelSearchPlanner
                                 const std::string& kernel_name,
                                 uint32_t /*team_size*/,
                                 uint32_t /*dataset_block_dim*/,
-                                bool /*is_vpq*/,
+                                bool /*is_pq*/,
                                 uint32_t /*pq_bits*/,
                                 uint32_t /*pq_len*/)
     : CagraPlannerBase<DataTag, IndexTag, DistanceTag, QueryTag, CodebookTag, SampleFilterJitTag>(

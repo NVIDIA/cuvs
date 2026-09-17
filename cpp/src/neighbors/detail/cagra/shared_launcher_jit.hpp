@@ -65,7 +65,7 @@ template <typename DataTag, cuvs::distance::DistanceType metric>
 using query_type_tag_standard_t = typename query_type_tag_standard<DataTag, metric>::type;
 
 template <typename DataTag>
-using query_type_tag_vpq_t = cuvs::neighbors::detail::tag_h;
+using query_type_tag_pq_t = cuvs::neighbors::detail::tag_h;
 
 template <typename DataTag>
 using query_type_tag_standard_l2_t =
@@ -80,7 +80,7 @@ template <typename DataTag>
 using query_type_tag_standard_hamming_t =
   query_type_tag_standard_t<DataTag, cuvs::distance::DistanceType::BitwiseHamming>;
 
-using codebook_tag_vpq_t      = cuvs::neighbors::cagra::detail::tag_codebook_half;
+using codebook_tag_pq_t       = cuvs::neighbors::cagra::detail::tag_codebook_half;
 using codebook_tag_standard_t = cuvs::neighbors::cagra::detail::tag_codebook_none;
 
 // Dependent false for static_assert in sample_filter_jit_tag (CAGRA JIT).

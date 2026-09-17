@@ -59,15 +59,15 @@ class CagraIterativeBuildBugTest : public ::testing::Test {
   // so the searches driving the build run on compressed rows instead of dense ones.
   void run_compressed()
   {
-    cuvs::neighbors::vpq_params vpq_params;
+    cuvs::neighbors::pq_params pq_params;
     // pq_len = n_dim / pq_dim must be 2, 4 or 8 for CAGRA-Q. Codebook quality is irrelevant here,
     // since only graph construction is under test, so training stays short.
-    vpq_params.pq_dim         = static_cast<uint32_t>(n_dim / 4);
-    vpq_params.vq_n_centers   = 64;
-    vpq_params.kmeans_n_iters = 5;
+    pq_params.pq_dim         = static_cast<uint32_t>(n_dim / 4);
+    pq_params.vq_n_centers   = 64;
+    pq_params.kmeans_n_iters = 5;
 
-    auto compressed = cuvs::preprocessing::quantize::pq::make_vpq_dataset(
-      res, vpq_params, raft::make_const_mdspan(dataset->view()));
+    auto compressed = cuvs::preprocessing::quantize::pq::make_pq_dataset(
+      res, pq_params, raft::make_const_mdspan(dataset->view()));
 
     // No padding and no attach step: a compressed dataset is read through its own view, which the
     // index holds on to, so `compressed` has to outlive the index.

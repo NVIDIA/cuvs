@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <neighbors/detail/cagra/compute_distance_vpq-impl.cuh>
+#include <neighbors/detail/cagra/compute_distance_pq-impl.cuh>
 
 namespace {
 
@@ -23,15 +23,15 @@ using distance_t             = @distance_type@;
 
 namespace cuvs::neighbors::cagra::detail {
 
-template struct vpq_descriptor_spec<metric,
-                                    team_size,
-                                    dim,
-                                    pq_bits,
-                                    pq_len,
-                                    codebook_t,
-                                    data_t,
-                                    index_t,
-                                    distance_t,
-                                    smem_dtype>;
+template struct pq_descriptor_spec<metric,
+                                   team_size,
+                                   dim,
+                                   pq_bits,
+                                   pq_len,
+                                   codebook_t,
+                                   data_t,
+                                   index_t,
+                                   distance_t,
+                                   smem_dtype>;
 
 }  // namespace cuvs::neighbors::cagra::detail

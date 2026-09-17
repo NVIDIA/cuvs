@@ -25,7 +25,7 @@ struct CagraMultiCtaSearchPlanner
   CagraMultiCtaSearchPlanner(cuvs::distance::DistanceType /*metric*/,
                              uint32_t /*team_size*/,
                              uint32_t /*dataset_block_dim*/,
-                             bool /*is_vpq*/,
+                             bool /*is_pq*/,
                              uint32_t /*pq_bits*/,
                              uint32_t /*pq_len*/)
     : CagraPlannerBase<DataTag, IndexTag, DistanceTag, QueryTag, CodebookTag, SampleFilterJitTag>(
@@ -54,7 +54,7 @@ struct CagraMultiCtaMpSearchPlanner
   CagraMultiCtaMpSearchPlanner(cuvs::distance::DistanceType /*metric*/,
                                uint32_t /*team_size*/,
                                uint32_t /*dataset_block_dim*/,
-                               bool /*is_vpq*/,
+                               bool /*is_pq*/,
                                uint32_t /*pq_bits*/,
                                uint32_t /*pq_len*/)
     : CagraPlannerBase<DataTag, IndexTag, DistanceTag, QueryTag, CodebookTag, SampleFilterJitTag>(

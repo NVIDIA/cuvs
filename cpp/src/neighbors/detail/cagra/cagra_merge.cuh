@@ -233,7 +233,7 @@ auto preflight_fastener(
     return reject("the scalar or graph index type is unsupported");
   }
   // Fastener reads the dataset densely per row with an explicit stride, so it needs a dense
-  // device view; VPQ and host views are rejected here rather than deep inside a kernel.
+  // device view; PQ and host views are rejected here rather than deep inside a kernel.
   if constexpr (!cuvs::neighbors::is_dense_row_major_device_dataset_view_v<DatasetViewT>) {
     return reject("only dense row-major device datasets are supported");
   }

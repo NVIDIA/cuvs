@@ -140,13 +140,13 @@
       {
         "pq_len": "2",
         "pq_bits": "8",
-        "pq_prefix": "_vpq",
+        "pq_prefix": "_pq",
         "pq_suffix": "_8pq_2subd"
       },
       {
         "pq_len": "4",
         "pq_bits": "8",
-        "pq_prefix": "_vpq",
+        "pq_prefix": "_pq",
         "pq_suffix": "_8pq_4subd"
       }
     ],
@@ -208,7 +208,7 @@
       {
         "pq_len": "8",
         "pq_bits": "8",
-        "pq_prefix": "_vpq",
+        "pq_prefix": "_pq",
         "pq_suffix": "_8pq_8subd"
       }
     ],

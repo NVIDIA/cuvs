@@ -38,6 +38,35 @@ Define how cuvsCagraIndexParamsFromHnswParams should construct a graph to constr
 enum cuvsCagraHnswHeuristicType;
 ```
 
+<a id="cuvscagracompressionparams"></a>
+### cuvsCagraCompressionParams
+
+Parameters for PQ dataset compression.
+
+The `cuvsCagraCompressionParams` name is retained for ABI compatibility and is planned for removal in the 27.02 ABI-breaking release. Use `cuvsPqParams` in new code.
+
+```c
+struct cuvsCagraCompressionParams {
+  uint32_t pq_bits;
+  uint32_t pq_dim;
+  uint32_t vq_n_centers;
+  uint32_t kmeans_n_iters;
+  double vq_kmeans_trainset_fraction;
+  double pq_kmeans_trainset_fraction;
+};
+```
+
+**Fields**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `pq_bits` | `uint32_t` | The bit length of the vector element after compression by PQ.<br /><br />Possible values: [4, 5, 6, 7, 8].<br /><br />Hint: the smaller the `pq_bits`, the smaller the index size and the better the search performance, but the lower the recall. |
+| `pq_dim` | `uint32_t` | The dimensionality of the vector after compression by PQ. When zero, an optimal value is selected using a heuristic.<br /><br />TODO: at the moment `dim` must be a multiple `pq_dim`. |
+| `vq_n_centers` | `uint32_t` | Vector Quantization (VQ) codebook size - number of "coarse cluster centers". When zero, an optimal value is selected using a heuristic. |
+| `kmeans_n_iters` | `uint32_t` | The number of iterations searching for kmeans centers (both VQ & PQ phases). |
+| `vq_kmeans_trainset_fraction` | `double` | The fraction of data to use during iterative kmeans building (VQ phase). When zero, an optimal value is selected using a heuristic. |
+| `pq_kmeans_trainset_fraction` | `double` | The fraction of data to use during iterative kmeans building (PQ phase). When zero, an optimal value is selected using a heuristic. |
+
 <a id="cuvsaceparams"></a>
 ### cuvsAceParams
 
@@ -233,13 +262,13 @@ Allocate CAGRA Compression params, and populate with default values.
 cuvsError_t cuvsCagraCompressionParamsCreate(cuvsCagraCompressionParams_t* params);
 ```
 
-Deprecated: Use `cuvsPQDatasetParamsCreate`. This compatibility API is planned for removal in the 27.02 ABI-breaking release.
+Deprecated: Use `cuvsPqParamsCreate`. This compatibility API is planned for removal in the 27.02 ABI-breaking release.
 
 **Parameters**
 
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
-| `params` | in | [`cuvsCagraCompressionParams_t*`](/api-reference/c-api-core-dataset#cuvscagracompressionparams) | cuvsCagraCompressionParams_t to allocate |
+| `params` | in | [`cuvsCagraCompressionParams_t*`](/api-reference/c-api-neighbors-cagra#cuvscagracompressionparams) | cuvsCagraCompressionParams_t to allocate |
 
 **Returns**
 
@@ -254,13 +283,13 @@ De-allocate CAGRA Compression params.
 cuvsError_t cuvsCagraCompressionParamsDestroy(cuvsCagraCompressionParams_t params);
 ```
 
-Deprecated: Use `cuvsPQDatasetParamsDestroy`. This compatibility API is planned for removal in the 27.02 ABI-breaking release.
+Deprecated: Use `cuvsPqParamsDestroy`. This compatibility API is planned for removal in the 27.02 ABI-breaking release.
 
 **Parameters**
 
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
-| `params` | in | [`cuvsCagraCompressionParams_t`](/api-reference/c-api-core-dataset#cuvscagracompressionparams) |  |
+| `params` | in | [`cuvsCagraCompressionParams_t`](/api-reference/c-api-neighbors-cagra#cuvscagracompressionparams) |  |
 
 **Returns**
 
@@ -802,7 +831,7 @@ The memory space and layout `dataset` was constructed with select the C++ build 
 
 Note that a dataset residing in host memory produces a host-backed index, which must be made search-ready with `cuvsCagraUpdateDataset` (using a device-padded dataset) before calling `cuvsCagraSearch`.
 
-A `CUVS_DATASET_LAYOUT_PQ` dataset created by `cuvsDatasetMakePQ` builds an iterative CAGRA-Q index. VPQ input requires `L2Expanded` and `ITERATIVE_CAGRA_SEARCH` (or `AUTO_SELECT`), and the VPQ dataset must outlive the index because the index stores a non-owning view.
+A `CUVS_DATASET_LAYOUT_PQ` dataset created by `cuvsDatasetMakePQ` builds an iterative CAGRA-Q index. PQ input requires `L2Expanded` and `ITERATIVE_CAGRA_SEARCH` (or `AUTO_SELECT`), and the PQ dataset must outlive the index because the index stores a non-owning view.
 
 **Parameters**
 

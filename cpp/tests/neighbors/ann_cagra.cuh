@@ -6,7 +6,7 @@
 
 #include "../test_utils.cuh"
 #include "ann_utils.cuh"
-#include "vpq_utils.cuh"
+#include "pq_utils.cuh"
 #include <cuda/stream>
 #include <raft/core/resource/cuda_stream.hpp>
 

@@ -8,10 +8,10 @@
 #include "extern_device_functions.cuh"
 
 #include "../../neighbors_device_intrinsics.cuh"
+#include "../compute_distance_pq-impl.cuh"
+#include "../compute_distance_pq.hpp"
 #include "../compute_distance_standard-impl.cuh"
 #include "../compute_distance_standard.hpp"
-#include "../compute_distance_vpq-impl.cuh"
-#include "../compute_distance_vpq.hpp"
 #include "../device_memory_ops.hpp"
 
 #include <raft/util/integer_utils.hpp>
@@ -87,7 +87,7 @@ _RAFT_DEVICE __noinline__ auto compute_distance_standard_impl(
 }
 
 template <typename DescriptorT>
-_RAFT_DEVICE RAFT_DEVICE_INLINE_FUNCTION auto compute_distance_vpq_worker_impl(
+_RAFT_DEVICE RAFT_DEVICE_INLINE_FUNCTION auto compute_distance_pq_worker_impl(
   const uint8_t* __restrict__ dataset_ptr,
   const typename DescriptorT::CODE_BOOK_T* __restrict__ vq_code_book_ptr,
   uint32_t dim,
@@ -103,7 +103,7 @@ _RAFT_DEVICE RAFT_DEVICE_INLINE_FUNCTION auto compute_distance_vpq_worker_impl(
   constexpr auto SmemDType       = DescriptorT::kSmemDType;
   using PQ_CODEBOOK_LOAD_T       = uint32_t;
 
-  using smem_val_config                  = vpq_smem_value_config<PQ_LEN, SmemDType>;
+  using smem_val_config                  = pq_smem_value_config<PQ_LEN, SmemDType>;
   using smem_val_pack_t                  = typename smem_val_config::smem_val_pack_t;
   using smem_val_pack_uint_t             = typename smem_val_config::smem_val_pack_uint_t;
   constexpr uint32_t num_packed_elements = smem_val_config::num_packed_elements;
@@ -241,7 +241,7 @@ _RAFT_DEVICE RAFT_DEVICE_INLINE_FUNCTION auto compute_distance_vpq_worker_impl(
 }
 
 template <typename DescriptorT>
-_RAFT_DEVICE __noinline__ auto compute_distance_vpq_impl(
+_RAFT_DEVICE __noinline__ auto compute_distance_pq_impl(
   const typename DescriptorT::args_t args, const typename DescriptorT::INDEX_T dataset_index) ->
   typename DescriptorT::DISTANCE_T
 {
@@ -250,7 +250,7 @@ _RAFT_DEVICE __noinline__ auto compute_distance_vpq_impl(
     (static_cast<std::uint64_t>(DescriptorT::encoded_dataset_dim(args)) * dataset_index);
   uint32_t vq_code;
   device::ldg_cg(vq_code, reinterpret_cast<const std::uint32_t*>(dataset_ptr));
-  return compute_distance_vpq_worker_impl<DescriptorT>(
+  return compute_distance_pq_worker_impl<DescriptorT>(
     dataset_ptr,
     DescriptorT::vq_code_book_ptr(args) + args.dim * vq_code,
     args.dim,
@@ -287,7 +287,7 @@ __device__ DistanceT compute_distance_impl(
                                                 DistanceT,
                                                 QueryT,
                                                 SmemDType>;
-    return compute_distance_vpq_impl<desc_t>(args, dataset_index);
+    return compute_distance_pq_impl<desc_t>(args, dataset_index);
   } else {
     static_assert(sizeof(TeamSize) == 0,
                   "compute_distance_impl: unsupported PQ_BITS/PQ_LEN/CodebookT/QueryT for CAGRA "

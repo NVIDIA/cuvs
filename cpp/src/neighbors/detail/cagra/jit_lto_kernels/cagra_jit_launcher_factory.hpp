@@ -53,7 +53,7 @@ std::shared_ptr<rtcx::algorithm_launcher> build_single_cta_launcher(
             bitonic_sort_and_merge_multi_warps,
             dataset_desc.team_size,
             dataset_desc.dataset_block_dim,
-            dataset_desc.is_vpq,
+            dataset_desc.is_pq,
             dataset_desc.pq_bits,
             dataset_desc.pq_len,
             persistent);
@@ -104,7 +104,7 @@ std::shared_ptr<rtcx::algorithm_launcher> build_multi_cta_launcher(
     planner(dataset_desc.metric,
             dataset_desc.team_size,
             dataset_desc.dataset_block_dim,
-            dataset_desc.is_vpq,
+            dataset_desc.is_pq,
             dataset_desc.pq_bits,
             dataset_desc.pq_len);
 
@@ -156,7 +156,7 @@ std::shared_ptr<rtcx::algorithm_launcher> build_single_cta_mp_launcher(
             bitonic_sort_and_merge_multi_warps,
             dataset_desc.team_size,
             dataset_desc.dataset_block_dim,
-            dataset_desc.is_vpq,
+            dataset_desc.is_pq,
             dataset_desc.pq_bits,
             dataset_desc.pq_len);
 
@@ -204,7 +204,7 @@ std::shared_ptr<rtcx::algorithm_launcher> build_multi_cta_mp_launcher(
     planner(dataset_desc.metric,
             dataset_desc.team_size,
             dataset_desc.dataset_block_dim,
-            dataset_desc.is_vpq,
+            dataset_desc.is_pq,
             dataset_desc.pq_bits,
             dataset_desc.pq_len);
 
@@ -255,7 +255,7 @@ std::shared_ptr<rtcx::algorithm_launcher> build_multi_kernel_launcher(
             linked_kernel_name,
             dataset_desc.team_size,
             dataset_desc.dataset_block_dim,
-            dataset_desc.is_vpq,
+            dataset_desc.is_pq,
             dataset_desc.pq_bits,
             dataset_desc.pq_len);
   if constexpr (std::is_same_v<CodebookTag, tag_codebook_half>) {
@@ -309,7 +309,7 @@ std::shared_ptr<rtcx::algorithm_launcher> build_apply_filter_only_launcher(
 
 }  // namespace cagra_jit_launcher_factory_detail
 
-/// Build a JIT rtcx::algorithm_launcher for single-CTA CAGRA search (runtime VPQ / metric → tag
+/// Build a JIT rtcx::algorithm_launcher for single-CTA CAGRA search (runtime PQ / metric → tag
 /// dispatch). `SampleFilterJitTag` is `cuvs::neighbors::detail::tag_filter_none`,
 /// `tag_filter_bitset`, or use `sample_filter_jit_tag_t<SAMPLE_FILTER_T>`.
 template <typename DataT,
@@ -329,9 +329,9 @@ std::shared_ptr<rtcx::algorithm_launcher> make_cagra_single_cta_jit_launcher(
   using DistTag   = decltype(get_distance_type_tag<DistanceT>());
   using SourceTag = decltype(get_source_index_type_tag<SourceIndexT>());
 
-  if (dataset_desc.is_vpq) {
-    using QueryTag    = query_type_tag_vpq_t<DataTag>;
-    using CodebookTag = codebook_tag_vpq_t;
+  if (dataset_desc.is_pq) {
+    using QueryTag    = query_type_tag_pq_t<DataTag>;
+    using CodebookTag = codebook_tag_pq_t;
     return cagra_jit_launcher_factory_detail::build_single_cta_launcher<DataTag,
                                                                         IndexTag,
                                                                         DistTag,
@@ -404,9 +404,9 @@ std::shared_ptr<rtcx::algorithm_launcher> make_cagra_multi_cta_jit_launcher(
   using DistTag   = decltype(get_distance_type_tag<DistanceT>());
   using SourceTag = decltype(get_source_index_type_tag<SourceIndexT>());
 
-  if (dataset_desc.is_vpq) {
-    using QueryTag    = query_type_tag_vpq_t<DataTag>;
-    using CodebookTag = codebook_tag_vpq_t;
+  if (dataset_desc.is_pq) {
+    using QueryTag    = query_type_tag_pq_t<DataTag>;
+    using CodebookTag = codebook_tag_pq_t;
     return cagra_jit_launcher_factory_detail::build_multi_cta_launcher<DataTag,
                                                                        IndexTag,
                                                                        DistTag,
@@ -468,9 +468,9 @@ std::shared_ptr<rtcx::algorithm_launcher> make_cagra_single_cta_mp_jit_launcher(
   using DistTag   = decltype(get_distance_type_tag<DistanceT>());
   using SourceTag = decltype(get_source_index_type_tag<SourceIndexT>());
 
-  if (dataset_desc.is_vpq) {
-    using QueryTag    = query_type_tag_vpq_t<DataTag>;
-    using CodebookTag = codebook_tag_vpq_t;
+  if (dataset_desc.is_pq) {
+    using QueryTag    = query_type_tag_pq_t<DataTag>;
+    using CodebookTag = codebook_tag_pq_t;
     return cagra_jit_launcher_factory_detail::build_single_cta_mp_launcher<DataTag,
                                                                            IndexTag,
                                                                            DistTag,
@@ -530,9 +530,9 @@ std::shared_ptr<rtcx::algorithm_launcher> make_cagra_multi_cta_mp_jit_launcher(
   using DistTag   = decltype(get_distance_type_tag<DistanceT>());
   using SourceTag = decltype(get_source_index_type_tag<SourceIndexT>());
 
-  if (dataset_desc.is_vpq) {
-    using QueryTag    = query_type_tag_vpq_t<DataTag>;
-    using CodebookTag = codebook_tag_vpq_t;
+  if (dataset_desc.is_pq) {
+    using QueryTag    = query_type_tag_pq_t<DataTag>;
+    using CodebookTag = codebook_tag_pq_t;
     return cagra_jit_launcher_factory_detail::build_multi_cta_mp_launcher<DataTag,
                                                                           IndexTag,
                                                                           DistTag,
@@ -598,9 +598,9 @@ std::shared_ptr<rtcx::algorithm_launcher> make_cagra_multi_kernel_jit_launcher(
   using DistTag   = decltype(get_distance_type_tag<DistanceT>());
   using SourceTag = decltype(get_source_index_type_tag<SourceIndexT>());
 
-  if (dataset_desc.is_vpq) {
-    using QueryTag    = query_type_tag_vpq_t<DataTag>;
-    using CodebookTag = codebook_tag_vpq_t;
+  if (dataset_desc.is_pq) {
+    using QueryTag    = query_type_tag_pq_t<DataTag>;
+    using CodebookTag = codebook_tag_pq_t;
     return cagra_jit_launcher_factory_detail::build_multi_kernel_launcher<DataTag,
                                                                           IndexTag,
                                                                           DistTag,
@@ -647,7 +647,7 @@ std::shared_ptr<rtcx::algorithm_launcher> make_cagra_multi_kernel_jit_launcher(
 }
 
 /// JIT launcher for the post-search `apply_filter_kernel` only (no workspace / distance fragments).
-/// Tag dispatch matches `make_cagra_multi_kernel_jit_launcher` so VPQ / metric / codebook stay
+/// Tag dispatch matches `make_cagra_multi_kernel_jit_launcher` so PQ / metric / codebook stay
 /// aligned with the search descriptor; `fragment_tag_apply_filter_kernel` only keys on index,
 /// distance, and source-index tags (see `apply_filter_matrix.json`).
 template <typename DataT,
@@ -664,9 +664,9 @@ std::shared_ptr<rtcx::algorithm_launcher> make_cagra_apply_filter_jit_launcher(
   using DistTag   = decltype(get_distance_type_tag<DistanceT>());
   using SourceTag = decltype(get_source_index_type_tag<SourceIndexT>());
 
-  if (dataset_desc.is_vpq) {
-    using QueryTag    = query_type_tag_vpq_t<DataTag>;
-    using CodebookTag = codebook_tag_vpq_t;
+  if (dataset_desc.is_pq) {
+    using QueryTag    = query_type_tag_pq_t<DataTag>;
+    using CodebookTag = codebook_tag_pq_t;
     return cagra_jit_launcher_factory_detail::build_apply_filter_only_launcher<DataTag,
                                                                                IndexTag,
                                                                                DistTag,

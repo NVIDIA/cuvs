@@ -34,6 +34,6 @@ __device__ bool cuvs_filter_udf(uint32_t query_id,
 
 When `cagra::search_params::filtering_rate` is negative, CAGRA uses `filtering::udf_filter::filtering_rate`. If both are negative, CAGRA assumes `0.0` because it cannot infer UDF selectivity from the source string. Providing a realistic filtering rate helps CAGRA size its internal search work for selective filters.
 
-Filter UDFs are candidate-validity predicates only. They receive logical query and source identifiers plus the caller-provided context pointer; they do not expose CAGRA graph traversal state, IVF probing decisions, PQ/VPQ encoded data, or other internal index layouts. NVIDIA cuVS still owns traversal, distance computation, and result selection.
+Filter UDFs are candidate-validity predicates only. They receive logical query and source identifiers plus the caller-provided context pointer; they do not expose CAGRA graph traversal state, IVF probing decisions, PQ/PQ encoded data, or other internal index layouts. NVIDIA cuVS still owns traversal, distance computation, and result selection.
 
 Filtered CAGRA search remains approximate ANN search. The UDF prevents rejected candidates from appearing in returned results, but it does not guarantee exact brute-force filtered nearest-neighbor semantics. For CAGRA examples, see [Using Filters](/user-guide/api-guides/indexing-guide/cagra#using-filters).

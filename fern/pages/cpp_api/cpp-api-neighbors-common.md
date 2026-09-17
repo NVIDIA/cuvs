@@ -64,7 +64,7 @@ enum class MergeStrategy {
 
 Tags selecting dataset representation for `dataset` / `dataset_view`.
 
-Each container defines nested `owning_storage` then `view_storage` (aliases into `detail::*` storage types shared by device/host). Accessibility (device vs host) is selected by the `Accessor` template parameter on `dataset` / `dataset_view`, not by duplicating containers. Layout kinds: empty, padded, standard, VPQ. `dataset` / `dataset_view` only express ownership vs view.
+Each container defines nested `owning_storage` then `view_storage` (aliases into `detail::*` storage types shared by device/host). Accessibility (device vs host) is selected by the `Accessor` template parameter on `dataset` / `dataset_view`, not by duplicating containers. Layout kinds: empty, padded, standard, PQ. `dataset` / `dataset_view` only express ownership vs view.
 
 ```cpp
 template <typename ContainerType, typename DataT, typename IdxT, typename Accessor>

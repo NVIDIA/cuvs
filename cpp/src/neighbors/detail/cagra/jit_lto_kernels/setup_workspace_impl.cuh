@@ -6,10 +6,10 @@
 #pragma once
 
 #include "../../neighbors_device_intrinsics.cuh"
+#include "../compute_distance_pq-impl.cuh"
+#include "../compute_distance_pq.hpp"
 #include "../compute_distance_standard-impl.cuh"
 #include "../compute_distance_standard.hpp"
-#include "../compute_distance_vpq-impl.cuh"
-#include "../compute_distance_vpq.hpp"
 #include "../device_memory_ops.hpp"
 
 #include <type_traits>
@@ -73,7 +73,7 @@ RAFT_DEVICE_INLINE_FUNCTION constexpr auto transpose(T x) -> T
 }
 
 template <typename DescriptorT>
-_RAFT_DEVICE __noinline__ auto setup_workspace_vpq_impl(
+_RAFT_DEVICE __noinline__ auto setup_workspace_pq_impl(
   const DescriptorT* that,
   void* smem_ptr,
   const typename DescriptorT::DATA_T* queries_ptr,
@@ -85,7 +85,7 @@ _RAFT_DEVICE __noinline__ auto setup_workspace_vpq_impl(
   constexpr auto PQ_BITS             = DescriptorT::kPqBits;
   constexpr auto PQ_LEN              = DescriptorT::kPqLen;
   constexpr auto SmemDType           = DescriptorT::kSmemDType;
-  using smem_val_config              = vpq_smem_value_config<PQ_LEN, SmemDType>;
+  using smem_val_config              = pq_smem_value_config<PQ_LEN, SmemDType>;
   using smem_val_t                   = typename smem_val_config::smem_val_t;
   using smem_val_pack_t              = typename smem_val_config::smem_val_pack_t;
   using smem_val_pack_uint_t         = typename smem_val_config::smem_val_pack_uint_t;
@@ -214,7 +214,7 @@ __device__ const dataset_descriptor_base_t<DataT, IndexT, DistanceT>* setup_work
                                                       SmemDType>;
     const desc_t* desc = static_cast<const desc_t*>(desc_ptr);
 
-    const desc_t* result = setup_workspace_vpq_impl<desc_t>(desc, smem, queries, query_id);
+    const desc_t* result = setup_workspace_pq_impl<desc_t>(desc, smem, queries, query_id);
     return static_cast<const dataset_descriptor_base_t<DataT, IndexT, DistanceT>*>(result);
   } else {
     static_assert(

@@ -155,7 +155,7 @@ void select_and_run(const dataset_descriptor_host<DataT, IndexT, DistanceT>& dat
 
 // Multi-partition launcher. Drives `search_multi_cta_mp` with a 3D grid
 // (num_cta_per_query, num_queries, num_partitions). `ref_dataset_desc` is used only for JIT tag
-// dispatch (metric / vpq / team_size / block_dim) and must be representative of every
+// dispatch (metric / pq / team_size / block_dim) and must be representative of every
 // partition's descriptor. Per-partition device descriptors are read from `partition_descs` by
 // the kernel itself.
 template <typename DataT,

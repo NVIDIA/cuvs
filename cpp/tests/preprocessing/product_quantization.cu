@@ -312,7 +312,7 @@ TEST(ProductQuantizationTestF, Parameters)
                raft::logic_error);
 }
 
-TEST(ProductQuantizationTestF, MakeVpqDatasetFromHost)
+TEST(ProductQuantizationTestF, MakePqDatasetFromHost)
 {
   raft::resources handle;
   constexpr int64_t n_rows = 64;
@@ -322,17 +322,17 @@ TEST(ProductQuantizationTestF, MakeVpqDatasetFromHost)
     dataset.data_handle()[i] = static_cast<float>(i % 31) / 31.0f;
   }
 
-  cuvs::neighbors::vpq_params params{
+  cuvs::neighbors::pq_params params{
     .pq_bits = 4, .pq_dim = 4, .vq_n_centers = 1, .kmeans_n_iters = 2};
-  auto vpq = make_vpq_dataset(handle, params, raft::make_const_mdspan(dataset.view()));
+  auto pq = make_pq_dataset(handle, params, raft::make_const_mdspan(dataset.view()));
   raft::resource::sync_stream(handle);
 
-  EXPECT_EQ(vpq.n_rows(), n_rows);
-  EXPECT_EQ(vpq.dim(), dim);
-  EXPECT_NE(vpq.data.data_handle(), nullptr);
+  EXPECT_EQ(pq.n_rows(), n_rows);
+  EXPECT_EQ(pq.dim(), dim);
+  EXPECT_NE(pq.data.data_handle(), nullptr);
 }
 
-TEST(ProductQuantizationTestF, MakeVpqDatasetFromPaddedView)
+TEST(ProductQuantizationTestF, MakePqDatasetFromPaddedView)
 {
   raft::resources handle;
   constexpr int64_t n_rows = 64;
@@ -355,14 +355,14 @@ TEST(ProductQuantizationTestF, MakeVpqDatasetFromPaddedView)
     raft::make_device_matrix_view<const float, int64_t>(device_rows.data_handle(), n_rows, stride),
     dim);
 
-  cuvs::neighbors::vpq_params params{
+  cuvs::neighbors::pq_params params{
     .pq_bits = 4, .pq_dim = 4, .vq_n_centers = 1, .kmeans_n_iters = 2};
-  auto vpq = make_vpq_dataset(handle, params, padded);
+  auto pq = make_pq_dataset(handle, params, padded);
   raft::resource::sync_stream(handle);
 
-  EXPECT_EQ(vpq.n_rows(), n_rows);
-  EXPECT_EQ(vpq.dim(), dim);
-  EXPECT_NE(vpq.data.data_handle(), nullptr);
+  EXPECT_EQ(pq.n_rows(), n_rows);
+  EXPECT_EQ(pq.dim(), dim);
+  EXPECT_NE(pq.data.data_handle(), nullptr);
 }
 
 // Define test cases with different parameters

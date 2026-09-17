@@ -55,36 +55,36 @@ CUVS_INST_QUANTIZATION(float, uint8_t);
 
 #undef CUVS_INST_QUANTIZATION
 
-#define CUVS_INST_VPQ_BUILD(T)                                                               \
-  auto vpq_build(const raft::resources& res,                                                 \
-                 const cuvs::neighbors::vpq_params& params,                                  \
-                 const raft::host_matrix_view<const T, int64_t, raft::row_major>& dataset)   \
-  {                                                                                          \
-    return detail::vpq_build_half<decltype(dataset)>(res, params, dataset);                  \
-  }                                                                                          \
-  auto vpq_build(const raft::resources& res,                                                 \
-                 const cuvs::neighbors::vpq_params& params,                                  \
-                 const raft::device_matrix_view<const T, int64_t, raft::row_major>& dataset) \
-  {                                                                                          \
-    return detail::vpq_build_half<decltype(dataset)>(res, params, dataset);                  \
+#define CUVS_INST_PQ_BUILD(T)                                                               \
+  auto pq_build(const raft::resources& res,                                                 \
+                const cuvs::neighbors::pq_params& params,                                   \
+                const raft::host_matrix_view<const T, int64_t, raft::row_major>& dataset)   \
+  {                                                                                         \
+    return detail::pq_build_half<decltype(dataset)>(res, params, dataset);                  \
+  }                                                                                         \
+  auto pq_build(const raft::resources& res,                                                 \
+                const cuvs::neighbors::pq_params& params,                                   \
+                const raft::device_matrix_view<const T, int64_t, raft::row_major>& dataset) \
+  {                                                                                         \
+    return detail::pq_build_half<decltype(dataset)>(res, params, dataset);                  \
   }
 
-CUVS_INST_VPQ_BUILD(float);
-CUVS_INST_VPQ_BUILD(half);
-CUVS_INST_VPQ_BUILD(int8_t);
-CUVS_INST_VPQ_BUILD(uint8_t);
+CUVS_INST_PQ_BUILD(float);
+CUVS_INST_PQ_BUILD(half);
+CUVS_INST_PQ_BUILD(int8_t);
+CUVS_INST_PQ_BUILD(uint8_t);
 
-#undef CUVS_INST_VPQ_BUILD
+#undef CUVS_INST_PQ_BUILD
 
 namespace detail {
 
 template <typename T>
 auto train_from_rows(raft::resources const& res,
-                     cuvs::neighbors::vpq_params const& params,
+                     cuvs::neighbors::pq_params const& params,
                      T const* src_ptr,
                      int64_t n_rows,
                      int64_t dim,
-                     int64_t stride) -> cuvs::neighbors::device_vpq_dataset<half, int64_t>
+                     int64_t stride) -> cuvs::neighbors::device_pq_dataset<half, int64_t>
 {
   cudaPointerAttributes ptr_attrs;
   RAFT_CUDA_TRY(cudaPointerGetAttributes(&ptr_attrs, src_ptr));
@@ -92,9 +92,9 @@ auto train_from_rows(raft::resources const& res,
   if (device_ptr == nullptr) {
     // A host mdspan makes training subsample the rows and encoding stream them in bounded batches,
     // so the dense dataset is never staged on the device.
-    RAFT_EXPECTS(stride == dim, "make_vpq_dataset: host input must be tightly packed");
+    RAFT_EXPECTS(stride == dim, "make_pq_dataset: host input must be tightly packed");
     auto row_view = raft::make_host_matrix_view<const T, int64_t>(src_ptr, n_rows, dim);
-    return detail::vpq_build_half(res, params, row_view);
+    return detail::pq_build_half(res, params, row_view);
   }
   if (stride != dim) {
     auto dense = raft::make_device_matrix<T, int64_t>(res, n_rows, dim);
@@ -107,19 +107,19 @@ auto train_from_rows(raft::resources const& res,
                       raft::resource::get_cuda_stream(res));
     auto dense_view =
       raft::make_device_matrix_view<const T, int64_t>(dense.data_handle(), n_rows, dim);
-    return detail::vpq_build_half(res, params, dense_view);
+    return detail::pq_build_half(res, params, dense_view);
   }
   auto row_view = raft::make_device_matrix_view<const T, int64_t>(device_ptr, n_rows, dim);
-  return detail::vpq_build_half(res, params, row_view);
+  return detail::pq_build_half(res, params, row_view);
 }
 
-auto vpq_train_from_rows(raft::resources const& res,
-                         cuvs::neighbors::vpq_params const& params,
-                         void const* src_ptr,
-                         cudaDataType_t dtype,
-                         int64_t n_rows,
-                         int64_t dim,
-                         int64_t stride) -> cuvs::neighbors::device_vpq_dataset<half, int64_t>
+auto pq_train_from_rows(raft::resources const& res,
+                        cuvs::neighbors::pq_params const& params,
+                        void const* src_ptr,
+                        cudaDataType_t dtype,
+                        int64_t n_rows,
+                        int64_t dim,
+                        int64_t stride) -> cuvs::neighbors::device_pq_dataset<half, int64_t>
 {
   switch (dtype) {
     case CUDA_R_32F:
@@ -132,7 +132,7 @@ auto vpq_train_from_rows(raft::resources const& res,
       return train_from_rows(
         res, params, static_cast<uint8_t const*>(src_ptr), n_rows, dim, stride);
     default:
-      RAFT_FAIL("make_vpq_dataset: unsupported dataset element type %d", static_cast<int>(dtype));
+      RAFT_FAIL("make_pq_dataset: unsupported dataset element type %d", static_cast<int>(dtype));
   }
 }
 
