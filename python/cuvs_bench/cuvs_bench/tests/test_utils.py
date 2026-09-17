@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -528,7 +528,9 @@ class TestDatasetLazyLoading:
         _write_test_bin(path, data)
 
         dataset = Dataset(name="test", base_file=path)
+        assert dataset.loaded_training_vectors is None
         np.testing.assert_array_equal(dataset.training_vectors, data)
+        np.testing.assert_array_equal(dataset.loaded_training_vectors, data)
 
     def test_lazy_load_query_vectors(self, tmp_path):
         """Test that query vectors are loaded from file on first access."""
@@ -614,7 +616,7 @@ class TestDatasetLazyLoading:
         _ = dataset.name
         _ = dataset.distance_metric
 
-        assert dataset._training_vectors.size == 0
+        assert dataset.loaded_training_vectors is None
 
     def test_dims_and_counts(self, tmp_path):
         """Test dims, n_base, and n_queries properties."""
@@ -678,6 +680,35 @@ class TestConfigLoaderMethods:
             ValueError, match="Could not find a dataset configuration"
         ):
             loader.get_dataset_configuration("nonexistent", datasets)
+
+    def test_algorithm_config_discovery_is_deterministic(self, tmp_path):
+        """List bundled files before custom files, sorting each directory."""
+        config_path = tmp_path / "config"
+        bundled_algorithms = config_path / "algos"
+        bundled_algorithms.mkdir(parents=True)
+        bundled_zeta = bundled_algorithms / "zeta.yaml"
+        bundled_alpha = bundled_algorithms / "alpha.yml"
+        bundled_zeta.touch()
+        bundled_alpha.touch()
+        (bundled_algorithms / "ignored.txt").touch()
+
+        custom_algorithms = tmp_path / "custom"
+        custom_algorithms.mkdir()
+        custom_zeta = custom_algorithms / "zeta.yml"
+        custom_alpha = custom_algorithms / "alpha.yaml"
+        custom_zeta.touch()
+        custom_alpha.touch()
+
+        files = CppGBenchConfigLoader(
+            config_path=config_path
+        ).gather_algorithm_configs(config_path, str(custom_algorithms))
+
+        assert files == [
+            str(bundled_alpha),
+            str(bundled_zeta),
+            str(custom_alpha),
+            str(custom_zeta),
+        ]
 
 
 class TestExpandParamGrid:
