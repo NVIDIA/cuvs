@@ -53,7 +53,7 @@ and max_iterations auto-selected (0).
 | `iTopK` | CAGRA itopk_size parameter |
 | `searchWidth` | CAGRA search_width parameter |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUKnnFloatVectorQuery.java:90`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUKnnFloatVectorQuery.java:130`_
 
 ### GPUKnnFloatVectorQuery
 
@@ -77,6 +77,29 @@ Initializes `GPUKnnFloatVectorQuery`.
 | `maxIterations` | CAGRA max_iterations (0 = auto) |
 | `searchAlgo` | CAGRA search algorithm |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUKnnFloatVectorQuery.java:108`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUKnnFloatVectorQuery.java:148`_
+
+### validateSingleCtaItopk
+
+```java
+static void validateSingleCtaItopk(int effectiveITopK, CagraSearchParams.SearchAlgo searchAlgo)
+```
+
+Validates that `effectiveITopK` — the itopk_size value actually about to be sent to
+native CAGRA — does not exceed the SINGLE_CTA algorithm's limit.
+
+Callers that can further increase itopk_size after construction (e.g. the filtered
+per-segment fallback path, which raises topK based on filter cardinality) must call this
+again with the final, post-adjustment value immediately before building \{@link
+CagraSearchParams\}.
+
+**Parameters**
+
+| Name | Description |
+| --- | --- |
+| `effectiveITopK` | the itopk_size value about to be sent to native CAGRA |
+| `searchAlgo` | the CAGRA search algorithm the query will run under |
+
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUKnnFloatVectorQuery.java:190`_
 
 _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUKnnFloatVectorQuery.java:72`_
