@@ -19,7 +19,7 @@ authors = [
 license = "Apache-2.0"
 requires-python = ">=3.11"
 dependencies = [
-    "click",
+    "click>=8.0",
     "cuvs==26.12.*,>=0.0.0a0",
     "matplotlib>=3.9",
     "pandas",
@@ -58,15 +58,18 @@ Homepage = "https://github.com/nvidia/cuvs"
 
 [project.entry-points."cuvs_bench.backends"]
 elastic = "cuvs_bench.backends.elasticsearch:register"
+lucene = "cuvs_bench.backends.lucene:register"
 
 [project.entry-points."cuvs_bench.config_loaders"]
 elastic = "cuvs_bench.backends.elasticsearch:register"
+lucene = "cuvs_bench.backends.lucene:register"
 
 [tool.setuptools.package-data]
 "*" = ["*.*", "VERSION"]
 
 [tool.pytest.ini_options]
 markers = [
+    "lucene_e2e: live tests; all require PyLucene/Java, and CAGRA cases also require cuVS/GPU",
     "opensearch: tests that require a live OpenSearch node (run with '-m opensearch')",
 ]
 
