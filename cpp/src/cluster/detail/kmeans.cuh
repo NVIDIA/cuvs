@@ -59,26 +59,20 @@ namespace cuvs::cluster::kmeans::detail {
 static const std::string CUVS_NAME = "cuvs";
 
 template <typename DataT, typename IndexT>
-struct cluster_cost_workspace {
-  raft::device_vector_view<DataT, IndexT> norms;
-  raft::device_vector_view<DataT, IndexT> distances;
-  rmm::device_uvector<DataT>& distance_buffer;
-  rmm::device_uvector<char>& workspace;
-};
-
-template <typename DataT, typename IndexT>
 void cluster_cost(
   raft::resources const& handle,
   raft::device_matrix_view<const DataT, IndexT> X,
   raft::device_matrix_view<const DataT, IndexT> centroids,
   raft::device_scalar_view<DataT> cost,
-  cluster_cost_workspace<DataT, IndexT>& scratch,
+  raft::device_vector_view<DataT, IndexT> norms,
+  raft::device_vector_view<DataT, IndexT> distances,
+  rmm::device_uvector<DataT>& distance_buffer,
+  rmm::device_uvector<char>& workspace,
   std::optional<raft::device_vector_view<const DataT, IndexT>> sample_weight = std::nullopt)
 {
   auto n_samples = static_cast<IndexT>(X.extent(0));
-  auto norms = raft::make_device_vector_view<DataT, IndexT>(scratch.norms.data_handle(), n_samples);
-  auto distances =
-    raft::make_device_vector_view<DataT, IndexT>(scratch.distances.data_handle(), n_samples);
+  norms          = raft::make_device_vector_view<DataT, IndexT>(norms.data_handle(), n_samples);
+  distances      = raft::make_device_vector_view<DataT, IndexT>(distances.data_handle(), n_samples);
 
   raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(handle, X, norms);
   minClusterDistanceCompute<DataT, IndexT>(
@@ -88,18 +82,17 @@ void cluster_cost(
       const_cast<DataT*>(centroids.data_handle()), centroids.extent(0), centroids.extent(1)),
     distances,
     norms,
-    scratch.distance_buffer,
+    distance_buffer,
     cuvs::distance::DistanceType::L2Expanded,
     n_samples,
     centroids.extent(0),
-    scratch.workspace);
+    workspace);
 
   if (sample_weight.has_value()) {
     raft::linalg::map(
       handle, distances, raft::mul_op{}, raft::make_const_mdspan(distances), sample_weight.value());
   }
-  computeClusterCost(
-    handle, distances, scratch.workspace, cost, raft::identity_op{}, raft::add_op{});
+  computeClusterCost(handle, distances, workspace, cost, raft::identity_op{}, raft::add_op{});
 }
 
 // =========================================================
@@ -742,9 +735,6 @@ void kmeans_fit(
   auto weight_per_cluster = raft::make_device_vector<DataT, IndexT>(handle, n_clusters);
   auto clustering_cost    = raft::make_device_scalar<DataT>(handle, DataT{0});
   auto batch_cost         = raft::make_device_scalar<DataT>(handle, DataT{0});
-  cluster_cost_workspace<DataT, IndexT> final_cost_workspace{
-    L2NormBatch.view(), minClusterDistance.view(), L2NormBuf_OR_DistBuf, ws};
-
   rmm::device_uvector<char> batch_workspace(device_buffer_samples, stream);
 
   auto batch_mr          = data_on_device ? raft::resource::get_workspace_resource_ref(handle)
@@ -1035,7 +1025,10 @@ void kmeans_fit(
                                                     batch_data_view,
                                                     centroids_const,
                                                     batch_cost.view(),
-                                                    final_cost_workspace,
+                                                    L2NormBatch.view(),
+                                                    minClusterDistance.view(),
+                                                    L2NormBuf_OR_DistBuf,
+                                                    ws,
                                                     batch_sw);
         raft::linalg::add(clustering_cost.data_handle(),
                           clustering_cost.data_handle(),

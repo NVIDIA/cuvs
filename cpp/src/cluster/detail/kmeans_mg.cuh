@@ -228,9 +228,6 @@ void mnmg_fit(
   rmm::device_uvector<DataT> L2NormBuf_OR_DistBuf(0, stream);
   rmm::device_uvector<char> workspace(0, stream);
   rmm::device_uvector<char> batch_workspace(0, stream);
-  cuvs::cluster::kmeans::detail::cluster_cost_workspace<DataT, IndexT> final_cost_workspace{
-    L2NormBatch.view(), minClusterDistance.view(), L2NormBuf_OR_DistBuf, workspace};
-
   auto d_weight_scale = raft::make_device_scalar<DataT>(dev_res, DataT{1});
   if (sample_weights) {
     auto d_global_n = raft::make_device_scalar<IndexT>(dev_res, n_local);
@@ -608,7 +605,10 @@ void mnmg_fit(
                                                   batch_data_view,
                                                   rank_centroids_const,
                                                   batch_cost.view(),
-                                                  final_cost_workspace,
+                                                  L2NormBatch.view(),
+                                                  minClusterDistance.view(),
+                                                  L2NormBuf_OR_DistBuf,
+                                                  workspace,
                                                   batch_sw);
       raft::linalg::add(clustering_cost.data_handle(),
                         clustering_cost.data_handle(),
