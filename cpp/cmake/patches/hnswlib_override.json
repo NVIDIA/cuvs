@@ -4,6 +4,7 @@
       "version": "0.7.0",
       "git_url": "https://github.com/nmslib/hnswlib.git",
       "git_tag": "v${version}",
+      "source_subdir": ".rapids-cmake-download-only/hnswlib",
       "patches": [
         {
           "file": "${current_json_dir}/hnswlib.diff",
