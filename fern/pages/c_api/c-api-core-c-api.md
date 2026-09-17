@@ -196,47 +196,6 @@ cuvsError_t cuvsResourcesDestroy(cuvsResources_t res);
 
 [`cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)
 
-<a id="cuvsresourcessetmemorypool"></a>
-### cuvsResourcesSetMemoryPool
-
-Set a memory pool on the device used by these resources
-
-```c
-cuvsError_t cuvsResourcesSetMemoryPool(cuvsResources_t res,
-int percent_of_free_memory);
-```
-
-**Parameters**
-
-| Name | Direction | Type | Description |
-| --- | --- | --- | --- |
-| `res` | in | [`cuvsResources_t`](/api-reference/c-api-core-c-api#cuvsresources-t) | cuvsResources_t opaque C handle |
-| `percent_of_free_memory` | in | `int` | Percentage of free device memory to allocate for the pool |
-
-**Returns**
-
-[`cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)
-
-<a id="cuvsresourcessetstreampool"></a>
-### cuvsResourcesSetStreamPool
-
-Set a CUDA stream pool on these resources
-
-```c
-cuvsError_t cuvsResourcesSetStreamPool(cuvsResources_t res, size_t num_streams);
-```
-
-**Parameters**
-
-| Name | Direction | Type | Description |
-| --- | --- | --- | --- |
-| `res` | in | [`cuvsResources_t`](/api-reference/c-api-core-c-api#cuvsresources-t) | cuvsResources_t opaque C handle |
-| `num_streams` | in | `size_t` | Number of non-blocking CUDA streams in the pool |
-
-**Returns**
-
-[`cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)
-
 <a id="cuvsstreamset"></a>
 ### cuvsStreamSet
 
@@ -411,27 +370,6 @@ cuvsError_t cuvsMultiGpuResourcesSetMemoryPool(cuvsResources_t res, int percent_
 | --- | --- | --- | --- |
 | `res` | in | [`cuvsResources_t`](/api-reference/c-api-core-c-api#cuvsresources-t) | cuvsResources_t opaque C handle for multi-GPU resources |
 | `percent_of_free_memory` | in | `int` | Percent of free memory to allocate for the pool |
-
-**Returns**
-
-[`cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)
-
-<a id="cuvsmultigpuresourcessetstreampool"></a>
-### cuvsMultiGpuResourcesSetStreamPool
-
-Set a CUDA stream pool on all devices managed by the multi-GPU resources
-
-```c
-cuvsError_t cuvsMultiGpuResourcesSetStreamPool(cuvsResources_t res,
-size_t num_streams);
-```
-
-**Parameters**
-
-| Name | Direction | Type | Description |
-| --- | --- | --- | --- |
-| `res` | in | [`cuvsResources_t`](/api-reference/c-api-core-c-api#cuvsresources-t) | cuvsResources_t opaque C handle for multi-GPU resources |
-| `num_streams` | in | `size_t` | Number of CUDA streams in each device's pool |
 
 **Returns**
 
