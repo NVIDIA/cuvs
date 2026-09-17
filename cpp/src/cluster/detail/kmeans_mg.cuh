@@ -13,6 +13,7 @@
 
 #include "../../core/mnmg_comms.cuh"
 #include "../../core/omp_wrapper.hpp"
+#include "../../neighbors/detail/ann_utils.cuh"
 
 #include <cuvs/cluster/kmeans.hpp>
 #include <cuvs/distance/distance.hpp>
@@ -26,7 +27,6 @@
 #include <raft/core/pinned_mdspan.hpp>
 #include <raft/core/resource/comms.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
-#include <raft/core/resource/cuda_stream_pool.hpp>
 #include <raft/core/resource/multi_gpu.hpp>
 #include <raft/core/resource/nccl_comm.hpp>
 #include <raft/core/resources.hpp>
@@ -40,8 +40,6 @@
 
 #include <rmm/device_scalar.hpp>
 #include <rmm/device_uvector.hpp>
-
-#include <cuda/stream>
 
 #include <algorithm>
 #include <cmath>
@@ -353,13 +351,7 @@ void mnmg_fit(
 
   auto batch_mr          = data_on_device ? raft::resource::get_workspace_resource_ref(dev_res)
                                           : raft::resource::get_large_workspace_resource_ref(dev_res);
-  auto batch_copy_stream = cuda::stream_ref{stream};
-  if constexpr (!data_on_device) {
-    if (dev_res.has_resource_factory(raft::resource::resource_type::CUDA_STREAM_POOL) &&
-        raft::resource::get_stream_pool_size(dev_res) >= 1) {
-      batch_copy_stream = raft::resource::get_stream_from_stream_pool(dev_res);
-    }
-  }
+  auto batch_copy_stream = cuvs::spatial::knn::detail::utils::get_prefetch_stream(dev_res).first;
 
   data_batch_loader_t data_batches(
     dev_res, data_inputs, n_features, device_buffer_samples, batch_copy_stream, batch_mr);

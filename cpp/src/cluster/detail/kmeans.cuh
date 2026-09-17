@@ -5,6 +5,7 @@
 #pragma once
 
 #include "../../core/nvtx.hpp"
+#include "../../neighbors/detail/ann_utils.cuh"
 #include "kmeans_batch_loader.cuh"
 #include "kmeans_common.cuh"
 
@@ -24,7 +25,6 @@
 #include <raft/core/pinned_mdarray.hpp>
 #include <raft/core/pinned_mdspan.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
-#include <raft/core/resource/cuda_stream_pool.hpp>
 #include <raft/core/resource/device_memory_resource.hpp>
 #include <raft/core/resource/thrust_policy.hpp>
 #include <raft/core/resources.hpp>
@@ -739,13 +739,7 @@ void kmeans_fit(
 
   auto batch_mr          = data_on_device ? raft::resource::get_workspace_resource_ref(handle)
                                           : raft::resource::get_large_workspace_resource_ref(handle);
-  auto batch_copy_stream = raft::resource::get_cuda_stream(handle);
-  if constexpr (!data_on_device) {
-    if (handle.has_resource_factory(raft::resource::resource_type::CUDA_STREAM_POOL) &&
-        raft::resource::get_stream_pool_size(handle) >= 1) {
-      batch_copy_stream = raft::resource::get_stream_from_stream_pool(handle);
-    }
-  }
+  auto batch_copy_stream = cuvs::spatial::knn::detail::utils::get_prefetch_stream(handle).first;
 
   kmeans_batch_loader<DataT, IndexT, data_on_device> data_batches(handle,
                                                                   X.data_handle(),
