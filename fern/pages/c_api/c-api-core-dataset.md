@@ -80,7 +80,7 @@ typedef struct {
 
 Parameters for PQ dataset compression.
 
-The `cuvsCagraCompressionParams` tag is retained for source and ABI compatibility and is planned for removal in the 27.02 ABI-breaking release. Use `cuvsPQDatasetParams` in new code.
+The `cuvsCagraCompressionParams` tag is retained for source and ABI compatibility and is planned for removal in the 27.02 ABI-breaking release. Use `cuvsPqParams` in new code.
 
 ```c
 typedef struct cuvsCagraCompressionParams {
@@ -90,7 +90,7 @@ typedef struct cuvsCagraCompressionParams {
   uint32_t kmeans_n_iters;
   double vq_kmeans_trainset_fraction;
   double pq_kmeans_trainset_fraction;
-} cuvsPQDatasetParams;
+} cuvsPqParams;
 ```
 
 **Fields**

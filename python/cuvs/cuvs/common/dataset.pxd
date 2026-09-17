@@ -12,19 +12,19 @@ from cuvs.common.cydlpack cimport DLDataType, DLManagedTensor
 
 
 cdef extern from "cuvs/core/dataset.h" nogil:
-    ctypedef struct cuvsPQDatasetParams:
+    ctypedef struct cuvsPqParams:
         uint32_t pq_bits
         uint32_t pq_dim
         uint32_t vq_n_centers
         uint32_t kmeans_n_iters
         double vq_kmeans_trainset_fraction
         double pq_kmeans_trainset_fraction
-    ctypedef cuvsPQDatasetParams* cuvsPQDatasetParams_t
+    ctypedef cuvsPqParams* cuvsPqParams_t
 
-    cuvsError_t cuvsPQDatasetParamsCreate(
-        cuvsPQDatasetParams_t* params)
-    cuvsError_t cuvsPQDatasetParamsDestroy(
-        cuvsPQDatasetParams_t params)
+    cuvsError_t cuvsPqParamsCreate(
+        cuvsPqParams_t* params)
+    cuvsError_t cuvsPqParamsDestroy(
+        cuvsPqParams_t params)
 
     ctypedef enum cuvsDatasetLayout_t:
         CUVS_DATASET_LAYOUT_STANDARD
@@ -56,7 +56,7 @@ cdef extern from "cuvs/core/dataset.h" nogil:
 
     cuvsError_t cuvsDatasetMakePQ(
         cuvsResources_t res,
-        cuvsPQDatasetParams_t params,
+        cuvsPqParams_t params,
         cuvsDataset_t dataset,
         cuvsDatasetMemType_t target_mem_type,
         cuvsDataset_t* pq_dataset)

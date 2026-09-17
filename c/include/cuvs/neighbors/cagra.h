@@ -233,7 +233,7 @@ CUVS_EXPORT cuvsError_t cuvsCagraMergeParamsDestroy(cuvsCagraMergeParams_t param
 /**
  * @brief Allocate CAGRA Compression params, and populate with default values.
  *
- * Deprecated: Use `cuvsPQDatasetParamsCreate`. This compatibility API is planned for removal in
+ * Deprecated: Use `cuvsPqParamsCreate`. This compatibility API is planned for removal in
  * the 27.02 ABI-breaking release.
  *
  * @param[in] params cuvsCagraCompressionParams_t to allocate
@@ -244,7 +244,7 @@ CUVS_EXPORT cuvsError_t cuvsCagraCompressionParamsCreate(cuvsCagraCompressionPar
 /**
  * @brief De-allocate CAGRA Compression params.
  *
- * Deprecated: Use `cuvsPQDatasetParamsDestroy`. This compatibility API is planned for removal in
+ * Deprecated: Use `cuvsPqParamsDestroy`. This compatibility API is planned for removal in
  * the 27.02 ABI-breaking release.
  *
  * @param[in] params
