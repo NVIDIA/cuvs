@@ -35,7 +35,7 @@ template <typename T, typename IdxT, cuvs::neighbors::ann_dataset_view DatasetVi
 CUVS_EXPORT void index<T, IdxT, DatasetViewT>::compute_dataset_norms_(raft::resources const& res)
 {
   // raft::linalg::reduce wants row-major with leading dim = row pitch in elements.
-  // Skip norm precomputation for PQ/empty/non-dense views; CosineExpanded with PQ is handled
+  // Skip norm precomputation for VPQ/empty/non-dense views; CosineExpanded with VPQ is handled
   // (or rejected) on the search path.
   namespace nb    = cuvs::neighbors;
   bool skip_norms = false;
@@ -44,7 +44,7 @@ CUVS_EXPORT void index<T, IdxT, DatasetViewT>::compute_dataset_norms_(raft::reso
   if constexpr (nb::is_padded_dataset_view_v<DatasetViewT> ||
                 nb::is_standard_dataset_view_v<DatasetViewT>) {
     rm_dataset = dataset_.view();
-  } else if constexpr (nb::is_pq_dataset_view_v<DatasetViewT>) {
+  } else if constexpr (nb::is_vpq_dataset_view_v<DatasetViewT>) {
     skip_norms = true;
   }
 
@@ -277,7 +277,7 @@ void optimize(
 }
 
 /**
- * @brief Build the index from a `dataset_view` (device padded/standard, device PQ, or host
+ * @brief Build the index from a `dataset_view` (device padded/standard, device VPQ, or host
  * padded/standard).
  *
  * When `index_params.attach_dataset_on_build = true` (the default), a dense `dataset` view is
@@ -300,7 +300,7 @@ auto build(raft::resources const& res, const index_params& params, DatasetViewT 
 
   // Dense paths build the graph and optionally attach the input dataset view. Host indexes remain
   // non-searchable until the type-changing update_dataset(...) supplies a device-padded dataset.
-  if constexpr (cuvs::neighbors::is_device_pq_dataset_view_v<DatasetViewT>) {
+  if constexpr (cuvs::neighbors::is_device_vpq_dataset_view_v<DatasetViewT>) {
     auto effective_params = params;
     if (std::holds_alternative<std::monostate>(effective_params.graph_build_params)) {
       effective_params.graph_build_params = graph_build_params::iterative_search_params{};
@@ -308,16 +308,16 @@ auto build(raft::resources const& res, const index_params& params, DatasetViewT 
 
     RAFT_EXPECTS(std::holds_alternative<graph_build_params::iterative_search_params>(
                    effective_params.graph_build_params),
-                 "cagra::build: a PQ dataset requires iterative_search_params graph construction");
+                 "cagra::build: a VPQ dataset requires iterative_search_params graph construction");
     RAFT_EXPECTS(effective_params.metric == cuvs::distance::DistanceType::L2Expanded,
-                 "cagra::build: a PQ dataset supports only L2Expanded distance");
-    RAFT_EXPECTS(dataset.n_rows() > 0, "cagra::build: PQ dataset must not be empty");
+                 "cagra::build: a VPQ dataset supports only L2Expanded distance");
+    RAFT_EXPECTS(dataset.n_rows() > 0, "cagra::build: VPQ dataset must not be empty");
     RAFT_EXPECTS(dataset.dset().pq_bits() == 8,
-                 "cagra::build: PQ dataset requires pq_bits == 8, got %u",
+                 "cagra::build: VPQ dataset requires pq_bits == 8, got %u",
                  dataset.dset().pq_bits());
     auto const pq_len = dataset.dset().pq_len();
     RAFT_EXPECTS(pq_len == 2 || pq_len == 4 || pq_len == 8,
-                 "cagra::build: PQ dataset requires pq_len in {2, 4, 8}, got %u",
+                 "cagra::build: VPQ dataset requires pq_len in {2, 4, 8}, got %u",
                  pq_len);
 
     detail::check_graph_degree<T, IdxT>(effective_params.intermediate_graph_degree,

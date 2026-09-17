@@ -146,7 +146,7 @@ standard_descriptor_spec<Metric, TeamSize, DatasetBlockDim, DataT, IndexT, Dista
     },
     Metric,
     DatasetBlockDim,
-    false,  // is_pq
+    false,  // is_vpq
     0,      // pq_bits
     0};     // pq_len
 }

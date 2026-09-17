@@ -2233,16 +2233,16 @@ void optimize(
 }
 
 template <typename T, typename MathT>
-__global__ void kern_reconstruct_pq_queries(const uint8_t* encoded_data,
-                                            uint32_t encoded_row_len,
-                                            const MathT* vq_codebook,
-                                            const MathT* pq_codebook,
-                                            uint32_t dim,
-                                            uint32_t pq_len,
-                                            uint64_t offset,
-                                            uint32_t batch_size,
-                                            uint32_t output_ld,
-                                            T* output)
+__global__ void kern_reconstruct_vpq_queries(const uint8_t* encoded_data,
+                                             uint32_t encoded_row_len,
+                                             const MathT* vq_codebook,
+                                             const MathT* pq_codebook,
+                                             uint32_t dim,
+                                             uint32_t pq_len,
+                                             uint64_t offset,
+                                             uint32_t batch_size,
+                                             uint32_t output_ld,
+                                             T* output)
 {
   const uint64_t batch_idx = blockIdx.x;
   if (batch_idx >= batch_size) return;
@@ -2262,28 +2262,28 @@ __global__ void kern_reconstruct_pq_queries(const uint8_t* encoded_data,
 }
 
 template <typename T, typename MathT, typename IdxT>
-void reconstruct_pq_queries(raft::resources const& res,
-                            cuvs::neighbors::device_pq_dataset_view<MathT, IdxT> const& pq_view,
-                            uint64_t offset,
-                            uint32_t batch_size,
-                            raft::device_matrix_view<T, int64_t> output)
+void reconstruct_vpq_queries(raft::resources const& res,
+                             cuvs::neighbors::device_vpq_dataset_view<MathT, IdxT> const& vpq_view,
+                             uint64_t offset,
+                             uint32_t batch_size,
+                             raft::device_matrix_view<T, int64_t> output)
 {
-  auto const& pq_dset      = pq_view.dset();
-  const uint32_t dim       = pq_dset.dim();
-  const uint32_t pq_len    = pq_dset.pq_len();
+  auto const& vpq_dset     = vpq_view.dset();
+  const uint32_t dim       = vpq_dset.dim();
+  const uint32_t pq_len    = vpq_dset.pq_len();
   const uint32_t output_ld = static_cast<uint32_t>(output.extent(1));
   const uint32_t threads   = std::min(dim, 256u);
   RAFT_EXPECTS(output_ld >= dim,
-               "PQ query reconstruct output row width (%u) must be >= logical dim (%u)",
+               "VPQ query reconstruct output row width (%u) must be >= logical dim (%u)",
                output_ld,
                dim);
 
-  kern_reconstruct_pq_queries<T, MathT>
+  kern_reconstruct_vpq_queries<T, MathT>
     <<<batch_size, threads, 0, raft::resource::get_cuda_stream(res).get()>>>(
-      pq_dset.data.data_handle(),
-      pq_dset.encoded_row_length(),
-      pq_dset.vq_code_book.data_handle(),
-      pq_dset.pq_code_book.data_handle(),
+      vpq_dset.data.data_handle(),
+      vpq_dset.encoded_row_length(),
+      vpq_dset.vq_code_book.data_handle(),
+      vpq_dset.pq_code_book.data_handle(),
       dim,
       pq_len,
       offset,
@@ -2295,18 +2295,18 @@ void reconstruct_pq_queries(raft::resources const& res,
 // Runs CAGRA search for `knn_graph.extent(0)` queries against `idx` in chunks of `max_chunk_size`,
 // stacks the results into `knn_graph`, and optimizes them into a newly allocated output graph.
 //
-// `knn_graph` is allocated by the caller. PQ builds additionally provide a reconstruction
+// `knn_graph` is allocated by the caller. VPQ builds additionally provide a reconstruction
 // buffer and the compressed query rows. The previous-iteration
 // graph is passed in so it can be released after search and before the (often larger) output graph
 // is allocated, so the two owned graphs never coexist.
 //
 // Query source:
-//   - omitted PQ arguments: queries are read directly from `dev_query_view`
+//   - omitted VPQ arguments: queries are read directly from `dev_query_view`
 //     (uncompressed build; the view is a slice of the resident padded device dataset, including
 //     CAGRA row padding). `cagra::detail::search_main` accepts that padded row width so search
 //     does not depad/re-pad the chunk.
-//   - PQ arguments present: `dev_query_view` is ignored and each chunk of queries is reconstructed
-//     on the fly from the PQ codes into `reconstructed_batch_queries` with CAGRA row padding,
+//   - VPQ arguments present: `dev_query_view` is ignored and each chunk of queries is reconstructed
+//     on the fly from the VPQ codes into `reconstructed_batch_queries` with CAGRA row padding,
 //     so we never materialize the whole (up to N x stride) reconstructed dataset.
 template <typename T, typename IdxT, typename DatasetViewT>
 auto search_and_optimize(
@@ -2321,16 +2321,16 @@ auto search_and_optimize(
   size_t next_graph_degree,
   uint64_t max_chunk_size,
   bool guarantee_connectivity,
-  std::optional<raft::device_matrix_view<T, int64_t>> reconstructed_batch_queries  = std::nullopt,
-  std::optional<cuvs::neighbors::device_pq_dataset_view<half, int64_t>> pq_queries = std::nullopt)
+  std::optional<raft::device_matrix_view<T, int64_t>> reconstructed_batch_queries    = std::nullopt,
+  std::optional<cuvs::neighbors::device_vpq_dataset_view<half, int64_t>> vpq_queries = std::nullopt)
   -> raft::device_matrix<IdxT, int64_t>
 {
   auto stream                = raft::resource::get_cuda_stream(res);
   auto const curr_query_size = knn_graph.extent(0);
   auto const curr_topk       = knn_graph.extent(1);
 
-  RAFT_EXPECTS(reconstructed_batch_queries.has_value() == pq_queries.has_value(),
-               "PQ queries and their reconstruction buffer must be provided together");
+  RAFT_EXPECTS(reconstructed_batch_queries.has_value() == vpq_queries.has_value(),
+               "VPQ queries and their reconstruction buffer must be provided together");
 
   auto run_batch = [&](int64_t offset,
                        int64_t batch_size,
@@ -2354,14 +2354,14 @@ auto search_and_optimize(
                stream);
   };
 
-  if (pq_queries.has_value()) {
+  if (vpq_queries.has_value()) {
     auto const query_dim = static_cast<int64_t>(idx.dim());
 
     // Reconstruct-and-search one chunk at a time: reconstruct source rows [offset, offset+bs) into
     // the CAGRA-padded scratch, then search that chunk without a second pad copy.
     const int64_t query_ld = reconstructed_batch_queries->extent(1);
     RAFT_EXPECTS(query_ld >= query_dim,
-                 "PQ query scratch row width (%ld) must be >= logical dim (%ld)",
+                 "VPQ query scratch row width (%ld) must be >= logical dim (%ld)",
                  static_cast<long>(query_ld),
                  static_cast<long>(query_dim));
     for (int64_t offset = 0; offset < curr_query_size;
@@ -2370,11 +2370,11 @@ auto search_and_optimize(
         std::min<int64_t>(static_cast<int64_t>(max_chunk_size), curr_query_size - offset);
       auto batch_query_view = raft::make_device_matrix_view<T, int64_t>(
         reconstructed_batch_queries->data_handle(), batch_size, query_ld);
-      reconstruct_pq_queries<T, half, int64_t>(res,
-                                               *pq_queries,
-                                               static_cast<uint64_t>(offset),
-                                               static_cast<uint32_t>(batch_size),
-                                               batch_query_view);
+      reconstruct_vpq_queries<T, half, int64_t>(res,
+                                                *vpq_queries,
+                                                static_cast<uint64_t>(offset),
+                                                static_cast<uint32_t>(batch_size),
+                                                batch_query_view);
       run_batch(offset, batch_size, batch_query_view);
     }
   } else {
@@ -2406,7 +2406,7 @@ auto search_and_optimize(
 
 template <typename T, typename IdxT = uint32_t, typename DatasetViewT>
   requires(cuvs::neighbors::is_dense_row_major_device_dataset_view_v<DatasetViewT> ||
-           cuvs::neighbors::is_device_pq_f16_dataset_view_v<DatasetViewT>)
+           cuvs::neighbors::is_device_vpq_f16_dataset_view_v<DatasetViewT>)
 auto iterative_build_graph(raft::resources const& res,
                            const index_params& params,
                            DatasetViewT const& dataset) -> raft::device_matrix<IdxT, int64_t>
@@ -2421,7 +2421,7 @@ auto iterative_build_graph(raft::resources const& res,
                 iter_params.max_iterations);
 
   // Iteratively improve the graph by repeatedly running CAGRA search and optimize. Dense inputs
-  // are searched in-place (CAGRA-aligned device storage; no copy of the caller's rows). PQ
+  // are searched in-place (CAGRA-aligned device storage; no copy of the caller's rows). VPQ
   // inputs are searched directly and reconstructed per query batch.
   RAFT_LOG_INFO("Iteratively creating/improving graph index using CAGRA's search() and optimize()");
 
@@ -2429,11 +2429,11 @@ auto iterative_build_graph(raft::resources const& res,
     raft::make_device_matrix_view<const T, int64_t>(static_cast<const T*>(nullptr), 0, 0);
   uint32_t logical_dim = dataset.dim();
   uint64_t final_graph_size;
-  auto pq_dataset = cuvs::neighbors::device_pq_dataset_view<half, int64_t>{};
+  auto vpq_dataset = cuvs::neighbors::device_vpq_dataset_view<half, int64_t>{};
 
-  if constexpr (cuvs::neighbors::is_device_pq_f16_dataset_view_v<DatasetViewT>) {
+  if constexpr (cuvs::neighbors::is_device_vpq_f16_dataset_view_v<DatasetViewT>) {
     final_graph_size = static_cast<uint64_t>(dataset.n_rows());
-    pq_dataset       = dataset;
+    vpq_dataset      = dataset;
   } else {
     auto const required_stride = cuvs::neighbors::cagra_required_row_width<T>(dataset.dim());
     RAFT_EXPECTS(dataset.stride() == required_stride,
@@ -2474,7 +2474,7 @@ auto iterative_build_graph(raft::resources const& res,
     res, large_mr, raft::make_extents<int64_t>(n_rows_i64, topk_i64));
 
   std::optional<raft::device_matrix<T, int64_t>> reconstructed_batch_queries;
-  if (pq_dataset.n_rows() > 0) {
+  if (vpq_dataset.n_rows() > 0) {
     auto const query_stride_i64 = static_cast<int64_t>(
       cuvs::neighbors::cagra_required_row_width<T>(static_cast<uint32_t>(logical_dim)));
     reconstructed_batch_queries.emplace(
@@ -2582,11 +2582,11 @@ auto iterative_build_graph(raft::resources const& res,
 
     // Each index holds non-owning dataset and graph views. The local dataset owner and `dev_graph`
     // keep those views alive for the duration of the search.
-    if (pq_dataset.n_rows() > 0) {
+    if (vpq_dataset.n_rows() > 0) {
       auto idx = cuvs::neighbors::cagra::update_dataset(
         res,
         cuvs::neighbors::cagra::device_pq_index<T, IdxT, half>(res, params.metric),
-        pq_dataset);
+        vpq_dataset);
       idx.update_graph(res, raft::make_const_mdspan(dev_graph.view()));
 
       auto empty_query_view =
@@ -2603,7 +2603,7 @@ auto iterative_build_graph(raft::resources const& res,
                                       max_chunk_size,
                                       flag_last && params.guarantee_connectivity,
                                       std::optional{reconstructed_batch_queries->view()},
-                                      std::optional{pq_dataset});
+                                      std::optional{vpq_dataset});
     } else {
       auto dev_dataset_view = raft::make_device_matrix_view<const T, int64_t>(
         dev_dataset.data_handle(), static_cast<int64_t>(curr_graph_size), dev_dataset.extent(1));
@@ -2812,7 +2812,7 @@ auto build_from_host_matrix(raft::resources const& res,
 }
 
 /**
- * Build from a dense device `dataset_view` (padded or standard). PQ views are rejected by
+ * Build from a dense device `dataset_view` (padded or standard). VPQ views are rejected by
  * `cagra::build()` before this entry point is reached. Also used from ACE sub-builds and merge.
  * The returned index contains only the optimized graph; call
  * `cagra::update_dataset` before search.

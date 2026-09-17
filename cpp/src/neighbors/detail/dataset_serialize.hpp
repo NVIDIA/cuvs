@@ -33,7 +33,7 @@ namespace cuvs::neighbors::detail {
 using dataset_instance_tag                              = uint32_t;
 constexpr dataset_instance_tag kSerializeEmptyDataset   = 1;
 constexpr dataset_instance_tag kSerializeStridedDataset = 2;
-constexpr dataset_instance_tag kSerializePQDataset      = 3;
+constexpr dataset_instance_tag kSerializeVPQDataset     = 3;
 
 template <typename DataT>
 void write_dense_bytes(std::ostream& os, DataT const* data, std::size_t elements)
@@ -413,8 +413,8 @@ auto deserialize_host_dense(raft::resources const& res, std::istream& is)
 }
 
 template <typename DataT, typename IdxT>
-auto deserialize_pq(raft::resources const& res, std::istream& is)
-  -> std::unique_ptr<device_pq_dataset<DataT, IdxT>>
+auto deserialize_vpq(raft::resources const& res, std::istream& is)
+  -> std::unique_ptr<device_vpq_dataset<DataT, IdxT>>
 {
   auto n_rows             = raft::deserialize_scalar<IdxT>(res, is);
   auto dim                = raft::deserialize_scalar<uint32_t>(res, is);
@@ -434,7 +434,7 @@ auto deserialize_pq(raft::resources const& res, std::istream& is)
   raft::deserialize_mdspan(res, is, pq_code_book.view());
   raft::deserialize_mdspan(res, is, data.view());
 
-  return std::make_unique<device_pq_dataset<DataT, IdxT>>(
+  return std::make_unique<device_vpq_dataset<DataT, IdxT>>(
     std::move(vq_code_book), std::move(pq_code_book), std::move(data));
 }
 

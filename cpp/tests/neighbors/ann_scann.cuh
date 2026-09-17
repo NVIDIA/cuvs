@@ -187,7 +187,7 @@ class scann_test : public ::testing::TestWithParam<scann_inputs> {
 
     cuvs::preprocessing::quantize::pq::quantizer<float> quantizer{
       pq_params,
-      cuvs::neighbors::device_pq_dataset<float, int64_t>{
+      cuvs::neighbors::device_vpq_dataset<float, int64_t>{
         std::move(vq_codebook), std::move(pq_codebook_copy), std::move(empty_data)}};
 
     auto quantized_residuals_device =

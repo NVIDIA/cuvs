@@ -33,13 +33,13 @@ enum class search_algo {
 
 ## CAGRA index build parameters
 
-<a id="neighbors-pq-params"></a>
-### neighbors::pq_params
+<a id="neighbors-vpq-params"></a>
+### neighbors::vpq_params
 
-Parameters for PQ compression.
+Parameters for VPQ compression.
 
 ```cpp
-struct pq_params {
+struct vpq_params {
   uint32_t pq_bits;
   uint32_t pq_dim;
   uint32_t vq_n_centers;
@@ -671,18 +671,18 @@ This method configures the index to use a disk-based dataset mapping. The mappin
 <a id="neighbors-cagra-build"></a>
 ### neighbors::cagra::build
 
-Build directly from a device PQ dataset view with FP16 codebooks.
+Build directly from a device VPQ dataset view with FP16 codebooks.
 
 ```cpp
 auto build(raft::resources const& res,
 const cuvs::neighbors::cagra::index_params& params,
-cuvs::neighbors::device_pq_dataset_view<half, int64_t> const& dataset)
+cuvs::neighbors::device_vpq_dataset_view<half, int64_t> const& dataset)
 -> cuvs::neighbors::cagra::device_pq_index<float, uint32_t, half>;
 ```
 
-A PQ input can only use iterative CAGRA graph construction. When `graph_build_params` is `std::monostate`, iterative construction is selected automatically; explicitly selecting another graph builder is an error. The metric must be `L2Expanded`, PQ codes must be 8-bit, and the PQ subvector length must be 2, 4, or 8.
+A VPQ input can only use iterative CAGRA graph construction. When `graph_build_params` is `std::monostate`, iterative construction is selected automatically; explicitly selecting another graph builder is an error. The metric must be `L2Expanded`, PQ codes must be 8-bit, and the PQ subvector length must be 2, 4, or 8.
 
-The returned index accepts float queries and stores a non-owning copy of `dataset` when `attach_dataset_on_build` is true. The owning `device_pq_dataset` must outlive the index.
+The returned index accepts float queries and stores a non-owning copy of `dataset` when `attach_dataset_on_build` is true. The owning `device_vpq_dataset` must outlive the index.
 
 **Parameters**
 
@@ -690,13 +690,13 @@ The returned index accepts float queries and stores a non-owning copy of `datase
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resources |
 | `params` | in | `const cuvs::neighbors::cagra::index_params&` | CAGRA index build parameters |
-| `dataset` | in | `cuvs::neighbors::device_pq_dataset_view<half, int64_t> const&` | device PQ dataset view |
+| `dataset` | in | `cuvs::neighbors::device_vpq_dataset_view<half, int64_t> const&` | device VPQ dataset view |
 
 **Returns**
 
 `cuvs::neighbors::cagra::device_pq_index<float, uint32_t, half>`
 
-built `index&lt;float, uint32_t, device_pq_dataset_view&lt;half, int64_t&gt;&gt;`
+built `index&lt;float, uint32_t, device_vpq_dataset_view&lt;half, int64_t&gt;&gt;`
 
 **Additional overload:** `neighbors::cagra::build`
 

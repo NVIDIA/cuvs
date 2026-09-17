@@ -75,6 +75,35 @@ typedef struct {
 | `layout` | [`cuvsDatasetLayout_t`](/api-reference/c-api-core-dataset#cuvsdatasetlayout-t) |  |
 | `is_owning` | `bool` |  |
 
+<a id="cuvscagracompressionparams"></a>
+### cuvsCagraCompressionParams
+
+Parameters for PQ dataset compression.
+
+The `cuvsCagraCompressionParams` tag is retained for source and ABI compatibility and is planned for removal in the 27.02 ABI-breaking release. Use `cuvsPQDatasetParams` in new code.
+
+```c
+typedef struct cuvsCagraCompressionParams {
+  uint32_t pq_bits;
+  uint32_t pq_dim;
+  uint32_t vq_n_centers;
+  uint32_t kmeans_n_iters;
+  double vq_kmeans_trainset_fraction;
+  double pq_kmeans_trainset_fraction;
+} cuvsPQDatasetParams;
+```
+
+**Fields**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `pq_bits` | `uint32_t` | The bit length of the vector element after compression by PQ.<br /><br />Possible values: [4, 5, 6, 7, 8].<br /><br />Hint: the smaller the `pq_bits`, the smaller the index size and the better the search performance, but the lower the recall. |
+| `pq_dim` | `uint32_t` | The dimensionality of the vector after compression by PQ. When zero, an optimal value is selected using a heuristic.<br /><br />TODO: at the moment `dim` must be a multiple `pq_dim`. |
+| `vq_n_centers` | `uint32_t` | Vector Quantization (VQ) codebook size - number of "coarse cluster centers". When zero, an optimal value is selected using a heuristic. |
+| `kmeans_n_iters` | `uint32_t` | The number of iterations searching for kmeans centers (both VQ & PQ phases). |
+| `vq_kmeans_trainset_fraction` | `double` | The fraction of data to use during iterative kmeans building (VQ phase). When zero, an optimal value is selected using a heuristic. |
+| `pq_kmeans_trainset_fraction` | `double` | The fraction of data to use during iterative kmeans building (PQ phase). When zero, an optimal value is selected using a heuristic. |
+
 <a id="cuvscagracompressionparams-t"></a>
 ### cuvsCagraCompressionParams_t
 

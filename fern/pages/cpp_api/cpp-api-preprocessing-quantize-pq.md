@@ -88,13 +88,13 @@ uint32_t max_train_points_per_vq_cluster = 1024);
 <a id="preprocessing-quantize-pq-quantizer"></a>
 ### preprocessing::quantize::pq::quantizer
 
-Defines and stores PQ codebooks upon training
+Defines and stores VPQ codebooks upon training
 
 ```cpp
 template <typename T>
 struct quantizer {
   params params_quantizer;
-  cuvs::neighbors::device_pq_dataset<T, int64_t> pq_codebooks;
+  cuvs::neighbors::device_vpq_dataset<T, int64_t> vpq_codebooks;
 };
 ```
 
@@ -103,7 +103,7 @@ struct quantizer {
 | Name | Type | Description |
 | --- | --- | --- |
 | `params_quantizer` | [`params`](/api-reference/cpp-api-preprocessing-quantize-pq#preprocessing-quantize-pq-params) | Parameters used to build this quantizer. |
-| `pq_codebooks` | `cuvs::neighbors::device_pq_dataset<T, int64_t>` | PQ codebooks produced during training. |
+| `vpq_codebooks` | `cuvs::neighbors::device_vpq_dataset<T, int64_t>` | VPQ codebooks produced during training. |
 
 <a id="preprocessing-quantize-pq-build"></a>
 ### preprocessing::quantize::pq::build
@@ -254,31 +254,31 @@ std::optional<raft::device_vector_view<const uint32_t, int64_t>> vq_labels = std
 
 `void`
 
-<a id="preprocessing-quantize-pq-make-pq-dataset"></a>
-### preprocessing::quantize::pq::make_pq_dataset
+<a id="preprocessing-quantize-pq-make-vpq-dataset"></a>
+### preprocessing::quantize::pq::make_vpq_dataset
 
-Train PQ storage (codebooks + encoded rows) from a row-major mdspan/mdarray/dataset.
+Train VPQ storage (codebooks + encoded rows) from a row-major mdspan/mdarray/dataset.
 
 ```cpp
 template <typename SrcT>
-[[nodiscard]] auto make_pq_dataset(raft::resources const& res,
-cuvs::neighbors::pq_params const& params,
+[[nodiscard]] auto make_vpq_dataset(raft::resources const& res,
+cuvs::neighbors::vpq_params const& params,
 SrcT const& src)
--> cuvs::neighbors::device_pq_dataset<half, int64_t>;
+-> cuvs::neighbors::device_vpq_dataset<half, int64_t>;
 ```
 
 Accepts either a row-major mdspan with `value_type`, `extent`, `stride`, and `data_handle` (same pattern as `cuvs::neighbors::make_device_padded_dataset`), or any cuVS dense dataset / dataset view exposing `view`, `dim` and `stride`, in which case the logical `dim()` is quantized and the row padding is skipped. The rows may be device-accessible or host-resident. Device-accessible rows (device, managed or pinned) with tight row-major storage (logical stride equals dimension) are passed through to training as they are; a wider row pitch triggers a contiguous dense copy first. Host-resident rows are subsampled for training and encoded in bounded batches, so the dense dataset is never staged on the device in full; they must be tightly packed. Empty sources are rejected. The element type must be `float`, `half`, `int8_t` or `uint8_t`.
 
-Typical **CAGRA-Q** usage: compress the source rows, then build the graph directly from the PQ dataset (the metric must be `L2Expanded`). Keep the `device_pq_dataset` alive because the index holds a non-owning view of it.
+Typical **CAGRA-Q** usage: compress the source rows, then build the graph directly from the VPQ dataset (the metric must be `L2Expanded`). Keep the `device_vpq_dataset` alive because the index holds a non-owning view of it.
 
 **Parameters**
 
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` |  | `raft::resources const&` |  |
-| `params` |  | [`cuvs::neighbors::pq_params const&`](/api-reference/cpp-api-neighbors-cagra#neighbors-pq-params) |  |
+| `params` |  | [`cuvs::neighbors::vpq_params const&`](/api-reference/cpp-api-neighbors-cagra#neighbors-vpq-params) |  |
 | `src` |  | `SrcT const&` |  |
 
 **Returns**
 
-`cuvs::neighbors::device_pq_dataset<half, int64_t>`
+`cuvs::neighbors::device_vpq_dataset<half, int64_t>`

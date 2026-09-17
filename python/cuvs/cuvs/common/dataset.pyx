@@ -157,7 +157,7 @@ def make_device_pq_dataset(params, dataset, resources=None):
     cdef Dataset pq = Dataset()
     cdef cuvsResources_t res = <cuvsResources_t>resources.get_c_obj()
     cdef cydlpack.DLManagedTensor* dataset_dlpack = NULL
-    cdef cuvsPqParams_t c_params = NULL
+    cdef cuvsPQDatasetParams_t c_params = NULL
 
     if isinstance(dataset, Dataset):
         dense = dataset
@@ -169,7 +169,7 @@ def make_device_pq_dataset(params, dataset, resources=None):
         check_cuvs(cuvsDatasetMakeStandardView(
             res, dataset_dlpack, &dense.dataset))
 
-    check_cuvs(cuvsPqParamsCreate(&c_params))
+    check_cuvs(cuvsPQDatasetParamsCreate(&c_params))
     try:
         c_params.pq_bits = params.pq_bits
         c_params.pq_dim = params.pq_dim
@@ -187,5 +187,5 @@ def make_device_pq_dataset(params, dataset, resources=None):
             CUVS_DATASET_MEM_TYPE_DEVICE,
             &pq.dataset))
     finally:
-        check_cuvs(cuvsPqParamsDestroy(c_params))
+        check_cuvs(cuvsPQDatasetParamsDestroy(c_params))
     return pq
