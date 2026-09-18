@@ -37,29 +37,28 @@ class CagraSearchResults {
       long numberOfQueries) {
 
     List<Map<Integer, Float>> results = new LinkedList<>();
-    Map<Integer, Float> intermediateResultMap = new LinkedHashMap<>();
     var neighboursVarHandle =
         neighboursSequenceLayout.varHandle(MemoryLayout.PathElement.sequenceElement());
     var distancesVarHandle =
         distancesSequenceLayout.varHandle(MemoryLayout.PathElement.sequenceElement());
 
-    int count = 0;
-    for (long i = 0; i < topK * numberOfQueries; i++) {
-      long id = (long) neighboursVarHandle.get(neighboursMemorySegment, 0, i);
-      float dst = (float) distancesVarHandle.get(distancesMemorySegment, 0L, i);
-      // Empty top-k slots (fewer than k passing candidates) carry a sentinel distance of FLT_MAX.
-      // Prefer this over the neighbor-index sentinel: the index sentinel is not uniform across
-      // CAGRA search algorithms (single-CTA emits 0x7FFFFFFF, multi-CTA 0xFFFFFFFF), so the
-      // distance is the reliable, algorithm-independent signal for an empty slot.
-      if (dst != Float.MAX_VALUE) {
-        intermediateResultMap.put(mapping.applyAsInt(id), dst);
+    // One map per query, so callers can rely on the result list holding exactly numberOfQueries
+    // entries even when topK is 0 and no map has any content.
+    for (long query = 0; query < numberOfQueries; query++) {
+      Map<Integer, Float> resultMap = new LinkedHashMap<>();
+      for (int j = 0; j < topK; j++) {
+        long i = query * topK + j;
+        long id = (long) neighboursVarHandle.get(neighboursMemorySegment, 0, i);
+        float dst = (float) distancesVarHandle.get(distancesMemorySegment, 0L, i);
+        // Empty top-k slots (fewer than k passing candidates) carry a sentinel distance of
+        // FLT_MAX. Prefer this over the neighbor-index sentinel: the index sentinel is not uniform
+        // across CAGRA search algorithms (single-CTA emits 0x7FFFFFFF, multi-CTA 0xFFFFFFFF), so
+        // the distance is the reliable, algorithm-independent signal for an empty slot.
+        if (dst != Float.MAX_VALUE) {
+          resultMap.put(mapping.applyAsInt(id), dst);
+        }
       }
-      count += 1;
-      if (count == topK) {
-        results.add(intermediateResultMap);
-        intermediateResultMap = new LinkedHashMap<>();
-        count = 0;
-      }
+      results.add(resultMap);
     }
     return new SearchResultsImpl(results);
   }
