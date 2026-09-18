@@ -15,8 +15,22 @@ public interface CuVSDeviceMatrix extends CuVSMatrix {
    * responsible to call {@link CuVSMatrix#close()} to free its resources when done.
    */
   default CuVSHostMatrix toHost() {
-    var hostMatrix = CuVSMatrix.hostBuilder(size(), columns(), dataType()).build();
-    toHost(hostMatrix);
-    return hostMatrix;
+    CuVSHostMatrix hostMatrix;
+    try (var builder = CuVSMatrix.hostBuilder(size(), columns(), dataType())) {
+      hostMatrix = builder.build();
+    }
+    try {
+      toHost(hostMatrix);
+      return hostMatrix;
+    } catch (RuntimeException | Error failure) {
+      try {
+        hostMatrix.close();
+      } catch (RuntimeException | Error closeFailure) {
+        if (failure != closeFailure) {
+          failure.addSuppressed(closeFailure);
+        }
+      }
+      throw failure;
+    }
   }
 }

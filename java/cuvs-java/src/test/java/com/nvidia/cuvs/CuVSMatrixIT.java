@@ -7,6 +7,7 @@ package com.nvidia.cuvs;
 import static com.carrotsearch.randomizedtesting.RandomizedTest.*;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThrows;
 
 import com.carrotsearch.randomizedtesting.RandomizedRunner;
 import com.nvidia.cuvs.spi.CuVSProvider;
@@ -306,6 +307,39 @@ public class CuVSMatrixIT extends CuVSTestCase {
     try (var resources = CheckedCuVSResources.create()) {
       testFloatDatasetBuilder(
           rows, cols, CuVSMatrix.deviceBuilder(resources, rows, cols, CuVSMatrix.DataType.FLOAT));
+    }
+  }
+
+  @Test
+  public void testClosingDeviceBuilderReleasesUnbuiltMatrix() throws Throwable {
+    try (var resources = CheckedCuVSResources.create()) {
+      var builder = CuVSMatrix.deviceBuilder(resources, 2, 4, CuVSMatrix.DataType.FLOAT);
+      builder.addVector(new float[4]);
+      builder.close();
+      builder.close();
+
+      assertThrows(IllegalStateException.class, builder::build);
+      assertThrows(IllegalStateException.class, () -> builder.addVector(new float[4]));
+    }
+  }
+
+  @Test
+  public void testClosingDeviceBuilderAfterBuildDoesNotCloseMatrix() throws Throwable {
+    try (var resources = CheckedCuVSResources.create()) {
+      CuVSDeviceMatrix matrix;
+      try (var builder = CuVSMatrix.deviceBuilder(resources, 1, 4, CuVSMatrix.DataType.FLOAT)) {
+        builder.addVector(new float[] {1f, 2f, 3f, 4f});
+        matrix = builder.build();
+
+        assertThrows(IllegalStateException.class, builder::build);
+        assertThrows(IllegalStateException.class, () -> builder.addVector(new float[4]));
+      }
+
+      try (matrix) {
+        float[][] actual = new float[1][4];
+        matrix.toArray(actual);
+        assertArrayEquals(new float[] {1f, 2f, 3f, 4f}, actual[0], DELTA);
+      }
     }
   }
 

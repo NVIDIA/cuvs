@@ -61,12 +61,13 @@ public class Utils {
    * @return a host-memory CuVSMatrix
    */
   static CuVSMatrix createFloatMatrix(List<float[]> data, int dimensions) {
-    CuVSMatrix.Builder<?> builder =
-        CuVSMatrix.hostBuilder(data.size(), dimensions, CuVSMatrix.DataType.FLOAT);
-    for (float[] vector : data) {
-      builder.addVector(vector);
+    try (CuVSMatrix.Builder<?> builder =
+        CuVSMatrix.hostBuilder(data.size(), dimensions, CuVSMatrix.DataType.FLOAT)) {
+      for (float[] vector : data) {
+        builder.addVector(vector);
+      }
+      return builder.build();
     }
-    return builder.build();
   }
 
   /**
@@ -77,12 +78,13 @@ public class Utils {
    * @return a host-memory CuVSMatrix with BYTE data type
    */
   static CuVSMatrix createByteMatrix(List<byte[]> data, int bytesPerVector) {
-    CuVSMatrix.Builder<?> builder =
-        CuVSMatrix.hostBuilder(data.size(), bytesPerVector, CuVSMatrix.DataType.BYTE);
-    for (byte[] vector : data) {
-      builder.addVector(vector);
+    try (CuVSMatrix.Builder<?> builder =
+        CuVSMatrix.hostBuilder(data.size(), bytesPerVector, CuVSMatrix.DataType.BYTE)) {
+      for (byte[] vector : data) {
+        builder.addVector(vector);
+      }
+      return builder.build();
     }
-    return builder.build();
   }
 
   /**
@@ -93,12 +95,93 @@ public class Utils {
    * @return a host-memory CuVSMatrix with BYTE data type
    */
   static CuVSMatrix createByteMatrixFromArray(byte[][] data, int bytesPerVector) {
-    CuVSMatrix.Builder<?> builder =
-        CuVSMatrix.hostBuilder(data.length, bytesPerVector, CuVSMatrix.DataType.BYTE);
-    for (byte[] vector : data) {
-      builder.addVector(vector);
+    try (CuVSMatrix.Builder<?> builder =
+        CuVSMatrix.hostBuilder(data.length, bytesPerVector, CuVSMatrix.DataType.BYTE)) {
+      for (byte[] vector : data) {
+        builder.addVector(vector);
+      }
+      return builder.build();
     }
-    return builder.build();
+  }
+
+  /**
+   * Closes an index that owns {@code dataset}. If index cleanup fails before releasing the
+   * dataset, a direct dataset close is attempted and attached to the index failure when needed.
+   */
+  static void closeIndexWithDatasetFallback(AutoCloseable index, AutoCloseable dataset)
+      throws Exception {
+    try {
+      index.close();
+    } catch (Throwable indexCloseFailure) {
+      try {
+        dataset.close();
+      } catch (Throwable datasetCloseFailure) {
+        if (indexCloseFailure != datasetCloseFailure) {
+          indexCloseFailure.addSuppressed(datasetCloseFailure);
+        }
+      }
+      rethrowCloseFailure(indexCloseFailure);
+    }
+  }
+
+  /** Starts an ownership scope for a dataset that may later be transferred to an index. */
+  static <I extends AutoCloseable> OwnedIndex<I> ownDataset(AutoCloseable dataset) {
+    return new OwnedIndex<>(dataset);
+  }
+
+  /**
+   * Owns a dataset immediately and, after {@link #transferTo}, closes the owning index with a
+   * direct dataset-close fallback.
+   */
+  static final class OwnedIndex<I extends AutoCloseable> implements AutoCloseable {
+    private AutoCloseable dataset;
+    private I index;
+    private boolean closed;
+
+    private OwnedIndex(AutoCloseable dataset) {
+      this.dataset = java.util.Objects.requireNonNull(dataset, "dataset");
+    }
+
+    void transferTo(I index) {
+      if (closed || this.index != null) {
+        throw new IllegalStateException("Dataset ownership has already been transferred");
+      }
+      this.index = java.util.Objects.requireNonNull(index, "index");
+    }
+
+    I index() {
+      if (index == null) {
+        throw new IllegalStateException("Dataset ownership has not been transferred to an index");
+      }
+      return index;
+    }
+
+    @Override
+    public void close() throws Exception {
+      if (closed) {
+        return;
+      }
+      closed = true;
+      AutoCloseable ownedDataset = dataset;
+      I ownedIndex = index;
+      dataset = null;
+      index = null;
+      if (ownedIndex == null) {
+        ownedDataset.close();
+      } else {
+        closeIndexWithDatasetFallback(ownedIndex, ownedDataset);
+      }
+    }
+  }
+
+  private static void rethrowCloseFailure(Throwable failure) throws Exception {
+    if (failure instanceof Exception exception) {
+      throw exception;
+    }
+    if (failure instanceof Error error) {
+      throw error;
+    }
+    throw new AssertionError("Unexpected throwable from AutoCloseable.close()", failure);
   }
 
   /**

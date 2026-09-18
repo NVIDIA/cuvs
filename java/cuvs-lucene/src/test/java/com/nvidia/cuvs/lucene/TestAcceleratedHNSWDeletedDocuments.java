@@ -11,7 +11,9 @@ import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.isSupporte
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.logging.Level;
@@ -316,6 +318,64 @@ public class TestAcceleratedHNSWDeletedDocuments extends LuceneTestCase {
                 + " active documents");
       }
     }
+  }
+
+  @Test
+  public void testForceMergeCountsOnlyLiveSparseVectors() throws IOException {
+    final String vectorField = "vector";
+    final int dimensions = 129;
+    Map<String, float[]> expected = new LinkedHashMap<>();
+
+    try (Directory directory = newDirectory()) {
+      try (IndexWriter writer = new IndexWriter(directory, createWriterConfig())) {
+        for (int segment = 0; segment < 3; segment++) {
+          for (int row = 0; row < 5; row++) {
+            String id = segment + "-" + row;
+            Document document = new Document();
+            document.add(new StringField("id", id, Field.Store.YES));
+            if (row < 4) {
+              float[] vector = deterministicVector(segment * 5 + row, dimensions);
+              document.add(
+                  new KnnFloatVectorField(vectorField, vector, VectorSimilarityFunction.EUCLIDEAN));
+              if (row != 1) {
+                expected.put(id, vector);
+              }
+            }
+            writer.addDocument(document);
+          }
+          writer.commit();
+        }
+        for (int segment = 0; segment < 3; segment++) {
+          writer.deleteDocuments(new Term("id", segment + "-1"));
+        }
+        writer.commit();
+        writer.forceMerge(1);
+      }
+
+      TestUtil.checkIndex(directory);
+      try (DirectoryReader reader = DirectoryReader.open(directory)) {
+        var leaf = getOnlyLeafReader(reader);
+        var values = leaf.getFloatVectorValues(vectorField);
+        assertNotNull(values);
+        assertEquals(expected.size(), values.size());
+        Set<String> seen = new HashSet<>();
+        for (int ordinal = 0; ordinal < values.size(); ordinal++) {
+          String id = leaf.storedFields().document(values.ordToDoc(ordinal)).get("id");
+          assertTrue("Unexpected or duplicate vector for " + id, seen.add(id));
+          assertNotNull("No expected vector for " + id, expected.get(id));
+          assertArrayEquals(expected.get(id), values.vectorValue(ordinal), 0.0f);
+        }
+        assertEquals(expected.keySet(), seen);
+      }
+    }
+  }
+
+  private static float[] deterministicVector(int id, int dimensions) {
+    float[] vector = new float[dimensions];
+    for (int dimension = 0; dimension < dimensions; dimension++) {
+      vector[dimension] = id * 10.0f + dimension * 0.01f;
+    }
+    return vector;
   }
 
   private RandomIndexWriter createWriter(Directory directory) throws IOException {
