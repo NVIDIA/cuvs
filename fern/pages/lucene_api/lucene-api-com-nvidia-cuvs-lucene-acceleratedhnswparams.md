@@ -18,11 +18,11 @@ public class AcceleratedHNSWParams
 public int getWriterThreads()
 ```
 
-Get the cuVS writer threads parameter
+Get the maximum thread count for cuVS writes and post-build graph processing.
 
 **Returns**
 
-cuVS writer threads parameter
+maximum writer and graph-processing thread count
 
 _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:149`_
 
@@ -218,7 +218,7 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWP
 public Builder withWriterThreads(int writerThreads)
 ```
 
-Set the number of cuVS writer threads while building the index
+Set the maximum number of threads used for cuVS writes and post-build graph processing.
 Valid range - Minimum: \{@value MIN_WRITER_THREADS\}, Maximum: \{@value MAX_WRITER_THREADS\}
 Default value - \{@value DEFAULT_WRITER_THREADS\}
 

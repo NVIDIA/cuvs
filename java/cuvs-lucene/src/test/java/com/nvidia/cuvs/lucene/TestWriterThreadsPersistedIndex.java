@@ -19,6 +19,7 @@ import org.apache.lucene.document.KnnFloatVectorField;
 import org.apache.lucene.document.StringField;
 import org.apache.lucene.index.CodecReader;
 import org.apache.lucene.index.DirectoryReader;
+import org.apache.lucene.index.FloatVectorValues;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.LeafReader;
@@ -50,7 +51,6 @@ public class TestWriterThreadsPersistedIndex extends LuceneTestCase {
             .withHNSWLayer(1)
             .build();
     Codec codec = new Lucene101AcceleratedHNSWCodec(params);
-    float[] query = null;
     Random random = new Random(0x2594L);
 
     try (Directory directory = newDirectory()) {
@@ -66,9 +66,6 @@ public class TestWriterThreadsPersistedIndex extends LuceneTestCase {
           for (int dimension = 0; dimension < DIMENSIONS; dimension++) {
             vector[dimension] = random.nextFloat();
           }
-          if (id == 0) {
-            query = vector.clone();
-          }
           Document document = new Document();
           document.add(new StringField("id", Integer.toString(id), Field.Store.YES));
           document.add(new KnnFloatVectorField(VECTOR_FIELD, vector, EUCLIDEAN));
@@ -80,7 +77,8 @@ public class TestWriterThreadsPersistedIndex extends LuceneTestCase {
       try (DirectoryReader reader = DirectoryReader.open(directory)) {
         assertEquals(1, reader.leaves().size());
         assertEquals(VECTOR_COUNT, reader.numDocs());
-        HnswGraph graph = graphOf(getOnlyLeafReader(reader));
+        LeafReader leaf = getOnlyLeafReader(reader);
+        HnswGraph graph = graphOf(leaf);
         assertEquals(VECTOR_COUNT, graph.size());
         int arcs = 0;
         HnswGraph.NodesIterator nodes = graph.getNodesOnLevel(0);
@@ -97,14 +95,23 @@ public class TestWriterThreadsPersistedIndex extends LuceneTestCase {
         }
         assertTrue("persisted graph contains no arcs", arcs > 0);
 
+        int queryNode = graph.entryNode();
+        assertTrue(queryNode >= 0);
+        assertTrue(queryNode < VECTOR_COUNT);
+        FloatVectorValues values = leaf.getFloatVectorValues(VECTOR_FIELD);
+        assertNotNull(values);
+        float[] query = values.vectorValue(queryNode).clone();
+        int queryDoc = values.ordToDoc(queryNode);
+        String queryId = leaf.storedFields().document(queryDoc).get("id");
+
         IndexSearcher searcher = new IndexSearcher(reader);
         var hits = searcher.search(new KnnFloatVectorQuery(VECTOR_FIELD, query, 10), 10);
         assertEquals(10, hits.scoreDocs.length);
-        boolean foundExactVector = false;
+        boolean foundQueryNode = false;
         for (var hit : hits.scoreDocs) {
-          foundExactVector |= "0".equals(searcher.storedFields().document(hit.doc).get("id"));
+          foundQueryNode |= queryId.equals(searcher.storedFields().document(hit.doc).get("id"));
         }
-        assertTrue("the indexed vector must be returned for its own query", foundExactVector);
+        assertTrue("the entry-node vector must be returned for its own query", foundQueryNode);
       }
     }
   }
