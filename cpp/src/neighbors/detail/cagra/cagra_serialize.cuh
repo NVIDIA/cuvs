@@ -119,7 +119,7 @@ void serialize(raft::resources const& res,
     if (include_dataset) { dataset_kind = serialized_dataset_kind_for_view<DatasetViewT>(); }
   }
 
-  std::string dtype_string = raft::numpy_serializer::get_numpy_dtype<T>().to_string();
+  std::string dtype_string = cuvs::util::detail::numpy_dtype_string<T>();
   dtype_string.resize(4);
   os << dtype_string;
 
