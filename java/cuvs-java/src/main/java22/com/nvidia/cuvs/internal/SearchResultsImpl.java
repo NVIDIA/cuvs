@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs.internal;
@@ -35,23 +35,22 @@ class SearchResultsImpl implements SearchResults {
       LongToIntFunction mapping,
       long numberOfQueries) {
     List<Map<Integer, Float>> results = new LinkedList<>();
-    Map<Integer, Float> intermediateResultMap = new LinkedHashMap<>();
     var neighboursVarHandle =
         neighboursSequenceLayout.varHandle(MemoryLayout.PathElement.sequenceElement());
     var distancesVarHandle =
         distancesSequenceLayout.varHandle(MemoryLayout.PathElement.sequenceElement());
 
-    int count = 0;
-    for (long i = 0; i < topK * numberOfQueries; i++) {
-      long id = (long) neighboursVarHandle.get(neighboursMemorySegment, 0L, i);
-      float dst = (float) distancesVarHandle.get(distancesMemorySegment, 0L, i);
-      intermediateResultMap.put(mapping != null ? mapping.applyAsInt((int) id) : (int) id, dst);
-      count += 1;
-      if (count == topK) {
-        results.add(intermediateResultMap);
-        intermediateResultMap = new LinkedHashMap<>();
-        count = 0;
+    // One map per query, so callers can rely on the result list holding exactly numberOfQueries
+    // entries even when topK is 0 and no map has any content.
+    for (long query = 0; query < numberOfQueries; query++) {
+      Map<Integer, Float> resultMap = new LinkedHashMap<>();
+      for (int j = 0; j < topK; j++) {
+        long i = query * topK + j;
+        long id = (long) neighboursVarHandle.get(neighboursMemorySegment, 0L, i);
+        float dst = (float) distancesVarHandle.get(distancesMemorySegment, 0L, i);
+        resultMap.put(mapping != null ? mapping.applyAsInt((int) id) : (int) id, dst);
       }
+      results.add(resultMap);
     }
 
     return new SearchResultsImpl(results);
