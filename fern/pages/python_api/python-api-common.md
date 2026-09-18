@@ -289,3 +289,13 @@ alive for as long as the ``Dataset`` is used.
 >>> ds.layout
 'padded'
 ```
+
+## make_device_pq_dataset
+
+`@auto_sync_resources`
+
+```python
+def make_device_pq_dataset(params, dataset, resources=None)
+```
+
+Create an owning device PQ dataset.
