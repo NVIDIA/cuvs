@@ -446,6 +446,50 @@ EXTERN_TEMPLATE_MIN_CLUSTER_DISTANCE(double, int)
 
 #undef EXTERN_TEMPLATE_MIN_CLUSTER_DISTANCE
 
+/**
+ * @brief Compute the optionally weighted sum of distances to the nearest centroid.
+ *
+ * Unlike minClusterAndDistanceCompute, this path does not calculate cluster labels.
+ */
+template <typename DataT, typename IndexT>
+void cluster_cost(
+  raft::resources const& handle,
+  raft::device_matrix_view<const DataT, IndexT> X,
+  raft::device_matrix_view<const DataT, IndexT> centroids,
+  raft::device_vector_view<DataT, IndexT> min_cluster_distance,
+  raft::device_vector_view<DataT, IndexT> l2_norm_x,
+  rmm::device_uvector<DataT>& l2_norm_or_distance_buffer,
+  cuvs::distance::DistanceType metric,
+  int batch_samples,
+  int batch_centroids,
+  rmm::device_uvector<char>& workspace,
+  raft::device_scalar_view<DataT> cost,
+  std::optional<raft::device_vector_view<const DataT, IndexT>> sample_weight = std::nullopt)
+{
+  auto centroids_mutable = raft::make_device_matrix_view<DataT, IndexT>(
+    const_cast<DataT*>(centroids.data_handle()), centroids.extent(0), centroids.extent(1));
+  minClusterDistanceCompute(handle,
+                            X,
+                            centroids_mutable,
+                            min_cluster_distance,
+                            l2_norm_x,
+                            l2_norm_or_distance_buffer,
+                            metric,
+                            batch_samples,
+                            batch_centroids,
+                            workspace);
+
+  if (sample_weight.has_value()) {
+    raft::linalg::map(handle,
+                      min_cluster_distance,
+                      raft::mul_op{},
+                      raft::make_const_mdspan(min_cluster_distance),
+                      sample_weight.value());
+  }
+  computeClusterCost(
+    handle, min_cluster_distance, workspace, cost, raft::identity_op{}, raft::add_op{});
+}
+
 template <typename DataT, typename IndexT>
 void countSamplesInCluster(raft::resources const& handle,
                            const cuvs::cluster::kmeans::params& params,
