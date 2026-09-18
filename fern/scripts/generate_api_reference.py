@@ -2998,7 +2998,10 @@ def generate_java_api_pages() -> None:
         title="Java API Documentation",
         intro=(
             "These pages are generated from the Java source files in "
-            "`java/cuvs-java/src/main`."
+            "`java/cuvs-java/src/main`.\n\n"
+            "For the Apache Lucene codecs built on this API, see the "
+            "[Lucene API Documentation](/api-reference/lucene-api-documentation) and the "
+            "[Lucene Integration](/user-guide/lucene) guide."
         ),
         source_dirs=JAVA_SOURCE_DIRS,
         group_of=java_api_group,
@@ -3011,7 +3014,9 @@ def generate_lucene_api_pages() -> None:
         title="Lucene API Documentation",
         intro=(
             "These pages are generated from the Java source files in "
-            "`java/cuvs-lucene/src/main`."
+            "`java/cuvs-lucene/src/main`.\n\n"
+            "For an introduction to the codecs, configuration, and tuning, see the "
+            "[Lucene Integration](/user-guide/lucene) guide."
         ),
         source_dirs=LUCENE_SOURCE_DIRS,
         group_of=lucene_api_group,
