@@ -356,6 +356,8 @@ navigation:
                 path: "./pages/cpp_api/cpp-api-common-types-copy-serialization-and-utility-apis.md"
               - page: "Errors and Logging"
                 path: "./pages/cpp_api/cpp-api-common-types-errors-and-logging.md"
+          - page: "Core Roaring Allowlist"
+            path: "./pages/cpp_api/cpp-api-core-roaring-allowlist.md"
           - page: "Distance Distance"
             path: "./pages/cpp_api/cpp-api-distance-distance.md"
           - page: "Distance Grammian"
