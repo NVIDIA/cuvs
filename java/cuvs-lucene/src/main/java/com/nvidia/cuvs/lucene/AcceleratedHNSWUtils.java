@@ -6,13 +6,14 @@
 package com.nvidia.cuvs.lucene;
 
 import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.getCuVSResourcesInstance;
-import static com.nvidia.cuvs.lucene.Utils.createByteMatrixFromArray;
+import static com.nvidia.cuvs.lucene.Utils.createHostByteMatrixFromArray;
 
 import com.nvidia.cuvs.CagraIndex;
 import com.nvidia.cuvs.CagraIndexParams;
 import com.nvidia.cuvs.CuVSMatrix;
 import com.nvidia.cuvs.RowView;
 import java.io.IOException;
+import java.util.AbstractList;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -170,6 +171,52 @@ public class AcceleratedHNSWUtils {
   }
 
   /**
+   * Creates a multi-layer HNSW graph from a native matrix without copying the complete dataset to
+   * the Java heap. The list view copies only rows selected for an upper layer.
+   */
+  static GPUBuiltHnswGraph createMultiLayerHnswGraph(
+      FieldInfo fieldInfo,
+      int dimensions,
+      CuVSMatrix adjacencyListMatrix,
+      CuVSMatrix vectorDataset,
+      int hnswLayers,
+      CagraIndexParams params,
+      QuantizationType quantization)
+      throws Throwable {
+    int size = Math.toIntExact(vectorDataset.size());
+    int columns = Math.toIntExact(vectorDataset.columns());
+    List<?> vectors =
+        new AbstractList<>() {
+          @Override
+          public Object get(int index) {
+            RowView row = vectorDataset.getRow(index);
+            if (quantization == QuantizationType.NONE) {
+              float[] vector = new float[columns];
+              row.toArray(vector);
+              return vector;
+            }
+            byte[] vector = new byte[columns];
+            row.toArray(vector);
+            return vector;
+          }
+
+          @Override
+          public int size() {
+            return size;
+          }
+        };
+    return createMultiLayerHnswGraph(
+        fieldInfo,
+        size,
+        dimensions,
+        adjacencyListMatrix,
+        vectors,
+        hnswLayers,
+        params,
+        quantization);
+  }
+
+  /**
    * Builds a CAGRA graph for a subset of binary quantized vectors
    */
   private static CuVSMatrix buildCagraGraphForSubset(
@@ -184,14 +231,18 @@ public class AcceleratedHNSWUtils {
     CuVSMatrix subsetDataset;
 
     if (quantization == QuantizationType.BINARY) {
-      subsetDataset =
-          createByteMatrixFromArray((byte[][]) vectors, bytesPerVector, getCuVSResourcesInstance());
+      subsetDataset = createHostByteMatrixFromArray((byte[][]) vectors, bytesPerVector);
     } else if (quantization == QuantizationType.SCALAR) {
-      subsetDataset =
-          createByteMatrixFromArray((byte[][]) vectors, dimensions, getCuVSResourcesInstance());
+      subsetDataset = createHostByteMatrixFromArray((byte[][]) vectors, dimensions);
     } else {
       subsetDataset = CuVSMatrix.ofArray((float[][]) vectors);
     }
+
+    return buildCagraGraphForSubset(subsetDataset, selectedNodes, params);
+  }
+
+  private static CuVSMatrix buildCagraGraphForSubset(
+      CuVSMatrix subsetDataset, int[] selectedNodes, CagraIndexParams params) throws Throwable {
 
     // Build CAGRA index for the subset
     CagraIndex subsetIndex =
