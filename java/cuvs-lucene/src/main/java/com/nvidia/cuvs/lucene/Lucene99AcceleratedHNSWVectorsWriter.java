@@ -306,10 +306,32 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
       CuVSMatrix.Builder<CuVSHostMatrix> builder =
           CuVSMatrix.hostBuilder(size, dims, CuVSMatrix.DataType.FLOAT);
       KnnVectorValues.DocIndexIterator it = mergedVectors.iterator();
+      int replayed = 0;
+      boolean hasExtraVector = false;
       for (int doc = it.nextDoc(); doc != DocIdSetIterator.NO_MORE_DOCS; doc = it.nextDoc()) {
+        if (replayed == size) {
+          hasExtraVector = true;
+          break;
+        }
         builder.addVector(mergedVectors.vectorValue(it.index()));
+        replayed = Math.incrementExact(replayed);
       }
       CuVSHostMatrix dataset = builder.build();
+      if (hasExtraVector || replayed != size) {
+        int observed = hasExtraVector ? Math.incrementExact(replayed) : replayed;
+        IOException mismatch =
+            new IOException(
+                "Merged vector count changed between passes: expected "
+                    + size
+                    + (hasExtraVector ? ", observed at least " : ", observed ")
+                    + observed);
+        try {
+          dataset.close();
+        } catch (Throwable closeFailure) {
+          mismatch.addSuppressed(closeFailure);
+        }
+        throw mismatch;
+      }
       writeNonTrivialField(fieldInfo, dataset);
     } catch (Throwable t) {
       Utils.handleThrowable(t);
@@ -324,7 +346,12 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
     int count = 0;
     KnnVectorValues.DocIndexIterator it = mergedVectors.iterator();
     for (int doc = it.nextDoc(); doc != DocIdSetIterator.NO_MORE_DOCS; doc = it.nextDoc()) {
-      count++;
+      try {
+        count = Math.incrementExact(count);
+      } catch (ArithmeticException tooManyVectors) {
+        throw new IOException(
+            "Merged vector count exceeds the supported integer range", tooManyVectors);
+      }
     }
     return count;
   }
