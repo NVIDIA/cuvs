@@ -4,14 +4,18 @@
  */
 package com.nvidia.cuvs.lucene;
 
+import java.io.IOException;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.apache.lucene.codecs.Codec;
+import org.apache.lucene.codecs.KnnVectorsFormat;
 import org.apache.lucene.codecs.KnnVectorsReader;
 import org.apache.lucene.codecs.KnnVectorsWriter;
 import org.apache.lucene.codecs.hnsw.FlatVectorsFormat;
@@ -31,6 +35,8 @@ import org.apache.lucene.search.TaskExecutor;
 public class LuceneProvider {
 
   static final Logger log = Logger.getLogger(LuceneProvider.class.getName());
+  static final String LUCENE_99_FORMAT_VERSION = "99";
+  static final String LUCENE_102_BINARY_FORMAT_VERSION = "102";
 
   private static final String BASE = "org.apache.lucene.";
   private static String codecs = "codecs.lucene<version>.";
@@ -79,27 +85,54 @@ public class LuceneProvider {
   private static String luceneCodec = BASE + codecs + "Lucene<version>Codec";
   private static String luceneCodecFallback = BASE + fallbackCodecs + "Lucene<version>Codec";
 
-  private static LuceneProvider instance;
+  private static final Map<String, LuceneProvider> INSTANCES = new HashMap<>();
 
-  private static MethodHandles.Lookup lookup = MethodHandles.lookup();
+  private static final MethodHandles.Lookup LOOKUP = MethodHandles.lookup();
 
-  private Class<?> flatVectorsFormat;
-  private Class<?> hnswVectorsFormat;
-  private Class<?> hnswVectorsReader;
-  private Class<?> hnswVectorsWriter;
-  private Class<?> binaryQuantizedVectorsFormat;
-  private Class<?> hnswBinaryQuantizedVectorsFormat;
-  private Class<?> scalarQuantizedVectorsFormat;
-  private Class<?> hnswScalarQuantizedVectorsFormat;
+  private final String version;
+  private final Class<?> flatVectorsFormat;
+  private final Class<?> hnswVectorsFormat;
+  private final Class<?> hnswVectorsReader;
+  private final Class<?> hnswVectorsWriter;
+  private final Class<?> binaryQuantizedVectorsFormat;
+  private final Class<?> hnswBinaryQuantizedVectorsFormat;
+  private final Class<?> scalarQuantizedVectorsFormat;
+  private final Class<?> hnswScalarQuantizedVectorsFormat;
 
-  public static LuceneProvider getInstance(String version) throws ClassNotFoundException {
-    if (instance == null) {
-      instance = new LuceneProvider(version);
+  public static synchronized LuceneProvider getInstance(String version)
+      throws ClassNotFoundException {
+    LuceneProvider provider = INSTANCES.get(version);
+    if (provider == null) {
+      provider = new LuceneProvider(version);
+      INSTANCES.put(version, provider);
     }
-    return instance;
+    return provider;
   }
 
   private LuceneProvider(String version) throws ClassNotFoundException {
+    this.version = version;
+
+    // Binary quantization was introduced in the lucene102 format family. General HNSW and scalar
+    // quantization in Lucene 10.2 still use the lucene99 family, so the two provider versions have
+    // intentionally disjoint capabilities.
+    if (LUCENE_102_BINARY_FORMAT_VERSION.equals(version)) {
+      binaryQuantizedVectorsFormat =
+          loadClass(
+              setVersion(luceneBinaryQuantizedVectorsFormat, version),
+              setVersion(luceneBinaryQuantizedVectorsFormatFallback, version));
+      hnswBinaryQuantizedVectorsFormat =
+          loadClass(
+              setVersion(luceneHnswBinaryQuantizedVectorsFormat, version),
+              setVersion(luceneHnswBinaryQuantizedVectorsFormatFallback, version));
+      flatVectorsFormat = null;
+      hnswVectorsFormat = null;
+      hnswVectorsReader = null;
+      hnswVectorsWriter = null;
+      scalarQuantizedVectorsFormat = null;
+      hnswScalarQuantizedVectorsFormat = null;
+      return;
+    }
+
     flatVectorsFormat =
         loadClass(
             setVersion(luceneFlatVectorsFormat, version),
@@ -125,18 +158,8 @@ public class LuceneProvider {
         loadClass(
             setVersion(luceneHnswScalarQuantizedVectorsFormat, version),
             setVersion(luceneHnswScalarQuantizedVectorsFormatFallback, version));
-
-    // TODO: Find a better way if possible, but as a separate initiative.
-    if ("102".equals(version)) {
-      binaryQuantizedVectorsFormat =
-          loadClass(
-              setVersion(luceneBinaryQuantizedVectorsFormat, version),
-              setVersion(luceneBinaryQuantizedVectorsFormatFallback, version));
-      hnswBinaryQuantizedVectorsFormat =
-          loadClass(
-              setVersion(luceneHnswBinaryQuantizedVectorsFormat, version),
-              setVersion(luceneHnswBinaryQuantizedVectorsFormatFallback, version));
-    }
+    binaryQuantizedVectorsFormat = null;
+    hnswBinaryQuantizedVectorsFormat = null;
   }
 
   private static String setVersion(String pkg, String version) {
@@ -147,15 +170,50 @@ public class LuceneProvider {
       throws ClassNotFoundException {
     try {
       return Class.forName(defaultClassName);
-    } catch (ClassNotFoundException e) {
+    } catch (ClassNotFoundException defaultException) {
       // Load class from fallback package.
       try {
         return Class.forName(fallbackClassName);
-      } catch (ClassNotFoundException e1) {
-        // Should not reach here.
-        log.log(Level.SEVERE, "Unable to load class: " + fallbackClassName);
-        throw e1;
+      } catch (ClassNotFoundException fallbackException) {
+        ClassNotFoundException missing =
+            new ClassNotFoundException(
+                "Unable to load Lucene class. Tried "
+                    + defaultClassName
+                    + " and "
+                    + fallbackClassName);
+        missing.addSuppressed(defaultException);
+        missing.addSuppressed(fallbackException);
+        throw missing;
       }
+    }
+  }
+
+  private Class<?> requireCapability(
+      Class<?> implementation, String capability, String requiredVersion) {
+    if (implementation == null) {
+      throw new UnsupportedOperationException(
+          capability
+              + " is unavailable from LuceneProvider version "
+              + version
+              + "; use LuceneProvider.getInstance(\""
+              + requiredVersion
+              + "\")");
+    }
+    return implementation;
+  }
+
+  static Object invokeConstructor(
+      String componentName, Constructor<?> constructor, Object... arguments) throws Exception {
+    try {
+      return constructor.newInstance(arguments);
+    } catch (InvocationTargetException e) {
+      Throwable target = e.getTargetException();
+      if (target instanceof IOException
+          || target instanceof RuntimeException
+          || target instanceof Error) {
+        throw Utils.handleThrowable(target);
+      }
+      throw new IllegalStateException("Unable to initialize " + componentName, target);
     }
   }
 
@@ -175,10 +233,11 @@ public class LuceneProvider {
 
   public FlatVectorsFormat getLuceneFlatVectorsFormatInstance(FlatVectorsScorer scorer)
       throws Exception {
+    Class<?> implementation =
+        requireCapability(flatVectorsFormat, "Lucene flat vectors", LUCENE_99_FORMAT_VERSION);
     try {
-      Constructor<?> luceneFlatVectorsFormatConstructor =
-          flatVectorsFormat.getConstructor(FlatVectorsScorer.class);
-      return (FlatVectorsFormat) luceneFlatVectorsFormatConstructor.newInstance(scorer);
+      Constructor<?> constructor = implementation.getConstructor(FlatVectorsScorer.class);
+      return (FlatVectorsFormat) invokeConstructor("LuceneFlatVectorsFormat", constructor, scorer);
     } catch (Exception e) {
       log.log(Level.SEVERE, "Unable to initialize LuceneFlatVectorsFormat: " + e.getMessage());
       throw e;
@@ -187,10 +246,14 @@ public class LuceneProvider {
 
   public KnnVectorsReader getLuceneHnswVectorsReaderInstance(
       SegmentReadState state, FlatVectorsReader reader) throws Exception {
+    Class<?> implementation =
+        requireCapability(
+            hnswVectorsReader, "Lucene HNSW vectors reader", LUCENE_99_FORMAT_VERSION);
     try {
-      Constructor<?> luceneHnswVectorsReaderConstructor =
-          hnswVectorsReader.getConstructor(SegmentReadState.class, FlatVectorsReader.class);
-      return (KnnVectorsReader) luceneHnswVectorsReaderConstructor.newInstance(state, reader);
+      Constructor<?> constructor =
+          implementation.getConstructor(SegmentReadState.class, FlatVectorsReader.class);
+      return (KnnVectorsReader)
+          invokeConstructor("LuceneHnswVectorsReader", constructor, state, reader);
     } catch (Exception e) {
       log.log(Level.SEVERE, "Unable to initialize LuceneHnswVectorsReader: " + e.getMessage());
       throw e;
@@ -205,9 +268,12 @@ public class LuceneProvider {
       int numMergeWorkers,
       TaskExecutor executor)
       throws Exception {
+    Class<?> implementation =
+        requireCapability(
+            hnswVectorsWriter, "Lucene HNSW vectors writer", LUCENE_99_FORMAT_VERSION);
     try {
-      Constructor<?> luceneHnswVectorsWriterConstructor =
-          hnswVectorsWriter.getConstructor(
+      Constructor<?> constructor =
+          implementation.getConstructor(
               SegmentWriteState.class,
               Integer.TYPE,
               Integer.TYPE,
@@ -215,8 +281,15 @@ public class LuceneProvider {
               Integer.TYPE,
               TaskExecutor.class);
       return (KnnVectorsWriter)
-          luceneHnswVectorsWriterConstructor.newInstance(
-              state, maxConn, beamWidth, writer, numMergeWorkers, executor);
+          invokeConstructor(
+              "LuceneHnswVectorsWriter",
+              constructor,
+              state,
+              maxConn,
+              beamWidth,
+              writer,
+              numMergeWorkers,
+              executor);
     } catch (Exception e) {
       log.log(Level.SEVERE, "Unable to initialize LuceneHnswVectorsWriter: " + e.getMessage());
       throw e;
@@ -224,8 +297,10 @@ public class LuceneProvider {
   }
 
   public int getStaticIntParam(String param) throws ReflectiveOperationException {
+    Class<?> implementation =
+        requireCapability(hnswVectorsFormat, "Lucene HNSW vectors", LUCENE_99_FORMAT_VERSION);
     try {
-      VarHandle varHandle = lookup.findStaticVarHandle(hnswVectorsFormat, param, Integer.TYPE);
+      VarHandle varHandle = LOOKUP.findStaticVarHandle(implementation, param, Integer.TYPE);
       return (int) varHandle.get();
     } catch (NoSuchFieldException | IllegalAccessException e) {
       log.log(Level.SEVERE, "Unable to get " + param + ": " + e.getMessage());
@@ -235,9 +310,12 @@ public class LuceneProvider {
 
   public List<VectorSimilarityFunction> getSimilarityFunctions()
       throws ReflectiveOperationException {
+    Class<?> implementation =
+        requireCapability(
+            hnswVectorsReader, "Lucene HNSW vectors reader", LUCENE_99_FORMAT_VERSION);
     try {
       VarHandle varHandle =
-          lookup.findStaticVarHandle(hnswVectorsReader, "SIMILARITY_FUNCTIONS", List.class);
+          LOOKUP.findStaticVarHandle(implementation, "SIMILARITY_FUNCTIONS", List.class);
       return (List<VectorSimilarityFunction>) varHandle.get();
     } catch (NoSuchFieldException | IllegalAccessException e) {
       log.log(Level.SEVERE, "Unable to get SIMILARITY_FUNCTIONS: " + e.getMessage());
@@ -245,11 +323,17 @@ public class LuceneProvider {
     }
   }
 
-  public FlatVectorsFormat getluceneBinaryQuantizedVectorsFormatInstance() throws Exception {
+  /** Returns the Lucene 10.2 flat binary-quantized vectors format. */
+  public FlatVectorsFormat getLuceneBinaryQuantizedVectorsFormatInstance() throws Exception {
+    Class<?> implementation =
+        requireCapability(
+            binaryQuantizedVectorsFormat,
+            "Lucene binary-quantized vectors",
+            LUCENE_102_BINARY_FORMAT_VERSION);
     try {
-      Constructor<?> luceneBinaryQuantizedVectorsFormatConstructor =
-          binaryQuantizedVectorsFormat.getConstructor();
-      return (FlatVectorsFormat) luceneBinaryQuantizedVectorsFormatConstructor.newInstance();
+      Constructor<?> constructor = implementation.getConstructor();
+      return (FlatVectorsFormat)
+          invokeConstructor("LuceneBinaryQuantizedVectorsFormat", constructor);
     } catch (Exception e) {
       log.log(
           Level.SEVERE,
@@ -258,26 +342,64 @@ public class LuceneProvider {
     }
   }
 
-  public FlatVectorsFormat getLuceneHnswBinaryQuantizedVectorsFormatInstance(
+  /**
+   * Retains the original public spelling for source and binary compatibility.
+   *
+   * @deprecated Use {@link #getLuceneBinaryQuantizedVectorsFormatInstance()}.
+   */
+  @Deprecated(since = "26.12", forRemoval = false)
+  public FlatVectorsFormat getluceneBinaryQuantizedVectorsFormatInstance() throws Exception {
+    return getLuceneBinaryQuantizedVectorsFormatInstance();
+  }
+
+  /** Returns the Lucene 10.2 HNSW binary-quantized vectors format. */
+  public KnnVectorsFormat getLuceneHnswBinaryQuantizedKnnVectorsFormatInstance(
       int maxConn, int beamWidth) throws Exception {
+    Class<?> implementation =
+        requireCapability(
+            hnswBinaryQuantizedVectorsFormat,
+            "Lucene HNSW binary-quantized vectors",
+            LUCENE_102_BINARY_FORMAT_VERSION);
     try {
-      Constructor<?> luceneHnswBinaryQuantizedVectorsFormatConstructor =
-          hnswBinaryQuantizedVectorsFormat.getConstructor(Integer.TYPE, Integer.TYPE);
-      return (FlatVectorsFormat)
-          luceneHnswBinaryQuantizedVectorsFormatConstructor.newInstance(maxConn, beamWidth);
+      Constructor<?> constructor = implementation.getConstructor(Integer.TYPE, Integer.TYPE);
+      return (KnnVectorsFormat)
+          invokeConstructor(
+              "LuceneHnswBinaryQuantizedVectorsFormat", constructor, maxConn, beamWidth);
     } catch (Exception e) {
       log.log(
           Level.SEVERE,
-          "Unable to initialize LuceneBinaryQuantizedVectorsFormat: " + e.getMessage());
+          "Unable to initialize LuceneHnswBinaryQuantizedVectorsFormat: " + e.getMessage());
       throw e;
     }
+  }
+
+  /**
+   * Retains the original JVM method descriptor for binary compatibility.
+   *
+   * <p>The legacy API declared {@link FlatVectorsFormat} as its return type, but Lucene's HNSW
+   * binary-quantized format extends {@link KnnVectorsFormat} directly. Use {@link
+   * #getLuceneHnswBinaryQuantizedKnnVectorsFormatInstance(int, int)}.
+   *
+   * @deprecated The legacy return type cannot represent Lucene's HNSW format.
+   */
+  @Deprecated(since = "26.12", forRemoval = false)
+  public FlatVectorsFormat getLuceneHnswBinaryQuantizedVectorsFormatInstance(
+      int maxConn, int beamWidth) throws Exception {
+    throw new UnsupportedOperationException(
+        "Lucene HNSW binary-quantized vectors require KnnVectorsFormat; use "
+            + "getLuceneHnswBinaryQuantizedKnnVectorsFormatInstance(int, int)");
   }
 
   public FlatVectorsFormat getLuceneScalarQuantizedVectorsFormatInstance() throws Exception {
+    Class<?> implementation =
+        requireCapability(
+            scalarQuantizedVectorsFormat,
+            "Lucene scalar-quantized vectors",
+            LUCENE_99_FORMAT_VERSION);
     try {
-      Constructor<?> luceneScalarQuantizedVectorsFormatConstructor =
-          scalarQuantizedVectorsFormat.getConstructor();
-      return (FlatVectorsFormat) luceneScalarQuantizedVectorsFormatConstructor.newInstance();
+      Constructor<?> constructor = implementation.getConstructor();
+      return (FlatVectorsFormat)
+          invokeConstructor("LuceneScalarQuantizedVectorsFormat", constructor);
     } catch (Exception e) {
       log.log(
           Level.SEVERE,
@@ -286,18 +408,50 @@ public class LuceneProvider {
     }
   }
 
-  public FlatVectorsFormat getLuceneHnswScalarQuantizedVectorsFormatInstance(
-      int beamWidth, int maxConn) throws Exception {
+  /**
+   * Returns Lucene's HNSW scalar-quantized vectors format.
+   *
+   * @param maxConn maximum number of connections per graph node
+   * @param beamWidth number of candidate neighbors tracked while building the graph
+   * @return the configured scalar-quantized HNSW format
+   * @throws Exception if the Lucene format cannot be constructed
+   */
+  public KnnVectorsFormat getLuceneHnswScalarQuantizedKnnVectorsFormatInstance(
+      int maxConn, int beamWidth) throws Exception {
+    Class<?> implementation =
+        requireCapability(
+            hnswScalarQuantizedVectorsFormat,
+            "Lucene HNSW scalar-quantized vectors",
+            LUCENE_99_FORMAT_VERSION);
     try {
-      Constructor<?> luceneHnswScalarQuantizedVectorsFormatConstructor =
-          hnswScalarQuantizedVectorsFormat.getConstructor(Integer.TYPE, Integer.TYPE);
-      return (FlatVectorsFormat)
-          luceneHnswScalarQuantizedVectorsFormatConstructor.newInstance(beamWidth, maxConn);
+      Constructor<?> constructor = implementation.getConstructor(Integer.TYPE, Integer.TYPE);
+      return (KnnVectorsFormat)
+          invokeConstructor(
+              "LuceneHnswScalarQuantizedVectorsFormat", constructor, maxConn, beamWidth);
     } catch (Exception e) {
       log.log(
           Level.SEVERE,
           "Unable to initialize LuceneHnswScalarQuantizedVectorsFormat: " + e.getMessage());
       throw e;
     }
+  }
+
+  /**
+   * Retains the original JVM method descriptor for binary compatibility.
+   *
+   * <p>The legacy API declared {@link FlatVectorsFormat} as its return type, but Lucene's HNSW
+   * scalar-quantized format extends {@link KnnVectorsFormat} directly. Use {@link
+   * #getLuceneHnswScalarQuantizedKnnVectorsFormatInstance(int, int)}. The legacy parameters are
+   * ordered {@code (beamWidth, maxConn)}; the replacement uses {@code (maxConn, beamWidth)}.
+   *
+   * @deprecated The legacy return type cannot represent Lucene's HNSW format.
+   */
+  @Deprecated(since = "26.12", forRemoval = false)
+  public FlatVectorsFormat getLuceneHnswScalarQuantizedVectorsFormatInstance(
+      int beamWidth, int maxConn) throws Exception {
+    throw new UnsupportedOperationException(
+        "Lucene HNSW scalar-quantized vectors require KnnVectorsFormat; use "
+            + "getLuceneHnswScalarQuantizedKnnVectorsFormatInstance(maxConn, beamWidth); "
+            + "the legacy parameter order was (beamWidth, maxConn)");
   }
 }
