@@ -17,6 +17,7 @@
 #include <cuvs/distance/distance.hpp>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/logger.hpp>
+#include <raft/util/kernel_launch.hpp>
 #include <rtcx/algorithm_launcher.hpp>
 
 #include <cstddef>
@@ -58,15 +59,14 @@ void random_pickup_jit(const dataset_descriptor_host<DataT, IndexT, DistanceT>& 
   // Get the device descriptor pointer
   const auto* dev_desc = dataset_desc.dev_ptr(cuda_stream);
 
-  // Cast size_t parameters to match kernel signature exactly
-  // The dispatch mechanism uses void* pointers, so parameter sizes must match exactly
+  // `ldr` is wider than the kernel parameter; the cast records the intentional narrowing.
   const uint32_t ldr_u32 = static_cast<uint32_t>(ldr);
 
-  launcher->dispatch<random_pickup_kernel_func_t<DataT, IndexT, DistanceT>>(
-    cuda_stream,
+  raft::launch_kernel(
+    {cuda_stream, dataset_desc.smem_ws_size_in_bytes},
     grid_size,
     dim3(block_size, 1, 1),
-    dataset_desc.smem_ws_size_in_bytes,
+    raft::kernel_ref<random_pickup_kernel_func_t<DataT, IndexT, DistanceT>>{launcher->get_kernel()},
     dev_desc,
     queries_ptr,
     num_pickup,
@@ -80,8 +80,6 @@ void random_pickup_jit(const dataset_descriptor_host<DataT, IndexT, DistanceT>& 
     visited_hashmap_ptr,
     hash_bitlen,
     graph_size);
-
-  RAFT_CUDA_TRY(cudaPeekAtLastError());
 }
 
 // JIT version of compute_distance_to_child_nodes
@@ -121,12 +119,13 @@ void compute_distance_to_child_nodes_jit(
   // Get the device descriptor pointer
   const auto* dev_desc = dataset_desc.dev_ptr(cuda_stream);
 
-  launcher->dispatch<
-    compute_distance_to_child_nodes_kernel_func_t<DataT, IndexT, DistanceT, SourceIndexT>>(
-    cuda_stream,
+  raft::launch_kernel(
+    {cuda_stream, dataset_desc.smem_ws_size_in_bytes},
     grid_size,
     dim3(block_size, 1, 1),
-    dataset_desc.smem_ws_size_in_bytes,
+    raft::kernel_ref<
+      compute_distance_to_child_nodes_kernel_func_t<DataT, IndexT, DistanceT, SourceIndexT>>{
+      launcher->get_kernel()},
     parent_node_list,
     parent_candidates_ptr,
     parent_distance_ptr,
@@ -143,8 +142,6 @@ void compute_distance_to_child_nodes_jit(
     result_distances_ptr,
     ldd,
     filter_payload);
-
-  RAFT_CUDA_TRY(cudaPeekAtLastError());
 }
 
 // JIT version of apply_filter
@@ -166,24 +163,20 @@ void apply_filter_jit(const SourceIndexT* source_indices_ptr,
   const std::uint32_t block_size = 256;
   const std::uint32_t grid_size  = raft::ceildiv(num_queries * result_buffer_size, block_size);
 
-  // Alias avoids nested `dispatch< alias_template<...>>` which NVCC can misparse as
-  // comparison/shift.
-  using apply_filter_kernel_func_t = apply_filter_kernel_func_t<INDEX_T, DISTANCE_T, SourceIndexT>;
-  // `template` required: in template code, `->dispatch<...>` is otherwise parsed as `dispatch <` …
-  launcher->template dispatch<apply_filter_kernel_func_t>(cuda_stream,
-                                                          dim3(grid_size, 1, 1),
-                                                          dim3(block_size, 1, 1),
-                                                          0,
-                                                          source_indices_ptr,
-                                                          result_indices_ptr,
-                                                          result_distances_ptr,
-                                                          lds,
-                                                          result_buffer_size,
-                                                          num_queries,
-                                                          effective_query_id_offset,
-                                                          filter_payload);
-
-  RAFT_CUDA_TRY(cudaPeekAtLastError());
+  raft::launch_kernel(
+    cuda_stream,
+    dim3(grid_size, 1, 1),
+    dim3(block_size, 1, 1),
+    raft::kernel_ref<apply_filter_kernel_func_t<INDEX_T, DISTANCE_T, SourceIndexT>>{
+      launcher->get_kernel()},
+    source_indices_ptr,
+    result_indices_ptr,
+    result_distances_ptr,
+    lds,
+    result_buffer_size,
+    num_queries,
+    effective_query_id_offset,
+    filter_payload);
 }
 
 }  // namespace cuvs::neighbors::cagra::detail::multi_kernel_search
