@@ -114,7 +114,8 @@ __global__ __launch_bounds__(128, VAMANA_GREEDY_MIN_BLOCKS_PER_SM) void GreedySe
   int topk,
   cuvs::distance::DistanceType metric,
   int max_queue_size,
-  Node<accT>* topk_pq_mem)
+  Node<accT>* topk_pq_mem,
+  int bloom_bits = 0)
 {
   const int warpIdx = threadIdx.x / raft::WarpSize;
   const int laneId  = threadIdx.x % raft::WarpSize;
@@ -134,11 +135,14 @@ __global__ __launch_bounds__(128, VAMANA_GREEDY_MIN_BLOCKS_PER_SM) void GreedySe
 
   extern __shared__ __align__(16) char smem[];
 
-  // Per-warp shared memory layout: coords, neighbor_array, candidate_queue
+  // Per-warp shared memory layout: coords, neighbor_array, candidate_queue, bloom
+  const int bloom_words      = bloom_bits / 32;
+  const int bloom_size       = bloom_words * static_cast<int>(sizeof(uint32_t));
   const int coords_size      = (dim + align_padding) * greedy_search_query_smem_elem_size<T>(dim);
   const int neighbor_size    = degree * sizeof(IdxT);
   const int queue_size_bytes = max_queue_size * sizeof(DistPair<IdxT, accT>);
-  const int per_warp_size    = (coords_size + neighbor_size + queue_size_bytes + 15) & ~15;
+  const int per_warp_size =
+    (coords_size + neighbor_size + queue_size_bytes + bloom_size + 15) & ~15;
 
   char* warp_smem       = &smem[warpIdx * per_warp_size];
   __half* s_coords_half = reinterpret_cast<__half*>(warp_smem);
@@ -146,6 +150,8 @@ __global__ __launch_bounds__(128, VAMANA_GREEDY_MIN_BLOCKS_PER_SM) void GreedySe
   IdxT* neighbor_array  = reinterpret_cast<IdxT*>(warp_smem + coords_size);
   DistPair<IdxT, accT>* candidate_queue_smem =
     reinterpret_cast<DistPair<IdxT, accT>*>(warp_smem + coords_size + neighbor_size);
+  uint32_t* bloom_filter =
+    reinterpret_cast<uint32_t*>(warp_smem + coords_size + neighbor_size + queue_size_bytes);
 
   // 4 warps per block
   static __shared__ int topk_q_size[4];
@@ -220,6 +226,13 @@ __global__ __launch_bounds__(128, VAMANA_GREEDY_MIN_BLOCKS_PER_SM) void GreedySe
 
     if (laneId == 0) { heap_queue.insert_back(medoid_dist, medoid_id); }
 
+    if (bloom_bits > 0) {
+      bloom_reset<IdxT>(bloom_filter, bloom_words, laneId);
+      __syncwarp();
+      if (laneId == 0) { bloom_mark<IdxT>(bloom_filter, bloom_bits, static_cast<IdxT>(medoid_id)); }
+      __syncwarp();
+    }
+
     while (cand_q_size[warpIdx] != 0) {
       int cand_num;
       accT cur_distance;
@@ -231,7 +244,20 @@ __global__ __launch_bounds__(128, VAMANA_GREEDY_MIN_BLOCKS_PER_SM) void GreedySe
       cand_num     = raft::shfl(cand_num, 0);
       cur_distance = raft::shfl(cur_distance, 0);
 
-      if (query_list[i].check_visited_warp(cand_num, cur_distance, laneId)) { continue; }
+      if (bloom_bits > 0) {
+        // Candidates are enqueued at most once via the bloom filter, so every
+        // popped candidate is new; append it directly to the result list.
+        if (query_list[i].size < query_list[i].maxSize) {
+          if (laneId == 0) {
+            query_list[i].ids[query_list[i].size]   = static_cast<IdxT>(cand_num);
+            query_list[i].dists[query_list[i].size] = cur_distance;
+            query_list[i].size++;
+          }
+          __syncwarp();
+        }
+      } else {
+        if (query_list[i].check_visited_warp(cand_num, cur_distance, laneId)) { continue; }
+      }
 
       bool done      = false;
       bool pass_flag = false;
@@ -287,7 +313,9 @@ __global__ __launch_bounds__(128, VAMANA_GREEDY_MIN_BLOCKS_PER_SM) void GreedySe
                                  heap_queue,
                                  dim,
                                  metric,
-                                 laneId);
+                                 laneId,
+                                 bloom_bits > 0 ? bloom_filter : nullptr,
+                                 bloom_bits);
     }
 
     bool self_found = false;
