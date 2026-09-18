@@ -50,34 +50,38 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:43`_
 ### createFloatMatrix
 
 ```java
-static CuVSMatrix createFloatMatrix(List<float[]> data, int dimensions) throws IOException
+static CuVSMatrix createFloatMatrix(List<float[]> data, int dimensions, CuVSResources resources)
 ```
 
-Builds a host-memory CuVSMatrix from a list of float vectors.
+A method to build a CuVSMatrix from a list of float vectors.
 
-Copies vectors directly into a native host matrix via `CuVSMatrix#hostBuilder`,
-without creating an intermediate `float[][]` on the heap.
+Uses CuVSMatrix.Builder to copy vectors directly to device memory
+without creating intermediate heap arrays.
 
 **Parameters**
 
 | Name | Description |
 | --- | --- |
 | `data` | The float vectors |
-| `dimensions` | The number of float elements in each vector |
+| `dimensions` | The number float elements in each vector |
+| `resources` | The CuVS resources for device matrix creation |
 
 **Returns**
 
-a host-memory CuVSMatrix
+an instance of CuVSMatrix
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:62`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:63`_
 
 ### createByteMatrix
 
 ```java
-static CuVSMatrix createByteMatrix(List<byte[]> data, int bytesPerVector) throws IOException
+static CuVSMatrix createByteMatrix( List<byte[]> data, int bytesPerVector, CuVSResources resources)
 ```
 
-Builds a host-memory CuVSMatrix from a list of byte vectors (e.g. quantized vectors).
+A method to build a CuVSMatrix from a list of byte vectors (for binary quantized vectors).
+
+Uses CuVSMatrix.Builder to copy vectors directly to device memory
+without creating intermediate heap arrays.
 
 **Parameters**
 
@@ -85,20 +89,21 @@ Builds a host-memory CuVSMatrix from a list of byte vectors (e.g. quantized vect
 | --- | --- |
 | `data` | The byte vectors (packed bits for binary quantization) |
 | `bytesPerVector` | The number of bytes in each vector |
+| `resources` | The CuVS resources for device matrix creation |
 
 **Returns**
 
-a host-memory CuVSMatrix with BYTE data type
+an instance of CuVSMatrix with BYTE data type
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:80`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:92`_
 
 ### createByteMatrixFromArray
 
 ```java
-static CuVSMatrix createByteMatrixFromArray(byte[][] data, int bytesPerVector) throws IOException
+static CuVSMatrix createByteMatrixFromArray( byte[][] data, int bytesPerVector, CuVSResources resources)
 ```
 
-Builds a host-memory CuVSMatrix from a 2D byte array (e.g. quantized vectors).
+A method to build a CuVSMatrix from a 2D byte array (for binary quantized vectors).
 
 **Parameters**
 
@@ -106,33 +111,13 @@ Builds a host-memory CuVSMatrix from a 2D byte array (e.g. quantized vectors).
 | --- | --- |
 | `data` | The 2D byte array (packed bits for binary quantization) |
 | `bytesPerVector` | The number of bytes in each vector |
+| `resources` | The CuVS resources for device matrix creation |
 
 **Returns**
 
-a host-memory CuVSMatrix with BYTE data type
+an instance of CuVSMatrix with BYTE data type
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:98`_
-
-### closeIndexWithDatasetFallback
-
-```java
-static void closeIndexWithDatasetFallback(AutoCloseable index, AutoCloseable dataset) throws Exception
-```
-
-Closes an index that owns `dataset`. If index cleanup fails before releasing the
-dataset, a direct dataset close is attempted and attached to the index failure when needed.
-
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:114`_
-
-### ownDataset
-
-```java
-static <I extends AutoCloseable> OwnedIndex<I> ownDataset(AutoCloseable dataset)
-```
-
-Starts an ownership scope for a dataset that may later be transferred to an index.
-
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:131`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:119`_
 
 ### nanosToMillis
 
@@ -152,7 +137,7 @@ A utility method to convert nanoseconds to milliseconds.
 
 milliseconds
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:196`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:141`_
 
 ### cuVSResourcesOrNull
 
@@ -166,7 +151,7 @@ Creates an instance of CuVSResources.
 
 an instance of CuVSResources
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:205`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:150`_
 
 ### handleThrowableWithIgnore
 
@@ -189,7 +174,7 @@ A utility method that conditionally ignores certain throwable objects
 | --- | --- |
 | `IOException` |  |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:233`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:178`_
 
 ### createListFromMergedVectors
 
@@ -215,7 +200,7 @@ a list of float arrays
 | --- | --- |
 | `IOException` | I/O Exception |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:247`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:192`_
 
 ### info
 
@@ -233,6 +218,6 @@ Utility to print info/debug messages via InfoStream.
 | `component` | the name of the index writer |
 | `msg` | the log message to push via the InfoStream |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:265`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:210`_
 
 _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:26`_

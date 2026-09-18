@@ -455,12 +455,6 @@ public class TestAcceleratedHNSWDeletedDocuments extends LuceneTestCase {
         assertEquals(liveVectors, graph.size());
         assertEquals(liveVectors == 0 ? 0 : 1, graph.numLevels());
         assertEquals(liveVectors, graph.getNodesOnLevel(0).size());
-        assertAllGraphOrdinalsInBounds(graph, liveVectors);
-        if (liveVectors == 1) {
-          graph.seek(0, 0);
-          assertEquals(
-              "a single-node graph must have no edges", NO_MORE_DOCS, graph.nextNeighbor());
-        }
 
         ((CodecReader) leaf).getVectorReader().checkIntegrity();
         IndexSearcher searcher = new IndexSearcher(reader);

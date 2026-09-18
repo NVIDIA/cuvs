@@ -11,7 +11,6 @@ import static com.nvidia.cuvs.internal.common.LinkerHelper.C_LONG;
 import static com.nvidia.cuvs.internal.panama.headers_h.*;
 
 import com.nvidia.cuvs.CuVSResources;
-import com.nvidia.cuvs.LibraryException;
 import com.nvidia.cuvs.internal.panama.DLDataType;
 import com.nvidia.cuvs.internal.panama.DLDevice;
 import com.nvidia.cuvs.internal.panama.DLManagedTensor;
@@ -127,7 +126,7 @@ public class Util {
   public static void checkCuVSError(int value, String caller) {
     if (value != CUVS_SUCCESS) {
       String errorMsg = getLastErrorText();
-      throw new LibraryException(caller + " returned " + value + "[" + errorMsg + "]");
+      throw new RuntimeException(caller + " returned " + value + "[" + errorMsg + "]");
     }
   }
 
@@ -139,7 +138,7 @@ public class Util {
    */
   public static void checkCudaError(int value, String caller) {
     if (value != CUDA_SUCCESS) {
-      throw new LibraryException(caller + " returned " + value);
+      throw new RuntimeException(caller + " returned " + value);
     }
   }
 

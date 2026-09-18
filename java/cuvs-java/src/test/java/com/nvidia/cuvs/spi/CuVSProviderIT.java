@@ -6,18 +6,11 @@ package com.nvidia.cuvs.spi;
 
 import static com.carrotsearch.randomizedtesting.RandomizedTest.assumeTrue;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 
 import com.nvidia.cuvs.CuVSTestCase;
-import com.nvidia.cuvs.LibraryException;
-import java.lang.foreign.MemorySegment;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Function;
-import java.util.function.Supplier;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -125,57 +118,6 @@ public class CuVSProviderIT extends CuVSTestCase {
     }
   }
 
-  @Test
-  public void testDeviceMatrixBuilderDoesNotAllocateWhenStreamAcquisitionFails() {
-    LibraryException streamFailure = new LibraryException("stream acquisition");
-    AtomicInteger streamCalls = new AtomicInteger();
-    AtomicInteger builderCalls = new AtomicInteger();
-
-    LibraryException thrown =
-        assertThrows(
-            LibraryException.class,
-            () ->
-                createDeviceMatrixBuilder(
-                    () -> {
-                      streamCalls.incrementAndGet();
-                      throw streamFailure;
-                    },
-                    ignored -> {
-                      builderCalls.incrementAndGet();
-                      return new Object();
-                    }));
-
-    assertSame(streamFailure, thrown);
-    assertEquals(1, streamCalls.get());
-    assertEquals(0, builderCalls.get());
-  }
-
-  @Test
-  public void testDeviceMatrixBuilderPassesAcquiredStreamToConstructor() throws Throwable {
-    MemorySegment stream = MemorySegment.ofArray(new byte[1]);
-    Object builder = new Object();
-    AtomicInteger streamCalls = new AtomicInteger();
-    AtomicInteger builderCalls = new AtomicInteger();
-    AtomicReference<MemorySegment> observedStream = new AtomicReference<>();
-
-    Object created =
-        createDeviceMatrixBuilder(
-            () -> {
-              streamCalls.incrementAndGet();
-              return stream;
-            },
-            actualStream -> {
-              builderCalls.incrementAndGet();
-              observedStream.set(actualStream);
-              return builder;
-            });
-
-    assertSame(builder, created);
-    assertSame(stream, observedStream.get());
-    assertEquals(1, streamCalls.get());
-    assertEquals(1, builderCalls.get());
-  }
-
   static void checkCuVSVersionMatching(String mavenVersionString, int major, int minor, int patch)
       throws ProviderInitializationException {
     try {
@@ -193,18 +135,5 @@ public class CuVSProviderIT extends CuVSTestCase {
     } catch (Throwable e) {
       throw new AssertionError(e);
     }
-  }
-
-  static Object createDeviceMatrixBuilder(
-      Supplier<MemorySegment> streamSupplier, Function<MemorySegment, Object> builderFactory)
-      throws Throwable {
-    var cls = Class.forName("com.nvidia.cuvs.spi.JDKProvider");
-    var method =
-        MethodHandles.lookup()
-            .findStatic(
-                cls,
-                "createDeviceMatrixBuilder",
-                MethodType.methodType(Object.class, Supplier.class, Function.class));
-    return method.invoke(streamSupplier, builderFactory);
   }
 }

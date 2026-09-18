@@ -51,141 +51,125 @@ public class Utils {
   }
 
   /**
+   * A method to build a CuVSMatrix from a list of float vectors.
+   *
+   * Uses CuVSMatrix.Builder to copy vectors directly to device memory
+   * without creating intermediate heap arrays.
+   *
+   * @param data The float vectors
+   * @param dimensions The number float elements in each vector
+   * @param resources The CuVS resources for device matrix creation
+   * @return an instance of CuVSMatrix
+   */
+  static CuVSMatrix createFloatMatrix(List<float[]> data, int dimensions, CuVSResources resources) {
+    // Use Builder pattern to avoid intermediate float[][] allocation
+    // and copy directly from List to device memory
+    CuVSMatrix.Builder<?> builder =
+        CuVSMatrix.deviceBuilder(
+            resources,
+            data.size(), // rows (number of vectors)
+            dimensions, // columns (vector dimension)
+            CuVSMatrix.DataType.FLOAT);
+
+    // Add vectors one by one - builder copies directly to device memory
+    for (float[] vector : data) {
+      builder.addVector(vector);
+    }
+
+    return builder.build();
+  }
+
+  /**
    * Builds a host-memory CuVSMatrix from a list of float vectors.
    *
-   * <p>Copies vectors directly into a native host matrix via {@link CuVSMatrix#hostBuilder},
-   * without creating an intermediate {@code float[][]} on the heap.
+   * <p>Copies vectors directly into native host memory without creating an intermediate {@code
+   * float[][]} on the heap.
    *
    * @param data The float vectors
    * @param dimensions The number of float elements in each vector
    * @return a host-memory CuVSMatrix
    */
-  static CuVSMatrix createFloatMatrix(List<float[]> data, int dimensions) throws IOException {
-    return MatrixBuilderLifecycle.build(
-        CuVSMatrix.hostBuilder(data.size(), dimensions, CuVSMatrix.DataType.FLOAT),
-        builder -> {
-          for (float[] vector : data) {
-            builder.addVector(vector);
-          }
-          return builder.build();
-        });
+  static CuVSMatrix createHostFloatMatrix(List<float[]> data, int dimensions) {
+    CuVSMatrix.Builder<?> builder =
+        CuVSMatrix.hostBuilder(data.size(), dimensions, CuVSMatrix.DataType.FLOAT);
+    for (float[] vector : data) {
+      builder.addVector(vector);
+    }
+    return builder.build();
   }
 
   /**
-   * Builds a host-memory CuVSMatrix from a list of byte vectors (e.g. quantized vectors).
+   * A method to build a CuVSMatrix from a list of byte vectors (for binary quantized vectors).
+   *
+   * Uses CuVSMatrix.Builder to copy vectors directly to device memory
+   * without creating intermediate heap arrays.
    *
    * @param data The byte vectors (packed bits for binary quantization)
    * @param bytesPerVector The number of bytes in each vector
-   * @return a host-memory CuVSMatrix with BYTE data type
+   * @param resources The CuVS resources for device matrix creation
+   * @return an instance of CuVSMatrix with BYTE data type
    */
-  static CuVSMatrix createByteMatrix(List<byte[]> data, int bytesPerVector) throws IOException {
-    return MatrixBuilderLifecycle.build(
-        CuVSMatrix.hostBuilder(data.size(), bytesPerVector, CuVSMatrix.DataType.BYTE),
-        builder -> {
-          for (byte[] vector : data) {
-            builder.addVector(vector);
-          }
-          return builder.build();
-        });
+  static CuVSMatrix createByteMatrix(
+      List<byte[]> data, int bytesPerVector, CuVSResources resources) {
+    // Use Builder pattern to avoid intermediate byte[][] allocation
+    // and copy directly from List to device memory
+    CuVSMatrix.Builder<?> builder =
+        CuVSMatrix.deviceBuilder(
+            resources,
+            data.size(), // rows (number of vectors)
+            bytesPerVector, // columns (bytes per vector)
+            CuVSMatrix.DataType.BYTE);
+
+    // Add vectors one by one - builder copies directly to device memory
+    for (byte[] vector : data) {
+      builder.addVector(vector);
+    }
+
+    return builder.build();
+  }
+
+  /** Builds a host-memory CuVSMatrix from a list of byte vectors. */
+  static CuVSMatrix createHostByteMatrix(List<byte[]> data, int bytesPerVector) {
+    CuVSMatrix.Builder<?> builder =
+        CuVSMatrix.hostBuilder(data.size(), bytesPerVector, CuVSMatrix.DataType.BYTE);
+    for (byte[] vector : data) {
+      builder.addVector(vector);
+    }
+    return builder.build();
   }
 
   /**
-   * Builds a host-memory CuVSMatrix from a 2D byte array (e.g. quantized vectors).
+   * A method to build a CuVSMatrix from a 2D byte array (for binary quantized vectors).
    *
    * @param data The 2D byte array (packed bits for binary quantization)
    * @param bytesPerVector The number of bytes in each vector
-   * @return a host-memory CuVSMatrix with BYTE data type
+   * @param resources The CuVS resources for device matrix creation
+   * @return an instance of CuVSMatrix with BYTE data type
    */
-  static CuVSMatrix createByteMatrixFromArray(byte[][] data, int bytesPerVector)
-      throws IOException {
-    return MatrixBuilderLifecycle.build(
-        CuVSMatrix.hostBuilder(data.length, bytesPerVector, CuVSMatrix.DataType.BYTE),
-        builder -> {
-          for (byte[] vector : data) {
-            builder.addVector(vector);
-          }
-          return builder.build();
-        });
+  static CuVSMatrix createByteMatrixFromArray(
+      byte[][] data, int bytesPerVector, CuVSResources resources) {
+    CuVSMatrix.Builder<?> builder =
+        CuVSMatrix.deviceBuilder(
+            resources,
+            data.length, // rows (number of vectors)
+            bytesPerVector, // columns (bytes per vector)
+            CuVSMatrix.DataType.BYTE);
+
+    // Add vectors one by one - builder copies directly to device memory
+    for (byte[] vector : data) {
+      builder.addVector(vector);
+    }
+    return builder.build();
   }
 
-  /**
-   * Closes an index that owns {@code dataset}. If index cleanup fails before releasing the
-   * dataset, a direct dataset close is attempted and attached to the index failure when needed.
-   */
-  static void closeIndexWithDatasetFallback(AutoCloseable index, AutoCloseable dataset)
-      throws Exception {
-    try {
-      index.close();
-    } catch (Throwable indexCloseFailure) {
-      try {
-        dataset.close();
-      } catch (Throwable datasetCloseFailure) {
-        if (indexCloseFailure != datasetCloseFailure) {
-          indexCloseFailure.addSuppressed(datasetCloseFailure);
-        }
-      }
-      rethrowCloseFailure(indexCloseFailure);
+  /** Builds a host-memory CuVSMatrix from a 2D byte array. */
+  static CuVSMatrix createHostByteMatrixFromArray(byte[][] data, int bytesPerVector) {
+    CuVSMatrix.Builder<?> builder =
+        CuVSMatrix.hostBuilder(data.length, bytesPerVector, CuVSMatrix.DataType.BYTE);
+    for (byte[] vector : data) {
+      builder.addVector(vector);
     }
-  }
-
-  /** Starts an ownership scope for a dataset that may later be transferred to an index. */
-  static <I extends AutoCloseable> OwnedIndex<I> ownDataset(AutoCloseable dataset) {
-    return new OwnedIndex<>(dataset);
-  }
-
-  /**
-   * Owns a dataset immediately and, after {@link #transferTo}, closes the owning index with a
-   * direct dataset-close fallback.
-   */
-  static final class OwnedIndex<I extends AutoCloseable> implements AutoCloseable {
-    private AutoCloseable dataset;
-    private I index;
-    private boolean closed;
-
-    private OwnedIndex(AutoCloseable dataset) {
-      this.dataset = java.util.Objects.requireNonNull(dataset, "dataset");
-    }
-
-    void transferTo(I index) {
-      if (closed || this.index != null) {
-        throw new IllegalStateException("Dataset ownership has already been transferred");
-      }
-      this.index = java.util.Objects.requireNonNull(index, "index");
-    }
-
-    I index() {
-      if (index == null) {
-        throw new IllegalStateException("Dataset ownership has not been transferred to an index");
-      }
-      return index;
-    }
-
-    @Override
-    public void close() throws Exception {
-      if (closed) {
-        return;
-      }
-      closed = true;
-      AutoCloseable ownedDataset = dataset;
-      I ownedIndex = index;
-      dataset = null;
-      index = null;
-      if (ownedIndex == null) {
-        ownedDataset.close();
-      } else {
-        closeIndexWithDatasetFallback(ownedIndex, ownedDataset);
-      }
-    }
-  }
-
-  private static void rethrowCloseFailure(Throwable failure) throws Exception {
-    if (failure instanceof Exception exception) {
-      throw exception;
-    }
-    if (failure instanceof Error error) {
-      throw error;
-    }
-    throw new AssertionError("Unexpected throwable from AutoCloseable.close()", failure);
+    return builder.build();
   }
 
   /**

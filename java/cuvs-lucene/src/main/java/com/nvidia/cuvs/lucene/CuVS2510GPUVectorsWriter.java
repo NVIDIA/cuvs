@@ -20,9 +20,7 @@ import com.nvidia.cuvs.BruteForceIndex;
 import com.nvidia.cuvs.BruteForceIndexParams;
 import com.nvidia.cuvs.CagraIndex;
 import com.nvidia.cuvs.CagraIndexParams;
-import com.nvidia.cuvs.CuVSDeviceMatrix;
 import com.nvidia.cuvs.CuVSMatrix;
-import com.nvidia.cuvs.LibraryException;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.Files;
@@ -203,18 +201,21 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
       if (indexType.isCagra()) {
         var cagraIndexOutputStream = new IndexOutputOutputStream(cuvsIndex);
         try {
-          CuVSDeviceMatrix cagraDataset =
-              createDeviceFloatMatrix(vectors, fieldInfo.getVectorDimension());
+          CuVSMatrix cagraDataset =
+              Utils.createFloatMatrix(
+                  vectors, fieldInfo.getVectorDimension(), getCuVSResourcesInstance());
           writeCagraIndex(cagraIndexOutputStream, cagraDataset);
-        } catch (RecoverableCagraConstructionException recoverable) {
-          ensureFallbackOutputUnchanged(cagraIndexOffset, cuvsIndex.getFilePointer(), recoverable);
+        } catch (Throwable t) {
+          // Fallback to brute force in a few cases, for now.
+          // Log it to make it more obvious that this is what is happening.
           info(
               infoStream,
               COMPONENT,
               "CAGRA build failed for field \""
                   + fieldInfo.name
                   + "\", falling back to a brute force index: "
-                  + recoverable.getCause());
+                  + t);
+          Utils.handleThrowableWithIgnore(t, t.getMessage());
           indexType = IndexType.BRUTE_FORCE;
         }
         cagraIndexLength = cuvsIndex.getFilePointer() - cagraIndexOffset;
@@ -223,7 +224,8 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
       if (indexType.isBruteForce()) {
         var bruteForceIndexOutputStream = new IndexOutputOutputStream(cuvsIndex);
         CuVSMatrix bruteforceDataset =
-            Utils.createFloatMatrix(vectors, fieldInfo.getVectorDimension());
+            Utils.createFloatMatrix(
+                vectors, fieldInfo.getVectorDimension(), getCuVSResourcesInstance());
 
         writeBruteForceIndex(bruteForceIndexOutputStream, bruteforceDataset);
         bruteForceIndexLength = cuvsIndex.getFilePointer() - bruteForceIndexOffset;
@@ -241,116 +243,37 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
   }
 
   /**
-   * Creates GPU-search input directly on the device. Accelerated HNSW intentionally continues to
-   * use the shared host-backed matrix helpers because it does not retain a searchable device
-   * dataset.
-   */
-  private CuVSDeviceMatrix createDeviceFloatMatrix(List<float[]> vectors, int dimensions)
-      throws Throwable {
-    return prepareCagraDataset(
-        () ->
-            CuVSMatrix.deviceBuilder(
-                getCuVSResourcesInstance(), vectors.size(), dimensions, CuVSMatrix.DataType.FLOAT),
-        builder -> {
-          for (float[] vector : vectors) {
-            builder.addVector(vector);
-          }
-        });
-  }
-
-  @FunctionalInterface
-  interface CagraDatasetBuilderFactory {
-    CuVSMatrix.Builder<CuVSDeviceMatrix> create() throws Throwable;
-  }
-
-  @FunctionalInterface
-  interface CagraDatasetPopulation {
-    void populate(CuVSMatrix.Builder<CuVSDeviceMatrix> builder) throws Throwable;
-  }
-
-  /**
-   * Builds the device input and applies the pre-persistence fallback policy only after builder
-   * cleanup succeeds. A builder cleanup failure is fatal; after ownership has transferred, this
-   * method also closes the dataset before propagating that failure. A builder-factory failure is
-   * also fatal because no cleanup handle was returned.
-   */
-  static CuVSDeviceMatrix prepareCagraDataset(
-      CagraDatasetBuilderFactory builderFactory, CagraDatasetPopulation population)
-      throws Throwable {
-    CuVSMatrix.Builder<CuVSDeviceMatrix> builder = null;
-    CuVSDeviceMatrix dataset = null;
-    Throwable operationFailure = null;
-    boolean factoryCompleted = false;
-    try {
-      builder =
-          Objects.requireNonNull(builderFactory.create(), "CAGRA dataset builder must not be null");
-      factoryCompleted = true;
-      population.populate(builder);
-      dataset = builder.build();
-    } catch (Throwable failure) {
-      operationFailure = failure;
-    }
-
-    Throwable cleanupFailure = closeResource(builder, null);
-    if (cleanupFailure != null && dataset != null) {
-      cleanupFailure = closeResource(dataset, cleanupFailure);
-    }
-
-    Throwable failure = combineOperationAndCleanupFailures(operationFailure, cleanupFailure);
-    if (failure != null) {
-      throw classifyCagraWriteFailure(
-          failure, false, cleanupFailure != null || factoryCompleted == false);
-    }
-    return dataset;
-  }
-
-  /**
    * Builds and writes the CAGRA index.
    *
    * @param os Instance of the OutputStream
-   * @param dataset device-backed matrix holding the dataset
+   * @param dataset The instance of CuVSMatrix holding the dataset
    * @throws Throwable
    */
-  private void writeCagraIndex(OutputStream os, CuVSDeviceMatrix dataset) throws Throwable {
-    CagraIndex index = null;
-    AutoCloseable indexDataset = null;
-    Throwable failure = null;
-    CagraWriteContext writeContext = new CagraWriteContext();
-    try {
-      CagraIndexParams params =
-          CagraIndexParamsFactory.create(gpuSearchParams, dataset.size(), dataset.columns());
-      index =
-          CagraIndex.newBuilder(getCuVSResourcesInstance())
-              .withDataset(dataset)
-              .withIndexParams(params)
-              .build();
+  private void writeCagraIndex(OutputStream os, CuVSMatrix dataset) throws Throwable {
+    CagraIndexParams params =
+        CagraIndexParamsFactory.create(gpuSearchParams, dataset.size(), dataset.columns());
+    try (CagraIndex index =
+            CagraIndex.newBuilder(getCuVSResourcesInstance())
+                .withDataset(dataset)
+                .withIndexParams(params)
+                .build();
+        var deviceVectors = dataset.toDevice(getCuVSResourcesInstance())) {
       /*
        * cuVS rejects makePaddedDataset for a device matrix whose rows already sit at the required
-       * stride, and asks for a view over that storage instead.
+       * stride, and asks for a view over that storage instead. Copying would be pointless there
+       * anyway, so pick the factory that matches the layout.
        */
-      if (CagraIndex.isPaddedDataset(dataset)) {
-        var indexDatasetView = index.makePaddedDatasetView(dataset);
-        indexDataset = indexDatasetView;
-        index.updateDataset(indexDatasetView);
+      if (CagraIndex.isPaddedDataset(deviceVectors)) {
+        try (var indexDatasetView = index.makePaddedDatasetView(deviceVectors)) {
+          index.updateDataset(indexDatasetView);
+          index.serialize(os);
+        }
       } else {
-        var paddedDataset = index.makePaddedDataset(dataset);
-        indexDataset = paddedDataset;
-        index.updateDataset(paddedDataset);
+        try (var indexDataset = index.makePaddedDataset(deviceVectors)) {
+          index.updateDataset(indexDataset);
+          index.serialize(os);
+        }
       }
-
-      // Invoking the serializer is the persistence boundary. No failure from this point can fall
-      // back safely, even if a particular serializer implementation happens not to write bytes.
-      writeContext.beginPersistence();
-      index.serialize(os);
-    } catch (Throwable t) {
-      failure = t;
-    }
-
-    Throwable cleanupFailure = closeCagraResources(index, dataset, indexDataset);
-    failure = combineOperationAndCleanupFailures(failure, cleanupFailure);
-    if (failure != null) {
-      throw classifyCagraWriteFailure(
-          failure, writeContext.persistenceStarted(), cleanupFailure != null);
     }
   }
 
@@ -366,104 +289,13 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
         new BruteForceIndexParams.Builder()
             .withNumWriterThreads(gpuSearchParams.getWriterThreads())
             .build();
-    try (dataset;
-        var index =
-            BruteForceIndex.newBuilder(getCuVSResourcesInstance())
-                .withIndexParams(params)
-                .withDataset(dataset)
-                .build()) {
-      index.serialize(os);
-    }
-  }
-
-  private static Throwable closeResource(AutoCloseable resource, Throwable failure) {
-    if (resource == null) {
-      return failure;
-    }
-    try {
-      resource.close();
-    } catch (Throwable closeFailure) {
-      return addFailure(failure, closeFailure);
-    }
-    return failure;
-  }
-
-  /** Closes CAGRA resources in dependency order and returns the first cleanup failure. */
-  static Throwable closeCagraResources(
-      AutoCloseable index, AutoCloseable originalDataset, AutoCloseable indexDataset) {
-    Throwable failure = null;
-    try {
-      if (index == null) {
-        originalDataset.close();
-      } else {
-        Utils.closeIndexWithDatasetFallback(index, originalDataset);
-      }
-    } catch (Throwable closeFailure) {
-      failure = addFailure(failure, closeFailure);
-    }
-    return closeResource(indexDataset, failure);
-  }
-
-  static Throwable combineOperationAndCleanupFailures(
-      Throwable operationFailure, Throwable cleanupFailure) {
-    return addFailure(operationFailure, cleanupFailure);
-  }
-
-  private static Throwable addFailure(Throwable primary, Throwable secondary) {
-    if (secondary == null) {
-      return primary;
-    }
-    if (primary == null) {
-      return secondary;
-    }
-    if (primary != secondary) {
-      primary.addSuppressed(secondary);
-    }
-    return primary;
-  }
-
-  /** Signals the only failure for which the caller may safely build a brute-force index instead. */
-  static final class RecoverableCagraConstructionException extends Exception {
-    private static final long serialVersionUID = 1L;
-
-    RecoverableCagraConstructionException(LibraryException cause) {
-      super(cause);
-    }
-  }
-
-  static Throwable classifyCagraWriteFailure(
-      Throwable failure, boolean persistenceStarted, boolean cleanupFailed) {
-    if (failure instanceof LibraryException libraryFailure
-        && persistenceStarted == false
-        && cleanupFailed == false
-        && failure.getSuppressed().length == 0) {
-      return new RecoverableCagraConstructionException(libraryFailure);
-    }
-    return failure;
-  }
-
-  static void ensureFallbackOutputUnchanged(long expected, long actual, Throwable failure)
-      throws IOException {
-    if (actual != expected) {
-      throw new IOException(
-          "Cannot fall back after the CAGRA output position changed from "
-              + expected
-              + " to "
-              + actual,
-          failure);
-    }
-  }
-
-  static final class CagraWriteContext {
-    private boolean persistenceStarted;
-
-    void beginPersistence() {
-      persistenceStarted = true;
-    }
-
-    boolean persistenceStarted() {
-      return persistenceStarted;
-    }
+    var index =
+        BruteForceIndex.newBuilder(getCuVSResourcesInstance())
+            .withIndexParams(params)
+            .withDataset(dataset)
+            .build();
+    index.serialize(os);
+    index.close();
   }
 
   /**

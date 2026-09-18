@@ -7,6 +7,7 @@ package com.nvidia.cuvs.lucene;
 import static com.nvidia.cuvs.lucene.AcceleratedHNSWUtils.createMultiLayerHnswGraph;
 import static com.nvidia.cuvs.lucene.AcceleratedHNSWUtils.createSingleVectorHnswGraph;
 import static com.nvidia.cuvs.lucene.AcceleratedHNSWUtils.printInfoStream;
+import static com.nvidia.cuvs.lucene.AcceleratedHNSWUtils.quantizeFloatVectorsToScalar;
 import static com.nvidia.cuvs.lucene.AcceleratedHNSWUtils.writeEmpty;
 import static com.nvidia.cuvs.lucene.AcceleratedHNSWUtils.writeGraph;
 import static com.nvidia.cuvs.lucene.AcceleratedHNSWUtils.writeMeta;
@@ -24,7 +25,6 @@ import com.nvidia.cuvs.CagraIndex;
 import com.nvidia.cuvs.CagraIndexParams;
 import com.nvidia.cuvs.CuVSMatrix;
 import com.nvidia.cuvs.lucene.AcceleratedHNSWUtils.QuantizationType;
-import com.nvidia.cuvs.lucene.AcceleratedHNSWUtils.ScalarQuantizer;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -150,6 +150,14 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends KnnVector
     return (byte) (signedByte & 0xFF);
   }
 
+  private static byte[] convertSignedToUnsigned(byte[] signedVector) {
+    byte[] unsignedVector = new byte[signedVector.length];
+    for (int i = 0; i < signedVector.length; i++) {
+      unsignedVector[i] = signedToUnsignedByte(signedVector[i]);
+    }
+    return unsignedVector;
+  }
+
   /**
    * Builds the intermediate CAGRA index and builds and writes the HNSW index.
    *
@@ -158,50 +166,43 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends KnnVector
    * @throws IOException
    */
   private void writeFieldInternal(FieldInfo fieldInfo, List<?> vectors) throws IOException {
-    int size = vectors.size();
-    if (writeTrivialField(fieldInfo, size)) {
+    if (vectors.size() == 0) {
+      writeEmpty(fieldInfo, hnswMeta);
       return;
     }
+
     try {
       int dimensions = fieldInfo.getVectorDimension();
-      try (CuVSMatrix.Builder<?> builder =
-          CuVSMatrix.hostBuilder(size, dimensions, CuVSMatrix.DataType.BYTE)) {
-        byte[] unsignedVector = new byte[dimensions];
-        for (Object value : vectors) {
-          if (!(value instanceof byte[] signedVector) || signedVector.length != dimensions) {
-            throw new IllegalArgumentException(
-                "Expected scalar-quantized byte[" + dimensions + "] vector");
-          }
-          copySignedToUnsigned(signedVector, unsignedVector);
-          builder.addVector(unsignedVector);
-        }
-        writeFieldInternal(fieldInfo, builder.build());
-      }
-    } catch (Throwable t) {
-      throw Utils.handleThrowable(t);
-    }
-  }
 
-  /** Builds and writes an index from an owned scalar-vector matrix. */
-  private void writeFieldInternal(FieldInfo fieldInfo, CuVSMatrix dataset) throws IOException {
-    try (Utils.OwnedIndex<CagraIndex> ownedIndex = Utils.ownDataset(dataset)) {
-      int size = Math.toIntExact(dataset.size());
-      if (writeTrivialField(fieldInfo, size)) {
+      // Convert 7-bit signed bytes to 8-bit unsigned bytes for cuVS compatibility
+      List<byte[]> unsignedVectors = new ArrayList<>(vectors.size());
+      for (Object signedVector : vectors) {
+        unsignedVectors.add(convertSignedToUnsigned((byte[]) signedVector));
+      }
+
+      // Create CuVSMatrix with BYTE data type (unsigned bytes)
+      CuVSMatrix dataset = Utils.createHostByteMatrix(unsignedVectors, dimensions);
+
+      if (dataset.size() < 2) {
+        writeSingleVectorGraph(fieldInfo, unsignedVectors);
         return;
       }
-      int dimensions = fieldInfo.getVectorDimension();
+
       CagraIndexParams params =
           CagraIndexParamsFactory.create(acceleratedHNSWParams, dataset.size(), dataset.columns());
+
       CagraIndex cagraIndex =
           CagraIndex.newBuilder(getCuVSResourcesInstance())
               .withDataset(dataset)
               .withIndexParams(params)
               .build();
-      ownedIndex.transferTo(cagraIndex);
 
       CuVSMatrix adjacencyListMatrix = cagraIndex.getGraph();
+
+      int size = (int) dataset.size();
       GPUBuiltHnswGraph hnswGraph =
           createMultiLayerHnswGraph(
+              fieldInfo,
               dimensions,
               adjacencyListMatrix,
               dataset,
@@ -210,8 +211,13 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends KnnVector
               QuantizationType.SCALAR);
 
       long vectorIndexOffset = hnswVectorIndex.getFilePointer();
+
+      // Write the graph to the vector index
       int[][] graphLevelNodeOffsets = writeGraph(hnswGraph, hnswVectorIndex);
+
       long vectorIndexLength = hnswVectorIndex.getFilePointer() - vectorIndexOffset;
+
+      // Write metadata
       writeMeta(
           hnswVectorIndex,
           hnswMeta,
@@ -221,22 +227,11 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends KnnVector
           size,
           hnswGraph,
           graphLevelNodeOffsets);
-    } catch (Throwable t) {
-      throw Utils.handleThrowable(t);
-    }
-  }
 
-  /** Writes the empty or one-vector representation, if {@code size} is trivial. */
-  private boolean writeTrivialField(FieldInfo fieldInfo, int size) throws IOException {
-    if (size == 0) {
-      writeEmpty(fieldInfo, hnswMeta);
-      return true;
+      cagraIndex.close();
+    } catch (Throwable t) {
+      Utils.handleThrowable(t);
     }
-    if (size == 1) {
-      writeSingleVectorGraph(fieldInfo);
-      return true;
-    }
-    return false;
   }
 
   /**
@@ -290,9 +285,11 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends KnnVector
    * Builds and writes a single vector graph.
    *
    * @param fieldInfo instance of FieldInfo
+   * @param vectors the list of scalar quantized vectors (already converted to unsigned)
    * @throws IOException I/O Exceptions
    */
-  private void writeSingleVectorGraph(FieldInfo fieldInfo) throws IOException {
+  private void writeSingleVectorGraph(FieldInfo fieldInfo, List<byte[]> vectors)
+      throws IOException {
     // Workaround for CAGRA not supporting single vector indexes
     try {
       int size = 1;
@@ -337,65 +334,19 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends KnnVector
    */
   private void vectorBasedMerge(FieldInfo fieldInfo, MergeState mergeState) throws IOException {
     try {
-      int dimensions = fieldInfo.getVectorDimension();
-      ScalarQuantizer quantizer = collectScalarMergeStats(fieldInfo, mergeState, dimensions);
-      if (writeTrivialField(fieldInfo, quantizer.count())) {
-        return;
-      }
-
-      FloatVectorValues mergedVectors =
+      FloatVectorValues mergedVectorValues =
           KnnVectorsWriter.MergedVectorValues.mergeFloatVectorValues(fieldInfo, mergeState);
-      try (CuVSMatrix.Builder<?> builder =
-          CuVSMatrix.hostBuilder(quantizer.count(), dimensions, CuVSMatrix.DataType.BYTE)) {
-        byte[] quantized = new byte[dimensions];
-        int encodedCount = 0;
-        KnnVectorValues.DocIndexIterator iterator = mergedVectors.iterator();
-        for (int doc = iterator.nextDoc(); doc != NO_MORE_DOCS; doc = iterator.nextDoc()) {
-          if (encodedCount >= quantizer.count()) {
-            throw new IOException(
-                "Merged vector count changed between quantization passes: expected "
-                    + quantizer.count()
-                    + ", received more rows");
-          }
-          quantizer.quantize(mergedVectors.vectorValue(iterator.index()), quantized);
-          copySignedToUnsigned(quantized, quantized);
-          builder.addVector(quantized);
-          encodedCount = Math.incrementExact(encodedCount);
+
+      if (mergedVectorValues != null) {
+        List<float[]> floatVectors = new ArrayList<>();
+        KnnVectorValues.DocIndexIterator iter = mergedVectorValues.iterator();
+        for (int docV = iter.nextDoc(); docV != NO_MORE_DOCS; docV = iter.nextDoc()) {
+          floatVectors.add(mergedVectorValues.vectorValue(iter.index()).clone());
         }
-        if (encodedCount != quantizer.count()) {
-          throw new IOException(
-              "Merged vector count changed between quantization passes: expected "
-                  + quantizer.count()
-                  + ", received "
-                  + encodedCount);
-        }
-        writeFieldInternal(fieldInfo, builder.build());
+        writeFieldInternal(fieldInfo, quantizeFloatVectorsToScalar(floatVectors));
       }
     } catch (Throwable t) {
-      throw Utils.handleThrowable(t);
-    }
-  }
-
-  private static ScalarQuantizer collectScalarMergeStats(
-      FieldInfo fieldInfo, MergeState mergeState, int dimensions) throws IOException {
-    FloatVectorValues mergedVectors =
-        KnnVectorsWriter.MergedVectorValues.mergeFloatVectorValues(fieldInfo, mergeState);
-    ScalarQuantizer quantizer = new ScalarQuantizer(dimensions);
-    if (mergedVectors != null) {
-      KnnVectorValues.DocIndexIterator iterator = mergedVectors.iterator();
-      for (int doc = iterator.nextDoc(); doc != NO_MORE_DOCS; doc = iterator.nextDoc()) {
-        quantizer.add(mergedVectors.vectorValue(iterator.index()));
-      }
-    }
-    if (quantizer.count() > 0) {
-      quantizer.finish();
-    }
-    return quantizer;
-  }
-
-  private static void copySignedToUnsigned(byte[] source, byte[] destination) {
-    for (int i = 0; i < source.length; i++) {
-      destination[i] = signedToUnsignedByte(source[i]);
+      Utils.handleThrowable(t);
     }
   }
 

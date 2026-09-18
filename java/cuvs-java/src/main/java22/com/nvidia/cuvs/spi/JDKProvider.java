@@ -30,8 +30,6 @@ import java.util.BitSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
-import java.util.function.Function;
-import java.util.function.Supplier;
 import java.util.jar.JarFile;
 import java.util.jar.Manifest;
 import java.util.logging.Level;
@@ -546,15 +544,10 @@ final class JDKProvider implements CuVSProvider {
   @Override
   public CuVSMatrix.Builder<CuVSDeviceMatrix> newDeviceMatrixBuilder(
       CuVSResources resources, long size, long columns, CuVSMatrix.DataType dataType) {
-    var rowBytes = deviceMatrixRowBytes(size, columns, dataType);
-    var bufferRowCount = Math.min(PinnedMemoryBuffer.CHUNK_BYTES / rowBytes, size);
-    return createDeviceMatrixBuilder(
-        () -> Util.getStream(resources),
-        stream ->
-            rowBytes > PinnedMemoryBuffer.CHUNK_BYTES
-                ? new DirectDeviceMatrixBuilder(resources, size, columns, dataType, stream)
-                : new BufferedDeviceMatrixBuilder(
-                    resources, size, columns, dataType, stream, bufferRowCount));
+    var rowBytes = columns * dataType.bytes();
+    return rowBytes > PinnedMemoryBuffer.CHUNK_BYTES
+        ? new DirectDeviceMatrixBuilder(resources, size, columns, dataType)
+        : new BufferedDeviceMatrixBuilder(resources, size, columns, dataType);
   }
 
   @Override
@@ -565,40 +558,11 @@ final class JDKProvider implements CuVSProvider {
       int rowStride,
       int columnStride,
       CuVSMatrix.DataType dataType) {
-    var rowBytes = deviceMatrixRowBytes(size, columns, dataType);
-    var bufferRowCount = Math.min(PinnedMemoryBuffer.CHUNK_BYTES / rowBytes, size);
-    return createDeviceMatrixBuilder(
-        () -> Util.getStream(resources),
-        stream ->
-            rowBytes > PinnedMemoryBuffer.CHUNK_BYTES
-                ? new DirectDeviceMatrixBuilder(
-                    resources, size, columns, rowStride, columnStride, dataType, stream)
-                : new BufferedDeviceMatrixBuilder(
-                    resources,
-                    size,
-                    columns,
-                    rowStride,
-                    columnStride,
-                    dataType,
-                    stream,
-                    bufferRowCount));
-  }
-
-  private static long deviceMatrixRowBytes(long size, long columns, CuVSMatrix.DataType dataType) {
-    if (size < 0) {
-      throw new IllegalArgumentException("size must be non-negative: " + size);
-    }
-    if (columns <= 0) {
-      throw new IllegalArgumentException("columns must be positive: " + columns);
-    }
-    return Math.multiplyExact(columns, dataType.bytes());
-  }
-
-  /** Acquires the stream before invoking a constructor that allocates device memory. */
-  static <T> T createDeviceMatrixBuilder(
-      Supplier<MemorySegment> streamSupplier, Function<MemorySegment, T> builderFactory) {
-    MemorySegment stream = streamSupplier.get();
-    return builderFactory.apply(stream);
+    var rowBytes = columns * dataType.bytes();
+    return rowBytes > PinnedMemoryBuffer.CHUNK_BYTES
+        ? new DirectDeviceMatrixBuilder(resources, size, columns, rowStride, columnStride, dataType)
+        : new BufferedDeviceMatrixBuilder(
+            resources, size, columns, rowStride, columnStride, dataType);
   }
 
   @Override
@@ -653,8 +617,7 @@ final class JDKProvider implements CuVSProvider {
     return dataset;
   }
 
-  private abstract static class MatrixBuilder<T extends CuVSMatrixInternal>
-      implements AutoCloseable {
+  private abstract static class MatrixBuilder<T extends CuVSMatrixInternal> {
 
     protected final long columns;
     protected final long size;
@@ -663,7 +626,6 @@ final class JDKProvider implements CuVSProvider {
     protected final long rowSize;
     protected final long rowBytes;
     protected int currentRow;
-    private boolean closed;
 
     protected MatrixBuilder(T matrix, long size, long columns) {
       this.columns = columns;
@@ -673,7 +635,6 @@ final class JDKProvider implements CuVSProvider {
       this.rowSize = columns * elementSize;
       this.rowBytes = rowSize;
       this.currentRow = 0;
-      this.closed = false;
     }
 
     protected MatrixBuilder(T matrix, long size, long columns, int rowStride) {
@@ -685,11 +646,9 @@ final class JDKProvider implements CuVSProvider {
       this.rowBytes = columns * elementSize;
 
       this.currentRow = 0;
-      this.closed = false;
     }
 
     public void addVector(float[] vector) {
-      ensureOpen();
       if (vector.length != columns) {
         throw new IllegalArgumentException(
             String.format(
@@ -699,7 +658,6 @@ final class JDKProvider implements CuVSProvider {
     }
 
     public void addVector(byte[] vector) {
-      ensureOpen();
       if (vector.length != columns) {
         throw new IllegalArgumentException(
             String.format(
@@ -709,7 +667,6 @@ final class JDKProvider implements CuVSProvider {
     }
 
     public void addVector(int[] vector) {
-      ensureOpen();
       if (vector.length != columns) {
         throw new IllegalArgumentException(
             String.format(
@@ -719,34 +676,12 @@ final class JDKProvider implements CuVSProvider {
     }
 
     public void addVector(short[] vector) {
-      ensureOpen();
       if (vector.length != columns) {
         throw new IllegalArgumentException(
             String.format(
                 Locale.ROOT, "Expected a vector of size [%d], got [%d]", columns, vector.length));
       }
       internalAddVector(MemorySegment.ofArray(vector));
-    }
-
-    protected final T transferOwnership() {
-      ensureOpen();
-      closed = true;
-      return matrix;
-    }
-
-    protected final void ensureOpen() {
-      if (closed) {
-        throw new IllegalStateException("matrix builder is closed");
-      }
-    }
-
-    @Override
-    public final void close() {
-      if (closed) {
-        return;
-      }
-      closed = true;
-      matrix.close();
     }
 
     protected abstract void internalAddVector(MemorySegment vector);
@@ -766,17 +701,12 @@ final class JDKProvider implements CuVSProvider {
     private int currentBufferRow;
 
     private BufferedDeviceMatrixBuilder(
-        CuVSResources resources,
-        long size,
-        long columns,
-        CuVSMatrix.DataType dataType,
-        MemorySegment stream,
-        long bufferRowCount) {
+        CuVSResources resources, long size, long columns, CuVSMatrix.DataType dataType) {
       super(CuVSDeviceMatrixRMMImpl.create(resources, size, columns, dataType), size, columns);
-      this.stream = stream;
+      this.stream = Util.getStream(resources);
       this.resources = resources;
 
-      this.bufferRowCount = bufferRowCount;
+      this.bufferRowCount = Math.min((PinnedMemoryBuffer.CHUNK_BYTES / rowBytes), size);
       this.currentBufferRow = 0;
     }
 
@@ -786,9 +716,7 @@ final class JDKProvider implements CuVSProvider {
         long columns,
         int rowStride,
         int columnStride,
-        CuVSMatrix.DataType dataType,
-        MemorySegment stream,
-        long bufferRowCount) {
+        CuVSMatrix.DataType dataType) {
       super(
           CuVSDeviceMatrixRMMImpl.create(
               resources, size, columns, rowStride, columnStride, dataType),
@@ -796,10 +724,10 @@ final class JDKProvider implements CuVSProvider {
           columns,
           rowStride);
 
-      this.stream = stream;
+      this.stream = Util.getStream(resources);
       this.resources = resources;
 
-      this.bufferRowCount = bufferRowCount;
+      this.bufferRowCount = Math.min((PinnedMemoryBuffer.CHUNK_BYTES / rowBytes), size);
       this.currentBufferRow = 0;
     }
 
@@ -844,12 +772,11 @@ final class JDKProvider implements CuVSProvider {
 
     @Override
     public CuVSDeviceMatrix build() {
-      ensureOpen();
       try (var access = resources.access()) {
         var hostBuffer = CuVSResourcesImpl.getHostBuffer(access);
         flushBuffer(hostBuffer);
       }
-      return transferOwnership();
+      return matrix;
     }
   }
 
@@ -865,13 +792,9 @@ final class JDKProvider implements CuVSProvider {
     private int currentRow;
 
     private DirectDeviceMatrixBuilder(
-        CuVSResources resources,
-        long size,
-        long columns,
-        CuVSMatrix.DataType dataType,
-        MemorySegment stream) {
+        CuVSResources resources, long size, long columns, CuVSMatrix.DataType dataType) {
       super(CuVSDeviceMatrixRMMImpl.create(resources, size, columns, dataType), size, columns);
-      this.stream = stream;
+      this.stream = Util.getStream(resources);
       this.currentRow = 0;
     }
 
@@ -881,8 +804,7 @@ final class JDKProvider implements CuVSProvider {
         long columns,
         int rowStride,
         int columnStride,
-        CuVSMatrix.DataType dataType,
-        MemorySegment stream) {
+        CuVSMatrix.DataType dataType) {
       super(
           CuVSDeviceMatrixRMMImpl.create(
               resources, size, columns, rowStride, columnStride, dataType),
@@ -890,7 +812,7 @@ final class JDKProvider implements CuVSProvider {
           columns,
           rowStride);
 
-      this.stream = stream;
+      this.stream = Util.getStream(resources);
       this.currentRow = 0;
     }
 
@@ -909,7 +831,7 @@ final class JDKProvider implements CuVSProvider {
 
     @Override
     public CuVSDeviceMatrix build() {
-      return transferOwnership();
+      return matrix;
     }
   }
 
@@ -939,7 +861,7 @@ final class JDKProvider implements CuVSProvider {
 
     @Override
     public CuVSHostMatrix build() {
-      return transferOwnership();
+      return matrix;
     }
   }
 }

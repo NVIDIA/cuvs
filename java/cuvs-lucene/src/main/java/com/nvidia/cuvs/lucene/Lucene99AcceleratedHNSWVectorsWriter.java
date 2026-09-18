@@ -142,8 +142,8 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
   }
 
   /**
-   * Flush/sorting path: builds a host matrix from the heap vectors, then delegates
-   * to {@link #writeFieldInternal(FieldInfo, CuVSMatrix)}.
+   * Flush/sorting path: builds a host matrix from the heap vectors, then delegates to {@link
+   * #writeNonTrivialField(FieldInfo, CuVSMatrix)}.
    *
    * @param fieldInfo instance of FieldInfo that has the field description
    * @param vectors vectors to index
@@ -153,26 +153,21 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
     if (writeTrivialField(fieldInfo, vectors.size())) {
       return;
     }
-    CuVSMatrix dataset = Utils.createFloatMatrix(vectors, fieldInfo.getVectorDimension());
-    writeFieldInternal(fieldInfo, dataset);
+    CuVSMatrix dataset = Utils.createHostFloatMatrix(vectors, fieldInfo.getVectorDimension());
+    writeNonTrivialField(fieldInfo, dataset);
   }
 
   /**
-   * Builds the intermediate CAGRA index and builds and writes the HNSW index.
-   * Single implementation used by both the flush and merge paths. The dataset is a
-   * {@link CuVSMatrix} (host-backed on the merge path) so the full set of vectors is
-   * never double-materialised on the Java heap.
+   * Builds the intermediate CAGRA index and writes the HNSW index. This non-trivial path is shared
+   * by flushes and merges after zero- and one-vector cases have been handled.
    *
    * @param fieldInfo instance of FieldInfo that has the field description
-   * @param dataset   matrix of all vectors to index
+   * @param dataset matrix of all vectors to index
    * @throws IOException
    */
-  private void writeFieldInternal(FieldInfo fieldInfo, CuVSMatrix dataset) throws IOException {
-    try (Utils.OwnedIndex<CagraIndex> ownedIndex = Utils.ownDataset(dataset)) {
-      int size = Math.toIntExact(dataset.size());
-      if (writeTrivialField(fieldInfo, size)) {
-        return;
-      }
+  private void writeNonTrivialField(FieldInfo fieldInfo, CuVSMatrix dataset) throws IOException {
+    try {
+      int size = (int) dataset.size();
       CagraIndexParams params =
           CagraIndexParamsFactory.create(acceleratedHNSWParams, dataset.size(), dataset.columns());
       CagraIndex cagraIndex =
@@ -180,11 +175,11 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
               .withDataset(dataset)
               .withIndexParams(params)
               .build();
-      ownedIndex.transferTo(cagraIndex);
       CuVSMatrix adjacencyListMatrix = cagraIndex.getGraph();
       int dimensions = fieldInfo.getVectorDimension();
       GPUBuiltHnswGraph hnswGraph =
           createMultiLayerHnswGraph(
+              fieldInfo,
               dimensions,
               adjacencyListMatrix,
               dataset,
@@ -203,8 +198,9 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
           size,
           hnswGraph,
           graphLevelNodeOffsets);
+      cagraIndex.close();
     } catch (Throwable t) {
-      throw Utils.handleThrowable(t);
+      Utils.handleThrowable(t);
     }
   }
 
@@ -294,10 +290,9 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
   }
 
   /**
-   * Streams merged vectors directly into a native host-memory matrix (CuVSHostMatrix)
-   * without materialising a List<float[]> on the Java heap, then calls writeFieldInternal.
-   * This avoids the double-copy OOM (heap list + native matrix simultaneously) that
-   * occurs when force-merging large segments.
+   * Streams merged vectors directly into a native host-memory matrix without materializing a
+   * {@code List<float[]>} on the Java heap. This avoids retaining both the heap list and native
+   * matrix during a force merge.
    */
   private void vectorBasedMerge(FieldInfo fieldInfo, MergeState mergeState) throws IOException {
     try {
@@ -305,19 +300,19 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
       if (writeTrivialField(fieldInfo, size)) {
         return;
       }
-      int dims = fieldInfo.getVectorDimension();
       FloatVectorValues mergedVectors =
           KnnVectorsWriter.MergedVectorValues.mergeFloatVectorValues(fieldInfo, mergeState);
-      try (CuVSMatrix.Builder<CuVSHostMatrix> builder =
-          CuVSMatrix.hostBuilder(size, dims, CuVSMatrix.DataType.FLOAT)) {
-        KnnVectorValues.DocIndexIterator it = mergedVectors.iterator();
-        for (int doc = it.nextDoc(); doc != DocIdSetIterator.NO_MORE_DOCS; doc = it.nextDoc()) {
-          builder.addVector(mergedVectors.vectorValue(it.index()));
-        }
-        writeFieldInternal(fieldInfo, builder.build());
+      int dims = fieldInfo.getVectorDimension();
+      CuVSMatrix.Builder<CuVSHostMatrix> builder =
+          CuVSMatrix.hostBuilder(size, dims, CuVSMatrix.DataType.FLOAT);
+      KnnVectorValues.DocIndexIterator it = mergedVectors.iterator();
+      for (int doc = it.nextDoc(); doc != DocIdSetIterator.NO_MORE_DOCS; doc = it.nextDoc()) {
+        builder.addVector(mergedVectors.vectorValue(it.index()));
       }
+      CuVSHostMatrix dataset = builder.build();
+      writeNonTrivialField(fieldInfo, dataset);
     } catch (Throwable t) {
-      throw Utils.handleThrowable(t);
+      Utils.handleThrowable(t);
     }
   }
 
@@ -329,7 +324,7 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
     int count = 0;
     KnnVectorValues.DocIndexIterator it = mergedVectors.iterator();
     for (int doc = it.nextDoc(); doc != DocIdSetIterator.NO_MORE_DOCS; doc = it.nextDoc()) {
-      count = Math.incrementExact(count);
+      count++;
     }
     return count;
   }

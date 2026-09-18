@@ -22,7 +22,7 @@ CAGRA(true, false), /** Builds a Brute Force index. */ BRUTE_FORCE(false, true),
 
 Builds a CAGRA index.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:91`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:89`_
 
 ### BRUTE_FORCE
 
@@ -32,7 +32,7 @@ BRUTE_FORCE(false, true), /** Builds both - CAGRA and Brute Force indexes. */ CA
 
 Builds a Brute Force index.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:94`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:92`_
 
 ### CAGRA_AND_BRUTE_FORCE
 
@@ -42,7 +42,7 @@ CAGRA_AND_BRUTE_FORCE(true, true)
 
 Builds both - CAGRA and Brute Force indexes.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:97`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:95`_
 
 ### CuVS2510GPUVectorsWriter
 
@@ -66,7 +66,7 @@ Initializes `CuVS2510GPUVectorsWriter`.
 | --- | --- |
 | `IOException` | I/O exceptions |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:123`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:121`_
 
 ### addField
 
@@ -76,30 +76,7 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVecto
 
 Add new field for indexing.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:162`_
-
-### prepareCagraDataset
-
-```java
-static CuVSDeviceMatrix prepareCagraDataset( CagraDatasetBuilderFactory builderFactory, CagraDatasetPopulation population) throws Throwable
-```
-
-Builds the device input and applies the pre-persistence fallback policy only after builder
-cleanup succeeds. A builder cleanup failure is fatal; after ownership has transferred, this
-method also closes the dataset before propagating that failure. A builder-factory failure is
-also fatal because no cleanup handle was returned.
-
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:276`_
-
-### closeCagraResources
-
-```java
-static Throwable closeCagraResources( AutoCloseable index, AutoCloseable originalDataset, AutoCloseable indexDataset)
-```
-
-Closes CAGRA resources in dependency order and returns the first cleanup failure.
-
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:391`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:160`_
 
 ### flush
 
@@ -109,7 +86,7 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVecto
 
 Creates the CAGRA and/or brute force indexes and writes them to the disk.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:471`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:303`_
 
 ### mergeOneField
 
@@ -119,7 +96,7 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVecto
 
 Write field for merging.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:853`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:685`_
 
 ### ramBytesUsed
 
@@ -129,7 +106,7 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVecto
 
 Returns the memory usage of this object in bytes.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:864`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:696`_
 
 ### finish
 
@@ -139,7 +116,7 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVecto
 
 Called once at the end before close.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:876`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:708`_
 
 ### close
 
@@ -149,6 +126,6 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVecto
 
 Close the applicable resources.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:896`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:728`_
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:61`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:59`_
