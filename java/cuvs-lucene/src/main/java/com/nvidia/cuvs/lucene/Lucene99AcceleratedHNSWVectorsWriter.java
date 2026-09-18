@@ -153,7 +153,7 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
     if (writeTrivialField(fieldInfo, vectors.size())) {
       return;
     }
-    CuVSMatrix dataset = Utils.createHostFloatMatrix(vectors, fieldInfo.getVectorDimension());
+    CuVSHostMatrix dataset = Utils.createHostFloatMatrix(vectors, fieldInfo.getVectorDimension());
     writeNonTrivialField(fieldInfo, dataset);
   }
 
@@ -166,8 +166,8 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
    * @throws IOException
    */
   private void writeNonTrivialField(FieldInfo fieldInfo, CuVSMatrix dataset) throws IOException {
-    try {
-      int size = (int) dataset.size();
+    try (Utils.OwnedIndex<CagraIndex> ownedIndex = Utils.ownDataset(dataset)) {
+      int size = Math.toIntExact(dataset.size());
       CagraIndexParams params =
           CagraIndexParamsFactory.create(acceleratedHNSWParams, dataset.size(), dataset.columns());
       CagraIndex cagraIndex =
@@ -175,11 +175,11 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
               .withDataset(dataset)
               .withIndexParams(params)
               .build();
+      ownedIndex.transferTo(cagraIndex);
       CuVSMatrix adjacencyListMatrix = cagraIndex.getGraph();
       int dimensions = fieldInfo.getVectorDimension();
       GPUBuiltHnswGraph hnswGraph =
           createMultiLayerHnswGraph(
-              fieldInfo,
               dimensions,
               adjacencyListMatrix,
               dataset,
@@ -198,9 +198,8 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
           size,
           hnswGraph,
           graphLevelNodeOffsets);
-      cagraIndex.close();
     } catch (Throwable t) {
-      Utils.handleThrowable(t);
+      throw Utils.handleThrowable(t);
     }
   }
 
@@ -300,15 +299,15 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
       if (writeTrivialField(fieldInfo, size)) {
         return;
       }
+      int dims = fieldInfo.getVectorDimension();
       FloatVectorValues mergedVectors =
           KnnVectorsWriter.MergedVectorValues.mergeFloatVectorValues(fieldInfo, mergeState);
-      int dims = fieldInfo.getVectorDimension();
       CuVSHostMatrix dataset =
           buildMergedDataset(
               mergedVectors, size, CuVSMatrix.hostBuilder(size, dims, CuVSMatrix.DataType.FLOAT));
       writeNonTrivialField(fieldInfo, dataset);
     } catch (Throwable t) {
-      Utils.handleThrowable(t);
+      throw Utils.handleThrowable(t);
     }
   }
 

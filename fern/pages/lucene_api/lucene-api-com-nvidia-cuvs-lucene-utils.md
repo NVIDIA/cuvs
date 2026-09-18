@@ -45,76 +45,7 @@ never returns; always throws
 | --- | --- |
 | `IOException` |  |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:39`_
-
-### createFloatMatrix
-
-```java
-static CuVSMatrix createFloatMatrix(List<float[]> data, int dimensions, CuVSResources resources)
-```
-
-A method to build a CuVSMatrix from a list of float vectors.
-
-Uses CuVSMatrix.Builder to copy vectors directly to device memory
-without creating intermediate heap arrays.
-
-**Parameters**
-
-| Name | Description |
-| --- | --- |
-| `data` | The float vectors |
-| `dimensions` | The number float elements in each vector |
-| `resources` | The CuVS resources for device matrix creation |
-
-**Returns**
-
-an instance of CuVSMatrix
-
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:59`_
-
-### createHostFloatMatrix
-
-```java
-static CuVSHostMatrix createHostFloatMatrix(List<float[]> data, int dimensions)
-```
-
-Builds a host-memory CuVSMatrix from a list of float vectors.
-
-Copies vectors directly into native host memory without creating an intermediate \{@code
-float[][]\} on the heap.
-
-**Parameters**
-
-| Name | Description |
-| --- | --- |
-| `data` | The float vectors |
-| `dimensions` | The number of float elements in each vector |
-
-**Returns**
-
-a host-memory CuVSMatrix
-
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:87`_
-
-### createHostByteMatrix
-
-```java
-static CuVSHostMatrix createHostByteMatrix(List<byte[]> data, int bytesPerVector)
-```
-
-Builds a host-memory CuVSMatrix from a list of byte vectors.
-
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:98`_
-
-### createHostByteMatrixFromArray
-
-```java
-static CuVSHostMatrix createHostByteMatrixFromArray(byte[][] data, int bytesPerVector)
-```
-
-Builds a host-memory CuVSMatrix from a 2D byte array.
-
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:109`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:40`_
 
 ### nanosToMillis
 
@@ -134,7 +65,7 @@ A utility method to convert nanoseconds to milliseconds.
 
 milliseconds
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:125`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:159`_
 
 ### cuVSResourcesOrNull
 
@@ -148,30 +79,7 @@ Creates an instance of CuVSResources.
 
 an instance of CuVSResources
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:134`_
-
-### handleThrowableWithIgnore
-
-```java
-static void handleThrowableWithIgnore(Throwable t, String msg) throws IOException
-```
-
-A utility method that conditionally ignores certain throwable objects
-
-**Parameters**
-
-| Name | Description |
-| --- | --- |
-| `t` | the throwable object |
-| `msg` | the message to check |
-
-**Throws**
-
-| Type | Description |
-| --- | --- |
-| `IOException` |  |
-
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:162`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:168`_
 
 ### info
 
@@ -189,6 +97,6 @@ Utility to print info/debug messages via InfoStream.
 | `component` | the name of the index writer |
 | `msg` | the log message to push via the InfoStream |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:176`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:196`_
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:22`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:23`_

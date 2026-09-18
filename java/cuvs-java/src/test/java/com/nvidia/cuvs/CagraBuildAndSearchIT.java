@@ -165,6 +165,43 @@ public class CagraBuildAndSearchIT extends CuVSTestCase {
   }
 
   @Test
+  public void testSuccessfulBuildTransfersMatrixOwnershipToIndex() throws Throwable {
+    CuVSMatrix dataset = CuVSMatrix.ofArray(createSampleData());
+    CagraIndex index = null;
+    try (CuVSResources resources = CheckedCuVSResources.create()) {
+      try {
+        index = indexOnce(dataset, resources);
+        assertEquals(createSampleData().length, index.size());
+        assertEquals(createSampleData()[0][0], dataset.getRow(0).getAsFloat(0), 0.0f);
+      } finally {
+        if (index == null) {
+          dataset.close();
+        } else {
+          index.close();
+        }
+      }
+
+      assertThrows(IllegalStateException.class, () -> dataset.getRow(0).getAsFloat(0));
+    }
+  }
+
+  @Test
+  public void testFailedBuildLeavesMatrixOwnershipWithCaller() throws Throwable {
+    float[][] sampleData = createSampleData();
+    try (CuVSResources resources = CheckedCuVSResources.create();
+        CuVSMatrix graph = CuVSMatrix.ofArray(new int[][] {{0}});
+        CuVSMatrix dataset = CuVSMatrix.ofArray(sampleData)) {
+      IllegalArgumentException failure =
+          assertThrows(
+              IllegalArgumentException.class,
+              () -> CagraIndex.newBuilder(resources).from(graph).withDataset(dataset).build());
+
+      assertTrue(failure.getMessage().contains("must specify the original dataset and the metric"));
+      assertEquals(sampleData[0][0], dataset.getRow(0).getAsFloat(0), 0.0f);
+    }
+  }
+
+  @Test
   public void testDeserializeReturnsCallerOwnedStandardDataset() throws Throwable {
     float[][] dataset = createSampleData();
     float[][] queries = createSampleQueries();

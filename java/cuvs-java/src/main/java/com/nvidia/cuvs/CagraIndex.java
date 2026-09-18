@@ -132,7 +132,11 @@ public interface CagraIndex extends AutoCloseable {
   }
 
   /**
-   * Invokes the native destroy_cagra_index to de-allocate the CAGRA index
+   * Invokes the native destroy_cagra_index to de-allocate the CAGRA index.
+   *
+   * <p>When this method returns normally, it also closes any matrix supplied through
+   * {@link Builder#withDataset(CuVSMatrix)} whose ownership transferred to this index during a
+   * successful {@link Builder#build()}.
    */
   @Override
   void close() throws Exception;
@@ -428,6 +432,13 @@ public interface CagraIndex extends AutoCloseable {
     /**
      * Sets the dataset for building the {@link CagraIndex}.
      *
+     * <p>The caller retains ownership of {@code dataset} until {@link #build()} returns an index
+     * successfully. A successful build that uses this dataset transfers ownership to the returned
+     * index; the caller must not close the matrix while that index is alive. If the build throws
+     * instead, ownership remains with the caller. When the returned index is closed normally, it
+     * closes the matrix. These rules also apply when reconstructing an index through
+     * {@link #from(CuVSMatrix)}.
+     *
      * @param dataset a {@link CuVSMatrix} object containing the vectors
      * @return an instance of this Builder
      */
@@ -444,6 +455,10 @@ public interface CagraIndex extends AutoCloseable {
 
     /**
      * Builds and returns an instance of CagraIndex.
+     *
+     * <p>For a matrix supplied through {@link #withDataset(CuVSMatrix)} and used by this build,
+     * ownership transfers only if this method returns an index successfully. If this method
+     * throws, the caller remains responsible for closing that matrix.
      *
      * @return an instance of CagraIndex
      */

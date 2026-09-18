@@ -7,7 +7,6 @@ package com.nvidia.cuvs.lucene;
 import static com.nvidia.cuvs.lucene.AcceleratedHNSWUtils.createMultiLayerHnswGraph;
 import static com.nvidia.cuvs.lucene.AcceleratedHNSWUtils.createSingleVectorHnswGraph;
 import static com.nvidia.cuvs.lucene.AcceleratedHNSWUtils.printInfoStream;
-import static com.nvidia.cuvs.lucene.AcceleratedHNSWUtils.quantizeFloatVectorsToBinary;
 import static com.nvidia.cuvs.lucene.AcceleratedHNSWUtils.writeEmpty;
 import static com.nvidia.cuvs.lucene.AcceleratedHNSWUtils.writeGraph;
 import static com.nvidia.cuvs.lucene.AcceleratedHNSWUtils.writeMeta;
@@ -24,6 +23,7 @@ import static org.apache.lucene.util.RamUsageEstimator.shallowSizeOfInstance;
 import com.nvidia.cuvs.CagraIndex;
 import com.nvidia.cuvs.CagraIndexParams;
 import com.nvidia.cuvs.CuVSMatrix;
+import com.nvidia.cuvs.lucene.AcceleratedHNSWUtils.BinaryQuantizer;
 import com.nvidia.cuvs.lucene.AcceleratedHNSWUtils.QuantizationType;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -146,38 +146,42 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends KnnVector
    * @throws IOException
    */
   private void writeFieldInternal(FieldInfo fieldInfo, List<byte[]> vectors) throws IOException {
-    if (vectors.size() == 0) {
-      writeEmpty(fieldInfo, hnswMeta);
+    int size = vectors.size();
+    if (writeTrivialField(fieldInfo, size)) {
       return;
     }
-
     try {
       int dimensions = fieldInfo.getVectorDimension();
-      int bytesPerVector = (dimensions + 7) / 8;
-
-      CuVSMatrix dataset = Utils.createHostByteMatrix(vectors, bytesPerVector);
-
-      if (dataset.size() < 2) {
-        writeSingleVectorGraph(fieldInfo, vectors);
-        return;
+      int bytesPerVector = Math.ceilDiv(dimensions, 8);
+      try (CuVSMatrix.Builder<?> builder =
+          CuVSMatrix.hostBuilder(size, bytesPerVector, CuVSMatrix.DataType.BYTE)) {
+        for (byte[] vector : vectors) {
+          builder.addVector(vector);
+        }
+        writeNonTrivialField(fieldInfo, builder.build());
       }
+    } catch (Throwable t) {
+      throw Utils.handleThrowable(t);
+    }
+  }
 
+  /* Builds and writes an index from an owned matrix containing at least two binary vectors. */
+  private void writeNonTrivialField(FieldInfo fieldInfo, CuVSMatrix dataset) throws IOException {
+    try (Utils.OwnedIndex<CagraIndex> ownedIndex = Utils.ownDataset(dataset)) {
+      int size = Math.toIntExact(dataset.size());
+      int dimensions = fieldInfo.getVectorDimension();
       CagraIndexParams params =
           CagraIndexParamsFactory.create(acceleratedHNSWParams, dataset.size(), dataset.columns());
-
       CagraIndex cagraIndex =
           CagraIndex.newBuilder(getCuVSResourcesInstance())
               .withDataset(dataset)
               .withIndexParams(params)
               .build();
+      ownedIndex.transferTo(cagraIndex);
 
       CuVSMatrix adjacencyListMatrix = cagraIndex.getGraph();
-      int size = (int) dataset.size();
-
-      // Create multi-layer HNSW graph from CAGRA
       GPUBuiltHnswGraph hnswGraph =
           createMultiLayerHnswGraph(
-              fieldInfo,
               dimensions,
               adjacencyListMatrix,
               dataset,
@@ -186,11 +190,8 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends KnnVector
               QuantizationType.BINARY);
 
       long vectorIndexOffset = hnswVectorIndex.getFilePointer();
-      // Write the graph to the vector index
       int[][] graphLevelNodeOffsets = writeGraph(hnswGraph, hnswVectorIndex);
       long vectorIndexLength = hnswVectorIndex.getFilePointer() - vectorIndexOffset;
-
-      // Write metadata
       writeMeta(
           hnswVectorIndex,
           hnswMeta,
@@ -200,12 +201,22 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends KnnVector
           size,
           hnswGraph,
           graphLevelNodeOffsets);
-
-      cagraIndex.close();
-
     } catch (Throwable t) {
-      Utils.handleThrowable(t);
+      throw Utils.handleThrowable(t);
     }
+  }
+
+  /** Writes the empty or one-vector representation, if {@code size} is trivial. */
+  private boolean writeTrivialField(FieldInfo fieldInfo, int size) throws IOException {
+    if (size == 0) {
+      writeEmpty(fieldInfo, hnswMeta);
+      return true;
+    }
+    if (size == 1) {
+      writeSingleVectorGraph(fieldInfo);
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -259,11 +270,9 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends KnnVector
    * Builds and writes a single vector graph.
    *
    * @param fieldInfo instance of FieldInfo
-   * @param vectors the list of binary quantized vectors
    * @throws IOException I/O Exceptions
    */
-  private void writeSingleVectorGraph(FieldInfo fieldInfo, List<byte[]> vectors)
-      throws IOException {
+  private void writeSingleVectorGraph(FieldInfo fieldInfo) throws IOException {
     // Workaround for CAGRA not supporting single vector indexes
     try {
       int size = 1;
@@ -310,20 +319,60 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends KnnVector
    */
   private void vectorBasedMerge(FieldInfo fieldInfo, MergeState mergeState) throws IOException {
     try {
-      FloatVectorValues mergedVectorValues =
-          KnnVectorsWriter.MergedVectorValues.mergeFloatVectorValues(fieldInfo, mergeState);
+      int dimensions = fieldInfo.getVectorDimension();
+      BinaryQuantizer quantizer = collectBinaryMergeStats(fieldInfo, mergeState, dimensions);
+      if (writeTrivialField(fieldInfo, quantizer.count())) {
+        return;
+      }
 
-      if (mergedVectorValues != null) {
-        List<float[]> floatVectors = new ArrayList<>();
-        KnnVectorValues.DocIndexIterator iter = mergedVectorValues.iterator();
-        for (int docV = iter.nextDoc(); docV != NO_MORE_DOCS; docV = iter.nextDoc()) {
-          floatVectors.add(mergedVectorValues.vectorValue(iter.index()).clone());
+      int bytesPerVector = Math.ceilDiv(dimensions, 8);
+      FloatVectorValues mergedVectors =
+          KnnVectorsWriter.MergedVectorValues.mergeFloatVectorValues(fieldInfo, mergeState);
+      try (CuVSMatrix.Builder<?> builder =
+          CuVSMatrix.hostBuilder(quantizer.count(), bytesPerVector, CuVSMatrix.DataType.BYTE)) {
+        byte[] quantized = new byte[bytesPerVector];
+        int encodedCount = 0;
+        KnnVectorValues.DocIndexIterator iterator = mergedVectors.iterator();
+        for (int doc = iterator.nextDoc(); doc != NO_MORE_DOCS; doc = iterator.nextDoc()) {
+          if (encodedCount >= quantizer.count()) {
+            throw new IOException(
+                "Merged vector count changed between quantization passes: expected "
+                    + quantizer.count()
+                    + ", received more rows");
+          }
+          quantizer.quantize(mergedVectors.vectorValue(iterator.index()), quantized);
+          builder.addVector(quantized);
+          encodedCount = Math.incrementExact(encodedCount);
         }
-        writeFieldInternal(fieldInfo, quantizeFloatVectorsToBinary(floatVectors));
+        if (encodedCount != quantizer.count()) {
+          throw new IOException(
+              "Merged vector count changed between quantization passes: expected "
+                  + quantizer.count()
+                  + ", received "
+                  + encodedCount);
+        }
+        writeNonTrivialField(fieldInfo, builder.build());
       }
     } catch (Throwable t) {
-      Utils.handleThrowable(t);
+      throw Utils.handleThrowable(t);
     }
+  }
+
+  private static BinaryQuantizer collectBinaryMergeStats(
+      FieldInfo fieldInfo, MergeState mergeState, int dimensions) throws IOException {
+    FloatVectorValues mergedVectors =
+        KnnVectorsWriter.MergedVectorValues.mergeFloatVectorValues(fieldInfo, mergeState);
+    BinaryQuantizer quantizer = new BinaryQuantizer(dimensions);
+    if (mergedVectors != null) {
+      KnnVectorValues.DocIndexIterator iterator = mergedVectors.iterator();
+      for (int doc = iterator.nextDoc(); doc != NO_MORE_DOCS; doc = iterator.nextDoc()) {
+        quantizer.add(mergedVectors.vectorValue(iterator.index()));
+      }
+    }
+    if (quantizer.count() > 0) {
+      quantizer.finish();
+    }
+    return quantizer;
   }
 
   /**

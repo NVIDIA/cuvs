@@ -9,6 +9,8 @@ import static org.apache.lucene.search.DocIdSetIterator.NO_MORE_DOCS;
 import com.nvidia.cuvs.CuVSMatrix;
 import com.nvidia.cuvs.RowView;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import org.apache.lucene.util.hnsw.HnswGraph;
 import org.apache.lucene.util.hnsw.NeighborArray;
@@ -27,6 +29,7 @@ public class GPUBuiltHnswGraph extends HnswGraph {
   // Store layers data - each layer has its own nodes and adjacency lists
   private final List<int[]> layerNodes;
   private final List<NeighborArray[]> layerNeighbors;
+  private final boolean[] sortedUpperLayers;
 
   // Layer 0 is special - it contains all nodes
   private final NeighborArray[] layer0Neighbors;
@@ -41,23 +44,44 @@ public class GPUBuiltHnswGraph extends HnswGraph {
    */
   public GPUBuiltHnswGraph(
       int size, int dimensions, List<int[]> layerNodes, List<CuVSMatrix> layerAdjacencies) {
-
+    if (size <= 0) {
+      throw new IllegalArgumentException("Graph size must be positive");
+    }
+    if (dimensions <= 0) {
+      throw new IllegalArgumentException("Vector dimensions must be positive");
+    }
+    if (layerAdjacencies.isEmpty() || layerNodes.size() != layerAdjacencies.size()) {
+      throw new IllegalArgumentException(
+          "Layer node and adjacency lists must have the same non-zero size");
+    }
     this.size = size;
     this.dimensions = dimensions;
     this.numLevels = layerAdjacencies.size();
     this.layerNodes = new ArrayList<>();
     this.layerNeighbors = new ArrayList<>();
+    this.sortedUpperLayers = new boolean[Math.max(0, numLevels - 1)];
 
     // Process Layer 0 (base layer with all nodes)
     CuVSMatrix layer0Adjacency = layerAdjacencies.get(0);
     this.layer0Neighbors = fillNeighborArray(layer0Adjacency, size);
 
     // Process higher layers (1 to numLevels-1)
+    HashSet<Integer> previousLayerNodes = null;
     for (int level = 1; level < numLevels; level++) {
-      int[] nodes = layerNodes.get(level);
+      int[] suppliedNodes = layerNodes.get(level);
+      if (suppliedNodes == null) {
+        throw new IllegalArgumentException("Missing node ordinals for level " + level);
+      }
+      int[] nodes = suppliedNodes.clone();
+      HashSet<Integer> currentLayerNodes = new HashSet<>(nodes.length);
+      sortedUpperLayers[level - 1] =
+          validateLayerNodes(nodes, level, previousLayerNodes, currentLayerNodes);
       CuVSMatrix adjacency = layerAdjacencies.get(level);
+      NeighborArray[] neighbors = fillNeighborArray(adjacency, nodes.length);
+      validateUpperLayerNeighbors(nodes, neighbors, currentLayerNodes, level);
       this.layerNodes.add(nodes);
-      this.layerNeighbors.add(fillNeighborArray(adjacency, nodes.length));
+      this.layerNeighbors.add(neighbors);
+      previousLayerNodes = currentLayerNodes;
     }
   }
 
@@ -69,19 +93,105 @@ public class GPUBuiltHnswGraph extends HnswGraph {
    * @return the NeighborArray
    */
   private NeighborArray[] fillNeighborArray(CuVSMatrix adjacency, int size) {
+    if (adjacency.dataType() != CuVSMatrix.DataType.INT
+        && adjacency.dataType() != CuVSMatrix.DataType.UINT) {
+      throw new IllegalArgumentException(
+          "Expected INT or UINT adjacency data, but received " + adjacency.dataType());
+    }
+    if (adjacency.size() != size) {
+      throw new IllegalArgumentException(
+          "Expected " + size + " adjacency rows, but received " + adjacency.size());
+    }
+    int degree = Math.toIntExact(adjacency.columns());
+    if (degree <= 0) {
+      throw new IllegalArgumentException("Adjacency matrices must have a positive degree");
+    }
     NeighborArray[] neighbors = new NeighborArray[size];
     for (int i = 0; i < size; i++) {
       RowView rv = adjacency.getRow(i);
-      if (rv != null && rv.size() > 0) {
-        neighbors[i] = new NeighborArray((int) rv.size(), true);
-        for (int j = 0; j < rv.size(); j++) {
-          neighbors[i].addInOrder(rv.getAsInt(j), 1.0f - (j * 0.001f));
+      if (rv == null || rv.size() != degree) {
+        throw new IllegalArgumentException(
+            "Expected "
+                + degree
+                + " neighbors for adjacency row "
+                + i
+                + ", but received "
+                + (rv == null ? "null" : rv.size()));
+      }
+      neighbors[i] = new NeighborArray(degree, true);
+      for (int j = 0; j < degree; j++) {
+        int neighbor = rv.getAsInt(j);
+        if (neighbor < 0) {
+          continue;
         }
-      } else {
-        neighbors[i] = new NeighborArray(0, true);
+        if (neighbor >= this.size) {
+          throw new IllegalArgumentException(
+              "Adjacency row "
+                  + i
+                  + " contains ordinal "
+                  + neighbor
+                  + " outside graph size "
+                  + this.size);
+        }
+        neighbors[i].addInOrder(neighbor, 1.0f - (j * 0.001f));
       }
     }
     return neighbors;
+  }
+
+  private boolean validateLayerNodes(
+      int[] nodes,
+      int level,
+      HashSet<Integer> previousLayerNodes,
+      HashSet<Integer> currentLayerNodes) {
+    if (nodes.length == 0) {
+      throw new IllegalArgumentException("Level " + level + " must contain at least one node");
+    }
+    boolean sorted = true;
+    int previous = -1;
+    for (int node : nodes) {
+      if (node < 0 || node >= size) {
+        throw new IllegalArgumentException(
+            "Level " + level + " contains node ordinal " + node + " outside [0, " + size + ")");
+      }
+      if (previousLayerNodes != null && previousLayerNodes.contains(node) == false) {
+        throw new IllegalArgumentException(
+            "Level "
+                + level
+                + " contains node ordinal "
+                + node
+                + " that is absent from level "
+                + (level - 1));
+      }
+      if (currentLayerNodes.add(node) == false) {
+        throw new IllegalArgumentException(
+            "Level " + level + " contains duplicate node ordinal " + node);
+      }
+      sorted &= node > previous;
+      previous = node;
+    }
+    return sorted;
+  }
+
+  private static void validateUpperLayerNeighbors(
+      int[] nodes, NeighborArray[] neighbors, HashSet<Integer> currentLayerNodes, int level) {
+    for (int row = 0; row < neighbors.length; row++) {
+      NeighborArray rowNeighbors = neighbors[row];
+      for (int column = 0; column < rowNeighbors.size(); column++) {
+        int neighbor = rowNeighbors.nodes()[column];
+        if (currentLayerNodes.contains(neighbor) == false) {
+          throw new IllegalArgumentException(
+              "Level "
+                  + level
+                  + " adjacency for node "
+                  + nodes[row]
+                  + " contains neighbor ordinal "
+                  + neighbor
+                  + " that is absent from level "
+                  + level);
+        }
+      }
+    }
   }
 
   /**
@@ -111,11 +221,13 @@ public class GPUBuiltHnswGraph extends HnswGraph {
     } else if (level > 0 && level < numLevels) {
       int[] nodes = layerNodes.get(level - 1);
       NeighborArray[] neighbors = layerNeighbors.get(level - 1);
-
-      // Find the index of this node in the layer
-      for (int i = 0; i < nodes.length; i++) {
-        if (nodes[i] == node) {
-          return neighbors[i];
+      if (sortedUpperLayers[level - 1]) {
+        int index = Arrays.binarySearch(nodes, node);
+        return index >= 0 ? neighbors[index] : null;
+      }
+      for (int index = 0; index < nodes.length; index++) {
+        if (nodes[index] == node) {
+          return neighbors[index];
         }
       }
     }

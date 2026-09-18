@@ -11,6 +11,7 @@ import static com.nvidia.cuvs.internal.common.LinkerHelper.C_LONG;
 import static com.nvidia.cuvs.internal.panama.headers_h.*;
 
 import com.nvidia.cuvs.CuVSResources;
+import com.nvidia.cuvs.LibraryException;
 import com.nvidia.cuvs.internal.panama.DLDataType;
 import com.nvidia.cuvs.internal.panama.DLDevice;
 import com.nvidia.cuvs.internal.panama.DLManagedTensor;
@@ -126,7 +127,7 @@ public class Util {
   public static void checkCuVSError(int value, String caller) {
     if (value != CUVS_SUCCESS) {
       String errorMsg = getLastErrorText();
-      throw new RuntimeException(caller + " returned " + value + "[" + errorMsg + "]");
+      throw new LibraryException(caller + " returned " + value + "[" + errorMsg + "]");
     }
   }
 
@@ -138,7 +139,7 @@ public class Util {
    */
   public static void checkCudaError(int value, String caller) {
     if (value != CUDA_SUCCESS) {
-      throw new RuntimeException(caller + " returned " + value);
+      throw new LibraryException(caller + " returned " + value);
     }
   }
 
@@ -201,12 +202,24 @@ public class Util {
       long numBytes,
       CudaMemcpyKind kind,
       MemorySegment stream) {
+    invokeCuda(
+        "cudaMemcpyAsync",
+        () -> (int) cudaMemcpyAsync$mh.invokeExact(dst, src, numBytes, kind.kind, stream));
+  }
+
+  @FunctionalInterface
+  interface CudaCall {
+    int invoke() throws Throwable;
+  }
+
+  static void invokeCuda(String caller, CudaCall call) {
+    int returnValue;
     try {
-      int returnValue = (int) cudaMemcpyAsync$mh.invokeExact(dst, src, numBytes, kind.kind, stream);
-      checkCudaError(returnValue, "cudaMemcpyAsync");
+      returnValue = call.invoke();
     } catch (Throwable ex$) {
       throw new AssertionError("should not reach here", ex$);
     }
+    checkCudaError(returnValue, caller);
   }
 
   /**

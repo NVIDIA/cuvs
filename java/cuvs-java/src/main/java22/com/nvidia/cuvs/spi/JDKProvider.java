@@ -30,6 +30,8 @@ import java.util.BitSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.jar.JarFile;
 import java.util.jar.Manifest;
 import java.util.logging.Level;
@@ -544,10 +546,15 @@ final class JDKProvider implements CuVSProvider {
   @Override
   public CuVSMatrix.Builder<CuVSDeviceMatrix> newDeviceMatrixBuilder(
       CuVSResources resources, long size, long columns, CuVSMatrix.DataType dataType) {
-    var rowBytes = columns * dataType.bytes();
-    return rowBytes > PinnedMemoryBuffer.CHUNK_BYTES
-        ? new DirectDeviceMatrixBuilder(resources, size, columns, dataType)
-        : new BufferedDeviceMatrixBuilder(resources, size, columns, dataType);
+    var rowBytes = deviceMatrixRowBytes(size, columns, dataType);
+    var bufferRowCount = Math.min(PinnedMemoryBuffer.CHUNK_BYTES / rowBytes, size);
+    return createDeviceMatrixBuilder(
+        () -> Util.getStream(resources),
+        stream ->
+            rowBytes > PinnedMemoryBuffer.CHUNK_BYTES
+                ? new DirectDeviceMatrixBuilder(resources, size, columns, dataType, stream)
+                : new BufferedDeviceMatrixBuilder(
+                    resources, size, columns, dataType, stream, bufferRowCount));
   }
 
   @Override
@@ -558,11 +565,40 @@ final class JDKProvider implements CuVSProvider {
       int rowStride,
       int columnStride,
       CuVSMatrix.DataType dataType) {
-    var rowBytes = columns * dataType.bytes();
-    return rowBytes > PinnedMemoryBuffer.CHUNK_BYTES
-        ? new DirectDeviceMatrixBuilder(resources, size, columns, rowStride, columnStride, dataType)
-        : new BufferedDeviceMatrixBuilder(
-            resources, size, columns, rowStride, columnStride, dataType);
+    var rowBytes = deviceMatrixRowBytes(size, columns, dataType);
+    var bufferRowCount = Math.min(PinnedMemoryBuffer.CHUNK_BYTES / rowBytes, size);
+    return createDeviceMatrixBuilder(
+        () -> Util.getStream(resources),
+        stream ->
+            rowBytes > PinnedMemoryBuffer.CHUNK_BYTES
+                ? new DirectDeviceMatrixBuilder(
+                    resources, size, columns, rowStride, columnStride, dataType, stream)
+                : new BufferedDeviceMatrixBuilder(
+                    resources,
+                    size,
+                    columns,
+                    rowStride,
+                    columnStride,
+                    dataType,
+                    stream,
+                    bufferRowCount));
+  }
+
+  private static long deviceMatrixRowBytes(long size, long columns, CuVSMatrix.DataType dataType) {
+    if (size < 0) {
+      throw new IllegalArgumentException("size must be non-negative: " + size);
+    }
+    if (columns <= 0) {
+      throw new IllegalArgumentException("columns must be positive: " + columns);
+    }
+    return Math.multiplyExact(columns, dataType.bytes());
+  }
+
+  /** Acquires the stream before invoking a constructor that allocates device memory. */
+  static <T> T createDeviceMatrixBuilder(
+      Supplier<MemorySegment> streamSupplier, Function<MemorySegment, T> builderFactory) {
+    MemorySegment stream = streamSupplier.get();
+    return builderFactory.apply(stream);
   }
 
   @Override
@@ -730,12 +766,17 @@ final class JDKProvider implements CuVSProvider {
     private int currentBufferRow;
 
     private BufferedDeviceMatrixBuilder(
-        CuVSResources resources, long size, long columns, CuVSMatrix.DataType dataType) {
+        CuVSResources resources,
+        long size,
+        long columns,
+        CuVSMatrix.DataType dataType,
+        MemorySegment stream,
+        long bufferRowCount) {
       super(CuVSDeviceMatrixRMMImpl.create(resources, size, columns, dataType), size, columns);
-      this.stream = Util.getStream(resources);
+      this.stream = stream;
       this.resources = resources;
 
-      this.bufferRowCount = Math.min((PinnedMemoryBuffer.CHUNK_BYTES / rowBytes), size);
+      this.bufferRowCount = bufferRowCount;
       this.currentBufferRow = 0;
     }
 
@@ -745,7 +786,9 @@ final class JDKProvider implements CuVSProvider {
         long columns,
         int rowStride,
         int columnStride,
-        CuVSMatrix.DataType dataType) {
+        CuVSMatrix.DataType dataType,
+        MemorySegment stream,
+        long bufferRowCount) {
       super(
           CuVSDeviceMatrixRMMImpl.create(
               resources, size, columns, rowStride, columnStride, dataType),
@@ -753,10 +796,10 @@ final class JDKProvider implements CuVSProvider {
           columns,
           rowStride);
 
-      this.stream = Util.getStream(resources);
+      this.stream = stream;
       this.resources = resources;
 
-      this.bufferRowCount = Math.min((PinnedMemoryBuffer.CHUNK_BYTES / rowBytes), size);
+      this.bufferRowCount = bufferRowCount;
       this.currentBufferRow = 0;
     }
 
@@ -822,9 +865,13 @@ final class JDKProvider implements CuVSProvider {
     private int currentRow;
 
     private DirectDeviceMatrixBuilder(
-        CuVSResources resources, long size, long columns, CuVSMatrix.DataType dataType) {
+        CuVSResources resources,
+        long size,
+        long columns,
+        CuVSMatrix.DataType dataType,
+        MemorySegment stream) {
       super(CuVSDeviceMatrixRMMImpl.create(resources, size, columns, dataType), size, columns);
-      this.stream = Util.getStream(resources);
+      this.stream = stream;
       this.currentRow = 0;
     }
 
@@ -834,7 +881,8 @@ final class JDKProvider implements CuVSProvider {
         long columns,
         int rowStride,
         int columnStride,
-        CuVSMatrix.DataType dataType) {
+        CuVSMatrix.DataType dataType,
+        MemorySegment stream) {
       super(
           CuVSDeviceMatrixRMMImpl.create(
               resources, size, columns, rowStride, columnStride, dataType),
@@ -842,7 +890,7 @@ final class JDKProvider implements CuVSProvider {
           columns,
           rowStride);
 
-      this.stream = Util.getStream(resources);
+      this.stream = stream;
       this.currentRow = 0;
     }
 
