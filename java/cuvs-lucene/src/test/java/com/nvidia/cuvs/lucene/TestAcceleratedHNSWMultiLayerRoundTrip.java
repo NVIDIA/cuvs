@@ -104,14 +104,17 @@ public class TestAcceleratedHNSWMultiLayerRoundTrip extends LuceneTestCase {
         assertTrue(nodesByLevel.get(1).containsAll(nodesByLevel.get(2)));
         assertUpperNeighborsStayOnTheirLevel(graph, nodesByLevel);
 
+        int queryNode = graph.entryNode();
+        assertTrue(nodesByLevel.get(2).contains(queryNode));
         IndexSearcher searcher = new IndexSearcher(reader);
-        var hits = searcher.search(new KnnFloatVectorQuery(FIELD, vectors[0], 10), 10);
+        var hits = searcher.search(new KnnFloatVectorQuery(FIELD, vectors[queryNode], 10), 10);
         assertEquals(10, hits.scoreDocs.length);
-        boolean foundExactVector = false;
+        String queryNodeId = Integer.toString(queryNode);
+        boolean foundQueryNode = false;
         for (var hit : hits.scoreDocs) {
-          foundExactVector |= "0".equals(searcher.storedFields().document(hit.doc).get("id"));
+          foundQueryNode |= queryNodeId.equals(searcher.storedFields().document(hit.doc).get("id"));
         }
-        assertTrue("the indexed vector must be returned for its own query", foundExactVector);
+        assertTrue("the entry-node vector must be returned for its own query", foundQueryNode);
       }
     }
   }

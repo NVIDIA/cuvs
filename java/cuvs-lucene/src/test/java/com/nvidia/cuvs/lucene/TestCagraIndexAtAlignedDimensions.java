@@ -11,10 +11,15 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import org.apache.lucene.codecs.KnnVectorsReader;
+import org.apache.lucene.codecs.perfield.PerFieldKnnVectorsFormat;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.KnnFloatVectorField;
+import org.apache.lucene.index.CodecReader;
+import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
+import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.VectorSimilarityFunction;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.tests.util.LuceneTestCase;
@@ -38,14 +43,14 @@ public class TestCagraIndexAtAlignedDimensions extends LuceneTestCase {
 
   @Test
   public void testCagraIsBuiltAtAnAlignedDimension() throws IOException {
-    // 128 floats is 512 bytes, an exact multiple of the 16 byte CAGRA row alignment.
-    assertCagraIsBuilt(128);
+    // Deep1B's 96 floats occupy 384 bytes, an exact multiple of CAGRA's 16-byte row alignment.
+    assertCagraIsBuilt(96);
   }
 
   @Test
   public void testCagraIsBuiltAtAnUnalignedDimension() throws IOException {
-    // 127 floats is not, so the writer has to fall back to an owning padded copy.
-    assertCagraIsBuilt(127);
+    // 95 floats is not aligned, so the writer has to create an owning padded copy.
+    assertCagraIsBuilt(95);
   }
 
   /** Indexes a segment of the given dimension and fails if the CAGRA build did not survive it. */
@@ -54,6 +59,11 @@ public class TestCagraIndexAtAlignedDimensions extends LuceneTestCase {
 
     RecordingInfoStream infoStream = new RecordingInfoStream();
     try (Directory directory = newDirectory()) {
+      float[] queryVector = new float[dimension];
+      for (int d = 0; d < dimension; d++) {
+        queryVector[d] = random().nextFloat();
+      }
+
       IndexWriterConfig config =
           new IndexWriterConfig()
               .setCodec(
@@ -64,15 +74,35 @@ public class TestCagraIndexAtAlignedDimensions extends LuceneTestCase {
 
       try (IndexWriter writer = new IndexWriter(directory, config)) {
         for (int i = 0; i < 64; i++) {
-          float[] vector = new float[dimension];
-          for (int d = 0; d < dimension; d++) {
-            vector[d] = random().nextFloat();
+          float[] vector = i == 0 ? queryVector : new float[dimension];
+          if (i != 0) {
+            for (int d = 0; d < dimension; d++) {
+              vector[d] = random().nextFloat();
+            }
           }
           Document doc = new Document();
           doc.add(new KnnFloatVectorField("vector", vector, VectorSimilarityFunction.EUCLIDEAN));
           writer.addDocument(doc);
         }
         writer.commit();
+      }
+
+      try (DirectoryReader reader = DirectoryReader.open(directory)) {
+        LeafReader leaf = getOnlyLeafReader(reader);
+        CuVS2510GPUVectorsReader gpuReader = gpuReader(leaf, "vector");
+        CuVS2510GPUVectorsReader.FieldEntry fieldEntry = gpuReader.getFieldEntry("vector");
+        assertNotNull(fieldEntry);
+        assertTrue("Expected a serialized CAGRA payload", fieldEntry.cagraIndexLength() > 0);
+        assertEquals("Did not expect a brute-force payload", 0, fieldEntry.bruteForceIndexLength());
+        assertNotNull(
+            "Expected the CAGRA index to be loaded", gpuReader.getCagraIndexForField("vector"));
+
+        var searcher = newSearcher(reader);
+        var query = new GPUKnnFloatVectorQuery("vector", queryVector, 1, null, 1, 1);
+        var topDocs = searcher.search(query, 1);
+        assertEquals(1, topDocs.scoreDocs.length);
+        assertTrue(topDocs.scoreDocs[0].doc >= 0);
+        assertTrue(topDocs.scoreDocs[0].doc < reader.maxDoc());
       }
     }
 
@@ -82,6 +112,14 @@ public class TestCagraIndexAtAlignedDimensions extends LuceneTestCase {
             + ", messages: "
             + infoStream.messages(),
         infoStream.cagraBuildFailures().isEmpty());
+  }
+
+  private static CuVS2510GPUVectorsReader gpuReader(LeafReader leaf, String field) {
+    KnnVectorsReader reader = ((CodecReader) leaf).getVectorReader();
+    if (reader instanceof PerFieldKnnVectorsFormat.FieldsReader fieldsReader) {
+      reader = fieldsReader.getFieldReader(field);
+    }
+    return (CuVS2510GPUVectorsReader) reader;
   }
 
   /** An InfoStream that keeps the messages, so that a test can tell which index type was built. */

@@ -60,14 +60,15 @@ public class Utils {
    * @param dimensions The number of float elements in each vector
    * @return a host-memory CuVSMatrix
    */
-  static CuVSMatrix createFloatMatrix(List<float[]> data, int dimensions) {
-    try (CuVSMatrix.Builder<?> builder =
-        CuVSMatrix.hostBuilder(data.size(), dimensions, CuVSMatrix.DataType.FLOAT)) {
-      for (float[] vector : data) {
-        builder.addVector(vector);
-      }
-      return builder.build();
-    }
+  static CuVSMatrix createFloatMatrix(List<float[]> data, int dimensions) throws IOException {
+    return MatrixBuilderLifecycle.build(
+        CuVSMatrix.hostBuilder(data.size(), dimensions, CuVSMatrix.DataType.FLOAT),
+        builder -> {
+          for (float[] vector : data) {
+            builder.addVector(vector);
+          }
+          return builder.build();
+        });
   }
 
   /**
@@ -77,14 +78,15 @@ public class Utils {
    * @param bytesPerVector The number of bytes in each vector
    * @return a host-memory CuVSMatrix with BYTE data type
    */
-  static CuVSMatrix createByteMatrix(List<byte[]> data, int bytesPerVector) {
-    try (CuVSMatrix.Builder<?> builder =
-        CuVSMatrix.hostBuilder(data.size(), bytesPerVector, CuVSMatrix.DataType.BYTE)) {
-      for (byte[] vector : data) {
-        builder.addVector(vector);
-      }
-      return builder.build();
-    }
+  static CuVSMatrix createByteMatrix(List<byte[]> data, int bytesPerVector) throws IOException {
+    return MatrixBuilderLifecycle.build(
+        CuVSMatrix.hostBuilder(data.size(), bytesPerVector, CuVSMatrix.DataType.BYTE),
+        builder -> {
+          for (byte[] vector : data) {
+            builder.addVector(vector);
+          }
+          return builder.build();
+        });
   }
 
   /**
@@ -94,14 +96,16 @@ public class Utils {
    * @param bytesPerVector The number of bytes in each vector
    * @return a host-memory CuVSMatrix with BYTE data type
    */
-  static CuVSMatrix createByteMatrixFromArray(byte[][] data, int bytesPerVector) {
-    try (CuVSMatrix.Builder<?> builder =
-        CuVSMatrix.hostBuilder(data.length, bytesPerVector, CuVSMatrix.DataType.BYTE)) {
-      for (byte[] vector : data) {
-        builder.addVector(vector);
-      }
-      return builder.build();
-    }
+  static CuVSMatrix createByteMatrixFromArray(byte[][] data, int bytesPerVector)
+      throws IOException {
+    return MatrixBuilderLifecycle.build(
+        CuVSMatrix.hostBuilder(data.length, bytesPerVector, CuVSMatrix.DataType.BYTE),
+        builder -> {
+          for (byte[] vector : data) {
+            builder.addVector(vector);
+          }
+          return builder.build();
+        });
   }
 
   /**

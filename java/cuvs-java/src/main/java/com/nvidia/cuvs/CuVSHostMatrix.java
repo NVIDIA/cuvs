@@ -11,10 +11,9 @@ public interface CuVSHostMatrix extends CuVSMatrix {
   int get(int row, int col);
 
   default CuVSDeviceMatrix toDevice(CuVSResources resources) {
-    CuVSDeviceMatrix deviceMatrix;
-    try (var builder = CuVSMatrix.deviceBuilder(resources, size(), columns(), dataType())) {
-      deviceMatrix = builder.build();
-    }
+    CuVSDeviceMatrix deviceMatrix =
+        MatrixBuilderLifecycle.buildAndClose(
+            CuVSMatrix.deviceBuilder(resources, size(), columns(), dataType()));
     try {
       toDevice(deviceMatrix, resources);
       return deviceMatrix;

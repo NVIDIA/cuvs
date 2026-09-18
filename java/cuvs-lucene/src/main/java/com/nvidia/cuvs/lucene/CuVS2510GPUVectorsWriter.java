@@ -20,6 +20,7 @@ import com.nvidia.cuvs.BruteForceIndex;
 import com.nvidia.cuvs.BruteForceIndexParams;
 import com.nvidia.cuvs.CagraIndex;
 import com.nvidia.cuvs.CagraIndexParams;
+import com.nvidia.cuvs.CuVSDeviceMatrix;
 import com.nvidia.cuvs.CuVSMatrix;
 import com.nvidia.cuvs.LibraryException;
 import java.io.IOException;
@@ -202,8 +203,8 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
       if (indexType.isCagra()) {
         var cagraIndexOutputStream = new IndexOutputOutputStream(cuvsIndex);
         try {
-          CuVSMatrix cagraDataset =
-              Utils.createFloatMatrix(vectors, fieldInfo.getVectorDimension());
+          CuVSDeviceMatrix cagraDataset =
+              createDeviceFloatMatrix(vectors, fieldInfo.getVectorDimension());
           writeCagraIndex(cagraIndexOutputStream, cagraDataset);
         } catch (RecoverableCagraConstructionException recoverable) {
           ensureFallbackOutputUnchanged(cagraIndexOffset, cuvsIndex.getFilePointer(), recoverable);
@@ -240,15 +241,78 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
   }
 
   /**
+   * Creates GPU-search input directly on the device. Accelerated HNSW intentionally continues to
+   * use the shared host-backed matrix helpers because it does not retain a searchable device
+   * dataset.
+   */
+  private CuVSDeviceMatrix createDeviceFloatMatrix(List<float[]> vectors, int dimensions)
+      throws Throwable {
+    return prepareCagraDataset(
+        () ->
+            CuVSMatrix.deviceBuilder(
+                getCuVSResourcesInstance(), vectors.size(), dimensions, CuVSMatrix.DataType.FLOAT),
+        builder -> {
+          for (float[] vector : vectors) {
+            builder.addVector(vector);
+          }
+        });
+  }
+
+  @FunctionalInterface
+  interface CagraDatasetBuilderFactory {
+    CuVSMatrix.Builder<CuVSDeviceMatrix> create() throws Throwable;
+  }
+
+  @FunctionalInterface
+  interface CagraDatasetPopulation {
+    void populate(CuVSMatrix.Builder<CuVSDeviceMatrix> builder) throws Throwable;
+  }
+
+  /**
+   * Builds the device input and applies the pre-persistence fallback policy only after builder
+   * cleanup succeeds. A builder cleanup failure is fatal; after ownership has transferred, this
+   * method also closes the dataset before propagating that failure. A builder-factory failure is
+   * also fatal because no cleanup handle was returned.
+   */
+  static CuVSDeviceMatrix prepareCagraDataset(
+      CagraDatasetBuilderFactory builderFactory, CagraDatasetPopulation population)
+      throws Throwable {
+    CuVSMatrix.Builder<CuVSDeviceMatrix> builder = null;
+    CuVSDeviceMatrix dataset = null;
+    Throwable operationFailure = null;
+    boolean factoryCompleted = false;
+    try {
+      builder =
+          Objects.requireNonNull(builderFactory.create(), "CAGRA dataset builder must not be null");
+      factoryCompleted = true;
+      population.populate(builder);
+      dataset = builder.build();
+    } catch (Throwable failure) {
+      operationFailure = failure;
+    }
+
+    Throwable cleanupFailure = closeResource(builder, null);
+    if (cleanupFailure != null && dataset != null) {
+      cleanupFailure = closeResource(dataset, cleanupFailure);
+    }
+
+    Throwable failure = combineOperationAndCleanupFailures(operationFailure, cleanupFailure);
+    if (failure != null) {
+      throw classifyCagraWriteFailure(
+          failure, false, cleanupFailure != null || factoryCompleted == false);
+    }
+    return dataset;
+  }
+
+  /**
    * Builds and writes the CAGRA index.
    *
    * @param os Instance of the OutputStream
-   * @param dataset The instance of CuVSMatrix holding the dataset
+   * @param dataset device-backed matrix holding the dataset
    * @throws Throwable
    */
-  private void writeCagraIndex(OutputStream os, CuVSMatrix dataset) throws Throwable {
+  private void writeCagraIndex(OutputStream os, CuVSDeviceMatrix dataset) throws Throwable {
     CagraIndex index = null;
-    CuVSMatrix deviceVectors = null;
     AutoCloseable indexDataset = null;
     Throwable failure = null;
     CagraWriteContext writeContext = new CagraWriteContext();
@@ -260,17 +324,16 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
               .withDataset(dataset)
               .withIndexParams(params)
               .build();
-      deviceVectors = dataset.toDevice(getCuVSResourcesInstance());
       /*
        * cuVS rejects makePaddedDataset for a device matrix whose rows already sit at the required
        * stride, and asks for a view over that storage instead.
        */
-      if (CagraIndex.isPaddedDataset(deviceVectors)) {
-        var indexDatasetView = index.makePaddedDatasetView(deviceVectors);
+      if (CagraIndex.isPaddedDataset(dataset)) {
+        var indexDatasetView = index.makePaddedDatasetView(dataset);
         indexDataset = indexDatasetView;
         index.updateDataset(indexDatasetView);
       } else {
-        var paddedDataset = index.makePaddedDataset(deviceVectors);
+        var paddedDataset = index.makePaddedDataset(dataset);
         indexDataset = paddedDataset;
         index.updateDataset(paddedDataset);
       }
@@ -283,7 +346,7 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
       failure = t;
     }
 
-    Throwable cleanupFailure = closeCagraResources(index, dataset, indexDataset, deviceVectors);
+    Throwable cleanupFailure = closeCagraResources(index, dataset, indexDataset);
     failure = combineOperationAndCleanupFailures(failure, cleanupFailure);
     if (failure != null) {
       throw classifyCagraWriteFailure(
@@ -327,10 +390,7 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
 
   /** Closes CAGRA resources in dependency order and returns the first cleanup failure. */
   static Throwable closeCagraResources(
-      AutoCloseable index,
-      AutoCloseable originalDataset,
-      AutoCloseable indexDataset,
-      AutoCloseable deviceVectors) {
+      AutoCloseable index, AutoCloseable originalDataset, AutoCloseable indexDataset) {
     Throwable failure = null;
     try {
       if (index == null) {
@@ -341,8 +401,7 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
     } catch (Throwable closeFailure) {
       failure = addFailure(failure, closeFailure);
     }
-    failure = closeResource(indexDataset, failure);
-    return closeResource(deviceVectors, failure);
+    return closeResource(indexDataset, failure);
   }
 
   static Throwable combineOperationAndCleanupFailures(

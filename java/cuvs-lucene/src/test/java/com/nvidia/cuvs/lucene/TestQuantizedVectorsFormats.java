@@ -30,7 +30,9 @@ import org.apache.lucene.index.FloatVectorValues;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
+import org.apache.lucene.index.NoMergePolicy;
 import org.apache.lucene.index.Term;
+import org.apache.lucene.index.TieredMergePolicy;
 import org.apache.lucene.index.VectorEncoding;
 import org.apache.lucene.store.ByteBuffersDirectory;
 import org.apache.lucene.store.Directory;
@@ -80,7 +82,8 @@ public class TestQuantizedVectorsFormats extends BaseKnnVectorsFormatTestCase {
     }
 
     try (Directory dir = newDirectory(new ByteBuffersDirectory());
-        IndexWriter w = new IndexWriter(dir, newIndexWriterConfig())) {
+        IndexWriter w =
+            new IndexWriter(dir, newIndexWriterConfig().setMergePolicy(NoMergePolicy.INSTANCE))) {
       for (int i = 0; i < R; i++) {
         Document doc = new Document();
         doc.add(new StringField("id", String.valueOf(i), Field.Store.YES));
@@ -97,6 +100,7 @@ public class TestQuantizedVectorsFormats extends BaseKnnVectorsFormatTestCase {
           assertEquals(1, subReaders.get(i).reader().getFloatVectorValues(F).size());
         }
       }
+      w.getConfig().setMergePolicy(new TieredMergePolicy());
       w.forceMerge(1);
 
       try (DirectoryReader reader = DirectoryReader.open(w)) {
@@ -177,7 +181,9 @@ public class TestQuantizedVectorsFormats extends BaseKnnVectorsFormatTestCase {
     Map<String, float[]> expected = new LinkedHashMap<>();
 
     try (Directory directory = newDirectory(new ByteBuffersDirectory())) {
-      try (IndexWriter writer = new IndexWriter(directory, newIndexWriterConfig())) {
+      try (IndexWriter writer =
+          new IndexWriter(
+              directory, newIndexWriterConfig().setMergePolicy(NoMergePolicy.INSTANCE))) {
         for (int segment = 0; segment < 3; segment++) {
           for (int row = 0; row < 5; row++) {
             String id = segment + "-" + row;
@@ -198,6 +204,19 @@ public class TestQuantizedVectorsFormats extends BaseKnnVectorsFormatTestCase {
           writer.deleteDocuments(new Term("id", segment + "-1"));
         }
         writer.commit();
+
+        try (DirectoryReader sourceReader = DirectoryReader.open(writer)) {
+          assertEquals("the test requires three source segments", 3, sourceReader.leaves().size());
+          for (LeafReaderContext context : sourceReader.leaves()) {
+            LeafReader sourceLeaf = context.reader();
+            assertTrue("each source segment must carry a deletion", sourceLeaf.hasDeletions());
+            assertEquals(5, sourceLeaf.maxDoc());
+            assertEquals(4, sourceLeaf.numDocs());
+            assertEquals(4, sourceLeaf.getFloatVectorValues(vectorField).size());
+          }
+        }
+
+        writer.getConfig().setMergePolicy(new TieredMergePolicy());
         writer.forceMerge(1);
       }
 
@@ -243,7 +262,9 @@ public class TestQuantizedVectorsFormats extends BaseKnnVectorsFormatTestCase {
     final String vectorField = "vector";
     final int dimensions = 129;
     try (Directory directory = newDirectory(new ByteBuffersDirectory())) {
-      try (IndexWriter writer = new IndexWriter(directory, newIndexWriterConfig())) {
+      try (IndexWriter writer =
+          new IndexWriter(
+              directory, newIndexWriterConfig().setMergePolicy(NoMergePolicy.INSTANCE))) {
         for (int id = 0; id < 3; id++) {
           Document vectorDocument = new Document();
           vectorDocument.add(new StringField("id", "vector-" + id, Field.Store.YES));
@@ -260,6 +281,15 @@ public class TestQuantizedVectorsFormats extends BaseKnnVectorsFormatTestCase {
           writer.deleteDocuments(new Term("id", "vector-" + id));
         }
         writer.commit();
+
+        try (DirectoryReader sourceReader = DirectoryReader.open(writer)) {
+          assertEquals("the test requires three source segments", 3, sourceReader.leaves().size());
+          for (LeafReaderContext context : sourceReader.leaves()) {
+            assertEquals(1, context.reader().getFloatVectorValues(vectorField).size());
+          }
+        }
+
+        writer.getConfig().setMergePolicy(new TieredMergePolicy());
         writer.forceMerge(1);
       }
 

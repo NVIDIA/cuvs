@@ -299,15 +299,16 @@ public class AcceleratedHNSWUtils {
       throw new IOException("The subset graph must have a positive degree");
     }
     int[] remappedRow = new int[degree];
-    try (CuVSMatrix.Builder<?> builder =
-        CuVSMatrix.hostBuilder(selectedNodes.length, degree, CuVSMatrix.DataType.INT)) {
-      for (int rowOrdinal = 0; rowOrdinal < selectedNodes.length; rowOrdinal++) {
-        RowView row = cagraGraph.getRow(rowOrdinal);
-        remapSubsetAdjacencyRow(rowOrdinal, row, degree, selectedNodes, remappedRow);
-        builder.addVector(remappedRow);
-      }
-      return builder.build();
-    }
+    return MatrixBuilderLifecycle.build(
+        CuVSMatrix.hostBuilder(selectedNodes.length, degree, CuVSMatrix.DataType.INT),
+        builder -> {
+          for (int rowOrdinal = 0; rowOrdinal < selectedNodes.length; rowOrdinal++) {
+            RowView row = cagraGraph.getRow(rowOrdinal);
+            remapSubsetAdjacencyRow(rowOrdinal, row, degree, selectedNodes, remappedRow);
+            builder.addVector(remappedRow);
+          }
+          return builder.build();
+        });
   }
 
   static void remapSubsetAdjacencyRow(
@@ -346,51 +347,54 @@ public class AcceleratedHNSWUtils {
   private static CuVSMatrix createSubsetDataset(
       CuVSMatrix vectors, int[] selectedNodes, int columns, CuVSMatrix.DataType dataType)
       throws IOException {
-    try (CuVSMatrix.Builder<?> builder =
-        CuVSMatrix.hostBuilder(selectedNodes.length, columns, dataType)) {
-      if (dataType == CuVSMatrix.DataType.FLOAT) {
-        float[] rowBuffer = new float[columns];
-        for (int node : selectedNodes) {
-          RowView row = vectors.getRow(node);
-          validateRowWidth(row, columns, node);
-          row.toArray(rowBuffer);
-          builder.addVector(rowBuffer);
-        }
-      } else {
-        byte[] rowBuffer = new byte[columns];
-        for (int node : selectedNodes) {
-          RowView row = vectors.getRow(node);
-          validateRowWidth(row, columns, node);
-          row.toArray(rowBuffer);
-          builder.addVector(rowBuffer);
-        }
-      }
-      return builder.build();
-    }
+    return MatrixBuilderLifecycle.build(
+        CuVSMatrix.hostBuilder(selectedNodes.length, columns, dataType),
+        builder -> {
+          if (dataType == CuVSMatrix.DataType.FLOAT) {
+            float[] rowBuffer = new float[columns];
+            for (int node : selectedNodes) {
+              RowView row = vectors.getRow(node);
+              validateRowWidth(row, columns, node);
+              row.toArray(rowBuffer);
+              builder.addVector(rowBuffer);
+            }
+          } else {
+            byte[] rowBuffer = new byte[columns];
+            for (int node : selectedNodes) {
+              RowView row = vectors.getRow(node);
+              validateRowWidth(row, columns, node);
+              row.toArray(rowBuffer);
+              builder.addVector(rowBuffer);
+            }
+          }
+          return builder.build();
+        });
   }
 
   private static CuVSMatrix createSubsetDataset(
-      List<?> vectors, int[] selectedNodes, int columns, CuVSMatrix.DataType dataType) {
-    try (CuVSMatrix.Builder<?> builder =
-        CuVSMatrix.hostBuilder(selectedNodes.length, columns, dataType)) {
-      for (int node : selectedNodes) {
-        Object vector = vectors.get(node);
-        if (dataType == CuVSMatrix.DataType.FLOAT) {
-          if (!(vector instanceof float[] values) || values.length != columns) {
-            throw new IllegalArgumentException(
-                "Vector " + node + " must be a float[" + columns + "]");
+      List<?> vectors, int[] selectedNodes, int columns, CuVSMatrix.DataType dataType)
+      throws IOException {
+    return MatrixBuilderLifecycle.build(
+        CuVSMatrix.hostBuilder(selectedNodes.length, columns, dataType),
+        builder -> {
+          for (int node : selectedNodes) {
+            Object vector = vectors.get(node);
+            if (dataType == CuVSMatrix.DataType.FLOAT) {
+              if (!(vector instanceof float[] values) || values.length != columns) {
+                throw new IllegalArgumentException(
+                    "Vector " + node + " must be a float[" + columns + "]");
+              }
+              builder.addVector(values);
+            } else {
+              if (!(vector instanceof byte[] values) || values.length != columns) {
+                throw new IllegalArgumentException(
+                    "Vector " + node + " must be a byte[" + columns + "]");
+              }
+              builder.addVector(values);
+            }
           }
-          builder.addVector(values);
-        } else {
-          if (!(vector instanceof byte[] values) || values.length != columns) {
-            throw new IllegalArgumentException(
-                "Vector " + node + " must be a byte[" + columns + "]");
-          }
-          builder.addVector(values);
-        }
-      }
-      return builder.build();
-    }
+          return builder.build();
+        });
   }
 
   private static void validateRowWidth(RowView row, int columns, int rowIndex) throws IOException {
