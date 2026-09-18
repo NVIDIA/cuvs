@@ -120,7 +120,6 @@ void mnmg_fit(
   using data_part_view_t =
     raft::mdspan<const DataT, raft::matrix_extent<IndexT>, raft::row_major, Accessor>;
   constexpr bool data_on_device = raft::is_device_mdspan_v<data_part_view_t>;
-  using input_partition_t = cuvs::cluster::kmeans::detail::kmeans_input_partition<DataT, IndexT>;
   using data_batch_loader_t =
     cuvs::cluster::kmeans::detail::kmeans_batch_loader<DataT, IndexT, data_on_device>;
   using host_batch_loader_t =
@@ -333,33 +332,27 @@ void mnmg_fit(
     }
   }
 
-  std::vector<input_partition_t> data_inputs;
-  data_inputs.reserve(X_parts.size());
-  for (auto const& X_part : X_parts) {
-    data_inputs.push_back({X_part.data_handle(), static_cast<IndexT>(X_part.extent(0))});
-  }
-
-  std::vector<input_partition_t> weight_inputs;
+  std::vector<raft::host_matrix_view<const DataT, IndexT>> weight_inputs;
   if constexpr (!data_on_device) {
     if (sample_weights) {
       weight_inputs.reserve(sample_weight_parts->size());
       for (auto const& weights : *sample_weight_parts) {
-        weight_inputs.push_back({weights.data_handle(), static_cast<IndexT>(weights.extent(0))});
+        weight_inputs.push_back(raft::make_host_matrix_view<const DataT, IndexT>(
+          weights.data_handle(), weights.extent(0), IndexT{1}));
       }
     }
   }
 
-  auto batch_mr          = data_on_device ? raft::resource::get_workspace_resource_ref(dev_res)
-                                          : raft::resource::get_large_workspace_resource_ref(dev_res);
+  auto batch_mr          = raft::resource::get_large_workspace_resource_ref(dev_res);
   auto batch_copy_stream = cuvs::spatial::knn::detail::utils::get_prefetch_stream(dev_res).first;
 
   data_batch_loader_t data_batches(
-    dev_res, data_inputs, n_features, device_buffer_samples, batch_copy_stream, batch_mr);
+    dev_res, X_parts, device_buffer_samples, batch_copy_stream, batch_mr);
   std::optional<host_batch_loader_t> weight_batches;
   if constexpr (!data_on_device) {
     if (sample_weights) {
       weight_batches.emplace(
-        dev_res, weight_inputs, IndexT{1}, device_buffer_samples, batch_copy_stream, batch_mr);
+        dev_res, weight_inputs, device_buffer_samples, batch_copy_stream, batch_mr);
       RAFT_EXPECTS(weight_batches->num_batches() == data_batches.num_batches(),
                    "KMeans data and weight batches do not align");
     }

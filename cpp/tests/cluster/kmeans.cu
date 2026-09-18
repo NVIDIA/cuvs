@@ -728,14 +728,10 @@ TEST(KmeansBatchLoaderTest, CyclicFourPasses)
     }
   }
 
+  auto host_view =
+    raft::make_host_matrix_view<const int64_t, int64_t>(host_data.data(), n_rows, n_cols);
   cluster::kmeans::detail::kmeans_batch_loader<int64_t, int64_t, false> loader(
-    handle,
-    host_data.data(),
-    n_rows,
-    n_cols,
-    batch_size,
-    copy_stream,
-    raft::resource::get_workspace_resource_ref(handle));
+    handle, host_view, batch_size, copy_stream, raft::resource::get_workspace_resource_ref(handle));
   auto device_readback =
     raft::make_device_vector<int64_t, int64_t>(handle, n_passes * n_rows * n_cols);
 

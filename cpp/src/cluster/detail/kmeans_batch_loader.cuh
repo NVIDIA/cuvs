@@ -5,7 +5,9 @@
 
 #pragma once
 
+#include <raft/core/device_mdspan.hpp>
 #include <raft/core/error.hpp>
+#include <raft/core/host_mdspan.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resources.hpp>
 #include <raft/util/cuda_utils.cuh>
@@ -27,16 +29,9 @@
 
 namespace cuvs::cluster::kmeans::detail {
 
-/** One independently-addressed input partition in a logical KMeans batch sequence. */
-template <typename DataT, typename IndexT>
-struct kmeans_input_partition {
-  DataT const* data;
-  IndexT size;
-};
-
-template <typename DataT>
+template <typename InputView>
 struct kmeans_batch_descriptor {
-  DataT const* source;
+  InputView input;
   std::size_t size;
   std::size_t offset;
   std::size_t partition;
@@ -91,15 +86,12 @@ template <typename DataT, typename IndexT>
 class kmeans_batch_loader<DataT, IndexT, true> {
  public:
   kmeans_batch_loader(raft::resources const& res,
-                      DataT const* source,
-                      IndexT n_rows,
-                      IndexT row_width,
+                      raft::device_matrix_view<const DataT, IndexT> input,
                       IndexT batch_size,
                       cuda::stream_ref copy_stream,
                       rmm::device_async_resource_ref mr)
     : kmeans_batch_loader(res,
-                          std::vector<kmeans_input_partition<DataT, IndexT>>{{source, n_rows}},
-                          row_width,
+                          std::vector<raft::device_matrix_view<const DataT, IndexT>>{input},
                           batch_size,
                           copy_stream,
                           mr)
@@ -107,13 +99,11 @@ class kmeans_batch_loader<DataT, IndexT, true> {
   }
 
   kmeans_batch_loader(raft::resources const&,
-                      std::vector<kmeans_input_partition<DataT, IndexT>> const& partitions,
-                      IndexT row_width,
+                      std::vector<raft::device_matrix_view<const DataT, IndexT>> const& partitions,
                       IndexT batch_size,
                       cuda::stream_ref,
                       rmm::device_async_resource_ref)
-    : row_width_(static_cast<std::size_t>(row_width)),
-      batch_size_(std::max<std::size_t>(static_cast<std::size_t>(batch_size), 1))
+    : batch_size_(std::max<std::size_t>(static_cast<std::size_t>(batch_size), 1))
   {
     for (std::size_t partition = 0; partition < partitions.size(); ++partition) {
       append_batches(partitions[partition], partition);
@@ -130,40 +120,40 @@ class kmeans_batch_loader<DataT, IndexT, true> {
   {
     RAFT_EXPECTS(pos < batches_.size(), "KMeans batch position is out of range");
     auto const& batch = batches_[pos];
-    return {
-      batch.source + batch.offset * row_width_, batch.size, batch.offset, batch.partition, pos, 0};
+    return {batch.input.data_handle() + batch.offset * batch.input.extent(1),
+            batch.size,
+            batch.offset,
+            batch.partition,
+            pos,
+            0};
   }
 
  private:
-  void append_batches(kmeans_input_partition<DataT, IndexT> input, std::size_t partition)
+  void append_batches(raft::device_matrix_view<const DataT, IndexT> input, std::size_t partition)
   {
-    const auto n_rows = static_cast<std::size_t>(input.size);
-    if (n_rows == 0) { return; }
-    RAFT_EXPECTS(input.data != nullptr, "non-empty KMeans input partition cannot be null");
-    for (std::size_t offset = 0; offset < n_rows; offset += batch_size_) {
-      const auto size = std::min(batch_size_, n_rows - offset);
-      batches_.push_back({input.data, size, offset, partition});
+    if (input.extent(0) == 0) { return; }
+    RAFT_EXPECTS(input.data_handle() != nullptr, "non-empty KMeans input partition cannot be null");
+    for (std::size_t offset = 0; offset < static_cast<std::size_t>(input.extent(0));
+         offset += batch_size_) {
+      const auto size = std::min(batch_size_, static_cast<std::size_t>(input.extent(0)) - offset);
+      batches_.push_back({input, size, offset, partition});
     }
   }
 
-  std::size_t row_width_  = 0;
   std::size_t batch_size_ = 0;
-  std::vector<kmeans_batch_descriptor<DataT>> batches_;
+  std::vector<kmeans_batch_descriptor<raft::device_matrix_view<const DataT, IndexT>>> batches_;
 };
 
 template <typename DataT, typename IndexT>
 class kmeans_batch_loader<DataT, IndexT, false> {
  public:
   kmeans_batch_loader(raft::resources const& res,
-                      DataT const* source,
-                      IndexT n_rows,
-                      IndexT row_width,
+                      raft::host_matrix_view<const DataT, IndexT> input,
                       IndexT batch_size,
                       cuda::stream_ref copy_stream,
                       rmm::device_async_resource_ref mr)
     : kmeans_batch_loader(res,
-                          std::vector<kmeans_input_partition<DataT, IndexT>>{{source, n_rows}},
-                          row_width,
+                          std::vector<raft::host_matrix_view<const DataT, IndexT>>{input},
                           batch_size,
                           copy_stream,
                           mr)
@@ -171,13 +161,11 @@ class kmeans_batch_loader<DataT, IndexT, false> {
   }
 
   kmeans_batch_loader(raft::resources const& res,
-                      std::vector<kmeans_input_partition<DataT, IndexT>> const& partitions,
-                      IndexT row_width,
+                      std::vector<raft::host_matrix_view<const DataT, IndexT>> const& partitions,
                       IndexT batch_size,
                       cuda::stream_ref copy_stream,
                       rmm::device_async_resource_ref mr)
     : res_(&res),
-      row_width_(static_cast<std::size_t>(row_width)),
       batch_size_(std::max<std::size_t>(static_cast<std::size_t>(batch_size), 1)),
       copy_stream_(copy_stream),
       buffer_0_(0, copy_stream, mr),
@@ -188,14 +176,15 @@ class kmeans_batch_loader<DataT, IndexT, false> {
     }
     if (batches_.empty()) { return; }
 
-    std::size_t max_batch_rows = 0;
+    std::size_t max_batch_elements = 0;
     for (auto const& batch : batches_) {
-      max_batch_rows = std::max(max_batch_rows, batch.size);
+      max_batch_elements =
+        std::max(max_batch_elements, batch.size * static_cast<std::size_t>(batch.input.extent(1)));
     }
-    buffer_0_.resize(row_width_ * max_batch_rows, copy_stream_);
+    buffer_0_.resize(max_batch_elements, copy_stream_);
     buffer_ptrs_[0] = buffer_0_.data();
     if (batches_.size() > 1) {
-      buffer_1_.resize(row_width_ * max_batch_rows, copy_stream_);
+      buffer_1_.resize(max_batch_elements, copy_stream_);
       buffer_ptrs_[1] = buffer_1_.data();
     }
   }
@@ -282,14 +271,14 @@ class kmeans_batch_loader<DataT, IndexT, false> {
 
   [[nodiscard]] auto num_slots() const noexcept -> int { return batches_.size() > 1 ? 2 : 1; }
 
-  void append_batches(kmeans_input_partition<DataT, IndexT> input, std::size_t partition)
+  void append_batches(raft::host_matrix_view<const DataT, IndexT> input, std::size_t partition)
   {
-    const auto n_rows = static_cast<std::size_t>(input.size);
-    if (n_rows == 0) { return; }
-    RAFT_EXPECTS(input.data != nullptr, "non-empty KMeans input partition cannot be null");
-    for (std::size_t offset = 0; offset < n_rows; offset += batch_size_) {
-      const auto size = std::min(batch_size_, n_rows - offset);
-      batches_.push_back({input.data, size, offset, partition});
+    if (input.extent(0) == 0) { return; }
+    RAFT_EXPECTS(input.data_handle() != nullptr, "non-empty KMeans input partition cannot be null");
+    for (std::size_t offset = 0; offset < static_cast<std::size_t>(input.extent(0));
+         offset += batch_size_) {
+      const auto size = std::min(batch_size_, static_cast<std::size_t>(input.extent(0)) - offset);
+      batches_.push_back({input, size, offset, partition});
     }
   }
 
@@ -342,14 +331,15 @@ class kmeans_batch_loader<DataT, IndexT, false> {
   void queue_h2d(DataT* dst, std::size_t pos)
   {
     auto const& batch = batches_[pos];
-    raft::copy(
-      dst, batch.source + batch.offset * row_width_, batch.size * row_width_, copy_stream_);
+    raft::copy(dst,
+               batch.input.data_handle() + batch.offset * batch.input.extent(1),
+               batch.size * batch.input.extent(1),
+               copy_stream_);
   }
 
   raft::resources const* res_ = nullptr;
-  std::size_t row_width_      = 0;
   std::size_t batch_size_     = 0;
-  std::vector<kmeans_batch_descriptor<DataT>> batches_;
+  std::vector<kmeans_batch_descriptor<raft::host_matrix_view<const DataT, IndexT>>> batches_;
   cuda::stream_ref copy_stream_;
   rmm::device_uvector<DataT> buffer_0_;
   rmm::device_uvector<DataT> buffer_1_;

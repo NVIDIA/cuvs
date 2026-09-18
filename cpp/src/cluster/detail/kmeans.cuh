@@ -737,29 +737,20 @@ void kmeans_fit(
   auto batch_cost         = raft::make_device_scalar<DataT>(handle, DataT{0});
   rmm::device_uvector<char> batch_workspace(device_buffer_samples, stream);
 
-  auto batch_mr          = data_on_device ? raft::resource::get_workspace_resource_ref(handle)
-                                          : raft::resource::get_large_workspace_resource_ref(handle);
+  auto batch_mr          = raft::resource::get_large_workspace_resource_ref(handle);
   auto batch_copy_stream = cuvs::spatial::knn::detail::utils::get_prefetch_stream(handle).first;
 
-  kmeans_batch_loader<DataT, IndexT, data_on_device> data_batches(handle,
-                                                                  X.data_handle(),
-                                                                  n_samples,
-                                                                  n_features,
-                                                                  device_buffer_samples,
-                                                                  batch_copy_stream,
-                                                                  batch_mr);
+  kmeans_batch_loader<DataT, IndexT, data_on_device> data_batches(
+    handle, X, device_buffer_samples, batch_copy_stream, batch_mr);
   // Host-path weight batches: only materialized when weights are provided and
   // the data resides on host
   std::optional<kmeans_batch_loader<DataT, IndexT, false>> weight_batches;
   if constexpr (!data_on_device) {
     if (weight_ptr != nullptr) {
-      weight_batches.emplace(handle,
-                             weight_ptr,
-                             n_samples,
-                             IndexT{1},
-                             device_buffer_samples,
-                             batch_copy_stream,
-                             batch_mr);
+      auto weight_view =
+        raft::make_host_matrix_view<const DataT, IndexT>(weight_ptr, n_samples, IndexT{1});
+      weight_batches.emplace(
+        handle, weight_view, device_buffer_samples, batch_copy_stream, batch_mr);
     } else {
       raft::matrix::fill(handle, batch_weights_buf.view(), DataT{1});
     }
