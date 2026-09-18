@@ -141,6 +141,29 @@ public class TestMultiSegmentGPUFilterConcurrency extends LuceneTestCase {
     }
   }
 
+  /**
+   * Guards the premise of this class: these filters are far too broad to trigger
+   * {@link GPUKnnFloatVectorQuery}'s exact-search fallback, so the searches below really do exercise
+   * the multi-partition GPU path. Without this, a routing change that sent everything to the CPU
+   * per-segment path would leave the concurrency test passing on coverage it no longer has.
+   */
+  @Test
+  public void filteredSearchesTakeTheMultiPartitionGpuPath() throws Exception {
+    int gpuPath = 0;
+    for (int c = 0; c < NUM_CATEGORIES; c++) {
+      float[] q = queryVectors[c % queryVectors.length];
+      GPUKnnFloatVectorQuery query =
+          new GPUKnnFloatVectorQuery(VECTOR_FIELD, q, topK, filters.get(c), topK, 1);
+      if (searcher.rewrite(query).toString().contains("GPUDocAndScoreQuery")) {
+        gpuPath++;
+      }
+    }
+    assertEquals(
+        "every filter here leaves far more than topK candidates per segment",
+        NUM_CATEGORIES,
+        gpuPath);
+  }
+
   @Test
   public void testConcurrentFilteredSearchAcrossManyFilters() throws Exception {
     final int numThreads = 6;

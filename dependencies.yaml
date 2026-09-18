@@ -46,6 +46,7 @@ files:
       - cuda_version
       - depends_on_cuda_python
       - depends_on_cupy
+      - depends_on_cuvs
       - depends_on_pylibraft
       - depends_on_libcuvs
       - depends_on_librmm
@@ -138,6 +139,9 @@ files:
   py_rapids_build_libcuvs:
     output: pyproject
     pyproject_dir: python/libcuvs
+    matrix:
+      use_cuda_wheels: ["true"]
+      cuda_suffixed: ["false"]
     extras:
       table: tool.rapids-build-backend
       key: requires
@@ -151,6 +155,9 @@ files:
   py_run_libcuvs:
     output: pyproject
     pyproject_dir: python/libcuvs
+    matrix:
+      use_cuda_wheels: ["true"]
+      cuda_suffixed: ["false"]
     extras:
       table: project
     includes:
@@ -170,6 +177,9 @@ files:
   py_rapids_build_cuvs:
     output: pyproject
     pyproject_dir: python/cuvs
+    matrix:
+      use_cuda_wheels: ["true"]
+      cuda_suffixed: ["false"]
     extras:
       table: tool.rapids-build-backend
       key: requires
@@ -184,6 +194,9 @@ files:
   py_run_cuvs:
     output: pyproject
     pyproject_dir: python/cuvs
+    matrix:
+      use_cuda_wheels: ["true"]
+      cuda_suffixed: ["false"]
     extras:
       table: project
     includes:
@@ -194,6 +207,9 @@ files:
   py_test_cuvs:
     output: pyproject
     pyproject_dir: python/cuvs
+    matrix:
+      use_cuda_wheels: ["true"]
+      cuda_suffixed: ["false"]
     extras:
       table: project.optional-dependencies
       key: test
@@ -218,10 +234,14 @@ files:
   py_run_cuvs_bench:
     output: pyproject
     pyproject_dir: python/cuvs_bench
+    matrix:
+      use_cuda_wheels: ["true"]
+      cuda_suffixed: ["false"]
     extras:
       table: project
     includes:
       - bench_python
+      - depends_on_cuvs
   py_elastic_cuvs_bench:
     output: pyproject
     pyproject_dir: python/cuvs_bench
@@ -241,6 +261,9 @@ files:
   py_synthesize_dataset_cuvs_bench:
     output: pyproject
     pyproject_dir: python/cuvs_bench
+    matrix:
+      use_cuda_wheels: ["true"]
+      cuda_suffixed: ["false"]
     extras:
       table: project.optional-dependencies
       key: synthesize_dataset
@@ -489,6 +512,7 @@ dependencies:
           # if no matching matrix selectors passed, list the CUDA 13 requirement
           # (just as a source of documentation, as this populates pyproject.toml in source control)
           - matrix:
+              use_cuda_wheels: "true"
             packages:
               - *ctk_cu13
               - *nvjitlink_cu13
@@ -530,10 +554,12 @@ dependencies:
               - *cupy_cu13
           - matrix:
               cuda: "12.*"
+              use_cuda_wheels: "true"
             packages:
               - cupy-cuda12x[ctk]>=14.0.1,!=14.1.0
           # fallback to CUDA 13 versions if 'cuda' is '13.*' or not provided
           - matrix:
+              use_cuda_wheels: "true"
             packages:
               - cupy-cuda13x[ctk]>=14.0.1,!=14.1.0
   test_libcuvs:
@@ -670,7 +696,6 @@ dependencies:
       - output_types: [conda, pyproject, requirements]
         packages:
           - click
-          - cuvs==26.12.*,>=0.0.0a0
           - pandas
           - pyyaml
           - requests
@@ -741,7 +766,10 @@ dependencies:
               cuda_suffixed: "true"
             packages:
               - libcuvs-cu13==26.12.*,>=0.0.0a0
-          - {matrix: null, packages: [*libcuvs_unsuffixed]}
+          - matrix:
+              cuda_suffixed: "false"
+            packages:
+              - *libcuvs_unsuffixed
   depends_on_libcuvs_tests:
     common:
       - output_types: conda
@@ -769,7 +797,10 @@ dependencies:
               cuda_suffixed: "true"
             packages:
               - libraft-cu13==26.12.*,>=0.0.0a0
-          - {matrix: null, packages: [*libraft_unsuffixed]}
+          - matrix:
+              cuda_suffixed: "false"
+            packages:
+              - *libraft_unsuffixed
   depends_on_librmm:
     common:
       - output_types: conda
@@ -792,7 +823,10 @@ dependencies:
               cuda_suffixed: "true"
             packages:
               - librmm-cu13==26.12.*,>=0.0.0a0
-          - {matrix: null, packages: [*librmm_unsuffixed]}
+          - matrix:
+              cuda_suffixed: "false"
+            packages:
+              - *librmm_unsuffixed
   depends_on_libkvikio:
     common:
       - output_types: conda
@@ -815,7 +849,10 @@ dependencies:
               cuda_suffixed: "true"
             packages:
               - libkvikio-cu13==26.12.*,>=0.0.0a0
-          - {matrix: null, packages: [*libkvikio_unsuffixed]}
+          - matrix:
+              cuda_suffixed: "false"
+            packages:
+              - *libkvikio_unsuffixed
   depends_on_pylibraft:
     common:
       - output_types: conda
@@ -838,7 +875,10 @@ dependencies:
               cuda_suffixed: "true"
             packages:
               - pylibraft-cu13==26.12.*,>=0.0.0a0
-          - {matrix: null, packages: [*pylibraft_unsuffixed]}
+          - matrix:
+              cuda_suffixed: "false"
+            packages:
+              - *pylibraft_unsuffixed
   depends_on_nccl:
     common:
       - output_types: conda
