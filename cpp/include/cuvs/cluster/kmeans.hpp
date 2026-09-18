@@ -148,14 +148,9 @@ struct params : base_params {
    * Only used by the batched (host-data) code path and ignored by
    * device-data overloads.
    *
-   * Inputs spanning multiple batches are automatically double-buffered. Budget about
-   * `2 * device_buffer_samples * n_features * sizeof(value_type)` bytes for
-   * input, plus algorithm workspaces. Sample weights require two more buffers of
-   * `device_buffer_samples * sizeof(value_type)` bytes.
-   *
    * In multi-GPU mode this is a per-rank batch size: each rank processes up
    * to this many local samples per batch, clamped to that rank's local sample
-   * count. This is ignored by device-data overloads.
+   * count. This is is ignored by device-data overloads.
    * Default: 0 (process all data at once).
    */
   int64_t device_buffer_samples = 0;
@@ -244,15 +239,6 @@ enum class kmeans_type { KMeans = 0, KMeansBalanced = 1 };
  * This overload supports out-of-core computation where the dataset resides
  * on the host. Data is processed in batches, streaming from host to
  * device. The batch size is controlled by `params.device_buffer_samples`.
- * Multiple batches are automatically double-buffered. At least one auxiliary
- * stream is required to overlap transfer and compute; without a stream pool,
- * the fit remains correct but serialized. One auxiliary stream is sufficient.
- * Pinned host memory is crucial for OOC performance: ordinary pageable or
- * unregistered `mmap`-backed input degrades throughput rapidly.
- *
- * A pool memory resource is optional but recommended, especially for repeated
- * fits. Configure both pools before `fit` and before first using the handle's
- * workspace resources.
  *
  * Multi-GPU dispatch is selected automatically based on the handle state:
  *   - If `raft::resource::is_multi_gpu(handle)` (cuVS SNMG): the full dataset X
@@ -268,35 +254,19 @@ enum class kmeans_type { KMeans = 0, KMeansBalanced = 1 };
  *
  * @code{.cpp}
  *   #include <raft/core/resources.hpp>
- *   #include <raft/core/resource/cuda_stream_pool.hpp>
- *   #include <raft/core/pinned_mdarray.hpp>
  *   #include <cuvs/cluster/kmeans.hpp>
- *   #include <rmm/cuda_device.hpp>
- *   #include <rmm/cuda_stream_pool.hpp>
- *   #include <rmm/mr/per_device_resource.hpp>
- *   #include <rmm/mr/pool_memory_resource.hpp>
- *   #include <memory>
  *   using namespace cuvs::cluster;
  *   ...
- *   // Recommended for OOC fits: pool allocations and use one auxiliary copy stream.
- *   rmm::mr::pool_memory_resource pool_mr(
- *     rmm::mr::get_current_device_resource_ref(),
- *     rmm::percent_of_free_device_memory(80));
- *   rmm::mr::set_current_device_resource(pool_mr);
  *   raft::resources handle;
- *   raft::resource::set_cuda_stream_pool(
- *     handle, std::make_shared<rmm::cuda_stream_pool>(1));
- *
  *   cuvs::cluster::kmeans::params params;
  *   params.n_clusters = 100;
  *   params.device_buffer_samples = 100000;
  *   float inertia;
  *   int64_t n_iter;
  *
- *   // Pinned host input is important for OOC throughput.
- *   auto h_X = raft::make_pinned_matrix<float, int64_t>(handle, n_samples, n_features);
- *   auto X =
- *     raft::make_host_matrix_view<const float, int64_t>(h_X.data_handle(), n_samples, n_features);
+ *   // Data on host
+ *   std::vector<float> h_X(n_samples * n_features);
+ *   auto X = raft::make_host_matrix_view<const float, int64_t>(h_X.data(), n_samples, n_features);
  *
  *   // Centroids on device
  *   auto centroids = raft::make_device_matrix<float, int64_t>(handle, params.n_clusters,
@@ -1719,16 +1689,6 @@ void cluster_cost(
  * host-resident partitions the implementation streams each partition using
  * `params.device_buffer_samples` (per rank). For device-resident partitions
  * `device_buffer_samples` is ignored and each local partition is processed in full.
- * Host partitions spanning multiple batches are double-buffered. Each rank
- * needs one auxiliary stream for transfer/compute overlap; otherwise execution
- * is correct but serialized. Pinned host memory is crucial: pageable or
- * unregistered `mmap`-backed input degrades throughput rapidly. A per-device
- * memory pool is also recommended.
- * With `raft::device_resources_snmg`, configure these before `fit` with
- * `handle.set_stream_pool(1)` and `handle.set_memory_pool(percent)`; both calls
- * apply the setting to every device managed by the handle. With independently
- * managed per-rank resources, configure the stream pool and current RMM memory
- * resource in each process.
  *
  * The active backend is selected by the resources attached to
  * `handle`:

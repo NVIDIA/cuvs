@@ -66,7 +66,7 @@ struct cuvsKMeansParams {
 | `batch_centroids` | `int` | if 0 then batch_centroids = n_clusters |
 | `hierarchical` | `bool` | Whether to use hierarchical (balanced) kmeans or not |
 | `hierarchical_n_iters` | `int` | For hierarchical k-means , defines the number of training iterations |
-| `device_buffer_samples` | `int64_t` | Number of samples to process per GPU batch for the batched (host-data) API. When set to 0, defaults to n_samples (process all at once). Multiple batches use two input buffers automatically, totaling about 2 * device_buffer_samples * n_features * sizeof(value_type), excluding algorithm workspaces and optional sample-weight buffers. |
+| `device_buffer_samples` | `int64_t` | Number of samples to process per GPU batch for the batched (host-data) API. When set to 0, defaults to n_samples (process all at once). |
 | `init_size` | `int64_t` | Number of samples to draw for KMeansPlusPlus initialization. When set to 0, uses heuristic min(3 * n_clusters, n_samples) for host data, or n_samples for device data. |
 | `metric` | [`cuvsDistanceType`](/api-reference/c-api-distance-distance#cuvsdistancetype) |  |
 
@@ -146,9 +146,7 @@ int* n_iter);
 
 Initial centroids are chosen with k-means++ algorithm. Empty clusters are reinitialized by choosing new centroids with k-means++ algorithm.
 
-X may reside on either host (CPU) or device (GPU) memory. When X is on the host the data is buffered to the GPU in batches controlled by params-&gt;device_buffer_samples. Multiple batches are automatically double-buffered. For transfer/compute overlap, call cuvsResourcesSetStreamPool(res, 1). Without it the result is unchanged, but transfers and compute are serialized. Pinned host memory (for example, from cuvsRMMHostAlloc) is crucial for OOC performance; pageable or unregistered mmap-backed input degrades throughput rapidly.
-
-A memory pool is optional but recommended, especially for repeated fits:
+X may reside on either host (CPU) or device (GPU) memory. When X is on the host the data is buffered to the GPU in batches controlled by params-&gt;device_buffer_samples.
 
 **Parameters**
 

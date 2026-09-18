@@ -28,7 +28,7 @@ Hyper-parameters for the kmeans algorithm
 | `batch_samples` | `int` | Number of samples to process in each batch for tiled 1NN computation. Useful to optimize/control memory footprint. Default tile is [batch_samples x n_clusters]. |
 | `batch_centroids` | `int` | Number of centroids to process in each batch. If 0, uses n_clusters. |
 | `init_size` | `int` | Number of samples to draw for KMeansPlusPlus initialization with host (out-of-core) data. When set to 0, uses the heuristic min(3 * n_clusters, n_samples). Default: 0. |
-| `device_buffer_samples` | `int` | Number of samples to process per GPU batch when fitting with host (numpy) data. When set to 0, defaults to n_samples (process all at once). Only used by the batched (host-data) code path. Reducing device_buffer_samples can help reduce GPU memory pressure but increases overhead as the number of times centroid adjustments are computed increases. Multiple batches use two input buffers automatically, totaling approximately ``2 * device_buffer_samples * n_features * X.dtype.itemsize``, excluding algorithm workspaces and optional sample-weight buffers.<br /><br />Default: 0 (process all data at once). |
+| `device_buffer_samples` | `int` | Number of samples to process per GPU batch when fitting with host (numpy) data. When set to 0, defaults to n_samples (process all at once). Only used by the batched (host-data) code path. Reducing device_buffer_samples can help reduce GPU memory pressure but increases overhead as the number of times centroid adjustments are computed increases.<br /><br />Default: 0 (process all data at once). |
 | `hierarchical` | `bool` | Whether to use hierarchical (balanced) kmeans or not |
 | `hierarchical_n_iters` | `int` | For hierarchical k-means , defines the number of training iterations |
 
@@ -200,15 +200,6 @@ k-means is used.  When X is a host array (numpy ndarray or
 controlled by ``params.device_buffer_samples``. For large host datasets, consider
 reducing ``device_buffer_samples`` to reduce GPU memory usage.
 
-Multiple host batches are automatically double-buffered. Configure
-``resources.set_stream_pool(1)`` for transfer/compute overlap; without it,
-fitting is correct but serialized. Pinned host memory is crucial for OOC
-performance: pageable or unregistered memory-mapped input degrades
-throughput rapidly.
-
-A memory pool is optional but recommended, especially across repeated
-fits. Configure both pools before calling ``fit``.
-
 **Parameters**
 
 | Name | Type | Description |
@@ -251,17 +242,9 @@ Host-data (batched) example:
 
 ```python
 >>> import numpy as np
->>> import cupyx
->>> from cuvs.common import Resources
->>> X_host = cupyx.empty_pinned((10_000_000, 128), dtype=np.float32)
->>> _ = np.random.default_rng().random(
-...     X_host.shape, dtype=np.float32, out=X_host)
+>>> X_host = np.random.random((10_000_000, 128)).astype(np.float32)
 >>> params = KMeansParams(n_clusters=1000, device_buffer_samples=1_000_000)
->>> resources = Resources()
->>> resources.set_memory_pool(80)  # Percentage of currently free device memory
->>> resources.set_stream_pool(1)   # Enables H2D/compute overlap
->>> centroids, inertia, n_iter = fit(params, X_host, resources=resources)
->>> resources.sync()
+>>> centroids, inertia, n_iter = fit(params, X_host)
 ```
 
 ## predict

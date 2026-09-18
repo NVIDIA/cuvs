@@ -106,9 +106,6 @@ struct cuvsKMeansParams {
   /**
    * Number of samples to process per GPU batch for the batched (host-data) API.
    * When set to 0, defaults to n_samples (process all at once).
-   * Multiple batches use two input buffers automatically, totaling about
-   * 2 * device_buffer_samples * n_features * sizeof(value_type), excluding
-   * algorithm workspaces and optional sample-weight buffers.
    */
   int64_t device_buffer_samples;
 
@@ -162,19 +159,6 @@ typedef enum { CUVS_KMEANS_TYPE_KMEANS = 0, CUVS_KMEANS_TYPE_KMEANS_BALANCED = 1
  *   X may reside on either host (CPU) or device (GPU) memory.
  *   When X is on the host the data is buffered to the GPU in
  *   batches controlled by params->device_buffer_samples.
- *   Multiple batches are automatically double-buffered.
- *   For transfer/compute overlap, call cuvsResourcesSetStreamPool(res, 1).
- *   Without it the result is unchanged, but transfers and compute are
- *   serialized. Pinned host memory (for example, from cuvsRMMHostAlloc) is
- *   crucial for OOC performance; pageable or unregistered mmap-backed input
- *   degrades throughput rapidly.
- *
- *   A memory pool is optional but recommended, especially for repeated fits:
- * @code{.c}
- *   cuvsResourcesSetMemoryPool(res, 80);
- *   cuvsResourcesSetStreamPool(res, 1);
- *   cuvsKMeansFit(res, params, X, sample_weight, centroids, &inertia, &n_iter);
- * @endcode
  *
  * @param[in]     res           opaque C handle
  * @param[in]     params        Parameters for KMeans model.
