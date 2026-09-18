@@ -3171,12 +3171,13 @@ def parse_java_members(text: str, class_name: str) -> list[JavaMember]:
             continue
         if re.search(r"\b(if|for|while|switch|catch)\s*\(", signature):
             continue
+        declaration = strip_leading_java_annotations(signature)
         # The pages advertise "Public Members"; drop explicitly private ones.
         # Package-private and interface members are left alone because an
         # interface method with no modifier is implicitly public.
-        if re.match(r"\s*private\b", signature):
+        if re.match(r"\s*private\b", declaration):
             continue
-        name_match = re.search(r"([A-Za-z_]\w*)\s*\(", signature)
+        name_match = re.search(r"([A-Za-z_]\w*)\s*\(", declaration)
         if not name_match:
             continue
         name = name_match.group(1)
@@ -3185,6 +3186,13 @@ def parse_java_members(text: str, class_name: str) -> list[JavaMember]:
             JavaMember(name=name, signature=signature, doc=doc, line=line)
         )
     return members
+
+
+def strip_leading_java_annotations(signature: str) -> str:
+    """Remove annotations that precede a Java member declaration."""
+    return re.sub(
+        r"^\s*(?:@[\w.]+(?:\s*\([^)]*\))?\s*)+", "", signature
+    )
 
 
 def clean_doxygen_comment(raw: str) -> str:
@@ -4744,6 +4752,18 @@ def parse_javadoc(raw: str) -> JavaDoc:
     lines = [
         re.sub(r"^\s*\* ?", "", line).rstrip() for line in body.splitlines()
     ]
+    normalized_body = re.sub(
+        r"\{@(code|link)\s+([^}]*)\}",
+        lambda match: (
+            "{@"
+            + match.group(1)
+            + " "
+            + re.sub(r"\s+", " ", match.group(2)).strip()
+            + "}"
+        ),
+        "\n".join(lines),
+    )
+    lines = normalized_body.splitlines()
     doc = JavaDoc()
     summary_lines: list[str] = []
     active: DoxygenParam | None = None
@@ -4794,15 +4814,22 @@ def parse_javadoc(raw: str) -> JavaDoc:
 
 def clean_javadoc_text(text: str) -> str:
     text = re.sub(r"\{@code\s+([^}]+)\}", r"`\1`", text)
-    text = re.sub(
-        r"\{@link\s+([^}\s]+)(?:\s+([^}]+))?\}",
-        lambda m: m.group(2) or f"`{m.group(1)}`",
-        text,
-    )
+    text = re.sub(r"\{@link\s+([^}]+)\}", render_javadoc_link, text)
     text = re.sub(r"<a\b[^>]*>(.*?)</a>", r"\1", text)
     text = re.sub(r"</?p>", "", text)
     text = re.sub(r"<[^>]+>", "", text)
     return text.strip()
+
+
+def render_javadoc_link(match: re.Match[str]) -> str:
+    """Render a Javadoc link whose method parameters may contain spaces."""
+    content = match.group(1).strip()
+    parts = re.match(
+        r"(?P<target>[^\s(]+(?:\([^)]*\))?)(?:\s+(?P<label>.+))?$", content
+    )
+    if parts is None:
+        return content
+    return parts.group("label") or f"`{parts.group('target')}`"
 
 
 def render_javadoc(doc: JavaDoc) -> list[str]:

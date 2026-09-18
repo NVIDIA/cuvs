@@ -7,7 +7,6 @@ package com.nvidia.cuvs.lucene;
 import static com.nvidia.cuvs.lucene.AcceleratedHNSWUtils.createMultiLayerHnswGraph;
 import static com.nvidia.cuvs.lucene.AcceleratedHNSWUtils.createSingleVectorHnswGraph;
 import static com.nvidia.cuvs.lucene.AcceleratedHNSWUtils.printInfoStream;
-import static com.nvidia.cuvs.lucene.AcceleratedHNSWUtils.quantizeFloatVectorsToBinary;
 import static com.nvidia.cuvs.lucene.AcceleratedHNSWUtils.writeEmpty;
 import static com.nvidia.cuvs.lucene.AcceleratedHNSWUtils.writeGraph;
 import static com.nvidia.cuvs.lucene.AcceleratedHNSWUtils.writeMeta;
@@ -138,73 +137,68 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends KnnVector
   }
 
   /**
-   * Builds the intermediate CAGRA index and builds and writes the HNSW index for binary quantized vectors.
-   * Binary quantized vectors are stored as packed bits (1 bit per dimension, 8 dimensions per byte).
+   * Builds the intermediate CAGRA index from the original vectors, then writes its HNSW graph.
+   * Lucene independently persists and scores the vectors with its binary-quantized representation.
    *
    * @param fieldInfo instance of FieldInfo that has the field description
-   * @param vectors binary quantized vectors (packed bits as bytes)
+   * @param vectors original float vectors
    * @throws IOException
    */
-  private void writeFieldInternal(FieldInfo fieldInfo, List<byte[]> vectors) throws IOException {
-    if (vectors.size() == 0) {
+  private void writeFieldInternal(FieldInfo fieldInfo, List<float[]> vectors) throws IOException {
+    if (vectors.isEmpty()) {
       writeEmpty(fieldInfo, hnswMeta);
+      return;
+    }
+    if (vectors.size() == 1) {
+      writeSingleVectorGraph(fieldInfo);
       return;
     }
 
     try {
       int dimensions = fieldInfo.getVectorDimension();
-      int bytesPerVector = (dimensions + 7) / 8;
+      try (CuVSMatrix dataset =
+          Utils.createFloatMatrix(vectors, dimensions, getCuVSResourcesInstance())) {
+        CagraIndexParams params =
+            CagraIndexParamsFactory.create(
+                acceleratedHNSWParams, dataset.size(), dataset.columns());
 
-      CuVSMatrix dataset =
-          Utils.createByteMatrix(vectors, bytesPerVector, getCuVSResourcesInstance());
+        try (CagraIndex cagraIndex =
+            CagraIndex.newBuilder(getCuVSResourcesInstance())
+                .withDataset(dataset)
+                .withIndexParams(params)
+                .build()) {
+          CuVSMatrix adjacencyListMatrix = cagraIndex.getGraph();
+          int size = (int) dataset.size();
 
-      if (dataset.size() < 2) {
-        writeSingleVectorGraph(fieldInfo, vectors);
-        return;
-      }
+          // Create multi-layer HNSW graph from CAGRA
+          GPUBuiltHnswGraph hnswGraph =
+              createMultiLayerHnswGraph(
+                  fieldInfo,
+                  size,
+                  dimensions,
+                  adjacencyListMatrix,
+                  vectors,
+                  acceleratedHNSWParams.getHnswLayers(),
+                  params,
+                  QuantizationType.NONE);
 
-      CagraIndexParams params =
-          CagraIndexParamsFactory.create(acceleratedHNSWParams, dataset.size(), dataset.columns());
+          long vectorIndexOffset = hnswVectorIndex.getFilePointer();
+          // Write the graph to the vector index
+          int[][] graphLevelNodeOffsets = writeGraph(hnswGraph, hnswVectorIndex);
+          long vectorIndexLength = hnswVectorIndex.getFilePointer() - vectorIndexOffset;
 
-      CagraIndex cagraIndex =
-          CagraIndex.newBuilder(getCuVSResourcesInstance())
-              .withDataset(dataset)
-              .withIndexParams(params)
-              .build();
-
-      CuVSMatrix adjacencyListMatrix = cagraIndex.getGraph();
-      int size = (int) dataset.size();
-
-      // Create multi-layer HNSW graph from CAGRA
-      GPUBuiltHnswGraph hnswGraph =
-          createMultiLayerHnswGraph(
+          // Write metadata
+          writeMeta(
+              hnswVectorIndex,
+              hnswMeta,
               fieldInfo,
+              vectorIndexOffset,
+              vectorIndexLength,
               size,
-              dimensions,
-              adjacencyListMatrix,
-              vectors,
-              acceleratedHNSWParams.getHnswLayers(),
-              params,
-              QuantizationType.BINARY);
-
-      long vectorIndexOffset = hnswVectorIndex.getFilePointer();
-      // Write the graph to the vector index
-      int[][] graphLevelNodeOffsets = writeGraph(hnswGraph, hnswVectorIndex);
-      long vectorIndexLength = hnswVectorIndex.getFilePointer() - vectorIndexOffset;
-
-      // Write metadata
-      writeMeta(
-          hnswVectorIndex,
-          hnswMeta,
-          fieldInfo,
-          vectorIndexOffset,
-          vectorIndexLength,
-          size,
-          hnswGraph,
-          graphLevelNodeOffsets);
-
-      cagraIndex.close();
-
+              hnswGraph,
+              graphLevelNodeOffsets);
+        }
+      }
     } catch (Throwable t) {
       Utils.handleThrowable(t);
     }
@@ -215,7 +209,8 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends KnnVector
    */
   @Override
   public void flush(int maxDoc, DocMap sortMap) throws IOException {
-    flatVectorsWriter.flush(maxDoc, sortMap);
+    // Build the graph before the delegate flush, which may normalize buffered cosine vectors in
+    // place. This preserves the original values that Lucene's HNSW builder would use.
     for (var field : fields) {
       if (sortMap == null) {
         writeField(field);
@@ -223,6 +218,7 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends KnnVector
         writeSortingField(field, sortMap);
       }
     }
+    flatVectorsWriter.flush(maxDoc, sortMap);
   }
 
   /**
@@ -232,13 +228,13 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends KnnVector
    * @throws IOException
    */
   private void writeField(FieldWriter fieldData) throws IOException {
-    writeFieldInternal(fieldData.fieldInfo(), fieldData.getByteVectors());
+    writeFieldInternal(fieldData.fieldInfo(), fieldData.getFloatVectors());
   }
 
   /**
    * Builds the index and writes it to the disk.
    *
-   * @param fieldData instance of BinaryQuantizedGPUFieldWriter
+   * @param fieldData vectors and metadata buffered for this field
    * @param sortMap instance of the DocMap
    * @throws IOException
    */
@@ -248,8 +244,8 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends KnnVector
     final int[] new2OldOrd = new int[oldDocsWithFieldSet.cardinality()]; // new ord to old ord
     mapOldOrdToNewOrd(oldDocsWithFieldSet, sortMap, null, new2OldOrd, null);
 
-    List<byte[]> sortedVectors = new ArrayList<byte[]>();
-    List<byte[]> vectors = fieldData.getByteVectors();
+    List<float[]> sortedVectors = new ArrayList<>();
+    List<float[]> vectors = fieldData.getFloatVectors();
     for (int i = 0; i < vectors.size(); i++) {
       sortedVectors.add(vectors.get(new2OldOrd[i]));
     }
@@ -261,11 +257,9 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends KnnVector
    * Builds and writes a single vector graph.
    *
    * @param fieldInfo instance of FieldInfo
-   * @param vectors the list of binary quantized vectors
    * @throws IOException I/O Exceptions
    */
-  private void writeSingleVectorGraph(FieldInfo fieldInfo, List<byte[]> vectors)
-      throws IOException {
+  private void writeSingleVectorGraph(FieldInfo fieldInfo) throws IOException {
     // Workaround for CAGRA not supporting single vector indexes
     try {
       int size = 1;
@@ -321,7 +315,7 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends KnnVector
         for (int docV = iter.nextDoc(); docV != NO_MORE_DOCS; docV = iter.nextDoc()) {
           floatVectors.add(mergedVectorValues.vectorValue(iter.index()).clone());
         }
-        writeFieldInternal(fieldInfo, quantizeFloatVectorsToBinary(floatVectors));
+        writeFieldInternal(fieldInfo, floatVectors);
       }
     } catch (Throwable t) {
       Utils.handleThrowable(t);
