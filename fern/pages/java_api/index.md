@@ -47,3 +47,5 @@ For the Apache Lucene codecs built on this API, see the [Lucene API Documentatio
 - [TieredIndex](/api-reference/java-api-com-nvidia-cuvs-tieredindex)
 - [TieredIndexParams](/api-reference/java-api-com-nvidia-cuvs-tieredindexparams)
 - [TieredIndexQuery](/api-reference/java-api-com-nvidia-cuvs-tieredindexquery)
+- [VamanaIndex](/api-reference/java-api-com-nvidia-cuvs-vamanaindex)
+- [VamanaIndexParams](/api-reference/java-api-com-nvidia-cuvs-vamanaindexparams)

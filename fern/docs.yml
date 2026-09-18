@@ -546,6 +546,10 @@ navigation:
             path: "./pages/java_api/java-api-com-nvidia-cuvs-tieredindexparams.md"
           - page: "TieredIndexQuery"
             path: "./pages/java_api/java-api-com-nvidia-cuvs-tieredindexquery.md"
+          - page: "VamanaIndex"
+            path: "./pages/java_api/java-api-com-nvidia-cuvs-vamanaindex.md"
+          - page: "VamanaIndexParams"
+            path: "./pages/java_api/java-api-com-nvidia-cuvs-vamanaindexparams.md"
       - section: "Lucene API Documentation"
         path: "./pages/lucene_api/index.md"
         contents:
