@@ -5,6 +5,7 @@
 
 #include <cuvs/core/c_api.h>
 #include <cuvs/core/dataset.h>
+#include <cuvs/neighbors/cagra.h>
 #include <dlpack/dlpack.h>
 
 #include <cuda_runtime.h>
@@ -44,6 +45,15 @@ TEST(DatasetC, CreateDestroy)
   ASSERT_EQ(cuvsDatasetCreate(&dataset), CUVS_SUCCESS);
   ASSERT_NE(dataset, nullptr);
   ASSERT_EQ(cuvsDatasetDestroy(dataset), CUVS_SUCCESS);
+}
+
+TEST(DatasetC, PQDatasetParamsCreateDestroy)
+{
+  cuvsPqParams_t params;
+  ASSERT_EQ(cuvsPqParamsCreate(&params), CUVS_SUCCESS);
+  ASSERT_NE(params, nullptr);
+  EXPECT_EQ(params->pq_bits, 8);
+  ASSERT_EQ(cuvsPqParamsDestroy(params), CUVS_SUCCESS);
 }
 
 TEST(DatasetC, MakePaddedFromHost)

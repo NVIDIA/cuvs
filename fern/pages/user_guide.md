@@ -11,4 +11,5 @@ Use these guides when you are ready to apply NVIDIA cuVS APIs, benchmark algorit
 - [API Guide](/user-guide/api-guides): find task-focused NVIDIA cuVS API examples for clustering, vector indexing, preprocessing, common types, and supporting routines.
 - [Benchmarking Guide](/user-guide/benchmarking-guide): learn how to compare vector indexes fairly and use cuVS Bench for reproducible benchmark workflows.
 - [Field Guide](/user-guide/field-guide): find practical material for compatibility, integration patterns, runtime compilation, and extension points.
+- [Lucene Integration](/user-guide/lucene): accelerate Apache Lucene vector index builds and search on GPUs with the NVIDIA cuVS Lucene codecs.
 - [References](references.md): cite the research papers behind NVIDIA cuVS vector search, preprocessing, clustering, and GPU primitives.
