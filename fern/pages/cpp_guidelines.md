@@ -294,10 +294,16 @@ C++ and CUDA code are formatted with [clang-format](https://clang.llvm.org/docs/
 2. Indentation is two spaces, including line continuations.
 3. Comments are not reflowed automatically.
 
-[Doxygen](https://doxygen.nl/) checks C++ and CUDA API documentation:
+Regenerate the Fern API reference pages and run the generator's built-in validation:
 
 ```bash
-./ci/checks/doxygen.sh
+pre-commit run fern-api-reference --all-files
+```
+
+Regenerate the API pages and run Fern's configuration, link, and Markdown checks:
+
+```bash
+fern/build_docs.sh check
 ```
 
 [codespell](https://github.com/codespell-project/codespell) catches spelling issues. To apply suggested fixes interactively, run:
@@ -346,4 +352,4 @@ Use the `_NO_THROW` variants only where throwing is unsafe, such as destructors.
 
 ### Documentation
 
-Public C++ and CUDA APIs require user-facing [Doxygen](https://doxygen.nl/) documentation. Document the purpose, parameters, return values, relevant template or overload behavior, and any constraints that affect correct use.
+Public C++ and CUDA APIs require user-facing [Doxygen-style](https://doxygen.nl/) source comments consumed by the Fern API generator. Document the purpose, parameters, return values, relevant template or overload behavior, and any constraints that affect correct use.

@@ -58,19 +58,8 @@ _skbuild
 *.qdstrm
 *.nvprof
 
-## doxygen build check inside ci/checks/style.sh
-doxygen_check/
-
 ## cibuildwheel
 /wheelhouse
-
-# doxygen
-_xml
-
-# sphinx
-_html
-_text
-docs/source/_static/rust
 
 # clang tooling
 compile_commands.json
