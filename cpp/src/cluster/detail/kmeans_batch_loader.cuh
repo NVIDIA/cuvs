@@ -29,12 +29,27 @@
 
 namespace cuvs::cluster::kmeans::detail {
 
+class kmeans_batch_descriptor {
+ public:
+  kmeans_batch_descriptor(std::size_t size, std::size_t offset, std::size_t partition)
+    : size_(size), offset_(offset), partition_(partition)
+  {
+  }
+
+  [[nodiscard]] auto size() const noexcept -> std::size_t { return size_; }
+  [[nodiscard]] auto offset() const noexcept -> std::size_t { return offset_; }
+  [[nodiscard]] auto partition() const noexcept -> std::size_t { return partition_; }
+
+ private:
+  std::size_t size_;
+  std::size_t offset_;
+  std::size_t partition_;
+};
+
 template <typename InputView>
-struct kmeans_batch_descriptor {
+struct kmeans_batch_source {
   InputView input;
-  std::size_t size;
-  std::size_t offset;
-  std::size_t partition;
+  kmeans_batch_descriptor descriptor;
 };
 
 /** A contiguous KMeans input batch accessible from the main CUDA stream. */
@@ -42,35 +57,30 @@ template <typename DataT>
 class kmeans_batch {
  public:
   [[nodiscard]] auto data() const noexcept -> DataT const* { return data_; }
-  [[nodiscard]] auto size() const noexcept -> std::size_t { return size_; }
-  [[nodiscard]] auto offset() const noexcept -> std::size_t { return offset_; }
-  [[nodiscard]] auto partition() const noexcept -> std::size_t { return partition_; }
+  [[nodiscard]] auto descriptor() const noexcept -> kmeans_batch_descriptor const&
+  {
+    return descriptor_;
+  }
+  [[nodiscard]] auto size() const noexcept -> std::size_t { return descriptor_.size(); }
+  [[nodiscard]] auto offset() const noexcept -> std::size_t { return descriptor_.offset(); }
+  [[nodiscard]] auto partition() const noexcept -> std::size_t { return descriptor_.partition(); }
 
  private:
   template <typename, typename, bool>
   friend class kmeans_batch_loader;
 
   kmeans_batch(DataT const* data,
-               std::size_t size,
-               std::size_t offset,
-               std::size_t partition,
+               kmeans_batch_descriptor const& descriptor,
                std::size_t position,
                int slot)
-    : data_(data),
-      size_(size),
-      offset_(offset),
-      partition_(partition),
-      position_(position),
-      slot_(slot)
+    : data_(data), descriptor_(descriptor), position_(position), slot_(slot)
   {
   }
 
-  DataT const* data_     = nullptr;
-  std::size_t size_      = 0;
-  std::size_t offset_    = 0;
-  std::size_t partition_ = 0;
-  std::size_t position_  = 0;
-  int slot_              = 0;
+  DataT const* data_;
+  kmeans_batch_descriptor const& descriptor_;
+  std::size_t position_;
+  int slot_;
 };
 
 /**
@@ -120,10 +130,8 @@ class kmeans_batch_loader<DataT, IndexT, true> {
   {
     RAFT_EXPECTS(pos < batches_.size(), "KMeans batch position is out of range");
     auto const& batch = batches_[pos];
-    return {batch.input.data_handle() + batch.offset * batch.input.extent(1),
-            batch.size,
-            batch.offset,
-            batch.partition,
+    return {batch.input.data_handle() + batch.descriptor.offset() * batch.input.extent(1),
+            batch.descriptor,
             pos,
             0};
   }
@@ -136,12 +144,12 @@ class kmeans_batch_loader<DataT, IndexT, true> {
     for (std::size_t offset = 0; offset < static_cast<std::size_t>(input.extent(0));
          offset += batch_size_) {
       const auto size = std::min(batch_size_, static_cast<std::size_t>(input.extent(0)) - offset);
-      batches_.push_back({input, size, offset, partition});
+      batches_.push_back({input, {size, offset, partition}});
     }
   }
 
   std::size_t batch_size_ = 0;
-  std::vector<kmeans_batch_descriptor<raft::device_matrix_view<const DataT, IndexT>>> batches_;
+  std::vector<kmeans_batch_source<raft::device_matrix_view<const DataT, IndexT>>> batches_;
 };
 
 template <typename DataT, typename IndexT>
@@ -179,7 +187,8 @@ class kmeans_batch_loader<DataT, IndexT, false> {
     std::size_t max_batch_elements = 0;
     for (auto const& batch : batches_) {
       max_batch_elements =
-        std::max(max_batch_elements, batch.size * static_cast<std::size_t>(batch.input.extent(1)));
+        std::max(max_batch_elements,
+                 batch.descriptor.size() * static_cast<std::size_t>(batch.input.extent(1)));
     }
     buffer_0_.resize(max_batch_elements, copy_stream_);
     buffer_ptrs_[0] = buffer_0_.data();
@@ -237,7 +246,7 @@ class kmeans_batch_loader<DataT, IndexT, false> {
         states_[slot] = slot_state::acquired;
 
         auto const& batch = batches_[pos];
-        return {buffer_ptrs_[slot], batch.size, batch.offset, batch.partition, pos, slot};
+        return {buffer_ptrs_[slot], batch.descriptor, pos, slot};
       }
     }
     RAFT_FAIL("KMeans attempted to acquire a batch that was not prefetched");
@@ -278,7 +287,7 @@ class kmeans_batch_loader<DataT, IndexT, false> {
     for (std::size_t offset = 0; offset < static_cast<std::size_t>(input.extent(0));
          offset += batch_size_) {
       const auto size = std::min(batch_size_, static_cast<std::size_t>(input.extent(0)) - offset);
-      batches_.push_back({input, size, offset, partition});
+      batches_.push_back({input, {size, offset, partition}});
     }
   }
 
@@ -332,14 +341,14 @@ class kmeans_batch_loader<DataT, IndexT, false> {
   {
     auto const& batch = batches_[pos];
     raft::copy(dst,
-               batch.input.data_handle() + batch.offset * batch.input.extent(1),
-               batch.size * batch.input.extent(1),
+               batch.input.data_handle() + batch.descriptor.offset() * batch.input.extent(1),
+               batch.descriptor.size() * batch.input.extent(1),
                copy_stream_);
   }
 
   raft::resources const* res_ = nullptr;
   std::size_t batch_size_     = 0;
-  std::vector<kmeans_batch_descriptor<raft::host_matrix_view<const DataT, IndexT>>> batches_;
+  std::vector<kmeans_batch_source<raft::host_matrix_view<const DataT, IndexT>>> batches_;
   cuda::stream_ref copy_stream_;
   rmm::device_uvector<DataT> buffer_0_;
   rmm::device_uvector<DataT> buffer_1_;
