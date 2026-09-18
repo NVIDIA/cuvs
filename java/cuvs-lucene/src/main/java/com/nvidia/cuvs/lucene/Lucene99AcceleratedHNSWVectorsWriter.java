@@ -303,39 +303,42 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
       FloatVectorValues mergedVectors =
           KnnVectorsWriter.MergedVectorValues.mergeFloatVectorValues(fieldInfo, mergeState);
       int dims = fieldInfo.getVectorDimension();
-      CuVSMatrix.Builder<CuVSHostMatrix> builder =
-          CuVSMatrix.hostBuilder(size, dims, CuVSMatrix.DataType.FLOAT);
-      KnnVectorValues.DocIndexIterator it = mergedVectors.iterator();
-      int replayed = 0;
-      boolean hasExtraVector = false;
-      for (int doc = it.nextDoc(); doc != DocIdSetIterator.NO_MORE_DOCS; doc = it.nextDoc()) {
-        if (replayed == size) {
-          hasExtraVector = true;
-          break;
-        }
-        builder.addVector(mergedVectors.vectorValue(it.index()));
-        replayed = Math.incrementExact(replayed);
-      }
-      CuVSHostMatrix dataset = builder.build();
-      if (hasExtraVector || replayed != size) {
-        int observed = hasExtraVector ? Math.incrementExact(replayed) : replayed;
-        IOException mismatch =
-            new IOException(
-                "Merged vector count changed between passes: expected "
-                    + size
-                    + (hasExtraVector ? ", observed at least " : ", observed ")
-                    + observed);
-        try {
-          dataset.close();
-        } catch (Throwable closeFailure) {
-          mismatch.addSuppressed(closeFailure);
-        }
-        throw mismatch;
-      }
+      CuVSHostMatrix dataset =
+          buildMergedDataset(
+              mergedVectors, size, CuVSMatrix.hostBuilder(size, dims, CuVSMatrix.DataType.FLOAT));
       writeNonTrivialField(fieldInfo, dataset);
     } catch (Throwable t) {
       Utils.handleThrowable(t);
     }
+  }
+
+  /* Replays merged vectors into a builder that remains responsible for storage until build. */
+  static CuVSHostMatrix buildMergedDataset(
+      FloatVectorValues mergedVectors, int expectedSize, CuVSMatrix.Builder<CuVSHostMatrix> builder)
+      throws IOException {
+    try (builder) {
+      KnnVectorValues.DocIndexIterator it = mergedVectors.iterator();
+      int replayed = 0;
+      for (int doc = it.nextDoc(); doc != DocIdSetIterator.NO_MORE_DOCS; doc = it.nextDoc()) {
+        if (replayed == expectedSize) {
+          throw mergeReplayMismatch(expectedSize, (long) replayed + 1L, true);
+        }
+        builder.addVector(mergedVectors.vectorValue(it.index()));
+        replayed = Math.incrementExact(replayed);
+      }
+      if (replayed != expectedSize) {
+        throw mergeReplayMismatch(expectedSize, replayed, false);
+      }
+      return builder.build();
+    }
+  }
+
+  private static IOException mergeReplayMismatch(int expected, long observed, boolean lowerBound) {
+    return new IOException(
+        "Merged vector count changed between passes: expected "
+            + expected
+            + (lowerBound ? ", observed at least " : ", observed ")
+            + observed);
   }
 
   /** Counts the live vectors that the merge iterator will actually yield. */
