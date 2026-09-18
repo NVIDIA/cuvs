@@ -3029,7 +3029,7 @@ def generate_jvm_api_pages(
     title: str,
     intro: str,
     source_dirs: list[Path],
-    group_of: Callable[[JavaClass], str],
+    group_of: Callable[[JavaClass, dict[str, JavaClass]], str],
 ) -> None:
     out_dir = FERN_PAGES / directory
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -3041,9 +3041,10 @@ def generate_jvm_api_pages(
         intro,
         "",
     ]
+    classes_by_name = {klass.name: klass for klass in classes}
     grouped: dict[str, list[tuple[str, str]]] = defaultdict(list)
     for klass in classes:
-        grouped[group_of(klass)].append(
+        grouped[group_of(klass, classes_by_name)].append(
             (klass.name, api_doc_url(directory, java_slug(klass)))
         )
     append_api_index_groups(index_lines, grouped)
@@ -3093,7 +3094,7 @@ def generate_jvm_api_pages(
         )
 
 
-def java_api_group(klass: JavaClass) -> str:
+def java_api_group(klass: JavaClass, _classes_by_name: dict[str, JavaClass]) -> str:
     name = klass.name.lower()
     if any(
         token in name
@@ -3111,15 +3112,23 @@ def java_api_group(klass: JavaClass) -> str:
     return "Common"
 
 
-def lucene_api_group(klass: JavaClass) -> str:
-    """Group a Lucene class by whether it implements a Lucene vector API.
-
-    The supertype is already part of ``klass.signature``, so a new codec
-    generation classifies itself without touching this function.
-    """
-    match = JAVA_SUPERTYPE_RE.search(klass.signature)
-    if match is not None and match.group("name") in LUCENE_EXTENSION_POINTS:
-        return "Codecs and Formats"
+def lucene_api_group(
+    klass: JavaClass, classes_by_name: dict[str, JavaClass]
+) -> str:
+    """Group direct and indirect implementations of Lucene vector APIs."""
+    current = klass
+    visited: set[str] = set()
+    while current.name not in visited:
+        visited.add(current.name)
+        match = JAVA_SUPERTYPE_RE.search(current.signature)
+        if match is None:
+            break
+        supertype = match.group("name")
+        if supertype in LUCENE_EXTENSION_POINTS:
+            return "Codecs and Formats"
+        current = classes_by_name.get(supertype)
+        if current is None:
+            break
     return "Common"
 
 
