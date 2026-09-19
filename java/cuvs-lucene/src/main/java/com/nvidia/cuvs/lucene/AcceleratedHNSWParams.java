@@ -95,7 +95,7 @@ public class AcceleratedHNSWParams {
   /**
    * Constructs an instance of {@link AcceleratedHNSWParams} with specific parameter values.
    *
-   * @param writerThreads Number of cuVS writer threads to use.
+   * @param writerThreads Maximum threads to use for cuVS writes and post-build graph processing.
    * @param intermediateGraphDegree The intermediate graph degree while building the CAGRA index.
    * @param graphdegree The graph degree to use while building the CAGRA index.
    * @param hnswLayers The number of HNSW layers to build in the HNSW index.
@@ -143,9 +143,9 @@ public class AcceleratedHNSWParams {
   }
 
   /**
-   * Get the cuVS writer threads parameter
+   * Get the maximum thread count for cuVS writes and post-build graph processing.
    *
-   * @return cuVS writer threads parameter
+   * @return maximum writer and graph-processing thread count
    */
   public int getWriterThreads() {
     return writerThreads;
@@ -326,7 +326,7 @@ public class AcceleratedHNSWParams {
     private HnswHeuristicType hnswHeuristicType = DEFAULT_HNSW_HEURISTIC_TYPE;
 
     /**
-     * Set the number of cuVS writer threads while building the index
+     * Set the maximum number of threads used for cuVS writes and post-build graph processing.
      * Valid range - Minimum: {@value MIN_WRITER_THREADS}, Maximum: {@value MAX_WRITER_THREADS}
      * Default value - {@value DEFAULT_WRITER_THREADS}
      *

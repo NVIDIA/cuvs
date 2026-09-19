@@ -21,7 +21,7 @@ public static GPUBuiltHnswGraph createSingleVectorHnswGraph(int size, int dimens
 Creates a dummy HNSW graph for a single vector.
 The graph will have 1 level with 1 node and no neighbors.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:54`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:56`_
 
 ### createMultiLayerHnswGraph
 
@@ -35,7 +35,7 @@ M = ceil(cagraGraphDegree / 2), where cagraGraphDegree is the CAGRA adjacency li
 Each layer contains 1/M nodes from the previous layer
 Creates layers until the highest layer has ≤ M nodes
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:81`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:83`_
 
 ### writeGraph
 
@@ -62,7 +62,7 @@ a 2D array of offsets
 | --- | --- |
 | `IOException` | I/O Exceptions |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:237`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:263`_
 
 ### writeMeta
 
@@ -91,7 +91,7 @@ Writes the meta information for the index.
 | --- | --- |
 | `IOException` | I/O Exceptions |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:302`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:443`_
 
 ### printInfoStream
 
@@ -107,7 +107,7 @@ A utility method to print info/debugging messages using InfoStream.
 | --- | --- |
 | `msg` | the debugging message to print |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:384`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:525`_
 
 ### writeEmpty
 
@@ -129,7 +129,7 @@ Writes an empty meta information for the field.
 | --- | --- |
 | `IOException` | I/O Exceptions |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:396`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:537`_
 
 ### quantizeFloatVectorsToBinary
 
@@ -152,7 +152,7 @@ Bits are packed: 8 dimensions per byte.
 
 A list of byte binary representation for the input vectors
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:409`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:550`_
 
 ### quantizeFloatVectorsToScalar
 
@@ -172,6 +172,6 @@ Scalar quantization.
 
 A list of byte scalar representation for the input vectors
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:451`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:592`_
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:31`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:33`_
