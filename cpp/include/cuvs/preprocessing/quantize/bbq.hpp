@@ -166,15 +166,15 @@ struct bbq_quantizer_view {
     bbq_code_layout layout_,
     cuvs::distance::DistanceType metric_,
     float centroid_norm_sq_) noexcept
-    : codes{codes_.view()},
-      lower_intervals{lower_intervals_.view()},
-      upper_intervals{upper_intervals_.view()},
-      additional_corrections{additional_corrections_.view()},
-      quantized_component_sums{quantized_component_sums_.view()},
-      centroid{centroid_.view()},
-      dequant_delta{dequant_delta_.view()},
-      dequant_sum_delta{dequant_sum_delta_.view()},
-      row_norm{row_norm_.view()},
+    : codes{codes_},
+      lower_intervals{lower_intervals_},
+      upper_intervals{upper_intervals_},
+      additional_corrections{additional_corrections_},
+      quantized_component_sums{quantized_component_sums_},
+      centroid{centroid_},
+      dequant_delta{dequant_delta_},
+      dequant_sum_delta{dequant_sum_delta_},
+      row_norm{row_norm_},
       bits{bits_},
       layout{layout_},
       metric{metric_},
@@ -215,7 +215,7 @@ namespace helpers {
  * delta and quantized_component_sums.
  */
 void resolve_dequant_factors(
-  raft::resources& res,
+  raft::resources const& res,
   raft::device_vector_view<float, int64_t> dequant_delta,
   raft::device_vector_view<float, int64_t> dequant_sum_delta,
   raft::device_vector_view<const float, int64_t> lower_intervals,

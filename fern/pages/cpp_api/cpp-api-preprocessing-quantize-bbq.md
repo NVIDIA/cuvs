@@ -40,7 +40,7 @@ Derives dequant_delta from lower/upper_intervals and bits, and dequant_sum_delta
 
 ```cpp
 void resolve_dequant_factors(
-raft::resources& res,
+raft::resources const& res,
 raft::device_vector_view<float, int64_t> dequant_delta,
 raft::device_vector_view<float, int64_t> dequant_sum_delta,
 raft::device_vector_view<const float, int64_t> lower_intervals,
@@ -55,7 +55,7 @@ delta and quantized_component_sums.
 
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
-| `res` |  | `raft::resources&` |  |
+| `res` |  | `raft::resources const&` |  |
 | `dequant_delta` |  | `raft::device_vector_view<float, int64_t>` |  |
 | `dequant_sum_delta` |  | `raft::device_vector_view<float, int64_t>` |  |
 | `lower_intervals` |  | `raft::device_vector_view<const float, int64_t>` |  |

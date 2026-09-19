@@ -16,7 +16,7 @@ namespace preprocessing::quantize::bbq {
 
 namespace helpers {
 void resolve_dequant_factors(
-  raft::resources& res,
+  raft::resources const& res,
   raft::device_vector_view<float, int64_t> dequant_delta,
   raft::device_vector_view<float, int64_t> dequant_sum_delta,
   raft::device_vector_view<const float, int64_t> lower_intervals,
