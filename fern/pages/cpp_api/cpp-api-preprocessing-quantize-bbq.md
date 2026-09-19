@@ -33,10 +33,49 @@ enum class bbq_code_layout {
 | `third` | `` |
 | `packed_8b` | `` |
 
+<a id="preprocessing-quantize-bbq-get-bit-width"></a>
+### preprocessing::quantize::bbq::get_bit_width
+
+Bit width of a layout.
+
+```cpp
+constexpr auto get_bit_width(bbq_code_layout layout) noexcept -> uint32_t;
+```
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `layout` |  | [`bbq_code_layout`](/api-reference/cpp-api-preprocessing-quantize-bbq#preprocessing-quantize-bbq-bbq-code-layout) |  |
+
+**Returns**
+
+`uint32_t`
+
+<a id="preprocessing-quantize-bbq-get-encoded-row-length"></a>
+### preprocessing::quantize::bbq::get_encoded_row_length
+
+Bytes one row of `dim` components occupies once encoded in `layout`.
+
+```cpp
+constexpr auto get_encoded_row_length(uint32_t dim, bbq_code_layout layout) noexcept -> uint32_t;
+```
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `dim` |  | `uint32_t` |  |
+| `layout` |  | [`bbq_code_layout`](/api-reference/cpp-api-preprocessing-quantize-bbq#preprocessing-quantize-bbq-bbq-code-layout) |  |
+
+**Returns**
+
+`uint32_t`
+
 <a id="preprocessing-quantize-bbq-helpers-resolve-dequant-factors"></a>
 ### preprocessing::quantize::bbq::helpers::resolve_dequant_factors
 
-Derives dequant_delta from lower/upper_intervals and bits, and dequant_sum_delta from that
+Derives dequant_delta from lower/upper_intervals and the layout's code width, and
 
 ```cpp
 void resolve_dequant_factors(
@@ -46,10 +85,10 @@ raft::device_vector_view<float, int64_t> dequant_sum_delta,
 raft::device_vector_view<const float, int64_t> lower_intervals,
 raft::device_vector_view<const float, int64_t> upper_intervals,
 raft::device_vector_view<const int32_t, int64_t> quantized_component_sums,
-uint32_t bits);
+bbq_code_layout layout);
 ```
 
-delta and quantized_component_sums.
+dequant_sum_delta from that delta and quantized_component_sums.
 
 **Parameters**
 
@@ -61,7 +100,7 @@ delta and quantized_component_sums.
 | `lower_intervals` |  | `raft::device_vector_view<const float, int64_t>` |  |
 | `upper_intervals` |  | `raft::device_vector_view<const float, int64_t>` |  |
 | `quantized_component_sums` |  | `raft::device_vector_view<const int32_t, int64_t>` |  |
-| `bits` |  | `uint32_t` |  |
+| `layout` |  | [`bbq_code_layout`](/api-reference/cpp-api-preprocessing-quantize-bbq#preprocessing-quantize-bbq-bbq-code-layout) |  |
 
 **Returns**
 

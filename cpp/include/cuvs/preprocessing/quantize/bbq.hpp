@@ -49,6 +49,36 @@ enum class bbq_code_layout {
 
 };
 
+/**
+ * Bit width of a layout.
+ */
+constexpr auto get_bit_width(bbq_code_layout layout) noexcept -> uint32_t
+{
+  switch (layout) {
+    case bbq_code_layout::packed_1b: return 1;
+    case bbq_code_layout::transposed_2b: return 2;
+    case bbq_code_layout::packed_4b:
+    case bbq_code_layout::transposed_4b: return 4;
+    case bbq_code_layout::packed_7b: return 7;
+    case bbq_code_layout::packed_8b: return 8;
+  }
+  return 0;
+}
+
+/** Bytes one row of @p dim components occupies once encoded in @p layout. */
+constexpr auto get_encoded_row_length(uint32_t dim, bbq_code_layout layout) noexcept -> uint32_t
+{
+  switch (layout) {
+    case bbq_code_layout::packed_1b: return (dim + 7) / 8;
+    case bbq_code_layout::transposed_2b: return 2 * ((dim + 7) / 8);
+    case bbq_code_layout::packed_4b: return (dim + 1) / 2;
+    case bbq_code_layout::packed_7b: return dim;
+    case bbq_code_layout::packed_8b: return dim;
+    case bbq_code_layout::transposed_4b: return 4 * ((dim + 7) / 8);
+  }
+  return 0;
+}
+
 template <typename DataT, typename IdxT>
 struct bbq_quantizer {
   raft::device_mdarray<uint8_t, raft::matrix_extent<IdxT>> codes;
@@ -66,7 +96,6 @@ struct bbq_quantizer {
   /** Squared norm of the row in original (un-centered) vector space, ||x||^2 */
   raft::device_mdarray<float, raft::vector_extent<IdxT>> row_norm;
 
-  uint32_t bits{};
   bbq_code_layout layout{bbq_code_layout::packed_1b};
   cuvs::distance::DistanceType metric{cuvs::distance::DistanceType::L2Expanded};
   float centroid_norm_sq{};
@@ -74,11 +103,10 @@ struct bbq_quantizer {
   bbq_quantizer(raft::resources const& res,
                 IdxT n_rows,
                 uint32_t dim,
-                uint32_t bits,
                 bbq_code_layout layout,
                 cuvs::distance::DistanceType metric)
     : codes{raft::make_device_matrix<uint8_t, IdxT>(
-        res, n_rows, static_cast<IdxT>(encoded_row_length_for(dim, bits, layout)))},
+        res, n_rows, static_cast<IdxT>(get_encoded_row_length(dim, layout)))},
       lower_intervals{raft::make_device_vector<float, IdxT>(res, n_rows)},
       upper_intervals{raft::make_device_vector<float, IdxT>(res, n_rows)},
       additional_corrections{raft::make_device_vector<float, IdxT>(res, n_rows)},
@@ -87,11 +115,9 @@ struct bbq_quantizer {
       dequant_delta{raft::make_device_vector<float, IdxT>(res, n_rows)},
       dequant_sum_delta{raft::make_device_vector<float, IdxT>(res, n_rows)},
       row_norm{raft::make_device_vector<float, IdxT>(res, n_rows)},
-      bits{bits},
       layout{layout},
       metric{metric}
   {
-    RAFT_EXPECTS(bits >= 1 && bits <= 8, "BBQ bits must be in [1, 8].");
   }
 
   [[nodiscard]] auto n_rows() const noexcept -> IdxT { return codes.extent(0); }
@@ -99,24 +125,9 @@ struct bbq_quantizer {
   {
     return static_cast<uint32_t>(centroid.extent(0));
   }
-  [[nodiscard]] static constexpr auto encoded_row_length_for(uint32_t dim,
-                                                             uint32_t bits,
-                                                             bbq_code_layout layout) noexcept
-    -> uint32_t
-  {
-    switch (layout) {
-      case bbq_code_layout::packed_1b: return (dim * bits + 7) / 8;
-      case bbq_code_layout::transposed_2b: return bits * ((dim + 7) / 8);
-      case bbq_code_layout::packed_4b: return (dim + 1) / 2;
-      case bbq_code_layout::packed_7b: return dim;
-      case bbq_code_layout::packed_8b: return dim;
-      case bbq_code_layout::transposed_4b: return 4 * ((dim + 7) / 8);
-    }
-    return 0;
-  }
   [[nodiscard]] constexpr auto encoded_row_length() const noexcept -> uint32_t
   {
-    return encoded_row_length_for(dim(), bits, layout);
+    return get_encoded_row_length(dim(), layout);
   }
 };
 
@@ -139,7 +150,6 @@ struct bbq_quantizer_view {
     dequant_sum_delta;
   raft::device_mdspan<const float, raft::vector_extent<IdxT>, raft::layout_c_contiguous> row_norm;
 
-  uint32_t bits{};
   bbq_code_layout layout{bbq_code_layout::packed_1b};
   cuvs::distance::DistanceType metric{cuvs::distance::DistanceType::L2Expanded};
   float centroid_norm_sq{};
@@ -162,7 +172,6 @@ struct bbq_quantizer_view {
       dequant_sum_delta_,
     raft::device_mdspan<const float, raft::vector_extent<IdxT>, raft::layout_c_contiguous>
       row_norm_,
-    uint32_t bits_,
     bbq_code_layout layout_,
     cuvs::distance::DistanceType metric_,
     float centroid_norm_sq_) noexcept
@@ -175,7 +184,6 @@ struct bbq_quantizer_view {
       dequant_delta{dequant_delta_},
       dequant_sum_delta{dequant_sum_delta_},
       row_norm{row_norm_},
-      bits{bits_},
       layout{layout_},
       metric{metric_},
       centroid_norm_sq{centroid_norm_sq_}
@@ -192,7 +200,6 @@ struct bbq_quantizer_view {
       dequant_delta{quantizer.dequant_delta.view()},
       dequant_sum_delta{quantizer.dequant_sum_delta.view()},
       row_norm{quantizer.row_norm.view()},
-      bits{quantizer.bits},
       layout{quantizer.layout},
       metric{quantizer.metric},
       centroid_norm_sq{quantizer.centroid_norm_sq}
@@ -211,8 +218,8 @@ using device_bbq_quantizer_view = bbq_quantizer_view<DataT, IdxT>;
 
 namespace helpers {
 /**
- * Derives dequant_delta from lower/upper_intervals and bits, and dequant_sum_delta from that
- * delta and quantized_component_sums.
+ * Derives dequant_delta from lower/upper_intervals and the layout's code width, and
+ * dequant_sum_delta from that delta and quantized_component_sums.
  */
 void resolve_dequant_factors(
   raft::resources const& res,
@@ -221,7 +228,7 @@ void resolve_dequant_factors(
   raft::device_vector_view<const float, int64_t> lower_intervals,
   raft::device_vector_view<const float, int64_t> upper_intervals,
   raft::device_vector_view<const int32_t, int64_t> quantized_component_sums,
-  uint32_t bits);
+  bbq_code_layout layout);
 }  // namespace helpers
 /** @} */  // end of bbq group
 
@@ -263,15 +270,13 @@ struct dataset<bbq_dataset_container, DataT, IdxT, Accessor> {
 
   void add_quantizer(owning_storage_type&& quantizer)
   {
-    RAFT_EXPECTS(!has_bit_and_layout(quantizer.bits, quantizer.layout),
-                 "Quantizer already exists with bits and layout.");
+    RAFT_EXPECTS(!has_layout(quantizer.layout), "Quantizer already exists with layout.");
     this->quantizers.push_back(std::move(quantizer));
   }
-  bool has_bit_and_layout(uint32_t bits,
-                          cuvs::preprocessing::quantize::bbq::bbq_code_layout layout) const noexcept
+  bool has_layout(cuvs::preprocessing::quantize::bbq::bbq_code_layout layout) const noexcept
   {
     for (uint32_t i = 0; i < quantizers.size(); i++) {
-      if (quantizers[i].bits == bits && quantizers[i].layout == layout) { return true; }
+      if (quantizers[i].layout == layout) { return true; }
     }
     return false;
   }
@@ -302,31 +307,27 @@ struct dataset_view<bbq_dataset_container, DataT, IdxT, Accessor> {
 
   void add_quantizer(view_storage_type quantizer)
   {
-    RAFT_EXPECTS(!has_bit_and_layout(quantizer.bits, quantizer.layout),
-                 "Quantizer already exists with bits and layout.");
+    RAFT_EXPECTS(!has_layout(quantizer.layout), "Quantizer already exists with layout.");
     this->quantizers.push_back(quantizer);
   }
   void add_quantizer(const owning_storage_type& quantizer)
   {
-    RAFT_EXPECTS(!has_bit_and_layout(quantizer.bits, quantizer.layout),
-                 "Quantizer already exists with bits and layout.");
+    RAFT_EXPECTS(!has_layout(quantizer.layout), "Quantizer already exists with layout.");
     this->quantizers.push_back(view_storage_type(quantizer));
   }
-  bool has_bit_and_layout(uint32_t bits,
-                          cuvs::preprocessing::quantize::bbq::bbq_code_layout layout) const noexcept
+  bool has_layout(cuvs::preprocessing::quantize::bbq::bbq_code_layout layout) const noexcept
   {
     for (uint32_t i = 0; i < quantizers.size(); i++) {
-      if (quantizers[i].bits == bits && quantizers[i].layout == layout) { return true; }
+      if (quantizers[i].layout == layout) { return true; }
     }
     return false;
   }
-  view_storage_type get_quantizer(uint32_t bits,
-                                  cuvs::preprocessing::quantize::bbq::bbq_code_layout layout) const
+  view_storage_type get_quantizer(cuvs::preprocessing::quantize::bbq::bbq_code_layout layout) const
   {
     for (uint32_t i = 0; i < quantizers.size(); i++) {
-      if (quantizers[i].bits == bits && quantizers[i].layout == layout) { return quantizers[i]; }
+      if (quantizers[i].layout == layout) { return quantizers[i]; }
     }
-    throw std::runtime_error("No quantizer found with bits and layout.");
+    throw std::runtime_error("No quantizer found with layout.");
   }
 };
 

@@ -31,6 +31,7 @@ namespace cuvs::neighbors::nn_descent {
 // The host reference quantizer is shared with the ann-bench CAGRA wrapper, so these tests and
 // the benchmark can never disagree about the code format.
 namespace cpu_bbq = cuvs_internal::bbq;
+using cuvs::preprocessing::quantize::bbq::get_bit_width;
 using cuvs_internal::bbq::make_device_bbq_dataset;
 
 // CUDA-event elapsed time around @p fn on @p stream. Because the stop event is
@@ -54,26 +55,8 @@ float time_cuda_ms(rmm::cuda_stream_view stream, Fn&& fn)
   return ms;
 }
 
-// Each layout encodes exactly one code width -- that is what the packed_Nb / transposed_Nb
-// naming means -- so the width is derived rather than carried alongside, which would allow the
-// two to disagree.
-constexpr uint8_t bits_of(cuvs::preprocessing::quantize::bbq::bbq_code_layout layout)
-{
-  switch (layout) {
-    case cuvs::preprocessing::quantize::bbq::bbq_code_layout::packed_1b: return 1;
-    case cuvs::preprocessing::quantize::bbq::bbq_code_layout::transposed_2b: return 2;
-    case cuvs::preprocessing::quantize::bbq::bbq_code_layout::packed_4b:
-    case cuvs::preprocessing::quantize::bbq::bbq_code_layout::transposed_4b: return 4;
-    case cuvs::preprocessing::quantize::bbq::bbq_code_layout::packed_7b: return 7;
-    case cuvs::preprocessing::quantize::bbq::bbq_code_layout::packed_8b: return 8;
-  }
-  return 0;
-}
-
 struct AnnNNDescentBbqInputs : AnnNNDescentInputs {
-  uint8_t bits;
   cuvs::preprocessing::quantize::bbq::bbq_code_layout layout;
-  // Document layout for the second (asymmetric) dataset; its width follows via bits_of().
   std::optional<cuvs::preprocessing::quantize::bbq::bbq_code_layout> second_dataset_layout;
 };
 
@@ -82,8 +65,8 @@ inline ::std::ostream& operator<<(::std::ostream& os, const AnnNNDescentBbqInput
   os << "dataset shape=" << p.n_rows << "x" << p.dim << ", graph_degree=" << p.graph_degree
      << ", metric="
      << cuvs::neighbors::print_metric{static_cast<cuvs::distance::DistanceType>((int)p.metric)}
-     << (p.host_dataset ? ", host" : ", device") << ", bits=" << static_cast<int>(p.bits)
-     << ", layout=" << static_cast<int>(p.layout) << ", second_dataset_layout="
+     << (p.host_dataset ? ", host" : ", device") << ", layout=" << static_cast<int>(p.layout)
+     << ", second_dataset_layout="
      << (p.second_dataset_layout.has_value() ? static_cast<int>(p.second_dataset_layout.value())
                                              : -1)
      << std::endl;
@@ -110,11 +93,12 @@ class AnnNNDescentBbqTest : public ::testing::TestWithParam<AnnNNDescentBbqInput
     if (ps.second_dataset_layout.has_value()) {
       // The document must be strictly coarser than the query; the pair's layouts are stated in
       // the spec, so validity of the layout combination is the spec's business, not inferred here.
-      const uint8_t second_bits = bits_of(ps.second_dataset_layout.value());
-      if (ps.bits > 4 || ps.bits == second_bits || ps.bits == 1) {
-        GTEST_SKIP() << "Second dataset is N/A: bits=" << static_cast<int>(ps.bits)
+      const uint32_t query_bits  = get_bit_width(ps.layout);
+      const uint32_t second_bits = get_bit_width(ps.second_dataset_layout.value());
+      if (query_bits > 4 || query_bits == second_bits || query_bits == 1) {
+        GTEST_SKIP() << "Second dataset is N/A: bits=" << query_bits
                      << ", layout=" << static_cast<int>(ps.layout)
-                     << " and second bits=" << static_cast<int>(second_bits);
+                     << " and second bits=" << second_bits;
       }
     }
     size_t queries_size = ps.n_rows * ps.graph_degree;
@@ -200,37 +184,33 @@ class AnnNNDescentBbqTest : public ::testing::TestWithParam<AnnNNDescentBbqInput
 // Estimated recall based on bruteforce (InnerProduct): 1: 0.23, 2: 0.52, 4: 0.85, 7: 0.98, 8: 0.99.
 const std::vector<AnnNNDescentBbqInputs> bbq_inputs = [] {
   using cuvs::preprocessing::quantize::bbq::bbq_code_layout;
-  const std::vector<std::tuple<uint8_t, double, bbq_code_layout, std::optional<bbq_code_layout>>>
-    bits_specifications{
-      // query bits, min_recall, query layout, document layout (width follows from it)
-      {1, 0.15, bbq_code_layout::packed_1b, std::optional<bbq_code_layout>{}},
-      {2, 0.50, bbq_code_layout::transposed_2b, std::optional<bbq_code_layout>{}},
-      {2,
-       0.27,
+  const std::vector<std::tuple<double, bbq_code_layout, std::optional<bbq_code_layout>>>
+    code_specifications{
+      // min_recall, query layout, document layout (both widths follow from the layouts)
+      {0.15, bbq_code_layout::packed_1b, std::optional<bbq_code_layout>{}},
+      {0.50, bbq_code_layout::transposed_2b, std::optional<bbq_code_layout>{}},
+      {0.27,
        bbq_code_layout::transposed_2b,
        std::optional<bbq_code_layout>{bbq_code_layout::packed_1b}},
-      {4, 0.80, bbq_code_layout::packed_4b, std::optional<bbq_code_layout>{}},
+      {0.80, bbq_code_layout::packed_4b, std::optional<bbq_code_layout>{}},
       // Asymmetric packed_4b queries take the int4 wmma path (SelfJoin = false). packed_1b is the
       // only document layout that promotes to it -- transposed_2b never reaches this kernel. At
       // dim=256 this is also the only coverage of the phase-2 staging skip (n_tiles == 1) outside
       // a self-join.
-      {4,
-       0.35,
+      {0.35,
        bbq_code_layout::packed_4b,
        std::optional<bbq_code_layout>{bbq_code_layout::packed_1b}},
       // Asymmetric transposed_4b queries (1 + 4t, 2t + 4t) take the SIMT path.
-      {4,
-       0.35,
+      {0.35,
        bbq_code_layout::transposed_4b,
        std::optional<bbq_code_layout>{bbq_code_layout::packed_1b}},
-      {4,
-       0.65,
+      {0.65,
        bbq_code_layout::transposed_4b,
        std::optional<bbq_code_layout>{bbq_code_layout::transposed_2b}},
-      {7, 0.80, bbq_code_layout::packed_7b, std::optional<bbq_code_layout>{}},
-      {8, 0.80, bbq_code_layout::packed_8b, std::optional<bbq_code_layout>{}}};
+      {0.80, bbq_code_layout::packed_7b, std::optional<bbq_code_layout>{}},
+      {0.80, bbq_code_layout::packed_8b, std::optional<bbq_code_layout>{}}};
   std::vector<AnnNNDescentBbqInputs> out;
-  for (const auto& [bits, min_recall, layout, second_layout] : bits_specifications) {
+  for (const auto& [min_recall, layout, second_layout] : code_specifications) {
     const auto batch = raft::util::itertools::product<AnnNNDescentBbqInputs>(
       {2000},
       {256},  // dim
@@ -241,7 +221,6 @@ const std::vector<AnnNNDescentBbqInputs> bbq_inputs = [] {
        cuvs::distance::DistanceType::CosineExpanded},
       {false},  // host_dataset
       {min_recall},
-      {bits},
       {layout},
       {second_layout});
     out.insert(out.end(), batch.begin(), batch.end());

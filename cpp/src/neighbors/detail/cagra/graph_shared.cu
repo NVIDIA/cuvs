@@ -261,10 +261,10 @@ auto select_sort_quantizers(cuvs::neighbors::device_bbq_dataset_view<DataT, int6
 
   if (dataset.quantizers.size() == 1) { return {dataset.quantizers[0], dataset.quantizers[0]}; }
 
-  const bool has_1b  = dataset.has_bit_and_layout(1, bbq_code_layout::packed_1b);
-  const bool has_4b  = dataset.has_bit_and_layout(4, bbq_code_layout::packed_4b);
-  const bool has_2bt = dataset.has_bit_and_layout(2, bbq_code_layout::transposed_2b);
-  const bool has_4bt = dataset.has_bit_and_layout(4, bbq_code_layout::transposed_4b);
+  const bool has_1b  = dataset.has_layout(bbq_code_layout::packed_1b);
+  const bool has_4b  = dataset.has_layout(bbq_code_layout::packed_4b);
+  const bool has_2bt = dataset.has_layout(bbq_code_layout::transposed_2b);
+  const bool has_4bt = dataset.has_layout(bbq_code_layout::transposed_4b);
 
   const bool tc_pair   = has_1b && has_4b;
   const bool simt_pair = (has_4bt && (has_1b || has_2bt)) || (has_2bt && has_1b);
@@ -272,11 +272,11 @@ auto select_sort_quantizers(cuvs::neighbors::device_bbq_dataset_view<DataT, int6
                "Unsupported BBQ layout pair for an asymmetric dataset. Supported (document, "
                "query) pairs: (packed_1b, packed_4b), (packed_1b, transposed_2b), "
                "(packed_1b, transposed_4b), (transposed_2b, transposed_4b).");
-  return {has_1b ? dataset.get_quantizer(1, bbq_code_layout::packed_1b)
-                 : dataset.get_quantizer(2, bbq_code_layout::transposed_2b),
-          tc_pair   ? dataset.get_quantizer(4, bbq_code_layout::packed_4b)
-          : has_4bt ? dataset.get_quantizer(4, bbq_code_layout::transposed_4b)
-                    : dataset.get_quantizer(2, bbq_code_layout::transposed_2b)};
+  return {has_1b ? dataset.get_quantizer(bbq_code_layout::packed_1b)
+                 : dataset.get_quantizer(bbq_code_layout::transposed_2b),
+          tc_pair   ? dataset.get_quantizer(bbq_code_layout::packed_4b)
+          : has_4bt ? dataset.get_quantizer(bbq_code_layout::transposed_4b)
+                    : dataset.get_quantizer(bbq_code_layout::transposed_2b)};
 }
 
 template <typename DataT>

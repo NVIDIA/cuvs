@@ -25,29 +25,14 @@ namespace preprocessing::quantize::bbq {
 
 // --------------------------------------------------------------------------
 // Layout geometry
-// Encoded row length implied by a code layout, bit width and dimensionality.
+// Encoded row length of a quantizer, and the bit planes its layout slices a row into.
 // --------------------------------------------------------------------------
-
-_RAFT_HOST_DEVICE constexpr uint32_t get_encoded_row_length(const bbq_code_layout layout,
-                                                            const uint32_t bits,
-                                                            const uint32_t dim)
-{
-  switch (layout) {
-    case bbq_code_layout::packed_1b: return (dim * bits + 7) / 8;
-    case bbq_code_layout::transposed_2b: return bits * ((dim + 7) / 8);
-    case bbq_code_layout::packed_4b: return (dim + 1) / 2;
-    case bbq_code_layout::transposed_4b: return 4 * ((dim + 7) / 8);
-    case bbq_code_layout::packed_7b: return dim;
-    case bbq_code_layout::packed_8b: return dim;
-  }
-  return 0;
-}
 
 template <typename DataT, typename IdxT>
 _RAFT_HOST_DEVICE constexpr uint32_t get_encoded_row_length(
   const device_bbq_quantizer_view<DataT, IdxT>& dataset)
 {
-  return get_encoded_row_length(dataset.layout, dataset.bits, dataset.dim());
+  return get_encoded_row_length(dataset.dim(), dataset.layout);
 }
 
 /**
@@ -169,7 +154,6 @@ __device__ __forceinline__ uint32_t code_inner_product_packed_8b(const uint8_t* 
 __device__ __forceinline__ uint32_t code_inner_product(const uint8_t* row_a,
                                                        const uint8_t* row_b,
                                                        const bbq_code_layout layout,
-                                                       const uint32_t bits,
                                                        const size_t n_bytes,
                                                        uint32_t result = 0)
 {
@@ -187,7 +171,11 @@ __device__ __forceinline__ uint32_t code_inner_product(const uint8_t* row_a,
     case bbq_code_layout::packed_7b:
     default:
       return code_inner_product_packed_8b(
-        row_a, row_b, n_bytes, result, static_cast<uint8_t>((uint32_t{1} << bits) - 1));
+        row_a,
+        row_b,
+        n_bytes,
+        result,
+        static_cast<uint8_t>((uint32_t{1} << get_bit_width(layout)) - 1));
   }
 }
 
@@ -306,11 +294,8 @@ code_inner_product(const device_bbq_quantizer_view<DataT, IdxT>& quantizer_docum
   const uint8_t* query    = &quantizer_query.codes(row_query, 0);
 
   if (quantizer_document.layout == quantizer_query.layout) {
-    return code_inner_product(document,
-                              query,
-                              quantizer_document.layout,
-                              quantizer_document.bits,
-                              get_encoded_row_length(quantizer_document));
+    return code_inner_product(
+      document, query, quantizer_document.layout, get_encoded_row_length(quantizer_document));
   }
   if (quantizer_document.layout == bbq_code_layout::packed_1b &&
       quantizer_query.layout == bbq_code_layout::packed_4b) {

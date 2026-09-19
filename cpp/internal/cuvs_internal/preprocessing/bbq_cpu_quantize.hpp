@@ -39,6 +39,8 @@
 namespace cuvs_internal::bbq {
 
 using cuvs::preprocessing::quantize::bbq::bbq_code_layout;
+using cuvs::preprocessing::quantize::bbq::get_bit_width;
+using cuvs::preprocessing::quantize::bbq::get_encoded_row_length;
 
 /**
  * Host-resident mirror of the arrays in a bbq_quantizer. The library quantizer is device-only,
@@ -55,7 +57,6 @@ struct host_quantizer_storage {
   raft::host_vector<float, int64_t> dequant_delta;
   raft::host_vector<float, int64_t> dequant_sum_delta;
   raft::host_vector<float, int64_t> row_norm;
-  uint32_t bits{};
   bbq_code_layout layout{bbq_code_layout::packed_1b};
   cuvs::distance::DistanceType metric{cuvs::distance::DistanceType::L2Expanded};
   float centroid_norm_sq{};
@@ -68,7 +69,7 @@ struct host_quantizer_storage {
  */
 inline void derive_dequant_factors(host_quantizer_storage& q)
 {
-  const float scale = 1.0f / static_cast<float>((uint32_t{1} << q.bits) - 1);
+  const float scale = 1.0f / static_cast<float>((uint32_t{1} << get_bit_width(q.layout)) - 1);
   for (int64_t i = 0; i < q.lower_intervals.extent(0); ++i) {
     const float delta      = (q.upper_intervals(i) - q.lower_intervals(i)) * scale;
     q.dequant_delta(i)     = delta;
@@ -206,29 +207,16 @@ inline row_result scalar_quantize(std::vector<float>& vector,
   return row_result{interval[0], interval[1], euclidean ? norm2 : centroid_dot, sum_query};
 }
 
-inline size_t encoded_row_length(size_t dim, uint32_t bits, bbq_code_layout layout)
-{
-  switch (layout) {
-    case bbq_code_layout::packed_1b: return (dim * bits + 7) / 8;
-    case bbq_code_layout::transposed_2b: return bits * ((dim + 7) / 8);
-    case bbq_code_layout::packed_4b: return (dim + 1) / 2;
-    case bbq_code_layout::packed_7b: return dim;
-    case bbq_code_layout::packed_8b: return dim;
-    case bbq_code_layout::transposed_4b: return 4 * ((dim + 7) / 8);
-  }
-  return 0;
-}
-
 // Packs one-byte-per-component codes into packed_1b / transposed_2b /
 // packed_4b / transposed_4b (or leaves unpacked). Matches Lucene packAsBinary,
 // packNibbles, transposeDibit, transposeHalfByte.
 inline std::vector<uint8_t> pack_codes(const std::vector<uint8_t>& unpacked,
                                        size_t n_rows,
                                        size_t dim,
-                                       uint32_t bits,
                                        bbq_code_layout layout)
 {
-  const size_t row_length = encoded_row_length(dim, bits, layout);
+  const uint32_t bits     = get_bit_width(layout);
+  const size_t row_length = get_encoded_row_length(static_cast<uint32_t>(dim), layout);
   if (layout == bbq_code_layout::packed_8b || layout == bbq_code_layout::packed_7b) {
     return unpacked;
   }
@@ -273,10 +261,10 @@ inline std::vector<uint8_t> pack_codes(const std::vector<uint8_t>& unpacked,
 inline host_quantizer_storage quantize(const float* data,
                                        int64_t n_rows,
                                        int64_t dim,
-                                       uint8_t bits,
                                        cuvs::distance::DistanceType metric,
                                        bbq_code_layout layout = bbq_code_layout::packed_8b)
 {
+  const auto bits      = static_cast<uint8_t>(get_bit_width(layout));
   const bool euclidean = metric == cuvs::distance::DistanceType::L2Expanded ||
                          metric == cuvs::distance::DistanceType::L2SqrtExpanded;
 
@@ -317,10 +305,9 @@ inline host_quantizer_storage quantize(const float* data,
     quantized_component_sums(i) = result.quantized_component_sum;
   }
 
-  auto packed =
-    pack_codes(unpacked, static_cast<size_t>(n_rows), static_cast<size_t>(dim), bits, layout);
-  auto codes = raft::make_host_matrix<uint8_t, int64_t>(
-    n_rows, static_cast<int64_t>(encoded_row_length(dim, bits, layout)));
+  auto packed = pack_codes(unpacked, static_cast<size_t>(n_rows), static_cast<size_t>(dim), layout);
+  auto codes  = raft::make_host_matrix<uint8_t, int64_t>(
+    n_rows, get_encoded_row_length(static_cast<uint32_t>(dim), layout));
   std::copy(packed.begin(), packed.end(), codes.data_handle());
 
   host_quantizer_storage out{std::move(codes),
@@ -332,7 +319,6 @@ inline host_quantizer_storage quantize(const float* data,
                              raft::make_host_vector<float, int64_t>(n_rows),
                              raft::make_host_vector<float, int64_t>(n_rows),
                              std::move(row_norm),
-                             static_cast<uint32_t>(bits),
                              layout,
                              metric,
                              centroid_norm_sq};
@@ -352,7 +338,6 @@ auto copy_bbq_owning_storage_host_to_device(raft::resources const& res,
   device_storage device{res,
                         static_cast<IdxT>(host_storage.codes.extent(0)),
                         static_cast<uint32_t>(host_storage.centroid.extent(0)),
-                        host_storage.bits,
                         host_storage.layout,
                         host_storage.metric};
 
@@ -473,15 +458,14 @@ inline void validate_layout_pair(bbq_code_layout query_layout, bbq_code_layout d
 /** Every parameter that affects the codes is in the name, so the cache self-invalidates. */
 inline auto cache_path(int64_t n_rows,
                        int64_t dim,
-                       uint32_t bits,
                        bbq_code_layout layout,
                        cuvs::distance::DistanceType metric) -> std::string
 {
   const char* dir = std::getenv("CUVS_BBQ_CACHE_DIR");
   return std::string{dir != nullptr && dir[0] != '\0' ? dir : "/tmp"} + "/bbq-n" +
-         std::to_string(n_rows) + "-d" + std::to_string(dim) + "-b" + std::to_string(bits) + "-l" +
-         std::to_string(static_cast<int>(layout)) + "-m" +
-         std::to_string(static_cast<int>(metric)) + ".bin";
+         std::to_string(n_rows) + "-d" + std::to_string(dim) + "-b" +
+         std::to_string(get_bit_width(layout)) + "-l" + std::to_string(static_cast<int>(layout)) +
+         "-m" + std::to_string(static_cast<int>(metric)) + ".bin";
 }
 
 /** Visits every raw buffer of @p q in a fixed order; this is the on-disk layout. */
@@ -502,14 +486,13 @@ void for_each_buffer(host_quantizer_storage& q, OpT op)
 /** Allocates the arrays of the given shape, leaving their contents undefined. */
 inline auto make_host_quantizer_storage(int64_t n_rows,
                                         int64_t dim,
-                                        uint32_t bits,
                                         bbq_code_layout layout,
                                         cuvs::distance::DistanceType metric)
   -> host_quantizer_storage
 {
   return host_quantizer_storage{
     raft::make_host_matrix<uint8_t, int64_t>(
-      n_rows, static_cast<int64_t>(encoded_row_length(dim, bits, layout))),
+      n_rows, get_encoded_row_length(static_cast<uint32_t>(dim), layout)),
     raft::make_host_vector<float, int64_t>(n_rows),
     raft::make_host_vector<float, int64_t>(n_rows),
     raft::make_host_vector<float, int64_t>(n_rows),
@@ -518,7 +501,6 @@ inline auto make_host_quantizer_storage(int64_t n_rows,
     raft::make_host_vector<float, int64_t>(n_rows),
     raft::make_host_vector<float, int64_t>(n_rows),
     raft::make_host_vector<float, int64_t>(n_rows),
-    bits,
     layout,
     metric,
     0.0f};
@@ -528,13 +510,12 @@ inline auto make_host_quantizer_storage(int64_t n_rows,
 inline auto cache_load(const std::string& path,
                        int64_t n_rows,
                        int64_t dim,
-                       uint32_t bits,
                        bbq_code_layout layout,
                        cuvs::distance::DistanceType metric) -> std::optional<host_quantizer_storage>
 {
   std::ifstream f(path, std::ios::binary | std::ios::ate);
   if (!f) { return std::nullopt; }
-  auto q               = make_host_quantizer_storage(n_rows, dim, bits, layout, metric);
+  auto q               = make_host_quantizer_storage(n_rows, dim, layout, metric);
   std::streamoff bytes = 0;
   for_each_buffer(q, [&bytes](void*, size_t n) { bytes += static_cast<std::streamoff>(n); });
   if (f.tellg() != bytes) {
@@ -550,7 +531,7 @@ inline auto cache_load(const std::string& path,
   }
   // Cheaper to recompute than to store and validate. dequant_delta/dequant_sum_delta are likewise
   // a deterministic function of the cached lower/upper_intervals, quantized_component_sums, and
-  // bits, so they are recomputed here rather than added to the on-disk layout.
+  // layout, so they are recomputed here rather than added to the on-disk layout.
   for (int64_t d = 0; d < dim; ++d) {
     q.centroid_norm_sq += q.centroid(d) * q.centroid(d);
   }
@@ -590,30 +571,14 @@ inline void cache_store(const std::string& path, host_quantizer_storage& q)
 inline auto quantize_cached(const float* rows,
                             int64_t n_rows,
                             int64_t dim,
-                            uint32_t bits,
                             bbq_code_layout layout,
                             cuvs::distance::DistanceType metric) -> host_quantizer_storage
 {
-  const auto path = cache_path(n_rows, dim, bits, layout, metric);
-  if (auto cached = cache_load(path, n_rows, dim, bits, layout, metric)) {
-    return std::move(*cached);
-  }
-  auto quantized = quantize(rows, n_rows, dim, static_cast<uint8_t>(bits), metric, layout);
+  const auto path = cache_path(n_rows, dim, layout, metric);
+  if (auto cached = cache_load(path, n_rows, dim, layout, metric)) { return std::move(*cached); }
+  auto quantized = quantize(rows, n_rows, dim, metric, layout);
   cache_store(path, quantized);
   return quantized;
-}
-
-constexpr uint8_t bits_of(cuvs::preprocessing::quantize::bbq::bbq_code_layout layout)
-{
-  switch (layout) {
-    case cuvs::preprocessing::quantize::bbq::bbq_code_layout::packed_1b: return 1;
-    case cuvs::preprocessing::quantize::bbq::bbq_code_layout::transposed_2b: return 2;
-    case cuvs::preprocessing::quantize::bbq::bbq_code_layout::packed_4b:
-    case cuvs::preprocessing::quantize::bbq::bbq_code_layout::transposed_4b: return 4;
-    case cuvs::preprocessing::quantize::bbq::bbq_code_layout::packed_7b: return 7;
-    case cuvs::preprocessing::quantize::bbq::bbq_code_layout::packed_8b: return 8;
-  }
-  return 0;
 }
 
 /**
@@ -633,9 +598,9 @@ inline auto quantize_to_device(raft::resources const& res,
 {
   validate_layout_pair(query_layout, doc_layout);
   std::vector<host_quantizer_storage> host;
-  host.push_back(quantize_cached(rows, n_rows, dim, bits_of(query_layout), query_layout, metric));
+  host.push_back(quantize_cached(rows, n_rows, dim, query_layout, metric));
   if (doc_layout != query_layout) {
-    host.push_back(quantize_cached(rows, n_rows, dim, bits_of(doc_layout), doc_layout, metric));
+    host.push_back(quantize_cached(rows, n_rows, dim, doc_layout, metric));
   }
   auto device = make_device_bbq_dataset<int64_t>(res, host);
   // The uploads are stream-ordered against `host`, which dies with this frame.

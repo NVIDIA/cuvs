@@ -22,14 +22,14 @@ void resolve_dequant_factors(
   raft::device_vector_view<const float, int64_t> lower_intervals,
   raft::device_vector_view<const float, int64_t> upper_intervals,
   raft::device_vector_view<const int32_t, int64_t> quantized_component_sums,
-  uint32_t bits)
+  bbq_code_layout layout)
 {
   const auto n_rows = dequant_delta.extent(0);
   RAFT_EXPECTS(dequant_sum_delta.extent(0) == n_rows && lower_intervals.extent(0) == n_rows &&
                  upper_intervals.extent(0) == n_rows &&
                  quantized_component_sums.extent(0) == n_rows,
                "resolve_dequant_factors: all vectors must have the same length");
-  const float scale = 1.0f / static_cast<float>((uint32_t{1} << bits) - 1);
+  const float scale = 1.0f / static_cast<float>((uint32_t{1} << get_bit_width(layout)) - 1);
   auto* sum_delta   = dequant_sum_delta.data_handle();
   raft::linalg::map_offset(res,
                            dequant_delta,
