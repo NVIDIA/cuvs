@@ -78,3 +78,13 @@ groups:
     search:
       itopk: [64]
       search_width: [1, 4, 16]
+  bbq:
+    build:
+      graph_degree: [32, 64]
+      intermediate_graph_degree: [64, 128]
+      graph_build_algo: ["NN_DESCENT"]
+      nn_descent_bbq_query_format: ["4t"]
+      nn_descent_bbq_doc_format: ["1", "2t"]
+    search:
+      itopk: [64]
+      search_width: [1, 4]

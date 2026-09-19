@@ -408,7 +408,6 @@ struct vpq_dataset_view_storage {
   }
   [[nodiscard]] owning_dataset_type const& dset() const noexcept { return *dataset_; }
 };
-
 }  // namespace detail
 
 // -----------------------------------------------------------------------------
@@ -776,6 +775,7 @@ enum class dataset_view_kind {
   standard,
   vpq_f16,
   vpq_f32,
+  bbq,
 };
 
 /** Primary template returns `unknown` so traits safely return `false` for non-dataset-view types.

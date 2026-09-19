@@ -28,6 +28,18 @@
 
 namespace cuvs::neighbors {
 
+/** Compute capability of the current device as major * 10 + minor. */
+inline auto device_compute_capability() -> int
+{
+  int device = 0;
+  int major  = 0;
+  int minor  = 0;
+  RAFT_CUDA_TRY(cudaGetDevice(&device));
+  RAFT_CUDA_TRY(cudaDeviceGetAttribute(&major, cudaDevAttrComputeCapabilityMajor, device));
+  RAFT_CUDA_TRY(cudaDeviceGetAttribute(&minor, cudaDevAttrComputeCapabilityMinor, device));
+  return major * 10 + minor;
+}
+
 struct print_dtype {
   cudaDataType_t value;
 };
