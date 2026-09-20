@@ -3013,6 +3013,75 @@ void deserialize(raft::resources const& handle,
                  std::istream& is,
                  cuvs::neighbors::cagra::device_pq_index<uint8_t>* index);
 
+/* device_bbq_index graph-only overloads (CAGRA + BBQ).
+ *
+ * These overloads persist the graph and index metadata, but not the attached BBQ dataset
+ * Attach a compatible dataset with `update_dataset` after deserialization before searching.
+ */
+void serialize(raft::resources const& handle,
+               const std::string& filename,
+               const cuvs::neighbors::cagra::device_bbq_index<float>& index);
+
+void deserialize(raft::resources const& handle,
+                 const std::string& filename,
+                 cuvs::neighbors::cagra::device_bbq_index<float>* index);
+
+void serialize(raft::resources const& handle,
+               std::ostream& os,
+               const cuvs::neighbors::cagra::device_bbq_index<float>& index);
+
+void deserialize(raft::resources const& handle,
+                 std::istream& is,
+                 cuvs::neighbors::cagra::device_bbq_index<float>* index);
+
+void serialize(raft::resources const& handle,
+               const std::string& filename,
+               const cuvs::neighbors::cagra::device_bbq_index<half>& index);
+
+void deserialize(raft::resources const& handle,
+                 const std::string& filename,
+                 cuvs::neighbors::cagra::device_bbq_index<half>* index);
+
+void serialize(raft::resources const& handle,
+               std::ostream& os,
+               const cuvs::neighbors::cagra::device_bbq_index<half>& index);
+
+void deserialize(raft::resources const& handle,
+                 std::istream& is,
+                 cuvs::neighbors::cagra::device_bbq_index<half>* index);
+
+void serialize(raft::resources const& handle,
+               const std::string& filename,
+               const cuvs::neighbors::cagra::device_bbq_index<int8_t>& index);
+
+void deserialize(raft::resources const& handle,
+                 const std::string& filename,
+                 cuvs::neighbors::cagra::device_bbq_index<int8_t>* index);
+
+void serialize(raft::resources const& handle,
+               std::ostream& os,
+               const cuvs::neighbors::cagra::device_bbq_index<int8_t>& index);
+
+void deserialize(raft::resources const& handle,
+                 std::istream& is,
+                 cuvs::neighbors::cagra::device_bbq_index<int8_t>* index);
+
+void serialize(raft::resources const& handle,
+               const std::string& filename,
+               const cuvs::neighbors::cagra::device_bbq_index<uint8_t>& index);
+
+void deserialize(raft::resources const& handle,
+                 const std::string& filename,
+                 cuvs::neighbors::cagra::device_bbq_index<uint8_t>* index);
+
+void serialize(raft::resources const& handle,
+               std::ostream& os,
+               const cuvs::neighbors::cagra::device_bbq_index<uint8_t>& index);
+
+void deserialize(raft::resources const& handle,
+                 std::istream& is,
+                 cuvs::neighbors::cagra::device_bbq_index<uint8_t>* index);
+
 /** @copydoc serialize */
 void serialize(raft::resources const& handle,
                const std::string& filename,

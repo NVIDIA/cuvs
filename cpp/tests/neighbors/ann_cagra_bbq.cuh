@@ -18,6 +18,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <sstream>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -114,9 +115,10 @@ class AnnCagraBbqTest : public ::testing::TestWithParam<AnnCagraBbqInputs> {
     return indices_naive;
   }
 
-  /** Search @p index and return its recall against @p ground_truth. */
+  /** Top-k neighbors @p index returns for the test queries. */
   template <typename IndexT>
-  auto search_recall(IndexT const& index, std::vector<uint32_t> const& ground_truth) -> double
+  auto search_neighbors(IndexT const& index, cagra::search_params search_params = {})
+    -> std::vector<uint32_t>
   {
     size_t queries_size = static_cast<size_t>(ps.n_queries) * ps.k;
     rmm::device_uvector<float> distances_dev(queries_size, stream_);
@@ -129,16 +131,20 @@ class AnnCagraBbqTest : public ::testing::TestWithParam<AnnCagraBbqInputs> {
     auto dists_out_view =
       raft::make_device_matrix_view<float, int64_t>(distances_dev.data(), ps.n_queries, ps.k);
 
-    cagra::search_params search_params;
     cagra::search(
       handle_, search_params, index, search_queries_view, indices_out_view, dists_out_view);
 
     std::vector<uint32_t> indices_cagra(queries_size);
     raft::update_host(indices_cagra.data(), indices_dev.data(), queries_size, stream_);
     raft::resource::sync_stream(handle_);
+    return indices_cagra;
+  }
 
+  template <typename IndexT>
+  auto search_recall(IndexT const& index, std::vector<uint32_t> const& ground_truth) -> double
+  {
     auto [recall, match_count, total_count] =
-      calc_recall(ground_truth, indices_cagra, ps.n_queries, ps.k);
+      calc_recall(ground_truth, search_neighbors(index), ps.n_queries, ps.k);
     return recall;
   }
 
@@ -222,6 +228,48 @@ class AnnCagraBbqTest : public ::testing::TestWithParam<AnnCagraBbqInputs> {
           << "graph node " << i << " has an out-of-range neighbor at position " << j;
       }
     }
+  }
+
+  /**
+   * A BBQ index file holds the graph alone: the codes and their quantizers live outside the
+   * index, so the restored graph only becomes searchable once a dataset is reattached, and then
+   * it answers exactly as the original did.
+   */
+  void testSerializeRoundTrip()
+  {
+    if (ps.metric == cuvs::distance::DistanceType::L2SqrtExpanded) {
+      GTEST_SKIP() << "CAGRA search does not support L2SqrtExpanded";
+    }
+
+    auto database_view =
+      raft::make_device_matrix_view<const float, int64_t>(database.data(), ps.n_rows, ps.dim);
+    cuvs::neighbors::test::padded_device_matrix_for_cagra<float> device_padded(handle_,
+                                                                               database_view);
+
+    auto owning_codes = quantize_database();
+    auto graph_index =
+      cagra::build(handle_, default_index_params(), owning_codes.as_dataset_view());
+
+    std::stringstream stored;
+    cagra::serialize(handle_, stored, graph_index);
+
+    device_bbq_index<float> restored{handle_};
+    cagra::deserialize(handle_, stored, &restored);
+
+    ASSERT_EQ(restored.size(), graph_index.size());
+    ASSERT_EQ(restored.graph_size(), graph_index.graph_size());
+    ASSERT_EQ(restored.graph_degree(), graph_index.graph_degree());
+    EXPECT_EQ(restored.metric(), graph_index.metric());
+    EXPECT_EQ(restored.dataset().n_rows(), 0);
+    EXPECT_TRUE(restored.dataset().quantizers.empty());
+
+    auto original   = cagra::update_dataset(handle_, std::move(graph_index), device_padded.view);
+    auto reattached = cagra::update_dataset(handle_, std::move(restored), device_padded.view);
+    // Use single-CTA kernel to check for exact search results.
+    cagra::search_params search_params;
+    search_params.algo = cagra::search_algo::SINGLE_CTA;
+    EXPECT_EQ(search_neighbors(reattached, search_params),
+              search_neighbors(original, search_params));
   }
 
   /** `attach_dataset_on_build = false` yields a graph without any dataset binding. */
@@ -311,7 +359,7 @@ inline const std::vector<AnnCagraBbqInputs> bbq_inputs = [] {
   std::vector<AnnCagraBbqInputs> out;
   for (const auto& [layout, second_layout, min_recall_ratio] : code_specs) {
     const auto batch = raft::util::itertools::product<AnnCagraBbqInputs>(
-      {100},   // n_queries
+      {200},   // n_queries
       {4000},  // n_rows
       {128},   // dim
       {10},    // k

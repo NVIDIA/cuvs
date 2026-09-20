@@ -12,6 +12,7 @@ namespace cuvs::neighbors::cagra {
 TEST_P(AnnCagraBbqTest, AnnCagraBbqSearchRecall) { this->testSearchRecall(); }
 TEST_P(AnnCagraBbqTest, AnnCagraBbqGraphShape) { this->testGraphShape(); }
 TEST_P(AnnCagraBbqTest, AnnCagraBbqGraphOnlyBuild) { this->testGraphOnlyBuild(); }
+TEST_P(AnnCagraBbqTest, AnnCagraBbqSerializeRoundTrip) { this->testSerializeRoundTrip(); }
 TEST_P(AnnCagraBbqTest, AnnCagraBbqUnsupportedParams) { this->testUnsupportedParams(); }
 
 INSTANTIATE_TEST_CASE_P(AnnCagraBbqTest, AnnCagraBbqTest, ::testing::ValuesIn(bbq_inputs));
