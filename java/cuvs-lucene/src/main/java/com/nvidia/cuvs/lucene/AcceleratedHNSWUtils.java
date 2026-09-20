@@ -234,12 +234,9 @@ public class AcceleratedHNSWUtils {
     int numLevels = graph.numLevels();
     int[][] offsets = new int[numLevels][];
 
-    // Level 0 holds all nodes and dominates serialization cost. Each node's delta/VInt block is
-    // independent, so encode level 0 in parallel and concatenate the per-thread buffers serially in
-    // node order, in memory-bounded waves. Higher levels are tiny and stay serial. The on-disk
-    // bytes
-    // are identical to the fully-serial path (blocks in node order, offsets = per-node byte
-    // lengths).
+    // Each level-0 node's delta/VInt block is independent. Encode those blocks in parallel in fixed
+    // waves, then concatenate thread buffers in node order. Higher levels are much smaller and stay
+    // serial. Both paths write the same blocks and offsets in the same order.
     // graph.maxConn() scans every layer-0 adjacency row (O(graph size)); compute it once here
     // rather than per level/per task below.
     int maxConn = graph.maxConn();
@@ -265,11 +262,8 @@ public class AcceleratedHNSWUtils {
   /** Node count below which parallel level-0 serialization is not worth the overhead. */
   static final int PARALLEL_MIN_NODES = 1 << 16;
 
-  /** Maximum encoded payload held by one parallel wave before it is copied to the index output. */
-  static final long MAX_PARALLEL_ENCODE_BYTES = 64L << 20;
-
-  /** Maximum bytes written by one node: one VInt count and {@code maxConn} VInt deltas. */
-  private static final int MAX_VINT_BYTES = 5;
+  /** Nodes per wave, bounding the number of nodes buffered independently of dataset size. */
+  static final int SERIALIZATION_WAVE_NODES = 1 << 20;
 
   /** Serially encodes a level's nodes into {@code out}, recording per-node byte lengths. */
   private static void writeLevelSerial(
@@ -291,7 +285,7 @@ public class AcceleratedHNSWUtils {
   }
 
   /**
-   * Encodes level 0 in parallel: within memory-bounded waves, threads encode contiguous node
+   * Encodes level 0 in parallel: within fixed-size waves, threads encode contiguous node
    * sub-ranges into per-thread buffers, which are then concatenated to {@code out} in node order
    * (identical layout to the serial path).
    */
@@ -312,9 +306,8 @@ public class AcceleratedHNSWUtils {
     try {
       TaskExecutor executor = new TaskExecutor(pool);
       int n = nodes.length;
-      int waveNodes = nodesPerSerializationWave(maxConn);
       for (int waveStart = 0; waveStart < n; ) {
-        int waveEnd = (int) Math.min(n, (long) waveStart + waveNodes);
+        int waveEnd = (int) Math.min(n, (long) waveStart + SERIALIZATION_WAVE_NODES);
         int perThread = (waveEnd - waveStart + numThreads - 1) / numThreads;
 
         ByteBuffersDataOutput[] buffers = new ByteBuffersDataOutput[numThreads];
@@ -351,16 +344,6 @@ public class AcceleratedHNSWUtils {
     } finally {
       pool.shutdown();
     }
-  }
-
-  /**
-   * Sizes serialization waves from an upper bound on encoded bytes rather than only node count, so
-   * increasing graph degree cannot create an unbounded transient heap allocation.
-   */
-  static int nodesPerSerializationWave(int maxConn) {
-    long maxBytesPerNode = (Math.max(0L, maxConn) + 1L) * MAX_VINT_BYTES;
-    return (int)
-        Math.max(1L, Math.min(Integer.MAX_VALUE, MAX_PARALLEL_ENCODE_BYTES / maxBytesPerNode));
   }
 
   /**

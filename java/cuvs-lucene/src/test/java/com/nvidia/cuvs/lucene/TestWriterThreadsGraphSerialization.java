@@ -19,64 +19,61 @@ import org.apache.lucene.store.IOContext;
 import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.store.IndexOutput;
 import org.apache.lucene.tests.util.LuceneTestCase;
+import org.apache.lucene.util.hnsw.NeighborArray;
 import org.junit.Test;
 
-/** Verifies parallel level-zero graph serialization is byte-identical and memory-bounded. */
+/** Verifies parallel level-zero graph serialization is byte-identical to serial serialization. */
 public class TestWriterThreadsGraphSerialization extends LuceneTestCase {
 
   private static final int NUM_NODES = AcceleratedHNSWUtils.PARALLEL_MIN_NODES + 1000;
   private static final int DEGREE = 12;
-  private static final int REPORTED_MAX_CONN = 512;
   private static final int NUM_THREADS = 4;
 
   @Test
-  public void parallelSerializationMatchesSerialAcrossWaves() throws Exception {
+  public void parallelSerializationMatchesSerial() throws Exception {
     int[][] adjacency = randomAdjacency(NUM_NODES, DEGREE, new Random(2));
 
     try (CuVSMatrix matrix = new ArrayMatrix(adjacency);
         Directory dir = new ByteBuffersDirectory()) {
       GPUBuiltHnswGraph serialGraph = newSingleLayerGraph(matrix);
       GPUBuiltHnswGraph parallelGraph = newSingleLayerGraph(matrix);
-
-      int[][] serialOffsets;
-      try (IndexOutput out = dir.createOutput("serial", IOContext.DEFAULT)) {
-        serialOffsets = AcceleratedHNSWUtils.writeGraph(serialGraph, out, 1);
-      }
-      int[][] parallelOffsets;
-      try (IndexOutput out = dir.createOutput("parallel", IOContext.DEFAULT)) {
-        parallelOffsets = AcceleratedHNSWUtils.writeGraph(parallelGraph, out, NUM_THREADS);
-      }
-
-      assertEquals(serialOffsets.length, parallelOffsets.length);
-      for (int level = 0; level < serialOffsets.length; level++) {
-        assertArrayEquals(serialOffsets[level], parallelOffsets[level]);
-      }
-      assertArrayEquals(readAllBytes(dir, "serial"), readAllBytes(dir, "parallel"));
-
-      assertTrue(
-          "test must cross a serialization-wave boundary",
-          AcceleratedHNSWUtils.nodesPerSerializationWave(REPORTED_MAX_CONN) < NUM_NODES);
+      assertSerialAndParallelMatch(serialGraph, parallelGraph, dir);
     }
   }
 
   @Test
-  public void serializationWaveHonorsEncodedByteBudget() {
-    for (int degree : new int[] {1, 32, 88, 152, 512}) {
-      int nodes = AcceleratedHNSWUtils.nodesPerSerializationWave(degree);
-      long maximumEncodedBytes = (long) nodes * (degree + 1L) * 5L;
-      assertTrue(maximumEncodedBytes <= AcceleratedHNSWUtils.MAX_PARALLEL_ENCODE_BYTES);
-      assertTrue(nodes > 0);
+  public void parallelSerializationMatchesSerialAcrossFixedWaveBoundary() throws Exception {
+    int numNodes = AcceleratedHNSWUtils.SERIALIZATION_WAVE_NODES + 1;
+    assertTrue(numNodes > AcceleratedHNSWUtils.SERIALIZATION_WAVE_NODES);
+
+    try (Directory dir = new ByteBuffersDirectory()) {
+      assertSerialAndParallelMatch(new LazyEmptyGraph(numNodes), new LazyEmptyGraph(numNodes), dir);
     }
+  }
+
+  private static void assertSerialAndParallelMatch(
+      GPUBuiltHnswGraph serialGraph, GPUBuiltHnswGraph parallelGraph, Directory dir)
+      throws Exception {
+    int[][] serialOffsets;
+    try (IndexOutput out = dir.createOutput("serial", IOContext.DEFAULT)) {
+      serialOffsets = AcceleratedHNSWUtils.writeGraph(serialGraph, out, 1);
+    }
+    int[][] parallelOffsets;
+    try (IndexOutput out = dir.createOutput("parallel", IOContext.DEFAULT)) {
+      parallelOffsets = AcceleratedHNSWUtils.writeGraph(parallelGraph, out, NUM_THREADS);
+    }
+
+    assertEquals(serialOffsets.length, parallelOffsets.length);
+    for (int level = 0; level < serialOffsets.length; level++) {
+      assertArrayEquals(serialOffsets[level], parallelOffsets[level]);
+    }
+    assertArrayEquals(readAllBytes(dir, "serial"), readAllBytes(dir, "parallel"));
   }
 
   private static GPUBuiltHnswGraph newSingleLayerGraph(CuVSMatrix layer0Adjacency)
       throws IOException {
-    return new ReportedMaxConnGraph(
-        NUM_NODES,
-        /* dimensions= */ 4,
-        Arrays.asList((int[]) null),
-        List.of(layer0Adjacency),
-        REPORTED_MAX_CONN);
+    return new GPUBuiltHnswGraph(
+        NUM_NODES, /* dimensions= */ 4, Arrays.asList((int[]) null), List.of(layer0Adjacency), 1);
   }
 
   private static byte[] readAllBytes(Directory dir, String name) throws Exception {
@@ -97,24 +94,65 @@ public class TestWriterThreadsGraphSerialization extends LuceneTestCase {
     return adjacency;
   }
 
-  /** Inflates maxConn only to force this modest test graph through multiple bounded waves. */
-  private static final class ReportedMaxConnGraph extends GPUBuiltHnswGraph {
-    private final int reportedMaxConn;
+  /** Supplies an empty graph lazily so the fixed wave boundary can be tested with little heap. */
+  private static final class LazyEmptyGraph extends GPUBuiltHnswGraph {
+    private final int graphSize;
 
-    ReportedMaxConnGraph(
-        int size,
-        int dimensions,
-        List<int[]> layerNodes,
-        List<CuVSMatrix> layerAdjacencies,
-        int reportedMaxConn)
-        throws IOException {
-      super(size, dimensions, layerNodes, layerAdjacencies, 1);
-      this.reportedMaxConn = reportedMaxConn;
+    LazyEmptyGraph(int graphSize) throws IOException {
+      super(
+          0,
+          /* dimensions= */ 4,
+          Arrays.asList((int[]) null),
+          List.of(new ArrayMatrix(new int[0][])),
+          1);
+      this.graphSize = graphSize;
+    }
+
+    @Override
+    public int size() {
+      return graphSize;
     }
 
     @Override
     public int maxConn() {
-      return reportedMaxConn;
+      return 0;
+    }
+
+    @Override
+    public NodesIterator getNodesOnLevel(int level) {
+      return new RangeNodesIterator(level == 0 ? graphSize : 0);
+    }
+
+    @Override
+    public NeighborArray getNeighbors(int level, int node) {
+      return null;
+    }
+  }
+
+  private static final class RangeNodesIterator extends GPUBuiltHnswGraph.NodesIterator {
+    private int current = -1;
+
+    RangeNodesIterator(int size) {
+      super(size);
+    }
+
+    @Override
+    public boolean hasNext() {
+      return current + 1 < size;
+    }
+
+    @Override
+    public int nextInt() {
+      return ++current;
+    }
+
+    @Override
+    public int consume(int[] dest) {
+      int count = Math.min(dest.length, size - (current + 1));
+      for (int i = 0; i < count; i++) {
+        dest[i] = ++current;
+      }
+      return count;
     }
   }
 
