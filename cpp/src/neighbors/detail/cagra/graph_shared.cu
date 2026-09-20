@@ -162,8 +162,7 @@ void launch_sort_knn_graph_impl(raft::resources const& res,
 }
 
 template <typename DataT, typename IdxT>
-using device_bbq_quantizer_view_t =
-  cuvs::preprocessing::quantize::bbq::device_bbq_quantizer_view<DataT, IdxT>;
+using bbq_quantizer_view_t = cuvs::preprocessing::quantize::bbq::quantizer_view<DataT, IdxT>;
 
 /**
  * Distance between two dataset rows in quantized space
@@ -171,8 +170,8 @@ using device_bbq_quantizer_view_t =
  */
 template <typename DataT>
 __device__ __forceinline__ float bbq_row_distance(
-  const device_bbq_quantizer_view_t<DataT, int64_t>& quantizer_document,
-  const device_bbq_quantizer_view_t<DataT, int64_t>& quantizer_query,
+  const bbq_quantizer_view_t<DataT, int64_t>& quantizer_document,
+  const bbq_quantizer_view_t<DataT, int64_t>& quantizer_query,
   cuvs::distance::DistanceType metric,
   int64_t row_document,
   int64_t row_query)
@@ -192,8 +191,8 @@ __device__ __forceinline__ float bbq_row_distance(
 }
 
 template <typename DataT, int numElementsPerThread>
-__global__ void kern_sort_bbq(const device_bbq_quantizer_view_t<DataT, int64_t> quantizer_document,
-                              const device_bbq_quantizer_view_t<DataT, int64_t> quantizer_query,
+__global__ void kern_sort_bbq(const bbq_quantizer_view_t<DataT, int64_t> quantizer_document,
+                              const bbq_quantizer_view_t<DataT, int64_t> quantizer_query,
                               uint32_t* const knn_graph,  // [graph_size, graph_degree]
                               const uint32_t graph_size,
                               const uint32_t graph_degree,
@@ -230,8 +229,8 @@ __global__ void kern_sort_bbq(const device_bbq_quantizer_view_t<DataT, int64_t> 
 }
 
 template <typename DataT>
-using sort_bbq_kernel_type = void (*)(device_bbq_quantizer_view_t<DataT, int64_t>,
-                                      device_bbq_quantizer_view_t<DataT, int64_t>,
+using sort_bbq_kernel_type = void (*)(bbq_quantizer_view_t<DataT, int64_t>,
+                                      bbq_quantizer_view_t<DataT, int64_t>,
                                       uint32_t*,
                                       uint32_t,
                                       uint32_t,
@@ -254,8 +253,7 @@ auto select_sort_bbq_kernel(uint32_t degree) -> sort_bbq_kernel_type<DataT>
 
 template <typename DataT>
 auto select_sort_quantizers(cuvs::neighbors::device_bbq_dataset_view<DataT, int64_t> const& dataset)
-  -> std::pair<device_bbq_quantizer_view_t<DataT, int64_t>,
-               device_bbq_quantizer_view_t<DataT, int64_t>>
+  -> std::pair<bbq_quantizer_view_t<DataT, int64_t>, bbq_quantizer_view_t<DataT, int64_t>>
 {
   using bbq_code_layout = cuvs::preprocessing::quantize::bbq::bbq_code_layout;
 

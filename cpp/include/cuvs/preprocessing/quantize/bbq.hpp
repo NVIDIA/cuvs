@@ -81,7 +81,7 @@ constexpr auto get_encoded_row_length(uint32_t dim, bbq_code_layout layout) noex
 }
 
 template <typename DataT, typename IdxT>
-struct bbq_quantizer {
+struct quantizer {
   raft::device_mdarray<uint8_t, raft::matrix_extent<IdxT>> codes;
   raft::device_mdarray<float, raft::vector_extent<IdxT>> lower_intervals;
   raft::device_mdarray<float, raft::vector_extent<IdxT>> upper_intervals;
@@ -101,11 +101,11 @@ struct bbq_quantizer {
   cuvs::distance::DistanceType metric{cuvs::distance::DistanceType::L2Expanded};
   float centroid_norm_sq{};
 
-  bbq_quantizer(raft::resources const& res,
-                IdxT n_rows,
-                uint32_t dim,
-                bbq_code_layout layout,
-                cuvs::distance::DistanceType metric)
+  quantizer(raft::resources const& res,
+            IdxT n_rows,
+            uint32_t dim,
+            bbq_code_layout layout,
+            cuvs::distance::DistanceType metric)
     : codes{raft::make_device_matrix<uint8_t, IdxT>(
         res, n_rows, static_cast<IdxT>(get_encoded_row_length(dim, layout)))},
       lower_intervals{raft::make_device_vector<float, IdxT>(res, n_rows)},
@@ -133,8 +133,8 @@ struct bbq_quantizer {
 };
 
 template <typename DataT, typename IdxT>
-struct bbq_quantizer_view {
-  using owning_storage = bbq_quantizer<DataT, IdxT>;
+struct quantizer_view {
+  using owning_storage = quantizer<DataT, IdxT>;
   raft::device_mdspan<const uint8_t, raft::matrix_extent<IdxT>, raft::layout_c_contiguous> codes;
   raft::device_mdspan<const float, raft::vector_extent<IdxT>, raft::layout_c_contiguous>
     lower_intervals;
@@ -155,7 +155,7 @@ struct bbq_quantizer_view {
   cuvs::distance::DistanceType metric{cuvs::distance::DistanceType::L2Expanded};
   float centroid_norm_sq{};
 
-  bbq_quantizer_view(
+  quantizer_view(
     raft::device_mdspan<const uint8_t, raft::matrix_extent<IdxT>, raft::layout_c_contiguous> codes_,
     raft::device_mdspan<const float, raft::vector_extent<IdxT>, raft::layout_c_contiguous>
       lower_intervals_,
@@ -191,7 +191,7 @@ struct bbq_quantizer_view {
   {
   }
 
-  bbq_quantizer_view(const owning_storage& quantizer) noexcept
+  quantizer_view(const owning_storage& quantizer) noexcept
     : codes{quantizer.codes.view()},
       lower_intervals{quantizer.lower_intervals.view()},
       upper_intervals{quantizer.upper_intervals.view()},
@@ -214,9 +214,6 @@ struct bbq_quantizer_view {
   }
 };
 
-template <typename DataT, typename IdxT>
-using device_bbq_quantizer_view = bbq_quantizer_view<DataT, IdxT>;
-
 namespace helpers {
 /**
  * Derives dequant_delta from lower/upper_intervals and the layout's code width, and
@@ -238,9 +235,9 @@ void resolve_dequant_factors(
 namespace neighbors {
 struct bbq_dataset_container {
   template <typename DataT, typename IdxT>
-  using owning_storage = cuvs::preprocessing::quantize::bbq::bbq_quantizer<DataT, IdxT>;
+  using owning_storage = cuvs::preprocessing::quantize::bbq::quantizer<DataT, IdxT>;
   template <typename DataT, typename IdxT>
-  using view_storage = cuvs::preprocessing::quantize::bbq::bbq_quantizer_view<DataT, IdxT>;
+  using view_storage = cuvs::preprocessing::quantize::bbq::quantizer_view<DataT, IdxT>;
 };
 
 template <typename DataT, typename IdxT, typename Accessor>

@@ -43,7 +43,7 @@ using cuvs::preprocessing::quantize::bbq::get_bit_width;
 using cuvs::preprocessing::quantize::bbq::get_encoded_row_length;
 
 /**
- * Host-resident mirror of the arrays in a bbq_quantizer. The library quantizer is device-only,
+ * Host-resident mirror of the arrays in a BBQ quantizer. The library quantizer is device-only,
  * so the CPU reference implementation and its on-disk cache need their own staging type; it is
  * uploaded by copy_bbq_owning_storage_host_to_device below.
  */

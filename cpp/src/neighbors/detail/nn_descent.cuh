@@ -52,7 +52,7 @@
 namespace cuvs::neighbors::nn_descent::detail {
 
 using cuvs::preprocessing::quantize::bbq::bbq_code_layout;
-using cuvs::preprocessing::quantize::bbq::device_bbq_quantizer_view;
+using cuvs::preprocessing::quantize::bbq::quantizer_view;
 
 template <typename Index_t>
 struct ResultItem;
@@ -1143,18 +1143,17 @@ using cuvs::preprocessing::quantize::bbq::packed_1b_to_4b;
 // stage_tile_simt copies native codes in storage layout (Planes > 1 gathers bit-sliced planes).
 // stage_promoted_tile expands packed_1b to u4 for int4 MMA (packed_4b is a plain copy).
 template <int Planes, int RowStride, typename DataT, typename Index_t>
-__device__ __forceinline__ void stage_tile_simt(
-  uint8_t (*dst)[RowStride],
-  const device_bbq_quantizer_view<DataT, int64_t>& quantizer,
-  const Index_t* neighbors,
-  const int count,
-  const size_t base,
-  const int plane_extent,
-  const int num_load_u32,
-  const int plane_tile_u32,
-  const bool last_tile,
-  const int warp_id,
-  const int lane_id)
+__device__ __forceinline__ void stage_tile_simt(uint8_t (*dst)[RowStride],
+                                                const quantizer_view<DataT, int64_t>& quantizer,
+                                                const Index_t* neighbors,
+                                                const int count,
+                                                const size_t base,
+                                                const int plane_extent,
+                                                const int num_load_u32,
+                                                const int plane_tile_u32,
+                                                const bool last_tile,
+                                                const int warp_id,
+                                                const int lane_id)
 {
   constexpr int num_warps = BLOCK_SIZE / raft::warp_size();
   for (int i = 0; i < MAX_NUM_BI_SAMPLES / num_warps; ++i) {
@@ -1184,15 +1183,14 @@ __device__ __forceinline__ void stage_tile_simt(
 // promoted bytes, so a single n_tiles drives every operand regardless of how compact each one's
 // on-disk format is.
 template <bbq_code_layout Layout, int TileBytes, int RowStride, typename DataT, typename Index_t>
-__device__ __forceinline__ void stage_promoted_tile(
-  uint8_t (*dst)[RowStride],
-  const device_bbq_quantizer_view<DataT, int64_t>& quantizer,
-  const Index_t* neighbors,
-  const int count,
-  const int step,
-  const int native_row_bytes,
-  const int warp_id,
-  const int lane_id)
+__device__ __forceinline__ void stage_promoted_tile(uint8_t (*dst)[RowStride],
+                                                    const quantizer_view<DataT, int64_t>& quantizer,
+                                                    const Index_t* neighbors,
+                                                    const int count,
+                                                    const int step,
+                                                    const int native_row_bytes,
+                                                    const int warp_id,
+                                                    const int lane_id)
 {
   static_assert(Layout == bbq_code_layout::packed_1b || Layout == bbq_code_layout::packed_4b,
                 "int4 MMA path supports packed_1b (1b), packed_4b (4b)");
@@ -1292,8 +1290,8 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
                              const Index_t* rev_graph_old,
                              const int2* sizes_old,
                              const int width,
-                             device_bbq_quantizer_view<DataT, int64_t> dataset_document,
-                             device_bbq_quantizer_view<DataT, int64_t> dataset_query,
+                             quantizer_view<DataT, int64_t> dataset_document,
+                             quantizer_view<DataT, int64_t> dataset_query,
                              ID_t* graph,
                              DistData_t* dists,
                              int graph_width,
@@ -1707,8 +1705,8 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
                              const Index_t* rev_graph_old,
                              const int2* sizes_old,
                              const int width,
-                             const device_bbq_quantizer_view<DataT, int64_t> dataset_document,
-                             const device_bbq_quantizer_view<DataT, int64_t> dataset_query,
+                             const quantizer_view<DataT, int64_t> dataset_document,
+                             const quantizer_view<DataT, int64_t> dataset_query,
                              ID_t* graph,
                              DistData_t* dists,
                              int graph_width,

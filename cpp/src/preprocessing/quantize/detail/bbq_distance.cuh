@@ -30,7 +30,7 @@ namespace preprocessing::quantize::bbq {
 
 template <typename DataT, typename IdxT>
 _RAFT_HOST_DEVICE constexpr uint32_t get_encoded_row_length(
-  const device_bbq_quantizer_view<DataT, IdxT>& dataset)
+  const quantizer_view<DataT, IdxT>& dataset)
 {
   return get_encoded_row_length(dataset.dim(), dataset.layout);
 }
@@ -285,8 +285,8 @@ __device__ __forceinline__ uint32_t code_inner_product_1b_x_packed_4b(const uint
  */
 template <typename DataT, typename IdxT>
 __device__ __forceinline__ uint32_t
-code_inner_product(const device_bbq_quantizer_view<DataT, IdxT>& quantizer_document,
-                   const device_bbq_quantizer_view<DataT, IdxT>& quantizer_query,
+code_inner_product(const quantizer_view<DataT, IdxT>& quantizer_document,
+                   const quantizer_view<DataT, IdxT>& quantizer_query,
                    int64_t row_document,
                    int64_t row_query)
 {
@@ -457,7 +457,7 @@ struct bbq_dequant_factors {
 
 template <typename DataT, typename IdxT>
 __device__ __forceinline__ bbq_dequant_factors
-get_dequant_factors(const device_bbq_quantizer_view<DataT, IdxT>& quantizer, int64_t row)
+get_dequant_factors(const quantizer_view<DataT, IdxT>& quantizer, int64_t row)
 {
   return bbq_dequant_factors{quantizer.lower_intervals(row),
                              quantizer.dequant_delta(row),
@@ -475,8 +475,8 @@ __device__ __forceinline__ float bbq_calculate_metric(
   uint32_t raw,
   const bbq_dequant_factors& doc_factors,
   const bbq_dequant_factors& query_factors,
-  const device_bbq_quantizer_view<DataT, int64_t>& quantizer_document,
-  const device_bbq_quantizer_view<DataT, int64_t>& quantizer_query,
+  const quantizer_view<DataT, int64_t>& quantizer_document,
+  const quantizer_view<DataT, int64_t>& quantizer_query,
   cuvs::distance::DistanceType metric,
   DistEpilogue_t dist_epilogue,
   Index_t document_id,
