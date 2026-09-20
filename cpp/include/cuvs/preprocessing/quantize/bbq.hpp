@@ -58,8 +58,8 @@ constexpr auto get_bit_width(bbq_code_layout layout) noexcept -> uint32_t
   switch (layout) {
     case bbq_code_layout::packed_1b: return 1;
     case bbq_code_layout::transposed_2b: return 2;
-    case bbq_code_layout::packed_4b:
-    case bbq_code_layout::transposed_4b: return 4;
+    case bbq_code_layout::transposed_4b:
+    case bbq_code_layout::packed_4b: return 4;
     case bbq_code_layout::packed_7b: return 7;
     case bbq_code_layout::packed_8b: return 8;
   }
@@ -72,10 +72,10 @@ constexpr auto get_encoded_row_length(uint32_t dim, bbq_code_layout layout) noex
   switch (layout) {
     case bbq_code_layout::packed_1b: return raft::ceildiv(dim, 8u);
     case bbq_code_layout::transposed_2b: return 2 * raft::ceildiv(dim, 8u);
+    case bbq_code_layout::transposed_4b: return 4 * raft::ceildiv(dim, 8u);
     case bbq_code_layout::packed_4b: return raft::ceildiv(dim, 2u);
     case bbq_code_layout::packed_7b: return dim;
     case bbq_code_layout::packed_8b: return dim;
-    case bbq_code_layout::transposed_4b: return 4 * raft::ceildiv(dim, 8u);
   }
   return 0;
 }
