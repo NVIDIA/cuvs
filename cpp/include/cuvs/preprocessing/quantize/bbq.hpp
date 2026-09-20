@@ -12,7 +12,7 @@
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/resources.hpp>
-#include <raft/util/cuda_dev_essentials.cuh>
+#include <raft/util/integer_utils.hpp>
 
 #include <cstdint>
 
@@ -67,10 +67,10 @@ constexpr auto get_bit_width(bbq_code_layout layout) noexcept -> uint32_t
 constexpr auto get_encoded_row_length(uint32_t dim, bbq_code_layout layout) noexcept -> uint32_t
 {
   switch (layout) {
-    case bbq_code_layout::packed_1b: return raft::ceildiv(dim, 8u);
-    case bbq_code_layout::transposed_2b: return 2 * raft::ceildiv(dim, 8u);
-    case bbq_code_layout::transposed_4b: return 4 * raft::ceildiv(dim, 8u);
-    case bbq_code_layout::packed_4b: return raft::ceildiv(dim, 2u);
+    case bbq_code_layout::packed_1b: return raft::div_rounding_up_safe(dim, 8u);
+    case bbq_code_layout::transposed_2b: return 2 * raft::div_rounding_up_safe(dim, 8u);
+    case bbq_code_layout::transposed_4b: return 4 * raft::div_rounding_up_safe(dim, 8u);
+    case bbq_code_layout::packed_4b: return raft::div_rounding_up_safe(dim, 2u);
     case bbq_code_layout::packed_7b: return dim;
     case bbq_code_layout::packed_8b: return dim;
   }
