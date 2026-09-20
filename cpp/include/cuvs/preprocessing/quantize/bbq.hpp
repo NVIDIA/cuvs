@@ -78,6 +78,9 @@ constexpr auto get_encoded_row_length(uint32_t dim, bbq_code_layout layout) noex
 }
 
 template <typename DataT, typename IdxT>
+struct quantizer_view;
+
+template <typename DataT, typename IdxT>
 struct quantizer {
   raft::device_matrix<uint8_t, IdxT> codes;
   raft::device_vector<float, IdxT> lower_intervals;
@@ -127,11 +130,25 @@ struct quantizer {
   {
     return get_encoded_row_length(dim(), layout);
   }
+  [[nodiscard]] auto view() const noexcept -> quantizer_view<DataT, IdxT>
+  {
+    return quantizer_view<DataT, IdxT>{codes.view(),
+                                       lower_intervals.view(),
+                                       upper_intervals.view(),
+                                       additional_corrections.view(),
+                                       quantized_component_sums.view(),
+                                       centroid.view(),
+                                       dequant_delta.view(),
+                                       dequant_sum_delta.view(),
+                                       row_norm.view(),
+                                       layout,
+                                       metric,
+                                       centroid_norm_sq};
+  }
 };
 
 template <typename DataT, typename IdxT>
 struct quantizer_view {
-  using owning_storage = quantizer<DataT, IdxT>;
   raft::device_matrix_view<const uint8_t, IdxT> codes;
   raft::device_vector_view<const float, IdxT> lower_intervals;
   raft::device_vector_view<const float, IdxT> upper_intervals;
@@ -170,22 +187,6 @@ struct quantizer_view {
       layout{layout_},
       metric{metric_},
       centroid_norm_sq{centroid_norm_sq_}
-  {
-  }
-
-  quantizer_view(const owning_storage& quantizer) noexcept
-    : codes{quantizer.codes.view()},
-      lower_intervals{quantizer.lower_intervals.view()},
-      upper_intervals{quantizer.upper_intervals.view()},
-      additional_corrections{quantizer.additional_corrections.view()},
-      quantized_component_sums{quantizer.quantized_component_sums.view()},
-      centroid{quantizer.centroid.view()},
-      dequant_delta{quantizer.dequant_delta.view()},
-      dequant_sum_delta{quantizer.dequant_sum_delta.view()},
-      row_norm{quantizer.row_norm.view()},
-      layout{quantizer.layout},
-      metric{quantizer.metric},
-      centroid_norm_sq{quantizer.centroid_norm_sq}
   {
   }
 

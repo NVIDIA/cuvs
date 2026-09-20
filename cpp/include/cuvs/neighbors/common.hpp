@@ -706,7 +706,7 @@ struct dataset_view<bbq_dataset_container, DataT, IdxT, Accessor> {
   void add_quantizer(const owning_storage_type& quantizer)
   {
     RAFT_EXPECTS(!has_layout(quantizer.layout), "Quantizer already exists with layout.");
-    quantizers.push_back(view_storage_type(quantizer));
+    quantizers.push_back(quantizer.view());
   }
   bool has_layout(cuvs::preprocessing::quantize::bbq::bbq_code_layout layout) const noexcept
   {
