@@ -33,7 +33,9 @@ public class TestWriterThreadsGraphMaterialization extends LuceneTestCase {
     int[][] adjacency = randomAdjacency(NUM_NODES, DEGREE, new Random(1));
 
     try (CuVSMatrix matrix = new ArrayMatrix(adjacency)) {
-      GPUBuiltHnswGraph serial = newSingleLayerGraph(matrix, 1);
+      GPUBuiltHnswGraph serial =
+          new GPUBuiltHnswGraph(
+              NUM_NODES, /* dimensions= */ 4, Arrays.asList((int[]) null), List.of(matrix));
       GPUBuiltHnswGraph parallel = newSingleLayerGraph(matrix, NUM_THREADS);
       assertGraphsEqual(serial, parallel);
     }

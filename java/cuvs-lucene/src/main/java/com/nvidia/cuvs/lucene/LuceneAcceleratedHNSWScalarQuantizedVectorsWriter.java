@@ -181,7 +181,7 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends KnnVector
       }
 
       // Create CuVSMatrix with BYTE data type (unsigned bytes)
-      CuVSMatrix dataset = Utils.createByteMatrix(unsignedVectors, dimensions);
+      CuVSMatrix dataset = Utils.createHostByteMatrix(unsignedVectors, dimensions);
 
       if (dataset.size() < 2) {
         writeSingleVectorGraph(fieldInfo, unsignedVectors);

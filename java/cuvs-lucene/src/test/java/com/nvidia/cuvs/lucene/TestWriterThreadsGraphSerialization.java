@@ -56,7 +56,7 @@ public class TestWriterThreadsGraphSerialization extends LuceneTestCase {
       throws Exception {
     int[][] serialOffsets;
     try (IndexOutput out = dir.createOutput("serial", IOContext.DEFAULT)) {
-      serialOffsets = AcceleratedHNSWUtils.writeGraph(serialGraph, out, 1);
+      serialOffsets = AcceleratedHNSWUtils.writeGraph(serialGraph, out);
     }
     int[][] parallelOffsets;
     try (IndexOutput out = dir.createOutput("parallel", IOContext.DEFAULT)) {
@@ -70,10 +70,9 @@ public class TestWriterThreadsGraphSerialization extends LuceneTestCase {
     assertArrayEquals(readAllBytes(dir, "serial"), readAllBytes(dir, "parallel"));
   }
 
-  private static GPUBuiltHnswGraph newSingleLayerGraph(CuVSMatrix layer0Adjacency)
-      throws IOException {
+  private static GPUBuiltHnswGraph newSingleLayerGraph(CuVSMatrix layer0Adjacency) {
     return new GPUBuiltHnswGraph(
-        NUM_NODES, /* dimensions= */ 4, Arrays.asList((int[]) null), List.of(layer0Adjacency), 1);
+        NUM_NODES, /* dimensions= */ 4, Arrays.asList((int[]) null), List.of(layer0Adjacency));
   }
 
   private static byte[] readAllBytes(Directory dir, String name) throws Exception {

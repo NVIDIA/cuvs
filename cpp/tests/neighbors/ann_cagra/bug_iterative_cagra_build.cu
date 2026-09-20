@@ -7,6 +7,7 @@
 
 #include "../cagra_padded_build_helpers.cuh"
 #include <cuvs/neighbors/cagra.hpp>
+#include <cuvs/preprocessing/quantize/pq.hpp>
 
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/device_resources.hpp>
@@ -24,9 +25,10 @@ class CagraIterativeBuildBugTest : public ::testing::Test {
   using data_type = DataT;
 
  protected:
-  void run()
+  // The bug manifests when graph_degree is equal to intermediate_graph_degree
+  // see issue https://github.com/rapidsai/cuvs/issues/1818
+  static auto bug_index_params() -> cagra::index_params
   {
-    // Set up iterative CAGRA graph building
     cagra::index_params index_params;
     // The bug manifests when graph_degree is equal to intermediate_graph_degree
     // see issue https://github.com/nvidia/cuvs/issues/1818
@@ -35,6 +37,12 @@ class CagraIterativeBuildBugTest : public ::testing::Test {
 
     // Use iterative CAGRA search for graph building
     index_params.graph_build_params = graph_build_params::iterative_search_params();
+    return index_params;
+  }
+
+  void run()
+  {
+    auto index_params = bug_index_params();
 
     cuvs::neighbors::test::padded_device_matrix_for_cagra<data_type> padded(
       res, raft::make_const_mdspan(dataset->view()));
@@ -45,6 +53,30 @@ class CagraIterativeBuildBugTest : public ::testing::Test {
     // Verify the index was built successfully
     ASSERT_GT(cagra_index.size(), 0);
     ASSERT_EQ(cagra_index.dim(), n_dim);
+  }
+
+  // Same bug, reached through iterative CAGRA-Q: the graph is built from a PQ-compressed dataset,
+  // so the searches driving the build run on compressed rows instead of dense ones.
+  void run_compressed()
+  {
+    cuvs::neighbors::vpq_params vpq_params;
+    // pq_len = n_dim / pq_dim must be 2, 4 or 8 for CAGRA-Q. Codebook quality is irrelevant here,
+    // since only graph construction is under test, so training stays short.
+    vpq_params.pq_dim         = static_cast<uint32_t>(n_dim / 4);
+    vpq_params.vq_n_centers   = 64;
+    vpq_params.kmeans_n_iters = 5;
+
+    auto compressed = cuvs::preprocessing::quantize::pq::make_vpq_dataset(
+      res, vpq_params, raft::make_const_mdspan(dataset->view()));
+
+    // No padding and no attach step: a compressed dataset is read through its own view, which the
+    // index holds on to, so `compressed` has to outlive the index.
+    auto cagra_index = cagra::build(res, bug_index_params(), compressed.as_dataset_view());
+    raft::resource::sync_stream(res);
+
+    ASSERT_GT(cagra_index.size(), 0);
+    ASSERT_EQ(cagra_index.dim(), n_dim);
+    ASSERT_EQ(cagra_index.graph_degree(), 16u);
   }
 
   void SetUp() override
@@ -85,5 +117,10 @@ using TestTypes = ::testing::Types<float, int8_t, uint8_t>;
 TYPED_TEST_SUITE(CagraIterativeBuildBugTest, TestTypes);
 
 TYPED_TEST(CagraIterativeBuildBugTest, IterativeBuildTest) { this->run(); }
+
+TYPED_TEST(CagraIterativeBuildBugTest, IterativeBuildFromCompressedDatasetTest)
+{
+  this->run_compressed();
+}
 
 }  // namespace cuvs::neighbors::cagra

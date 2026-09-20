@@ -38,6 +38,12 @@ public class GPUBuiltHnswGraph extends HnswGraph {
   // Layer 0 is special - it contains all nodes
   private final NeighborArray[] layer0Neighbors;
 
+  private record MaterializedGraph(
+      int numLevels,
+      List<int[]> layerNodes,
+      NeighborArray[] layer0Neighbors,
+      List<NeighborArray[]> layerNeighbors) {}
+
   /**
    * Multi-layer constructor that supports arbitrary number of layers.
    *
@@ -45,8 +51,13 @@ public class GPUBuiltHnswGraph extends HnswGraph {
    * @param dimensions the vector dimension
    * @param layerNodes the nodes on the layer
    * @param layerAdjacencies adjacency list
-   * @param numThreads threads to use for materializing the adjacency (1 = serial)
    */
+  public GPUBuiltHnswGraph(
+      int size, int dimensions, List<int[]> layerNodes, List<CuVSMatrix> layerAdjacencies) {
+    this(size, dimensions, materializeSerial(size, layerNodes, layerAdjacencies));
+  }
+
+  /** Builds a graph while materializing adjacency rows with the requested number of threads. */
   public GPUBuiltHnswGraph(
       int size,
       int dimensions,
@@ -54,24 +65,53 @@ public class GPUBuiltHnswGraph extends HnswGraph {
       List<CuVSMatrix> layerAdjacencies,
       int numThreads)
       throws IOException {
+    this(size, dimensions, materialize(size, layerNodes, layerAdjacencies, numThreads));
+  }
 
+  private GPUBuiltHnswGraph(int size, int dimensions, MaterializedGraph graph) {
     this.size = size;
     this.dimensions = dimensions;
-    this.numLevels = layerAdjacencies.size();
-    this.layerNodes = new ArrayList<>();
-    this.layerNeighbors = new ArrayList<>();
+    this.numLevels = graph.numLevels();
+    this.layerNodes = graph.layerNodes();
+    this.layerNeighbors = graph.layerNeighbors();
+    this.layer0Neighbors = graph.layer0Neighbors();
+  }
 
-    // Process Layer 0 (base layer with all nodes)
-    CuVSMatrix layer0Adjacency = layerAdjacencies.get(0);
-    this.layer0Neighbors = fillNeighborArray(layer0Adjacency, size, numThreads);
+  private static MaterializedGraph materializeSerial(
+      int size, List<int[]> layerNodes, List<CuVSMatrix> layerAdjacencies) {
+    List<int[]> upperLayerNodes = new ArrayList<>();
+    List<NeighborArray[]> upperLayerNeighbors = new ArrayList<>();
+    NeighborArray[] baseLayerNeighbors = fillNeighborArraySerial(layerAdjacencies.get(0), size);
 
-    // Process higher layers (1 to numLevels-1)
-    for (int level = 1; level < numLevels; level++) {
+    for (int level = 1; level < layerAdjacencies.size(); level++) {
       int[] nodes = layerNodes.get(level);
-      CuVSMatrix adjacency = layerAdjacencies.get(level);
-      this.layerNodes.add(nodes);
-      this.layerNeighbors.add(fillNeighborArray(adjacency, nodes.length, numThreads));
+      upperLayerNodes.add(nodes);
+      upperLayerNeighbors.add(fillNeighborArraySerial(layerAdjacencies.get(level), nodes.length));
     }
+    return new MaterializedGraph(
+        layerAdjacencies.size(), upperLayerNodes, baseLayerNeighbors, upperLayerNeighbors);
+  }
+
+  private static MaterializedGraph materialize(
+      int size, List<int[]> layerNodes, List<CuVSMatrix> layerAdjacencies, int numThreads)
+      throws IOException {
+    if (numThreads <= 1) {
+      return materializeSerial(size, layerNodes, layerAdjacencies);
+    }
+
+    List<int[]> upperLayerNodes = new ArrayList<>();
+    List<NeighborArray[]> upperLayerNeighbors = new ArrayList<>();
+    NeighborArray[] baseLayerNeighbors =
+        fillNeighborArray(layerAdjacencies.get(0), size, numThreads);
+
+    for (int level = 1; level < layerAdjacencies.size(); level++) {
+      int[] nodes = layerNodes.get(level);
+      upperLayerNodes.add(nodes);
+      upperLayerNeighbors.add(
+          fillNeighborArray(layerAdjacencies.get(level), nodes.length, numThreads));
+    }
+    return new MaterializedGraph(
+        layerAdjacencies.size(), upperLayerNodes, baseLayerNeighbors, upperLayerNeighbors);
   }
 
   /** Node count below which parallel materialization is not worth the thread overhead. */
@@ -123,6 +163,12 @@ public class GPUBuiltHnswGraph extends HnswGraph {
         hostCopy.close();
       }
     }
+  }
+
+  private static NeighborArray[] fillNeighborArraySerial(CuVSMatrix adjacency, int size) {
+    NeighborArray[] neighbors = new NeighborArray[size];
+    fillNeighborRange(adjacency, neighbors, 0, size);
+    return neighbors;
   }
 
   /** Returns whether an INT32 adjacency can be copied without exceeding the native-host budget. */

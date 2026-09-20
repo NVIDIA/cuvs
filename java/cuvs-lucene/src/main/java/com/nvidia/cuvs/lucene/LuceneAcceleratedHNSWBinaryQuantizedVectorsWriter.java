@@ -155,7 +155,7 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends KnnVector
       int dimensions = fieldInfo.getVectorDimension();
       int bytesPerVector = (dimensions + 7) / 8;
 
-      CuVSMatrix dataset = Utils.createByteMatrix(vectors, bytesPerVector);
+      CuVSMatrix dataset = Utils.createHostByteMatrix(vectors, bytesPerVector);
 
       if (dataset.size() < 2) {
         writeSingleVectorGraph(fieldInfo, vectors);
