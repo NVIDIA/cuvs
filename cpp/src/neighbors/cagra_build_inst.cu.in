@@ -66,7 +66,7 @@ CUVS_DEFINE_CAGRA_BUILD_OVERLOAD(inst_vpq_view_t,
 #endif
 
 CUVS_DEFINE_CAGRA_BUILD_OVERLOAD(inst_bbq_view_t,
-                                 cuvs::neighbors::cagra::bbq_index<data_t, uint32_t>);
+                                 cuvs::neighbors::cagra::device_bbq_index<data_t, uint32_t>);
 
 #undef CUVS_DEFINE_CAGRA_BUILD_OVERLOAD
 

@@ -959,7 +959,7 @@ using device_pq_index =
 
 /** CAGRA index with a device-resident BBQ-quantized dataset. */
 template <typename T, typename IdxT = uint32_t>
-using bbq_index = index<T, IdxT, cuvs::neighbors::device_bbq_dataset_view<T, int64_t>>;
+using device_bbq_index = index<T, IdxT, cuvs::neighbors::device_bbq_dataset_view<T, int64_t>>;
 
 /** Index type returned by `cagra::build(res, params, dataset_view)`. */
 template <typename DatasetViewT>
@@ -1234,33 +1234,33 @@ auto build(raft::resources const& res,
  * @param[in] res raft resources
  * @param[in] params CAGRA index build parameters
  * @param[in] dataset device BBQ dataset view [n_rows, dim]
- * @return built `bbq_index<float, uint32_t>`
+ * @return built `device_bbq_index<float, uint32_t>`
  */
 auto build(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
            cuvs::neighbors::device_bbq_dataset_view<float, int64_t> const& dataset)
-  -> cuvs::neighbors::cagra::bbq_index<float, uint32_t>;
+  -> cuvs::neighbors::cagra::device_bbq_index<float, uint32_t>;
 
 /** @copydoc build(raft::resources const& res, const cuvs::neighbors::cagra::index_params& params,
  * cuvs::neighbors::device_bbq_dataset_view<float, int64_t> const& dataset) */
 auto build(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
            cuvs::neighbors::device_bbq_dataset_view<half, int64_t> const& dataset)
-  -> cuvs::neighbors::cagra::bbq_index<half, uint32_t>;
+  -> cuvs::neighbors::cagra::device_bbq_index<half, uint32_t>;
 
 /** @copydoc build(raft::resources const& res, const cuvs::neighbors::cagra::index_params& params,
  * cuvs::neighbors::device_bbq_dataset_view<float, int64_t> const& dataset) */
 auto build(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
            cuvs::neighbors::device_bbq_dataset_view<int8_t, int64_t> const& dataset)
-  -> cuvs::neighbors::cagra::bbq_index<int8_t, uint32_t>;
+  -> cuvs::neighbors::cagra::device_bbq_index<int8_t, uint32_t>;
 
 /** @copydoc build(raft::resources const& res, const cuvs::neighbors::cagra::index_params& params,
  * cuvs::neighbors::device_bbq_dataset_view<float, int64_t> const& dataset) */
 auto build(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
            cuvs::neighbors::device_bbq_dataset_view<uint8_t, int64_t> const& dataset)
-  -> cuvs::neighbors::cagra::bbq_index<uint8_t, uint32_t>;
+  -> cuvs::neighbors::cagra::device_bbq_index<uint8_t, uint32_t>;
 
 /**
  * @}
