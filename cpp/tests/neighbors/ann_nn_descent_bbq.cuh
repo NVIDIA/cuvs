@@ -12,7 +12,6 @@
 #include <raft/core/host_mdarray.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/random/rng.cuh>
-#include <raft/util/cudart_utils.hpp>
 
 #include <gtest/gtest.h>
 
@@ -22,7 +21,6 @@
 #include <cstdint>
 #include <optional>
 #include <sstream>
-#include <utility>
 #include <vector>
 
 #include <raft/core/logger.hpp>
@@ -33,27 +31,6 @@ namespace cuvs::neighbors::nn_descent {
 namespace cpu_bbq = cuvs_internal::bbq;
 using cuvs::preprocessing::quantize::bbq::get_bit_width;
 using cuvs_internal::bbq::make_device_bbq_dataset;
-
-// CUDA-event elapsed time around @p fn on @p stream. Because the stop event is
-// recorded only after @p fn returns, stream-idle gaps from host work inside NN-Descent
-// are included — so this is effectively a wall-clock bracket of the build.
-template <typename Fn>
-float time_cuda_ms(rmm::cuda_stream_view stream, Fn&& fn)
-{
-  cudaEvent_t start{};
-  cudaEvent_t stop{};
-  RAFT_CUDA_TRY(cudaEventCreate(&start));
-  RAFT_CUDA_TRY(cudaEventCreate(&stop));
-  RAFT_CUDA_TRY(cudaEventRecord(start, stream));
-  std::forward<Fn>(fn)();
-  RAFT_CUDA_TRY(cudaEventRecord(stop, stream));
-  RAFT_CUDA_TRY(cudaEventSynchronize(stop));
-  float ms = 0.0f;
-  RAFT_CUDA_TRY(cudaEventElapsedTime(&ms, start, stop));
-  RAFT_CUDA_TRY(cudaEventDestroy(start));
-  RAFT_CUDA_TRY(cudaEventDestroy(stop));
-  return ms;
-}
 
 struct AnnNNDescentBbqInputs : AnnNNDescentInputs {
   cuvs::preprocessing::quantize::bbq::bbq_code_layout layout;
