@@ -65,6 +65,9 @@ CUVS_DEFINE_CAGRA_BUILD_OVERLOAD(inst_vpq_view_t,
                                  cuvs::neighbors::cagra::device_pq_index<float, uint32_t, half>);
 #endif
 
+CUVS_DEFINE_CAGRA_BUILD_OVERLOAD(inst_bbq_view_t,
+                                 cuvs::neighbors::cagra::bbq_index<data_t, uint32_t>);
+
 #undef CUVS_DEFINE_CAGRA_BUILD_OVERLOAD
 
 #define CUVS_INST_CAGRA_UPDATE_DATASET(T, IdxT, SrcDatasetViewT, DstDatasetViewT)             \
@@ -103,15 +106,8 @@ CUVS_INST_CAGRA_UPDATE_DATASET(data_t, index_t, inst_device_standard_view_t, ins
 CUVS_INST_CAGRA_UPDATE_DATASET(data_t, index_t, inst_device_padded_view_t, inst_vpq_view_t);
 CUVS_INST_CAGRA_UPDATE_DATASET(data_t, index_t, inst_vpq_view_t, inst_device_padded_view_t);
 CUVS_INST_CAGRA_UPDATE_DATASET(data_t, index_t, inst_vpq_view_t, inst_vpq_view_t);
-
-auto build(raft::resources const& res,
-           const cuvs::neighbors::cagra::index_params& params,
-           inst_bbq_view_t const& dataset) -> cuvs::neighbors::cagra::bbq_index<data_t, uint32_t>
-{
-  return cuvs::neighbors::cagra::build<inst_bbq_view_t>(res, params, dataset);
-}
-
 CUVS_INST_CAGRA_UPDATE_DATASET(data_t, index_t, inst_bbq_view_t, inst_device_padded_view_t);
+CUVS_INST_CAGRA_UPDATE_DATASET(data_t, index_t, inst_bbq_view_t, inst_vpq_view_t);
 
 #undef CUVS_INST_CAGRA_UPDATE_DATASET
 
