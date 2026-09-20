@@ -82,20 +82,20 @@ constexpr auto get_encoded_row_length(uint32_t dim, bbq_code_layout layout) noex
 
 template <typename DataT, typename IdxT>
 struct quantizer {
-  raft::device_mdarray<uint8_t, raft::matrix_extent<IdxT>> codes;
-  raft::device_mdarray<float, raft::vector_extent<IdxT>> lower_intervals;
-  raft::device_mdarray<float, raft::vector_extent<IdxT>> upper_intervals;
-  raft::device_mdarray<float, raft::vector_extent<IdxT>> additional_corrections;
-  raft::device_mdarray<int32_t, raft::vector_extent<IdxT>> quantized_component_sums;
-  raft::device_mdarray<DataT, raft::vector_extent<IdxT>> centroid;
+  raft::device_matrix<uint8_t, IdxT> codes;
+  raft::device_vector<float, IdxT> lower_intervals;
+  raft::device_vector<float, IdxT> upper_intervals;
+  raft::device_vector<float, IdxT> additional_corrections;
+  raft::device_vector<int32_t, IdxT> quantized_component_sums;
+  raft::device_vector<DataT, IdxT> centroid;
   /** Precomputed per-row dequantization factors, derived once (offline) from lower/upper_intervals
    * and quantized_component_sums: dequant_delta = (upper-lower)/(2^bits-1) */
-  raft::device_mdarray<float, raft::vector_extent<IdxT>> dequant_delta;
+  raft::device_vector<float, IdxT> dequant_delta;
   /** Precomputed per-row dequantization factors, derived once (offline) from dequant_delta and
    * quantized_component_sums: dequant_sum_delta = dequant_delta * quantized_component_sums. */
-  raft::device_mdarray<float, raft::vector_extent<IdxT>> dequant_sum_delta;
+  raft::device_vector<float, IdxT> dequant_sum_delta;
   /** Squared norm of the row in original (un-centered) vector space, ||x||^2 */
-  raft::device_mdarray<float, raft::vector_extent<IdxT>> row_norm;
+  raft::device_vector<float, IdxT> row_norm;
 
   bbq_code_layout layout{bbq_code_layout::packed_1b};
   cuvs::distance::DistanceType metric{cuvs::distance::DistanceType::L2Expanded};
@@ -135,47 +135,32 @@ struct quantizer {
 template <typename DataT, typename IdxT>
 struct quantizer_view {
   using owning_storage = quantizer<DataT, IdxT>;
-  raft::device_mdspan<const uint8_t, raft::matrix_extent<IdxT>, raft::layout_c_contiguous> codes;
-  raft::device_mdspan<const float, raft::vector_extent<IdxT>, raft::layout_c_contiguous>
-    lower_intervals;
-  raft::device_mdspan<const float, raft::vector_extent<IdxT>, raft::layout_c_contiguous>
-    upper_intervals;
-  raft::device_mdspan<const float, raft::vector_extent<IdxT>, raft::layout_c_contiguous>
-    additional_corrections;
-  raft::device_mdspan<const int32_t, raft::vector_extent<IdxT>, raft::layout_c_contiguous>
-    quantized_component_sums;
-  raft::device_mdspan<const DataT, raft::vector_extent<IdxT>, raft::layout_c_contiguous> centroid;
-  raft::device_mdspan<const float, raft::vector_extent<IdxT>, raft::layout_c_contiguous>
-    dequant_delta;
-  raft::device_mdspan<const float, raft::vector_extent<IdxT>, raft::layout_c_contiguous>
-    dequant_sum_delta;
-  raft::device_mdspan<const float, raft::vector_extent<IdxT>, raft::layout_c_contiguous> row_norm;
+  raft::device_matrix_view<const uint8_t, IdxT> codes;
+  raft::device_vector_view<const float, IdxT> lower_intervals;
+  raft::device_vector_view<const float, IdxT> upper_intervals;
+  raft::device_vector_view<const float, IdxT> additional_corrections;
+  raft::device_vector_view<const int32_t, IdxT> quantized_component_sums;
+  raft::device_vector_view<const DataT, IdxT> centroid;
+  raft::device_vector_view<const float, IdxT> dequant_delta;
+  raft::device_vector_view<const float, IdxT> dequant_sum_delta;
+  raft::device_vector_view<const float, IdxT> row_norm;
 
   bbq_code_layout layout{bbq_code_layout::packed_1b};
   cuvs::distance::DistanceType metric{cuvs::distance::DistanceType::L2Expanded};
   float centroid_norm_sq{};
 
-  quantizer_view(
-    raft::device_mdspan<const uint8_t, raft::matrix_extent<IdxT>, raft::layout_c_contiguous> codes_,
-    raft::device_mdspan<const float, raft::vector_extent<IdxT>, raft::layout_c_contiguous>
-      lower_intervals_,
-    raft::device_mdspan<const float, raft::vector_extent<IdxT>, raft::layout_c_contiguous>
-      upper_intervals_,
-    raft::device_mdspan<const float, raft::vector_extent<IdxT>, raft::layout_c_contiguous>
-      additional_corrections_,
-    raft::device_mdspan<const int32_t, raft::vector_extent<IdxT>, raft::layout_c_contiguous>
-      quantized_component_sums_,
-    raft::device_mdspan<const DataT, raft::vector_extent<IdxT>, raft::layout_c_contiguous>
-      centroid_,
-    raft::device_mdspan<const float, raft::vector_extent<IdxT>, raft::layout_c_contiguous>
-      dequant_delta_,
-    raft::device_mdspan<const float, raft::vector_extent<IdxT>, raft::layout_c_contiguous>
-      dequant_sum_delta_,
-    raft::device_mdspan<const float, raft::vector_extent<IdxT>, raft::layout_c_contiguous>
-      row_norm_,
-    bbq_code_layout layout_,
-    cuvs::distance::DistanceType metric_,
-    float centroid_norm_sq_) noexcept
+  quantizer_view(raft::device_matrix_view<const uint8_t, IdxT> codes_,
+                 raft::device_vector_view<const float, IdxT> lower_intervals_,
+                 raft::device_vector_view<const float, IdxT> upper_intervals_,
+                 raft::device_vector_view<const float, IdxT> additional_corrections_,
+                 raft::device_vector_view<const int32_t, IdxT> quantized_component_sums_,
+                 raft::device_vector_view<const DataT, IdxT> centroid_,
+                 raft::device_vector_view<const float, IdxT> dequant_delta_,
+                 raft::device_vector_view<const float, IdxT> dequant_sum_delta_,
+                 raft::device_vector_view<const float, IdxT> row_norm_,
+                 bbq_code_layout layout_,
+                 cuvs::distance::DistanceType metric_,
+                 float centroid_norm_sq_) noexcept
     : codes{codes_},
       lower_intervals{lower_intervals_},
       upper_intervals{upper_intervals_},
