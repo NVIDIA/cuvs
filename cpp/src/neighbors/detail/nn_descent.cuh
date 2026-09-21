@@ -2548,10 +2548,16 @@ void GNND<Data_t, Index_t>::local_join(
                                                build_config_.metric,
                                                dist_epilogue);
     };
+    // Naming a kernel rather than launching it directly leaves the trailing template parameters
+    // nothing to deduce from, so they are spelled out here.
+    using kernel_data_t = std::remove_const_t<Data_t>;
+    using kernel_id_t   = InternalID_t<Index_t>;
     if constexpr (Q == bbq_code_layout::packed_4b) {
-      launch_local_join(local_join_kernel_bbq_wmma<D, Q, S>);
+      launch_local_join(
+        local_join_kernel_bbq_wmma<D, Q, S, kernel_data_t, Index_t, kernel_id_t, DistEpilogue_t>);
     } else {
-      launch_local_join(local_join_kernel_bbq_simt<D, Q, S>);
+      launch_local_join(
+        local_join_kernel_bbq_simt<D, Q, S, kernel_data_t, Index_t, kernel_id_t, DistEpilogue_t>);
     }
   };
   const bbq_code_layout d = quantizer_document.layout;
