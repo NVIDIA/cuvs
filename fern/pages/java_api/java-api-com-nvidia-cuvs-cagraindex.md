@@ -613,6 +613,19 @@ an instance of this Builder
 
 _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:433`_
 
+### withBbqDataset
+
+```java
+Builder withBbqDataset(BbqQuantizer... quantizers)
+```
+
+Builds the graph from one or two encoded BBQ representations. An optional dense dataset
+supplied with `#withDataset(CuVSMatrix)` is attached before search; otherwise call
+`CagraIndex#updateDataset(PaddedDatasetView)` or
+`CagraIndex#updateDataset(PaddedDataset)` before searching.
+
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:441`_
+
 ### withIndexParams
 
 ```java
@@ -632,7 +645,7 @@ Builder.
 
 An instance of this Builder.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:442`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:450`_
 
 ### build
 
@@ -646,6 +659,6 @@ Builds and returns an instance of CagraIndex.
 
 an instance of CagraIndex
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:449`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:457`_
 
 _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:26`_

@@ -434,6 +434,14 @@ public interface CagraIndex extends AutoCloseable {
     Builder withDataset(CuVSMatrix dataset);
 
     /**
+     * Builds the graph from one or two encoded BBQ representations. An optional dense dataset
+     * supplied with {@link #withDataset(CuVSMatrix)} is attached before search; otherwise call
+     * {@link CagraIndex#updateDataset(PaddedDatasetView)} or
+     * {@link CagraIndex#updateDataset(PaddedDataset)} before searching.
+     */
+    Builder withBbqDataset(BbqQuantizer... quantizers);
+
+    /**
      * Registers an instance of configured {@link CagraIndexParams} with this
      * Builder.
      *

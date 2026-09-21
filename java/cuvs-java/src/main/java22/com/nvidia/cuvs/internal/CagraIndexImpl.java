@@ -70,6 +70,19 @@ public class CagraIndexImpl implements CagraIndex {
     this.cagraIndexReference = build(indexParameters, (CuVSMatrixInternal) dataset);
   }
 
+  private CagraIndexImpl(
+      CagraIndexParams indexParameters,
+      CuVSMatrix dataset,
+      BbqQuantizer[] bbqQuantizers,
+      CuVSResources resources) {
+    this.resources = resources;
+    if (dataset != null && !(dataset instanceof CuVSMatrixInternal)) {
+      throw new IllegalArgumentException("dataset must be a native CuVS matrix");
+    }
+    this.cagraIndexReference =
+        buildBbq(indexParameters, (CuVSMatrixInternal) dataset, bbqQuantizers);
+  }
+
   /**
    * Constructor for loading the index from an {@link InputStream}
    *
@@ -216,6 +229,127 @@ public class CagraIndexImpl implements CagraIndex {
 
       return new IndexReference(index, dataset);
     }
+  }
+
+  private IndexReference buildBbq(
+      CagraIndexParams indexParameters, CuVSMatrixInternal dataset, BbqQuantizer[] bbqQuantizers) {
+    if (bbqQuantizers == null || bbqQuantizers.length < 1 || bbqQuantizers.length > 2) {
+      throw new IllegalArgumentException("BBQ build requires one or two quantizers");
+    }
+    for (BbqQuantizer quantizer : bbqQuantizers) {
+      Objects.requireNonNull(quantizer);
+    }
+
+    try (var indexParams = segmentFromIndexParams(indexParameters);
+        var localArena = Arena.ofConfined();
+        var resourcesAccessor = resources.access()) {
+      var cuvsRes = resourcesAccessor.handle();
+      var index = createCagraIndex();
+      var quantizerHandles = new ArrayList<MemorySegment>(bbqQuantizers.length);
+      MemorySegment bbqDataset = MemorySegment.NULL;
+      MemorySegment paddedDataset = MemorySegment.NULL;
+
+      try {
+        for (BbqQuantizer quantizer : bbqQuantizers) {
+          var quantizerPtr = localArena.allocate(cuvsBbqQuantizer_t);
+          checkCuVSError(
+              cuvsBbqQuantizerCreateView(
+                  tensor(quantizer.getCodes(), localArena),
+                  vectorTensor(quantizer.getLowerIntervals(), localArena),
+                  vectorTensor(quantizer.getUpperIntervals(), localArena),
+                  vectorTensor(quantizer.getAdditionalCorrections(), localArena),
+                  vectorTensor(quantizer.getQuantizedComponentSums(), localArena),
+                  vectorTensor(quantizer.getCentroid(), localArena),
+                  vectorTensor(quantizer.getDequantDelta(), localArena),
+                  vectorTensor(quantizer.getDequantSumDelta(), localArena),
+                  vectorTensor(quantizer.getRowNorm(), localArena),
+                  quantizer.getLayout().value,
+                  quantizer.getMetric().value,
+                  quantizer.getCentroidNormSq(),
+                  quantizerPtr),
+              "cuvsBbqQuantizerCreateView");
+          quantizerHandles.add(quantizerPtr.get(cuvsBbqQuantizer_t, 0));
+        }
+
+        var quantizerArray = localArena.allocate(ValueLayout.ADDRESS, quantizerHandles.size());
+        for (int i = 0; i < quantizerHandles.size(); ++i) {
+          quantizerArray.setAtIndex(ValueLayout.ADDRESS, i, quantizerHandles.get(i));
+        }
+        var bbqDatasetPtr = localArena.allocate(cuvsDataset_t);
+        checkCuVSError(
+            cuvsDatasetMakeBbqView(cuvsRes, quantizerArray, quantizerHandles.size(), bbqDatasetPtr),
+            "cuvsDatasetMakeBbqView");
+        bbqDataset = bbqDatasetPtr.get(cuvsDataset_t, 0);
+
+        checkCuVSError(
+            cuvsCagraBuild(cuvsRes, indexParams.handle(), bbqDataset, index), "cuvsCagraBuild");
+
+        if (dataset == null) {
+          checkCuVSError(cuvsStreamSync(cuvsRes), "cuvsStreamSync");
+          return new IndexReference(index, null, new BbqDatasetKeepAlive(bbqQuantizers));
+        }
+
+        var paddedDatasetPtr = localArena.allocate(cuvsDataset_t);
+        if (dataset instanceof CuVSDeviceMatrix && isCagraPaddedLayout(dataset)) {
+          checkCuVSError(
+              cuvsDatasetMakePaddedView(cuvsRes, dataset.toTensor(localArena), paddedDatasetPtr),
+              "cuvsDatasetMakePaddedView");
+        } else {
+          checkCuVSError(
+              cuvsDatasetMakePadded(
+                  cuvsRes,
+                  dataset.toTensor(localArena),
+                  CUVS_DATASET_MEM_TYPE_DEVICE(),
+                  paddedDatasetPtr),
+              "cuvsDatasetMakePadded");
+        }
+        paddedDataset = paddedDatasetPtr.get(cuvsDataset_t, 0);
+        checkCuVSError(
+            cuvsCagraUpdateDataset(cuvsRes, paddedDataset, index), "cuvsCagraUpdateDataset");
+        checkCuVSError(cuvsStreamSync(cuvsRes), "cuvsStreamSync");
+
+        var datasetOwner = new DatasetCloseDelegate(paddedDataset);
+        paddedDataset = MemorySegment.NULL;
+        return new IndexReference(index, dataset, datasetOwner);
+      } catch (RuntimeException | Error t) {
+        cuvsCagraIndexDestroy(index);
+        throw t;
+      } finally {
+        if (bbqDataset.address() != 0) {
+          cuvsDatasetDestroy(bbqDataset);
+        }
+        if (paddedDataset.address() != 0) {
+          cuvsDatasetDestroy(paddedDataset);
+        }
+        for (MemorySegment quantizer : quantizerHandles) {
+          cuvsBbqQuantizerDestroy(quantizer);
+        }
+      }
+    }
+  }
+
+  private static MemorySegment tensor(CuVSMatrix matrix, Arena arena) {
+    if (!(matrix instanceof CuVSDeviceMatrix) || !(matrix instanceof CuVSMatrixInternal internal)) {
+      throw new IllegalArgumentException("BBQ tensors must be device CuVS matrices");
+    }
+    return internal.toTensor(arena);
+  }
+
+  private static MemorySegment vectorTensor(CuVSMatrix matrix, Arena arena) {
+    if (!(matrix instanceof CuVSDeviceMatrix) || !(matrix instanceof CuVSMatrixInternal internal)) {
+      throw new IllegalArgumentException("BBQ tensors must be device CuVS matrices");
+    }
+    long rowStride = internal.rowStride();
+    if (rowStride > 0 && rowStride != matrix.columns()) {
+      throw new IllegalArgumentException("BBQ vector tensors must be contiguous");
+    }
+    return prepareTensor(
+        arena,
+        internal.memorySegment(),
+        new long[] {matrix.size() * matrix.columns()},
+        internal.code(),
+        internal.bits(),
+        kDLCUDA());
   }
 
   private static MemorySegment createCagraIndex() {
@@ -776,6 +910,19 @@ public class CagraIndexImpl implements CagraIndex {
     }
   }
 
+  private static final class BbqDatasetKeepAlive implements AutoCloseable {
+    private BbqQuantizer[] quantizers;
+
+    private BbqDatasetKeepAlive(BbqQuantizer[] quantizers) {
+      this.quantizers = quantizers.clone();
+    }
+
+    @Override
+    public void close() {
+      quantizers = null;
+    }
+  }
+
   /**
    * Gets an instance of {@link CuVSResources}
    *
@@ -1096,6 +1243,7 @@ public class CagraIndexImpl implements CagraIndex {
     private CagraIndexParams cagraIndexParams;
     private final CuVSResources cuvsResources;
     private CuVSMatrix graph;
+    private BbqQuantizer[] bbqQuantizers;
 
     public Builder(CuVSResources cuvsResources) {
       this.cuvsResources = cuvsResources;
@@ -1134,6 +1282,12 @@ public class CagraIndexImpl implements CagraIndex {
     }
 
     @Override
+    public Builder withBbqDataset(BbqQuantizer... quantizers) {
+      this.bbqQuantizers = quantizers == null ? null : quantizers.clone();
+      return this;
+    }
+
+    @Override
     public Builder withIndexParams(CagraIndexParams cagraIndexParameters) {
       this.cagraIndexParams = cagraIndexParameters;
       return this;
@@ -1153,6 +1307,8 @@ public class CagraIndexImpl implements CagraIndex {
         }
         return new CagraIndexImpl(
             cagraIndexParams.getCuvsDistanceType(), graph, dataset, cuvsResources);
+      } else if (bbqQuantizers != null) {
+        return new CagraIndexImpl(cagraIndexParams, dataset, bbqQuantizers, cuvsResources);
       } else if (dataset != null) {
         return new CagraIndexImpl(cagraIndexParams, dataset, cuvsResources);
       } else {
