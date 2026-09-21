@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -20,7 +20,7 @@
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resources.hpp>
 
-#include <rmm/cuda_stream_view.hpp>
+#include <cuda/stream>
 
 #include <cuda_runtime.h>
 
@@ -191,8 +191,7 @@ class IVFGPU {
 
   void save(const char* filename) const;
 
-  // load_transposed only applies for new batch index
-  void load_transposed(const char* filename);
+  void load(const char* filename);
 
   // device data getters
   __host__ __device__ uint32_t* get_short_data_device() const noexcept
@@ -342,7 +341,7 @@ class IVFGPU {
   void AllocateHostMemory();
 
   raft::resources const& handle_;  // reusable resource handle
-  rmm::cuda_stream_view stream_ =
+  cuda::stream_ref stream_ =
     raft::resource::get_cuda_stream(handle_);  // CUDA stream obtained from handle_
 
   // Device pointers for each data array.

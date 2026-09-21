@@ -21,8 +21,9 @@ import org.apache.lucene.search.Query;
 
 /**
  * Shared LRU cache mapping (filter Query, single-segment reader key, field) → {@link
- * FilterBitsetHandle}. One entry per segment, so an index update only invalidates the changed
- * segments' entries rather than the whole cache.
+ * CachedFilterBitset} (a {@link FilterBitsetHandle} plus the number of ordinals it accepts). One
+ * entry per segment, so an index update only invalidates the changed segments' entries rather than
+ * the whole cache.
  *
  * <p>Host-side cache holding packed bitset arrays; the device-side upload is managed inside {@link
  * FilterBitsetHandle} itself. Entries are evicted in LRU order once the total cached size exceeds
@@ -63,11 +64,20 @@ final class FilterBitsetCache {
    */
   static final int MAX_ENTRIES_GUARD = 4096;
 
-  /** Builds the handle for a key on a cache miss. */
+  /** Builds the cached value for a key on a cache miss. */
   @FunctionalInterface
   interface FilterBuilder {
-    FilterBitsetHandle build() throws IOException;
+    CachedFilterBitset build() throws IOException;
   }
+
+  /**
+   * One segment's packed filter bitset together with the number of vector ordinals it accepts.
+   *
+   * <p>The cardinality is that segment's Lucene filter "cost": {@link GPUKnnFloatVectorQuery} needs
+   * it to decide whether the search has to be exact, and caching it next to the bitset keeps that
+   * decision free on a cache hit.
+   */
+  record CachedFilterBitset(FilterBitsetHandle handle, int cardinality) {}
 
   private record FilterCacheKey(Query filter, Object segReaderKey, String field) {
     @Override
@@ -85,7 +95,7 @@ final class FilterBitsetCache {
   }
 
   /** A cached future together with the byte size charged to the budget for its entry. */
-  private record CacheEntry(CompletableFuture<FilterBitsetHandle> future, long bytes) {}
+  private record CacheEntry(CompletableFuture<CachedFilterBitset> future, long bytes) {}
 
   private final LinkedHashMap<FilterCacheKey, CacheEntry> cache =
       new LinkedHashMap<>(16, 0.75f, /* access-order= */ true);
@@ -140,13 +150,13 @@ final class FilterBitsetCache {
   }
 
   /**
-   * Returns the handle for the given key, building it once if absent. The returned handle has a
-   * reference taken on the caller's behalf that must be released with {@link
-   * FilterBitsetHandle#decRef()} once the search completes.
+   * Returns the bitset for the given key, building it once if absent. Its handle has a reference
+   * taken on the caller's behalf that must be released with {@link FilterBitsetHandle#decRef()}
+   * once the search completes.
    *
    * @param entryBytes byte size charged to the budget for this entry (the packed bitset length)
    */
-  FilterBitsetHandle acquire(
+  CachedFilterBitset acquire(
       Query filter, Object segReaderKey, String field, long entryBytes, FilterBuilder builder)
       throws IOException {
     // A single entry larger than the whole budget is never cached; hand back a caller-owned handle.
@@ -169,9 +179,9 @@ final class FilterBitsetCache {
 
     FilterCacheKey key = new FilterCacheKey(filter, segReaderKey, field);
     while (true) {
-      CompletableFuture<FilterBitsetHandle> future;
+      CompletableFuture<CachedFilterBitset> future;
       boolean owner = false;
-      List<CompletableFuture<FilterBitsetHandle>> evicted = null;
+      List<CompletableFuture<CachedFilterBitset>> evicted = null;
       synchronized (this) {
         CacheEntry entry = cache.get(key);
         if (entry == null) {
@@ -187,7 +197,7 @@ final class FilterBitsetCache {
       }
 
       if (evicted != null) {
-        for (CompletableFuture<FilterBitsetHandle> f : evicted) {
+        for (CompletableFuture<CachedFilterBitset> f : evicted) {
           releaseCacheRef(f);
         }
       }
@@ -214,17 +224,17 @@ final class FilterBitsetCache {
         }
       }
 
-      FilterBitsetHandle handle;
+      CachedFilterBitset cached;
       try {
-        handle = future.join();
+        cached = future.join();
       } catch (CompletionException e) {
         // The owning thread's build failed and removed the entry; retry so exactly one thread
         // rebuilds.
         continue;
       }
 
-      if (handle.tryIncRef()) {
-        return handle;
+      if (cached.handle().tryIncRef()) {
+        return cached;
       }
       // Rare: the entry was evicted and its cache reference released between completion and our
       // acquisition. It is already gone from the map, so retry and rebuild.
@@ -237,7 +247,7 @@ final class FilterBitsetCache {
    * in-flight acquire). Runs under the cache lock; the evicted futures are collected into {@code
    * out} so their cache references are released after the lock is dropped.
    */
-  private void evictToBudget(FilterCacheKey keep, List<CompletableFuture<FilterBitsetHandle>> out) {
+  private void evictToBudget(FilterCacheKey keep, List<CompletableFuture<CachedFilterBitset>> out) {
     long budget = maxBytes > 0 ? maxBytes : Long.MAX_VALUE;
     var it = cache.entrySet().iterator();
     while ((totalBytes > budget || cache.size() > MAX_ENTRIES_GUARD) && it.hasNext()) {
@@ -267,7 +277,7 @@ final class FilterBitsetCache {
 
   /** Evicts and releases every cache entry belonging to the given segment reader key. */
   void invalidateReader(Object segReaderKey) {
-    List<CompletableFuture<FilterBitsetHandle>> toRelease = new ArrayList<>();
+    List<CompletableFuture<CachedFilterBitset>> toRelease = new ArrayList<>();
     synchronized (this) {
       registered.remove(segReaderKey);
       var it = cache.entrySet().iterator();
@@ -281,14 +291,14 @@ final class FilterBitsetCache {
         }
       }
     }
-    for (CompletableFuture<FilterBitsetHandle> future : toRelease) {
+    for (CompletableFuture<CachedFilterBitset> future : toRelease) {
       releaseCacheRef(future);
     }
   }
 
   /** Evicts and releases every cache entry, resetting the byte budget accounting. */
   void clear() {
-    List<CompletableFuture<FilterBitsetHandle>> toRelease = new ArrayList<>();
+    List<CompletableFuture<CachedFilterBitset>> toRelease = new ArrayList<>();
     synchronized (this) {
       for (CacheEntry ce : cache.values()) {
         toRelease.add(ce.future());
@@ -297,7 +307,7 @@ final class FilterBitsetCache {
       registered.clear();
       totalBytes = 0;
     }
-    for (CompletableFuture<FilterBitsetHandle> future : toRelease) {
+    for (CompletableFuture<CachedFilterBitset> future : toRelease) {
       releaseCacheRef(future);
     }
   }
@@ -308,10 +318,10 @@ final class FilterBitsetCache {
   }
 
   /** Releases the cache's reference once the (possibly in-flight) build completes. */
-  private static void releaseCacheRef(CompletableFuture<FilterBitsetHandle> future) {
+  private static void releaseCacheRef(CompletableFuture<CachedFilterBitset> future) {
     future.whenComplete(
-        (handle, err) -> {
-          if (handle != null) handle.close();
+        (cached, err) -> {
+          if (cached != null) cached.handle().close();
         });
   }
 }

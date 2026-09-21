@@ -132,20 +132,25 @@ void run_smoke_add_and_verify(const std::shared_ptr<rtcx::algorithm_launcher>& l
 
 }  // namespace
 
-TEST(CutileSmoke, ResolvesEveryEmbeddedArchitecture)
+TEST(CutileSmoke, ResolvesExactArchitectureOrSm89Compatibility)
 {
   auto fragments = make_smoke_fragments();
 
   EXPECT_EQ(find_compatible_cubin_fragment(8, 0, fragments), fragments[0].get());
+  EXPECT_EQ(find_compatible_cubin_fragment(8, 6, fragments), fragments[1].get());
   EXPECT_EQ(find_compatible_cubin_fragment(8, 9, fragments), fragments[1].get());
   EXPECT_EQ(find_compatible_cubin_fragment(9, 0, fragments), fragments[2].get());
+  EXPECT_EQ(find_compatible_cubin_fragment(9, 1, fragments), nullptr);
   EXPECT_EQ(find_compatible_cubin_fragment(10, 0, fragments), fragments[3].get());
+  EXPECT_EQ(find_compatible_cubin_fragment(10, 1, fragments), nullptr);
   EXPECT_EQ(find_compatible_cubin_fragment(12, 0, fragments), fragments[4].get());
-  // GB10 (12.1) must resolve to the exact 12.1 fragment, not fall back to the
-  // 12.0 base -- 12.0 SASS is not actually forward-compatible on this device
-  // (cudaErrorNoKernelImageForDevice), even though it's the same major and a
-  // lower minor. See cutile_arch_12_1's doc comment in cutile_arch_tags.hpp.
+  // GB10 (12.1) resolves via an exact-match fragment (cutile_arch_12_1,
+  // fragments[5] below) rather than a same-major/lower-minor fallback onto
+  // 12.0 -- 12.0 SASS is not actually forward-compatible on this device
+  // (cudaErrorNoKernelImageForDevice). See cutile_arch_12_1's doc comment
+  // in cutile_arch_tags.hpp.
   EXPECT_EQ(find_compatible_cubin_fragment(12, 1, fragments), fragments[5].get());
+  EXPECT_EQ(find_compatible_cubin_fragment(13, 0, fragments), nullptr);
   EXPECT_EQ(find_compatible_cubin_fragment(7, 5, fragments), nullptr);
 }
 

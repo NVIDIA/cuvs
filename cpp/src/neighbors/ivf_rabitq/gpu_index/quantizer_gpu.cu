@@ -236,7 +236,8 @@ __global__ void pack_and_compute_factors_kernel(
   size_t D,
   // Outputs
   float* __restrict__ d_factors,        // [3*N], packed factors
-  uint32_t* __restrict__ d_packed_code  // [N * (D/32)], packed codes
+  uint32_t* __restrict__ d_packed_code  // [(D/32) * N], packed codes, transposed: all rows of a
+                                        // word are contiguous (the layout the search kernels read)
 )
 {
   // Each block is responsible for one data point (row).
@@ -307,7 +308,7 @@ __global__ void pack_and_compute_factors_kernel(
       int bit = d_bin_XP[row * D + block_id * 32 + i];
       cur |= ((uint32_t)bit << (31 - i));
     }
-    d_packed_code[row * blocks_per_point + block_id] = cur;
+    d_packed_code[block_id * N + row] = cur;
   }
 }
 
