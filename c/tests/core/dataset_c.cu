@@ -249,7 +249,7 @@ TEST(DatasetC, MakeBbqView)
   cudaStream_t stream;
   ASSERT_EQ(cuvsStreamGet(res, &stream), CUVS_SUCCESS);
 
-  rmm::device_uvector<uint8_t> codes(n_rows * dim, stream);
+  rmm::device_uvector<uint8_t> codes_1b(n_rows, stream);
   rmm::device_uvector<float> lower(n_rows, stream);
   rmm::device_uvector<float> upper(n_rows, stream);
   rmm::device_uvector<float> corrections(n_rows, stream);
@@ -259,7 +259,7 @@ TEST(DatasetC, MakeBbqView)
   rmm::device_uvector<float> sum_delta(n_rows, stream);
   rmm::device_uvector<float> row_norm(n_rows, stream);
 
-  auto codes_tensor       = make_device_matrix_tensor(codes.data(), n_rows, dim);
+  auto codes_tensor       = make_device_matrix_tensor(codes_1b.data(), n_rows, 1);
   auto lower_tensor       = make_device_vector_tensor(lower.data(), n_rows);
   auto upper_tensor       = make_device_vector_tensor(upper.data(), n_rows);
   auto corrections_tensor = make_device_vector_tensor(corrections.data(), n_rows);
@@ -279,7 +279,7 @@ TEST(DatasetC, MakeBbqView)
                                        &delta_tensor,
                                        &sum_delta_tensor,
                                        &row_norm_tensor,
-                                       CUVS_BBQ_CODE_LAYOUT_PACKED_8B,
+                                       CUVS_BBQ_CODE_LAYOUT_PACKED_1B,
                                        L2Expanded,
                                        0.0f,
                                        &quantizer),
@@ -303,10 +303,38 @@ TEST(DatasetC, MakeBbqView)
   EXPECT_EQ(dtype.bits, 32);
 
   ASSERT_EQ(cuvsDatasetDestroy(dataset), CUVS_SUCCESS);
+
+  rmm::device_uvector<uint8_t> codes_4t(n_rows * 4, stream);
+  auto codes_4t_tensor = make_device_matrix_tensor(codes_4t.data(), n_rows, 4);
+  cuvsBbqQuantizer_t quantizer_4t;
+  ASSERT_EQ(cuvsBbqQuantizerCreateView(&codes_4t_tensor,
+                                       &lower_tensor,
+                                       &upper_tensor,
+                                       &corrections_tensor,
+                                       &sums_tensor,
+                                       &centroid_tensor,
+                                       &delta_tensor,
+                                       &sum_delta_tensor,
+                                       &row_norm_tensor,
+                                       CUVS_BBQ_CODE_LAYOUT_TRANSPOSED_4B,
+                                       L2Expanded,
+                                       0.0f,
+                                       &quantizer_4t),
+            CUVS_SUCCESS);
+
+  cuvsBbqQuantizer_t quantizers[] = {quantizer, quantizer_4t};
+  cuvsDataset_t asymmetric_dataset;
+  ASSERT_EQ(cuvsDatasetMakeBbqView(res, quantizers, 2, &asymmetric_dataset), CUVS_SUCCESS);
+  ASSERT_EQ(cuvsDatasetGetLayout(asymmetric_dataset, &layout), CUVS_SUCCESS);
+  EXPECT_EQ(layout, CUVS_DATASET_LAYOUT_BBQ);
+
+  ASSERT_EQ(cuvsDatasetDestroy(asymmetric_dataset), CUVS_SUCCESS);
+  ASSERT_EQ(cuvsBbqQuantizerDestroy(quantizer_4t), CUVS_SUCCESS);
   ASSERT_EQ(cuvsBbqQuantizerDestroy(quantizer), CUVS_SUCCESS);
   ASSERT_EQ(cuvsResourcesDestroy(res), CUVS_SUCCESS);
 
   free_tensor(codes_tensor);
+  free_tensor(codes_4t_tensor);
   free_tensor(lower_tensor);
   free_tensor(upper_tensor);
   free_tensor(corrections_tensor);
