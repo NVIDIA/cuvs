@@ -2528,23 +2528,31 @@ void GNND<Data_t, Index_t>::local_join(
   // One launch site for both kernels: they take identical arguments, and the query's layout picks
   // the path -- packed_4b is the only layout the int4 tensor-core kernel is dispatched for.
   auto launch = [&](auto document_layout, auto query_layout, auto self_join_tag) {
-    constexpr auto D = decltype(document_layout)::value;
-    constexpr auto Q = decltype(query_layout)::value;
-    constexpr bool S = decltype(self_join_tag)::value;
-#define CUVS_BBQ_LOCAL_JOIN_ARGS                                                                 \
-  graph_.h_graph_new.data_handle(), h_rev_graph_new_.data_handle(),                              \
-    d_list_sizes_new_.data_handle(), h_graph_old_.data_handle(), h_rev_graph_old_.data_handle(), \
-    d_list_sizes_old_.data_handle(), NUM_SAMPLES, quantizer_document, quantizer_query,           \
-    graph_buffer_.data_handle(), dists_buffer_.data_handle(), DEGREE_ON_DEVICE,                  \
-    d_locks_.data_handle(), build_config_.metric, dist_epilogue
+    constexpr auto D       = decltype(document_layout)::value;
+    constexpr auto Q       = decltype(query_layout)::value;
+    constexpr bool S       = decltype(self_join_tag)::value;
+    auto launch_local_join = [&](auto kernel) {
+      kernel<<<nrow_, BLOCK_SIZE, 0, stream>>>(graph_.h_graph_new.data_handle(),
+                                               h_rev_graph_new_.data_handle(),
+                                               d_list_sizes_new_.data_handle(),
+                                               h_graph_old_.data_handle(),
+                                               h_rev_graph_old_.data_handle(),
+                                               d_list_sizes_old_.data_handle(),
+                                               NUM_SAMPLES,
+                                               quantizer_document,
+                                               quantizer_query,
+                                               graph_buffer_.data_handle(),
+                                               dists_buffer_.data_handle(),
+                                               DEGREE_ON_DEVICE,
+                                               d_locks_.data_handle(),
+                                               build_config_.metric,
+                                               dist_epilogue);
+    };
     if constexpr (Q == bbq_code_layout::packed_4b) {
-      local_join_kernel_bbq_wmma<D, Q, S>
-        <<<nrow_, BLOCK_SIZE, 0, stream>>>(CUVS_BBQ_LOCAL_JOIN_ARGS);
+      launch_local_join(local_join_kernel_bbq_wmma<D, Q, S>);
     } else {
-      local_join_kernel_bbq_simt<D, Q, S>
-        <<<nrow_, BLOCK_SIZE, 0, stream>>>(CUVS_BBQ_LOCAL_JOIN_ARGS);
+      launch_local_join(local_join_kernel_bbq_simt<D, Q, S>);
     }
-#undef CUVS_BBQ_LOCAL_JOIN_ARGS
   };
   const bbq_code_layout d = quantizer_document.layout;
   const bbq_code_layout q = quantizer_query.layout;
