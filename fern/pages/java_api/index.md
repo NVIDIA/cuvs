@@ -18,6 +18,7 @@ For the Apache Lucene codecs built on this API, see the [Lucene API Documentatio
 - [GPUInfo](/api-reference/java-api-com-nvidia-cuvs-gpuinfo)
 - [GPUInfoProvider](/api-reference/java-api-com-nvidia-cuvs-gpuinfoprovider)
 - [LibraryException](/api-reference/java-api-com-nvidia-cuvs-libraryexception)
+- [ProductQuantizerParams](/api-reference/java-api-com-nvidia-cuvs-productquantizerparams)
 - [RowView](/api-reference/java-api-com-nvidia-cuvs-rowview)
 - [SynchronizedCuVSResources](/api-reference/java-api-com-nvidia-cuvs-synchronizedcuvsresources)
 

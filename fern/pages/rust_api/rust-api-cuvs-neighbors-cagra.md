@@ -22,10 +22,12 @@ builder pattern: every setter is optional and unset values keep the cuVS C
 library defaults. Values are validated when the builder's `build()` runs,
 returning [`CagraError::Validation`] for out-of-range inputs.
 
-## crate::dataset::\{CuvsDataset, Dataset, DatasetKind, DatasetView, PaddedDataset\}
+## crate::dataset::\{ CuvsDataset, Dataset, DatasetKind, DatasetView, PaddedDataset, PqDataset, \}
 
 ```rust
-pub use crate::dataset::{CuvsDataset, Dataset, DatasetKind, DatasetView, PaddedDataset};
+pub use crate::dataset::{
+CuvsDataset, Dataset, DatasetKind, DatasetView, PaddedDataset, PqDataset,
+};
 ```
 
 _Source: `rust/cuvs/src/neighbors/cagra/mod.rs:23`_
@@ -36,7 +38,7 @@ _Source: `rust/cuvs/src/neighbors/cagra/mod.rs:23`_
 pub use crate::neighbors::filters::{Bitset, Filter};
 ```
 
-_Source: `rust/cuvs/src/neighbors/cagra/mod.rs:24`_
+_Source: `rust/cuvs/src/neighbors/cagra/mod.rs:26`_
 
 ## index::\{DeserializedIndex, Index\}
 
@@ -44,15 +46,32 @@ _Source: `rust/cuvs/src/neighbors/cagra/mod.rs:24`_
 pub use index::{DeserializedIndex, Index};
 ```
 
-_Source: `rust/cuvs/src/neighbors/cagra/mod.rs:25`_
+_Source: `rust/cuvs/src/neighbors/cagra/mod.rs:27`_
 
-## params::\{IndexParams, SearchParams\}
+## params::\{CompressionParams, IndexParams, ProductQuantizerParams, SearchParams\}
 
 ```rust
-pub use params::{IndexParams, SearchParams};
+pub use params::{CompressionParams, IndexParams, ProductQuantizerParams, SearchParams};
 ```
 
-_Source: `rust/cuvs/src/neighbors/cagra/mod.rs:26`_
+_Source: `rust/cuvs/src/neighbors/cagra/mod.rs:28`_
+
+## make_pq_dataset
+
+```rust
+pub fn make_pq_dataset(
+res: &Resources,
+source: &impl CuvsDataset,
+params: Option<&ProductQuantizerParams>,
+) -> Result<PqDataset, CagraError>
+```
+
+Train an owning device PQ dataset (CAGRA-Q) from a device-padded source.
+
+`params` may be `None` to use library defaults. Keep the returned dataset
+alive while any index uses it, then attach with [`Index::update_dataset`].
+
+_Source: `rust/cuvs/src/neighbors/cagra/mod.rs:38`_
 
 ## GraphBuildAlgo
 
@@ -66,7 +85,7 @@ pub enum GraphBuildAlgo {
 
 Algorithm for building the internal k-NN graph.
 
-_Source: `rust/cuvs/src/neighbors/cagra/mod.rs:34`_
+_Source: `rust/cuvs/src/neighbors/cagra/mod.rs:50`_
 
 ## SearchAlgo
 
@@ -80,7 +99,7 @@ pub enum SearchAlgo {
 
 Search kernel implementation.
 
-_Source: `rust/cuvs/src/neighbors/cagra/mod.rs:74`_
+_Source: `rust/cuvs/src/neighbors/cagra/mod.rs:90`_
 
 ## HashMode
 
@@ -94,7 +113,7 @@ pub enum HashMode {
 
 Hash-table mode used during search.
 
-_Source: `rust/cuvs/src/neighbors/cagra/mod.rs:110`_
+_Source: `rust/cuvs/src/neighbors/cagra/mod.rs:126`_
 
 ## CagraError
 
@@ -108,4 +127,4 @@ pub enum CagraError {
 
 Error type for CAGRA operations.
 
-_Source: `rust/cuvs/src/neighbors/cagra/mod.rs:142`_
+_Source: `rust/cuvs/src/neighbors/cagra/mod.rs:158`_

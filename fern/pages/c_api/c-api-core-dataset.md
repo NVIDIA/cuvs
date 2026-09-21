@@ -74,12 +74,3 @@ typedef struct {
 | `mem_type` | [`cuvsDatasetMemType_t`](/api-reference/c-api-core-dataset#cuvsdatasetmemtype-t) |  |
 | `layout` | [`cuvsDatasetLayout_t`](/api-reference/c-api-core-dataset#cuvsdatasetlayout-t) |  |
 | `is_owning` | `bool` |  |
-
-<a id="cuvscagracompressionparams-t"></a>
-### cuvsCagraCompressionParams_t
-
-Compatibility name for PQ dataset parameters; planned for removal in the 27.02 ABI-breaking release.
-
-```c
-typedef struct cuvsCagraCompressionParams* cuvsCagraCompressionParams_t;
-```

@@ -56,9 +56,9 @@ struct sg_cagra_c_api_index_box {
   enum class dataset_layout : uint8_t {
     device_padded,
     device_standard,
-    device_vpq,
     host_padded,
-    host_standard
+    host_standard,
+    device_pq
   } layout;
   cuvs::neighbors::c_api::detail::owner_record owner_rec;
 };
@@ -109,7 +109,7 @@ static void with_index_by_layout(sg_cagra_c_api_index_box* box,
       fn(*idx);
       break;
     }
-    case sg_cagra_c_api_index_box::dataset_layout::device_vpq: {
+    case sg_cagra_c_api_index_box::dataset_layout::device_pq: {
       using index_t = cuvs::neighbors::cagra::
         index<T, IdxT, cuvs::neighbors::device_vpq_dataset_view<half, int64_t>>;
       auto* idx = reinterpret_cast<index_t*>(box->index_ptr);
@@ -435,7 +435,7 @@ static auto make_device_pq_dataset(raft::resources* res_ptr,
   std::unique_ptr<device_vpq_owner_t> owner;
   auto make = [&](auto const& view) {
     owner = std::make_unique<device_vpq_owner_t>(
-      cuvs::preprocessing::quantize::pq::make_vpq_dataset(*res_ptr, cpp_params, view));
+      cuvs::preprocessing::quantize::pq::make_device_pq_dataset(*res_ptr, cpp_params, view));
   };
 
   const bool padded = dataset->layout == CUVS_DATASET_LAYOUT_PADDED;
@@ -616,6 +616,52 @@ static void make_host_standard_dataset_view(raft::resources*,
 }
 
 template <typename T>
+static void make_device_pq_dataset(raft::resources* res_ptr,
+                                    cuvsDataset_t source_dataset,
+                                    cuvsProductQuantizerParams_t params,
+                                    cuvsDataset_t* output_pq_dataset)
+{
+  RAFT_EXPECTS(source_dataset != nullptr, "cuvsDatasetMakePq: null source dataset");
+  RAFT_EXPECTS(source_dataset->addr != 0, "cuvsDatasetMakePq: null source dataset storage");
+  RAFT_EXPECTS(output_pq_dataset != nullptr, "cuvsDatasetMakePq: null output dataset");
+  RAFT_EXPECTS(source_dataset->mem_type == CUVS_DATASET_MEM_TYPE_DEVICE &&
+                 source_dataset->layout == CUVS_DATASET_LAYOUT_PADDED,
+               "cuvsDatasetMakePq: source must be a device-padded dataset");
+
+  cuvs::neighbors::vpq_params ps{};
+  if (params != nullptr) {
+    RAFT_EXPECTS(params->use_subspaces,
+                 "cuvsDatasetMakePq: CAGRA-Q requires subspace product quantization");
+    ps.pq_bits                     = params->pq_bits;
+    ps.pq_dim                      = params->pq_dim;
+    ps.vq_n_centers                = params->use_vq ? params->vq_n_centers : 1;
+    ps.kmeans_n_iters              = params->kmeans_n_iters;
+    // ProductQuantizerParams uses absolute training-point caps rather than the legacy fractions.
+    ps.vq_kmeans_trainset_fraction = 1.0;
+    ps.pq_kmeans_trainset_fraction = 1.0;
+    ps.pq_kmeans_type =
+      static_cast<cuvs::cluster::kmeans::kmeans_type>(params->pq_kmeans_type);
+    ps.max_train_points_per_pq_code    = params->max_train_points_per_pq_code;
+    ps.max_train_points_per_vq_cluster = params->max_train_points_per_vq_cluster;
+  }
+
+  using owner_t = cuvs::neighbors::device_padded_dataset<T, int64_t>;
+  using view_t  = cuvs::neighbors::device_padded_dataset_view<T, int64_t>;
+  with_dataset_view<owner_t, view_t>(source_dataset, [&](auto const& padded_view) {
+    auto pq =
+      cuvs::preprocessing::quantize::pq::make_device_pq_dataset(*res_ptr, ps, padded_view);
+    using pq_owner_t = cuvs::neighbors::device_vpq_dataset<half, int64_t>;
+    auto* owned       = new pq_owner_t{std::move(pq)};
+    auto* out         = new cuvsDataset{};
+    out->addr         = reinterpret_cast<uintptr_t>(owned);
+    out->destroy_addr = &destroy_typed_addr<pq_owner_t>;
+    // PQ codebooks use f16 math type; source element type lives on the index dtype.
+    out->dtype     = DLDataType{.code = kDLFloat, .bits = 16, .lanes = 1};
+    out->mem_type  = CUVS_DATASET_MEM_TYPE_DEVICE;
+    out->layout    = CUVS_DATASET_LAYOUT_PQ;
+    out->is_owning = true;
+    *output_pq_dataset = out;
+  });
 static void update_dataset(raft::resources* res_ptr,
                            cuvsDataset_t dataset,
                            cuvsCagraIndex_t index)
@@ -845,42 +891,53 @@ void _search(cuvsResources_t res,
 {
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
   auto* box    = reinterpret_cast<sg_cagra_c_api_index_box*>(index.addr);
+
+  auto run_search = [&](auto& idx) {
+    auto search_params = cuvs::neighbors::cagra::search_params();
+    convert_c_search_params(params, &search_params);
+
+    using queries_mdspan_type   = raft::device_matrix_view<T const, int64_t, raft::row_major>;
+    using neighbors_mdspan_type = raft::device_matrix_view<IdxT, int64_t, raft::row_major>;
+    using distances_mdspan_type = raft::device_matrix_view<float, int64_t, raft::row_major>;
+    auto queries_mds            = cuvs::core::from_dlpack<queries_mdspan_type>(queries_tensor);
+    auto neighbors_mds          = cuvs::core::from_dlpack<neighbors_mdspan_type>(neighbors_tensor);
+    auto distances_mds          = cuvs::core::from_dlpack<distances_mdspan_type>(distances_tensor);
+    if (filter.type == NO_FILTER) {
+      cuvs::neighbors::cagra::search(
+        *res_ptr, search_params, idx, queries_mds, neighbors_mds, distances_mds);
+    } else if (filter.type == BITSET) {
+      using filter_mdspan_type = raft::device_vector_view<std::uint32_t, int64_t, raft::row_major>;
+      auto removed_indices_tensor = reinterpret_cast<DLManagedTensor*>(filter.addr);
+      auto removed_indices = cuvs::core::from_dlpack<filter_mdspan_type>(removed_indices_tensor);
+      cuvs::core::bitset_view<std::uint32_t, int64_t> removed_indices_bitset(
+        removed_indices, idx.dataset().n_rows());
+      auto bitset_filter_obj = cuvs::neighbors::filtering::bitset_filter(removed_indices_bitset);
+      cuvs::neighbors::cagra::search(*res_ptr,
+                                     search_params,
+                                     idx,
+                                     queries_mds,
+                                     neighbors_mds,
+                                     distances_mds,
+                                     bitset_filter_obj);
+    } else {
+      RAFT_FAIL("Unsupported filter type: BITMAP");
+    }
+  };
+
+  if (box->layout == sg_cagra_c_api_index_box::dataset_layout::device_pq) {
+    auto* idx =
+      reinterpret_cast<cuvs::neighbors::cagra::vpq_f16_index<T, uint32_t>*>(box->index_ptr);
+    RAFT_EXPECTS(idx != nullptr, "cuvsCagraSearch: null index handle");
+    run_search(*idx);
+    return;
+  }
+
   with_index_by_layout<T, uint32_t, false>(
     box,
     "cuvsCagraSearch: null index handle",
     "cuvsCagraSearch: host index must be converted to device first via "
     "cuvsCagraUpdateDataset with a device padded dataset view",
-    [&](auto& idx) {
-      auto search_params = cuvs::neighbors::cagra::search_params();
-      convert_c_search_params(params, &search_params);
-
-      using queries_mdspan_type   = raft::device_matrix_view<T const, int64_t, raft::row_major>;
-      using neighbors_mdspan_type = raft::device_matrix_view<IdxT, int64_t, raft::row_major>;
-      using distances_mdspan_type = raft::device_matrix_view<float, int64_t, raft::row_major>;
-      auto queries_mds            = cuvs::core::from_dlpack<queries_mdspan_type>(queries_tensor);
-      auto neighbors_mds          = cuvs::core::from_dlpack<neighbors_mdspan_type>(neighbors_tensor);
-      auto distances_mds          = cuvs::core::from_dlpack<distances_mdspan_type>(distances_tensor);
-      if (filter.type == NO_FILTER) {
-        cuvs::neighbors::cagra::search(
-          *res_ptr, search_params, idx, queries_mds, neighbors_mds, distances_mds);
-      } else if (filter.type == BITSET) {
-        using filter_mdspan_type = raft::device_vector_view<std::uint32_t, int64_t, raft::row_major>;
-        auto removed_indices_tensor = reinterpret_cast<DLManagedTensor*>(filter.addr);
-        auto removed_indices = cuvs::core::from_dlpack<filter_mdspan_type>(removed_indices_tensor);
-        cuvs::core::bitset_view<std::uint32_t, int64_t> removed_indices_bitset(
-          removed_indices, idx.dataset().n_rows());
-        auto bitset_filter_obj = cuvs::neighbors::filtering::bitset_filter(removed_indices_bitset);
-        cuvs::neighbors::cagra::search(*res_ptr,
-                                       search_params,
-                                       idx,
-                                       queries_mds,
-                                       neighbors_mds,
-                                       distances_mds,
-                                       bitset_filter_obj);
-      } else {
-        RAFT_FAIL("Unsupported filter type: BITMAP");
-      }
-    });
+    run_search);
 }
 
 template <typename T>
@@ -1571,6 +1628,71 @@ extern "C" cuvsError_t cuvsDatasetMakePaddedView(cuvsResources_t res,
   });
 }
 
+extern "C" cuvsError_t cuvsDatasetMakeStandardView(cuvsResources_t res,
+                                                   DLManagedTensor* dataset_tensor,
+                                                   cuvsDataset_t* standard_dataset)
+{
+  return cuvs::core::translate_exceptions([=] {
+    RAFT_EXPECTS(dataset_tensor != nullptr, "cuvsDatasetMakeStandardView: null input tensor");
+    RAFT_EXPECTS(standard_dataset != nullptr, "cuvsDatasetMakeStandardView: null output view");
+    *standard_dataset = nullptr;
+    auto dataset  = dataset_tensor->dl_tensor;
+    auto* res_ptr = reinterpret_cast<raft::resources*>(res);
+    auto make_typed = [&]<typename T>() {
+      if (cuvs::core::is_dlpack_device_compatible(dataset)) {
+        make_device_standard_dataset_view<T>(res_ptr, dataset_tensor, standard_dataset);
+      } else if (cuvs::core::is_dlpack_host_compatible(dataset)) {
+        make_host_standard_dataset_view<T>(res_ptr, dataset_tensor, standard_dataset);
+      } else {
+        RAFT_FAIL("cuvsDatasetMakeStandardView: unsupported tensor memory type");
+      }
+    };
+
+    if (dataset.dtype.code == kDLFloat && dataset.dtype.bits == 32) {
+      make_typed.template operator()<float>();
+    } else if (dataset.dtype.code == kDLFloat && dataset.dtype.bits == 16) {
+      make_typed.template operator()<half>();
+    } else if (dataset.dtype.code == kDLInt && dataset.dtype.bits == 8) {
+      make_typed.template operator()<int8_t>();
+    } else if (dataset.dtype.code == kDLUInt && dataset.dtype.bits == 8) {
+      make_typed.template operator()<uint8_t>();
+    } else {
+      RAFT_FAIL("Unsupported dataset DLtensor dtype: %d and bits: %d",
+                dataset.dtype.code,
+                dataset.dtype.bits);
+    }
+  });
+}
+
+extern "C" cuvsError_t cuvsDatasetMakePq(cuvsResources_t res,
+                                          cuvsDataset_t source_dataset,
+                                          cuvsProductQuantizerParams_t params,
+                                          cuvsDataset_t* pq_dataset)
+{
+  return cuvs::core::translate_exceptions([=] {
+    RAFT_EXPECTS(source_dataset != nullptr, "cuvsDatasetMakePq: null source dataset");
+    RAFT_EXPECTS(pq_dataset != nullptr, "cuvsDatasetMakePq: null output dataset");
+    auto* res_ptr = reinterpret_cast<raft::resources*>(res);
+    auto make_typed = [&]<typename T>() {
+      make_device_pq_dataset<T>(res_ptr, source_dataset, params, pq_dataset);
+    };
+
+    if (source_dataset->dtype.code == kDLFloat && source_dataset->dtype.bits == 32) {
+      make_typed.template operator()<float>();
+    } else if (source_dataset->dtype.code == kDLFloat && source_dataset->dtype.bits == 16) {
+      make_typed.template operator()<half>();
+    } else if (source_dataset->dtype.code == kDLInt && source_dataset->dtype.bits == 8) {
+      make_typed.template operator()<int8_t>();
+    } else if (source_dataset->dtype.code == kDLUInt && source_dataset->dtype.bits == 8) {
+      make_typed.template operator()<uint8_t>();
+    } else {
+      RAFT_FAIL("cuvsDatasetMakePq: unsupported source dtype: %d and bits: %d",
+                source_dataset->dtype.code,
+                source_dataset->dtype.bits);
+    }
+  });
+}
+
 extern "C" cuvsError_t cuvsDatasetDestroy(cuvsDataset_t dataset)
 {
   return cuvs::core::translate_exceptions([=] {
@@ -1618,89 +1740,129 @@ extern "C" cuvsError_t cuvsDatasetGetDtype(cuvsDataset_t dataset, DLDataType* dt
   });
 }
 
-extern "C" cuvsError_t cuvsDatasetMakeStandardView(cuvsResources_t res,
-                                                   DLManagedTensor* dataset_tensor,
-                                                   cuvsDataset_t* standard_dataset)
-{
+extern "C" cuvsError_t cuvsCagraUpdateDataset(cuvsResources_t res,
+                                              cuvsDataset_t dataset,
+                                              cuvsCagraIndex_t index) {
   return cuvs::core::translate_exceptions([=] {
-    RAFT_EXPECTS(dataset_tensor != nullptr, "cuvsDatasetMakeStandardView: null input tensor");
-    RAFT_EXPECTS(standard_dataset != nullptr, "cuvsDatasetMakeStandardView: null output view");
-    *standard_dataset = nullptr;
-    auto dataset  = dataset_tensor->dl_tensor;
-    auto* res_ptr = reinterpret_cast<raft::resources*>(res);
-    auto make_typed = [&]<typename T>() {
-      if (cuvs::core::is_dlpack_device_compatible(dataset)) {
-        make_device_standard_dataset_view<T>(res_ptr, dataset_tensor, standard_dataset);
-      } else if (cuvs::core::is_dlpack_host_compatible(dataset)) {
-        make_host_standard_dataset_view<T>(res_ptr, dataset_tensor, standard_dataset);
-      } else {
-        RAFT_FAIL("cuvsDatasetMakeStandardView: unsupported tensor memory type");
+    RAFT_EXPECTS(index != nullptr, "cuvsCagraUpdateDataset: null index handle");
+    RAFT_EXPECTS(index->addr != 0,
+                 "cuvsCagraUpdateDataset: null index storage");
+    RAFT_EXPECTS(dataset != nullptr,
+                 "cuvsCagraUpdateDataset: null dataset view");
+    RAFT_EXPECTS(dataset->addr != 0,
+                 "cuvsCagraUpdateDataset: null dataset view storage");
+    RAFT_EXPECTS(dataset->mem_type == CUVS_DATASET_MEM_TYPE_DEVICE,
+                 "cuvsCagraUpdateDataset: dataset must be device-resident");
+    RAFT_EXPECTS(dataset->layout == CUVS_DATASET_LAYOUT_PADDED ||
+                     dataset->layout == CUVS_DATASET_LAYOUT_PQ,
+                 "cuvsCagraUpdateDataset: dataset must be device-padded or "
+                 "device PQ");
+
+    auto *res_ptr = reinterpret_cast<raft::resources *>(res);
+    auto *box = reinterpret_cast<sg_cagra_c_api_index_box *>(index->addr);
+
+    using layout_t = sg_cagra_c_api_index_box::dataset_layout;
+
+    auto update = [&]<typename T>() {
+      if (dataset->layout == CUVS_DATASET_LAYOUT_PADDED) {
+        RAFT_EXPECTS(index->dtype.code == dataset->dtype.code &&
+                       index->dtype.bits == dataset->dtype.bits,
+                     "cuvsCagraUpdateDataset: dtype mismatch between index and dataset");
+
+        using owner_t = cuvs::neighbors::device_padded_dataset<T, int64_t>;
+        using view_t  = cuvs::neighbors::device_padded_dataset_view<T, int64_t>;
+        with_dataset_view<owner_t, view_t>(dataset, [&](auto const& dataset_view) {
+          auto attach_and_rebind = [&](auto* idx) {
+            RAFT_EXPECTS(idx != nullptr, "cuvsCagraUpdateDataset: null index handle");
+            auto updated_idx = cuvs::neighbors::cagra::update_dataset(*res_ptr, std::move(*idx), dataset_view);
+            auto* holder =
+              new cuvs_cagra_c_api_index_lifetime_holder<T, view_t>{std::move(updated_idx)};
+            destroy_sg_cagra_c_api_box(index->addr);
+            index->addr = 0;
+            bind_index_lifetime_holder_to_C_index<T, view_t>(index, index->dtype, holder);
+          };
+
+          switch (box->layout) {
+            case layout_t::device_padded: {
+              auto* idx = reinterpret_cast<
+                cuvs::neighbors::cagra::device_padded_index<T, uint32_t>*>(box->index_ptr);
+              RAFT_EXPECTS(idx != nullptr, "cuvsCagraUpdateDataset: null index handle");
+              attach_and_rebind(idx);
+              break;
+            }
+            case layout_t::device_standard:
+              attach_and_rebind(reinterpret_cast<
+                                cuvs::neighbors::cagra::device_standard_index<T, uint32_t>*>(
+                box->index_ptr));
+              break;
+            case layout_t::host_standard:
+              attach_and_rebind(
+                reinterpret_cast<cuvs::neighbors::cagra::host_standard_index<T, uint32_t>*>(
+                  box->index_ptr));
+              break;
+            case layout_t::host_padded:
+              attach_and_rebind(
+                reinterpret_cast<cuvs::neighbors::cagra::host_padded_index<T, uint32_t>*>(
+                  box->index_ptr));
+              break;
+            case layout_t::device_pq:
+              RAFT_FAIL(
+                "cuvsCagraUpdateDataset: cannot attach a padded dataset to a PQ index; "
+                "pass a device PQ dataset from cuvsDatasetMakePq");
+          }
+        });
+      } else if (dataset->layout == CUVS_DATASET_LAYOUT_PQ) {
+        RAFT_EXPECTS(dataset->is_owning,
+                     "cuvsCagraUpdateDataset: PQ dataset handle must be owning "
+                     "(from cuvsDatasetMakePq)");
+
+        using owner_t = cuvs::neighbors::device_vpq_dataset<half, int64_t>;
+        using view_t  = cuvs::neighbors::device_vpq_dataset_view<half, int64_t>;
+        with_dataset_view<owner_t, view_t>(dataset, [&](auto const& dataset_view) {
+          auto attach_and_rebind = [&](auto* idx) {
+            RAFT_EXPECTS(idx != nullptr, "cuvsCagraUpdateDataset: null index handle");
+            auto updated_idx = cuvs::neighbors::cagra::update_dataset(*res_ptr, std::move(*idx), dataset_view);
+            auto* holder =
+              new cuvs_cagra_c_api_index_lifetime_holder<T, view_t>{std::move(updated_idx)};
+            destroy_sg_cagra_c_api_box(index->addr);
+            index->addr = 0;
+            bind_index_lifetime_holder_to_C_index<T, view_t>(index, index->dtype, holder);
+          };
+
+          switch (box->layout) {
+            case layout_t::device_pq: {
+              auto* idx =
+                reinterpret_cast<cuvs::neighbors::cagra::vpq_f16_index<T, uint32_t>*>(
+                  box->index_ptr);
+              RAFT_EXPECTS(idx != nullptr, "cuvsCagraUpdateDataset: null index handle");
+              attach_and_rebind(idx);
+              break;
+            }
+            case layout_t::device_padded:
+              attach_and_rebind(reinterpret_cast<
+                                cuvs::neighbors::cagra::device_padded_index<T, uint32_t>*>(
+                box->index_ptr));
+              break;
+            case layout_t::device_standard:
+              attach_and_rebind(reinterpret_cast<
+                                cuvs::neighbors::cagra::device_standard_index<T, uint32_t>*>(
+                box->index_ptr));
+              break;
+            case layout_t::host_standard:
+              attach_and_rebind(
+                reinterpret_cast<cuvs::neighbors::cagra::host_standard_index<T, uint32_t>*>(
+                  box->index_ptr));
+              break;
+            case layout_t::host_padded:
+              attach_and_rebind(
+                reinterpret_cast<cuvs::neighbors::cagra::host_padded_index<T, uint32_t>*>(
+                  box->index_ptr));
+              break;
+          }
+        });
       }
     };
 
-    if (dataset.dtype.code == kDLFloat && dataset.dtype.bits == 32) {
-      make_typed.template operator()<float>();
-    } else if (dataset.dtype.code == kDLFloat && dataset.dtype.bits == 16) {
-      make_typed.template operator()<half>();
-    } else if (dataset.dtype.code == kDLInt && dataset.dtype.bits == 8) {
-      make_typed.template operator()<int8_t>();
-    } else if (dataset.dtype.code == kDLUInt && dataset.dtype.bits == 8) {
-      make_typed.template operator()<uint8_t>();
-    } else {
-      RAFT_FAIL("Unsupported dataset DLtensor dtype: %d and bits: %d",
-                dataset.dtype.code,
-                dataset.dtype.bits);
-    }
-  });
-}
-
-extern "C" cuvsError_t cuvsDatasetMakePQ(cuvsResources_t res,
-                                         cuvsPqParams_t params,
-                                         cuvsDataset_t dataset,
-                                         cuvsDatasetMemType_t target_mem_type,
-                                         cuvsDataset_t* pq_dataset)
-{
-  return cuvs::core::translate_exceptions([=] {
-    RAFT_EXPECTS(params != nullptr, "cuvsDatasetMakePQ: null compression params");
-    RAFT_EXPECTS(dataset != nullptr && dataset->addr != 0,
-                 "cuvsDatasetMakePQ: null source dataset");
-    RAFT_EXPECTS(pq_dataset != nullptr, "cuvsDatasetMakePQ: null output dataset");
-    *pq_dataset = nullptr;
-    RAFT_EXPECTS(target_mem_type == CUVS_DATASET_MEM_TYPE_DEVICE,
-                 "cuvsDatasetMakePQ currently supports only device output");
-    auto* res_ptr = reinterpret_cast<raft::resources*>(res);
-    std::unique_ptr<device_vpq_owner_t> owner;
-    if (dataset->dtype.code == kDLFloat && dataset->dtype.bits == 32) {
-      owner = make_device_pq_dataset<float>(res_ptr, *params, dataset);
-    } else if (dataset->dtype.code == kDLFloat && dataset->dtype.bits == 16) {
-      owner = make_device_pq_dataset<half>(res_ptr, *params, dataset);
-    } else if (dataset->dtype.code == kDLInt && dataset->dtype.bits == 8) {
-      owner = make_device_pq_dataset<int8_t>(res_ptr, *params, dataset);
-    } else if (dataset->dtype.code == kDLUInt && dataset->dtype.bits == 8) {
-      owner = make_device_pq_dataset<uint8_t>(res_ptr, *params, dataset);
-    } else {
-      RAFT_FAIL("cuvsDatasetMakePQ: unsupported source dtype: code=%d, bits=%d",
-                dataset->dtype.code,
-                dataset->dtype.bits);
-    }
-    bind_vpq_owner_to_dataset(std::move(owner), pq_dataset);
-  });
-}
-
-static cuvsError_t dispatch_update_dataset(cuvsResources_t res,
-                                           cuvsDataset_t dataset,
-                                           cuvsCagraIndex_t index)
-{
-  return cuvs::core::translate_exceptions([=] {
-    auto* res_ptr = reinterpret_cast<raft::resources*>(res);
-    RAFT_EXPECTS(index != nullptr, "cuvsCagraUpdateDataset: null index handle");
-    RAFT_EXPECTS(dataset != nullptr, "cuvsCagraUpdateDataset: null dataset view");
-    RAFT_EXPECTS(dataset->layout == CUVS_DATASET_LAYOUT_PADDED ||
-                   dataset->layout == CUVS_DATASET_LAYOUT_PQ,
-                 "cuvsCagraUpdateDataset: dataset layout must be PADDED or PQ");
-    RAFT_EXPECTS(index->dtype.code == dataset->dtype.code &&
-                   index->dtype.bits == dataset->dtype.bits,
-                 "cuvsCagraUpdateDataset: dtype mismatch between index and dataset");
     if (index->dtype.code == kDLFloat && index->dtype.bits == 32) {
       update_dataset<float>(res_ptr, dataset, index);
     } else if (index->dtype.code == kDLFloat && index->dtype.bits == 16) {
@@ -1710,7 +1872,8 @@ static cuvsError_t dispatch_update_dataset(cuvsResources_t res,
     } else if (index->dtype.code == kDLUInt && index->dtype.bits == 8) {
       update_dataset<uint8_t>(res_ptr, dataset, index);
     } else {
-      RAFT_FAIL("Unsupported index dtype: %d and bits: %d", index->dtype.code, index->dtype.bits);
+      RAFT_FAIL("Unsupported index dtype: %d and bits: %d", index->dtype.code,
+                index->dtype.bits);
     }
   });
 }
@@ -1926,11 +2089,10 @@ extern "C" cuvsError_t cuvsCagraSearch(cuvsResources_t res,
     auto* box  = reinterpret_cast<sg_cagra_c_api_index_box*>(index.addr);
     RAFT_EXPECTS(box != nullptr, "cuvsCagraSearch: null index handle");
     RAFT_EXPECTS(box->layout == sg_cagra_c_api_index_box::dataset_layout::device_padded ||
-                   box->layout == sg_cagra_c_api_index_box::dataset_layout::device_vpq,
-                 "cuvsCagraSearch: index must be device-padded or VPQ. For standard indices, call "
-                 "cuvsCagraUpdateDataset first.");
-    RAFT_EXPECTS(queries.dtype.code == index.dtype.code && queries.dtype.bits == index.dtype.bits,
-                 "type mismatch between index and queries");
+                   box->layout == sg_cagra_c_api_index_box::dataset_layout::device_pq,
+                 "cuvsCagraSearch: index must be device-padded or device-PQ. Call "
+                 "cuvsCagraUpdateDataset with a device-padded or owning PQ dataset.");
+    RAFT_EXPECTS(queries.dtype.code == index.dtype.code && queries.dtype.bits == index.dtype.bits, "type mismatch between index and queries");
 
     if (queries.dtype.code == kDLFloat && queries.dtype.bits == 32) {
       _search<float>(

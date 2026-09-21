@@ -161,6 +161,22 @@ cdef extern from "cuvs/neighbors/cagra.h" nogil:
         cuvsDataset_t dataset,
         cuvsCagraIndex_t index)
 
+    ctypedef struct cuvsCagraCompressionParams:
+        uint32_t pq_bits
+        uint32_t pq_dim
+        uint32_t vq_n_centers
+        uint32_t kmeans_n_iters
+        double vq_kmeans_trainset_fraction
+        double pq_kmeans_trainset_fraction
+
+    ctypedef cuvsCagraCompressionParams* cuvsCagraCompressionParams_t
+
+    cuvsError_t cuvsCagraCompressionParamsCreate(
+        cuvsCagraCompressionParams_t* params)
+
+    cuvsError_t cuvsCagraCompressionParamsDestroy(
+        cuvsCagraCompressionParams_t params)
+
     cuvsError_t cuvsCagraSerializeGraph(cuvsResources_t res,
                                         const char * filename,
                                         cuvsCagraIndex_t index)
