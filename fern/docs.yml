@@ -238,6 +238,8 @@ navigation:
             path: "./pages/jit_compilation.md"
           - page: "UDF Usage"
             path: "./pages/udf_usage.md"
+      - page: "Lucene Integration"
+        path: "./pages/user_guide/lucene.md"
       - page: "References"
         path: "./pages/references.md"
   - section: "Developer Guide"

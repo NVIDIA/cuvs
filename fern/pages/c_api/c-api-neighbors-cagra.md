@@ -41,7 +41,9 @@ enum cuvsCagraHnswHeuristicType;
 <a id="cuvscagracompressionparams"></a>
 ### cuvsCagraCompressionParams
 
-Parameters for VPQ compression.
+Parameters for PQ dataset compression.
+
+The `cuvsCagraCompressionParams` name is retained for ABI compatibility and is planned for removal in the 27.02 ABI-breaking release. Use `cuvsPqParams` in new code.
 
 ```c
 struct cuvsCagraCompressionParams {
@@ -58,7 +60,7 @@ struct cuvsCagraCompressionParams {
 
 | Name | Type | Description |
 | --- | --- | --- |
-| `pq_bits` | `uint32_t` | The bit length of the vector element after compression by PQ.<br /><br />Possible values: [4, 5, 6, 7, 8].<br /><br />Hint: the smaller the 'pq_bits', the smaller the index size and the better the search performance, but the lower the recall. |
+| `pq_bits` | `uint32_t` | The bit length of the vector element after compression by PQ.<br /><br />Possible values: [4, 5, 6, 7, 8].<br /><br />Hint: the smaller the `pq_bits`, the smaller the index size and the better the search performance, but the lower the recall. |
 | `pq_dim` | `uint32_t` | The dimensionality of the vector after compression by PQ. When zero, an optimal value is selected using a heuristic.<br /><br />TODO: at the moment `dim` must be a multiple `pq_dim`. |
 | `vq_n_centers` | `uint32_t` | Vector Quantization (VQ) codebook size - number of "coarse cluster centers". When zero, an optimal value is selected using a heuristic. |
 | `kmeans_n_iters` | `uint32_t` | The number of iterations searching for kmeans centers (both VQ & PQ phases). |
@@ -254,11 +256,13 @@ cuvsError_t cuvsCagraMergeParamsDestroy(cuvsCagraMergeParams_t params);
 <a id="cuvscagracompressionparamscreate"></a>
 ### cuvsCagraCompressionParamsCreate
 
-Allocate CAGRA Compression params, and populate with default values
+Allocate CAGRA Compression params, and populate with default values.
 
 ```c
 cuvsError_t cuvsCagraCompressionParamsCreate(cuvsCagraCompressionParams_t* params);
 ```
+
+Deprecated: Use `cuvsPqParamsCreate`. This compatibility API is planned for removal in the 27.02 ABI-breaking release.
 
 **Parameters**
 
@@ -273,11 +277,13 @@ cuvsError_t cuvsCagraCompressionParamsCreate(cuvsCagraCompressionParams_t* param
 <a id="cuvscagracompressionparamsdestroy"></a>
 ### cuvsCagraCompressionParamsDestroy
 
-De-allocate CAGRA Compression params
+De-allocate CAGRA Compression params.
 
 ```c
 cuvsError_t cuvsCagraCompressionParamsDestroy(cuvsCagraCompressionParams_t params);
 ```
+
+Deprecated: Use `cuvsPqParamsDestroy`. This compatibility API is planned for removal in the 27.02 ABI-breaking release.
 
 **Parameters**
 
@@ -780,22 +786,22 @@ Note that the DLManagedTensor graph returned will have an associated 'deleter' f
 <a id="cuvscagraupdatedataset"></a>
 ### cuvsCagraUpdateDataset
 
-Update a CAGRA index with a device-padded dataset.
+Update a CAGRA index with a device-padded or device-PQ dataset.
 
 ```c
 cuvsError_t cuvsCagraUpdateDataset(cuvsResources_t res,
-cuvsDataset_t device_padded_dataset,
+cuvsDataset_t dataset,
 cuvsCagraIndex_t index);
 ```
 
-This is the centralized dataset update operation for C callers. If `index` is already device-padded, its dataset view is replaced in place. Otherwise, the index is converted and its opaque handle is rebound to a search-ready device-padded index. Caller retains ownership of
+This is the centralized dataset update operation for C callers. The index's opaque handle is rebound to an index over the supplied dataset layout. Device-padded and device-PQ datasets can be attached to any supported index layout. The caller retains ownership of `dataset` and must keep it alive while `index` uses it.
 
 **Parameters**
 
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | [`cuvsResources_t`](/api-reference/c-api-core-c-api#cuvsresources-t) | cuvsResources_t opaque C handle |
-| `device_padded_dataset` | in | `cuvsDataset_t` | owning or non-owning device-padded dataset handle |
+| `dataset` | in | `cuvsDataset_t` | owning or non-owning device-padded or device-PQ dataset handle |
 | `index` | inout | [`cuvsCagraIndex_t`](/api-reference/c-api-neighbors-cagra#cuvscagraindex) | CAGRA index handle |
 
 **Returns**
@@ -824,6 +830,8 @@ cuvsCagraIndex_t index);
 The memory space and layout `dataset` was constructed with select the C++ build overload. Build the handle with an owning factory or the matching dataset view factory (`cuvsDatasetMakePaddedView` / `cuvsDatasetMakeStandardView`).
 
 Note that a dataset residing in host memory produces a host-backed index, which must be made search-ready with `cuvsCagraUpdateDataset` (using a device-padded dataset) before calling `cuvsCagraSearch`.
+
+A `CUVS_DATASET_LAYOUT_PQ` dataset created by `cuvsDatasetMakePQ` builds an iterative CAGRA-Q index. VPQ input requires `L2Expanded` and `ITERATIVE_CAGRA_SEARCH` (or `AUTO_SELECT`), and the VPQ dataset must outlive the index because the index stores a non-owning view.
 
 **Parameters**
 
@@ -927,6 +935,8 @@ const char* filename,
 cuvsCagraIndex_t index);
 ```
 
+This supports dense and PQ-backed indexes. The dataset must be attached separately after loading the graph.
+
 Experimental, both the API and the serialization format are subject to change.
 
 **Parameters**
@@ -952,7 +962,7 @@ const char* filename,
 cuvsCagraIndex_t index);
 ```
 
-The index stores a non-owning dataset view. The caller must keep the dataset backing that view alive while this function runs. Returns CUVS_ERROR without modifying the destination file if the index has no attached dataset.
+The index stores a non-owning dataset view. The caller must keep the dataset backing that view alive while this function runs. Returns CUVS_ERROR without modifying the destination file if the index has no attached dataset. PQ datasets are not serialized by this function.
 
 Experimental, both the API and the serialization format are subject to change.
 
@@ -1006,7 +1016,7 @@ const char* filename,
 cuvsCagraIndex_t index);
 ```
 
-This succeeds whether or not the file contains a dataset. Use cuvsCagraUpdateDataset to attach a caller-owned device-padded dataset view before searching the graph-only index.
+This succeeds whether or not the file contains a dataset. Use cuvsCagraUpdateDataset to attach a caller-owned device-padded or device-PQ dataset before searching the graph-only index.
 
 Experimental, both the API and the serialization format are subject to change.
 
