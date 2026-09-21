@@ -57,15 +57,17 @@ void search_main_core(
   raft::device_matrix_view<const DataT, int64_t, raft::row_major> queries,
   raft::device_matrix_view<OutputIdxT, int64_t, raft::row_major> neighbors,
   raft::device_matrix_view<DistanceT, int64_t, raft::row_major> distances,
+  uint32_t query_logical_dim,
   CagraSampleFilterT sample_filter = CagraSampleFilterT())
 {
   static_assert(std::is_same_v<IndexT, uint32_t>,
                 "Only uint32_t is supported as the graph element type (internal index type)");
   RAFT_LOG_DEBUG("# dataset size = %lu, dim = %lu\n",
                  static_cast<size_t>(graph.extent(0)),
-                 static_cast<size_t>(queries.extent(1)));
-  RAFT_LOG_DEBUG("# query size = %lu, dim = %lu\n",
+                 static_cast<size_t>(query_logical_dim));
+  RAFT_LOG_DEBUG("# query size = %lu, dim = %lu, row_width = %lu\n",
                  static_cast<size_t>(queries.extent(0)),
+                 static_cast<size_t>(query_logical_dim),
                  static_cast<size_t>(queries.extent(1)));
   const uint32_t topk = neighbors.extent(1);
 
@@ -75,27 +77,27 @@ void search_main_core(
   }
 
   raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> fun_scope(
-    "cagra::search(max_queries = %u, k = %u, dim = %zu)",
+    "cagra::search(max_queries = %u, k = %u, dim = %u)",
     params.max_queries,
     topk,
-    queries.extent(1));
+    query_logical_dim);
 
   using CagraSampleFilterT_s = typename CagraSampleFilterT_Selector<CagraSampleFilterT>::type;
   std::unique_ptr<
     search_plan_impl<DataT, IndexT, DistanceT, CagraSampleFilterT_s, SourceIdxT, OutputIdxT>>
     plan = factory<DataT, IndexT, DistanceT, CagraSampleFilterT_s, SourceIdxT, OutputIdxT>::create(
-      res, params, dataset_desc, queries.extent(1), graph.extent(0), graph.extent(1), topk);
+      res, params, dataset_desc, query_logical_dim, graph.extent(0), graph.extent(1), topk);
 
   plan->check(topk);
 
   RAFT_LOG_DEBUG("Cagra search");
   const uint32_t max_queries = plan->max_queries;
-  const uint32_t query_dim   = static_cast<uint32_t>(queries.extent(1));
-  // Same 16B row-pitch rule as make_device_padded_dataset. Tight [n,dim] rows can be misaligned
-  // between rows (e.g. float, dim=1) and trigger misaligned access in CAGRA search. If
-  // query_row_stride>dim, device code still advances with "+= dim*query_id" in setup_workspace; in
-  // that case run one query per plan call so every kernel sees query_id==0 and the base pointer
-  // selects the row (keeps batched path when stride==dim).
+  // Same 16B row-pitch rule as make_device_padded_dataset. Tight [n, dim] rows can be misaligned
+  // between rows (e.g. float, dim=1) and trigger misaligned access in CAGRA search. Callers may
+  // also pass an already-padded [n, stride] matrix; `query_logical_dim` is the feature width used
+  // by setup_workspace (`+= dim * query_id`). If query_row_stride > logical dim, run one query per
+  // plan call so every kernel sees query_id==0 and the base pointer selects the row (keeps the
+  // batched path when stride==dim).
   const DataT* queries_buf{};
   uint32_t query_row_stride{};
   std::unique_ptr<cuvs::neighbors::device_padded_dataset<DataT, int64_t>> queries_padded_own;
@@ -109,7 +111,7 @@ void search_main_core(
     queries_buf        = v.view().data_handle();
     query_row_stride   = v.stride();
   }
-  const bool can_batch_n_queries = (query_row_stride == query_dim);
+  const bool can_batch_n_queries = (query_row_stride == query_logical_dim);
 
   for (unsigned qid = 0; qid < queries.extent(0); qid += max_queries) {
     const uint32_t n_queries = std::min<std::size_t>(max_queries, queries.extent(0) - qid);
@@ -202,6 +204,16 @@ void search_main(raft::resources const& res,
 
   using graph_idx_type = uint32_t;
 
+  const uint32_t query_logical_dim = index.dim();
+  const uint32_t query_row_width   = static_cast<uint32_t>(queries.extent(1));
+  const uint32_t required_stride = cuvs::neighbors::cagra_required_row_width<T>(query_logical_dim);
+  RAFT_EXPECTS(query_row_width == query_logical_dim || query_row_width == required_stride,
+               "CAGRA search queries must have %u logical dimensions or CAGRA-padded row width %u "
+               "(got %u).",
+               query_logical_dim,
+               required_stride,
+               query_row_width);
+
   auto run_strided_like = [&](auto const& row_dataset) {
     if (params.smem_dtype != cuvs::neighbors::cagra::internal_dtype::F16) {
       RAFT_LOG_WARN("In this search mode, smem_dtype supports only F16. Set it to F16.");
@@ -227,6 +239,7 @@ void search_main(raft::resources const& res,
       queries,
       neighbors,
       distances,
+      query_logical_dim,
       sample_filter);
   };
 
@@ -255,6 +268,7 @@ void search_main(raft::resources const& res,
       queries,
       neighbors,
       distances,
+      query_logical_dim,
       sample_filter);
   } else if constexpr (cuvs::neighbors::is_device_standard_dataset_view_v<DatasetViewT>) {
     RAFT_FAIL(
