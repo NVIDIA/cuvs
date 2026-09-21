@@ -879,7 +879,7 @@ CUVS_EXPORT cuvsError_t cuvsCagraSerializeGraph(cuvsResources_t res,
 /**
  * Save the CAGRA graph and its attached dataset to file.
  *
- * The index stores a non-owning dataset view. The caller must keep the dataset backing that view
+ * The index stores a non-owning dataset view. The caller must keep the memory of the dataset backing that view
  * alive while this function runs. Returns CUVS_ERROR without modifying the destination file if
  * the index has no attached dataset. PQ and BBQ datasets are not serialized by this function.
  *
