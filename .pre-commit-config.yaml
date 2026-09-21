@@ -68,11 +68,11 @@ repos:
             ^c/include/.*[.](h|hpp)$|
             ^cpp/include/.*[.](h|hpp|cuh)$|
             ^python/cuvs/cuvs/.*[.](py|pyx|pxd)$|
-            ^java/cuvs-java/src/main/.*[.]java$|
+            ^java/cuvs-(java|lucene)/src/main/.*[.]java$|
             ^rust/cuvs/src/.*[.]rs$|
             ^go/.*[.]go$|
             ^fern/scripts/generate_api_reference[.]py$|
-            ^fern/pages/(c|cpp|python|java|rust|go)_api/.*[.]md$|
+            ^fern/pages/(c|cpp|python|java|lucene|rust|go)_api/.*[.]md$|
             ^fern/pages/api_reference[.]md$|
             ^fern/docs[.]yml$
       - id: no-deprecationwarning
@@ -121,7 +121,7 @@ repos:
         name: spotless-fmt
         entry: ci/checks/run_spotless.sh
         pass_filenames: false
-        files: ^java/(cuvs-java|cuvs-lucene)/([^/]+/)?src/.*\.java$
+        files: ^(java|examples/java)/(cuvs-java|cuvs-lucene)/([^/]+/)?src/.*\.java$
         exclude: .*/panama/.*
         language: script
         verbose: true
@@ -149,8 +149,9 @@ repos:
             ^cpp/cmake/patches/cutlass/build-export[.]patch$|
             ^rust/cuvs-sys/src/bindings[.]rs$
   - repo: https://github.com/rapidsai/pre-commit-hooks
-    rev: v1.6.0
+    rev: v1.7.0
     hooks:
+      - id: verify-dependencies
       - id: verify-copyright
         name: verify-copyright-cuvs
         args: [--fix, --spdx]

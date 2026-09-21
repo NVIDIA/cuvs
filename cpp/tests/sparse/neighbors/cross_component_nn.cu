@@ -388,8 +388,6 @@ class ConnectComponentsEdgesTest
   {
     raft::resources handle;
 
-    auto stream = raft::resource::get_cuda_stream(handle);
-
     params = ::testing::TestWithParam<
       ConnectComponentsMutualReachabilityInputs<value_t, value_idx>>::GetParam();
 
