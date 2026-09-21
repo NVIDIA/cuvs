@@ -22,15 +22,30 @@ extern "C" {
 
 /**
  * Storage layout of BBQ/OSQ quantized component codes in each dataset row.
+ * CUVS_BBQ_CODE_LAYOUT_PACKED_1B: Each dimension is quantized to a single bit and packed into bytes. Reflects
+ * Lucene's OptimizedScalarQuantizer.packAsBinary.
+ * CUVS_BBQ_CODE_LAYOUT_TRANSPOSED_2B: Each dimension is quantized to 2 bits, stored as 2 bitplanes.
+ * Reflects Lucene's OptimizedScalarQuantizer.transposeDibit. SIMT popc path only
+ * (paired with a transposed_4b or packed_1b operand);
+ * CUVS_BBQ_CODE_LAYOUT_TRANSPOSED_4B: Each dimension is quantized to 4 bits, optimized for bitwise operations.
+ * Reflects Lucene's OptimizedScalarQuantizer.transposeHalfByte. the first bit of
+ * every dimension is in the first set dimensions bits, or (dimensions/8)
+ * bytes. The second, third, and fourth bits are in the second, third, and
+ * fourth set of dimensions bits, respectively. Format used for queries.
+ * CUVS_BBQ_CODE_LAYOUT_PACKED_4B: Each dimension is quantized to 4 bits, two values are packed into each output
+ * byte.
+ * CUVS_BBQ_CODE_LAYOUT_PACKED_7B: Each dimension is quantized to 7 bits and treated as a signed value.
+ * CUVS_BBQ_CODE_LAYOUT_PACKED_8B: Each dimension is quantized to 8 bits and treated as an unsigned value.
  */
 typedef enum {
-  CUVS_BBQ_CODE_LAYOUT_PACKED_1B = 0,  ///< One bit per dimension packed into bytes.
-  CUVS_BBQ_CODE_LAYOUT_TRANSPOSED_2B,  ///< Two bits per dimension stored as two bitplanes.
-  CUVS_BBQ_CODE_LAYOUT_TRANSPOSED_4B,  ///< Four bits per dimension stored as four bitplanes.
-  CUVS_BBQ_CODE_LAYOUT_PACKED_4B,      ///< Four bits per dimension with two values per byte.
-  CUVS_BBQ_CODE_LAYOUT_PACKED_7B,      ///< Seven-bit values stored one per byte.
-  CUVS_BBQ_CODE_LAYOUT_PACKED_8B       ///< Eight-bit values stored one per byte.
+  CUVS_BBQ_CODE_LAYOUT_PACKED_1B = 0,
+  CUVS_BBQ_CODE_LAYOUT_TRANSPOSED_2B,
+  CUVS_BBQ_CODE_LAYOUT_TRANSPOSED_4B,
+  CUVS_BBQ_CODE_LAYOUT_PACKED_4B,
+  CUVS_BBQ_CODE_LAYOUT_PACKED_7B,
+  CUVS_BBQ_CODE_LAYOUT_PACKED_8B
 } cuvsBbqCodeLayout_t;
+
 
 /**
  * @brief Better Binary Quantization
