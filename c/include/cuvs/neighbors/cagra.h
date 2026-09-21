@@ -863,8 +863,9 @@ CUVS_EXPORT cuvsError_t cuvsCagraSearchMultiPartition(cuvsResources_t res,
 /**
  * Save the CAGRA graph to file without its dataset.
  *
- * This supports dense, PQ-backed, and BBQ-built indexes. The dataset must be attached separately
- * after loading the graph.
+ * This supports dense, PQ-backed, and BBQ-built indexes. The serialized file does not contain
+ * vector data. After deserialization the index cannot be searched until a compatible dataset is
+ * attached with `cuvsCagraUpdateDataset`.
  *
  * Experimental, both the API and the serialization format are subject to change.
  *
@@ -879,9 +880,10 @@ CUVS_EXPORT cuvsError_t cuvsCagraSerializeGraph(cuvsResources_t res,
 /**
  * Save the CAGRA graph and its attached dataset to file.
  *
- * The index stores a non-owning dataset view. The caller must keep the memory of the dataset backing that view
- * alive while this function runs. Returns CUVS_ERROR without modifying the destination file if
- * the index has no attached dataset. PQ and BBQ datasets are not serialized by this function.
+ * The index stores a non-owning dataset view. The caller must keep the memory of the dataset
+ * backing that view alive while this function runs. Returns CUVS_ERROR without modifying the
+ * destination file if the index has no attached dataset. PQ and BBQ datasets are not serialized
+ * by this function.
  *
  * Experimental, both the API and the serialization format are subject to change.
  *

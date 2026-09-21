@@ -935,7 +935,7 @@ const char* filename,
 cuvsCagraIndex_t index);
 ```
 
-This supports dense, PQ-backed, and BBQ-built indexes. The dataset must be attached separately after loading the graph.
+This supports dense, PQ-backed, and BBQ-built indexes. The serialized file does not contain vector data. After deserialization the index cannot be searched until a compatible dataset is attached with `cuvsCagraUpdateDataset`.
 
 Experimental, both the API and the serialization format are subject to change.
 
@@ -962,7 +962,7 @@ const char* filename,
 cuvsCagraIndex_t index);
 ```
 
-The index stores a non-owning dataset view. The caller must keep the dataset backing that view alive while this function runs. Returns CUVS_ERROR without modifying the destination file if the index has no attached dataset. PQ and BBQ datasets are not serialized by this function.
+The index stores a non-owning dataset view. The caller must keep the memory of the dataset backing that view alive while this function runs. Returns CUVS_ERROR without modifying the destination file if the index has no attached dataset. PQ and BBQ datasets are not serialized by this function.
 
 Experimental, both the API and the serialization format are subject to change.
 

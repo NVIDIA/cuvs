@@ -114,6 +114,7 @@ CUVS_EXPORT cuvsError_t cuvsDatasetMakePQ(cuvsResources_t res,
  * @param[in] quantizers array containing one or two BBQ quantizer handles
  * @param[in] num_quantizers number of elements in `quantizers`
  * @param[out] dataset newly allocated non-owning BBQ dataset handle
+ * @return cuvsError_t
  */
 CUVS_EXPORT cuvsError_t cuvsDatasetMakeBbqView(cuvsResources_t res,
                                                cuvsBbqQuantizer_t* quantizers,

@@ -22,28 +22,14 @@ extern "C" {
 
 /**
  * Storage layout of BBQ/OSQ quantized component codes in each dataset row.
- * CUVS_BBQ_CODE_LAYOUT_PACKED_1B: Each dimension is quantized to a single bit and packed into bytes. Reflects
- * Lucene's OptimizedScalarQuantizer.packAsBinary.
- * CUVS_BBQ_CODE_LAYOUT_TRANSPOSED_2B: Each dimension is quantized to 2 bits, stored as 2 bitplanes.
- * Reflects Lucene's OptimizedScalarQuantizer.transposeDibit. SIMT popc path only
- * (paired with a transposed_4b or packed_1b operand);
- * CUVS_BBQ_CODE_LAYOUT_TRANSPOSED_4B: Each dimension is quantized to 4 bits, optimized for bitwise operations.
- * Reflects Lucene's OptimizedScalarQuantizer.transposeHalfByte. the first bit of
- * every dimension is in the first set dimensions bits, or (dimensions/8)
- * bytes. The second, third, and fourth bits are in the second, third, and
- * fourth set of dimensions bits, respectively. Format used for queries.
- * CUVS_BBQ_CODE_LAYOUT_PACKED_4B: Each dimension is quantized to 4 bits, two values are packed into each output
- * byte.
- * CUVS_BBQ_CODE_LAYOUT_PACKED_7B: Each dimension is quantized to 7 bits and treated as a signed value.
- * CUVS_BBQ_CODE_LAYOUT_PACKED_8B: Each dimension is quantized to 8 bits and treated as an unsigned value.
  */
 typedef enum {
-  CUVS_BBQ_CODE_LAYOUT_PACKED_1B = 0,
-  CUVS_BBQ_CODE_LAYOUT_TRANSPOSED_2B,
-  CUVS_BBQ_CODE_LAYOUT_TRANSPOSED_4B,
-  CUVS_BBQ_CODE_LAYOUT_PACKED_4B,
-  CUVS_BBQ_CODE_LAYOUT_PACKED_7B,
-  CUVS_BBQ_CODE_LAYOUT_PACKED_8B
+  CUVS_BBQ_CODE_LAYOUT_PACKED_1B = 0,  ///< One bit per dimension packed into bytes.
+  CUVS_BBQ_CODE_LAYOUT_TRANSPOSED_2B,  ///< Two bits per dimension stored as two bitplanes.
+  CUVS_BBQ_CODE_LAYOUT_TRANSPOSED_4B,  ///< Four bits per dimension stored as four bitplanes.
+  CUVS_BBQ_CODE_LAYOUT_PACKED_4B,      ///< Four bits per dimension with two values per byte.
+  CUVS_BBQ_CODE_LAYOUT_PACKED_7B,      ///< Seven-bit values stored one per byte.
+  CUVS_BBQ_CODE_LAYOUT_PACKED_8B       ///< Eight-bit values stored one per byte.
 } cuvsBbqCodeLayout_t;
 
 /**
@@ -77,6 +63,21 @@ typedef cuvsBbqQuantizer* cuvsBbqQuantizer_t;
  * @brief Create a BBQ quantizer view from caller-owned device tensors.
  *
  * Tensors are not copied and must remain valid while a derived dataset is in use.
+ *
+ * @param[in] codes uint8 device matrix containing encoded rows
+ * @param[in] lower_intervals float32 device vector with one lower interval per row
+ * @param[in] upper_intervals float32 device vector with one upper interval per row
+ * @param[in] additional_corrections float32 device vector with one correction per row
+ * @param[in] quantized_component_sums int32 device vector with one component sum per row
+ * @param[in] centroid device vector containing the dataset centroid
+ * @param[in] dequant_delta float32 device vector with one dequantization delta per row
+ * @param[in] dequant_sum_delta float32 device vector with one delta-times-sum value per row
+ * @param[in] row_norm float32 device vector with one original-space squared norm per row
+ * @param[in] layout encoded code layout
+ * @param[in] metric distance metric associated with the encoded dataset
+ * @param[in] centroid_norm_sq squared norm of the centroid
+ * @param[out] quantizer newly allocated non-owning quantizer handle
+ * @return cuvsError_t
  */
 CUVS_EXPORT cuvsError_t cuvsBbqQuantizerCreateView(
   DLManagedTensor* codes,
@@ -93,7 +94,12 @@ CUVS_EXPORT cuvsError_t cuvsBbqQuantizerCreateView(
   float centroid_norm_sq,
   cuvsBbqQuantizer_t* quantizer);
 
-/** Destroy a BBQ quantizer without destroying its caller-owned tensors. */
+/**
+ * @brief Destroy a BBQ quantizer without destroying its caller-owned tensors.
+ *
+ * @param[in] quantizer quantizer handle to destroy
+ * @return cuvsError_t
+ */
 CUVS_EXPORT cuvsError_t cuvsBbqQuantizerDestroy(cuvsBbqQuantizer_t quantizer);
 
 /** @} */
