@@ -15,7 +15,7 @@ def pytest_addoption(parser):
         default=False,
         help=(
             "run live Lucene tests; all cases require PyLucene/Java, and "
-            "CAGRA cases additionally require cuVS/GPU"
+            "GPU-intended cases additionally require cuVS/CUDA/GPU"
         ),
     )
 

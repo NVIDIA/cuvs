@@ -25,16 +25,64 @@ from cuvs_bench.backends.lucene import (
     CAGRA_ALGORITHM,
     CPU_HNSW_ALGORITHM,
     LuceneBackend,
+    _prewarm_index_files,
     _source_identity,
 )
 from cuvs_bench.orchestrator.config_loaders import IndexConfig
+
+
+def test_index_prewarm_reads_every_regular_file(tmp_path: Path) -> None:
+    (tmp_path / "segments_1").write_bytes(b"segments")
+    (tmp_path / "vectors.vec").write_bytes(b"vector-data")
+    (tmp_path / "ignored-directory").mkdir()
+
+    timing = _prewarm_index_files(tmp_path)
+
+    assert timing.file_count == 2
+    assert timing.bytes_read == len(b"segments") + len(b"vector-data")
+    assert timing.wall_ns >= 0
+
+
+def test_index_prewarm_reports_the_file_that_could_not_be_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    unreadable = tmp_path / "vectors.vec"
+    unreadable.write_bytes(b"vector-data")
+    original_open = Path.open
+
+    def fail_open(path: Path, *args, **kwargs):
+        if path == unreadable:
+            raise PermissionError("read denied")
+        return original_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", fail_open)
+
+    with pytest.raises(
+        RuntimeError,
+        match=f"Failed to prewarm Lucene index file: {unreadable}",
+    ) as failure:
+        _prewarm_index_files(tmp_path)
+
+    assert isinstance(failure.value.__cause__, PermissionError)
+
+
+def test_index_prewarm_refuses_symbolic_links(tmp_path: Path) -> None:
+    target = tmp_path / "target"
+    target.write_bytes(b"index-data")
+    link = tmp_path / "linked-index-file"
+    link.symlink_to(target)
+
+    with pytest.raises(RuntimeError, match="refuses symbolic links"):
+        _prewarm_index_files(tmp_path)
 
 
 def test_force_rebuild_never_removes_a_path_outside_the_configured_root(
     tmp_path: Path,
 ) -> None:
     runtime = RecordingRuntime()
-    backend, _index, factory = _backend_and_index(tmp_path, CPU_HNSW_ALGORITHM, runtime)
+    backend, _index, factory = _backend_and_index(
+        tmp_path, CPU_HNSW_ALGORITHM, runtime
+    )
     outside = tmp_path / "outside" / "index"
     outside.mkdir(parents=True)
     sentinel = outside / "keep-me"
@@ -59,7 +107,9 @@ def test_force_rebuild_rejects_a_symlink_to_a_sibling_index(
     tmp_path: Path,
 ) -> None:
     runtime = RecordingRuntime()
-    backend, index, factory = _backend_and_index(tmp_path, CPU_HNSW_ALGORITHM, runtime)
+    backend, index, factory = _backend_and_index(
+        tmp_path, CPU_HNSW_ALGORITHM, runtime
+    )
     root = Path(backend.config["index_root"])
     root.mkdir(parents=True)
     sibling = root / "existing-index"
@@ -81,7 +131,9 @@ def test_force_rebuild_removes_only_the_valid_index_directory(
     tmp_path: Path,
 ) -> None:
     runtime = RecordingRuntime()
-    backend, index, _factory = _backend_and_index(tmp_path, CPU_HNSW_ALGORITHM, runtime)
+    backend, index, _factory = _backend_and_index(
+        tmp_path, CPU_HNSW_ALGORITHM, runtime
+    )
     path = Path(index.file)
     path.mkdir(parents=True)
     stale_file = path / "stale"
@@ -102,7 +154,9 @@ def test_failed_force_rebuild_preserves_the_previous_valid_index(
     tmp_path: Path,
 ) -> None:
     runtime = RecordingRuntime()
-    backend, index, _factory = _backend_and_index(tmp_path, CPU_HNSW_ALGORITHM, runtime)
+    backend, index, _factory = _backend_and_index(
+        tmp_path, CPU_HNSW_ALGORITHM, runtime
+    )
     first_result = backend.build(_dataset(), [index])
     assert first_result.success, first_result.error_message
     path = Path(index.file)
@@ -113,7 +167,9 @@ def test_failed_force_rebuild_preserves_the_previous_valid_index(
     replacement = backend.build(_dataset(offset=0.25), [index], force=True)
 
     assert not replacement.success
-    assert replacement.error_message == "RuntimeError: replacement build failed"
+    assert (
+        replacement.error_message == "RuntimeError: replacement build failed"
+    )
     assert (path / ".cuvs-bench-lucene.json").read_bytes() == original_manifest
     assert (path / "segments.fake").read_bytes() == original_payload
     assert list(path.parent.glob(f".{path.name}.build-*")) == []
@@ -123,13 +179,17 @@ def test_backup_cleanup_failure_does_not_report_a_published_index_as_failed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     runtime = RecordingRuntime()
-    backend, index, _factory = _backend_and_index(tmp_path, CPU_HNSW_ALGORITHM, runtime)
+    backend, index, _factory = _backend_and_index(
+        tmp_path, CPU_HNSW_ALGORITHM, runtime
+    )
     assert backend.build(_dataset(), [index]).success
 
     def fail_cleanup(_path: Path) -> None:
         raise OSError("cleanup denied")
 
-    monkeypatch.setattr("cuvs_bench.backends.lucene.shutil.rmtree", fail_cleanup)
+    monkeypatch.setattr(
+        "cuvs_bench.backends.lucene.shutil.rmtree", fail_cleanup
+    )
     replacement = backend.build(_dataset(offset=0.25), [index], force=True)
 
     assert replacement.success, replacement.error_message
@@ -229,7 +289,9 @@ def test_backup_cleanup_does_not_swallow_process_control_exceptions(
     def interrupt_cleanup(_path: Path) -> None:
         raise KeyboardInterrupt
 
-    monkeypatch.setattr("cuvs_bench.backends.lucene.shutil.rmtree", interrupt_cleanup)
+    monkeypatch.setattr(
+        "cuvs_bench.backends.lucene.shutil.rmtree", interrupt_cleanup
+    )
 
     with pytest.raises(KeyboardInterrupt):
         LuceneBackend._install_staged_index(staged, destination)
@@ -239,14 +301,19 @@ def test_reusing_an_index_rejects_a_different_dataset_fingerprint(
     tmp_path: Path,
 ) -> None:
     runtime = RecordingRuntime()
-    backend, index, _factory = _backend_and_index(tmp_path, CPU_HNSW_ALGORITHM, runtime)
+    backend, index, _factory = _backend_and_index(
+        tmp_path, CPU_HNSW_ALGORITHM, runtime
+    )
     first_result = backend.build(_dataset(), [index])
     assert first_result.success, first_result.error_message
 
     reuse_result = backend.build(_dataset(offset=0.25), [index])
 
     assert not reuse_result.success
-    assert "does not match this dataset and configuration" in reuse_result.error_message
+    assert (
+        "does not match this dataset and configuration"
+        in reuse_result.error_message
+    )
     assert "rerun with --force" in reuse_result.error_message
     assert len(runtime.build_calls) == 1
 
@@ -260,7 +327,9 @@ def test_reusing_a_file_backed_index_does_not_materialize_training_vectors(
             raise AssertionError("index reuse materialized the base dataset")
 
     runtime = RecordingRuntime()
-    backend, index, _factory = _backend_and_index(tmp_path, CPU_HNSW_ALGORITHM, runtime)
+    backend, index, _factory = _backend_and_index(
+        tmp_path, CPU_HNSW_ALGORITHM, runtime
+    )
     vectors = _dataset().training_vectors
     base_file = tmp_path / "base.fbin"
     _write_fbin(base_file, vectors)
@@ -290,13 +359,17 @@ def test_search_rejects_changed_vectors_with_the_same_dataset_name(
     tmp_path: Path,
 ) -> None:
     runtime = RecordingRuntime()
-    backend, index, _factory = _backend_and_index(tmp_path, CPU_HNSW_ALGORITHM, runtime)
+    backend, index, _factory = _backend_and_index(
+        tmp_path, CPU_HNSW_ALGORITHM, runtime
+    )
     assert backend.build(_dataset(), [index]).success
 
     result = backend.search(_dataset(offset=0.25), [index], k=2)[0]
 
     assert not result.success
-    assert "does not match this dataset and configuration" in result.error_message
+    assert (
+        "does not match this dataset and configuration" in result.error_message
+    )
     assert runtime.search_calls == []
 
 
@@ -309,7 +382,9 @@ def test_file_backed_search_does_not_materialize_training_vectors(
             raise AssertionError("search materialized the base dataset")
 
     runtime = RecordingRuntime()
-    backend, index, _factory = _backend_and_index(tmp_path, CPU_HNSW_ALGORITHM, runtime)
+    backend, index, _factory = _backend_and_index(
+        tmp_path, CPU_HNSW_ALGORITHM, runtime
+    )
     vectors = _dataset().training_vectors
     base_file = tmp_path / "base.fbin"
     _write_fbin(base_file, vectors)
@@ -338,7 +413,9 @@ def test_file_backed_search_rejects_changed_content_when_tokens_collide(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     runtime = RecordingRuntime()
-    backend, index, _factory = _backend_and_index(tmp_path, CPU_HNSW_ALGORITHM, runtime)
+    backend, index, _factory = _backend_and_index(
+        tmp_path, CPU_HNSW_ALGORITHM, runtime
+    )
     vectors = _dataset().training_vectors
     base_file = tmp_path / "base.fbin"
     _write_fbin(base_file, vectors)
@@ -368,7 +445,9 @@ def test_file_backed_search_rejects_changed_content_when_tokens_collide(
     result = backend.search(search_dataset, [index], k=2)[0]
 
     assert not result.success
-    assert "does not match this dataset and configuration" in result.error_message
+    assert (
+        "does not match this dataset and configuration" in result.error_message
+    )
     assert runtime.search_calls == []
 
 
@@ -376,7 +455,9 @@ def test_search_rejects_a_file_that_was_not_the_explicit_build_array(
     tmp_path: Path,
 ) -> None:
     runtime = RecordingRuntime()
-    backend, index, _factory = _backend_and_index(tmp_path, CPU_HNSW_ALGORITHM, runtime)
+    backend, index, _factory = _backend_and_index(
+        tmp_path, CPU_HNSW_ALGORITHM, runtime
+    )
     indexed_vectors = _dataset().training_vectors
     file_vectors = indexed_vectors.copy()
     file_vectors[0, 0] = 42.0
@@ -400,7 +481,9 @@ def test_search_rejects_a_file_that_was_not_the_explicit_build_array(
     result = backend.search(search_dataset, [index], k=2)[0]
 
     assert not result.success
-    assert "does not match this dataset and configuration" in result.error_message
+    assert (
+        "does not match this dataset and configuration" in result.error_message
+    )
     assert runtime.search_calls == []
 
 
@@ -408,7 +491,9 @@ def test_search_rejects_a_physical_index_that_fails_verification(
     tmp_path: Path,
 ) -> None:
     runtime = RecordingRuntime()
-    backend, index, _factory = _backend_and_index(tmp_path, CPU_HNSW_ALGORITHM, runtime)
+    backend, index, _factory = _backend_and_index(
+        tmp_path, CPU_HNSW_ALGORITHM, runtime
+    )
     dataset = _dataset()
     assert backend.build(dataset, [index]).success
     runtime.verification_error = RuntimeError(
@@ -426,7 +511,9 @@ def test_search_rejects_malformed_build_runtime_provenance(
     tmp_path: Path,
 ) -> None:
     runtime = RecordingRuntime()
-    backend, index, _factory = _backend_and_index(tmp_path, CAGRA_ALGORITHM, runtime)
+    backend, index, _factory = _backend_and_index(
+        tmp_path, CAGRA_ALGORITHM, runtime
+    )
     dataset = _dataset()
     assert backend.build(dataset, [index]).success
     manifest_path = Path(index.file) / ".cuvs-bench-lucene.json"
@@ -468,7 +555,9 @@ def test_search_rejects_invalid_manifest_integer_fields(
     tmp_path: Path, field: str, value: object, message: str
 ) -> None:
     runtime = RecordingRuntime()
-    backend, index, _factory = _backend_and_index(tmp_path, CPU_HNSW_ALGORITHM, runtime)
+    backend, index, _factory = _backend_and_index(
+        tmp_path, CPU_HNSW_ALGORITHM, runtime
+    )
     dataset = _dataset()
     assert backend.build(dataset, [index]).success
     manifest_path = Path(index.file) / ".cuvs-bench-lucene.json"
@@ -487,7 +576,9 @@ def test_search_rejects_non_integer_manifest_dataset_dimensions(
     tmp_path: Path,
 ) -> None:
     runtime = RecordingRuntime()
-    backend, index, _factory = _backend_and_index(tmp_path, CPU_HNSW_ALGORITHM, runtime)
+    backend, index, _factory = _backend_and_index(
+        tmp_path, CPU_HNSW_ALGORITHM, runtime
+    )
     dataset = _dataset()
     assert backend.build(dataset, [index]).success
     manifest_path = Path(index.file) / ".cuvs-bench-lucene.json"
@@ -506,7 +597,9 @@ def test_search_rejects_manifest_segment_count_that_disagrees_with_index(
     tmp_path: Path,
 ) -> None:
     runtime = RecordingRuntime()
-    backend, index, _factory = _backend_and_index(tmp_path, CPU_HNSW_ALGORITHM, runtime)
+    backend, index, _factory = _backend_and_index(
+        tmp_path, CPU_HNSW_ALGORITHM, runtime
+    )
     dataset = _dataset()
     assert backend.build(dataset, [index]).success
     runtime.segment_count = 2
@@ -524,7 +617,9 @@ def test_reusing_the_same_index_reports_a_skipped_build(
     tmp_path: Path,
 ) -> None:
     runtime = RecordingRuntime()
-    backend, index, _factory = _backend_and_index(tmp_path, CPU_HNSW_ALGORITHM, runtime)
+    backend, index, _factory = _backend_and_index(
+        tmp_path, CPU_HNSW_ALGORITHM, runtime
+    )
     assert backend.build(_dataset(), [index]).success
     assert runtime.artifact_verification_count == 1
 
@@ -537,6 +632,7 @@ def test_reusing_the_same_index_reports_a_skipped_build(
         "group": "test",
         "index_name": CPU_HNSW_ALGORITHM,
         "persisted_index_kind": "cpu_hnsw",
+        "build_route_policy": "cpu_hnsw",
         "segment_count": 1,
         "field_count": 1,
         "vector_count": 4,

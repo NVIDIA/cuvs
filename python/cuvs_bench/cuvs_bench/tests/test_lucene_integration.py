@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-"""Opt-in end-to-end tests for stock PyLucene and cuvs-lucene CAGRA."""
+"""Opt-in end-to-end tests for the Lucene CPU and cuVS-backed routes."""
 
 import csv
 import json
@@ -16,8 +16,19 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from _lucene_log_capture import (
+    case_used_cpu_hnsw_fallback,
+    lucene_case_output,
+    lucene_log_case,
+)
 from cuvs_bench.backends.base import Dataset
+from cuvs_bench.backends._lucene_runtime import (
+    ACCELERATED_HNSW_CODEC,
+    DIRECT_PYLUCENE_DISPATCH,
+    TIMED_BRIDGE_PYLUCENE_DISPATCH,
+)
 from cuvs_bench.backends.lucene import (
+    ACCELERATED_HNSW_ALGORITHM,
     CAGRA_ALGORITHM,
     CAGRA_CODEC,
     CPU_HNSW_ALGORITHM,
@@ -42,10 +53,14 @@ _GRAPH_CLAMP_WARNINGS = (
 _FRESH_PROCESS_TIMEOUT_SECONDS = 600
 _MINIMUM_RECALL = 0.75
 _ARTIFACT_VERSION = maven_artifact_version()
+_GPU_HIDDEN_FALLBACK_CASE = (
+    "test_lucene_integration.py::"
+    "test_accelerated_hnsw_logs_cpu_fallback_when_gpu_is_hidden"
+)
 
 
 def _case(algorithm: str, dimensions: int) -> tuple[Dataset, np.ndarray]:
-    document_count = 1024 if algorithm == CAGRA_ALGORITHM else 512
+    document_count = 1024 if algorithm != CPU_HNSW_ALGORITHM else 512
     rng = np.random.default_rng(174 + dimensions)
     vectors = rng.standard_normal((document_count, dimensions)).astype(
         np.float32
@@ -89,7 +104,7 @@ def _backend_and_index(
                 "codec": codec,
                 "group": "test",
                 "index_root": str(root),
-                "requires_cuvs": algorithm == CAGRA_ALGORITHM,
+                "requires_cuvs": algorithm != CPU_HNSW_ALGORITHM,
                 "include_cuvs": include_cuvs,
             }
         ),
@@ -134,6 +149,109 @@ def _assert_artifact_provenance(metadata: dict, role: str) -> None:
         assert re.fullmatch(
             r"[0-9a-f]{64}", metadata[f"{role}_{artifact}_jar_sha256"]
         )
+
+
+def _assert_timing_contract(
+    result, *, query_count: int, requested_batch_size: int, java_timing: bool
+) -> None:
+    metadata = result.metadata
+    assert metadata["timing_contract_version"] == 1
+    assert metadata["latency_scope"] == "client_query"
+    assert metadata["throughput_scope"] == "query_corpus_wall"
+    assert metadata["sample_unit"] == "query"
+    assert metadata["execution_model"] == "serial_single_query"
+    assert metadata["requested_batch_size"] == requested_batch_size
+    assert metadata["effective_search_batch_size"] == 1
+    assert metadata["query_count"] == query_count
+    assert metadata["client_query_count"] == query_count
+    assert metadata["pylucene_search_dispatch_count"] == query_count
+    assert metadata["java_timing_available"] is java_timing
+    assert metadata["search_dispatch_kind"] == (
+        TIMED_BRIDGE_PYLUCENE_DISPATCH
+        if java_timing
+        else DIRECT_PYLUCENE_DISPATCH
+    )
+    assert metadata["index_prewarm_bytes"] > 0
+    assert metadata["index_prewarm_file_count"] > 0
+    assert metadata["query_corpus_wall_ms"] > 0.0
+    assert metadata["client_query_mean_ms"] >= 0.0
+    assert metadata["pylucene_search_dispatch_mean_ms"] >= 0.0
+    assert (
+        metadata["client_query_total_ms"] <= metadata["query_corpus_wall_ms"]
+    )
+    if java_timing:
+        assert metadata["java_index_searcher_search_count"] == query_count
+        assert metadata["java_index_searcher_search_mean_ms"] >= 0.0
+        assert metadata["first_query_java_index_searcher_search_ms"] >= 0.0
+        subsequent_java_mean = metadata[
+            "subsequent_java_index_searcher_search_mean_ms"
+        ]
+        if query_count > 1:
+            assert subsequent_java_mean >= 0.0
+        else:
+            assert subsequent_java_mean is None
+    else:
+        assert "java_index_searcher_search_count" not in metadata
+        assert "first_query_java_index_searcher_search_ms" not in metadata
+        assert "subsequent_java_index_searcher_search_mean_ms" not in metadata
+
+
+def test_accelerated_hnsw_builds_on_gpu_and_searches_on_cpu(
+    tmp_path,
+    capfd,
+    request,
+):
+    dataset, query_ids = _case(ACCELERATED_HNSW_ALGORITHM, 128)
+    backend, index = _backend_and_index(
+        tmp_path,
+        ACCELERATED_HNSW_ALGORITHM,
+        ACCELERATED_HNSW_CODEC,
+        [{"num_candidates": 64}],
+    )
+    case_name = request.node.nodeid
+    capfd.readouterr()
+
+    with lucene_log_case(case_name):
+        build = backend.build(dataset, [index], force=True)
+        assert build.success, build.error_message
+        result = backend.search(dataset, [index], k=10, batch_size=2)[0]
+
+    captured = capfd.readouterr()
+    assert not case_used_cpu_hnsw_fallback(captured.err, case_name), (
+        f"{case_name} used Lucene's CPU HNSW writer fallback:\n"
+        f"{lucene_case_output(captured.err, case_name)}"
+    )
+    for warning in _GRAPH_CLAMP_WARNINGS:
+        assert (
+            warning.casefold() not in (captured.out + captured.err).casefold()
+        )
+
+    assert build.metadata["codec"] == ACCELERATED_HNSW_CODEC
+    assert build.metadata["persisted_index_kind"] == "hnsw"
+    assert build.metadata["build_route_policy"] == (
+        "gpu_cagra_or_cpu_hnsw_fallback"
+    )
+    _assert_artifact_provenance(build.metadata, "build_runtime")
+    assert result.success, result.error_message
+    assert result.metadata["expected_search_route"] == "cpu_hnsw"
+    assert result.metadata["persisted_index_kind"] == "hnsw"
+    assert result.metadata["build_route_policy"] == (
+        "gpu_cagra_or_cpu_hnsw_fallback"
+    )
+    _assert_timing_contract(
+        result,
+        query_count=len(dataset.query_vectors),
+        requested_batch_size=2,
+        java_timing=True,
+    )
+    _assert_artifact_provenance(result.metadata, "build_runtime")
+    _assert_artifact_provenance(result.metadata, "search_runtime")
+    np.testing.assert_array_equal(result.neighbors[:, 0], query_ids)
+    assert all(len(set(row)) == len(row) for row in result.neighbors.tolist())
+    assert (
+        _recall(result.neighbors, dataset.groundtruth_neighbors)
+        >= _MINIMUM_RECALL
+    )
 
 
 @pytest.mark.parametrize(
@@ -195,6 +313,12 @@ def test_cagra_build_and_search_verify_persisted_index_and_search_behavior(
     result = results[0]
     assert result.success, result.error_message
     assert result.metadata["expected_search_route"] == expected_search_route
+    _assert_timing_contract(
+        result,
+        query_count=len(dataset.query_vectors),
+        requested_batch_size=2,
+        java_timing=True,
+    )
     _assert_artifact_provenance(result.metadata, "build_runtime")
     _assert_artifact_provenance(result.metadata, "search_runtime")
     np.testing.assert_array_equal(result.neighbors[:, 0], query_ids)
@@ -285,12 +409,72 @@ def test_cpu_hnsw_in_fresh_process_without_cuvs_artifacts(tmp_path):
     result = backend.search(dataset, [index], k=10, batch_size=2)[0]
     assert result.success, result.error_message
     assert result.metadata["expected_search_route"] == "cpu_hnsw"
+    _assert_timing_contract(
+        result,
+        query_count=len(dataset.query_vectors),
+        requested_batch_size=2,
+        java_timing=False,
+    )
     np.testing.assert_array_equal(result.neighbors[:, 0], query_ids)
     assert all(len(set(row)) == len(row) for row in result.neighbors.tolist())
     assert (
         _recall(result.neighbors, dataset.groundtruth_neighbors)
         >= _MINIMUM_RECALL
     )
+
+
+def test_accelerated_hnsw_logs_cpu_fallback_when_gpu_is_hidden(tmp_path):
+    """Keep the positive GPU-path assertion from passing vacuously."""
+    child_flag = "CUVS_BENCH_LUCENE_GPU_HIDDEN_FALLBACK_PROBE"
+    if child_flag not in os.environ:
+        environment = os.environ.copy()
+        environment[child_flag] = "1"
+        environment["CUDA_VISIBLE_DEVICES"] = "-1"
+        node = (
+            f"{Path(__file__).resolve()}::"
+            "test_accelerated_hnsw_logs_cpu_fallback_when_gpu_is_hidden"
+        )
+        try:
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "pytest",
+                    "-q",
+                    "-s",
+                    node,
+                    "--run-lucene-e2e",
+                ],
+                cwd=Path(__file__).resolve().parents[4],
+                env=environment,
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=_FRESH_PROCESS_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired as error:
+            pytest.fail(
+                "The GPU-hidden accelerated-HNSW probe exceeded "
+                f"{_FRESH_PROCESS_TIMEOUT_SECONDS} seconds: {error}"
+            )
+        assert completed.returncode == 0, completed.stdout + completed.stderr
+        assert "1 passed" in completed.stdout
+        assert case_used_cpu_hnsw_fallback(
+            completed.stderr, _GPU_HIDDEN_FALLBACK_CASE
+        )
+        return
+
+    dataset, _query_ids = _case(ACCELERATED_HNSW_ALGORITHM, 32)
+    backend, index = _backend_and_index(
+        tmp_path,
+        ACCELERATED_HNSW_ALGORITHM,
+        ACCELERATED_HNSW_CODEC,
+        [{"num_candidates": 32}],
+    )
+    with lucene_log_case(_GPU_HIDDEN_FALLBACK_CASE):
+        build = backend.build(dataset, [index], force=True)
+    assert build.success, build.error_message
+    assert build.metadata["persisted_index_kind"] == "hnsw"
 
 
 def test_public_cli_builds_searches_and_exports_cpu_hnsw(tmp_path):
@@ -379,6 +563,13 @@ def test_public_cli_builds_searches_and_exports_cpu_hnsw(tmp_path):
     assert float(row["build time"]) >= 0.0
     assert row["persisted_index_kind"] == "cpu_hnsw"
     assert row["expected_search_route"] == "cpu_hnsw"
+    assert row["timing_contract_version"] == "1"
+    assert row["latency_scope"] == "client_query"
+    assert row["throughput_scope"] == "query_corpus_wall"
+    assert row["requested_batch_size"] == "2"
+    assert row["effective_search_batch_size"] == "1"
+    assert row["client_query_count"] == "3"
+    assert int(row["index_prewarm_bytes"]) > 0
 
 
 def test_cagra_build_rejects_lucenes_one_document_brute_force_fallback(
@@ -404,27 +595,73 @@ def test_cagra_build_rejects_lucenes_one_document_brute_force_fallback(
     assert not Path(index.file).exists()
 
 
-def test_cpu_hnsw_supports_top_k_2000(tmp_path):
+@pytest.mark.parametrize(
+    ("algorithm", "codec"),
+    (
+        pytest.param(
+            CPU_HNSW_ALGORITHM,
+            CPU_HNSW_CODEC,
+            id="cpu-built-hnsw",
+        ),
+        pytest.param(
+            ACCELERATED_HNSW_ALGORITHM,
+            ACCELERATED_HNSW_CODEC,
+            id="gpu-cagra-built-hnsw",
+        ),
+    ),
+)
+def test_hnsw_search_supports_top_k_2000(
+    tmp_path,
+    capfd,
+    request,
+    algorithm,
+    codec,
+):
     rng = np.random.default_rng(2000)
     vectors = rng.standard_normal((2500, 16)).astype(np.float32)
     dataset = Dataset(
-        name="lucene-cpu-top-k-2000",
+        name=f"lucene-{algorithm}-top-k-2000",
         training_vectors=vectors,
         query_vectors=vectors[[2000]].copy(),
         distance_metric="euclidean",
     )
     backend, index = _backend_and_index(
         tmp_path,
-        CPU_HNSW_ALGORITHM,
-        CPU_HNSW_CODEC,
+        algorithm,
+        codec,
         [{"num_candidates": 2500}],
     )
+    case_name = request.node.nodeid
+    capfd.readouterr()
 
-    build = backend.build(dataset, [index], force=True)
-    assert build.success, build.error_message
-    result = backend.search(dataset, [index], k=2000, batch_size=1)[0]
+    with lucene_log_case(case_name):
+        build = backend.build(dataset, [index], force=True)
+        assert build.success, build.error_message
+        result = backend.search(dataset, [index], k=2000, batch_size=1)[0]
+
+    captured = capfd.readouterr()
+    if algorithm == ACCELERATED_HNSW_ALGORITHM:
+        assert not case_used_cpu_hnsw_fallback(captured.err, case_name), (
+            f"{case_name} used Lucene's CPU HNSW writer fallback:\n"
+            f"{lucene_case_output(captured.err, case_name)}"
+        )
 
     assert result.success, result.error_message
     assert result.neighbors.shape == (1, 2000)
     assert result.neighbors[0, 0] == 2000
     assert len(set(result.neighbors[0])) == 2000
+    assert result.metadata["expected_search_route"] == "cpu_hnsw"
+    assert result.metadata["persisted_index_kind"] == (
+        "hnsw" if algorithm == ACCELERATED_HNSW_ALGORITHM else "cpu_hnsw"
+    )
+    java_timing_available = (
+        "search_runtime_cuvs_lucene_coordinates" in result.metadata
+    )
+    if algorithm == ACCELERATED_HNSW_ALGORITHM:
+        assert java_timing_available
+    _assert_timing_contract(
+        result,
+        query_count=1,
+        requested_batch_size=1,
+        java_timing=java_timing_available,
+    )

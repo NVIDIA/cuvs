@@ -14,16 +14,24 @@ import numpy as np
 import pytest
 
 from cuvs_bench.backends._lucene_runtime import (
+    ACCELERATED_HNSW_CODEC,
     CAGRA_CODEC,
     CPU_HNSW_CODEC,
     CagraVerification,
+    DIRECT_PYLUCENE_DISPATCH,
     LuceneIndexVerification,
+    QueryTiming,
+    RuntimeBuildResult,
+    RuntimeBuildTiming,
     RuntimeSearchResult,
+    RuntimeSearchTiming,
     SearchHit,
+    TIMED_BRIDGE_PYLUCENE_DISPATCH,
 )
 from cuvs_bench.backends._lucene_runtime_config import maven_artifact_version
 from cuvs_bench.backends.base import Dataset
 from cuvs_bench.backends.lucene import (
+    ACCELERATED_HNSW_ALGORITHM,
     CAGRA_ALGORITHM,
     CPU_HNSW_ALGORITHM,
     LuceneBackend,
@@ -32,12 +40,22 @@ from cuvs_bench.orchestrator.config_loaders import IndexConfig
 
 
 ALGORITHM_CASES = (
-    pytest.param(CPU_HNSW_ALGORITHM, CPU_HNSW_CODEC, "cpu_hnsw", id="cpu-hnsw"),
+    pytest.param(
+        CPU_HNSW_ALGORITHM, CPU_HNSW_CODEC, "cpu_hnsw", id="cpu-hnsw"
+    ),
+    pytest.param(
+        ACCELERATED_HNSW_ALGORITHM,
+        ACCELERATED_HNSW_CODEC,
+        "cpu_hnsw",
+        id="accelerated-hnsw",
+    ),
     pytest.param(CAGRA_ALGORITHM, CAGRA_CODEC, "gpu_cagra", id="cagra"),
 )
 _ARTIFACT_VERSION = maven_artifact_version()
 _FAKE_ARTIFACT_PROVENANCE = {
-    "cuvs_java_coordinates": (f"com.nvidia.cuvs:cuvs-java:{_ARTIFACT_VERSION}"),
+    "cuvs_java_coordinates": (
+        f"com.nvidia.cuvs:cuvs-java:{_ARTIFACT_VERSION}"
+    ),
     "cuvs_java_jar_path": "/artifacts/cuvs-java.jar",
     "cuvs_java_jar_sha256": "a" * 64,
     "cuvs_lucene_coordinates": (
@@ -95,7 +113,9 @@ class RecordingCagraVerifier:
         expected_vector_count: int,
         expected_dimensions: int,
     ) -> CagraVerification:
-        self.calls.append((index_path, expected_vector_count, expected_dimensions))
+        self.calls.append(
+            (index_path, expected_vector_count, expected_dimensions)
+        )
         return CagraVerification(
             segment_count=1,
             field_count=1,
@@ -129,13 +149,24 @@ class RecordingRuntime:
 
     def build_index(
         self, index_path: Path, vectors: np.ndarray, codec_name: str
-    ) -> int:
+    ) -> RuntimeBuildResult:
         self.build_calls.append((index_path, vectors.copy(), codec_name))
         if self.build_error is not None:
             raise self.build_error
         self.document_count, self.dimensions = vectors.shape
         (index_path / "segments.fake").write_text(codec_name, encoding="utf-8")
-        return 1
+        return RuntimeBuildResult(
+            segment_count=1,
+            timing=RuntimeBuildTiming(
+                directory_open_ns=100_000,
+                writer_setup_ns=200_000,
+                document_ingest_ns=300_000,
+                writer_commit_close_ns=400_000,
+                post_build_reader_ns=500_000,
+                directory_close_ns=600_000,
+                runtime_build_wall_ns=2_100_000,
+            ),
+        )
 
     def search_index(
         self,
@@ -143,7 +174,6 @@ class RecordingRuntime:
         queries: np.ndarray,
         *,
         k: int,
-        batch_size: int,
         num_candidates: int,
     ) -> RuntimeSearchResult:
         self.search_calls.append(
@@ -151,7 +181,6 @@ class RecordingRuntime:
                 "index_path": index_path,
                 "queries": queries.copy(),
                 "k": k,
-                "batch_size": batch_size,
                 "num_candidates": num_candidates,
             }
         )
@@ -169,10 +198,34 @@ class RecordingRuntime:
             ]
             for _query in queries
         ]
-        batch_count = (len(queries) + batch_size - 1) // batch_size
+        query_timings = tuple(
+            QueryTiming(
+                query_prepare_ns=100_000,
+                pylucene_search_dispatch_ns=2_000_000,
+                java_index_searcher_search_ns=(
+                    1_500_000 if self.artifact_provenance else None
+                ),
+                result_materialization_ns=200_000,
+                client_query_ns=2_500_000,
+            )
+            for _query in queries
+        )
         return RuntimeSearchResult(
             hits=hits,
-            batch_latencies_ms=[2.0] * batch_count,
+            timing=RuntimeSearchTiming(
+                directory_open_ns=250_000,
+                reader_searcher_setup_ns=750_000,
+                query_corpus_wall_ns=3_000_000 * len(queries),
+                reader_close_ns=250_000,
+                directory_close_ns=250_000,
+                runtime_plan_wall_ns=3_000_000 * len(queries) + 1_500_000,
+                search_dispatch_kind=(
+                    TIMED_BRIDGE_PYLUCENE_DISPATCH
+                    if self.artifact_provenance
+                    else DIRECT_PYLUCENE_DISPATCH
+                ),
+                queries=query_timings,
+            ),
             document_count=self.document_count,
             dimensions=self.dimensions,
         )
@@ -188,6 +241,82 @@ class RecordingRuntimeFactory:
     def __call__(self, config: Mapping[str, Any]) -> RecordingRuntime:
         self.calls.append(dict(config))
         return self.runtime
+
+
+def _runtime_search_result(
+    hits: list[list[SearchHit]],
+    *,
+    search_dispatch_ns: tuple[int, ...] | None = None,
+    java_search_ns: tuple[int, ...] | None = None,
+    document_count: int = 4,
+    dimensions: int = 2,
+    query_corpus_wall_ns: int | None = None,
+) -> RuntimeSearchResult:
+    """Create an explicit per-query timing result for backend tests."""
+    query_count = len(hits)
+    query_prepare_ns = 100_000
+    result_materialization_ns = 200_000
+    unclassified_client_overhead_ns = 200_000
+    directory_open_ns = 250_000
+    reader_searcher_setup_ns = 750_000
+    reader_close_ns = 250_000
+    directory_close_ns = 250_000
+    dispatch_samples = (
+        search_dispatch_ns
+        if search_dispatch_ns is not None
+        else (2_000_000,) * query_count
+    )
+    if len(dispatch_samples) != query_count:
+        raise ValueError("search_dispatch_ns must contain one value per query")
+    if java_search_ns is not None and len(java_search_ns) != query_count:
+        raise ValueError("java_search_ns must contain one value per query")
+    query_timings = tuple(
+        QueryTiming(
+            query_prepare_ns=query_prepare_ns,
+            pylucene_search_dispatch_ns=dispatch_samples[index],
+            java_index_searcher_search_ns=(
+                java_search_ns[index] if java_search_ns is not None else None
+            ),
+            result_materialization_ns=result_materialization_ns,
+            client_query_ns=(
+                query_prepare_ns
+                + dispatch_samples[index]
+                + result_materialization_ns
+                + unclassified_client_overhead_ns
+            ),
+        )
+        for index in range(query_count)
+    )
+    corpus_ns = (
+        query_corpus_wall_ns
+        if query_corpus_wall_ns is not None
+        else sum(item.client_query_ns for item in query_timings)
+    )
+    return RuntimeSearchResult(
+        hits=hits,
+        timing=RuntimeSearchTiming(
+            directory_open_ns=directory_open_ns,
+            reader_searcher_setup_ns=reader_searcher_setup_ns,
+            query_corpus_wall_ns=corpus_ns,
+            reader_close_ns=reader_close_ns,
+            directory_close_ns=directory_close_ns,
+            runtime_plan_wall_ns=(
+                directory_open_ns
+                + reader_searcher_setup_ns
+                + corpus_ns
+                + reader_close_ns
+                + directory_close_ns
+            ),
+            search_dispatch_kind=(
+                TIMED_BRIDGE_PYLUCENE_DISPATCH
+                if java_search_ns is not None
+                else DIRECT_PYLUCENE_DISPATCH
+            ),
+            queries=query_timings,
+        ),
+        document_count=document_count,
+        dimensions=dimensions,
+    )
 
 
 def _dataset(*, offset: float = 0.0) -> Dataset:
@@ -243,6 +372,7 @@ def _backend_and_index(
 ) -> tuple[LuceneBackend, IndexConfig, RecordingRuntimeFactory]:
     codec = {
         CPU_HNSW_ALGORITHM: CPU_HNSW_CODEC,
+        ACCELERATED_HNSW_ALGORITHM: ACCELERATED_HNSW_CODEC,
         CAGRA_ALGORITHM: CAGRA_CODEC,
     }[algorithm]
     index_root = tmp_path / "indexes"
@@ -252,9 +382,9 @@ def _backend_and_index(
         "codec": codec,
         "group": "test",
         "index_root": str(index_root),
-        "requires_cuvs": algorithm == CAGRA_ALGORITHM,
+        "requires_cuvs": algorithm != CPU_HNSW_ALGORITHM,
     }
-    if algorithm == CAGRA_ALGORITHM:
+    if algorithm != CPU_HNSW_ALGORITHM:
         runtime.artifact_provenance = dict(_FAKE_ARTIFACT_PROVENANCE)
         java_jar, lucene_jar = _artifact_pair(tmp_path)
         (tmp_path / "libcuvs_c.so").touch()

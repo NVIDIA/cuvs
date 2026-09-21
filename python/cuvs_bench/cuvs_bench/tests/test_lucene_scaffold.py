@@ -172,6 +172,7 @@ def test_lucene_plugin_uses_lazy_entry_points():
 
 def test_lucene_algorithm_configs_are_packaged_resources():
     expected_codecs = {
+        "lucene_accelerated_hnsw": "Lucene101AcceleratedHNSWCodec",
         "lucene_cpu_hnsw": "Lucene101",
         "lucene_cuvs_cagra": "CuVS2510GPUSearchCodec",
     }

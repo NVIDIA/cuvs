@@ -17,6 +17,7 @@ from cuvs_bench.backends._lucene_runtime import (
     _load_pylucene,
     _rollback_writer,
     _validate_artifacts,
+    CagraIndexVerifier,
     initialize_pylucene,
     LuceneRuntime,
 )
@@ -60,8 +61,15 @@ def _write_artifacts(
             "com/nvidia/cuvs/lucene/CuVS2510GPUSearchCodec.class", b""
         )
         archive.writestr(
+            "com/nvidia/cuvs/lucene/IndexSearcherTimingBridge.class", b""
+        )
+        archive.writestr(
+            "com/nvidia/cuvs/lucene/Lucene101AcceleratedHNSWCodec.class", b""
+        )
+        archive.writestr(
             "META-INF/services/org.apache.lucene.codecs.Codec",
-            "com.nvidia.cuvs.lucene.CuVS2510GPUSearchCodec\n",
+            "com.nvidia.cuvs.lucene.CuVS2510GPUSearchCodec\n"
+            "com.nvidia.cuvs.lucene.Lucene101AcceleratedHNSWCodec\n",
         )
         archive.writestr(
             "META-INF/maven/com.nvidia.cuvs.lucene/cuvs-lucene/pom.properties",
@@ -102,6 +110,91 @@ def _reset_jvm_state(monkeypatch: pytest.MonkeyPatch) -> None:
         "_INITIALIZED_ARTIFACT_TOKENS",
     ):
         monkeypatch.setattr(_lucene_runtime, name, None)
+
+
+def test_java_search_timer_reports_class_loading_failure() -> None:
+    class MissingBridgeClass:
+        @staticmethod
+        def forName(_name: str):
+            raise RuntimeError("unsupported bridge bytecode")
+
+    runtime = object.__new__(LuceneRuntime)
+    runtime.Class = MissingBridgeClass
+
+    with pytest.raises(RuntimeError) as failure:
+        runtime._load_java_search_timer()
+
+    assert str(failure.value) == (
+        "Could not load or adapt "
+        "com.nvidia.cuvs.lucene.IndexSearcherTimingBridge through "
+        "PyLucene/JCC: RuntimeError: unsupported bridge bytecode"
+    )
+    assert isinstance(failure.value.__cause__, RuntimeError)
+
+
+def test_java_search_timer_reports_jcc_adaptation_failure() -> None:
+    class LoadedBridgeClass:
+        @staticmethod
+        def newInstance():
+            return object()
+
+    class LoadableClass:
+        @staticmethod
+        def forName(_name: str):
+            return LoadedBridgeClass()
+
+    class UnsupportedFunction:
+        @staticmethod
+        def cast_(_instance):
+            raise TypeError("Function.cast_ rejected bridge")
+
+    runtime = object.__new__(LuceneRuntime)
+    runtime.Class = LoadableClass
+    runtime.Function = UnsupportedFunction
+
+    with pytest.raises(RuntimeError) as failure:
+        runtime._load_java_search_timer()
+
+    assert "TypeError: Function.cast_ rejected bridge" in str(failure.value)
+    assert isinstance(failure.value.__cause__, TypeError)
+
+
+def test_cagra_verifier_selects_only_the_current_noncompound_segment() -> None:
+    class RootDirectory:
+        @staticmethod
+        def listAll():
+            return ("_c.vemc", "_n.vemc")
+
+    class SegmentInfo:
+        @staticmethod
+        def files():
+            return ("_c.si", "_c.vcag", "_c.vemc")
+
+    class Segment:
+        info = SegmentInfo()
+
+    assert CagraIndexVerifier._metadata_files(
+        RootDirectory(), Segment(), compound=False
+    ) == ["_c.vemc"]
+
+
+def test_cagra_verifier_reads_metadata_inside_a_compound_segment() -> None:
+    class CompoundDirectory:
+        @staticmethod
+        def listAll():
+            return ("_c.fnm", "_c.vcag", "_c.vemc")
+
+    class SegmentInfo:
+        @staticmethod
+        def files():
+            return ("_c.cfe", "_c.cfs", "_c.si")
+
+    class Segment:
+        info = SegmentInfo()
+
+    assert CagraIndexVerifier._metadata_files(
+        CompoundDirectory(), Segment(), compound=True
+    ) == ["_c.vemc"]
 
 
 def test_missing_pylucene_reports_the_required_runtime(

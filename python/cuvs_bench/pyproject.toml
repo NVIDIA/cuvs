@@ -69,7 +69,7 @@ lucene = "cuvs_bench.backends.lucene:register"
 
 [tool.pytest.ini_options]
 markers = [
-    "lucene_e2e: live tests; all require PyLucene/Java, and CAGRA cases also require cuVS/GPU",
+    "lucene_e2e: live tests; all require PyLucene/Java, and GPU-intended cases also require cuVS/CUDA/GPU",
     "opensearch: tests that require a live OpenSearch node (run with '-m opensearch')",
 ]
 

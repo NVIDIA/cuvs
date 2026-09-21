@@ -16,6 +16,7 @@ import shutil
 import tempfile
 import time
 import uuid
+from dataclasses import dataclass
 from numbers import Integral
 from pathlib import Path
 from typing import Any, Callable, Mapping, Optional
@@ -30,17 +31,23 @@ from ..orchestrator.config_loaders import (
     IndexConfig,
 )
 from ._lucene_runtime import (
+    ACCELERATED_HNSW_CODEC,
     CAGRA_CODEC,
     CPU_HNSW_CODEC,
+    DIRECT_PYLUCENE_DISPATCH,
     MAX_CAGRA_TOP_K,
     LuceneRuntime,
+    RuntimeBuildResult,
     RuntimeSearchResult,
+    RuntimeSearchTiming,
+    TIMED_BRIDGE_PYLUCENE_DISPATCH,
 )
 from ._lucene_runtime_config import resolve_lucene_runtime_config
 from ._utils import dtype_from_filename
 from .base import BenchmarkBackend, BuildResult, Dataset, SearchResult
 
 CPU_HNSW_ALGORITHM = "lucene_cpu_hnsw"
+ACCELERATED_HNSW_ALGORITHM = "lucene_accelerated_hnsw"
 CAGRA_ALGORITHM = "lucene_cuvs_cagra"
 
 MAX_CPU_HNSW_DIMENSIONS = 1024
@@ -48,11 +55,24 @@ MAX_CAGRA_DIMENSIONS = 4096
 
 _CODEC_BY_ALGORITHM = {
     CPU_HNSW_ALGORITHM: CPU_HNSW_CODEC,
+    ACCELERATED_HNSW_ALGORITHM: ACCELERATED_HNSW_CODEC,
     CAGRA_ALGORITHM: CAGRA_CODEC,
 }
 _MAX_DIMENSIONS_BY_ALGORITHM = {
     CPU_HNSW_ALGORITHM: MAX_CPU_HNSW_DIMENSIONS,
+    ACCELERATED_HNSW_ALGORITHM: MAX_CAGRA_DIMENSIONS,
     CAGRA_ALGORITHM: MAX_CAGRA_DIMENSIONS,
+}
+_CUVS_ALGORITHMS = frozenset((ACCELERATED_HNSW_ALGORITHM, CAGRA_ALGORITHM))
+_BUILD_ROUTE_POLICY_BY_ALGORITHM = {
+    CPU_HNSW_ALGORITHM: "cpu_hnsw",
+    ACCELERATED_HNSW_ALGORITHM: "gpu_cagra_or_cpu_hnsw_fallback",
+    CAGRA_ALGORITHM: "gpu_cagra",
+}
+_SEARCH_ROUTE_BY_ALGORITHM = {
+    CPU_HNSW_ALGORITHM: "cpu_hnsw",
+    ACCELERATED_HNSW_ALGORITHM: "cpu_hnsw",
+    CAGRA_ALGORITHM: "gpu_cagra",
 }
 _MANIFEST_FILE = ".cuvs-bench-lucene.json"
 _MANIFEST_SCHEMA = 1
@@ -64,6 +84,272 @@ _RUNTIME_KEYS = (
     "jvm_args",
 )
 _SCORE_ROUNDOFF_TOLERANCE = float(np.spacing(np.float32(1.0)))
+_INDEX_PREWARM_BLOCK_BYTES = 1024 * 1024
+_TIMING_CONTRACT_VERSION = 1
+
+
+@dataclass(frozen=True)
+class _IndexPrewarmTiming:
+    wall_ns: int
+    bytes_read: int
+    file_count: int
+
+
+def _nanoseconds_to_milliseconds(value: int) -> float:
+    return float(value) / 1_000_000.0
+
+
+def _nanoseconds_to_seconds(value: int) -> float:
+    return float(value) / 1_000_000_000.0
+
+
+def _timing_statistics(
+    scope: str, samples_ns: list[int]
+) -> dict[str, float | int]:
+    """Summarize one timing sample per measured query."""
+    if not samples_ns or any(value < 0 for value in samples_ns):
+        raise RuntimeError(f"Lucene returned invalid {scope} timing data")
+    samples_ms = np.asarray(samples_ns, dtype=np.float64) / 1_000_000.0
+    return {
+        f"{scope}_count": len(samples_ns),
+        f"{scope}_total_ms": float(samples_ms.sum()),
+        f"{scope}_mean_ms": float(samples_ms.mean()),
+        f"{scope}_p50_ms": float(np.percentile(samples_ms, 50)),
+        f"{scope}_p95_ms": float(np.percentile(samples_ms, 95)),
+        f"{scope}_p99_ms": float(np.percentile(samples_ms, 99)),
+    }
+
+
+def _validate_nested_timing(
+    parent_scope: str,
+    parent_ns: int,
+    child_timings_ns: Mapping[str, int],
+) -> None:
+    """Reject impossible same-clock timing relationships."""
+    if parent_ns < 0 or any(value < 0 for value in child_timings_ns.values()):
+        raise RuntimeError(
+            f"Lucene returned invalid {parent_scope} timing data"
+        )
+    child_total_ns = sum(child_timings_ns.values())
+    if child_total_ns > parent_ns:
+        raise RuntimeError(
+            f"Lucene returned impossible {parent_scope} timing data: "
+            f"child phases total {child_total_ns} ns, exceeding "
+            f"the enclosing {parent_ns} ns"
+        )
+
+
+def _prewarm_index_files(index_path: Path) -> _IndexPrewarmTiming:
+    """Populate the host page cache by sequentially reading index files."""
+    started = time.perf_counter_ns()
+    bytes_read = 0
+    file_count = 0
+    buffer = bytearray(_INDEX_PREWARM_BLOCK_BYTES)
+    for path in sorted(index_path.iterdir()):
+        if path.is_symlink():
+            raise RuntimeError(
+                f"Lucene index prewarm refuses symbolic links: {path}"
+            )
+        if not path.is_file():
+            continue
+        file_count += 1
+        try:
+            with path.open("rb", buffering=0) as stream:
+                while count := stream.readinto(buffer):
+                    bytes_read += count
+        except OSError as error:
+            raise RuntimeError(
+                f"Failed to prewarm Lucene index file: {path}"
+            ) from error
+    if file_count == 0:
+        raise RuntimeError(
+            f"Lucene index contains no files to prewarm: {index_path}"
+        )
+    return _IndexPrewarmTiming(
+        wall_ns=time.perf_counter_ns() - started,
+        bytes_read=bytes_read,
+        file_count=file_count,
+    )
+
+
+def _runtime_build_timing_metadata(
+    result: RuntimeBuildResult,
+) -> dict[str, float]:
+    timing = result.timing
+    phases = {
+        "runtime_directory_open_seconds": timing.directory_open_ns,
+        "runtime_writer_setup_seconds": timing.writer_setup_ns,
+        "runtime_document_ingest_seconds": timing.document_ingest_ns,
+        "runtime_writer_commit_close_seconds": timing.writer_commit_close_ns,
+        "runtime_post_build_reader_seconds": timing.post_build_reader_ns,
+        "runtime_directory_close_seconds": timing.directory_close_ns,
+    }
+    _validate_nested_timing(
+        "runtime_build_wall",
+        timing.runtime_build_wall_ns,
+        phases,
+    )
+    fields = {
+        **phases,
+        "runtime_build_wall_seconds": timing.runtime_build_wall_ns,
+    }
+    return {
+        name: _nanoseconds_to_seconds(value) for name, value in fields.items()
+    }
+
+
+def _java_search_timing_metadata(
+    timing: RuntimeSearchTiming,
+) -> dict[str, Any]:
+    """Validate the dispatch route and summarize independent JVM timings."""
+    java_samples = [
+        item.java_index_searcher_search_ns for item in timing.queries
+    ]
+    java_available = all(value is not None for value in java_samples)
+    if any(value is not None for value in java_samples) and not java_available:
+        raise RuntimeError(
+            "Lucene returned Java timing data for only some queries"
+        )
+    valid_dispatch_kinds = {
+        DIRECT_PYLUCENE_DISPATCH,
+        TIMED_BRIDGE_PYLUCENE_DISPATCH,
+    }
+    if timing.search_dispatch_kind not in valid_dispatch_kinds:
+        raise RuntimeError(
+            "Lucene returned an unknown search dispatch kind: "
+            f"{timing.search_dispatch_kind!r}"
+        )
+    expected_java_timing = (
+        timing.search_dispatch_kind == TIMED_BRIDGE_PYLUCENE_DISPATCH
+    )
+    if java_available != expected_java_timing:
+        raise RuntimeError(
+            "Lucene search dispatch kind does not match Java timing availability"
+        )
+
+    metadata: dict[str, Any] = {
+        "search_dispatch_kind": timing.search_dispatch_kind,
+        "java_timing_available": java_available,
+    }
+    if not java_available:
+        return metadata
+
+    resolved_java_samples = [int(value) for value in java_samples]
+    metadata.update(
+        _timing_statistics(
+            "java_index_searcher_search",
+            resolved_java_samples,
+        )
+    )
+    metadata.update(
+        {
+            "first_query_java_index_searcher_search_ms": (
+                _nanoseconds_to_milliseconds(resolved_java_samples[0])
+            ),
+            "subsequent_java_index_searcher_search_mean_ms": (
+                float(np.mean(resolved_java_samples[1:])) / 1_000_000.0
+                if len(resolved_java_samples) > 1
+                else None
+            ),
+        }
+    )
+    return metadata
+
+
+def _runtime_search_timing_metadata(
+    result: RuntimeSearchResult, expected_query_count: int
+) -> tuple[dict[str, Any], list[int]]:
+    timing = result.timing
+    if len(timing.queries) != expected_query_count:
+        raise RuntimeError(
+            "Lucene returned timing data for "
+            f"{len(timing.queries)} queries, expected {expected_query_count}"
+        )
+    plan_phases = {
+        "directory_open_ms": timing.directory_open_ns,
+        "reader_searcher_setup_ms": timing.reader_searcher_setup_ns,
+        "query_corpus_wall_ms": timing.query_corpus_wall_ns,
+        "reader_close_ms": timing.reader_close_ns,
+        "directory_close_ms": timing.directory_close_ns,
+    }
+    _validate_nested_timing(
+        "runtime_plan_wall",
+        timing.runtime_plan_wall_ns,
+        plan_phases,
+    )
+    if timing.query_corpus_wall_ns <= 0:
+        raise RuntimeError("Lucene returned an empty query-corpus duration")
+
+    for query_number, query_timing in enumerate(timing.queries):
+        _validate_nested_timing(
+            f"client_query[{query_number}]",
+            query_timing.client_query_ns,
+            {
+                "query_prepare": query_timing.query_prepare_ns,
+                "pylucene_search_dispatch": (
+                    query_timing.pylucene_search_dispatch_ns
+                ),
+                "result_materialization": (
+                    query_timing.result_materialization_ns
+                ),
+            },
+        )
+    client_query_total_ns = sum(
+        item.client_query_ns for item in timing.queries
+    )
+    if client_query_total_ns > timing.query_corpus_wall_ns:
+        raise RuntimeError(
+            "Lucene returned impossible query_corpus_wall timing data: "
+            f"client queries total {client_query_total_ns} ns, exceeding "
+            f"the enclosing {timing.query_corpus_wall_ns} ns"
+        )
+
+    scopes = {
+        "query_prepare": [item.query_prepare_ns for item in timing.queries],
+        "pylucene_search_dispatch": [
+            item.pylucene_search_dispatch_ns for item in timing.queries
+        ],
+        "result_materialization": [
+            item.result_materialization_ns for item in timing.queries
+        ],
+        "client_query": [item.client_query_ns for item in timing.queries],
+    }
+    plan_timings = {
+        **plan_phases,
+        "runtime_plan_wall_ms": timing.runtime_plan_wall_ns,
+    }
+    metadata: dict[str, Any] = {
+        name: _nanoseconds_to_milliseconds(value)
+        for name, value in plan_timings.items()
+    }
+    for scope, samples in scopes.items():
+        metadata.update(_timing_statistics(scope, samples))
+    metadata.update(_java_search_timing_metadata(timing))
+
+    dispatch_samples = scopes["pylucene_search_dispatch"]
+    client_samples = scopes["client_query"]
+    metadata.update(
+        {
+            "first_query_pylucene_search_dispatch_ms": (
+                _nanoseconds_to_milliseconds(dispatch_samples[0])
+            ),
+            "first_query_client_query_ms": _nanoseconds_to_milliseconds(
+                client_samples[0]
+            ),
+            "subsequent_query_count": max(0, len(dispatch_samples) - 1),
+            "subsequent_pylucene_search_dispatch_mean_ms": (
+                float(np.mean(dispatch_samples[1:])) / 1_000_000.0
+                if len(dispatch_samples) > 1
+                else None
+            ),
+            "subsequent_client_query_mean_ms": (
+                float(np.mean(client_samples[1:])) / 1_000_000.0
+                if len(client_samples) > 1
+                else None
+            ),
+        }
+    )
+    return metadata, client_samples
 
 
 def _validate_vectors(
@@ -428,7 +714,7 @@ def _index_size(index_path: Path) -> int:
 
 
 class LuceneConfigLoader(ConfigLoader):
-    """Load the two fixed initial Lucene algorithms from standard Bench YAML."""
+    """Load the fixed initial Lucene algorithms from standard Bench YAML."""
 
     def __init__(self, config_path: Optional[str] = None):
         self.config_path = config_path or str(
@@ -511,7 +797,7 @@ class LuceneConfigLoader(ConfigLoader):
         **kwargs: Any,
     ) -> list[BenchmarkConfig]:
         include_cuvs = any(
-            item[0] == CAGRA_ALGORITHM for item in expanded_groups
+            item[0] in _CUVS_ALGORITHMS for item in expanded_groups
         )
         runtime_overrides = {
             key: kwargs[key]
@@ -555,7 +841,7 @@ class LuceneConfigLoader(ConfigLoader):
                             "group": group,
                             "codec": codec,
                             "index_root": str(root),
-                            "requires_cuvs": algorithm == CAGRA_ALGORITHM,
+                            "requires_cuvs": algorithm in _CUVS_ALGORITHMS,
                             "include_cuvs": include_cuvs,
                             **runtime_overrides,
                         },
@@ -664,9 +950,10 @@ class LuceneBackend(BenchmarkBackend):
             raise RuntimeError(
                 "Lucene index manifest has incomplete build-runtime artifact provenance"
             )
-        if self.codec == CAGRA_CODEC and not build_runtime_artifacts:
+        if self.algorithm in _CUVS_ALGORITHMS and not build_runtime_artifacts:
             raise RuntimeError(
-                "CAGRA index manifest has no build-runtime artifact provenance"
+                "cuVS-backed Lucene index manifest has no build-runtime "
+                "artifact provenance"
             )
         if build_runtime_artifacts:
             expected_coordinates = {
@@ -772,6 +1059,9 @@ class LuceneBackend(BenchmarkBackend):
             expected_dimensions=dimensions,
         )
         metadata = verification.metadata()
+        metadata["build_route_policy"] = _BUILD_ROUTE_POLICY_BY_ALGORITHM[
+            self.algorithm
+        ]
         if self.codec == CAGRA_CODEC:
             metadata.update(
                 runtime.cagra_verifier.verify(
@@ -881,32 +1171,43 @@ class LuceneBackend(BenchmarkBackend):
                         **metadata,
                     },
                 )
+            backend_build_started = time.perf_counter_ns()
+            dataset_prepare_started = time.perf_counter_ns()
             _normalize_subset_size(dataset)
             vectors = _validate_vectors(
                 dataset.training_vectors,
                 "training vectors",
                 maximum_dimensions=self.maximum_dimensions,
             )
+            dataset_prepare_ns = (
+                time.perf_counter_ns() - dataset_prepare_started
+            )
             if path.exists() and (path.is_symlink() or not path.is_dir()):
                 raise ValueError(
                     f"Lucene index path must be a directory: {path}"
                 )
             path.parent.mkdir(parents=True, exist_ok=True)
+            runtime_setup_started = time.perf_counter_ns()
             runtime = self._get_runtime()
+            runtime_setup_ns = time.perf_counter_ns() - runtime_setup_started
+            artifact_validation_started = time.perf_counter_ns()
             runtime.verify_artifacts()
+            artifact_validation_ns = (
+                time.perf_counter_ns() - artifact_validation_started
+            )
             staged = Path(
                 tempfile.mkdtemp(
                     prefix=f".{path.name}.build-", dir=path.parent
                 )
             )
             try:
-                build_started = time.perf_counter()
-                segment_count = runtime.build_index(
+                build_started = time.perf_counter_ns()
+                runtime_build = runtime.build_index(
                     staged, vectors, self.codec
                 )
-                build_elapsed = time.perf_counter() - build_started
+                build_elapsed_ns = time.perf_counter_ns() - build_started
 
-                validation_started = time.perf_counter()
+                validation_started = time.perf_counter_ns()
                 metadata = self._verification_metadata(
                     runtime,
                     staged,
@@ -914,10 +1215,10 @@ class LuceneBackend(BenchmarkBackend):
                     int(vectors.shape[1]),
                 )
                 observed_segments = int(metadata["segment_count"])
-                if segment_count != observed_segments:
+                if runtime_build.segment_count != observed_segments:
                     raise RuntimeError(
                         "Lucene build reported a different segment count from "
-                        f"the committed index: {segment_count} != "
+                        f"the committed index: {runtime_build.segment_count} != "
                         f"{observed_segments}"
                     )
                 payload = _manifest_payload(
@@ -929,24 +1230,59 @@ class LuceneBackend(BenchmarkBackend):
                     runtime.artifact_provenance,
                 )
                 _write_manifest(staged, payload)
-                validation_elapsed = time.perf_counter() - validation_started
+                validation_elapsed_ns = (
+                    time.perf_counter_ns() - validation_started
+                )
 
-                install_started = time.perf_counter()
+                install_started = time.perf_counter_ns()
                 cleanup_warning = self._install_staged_index(staged, path)
-                install_elapsed = time.perf_counter() - install_started
+                install_elapsed_ns = time.perf_counter_ns() - install_started
             except BaseException:
                 shutil.rmtree(staged, ignore_errors=True)
                 raise
+            index_size_started = time.perf_counter_ns()
+            index_size_bytes = _index_size(path)
+            index_size_elapsed_ns = time.perf_counter_ns() - index_size_started
             lifecycle_metadata: dict[str, Any] = {
-                "validation_time_seconds": validation_elapsed,
-                "install_time_seconds": install_elapsed,
+                "dataset_load_validate_seconds": _nanoseconds_to_seconds(
+                    dataset_prepare_ns
+                ),
+                "runtime_setup_seconds": _nanoseconds_to_seconds(
+                    runtime_setup_ns
+                ),
+                "artifact_validation_seconds": _nanoseconds_to_seconds(
+                    artifact_validation_ns
+                ),
+                "index_build_call_seconds": _nanoseconds_to_seconds(
+                    build_elapsed_ns
+                ),
+                "index_validation_manifest_seconds": (
+                    _nanoseconds_to_seconds(validation_elapsed_ns)
+                ),
+                "index_install_seconds": _nanoseconds_to_seconds(
+                    install_elapsed_ns
+                ),
+                "index_size_measurement_seconds": _nanoseconds_to_seconds(
+                    index_size_elapsed_ns
+                ),
+                "backend_build_total_seconds": _nanoseconds_to_seconds(
+                    time.perf_counter_ns() - backend_build_started
+                ),
+                # Retain the original names for existing result consumers.
+                "validation_time_seconds": _nanoseconds_to_seconds(
+                    validation_elapsed_ns
+                ),
+                "install_time_seconds": _nanoseconds_to_seconds(
+                    install_elapsed_ns
+                ),
+                **_runtime_build_timing_metadata(runtime_build),
             }
             if cleanup_warning is not None:
                 lifecycle_metadata["cleanup_warning"] = cleanup_warning
             return BuildResult(
                 index_path=str(path),
-                build_time_seconds=build_elapsed,
-                index_size_bytes=_index_size(path),
+                build_time_seconds=_nanoseconds_to_seconds(build_elapsed_ns),
+                index_size_bytes=index_size_bytes,
                 algorithm=self.algorithm,
                 build_params=dict(index.build_param),
                 metadata={
@@ -1003,6 +1339,10 @@ class LuceneBackend(BenchmarkBackend):
         metadata: Mapping[str, Any],
     ) -> SearchResult:
         self._validate_hits(runtime_result, k, expected_query_count)
+        timing_metadata, latency_samples_ns = _runtime_search_timing_metadata(
+            runtime_result, expected_query_count
+        )
+        conversion_started = time.perf_counter_ns()
         neighbors = np.asarray(
             [
                 [hit.document_id for hit in hits]
@@ -1017,25 +1357,33 @@ class LuceneBackend(BenchmarkBackend):
             ],
             dtype=np.float32,
         )
-        elapsed_ms = float(sum(runtime_result.batch_latencies_ms))
+        result_array_conversion_ms = _nanoseconds_to_milliseconds(
+            time.perf_counter_ns() - conversion_started
+        )
+        elapsed_ms = _nanoseconds_to_milliseconds(sum(latency_samples_ns))
         query_count = len(runtime_result.hits)
-        batch_latencies = runtime_result.batch_latencies_ms
-        if not batch_latencies or elapsed_ms <= 0.0:
-            raise RuntimeError("Lucene returned invalid batch timing data")
+        query_corpus_seconds = _nanoseconds_to_seconds(
+            runtime_result.timing.query_corpus_wall_ns
+        )
+        if elapsed_ms < 0.0 or query_corpus_seconds <= 0.0:
+            raise RuntimeError("Lucene returned invalid query timing data")
+        latency_samples_ms = (
+            np.asarray(latency_samples_ns, dtype=np.float64) / 1_000_000.0
+        )
         return SearchResult(
             neighbors=neighbors,
             distances=distances,
             search_time_ms=elapsed_ms,
-            queries_per_second=(query_count * 1000.0 / elapsed_ms),
+            queries_per_second=(query_count / query_corpus_seconds),
             recall=0.0,
             algorithm=self.algorithm,
             search_params=[
                 {} if self.algorithm == CAGRA_ALGORITHM else parameters
             ],
             latency_percentiles={
-                "p50": float(np.percentile(batch_latencies, 50)),
-                "p95": float(np.percentile(batch_latencies, 95)),
-                "p99": float(np.percentile(batch_latencies, 99)),
+                "p50": float(np.percentile(latency_samples_ms, 50)),
+                "p95": float(np.percentile(latency_samples_ms, 95)),
+                "p99": float(np.percentile(latency_samples_ms, 99)),
             },
             metadata={
                 "codec": self.codec,
@@ -1043,9 +1391,19 @@ class LuceneBackend(BenchmarkBackend):
                 **_artifact_metadata(
                     "search_runtime", runtime.artifact_provenance
                 ),
-                "latency_seconds": float(np.mean(batch_latencies)) / 1000.0,
-                "batch_count": len(batch_latencies),
+                "timing_contract_version": _TIMING_CONTRACT_VERSION,
+                "latency_scope": "client_query",
+                "throughput_scope": "query_corpus_wall",
+                "sample_unit": "query",
+                "execution_model": "serial_single_query",
+                "latency_seconds": float(latency_samples_ms.mean()) / 1000.0,
+                "requested_batch_size": batch_size,
                 "batch_size": batch_size,
+                "effective_search_batch_size": 1,
+                "query_count": query_count,
+                "warmup_query_count": 0,
+                "result_array_conversion_ms": result_array_conversion_ms,
+                **timing_metadata,
                 **metadata,
             },
         )
@@ -1105,11 +1463,17 @@ class LuceneBackend(BenchmarkBackend):
                         },
                     )
                 ]
+            backend_search_started = time.perf_counter_ns()
+            input_prepare_started = time.perf_counter_ns()
             queries = _validate_vectors(
                 dataset.query_vectors,
                 "query vectors",
                 maximum_dimensions=self.maximum_dimensions,
             )
+            query_input_prepare_ns = (
+                time.perf_counter_ns() - input_prepare_started
+            )
+            identity_validation_started = time.perf_counter_ns()
             if not path.is_dir():
                 raise FileNotFoundError(f"Lucene index does not exist: {path}")
             payload = _read_manifest(path)
@@ -1122,46 +1486,96 @@ class LuceneBackend(BenchmarkBackend):
                     "query vector dimensions do not match the indexed dataset: "
                     f"{queries.shape[1]} != {dimensions}"
                 )
+            index_identity_validation_ns = (
+                time.perf_counter_ns() - identity_validation_started
+            )
+            runtime_setup_started = time.perf_counter_ns()
             runtime = self._get_runtime()
+            runtime_setup_ns = time.perf_counter_ns() - runtime_setup_started
+            artifact_validation_started = time.perf_counter_ns()
             runtime.verify_artifacts()
+            artifact_validation_ns = (
+                time.perf_counter_ns() - artifact_validation_started
+            )
+            index_verification_started = time.perf_counter_ns()
             metadata = self._verification_metadata(
                 runtime, path, vector_count, dimensions
             )
             self._validate_manifest_segment_count(payload, metadata)
+            index_verification_ns = (
+                time.perf_counter_ns() - index_verification_started
+            )
 
             results = []
             for parameters in validated_parameters:
+                search_plan_started = time.perf_counter_ns()
+                prewarm = _prewarm_index_files(path)
                 runtime_result = runtime.search_index(
                     path,
                     queries,
                     k=k,
-                    batch_size=batch_size,
                     num_candidates=parameters["num_candidates"],
                 )
-                results.append(
-                    self._successful_search(
-                        runtime_result,
-                        parameters,
-                        k=k,
-                        batch_size=batch_size,
-                        expected_query_count=int(queries.shape[0]),
-                        runtime=runtime,
-                        metadata={
-                            "mode": mode,
-                            "group": self.group,
-                            "index_name": index.name,
-                            **_artifact_metadata(
-                                "build_runtime",
-                                payload["build_runtime_artifacts"],
-                            ),
-                            "expected_search_route": (
-                                "gpu_cagra"
-                                if self.codec == CAGRA_CODEC
-                                else "cpu_hnsw"
-                            ),
-                            **metadata,
-                        },
+                result = self._successful_search(
+                    runtime_result,
+                    parameters,
+                    k=k,
+                    batch_size=batch_size,
+                    expected_query_count=int(queries.shape[0]),
+                    runtime=runtime,
+                    metadata={
+                        "mode": mode,
+                        "group": self.group,
+                        "index_name": index.name,
+                        **_artifact_metadata(
+                            "build_runtime",
+                            payload["build_runtime_artifacts"],
+                        ),
+                        "expected_search_route": (
+                            _SEARCH_ROUTE_BY_ALGORITHM[self.algorithm]
+                        ),
+                        "query_input_prepare_ms": (
+                            _nanoseconds_to_milliseconds(
+                                query_input_prepare_ns
+                            )
+                        ),
+                        "index_identity_validation_ms": (
+                            _nanoseconds_to_milliseconds(
+                                index_identity_validation_ns
+                            )
+                        ),
+                        "runtime_setup_ms": _nanoseconds_to_milliseconds(
+                            runtime_setup_ns
+                        ),
+                        "artifact_validation_ms": (
+                            _nanoseconds_to_milliseconds(
+                                artifact_validation_ns
+                            )
+                        ),
+                        "index_verification_ms": (
+                            _nanoseconds_to_milliseconds(index_verification_ns)
+                        ),
+                        "cache_policy": "sequential_read_all_index_files",
+                        "index_prewarm_ms": _nanoseconds_to_milliseconds(
+                            prewarm.wall_ns
+                        ),
+                        "index_prewarm_bytes": prewarm.bytes_read,
+                        "index_prewarm_file_count": prewarm.file_count,
+                        **metadata,
+                    },
+                )
+                result.metadata["search_plan_total_ms"] = (
+                    _nanoseconds_to_milliseconds(
+                        time.perf_counter_ns() - search_plan_started
                     )
+                )
+                results.append(result)
+            backend_search_invocation_total_ms = _nanoseconds_to_milliseconds(
+                time.perf_counter_ns() - backend_search_started
+            )
+            for result in results:
+                result.metadata["backend_search_invocation_total_ms"] = (
+                    backend_search_invocation_total_ms
                 )
             return results
         except Exception as error:

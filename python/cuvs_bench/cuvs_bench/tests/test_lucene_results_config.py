@@ -20,8 +20,13 @@ from _lucene_test_support import (
     _backend_and_index,
     _dataset,
 )
-from cuvs_bench.backends._lucene_runtime import CAGRA_CODEC, CPU_HNSW_CODEC
+from cuvs_bench.backends._lucene_runtime import (
+    ACCELERATED_HNSW_CODEC,
+    CAGRA_CODEC,
+    CPU_HNSW_CODEC,
+)
 from cuvs_bench.backends.lucene import (
+    ACCELERATED_HNSW_ALGORITHM,
     CAGRA_ALGORITHM,
     CPU_HNSW_ALGORITHM,
     LuceneBackend,
@@ -50,12 +55,19 @@ def test_backend_accepts_only_the_codec_owned_by_each_algorithm(
     (
         pytest.param(CPU_HNSW_ALGORITHM, CAGRA_CODEC, id="cpu-with-cagra"),
         pytest.param(CAGRA_ALGORITHM, CPU_HNSW_CODEC, id="cagra-with-cpu"),
+        pytest.param(
+            ACCELERATED_HNSW_ALGORITHM,
+            CPU_HNSW_CODEC,
+            id="accelerated-with-cpu",
+        ),
     ),
 )
 def test_backend_rejects_mismatched_algorithm_and_codec(
     tmp_path: Path, algorithm: str, codec: str
 ) -> None:
-    with pytest.raises(ValueError, match="Invalid Lucene algorithm/codec pair"):
+    with pytest.raises(
+        ValueError, match="Invalid Lucene algorithm/codec pair"
+    ):
         LuceneBackend(
             {
                 "name": "invalid",
@@ -73,7 +85,9 @@ def test_build_parameters_accept_only_the_fixed_codec(
     assert _codec_for(algorithm, {}) == codec
     assert _codec_for(algorithm, {"codec": codec}) == codec
 
-    with pytest.raises(ValueError, match="Unsupported Lucene build parameters"):
+    with pytest.raises(
+        ValueError, match="Unsupported Lucene build parameters"
+    ):
         _codec_for(algorithm, {"codec": codec, "graph_degree": 32})
 
 
@@ -89,10 +103,17 @@ def test_build_parameters_accept_only_the_fixed_codec(
         ),
     ),
 )
-def test_cpu_search_parameter_validation_accepts_candidate_budgets(
-    parameters: dict[str, int], k: int, expected: dict[str, int]
+@pytest.mark.parametrize(
+    "algorithm",
+    (CPU_HNSW_ALGORITHM, ACCELERATED_HNSW_ALGORITHM),
+)
+def test_hnsw_search_parameter_validation_accepts_candidate_budgets(
+    algorithm: str,
+    parameters: dict[str, int],
+    k: int,
+    expected: dict[str, int],
 ) -> None:
-    assert _search_parameters(CPU_HNSW_ALGORITHM, parameters, k) == expected
+    assert _search_parameters(algorithm, parameters, k) == expected
 
 
 @pytest.mark.parametrize(
@@ -103,15 +124,24 @@ def test_cpu_search_parameter_validation_accepts_candidate_budgets(
         pytest.param({"search_width": 16}, id="unsupported-key"),
     ),
 )
-def test_cpu_search_parameter_validation_rejects_invalid_budgets(
+@pytest.mark.parametrize(
+    "algorithm",
+    (CPU_HNSW_ALGORITHM, ACCELERATED_HNSW_ALGORITHM),
+)
+def test_hnsw_search_parameter_validation_rejects_invalid_budgets(
+    algorithm: str,
     parameters: dict[str, Any],
 ) -> None:
     with pytest.raises(ValueError):
-        _search_parameters(CPU_HNSW_ALGORITHM, parameters, 3)
+        _search_parameters(algorithm, parameters, 3)
 
 
-def test_cagra_search_accepts_only_fixed_parameters_within_its_route_limit() -> None:
-    assert _search_parameters(CAGRA_ALGORITHM, {}, 1024) == {"num_candidates": 1024}
+def test_cagra_search_accepts_only_fixed_parameters_within_its_route_limit() -> (
+    None
+):
+    assert _search_parameters(CAGRA_ALGORITHM, {}, 1024) == {
+        "num_candidates": 1024
+    }
 
     with pytest.raises(ValueError, match="accepts no search parameters"):
         _search_parameters(CAGRA_ALGORITHM, {"search_width": 16}, 10)
@@ -130,7 +160,9 @@ def test_cagra_search_accepts_only_fixed_parameters_within_its_route_limit() -> 
 def test_lucene_scores_are_inverted_to_squared_euclidean_distance(
     score: float, expected_distance: float
 ) -> None:
-    assert _score_to_squared_euclidean(score) == pytest.approx(expected_distance)
+    assert _score_to_squared_euclidean(score) == pytest.approx(
+        expected_distance
+    )
 
 
 @pytest.mark.parametrize(
@@ -160,7 +192,9 @@ def test_result_metadata_is_exported_instead_of_silently_dropped(
     tmp_path: Path,
 ) -> None:
     runtime = RecordingRuntime()
-    backend, index, _factory = _backend_and_index(tmp_path, CPU_HNSW_ALGORITHM, runtime)
+    backend, index, _factory = _backend_and_index(
+        tmp_path, CPU_HNSW_ALGORITHM, runtime
+    )
     dataset = _dataset()
     build = backend.build(dataset, [index])
     search = backend.search(dataset, [index], k=2, batch_size=2)[0]
@@ -178,13 +212,26 @@ def test_result_metadata_is_exported_instead_of_silently_dropped(
         [row] = csv.DictReader(stream)
     assert row["index_name"] == CPU_HNSW_ALGORITHM
     assert float(row["build time"]) == pytest.approx(build.build_time_seconds)
+    assert row["timing_contract_version"] == "1"
+    assert row["latency_scope"] == "client_query"
+    assert row["throughput_scope"] == "query_corpus_wall"
+    assert row["execution_model"] == "serial_single_query"
+    assert row["requested_batch_size"] == "2"
+    assert row["effective_search_batch_size"] == "1"
+    assert row["search_dispatch_kind"] == "direct_pylucene"
+    assert row["client_query_count"] == "2"
+    assert float(row["client_query_mean_ms"]) == pytest.approx(2.5)
+    assert float(row["pylucene_search_dispatch_mean_ms"]) == pytest.approx(2.0)
+    assert int(row["index_prewarm_bytes"]) > 0
 
 
 def test_dry_and_failed_exports_preserve_existing_measurements(
     tmp_path: Path,
 ) -> None:
     runtime = RecordingRuntime()
-    backend, index, _factory = _backend_and_index(tmp_path, CPU_HNSW_ALGORITHM, runtime)
+    backend, index, _factory = _backend_and_index(
+        tmp_path, CPU_HNSW_ALGORITHM, runtime
+    )
     dataset = _dataset()
     build = backend.build(dataset, [index])
     search = backend.search(dataset, [index], k=2, batch_size=2)[0]
@@ -219,7 +266,9 @@ def test_dry_and_failed_exports_preserve_existing_measurements(
         batch_size=2,
     )
 
-    assert {path: path.read_bytes() for path in exported_files} == (original_contents)
+    assert {path: path.read_bytes() for path in exported_files} == (
+        original_contents
+    )
 
 
 def test_config_loader_maps_each_algorithm_to_its_codec_and_requirement(
@@ -236,25 +285,57 @@ def test_config_loader_maps_each_algorithm_to_its_codec_and_requirement(
         dataset="tiny-l2",
         dataset_path=str(tmp_path),
         dataset_configuration=str(dataset_configuration),
-        algorithms=f"{CPU_HNSW_ALGORITHM},{CAGRA_ALGORITHM}",
+        algorithms=(
+            f"{CPU_HNSW_ALGORITHM},{ACCELERATED_HNSW_ALGORITHM},"
+            f"{CAGRA_ALGORITHM}"
+        ),
         groups="test",
     )
     by_algorithm = {
-        configuration.indexes[0].algo: configuration for configuration in configurations
+        configuration.indexes[0].algo: configuration
+        for configuration in configurations
     }
 
-    assert set(by_algorithm) == {CPU_HNSW_ALGORITHM, CAGRA_ALGORITHM}
+    assert set(by_algorithm) == {
+        CPU_HNSW_ALGORITHM,
+        ACCELERATED_HNSW_ALGORITHM,
+        CAGRA_ALGORITHM,
+    }
     assert by_algorithm[CPU_HNSW_ALGORITHM].indexes[0].build_param == {
         "codec": CPU_HNSW_CODEC
     }
     assert by_algorithm[CAGRA_ALGORITHM].indexes[0].build_param == {
         "codec": CAGRA_CODEC
     }
-    assert by_algorithm[CPU_HNSW_ALGORITHM].backend_config["requires_cuvs"] is False
-    assert by_algorithm[CAGRA_ALGORITHM].backend_config["requires_cuvs"] is True
-    assert by_algorithm[CPU_HNSW_ALGORITHM].backend_config["include_cuvs"] is True
+    assert by_algorithm[ACCELERATED_HNSW_ALGORITHM].indexes[0].build_param == {
+        "codec": ACCELERATED_HNSW_CODEC
+    }
+    assert (
+        by_algorithm[CPU_HNSW_ALGORITHM].backend_config["requires_cuvs"]
+        is False
+    )
+    assert (
+        by_algorithm[ACCELERATED_HNSW_ALGORITHM].backend_config[
+            "requires_cuvs"
+        ]
+        is True
+    )
+    assert (
+        by_algorithm[CAGRA_ALGORITHM].backend_config["requires_cuvs"] is True
+    )
+    assert (
+        by_algorithm[CPU_HNSW_ALGORITHM].backend_config["include_cuvs"] is True
+    )
+    assert (
+        by_algorithm[ACCELERATED_HNSW_ALGORITHM].backend_config["include_cuvs"]
+        is True
+    )
     assert by_algorithm[CAGRA_ALGORITHM].backend_config["include_cuvs"] is True
     assert by_algorithm[CPU_HNSW_ALGORITHM].backend_config["group"] == "test"
+    assert (
+        by_algorithm[ACCELERATED_HNSW_ALGORITHM].backend_config["group"]
+        == "test"
+    )
     assert by_algorithm[CAGRA_ALGORITHM].backend_config["group"] == "test"
 
 

@@ -150,8 +150,8 @@ def _required_artifact_pair(
         )
     )
     raise RuntimeError(
-        "The Lucene CAGRA backend requires matching standard cuvs-java and "
-        "thin cuvs-lucene JARs. Build both artifacts or set "
+        "cuVS-backed Lucene algorithms require matching standard cuvs-java "
+        "and thin cuvs-lucene JARs. Build both artifacts or set "
         f"{_JAVA_JAR_ENV} and {_LUCENE_JAR_ENV}. Searched: {searched}"
     )
 

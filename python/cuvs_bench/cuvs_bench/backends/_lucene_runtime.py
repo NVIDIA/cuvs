@@ -22,6 +22,7 @@ import numpy as np
 from ._lucene_runtime_config import maven_artifact_version
 
 CPU_HNSW_CODEC = "Lucene101"
+ACCELERATED_HNSW_CODEC = "Lucene101AcceleratedHNSWCodec"
 CAGRA_CODEC = "CuVS2510GPUSearchCodec"
 MAX_CAGRA_TOP_K = 1024
 REQUIRED_PYLUCENE_VERSION = "10.2.0"
@@ -36,6 +37,16 @@ _CAGRA_DATA_CODEC_NAME = "Lucene102CuVSVectorsFormatIndex"
 _CAGRA_FORMAT_VERSION = 0
 _FLOAT32_ENCODING_ORDINAL = 1
 _EUCLIDEAN_SIMILARITY_ORDINAL = 0
+_INDEX_SEARCHER_TIMING_BRIDGE = (
+    "com.nvidia.cuvs.lucene.IndexSearcherTimingBridge"
+)
+_SEARCHER_REQUEST_KEY = "searcher"
+_QUERY_REQUEST_KEY = "query"
+_TOP_K_REQUEST_KEY = "top_k"
+_TOP_DOCS_RESPONSE_KEY = "top_docs"
+_ELAPSED_NANOS_RESPONSE_KEY = "elapsed_nanos"
+DIRECT_PYLUCENE_DISPATCH = "direct_pylucene"
+TIMED_BRIDGE_PYLUCENE_DISPATCH = "thin_jar_timing_bridge"
 
 _JVM_LOCK = threading.Lock()
 _INITIALIZED_CLASSPATH: str | None = None
@@ -256,6 +267,8 @@ def _validate_artifacts(
     lucene_required = {
         "com/nvidia/cuvs/lucene/CuVS2510GPUVectorsFormat.class",
         "com/nvidia/cuvs/lucene/CuVS2510GPUSearchCodec.class",
+        "com/nvidia/cuvs/lucene/IndexSearcherTimingBridge.class",
+        "com/nvidia/cuvs/lucene/Lucene101AcceleratedHNSWCodec.class",
         "META-INF/services/org.apache.lucene.codecs.Codec",
     }
     missing = sorted(lucene_required - lucene_entries)
@@ -293,6 +306,10 @@ def _validate_artifacts(
     if "com.nvidia.cuvs.lucene.CuVS2510GPUSearchCodec" not in providers:
         raise RuntimeError(
             "cuvs_lucene_jar does not advertise CuVS2510GPUSearchCodec"
+        )
+    if "com.nvidia.cuvs.lucene.Lucene101AcceleratedHNSWCodec" not in providers:
+        raise RuntimeError(
+            "cuvs_lucene_jar does not advertise Lucene101AcceleratedHNSWCodec"
         )
 
     java_coordinates = _maven_coordinates(
@@ -489,10 +506,13 @@ class LuceneIndexVerification:
     dimensions: int
 
     def metadata(self) -> dict[str, int | str]:
+        persisted_index_kind = {
+            CPU_HNSW_CODEC: "cpu_hnsw",
+            ACCELERATED_HNSW_CODEC: "hnsw",
+            CAGRA_CODEC: "gpu_cagra",
+        }[self.codec]
         return {
-            "persisted_index_kind": (
-                "gpu_cagra" if self.codec == CAGRA_CODEC else "cpu_hnsw"
-            ),
+            "persisted_index_kind": persisted_index_kind,
             "segment_count": self.segment_count,
             "field_count": self.field_count,
             "vector_count": self.vector_count,
@@ -755,6 +775,19 @@ class CagraIndexVerifier:
         compound_format = segment.info.getCodec().compoundFormat()
         return compound_format.getCompoundReader(root, segment.info), True
 
+    @staticmethod
+    def _metadata_files(
+        directory: Any, segment: Any, *, compound: bool
+    ) -> list[str]:
+        # A compound reader exposes only one segment's embedded files. The root
+        # directory does not, so ask SegmentInfo for that segment's files.
+        names = directory.listAll() if compound else segment.info.files()
+        return sorted(
+            str(name)
+            for name in names
+            if str(name).endswith(_CAGRA_META_EXTENSION)
+        )
+
     def _verify_segment(
         self, root: Any, segment: Any
     ) -> tuple[int, int, set[int]]:
@@ -773,14 +806,13 @@ class CagraIndexVerifier:
                 f"Segment {segment_name!r} uses {segment.info.getCodec().getName()}, "
                 f"not {CAGRA_CODEC}"
             )
-        directory, owned = self._segment_directory(root, segment)
+        directory, compound = self._segment_directory(root, segment)
         with _CleanupStack() as cleanups:
-            if owned:
+            if compound:
                 cleanups.add("close compound directory", directory.close)
-            files = sorted(str(name) for name in directory.listAll())
-            metadata_files = [
-                name for name in files if name.endswith(_CAGRA_META_EXTENSION)
-            ]
+            metadata_files = self._metadata_files(
+                directory, segment, compound=compound
+            )
             if not metadata_files:
                 raise CagraVerificationError(
                     f"No CAGRA metadata found for segment {segment_name!r}"
@@ -898,9 +930,53 @@ class SearchHit:
 
 
 @dataclass(frozen=True)
+class RuntimeBuildTiming:
+    """Nanosecond timings for the Lucene build lifecycle."""
+
+    directory_open_ns: int
+    writer_setup_ns: int
+    document_ingest_ns: int
+    writer_commit_close_ns: int
+    post_build_reader_ns: int
+    directory_close_ns: int
+    runtime_build_wall_ns: int
+
+
+@dataclass(frozen=True)
+class RuntimeBuildResult:
+    segment_count: int
+    timing: RuntimeBuildTiming
+
+
+@dataclass(frozen=True)
+class QueryTiming:
+    """Measured boundaries for one query in this backend's serial loop."""
+
+    query_prepare_ns: int
+    pylucene_search_dispatch_ns: int
+    java_index_searcher_search_ns: int | None
+    result_materialization_ns: int
+    client_query_ns: int
+
+
+@dataclass(frozen=True)
+class RuntimeSearchTiming:
+    """Nanosecond timings for one search-parameter plan."""
+
+    directory_open_ns: int
+    reader_searcher_setup_ns: int
+    query_corpus_wall_ns: int
+    reader_close_ns: int
+    directory_close_ns: int
+    runtime_plan_wall_ns: int
+    search_dispatch_kind: str
+    queries: tuple[QueryTiming, ...]
+
+
+@dataclass(frozen=True)
 class RuntimeSearchResult:
     hits: list[list[SearchHit]]
-    batch_latencies_ms: list[float]
+    timing: RuntimeSearchTiming
     document_count: int
     dimensions: int
 
@@ -909,7 +985,10 @@ class LuceneRuntime:
     """Own the generated bindings and the narrow Lucene operations Bench uses."""
 
     def __init__(self, lucene: Any):
+        from java.lang import Class, Integer, Long
         from java.nio.file import Paths
+        from java.util import HashMap, Map
+        from java.util.function import Function
         from org.apache.lucene.codecs import Codec, CodecUtil
         from org.apache.lucene.document import (
             Document,
@@ -926,10 +1005,20 @@ class LuceneRuntime:
             VectorEncoding,
             VectorSimilarityFunction,
         )
-        from org.apache.lucene.search import IndexSearcher, KnnFloatVectorQuery
+        from org.apache.lucene.search import (
+            IndexSearcher,
+            KnnFloatVectorQuery,
+            TopDocs,
+        )
         from org.apache.lucene.store import FSDirectory, IOContext
 
         self.lucene = lucene
+        self.Class = Class
+        self.Integer = Integer
+        self.Long = Long
+        self.HashMap = HashMap
+        self.Map = Map
+        self.Function = Function
         self.Paths = Paths
         self.Codec = Codec
         self.CodecUtil = CodecUtil
@@ -946,6 +1035,7 @@ class LuceneRuntime:
         self.VectorSimilarityFunction = VectorSimilarityFunction
         self.IndexSearcher = IndexSearcher
         self.KnnFloatVectorQuery = KnnFloatVectorQuery
+        self.TopDocs = TopDocs
         self.FSDirectory = FSDirectory
         self.IOContext = IOContext
         self.index_verifier = LuceneIndexVerifier(self)
@@ -953,6 +1043,7 @@ class LuceneRuntime:
         self._codecs: dict[str, Any] = {}
         self.artifact_provenance: dict[str, str] = {}
         self._artifact_tokens: dict[str, tuple[int, ...]] = {}
+        self._java_search_timer: Any | None = None
 
     @classmethod
     def create(cls, config: Mapping[str, Any]) -> "LuceneRuntime":
@@ -962,7 +1053,23 @@ class LuceneRuntime:
         runtime = cls(lucene)
         runtime.artifact_provenance = artifact_provenance
         runtime._artifact_tokens = artifact_tokens
+        if artifact_provenance:
+            runtime._java_search_timer = runtime._load_java_search_timer()
         return runtime
+
+    def _load_java_search_timer(self) -> Any:
+        """Load the thin-JAR timer through JCC's wrapped Function interface."""
+        try:
+            instance = self.Class.forName(
+                _INDEX_SEARCHER_TIMING_BRIDGE
+            ).newInstance()
+            return self.Function.cast_(instance)
+        except Exception as error:
+            raise RuntimeError(
+                f"Could not load or adapt {_INDEX_SEARCHER_TIMING_BRIDGE} "
+                "through PyLucene/JCC: "
+                f"{type(error).__name__}: {error}"
+            ) from error
 
     @property
     def pylucene_version(self) -> str:
@@ -1020,27 +1127,67 @@ class LuceneRuntime:
 
     def build_index(
         self, index_path: Path, vectors: np.ndarray, codec_name: str
-    ) -> int:
+    ) -> RuntimeBuildResult:
         self.attach_current_thread()
+        runtime_started = time.perf_counter_ns()
+        directory_open_started = time.perf_counter_ns()
         directory = self.FSDirectory.open(self.Paths.get(str(index_path)))
+        directory_open_ns = time.perf_counter_ns() - directory_open_started
+        directory_close_ns = 0
+        writer_setup_ns = 0
+        document_ingest_ns = 0
+        writer_commit_close_ns = 0
+        post_build_reader_ns = 0
+        segment_count = 0
+
+        def close_directory() -> None:
+            nonlocal directory_close_ns
+            started = time.perf_counter_ns()
+            try:
+                directory.close()
+            finally:
+                directory_close_ns += time.perf_counter_ns() - started
+
         with _CleanupStack() as cleanups:
-            cleanups.add("close Lucene directory", directory.close)
+            cleanups.add("close Lucene directory", close_directory)
+            writer_setup_started = time.perf_counter_ns()
             config = self.IndexWriterConfig()
             config.setOpenMode(self.IndexWriterConfig.OpenMode.CREATE)
             config.setCodec(self.resolve_codec(codec_name))
             writer = self.IndexWriter(directory, config)
+            writer_setup_ns = time.perf_counter_ns() - writer_setup_started
             try:
+                ingest_started = time.perf_counter_ns()
                 for document_id, vector in enumerate(vectors):
                     writer.addDocument(self._document(document_id, vector))
+                document_ingest_ns = time.perf_counter_ns() - ingest_started
+                commit_started = time.perf_counter_ns()
                 writer.commit()
                 writer.close()
+                writer_commit_close_ns = (
+                    time.perf_counter_ns() - commit_started
+                )
             except BaseException as error:
                 _rollback_writer(writer, error)
                 raise
+            post_build_started = time.perf_counter_ns()
             reader = self.DirectoryReader.open(directory)
             with _CleanupStack() as reader_cleanups:
                 reader_cleanups.add("close Lucene reader", reader.close)
-                return int(reader.leaves().size())
+                segment_count = int(reader.leaves().size())
+            post_build_reader_ns = time.perf_counter_ns() - post_build_started
+        return RuntimeBuildResult(
+            segment_count=segment_count,
+            timing=RuntimeBuildTiming(
+                directory_open_ns=directory_open_ns,
+                writer_setup_ns=writer_setup_ns,
+                document_ingest_ns=document_ingest_ns,
+                writer_commit_close_ns=writer_commit_close_ns,
+                post_build_reader_ns=post_build_reader_ns,
+                directory_close_ns=directory_close_ns,
+                runtime_build_wall_ns=time.perf_counter_ns() - runtime_started,
+            ),
+        )
 
     @staticmethod
     def _index_dimensions(reader: Any) -> int:
@@ -1057,6 +1204,39 @@ class LuceneRuntime:
             )
         return dimensions.pop()
 
+    def _search(
+        self, searcher: Any, query: Any, k: int
+    ) -> tuple[Any, int, int | None]:
+        """Search once and return optional in-JVM timing evidence."""
+        dispatch_started = time.perf_counter_ns()
+        if self._java_search_timer is None:
+            top_docs = searcher.search(query, k)
+            return (
+                top_docs,
+                time.perf_counter_ns() - dispatch_started,
+                None,
+            )
+        request = self.HashMap()
+        request.put(_SEARCHER_REQUEST_KEY, searcher)
+        request.put(_QUERY_REQUEST_KEY, query)
+        request.put(_TOP_K_REQUEST_KEY, self.Integer.valueOf(k))
+        raw_response = self._java_search_timer.apply(request)
+        response = self.Map.cast_(raw_response)
+        top_docs = self.TopDocs.cast_(response.get(_TOP_DOCS_RESPONSE_KEY))
+        elapsed = self.Long.cast_(
+            response.get(_ELAPSED_NANOS_RESPONSE_KEY)
+        ).longValue()
+        elapsed_ns = int(elapsed)
+        if elapsed_ns < 0:
+            raise RuntimeError(
+                "The Java IndexSearcher timing bridge returned a negative duration"
+            )
+        return (
+            top_docs,
+            time.perf_counter_ns() - dispatch_started,
+            elapsed_ns,
+        )
+
     def _search_one(
         self,
         searcher: Any,
@@ -1064,19 +1244,37 @@ class LuceneRuntime:
         vector: np.ndarray,
         k: int,
         candidates: int,
-    ) -> list[SearchHit]:
+    ) -> tuple[list[SearchHit], QueryTiming]:
+        client_started = time.perf_counter_ns()
+        prepare_started = time.perf_counter_ns()
         query = self.KnnFloatVectorQuery(
             _VECTOR_FIELD, self._java_vector(vector), candidates
         )
+        query_prepare_ns = time.perf_counter_ns() - prepare_started
+
+        top_docs, pylucene_search_dispatch_ns, java_search_ns = self._search(
+            searcher, query, k
+        )
+
+        materialization_started = time.perf_counter_ns()
         hits = []
-        for score_doc in searcher.search(query, k).scoreDocs:
+        for score_doc in top_docs.scoreDocs:
             stored_id = stored_fields.document(score_doc.doc).get(_ID_FIELD)
             if stored_id is None:
                 raise RuntimeError(
                     f"Lucene document {score_doc.doc} has no stored ID"
                 )
             hits.append(SearchHit(int(stored_id), float(score_doc.score)))
-        return hits
+        result_materialization_ns = (
+            time.perf_counter_ns() - materialization_started
+        )
+        return hits, QueryTiming(
+            query_prepare_ns=query_prepare_ns,
+            pylucene_search_dispatch_ns=pylucene_search_dispatch_ns,
+            java_index_searcher_search_ns=java_search_ns,
+            result_materialization_ns=result_materialization_ns,
+            client_query_ns=time.perf_counter_ns() - client_started,
+        )
 
     def search_index(
         self,
@@ -1084,15 +1282,37 @@ class LuceneRuntime:
         queries: np.ndarray,
         *,
         k: int,
-        batch_size: int,
         num_candidates: int,
     ) -> RuntimeSearchResult:
         self.attach_current_thread()
+        plan_started = time.perf_counter_ns()
+        directory_open_started = time.perf_counter_ns()
         directory = self.FSDirectory.open(self.Paths.get(str(index_path)))
+        directory_open_ns = time.perf_counter_ns() - directory_open_started
+        reader_close_ns = 0
+        directory_close_ns = 0
+
+        def close_reader() -> None:
+            nonlocal reader_close_ns
+            started = time.perf_counter_ns()
+            try:
+                reader.close()
+            finally:
+                reader_close_ns += time.perf_counter_ns() - started
+
+        def close_directory() -> None:
+            nonlocal directory_close_ns
+            started = time.perf_counter_ns()
+            try:
+                directory.close()
+            finally:
+                directory_close_ns += time.perf_counter_ns() - started
+
         with _CleanupStack() as cleanups:
-            cleanups.add("close Lucene directory", directory.close)
+            cleanups.add("close Lucene directory", close_directory)
+            reader_setup_started = time.perf_counter_ns()
             reader = self.DirectoryReader.open(directory)
-            cleanups.add("close Lucene reader", reader.close)
+            cleanups.add("close Lucene reader", close_reader)
             dimensions = self._index_dimensions(reader)
             if queries.shape[1] != dimensions:
                 raise ValueError(
@@ -1106,24 +1326,39 @@ class LuceneRuntime:
                 )
             searcher = self.IndexSearcher(reader)
             stored_fields = searcher.storedFields()
-            all_hits = []
-            latencies = []
-            for start in range(0, queries.shape[0], batch_size):
-                before = time.perf_counter()
-                all_hits.extend(
-                    self._search_one(
-                        searcher,
-                        stored_fields,
-                        vector,
-                        k,
-                        min(num_candidates, document_count),
-                    )
-                    for vector in queries[start : start + batch_size]
-                )
-                latencies.append((time.perf_counter() - before) * 1000.0)
-            return RuntimeSearchResult(
-                hits=all_hits,
-                batch_latencies_ms=latencies,
-                document_count=document_count,
-                dimensions=dimensions,
+            reader_searcher_setup_ns = (
+                time.perf_counter_ns() - reader_setup_started
             )
+            all_hits: list[list[SearchHit]] = []
+            query_timings: list[QueryTiming] = []
+            corpus_started = time.perf_counter_ns()
+            for vector in queries:
+                hits, query_timing = self._search_one(
+                    searcher,
+                    stored_fields,
+                    vector,
+                    k,
+                    min(num_candidates, document_count),
+                )
+                all_hits.append(hits)
+                query_timings.append(query_timing)
+            query_corpus_wall_ns = time.perf_counter_ns() - corpus_started
+        return RuntimeSearchResult(
+            hits=all_hits,
+            timing=RuntimeSearchTiming(
+                directory_open_ns=directory_open_ns,
+                reader_searcher_setup_ns=reader_searcher_setup_ns,
+                query_corpus_wall_ns=query_corpus_wall_ns,
+                reader_close_ns=reader_close_ns,
+                directory_close_ns=directory_close_ns,
+                runtime_plan_wall_ns=time.perf_counter_ns() - plan_started,
+                search_dispatch_kind=(
+                    TIMED_BRIDGE_PYLUCENE_DISPATCH
+                    if self._java_search_timer is not None
+                    else DIRECT_PYLUCENE_DISPATCH
+                ),
+                queries=tuple(query_timings),
+            ),
+            document_count=document_count,
+            dimensions=dimensions,
+        )
