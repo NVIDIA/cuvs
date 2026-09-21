@@ -55,6 +55,36 @@ jobs:
       date: ${{ inputs.date }}
       script: ci/test_cpp.sh
       sha: ${{ inputs.sha }}
+      cache-paths: .cache/cuda-jit
+      cache-key-prefix: libcuvs-cudajit-v1
+      # Caches are immutable. Re-key when the JIT-relevant sources change so a completed run can
+      # save newly compiled entries; restore a compatible earlier archive first.
+      cache-key-files: |
+        cpp/CMakeLists.txt
+        cpp/cmake/**
+        cpp/include/cuvs/detail/jit_lto/**
+        cpp/src/detail/jit_lto/**
+        cpp/src/distance/detail/pairwise_matrix/jit_lto_kernels/**
+        cpp/src/neighbors/detail/cagra/jit_lto_kernels/**
+        cpp/src/neighbors/detail/jit_lto_kernels/**
+        cpp/src/neighbors/ivf_flat/detail/jit_lto_kernels/**
+        cpp/src/neighbors/ivf_pq/detail/jit_lto_kernels/**
+        cpp/src/neighbors/ivf_rabitq/jit_lto_kernels/**
+        cpp/src/neighbors/ivf_sq/detail/jit_lto_kernels/**
+        cpp/tests/**
+        dependencies.yaml
+      # The CUDA driver's JIT cache is independent of the Python interpreter used to run C++ tests.
+      cache-key-matrix-fields: |
+        CUDA_VER
+        ARCH
+        LINUX_VER
+        GPU
+        DRIVER
+        DEPENDENCIES
+      # Only main builds populate the cache shared by PRs.
+      cache-read-only: ${{ inputs.branch != 'main' }}
+      cache-environment: |
+        CUDA_CACHE_PATH=.cache/cuda-jit
   conda-python-tests:
     permissions:
       actions: read

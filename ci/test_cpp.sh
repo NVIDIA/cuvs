@@ -29,6 +29,15 @@ set -u
 RAPIDS_TESTS_DIR=${RAPIDS_TESTS_DIR:-"${PWD}/test-results"}/
 mkdir -p "${RAPIDS_TESTS_DIR}"
 
+# CI provides CUDA_CACHE_PATH through the reusable workflow's cache-environment input.
+# So that we can re-use the CUDA driver's on-disk JIT cache between runs.
+CUDA_CACHE_PATH="${CUDA_CACHE_PATH:-.cache/cuda-jit}"
+if [[ "${CUDA_CACHE_PATH}" != /* ]]; then
+  CUDA_CACHE_PATH="$(realpath -m "${CUDA_CACHE_PATH}")"
+fi
+export CUDA_CACHE_PATH
+mkdir -p "${CUDA_CACHE_PATH}"
+
 rapids-print-env
 
 rapids-logger "Check GPU usage"
