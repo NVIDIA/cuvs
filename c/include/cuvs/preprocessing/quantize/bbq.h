@@ -20,7 +20,23 @@ extern "C" {
  * @{
  */
 
-/** Storage layout of the quantized component codes in each dataset row. */
+/**
+ * Storage layout of BBQ/OSQ quantized component codes in each dataset row.
+ * CUVS_BBQ_CODE_LAYOUT_PACKED_1B: Each dimension is quantized to a single bit and packed into bytes. Reflects
+ * Lucene's OptimizedScalarQuantizer.packAsBinary.
+ * CUVS_BBQ_CODE_LAYOUT_TRANSPOSED_2B: Each dimension is quantized to 2 bits, stored as 2 bitplanes.
+ * Reflects Lucene's OptimizedScalarQuantizer.transposeDibit. SIMT popc path only
+ * (paired with a transposed_4b or packed_1b operand);
+ * CUVS_BBQ_CODE_LAYOUT_TRANSPOSED_4B: Each dimension is quantized to 4 bits, optimized for bitwise operations.
+ * Reflects Lucene's OptimizedScalarQuantizer.transposeHalfByte. the first bit of
+ * every dimension is in the first set dimensions bits, or (dimensions/8)
+ * bytes. The second, third, and fourth bits are in the second, third, and
+ * fourth set of dimensions bits, respectively. Format used for queries.
+ * CUVS_BBQ_CODE_LAYOUT_PACKED_4B: Each dimension is quantized to 4 bits, two values are packed into each output
+ * byte.
+ * CUVS_BBQ_CODE_LAYOUT_PACKED_7B: Each dimension is quantized to 7 bits and treated as a signed value.
+ * CUVS_BBQ_CODE_LAYOUT_PACKED_8B: Each dimension is quantized to 8 bits and treated as an unsigned value.
+ */
 typedef enum {
   CUVS_BBQ_CODE_LAYOUT_PACKED_1B = 0,
   CUVS_BBQ_CODE_LAYOUT_TRANSPOSED_2B,
@@ -30,6 +46,25 @@ typedef enum {
   CUVS_BBQ_CODE_LAYOUT_PACKED_8B
 } cuvsBbqCodeLayout_t;
 
+/**
+ * @brief Better Binary Quantization
+ * ([BBQ](https://www.elastic.co/search-labs/blog/better-binary-quantization-lucene-elasticsearch))
+ * is a vector-quantization approach used in Elasticsearch and Apache Lucene. It builds on ideas
+ * introduced in RaBitQ([Gao and Long](https://arxiv.org/pdf/2405.12497, [Gao et
+ * al.](https://arxiv.org/pdf/2409.09913)): residual binary codes around a centroid, corrective
+ * factors, and efficient bitwise comparison of codes at different bit widths. Lucene implements
+ * this as optimized scalar quantization (OSQ) with packed and bit-plane layouts; Elasticsearch
+ * exposes it as BBQ.
+ *
+ * BBQ in cuVS designed to be compatible with the Lucene/Elasticsearch dataset: a single shared
+ * centroid, no random rotation, and OSQ codes.
+ *
+ * RaBitQ and BBQ in cuVS both compress centroid-relative vectors to low-bit codes and retain
+ * additional per-vector information so search is better than naïve sign-bit comparison. They differ
+ * in transformation and scale representation. RaBitQ commonly separates residual magnitude from
+ * direction, then applies a random orthogonal rotation before binary coding; BBQ uses per-vector
+ * scalar intervals to interpret the compressed residual codes.
+ */
 typedef struct cuvsBbqQuantizer {
   uintptr_t addr;
   void (*destroy_addr)(void*);

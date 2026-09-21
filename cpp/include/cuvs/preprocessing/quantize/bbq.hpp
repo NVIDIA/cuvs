@@ -31,24 +31,28 @@ namespace preprocessing::quantize::bbq {
 
 /**
  * Storage layout of BBQ/OSQ quantized component codes in each dataset row.
- *
+ * packed_1b: Each dimension is quantized to a single bit and packed into bytes. Reflects
+ * Lucene's OptimizedScalarQuantizer.packAsBinary.
+ * transposed_2b: Each dimension is quantized to 2 bits, stored as 2 bitplanes.
+ * Reflects Lucene's OptimizedScalarQuantizer.transposeDibit. SIMT popc path only
+ * (paired with a transposed_4b or packed_1b operand);
+ * transposed_4b: Each dimension is quantized to 4 bits, optimized for bitwise operations.
+ * Reflects Lucene's OptimizedScalarQuantizer.transposeHalfByte. the first bit of
+ * every dimension is in the first set dimensions bits, or (dimensions/8)
+ * bytes. The second, third, and fourth bits are in the second, third, and
+ * fourth set of dimensions bits, respectively. Format used for queries.
+ * packed_4b: Each dimension is quantized to 4 bits, two values are packed into each output
+ * byte.
+ * packed_7b: Each dimension is quantized to 7 bits and treated as a signed value.
+ * packed_8b: Each dimension is quantized to 8 bits and treated as an unsigned value.
  */
 enum class bbq_code_layout {
-  packed_1b,     /** Each dimension is quantized to a single bit and packed into bytes. Reflects
-                  * Lucene's OptimizedScalarQuantizer.packAsBinary. */
-  transposed_2b, /** Each dimension is quantized to 2 bits, stored as 2 bitplanes.
-                  * Reflects Lucene's OptimizedScalarQuantizer.transposeDibit. SIMT popc path only
-                  * (paired with a transposed_4b or packed_1b operand); */
-  transposed_4b, /** Each dimension is quantized to 4 bits, optimized for bitwise operations.
-                  * Reflects Lucene's OptimizedScalarQuantizer.transposeHalfByte. the first bit of
-                  * every dimension is in the first set dimensions bits, or (dimensions/8)
-                  * bytes. The second, third, and fourth bits are in the second, third, and
-                  * fourth set of dimensions bits, respectively. Format used for queries. */
-  packed_4b,     /** Each dimension is quantized to 4 bits, two values are packed into each output
-                  * byte. */
-  packed_7b,     /** Each dimension is quantized to 7 bits and treated as a signed value. */
-  packed_8b,     /** Each dimension is quantized to 8 bits and treated as an unsigned value. */
-
+  packed_1b,
+  transposed_2b,
+  transposed_4b,
+  packed_4b,
+  packed_7b,
+  packed_8b,
 };
 
 /**
@@ -84,6 +88,25 @@ constexpr auto get_encoded_row_length(uint32_t dim, bbq_code_layout layout) noex
 template <typename DataT, typename IdxT>
 struct quantizer_view;
 
+/**
+ * @brief Better Binary Quantization
+ * ([BBQ](https://www.elastic.co/search-labs/blog/better-binary-quantization-lucene-elasticsearch))
+ * is a vector-quantization approach used in Elasticsearch and Apache Lucene. It builds on ideas
+ * introduced in RaBitQ([Gao and Long](https://arxiv.org/pdf/2405.12497, [Gao et
+ * al.](https://arxiv.org/pdf/2409.09913)): residual binary codes around a centroid, corrective
+ * factors, and efficient bitwise comparison of codes at different bit widths. Lucene implements
+ * this as optimized scalar quantization (OSQ) with packed and bit-plane layouts; Elasticsearch
+ * exposes it as BBQ.
+ *
+ * BBQ in cuVS designed to be compatible with the Lucene/Elasticsearch dataset: a single shared
+ * centroid, no random rotation, and OSQ codes.
+ *
+ * RaBitQ and BBQ in cuVS both compress centroid-relative vectors to low-bit codes and retain
+ * additional per-vector information so search is better than naïve sign-bit comparison. They differ
+ * in transformation and scale representation. RaBitQ commonly separates residual magnitude from
+ * direction, then applies a random orthogonal rotation before binary coding; BBQ uses per-vector
+ * scalar intervals to interpret the compressed residual codes.
+ */
 template <typename DataT, typename IdxT>
 struct quantizer {
   raft::device_matrix<uint8_t, IdxT> codes;
@@ -92,8 +115,8 @@ struct quantizer {
   raft::device_vector<float, IdxT> additional_corrections;
   raft::device_vector<int32_t, IdxT> quantized_component_sums;
   raft::device_vector<DataT, IdxT> centroid;
-  /** Precomputed per-row dequantization factors, derived once (offline) from lower/upper_intervals
-   * and quantized_component_sums: dequant_delta = (upper-lower)/(2^bits-1) */
+  /** Precomputed per-row dequantization factors, derived once (offline) from
+   * lower/upper_intervals and quantized_component_sums: dequant_delta = (upper-lower)/(2^bits-1) */
   raft::device_vector<float, IdxT> dequant_delta;
   /** Precomputed per-row dequantization factors, derived once (offline) from dequant_delta and
    * quantized_component_sums: dequant_sum_delta = dequant_delta * quantized_component_sums. */
