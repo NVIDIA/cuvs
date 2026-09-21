@@ -15,6 +15,10 @@
 #include <raft/util/integer_utils.hpp>
 
 #include <cstdint>
+#include <stdexcept>
+#include <type_traits>
+#include <utility>
+#include <vector>
 
 namespace CUVS_EXPORT cuvs {
 
@@ -214,5 +218,148 @@ void resolve_dequant_factors(
 /** @} */  // end of bbq group
 
 }  // namespace preprocessing::quantize::bbq
+
+namespace neighbors {
+struct bbq_dataset_container {
+  template <typename DataT, typename IdxT>
+  using owning_storage = cuvs::preprocessing::quantize::bbq::quantizer<DataT, IdxT>;
+  template <typename DataT, typename IdxT>
+  using view_storage = cuvs::preprocessing::quantize::bbq::quantizer_view<DataT, IdxT>;
+};
+
+template <typename DataT, typename IdxT, typename Accessor>
+struct dataset<bbq_dataset_container, DataT, IdxT, Accessor> {
+  using owning_storage_type = bbq_dataset_container::owning_storage<DataT, IdxT>;
+  std::vector<owning_storage_type> quantizers;
+
+  dataset(owning_storage_type&& quantizer) noexcept { add_quantizer(std::move(quantizer)); }
+  [[nodiscard]] auto as_dataset_view() const noexcept
+    -> dataset_view<bbq_dataset_container,
+                    DataT,
+                    IdxT,
+                    detail::dataset_view_accessor_for_owning<DataT, Accessor>>
+  {
+    return dataset_view<bbq_dataset_container,
+                        DataT,
+                        IdxT,
+                        detail::dataset_view_accessor_for_owning<DataT, Accessor>>{quantizers};
+  }
+  [[nodiscard]] constexpr auto n_rows() const noexcept -> IdxT
+  {
+    return quantizers.size() > 0 ? quantizers[0].n_rows() : 0;
+  }
+  [[nodiscard]] constexpr auto dim() const noexcept -> uint32_t
+  {
+    return quantizers.size() > 0 ? quantizers[0].dim() : 0;
+  }
+
+  void add_quantizer(owning_storage_type&& quantizer)
+  {
+    RAFT_EXPECTS(!has_layout(quantizer.layout), "Quantizer already exists with layout.");
+    quantizers.push_back(std::move(quantizer));
+  }
+  bool has_layout(cuvs::preprocessing::quantize::bbq::bbq_code_layout layout) const noexcept
+  {
+    for (uint32_t i = 0; i < quantizers.size(); i++) {
+      if (quantizers[i].layout == layout) { return true; }
+    }
+    return false;
+  }
+};
+
+template <typename DataT, typename IdxT, typename Accessor>
+struct dataset_view<bbq_dataset_container, DataT, IdxT, Accessor> {
+  using owning_storage_type = bbq_dataset_container::owning_storage<DataT, IdxT>;
+  using view_storage_type   = bbq_dataset_container::view_storage<DataT, IdxT>;
+  std::vector<view_storage_type> quantizers;
+
+  dataset_view() noexcept = default;
+
+  dataset_view(const std::vector<owning_storage_type>& quantizers) noexcept
+  {
+    for (const auto& quantizer : quantizers) {
+      add_quantizer(quantizer);
+    }
+  }
+  [[nodiscard]] constexpr auto n_rows() const noexcept -> IdxT
+  {
+    return quantizers.size() > 0 ? quantizers[0].n_rows() : 0;
+  }
+  [[nodiscard]] constexpr auto dim() const noexcept -> uint32_t
+  {
+    return quantizers.size() > 0 ? quantizers[0].dim() : 0;
+  }
+
+  void add_quantizer(view_storage_type quantizer)
+  {
+    RAFT_EXPECTS(!has_layout(quantizer.layout), "Quantizer already exists with layout.");
+    quantizers.push_back(quantizer);
+  }
+  void add_quantizer(const owning_storage_type& quantizer)
+  {
+    RAFT_EXPECTS(!has_layout(quantizer.layout), "Quantizer already exists with layout.");
+    quantizers.push_back(quantizer.view());
+  }
+  bool has_layout(cuvs::preprocessing::quantize::bbq::bbq_code_layout layout) const noexcept
+  {
+    for (uint32_t i = 0; i < quantizers.size(); i++) {
+      if (quantizers[i].layout == layout) { return true; }
+    }
+    return false;
+  }
+  view_storage_type get_quantizer(cuvs::preprocessing::quantize::bbq::bbq_code_layout layout) const
+  {
+    for (uint32_t i = 0; i < quantizers.size(); i++) {
+      if (quantizers[i].layout == layout) { return quantizers[i]; }
+    }
+    throw std::runtime_error("No quantizer found with layout.");
+  }
+};
+
+template <typename DataT, typename IdxT>
+using device_bbq_dataset =
+  dataset<bbq_dataset_container, DataT, IdxT, detail::device_owning_accessor<DataT>>;
+
+template <typename DataT, typename IdxT>
+using device_bbq_dataset_view =
+  dataset_view<bbq_dataset_container, DataT, IdxT, detail::device_view_accessor<DataT>>;
+
+template <typename DataT, typename IdxT>
+struct owning_dataset_for_view<device_bbq_dataset_view<DataT, IdxT>> {
+  using type = device_bbq_dataset<DataT, IdxT>;
+};
+
+template <typename DatasetT>
+struct is_bbq_dataset : std::false_type {};
+
+template <typename DataT, typename IdxT, typename Accessor>
+struct is_bbq_dataset<dataset<bbq_dataset_container, DataT, IdxT, Accessor>> : std::true_type {};
+
+template <typename DatasetT>
+inline constexpr bool is_bbq_dataset_v = is_bbq_dataset<DatasetT>::value;
+
+template <typename DataT, typename IdxT, typename Accessor>
+struct dataset_view_kind_of<dataset_view<bbq_dataset_container, DataT, IdxT, Accessor>> {
+  static constexpr dataset_view_kind value = dataset_view_kind::bbq;
+};
+
+template <typename DataT, typename IdxT>
+struct cagra_view_element_type<device_bbq_dataset_view<DataT, IdxT>> {
+  using type = DataT;
+};
+
+template <typename V>
+inline constexpr bool is_device_bbq_dataset_view_v =
+  dataset_view_kind_v<V> == dataset_view_kind::bbq && dataset_view_is_device_accessible_v<V>;
+
+template <typename V>
+inline constexpr bool is_host_bbq_dataset_view_v =
+  dataset_view_kind_v<V> == dataset_view_kind::bbq && !dataset_view_is_device_accessible_v<V>;
+
+template <typename V>
+inline constexpr bool is_bbq_dataset_view_v =
+  is_device_bbq_dataset_view_v<V> || is_host_bbq_dataset_view_v<V>;
+
+}  // namespace neighbors
 
 }  // namespace CUVS_EXPORT cuvs
