@@ -87,10 +87,11 @@ cdef class KMeansParams:
         at once). Only used by the batched (host-data) code path. Reducing
         device_buffer_samples can help reduce GPU memory pressure but increases
         overhead as the number of times centroid adjustments are computed
-        increases. Multiple batches use two input buffers automatically,
-        totaling approximately
-        ``2 * device_buffer_samples * n_features * X.dtype.itemsize``, excluding
-        algorithm workspaces and optional sample-weight buffers.
+        increases. Multiple batches use one input buffer without a stream pool
+        and two when an auxiliary stream enables transfer/compute overlap.
+        Each input buffer uses approximately
+        ``device_buffer_samples * n_features * X.dtype.itemsize`` bytes,
+        excluding algorithm workspaces and optional sample-weight buffers.
 
         Default: 0 (process all data at once).
     hierarchical : bool
@@ -220,11 +221,11 @@ def fit(
     controlled by ``params.device_buffer_samples``. For large host datasets, consider
     reducing ``device_buffer_samples`` to reduce GPU memory usage.
 
-    Multiple host batches are automatically double-buffered. Configure
-    ``resources.set_stream_pool(1)`` for transfer/compute overlap; without it,
-    fitting is correct but serialized. Pinned host memory is crucial for OOC
-    performance: pageable or unregistered memory-mapped input degrades
-    throughput rapidly.
+    Multiple host batches use one input buffer by default. Configure
+    ``resources.set_stream_pool(1)`` to enable double-buffering and
+    transfer/compute overlap; without it, fitting is correct but serialized.
+    Pinned host memory is crucial for OOC performance: pageable or unregistered
+    memory-mapped input degrades throughput rapidly.
 
     A memory pool is optional but recommended, especially across repeated
     fits. Configure both pools before calling ``fit``.

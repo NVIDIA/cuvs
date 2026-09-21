@@ -16,11 +16,11 @@ def fit( KMeansParams params, X, centroids=None, sample_weights=None, resources=
 
 Find clusters with single-node multi-GPU k-means using host data.
 
-Multiple host batches are automatically double-buffered on each GPU.
-Configure ``resources.set_stream_pool(1)`` for transfer/compute overlap;
-without it, execution is correct but serialized. Pinned host memory is
-crucial for performance: pageable or unregistered memory-mapped input
-degrades throughput rapidly.
+Multiple host batches use one input buffer per GPU by default. Configure
+``resources.set_stream_pool(1)`` to enable double-buffering and
+transfer/compute overlap; without it, execution is correct but serialized.
+Pinned host memory is crucial for performance: pageable or unregistered
+memory-mapped input degrades throughput rapidly.
 
 A per-device memory pool is optional but recommended. Configure both pools
 before calling ``fit``.

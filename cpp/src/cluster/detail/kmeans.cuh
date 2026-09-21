@@ -748,11 +748,13 @@ void kmeans_fit(
   auto batch_cost         = raft::make_device_scalar<DataT>(handle, DataT{0});
   rmm::device_uvector<char> batch_workspace(device_buffer_samples, stream);
 
-  auto batch_mr          = raft::resource::get_large_workspace_resource_ref(handle);
-  auto batch_copy_stream = cuvs::spatial::knn::detail::utils::get_prefetch_stream(handle).first;
+  auto batch_mr = raft::resource::get_large_workspace_resource_ref(handle);
+  auto [batch_copy_stream, enable_prefetch] =
+    cuvs::spatial::knn::detail::utils::get_prefetch_stream(handle);
+  const std::size_t recycle_offset = enable_prefetch ? 2 : 1;
 
   kmeans_batch_loader<DataT, IndexT, data_on_device> data_batches(
-    handle, X, device_buffer_samples, batch_copy_stream, batch_mr);
+    handle, X, device_buffer_samples, batch_copy_stream, batch_mr, enable_prefetch);
   // Host-path weight batches: only materialized when weights are provided and
   // the data resides on host
   std::optional<kmeans_batch_loader<DataT, IndexT, false>> weight_batches;
@@ -761,7 +763,7 @@ void kmeans_fit(
       auto weight_view =
         raft::make_host_matrix_view<const DataT, IndexT>(weight_ptr, n_samples, IndexT{1});
       weight_batches.emplace(
-        handle, weight_view, device_buffer_samples, batch_copy_stream, batch_mr);
+        handle, weight_view, device_buffer_samples, batch_copy_stream, batch_mr, enable_prefetch);
     } else {
       raft::matrix::fill(handle, batch_weights_buf.view(), DataT{1});
     }
@@ -919,8 +921,9 @@ void kmeans_fit(
           if (need_compute_norms) { compute_batch_norms(data_batch.data(), cur_batch_size); }
         }
 
-        // An already-full pipeline makes this a no-op. During cold fill, submit the first real
-        // consumer before making the second H2D eligible, so CUDA can dispatch both at batch-ready.
+        // An already-full or single-buffer pipeline makes this a no-op. During two-buffer cold
+        // fill, submit the first real consumer before making the second H2D eligible, so CUDA can
+        // dispatch both at batch-ready.
         prefetch_batch((batch_pos + 1) % data_batches.num_batches());
 
         const auto l2_norm_offset =
@@ -945,9 +948,10 @@ void kmeans_fit(
                                      batch_workspace,
                                      batch_cost.view());
 
-        // The slot is reusable only after every batch consumer above has been submitted. Refill it
-        // with the batch two positions ahead; modulo arithmetic naturally crosses pass boundaries.
-        const auto next_batch_pos = (batch_pos + 2) % data_batches.num_batches();
+        // The slot is reusable only after every batch consumer above has been submitted. With two
+        // buffers the other slot already holds the next batch; with one buffer, refill this slot
+        // with that next batch. Modulo arithmetic naturally crosses pass boundaries.
+        const auto next_batch_pos = (batch_pos + recycle_offset) % data_batches.num_batches();
         data_batches.recycle(data_batch, next_batch_pos);
         if (weight_batch.has_value()) { weight_batches->recycle(*weight_batch, next_batch_pos); }
       }
@@ -983,8 +987,8 @@ void kmeans_fit(
       raft::copy(handle,
                  raft::make_pinned_scalar_view(h_done_flag.data_handle()),
                  raft::make_device_scalar_view<const int>(d_done_flag.data_handle()));
-      // The next pass's first two input batches are already in flight. The compute stream still
-      // serializes centroid finalization and convergence before it can consume them.
+      // The next pass's input pipeline is already staged. The compute stream still serializes
+      // centroid finalization and convergence before it can consume it.
     }
 
     {
@@ -1033,9 +1037,9 @@ void kmeans_fit(
                           stream);
 
         const bool needs_future_batch =
-          batch_pos + 2 < data_batches.num_batches() || seed_iter + 1 < n_init;
+          batch_pos + recycle_offset < data_batches.num_batches() || seed_iter + 1 < n_init;
         if (needs_future_batch) {
-          const auto next_batch_pos = (batch_pos + 2) % data_batches.num_batches();
+          const auto next_batch_pos = (batch_pos + recycle_offset) % data_batches.num_batches();
           data_batches.recycle(data_batch, next_batch_pos);
           if (weight_batch.has_value()) { weight_batches->recycle(*weight_batch, next_batch_pos); }
         } else {

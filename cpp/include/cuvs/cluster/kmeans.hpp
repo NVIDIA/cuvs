@@ -148,10 +148,11 @@ struct params : base_params {
    * Only used by the batched (host-data) code path and ignored by
    * device-data overloads.
    *
-   * Inputs spanning multiple batches are automatically double-buffered. Budget about
-   * `2 * device_buffer_samples * n_features * sizeof(value_type)` bytes for
-   * input, plus algorithm workspaces. Sample weights require two more buffers of
-   * `device_buffer_samples * sizeof(value_type)` bytes.
+   * Inputs spanning multiple batches are double-buffered when the handle has an auxiliary
+   * stream, and use one buffer otherwise. Budget about
+   * `device_buffer_samples * n_features * sizeof(value_type)` bytes per input buffer,
+   * plus algorithm workspaces. Sample weights require the same number of additional buffers
+   * with `device_buffer_samples * sizeof(value_type)` bytes each.
    *
    * In multi-GPU mode this is a per-rank batch size: each rank processes up
    * to this many local samples per batch, clamped to that rank's local sample
@@ -244,9 +245,9 @@ enum class kmeans_type { KMeans = 0, KMeansBalanced = 1 };
  * This overload supports out-of-core computation where the dataset resides
  * on the host. Data is processed in batches, streaming from host to
  * device. The batch size is controlled by `params.device_buffer_samples`.
- * Multiple batches are automatically double-buffered. At least one auxiliary
- * stream is required to overlap transfer and compute; without a stream pool,
- * the fit remains correct but serialized. One auxiliary stream is sufficient.
+ * Multiple batches are double-buffered when an auxiliary stream is available.
+ * Without a stream pool, the fit uses one input buffer and remains correct but
+ * serialized. One auxiliary stream is sufficient to overlap transfer and compute.
  * Pinned host memory is crucial for OOC performance: ordinary pageable or
  * unregistered `mmap`-backed input degrades throughput rapidly.
  *
@@ -1719,10 +1720,10 @@ void cluster_cost(
  * host-resident partitions the implementation streams each partition using
  * `params.device_buffer_samples` (per rank). For device-resident partitions
  * `device_buffer_samples` is ignored and each local partition is processed in full.
- * Host partitions spanning multiple batches are double-buffered. Each rank
- * needs one auxiliary stream for transfer/compute overlap; otherwise execution
- * is correct but serialized. Pinned host memory is crucial: pageable or
- * unregistered `mmap`-backed input degrades throughput rapidly. A per-device
+ * Host partitions spanning multiple batches are double-buffered when an auxiliary stream
+ * is available. Each rank needs one auxiliary stream for transfer/compute overlap;
+ * otherwise execution uses one input buffer and is correct but serialized. Pinned host memory is
+ * crucial: pageable or unregistered `mmap`-backed input degrades throughput rapidly. A per-device
  * memory pool is also recommended.
  * With `raft::device_resources_snmg`, configure these before `fit` with
  * `handle.set_stream_pool(1)` and `handle.set_memory_pool(percent)`; both calls
