@@ -2,6 +2,8 @@
 
 These pages are generated from the Java source files in `java/cuvs-java/src/main`.
 
+For the Apache Lucene codecs built on this API, see the [Lucene API Documentation](/api-reference/lucene-api-documentation) and the [Lucene Integration](/user-guide/lucene) guide.
+
 ## Common
 
 - [CuVSDeviceMatrix](/api-reference/java-api-com-nvidia-cuvs-cuvsdevicematrix)

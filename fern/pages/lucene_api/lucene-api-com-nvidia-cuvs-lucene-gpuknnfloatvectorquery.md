@@ -31,6 +31,15 @@ applied: mixed segment types, a missing CAGRA index for the field on any segment
 whose built CAGRA graphs differ in degree (a single multi-partition request requires a uniform
 graph degree, and a small segment can have its degree truncated at build time).
 
+It also falls back whenever an explicit `filter` is selective enough that Lucene would
+answer the query exactly. `org.apache.lucene.search.KnnFloatVectorQuery` guarantees that a
+filter leaving no more than `k` candidates in a segment is served by an exact scan rather
+than by the approximate index, and that a segment yielding fewer than `k` approximate hits
+while holding more than `k` candidates is re-run exactly. An approximate CAGRA search can
+miss such candidates, so both cases are routed back to Lucene's per-leaf path, which applies
+those rules per segment and still runs this query's GPU `#approximateSearch` wherever an
+approximate search is allowed.
+
 ## Public Members
 
 ### GPUKnnFloatVectorQuery
@@ -53,7 +62,7 @@ and max_iterations auto-selected (0).
 | `iTopK` | CAGRA itopk_size parameter |
 | `searchWidth` | CAGRA search_width parameter |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUKnnFloatVectorQuery.java:130`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUKnnFloatVectorQuery.java:140`_
 
 ### GPUKnnFloatVectorQuery
 
@@ -77,7 +86,7 @@ Initializes `GPUKnnFloatVectorQuery`.
 | `maxIterations` | CAGRA max_iterations (0 = auto) |
 | `searchAlgo` | CAGRA search algorithm |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUKnnFloatVectorQuery.java:148`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUKnnFloatVectorQuery.java:158`_
 
 ### validateSingleCtaItopk
 
@@ -100,6 +109,6 @@ CagraSearchParams\}.
 | `effectiveITopK` | the itopk_size value about to be sent to native CAGRA |
 | `searchAlgo` | the CAGRA search algorithm the query will run under |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUKnnFloatVectorQuery.java:190`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUKnnFloatVectorQuery.java:200`_
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUKnnFloatVectorQuery.java:72`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUKnnFloatVectorQuery.java:82`_
