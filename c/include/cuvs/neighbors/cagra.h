@@ -81,14 +81,19 @@ enum cuvsCagraHnswHeuristicType {
    CUVS_CAGRA_HEURISTIC_SAME_GRAPH_FOOTPRINT = 1
 };
 
-/** Parameters for VPQ compression. */
+/**
+ * Parameters for PQ dataset compression.
+ *
+ * The `cuvsCagraCompressionParams` name is retained for ABI compatibility and is planned for
+ * removal in the 27.02 ABI-breaking release. Use `cuvsPqParams` in new code.
+ */
 struct cuvsCagraCompressionParams {
   /**
    * The bit length of the vector element after compression by PQ.
    *
    * Possible values: [4, 5, 6, 7, 8].
    *
-   * Hint: the smaller the 'pq_bits', the smaller the index size and the better the search
+   * Hint: the smaller the `pq_bits`, the smaller the index size and the better the search
    * performance, but the lower the recall.
    */
   uint32_t pq_bits;
@@ -117,8 +122,6 @@ struct cuvsCagraCompressionParams {
    */
   double pq_kmeans_trainset_fraction;
 };
-
-typedef struct cuvsCagraCompressionParams* cuvsCagraCompressionParams_t;
 
 struct cuvsIvfPqParams {
   cuvsIvfPqIndexParams_t ivf_pq_build_params;
@@ -270,7 +273,10 @@ CUVS_EXPORT cuvsError_t cuvsCagraMergeParamsCreate(cuvsCagraMergeParams_t* param
 CUVS_EXPORT cuvsError_t cuvsCagraMergeParamsDestroy(cuvsCagraMergeParams_t params);
 
 /**
- * @brief Allocate CAGRA Compression params, and populate with default values
+ * @brief Allocate CAGRA Compression params, and populate with default values.
+ *
+ * Deprecated: Use `cuvsPqParamsCreate`. This compatibility API is planned for removal in
+ * the 27.02 ABI-breaking release.
  *
  * @param[in] params cuvsCagraCompressionParams_t to allocate
  * @return cuvsError_t
@@ -278,7 +284,10 @@ CUVS_EXPORT cuvsError_t cuvsCagraMergeParamsDestroy(cuvsCagraMergeParams_t param
 CUVS_EXPORT cuvsError_t cuvsCagraCompressionParamsCreate(cuvsCagraCompressionParams_t* params);
 
 /**
- * @brief De-allocate CAGRA Compression params
+ * @brief De-allocate CAGRA Compression params.
+ *
+ * Deprecated: Use `cuvsPqParamsDestroy`. This compatibility API is planned for removal in
+ * the 27.02 ABI-breaking release.
  *
  * @param[in] params
  * @return cuvsError_t
@@ -610,21 +619,20 @@ CUVS_EXPORT cuvsError_t cuvsCagraIndexGetDataset(cuvsCagraIndex_t index, DLManag
 CUVS_EXPORT cuvsError_t cuvsCagraIndexGetGraph(cuvsCagraIndex_t index, DLManagedTensor* graph);
 
 /**
- * @brief Update a CAGRA index with a device-padded dataset.
+ * @brief Update a CAGRA index with a device-padded or device-PQ dataset.
  *
- * This is the centralized dataset update operation for C callers. If \p index
- * is already device-padded, its dataset view is replaced in place. Otherwise,
- * the index is converted and its opaque handle is rebound to a search-ready
- * device-padded index. Caller retains ownership of
- * \p device_padded_dataset and must keep it alive while \p index uses it.
+ * This is the centralized dataset update operation for C callers. The index's opaque handle is
+ * rebound to an index over the supplied dataset layout. Device-padded and device-PQ datasets can
+ * be attached to any supported index layout. The caller retains ownership of \p dataset and must
+ * keep it alive while \p index uses it.
  *
- * @param[in] res             cuvsResources_t opaque C handle
- * @param[in] device_padded_dataset owning or non-owning device-padded dataset handle
- * @param[inout] index        CAGRA index handle
+ * @param[in] res      cuvsResources_t opaque C handle
+ * @param[in] dataset  owning or non-owning device-padded or device-PQ dataset handle
+ * @param[inout] index CAGRA index handle
  * @return cuvsError_t
  */
 CUVS_EXPORT cuvsError_t cuvsCagraUpdateDataset(cuvsResources_t res,
-                                               cuvsDataset_t device_padded_dataset,
+                                               cuvsDataset_t dataset,
                                                cuvsCagraIndex_t index);
 
 /**
@@ -684,6 +692,10 @@ CUVS_EXPORT cuvsError_t cuvsCagraUpdateDataset(cuvsResources_t res,
  * cuvsError_t index_destroy_status = cuvsCagraIndexDestroy(index);
  * cuvsError_t res_destroy_status = cuvsResourcesDestroy(res);
  * @endcode
+ *
+ * A `CUVS_DATASET_LAYOUT_PQ` dataset created by `cuvsDatasetMakePQ` builds an iterative CAGRA-Q
+ * index. VPQ input requires `L2Expanded` and `ITERATIVE_CAGRA_SEARCH` (or `AUTO_SELECT`), and the
+ * VPQ dataset must outlive the index because the index stores a non-owning view.
  *
  * @param[in] res cuvsResources_t opaque C handle
  * @param[in] params cuvsCagraIndexParams_t used to build CAGRA index
@@ -848,6 +860,9 @@ CUVS_EXPORT cuvsError_t cuvsCagraSearchMultiPartition(cuvsResources_t res,
 /**
  * Save the CAGRA graph to file without its dataset.
  *
+ * This supports dense and PQ-backed indexes. The dataset must be attached separately after loading
+ * the graph.
+ *
  * Experimental, both the API and the serialization format are subject to change.
  *
  * @param[in] res cuvsResources_t opaque C handle
@@ -863,7 +878,7 @@ CUVS_EXPORT cuvsError_t cuvsCagraSerializeGraph(cuvsResources_t res,
  *
  * The index stores a non-owning dataset view. The caller must keep the dataset backing that view
  * alive while this function runs. Returns CUVS_ERROR without modifying the destination file if
- * the index has no attached dataset.
+ * the index has no attached dataset. PQ datasets are not serialized by this function.
  *
  * Experimental, both the API and the serialization format are subject to change.
  *
@@ -907,7 +922,7 @@ CUVS_EXPORT cuvsError_t cuvsCagraSerializeToHnswlib(cuvsResources_t res,
  * Load the CAGRA graph from file without retaining a serialized dataset.
  *
  * This succeeds whether or not the file contains a dataset. Use cuvsCagraUpdateDataset to attach a
- * caller-owned device-padded dataset view before searching the graph-only index.
+ * caller-owned device-padded or device-PQ dataset before searching the graph-only index.
  *
  * Experimental, both the API and the serialization format are subject to change.
  *
