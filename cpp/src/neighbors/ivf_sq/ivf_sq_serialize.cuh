@@ -12,7 +12,6 @@
 #include <cuvs/neighbors/common.hpp>
 #include <cuvs/neighbors/ivf_sq.hpp>
 
-#include <raft/core/detail/mdspan_numpy_serializer.hpp>
 #include <raft/core/mdarray.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/serialize.hpp>
@@ -29,7 +28,7 @@ void serialize(raft::resources const& handle, Output& os, const index<CodeT>& in
   RAFT_LOG_DEBUG(
     "Saving IVF-SQ index, size %zu, dim %u", static_cast<size_t>(index_.size()), index_.dim());
 
-  std::string dtype_string = raft::detail::numpy_serializer::get_numpy_dtype<CodeT>().to_string();
+  std::string dtype_string = cuvs::util::detail::numpy_dtype_string<CodeT>();
   dtype_string.resize(4);
   os << dtype_string;
 

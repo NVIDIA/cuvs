@@ -2,6 +2,8 @@
 
 These pages are generated from the Java source files in `java/cuvs-lucene/src/main`.
 
+For an introduction to the codecs, configuration, and tuning, see the [Lucene Integration](/user-guide/lucene) guide.
+
 ## Common
 
 - [AcceleratedHNSWParams](/api-reference/lucene-api-com-nvidia-cuvs-lucene-acceleratedhnswparams)
@@ -11,6 +13,7 @@ These pages are generated from the Java source files in `java/cuvs-lucene/src/ma
 - [FilterCuVSServiceProvider](/api-reference/lucene-api-com-nvidia-cuvs-lucene-filtercuvsserviceprovider)
 - [GPUIndex](/api-reference/lucene-api-com-nvidia-cuvs-lucene-gpuindex)
 - [GPUSearchParams](/api-reference/lucene-api-com-nvidia-cuvs-lucene-gpusearchparams)
+- [IndexSearcherTimingBridge](/api-reference/lucene-api-com-nvidia-cuvs-lucene-indexsearchertimingbridge)
 - [LuceneProvider](/api-reference/lucene-api-com-nvidia-cuvs-lucene-luceneprovider)
 - [ThreadLocalCuVSResourcesProvider](/api-reference/lucene-api-com-nvidia-cuvs-lucene-threadlocalcuvsresourcesprovider)
 - [Utils](/api-reference/lucene-api-com-nvidia-cuvs-lucene-utils)

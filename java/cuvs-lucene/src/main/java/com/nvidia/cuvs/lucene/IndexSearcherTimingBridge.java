@@ -14,16 +14,16 @@ import org.apache.lucene.search.Query;
 import org.apache.lucene.search.TopDocs;
 
 /**
- * Measures one {@link IndexSearcher#search(Query, int)} invocation inside the JVM.
+ * Measures one {@link IndexSearcher#search(Query,int)} invocation inside the JVM.
  *
  * <p>The standard {@link Function} and {@link Map} types form a narrow bridge for generated Java
  * bindings that do not wrap this class directly. Each call still represents one ordinary Lucene
  * query; this class does not add batching or concurrency.
  *
- * <p>The request map must contain {@code searcher} ({@link IndexSearcher}), {@code query} ({@link
- * Query}), and {@code top_k} ({@link Integer}). The response contains {@code top_docs} ({@link
- * TopDocs}) and {@code elapsed_nanos} ({@link Long}). An {@link IOException} from Lucene is exposed
- * as an {@link UncheckedIOException} because {@link Function#apply(Object)} cannot declare checked
+ * <p>The request map must contain {@code searcher} (an {@code IndexSearcher}), {@code query} (a
+ * {@code Query}), and {@code top_k} (an {@code Integer}). The response contains {@code top_docs} (a
+ * {@code TopDocs}) and {@code elapsed_nanos} (a {@code Long}). An {@code IOException} from Lucene is
+ * exposed as an {@code UncheckedIOException} because {@code Function.apply} cannot declare checked
  * exceptions.
  */
 public final class IndexSearcherTimingBridge

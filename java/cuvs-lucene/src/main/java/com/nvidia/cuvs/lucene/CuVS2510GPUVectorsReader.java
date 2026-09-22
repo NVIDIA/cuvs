@@ -487,7 +487,14 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
           mask[0].set(i);
         }
       }
-      topK = Math.min(knnCollector.k() + 10, mask[0].cardinality());
+      int cardinality = mask[0].cardinality();
+      if (cardinality == 0) {
+        // Every vector in this segment is deleted or filtered out. cuVS cannot be asked for zero
+        // neighbours, and Lucene's contract for such a leaf is to collect nothing, so return
+        // before touching the GPU.
+        return;
+      }
+      topK = Math.min(knnCollector.k() + 10, cardinality);
       // numDocs must be the total vector count so cuVS sizes the prefilter to cover every ordinal.
       // BitSet.length() is (highest set bit + 1), which under a selective filter is smaller than
       // the
@@ -562,7 +569,11 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
         searchResult = bruteforceIndex.search(query).getResults();
       }
 
-      // List expected to have only one entry because of single query "target".
+      // List expected to have only one entry because of single query "target". A zero-row
+      // response can only mean no neighbours were produced, so there is nothing to collect.
+      if (searchResult.isEmpty()) {
+        return;
+      }
       assert searchResult.size() == 1;
       final IntToIntFunction ordToDocFunction = (IntToIntFunction) rawValues::ordToDoc;
       final FloatToFloatFunction scoreCorrectionFunction =

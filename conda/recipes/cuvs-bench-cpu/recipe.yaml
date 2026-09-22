@@ -114,6 +114,7 @@ requirements:
 tests:
   - package_contents:
       files:
+        - site-packages/cuvs_bench/config/algos/lucene_accelerated_hnsw.yaml
         - site-packages/cuvs_bench/config/algos/lucene_cpu_hnsw.yaml
         - site-packages/cuvs_bench/config/algos/lucene_cuvs_cagra.yaml
   - python:
