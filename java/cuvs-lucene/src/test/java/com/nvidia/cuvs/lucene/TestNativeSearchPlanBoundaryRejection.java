@@ -30,9 +30,10 @@ import org.junit.Test;
  * replicate native CAGRA's algorithm- and dataset-dependent hash-table sizing -- see the javadoc on
  * {@link GPUKnnFloatVectorQuery#MAX_ITOPK} and {@link GPUKnnFloatVectorQuery#MAX_SEARCH_WIDTH}).
  *
- * <p>{@code MULTI_CTA} -- which a normal one-query {@code AUTO} search resolves to -- sizes an
- * internal traversal hash table from {@code max(searchWidth, ceil(iTopK / 32)) * max(32,
- * maxIterations)}, and native CAGRA hard-limits that table to a 25-bit index (raft::exception via
+ * <p>{@code AUTO} selects {@code MULTI_CTA} for this test's single-query, single-segment setup.
+ * It sizes an internal traversal hash table from
+ * {@code max(searchWidth, ceil(iTopK / 32)) * max(32, maxIterations)}, and native CAGRA hard-limits
+ * that table to a 25-bit index (raft::exception via
  * {@code RAFT_EXPECTS(hash_bitlen <= 25, ...)} in {@code search_plan.cuh}). At the default hashmap
  * fill rate of 0.5, that caps the product at 2^25 * 0.5 = 16,777,216. Setting {@code searchWidth}
  * to {@link GPUKnnFloatVectorQuery#MAX_SEARCH_WIDTH} (4,194,303) alone exceeds that cap by 8x
@@ -91,9 +92,9 @@ public class TestNativeSearchPlanBoundaryRejection extends LuceneTestCase {
         assertTrue(searcher.search(validQuery, k).scoreDocs.length > 0);
 
         // Within this class's own Java-level range (searchWidth <= MAX_SEARCH_WIDTH), but far
-        // beyond what native CAGRA's traversal hash table can represent for MULTI_CTA -- which a
-        // normal one-query AUTO search (used here, not an explicit MULTI_CTA) resolves to. This
-        // must be rejected by native CAGRA when the search plan is actually built -- not silently
+        // beyond what native CAGRA's traversal hash table can represent for MULTI_CTA, which AUTO
+        // selects for this test's single-query, single-segment setup. Native CAGRA must reject
+        // this when the search plan is actually built -- not silently
         // accepted or left to corrupt/misbehave.
         GPUKnnFloatVectorQuery oversizedQuery =
             new GPUKnnFloatVectorQuery(
