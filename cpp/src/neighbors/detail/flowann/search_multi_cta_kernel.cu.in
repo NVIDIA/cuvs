@@ -1,0 +1,104 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <neighbors/detail/flowann/kernel.cuh>
+#include <neighbors/detail/flowann/search_multi_cta_jit.cuh>
+
+#include <type_traits>
+
+namespace {
+using data_t         = @data_type@;
+using index_t        = @index_type@;
+using distance_t     = @distance_type@;
+using source_index_t = @source_index_type@;
+using descriptor_t =
+  cuvs::neighbors::cagra::detail::dataset_descriptor_base_t<data_t, index_t, distance_t>;
+using filter_payload_t = cuvs::neighbors::cagra::detail::cagra_sample_filter<source_index_t>;
+using queue_view       = cuvs::neighbors::cagra::experimental::flowann::detail::queue_view;
+}  // namespace
+
+namespace cuvs::neighbors::cagra::experimental::flowann::detail {
+
+extern "C" __global__ __launch_bounds__(1024, 1) void flowann_search_multi_cta(
+  index_t* result_indices,
+  distance_t* result_distances,
+  const descriptor_t* dataset_desc,
+  const data_t* queries,
+  const std::uint8_t* inner_graph,
+  std::uint32_t inner_row_length,
+  std::uint32_t node_per_cacheline,
+  std::uint32_t n_bits,
+  const std::uint32_t* subgraph_offsets,
+  const std::uint32_t* subgraph_ids,
+  queue_view* queues,
+  std::uint32_t num_queues,
+  std::uint32_t max_elements,
+  std::uint32_t graph_degree,
+  std::uint32_t cross_graph_degree,
+  const source_index_t* source_indices,
+  unsigned num_distillation,
+  std::uint64_t rand_xor_mask,
+  const index_t* seeds,
+  std::uint32_t num_seeds,
+  const std::uint32_t* seed_cross_graph,
+  const index_t* seed_lookup_keys,
+  const std::uint32_t* seed_lookup_values,
+  std::uint32_t seed_lookup_capacity,
+  std::uint32_t visited_hash_bitlen,
+  index_t* traversed_hashmap,
+  std::uint32_t traversed_hash_bitlen,
+  std::uint32_t itopk_size,
+  std::uint32_t min_iterations,
+  std::uint32_t max_iterations,
+  std::uint32_t* num_executed_iterations,
+  index_t graph_size,
+  std::uint32_t query_id_offset,
+  float sync_window_scale,
+  std::uint32_t sync_drop_threshold,
+  filter_payload_t filter_payload)
+{
+  search_multi_cta_kernel_jit<data_t, index_t, distance_t, source_index_t>(result_indices,
+                                                                           result_distances,
+                                                                           dataset_desc,
+                                                                           queries,
+                                                                           inner_graph,
+                                                                           inner_row_length,
+                                                                           node_per_cacheline,
+                                                                           n_bits,
+                                                                           subgraph_offsets,
+                                                                           subgraph_ids,
+                                                                           queues,
+                                                                           num_queues,
+                                                                           max_elements,
+                                                                           graph_degree,
+                                                                           cross_graph_degree,
+                                                                           source_indices,
+                                                                           num_distillation,
+                                                                           rand_xor_mask,
+                                                                           seeds,
+                                                                           num_seeds,
+                                                                           seed_cross_graph,
+                                                                           seed_lookup_keys,
+                                                                           seed_lookup_values,
+                                                                           seed_lookup_capacity,
+                                                                           visited_hash_bitlen,
+                                                                           traversed_hashmap,
+                                                                           traversed_hash_bitlen,
+                                                                           itopk_size,
+                                                                           min_iterations,
+                                                                           max_iterations,
+                                                                           num_executed_iterations,
+                                                                           graph_size,
+                                                                           query_id_offset,
+                                                                           sync_window_scale,
+                                                                           sync_drop_threshold,
+                                                                           filter_payload);
+}
+
+static_assert(
+  std::is_same_v<decltype(flowann_search_multi_cta),
+                 search_multi_cta_kernel_func_t<data_t, index_t, distance_t, source_index_t>>);
+
+}  // namespace cuvs::neighbors::cagra::experimental::flowann::detail

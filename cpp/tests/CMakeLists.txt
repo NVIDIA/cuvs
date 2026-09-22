@@ -238,6 +238,38 @@ ConfigureTest(
   PERCENT 100
 )
 
+if(CUVS_ENABLE_FLOWANN_SEARCH)
+  set(CUVS_FLOWANN_TEST_SOURCES
+      neighbors/ann_cagra/flowann_queue.cu neighbors/ann_cagra/flowann_search.cu
+      neighbors/ann_cagra/flowann_serialize.cu
+  )
+  if(CUVS_ENABLE_FLOWANN_BUILD)
+    list(APPEND CUVS_FLOWANN_TEST_SOURCES neighbors/ann_cagra/flowann_build.cu)
+  endif()
+  ConfigureTest(
+    NAME NEIGHBORS_FLOWANN_TEST
+    PATH ${CUVS_FLOWANN_TEST_SOURCES}
+    GPUS 1
+    PERCENT 100
+  )
+  target_include_directories(
+    NEIGHBORS_FLOWANN_TEST PRIVATE "$<BUILD_INTERFACE:${CUVS_SOURCE_DIR}/src>"
+  )
+  # Isolate this case so earlier tests cannot preload the kernel module.
+  rapids_test_add(
+    NAME NEIGHBORS_FLOWANN_COLD_START_TEST
+    COMMAND NEIGHBORS_FLOWANN_TEST --gtest_filter=FlowannQueue.ColdLaunchWithManyPollers
+    GPUS 1
+    PERCENT 100
+    INSTALL_COMPONENT_SET testing
+  )
+  set_tests_properties(
+    NEIGHBORS_FLOWANN_COLD_START_TEST
+    PROPERTIES TIMEOUT 45
+               ENVIRONMENT "CUDA_MODULE_LOADING=LAZY;CUDA_MODULE_DATA_LOADING=LAZY"
+  )
+endif()
+
 ConfigureTest(
   NAME NEIGHBORS_ANN_CAGRA_MERGE_TEST
   PATH neighbors/ann_cagra/test_merge_fastener.cu

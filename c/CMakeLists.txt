@@ -92,6 +92,7 @@ add_library(
   src/neighbors/ivf_pq.cpp
   src/neighbors/ivf_sq.cpp
   src/neighbors/cagra.cpp
+  $<$<AND:$<BOOL:${CUVS_ENABLE_FLOWANN_SEARCH}>,$<BOOL:${CUVS_ENABLE_FLOWANN_BUILD}>>:src/neighbors/flowann.cpp>
   $<$<BOOL:${BUILD_CAGRA_HNSWLIB}>:src/neighbors/hnsw.cpp>
   $<$<BOOL:${BUILD_MG_ALGOS}>:src/neighbors/mg_ivf_pq.cpp>
   $<$<BOOL:${BUILD_MG_ALGOS}>:src/neighbors/mg_ivf_flat.cpp>
