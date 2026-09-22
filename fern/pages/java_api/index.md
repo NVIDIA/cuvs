@@ -6,6 +6,7 @@ For the Apache Lucene codecs built on this API, see the [Lucene API Documentatio
 
 ## Common
 
+- [BbqQuantizer](/api-reference/java-api-com-nvidia-cuvs-bbqquantizer)
 - [CuVSDeviceMatrix](/api-reference/java-api-com-nvidia-cuvs-cuvsdevicematrix)
 - [CuVSHostMatrix](/api-reference/java-api-com-nvidia-cuvs-cuvshostmatrix)
 - [CuVSMatrix](/api-reference/java-api-com-nvidia-cuvs-cuvsmatrix)
