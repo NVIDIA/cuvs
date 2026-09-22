@@ -528,6 +528,28 @@ def test_search_rejects_malformed_build_runtime_provenance(
     assert runtime.search_calls == []
 
 
+def test_search_requests_rebuild_for_the_legacy_stored_id_schema(
+    tmp_path: Path,
+) -> None:
+    runtime = RecordingRuntime()
+    backend, index, _factory = _backend_and_index(
+        tmp_path, CPU_HNSW_ALGORITHM, runtime
+    )
+    dataset = _dataset()
+    assert backend.build(dataset, [index]).success
+    manifest_path = Path(index.file) / ".cuvs-bench-lucene.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["schema_version"] = 1
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    result = backend.search(dataset, [index], k=2)[0]
+
+    assert not result.success
+    assert "Unsupported Lucene index manifest" in result.error_message
+    assert "rerun with --force" in result.error_message
+    assert runtime.search_calls == []
+
+
 @pytest.mark.parametrize(
     ("field", "value", "message"),
     (

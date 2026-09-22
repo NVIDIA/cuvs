@@ -8,7 +8,9 @@
 import hashlib
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
 from cuvs_bench.backends import _lucene_runtime
@@ -157,6 +159,162 @@ def test_java_search_timer_reports_jcc_adaptation_failure() -> None:
 
     assert "TypeError: Function.cast_ rejected bridge" in str(failure.value)
     assert isinstance(failure.value.__cause__, TypeError)
+
+
+def test_float32_vectors_are_converted_to_a_jcc_compatible_sequence() -> None:
+    received = []
+
+    class RecordingLucene:
+        @staticmethod
+        def JArray(element_type: str):
+            assert element_type == "float"
+
+            def record(values):
+                received.append(values)
+                return values
+
+            return record
+
+    runtime = object.__new__(LuceneRuntime)
+    runtime.lucene = RecordingLucene()
+    vector = np.asarray([1.25, -2.5], dtype=np.float32)
+
+    converted = runtime._java_vector(vector)
+
+    assert converted == [1.25, -2.5]
+    assert received == [[1.25, -2.5]]
+    assert all(type(value) is float for value in received[0])
+
+
+def test_numeric_document_ids_preserve_score_order_across_leaves() -> None:
+    class ForwardOnlyDocumentIds:
+        def __init__(self, values: dict[int, int]) -> None:
+            self.values = values
+            self.current = -1
+            self.visited = []
+
+        def advanceExact(self, document_id: int) -> bool:
+            assert document_id >= self.current
+            self.current = document_id
+            self.visited.append(document_id)
+            return document_id in self.values
+
+        def longValue(self) -> int:
+            return self.values[self.current]
+
+    class LeafReader:
+        def __init__(
+            self, max_doc: int, document_ids: ForwardOnlyDocumentIds
+        ) -> None:
+            self.max_doc = max_doc
+            self.document_ids = document_ids
+
+        def maxDoc(self) -> int:
+            return self.max_doc
+
+        def getNumericDocValues(self, field: str):
+            assert field == "id"
+            return self.document_ids
+
+    class Leaf:
+        def __init__(self, doc_base: int, reader: LeafReader) -> None:
+            self.docBase = doc_base
+            self._reader = reader
+
+        def reader(self) -> LeafReader:
+            return self._reader
+
+    class Reader:
+        def __init__(self, leaves) -> None:
+            self._leaves = leaves
+
+        def leaves(self):
+            return self._leaves
+
+    first_ids = ForwardOnlyDocumentIds({2: 102, 5: 105})
+    second_ids = ForwardOnlyDocumentIds({2: 108})
+    reader = Reader(
+        [
+            Leaf(0, LeafReader(6, first_ids)),
+            Leaf(6, LeafReader(4, second_ids)),
+        ]
+    )
+    score_docs = [
+        SimpleNamespace(doc=8, score=0.9),
+        SimpleNamespace(doc=2, score=0.8),
+        SimpleNamespace(doc=5, score=0.7),
+    ]
+
+    hits = LuceneRuntime._materialize_hits(reader, score_docs)
+
+    assert first_ids.visited == [2, 5]
+    assert second_ids.visited == [2]
+    assert hits == [
+        _lucene_runtime.SearchHit(108, 0.9),
+        _lucene_runtime.SearchHit(102, 0.8),
+        _lucene_runtime.SearchHit(105, 0.7),
+    ]
+
+
+def test_missing_numeric_document_id_requests_an_index_rebuild() -> None:
+    class MissingDocumentIds:
+        @staticmethod
+        def advanceExact(_document_id: int) -> bool:
+            return False
+
+    class LeafReader:
+        @staticmethod
+        def maxDoc() -> int:
+            return 4
+
+        @staticmethod
+        def getNumericDocValues(_field: str):
+            return MissingDocumentIds()
+
+    class Leaf:
+        docBase = 0
+
+        @staticmethod
+        def reader():
+            return LeafReader()
+
+    class Reader:
+        @staticmethod
+        def leaves():
+            return [Leaf()]
+
+    with pytest.raises(RuntimeError, match="rebuild the index with --force"):
+        LuceneRuntime._materialize_hits(
+            Reader(), [SimpleNamespace(doc=3, score=1.0)]
+        )
+
+
+def test_missing_numeric_document_id_field_requests_an_index_rebuild() -> None:
+    class LeafReader:
+        @staticmethod
+        def maxDoc() -> int:
+            return 1
+
+        @staticmethod
+        def getNumericDocValues(_field: str):
+            return None
+
+    class Leaf:
+        docBase = 0
+
+        @staticmethod
+        def reader():
+            return LeafReader()
+
+    class Reader:
+        @staticmethod
+        def leaves():
+            return [Leaf()]
+
+    with pytest.raises(RuntimeError, match="rebuild the index with --force"):
+        LuceneRuntime._materialize_hits(
+            Reader(), [SimpleNamespace(doc=0, score=1.0)]
+        )
 
 
 def test_cagra_verifier_selects_only_the_current_noncompound_segment() -> None:

@@ -75,7 +75,7 @@ _SEARCH_ROUTE_BY_ALGORITHM = {
     CAGRA_ALGORITHM: "gpu_cagra",
 }
 _MANIFEST_FILE = ".cuvs-bench-lucene.json"
-_MANIFEST_SCHEMA = 1
+_MANIFEST_SCHEMA = 2
 _SAFE_LABEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
 _RUNTIME_KEYS = (
     "cuvs_java_jar",
@@ -676,7 +676,9 @@ def _read_manifest(index_path: Path) -> dict[str, Any]:
         or type(payload.get("schema_version")) is not int
         or payload["schema_version"] != _MANIFEST_SCHEMA
     ):
-        raise RuntimeError(f"Unsupported Lucene index manifest: {path}")
+        raise RuntimeError(
+            f"Unsupported Lucene index manifest: {path}; rerun with --force"
+        )
     required = {
         "schema_version",
         "algorithm",

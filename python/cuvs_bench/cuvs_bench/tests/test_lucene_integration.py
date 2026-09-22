@@ -137,6 +137,51 @@ def _write_bin(path: Path, values: np.ndarray) -> None:
     )
 
 
+def _write_segmented_cpu_index(
+    runtime,
+    index_path: Path,
+    vectors: np.ndarray,
+    external_ids: np.ndarray,
+    *,
+    force_merge: bool,
+) -> int:
+    """Write three commits while keeping dataset IDs distinct from doc IDs."""
+    runtime.attach_current_thread()
+    index_path.mkdir(parents=True)
+    directory = runtime.FSDirectory.open(runtime.Paths.get(str(index_path)))
+    try:
+        config = runtime.IndexWriterConfig()
+        config.setOpenMode(runtime.IndexWriterConfig.OpenMode.CREATE)
+        config.setCodec(runtime.resolve_codec(CPU_HNSW_CODEC))
+        if not force_merge:
+            from org.apache.lucene.index import NoMergePolicy
+
+            config.setMergePolicy(NoMergePolicy.INSTANCE)
+        writer = runtime.IndexWriter(directory, config)
+        try:
+            for positions in np.array_split(np.arange(len(vectors)), 3):
+                for position in positions:
+                    writer.addDocument(
+                        runtime._document(
+                            int(external_ids[position]), vectors[position]
+                        )
+                    )
+                writer.commit()
+            if force_merge:
+                writer.forceMerge(1)
+                writer.commit()
+        finally:
+            writer.close()
+
+        reader = runtime.DirectoryReader.open(directory)
+        try:
+            return int(reader.leaves().size())
+        finally:
+            reader.close()
+    finally:
+        directory.close()
+
+
 def _assert_artifact_provenance(metadata: dict, role: str) -> None:
     assert metadata[f"{role}_cuvs_java_coordinates"] == (
         f"com.nvidia.cuvs:cuvs-java:{_ARTIFACT_VERSION}"
@@ -420,6 +465,58 @@ def test_cpu_hnsw_in_fresh_process_without_cuvs_artifacts(tmp_path):
     assert (
         _recall(result.neighbors, dataset.groundtruth_neighbors)
         >= _MINIMUM_RECALL
+    )
+
+
+@pytest.mark.parametrize(
+    ("force_merge", "expected_segments"),
+    (
+        pytest.param(False, 3, id="three-segments"),
+        pytest.param(True, 1, id="force-merged"),
+    ),
+)
+def test_numeric_document_values_preserve_dataset_ids_across_segments(
+    tmp_path: Path, force_merge: bool, expected_segments: int
+) -> None:
+    rng = np.random.default_rng(2624)
+    vectors = rng.standard_normal((12, 16)).astype(np.float32)
+    external_ids = np.roll(np.arange(12, dtype=np.int64) * 17 + 1000, 3)
+    query_positions = np.asarray([1, 9])
+    queries = vectors[query_positions].copy()
+    backend, index = _backend_and_index(
+        tmp_path,
+        CPU_HNSW_ALGORITHM,
+        CPU_HNSW_CODEC,
+        [{"num_candidates": len(vectors)}],
+        include_cuvs=True,
+    )
+    runtime = backend._get_runtime()
+
+    segment_count = _write_segmented_cpu_index(
+        runtime,
+        Path(index.file),
+        vectors,
+        external_ids,
+        force_merge=force_merge,
+    )
+    result = runtime.search_index(
+        Path(index.file),
+        queries,
+        k=4,
+        num_candidates=len(vectors),
+    )
+
+    assert segment_count == expected_segments
+    returned_ids = [
+        [hit.document_id for hit in query_hits] for query_hits in result.hits
+    ]
+    assert [row[0] for row in returned_ids] == external_ids[
+        query_positions
+    ].tolist()
+    assert all(len(set(row)) == len(row) for row in returned_ids)
+    valid_ids = set(external_ids.tolist())
+    assert all(
+        document_id in valid_ids for row in returned_ids for document_id in row
     )
 
 

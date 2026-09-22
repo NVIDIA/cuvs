@@ -993,7 +993,7 @@ class LuceneRuntime:
         from org.apache.lucene.document import (
             Document,
             KnnFloatVectorField,
-            StoredField,
+            NumericDocValuesField,
         )
         from org.apache.lucene.index import (
             DirectoryReader,
@@ -1024,7 +1024,7 @@ class LuceneRuntime:
         self.CodecUtil = CodecUtil
         self.Document = Document
         self.KnnFloatVectorField = KnnFloatVectorField
-        self.StoredField = StoredField
+        self.NumericDocValuesField = NumericDocValuesField
         self.DirectoryReader = DirectoryReader
         self.FieldInfo = FieldInfo
         self.IndexWriter = IndexWriter
@@ -1109,13 +1109,11 @@ class LuceneRuntime:
         return codec
 
     def _java_vector(self, vector: np.ndarray) -> Any:
-        return self.lucene.JArray("float")(
-            tuple(float(value) for value in vector)
-        )
+        return self.lucene.JArray("float")(vector.tolist())
 
     def _document(self, document_id: int, vector: np.ndarray) -> Any:
         document = self.Document()
-        document.add(self.StoredField(_ID_FIELD, str(document_id)))
+        document.add(self.NumericDocValuesField(_ID_FIELD, document_id))
         document.add(
             self.KnnFloatVectorField(
                 _VECTOR_FIELD,
@@ -1237,10 +1235,60 @@ class LuceneRuntime:
             elapsed_ns,
         )
 
+    @staticmethod
+    def _materialize_hits(
+        reader: Any, score_docs: Sequence[Any]
+    ) -> list[SearchHit]:
+        """Read each leaf's forward-only IDs, preserving score rank."""
+        ranked_score_docs = sorted(
+            enumerate(score_docs), key=lambda item: int(item[1].doc)
+        )
+        hits_by_rank: dict[int, SearchHit] = {}
+        next_hit = 0
+        for leaf in reader.leaves():
+            leaf_reader = leaf.reader()
+            doc_base = int(leaf.docBase)
+            doc_limit = doc_base + int(leaf_reader.maxDoc())
+            if (
+                next_hit == len(ranked_score_docs)
+                or int(ranked_score_docs[next_hit][1].doc) >= doc_limit
+            ):
+                continue
+            document_ids = leaf_reader.getNumericDocValues(_ID_FIELD)
+            if document_ids is None:
+                raise RuntimeError(
+                    "Lucene index has no numeric dataset IDs; rebuild the "
+                    "index with --force"
+                )
+            while next_hit < len(ranked_score_docs):
+                rank, score_doc = ranked_score_docs[next_hit]
+                lucene_doc_id = int(score_doc.doc)
+                if lucene_doc_id >= doc_limit:
+                    break
+                if lucene_doc_id < doc_base:
+                    raise RuntimeError(
+                        f"Lucene document {lucene_doc_id} is outside its leaf"
+                    )
+                if not document_ids.advanceExact(lucene_doc_id - doc_base):
+                    raise RuntimeError(
+                        f"Lucene document {lucene_doc_id} has no numeric "
+                        "dataset ID; rebuild the index with --force"
+                    )
+                hits_by_rank[rank] = SearchHit(
+                    int(document_ids.longValue()), float(score_doc.score)
+                )
+                next_hit += 1
+        if next_hit != len(ranked_score_docs):
+            lucene_doc_id = int(ranked_score_docs[next_hit][1].doc)
+            raise RuntimeError(
+                f"Lucene document {lucene_doc_id} is outside the index"
+            )
+        return [hits_by_rank[rank] for rank in range(len(ranked_score_docs))]
+
     def _search_one(
         self,
         searcher: Any,
-        stored_fields: Any,
+        reader: Any,
         vector: np.ndarray,
         k: int,
         candidates: int,
@@ -1257,14 +1305,7 @@ class LuceneRuntime:
         )
 
         materialization_started = time.perf_counter_ns()
-        hits = []
-        for score_doc in top_docs.scoreDocs:
-            stored_id = stored_fields.document(score_doc.doc).get(_ID_FIELD)
-            if stored_id is None:
-                raise RuntimeError(
-                    f"Lucene document {score_doc.doc} has no stored ID"
-                )
-            hits.append(SearchHit(int(stored_id), float(score_doc.score)))
+        hits = self._materialize_hits(reader, top_docs.scoreDocs)
         result_materialization_ns = (
             time.perf_counter_ns() - materialization_started
         )
@@ -1325,7 +1366,6 @@ class LuceneRuntime:
                     f"Lucene index has {document_count} documents, fewer than k={k}"
                 )
             searcher = self.IndexSearcher(reader)
-            stored_fields = searcher.storedFields()
             reader_searcher_setup_ns = (
                 time.perf_counter_ns() - reader_setup_started
             )
@@ -1335,7 +1375,7 @@ class LuceneRuntime:
             for vector in queries:
                 hits, query_timing = self._search_one(
                     searcher,
-                    stored_fields,
+                    reader,
                     vector,
                     k,
                     min(num_candidates, document_count),
