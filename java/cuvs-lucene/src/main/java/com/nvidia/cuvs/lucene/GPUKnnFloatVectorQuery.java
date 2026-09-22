@@ -203,7 +203,8 @@ public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
    * @param effectiveITopK the itopk_size value about to be sent to native CAGRA
    * @param searchAlgo the CAGRA search algorithm the query will run under
    */
-  static void validateSingleCtaItopk(int effectiveITopK, CagraSearchParams.SearchAlgo searchAlgo) {
+  private static void validateSingleCtaItopk(
+      int effectiveITopK, CagraSearchParams.SearchAlgo searchAlgo) {
     if (searchAlgo == CagraSearchParams.SearchAlgo.SINGLE_CTA
         && effectiveITopK > MAX_SINGLE_CTA_ITOPK) {
       throw new IllegalArgumentException(
