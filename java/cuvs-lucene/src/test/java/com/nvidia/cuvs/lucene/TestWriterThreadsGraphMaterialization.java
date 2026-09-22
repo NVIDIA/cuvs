@@ -16,6 +16,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.lucene.tests.util.LuceneTestCase;
 import org.apache.lucene.util.hnsw.HnswGraph;
 import org.apache.lucene.util.hnsw.HnswGraph.NodesIterator;
@@ -57,6 +58,49 @@ public class TestWriterThreadsGraphMaterialization extends LuceneTestCase {
       GPUBuiltHnswGraph graph = newSingleLayerGraph(matrix, NUM_THREADS);
       assertEquals(NUM_NODES, graph.size());
     }
+  }
+
+  @Test
+  public void failedDeviceCopyClosesHostAllocationAndSuppressesCloseFailure() {
+    RuntimeException copyFailure = new RuntimeException("copy failed");
+    RuntimeException closeFailure = new RuntimeException("close failed");
+    AtomicInteger hostCloseCount = new AtomicInteger();
+    CuVSDeviceMatrix source =
+        new ArrayDeviceMatrix(new int[][] {{0}}, 1) {
+          @Override
+          public void toHost(CuVSHostMatrix target) {
+            throw copyFailure;
+          }
+        };
+    CuVSHostMatrix hostCopy = new TrackingHostMatrix(hostCloseCount, closeFailure);
+
+    RuntimeException thrown =
+        assertThrows(
+            RuntimeException.class, () -> GPUBuiltHnswGraph.copyToHost(source, () -> hostCopy));
+
+    assertSame(copyFailure, thrown);
+    assertEquals(1, hostCloseCount.get());
+    assertArrayEquals(new Throwable[] {closeFailure}, thrown.getSuppressed());
+  }
+
+  @Test
+  public void successfulDeviceCopyTransfersHostOwnershipToCaller() {
+    AtomicInteger hostCloseCount = new AtomicInteger();
+    CuVSHostMatrix hostCopy = new TrackingHostMatrix(hostCloseCount, null);
+    CuVSDeviceMatrix source =
+        new ArrayDeviceMatrix(new int[][] {{0}}, 1) {
+          @Override
+          public void toHost(CuVSHostMatrix target) {
+            assertSame(hostCopy, target);
+          }
+        };
+
+    CuVSHostMatrix returned = GPUBuiltHnswGraph.copyToHost(source, () -> hostCopy);
+
+    assertSame(hostCopy, returned);
+    assertEquals(0, hostCloseCount.get());
+    returned.close();
+    assertEquals(1, hostCloseCount.get());
   }
 
   private static GPUBuiltHnswGraph newSingleLayerGraph(CuVSMatrix layer0Adjacency, int numThreads)
@@ -170,7 +214,7 @@ public class TestWriterThreadsGraphMaterialization extends LuceneTestCase {
   }
 
   /** Reports an oversized device shape and fails if the guarded host-copy path is reached. */
-  private static final class ArrayDeviceMatrix extends ArrayMatrix implements CuVSDeviceMatrix {
+  private static class ArrayDeviceMatrix extends ArrayMatrix implements CuVSDeviceMatrix {
     private final long reportedColumns;
 
     ArrayDeviceMatrix(int[][] rows, long reportedColumns) {
@@ -184,8 +228,37 @@ public class TestWriterThreadsGraphMaterialization extends LuceneTestCase {
     }
 
     @Override
+    public void toHost(CuVSHostMatrix target) {
+      throw new AssertionError("oversized device adjacency must not be copied to host");
+    }
+
+    @Override
     public CuVSHostMatrix toHost() {
       throw new AssertionError("oversized device adjacency must not be copied to host");
+    }
+  }
+
+  private static final class TrackingHostMatrix extends ArrayMatrix implements CuVSHostMatrix {
+    private final AtomicInteger closeCount;
+    private final RuntimeException closeFailure;
+
+    TrackingHostMatrix(AtomicInteger closeCount, RuntimeException closeFailure) {
+      super(new int[][] {{0}});
+      this.closeCount = closeCount;
+      this.closeFailure = closeFailure;
+    }
+
+    @Override
+    public int get(int row, int column) {
+      return 0;
+    }
+
+    @Override
+    public void close() {
+      closeCount.incrementAndGet();
+      if (closeFailure != null) {
+        throw closeFailure;
+      }
     }
   }
 

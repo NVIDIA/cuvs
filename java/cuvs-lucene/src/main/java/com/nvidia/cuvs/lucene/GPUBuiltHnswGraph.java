@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.function.Supplier;
 import org.apache.lucene.search.TaskExecutor;
 import org.apache.lucene.util.hnsw.HnswGraph;
 import org.apache.lucene.util.hnsw.NeighborArray;
@@ -149,20 +150,14 @@ public class GPUBuiltHnswGraph extends HnswGraph {
       fillNeighborRange(adjacency, neighbors, 0, size);
       return neighbors;
     }
-    CuVSMatrix source = adjacency;
-    CuVSHostMatrix hostCopy = null;
     if (adjacency instanceof CuVSDeviceMatrix deviceAdjacency) {
-      hostCopy = deviceAdjacency.toHost();
-      source = hostCopy;
-    }
-    try {
-      fillNeighborArrayParallel(source, neighbors, size, numThreads);
-      return neighbors;
-    } finally {
-      if (hostCopy != null) {
-        hostCopy.close();
+      try (CuVSHostMatrix hostCopy = copyToHost(deviceAdjacency)) {
+        fillNeighborArrayParallel(hostCopy, neighbors, size, numThreads);
       }
+      return neighbors;
     }
+    fillNeighborArrayParallel(adjacency, neighbors, size, numThreads);
+    return neighbors;
   }
 
   private static NeighborArray[] fillNeighborArraySerial(CuVSMatrix adjacency, int size) {
@@ -180,6 +175,31 @@ public class GPUBuiltHnswGraph extends HnswGraph {
       return true;
     }
     return rows <= MAX_PARALLEL_GRAPH_COPY_BYTES / Integer.BYTES / columns;
+  }
+
+  private static CuVSHostMatrix copyToHost(CuVSDeviceMatrix source) {
+    try (CuVSMatrix.Builder<CuVSHostMatrix> builder =
+        CuVSMatrix.hostBuilder(source.size(), source.columns(), source.dataType())) {
+      return copyToHost(source, builder::build);
+    }
+  }
+
+  static CuVSHostMatrix copyToHost(
+      CuVSDeviceMatrix source, Supplier<CuVSHostMatrix> hostCopyFactory) {
+    CuVSHostMatrix hostCopy = hostCopyFactory.get();
+    try {
+      source.toHost(hostCopy);
+      return hostCopy;
+    } catch (RuntimeException | Error failure) {
+      try {
+        hostCopy.close();
+      } catch (RuntimeException | Error closeFailure) {
+        if (failure != closeFailure) {
+          failure.addSuppressed(closeFailure);
+        }
+      }
+      throw failure;
+    }
   }
 
   /**
