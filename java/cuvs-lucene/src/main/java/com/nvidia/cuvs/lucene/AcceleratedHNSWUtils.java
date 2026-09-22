@@ -75,8 +75,8 @@ public class AcceleratedHNSWUtils {
 
   /**
    * Creates up to {@code hnswLayers} total layers. Layer 0 uses the full CAGRA graph. Each upper
-   * layer samples {@code max(2, floor(previousLayerSize / M))} nodes, where {@code M} is {@code
-   * ceil(layer-0 graph degree / 2)}.
+   * layer samples {@code max(2, floor(previousLayerSize / M))} nodes. The value {@code M} is the
+   * ceiling of half the layer-0 graph degree.
    */
   public static GPUBuiltHnswGraph createMultiLayerHnswGraph(
       FieldInfo fieldInfo,

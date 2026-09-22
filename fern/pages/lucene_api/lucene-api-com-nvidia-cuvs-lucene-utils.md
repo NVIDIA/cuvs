@@ -102,9 +102,10 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:87`_
 static CuVSHostMatrix createHostByteMatrix(List<byte[]> data, int bytesPerVector)
 ```
 
-Builds a host-memory CuVSMatrix from a list of byte vectors.
+Builds a host-memory CuVSMatrix from byte vectors without first materializing the list as an
+intermediate `byte[][]`.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:98`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:101`_
 
 ### createHostByteMatrixFromArray
 
@@ -114,7 +115,7 @@ static CuVSHostMatrix createHostByteMatrixFromArray(byte[][] data, int bytesPerV
 
 Builds a host-memory CuVSMatrix from a 2D byte array.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:109`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:112`_
 
 ### nanosToMillis
 
@@ -134,7 +135,7 @@ A utility method to convert nanoseconds to milliseconds.
 
 milliseconds
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:125`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:128`_
 
 ### cuVSResourcesOrNull
 
@@ -148,7 +149,7 @@ Creates an instance of CuVSResources.
 
 an instance of CuVSResources
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:134`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:137`_
 
 ### handleThrowableWithIgnore
 
@@ -171,7 +172,7 @@ A utility method that conditionally ignores certain throwable objects
 | --- | --- |
 | `IOException` |  |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:162`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:165`_
 
 ### info
 
@@ -189,6 +190,6 @@ Utility to print info/debug messages via InfoStream.
 | `component` | the name of the index writer |
 | `msg` | the log message to push via the InfoStream |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:176`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:179`_
 
 _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:22`_
