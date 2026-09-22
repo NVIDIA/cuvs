@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import os
+import platform
 import sys
 from pathlib import Path
 from typing import Any, Iterable, Mapping
@@ -19,6 +20,11 @@ _MAVEN_REPOSITORY_ENV = "MAVEN_LOCAL_REPO"
 _PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[4]
 _VERSION_FILE = _PACKAGE_ROOT / "VERSION"
+
+_CUDA_TARGET_BY_MACHINE = {
+    "aarch64": "sbsa-linux",
+    "x86_64": "x86_64-linux",
+}
 
 
 def maven_artifact_version() -> str:
@@ -194,10 +200,16 @@ def _native_library_groups() -> Iterable[tuple[Path, ...]]:
         yield (build / "c", build, *cuda_directories)
     source_build = _REPOSITORY_ROOT / "cpp" / "build"
     yield (source_build / "c", source_build, *cuda_directories)
+    cuda_target = _CUDA_TARGET_BY_MACHINE.get(platform.machine())
     for prefix in _python_prefixes():
+        target_directories = (
+            (prefix / "targets" / cuda_target / "lib",)
+            if cuda_target is not None
+            else ()
+        )
         yield (
             prefix / "lib",
-            prefix / "targets" / "x86_64-linux" / "lib",
+            *target_directories,
             *cuda_directories,
         )
 

@@ -5,6 +5,7 @@
 
 """Tests for locating the optional Lucene runtime artifact pair."""
 
+import os
 from pathlib import Path
 
 import pytest
@@ -241,3 +242,68 @@ def test_cuda_only_ld_library_path_is_augmented_with_discovered_cuvs(
         str(cuvs_native.resolve()),
         str(cuda_native.resolve()),
     ]
+
+
+@pytest.mark.parametrize(
+    ("machine", "cuda_target"),
+    (
+        pytest.param("x86_64", "x86_64-linux", id="x86-64"),
+        pytest.param("aarch64", "sbsa-linux", id="arm64"),
+    ),
+)
+def test_native_library_discovery_uses_the_host_cuda_target(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    machine: str,
+    cuda_target: str,
+) -> None:
+    prefix = tmp_path / "python-prefix"
+    cuvs_directory = prefix / "lib"
+    cuda_directory = prefix / "targets" / cuda_target / "lib"
+    cuvs_directory.mkdir(parents=True)
+    cuda_directory.mkdir(parents=True)
+    (cuvs_directory / "libcuvs_c.so").touch()
+    (cuda_directory / "libcudart.so").touch()
+    monkeypatch.delenv("CUVS_HOME", raising=False)
+    monkeypatch.delenv("JAVA_LIBRARY_PATH", raising=False)
+    monkeypatch.delenv("LD_LIBRARY_PATH", raising=False)
+    monkeypatch.setattr(
+        _lucene_runtime_config.platform, "machine", lambda: machine
+    )
+    monkeypatch.setattr(
+        _lucene_runtime_config, "_REPOSITORY_ROOT", tmp_path / "repository"
+    )
+    monkeypatch.setattr(
+        _lucene_runtime_config, "_python_prefixes", lambda: (prefix,)
+    )
+    monkeypatch.setattr(
+        _lucene_runtime_config, "_cuda_library_directories", tuple
+    )
+
+    discovered = _lucene_runtime_config._discover_native_library_path()
+
+    assert discovered == os.pathsep.join(
+        (str(cuvs_directory.resolve()), str(cuda_directory.resolve()))
+    )
+
+
+def test_unknown_host_architecture_does_not_assume_an_x86_cuda_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    prefix = tmp_path / "python-prefix"
+    monkeypatch.setattr(
+        _lucene_runtime_config.platform, "machine", lambda: "riscv64"
+    )
+    monkeypatch.setattr(
+        _lucene_runtime_config, "_REPOSITORY_ROOT", tmp_path / "repository"
+    )
+    monkeypatch.setattr(
+        _lucene_runtime_config, "_python_prefixes", lambda: (prefix,)
+    )
+    monkeypatch.setattr(
+        _lucene_runtime_config, "_cuda_library_directories", tuple
+    )
+
+    groups = tuple(_lucene_runtime_config._native_library_groups())
+
+    assert groups[-1] == (prefix / "lib",)
