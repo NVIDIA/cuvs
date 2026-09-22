@@ -23,6 +23,7 @@ import org.apache.lucene.index.Term;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.TermQuery;
+import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.tests.util.LuceneTestCase;
 import org.apache.lucene.tests.util.LuceneTestCase.SuppressSysoutChecks;
@@ -30,9 +31,7 @@ import org.apache.lucene.tests.util.TestUtil;
 import org.junit.Test;
 
 /**
- * Regression test: the per-segment fallback search path must re-validate the effective SINGLE_CTA
- * iTopK limit against the value actually sent to native CAGRA, not just the value checked at query
- * construction time.
+ * Regression test: filter over-fetch must not make a valid SINGLE_CTA query fail at search time.
  *
  * <p>{@link GPUKnnFloatVectorQuery} validates {@code max(iTopK, k)} against the SINGLE_CTA limit
  * (512) at construction. But the per-segment fallback path ({@link
@@ -41,7 +40,7 @@ import org.junit.Test;
  * field -- raises {@code topK} further, up to {@code min(k + 10, filterCardinality)}, whenever a
  * filter is present. A sufficiently permissive filter can push the value actually sent to native
  * CAGRA above 512 even though the value checked at construction time was within range. This must
- * still be rejected before a native search plan is built.
+ * be capped before a native search plan is built, without rejecting the query.
  */
 @SuppressSysoutChecks(bugUrl = "")
 public class TestFilteredSingleCtaITopKValidation extends LuceneTestCase {
@@ -50,7 +49,7 @@ public class TestFilteredSingleCtaITopKValidation extends LuceneTestCase {
   private static final String INCLUDED_FIELD = "included";
 
   @Test
-  public void testFilterDrivenTopKIncreaseIsRevalidatedAgainstSingleCtaLimit() throws Exception {
+  public void testFilterDrivenTopKIncreaseIsCappedAtSingleCtaLimit() throws Exception {
     assumeTrue("cuVS not supported", isSupported());
 
     Codec codec = TestUtil.alwaysKnnVectorsFormat(new CuVS2510GPUVectorsFormat());
@@ -89,29 +88,29 @@ public class TestFilteredSingleCtaITopKValidation extends LuceneTestCase {
         // single-vector segment.
         Query filter = new TermQuery(new Term(INCLUDED_FIELD, "yes"));
 
-        int k = 503;
-        int iTopK = 512; // Passes the constructor-time check: max(iTopK, k) == 512 <= 512.
-        GPUKnnFloatVectorQuery query =
-            new GPUKnnFloatVectorQuery(
-                VECTOR_FIELD,
-                dataset[0],
-                k,
-                filter,
-                iTopK,
-                1,
-                0,
-                0,
-                CagraSearchParams.SearchAlgo.SINGLE_CTA);
+        for (int k : new int[] {503, 512}) {
+          int iTopK = 512; // Passes the constructor-time check: max(iTopK, k) == 512 <= 512.
+          GPUKnnFloatVectorQuery query =
+              new GPUKnnFloatVectorQuery(
+                  VECTOR_FIELD,
+                  dataset[0],
+                  k,
+                  filter,
+                  iTopK,
+                  1,
+                  0,
+                  0,
+                  CagraSearchParams.SearchAlgo.SINGLE_CTA);
 
-        // On the 1000-vector segment, topK becomes min(k + 10, filterCardinality) = min(513, 1000)
-        // = 513, so the effective iTopK sent to native CAGRA is max(512, 513) = 513, exceeding the
-        // SINGLE_CTA limit of 512. Assert the specific message (not just the exception type) to
-        // confirm this post-filter re-validation fired, rather than some unrelated argument check.
-        IllegalArgumentException e =
-            expectThrows(IllegalArgumentException.class, () -> searcher.search(query, k));
-        assertTrue(e.getMessage(), e.getMessage().contains("SINGLE_CTA"));
-        assertTrue(e.getMessage(), e.getMessage().contains("512"));
-        assertTrue(e.getMessage(), e.getMessage().contains("513"));
+          // k + 10 exceeds 512, but only the optional over-fetch is capped, not the requested k.
+          TopDocs hits = searcher.search(query, k);
+          assertEquals(k, hits.scoreDocs.length);
+          java.util.Set<Integer> seen = new java.util.HashSet<>();
+          for (var hit : hits.scoreDocs) {
+            assertTrue("Only included documents should match", hit.doc < datasetSize);
+            assertTrue("Duplicate hit", seen.add(hit.doc));
+          }
+        }
       }
     }
   }

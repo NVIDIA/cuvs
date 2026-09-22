@@ -152,8 +152,8 @@ public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
    * @param filter          optional pre-filter query
    * @param iTopK           CAGRA itopk_size parameter
    * @param searchWidth     CAGRA search_width parameter
-   * @param threadBlockSize CAGRA thread_block_size (0 = auto)
-   * @param maxIterations   CAGRA max_iterations (0 = auto)
+   * @param threadBlockSize CAGRA thread_block_size (0 = auto, or 64, 128, 256, 512, 1024)
+   * @param maxIterations   nonnegative CAGRA max_iterations (0 = auto)
    * @param searchAlgo      CAGRA search algorithm
    */
   public GPUKnnFloatVectorQuery(
@@ -167,7 +167,7 @@ public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
       int maxIterations,
       CagraSearchParams.SearchAlgo searchAlgo) {
     super(field, target, k, filter);
-    validateSearchParameters(iTopK, searchWidth, k, searchAlgo);
+    validateSearchParameters(iTopK, searchWidth, k, threadBlockSize, maxIterations, searchAlgo);
     this.iTopK = iTopK;
     this.searchWidth = searchWidth;
     this.threadBlockSize = threadBlockSize;
@@ -176,24 +176,28 @@ public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
   }
 
   private static void validateSearchParameters(
-      int iTopK, int searchWidth, int k, CagraSearchParams.SearchAlgo searchAlgo) {
-    validateRange("iTopK", iTopK, MIN_ITOPK, MAX_ITOPK);
-    validateRange("searchWidth", searchWidth, MIN_SEARCH_WIDTH, MAX_SEARCH_WIDTH);
-    // This is a lower bound on the effective iTopK actually sent to native CAGRA: the filtered
-    // per-segment fallback path (see CuVS2510GPUVectorsReader) can raise topK further based on
-    // filter cardinality, so a later, authoritative check is required at that point too — see
-    // validateSingleCtaItopk below.
+      int iTopK,
+      int searchWidth,
+      int k,
+      int threadBlockSize,
+      int maxIterations,
+      CagraSearchParams.SearchAlgo searchAlgo) {
+    ParameterValidation.checkRange("iTopK", iTopK, MIN_ITOPK, MAX_ITOPK);
+    ParameterValidation.checkRange("searchWidth", searchWidth, MIN_SEARCH_WIDTH, MAX_SEARCH_WIDTH);
+    ParameterValidation.checkRange("maxIterations", maxIterations, 0, Integer.MAX_VALUE);
+    switch (threadBlockSize) {
+      case 0, 64, 128, 256, 512, 1024 -> {}
+      default ->
+          throw new IllegalArgumentException(
+              "threadBlockSize must be 0 (auto), 64, 128, 256, 512 or 1024, but was "
+                  + threadBlockSize);
+    }
+    // Validate caller-supplied values. The reader caps its optional filter over-fetch separately.
     validateSingleCtaItopk(Math.max(iTopK, k), searchAlgo);
   }
 
   /**
-   * Validates that {@code effectiveITopK} — the itopk_size value actually about to be sent to
-   * native CAGRA — does not exceed the SINGLE_CTA algorithm's limit.
-   *
-   * <p>Callers that can further increase itopk_size after construction (e.g. the filtered
-   * per-segment fallback path, which raises topK based on filter cardinality) must call this
-   * again with the final, post-adjustment value immediately before building {@link
-   * CagraSearchParams}.
+   * Validates the caller's effective iTopK against the SINGLE_CTA algorithm's limit.
    *
    * @param effectiveITopK the itopk_size value about to be sent to native CAGRA
    * @param searchAlgo the CAGRA search algorithm the query will run under
@@ -207,13 +211,6 @@ public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
               + " for SINGLE_CTA search, but was "
               + effectiveITopK
               + ".");
-    }
-  }
-
-  private static void validateRange(String name, int value, int min, int max) {
-    if (value < min || value > max) {
-      throw new IllegalArgumentException(
-          name + " not in valid range. Valid range: [" + min + ", " + max + "]");
     }
   }
 

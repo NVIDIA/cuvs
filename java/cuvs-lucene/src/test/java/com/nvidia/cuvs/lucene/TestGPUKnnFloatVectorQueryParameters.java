@@ -16,6 +16,50 @@ public class TestGPUKnnFloatVectorQueryParameters extends LuceneTestCase {
   private static final float[] TARGET = {0.0f};
 
   @Test
+  public void testIterationBoundaries() {
+    for (int iterations : new int[] {Integer.MIN_VALUE, -1}) {
+      IllegalArgumentException e =
+          expectThrows(
+              IllegalArgumentException.class,
+              () ->
+                  new GPUKnnFloatVectorQuery(
+                      "vector",
+                      TARGET,
+                      1,
+                      null,
+                      1,
+                      1,
+                      0,
+                      iterations,
+                      CagraSearchParams.SearchAlgo.AUTO));
+      assertTrue(e.getMessage(), e.getMessage().contains("maxIterations"));
+    }
+    // Construction checks representability, not the native plan's memory requirements.
+    for (int iterations : new int[] {0, 1, Integer.MAX_VALUE}) {
+      new GPUKnnFloatVectorQuery(
+          "vector", TARGET, 1, null, 1, 1, 0, iterations, CagraSearchParams.SearchAlgo.AUTO);
+    }
+  }
+
+  @Test
+  public void testThreadBlockSizes() {
+    for (int size : new int[] {0, 64, 128, 256, 512, 1024}) {
+      new GPUKnnFloatVectorQuery(
+          "vector", TARGET, 1, null, 1, 1, size, 0, CagraSearchParams.SearchAlgo.AUTO);
+    }
+    for (int size :
+        new int[] {Integer.MIN_VALUE, -1, 1, 32, 63, 65, 192, 1025, Integer.MAX_VALUE}) {
+      IllegalArgumentException e =
+          expectThrows(
+              IllegalArgumentException.class,
+              () ->
+                  new GPUKnnFloatVectorQuery(
+                      "vector", TARGET, 1, null, 1, 1, size, 0, CagraSearchParams.SearchAlgo.AUTO));
+      assertTrue(e.getMessage(), e.getMessage().contains("threadBlockSize"));
+    }
+  }
+
+  @Test
   public void testRejectsInvalidSearchParameters() {
     assertThrows(
         IllegalArgumentException.class,

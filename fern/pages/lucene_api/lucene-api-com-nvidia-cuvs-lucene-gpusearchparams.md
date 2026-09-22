@@ -198,7 +198,7 @@ Default value - \{@value DEFAULT_INT_GRAPH_DEGREE\}
 
 instance of `Builder`
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUSearchParams.java:269`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUSearchParams.java:268`_
 
 ### withGraphDegree
 
@@ -220,7 +220,7 @@ Default value - \{@value DEFAULT_GRAPH_DEGREE\}
 
 instance of `Builder`
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUSearchParams.java:284`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUSearchParams.java:281`_
 
 ### withCagraGraphBuildAlgo
 
@@ -241,7 +241,7 @@ Cannot be null, defaults to NN_DESCENT
 
 instance of `Builder`
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUSearchParams.java:297`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUSearchParams.java:293`_
 
 ### withIndexType
 
@@ -262,7 +262,7 @@ Cannot be null, defaults to CAGRA
 
 instance of `Builder`
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUSearchParams.java:309`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUSearchParams.java:305`_
 
 ### withCuVSIvfPqParams
 
@@ -282,7 +282,7 @@ Set the instance of `CuVSIvfPqParams`
 
 instance of `Builder`
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUSearchParams.java:320`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUSearchParams.java:316`_
 
 ### withStrategy
 
@@ -308,7 +308,7 @@ Default value - HEURISTIC
 
 instance of `Builder`
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUSearchParams.java:337`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUSearchParams.java:333`_
 
 ### withCuvsDistanceType
 
@@ -328,7 +328,7 @@ Set the CuvsDistanceType
 
 instance of `Builder`
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUSearchParams.java:348`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUSearchParams.java:344`_
 
 ### withNNDescentNumIterations
 
@@ -351,7 +351,7 @@ Default value - \{@value DEFAULT_NN_DESCENT_NUM_ITERATIONS\}
 
 instance of `Builder`
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUSearchParams.java:362`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUSearchParams.java:358`_
 
 ### withBuildQuality
 
@@ -378,7 +378,7 @@ Default value - \{@value DEFAULT_BUILD_QUALITY\}
 
 instance of `Builder`
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUSearchParams.java:380`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUSearchParams.java:376`_
 
 ### build
 
@@ -392,6 +392,6 @@ Creates and returns an instance of `GPUSearchParams`
 
 instance of `GPUSearchParams`
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUSearchParams.java:459`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUSearchParams.java:420`_
 
 _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUSearchParams.java:15`_

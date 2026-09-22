@@ -229,7 +229,7 @@ Return the k nearest neighbor documents as determined by comparison of their vec
 
 This is not supported.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:614`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:615`_
 
 ### readEntry
 
@@ -257,7 +257,7 @@ an instance of FieldEntry
 | --- | --- |
 | `IOException` | I/O Exceptions |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:642`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:643`_
 
 ### getCagraIndexForField
 
@@ -278,7 +278,7 @@ Returns the `CagraIndex` for the given field, or `null` if unavailable
 
 the CAGRA index, or `null`
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:694`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:695`_
 
 ### getFilterBitsetCache
 
@@ -288,7 +288,7 @@ FilterBitsetCache getFilterBitsetCache()
 
 Returns the filter cache owned by the vectors format that created this reader.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:704`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:705`_
 
 ### getFieldInfos
 
@@ -302,7 +302,7 @@ Gets the instance of FieldInfos.
 
 the instance of FieldInfos
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:713`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:714`_
 
 ### getCuvsIndexes
 
@@ -316,7 +316,7 @@ Gets the map of `GPUIndex` objects.
 
 the map of GPU index objects
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:722`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:723`_
 
 ### getFieldEntries
 
@@ -330,6 +330,6 @@ Gets the map of FieldEntry objects that hold the meta information for the field.
 
 the map of FieldEntry objects
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:731`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:732`_
 
 _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:59`_

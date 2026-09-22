@@ -254,7 +254,6 @@ public class GPUSearchParams {
      * @return instance of {@link Builder}
      */
     public Builder withWriterThreads(int writerThreads) {
-      validateRange("writerThreads", writerThreads, MIN_WRITER_THREADS, MAX_WRITER_THREADS);
       this.writerThreads = writerThreads;
       return this;
     }
@@ -268,8 +267,6 @@ public class GPUSearchParams {
      * @return instance of {@link Builder}
      */
     public Builder withIntermediateGraphDegree(int intermediateGraphDegree) {
-      validateRange(
-          "intermediateGraphDegree", intermediateGraphDegree, MIN_INT_GRAPH_DEG, MAX_INT_GRAPH_DEG);
       this.intermediateGraphDegree = intermediateGraphDegree;
       return this;
     }
@@ -283,7 +280,6 @@ public class GPUSearchParams {
      * @return instance of {@link Builder}
      */
     public Builder withGraphDegree(int graphDegree) {
-      validateRange("graphDegree", graphDegree, MIN_GRAPH_DEG, MAX_GRAPH_DEG);
       this.graphdegree = graphDegree;
       return this;
     }
@@ -383,48 +379,17 @@ public class GPUSearchParams {
       return this;
     }
 
-    private static void validateRange(String name, int value, int min, int max) {
-      if (value < min || value > max) {
-        throw new IllegalArgumentException(
-            name + " not in valid range. Valid range: [" + min + ", " + max + "]");
-      }
-    }
-
     /**
      * Validates the input parameters.
      *
      * @throws IllegalArgumentException
      */
     private void validate() throws IllegalArgumentException {
-      if (writerThreads < MIN_WRITER_THREADS || writerThreads > MAX_WRITER_THREADS) {
-        throw new IllegalArgumentException(
-            "writerThreads not in valid range. Valid range: ["
-                + MIN_WRITER_THREADS
-                + ", "
-                + MAX_WRITER_THREADS
-                + "]");
-      }
-      if (intermediateGraphDegree < MIN_INT_GRAPH_DEG
-          || intermediateGraphDegree > MAX_INT_GRAPH_DEG) {
-        throw new IllegalArgumentException(
-            "intermediateGraphDegree not in valid range. Valid range: ["
-                + MIN_INT_GRAPH_DEG
-                + ", "
-                + MAX_INT_GRAPH_DEG
-                + "]");
-      }
-      if (graphdegree < MIN_GRAPH_DEG || graphdegree > MAX_GRAPH_DEG) {
-        throw new IllegalArgumentException(
-            "graphdegree not in valid range. Valid range: ["
-                + MIN_GRAPH_DEG
-                + ", "
-                + MAX_GRAPH_DEG
-                + "]");
-      }
-      if (strategy == Strategy.CUSTOM && graphdegree > intermediateGraphDegree) {
-        throw new IllegalArgumentException(
-            "graphDegree must not be greater than intermediateGraphDegree.");
-      }
+      ParameterValidation.checkRange(
+          "writerThreads", writerThreads, MIN_WRITER_THREADS, MAX_WRITER_THREADS);
+      ParameterValidation.checkRange(
+          "intermediateGraphDegree", intermediateGraphDegree, MIN_INT_GRAPH_DEG, MAX_INT_GRAPH_DEG);
+      ParameterValidation.checkRange("graphdegree", graphdegree, MIN_GRAPH_DEG, MAX_GRAPH_DEG);
       if (Objects.isNull(cagraGraphBuildAlgo)) {
         throw new IllegalArgumentException("cagraGraphBuildAlgo cannot be null.");
       }
@@ -437,15 +402,11 @@ public class GPUSearchParams {
       if (Objects.isNull(cuvsDistanceType)) {
         throw new IllegalArgumentException("cuvsDistanceType cannot be null.");
       }
-      if (nnDescentNumIterations < MIN_NN_DESCENT_NUM_ITERATIONS
-          || nnDescentNumIterations > MAX_NN_DESCENT_NUM_ITERATIONS) {
-        throw new IllegalArgumentException(
-            "nnDescentNumIterations not in valid range. Valid range: ["
-                + MIN_NN_DESCENT_NUM_ITERATIONS
-                + ", "
-                + MAX_NN_DESCENT_NUM_ITERATIONS
-                + "]");
-      }
+      ParameterValidation.checkRange(
+          "nnDescentNumIterations",
+          nnDescentNumIterations,
+          MIN_NN_DESCENT_NUM_ITERATIONS,
+          MAX_NN_DESCENT_NUM_ITERATIONS);
       if (buildQuality < MIN_BUILD_QUALITY) {
         throw new IllegalArgumentException(
             "buildQuality must not be less than " + MIN_BUILD_QUALITY + ".");

@@ -93,7 +93,7 @@ public class TestAcceleratedHNSWParams extends LuceneTestCase {
   }
 
   @Test
-  public void testGraphDegreeMustNotExceedIntermediateGraphDegreeUnderCustomStrategy() {
+  public void testCustomGraphDegreeAllowsNativeClamping() {
     AcceleratedHNSWParams params =
         new AcceleratedHNSWParams.Builder()
             .withStrategy(AcceleratedHNSWParams.Strategy.CUSTOM)
@@ -102,22 +102,22 @@ public class TestAcceleratedHNSWParams extends LuceneTestCase {
             .build();
     assertEquals(params.getGraphdegree(), params.getIntermediateGraphDegree());
 
-    assertThrows(
-        IllegalArgumentException.class,
-        () ->
-            new AcceleratedHNSWParams.Builder()
-                .withStrategy(AcceleratedHNSWParams.Strategy.CUSTOM)
-                .withGraphDegree(DEFAULT_GRAPH_DEGREE + 1)
-                .withIntermediateGraphDegree(DEFAULT_GRAPH_DEGREE)
-                .build());
-    assertThrows(
-        IllegalArgumentException.class,
-        () ->
-            new AcceleratedHNSWParams.Builder()
-                .withStrategy(AcceleratedHNSWParams.Strategy.CUSTOM)
-                .withIntermediateGraphDegree(DEFAULT_GRAPH_DEGREE)
-                .withGraphDegree(DEFAULT_GRAPH_DEGREE + 1)
-                .build());
+    params =
+        new AcceleratedHNSWParams.Builder()
+            .withStrategy(AcceleratedHNSWParams.Strategy.CUSTOM)
+            .withGraphDegree(DEFAULT_GRAPH_DEGREE + 1)
+            .withIntermediateGraphDegree(DEFAULT_GRAPH_DEGREE)
+            .build();
+    assertEquals(DEFAULT_GRAPH_DEGREE + 1, params.getGraphdegree());
+    assertEquals(DEFAULT_GRAPH_DEGREE, params.getIntermediateGraphDegree());
+    params =
+        new AcceleratedHNSWParams.Builder()
+            .withStrategy(AcceleratedHNSWParams.Strategy.CUSTOM)
+            .withIntermediateGraphDegree(DEFAULT_GRAPH_DEGREE)
+            .withGraphDegree(DEFAULT_GRAPH_DEGREE + 1)
+            .build();
+    assertEquals(DEFAULT_GRAPH_DEGREE + 1, params.getGraphdegree());
+    assertEquals(DEFAULT_GRAPH_DEGREE, params.getIntermediateGraphDegree());
   }
 
   @Test
@@ -154,7 +154,7 @@ public class TestAcceleratedHNSWParams extends LuceneTestCase {
         }) {
       assertThrows(
           IllegalArgumentException.class,
-          () -> new AcceleratedHNSWParams.Builder().withGraphDegree(v));
+          () -> new AcceleratedHNSWParams.Builder().withGraphDegree(v).build());
     }
   }
 
@@ -179,7 +179,7 @@ public class TestAcceleratedHNSWParams extends LuceneTestCase {
         }) {
       assertThrows(
           IllegalArgumentException.class,
-          () -> new AcceleratedHNSWParams.Builder().withIntermediateGraphDegree(v));
+          () -> new AcceleratedHNSWParams.Builder().withIntermediateGraphDegree(v).build());
     }
   }
 
@@ -204,7 +204,7 @@ public class TestAcceleratedHNSWParams extends LuceneTestCase {
         }) {
       assertThrows(
           IllegalArgumentException.class,
-          () -> new AcceleratedHNSWParams.Builder().withWriterThreads(v));
+          () -> new AcceleratedHNSWParams.Builder().withWriterThreads(v).build());
     }
   }
 

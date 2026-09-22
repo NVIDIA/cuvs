@@ -508,11 +508,12 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
         CagraSearchParams searchParams;
         if (knnCollector instanceof GPUPerLeafCuVSKnnCollector) {
           GPUPerLeafCuVSKnnCollector collector = (GPUPerLeafCuVSKnnCollector) knnCollector;
+          // The filter over-fetch is a heuristic, not a user request. Keep it within SINGLE_CTA's
+          // limit so valid queries do not start failing as segment/filter cardinalities change.
+          if (collector.getSearchAlgo() == CagraSearchParams.SearchAlgo.SINGLE_CTA) {
+            topK = Math.min(topK, GPUKnnFloatVectorQuery.MAX_SINGLE_CTA_ITOPK);
+          }
           int effectiveITopK = Math.max(collector.getiTopK(), topK);
-          // topK may have been raised above the value validated at query construction time (see
-          // GPUKnnFloatVectorQuery.validateSearchParameters), e.g. by the filter-cardinality bump
-          // above. Re-validate against the final value actually sent to native CAGRA.
-          GPUKnnFloatVectorQuery.validateSingleCtaItopk(effectiveITopK, collector.getSearchAlgo());
           searchParams =
               new CagraSearchParams.Builder()
                   .withItopkSize(effectiveITopK)
