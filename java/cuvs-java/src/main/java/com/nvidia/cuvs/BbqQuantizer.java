@@ -7,8 +7,10 @@ package com.nvidia.cuvs;
 import java.util.Objects;
 
 /**
- * Caller-owned tensors describing one encoded BBQ dataset representation. Keep the component
- * matrices open while a graph-only CAGRA index has this representation attached.
+ * Caller-owned tensors describing one encoded BBQ dataset representation.
+ *
+ * <p>The index stores views over these matrices rather than copying them, so they must stay open
+ * for as long as any index built from them is in use.
  */
 public final class BbqQuantizer {
   public enum CodeLayout {
@@ -40,18 +42,24 @@ public final class BbqQuantizer {
   private final float centroidNormSq;
 
   private BbqQuantizer(Builder builder) {
-    codes = Objects.requireNonNull(builder.codes);
-    lowerIntervals = Objects.requireNonNull(builder.lowerIntervals);
-    upperIntervals = Objects.requireNonNull(builder.upperIntervals);
-    additionalCorrections = Objects.requireNonNull(builder.additionalCorrections);
-    quantizedComponentSums = Objects.requireNonNull(builder.quantizedComponentSums);
-    centroid = Objects.requireNonNull(builder.centroid);
-    dequantDelta = Objects.requireNonNull(builder.dequantDelta);
-    dequantSumDelta = Objects.requireNonNull(builder.dequantSumDelta);
-    rowNorm = Objects.requireNonNull(builder.rowNorm);
-    layout = Objects.requireNonNull(builder.layout);
-    metric = Objects.requireNonNull(builder.metric);
-    centroidNormSq = builder.centroidNormSq;
+    codes = Objects.requireNonNull(builder.codes, "codes");
+    lowerIntervals = Objects.requireNonNull(builder.lowerIntervals, "lowerIntervals");
+    upperIntervals = Objects.requireNonNull(builder.upperIntervals, "upperIntervals");
+    additionalCorrections =
+        Objects.requireNonNull(builder.additionalCorrections, "additionalCorrections");
+    quantizedComponentSums =
+        Objects.requireNonNull(builder.quantizedComponentSums, "quantizedComponentSums");
+    centroid = Objects.requireNonNull(builder.centroid, "centroid");
+    dequantDelta = Objects.requireNonNull(builder.dequantDelta, "dequantDelta");
+    dequantSumDelta = Objects.requireNonNull(builder.dequantSumDelta, "dequantSumDelta");
+    rowNorm = Objects.requireNonNull(builder.rowNorm, "rowNorm");
+    layout = Objects.requireNonNull(builder.layout, "layout");
+    metric = Objects.requireNonNull(builder.metric, "metric");
+    centroidNormSq = Objects.requireNonNull(builder.centroidNormSq, "centroidNormSq");
+    if (!Float.isFinite(centroidNormSq) || centroidNormSq < 0.0f) {
+      throw new IllegalArgumentException(
+          "centroidNormSq must be a finite, non-negative squared norm, but was " + centroidNormSq);
+    }
   }
 
   public CuVSMatrix getCodes() {
@@ -114,7 +122,7 @@ public final class BbqQuantizer {
     private CuVSMatrix rowNorm;
     private CodeLayout layout;
     private CagraIndexParams.CuvsDistanceType metric;
-    private float centroidNormSq;
+    private Float centroidNormSq;
 
     public Builder withCodes(CuVSMatrix value) {
       codes = value;
@@ -171,6 +179,10 @@ public final class BbqQuantizer {
       return this;
     }
 
+    /**
+     * Sets the squared L2 norm of the centroid. Required: there is no meaningful default, and
+     * leaving it at zero skews inner-product and cosine distances without reporting an error.
+     */
     public Builder withCentroidNormSq(float value) {
       centroidNormSq = value;
       return this;

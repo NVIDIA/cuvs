@@ -438,6 +438,11 @@ public interface CagraIndex extends AutoCloseable {
      * supplied with {@link #withDataset(CuVSMatrix)} is attached before search; otherwise call
      * {@link CagraIndex#updateDataset(PaddedDatasetView)} or
      * {@link CagraIndex#updateDataset(PaddedDataset)} before searching.
+     *
+     * <p>The index stores views over the quantizer tensors rather than copying them, so they must
+     * stay open for as long as the index is in use. A dense dataset passed to
+     * {@link #withDataset(CuVSMatrix)} is owned by the index, as it is for a non-BBQ build, and is
+     * closed with it.
      */
     Builder withBbqDataset(BbqQuantizer... quantizers);
 

@@ -50,6 +50,8 @@ import java.util.*;
  * @since 25.02
  */
 public class CagraIndexImpl implements CagraIndex {
+
+  private static final System.Logger LOG = System.getLogger(CagraIndexImpl.class.getName());
   private final CuVSResources resources;
   private final IndexReference cagraIndexReference;
   private boolean destroyed;
@@ -151,14 +153,14 @@ public class CagraIndexImpl implements CagraIndex {
   public void close() {
     checkNotDestroyed();
     try {
-      int returnValue = cuvsCagraIndexDestroy(cagraIndexReference.getMemorySegment());
-      checkCuVSError(returnValue, "cuvsCagraIndexDestroy");
+      // Both are released whatever either reports: `destroyed` below makes a retry impossible.
+      quietly(
+          () ->
+              checkCuVSError(
+                  cuvsCagraIndexDestroy(cagraIndexReference.getMemorySegment()),
+                  "cuvsCagraIndexDestroy"));
       if (cagraIndexReference.datasetOwner != null) {
-        try {
-          cagraIndexReference.datasetOwner.close();
-        } catch (Exception e) {
-          throw new RuntimeException("Failed to destroy CAGRA dataset", e);
-        }
+        quietly(cagraIndexReference.datasetOwner::close);
       }
     } finally {
       destroyed = true;
@@ -176,58 +178,58 @@ public class CagraIndexImpl implements CagraIndex {
     long rows = dataset.size();
 
     try (var indexParams = segmentFromIndexParams(indexParameters);
-        var localArena = Arena.ofConfined()) {
+        var localArena = Arena.ofConfined();
+        var resourcesAccessor = resources.access()) {
       MemorySegment indexParamsMemorySegment = indexParams.handle();
 
       int numWriterThreads = indexParameters != null ? indexParameters.getNumWriterThreads() : 1;
-      omp_set_num_threads(numWriterThreads);
-
-      var datasetTensor = dataset.toTensor(localArena);
+      MemorySegment datasetView = MemorySegment.NULL;
+      boolean success = false;
       var index = createCagraIndex();
 
-      if (cuvsCagraIndexParams.build_algo(indexParamsMemorySegment)
-          == 1) { // when build algo is IVF_PQ
-        MemorySegment cuvsIvfPqIndexParamsMS =
-            cuvsIvfPqParams.ivf_pq_build_params(
-                cuvsCagraIndexParams.graph_build_params(indexParamsMemorySegment));
-        int n_lists = cuvsIvfPqIndexParams.n_lists(cuvsIvfPqIndexParamsMS);
-        // As rows cannot be less than n_lists value so trim down.
-        cuvsIvfPqIndexParams.n_lists(
-            cuvsIvfPqIndexParamsMS, (int) (rows < n_lists ? rows : n_lists));
-      }
-      try (var resourcesAccessor = resources.access()) {
+      try {
+        omp_set_num_threads(numWriterThreads);
+
+        if (cuvsCagraIndexParams.build_algo(indexParamsMemorySegment)
+            == 1) { // when build algo is IVF_PQ
+          MemorySegment cuvsIvfPqIndexParamsMS =
+              cuvsIvfPqParams.ivf_pq_build_params(
+                  cuvsCagraIndexParams.graph_build_params(indexParamsMemorySegment));
+          int n_lists = cuvsIvfPqIndexParams.n_lists(cuvsIvfPqIndexParamsMS);
+          // As rows cannot be less than n_lists value so trim down.
+          cuvsIvfPqIndexParams.n_lists(
+              cuvsIvfPqIndexParamsMS, (int) (rows < n_lists ? rows : n_lists));
+        }
+
         var cuvsRes = resourcesAccessor.handle();
 
         // TODO: do we need a stream sync here?
-        var returnValue = cuvsStreamSync(cuvsRes);
-        checkCuVSError(returnValue, "cuvsStreamSync");
+        checkCuVSError(cuvsStreamSync(cuvsRes), "cuvsStreamSync");
 
-        MemorySegment datasetView = MemorySegment.NULL;
-        try {
-          MemorySegment datasetViewPtr = localArena.allocate(cuvsDataset_t);
-          if (isCagraPaddedLayout(dataset)) {
-            returnValue = cuvsDatasetMakePaddedView(cuvsRes, datasetTensor, datasetViewPtr);
-            checkCuVSError(returnValue, "cuvsDatasetMakePaddedView");
-          } else {
-            returnValue = cuvsDatasetMakeStandardView(cuvsRes, datasetTensor, datasetViewPtr);
-            checkCuVSError(returnValue, "cuvsDatasetMakeStandardView");
-          }
-          datasetView = datasetViewPtr.get(cuvsDataset_t, 0);
+        datasetView =
+            isCagraPaddedLayout(dataset)
+                ? makePaddedViewHandle(cuvsRes, dataset, localArena)
+                : makeStandardViewHandle(cuvsRes, dataset, localArena);
 
-          returnValue = cuvsCagraBuild(cuvsRes, indexParamsMemorySegment, datasetView, index);
-          checkCuVSError(returnValue, "cuvsCagraBuild");
-        } finally {
-          if (datasetView.address() != 0) {
-            checkCuVSError(cuvsDatasetDestroy(datasetView), "cuvsDatasetDestroy");
-          }
+        checkCuVSError(
+            cuvsCagraBuild(cuvsRes, indexParamsMemorySegment, datasetView, index),
+            "cuvsCagraBuild");
+        checkCuVSError(cuvsStreamSync(cuvsRes), "cuvsStreamSync");
+
+        success = true;
+        return new IndexReference(index, dataset);
+      } finally {
+        MemorySegment view = datasetView;
+        if (view.address() != 0) {
+          quietly(() -> checkCuVSError(cuvsDatasetDestroy(view), "cuvsDatasetDestroy"));
         }
-
-        returnValue = cuvsStreamSync(cuvsRes);
-        checkCuVSError(returnValue, "cuvsStreamSync");
+        // Ownership transfers only on success, so on any other exit the index is ours and the
+        // caller's matrix is not.
+        if (!success) {
+          quietly(() -> checkCuVSError(cuvsCagraIndexDestroy(index), "cuvsCagraIndexDestroy"));
+        }
+        quietly(() -> omp_set_num_threads(1));
       }
-      omp_set_num_threads(1);
-
-      return new IndexReference(index, dataset);
     }
   }
 
@@ -244,25 +246,32 @@ public class CagraIndexImpl implements CagraIndex {
         var localArena = Arena.ofConfined();
         var resourcesAccessor = resources.access()) {
       var cuvsRes = resourcesAccessor.handle();
-      var index = createCagraIndex();
       var quantizerHandles = new ArrayList<MemorySegment>(bbqQuantizers.length);
       MemorySegment bbqDataset = MemorySegment.NULL;
       MemorySegment paddedDataset = MemorySegment.NULL;
+      int numWriterThreads = indexParameters != null ? indexParameters.getNumWriterThreads() : 1;
+      boolean success = false;
+      var index = createCagraIndex();
 
       try {
+        // nn-descent, which a BBQ build always uses, does a substantial amount of its work on
+        // the host under OpenMP.
+        omp_set_num_threads(numWriterThreads);
         for (BbqQuantizer quantizer : bbqQuantizers) {
           var quantizerPtr = localArena.allocate(cuvsBbqQuantizer_t);
           checkCuVSError(
               cuvsBbqQuantizerCreateView(
-                  tensor(quantizer.getCodes(), localArena),
-                  vectorTensor(quantizer.getLowerIntervals(), localArena),
-                  vectorTensor(quantizer.getUpperIntervals(), localArena),
-                  vectorTensor(quantizer.getAdditionalCorrections(), localArena),
-                  vectorTensor(quantizer.getQuantizedComponentSums(), localArena),
-                  vectorTensor(quantizer.getCentroid(), localArena),
-                  vectorTensor(quantizer.getDequantDelta(), localArena),
-                  vectorTensor(quantizer.getDequantSumDelta(), localArena),
-                  vectorTensor(quantizer.getRowNorm(), localArena),
+                  tensor(quantizer.getCodes(), "codes", localArena),
+                  vectorTensor(quantizer.getLowerIntervals(), "lowerIntervals", localArena),
+                  vectorTensor(quantizer.getUpperIntervals(), "upperIntervals", localArena),
+                  vectorTensor(
+                      quantizer.getAdditionalCorrections(), "additionalCorrections", localArena),
+                  vectorTensor(
+                      quantizer.getQuantizedComponentSums(), "quantizedComponentSums", localArena),
+                  vectorTensor(quantizer.getCentroid(), "centroid", localArena),
+                  vectorTensor(quantizer.getDequantDelta(), "dequantDelta", localArena),
+                  vectorTensor(quantizer.getDequantSumDelta(), "dequantSumDelta", localArena),
+                  vectorTensor(quantizer.getRowNorm(), "rowNorm", localArena),
                   quantizer.getLayout().value,
                   quantizer.getMetric().value,
                   quantizer.getCentroidNormSq(),
@@ -284,65 +293,102 @@ public class CagraIndexImpl implements CagraIndex {
         checkCuVSError(
             cuvsCagraBuild(cuvsRes, indexParams.handle(), bbqDataset, index), "cuvsCagraBuild");
 
+        IndexReference result;
         if (dataset == null) {
           checkCuVSError(cuvsStreamSync(cuvsRes), "cuvsStreamSync");
-          return new IndexReference(index, null, new BbqDatasetKeepAlive(bbqQuantizers));
-        }
-
-        var paddedDatasetPtr = localArena.allocate(cuvsDataset_t);
-        if (dataset instanceof CuVSDeviceMatrix && isCagraPaddedLayout(dataset)) {
-          checkCuVSError(
-              cuvsDatasetMakePaddedView(cuvsRes, dataset.toTensor(localArena), paddedDatasetPtr),
-              "cuvsDatasetMakePaddedView");
+          result = new IndexReference(index, null, null);
         } else {
+          paddedDataset = makeDevicePaddedDataset(cuvsRes, dataset, localArena);
           checkCuVSError(
-              cuvsDatasetMakePadded(
-                  cuvsRes,
-                  dataset.toTensor(localArena),
-                  CUVS_DATASET_MEM_TYPE_DEVICE(),
-                  paddedDatasetPtr),
-              "cuvsDatasetMakePadded");
-        }
-        paddedDataset = paddedDatasetPtr.get(cuvsDataset_t, 0);
-        checkCuVSError(
-            cuvsCagraUpdateDataset(cuvsRes, paddedDataset, index), "cuvsCagraUpdateDataset");
-        checkCuVSError(cuvsStreamSync(cuvsRes), "cuvsStreamSync");
+              cuvsCagraUpdateDataset(cuvsRes, paddedDataset, index), "cuvsCagraUpdateDataset");
+          checkCuVSError(cuvsStreamSync(cuvsRes), "cuvsStreamSync");
 
-        var datasetOwner = new DatasetCloseDelegate(paddedDataset);
-        paddedDataset = MemorySegment.NULL;
-        return new IndexReference(index, dataset, datasetOwner);
-      } catch (RuntimeException | Error t) {
-        cuvsCagraIndexDestroy(index);
-        throw t;
-      } finally {
-        if (bbqDataset.address() != 0) {
-          cuvsDatasetDestroy(bbqDataset);
+          // The index owns both the padded dataset and the caller's matrix from here on.
+          result =
+              new IndexReference(
+                  index,
+                  dataset,
+                  new PaddedDatasetOwner(new DatasetCloseDelegate(paddedDataset), dataset));
         }
-        if (paddedDataset.address() != 0) {
-          cuvsDatasetDestroy(paddedDataset);
+        success = true;
+        return result;
+      } finally {
+        // Ownership transfers only on success, so on any other exit the index and the padded
+        // dataset are ours and the caller's matrix is not. Destroy the index first: it holds a
+        // view into the padded dataset.
+        if (!success) {
+          quietly(() -> checkCuVSError(cuvsCagraIndexDestroy(index), "cuvsCagraIndexDestroy"));
+          MemorySegment padded = paddedDataset;
+          if (padded.address() != 0) {
+            quietly(() -> checkCuVSError(cuvsDatasetDestroy(padded), "cuvsDatasetDestroy"));
+          }
+        }
+        MemorySegment bbqView = bbqDataset;
+        if (bbqView.address() != 0) {
+          quietly(() -> checkCuVSError(cuvsDatasetDestroy(bbqView), "cuvsDatasetDestroy"));
         }
         for (MemorySegment quantizer : quantizerHandles) {
-          cuvsBbqQuantizerDestroy(quantizer);
+          quietly(
+              () -> checkCuVSError(cuvsBbqQuantizerDestroy(quantizer), "cuvsBbqQuantizerDestroy"));
         }
+        quietly(() -> omp_set_num_threads(1));
       }
     }
   }
 
-  private static MemorySegment tensor(CuVSMatrix matrix, Arena arena) {
+  /**
+   * Validates a caller-supplied BBQ component and returns it in its internal form.
+   *
+   * <p>The native side reads every one of these through {@code from_dlpack}, which accepts only
+   * compact row-major memory, so a padded matrix has to be rejected here. Left to the C layer it
+   * surfaces as an error naming the quantizer entry point, with no indication of which of the nine
+   * tensors was at fault.
+   */
+  private static CuVSMatrixInternal bbqComponent(CuVSMatrix matrix, String name) {
     if (!(matrix instanceof CuVSDeviceMatrix) || !(matrix instanceof CuVSMatrixInternal internal)) {
-      throw new IllegalArgumentException("BBQ tensors must be device CuVS matrices");
-    }
-    return internal.toTensor(arena);
-  }
-
-  private static MemorySegment vectorTensor(CuVSMatrix matrix, Arena arena) {
-    if (!(matrix instanceof CuVSDeviceMatrix) || !(matrix instanceof CuVSMatrixInternal internal)) {
-      throw new IllegalArgumentException("BBQ tensors must be device CuVS matrices");
+      throw new IllegalArgumentException("BBQ tensor '" + name + "' must be a device CuVS matrix");
     }
     long rowStride = internal.rowStride();
     if (rowStride > 0 && rowStride != matrix.columns()) {
-      throw new IllegalArgumentException("BBQ vector tensors must be contiguous");
+      throw new IllegalArgumentException(
+          "BBQ tensor '"
+              + name
+              + "' must be contiguous, but its row stride ("
+              + rowStride
+              + ") does not match its column count ("
+              + matrix.columns()
+              + ")");
     }
+    return internal;
+  }
+
+  /**
+   * The rank-2 codes tensor.
+   *
+   * <p>Built without strides rather than through {@code toTensor}, which emits
+   * {@code {rowStride, columnStride}} whenever a row stride is set and so would pass a column
+   * stride of -1 for a matrix that only declared a row stride. Omitting strides is correct here
+   * because {@link #bbqComponent} has already rejected anything non-contiguous.
+   */
+  private static MemorySegment tensor(CuVSMatrix matrix, String name, Arena arena) {
+    var internal = bbqComponent(matrix, name);
+    return prepareTensor(
+        arena,
+        internal.memorySegment(),
+        new long[] {matrix.size(), matrix.columns()},
+        internal.code(),
+        internal.bits(),
+        kDLCUDA());
+  }
+
+  /**
+   * One of the rank-1 correction vectors, flattened from the caller's matrix.
+   *
+   * <p>Flattening to {@code size * columns} is only valid because {@link #bbqComponent} has
+   * rejected anything non-contiguous, so there is no row padding to skip.
+   */
+  private static MemorySegment vectorTensor(CuVSMatrix matrix, String name, Arena arena) {
+    var internal = bbqComponent(matrix, name);
     return prepareTensor(
         arena,
         internal.memorySegment(),
@@ -556,27 +602,73 @@ public class CagraIndexImpl implements CagraIndex {
     return cagraIndexReference.getMemorySegment();
   }
 
+  /** Narrows a caller-supplied dataset to the internal form the native layer can read. */
+  private static CuVSMatrixInternal requireInternalMatrix(CuVSMatrix dataset) {
+    Objects.requireNonNull(dataset);
+    if (!(dataset instanceof CuVSMatrixInternal internal)) {
+      throw new IllegalArgumentException("dataset must be a CuVSMatrixInternal matrix");
+    }
+    return internal;
+  }
+
+  /** Creates a native padded dataset that views the caller's storage rather than copying it. */
+  private static MemorySegment makePaddedViewHandle(
+      long cuvsRes, CuVSMatrixInternal dataset, Arena arena) {
+    MemorySegment out = arena.allocate(cuvsDataset_t);
+    checkCuVSError(
+        cuvsDatasetMakePaddedView(cuvsRes, dataset.toTensor(arena), out),
+        "cuvsDatasetMakePaddedView");
+    return out.get(cuvsDataset_t, 0);
+  }
+
+  /** Creates a native padded dataset owning its own copy of the caller's storage. */
+  private static MemorySegment makePaddedCopyHandle(
+      long cuvsRes, CuVSMatrixInternal dataset, int targetMemType, Arena arena) {
+    MemorySegment out = arena.allocate(cuvsDataset_t);
+    checkCuVSError(
+        cuvsDatasetMakePadded(cuvsRes, dataset.toTensor(arena), targetMemType, out),
+        "cuvsDatasetMakePadded");
+    return out.get(cuvsDataset_t, 0);
+  }
+
+  /** Creates a native standard (unpadded) dataset that views the caller's storage. */
+  private static MemorySegment makeStandardViewHandle(
+      long cuvsRes, CuVSMatrixInternal dataset, Arena arena) {
+    MemorySegment out = arena.allocate(cuvsDataset_t);
+    checkCuVSError(
+        cuvsDatasetMakeStandardView(cuvsRes, dataset.toTensor(arena), out),
+        "cuvsDatasetMakeStandardView");
+    return out.get(cuvsDataset_t, 0);
+  }
+
+  /**
+   * Produces a device padded dataset for {@code dataset}: a view when it already has CAGRA's padded
+   * row width, a copy otherwise. Always device-resident, because {@code cuvsCagraUpdateDataset}
+   * accepts nothing else.
+   */
+  private static MemorySegment makeDevicePaddedDataset(
+      long cuvsRes, CuVSMatrixInternal dataset, Arena arena) {
+    return dataset instanceof CuVSDeviceMatrix && isCagraPaddedLayout(dataset)
+        ? makePaddedViewHandle(cuvsRes, dataset, arena)
+        : makePaddedCopyHandle(cuvsRes, dataset, CUVS_DATASET_MEM_TYPE_DEVICE(), arena);
+  }
+
   @Override
   public CagraIndex.PaddedDataset makePaddedDataset(CuVSMatrix dataset) throws Throwable {
     checkNotDestroyed();
-    Objects.requireNonNull(dataset);
-    if (!(dataset instanceof CuVSMatrixInternal datasetInternal)) {
-      throw new IllegalArgumentException("dataset must be a CuVSMatrixInternal matrix");
-    }
+    var datasetInternal = requireInternalMatrix(dataset);
 
     try (var localArena = Arena.ofConfined();
         var resourcesAccessor = resources.access()) {
       var cuvsRes = resourcesAccessor.handle();
-      var datasetTensor = datasetInternal.toTensor(localArena);
+      // A padded copy stays wherever the source lives; only attaching one to an index forces it
+      // onto the device.
       int targetMemType =
           (datasetInternal instanceof CuVSHostMatrixImpl)
               ? CUVS_DATASET_MEM_TYPE_HOST()
               : CUVS_DATASET_MEM_TYPE_DEVICE();
-      MemorySegment paddedDatasetPtr = localArena.allocate(cuvsDataset_t);
-      var returnValue =
-          cuvsDatasetMakePadded(cuvsRes, datasetTensor, targetMemType, paddedDatasetPtr);
-      checkCuVSError(returnValue, "cuvsDatasetMakePadded");
-      MemorySegment paddedDataset = paddedDatasetPtr.get(cuvsDataset_t, 0);
+      MemorySegment paddedDataset =
+          makePaddedCopyHandle(cuvsRes, datasetInternal, targetMemType, localArena);
 
       var out = new CagraIndex.PaddedDataset();
       out.setDelegate(new DatasetCloseDelegate(paddedDataset), paddedDataset.address());
@@ -587,19 +679,12 @@ public class CagraIndexImpl implements CagraIndex {
   @Override
   public CagraIndex.PaddedDatasetView makePaddedDatasetView(CuVSMatrix dataset) throws Throwable {
     checkNotDestroyed();
-    Objects.requireNonNull(dataset);
-    if (!(dataset instanceof CuVSMatrixInternal datasetInternal)) {
-      throw new IllegalArgumentException("dataset must be a CuVSMatrixInternal matrix");
-    }
+    var datasetInternal = requireInternalMatrix(dataset);
 
     try (var localArena = Arena.ofConfined();
         var resourcesAccessor = resources.access()) {
       var cuvsRes = resourcesAccessor.handle();
-      var datasetTensor = datasetInternal.toTensor(localArena);
-      MemorySegment paddedViewPtr = localArena.allocate(cuvsDataset_t);
-      var returnValue = cuvsDatasetMakePaddedView(cuvsRes, datasetTensor, paddedViewPtr);
-      checkCuVSError(returnValue, "cuvsDatasetMakePaddedView");
-      MemorySegment paddedView = paddedViewPtr.get(cuvsDataset_t, 0);
+      MemorySegment paddedView = makePaddedViewHandle(cuvsRes, datasetInternal, localArena);
 
       var out = new CagraIndex.PaddedDatasetView();
       out.setDelegate(new DatasetCloseDelegate(paddedView), paddedView.address());
@@ -611,19 +696,12 @@ public class CagraIndexImpl implements CagraIndex {
   public CagraIndex.StandardDatasetView makeStandardDatasetView(CuVSMatrix dataset)
       throws Throwable {
     checkNotDestroyed();
-    Objects.requireNonNull(dataset);
-    if (!(dataset instanceof CuVSMatrixInternal datasetInternal)) {
-      throw new IllegalArgumentException("dataset must be a CuVSMatrixInternal matrix");
-    }
+    var datasetInternal = requireInternalMatrix(dataset);
 
     try (var localArena = Arena.ofConfined();
         var resourcesAccessor = resources.access()) {
       var cuvsRes = resourcesAccessor.handle();
-      var datasetTensor = datasetInternal.toTensor(localArena);
-      MemorySegment standardViewPtr = localArena.allocate(cuvsDataset_t);
-      var returnValue = cuvsDatasetMakeStandardView(cuvsRes, datasetTensor, standardViewPtr);
-      checkCuVSError(returnValue, "cuvsDatasetMakeStandardView");
-      MemorySegment standardView = standardViewPtr.get(cuvsDataset_t, 0);
+      MemorySegment standardView = makeStandardViewHandle(cuvsRes, datasetInternal, localArena);
 
       var out = new CagraIndex.StandardDatasetView();
       out.setDelegate(new DatasetCloseDelegate(standardView), standardView.address());
@@ -894,6 +972,44 @@ public class CagraIndexImpl implements CagraIndex {
     }
   }
 
+  /** A cleanup action that is allowed to fail, including with a checked exception. */
+  @FunctionalInterface
+  private interface CleanupStep {
+    void run() throws Exception;
+  }
+
+  /**
+   * Runs a cleanup step, logging any failure rather than propagating it.
+   *
+   * TODO: replace this with a more comprehensive mechanism as part of https://github.com/NVIDIA/cuvs/issues/2670
+   */
+  private static void quietly(CleanupStep cleanup) {
+    try {
+      cleanup.run();
+    } catch (Exception thrown) {
+      // Error is left to propagate: an OutOfMemoryError or a linkage failure says the JVM is in
+      // no state to carry on, and swallowing it would hide that.
+      LOG.log(
+          System.Logger.Level.WARNING,
+          "Failed to release a native cuVS resource; it has probably been leaked",
+          thrown);
+    }
+  }
+
+  /**
+   * Owns both halves of an attached dataset: the native {@code cuvsDataset_t} and the matrix whose
+   * storage it may be viewing. The native dataset is released first, since closing the matrix
+   * underneath a live view would leave it dangling.
+   */
+  private record PaddedDatasetOwner(DatasetCloseDelegate nativeDataset, CuVSMatrix matrix)
+      implements AutoCloseable {
+    @Override
+    public void close() {
+      quietly(nativeDataset::close);
+      quietly(matrix::close);
+    }
+  }
+
   private static final class DatasetCloseDelegate implements AutoCloseable {
     private MemorySegment handle;
 
@@ -907,19 +1023,6 @@ public class CagraIndexImpl implements CagraIndex {
         checkCuVSError(cuvsDatasetDestroy(handle), "cuvsDatasetDestroy");
         handle = MemorySegment.NULL;
       }
-    }
-  }
-
-  private static final class BbqDatasetKeepAlive implements AutoCloseable {
-    private BbqQuantizer[] quantizers;
-
-    private BbqDatasetKeepAlive(BbqQuantizer[] quantizers) {
-      this.quantizers = quantizers.clone();
-    }
-
-    @Override
-    public void close() {
-      quantizers = null;
     }
   }
 
