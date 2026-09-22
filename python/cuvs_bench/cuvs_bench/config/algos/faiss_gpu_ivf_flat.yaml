@@ -4,34 +4,34 @@ groups:
     build:
       nlist: [1024, 2048, 4096]
       ratio: [4]
-      use_cuvs: [False]
+      use_cuvs: [false]
     search:
       nprobe: [1, 5, 10, 50, 100, 200]
   basecuvs:
     build:
       nlist: [1024, 2048, 4096]
       ratio: [4]
-      use_cuvs: [True]
+      use_cuvs: [true]
     search:
       nprobe: [1, 5, 10, 50, 100, 200]
   large:
     build:
       nlist: [8192, 16384, 32768]
       ratio: [4]
-      use_cuvs: [False]
+      use_cuvs: [false]
     search:
       nprobe: [10, 20, 30, 50, 100, 200, 500, 1000]
   largecuvs:
     build:
       nlist: [8192, 16384, 32768]
       ratio: [4]
-      use_cuvs: [True]
+      use_cuvs: [true]
     search:
       nprobe: [10, 20, 30, 50, 100, 200, 500, 1000]
   test:
     build:
       nlist: [1024]
       ratio: [4]
-      use_cuvs: [False]
+      use_cuvs: [false]
     search:
       nprobe: [1, 5]

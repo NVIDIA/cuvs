@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -11,6 +11,7 @@
 #include <chrono>
 #include <filesystem>
 #include <memory>
+#include <string>
 
 namespace cuvs::bench {
 
@@ -45,6 +46,7 @@ class cuvs_cagra_hnswlib : public algo<T>, public algo_gpu {
     using cagra_wrapper_params = typename cuvs_cagra<T, IdxT>::build_param;
     cagra_wrapper_params cagra_build_params;
     cuvs::neighbors::hnsw::index_params hnsw_index_params;
+    std::string dataset_path;
   };
 
   struct search_param : public search_param_base {
@@ -68,7 +70,7 @@ class cuvs_cagra_hnswlib : public algo<T>, public algo_gpu {
 
   [[nodiscard]] auto get_sync_stream() const noexcept -> cudaStream_t override
   {
-    return handle_.get_sync_stream();
+    return handle_.get_sync_stream().get();
   }
 
   [[nodiscard]] auto uses_stream() const noexcept -> bool override
@@ -105,41 +107,8 @@ class cuvs_cagra_hnswlib : public algo<T>, public algo_gpu {
 template <typename T, typename IdxT>
 void cuvs_cagra_hnswlib<T, IdxT>::build(const T* dataset, size_t nrow)
 {
-  // when the data set is on host, we can pass it directly to HNSW
-  bool dataset_is_on_host = raft::get_device_for_address(dataset) == -1;
-
-  // re-use the CAGRA wrapper to parse build params
-  auto bps = build_param_.cagra_build_params;
-  // Not very conveniently, the CAGRA wrapper resolves parameters after the dataset shape is known,
-  // so it takes a lambda to do it. Even though we know the shape, we want to use the wrapper as-is,
-  // so we just modify that lambda.
-  bps.cagra_params = [dataset_is_on_host, orig_cagra_params = bps.cagra_params](
-                       auto dataset_extents, auto metric) {
-    auto params                    = orig_cagra_params(dataset_extents, metric);
-    params.attach_dataset_on_build = !dataset_is_on_host;
-    return params;
-  };
-  cuvs_cagra<T, IdxT> cagra_wrapper{this->metric_, this->dim_, bps};
-
-  // build the CAGRA index
-  cagra_wrapper.build(dataset, nrow);
-  auto& cagra_index = *cagra_wrapper.get_index();
-
-  // pass the dataset directly to HNSW if it's on the host
-  std::optional<raft::host_matrix_view<const T, int64_t>> opt_dataset_view = std::nullopt;
-  if (dataset_is_on_host) {
-    opt_dataset_view.emplace(
-      raft::make_host_matrix_view<const T, int64_t>(dataset, nrow, this->dim_));
-  }
-
-  // convert the index to HNSW format
-  hnsw_index_ = cuvs::neighbors::hnsw::from_cagra(
-    handle_, build_param_.hnsw_index_params, cagra_index, opt_dataset_view);
-
-  // special treatment in save/serialize step
-  if (cagra_index.dataset_fd().has_value() && cagra_index.graph_fd().has_value()) {
-    cagra_ace_build_ = true;
-  }
+  auto dataset_view = raft::make_host_matrix_view<const T, int64_t>(dataset, nrow, this->dim_);
+  hnsw_index_ = cuvs::neighbors::hnsw::build(handle_, build_param_.hnsw_index_params, dataset_view);
 }
 
 template <typename T, typename IdxT>
@@ -153,8 +122,8 @@ void cuvs_cagra_hnswlib<T, IdxT>::set_search_param(const search_param_base& para
 template <typename T, typename IdxT>
 void cuvs_cagra_hnswlib<T, IdxT>::save(const std::string& file) const
 {
-  if (build_param_.hnsw_index_params.hierarchy ==
-      cuvs::neighbors::hnsw::HnswHierarchy::GPU_LAYERED_ON_DISK) {
+  if (build_param_.hnsw_index_params.output_format ==
+      cuvs::neighbors::hnsw::HnswOutputFormat::GRAPH_ONLY) {
     const auto src_artifact = std::filesystem::path(hnsw_index_->file_path());
     RAFT_EXPECTS(!src_artifact.empty(), "Layered HNSW artifact path is not available.");
     RAFT_EXPECTS(std::filesystem::exists(src_artifact),
@@ -181,12 +150,17 @@ template <typename T, typename IdxT>
 void cuvs_cagra_hnswlib<T, IdxT>::load(const std::string& file)
 {
   cuvs::neighbors::hnsw::index<T>* idx = nullptr;
-  cuvs::neighbors::hnsw::deserialize(handle_,
-                                     build_param_.hnsw_index_params,
-                                     file,
-                                     this->dim_,
-                                     parse_metric_type(this->metric_),
-                                     &idx);
+  if (build_param_.hnsw_index_params.output_format ==
+      cuvs::neighbors::hnsw::HnswOutputFormat::GRAPH_ONLY) {
+    cuvs::neighbors::hnsw::deserialize(handle_, file, build_param_.dataset_path, &idx);
+  } else {
+    cuvs::neighbors::hnsw::deserialize(handle_,
+                                       build_param_.hnsw_index_params,
+                                       file,
+                                       this->dim_,
+                                       parse_metric_type(this->metric_),
+                                       &idx);
+  }
   hnsw_index_ = std::shared_ptr<cuvs::neighbors::hnsw::index<T>>(idx);
 }
 

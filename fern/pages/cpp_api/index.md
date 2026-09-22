@@ -5,12 +5,15 @@ These pages are generated from the documented public headers in the cuVS source 
 ## Cluster
 
 - [Agglomerative](/api-reference/cpp-api-cluster-agglomerative)
+- [Gmm](/api-reference/cpp-api-cluster-gmm)
 - [K-Means](/api-reference/cpp-api-cluster-kmeans)
 - [Spectral](/api-reference/cpp-api-cluster-spectral)
 
 ## Common
 
+- [Bloom Filter](/api-reference/cpp-api-core-bloom-filter)
 - [Common Types](/api-reference/cpp-api-common-types)
+- [Roaring Allowlist](/api-reference/cpp-api-core-roaring-allowlist)
 
 ## Distance
 
@@ -30,6 +33,7 @@ These pages are generated from the documented public headers in the cuVS source 
 - [Index](/api-reference/cpp-api-neighbors-composite-index)
 - [IVF Flat](/api-reference/cpp-api-neighbors-ivf-flat)
 - [IVF PQ](/api-reference/cpp-api-neighbors-ivf-pq)
+- [IVF Rabitq](/api-reference/cpp-api-neighbors-ivf-rabitq)
 - [IVF SQ](/api-reference/cpp-api-neighbors-ivf-sq)
 - [NN Descent](/api-reference/cpp-api-neighbors-nn-descent)
 - [Refine](/api-reference/cpp-api-neighbors-refine)
@@ -58,3 +62,4 @@ These pages are generated from the documented public headers in the cuVS source 
 
 - [Cutlass Utils](/api-reference/cpp-api-util-cutlass-utils)
 - [File Io](/api-reference/cpp-api-util-file-io)
+- [Host Memory](/api-reference/cpp-api-util-host-memory)

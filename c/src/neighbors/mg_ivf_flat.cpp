@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -10,6 +10,7 @@
 #include <cuvs/neighbors/ivf_flat.hpp>
 #include <dlpack/dlpack.h>
 #include <raft/core/error.hpp>
+#include <raft/core/numpy_serializer.hpp>
 #include <raft/core/serialize.hpp>
 
 #include "../core/exceptions.hpp"
@@ -396,18 +397,24 @@ extern "C" cuvsError_t cuvsMultiGpuIvfFlatDeserialize(cuvsResources_t res,
   return cuvs::core::translate_exceptions([=] {
     std::ifstream is(filename, std::ios::in | std::ios::binary);
     if (!is) { RAFT_FAIL("Cannot open file %s", filename); }
-    char dtype_string[4];
-    is.read(dtype_string, 4);
-    auto dtype = raft::detail::numpy_serializer::parse_descr(std::string(dtype_string, 4));
+    char dtype_string[4]{};
+    if (!is.read(dtype_string, sizeof(dtype_string))) {
+      RAFT_FAIL("Invalid or truncated index header in file %s", filename);
+    }
+    auto dtype =
+      raft::numpy_serializer::parse_descr(std::string(dtype_string, sizeof(dtype_string)));
     is.close();
 
     index->dtype.bits = dtype.itemsize * 8;
     if (dtype.kind == 'f' && dtype.itemsize == 4) {
       index->dtype.code = kDLFloat;
-      index->addr       = reinterpret_cast<uintptr_t>(_mg_deserialize<float>(res, filename));
-    } else if (dtype.kind == 'e' && dtype.itemsize == 2) {
+      index->addr =
+          reinterpret_cast<uintptr_t>(_mg_deserialize<float>(res, filename));
+    } else if ((dtype.kind == 'f' || dtype.kind == 'e') &&
+               dtype.itemsize == 2) {
       index->dtype.code = kDLFloat;
-      index->addr       = reinterpret_cast<uintptr_t>(_mg_deserialize<half>(res, filename));
+      index->addr =
+          reinterpret_cast<uintptr_t>(_mg_deserialize<half>(res, filename));
     } else if (dtype.kind == 'i' && dtype.itemsize == 1) {
       index->dtype.code = kDLInt;
       index->addr       = reinterpret_cast<uintptr_t>(_mg_deserialize<int8_t>(res, filename));
@@ -427,18 +434,24 @@ extern "C" cuvsError_t cuvsMultiGpuIvfFlatDistribute(cuvsResources_t res,
   return cuvs::core::translate_exceptions([=] {
     std::ifstream is(filename, std::ios::in | std::ios::binary);
     if (!is) { RAFT_FAIL("Cannot open file %s", filename); }
-    char dtype_string[4];
-    is.read(dtype_string, 4);
-    auto dtype = raft::detail::numpy_serializer::parse_descr(std::string(dtype_string, 4));
+    char dtype_string[4]{};
+    if (!is.read(dtype_string, sizeof(dtype_string))) {
+      RAFT_FAIL("Invalid or truncated index header in file %s", filename);
+    }
+    auto dtype =
+      raft::numpy_serializer::parse_descr(std::string(dtype_string, sizeof(dtype_string)));
     is.close();
 
     index->dtype.bits = dtype.itemsize * 8;
     if (dtype.kind == 'f' && dtype.itemsize == 4) {
       index->dtype.code = kDLFloat;
-      index->addr       = reinterpret_cast<uintptr_t>(_mg_distribute<float>(res, filename));
-    } else if (dtype.kind == 'e' && dtype.itemsize == 2) {
+      index->addr =
+          reinterpret_cast<uintptr_t>(_mg_distribute<float>(res, filename));
+    } else if ((dtype.kind == 'f' || dtype.kind == 'e') &&
+               dtype.itemsize == 2) {
       index->dtype.code = kDLFloat;
-      index->addr       = reinterpret_cast<uintptr_t>(_mg_distribute<half>(res, filename));
+      index->addr =
+          reinterpret_cast<uintptr_t>(_mg_distribute<half>(res, filename));
     } else if (dtype.kind == 'i' && dtype.itemsize == 1) {
       index->dtype.code = kDLInt;
       index->addr       = reinterpret_cast<uintptr_t>(_mg_distribute<int8_t>(res, filename));

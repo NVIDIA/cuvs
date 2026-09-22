@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from .cagra import (
@@ -11,6 +11,7 @@ from .cagra import (
     load,
     save,
     search,
+    update_dataset,
 )
 
 __all__ = [
@@ -20,6 +21,7 @@ __all__ = [
     "build",
     "extend",
     "search",
+    "update_dataset",
     "save",
     "load",
     "distribute",

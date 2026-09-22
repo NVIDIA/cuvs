@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -7,6 +7,7 @@
 
 #include "hashmap.hpp"
 
+#include <cuda/stream>
 #include <cuvs/neighbors/common.hpp>
 #include <neighbors/detail/cagra/compute_distance-ext.cuh>
 #include <raft/core/resource/cuda_stream.hpp>
@@ -38,8 +39,8 @@ namespace cuvs::neighbors::cagra::detail {
 template <typename T>
 struct lightweight_uvector {
  private:
-  using raft_res_type = const raft::resources*;
-  using rmm_res_type  = std::tuple<rmm::device_async_resource_ref, rmm::cuda_stream_view>;
+  using raft_res_type            = const raft::resources*;
+  using rmm_res_type             = std::tuple<rmm::device_async_resource_ref, cuda::stream_ref>;
   static constexpr size_t kAlign = 256;
 
   std::variant<raft_res_type, rmm_res_type> res_;
@@ -68,21 +69,21 @@ struct lightweight_uvector {
     }
     auto copy_size = std::min(size_, new_size);
     if (copy_size > 0) {
-      cudaMemcpyAsync(new_ptr, ptr_, copy_size * sizeof(T), cudaMemcpyDefault, s);
+      cudaMemcpyAsync(new_ptr, ptr_, copy_size * sizeof(T), cudaMemcpyDefault, s.get());
     }
     if (size_ > 0) { r.deallocate(s, ptr_, size_ * sizeof(T), kAlign); }
     ptr_  = new_ptr;
     size_ = new_size;
   }
 
-  void resize(size_t new_size, rmm::cuda_stream_view stream)
+  void resize(size_t new_size, cuda::stream_ref stream)
   {
     if (new_size == size_) { return; }
     if (std::holds_alternative<raft_res_type>(res_)) {
       auto& h = std::get<raft_res_type>(res_);
       res_    = rmm_res_type{raft::resource::get_workspace_resource_ref(*h), stream};
     } else {
-      std::get<rmm::cuda_stream_view>(std::get<rmm_res_type>(res_)) = stream;
+      std::get<cuda::stream_ref>(std::get<rmm_res_type>(res_)) = stream;
     }
     resize(new_size);
   }

@@ -1,11 +1,12 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
 
 #include <memory>
+#include <type_traits>
 
 #include <raft/core/copy.cuh>
 #include <raft/core/device_mdarray.hpp>
@@ -22,7 +23,10 @@
 #include <cuvs/neighbors/knn_merge_parts.hpp>
 #include <cuvs/neighbors/tiered_index.hpp>
 
+#include <raft/util/integer_utils.hpp>
+
 namespace cuvs::neighbors::tiered_index::detail {
+
 /**
   Storage for brute force based incremental indices
 
@@ -108,6 +112,25 @@ using upstream_search_function_type =
 template <typename UpstreamT>
 struct index_state {
   using value_type = typename UpstreamT::value_type;
+  index_state()    = default;
+
+  /**
+   * Build upstream ANN, preserving row stride for standard CAGRA when needed.
+   */
+  template <typename BuildFn, typename DatasetView>
+  [[nodiscard]] static auto build_upstream_ann(
+    raft::resources const& res,
+    index_params<typename UpstreamT::index_params_type> const& tiered_params,
+    BuildFn&& build_fn,
+    DatasetView dataset) -> std::shared_ptr<UpstreamT>
+  {
+    auto index = std::forward<BuildFn>(build_fn)(res, tiered_params, dataset);
+    if constexpr (std::is_same_v<UpstreamT, cuvs::neighbors::cagra::device_standard_index<float>>) {
+      index = cuvs::neighbors::cagra::update_dataset(
+        res, std::move(index), cuvs::neighbors::make_device_standard_dataset_view(dataset));
+    }
+    return std::make_shared<UpstreamT>(std::move(index));
+  }
 
   index_state(const index_state<UpstreamT>& other)
     : storage(other.storage),
@@ -129,7 +152,7 @@ struct index_state {
 
     // Create an ANN index if we have sufficient rows in initial dataset
     if (dataset.extent(0) > index_params.min_ann_rows) {
-      ann_index = std::make_shared<UpstreamT>(std::move(build_fn(res, index_params, dataset)));
+      ann_index = build_upstream_ann(res, index_params, build_fn, dataset);
     }
 
     // allocate bfknn storage for growing the index incrementally
@@ -160,6 +183,10 @@ struct index_state {
               raft::device_matrix_view<value_type, int64_t, raft::row_major> distances,
               const cuvs::neighbors::filtering::base_filter& sample_filter)
   {
+    RAFT_EXPECTS(sample_filter.get_filter_type() != cuvs::neighbors::filtering::FilterType::Roaring,
+                 "tiered_index::search does not support roaring_bitmap_filter; use direct "
+                 "cagra::search instead.");
+
     // if we only have ANN vectors, search those and return immendiately
     if (bfknn_rows() == 0) {
       search_fn(res, search_params, *ann_index, queries, neighbors, distances, sample_filter);
@@ -234,7 +261,6 @@ struct index_state {
     }
 
     // merge results from ann_index/bfknn together, translating the bfknn ids
-    auto stream                  = raft::resource::get_cuda_stream(res);
     int64_t host_translations[2] = {0, static_cast<int64_t>(ann_rows())};
     auto device_translations     = raft::make_device_vector<int64_t>(res, 2);
     raft::copy(
@@ -267,6 +293,18 @@ struct index_state {
   // stores a pointer to the build
   std::function<upstream_build_function_type<UpstreamT>> build_fn;
 };
+
+/**
+ * After BF storage grows, repoint CAGRA at the first \p ann_rows rows.
+ */
+inline void update_cagra_ann_dataset_for_stride(
+  raft::resources const& res,
+  cuvs::neighbors::cagra::device_standard_index<float>& ann_index,
+  raft::device_matrix_view<const float, int64_t, raft::row_major> dataset)
+{
+  ann_index = cuvs::neighbors::cagra::update_dataset(
+    res, std::move(ann_index), cuvs::neighbors::make_device_standard_dataset_view(dataset));
+}
 
 /**
  * @brief Build the tiered index from the dataset for efficient search.
@@ -435,8 +473,8 @@ auto compact(raft::resources const& res, const index_state<UpstreamT>& current)
   auto dataset     = raft::make_device_matrix_view<const value_type, int64_t>(
     storage->dataset.data(), storage->num_rows_used, storage->dim);
 
-  next_state->ann_index = std::make_shared<UpstreamT>(
-    std::move(next_state->build_fn(res, next_state->build_params, dataset)));
+  next_state->ann_index = index_state<UpstreamT>::build_upstream_ann(
+    res, next_state->build_params, next_state->build_fn, dataset);
   return next_state;
 }
 }  // namespace cuvs::neighbors::tiered_index::detail

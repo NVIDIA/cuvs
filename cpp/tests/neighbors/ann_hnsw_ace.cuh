@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -9,7 +9,15 @@
 #include <cuvs/neighbors/hnsw.hpp>
 #include <cuvs/util/file_io.hpp>
 
+#include "../../src/neighbors/detail/hnsw_layered_format.hpp"
+
+#include <cuda/stream>
+#include <rmm/mr/managed_memory_resource.hpp>
+
+#include <algorithm>
 #include <array>
+#include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <ctime>
@@ -17,8 +25,13 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <memory>
+#include <string>
+#include <type_traits>
 #include <vector>
+
+#include <unistd.h>
 
 namespace cuvs::neighbors::hnsw {
 
@@ -52,6 +65,170 @@ inline ::std::ostream& operator<<(::std::ostream& os, const AnnHnswAceInputs& p)
   if (p.max_gpu_memory_gb > 0) { os << ", max_gpu_memory_gb=" << p.max_gpu_memory_gb; }
   os << "}";
   return os;
+}
+
+namespace test_detail {
+
+class ace_workspace_directory {
+ public:
+  ace_workspace_directory()
+    : path_{std::filesystem::temp_directory_path() /
+            ("cuvs_ace_workspace_" + std::to_string(getpid()) + "_" +
+             std::to_string(std::time(nullptr)) + "_" +
+             std::to_string(reinterpret_cast<std::uintptr_t>(this)) + "_" +
+             std::to_string(counter_++))}
+  {
+    std::filesystem::create_directories(path_);
+  }
+
+  ~ace_workspace_directory()
+  {
+    std::error_code error;
+    std::filesystem::remove_all(path_, error);
+  }
+
+  [[nodiscard]] const std::filesystem::path& path() const { return path_; }
+
+ private:
+  std::filesystem::path path_;
+  static inline std::atomic<uint64_t> counter_{0};
+};
+
+template <typename DataT>
+void build_ace_with_workspace(raft::resources const& resources,
+                              raft::host_matrix_view<const DataT, int64_t, raft::row_major> dataset,
+                              const std::filesystem::path& workspace)
+{
+  cagra::index_params params;
+  params.intermediate_graph_degree = 32;
+  params.graph_degree              = 16;
+
+  auto ace_params            = cagra::graph_build_params::ace_params();
+  ace_params.npartitions     = 2;
+  ace_params.ef_construction = 50;
+  ace_params.build_dir       = workspace.string();
+  ace_params.use_disk        = true;
+  params.graph_build_params  = ace_params;
+
+  auto dataset_view           = cuvs::neighbors::make_host_standard_dataset_view(dataset);
+  [[maybe_unused]] auto index = cagra::build(resources, params, dataset_view);
+}
+
+template <typename DataT>
+raft::host_matrix<DataT, int64_t> make_workspace_test_dataset()
+{
+  auto dataset = raft::make_host_matrix<DataT, int64_t>(1000, 8);
+  std::fill_n(dataset.data_handle(), dataset.size(), DataT{});
+  return dataset;
+}
+
+}  // namespace test_detail
+
+template <typename DataT>
+void test_ace_workspace_failure_preserves_caller_directory()
+{
+  raft::resources resources;
+  auto dataset = test_detail::make_workspace_test_dataset<DataT>();
+  test_detail::ace_workspace_directory workspace;
+  const auto sentinel          = workspace.path() / "sentinel.txt";
+  const auto existing_artifact = workspace.path() / "reordered_dataset.npy";
+
+  {
+    std::ofstream sentinel_file(sentinel);
+    ASSERT_TRUE(sentinel_file.is_open());
+    sentinel_file << "keep me";
+  }
+  ASSERT_TRUE(std::filesystem::create_directory(existing_artifact));
+
+  EXPECT_THROW(test_detail::build_ace_with_workspace(
+                 resources, raft::make_const_mdspan(dataset.view()), workspace.path()),
+               raft::logic_error);
+
+  EXPECT_TRUE(std::filesystem::is_directory(workspace.path()));
+  EXPECT_TRUE(std::filesystem::is_directory(existing_artifact));
+  std::ifstream sentinel_file(sentinel);
+  std::string sentinel_contents;
+  std::getline(sentinel_file, sentinel_contents);
+  EXPECT_EQ(sentinel_contents, "keep me");
+}
+
+template <typename DataT>
+void test_ace_workspace_failure_does_not_truncate_existing_artifact()
+{
+  raft::resources resources;
+  auto dataset = test_detail::make_workspace_test_dataset<DataT>();
+  test_detail::ace_workspace_directory workspace;
+  const auto existing_graph               = workspace.path() / "cagra_graph.npy";
+  constexpr const char* expected_contents = "preexisting-graph-contents";
+
+  {
+    std::ofstream graph_file(existing_graph, std::ios::binary);
+    ASSERT_TRUE(graph_file.is_open());
+    graph_file << expected_contents;
+  }
+
+  EXPECT_THROW(test_detail::build_ace_with_workspace(
+                 resources, raft::make_const_mdspan(dataset.view()), workspace.path()),
+               raft::logic_error);
+
+  std::ifstream graph_file(existing_graph, std::ios::binary);
+  std::string graph_contents;
+  graph_file >> graph_contents;
+  EXPECT_EQ(graph_contents, expected_contents);
+  EXPECT_FALSE(std::filesystem::exists(workspace.path() / "reordered_dataset.npy"));
+  EXPECT_FALSE(std::filesystem::exists(workspace.path() / "augmented_dataset.npy"));
+  EXPECT_FALSE(std::filesystem::exists(workspace.path() / "dataset_mapping.npy"));
+}
+
+void test_exclusive_numpy_create_failure_removes_partial_file()
+{
+  test_detail::ace_workspace_directory workspace;
+  const auto path = workspace.path() / "partial.npy";
+  const auto too_large =
+    static_cast<size_t>(std::numeric_limits<off_t>::max()) - static_cast<size_t>(4096);
+
+  EXPECT_THROW(cuvs::util::create_numpy_file<uint8_t>(path.string(), {too_large}, true),
+               raft::logic_error);
+
+  EXPECT_FALSE(std::filesystem::exists(path));
+}
+
+template <typename DataT>
+void test_hnsw_ace_build_does_not_truncate_existing_index()
+{
+  raft::resources resources;
+  auto dataset = test_detail::make_workspace_test_dataset<DataT>();
+  for (size_t i = 0; i < dataset.size(); ++i) {
+    dataset.data_handle()[i] = static_cast<DataT>(i % 251);
+  }
+  test_detail::ace_workspace_directory workspace;
+  const auto index_path                   = workspace.path() / "hnsw_index.bin";
+  constexpr const char* expected_contents = "preexisting-hnsw-index";
+
+  {
+    std::ofstream index_file(index_path, std::ios::binary);
+    ASSERT_TRUE(index_file.is_open());
+    index_file << expected_contents;
+  }
+
+  hnsw::index_params params;
+  params.M                   = 8;
+  params.ef_construction     = 50;
+  auto ace_params            = graph_build_params::ace_params();
+  ace_params.npartitions     = 2;
+  ace_params.ef_construction = 50;
+  ace_params.build_dir       = workspace.path().string();
+  ace_params.use_disk        = true;
+  params.graph_build_params  = ace_params;
+
+  EXPECT_THROW(hnsw::build(resources, params, raft::make_const_mdspan(dataset.view())),
+               raft::logic_error);
+
+  std::ifstream index_file(index_path, std::ios::binary);
+  std::string contents;
+  index_file >> contents;
+  EXPECT_EQ(contents, expected_contents);
+  EXPECT_TRUE(std::filesystem::exists(workspace.path() / "cagra_graph.npy"));
 }
 
 template <typename DistanceT, typename DataT, typename IdxT>
@@ -243,9 +420,10 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
       ace_params.ef_construction = ps.ef_construction;
       ace_params.build_dir       = temp_dir;
       ace_params.use_disk        = false;  // Not explicitly requesting disk mode
-      // Set tiny memory limits (0.001 GiB = ~1 MB) to force disk mode
+
+      // Selected host memory limit should enforce disk mode
       ace_params.max_host_memory_gb  = 0.001;
-      ace_params.max_gpu_memory_gb   = 0.001;
+      ace_params.max_gpu_memory_gb   = 3.0;
       hnsw_params.graph_build_params = ace_params;
 
       // Build HNSW index using ACE - should automatically fall back to disk mode
@@ -322,10 +500,10 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
 
     hnsw::index_params hnsw_params;
     hnsw_params.metric          = ps.metric;
-    hnsw_params.hierarchy       = hnsw::HnswHierarchy::GPU_LAYERED_ON_DISK;
+    hnsw_params.hierarchy       = hnsw::HnswHierarchy::GPU;
+    hnsw_params.output_format   = hnsw::HnswOutputFormat::GRAPH_ONLY;
     hnsw_params.M               = 32;
     hnsw_params.ef_construction = ps.ef_construction;
-    hnsw_params.dataset_path    = dataset_file;
 
     auto ace_params                = graph_build_params::ace_params();
     ace_params.npartitions         = ps.npartitions;
@@ -335,9 +513,17 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
     ace_params.max_gpu_memory_gb   = ps.max_gpu_memory_gb;
     hnsw_params.graph_build_params = ace_params;
 
+    auto invalid_params      = hnsw_params;
+    invalid_params.hierarchy = hnsw::HnswHierarchy::CPU;
+    EXPECT_THROW(
+      hnsw::build(handle_, invalid_params, raft::make_const_mdspan(database_host.view())),
+      std::exception);
+
     auto hnsw_index =
       hnsw::build(handle_, hnsw_params, raft::make_const_mdspan(database_host.view()));
     ASSERT_NE(hnsw_index, nullptr);
+    EXPECT_EQ(hnsw_index->hierarchy(), hnsw::HnswHierarchy::GPU);
+    EXPECT_EQ(hnsw_index->output_format(), hnsw::HnswOutputFormat::GRAPH_ONLY);
 
     const auto artifact_path = hnsw_index->file_path();
     ASSERT_FALSE(artifact_path.empty());
@@ -366,9 +552,11 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
                  std::exception);
 
     hnsw::index<DataT>* deserialized_index = nullptr;
-    hnsw::deserialize(handle_, hnsw_params, artifact_path, ps.dim, ps.metric, &deserialized_index);
+    hnsw::deserialize(handle_, artifact_path, dataset_file, &deserialized_index);
     ASSERT_NE(deserialized_index, nullptr);
     std::unique_ptr<hnsw::index<DataT>> deserialized_guard(deserialized_index);
+    EXPECT_EQ(deserialized_guard->hierarchy(), hnsw::HnswHierarchy::GPU);
+    EXPECT_EQ(deserialized_guard->output_format(), hnsw::HnswOutputFormat::GRAPH_ONLY);
 
     hnsw::search(handle_,
                  search_params,
@@ -394,6 +582,54 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
                                                  ps.min_recall))
       << "Layered HNSW deserialize and search failed recall check";
 
+    if constexpr (std::is_same_v<DataT, int8_t>) {
+      auto database_float = raft::make_host_matrix<float, int64_t>(ps.n_rows, ps.dim);
+      auto queries_float  = raft::make_host_matrix<float, int64_t>(ps.n_queries, ps.dim);
+      std::transform(database_host.data_handle(),
+                     database_host.data_handle() + ps.n_rows * ps.dim,
+                     database_float.data_handle(),
+                     [](int8_t value) { return static_cast<float>(value); });
+      std::transform(queries_host.data_handle(),
+                     queries_host.data_handle() + ps.n_queries * ps.dim,
+                     queries_float.data_handle(),
+                     [](int8_t value) { return static_cast<float>(value); });
+
+      const auto float_dataset_file =
+        (std::filesystem::path(temp_dir) / "dataset_float.npy").string();
+      auto [float_dataset_fd, float_dataset_header_size] = cuvs::util::create_numpy_file<float>(
+        float_dataset_file, {static_cast<size_t>(ps.n_rows), static_cast<size_t>(ps.dim)});
+      cuvs::util::write_large_file(float_dataset_fd,
+                                   database_float.data_handle(),
+                                   static_cast<size_t>(ps.n_rows) * ps.dim * sizeof(float),
+                                   float_dataset_header_size);
+
+      hnsw::index<float>* mixed_precision_index = nullptr;
+      hnsw::deserialize(handle_, artifact_path, float_dataset_file, &mixed_precision_index);
+      ASSERT_NE(mixed_precision_index, nullptr);
+      std::unique_ptr<hnsw::index<float>> mixed_precision_guard(mixed_precision_index);
+
+      hnsw::search(handle_,
+                   search_params,
+                   *mixed_precision_guard,
+                   queries_float.view(),
+                   indexes_hnsw_host.view(),
+                   distances_hnsw_host.view());
+
+      for (size_t i = 0; i < queries_size; i++) {
+        indexes_hnsw_converted[i] = static_cast<IdxT>(indexes_hnsw_host.data_handle()[i]);
+        distances_hnsw[i]         = distances_hnsw_host.data_handle()[i];
+      }
+      EXPECT_TRUE(cuvs::neighbors::eval_neighbours(indexes_naive,
+                                                   indexes_hnsw_converted,
+                                                   distances_naive,
+                                                   distances_hnsw,
+                                                   ps.n_queries,
+                                                   ps.k,
+                                                   0.003,
+                                                   ps.min_recall))
+        << "Layered HNSW int8 topology with float vectors failed recall check";
+    }
+
     const auto copied_artifact =
       (std::filesystem::path(temp_dir) / "copied_layered" / "hnsw_index.cuvs").string();
     hnsw::serialize(handle_, copied_artifact, *hnsw_index);
@@ -406,7 +642,7 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
     EXPECT_EQ(copied_file_count, 1);
 
     hnsw::index<DataT>* copied_index = nullptr;
-    hnsw::deserialize(handle_, hnsw_params, copied_artifact, ps.dim, ps.metric, &copied_index);
+    hnsw::deserialize(handle_, copied_artifact, dataset_file, &copied_index);
     ASSERT_NE(copied_index, nullptr);
     std::unique_ptr<hnsw::index<DataT>> copied_guard(copied_index);
 
@@ -440,37 +676,43 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
       bad_file.write(bad_bytes.data(), bad_bytes.size());
     }
     hnsw::index<DataT>* bad_index = nullptr;
-    EXPECT_THROW(
-      hnsw::deserialize(handle_, hnsw_params, bad_artifact, ps.dim, ps.metric, &bad_index),
-      std::exception);
+    EXPECT_THROW(hnsw::deserialize(handle_, bad_artifact, dataset_file, &bad_index),
+                 std::exception);
 
     const auto bad_version_artifact =
       (std::filesystem::path(temp_dir) / "bad_layered" / "bad_version.cuvs").string();
     std::filesystem::copy_file(
       copied_artifact, bad_version_artifact, std::filesystem::copy_options::overwrite_existing);
-    constexpr std::streamoff layered_header_version_offset = 32;
     {
       std::fstream bad_version_file(bad_version_artifact,
                                     std::ios::in | std::ios::out | std::ios::binary);
       const uint32_t bad_version = 999;
-      bad_version_file.seekp(layered_header_version_offset);
+      bad_version_file.seekp(static_cast<std::streamoff>(
+        cuvs::neighbors::hnsw::detail::layered_hnsw_file_header_version_offset));
       bad_version_file.write(reinterpret_cast<const char*>(&bad_version), sizeof(bad_version));
     }
     hnsw::index<DataT>* bad_version_index = nullptr;
-    EXPECT_THROW(
-      hnsw::deserialize(
-        handle_, hnsw_params, bad_version_artifact, ps.dim, ps.metric, &bad_version_index),
-      std::exception);
+    EXPECT_THROW(hnsw::deserialize(handle_, bad_version_artifact, dataset_file, &bad_version_index),
+                 std::exception);
 
-    auto missing_dataset_params = hnsw_params;
-    missing_dataset_params.dataset_path.clear();
+    const auto bad_dtype_artifact =
+      (std::filesystem::path(temp_dir) / "bad_layered" / "bad_construction_dtype.cuvs").string();
+    std::filesystem::copy_file(
+      copied_artifact, bad_dtype_artifact, std::filesystem::copy_options::overwrite_existing);
+    {
+      std::fstream bad_dtype_file(bad_dtype_artifact,
+                                  std::ios::in | std::ios::out | std::ios::binary);
+      const uint32_t bad_dtype = 999;
+      bad_dtype_file.seekp(static_cast<std::streamoff>(
+        cuvs::neighbors::hnsw::detail::layered_hnsw_file_header_construction_dtype_offset));
+      bad_dtype_file.write(reinterpret_cast<const char*>(&bad_dtype), sizeof(bad_dtype));
+    }
+    hnsw::index<DataT>* bad_dtype_index = nullptr;
+    EXPECT_THROW(hnsw::deserialize(handle_, bad_dtype_artifact, dataset_file, &bad_dtype_index),
+                 std::exception);
+
     hnsw::index<DataT>* missing_dataset_index = nullptr;
-    EXPECT_THROW(hnsw::deserialize(handle_,
-                                   missing_dataset_params,
-                                   copied_artifact,
-                                   ps.dim,
-                                   ps.metric,
-                                   &missing_dataset_index),
+    EXPECT_THROW(hnsw::deserialize(handle_, copied_artifact, "", &missing_dataset_index),
                  std::exception);
 
     const auto truncated_artifact =
@@ -479,8 +721,7 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
       copied_artifact, truncated_artifact, std::filesystem::copy_options::overwrite_existing);
     std::filesystem::resize_file(truncated_artifact, 128);
     hnsw::index<DataT>* truncated_index = nullptr;
-    EXPECT_THROW(hnsw::deserialize(
-                   handle_, hnsw_params, truncated_artifact, ps.dim, ps.metric, &truncated_index),
+    EXPECT_THROW(hnsw::deserialize(handle_, truncated_artifact, dataset_file, &truncated_index),
                  std::exception);
 
     const auto wrong_dataset_file =
@@ -491,13 +732,213 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
                                  database_host.data_handle(),
                                  static_cast<size_t>(ps.n_rows - 1) * ps.dim * sizeof(DataT),
                                  wrong_dataset_header_size);
-    auto wrong_dataset_params               = hnsw_params;
-    wrong_dataset_params.dataset_path       = wrong_dataset_file;
     hnsw::index<DataT>* wrong_dataset_index = nullptr;
     EXPECT_THROW(
-      hnsw::deserialize(
-        handle_, wrong_dataset_params, copied_artifact, ps.dim, ps.metric, &wrong_dataset_index),
+      hnsw::deserialize(handle_, copied_artifact, wrong_dataset_file, &wrong_dataset_index),
       std::exception);
+  }
+
+  void testHnswAceRejectsTooManyPartitions()
+  {
+    auto database_host = raft::make_host_matrix<DataT, int64_t>(ps.n_rows, ps.dim);
+    raft::copy(database_host.data_handle(), database_dev.data(), ps.n_rows * ps.dim, stream_);
+    raft::resource::sync_stream(handle_);
+
+    hnsw::index_params hnsw_params;
+    hnsw_params.metric          = ps.metric;
+    hnsw_params.hierarchy       = hnsw::HnswHierarchy::GPU;
+    hnsw_params.M               = 32;
+    hnsw_params.ef_construction = ps.ef_construction;
+
+    auto ace_params                = graph_build_params::ace_params();
+    ace_params.npartitions         = static_cast<size_t>(ps.n_rows) + 1;
+    hnsw_params.graph_build_params = ace_params;
+
+    try {
+      [[maybe_unused]] auto hnsw_index =
+        hnsw::build(handle_, hnsw_params, raft::make_const_mdspan(database_host.view()));
+      FAIL() << "ACE accepted more partitions than dataset rows";
+    } catch (const std::exception& e) {
+      EXPECT_NE(std::string(e.what()).find("cannot exceed dataset size"), std::string::npos);
+    }
+  }
+
+  // Verify the in-memory CAGRA -> HNSW conversion spills to disk when the resulting HNSW
+  // index would not fit in (an artificially constrained) host memory. This exercises
+  // serialize_to_hnswlib_from_inmem and the batched serializer core, covering:
+  //   - dataset source: host view (passed) and device CAGRA dataset (omitted)
+  //   - graph source: device (normal build) and host-accessible (managed memory)
+  //   - hierarchy: GPU and NONE
+  // and asserts the spilled index is functionally equivalent to the in-memory conversion.
+  void testHnswFromCagraInmemSpill()
+  {
+    const size_t queries_size = ps.n_queries * ps.k;
+
+    // Ground-truth neighbors via brute force.
+    std::vector<IdxT> indexes_naive(queries_size);
+    std::vector<DistanceT> distances_naive(queries_size);
+    {
+      rmm::device_uvector<DistanceT> distances_naive_dev(queries_size, stream_);
+      rmm::device_uvector<IdxT> indexes_naive_dev(queries_size, stream_);
+      cuvs::neighbors::naive_knn<DistanceT, DataT, IdxT>(handle_,
+                                                         distances_naive_dev.data(),
+                                                         indexes_naive_dev.data(),
+                                                         search_queries.data(),
+                                                         database_dev.data(),
+                                                         ps.n_queries,
+                                                         ps.n_rows,
+                                                         ps.dim,
+                                                         ps.k,
+                                                         ps.metric);
+      raft::update_host(distances_naive.data(), distances_naive_dev.data(), queries_size, stream_);
+      raft::update_host(indexes_naive.data(), indexes_naive_dev.data(), queries_size, stream_);
+      raft::resource::sync_stream(handle_);
+    }
+
+    // Host copies of queries and dataset.
+    auto queries_host = raft::make_host_matrix<DataT, int64_t>(ps.n_queries, ps.dim);
+    raft::copy(queries_host.data_handle(), search_queries.data(), ps.n_queries * ps.dim, stream_);
+    auto database_host = raft::make_host_matrix<DataT, int64_t>(ps.n_rows, ps.dim);
+    raft::copy(database_host.data_handle(), database_dev.data(), ps.n_rows * ps.dim, stream_);
+    raft::resource::sync_stream(handle_);
+
+    auto database_dev_view =
+      raft::make_device_matrix_view<const DataT, int64_t>(database_dev.data(), ps.n_rows, ps.dim);
+    cuvs::neighbors::test::padded_device_matrix_for_cagra<DataT> device_padded(handle_,
+                                                                               database_dev_view);
+
+    // Build an in-memory CAGRA index (device graph + device dataset).
+    cuvs::neighbors::cagra::index_params cagra_params;
+    cagra_params.metric                    = ps.metric;
+    cagra_params.graph_degree              = 64;
+    cagra_params.intermediate_graph_degree = 128;
+    auto cagra_index = cuvs::neighbors::cagra::build(handle_, cagra_params, device_padded.view);
+    raft::resource::sync_stream(handle_);
+
+    cuvs::neighbors::hnsw::search_params search_params;
+    search_params.ef          = std::max(ps.ef_construction, ps.k * 2);
+    search_params.num_threads = 1;
+
+    // Runs from_cagra with a tiny host-memory limit to force the disk spill, searches the
+    // returned (disk-backed) index, checks recall, and returns the neighbor indices.
+    auto run_spilled = [&](const cuvs::neighbors::cagra::device_padded_index<DataT, uint32_t>& idx,
+                           hnsw::HnswHierarchy hierarchy,
+                           bool pass_host_dataset) -> std::vector<uint64_t> {
+      static std::atomic<uint64_t> counter{0};
+      std::string temp_dir =
+        std::string("/tmp/cuvs_hnsw_inmem_spill_") + std::to_string(std::time(nullptr)) + "_" +
+        std::to_string(reinterpret_cast<uintptr_t>(this)) + "_" + std::to_string(counter++);
+      std::filesystem::create_directories(temp_dir);
+
+      hnsw::index_params hnsw_params;
+      hnsw_params.metric          = ps.metric;
+      hnsw_params.hierarchy       = hierarchy;
+      hnsw_params.ef_construction = ps.ef_construction;
+      auto ace_params             = graph_build_params::ace_params();
+      ace_params.build_dir        = temp_dir;
+      // ~1 KiB host budget: always smaller than the HNSW footprint -> force disk spill.
+      ace_params.max_host_memory_gb  = 1e-6;
+      hnsw_params.graph_build_params = ace_params;
+
+      std::optional<raft::host_matrix_view<const DataT, int64_t, raft::row_major>> dataset_arg =
+        std::nullopt;
+      if (pass_host_dataset) { dataset_arg = raft::make_const_mdspan(database_host.view()); }
+
+      auto hnsw_index = hnsw::from_cagra(handle_, hnsw_params, idx, dataset_arg);
+      EXPECT_NE(hnsw_index, nullptr);
+      if (hnsw_index == nullptr) { return {}; }
+
+      // The returned index must be disk-backed (lazily loaded on search).
+      std::string expected_file = (std::filesystem::path(temp_dir) / "hnsw_index.bin").string();
+      EXPECT_TRUE(std::filesystem::exists(expected_file))
+        << "Spilled HNSW index file should exist at " << expected_file;
+      EXPECT_EQ(hnsw_index->file_path(), expected_file);
+
+      auto indexes_hnsw   = raft::make_host_matrix<uint64_t, int64_t>(ps.n_queries, ps.k);
+      auto distances_hnsw = raft::make_host_matrix<DistanceT, int64_t>(ps.n_queries, ps.k);
+      hnsw::search(handle_,
+                   search_params,
+                   *hnsw_index,
+                   queries_host.view(),
+                   indexes_hnsw.view(),
+                   distances_hnsw.view());
+
+      std::vector<uint64_t> out(queries_size);
+      std::vector<IdxT> indexes_converted(queries_size);
+      std::vector<DistanceT> distances_vec(queries_size);
+      for (size_t i = 0; i < queries_size; i++) {
+        out[i]               = indexes_hnsw.data_handle()[i];
+        indexes_converted[i] = static_cast<IdxT>(out[i]);
+        distances_vec[i]     = distances_hnsw.data_handle()[i];
+      }
+      EXPECT_TRUE(cuvs::neighbors::eval_neighbours(indexes_naive,
+                                                   indexes_converted,
+                                                   distances_naive,
+                                                   distances_vec,
+                                                   ps.n_queries,
+                                                   ps.k,
+                                                   0.006,
+                                                   ps.min_recall))
+        << "Spilled in-memory HNSW failed recall check (hierarchy=" << static_cast<int>(hierarchy)
+        << ", host_dataset=" << pass_host_dataset << ")";
+
+      std::filesystem::remove_all(temp_dir);
+      return out;
+    };
+
+    // Cover hierarchy {GPU, NONE} x dataset source {device, host} with the device-graph index.
+    for (auto hierarchy : {hnsw::HnswHierarchy::GPU, hnsw::HnswHierarchy::NONE}) {
+      run_spilled(cagra_index, hierarchy, /*pass_host_dataset=*/false);
+      run_spilled(cagra_index, hierarchy, /*pass_host_dataset=*/true);
+    }
+
+    // Cover the host-accessible graph branch: wrap the graph in managed memory.
+    {
+      const int64_t degree = cagra_index.graph().extent(1);
+      rmm::mr::managed_memory_resource managed_mr;
+      rmm::device_uvector<uint32_t> managed_graph(
+        static_cast<size_t>(ps.n_rows) * degree, stream_, managed_mr);
+      raft::copy(managed_graph.data(),
+                 cagra_index.graph().data_handle(),
+                 static_cast<size_t>(ps.n_rows) * degree,
+                 stream_);
+      raft::resource::sync_stream(handle_);
+      auto managed_graph_view = raft::make_device_matrix_view<const uint32_t, int64_t>(
+        managed_graph.data(), ps.n_rows, degree);
+      cuvs::neighbors::cagra::device_padded_index<DataT, uint32_t> managed_index(
+        handle_, ps.metric, device_padded.view, managed_graph_view);
+      run_spilled(managed_index, hnsw::HnswHierarchy::NONE, /*pass_host_dataset=*/false);
+    }
+
+    // Strong equivalence: the disk-spilled NONE index should match the in-memory NONE
+    // conversion (same base graph, identity labels, single-threaded deterministic search).
+    {
+      hnsw::index_params hnsw_params;
+      hnsw_params.metric          = ps.metric;
+      hnsw_params.hierarchy       = hnsw::HnswHierarchy::NONE;
+      hnsw_params.ef_construction = ps.ef_construction;
+      auto inmem_index            = hnsw::from_cagra(handle_, hnsw_params, cagra_index);
+      ASSERT_NE(inmem_index, nullptr);
+
+      auto indexes_inmem   = raft::make_host_matrix<uint64_t, int64_t>(ps.n_queries, ps.k);
+      auto distances_inmem = raft::make_host_matrix<DistanceT, int64_t>(ps.n_queries, ps.k);
+      hnsw::search(handle_,
+                   search_params,
+                   *inmem_index,
+                   queries_host.view(),
+                   indexes_inmem.view(),
+                   distances_inmem.view());
+
+      auto indexes_spilled = run_spilled(cagra_index, hnsw::HnswHierarchy::NONE, false);
+
+      size_t matches = 0;
+      for (size_t i = 0; i < queries_size; i++) {
+        if (indexes_inmem.data_handle()[i] == indexes_spilled[i]) { matches++; }
+      }
+      double match_fraction = static_cast<double>(matches) / static_cast<double>(queries_size);
+      EXPECT_GE(match_fraction, 0.99)
+        << "Disk-spilled NONE index diverges from in-memory NONE conversion";
+    }
   }
 
   void testHnswAceLayeredMaterializeToHnswlib()
@@ -553,10 +994,10 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
 
     hnsw::index_params hnsw_params;
     hnsw_params.metric          = ps.metric;
-    hnsw_params.hierarchy       = hnsw::HnswHierarchy::GPU_LAYERED_ON_DISK;
+    hnsw_params.hierarchy       = hnsw::HnswHierarchy::GPU;
+    hnsw_params.output_format   = hnsw::HnswOutputFormat::GRAPH_ONLY;
     hnsw_params.M               = 32;
     hnsw_params.ef_construction = ps.ef_construction;
-    hnsw_params.dataset_path    = dataset_file;
 
     auto ace_params                = graph_build_params::ace_params();
     ace_params.npartitions         = ps.npartitions;
@@ -584,7 +1025,7 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
     std::vector<DistanceT> distances_layered(queries_size);
     {
       hnsw::index<DataT>* layered_index = nullptr;
-      hnsw::deserialize(handle_, hnsw_params, artifact_path, ps.dim, ps.metric, &layered_index);
+      hnsw::deserialize(handle_, artifact_path, dataset_file, &layered_index);
       ASSERT_NE(layered_index, nullptr);
       std::unique_ptr<hnsw::index<DataT>> layered_guard(layered_index);
       hnsw::search(handle_,
@@ -603,6 +1044,11 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
     const auto out_single = (std::filesystem::path(temp_dir) / "materialized_single.bin").string();
     const auto out_bucketed =
       (std::filesystem::path(temp_dir) / "materialized_bucketed.bin").string();
+
+    {
+      std::ofstream stale_output(out_single, std::ios::binary);
+      stale_output << "stale";
+    }
 
     hnsw::materialize_params materialize_single;
     materialize_single.dataset_path       = dataset_file;
@@ -632,6 +1078,38 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
       EXPECT_EQ(bytes_single.size(), bytes_bucketed.size());
       EXPECT_TRUE(bytes_single == bytes_bucketed)
         << "Single-pass and bucketed materialized outputs differ";
+    }
+
+    if constexpr (std::is_same_v<DataT, int8_t>) {
+      auto float_database = raft::make_host_matrix<float, int64_t>(ps.n_rows, ps.dim);
+      std::transform(database_host.data_handle(),
+                     database_host.data_handle() + ps.n_rows * ps.dim,
+                     float_database.data_handle(),
+                     [](int8_t value) { return static_cast<float>(value); });
+      const auto float_dataset_file =
+        (std::filesystem::path(temp_dir) / "dataset_float.npy").string();
+      auto [float_dataset_fd, float_dataset_header_size] = cuvs::util::create_numpy_file<float>(
+        float_dataset_file, {static_cast<size_t>(ps.n_rows), static_cast<size_t>(ps.dim)});
+      cuvs::util::write_large_file(float_dataset_fd,
+                                   float_database.data_handle(),
+                                   static_cast<size_t>(ps.n_rows) * ps.dim * sizeof(float),
+                                   float_dataset_header_size);
+
+      hnsw::materialize_params mixed_params;
+      mixed_params.dataset_path = float_dataset_file;
+      const auto mixed_output =
+        (std::filesystem::path(temp_dir) / "materialized_float.bin").string();
+      hnsw::materialize_to_hnswlib(
+        handle_, mixed_params, artifact_path, mixed_output, ps.dim, ps.metric);
+
+      hnsw::index_params mixed_cpu_params;
+      mixed_cpu_params.metric             = ps.metric;
+      mixed_cpu_params.hierarchy          = hnsw::HnswHierarchy::CPU;
+      hnsw::index<float>* mixed_cpu_index = nullptr;
+      hnsw::deserialize(
+        handle_, mixed_cpu_params, mixed_output, ps.dim, ps.metric, &mixed_cpu_index);
+      ASSERT_NE(mixed_cpu_index, nullptr);
+      std::unique_ptr<hnsw::index<float>> mixed_cpu_guard(mixed_cpu_index);
     }
 
     // Load the materialized file as a standard (CPU) hnswlib index and search.
@@ -685,6 +1163,7 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
     EXPECT_THROW(hnsw::materialize_to_hnswlib(
                    handle_, bad_params, artifact_path, err_out, ps.dim + 1, ps.metric),
                  std::exception);
+    EXPECT_FALSE(std::filesystem::exists(err_out));
 
     const auto wrong_metric = ps.metric == cuvs::distance::DistanceType::L2Expanded
                                 ? cuvs::distance::DistanceType::InnerProduct
@@ -692,12 +1171,14 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
     EXPECT_THROW(hnsw::materialize_to_hnswlib(
                    handle_, bad_params, artifact_path, err_out, ps.dim, wrong_metric),
                  std::exception);
+    EXPECT_FALSE(std::filesystem::exists(err_out));
 
     hnsw::materialize_params missing_dataset;
     missing_dataset.dataset_path.clear();
     EXPECT_THROW(hnsw::materialize_to_hnswlib(
                    handle_, missing_dataset, artifact_path, err_out, ps.dim, ps.metric),
                  std::exception);
+    EXPECT_FALSE(std::filesystem::exists(err_out));
   }
 
   void SetUp() override
@@ -721,7 +1202,7 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
 
  private:
   raft::resources handle_;
-  rmm::cuda_stream_view stream_;
+  cuda::stream_ref stream_;
   AnnHnswAceInputs ps;
   rmm::device_uvector<DataT> database_dev;
   rmm::device_uvector<DataT> search_queries;
@@ -734,7 +1215,7 @@ inline std::vector<AnnHnswAceInputs> generate_hnsw_ace_inputs()
     {5000},         // n_rows
     {64, 128},      // dim
     {10},           // k
-    {2, 4},         // npartitions
+    {0, 1, 2, 4},   // npartitions (auto, adjusted, and explicit)
     {100},          // ef_construction
     {false, true},  // use_disk (test both modes)
     {cuvs::distance::DistanceType::L2Expanded,
@@ -781,9 +1262,44 @@ inline std::vector<AnnHnswAceInputs> generate_hnsw_ace_layered_inputs()
   };
 }
 
+inline std::vector<AnnHnswAceInputs> generate_hnsw_ace_invalid_partition_inputs()
+{
+  return {{10,
+           5000,
+           64,
+           10,
+           0,  // Set to n_rows + 1 by testHnswAceRejectsTooManyPartitions.
+           100,
+           false,
+           cuvs::distance::DistanceType::L2Expanded,
+           0.0}};
+}
+
+// Inputs for testing the in-memory CAGRA -> HNSW disk-spill conversion path.
+inline std::vector<AnnHnswAceInputs> generate_hnsw_inmem_spill_inputs()
+{
+  return {
+    {10,     // n_queries
+     2000,   // n_rows
+     64,     // dim
+     10,     // k
+     2,      // npartitions (unused: plain in-memory CAGRA build)
+     100,    // ef_construction
+     false,  // use_disk (unused)
+     cuvs::distance::DistanceType::L2Expanded,
+     0.9,  // min_recall
+     0.0,  // max_host_memory_gb (overridden inside the test to force spill)
+     0.0},
+    {10, 2000, 64, 10, 2, 100, false, cuvs::distance::DistanceType::InnerProduct, 0.9, 0.0, 0.0},
+  };
+}
+
 const std::vector<AnnHnswAceInputs> hnsw_ace_inputs = generate_hnsw_ace_inputs();
 const std::vector<AnnHnswAceInputs> hnsw_ace_memory_fallback_inputs =
   generate_hnsw_ace_memory_fallback_inputs();
 const std::vector<AnnHnswAceInputs> hnsw_ace_layered_inputs = generate_hnsw_ace_layered_inputs();
+const std::vector<AnnHnswAceInputs> hnsw_ace_invalid_partition_inputs =
+  generate_hnsw_ace_invalid_partition_inputs();
+const std::vector<AnnHnswAceInputs> hnsw_inmem_spill_inputs = generate_hnsw_inmem_spill_inputs();
 
 }  // namespace cuvs::neighbors::hnsw

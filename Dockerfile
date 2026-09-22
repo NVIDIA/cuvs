@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 # syntax=docker/dockerfile:1.5
@@ -34,7 +34,7 @@ RUN echo "  Building cuVS Docker image with:" && \
 # Container metadata
 LABEL maintainer="RAPIDS cuVS Team"
 LABEL description="RAPIDS cuVS - Vector Search and Clustering on GPU"
-LABEL org.opencontainers.image.source="https://github.com/rapidsai/cuvs"
+LABEL org.opencontainers.image.source="https://github.com/nvidia/cuvs"
 LABEL org.opencontainers.image.usage="docker run --gpus all -it <image>"
 
 # Environment setup

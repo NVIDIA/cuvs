@@ -200,7 +200,7 @@ fn allocate_device_matrix(n_rows: usize, n_features: usize) -> Result<ManagedTen
 ```go
 package main
 
-import cuvs "github.com/rapidsai/cuvs/go"
+import cuvs "github.com/nvidia/cuvs/go"
 
 func allocateDeviceMatrix(nRows int64, nFeatures int64) error {
 	resource, err := cuvs.NewResource(nil)
@@ -330,8 +330,8 @@ fn build_index(dataset: &ndarray::Array2<f32>) -> Result<Index> {
 package main
 
 import (
-	cuvs "github.com/rapidsai/cuvs/go"
-	"github.com/rapidsai/cuvs/go/brute_force"
+	cuvs "github.com/nvidia/cuvs/go"
+	"github.com/nvidia/cuvs/go/brute_force"
 )
 
 func buildIndex(data [][]float32) (*brute_force.BruteForceIndex, error) {
@@ -505,8 +505,8 @@ fn search(
 package main
 
 import (
-	cuvs "github.com/rapidsai/cuvs/go"
-	"github.com/rapidsai/cuvs/go/brute_force"
+	cuvs "github.com/nvidia/cuvs/go"
+	"github.com/nvidia/cuvs/go/brute_force"
 )
 
 func searchWithOutputs(

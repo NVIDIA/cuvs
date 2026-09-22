@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	cuvs "github.com/rapidsai/cuvs/go"
+	cuvs "github.com/nvidia/cuvs/go"
 )
 
 func TestDistance(t *testing.T) {

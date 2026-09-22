@@ -31,7 +31,7 @@ export CC=clang
 Add the Go module to your project:
 
 ```bash
-go get github.com/rapidsai/cuvs/go@v26.06.00
+go get github.com/nvidia/cuvs/go@v26.06.00
 ```
 
 Then build your project with the usual Go tooling:

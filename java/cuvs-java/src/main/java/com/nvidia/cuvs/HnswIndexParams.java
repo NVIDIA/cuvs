@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs;
@@ -46,16 +46,7 @@ public class HnswIndexParams {
     /**
      * Full hierarchy is built using the GPU
      */
-    GPU(2),
-
-    /**
-     * GPU-built hierarchy stored as a layered on-disk topology artifact.
-     *
-     * The artifact stores graph topology only. When loading such an artifact, the
-     * {@code datasetPath} must point to the original-ID-ordered vectors used to
-     * reconstruct an in-memory HNSW index.
-     */
-    GPU_LAYERED_ON_DISK(3);
+    GPU(2);
 
     /**
      * The value for the enum choice.
@@ -74,8 +65,6 @@ public class HnswIndexParams {
     public static final CuvsHnswHierarchy NONE = CuvsHnswHierarchy.NONE;
     public static final CuvsHnswHierarchy CPU = CuvsHnswHierarchy.CPU;
     public static final CuvsHnswHierarchy GPU = CuvsHnswHierarchy.GPU;
-    public static final CuvsHnswHierarchy GPU_LAYERED_ON_DISK =
-        CuvsHnswHierarchy.GPU_LAYERED_ON_DISK;
   }
 
   private CuvsHnswHierarchy hierarchy = CuvsHnswHierarchy.GPU;
@@ -85,7 +74,6 @@ public class HnswIndexParams {
   private long m = 32;
   private CuvsDistanceType metric = CuvsDistanceType.L2Expanded;
   private HnswAceParams aceParams;
-  private String datasetPath;
 
   private HnswIndexParams(
       CuvsHnswHierarchy hierarchy,
@@ -94,8 +82,7 @@ public class HnswIndexParams {
       int vectorDimension,
       long m,
       CuvsDistanceType metric,
-      HnswAceParams aceParams,
-      String datasetPath) {
+      HnswAceParams aceParams) {
     this.hierarchy = hierarchy;
     this.efConstruction = efConstruction;
     this.numThreads = numThreads;
@@ -103,7 +90,6 @@ public class HnswIndexParams {
     this.m = m;
     this.metric = metric;
     this.aceParams = aceParams;
-    this.datasetPath = datasetPath;
   }
 
   /**
@@ -140,8 +126,7 @@ public class HnswIndexParams {
 
   /**
    * Gets the HNSW M parameter: number of bi-directional links per node
-   * (used when building with ACE). graph_degree = m * 2,
-   * intermediate_graph_degree = m * 3.
+   * used to derive the internal graph build parameters for GPU construction.
    *
    * @return the M parameter
    */
@@ -159,26 +144,13 @@ public class HnswIndexParams {
   }
 
   /**
-   * Gets the ACE parameters for building HNSW index using ACE algorithm.
+   * Gets the optional ACE parameters for explicit out-of-core graph construction. When not set, the
+   * graph build algorithm is selected automatically.
    *
    * @return the ACE parameters, or null if not set
    */
   public HnswAceParams getAceParams() {
     return aceParams;
-  }
-
-  /**
-   * Gets the local dataset path used by layered HNSW deserialization.
-   *
-   * Required when {@code hierarchy == GPU_LAYERED_ON_DISK}: the artifact stores
-   * graph topology only, and loading reads the original-ID-ordered vectors from
-   * this path to reconstruct an in-memory HNSW index. Ignored for all other
-   * hierarchies.
-   *
-   * @return the dataset path, or null if not set
-   */
-  public String getDatasetPath() {
-    return datasetPath;
   }
 
   @Override
@@ -197,8 +169,6 @@ public class HnswIndexParams {
         + metric
         + ", aceParams="
         + aceParams
-        + ", datasetPath="
-        + datasetPath
         + "]";
   }
 
@@ -214,7 +184,6 @@ public class HnswIndexParams {
     private long m = 32;
     private CuvsDistanceType metric = CuvsDistanceType.L2Expanded;
     private HnswAceParams aceParams;
-    private String datasetPath;
 
     /**
      * Constructs this Builder with an instance of Arena.
@@ -237,11 +206,9 @@ public class HnswIndexParams {
     }
 
     /**
-     * Sets the size of the candidate list during hierarchy construction when
-     * hierarchy is `CPU`.
+     * Sets the maximum candidate list size used during index construction.
      *
-     * @param efConstruction the size of the candidate list during hierarchy
-     *                       construction when hierarchy is `CPU`
+     * @param efConstruction the maximum candidate list size used during construction
      * @return an instance of Builder
      */
     public Builder withEfConstruction(int efConstruction) {
@@ -273,9 +240,8 @@ public class HnswIndexParams {
     }
 
     /**
-     * Sets the HNSW M parameter: number of bi-directional links per node
-     * (used when building with ACE). graph_degree = m * 2,
-     * intermediate_graph_degree = m * 3.
+     * Sets the HNSW M parameter: number of bi-directional links per node used to derive the internal
+     * graph build parameters for GPU construction.
      *
      * @param m the M parameter
      * @return an instance of Builder
@@ -297,7 +263,8 @@ public class HnswIndexParams {
     }
 
     /**
-     * Sets the ACE parameters for building HNSW index using ACE algorithm.
+     * Sets optional ACE parameters for explicit out-of-core graph construction. When not set, the
+     * graph build algorithm is selected automatically.
      *
      * @param aceParams the ACE parameters
      * @return an instance of Builder
@@ -308,36 +275,13 @@ public class HnswIndexParams {
     }
 
     /**
-     * Sets the local dataset path used by layered HNSW deserialization.
-     *
-     * Required when {@code hierarchy == GPU_LAYERED_ON_DISK}: the artifact stores
-     * graph topology only, and loading reads the original-ID-ordered vectors from
-     * this path to reconstruct an in-memory HNSW index. Ignored for all other
-     * hierarchies.
-     *
-     * @param datasetPath the local dataset path
-     * @return an instance of Builder
-     */
-    public Builder withDatasetPath(String datasetPath) {
-      this.datasetPath = datasetPath;
-      return this;
-    }
-
-    /**
      * Builds an instance of {@link HnswIndexParams}.
      *
      * @return an instance of {@link HnswIndexParams}
      */
     public HnswIndexParams build() {
       return new HnswIndexParams(
-          hierarchy,
-          efConstruction,
-          numThreads,
-          vectorDimension,
-          m,
-          metric,
-          aceParams,
-          datasetPath);
+          hierarchy, efConstruction, numThreads, vectorDimension, m, metric, aceParams);
     }
   }
 }

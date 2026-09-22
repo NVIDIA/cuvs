@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -116,7 +116,8 @@ rmm::device_uvector<value_idx> get_cluster_counts(raft::resources const& handle,
 
   rmm::device_uvector<char> workspace(1, stream);
 
-  cuvs::stats::detail::countLabels(y, cluster_counts.data(), n_rows, n_labels, workspace, stream);
+  cuvs::stats::detail::countLabels(
+    y, cluster_counts.data(), n_rows, n_labels, workspace, stream.get());
 
   return cluster_counts;
 }
@@ -128,9 +129,9 @@ rmm::device_uvector<value_t> get_pairwise_distance(raft::resources const& handle
                                                    value_idx& n_left_rows,
                                                    value_idx& n_right_rows,
                                                    value_idx& n_cols,
-                                                   cuvs::distance::DistanceType metric,
-                                                   cudaStream_t stream)
+                                                   cuvs::distance::DistanceType metric)
 {
+  auto stream = raft::resource::get_cuda_stream(handle);
   rmm::device_uvector<value_t> distances(n_left_rows * n_right_rows, stream);
 
   cuvs::distance::pairwise_distance(
@@ -206,7 +207,7 @@ value_t silhouette_score(
   dim3 block_size(std::min(n_rows, 32), std::min(n_labels, 32));
   dim3 grid_size(raft::ceildiv(n_rows, (value_idx)block_size.x),
                  raft::ceildiv(n_labels, (label_idx)block_size.y));
-  detail::fill_b_kernel<<<grid_size, block_size, 0, stream>>>(
+  detail::fill_b_kernel<<<grid_size, block_size, 0, stream.get()>>>(
     b_ptr, y, n_rows, n_labels, cluster_counts.data());
 
   raft::resource::wait_stream_pool_on_stream(handle);
@@ -218,6 +219,8 @@ value_t silhouette_score(
       ++n_iters;
 
       auto chunk_stream = raft::resource::get_next_usable_stream(handle, i + chunk * j);
+      raft::resources chunk_handle(handle);
+      raft::resource::set_cuda_stream(chunk_handle, chunk_stream);
 
       const auto* left_begin  = X + (i * n_cols);
       const auto* right_begin = X + (j * n_cols);
@@ -226,7 +229,7 @@ value_t silhouette_score(
       auto n_right_rows = (j + chunk) < n_rows ? chunk : (n_rows - j);
 
       rmm::device_uvector<value_t> distances = get_pairwise_distance(
-        handle, left_begin, right_begin, n_left_rows, n_right_rows, n_cols, metric, chunk_stream);
+        chunk_handle, left_begin, right_begin, n_left_rows, n_right_rows, n_cols, metric);
 
       compute_chunked_a_b(handle,
                           a_ptr,
@@ -239,18 +242,21 @@ value_t silhouette_score(
                           distances.data(),
                           n_left_rows,
                           n_right_rows,
-                          chunk_stream);
+                          chunk_stream.get());
     }
   }
 
   raft::resource::sync_stream_pool(handle);
 
-  // calculating row-wise minimum in b
+  // Keep the row-wise reduction output separate from b. The input is an
+  // n_rows x n_labels matrix, so writing an n_rows vector at b_ptr aliases
+  // matrix elements that may still be read by the reduction.
+  rmm::device_uvector<value_t> b_min(n_rows, stream);
   raft::linalg::reduce<raft::Apply::ALONG_ROWS>(
     handle,
     raft::make_device_matrix_view<const value_t, value_idx, raft::row_major>(
       b_ptr, n_rows, n_labels),
-    raft::make_device_vector_view<value_t, value_idx>(b_ptr, n_rows),
+    raft::make_device_vector_view<value_t, value_idx>(b_min.data(), n_rows),
     std::numeric_limits<value_t>::max(),
     false,
     raft::identity_op(),
@@ -263,7 +269,7 @@ value_t silhouette_score(
     cuvs::stats::detail::SilOp<value_t>(),
     raft::make_const_mdspan(raft::make_device_vector_view<const value_t, value_idx>(a_ptr, n_rows)),
     raft::make_const_mdspan(
-      raft::make_device_vector_view<const value_t, value_idx>(b_ptr, n_rows)));
+      raft::make_device_vector_view<const value_t, value_idx>(b_min.data(), n_rows)));
 
   auto sum = raft::make_device_vector<value_t, value_idx>(handle, 1);
   raft::linalg::reduce<raft::Apply::ALONG_COLUMNS>(

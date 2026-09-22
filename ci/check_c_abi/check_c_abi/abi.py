@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -287,6 +287,7 @@ def _analyze_struct_abi(
                 symbol=name,
                 location=old_struct.location,
             )
+            continue
 
         for (old_type, old_name), (new_type, new_name) in zip_longest(
             old_struct.members,

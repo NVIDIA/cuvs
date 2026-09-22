@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -14,6 +14,7 @@
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/nn_descent.hpp>
 
+#include <cuda/stream>
 #include <raft/core/host_mdarray.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/util/cudart_utils.hpp>
@@ -50,8 +51,7 @@ struct AnnNNDescentBatchInputs {
 inline ::std::ostream& operator<<(::std::ostream& os, const AnnNNDescentInputs& p)
 {
   os << "dataset shape=" << p.n_rows << "x" << p.dim << ", graph_degree=" << p.graph_degree
-     << ", metric=" << static_cast<int>(p.metric) << (p.host_dataset ? ", host" : ", device")
-     << std::endl;
+     << ", metric=" << static_cast<int>(p.metric) << (p.host_dataset ? ", host" : ", device");
   return os;
 }
 
@@ -59,7 +59,7 @@ inline ::std::ostream& operator<<(::std::ostream& os, const AnnNNDescentBatchInp
 {
   os << "dataset shape=" << p.n_rows << "x" << p.dim << ", graph_degree=" << p.graph_degree
      << ", metric=" << static_cast<int>(p.metric) << (p.host_dataset ? ", host" : ", device")
-     << ", clusters=" << p.recall_cluster.second << std::endl;
+     << ", clusters=" << p.recall_cluster.second;
   return os;
 }
 
@@ -182,7 +182,7 @@ class AnnNNDescentTest : public ::testing::TestWithParam<AnnNNDescentInputs> {
 
  private:
   raft::resources handle_;
-  rmm::cuda_stream_view stream_;
+  cuda::stream_ref stream_;
   AnnNNDescentInputs ps;
   rmm::device_uvector<DataT> database;
 };
@@ -340,7 +340,7 @@ class AnnNNDescentDistEpiTest : public ::testing::TestWithParam<AnnNNDescentInpu
 
  private:
   raft::resources handle_;
-  rmm::cuda_stream_view stream_;
+  cuda::stream_ref stream_;
   AnnNNDescentInputs ps;
   rmm::device_uvector<DataT> database;
 };
@@ -458,7 +458,7 @@ class AnnNNDescentBatchTest : public ::testing::TestWithParam<AnnNNDescentBatchI
 
  private:
   raft::resources handle_;
-  rmm::cuda_stream_view stream_;
+  cuda::stream_ref stream_;
   AnnNNDescentBatchInputs ps;
   rmm::device_uvector<DataT> database;
 };

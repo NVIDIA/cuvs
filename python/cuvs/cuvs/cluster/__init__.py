@@ -1,7 +1,7 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 
-from cuvs.cluster import kmeans
+from cuvs.cluster import kmeans, mg
 
-__all__ = ["kmeans"]
+__all__ = ["kmeans", "mg"]

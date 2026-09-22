@@ -101,21 +101,16 @@ _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndex.java:53`_
 static HnswIndex build(CuVSResources resources, HnswIndexParams hnswParams, CuVSMatrix dataset) throws Throwable
 ```
 
-Builds an HNSW index using the ACE (Augmented Core Extraction) algorithm.
-
-ACE enables building HNSW indexes for datasets too large to fit in GPU
-memory by partitioning the dataset and building sub-indexes for each
-partition independently.
-
-NOTE: This method requires `hnswParams.getAceParams()` to be set with
-an instance of HnswAceParams.
+Builds an HNSW index from HNSW parameters. The graph is built on the GPU and converted to an
+HNSW index that can be searched on the CPU. The graph build algorithm is selected automatically
+unless explicit ACE parameters are provided.
 
 **Parameters**
 
 | Name | Description |
 | --- | --- |
 | `resources` | The CuVS resources |
-| `hnswParams` | Parameters for the HNSW index with ACE configuration |
+| `hnswParams` | Parameters for the HNSW index |
 | `dataset` | The dataset to build the index from |
 
 **Returns**
@@ -128,7 +123,43 @@ A new HNSW index ready for search
 | --- | --- |
 | `Throwable` | if an error occurs during building |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndex.java:75`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndex.java:70`_
+
+### materializeToHnswlib
+
+```java
+static void materializeToHnswlib( CuVSResources resources, HnswMaterializeParams materializeParams, String layeredArtifactPath, String outputPath, int dim, HnswIndexParams.CuvsDistanceType metric) throws Throwable
+```
+
+Materializes a layered HNSW artifact into a standard hnswlib index file on
+disk.
+
+Materializes a `GRAPH_ONLY` artifact (graph topology only,
+stored in ACE order) plus a local dataset into a standard hnswlib index file,
+without ever holding the full materialized index in host memory. The
+resulting file is compatible with the original hnswlib library and can be read
+back with `hierarchy == CPU`. The element data type is inferred from the
+external dataset. GRAPH_ONLY artifacts are currently produced through the C++
+API.
+
+**Parameters**
+
+| Name | Description |
+| --- | --- |
+| `resources` | The CuVS resources |
+| `materializeParams` | Materialization parameters (dataset path, host-memory budget, threads) |
+| `layeredArtifactPath` | Path to the layered HNSW artifact |
+| `outputPath` | Path to the hnswlib index file to write |
+| `dim` | The dimension of the vectors in the index |
+| `metric` | The distance metric used to build the index |
+
+**Throws**
+
+| Type | Description |
+| --- | --- |
+| `Throwable` | if an error occurs during materialization |
+
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndex.java:99`_
 
 ### from
 
@@ -149,7 +180,7 @@ needed.
 
 an instance of this Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndex.java:96`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndex.java:129`_
 
 ### withIndexParams
 
@@ -170,7 +201,7 @@ Builder.
 
 An instance of this Builder.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndex.java:105`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndex.java:138`_
 
 ### build
 
@@ -184,6 +215,6 @@ Builds and returns an instance of CagraIndex.
 
 an instance of CagraIndex
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndex.java:112`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndex.java:145`_
 
 _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndex.java:17`_

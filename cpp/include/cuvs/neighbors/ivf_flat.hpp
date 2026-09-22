@@ -1,16 +1,16 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
 
-#include "common.hpp"
 #include <cstdint>
 #include <cuvs/core/export.hpp>
 #include <cuvs/neighbors/common.hpp>
 #include <raft/core/host_mdarray.hpp>
 #include <raft/core/host_mdspan.hpp>
+#include <raft/util/integer_utils.hpp>
 #include <sstream>
 #include <string>
 
@@ -110,7 +110,8 @@ struct list_spec {
   /** Determine the extents of an array enough to hold a given amount of data. */
   constexpr auto make_list_extents(SizeT n_rows) const -> list_extents
   {
-    return raft::make_extents<SizeT>(n_rows, dim);
+    return raft::make_extents<SizeT>(raft::round_up_safe<SizeT>(n_rows, SizeT{kIndexGroupSize}),
+                                     dim);
   }
 };
 

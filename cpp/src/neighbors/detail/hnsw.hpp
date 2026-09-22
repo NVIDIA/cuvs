@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -7,28 +7,38 @@
 
 #include "../../core/nvtx.hpp"
 #include "../../core/omp_wrapper.hpp"
+#include "hnsw_layered_format.hpp"
 
 #include <cuvs/neighbors/brute_force.hpp>
 #include <cuvs/neighbors/cagra.hpp>
 #include <cuvs/neighbors/hnsw.hpp>
 #include <cuvs/util/file_io.hpp>
+#include <cuvs/util/host_memory.hpp>
+
+#include <kvikio/file_handle.hpp>
 
 #include <raft/core/copy.cuh>
-#include <raft/core/detail/mdspan_numpy_serializer.hpp>
 #include <raft/core/host_mdspan.hpp>
 #include <raft/core/logger.hpp>
+#include <raft/core/numpy_serializer.hpp>
 #include <raft/core/pinned_mdarray.hpp>
 #include <raft/util/cudart_utils.hpp>
 
 #include <hnswlib/hnswalg.h>
 #include <hnswlib/hnswlib.h>
 
+#include <library_types.h>
+
 #include <algorithm>
 #include <array>
+#include <cerrno>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <exception>
 #include <fcntl.h>
 #include <filesystem>
 #include <fstream>
@@ -40,6 +50,8 @@
 #include <optional>
 #include <random>
 #include <stdexcept>
+#include <string>
+#include <sys/mman.h>
 #include <thread>
 #include <type_traits>
 #include <unistd.h>
@@ -47,6 +59,117 @@
 #include <vector>
 
 namespace cuvs::neighbors::hnsw::detail {
+
+// Writes to a sibling temp path and publishes with link(2) only after the write succeeds.
+class exclusive_hnsw_temp_file {
+ public:
+  explicit exclusive_hnsw_temp_file(std::filesystem::path output_path)
+    : output_path_{std::move(output_path)}
+  {
+    std::string temporary_path = output_path_.string() + ".tmp.XXXXXX";
+    int fd                     = ::mkstemp(temporary_path.data());
+    RAFT_EXPECTS(fd != -1,
+                 "Cannot create temporary file for %s (errno: %d, %s)",
+                 output_path_.c_str(),
+                 errno,
+                 strerror(errno));
+    temporary_path_ = std::move(temporary_path);
+
+    if (::close(fd) != 0) {
+      const int error = errno;
+      cleanup();
+      RAFT_FAIL("Cannot close temporary file for %s (errno: %d, %s)",
+                output_path_.c_str(),
+                error,
+                strerror(error));
+    }
+  }
+
+  exclusive_hnsw_temp_file(const exclusive_hnsw_temp_file&)            = delete;
+  exclusive_hnsw_temp_file& operator=(const exclusive_hnsw_temp_file&) = delete;
+
+  ~exclusive_hnsw_temp_file() { cleanup(); }
+
+  [[nodiscard]] const std::filesystem::path& output_path() const { return output_path_; }
+  [[nodiscard]] const std::string& temporary_path() const { return temporary_path_; }
+
+  void publish()
+  {
+    if (::link(temporary_path_.c_str(), output_path_.c_str()) != 0) {
+      const int error = errno;
+      RAFT_FAIL("Cannot publish HNSW index %s (errno: %d, %s)",
+                output_path_.c_str(),
+                error,
+                strerror(error));
+    }
+  }
+
+  void publish_replace()
+  {
+    if (::rename(temporary_path_.c_str(), output_path_.c_str()) != 0) {
+      const int error = errno;
+      RAFT_FAIL("Cannot publish HNSW index %s (errno: %d, %s)",
+                output_path_.c_str(),
+                error,
+                strerror(error));
+    }
+    temporary_path_.clear();
+  }
+
+ private:
+  void cleanup() noexcept
+  {
+    if (!temporary_path_.empty()) { (void)::unlink(temporary_path_.c_str()); }
+  }
+
+  std::filesystem::path output_path_;
+  std::string temporary_path_;
+};
+
+class exclusive_hnsw_output_file {
+ public:
+  explicit exclusive_hnsw_output_file(std::filesystem::path output_path)
+    : temp_{std::move(output_path)}
+  {
+    stream_ = std::make_unique<cuvs::util::kvikio_ofstream>(temp_.temporary_path());
+  }
+
+  exclusive_hnsw_output_file(const exclusive_hnsw_output_file&)            = delete;
+  exclusive_hnsw_output_file& operator=(const exclusive_hnsw_output_file&) = delete;
+
+  ~exclusive_hnsw_output_file() { stream_.reset(); }
+
+  std::ostream& stream() { return *stream_; }
+
+  void publish()
+  {
+    stream_->close();
+    RAFT_EXPECTS(*stream_, "Error writing output %s", temp_.output_path().c_str());
+    stream_.reset();
+    temp_.publish();
+  }
+
+ private:
+  exclusive_hnsw_temp_file temp_;
+  std::unique_ptr<cuvs::util::kvikio_ofstream> stream_;
+};
+
+template <typename T, typename CagraIndexT>
+inline constexpr bool is_cagra_hnsw_export_index_v =
+  std::is_same_v<CagraIndexT, cuvs::neighbors::cagra::device_padded_index<T, uint32_t>> ||
+  std::is_same_v<CagraIndexT, cuvs::neighbors::cagra::device_standard_index<T, uint32_t>> ||
+  std::is_same_v<CagraIndexT, cuvs::neighbors::cagra::host_padded_index<T, uint32_t>> ||
+  std::is_same_v<CagraIndexT, cuvs::neighbors::cagra::host_standard_index<T, uint32_t>>;
+
+template <typename T, typename CagraIndexT>
+inline constexpr bool is_host_cagra_hnsw_export_index_v =
+  std::is_same_v<CagraIndexT, cuvs::neighbors::cagra::host_padded_index<T, uint32_t>> ||
+  std::is_same_v<CagraIndexT, cuvs::neighbors::cagra::host_standard_index<T, uint32_t>>;
+
+template <typename T, typename CagraIndexT>
+inline constexpr bool is_device_cagra_hnsw_export_index_v =
+  std::is_same_v<CagraIndexT, cuvs::neighbors::cagra::device_padded_index<T, uint32_t>> ||
+  std::is_same_v<CagraIndexT, cuvs::neighbors::cagra::device_standard_index<T, uint32_t>>;
 
 // This is needed as hnswlib hardcodes the distance type to float
 // or int32_t in certain places. However, we can solve uint8 or int8
@@ -78,6 +201,31 @@ struct hnsw_dist_t<int8_t> {
   using type = int;
 };
 
+// Map the dataset element type to a cudaDataType_t. This is a host-only helper that
+// intentionally avoids pulling CUDA/device dependencies.
+template <typename T>
+cudaDataType_t to_cuda_data_type();
+template <>
+inline cudaDataType_t to_cuda_data_type<float>()
+{
+  return CUDA_R_32F;
+}
+template <>
+inline cudaDataType_t to_cuda_data_type<half>()
+{
+  return CUDA_R_16F;
+}
+template <>
+inline cudaDataType_t to_cuda_data_type<int8_t>()
+{
+  return CUDA_R_8I;
+}
+template <>
+inline cudaDataType_t to_cuda_data_type<uint8_t>()
+{
+  return CUDA_R_8U;
+}
+
 template <typename T>
 struct index_impl : index<T> {
  public:
@@ -88,9 +236,13 @@ struct index_impl : index<T> {
    * @param[in] dim dimensions of the training dataset
    * @param[in] metric distance metric to search. Supported metrics ("L2Expanded", "InnerProduct")
    * @param[in] hierarchy hierarchy used for upper HNSW layers
+   * @param[in] output_format output artifact format
    */
-  index_impl(int dim, cuvs::distance::DistanceType metric, HnswHierarchy hierarchy)
-    : index<T>{dim, metric, hierarchy}
+  index_impl(int dim,
+             cuvs::distance::DistanceType metric,
+             HnswHierarchy hierarchy,
+             HnswOutputFormat output_format = HnswOutputFormat::HNSWLIB)
+    : index<T>{dim, metric, hierarchy, output_format}
   {
     if (metric == cuvs::distance::DistanceType::InnerProduct) {
       space_ = std::make_unique<hnswlib::InnerProductSpace<T, typename hnsw_dist_t<T>::type>>(dim);
@@ -179,9 +331,9 @@ struct index_impl : index<T> {
     RAFT_LOG_INFO("Loading HNSW index from disk: %s", filepath.c_str());
 
     try {
-      RAFT_EXPECTS(this->hierarchy() != HnswHierarchy::GPU_LAYERED_ON_DISK,
-                   "Layered HNSW indexes must be loaded with hnsw::deserialize so a local dataset "
-                   "can be provided through index_params.dataset_path.");
+      RAFT_EXPECTS(this->output_format() != HnswOutputFormat::GRAPH_ONLY,
+                   "Layered HNSW indexes must be loaded with the two-filename hnsw::deserialize "
+                   "overload so a local dataset can be provided.");
       appr_alg_ = std::make_unique<hnswlib::HierarchicalNSW<typename hnsw_dist_t<T>::type>>(
         space_.get(), filepath);
       if (this->hierarchy() == HnswHierarchy::NONE) { appr_alg_->base_layer_only = true; }
@@ -200,12 +352,13 @@ struct index_impl : index<T> {
   std::optional<cuvs::util::file_descriptor> hnsw_fd_;
 };
 
-template <typename T, HnswHierarchy hierarchy>
-std::enable_if_t<hierarchy == HnswHierarchy::NONE, std::unique_ptr<index<T>>> from_cagra(
-  raft::resources const& res,
-  const index_params& params,
-  const cuvs::neighbors::cagra::index<T, uint32_t>& cagra_index,
-  std::optional<raft::host_matrix_view<const T, int64_t, raft::row_major>> dataset)
+template <typename T, HnswHierarchy hierarchy, typename CagraIndexT>
+std::enable_if_t<hierarchy == HnswHierarchy::NONE && is_cagra_hnsw_export_index_v<T, CagraIndexT>,
+                 std::unique_ptr<index<T>>>
+from_cagra(raft::resources const& res,
+           const index_params& params,
+           CagraIndexT const& cagra_index,
+           std::optional<raft::host_matrix_view<const T, int64_t, raft::row_major>> dataset)
 {
   common::nvtx::range<common::nvtx::domain::cuvs> fun_scope("hnsw::from_cagra<NONE>");
   std::random_device dev;
@@ -228,12 +381,13 @@ std::enable_if_t<hierarchy == HnswHierarchy::NONE, std::unique_ptr<index<T>>> fr
   return std::unique_ptr<index<T>>(hnsw_index);
 }
 
-template <typename T, HnswHierarchy hierarchy>
-std::enable_if_t<hierarchy == HnswHierarchy::CPU, std::unique_ptr<index<T>>> from_cagra(
-  raft::resources const& res,
-  const index_params& params,
-  const cuvs::neighbors::cagra::index<T, uint32_t>& cagra_index,
-  std::optional<raft::host_matrix_view<const T, int64_t, raft::row_major>> dataset)
+template <typename T, HnswHierarchy hierarchy, typename CagraIndexT>
+std::enable_if_t<hierarchy == HnswHierarchy::CPU && is_cagra_hnsw_export_index_v<T, CagraIndexT>,
+                 std::unique_ptr<index<T>>>
+from_cagra(raft::resources const& res,
+           const index_params& params,
+           CagraIndexT const& cagra_index,
+           std::optional<raft::host_matrix_view<const T, int64_t, raft::row_major>> dataset)
 {
   common::nvtx::range<common::nvtx::domain::cuvs> fun_scope("hnsw::from_cagra<CPU>");
   auto host_dataset = raft::make_host_matrix<T, int64_t>(0, 0);
@@ -241,21 +395,22 @@ std::enable_if_t<hierarchy == HnswHierarchy::CPU, std::unique_ptr<index<T>>> fro
     host_dataset.data_handle(), host_dataset.extent(0), host_dataset.extent(1));
   if (dataset.has_value()) {
     host_dataset_view = dataset.value();
+  } else if constexpr (is_host_cagra_hnsw_export_index_v<T, CagraIndexT>) {
+    RAFT_FAIL("hnsw::from_cagra<CPU> requires dataset for host CAGRA index");
   } else {
     // move dataset to host, remove padding
-    auto cagra_dataset = cagra_index.dataset();
-    RAFT_EXPECTS(cagra_dataset.size() > 0,
+    auto dataset_view = cagra_index.dataset();
+    RAFT_EXPECTS(dataset_view.n_rows() > 0,
                  "Invalid CAGRA dataset of size 0, shape %zux%zu",
-                 static_cast<size_t>(cagra_dataset.extent(0)),
-                 static_cast<size_t>(cagra_dataset.extent(1)));
-    host_dataset =
-      raft::make_host_matrix<T, int64_t>(cagra_dataset.extent(0), cagra_dataset.extent(1));
+                 static_cast<size_t>(dataset_view.n_rows()),
+                 static_cast<size_t>(dataset_view.dim()));
+    host_dataset = raft::make_host_matrix<T, int64_t>(dataset_view.n_rows(), dataset_view.dim());
     raft::copy_matrix(host_dataset.data_handle(),
                       host_dataset.extent(1),
-                      cagra_dataset.data_handle(),
-                      cagra_dataset.stride(0),
+                      dataset_view.view().data_handle(),
+                      dataset_view.stride(),
                       host_dataset.extent(1),
-                      cagra_dataset.extent(0),
+                      dataset_view.n_rows(),
                       raft::resource::get_cuda_stream(res));
     raft::resource::sync_stream(res);
     host_dataset_view = host_dataset.view();
@@ -357,14 +512,42 @@ void all_neighbors_graph(raft::resources const& res,
   }
 }
 
+/** Host-side plan that groups dataset rows by their maximum HNSW level.
+ *
+ * `row_ids_by_level[position]` maps a level-grouped position to the original dataset row ID. Rows
+ * whose maximum level is 0 come first, followed by rows whose maximum level is 1, and so on. Within
+ * each level, rows retain their original order. `position_by_row_id[row_id]` is the inverse
+ * mapping. `levels[row_id]` stores the maximum level assigned to that original row. The large
+ * row-sized arrays use RAFT host vectors so resource dry-run includes them in host-memory
+ * estimates.
+ */
 struct hnsw_level_plan {
   size_t n_rows = 0;
   std::vector<size_t> hist;
-  // Bucket-end offsets after order construction. Level L starts at offsets[L - 1].
+  // Bucket-end offsets after row ordering. Level L starts at offsets[L - 1].
   std::vector<size_t> offsets;
-  std::vector<size_t> order;
-  std::vector<size_t> order_bw;
-  std::vector<uint8_t> levels;
+  raft::host_vector<size_t, int64_t> row_ids_by_level;
+  raft::host_vector<size_t, int64_t> position_by_row_id;
+  raft::host_vector<uint8_t, int64_t> levels;
+
+  explicit hnsw_level_plan(raft::resources const& res)
+    : row_ids_by_level{raft::make_host_vector<size_t, int64_t>(res, 0)},
+      position_by_row_id{raft::make_host_vector<size_t, int64_t>(res, 0)},
+      levels{raft::make_host_vector<uint8_t, int64_t>(res, 0)}
+  {
+  }
+
+  hnsw_level_plan(raft::resources const& res,
+                  size_t n_rows,
+                  raft::host_vector<uint8_t, int64_t>&& levels,
+                  bool build_position_by_row_id)
+    : n_rows{n_rows},
+      row_ids_by_level{raft::make_host_vector<size_t, int64_t>(res, n_rows)},
+      position_by_row_id{raft::make_host_vector<size_t, int64_t>(
+        res, build_position_by_row_id ? n_rows : size_t{0})},
+      levels{std::move(levels)}
+  {
+  }
 
   [[nodiscard]] auto max_level() const -> int
   {
@@ -418,21 +601,21 @@ inline auto progress_step_10(size_t completed, size_t total) -> size_t
   return completed >= total ? 100 : (percent / 10) * 10;
 }
 
-inline auto make_hnsw_level_plan_from_levels(size_t n_rows,
-                                             std::vector<uint8_t>&& levels,
-                                             bool build_reverse_order,
+inline auto make_hnsw_level_plan_from_levels(raft::resources const& res,
+                                             size_t n_rows,
+                                             raft::host_vector<uint8_t, int64_t>&& levels,
+                                             bool build_position_by_row_id,
                                              const char* log_prefix = nullptr) -> hnsw_level_plan
 {
-  hnsw_level_plan plan;
-  plan.n_rows = n_rows;
-  plan.levels = std::move(levels);
   RAFT_EXPECTS(n_rows > 0, "HNSW hierarchy requires at least one row");
-  RAFT_EXPECTS(plan.levels.size() == n_rows,
+  RAFT_EXPECTS(levels.size() == n_rows,
                "HNSW level count (%zu) must match row count (%zu)",
-               plan.levels.size(),
+               levels.size(),
                n_rows);
+  hnsw_level_plan plan{res, n_rows, std::move(levels), build_position_by_row_id};
 
-  for (auto level : plan.levels) {
+  for (size_t i = 0; i < n_rows; ++i) {
+    const auto level = plan.levels(i);
     while (static_cast<size_t>(level) >= plan.hist.size()) {
       plan.hist.push_back(0);
     }
@@ -447,31 +630,31 @@ inline auto make_hnsw_level_plan_from_levels(size_t n_rows,
     }
   }
 
-  plan.order.resize(n_rows);
-  if (build_reverse_order) { plan.order_bw.resize(n_rows); }
   for (size_t i = 0; i < n_rows; ++i) {
-    const auto level = static_cast<size_t>(plan.levels[i]);
-    if (build_reverse_order) { plan.order_bw[i] = plan.offsets[level]; }
-    plan.order[plan.offsets[level]++] = i;
+    const auto level = static_cast<size_t>(plan.levels(i));
+    if (build_position_by_row_id) { plan.position_by_row_id(i) = plan.offsets[level]; }
+    plan.row_ids_by_level(plan.offsets[level]++) = i;
   }
 
   return plan;
 }
 
 template <typename HnswAlgo>
-auto make_random_hnsw_level_plan(size_t n_rows, HnswAlgo& appr_algo, const char* log_prefix)
-  -> hnsw_level_plan
+auto make_random_hnsw_level_plan(raft::resources const& res,
+                                 size_t n_rows,
+                                 HnswAlgo& appr_algo,
+                                 const char* log_prefix) -> hnsw_level_plan
 {
-  std::vector<uint8_t> levels(n_rows);
+  auto levels = raft::make_host_vector<uint8_t, int64_t>(res, n_rows);
   for (int64_t i = 0; i < static_cast<int64_t>(n_rows); ++i) {
     const auto pt_level = appr_algo.getRandomLevel(appr_algo.mult_);
     RAFT_EXPECTS(pt_level <= std::numeric_limits<uint8_t>::max(),
                  "HNSW serialization only supports levels up to %u",
                  static_cast<unsigned int>(std::numeric_limits<uint8_t>::max()));
-    levels[i] = static_cast<uint8_t>(pt_level);
+    levels(i) = static_cast<uint8_t>(pt_level);
   }
 
-  return make_hnsw_level_plan_from_levels(n_rows, std::move(levels), true, log_prefix);
+  return make_hnsw_level_plan_from_levels(res, n_rows, std::move(levels), true, log_prefix);
 }
 
 template <typename T, typename IdxT, typename Callback>
@@ -539,60 +722,6 @@ struct layered_hnsw_file_metadata {
   std::vector<layered_hnsw_layer_info> layers;
 };
 
-enum class layered_hnsw_dtype : uint32_t {
-  unknown = 0,
-  float32 = 1,
-  float16 = 2,
-  uint8   = 3,
-  int8    = 4,
-};
-
-// The layered HNSW artifact begins with this fixed-size POD header, immediately followed by
-// `num_layers` layered_hnsw_layer_descriptor records and then the payload sections.
-struct layered_hnsw_file_header {
-  char magic[32];
-  uint64_t n_rows;
-  uint64_t dim;
-  uint64_t M;
-  uint64_t maxM;
-  uint64_t maxM0;
-  uint64_t ef_construction;
-  uint64_t base_degree;
-  uint64_t levels_bytes;
-  uint64_t base_nodes_bytes;
-  uint64_t base_link_row_bytes;
-  uint64_t base_links_bytes;
-  uint64_t upper_nodes_count;
-  uint64_t upper_nodes_bytes;
-  uint64_t upper_link_row_bytes;
-  uint64_t upper_links_bytes;
-  double mult;
-  uint32_t version;
-  uint32_t dtype;
-  uint32_t metric;
-  uint32_t num_layers;
-  int32_t maxlevel;
-  int32_t enterpoint_node;
-  uint32_t reserved0;
-  uint32_t reserved1;
-};
-static_assert(sizeof(layered_hnsw_file_header) == 192,
-              "layered_hnsw_file_header must keep a fixed 192-byte on-disk layout");
-
-struct layered_hnsw_layer_descriptor {
-  uint64_t level;
-  uint64_t row_count;
-  uint64_t degree;
-  uint64_t node_offset;
-  uint64_t link_offset;
-};
-static_assert(sizeof(layered_hnsw_layer_descriptor) == 40,
-              "layered_hnsw_layer_descriptor must keep a fixed 40-byte on-disk layout");
-
-constexpr const char* layered_hnsw_magic = "CUVS_HNSW_LAYERED";
-constexpr uint32_t layered_hnsw_version  = 1;
-constexpr size_t layered_hnsw_alignment  = 64;
-
 inline auto align_up(size_t value, size_t alignment) -> size_t
 {
   return ((value + alignment - 1) / alignment) * alignment;
@@ -614,14 +743,14 @@ constexpr auto layered_dtype_code() -> layered_hnsw_dtype
   }
 }
 
-inline auto layered_dtype_name(layered_hnsw_dtype dtype) -> const char*
+inline auto is_supported_layered_dtype(layered_hnsw_dtype dtype) -> bool
 {
   switch (dtype) {
-    case layered_hnsw_dtype::float32: return "float32";
-    case layered_hnsw_dtype::float16: return "float16";
-    case layered_hnsw_dtype::uint8: return "uint8";
-    case layered_hnsw_dtype::int8: return "int8";
-    default: return "unknown";
+    case layered_hnsw_dtype::float32:
+    case layered_hnsw_dtype::float16:
+    case layered_hnsw_dtype::uint8:
+    case layered_hnsw_dtype::int8: return true;
+    default: return false;
   }
 }
 
@@ -641,7 +770,7 @@ auto make_layered_hnsw_header(const layered_hnsw_file_metadata& metadata,
   layered_hnsw_file_header header{};
   std::strncpy(header.magic, layered_hnsw_magic, sizeof(header.magic) - 1);
   header.version              = layered_hnsw_version;
-  header.dtype                = static_cast<uint32_t>(layered_dtype_code<T>());
+  header.construction_dtype   = static_cast<uint32_t>(layered_dtype_code<T>());
   header.metric               = static_cast<uint32_t>(metric);
   header.num_layers           = static_cast<uint32_t>(metadata.layers.size());
   header.n_rows               = metadata.n_rows;
@@ -694,16 +823,32 @@ struct npy_file {
   cuvs::util::file_descriptor fd;
   size_t header_size = 0;
   std::vector<size_t> shape;
+  std::string dtype;
+  bool fortran_order = false;
 };
 
 inline auto open_npy_file(const std::string& path) -> npy_file
 {
   std::ifstream stream(path, std::ios::binary);
   RAFT_EXPECTS(stream.good(), "Failed to open numpy file: %s", path.c_str());
-  auto header      = raft::detail::numpy_serializer::read_header(stream);
+  auto header      = raft::numpy_serializer::read_header(stream);
   auto header_size = static_cast<size_t>(stream.tellg());
   auto fd          = cuvs::util::file_descriptor(path, O_RDONLY);
-  return {std::move(fd), header_size, header.shape};
+  return {std::move(fd), header_size, header.shape, header.dtype.to_string(), header.fortran_order};
+}
+
+template <typename T>
+inline void validate_npy_file(const npy_file& file, const std::string& path, const char* name)
+{
+  const auto expected_dtype = cuvs::util::detail::numpy_dtype_string<T>();
+  RAFT_EXPECTS(file.dtype == expected_dtype,
+               "%s dtype (%s) does not match expected dtype (%s): %s",
+               name,
+               file.dtype.c_str(),
+               expected_dtype.c_str(),
+               path.c_str());
+  RAFT_EXPECTS(
+    !file.fortran_order, "%s must be row-major, got Fortran-order layout: %s", name, path.c_str());
 }
 
 inline auto ends_with(const std::string& value, const std::string& suffix) -> bool
@@ -754,17 +899,49 @@ inline auto open_layered_dataset_file(const std::string& path) -> npy_file
   }
 
   auto fd = cuvs::util::file_descriptor(path, O_RDONLY);
-  return {std::move(fd), sizeof(uint32_t) * header.size(), {header[0], header[1]}};
+  return {std::move(fd),
+          sizeof(uint32_t) * header.size(),
+          {header[0], header[1]},
+          cuvs::util::detail::numpy_dtype_string<T>(),
+          false};
 }
 
-template <typename T, typename IdxT>
-void write_layered_base_links_from_disk(const cuvs::neighbors::cagra::index<T, IdxT>& index_,
+inline auto layered_dataset_dtype(const std::string& path) -> layered_hnsw_dtype
+{
+  if (std::filesystem::path(path).extension() == ".npy") {
+    const auto file = open_npy_file(path);
+    if (file.dtype == cuvs::util::detail::numpy_dtype_string<float>()) {
+      return layered_hnsw_dtype::float32;
+    }
+    if (file.dtype == cuvs::util::detail::numpy_dtype_string<half>()) {
+      return layered_hnsw_dtype::float16;
+    }
+    if (file.dtype == cuvs::util::detail::numpy_dtype_string<uint8_t>()) {
+      return layered_hnsw_dtype::uint8;
+    }
+    if (file.dtype == cuvs::util::detail::numpy_dtype_string<int8_t>()) {
+      return layered_hnsw_dtype::int8;
+    }
+    return layered_hnsw_dtype::unknown;
+  }
+
+  const auto ext = std::filesystem::path(path).extension().string();
+  if (ext == ".fbin" && !ends_with(path, ".fp16.fbin")) { return layered_hnsw_dtype::float32; }
+  if (ext == ".f16bin" || ends_with(path, ".fp16.fbin")) { return layered_hnsw_dtype::float16; }
+  if (ext == ".u8bin") { return layered_hnsw_dtype::uint8; }
+  if (ext == ".i8bin") { return layered_hnsw_dtype::int8; }
+  return layered_hnsw_dtype::unknown;
+}
+
+template <typename T, typename CagraIndexT>
+void write_layered_base_links_from_disk(const CagraIndexT& index_,
                                         const cuvs::util::file_descriptor& output_fd,
                                         size_t base_nodes_offset,
                                         size_t base_links_offset,
                                         size_t base_link_row_bytes,
                                         size_t maxM0)
 {
+  using IdxT = typename CagraIndexT::index_type;
   static_assert(std::is_same_v<IdxT, uint32_t>,
                 "Layered HNSW artifacts store topology ids as uint32_t");
   const auto& graph_fd_opt   = index_.graph_fd();
@@ -782,6 +959,8 @@ void write_layered_base_links_from_disk(const cuvs::neighbors::cagra::index<T, I
   auto graph_npy   = open_npy_file(graph_path);
   auto mapping_npy = open_npy_file(mapping_path);
 
+  validate_npy_file<IdxT>(graph_npy, graph_path, "Graph file");
+  validate_npy_file<IdxT>(mapping_npy, mapping_path, "Mapping file");
   RAFT_EXPECTS(graph_npy.shape.size() == 2, "Graph file should be 2D");
   RAFT_EXPECTS(mapping_npy.shape.size() == 1, "Mapping file should be 1D");
   const auto n_rows = graph_npy.shape[0];
@@ -933,13 +1112,16 @@ void write_layered_base_links_from_disk(const cuvs::neighbors::cagra::index<T, I
     to_gib(link_bytes_written));
 }
 
-template <typename T, typename IdxT>
-auto serialize_to_layered_hnsw_from_disk(
+template <typename T, typename CagraIndexT>
+auto serialize_to_layered_hnswlib_from_disk(
   raft::resources const& res,
   const cuvs::neighbors::hnsw::index_params& params,
-  const cuvs::neighbors::cagra::index<T, IdxT>& index_,
+  const CagraIndexT& index_,
   raft::host_matrix_view<const T, int64_t, raft::row_major> dataset) -> std::string
 {
+  using IdxT = typename CagraIndexT::index_type;
+  static_assert(is_cagra_hnsw_export_index_v<T, CagraIndexT>,
+                "Layered HNSW serialization expects a CAGRA index type");
   raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> fun_scope("hnsw::serialize_layered");
   const auto total_start_time = std::chrono::steady_clock::now();
 
@@ -971,7 +1153,7 @@ auto serialize_to_layered_hnsw_from_disk(
 
   RAFT_LOG_INFO("Layered HNSW artifact: generating hierarchy levels");
   const auto hierarchy_start_time = std::chrono::steady_clock::now();
-  auto hierarchy                  = make_random_hnsw_level_plan(n_rows, *appr_algo, nullptr);
+  auto hierarchy                  = make_random_hnsw_level_plan(res, n_rows, *appr_algo, nullptr);
   const auto hierarchy_elapsed_ms = elapsed_ms_since(hierarchy_start_time);
   RAFT_LOG_INFO(
     "Layered HNSW artifact: hierarchy levels generated in %ld ms (max_level=%d promoted=%zu)",
@@ -980,15 +1162,16 @@ auto serialize_to_layered_hnsw_from_disk(
     hierarchy.promoted_count());
 
   layered_hnsw_file_metadata metadata;
-  metadata.n_rows               = n_rows;
-  metadata.dim                  = dim;
-  metadata.M                    = appr_algo->M_;
-  metadata.maxM                 = appr_algo->maxM_;
-  metadata.maxM0                = appr_algo->maxM0_;
-  metadata.ef_construction      = appr_algo->ef_construction_;
-  metadata.mult                 = appr_algo->mult_;
-  metadata.maxlevel             = hierarchy.max_level();
-  metadata.enterpoint_node      = static_cast<int>(hierarchy.order.back());
+  metadata.n_rows          = n_rows;
+  metadata.dim             = dim;
+  metadata.M               = appr_algo->M_;
+  metadata.maxM            = appr_algo->maxM_;
+  metadata.maxM0           = appr_algo->maxM0_;
+  metadata.ef_construction = appr_algo->ef_construction_;
+  metadata.mult            = appr_algo->mult_;
+  metadata.maxlevel        = hierarchy.max_level();
+  metadata.enterpoint_node =
+    static_cast<int>(hierarchy.row_ids_by_level(hierarchy.row_ids_by_level.size() - 1));
   metadata.base_degree          = static_cast<size_t>(graph_degree_int);
   metadata.levels_bytes         = n_rows * sizeof(uint8_t);
   metadata.base_nodes_bytes     = n_rows * sizeof(IdxT);
@@ -1032,7 +1215,8 @@ auto serialize_to_layered_hnsw_from_disk(
   const auto upper_links_offset = upper_nodes_offset + metadata.upper_nodes_bytes;
   const auto final_file_size    = upper_links_offset + metadata.upper_links_bytes;
 
-  cuvs::util::file_descriptor artifact_fd(artifact_file.string(), O_CREAT | O_RDWR | O_TRUNC, 0644);
+  exclusive_hnsw_temp_file output(artifact_file);
+  cuvs::util::file_descriptor artifact_fd(output.temporary_path(), O_RDWR);
   cuvs::util::preallocate_file(artifact_fd, final_file_size);
   cuvs::util::write_large_file(artifact_fd, &header, sizeof(header), 0);
   if (descriptors_bytes > 0) {
@@ -1042,7 +1226,7 @@ auto serialize_to_layered_hnsw_from_disk(
 
   const auto levels_start_time = std::chrono::steady_clock::now();
   cuvs::util::write_large_file(
-    artifact_fd, hierarchy.levels.data(), metadata.levels_bytes, levels_offset);
+    artifact_fd, hierarchy.levels.data_handle(), metadata.levels_bytes, levels_offset);
   const auto levels_elapsed_ms = elapsed_ms_since(levels_start_time);
   RAFT_LOG_INFO("Layered HNSW artifact: levels section written in %ld ms (%.2f GiB, %.2f GiB/s)",
                 levels_elapsed_ms,
@@ -1051,12 +1235,12 @@ auto serialize_to_layered_hnsw_from_disk(
 
   RAFT_LOG_INFO("Layered HNSW artifact: writing hnswlib-ready base topology section");
   const auto layer0_start_time = std::chrono::steady_clock::now();
-  write_layered_base_links_from_disk<T, IdxT>(index_,
-                                              artifact_fd,
-                                              base_nodes_offset,
-                                              base_links_offset,
-                                              metadata.base_link_row_bytes,
-                                              metadata.maxM0);
+  write_layered_base_links_from_disk<T, CagraIndexT>(index_,
+                                                     artifact_fd,
+                                                     base_nodes_offset,
+                                                     base_links_offset,
+                                                     metadata.base_link_row_bytes,
+                                                     metadata.maxM0);
   const auto layer0_elapsed_ms = elapsed_ms_since(layer0_start_time);
   static_cast<void>(layer0_elapsed_ms);
   RAFT_LOG_INFO(
@@ -1073,8 +1257,8 @@ auto serialize_to_layered_hnsw_from_disk(
       raft::make_host_matrix<T, int64_t>(static_cast<int64_t>(hierarchy.promoted_count()), dim);
 #pragma omp parallel for
     for (int64_t i = 0; i < static_cast<int64_t>(n_rows); i++) {
-      if (hierarchy.levels[i] > 0) {
-        const auto query_row = hierarchy.order_bw[i] - hierarchy.hist[0];
+      if (hierarchy.levels(i) > 0) {
+        const auto query_row = hierarchy.position_by_row_id(i) - hierarchy.hist[0];
         auto* dst            = host_query_set.data_handle() + query_row * dim;
         std::copy(&dataset(i, 0), &dataset(i, 0) + dim, dst);
       }
@@ -1120,7 +1304,7 @@ auto serialize_to_layered_hnsw_from_disk(
           for (int64_t batch_idx = 0; batch_idx < static_cast<int64_t>(current_batch_size);
                ++batch_idx) {
             const auto row         = batch_start + static_cast<size_t>(batch_idx);
-            node_buffer[batch_idx] = static_cast<IdxT>(hierarchy.order[start_idx + row]);
+            node_buffer[batch_idx] = static_cast<IdxT>(hierarchy.row_ids_by_level(start_idx + row));
             auto* link_row         = link_buffer.data() + batch_idx * metadata.upper_link_row_bytes;
             hnswlib::linklistsizeint list_count =
               static_cast<hnswlib::linklistsizeint>(layer.degree);
@@ -1129,7 +1313,7 @@ auto serialize_to_layered_hnsw_from_disk(
             if (layer.degree > 0) {
               auto* src = host_neighbors.data_handle() + row * layer.degree;
               for (size_t j = 0; j < layer.degree; ++j) {
-                dst[j] = static_cast<IdxT>(hierarchy.order[src[j] + start_idx]);
+                dst[j] = static_cast<IdxT>(hierarchy.row_ids_by_level(src[j] + start_idx));
               }
             }
           }
@@ -1170,6 +1354,8 @@ auto serialize_to_layered_hnsw_from_disk(
                 total_elapsed_ms,
                 to_gib(final_file_size),
                 throughput_gib_per_s(final_file_size, total_elapsed_ms));
+  artifact_fd.close();
+  output.publish();
   return artifact_file.string();
 }
 
@@ -1212,11 +1398,18 @@ inline auto make_hnswlib_native_header(size_t offset_level0,
   return buffer;
 }
 
-template <typename T, typename IdxT>
-void serialize_to_hnswlib_from_disk(raft::resources const& res,
-                                    std::ostream& os_raw,
-                                    const cuvs::neighbors::hnsw::index_params& params,
-                                    const cuvs::neighbors::cagra::index<T, IdxT>& index_)
+// Source-agnostic core that streams a CAGRA index into hnswlib format on disk.
+// The disk-backed and in-memory variants differ only in the `read_batch` callable,
+// which fills the provided host buffers (graph, dataset, labels) for a given row range.
+template <typename T, typename IdxT, typename ReadBatchFn>
+void serialize_to_hnswlib_batched(raft::resources const& res,
+                                  std::ostream& os_raw,
+                                  const cuvs::neighbors::hnsw::index_params& params,
+                                  int64_t n_rows,
+                                  int64_t dim,
+                                  int graph_degree_int,
+                                  cuvs::distance::DistanceType metric,
+                                  ReadBatchFn read_batch)
 {
   raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> fun_scope("cagra::serialize");
 
@@ -1224,124 +1417,13 @@ void serialize_to_hnswlib_from_disk(raft::resources const& res,
 
   cuvs::util::buffered_ofstream os(&os_raw, 1 << 20 /*1MB*/);
 
-  RAFT_EXPECTS(index_.dataset_fd().has_value() && index_.graph_fd().has_value(),
-               "Function only implements serialization from disk.");
   RAFT_EXPECTS(params.hierarchy != HnswHierarchy::CPU,
-               "Disk2disk serialization not supported for CPU hierarchy.");
+               "Disk serialization not supported for CPU hierarchy.");
 
-  auto n_rows           = index_.size();
-  auto dim              = index_.dim();
-  auto graph_degree_int = static_cast<int>(index_.graph_degree());
   RAFT_LOG_INFO("Saving CAGRA index to hnswlib format, size %zu, dim %zu, graph_degree %zu",
                 static_cast<size_t>(n_rows),
                 static_cast<size_t>(dim),
                 static_cast<size_t>(graph_degree_int));
-
-  // Get file descriptors from index
-  const auto& graph_fd_opt   = index_.graph_fd();
-  const auto& dataset_fd_opt = index_.dataset_fd();
-  const auto& mapping_fd_opt = index_.mapping_fd();
-
-  RAFT_EXPECTS(graph_fd_opt.has_value() && graph_fd_opt->is_valid(),
-               "Graph file descriptor is not available");
-  RAFT_EXPECTS(dataset_fd_opt.has_value() && dataset_fd_opt->is_valid(),
-               "Dataset file descriptor is not available");
-  RAFT_EXPECTS(mapping_fd_opt.has_value() && mapping_fd_opt->is_valid(),
-               "Mapping file descriptor is not available");
-
-  // Get file paths from file descriptors
-  std::string graph_path   = graph_fd_opt->get_path();
-  std::string dataset_path = dataset_fd_opt->get_path();
-  std::string mapping_path = mapping_fd_opt->get_path();
-
-  RAFT_EXPECTS(!graph_path.empty(), "Unable to get path from graph file descriptor");
-  RAFT_EXPECTS(!dataset_path.empty(), "Unable to get path from dataset file descriptor");
-  RAFT_EXPECTS(!mapping_path.empty(), "Unable to get path from mapping file descriptor");
-
-  int graph_fd   = graph_fd_opt->get();
-  int dataset_fd = dataset_fd_opt->get();
-  int label_fd   = mapping_fd_opt->get();
-
-  // Read headers from files to get dimensions
-  size_t graph_header_size = 0;
-  size_t graph_n_rows      = 0;
-  size_t graph_n_cols      = 0;
-  {
-    std::ifstream graph_stream(graph_path, std::ios::binary);
-    RAFT_EXPECTS(graph_stream.good(), "Failed to open graph file: %s", graph_path.c_str());
-
-    auto header       = raft::detail::numpy_serializer::read_header(graph_stream);
-    graph_header_size = static_cast<size_t>(graph_stream.tellg());
-    RAFT_EXPECTS(
-      header.shape.size() == 2, "Graph file should be 2D, got %zu dimensions", header.shape.size());
-
-    graph_n_rows = header.shape[0];
-    graph_n_cols = header.shape[1];
-    RAFT_LOG_DEBUG("Graph file: %zu x %zu, header size: %zu bytes",
-                   graph_n_rows,
-                   graph_n_cols,
-                   graph_header_size);
-  }
-
-  size_t dataset_header_size = 0;
-  size_t dataset_n_rows      = 0;
-  size_t dataset_n_cols      = 0;
-  {
-    std::ifstream dataset_stream(dataset_path, std::ios::binary);
-    RAFT_EXPECTS(dataset_stream.good(), "Failed to open dataset file: %s", dataset_path.c_str());
-
-    auto header         = raft::detail::numpy_serializer::read_header(dataset_stream);
-    dataset_header_size = static_cast<size_t>(dataset_stream.tellg());
-    RAFT_EXPECTS(header.shape.size() == 2,
-                 "Dataset file should be 2D, got %zu dimensions",
-                 header.shape.size());
-
-    dataset_n_rows = header.shape[0];
-    dataset_n_cols = header.shape[1];
-    RAFT_LOG_DEBUG("Dataset file: %zu x %zu, header size: %zu bytes",
-                   dataset_n_rows,
-                   dataset_n_cols,
-                   dataset_header_size);
-  }
-
-  size_t label_header_size = 0;
-  size_t label_n_elements  = 0;
-  {
-    std::ifstream mapping_stream(mapping_path, std::ios::binary);
-    RAFT_EXPECTS(mapping_stream.good(), "Failed to open mapping file: %s", mapping_path.c_str());
-
-    auto header       = raft::detail::numpy_serializer::read_header(mapping_stream);
-    label_header_size = static_cast<size_t>(mapping_stream.tellg());
-    RAFT_EXPECTS(header.shape.size() == 1,
-                 "Mapping file should be 1D, got %zu dimensions",
-                 header.shape.size());
-
-    label_n_elements = header.shape[0];
-    RAFT_LOG_DEBUG(
-      "Mapping file: %zu elements, header size: %zu bytes", label_n_elements, label_header_size);
-  }
-
-  // Verify consistency
-  RAFT_EXPECTS(graph_n_rows == static_cast<size_t>(n_rows),
-               "Graph rows (%zu) != index size (%zu)",
-               graph_n_rows,
-               static_cast<size_t>(n_rows));
-  RAFT_EXPECTS(dataset_n_rows == static_cast<size_t>(n_rows),
-               "Dataset rows (%zu) != index size (%zu)",
-               dataset_n_rows,
-               static_cast<size_t>(n_rows));
-  RAFT_EXPECTS(label_n_elements == static_cast<size_t>(n_rows),
-               "Label elements (%zu) != index size (%zu)",
-               label_n_elements,
-               static_cast<size_t>(n_rows));
-  RAFT_EXPECTS(graph_n_cols == static_cast<size_t>(graph_degree_int),
-               "Graph cols (%zu) != graph degree (%d)",
-               graph_n_cols,
-               graph_degree_int);
-  RAFT_EXPECTS(dataset_n_cols == static_cast<size_t>(dim),
-               "Dataset cols (%zu) != dimensions (%zu)",
-               dataset_n_cols,
-               static_cast<size_t>(dim));
 
   const size_t row_size_bytes =
     graph_degree_int * sizeof(IdxT) + dim * sizeof(T) + sizeof(uint32_t);
@@ -1365,18 +1447,28 @@ void serialize_to_hnswlib_from_disk(raft::resources const& res,
                  label_buffer.extent(0));
 
   // initialize dummy HNSW index to retrieve constants
-  auto hnsw_index = std::make_unique<index_impl<T>>(dim, index_.metric(), params.hierarchy);
+  auto hnsw_index = std::make_unique<index_impl<T>>(dim, metric, params.hierarchy);
 
   int odd_graph_degree = graph_degree_int % 2;
   auto appr_algo       = std::make_unique<hnswlib::HierarchicalNSW<typename hnsw_dist_t<T>::type>>(
     hnsw_index->get_space(), 1, (graph_degree_int + 1) / 2, params.ef_construction);
 
   bool create_hierarchy = params.hierarchy != HnswHierarchy::NONE;
-  hnsw_level_plan hierarchy;
-  if (create_hierarchy) { hierarchy = make_random_hnsw_level_plan(n_rows, *appr_algo, "Level "); }
+
+  hnsw_level_plan hierarchy{res};
+  if (create_hierarchy) {
+    RAFT_LOG_INFO("Sort points by levels");
+    hierarchy = make_random_hnsw_level_plan(res, n_rows, *appr_algo, "Level ");
+  }
+  const auto& hist               = hierarchy.hist;
+  const auto& row_ids_by_level   = hierarchy.row_ids_by_level;
+  const auto& position_by_row_id = hierarchy.position_by_row_id;
+  const auto& levels             = hierarchy.levels;
+  const auto& offsets            = hierarchy.offsets;
 
   // set last point of the highest level as the entry point
-  appr_algo->enterpoint_node_ = create_hierarchy ? hierarchy.order.back() : n_rows / 2;
+  appr_algo->enterpoint_node_ = create_hierarchy ? row_ids_by_level(row_ids_by_level.size() - 1)
+                                                 : static_cast<size_t>(n_rows / 2);
   appr_algo->maxlevel_        = create_hierarchy ? hierarchy.max_level() : 1;
 
   // write header information
@@ -1409,7 +1501,7 @@ void serialize_to_hnswlib_from_disk(raft::resources const& res,
 
   // host queries
   auto host_query_set =
-    raft::make_host_matrix<T, int64_t>(create_hierarchy ? hierarchy.promoted_count() : 0, dim);
+    raft::make_host_matrix<T, int64_t>(create_hierarchy ? n_rows - hist[0] : 0, dim);
 
   int64_t d_report_offset    = n_rows / 10;  // Report progress in 10% steps.
   int64_t next_report_offset = d_report_offset;
@@ -1427,70 +1519,6 @@ void serialize_to_hnswlib_from_disk(raft::resources const& res,
                  dim * sizeof(T) + appr_algo->maxM0_ * sizeof(IdxT) + sizeof(int) + sizeof(size_t),
                "Size data per element mismatch");
 
-  // Helper lambda for parallel reading of batches
-  auto read_batch = [&](int64_t start_row, int64_t rows_to_read) {
-    const size_t graph_bytes   = rows_to_read * graph_degree_int * sizeof(IdxT);
-    const size_t dataset_bytes = rows_to_read * dim * sizeof(T);
-    const size_t label_bytes   = rows_to_read * sizeof(uint32_t);
-
-    const off_t graph_offset   = graph_header_size + start_row * graph_degree_int * sizeof(IdxT);
-    const off_t dataset_offset = dataset_header_size + start_row * dim * sizeof(T);
-    const off_t label_offset   = label_header_size + start_row * sizeof(uint32_t);
-
-    RAFT_LOG_DEBUG("Reading batch: row=%ld, rows=%ld", start_row, rows_to_read);
-    RAFT_LOG_DEBUG(
-      "  graph: offset=%zu, bytes=%zu", static_cast<size_t>(graph_offset), graph_bytes);
-    RAFT_LOG_DEBUG(
-      "  dataset: offset=%zu, bytes=%zu", static_cast<size_t>(dataset_offset), dataset_bytes);
-    RAFT_LOG_DEBUG(
-      "  label: offset=%zu, bytes=%zu", static_cast<size_t>(label_offset), label_bytes);
-
-#pragma omp parallel sections num_threads(3)
-    {
-#pragma omp section
-      {
-        ssize_t bytes_read = pread(graph_fd, graph_buffer.data_handle(), graph_bytes, graph_offset);
-        RAFT_EXPECTS(bytes_read == static_cast<ssize_t>(graph_bytes),
-                     "Failed to read graph data: expected %zu, got %zd",
-                     graph_bytes,
-                     bytes_read);
-      }
-#pragma omp section
-      {
-        ssize_t bytes_read =
-          pread(dataset_fd, dataset_buffer.data_handle(), dataset_bytes, dataset_offset);
-        RAFT_EXPECTS(bytes_read == static_cast<ssize_t>(dataset_bytes),
-                     "Failed to read dataset data: expected %zu, got %zd",
-                     dataset_bytes,
-                     bytes_read);
-      }
-#pragma omp section
-      {
-        ssize_t bytes_read = pread(label_fd, label_buffer.data_handle(), label_bytes, label_offset);
-        RAFT_EXPECTS(bytes_read == static_cast<ssize_t>(label_bytes),
-                     "Failed to read label data: expected %zu, got %zd",
-                     label_bytes,
-                     bytes_read);
-      }
-    }
-
-    // Log first few values from first batch for debugging
-    if (start_row == 0 && rows_to_read > 0) {
-      RAFT_LOG_DEBUG("First graph row: [%u, %u, %u, ...]",
-                     static_cast<unsigned int>(graph_buffer(0, 0)),
-                     graph_degree_int > 1 ? static_cast<unsigned int>(graph_buffer(0, 1)) : 0,
-                     graph_degree_int > 2 ? static_cast<unsigned int>(graph_buffer(0, 2)) : 0);
-      RAFT_LOG_DEBUG("First dataset row: [%f, %f, %f, ...]",
-                     static_cast<float>(dataset_buffer(0, 0)),
-                     dim > 1 ? static_cast<float>(dataset_buffer(0, 1)) : 0.0f,
-                     dim > 2 ? static_cast<float>(dataset_buffer(0, 2)) : 0.0f);
-      RAFT_LOG_DEBUG("First labels: [%u, %u, %u, ...]",
-                     static_cast<unsigned int>(label_buffer(0)),
-                     rows_to_read > 1 ? static_cast<unsigned int>(label_buffer(1)) : 0,
-                     rows_to_read > 2 ? static_cast<unsigned int>(label_buffer(2)) : 0);
-    }
-  };
-
   for (int64_t batch_start = 0; batch_start < n_rows; batch_start += batch_size) {
     const int64_t current_batch_size = std::min<int64_t>(batch_size, n_rows - batch_start);
 
@@ -1498,7 +1526,11 @@ void serialize_to_hnswlib_from_disk(raft::resources const& res,
                    batch_start,
                    current_batch_size,
                    batch_size);
-    read_batch(batch_start, current_batch_size);
+    read_batch(batch_start,
+               current_batch_size,
+               graph_buffer.view(),
+               dataset_buffer.view(),
+               label_buffer.view());
 
     for (int64_t batch_idx = 0; batch_idx < current_batch_size; batch_idx++) {
       const int64_t i = batch_start + batch_idx;
@@ -1517,11 +1549,11 @@ void serialize_to_hnswlib_from_disk(raft::resources const& res,
       const T* data_row = &dataset_buffer(batch_idx, 0);
       os.write(reinterpret_cast<const char*>(data_row), sizeof(T) * dim);
 
-      if (create_hierarchy && hierarchy.levels[i] > 0) {
-        // position in query: order_bw[i]-hist[0]
-        auto* dst = host_query_set.data_handle() +
-                    (hierarchy.order_bw[i] - hierarchy.hist[0]) * static_cast<size_t>(dim);
-        std::copy(data_row, data_row + dim, dst);
+      if (create_hierarchy && levels(i) > 0) {
+        // position in query: position_by_row_id[i]-hist[0]
+        std::copy(data_row,
+                  data_row + dim,
+                  reinterpret_cast<char*>(&host_query_set(position_by_row_id(i) - hist[0], 0)));
       }
 
       // assign original label
@@ -1559,15 +1591,21 @@ void serialize_to_hnswlib_from_disk(raft::resources const& res,
   // trigger knn builds for all levels
   std::vector<raft::host_matrix<IdxT, int64_t>> host_neighbors;
   if (create_hierarchy) {
-    host_neighbors.reserve(hierarchy.hist.size() - 1);
-    build_hnsw_upper_layer_graphs<T, IdxT>(
-      res,
-      raft::make_host_matrix_view<const T, int64_t, raft::row_major>(
-        host_query_set.data_handle(), host_query_set.extent(0), host_query_set.extent(1)),
-      hierarchy,
-      appr_algo->M_,
-      index_.metric(),
-      [&](size_t, size_t, auto& neighbors) { host_neighbors.emplace_back(std::move(neighbors)); });
+    for (size_t pt_level = 1; pt_level < hist.size(); pt_level++) {
+      auto num_pts       = n_rows - offsets[pt_level - 1];
+      auto neighbor_size = num_pts > appr_algo->M_ ? appr_algo->M_ : num_pts - 1;
+      host_neighbors.emplace_back(raft::make_host_matrix<IdxT, int64_t>(num_pts, neighbor_size));
+    }
+    for (size_t pt_level = 1; pt_level < hist.size(); pt_level++) {
+      RAFT_LOG_INFO("Compute hierarchy neighbors level %zu", pt_level);
+      auto removed_rows = offsets[pt_level - 1] - offsets[0];
+      raft::host_matrix_view<T, int64_t, raft::row_major> sub_query_view(
+        host_query_set.data_handle() + removed_rows * dim,
+        host_query_set.extent(0) - removed_rows,
+        dim);
+      auto neighbor_view = host_neighbors[pt_level - 1].view();
+      all_neighbors_graph(res, raft::make_const_mdspan(sub_query_view), neighbor_view, metric);
+    }
   }
 
   if (create_hierarchy) {
@@ -1578,7 +1616,7 @@ void serialize_to_hnswlib_from_disk(raft::resources const& res,
   start_clock   = std::chrono::system_clock::now();
 
   for (int64_t i = 0; i < n_rows; i++) {
-    size_t cur_level = create_hierarchy ? hierarchy.levels[i] : 0;
+    size_t cur_level = create_hierarchy ? levels(i) : 0;
     unsigned int linkListSize =
       create_hierarchy && cur_level > 0 ? appr_algo->size_links_per_element_ * cur_level : 0;
     os.write(reinterpret_cast<char*>(&linkListSize), sizeof(int));
@@ -1586,16 +1624,14 @@ void serialize_to_hnswlib_from_disk(raft::resources const& res,
     if (linkListSize) {
       for (size_t pt_level = 1; pt_level <= cur_level; pt_level++) {
         auto neighbor_view = host_neighbors[pt_level - 1].view();
-        auto my_row        = hierarchy.order_bw[i] - hierarchy.offsets[pt_level - 1];
+        auto my_row        = position_by_row_id(i) - offsets[pt_level - 1];
 
+        IdxT* neighbors     = &neighbor_view(my_row, 0);
         unsigned int extent = neighbor_view.extent(1);
         os.write(reinterpret_cast<char*>(&extent), sizeof(int));
-        if (extent > 0) {
-          IdxT* neighbors = &neighbor_view(my_row, 0);
-          for (unsigned int j = 0; j < extent; j++) {
-            const IdxT converted = hierarchy.order[neighbors[j] + hierarchy.offsets[pt_level - 1]];
-            os.write(reinterpret_cast<const char*>(&converted), sizeof(IdxT));
-          }
+        for (unsigned int j = 0; j < extent; j++) {
+          const IdxT converted = row_ids_by_level(neighbors[j] + offsets[pt_level - 1]);
+          os.write(reinterpret_cast<const char*>(&converted), sizeof(IdxT));
         }
         auto remainder = appr_algo->M_ - neighbor_view.extent(1);
         for (size_t j = 0; j < remainder; j++) {
@@ -1639,18 +1675,327 @@ void serialize_to_hnswlib_from_disk(raft::resources const& res,
   auto end_time = std::chrono::system_clock::now();
   auto elapsed_time =
     std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
-  RAFT_LOG_INFO("HNSW serialization from disk complete in %ld ms", elapsed_time);
+  RAFT_LOG_INFO("HNSW serialization complete in %ld ms", elapsed_time);
 }
 
-template <typename T, HnswHierarchy hierarchy>
-std::enable_if_t<hierarchy == HnswHierarchy::GPU, std::unique_ptr<index<T>>> from_cagra(
+// Serialize a disk-backed CAGRA index into hnswlib format by reading graph/dataset/label
+// rows directly from the backing files via pread.
+template <typename CagraIndexT>
+  requires is_cagra_hnsw_export_index_v<typename CagraIndexT::value_type, CagraIndexT>
+void serialize_to_hnswlib_from_disk(raft::resources const& res,
+                                    std::ostream& os_raw,
+                                    const cuvs::neighbors::hnsw::index_params& params,
+                                    CagraIndexT const& index_)
+{
+  using T    = typename CagraIndexT::value_type;
+  using IdxT = typename CagraIndexT::index_type;
+  RAFT_EXPECTS(index_.dataset_fd().has_value() && index_.graph_fd().has_value(),
+               "Function only implements serialization from disk.");
+
+  auto n_rows           = static_cast<int64_t>(index_.size());
+  auto dim              = static_cast<int64_t>(index_.dim());
+  auto graph_degree_int = static_cast<int>(index_.graph_degree());
+
+  // Get file descriptors from index
+  const auto& graph_fd_opt   = index_.graph_fd();
+  const auto& dataset_fd_opt = index_.dataset_fd();
+  const auto& mapping_fd_opt = index_.mapping_fd();
+
+  RAFT_EXPECTS(graph_fd_opt.has_value() && graph_fd_opt->is_valid(),
+               "Graph file descriptor is not available");
+  RAFT_EXPECTS(dataset_fd_opt.has_value() && dataset_fd_opt->is_valid(),
+               "Dataset file descriptor is not available");
+  RAFT_EXPECTS(mapping_fd_opt.has_value() && mapping_fd_opt->is_valid(),
+               "Mapping file descriptor is not available");
+
+  // Get file paths from file descriptors
+  std::string graph_path   = graph_fd_opt->get_path();
+  std::string dataset_path = dataset_fd_opt->get_path();
+  std::string mapping_path = mapping_fd_opt->get_path();
+
+  RAFT_EXPECTS(!graph_path.empty(), "Unable to get path from graph file descriptor");
+  RAFT_EXPECTS(!dataset_path.empty(), "Unable to get path from dataset file descriptor");
+  RAFT_EXPECTS(!mapping_path.empty(), "Unable to get path from mapping file descriptor");
+
+  // Open kvikio handles for the disk-backed artifacts. Reads here target host buffers (the hnswlib
+  // layout is assembled on the CPU), so kvikio uses its POSIX + threadpool backend, with O_DIRECT
+  // when available; it handles any alignment internally.
+  kvikio::FileHandle graph_kv(graph_path, "r");
+  kvikio::FileHandle dataset_kv(dataset_path, "r");
+  kvikio::FileHandle label_kv(mapping_path, "r");
+
+  // Read headers from files to get dimensions
+  size_t graph_header_size = 0;
+  size_t graph_n_rows      = 0;
+  size_t graph_n_cols      = 0;
+  {
+    std::ifstream graph_stream(graph_path, std::ios::binary);
+    RAFT_EXPECTS(graph_stream.good(), "Failed to open graph file: %s", graph_path.c_str());
+
+    auto header       = raft::numpy_serializer::read_header(graph_stream);
+    graph_header_size = static_cast<size_t>(graph_stream.tellg());
+    RAFT_EXPECTS(
+      header.shape.size() == 2, "Graph file should be 2D, got %zu dimensions", header.shape.size());
+
+    graph_n_rows = header.shape[0];
+    graph_n_cols = header.shape[1];
+    RAFT_LOG_DEBUG("Graph file: %zu x %zu, header size: %zu bytes",
+                   graph_n_rows,
+                   graph_n_cols,
+                   graph_header_size);
+  }
+
+  size_t dataset_header_size = 0;
+  size_t dataset_n_rows      = 0;
+  size_t dataset_n_cols      = 0;
+  {
+    std::ifstream dataset_stream(dataset_path, std::ios::binary);
+    RAFT_EXPECTS(dataset_stream.good(), "Failed to open dataset file: %s", dataset_path.c_str());
+
+    auto header         = raft::numpy_serializer::read_header(dataset_stream);
+    dataset_header_size = static_cast<size_t>(dataset_stream.tellg());
+    RAFT_EXPECTS(header.shape.size() == 2,
+                 "Dataset file should be 2D, got %zu dimensions",
+                 header.shape.size());
+
+    dataset_n_rows = header.shape[0];
+    dataset_n_cols = header.shape[1];
+    RAFT_LOG_DEBUG("Dataset file: %zu x %zu, header size: %zu bytes",
+                   dataset_n_rows,
+                   dataset_n_cols,
+                   dataset_header_size);
+  }
+
+  size_t label_header_size = 0;
+  size_t label_n_elements  = 0;
+  {
+    std::ifstream mapping_stream(mapping_path, std::ios::binary);
+    RAFT_EXPECTS(mapping_stream.good(), "Failed to open mapping file: %s", mapping_path.c_str());
+
+    auto header       = raft::numpy_serializer::read_header(mapping_stream);
+    label_header_size = static_cast<size_t>(mapping_stream.tellg());
+    RAFT_EXPECTS(header.shape.size() == 1,
+                 "Mapping file should be 1D, got %zu dimensions",
+                 header.shape.size());
+
+    label_n_elements = header.shape[0];
+    RAFT_LOG_DEBUG(
+      "Mapping file: %zu elements, header size: %zu bytes", label_n_elements, label_header_size);
+  }
+
+  // Verify consistency
+  RAFT_EXPECTS(graph_n_rows == static_cast<size_t>(n_rows),
+               "Graph rows (%zu) != index size (%zu)",
+               graph_n_rows,
+               static_cast<size_t>(n_rows));
+  RAFT_EXPECTS(dataset_n_rows == static_cast<size_t>(n_rows),
+               "Dataset rows (%zu) != index size (%zu)",
+               dataset_n_rows,
+               static_cast<size_t>(n_rows));
+  RAFT_EXPECTS(label_n_elements == static_cast<size_t>(n_rows),
+               "Label elements (%zu) != index size (%zu)",
+               label_n_elements,
+               static_cast<size_t>(n_rows));
+  RAFT_EXPECTS(graph_n_cols == static_cast<size_t>(graph_degree_int),
+               "Graph cols (%zu) != graph degree (%d)",
+               graph_n_cols,
+               graph_degree_int);
+  RAFT_EXPECTS(dataset_n_cols == static_cast<size_t>(dim),
+               "Dataset cols (%zu) != dimensions (%zu)",
+               dataset_n_cols,
+               static_cast<size_t>(dim));
+
+  // Disk-specific batch reader: pread graph/dataset/label rows into the host buffers.
+  auto read_batch = [&](int64_t start_row,
+                        int64_t rows_to_read,
+                        raft::host_matrix_view<IdxT, int64_t, raft::row_major> graph_buf,
+                        raft::host_matrix_view<T, int64_t, raft::row_major> dataset_buf,
+                        raft::host_vector_view<uint32_t, int64_t> label_buf) {
+    RAFT_EXPECTS(start_row >= 0 && rows_to_read >= 0,
+                 "Batch start row and row count must be non-negative");
+    const size_t row          = static_cast<size_t>(start_row);
+    const size_t rows         = static_cast<size_t>(rows_to_read);
+    const size_t graph_degree = static_cast<size_t>(graph_degree_int);
+    const size_t dim_size     = static_cast<size_t>(dim);
+
+    const size_t graph_bytes   = rows * graph_degree * sizeof(IdxT);
+    const size_t dataset_bytes = rows * dim_size * sizeof(T);
+    const size_t label_bytes   = rows * sizeof(uint32_t);
+
+    const size_t graph_offset   = graph_header_size + row * graph_degree * sizeof(IdxT);
+    const size_t dataset_offset = dataset_header_size + row * dim_size * sizeof(T);
+    const size_t label_offset   = label_header_size + row * sizeof(uint32_t);
+
+    RAFT_LOG_DEBUG("Reading batch: row=%ld, rows=%ld", start_row, rows_to_read);
+
+    // Issue the three reads concurrently through kvikio (its threadpool parallelizes each), then
+    // wait for all to complete.
+    auto graph_future = graph_kv.pread(graph_buf.data_handle(), graph_bytes, graph_offset);
+    auto dataset_future =
+      dataset_kv.pread(dataset_buf.data_handle(), dataset_bytes, dataset_offset);
+    auto label_future = label_kv.pread(label_buf.data_handle(), label_bytes, label_offset);
+
+    // Drain all three futures before propagating any failure.
+    std::exception_ptr read_error;
+    auto drain = [&read_error](auto& fut) -> size_t {
+      try {
+        return fut.get();
+      } catch (...) {
+        if (!read_error) { read_error = std::current_exception(); }
+        return 0;
+      }
+    };
+    const size_t graph_read   = drain(graph_future);
+    const size_t dataset_read = drain(dataset_future);
+    const size_t label_read   = drain(label_future);
+    if (read_error) { std::rethrow_exception(read_error); }
+    RAFT_EXPECTS(graph_read == graph_bytes,
+                 "Short graph read at row %ld: expected %zu, got %zu",
+                 start_row,
+                 graph_bytes,
+                 graph_read);
+    RAFT_EXPECTS(dataset_read == dataset_bytes,
+                 "Short dataset read at row %ld: expected %zu, got %zu",
+                 start_row,
+                 dataset_bytes,
+                 dataset_read);
+    RAFT_EXPECTS(label_read == label_bytes,
+                 "Short label read at row %ld: expected %zu, got %zu",
+                 start_row,
+                 label_bytes,
+                 label_read);
+  };
+
+  serialize_to_hnswlib_batched<T, IdxT>(
+    res, os_raw, params, n_rows, dim, graph_degree_int, index_.metric(), read_batch);
+}
+
+// Serialize an in-memory CAGRA index into hnswlib format on disk, copying graph/dataset
+// rows from the in-memory (device or host) structures batch by batch. This avoids
+// materializing the full HNSW index in host memory.
+template <typename CagraIndexT>
+  requires is_cagra_hnsw_export_index_v<typename CagraIndexT::value_type, CagraIndexT>
+void serialize_to_hnswlib_from_inmem(
   raft::resources const& res,
-  const index_params& params,
-  const cuvs::neighbors::cagra::index<T, uint32_t>& cagra_index,
-  std::optional<raft::host_matrix_view<const T, int64_t, raft::row_major>> dataset)
+  std::ostream& os_raw,
+  const cuvs::neighbors::hnsw::index_params& params,
+  CagraIndexT const& index_,
+  std::optional<
+    raft::host_matrix_view<const typename CagraIndexT::value_type, int64_t, raft::row_major>>
+    dataset)
+{
+  using T     = typename CagraIndexT::value_type;
+  using IdxT  = typename CagraIndexT::index_type;
+  auto stream = raft::resource::get_cuda_stream(res);
+  [[maybe_unused]] auto num_threads =
+    params.num_threads == 0 ? cuvs::core::omp::get_max_threads() : params.num_threads;
+
+  // Resolve dataset source (host view if provided, else the CAGRA device dataset).
+  const T* source_dataset = nullptr;
+  int64_t n_rows, dim, source_stride;
+  bool device_dataset;
+  if (dataset.has_value()) {
+    n_rows         = dataset->extent(0);
+    dim            = dataset->extent(1);
+    device_dataset = false;
+    source_dataset = dataset->data_handle();
+    source_stride  = dim;
+  } else if constexpr (is_host_cagra_hnsw_export_index_v<T, CagraIndexT>) {
+    RAFT_FAIL("serialize_to_hnswlib_from_inmem requires dataset for host CAGRA index");
+  } else if (auto dataset_view = index_.dataset(); dataset_view.view().data_handle() != nullptr) {
+    n_rows         = dataset_view.n_rows();
+    dim            = dataset_view.dim();
+    device_dataset = true;
+    source_dataset = dataset_view.view().data_handle();
+    source_stride  = dataset_view.stride();
+  } else {
+    RAFT_FAIL("serialize_to_hnswlib_from_inmem: No dataset provided");
+  }
+
+  // Resolve graph source and determine whether it is host-accessible.
+  auto graph_view            = index_.graph();
+  const int64_t degree       = graph_view.extent(1);
+  const int graph_degree_int = static_cast<int>(degree);
+  RAFT_EXPECTS(graph_view.extent(0) == n_rows,
+               "Graph rows (%zu) != dataset rows (%zu)",
+               static_cast<size_t>(graph_view.extent(0)),
+               static_cast<size_t>(n_rows));
+
+  const IdxT* graph_ptr = graph_view.data_handle();
+  cudaPointerAttributes attr;
+  RAFT_CUDA_TRY(cudaPointerGetAttributes(&attr, graph_ptr));
+  bool graph_host_accessible = false;
+  if (attr.type == cudaMemoryTypeUnregistered) {
+    graph_host_accessible = true;
+  } else if (attr.hostPointer != nullptr) {
+    graph_ptr             = static_cast<const IdxT*>(attr.hostPointer);
+    graph_host_accessible = true;
+  }
+
+  // In-memory batch reader: copy graph/dataset rows into the host buffers and assign
+  // identity labels (in-memory CAGRA uses a 1:1 labeling, there is no mapping file).
+  auto read_batch = [&](int64_t start_row,
+                        int64_t rows_to_read,
+                        raft::host_matrix_view<IdxT, int64_t, raft::row_major> graph_buf,
+                        raft::host_matrix_view<T, int64_t, raft::row_major> dataset_buf,
+                        raft::host_vector_view<uint32_t, int64_t> label_buf) {
+    // graph rows
+    if (graph_host_accessible) {
+#pragma omp parallel for num_threads(num_threads)
+      for (int64_t r = 0; r < rows_to_read; r++) {
+        std::copy(graph_ptr + (start_row + r) * degree,
+                  graph_ptr + (start_row + r + 1) * degree,
+                  &graph_buf(r, 0));
+      }
+    } else {
+      raft::copy_matrix(graph_buf.data_handle(),
+                        degree,
+                        graph_ptr + start_row * degree,
+                        degree,
+                        degree,
+                        rows_to_read,
+                        stream);
+      raft::resource::sync_stream(res);
+    }
+
+    // dataset rows (drop any device-side row padding via the source stride)
+    if (!device_dataset) {
+#pragma omp parallel for num_threads(num_threads)
+      for (int64_t r = 0; r < rows_to_read; r++) {
+        std::copy(source_dataset + (start_row + r) * source_stride,
+                  source_dataset + (start_row + r) * source_stride + dim,
+                  &dataset_buf(r, 0));
+      }
+    } else {
+      raft::copy_matrix(dataset_buf.data_handle(),
+                        dim,
+                        source_dataset + start_row * source_stride,
+                        source_stride,
+                        dim,
+                        rows_to_read,
+                        stream);
+      raft::resource::sync_stream(res);
+    }
+
+    // identity labels
+    std::iota(label_buf.data_handle(),
+              label_buf.data_handle() + rows_to_read,
+              static_cast<uint32_t>(start_row));
+  };
+
+  serialize_to_hnswlib_batched<T, IdxT>(
+    res, os_raw, params, n_rows, dim, graph_degree_int, index_.metric(), read_batch);
+}
+
+template <typename T, HnswHierarchy hierarchy, typename CagraIndexT>
+std::enable_if_t<hierarchy == HnswHierarchy::GPU && is_cagra_hnsw_export_index_v<T, CagraIndexT>,
+                 std::unique_ptr<index<T>>>
+from_cagra(raft::resources const& res,
+           const index_params& params,
+           CagraIndexT const& cagra_index,
+           std::optional<raft::host_matrix_view<const T, int64_t, raft::row_major>> dataset)
 {
   common::nvtx::range<common::nvtx::domain::cuvs> fun_scope("hnsw::from_cagra<GPU>");
-  auto stream = raft::resource::get_cuda_stream(res);
   auto num_threads =
     params.num_threads == 0 ? cuvs::core::omp::get_max_threads() : params.num_threads;
 
@@ -1679,12 +2024,15 @@ std::enable_if_t<hierarchy == HnswHierarchy::GPU, std::unique_ptr<index<T>>> fro
     device_copy    = false;
     source_dataset = dataset->data_handle();
     source_stride  = dim;
-  } else if (auto cagra_dataset = cagra_index.dataset(); cagra_dataset.data_handle() != nullptr) {
-    n_rows         = cagra_dataset.extent(0);
-    dim            = cagra_dataset.extent(1);
+  } else if constexpr (is_host_cagra_hnsw_export_index_v<T, CagraIndexT>) {
+    RAFT_FAIL("hnsw::from_cagra<GPU> requires dataset for host CAGRA index");
+  } else if (auto dataset_view = cagra_index.dataset();
+             dataset_view.view().data_handle() != nullptr) {
+    n_rows         = dataset_view.n_rows();
+    dim            = dataset_view.dim();
     device_copy    = true;
-    source_dataset = cagra_dataset.data_handle();
-    source_stride  = cagra_dataset.stride(0);
+    source_dataset = dataset_view.view().data_handle();
+    source_stride  = dataset_view.stride();
   } else {
     RAFT_FAIL("hnsw::from_cagra<GPU>: No dataset provided");
   }
@@ -1877,7 +2225,7 @@ std::enable_if_t<hierarchy == HnswHierarchy::GPU, std::unique_ptr<index<T>>> fro
                                     degree * sizeof(uint32_t),
                                     n_rows,
                                     cudaMemcpyDefault,
-                                    raft::resource::get_cuda_stream(res)));
+                                    raft::resource::get_cuda_stream(res).get()));
 #pragma omp parallel for num_threads(num_threads)
     for (int64_t i = 0; i < n_rows; i++) {
       appr_algo->setListCount(appr_algo->get_linklist0(i), degree);
@@ -1888,13 +2236,65 @@ std::enable_if_t<hierarchy == HnswHierarchy::GPU, std::unique_ptr<index<T>>> fro
   return hnsw_index;
 }
 
-template <typename T>
+inline std::pair<size_t, size_t> get_available_memory(
+  std::optional<double> max_host_memory_gb = std::nullopt,
+  std::optional<double> max_gpu_memory_gb  = std::nullopt)
+{
+  size_t available_host_memory = cuvs::util::get_free_host_memory();
+  if (max_host_memory_gb.has_value() && max_host_memory_gb.value() > 0) {
+    const auto configured_host_memory =
+      static_cast<size_t>(max_host_memory_gb.value() * (1ULL << 30));
+    if (available_host_memory < configured_host_memory) {
+      RAFT_LOG_WARN(
+        "ACE: Actual host memory (%.2f GiB) is less than configured limit (%.2f GiB). Using "
+        "actual host memory.",
+        static_cast<double>(available_host_memory) / (1ULL << 30),
+        max_host_memory_gb.value());
+    } else {
+      available_host_memory = configured_host_memory;
+      RAFT_LOG_INFO("ACE: Using overridden host memory limit: %.2f GiB",
+                    max_host_memory_gb.value());
+    }
+  }
+  // Note: We use total device memory rather than free memory because RMM pools
+  // and other allocators may report artificially low free memory. The assumption
+  // is that the full device memory will be available for the build operation.
+  size_t available_device_memory = rmm::available_device_memory().second;
+  if (max_gpu_memory_gb.has_value() && max_gpu_memory_gb.value() > 0) {
+    available_device_memory = static_cast<size_t>(max_gpu_memory_gb.value() * (1ULL << 30));
+    RAFT_LOG_INFO("ACE: Using overridden GPU memory limit: %.2f GiB", max_gpu_memory_gb.value());
+  }
+  return std::make_pair(available_host_memory, available_device_memory);
+}
+
+inline void validate_output_format(const index_params& params)
+{
+  switch (params.output_format) {
+    case HnswOutputFormat::HNSWLIB: return;
+    case HnswOutputFormat::GRAPH_ONLY:
+      RAFT_EXPECTS(params.hierarchy == HnswHierarchy::GPU,
+                   "GRAPH_ONLY requires HnswHierarchy::GPU");
+      return;
+  }
+  RAFT_FAIL("Unsupported HNSW output format");
+}
+
+template <typename T, typename CagraIndexT>
+  requires is_cagra_hnsw_export_index_v<T, CagraIndexT>
 std::unique_ptr<index<T>> from_cagra(
   raft::resources const& res,
   const index_params& params,
-  const cuvs::neighbors::cagra::index<T, uint32_t>& cagra_index,
+  CagraIndexT const& cagra_index,
   std::optional<raft::host_matrix_view<const T, int64_t, raft::row_major>> dataset)
 {
+  validate_output_format(params);
+
+  if constexpr (is_host_cagra_hnsw_export_index_v<T, CagraIndexT>) {
+    if (!cagra_index.dataset_fd().has_value() && !dataset.has_value()) {
+      RAFT_FAIL("hnsw::from_cagra requires dataset for host CAGRA index");
+    }
+  }
+
   // special treatment for index on disk
   if (cagra_index.dataset_fd().has_value() && cagra_index.graph_fd().has_value()) {
     // Get directory from graph file descriptor
@@ -1910,33 +2310,28 @@ std::unique_ptr<index<T>> from_cagra(
       std::filesystem::exists(index_directory) && std::filesystem::is_directory(index_directory),
       "Directory '%s' does not exist",
       index_directory.c_str());
-    if (params.hierarchy == HnswHierarchy::GPU_LAYERED_ON_DISK) {
+    if (params.output_format == HnswOutputFormat::GRAPH_ONLY) {
       RAFT_EXPECTS(dataset.has_value(),
                    "Layered HNSW serialization requires the original-order dataset.");
       auto artifact_path =
-        serialize_to_layered_hnsw_from_disk(res, params, cagra_index, dataset.value());
+        serialize_to_layered_hnswlib_from_disk(res, params, cagra_index, dataset.value());
 
-      auto hnsw_index =
-        std::make_unique<index_impl<T>>(cagra_index.dim(), cagra_index.metric(), params.hierarchy);
+      auto hnsw_index = std::make_unique<index_impl<T>>(
+        cagra_index.dim(), cagra_index.metric(), params.hierarchy, params.output_format);
       hnsw_index->set_file_descriptor(cuvs::util::file_descriptor(artifact_path, O_RDONLY));
       return hnsw_index;
     }
 
     std::string index_filename =
       (std::filesystem::path(index_directory) / "hnsw_index.bin").string();
+    exclusive_hnsw_output_file output(index_filename);
 
-    std::ofstream of(index_filename, std::ios::out | std::ios::binary);
-
-    RAFT_EXPECTS(of, "Cannot open file %s", index_filename.c_str());
-
-    serialize_to_hnswlib_from_disk(res, of, params, cagra_index);
-
-    of.close();
-    RAFT_EXPECTS(of, "Error writing output %s", index_filename.c_str());
+    serialize_to_hnswlib_from_disk(res, output.stream(), params, cagra_index);
+    output.publish();
 
     // Create an empty HNSW index that holds the file descriptor
-    auto hnsw_index =
-      std::make_unique<index_impl<T>>(cagra_index.dim(), cagra_index.metric(), params.hierarchy);
+    auto hnsw_index = std::make_unique<index_impl<T>>(
+      cagra_index.dim(), cagra_index.metric(), params.hierarchy, params.output_format);
 
     // Open file descriptor for the HNSW index file and transfer ownership to the index
     hnsw_index->set_file_descriptor(cuvs::util::file_descriptor(index_filename, O_RDONLY));
@@ -1946,14 +2341,110 @@ std::unique_ptr<index<T>> from_cagra(
     return hnsw_index;
   }
 
+  RAFT_EXPECTS(params.output_format == HnswOutputFormat::HNSWLIB,
+               "GRAPH_ONLY requires disk-backed ACE build artifacts");
+
+  // In-memory CAGRA index: the resulting HNSW index might still not fit in host memory.
+  // Estimate its host footprint and, if it does not fit, spill it to disk via
+  // serialize_to_hnswlib_from_inmem instead of constructing it in RAM (NONE/GPU only;
+  // the CPU hierarchy is not supported by the batched serializer, and GRAPH_ONLY is only
+  // produced from disk-backed ACE artifacts handled above).
+  if (params.hierarchy == HnswHierarchy::NONE || params.hierarchy == HnswHierarchy::GPU) {
+    int64_t n_rows       = dataset.has_value() ? dataset->extent(0) : cagra_index.size();
+    int64_t dim          = dataset.has_value() ? dataset->extent(1) : cagra_index.dim();
+    int graph_degree_int = static_cast<int>(cagra_index.graph().extent(1));
+
+    // Instantiate a size-1 dummy to read the exact per-element host footprint.
+    auto dummy_index = std::make_unique<index_impl<T>>(dim, cagra_index.metric(), params.hierarchy);
+    auto dummy_algo  = std::make_unique<hnswlib::HierarchicalNSW<typename hnsw_dist_t<T>::type>>(
+      dummy_index->get_space(), 1, (graph_degree_int + 1) / 2, params.ef_construction);
+
+    // The contiguous level-0 array (size_data_per_element_ = level-0 links + vector + label)
+    // dominates, but hnswlib allocates several additional per-element structures that are NOT
+    // part of it. These fixed-size costs (locks, hash map) don't shrink with the vector, so a
+    // flat percentage under-counts for low-dim/8-bit/small-M and hierarchical indexes. Model
+    // them explicitly instead:
+    //   - linkLists_   : char* per element
+    //   - element_levels_ : int per element
+    //   - link_list_locks_ : std::mutex per element (kept for the index lifetime)
+    //   - label_lookup_ : unordered_map<labeltype,tableint> node + bucket slot (~56 B upper bound)
+    //   - upper-level link lists (hierarchy != NONE only): expected
+    //     size_links_per_element / ln(M) bytes per element
+    size_t per_element = dummy_algo->size_data_per_element_;
+    per_element += sizeof(void*) + sizeof(int) + sizeof(std::mutex);
+    per_element += 56;  // unordered_map node + bucket slot (upper bound)
+    if (params.hierarchy != HnswHierarchy::NONE) {
+      int m_used = std::max(2, (graph_degree_int + 1) / 2);
+      size_t size_links_per_element =
+        static_cast<size_t>(m_used) * sizeof(uint32_t) + sizeof(uint32_t);
+      per_element +=
+        static_cast<size_t>(size_links_per_element / std::log(static_cast<double>(m_used)));
+    }
+    size_t required_host = static_cast<size_t>(n_rows) * per_element;
+
+    // Honor an explicit host-memory limit from ACE params (if configured), mirroring
+    // hnsw::build. This also makes the spill branch deterministically testable.
+    std::optional<double> max_host_memory_gb = std::nullopt;
+    if (std::holds_alternative<graph_build_params::ace_params>(params.graph_build_params)) {
+      const auto& ace = std::get<graph_build_params::ace_params>(params.graph_build_params);
+      if (ace.max_host_memory_gb > 0) { max_host_memory_gb = ace.max_host_memory_gb; }
+    }
+    size_t available_host = get_available_memory(max_host_memory_gb).first;
+
+    RAFT_LOG_INFO(
+      "hnsw::from_cagra - in-memory HNSW requires ~%4.1f GB host mem, available %4.1f GB",
+      required_host / 1e9,
+      available_host / 1e9);
+
+    if (required_host >= available_host) {
+      RAFT_LOG_INFO("Not enough host memory for in-memory HNSW. Spilling HNSW index to disk.");
+
+      // Use the ACE build_dir if configured, otherwise fallback to system temp
+      std::string index_directory;
+      if (std::holds_alternative<graph_build_params::ace_params>(params.graph_build_params)) {
+        const auto& ace = std::get<graph_build_params::ace_params>(params.graph_build_params);
+        if (!ace.build_dir.empty()) { index_directory = ace.build_dir; }
+      }
+      if (index_directory.empty()) {
+        std::random_device rd;
+        std::mt19937_64 gen(rd());
+        std::filesystem::path candidate;
+        do {
+          candidate =
+            std::filesystem::temp_directory_path() / ("cuvs_hnsw_" + std::to_string(gen()));
+        } while (std::filesystem::exists(candidate));
+        index_directory = candidate.string();
+      }
+      std::filesystem::create_directories(index_directory);
+      RAFT_EXPECTS(
+        std::filesystem::exists(index_directory) && std::filesystem::is_directory(index_directory),
+        "Directory '%s' does not exist",
+        index_directory.c_str());
+
+      std::string index_filename =
+        (std::filesystem::path(index_directory) / "hnsw_index.bin").string();
+      exclusive_hnsw_output_file output(index_filename);
+
+      serialize_to_hnswlib_from_inmem(res, output.stream(), params, cagra_index, dataset);
+      output.publish();
+
+      // Create an empty HNSW index that holds the file descriptor
+      auto hnsw_index =
+        std::make_unique<index_impl<T>>(dim, cagra_index.metric(), params.hierarchy);
+      hnsw_index->set_file_descriptor(cuvs::util::file_descriptor(index_filename, O_RDONLY));
+
+      RAFT_LOG_INFO("HNSW index written to disk at: %s", index_filename.c_str());
+
+      return hnsw_index;
+    }
+  }
+
   if (params.hierarchy == HnswHierarchy::NONE) {
     return from_cagra<T, HnswHierarchy::NONE>(res, params, cagra_index, dataset);
   } else if (params.hierarchy == HnswHierarchy::CPU) {
     return from_cagra<T, HnswHierarchy::CPU>(res, params, cagra_index, dataset);
   } else if (params.hierarchy == HnswHierarchy::GPU) {
     return from_cagra<T, HnswHierarchy::GPU>(res, params, cagra_index, dataset);
-  } else if (params.hierarchy == HnswHierarchy::GPU_LAYERED_ON_DISK) {
-    RAFT_FAIL("GPU_LAYERED_ON_DISK requires disk-backed ACE build artifacts.");
   } else {
     RAFT_FAIL("Unsupported hierarchy type");
   }
@@ -2064,7 +2555,7 @@ void serialize(raft::resources const& res, const std::string& filename, const in
                  "Disk-based index file does not exist: %s",
                  source_path.c_str());
 
-    if (idx_impl->hierarchy() == HnswHierarchy::GPU_LAYERED_ON_DISK) {
+    if (idx_impl->output_format() == HnswOutputFormat::GRAPH_ONLY) {
       copy_file_overwrite(source_path, filename);
       RAFT_LOG_INFO(
         "Copied layered HNSW index from %s to %s", source_path.c_str(), filename.c_str());
@@ -2090,12 +2581,13 @@ void serialize(raft::resources const& res, const std::string& filename, const in
 // checks) lives in a single place and cannot drift between them.
 struct layered_artifact_view {
   layered_hnsw_file_metadata metadata;
-  size_t artifact_size      = 0;
-  size_t levels_offset      = 0;
-  size_t base_nodes_offset  = 0;
-  size_t base_links_offset  = 0;
-  size_t upper_nodes_offset = 0;
-  size_t upper_links_offset = 0;
+  cuvs::distance::DistanceType metric = cuvs::distance::DistanceType::L2Expanded;
+  size_t artifact_size                = 0;
+  size_t levels_offset                = 0;
+  size_t base_nodes_offset            = 0;
+  size_t base_links_offset            = 0;
+  size_t upper_nodes_offset           = 0;
+  size_t upper_links_offset           = 0;
   std::vector<uint8_t> levels;  // per-row top level, length n_rows
 };
 
@@ -2104,10 +2596,11 @@ struct layered_artifact_view {
 // sizes, file length, and the levels max-level) BEFORE the caller allocates buffers sized from
 // these fields, so a corrupt/truncated/crafted header cannot drive an out-of-bounds read or write.
 template <typename T>
-auto read_and_validate_layered_artifact(const cuvs::util::file_descriptor& artifact_fd,
-                                        const std::string& artifact_path,
-                                        int dim,
-                                        cuvs::distance::DistanceType metric)
+auto read_and_validate_layered_artifact(
+  const cuvs::util::file_descriptor& artifact_fd,
+  const std::string& artifact_path,
+  std::optional<int> expected_dim                             = std::nullopt,
+  std::optional<cuvs::distance::DistanceType> expected_metric = std::nullopt)
   -> layered_artifact_view
 {
   layered_hnsw_file_header header{};
@@ -2118,16 +2611,35 @@ auto read_and_validate_layered_artifact(const cuvs::util::file_descriptor& artif
   RAFT_EXPECTS(header.version == layered_hnsw_version,
                "Unsupported layered HNSW artifact version %u",
                header.version);
-  RAFT_EXPECTS(header.dtype == static_cast<uint32_t>(layered_dtype_code<T>()),
-               "Layered HNSW artifact dtype (%s) does not match requested dtype (%s)",
-               layered_dtype_name(static_cast<layered_hnsw_dtype>(header.dtype)),
-               layered_dtype_name(layered_dtype_code<T>()));
-  RAFT_EXPECTS(header.metric == static_cast<uint32_t>(metric),
-               "Layered HNSW artifact metric (%s) does not match requested metric (%s)",
-               metric_name(static_cast<cuvs::distance::DistanceType>(header.metric)),
-               metric_name(metric));
+  const auto construction_dtype = static_cast<layered_hnsw_dtype>(header.construction_dtype);
+  RAFT_EXPECTS(is_supported_layered_dtype(construction_dtype),
+               "Layered HNSW artifact contains unsupported construction dtype code %u",
+               header.construction_dtype);
+  const auto artifact_metric = static_cast<cuvs::distance::DistanceType>(header.metric);
+  RAFT_EXPECTS(artifact_metric == cuvs::distance::DistanceType::L2Expanded ||
+                 artifact_metric == cuvs::distance::DistanceType::InnerProduct,
+               "Layered HNSW artifact contains unsupported metric code %u",
+               header.metric);
+  RAFT_EXPECTS(header.dim <= static_cast<uint64_t>(std::numeric_limits<int>::max()),
+               "Layered HNSW artifact dimension (%zu) exceeds supported maximum (%d)",
+               static_cast<size_t>(header.dim),
+               std::numeric_limits<int>::max());
+  const auto artifact_dim = static_cast<int>(header.dim);
+  if (expected_dim.has_value()) {
+    RAFT_EXPECTS(artifact_dim == *expected_dim,
+                 "Layered HNSW artifact dim (%d) does not match requested dim (%d)",
+                 artifact_dim,
+                 *expected_dim);
+  }
+  if (expected_metric.has_value()) {
+    RAFT_EXPECTS(artifact_metric == *expected_metric,
+                 "Layered HNSW artifact metric (%s) does not match requested metric (%s)",
+                 metric_name(artifact_metric),
+                 metric_name(*expected_metric));
+  }
 
   layered_artifact_view view;
+  view.metric                   = artifact_metric;
   view.artifact_size            = static_cast<size_t>(std::filesystem::file_size(artifact_path));
   const auto descriptors_offset = sizeof(layered_hnsw_file_header);
   const auto descriptors_bytes =
@@ -2157,10 +2669,11 @@ auto read_and_validate_layered_artifact(const cuvs::util::file_descriptor& artif
 
   RAFT_EXPECTS(metadata.n_rows > 0, "Layered HNSW artifact must contain at least one row");
   RAFT_EXPECTS(metadata.dim > 0, "Layered HNSW artifact must contain at least one dimension");
-  RAFT_EXPECTS(static_cast<size_t>(dim) == metadata.dim,
-               "Layered HNSW artifact dim (%zu) does not match requested dim (%d)",
-               metadata.dim,
-               dim);
+  RAFT_EXPECTS(metadata.enterpoint_node >= 0 &&
+                 static_cast<size_t>(metadata.enterpoint_node) < metadata.n_rows,
+               "Layered HNSW enterpoint node (%d) outside valid range [0, %zu)",
+               metadata.enterpoint_node,
+               metadata.n_rows);
   RAFT_EXPECTS(metadata.layers.size() == static_cast<size_t>(metadata.maxlevel),
                "Layered HNSW artifact has %zu upper layers, expected %d",
                metadata.layers.size(),
@@ -2209,27 +2722,26 @@ auto read_and_validate_layered_artifact(const cuvs::util::file_descriptor& artif
 }
 
 template <typename T>
-auto deserialize_layered_hnsw(raft::resources const& res,
-                              const index_params& params,
-                              const std::string& artifact_path,
-                              int dim,
-                              cuvs::distance::DistanceType metric) -> std::unique_ptr<index<T>>
+auto deserialize_layered_hnswlib(raft::resources const& res,
+                                 const std::string& artifact_path,
+                                 const std::string& dataset_path) -> std::unique_ptr<index<T>>
 {
   common::nvtx::range<common::nvtx::domain::cuvs> fun_scope("hnsw::deserialize_layered");
   const auto total_start_time    = std::chrono::steady_clock::now();
   const auto metadata_start_time = std::chrono::steady_clock::now();
   cuvs::util::file_descriptor artifact_fd(artifact_path, O_RDONLY);
-  auto view      = read_and_validate_layered_artifact<T>(artifact_fd, artifact_path, dim, metric);
-  auto& metadata = view.metadata;
-  const auto artifact_size       = view.artifact_size;
-  const auto base_nodes_offset   = view.base_nodes_offset;
-  const auto base_links_offset   = view.base_links_offset;
-  const auto upper_nodes_offset  = view.upper_nodes_offset;
-  const auto upper_links_offset  = view.upper_links_offset;
+  auto view                     = read_and_validate_layered_artifact<T>(artifact_fd, artifact_path);
+  auto& metadata                = view.metadata;
+  const auto dim                = static_cast<int>(metadata.dim);
+  const auto metric             = view.metric;
+  const auto artifact_size      = view.artifact_size;
+  const auto base_nodes_offset  = view.base_nodes_offset;
+  const auto base_links_offset  = view.base_links_offset;
+  const auto upper_nodes_offset = view.upper_nodes_offset;
+  const auto upper_links_offset = view.upper_links_offset;
   const auto metadata_elapsed_ms = elapsed_ms_since(metadata_start_time);
 
-  RAFT_EXPECTS(!params.dataset_path.empty(),
-               "Layered HNSW deserialization requires index_params.dataset_path");
+  RAFT_EXPECTS(!dataset_path.empty(), "Layered HNSW deserialization requires a dataset filename");
   RAFT_LOG_INFO("Layered HNSW load: metadata read in %ld ms (rows=%zu dim=%zu artifact=%.2f GiB)",
                 metadata_elapsed_ms,
                 metadata.n_rows,
@@ -2237,7 +2749,7 @@ auto deserialize_layered_hnsw(raft::resources const& res,
                 to_gib(artifact_size));
 
   const auto dataset_open_start_time = std::chrono::steady_clock::now();
-  auto dataset_file                  = open_layered_dataset_file<T>(params.dataset_path);
+  auto dataset_file                  = open_layered_dataset_file<T>(dataset_path);
   const auto dataset_open_elapsed_ms = elapsed_ms_since(dataset_open_start_time);
 
   RAFT_EXPECTS(dataset_file.shape.size() == 2 && dataset_file.shape[0] == metadata.n_rows &&
@@ -2248,11 +2760,12 @@ auto deserialize_layered_hnsw(raft::resources const& res,
                metadata.dim,
                dataset_file.shape.size() > 0 ? dataset_file.shape[0] : 0,
                dataset_file.shape.size() > 1 ? dataset_file.shape[1] : 0,
-               params.dataset_path.c_str());
+               dataset_path.c_str());
+  validate_npy_file<T>(dataset_file, dataset_path, "Layered HNSW dataset");
 
   RAFT_LOG_INFO("Layered HNSW load: dataset header validated in %ld ms (%s)",
                 dataset_open_elapsed_ms,
-                params.dataset_path.c_str());
+                dataset_path.c_str());
 
   const auto dataset_total_bytes = metadata.n_rows * metadata.dim * sizeof(T);
   const auto deserialize_progress_total_bytes =
@@ -2280,7 +2793,8 @@ auto deserialize_layered_hnsw(raft::resources const& res,
   log_deserialize_progress(metadata.levels_bytes);
 
   const auto allocation_start_time = std::chrono::steady_clock::now();
-  auto hnsw_index                  = std::make_unique<index_impl<T>>(dim, metric, params.hierarchy);
+  auto hnsw_index =
+    std::make_unique<index_impl<T>>(dim, metric, HnswHierarchy::GPU, HnswOutputFormat::GRAPH_ONLY);
   auto appr_algo = std::make_unique<hnswlib::HierarchicalNSW<typename hnsw_dist_t<T>::type>>(
     hnsw_index->get_space(), metadata.n_rows, metadata.M, metadata.ef_construction);
   appr_algo->cur_element_count = metadata.n_rows;
@@ -2300,8 +2814,7 @@ auto deserialize_layered_hnsw(raft::resources const& res,
     to_gib(metadata.n_rows * appr_algo->size_data_per_element_),
     to_gib(metadata.upper_nodes_count * metadata.upper_link_row_bytes));
 
-  auto num_threads =
-    params.num_threads == 0 ? cuvs::core::omp::get_max_threads() : params.num_threads;
+  [[maybe_unused]] const auto num_threads = cuvs::core::omp::get_max_threads();
 
   const size_t target_batch_bytes = 64 * 1024 * 1024;
   const size_t dataset_row_bytes  = metadata.dim * sizeof(T);
@@ -2509,6 +3022,21 @@ struct hnswlib_materialize_layout {
   size_t base_links_offset  = 0;
   size_t upper_nodes_offset = 0;
   size_t upper_links_offset = 0;
+};
+
+class scoped_directory_cleanup {
+ public:
+  explicit scoped_directory_cleanup(std::filesystem::path path) : path_{std::move(path)} {}
+  scoped_directory_cleanup(const scoped_directory_cleanup&)            = delete;
+  scoped_directory_cleanup& operator=(const scoped_directory_cleanup&) = delete;
+  ~scoped_directory_cleanup()
+  {
+    std::error_code ec;
+    std::filesystem::remove_all(path_, ec);
+  }
+
+ private:
+  std::filesystem::path path_;
 };
 
 // Routes fixed-size, ID-keyed records into per-bucket temporary files and replays them per bucket.
@@ -2772,11 +3300,10 @@ void materialize_hnswlib_base_region(const cuvs::util::file_descriptor& artifact
   // Single in-memory pass when the whole base topology fits the budget (no temporary files).
   if (budget_bytes >= metadata.base_links_bytes) {
     std::vector<char> ordered_base(metadata.base_links_bytes);
-    scatter_layered_base_links<IdxT>(
-      artifact_fd, layout, num_threads, [&](size_t id, const char* link_row) {
-        std::memcpy(ordered_base.data() + id * row, link_row, row);
-        seen[id] = 1;
-      });
+    scatter_layered_base_links<IdxT>(artifact_fd, layout, 1, [&](size_t id, const char* link_row) {
+      std::memcpy(ordered_base.data() + id * row, link_row, row);
+      seen[id] = 1;
+    });
     verify_full_coverage();
     emit_hnswlib_base_records(dataset_file,
                               output_fd,
@@ -2808,16 +3335,15 @@ void materialize_hnswlib_base_region(const cuvs::util::file_descriptor& artifact
     tmp_dir / "base", num_buckets, rows_per_bucket, record_bytes, budget_bytes / 2);
   // The spiller's per-bucket mutexes make add() safe under the parallel scatter; each thread stages
   // the record in its own (thread_local) buffer before the routed append.
-  scatter_layered_base_links<IdxT>(
-    artifact_fd, layout, num_threads, [&](size_t id, const char* link_row) {
-      thread_local std::vector<char> rec;
-      rec.resize(record_bytes);
-      const IdxT id32 = static_cast<IdxT>(id);
-      std::memcpy(rec.data(), &id32, sizeof(IdxT));
-      std::memcpy(rec.data() + sizeof(IdxT), link_row, row);
-      spiller.add(id / rows_per_bucket, rec.data());
-      seen[id] = 1;
-    });
+  scatter_layered_base_links<IdxT>(artifact_fd, layout, 1, [&](size_t id, const char* link_row) {
+    thread_local std::vector<char> rec;
+    rec.resize(record_bytes);
+    const IdxT id32 = static_cast<IdxT>(id);
+    std::memcpy(rec.data(), &id32, sizeof(IdxT));
+    std::memcpy(rec.data() + sizeof(IdxT), link_row, row);
+    spiller.add(id / rows_per_bucket, rec.data());
+    seen[id] = 1;
+  });
   spiller.finish_writes();
   verify_full_coverage();
 
@@ -3009,6 +3535,7 @@ void materialize_layered_to_hnswlib_on_disk(raft::resources const& res,
 
   // Validate the dataset header.
   auto dataset_file = open_layered_dataset_file<T>(params.dataset_path);
+  validate_npy_file<T>(dataset_file, params.dataset_path, "Layered HNSW dataset");
   RAFT_EXPECTS(dataset_file.shape.size() == 2 && dataset_file.shape[0] == n_rows &&
                  dataset_file.shape[1] == metadata.dim,
                "Layered HNSW dataset shape mismatch: artifact rows=%zu dim=%zu, dataset path=%s",
@@ -3072,7 +3599,8 @@ void materialize_layered_to_hnswlib_on_disk(raft::resources const& res,
   }
   const size_t final_size = layout.upper_region_offset + upper_region_bytes;
 
-  cuvs::util::file_descriptor output_fd(output_path, O_CREAT | O_RDWR | O_TRUNC, 0644);
+  exclusive_hnsw_temp_file output(output_path);
+  cuvs::util::file_descriptor output_fd(output.temporary_path(), O_RDWR);
   cuvs::util::preallocate_file(output_fd, final_size);
   cuvs::util::write_large_file(output_fd, native_header.data(), native_header.size(), 0);
   RAFT_LOG_INFO(
@@ -3098,23 +3626,25 @@ void materialize_layered_to_hnswlib_on_disk(raft::resources const& res,
                                                        : std::max<size_t>(1, requested / 2);
   }
 
-  std::filesystem::path tmp_dir = output_path;
+  std::filesystem::path tmp_dir = output.temporary_path();
   tmp_dir += ".materialize_tmp";
+  scoped_directory_cleanup workspace_cleanup(tmp_dir);
 
   materialize_hnswlib_base_region<T, IdxT>(
     artifact_fd, dataset_file, output_fd, metadata, layout, budget_bytes, num_threads, tmp_dir);
   materialize_hnswlib_upper_region(
     artifact_fd, output_fd, metadata, layout, levels_u8, budget_bytes, tmp_dir);
 
-  std::error_code ec;
-  std::filesystem::remove_all(tmp_dir, ec);
+  output_fd.close();
+  output.publish_replace();
 
   RAFT_LOG_INFO("hnswlib materialize: completed in %ld ms (output %.2f GiB)",
                 elapsed_ms_since(total_start_time),
                 to_gib(final_size));
 }
 
-// Reads the dtype tag from the artifact header and dispatches to the typed implementation.
+// Dispatch using the external dataset dtype. The layered artifact records the graph-construction
+// dtype, which may differ when a quantized graph is materialized with the original vectors.
 inline void materialize_layered_to_hnswlib_on_disk_dispatch(
   raft::resources const& res,
   const cuvs::neighbors::hnsw::materialize_params& params,
@@ -3123,15 +3653,11 @@ inline void materialize_layered_to_hnswlib_on_disk_dispatch(
   int dim,
   cuvs::distance::DistanceType metric)
 {
-  // Open the artifact once and read just the dtype tag to pick T; the typed worker reuses this fd
-  // (no second open) and performs full header validation via read_and_validate_layered_artifact.
+  RAFT_EXPECTS(!params.dataset_path.empty(),
+               "Layered HNSW materialization requires materialize_params.dataset_path");
   cuvs::util::file_descriptor artifact_fd(layered_artifact_path, O_RDONLY);
-  layered_hnsw_file_header header{};
-  cuvs::util::read_large_file(artifact_fd, &header, sizeof(header), 0);
-  RAFT_EXPECTS(std::strncmp(header.magic, layered_hnsw_magic, sizeof(header.magic)) == 0,
-               "Invalid layered HNSW artifact magic: %s",
-               layered_artifact_path.c_str());
-  switch (static_cast<layered_hnsw_dtype>(header.dtype)) {
+  const auto dtype = layered_dataset_dtype(params.dataset_path);
+  switch (dtype) {
     case layered_hnsw_dtype::float32:
       materialize_layered_to_hnswlib_on_disk<float>(
         res, artifact_fd, params, layered_artifact_path, output_path, dim, metric);
@@ -3148,7 +3674,9 @@ inline void materialize_layered_to_hnswlib_on_disk_dispatch(
       materialize_layered_to_hnswlib_on_disk<int8_t>(
         res, artifact_fd, params, layered_artifact_path, output_path, dim, metric);
       break;
-    default: RAFT_FAIL("Unsupported layered HNSW artifact dtype %u", header.dtype);
+    default:
+      RAFT_FAIL("Unsupported layered HNSW dataset dtype or filename: %s",
+                params.dataset_path.c_str());
   }
 }
 
@@ -3160,11 +3688,10 @@ void deserialize(raft::resources const& res,
                  cuvs::distance::DistanceType metric,
                  index<T>** idx)
 {
-  if (params.hierarchy == HnswHierarchy::GPU_LAYERED_ON_DISK) {
-    auto hnsw_index = deserialize_layered_hnsw<T>(res, params, filename, dim, metric);
-    *idx            = hnsw_index.release();
-    return;
-  }
+  validate_output_format(params);
+  RAFT_EXPECTS(params.output_format == HnswOutputFormat::HNSWLIB,
+               "GRAPH_ONLY must be loaded with the two-filename hnsw::deserialize "
+               "overload");
 
   try {
     auto hnsw_index = std::make_unique<index_impl<T>>(dim, metric, params.hierarchy);
@@ -3182,13 +3709,24 @@ void deserialize(raft::resources const& res,
   }
 }
 
+template <typename T>
+void deserialize(raft::resources const& res,
+                 const std::string& graph_filename,
+                 const std::string& dataset_filename,
+                 index<T>** idx)
+{
+  auto hnsw_index = deserialize_layered_hnswlib<T>(res, graph_filename, dataset_filename);
+  *idx            = hnsw_index.release();
+}
+
 /**
  * @brief Build an HNSW index on the GPU using CAGRA graph building algorithm
  *
  * This function builds an HNSW index
- * 1. Converting HNSW parameters to CAGRA parameters (ACE configuration by default)
- * 2. Building a CAGRA index
- * 3. Converting the CAGRA index to HNSW format
+ * 1. Converting HNSW parameters to CAGRA parameters
+ * 2. Inspect memory requirements (fall back to ACE algorithm if memory constrained)
+ * 3. Building a CAGRA index with the chosen algorithm in (2)
+ * 4. Converting the CAGRA index to HNSW format (in-memory or disk-backed)
  */
 template <typename T>
 std::unique_ptr<index<T>> build(raft::resources const& res,
@@ -3196,47 +3734,78 @@ std::unique_ptr<index<T>> build(raft::resources const& res,
                                 raft::host_matrix_view<const T, int64_t, raft::row_major> dataset)
 {
   common::nvtx::range<common::nvtx::domain::cuvs> fun_scope("hnsw::build<ACE>");
+  validate_output_format(params);
 
-  // Use provided ACE parameters or default ones if not specified
-  auto ace_params =
-    std::holds_alternative<graph_build_params::ace_params>(params.graph_build_params)
-      ? std::get<graph_build_params::ace_params>(params.graph_build_params)
-      : graph_build_params::ace_params{};
-
-  if (params.hierarchy == HnswHierarchy::GPU_LAYERED_ON_DISK) {
-    RAFT_EXPECTS(ace_params.use_disk,
-                 "GPU_LAYERED_ON_DISK requires ACE disk mode (ace_params.use_disk = true)");
-    RAFT_EXPECTS(!ace_params.build_dir.empty(),
-                 "GPU_LAYERED_ON_DISK requires ace_params.build_dir to be set");
+  // GRAPH_ONLY materializes the layered index from disk-backed ACE artifacts, so it
+  // requires a GPU hierarchy and ACE disk mode with a build directory. Validate up front; this
+  // also forces the CAGRA build below onto the ACE disk path (use_ace becomes true because ACE
+  // params are set).
+  if (params.output_format == HnswOutputFormat::GRAPH_ONLY) {
+    RAFT_EXPECTS(std::holds_alternative<graph_build_params::ace_params>(params.graph_build_params),
+                 "GRAPH_ONLY requires ACE parameters to be configured");
+    const auto& ace = std::get<graph_build_params::ace_params>(params.graph_build_params);
+    RAFT_EXPECTS(ace.use_disk, "GRAPH_ONLY requires ACE disk mode (ace_params.use_disk = true)");
+    RAFT_EXPECTS(!ace.build_dir.empty(), "GRAPH_ONLY requires ace_params.build_dir to be set");
   }
 
-  // Create CAGRA index parameters from HNSW parameters
-  cuvs::neighbors::cagra::index_params cagra_params;
-  cagra_params.metric                    = params.metric;
-  cagra_params.intermediate_graph_degree = params.M * 3;
-  cagra_params.graph_degree              = params.M * 2;
+  cuvs::neighbors::cagra::index_params cagra_params =
+    cagra::index_params::from_hnsw_params(dataset.extents(),
+                                          params.M,
+                                          params.ef_construction,
+                                          cagra::hnsw_heuristic_type::SAME_GRAPH_FOOTPRINT,
+                                          params.metric);
+  cagra_params.metric = params.metric;
 
-  // Configure ACE parameters for CAGRA
-  cuvs::neighbors::cagra::graph_build_params::ace_params cagra_ace_params;
-  cagra_ace_params.npartitions        = ace_params.npartitions;
-  cagra_ace_params.ef_construction    = params.ef_construction;
-  cagra_ace_params.build_dir          = ace_params.build_dir;
-  cagra_ace_params.use_disk           = ace_params.use_disk;
-  cagra_ace_params.max_host_memory_gb = ace_params.max_host_memory_gb;
-  cagra_ace_params.max_gpu_memory_gb  = ace_params.max_gpu_memory_gb;
-  cagra_params.graph_build_params     = cagra_ace_params;
+  // If the user explicitly configured ACE, honor it. Otherwise (default params) apply a
+  // heuristic that falls back to ACE only when an in-memory CAGRA build would not fit in
+  // the available host/device memory.
+  bool use_ace = std::holds_alternative<graph_build_params::ace_params>(params.graph_build_params);
 
-  RAFT_LOG_INFO("HNSW ACE build: building CAGRA graph (partitions=%zu ef_construction=%zu)",
-                cagra_ace_params.npartitions,
-                cagra_ace_params.ef_construction);
+  if (std::holds_alternative<std::monostate>(params.graph_build_params)) {
+    auto [required_host, required_dev] = cuvs::neighbors::cagra::helpers::cagra_build_mem_usage(
+      res, dataset.extents(), to_cuda_data_type<T>(), cagra_params);
+    auto [available_host, available_dev] = get_available_memory();
 
-  // Build CAGRA index using ACE
-  auto cagra_index = cuvs::neighbors::cagra::build(res, cagra_params, dataset);
+    RAFT_LOG_INFO("CAGRA in memory build, required host mem %4.1f GB, GPU mem %4.1f GB",
+                  required_host / 1e9,
+                  required_dev / 1e9);
+    RAFT_LOG_INFO("Available                       host mem %4.1f GB, GPU mem %4.1f GB",
+                  available_host / 1e9,
+                  available_dev / 1e9);
+    if (required_host < available_host && required_dev < available_dev) {
+      RAFT_LOG_INFO("We have sufficient memory to proceed with in memory build");
+    } else {
+      use_ace = true;
+      RAFT_LOG_INFO(
+        "Not enough host or device memory. Falling back to ACE build with optional disk spilling");
+    }
+  }
+  if (use_ace) {
+    auto ace_params =
+      std::holds_alternative<graph_build_params::ace_params>(params.graph_build_params)
+        ? std::get<graph_build_params::ace_params>(params.graph_build_params)
+        : graph_build_params::ace_params{};
 
-  RAFT_LOG_INFO("HNSW ACE build: converting CAGRA graph to HNSW hierarchy");
+    // Configure ACE parameters for CAGRA
+    cuvs::neighbors::cagra::graph_build_params::ace_params cagra_ace_params;
+    cagra_ace_params.npartitions        = ace_params.npartitions;
+    cagra_ace_params.ef_construction    = params.ef_construction;
+    cagra_ace_params.build_dir          = ace_params.build_dir;
+    cagra_ace_params.use_disk           = ace_params.use_disk;
+    cagra_ace_params.max_host_memory_gb = ace_params.max_host_memory_gb;
+    cagra_ace_params.max_gpu_memory_gb  = ace_params.max_gpu_memory_gb;
+    cagra_params.graph_build_params     = cagra_ace_params;
+  }
 
-  // Convert CAGRA index to HNSW index
-  return from_cagra<T>(res, params, cagra_index, dataset);
+  // Public HNSW API uses host_matrix_view; CAGRA build expects a padded dataset view.
+  // Host build stores only the graph; vectors are passed separately to from_cagra below.
+  cuvs::neighbors::host_padded_dataset_view<T, int64_t> host_padded_view(
+    dataset, static_cast<uint32_t>(dataset.extent(1)));
+  auto ace_host_index = cuvs::neighbors::cagra::build(res, cagra_params, host_padded_view);
+
+  RAFT_LOG_INFO("hnsw::build - Converting CAGRA index to HNSW format");
+
+  return from_cagra<T>(res, params, ace_host_index, std::make_optional(dataset));
 }
 
 }  // namespace cuvs::neighbors::hnsw::detail

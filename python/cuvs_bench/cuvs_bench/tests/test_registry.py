@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -59,16 +59,18 @@ class DummyBackend(BenchmarkBackend):
         distances = np.random.rand(n_queries, k)
         first = indexes[0]
 
-        return SearchResult(
-            neighbors=neighbors,
-            distances=distances,
-            search_time_ms=0.1,
-            queries_per_second=n_queries / 0.1,
-            recall=0.95,
-            algorithm=self.algo,
-            search_params=first.search_params,
-            success=True,
-        )
+        return [
+            SearchResult(
+                neighbors=neighbors,
+                distances=distances,
+                search_time_ms=0.1,
+                queries_per_second=n_queries / 0.1,
+                recall=0.95,
+                algorithm=self.algo,
+                search_params=first.search_params,
+                success=True,
+            )
+        ]
 
 
 class AnotherDummyBackend(BenchmarkBackend):
@@ -109,16 +111,18 @@ class AnotherDummyBackend(BenchmarkBackend):
         distances = np.random.rand(n_queries, k)
         first = indexes[0]
 
-        return SearchResult(
-            neighbors=neighbors,
-            distances=distances,
-            search_time_ms=0.2,
-            queries_per_second=n_queries / 0.2,
-            recall=0.90,
-            algorithm=self.algo,
-            search_params=first.search_params if first else [],
-            success=True,
-        )
+        return [
+            SearchResult(
+                neighbors=neighbors,
+                distances=distances,
+                search_time_ms=0.2,
+                queries_per_second=n_queries / 0.2,
+                recall=0.90,
+                algorithm=self.algo,
+                search_params=first.search_params if first else [],
+                success=True,
+            )
+        ]
 
 
 class TestDataset:
@@ -386,7 +390,7 @@ class TestBackendIntegration:
             )
         ]
 
-        result = backend.search(dataset=dataset, indexes=indexes, k=10)
+        result = backend.search(dataset=dataset, indexes=indexes, k=10)[0]
 
         assert result.success
         assert result.recall == 0.95

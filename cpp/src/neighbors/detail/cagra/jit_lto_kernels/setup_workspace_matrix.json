@@ -81,6 +81,12 @@
         "codebook_type": "void",
         "codebook_abbrev": "none"
       }
+    ],
+    "_smem": [
+      {
+        "smem_dtype": "cuvs::neighbors::cagra::internal_dtype::F16",
+        "smem_abbrev": "f16"
+      }
     ]
   },
   {
@@ -148,6 +154,96 @@
       {
         "codebook_type": "half",
         "codebook_abbrev": "half"
+      }
+    ],
+    "_smem": [
+      {
+        "smem_dtype": "cuvs::neighbors::cagra::internal_dtype::F16",
+        "smem_abbrev": "f16"
+      },
+      {
+        "smem_dtype": "cuvs::neighbors::cagra::internal_dtype::E5M2",
+        "smem_abbrev": "e5m2"
+      }
+    ]
+  },
+  {
+    "_data": [
+      {
+        "data_type": "float",
+        "data_abbrev": "f"
+      },
+      {
+        "data_type": "__half",
+        "data_abbrev": "h"
+      },
+      {
+        "data_type": "uint8_t",
+        "data_abbrev": "u8"
+      },
+      {
+        "data_type": "int8_t",
+        "data_abbrev": "i8"
+      }
+    ],
+    "_query": [
+      {
+        "query_type": "half",
+        "query_abbrev": "h"
+      }
+    ],
+    "_index": [
+      {
+        "index_type": "uint32_t",
+        "index_abbrev": "u32"
+      }
+    ],
+    "_distance": [
+      {
+        "distance_type": "float",
+        "distance_abbrev": "f"
+      }
+    ],
+    "_pq": [
+      {
+        "pq_len": "8",
+        "pq_bits": "8",
+        "pq_prefix": "_vpq",
+        "pq_suffix": "_8pq_8subd"
+      }
+    ],
+    "_codebook": [
+      {
+        "codebook_type": "half",
+        "codebook_abbrev": "half"
+      }
+    ],
+    "_mxdim_team": [
+      {
+        "dataset_block_dim": "128",
+        "team_size": "4"
+      },
+      {
+        "dataset_block_dim": "256",
+        "team_size": "8"
+      },
+      {
+        "dataset_block_dim": "512",
+        "team_size": "16"
+      },
+      {
+        "dataset_block_dim": "1024",
+        "team_size": "32"
+      }
+    ],
+    "_smem": [
+      {
+        "smem_dtype": "cuvs::neighbors::cagra::internal_dtype::F16",
+        "smem_abbrev": "f16"
+      },
+      {
+        "smem_dtype": "cuvs::neighbors::cagra::internal_dtype::E5M2",
+        "smem_abbrev": "e5m2"
       }
     ]
   }

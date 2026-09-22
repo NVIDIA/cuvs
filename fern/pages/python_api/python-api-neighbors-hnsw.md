@@ -87,11 +87,11 @@ Parameters to build index for HNSW nearest neighbor search
 | Name | Type | Description |
 | --- | --- | --- |
 | `hierarchy` | `string, default = "gpu" (optional)` | The hierarchy of the HNSW index.<br />Valid values are ["none", "cpu", "gpu"].<br />- "none": No hierarchy is built.<br />- "cpu": Hierarchy is built using CPU.<br />- "gpu": Hierarchy is built using GPU. |
-| `ef_construction` | `int, default = 200 (optional)` | Maximum number of candidate list size used during construction when hierarchy is `cpu`. |
+| `ef_construction` | `int, default = 200 (optional)` | Maximum candidate list size used during index construction. |
 | `num_threads` | `int, default = 0 (optional)` | Number of CPU threads used to increase construction parallelism when hierarchy is `cpu` or `gpu`. When the value is 0, the number of threads is automatically determined to the maximum number of threads available.<br />NOTE: When hierarchy is `gpu`, while the majority of the work is done on the GPU, initialization of the HNSW index itself and some other work is parallelized with the help of CPU threads. |
-| `M` | `int, default = 32 (optional)` | HNSW M parameter: number of bi-directional links per node (used when building with ACE). graph_degree = m * 2, intermediate_graph_degree = m * 3. |
+| `M` | `int, default = 32 (optional)` | HNSW M parameter: number of bi-directional links per node. When the graph is built on the GPU, this parameter is used to derive the internal CAGRA graph build parameters. |
 | `metric` | `string, default = "sqeuclidean" (optional)` | Distance metric to use.<br />Valid values: ["sqeuclidean", "inner_product"] |
-| `ace_params` | `AceParams, default = None (optional)` | ACE parameters for building HNSW index using ACE algorithm. If set, enables the build() function to use ACE for index construction. |
+| `ace_params` | `AceParams, default = None (optional)` | Explicit ACE parameters for out-of-core graph construction. When not set, the graph build algorithm is selected automatically. |
 
 **Constructor**
 
@@ -192,6 +192,55 @@ def __init__(self, *, num_threads=0)
 def num_threads(self)
 ```
 
+## MaterializeParams
+
+```python
+cdef class MaterializeParams
+```
+
+Parameters for materializing a layered HNSW artifact into an hnswlib
+index on disk.
+
+**Parameters**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `dataset_path` | `string, default = None (optional)` | Local dataset path holding the original-ID-ordered vectors used to build the artifact. Supported formats match layered deserialization: `.npy` and ANN benchmark `*.bin` files with a `[uint32 rows, uint32 cols]` header (`.fbin`, `.f16bin`, `.u8bin`, `.i8bin`). |
+| `max_host_memory_gb` | `float, default = 0 (optional)` | Upper bound on host memory (in GiB) used for the base-topology reorder buffer. When &lt;= 0, the whole base topology is reordered in a single in-memory pass (no temporary files). When set, the base topology is reordered through bucketed temporary files so that peak host memory stays close to this budget. |
+| `num_threads` | `int, default = 0 (optional)` | Number of host threads to use. When 0, the maximum number of threads is used. |
+
+**Constructor**
+
+```python
+def __init__(self, *, dataset_path=None, max_host_memory_gb=0, num_threads=0)
+```
+
+**Members**
+
+| Name | Kind |
+| --- | --- |
+| `dataset_path` | property |
+| `max_host_memory_gb` | property |
+| `num_threads` | property |
+
+### dataset_path
+
+```python
+def dataset_path(self)
+```
+
+### max_host_memory_gb
+
+```python
+def max_host_memory_gb(self)
+```
+
+### num_threads
+
+```python
+def num_threads(self)
+```
+
 ## build
 
 `@auto_sync_resources`
@@ -200,20 +249,17 @@ def num_threads(self)
 def build(IndexParams index_params, dataset, resources=None)
 ```
 
-Build an HNSW index using the ACE (Augmented Core Extraction) algorithm.
+Build an HNSW index from HNSW parameters.
 
-ACE enables building HNSW indices for datasets too large to fit in GPU
-memory by partitioning the dataset and building sub-indices for each
-partition independently.
-
-NOTE: This function requires `index_params.ace_params` to be set with
-an instance of AceParams.
+The graph is built on the GPU and converted to an HNSW index that can be
+searched on the CPU. The graph build algorithm is selected automatically
+unless explicit ACE parameters are provided.
 
 **Parameters**
 
 | Name | Type | Description |
 | --- | --- | --- |
-| `index_params` | `IndexParams` | Parameters for the HNSW index with ACE configuration. Must have `ace_params` set. |
+| `index_params` | `IndexParams` | Parameters for the HNSW index. |
 | `dataset` | `Host array interface compliant matrix shape (n_samples, dim)` | Supported dtype [float32, float16, int8, uint8] |
 | `resources` | `cuvs.common.Resources, optional` |  |
 
@@ -234,17 +280,9 @@ an instance of AceParams.
 >>> dataset = np.random.random_sample((n_samples, n_features),
 ...                                   dtype=np.float32)
 >>>
->>> # Create ACE parameters
->>> ace_params = hnsw.AceParams(
-...     npartitions=4,
-...     use_disk=True,
-...     build_dir="/tmp/hnsw_ace_build"
-... )
->>>
->>> # Create index parameters with ACE
+>>> # Create HNSW index parameters
 >>> index_params = hnsw.IndexParams(
 ...     hierarchy="gpu",
-...     ace_params=ace_params,
 ...     ef_construction=120,
 ...     M=32,
 ...     metric="sqeuclidean"
@@ -394,6 +432,64 @@ version of cuVS is not guaranteed to work.
 >>> hnsw.save("my_index.bin", index)
 >>> index = hnsw.load("my_index.bin", n_features, np.float32,
 ...                   "sqeuclidean")
+```
+
+## materialize_to_hnswlib
+
+`@auto_sync_resources`
+
+```python
+def materialize_to_hnswlib(MaterializeParams materialize_params, layered_artifact_path, output_path, dim, metric="sqeuclidean", resources=None)
+```
+
+Materialize a layered HNSW artifact into a standard hnswlib index file
+on disk.
+
+Materializes a `GRAPH_ONLY` artifact (graph topology only, stored
+in ACE order) plus a local dataset into a standard hnswlib index file,
+without ever holding the full materialized index in host memory. The
+resulting file is compatible with the original hnswlib library and can be
+read back through `load()` with `hierarchy="cpu"`. The element data type
+(float32, float16, uint8, int8) is inferred from the external dataset.
+GRAPH_ONLY artifacts are currently produced through the C++ API.
+
+**Parameters**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `materialize_params` | `MaterializeParams` | Materialization parameters. `dataset_path` must point to the original-ID-ordered vectors used to build the artifact. |
+| `layered_artifact_path` | `string` | Path to the layered HNSW artifact. |
+| `output_path` | `string` | Path to the hnswlib index file to write. |
+| `dim` | `int` | Dimensions of the training dataset. |
+| `metric` | `string denoting the metric type, default="sqeuclidean"` | Valid values for metric: ["sqeuclidean", "inner_product"], where<br />- sqeuclidean is the euclidean distance without the square root operation, i.e.: distance(a,b) = \\sum_i (a_i - b_i)^2,<br />- inner_product distance is defined as distance(a, b) = \\sum_i a_i * b_i. |
+| `resources` | `cuvs.common.Resources, optional` |  |
+
+**Examples**
+
+```python
+>>> import numpy as np
+>>> from cuvs.neighbors import hnsw
+>>> n_features = 50
+>>> # Assume a layered artifact was produced by an ACE GPU build and the
+>>> # original-ID-ordered vectors are stored in "dataset.fbin".
+>>> materialize_params = hnsw.MaterializeParams(
+...     dataset_path="dataset.fbin"
+... )
+>>> hnsw.materialize_to_hnswlib(
+...     materialize_params,
+...     "layered_artifact.cuvs",
+...     "index.bin",
+...     n_features,
+...     metric="sqeuclidean",
+... )
+>>> # The materialized index can be loaded as a standard hnswlib index.
+>>> index = hnsw.load(
+...     hnsw.IndexParams(hierarchy="cpu"),
+...     "index.bin",
+...     n_features,
+...     np.float32,
+...     "sqeuclidean",
+... )
 ```
 
 ## save

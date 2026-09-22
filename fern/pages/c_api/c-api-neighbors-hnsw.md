@@ -55,7 +55,7 @@ struct cuvsHnswAceParams {
 | Name | Type | Description |
 | --- | --- | --- |
 | `npartitions` | `size_t` | Number of partitions for ACE partitioned build.<br /><br />When set to 0 (default), the number of partitions is automatically derived based on available host and GPU memory to maximize partition size while ensuring the build fits in memory.<br /><br />Small values might improve recall but potentially degrade performance and increase memory usage. The partition size is on average 2 * (n_rows / npartitions) * dim * sizeof(T). 2 is because of the core and augmented vectors. Please account for imbalance in the partition sizes (up to 3x in our tests).<br /><br />If the specified number of partitions results in partitions that exceed available memory, the value will be automatically increased to fit memory constraints and a warning will be issued. |
-| `build_dir` | `const char*` | Directory to store ACE build artifacts (e.g., KNN graph, optimized graph). Used when `use_disk` is true or when the graph does not fit in memory. |
+| `build_dir` | `const char*` | Directory to store ACE build artifacts (e.g., KNN graph, optimized graph). Used when `use_disk` is true or when the graph does not fit in memory. The directory may already exist, but ACE's named artifacts and `hnsw_index.bin` must not already exist. Simultaneous builds must use different directories. On failure, ACE removes only its uncommitted CAGRA artifacts; a completed CAGRA stage is retained if creating the HNSW index fails. |
 | `use_disk` | `bool` | Whether to use disk-based storage for ACE build. When true, enables disk-based operations for memory-efficient graph construction. |
 | `max_host_memory_gb` | `double` | Maximum host memory to use for ACE build in GiB. When set to 0 (default), uses available host memory. Useful for testing or when running alongside other memory-intensive processes. |
 | `max_gpu_memory_gb` | `double` | Maximum GPU memory to use for ACE build in GiB. When set to 0 (default), uses available GPU memory. Useful for testing or when running alongside other memory-intensive processes. |
@@ -282,12 +282,12 @@ cuvsHnswIndex_t hnsw_index);
 
 [`cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)
 
-## Build HNSW index using ACE algorithm
+## Build an HNSW index
 
 <a id="cuvshnswbuild"></a>
 ### cuvsHnswBuild
 
-Build an HNSW index using ACE (Augmented Core Extraction) algorithm.
+Build an HNSW index from HNSW parameters.
 
 ```c
 cuvsError_t cuvsHnswBuild(cuvsResources_t res,
@@ -296,11 +296,7 @@ DLManagedTensor* dataset,
 cuvsHnswIndex_t index);
 ```
 
-ACE enables building HNSW indexes for datasets too large to fit in GPU memory by:
-
-1. Partitioning the dataset using balanced k-means into core and augmented partitions
-2. Building sub-indexes for each partition independently
-3. Concatenating sub-graphs into a final unified index
+The graph is built on the GPU and converted to an HNSW index that can be searched on the CPU. The graph build algorithm is selected automatically unless explicit ACE parameters are provided.
 
 NOTE: This function requires CUDA to be available at runtime.
 
@@ -309,7 +305,7 @@ NOTE: This function requires CUDA to be available at runtime.
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | [`cuvsResources_t`](/api-reference/c-api-core-c-api#cuvsresources-t) | cuvsResources_t opaque C handle |
-| `params` | in | `cuvsHnswIndexParams_t` | cuvsHnswIndexParams_t with ACE parameters configured |
+| `params` | in | `cuvsHnswIndexParams_t` | cuvsHnswIndexParams_t with HNSW build parameters |
 | `dataset` | in | `DLManagedTensor*` | DLManagedTensor* host dataset to build index from |
 | `index` | out | [`cuvsHnswIndex_t`](/api-reference/c-api-neighbors-hnsw#cuvshnswindex) | cuvsHnswIndex_t to return the built HNSW index |
 
@@ -487,6 +483,98 @@ NOTE: When hierarchy is `NONE`, the loaded hnswlib index is immutable, and only 
 | `dim` | in | `int` | the dimension of the vectors in the index |
 | `metric` | in | [`cuvsDistanceType`](/api-reference/c-api-distance-distance#cuvsdistancetype) | the distance metric used to build the index |
 | `index` | out | [`cuvsHnswIndex_t`](/api-reference/c-api-neighbors-hnsw#cuvshnswindex) | HNSW index loaded disk |
+
+**Returns**
+
+[`cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)
+
+## Materialize a layered HNSW artifact to an hnswlib index
+
+<a id="cuvshnswmaterializeparams"></a>
+### cuvsHnswMaterializeParams
+
+Parameters for materializing a layered HNSW artifact into an hnswlib index on disk.
+
+```c
+struct cuvsHnswMaterializeParams {
+  const char* dataset_path;
+  double max_host_memory_gb;
+  int num_threads;
+};
+```
+
+**Fields**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `dataset_path` | `const char*` | Local dataset path holding the original-ID-ordered vectors used to build the artifact.<br /><br />Supported formats match layered deserialization: `.npy` and ANN benchmark `*.bin` files with a `[uint32 rows, uint32 cols]` header (`.fbin`, `.f16bin`, `.u8bin`, `.i8bin`). |
+| `max_host_memory_gb` | `double` | Upper bound on host memory (in GiB) used for the base-topology reorder buffer.<br /><br />When `&lt;= 0`, the whole base topology is reordered in a single in-memory pass (no temporary files). When set, the base topology is reordered through bucketed temporary files so that peak host memory stays close to this budget. |
+| `num_threads` | `int` | Number of host threads to use. When `0`, the maximum number of threads is used. |
+
+<a id="cuvshnswmaterializeparamscreate"></a>
+### cuvsHnswMaterializeParamsCreate
+
+Allocate HNSW materialize params, and populate with default values
+
+```c
+cuvsError_t cuvsHnswMaterializeParamsCreate(cuvsHnswMaterializeParams_t* params);
+```
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `params` | in | [`cuvsHnswMaterializeParams_t*`](/api-reference/c-api-neighbors-hnsw#cuvshnswmaterializeparams) | cuvsHnswMaterializeParams_t to allocate |
+
+**Returns**
+
+[`cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)
+
+<a id="cuvshnswmaterializeparamsdestroy"></a>
+### cuvsHnswMaterializeParamsDestroy
+
+De-allocate HNSW materialize params
+
+```c
+cuvsError_t cuvsHnswMaterializeParamsDestroy(cuvsHnswMaterializeParams_t params);
+```
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `params` | in | [`cuvsHnswMaterializeParams_t`](/api-reference/c-api-neighbors-hnsw#cuvshnswmaterializeparams) | cuvsHnswMaterializeParams_t to de-allocate |
+
+**Returns**
+
+[`cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)
+
+<a id="cuvshnswmaterializetohnswlib"></a>
+### cuvsHnswMaterializeToHnswlib
+
+Materialize a layered HNSW artifact into a standard hnswlib index file on disk.
+
+```c
+cuvsError_t cuvsHnswMaterializeToHnswlib(cuvsResources_t res,
+cuvsHnswMaterializeParams_t params,
+const char* layered_artifact_path,
+const char* output_path,
+int dim,
+cuvsDistanceType metric);
+```
+
+Materializes a `GRAPH_ONLY` artifact (graph topology only, stored in ACE order) plus a local dataset into a standard hnswlib index file, without ever holding the full materialized index in host memory. The resulting file is compatible with the original hnswlib library and can be read back through `cuvsHnswDeserialize` with `hierarchy == CPU`. The element data type (`float`, `half`, `uint8_t` or `int8_t`) is inferred from the external dataset. GRAPH_ONLY artifacts are currently produced through the C++ API.
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `res` | in | [`cuvsResources_t`](/api-reference/c-api-core-c-api#cuvsresources-t) | cuvsResources_t opaque C handle |
+| `params` | in | [`cuvsHnswMaterializeParams_t`](/api-reference/c-api-neighbors-hnsw#cuvshnswmaterializeparams) | cuvsHnswMaterializeParams_t materialization parameters |
+| `layered_artifact_path` | in | `const char*` | path to the layered HNSW artifact |
+| `output_path` | in | `const char*` | path to the hnswlib index file to write |
+| `dim` | in | `int` | the dimension of the vectors in the index |
+| `metric` | in | [`cuvsDistanceType`](/api-reference/c-api-distance-distance#cuvsdistancetype) | the distance metric used to build the index |
 
 **Returns**
 

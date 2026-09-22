@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -28,8 +28,11 @@ extern "C" {
  * provide the dataset on host.
  *
  * Notes:
- * - Outputs (indices, distances, core_distances) are expected to be on device memory.
- * - Host variant accepts host-resident dataset; device variant accepts device-resident dataset.
+ * - A host-resident dataset accepts either host- or device-resident outputs (indices, distances,
+ *   core_distances); a device-resident dataset requires device-resident outputs. All provided
+ *   outputs must share the same memory space.
+ * - With batched builds (`n_clusters > 1`), host-resident outputs avoid materializing the full
+ *   [num_rows x k] graph on the GPU at once.
  * - For batching, `overlap_factor < n_clusters` must hold.
  * - When `core_distances` is provided, mutual-reachability distances are produced (see alpha).
  */
@@ -94,16 +97,19 @@ CUVS_EXPORT cuvsError_t cuvsAllNeighborsIndexParamsDestroy(cuvsAllNeighborsIndex
  * resources
  * @param[in] params          Build parameters (see cuvsAllNeighborsIndexParams)
  * @param[in] dataset         2D tensor [num_rows x dim] on host or device (auto-detected)
- * @param[out] indices        2D tensor [num_rows x k] on device (int64)
- * @param[out] distances      Optional 2D tensor [num_rows x k] on device (float32); can be NULL
- * @param[out] core_distances Optional 1D tensor [num_rows] on device (float32); can be NULL
+ * @param[out] indices        2D tensor [num_rows x k] (int64), host or device
+ * @param[out] distances      Optional 2D tensor [num_rows x k] (float32), host or device; can be
+ *                            NULL
+ * @param[out] core_distances Optional 1D tensor [num_rows] (float32), host or device; can be NULL
  * @param[in] alpha           Mutual-reachability scaling; used only when core_distances is provided
  *
  * The function automatically detects whether the dataset is host-resident or device-resident
  * and calls the appropriate implementation. For host datasets, it partitions data into
  * `n_clusters` clusters and assigns each row to `overlap_factor` nearest clusters. For device
  * datasets, `n_clusters` must be 1 (no batching); `overlap_factor` is ignored.
- * Outputs always reside in device memory.
+ *
+ * Output memory space: a host dataset supports host- or device-resident outputs; a device dataset
+ * requires device-resident outputs. All provided outputs must share the same memory space.
  */
 CUVS_EXPORT cuvsError_t cuvsAllNeighborsBuild(cuvsResources_t res,
                                   cuvsAllNeighborsIndexParams_t params,

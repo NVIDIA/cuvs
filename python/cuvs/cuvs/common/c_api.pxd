@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # cython: language_level=3
@@ -19,6 +19,10 @@ cdef extern from "cuvs/core/c_api.h":
         CUVS_SUCCESS
 
     cuvsError_t cuvsResourcesCreate(cuvsResources_t* res)
+    cuvsError_t cuvsResourcesCreateWithMemoryTracking(
+        cuvsResources_t* res,
+        const char* csv_path,
+        int64_t sample_interval_ms)
     cuvsError_t cuvsResourcesDestroy(cuvsResources_t res)
     cuvsError_t cuvsStreamSet(cuvsResources_t res, cudaStream_t stream)
     cuvsError_t cuvsStreamSync(cuvsResources_t res)

@@ -1,0 +1,75 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+package com.nvidia.cuvs;
+
+import com.nvidia.cuvs.spi.CuVSProvider;
+
+/**
+ * Holds a precomputed multi-partition filter bitset and manages its device-memory lifecycle.
+ *
+ * <p>The packed {@code long[]} host arrays are immutable after construction. A single shared device
+ * allocation is uploaded lazily on first use and reused thereafter.
+ *
+ * <h2>Device pool configuration</h2>
+ *
+ * <p>Filter bitset device allocations use a shared, process-lifetime resources object with a
+ * growable RMM pool initially sized to 4 MiB. Applications can set the
+ * {@code com.nvidia.cuvs.filterBitsetPoolSize} system property before the first filter bitset upload
+ * to customize it: zero explicitly disables pooling, while a positive value selects the initial
+ * size. An invalid or negative value produces a warning and uses the 4 MiB default.
+ *
+ * <p>The initial size is a reservation, not a memory cap or a host-side cache policy. The pool can
+ * grow as needed.
+ *
+ * <h2>Lifecycle</h2>
+ *
+ * <p>The handle is reference-counted. Construction grants one initial reference, held by the owner
+ * (typically a host-level cache), which is released by {@link #close()}. A thread that uses the
+ * handle concurrently — e.g. while it may be evicted and closed by another thread — must guard the
+ * use with {@link #tryIncRef()} / {@link #decRef()}. The shared device allocation is released only
+ * when the last reference is dropped, so a concurrent {@link #close()} cannot free memory that is
+ * still in use.
+ *
+ * @since 25.10
+ */
+public interface FilterBitsetHandle extends AutoCloseable {
+
+  /**
+   * Attempts to acquire a reference to this handle, preventing its device allocation from being
+   * released until a matching {@link #decRef()}. Callers that pass the handle to a search (or
+   * otherwise touch its device allocation) must hold a reference for the duration of that use.
+   *
+   * @return {@code true} if a reference was acquired; {@code false} if the handle has already been
+   *     fully released, in which case no reference is acquired and it must not be used
+   */
+  boolean tryIncRef();
+
+  /**
+   * Releases a reference previously acquired via {@link #tryIncRef()}. When the last outstanding
+   * reference is released, the shared device allocation is freed.
+   *
+   * @throws IllegalStateException if called without a matching {@link #tryIncRef()}
+   */
+  void decRef();
+
+  /**
+   * Creates a handle from one partition's pre-packed bitset (one bit per vector in that partition).
+   * In a multi-partition search each partition supplies its own handle.
+   *
+   * @param combinedLongs packed bitset words for a single partition
+   */
+  static FilterBitsetHandle create(long[] combinedLongs) {
+    return CuVSProvider.provider().newFilterBitsetHandle(combinedLongs);
+  }
+
+  /**
+   * Releases the initial reference held since construction. Equivalent to a single {@link #decRef()}
+   * of the owner's reference; the device allocation is freed once this and every reference acquired
+   * via {@link #tryIncRef()} has been released. Idempotent — releasing the initial reference more
+   * than once has no effect.
+   */
+  @Override
+  void close();
+}

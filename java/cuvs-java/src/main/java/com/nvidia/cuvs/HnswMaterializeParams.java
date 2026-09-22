@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs;
@@ -8,7 +8,7 @@ package com.nvidia.cuvs;
  * Parameters for materializing a layered HNSW artifact into a standard hnswlib
  * index file on disk.
  *
- * @since 26.08
+ * @since 26.12
  */
 public class HnswMaterializeParams {
 

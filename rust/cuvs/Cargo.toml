@@ -13,11 +13,15 @@ default = []
 doc-only = ["cuvs-sys/doc-only"]
 
 [dependencies]
+bon = "3"
 cuvs-sys = { workspace = true }
-ndarray = "0.15"
+thiserror = "2"
+tinyvec = { version = "1", features = ["alloc"] }
 
 [dev-dependencies]
-ndarray-rand = "0.14"
+ndarray = "0.17"
+ndarray-rand = "0.16"
+tempfile = "3"
 
 [package.metadata.docs.rs]
 features = ["doc-only"]

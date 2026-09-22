@@ -6,7 +6,7 @@ CAGRA works well when you want strong recall, high GPU throughput, and fast grap
 
 ## Example API Usage
 
-[C API](/api-reference/c-api-neighbors-cagra) | [C++ API](/api-reference/cpp-api-neighbors-cagra) | [Python API](/api-reference/python-api-neighbors-cagra) | [Java API](/api-reference/java-api-com-nvidia-cuvs-cagraindex) | [Rust API](/api-reference/rust-api-cuvs-cagra) | [Go API](/api-reference/go-api-cagra)
+[C API](/api-reference/c-api-neighbors-cagra) | [C++ API](/api-reference/cpp-api-neighbors-cagra) | [Python API](/api-reference/python-api-neighbors-cagra) | [Java API](/api-reference/java-api-com-nvidia-cuvs-cagraindex) | [Rust API](/api-reference/rust-api-cuvs-neighbors-cagra) | [Go API](/api-reference/go-api-cagra)
 
 ### Building an index
 
@@ -28,8 +28,12 @@ cuvsResourcesCreate(&res);
 cuvsCagraIndexParamsCreate(&index_params);
 cuvsCagraIndexCreate(&index);
 
-cuvsCagraBuild(res, index_params, dataset, index);
+cuvsDataset_t dataset_view;
+cuvsDatasetMakeStandardView(res, dataset, &dataset_view);
 
+cuvsCagraBuild(res, index_params, dataset_view, index);
+
+cuvsDatasetDestroy(dataset_view);
 cuvsCagraIndexDestroy(index);
 cuvsCagraIndexParamsDestroy(index_params);
 cuvsResourcesDestroy(res);
@@ -106,8 +110,8 @@ fn build_cagra_index(dataset: &ndarray::Array2<f32>) -> Result<Index> {
 package main
 
 import (
-	cuvs "github.com/rapidsai/cuvs/go"
-	"github.com/rapidsai/cuvs/go/cagra"
+	cuvs "github.com/nvidia/cuvs/go"
+	"github.com/nvidia/cuvs/go/cagra"
 )
 
 func buildCagraIndex(dataset cuvs.Tensor[float32]) (*cagra.CagraIndex, error) {
@@ -141,6 +145,13 @@ func buildCagraIndex(dataset cuvs.Tensor[float32]) (*cagra.CagraIndex, error) {
 
 ### Extending an index
 
+The caller owns dataset concatenation. Allocate a single padded device
+dataset of size `(n_old + n_new)`, place the original vectors in rows
+`[0, new_start_row)` and the additional vectors in rows
+`[new_start_row, n_rows)`, then pass that view plus `new_start_row`
+(= current index size). `extend` only grows the graph and rebinds the
+index to that view.
+
 <Tabs>
 <Tab title="C">
 
@@ -150,16 +161,15 @@ func buildCagraIndex(dataset cuvs.Tensor[float32]) (*cagra.CagraIndex, error) {
 cuvsResources_t res;
 cuvsCagraExtendParams_t extend_params;
 cuvsCagraIndex_t index;
-DLManagedTensor *additional_dataset;
-
-load_additional_dataset(additional_dataset);
+cuvsDataset_t extended_dataset;      // already = old || new, device-padded
+int64_t new_start_row;               // == current index size (n_old)
 
 cuvsResourcesCreate(&res);
 cuvsCagraExtendParamsCreate(&extend_params);
 cuvsCagraIndexCreate(&index);
 
-// ... build or load index ...
-cuvsCagraExtend(res, extend_params, additional_dataset, index);
+// ... build index, concatenate old || new into extended_dataset ...
+cuvsCagraExtend(res, extend_params, extended_dataset, new_start_row, index);
 
 cuvsCagraIndexDestroy(index);
 cuvsCagraExtendParamsDestroy(extend_params);
@@ -178,23 +188,31 @@ raft::device_resources res;
 cagra::index_params index_params;
 cagra::extend_params extend_params;
 auto dataset = load_dataset();
-auto additional_dataset = load_additional_dataset();
+auto extended = load_extended_dataset();  // old || new, device-padded
 
 auto index = cagra::build(res, index_params, dataset);
-cagra::extend(res, extend_params, additional_dataset, index);
+int64_t new_start_row = static_cast<int64_t>(index.size());
+cagra::extend(res, extend_params, extended, new_start_row, index);
 ```
 
 </Tab>
 <Tab title="Python">
 
 ```python
+from cuvs.common import make_device_padded_dataset
 from cuvs.neighbors import cagra
+import numpy as np
 
 dataset = load_data()
 additional_dataset = load_additional_data()
 
 index = cagra.build(cagra.IndexParams(), dataset)
-index = cagra.extend(cagra.ExtendParams(), index, additional_dataset)
+# Ensure index is device-padded, then concatenate old || new yourself.
+new_start_row = dataset.shape[0]
+extended = make_device_padded_dataset(
+    np.concatenate((dataset, additional_dataset), axis=0)
+)
+index = cagra.extend(cagra.ExtendParams(), index, extended, new_start_row)
 ```
 
 </Tab>
@@ -204,14 +222,15 @@ index = cagra.extend(cagra.ExtendParams(), index, additional_dataset)
 package main
 
 import (
-	cuvs "github.com/rapidsai/cuvs/go"
-	"github.com/rapidsai/cuvs/go/cagra"
+	cuvs "github.com/nvidia/cuvs/go"
+	"github.com/nvidia/cuvs/go/cagra"
 )
 
 func extendCagraIndex(
 	resource cuvs.Resource,
 	index *cagra.CagraIndex,
-	additionalDataset cuvs.Tensor[float32],
+	extendedDataset *cagra.PaddedDatasetView,
+	newStartRow int64,
 ) error {
 	extendParams, err := cagra.CreateExtendParams()
 	if err != nil {
@@ -219,12 +238,7 @@ func extendCagraIndex(
 	}
 	defer extendParams.Close()
 
-	_, err = additionalDataset.ToDevice(&resource)
-	if err != nil {
-		return err
-	}
-
-	return cagra.ExtendIndex(resource, extendParams, &additionalDataset, index)
+	return cagra.ExtendIndex(resource, extendParams, extendedDataset, newStartRow, index)
 }
 ```
 
@@ -378,7 +392,11 @@ return err
 
 ### Saving and loading an index
 
-Serialize a CAGRA index when you want to reuse the graph without rebuilding it. Include the dataset when the loaded index should be searchable immediately; omit it only when your workflow will attach or provide the dataset separately.
+Serialize a CAGRA index when you want to reuse the graph without rebuilding it. Including the
+dataset preserves whether it is host/device resident and standard/padded. Only a device-padded
+result is immediately searchable through the C API; attach a caller-owned device-padded view with
+`cuvsCagraUpdateDataset` for any other kind. Omit the dataset when your workflow will attach it
+separately.
 
 Go does not currently expose CAGRA save/load wrappers.
 
@@ -391,16 +409,19 @@ Go does not currently expose CAGRA save/load wrappers.
 cuvsResources_t res;
 cuvsCagraIndex_t index;
 cuvsCagraIndex_t loaded_index;
+cuvsDataset_t loaded_dataset = NULL;
 
 cuvsResourcesCreate(&res);
 cuvsCagraIndexCreate(&index);
 cuvsCagraIndexCreate(&loaded_index);
 
 // ... build index ...
-cuvsCagraSerialize(res, "/tmp/cuvs-cagra.bin", index, true);
-cuvsCagraDeserialize(res, "/tmp/cuvs-cagra.bin", loaded_index);
+cuvsCagraSerializeGraphAndDataset(res, "/tmp/cuvs-cagra.bin", index);
+cuvsCagraDeserializeGraphAndDataset(
+  res, "/tmp/cuvs-cagra.bin", loaded_index, &loaded_dataset);
 
 cuvsCagraIndexDestroy(loaded_index);
+cuvsDatasetDestroy(loaded_dataset);
 cuvsCagraIndexDestroy(index);
 cuvsResourcesDestroy(res);
 ```
@@ -555,10 +576,14 @@ hnsw_params->hierarchy = GPU;
 hnsw_search_params->ef = 200;
 hnsw_search_params->num_threads = 0;
 
-cuvsCagraBuild(res, cagra_params, dataset, cagra_index);
+cuvsDataset_t dataset_view;
+cuvsDatasetMakeStandardView(res, dataset, &dataset_view);
+
+cuvsCagraBuild(res, cagra_params, dataset_view, cagra_index);
 cuvsHnswFromCagra(res, hnsw_params, cagra_index, hnsw_index);
 cuvsHnswSearch(res, hnsw_search_params, hnsw_index, queries, neighbors, distances);
 
+cuvsDatasetDestroy(dataset_view);
 cuvsHnswSearchParamsDestroy(hnsw_search_params);
 cuvsHnswIndexDestroy(hnsw_index);
 cuvsHnswIndexParamsDestroy(hnsw_params);
@@ -746,7 +771,12 @@ load_dataset(dataset);
 load_queries(queries);
 allocate_outputs(neighbors, distances);
 
-cuvsCagraBuild(res, index_params, dataset, index);
+cuvsDataset_t dataset_view;
+cuvsDatasetMakeStandardView(res, dataset, &dataset_view);
+
+cuvsCagraBuild(res, index_params, dataset_view, index);
+
+cuvsDatasetDestroy(dataset_view);
 
 // Create a device uint32 bitset with one bit per indexed vector. Bit 1 means
 // allowed; bit 0 means filtered out.
@@ -966,6 +996,38 @@ If `search_params::filtering_rate` is negative, CAGRA uses `udf_filter::filterin
 | `graph_build_params` | `std::monostate` | Parameters for the initial graph builder. The default lets NVIDIA cuVS choose a heuristic; explicit options include IVF-PQ, NN-Descent, ACE, and iterative-search graph build parameters. |
 | `guarantee_connectivity` | `False` | Uses a degree-constrained minimum spanning tree to guarantee the initial kNN graph is connected. This can improve recall on some datasets. |
 | `attach_dataset_on_build` | `True` | Keeps the dataset attached to the index after build. Set to `False` when serializing or converting to another graph format right after build. |
+
+### Merge parameters
+
+CAGRA can physically merge multiple indexes by either rebuilding the graph over the combined dataset or using Fastener to construct cross-index graph edges. Start with `algo = AUTO`. It selects Fastener when the input indexes and parameters pass its preflight checks, and otherwise preserves the existing rebuild behavior. Use `FASTENER` only when an unsupported configuration or allocation failure should be reported instead of falling back to a rebuild.
+
+The default values are the recommended starting point, chosen to be fast while reducing recall by less than 1% on a set of test datasets relative to rebuilding. Fastener is built around recursively partitioning the combined dataset and spilling points to their top `fanout` partitions at each level: `root_fanout` controls the first level, `lower_fanout` controls later levels, and `levels` controls the number of partitioning levels. The other parameters control how many ways a partition is split at each level (`leader_fraction`/`max_leaders`), the maximum size of the partitions (`leaf_size`) which are then queried for `leaf_degree` intra-partition near neighbors.
+
+| Name | Default | Description |
+| --- | --- | --- |
+| `algo` | `AUTO` | Merge implementation. `AUTO` uses Fastener when preflight succeeds and otherwise rebuilds; `FASTENER` requires the Fastener path; `REBUILD` always concatenates the datasets and rebuilds the graph. |
+| `levels` | `2` | Number of recursive partitioning levels. More levels create finer partitions but multiply the number of leaf occurrences and candidate edges. |
+| `root_fanout` | `2` | Number of child partitions created at the first level. Increasing it can improve cross-index coverage, at the cost of additional partition memberships and scaffold work. |
+| `lower_fanout` | `3` | Number of child partitions created at each level after the first. Its cost compounds when `levels` is greater than two. |
+| `leader_fraction` | `0.02` | Fraction of each parent partition sampled as leaders, before applying the fanout minimum and `max_leaders` cap. More leaders refine the partition assignment but increase temporary memory and GEMM work. |
+| `max_leaders` | `1024` | Maximum leaders sampled from one parent partition. Increase this only when large or diverse partitions benefit from finer assignment; larger values increase assignment memory and computation. |
+| `leaf_size` | `256` | Maximum rows processed together when constructing cross-index neighbors inside a leaf. Smaller leaves reduce pairwise work and temporary memory, but may provide fewer useful cross-index candidates. |
+| `leaf_degree` | `4` | Cross-index neighbors contributed by each leaf occurrence. Larger values provide more candidates to graph optimization, while increasing the intermediate graph width and optimization work. |
+
+Two useful starting configurations:
+
+| Profile | `levels` | `root_fanout` | `lower_fanout` | `leader_fraction` | `max_leaders` | `leaf_size` | `leaf_degree` |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Default | `2` | `2` | `3` | `0.02` | `1024` | `256` | `4` |
+| Higher-quality | `2` | `4` | `2` | `0.01` | `1024` | `256` | `4` |
+
+The total number of leaf occurrences per row is
+
+```text
+root_fanout * lower_fanout^(levels - 1)
+```
+
+The product of that value and `leaf_degree` must not exceed `255`. Fanouts must be between `1` and `32`, `leader_fraction` must be in `(0, 1]`, `max_leaders` must be between the configured fanouts and `8192`, `leaf_size` must be between `1` and `256`, and `leaf_degree` must be between `1` and `8`.
 
 ### Search parameters
 

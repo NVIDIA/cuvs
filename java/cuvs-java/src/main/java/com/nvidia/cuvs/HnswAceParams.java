@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs;
@@ -21,8 +21,12 @@ public class HnswAceParams {
   private double maxHostMemoryGb;
   private double maxGpuMemoryGb;
 
-  private HnswAceParams(long npartitions, String buildDir, boolean useDisk,
-                        double maxHostMemoryGb, double maxGpuMemoryGb) {
+  private HnswAceParams(
+      long npartitions,
+      String buildDir,
+      boolean useDisk,
+      double maxHostMemoryGb,
+      double maxGpuMemoryGb) {
     this.npartitions = npartitions;
     this.buildDir = buildDir;
     this.useDisk = useDisk;
@@ -188,8 +192,7 @@ public class HnswAceParams {
      * @return an instance of {@link HnswAceParams}
      */
     public HnswAceParams build() {
-      return new HnswAceParams(npartitions, buildDir, useDisk,
-                               maxHostMemoryGb, maxGpuMemoryGb);
+      return new HnswAceParams(npartitions, buildDir, useDisk, maxHostMemoryGb, maxGpuMemoryGb);
     }
   }
 }

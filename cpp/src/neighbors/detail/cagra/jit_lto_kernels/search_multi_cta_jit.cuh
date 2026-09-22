@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -8,6 +8,7 @@
 #include "../hashmap.hpp"
 #include "../utils.hpp"
 
+#include <neighbors/detail/cagra/multi_partition_desc.hpp>
 #include <neighbors/detail/cagra/search_multi_cta_helpers.cuh>
 
 #include <raft/util/integer_utils.hpp>
@@ -29,8 +30,27 @@ namespace cuvs::neighbors::cagra::detail::multi_cta_search {
 using cuvs::neighbors::cagra::detail::device::compute_distance_to_child_nodes_jit;
 using cuvs::neighbors::cagra::detail::device::compute_distance_to_random_nodes_jit;
 using cuvs::neighbors::detail::sample_filter;
-template <typename DataT, typename IndexT, typename DistanceT, typename SourceIndexT>
-__device__ void search_kernel_jit(
+
+// Shared MULTI_CTA search body for both single-partition and multi-partition kernels.
+//
+// The multi-partition launch is a strict generalization of the single-partition one: it adds a
+// partition axis on blockIdx.z. The single-partition kernel launches a 2D grid (gridDim.z == 1,
+// blockIdx.z == 0), so `row` collapses to `query_id` and `num_blocks` collapses to the 2D form.
+// Per-partition differences are passed in as parameters:
+//   - graph_degree:        per-partition degree used for traversal
+//   - buffer_graph_degree: degree used to size result_buffer (max across partitions for mp, so the
+//                          smem layout is uniform across the grid; == graph_degree
+//                          single-partition)
+//   - source_indices_ptr / seed_ptr / num_seeds / num_executed_iterations / graph_size:
+//                          single-partition passes real values; mp passes nullptr / 0
+//   - the filter payload carries this partition's own bitset (multi_partition_desc_t::bitset_ptr),
+//     tested at partition-local indices
+template <typename DataT,
+          typename IndexT,
+          typename DistanceT,
+          typename SourceIndexT,
+          typename BitsetT = cagra_bitset<SourceIndexT>>
+RAFT_DEVICE_INLINE_FUNCTION void search_core(
   IndexT* const result_indices_ptr,       // [num_queries, num_cta_per_query, itopk_size]
   DistanceT* const result_distances_ptr,  // [num_queries, num_cta_per_query, itopk_size]
   const dataset_descriptor_base_t<DataT, IndexT, DistanceT>* dataset_desc,
@@ -38,6 +58,7 @@ __device__ void search_kernel_jit(
   const IndexT* const knn_graph,   // [dataset_size, graph_degree]
   const uint32_t max_elements,
   const uint32_t graph_degree,
+  const uint32_t buffer_graph_degree,
   const SourceIndexT* source_indices_ptr,  // [num_queries, search_width]
   const unsigned num_distilation,
   const uint64_t rand_xor_mask,
@@ -58,6 +79,8 @@ __device__ void search_kernel_jit(
   using INDEX_T    = IndexT;
   using DISTANCE_T = DistanceT;
 
+  // Maps a graph node id to its source index (for output and filtering). The multi-partition bit
+  // offset is NOT folded in here — it applies only to the bitset test below, not to output indices.
   auto to_source_index = [source_indices_ptr](INDEX_T x) {
     return source_indices_ptr == nullptr ? static_cast<SourceIndexT>(x) : source_indices_ptr[x];
   };
@@ -66,6 +89,9 @@ __device__ void search_kernel_jit(
   const auto query_id          = blockIdx.y;
   const auto num_cta_per_query = gridDim.x;
   const auto cta_id            = blockIdx.x;  // local CTA ID
+  const auto partition_id      = blockIdx.z;
+  // Generalized row index: single-partition launches gridDim.z == 1 so row == query_id.
+  const auto row = partition_id * num_queries + query_id;
 
 #ifdef _CLK_BREAKDOWN
   uint64_t clk_init                 = 0;
@@ -90,12 +116,11 @@ __device__ void search_kernel_jit(
   // | <itopk_size>   | upto 32 | <graph_degree>            |
   // +----------------+---------+---------------------------+
   // |<---        result_buffer_size_32                 --->|
-  const auto result_buffer_size    = itopk_size + graph_degree;
+  const auto result_buffer_size    = itopk_size + buffer_graph_degree;
   const auto result_buffer_size_32 = raft::round_up_safe<uint32_t>(result_buffer_size, 32);
   assert(result_buffer_size_32 <= max_elements);
 
-  // Get dim and smem_ws_size_in_bytes directly from base descriptor
-  uint32_t dim                   = dataset_desc->args.dim;
+  // Get smem_ws_size_in_bytes directly from base descriptor
   uint32_t smem_ws_size_in_bytes = dataset_desc->smem_ws_size_in_bytes();
 
   auto smem_desc =
@@ -112,7 +137,7 @@ __device__ void search_kernel_jit(
   auto* __restrict__ result_position = reinterpret_cast<int*>(parent_indices_buffer + 1);
 
   INDEX_T* const local_traversed_hashmap_ptr =
-    traversed_hashmap_ptr + (hashmap::get_size(traversed_hash_bitlen) * query_id);
+    traversed_hashmap_ptr + (hashmap::get_size(traversed_hash_bitlen) * row);
 
   constexpr INDEX_T invalid_index    = ~static_cast<INDEX_T>(0);
   constexpr INDEX_T index_msb_1_mask = utils::gen_index_msb_1_mask<INDEX_T>::value;
@@ -128,8 +153,8 @@ __device__ void search_kernel_jit(
   // compute distance to randomly selecting nodes using JIT version
   _CLK_START();
   const INDEX_T* const local_seed_ptr = seed_ptr ? seed_ptr + (num_seeds * query_id) : nullptr;
-  uint32_t block_id                   = cta_id + (num_cta_per_query * query_id);
-  uint32_t num_blocks                 = num_cta_per_query * num_queries;
+  uint32_t block_id                   = cta_id + (num_cta_per_query * row);
+  uint32_t num_blocks                 = num_cta_per_query * num_queries * gridDim.z;
 
   compute_distance_to_random_nodes_jit<IndexT, DistanceT, DataT>(result_indices_buffer,
                                                                  result_distances_buffer,
@@ -309,7 +334,7 @@ __device__ void search_kernel_jit(
       if (is_valid) {
         const auto j = offset + __popc(mask & ((1 << threadIdx.x) - 1));
         if (j < itopk_size) {
-          uint32_t k            = j + (itopk_size * (cta_id + (num_cta_per_query * query_id)));
+          uint32_t k            = j + (itopk_size * (cta_id + (num_cta_per_query * row)));
           result_indices_ptr[k] = index & ~index_msb_1_mask;
           if (result_distances_ptr != nullptr) {
             DISTANCE_T dist         = result_distances_buffer[i];
@@ -325,7 +350,7 @@ __device__ void search_kernel_jit(
     }
     // If the number of outputs is insufficient, fill in with invalid results.
     for (uint32_t i = offset + threadIdx.x; i < itopk_size; i += 32) {
-      uint32_t k            = i + (itopk_size * (cta_id + (num_cta_per_query * query_id)));
+      uint32_t k            = i + (itopk_size * (cta_id + (num_cta_per_query * row)));
       result_indices_ptr[k] = invalid_index;
       if (result_distances_ptr != nullptr) {
         result_distances_ptr[k] = utils::get_max_value<DISTANCE_T>();
@@ -360,6 +385,118 @@ __device__ void search_kernel_jit(
       clk_compute_distance);
   }
 #endif
+}
+
+// Single-partition MULTI_CTA kernel. Thin wrapper over search_core: passes the single dataset
+// descriptor/graph directly, real seeds and stats, and the standard cagra_bitset filter.
+template <typename DataT, typename IndexT, typename DistanceT, typename SourceIndexT>
+__device__ void search_kernel_jit(
+  IndexT* const result_indices_ptr,       // [num_queries, num_cta_per_query, itopk_size]
+  DistanceT* const result_distances_ptr,  // [num_queries, num_cta_per_query, itopk_size]
+  const dataset_descriptor_base_t<DataT, IndexT, DistanceT>* dataset_desc,
+  const DataT* const queries_ptr,  // [num_queries, dataset_dim]
+  const IndexT* const knn_graph,   // [dataset_size, graph_degree]
+  const uint32_t max_elements,
+  const uint32_t graph_degree,
+  const SourceIndexT* source_indices_ptr,  // [num_queries, search_width]
+  const unsigned num_distilation,
+  const uint64_t rand_xor_mask,
+  const IndexT* seed_ptr,  // [num_queries, num_seeds]
+  const uint32_t num_seeds,
+  const uint32_t visited_hash_bitlen,
+  IndexT* const traversed_hashmap_ptr,  // [num_queries, 1 << traversed_hash_bitlen]
+  const uint32_t traversed_hash_bitlen,
+  const uint32_t itopk_size,
+  const uint32_t min_iteration,
+  const uint32_t max_iteration,
+  uint32_t* const num_executed_iterations, /* stats */
+  const IndexT graph_size,
+  const uint32_t query_id_offset,  // Offset to add to query_id when calling filter
+  cagra_sample_filter<SourceIndexT> filter_payload)
+{
+  search_core<DataT, IndexT, DistanceT, SourceIndexT>(result_indices_ptr,
+                                                      result_distances_ptr,
+                                                      dataset_desc,
+                                                      queries_ptr,
+                                                      knn_graph,
+                                                      max_elements,
+                                                      graph_degree,
+                                                      /*buffer_graph_degree=*/graph_degree,
+                                                      source_indices_ptr,
+                                                      num_distilation,
+                                                      rand_xor_mask,
+                                                      seed_ptr,
+                                                      num_seeds,
+                                                      visited_hash_bitlen,
+                                                      traversed_hashmap_ptr,
+                                                      traversed_hash_bitlen,
+                                                      itopk_size,
+                                                      min_iteration,
+                                                      max_iteration,
+                                                      num_executed_iterations,
+                                                      graph_size,
+                                                      query_id_offset,
+                                                      filter_payload);
+}
+
+// Multi-partition variant of search_kernel_jit. Grid is (num_cta_per_query, num_queries,
+// num_partitions); per-partition data (dataset_desc, graph, graph_degree) is read from
+// partition_descs[blockIdx.z]. Cross-CTA traversed_hashmap is per-(query, partition), indexed
+// by row = partition_id * num_queries + query_id (computed inside search_core). Outputs land in
+// [num_partitions, num_queries, num_cta_per_query, itopk_size] partition-major. Result buffers are
+// sized by max_graph_degree so the smem layout is uniform across partitions. There are no per-query
+// seeds, source-index remapping, or iteration stats in multi-partition search.
+template <typename DataT, typename IndexT, typename DistanceT, typename SourceIndexT>
+__device__ void search_multi_cta_mp_jit(
+  const multi_partition_desc_t<DataT, IndexT, DistanceT>* partition_descs,
+  IndexT* const result_indices_ptr,
+  DistanceT* const result_distances_ptr,
+  const DataT* const queries_ptr,
+  const uint32_t max_elements,
+  const uint32_t max_graph_degree,
+  const unsigned num_distilation,
+  const uint64_t rand_xor_mask,
+  const uint32_t visited_hash_bitlen,
+  IndexT* const traversed_hashmap_ptr,
+  const uint32_t traversed_hash_bitlen,
+  const uint32_t itopk_size,
+  const uint32_t min_iteration,
+  const uint32_t max_iteration,
+  const uint32_t query_id_offset)
+{
+  const auto& part = partition_descs[blockIdx.z];
+
+  // Each partition carries its own bitset (a view into the combined buffer); test it with the plain
+  // bitset sample_filter fragment at partition-local indices.
+  cagra_bitset<SourceIndexT> part_bitset{part.bitset_ptr,
+                                         static_cast<SourceIndexT>(part.bitset_len),
+                                         static_cast<SourceIndexT>(part.original_nbits)};
+  cagra_sample_filter<SourceIndexT> filter_payload{};
+  filter_payload.filter_data = (part.bitset_ptr != nullptr) ? &part_bitset : nullptr;
+
+  search_core<DataT, IndexT, DistanceT, SourceIndexT>(result_indices_ptr,
+                                                      result_distances_ptr,
+                                                      part.dataset_desc,
+                                                      queries_ptr,
+                                                      part.graph,
+                                                      max_elements,
+                                                      /*graph_degree=*/part.graph_degree,
+                                                      /*buffer_graph_degree=*/max_graph_degree,
+                                                      /*source_indices_ptr=*/nullptr,
+                                                      num_distilation,
+                                                      rand_xor_mask,
+                                                      /*seed_ptr=*/nullptr,
+                                                      /*num_seeds=*/0,
+                                                      visited_hash_bitlen,
+                                                      traversed_hashmap_ptr,
+                                                      traversed_hash_bitlen,
+                                                      itopk_size,
+                                                      min_iteration,
+                                                      max_iteration,
+                                                      /*num_executed_iterations=*/nullptr,
+                                                      /*graph_size=*/0,
+                                                      query_id_offset,
+                                                      filter_payload);
 }
 
 }  // namespace cuvs::neighbors::cagra::detail::multi_cta_search

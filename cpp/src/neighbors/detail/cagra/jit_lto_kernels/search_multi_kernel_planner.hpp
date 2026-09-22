@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -21,7 +21,7 @@ template <typename DataTag,
           typename SampleFilterJitTag = tag_cagra_jit_sample_filter_link_absent>
 struct CagraMultiKernelSearchPlanner
   : CagraPlannerBase<DataTag, IndexTag, DistanceTag, QueryTag, CodebookTag, SampleFilterJitTag> {
-  static inline LauncherJitCache launcher_jit_cache{};
+  static inline rtcx::launcher_jit_cache launcher_jit_cache{};
 
   /// Kernels that only need `sample_filter` + one linked TU (e.g. `apply_filter_kernel`): no
   /// `setup_workspace` / `compute_distance` fragments. Metric / team / VPQ are unused.

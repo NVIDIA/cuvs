@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -125,7 +125,7 @@ void countLabels(raft::resources const& handle,
                  IndexT n_clusters,
                  rmm::device_uvector<char>& workspace)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle);
+  cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
 
   // CUB::DeviceHistogram requires a signed index type
   typedef typename std::make_signed_t<IndexT> CubIndexT;
@@ -162,26 +162,34 @@ void countLabels(raft::resources const& handle,
  * @brief Compute the sum of sample weights into a device scalar.
  *
  * Device-accessible mdspans are reduced on device. Host mdspans are summed on the host.
+ * When `check_positive` is true, the resulting sum is brought to host and asserted to be > 0.
  */
 template <typename DataT, typename IndexT, typename Accessor>
 void weightSum(
   raft::resources const& handle,
   raft::mdspan<const DataT, raft::vector_extent<IndexT>, raft::layout_right, Accessor> weight,
-  raft::device_scalar_view<DataT> d_wt_sum)
+  raft::device_scalar_view<DataT> d_wt_sum,
+  bool check_positive = true)
 {
   auto n_samples = weight.extent(0);
   auto stream    = raft::resource::get_cuda_stream(handle);
+  DataT wt_sum_h = DataT{0};
 
   if constexpr (raft::is_device_mdspan_v<decltype(weight)>) {
     raft::linalg::mapThenSumReduce(
-      d_wt_sum.data_handle(), n_samples, raft::identity_op{}, stream, weight.data_handle());
-  } else {
-    DataT wt_sum = DataT{0};
-    for (IndexT i = 0; i < n_samples; ++i) {
-      wt_sum += weight(i);
+      d_wt_sum.data_handle(), n_samples, raft::identity_op{}, stream.get(), weight.data_handle());
+    if (check_positive) {
+      raft::copy(&wt_sum_h, d_wt_sum.data_handle(), 1, stream);
+      raft::resource::sync_stream(handle);
     }
-    RAFT_EXPECTS(wt_sum > DataT{0}, "invalid parameter (sum of sample weights must be positive)");
-    raft::copy(d_wt_sum.data_handle(), &wt_sum, 1, stream);
+  } else {
+    for (IndexT i = 0; i < n_samples; ++i) {
+      wt_sum_h += weight(i);
+    }
+    raft::copy(d_wt_sum.data_handle(), &wt_sum_h, 1, stream);
+  }
+  if (check_positive) {
+    RAFT_EXPECTS(wt_sum_h > DataT{0}, "invalid parameter (sum of sample weights must be positive)");
   }
 }
 
@@ -211,7 +219,7 @@ void computeClusterCost(raft::resources const& handle,
                         MainOpT main_op,
                         ReductionOpT reduction_op)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle);
+  cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
 
   cuda::transform_iterator itr(minClusterDistance.data_handle(), main_op);
 
@@ -246,7 +254,7 @@ void sampleCentroids(raft::resources const& handle,
                      rmm::device_uvector<DataT>& inRankCp,
                      rmm::device_uvector<char>& workspace)
 {
-  cudaStream_t stream  = raft::resource::get_cuda_stream(handle);
+  cudaStream_t stream  = raft::resource::get_cuda_stream(handle).get();
   auto n_local_samples = X.extent(0);
   auto n_features      = X.extent(1);
 
@@ -346,7 +354,7 @@ void shuffleAndGather(raft::resources const& handle,
                       uint32_t n_samples_to_gather,
                       uint64_t seed)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle);
+  cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
   auto n_samples      = in.extent(0);
   auto n_features     = in.extent(1);
 
@@ -447,7 +455,7 @@ void countSamplesInCluster(raft::resources const& handle,
                            rmm::device_uvector<char>& workspace,
                            raft::device_vector_view<DataT, IndexT> sampleCountInCluster)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle);
+  cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
   auto n_samples      = X.extent(0);
   auto n_features     = X.extent(1);
   auto n_clusters     = centroids.extent(0);
@@ -526,7 +534,7 @@ void compute_centroid_adjustments(
   rmm::device_uvector<char>& workspace,
   bool reset_sums = true)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle);
+  cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
   auto n_samples      = X.extent(0);
 
   workspace.resize(n_samples, stream);
@@ -574,7 +582,7 @@ void finalize_centroids(raft::resources const& handle,
                         raft::device_matrix_view<const DataT, IndexT> old_centroids,
                         raft::device_matrix_view<DataT, IndexT> new_centroids)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle);
+  cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
 
   raft::linalg::matrix_vector_op<raft::Apply::ALONG_COLUMNS>(handle,
                                                              raft::make_const_mdspan(centroid_sums),
@@ -609,7 +617,7 @@ void compute_centroid_shift(raft::resources const& handle,
                             raft::device_matrix_view<const DataT, IndexT> new_centroids,
                             raft::device_scalar_view<DataT> sqrd_norm_out)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle);
+  cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
   raft::linalg::mapThenSumReduce(sqrd_norm_out.data_handle(),
                                  old_centroids.size(),
                                  raft::sqdiff_op{},
@@ -675,6 +683,7 @@ __device__ void check_convergence(raft::device_scalar_view<const DataT> clusteri
  * @param[inout]  centroid_sums        Running weighted sums [n_clusters x n_features] (added into)
  * @param[inout]  weight_per_cluster   Running weight counts [n_clusters] (added into)
  * @param[inout]  clustering_cost      Running cost scalar (device) (added into)
+ * @param[out]    batch_cost           Reusable scratch scalar for this batch's cost
  */
 template <typename DataT, typename IndexT>
 void process_batch(
@@ -692,9 +701,10 @@ void process_batch(
   raft::device_matrix_view<DataT, IndexT> centroid_sums,
   raft::device_vector_view<DataT, IndexT> weight_per_cluster,
   raft::device_scalar_view<DataT> clustering_cost,
-  rmm::device_uvector<char>& batch_workspace)
+  rmm::device_uvector<char>& batch_workspace,
+  raft::device_scalar_view<DataT> batch_cost)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle);
+  cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
 
   minClusterAndDistanceCompute<DataT, IndexT>(handle,
                                               batch_data,
@@ -734,9 +744,8 @@ void process_batch(
     raft::make_const_mdspan(minClusterAndDistance),
     batch_weights);
 
-  auto batch_cost = raft::make_device_scalar<DataT>(handle, DataT{0});
   computeClusterCost(
-    handle, minClusterAndDistance, workspace, batch_cost.view(), raft::value_op{}, raft::add_op{});
+    handle, minClusterAndDistance, workspace, batch_cost, raft::value_op{}, raft::add_op{});
   raft::linalg::add(clustering_cost.data_handle(),
                     clustering_cost.data_handle(),
                     batch_cost.data_handle(),

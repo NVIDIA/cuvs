@@ -1,8 +1,9 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "../../src/cluster/detail/kmeans_batch_loader.cuh"
 #include "../test_utils.cuh"
 #include "kmeans_test_blobs.cuh"
 
@@ -11,11 +12,13 @@
 #include <raft/core/host_mdarray.hpp>
 #include <raft/core/operators.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
+#include <raft/core/resource/device_memory_resource.hpp>
 #include <raft/core/resources.hpp>
 #include <raft/stats/adjusted_rand_index.cuh>
 #include <raft/util/cuda_utils.cuh>
 #include <raft/util/cudart_utils.hpp>
 
+#include <rmm/cuda_stream.hpp>
 #include <rmm/device_uvector.hpp>
 
 #include <gtest/gtest.h>
@@ -269,15 +272,17 @@ class KmeansTest : public ::testing::TestWithParam<KmeansInputs<T>> {
 
     raft::resource::sync_stream(handle, stream);
 
-    score = raft::stats::adjusted_rand_index(
-      d_labels_ref.data(), d_labels.data(), n_samples, raft::resource::get_cuda_stream(handle));
+    score = raft::stats::adjusted_rand_index(d_labels_ref.data(),
+                                             d_labels.data(),
+                                             n_samples,
+                                             raft::resource::get_cuda_stream(handle).get());
 
     if (score < 1.0) {
       std::stringstream ss;
-      ss << "Expected: " << raft::arr2Str(d_labels_ref.data(), 25, "d_labels_ref", stream);
+      ss << "Expected: " << raft::arr2Str(d_labels_ref.data(), 25, "d_labels_ref", stream.get());
       std::cout << (ss.str().c_str()) << '\n';
       ss.str(std::string());
-      ss << "Actual: " << raft::arr2Str(d_labels.data(), 25, "d_labels", stream);
+      ss << "Actual: " << raft::arr2Str(d_labels.data(), 25, "d_labels", stream.get());
       std::cout << (ss.str().c_str()) << '\n';
       std::cout << "Score = " << score << '\n';
     }
@@ -339,7 +344,7 @@ struct KmeansBatchedInputs {
   int n_clusters;
   T tol;
   bool weighted;
-  int streaming_batch_size;
+  int device_buffer_samples;
 };
 
 template <typename T>
@@ -416,7 +421,7 @@ class KmeansFitBatchedTest : public ::testing::TestWithParam<KmeansBatchedInputs
                                raft::make_host_scalar_view<int>(&ref_n_iter));
 
     cuvs::cluster::kmeans::params batched_params = params;
-    batched_params.streaming_batch_size          = testparams.streaming_batch_size;
+    batched_params.device_buffer_samples         = testparams.device_buffer_samples;
 
     std::optional<raft::host_vector_view<const T, int64_t>> h_sw = std::nullopt;
     auto h_sample_weight = raft::make_host_vector<T, int64_t>(testparams.weighted ? n_samples : 0);
@@ -443,7 +448,7 @@ class KmeansFitBatchedTest : public ::testing::TestWithParam<KmeansBatchedInputs
                                   params.n_clusters,
                                   n_features,
                                   CompareApprox<T>(T(1e-2)),
-                                  stream);
+                                  stream.get());
 
     T ref_pred_inertia = 0;
     cuvs::cluster::kmeans::predict(handle,
@@ -470,14 +475,15 @@ class KmeansFitBatchedTest : public ::testing::TestWithParam<KmeansBatchedInputs
     score = raft::stats::adjusted_rand_index(d_labels_ref->data_handle(),
                                              d_labels->data_handle(),
                                              n_samples,
-                                             raft::resource::get_cuda_stream(handle));
+                                             raft::resource::get_cuda_stream(handle).get());
 
     if (score < 0.99) {
       std::stringstream ss;
-      ss << "Expected: " << raft::arr2Str(d_labels_ref->data_handle(), 25, "d_labels_ref", stream);
+      ss << "Expected: "
+         << raft::arr2Str(d_labels_ref->data_handle(), 25, "d_labels_ref", stream.get());
       std::cout << (ss.str().c_str()) << '\n';
       ss.str(std::string());
-      ss << "Actual: " << raft::arr2Str(d_labels->data_handle(), 25, "d_labels", stream);
+      ss << "Actual: " << raft::arr2Str(d_labels->data_handle(), 25, "d_labels", stream.get());
       std::cout << (ss.str().c_str()) << '\n';
       std::cout << "Score = " << score << '\n';
     }
@@ -496,15 +502,15 @@ class KmeansFitBatchedTest : public ::testing::TestWithParam<KmeansBatchedInputs
     auto stream    = raft::resource::get_cuda_stream(handle);
 
     cuvs::cluster::kmeans::params p;
-    p.n_clusters           = n_clusters;
-    p.tol                  = testparams.tol;
-    p.n_init               = 1;
-    p.init                 = cuvs::cluster::kmeans::params::KMeansPlusPlus;
-    p.max_iter             = 20;
-    p.rng_state.seed       = 1;
-    p.oversampling_factor  = 0;
-    p.streaming_batch_size = testparams.streaming_batch_size;
-    p.init_size            = init_size_value;
+    p.n_clusters            = n_clusters;
+    p.tol                   = testparams.tol;
+    p.n_init                = 1;
+    p.init                  = cuvs::cluster::kmeans::params::KMeansPlusPlus;
+    p.max_iter              = 20;
+    p.rng_state.seed        = 1;
+    p.oversampling_factor   = 0;
+    p.device_buffer_samples = testparams.device_buffer_samples;
+    p.init_size             = init_size_value;
 
     auto d_centroids_buf = raft::make_device_matrix<T, int64_t>(handle, n_clusters, n_features);
     T inertia            = 0;
@@ -656,7 +662,7 @@ const std::vector<KmeansBatchedInputs<float>> batched_inputsf2 = {
   {1000, 64, 5, 0.0001f, false, 500},
   {1000, 100, 20, 0.0001f, true, 30},
   {1000, 10, 20, 0.0001f, false, 30},
-  {10000, 16, 10, 0.0001f, true, 1000},
+  {10000, 16, 10, 0.00001f, true, 1000},
   {10000, 96, 10, 0.0001f, false, 10000},
 };
 
@@ -705,5 +711,66 @@ INSTANTIATE_TEST_CASE_P(KmeansFitBatchedTests,
 INSTANTIATE_TEST_CASE_P(KmeansFitBatchedTests,
                         KmeansFitBatchedTestD,
                         ::testing::ValuesIn(batched_inputsd2));
+
+TEST(KmeansBatchLoaderTest, CyclicFourPasses)
+{
+  constexpr int64_t n_rows     = 257;
+  constexpr int64_t n_cols     = 17;
+  constexpr int64_t batch_size = 64;
+  constexpr int n_passes       = 4;
+
+  raft::resources handle;
+  rmm::cuda_stream copy_stream(rmm::cuda_stream::flags::non_blocking);
+  std::vector<int64_t> host_data(n_rows * n_cols);
+  for (int64_t row = 0; row < n_rows; ++row) {
+    for (int64_t col = 0; col < n_cols; ++col) {
+      host_data[row * n_cols + col] = row * n_cols + col;
+    }
+  }
+
+  auto host_view =
+    raft::make_host_matrix_view<const int64_t, int64_t>(host_data.data(), n_rows, n_cols);
+  cluster::kmeans::detail::kmeans_batch_loader<int64_t, int64_t, false> loader(
+    handle, host_view, batch_size, copy_stream, raft::resource::get_workspace_resource_ref(handle));
+  auto device_readback =
+    raft::make_device_vector<int64_t, int64_t>(handle, n_passes * n_rows * n_cols);
+
+  loader.start();
+  // Starting an active pipeline is a no-op.
+  loader.start();
+  for (int pass = 0; pass < n_passes; ++pass) {
+    for (std::size_t pos = 0; pos < loader.num_batches(); ++pos) {
+      const auto batch = loader.acquire(pos);
+      const auto output_offset =
+        (static_cast<std::size_t>(pass) * n_rows + batch.offset()) * n_cols;
+      raft::copy(device_readback.data_handle() + output_offset,
+                 batch.data(),
+                 batch.size() * n_cols,
+                 raft::resource::get_cuda_stream(handle));
+
+      if (pos + 1 < loader.num_batches() || pass + 1 < n_passes) {
+        loader.prefetch((pos + 1) % loader.num_batches());
+      }
+      const bool needs_future_batch = pos + 2 < loader.num_batches() || pass + 1 < n_passes;
+      if (needs_future_batch) {
+        loader.recycle(batch, (pos + 2) % loader.num_batches());
+      } else {
+        loader.release(batch);
+      }
+    }
+  }
+
+  std::vector<int64_t> readback(device_readback.size());
+  raft::copy(readback.data(),
+             device_readback.data_handle(),
+             device_readback.size(),
+             raft::resource::get_cuda_stream(handle));
+  raft::resource::sync_stream(handle);
+  for (int pass = 0; pass < n_passes; ++pass) {
+    for (std::size_t i = 0; i < host_data.size(); ++i) {
+      EXPECT_EQ(readback[static_cast<std::size_t>(pass) * host_data.size() + i], host_data[i]);
+    }
+  }
+}
 
 }  // namespace cuvs

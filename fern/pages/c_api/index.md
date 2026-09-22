@@ -5,10 +5,12 @@ These pages are generated from the documented public headers in the cuVS source 
 ## Cluster
 
 - [K-Means](/api-reference/c-api-cluster-kmeans)
+- [Multi-GPU K-Means](/api-reference/c-api-cluster-mg-kmeans)
 
 ## Common
 
 - [C API](/api-reference/c-api-core-c-api)
+- [Dataset](/api-reference/c-api-core-dataset)
 
 ## Distance
 

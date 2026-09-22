@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -35,7 +35,7 @@ diskann::Metric parse_metric_to_diskann(cuvs::bench::Metric metric)
   }
 }
 
-// TODO (tarangj): Remaining features are tracked at https://github.com/rapidsai/cuvs/issues/656
+// TODO (tarangj): Remaining features are tracked at https://github.com/nvidia/cuvs/issues/656
 template <typename T>
 class diskann_memory : public algo<T> {
  public:

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs.internal;
@@ -184,10 +184,13 @@ public class BruteForceIndexImpl implements BruteForceIndex {
       final MemorySegment prefilterDataMemorySegment;
       BitSet[] prefilters = cuvsQuery.getPrefilters();
       if (prefilters != null && prefilters.length > 0) {
-        BitSet concatenatedFilters = concatenate(prefilters, cuvsQuery.getNumDocs());
-        long[] filters = concatenatedFilters.toLongArray();
-        prefilterDataMemorySegment = buildMemorySegment(localArena, filters);
         prefilterDataLength = (long) cuvsQuery.getNumDocs() * prefilters.length;
+        BitSet concatenatedFilters = concatenate(prefilters, cuvsQuery.getNumDocs());
+        // Size the host buffer by the full logical bit count; BitSet.toLongArray() would drop the
+        // trailing all-zero words, leaving the prefilterBytes copy reading past the buffer's end.
+        long[] filters = concatenatedFilters.toLongArray();
+        prefilterDataMemorySegment =
+            buildMemorySegment(localArena, filters, (prefilterDataLength + 63) / 64);
         long[] prefilterShape = {(prefilterDataLength + 31) / 32};
         prefilterBytes = C_INT_BYTE_SIZE * prefilterShape[0];
       } else {

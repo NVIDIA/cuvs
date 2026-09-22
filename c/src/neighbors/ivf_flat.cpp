@@ -1,6 +1,6 @@
 
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -9,6 +9,7 @@
 
 #include <raft/core/error.hpp>
 #include <raft/core/mdspan_types.hpp>
+#include <raft/core/numpy_serializer.hpp>
 #include <raft/core/resources.hpp>
 #include <raft/core/serialize.hpp>
 #include <raft/util/cudart_utils.hpp>
@@ -299,16 +300,23 @@ extern "C" cuvsError_t cuvsIvfFlatDeserialize(cuvsResources_t res,
     // read the numpy dtype from the beginning of the file
     std::ifstream is(filename, std::ios::in | std::ios::binary);
     if (!is) { RAFT_FAIL("Cannot open file %s", filename); }
-    char dtype_string[4];
-    is.read(dtype_string, 4);
-    auto dtype = raft::detail::numpy_serializer::parse_descr(std::string(dtype_string, 4));
+    char dtype_string[4]{};
+    if (!is.read(dtype_string, sizeof(dtype_string))) {
+      RAFT_FAIL("Invalid or truncated index header in file %s", filename);
+    }
+    auto dtype =
+      raft::numpy_serializer::parse_descr(std::string(dtype_string, sizeof(dtype_string)));
+    is.close();
 
     index->dtype.bits = dtype.itemsize * 8;
     if (dtype.kind == 'f' && dtype.itemsize == 4) {
-      index->addr       = reinterpret_cast<uintptr_t>(_deserialize<float, int64_t>(res, filename));
+      index->addr = reinterpret_cast<uintptr_t>(
+          _deserialize<float, int64_t>(res, filename));
       index->dtype.code = kDLFloat;
-    } else if (dtype.kind == 'e' && dtype.itemsize == 2) {
-      index->addr       = reinterpret_cast<uintptr_t>(_deserialize<half, int64_t>(res, filename));
+    } else if ((dtype.kind == 'f' || dtype.kind == 'e') &&
+               dtype.itemsize == 2) {
+      index->addr = reinterpret_cast<uintptr_t>(
+          _deserialize<half, int64_t>(res, filename));
       index->dtype.code = kDLFloat;
       index->dtype.bits = 16;
     } else if (dtype.kind == 'i' && dtype.itemsize == 1) {

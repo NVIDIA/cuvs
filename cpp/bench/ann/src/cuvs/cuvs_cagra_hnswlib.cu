@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -28,59 +28,76 @@ auto parse_build_param(const nlohmann::json& conf) ->
       hnsw_params.hierarchy = cuvs::neighbors::hnsw::HnswHierarchy::CPU;
     } else if (conf.at("hierarchy") == "gpu") {
       hnsw_params.hierarchy = cuvs::neighbors::hnsw::HnswHierarchy::GPU;
-    } else if (conf.at("hierarchy") == "gpu_layered_on_disk") {
-      hnsw_params.hierarchy = cuvs::neighbors::hnsw::HnswHierarchy::GPU_LAYERED_ON_DISK;
     } else {
       THROW("Invalid value for hierarchy: %s", conf.at("hierarchy").get<std::string>().c_str());
     }
   } else {
     hnsw_params.hierarchy = cuvs::neighbors::hnsw::HnswHierarchy::GPU;
   }
+  if (conf.contains("output_format")) {
+    if (conf.at("output_format") == "hnswlib") {
+      hnsw_params.output_format = cuvs::neighbors::hnsw::HnswOutputFormat::HNSWLIB;
+    } else if (conf.at("output_format") == "graph_only") {
+      hnsw_params.output_format = cuvs::neighbors::hnsw::HnswOutputFormat::GRAPH_ONLY;
+    } else {
+      THROW("Invalid value for output_format: %s",
+            conf.at("output_format").get<std::string>().c_str());
+    }
+  }
   if (conf.contains("ef_construction")) {
     hnsw_params.ef_construction = conf.at("ef_construction");
   }
   if (conf.contains("dataset_path")) {
-    hnsw_params.dataset_path = conf.at("dataset_path");
-  } else if (hnsw_params.hierarchy == cuvs::neighbors::hnsw::HnswHierarchy::GPU_LAYERED_ON_DISK) {
-    hnsw_params.dataset_path = configuration::singleton().get_dataset_conf().base_file;
+    param.dataset_path = conf.at("dataset_path");
+  } else if (hnsw_params.output_format == cuvs::neighbors::hnsw::HnswOutputFormat::GRAPH_ONLY) {
+    param.dataset_path = configuration::singleton().get_dataset_conf().base_file;
   }
   if (conf.contains("num_threads")) { hnsw_params.num_threads = conf.at("num_threads"); }
 
   // Reuse the CAGRA wrapper params parser
   ::parse_build_param<T, IdxT>(conf, cagra_params);
-  // If the users provides parameter M, we can use the CAGRA-HNSW heuristics to find optimal
-  // parameters for the dataset and HNSW reference.
-  if (conf.contains("M")) {
-    // Postpone the parsing of the CAGRA build params until the dataset extents are known.
-    // We the default parameters depend on the dataset extents; and we still would like to be able
-    // to override them.
-    cagra_params.cagra_params = [conf, hnsw_params](raft::matrix_extent<int64_t> extents,
-                                                    cuvs::distance::DistanceType dist_type) {
-      auto ps = cuvs::neighbors::cagra::index_params::from_hnsw_params(
-        extents,
-        conf.at("M"),
-        hnsw_params.ef_construction,
-        cuvs::neighbors::cagra::hnsw_heuristic_type::SAME_GRAPH_FOOTPRINT,
-        dist_type);
-      ps.metric = dist_type;
-      // Parse ACE parameters if provided.
-      auto ace_conf = collect_conf_with_prefix(conf, "ace_");
-      if (!ace_conf.empty()) {
-        auto ace_params = cuvs::neighbors::cagra::graph_build_params::ace_params();
-        if (ace_conf.contains("npartitions")) {
-          ace_params.npartitions = ace_conf.at("npartitions");
-        }
-        if (ace_conf.contains("build_dir")) { ace_params.build_dir = ace_conf.at("build_dir"); }
-        if (ace_conf.contains("ef_construction")) {
-          ace_params.ef_construction = ace_conf.at("ef_construction");
-        }
-        if (ace_conf.contains("use_disk")) { ace_params.use_disk = ace_conf.at("use_disk"); }
-        ps.graph_build_params = ace_params;
-      }
-      // NB: above, we only provide the defaults. Below we parse the explicit parameters as usual.
-      ::parse_build_param<T, uint32_t>(conf, ps);
-      return ps;
-    };
+  if (conf.contains("M")) { hnsw_params.M = conf.at("M"); }
+
+  // ACE / GRAPH_ONLY builds can be fine-tuned from the benchmark config. The library
+  // auto-selects the build algorithm from `M` and `ef_construction`; here we only forward the
+  // explicit ACE overrides (if any) onto the new hnsw index params.
+  auto ace_conf = collect_conf_with_prefix(conf, "ace_");
+  if (!ace_conf.empty()) {
+    auto ace_params = cuvs::neighbors::hnsw::graph_build_params::ace_params();
+    if (ace_conf.contains("npartitions")) { ace_params.npartitions = ace_conf.at("npartitions"); }
+    if (ace_conf.contains("build_dir")) { ace_params.build_dir = ace_conf.at("build_dir"); }
+    if (ace_conf.contains("ef_construction")) {
+      ace_params.ef_construction = ace_conf.at("ef_construction");
+    }
+    if (ace_conf.contains("use_disk")) { ace_params.use_disk = ace_conf.at("use_disk"); }
+    hnsw_params.graph_build_params = ace_params;
+  }
+
+  // GRAPH_ONLY always needs disk-backed ACE settings before hnsw::build.
+  if (hnsw_params.output_format == cuvs::neighbors::hnsw::HnswOutputFormat::GRAPH_ONLY) {
+    auto ace_params = std::holds_alternative<cuvs::neighbors::hnsw::graph_build_params::ace_params>(
+                        hnsw_params.graph_build_params)
+                        ? std::get<cuvs::neighbors::hnsw::graph_build_params::ace_params>(
+                            hnsw_params.graph_build_params)
+                        : cuvs::neighbors::hnsw::graph_build_params::ace_params();
+    if (!ace_conf.contains("use_disk")) { ace_params.use_disk = true; }
+    const auto use_disk_conf =
+      ace_conf.contains("use_disk") ? ace_conf.at("use_disk").dump() : std::string{"unset"};
+    const auto build_dir_conf =
+      ace_conf.contains("build_dir") ? ace_conf.at("build_dir").dump() : std::string{"unset"};
+    RAFT_EXPECTS(ace_params.use_disk,
+                 "GRAPH_ONLY requires ACE disk mode (ace_params.use_disk = true); "
+                 "got ace_use_disk=%s",
+                 use_disk_conf.c_str());
+    RAFT_EXPECTS(!ace_params.build_dir.empty(),
+                 "GRAPH_ONLY requires ace_params.build_dir to be set; "
+                 "got ace_build_dir=%s",
+                 build_dir_conf.c_str());
+    RAFT_EXPECTS(!param.dataset_path.empty(),
+                 "GRAPH_ONLY requires dataset_path or a configured dataset base_file; "
+                 "got dataset_path='%s'",
+                 param.dataset_path.c_str());
+    hnsw_params.graph_build_params = ace_params;
   }
   return param;
 }

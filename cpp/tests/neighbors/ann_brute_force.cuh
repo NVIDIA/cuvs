@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2024, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -11,6 +11,7 @@
 
 #include <cuvs/neighbors/brute_force.hpp>
 
+#include <cuda/stream>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/device_resources.hpp>
 
@@ -32,7 +33,7 @@ template <typename T, typename IdxT>
 ::std::ostream& operator<<(::std::ostream& os, const AnnBruteForceInputs<IdxT>& p)
 {
   os << "{ " << p.num_queries << ", " << p.num_db_vecs << ", " << p.dim << ", " << p.k << ", "
-     << static_cast<int>(p.metric) << static_cast<T>(p.metric_arg) << '}' << std::endl;
+     << static_cast<int>(p.metric) << static_cast<T>(p.metric_arg) << '}';
   return os;
 }
 
@@ -101,7 +102,7 @@ class AnnBruteForceTest : public ::testing::TestWithParam<AnnBruteForceInputs<Id
                                                       ps.num_queries,
                                                       ps.k,
                                                       0.001f,
-                                                      stream_,
+                                                      stream_.get(),
                                                       true));
 
       tmp_index_file index_file;
@@ -124,7 +125,7 @@ class AnnBruteForceTest : public ::testing::TestWithParam<AnnBruteForceInputs<Id
                                                       ps.num_queries,
                                                       ps.k,
                                                       0.001f,
-                                                      stream_,
+                                                      stream_.get(),
                                                       true));
     }
   }
@@ -158,7 +159,7 @@ class AnnBruteForceTest : public ::testing::TestWithParam<AnnBruteForceInputs<Id
 
  private:
   raft::resources handle_;
-  rmm::cuda_stream_view stream_;
+  cuda::stream_ref stream_;
   AnnBruteForceInputs<IdxT> ps;
   rmm::device_uvector<DataT> database;
   rmm::device_uvector<DataT> search_queries;

@@ -4,7 +4,7 @@ package cagra
 import "C"
 
 import (
-	cuvs "github.com/rapidsai/cuvs/go"
+	cuvs "github.com/nvidia/cuvs/go"
 )
 
 // Parameters to extend CAGRA Index

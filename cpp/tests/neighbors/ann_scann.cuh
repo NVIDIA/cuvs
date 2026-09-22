@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cuda/stream>
 #include <raft/core/resource/cuda_stream_pool.hpp>
 #include <raft/linalg/add.cuh>
 #include <raft/matrix/gather.cuh>
@@ -186,7 +187,7 @@ class scann_test : public ::testing::TestWithParam<scann_inputs> {
 
     cuvs::preprocessing::quantize::pq::quantizer<float> quantizer{
       pq_params,
-      cuvs::neighbors::vpq_dataset<float, int64_t>{
+      cuvs::neighbors::device_vpq_dataset<float, int64_t>{
         std::move(vq_codebook), std::move(pq_codebook_copy), std::move(empty_data)}};
 
     auto quantized_residuals_device =
@@ -282,7 +283,7 @@ class scann_test : public ::testing::TestWithParam<scann_inputs> {
 
  private:
   raft::resources handle_;
-  rmm::cuda_stream_view stream_;
+  cuda::stream_ref stream_;
   scann_inputs ps;                      // NOLINT
   rmm::device_uvector<DataT> database;  // NOLINT
 };

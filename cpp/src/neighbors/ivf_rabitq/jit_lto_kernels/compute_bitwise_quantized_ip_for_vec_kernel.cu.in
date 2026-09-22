@@ -1,0 +1,46 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <neighbors/ivf_rabitq/jit_lto_kernels/device_functions.cuh>
+
+namespace {
+
+constexpr int num_bits = @num_bits@;
+
+}  // namespace
+
+namespace cuvs::neighbors::ivf_rabitq::detail {
+
+// Non-inline __device__ definition. num_bits is captured from the matrix.json
+// axis into a constexpr so the inner #pragma-unrolled (b) loop has a
+// compile-time bound and the (num_bits - 1) shift becomes an immediate. Each
+// matrix.json value produces a separate fragment with the same mangled symbol
+// name; the planner adds exactly one via
+// add_compute_bitwise_quantized_ip_for_vec_device_function<num_bits>(), so
+// nvJitLink resolves consumer calls to the matching specialization with no
+// runtime dispatch.
+__device__ int32_t compute_bitwise_quantized_ip_for_vec(const uint32_t* d_short_data,
+                                                        const uint32_t* shared_packed_query,
+                                                        size_t cluster_start_index,
+                                                        size_t num_vectors_in_cluster,
+                                                        size_t vec_idx,
+                                                        uint32_t num_words)
+{
+  int32_t accumulator = 0;
+  for (uint32_t word = 0; word < num_words; ++word) {
+    size_t data_offset = cluster_start_index * num_words + word * num_vectors_in_cluster + vec_idx;
+    uint32_t data_word = d_short_data[data_offset];
+
+#pragma unroll
+    for (int b = 0; b < num_bits - 1; b++) {
+      accumulator += __popc(shared_packed_query[b * num_words + word] & data_word) << b;
+    }
+    accumulator -= __popc(shared_packed_query[(num_bits - 1) * num_words + word] & data_word)
+                   << (num_bits - 1);
+  }
+  return accumulator;
+}
+
+}  // namespace cuvs::neighbors::ivf_rabitq::detail

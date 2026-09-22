@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -85,6 +85,9 @@ CUVS_EXPORT cuvsError_t cuvsPcaParamsDestroy(cuvsPcaParams_t params);
  * Computes the principal components, explained variances, singular values, and column means
  * from the input data.
  *
+ * The layout of `input` (C-contiguous / row-major or F-contiguous / col-major) is detected
+ * from its DLPack strides; `components` must use the same layout as `input`.
+ *
  * @code {.c}
  * #include <cuvs/core/c_api.h>
  * #include <cuvs/preprocessing/pca.h>
@@ -98,9 +101,9 @@ CUVS_EXPORT cuvsError_t cuvsPcaParamsDestroy(cuvsPcaParams_t params);
  * cuvsPcaParamsCreate(&params);
  * params->n_components = 2;
  *
- * // Assume populated DLManagedTensor objects (col-major, float32, device memory)
- * DLManagedTensor input;          // [n_rows x n_cols]
- * DLManagedTensor components;     // [n_components x n_cols]
+ * // Assume populated DLManagedTensor objects (float32, device memory)
+ * DLManagedTensor input;          // [n_rows x n_cols] (C- or F-contiguous)
+ * DLManagedTensor components;     // [n_components x n_cols] (same layout as input)
  * DLManagedTensor explained_var;  // [n_components]
  * DLManagedTensor explained_var_ratio; // [n_components]
  * DLManagedTensor singular_vals;  // [n_components]
@@ -117,8 +120,8 @@ CUVS_EXPORT cuvsError_t cuvsPcaParamsDestroy(cuvsPcaParams_t params);
  *
  * @param[in] res cuvsResources_t opaque C handle
  * @param[in] params PCA parameters
- * @param[inout] input input data [n_rows x n_cols] (col-major, float32, device)
- * @param[out] components principal components [n_components x n_cols] (col-major, float32, device)
+ * @param[inout] input input data [n_rows x n_cols] (C- or F-contiguous, float32, device)
+ * @param[out] components principal components [n_components x n_cols] (same layout as input)
  * @param[out] explained_var explained variances [n_components] (float32, device)
  * @param[out] explained_var_ratio explained variance ratios [n_components] (float32, device)
  * @param[out] singular_vals singular values [n_components] (float32, device)
@@ -142,12 +145,14 @@ CUVS_EXPORT cuvsError_t cuvsPcaFit(cuvsResources_t res,
  * @brief Perform PCA fit and transform in a single operation.
  *
  * Computes the principal components and transforms the input data into the eigenspace.
+ * The layout of `input` (C- or F-contiguous) is detected from its DLPack strides; all
+ * other matrix tensors must use the same layout.
  *
  * @param[in] res cuvsResources_t opaque C handle
  * @param[in] params PCA parameters
- * @param[inout] input input data [n_rows x n_cols] (col-major, float32, device)
- * @param[out] trans_input transformed data [n_rows x n_components] (col-major, float32, device)
- * @param[out] components principal components [n_components x n_cols] (col-major, float32, device)
+ * @param[inout] input input data [n_rows x n_cols] (C- or F-contiguous, float32, device)
+ * @param[out] trans_input transformed data [n_rows x n_components] (same layout as input)
+ * @param[out] components principal components [n_components x n_cols] (same layout as input)
  * @param[out] explained_var explained variances [n_components] (float32, device)
  * @param[out] explained_var_ratio explained variance ratios [n_components] (float32, device)
  * @param[out] singular_vals singular values [n_components] (float32, device)
@@ -172,14 +177,16 @@ CUVS_EXPORT cuvsError_t cuvsPcaFitTransform(cuvsResources_t res,
  * @brief Perform PCA transform operation.
  *
  * Transforms the input data into the eigenspace using previously computed principal components.
+ * The layout of `input` (C- or F-contiguous) is detected from its DLPack strides; all other
+ * matrix tensors must use the same layout.
  *
  * @param[in] res cuvsResources_t opaque C handle
  * @param[in] params PCA parameters
- * @param[inout] input data to transform [n_rows x n_cols] (col-major, float32, device)
- * @param[in] components principal components [n_components x n_cols] (col-major, float32, device)
+ * @param[inout] input data to transform [n_rows x n_cols] (C- or F-contiguous, float32, device)
+ * @param[in] components principal components [n_components x n_cols] (same layout as input)
  * @param[in] singular_vals singular values [n_components] (float32, device)
  * @param[in] mu column means [n_cols] (float32, device)
- * @param[out] trans_input transformed data [n_rows x n_components] (col-major, float32, device)
+ * @param[out] trans_input transformed data [n_rows x n_components] (same layout as input)
  * @return cuvsError_t
  */
 CUVS_EXPORT cuvsError_t cuvsPcaTransform(cuvsResources_t res,
@@ -194,14 +201,17 @@ CUVS_EXPORT cuvsError_t cuvsPcaTransform(cuvsResources_t res,
  * @brief Perform PCA inverse transform operation.
  *
  * Transforms data from the eigenspace back to the original space.
+ * The layout of `trans_input` (C- or F-contiguous) is detected from its DLPack strides;
+ * all other matrix tensors must use the same layout.
  *
  * @param[in] res cuvsResources_t opaque C handle
  * @param[in] params PCA parameters
- * @param[in] trans_input transformed data [n_rows x n_components] (col-major, float32, device)
- * @param[in] components principal components [n_components x n_cols] (col-major, float32, device)
+ * @param[in] trans_input transformed data [n_rows x n_components] (C- or F-contiguous,
+ * float32, device)
+ * @param[in] components principal components [n_components x n_cols] (same layout as trans_input)
  * @param[in] singular_vals singular values [n_components] (float32, device)
  * @param[in] mu column means [n_cols] (float32, device)
- * @param[out] output reconstructed data [n_rows x n_cols] (col-major, float32, device)
+ * @param[out] output reconstructed data [n_rows x n_cols] (same layout as trans_input)
  * @return cuvsError_t
  */
 CUVS_EXPORT cuvsError_t cuvsPcaInverseTransform(cuvsResources_t res,

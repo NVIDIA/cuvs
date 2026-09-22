@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# SPDX-FileCopyrightText: Copyright (c) 2020-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2020-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 # cuvs build scripts
@@ -19,7 +19,7 @@ ARGS=$*
 # scripts, and that this script resides in the repo dir!
 REPODIR=$(cd "$(dirname "$0")"; pwd)
 
-VALIDARGS="clean libcuvs python rust go java docs tests bench-ann examples --uninstall  -v -g -n --allgpuarch --no-mg --no-cpu --cpu-only --no-shared-libs --no-nvtx --show_depr_warn --incl-cache-stats --time -h --run-java-tests"
+VALIDARGS="clean libcuvs python rust go java lucene docs tests bench-ann examples tarball --tarball-build-tests --uninstall  -v -g -n --allgpuarch --no-mg --mnmg-tests --no-cpu --cpu-only --no-shared-libs --no-nvtx --show_depr_warn --incl-cache-stats --time -h --run-java-tests --build-java-examples"
 HELP="$0 [<target> ...] [<flag> ...] [--cmake-args=\"<args>\"] [--cache-tool=<tool>] [--limit-tests=<targets>] [--limit-bench-ann=<targets>] [--build-metrics=<filename>]
  where <target> is:
    clean            - remove all existing build artifacts and configuration (start over)
@@ -29,10 +29,12 @@ HELP="$0 [<target> ...] [<flag> ...] [--cmake-args=\"<args>\"] [--cache-tool=<to
    rust             - build the cuvs Rust bindings
    go               - build the cuvs Go bindings
    java             - build the cuvs Java bindings
+   lucene           - build the cuvs-lucene Apache Lucene codecs (requires the Java bindings)
    docs             - build the documentation
    tests            - build the tests
    bench-ann        - build end-to-end ann benchmarks
    examples         - build the examples
+   tarball          - build the standalone C library tarball with Docker
 
  and <flag> is:
    -v                          - verbose build mode
@@ -51,10 +53,14 @@ HELP="$0 [<target> ...] [<flag> ...] [--cmake-args=\"<args>\"] [--cache-tool=<to
                                 whereas \"80-real\" will generate SASS.
                                 If you are unsure which to do, use -real suffix --gpu-arch=\"80-real;90-real\"
    --no-mg                     - disable multi-GPU support
+   --mnmg-tests                - build multi-node multi-GPU (MNMG) tests that require distributed (UCXX) dependencies
    --no-nvtx                   - disable nvtx (profiling markers), but allow enabling it in downstream projects
    --no-shared-libs            - build without shared libraries
    --show_depr_warn            - show cmake deprecation warnings
    --run-java-tests            - run Java tests after building
+   --build-java-examples       - also build the examples/java/cuvs-java and examples/java/cuvs-lucene
+                                 projects against the jars just built (with the 'java'/'lucene' targets)
+   --tarball-build-tests       - include the C library tests in the standalone tarball
    --build-metrics             - filename for generating build metrics report for libcuvs
    --incl-cache-stats          - include cache statistics in build metrics report
    --cmake-args=\\\"<args>\\\" - pass arbitrary list of CMake configuration options (escape all quotes in argument)
@@ -62,6 +68,8 @@ HELP="$0 [<target> ...] [<flag> ...] [--cmake-args=\"<args>\"] [--cache-tool=<to
                                  to speedup the build process.
    --time                      - Enable nvcc compilation time logging into cpp/build/nvcc_compile_log.csv.
                                  Results can be interpreted with cpp/scripts/analyze_nvcc_log.py
+   --logging-level=<level>     - overwrite the macro \"RAFT_LOG_ACTIVE_LEVEL\" to RAPIDS_LOGGER_LOG_LEVEL_{given_value}.
+                                 Valid values are (TRACE, DEBUG, INFO, WARN, ERROR, CRITICAL, OFF)
    -h                          - print this text
 
  default action (no args) is to build libcuvs, tests and cuvs targets
@@ -70,14 +78,26 @@ LIBCUVS_BUILD_DIR=${LIBCUVS_BUILD_DIR:=${REPODIR}/cpp/build}
 FERN_DOCS_DIR=${REPODIR}/fern
 PYTHON_BUILD_DIR=${REPODIR}/python/cuvs/_skbuild
 RUST_BUILD_DIR=${REPODIR}/rust/target
+JAVA_INTERNAL_BUILD_DIR=${REPODIR}/java/internal/build
 JAVA_BUILD_DIR=${REPODIR}/java/cuvs-java/target
-BUILD_DIRS="${LIBCUVS_BUILD_DIR} ${PYTHON_BUILD_DIR} ${RUST_BUILD_DIR} ${JAVA_BUILD_DIR}"
+JAVA_PANAMA_DIR=${REPODIR}/java/cuvs-java/src/main/java22/com/nvidia/cuvs/internal/panama
+LUCENE_BUILD_DIR=${REPODIR}/java/cuvs-lucene/target
+BUILD_DIRS=(
+    "${LIBCUVS_BUILD_DIR}"
+    "${PYTHON_BUILD_DIR}"
+    "${RUST_BUILD_DIR}"
+    "${JAVA_INTERNAL_BUILD_DIR}"
+    "${JAVA_BUILD_DIR}"
+    "${JAVA_PANAMA_DIR}"
+    "${LUCENE_BUILD_DIR}"
+)
 
 # Set defaults for vars modified by flags to this script
 CMAKE_LOG_LEVEL=""
 VERBOSE_FLAG=""
 BUILD_TESTS=ON
 BUILD_MG_ALGOS=ON
+BUILD_MNMG_TESTS=OFF
 BUILD_TYPE=Release
 COMPILE_LIBRARY=OFF
 INSTALL_TARGET=install
@@ -95,6 +115,7 @@ CLEAN=0
 DISABLE_DEPRECATION_WARNINGS=ON
 CMAKE_TARGET=()
 EXTRA_CMAKE_ARGS=""
+LIBRAFT_LOGGING_LEVEL=INFO
 
 # Set defaults for vars that may not have been defined externally
 INSTALL_PREFIX=${INSTALL_PREFIX:=${PREFIX:=${CONDA_PREFIX:=$LIBCUVS_BUILD_DIR/install}}}
@@ -236,6 +257,20 @@ function gpuArch {
     fi
 }
 
+function loggingLevel {
+    if [[ -n $(echo "$ARGS" | { grep -E "\-\-logging\-level" || true; } ) ]]; then
+        LIBRAFT_LOGGING_LEVEL=$(echo "$ARGS" | sed -e 's/.*--logging-level[= ]//' -e 's/ .*//')
+        if [[ -n ${LIBRAFT_LOGGING_LEVEL} ]]; then
+            ARGS="${ARGS//--logging-level[= ]${LIBRAFT_LOGGING_LEVEL}/}"
+            VALID_LEVELS="TRACE DEBUG INFO WARN ERROR CRITICAL OFF"
+            if [[ ! " ${VALID_LEVELS} " == *" ${LIBRAFT_LOGGING_LEVEL} "* ]]; then
+                echo "Invalid --logging-level value: '${LIBRAFT_LOGGING_LEVEL}'. Valid values are: ${VALID_LEVELS}"
+                exit 1
+            fi
+        fi
+    fi
+}
+
 if hasArg -h || hasArg --help; then
     echo "${HELP}"
     exit 0
@@ -249,6 +284,7 @@ if (( NUMARGS != 0 )); then
     limitAnnBench
     buildMetrics
     gpuArch
+    loggingLevel
     for a in ${ARGS}; do
         if ! (echo " ${VALIDARGS} " | grep -q " ${a} "); then
             echo "Invalid option: ${a}"
@@ -312,6 +348,10 @@ if hasArg --no-mg; then
     BUILD_MG_ALGOS=OFF
 fi
 
+if hasArg --mnmg-tests; then
+    BUILD_MNMG_TESTS=ON
+fi
+
 if hasArg tests || (( NUMARGS == 0 )); then
     BUILD_TESTS=ON
     CMAKE_TARGET+=("${TEST_TARGETS}")
@@ -362,7 +402,7 @@ if (( CLEAN == 1 )); then
     # contents should be removed but the mounted dirs will remain.
     # The find removes all contents but leaves the dirs, the rmdir
     # attempts to remove the dirs but can fail safely.
-    for bd in ${BUILD_DIRS}; do
+    for bd in "${BUILD_DIRS[@]}"; do
       if [ -d "${bd}" ]; then
           find "${bd}" -mindepth 1 -delete
           rmdir "${bd}" || true
@@ -413,8 +453,10 @@ if (( NUMARGS == 0 )) || hasArg libcuvs || hasArg tests || hasArg bench-prims ||
           -DBUILD_CUVS_BENCH="${BUILD_CUVS_BENCH}" \
           -DBUILD_CPU_ONLY="${BUILD_CPU_ONLY}" \
           -DBUILD_MG_ALGOS=${BUILD_MG_ALGOS} \
+          -DBUILD_MNMG_TESTS=${BUILD_MNMG_TESTS} \
           -DCMAKE_MESSAGE_LOG_LEVEL=${CMAKE_LOG_LEVEL} \
           -DBUILD_SHARED_LIBS=${BUILD_SHARED_LIBS} \
+          -DLIBRAFT_LOGGING_LEVEL="${LIBRAFT_LOGGING_LEVEL}" \
           "${CACHE_ARGS[@]}" \
           "${EXTRA_CMAKE_ARGS[@]}"
 
@@ -473,6 +515,12 @@ if (( NUMARGS == 0 )) || hasArg libcuvs || hasArg tests || hasArg bench-prims ||
   fi
 fi
 
+CUVS_TARBALL_CUDA_VERSION_MAJOR_MINOR="$(echo "$CUVS_TARBALL_CUDA_VERSION" | sed -E "s/^([0-9]+\.[0-9]+)/\1/")"
+CUDA_VERSION="${RAPIDS_CUDA_VERSION:-${CUVS_TARBALL_CUDA_VERSION_MAJOR_MINOR:-$(nvcc --version | sed -E -n "s/^.*release ([0-9]+\.[0-9]+).*$/\1/p")}}"
+if [[ -z "$CUDA_VERSION" ]]; then
+    echo "Could not determine CUDA version. Please set RAPIDS_CUDA_VERSION or CUVS_TARBALL_CUDA_VERSION or make sure your \$PATH contains a valid nvcc."
+    exit 1
+fi
 
 PYTHON_ARGS_FOR_INSTALL=(
     "-v"
@@ -480,6 +528,8 @@ PYTHON_ARGS_FOR_INSTALL=(
     "--no-deps"
     "--config-settings"
     "rapidsai.disable-cuda=true"
+    "--config-settings"
+    "rapidsai.matrix-entry=cuda=${CUDA_VERSION};cuda_suffixed=false;use_cuda_wheels=false"
 )
 
 # If `RAPIDS_PY_VERSION` is set, use that as the lower-bound for the stable ABI CPython version
@@ -522,11 +572,30 @@ if (( NUMARGS == 0 )) || hasArg java; then
         echo "Please add 'libcuvs' to this script's arguments (ex. './build.sh libcuvs java') if libcuvs libraries are not already built"
     fi
     cd "${REPODIR}"/java
+    JAVA_BUILD_ARGS=()
     if hasArg --run-java-tests; then
-        ./build.sh --run-java-tests
-    else
-        ./build.sh
+        JAVA_BUILD_ARGS+=("--run-java-tests")
     fi
+    if hasArg --build-java-examples; then
+        JAVA_BUILD_ARGS+=("--build-java-examples")
+    fi
+    ./build.sh "${JAVA_BUILD_ARGS[@]}"
+fi
+
+# Build the cuvs-lucene codecs
+if (( NUMARGS == 0 )) || hasArg lucene; then
+    if ! hasArg java; then
+        echo "Please add 'java' to this script's arguments (ex. './build.sh libcuvs java lucene') if the cuvs Java bindings are not already built"
+    fi
+    cd "${REPODIR}"/java/cuvs-lucene
+    LUCENE_BUILD_ARGS=()
+    if hasArg --run-java-tests; then
+        LUCENE_BUILD_ARGS+=("--run-java-tests")
+    fi
+    if hasArg --build-java-examples; then
+        LUCENE_BUILD_ARGS+=("--build-java-examples")
+    fi
+    ./build.sh "${LUCENE_BUILD_ARGS[@]}"
 fi
 
 RAPIDS_VERSION="$(sed -E -e 's/^([0-9]{2})\.([0-9]{2})\.([0-9]{2}).*$/\1.\2.\3/' "${REPODIR}/VERSION")"
@@ -547,4 +616,57 @@ if hasArg examples; then
     pushd "${REPODIR}"/examples
     ./build.sh
     popd
+fi
+
+################################################################################
+# Build the standalone C library tarball (if requested)
+
+if hasArg tarball; then
+    if [[ "${CUVS_TARBALL_IN_CONTAINER:-0}" == "1" ]]; then
+        CUVS_TARBALL_BUILD_OUTPUT_DIR="${CUVS_TARBALL_BUILD_OUTPUT_DIR:-${REPODIR}}"
+        tar czf "${CUVS_TARBALL_BUILD_OUTPUT_DIR}/libcuvs_c.tar.gz" -C "${REPODIR}/c/build/install" .
+    else
+        CUVS_TARBALL_CUDA_VERSION="${CUVS_TARBALL_CUDA_VERSION:-13.3.0}"
+        CUVS_TARBALL_PYTHON_VERSION="${CUVS_TARBALL_PYTHON_VERSION:-3.14}"
+        CUVS_TARBALL_BUILD_OUTPUT_DIR="${CUVS_TARBALL_BUILD_OUTPUT_DIR:-${REPODIR}/build}"
+        CUVS_TARBALL_IMAGE_NAME="nvidia/cuvs-standalone-c:local-cuda${CUVS_TARBALL_CUDA_VERSION}-py${CUVS_TARBALL_PYTHON_VERSION}"
+
+        mkdir -p "${CUVS_TARBALL_BUILD_OUTPUT_DIR}"
+        BUILD_OUTPUT_DIR_ABS=$(realpath "${CUVS_TARBALL_BUILD_OUTPUT_DIR}")
+
+        echo "Building Docker image ${CUVS_TARBALL_IMAGE_NAME} (CUDA ${CUVS_TARBALL_CUDA_VERSION}, Python ${CUVS_TARBALL_PYTHON_VERSION})..."
+        docker build \
+            -f "${REPODIR}/Dockerfile.standalone" \
+            --build-arg CUDA_VERSION="${CUVS_TARBALL_CUDA_VERSION}" \
+            --build-arg PYTHON_VERSION="${CUVS_TARBALL_PYTHON_VERSION}" \
+            --build-arg RAPIDS_VERSION="${RAPIDS_VERSION_MAJOR_MINOR}" \
+            -t "${CUVS_TARBALL_IMAGE_NAME}" \
+            "${REPODIR}"
+
+        # optionally pass additional arguments through to the container's entrypoint
+        DOCKER_ENTRYPOINT_ARGS=()
+        if hasArg --tarball-build-tests; then
+            DOCKER_ENTRYPOINT_ARGS+=(--tarball-build-tests)
+        fi
+
+        echo "Running standalone C build in container..."
+        # NOTE: the '--env-file' trick for AWS credentials keeps them out of 'ps aux' / 'docker ps' output
+        docker run \
+            --rm \
+            -v "${REPODIR}:/workspace:rw" \
+            -v "${BUILD_OUTPUT_DIR_ABS}:/build:rw" \
+            --env CI="${CI:-false}" \
+            --env PARALLEL_LEVEL="${PARALLEL_LEVEL}" \
+            --env RAPIDS_BUILD_TYPE="${RAPIDS_BUILD_TYPE:-}" \
+            --env-file <(env | grep -E '^AWS_(ACCESS_KEY_ID|SECRET_ACCESS_KEY|SESSION_TOKEN)=') \
+            --env-file <(env | grep -E '^SCCACHE_.*=') \
+            "${CUVS_TARBALL_IMAGE_NAME}" \
+            "${DOCKER_ENTRYPOINT_ARGS[@]}"
+
+        cp -v "${BUILD_OUTPUT_DIR_ABS}/libcuvs_c.tar.gz" "${REPODIR}/libcuvs_c.tar.gz"
+        echo "Copied libcuvs_c.tar.gz to ${REPODIR}/libcuvs_c.tar.gz"
+    fi
+
+    # print contents of the tarball
+    ls -lh "${CUVS_TARBALL_BUILD_OUTPUT_DIR}/libcuvs_c.tar.gz"
 fi

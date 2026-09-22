@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -45,7 +45,7 @@ template <typename MathT, typename IdxT>
 ::std::ostream& operator<<(::std::ostream& os, const KmeansBalancedInputs<MathT, IdxT>& p)
 {
   os << "{ " << p.n_rows << ", " << p.n_cols << ", " << p.n_clusters << ", " << p.kb_params.n_iters
-     << static_cast<int>(p.kb_params.metric) << '}' << std::endl;
+     << static_cast<int>(p.kb_params.metric) << '}';
   return os;
 }
 
@@ -58,7 +58,7 @@ template <typename DataT,
 class KmeansBalancedTest : public ::testing::TestWithParam<KmeansBalancedInputs<MathT, IdxT>> {
  protected:
   KmeansBalancedTest()
-    : stream(raft::resource::get_cuda_stream(handle)),
+    : stream(raft::resource::get_cuda_stream(handle).get()),
       d_labels(0, stream),
       d_labels_ref(0, stream),
       d_centroids(0, stream)
@@ -128,8 +128,10 @@ class KmeansBalancedTest : public ::testing::TestWithParam<KmeansBalancedInputs<
 
     raft::resource::sync_stream(handle, stream);
 
-    score = raft::stats::adjusted_rand_index(
-      d_labels_ref.data(), d_labels.data(), p.n_rows, raft::resource::get_cuda_stream(handle));
+    score = raft::stats::adjusted_rand_index(d_labels_ref.data(),
+                                             d_labels.data(),
+                                             p.n_rows,
+                                             raft::resource::get_cuda_stream(handle).get());
 
     if (score < 1.0) {
       std::stringstream ss;

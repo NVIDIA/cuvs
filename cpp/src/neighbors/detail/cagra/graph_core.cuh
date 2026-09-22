@@ -1,9 +1,11 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
 
+#include "cagra_helpers.hpp"
+#include "graph_shared.cuh"
 #include "utils.hpp"
 
 #include <raft/core/copy.cuh>
@@ -20,7 +22,8 @@
 #include "../../../core/omp_wrapper.hpp"
 #include "../ann_utils.cuh"
 
-#include <raft/util/bitonic_sort.cuh>
+#include <cuvs/neighbors/cagra.hpp>
+
 #include <raft/util/cuda_rt_essentials.hpp>
 #include <raft/util/integer_utils.hpp>
 
@@ -36,6 +39,7 @@
 #include <iostream>
 #include <memory>
 #include <random>
+#include <type_traits>
 
 namespace cg = cooperative_groups;
 
@@ -48,127 +52,6 @@ inline double cur_time(void)
   struct timeval tv;
   gettimeofday(&tv, NULL);
   return ((double)tv.tv_sec + (double)tv.tv_usec * 1e-6);
-}
-
-template <typename T>
-__device__ inline void swap(T& val1, T& val2)
-{
-  T val0 = val1;
-  val1   = val2;
-  val2   = val0;
-}
-
-template <typename K, typename V>
-__device__ inline bool swap_if_needed(K& key1, K& key2, V& val1, V& val2, bool ascending)
-{
-  if (key1 == key2) { return false; }
-  if ((key1 > key2) == ascending) {
-    swap<K>(key1, key2);
-    swap<V>(val1, val2);
-    return true;
-  }
-  return false;
-}
-
-template <class DATA_T, class IdxT, int numElementsPerThread>
-__global__ void kern_sort(const DATA_T* const dataset,  // [dataset_chunk_size, dataset_dim]
-                          const IdxT dataset_size,
-                          const uint32_t dataset_dim,
-                          IdxT* const knn_graph,  // [graph_chunk_size, graph_degree]
-                          const uint32_t graph_size,
-                          const uint32_t graph_degree,
-                          const cuvs::distance::DistanceType metric)
-{
-  const IdxT srcNode = (blockDim.x * blockIdx.x + threadIdx.x) / raft::WarpSize;
-  if (srcNode >= graph_size) { return; }
-
-  const uint32_t lane_id = threadIdx.x % raft::WarpSize;
-
-  float my_keys[numElementsPerThread];
-  IdxT my_vals[numElementsPerThread];
-
-  // Compute distance from a src node to its neighbors
-  for (int k = 0; k < graph_degree; k++) {
-    const IdxT dstNode = knn_graph[k + static_cast<uint64_t>(graph_degree) * srcNode];
-    float dist         = 0;
-    float norm2_dst    = 0;
-    if (metric == cuvs::distance::DistanceType::InnerProduct ||
-        metric == cuvs::distance::DistanceType::CosineExpanded) {
-      for (int d = lane_id; d < dataset_dim; d += raft::WarpSize) {
-        auto elem_b = cuvs::spatial::knn::detail::utils::mapping<float>{}(
-          dataset[d + static_cast<uint64_t>(dataset_dim) * dstNode]);
-        dist -= cuvs::spatial::knn::detail::utils::mapping<float>{}(
-                  dataset[d + static_cast<uint64_t>(dataset_dim) * srcNode]) *
-                elem_b;
-
-        if (metric == cuvs::distance::DistanceType::CosineExpanded) {
-          norm2_dst += elem_b * elem_b;
-        }
-      }
-    } else if (metric == cuvs::distance::DistanceType::L2Expanded) {
-      // L2Expanded
-      for (int d = lane_id; d < dataset_dim; d += raft::WarpSize) {
-        float diff = cuvs::spatial::knn::detail::utils::mapping<float>{}(
-                       dataset[d + static_cast<uint64_t>(dataset_dim) * srcNode]) -
-                     cuvs::spatial::knn::detail::utils::mapping<float>{}(
-                       dataset[d + static_cast<uint64_t>(dataset_dim) * dstNode]);
-        dist += diff * diff;
-      }
-    } else if (metric == cuvs::distance::DistanceType::L1) {
-      for (int d = lane_id; d < dataset_dim; d += raft::WarpSize) {
-        float diff = cuvs::spatial::knn::detail::utils::mapping<float>{}(
-                       dataset[d + static_cast<uint64_t>(dataset_dim) * srcNode]) -
-                     cuvs::spatial::knn::detail::utils::mapping<float>{}(
-                       dataset[d + static_cast<uint64_t>(dataset_dim) * dstNode]);
-        dist += raft::abs(diff);
-      }
-    } else if (metric == cuvs::distance::DistanceType::BitwiseHamming) {
-      if constexpr (std::is_integral_v<DATA_T>) {
-        for (int d = lane_id; d < dataset_dim; d += raft::WarpSize) {
-          dist += __popc(
-            static_cast<uint32_t>(dataset[d + static_cast<uint64_t>(dataset_dim) * srcNode] ^
-                                  dataset[d + static_cast<uint64_t>(dataset_dim) * dstNode]) &
-            0xffu);
-        }
-      }
-    }
-    dist += __shfl_xor_sync(0xffffffff, dist, 1);
-    dist += __shfl_xor_sync(0xffffffff, dist, 2);
-    dist += __shfl_xor_sync(0xffffffff, dist, 4);
-    dist += __shfl_xor_sync(0xffffffff, dist, 8);
-    dist += __shfl_xor_sync(0xffffffff, dist, 16);
-
-    if (metric == cuvs::distance::DistanceType::CosineExpanded) {
-      norm2_dst += __shfl_xor_sync(0xffffffff, norm2_dst, 1);
-      norm2_dst += __shfl_xor_sync(0xffffffff, norm2_dst, 2);
-      norm2_dst += __shfl_xor_sync(0xffffffff, norm2_dst, 4);
-      norm2_dst += __shfl_xor_sync(0xffffffff, norm2_dst, 8);
-      norm2_dst += __shfl_xor_sync(0xffffffff, norm2_dst, 16);
-      if (lane_id == (k % raft::WarpSize)) { dist /= sqrt(norm2_dst); }
-    }
-
-    if (lane_id == (k % raft::WarpSize)) {
-      my_keys[k / raft::WarpSize] = dist;
-      my_vals[k / raft::WarpSize] = dstNode;
-    }
-  }
-  for (int k = graph_degree; k < raft::WarpSize * numElementsPerThread; k++) {
-    if (lane_id == k % raft::WarpSize) {
-      my_keys[k / raft::WarpSize] = utils::get_max_value<float>();
-      my_vals[k / raft::WarpSize] = utils::get_max_value<IdxT>();
-    }
-  }
-
-  // Sort by RAFT bitonic sort
-  raft::util::bitonic<numElementsPerThread>(true).sort(my_keys, my_vals);
-
-  // Update knn_graph
-  for (int i = 0; i < numElementsPerThread; i++) {
-    const int k = i * raft::WarpSize + lane_id;
-    if (k < graph_degree) {
-      knn_graph[k + (static_cast<uint64_t>(graph_degree) * srcNode)] = my_vals[i];
-    }
-  }
 }
 
 template <typename IdxT, typename OutputMatrixView>
@@ -842,12 +725,9 @@ void merge_graph_gpu(
 
   auto d_check_num_protected_edges = raft::make_device_scalar<uint32_t>(res, 1u);
 
-  // The batchsize is statically set to 256 * 1024 which corresponds to 256MB for a graph
-  // degree of 128 and 16byte index type. This is a trade-off between memory usage and performance.
-  // When choosing dynamically based on available memory, we would also need to modify the static
-  // size assumption in the cagra_build.cuh::optimize_workspace_size function.
-  uint32_t batch_size      = static_cast<uint32_t>(std::min<uint64_t>(graph_size, 256 * 1024));
-  const uint32_t num_batch = (graph_size + batch_size - 1) / batch_size;
+  uint32_t batch_size =
+    static_cast<uint32_t>(std::min<uint64_t>(graph_size, helpers::kOptimizeBatchSize));
+  const uint32_t num_batch = raft::div_rounding_up_safe<uint64_t>(graph_size, batch_size);
 
   namespace bli                       = cuvs::spatial::knn::detail::utils;
   auto [copy_stream, enable_prefetch] = bli::get_prefetch_stream(res);
@@ -889,16 +769,18 @@ void merge_graph_gpu(
     auto mst_graph_num_edges_view = (*d_mst_graph_num_edges).view();
     auto output_view              = (*d_output_graph).view();
     kern_merge_graph<IdxT, num_warps>
-      <<<blocks_merge, threads_merge, merge_smem_size, raft::resource::get_cuda_stream(res)>>>(
-        output_view,
-        d_rev_graph,
-        d_rev_graph_count,
-        mst_graph_view,
-        mst_graph_num_edges_view,
-        batch_size,
-        i_batch,
-        guarantee_connectivity,
-        d_check_num_protected_edges.data_handle());
+      <<<blocks_merge,
+         threads_merge,
+         merge_smem_size,
+         raft::resource::get_cuda_stream(res).get()>>>(output_view,
+                                                       d_rev_graph,
+                                                       d_rev_graph_count,
+                                                       mst_graph_view,
+                                                       mst_graph_num_edges_view,
+                                                       batch_size,
+                                                       i_batch,
+                                                       guarantee_connectivity,
+                                                       d_check_num_protected_edges.data_handle());
 
     d_output_graph.prefetch_next_batch();
     d_mst_graph.prefetch_next_batch();
@@ -948,7 +830,7 @@ void make_reverse_graph_gpu(
     dim3 threads(256, 1, 1);
     dim3 blocks(1024, 1, 1);
     for (uint64_t k = 0; k < output_graph_degree; k++) {
-      kern_make_rev_graph_k<<<blocks, threads, 0, raft::resource::get_cuda_stream(res)>>>(
+      kern_make_rev_graph_k<<<blocks, threads, 0, raft::resource::get_cuda_stream(res).get()>>>(
         output_graph, d_rev_graph, d_rev_graph_count, k);
     }
   } else {
@@ -963,7 +845,7 @@ void make_reverse_graph_gpu(
 
       dim3 threads(256, 1, 1);
       dim3 blocks(1024, 1, 1);
-      kern_make_rev_graph_k<<<blocks, threads, 0, raft::resource::get_cuda_stream(res)>>>(
+      kern_make_rev_graph_k<<<blocks, threads, 0, raft::resource::get_cuda_stream(res).get()>>>(
         d_dest_nodes.view(), d_rev_graph, d_rev_graph_count, 0);
       raft::resource::sync_stream(res);
       RAFT_LOG_DEBUG("# Making reverse graph on GPUs: %lu / %u    \r", k, output_graph_degree);
@@ -983,6 +865,7 @@ void sort_knn_graph(
   raft::mdspan<const DataT, raft::matrix_extent<int64_t>, raft::row_major, d_accessor> dataset,
   raft::mdspan<IdxT, raft::matrix_extent<int64_t>, raft::row_major, g_accessor> knn_graph)
 {
+  static_assert(std::is_same_v<IdxT, uint32_t>, "CAGRA graph indices must be uint32_t");
   RAFT_EXPECTS(dataset.extent(0) == knn_graph.extent(0),
                "dataset size is expected to have the same number of graph index size");
   RAFT_EXPECTS(
@@ -1018,51 +901,14 @@ void sort_knn_graph(
 
   raft::copy(res, d_input_graph.view(), knn_graph);
 
-  void (*kernel_sort)(const DataT* const,
-                      const IdxT,
-                      const uint32_t,
-                      IdxT* const,
-                      const uint32_t,
-                      const uint32_t,
-                      const cuvs::distance::DistanceType);
-  if (input_graph_degree <= 32) {
-    constexpr int numElementsPerThread = 1;
-    kernel_sort                        = kern_sort<DataT, IdxT, numElementsPerThread>;
-  } else if (input_graph_degree <= 64) {
-    constexpr int numElementsPerThread = 2;
-    kernel_sort                        = kern_sort<DataT, IdxT, numElementsPerThread>;
-  } else if (input_graph_degree <= 128) {
-    constexpr int numElementsPerThread = 4;
-    kernel_sort                        = kern_sort<DataT, IdxT, numElementsPerThread>;
-  } else if (input_graph_degree <= 256) {
-    constexpr int numElementsPerThread = 8;
-    kernel_sort                        = kern_sort<DataT, IdxT, numElementsPerThread>;
-  } else if (input_graph_degree <= 512) {
-    constexpr int numElementsPerThread = 16;
-    kernel_sort                        = kern_sort<DataT, IdxT, numElementsPerThread>;
-  } else if (input_graph_degree <= 1024) {
-    constexpr int numElementsPerThread = 32;
-    kernel_sort                        = kern_sort<DataT, IdxT, numElementsPerThread>;
-  } else {
-    RAFT_FAIL(
-      "The degree of input knn graph is too large (%lu). "
-      "It must be equal to or smaller than %d.",
-      input_graph_degree,
-      1024);
-  }
-  const auto block_size          = 256;
-  const auto num_warps_per_block = block_size / raft::WarpSize;
-  const auto grid_size           = (graph_size + num_warps_per_block - 1) / num_warps_per_block;
-
   RAFT_LOG_DEBUG(".");
-  kernel_sort<<<grid_size, block_size, 0, raft::resource::get_cuda_stream(res)>>>(
-    d_dataset.data_handle(),
-    dataset_size,
-    dataset_dim,
-    d_input_graph.data_handle(),
-    graph_size,
-    input_graph_degree,
-    metric);
+  launch_sort_knn_graph(res,
+                        metric,
+                        d_dataset.data_handle(),
+                        static_cast<uint32_t>(dataset_size),
+                        static_cast<uint32_t>(dataset_dim),
+                        d_input_graph.data_handle(),
+                        static_cast<uint32_t>(input_graph_degree));
   raft::resource::sync_stream(res);
   RAFT_LOG_DEBUG(".");
   raft::copy(res, knn_graph, raft::make_const_mdspan(d_input_graph.view()));
@@ -1331,7 +1177,7 @@ void mst_optimization(
                                         1 * sizeof(IdxT),  // width
                                         graph_size,
                                         cudaMemcpyDeviceToHost,
-                                        raft::resource::get_cuda_stream(res)));
+                                        raft::resource::get_cuda_stream(res).get()));
         raft::resource::sync_stream(res);
 
         // FIXME: use submdspan and raft::copy once supported
@@ -1355,7 +1201,7 @@ void mst_optimization(
       constexpr uint64_t n_threads = 256;
       const dim3 threads(n_threads, 1, 1);
       const dim3 blocks(raft::ceildiv<uint64_t>(graph_size, n_threads), 1, 1);
-      kern_mst_opt_update_graph<<<blocks, threads, 0, raft::resource::get_cuda_stream(res)>>>(
+      kern_mst_opt_update_graph<<<blocks, threads, 0, raft::resource::get_cuda_stream(res).get()>>>(
         d_mst_graph_ptr,
         d_candidate_edges_ptr,
         d_outgoing_num_edges_ptr,
@@ -1401,7 +1247,7 @@ void mst_optimization(
         constexpr uint64_t n_threads = 256;
         const dim3 threads(n_threads, 1, 1);
         const dim3 blocks((graph_size + n_threads - 1) / n_threads, 1, 1);
-        kern_mst_opt_labeling<<<blocks, threads, 0, raft::resource::get_cuda_stream(res)>>>(
+        kern_mst_opt_labeling<<<blocks, threads, 0, raft::resource::get_cuda_stream(res).get()>>>(
           d_label_ptr, d_mst_graph_ptr, graph_size, mst_graph_degree, d_stats_ptr);
 
         raft::copy(res,
@@ -1435,7 +1281,7 @@ void mst_optimization(
       constexpr uint64_t n_threads = 256;
       const dim3 threads(n_threads, 1, 1);
       const dim3 blocks(raft::ceildiv<uint64_t>(graph_size, n_threads), 1, 1);
-      kern_mst_opt_cluster_size<<<blocks, threads, 0, raft::resource::get_cuda_stream(res)>>>(
+      kern_mst_opt_cluster_size<<<blocks, threads, 0, raft::resource::get_cuda_stream(res).get()>>>(
         d_cluster_size_ptr, d_label_ptr, graph_size, d_stats_ptr);
 
       raft::copy(res,
@@ -1476,7 +1322,10 @@ void mst_optimization(
       constexpr uint64_t n_threads = 256;
       const dim3 threads(n_threads, 1, 1);
       const dim3 blocks((graph_size + n_threads - 1) / n_threads, 1, 1);
-      kern_mst_opt_postprocessing<<<blocks, threads, 0, raft::resource::get_cuda_stream(res)>>>(
+      kern_mst_opt_postprocessing<<<blocks,
+                                    threads,
+                                    0,
+                                    raft::resource::get_cuda_stream(res).get()>>>(
         d_outgoing_num_edges_ptr,
         d_incoming_num_edges_ptr,
         d_outgoing_max_edges_ptr,
@@ -1606,12 +1455,9 @@ void prune_graph_gpu(
   raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> block_scope(
     "cagra::graph::optimize/prune");
 
-  // The batchsize is statically set to 256 * 1024 which corresponds to 256MB for a graph
-  // degree of 128 and 16byte index type. This is a trade-off between memory usage and performance.
-  // When choosing dynamically based on available memory, we would also need to modify the static
-  // size assumption in the cagra_build.cuh::optimize_workspace_size function.
-  uint32_t batch_size      = static_cast<uint32_t>(std::min<uint64_t>(graph_size, 256 * 1024));
-  const uint32_t num_batch = (graph_size + batch_size - 1) / batch_size;
+  uint32_t batch_size =
+    static_cast<uint32_t>(std::min<uint64_t>(graph_size, helpers::kOptimizeBatchSize));
+  const uint32_t num_batch = raft::div_rounding_up_safe<uint64_t>(graph_size, batch_size);
 
   RAFT_LOG_DEBUG("# Pruning kNN Graph on GPUs\r");
 
@@ -1656,13 +1502,15 @@ void prune_graph_gpu(
   for (uint32_t i_batch = 0; i_batch < num_batch; i_batch++) {
     auto output_view = (*d_output_graph).view();
     kern_fused_prune<IdxT, num_warps>
-      <<<blocks_prune, threads_prune, prune_smem_size, raft::resource::get_cuda_stream(res)>>>(
-        input_view,
-        output_view,
-        batch_size,
-        i_batch,
-        d_invalid_neighbor_list.data_handle(),
-        dev_stats.data_handle());
+      <<<blocks_prune,
+         threads_prune,
+         prune_smem_size,
+         raft::resource::get_cuda_stream(res).get()>>>(input_view,
+                                                       output_view,
+                                                       batch_size,
+                                                       i_batch,
+                                                       d_invalid_neighbor_list.data_handle(),
+                                                       dev_stats.data_handle());
 
     d_output_graph.prefetch_next_batch();
     ++d_output_graph;

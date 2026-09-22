@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -61,6 +61,22 @@ int main()
   if (error == CUVS_ERROR) { exit(EXIT_FAILURE); }
 
   // Reset pool memory resource
+  error = cuvsRMMMemoryResourceReset();
+  if (error == CUVS_ERROR) { exit(EXIT_FAILURE); }
+
+  // Enable async memory resource
+  error = cuvsRMMAsyncMemoryResourceEnable();
+  if (error == CUVS_ERROR) { exit(EXIT_FAILURE); }
+
+  // Allocate memory again
+  error = cuvsRMMAlloc(res, &ptr, 1024);
+  if (error == CUVS_ERROR) { exit(EXIT_FAILURE); }
+
+  // Free memory
+  error = cuvsRMMFree(res, ptr, 1024);
+  if (error == CUVS_ERROR) { exit(EXIT_FAILURE); }
+
+  // Reset async memory resource
   error = cuvsRMMMemoryResourceReset();
   if (error == CUVS_ERROR) { exit(EXIT_FAILURE); }
 

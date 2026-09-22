@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2024, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -53,7 +53,9 @@ void cagra_build_search_simple()
   cuvsCagraIndex_t index;
   CHECK_CUVS(cuvsCagraIndexCreate(&index));
 
-  CHECK_CUVS(cuvsCagraBuild(res, index_params, &dataset_tensor, index));
+  cuvsDataset_t host_dataset_view = NULL;
+  CHECK_CUVS(cuvsDatasetMakeStandardView(res, &dataset_tensor, &host_dataset_view));
+  CHECK_CUVS(cuvsCagraBuild(res, index_params, host_dataset_view, index));
 
   // Allocate memory for `queries`, `neighbors` and `distances` output
   uint32_t* neighbors;
@@ -98,6 +100,12 @@ void cagra_build_search_simple()
   distances_tensor.dl_tensor.shape              = distances_shape;
   distances_tensor.dl_tensor.strides            = NULL;
 
+  // Copy the host tensor into caller-owned device-padded storage to get a search-ready index.
+  cuvsDataset_t padded_owner = NULL;
+  CHECK_CUVS(
+    cuvsDatasetMakePadded(res, &dataset_tensor, CUVS_DATASET_MEM_TYPE_DEVICE, &padded_owner));
+  CHECK_CUVS(cuvsCagraUpdateDataset(res, padded_owner, index));
+
   // Search the CAGRA index
   cuvsCagraSearchParams_t search_params;
   CHECK_CUVS(cuvsCagraSearchParamsCreate(&search_params));
@@ -124,6 +132,8 @@ void cagra_build_search_simple()
   free(distances_h);
 
   CHECK_CUVS(cuvsCagraSearchParamsDestroy(search_params));
+  CHECK_CUVS(cuvsDatasetDestroy(padded_owner));
+  CHECK_CUVS(cuvsDatasetDestroy(host_dataset_view));
 
   CHECK_CUVS(cuvsRMMFree(res, distances, sizeof(float) * n_queries * topk));
   CHECK_CUVS(cuvsRMMFree(res, neighbors, sizeof(uint32_t) * n_queries * topk));

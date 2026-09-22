@@ -1,23 +1,23 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
 
-#include <cuvs/detail/jit_lto/AlgorithmPlanner.hpp>
-#include <cuvs/detail/jit_lto/FragmentEntry.hpp>
 #include <cuvs/detail/jit_lto/common_fragments.hpp>
 #include <cuvs/detail/jit_lto/ivf_flat/interleaved_scan_fragments.hpp>
 #include <iostream>
+#include <rtcx/algorithm_planner.hpp>
+#include <rtcx/fragment_entry.hpp>
 #include <string>
 
 namespace cuvs::neighbors::ivf_flat::detail {
 
-struct InterleavedScanPlanner : AlgorithmPlanner {
-  inline static LauncherJitCache launcher_jit_cache{};
+struct InterleavedScanPlanner : rtcx::algorithm_planner {
+  inline static rtcx::launcher_jit_cache launcher_jit_cache{};
 
-  InterleavedScanPlanner() : AlgorithmPlanner("interleaved_scan", launcher_jit_cache) {}
+  InterleavedScanPlanner() : rtcx::algorithm_planner("interleaved_scan", launcher_jit_cache) {}
 
   template <typename DataTag, typename AccTag, typename IdxTag, int Capacity, bool Ascending>
   void add_entrypoint()
@@ -39,7 +39,7 @@ struct InterleavedScanPlanner : AlgorithmPlanner {
     this->add_static_fragment<fragment_tag_metric<DataTag, AccTag, MetricTag, Veclen>>();
   }
 
-  void add_metric_udf_fragment(std::unique_ptr<UDFFatbinFragment> fragment)
+  void add_metric_udf_fragment(std::unique_ptr<rtcx::udf_fatbin_fragment> fragment)
   {
     this->add_fragment(std::move(fragment));
   }

@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -11,7 +11,11 @@ from typing import Optional
 import click
 import yaml
 
-from .data_export import convert_json_to_csv_build, convert_json_to_csv_search
+from .data_export import (
+    convert_json_to_csv_build,
+    convert_json_to_csv_search,
+    write_results_to_csv,
+)
 from ..orchestrator import BenchmarkOrchestrator
 
 
@@ -144,12 +148,8 @@ from ..orchestrator import BenchmarkOrchestrator
 @click.option(
     "--data-export",
     is_flag=True,
-    help="By default, the intermediate JSON outputs produced by "
-    "cuvs_bench.run to more easily readable CSV files is done "
-    "automatically, which are needed to build charts made by "
-    "cuvs_bench.plot. But if some of the benchmark runs failed or "
-    "were interrupted, use this option to convert those intermediate "
-    "files manually.",
+    help="Deprecated: convert existing C++ benchmark JSON files to CSV. "
+    "Benchmark runs now export CSV automatically.",
 )
 @click.option(
     "--mode",
@@ -243,7 +243,7 @@ def main(
     dry_run : bool
         Whether to perform a dry run without actual execution.
     data_export : bool
-        Whether to export intermediate JSON results to CSV.
+        Deprecated option for converting existing C++ JSON results to CSV.
     mode : str
         Benchmark mode: 'sweep' (exhaustive) or 'tune' (Optuna-based).
     constraints : Optional[str]
@@ -257,52 +257,70 @@ def main(
         and any backend-specific connection parameters (host, port, etc.).
 
     """
-    if not data_export:
-        # Determine backend type and extra kwargs from --backend-config
-        backend_type = "cpp_gbench"
-        backend_kwargs = {}
-        if backend_config:
-            with open(backend_config, "r") as f:
-                cfg = yaml.safe_load(f)
-            if not isinstance(cfg, dict):
-                raise ValueError(
-                    f"--backend-config must parse to a mapping, "
-                    f"got {type(cfg).__name__}"
-                )
-            if "backend" not in cfg:
-                raise ValueError(
-                    "--backend-config must include a 'backend' field"
-                )
-            backend_type = cfg.pop("backend")
-            backend_kwargs = cfg
-
-        orchestrator = BenchmarkOrchestrator(backend_type=backend_type)
-        orchestrator.run_benchmark(
-            mode=mode,
-            constraints=json.loads(constraints) if constraints else None,
-            n_trials=n_trials,
-            dataset=dataset,
-            dataset_path=dataset_path,
-            build=build,
-            search=search,
-            force=force,
-            dry_run=dry_run,
-            count=count,
-            batch_size=batch_size,
-            search_mode=search_mode,
-            search_threads=search_threads,
-            dataset_configuration=dataset_configuration,
-            algorithm_configuration=configuration,
-            algorithms=algorithms,
-            groups=groups,
-            algo_groups=algo_groups,
-            subset_size=subset_size,
-            executable_dir=executable_dir,
-            **backend_kwargs,
+    if data_export:
+        click.echo(
+            "Warning: --data-export is deprecated because benchmark runs now "
+            "export CSV automatically. Converting existing C++ JSON results.",
+            err=True,
         )
+        convert_json_to_csv_build(dataset, dataset_path)
+        convert_json_to_csv_search(dataset, dataset_path)
+        return
 
-    convert_json_to_csv_build(dataset, dataset_path)
-    convert_json_to_csv_search(dataset, dataset_path)
+    # The CLI historically runs both phases when neither flag is specified.
+    if not build and not search:
+        build = search = True
+
+    backend_type = "cpp_gbench"
+    backend_kwargs = {}
+    if backend_config:
+        with open(backend_config, "r") as f:
+            cfg = yaml.safe_load(f)
+        if not isinstance(cfg, dict):
+            raise ValueError(
+                f"--backend-config must parse to a mapping, "
+                f"got {type(cfg).__name__}"
+            )
+        if "backend" not in cfg:
+            raise ValueError("--backend-config must include a 'backend' field")
+        backend_type = cfg.pop("backend")
+        backend_kwargs = cfg
+
+    orchestrator = BenchmarkOrchestrator(backend_type=backend_type)
+    results = orchestrator.run_benchmark(
+        mode=mode,
+        constraints=json.loads(constraints) if constraints else None,
+        n_trials=n_trials,
+        dataset=dataset,
+        dataset_path=dataset_path,
+        build=build,
+        search=search,
+        force=force,
+        dry_run=dry_run,
+        count=count,
+        batch_size=batch_size,
+        search_mode=search_mode,
+        search_threads=search_threads,
+        dataset_configuration=dataset_configuration,
+        algorithm_configuration=configuration,
+        algorithms=algorithms,
+        groups=groups,
+        algo_groups=algo_groups,
+        subset_size=subset_size,
+        executable_dir=executable_dir,
+        **backend_kwargs,
+    )
+
+    if dry_run:
+        return
+
+    if backend_type == "cpp_gbench":
+        if build:
+            convert_json_to_csv_build(dataset, dataset_path)
+        if search:
+            convert_json_to_csv_search(dataset, dataset_path)
+    else:
+        write_results_to_csv(results, dataset, dataset_path, count, batch_size)
 
 
 if __name__ == "__main__":

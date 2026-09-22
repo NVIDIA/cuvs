@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs.internal;
@@ -7,6 +7,7 @@ package com.nvidia.cuvs.internal;
 import static com.nvidia.cuvs.internal.common.LinkerHelper.C_CHAR;
 import static com.nvidia.cuvs.internal.common.LinkerHelper.C_FLOAT;
 import static com.nvidia.cuvs.internal.common.LinkerHelper.C_INT;
+import static com.nvidia.cuvs.internal.common.LinkerHelper.C_SHORT;
 import static com.nvidia.cuvs.internal.common.Util.checkCuVSError;
 import static com.nvidia.cuvs.internal.panama.headers_h.*;
 
@@ -95,6 +96,7 @@ abstract class CuVSMatrixBaseImpl implements CuVSMatrixInternal {
   protected static ValueLayout valueLayoutFromType(DataType dataType) {
     return switch (dataType) {
       case FLOAT -> C_FLOAT;
+      case HALF -> C_SHORT;
       case INT, UINT -> C_INT;
       case BYTE -> C_CHAR;
     };
@@ -177,6 +179,8 @@ abstract class CuVSMatrixBaseImpl implements CuVSMatrixInternal {
       dataType = DataType.INT;
     } else if (code == kDLFloat() && bits == 32) {
       dataType = DataType.FLOAT;
+    } else if (code == kDLFloat() && bits == 16) {
+      dataType = DataType.HALF;
     } else if ((code == kDLInt() || code == kDLUInt()) && bits == 8) {
       dataType = DataType.BYTE;
     } else {

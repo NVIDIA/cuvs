@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # cython: language_level=3
@@ -124,18 +124,12 @@ cdef class IndexParams:
     Parameters
     ----------
     hierarchy : string, default = "gpu" (optional)
-        The hierarchy of the HNSW index. Valid values are
-        ["none", "cpu", "gpu", "gpu_layered_on_disk"].
+        The hierarchy of the HNSW index. Valid values are ["none", "cpu", "gpu"].
         - "none": No hierarchy is built.
         - "cpu": Hierarchy is built using CPU.
         - "gpu": Hierarchy is built using GPU.
-        - "gpu_layered_on_disk": The index artifact stores graph topology only
-          (built on the GPU and stored as a layered on-disk artifact). When
-          loading such an artifact with `load()`, `dataset_path` must point to
-          the original-ID-ordered vectors used to reconstruct the index.
     ef_construction : int, default = 200 (optional)
-        Maximum number of candidate list size used during construction
-        when hierarchy is `cpu`.
+        Maximum candidate list size used during index construction.
     num_threads : int, default = 0 (optional)
         Number of CPU threads used to increase construction parallelism
         when hierarchy is `cpu` or `gpu`. When the value is 0, the number of
@@ -145,30 +139,22 @@ cdef class IndexParams:
         on the GPU, initialization of the HNSW index itself and some other
         work is parallelized with the help of CPU threads.
     M : int, default = 32 (optional)
-        HNSW M parameter: number of bi-directional links per node
-        (used when building with ACE). graph_degree = m * 2,
-        intermediate_graph_degree = m * 3.
+        HNSW M parameter: number of bi-directional links per node. When the
+        graph is built on the GPU, this parameter is used to derive the
+        internal CAGRA graph build parameters.
     metric : string, default = "sqeuclidean" (optional)
         Distance metric to use. Valid values: ["sqeuclidean", "inner_product"]
     ace_params : AceParams, default = None (optional)
-        ACE parameters for building HNSW index using ACE algorithm. If set,
-        enables the build() function to use ACE for index construction.
-    dataset_path : string, default = None (optional)
-        Local dataset path used by layered HNSW deserialization. Required when
-        `hierarchy == "gpu_layered_on_disk"`: the artifact stores graph
-        topology only, and `load()` reads the original-ID-ordered vectors from
-        this path to reconstruct an in-memory HNSW index. Ignored for all other
-        hierarchies.
+        Explicit ACE parameters for out-of-core graph construction. When not
+        set, the graph build algorithm is selected automatically.
     """
 
     cdef cuvsHnswIndexParams* params
     cdef AceParams _ace_params
-    cdef object _dataset_path_bytes
 
     def __cinit__(self):
         check_cuvs(cuvsHnswIndexParamsCreate(&self.params))
         self._ace_params = None
-        self._dataset_path_bytes = None
 
     def __dealloc__(self):
         check_cuvs(cuvsHnswIndexParamsDestroy(self.params))
@@ -179,20 +165,16 @@ cdef class IndexParams:
                  num_threads=0,
                  M=32,
                  metric="sqeuclidean",
-                 ace_params=None,
-                 dataset_path=None):
+                 ace_params=None):
         if hierarchy == "none":
             self.params.hierarchy = cuvsHnswHierarchy.NONE
         elif hierarchy == "cpu":
             self.params.hierarchy = cuvsHnswHierarchy.CPU
         elif hierarchy == "gpu":
             self.params.hierarchy = cuvsHnswHierarchy.GPU
-        elif hierarchy == "gpu_layered_on_disk":
-            self.params.hierarchy = cuvsHnswHierarchy.GPU_LAYERED_ON_DISK
         else:
             raise ValueError("Invalid hierarchy type."
-                             " Valid values are 'none', 'cpu', 'gpu', and"
-                             " 'gpu_layered_on_disk'.")
+                             " Valid values are 'none', 'cpu', and 'gpu'.")
         self.params.ef_construction = ef_construction
         self.params.num_threads = num_threads
         self.params.M = M
@@ -206,12 +188,6 @@ cdef class IndexParams:
         else:
             self.params.ace_params = NULL
 
-        if dataset_path is not None:
-            self._dataset_path_bytes = dataset_path.encode('utf-8')
-            self.params.dataset_path = self._dataset_path_bytes
-        else:
-            self.params.dataset_path = NULL
-
     @property
     def hierarchy(self):
         if self.params.hierarchy == cuvsHnswHierarchy.NONE:
@@ -220,8 +196,6 @@ cdef class IndexParams:
             return "cpu"
         elif self.params.hierarchy == cuvsHnswHierarchy.GPU:
             return "gpu"
-        elif self.params.hierarchy == cuvsHnswHierarchy.GPU_LAYERED_ON_DISK:
-            return "gpu_layered_on_disk"
 
     @property
     def ef_construction(self):
@@ -238,13 +212,6 @@ cdef class IndexParams:
     @property
     def ace_params(self):
         return self._ace_params
-
-    @property
-    def dataset_path(self):
-        if self.params.dataset_path is not NULL:
-            return self.params.dataset_path.decode('utf-8')
-        return None
-
 
 cdef class Index:
     """
@@ -510,12 +477,13 @@ def materialize_to_hnswlib(MaterializeParams materialize_params,
     Materialize a layered HNSW artifact into a standard hnswlib index file
     on disk.
 
-    Materializes a `gpu_layered_on_disk` artifact (graph topology only, stored
+    Materializes a `GRAPH_ONLY` artifact (graph topology only, stored
     in ACE order) plus a local dataset into a standard hnswlib index file,
     without ever holding the full materialized index in host memory. The
     resulting file is compatible with the original hnswlib library and can be
     read back through `load()` with `hierarchy="cpu"`. The element data type
-    (float32, float16, uint8, int8) is read from the artifact header.
+    (float32, float16, uint8, int8) is inferred from the external dataset.
+    GRAPH_ONLY artifacts are currently produced through the C++ API.
 
     Parameters
     ----------
@@ -642,20 +610,16 @@ def from_cagra(IndexParams index_params, cagra.Index cagra_index,
 @auto_sync_resources
 def build(IndexParams index_params, dataset, resources=None):
     """
-    Build an HNSW index using the ACE (Augmented Core Extraction) algorithm.
+    Build an HNSW index from HNSW parameters.
 
-    ACE enables building HNSW indices for datasets too large to fit in GPU
-    memory by partitioning the dataset and building sub-indices for each
-    partition independently.
-
-    NOTE: This function requires `index_params.ace_params` to be set with
-    an instance of AceParams.
+    The graph is built on the GPU and converted to an HNSW index that can be
+    searched on the CPU. The graph build algorithm is selected automatically
+    unless explicit ACE parameters are provided.
 
     Parameters
     ----------
     index_params : IndexParams
-        Parameters for the HNSW index with ACE configuration.
-        Must have `ace_params` set.
+        Parameters for the HNSW index.
     dataset : Host array interface compliant matrix shape (n_samples, dim)
         Supported dtype [float32, float16, int8, uint8]
     {resources_docstring}
@@ -675,17 +639,9 @@ def build(IndexParams index_params, dataset, resources=None):
     >>> dataset = np.random.random_sample((n_samples, n_features),
     ...                                   dtype=np.float32)
     >>>
-    >>> # Create ACE parameters
-    >>> ace_params = hnsw.AceParams(
-    ...     npartitions=4,
-    ...     use_disk=True,
-    ...     build_dir="/tmp/hnsw_ace_build"
-    ... )
-    >>>
-    >>> # Create index parameters with ACE
+    >>> # Create HNSW index parameters
     >>> index_params = hnsw.IndexParams(
     ...     hierarchy="gpu",
-    ...     ace_params=ace_params,
     ...     ef_construction=120,
     ...     M=32,
     ...     metric="sqeuclidean"
@@ -703,10 +659,6 @@ def build(IndexParams index_params, dataset, resources=None):
     ...     k=10
     ... )
     """
-    if index_params.ace_params is None:
-        raise ValueError("index_params.ace_params must be set for hnsw.build(). "
-                         "Use AceParams to configure ACE algorithm parameters.")
-
     dataset_ai = wrap_array(dataset)
     _check_input_array(dataset_ai, [np.dtype('float32'),
                                     np.dtype('float16'),

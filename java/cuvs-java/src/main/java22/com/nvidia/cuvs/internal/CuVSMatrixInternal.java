@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs.internal;
@@ -38,7 +38,7 @@ public interface CuVSMatrixInternal extends CuVSMatrix {
 
   static int code(DataType dataType) {
     return switch (dataType) {
-      case FLOAT -> kDLFloat();
+      case FLOAT, HALF -> kDLFloat();
       case INT -> kDLInt();
       case UINT, BYTE -> kDLUInt();
     };

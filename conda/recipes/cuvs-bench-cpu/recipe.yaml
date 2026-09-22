@@ -1,14 +1,14 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 schema_version: 1
 
 context:
   version: ${{ env.get("RAPIDS_PACKAGE_VERSION") }}
-  date_string: '${{ env.get("RAPIDS_DATE_STRING") }}'
+  datetime_string: '${{ env.get("RAPIDS_DATETIME_STRING") }}'
   head_rev: '${{ git.head_rev(".")[:8] }}'
   linux64: ${{ linux and x86_64 }}
   py_abi_min: ${{ env.get("RAPIDS_PY_VERSION") }}
-  py_buildstring : ${{ py_abi_min | version_to_buildstring }}
+  py_buildstring: ${{ py_abi_min | version_to_buildstring }}
   py_runtime_latest: "3.14"
 
 package:
@@ -21,7 +21,7 @@ source:
 build:
   python:
     version_independent: true
-  string: cp${{ py_buildstring }}_abi3_${{ date_string }}_${{ head_rev }}
+  string: cp${{ py_buildstring }}_abi3_${{ datetime_string }}_${{ head_rev }}
   script:
     content: |
 
@@ -93,7 +93,7 @@ requirements:
     - glog ${{ glog_version }}
     - h5py ${{ h5py_version }}
     - matplotlib-base>=3.9
-    - numpy >=1.23,<3.0
+    - numpy >=2.0,<3.0
     - opensearch-py>=2.4.0
     - pandas
     - pyyaml

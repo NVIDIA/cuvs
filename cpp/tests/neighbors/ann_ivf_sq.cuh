@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -8,6 +8,7 @@
 #include "ann_utils.cuh"
 #include "naive_knn.cuh"
 
+#include <cuda/stream>
 #include <cuvs/neighbors/ivf_sq.hpp>
 #include <raft/core/bitset.cuh>
 #include <raft/linalg/add.cuh>
@@ -42,7 +43,7 @@ template <typename IdxT>
   os << "{ " << p.num_queries << ", " << p.num_db_vecs << ", " << p.dim << ", " << p.k << ", "
      << p.nprobe << ", " << p.nlist << ", "
      << cuvs::neighbors::print_metric{static_cast<cuvs::distance::DistanceType>((int)p.metric)}
-     << ", " << (p.host_dataset ? "host" : "device") << '}' << std::endl;
+     << ", " << (p.host_dataset ? "host" : "device") << '}';
   return os;
 }
 
@@ -174,7 +175,7 @@ class AnnIVFSQTest : public ::testing::TestWithParam<AnnIvfSqInputs<IdxT>> {
                               indices_naive_dev.data(),
                               IdxT(test_ivf_sample_filter::offset),
                               queries_size,
-                              stream_);
+                              stream_.get());
       raft::update_host(distances_naive.data(), distances_naive_dev.data(), queries_size, stream_);
       raft::update_host(indices_naive.data(), indices_naive_dev.data(), queries_size, stream_);
       raft::resource::sync_stream(handle_);
@@ -373,7 +374,7 @@ class AnnIVFSQTest : public ::testing::TestWithParam<AnnIvfSqInputs<IdxT>> {
   }
 
   raft::resources handle_;
-  rmm::cuda_stream_view stream_;
+  cuda::stream_ref stream_;
   AnnIvfSqInputs<IdxT> ps;
   rmm::device_uvector<DataT> database;
   rmm::device_uvector<DataT> search_queries;

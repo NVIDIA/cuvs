@@ -142,14 +142,15 @@ and robustPrune is applied to improve graph quality. The index_params
 struct controls the degree of the final graph.
 
 The following distance metrics are supported:
-- L2Expanded
+- L2Expanded (sqeuclidean)
+- L2SqrtExpanded (l2 / euclidean distance)
 
 **Parameters**
 
 | Name | Type | Description |
 | --- | --- | --- |
 | `index_params` | `IndexParams object` |  |
-| `dataset` | `CUDA array interface compliant matrix shape (n_samples, dim)` | Supported dtype [float, int8, uint8] |
+| `dataset` | `CUDA array interface compliant matrix shape (n_samples, dim)` | Supported dtype [float, float16, int8, uint8] |
 | `resources` | `cuvs.common.Resources, optional` |  |
 
 **Returns**

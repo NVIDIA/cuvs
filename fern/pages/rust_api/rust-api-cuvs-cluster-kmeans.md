@@ -8,37 +8,13 @@ _Rust module: `cuvs::cluster::kmeans`_
 
 _Source: `rust/cuvs/src/cluster/kmeans/mod.rs`_
 
-Kmeans clustering API's
+K-means clustering.
 
-Example:
-```
-
-use cuvs::cluster::kmeans;
-use cuvs::{ManagedTensor, Resources, Result};
-
-use ndarray_rand::rand_distr::Uniform;
-use ndarray_rand::RandomExt;
-
-fn kmeans_example() -> Result<()> {
-let res = Resources::new()?;
-
-// Create a new random dataset to index
-let n_datapoints = 65536;
-let n_features = 512;
-let n_clusters = 8;
-let dataset =
-ndarray::Array::<f32, _>::random((n_datapoints, n_features), Uniform::new(0., 1.0));
-let dataset = ManagedTensor::from(&dataset).to_device(&res)?;
-
-let centroids_host = ndarray::Array::<f32, _>::zeros((n_clusters, n_features));
-let mut centroids = ManagedTensor::from(&centroids_host).to_device(&res)?;
-
-// find the centroids with the kmeans index
-let kmeans_params = kmeans::Params::new()?.set_n_clusters(n_clusters as i32);
-let (inertia, n_iter) = kmeans::fit(&res, &kmeans_params, &dataset, &None, &mut centroids)?;
-Ok(())
-}
-```
+[`fit`] computes cluster centroids for a dataset, [`predict`] assigns points
+to clusters, and [`cluster_cost`] reports the inertia. All inputs and outputs
+reside in device memory and are borrowed through the `AsDlTensor` /
+`AsDlTensorMut` traits; see the [`dlpack`](crate::dlpack) module for the
+tensor model.
 
 ## params::Params
 
@@ -46,72 +22,88 @@ Ok(())
 pub use params::Params;
 ```
 
-_Source: `rust/cuvs/src/cluster/kmeans/mod.rs:40`_
+_Source: `rust/cuvs/src/cluster/kmeans/mod.rs:16`_
+
+## KMeansError
+
+```rust
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum KMeansError {
+    /* variants omitted */
+}
+```
+
+Error type for k-means operations.
+
+_Source: `rust/cuvs/src/cluster/kmeans/mod.rs:27`_
 
 ## fit
 
 ```rust
-pub fn fit(
+pub fn fit<X, W, C>(
 res: &Resources,
 params: &Params,
-x: &ManagedTensor,
-sample_weight: &Option<ManagedTensor>,
-centroids: &mut ManagedTensor,
+x: &X,
+sample_weight: Option<&W>,
+centroids: &mut C,
 ) -> Result<(f64, i32)>
+where
+X: AsDlTensor + ?Sized,
+W: AsDlTensor + ?Sized,
+C: AsDlTensorMut + ?Sized,
 ```
 
-Find clusters with the k-means algorithm
+Fits k-means centroids to `x`, returning `(inertia, n_iterations)`.
 
-#### Arguments
+`x` (shape `m × k`) is the input matrix and `centroids` (shape
+`n_clusters × k`) receives the fitted centroids; `sample_weight` is an
+optional per-sample weight. All reside in device memory and implement
+[`AsDlTensor`] / [`AsDlTensorMut`].
 
-* `res` - Resources to use
-* `params` - Parameters to use to fit KMeans model
-* `x` - A matrix in device memory - shape (m, k)
-* `sample_weight` - Optional device matrix shape (n_clusters, 1)
-* `centroids` - Output device matrix, that has the centroids for each cluster
-shape (n_clusters, k)
-
-_Source: `rust/cuvs/src/cluster/kmeans/mod.rs:56`_
+_Source: `rust/cuvs/src/cluster/kmeans/mod.rs:45`_
 
 ## predict
 
 ```rust
-pub fn predict(
+pub fn predict<X, W, C, L>(
 res: &Resources,
 params: &Params,
-x: &ManagedTensor,
-sample_weight: &Option<ManagedTensor>,
-centroids: &ManagedTensor,
-labels: &mut ManagedTensor,
+x: &X,
+sample_weight: Option<&W>,
+centroids: &C,
+labels: &mut L,
 normalize_weight: bool,
 ) -> Result<f64>
+where
+X: AsDlTensor + ?Sized,
+W: AsDlTensor + ?Sized,
+C: AsDlTensor + ?Sized,
+L: AsDlTensorMut + ?Sized,
 ```
 
-Predict clusters with the k-means algorithm
+Assigns each row of `x` to its nearest centroid, writing cluster labels into
+`labels` and returning the inertia.
 
-#### Arguments
+`x` (shape `m × k`), `centroids` (shape `n_clusters × k`), the optional
+`sample_weight`, and `labels` (shape `m × 1`) reside in device memory and
+implement [`AsDlTensor`] / [`AsDlTensorMut`]. `normalize_weight` selects
+whether the sample weights are normalized.
 
-* `res` - Resources to use
-* `params` - Parameters to use to fit KMeans model
-* `x` - Input matrix in device memory - shape (m, k)
-* `sample_weight` - Optional device matrix shape (n_clusters, 1)
-* `centroids` - Centroids calculated by fit in device memory, shape (n_clusters, k)
-* `labels` - preallocated CUDA array interface matrix shape (m, 1) to hold the output labels
-* `normalize_weight` - whether or not to normalize the weights
-
-_Source: `rust/cuvs/src/cluster/kmeans/mod.rs:95`_
+_Source: `rust/cuvs/src/cluster/kmeans/mod.rs:87`_
 
 ## cluster_cost
 
 ```rust
-pub fn cluster_cost(res: &Resources, x: &ManagedTensor, centroids: &ManagedTensor) -> Result<f64>
+pub fn cluster_cost<X, C>(res: &Resources, x: &X, centroids: &C) -> Result<f64>
+where
+X: AsDlTensor + ?Sized,
+C: AsDlTensor + ?Sized,
 ```
 
-Compute cluster cost given an input matrix and existing centroids
-#### Arguments
+Computes the k-means cost (inertia) of `x` against existing `centroids`.
 
-* `res` - Resources to use
-* `x` - Input matrix in device memory - shape (m, k)
-* `centroids` - Centroids calculated by fit in device memory, shape (n_clusters, k)
+`x` (shape `m × k`) and `centroids` (shape `n_clusters × k`) reside in device
+memory and implement [`AsDlTensor`].
 
-_Source: `rust/cuvs/src/cluster/kmeans/mod.rs:131`_
+_Source: `rust/cuvs/src/cluster/kmeans/mod.rs:130`_

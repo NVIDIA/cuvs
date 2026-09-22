@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -7,14 +7,14 @@
 // algorithm, which partitions the dataset. The resulting HNSW index is too large to fit in memory
 // as well. Thus, the index needs to be transferred to a search server with enough memory.
 //
-// HNSWHierarchy::GPU_LAYERED_ON_DISK is a special hierarchy that builds a layered HNSW index on
-// disk. It emits one topology-only artifact, hnsw_index.cuvs. The dataset remains separate and does
-// not need to be transferred to the search server, which typically has the dataset locally.
+// HnswOutputFormat::GRAPH_ONLY builds a GPU hierarchy as a topology-only artifact on disk. It emits
+// one artifact, hnsw_index.cuvs. The dataset remains separate and does not need to be transferred
+// to the search server, which typically has the dataset locally.
 //
 // This example demonstrates how to build a layered HNSW index with ACE and turn it into a standard
 // hnswlib index for in-memory search:
 //
-// 1. Optionally quantize the dataset and queries to int8.
+// 1. Optionally quantize the dataset to int8 for graph construction.
 // 2. Build a single-file layered HNSW artifact with ACE using hnsw::build.
 // 3. Materialize the layered artifact into a standard hnswlib index file on disk using
 //    hnsw::materialize_to_hnswlib (disk-to-disk, never holding the full index in host memory).
@@ -24,7 +24,7 @@
 // Layered-on-disk layout:
 //
 //   index_dir/hnsw_index.cuvs
-//     fixed header + metadata JSON
+//     fixed header + layer descriptors
 //     levels: uint8 [N], max HNSW level for each original row id
 //     base nodes + base links: uint32 node ids with hnswlib-ready link rows
 //     upper nodes + upper links: hnswlib-ready upper-layer topology
@@ -118,16 +118,15 @@ quantized_pair<int8_t> quantize_dataset(raft::device_resources const& dev_resour
   return {std::move(dataset_i8), std::move(queries_i8)};
 }
 
-auto make_hnsw_ace_params(const std::string& build_dir, const std::string& dataset_path)
-  -> cuvs::neighbors::hnsw::index_params
+auto make_hnsw_ace_params(const std::string& build_dir) -> cuvs::neighbors::hnsw::index_params
 {
   using namespace cuvs::neighbors;
 
   hnsw::index_params hnsw_params;
   hnsw_params.metric          = cuvs::distance::DistanceType::L2Expanded;
-  hnsw_params.hierarchy       = hnsw::HnswHierarchy::GPU_LAYERED_ON_DISK;
+  hnsw_params.hierarchy       = hnsw::HnswHierarchy::GPU;
+  hnsw_params.output_format   = hnsw::HnswOutputFormat::GRAPH_ONLY;
   hnsw_params.M               = 32;
-  hnsw_params.dataset_path    = dataset_path;  // Override this path on the search server.
   hnsw_params.ef_construction = 120;
 
   auto ace_params                = hnsw::graph_build_params::ace_params();
@@ -308,10 +307,9 @@ int main()
   auto q               = quantize_dataset(dev_resources, dataset_host_view, queries_host_view);
   auto dataset_i8_view = raft::make_host_matrix_view<const int8_t, int64_t, raft::row_major>(
     q.dataset.data_handle(), n_samples, n_dim);
-  auto queries_i8_view = raft::make_host_matrix_view<const int8_t, int64_t, raft::row_major>(
-    q.queries.data_handle(), n_queries, n_dim);
-  auto dataset_path = write_local_dataset(dataset_i8_view, std::string{kBuildDir} + "/dataset.npy");
-  auto hnsw_params  = make_hnsw_ace_params(kBuildDir, dataset_path);
+  auto dataset_path =
+    write_local_dataset(dataset_host_view, std::string{kBuildDir} + "/dataset.npy");
+  auto hnsw_params = make_hnsw_ace_params(kBuildDir);
 
   const std::string native_index_path = std::string{kBuildDir} + "/hnsw_native.bin";
 
@@ -319,19 +317,19 @@ int main()
   auto artifact_path = hnsw_build<int8_t>(dev_resources, hnsw_params, dataset_i8_view);
 
   std::cout << "[stage 3] Materialize layered HNSW -> native hnswlib index" << std::endl;
-  hnsw_materialize<int8_t>(
+  hnsw_materialize<float>(
     dev_resources, hnsw_params, artifact_path, dataset_path, n_dim, native_index_path);
 
   std::cout << "[stage 4] Read materialized hnswlib index into memory" << std::endl;
   auto hnsw_index =
-    hnsw_load_native<int8_t>(dev_resources, native_index_path, hnsw_params.metric, n_dim);
+    hnsw_load_native<float>(dev_resources, native_index_path, hnsw_params.metric, n_dim);
 
   std::cout << "[stage 5] Search HNSW index" << std::endl;
-  hnsw_search<int8_t>(dev_resources, *hnsw_index, queries_i8_view);
+  hnsw_search<float>(dev_resources, *hnsw_index, queries_host_view);
 #else
   auto dataset_path =
     write_local_dataset(dataset_host_view, std::string{kBuildDir} + "/dataset.npy");
-  auto hnsw_params = make_hnsw_ace_params(kBuildDir, dataset_path);
+  auto hnsw_params = make_hnsw_ace_params(kBuildDir);
 
   const std::string native_index_path = std::string{kBuildDir} + "/hnsw_native.bin";
 

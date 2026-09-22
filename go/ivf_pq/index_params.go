@@ -6,7 +6,7 @@ import "C"
 import (
 	"errors"
 
-	cuvs "github.com/rapidsai/cuvs/go"
+	cuvs "github.com/nvidia/cuvs/go"
 )
 
 type IndexParams struct {

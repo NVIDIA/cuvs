@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -14,7 +14,6 @@
 #include <raft/util/cuda_utils.cuh>
 #include <raft/util/cudart_utils.hpp>
 
-#include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_uvector.hpp>
 
 #include "naive_knn.cuh"
@@ -227,8 +226,9 @@ auto calc_recall(const std::vector<T>& expected_idx,
                  size_t cols,
                  double eps)
 {
-  size_t match_count = 0;
-  size_t total_count = static_cast<size_t>(rows) * static_cast<size_t>(cols);
+  size_t match_count       = 0;
+  size_t index_match_count = 0;
+  size_t total_count       = static_cast<size_t>(rows) * static_cast<size_t>(cols);
   for (size_t i = 0; i < rows; ++i) {
     for (size_t k = 0; k < cols; ++k) {
       size_t idx_k  = i * cols + k;  // row major assumption!
@@ -247,8 +247,28 @@ auto calc_recall(const std::vector<T>& expected_idx,
       }
     }
   }
-  return std::make_tuple(
-    static_cast<double>(match_count) / static_cast<double>(total_count), match_count, total_count);
+
+  // Index based recall
+  for (size_t i = 0; i < rows; ++i) {
+    for (size_t k = 0; k < cols; ++k) {
+      size_t idx_k = i * cols + k;  // row major assumption!
+      auto act_idx = actual_idx[idx_k];
+      for (size_t j = 0; j < cols; ++j) {
+        size_t idx   = i * cols + j;  // row major assumption!
+        auto exp_idx = expected_idx[idx];
+
+        if (act_idx == exp_idx) {
+          index_match_count++;
+          break;
+        }
+      }
+    }
+  }
+
+  return std::make_tuple(static_cast<double>(match_count) / static_cast<double>(total_count),
+                         static_cast<double>(index_match_count) / static_cast<double>(total_count),
+                         match_count,
+                         total_count);
 }
 
 /** same as eval_recall, but in case indices do not match,
@@ -265,7 +285,7 @@ auto eval_neighbours(const std::vector<T>& expected_idx,
                      bool test_unique      = true,
                      size_t max_duplicates = 0) -> testing::AssertionResult
 {
-  auto [actual_recall, match_count, total_count] =
+  auto [actual_recall, index_based_actual_recall, match_count, total_count] =
     calc_recall(expected_idx, actual_idx, expected_dist, actual_dist, rows, cols, eps);
   double error_margin = (actual_recall - min_recall) / std::max(1.0 - min_recall, eps);
 
@@ -319,7 +339,7 @@ auto eval_distances(raft::resources const& handle,
     dim3 grid_dim(raft::ceildiv<size_t>(n_rows, block_dim.x), grid_y, 1);
 
     naive_distance_kernel<DistT, T, IdxT>
-      <<<grid_dim, block_dim, 0, raft::resource::get_cuda_stream(handle)>>>(
+      <<<grid_dim, block_dim, 0, raft::resource::get_cuda_stream(handle).get()>>>(
         naive_dist.data_handle(), queries + i * n_cols, y.data_handle(), 1, k, n_cols, metric);
 
     if (!devArrMatch(distances + i * k,

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs;
@@ -58,17 +58,12 @@ public interface HnswIndex extends AutoCloseable {
   }
 
   /**
-   * Builds an HNSW index using the ACE (Augmented Core Extraction) algorithm.
-   *
-   * ACE enables building HNSW indexes for datasets too large to fit in GPU
-   * memory by partitioning the dataset and building sub-indexes for each
-   * partition independently.
-   *
-   * NOTE: This method requires `hnswParams.getAceParams()` to be set with
-   * an instance of HnswAceParams.
+   * Builds an HNSW index from HNSW parameters. The graph is built on the GPU and converted to an
+   * HNSW index that can be searched on the CPU. The graph build algorithm is selected automatically
+   * unless explicit ACE parameters are provided.
    *
    * @param resources The CuVS resources
-   * @param hnswParams Parameters for the HNSW index with ACE configuration
+   * @param hnswParams Parameters for the HNSW index
    * @param dataset The dataset to build the index from
    * @return A new HNSW index ready for search
    * @throws Throwable if an error occurs during building
@@ -78,7 +73,6 @@ public interface HnswIndex extends AutoCloseable {
     Objects.requireNonNull(resources);
     Objects.requireNonNull(hnswParams);
     Objects.requireNonNull(dataset);
-    Objects.requireNonNull(hnswParams.getAceParams(), "ACE parameters must be set for build()");
     return CuVSProvider.provider().hnswIndexBuild(resources, hnswParams, dataset);
   }
 
@@ -86,12 +80,13 @@ public interface HnswIndex extends AutoCloseable {
    * Materializes a layered HNSW artifact into a standard hnswlib index file on
    * disk.
    *
-   * Materializes a {@code GPU_LAYERED_ON_DISK} artifact (graph topology only,
+   * Materializes a {@code GRAPH_ONLY} artifact (graph topology only,
    * stored in ACE order) plus a local dataset into a standard hnswlib index file,
    * without ever holding the full materialized index in host memory. The
    * resulting file is compatible with the original hnswlib library and can be read
-   * back with {@code hierarchy == CPU}. The element data type is read from the
-   * artifact header.
+   * back with {@code hierarchy == CPU}. The element data type is inferred from the
+   * external dataset. GRAPH_ONLY artifacts are currently produced through the C++
+   * API.
    *
    * @param resources The CuVS resources
    * @param materializeParams Materialization parameters (dataset path, host-memory

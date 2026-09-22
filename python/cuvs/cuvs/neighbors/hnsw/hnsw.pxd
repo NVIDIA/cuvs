@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # cython: language_level=3
@@ -20,7 +20,6 @@ cdef extern from "cuvs/neighbors/hnsw.h" nogil:
         NONE
         CPU
         GPU
-        GPU_LAYERED_ON_DISK
 
     ctypedef struct cuvsHnswAceParams:
         size_t npartitions
@@ -42,7 +41,6 @@ cdef extern from "cuvs/neighbors/hnsw.h" nogil:
         size_t M
         cuvsDistanceType metric
         cuvsHnswAceParams_t ace_params
-        const char* dataset_path
 
     ctypedef cuvsHnswIndexParams* cuvsHnswIndexParams_t
 
