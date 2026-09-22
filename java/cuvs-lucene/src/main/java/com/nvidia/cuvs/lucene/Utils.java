@@ -95,7 +95,10 @@ public class Utils {
     }
   }
 
-  /** Builds a host-memory CuVSMatrix from a list of byte vectors. */
+  /**
+   * Builds a host-memory CuVSMatrix from byte vectors without first materializing the list as an
+   * intermediate {@code byte[][]}.
+   */
   static CuVSHostMatrix createHostByteMatrix(List<byte[]> data, int bytesPerVector) {
     try (CuVSMatrix.Builder<CuVSHostMatrix> builder =
         CuVSMatrix.hostBuilder(data.size(), bytesPerVector, CuVSMatrix.DataType.BYTE)) {

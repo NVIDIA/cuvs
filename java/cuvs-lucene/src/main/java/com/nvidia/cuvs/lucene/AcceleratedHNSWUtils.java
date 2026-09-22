@@ -80,11 +80,9 @@ public class AcceleratedHNSWUtils {
   }
 
   /**
-   * Creates a multi-layer HNSW graph with dynamic number of layers.
-   * M = ceil(cagraGraphDegree / 2), where cagraGraphDegree is the CAGRA adjacency list's degree
-   * (its column count). Ceil is used to accommodate odd graph degrees.
-   * Each layer contains 1/M nodes from the previous layer
-   * Creates layers until the highest layer has ≤ M nodes
+   * Creates up to {@code hnswLayers} total layers. Layer 0 uses the full CAGRA graph. Each upper
+   * layer samples {@code max(2, floor(previousLayerSize / M))} nodes, where {@code M} is {@code
+   * ceil(layer-0 graph degree / 2)}.
    */
   public static GPUBuiltHnswGraph createMultiLayerHnswGraph(
       FieldInfo fieldInfo,
@@ -234,6 +232,8 @@ public class AcceleratedHNSWUtils {
       int numThreads)
       throws Throwable {
     int size = Math.toIntExact(vectorDataset.size());
+    // Matrix columns are the stored width: binary vectors are bit-packed, while scalar and float
+    // vectors store one value per dimension.
     int columns = Math.toIntExact(vectorDataset.columns());
     List<?> vectors =
         new AbstractList<>() {
@@ -267,9 +267,7 @@ public class AcceleratedHNSWUtils {
         numThreads);
   }
 
-  /**
-   * Builds a CAGRA graph for a subset of binary quantized vectors
-   */
+  /** Builds a CAGRA graph for a selected vector subset. */
   private static CuVSMatrix buildCagraGraphForSubset(
       Object vectors,
       int[] selectedNodes,
