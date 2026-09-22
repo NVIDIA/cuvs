@@ -654,7 +654,8 @@ CUVS_EXPORT cuvsError_t cuvsCagraUpdateDataset(cuvsResources_t res,
  *
  * The memory space and layout \p dataset was constructed with select the C++ build overload.
  * Build the handle with an owning factory or the matching dataset view factory
- * (`cuvsDatasetMakePaddedView` / `cuvsDatasetMakeStandardView`).
+ * (`cuvsDatasetMakePaddedView`, `cuvsDatasetMakeStandardView`, or
+ * `cuvsDatasetMakeBbqView`).
  *
  * Note that a dataset residing in host memory produces a host-backed index, which
  * must be made search-ready with `cuvsCagraUpdateDataset` (using a device-padded
@@ -696,6 +697,8 @@ CUVS_EXPORT cuvsError_t cuvsCagraUpdateDataset(cuvsResources_t res,
  * A `CUVS_DATASET_LAYOUT_PQ` dataset created by `cuvsDatasetMakePQ` builds an iterative CAGRA-Q
  * index. VPQ input requires `L2Expanded` and `ITERATIVE_CAGRA_SEARCH` (or `AUTO_SELECT`), and the
  * VPQ dataset must outlive the index because the index stores a non-owning view.
+ * A `CUVS_DATASET_LAYOUT_BBQ` dataset builds a graph-only index; attach a searchable dataset with
+ * `cuvsCagraUpdateDataset` before search.
  *
  * @param[in] res cuvsResources_t opaque C handle
  * @param[in] params cuvsCagraIndexParams_t used to build CAGRA index
@@ -860,8 +863,9 @@ CUVS_EXPORT cuvsError_t cuvsCagraSearchMultiPartition(cuvsResources_t res,
 /**
  * Save the CAGRA graph to file without its dataset.
  *
- * This supports dense and PQ-backed indexes. The dataset must be attached separately after loading
- * the graph.
+ * This supports dense, PQ-backed, and BBQ-built indexes. The serialized file does not contain
+ * vector data. After deserialization the index cannot be searched until a compatible dataset is
+ * attached with `cuvsCagraUpdateDataset`.
  *
  * Experimental, both the API and the serialization format are subject to change.
  *
@@ -876,9 +880,10 @@ CUVS_EXPORT cuvsError_t cuvsCagraSerializeGraph(cuvsResources_t res,
 /**
  * Save the CAGRA graph and its attached dataset to file.
  *
- * The index stores a non-owning dataset view. The caller must keep the dataset backing that view
- * alive while this function runs. Returns CUVS_ERROR without modifying the destination file if
- * the index has no attached dataset. PQ datasets are not serialized by this function.
+ * The index stores a non-owning dataset view. The caller must keep the memory of the dataset
+ * backing that view alive while this function runs. Returns CUVS_ERROR without modifying the
+ * destination file if the index has no attached dataset. PQ and BBQ datasets are not serialized
+ * by this function.
  *
  * Experimental, both the API and the serialization format are subject to change.
  *
