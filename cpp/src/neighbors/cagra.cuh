@@ -21,6 +21,7 @@
 #include <raft/linalg/reduce.cuh>
 
 #include <cuvs/core/bitset.hpp>
+#include <cuvs/core/roaring_allowlist.hpp>
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/cagra.hpp>
 #include <cuvs/neighbors/common.hpp>
@@ -44,7 +45,8 @@ CUVS_EXPORT void index<T, IdxT, DatasetViewT>::compute_dataset_norms_(raft::reso
   if constexpr (nb::is_padded_dataset_view_v<DatasetViewT> ||
                 nb::is_standard_dataset_view_v<DatasetViewT>) {
     rm_dataset = dataset_.view();
-  } else if constexpr (nb::is_vpq_dataset_view_v<DatasetViewT>) {
+  } else if constexpr (nb::is_vpq_dataset_view_v<DatasetViewT> ||
+                       nb::is_bbq_dataset_view_v<DatasetViewT>) {
     skip_norms = true;
   }
 
@@ -303,7 +305,10 @@ auto build(raft::resources const& res, const index_params& params, DatasetViewT 
 
   // Dense paths build the graph and optionally attach the input dataset view. Host indexes remain
   // non-searchable until the type-changing update_dataset(...) supplies a device-padded dataset.
-  if constexpr (cuvs::neighbors::is_device_vpq_dataset_view_v<DatasetViewT>) {
+  if constexpr (cuvs::neighbors::is_device_bbq_dataset_view_v<DatasetViewT>) {
+    return cuvs::neighbors::cagra::detail::build_from_bbq_dataset<T, IdxT, DatasetViewT>(
+      res, params, dataset);
+  } else if constexpr (cuvs::neighbors::is_device_vpq_dataset_view_v<DatasetViewT>) {
     auto effective_params = params;
     if (std::holds_alternative<std::monostate>(effective_params.graph_build_params)) {
       effective_params.graph_build_params = graph_build_params::iterative_search_params{};
@@ -470,6 +475,25 @@ void search(raft::resources const& res,
     }
     auto sample_filter_copy = sample_filter;
     return search_with_filtering<T, IdxT, decltype(sample_filter_copy), OutputIdxT>(
+      res, params_copy, idx, queries, neighbors, distances, sample_filter_copy);
+  } catch (const std::bad_cast&) {
+  }
+
+  try {
+    auto& sample_filter =
+      dynamic_cast<const cuvs::neighbors::filtering::roaring_bitmap_filter&>(sample_filter_ref);
+    RAFT_EXPECTS(sample_filter.valid(), "roaring_bitmap_filter must be initialized before search.");
+    RAFT_EXPECTS(sample_filter.num_queries() == static_cast<std::size_t>(queries.extent(0)),
+                 "Roaring filter query rows must equal the number of search queries.");
+    RAFT_EXPECTS(sample_filter.dataset_rows() == static_cast<std::size_t>(idx.dataset().n_rows()),
+                 "Roaring filter dataset_rows must equal the number of rows in the index.");
+
+    search_params params_copy = params;
+    if (params.filtering_rate < 0.0f) {
+      params_copy.filtering_rate = sample_filter.filtering_rate();
+    }
+    auto sample_filter_copy = sample_filter;
+    return search_with_filtering<T, IdxT, decltype(sample_filter_copy), OutputIdxT, DatasetViewT>(
       res, params_copy, idx, queries, neighbors, distances, sample_filter_copy);
   } catch (const std::bad_cast&) {
   }

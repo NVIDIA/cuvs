@@ -6,6 +6,7 @@ For the Apache Lucene codecs built on this API, see the [Lucene API Documentatio
 
 ## Common
 
+- [BbqQuantizer](/api-reference/java-api-com-nvidia-cuvs-bbqquantizer)
 - [CuVSDeviceMatrix](/api-reference/java-api-com-nvidia-cuvs-cuvsdevicematrix)
 - [CuVSHostMatrix](/api-reference/java-api-com-nvidia-cuvs-cuvshostmatrix)
 - [CuVSMatrix](/api-reference/java-api-com-nvidia-cuvs-cuvsmatrix)
@@ -47,3 +48,5 @@ For the Apache Lucene codecs built on this API, see the [Lucene API Documentatio
 - [TieredIndex](/api-reference/java-api-com-nvidia-cuvs-tieredindex)
 - [TieredIndexParams](/api-reference/java-api-com-nvidia-cuvs-tieredindexparams)
 - [TieredIndexQuery](/api-reference/java-api-com-nvidia-cuvs-tieredindexquery)
+- [VamanaIndex](/api-reference/java-api-com-nvidia-cuvs-vamanaindex)
+- [VamanaIndexParams](/api-reference/java-api-com-nvidia-cuvs-vamanaindexparams)

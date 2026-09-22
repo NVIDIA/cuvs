@@ -62,9 +62,13 @@ struct index_impl : index<T> {
    * @param[in] dim dimensions of the training dataset
    * @param[in] metric distance metric to search. Supported metrics ("L2Expanded", "InnerProduct")
    * @param[in] hierarchy hierarchy used for upper HNSW layers
+   * @param[in] output_format output artifact format
    */
-  index_impl(int dim, cuvs::distance::DistanceType metric, HnswHierarchy hierarchy)
-    : index<T>{dim, metric, hierarchy}
+  index_impl(int dim,
+             cuvs::distance::DistanceType metric,
+             HnswHierarchy hierarchy,
+             HnswOutputFormat output_format = HnswOutputFormat::HNSWLIB)
+    : index<T>{dim, metric, hierarchy, output_format}
   {
     if (metric == cuvs::distance::DistanceType::InnerProduct) {
       space_ = std::make_unique<hnswlib::InnerProductSpace<T, typename hnsw_dist_t<T>::type>>(dim);
@@ -153,6 +157,9 @@ struct index_impl : index<T> {
     RAFT_LOG_INFO("Loading HNSW index from disk: %s", filepath.c_str());
 
     try {
+      RAFT_EXPECTS(this->output_format() != HnswOutputFormat::GRAPH_ONLY,
+                   "Layered HNSW indexes must be loaded with the two-filename hnsw::deserialize "
+                   "overload so a local dataset can be provided.");
       appr_alg_ = std::make_unique<hnswlib::HierarchicalNSW<typename hnsw_dist_t<T>::type>>(
         space_.get(), filepath);
       if (this->hierarchy() == HnswHierarchy::NONE) { appr_alg_->base_layer_only = true; }
