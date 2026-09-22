@@ -208,6 +208,7 @@ struct ace_params {
   bool use_disk;
   double max_host_memory_gb;
   double max_gpu_memory_gb;
+  double target_alpha;
 };
 ```
 
@@ -221,6 +222,7 @@ struct ace_params {
 | `use_disk` | `bool` | Whether to use disk-based storage for ACE build.<br /><br />When true, enables disk-based operations for memory-efficient graph construction. |
 | `max_host_memory_gb` | `double` | Maximum host memory to use for ACE build in GiB.<br /><br />When set to 0 (default), uses available host memory. When set to a positive value, limits host memory usage to the specified amount. Useful for testing or when running alongside other memory-intensive processes. |
 | `max_gpu_memory_gb` | `double` | Maximum GPU memory to use for ACE build in GiB.<br /><br />When set to 0 (default), uses available GPU memory. When set to a positive value, limits GPU memory usage to the specified amount. Useful for testing or when running alongside other memory-intensive processes. |
+| `target_alpha` | `double` | Target number of augmented (spill) copies per input vector.<br /><br />ACE samples boundary-margin scores and chooses a global threshold whose expected augmentation ratio matches this value. A value of 0 disables augmentation. Values above 1 allow a vector to spill into multiple nearby partitions. The implementation bounds each vector to three spill partitions to keep memory and build work predictable. |
 
 ## CAGRA index extend parameters
 

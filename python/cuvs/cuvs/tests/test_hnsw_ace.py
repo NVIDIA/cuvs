@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -12,6 +12,14 @@ from sklearn.preprocessing import normalize
 
 from cuvs.neighbors import hnsw
 from cuvs.tests.ann_utils import calc_recall, generate_data
+
+
+def test_ace_target_alpha_params():
+    defaults = hnsw.AceParams()
+    configured = hnsw.AceParams(target_alpha=1.5)
+
+    assert defaults.target_alpha == 1.0
+    assert configured.target_alpha == 1.5
 
 
 def run_hnsw_ace_build_search_test(

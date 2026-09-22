@@ -22,6 +22,14 @@ from cuvs.tests.ann_utils import (
 )
 
 
+def test_ace_target_alpha_params():
+    defaults = cagra.AceParams()
+    configured = cagra.AceParams(target_alpha=1.5)
+
+    assert defaults.target_alpha == 1.0
+    assert configured.target_alpha == 1.5
+
+
 def run_cagra_ace_build_search_test(
     n_rows=10000,
     n_cols=10,

@@ -827,6 +827,7 @@ static void _set_graph_build_params(
         ace_p.use_disk            = ace_params_c->use_disk;
         ace_p.max_host_memory_gb  = ace_params_c->max_host_memory_gb;
         ace_p.max_gpu_memory_gb   = ace_params_c->max_gpu_memory_gb;
+        ace_p.target_alpha        = ace_params_c->target_alpha;
       }
       out_params = ace_p;
       break;
@@ -1463,6 +1464,9 @@ static void _populate_cagra_index_params_from_cpp(cuvsCagraIndexParams_t c_param
     c_ace_params->ef_construction = ace_params.ef_construction;
     c_ace_params->build_dir = ace_params.build_dir.empty() ? nullptr : strdup(ace_params.build_dir.c_str());
     c_ace_params->use_disk = ace_params.use_disk;
+    c_ace_params->max_host_memory_gb = ace_params.max_host_memory_gb;
+    c_ace_params->max_gpu_memory_gb = ace_params.max_gpu_memory_gb;
+    c_ace_params->target_alpha = ace_params.target_alpha;
     c_params->graph_build_params = c_ace_params;
   }
 }
@@ -2341,7 +2345,8 @@ extern "C" cuvsError_t cuvsAceParamsCreate(cuvsAceParams_t* params)
                                 .build_dir           = build_dir,
                                 .use_disk            = ps.use_disk,
                                 .max_host_memory_gb  = ps.max_host_memory_gb,
-                                .max_gpu_memory_gb   = ps.max_gpu_memory_gb};
+                                .max_gpu_memory_gb   = ps.max_gpu_memory_gb,
+                                .target_alpha        = ps.target_alpha};
   });
 }
 
