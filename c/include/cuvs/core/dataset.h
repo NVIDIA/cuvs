@@ -9,7 +9,6 @@
 
 #include <dlpack/dlpack.h>
 #include <stdbool.h>
-#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -62,8 +61,6 @@ typedef cuvsPqParams* cuvsPqParams_t;
  */
 typedef struct cuvsCagraCompressionParams* cuvsCagraCompressionParams_t;
 
-typedef struct cuvsBbqQuantizer* cuvsBbqQuantizer_t;
-
 /** Allocate generic PQ dataset parameters with default values. */
 CUVS_EXPORT cuvsError_t cuvsPqParamsCreate(cuvsPqParams_t* params);
 
@@ -104,22 +101,6 @@ CUVS_EXPORT cuvsError_t cuvsDatasetMakePQ(cuvsResources_t res,
                                           cuvsDataset_t dataset,
                                           cuvsDatasetMemType_t target_mem_type,
                                           cuvsDataset_t* pq_dataset);
-
-/**
- * @brief Create a non-owning device BBQ dataset view.
- *
- * Accepts one symmetric quantizer or two compatible asymmetric quantizers.
- *
- * @param[in] res cuVS resources
- * @param[in] quantizers array containing one or two BBQ quantizer handles
- * @param[in] num_quantizers number of elements in `quantizers`
- * @param[out] dataset newly allocated non-owning BBQ dataset handle
- * @return cuvsError_t
- */
-CUVS_EXPORT cuvsError_t cuvsDatasetMakeBbqView(cuvsResources_t res,
-                                               cuvsBbqQuantizer_t* quantizers,
-                                               size_t num_quantizers,
-                                               cuvsDataset_t* dataset);
 
 /**
  * @brief Create a non-owning padded dataset view from a host- or device-resident tensor.

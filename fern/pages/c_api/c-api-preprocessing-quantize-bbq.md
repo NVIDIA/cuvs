@@ -124,3 +124,30 @@ cuvsError_t cuvsBbqQuantizerDestroy(cuvsBbqQuantizer_t quantizer);
 **Returns**
 
 [`cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)
+
+<a id="cuvsdatasetmakebbqview"></a>
+### cuvsDatasetMakeBbqView
+
+Create a non-owning device BBQ dataset view.
+
+```c
+cuvsError_t cuvsDatasetMakeBbqView(cuvsResources_t res,
+cuvsBbqQuantizer_t* quantizers,
+size_t num_quantizers,
+cuvsDataset_t* dataset);
+```
+
+Accepts one symmetric quantizer or two compatible asymmetric quantizers.
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `res` | in | [`cuvsResources_t`](/api-reference/c-api-core-c-api#cuvsresources-t) | cuVS resources |
+| `quantizers` | in | [`cuvsBbqQuantizer_t*`](/api-reference/c-api-preprocessing-quantize-bbq#cuvsbbqquantizer) | array containing one or two BBQ quantizer handles |
+| `num_quantizers` | in | `size_t` | number of elements in `quantizers` |
+| `dataset` | out | `cuvsDataset_t*` | newly allocated non-owning BBQ dataset handle |
+
+**Returns**
+
+[`cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)

@@ -6,9 +6,11 @@
 #pragma once
 
 #include <cuvs/core/c_api.h>
+#include <cuvs/core/dataset.h>
 #include <cuvs/distance/distance.h>
 
 #include <dlpack/dlpack.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -116,6 +118,22 @@ CUVS_EXPORT cuvsError_t cuvsBbqQuantizerCreateView(
  * @return cuvsError_t
  */
 CUVS_EXPORT cuvsError_t cuvsBbqQuantizerDestroy(cuvsBbqQuantizer_t quantizer);
+
+/**
+ * @brief Create a non-owning device BBQ dataset view.
+ *
+ * Accepts one symmetric quantizer or two compatible asymmetric quantizers.
+ *
+ * @param[in] res cuVS resources
+ * @param[in] quantizers array containing one or two BBQ quantizer handles
+ * @param[in] num_quantizers number of elements in `quantizers`
+ * @param[out] dataset newly allocated non-owning BBQ dataset handle
+ * @return cuvsError_t
+ */
+CUVS_EXPORT cuvsError_t cuvsDatasetMakeBbqView(cuvsResources_t res,
+                                               cuvsBbqQuantizer_t* quantizers,
+                                               size_t num_quantizers,
+                                               cuvsDataset_t* dataset);
 
 /** @} */
 
