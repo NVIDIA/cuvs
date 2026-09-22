@@ -90,9 +90,10 @@ public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
    * <p>This is a representational limit only. It is emphatically not a supported maximum: values
    * anywhere near it are rejected by native CAGRA in practice. Native CAGRA sizes internal
    * traversal hash tables from a combination of itopk_size, search_width, max_iterations, and
-   * (for MULTI_CTA, which a normal one-query {@code AUTO} search resolves to) the graph degree
-   * and dataset size, none of which are all known at query-construction time, so this class does
-   * not attempt to replicate that sizing logic.
+   * (for MULTI_CTA, which {@code AUTO} typically selects for a single query unless there are
+   * enough partitions to use SINGLE_CTA) the graph degree and dataset size, none of which are
+   * all known at query-construction time, so this class does not attempt to replicate that sizing
+   * logic.
    *
    * <p>Moderately oversized combinations are rejected by native CAGRA with a clear exception (see
    * {@link Utils#handleThrowable}). Very large values are not: above roughly 1e9, native CAGRA's
@@ -115,9 +116,9 @@ public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
    *
    * <p>This bound alone does not guarantee a given (iTopK, searchWidth) pair is supported: as
    * with {@link #MAX_ITOPK}, native CAGRA may still reject a combination that exceeds its
-   * traversal hash table's capacity (e.g. the MULTI_CTA path used by a normal one-query {@code
-   * AUTO} search), since that capacity also depends on max_iterations, graph degree, and dataset
-   * size, which are not known here.
+   * traversal hash table's capacity (e.g. the MULTI_CTA path that {@code AUTO} typically selects
+   * for a single query unless there are enough partitions to use SINGLE_CTA), since that capacity
+   * also depends on max_iterations, graph degree, and dataset size, which are not known here.
    */
   public static final int MAX_SEARCH_WIDTH = 4_194_303;
 

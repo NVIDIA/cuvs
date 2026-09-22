@@ -105,8 +105,9 @@ public Java API, and `MAX_SEARCH_WIDTH` (4,194,303) only keeps CAGRA's result bu
 unsigned 32-bit indexing limit. Neither is a promise that native CAGRA supports every value up
 to that ceiling, and in practice values anywhere near `MAX_ITOPK` are not usable. The true upper
 limit for a given search depends on the resolved CAGRA algorithm, `max_iterations`, graph degree,
-filtering, and available GPU memory. In particular, `MULTI_CTA` (which a normal one-query `AUTO`
-search resolves to) sizes an internal traversal hash table from `search_width`, `iTopK`,
+filtering, and available GPU memory. In particular, `MULTI_CTA` (which `AUTO` typically selects
+for a single query unless there are enough partitions to use `SINGLE_CTA`) sizes an internal
+traversal hash table from `search_width`, `iTopK`,
 `max_iterations`, and the graph degree. This API does not replicate that calculation, since
 `max_iterations` is itself auto-derived from the graph degree and dataset size, values not known
 at query-construction time, so out-of-range combinations are caught by native CAGRA at search
