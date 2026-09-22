@@ -31,6 +31,7 @@
 
 #include <cuda_runtime.h>
 
+#include <algorithm>
 #include <limits>
 #include <numeric>
 #include <omp.h>
@@ -94,8 +95,7 @@ void IVFGPU::AllocateHostMemory()
   this->ids_host_ = raft::make_host_vector<PID, int64_t>(pids_size / sizeof(PID));
 }
 
-// load transposed data for short codes
-void IVFGPU::load_transposed(const char* filename)
+void IVFGPU::load(const char* filename)
 {
   std::ifstream input(filename, std::ios::binary);
   RAFT_EXPECTS(input.is_open(), "failed to open file: %s", filename);
@@ -187,70 +187,12 @@ void IVFGPU::load_transposed(const char* filename)
     memcpy(h_ptr, h_buf.data(), n_bytes);
   };
 
-  auto read_into_device_host_transposed_short =
-    [&](void* d_ptr, void* h_ptr, size_t n_bytes, size_t& max_cluster_size) {
-      // Read all clusters' data into staging buffer (still in sequential format)
-      std::vector<std::uint8_t> h_buf(n_bytes);
-      input.read(reinterpret_cast<char*>(h_buf.data()), n_bytes);
-      if (input.gcount() != static_cast<std::streamsize>(n_bytes))
-        throw std::runtime_error("unexpected EOF");
-
-      // Create transposed buffer
-      std::vector<std::uint8_t> h_transposed(n_bytes);
-
-      // Process each cluster and transpose its vectors
-      size_t src_offset = 0;  // offset in original sequential buffer
-      size_t dst_offset = 0;  // offset in transposed buffer
-
-      // Also evaluate maximum cluster size during this loop
-      max_cluster_size = 0;
-      for (size_t cluster_id = 0; cluster_id < num_centroids; cluster_id++) {
-        size_t cluster_size = cluster_sizes[cluster_id];
-        max_cluster_size    = max(max_cluster_size, cluster_size);
-        if (cluster_size == 0) continue;
-
-        // Calculate dimensions per vector
-        size_t bytes_per_vector   = DQ->block_bytes();
-        size_t uint32s_per_vector = bytes_per_vector / sizeof(uint32_t);
-
-        // Get pointers to source (sequential) and destination (transposed) data
-        uint32_t* src_cluster = reinterpret_cast<uint32_t*>(h_buf.data() + src_offset);
-        uint32_t* dst_cluster = reinterpret_cast<uint32_t*>(h_transposed.data() + dst_offset);
-
-        // Transpose the cluster:
-        // From: vec1[all_dims], vec2[all_dims], ..., vecn[all_dims]
-        // To: vec1[dim0-31], vec2[dim0-31], ..., vecn[dim0-31],
-        //     vec1[dim32-63], vec2[dim32-63], ..., vecn[dim32-63], ...
-
-        for (size_t dim_chunk = 0; dim_chunk < uint32s_per_vector; dim_chunk++) {
-          for (size_t vec_id = 0; vec_id < cluster_size; vec_id++) {
-            // Source: vector vec_id, dimension chunk dim_chunk
-            size_t src_idx = vec_id * uint32s_per_vector + dim_chunk;
-            // Destination: dimension chunk dim_chunk, vector vec_id
-            size_t dst_idx = dim_chunk * cluster_size + vec_id;
-
-            dst_cluster[dst_idx] = src_cluster[src_idx];
-          }
-        }
-
-        // Update offsets for next cluster
-        size_t cluster_bytes = cluster_size * bytes_per_vector;
-        src_offset += cluster_bytes;
-        dst_offset += cluster_bytes;
-      }
-
-      // Copy transposed data to device and host
-      raft::copy(static_cast<uint8_t*>(d_ptr), h_transposed.data(), n_bytes, stream_);
-      raft::resource::sync_stream(handle_);
-      memcpy(h_ptr, h_transposed.data(), n_bytes);
-    };
+  this->max_cluster_length = *std::max_element(cluster_sizes.begin(), cluster_sizes.end());
 
   // New change: host copy of ivf.
   AllocateHostMemory();
-  read_into_device_host_transposed_short(short_data_.data_handle(),
-                                         short_data_host_.data_handle(),
-                                         GetShortDataBytesSimple(),
-                                         this->max_cluster_length);
+  read_into_device_host(
+    short_data_.data_handle(), short_data_host_.data_handle(), GetShortDataBytesSimple());
   read_into_device(short_factors_batch_.data_handle(),
                    GetShortDataFactorBytesBatch());  // SoA layout - no copy on CPU
   read_into_device_host(
@@ -591,6 +533,7 @@ void IVFGPU::construct_on_gpu(const float* device_data,
 
   // Add rotated centroids
   initializer->AddVectors(d_rotated_centroids.data());
+  compute_centroid_norms();
 
   raft::resource::sync_stream(handle_);
 }
@@ -844,6 +787,7 @@ void IVFGPU::construct_on_gpu_streaming(const float* host_data,
   // 13. Add rotated centroids
   // -------------------------
   initializer->AddVectors(d_rotated_centroids.data_handle());
+  compute_centroid_norms();
 
   raft::resource::sync_stream(handle_);
 }

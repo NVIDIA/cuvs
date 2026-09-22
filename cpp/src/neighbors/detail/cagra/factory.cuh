@@ -82,6 +82,7 @@ namespace descriptor_cache {
  */
 struct key {
   uint64_t data_ptr;
+  uint64_t norms_ptr;
   uint64_t n_rows;
   uint32_t dim;
   uint32_t extra_val;  // this one has different meanings for different descriptor types
@@ -93,10 +94,11 @@ struct key {
 template <typename DatasetT>
 auto make_key(const cagra::search_params& params,
               const DatasetT& dataset,
-              cuvs::distance::DistanceType metric)
-  -> std::enable_if_t<is_padded_dataset_v<DatasetT>, key>
+              cuvs::distance::DistanceType metric,
+              const void* dataset_norms) -> std::enable_if_t<is_padded_dataset_v<DatasetT>, key>
 {
   return key{reinterpret_cast<uint64_t>(dataset.view().data_handle()),
+             reinterpret_cast<uint64_t>(dataset_norms),
              uint64_t(dataset.n_rows()),
              dataset.dim(),
              dataset.stride(),
@@ -108,10 +110,11 @@ auto make_key(const cagra::search_params& params,
 template <typename DatasetT>
 auto make_key(const cagra::search_params& params,
               const DatasetT& dataset,
-              cuvs::distance::DistanceType metric)
-  -> std::enable_if_t<is_vpq_dataset_v<DatasetT>, key>
+              cuvs::distance::DistanceType metric,
+              const void* dataset_norms) -> std::enable_if_t<is_vpq_dataset_v<DatasetT>, key>
 {
   return key{reinterpret_cast<uint64_t>(dataset.data.data_handle()),
+             reinterpret_cast<uint64_t>(dataset_norms),
              uint64_t(dataset.n_rows()),
              dataset.dim(),
              uint32_t(reinterpret_cast<uint64_t>(dataset.pq_code_book.data_handle()) >> 6),
@@ -122,15 +125,16 @@ auto make_key(const cagra::search_params& params,
 
 inline auto operator==(const key& a, const key& b) -> bool
 {
-  return a.data_ptr == b.data_ptr && a.n_rows == b.n_rows && a.dim == b.dim &&
-         a.extra_val == b.extra_val && a.team_size == b.team_size && a.metric == b.metric &&
-         a.smem_dtype == b.smem_dtype;
+  return a.data_ptr == b.data_ptr && a.norms_ptr == b.norms_ptr && a.n_rows == b.n_rows &&
+         a.dim == b.dim && a.extra_val == b.extra_val && a.team_size == b.team_size &&
+         a.metric == b.metric && a.smem_dtype == b.smem_dtype;
 }
 
 struct key_hash {
   inline auto operator()(const key& x) const noexcept -> std::size_t
   {
-    return size_t{x.data_ptr} + size_t{x.n_rows} * size_t{x.dim} * size_t{x.extra_val} +
+    return size_t{x.data_ptr} + size_t{x.norms_ptr} +
+           size_t{x.n_rows} * size_t{x.dim} * size_t{x.extra_val} +
            (size_t{x.team_size} ^ size_t{x.metric}) + size_t{x.smem_dtype};
   }
 };
@@ -164,7 +168,7 @@ auto dataset_descriptor_init_with_cache(const raft::resources& res,
                                         const DistanceT* dataset_norms = nullptr)
   -> dataset_descriptor_host<DataT, IndexT, DistanceT>
 {
-  auto key = descriptor_cache::make_key(params, dataset, metric);
+  auto key = descriptor_cache::make_key(params, dataset, metric, dataset_norms);
   auto& cache =
     raft::resource::get_custom_resource<descriptor_cache::store<DataT, IndexT, DistanceT>>(res)
       ->value;

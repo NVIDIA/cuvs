@@ -77,6 +77,19 @@ constexpr bool is_valid_serialized_dataset_kind(std::uint32_t raw)
   return raw <= static_cast<std::uint32_t>(kind::host_standard);
 }
 
+/**
+ * Quantized datasets (PQ, BBQ) are owned outside the index and carry codebooks the index file has
+ * no representation for, so such indexes serialize the graph alone.
+ */
+template <typename DatasetViewT>
+inline constexpr bool is_graph_only_dataset_view_v =
+  cuvs::neighbors::is_vpq_dataset_view_v<DatasetViewT> ||
+  cuvs::neighbors::is_bbq_dataset_view_v<DatasetViewT>;
+
+inline constexpr char const* kGraphOnlyDatasetMessage =
+  "CAGRA indexes with a quantized dataset store only the graph; serialize the quantized dataset "
+  "separately and reattach it with update_dataset()";
+
 template <typename MdspanT>
 void serialize_index_mdspan(raft::resources const& res, std::ostream& os, MdspanT const& mdspan)
 {
@@ -111,15 +124,13 @@ void serialize(raft::resources const& res,
 
   include_dataset &= (index_.dataset().n_rows() > 0);
   auto dataset_kind = cuvs::neighbors::cagra::serialized_dataset_kind::none;
-  if constexpr (cuvs::neighbors::is_vpq_dataset_view_v<DatasetViewT>) {
-    RAFT_EXPECTS(!include_dataset,
-                 "CAGRA PQ index serialization stores the graph only; serialize the PQ dataset "
-                 "separately");
+  if constexpr (is_graph_only_dataset_view_v<DatasetViewT>) {
+    RAFT_EXPECTS(!include_dataset, kGraphOnlyDatasetMessage);
   } else {
     if (include_dataset) { dataset_kind = serialized_dataset_kind_for_view<DatasetViewT>(); }
   }
 
-  std::string dtype_string = raft::numpy_serializer::get_numpy_dtype<T>().to_string();
+  std::string dtype_string = cuvs::util::detail::numpy_dtype_string<T>();
   dtype_string.resize(4);
   os << dtype_string;
 
@@ -140,8 +151,8 @@ void serialize(raft::resources const& res,
     RAFT_LOG_DEBUG("Saving CAGRA index with dataset");
     if constexpr (cuvs::neighbors::is_dense_row_major_dataset_view_v<DatasetViewT>) {
       neighbors::detail::serialize_cagra_dense_dataset<T, int64_t>(res, os, index_.dataset());
-    } else if constexpr (cuvs::neighbors::is_vpq_dataset_view_v<DatasetViewT>) {
-      RAFT_FAIL("CAGRA PQ index serialization stores the graph only");
+    } else if constexpr (is_graph_only_dataset_view_v<DatasetViewT>) {
+      RAFT_FAIL(kGraphOnlyDatasetMessage);
     } else {
       // A further dataset type requires a new branch here and a corresponding deserialize branch.
       // Use static_assert to catch unsupported types at compile time.
@@ -588,14 +599,14 @@ void deserialize_impl(
     std::unique_ptr<owner_t> dataset_owner{};
     if (has_dataset) {
       if (out_dataset == nullptr) {
-        if constexpr (cuvs::neighbors::is_vpq_dataset_view_v<DatasetViewT>) {
-          RAFT_FAIL("cagra::deserialize: PQ index files must contain only the graph");
+        if constexpr (is_graph_only_dataset_view_v<DatasetViewT>) {
+          RAFT_FAIL("cagra::deserialize: quantized index files must contain only the graph");
         } else {
           cuvs::neighbors::detail::skip_dense_dataset<T, int64_t>(res, is);
         }
       } else {
-        if constexpr (cuvs::neighbors::is_vpq_dataset_view_v<DatasetViewT>) {
-          RAFT_FAIL("cagra::deserialize: PQ index files must contain only the graph");
+        if constexpr (is_graph_only_dataset_view_v<DatasetViewT>) {
+          RAFT_FAIL("cagra::deserialize: quantized index files must contain only the graph");
         } else {
           auto const expected_kind = serialized_dataset_kind_for_view<DatasetViewT>();
           RAFT_EXPECTS(
