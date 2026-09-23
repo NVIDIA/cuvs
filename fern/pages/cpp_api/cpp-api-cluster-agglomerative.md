@@ -27,20 +27,6 @@ enum Linkage {
 | `PAIRWISE` | `0` |
 | `KNN_GRAPH` | `1` |
 
-## Types
-
-<a id="cluster-agglomerative-single-linkage-output"></a>
-### cluster::agglomerative::single_linkage_output
-
-Simple container object for consolidating linkage results. This closely
-
-mirrors the trained instance variables populated in Scikit-learn's AgglomerativeClustering estimator.
-
-```cpp
-template <typename idx_t>
-class single_linkage_output;
-```
-
 ## single-linkage clustering APIs
 
 <a id="cluster-agglomerative-single-linkage"></a>
@@ -57,7 +43,8 @@ raft::device_vector_view<int, int> labels,
 cuvs::distance::DistanceType metric,
 size_t n_clusters,
 cuvs::cluster::agglomerative::Linkage linkage = cuvs::cluster::agglomerative::Linkage::KNN_GRAPH,
-std::optional<int> c                          = std::make_optional<int>(DEFAULT_CONST_C));
+std::optional<int> c                          = std::make_optional<int>(DEFAULT_CONST_C),
+std::optional<raft::device_vector_view<float, int>> distances = std::nullopt);
 ```
 
 scale the algorithm beyond the n^2 memory consumption of implementations that use the fully-connected graph of pairwise distances by connecting a knn graph when k is not large enough to connect it.
@@ -68,12 +55,13 @@ scale the algorithm beyond the n^2 memory consumption of implementations that us
 | --- | --- | --- | --- |
 | `handle` | in | `raft::resources const&` | raft handle |
 | `X` | in | `raft::device_matrix_view<const float, int, raft::row_major>` | dense input matrix in row-major layout |
-| `dendrogram` | out | `raft::device_matrix_view<int, int, raft::row_major>` | output dendrogram (size [n_rows - 1] * 2) |
+| `dendrogram` | out | `raft::device_matrix_view<int, int, raft::row_major>` | output dendrogram in row-major layout (size [n_rows - 1] * 2) |
 | `labels` | out | `raft::device_vector_view<int, int>` | output labels vector (size n_rows) |
 | `metric` | in | [`cuvs::distance::DistanceType`](/api-reference/cpp-api-distance-distance#distance-distancetype) | distance metric to use when constructing connectivities graph |
 | `n_clusters` | in | `size_t` | number of clusters to assign data samples |
 | `linkage` | in | [`cuvs::cluster::agglomerative::Linkage`](/api-reference/cpp-api-cluster-agglomerative#cluster-agglomerative-linkage) | strategy for constructing the linkage. PAIRWISE uses more memory but can be faster for smaller datasets. KNN_GRAPH allows the memory usage to be controlled (using parameter c) at the expense of potentially additional minimum spanning tree iterations.<br />Default: `cuvs::cluster::agglomerative::Linkage::KNN_GRAPH`. |
 | `c` | in | `std::optional<int>` | a constant used when constructing linkage from knn graph. Allows the indirect control of k. The algorithm will set `k = log(n) + c`<br />Default: `std::make_optional&lt;int&gt;(DEFAULT_CONST_C)`. |
+| `distances` | out | `std::optional<raft::device_vector_view<float, int>>` | optional output vector of distances between nodes (size [n_rows - 1])<br />Default: `std::nullopt`. |
 
 **Returns**
 
