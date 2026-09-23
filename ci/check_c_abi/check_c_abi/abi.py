@@ -21,10 +21,10 @@ except ImportError:
 
 
 def _is_unnamed_struct(cursor: clang.cindex.Cursor) -> bool:
+    # Anonymous record declarations have no tag, so libclang reports an empty spelling.
     return (
         cursor.kind == clang.cindex.CursorKind.STRUCT_DECL
-        and cursor.spelling.startswith("struct ")
-        and "unnamed " in cursor.spelling
+        and not cursor.spelling
     )
 
 
