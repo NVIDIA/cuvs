@@ -243,30 +243,29 @@ void build_dist_linkage(raft::resources const& handle,
  * that use the fully-connected graph of pairwise distances by connecting
  * a knn graph when k is not large enough to connect it.
 
- * @tparam value_idx
  * @tparam value_t
+ * @tparam value_idx
  * @tparam dist_type method to use for constructing connectivities graph
  * @param[in] handle raft handle
  * @param[in] X dense input matrix in row-major layout
- * @param[in] m number of rows in X
- * @param[in] n number of columns in X
+ * @param[out] dendrogram output dendrogram in row-major layout (size [n_rows - 1] * 2)
+ * @param[out] labels output labels vector (size n_rows)
  * @param[in] metric distance metric to use when constructing connectivities graph
- * @param[out] out struct containing output dendrogram and cluster assignments
- * @param[in] c a constant used when constructing connectivities from knn graph. Allows the indirect
- control
- *            of k. The algorithm will set `k = log(n) + c`
  * @param[in] n_clusters number of clusters to assign data samples
+ * @param[in] c a constant used when constructing connectivities from knn graph. Allows the indirect
+ control of k. The algorithm will set `k = log(n) + c`
  */
-template <typename value_idx, typename value_t, Linkage dist_type>
+template <typename value_t, typename value_idx, Linkage dist_type>
 void single_linkage(raft::resources const& handle,
-                    const value_t* X,
-                    size_t m,
-                    size_t n,
+                    raft::device_matrix_view<const value_t, value_idx, raft::row_major> X,
+                    raft::device_matrix_view<value_idx, value_idx, raft::row_major> dendrogram,
+                    raft::device_vector_view<value_idx, value_idx> labels,
                     cuvs::distance::DistanceType metric,
-                    single_linkage_output<value_idx>* out,
-                    int c,
-                    size_t n_clusters)
+                    size_t n_clusters,
+                    std::optional<int> c)
 {
+  size_t m = X.extent(0);
+  size_t n = X.extent(1);
   ASSERT(n_clusters <= m, "n_clusters must be less than or equal to the number of data points");
 
   value_idx n_edges = m - 1;
@@ -284,20 +283,15 @@ void single_linkage(raft::resources const& handle,
 
   build_dist_linkage<value_t, value_idx, value_idx, dist_type>(
     handle,
-    raft::make_device_matrix_view<const value_t, value_idx, raft::row_major>(
-      X, static_cast<value_idx>(m), static_cast<value_idx>(n)),
-    c,
+    X,
+    c.has_value() ? c.value() : DEFAULT_CONST_C,
     metric,
     mst_view,
-    raft::make_device_matrix_view<value_idx, value_idx, raft::row_major>(out->children, n_edges, 2),
+    dendrogram,
     out_delta.view(),
     out_sizes.view());
 
-  detail::extract_flattened_clusters(handle, out->labels, out->children, n_clusters, m);
-
-  out->m                      = m;
-  out->n_clusters             = n_clusters;
-  out->n_leaves               = m;
-  out->n_connected_components = 1;
+  detail::extract_flattened_clusters(
+    handle, labels.data_handle(), dendrogram.data_handle(), n_clusters, m);
 }
 };  // namespace  cuvs::cluster::agglomerative::detail

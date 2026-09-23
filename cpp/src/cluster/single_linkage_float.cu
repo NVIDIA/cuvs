@@ -1,9 +1,9 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "single_linkage.cuh"
+#include "detail/single_linkage.cuh"
 #include <cuvs/cluster/agglomerative.hpp>
 
 #include <raft/core/device_mdspan.hpp>
@@ -21,10 +21,10 @@ void single_linkage(raft::resources const& handle,
                     std::optional<int> c)
 {
   if (linkage == Linkage::KNN_GRAPH) {
-    single_linkage<float, int, Linkage::KNN_GRAPH>(
+    detail::single_linkage<float, int, Linkage::KNN_GRAPH>(
       handle, X, dendrogram, labels, metric, n_clusters, c);
   } else {
-    single_linkage<float, int, Linkage::PAIRWISE>(
+    detail::single_linkage<float, int, Linkage::PAIRWISE>(
       handle, X, dendrogram, labels, metric, n_clusters, c);
   }
 }

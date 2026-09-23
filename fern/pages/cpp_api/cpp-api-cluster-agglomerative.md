@@ -27,20 +27,6 @@ enum Linkage {
 | `PAIRWISE` | `0` |
 | `KNN_GRAPH` | `1` |
 
-## Types
-
-<a id="cluster-agglomerative-single-linkage-output"></a>
-### cluster::agglomerative::single_linkage_output
-
-Simple container object for consolidating linkage results. This closely
-
-mirrors the trained instance variables populated in Scikit-learn's AgglomerativeClustering estimator.
-
-```cpp
-template <typename idx_t>
-class single_linkage_output;
-```
-
 ## single-linkage clustering APIs
 
 <a id="cluster-agglomerative-single-linkage"></a>
@@ -68,7 +54,7 @@ scale the algorithm beyond the n^2 memory consumption of implementations that us
 | --- | --- | --- | --- |
 | `handle` | in | `raft::resources const&` | raft handle |
 | `X` | in | `raft::device_matrix_view<const float, int, raft::row_major>` | dense input matrix in row-major layout |
-| `dendrogram` | out | `raft::device_matrix_view<int, int, raft::row_major>` | output dendrogram (size [n_rows - 1] * 2) |
+| `dendrogram` | out | `raft::device_matrix_view<int, int, raft::row_major>` | output dendrogram in row-major layout (size [n_rows - 1] * 2) |
 | `labels` | out | `raft::device_vector_view<int, int>` | output labels vector (size n_rows) |
 | `metric` | in | [`cuvs::distance::DistanceType`](/api-reference/cpp-api-distance-distance#distance-distancetype) | distance metric to use when constructing connectivities graph |
 | `n_clusters` | in | `size_t` | number of clusters to assign data samples |
