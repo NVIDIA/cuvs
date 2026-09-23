@@ -98,26 +98,21 @@ inline std::enable_if_t<std::is_floating_point_v<MathT>> predict_core(
         raft::make_device_matrix_view<const MathT, IdxT>(centers, n_clusters, dim);
       auto X_norm_view = raft::make_device_vector_view<const MathT, IdxT>(dataset_norm, n_rows);
 
-      auto minClusterAndDistance = raft::make_device_mdarray<raft::KeyValuePair<IdxT, MathT>, IdxT>(
-        handle, mr, raft::make_extents<IdxT>(n_rows));
+      rmm::device_uvector<char> assignment_output(0, stream, mr);
 
-      cuvs::cluster::kmeans::detail::minClusterAndDistanceCompute<MathT, IdxT>(
+      const auto result = cuvs::cluster::kmeans::detail::minClusterAndDistanceCompute<MathT, IdxT>(
         handle,
         X_view,
         centroids_view,
-        minClusterAndDistance.view(),
+        assignment_output,
         X_norm_view,
         L2NormBuf_OR_DistBuf,
         params.metric,
-        0,  // batch_samples (unused for fused reduction)
-        0,  // batch_centroids (unused for fused reduction)
+        0,  // default top_1_nn row tuning
+        0,  // default top_1_nn candidate tuning
         workspace);
 
-      // Copy keys to output labels
-      raft::linalg::map(handle,
-                        raft::make_const_mdspan(minClusterAndDistance.view()),
-                        raft::make_device_vector_view<LabelT, IdxT>(labels, n_rows),
-                        raft::compose_op<raft::cast_op<LabelT>, raft::key_op>());
+      cuvs::cluster::kmeans::detail::copyClusterLabels(handle, result, labels);
       break;
     }
     case cuvs::distance::DistanceType::InnerProduct: {
@@ -185,15 +180,13 @@ auto calc_minibatch_size(const raft::resources& handle,
   size_t mem_per_row = 0;
   switch (metric) {
     case distance::DistanceType::L2Expanded:
-    case distance::DistanceType::L2SqrtExpanded: {
-      if (use_fused<MathT, IdxT, IdxT>(handle, n_rows, n_clusters, dim)) {
-        // fusedL2NN needs a mutex and a key-value pair for each row.
-        mem_per_row += sizeof(int);
-        mem_per_row += sizeof(raft::KeyValuePair<IdxT, MathT>);
-      } else {
-        // unfused path needs a full GEMM output (distance matrix row).
-        mem_per_row += sizeof(MathT) * n_clusters;
-      }
+    case distance::DistanceType::L2SqrtExpanded:
+    case distance::DistanceType::CosineExpanded: {
+      const cuvs::distance::detail::Top1nnTuning tuning{};
+      const auto candidates =
+        std::min<std::size_t>(tuning.unfused.candidate_tile, static_cast<std::size_t>(n_clusters));
+      mem_per_row += sizeof(MathT) * candidates;
+      mem_per_row += sizeof(raft::KeyValuePair<IdxT, MathT>);
     } break;
     // Other metrics require storing a distance matrix.
     default: {
@@ -346,9 +339,20 @@ void compute_norm(const raft::resources& handle,
   rmm::device_uvector<MathT> mapped_dataset(
     0, stream, mr.value_or(raft::resource::get_workspace_resource_ref(handle)));
 
+  if constexpr (std::is_same_v<T, half> && std::is_same_v<MathT, float>) {
+    raft::linalg::rowNorm<raft::linalg::L2Norm, true>(
+      dataset_norm, dataset, dim, n_rows, stream.get());
+    auto norms = raft::make_device_vector_view<MathT, IdxT>(dataset_norm, n_rows);
+    raft::linalg::map(handle,
+                      norms,
+                      norm_fin_op,
+                      raft::make_device_vector_view<const MathT, IdxT>(dataset_norm, n_rows));
+    return;
+  }
+
   const MathT* dataset_ptr = nullptr;
 
-  if (std::is_same_v<MathT, T>) {
+  if constexpr (std::is_same_v<MathT, T>) {
     dataset_ptr = reinterpret_cast<const MathT*>(dataset);
   } else {
     mapped_dataset.resize(n_rows * dim, stream);
@@ -367,6 +371,129 @@ void compute_norm(const raft::resources& handle,
     raft::make_device_matrix_view<const MathT, IdxT, raft::row_major>(dataset_ptr, n_rows, dim),
     raft::make_device_vector_view<MathT, IdxT>(dataset_norm, n_rows),
     norm_fin_op);
+}
+
+struct predict_core_half_workspace {
+  predict_core_half_workspace(std::size_t centers_size,
+                              std::size_t n_clusters,
+                              std::size_t max_minibatch_size,
+                              cuda::stream_ref stream,
+                              rmm::device_async_resource_ref mr)
+    : centers(centers_size, stream, mr),
+      centers_norm(n_clusters, stream, mr),
+      distances(max_minibatch_size, stream, mr),
+      indices(max_minibatch_size, stream, mr),
+      workspace(0, stream, mr)
+  {
+  }
+
+  rmm::device_uvector<half> centers;
+  rmm::device_uvector<float> centers_norm;
+  rmm::device_uvector<float> distances;
+  rmm::device_uvector<int> indices;
+  rmm::device_uvector<char> workspace;
+  bool centers_ready{};
+};
+
+template <typename IdxT, typename LabelT, typename MappingOpT>
+bool predict_core_half(const raft::resources& handle,
+                       const cuvs::cluster::kmeans::balanced_params& params,
+                       const float* centers,
+                       IdxT n_clusters,
+                       IdxT dim,
+                       const half* dataset,
+                       IdxT n_rows,
+                       LabelT* labels,
+                       MappingOpT mapping_op,
+                       float* dataset_norm,
+                       predict_core_half_workspace& scratch,
+                       std::optional<rmm::device_async_resource_ref> mr)
+{
+  const bool native_metric = params.metric == cuvs::distance::DistanceType::L2Expanded ||
+                             params.metric == cuvs::distance::DistanceType::L2SqrtExpanded ||
+                             params.metric == cuvs::distance::DistanceType::CosineExpanded;
+  const bool dimensions_fit = n_rows <= static_cast<IdxT>(std::numeric_limits<int>::max()) &&
+                              n_clusters <= static_cast<IdxT>(std::numeric_limits<int>::max()) &&
+                              dim <= static_cast<IdxT>(std::numeric_limits<int>::max());
+  if (!native_metric || !dimensions_fit) { return false; }
+
+  using NativeIdxT           = int;
+  const auto native_rows     = static_cast<NativeIdxT>(n_rows);
+  const auto native_clusters = static_cast<NativeIdxT>(n_clusters);
+  const auto native_dim      = static_cast<NativeIdxT>(dim);
+  cuvs::distance::detail::Top1nnTuning tuning{};
+  const auto plan = cuvs::distance::probe_top_1_nn(handle,
+                                                   dataset,
+                                                   scratch.centers.data(),
+                                                   native_rows,
+                                                   native_clusters,
+                                                   native_dim,
+                                                   tuning,
+                                                   params.metric);
+  if (!plan.available) { return false; }
+
+  auto stream = raft::resource::get_cuda_stream(handle);
+  if (!scratch.centers_ready) {
+    raft::linalg::map(handle,
+                      raft::make_device_vector_view<const float, IdxT>(
+                        centers, static_cast<IdxT>(scratch.centers.size())),
+                      raft::make_device_vector_view<half, IdxT>(
+                        scratch.centers.data(), static_cast<IdxT>(scratch.centers.size())),
+                      raft::cast_op<half>{});
+    raft::linalg::rowNorm<raft::linalg::L2Norm, true>(scratch.centers_norm.data(),
+                                                      scratch.centers.data(),
+                                                      native_dim,
+                                                      native_clusters,
+                                                      stream.get());
+    if (params.metric == cuvs::distance::DistanceType::CosineExpanded) {
+      raft::linalg::map(handle,
+                        raft::make_device_vector_view<float, NativeIdxT>(
+                          scratch.centers_norm.data(), native_clusters),
+                        raft::sqrt_op{},
+                        raft::make_device_vector_view<const float, NativeIdxT>(
+                          scratch.centers_norm.data(), native_clusters));
+    }
+    scratch.centers_ready = true;
+  }
+
+  if (params.metric == cuvs::distance::DistanceType::CosineExpanded) {
+    compute_norm(handle, dataset_norm, dataset, dim, n_rows, mapping_op, raft::sqrt_op{}, mr);
+  } else {
+    compute_norm(handle, dataset_norm, dataset, dim, n_rows, mapping_op, raft::identity_op{}, mr);
+  }
+  if (scratch.workspace.size() < plan.workspace_bytes) {
+    scratch.workspace.resize(plan.workspace_bytes, stream);
+  }
+  constexpr bool labels_are_native =
+    std::is_same_v<LabelT, int> || std::is_same_v<LabelT, uint32_t>;
+  auto* native_labels = labels_are_native ? reinterpret_cast<int*>(labels) : scratch.indices.data();
+  cuvs::distance::top_1_nn<half, NativeIdxT>(
+    handle,
+    cuvs::distance::Top1nnOutput<NativeIdxT, float>{native_labels, scratch.distances.data()},
+    dataset,
+    scratch.centers.data(),
+    dataset_norm,
+    scratch.centers_norm.data(),
+    native_rows,
+    native_clusters,
+    native_dim,
+    tuning,
+    scratch.workspace.data(),
+    scratch.workspace.size(),
+    params.metric != cuvs::distance::DistanceType::L2Expanded,
+    true,
+    true,
+    params.metric,
+    0.0f,
+    plan);
+  if constexpr (!labels_are_native) {
+    raft::linalg::map(
+      handle,
+      raft::make_device_vector_view<const int, NativeIdxT>(scratch.indices.data(), native_rows),
+      raft::make_device_vector_view<LabelT, NativeIdxT>(labels, native_rows),
+      raft::cast_op<LabelT>{});
+  }
+  return true;
 }
 
 /**
@@ -411,17 +538,41 @@ void predict(const raft::resources& handle,
     handle, n_clusters, n_rows, dim, params.metric, std::is_same_v<T, MathT>);
   rmm::device_uvector<MathT> cur_dataset(
     std::is_same_v<T, MathT> ? 0 : max_minibatch_size * dim, stream, mem_res);
+  constexpr bool native_half = std::is_same_v<T, half> && std::is_same_v<MathT, float>;
   bool need_compute_norm =
     dataset_norm == nullptr && (params.metric == cuvs::distance::DistanceType::L2Expanded ||
                                 params.metric == cuvs::distance::DistanceType::L2SqrtExpanded ||
                                 params.metric == cuvs::distance::DistanceType::CosineExpanded);
   rmm::device_uvector<MathT> cur_dataset_norm(
-    need_compute_norm ? max_minibatch_size : 0, stream, mem_res);
+    need_compute_norm || native_half ? max_minibatch_size : 0, stream, mem_res);
+  const auto native_centers_size =
+    native_half ? static_cast<std::size_t>(n_clusters) * static_cast<std::size_t>(dim) : 0;
+  std::optional<predict_core_half_workspace> native_half_scratch;
+  if constexpr (native_half) {
+    native_half_scratch.emplace(
+      native_centers_size, n_clusters, max_minibatch_size, stream, mem_res);
+  }
   const MathT* dataset_norm_ptr = nullptr;
   auto cur_dataset_ptr          = cur_dataset.data();
   for (IdxT offset = 0; offset < n_rows; offset += max_minibatch_size) {
     IdxT minibatch_size = std::min<IdxT>(max_minibatch_size, n_rows - offset);
 
+    if constexpr (native_half) {
+      if (predict_core_half(handle,
+                            params,
+                            centers,
+                            n_clusters,
+                            dim,
+                            dataset + static_cast<std::size_t>(offset) * dim,
+                            minibatch_size,
+                            labels + offset,
+                            mapping_op,
+                            cur_dataset_norm.data(),
+                            *native_half_scratch,
+                            mr)) {
+        continue;
+      }
+    }
     if constexpr (std::is_same_v<T, MathT>) {
       cur_dataset_ptr = const_cast<MathT*>(dataset + offset * dim);
     } else {
@@ -1044,7 +1195,7 @@ auto build_fine_clusters(const raft::resources& handle,
   // for small cluster counts the maximum mesocluster size is proportional to the number of rows, so
   // we use large workspace
   auto large_ws = raft::resource::get_large_workspace_resource_ref(handle);
-  rmm::device_uvector<MathT> mc_trainset_buf(mesocluster_size_max * dim, stream, large_ws);
+  rmm::device_uvector<T> mc_trainset_buf(mesocluster_size_max * dim, stream, large_ws);
   rmm::device_uvector<MathT> mc_trainset_norm_buf(mesocluster_size_max, stream, device_memory);
   auto mc_trainset_ids  = mc_trainset_ids_buf.data();
   auto mc_trainset      = mc_trainset_buf.data();
@@ -1082,8 +1233,7 @@ auto build_fine_clusters(const raft::resources& handle,
                    "Number of fine clusters must be non-zero for a non-empty mesocluster");
     }
 
-    thrust::transform_iterator<MappingOpT, const T*> mapping_itr(dataset_mptr, mapping_op);
-    raft::matrix::gather(mapping_itr, dim, n_rows, mc_trainset_ids, k, mc_trainset, stream.get());
+    raft::matrix::gather(dataset_mptr, dim, n_rows, mc_trainset_ids, k, mc_trainset, stream.get());
     if (params.metric == cuvs::distance::DistanceType::L2Expanded ||
         params.metric == cuvs::distance::DistanceType::L2SqrtExpanded ||
         params.metric == cuvs::distance::DistanceType::CosineExpanded) {
