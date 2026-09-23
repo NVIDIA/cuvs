@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #include <cuvs/distance/distance.hpp>
@@ -72,7 +72,7 @@ template <typename T, typename DistT = T>
 class BruteForceKNNBenchmark {
  public:
   BruteForceKNNBenchmark(const RandomKNNInputs& params, const std::string& type_str)
-    : stream_(raft::resource::get_cuda_stream(handle_)),
+    : stream_(raft::resource::get_cuda_stream(handle_).get()),
       params_(params),
       type_str_(type_str),
       database(params_.num_db_vecs * params_.dim, stream_),

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -8,6 +8,7 @@
 #include "../detail/ann_utils.cuh"
 #include "ivf_flat_interleaved_scan_jit.cuh"
 #include <cstdint>
+#include <cuda/stream>
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/common.hpp>
 #include <cuvs/neighbors/ivf_flat.hpp>
@@ -36,7 +37,7 @@
                                           uint32_t* neighbors,                             \
                                           float* distances,                                \
                                           uint32_t& grid_dim_x,                            \
-                                          rmm::cuda_stream_view stream,                    \
+                                          cuda::stream_ref stream,                         \
                                           const std::optional<std::string>& metric_udf);
 
 #define COMMA ,

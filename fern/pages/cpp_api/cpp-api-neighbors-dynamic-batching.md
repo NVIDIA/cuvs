@@ -108,7 +108,7 @@ const cuvs::neighbors::filtering::base_filter* sample_filter = nullptr);
 | `params` | in | [`const cuvs::neighbors::dynamic_batching::index_params&`](/api-reference/cpp-api-neighbors-dynamic-batching#neighbors-dynamic-batching-index-params) | dynamic batching parameters |
 | `upstream_index` | in | `const Upstream&` | the original index to perform the search (the reference must be alive for the lifetime of the dynamic batching index) |
 | `upstream_params` | in | `const typename Upstream::search_params_type&` | the original index search parameters for all queries in a batch (the parameters are captured by value for the lifetime of the dynamic batching index) |
-| `sample_filter` | in | `const cuvs::neighbors::filtering::base_filter*` | filtering function, if any, must be the same for all requests in a batch (the pointer must be alive for the lifetime of the dynamic batching index)<br />Default: `nullptr`. |
+| `sample_filter` | in | `const cuvs::neighbors::filtering::base_filter*` | filtering function, if any, must be the same for all requests in a batch (the pointer must be alive for the lifetime of the dynamic batching index) Roaring filters are not supported because batching changes the query-row mapping.<br />Default: `nullptr`. |
 
 **Returns**
 

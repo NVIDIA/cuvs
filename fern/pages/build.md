@@ -41,6 +41,118 @@ conda activate cuvs
 
 You may prefer `mamba` over `conda` for faster environment solves. The `conda/environments` directory also contains language-specific environment YAML files for narrower development environments. Conda is not required, but if you do not use it, install all required build dependencies explicitly before running `build.sh`.
 
+## Build the Standalone C Library with Docker
+
+<Note>
+The standalone tarball is built with Docker so that it uses the supported toolchain versions and the build remains portable and reproducible across all supported installation platforms.
+</Note>
+
+Use the standalone Docker build when you want a `libcuvs_c.tar.gz` archive that you can unpack and use to build your own C or C++ binaries for deployment or integration.
+
+### Prerequisites
+
+- Docker with support for the target platform: x86_64 or aarch64.
+- At least 16 GB of memory and 20 GB of free disk space available to Docker.
+- NVIDIA Container Toolkit and a GPU if you want to run GPU-dependent steps. The image is based on CUDA and may require GPU support at runtime.
+
+### Use the Helper Script
+
+From the repository root, run:
+
+```bash
+# (optional) clean old build directories
+rm -rf ./{build,c/build/,cpp/build}
+
+# build
+./build.sh tarball
+```
+
+The script builds the Docker image, runs the build in a container, writes the tarball to `./build/libcuvs_c.tar.gz`, and copies it to `./libcuvs_c.tar.gz` for CI artifact upload and convenience.
+
+The helper accepts the following environment variables:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `CUVS_TARBALL_CUDA_VERSION` | `13.3.0` | CUDA version for the `rapidsai/ci-wheel` base image. |
+| `CUVS_TARBALL_PYTHON_VERSION` | `3.14` | Python version for the `rapidsai/ci-wheel` base image. |
+| `CUVS_TARBALL_BUILD_OUTPUT_DIR` | `./build` | Host directory where the tarball is written. |
+
+CUDA and Python versions should match an existing `rapidsai/ci-wheel` tag.
+See https://hub.docker.com/r/rapidsai/ci-wheel/tags
+
+For example:
+
+```bash
+CUVS_TARBALL_CUDA_VERSION=13.3.0 \
+CUVS_TARBALL_PYTHON_VERSION=3.14 \
+  ./build.sh tarball
+```
+
+To write the tarball to another directory, set `CUVS_TARBALL_BUILD_OUTPUT_DIR`:
+
+```console
+$ CUVS_TARBALL_BUILD_OUTPUT_DIR="${PWD}/dist" ./build.sh tarball
+$ find . -name 'libcuvs_c.tar.gz'
+./dist/libcuvs_c.tar.gz
+./libcuvs_c.tar.gz
+```
+
+To build and install the C library tests in the archive, pass `--tarball-build-tests`:
+
+```bash
+./build.sh tarball --tarball-build-tests
+```
+
+### Tarball Contents
+
+The archive contains the headers, libraries, CMake configuration, and license information needed to compile and link C or C++ applications against the standalone NVIDIA cuVS libraries.
+
+### Build and Run the Docker Image Manually
+
+If you do not want to use the helper script, build the image directly from the repository root:
+
+```bash
+docker build \
+  -f Dockerfile.standalone \
+  --build-arg CUDA_VERSION="13.3.0" \
+  --build-arg PYTHON_VERSION="3.14" \
+  --build-arg RAPIDS_VERSION="$(head -1 ./VERSION | cut -d. -f1,2 )" \
+  -t cuvs-standalone-c:local \
+  .
+```
+
+This command builds a local image and tags it as `cuvs-standalone-c:local`.
+
+Run the build in a container using that image and mount the repository plus an output directory:
+
+```bash
+mkdir -p build
+docker run --rm \
+  -v "${PWD}:/workspace" \
+  -v "${PWD}/build:/build" \
+  cuvs-standalone-c:local
+```
+
+Mount another host directory at `/build` to change the output location:
+
+```bash
+mkdir -p "${PWD}/dist"
+docker run --rm \
+  -v "${PWD}:/workspace" \
+  -v "${PWD}/dist:/build" \
+  cuvs-standalone-c:local
+```
+
+Pass `--tarball-build-tests` to include the C library tests:
+
+```bash
+mkdir -p build
+docker run --rm \
+  -v "${PWD}:/workspace" \
+  -v "${PWD}/build:/build" \
+  cuvs-standalone-c:local --tarball-build-tests
+```
+
 ## Documentation Preview
 
 The NVIDIA cuVS documentation is a Fern project in the repository's `fern` directory. Fern requires Node.js 22 or newer. If the docs fail with an error such as `SyntaxError: Unexpected token '.'`, check `node --version` and activate a newer Node.js runtime.
