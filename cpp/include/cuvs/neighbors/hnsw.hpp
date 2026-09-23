@@ -1451,6 +1451,76 @@ void deserialize(raft::resources const& res,
  * @}
  */
 
+/**
+ * @defgroup hnsw_cpp_index_materialize Materialize a layered HNSW artifact into an hnswlib index
+ * @{
+ */
+
+/**
+ * @brief Parameters for materializing a layered HNSW artifact into an hnswlib index on disk.
+ */
+struct materialize_params {
+  /** Local dataset path holding the original-ID-ordered vectors used to build the artifact.
+   *
+   * Supported formats match layered deserialization: `.npy` and ANN benchmark `*.bin` files with a
+   * `[uint32 rows, uint32 cols]` header (`.fbin`, `.f16bin`, `.u8bin`, `.i8bin`).
+   */
+  std::string dataset_path;
+
+  /** Upper bound on host memory (in GiB) used for the base-topology reorder buffer.
+   *
+   * When `<= 0`, the whole base topology is reordered in a single in-memory pass (no temporary
+   * files). When set, the base topology is reordered through bucketed temporary files so that
+   * peak host memory stays close to this budget, at the cost of writing and re-reading the
+   * (small) base-topology section once.
+   */
+  double max_host_memory_gb = 0;
+
+  /** Number of host threads to use. When `0`, the maximum number of threads is used. */
+  int num_threads = 0;
+};
+
+/**
+ * @brief Materialize a layered HNSW artifact into a standard hnswlib index file on disk.
+ *
+ * Materializes a `GRAPH_ONLY` artifact (graph topology only, stored in ACE order) plus a
+ * local dataset into a standard hnswlib index file, without ever holding the full materialized
+ * index in host memory. The materialization reorders the base topology from ACE order to
+ * original-id order and interleaves the vectors, emitting the output with sequential disk IO. The
+ * resulting file is compatible with the original hnswlib library (`loadIndex`) and can be read back
+ * through `cuvs::neighbors::hnsw::deserialize` with `hierarchy == HnswHierarchy::CPU`.
+ *
+ * The element data type (`float`, `half`, `uint8_t` or `int8_t`) is inferred from the external
+ * dataset, so materialization supports an original dataset dtype that differs from the graph's
+ * construction dtype.
+ *
+ * @param[in] res raft resources
+ * @param[in] params materialization parameters (dataset path, host-memory budget, threads)
+ * @param[in] layered_artifact_path path to the layered HNSW artifact
+ * @param[in] output_path path to the hnswlib index file to write
+ * @param[in] dim dimensions of the training dataset
+ * @param[in] metric distance metric. Supported metrics ("L2Expanded", "InnerProduct")
+ *
+ * Usage example:
+ * @code{.cpp}
+ *   using namespace cuvs::neighbors;
+ *   hnsw::materialize_params materialize_params;
+ *   materialize_params.dataset_path = "dataset.fbin";
+ *   hnsw::materialize_to_hnswlib(
+ *     res, materialize_params, "layered_artifact.cuvs", "index.bin", dim, metric);
+ * @endcode
+ */
+void materialize_to_hnswlib(raft::resources const& res,
+                            const materialize_params& params,
+                            const std::string& layered_artifact_path,
+                            const std::string& output_path,
+                            int dim,
+                            cuvs::distance::DistanceType metric);
+
+/**
+ * @}
+ */
+
 }  // namespace hnsw
 }  // namespace neighbors
 }  // namespace CUVS_EXPORT cuvs

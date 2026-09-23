@@ -192,6 +192,55 @@ def __init__(self, *, num_threads=0)
 def num_threads(self)
 ```
 
+## MaterializeParams
+
+```python
+cdef class MaterializeParams
+```
+
+Parameters for materializing a layered HNSW artifact into an hnswlib
+index on disk.
+
+**Parameters**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `dataset_path` | `string, default = None (optional)` | Local dataset path holding the original-ID-ordered vectors used to build the artifact. Supported formats match layered deserialization: `.npy` and ANN benchmark `*.bin` files with a `[uint32 rows, uint32 cols]` header (`.fbin`, `.f16bin`, `.u8bin`, `.i8bin`). |
+| `max_host_memory_gb` | `float, default = 0 (optional)` | Upper bound on host memory (in GiB) used for the base-topology reorder buffer. When &lt;= 0, the whole base topology is reordered in a single in-memory pass (no temporary files). When set, the base topology is reordered through bucketed temporary files so that peak host memory stays close to this budget. |
+| `num_threads` | `int, default = 0 (optional)` | Number of host threads to use. When 0, the maximum number of threads is used. |
+
+**Constructor**
+
+```python
+def __init__(self, *, dataset_path=None, max_host_memory_gb=0, num_threads=0)
+```
+
+**Members**
+
+| Name | Kind |
+| --- | --- |
+| `dataset_path` | property |
+| `max_host_memory_gb` | property |
+| `num_threads` | property |
+
+### dataset_path
+
+```python
+def dataset_path(self)
+```
+
+### max_host_memory_gb
+
+```python
+def max_host_memory_gb(self)
+```
+
+### num_threads
+
+```python
+def num_threads(self)
+```
+
 ## build
 
 `@auto_sync_resources`
@@ -383,6 +432,64 @@ version of cuVS is not guaranteed to work.
 >>> hnsw.save("my_index.bin", index)
 >>> index = hnsw.load("my_index.bin", n_features, np.float32,
 ...                   "sqeuclidean")
+```
+
+## materialize_to_hnswlib
+
+`@auto_sync_resources`
+
+```python
+def materialize_to_hnswlib(MaterializeParams materialize_params, layered_artifact_path, output_path, dim, metric="sqeuclidean", resources=None)
+```
+
+Materialize a layered HNSW artifact into a standard hnswlib index file
+on disk.
+
+Materializes a `GRAPH_ONLY` artifact (graph topology only, stored
+in ACE order) plus a local dataset into a standard hnswlib index file,
+without ever holding the full materialized index in host memory. The
+resulting file is compatible with the original hnswlib library and can be
+read back through `load()` with `hierarchy="cpu"`. The element data type
+(float32, float16, uint8, int8) is inferred from the external dataset.
+GRAPH_ONLY artifacts are currently produced through the C++ API.
+
+**Parameters**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `materialize_params` | `MaterializeParams` | Materialization parameters. `dataset_path` must point to the original-ID-ordered vectors used to build the artifact. |
+| `layered_artifact_path` | `string` | Path to the layered HNSW artifact. |
+| `output_path` | `string` | Path to the hnswlib index file to write. |
+| `dim` | `int` | Dimensions of the training dataset. |
+| `metric` | `string denoting the metric type, default="sqeuclidean"` | Valid values for metric: ["sqeuclidean", "inner_product"], where<br />- sqeuclidean is the euclidean distance without the square root operation, i.e.: distance(a,b) = \\sum_i (a_i - b_i)^2,<br />- inner_product distance is defined as distance(a, b) = \\sum_i a_i * b_i. |
+| `resources` | `cuvs.common.Resources, optional` |  |
+
+**Examples**
+
+```python
+>>> import numpy as np
+>>> from cuvs.neighbors import hnsw
+>>> n_features = 50
+>>> # Assume a layered artifact was produced by an ACE GPU build and the
+>>> # original-ID-ordered vectors are stored in "dataset.fbin".
+>>> materialize_params = hnsw.MaterializeParams(
+...     dataset_path="dataset.fbin"
+... )
+>>> hnsw.materialize_to_hnswlib(
+...     materialize_params,
+...     "layered_artifact.cuvs",
+...     "index.bin",
+...     n_features,
+...     metric="sqeuclidean",
+... )
+>>> # The materialized index can be loaded as a standard hnswlib index.
+>>> index = hnsw.load(
+...     hnsw.IndexParams(hierarchy="cpu"),
+...     "index.bin",
+...     n_features,
+...     np.float32,
+...     "sqeuclidean",
+... )
 ```
 
 ## save

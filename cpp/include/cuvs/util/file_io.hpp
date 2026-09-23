@@ -444,6 +444,19 @@ void write_large_file(const file_descriptor& fd,
                       const uint64_t file_offset);
 
 /**
+ * @brief Pre-size a file to `total_bytes` bytes.
+ *
+ * Prefers posix_fallocate (reserves blocks up-front, avoids later ENOSPC and fragmentation), but
+ * falls back to ftruncate on filesystems that do not support preallocation (tmpfs and some
+ * NFS/overlay mounts return EOPNOTSUPP/EINVAL/ENOSYS) so the operation still succeeds there. A
+ * `total_bytes` of 0 is a no-op. Throws on failure (uses the descriptor's path in the message).
+ *
+ * @param fd File descriptor to pre-size
+ * @param total_bytes Target file size in bytes
+ */
+void preallocate_file(const file_descriptor& fd, const size_t total_bytes);
+
+/**
  * @brief Sequential std::ostream backed by kvikio.
  *
  * Ordinary stream output is staged into a large host buffer and written to disk through kvikio,

@@ -303,6 +303,19 @@ final class JDKProvider implements CuVSProvider {
   }
 
   @Override
+  public void hnswMaterializeToHnswlib(
+      CuVSResources resources,
+      HnswMaterializeParams materializeParams,
+      String layeredArtifactPath,
+      String outputPath,
+      int dim,
+      HnswIndexParams.CuvsDistanceType metric)
+      throws Throwable {
+    HnswIndexImpl.materializeToHnswlib(
+        resources, materializeParams, layeredArtifactPath, outputPath, dim, metric);
+  }
+
+  @Override
   public TieredIndex.Builder newTieredIndexBuilder(CuVSResources cuVSResources) {
     return TieredIndexImpl.newBuilder(Objects.requireNonNull(cuVSResources));
   }
