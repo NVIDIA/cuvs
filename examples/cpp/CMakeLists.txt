@@ -45,6 +45,7 @@ add_executable(CAGRA_ROARING_BITMAP_FILTER_EXAMPLE src/cagra_roaring_bitmap_filt
 add_executable(CAGRA_HNSW_ACE_BUILD_EXAMPLE src/cagra_hnsw_ace_build.cu)
 add_executable(CAGRA_HNSW_ACE_EXAMPLE src/cagra_hnsw_ace_example.cu)
 add_executable(CAGRA_PERSISTENT_EXAMPLE src/cagra_persistent_example.cu)
+add_executable(DATASET_EXAMPLE src/dataset_example.cu)
 add_executable(DYNAMIC_BATCHING_EXAMPLE src/dynamic_batching_example.cu)
 add_executable(HNSW_ACE_EXAMPLE src/hnsw_ace_example.cu)
 add_executable(HNSW_ACE_LAYERED_EXAMPLE src/hnsw_ace_layered_example.cu)
@@ -78,6 +79,7 @@ target_link_libraries(
 target_link_libraries(
   DYNAMIC_BATCHING_EXAMPLE PRIVATE cuvs::cuvs $<TARGET_NAME_IF_EXISTS:conda_env> Threads::Threads
 )
+target_link_libraries(DATASET_EXAMPLE PRIVATE cuvs::cuvs $<TARGET_NAME_IF_EXISTS:conda_env>)
 target_link_libraries(HNSW_ACE_EXAMPLE PRIVATE cuvs::cuvs $<TARGET_NAME_IF_EXISTS:conda_env>)
 target_link_libraries(
   HNSW_ACE_LAYERED_EXAMPLE PRIVATE cuvs::cuvs $<TARGET_NAME_IF_EXISTS:conda_env>
