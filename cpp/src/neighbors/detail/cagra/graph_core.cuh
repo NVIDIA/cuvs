@@ -54,26 +54,51 @@ inline double cur_time(void)
   return ((double)tv.tv_sec + (double)tv.tv_usec * 1e-6);
 }
 
+// When index_conversion_table is provided, it maps an output-graph row to the node ID stored in
+// the reverse graph. sorted_destination_nodes/local_indices optionally maps global destination
+// IDs into compact reverse-graph rows; omitting both preserves the standard dense-ID path.
 template <typename IdxT, typename OutputMatrixView>
 __global__ void kern_make_rev_graph_k(
   OutputMatrixView output_graph,                                // [graph_size, degree]
   raft::device_matrix_view<IdxT, int64_t> rev_graph,            // [graph_size, degree]
   raft::device_vector_view<uint32_t, int64_t> rev_graph_count,  // [graph_size]
-  uint64_t k)
+  uint64_t k,
+  IdxT const* index_conversion_table               = nullptr,
+  IdxT const* sorted_destination_nodes             = nullptr,
+  uint32_t const* sorted_destination_local_indices = nullptr)
 {
   const uint64_t tid  = threadIdx.x + (blockDim.x * blockIdx.x);
   const uint64_t tnum = blockDim.x * gridDim.x;
 
-  const uint64_t graph_size          = rev_graph.extent(0);
-  const uint32_t rev_graph_degree    = rev_graph.extent(1);
-  const uint32_t output_graph_degree = output_graph.extent(1);
+  const uint64_t graph_size       = rev_graph.extent(0);
+  const uint32_t rev_graph_degree = rev_graph.extent(1);
 
-  for (uint64_t src_id = tid; src_id < graph_size; src_id += tnum) {
-    IdxT dest_id = output_graph(src_id, k);
-    if (dest_id >= graph_size) continue;
+  const uint64_t num_sources = output_graph.extent(0);
+  for (uint64_t src_id = tid; src_id < num_sources; src_id += tnum) {
+    const auto dest_id = output_graph(src_id, k);
+    auto local_dest_id = dest_id;
+    if (sorted_destination_nodes != nullptr) {
+      uint64_t lower = 0;
+      uint64_t upper = graph_size;
+      while (lower < upper) {
+        const auto middle = lower + (upper - lower) / 2;
+        if (sorted_destination_nodes[middle] < dest_id) {
+          lower = middle + 1;
+        } else {
+          upper = middle;
+        }
+      }
+      if (lower == graph_size || sorted_destination_nodes[lower] != dest_id) { continue; }
+      local_dest_id = sorted_destination_local_indices[lower];
+    }
+    if (local_dest_id >= graph_size) continue;
 
-    const uint32_t pos = atomicAdd(&rev_graph_count(dest_id), 1);
-    if (pos < rev_graph_degree) { rev_graph(dest_id, pos) = static_cast<IdxT>(src_id); }
+    const uint32_t pos = atomicAdd(&rev_graph_count(local_dest_id), 1);
+    if (pos < rev_graph_degree) {
+      rev_graph(local_dest_id, pos) = index_conversion_table == nullptr
+                                        ? static_cast<IdxT>(src_id)
+                                        : index_conversion_table[src_id];
+    }
   }
 }
 

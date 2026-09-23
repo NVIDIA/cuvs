@@ -8,6 +8,7 @@
 #include <cuvs/core/bitset.hpp>
 #include <cuvs/core/export.hpp>
 #include <cuvs/distance/distance.hpp>
+#include <cuvs/neighbors/brute_force.hpp>
 #include <cuvs/neighbors/common.hpp>
 #include <cuvs/neighbors/ivf_pq.hpp>
 #include <cuvs/neighbors/nn_descent.hpp>
@@ -171,6 +172,12 @@ struct iterative_search_params : cuvs::neighbors::cagra::search_params {
 
 /** Specialized parameters for ACE (Augmented Core Extraction) graph build */
 struct ace_params {
+  /** Algorithm used to build each ACE partial kNN graph. */
+  enum class knn_graph_build_algo : uint32_t {
+    IVF_PQ,
+    BRUTE_FORCE,
+  };
+
   /**
    * Number of partitions for ACE (Augmented Core Extraction) partitioned build.
    *
@@ -192,8 +199,8 @@ struct ace_params {
   /**
    * The index quality for the ACE build.
    *
-   * Bigger values increase the index quality. At some point, increasing this will no longer improve
-   * the quality.
+   * Bigger values increase the index quality. At some point, increasing this will no longer
+   * improve the quality.
    */
   size_t ef_construction = 120;
   /**
@@ -205,6 +212,9 @@ struct ace_params {
    * already exist, but ACE's named artifacts must not already exist. Simultaneous
    * builds must use different directories. On failure, ACE removes only artifacts
    * it created and never deletes unrelated directory contents.
+   * With `add_global_reverse_edges`, temporary incoming-edge records also require up to
+   * `dataset_size * graph_degree * (2 * sizeof(IdxT) + sizeof(uint32_t))` bytes, plus any
+   * record alignment padding. These records are removed after the merge.
    */
   std::string build_dir = "/tmp/ace_build";
   /**
@@ -213,6 +223,30 @@ struct ace_params {
    * When true, enables disk-based operations for memory-efficient graph construction.
    */
   bool use_disk = false;
+
+  /**
+   * Build pruned core-plus-argument partial graphs, then add reverse edges globally.
+   *
+   * Each partition first builds an intermediate kNN graph and prunes it without a local
+   * reverse-edge merge. Then build the reverse-edge graph globally and merge it into the pruned
+   * graph. In disk mode (explicit or automatic), cross-partition incoming edges are buffered
+   * to temporary files while building each pruned partition, then merged on the CPU one
+   * destination partition at a time, retaining at most `graph_degree` incoming candidates
+   * per node in memory.
+   * The merge preserves edge-rank priority; ties use reordered source ID in disk mode
+   * and are GPU-scheduling-dependent in memory mode. Disabled by default.
+   */
+  bool add_global_reverse_edges = false;
+
+  /**
+   * Algorithm used to construct each intermediate partition kNN graph.
+   *
+   * Applies to both the original ACE partial CAGRA build with local reverse edges and the global
+   * reverse-edge mode. IVF_PQ is the default approximate builder. BRUTE_FORCE computes exact
+   * neighbors for float and half datasets and is intended for smaller partitions or quality
+   * evaluation.
+   */
+  knn_graph_build_algo partial_graph_knn_build_algo = knn_graph_build_algo::IVF_PQ;
 
   /**
    * Maximum host memory to use for ACE build in GiB.
@@ -254,7 +288,8 @@ using graph_build_params_t = std::variant<std::monostate,
                                           graph_build_params::ivf_pq_params,
                                           graph_build_params::nn_descent_params,
                                           graph_build_params::ace_params,
-                                          graph_build_params::iterative_search_params>;
+                                          graph_build_params::iterative_search_params,
+                                          graph_build_params::brute_force_params>;
 
 /**
  * @brief A strategy for selecting the graph build parameters based on similar HNSW index
@@ -317,6 +352,9 @@ struct index_params : cuvs::neighbors::index_params {
    * // 4. Choose iterative graph building using CAGRA's search() and optimize()  [Experimental]
    * params.graph_build_params =
    * cagra::graph_build_params::iterative_search_params();
+   *
+   * // 5. Choose exact brute-force kNN construction (float and half datasets)
+   * params.graph_build_params = cagra::graph_build_params::brute_force_params{};
    * @endcode
    */
   graph_build_params_t graph_build_params;
@@ -330,8 +368,8 @@ struct index_params : cuvs::neighbors::index_params {
    *
    *  - `true` (default) means `build` attaches the input dataset as a **non-owning view** to the
    * index. The caller is responsible for keeping the underlying dataset storage alive for as long
-   * as the index is used. A device-backed index is ready to search immediately; a host-backed index
-   * retains the dataset for operations such as serialization but is not searchable.
+   * as the index is used. A device-backed index is ready to search immediately; a host-backed
+   * index retains the dataset for operations such as serialization but is not searchable.
    *  - `false` means `build` only builds the graph and the caller is expected to attach a dataset
    * separately via `cuvs::neighbors::cagra::update_dataset` before searching.
    *
@@ -417,10 +455,11 @@ struct index_params : cuvs::neighbors::index_params {
    *
    * * IMPORTANT NOTE *
    *
-   * The reference HNSW index and the corresponding from-CAGRA generated HNSW index will NOT produce
-   * exactly the same recalls and QPS for the same parameter `ef`. The graphs are different
+   * The reference HNSW index and the corresponding from-CAGRA generated HNSW index will NOT
+   * produce exactly the same recalls and QPS for the same parameter `ef`. The graphs are different
    * internally. Depending on the selected heuristics, the CAGRA-produced graph's QPS-Recall curve
-   * may be shifted along the curve right or left. See the heuristics descriptions for more details.
+   * may be shifted along the curve right or left. See the heuristics descriptions for more
+   * details.
    *
    * Usage example:
    * @code{.cpp}
@@ -453,8 +492,8 @@ struct extend_params {
   /** The additional dataset is divided into chunks and added to the graph. This is the knob to
    * adjust the tradeoff between the recall and operation throughput. Large chunk sizes can result
    * in high throughput, but use more working memory (O(max_chunk_size*degree^2)). This can also
-   * degrade recall because no edges are added between the nodes in the same chunk. Auto select when
-   * 0. */
+   * degrade recall because no edges are added between the nodes in the same chunk. Auto select
+   * when 0. */
   uint32_t max_chunk_size = 0;
 };
 /**
@@ -724,7 +763,8 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
   }
 
   /**
-   * Replace the source indices with a new source indices taking the ownership of the passed vector.
+   * Replace the source indices with a new source indices taking the ownership of the passed
+   * vector.
    */
   void update_source_indices(raft::device_vector<index_type, int64_t>&& source_indices)
   {
@@ -4599,6 +4639,54 @@ template <typename T, typename IdxT>
 void distribute(const raft::resources& clique,
                 const std::string& filename,
                 cuvs::neighbors::mg_index<cagra::device_padded_index<T, IdxT>, T, IdxT>* index);
+
+/**
+ * @brief Build an exact, distance-ordered kNN graph, excluding self neighbors.
+ * @param res RAFT resources.
+ * @param dataset Row-major host dataset of float or half values.
+ * @param knn_graph Host output with matching rows and degree in [1, n_rows - 1].
+ * @param build_params Brute-force index and search parameters.
+ */
+void build_knn_graph(raft::resources const& res,
+                     raft::host_matrix_view<const float, int64_t, raft::row_major> dataset,
+                     raft::host_matrix_view<uint32_t, int64_t, raft::row_major> knn_graph,
+                     graph_build_params::brute_force_params build_params);
+
+/**
+ * @brief Build an exact, distance-ordered kNN graph, excluding self neighbors.
+ * @param res RAFT resources.
+ * @param dataset Row-major device dataset of float or half values.
+ * @param knn_graph Host output with matching rows and degree in [1, n_rows - 1].
+ * @param build_params Brute-force index and search parameters.
+ */
+void build_knn_graph(raft::resources const& res,
+                     raft::device_matrix_view<const float, int64_t, raft::row_major> dataset,
+                     raft::host_matrix_view<uint32_t, int64_t, raft::row_major> knn_graph,
+                     graph_build_params::brute_force_params build_params);
+
+/**
+ * @brief Build an exact, distance-ordered kNN graph, excluding self neighbors.
+ * @param res RAFT resources.
+ * @param dataset Row-major host dataset of float or half values.
+ * @param knn_graph Host output with matching rows and degree in [1, n_rows - 1].
+ * @param build_params Brute-force index and search parameters.
+ */
+void build_knn_graph(raft::resources const& res,
+                     raft::host_matrix_view<const half, int64_t, raft::row_major> dataset,
+                     raft::host_matrix_view<uint32_t, int64_t, raft::row_major> knn_graph,
+                     graph_build_params::brute_force_params build_params);
+
+/**
+ * @brief Build an exact, distance-ordered kNN graph, excluding self neighbors.
+ * @param res RAFT resources.
+ * @param dataset Row-major device dataset of float or half values.
+ * @param knn_graph Host output with matching rows and degree in [1, n_rows - 1].
+ * @param build_params Brute-force index and search parameters.
+ */
+void build_knn_graph(raft::resources const& res,
+                     raft::device_matrix_view<const half, int64_t, raft::row_major> dataset,
+                     raft::host_matrix_view<uint32_t, int64_t, raft::row_major> knn_graph,
+                     graph_build_params::brute_force_params build_params);
 
 /**
  * @brief Build a kNN graph using IVF-PQ.

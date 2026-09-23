@@ -76,7 +76,8 @@ using graph_build_params_t = std::variant<std::monostate,
 graph_build_params::ivf_pq_params,
 graph_build_params::nn_descent_params,
 graph_build_params::ace_params,
-graph_build_params::iterative_search_params>;
+graph_build_params::iterative_search_params,
+graph_build_params::brute_force_params>;
 ```
 
 <a id="neighbors-cagra-hnsw-heuristic-type"></a>
@@ -206,6 +207,8 @@ struct ace_params {
   size_t ef_construction;
   std::string build_dir;
   bool use_disk;
+  bool add_global_reverse_edges;
+  knn_graph_build_algo partial_graph_knn_build_algo;
   double max_host_memory_gb;
   double max_gpu_memory_gb;
 };
@@ -217,10 +220,31 @@ struct ace_params {
 | --- | --- | --- |
 | `npartitions` | `size_t` | Number of partitions for ACE (Augmented Core Extraction) partitioned build.<br /><br />When set to 0 (default), the number of partitions is automatically derived based on available host and GPU memory to maximize partition size while ensuring the build fits in memory.<br /><br />Small values might improve recall but potentially degrade performance and increase memory usage. Partitions should not be too small to prevent issues in KNN graph construction. The partition size is on average 2 * (n_rows / npartitions) * dim * sizeof(T). 2 is because of the core and augmented vectors. Please account for imbalance in the partition sizes (up to 3x in our tests).<br /><br />If the specified number of partitions results in partitions that exceed available memory, the value will be automatically increased to fit memory constraints and a warning will be issued. |
 | `ef_construction` | `size_t` | The index quality for the ACE build.<br /><br />Bigger values increase the index quality. At some point, increasing this will no longer improve the quality. |
-| `build_dir` | `std::string` | Directory to store ACE build artifacts (e.g., KNN graph, optimized graph).<br /><br />Used when `use_disk` is true or when the graph does not fit in host and GPU memory. This should be the fastest disk in the system and hold enough space for twice the dataset, final graph, and label mapping. The directory may already exist, but ACE's named artifacts must not already exist. Simultaneous builds must use different directories. On failure, ACE removes only artifacts it created and never deletes unrelated directory contents. |
+| `build_dir` | `std::string` | Directory to store ACE build artifacts (e.g., KNN graph, optimized graph).<br /><br />Used when `use_disk` is true or when the graph does not fit in host and GPU memory. This should be the fastest disk in the system and hold enough space for twice the dataset, final graph, and label mapping. The directory may already exist, but ACE's named artifacts must not already exist. Simultaneous builds must use different directories. On failure, ACE removes only artifacts it created and never deletes unrelated directory contents. With `add_global_reverse_edges`, temporary incoming-edge records also require up to `dataset_size * graph_degree * (2 * sizeof(IdxT) + sizeof(uint32_t))` bytes, plus any record alignment padding. These records are removed after the merge. |
 | `use_disk` | `bool` | Whether to use disk-based storage for ACE build.<br /><br />When true, enables disk-based operations for memory-efficient graph construction. |
+| `add_global_reverse_edges` | `bool` | Build pruned core-plus-argument partial graphs, then add reverse edges globally.<br /><br />Each partition first builds an intermediate kNN graph and prunes it without a local reverse-edge merge. Then build the reverse-edge graph globally and merge it into the pruned graph. In disk mode (explicit or automatic), cross-partition incoming edges are buffered to temporary files while building each pruned partition, then merged on the CPU one destination partition at a time, retaining at most `graph_degree` incoming candidates per node in memory. The merge preserves edge-rank priority; ties use reordered source ID in disk mode and are GPU-scheduling-dependent in memory mode. Disabled by default. |
+| `partial_graph_knn_build_algo` | [`knn_graph_build_algo`](/api-reference/cpp-api-neighbors-cagra#neighbors-graph-build-params-ace-params-knn-graph-build-algo) | Algorithm used to construct each intermediate partition kNN graph.<br /><br />Applies to both the original ACE partial CAGRA build with local reverse edges and the global reverse-edge mode. IVF_PQ is the default approximate builder. BRUTE_FORCE computes exact neighbors for float and half datasets and is intended for smaller partitions or quality evaluation. |
 | `max_host_memory_gb` | `double` | Maximum host memory to use for ACE build in GiB.<br /><br />When set to 0 (default), uses available host memory. When set to a positive value, limits host memory usage to the specified amount. Useful for testing or when running alongside other memory-intensive processes. |
 | `max_gpu_memory_gb` | `double` | Maximum GPU memory to use for ACE build in GiB.<br /><br />When set to 0 (default), uses available GPU memory. When set to a positive value, limits GPU memory usage to the specified amount. Useful for testing or when running alongside other memory-intensive processes. |
+
+<a id="neighbors-graph-build-params-ace-params-knn-graph-build-algo"></a>
+### neighbors::graph_build_params::ace_params::knn_graph_build_algo
+
+Algorithm used to build each ACE partial kNN graph.
+
+```cpp
+enum class knn_graph_build_algo : uint32_t {
+  IVF_PQ,
+  BRUTE_FORCE
+};
+```
+
+**Values**
+
+| Name | Value |
+| --- | --- |
+| `IVF_PQ` | `` |
+| `BRUTE_FORCE` | `` |
 
 ## CAGRA index extend parameters
 
@@ -562,11 +586,13 @@ We create a copy of the graph on the device. The index manages the lifetime of t
 <a id="neighbors-cagra-index-update-source-indices"></a>
 ### neighbors::cagra::index::update_source_indices
 
-Replace the source indices with a new source indices taking the ownership of the passed vector.
+Replace the source indices with a new source indices taking the ownership of the passed
 
 ```cpp
 void update_source_indices(raft::device_vector<index_type, int64_t>&& source_indices);
 ```
+
+vector.
 
 **Parameters**
 
