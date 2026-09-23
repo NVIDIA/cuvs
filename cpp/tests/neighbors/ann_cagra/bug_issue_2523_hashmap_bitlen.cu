@@ -84,13 +84,17 @@ class cagra_hashmap_bitlen_no_hang_test : public ::testing::Test {
     raft::resource::sync_stream(res);
   }
 
-  void search_with(cagra::search_algo algo, size_t itopk_size, uint32_t max_iterations)
+  void search_with(cagra::search_algo algo,
+                   size_t itopk_size,
+                   uint32_t max_iterations,
+                   cagra::hash_mode hashmap_mode = cagra::hash_mode::AUTO)
   {
     cagra::search_params search_params;
     search_params.algo           = algo;
     search_params.itopk_size     = itopk_size;
     search_params.search_width   = 8;
     search_params.max_iterations = max_iterations;
+    search_params.hashmap_mode   = hashmap_mode;
 
     cagra::search(res,
                   search_params,
@@ -130,6 +134,17 @@ TEST_F(cagra_hashmap_bitlen_no_hang_test, ValidItopkStillSucceeds)
   EXPECT_NO_THROW(search_with(cagra::search_algo::MULTI_CTA, valid_itopk, 0));
   EXPECT_NO_THROW(search_with(cagra::search_algo::MULTI_KERNEL, valid_itopk, 0));
   EXPECT_NO_THROW(search_with(cagra::search_algo::SINGLE_CTA, valid_itopk, 0));
+}
+
+TEST_F(cagra_hashmap_bitlen_no_hang_test, MultiKernelSmallHashBoundaryAndFallback)
+{
+  // With search_width=8, graph_degree=32 and fill rate=0.5, 3840 + 8*32 reaches
+  // the 4096-node capacity of the 8192-entry small table. The next aligned itopk needs fallback.
+  EXPECT_NO_THROW(search_with(cagra::search_algo::MULTI_KERNEL, 3840, 32, cagra::hash_mode::SMALL));
+  EXPECT_NO_THROW(search_with(cagra::search_algo::MULTI_KERNEL, 3840, 32, cagra::hash_mode::AUTO));
+  EXPECT_NO_THROW(search_with(cagra::search_algo::MULTI_KERNEL, 3872, 32, cagra::hash_mode::AUTO));
+  EXPECT_THROW(search_with(cagra::search_algo::MULTI_KERNEL, 3872, 32, cagra::hash_mode::SMALL),
+               raft::exception);
 }
 
 }  // namespace cuvs::neighbors::cagra
