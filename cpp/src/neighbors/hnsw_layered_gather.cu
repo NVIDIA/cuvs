@@ -36,7 +36,7 @@ void gather_layered_hnsw_vectors(raft::resources const& res,
 {
   if (rows == 0) { return; }
   RAFT_EXPECTS(row_bytes > 0 && source_stride_bytes >= row_bytes, "Invalid vector row stride");
-  const auto stream = raft::resource::get_cuda_stream(res);
+  cudaStream_t stream = raft::resource::get_cuda_stream(res).get();
   const auto batch_rows =
     std::min(rows, std::max<size_t>(1, (64 * 1024 * 1024) / (row_bytes + sizeof(size_t))));
   rmm::device_uvector<size_t> row_ids(batch_rows, stream);
