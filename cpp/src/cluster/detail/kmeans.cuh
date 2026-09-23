@@ -711,8 +711,13 @@ void kmeans_fit(
       if constexpr (data_on_device) {
         run_kmeanspp(X);
       } else {
-        raft::matrix::sample_rows(handle, random_state, X, init_sample->view());
-        run_kmeanspp(raft::make_const_mdspan(init_sample->view()));
+        auto init_sample_view = init_sample->view();
+        if (init_sample_view.extent(0) == n_samples) {
+          raft::copy(handle, init_sample_view, X);
+        } else {
+          raft::matrix::sample_rows(handle, random_state, X, init_sample_view);
+        }
+        run_kmeanspp(raft::make_const_mdspan(init_sample_view));
       }
     } else {
       THROW("unknown initialization method to select initial centers");
