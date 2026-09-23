@@ -17,6 +17,7 @@ NOTE: When the value is `NONE`, the HNSW index is built as a base-layer-only ind
 
 ```c
 enum cuvsHnswHierarchy {
+  NONE = 0,
   CPU = 1,
   GPU = 2
 };
@@ -26,6 +27,7 @@ enum cuvsHnswHierarchy {
 
 | Name | Value |
 | --- | --- |
+| `NONE` | `0` |
 | `CPU` | `1` |
 | `GPU` | `2` |
 

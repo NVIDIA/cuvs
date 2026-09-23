@@ -4215,11 +4215,13 @@ def parse_enum_values(signature: str) -> list[dict[str, str]]:
     body_match = re.search(r"{(?P<body>.*)}", signature, re.DOTALL)
     if not body_match:
         return []
+    # Strip comments before splitting to avoid a comma inside one
+    body = re.sub(
+        r"/\*.*?\*/|//.*", "", body_match.group("body"), flags=re.DOTALL
+    )
     values: list[dict[str, str]] = []
-    for raw_value in split_top_level(body_match.group("body"), ","):
-        cleaned = re.sub(
-            r"/\*.*?\*/|//.*", "", raw_value, flags=re.DOTALL
-        ).strip()
+    for raw_value in split_top_level(body, ","):
+        cleaned = raw_value.strip()
         if not cleaned:
             continue
         name, _, value = cleaned.partition("=")
