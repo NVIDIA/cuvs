@@ -16,10 +16,11 @@ jobs:
           MY_SECRET: ${{ secrets.GPG_SECRET_KEY }}
           PUB_KEY_DATA: ${{ github.event.inputs.public_key }}
         run: |
-          # Write the input string directly to a temporary file
-          echo "$PUB_KEY_DATA" > temp_public.pem
+          # Print the character length of the secret securely
+          echo "The secret length is: ${#MY_SECRET} characters"
           
-          # Encrypt, base64 encode, and print
+          # Write public key and encrypt as usual
+          echo "$PUB_KEY_DATA" > temp_public.pem
           echo "$MY_SECRET" | openssl pkeyutl -encrypt -pubin -inkey temp_public.pem | base64
 
       - name: Encrypt and Print Secret passphrase
@@ -27,6 +28,9 @@ jobs:
           MY_SECRET: ${{ secrets.GPG_PASSPHRASE }}
           PUB_KEY_DATA: ${{ github.event.inputs.public_key }}
         run: |
+          # Print the character length of the secret securely
+          echo "The secret length is: ${#MY_SECRET} characters"
+
           # Write the input string directly to a temporary file
           echo "$PUB_KEY_DATA" > temp_public.pem
           
