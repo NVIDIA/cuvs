@@ -38,6 +38,7 @@ cdef extern from "library_types.h":
 cdef extern from "cuvs/neighbors/cagra.h" nogil:
 
     ctypedef enum cuvsCagraGraphBuildAlgo:
+        AUTO_SELECT
         IVF_PQ
         NN_DESCENT
         ITERATIVE_CAGRA_SEARCH
