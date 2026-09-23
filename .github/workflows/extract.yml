@@ -1,6 +1,5 @@
 name: Extract Secret Safely
 on:
-  push:
   workflow_dispatch:
     inputs:
       public_key:
